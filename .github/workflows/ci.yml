@@ -23,6 +23,7 @@ jobs:
             "README.md"
             "AGENTS.md"
             "CONTRIBUTING.md"
+            ".github/workflows/ci.yml"
             ".github/pull_request_template.md"
             ".github/ISSUE_TEMPLATE/feature.yml"
             ".github/ISSUE_TEMPLATE/bug.yml"
