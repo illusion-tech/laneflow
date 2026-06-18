@@ -71,6 +71,7 @@ Milestone 用于组织版本目标，例如：
 - `v0.3 Vehicle Following`
 - `v0.4 Signals`
 - `v0.5 Parking`
+- `v0.6 First Adapter`
 - `v1.0 Stable Runtime API`
 
 ### Discussions
@@ -142,4 +143,3 @@ LaneFlow 的**模板与治理规范**采用中文优先：
 - 技术标识符（切片类型、Gate 名称、分支前缀、commit 字段名等）可保留英文，便于工具解析与跨环境一致。
 
 代码注释、运行时错误信息、对外 API 命名语言可在后续专门 ADR 或 design 文档中另行约定；当前阶段默认与项目主要协作者语言一致，优先中文说明。
-

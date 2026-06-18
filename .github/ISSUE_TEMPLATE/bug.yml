@@ -21,7 +21,7 @@ body:
         - adapter
         - authoring-tool
         - example
-        - docs
+        - docs-only
         - governance
         - unknown
     validations:

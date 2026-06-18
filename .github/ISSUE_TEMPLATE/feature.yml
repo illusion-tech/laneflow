@@ -35,7 +35,7 @@ body:
         - adapter
         - authoring-tool
         - example
-        - docs
+        - docs-only
         - governance
         - cross-layer
     validations:
