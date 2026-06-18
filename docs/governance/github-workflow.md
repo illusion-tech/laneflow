@@ -136,11 +136,11 @@ gh pr merge <number> --rebase
 
 CI 的初始目标是保证基础质量，不追求一次到位。
 
-最小检查：
+当前最小检查：
 
-- Markdown 和 YAML 基本语法检查。
 - 仓库中关键文档文件存在。
-- 后续根据实际技术栈增加 build、test、lint、schema validation 和 example smoke test。
+- Markdown 文件非空。
+- 后续根据 CI 能力和实际技术栈增加 Markdown/YAML 语法检查、build、test、lint、schema validation 和 example smoke test。
 
 当 Core、data spec 或 Adapter 代码出现后，应逐步增加专用门禁。
 
@@ -158,4 +158,3 @@ CI 的初始目标是保证基础质量，不追求一次到位。
 - 示例项目状态
 
 Release 说明可以引用 `docs/roadmap.md` 和相关 ADR。
-
