@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  governance:
+    name: Governance checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check required governance files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            "README.md"
+            "AGENTS.md"
+            "CONTRIBUTING.md"
+            ".github/pull_request_template.md"
+            ".github/ISSUE_TEMPLATE/feature.yml"
+            ".github/ISSUE_TEMPLATE/bug.yml"
+            ".github/ISSUE_TEMPLATE/design.yml"
+            ".github/ISSUE_TEMPLATE/adapter.yml"
+            ".github/ISSUE_TEMPLATE/core.yml"
+            ".github/ISSUE_TEMPLATE/data-spec.yml"
+            ".github/ISSUE_TEMPLATE/docs.yml"
+            ".github/ISSUE_TEMPLATE/research.yml"
+            ".agents/README.md"
+            ".agents/skills/laneflow-governance/SKILL.md"
+            ".agents/skills/laneflow-development/SKILL.md"
+            ".agents/skills/laneflow-core-design/SKILL.md"
+            ".agents/skills/laneflow-adapter/SKILL.md"
+            ".cursor/skills/laneflow-governance/SKILL.md"
+            ".cursor/skills/laneflow-development/SKILL.md"
+            ".cursor/skills/laneflow-core-design/SKILL.md"
+            ".cursor/skills/laneflow-adapter/SKILL.md"
+            "docs/README.md"
+            "docs/architecture.md"
+            "docs/roadmap.md"
+            "docs/adr/README.md"
+            "docs/adr/0001-project-scope.md"
+            "docs/adr/0002-dependency-and-licensing-constraints.md"
+            "docs/design/README.md"
+            "docs/governance/documentation-policy.md"
+            "docs/governance/github-workflow.md"
+            "docs/governance/development-gates.md"
+            "docs/governance/agent-development-guide.md"
+            "docs/reference/README.md"
+            "docs/reference/commit-convention.md"
+            "docs/reference/validation-matrix.md"
+          )
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "Missing required file: $file"
+              exit 1
+            fi
+          done
+
+      - name: Check markdown files are not empty
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r file; do
+            if [[ ! -s "$file" ]]; then
+              echo "Markdown file is empty: $file"
+              exit 1
+            fi
+          done < <(find README.md AGENTS.md CONTRIBUTING.md docs .github .agents .cursor -name '*.md' -type f)
+

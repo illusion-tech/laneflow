@@ -1,0 +1,52 @@
+name: 适配器
+description: 请求或变更 Engine Adapter
+title: "[适配器]: "
+labels:
+  - adapter
+body:
+  - type: dropdown
+    id: engine
+    attributes:
+      label: 目标引擎
+      options:
+        - Unity
+        - Unreal
+        - Godot
+        - O3DE
+        - Web
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: 这个 Adapter 需要支持什么？
+    validations:
+      required: true
+  - type: textarea
+    id: core-boundary
+    attributes:
+      label: Core 边界
+      description: 是否涉及 Core API 或 Adapter API 变更？
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: 验证计划
+      description: 应如何测试或演示？
+      placeholder: |
+        - [ ] 构建 Adapter
+        - [ ] 运行示例场景
+        - [ ] 验证 transform 同步
+        - [ ] 验证调试可视化
+    validations:
+      required: true
+  - type: textarea
+    id: docs
+    attributes:
+      label: 相关文档 / ADR
+      description: 链接 Adapter API、design 文档或 ADR。
+    validations:
+      required: false
