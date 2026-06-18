@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   governance:
     name: Governance checks
@@ -75,4 +78,3 @@ jobs:
               exit 1
             fi
           done < <(find README.md AGENTS.md CONTRIBUTING.md docs .github .agents .cursor -name '*.md' -type f)
-
