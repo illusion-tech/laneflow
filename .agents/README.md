@@ -12,7 +12,7 @@
 
 ## 可用 Skill
 
-- `skills/laneflow-governance/SKILL.md`：GitHub Issue、PR、commit、Project、Milestone、Release 与 G0–G4 工作流。
+- `skills/laneflow-governance/SKILL.md`：GitHub Issue、PR、commit、Project、Milestone、Release 与 G0–G4 工作流（PR 默认 Rebase and merge）。
 - `skills/laneflow-development/SKILL.md`：LaneFlow 通用实现工作流。
 - `skills/laneflow-core-design/SKILL.md`：Core 运行时、lane graph、route、signal、parking 与确定性行为。
 - `skills/laneflow-adapter/SKILL.md`：Unity、Unreal、Godot、O3DE、Web 等 Engine Adapter 开发。

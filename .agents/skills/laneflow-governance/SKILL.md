@@ -41,6 +41,16 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 
 只有关联 Issue 满足 G4 完成边界时，才使用 `closes #<id>`；否则使用 `refs #<id>`。
 
+## PR 合并
+
+默认使用 **Rebase and merge** 合入 `main`：
+
+```powershell
+gh pr merge <number> --rebase
+```
+
+例外使用 Squash 或 Merge commit 时，须在 PR 中说明原因。详见 `docs/governance/github-workflow.md` 第 7 节。
+
 ## 交付说明
 
 汇报治理类工作时，应包含：
@@ -48,4 +58,5 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 - 改了什么
 - 支持哪个闸口或工作流
 - 更新了哪些文档或 GitHub 模板
+- PR 合并方式（默认 Rebase and merge）
 - 还有哪些必须在 GitHub 上手动完成的设置
