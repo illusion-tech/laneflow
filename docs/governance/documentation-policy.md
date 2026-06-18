@@ -46,6 +46,8 @@ PR 用于承载：
 
 PR 是合并闸口，不是设计文档替代品。
 
+PR 合入 `main` 默认使用 **Rebase and merge**，详见 `github-workflow.md` 第 7 节。
+
 ### Projects
 
 GitHub Projects 用于承载：

@@ -1,7 +1,7 @@
 # AI Agent 开发指南
 
 **文档状态**: Active  
-**最后更新**: 2026-06-17  
+**最后更新**: 2026-06-18  
 **适用范围**: 使用 AI Agent 参与 LaneFlow 的设计、开发、测试、文档和治理工作
 
 ## 1. 目标
@@ -115,4 +115,14 @@ Agent 完成工作后，PR 或最终说明至少应包含：
 - 文档更新情况
 - 已知风险
 - 后续 Issue 或留白
+
+## 11. PR 合并策略
+
+Agent 协助合并 PR 时，默认使用 **Rebase and merge**：
+
+```powershell
+gh pr merge <number> --rebase
+```
+
+仅在 PR 或 Issue 中已说明原因时，才使用 Squash and merge 或 Create a merge commit。规则详见 `docs/governance/github-workflow.md` 第 7 节。
 

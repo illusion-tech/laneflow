@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active  
-**最后更新**: 2026-06-17  
+**最后更新**: 2026-06-18  
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
 ## 1. 工作流原则
@@ -104,7 +104,35 @@ Milestone 用于表达版本边界，而不是单个大任务。
 
 不得用父任务标题合入只覆盖部分能力的实现。部分交付必须明确子切片边界。
 
-## 7. CI 规则
+## 7. PR 合并策略
+
+LaneFlow 默认使用 **Rebase and merge** 将 PR 合入 `main`。
+
+原因：
+
+- 保持 `main` 历史线性、清晰。
+- 保留 PR 内各 commit 的治理说明（`Gate`、`Type`、`Impact` 等）。
+- 避免为常规功能 PR 增加多余的 merge commit 节点。
+
+默认规则：
+
+- 常规功能、修复、文档、治理 PR → **Rebase and merge**。
+- PR 内 commit 已具备独立意义且 message 符合 `docs/reference/commit-convention.md` → **Rebase and merge**。
+
+例外（须在 PR 或 Issue 中说明原因）：
+
+- **Squash and merge**：PR 内含多个无独立意义的 wip commit，或明确要求 `main` 上 1 个 PR 对应 1 个 commit。
+- **Create a merge commit**：发布分支、长期分支合流等需要保留 merge 节点的场景。
+
+命令示例：
+
+```powershell
+gh pr merge <number> --rebase
+```
+
+仓库设置建议：在 GitHub 仓库 Settings → General → Pull Requests 中启用 **Allow rebase merging**，并按团队习惯禁用或保留 squash / merge commit。
+
+## 8. CI 规则
 
 CI 的初始目标是保证基础质量，不追求一次到位。
 
@@ -116,7 +144,7 @@ CI 的初始目标是保证基础质量，不追求一次到位。
 
 当 Core、data spec 或 Adapter 代码出现后，应逐步增加专用门禁。
 
-## 8. Release 规则
+## 9. Release 规则
 
 每次 Release 应说明：
 

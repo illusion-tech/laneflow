@@ -1,7 +1,7 @@
 # 提交规范
 
 **文档状态**: Active  
-**最后更新**: 2026-06-17  
+**最后更新**: 2026-06-18  
 **适用范围**: LaneFlow 的本地提交、AI Agent 提交说明和无需完整 PR 审查的小切片留痕
 
 ## 1. 目标
@@ -150,4 +150,24 @@ PR 是主要合并证据，commit message 是轻量留痕。
 - `cross-layer` 变更。
 - 任何 breaking change。
 - 任何需要 reviewer 或 AI Agent 二次审查的变更。
+
+## 11. PR 合并策略
+
+PR 合入 `main` 默认使用 **Rebase and merge**，以便：
+
+- 保持 `main` 线性历史；
+- 保留 PR 内各 commit 的治理字段说明。
+
+默认命令：
+
+```powershell
+gh pr merge <number> --rebase
+```
+
+例外：
+
+- **Squash and merge**：PR 内多个 wip commit 且无独立留痕价值，或明确要求 1 PR = 1 commit。
+- **Create a merge commit**：发布分支、长期分支合流等场景。
+
+使用例外时，须在 PR 中说明原因。详见 `../governance/github-workflow.md` 第 7 节。
 
