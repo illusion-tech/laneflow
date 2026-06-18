@@ -1,0 +1,133 @@
+# GitHub 工作流
+
+**文档状态**: Active  
+**最后更新**: 2026-06-17  
+**适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
+
+## 1. 工作流原则
+
+LaneFlow 采用 GitHub-first 治理：
+
+- Issue 是任务入口。
+- Pull Request 是合并审查单元。
+- Project 是当前进度看板。
+- Milestone 是版本目标容器。
+- Actions 是自动化质量门禁。
+- Releases 是发布事实记录。
+
+长期设计、架构决策和规范必须进入仓库文档，不应只留在 GitHub 页面中。
+
+## 2. Issue 规则
+
+所有可执行开发任务应先有 Issue。
+
+Issue 应至少说明：
+
+- 背景
+- 目标
+- 非目标
+- 验收标准
+- 影响范围
+- 关联文档
+
+推荐 Issue 类型（与 `.github/ISSUE_TEMPLATE/` 对应）：
+
+- `功能`（Feature）：新增能力
+- `缺陷`（Bug）：缺陷修复
+- `设计`（Design）：设计收口或架构决策准备
+- `Core`：LaneFlow Core 运行时变更
+- `数据规范`（Data Spec）：数据格式、schema 或序列化变更
+- `适配器`（Adapter）：引擎适配层变更
+- `文档`（Docs）：文档与治理变更
+- `调研`（Research）：尚未确定是否实现的探索
+
+## 3. Project 规则
+
+GitHub Project 用于管理当前状态。推荐列：
+
+- `Backlog`
+- `Ready`
+- `In Progress`
+- `In Review`
+- `Blocked`
+- `Done`
+
+状态含义：
+
+- `Backlog`：想法或候选任务，尚未准备开工。
+- `Ready`：范围、验收标准和输入文档已经清楚。
+- `In Progress`：正在实现。
+- `In Review`：已有 PR 或审查材料。
+- `Blocked`：设计、依赖、技术验证或权限问题阻断。
+- `Done`：已完成 G4 收口。
+
+## 4. Milestone 规则
+
+Milestone 用于表达版本边界，而不是单个大任务。
+
+推荐初始 Milestone：
+
+- `v0.1 Core Prototype`
+- `v0.2 Lane Graph + Route`
+- `v0.3 Vehicle Following`
+- `v0.4 Signals`
+- `v0.5 Parking`
+- `v0.6 First Adapter`
+- `v1.0 Stable Runtime API`
+
+每个 Milestone 应有明确的完成定义，并由一组 Issue 组成。
+
+## 5. 分支规则
+
+推荐分支命名：
+
+- `feature/<issue-id>-<short-name>`
+- `fix/<issue-id>-<short-name>`
+- `docs/<issue-id>-<short-name>`
+- `design/<issue-id>-<short-name>`
+- `adapter/<issue-id>-<engine-or-topic>`
+
+`main` 应保持可发布或至少可演示状态。所有非平凡变更应通过 PR 合入。
+
+## 6. PR 规则
+
+每个 PR 应：
+
+- 关联一个或多个 Issue。
+- 明确本次变更范围。
+- 明确本次不做范围。
+- 说明是否影响 Core API。
+- 说明是否影响数据格式。
+- 说明是否影响 Adapter 协议。
+- 记录测试、构建和文档检查结果。
+- 记录已知风险和例外。
+
+不得用父任务标题合入只覆盖部分能力的实现。部分交付必须明确子切片边界。
+
+## 7. CI 规则
+
+CI 的初始目标是保证基础质量，不追求一次到位。
+
+最小检查：
+
+- Markdown 和 YAML 基本语法检查。
+- 仓库中关键文档文件存在。
+- 后续根据实际技术栈增加 build、test、lint、schema validation 和 example smoke test。
+
+当 Core、data spec 或 Adapter 代码出现后，应逐步增加专用门禁。
+
+## 8. Release 规则
+
+每次 Release 应说明：
+
+- 版本目标
+- 新增能力
+- 修复内容
+- breaking changes
+- Core API 版本
+- 数据格式版本
+- Adapter 兼容情况
+- 示例项目状态
+
+Release 说明可以引用 `docs/roadmap.md` 和相关 ADR。
+

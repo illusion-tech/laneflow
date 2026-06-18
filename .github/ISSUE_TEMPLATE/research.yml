@@ -1,0 +1,38 @@
+name: 调研
+description: 探索尚未纳入路线图的想法
+title: "[调研]: "
+labels:
+  - research
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: 调研问题
+      description: 正在探索什么？为什么现在做？
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 范围
+      description: 本次探索覆盖什么，明确不覆盖什么？
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 约束
+      description: 相关约束，例如项目范围（ADR-0001）或依赖限制（ADR-0002）。
+    validations:
+      required: false
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 预期产出
+      description: 应产出什么决策或后续动作？
+      placeholder: |
+        - [ ] 功能 Issue
+        - [ ] 设计 Issue / ADR
+        - [ ] 放弃 / 不继续
+    validations:
+      required: true

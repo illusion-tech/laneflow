@@ -1,0 +1,57 @@
+name: 数据规范
+description: 提出或变更 LaneFlow 数据格式或 schema
+title: "[数据规范]: "
+labels:
+  - data-spec
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: 应新增或变更什么数据格式、schema 或序列化规则？
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: 数据领域
+      options:
+        - lane-graph
+        - route
+        - signal
+        - parking
+        - spawn-rules
+        - vehicle-profile
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: 兼容性影响
+      description: 是否向后兼容？是否变更数据格式版本？
+    validations:
+      required: true
+  - type: textarea
+    id: consumers
+    attributes:
+      label: 受影响消费者
+      description: 哪些 Core 系统、Adapter、工具或示例会消费这份数据？
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: docs
+    attributes:
+      label: 相关文档 / ADR
+      description: 链接 data-format design 文档、ADR，或说明需要新建哪些文档。
+    validations:
+      required: false

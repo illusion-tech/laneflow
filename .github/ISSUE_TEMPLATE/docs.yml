@@ -1,0 +1,45 @@
+name: 文档
+description: 文档或治理规范变更
+title: "[文档]: "
+labels:
+  - docs
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: 应新增或变更哪些文档或治理内容？
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 文档领域
+      options:
+        - readme
+        - architecture
+        - roadmap
+        - adr
+        - design
+        - governance
+        - reference
+        - agents-skills
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 行为变更
+      description: 确认是否改变运行时行为。若仅文档变更，请写“无”。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true

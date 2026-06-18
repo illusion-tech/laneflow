@@ -1,0 +1,57 @@
+name: 设计
+description: 提出或完善 LaneFlow 设计
+title: "[设计]: "
+labels:
+  - design
+body:
+  - type: textarea
+    id: topic
+    attributes:
+      label: 设计议题
+      description: 需要解决什么设计问题？
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: 影响领域
+      options:
+        - project-scope
+        - core-api
+        - runtime-tick
+        - lane-graph
+        - route-system
+        - vehicle-following
+        - signal-system
+        - parking-system
+        - data-format
+        - adapter-api
+        - release-process
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: 已考虑的方案
+      description: 列出备选方案、权衡或未决问题。
+    validations:
+      required: false
+  - type: textarea
+    id: proposed
+    attributes:
+      label: 建议方向
+      description: 你建议采用什么方向？
+    validations:
+      required: false
+  - type: textarea
+    id: output
+    attributes:
+      label: 预期产出
+      description: 这应产出 ADR、design 文档更新，还是后续实现 Issue？
+      placeholder: |
+        - [ ] ADR
+        - [ ] docs/design 更新
+        - [ ] 后续实现 Issue
+    validations:
+      required: true

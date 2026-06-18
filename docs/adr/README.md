@@ -1,0 +1,55 @@
+# 架构决策记录
+
+本目录用于记录 LaneFlow 的架构决策记录。
+
+ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影响、难回退、会影响多个模块或长期兼容性的决策，应优先进入 ADR。
+
+## 适用范围
+
+优先写 ADR 的议题：
+
+- LaneFlow Core 与 Engine Adapter 的边界。
+- Core 不依赖具体游戏引擎或外部重型交通仿真器。
+- Runtime tick、确定性、时间步长策略。
+- lane graph、route、signal、parking 等核心数据模型。
+- 数据格式版本策略。
+- Adapter API 稳定性策略。
+- 破坏性变更和兼容性策略。
+
+不适合写 ADR 的内容：
+
+- 普通字段补充。
+- 单个示例项目配置。
+- 一次 PR 的测试结果。
+- 尚未形成结论的开放讨论。
+
+## 当前 ADR 列表
+
+- `0001`: 项目定位与范围边界
+- `0002`: 依赖与许可证约束（不依赖 SUMO / CARLA / libsumo）
+
+## 命名规则
+
+文件命名使用：
+
+```text
+NNNN-short-title.md
+```
+
+示例：
+
+- `0001-project-scope.md`
+- `0002-core-engine-boundary.md`
+- `0003-fixed-step-runtime.md`
+
+## 状态
+
+ADR 状态建议使用：
+
+- `Proposed`
+- `Accepted`
+- `Deprecated`
+- `Superseded`
+
+若决策被替代，应新增后续 ADR，不要静默改写历史决策。
+

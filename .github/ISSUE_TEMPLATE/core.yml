@@ -1,0 +1,59 @@
+name: Core
+description: 提出或变更 LaneFlow Core 运行时行为
+title: "[Core]: "
+labels:
+  - core-runtime
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: Core 运行时行为应新增或变更什么？
+    validations:
+      required: true
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: 子系统
+      options:
+        - runtime-tick
+        - vehicle-state
+        - lane-graph
+        - route-system
+        - vehicle-following
+        - signal-system
+        - intersection-rules
+        - parking-system
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: api-impact
+    attributes:
+      label: Core API 影响
+      description: 是否新增、变更或破坏 Core API？是否需要 ADR 或 design 文档？
+    validations:
+      required: true
+  - type: textarea
+    id: determinism
+    attributes:
+      label: 确定性 / 测试
+      description: 如何保证确定性行为，以及如何验证？
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: docs
+    attributes:
+      label: 相关文档 / ADR
+      description: 链接相关 design 文档、ADR，或说明需要新建哪些文档。
+    validations:
+      required: false
