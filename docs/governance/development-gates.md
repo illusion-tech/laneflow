@@ -39,7 +39,7 @@ Gate Ledger 是 Issue 和 PR 上的增量闸口记录，用来说明任务何时
 - G0、G1、G2 记录在 Issue 中；G3 证据记录在 PR 中，Issue Gate Ledger 只勾选或链接该 PR 判断；G4 回写 Issue。
 - 小型 `docs-only` 或 `governance` 任务可以把 G0-G2 合并为一条开工记录，但该记录必须发生在实现或开 PR 之前。
 - 如果 G4 阶段才发现 G0-G3 缺失，只能标记为补救记录，并说明流程遗漏原因。
-- Agent 不得在缺少当前 Gate 记录时继续推进下一 Gate，除非用户明确接受例外并留下原因、风险和 cleanup owner。
+- Agent 不得在缺少当前 Gate 记录时继续推进下一 Gate，除非用户明确接受例外并留下原因、风险和 Cleanup owner。
 
 推荐 Issue Gate Ledger：
 
@@ -165,7 +165,7 @@ Issue 关闭前必须满足：
 - G4 记录已回写关联 Issue。
 - Project 中关联 Issue 和 PR 均已移动到 `Done`，或说明为什么不适用。
 - 本地和远端 PR 分支已清理，或说明保留原因。
-- 临时权限、ruleset bypass 或 admin override 已撤回，或说明保留原因、风险和 cleanup owner。
+- 临时权限、ruleset bypass 或 admin override 已撤回，或说明保留原因、风险和 Cleanup owner。
 
 G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必须补写，应标记为补救记录。
 
