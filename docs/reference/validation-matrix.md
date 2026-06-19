@@ -7,7 +7,7 @@
 
 - 上游治理:
   - `../governance/development-gates.md`
-  - `../reference/commit-convention.md`
+  - `commit-convention.md`
 - 模板:
   - `../../.github/pull_request_template.md`
 
