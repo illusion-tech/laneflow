@@ -182,6 +182,6 @@ G4 清场必须完成：
 - 将 Project 中关联 Issue 和 PR 移动到 `Done`。
 - 删除远端 PR 分支并 prune 本地 remote-tracking 分支。
 - 切回并更新本地 `main`。
-- 撤回临时 ruleset bypass、admin override 或其他临时权限；若不能撤回，记录保留原因、风险和 cleanup owner。
+- 撤回临时 ruleset bypass、admin override 或其他临时权限；若不能撤回，记录保留原因、风险和 Cleanup owner。
 
 如果 G4 阶段发现 G0-G3 没有按时记录，只能追加“补救记录”，并说明流程遗漏原因。补救记录不能作为后续任务的标准流程。
