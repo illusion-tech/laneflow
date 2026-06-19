@@ -13,6 +13,7 @@
 - `../adr/0001-project-scope.md`
 - `../adr/0002-dependency-and-licensing-constraints.md`
 - `../adr/0003-runtime-tick-and-determinism.md`
+- `../adr/0004-core-implementation-language.md`
 - `../governance/development-gates.md`
 
 ## 1. 目标
@@ -99,7 +100,7 @@ v0.1 不承诺跨语言、跨 CPU、跨浮点实现的 bit-level determinism。
 
 原因：
 
-- 当前阶段尚未确定最终语言与数值库；
+- Core 初始实现目标已收敛为 Rust，但数值策略仍处于 v0.1 最小约束阶段；
 - bit-level deterministic math 会显著增加早期成本；
 - v0.1 需要先建立可验证 runtime 闭环。
 
@@ -117,8 +118,16 @@ step(world, input) -> stepResult
 
 - `world` 是当前 Core runtime state；
 - `input` 包含 `deltaTimeMs` 和可选 command；
-- `stepResult` 至少包含更新后的 world 和事件列表；
+- `stepResult` 至少包含事件列表和本次 step 的可观察结果；纯函数实现可以返回更新后的 world，Rust mutable API 可以通过 `&mut world` 写回状态；
 - 实现可以内部优化 mutation，但对调用方应保持无隐藏全局状态的语义。
+
+Rust API 方向可接近：
+
+```rust
+fn step(world: &mut CoreWorld, input: TickInput) -> Result<StepResult, CoreError>
+```
+
+具体类型命名和错误模型由后续实现 issue 固化，但不得引入隐藏 clock、随机数或引擎全局状态。
 
 ### D5. v0.1 只定义最小内部 lane graph / route 输入
 
@@ -186,6 +195,27 @@ VehicleState
 状态：建议接受。
 
 Core 输出应足以被测试和临时示例消费，但 v0.1 不冻结 Adapter API。正式 Adapter API 应在 `v0.6 First Adapter` 或 `v1.0 Stable Runtime API` 前单独设计。
+
+### D9. Core 初始实现目标为 Rust crate
+
+状态：建议接受。
+
+v0.1 Core 的初始实现目标是 Rust library crate。Rust API 是 v0.1 的首要实现边界；C ABI、WASM、Unity / Unreal / Godot / O3DE Adapter 绑定和稳定 Adapter API 不在本设计中冻结。
+
+原因：
+
+- Rust 适合作为小而可测、可嵌入的 engine-agnostic runtime；
+- Rust ownership 和显式 mutation 能清楚表达 Core state 推进；
+- Rust 可以通过后续绑定支持 native engine adapter 和 WASM；
+- 相比把 Core 写进某个引擎语言，Rust 更能降低引擎依赖反向污染 Core 的风险。
+
+Rust 实现约束：
+
+- Core crate 不得依赖 Unity、Unreal、Godot、O3DE、DOM、WebGL 或 presentation / engine API；
+- tick 与时间累计字段优先使用整数类型，例如 `delta_time_ms: u64`、`tick_index: u64`、`time_ms: u64`；
+- v0.1 可以用 `f64` 表达 speed / distance，但这不构成跨平台 bit-level determinism 承诺；
+- deterministic tests 不得依赖 `HashMap` 等无稳定迭代顺序集合的输出顺序；
+- 事件、车辆更新和 edge traversal 输出应有稳定顺序。
 
 ## 5. 最小概念模型
 
@@ -261,7 +291,7 @@ v0.1 最小测试：
 - route 结束时进入 completed；
 - 非法输入失败路径明确。
 
-如果实现时测试框架尚未落地，Core 包骨架 issue 必须先补最小单元测试能力。
+如果实现时测试框架尚未落地，Rust Core crate 骨架 issue 必须先补最小单元测试能力。
 
 ## 9. 与 v0.2 的边界
 
@@ -282,13 +312,15 @@ v0.2 必须单独稳定：
 
 Runtime tick 和 determinism 属于高影响设计决策，已新增 `../adr/0003-runtime-tick-and-determinism.md` 作为 Proposed ADR。
 
-在 v0.1 runtime 实现 PR 合并前，ADR 0003 应进入 `Accepted`，或在 PR 中说明为何推迟冻结。
+Core implementation language 属于高影响设计决策，已新增 `../adr/0004-core-implementation-language.md` 作为 Proposed ADR。
+
+在 v0.1 runtime 实现 PR 合并前，ADR 0003 和 ADR 0004 应进入 `Accepted`，或在 PR 中说明为何推迟冻结。
 
 ## 11. 后续实现 issue 输入
 
 后续 v0.1 实现 issue 至少包括：
 
-- 初始化 Core 包与测试骨架；
+- 初始化 Rust Core crate 与 `cargo test` 骨架；
 - 实现 vehicle state 与显式 tick；
 - 实现最小 lane graph traversal；
 - 实现 simple route following；
