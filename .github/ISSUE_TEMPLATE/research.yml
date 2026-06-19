@@ -40,12 +40,12 @@ body:
     id: gate-ledger
     attributes:
       label: Gate Ledger
-      description: 按任务推进增量维护；创建 Issue 时至少记录 G0，开工前补 G1/G2，合并前补 G3，完成时补 G4。
+      description: 按任务推进增量维护；创建 Issue 时至少记录 G0，开工前补 G1/G2，合并前在 PR 记录 G3 并在 Issue 勾选/链接，完成时在 Issue 回写 G4。
       value: |
         - [ ] G0 立项已记录：
         - [ ] G1 设计判断已记录：
         - [ ] G2 开工判断已记录：
-        - [ ] G3 合并判断已记录：
-        - [ ] G4 完成判断已记录：
+        - [ ] G3 合并判断已记录：链接 PR 中的 G3 判断
+        - [ ] G4 完成判断已记录：回写合并后收口结果
     validations:
       required: true

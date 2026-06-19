@@ -53,9 +53,7 @@ GitHub Project 用于管理当前状态。推荐列：
 - `Blocked`
 - `Done`
 
-状态含义：
-
-Gate 对应关系：
+状态与 Gate 对应关系：
 
 - `Backlog`：尚未通过 G0，或只记录候选想法。
 - `Ready`：G0 已记录；需要 G1 的任务已完成 G1，不需要 G1 的任务已记录不适用原因。
