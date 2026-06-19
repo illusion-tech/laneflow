@@ -119,7 +119,7 @@ step(world, input) -> stepResult
 
 - `world` 是当前 Core runtime state；
 - `input` 可以包含用于校验的 `deltaTimeMs`，但不得携带 v0.1 不支持的运行时 command；
-- `stepResult` 至少包含事件列表和本次 step 的可观察结果；纯函数实现可以返回更新后的 world，Rust mutable API 可以通过 `&mut world` 写回状态；
+- `stepResult` 至少包含本次 step 的可观察结果；纯函数实现可以返回更新后的 world，Rust mutable API 默认通过 `&mut world` 写回状态，`StepResult` 不重复携带 world；
 - 实现可以内部优化 mutation，但对调用方应保持无隐藏全局状态的语义。
 
 Rust API 方向可接近：
@@ -128,7 +128,7 @@ Rust API 方向可接近：
 fn step(world: &mut CoreWorld, input: TickInput) -> Result<StepResult, CoreError>
 ```
 
-具体类型命名和错误模型由后续实现 issue 固化，但不得引入隐藏 clock、随机数或引擎全局状态。ADR 0003 中的 `step(world, input) -> stepResult` 是概念表达，不要求 Rust API 使用纯函数形态。
+具体类型命名和错误模型由后续实现 issue 固化，但不得引入隐藏 clock、随机数或引擎全局状态。ADR 0003 中的 `step(world, input) -> stepResult` 是概念表达，不要求 Rust API 使用纯函数形态。v0.1 Rust API 若采用 `&mut CoreWorld`，成功返回后的 `world` 即为更新后状态；`StepResult` 应保留 `tickIndex`、`timeMs` 和 `events` 等观察结果，避免为了返回 world 克隆完整 runtime state。
 
 ### D5. v0.1 只定义最小内部 lane graph / route 输入
 
@@ -148,8 +148,9 @@ v0.1 可以使用最小内部结构表达 lane graph 和 route，但不得把它
 - lane edge id、route id 和 vehicle id 在各自集合内必须唯一；
 - route 必须至少包含一个 edge id；
 - route 引用的所有 edge id 必须存在；
-- route edge sequence 必须连通：相邻 edge 中，下一 edge id 必须出现在当前 edge 的 `nextEdgeIds`；
+- route edge sequence 必须连通：相邻 edge 中，下一 edge id 必须出现在当前 edge 的 `nextEdgeIds`；`nextEdgeIds` 引用的 edge id 必须存在；
 - `nextEdgeIds` 的顺序不参与 v0.1 route following；route edge sequence 是车辆实际行驶顺序；
+- lane graph 中的 edge id 必须唯一，但 route edge sequence 可以重复引用同一 edge id；重复 edge 表示有限 route 中的显式回环，车辆位置由 `routeEdgeIndex` 区分；
 - v0.1 内部结构只作为实现输入和测试 fixture，不是长期 data spec。
 
 v0.2 负责稳定正式 lane graph / route 数据模型、版本、校验和示例数据。
@@ -175,7 +176,8 @@ v0.1 车辆沿 route 前进时使用 route edge sequence 和 edge-local progress
 - 若 `edgeProgress` 与 `edge length` 的差值在 epsilon 内，snap 到 boundary；`epsilon` 必须是实现中单一命名常量，并在测试中显式使用；
 - remainder 小于 epsilon 时按 0 处理；
 - completed 事件只在从 `active` 进入 `completed` 的 tick 发出一次；
-- `completed` / `stopped` vehicle 后续 tick 不再移动。
+- `completed` / `stopped` vehicle 后续 tick 不再移动；
+- `speed` 字段表示车辆配置或当前期望速度；当 status 为 `stopped` 或 `completed` 时，Core step 使用的 effective speed 为 0，字段值不因状态转换被隐式改写。
 
 v0.1 不处理：
 
@@ -213,8 +215,9 @@ VehicleState
 - `routeId` 必须引用存在的 route；
 - `routeEdgeIndex` 必须落在 route edge sequence 范围内；
 - `edgeProgress` 必须落在当前 edge 的 `[0, edge length]` 范围内；
-- `speed` 必须大于或等于 0；
-- `stopped` 和 `completed` 车辆不移动；`active` 且 `speed = 0` 合法，但不会产生 route progress。
+- `speed` 必须大于或等于 0，且必须是 finite number；
+- `stopped` 和 `completed` 车辆不移动；`active` 且 `speed = 0` 合法，但不会产生 route progress；
+- `completed` / `stopped` 不会隐式把 `speed` 字段归零，Adapter 或调试工具应以 `status` 判断 effective movement。
 
 后续 milestone 可以扩展 acceleration、leader、signal、parking、reservation 等状态，但不得在 v0.1 隐式加入。
 
@@ -287,11 +290,14 @@ TickInput
   deltaTimeMs?
 
 StepResult
-  world
+  tickIndex
+  timeMs
   events
 ```
 
 `deltaTimeMs` 若存在，必须等于 `CoreWorld.fixedDeltaTimeMs`；后续实现也可以选择不在 `TickInput` 中暴露 delta，而由 `CoreWorld` 配置决定 tick 长度。
+
+成功 step 的时间语义：若 step 前 `world.tickIndex = N`、`world.timeMs = T`，则 validation 和 state update 成功后，`world.tickIndex = N + 1`、`world.timeMs = T + fixedDeltaTimeMs`；`StepResult.tickIndex`、`StepResult.timeMs` 和所有 event 的 `tickIndex` 使用更新后的 post-step 值。失败 step 不递增 tick/time，不修改 world，也不产生可观察事件。
 
 v0.1 不支持 runtime commands。暂停、恢复、车辆注入、速度修改、路径切换等 command API 必须在后续设计中单独定义，不得通过未文档化字段进入 Core。
 
@@ -331,29 +337,31 @@ routeEdgeIndex
 
 事件顺序必须稳定：
 
-- vehicle 更新顺序按 `vehicleId` 升序；
+- vehicle 更新顺序按 `vehicleId` 升序；v0.1 推荐使用 ASCII identifier，若 `vehicleId` 为字符串，排序使用 Rust `str` / `String` 的 `Ord` 字典序；若后续改为数值 id，则使用数值升序；
 - 单个 vehicle 在同一 tick 内按实际 route transition 顺序输出事件；
 - v0.1 vehicle 之间不发生交互，因此更新顺序只影响可观察事件顺序，不影响位置计算结果；
 - 实现不得依赖 `HashMap` 等无稳定迭代顺序集合直接决定 event order。
 
 ## 7. Validation 与错误处理
 
-v0.1 runtime 可以假设输入已经过最小校验，但实现 issue 应至少处理以下错误路径：
+v0.1 应把校验分为两个阶段：`CoreWorld` 初始化校验静态 graph / route / initial vehicle 数据；`step` 校验 tick input 和运行时不变量。无论哪个阶段失败，都必须返回明确错误，不得产生部分状态。实现 issue 至少处理以下错误路径：
 
 - lane edge id、route id 或 vehicle id 重复；
 - route 引用了不存在的 lane edge；
 - route 为空；
 - route edge sequence 不连通；
-- lane edge length 小于或等于 0；
+- lane edge length 小于或等于 0，或不是 finite number；
 - vehicle 引用了不存在的 route；
 - vehicle `routeEdgeIndex` 越界；
 - vehicle `edgeProgress` 超出当前 edge 的 `[0, edge length]`；
 - `fixedDeltaTimeMs` 小于或等于 0；
 - `TickInput.deltaTimeMs` 存在但不等于 `fixedDeltaTimeMs`；
-- vehicle speed 小于 0；
+- vehicle speed 小于 0，或不是 finite number；
+- vehicle `edgeProgress`、edge length、speed 等 `f64` 值为 `NaN`、`Infinity` 或 `-Infinity`；
+- edge length 小于或等于 `epsilon` 时应返回 validation error，避免 boundary snap 规则吞掉整条 edge；
 - 未支持的 runtime command 字段不得被接受为隐式行为。
 
-step validation error 必须保持原子性：返回错误时不得部分推进 `tickIndex`、`timeMs`、vehicle state 或 events。实现可以通过预校验、临时结果或 compute-then-apply 达成该语义。
+step validation error 必须保持原子性：返回错误时不得部分推进 `tickIndex`、`timeMs`、vehicle state 或 events。实现可以通过预校验、临时结果或 compute-then-apply 达成该语义。初始化校验失败同样不得返回可部分使用的 `CoreWorld`。
 
 v0.2 应把这些规则提升为正式 validation 设计。
 
@@ -363,18 +371,18 @@ v0.1 最小测试：
 
 - 同一 world 和 tick 序列重复运行，输出一致；
 - `fixedDeltaTimeMs` 在 world 初始化后保持不变；
-- fixed tick 推进后的 `timeMs` 和 `tickIndex` 正确；
+- fixed tick 推进后的 `timeMs` 和 `tickIndex` 正确，event 使用 post-step tick/time；
 - 若 `TickInput.deltaTimeMs` 与 `fixedDeltaTimeMs` 不一致，应返回 validation error；
 - vehicle 按 speed 和 fixed delta 推进 progress；
 - progress 跨 edge 时切换到下一 edge；
 - 一个 tick 跨多个 edge 时输出完整且有序的 transition events；
 - route 结束时进入 completed；
 - `stopped` 和 `completed` vehicle 后续 tick 不移动；
-- 多 vehicle 事件按 `vehicleId` 升序稳定输出；
+- 多 vehicle 事件按 `vehicleId` 升序稳定输出，并覆盖字符串 id 排序规则；
 - event payload 包含可定位 route transition 的最小字段；
-- 非法输入失败路径明确，且错误不部分修改 world；
+- 非法输入失败路径明确，且初始化失败不返回部分 world、step 失败不部分修改 world；
 - tick/time/status/index/event order 使用精确断言；
-- speed/distance/progress 使用明确 epsilon 断言；
+- speed/distance/progress 使用明确 epsilon 断言，并覆盖 `NaN` / `Infinity` rejection；
 - edge boundary 和 route completion 的事件与状态使用精确断言。
 
 如果实现时测试框架尚未落地，Rust Core crate 骨架 issue 必须先补最小单元测试能力。
@@ -410,16 +418,18 @@ Vehicle V1
 
 预期结果：
 
-- tick 1：`V1` 留在 `A`，`edgeProgress = 6.0`，无 route transition event；
-- tick 2：`V1` 从 `A` 切到 `B`，`edgeProgress = 2.0`，emit `vehicle.changedEdge(A -> B)`；
-- tick 3：`V1` 完成 `R`，`status = completed`，`routeEdgeIndex = 1`，`edgeProgress = 5.0`，emit `vehicle.completedRoute`；
-- tick 4：`V1` 保持 completed，不移动且不重复发出 completed event。
+- tick 1：`world.tickIndex = 1`、`timeMs = 1000`；`V1` 留在 `A`，`edgeProgress = 6.0`，无 route transition event；
+- tick 2：`world.tickIndex = 2`、`timeMs = 2000`；`V1` 从 `A` 切到 `B`，`edgeProgress = 2.0`，emit `vehicle.changedEdge(A -> B)`，event `tickIndex = 2`；
+- tick 3：`world.tickIndex = 3`、`timeMs = 3000`；`V1` 完成 `R`，`status = completed`，`routeEdgeIndex = 1`，`edgeProgress = 5.0`，emit `vehicle.completedRoute`，event `tickIndex = 3`；
+- tick 4：`world.tickIndex = 4`、`timeMs = 4000`；`V1` 保持 completed，不移动且不重复发出 completed event。
 
 补充 fixture：
 
 - `fixedDeltaTimeMs = 1000` 但 `TickInput.deltaTimeMs = 500` 时返回 validation error，world 不变；
 - `edgeProgress = 10.0 - epsilon / 2` 且 travel distance 足以过线时应 snap 到 boundary，并按 edge transition 精确发出事件；
-- 多 vehicle 输入顺序不同但 id 集合相同时，events 仍按 `vehicleId` 升序输出。
+- 多 vehicle 输入顺序不同但 id 集合相同时，events 仍按 `vehicleId` 升序输出；
+- route `[A, B, A]` 在 `B.nextEdgeIds` 包含 `A` 时合法，用于验证重复 edge 依赖 `routeEdgeIndex` 区分位置；
+- 任一 `f64` 输入为 `NaN` / `Infinity` 或 edge length 小于等于 `epsilon` 时 validation error，world 不变。
 
 ## 10. 与 v0.2 的边界
 
