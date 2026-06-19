@@ -46,9 +46,15 @@
 - 例外：
 - 后续 Issue：
 
+## Gate Ledger
+
+- [ ] G3 合并判断已记录（checks、review、验证、风险、例外和合并方式）。
+- [ ] G4 完成判断将在合并后回写关联 Issue（验收 checklist、Project Done、分支清理、临时权限撤回）。
+
 ## 完成边界
 
 - [ ] 已覆盖关联 Issue 的验收标准，或剩余范围已拆成后续 Issue。
 - [ ] 文档已更新，或本 PR 已说明为何无需更新。
 - [ ] 本 PR 未在只完成子切片的情况下声称父任务已完成。
 - [ ] 合并方式：默认 **Rebase and merge**；若使用 Squash / Merge commit，已在 PR 中说明原因。
+- [ ] 未把 G0-G3 首次记录推迟到 G4 清场阶段；若存在补救记录，已说明流程遗漏原因。

@@ -35,6 +35,29 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
    - 仓库文档保存长期事实与决策。
 4. 若 Issue、PR、Discussion 或对话中形成稳定结论，应回写到 `docs/adr/`、`docs/design/` 或 `docs/governance/`。
 
+## Gate Ledger 硬性规则
+
+Gate Ledger 必须按任务阶段增量记录，不得等到 G4 清场时一次性补 G0-G3。
+
+执行规则：
+
+- 新建或接手 Issue 时，先检查 Gate Ledger。
+- 开始实现、文档修改或开 PR 前，Issue 必须已有 G0/G1/G2 记录；小型 `docs-only` 或 `governance` 任务可用一条开工记录覆盖 G0-G2，但必须发生在实现前。
+- 任务不需要 G1 时，也必须记录不适用原因。
+- 准备合并 PR 前，PR 必须已有 G3 记录，包含 checks、review、验证、风险、例外和合并方式。
+- 清场时只补 G4；如果发现 G0-G3 缺失，必须标记为补救记录，并说明这是流程遗漏，不能当作标准流程。
+- 任一 Gate 记录缺失且没有显式例外时，不得声称任务完成。
+
+Issue Gate Ledger 模板：
+
+```text
+- [ ] G0 立项已记录：
+- [ ] G1 设计判断已记录：
+- [ ] G2 开工判断已记录：
+- [ ] G3 合并判断已记录：
+- [ ] G4 完成判断已记录：
+```
+
 ## 提交说明
 
 遵循 `docs/reference/commit-convention.md`。
@@ -59,4 +82,5 @@ gh pr merge <number> --rebase
 - 支持哪个闸口或工作流
 - 更新了哪些文档或 GitHub 模板
 - PR 合并方式（默认 Rebase and merge）
+- Gate Ledger 当前状态和缺失项
 - 还有哪些必须在 GitHub 上手动完成的设置
