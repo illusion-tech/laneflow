@@ -28,6 +28,7 @@ jobs:
             "CONTRIBUTING.md"
             ".github/workflows/ci.yml"
             ".github/pull_request_template.md"
+            ".github/ISSUE_TEMPLATE/config.yml"
             ".github/ISSUE_TEMPLATE/feature.yml"
             ".github/ISSUE_TEMPLATE/bug.yml"
             ".github/ISSUE_TEMPLATE/design.yml"
