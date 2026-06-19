@@ -49,7 +49,7 @@
 ## Gate Ledger
 
 - [ ] G3 合并判断已记录（checks、review、验证、风险、例外和合并方式）。
-- [ ] G4 完成判断将在合并后回写关联 Issue（验收 checklist、Project Done、分支清理、临时权限撤回）。
+- [ ] G4 完成判断将在合并后回写关联 Issue（验收 checklist、Project 状态移至 `Done`、分支清理、临时权限撤回）。
 
 ## 完成边界
 
