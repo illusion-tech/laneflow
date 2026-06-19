@@ -41,7 +41,7 @@ NNNN-short-title.md
 示例：
 
 - `0001-project-scope.md`
-- `0002-core-engine-boundary.md`
+- `0002-dependency-and-licensing-constraints.md`
 - `0003-runtime-tick-and-determinism.md`
 - `0004-core-implementation-language.md`
 
