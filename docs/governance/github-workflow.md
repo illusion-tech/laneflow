@@ -29,6 +29,7 @@ Issue 应至少说明：
 - 验收标准
 - 影响范围
 - 关联文档
+- Gate Ledger：G0/G1/G2 在 Issue 阶段增量记录，G3/G4 后续由 PR 和收口流程回写
 
 推荐 Issue 类型（与 `.github/ISSUE_TEMPLATE/` 对应）：
 
@@ -53,6 +54,17 @@ GitHub Project 用于管理当前状态。推荐列：
 - `Done`
 
 状态含义：
+
+Gate 对应关系：
+
+- `Backlog`：尚未通过 G0，或只记录候选想法。
+- `Ready`：G0 已记录；需要 G1 的任务已完成 G1，不需要 G1 的任务已记录不适用原因。
+- `In Progress`：G2 已记录，任务已经进入实现或文档修改。
+- `In Review`：已有 PR 或审查材料，G3 判断应在 PR 中维护。
+- `Blocked`：当前 Gate 被阻断，必须记录阻断原因、风险和恢复条件。
+- `Done`：G4 已完成，Issue 和 PR 的收口证据完整。
+
+状态定义：
 
 - `Backlog`：想法或候选任务，尚未准备开工。
 - `Ready`：范围、验收标准和输入文档已经清楚。
@@ -101,6 +113,7 @@ Milestone 用于表达版本边界，而不是单个大任务。
 - 说明是否影响 Adapter 协议。
 - 记录测试、构建和文档检查结果。
 - 记录已知风险和例外。
+- 记录或链接 G3 合并判断：checks、review、验证、风险、例外和合并方式。
 
 不得用父任务标题合入只覆盖部分能力的实现。部分交付必须明确子切片边界。
 
@@ -158,3 +171,19 @@ CI 的初始目标是保证基础质量，不追求一次到位。
 - 示例项目状态
 
 Release 说明可以引用 `docs/roadmap.md` 和相关 ADR。
+
+## 10. 合并后 G4 清场流程
+
+PR 合并后，应回到关联 Issue 完成 G4，而不是在清场时首次补写 G0-G3。
+
+G4 清场必须完成：
+
+- 确认 PR 已按默认策略 Rebase and merge 合入，或记录例外原因。
+- 勾选 Issue 验收 checklist。
+- 在 Issue Gate Ledger 中补充 G4 记录。
+- 将 Project 中关联 Issue 和 PR 移动到 `Done`。
+- 删除远端 PR 分支并 prune 本地 remote-tracking 分支。
+- 切回并更新本地 `main`。
+- 撤回临时 ruleset bypass、admin override 或其他临时权限；若不能撤回，记录保留原因、风险和 cleanup owner。
+
+如果 G4 阶段发现 G0-G3 没有按时记录，只能追加“补救记录”，并说明流程遗漏原因。补救记录不能作为后续任务的标准流程。
