@@ -11,5 +11,9 @@ publish = false
 name = "laneflow_core"
 path = "src/lib.rs"
 
+[dependencies]
+indexmap = "2.14"
+thiserror = "2.0"
+
 [lints]
 workspace = true

@@ -2,7 +2,7 @@
 
 **文档状态**: Review
 
-**最后更新**: 2026-06-20
+**最后更新**: 2026-06-21
 
 **适用范围**: v0.1 Core Prototype 的 runtime、tick、vehicle state、最小 lane graph traversal 与 simple route following
 
@@ -153,6 +153,8 @@ v0.1 可以使用最小内部结构表达 lane graph 和 route，但不得把它
 - lane graph 中的 edge id 必须唯一，但 route edge sequence 可以重复引用同一 edge id；重复 edge 表示有限 route 中的显式回环，车辆位置由 `routeEdgeIndex` 区分；
 - v0.1 内部结构只作为实现输入和测试 fixture，不是长期 data spec。
 
+v0.1 Rust 实现使用 `EdgeLength` newtype 暴露 lane edge length，并使用 `EDGE_BOUNDARY_EPSILON = 1.0e-9` 作为最小 edge length 和后续 boundary snap 的统一 epsilon。`LaneGraph` / `Route` 可以使用 `indexmap` 作为内部稳定顺序存储，但 public API 不暴露 `IndexMap`，避免把内部容器选择冻结为长期 data spec。
+
 v0.2 负责稳定正式 lane graph / route 数据模型、版本、校验和示例数据。
 
 ### D6. Simple route following 使用 edge progress
@@ -250,6 +252,7 @@ Rust 实现约束：
 - deterministic tests 不得依赖 `HashMap` 等无稳定迭代顺序集合的输出顺序；
 - 事件、车辆更新和 edge traversal 输出应有稳定顺序；
 - 距离、速度和 progress 若跨模块或 public API 暴露，应优先使用 Rust newtype 包装，而不是在 API 边界散落裸 `f64`；
+- lane edge length 若跨模块或 public API 暴露，应使用 `EdgeLength` newtype，并拒绝 `NaN`、`Infinity`、`-Infinity` 和小于或等于 `EDGE_BOUNDARY_EPSILON` 的值；
 - 测试应对 tick/time/status/index/events 使用精确断言，对 speed/distance/progress 使用明确 epsilon；
 - edge boundary 和 route completion 等离散行为必须通过稳定 epsilon / snap 规则转换为精确事件和状态断言。
 
@@ -362,6 +365,8 @@ v0.1 应把校验分为两个阶段：`CoreWorld` 初始化校验静态 graph / 
 - vehicle `edgeProgress`、edge length、speed 等 `f64` 值为 `NaN`、`Infinity` 或 `-Infinity`；
 - edge length 小于或等于 `epsilon` 时应返回 validation error，避免 boundary snap 规则吞掉整条 edge；
 - 未支持的 runtime command 字段不得被接受为隐式行为。
+
+v0.1 Rust 实现中，带 traffic data 和 vehicles 的 world 必须通过 `CoreWorld::with_traffic_data(fixed_delta_time_ms, lane_graph, routes, vehicles)` 创建并完成上述静态校验；不得保留绕过 graph / route / vehicle 一致性校验的非空 vehicles 构造入口。`CoreWorld::new(fixed_delta_time_ms)` 仅用于创建空 graph、空 routes 和空 vehicles 的基础 tick world。
 
 step validation error 必须保持原子性：返回错误时不得部分推进 `tickIndex`、`timeMs`、vehicle state 或 events。实现可以通过预校验、临时结果或 compute-then-apply 达成该语义。初始化校验失败同样不得返回可部分使用的 `CoreWorld`。
 

@@ -1,6 +1,23 @@
 use laneflow_core::{
-    CoreError, CoreWorld, EdgeProgress, Speed, TickInput, VehicleState, VehicleStatus,
+    CoreError, CoreWorld, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed, TickInput,
+    VehicleState, VehicleStatus,
 };
+
+fn edge_length(value: f64) -> EdgeLength {
+    EdgeLength::try_new(value).expect("valid edge length")
+}
+
+fn single_edge_world(fixed_delta_time_ms: u64, vehicles: Vec<VehicleState>) -> CoreWorld {
+    let lane_graph = LaneGraph::try_new([
+        LaneEdge::new("A", edge_length(10.0), ["B"]),
+        LaneEdge::new("B", edge_length(10.0), std::iter::empty::<&str>()),
+    ])
+    .expect("valid lane graph");
+    let route = Route::try_new("R1", ["A", "B"]).expect("valid route");
+
+    CoreWorld::with_traffic_data(fixed_delta_time_ms, lane_graph, [route], vehicles)
+        .expect("valid world")
+}
 
 #[test]
 fn fixed_tick_advances_post_step_time() {
@@ -25,7 +42,7 @@ fn delta_mismatch_returns_error_and_keeps_world_unchanged() {
         EdgeProgress::try_new(3.0).expect("valid progress"),
         Speed::try_new(2.0).expect("valid speed"),
     );
-    let mut world = CoreWorld::with_vehicles(1000, vec![vehicle]).expect("valid world");
+    let mut world = single_edge_world(1000, vec![vehicle]);
     let before = world.clone();
 
     let error = world
@@ -51,7 +68,7 @@ fn active_zero_speed_is_valid_and_does_not_change_progress() {
         EdgeProgress::try_new(7.5).expect("valid progress"),
         Speed::try_new(0.0).expect("valid speed"),
     );
-    let mut world = CoreWorld::with_vehicles(1000, vec![vehicle]).expect("valid world");
+    let mut world = single_edge_world(1000, vec![vehicle]);
 
     world.step(TickInput::new(1000)).expect("step succeeds");
 
@@ -78,7 +95,7 @@ fn stopped_and_completed_keep_speed_but_have_zero_effective_speed() {
         EdgeProgress::try_new(10.0).expect("valid progress"),
         Speed::try_new(8.0).expect("valid speed"),
     );
-    let mut world = CoreWorld::with_vehicles(1000, vec![stopped, completed]).expect("valid world");
+    let mut world = single_edge_world(1000, vec![stopped, completed]);
 
     world.step(TickInput::new(1000)).expect("step succeeds");
 
