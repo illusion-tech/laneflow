@@ -1,5 +1,3 @@
-use std::assert_matches;
-
 use laneflow_core::{
     CoreError, CoreWorld, EdgeProgress, Speed, TickInput, VehicleState, VehicleStatus,
 };
@@ -106,20 +104,20 @@ fn invalid_numeric_inputs_are_rejected() {
         }
     );
 
-    assert_matches!(
+    std::assert_matches!(
         Speed::try_new(f64::INFINITY),
         Err(CoreError::InvalidSpeed { .. })
     );
-    assert_matches!(
+    std::assert_matches!(
         Speed::try_new(-1.0),
         Err(CoreError::InvalidSpeed { speed }) if speed == -1.0
     );
 
-    assert_matches!(
+    std::assert_matches!(
         EdgeProgress::try_new(f64::NAN),
         Err(CoreError::InvalidEdgeProgress { .. })
     );
-    assert_matches!(
+    std::assert_matches!(
         EdgeProgress::try_new(-0.5),
         Err(CoreError::InvalidEdgeProgress { edge_progress }) if edge_progress == -0.5
     );
