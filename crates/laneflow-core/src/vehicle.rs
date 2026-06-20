@@ -2,6 +2,54 @@
 
 use crate::error::CoreError;
 
+/// 车辆速度，单位为 distance units per second。
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct Speed(f64);
+
+impl Speed {
+    /// 零速度。
+    pub const ZERO: Self = Self(0.0);
+
+    /// 创建经过校验的速度。
+    pub fn try_new(value: f64) -> Result<Self, CoreError> {
+        if !value.is_finite() || value < 0.0 {
+            return Err(CoreError::InvalidSpeed { speed: value });
+        }
+
+        Ok(Self(value))
+    }
+
+    /// 返回底层数值。
+    pub const fn value(self) -> f64 {
+        self.0
+    }
+}
+
+/// 当前 route edge 内的 progress。
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct EdgeProgress(f64);
+
+impl EdgeProgress {
+    /// 零 progress。
+    pub const ZERO: Self = Self(0.0);
+
+    /// 创建经过校验的 edge progress。
+    pub fn try_new(value: f64) -> Result<Self, CoreError> {
+        if !value.is_finite() || value < 0.0 {
+            return Err(CoreError::InvalidEdgeProgress {
+                edge_progress: value,
+            });
+        }
+
+        Ok(Self(value))
+    }
+
+    /// 返回底层数值。
+    pub const fn value(self) -> f64 {
+        self.0
+    }
+}
+
 /// v0.1 车辆运行状态。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -24,9 +72,9 @@ pub struct VehicleState {
     /// 当前 route edge index。
     pub route_edge_index: usize,
     /// 当前 edge 内 progress。
-    pub edge_progress: f64,
+    pub edge_progress: EdgeProgress,
     /// 车辆配置或当前期望速度。
-    pub speed: f64,
+    pub speed: Speed,
     /// 车辆运行状态。
     pub status: VehicleStatus,
 }
@@ -37,8 +85,8 @@ impl VehicleState {
         id: impl Into<String>,
         route_id: impl Into<String>,
         route_edge_index: usize,
-        edge_progress: f64,
-        speed: f64,
+        edge_progress: EdgeProgress,
+        speed: Speed,
         status: VehicleStatus,
     ) -> Self {
         Self {
@@ -56,8 +104,8 @@ impl VehicleState {
         id: impl Into<String>,
         route_id: impl Into<String>,
         route_edge_index: usize,
-        edge_progress: f64,
-        speed: f64,
+        edge_progress: EdgeProgress,
+        speed: Speed,
     ) -> Self {
         Self::new(
             id,
@@ -74,8 +122,8 @@ impl VehicleState {
         id: impl Into<String>,
         route_id: impl Into<String>,
         route_edge_index: usize,
-        edge_progress: f64,
-        speed: f64,
+        edge_progress: EdgeProgress,
+        speed: Speed,
     ) -> Self {
         Self::new(
             id,
@@ -92,8 +140,8 @@ impl VehicleState {
         id: impl Into<String>,
         route_id: impl Into<String>,
         route_edge_index: usize,
-        edge_progress: f64,
-        speed: f64,
+        edge_progress: EdgeProgress,
+        speed: Speed,
     ) -> Self {
         Self::new(
             id,
@@ -106,28 +154,10 @@ impl VehicleState {
     }
 
     /// 返回当前 step 使用的有效速度。
-    pub fn effective_speed(&self) -> f64 {
+    pub fn effective_speed(&self) -> Speed {
         match self.status {
             VehicleStatus::Active => self.speed,
-            VehicleStatus::Stopped | VehicleStatus::Completed => 0.0,
+            VehicleStatus::Stopped | VehicleStatus::Completed => Speed::ZERO,
         }
-    }
-
-    pub(crate) fn validate(&self) -> Result<(), CoreError> {
-        if !self.speed.is_finite() || self.speed < 0.0 {
-            return Err(CoreError::InvalidVehicleSpeed {
-                vehicle_id: self.id.clone(),
-                speed: self.speed,
-            });
-        }
-
-        if !self.edge_progress.is_finite() || self.edge_progress < 0.0 {
-            return Err(CoreError::InvalidVehicleEdgeProgress {
-                vehicle_id: self.id.clone(),
-                edge_progress: self.edge_progress,
-            });
-        }
-
-        Ok(())
     }
 }

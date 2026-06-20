@@ -219,6 +219,8 @@ VehicleState
 - `stopped` 和 `completed` 车辆不移动；`active` 且 `speed = 0` 合法，但不会产生 route progress；
 - `completed` / `stopped` 不会隐式把 `speed` 字段归零，Adapter 或调试工具应以 `status` 判断 effective movement。
 
+v0.1 Rust 实现使用 `Speed` 与 `EdgeProgress` newtype 暴露 `speed` 和 `edgeProgress`，而不是在 public API 中直接散落裸 `f64`。调用方必须通过 newtype constructor 创建这两个值；constructor 负责拒绝 `NaN`、`Infinity`、`-Infinity` 和负数。
+
 后续 milestone 可以扩展 acceleration、leader、signal、parking、reservation 等状态，但不得在 v0.1 隐式加入。
 
 ### D8. v0.1 不稳定 Adapter API

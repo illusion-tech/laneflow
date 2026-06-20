@@ -11,7 +11,7 @@ pub mod world;
 pub use error::CoreError;
 pub use event::CoreEvent;
 pub use time::{StepResult, TickInput};
-pub use vehicle::{VehicleState, VehicleStatus};
+pub use vehicle::{EdgeProgress, Speed, VehicleState, VehicleStatus};
 pub use world::CoreWorld;
 
 #[cfg(test)]

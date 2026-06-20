@@ -1,4 +1,6 @@
-use laneflow_core::{CoreError, CoreWorld, TickInput, VehicleState, VehicleStatus};
+use laneflow_core::{
+    CoreError, CoreWorld, EdgeProgress, Speed, TickInput, VehicleState, VehicleStatus,
+};
 
 #[test]
 fn fixed_tick_advances_post_step_time() {
@@ -16,7 +18,13 @@ fn fixed_tick_advances_post_step_time() {
 
 #[test]
 fn delta_mismatch_returns_error_and_keeps_world_unchanged() {
-    let vehicle = VehicleState::active("V1", "R1", 0, 3.0, 2.0);
+    let vehicle = VehicleState::active(
+        "V1",
+        "R1",
+        0,
+        EdgeProgress::try_new(3.0).expect("valid progress"),
+        Speed::try_new(2.0).expect("valid speed"),
+    );
     let mut world = CoreWorld::with_vehicles(1000, vec![vehicle]).expect("valid world");
     let before = world.clone();
 
@@ -36,41 +44,59 @@ fn delta_mismatch_returns_error_and_keeps_world_unchanged() {
 
 #[test]
 fn active_zero_speed_is_valid_and_does_not_change_progress() {
-    let vehicle = VehicleState::active("V1", "R1", 0, 7.5, 0.0);
+    let vehicle = VehicleState::active(
+        "V1",
+        "R1",
+        0,
+        EdgeProgress::try_new(7.5).expect("valid progress"),
+        Speed::try_new(0.0).expect("valid speed"),
+    );
     let mut world = CoreWorld::with_vehicles(1000, vec![vehicle]).expect("valid world");
 
     world.step(TickInput::new(1000)).expect("step succeeds");
 
     let vehicle = &world.vehicles()[0];
     assert_eq!(vehicle.status, VehicleStatus::Active);
-    assert_eq!(vehicle.speed, 0.0);
-    assert_eq!(vehicle.edge_progress, 7.5);
-    assert_eq!(vehicle.effective_speed(), 0.0);
+    assert_eq!(vehicle.speed.value(), 0.0);
+    assert_eq!(vehicle.edge_progress.value(), 7.5);
+    assert_eq!(vehicle.effective_speed(), Speed::ZERO);
 }
 
 #[test]
 fn stopped_and_completed_keep_speed_but_have_zero_effective_speed() {
-    let stopped = VehicleState::stopped("V1", "R1", 0, 2.0, 6.0);
-    let completed = VehicleState::completed("V2", "R1", 1, 10.0, 8.0);
+    let stopped = VehicleState::stopped(
+        "V1",
+        "R1",
+        0,
+        EdgeProgress::try_new(2.0).expect("valid progress"),
+        Speed::try_new(6.0).expect("valid speed"),
+    );
+    let completed = VehicleState::completed(
+        "V2",
+        "R1",
+        1,
+        EdgeProgress::try_new(10.0).expect("valid progress"),
+        Speed::try_new(8.0).expect("valid speed"),
+    );
     let mut world = CoreWorld::with_vehicles(1000, vec![stopped, completed]).expect("valid world");
 
     world.step(TickInput::new(1000)).expect("step succeeds");
 
     let stopped = &world.vehicles()[0];
     assert_eq!(stopped.status, VehicleStatus::Stopped);
-    assert_eq!(stopped.speed, 6.0);
-    assert_eq!(stopped.edge_progress, 2.0);
-    assert_eq!(stopped.effective_speed(), 0.0);
+    assert_eq!(stopped.speed.value(), 6.0);
+    assert_eq!(stopped.edge_progress.value(), 2.0);
+    assert_eq!(stopped.effective_speed(), Speed::ZERO);
 
     let completed = &world.vehicles()[1];
     assert_eq!(completed.status, VehicleStatus::Completed);
-    assert_eq!(completed.speed, 8.0);
-    assert_eq!(completed.edge_progress, 10.0);
-    assert_eq!(completed.effective_speed(), 0.0);
+    assert_eq!(completed.speed.value(), 8.0);
+    assert_eq!(completed.edge_progress.value(), 10.0);
+    assert_eq!(completed.effective_speed(), Speed::ZERO);
 }
 
 #[test]
-fn invalid_world_inputs_are_rejected() {
+fn invalid_numeric_inputs_are_rejected() {
     assert_eq!(
         CoreWorld::new(0).expect_err("zero fixed delta must fail"),
         CoreError::InvalidFixedDeltaTime {
@@ -78,15 +104,21 @@ fn invalid_world_inputs_are_rejected() {
         }
     );
 
-    let invalid_speed = VehicleState::active("V1", "R1", 0, 0.0, f64::INFINITY);
     assert!(matches!(
-        CoreWorld::with_vehicles(1000, vec![invalid_speed]),
-        Err(CoreError::InvalidVehicleSpeed { .. })
+        Speed::try_new(f64::INFINITY),
+        Err(CoreError::InvalidSpeed { .. })
+    ));
+    assert!(matches!(
+        Speed::try_new(-1.0),
+        Err(CoreError::InvalidSpeed { speed }) if speed == -1.0
     ));
 
-    let invalid_progress = VehicleState::active("V1", "R1", 0, f64::NAN, 1.0);
     assert!(matches!(
-        CoreWorld::with_vehicles(1000, vec![invalid_progress]),
-        Err(CoreError::InvalidVehicleEdgeProgress { .. })
+        EdgeProgress::try_new(f64::NAN),
+        Err(CoreError::InvalidEdgeProgress { .. })
+    ));
+    assert!(matches!(
+        EdgeProgress::try_new(-0.5),
+        Err(CoreError::InvalidEdgeProgress { edge_progress }) if edge_progress == -0.5
     ));
 }

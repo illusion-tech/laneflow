@@ -32,10 +32,6 @@ impl CoreWorld {
             });
         }
 
-        for vehicle in &vehicles {
-            vehicle.validate()?;
-        }
-
         Ok(Self {
             fixed_delta_time_ms,
             tick_index: 0,
@@ -73,10 +69,6 @@ impl CoreWorld {
                 expected_delta_time_ms: self.fixed_delta_time_ms,
                 actual_delta_time_ms: input.delta_time_ms,
             });
-        }
-
-        for vehicle in &self.vehicles {
-            vehicle.validate()?;
         }
 
         let next_tick_index = self
@@ -118,7 +110,13 @@ mod tests {
 
     #[test]
     fn unit_delta_mismatch_keeps_world_unchanged() {
-        let vehicle = VehicleState::active("V1", "R1", 0, 1.0, 0.0);
+        let vehicle = VehicleState::active(
+            "V1",
+            "R1",
+            0,
+            crate::EdgeProgress::try_new(1.0).expect("valid progress"),
+            crate::Speed::try_new(0.0).expect("valid speed"),
+        );
         let mut world = CoreWorld::with_vehicles(20, vec![vehicle]).expect("valid world");
         let before = world.clone();
 
