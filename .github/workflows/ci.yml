@@ -79,3 +79,28 @@ jobs:
               exit 1
             fi
           done < <(find README.md AGENTS.md CONTRIBUTING.md docs .github .agents .cursor -name '*.md' -type f)
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust MSRV toolchain
+        shell: bash
+        run: rustup toolchain install 1.96.0 --profile minimal --component rustfmt
+
+      - name: Check Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc +1.96.0 --version
+          cargo +1.96.0 --version
+
+      - name: Check formatting
+        shell: bash
+        run: cargo +1.96.0 fmt --all -- --check
+
+      - name: Run workspace tests
+        shell: bash
+        run: cargo +1.96.0 test --workspace --locked

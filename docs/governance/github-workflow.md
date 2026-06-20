@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active  
-**最后更新**: 2026-06-18  
+**最后更新**: 2026-06-20  
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
 ## 1. 工作流原则
@@ -149,11 +149,12 @@ CI 的初始目标是保证基础质量，不追求一次到位。
 
 当前最小检查：
 
-- 仓库中关键文档文件存在。
+- 仓库中关键治理文档文件存在。
 - Markdown 文件非空。
-- 后续根据 CI 能力和实际技术栈增加 Markdown/YAML 语法检查、build、test、lint、schema validation 和 example smoke test。
+- Rust workspace 格式检查通过：`cargo fmt --all -- --check`。
+- Rust workspace 测试通过：`cargo test --workspace --locked`。
 
-当 Core、data spec 或 Adapter 代码出现后，应逐步增加专用门禁。
+后续根据实际技术栈继续增加 Markdown/YAML 语法检查、lint、schema validation、adapter build 和 example smoke test。新增 data spec、Adapter 或示例代码后，应同步增加对应专用门禁。
 
 ## 9. Release 规则
 
