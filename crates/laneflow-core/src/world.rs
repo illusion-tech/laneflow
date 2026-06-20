@@ -157,9 +157,7 @@ impl CoreWorld {
                 }
             }
 
-            for window in route.edge_ids().windows(2) {
-                let from_edge_id = &window[0];
-                let to_edge_id = &window[1];
+            for [from_edge_id, to_edge_id] in route.edge_ids().array_windows::<2>() {
                 if !lane_graph.can_traverse(from_edge_id, to_edge_id) {
                     return Err(CoreError::DisconnectedRouteEdge {
                         route_id: route.id().to_owned(),
