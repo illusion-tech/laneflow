@@ -15,13 +15,10 @@ pub enum CoreError {
     },
     /// tick/time 累计发生整数溢出。
     TimeOverflow,
-    /// vehicle speed 必须是 finite 且大于或等于 0。
-    InvalidVehicleSpeed { vehicle_id: String, speed: f64 },
-    /// vehicle edge progress 必须是 finite 且大于或等于 0。
-    InvalidVehicleEdgeProgress {
-        vehicle_id: String,
-        edge_progress: f64,
-    },
+    /// speed 必须是 finite 且大于或等于 0。
+    InvalidSpeed { speed: f64 },
+    /// edge progress 必须是 finite 且大于或等于 0。
+    InvalidEdgeProgress { edge_progress: f64 },
 }
 
 impl fmt::Display for CoreError {
@@ -41,16 +38,10 @@ impl fmt::Display for CoreError {
                 "tick delta mismatch: expected {expected_delta_time_ms} ms, got {actual_delta_time_ms} ms"
             ),
             Self::TimeOverflow => write!(f, "tick/time accumulation overflowed"),
-            Self::InvalidVehicleSpeed { vehicle_id, speed } => {
-                write!(f, "vehicle {vehicle_id} has invalid speed {speed}")
+            Self::InvalidSpeed { speed } => write!(f, "invalid speed {speed}"),
+            Self::InvalidEdgeProgress { edge_progress } => {
+                write!(f, "invalid edge progress {edge_progress}")
             }
-            Self::InvalidVehicleEdgeProgress {
-                vehicle_id,
-                edge_progress,
-            } => write!(
-                f,
-                "vehicle {vehicle_id} has invalid edge progress {edge_progress}"
-            ),
         }
     }
 }
