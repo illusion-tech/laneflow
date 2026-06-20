@@ -3,7 +3,7 @@
 use std::fmt;
 
 /// Core runtime 暴露给调用方的错误。
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum CoreError {
     /// `CoreWorld` 的固定步长必须大于 0。

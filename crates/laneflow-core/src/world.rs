@@ -124,7 +124,7 @@ mod tests {
             .step(TickInput::new(16))
             .expect_err("delta mismatch must fail");
 
-        assert_eq!(
+        std::assert_matches!(
             error,
             CoreError::TickDeltaMismatch {
                 expected_delta_time_ms: 20,
