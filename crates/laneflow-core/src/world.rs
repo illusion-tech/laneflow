@@ -291,7 +291,7 @@ impl CoreWorld {
         let mut remaining = travel_distance;
 
         for _ in 0..max_iterations {
-            if remaining <= EDGE_BOUNDARY_EPSILON {
+            if is_less_than_boundary_epsilon(remaining) {
                 break;
             }
 
@@ -319,7 +319,7 @@ impl CoreWorld {
             }
 
             let remainder = next_progress - edge_length;
-            remaining = if remainder <= EDGE_BOUNDARY_EPSILON {
+            remaining = if is_less_than_boundary_epsilon(remainder) {
                 0.0
             } else {
                 remainder
@@ -365,6 +365,10 @@ impl CoreWorld {
 
         Ok(())
     }
+}
+
+fn is_less_than_boundary_epsilon(value: f64) -> bool {
+    value < EDGE_BOUNDARY_EPSILON
 }
 
 #[cfg(test)]
@@ -416,5 +420,11 @@ mod tests {
             }
         );
         assert_eq!(world, before);
+    }
+
+    #[test]
+    fn boundary_epsilon_is_not_treated_as_zero_remainder() {
+        assert!(is_less_than_boundary_epsilon(EDGE_BOUNDARY_EPSILON / 2.0));
+        assert!(!is_less_than_boundary_epsilon(EDGE_BOUNDARY_EPSILON));
     }
 }
