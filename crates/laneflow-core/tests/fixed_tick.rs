@@ -32,7 +32,7 @@ fn delta_mismatch_returns_error_and_keeps_world_unchanged() {
         .step(TickInput::new(500))
         .expect_err("delta mismatch must fail");
 
-    assert_eq!(
+    std::assert_matches!(
         error,
         CoreError::TickDeltaMismatch {
             expected_delta_time_ms: 1000,
@@ -97,7 +97,7 @@ fn stopped_and_completed_keep_speed_but_have_zero_effective_speed() {
 
 #[test]
 fn invalid_numeric_inputs_are_rejected() {
-    assert_eq!(
+    std::assert_matches!(
         CoreWorld::new(0).expect_err("zero fixed delta must fail"),
         CoreError::InvalidFixedDeltaTime {
             fixed_delta_time_ms: 0
@@ -109,13 +109,17 @@ fn invalid_numeric_inputs_are_rejected() {
         Err(CoreError::InvalidSpeed { .. })
     );
     std::assert_matches!(
+        Speed::try_new(f64::NAN),
+        Err(CoreError::InvalidSpeed { speed }) if speed.is_nan()
+    );
+    std::assert_matches!(
         Speed::try_new(-1.0),
         Err(CoreError::InvalidSpeed { speed }) if speed == -1.0
     );
 
     std::assert_matches!(
         EdgeProgress::try_new(f64::NAN),
-        Err(CoreError::InvalidEdgeProgress { .. })
+        Err(CoreError::InvalidEdgeProgress { edge_progress }) if edge_progress.is_nan()
     );
     std::assert_matches!(
         EdgeProgress::try_new(-0.5),
