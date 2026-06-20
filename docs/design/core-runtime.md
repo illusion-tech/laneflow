@@ -167,16 +167,20 @@ v0.1 车辆沿 route 前进时使用 route edge sequence 和 edge-local progress
 
 1. 如果 `status` 不是 `active`，不推进位置；
 2. 根据当前速度和 `fixedDeltaTimeMs` 计算 travel distance；
-3. 增加当前 edge progress；
-4. 当 `edgeProgress + epsilon >= edge length` 时进入 edge boundary 处理；
-5. 若 route 还有下一 edge，emit `vehicle.changedEdge`，切换到下一 edge 并携带 remainder；
-6. 若 route 已到最后 edge，emit `vehicle.completedRoute`，status 改为 `completed`，`routeEdgeIndex` 保持最后 edge index，`edgeProgress` clamp 到最后 edge length；
-7. 一个 tick 可以跨越多个 edge，事件按实际跨越顺序输出。
+3. 若 travel distance 小于或等于 epsilon，不推进位置，也不触发 edge boundary transition；
+4. 若 travel distance 或计算出的下一个 progress 不是 finite number，step 必须返回 validation error 且 world 不变；
+5. 增加当前 edge progress；
+6. 当 `edgeProgress + epsilon >= edge length` 时进入 edge boundary 处理；
+7. 若 route 还有下一 edge，emit `vehicle.changedEdge`，切换到下一 edge 并携带 remainder；
+8. 若 route 已到最后 edge，emit `vehicle.completedRoute`，status 改为 `completed`，`routeEdgeIndex` 保持最后 edge index，`edgeProgress` clamp 到最后 edge length；
+9. 一个 tick 可以跨越多个 edge，事件按实际跨越顺序输出。
 
 边界规则：
 
 - 若 `edgeProgress` 与 `edge length` 的差值在 epsilon 内，snap 到 boundary；`epsilon` 必须是实现中单一命名常量，并在测试中显式使用；
 - remainder 小于 epsilon 时按 0 处理；
+- active vehicle 即使初始 progress 已在 edge boundary，若本 tick travel distance 小于或等于 epsilon，也不得仅因 boundary proximity 触发 transition；
+- 单 tick 跨多 edge 的实现必须有硬上界；v0.1 Rust 实现以上限为当前 route 剩余 edge 数，每次 transition 必须递增 `routeEdgeIndex`，到最后 edge 后完成并退出；
 - completed 事件只在从 `active` 进入 `completed` 的 tick 发出一次；
 - `completed` / `stopped` vehicle 后续 tick 不再移动；
 - `speed` 字段表示车辆配置或当前期望速度；当 status 为 `stopped` 或 `completed` 时，Core step 使用的 effective speed 为 0，字段值不因状态转换被隐式改写。
@@ -220,6 +224,7 @@ VehicleState
 - `speed` 必须大于或等于 0，且必须是 finite number；
 - `stopped` 和 `completed` 车辆不移动；`active` 且 `speed = 0` 合法，但不会产生 route progress；
 - `completed` / `stopped` 不会隐式把 `speed` 字段归零，Adapter 或调试工具应以 `status` 判断 effective movement。
+- 初始 `completed` vehicle 必须位于 route 最后一个 edge，且 `edgeProgress` 必须等于或在 epsilon 内接近最后 edge length；v0.1 Rust 实现会把合法的近终点 progress snap 到最后 edge length。若 `completed` vehicle 位于 route 中间或 progress 未到终点，应返回 validation error。
 
 v0.1 Rust 实现使用 `Speed` 与 `EdgeProgress` newtype 暴露 `speed` 和 `edgeProgress`，而不是在 public API 中直接散落裸 `f64`。调用方必须通过 newtype constructor 创建这两个值；constructor 负责拒绝 `NaN`、`Infinity`、`-Infinity` 和负数。
 
@@ -340,6 +345,14 @@ edgeId
 routeEdgeIndex
 ```
 
+v0.1 Rust 实现使用结构化 enum 和 payload structs 表达事件，而不是用字符串 `kind` 做内部分派：
+
+```text
+CoreEvent
+  VehicleChangedEdge(VehicleChangedEdgeEvent)
+  VehicleCompletedRoute(VehicleCompletedRouteEvent)
+```
+
 事件顺序必须稳定：
 
 - vehicle 更新顺序按 `vehicleId` 升序；v0.1 推荐使用 ASCII identifier，若 `vehicleId` 为字符串，排序使用 Rust `str` / `String` 的 `Ord` 字典序；若后续改为数值 id，则使用数值升序；
@@ -363,6 +376,8 @@ v0.1 应把校验分为两个阶段：`CoreWorld` 初始化校验静态 graph / 
 - `TickInput.deltaTimeMs` 存在但不等于 `fixedDeltaTimeMs`；
 - vehicle speed 小于 0，或不是 finite number；
 - vehicle `edgeProgress`、edge length、speed 等 `f64` 值为 `NaN`、`Infinity` 或 `-Infinity`；
+- simple route following 计算出的 travel distance 或下一个 progress 不是 finite number；
+- 初始 `completed` vehicle 未位于 route 最后 edge，或 progress 不在最后 edge length 的 epsilon 范围内；
 - edge length 小于或等于 `epsilon` 时应返回 validation error，避免 boundary snap 规则吞掉整条 edge；
 - 未支持的 runtime command 字段不得被接受为隐式行为。
 

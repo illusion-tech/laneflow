@@ -9,7 +9,7 @@ pub mod vehicle;
 pub mod world;
 
 pub use error::CoreError;
-pub use event::CoreEvent;
+pub use event::{CoreEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent};
 pub use graph::{EDGE_BOUNDARY_EPSILON, EdgeLength, LaneEdge, LaneGraph};
 pub use route::Route;
 pub use time::{StepResult, TickInput};

@@ -82,6 +82,27 @@ pub enum CoreError {
         edge_progress: f64,
         edge_length: f64,
     },
+    /// completed vehicle 的初始位置必须位于 route 终点。
+    #[error(
+        "completed vehicle `{vehicle_id}` 的初始状态无效：route `{route_id}` 期望最后 edge index={expected_route_edge_index} 且 progress 在终点 epsilon 内，实际 index={route_edge_index}, progress={edge_progress}, edge length={edge_length}"
+    )]
+    InvalidCompletedVehicleState {
+        vehicle_id: String,
+        route_id: String,
+        route_edge_index: usize,
+        expected_route_edge_index: usize,
+        edge_progress: f64,
+        edge_length: f64,
+    },
+    /// route following 计算出的 travel distance 必须保持 finite。
+    #[error(
+        "vehicle `{vehicle_id}` 的 route travel distance 不是 finite：speed={speed}, delta={delta_time_ms} ms"
+    )]
+    NonFiniteRouteTravel {
+        vehicle_id: String,
+        speed: f64,
+        delta_time_ms: u64,
+    },
 }
 
 #[cfg(test)]
@@ -119,6 +140,30 @@ mod tests {
             }
             .to_string(),
             "edge progress 无效：NaN"
+        );
+        assert_eq!(
+            CoreError::InvalidCompletedVehicleState {
+                vehicle_id: "V1".to_owned(),
+                route_id: "R1".to_owned(),
+                route_edge_index: 0,
+                expected_route_edge_index: 1,
+                edge_progress: 1.0,
+                edge_length: 5.0,
+            }
+            .to_string(),
+            "completed vehicle `V1` 的初始状态无效：route `R1` 期望最后 edge index=1 且 progress 在终点 epsilon 内，实际 index=0, progress=1, edge length=5"
+        );
+        assert_eq!(
+            CoreError::NonFiniteRouteTravel {
+                vehicle_id: "V1".to_owned(),
+                speed: f64::MAX,
+                delta_time_ms: 1000,
+            }
+            .to_string(),
+            format!(
+                "vehicle `V1` 的 route travel distance 不是 finite：speed={}, delta=1000 ms",
+                f64::MAX
+            )
         );
     }
 }

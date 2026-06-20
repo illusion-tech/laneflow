@@ -97,7 +97,8 @@ fn stopped_and_completed_keep_speed_but_have_zero_effective_speed() {
     );
     let mut world = single_edge_world(1000, vec![stopped, completed]);
 
-    world.step(TickInput::new(1000)).expect("step succeeds");
+    let result = world.step(TickInput::new(1000)).expect("step succeeds");
+    assert!(result.events.is_empty());
 
     let stopped = &world.vehicles()[0];
     assert_eq!(stopped.status, VehicleStatus::Stopped);
