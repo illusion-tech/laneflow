@@ -2,10 +2,11 @@
 
 use crate::{
     error::CoreError,
-    graph::LaneGraph,
+    event::{CoreEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent},
+    graph::{EDGE_BOUNDARY_EPSILON, LaneGraph},
     route::Route,
     time::{StepResult, TickInput},
-    vehicle::VehicleState,
+    vehicle::{EdgeProgress, VehicleState, VehicleStatus},
 };
 use indexmap::IndexMap;
 
@@ -49,7 +50,7 @@ impl CoreWorld {
 
         let routes = Self::collect_routes(routes)?;
         Self::validate_routes(&lane_graph, &routes)?;
-        Self::validate_vehicles(&lane_graph, &routes, &vehicles)?;
+        let vehicles = Self::validate_and_normalize_vehicles(&lane_graph, &routes, vehicles)?;
 
         Ok(Self {
             fixed_delta_time_ms,
@@ -116,13 +117,30 @@ impl CoreWorld {
             .checked_add(self.fixed_delta_time_ms)
             .ok_or(CoreError::TimeOverflow)?;
 
+        let mut next_vehicles = self.vehicles.clone();
+        let mut vehicle_order: Vec<_> = (0..next_vehicles.len()).collect();
+        vehicle_order.sort_by(|&left, &right| next_vehicles[left].id.cmp(&next_vehicles[right].id));
+
+        let mut events = Vec::new();
+        for vehicle_index in vehicle_order {
+            Self::advance_vehicle(
+                &self.lane_graph,
+                &self.routes,
+                self.fixed_delta_time_ms,
+                next_tick_index,
+                &mut next_vehicles[vehicle_index],
+                &mut events,
+            )?;
+        }
+
         self.tick_index = next_tick_index;
         self.time_ms = next_time_ms;
+        self.vehicles = next_vehicles;
 
         Ok(StepResult {
-            tick_index: self.tick_index,
-            time_ms: self.time_ms,
-            events: Vec::new(),
+            tick_index: next_tick_index,
+            time_ms: next_time_ms,
+            events,
         })
     }
 
@@ -171,14 +189,15 @@ impl CoreWorld {
         Ok(())
     }
 
-    fn validate_vehicles(
+    fn validate_and_normalize_vehicles(
         lane_graph: &LaneGraph,
         routes: &IndexMap<String, Route>,
-        vehicles: &[VehicleState],
-    ) -> Result<(), CoreError> {
+        vehicles: Vec<VehicleState>,
+    ) -> Result<Vec<VehicleState>, CoreError> {
         let mut vehicle_ids = IndexMap::new();
+        let mut normalized_vehicles = Vec::with_capacity(vehicles.len());
 
-        for vehicle in vehicles {
+        for mut vehicle in vehicles {
             if vehicle_ids.insert(vehicle.id.clone(), ()).is_some() {
                 return Err(CoreError::DuplicateVehicleId {
                     vehicle_id: vehicle.id.clone(),
@@ -213,6 +232,134 @@ impl CoreWorld {
                     edge_progress: vehicle.edge_progress.value(),
                     edge_length: edge_length.value(),
                 });
+            }
+
+            if vehicle.status == VehicleStatus::Completed {
+                let expected_route_edge_index = route.edge_ids().len() - 1;
+                if vehicle.route_edge_index != expected_route_edge_index
+                    || vehicle.edge_progress.value() + EDGE_BOUNDARY_EPSILON < edge_length.value()
+                {
+                    return Err(CoreError::InvalidCompletedVehicleState {
+                        vehicle_id: vehicle.id.clone(),
+                        route_id: vehicle.route_id.clone(),
+                        route_edge_index: vehicle.route_edge_index,
+                        expected_route_edge_index,
+                        edge_progress: vehicle.edge_progress.value(),
+                        edge_length: edge_length.value(),
+                    });
+                }
+
+                vehicle.edge_progress =
+                    EdgeProgress::try_new(edge_length.value()).expect("edge length is valid");
+            }
+
+            normalized_vehicles.push(vehicle);
+        }
+
+        Ok(normalized_vehicles)
+    }
+
+    fn advance_vehicle(
+        lane_graph: &LaneGraph,
+        routes: &IndexMap<String, Route>,
+        fixed_delta_time_ms: u64,
+        tick_index: u64,
+        vehicle: &mut VehicleState,
+        events: &mut Vec<CoreEvent>,
+    ) -> Result<(), CoreError> {
+        if vehicle.status != VehicleStatus::Active {
+            return Ok(());
+        }
+
+        let speed = vehicle.effective_speed().value();
+        let travel_distance = speed * fixed_delta_time_ms as f64 / 1000.0;
+        if !travel_distance.is_finite() {
+            return Err(CoreError::NonFiniteRouteTravel {
+                vehicle_id: vehicle.id.clone(),
+                speed,
+                delta_time_ms: fixed_delta_time_ms,
+            });
+        }
+        if travel_distance <= EDGE_BOUNDARY_EPSILON {
+            return Ok(());
+        }
+
+        let route = routes
+            .get(&vehicle.route_id)
+            .expect("validated vehicle route must exist");
+        let max_iterations = route.edge_ids().len() - vehicle.route_edge_index;
+        let mut remaining = travel_distance;
+
+        for _ in 0..max_iterations {
+            if remaining <= EDGE_BOUNDARY_EPSILON {
+                break;
+            }
+
+            let current_edge_id = route
+                .edge_ids()
+                .get(vehicle.route_edge_index)
+                .expect("validated route edge index must exist");
+            let edge_length = lane_graph
+                .edge_length(current_edge_id)
+                .expect("validated route edge must exist")
+                .value();
+            let next_progress = vehicle.edge_progress.value() + remaining;
+            if !next_progress.is_finite() {
+                return Err(CoreError::NonFiniteRouteTravel {
+                    vehicle_id: vehicle.id.clone(),
+                    speed,
+                    delta_time_ms: fixed_delta_time_ms,
+                });
+            }
+
+            if next_progress + EDGE_BOUNDARY_EPSILON < edge_length {
+                vehicle.edge_progress =
+                    EdgeProgress::try_new(next_progress).expect("progress remains valid");
+                break;
+            }
+
+            let remainder = next_progress - edge_length;
+            remaining = if remainder <= EDGE_BOUNDARY_EPSILON {
+                0.0
+            } else {
+                remainder
+            };
+
+            if vehicle.route_edge_index + 1 < route.edge_ids().len() {
+                let from_route_edge_index = vehicle.route_edge_index;
+                let to_route_edge_index = from_route_edge_index + 1;
+                let to_edge_id = route
+                    .edge_ids()
+                    .get(to_route_edge_index)
+                    .expect("next route edge must exist")
+                    .clone();
+
+                events.push(CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
+                    tick_index,
+                    vehicle_id: vehicle.id.clone(),
+                    route_id: vehicle.route_id.clone(),
+                    from_edge_id: current_edge_id.clone(),
+                    to_edge_id: to_edge_id.clone(),
+                    from_route_edge_index,
+                    to_route_edge_index,
+                }));
+
+                vehicle.route_edge_index = to_route_edge_index;
+                vehicle.edge_progress = EdgeProgress::ZERO;
+            } else {
+                vehicle.edge_progress =
+                    EdgeProgress::try_new(edge_length).expect("edge length is valid progress");
+                vehicle.status = VehicleStatus::Completed;
+                events.push(CoreEvent::VehicleCompletedRoute(
+                    VehicleCompletedRouteEvent {
+                        tick_index,
+                        vehicle_id: vehicle.id.clone(),
+                        route_id: vehicle.route_id.clone(),
+                        edge_id: current_edge_id.clone(),
+                        route_edge_index: vehicle.route_edge_index,
+                    },
+                ));
+                break;
             }
         }
 
