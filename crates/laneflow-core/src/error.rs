@@ -28,22 +28,61 @@ impl fmt::Display for CoreError {
                 fixed_delta_time_ms,
             } => write!(
                 f,
-                "fixed_delta_time_ms must be greater than 0, got {fixed_delta_time_ms}"
+                "`fixed_delta_time_ms` 必须大于 0，实际值为 {fixed_delta_time_ms}"
             ),
             Self::TickDeltaMismatch {
                 expected_delta_time_ms,
                 actual_delta_time_ms,
             } => write!(
                 f,
-                "tick delta mismatch: expected {expected_delta_time_ms} ms, got {actual_delta_time_ms} ms"
+                "tick delta 不匹配：期望 {expected_delta_time_ms} ms，实际 {actual_delta_time_ms} ms"
             ),
-            Self::TimeOverflow => write!(f, "tick/time accumulation overflowed"),
-            Self::InvalidSpeed { speed } => write!(f, "invalid speed {speed}"),
+            Self::TimeOverflow => write!(f, "tick/time 累计发生整数溢出"),
+            Self::InvalidSpeed { speed } => write!(f, "speed 无效：{speed}"),
             Self::InvalidEdgeProgress { edge_progress } => {
-                write!(f, "invalid edge progress {edge_progress}")
+                write!(f, "edge progress 无效：{edge_progress}")
             }
         }
     }
 }
 
 impl std::error::Error for CoreError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_messages_use_chinese_runtime_text() {
+        assert_eq!(
+            CoreError::InvalidFixedDeltaTime {
+                fixed_delta_time_ms: 0
+            }
+            .to_string(),
+            "`fixed_delta_time_ms` 必须大于 0，实际值为 0"
+        );
+        assert_eq!(
+            CoreError::TickDeltaMismatch {
+                expected_delta_time_ms: 20,
+                actual_delta_time_ms: 16
+            }
+            .to_string(),
+            "tick delta 不匹配：期望 20 ms，实际 16 ms"
+        );
+        assert_eq!(
+            CoreError::TimeOverflow.to_string(),
+            "tick/time 累计发生整数溢出"
+        );
+        assert_eq!(
+            CoreError::InvalidSpeed { speed: -1.0 }.to_string(),
+            "speed 无效：-1"
+        );
+        assert_eq!(
+            CoreError::InvalidEdgeProgress {
+                edge_progress: f64::NAN
+            }
+            .to_string(),
+            "edge progress 无效：NaN"
+        );
+    }
+}
