@@ -295,7 +295,7 @@ StepResult
   events
 ```
 
-`deltaTimeMs` 若存在，必须等于 `CoreWorld.fixedDeltaTimeMs`；后续实现也可以选择不在 `TickInput` 中暴露 delta，而由 `CoreWorld` 配置决定 tick 长度。
+`deltaTimeMs` 若存在，必须等于 `CoreWorld.fixedDeltaTimeMs`；后续实现也可以选择不在 `TickInput` 中暴露 delta，而由 `CoreWorld` 配置决定 tick 长度。v0.1 Rust 实现选择将 `TickInput.delta_time_ms` 固化为必填字段，以便 Adapter 或测试调用方显式暴露 fixed-step delta mismatch。
 
 成功 step 的时间语义：若 step 前 `world.tickIndex = N`、`world.timeMs = T`，则 validation 和 state update 成功后，`world.tickIndex = N + 1`、`world.timeMs = T + fixedDeltaTimeMs`；`StepResult.tickIndex`、`StepResult.timeMs` 和所有 event 的 `tickIndex` 使用更新后的 post-step 值。失败 step 不递增 tick/time，不修改 world，也不产生可观察事件。
 
