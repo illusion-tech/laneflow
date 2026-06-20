@@ -1,11 +1,18 @@
 #![doc = include_str!("../README.md")]
 
+pub mod error;
 pub mod event;
 pub mod graph;
 pub mod route;
 pub mod time;
 pub mod vehicle;
 pub mod world;
+
+pub use error::CoreError;
+pub use event::CoreEvent;
+pub use time::{StepResult, TickInput};
+pub use vehicle::{VehicleState, VehicleStatus};
+pub use world::CoreWorld;
 
 #[cfg(test)]
 mod tests {
