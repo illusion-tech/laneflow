@@ -75,7 +75,14 @@ fn unknown_next_edge_is_rejected() {
 
 #[test]
 fn invalid_edge_lengths_are_rejected() {
-    for invalid_length in [f64::NAN, f64::INFINITY, 0.0, EDGE_BOUNDARY_EPSILON] {
+    for invalid_length in [
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        -1.0,
+        0.0,
+        EDGE_BOUNDARY_EPSILON,
+    ] {
         let error = EdgeLength::try_new(invalid_length).expect_err("invalid length must fail");
 
         std::assert_matches!(
