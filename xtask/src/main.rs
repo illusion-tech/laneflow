@@ -238,15 +238,32 @@ fn has_valid_impact(message: &str) -> bool {
 }
 
 fn has_refs_or_closes(message: &str) -> bool {
-    message.lines().any(|line| {
-        line.strip_prefix("Refs: ")
-            .or_else(|| line.strip_prefix("Closes: "))
-            .is_some_and(valid_issue_footer_value)
-    })
+    footer_lines(message)
+        .iter()
+        .any(|line| valid_refs_footer_line(line) || valid_closes_footer_line(line))
 }
 
-fn valid_issue_footer_value(value: &str) -> bool {
-    valid_issue_reference(value) || valid_pending_reason(value)
+fn footer_lines(message: &str) -> Vec<&str> {
+    let lines = message.lines().collect::<Vec<_>>();
+    let Some(end) = lines.iter().rposition(|line| !line.trim().is_empty()) else {
+        return Vec::new();
+    };
+    let start = lines[..end]
+        .iter()
+        .rposition(|line| line.trim().is_empty())
+        .map_or(0, |index| index + 1);
+
+    lines[start..=end].to_vec()
+}
+
+fn valid_refs_footer_line(line: &str) -> bool {
+    line.strip_prefix("Refs: ")
+        .is_some_and(|value| valid_issue_reference(value) || valid_pending_reason(value))
+}
+
+fn valid_closes_footer_line(line: &str) -> bool {
+    line.strip_prefix("Closes: ")
+        .is_some_and(valid_issue_reference)
 }
 
 fn valid_issue_reference(value: &str) -> bool {
@@ -317,6 +334,35 @@ Refs: #23
     #[test]
     fn rejects_pending_without_reason() {
         let message = VALID_MESSAGE.replace("Refs: #23", "Refs: pending");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("Refs")));
+    }
+
+    #[test]
+    fn accepts_closes_issue_reference() {
+        let message = VALID_MESSAGE.replace("Refs: #23", "Closes: #23");
+
+        assert!(validate_message("0123456789abcdef", &message).is_empty());
+    }
+
+    #[test]
+    fn rejects_closes_pending_reason() {
+        let message = VALID_MESSAGE.replace(
+            "Refs: #23",
+            "Closes: pending, initial repository governance bootstrap",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("Closes")));
+    }
+
+    #[test]
+    fn rejects_issue_reference_outside_footer_block() {
+        let message =
+            VALID_MESSAGE.replace("Refs: #23\n", "Refs: #23\n\nNote: footer must stay last\n");
 
         let errors = validate_message("0123456789abcdef", &message);
 
