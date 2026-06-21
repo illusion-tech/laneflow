@@ -30,6 +30,8 @@ Docs: updated / not required / pending <reason>
 Refs: #<id>
 ```
 
+治理字段使用严格格式：字段名后必须是冒号和一个空格（例如 `Slice: governance`），`Impact` 必须按 `core-api`、`data-format`、`adapter-api` 顺序记录，并使用 `; ` 分隔。
+
 示例：
 
 ```text

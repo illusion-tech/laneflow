@@ -16,14 +16,7 @@ const ALLOWED_SLICES: &[&str] = &[
     "cross-layer",
 ];
 
-const REQUIRED_PREFIXES: &[&str] = &[
-    "Gate:",
-    "Slice:",
-    "Impact:",
-    "Scope:",
-    "Validation:",
-    "Docs:",
-];
+const REQUIRED_FIELDS: &[&str] = &["Gate", "Slice", "Impact", "Scope", "Validation", "Docs"];
 
 fn main() -> ExitCode {
     match run(env::args().skip(1).collect()) {
@@ -189,9 +182,9 @@ fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
         errors.push("标题不符合 Conventional Commits".to_string());
     }
 
-    for prefix in REQUIRED_PREFIXES {
-        if !has_non_empty_prefixed_line(message, prefix) {
-            errors.push(format!("缺少 `{prefix}` 行"));
+    for field in REQUIRED_FIELDS {
+        if !has_non_empty_field(message, field) {
+            errors.push(format!("缺少 `{field}: ` 行"));
         }
     }
 
@@ -248,23 +241,25 @@ fn valid_scope(scope: &str) -> bool {
     chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-'))
 }
 
-fn has_non_empty_prefixed_line(message: &str, prefix: &str) -> bool {
-    message.lines().any(|line| {
-        line.strip_prefix(prefix)
-            .is_some_and(|value| !value.trim().is_empty())
-    })
+fn has_non_empty_field(message: &str, field: &str) -> bool {
+    message
+        .lines()
+        .any(|line| field_value(line, field).is_some_and(|value| !value.trim().is_empty()))
+}
+
+fn field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
+    line.strip_prefix(field)?.strip_prefix(": ")
 }
 
 fn has_valid_slice(message: &str) -> bool {
-    message.lines().any(|line| {
-        line.strip_prefix("Slice: ")
-            .is_some_and(|slice| ALLOWED_SLICES.contains(&slice))
-    })
+    message
+        .lines()
+        .any(|line| field_value(line, "Slice").is_some_and(|slice| ALLOWED_SLICES.contains(&slice)))
 }
 
 fn has_valid_impact(message: &str) -> bool {
     message.lines().any(|line| {
-        let Some(value) = line.strip_prefix("Impact: ") else {
+        let Some(value) = field_value(line, "Impact") else {
             return false;
         };
         let parts = value.split("; ").collect::<Vec<_>>();
@@ -348,6 +343,96 @@ Refs: #23
 
         assert!(errors.iter().any(|error| error.contains("标题不符合")));
         assert!(errors.iter().any(|error| error.contains("`Slice`")));
+    }
+
+    #[test]
+    fn rejects_required_field_without_space_after_colon() {
+        let message = VALID_MESSAGE.replace("Gate: G3 Pass", "Gate:G3 Pass");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("Gate: ")));
+    }
+
+    #[test]
+    fn rejects_slice_without_space_after_colon() {
+        let message = VALID_MESSAGE.replace("Slice: governance", "Slice:governance");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("Slice")));
+    }
+
+    #[test]
+    fn rejects_impact_without_separator_space() {
+        let message = VALID_MESSAGE.replace(
+            "Impact: core-api=none; data-format=none; adapter-api=none",
+            "Impact: core-api=none;data-format=none; adapter-api=none",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("`Impact`")));
+    }
+
+    #[test]
+    fn rejects_impact_without_space_after_colon() {
+        let message = VALID_MESSAGE.replace(
+            "Impact: core-api=none; data-format=none; adapter-api=none",
+            "Impact:core-api=none; data-format=none; adapter-api=none",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("Impact")));
+    }
+
+    #[test]
+    fn rejects_impact_fields_out_of_order() {
+        let message = VALID_MESSAGE.replace(
+            "Impact: core-api=none; data-format=none; adapter-api=none",
+            "Impact: data-format=none; core-api=none; adapter-api=none",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("`Impact`")));
+    }
+
+    #[test]
+    fn rejects_impact_with_missing_field() {
+        let message = VALID_MESSAGE.replace(
+            "Impact: core-api=none; data-format=none; adapter-api=none",
+            "Impact: core-api=none; data-format=none",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("`Impact`")));
+    }
+
+    #[test]
+    fn rejects_impact_with_extra_field() {
+        let message = VALID_MESSAGE.replace(
+            "Impact: core-api=none; data-format=none; adapter-api=none",
+            "Impact: core-api=none; data-format=none; adapter-api=none; docs=changed",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("`Impact`")));
+    }
+
+    #[test]
+    fn rejects_impact_with_invalid_value() {
+        let message = VALID_MESSAGE.replace(
+            "Impact: core-api=none; data-format=none; adapter-api=none",
+            "Impact: core-api=maybe; data-format=none; adapter-api=none",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("`Impact`")));
     }
 
     #[test]
