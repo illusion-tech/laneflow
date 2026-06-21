@@ -65,7 +65,7 @@ Issue Gate Ledger 模板：
 提交标题使用 Conventional Commits：
 
 ```text
-<type>(<scope>): <description>
+<type>[optional scope][optional !]: <description>
 ```
 
 提交正文保留 LaneFlow 治理字段：
