@@ -206,9 +206,9 @@ LaneFlow 额外要求：
 
 - `updated`
 - `not required`
-- `pending #<issue-id>`
+- `pending <reason>`
 
-涉及 Core API、数据格式、Adapter 协议或重大设计取舍时，不能只写 `not required`，除非 PR 中解释原因。
+涉及 Core API、数据格式、Adapter 协议或重大设计取舍时，不能只写 `not required`，除非 PR 中解释原因。若文档回写由后续 Issue 跟踪，应把 Issue 号写入 `<reason>`，例如 `pending 后续由 #25 跟踪补齐`。
 
 ## 10. Refs / Closes 字段
 
