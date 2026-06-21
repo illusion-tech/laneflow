@@ -97,7 +97,7 @@ jobs:
 
       - name: Check commit messages
         shell: bash
-        run: cargo +1.96.0 run -p xtask -- check-commit-messages
+        run: cargo +1.96.0 run --locked -p xtask -- check-commit-messages
   rust:
     name: Rust checks
     runs-on: ubuntu-latest

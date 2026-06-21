@@ -114,10 +114,10 @@ fn commit_range_from_event(
             }
         }
         Some(event_name) => Err(format!(
-            "不支持从 GitHub event `{event_name}` 自动推导 commit range，请显式传入 rev-range，例如: cargo +1.96.0 run -p xtask -- check-commit-messages origin/main..HEAD"
+            "不支持从 GitHub event `{event_name}` 自动推导 commit range，请显式传入 rev-range，例如: cargo +1.96.0 run --locked -p xtask -- check-commit-messages origin/main..HEAD"
         )),
         None => Err(
-            "非 CI 场景必须显式传入 commit rev-range，例如: cargo +1.96.0 run -p xtask -- check-commit-messages origin/main..HEAD"
+            "非 CI 场景必须显式传入 commit rev-range，例如: cargo +1.96.0 run --locked -p xtask -- check-commit-messages origin/main..HEAD"
                 .to_string(),
         ),
     }
@@ -196,6 +196,10 @@ fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
         errors.push("`Impact` 必须同时覆盖 core-api、data-format 和 adapter-api".to_string());
     }
 
+    if !has_valid_docs(message) {
+        errors.push("`Docs` 必须是 updated、not required 或 pending <reason>".to_string());
+    }
+
     if !has_refs_or_closes(message) {
         errors.push("缺少 `Refs:` 或 `Closes:` footer".to_string());
     }
@@ -267,6 +271,17 @@ fn has_valid_impact(message: &str) -> bool {
             && matches!(parts[0], "core-api=none" | "core-api=changed")
             && matches!(parts[1], "data-format=none" | "data-format=changed")
             && matches!(parts[2], "adapter-api=none" | "adapter-api=changed")
+    })
+}
+
+fn has_valid_docs(message: &str) -> bool {
+    message.lines().any(|line| {
+        field_value(line, "Docs").is_some_and(|docs| {
+            matches!(docs, "updated" | "not required")
+                || docs
+                    .strip_prefix("pending ")
+                    .is_some_and(|reason| !reason.trim().is_empty())
+        })
     })
 }
 
@@ -433,6 +448,38 @@ Refs: #23
         let errors = validate_message("0123456789abcdef", &message);
 
         assert!(errors.iter().any(|error| error.contains("`Impact`")));
+    }
+
+    #[test]
+    fn accepts_docs_not_required() {
+        let message = VALID_MESSAGE.replace("Docs: updated", "Docs: not required");
+
+        assert!(validate_message("0123456789abcdef", &message).is_empty());
+    }
+
+    #[test]
+    fn accepts_docs_pending_reason() {
+        let message = VALID_MESSAGE.replace("Docs: updated", "Docs: pending 后续由 #25 跟踪补齐");
+
+        assert!(validate_message("0123456789abcdef", &message).is_empty());
+    }
+
+    #[test]
+    fn rejects_docs_pending_without_reason() {
+        let message = VALID_MESSAGE.replace("Docs: updated", "Docs: pending");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("`Docs`")));
+    }
+
+    #[test]
+    fn rejects_docs_unknown_value() {
+        let message = VALID_MESSAGE.replace("Docs: updated", "Docs: maybe");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("`Docs`")));
     }
 
     #[test]

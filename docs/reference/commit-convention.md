@@ -271,7 +271,7 @@ PR commit message 应通过仓库 CI 的提交信息检查：
 本地可运行：
 
 ```powershell
-cargo +1.96.0 run -p xtask -- check-commit-messages origin/main..HEAD
+cargo +1.96.0 run --locked -p xtask -- check-commit-messages origin/main..HEAD
 ```
 
 本地运行必须显式传入 rev-range，避免默认 `HEAD` 扩大到历史祖先；CI 会根据 `pull_request` / `push` event 自动推导检查范围。
