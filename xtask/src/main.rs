@@ -287,8 +287,8 @@ fn has_valid_docs(message: &str) -> bool {
 
 fn has_refs_or_closes(message: &str) -> bool {
     footer_lines(message)
-        .iter()
-        .any(|line| valid_refs_footer_line(line) || valid_closes_footer_line(line))
+        .last()
+        .is_some_and(|line| valid_refs_footer_line(line) || valid_closes_footer_line(line))
 }
 
 fn footer_lines(message: &str) -> Vec<&str> {
@@ -533,6 +533,16 @@ Refs: #23
     fn rejects_issue_reference_outside_footer_block() {
         let message =
             VALID_MESSAGE.replace("Refs: #23\n", "Refs: #23\n\nNote: footer must stay last\n");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("Refs")));
+    }
+
+    #[test]
+    fn rejects_issue_reference_followed_by_non_empty_footer_line() {
+        let message =
+            VALID_MESSAGE.replace("Refs: #23\n", "Refs: #23\nNote: footer must stay last\n");
 
         let errors = validate_message("0123456789abcdef", &message);
 
