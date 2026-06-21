@@ -79,24 +79,54 @@ fn check_commit_messages(explicit_range: Option<&str>) -> Result<(), String> {
 }
 
 fn commit_range_from_env() -> Result<String, String> {
-    match env::var("GITHUB_EVENT_NAME").ok().as_deref() {
+    let event_payload = github_event_payload();
+    let event_name = env::var("GITHUB_EVENT_NAME").ok();
+    let base_ref = env::var("GITHUB_BASE_REF").ok();
+    let github_sha = env::var("GITHUB_SHA").ok();
+
+    commit_range_from_event(
+        event_name.as_deref(),
+        base_ref.as_deref(),
+        github_sha.as_deref(),
+        event_payload.as_deref(),
+    )
+}
+
+fn commit_range_from_event(
+    event_name: Option<&str>,
+    base_ref: Option<&str>,
+    github_sha: Option<&str>,
+    event_payload: Option<&str>,
+) -> Result<String, String> {
+    match event_name {
         Some("pull_request") => {
-            let base_ref = env::var("GITHUB_BASE_REF")
-                .map_err(|_| "pull_request 事件缺少 GITHUB_BASE_REF".to_string())?;
+            let base_ref =
+                non_empty_value(base_ref).ok_or("pull_request 事件缺少 GITHUB_BASE_REF")?;
             Ok(format!("origin/{base_ref}..HEAD"))
         }
         Some("push") => {
-            let event = github_event_payload().unwrap_or_default();
-            let after = json_string_value(&event, "after")
-                .or_else(|| env::var("GITHUB_SHA").ok())
-                .unwrap_or_else(|| "HEAD".to_string());
+            let event = event_payload.unwrap_or_default();
+            let after = json_string_value(event, "after")
+                .filter(|value| is_non_zero_value(value))
+                .or_else(|| {
+                    non_empty_value(github_sha)
+                        .filter(|value| is_non_zero_value(value))
+                        .map(ToOwned::to_owned)
+                })
+                .ok_or("push 事件缺少可用的 after 或 GITHUB_SHA，无法推导 commit range")?;
 
-            match json_string_value(&event, "before") {
-                Some(before) if !is_zero_oid(&before) => Ok(format!("{before}..{after}")),
-                _ => Ok(after),
+            match json_string_value(event, "before") {
+                Some(before) if is_non_zero_value(&before) => Ok(format!("{before}..{after}")),
+                _ => Ok(format!("{after}^!")),
             }
         }
-        _ => Ok("HEAD".to_string()),
+        Some(event_name) => Err(format!(
+            "不支持从 GitHub event `{event_name}` 自动推导 commit range，请显式传入 rev-range，例如: cargo +1.96.0 run -p xtask -- check-commit-messages origin/main..HEAD"
+        )),
+        None => Err(
+            "非 CI 场景必须显式传入 commit rev-range，例如: cargo +1.96.0 run -p xtask -- check-commit-messages origin/main..HEAD"
+                .to_string(),
+        ),
     }
 }
 
@@ -117,6 +147,14 @@ fn json_string_value(payload: &str, key: &str) -> Option<String> {
 
 fn is_zero_oid(value: &str) -> bool {
     !value.is_empty() && value.chars().all(|ch| ch == '0')
+}
+
+fn is_non_zero_value(value: &str) -> bool {
+    !value.trim().is_empty() && !is_zero_oid(value)
+}
+
+fn non_empty_value(value: Option<&str>) -> Option<&str> {
+    value.filter(|value| !value.trim().is_empty())
 }
 
 fn commit_hashes(commit_range: &str) -> Result<Vec<String>, String> {
@@ -383,5 +421,53 @@ Refs: #23
             Some("abc".to_string())
         );
         assert_eq!(json_string_value(payload, "after"), Some("def".to_string()));
+    }
+
+    #[test]
+    fn local_run_requires_explicit_commit_range() {
+        let error = commit_range_from_event(None, None, None, None).unwrap_err();
+
+        assert!(error.contains("显式传入 commit rev-range"));
+    }
+
+    #[test]
+    fn unsupported_event_requires_explicit_commit_range() {
+        let error = commit_range_from_event(Some("workflow_dispatch"), None, Some("def"), None)
+            .unwrap_err();
+
+        assert!(error.contains("显式传入 rev-range"));
+    }
+
+    #[test]
+    fn pull_request_event_uses_base_branch_range() {
+        let range =
+            commit_range_from_event(Some("pull_request"), Some("main"), Some("def"), None).unwrap();
+
+        assert_eq!(range, "origin/main..HEAD");
+    }
+
+    #[test]
+    fn push_event_uses_before_after_range() {
+        let payload = r#"{"before":"abc","after":"def"}"#;
+
+        let range = commit_range_from_event(Some("push"), None, None, Some(payload)).unwrap();
+
+        assert_eq!(range, "abc..def");
+    }
+
+    #[test]
+    fn push_event_with_zero_before_checks_tip_commit_only() {
+        let payload = r#"{"before":"0000000000000000000000000000000000000000","after":"def"}"#;
+
+        let range = commit_range_from_event(Some("push"), None, None, Some(payload)).unwrap();
+
+        assert_eq!(range, "def^!");
+    }
+
+    #[test]
+    fn push_event_without_payload_checks_github_sha_only() {
+        let range = commit_range_from_event(Some("push"), None, Some("def"), None).unwrap();
+
+        assert_eq!(range, "def^!");
     }
 }
