@@ -130,6 +130,18 @@ LaneFlow 默认使用 **Rebase and merge** 将 PR 合入 `main`。
 - 常规功能、修复、文档、治理 PR → **Rebase and merge**。
 - PR 内 commit 已具备独立意义且 message 符合 `docs/reference/commit-convention.md` → **Rebase and merge**。
 
+PR commit message 应使用 Conventional Commits 标题，并在正文保留 LaneFlow 治理字段：
+
+- `Gate`
+- `Slice`
+- `Impact`
+- `Scope`
+- `Validation`
+- `Docs`
+- `Refs` 或 `Closes`
+
+CI 会校验 PR commit 标题和必需治理字段。若确需例外，必须在 PR 中说明原因，并按 `development-gates.md` 的例外治理规则记录。
+
 例外（须在 PR 或 Issue 中说明原因）：
 
 - **Squash and merge**：PR 内含多个无独立意义的 wip commit，或明确要求 `main` 上 1 个 PR 对应 1 个 commit。
@@ -151,6 +163,7 @@ CI 的初始目标是保证基础质量，不追求一次到位。
 
 - 仓库中关键治理文档文件存在。
 - Markdown 文件非空。
+- PR / push commit message 符合 `docs/reference/commit-convention.md`。
 - Rust workspace 格式检查通过：`cargo fmt --all -- --check`。
 - Rust workspace 测试通过：`cargo test --workspace --locked`。
 

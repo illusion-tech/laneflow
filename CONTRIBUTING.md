@@ -74,18 +74,19 @@ LaneFlow 默认使用 **Rebase and merge** 合入 `main`，详见 `docs/governan
 推荐格式：
 
 ```text
-LF-12: 补充 lane graph 设计基线
+feat(core): 校验 route segment 连续性
 
 Gate: G3 Pass
-Type: data-spec
-Impact: core-api=none; data-format=changed; adapter-api=none
-Scope: 文档化 lane node、lane edge、连接关系与校验规则
-Validation: 仅文档审阅
+Slice: core-runtime
+Impact: core-api=changed; data-format=none; adapter-api=none
+Scope: 增加 route edge sequence 连通性校验
+Validation: cargo +1.96.0 test --workspace --locked
 Docs: updated
-Issue: refs #12
+
+Refs: #12
 ```
 
-只有满足 G4 完成边界时，才使用 `closes #<id>`。
+提交标题遵循 Conventional Commits，正文保留 LaneFlow 治理字段。只有满足 G4 完成边界时，才使用 `Closes: #<id>`；否则使用 `Refs: #<id>`。
 
 ## 7. 文档要求
 
@@ -119,4 +120,3 @@ AI Agent 可以参与设计、实现、测试和文档维护，但应遵守 `doc
 Agent 不应在未读取相关设计文档的情况下修改 Core API、数据格式或 Adapter 协议。
 
 通用 Agent 工作流位于 `.agents/skills/`。Cursor 的 `.cursor/skills/` 只作为薄包装入口，规范本体仍以 `.agents/` 和 `docs/` 为准。
-
