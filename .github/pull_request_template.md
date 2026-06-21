@@ -55,6 +55,7 @@
 
 - [ ] 已覆盖关联 Issue 的验收标准，或剩余范围已拆成后续 Issue。
 - [ ] 文档已更新，或本 PR 已说明为何无需更新。
+- [ ] PR commits 符合 `docs/reference/commit-convention.md`（Conventional Commits 标题 + LaneFlow 治理字段），或已记录显式例外。
 - [ ] 本 PR 未在只完成子切片的情况下声称父任务已完成。
 - [ ] 合并方式：默认 **Rebase and merge**；若使用 Squash / Merge commit，已在 PR 中说明原因。
 - [ ] 未把 G0-G3 首次记录推迟到 G4 清场阶段；若存在补救记录，已说明流程遗漏原因。

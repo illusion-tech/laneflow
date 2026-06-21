@@ -23,6 +23,5 @@
 
 ## 当前文档
 
-- `commit-convention.md`：提交信息规范，用于记录 Issue、Gate、切片类型、影响范围、验证结果和文档回写状态；并说明 PR 默认使用 Rebase and merge。
+- `commit-convention.md`：提交信息规范，以 Conventional Commits 标题为基础，用 `Gate`、`Slice`、`Impact`、`Validation` 等字段记录 LaneFlow 治理状态；并说明 PR 默认使用 Rebase and merge。
 - `validation-matrix.md`：切片类型到最小验证要求的矩阵，用于 `G3` 合并闸口判断。
-

@@ -62,7 +62,28 @@ Issue Gate Ledger 模板：
 
 遵循 `docs/reference/commit-convention.md`。
 
-只有关联 Issue 满足 G4 完成边界时，才使用 `closes #<id>`；否则使用 `refs #<id>`。
+提交标题使用 Conventional Commits：
+
+```text
+<type>(<scope>): <description>
+```
+
+提交正文保留 LaneFlow 治理字段：
+
+```text
+Gate: G3 Pass
+Slice: governance
+Impact: core-api=none; data-format=none; adapter-api=none
+Scope: <what changed>
+Validation: <commands or manual checks>
+Docs: updated
+
+Refs: #<id>
+```
+
+只有关联 Issue 满足 G4 完成边界时，才使用 `Closes: #<id>`；否则使用 `Refs: #<id>`。
+
+PR commit message 必须符合 `docs/reference/commit-convention.md`；若存在例外，必须在 PR 中记录原因、风险和 Cleanup owner。
 
 ## PR 合并
 

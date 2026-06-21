@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check required governance files
         shell: bash
@@ -60,6 +62,8 @@ jobs:
             "docs/reference/README.md"
             "docs/reference/commit-convention.md"
             "docs/reference/validation-matrix.md"
+            "xtask/Cargo.toml"
+            "xtask/src/main.rs"
           )
 
           for file in "${required_files[@]}"; do
@@ -79,6 +83,21 @@ jobs:
               exit 1
             fi
           done < <(find README.md AGENTS.md CONTRIBUTING.md docs .github .agents .cursor -name '*.md' -type f)
+
+      - name: Fetch base branch for commit message checks
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --prune origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+
+      - name: Install Rust MSRV toolchain for governance tools
+        shell: bash
+        run: rustup toolchain install 1.96.0 --profile minimal
+
+      - name: Check commit messages
+        shell: bash
+        run: cargo +1.96.0 run -p xtask -- check-commit-messages
   rust:
     name: Rust checks
     runs-on: ubuntu-latest
