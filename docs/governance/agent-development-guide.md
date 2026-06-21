@@ -38,7 +38,7 @@ AI Agent 应遵守以下流程：
 6. 运行与变更匹配的检查。
 7. 在 PR 或交付说明中记录测试、风险和未覆盖范围。
 
-提交信息应遵守 `docs/reference/commit-convention.md`，标题使用 Conventional Commits，正文至少记录 `Gate`、`Slice`、影响范围、验证结果和 Issue 关系。
+提交信息应遵守 `docs/reference/commit-convention.md`，标题使用 Conventional Commits，正文必须包含 `Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`，底部 footer 必须包含 `Refs` 或 `Closes`。
 
 ## 4. Core 开发规则
 
