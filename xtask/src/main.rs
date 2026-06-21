@@ -241,8 +241,24 @@ fn has_refs_or_closes(message: &str) -> bool {
     message.lines().any(|line| {
         line.strip_prefix("Refs: ")
             .or_else(|| line.strip_prefix("Closes: "))
-            .is_some_and(|value| value.starts_with('#') || value.starts_with("pending"))
+            .is_some_and(valid_issue_footer_value)
     })
+}
+
+fn valid_issue_footer_value(value: &str) -> bool {
+    valid_issue_reference(value) || valid_pending_reason(value)
+}
+
+fn valid_issue_reference(value: &str) -> bool {
+    value
+        .strip_prefix('#')
+        .is_some_and(|digits| !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit()))
+}
+
+fn valid_pending_reason(value: &str) -> bool {
+    value
+        .strip_prefix("pending,")
+        .is_some_and(|reason| !reason.trim().is_empty())
 }
 
 #[cfg(test)]
@@ -277,6 +293,34 @@ Refs: #23
 
         assert!(errors.iter().any(|error| error.contains("标题不符合")));
         assert!(errors.iter().any(|error| error.contains("`Slice`")));
+    }
+
+    #[test]
+    fn rejects_non_numeric_issue_reference() {
+        let message = VALID_MESSAGE.replace("Refs: #23", "Refs: #abc");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("Refs")));
+    }
+
+    #[test]
+    fn accepts_pending_issue_reason() {
+        let message = VALID_MESSAGE.replace(
+            "Refs: #23",
+            "Refs: pending, initial repository governance bootstrap",
+        );
+
+        assert!(validate_message("0123456789abcdef", &message).is_empty());
+    }
+
+    #[test]
+    fn rejects_pending_without_reason() {
+        let message = VALID_MESSAGE.replace("Refs: #23", "Refs: pending");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("Refs")));
     }
 
     #[test]

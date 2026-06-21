@@ -122,7 +122,7 @@ LaneFlow 默认使用 **Rebase and merge** 将 PR 合入 `main`。
 原因：
 
 - 保持 `main` 历史线性、清晰。
-- 保留 PR 内各 commit 的治理说明（`Gate`、`Type`、`Impact` 等）。
+- 保留 PR 内各 commit 的治理说明（`Gate`、`Slice`、`Impact` 等）。
 - 避免为常规功能 PR 增加多余的 merge commit 节点。
 
 默认规则：
