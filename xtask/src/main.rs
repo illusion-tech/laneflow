@@ -207,6 +207,9 @@ fn git<const N: usize>(args: [&str; N]) -> Result<String, String> {
 fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
     let title = message.lines().next().unwrap_or_default();
     let mut errors = Vec::new();
+    let has_breaking_bang = title_has_breaking_bang(title);
+    let breaking_change_footer_count = breaking_change_footer_count(message);
+    let has_breaking_change_footer = breaking_change_footer_count > 0;
 
     if !valid_conventional_title(title) {
         errors.push("标题不符合 Conventional Commits".to_string());
@@ -235,6 +238,25 @@ fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
 
     if !has_valid_docs(message) {
         errors.push("`Docs` 必须是 updated、not required 或 pending <reason>".to_string());
+    }
+
+    if has_breaking_bang && !has_breaking_change_footer {
+        errors.push("标题包含 `!` 时必须提供 `BREAKING CHANGE: ` footer".to_string());
+    }
+
+    if has_breaking_change_footer && !has_breaking_bang {
+        errors.push("`BREAKING CHANGE: ` footer 必须与标题 `!` 同时使用".to_string());
+    }
+
+    if has_breaking_change_footer && !has_single_valid_breaking_change_footer(message) {
+        errors.push(
+            "`BREAKING CHANGE: ` footer 格式不正确，必须在 `Refs:` / `Closes:` 前提供单行非空说明"
+                .to_string(),
+        );
+    }
+
+    if (has_breaking_bang || has_breaking_change_footer) && !has_changed_impact(message) {
+        errors.push("破坏性变更必须将 `Impact` 至少一项标为 changed".to_string());
     }
 
     if let Err(error) = validate_issue_footer(message) {
@@ -272,6 +294,12 @@ fn valid_conventional_title(title: &str) -> bool {
     ALLOWED_TYPES.contains(&commit_type) && scope.is_none_or(valid_scope)
 }
 
+fn title_has_breaking_bang(title: &str) -> bool {
+    title
+        .split_once(": ")
+        .is_some_and(|(prefix, _description)| prefix.ends_with('!'))
+}
+
 fn valid_scope(scope: &str) -> bool {
     let mut chars = scope.chars();
     match chars.next() {
@@ -296,7 +324,7 @@ fn has_valid_governance_block(message: &str) -> bool {
     let lines = message.lines().collect::<Vec<_>>();
     let field_start = 2;
     let blank_before_footer = field_start + REQUIRED_FIELDS.len();
-    let footer_index = blank_before_footer + 1;
+    let footer_start = blank_before_footer + 1;
 
     if lines.get(1).is_none_or(|line| !line.trim().is_empty()) {
         return false;
@@ -322,10 +350,20 @@ fn has_valid_governance_block(message: &str) -> bool {
         return false;
     };
 
-    last_non_empty_index == footer_index
-        && lines
-            .get(footer_index)
-            .is_some_and(|line| valid_issue_footer_line(line))
+    if !lines
+        .get(last_non_empty_index)
+        .is_some_and(|line| valid_issue_footer_line(line))
+    {
+        return false;
+    }
+
+    match last_non_empty_index.checked_sub(footer_start) {
+        Some(0) => true,
+        Some(1) => lines
+            .get(footer_start)
+            .is_some_and(|line| valid_breaking_change_footer_line(line)),
+        _ => false,
+    }
 }
 
 fn has_valid_slice(message: &str) -> bool {
@@ -344,6 +382,20 @@ fn has_valid_impact(message: &str) -> bool {
             && matches!(parts[0], "core-api=none" | "core-api=changed")
             && matches!(parts[1], "data-format=none" | "data-format=changed")
             && matches!(parts[2], "adapter-api=none" | "adapter-api=changed")
+    })
+}
+
+fn has_changed_impact(message: &str) -> bool {
+    message.lines().any(|line| {
+        let Some(value) = field_value(line, "Impact") else {
+            return false;
+        };
+        value.split("; ").any(|part| {
+            matches!(
+                part,
+                "core-api=changed" | "data-format=changed" | "adapter-api=changed"
+            )
+        })
     })
 }
 
@@ -425,6 +477,30 @@ fn valid_issue_footer_line(line: &str) -> bool {
     valid_refs_footer_line(line) || valid_closes_footer_line(line)
 }
 
+fn valid_breaking_change_footer_line(line: &str) -> bool {
+    line.strip_prefix("BREAKING CHANGE: ")
+        .is_some_and(|description| !description.trim().is_empty())
+}
+
+fn breaking_change_footer_count(message: &str) -> usize {
+    message
+        .lines()
+        .filter(|line| line.starts_with("BREAKING CHANGE:"))
+        .count()
+}
+
+fn has_single_valid_breaking_change_footer(message: &str) -> bool {
+    let mut breaking_change_lines = message
+        .lines()
+        .filter(|line| line.starts_with("BREAKING CHANGE:"));
+
+    let Some(line) = breaking_change_lines.next() else {
+        return false;
+    };
+
+    breaking_change_lines.next().is_none() && valid_breaking_change_footer_line(line)
+}
+
 fn is_issue_footer_candidate(line: &str) -> bool {
     line.starts_with("Refs:") || line.starts_with("Closes:")
 }
@@ -458,9 +534,105 @@ Docs: updated
 Refs: #23
 ";
 
+    const BREAKING_MESSAGE: &str = "\
+feat(core)!: 调整 tick API
+
+Gate: G3 Pass
+Slice: core-runtime
+Impact: core-api=changed; data-format=none; adapter-api=none
+Scope: 将 TickInput.delta_time_ms 固化为必填字段
+Validation: cargo +1.96.0 test --workspace --locked
+Docs: updated
+
+BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。
+Refs: #12
+";
+
     #[test]
     fn accepts_lane_flow_commit_message() {
         assert!(validate_message("0123456789abcdef", VALID_MESSAGE).is_empty());
+    }
+
+    #[test]
+    fn accepts_breaking_change_with_bang_footer_and_changed_impact() {
+        assert!(validate_message("0123456789abcdef", BREAKING_MESSAGE).is_empty());
+    }
+
+    #[test]
+    fn rejects_breaking_bang_without_breaking_change_footer() {
+        let message = BREAKING_MESSAGE.replace(
+            "\nBREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。",
+            "",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("必须提供")));
+    }
+
+    #[test]
+    fn rejects_breaking_change_footer_without_bang() {
+        let message = BREAKING_MESSAGE.replace("feat(core)!:", "feat(core):");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("必须与标题 `!` 同时使用"))
+        );
+    }
+
+    #[test]
+    fn rejects_breaking_change_with_unchanged_impact() {
+        let message = BREAKING_MESSAGE.replace(
+            "Impact: core-api=changed; data-format=none; adapter-api=none",
+            "Impact: core-api=none; data-format=none; adapter-api=none",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("至少一项标为 changed"))
+        );
+    }
+
+    #[test]
+    fn rejects_empty_breaking_change_footer() {
+        let message = BREAKING_MESSAGE.replace(
+            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。",
+            "BREAKING CHANGE: ",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("格式不正确")));
+    }
+
+    #[test]
+    fn rejects_breaking_change_after_issue_footer() {
+        let message = BREAKING_MESSAGE.replace(
+            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nRefs: #12",
+            "Refs: #12\nBREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("最后一个非空行")));
+    }
+
+    #[test]
+    fn rejects_multiple_breaking_change_footers() {
+        let message = BREAKING_MESSAGE.replace(
+            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。",
+            "BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。\nBREAKING CHANGE: 第二条破坏性说明",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("格式不正确")));
     }
 
     #[test]
