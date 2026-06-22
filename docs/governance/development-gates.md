@@ -51,6 +51,37 @@ Gate Ledger 是 Issue 和 PR 上的增量闸口记录，用来说明任务何时
 - [ ] G4 完成判断已记录：回写合并后收口结果
 ```
 
+## GitHub 元数据 / 依赖关系审计
+
+Issue 的 GitHub 元数据和依赖关系是 Gate 判断的一部分，不得只依赖 Issue 正文中的任务描述。
+
+每个可执行 Issue 至少应记录并在推进 Gate 时复核：
+
+- `Project` 与 Project status。
+- `Milestone`；不适用时必须写明 `N/A` 原因。
+- `Labels`。
+- `Parent / sub-issues`；不适用时必须写明 `N/A` 原因。
+- `Blocked by`；不适用时必须写明 `N/A` 原因。
+- `Blocking`；不适用时必须写明 `N/A` 原因。
+- `Development PR`；PR 创建前可写 `pending`，进入 G3 前必须关联 PR 或说明不适用原因。
+
+推荐记录格式：
+
+```text
+## GitHub 元数据 / 依赖关系审计
+
+- Project：
+- Project status：
+- Milestone：milestone-name / N/A，原因：
+- Labels：
+- Parent / sub-issues：issue-links / N/A，原因：
+- Blocked by：issue-links / N/A，原因：
+- Blocking：issue-links / N/A，原因：
+- Development PR：pending / PR-number / N/A，原因：
+```
+
+字段缺失且没有 `N/A` 原因时，不得推进下一 Gate。若因 GitHub 权限或平台限制无法设置某项元数据，必须记录原因、风险、临时接受边界、后续清理 Issue 和 Cleanup owner。
+
 ## 3. G0 立项闸口
 
 目标：确认是否需要进入开发，以及最小交付边界是什么。
@@ -64,12 +95,14 @@ Gate Ledger 是 Issue 和 PR 上的增量闸口记录，用来说明任务何时
 - 影响范围
 - 是否需要 ADR 或 design 文档
 - 是否需要拆分子 Issue
+- GitHub 元数据 / 依赖关系审计
 
 通过标准：
 
 - 已有 GitHub Issue。
 - 任务边界足够小，可以独立评审。
 - 验收标准可验证。
+- Project、labels、milestone、parent/sub-issues、blocked by、blocking 已记录；不适用项已有 `N/A` 原因。
 - Issue Gate Ledger 中已有 G0 记录。
 
 ## 4. G1 设计冻结闸口
@@ -108,6 +141,7 @@ G1 证据可以是：
 - 已阅读相关 ADR 和 design 文档。
 - 已知道本次是否影响 Core、data spec、Adapter 或 example。
 - 已知道需要补哪些测试和文档。
+- 已复核 GitHub 元数据 / 依赖关系，Project status 与当前 Gate 一致。
 - Issue Gate Ledger 中已有 G2 记录。
 
 如果实现中发现设计输入不稳定，应暂停扩展实现，回到 G1 补设计或拆子切片。
@@ -125,6 +159,7 @@ G1 证据可以是：
 - 文档更新情况
 - 测试与验证结果
 - 已知风险与例外
+- 关联 Issue 的 GitHub 元数据 / 依赖关系审计状态，以及 Development PR 关联状态
 
 按切片类型追加要求：
 
@@ -145,6 +180,7 @@ G1 证据可以是：
 - 必需测试未运行且没有原因。
 - 例外没有清理责任或后续 Issue。
 - 缺少 G0-G2 Gate Ledger，且没有记录为显式例外或补救。
+- 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计，且没有 `N/A` 原因或显式例外。
 - PR commit message 不符合 `docs/reference/commit-convention.md`，且没有记录显式例外。
 
 PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
@@ -165,6 +201,7 @@ Issue 关闭前必须满足：
 - 父 Issue 只在所有子 Issue 完成后关闭。
 - G4 记录已回写关联 Issue。
 - Project 中关联 Issue 和 PR 均已移动到 `Done`，或说明为什么不适用。
+- Development PR、parent/sub-issues、blocked by、blocking 已收口，或剩余关系已拆出后续 Issue 并记录原因。
 - 本地和远端 PR 分支已清理，或说明保留原因。
 - 临时权限、ruleset bypass 或 admin override 已撤回，或说明保留原因、风险和 Cleanup owner。
 

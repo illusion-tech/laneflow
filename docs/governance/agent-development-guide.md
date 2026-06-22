@@ -31,12 +31,13 @@ AI Agent 开工前应读取：
 AI Agent 应遵守以下流程：
 
 1. 确认任务类型和影响范围。
-2. 检查是否需要 ADR 或 design 文档。
-3. 读取现有代码和测试。
-4. 制定小范围实现计划。
-5. 修改代码或文档。
-6. 运行与变更匹配的检查。
-7. 在 PR 或交付说明中记录测试、风险和未覆盖范围。
+2. 审计当前 Issue 的 GitHub 元数据 / 依赖关系，包括 Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking 和 Development PR；缺失项必须有 `N/A` 原因或显式例外。
+3. 检查是否需要 ADR 或 design 文档。
+4. 读取现有代码和测试。
+5. 制定小范围实现计划。
+6. 修改代码或文档。
+7. 运行与变更匹配的检查。
+8. 在 PR 或交付说明中记录测试、风险和未覆盖范围。
 
 提交信息应遵守 `docs/reference/commit-convention.md`，标题使用 Conventional Commits，正文必须包含 `Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`，底部 footer 必须包含 `Refs` 或 `Closes`。
 
@@ -84,7 +85,7 @@ Agent 修改文档时应注意：
 Agent 应根据切片类型选择验证：
 
 - `docs-only`：Markdown 和链接基本检查。
-- `governance`：模板、路径和引用检查。
+- `governance`：模板、路径、引用和 Issue 元数据 / 依赖关系审计一致性检查。
 - `core-runtime`：单元测试、确定性行为测试。
 - `data-spec`：schema validation、示例数据检查。
 - `adapter`：adapter build、手工运行说明或截图。

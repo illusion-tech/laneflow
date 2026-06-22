@@ -29,7 +29,10 @@ Issue 应至少说明：
 - 验收标准
 - 影响范围
 - 关联文档
+- GitHub 元数据 / 依赖关系审计：Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Development PR
 - Gate Ledger：G0/G1/G2 在 Issue 阶段增量记录，G3/G4 后续由 PR 和收口流程回写
+
+Issue 创建或接手时必须审计 GitHub 侧边栏和关系字段，而不是只读取 Issue 正文。若 Milestone、parent/sub-issues、blocked by、blocking 或 Development PR 暂不适用，必须在 Issue 中写明 `N/A` 原因。缺少必需元数据且没有 `N/A` 原因时，不得推进到下一 Gate。
 
 推荐 Issue 类型（与 `.github/ISSUE_TEMPLATE/` 对应）：
 
@@ -41,6 +44,8 @@ Issue 应至少说明：
 - `适配器`（Adapter）：引擎适配层变更
 - `文档`（Docs）：文档与治理变更
 - `调研`（Research）：尚未确定是否实现的探索
+
+仓库默认关闭 blank issue。若必须通过非模板方式记录紧急事项，接手者必须在推进 G0 前补齐模板中的 GitHub 元数据 / 依赖关系审计和 Gate Ledger。
 
 ## 3. Project 规则
 
@@ -56,9 +61,9 @@ GitHub Project 用于管理当前状态。推荐列：
 状态与 Gate 对应关系：
 
 - `Backlog`：尚未通过 G0，或只记录候选想法。
-- `Ready`：G0 已记录；需要 G1 的任务已完成 G1，不需要 G1 的任务已记录不适用原因。
-- `In Progress`：G2 已记录，任务已经进入实现或文档修改。
-- `In Review`：已有 PR 或审查材料，G3 判断应在 PR 中维护。
+- `Ready`：G0 已记录，GitHub 元数据 / 依赖关系审计已完成；需要 G1 的任务已完成 G1，不需要 G1 的任务已记录不适用原因。
+- `In Progress`：G2 已记录，GitHub 元数据 / 依赖关系已复核，任务已经进入实现或文档修改。
+- `In Review`：已有 PR 或审查材料，Development PR 已关联或说明不适用原因，G3 判断应在 PR 中维护。
 - `Blocked`：当前 Gate 被阻断，必须记录阻断原因、风险和恢复条件。
 - `Done`：G4 已完成，Issue 和 PR 的收口证据完整。
 
@@ -109,11 +114,14 @@ Milestone 用于表达版本边界，而不是单个大任务。
 - 说明是否影响 Core API。
 - 说明是否影响数据格式。
 - 说明是否影响 Adapter 协议。
+- 复核关联 Issue 的 Project、Milestone、labels、parent/sub-issues、blocked by、blocking 和 Development PR 关联状态。
 - 记录测试、构建和文档检查结果。
 - 记录已知风险和例外。
 - 记录或链接 G3 合并判断：checks、review、验证、风险、例外和合并方式。
 
 不得用父任务标题合入只覆盖部分能力的实现。部分交付必须明确子切片边界。
+
+分支不是长期 Development 关系证据。PR 创建后，应通过 GitHub Development 关系或 PR 正文稳定关联 Issue；若无法自动关联，必须在 PR 中说明原因并保留可追踪链接。
 
 ## 7. PR 合并策略
 
@@ -194,6 +202,7 @@ G4 清场必须完成：
 - 勾选 Issue 验收 checklist。
 - 在 Issue Gate Ledger 中补充 G4 记录。
 - 将 Project 中关联 Issue 和 PR 移动到 `Done`。
+- 确认 Development PR、parent/sub-issues、blocked by、blocking 已收口；无法收口的剩余关系必须拆出后续 Issue，并记录原因、风险和 Cleanup owner。
 - 删除远端 PR 分支并 prune 本地 remote-tracking 分支。
 - 切回并更新本地 `main`。
 - 撤回临时 ruleset bypass、admin override 或其他临时权限；若不能撤回，记录保留原因、风险和 Cleanup owner。
