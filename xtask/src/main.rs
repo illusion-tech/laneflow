@@ -98,9 +98,12 @@ fn commit_range_from_event(
             Ok(format!("origin/{base_ref}..HEAD"))
         }
         Some("push") => {
-            let event = event_payload.unwrap_or_default();
-            let after = json_string_value(event, "after")
+            let event = event_payload.and_then(push_event_payload);
+            let after = event
+                .as_ref()
+                .and_then(|event| event.after.as_deref())
                 .filter(|value| is_non_zero_value(value))
+                .map(ToOwned::to_owned)
                 .or_else(|| {
                     non_empty_value(github_sha)
                         .filter(|value| is_non_zero_value(value))
@@ -108,8 +111,8 @@ fn commit_range_from_event(
                 })
                 .ok_or("push 事件缺少可用的 after 或 GITHUB_SHA，无法推导 commit range")?;
 
-            match json_string_value(event, "before") {
-                Some(before) if is_non_zero_value(&before) => Ok(format!("{before}..{after}")),
+            match event.as_ref().and_then(|event| event.before.as_deref()) {
+                Some(before) if is_non_zero_value(before) => Ok(format!("{before}..{after}")),
                 _ => Ok(format!("{after}^!")),
             }
         }
@@ -128,14 +131,14 @@ fn github_event_payload() -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
 
-fn json_string_value(payload: &str, key: &str) -> Option<String> {
-    let pattern = format!("\"{key}\"");
-    let start = payload.find(&pattern)? + pattern.len();
-    let after_key = payload[start..].trim_start();
-    let after_colon = after_key.strip_prefix(':')?.trim_start();
-    let value = after_colon.strip_prefix('"')?;
-    let end = value.find('"')?;
-    Some(value[..end].to_string())
+#[derive(serde::Deserialize)]
+struct PushEventPayload {
+    before: Option<String>,
+    after: Option<String>,
+}
+
+fn push_event_payload(payload: &str) -> Option<PushEventPayload> {
+    serde_json::from_str(payload).ok()
 }
 
 fn is_zero_oid(value: &str) -> bool {
@@ -555,14 +558,24 @@ Refs: #23
     }
 
     #[test]
-    fn extracts_simple_json_string_value() {
-        let payload = r#"{"before":"abc","after":"def"}"#;
+    fn extracts_top_level_push_event_payload_fields() {
+        let payload = r#"{
+            "head_commit": {
+                "message": "commit message mentions \"before\" and \"after\""
+            },
+            "commits": [
+                {
+                    "before": "nested-before",
+                    "after": "nested-after"
+                }
+            ],
+            "before": "abc",
+            "after": "def"
+        }"#;
+        let event = push_event_payload(payload).expect("payload should parse");
 
-        assert_eq!(
-            json_string_value(payload, "before"),
-            Some("abc".to_string())
-        );
-        assert_eq!(json_string_value(payload, "after"), Some("def".to_string()));
+        assert_eq!(event.before.as_deref(), Some("abc"));
+        assert_eq!(event.after.as_deref(), Some("def"));
     }
 
     #[test]
@@ -590,7 +603,17 @@ Refs: #23
 
     #[test]
     fn push_event_uses_before_after_range() {
-        let payload = r#"{"before":"abc","after":"def"}"#;
+        let payload = r#"{
+            "head_commit": {
+                "message": "commit message mentions \"before\" and \"after\""
+            },
+            "nested": {
+                "before": "nested-before",
+                "after": "nested-after"
+            },
+            "before": "abc",
+            "after": "def"
+        }"#;
 
         let range = commit_range_from_event(Some("push"), None, None, Some(payload)).unwrap();
 
