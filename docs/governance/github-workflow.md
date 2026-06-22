@@ -32,7 +32,7 @@ Issue 应至少说明：
 - GitHub 元数据 / 依赖关系审计：Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Development PR
 - Gate Ledger：G0/G1/G2 在 Issue 阶段增量记录，G3/G4 后续由 PR 和收口流程回写
 
-Issue 创建或接手时必须审计 GitHub 侧边栏和关系字段，而不是只读取 Issue 正文。若 Milestone、Parent / sub-issues、Blocked by 或 Blocking 暂不适用，必须在 Issue 中写明 `N/A` 原因。Development PR 若尚未创建但预计需要 PR，应记录为 `pending`；PR 创建后必须关联 PR；仅当该 Issue 确实不通过 PR 交付时，才可记录为 `N/A` 并说明原因。缺少必需元数据、Development PR 缺少 `pending` / PR / `N/A` 记录，或不适用项没有 `N/A` 原因时，不得推进到下一 Gate。
+Issue 创建或接手时必须审计 GitHub 侧边栏和关系字段，而不是只读取 Issue 正文。若 Milestone、Parent / sub-issues、Blocked by 或 Blocking 暂不适用，必须在 Issue 中写明 `N/A` 原因。Development PR 若尚未创建但预计需要 PR，应记录为 `pending`；PR 创建后必须关联 `PR-number`（例如 `#27`）；仅当该 Issue 确实不通过 PR 交付时，才可记录为 `N/A` 并说明原因。缺少必需元数据、Development PR 缺少 `pending` / `PR-number` / `N/A` 记录，或不适用项没有 `N/A` 原因时，不得推进到下一 Gate。
 
 推荐 Issue 类型（与 `.github/ISSUE_TEMPLATE/` 对应）：
 
