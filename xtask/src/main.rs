@@ -191,6 +191,13 @@ fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
         }
     }
 
+    if !has_valid_governance_block(message) {
+        errors.push(
+            "`Gate`/`Slice`/`Impact`/`Scope`/`Validation`/`Docs` 必须作为连续治理字段块；标题后空一行，`Docs` 后空一行并接最后的 `Refs:`/`Closes:` footer"
+                .to_string(),
+        );
+    }
+
     if !has_valid_slice(message) {
         errors.push("`Slice` 缺失或不是支持的 LaneFlow 切片类型".to_string());
     }
@@ -256,6 +263,42 @@ fn has_non_empty_field(message: &str, field: &str) -> bool {
 
 fn field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
     line.strip_prefix(field)?.strip_prefix(": ")
+}
+
+fn has_valid_governance_block(message: &str) -> bool {
+    let lines = message.lines().collect::<Vec<_>>();
+    let field_start = 2;
+    let blank_before_footer = field_start + REQUIRED_FIELDS.len();
+    let footer_index = blank_before_footer + 1;
+
+    if lines.get(1).is_none_or(|line| !line.trim().is_empty()) {
+        return false;
+    }
+
+    for (offset, field) in REQUIRED_FIELDS.iter().enumerate() {
+        let Some(line) = lines.get(field_start + offset) else {
+            return false;
+        };
+        if field_value(line, field).is_none_or(|value| value.trim().is_empty()) {
+            return false;
+        }
+    }
+
+    if lines
+        .get(blank_before_footer)
+        .is_none_or(|line| !line.trim().is_empty())
+    {
+        return false;
+    }
+
+    let Some(last_non_empty_index) = lines.iter().rposition(|line| !line.trim().is_empty()) else {
+        return false;
+    };
+
+    last_non_empty_index == footer_index
+        && lines
+            .get(footer_index)
+            .is_some_and(|line| valid_issue_footer_line(line))
 }
 
 fn has_valid_slice(message: &str) -> bool {
@@ -391,6 +434,62 @@ Refs: #23
     #[test]
     fn accepts_lane_flow_commit_message() {
         assert!(validate_message("0123456789abcdef", VALID_MESSAGE).is_empty());
+    }
+
+    #[test]
+    fn rejects_missing_blank_line_after_title() {
+        let message = VALID_MESSAGE.replace(
+            "docs(governance): 对齐提交规范\n\nGate: G3 Pass",
+            "docs(governance): 对齐提交规范\nGate: G3 Pass",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("连续治理字段块")));
+    }
+
+    #[test]
+    fn rejects_blank_line_between_governance_fields() {
+        let message = VALID_MESSAGE.replace(
+            "Gate: G3 Pass\nSlice: governance",
+            "Gate: G3 Pass\n\nSlice: governance",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("连续治理字段块")));
+    }
+
+    #[test]
+    fn rejects_governance_fields_out_of_order() {
+        let message = VALID_MESSAGE.replace(
+            "Gate: G3 Pass\nSlice: governance",
+            "Slice: governance\nGate: G3 Pass",
+        );
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("连续治理字段块")));
+    }
+
+    #[test]
+    fn rejects_missing_blank_line_before_issue_footer() {
+        let message =
+            VALID_MESSAGE.replace("Docs: updated\n\nRefs: #23", "Docs: updated\nRefs: #23");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("连续治理字段块")));
+    }
+
+    #[test]
+    fn rejects_extra_blank_line_before_issue_footer() {
+        let message =
+            VALID_MESSAGE.replace("Docs: updated\n\nRefs: #23", "Docs: updated\n\n\nRefs: #23");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("连续治理字段块")));
     }
 
     #[test]
