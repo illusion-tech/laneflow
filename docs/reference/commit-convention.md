@@ -30,7 +30,7 @@ Docs: updated / not required / pending <reason>
 Refs: #<id>
 ```
 
-治理字段使用严格格式：字段名后必须是冒号和一个空格（例如 `Slice: governance`），`Impact` 必须按 `core-api`、`data-format`、`adapter-api` 顺序记录，并使用 `; ` 分隔。
+治理字段使用严格格式：字段名后必须是冒号和一个空格（例如 `Slice: governance`）。`Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs` 必须按推荐格式连续排列，中间不得插入空行；标题后保留一个空行，`Docs` 后保留一个空行并接底部 `Refs` 或 `Closes` footer。`Impact` 必须按 `core-api`、`data-format`、`adapter-api` 顺序记录，并使用 `; ` 分隔。
 
 示例：
 
@@ -264,6 +264,7 @@ PR commit message 应通过仓库 CI 的提交信息检查：
 
 - 标题符合 Conventional Commits 标题格式。
 - 正文包含 `Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`。
+- 治理字段块按推荐格式连续排列，字段之间没有额外空行。
 - 底部包含 `Refs` 或 `Closes`。
 - `Slice` 使用 LaneFlow 支持的切片类型。
 - `Impact` 同时覆盖 `core-api`、`data-format` 和 `adapter-api`。
