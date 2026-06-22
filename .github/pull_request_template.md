@@ -15,6 +15,12 @@
 - 本次 PR 变更：
 - 本次 PR 明确不做：
 
+## 关联 Issue 元数据 / 依赖关系审计
+
+- [ ] 关联 Issue 的 Project、Project status、Milestone、Labels 已核验，缺失项已有 N/A 原因或显式例外。
+- [ ] Parent / sub-issues、Blocked by、Blocking 已核验，缺失项已有 N/A 原因或显式例外。
+- [ ] Development PR 已关联，或已说明为什么不适用。
+
 ## 影响
 
 - Core API 影响：`无` / 说明：
@@ -54,6 +60,7 @@
 ## 完成边界
 
 - [ ] 已覆盖关联 Issue 的验收标准，或剩余范围已拆成后续 Issue。
+- [ ] 关联 Issue 的 GitHub 元数据 / 依赖关系审计已完成。
 - [ ] 文档已更新，或本 PR 已说明为何无需更新。
 - [ ] PR commits 符合 `docs/reference/commit-convention.md`（Conventional Commits 标题 + LaneFlow 治理字段），或已记录显式例外。
 - [ ] 本 PR 未在只完成子切片的情况下声称父任务已完成。
