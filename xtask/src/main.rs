@@ -203,8 +203,8 @@ fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
         errors.push("`Docs` 必须是 updated、not required 或 pending <reason>".to_string());
     }
 
-    if !has_refs_or_closes(message) {
-        errors.push("缺少 `Refs:` 或 `Closes:` footer".to_string());
+    if let Err(error) = validate_issue_footer(message) {
+        errors.push(error.message().to_string());
     }
 
     errors
@@ -288,23 +288,57 @@ fn has_valid_docs(message: &str) -> bool {
     })
 }
 
-fn has_refs_or_closes(message: &str) -> bool {
-    footer_lines(message)
-        .last()
-        .is_some_and(|line| valid_refs_footer_line(line) || valid_closes_footer_line(line))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IssueFooterError {
+    Missing,
+    InvalidFormat,
+    NotLast,
 }
 
-fn footer_lines(message: &str) -> Vec<&str> {
-    let lines = message.lines().collect::<Vec<_>>();
-    let Some(end) = lines.iter().rposition(|line| !line.trim().is_empty()) else {
-        return Vec::new();
-    };
-    let start = lines[..end]
-        .iter()
-        .rposition(|line| line.trim().is_empty())
-        .map_or(0, |index| index + 1);
+impl IssueFooterError {
+    fn message(self) -> &'static str {
+        match self {
+            Self::Missing => "缺少 `Refs:` 或 `Closes:` footer",
+            Self::InvalidFormat => {
+                "`Refs:` / `Closes:` footer 格式不正确，应使用 `Refs: #<id>`、`Refs: pending, <reason>` 或 `Closes: #<id>`"
+            }
+            Self::NotLast => "`Refs:` / `Closes:` footer 必须是提交信息最后一个非空行",
+        }
+    }
+}
 
-    lines[start..=end].to_vec()
+fn validate_issue_footer(message: &str) -> Result<(), IssueFooterError> {
+    let lines = message.lines().collect::<Vec<_>>();
+    let Some(last_non_empty_index) = lines.iter().rposition(|line| !line.trim().is_empty()) else {
+        return Err(IssueFooterError::Missing);
+    };
+
+    let mut has_issue_footer_candidate = false;
+    let mut has_valid_issue_footer_before_last_line = false;
+
+    for (index, line) in lines.iter().enumerate() {
+        if !is_issue_footer_candidate(line) {
+            continue;
+        }
+
+        has_issue_footer_candidate = true;
+        if valid_issue_footer_line(line) {
+            if index == last_non_empty_index {
+                return Ok(());
+            }
+            has_valid_issue_footer_before_last_line = true;
+        }
+    }
+
+    if is_issue_footer_candidate(lines[last_non_empty_index]) {
+        Err(IssueFooterError::InvalidFormat)
+    } else if has_valid_issue_footer_before_last_line {
+        Err(IssueFooterError::NotLast)
+    } else if has_issue_footer_candidate {
+        Err(IssueFooterError::InvalidFormat)
+    } else {
+        Err(IssueFooterError::Missing)
+    }
 }
 
 fn valid_refs_footer_line(line: &str) -> bool {
@@ -315,6 +349,14 @@ fn valid_refs_footer_line(line: &str) -> bool {
 fn valid_closes_footer_line(line: &str) -> bool {
     line.strip_prefix("Closes: ")
         .is_some_and(valid_issue_reference)
+}
+
+fn valid_issue_footer_line(line: &str) -> bool {
+    valid_refs_footer_line(line) || valid_closes_footer_line(line)
+}
+
+fn is_issue_footer_candidate(line: &str) -> bool {
+    line.starts_with("Refs:") || line.starts_with("Closes:")
 }
 
 fn valid_issue_reference(value: &str) -> bool {
@@ -491,7 +533,7 @@ Refs: #23
 
         let errors = validate_message("0123456789abcdef", &message);
 
-        assert!(errors.iter().any(|error| error.contains("Refs")));
+        assert!(errors.iter().any(|error| error.contains("格式不正确")));
     }
 
     #[test]
@@ -510,7 +552,7 @@ Refs: #23
 
         let errors = validate_message("0123456789abcdef", &message);
 
-        assert!(errors.iter().any(|error| error.contains("Refs")));
+        assert!(errors.iter().any(|error| error.contains("格式不正确")));
     }
 
     #[test]
@@ -529,7 +571,16 @@ Refs: #23
 
         let errors = validate_message("0123456789abcdef", &message);
 
-        assert!(errors.iter().any(|error| error.contains("Closes")));
+        assert!(errors.iter().any(|error| error.contains("格式不正确")));
+    }
+
+    #[test]
+    fn rejects_missing_issue_footer() {
+        let message = VALID_MESSAGE.replace("\nRefs: #23\n", "\n");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("缺少 `Refs:`")));
     }
 
     #[test]
@@ -539,7 +590,7 @@ Refs: #23
 
         let errors = validate_message("0123456789abcdef", &message);
 
-        assert!(errors.iter().any(|error| error.contains("Refs")));
+        assert!(errors.iter().any(|error| error.contains("最后一个非空行")));
     }
 
     #[test]
@@ -549,7 +600,7 @@ Refs: #23
 
         let errors = validate_message("0123456789abcdef", &message);
 
-        assert!(errors.iter().any(|error| error.contains("Refs")));
+        assert!(errors.iter().any(|error| error.contains("最后一个非空行")));
     }
 
     #[test]
