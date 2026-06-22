@@ -32,7 +32,7 @@ Issue 应至少说明：
 - GitHub 元数据 / 依赖关系审计：Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Development PR
 - Gate Ledger：G0/G1/G2 在 Issue 阶段增量记录，G3/G4 后续由 PR 和收口流程回写
 
-Issue 创建或接手时必须审计 GitHub 侧边栏和关系字段，而不是只读取 Issue 正文。若 Milestone、parent/sub-issues、blocked by、blocking 或 Development PR 暂不适用，必须在 Issue 中写明 `N/A` 原因。缺少必需元数据且没有 `N/A` 原因时，不得推进到下一 Gate。
+Issue 创建或接手时必须审计 GitHub 侧边栏和关系字段，而不是只读取 Issue 正文。若 Milestone、Parent / sub-issues、Blocked by、Blocking 或 Development PR 暂不适用，必须在 Issue 中写明 `N/A` 原因。缺少必需元数据且没有 `N/A` 原因时，不得推进到下一 Gate。
 
 推荐 Issue 类型（与 `.github/ISSUE_TEMPLATE/` 对应）：
 
@@ -114,7 +114,7 @@ Milestone 用于表达版本边界，而不是单个大任务。
 - 说明是否影响 Core API。
 - 说明是否影响数据格式。
 - 说明是否影响 Adapter 协议。
-- 复核关联 Issue 的 Project、Milestone、labels、parent/sub-issues、blocked by、blocking 和 Development PR 关联状态。
+- 复核关联 Issue 的 Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking 和 Development PR 关联状态。
 - 记录测试、构建和文档检查结果。
 - 记录已知风险和例外。
 - 记录或链接 G3 合并判断：checks、review、验证、风险、例外和合并方式。
@@ -202,7 +202,7 @@ G4 清场必须完成：
 - 勾选 Issue 验收 checklist。
 - 在 Issue Gate Ledger 中补充 G4 记录。
 - 将 Project 中关联 Issue 和 PR 移动到 `Done`。
-- 确认 Development PR、parent/sub-issues、blocked by、blocking 已收口；无法收口的剩余关系必须拆出后续 Issue，并记录原因、风险和 Cleanup owner。
+- 确认 Development PR、Parent / sub-issues、Blocked by、Blocking 已收口；无法收口的剩余关系必须拆出后续 Issue，并记录原因、风险和 Cleanup owner。
 - 删除远端 PR 分支并 prune 本地 remote-tracking 分支。
 - 切回并更新本地 `main`。
 - 撤回临时 ruleset bypass、admin override 或其他临时权限；若不能撤回，记录保留原因、风险和 Cleanup owner。
