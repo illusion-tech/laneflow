@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+
+commit_msg_file="${1:-}"
+if [ -z "$commit_msg_file" ]; then
+  echo "commit-msg hook 缺少 commit message 文件路径" >&2
+  exit 1
+fi
+
+cargo +1.96.0 run --locked -p xtask -- check-commit-message-file "$commit_msg_file"
