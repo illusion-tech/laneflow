@@ -80,7 +80,7 @@ Issue 的 GitHub 元数据和依赖关系是 Gate 判断的一部分，不得只
 - Development PR：pending / PR-number / N/A，原因：
 ```
 
-字段缺失且没有 `N/A` 原因时，不得推进下一 Gate。若因 GitHub 权限或平台限制无法设置某项元数据，必须记录原因、风险、临时接受边界、后续清理 Issue 和 Cleanup owner。
+必需元数据缺失且没有显式例外时，不得推进下一 Gate；不适用项缺少 `N/A` 原因时，同样不得推进。若因 GitHub 权限或平台限制无法设置某项必需元数据，必须记录原因、风险、临时接受边界、后续清理 Issue 和 Cleanup owner。
 
 ## 3. G0 立项闸口
 
@@ -102,7 +102,7 @@ Issue 的 GitHub 元数据和依赖关系是 Gate 判断的一部分，不得只
 - 已有 GitHub Issue。
 - 任务边界足够小，可以独立评审。
 - 验收标准可验证。
-- Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking 已记录；不适用项已有 `N/A` 原因；Development PR 已记录为 `pending` 或已有 `N/A` 原因。
+- Project、Project status、Labels 已记录，或已记录显式例外；Milestone、Parent / sub-issues、Blocked by、Blocking 已记录，不适用项已有 `N/A` 原因；Development PR 已记录为 `pending`、`PR-number` 或已有 `N/A` 原因。
 - Issue Gate Ledger 中已有 G0 记录。
 
 ## 4. G1 设计冻结闸口
@@ -180,7 +180,7 @@ G1 证据可以是：
 - 必需测试未运行且没有原因。
 - 例外没有清理责任或后续 Issue。
 - 缺少 G0-G2 Gate Ledger，且没有记录为显式例外或补救。
-- 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计，且没有 `N/A` 原因或显式例外。
+- 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计且没有显式例外，或不适用项缺少 `N/A` 原因。
 - PR commit message 不符合 `docs/reference/commit-convention.md`，且没有记录显式例外。
 
 PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
