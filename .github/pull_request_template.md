@@ -17,9 +17,9 @@
 
 ## 关联 Issue 元数据 / 依赖关系审计
 
-- [ ] 关联 Issue 的 Project、Project status、Milestone、Labels 已核验，缺失项已有 N/A 原因或显式例外。
-- [ ] Parent / sub-issues、Blocked by、Blocking 已核验，缺失项已有 N/A 原因或显式例外。
-- [ ] Development PR 已关联，或已说明为什么不适用。
+- [ ] 关联 Issue 的 Project、Project status、Milestone、Labels 已核验，缺失项已有 `N/A` 原因或显式例外。
+- [ ] Parent / sub-issues、Blocked by、Blocking 已核验，缺失项已有 `N/A` 原因或显式例外。
+- [ ] Development PR 已关联，或已记录 `N/A` 原因。
 
 ## 影响
 
