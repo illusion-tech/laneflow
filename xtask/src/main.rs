@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::env;
 use std::process::{Command, ExitCode};
 
@@ -48,7 +49,8 @@ fn run(args: Vec<String>) -> Result<(), String> {
 fn check_commit_message_file(path: &str) -> Result<(), String> {
     let message = std::fs::read_to_string(path)
         .map_err(|err| format!("无法读取 commit message 文件 `{path}`: {err}"))?;
-    let message = strip_commit_message_comments(&message);
+    let message = normalize_commit_message_line_endings(&message);
+    let message = strip_commit_message_comments(message.as_ref());
     let errors = validate_message("commit-msg", &message);
 
     if errors.is_empty() {
@@ -62,6 +64,14 @@ fn check_commit_message_file(path: &str) -> Result<(), String> {
         }
         Err(output)
     }
+}
+
+fn normalize_commit_message_line_endings(message: &str) -> Cow<'_, str> {
+    if !message.as_bytes().contains(&b'\r') {
+        return Cow::Borrowed(message);
+    }
+
+    Cow::Owned(message.replace("\r\n", "\n").replace('\r', "\n"))
 }
 
 fn strip_commit_message_comments(message: &str) -> String {
@@ -214,6 +224,8 @@ fn git<const N: usize>(args: [&str; N]) -> Result<String, String> {
 }
 
 fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
+    let message = normalize_commit_message_line_endings(message);
+    let message = message.as_ref();
     let title = message.lines().next().unwrap_or_default();
     let mut errors = Vec::new();
     let has_breaking_bang = title_has_breaking_bang(title);
@@ -560,6 +572,20 @@ Refs: #12
     #[test]
     fn accepts_lane_flow_commit_message() {
         assert!(validate_message("0123456789abcdef", VALID_MESSAGE).is_empty());
+    }
+
+    #[test]
+    fn accepts_commit_message_with_crlf_line_endings() {
+        let message = VALID_MESSAGE.replace('\n', "\r\n");
+
+        assert!(validate_message("0123456789abcdef", &message).is_empty());
+    }
+
+    #[test]
+    fn accepts_commit_message_with_lone_cr_line_endings() {
+        let message = VALID_MESSAGE.replace('\n', "\r");
+
+        assert!(validate_message("0123456789abcdef", &message).is_empty());
     }
 
     #[test]
