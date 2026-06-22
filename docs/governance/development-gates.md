@@ -57,7 +57,7 @@ Issue 的 GitHub 元数据和依赖关系是 Gate 判断的一部分，不得只
 
 每个可执行 Issue 至少应记录并在推进 Gate 时复核：
 
-- `Project` 与 Project status。
+- `Project` 与 `Project status`。
 - `Milestone`；不适用时必须写明 `N/A` 原因。
 - `Labels`。
 - `Parent / sub-issues`；不适用时必须写明 `N/A` 原因。
@@ -102,7 +102,7 @@ Issue 的 GitHub 元数据和依赖关系是 Gate 判断的一部分，不得只
 - 已有 GitHub Issue。
 - 任务边界足够小，可以独立评审。
 - 验收标准可验证。
-- Project、labels、milestone、parent/sub-issues、blocked by、blocking 已记录；不适用项已有 `N/A` 原因。
+- Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking 已记录；不适用项已有 `N/A` 原因；Development PR 已记录为 `pending` 或已有 `N/A` 原因。
 - Issue Gate Ledger 中已有 G0 记录。
 
 ## 4. G1 设计冻结闸口
@@ -201,7 +201,7 @@ Issue 关闭前必须满足：
 - 父 Issue 只在所有子 Issue 完成后关闭。
 - G4 记录已回写关联 Issue。
 - Project 中关联 Issue 和 PR 均已移动到 `Done`，或说明为什么不适用。
-- Development PR、parent/sub-issues、blocked by、blocking 已收口，或剩余关系已拆出后续 Issue 并记录原因。
+- Development PR、Parent / sub-issues、Blocked by、Blocking 已收口，或剩余关系已拆出后续 Issue 并记录原因。
 - 本地和远端 PR 分支已清理，或说明保留原因。
 - 临时权限、ruleset bypass 或 admin override 已撤回，或说明保留原因、风险和 Cleanup owner。
 
