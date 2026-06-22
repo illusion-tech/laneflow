@@ -31,8 +31,35 @@ fn main() -> ExitCode {
 fn run(args: Vec<String>) -> Result<(), String> {
     match args.first().map(String::as_str) {
         Some("check-commit-messages") => check_commit_messages(args.get(1).map(String::as_str)),
+        Some("check-commit-message-file") => {
+            let path = args
+                .get(1)
+                .ok_or("缺少 commit message 文件路径，例如: cargo +1.96.0 run --locked -p xtask -- check-commit-message-file .git/COMMIT_EDITMSG")?;
+            check_commit_message_file(path)
+        }
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
-        None => Err("缺少 xtask 命令。可用命令: check-commit-messages".to_string()),
+        None => Err(
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file"
+                .to_string(),
+        ),
+    }
+}
+
+fn check_commit_message_file(path: &str) -> Result<(), String> {
+    let message = std::fs::read_to_string(path)
+        .map_err(|err| format!("无法读取 commit message 文件 `{path}`: {err}"))?;
+    let errors = validate_message("commit-msg", &message);
+
+    if errors.is_empty() {
+        println!("已校验 commit message 文件: {path}");
+        Ok(())
+    } else {
+        let mut output = String::from("Commit message 校验失败:");
+        for error in errors {
+            output.push_str("\n- ");
+            output.push_str(&error);
+        }
+        Err(output)
     }
 }
 
@@ -437,6 +464,29 @@ Refs: #23
     }
 
     #[test]
+    fn accepts_valid_commit_message_file() {
+        let path = temp_message_path("valid");
+        std::fs::write(&path, VALID_MESSAGE).expect("test commit message should be written");
+
+        let result = check_commit_message_file(path.to_str().expect("path should be UTF-8"));
+
+        std::fs::remove_file(&path).expect("test commit message should be removed");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_invalid_commit_message_file() {
+        let path = temp_message_path("invalid");
+        std::fs::write(&path, "update files\n").expect("test commit message should be written");
+
+        let result = check_commit_message_file(path.to_str().expect("path should be UTF-8"));
+
+        std::fs::remove_file(&path).expect("test commit message should be removed");
+        let error = result.expect_err("invalid commit message should fail");
+        assert!(error.contains("标题不符合 Conventional Commits"));
+    }
+
+    #[test]
     fn rejects_missing_blank_line_after_title() {
         let message = VALID_MESSAGE.replace(
             "docs(governance): 对齐提交规范\n\nGate: G3 Pass",
@@ -793,5 +843,9 @@ Refs: #23
         let range = commit_range_from_event(Some("push"), None, Some("def"), None).unwrap();
 
         assert_eq!(range, "def^!");
+    }
+
+    fn temp_message_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("laneflow-xtask-{name}-{}.txt", std::process::id()))
     }
 }

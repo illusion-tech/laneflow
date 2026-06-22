@@ -275,6 +275,18 @@ PR commit message 应通过仓库 CI 的提交信息检查：
 cargo +1.96.0 run --locked -p xtask -- check-commit-messages origin/main..HEAD
 ```
 
+也可以启用仓库内置 `commit-msg` hook，在提交创建前校验当前 commit message：
+
+```powershell
+git config core.hooksPath .githooks
+```
+
+启用后，Git 会在每次 `git commit` 时运行：
+
+```powershell
+cargo +1.96.0 run --locked -p xtask -- check-commit-message-file .git/COMMIT_EDITMSG
+```
+
 本地运行必须显式传入 rev-range，避免默认 `HEAD` 扩大到历史祖先；CI 会根据 `pull_request` / `push` event 自动推导检查范围。
 
 如果确有例外，应在 PR 中说明原因，并按 `development-gates.md` 的例外治理规则记录。

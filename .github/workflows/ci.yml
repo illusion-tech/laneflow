@@ -28,6 +28,7 @@ jobs:
             "README.md"
             "AGENTS.md"
             "CONTRIBUTING.md"
+            ".githooks/commit-msg"
             ".github/workflows/ci.yml"
             ".github/pull_request_template.md"
             ".github/ISSUE_TEMPLATE/config.yml"

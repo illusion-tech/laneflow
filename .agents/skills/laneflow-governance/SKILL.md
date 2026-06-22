@@ -85,6 +85,12 @@ Refs: #<id>
 
 PR commit message 必须符合 `docs/reference/commit-convention.md`；若存在例外，必须在 PR 中记录原因、风险和 Cleanup owner。
 
+本地建议启用仓库内置 `commit-msg` hook，在提交前复用 `xtask` 校验：
+
+```powershell
+git config core.hooksPath .githooks
+```
+
 ## PR 合并
 
 默认使用 **Rebase and merge** 合入 `main`：
