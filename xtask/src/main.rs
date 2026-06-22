@@ -367,7 +367,7 @@ fn valid_issue_reference(value: &str) -> bool {
 
 fn valid_pending_reason(value: &str) -> bool {
     value
-        .strip_prefix("pending,")
+        .strip_prefix("pending, ")
         .is_some_and(|reason| !reason.trim().is_empty())
 }
 
@@ -549,6 +549,15 @@ Refs: #23
     #[test]
     fn rejects_pending_without_reason() {
         let message = VALID_MESSAGE.replace("Refs: #23", "Refs: pending");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("格式不正确")));
+    }
+
+    #[test]
+    fn rejects_pending_without_space_after_comma() {
+        let message = VALID_MESSAGE.replace("Refs: #23", "Refs: pending,missing space");
 
         let errors = validate_message("0123456789abcdef", &message);
 
