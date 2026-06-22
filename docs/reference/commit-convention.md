@@ -296,6 +296,8 @@ git config core.hooksPath .githooks
 cargo +1.96.0 run --locked -p xtask -- check-commit-message-file .git/COMMIT_EDITMSG
 ```
 
+`check-commit-message-file` 会忽略 Git 提交模板、verbose commit 或 diffstat 生成的 `#` 注释行，再按最终提交正文执行同一套治理规则。
+
 本地运行必须显式传入 rev-range，避免默认 `HEAD` 扩大到历史祖先；CI 会根据 `pull_request` / `push` event 自动推导检查范围。
 
 如果确有例外，应在 PR 中说明原因，并按 `development-gates.md` 的例外治理规则记录。
