@@ -48,6 +48,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
 fn check_commit_message_file(path: &str) -> Result<(), String> {
     let message = std::fs::read_to_string(path)
         .map_err(|err| format!("无法读取 commit message 文件 `{path}`: {err}"))?;
+    let message = strip_commit_message_comments(&message);
     let errors = validate_message("commit-msg", &message);
 
     if errors.is_empty() {
@@ -61,6 +62,14 @@ fn check_commit_message_file(path: &str) -> Result<(), String> {
         }
         Err(output)
     }
+}
+
+fn strip_commit_message_comments(message: &str) -> String {
+    message
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn check_commit_messages(explicit_range: Option<&str>) -> Result<(), String> {
@@ -644,6 +653,36 @@ Refs: #12
 
         std::fs::remove_file(&path).expect("test commit message should be removed");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accepts_valid_commit_message_file_with_git_comments() {
+        let path = temp_message_path("valid-with-comments");
+        let message = format!(
+            "{VALID_MESSAGE}\n# Please enter the commit message for your changes.\n  # On branch docs/23-conventional-commits\n# Changes to be committed:\n"
+        );
+        std::fs::write(&path, message).expect("test commit message should be written");
+
+        let result = check_commit_message_file(path.to_str().expect("path should be UTF-8"));
+
+        std::fs::remove_file(&path).expect("test commit message should be removed");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_non_comment_line_after_issue_footer_in_commit_message_file() {
+        let path = temp_message_path("invalid-after-footer");
+        let message = VALID_MESSAGE.replace(
+            "Refs: #23\n",
+            "Refs: #23\nnot a Git comment\n# This comment should be ignored\n",
+        );
+        std::fs::write(&path, message).expect("test commit message should be written");
+
+        let result = check_commit_message_file(path.to_str().expect("path should be UTF-8"));
+
+        std::fs::remove_file(&path).expect("test commit message should be removed");
+        let error = result.expect_err("non-comment content after issue footer should fail");
+        assert!(error.contains("最后一个非空行"));
     }
 
     #[test]
