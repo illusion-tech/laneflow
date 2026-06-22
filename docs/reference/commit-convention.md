@@ -165,25 +165,33 @@ Impact: core-api=none; data-format=none; adapter-api=none
 
 ## 7. Breaking Change
 
-破坏性变更必须同时满足 Conventional Commits 和 LaneFlow 治理要求。
+破坏性变更必须同时满足 Conventional Commits 和 LaneFlow 治理要求。LaneFlow 比 Conventional Commits 1.0.0 更严格：破坏性变更必须同时使用标题 `!` 和单行 `BREAKING CHANGE:` footer，避免只靠标题短句承载迁移信息。
 
-Conventional Commits 表达方式二选一：
+推荐格式：
 
 ```text
 feat(core)!: 调整 tick API
-```
 
-或在正文 / footer 中写：
+Gate: G3 Pass
+Slice: core-runtime
+Impact: core-api=changed; data-format=none; adapter-api=none
+Scope: 将 TickInput.delta_time_ms 固化为必填字段
+Validation: cargo +1.96.0 test --workspace --locked
+Docs: updated
 
-```text
 BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填。
+Refs: #12
 ```
 
 LaneFlow 额外要求：
 
-- `Impact` 中对应接口必须写 `changed`。
+- 标题必须使用 `!`。
+- `BREAKING CHANGE:` 必须提供单行非空说明，并放在 `Refs` / `Closes` 之前。
+- `Refs` / `Closes` 仍必须是最后一个非空 footer 行。
+- `Impact` 中至少一个对应接口必须写 `changed`。
 - PR 中必须链接 ADR 或 design 文档依据。
 - PR 必须说明迁移边界或当前原型阶段为何可接受。
+- 复杂迁移说明应写入 PR、design 或 ADR；commit message 中暂不支持多行 `BREAKING CHANGE:`。
 
 ## 8. Validation 字段
 
@@ -265,6 +273,7 @@ PR commit message 应通过仓库 CI 的提交信息检查：
 - 标题符合 Conventional Commits 标题格式。
 - 正文包含 `Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`。
 - 治理字段块按推荐格式连续排列，字段之间没有额外空行。
+- 破坏性变更同时包含标题 `!`、单行 `BREAKING CHANGE:` footer，以及至少一个 `Impact` 的 `changed`。
 - 底部包含 `Refs` 或 `Closes`。
 - `Slice` 使用 LaneFlow 支持的切片类型。
 - `Impact` 同时覆盖 `core-api`、`data-format` 和 `adapter-api`。

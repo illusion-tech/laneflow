@@ -85,6 +85,8 @@ Refs: #<id>
 
 PR commit message 必须符合 `docs/reference/commit-convention.md`；若存在例外，必须在 PR 中记录原因、风险和 Cleanup owner。
 
+破坏性变更提交必须同时使用标题 `!` 和单行 `BREAKING CHANGE:` footer，并让 `Impact` 至少一项为 `changed`；`Refs` / `Closes` 仍保持最后一个非空 footer 行。
+
 本地建议启用仓库内置 `commit-msg` hook，在提交前复用 `xtask` 校验：
 
 ```powershell
