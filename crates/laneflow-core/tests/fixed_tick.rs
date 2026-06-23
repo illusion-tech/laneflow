@@ -127,6 +127,10 @@ fn invalid_numeric_inputs_are_rejected() {
         Err(CoreError::InvalidSpeed { .. })
     );
     std::assert_matches!(
+        Speed::try_new(f64::NEG_INFINITY),
+        Err(CoreError::InvalidSpeed { speed }) if speed == f64::NEG_INFINITY
+    );
+    std::assert_matches!(
         Speed::try_new(f64::NAN),
         Err(CoreError::InvalidSpeed { speed }) if speed.is_nan()
     );
@@ -138,6 +142,15 @@ fn invalid_numeric_inputs_are_rejected() {
     std::assert_matches!(
         EdgeProgress::try_new(f64::NAN),
         Err(CoreError::InvalidEdgeProgress { edge_progress }) if edge_progress.is_nan()
+    );
+    std::assert_matches!(
+        EdgeProgress::try_new(f64::INFINITY),
+        Err(CoreError::InvalidEdgeProgress { edge_progress }) if edge_progress == f64::INFINITY
+    );
+    std::assert_matches!(
+        EdgeProgress::try_new(f64::NEG_INFINITY),
+        Err(CoreError::InvalidEdgeProgress { edge_progress })
+            if edge_progress == f64::NEG_INFINITY
     );
     std::assert_matches!(
         EdgeProgress::try_new(-0.5),

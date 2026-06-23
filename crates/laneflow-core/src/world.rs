@@ -427,4 +427,32 @@ mod tests {
         assert!(is_less_than_boundary_epsilon(EDGE_BOUNDARY_EPSILON / 2.0));
         assert!(!is_less_than_boundary_epsilon(EDGE_BOUNDARY_EPSILON));
     }
+
+    #[test]
+    fn tick_index_overflow_keeps_world_unchanged() {
+        let mut world = CoreWorld::new(20).expect("valid world");
+        world.tick_index = u64::MAX;
+        let before = world.clone();
+
+        let error = world
+            .step(TickInput::new(20))
+            .expect_err("tick index overflow must fail");
+
+        std::assert_matches!(error, CoreError::TimeOverflow);
+        assert_eq!(world, before);
+    }
+
+    #[test]
+    fn time_ms_overflow_keeps_world_unchanged() {
+        let mut world = CoreWorld::new(20).expect("valid world");
+        world.time_ms = u64::MAX - 10;
+        let before = world.clone();
+
+        let error = world
+            .step(TickInput::new(20))
+            .expect_err("time overflow must fail");
+
+        std::assert_matches!(error, CoreError::TimeOverflow);
+        assert_eq!(world, before);
+    }
 }

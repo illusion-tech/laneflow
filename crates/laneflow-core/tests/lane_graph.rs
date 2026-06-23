@@ -81,6 +81,7 @@ fn invalid_edge_lengths_are_rejected() {
         f64::NEG_INFINITY,
         -1.0,
         0.0,
+        EDGE_BOUNDARY_EPSILON / 2.0,
         EDGE_BOUNDARY_EPSILON,
     ] {
         let error = EdgeLength::try_new(invalid_length).expect_err("invalid length must fail");

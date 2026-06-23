@@ -368,3 +368,34 @@ fn non_finite_route_travel_returns_error_and_keeps_world_unchanged() {
     );
     assert_eq!(world, before);
 }
+
+#[test]
+fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
+    let lane_graph = LaneGraph::try_new([
+        LaneEdge::new("A", edge_length(1.0), ["B"]),
+        LaneEdge::new("B", edge_length(f64::MAX), std::iter::empty::<&str>()),
+    ])
+    .expect("valid lane graph");
+    let route = Route::try_new("R", ["A", "B"]).expect("valid route");
+    let vehicles = vec![
+        VehicleState::active("V1", "R", 0, progress(0.0), speed(2.0)),
+        VehicleState::active("V2", "R", 1, progress(0.0), speed(f64::MAX)),
+    ];
+    let mut world =
+        CoreWorld::with_traffic_data(1000, lane_graph, [route], vehicles).expect("valid world");
+    let before = world.clone();
+
+    let error = world
+        .step(TickInput::new(1000))
+        .expect_err("later vehicle failure must fail the whole step");
+
+    std::assert_matches!(
+        error,
+        CoreError::NonFiniteRouteTravel {
+            vehicle_id,
+            speed,
+            delta_time_ms: 1000
+        } if vehicle_id == "V2" && speed == f64::MAX
+    );
+    assert_eq!(world, before);
+}
