@@ -350,12 +350,12 @@ fn non_finite_route_travel_returns_error_and_keeps_world_unchanged() {
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A"]).expect("valid route");
     let vehicle = VehicleState::active("V1", "R", 0, progress(0.0), speed(f64::MAX));
-    let mut world = CoreWorld::with_traffic_data(1000, lane_graph, [route], vec![vehicle])
+    let mut world = CoreWorld::with_traffic_data(2000, lane_graph, [route], vec![vehicle])
         .expect("valid world");
     let before = world.clone();
 
     let error = world
-        .step(TickInput::new(1000))
+        .step(TickInput::new(2000))
         .expect_err("non-finite route travel must fail");
 
     std::assert_matches!(
@@ -363,7 +363,7 @@ fn non_finite_route_travel_returns_error_and_keeps_world_unchanged() {
         CoreError::NonFiniteRouteTravel {
             vehicle_id,
             speed,
-            delta_time_ms: 1000
+            delta_time_ms: 2000
         } if vehicle_id == "V1" && speed == f64::MAX
     );
     assert_eq!(world, before);
@@ -382,11 +382,11 @@ fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
         VehicleState::active("V2", "R", 1, progress(0.0), speed(f64::MAX)),
     ];
     let mut world =
-        CoreWorld::with_traffic_data(1000, lane_graph, [route], vehicles).expect("valid world");
+        CoreWorld::with_traffic_data(2000, lane_graph, [route], vehicles).expect("valid world");
     let before = world.clone();
 
     let error = world
-        .step(TickInput::new(1000))
+        .step(TickInput::new(2000))
         .expect_err("later vehicle failure must fail the whole step");
 
     std::assert_matches!(
@@ -394,7 +394,7 @@ fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
         CoreError::NonFiniteRouteTravel {
             vehicle_id,
             speed,
-            delta_time_ms: 1000
+            delta_time_ms: 2000
         } if vehicle_id == "V2" && speed == f64::MAX
     );
     assert_eq!(world, before);
