@@ -1,6 +1,6 @@
 # Core ID 与 Handle 模型
 
-**文档状态**: Draft  
+**文档状态**: Accepted  
 **最后更新**: 2026-06-24  
 **适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界  
 **关联文档**:
