@@ -185,13 +185,29 @@ EdgeRegistry
 
 ```rust
 impl CoreWorld {
-    pub fn vehicle_external_id(&self, handle: VehicleHandle) -> Option<&str>;
-    pub fn route_external_id(&self, handle: RouteHandle) -> Option<&str>;
-    pub fn edge_external_id(&self, handle: EdgeHandle) -> Option<&str>;
+    pub fn vehicle_external_id(&self, _handle: VehicleHandle) -> Option<&str> {
+        todo!()
+    }
 
-    pub fn vehicle_handle(&self, external_id: &str) -> Option<VehicleHandle>;
-    pub fn route_handle(&self, external_id: &str) -> Option<RouteHandle>;
-    pub fn edge_handle(&self, external_id: &str) -> Option<EdgeHandle>;
+    pub fn route_external_id(&self, _handle: RouteHandle) -> Option<&str> {
+        todo!()
+    }
+
+    pub fn edge_external_id(&self, _handle: EdgeHandle) -> Option<&str> {
+        todo!()
+    }
+
+    pub fn vehicle_handle(&self, _external_id: &str) -> Option<VehicleHandle> {
+        todo!()
+    }
+
+    pub fn route_handle(&self, _external_id: &str) -> Option<RouteHandle> {
+        todo!()
+    }
+
+    pub fn edge_handle(&self, _external_id: &str) -> Option<EdgeHandle> {
+        todo!()
+    }
 }
 ```
 
@@ -269,10 +285,24 @@ LaneEdgeInput
 
 ```rust
 impl CoreWorld {
-    pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, CoreError>;
-    pub fn despawn_vehicle(&mut self, vehicle: VehicleHandle) -> Result<VehicleDespawnRecord, CoreError>;
-    pub fn register_route(&mut self, input: RouteInput) -> Result<RouteHandle, CoreError>;
-    pub fn remove_route(&mut self, route: RouteHandle) -> Result<RouteRemoveRecord, CoreError>;
+    pub fn spawn_vehicle(&mut self, _input: VehicleSpawnInput) -> Result<VehicleHandle, CoreError> {
+        todo!()
+    }
+
+    pub fn despawn_vehicle(
+        &mut self,
+        _vehicle: VehicleHandle,
+    ) -> Result<VehicleDespawnRecord, CoreError> {
+        todo!()
+    }
+
+    pub fn register_route(&mut self, _input: RouteInput) -> Result<RouteHandle, CoreError> {
+        todo!()
+    }
+
+    pub fn remove_route(&mut self, _route: RouteHandle) -> Result<RouteRemoveRecord, CoreError> {
+        todo!()
+    }
 }
 ```
 
