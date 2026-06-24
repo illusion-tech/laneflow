@@ -9,6 +9,7 @@
 初始阶段建议逐步补齐：
 
 - `core-runtime.md`：Core runtime、tick、vehicle state 和系统边界。
+- `core-id-handles.md`：Core external ID、typed handle、registry / resolver、动态 lifecycle 和事件 payload 边界。
 - `lane-graph.md`：车道图、连接关系、拓扑约束。
 - `route-system.md`：路线选择、路径跟随、目标点。
 - `vehicle-following.md`：前车避让、速度控制和安全距离。
@@ -46,4 +47,3 @@
 - 涉及 Core API、data spec 或 Adapter 协议的实现，应先有相关 design 文档或 ADR。
 - PR 中发现设计与实现不一致时，应先回写设计或拆分后续 Issue。
 - 设计文档不记录单次 PR 的测试结果。
-
