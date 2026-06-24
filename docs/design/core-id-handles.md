@@ -100,7 +100,7 @@ pub struct EdgeHandle {
 handle 应至少实现：
 
 ```rust
-Clone + Copy + Debug + PartialEq + Eq + Hash + PartialOrd + Ord
+Clone + Copy + Debug + PartialEq + Eq + Hash
 ```
 
 规则：
@@ -109,6 +109,7 @@ Clone + Copy + Debug + PartialEq + Eq + Hash + PartialOrd + Ord
 - public API 不暴露稳定的数值含义。
 - handle 不可跨 `CoreWorld` 混用或持久化为外部数据格式。
 - handle 只表达当前 world 中的实体引用，不表达外部业务身份。
+- handle 不提供 public ordering；稳定遍历、事件顺序或 debug 排序必须使用显式 update sequence、external ID 或 resolver 后的业务字段，而不是依赖 handle 的 `Ord`。
 
 v0.2 实现应优先使用 generation-ready 的私有表示。推荐内部模型：
 
