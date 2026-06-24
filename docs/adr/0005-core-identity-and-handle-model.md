@@ -38,12 +38,22 @@ LaneFlow Core 采用双层 identity 模型：
 v0.2 定义的 handle 类型包括：
 
 ```rust
-pub struct VehicleHandle(/* private */);
-pub struct RouteHandle(/* private */);
-pub struct EdgeHandle(/* private */);
+pub struct VehicleHandle {
+    index: u32,
+    generation: u32,
+}
+
+pub struct RouteHandle {
+    index: u32,
+    generation: u32,
+}
+
+pub struct EdgeHandle {
+    index: u32,
+}
 ```
 
-handle 是不透明 typed newtype。调用方不得自行构造，也不得跨 `CoreWorld` 混用或持久化到数据文件。
+handle 是不透明 typed handle。上述字段保持私有，只表达推荐内部表示；调用方不得自行构造，也不得跨 `CoreWorld` 混用或持久化到数据文件。
 
 v0.2 的 `VehicleHandle` 和 `RouteHandle` 应采用 generation-ready 的内部表示，用于识别 stale handle。`EdgeHandle` 在 v0.2 仍可采用 dense index，因为 lane graph / edge 拓扑按初始化后稳定处理。所有字段保持私有，不暴露 `index` 或 `generation`。
 
