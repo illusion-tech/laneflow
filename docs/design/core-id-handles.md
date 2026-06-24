@@ -100,7 +100,11 @@ pub struct EdgeHandle {
 handle 应至少实现：
 
 ```rust
-Clone + Copy + Debug + PartialEq + Eq + Hash
+fn _assert_handle_traits<T>()
+where
+    T: Clone + Copy + std::fmt::Debug + PartialEq + Eq + std::hash::Hash,
+{
+}
 ```
 
 规则：
