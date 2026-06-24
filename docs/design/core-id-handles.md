@@ -529,6 +529,4 @@ v0.2 可以暂时接受每 tick 克隆 compact `VehicleRuntimeState` 来保持 s
 
 ## 10. ADR 判断
 
-Core identity / handle 模型影响 Core API、data-format 输入和后续 Adapter resolver 边界，属于高影响设计决策。本文配套新增 `../adr/0005-core-identity-and-handle-model.md` 作为 ADR 草案。
-
-在 #24 完成 G1 前，ADR 0005 保持 `Proposed`。设计 PR 审阅通过并合入后，应将 ADR 状态更新为 `Accepted`，或在 PR 中明确保留未决问题。
+Core identity / handle 模型影响 Core API、data-format 输入和后续 Adapter resolver 边界，属于高影响设计决策。本文配套 `../adr/0005-core-identity-and-handle-model.md`，ADR 0005 状态为 `Accepted`，作为 #24 的 G1 冻结决策依据。
