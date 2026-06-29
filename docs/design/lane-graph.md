@@ -21,7 +21,7 @@
 - 定义最小正式 lane graph model。
 - 明确 edge、connection、topology validation 和 traversal 输入。
 - 对齐 #24 已接受的 external ID / typed handle / registry / resolver 决策。
-- 为 #30 data format、#31 validation 和 #32 example data 提供可引用输入。
+- 为 #30 data format、#31 validation 和 #32 Core 对齐提供可引用输入。
 
 非目标：
 

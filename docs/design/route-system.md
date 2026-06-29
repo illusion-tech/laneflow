@@ -21,7 +21,7 @@
 - 定义 route definition 的最小长期模型。
 - 明确 route edge sequence、loop、断连、目标行为和 validation 输入。
 - 明确 route following 与 fixed tick、epsilon、event order 和 lifecycle 的关系。
-- 为 #30 data format、#31 validation 和 #32 example data 提供可引用输入。
+- 为 #30 data format、#31 validation 和 #32 Core 对齐提供可引用输入。
 
 非目标：
 
