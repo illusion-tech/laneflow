@@ -72,7 +72,7 @@ v0.2 的 route target 固定为最后一个 route edge 的 edge length 位置。
 - `VehicleStatus` 进入 `Completed`。
 - `routeEdgeIndex` 保持最后一个 route edge index。
 - `edgeProgress` clamp 到最后一个 edge length。
-- 只在从 live moving state 首次进入 completed 的 tick 发出一次 `vehicle.completedRoute` 事件。
+- 只在车辆从 `Active` 首次进入 `Completed` 的 tick 发出一次 `vehicle.completedRoute` 事件。
 
 若业务需要在 edge 中途完成 route，应在 lane graph 中把该位置拆成 terminal edge boundary，再把 route 的最后一个 edge 指向拆分后的 terminal edge。v0.2 不引入 per-route `targetProgress`，避免在 #29 中提前冻结 partial-edge target、parking target 和 stop line 语义。
 
@@ -143,7 +143,7 @@ route following 继续遵守 ADR 0003 与 `core-runtime.md`：
 - Core 不读取 wall clock。
 - 每个 world 使用固定 `fixed_delta_time_ms`。
 - `TickInput.delta_time_ms` 必须与 world 固定步长一致。
-- travel distance 由 `effective_speed * fixed_delta_time_ms / 1000` 得到。
+- travel distance 先把 fixed delta 转成秒，再由 `effective_speed * (fixed_delta_time_ms as f64 / 1000.0)` 得到；计算结果必须保持 finite。
 - speed、distance、edge length 和 edge progress 使用 `f64` newtype，并拒绝非 finite 值。
 - edge boundary snap 使用统一 `EDGE_BOUNDARY_EPSILON`。
 
@@ -294,4 +294,3 @@ Adapter 不应：
 - route removal 拒绝 live vehicle 正在引用的 route。
 - stale route handle rejection。
 - event payload 使用 handle，resolver 可回查 external ID。
-

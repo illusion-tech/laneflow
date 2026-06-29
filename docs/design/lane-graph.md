@@ -115,7 +115,7 @@ Core 不负责把 edge progress 转换成世界坐标。Adapter 或 Presentation
 
 这意味着：
 
-- Core event 可以输出 `EdgeHandle`、route edge index 和 progress。
+- Core state / query 输出可以包含 `EdgeHandle`、route edge index 和 progress；route transition event 默认只携带 handle 与 route edge index，不把 progress 固化为事件契约。
 - Adapter 通过 resolver 得到 external edge ID，再在自己的几何数据中做插值。
 - #30 data format 可以包含几何字段，但 Core lane graph 设计不强制 Rust runtime 消费几何。
 
@@ -219,4 +219,3 @@ Adapter 不应：
 - disconnected graph component 与合法 route / 非法 route 的区别。
 - resolver 能在 handle 与 external edge ID 之间稳定转换。
 - event / traversal 不依赖 connection 输入顺序做隐式 route choice。
-
