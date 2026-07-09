@@ -375,7 +375,7 @@ Validator 负责在 Core loader 前给数据作者提供稳定、可诊断的错
 
 #33 example route data 应使用本文字段，并至少覆盖：
 
-- 仓库基线示例位于 `../../examples/data/v0.2-route-baseline.laneflow.json`。它使用 meter 作为距离单位，包含 `main-route` 的 normal two-edge route、`loop-once` 的 explicit self loop / repeated edge route、terminal `exit`，以及未被 route 引用的合法 disconnected `isolated` edge。
+- 仓库基线示例位于 `examples/data/v0.2-route-baseline.laneflow.json`。它使用 meter 作为距离单位，包含 `main-route` 的 normal two-edge route、`loop-once` 的 explicit self loop / repeated edge route、terminal `exit`，以及未被 route 引用的合法 disconnected `isolated` edge。
 - terminal edge。
 - normal two-edge route。
 - repeated edge route 或 explicit self loop route。
