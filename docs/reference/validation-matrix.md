@@ -46,7 +46,7 @@
 6. PR 声称完成父任务，但证据只覆盖子切片。
 7. 例外缺少原因、清理责任或后续 Issue。
 8. 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计且没有显式例外，或不适用项缺少 `N/A` 原因。
-9. G3 前 PR 未通过 GitHub Development 面板或 `closingIssuesReferences` 关联对应 Issue，且没有显式例外。
+9. G3 前 PR 的 `closingIssuesReferences` 未覆盖对应 Issue，且没有显式例外。
 
 ## 4. 无法运行时的记录方式
 

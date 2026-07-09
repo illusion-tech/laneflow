@@ -63,7 +63,7 @@ Issue 的 GitHub 元数据和依赖关系是 Gate 判断的一部分，不得只
 - `Parent / sub-issues`；不适用时必须写明 `N/A` 原因。
 - `Blocked by`；不适用时必须写明 `N/A` 原因。
 - `Blocking`；不适用时必须写明 `N/A` 原因。
-- `Development PR`；PR 创建前可写 `pending`，PR 创建后记录 `PR-number`，进入 G3 前必须确认 GitHub Development 面板或 `closingIssuesReferences` 已关联 PR，或说明不适用原因 / 显式例外。
+- `Development PR`；PR 创建前可写 `pending`，PR 创建后记录 `PR-number`，进入 G3 前默认必须确认 `closingIssuesReferences` 覆盖目标 Issue，或说明不适用原因 / 显式例外。
 
 推荐记录格式：
 
@@ -86,7 +86,7 @@ Development PR 关联规则：
 
 - PR body 使用 `Closes #<issue>` / `Resolves #<issue>` 等 GitHub closing keyword 建立 Development 关联；仓库已关闭 linked PR 合并后自动关闭 Issue，Issue 仍由 G4 手动关闭。
 - commit message footer 不承担 Development 面板关联职责；常规 PR commit 仍使用 `Refs: #<issue>`。
-- 父 Issue 子切片或部分交付不得误用 closing keyword；若无法建立 Development 关联，必须在 PR 中记录例外原因、风险和后续收口方式。
+- 父 Issue 子切片或部分交付不得误用 closing keyword；若无法让 `closingIssuesReferences` 覆盖目标 Issue，只能手动关联 Development 面板，必须在 PR 中记录显式例外原因、风险、后续收口方式和 Cleanup owner。
 
 ## 3. G0 立项闸口
 
@@ -166,7 +166,7 @@ G1 证据可以是：
 - 测试与验证结果
 - 已知风险与例外
 - 关联 Issue 的 GitHub 元数据 / 依赖关系审计状态，以及 Development PR 关联状态
-- GitHub Development 面板或 `closingIssuesReferences` 已关联 PR；若缺失，必须记录显式例外
+- 默认要求 `closingIssuesReferences` 覆盖目标 Issue；若只能手动关联 GitHub Development 面板，必须记录显式例外
 
 按切片类型追加要求：
 
@@ -188,7 +188,7 @@ G1 证据可以是：
 - 例外没有清理责任或后续 Issue。
 - 缺少 G0-G2 Gate Ledger，且没有记录为显式例外或补救。
 - 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计且没有显式例外，或不适用项缺少 `N/A` 原因。
-- G3 前 PR 未通过 GitHub Development 面板或 `closingIssuesReferences` 关联对应 Issue，且没有显式例外。
+- G3 前 PR 的 `closingIssuesReferences` 未覆盖对应 Issue，且没有显式例外。
 - PR commit message 不符合 `docs/reference/commit-convention.md`，且没有记录显式例外。
 
 PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。

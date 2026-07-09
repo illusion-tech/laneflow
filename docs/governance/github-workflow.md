@@ -32,7 +32,7 @@ Issue 应至少说明：
 - GitHub 元数据 / 依赖关系审计：Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Development PR
 - Gate Ledger：G0/G1/G2 在 Issue 阶段增量记录，G3/G4 后续由 PR 和收口流程回写
 
-Issue 创建或接手时必须审计 GitHub 侧边栏和关系字段，而不是只读取 Issue 正文。若 Milestone、Parent / sub-issues、Blocked by 或 Blocking 暂不适用，必须在 Issue 中写明 `N/A` 原因。Development PR 若尚未创建但预计需要 PR，应记录为 `pending`；PR 创建后必须记录 `PR-number`（例如 `#27`），并在 G3 前确认 GitHub Development 面板或 `closingIssuesReferences` 已关联该 PR；仅当该 Issue 确实不通过 PR 交付时，才可记录为 `N/A` 并说明原因。缺少必需元数据且没有显式例外、Development PR 缺少 `pending` / `PR-number` / `N/A` 记录、G3 前缺少 Development 关联且没有显式例外，或不适用项没有 `N/A` 原因时，不得推进到下一 Gate。
+Issue 创建或接手时必须审计 GitHub 侧边栏和关系字段，而不是只读取 Issue 正文。若 Milestone、Parent / sub-issues、Blocked by 或 Blocking 暂不适用，必须在 Issue 中写明 `N/A` 原因。Development PR 若尚未创建但预计需要 PR，应记录为 `pending`；PR 创建后必须记录 `PR-number`（例如 `#27`），并在 G3 前确认 `closingIssuesReferences` 覆盖目标 Issue；仅当该 Issue 确实不通过 PR 交付时，才可记录为 `N/A` 并说明原因。缺少必需元数据且没有显式例外、Development PR 缺少 `pending` / `PR-number` / `N/A` 记录、G3 前缺少 `closingIssuesReferences` 关联且没有显式例外，或不适用项没有 `N/A` 原因时，不得推进到下一 Gate。
 
 推荐 Issue 类型（与 `.github/ISSUE_TEMPLATE/` 对应）：
 
@@ -63,7 +63,7 @@ GitHub Project 用于管理当前状态。推荐列：
 - `Backlog`：尚未通过 G0，或只记录候选想法。
 - `Ready`：G0 已记录，GitHub 元数据 / 依赖关系审计已完成；需要 G1 的任务已完成 G1，不需要 G1 的任务已记录不适用原因。
 - `In Progress`：G2 已记录，GitHub 元数据 / 依赖关系已复核，任务已经进入实现或文档修改。
-- `In Review`：已有 PR 或审查材料，Development PR 已记录为 `PR-number`，且 GitHub Development 面板或 `closingIssuesReferences` 已关联该 PR；若不适用或无法关联，必须说明原因，G3 判断应在 PR 中维护。
+- `In Review`：已有 PR 或审查材料，Development PR 已记录为 `PR-number`，且 `closingIssuesReferences` 已覆盖目标 Issue；若不适用或无法使用 closing keyword 建立机器可查关联，必须说明原因，G3 判断应在 PR 中维护。
 - `Blocked`：当前 Gate 被阻断，必须记录阻断原因、风险和恢复条件。
 - `Done`：G4 已完成，Issue 和 PR 的收口证据完整。
 
@@ -129,7 +129,7 @@ Development 关联规则：
 - 当 PR 预期覆盖关联 Issue 的完成边界时，PR body 应使用 `Closes #<issue>`、`Resolves #<issue>` 或等价 GitHub closing keyword 建立 Development 关联。
 - 当 PR 只是父 Issue 的子切片或部分交付时，不得误用 closing keyword；应使用 `Refs #<issue>`，并在 PR 中记录无法建立 Development 关联的原因、风险和后续收口方式。
 - commit message footer 与 PR body 语义分开：commit message 通常继续使用 `Refs: #<issue>`，不得为了建立 Development 关联而把提交 footer 改成 `Closes`。
-- G3 前必须通过 GitHub UI 或 `gh pr view <pr> --json closingIssuesReferences` 确认 Development 关联；若缺失且没有显式例外，不能进入 `G3 = Pass`。
+- G3 前默认必须通过 `gh pr view <pr> --json closingIssuesReferences` 确认目标 Issue 已被覆盖；GitHub Development 面板只作为人工辅助证据。若部分交付、父 Issue 子切片、权限或平台限制导致只能手动关联 Development 面板，必须记录显式例外，说明原因、风险、后续收口方式和 Cleanup owner；否则不能进入 `G3 = Pass`。
 
 ## 7. PR 合并策略
 

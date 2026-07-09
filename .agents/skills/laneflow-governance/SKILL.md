@@ -70,7 +70,7 @@ Issue Gate Ledger 模板：
 - Parent / sub-issues；不适用时必须写明 `N/A` 原因。
 - Blocked by；不适用时必须写明 `N/A` 原因。
 - Blocking；不适用时必须写明 `N/A` 原因。
-- Development PR；PR 创建前可写 `pending`，PR 创建后记录 `PR-number`，进入 G3 前必须确认 GitHub Development 面板或 `closingIssuesReferences` 已关联 PR，或说明不适用原因 / 显式例外。
+- Development PR；PR 创建前可写 `pending`，PR 创建后记录 `PR-number`，进入 G3 前默认必须确认 `closingIssuesReferences` 覆盖目标 Issue，或说明不适用原因 / 显式例外。
 
 执行规则：
 
@@ -79,7 +79,7 @@ Issue Gate Ledger 模板：
 - 开 PR 前必须复核关联 Issue 的 G0/G1/G2 与元数据审计状态。
 - 创建 PR 后，PR body 应使用 `Closes #<issue>` / `Resolves #<issue>` 建立 GitHub Development 关联；仓库关闭了 linked PR 自动关闭 Issue，Issue 仍由 G4 手动关闭。
 - 常规 PR commit message 仍使用 `Refs: #<issue>`；不要为了 Development 关联把 commit footer 改成 `Closes`。
-- G3 前必须用 GitHub UI 或 `gh pr view <pr> --json closingIssuesReferences` 复核 Development 关联；缺失且无显式例外时不得进入 `G3 = Pass`。
+- G3 前默认必须用 `gh pr view <pr> --json closingIssuesReferences` 复核目标 Issue 是否被覆盖；GitHub Development 面板只作人工辅助证据。若只能手动关联 Development 面板，必须记录显式例外原因、风险、后续收口方式和 Cleanup owner；缺失且无显式例外时不得进入 `G3 = Pass`。
 - 清场时只补 G4；若发现元数据或依赖关系漏项，必须标记为补救记录并说明流程遗漏原因。
 - 本地分支不是长期 Development 关系证据；实施 PR 创建后必须关联 PR，或记录不适用原因。
 - 若遇到非模板创建的 Issue，不得默认接受；必须先补齐模板中的元数据审计和 Gate Ledger，再推进 G0。

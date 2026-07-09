@@ -3,7 +3,7 @@
 ## 范围
 
 - 关联 Issue：
-- Development 关联（用于 GitHub Development 面板）：
+- Development 关联（默认用于 `closingIssuesReferences`）：
   - 完成交付：`Closes #<issue>` / `Resolves #<issue>`
   - 部分交付：`Refs #<issue>`，例外原因：
 - 切片类型：
@@ -22,7 +22,7 @@
 
 - [ ] 关联 Issue 的 Project、Project status、Labels 已核验；缺失项已有显式例外。
 - [ ] Milestone、Parent / sub-issues、Blocked by、Blocking 已核验；不适用项已有 `N/A` 原因。
-- [ ] Development PR 已在 Issue 中记录为本 PR，且 GitHub Development 面板 / `closingIssuesReferences` 已关联；若缺失，已记录显式例外。
+- [ ] Development PR 已在 Issue 中记录为本 PR，且 `closingIssuesReferences` 已覆盖关联 Issue；若只能手动关联 GitHub Development 面板，已记录显式例外。
 
 ## 影响
 
