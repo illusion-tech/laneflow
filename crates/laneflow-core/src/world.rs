@@ -357,13 +357,28 @@ impl CoreWorld {
             .checked_add(self.fixed_delta_time_ms)
             .ok_or(CoreError::TimeOverflow)?;
 
-        let mut next_vehicles = self.vehicles.clone();
+        // 为失败原子性只克隆紧凑运行态，避免每 tick 复制 external ID registry 字符串。
+        let mut next_vehicle_states: Vec<_> = self
+            .vehicles
+            .iter()
+            .map(|slot| slot.state.clone())
+            .collect();
         let mut events = Vec::new();
         for vehicle_handle in &self.vehicle_update_order {
-            let Some(vehicle) = next_vehicles
-                .get_mut(vehicle_handle.index())
+            let Some(current_slot) = self
+                .vehicles
+                .get(vehicle_handle.index())
                 .filter(|slot| slot.generation == vehicle_handle.generation())
-                .and_then(|slot| slot.state.as_mut())
+            else {
+                continue;
+            };
+            if current_slot.state.is_none() {
+                continue;
+            }
+
+            let Some(vehicle) = next_vehicle_states
+                .get_mut(vehicle_handle.index())
+                .and_then(Option::as_mut)
             else {
                 continue;
             };
@@ -380,7 +395,9 @@ impl CoreWorld {
 
         self.tick_index = next_tick_index;
         self.time_ms = next_time_ms;
-        self.vehicles = next_vehicles;
+        for (slot, next_state) in self.vehicles.iter_mut().zip(next_vehicle_states) {
+            slot.state = next_state;
+        }
 
         Ok(StepResult {
             tick_index: next_tick_index,
