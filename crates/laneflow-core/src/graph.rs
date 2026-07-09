@@ -166,8 +166,8 @@ impl LaneGraph {
 
     /// 返回 graph 是否允许从 `from` 连接到 `to`。
     pub fn can_traverse(&self, from: EdgeHandle, to: EdgeHandle) -> bool {
-        self.edge(from)
-            .and_then(|_| self.edges.get(from.index()))
+        self.edges
+            .get(from.index())
             .is_some_and(|edge| edge.next_edges.contains(&to))
     }
 
