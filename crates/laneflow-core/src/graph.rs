@@ -1,8 +1,8 @@
 //! v0.1 最小 lane graph traversal 原语。
 
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 
-use crate::error::CoreError;
+use crate::{error::CoreError, id::validate_external_id};
 
 /// edge boundary 与最小 edge length 校验使用的统一 epsilon。
 pub const EDGE_BOUNDARY_EPSILON: f64 = 1.0e-9;
@@ -91,6 +91,7 @@ impl LaneGraph {
 
         for edge in edges {
             let edge_id = edge.id.clone();
+            validate_external_id("laneGraph.edges[].id", &edge_id)?;
             if edge_map.contains_key(&edge_id) {
                 return Err(CoreError::DuplicateLaneEdgeId { edge_id });
             }
@@ -98,7 +99,15 @@ impl LaneGraph {
         }
 
         for edge in edge_map.values() {
+            let mut connection_targets = IndexSet::new();
             for next_edge_id in &edge.next_edge_ids {
+                validate_external_id("laneGraph.edges[].connections[].to", next_edge_id)?;
+                if !connection_targets.insert(next_edge_id.as_str()) {
+                    return Err(CoreError::DuplicateLaneEdgeConnection {
+                        edge_id: edge.id.clone(),
+                        next_edge_id: next_edge_id.clone(),
+                    });
+                }
                 if !edge_map.contains_key(next_edge_id) {
                     return Err(CoreError::UnknownNextLaneEdge {
                         edge_id: edge.id.clone(),

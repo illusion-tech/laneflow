@@ -28,9 +28,22 @@ pub enum CoreError {
         edge_length: f64,
         min_exclusive: f64,
     },
+    /// external ID 必须满足 v0.2 ASCII token 规则。
+    #[error("external ID 无效：field={field}, value=`{external_id}`，必须匹配 {pattern}")]
+    InvalidExternalId {
+        field: &'static str,
+        external_id: String,
+        pattern: &'static str,
+    },
     /// lane edge id 在 graph 内必须唯一。
     #[error("lane edge id 重复：{edge_id}")]
     DuplicateLaneEdgeId { edge_id: String },
+    /// 同一个 source edge 内不能重复声明同一个 connection target。
+    #[error("lane edge `{edge_id}` 重复声明 connection target：{next_edge_id}")]
+    DuplicateLaneEdgeConnection {
+        edge_id: String,
+        next_edge_id: String,
+    },
     /// lane edge 的 next edge 引用必须存在。
     #[error("lane edge `{edge_id}` 引用了不存在的 next edge：{next_edge_id}")]
     UnknownNextLaneEdge {
@@ -140,6 +153,23 @@ mod tests {
             }
             .to_string(),
             "edge progress 无效：NaN"
+        );
+        assert_eq!(
+            CoreError::InvalidExternalId {
+                field: "laneGraph.edges[].id",
+                external_id: "edge 1".to_owned(),
+                pattern: "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
+            }
+            .to_string(),
+            "external ID 无效：field=laneGraph.edges[].id, value=`edge 1`，必须匹配 ^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+        );
+        assert_eq!(
+            CoreError::DuplicateLaneEdgeConnection {
+                edge_id: "A".to_owned(),
+                next_edge_id: "B".to_owned(),
+            }
+            .to_string(),
+            "lane edge `A` 重复声明 connection target：B"
         );
         assert_eq!(
             CoreError::InvalidCompletedVehicleState {

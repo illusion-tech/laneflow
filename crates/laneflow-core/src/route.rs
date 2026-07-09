@@ -1,6 +1,6 @@
 //! v0.1 route sequence 与 validation 原语。
 
-use crate::error::CoreError;
+use crate::{error::CoreError, id::validate_external_id};
 
 /// v0.1 最小 route edge sequence。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,10 +17,15 @@ impl Route {
         S: Into<String>,
     {
         let id = id.into();
+        validate_external_id("routes[].id", &id)?;
         let edge_ids: Vec<String> = edge_ids.into_iter().map(Into::into).collect();
 
         if edge_ids.is_empty() {
             return Err(CoreError::EmptyRoute { route_id: id });
+        }
+
+        for edge_id in &edge_ids {
+            validate_external_id("routes[].edges[]", edge_id)?;
         }
 
         Ok(Self { id, edge_ids })

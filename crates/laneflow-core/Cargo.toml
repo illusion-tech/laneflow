@@ -15,5 +15,8 @@ path = "src/lib.rs"
 indexmap = "2.14"
 thiserror = "2.0"
 
+[dev-dependencies]
+serde_json = "1.0"
+
 [lints]
 workspace = true
