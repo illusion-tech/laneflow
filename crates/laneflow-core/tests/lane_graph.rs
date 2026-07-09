@@ -102,6 +102,27 @@ fn unknown_next_edge_is_rejected() {
 }
 
 #[test]
+fn unknown_connection_error_uses_input_and_connection_order() {
+    let error = LaneGraph::try_new([
+        LaneEdge::new(
+            "z-source",
+            edge_length(10.0),
+            ["first-missing", "second-missing"],
+        ),
+        LaneEdge::new("a-source", edge_length(5.0), ["third-missing"]),
+    ])
+    .expect_err("the first unknown connection must fail validation");
+
+    std::assert_matches!(
+        error,
+        CoreError::UnknownNextLaneEdge {
+            edge_id,
+            next_edge_id
+        } if edge_id == "z-source" && next_edge_id == "first-missing"
+    );
+}
+
+#[test]
 fn invalid_connection_external_id_is_rejected_before_resolution() {
     let error = LaneGraph::try_new([LaneEdge::new("A", edge_length(10.0), ["bad target"])])
         .expect_err("invalid connection target id must fail");
@@ -231,6 +252,22 @@ fn unknown_route_edge_is_rejected() {
             route_id,
             edge_id
         } if route_id == "R1" && edge_id == "missing"
+    );
+}
+
+#[test]
+fn unknown_route_edge_error_uses_registration_and_edge_sequence_order() {
+    let first = Route::try_new("z-first", ["A", "first-missing", "second-missing"])
+        .expect("valid route shape");
+    let second = Route::try_new("a-second", ["A", "third-missing"]).expect("valid route shape");
+
+    let error = CoreWorld::with_traffic_data(1000, canonical_graph(), [first, second], Vec::new())
+        .expect_err("the first unknown route edge must fail validation");
+
+    std::assert_matches!(
+        error,
+        CoreError::UnknownRouteEdge { route_id, edge_id }
+            if route_id == "z-first" && edge_id == "first-missing"
     );
 }
 
