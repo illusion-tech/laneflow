@@ -3,6 +3,9 @@
 ## 范围
 
 - 关联 Issue：
+- Development 关联（用于 GitHub Development 面板）：
+  - 完成交付：`Closes #<issue>` / `Resolves #<issue>`
+  - 部分交付：`Refs #<issue>`，例外原因：
 - 切片类型：
   - [ ] docs-only（仅文档）
   - [ ] governance（治理）
@@ -19,7 +22,7 @@
 
 - [ ] 关联 Issue 的 Project、Project status、Labels 已核验；缺失项已有显式例外。
 - [ ] Milestone、Parent / sub-issues、Blocked by、Blocking 已核验；不适用项已有 `N/A` 原因。
-- [ ] Development PR 已关联，或已记录确实无需 PR 的 `N/A` 原因。
+- [ ] Development PR 已在 Issue 中记录为本 PR，且 GitHub Development 面板 / `closingIssuesReferences` 已关联；若缺失，已记录显式例外。
 
 ## 影响
 
@@ -63,6 +66,7 @@
 - [ ] 关联 Issue 的 GitHub 元数据 / 依赖关系审计已完成。
 - [ ] 文档已更新，或本 PR 已说明为何无需更新。
 - [ ] PR commits 符合 `docs/reference/commit-convention.md`（Conventional Commits 标题 + LaneFlow 治理字段），或已记录显式例外。
+- [ ] commit message footer 与 PR body 语义已区分：commit 通常使用 `Refs: #<issue>`，PR body 使用 `Closes/Resolves` 建立 Development 关联。
 - [ ] 本 PR 未在只完成子切片的情况下声称父任务已完成。
 - [ ] 合并方式：默认 **Rebase and merge**；若使用 Squash / Merge commit，已在 PR 中说明原因。
 - [ ] 未把 G0-G3 首次记录推迟到 G4 清场阶段；若存在补救记录，已说明流程遗漏原因。
