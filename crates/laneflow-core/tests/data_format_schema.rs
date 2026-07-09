@@ -12,10 +12,9 @@ fn schema() -> Value {
 fn schema_locks_v0_2_format_version_units_and_external_id_shape() {
     let schema = schema();
 
-    assert_eq!(
-        schema["required"],
-        serde_json::json!(["formatVersion", "units", "laneGraph", "routes"])
-    );
+    let mut required = string_array(&schema["required"]);
+    required.sort_unstable();
+    assert_eq!(required, ["formatVersion", "laneGraph", "routes", "units"]);
     assert_eq!(schema["additionalProperties"], false);
     assert_eq!(schema["properties"]["formatVersion"]["const"], "0.2");
     assert_eq!(
@@ -47,11 +46,21 @@ fn schema_keeps_topology_validation_out_of_json_shape_layer() {
     assert!(
         schema["$defs"]["laneEdge"]["properties"]["connections"]
             .get("uniqueItems")
-            .is_none(),
+            .and_then(Value::as_bool)
+            != Some(true),
         "duplicate connection target must stay in domain validation because uniqueness is by `to`"
     );
     assert_eq!(
         schema["$defs"]["route"]["properties"]["edges"]["minItems"],
         1
     );
+}
+
+fn string_array(value: &Value) -> Vec<&str> {
+    value
+        .as_array()
+        .expect("value must be an array")
+        .iter()
+        .map(|item| item.as_str().expect("array item must be a string"))
+        .collect()
 }
