@@ -65,6 +65,6 @@ Review 时重点检查：
 
 ## 限制
 
-- 不要把本文件当作 GitHub 元数据事实源；Project status、labels、milestone、relationship、review threads 和 `closingIssuesReferences` 必须由 GitHub UI、`gh` 或 GraphQL 复核。
+- 不要把本文件当作 GitHub 元数据事实源；Project status、Labels、Milestone、Parent / sub-issues、Blocked by、Blocking、review threads 和 `closingIssuesReferences` 必须由 GitHub UI、`gh` 或 GraphQL 复核。
 - 不要把 Copilot review 当作 CI 或 Gate Ledger 的替代品。
 - Copilot review 对 custom instructions 的生效以 base branch 中的 instructions 为准；修改本文件的 PR 不一定影响该 PR 当前这轮 review。
