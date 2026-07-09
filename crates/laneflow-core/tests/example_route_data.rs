@@ -1,5 +1,9 @@
 use jsonschema::draft202012;
-use laneflow_core::{CoreWorld, EdgeLength, LaneEdge, LaneGraph, Route};
+use laneflow_core::{
+    CoreEvent, CoreWorld, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress, LaneEdge, LaneGraph,
+    Route, Speed, TickInput, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
+    VehicleSpawnInput, VehicleStatus,
+};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -139,5 +143,96 @@ fn example_route_data_loads_into_core_with_declared_topology_boundaries() {
                 .expect("edge resolver exists"))
             .collect::<Vec<_>>(),
         ["loop", "loop"]
+    );
+}
+
+#[test]
+fn example_route_data_drives_main_and_repeated_routes_to_completion() {
+    let mut world = load_example_world();
+    let main_route = world.route_handle("main-route").expect("main route exists");
+    let loop_route = world.route_handle("loop-once").expect("loop route exists");
+    let entry = world.edge_handle("entry").expect("entry edge exists");
+    let exit = world.edge_handle("exit").expect("exit edge exists");
+    let loop_edge = world.edge_handle("loop").expect("loop edge exists");
+
+    let main_vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::active(
+            "main-vehicle",
+            "main-route",
+            0,
+            EdgeProgress::ZERO,
+            Speed::try_new(20.0).expect("valid speed"),
+        ))
+        .expect("main vehicle spawns");
+    let loop_vehicle = world
+        .spawn_vehicle(VehicleSpawnInput::active(
+            "loop-vehicle",
+            "loop-once",
+            0,
+            EdgeProgress::ZERO,
+            Speed::try_new(10.0).expect("valid speed"),
+        ))
+        .expect("loop vehicle spawns");
+
+    let result = world
+        .step(TickInput::new(1_000))
+        .expect("example routes complete in one tick");
+
+    assert_eq!(
+        result.events,
+        vec![
+            CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
+                tick_index: 1,
+                vehicle: main_vehicle,
+                route: main_route,
+                from_edge: entry,
+                to_edge: exit,
+                from_route_edge_index: 0,
+                to_route_edge_index: 1,
+            }),
+            CoreEvent::VehicleCompletedRoute(VehicleCompletedRouteEvent {
+                tick_index: 1,
+                vehicle: main_vehicle,
+                route: main_route,
+                edge: exit,
+                route_edge_index: 1,
+            }),
+            CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
+                tick_index: 1,
+                vehicle: loop_vehicle,
+                route: loop_route,
+                from_edge: loop_edge,
+                to_edge: loop_edge,
+                from_route_edge_index: 0,
+                to_route_edge_index: 1,
+            }),
+            CoreEvent::VehicleCompletedRoute(VehicleCompletedRouteEvent {
+                tick_index: 1,
+                vehicle: loop_vehicle,
+                route: loop_route,
+                edge: loop_edge,
+                route_edge_index: 1,
+            }),
+        ]
+    );
+
+    let main_vehicle = world
+        .vehicle(main_vehicle)
+        .expect("main vehicle remains live");
+    assert_eq!(main_vehicle.status, VehicleStatus::Completed);
+    assert_eq!(main_vehicle.route_edge_index, 1);
+    assert!(
+        (main_vehicle.edge_progress.value() - 8.0).abs() <= EDGE_BOUNDARY_EPSILON,
+        "main vehicle must finish at the terminal edge boundary"
+    );
+
+    let loop_vehicle = world
+        .vehicle(loop_vehicle)
+        .expect("loop vehicle remains live");
+    assert_eq!(loop_vehicle.status, VehicleStatus::Completed);
+    assert_eq!(loop_vehicle.route_edge_index, 1);
+    assert!(
+        (loop_vehicle.edge_progress.value() - 5.0).abs() <= EDGE_BOUNDARY_EPSILON,
+        "loop vehicle must finish at the second route occurrence"
     );
 }
