@@ -63,7 +63,7 @@ Issue 的 GitHub 元数据和依赖关系是 Gate 判断的一部分，不得只
 - `Parent / sub-issues`；不适用时必须写明 `N/A` 原因。
 - `Blocked by`；不适用时必须写明 `N/A` 原因。
 - `Blocking`；不适用时必须写明 `N/A` 原因。
-- `Development PR`；PR 创建前可写 `pending`，进入 G3 前必须关联 PR 或说明不适用原因。
+- `Development PR`；PR 创建前可写 `pending`，PR 创建后记录 `PR-number`，进入 G3 前必须确认 GitHub Development 面板或 `closingIssuesReferences` 已关联 PR，或说明不适用原因 / 显式例外。
 
 推荐记录格式：
 
@@ -81,6 +81,12 @@ Issue 的 GitHub 元数据和依赖关系是 Gate 判断的一部分，不得只
 ```
 
 必需元数据缺失且没有显式例外时，不得推进下一 Gate；不适用项缺少 `N/A` 原因时，同样不得推进。若因 GitHub 权限或平台限制无法设置某项必需元数据，必须记录原因、风险、临时接受边界、后续清理 Issue 和 Cleanup owner。
+
+Development PR 关联规则：
+
+- PR body 使用 `Closes #<issue>` / `Resolves #<issue>` 等 GitHub closing keyword 建立 Development 关联；仓库已关闭 linked PR 合并后自动关闭 Issue，Issue 仍由 G4 手动关闭。
+- commit message footer 不承担 Development 面板关联职责；常规 PR commit 仍使用 `Refs: #<issue>`。
+- 父 Issue 子切片或部分交付不得误用 closing keyword；若无法建立 Development 关联，必须在 PR 中记录例外原因、风险和后续收口方式。
 
 ## 3. G0 立项闸口
 
@@ -102,7 +108,7 @@ Issue 的 GitHub 元数据和依赖关系是 Gate 判断的一部分，不得只
 - 已有 GitHub Issue。
 - 任务边界足够小，可以独立评审。
 - 验收标准可验证。
-- Project、Project status、Labels 已记录，或已记录显式例外；Milestone、Parent / sub-issues、Blocked by、Blocking 已记录，不适用项已有 `N/A` 原因；Development PR 已记录为 `pending`、`PR-number` 或已有 `N/A` 原因。
+- Project、Project status、Labels 已记录，或已记录显式例外；Milestone、Parent / sub-issues、Blocked by、Blocking 已记录，不适用项已有 `N/A` 原因；Development PR 已记录为 `pending`、`PR-number` 或已有 `N/A` 原因，进入 G3 前还必须补齐 Development 关联检查。
 - Issue Gate Ledger 中已有 G0 记录。
 
 ## 4. G1 设计冻结闸口
@@ -160,6 +166,7 @@ G1 证据可以是：
 - 测试与验证结果
 - 已知风险与例外
 - 关联 Issue 的 GitHub 元数据 / 依赖关系审计状态，以及 Development PR 关联状态
+- GitHub Development 面板或 `closingIssuesReferences` 已关联 PR；若缺失，必须记录显式例外
 
 按切片类型追加要求：
 
@@ -181,6 +188,7 @@ G1 证据可以是：
 - 例外没有清理责任或后续 Issue。
 - 缺少 G0-G2 Gate Ledger，且没有记录为显式例外或补救。
 - 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计且没有显式例外，或不适用项缺少 `N/A` 原因。
+- G3 前 PR 未通过 GitHub Development 面板或 `closingIssuesReferences` 关联对应 Issue，且没有显式例外。
 - PR commit message 不符合 `docs/reference/commit-convention.md`，且没有记录显式例外。
 
 PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
@@ -202,6 +210,7 @@ Issue 关闭前必须满足：
 - G4 记录已回写关联 Issue。
 - Project 中关联 Issue 和 PR 均已移动到 `Done`，或说明为什么不适用。
 - Development PR、Parent / sub-issues、Blocked by、Blocking 已收口，或剩余关系已拆出后续 Issue 并记录原因。
+- 关联 Issue 已由 G4 清场手动关闭；不得依赖 GitHub 自动关闭 Issue 替代 G4。
 - 本地和远端 PR 分支已清理，或说明保留原因。
 - 临时权限、ruleset bypass 或 admin override 已撤回，或说明保留原因、风险和 Cleanup owner。
 
