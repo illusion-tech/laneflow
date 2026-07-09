@@ -1,7 +1,7 @@
 # Data Format 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-09  
+**最后更新**: 2026-07-10  
 **适用范围**: v0.2 Lane Graph + Route 的外部数据格式、版本策略、lane graph / route 字段语义、validation 边界和 Core 消费入口  
 **关联文档**:
 
@@ -375,6 +375,7 @@ Validator 负责在 Core loader 前给数据作者提供稳定、可诊断的错
 
 #33 example route data 应使用本文字段，并至少覆盖：
 
+- 仓库基线示例位于 `../../examples/data/v0.2-route-baseline.laneflow.json`。它使用 meter 作为距离单位，包含 `main-route` 的 normal two-edge route、`loop-once` 的 explicit self loop / repeated edge route、terminal `exit`，以及未被 route 引用的合法 disconnected `isolated` edge。
 - terminal edge。
 - normal two-edge route。
 - repeated edge route 或 explicit self loop route。
