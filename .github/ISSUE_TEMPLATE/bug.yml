@@ -60,7 +60,7 @@ body:
     id: github-metadata
     attributes:
       label: GitHub 元数据 / 依赖关系审计
-      description: 创建或接手 Issue 时必须审计 GitHub 侧边栏和关系字段；不适用项必须写明 N/A 原因。Development PR 未创建但预计需要 PR 时写 pending，PR 创建后写 PR-number 并在 G3 前核验 GitHub Development 面板 / closingIssuesReferences，确实无需 PR 时才写 N/A 原因。
+      description: 创建或接手 Issue 时必须审计 GitHub 侧边栏和关系字段；不适用项必须写明 N/A 原因。Development PR 未创建但预计需要 PR 时写 pending，PR 创建后写 PR-number 并在 G3 前优先核验 closingIssuesReferences；若只能手动关联 GitHub Development 面板，必须记录显式例外。确实无需 PR 时才写 N/A 原因。
       value: |
         - Project：
         - Project status：

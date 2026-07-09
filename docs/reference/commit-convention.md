@@ -231,7 +231,7 @@ commit message footer 与 PR body 的 Development 关联语义不同：
 
 - 常规 PR commit 继续使用 `Refs: #<id>`，由 G4 清场负责关闭 Issue。
 - PR body 可以使用 `Closes #<id>` / `Resolves #<id>` 建立 GitHub Development 关联；仓库设置已关闭 linked PR 合并后自动关闭 Issue，因此该写法不替代 G4 手动关闭。
-- 不得为了让 GitHub Development 面板出现关联 PR，而把 commit footer 从 `Refs` 改成 `Closes`。
+- 不得为了让 `closingIssuesReferences` 出现关联 Issue，而把 commit footer 从 `Refs` 改成 `Closes`。
 
 早期治理 bootstrap 或仓库初始化如果没有 Issue，必须写明原因，例如：
 
