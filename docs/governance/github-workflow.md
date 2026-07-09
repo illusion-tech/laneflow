@@ -131,6 +131,16 @@ Development 关联规则：
 - commit message footer 与 PR body 语义分开：commit message 通常继续使用 `Refs: #<issue>`，不得为了建立 Development 关联而把提交 footer 改成 `Closes`。
 - G3 前默认必须通过 `gh pr view <pr> --json closingIssuesReferences` 确认目标 Issue 已被覆盖；GitHub Development 面板只作为人工辅助证据。若部分交付、父 Issue 子切片、权限或平台限制导致只能手动关联 Development 面板，必须记录显式例外，说明原因、风险、后续收口方式和 Cleanup owner；否则不能进入 `G3 = Pass`。
 
+### Copilot repository instructions
+
+仓库可通过 `.github/copilot-instructions.md` 给 Copilot on GitHub 提供仓库级自定义说明。该文件只作为提示层使用，必须保持薄包装，优先转读 `AGENTS.md`、`.agents/` 和 `docs/governance/` 中的事实源，不应复制完整长期规则。
+
+使用边界：
+
+- Copilot instructions 不能替代 CI、`gh` / GraphQL 元数据复核、review thread 状态检查或 Gate Ledger。
+- Copilot review 不能作为 Project status、Labels、Milestone、Parent / sub-issues、Blocked by、Blocking 或 `closingIssuesReferences` 的事实源。
+- 修改 `.github/copilot-instructions.md` 的 PR 不应假定本轮 review 已使用新说明；对 PR review 的稳定影响以合入 `main` 后的 base branch 内容为准。
+
 ## 7. PR 合并策略
 
 LaneFlow 默认使用 **Rebase and merge** 将 PR 合入 `main`。
