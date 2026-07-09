@@ -1,5 +1,7 @@
 //! Core runtime 的错误类型。
 
+use crate::{RouteHandle, VehicleHandle};
+
 /// Core runtime 暴露给调用方的错误。
 #[derive(Clone, Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -107,12 +109,24 @@ pub enum CoreError {
         edge_progress: f64,
         edge_length: f64,
     },
+    /// vehicle handle 必须指向当前 active vehicle slot。
+    #[error("vehicle handle 无效或已过期：{vehicle:?}；active resolver 将返回 None")]
+    UnknownVehicleHandle { vehicle: VehicleHandle },
+    /// route handle 必须指向当前 active route slot。
+    #[error("route handle 无效或已过期：{route:?}；active resolver 将返回 None")]
+    UnknownRouteHandle { route: RouteHandle },
+    /// 正被 live vehicle 引用的 route 不能被移除。
+    #[error("route `{route:?}` 仍被 vehicle `{vehicle:?}` 引用，不能移除")]
+    RouteInUse {
+        route: RouteHandle,
+        vehicle: VehicleHandle,
+    },
     /// route following 计算出的 travel distance 必须保持 finite。
     #[error(
-        "vehicle `{vehicle_id}` 的 route travel distance 不是 finite：speed={speed}, delta={delta_time_ms} ms"
+        "vehicle `{vehicle:?}` 的 route travel distance 不是 finite：speed={speed}, delta={delta_time_ms} ms；可通过同一 CoreWorld resolver 查询 external ID"
     )]
     NonFiniteRouteTravel {
-        vehicle_id: String,
+        vehicle: VehicleHandle,
         speed: f64,
         delta_time_ms: u64,
     },
@@ -185,13 +199,14 @@ mod tests {
         );
         assert_eq!(
             CoreError::NonFiniteRouteTravel {
-                vehicle_id: "V1".to_owned(),
+                vehicle: VehicleHandle::new(0, 0),
                 speed: f64::MAX,
                 delta_time_ms: 1000,
             }
             .to_string(),
             format!(
-                "vehicle `V1` 的 route travel distance 不是 finite：speed={}, delta=1000 ms",
+                "vehicle `{:?}` 的 route travel distance 不是 finite：speed={}, delta=1000 ms；可通过同一 CoreWorld resolver 查询 external ID",
+                VehicleHandle::new(0, 0),
                 f64::MAX
             )
         );

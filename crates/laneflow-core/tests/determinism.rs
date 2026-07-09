@@ -1,5 +1,6 @@
 use laneflow_core::{
-    CoreWorld, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed, TickInput, VehicleState,
+    CoreWorld, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed, TickInput,
+    VehicleSpawnInput,
 };
 
 fn edge_length(value: f64) -> EdgeLength {
@@ -22,8 +23,8 @@ fn deterministic_world() -> CoreWorld {
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
     let vehicles = vec![
-        VehicleState::active("V2", "R", 0, progress(1.0), speed(2.0)),
-        VehicleState::active("V1", "R", 0, progress(0.0), speed(6.0)),
+        VehicleSpawnInput::active("V2", "R", 0, progress(1.0), speed(2.0)),
+        VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(6.0)),
     ];
 
     CoreWorld::with_traffic_data(1000, lane_graph, [route], vehicles).expect("valid world")
@@ -42,7 +43,10 @@ fn same_initial_world_and_tick_sequence_produces_same_results() {
         assert_eq!(first.fixed_delta_time_ms(), second.fixed_delta_time_ms());
         assert_eq!(first.tick_index(), second.tick_index());
         assert_eq!(first.time_ms(), second.time_ms());
-        assert_eq!(first.vehicles(), second.vehicles());
+        assert_eq!(
+            first.vehicles().cloned().collect::<Vec<_>>(),
+            second.vehicles().cloned().collect::<Vec<_>>()
+        );
     }
 
     assert_eq!(first, second);

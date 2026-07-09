@@ -1,6 +1,6 @@
 //! v0.1 route sequence 与 validation 原语。
 
-use crate::{error::CoreError, id::validate_external_id};
+use crate::{error::CoreError, handle::RouteHandle, id::validate_external_id};
 
 /// v0.1 最小 route edge sequence。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,4 +40,13 @@ impl Route {
     pub fn edge_ids(&self) -> &[String] {
         &self.edge_ids
     }
+}
+
+/// route definition 被移除时返回的生命周期记录。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RouteRemoveRecord {
+    /// 被移除的 route handle。
+    pub handle: RouteHandle,
+    /// 被移除的 route external ID。
+    pub external_id: String,
 }

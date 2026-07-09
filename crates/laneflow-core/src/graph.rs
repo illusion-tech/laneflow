@@ -2,7 +2,7 @@
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::{error::CoreError, id::validate_external_id};
+use crate::{error::CoreError, handle::EdgeHandle, id::validate_external_id};
 
 /// edge boundary 与最小 edge length 校验使用的统一 epsilon。
 pub const EDGE_BOUNDARY_EPSILON: f64 = 1.0e-9;
@@ -68,17 +68,25 @@ impl LaneEdge {
     }
 }
 
-/// v0.1 最小 lane graph。
+#[derive(Clone, Debug, PartialEq)]
+struct ResolvedLaneEdge {
+    definition: LaneEdge,
+    next_edges: Vec<EdgeHandle>,
+}
+
+/// v0.2 lane graph runtime registry。
 #[derive(Clone, Debug, PartialEq)]
 pub struct LaneGraph {
-    edges: IndexMap<String, LaneEdge>,
+    edges: Vec<ResolvedLaneEdge>,
+    edge_handles: IndexMap<String, EdgeHandle>,
 }
 
 impl LaneGraph {
     /// 创建空 lane graph。
     pub fn empty() -> Self {
         Self {
-            edges: IndexMap::new(),
+            edges: Vec::new(),
+            edge_handles: IndexMap::new(),
         }
     }
 
@@ -87,21 +95,26 @@ impl LaneGraph {
     where
         I: IntoIterator<Item = LaneEdge>,
     {
-        let mut edge_map = IndexMap::new();
+        let mut edge_handles = IndexMap::new();
+        let mut edge_definitions = Vec::new();
 
         for edge in edges {
             validate_external_id("laneGraph.edges[].id", edge.id())?;
-            if edge_map.contains_key(edge.id()) {
+            if edge_handles.contains_key(edge.id()) {
                 return Err(CoreError::DuplicateLaneEdgeId {
                     edge_id: edge.id().to_owned(),
                 });
             }
             let edge_id = edge.id().to_owned();
-            edge_map.insert(edge_id, edge);
+            let handle = EdgeHandle::new(edge_definitions.len());
+            edge_handles.insert(edge_id, handle);
+            edge_definitions.push(edge);
         }
 
-        for edge in edge_map.values() {
+        let mut resolved_edges = Vec::with_capacity(edge_definitions.len());
+        for edge in edge_definitions {
             let mut connection_targets = IndexSet::new();
+            let mut next_edges = Vec::with_capacity(edge.next_edge_ids.len());
             for next_edge_id in &edge.next_edge_ids {
                 validate_external_id("laneGraph.edges[].connections[].to", next_edge_id)?;
                 if !connection_targets.insert(next_edge_id.as_str()) {
@@ -110,36 +123,85 @@ impl LaneGraph {
                         next_edge_id: next_edge_id.clone(),
                     });
                 }
-                if !edge_map.contains_key(next_edge_id) {
-                    return Err(CoreError::UnknownNextLaneEdge {
+                let next_edge = edge_handles.get(next_edge_id).copied().ok_or_else(|| {
+                    CoreError::UnknownNextLaneEdge {
                         edge_id: edge.id.clone(),
                         next_edge_id: next_edge_id.clone(),
-                    });
-                }
+                    }
+                })?;
+                next_edges.push(next_edge);
             }
+
+            resolved_edges.push(ResolvedLaneEdge {
+                definition: edge,
+                next_edges,
+            });
         }
 
-        Ok(Self { edges: edge_map })
+        Ok(Self {
+            edges: resolved_edges,
+            edge_handles,
+        })
+    }
+
+    /// 返回指定 external ID 的 edge handle。
+    pub fn edge_handle(&self, id: &str) -> Option<EdgeHandle> {
+        self.edge_handles.get(id).copied()
+    }
+
+    /// 返回 edge handle 对应的 external ID。
+    pub fn edge_external_id(&self, handle: EdgeHandle) -> Option<&str> {
+        self.edge(handle).map(LaneEdge::id)
     }
 
     /// 返回指定 lane edge。
-    pub fn edge(&self, id: &str) -> Option<&LaneEdge> {
-        self.edges.get(id)
+    pub fn edge(&self, handle: EdgeHandle) -> Option<&LaneEdge> {
+        self.edges.get(handle.index()).map(|edge| &edge.definition)
+    }
+
+    /// 返回指定 external ID 的 lane edge。
+    pub fn edge_by_id(&self, id: &str) -> Option<&LaneEdge> {
+        self.edge_handle(id).and_then(|handle| self.edge(handle))
     }
 
     /// 返回 graph 是否允许从 `from` 连接到 `to`。
-    pub fn can_traverse(&self, from: &str, to: &str) -> bool {
+    pub fn can_traverse(&self, from: EdgeHandle, to: EdgeHandle) -> bool {
         self.edge(from)
-            .is_some_and(|edge| edge.next_edge_ids.iter().any(|edge_id| edge_id == to))
+            .and_then(|_| self.edges.get(from.index()))
+            .is_some_and(|edge| edge.next_edges.contains(&to))
+    }
+
+    /// 返回 graph 是否允许从 `from` external ID 连接到 `to` external ID。
+    pub fn can_traverse_by_id(&self, from: &str, to: &str) -> bool {
+        let Some(from) = self.edge_handle(from) else {
+            return false;
+        };
+        let Some(to) = self.edge_handle(to) else {
+            return false;
+        };
+
+        self.can_traverse(from, to)
     }
 
     /// 返回指定 edge 的长度。
-    pub fn edge_length(&self, id: &str) -> Option<EdgeLength> {
-        self.edge(id).map(LaneEdge::length)
+    pub fn edge_length(&self, handle: EdgeHandle) -> Option<EdgeLength> {
+        self.edge(handle).map(LaneEdge::length)
+    }
+
+    /// 返回指定 external ID 的 edge 长度。
+    pub fn edge_length_by_id(&self, id: &str) -> Option<EdgeLength> {
+        self.edge_by_id(id).map(LaneEdge::length)
+    }
+
+    /// 返回指定 edge 的 outgoing edge handle 列表。
+    pub fn next_edges(&self, handle: EdgeHandle) -> Option<&[EdgeHandle]> {
+        self.edges
+            .get(handle.index())
+            .map(|edge| edge.next_edges.as_slice())
     }
 
     /// 返回所有 lane edge，顺序与初始化输入一致。
     pub fn edges(&self) -> impl ExactSizeIterator<Item = &LaneEdge> {
-        self.edges.values()
+        self.edges.iter().map(|edge| &edge.definition)
     }
 }

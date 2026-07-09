@@ -1,14 +1,35 @@
 //! Core world 与 fixed-step orchestration。
 
+use indexmap::IndexMap;
+
 use crate::{
     error::CoreError,
     event::{CoreEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent},
     graph::{EDGE_BOUNDARY_EPSILON, LaneGraph},
-    route::Route,
+    handle::{EdgeHandle, RouteHandle, VehicleHandle},
+    id::validate_external_id,
+    route::{Route, RouteRemoveRecord},
     time::{StepResult, TickInput},
-    vehicle::{EdgeProgress, VehicleState, VehicleStatus},
+    vehicle::{
+        EdgeProgress, Speed, VehicleDespawnRecord, VehicleSpawnInput, VehicleState, VehicleStatus,
+    },
 };
-use indexmap::IndexMap;
+
+#[derive(Clone, Debug, PartialEq)]
+struct RouteSlot {
+    generation: u32,
+    external_id: String,
+    edge_handles: Vec<EdgeHandle>,
+    active: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct VehicleSlot {
+    generation: u32,
+    external_id: String,
+    state: Option<VehicleState>,
+    update_sequence: u64,
+}
 
 /// LaneFlow Core 的最小 runtime state。
 #[derive(Clone, Debug, PartialEq)]
@@ -17,8 +38,14 @@ pub struct CoreWorld {
     tick_index: u64,
     time_ms: u64,
     lane_graph: LaneGraph,
-    routes: IndexMap<String, Route>,
-    vehicles: Vec<VehicleState>,
+    routes: Vec<RouteSlot>,
+    route_handles: IndexMap<String, RouteHandle>,
+    free_route_indices: Vec<usize>,
+    vehicles: Vec<VehicleSlot>,
+    vehicle_handles: IndexMap<String, VehicleHandle>,
+    free_vehicle_indices: Vec<usize>,
+    vehicle_update_order: Vec<VehicleHandle>,
+    next_vehicle_update_sequence: u64,
 }
 
 impl CoreWorld {
@@ -37,7 +64,7 @@ impl CoreWorld {
         fixed_delta_time_ms: u64,
         lane_graph: LaneGraph,
         routes: I,
-        vehicles: Vec<VehicleState>,
+        mut vehicles: Vec<VehicleSpawnInput>,
     ) -> Result<Self, CoreError>
     where
         I: IntoIterator<Item = Route>,
@@ -48,18 +75,31 @@ impl CoreWorld {
             });
         }
 
-        let routes = Self::collect_routes(routes)?;
-        Self::validate_routes(&lane_graph, &routes)?;
-        let vehicles = Self::validate_and_normalize_vehicles(&lane_graph, &routes, vehicles)?;
-
-        Ok(Self {
+        let mut world = Self {
             fixed_delta_time_ms,
             tick_index: 0,
             time_ms: 0,
             lane_graph,
-            routes,
-            vehicles,
-        })
+            routes: Vec::new(),
+            route_handles: IndexMap::new(),
+            free_route_indices: Vec::new(),
+            vehicles: Vec::new(),
+            vehicle_handles: IndexMap::new(),
+            free_vehicle_indices: Vec::new(),
+            vehicle_update_order: Vec::new(),
+            next_vehicle_update_sequence: 0,
+        };
+
+        for route in routes {
+            world.register_route(route)?;
+        }
+
+        vehicles.sort_by(|left, right| left.id.cmp(&right.id));
+        for vehicle in vehicles {
+            world.spawn_vehicle(vehicle)?;
+        }
+
+        Ok(world)
     }
 
     /// 返回当前 world 的固定 tick 步长。
@@ -77,9 +117,28 @@ impl CoreWorld {
         self.time_ms
     }
 
-    /// 返回当前车辆状态。
-    pub fn vehicles(&self) -> &[VehicleState] {
-        &self.vehicles
+    /// 返回当前 active vehicle 状态。
+    pub fn vehicles(&self) -> impl Iterator<Item = &VehicleState> {
+        self.vehicle_update_order
+            .iter()
+            .filter_map(|handle| self.vehicle(*handle))
+    }
+
+    /// 返回指定 vehicle handle 的状态。
+    pub fn vehicle(&self, handle: VehicleHandle) -> Option<&VehicleState> {
+        self.vehicle_slot(handle)
+            .and_then(|vehicle| vehicle.state.as_ref())
+    }
+
+    /// 返回 vehicle external ID 对应的 handle。
+    pub fn vehicle_handle(&self, id: &str) -> Option<VehicleHandle> {
+        self.vehicle_handles.get(id).copied()
+    }
+
+    /// 返回 vehicle handle 对应的 external ID。
+    pub fn vehicle_external_id(&self, handle: VehicleHandle) -> Option<&str> {
+        self.vehicle_slot(handle)
+            .map(|vehicle| vehicle.external_id.as_str())
     }
 
     /// 返回当前 lane graph。
@@ -87,14 +146,195 @@ impl CoreWorld {
         &self.lane_graph
     }
 
-    /// 返回指定 route。
-    pub fn route(&self, id: &str) -> Option<&Route> {
-        self.routes.get(id)
+    /// 返回 edge external ID 对应的 handle。
+    pub fn edge_handle(&self, id: &str) -> Option<EdgeHandle> {
+        self.lane_graph.edge_handle(id)
     }
 
-    /// 返回所有 route，顺序与初始化输入一致。
-    pub fn routes(&self) -> impl ExactSizeIterator<Item = &Route> {
-        self.routes.values()
+    /// 返回 edge handle 对应的 external ID。
+    pub fn edge_external_id(&self, handle: EdgeHandle) -> Option<&str> {
+        self.lane_graph.edge_external_id(handle)
+    }
+
+    /// 返回 route external ID 对应的 handle。
+    pub fn route_handle(&self, id: &str) -> Option<RouteHandle> {
+        self.route_handles.get(id).copied()
+    }
+
+    /// 返回 route handle 对应的 external ID。
+    pub fn route_external_id(&self, handle: RouteHandle) -> Option<&str> {
+        self.route_slot(handle)
+            .map(|route| route.external_id.as_str())
+    }
+
+    /// 返回 route 的 edge handle sequence。
+    pub fn route_edges(&self, handle: RouteHandle) -> Option<&[EdgeHandle]> {
+        self.route_slot(handle)
+            .map(|route| route.edge_handles.as_slice())
+    }
+
+    /// 返回所有 active route handle，顺序与注册顺序一致。
+    pub fn routes(&self) -> impl Iterator<Item = RouteHandle> + '_ {
+        self.routes
+            .iter()
+            .enumerate()
+            .filter(|(_, route)| route.active)
+            .map(|(index, route)| RouteHandle::new(index, route.generation))
+    }
+
+    /// 注册新的 route definition。
+    pub fn register_route(&mut self, route: Route) -> Result<RouteHandle, CoreError> {
+        if self.route_handles.contains_key(route.id()) {
+            return Err(CoreError::DuplicateRouteId {
+                route_id: route.id().to_owned(),
+            });
+        }
+
+        let edge_handles = self.resolve_route_edges(&route)?;
+        let external_id = route.id().to_owned();
+
+        let handle = if let Some(index) = self.free_route_indices.pop() {
+            let generation = self.routes[index].generation;
+            self.routes[index] = RouteSlot {
+                generation,
+                external_id: external_id.clone(),
+                edge_handles,
+                active: true,
+            };
+            RouteHandle::new(index, generation)
+        } else {
+            let handle = RouteHandle::new(self.routes.len(), 0);
+            self.routes.push(RouteSlot {
+                generation: 0,
+                external_id: external_id.clone(),
+                edge_handles,
+                active: true,
+            });
+            handle
+        };
+
+        self.route_handles.insert(external_id, handle);
+        Ok(handle)
+    }
+
+    /// 移除未被 live vehicle 引用的 route definition。
+    pub fn remove_route(&mut self, handle: RouteHandle) -> Result<RouteRemoveRecord, CoreError> {
+        self.route_slot(handle)
+            .ok_or(CoreError::UnknownRouteHandle { route: handle })?;
+
+        for vehicle in self.vehicles.iter().filter_map(|slot| slot.state.as_ref()) {
+            if vehicle.route == handle {
+                return Err(CoreError::RouteInUse {
+                    route: handle,
+                    vehicle: vehicle.handle,
+                });
+            }
+        }
+
+        let route = &mut self.routes[handle.index()];
+        let external_id = route.external_id.clone();
+        route.active = false;
+        route.edge_handles.clear();
+        route.generation = route.generation.wrapping_add(1);
+        self.route_handles.shift_remove(&external_id);
+        self.free_route_indices.push(handle.index());
+
+        Ok(RouteRemoveRecord {
+            handle,
+            external_id,
+        })
+    }
+
+    /// 创建新的 vehicle runtime entity。
+    pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, CoreError> {
+        validate_external_id("vehicles[].id", &input.id)?;
+        validate_external_id("vehicles[].routeId", &input.route_id)?;
+        if self.vehicle_handles.contains_key(&input.id) {
+            return Err(CoreError::DuplicateVehicleId {
+                vehicle_id: input.id,
+            });
+        }
+
+        let route =
+            self.route_handle(&input.route_id)
+                .ok_or_else(|| CoreError::UnknownVehicleRoute {
+                    vehicle_id: input.id.clone(),
+                    route_id: input.route_id.clone(),
+                })?;
+        let normalized = self.normalize_vehicle_input(route, &input)?;
+        let update_sequence = self.next_vehicle_update_sequence;
+        self.next_vehicle_update_sequence = self
+            .next_vehicle_update_sequence
+            .checked_add(1)
+            .ok_or(CoreError::TimeOverflow)?;
+
+        let external_id = input.id;
+        let handle = if let Some(index) = self.free_vehicle_indices.pop() {
+            let generation = self.vehicles[index].generation;
+            let handle = VehicleHandle::new(index, generation);
+            self.vehicles[index] = VehicleSlot {
+                generation,
+                external_id: external_id.clone(),
+                state: Some(VehicleState::new(
+                    handle,
+                    route,
+                    normalized.route_edge_index,
+                    normalized.edge_progress,
+                    normalized.speed,
+                    normalized.status,
+                )),
+                update_sequence,
+            };
+            handle
+        } else {
+            let handle = VehicleHandle::new(self.vehicles.len(), 0);
+            self.vehicles.push(VehicleSlot {
+                generation: 0,
+                external_id: external_id.clone(),
+                state: Some(VehicleState::new(
+                    handle,
+                    route,
+                    normalized.route_edge_index,
+                    normalized.edge_progress,
+                    normalized.speed,
+                    normalized.status,
+                )),
+                update_sequence,
+            });
+            handle
+        };
+
+        self.vehicle_handles.insert(external_id, handle);
+        self.vehicle_update_order.push(handle);
+        Ok(handle)
+    }
+
+    /// 移除 active vehicle runtime entity。
+    pub fn despawn_vehicle(
+        &mut self,
+        handle: VehicleHandle,
+    ) -> Result<VehicleDespawnRecord, CoreError> {
+        self.vehicle_slot(handle)
+            .ok_or(CoreError::UnknownVehicleHandle { vehicle: handle })?;
+
+        let slot = &mut self.vehicles[handle.index()];
+        let state = slot
+            .state
+            .take()
+            .expect("validated vehicle slot must contain state");
+        let external_id = slot.external_id.clone();
+        slot.generation = slot.generation.wrapping_add(1);
+        self.vehicle_handles.shift_remove(&external_id);
+        self.free_vehicle_indices.push(handle.index());
+        self.vehicle_update_order
+            .retain(|candidate| *candidate != handle);
+
+        Ok(VehicleDespawnRecord {
+            handle,
+            external_id,
+            route: state.route,
+            status: state.status,
+        })
     }
 
     /// 推进一个 fixed-step tick。
@@ -118,17 +358,22 @@ impl CoreWorld {
             .ok_or(CoreError::TimeOverflow)?;
 
         let mut next_vehicles = self.vehicles.clone();
-        let mut vehicle_order: Vec<_> = (0..next_vehicles.len()).collect();
-        vehicle_order.sort_by(|&left, &right| next_vehicles[left].id.cmp(&next_vehicles[right].id));
-
         let mut events = Vec::new();
-        for vehicle_index in vehicle_order {
+        for vehicle_handle in &self.vehicle_update_order {
+            let Some(vehicle) = next_vehicles
+                .get_mut(vehicle_handle.index())
+                .filter(|slot| slot.generation == vehicle_handle.generation())
+                .and_then(|slot| slot.state.as_mut())
+            else {
+                continue;
+            };
+
             Self::advance_vehicle(
                 &self.lane_graph,
                 &self.routes,
                 self.fixed_delta_time_ms,
                 next_tick_index,
-                &mut next_vehicles[vehicle_index],
+                vehicle,
                 &mut events,
             )?;
         }
@@ -144,124 +389,106 @@ impl CoreWorld {
         })
     }
 
-    fn collect_routes<I>(routes: I) -> Result<IndexMap<String, Route>, CoreError>
-    where
-        I: IntoIterator<Item = Route>,
-    {
-        let mut route_map = IndexMap::new();
-
-        for route in routes {
-            let route_id = route.id().to_owned();
-            if route_map.contains_key(&route_id) {
-                return Err(CoreError::DuplicateRouteId { route_id });
-            }
-            route_map.insert(route_id, route);
+    fn resolve_route_edges(&self, route: &Route) -> Result<Vec<EdgeHandle>, CoreError> {
+        let mut edge_handles = Vec::with_capacity(route.edge_ids().len());
+        for edge_id in route.edge_ids() {
+            let edge = self.lane_graph.edge_handle(edge_id).ok_or_else(|| {
+                CoreError::UnknownRouteEdge {
+                    route_id: route.id().to_owned(),
+                    edge_id: edge_id.clone(),
+                }
+            })?;
+            edge_handles.push(edge);
         }
 
-        Ok(route_map)
-    }
-
-    fn validate_routes(
-        lane_graph: &LaneGraph,
-        routes: &IndexMap<String, Route>,
-    ) -> Result<(), CoreError> {
-        for route in routes.values() {
-            for edge_id in route.edge_ids() {
-                if lane_graph.edge(edge_id).is_none() {
-                    return Err(CoreError::UnknownRouteEdge {
-                        route_id: route.id().to_owned(),
-                        edge_id: edge_id.clone(),
-                    });
-                }
-            }
-
-            for [from_edge_id, to_edge_id] in route.edge_ids().array_windows::<2>() {
-                if !lane_graph.can_traverse(from_edge_id, to_edge_id) {
-                    return Err(CoreError::DisconnectedRouteEdge {
-                        route_id: route.id().to_owned(),
-                        from_edge_id: from_edge_id.clone(),
-                        to_edge_id: to_edge_id.clone(),
-                    });
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn validate_and_normalize_vehicles(
-        lane_graph: &LaneGraph,
-        routes: &IndexMap<String, Route>,
-        vehicles: Vec<VehicleState>,
-    ) -> Result<Vec<VehicleState>, CoreError> {
-        let mut vehicle_ids = IndexMap::new();
-        let mut normalized_vehicles = Vec::with_capacity(vehicles.len());
-
-        for mut vehicle in vehicles {
-            if vehicle_ids.insert(vehicle.id.clone(), ()).is_some() {
-                return Err(CoreError::DuplicateVehicleId {
-                    vehicle_id: vehicle.id.clone(),
+        for [from_edge, to_edge] in edge_handles.array_windows::<2>() {
+            if !self.lane_graph.can_traverse(*from_edge, *to_edge) {
+                return Err(CoreError::DisconnectedRouteEdge {
+                    route_id: route.id().to_owned(),
+                    from_edge_id: self
+                        .lane_graph
+                        .edge_external_id(*from_edge)
+                        .expect("resolved route edge must exist")
+                        .to_owned(),
+                    to_edge_id: self
+                        .lane_graph
+                        .edge_external_id(*to_edge)
+                        .expect("resolved route edge must exist")
+                        .to_owned(),
                 });
             }
+        }
 
-            let route =
-                routes
-                    .get(&vehicle.route_id)
-                    .ok_or_else(|| CoreError::UnknownVehicleRoute {
-                        vehicle_id: vehicle.id.clone(),
-                        route_id: vehicle.route_id.clone(),
-                    })?;
+        Ok(edge_handles)
+    }
 
-            let edge_id = route
-                .edge_ids()
-                .get(vehicle.route_edge_index)
-                .ok_or_else(|| CoreError::InvalidVehicleRouteEdgeIndex {
-                    vehicle_id: vehicle.id.clone(),
-                    route_id: vehicle.route_id.clone(),
-                    route_edge_index: vehicle.route_edge_index,
-                    route_edge_count: route.edge_ids().len(),
-                })?;
+    fn normalize_vehicle_input(
+        &self,
+        route: RouteHandle,
+        input: &VehicleSpawnInput,
+    ) -> Result<NormalizedVehicleInput, CoreError> {
+        let route_slot = self
+            .route_slot(route)
+            .expect("route handle was resolved from active route map");
+        let edge = route_slot
+            .edge_handles
+            .get(input.route_edge_index)
+            .copied()
+            .ok_or_else(|| CoreError::InvalidVehicleRouteEdgeIndex {
+                vehicle_id: input.id.clone(),
+                route_id: input.route_id.clone(),
+                route_edge_index: input.route_edge_index,
+                route_edge_count: route_slot.edge_handles.len(),
+            })?;
 
-            let edge_length = lane_graph
-                .edge_length(edge_id)
-                .expect("validated route edge must exist");
-            if vehicle.edge_progress.value() > edge_length.value() {
-                return Err(CoreError::VehicleEdgeProgressOutOfRange {
-                    vehicle_id: vehicle.id.clone(),
-                    edge_id: edge_id.clone(),
-                    edge_progress: vehicle.edge_progress.value(),
+        let edge_length = self
+            .lane_graph
+            .edge_length(edge)
+            .expect("validated route edge must exist");
+        if input.edge_progress.value() > edge_length.value() {
+            return Err(CoreError::VehicleEdgeProgressOutOfRange {
+                vehicle_id: input.id.clone(),
+                edge_id: self
+                    .lane_graph
+                    .edge_external_id(edge)
+                    .expect("validated route edge must exist")
+                    .to_owned(),
+                edge_progress: input.edge_progress.value(),
+                edge_length: edge_length.value(),
+            });
+        }
+
+        let mut edge_progress = input.edge_progress;
+        if input.status == VehicleStatus::Completed {
+            let expected_route_edge_index = route_slot.edge_handles.len() - 1;
+            if input.route_edge_index != expected_route_edge_index
+                || input.edge_progress.value() + EDGE_BOUNDARY_EPSILON < edge_length.value()
+            {
+                return Err(CoreError::InvalidCompletedVehicleState {
+                    vehicle_id: input.id.clone(),
+                    route_id: input.route_id.clone(),
+                    route_edge_index: input.route_edge_index,
+                    expected_route_edge_index,
+                    edge_progress: input.edge_progress.value(),
                     edge_length: edge_length.value(),
                 });
             }
 
-            if vehicle.status == VehicleStatus::Completed {
-                let expected_route_edge_index = route.edge_ids().len() - 1;
-                if vehicle.route_edge_index != expected_route_edge_index
-                    || vehicle.edge_progress.value() + EDGE_BOUNDARY_EPSILON < edge_length.value()
-                {
-                    return Err(CoreError::InvalidCompletedVehicleState {
-                        vehicle_id: vehicle.id.clone(),
-                        route_id: vehicle.route_id.clone(),
-                        route_edge_index: vehicle.route_edge_index,
-                        expected_route_edge_index,
-                        edge_progress: vehicle.edge_progress.value(),
-                        edge_length: edge_length.value(),
-                    });
-                }
-
-                vehicle.edge_progress =
-                    EdgeProgress::try_new(edge_length.value()).expect("edge length is valid");
-            }
-
-            normalized_vehicles.push(vehicle);
+            edge_progress =
+                EdgeProgress::try_new(edge_length.value()).expect("edge length is valid");
         }
 
-        Ok(normalized_vehicles)
+        Ok(NormalizedVehicleInput {
+            route_edge_index: input.route_edge_index,
+            edge_progress,
+            speed: input.speed,
+            status: input.status,
+        })
     }
 
     fn advance_vehicle(
         lane_graph: &LaneGraph,
-        routes: &IndexMap<String, Route>,
+        routes: &[RouteSlot],
         fixed_delta_time_ms: u64,
         tick_index: u64,
         vehicle: &mut VehicleState,
@@ -275,7 +502,7 @@ impl CoreWorld {
         let travel_distance = speed * fixed_delta_time_ms as f64 / 1000.0;
         if !travel_distance.is_finite() {
             return Err(CoreError::NonFiniteRouteTravel {
-                vehicle_id: vehicle.id.clone(),
+                vehicle: vehicle.handle,
                 speed,
                 delta_time_ms: fixed_delta_time_ms,
             });
@@ -285,9 +512,10 @@ impl CoreWorld {
         }
 
         let route = routes
-            .get(&vehicle.route_id)
+            .get(vehicle.route.index())
+            .filter(|route| route.active && route.generation == vehicle.route.generation())
             .expect("validated vehicle route must exist");
-        let max_iterations = route.edge_ids().len() - vehicle.route_edge_index;
+        let max_iterations = route.edge_handles.len() - vehicle.route_edge_index;
         let mut remaining = travel_distance;
 
         for _ in 0..max_iterations {
@@ -295,18 +523,19 @@ impl CoreWorld {
                 break;
             }
 
-            let current_edge_id = route
-                .edge_ids()
+            let current_edge = route
+                .edge_handles
                 .get(vehicle.route_edge_index)
+                .copied()
                 .expect("validated route edge index must exist");
             let edge_length = lane_graph
-                .edge_length(current_edge_id)
+                .edge_length(current_edge)
                 .expect("validated route edge must exist")
                 .value();
             let next_progress = vehicle.edge_progress.value() + remaining;
             if !next_progress.is_finite() {
                 return Err(CoreError::NonFiniteRouteTravel {
-                    vehicle_id: vehicle.id.clone(),
+                    vehicle: vehicle.handle,
                     speed,
                     delta_time_ms: fixed_delta_time_ms,
                 });
@@ -325,21 +554,21 @@ impl CoreWorld {
                 remainder
             };
 
-            if vehicle.route_edge_index + 1 < route.edge_ids().len() {
+            if vehicle.route_edge_index + 1 < route.edge_handles.len() {
                 let from_route_edge_index = vehicle.route_edge_index;
                 let to_route_edge_index = from_route_edge_index + 1;
-                let to_edge_id = route
-                    .edge_ids()
+                let to_edge = route
+                    .edge_handles
                     .get(to_route_edge_index)
-                    .expect("next route edge must exist")
-                    .clone();
+                    .copied()
+                    .expect("next route edge must exist");
 
                 events.push(CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
                     tick_index,
-                    vehicle_id: vehicle.id.clone(),
-                    route_id: vehicle.route_id.clone(),
-                    from_edge_id: current_edge_id.clone(),
-                    to_edge_id: to_edge_id.clone(),
+                    vehicle: vehicle.handle,
+                    route: vehicle.route,
+                    from_edge: current_edge,
+                    to_edge,
                     from_route_edge_index,
                     to_route_edge_index,
                 }));
@@ -353,9 +582,9 @@ impl CoreWorld {
                 events.push(CoreEvent::VehicleCompletedRoute(
                     VehicleCompletedRouteEvent {
                         tick_index,
-                        vehicle_id: vehicle.id.clone(),
-                        route_id: vehicle.route_id.clone(),
-                        edge_id: current_edge_id.clone(),
+                        vehicle: vehicle.handle,
+                        route: vehicle.route,
+                        edge: current_edge,
                         route_edge_index: vehicle.route_edge_index,
                     },
                 ));
@@ -365,6 +594,26 @@ impl CoreWorld {
 
         Ok(())
     }
+
+    fn route_slot(&self, handle: RouteHandle) -> Option<&RouteSlot> {
+        self.routes
+            .get(handle.index())
+            .filter(|route| route.active && route.generation == handle.generation())
+    }
+
+    fn vehicle_slot(&self, handle: VehicleHandle) -> Option<&VehicleSlot> {
+        self.vehicles
+            .get(handle.index())
+            .filter(|vehicle| vehicle.generation == handle.generation() && vehicle.state.is_some())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct NormalizedVehicleInput {
+    route_edge_index: usize,
+    edge_progress: EdgeProgress,
+    speed: Speed,
+    status: VehicleStatus,
 }
 
 fn is_less_than_boundary_epsilon(value: f64) -> bool {
@@ -374,7 +623,7 @@ fn is_less_than_boundary_epsilon(value: f64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CoreError, EdgeLength, EdgeProgress, LaneEdge, Speed, TickInput, VehicleState};
+    use crate::{CoreError, EdgeLength, EdgeProgress, LaneEdge, Speed, TickInput};
 
     #[test]
     fn unit_step_advances_post_step_time() {
@@ -397,7 +646,7 @@ mod tests {
         )])
         .expect("valid lane graph");
         let route = Route::try_new("R1", ["A"]).expect("valid route");
-        let vehicle = VehicleState::active(
+        let vehicle = VehicleSpawnInput::active(
             "V1",
             "R1",
             0,

@@ -1,6 +1,9 @@
 //! v0.1 最小 vehicle state 原语。
 
-use crate::error::CoreError;
+use crate::{
+    error::CoreError,
+    handle::{RouteHandle, VehicleHandle},
+};
 
 /// 车辆速度，单位为 distance units per second。
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
@@ -62,12 +65,12 @@ pub enum VehicleStatus {
     Completed,
 }
 
-/// v0.1 最小车辆状态。
+/// 创建或初始化 vehicle 时使用的外部输入。
 #[derive(Clone, Debug, PartialEq)]
-pub struct VehicleState {
-    /// vehicle id，在 v0.1 内由调用方保证语义。
+pub struct VehicleSpawnInput {
+    /// vehicle external ID。
     pub id: String,
-    /// route id；route 存在性由后续 lane graph / route issue 校验。
+    /// route external ID。
     pub route_id: String,
     /// 当前 route edge index。
     pub route_edge_index: usize,
@@ -79,8 +82,8 @@ pub struct VehicleState {
     pub status: VehicleStatus,
 }
 
-impl VehicleState {
-    /// 创建指定状态的最小车辆状态。
+impl VehicleSpawnInput {
+    /// 创建指定状态的 vehicle 输入。
     pub fn new(
         id: impl Into<String>,
         route_id: impl Into<String>,
@@ -99,7 +102,7 @@ impl VehicleState {
         }
     }
 
-    /// 创建 active 车辆。
+    /// 创建 active vehicle 输入。
     pub fn active(
         id: impl Into<String>,
         route_id: impl Into<String>,
@@ -117,7 +120,7 @@ impl VehicleState {
         )
     }
 
-    /// 创建 stopped 车辆。
+    /// 创建 stopped vehicle 输入。
     pub fn stopped(
         id: impl Into<String>,
         route_id: impl Into<String>,
@@ -135,7 +138,7 @@ impl VehicleState {
         )
     }
 
-    /// 创建 completed 车辆。
+    /// 创建 completed vehicle 输入。
     pub fn completed(
         id: impl Into<String>,
         route_id: impl Into<String>,
@@ -152,6 +155,43 @@ impl VehicleState {
             VehicleStatus::Completed,
         )
     }
+}
+
+/// Core runtime 中的 vehicle 状态。
+#[derive(Clone, Debug, PartialEq)]
+pub struct VehicleState {
+    /// vehicle runtime handle。
+    pub handle: VehicleHandle,
+    /// 当前 route handle。
+    pub route: RouteHandle,
+    /// 当前 route edge index。
+    pub route_edge_index: usize,
+    /// 当前 edge 内 progress。
+    pub edge_progress: EdgeProgress,
+    /// 车辆配置或当前期望速度。
+    pub speed: Speed,
+    /// 车辆运行状态。
+    pub status: VehicleStatus,
+}
+
+impl VehicleState {
+    pub(crate) fn new(
+        handle: VehicleHandle,
+        route: RouteHandle,
+        route_edge_index: usize,
+        edge_progress: EdgeProgress,
+        speed: Speed,
+        status: VehicleStatus,
+    ) -> Self {
+        Self {
+            handle,
+            route,
+            route_edge_index,
+            edge_progress,
+            speed,
+            status,
+        }
+    }
 
     /// 返回当前 step 使用的有效速度。
     pub fn effective_speed(&self) -> Speed {
@@ -160,4 +200,17 @@ impl VehicleState {
             VehicleStatus::Stopped | VehicleStatus::Completed => Speed::ZERO,
         }
     }
+}
+
+/// vehicle 被移除时返回的生命周期记录。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VehicleDespawnRecord {
+    /// 被移除的 vehicle handle。
+    pub handle: VehicleHandle,
+    /// 被移除的 vehicle external ID。
+    pub external_id: String,
+    /// 移除时绑定的 route handle。
+    pub route: RouteHandle,
+    /// 移除时的 vehicle 状态。
+    pub status: VehicleStatus,
 }

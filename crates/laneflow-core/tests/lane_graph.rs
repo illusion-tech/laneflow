@@ -1,6 +1,6 @@
 use laneflow_core::{
     CoreError, CoreWorld, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress, LaneEdge, LaneGraph,
-    Route, Speed, VehicleState,
+    Route, Speed, VehicleSpawnInput,
 };
 
 fn edge_length(value: f64) -> EdgeLength {
@@ -20,8 +20,8 @@ fn active_vehicle(
     route_id: &str,
     route_edge_index: usize,
     edge_progress: f64,
-) -> VehicleState {
-    VehicleState::active(
+) -> VehicleSpawnInput {
+    VehicleSpawnInput::active(
         id,
         route_id,
         route_edge_index,
@@ -39,13 +39,25 @@ fn valid_lane_graph_route_and_vehicle_can_initialize_world() {
     let world = CoreWorld::with_traffic_data(1000, lane_graph, [route], vec![vehicle])
         .expect("valid world");
 
-    assert_eq!(world.lane_graph().edge_length("A"), Some(edge_length(10.0)));
-    assert!(world.lane_graph().can_traverse("A", "B"));
+    let edge_a = world.edge_handle("A").expect("edge A handle exists");
+    let edge_b = world.edge_handle("B").expect("edge B handle exists");
+    let route = world.route_handle("R1").expect("route handle exists");
+
     assert_eq!(
-        world.route("R1").expect("route exists").edge_ids(),
+        world.lane_graph().edge_length(edge_a),
+        Some(edge_length(10.0))
+    );
+    assert!(world.lane_graph().can_traverse(edge_a, edge_b));
+    assert_eq!(
+        world
+            .route_edges(route)
+            .expect("route edges exist")
+            .iter()
+            .map(|edge| world.edge_external_id(*edge).expect("edge id exists"))
+            .collect::<Vec<_>>(),
         ["A", "B", "A"]
     );
-    assert_eq!(world.vehicles().len(), 1);
+    assert_eq!(world.vehicles().count(), 1);
 }
 
 #[test]
@@ -127,8 +139,12 @@ fn terminal_self_connection_and_disconnected_component_are_valid_graph_shapes() 
     ])
     .expect("terminal, self connection, and disconnected graph component are valid");
 
-    assert!(lane_graph.can_traverse("A", "A"));
-    assert!(!lane_graph.can_traverse("B", "C"));
+    let edge_a = lane_graph.edge_handle("A").expect("edge A handle exists");
+    let edge_b = lane_graph.edge_handle("B").expect("edge B handle exists");
+    let edge_c = lane_graph.edge_handle("C").expect("edge C handle exists");
+
+    assert!(lane_graph.can_traverse(edge_a, edge_a));
+    assert!(!lane_graph.can_traverse(edge_b, edge_c));
     assert_eq!(lane_graph.edges().len(), 3);
 }
 
