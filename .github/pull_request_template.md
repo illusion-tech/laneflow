@@ -5,7 +5,7 @@
 - 关联 Issue：
 - Development 关联（默认用于 `closingIssuesReferences`）：
   - 完成交付：`Closes #<issue>` / `Resolves #<issue>`
-  - 部分交付：`Refs #<issue>`，例外原因：
+  - 部分交付：`Refs: #<issue>`，例外原因：
 - 切片类型：
   - [ ] docs-only（仅文档）
   - [ ] governance（治理）
