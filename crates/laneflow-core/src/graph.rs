@@ -90,11 +90,13 @@ impl LaneGraph {
         let mut edge_map = IndexMap::new();
 
         for edge in edges {
-            let edge_id = edge.id.clone();
-            validate_external_id("laneGraph.edges[].id", &edge_id)?;
-            if edge_map.contains_key(&edge_id) {
-                return Err(CoreError::DuplicateLaneEdgeId { edge_id });
+            validate_external_id("laneGraph.edges[].id", edge.id())?;
+            if edge_map.contains_key(edge.id()) {
+                return Err(CoreError::DuplicateLaneEdgeId {
+                    edge_id: edge.id().to_owned(),
+                });
             }
+            let edge_id = edge.id().to_owned();
             edge_map.insert(edge_id, edge);
         }
 
