@@ -26,6 +26,26 @@
 - 优先指出会阻断 G3/G4 的问题：行为错误、治理字段缺失、测试缺口、设计依据缺失、Core / Adapter 边界错误、数据格式与 schema 不一致。
 - 避免只给风格偏好；若建议调整，说明它影响哪条治理规则、验证矩阵或长期设计事实。
 
+## 代码质量与设计原则 review
+
+代码风格、架构、抽象和设计模式建议应有可执行依据，不能只表达个人偏好。Rust 代码质量 review 可参考 Rust API Guidelines 与 Rust Design Patterns，但不得机械套用面向对象设计模式。
+
+Review 时关注：
+
+- 风格问题优先依据 `rustfmt`、`clippy`、仓库既有命名、模块组织和中文优先注释约定。
+- 架构问题必须对照 LaneFlow 分层、design / ADR 和切片范围，尤其检查 Core / data-format / Adapter 职责是否混杂。
+- 抽象建议必须说明它减少了什么重复、隔离了什么变化，或避免了什么长期耦合；不要建议无 Issue / design 依据的过早泛化。
+- Rust pattern 建议必须说明具体收益或风险，例如 ownership 语义、newtype / typed handle、trait 边界、`Result` / error 类型、模块可见性、失败原子性、API 可预测性或测试可验证性。
+- 设计原则可作为 review 判断框架：SRP、DRY、KISS、YAGNI、composition over inheritance、Design by Contract、encapsulation、CQS、POLA、Single Choice。
+- OCP、LSP、DIP 等 OOP 语境原则只能作为参考；不要据此强制抽 trait、加继承式层级或引入不必要的动态分发。
+- 每条代码质量评论应说明严重程度、影响范围和可执行修复方向；没有明确影响的 nit 应避免提出。
+
+参考资料：
+
+- Rust API Guidelines: <https://rust-lang.github.io/api-guidelines/>
+- Rust Design Patterns: <https://rust-unofficial.github.io/patterns/intro.html>
+- Rust Design Patterns - Design principles: <https://rust-unofficial.github.io/patterns/additional_resources/design-principles.html>
+
 ## 通用治理检查
 
 Review 时重点检查：
