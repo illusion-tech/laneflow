@@ -127,7 +127,7 @@ Development 关联规则：
 
 - 仓库设置 `Auto-close issues with merged linked pull requests` 应保持关闭；Issue 关闭仍由 G4 清场手动完成。
 - 当 PR 预期覆盖关联 Issue 的完成边界时，PR body 应使用 `Closes #<issue>`、`Resolves #<issue>` 或等价 GitHub closing keyword 建立 Development 关联。
-- 当 PR 只是父 Issue 的子切片或部分交付时，不得误用 closing keyword；应使用 `Refs #<issue>`，并在 PR 中记录无法建立 Development 关联的原因、风险和后续收口方式。
+- 当 PR 只是父 Issue 的子切片或部分交付时，不得误用 closing keyword；应使用 `Refs: #<issue>`，并在 PR 中记录无法建立 Development 关联的原因、风险和后续收口方式。
 - commit message footer 与 PR body 语义分开：commit message 通常继续使用 `Refs: #<issue>`，不得为了建立 Development 关联而把提交 footer 改成 `Closes`。
 - G3 前默认必须通过 `gh pr view <pr> --json closingIssuesReferences` 确认目标 Issue 已被覆盖；GitHub Development 面板只作为人工辅助证据。若部分交付、父 Issue 子切片、权限或平台限制导致只能手动关联 Development 面板，必须记录显式例外，说明原因、风险、后续收口方式和 Cleanup owner；否则不能进入 `G3 = Pass`。
 
