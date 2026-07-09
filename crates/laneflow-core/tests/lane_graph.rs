@@ -60,6 +60,22 @@ fn duplicate_edge_id_is_rejected() {
 }
 
 #[test]
+fn invalid_edge_external_id_is_rejected() {
+    let error = LaneGraph::try_new([LaneEdge::new(
+        "edge 1",
+        edge_length(10.0),
+        std::iter::empty::<&str>(),
+    )])
+    .expect_err("invalid edge external id must fail");
+
+    std::assert_matches!(
+        error,
+        CoreError::InvalidExternalId { field, external_id, .. }
+            if field == "laneGraph.edges[].id" && external_id == "edge 1"
+    );
+}
+
+#[test]
 fn unknown_next_edge_is_rejected() {
     let error = LaneGraph::try_new([LaneEdge::new("A", edge_length(10.0), ["missing"])])
         .expect_err("unknown next edge must fail");
@@ -71,6 +87,49 @@ fn unknown_next_edge_is_rejected() {
             next_edge_id
         } if edge_id == "A" && next_edge_id == "missing"
     );
+}
+
+#[test]
+fn invalid_connection_external_id_is_rejected_before_resolution() {
+    let error = LaneGraph::try_new([LaneEdge::new("A", edge_length(10.0), ["bad target"])])
+        .expect_err("invalid connection target id must fail");
+
+    std::assert_matches!(
+        error,
+        CoreError::InvalidExternalId { field, external_id, .. }
+            if field == "laneGraph.edges[].connections[].to" && external_id == "bad target"
+    );
+}
+
+#[test]
+fn duplicate_connection_target_is_rejected() {
+    let error = LaneGraph::try_new([
+        LaneEdge::new("A", edge_length(10.0), ["B", "B"]),
+        LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
+    ])
+    .expect_err("duplicate connection target must fail");
+
+    std::assert_matches!(
+        error,
+        CoreError::DuplicateLaneEdgeConnection {
+            edge_id,
+            next_edge_id
+        } if edge_id == "A" && next_edge_id == "B"
+    );
+}
+
+#[test]
+fn terminal_self_connection_and_disconnected_component_are_valid_graph_shapes() {
+    let lane_graph = LaneGraph::try_new([
+        LaneEdge::new("A", edge_length(10.0), ["A"]),
+        LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
+        LaneEdge::new("C", edge_length(7.0), std::iter::empty::<&str>()),
+    ])
+    .expect("terminal, self connection, and disconnected graph component are valid");
+
+    assert!(lane_graph.can_traverse("A", "A"));
+    assert!(!lane_graph.can_traverse("B", "C"));
+    assert_eq!(lane_graph.edges().len(), 3);
 }
 
 #[test]
@@ -120,6 +179,28 @@ fn empty_route_is_rejected() {
         Route::try_new("R1", std::iter::empty::<&str>()).expect_err("empty route must fail");
 
     std::assert_matches!(error, CoreError::EmptyRoute { route_id } if route_id == "R1");
+}
+
+#[test]
+fn invalid_route_external_id_is_rejected() {
+    let error = Route::try_new("route 1", ["A"]).expect_err("invalid route id must fail");
+
+    std::assert_matches!(
+        error,
+        CoreError::InvalidExternalId { field, external_id, .. }
+            if field == "routes[].id" && external_id == "route 1"
+    );
+}
+
+#[test]
+fn invalid_route_edge_external_id_is_rejected() {
+    let error = Route::try_new("R1", ["bad edge"]).expect_err("invalid route edge id must fail");
+
+    std::assert_matches!(
+        error,
+        CoreError::InvalidExternalId { field, external_id, .. }
+            if field == "routes[].edges[]" && external_id == "bad edge"
+    );
 }
 
 #[test]
