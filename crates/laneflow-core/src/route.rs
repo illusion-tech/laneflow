@@ -1,8 +1,8 @@
-//! v0.1 route sequence 与 validation 原语。
+//! Route 输入、validation 与 runtime lifecycle 记录。
 
 use crate::{error::CoreError, handle::RouteHandle, id::validate_external_id};
 
-/// v0.1 最小 route edge sequence。
+/// route edge sequence 输入定义。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Route {
     id: String,
