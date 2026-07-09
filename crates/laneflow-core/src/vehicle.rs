@@ -1,4 +1,4 @@
-//! v0.1 最小 vehicle state 原语。
+//! Vehicle 输入与 runtime state 原语。
 
 use crate::{
     error::CoreError,
@@ -53,13 +53,13 @@ impl EdgeProgress {
     }
 }
 
-/// v0.1 车辆运行状态。
+/// 车辆运行状态。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum VehicleStatus {
     /// 随 fixed tick 沿 route 推进。
     Active,
-    /// 手工或初始保持停止，v0.1 不因前车或信号自动进入该状态。
+    /// 手工或初始保持停止，当前最小实现不因前车或信号自动进入该状态。
     Stopped,
     /// route 结束后的终止状态。
     Completed,

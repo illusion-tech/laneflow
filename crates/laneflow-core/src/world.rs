@@ -28,7 +28,6 @@ struct VehicleSlot {
     generation: u32,
     external_id: String,
     state: Option<VehicleState>,
-    update_sequence: u64,
 }
 
 /// LaneFlow Core 的最小 runtime state。
@@ -45,7 +44,6 @@ pub struct CoreWorld {
     vehicle_handles: IndexMap<String, VehicleHandle>,
     free_vehicle_indices: Vec<usize>,
     vehicle_update_order: Vec<VehicleHandle>,
-    next_vehicle_update_sequence: u64,
 }
 
 impl CoreWorld {
@@ -87,7 +85,6 @@ impl CoreWorld {
             vehicle_handles: IndexMap::new(),
             free_vehicle_indices: Vec::new(),
             vehicle_update_order: Vec::new(),
-            next_vehicle_update_sequence: 0,
         };
 
         for route in routes {
@@ -117,7 +114,7 @@ impl CoreWorld {
         self.time_ms
     }
 
-    /// 返回当前 active vehicle 状态。
+    /// 返回当前 live vehicle 状态，按稳定更新顺序输出。
     pub fn vehicles(&self) -> impl Iterator<Item = &VehicleState> {
         self.vehicle_update_order
             .iter()
@@ -262,12 +259,6 @@ impl CoreWorld {
                     route_id: input.route_id.clone(),
                 })?;
         let normalized = self.normalize_vehicle_input(route, &input)?;
-        let update_sequence = self.next_vehicle_update_sequence;
-        self.next_vehicle_update_sequence = self
-            .next_vehicle_update_sequence
-            .checked_add(1)
-            .ok_or(CoreError::TimeOverflow)?;
-
         let external_id = input.id;
         let handle = if let Some(index) = self.free_vehicle_indices.pop() {
             let generation = self.vehicles[index].generation;
@@ -283,7 +274,6 @@ impl CoreWorld {
                     normalized.speed,
                     normalized.status,
                 )),
-                update_sequence,
             };
             handle
         } else {
@@ -299,7 +289,6 @@ impl CoreWorld {
                     normalized.speed,
                     normalized.status,
                 )),
-                update_sequence,
             });
             handle
         };
@@ -309,7 +298,7 @@ impl CoreWorld {
         Ok(handle)
     }
 
-    /// 移除 active vehicle runtime entity。
+    /// 移除 live vehicle runtime entity。
     pub fn despawn_vehicle(
         &mut self,
         handle: VehicleHandle,

@@ -1,4 +1,4 @@
-//! v0.1 最小 lane graph traversal 原语。
+//! Lane graph 输入、handle registry 与 resolved traversal 原语。
 
 use indexmap::{IndexMap, IndexSet};
 
@@ -30,7 +30,7 @@ impl EdgeLength {
     }
 }
 
-/// v0.1 最小 lane edge。
+/// lane edge 输入定义。
 #[derive(Clone, Debug, PartialEq)]
 pub struct LaneEdge {
     id: String,
