@@ -2,18 +2,21 @@
 
 引擎无关的 LaneFlow Core runtime crate。
 
-本 crate 由 issue #9 初始化，作为 v0.1 Core 的实现边界。当前已提供 fixed-step tick、最小 vehicle state、最小 lane graph / route validation，以及 simple route following 原语：
+本 crate 由 issue #9 初始化，作为 Core runtime 的实现边界。当前已在 v0.1 原型能力上对齐 v0.2 lane graph / route / ID handle 设计，提供 fixed-step tick、typed handle registry、最小 vehicle state、lane graph / route validation，以及 simple route following 原语：
 
-- `CoreWorld`：保存固定步长、tick index、simulation time 和最小车辆集合；
+- `CoreWorld`：保存固定步长、tick index、simulation time、lane graph、route / vehicle registry 和 stable update order；
 - `TickInput` / `StepResult`：表达显式 tick 输入和 post-step 可观察输出；
-- `CoreError`：表达 fixed delta、tick delta mismatch、时间溢出、lane graph / route / vehicle 静态校验和数值校验错误；
-- `LaneGraph` / `LaneEdge` / `EdgeLength`：表达 v0.1 内部 lane graph 输入，并校验 edge id、edge length 和 next edge 引用；
-- `Route`：表达 v0.1 内部 route edge sequence，并配合 `CoreWorld::with_traffic_data` 校验 edge 存在性和连通性；
-- `VehicleState` / `VehicleStatus`：表达最小车辆运行状态；
+- `CoreError`：表达 fixed delta、tick delta mismatch、时间溢出、lane graph / route / vehicle 静态校验、stale handle、route lifecycle 和数值校验错误；
+- `LaneGraph` / `LaneEdge` / `EdgeLength`：表达 lane graph 输入，并在初始化时把 external edge ID 解析为 `EdgeHandle` runtime 连接；
+- `Route`：表达外部 route edge sequence 输入，并由 `CoreWorld` 注册为 `RouteHandle` + `EdgeHandle` sequence；
+- `VehicleSpawnInput`：表达 vehicle 初始化 / spawn 输入，使用 external vehicle ID 和 route ID；
+- `VehicleState` / `VehicleStatus`：表达 handle-based 最小车辆运行状态；
+- `VehicleHandle` / `RouteHandle` / `EdgeHandle`：表达 Core runtime 内部 typed handle，external ID 通过 `CoreWorld` resolver 回查；
 - `Speed` / `EdgeProgress`：用 newtype 包装 speed 和 edge progress，避免 public API 直接散落裸 `f64`。
-- `CoreEvent`：输出结构化 route transition 事件，包括 `VehicleChangedEdgeEvent` 与 `VehicleCompletedRouteEvent`。
+- `CoreEvent`：输出结构化 route transition 事件，包括 `VehicleChangedEdgeEvent` 与 `VehicleCompletedRouteEvent`，事件 payload 使用 handle 而不是复制 external ID。
+- `spawn_vehicle` / `despawn_vehicle` / `register_route` / `remove_route`：提供最小 runtime lifecycle API；route 移除会拒绝仍被 live vehicle 引用的 route。
 
-当前仍不实现 vehicle following、signals、parking、runtime commands、Adapter API、C ABI 或 WASM 绑定；这些能力由后续 v0.x 子 issue 增量实现。v0.1 的 lane graph / route 类型仍是内部实现输入，不是稳定 data spec。
+当前仍不实现 vehicle following、signals、parking、Adapter API、C ABI 或 WASM 绑定；这些能力由后续 v0.x 子 issue 增量实现。当前 lane graph / route 输入已对齐 v0.2 data model 的核心结构，但还不是完整 package loader 或稳定外部 data spec。
 
 当前工具链策略：
 

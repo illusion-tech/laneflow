@@ -1,13 +1,13 @@
 use laneflow_core::{
     CoreError, CoreWorld, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed, TickInput,
-    VehicleState, VehicleStatus,
+    VehicleSpawnInput, VehicleStatus,
 };
 
 fn edge_length(value: f64) -> EdgeLength {
     EdgeLength::try_new(value).expect("valid edge length")
 }
 
-fn single_edge_world(fixed_delta_time_ms: u64, vehicles: Vec<VehicleState>) -> CoreWorld {
+fn single_edge_world(fixed_delta_time_ms: u64, vehicles: Vec<VehicleSpawnInput>) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([
         LaneEdge::new("A", edge_length(10.0), ["B"]),
         LaneEdge::new("B", edge_length(10.0), std::iter::empty::<&str>()),
@@ -35,7 +35,7 @@ fn fixed_tick_advances_post_step_time() {
 
 #[test]
 fn delta_mismatch_returns_error_and_keeps_world_unchanged() {
-    let vehicle = VehicleState::active(
+    let vehicle = VehicleSpawnInput::active(
         "V1",
         "R1",
         0,
@@ -61,7 +61,7 @@ fn delta_mismatch_returns_error_and_keeps_world_unchanged() {
 
 #[test]
 fn active_zero_speed_is_valid_and_does_not_change_progress() {
-    let vehicle = VehicleState::active(
+    let vehicle = VehicleSpawnInput::active(
         "V1",
         "R1",
         0,
@@ -72,7 +72,8 @@ fn active_zero_speed_is_valid_and_does_not_change_progress() {
 
     world.step(TickInput::new(1000)).expect("step succeeds");
 
-    let vehicle = &world.vehicles()[0];
+    let vehicles = world.vehicles().collect::<Vec<_>>();
+    let vehicle = vehicles[0];
     assert_eq!(vehicle.status, VehicleStatus::Active);
     assert_eq!(vehicle.speed.value(), 0.0);
     assert_eq!(vehicle.edge_progress.value(), 7.5);
@@ -81,14 +82,14 @@ fn active_zero_speed_is_valid_and_does_not_change_progress() {
 
 #[test]
 fn stopped_and_completed_keep_speed_but_have_zero_effective_speed() {
-    let stopped = VehicleState::stopped(
+    let stopped = VehicleSpawnInput::stopped(
         "V1",
         "R1",
         0,
         EdgeProgress::try_new(2.0).expect("valid progress"),
         Speed::try_new(6.0).expect("valid speed"),
     );
-    let completed = VehicleState::completed(
+    let completed = VehicleSpawnInput::completed(
         "V2",
         "R1",
         1,
@@ -100,13 +101,14 @@ fn stopped_and_completed_keep_speed_but_have_zero_effective_speed() {
     let result = world.step(TickInput::new(1000)).expect("step succeeds");
     assert!(result.events.is_empty());
 
-    let stopped = &world.vehicles()[0];
+    let vehicles = world.vehicles().collect::<Vec<_>>();
+    let stopped = vehicles[0];
     assert_eq!(stopped.status, VehicleStatus::Stopped);
     assert_eq!(stopped.speed.value(), 6.0);
     assert_eq!(stopped.edge_progress.value(), 2.0);
     assert_eq!(stopped.effective_speed(), Speed::ZERO);
 
-    let completed = &world.vehicles()[1];
+    let completed = vehicles[1];
     assert_eq!(completed.status, VehicleStatus::Completed);
     assert_eq!(completed.speed.value(), 8.0);
     assert_eq!(completed.edge_progress.value(), 10.0);

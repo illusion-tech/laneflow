@@ -1,8 +1,27 @@
 use laneflow_core::{
     CoreError, CoreEvent, CoreWorld, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress, LaneEdge,
-    LaneGraph, Route, Speed, TickInput, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
-    VehicleState, VehicleStatus,
+    LaneGraph, Route, Speed, TickInput, VehicleSpawnInput, VehicleState, VehicleStatus,
 };
+
+#[derive(Debug, PartialEq, Eq)]
+enum EventView {
+    Changed {
+        tick_index: u64,
+        vehicle: String,
+        route: String,
+        from_edge: String,
+        to_edge: String,
+        from_route_edge_index: usize,
+        to_route_edge_index: usize,
+    },
+    Completed {
+        tick_index: u64,
+        vehicle: String,
+        route: String,
+        edge: String,
+        route_edge_index: usize,
+    },
+}
 
 fn edge_length(value: f64) -> EdgeLength {
     EdgeLength::try_new(value).expect("valid edge length")
@@ -23,7 +42,7 @@ fn assert_close(actual: f64, expected: f64) {
     );
 }
 
-fn canonical_world(vehicle: VehicleState) -> CoreWorld {
+fn canonical_world(vehicle: VehicleSpawnInput) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([
         LaneEdge::new("A", edge_length(10.0), ["B"]),
         LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
@@ -34,16 +53,67 @@ fn canonical_world(vehicle: VehicleState) -> CoreWorld {
     CoreWorld::with_traffic_data(1000, lane_graph, [route], vec![vehicle]).expect("valid world")
 }
 
+fn vehicle_by_id<'a>(world: &'a CoreWorld, id: &str) -> &'a VehicleState {
+    let handle = world.vehicle_handle(id).expect("vehicle handle exists");
+    world.vehicle(handle).expect("vehicle state exists")
+}
+
+fn event_views(world: &CoreWorld, events: &[CoreEvent]) -> Vec<EventView> {
+    events
+        .iter()
+        .map(|event| match event {
+            CoreEvent::VehicleChangedEdge(event) => EventView::Changed {
+                tick_index: event.tick_index,
+                vehicle: world
+                    .vehicle_external_id(event.vehicle)
+                    .expect("vehicle id exists")
+                    .to_owned(),
+                route: world
+                    .route_external_id(event.route)
+                    .expect("route id exists")
+                    .to_owned(),
+                from_edge: world
+                    .edge_external_id(event.from_edge)
+                    .expect("from edge id exists")
+                    .to_owned(),
+                to_edge: world
+                    .edge_external_id(event.to_edge)
+                    .expect("to edge id exists")
+                    .to_owned(),
+                from_route_edge_index: event.from_route_edge_index,
+                to_route_edge_index: event.to_route_edge_index,
+            },
+            CoreEvent::VehicleCompletedRoute(event) => EventView::Completed {
+                tick_index: event.tick_index,
+                vehicle: world
+                    .vehicle_external_id(event.vehicle)
+                    .expect("vehicle id exists")
+                    .to_owned(),
+                route: world
+                    .route_external_id(event.route)
+                    .expect("route id exists")
+                    .to_owned(),
+                edge: world
+                    .edge_external_id(event.edge)
+                    .expect("edge id exists")
+                    .to_owned(),
+                route_edge_index: event.route_edge_index,
+            },
+            _ => unreachable!("route following tests only create route events"),
+        })
+        .collect()
+}
+
 #[test]
 fn canonical_fixture_ticks_match_design() {
-    let vehicle = VehicleState::active("V1", "R", 0, progress(0.0), speed(6.0));
+    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(6.0));
     let mut world = canonical_world(vehicle);
 
     let tick1 = world.step(TickInput::new(1000)).expect("tick 1 succeeds");
     assert_eq!(tick1.tick_index, 1);
     assert_eq!(tick1.time_ms, 1000);
     assert!(tick1.events.is_empty());
-    let vehicle = &world.vehicles()[0];
+    let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.status, VehicleStatus::Active);
     assert_eq!(vehicle.route_edge_index, 0);
     assert_close(vehicle.edge_progress.value(), 6.0);
@@ -52,18 +122,18 @@ fn canonical_fixture_ticks_match_design() {
     assert_eq!(tick2.tick_index, 2);
     assert_eq!(tick2.time_ms, 2000);
     assert_eq!(
-        tick2.events,
-        vec![CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
+        event_views(&world, &tick2.events),
+        vec![EventView::Changed {
             tick_index: 2,
-            vehicle_id: "V1".to_owned(),
-            route_id: "R".to_owned(),
-            from_edge_id: "A".to_owned(),
-            to_edge_id: "B".to_owned(),
+            vehicle: "V1".to_owned(),
+            route: "R".to_owned(),
+            from_edge: "A".to_owned(),
+            to_edge: "B".to_owned(),
             from_route_edge_index: 0,
             to_route_edge_index: 1,
-        })]
+        }]
     );
-    let vehicle = &world.vehicles()[0];
+    let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.status, VehicleStatus::Active);
     assert_eq!(vehicle.route_edge_index, 1);
     assert_close(vehicle.edge_progress.value(), 2.0);
@@ -72,18 +142,16 @@ fn canonical_fixture_ticks_match_design() {
     assert_eq!(tick3.tick_index, 3);
     assert_eq!(tick3.time_ms, 3000);
     assert_eq!(
-        tick3.events,
-        vec![CoreEvent::VehicleCompletedRoute(
-            VehicleCompletedRouteEvent {
-                tick_index: 3,
-                vehicle_id: "V1".to_owned(),
-                route_id: "R".to_owned(),
-                edge_id: "B".to_owned(),
-                route_edge_index: 1,
-            }
-        )]
+        event_views(&world, &tick3.events),
+        vec![EventView::Completed {
+            tick_index: 3,
+            vehicle: "V1".to_owned(),
+            route: "R".to_owned(),
+            edge: "B".to_owned(),
+            route_edge_index: 1,
+        }]
     );
-    let vehicle = &world.vehicles()[0];
+    let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.status, VehicleStatus::Completed);
     assert_eq!(vehicle.route_edge_index, 1);
     assert_close(vehicle.edge_progress.value(), 5.0);
@@ -92,7 +160,7 @@ fn canonical_fixture_ticks_match_design() {
     assert_eq!(tick4.tick_index, 4);
     assert_eq!(tick4.time_ms, 4000);
     assert!(tick4.events.is_empty());
-    let vehicle = &world.vehicles()[0];
+    let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.status, VehicleStatus::Completed);
     assert_eq!(vehicle.route_edge_index, 1);
     assert_close(vehicle.edge_progress.value(), 5.0);
@@ -107,43 +175,43 @@ fn single_tick_can_cross_multiple_edges_in_route_order() {
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B", "C"]).expect("valid route");
-    let vehicle = VehicleState::active("V1", "R", 0, progress(0.0), speed(30.0));
+    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(30.0));
     let mut world = CoreWorld::with_traffic_data(1000, lane_graph, [route], vec![vehicle])
         .expect("valid world");
 
     let result = world.step(TickInput::new(1000)).expect("step succeeds");
 
     assert_eq!(
-        result.events,
+        event_views(&world, &result.events),
         vec![
-            CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
+            EventView::Changed {
                 tick_index: 1,
-                vehicle_id: "V1".to_owned(),
-                route_id: "R".to_owned(),
-                from_edge_id: "A".to_owned(),
-                to_edge_id: "B".to_owned(),
+                vehicle: "V1".to_owned(),
+                route: "R".to_owned(),
+                from_edge: "A".to_owned(),
+                to_edge: "B".to_owned(),
                 from_route_edge_index: 0,
                 to_route_edge_index: 1,
-            }),
-            CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
+            },
+            EventView::Changed {
                 tick_index: 1,
-                vehicle_id: "V1".to_owned(),
-                route_id: "R".to_owned(),
-                from_edge_id: "B".to_owned(),
-                to_edge_id: "C".to_owned(),
+                vehicle: "V1".to_owned(),
+                route: "R".to_owned(),
+                from_edge: "B".to_owned(),
+                to_edge: "C".to_owned(),
                 from_route_edge_index: 1,
                 to_route_edge_index: 2,
-            }),
-            CoreEvent::VehicleCompletedRoute(VehicleCompletedRouteEvent {
+            },
+            EventView::Completed {
                 tick_index: 1,
-                vehicle_id: "V1".to_owned(),
-                route_id: "R".to_owned(),
-                edge_id: "C".to_owned(),
+                vehicle: "V1".to_owned(),
+                route: "R".to_owned(),
+                edge: "C".to_owned(),
                 route_edge_index: 2,
-            }),
+            },
         ]
     );
-    let vehicle = &world.vehicles()[0];
+    let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.status, VehicleStatus::Completed);
     assert_eq!(vehicle.route_edge_index, 2);
     assert_close(vehicle.edge_progress.value(), 2.0);
@@ -157,51 +225,51 @@ fn repeated_edge_route_uses_route_edge_index_to_disambiguate_position() {
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B", "A"]).expect("valid repeated-edge route");
-    let vehicle = VehicleState::active("V1", "R", 0, progress(0.0), speed(30.0));
+    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(30.0));
     let mut world = CoreWorld::with_traffic_data(1000, lane_graph, [route], vec![vehicle])
         .expect("valid world");
 
     let result = world.step(TickInput::new(1000)).expect("step succeeds");
 
     assert_eq!(
-        result.events,
+        event_views(&world, &result.events),
         vec![
-            CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
+            EventView::Changed {
                 tick_index: 1,
-                vehicle_id: "V1".to_owned(),
-                route_id: "R".to_owned(),
-                from_edge_id: "A".to_owned(),
-                to_edge_id: "B".to_owned(),
+                vehicle: "V1".to_owned(),
+                route: "R".to_owned(),
+                from_edge: "A".to_owned(),
+                to_edge: "B".to_owned(),
                 from_route_edge_index: 0,
                 to_route_edge_index: 1,
-            }),
-            CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
+            },
+            EventView::Changed {
                 tick_index: 1,
-                vehicle_id: "V1".to_owned(),
-                route_id: "R".to_owned(),
-                from_edge_id: "B".to_owned(),
-                to_edge_id: "A".to_owned(),
+                vehicle: "V1".to_owned(),
+                route: "R".to_owned(),
+                from_edge: "B".to_owned(),
+                to_edge: "A".to_owned(),
                 from_route_edge_index: 1,
                 to_route_edge_index: 2,
-            }),
-            CoreEvent::VehicleCompletedRoute(VehicleCompletedRouteEvent {
+            },
+            EventView::Completed {
                 tick_index: 1,
-                vehicle_id: "V1".to_owned(),
-                route_id: "R".to_owned(),
-                edge_id: "A".to_owned(),
+                vehicle: "V1".to_owned(),
+                route: "R".to_owned(),
+                edge: "A".to_owned(),
                 route_edge_index: 2,
-            }),
+            },
         ]
     );
-    let vehicle = &world.vehicles()[0];
+    let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.status, VehicleStatus::Completed);
     assert_eq!(vehicle.route_edge_index, 2);
     assert_close(vehicle.edge_progress.value(), 10.0);
 }
 
 #[test]
-fn event_order_is_stable_by_vehicle_id_not_input_order() {
-    fn world_with_vehicle_order(vehicles: Vec<VehicleState>) -> CoreWorld {
+fn event_order_uses_initial_stable_update_order_not_input_order() {
+    fn world_with_vehicle_order(vehicles: Vec<VehicleSpawnInput>) -> CoreWorld {
         let lane_graph = LaneGraph::try_new([
             LaneEdge::new("A", edge_length(1.0), ["B"]),
             LaneEdge::new("B", edge_length(1.0), std::iter::empty::<&str>()),
@@ -212,8 +280,8 @@ fn event_order_is_stable_by_vehicle_id_not_input_order() {
         CoreWorld::with_traffic_data(1000, lane_graph, [route], vehicles).expect("valid world")
     }
 
-    let v1 = VehicleState::active("V1", "R", 0, progress(0.0), speed(2.0));
-    let v2 = VehicleState::active("V2", "R", 0, progress(0.0), speed(2.0));
+    let v1 = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(2.0));
+    let v2 = VehicleSpawnInput::active("V2", "R", 0, progress(0.0), speed(2.0));
     let mut first = world_with_vehicle_order(vec![v2.clone(), v1.clone()]);
     let mut second = world_with_vehicle_order(vec![v1, v2]);
 
@@ -225,14 +293,16 @@ fn event_order_is_stable_by_vehicle_id_not_input_order() {
         .step(TickInput::new(1000))
         .expect("step succeeds")
         .events;
+    let first_views = event_views(&first, &first_events);
+    let second_views = event_views(&second, &second_events);
 
-    assert_eq!(first_events, second_events);
-    let event_vehicle_ids: Vec<_> = first_events
+    assert_eq!(first_views, second_views);
+    let event_vehicle_ids: Vec<_> = first_views
         .iter()
         .map(|event| match event {
-            CoreEvent::VehicleChangedEdge(event) => event.vehicle_id.as_str(),
-            CoreEvent::VehicleCompletedRoute(event) => event.vehicle_id.as_str(),
-            _ => unreachable!("route following tests only create v0.1 route events"),
+            EventView::Changed { vehicle, .. } | EventView::Completed { vehicle, .. } => {
+                vehicle.as_str()
+            }
         })
         .collect();
     assert_eq!(event_vehicle_ids, ["V1", "V1", "V2", "V2"]);
@@ -240,7 +310,7 @@ fn event_order_is_stable_by_vehicle_id_not_input_order() {
 
 #[test]
 fn epsilon_snap_crosses_boundary_when_tick_has_travel() {
-    let vehicle = VehicleState::active(
+    let vehicle = VehicleSpawnInput::active(
         "V1",
         "R",
         0,
@@ -252,31 +322,31 @@ fn epsilon_snap_crosses_boundary_when_tick_has_travel() {
     let result = world.step(TickInput::new(1000)).expect("step succeeds");
 
     assert_eq!(
-        result.events,
-        vec![CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
+        event_views(&world, &result.events),
+        vec![EventView::Changed {
             tick_index: 1,
-            vehicle_id: "V1".to_owned(),
-            route_id: "R".to_owned(),
-            from_edge_id: "A".to_owned(),
-            to_edge_id: "B".to_owned(),
+            vehicle: "V1".to_owned(),
+            route: "R".to_owned(),
+            from_edge: "A".to_owned(),
+            to_edge: "B".to_owned(),
             from_route_edge_index: 0,
             to_route_edge_index: 1,
-        })]
+        }]
     );
-    let vehicle = &world.vehicles()[0];
+    let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.route_edge_index, 1);
     assert_close(vehicle.edge_progress.value(), 0.0);
 }
 
 #[test]
 fn zero_speed_at_boundary_does_not_transition() {
-    let vehicle = VehicleState::active("V1", "R", 0, progress(10.0), Speed::ZERO);
+    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(10.0), Speed::ZERO);
     let mut world = canonical_world(vehicle);
 
     let result = world.step(TickInput::new(1000)).expect("step succeeds");
 
     assert!(result.events.is_empty());
-    let vehicle = &world.vehicles()[0];
+    let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.status, VehicleStatus::Active);
     assert_eq!(vehicle.route_edge_index, 0);
     assert_close(vehicle.edge_progress.value(), 10.0);
@@ -284,7 +354,7 @@ fn zero_speed_at_boundary_does_not_transition() {
 
 #[test]
 fn completed_vehicle_initial_state_must_be_at_route_end_and_is_snapped() {
-    let vehicle = VehicleState::completed(
+    let vehicle = VehicleSpawnInput::completed(
         "V1",
         "R",
         1,
@@ -294,13 +364,13 @@ fn completed_vehicle_initial_state_must_be_at_route_end_and_is_snapped() {
 
     let world = canonical_world(vehicle);
 
-    let vehicle = &world.vehicles()[0];
+    let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.status, VehicleStatus::Completed);
     assert_eq!(vehicle.route_edge_index, 1);
     assert_close(vehicle.edge_progress.value(), 5.0);
     assert_eq!(vehicle.speed.value(), 8.0);
 
-    let invalid_middle = VehicleState::completed("V2", "R", 0, progress(10.0), speed(1.0));
+    let invalid_middle = VehicleSpawnInput::completed("V2", "R", 0, progress(10.0), speed(1.0));
     let error = canonical_world_result(vec![invalid_middle])
         .expect_err("completed vehicle in middle of route must fail");
     std::assert_matches!(
@@ -314,7 +384,7 @@ fn completed_vehicle_initial_state_must_be_at_route_end_and_is_snapped() {
         } if vehicle_id == "V2" && route_id == "R"
     );
 
-    let invalid_progress = VehicleState::completed("V3", "R", 1, progress(1.0), speed(1.0));
+    let invalid_progress = VehicleSpawnInput::completed("V3", "R", 1, progress(1.0), speed(1.0));
     let error = canonical_world_result(vec![invalid_progress])
         .expect_err("completed vehicle before route end must fail");
     std::assert_matches!(
@@ -329,7 +399,7 @@ fn completed_vehicle_initial_state_must_be_at_route_end_and_is_snapped() {
     );
 }
 
-fn canonical_world_result(vehicles: Vec<VehicleState>) -> Result<CoreWorld, CoreError> {
+fn canonical_world_result(vehicles: Vec<VehicleSpawnInput>) -> Result<CoreWorld, CoreError> {
     let lane_graph = LaneGraph::try_new([
         LaneEdge::new("A", edge_length(10.0), ["B"]),
         LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
@@ -349,10 +419,11 @@ fn non_finite_route_travel_returns_error_and_keeps_world_unchanged() {
     )])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A"]).expect("valid route");
-    let vehicle = VehicleState::active("V1", "R", 0, progress(0.0), speed(f64::MAX));
+    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(f64::MAX));
     let mut world = CoreWorld::with_traffic_data(2000, lane_graph, [route], vec![vehicle])
         .expect("valid world");
     let before = world.clone();
+    let vehicle = world.vehicle_handle("V1").expect("vehicle handle exists");
 
     let error = world
         .step(TickInput::new(2000))
@@ -361,10 +432,10 @@ fn non_finite_route_travel_returns_error_and_keeps_world_unchanged() {
     std::assert_matches!(
         error,
         CoreError::NonFiniteRouteTravel {
-            vehicle_id,
+            vehicle: actual_vehicle,
             speed,
             delta_time_ms: 2000
-        } if vehicle_id == "V1" && speed == f64::MAX
+        } if actual_vehicle == vehicle && speed == f64::MAX
     );
     assert_eq!(world, before);
 }
@@ -378,12 +449,13 @@ fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
     let vehicles = vec![
-        VehicleState::active("V1", "R", 0, progress(0.0), speed(2.0)),
-        VehicleState::active("V2", "R", 1, progress(0.0), speed(f64::MAX)),
+        VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(2.0)),
+        VehicleSpawnInput::active("V2", "R", 1, progress(0.0), speed(f64::MAX)),
     ];
     let mut world =
         CoreWorld::with_traffic_data(2000, lane_graph, [route], vehicles).expect("valid world");
     let before = world.clone();
+    let vehicle = world.vehicle_handle("V2").expect("vehicle handle exists");
 
     let error = world
         .step(TickInput::new(2000))
@@ -392,10 +464,10 @@ fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
     std::assert_matches!(
         error,
         CoreError::NonFiniteRouteTravel {
-            vehicle_id,
+            vehicle: actual_vehicle,
             speed,
             delta_time_ms: 2000
-        } if vehicle_id == "V2" && speed == f64::MAX
+        } if actual_vehicle == vehicle && speed == f64::MAX
     );
     assert_eq!(world, before);
 }
