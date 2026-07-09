@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active  
-**最后更新**: 2026-06-20  
+**最后更新**: 2026-07-09  
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
 ## 1. 工作流原则
@@ -137,7 +137,7 @@ Development 关联规则：
 
 使用边界：
 
-- Copilot instructions 不能替代 CI、`gh` / GraphQL 元数据复核、review thread 状态检查或 Gate Ledger。
+- Copilot instructions 不能替代 CI、`gh` / GraphQL 元数据复核、review threads 状态检查或 Gate Ledger。
 - Copilot review 不能作为 Project status、Labels、Milestone、Parent / sub-issues、Blocked by、Blocking 或 `closingIssuesReferences` 的事实源。
 - 修改 `.github/copilot-instructions.md` 的 PR 不应假定本轮 review 已使用新说明；对 PR review 的稳定影响以合入 `main` 后的 base branch 内容为准。
 
