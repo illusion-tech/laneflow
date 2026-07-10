@@ -2,7 +2,7 @@
 
 **文档状态**: Review
 
-**最后更新**: 2026-06-21
+**最后更新**: 2026-07-10
 
 **适用范围**: v0.1 Core Prototype 的 runtime、tick、vehicle state、最小 lane graph traversal 与 simple route following
 
@@ -14,6 +14,11 @@
 - `../adr/0002-dependency-and-licensing-constraints.md`
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0004-core-implementation-language.md`
+- `../adr/0005-core-identity-and-handle-model.md`
+- `core-id-handles.md`
+- `lane-graph.md`
+- `route-system.md`
+- `data-format.md`
 - `../governance/development-gates.md`
 
 ## 1. 目标
@@ -28,6 +33,19 @@ v0.1 的目标是建立一个可测试、可嵌入、引擎无关的最小交通
 - 支持简单 route following；
 - 支持确定性测试；
 - 不承诺 v0.2 的稳定数据格式。
+
+### v0.1 历史基线与 v0.2 Accepted 契约
+
+本文保留为 v0.1 Core Prototype 的 `Review` 基线，不是 v0.2 的默认实现输入。v0.1 中未被后续决策取代的 tick、确定性、错误处理和最小 route following 原则仍可作为历史背景参考；若与 v0.2 的 Accepted 文档冲突，后者优先。
+
+v0.2 的当前事实来源如下：
+
+- external ID、typed handle、vehicle / route lifecycle 和稳定 update order：[`core-id-handles.md`](core-id-handles.md) D8 及 ADR 0005；
+- lane graph topology、edge / connection 语义：[`lane-graph.md`](lane-graph.md)；
+- route definition、route target 和 traversal 边界：[`route-system.md`](route-system.md)；
+- 外部 lane graph / route 数据格式、版本、单位和 schema：[`data-format.md`](data-format.md) 与 [`schemas/laneflow-data-v0.2.schema.json`](../../schemas/laneflow-data-v0.2.schema.json)。
+
+因此，后续 v0.2 实现不得依据本文要求在每个 tick 按 external ID 字符串排序，也不得把本文的最小内部输入当作当前外部 data-format contract。
 
 ## 2. 非目标
 
@@ -155,7 +173,7 @@ v0.1 可以使用最小内部结构表达 lane graph 和 route，但不得把它
 
 v0.1 Rust 实现使用 `EdgeLength` newtype 暴露 lane edge length，并使用 `EDGE_BOUNDARY_EPSILON = 1.0e-9` 作为最小 edge length 和后续 boundary snap 的统一 epsilon。`LaneGraph` / `Route` 可以使用 `indexmap` 作为内部稳定顺序存储，但 public API 不暴露 `IndexMap`，避免把内部容器选择冻结为长期 data spec。
 
-v0.2 负责稳定正式 lane graph / route 数据模型、版本、校验和示例数据。
+本文的 v0.1 最小输入仅作为历史实现输入和测试 fixture。v0.2 的正式 lane graph / route 数据模型、版本、校验和示例数据已经由 `lane-graph.md`、`route-system.md`、`data-format.md` 和 JSON Schema 接受；后续实现必须以这些文档为准。
 
 ### D6. Simple route following 使用 edge progress
 
@@ -353,9 +371,10 @@ CoreEvent
   VehicleCompletedRoute(VehicleCompletedRouteEvent)
 ```
 
-事件顺序必须稳定：
+事件顺序必须稳定。以下 `vehicleId` 排序只描述 v0.1 历史基线：
 
-- vehicle 更新顺序按 `vehicleId` 升序；v0.1 推荐使用 ASCII identifier，若 `vehicleId` 为字符串，排序使用 Rust `str` / `String` 的 `Ord` 字典序；若后续改为数值 id，则使用数值升序；
+- v0.1 基线按 `vehicleId` 升序；v0.1 推荐使用 ASCII identifier，若 `vehicleId` 为字符串，排序使用 Rust `str` / `String` 的 `Ord` 字典序；若后续改为数值 id，则使用数值升序；
+- v0.2 使用 `core-id-handles.md` D8 的稳定 `vehicleUpdateOrder`，初始化时一次按 external ID 确定初始顺序，tick 热路径直接遍历 active handle；不得每 tick 排序 external ID 字符串；
 - 单个 vehicle 在同一 tick 内按实际 route transition 顺序输出事件；
 - v0.1 vehicle 之间不发生交互，因此更新顺序只影响可观察事件顺序，不影响位置计算结果；
 - 实现不得依赖 `HashMap` 等无稳定迭代顺序集合直接决定 event order。
@@ -449,7 +468,7 @@ Vehicle V1
 
 - `fixedDeltaTimeMs = 1000` 但 `TickInput.deltaTimeMs = 500` 时返回 validation error，world 不变；
 - `edgeProgress = 10.0 - epsilon / 2` 且 travel distance 足以过线时应 snap 到 boundary，并按 edge transition 精确发出事件；
-- 多 vehicle 输入顺序不同但 id 集合相同时，events 仍按 `vehicleId` 升序输出；
+- v0.1 基线中，多 vehicle 输入顺序不同但 id 集合相同时，events 仍按 `vehicleId` 升序输出；v0.2 对应测试应断言 `vehicleUpdateOrder` 的稳定顺序，不应要求每 tick external ID 排序；
 - route `[A, B, A]` 在 `B.nextEdgeIds` 包含 `A` 时合法，用于验证重复 edge 依赖 `routeEdgeIndex` 区分位置；
 - 任一 `f64` 输入为 `NaN` / `Infinity` 或 edge length 小于等于 `epsilon` 时 validation error，world 不变。
 
@@ -457,7 +476,7 @@ Vehicle V1
 
 v0.1 的 lane graph 和 route 结构是实现输入，不是稳定数据格式。
 
-v0.2 必须单独稳定：
+v0.2 已单独稳定：
 
 - lane graph data model；
 - lane connection；
@@ -466,7 +485,7 @@ v0.2 必须单独稳定：
 - example route data；
 - 兼容性和版本策略。
 
-任何 v0.1 实现 PR 不得把内部结构描述为长期 data spec。
+当前 v0.2 的正式输入分别见 `lane-graph.md`、`route-system.md`、`data-format.md` 和 JSON Schema。任何后续实现不得把 v0.1 内部结构描述为长期 data spec，也不得以本文否定已接受的 v0.2 格式。
 
 ## 11. ADR 判断
 
@@ -476,7 +495,9 @@ Core implementation language 属于高影响设计决策，已通过 `../adr/000
 
 后续 v0.1 runtime 实现 PR 必须引用 ADR 0003 和 ADR 0004；若实现需要改变 fixed-step、Rust crate 或 f64 测试口径，应先更新 ADR 或拆分新的设计 issue。
 
-## 12. 后续实现 issue 输入
+## 12. 历史 v0.1 实现 issue 输入
+
+本节保留 v0.1 原型阶段的历史拆分记录，不表示这些工作仍是当前路线图待办；当前 v0.2 后续工作应从 Accepted v0.2 设计和 roadmap 的对应 Issue 进入。
 
 后续 v0.1 实现 issue 至少包括：
 
