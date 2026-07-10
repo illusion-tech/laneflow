@@ -1206,6 +1206,33 @@ Refs: #12
     }
 
     #[test]
+    fn deserializes_gh_project_items_with_top_level_title() {
+        let pr: GitHubPullRequest = serde_json::from_str(
+            r#"{
+                "body": "body",
+                "state": "MERGED",
+                "mergedAt": "2026-07-10T05:30:00Z",
+                "closingIssuesReferences": [],
+                "projectItems": [{
+                    "status": {"optionId": "6114ac6a", "name": "Done"},
+                    "title": "LaneFlow"
+                }],
+                "comments": []
+            }"#,
+        )
+        .expect("current gh pr view projectItems shape should deserialize");
+
+        assert_eq!(pr.project_items[0].title, "LaneFlow");
+        assert_eq!(
+            pr.project_items[0]
+                .status
+                .as_ref()
+                .map(|status| status.name.as_str()),
+            Some("Done")
+        );
+    }
+
+    #[test]
     fn rejects_duplicate_delivery_and_related_pr() {
         let args = vec![
             "g3".to_string(),
