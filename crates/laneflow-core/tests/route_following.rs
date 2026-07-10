@@ -441,6 +441,29 @@ fn non_finite_route_travel_returns_error_and_keeps_world_unchanged() {
 }
 
 #[test]
+fn finite_route_travel_does_not_overflow_in_millisecond_conversion() {
+    let lane_graph = LaneGraph::try_new([LaneEdge::new(
+        "A",
+        edge_length(f64::MAX),
+        std::iter::empty::<&str>(),
+    )])
+    .expect("valid lane graph");
+    let route = Route::try_new("R", ["A"]).expect("valid route");
+    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(f64::MAX));
+    let mut world = CoreWorld::with_traffic_data(1000, lane_graph, [route], vec![vehicle])
+        .expect("valid world");
+    let vehicle = world.vehicle_handle("V1").expect("vehicle handle exists");
+
+    world
+        .step(TickInput::new(1000))
+        .expect("finite one-second travel must succeed");
+
+    let vehicle = world.vehicle(vehicle).expect("vehicle remains live");
+    assert_eq!(vehicle.status, VehicleStatus::Completed);
+    assert_eq!(vehicle.edge_progress.value(), f64::MAX);
+}
+
+#[test]
 fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
     let lane_graph = LaneGraph::try_new([
         LaneEdge::new("A", edge_length(1.0), ["B"]),
