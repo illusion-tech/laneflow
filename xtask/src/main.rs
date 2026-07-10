@@ -494,6 +494,16 @@ fn validate_g3_evidence(
             args.delivery_pr
         ));
     }
+    let related_prs_line = metadata_line(&issue.body, "Related PRs")?;
+    let recorded_related_prs = metadata_issue_numbers(related_prs_line);
+    let requested_related_prs = args.related_prs.iter().copied().collect::<BTreeSet<_>>();
+    if recorded_related_prs != requested_related_prs {
+        return Err(format!(
+            "Issue 的 `Related PRs` 字段与命令参数不一致：Issue 记录 [{}]；命令传入 [{}]",
+            format_issue_numbers(&recorded_related_prs),
+            format_issue_numbers(&requested_related_prs)
+        ));
+    }
     let delivery_permalink = completed_gate_permalink(&delivery_pr.body, "G3")?;
     if !issue_g3_line.contains(&delivery_permalink) {
         return Err("Issue 的 G3 checkbox 未回链 Delivery PR 的 G3 comment permalink".to_string());
@@ -517,12 +527,6 @@ fn validate_g3_evidence(
     }
 
     for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
-        let related_prs_line = metadata_line(&issue.body, "Related PRs")?;
-        if !related_prs_line.contains(&format!("#{number}")) {
-            return Err(format!(
-                "Issue 的 `Related PRs` 字段未记录 Related PR #{number}"
-            ));
-        }
         let permalink = completed_gate_permalink(&related_pr.body, "G3")?;
         if !issue_g3_line.contains(&permalink) {
             return Err(format!(
@@ -636,6 +640,31 @@ fn metadata_line<'a>(body: &'a str, field: &str) -> Result<&'a str, String> {
     body.lines()
         .find(|line| line.starts_with(&format!("- {field}：")))
         .ok_or_else(|| format!("body 缺少 `{field}` 元数据字段"))
+}
+
+fn metadata_issue_numbers(line: &str) -> BTreeSet<u64> {
+    line.split('#')
+        .skip(1)
+        .filter_map(|tail| {
+            let digits = tail
+                .chars()
+                .take_while(|character| character.is_ascii_digit())
+                .collect::<String>();
+            digits.parse::<u64>().ok().filter(|number| *number > 0)
+        })
+        .collect()
+}
+
+fn format_issue_numbers(numbers: &BTreeSet<u64>) -> String {
+    if numbers.is_empty() {
+        "N/A".to_string()
+    } else {
+        numbers
+            .iter()
+            .map(|number| format!("#{number}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 fn completed_gate_permalink(body: &str, gate: &str) -> Result<String, String> {
@@ -1239,6 +1268,20 @@ Refs: #12
             .expect_err("Related PR cannot close the delivery Issue");
 
         assert!(error.contains("不得以 closing keyword"));
+    }
+
+    #[test]
+    fn rejects_related_pr_arguments_that_do_not_match_issue_metadata() {
+        let issue = issue("OPEN", "In Review");
+        let delivery_pr = delivery_pr(None);
+        let related_pr = related_pr(false);
+        let mut args = gate_args(GateEvidencePhase::G3);
+        args.related_prs = vec![62];
+
+        let error = validate_g3_evidence(&args, &issue, &delivery_pr, &[related_pr])
+            .expect_err("Related PR arguments must match Issue metadata");
+
+        assert!(error.contains("字段与命令参数不一致"));
     }
 
     #[test]
