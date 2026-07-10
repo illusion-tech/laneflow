@@ -1,7 +1,7 @@
 # 开发闸口
 
 **文档状态**: Active  
-**最后更新**: 2026-06-18  
+**最后更新**: 2026-07-10  
 **适用范围**: LaneFlow 的需求、设计、实现、评审与完成治理
 
 ## 1. 目标
@@ -36,7 +36,11 @@ Gate Ledger 是 Issue 和 PR 上的增量闸口记录，用来说明任务何时
 通用规则：
 
 - 每次任务跨过一个 Gate，都应在对应载体留下记录。
-- G0、G1、G2 记录在 Issue 中；G3 证据记录在 PR 中，Issue Gate Ledger 只勾选或链接该 PR 判断；G4 回写 Issue。
+- G0、G1、G2 在 Issue Gate Ledger 中增量记录。
+- G3 的完整事件证据记录在每个 PR 的 `## G3 合并判断` comment，且必须在该 PR 合并前创建；PR body 的 G3 checkbox 和 Issue body 的 G3 checkbox 都只保存直接 comment permalink。
+- G4 的完整事件证据记录在 Issue 的 `## G4 完成判断` comment，且必须在所有关联 PR 合并后、Issue 关闭前创建；Issue body 的 G4 checkbox 保存直接 comment permalink。Delivery PR 的 body 只回链该 Issue G4 comment，Related PR 不承担 Issue G4。
+- GitHub comment 是带时间和作者的过程证据，不是不可变审计日志；长期规则仍由仓库文档和 Git 历史保存。
+- G3 / G4 前必须运行 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence <g3|g4> --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...`。命令或远端读取失败即为 Gate 失败。
 - 小型 `docs-only` 或 `governance` 任务可以把 G0-G2 合并为一条开工记录，但该记录必须发生在实现或开 PR 之前。
 - 如果 G4 阶段才发现 G0-G3 缺失，只能标记为补救记录，并说明流程遗漏原因。
 - Agent 不得在缺少当前 Gate 记录时继续推进下一 Gate，除非用户明确接受例外并留下原因、风险和 Cleanup owner。
@@ -47,8 +51,8 @@ Gate Ledger 是 Issue 和 PR 上的增量闸口记录，用来说明任务何时
 - [ ] G0 立项已记录：
 - [ ] G1 设计判断已记录：
 - [ ] G2 开工判断已记录：
-- [ ] G3 合并判断已记录：链接 PR 中的 G3 判断
-- [ ] G4 完成判断已记录：回写合并后收口结果
+- [ ] G3 合并判断已记录：链接 Delivery PR 的 G3 comment；Related PR 如有均逐条链接
+- [ ] G4 完成判断已记录：链接本 Issue 的 G4 comment
 ```
 
 ## GitHub 元数据 / 依赖关系审计
@@ -63,7 +67,8 @@ Issue 的 GitHub 元数据和依赖关系是 Gate 判断的一部分，不得只
 - `Parent / sub-issues`；不适用时必须写明 `N/A` 原因。
 - `Blocked by`；不适用时必须写明 `N/A` 原因。
 - `Blocking`；不适用时必须写明 `N/A` 原因。
-- `Development PR`；PR 创建前可写 `pending`，PR 创建后记录 `PR-number`，进入 G3 前默认必须确认 `closingIssuesReferences` 覆盖目标 Issue，或说明不适用原因 / 显式例外。
+- `Delivery PR`；PR 创建前可写 `pending`，创建后记录唯一的 `PR-number`，进入 G3 前必须确认其 `closingIssuesReferences` 覆盖目标 Issue；确实无需 PR 时才可写 `N/A` 并说明原因。
+- `Related PRs`；列出零到多个部分交付 PR。它们使用 `Refs: #<issue>`，不得以 closing keyword 覆盖目标 Issue；没有时写 `N/A` 原因。
 
 推荐记录格式：
 
@@ -77,16 +82,18 @@ Issue 的 GitHub 元数据和依赖关系是 Gate 判断的一部分，不得只
 - Parent / sub-issues：issue-links / N/A，原因：
 - Blocked by：issue-links / N/A，原因：
 - Blocking：issue-links / N/A，原因：
-- Development PR：pending / PR-number / N/A，原因：
+- Delivery PR：pending / PR-number / N/A，原因：
+- Related PRs：PR-number, PR-number / N/A，原因：
 ```
 
 必需元数据缺失且没有显式例外时，不得推进下一 Gate；不适用项缺少 `N/A` 原因时，同样不得推进。若因 GitHub 权限或平台限制无法设置某项必需元数据，必须记录原因、风险、临时接受边界、后续清理 Issue 和 Cleanup owner。
 
-Development PR 关联规则：
+Delivery PR / Related PRs 关联规则：
 
-- PR body 使用 `Closes #<issue>` / `Resolves #<issue>` 等 GitHub closing keyword 建立 Development 关联；仓库已关闭 linked PR 合并后自动关闭 Issue，Issue 仍由 G4 手动关闭。
+- 一个 Issue 可以有多个 PR，但只能有一个 Delivery PR。Delivery PR 的 body 使用 `Closes #<issue>` / `Resolves #<issue>` 等 GitHub closing keyword 建立 Development 关联；仓库已关闭 linked PR 合并后自动关闭 Issue，Issue 仍由 G4 手动关闭。
+- Related PR 的 body 使用 `Refs: #<issue>`，每个 Related PR 都应独立完成 G3。若没有单一 PR 可以代表完整验收边界，必须拆 Issue 或创建最终集成 Delivery PR，不得让多个部分 PR 同时 closing。
 - commit message footer 不承担 Development 面板关联职责；常规 PR commit 仍使用 `Refs: #<issue>`。
-- 父 Issue 子切片或部分交付不得误用 closing keyword；若无法让 `closingIssuesReferences` 覆盖目标 Issue，只能手动关联 Development 面板，必须在 PR 中记录显式例外原因、风险、后续收口方式和 Cleanup owner。
+- 父 Issue 子切片或部分交付不得误用 closing keyword；若 Delivery PR 无法让 `closingIssuesReferences` 覆盖目标 Issue，只能手动关联 Development 面板，必须在 PR 中记录显式例外原因、风险、后续收口方式和 Cleanup owner。
 
 ## 3. G0 立项闸口
 
@@ -108,7 +115,7 @@ Development PR 关联规则：
 - 已有 GitHub Issue。
 - 任务边界足够小，可以独立评审。
 - 验收标准可验证。
-- Project、Project status、Labels 已记录，或已记录显式例外；Milestone、Parent / sub-issues、Blocked by、Blocking 已记录，不适用项已有 `N/A` 原因；Development PR 已记录为 `pending`、`PR-number` 或已有 `N/A` 原因，进入 G3 前还必须补齐 Development 关联检查。
+- Project、Project status、Labels 已记录，或已记录显式例外；Milestone、Parent / sub-issues、Blocked by、Blocking 已记录，不适用项已有 `N/A` 原因；Delivery PR 已记录为 `pending`、`PR-number` 或已有 `N/A` 原因，Related PRs 已记录，进入 G3 前还必须补齐 Delivery PR 的 Development 关联检查。
 - Issue Gate Ledger 中已有 G0 记录。
 
 ## 4. G1 设计冻结闸口
@@ -165,8 +172,8 @@ G1 证据可以是：
 - 文档更新情况
 - 测试与验证结果
 - 已知风险与例外
-- 关联 Issue 的 GitHub 元数据 / 依赖关系审计状态，以及 Development PR 关联状态
-- 默认要求 `closingIssuesReferences` 覆盖目标 Issue；若只能手动关联 GitHub Development 面板，必须记录显式例外
+- 关联 Issue 的 GitHub 元数据 / 依赖关系审计状态，以及 Delivery PR / Related PRs 关联状态
+- Delivery PR 默认要求 `closingIssuesReferences` 覆盖目标 Issue；若只能手动关联 GitHub Development 面板，必须记录显式例外
 
 按切片类型追加要求：
 
@@ -188,12 +195,24 @@ G1 证据可以是：
 - 例外没有清理责任或后续 Issue。
 - 缺少 G0-G2 Gate Ledger，且没有记录为显式例外或补救。
 - 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计且没有显式例外，或不适用项缺少 `N/A` 原因。
-- G3 前 PR 的 `closingIssuesReferences` 未覆盖对应 Issue，且没有显式例外。
+- Delivery PR 的 `closingIssuesReferences` 未覆盖对应 Issue，或 Related PR 误用 closing keyword，且没有显式例外。
 - PR commit message 不符合 `docs/reference/commit-convention.md`，且没有记录显式例外。
 
 PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
 
-G3 记录应写在 PR 描述或 PR 评论中，至少包含 checks、review 状态、验证结果、风险、例外和合并方式。
+G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 `Checks`、审阅、验证、风险、例外、合并方式和 `Gate 断言`。PR body 的 G3 checkbox、Issue body 的 G3 checkbox 必须勾选并回链同一 Delivery PR comment；Related PR 如有均必须逐条回链。运行 `check-gate-evidence g3` 成功前不得合并。
+
+```text
+## G3 合并判断
+
+- Checks：
+- 审阅：
+- 验证：
+- 风险：
+- 例外：
+- 合并方式：Rebase and merge / 例外原因
+- Gate 断言：cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...
+```
 
 ## 7. G4 完成闸口
 
@@ -209,12 +228,27 @@ Issue 关闭前必须满足：
 - 父 Issue 只在所有子 Issue 完成后关闭。
 - G4 记录已回写关联 Issue。
 - Project 中关联 Issue 和 PR 均已移动到 `Done`，或说明为什么不适用。
-- Development PR、Parent / sub-issues、Blocked by、Blocking 已收口，或剩余关系已拆出后续 Issue 并记录原因。
+- Delivery PR、Related PRs、Parent / sub-issues、Blocked by、Blocking 已收口，或剩余关系已拆出后续 Issue 并记录原因。
 - 关联 Issue 已由 G4 清场手动关闭；不得依赖 GitHub 自动关闭 Issue 替代 G4。
 - 本地和远端 PR 分支已清理，或说明保留原因。
 - 临时权限、ruleset bypass 或 admin override 已撤回，或说明保留原因、风险和 Cleanup owner。
+- 已在所有关联 PR 合并后、Issue 关闭前发表 `## G4 完成判断` comment；Issue body G4 checkbox 已回链该 comment，Delivery PR body 已回链该 Issue G4 comment。
+- `check-gate-evidence g4` 已成功运行；命令、repo、Issue、Delivery PR、Related PRs 和结果已记录在 G4 comment。
 
 G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必须补写，应标记为补救记录。
+
+```text
+## G4 完成判断
+
+- 合并：
+- main CI：
+- 验收：
+- Project：
+- 关系：
+- 分支：
+- 权限 / bypass：N/A，原因：/ 保留原因、风险、Cleanup owner：
+- Gate 断言：cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g4 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...
+```
 
 ## 8. 例外治理
 

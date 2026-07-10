@@ -1,8 +1,8 @@
 # 验证矩阵
 
 **文档状态**: Active  
-**最后更新**: 2026-06-20  
-**适用范围**: LaneFlow 各切片类型在 `G3` 合并闸口前的最小验证要求  
+**最后更新**: 2026-07-10  
+**适用范围**: LaneFlow 各切片类型在 `G3` 合并和 `G4` 收口闸口前的最小验证要求  
 **关联文档**:
 
 - 上游治理:
@@ -46,7 +46,10 @@
 6. PR 声称完成父任务，但证据只覆盖子切片。
 7. 例外缺少原因、清理责任或后续 Issue。
 8. 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计且没有显式例外，或不适用项缺少 `N/A` 原因。
-9. G3 前 PR 的 `closingIssuesReferences` 未覆盖对应 Issue，且没有显式例外。
+9. Delivery PR 的 `closingIssuesReferences` 未覆盖对应 Issue，或 Related PR 误用 closing keyword，且没有显式例外。
+10. G3 comment / Issue G3 permalink 不完整，或 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 ...` 失败。
+
+G4 清场前还必须运行 `check-gate-evidence g4`；它验证 Issue G4 permalink、关联 PR 合并状态、Gate Ledger 与 Project `Done`，但不替代 G4 comment 中的分支清理与权限撤回证据。
 
 ## 4. 无法运行时的记录方式
 

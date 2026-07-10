@@ -3,9 +3,10 @@
 ## 范围
 
 - 关联 Issue：
-- Development 关联（默认用于 `closingIssuesReferences`）：
-  - 完成交付：`Closes #<issue>` / `Resolves #<issue>`
-  - 部分交付：`Refs: #<issue>`，例外原因：
+- PR 角色：`Delivery PR` / `Related PR`
+- Development 关联：
+  - Delivery PR：唯一可完成关联 Issue 验收边界的 PR，使用 `Closes #<issue>` / `Resolves #<issue>`，并由 `closingIssuesReferences` 覆盖目标 Issue。
+  - Related PR：部分交付，使用 `Refs: #<issue>`；不得以 closing keyword 覆盖目标 Issue。
 - 切片类型：
   - [ ] docs-only（仅文档）
   - [ ] governance（治理）
@@ -22,7 +23,7 @@
 
 - [ ] 关联 Issue 的 Project、Project status、Labels 已核验；缺失项已有显式例外。
 - [ ] Milestone、Parent / sub-issues、Blocked by、Blocking 已核验；不适用项已有 `N/A` 原因。
-- [ ] Development PR 已在 Issue 中记录为本 PR，且 `closingIssuesReferences` 已覆盖关联 Issue；若只能手动关联 GitHub Development 面板，已记录显式例外。
+- [ ] Delivery PR / Related PRs 已在 Issue 中准确记录；若本 PR 是 Delivery PR，`closingIssuesReferences` 已覆盖关联 Issue；若本 PR 是 Related PR，已记录 `Refs: #<issue>` 且没有误用 closing keyword。
 
 ## 影响
 
@@ -57,8 +58,22 @@
 
 ## Gate Ledger
 
-- [ ] G3 合并判断已记录（checks、review、验证、风险、例外和合并方式）。
-- [ ] G4 完成判断将在合并后回写关联 Issue（验收 checklist、Project 状态移至 `Done`、分支清理、临时权限撤回）。
+- [ ] G3 合并判断已记录：[PR G3 comment](...)。该 comment 必须在合并前发表，并包含 checks、审阅、验证、风险、例外、合并方式和 Gate 断言。
+- G4 回写：Delivery PR 在关联 Issue 的 G4 comment 发表后填入 permalink；Related PR 填 `N/A` 并说明不承担 Issue G4。
+
+<!--
+G3 comment 模板（合并前发表）：
+
+## G3 合并判断
+
+- Checks：
+- 审阅：
+- 验证：
+- 风险：
+- 例外：
+- 合并方式：
+- Gate 断言：`cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...`
+-->
 
 ## 完成边界
 
