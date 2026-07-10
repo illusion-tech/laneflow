@@ -1,7 +1,7 @@
 use jsonschema::draft202012;
 use laneflow_core::{
     CoreEvent, CoreWorld, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress, LaneEdge, LaneGraph,
-    Route, Speed, TickInput, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
+    Route, RouteHandle, Speed, TickInput, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
     VehicleSpawnInput, VehicleStatus,
 };
 use serde::Deserialize;
@@ -10,6 +10,7 @@ use serde_json::Value;
 const EXAMPLE_ROUTE_DATA: &str =
     include_str!("../../../examples/data/v0.2-route-baseline.laneflow.json");
 const DATA_FORMAT_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.2.schema.json");
+const MILLISECONDS_PER_SECOND: f64 = 1_000.0;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -90,6 +91,27 @@ fn load_example_world() -> CoreWorld {
         .expect("example route data must initialize CoreWorld")
 }
 
+fn route_distance(world: &CoreWorld, route: RouteHandle) -> f64 {
+    world
+        .route_edges(route)
+        .expect("example route exists")
+        .iter()
+        .map(|edge| {
+            world
+                .lane_graph()
+                .edge_length(*edge)
+                .expect("route edge exists in the lane graph")
+                .value()
+        })
+        .sum()
+}
+
+fn speed_to_complete_route_in_one_tick(world: &CoreWorld, route: RouteHandle) -> Speed {
+    let delta_time_seconds = world.fixed_delta_time_ms() as f64 / MILLISECONDS_PER_SECOND;
+    Speed::try_new(route_distance(world, route) / delta_time_seconds)
+        .expect("example route travel speed must be valid")
+}
+
 #[test]
 fn example_route_data_validates_against_draft_2020_12_schema() {
     let schema = schema();
@@ -154,6 +176,18 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion() {
     let entry = world.edge_handle("entry").expect("entry edge exists");
     let exit = world.edge_handle("exit").expect("exit edge exists");
     let loop_edge = world.edge_handle("loop").expect("loop edge exists");
+    let main_speed = speed_to_complete_route_in_one_tick(&world, main_route);
+    let loop_speed = speed_to_complete_route_in_one_tick(&world, loop_route);
+    let exit_length = world
+        .lane_graph()
+        .edge_length(exit)
+        .expect("exit edge length exists")
+        .value();
+    let loop_length = world
+        .lane_graph()
+        .edge_length(loop_edge)
+        .expect("loop edge length exists")
+        .value();
 
     let main_vehicle = world
         .spawn_vehicle(VehicleSpawnInput::active(
@@ -161,7 +195,7 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion() {
             "main-route",
             0,
             EdgeProgress::ZERO,
-            Speed::try_new(20.0).expect("valid speed"),
+            main_speed,
         ))
         .expect("main vehicle spawns");
     let loop_vehicle = world
@@ -170,12 +204,12 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion() {
             "loop-once",
             0,
             EdgeProgress::ZERO,
-            Speed::try_new(10.0).expect("valid speed"),
+            loop_speed,
         ))
         .expect("loop vehicle spawns");
 
     let result = world
-        .step(TickInput::new(1_000))
+        .step(TickInput::new(world.fixed_delta_time_ms()))
         .expect("example routes complete in one tick");
 
     assert_eq!(
@@ -222,7 +256,7 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion() {
     assert_eq!(main_vehicle.status, VehicleStatus::Completed);
     assert_eq!(main_vehicle.route_edge_index, 1);
     assert!(
-        (main_vehicle.edge_progress.value() - 8.0).abs() <= EDGE_BOUNDARY_EPSILON,
+        (main_vehicle.edge_progress.value() - exit_length).abs() <= EDGE_BOUNDARY_EPSILON,
         "main vehicle must finish at the terminal edge boundary"
     );
 
@@ -232,7 +266,7 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion() {
     assert_eq!(loop_vehicle.status, VehicleStatus::Completed);
     assert_eq!(loop_vehicle.route_edge_index, 1);
     assert!(
-        (loop_vehicle.edge_progress.value() - 5.0).abs() <= EDGE_BOUNDARY_EPSILON,
+        (loop_vehicle.edge_progress.value() - loop_length).abs() <= EDGE_BOUNDARY_EPSILON,
         "loop vehicle must finish at the second route occurrence"
     );
 }
