@@ -631,9 +631,21 @@ fn is_laneflow_project_done(project_items: &[ProjectItem]) -> bool {
 }
 
 fn completed_gate_line<'a>(body: &'a str, gate: &str) -> Result<&'a str, String> {
+    let prefix = gate_ledger_prefix(gate)?;
     body.lines()
-        .find(|line| line.starts_with(&format!("- [x] {gate}")))
+        .find(|line| line.starts_with(prefix))
         .ok_or_else(|| format!("body 缺少已勾选的 `{gate}` Gate Ledger 项"))
+}
+
+fn gate_ledger_prefix(gate: &str) -> Result<&'static str, String> {
+    match gate {
+        "G0" => Ok("- [x] G0 立项已记录："),
+        "G1" => Ok("- [x] G1 设计判断已记录："),
+        "G2" => Ok("- [x] G2 开工判断已记录："),
+        "G3" => Ok("- [x] G3 合并判断已记录："),
+        "G4" => Ok("- [x] G4 完成判断已记录："),
+        _ => Err(format!("未知 Gate：{gate}")),
+    }
 }
 
 fn metadata_line<'a>(body: &'a str, field: &str) -> Result<&'a str, String> {
@@ -1274,6 +1286,18 @@ Refs: #12
                 .expect_err("Issue G3 must link the delivery PR G3 comment");
 
         assert!(error.contains("未回链"));
+    }
+
+    #[test]
+    fn ignores_acceptance_items_that_start_with_gate_names() {
+        let body = format!(
+            "- [x] G3/G4 收口流程具有可执行的远端状态断言。\n- [x] G3 合并判断已记录：[Delivery G3 评论]({DELIVERY_G3_URL})"
+        );
+
+        assert_eq!(
+            completed_gate_permalink(&body, "G3"),
+            Ok(DELIVERY_G3_URL.to_string())
+        );
     }
 
     #[test]
