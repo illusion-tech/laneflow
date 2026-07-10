@@ -511,7 +511,8 @@ impl CoreWorld {
         }
 
         let speed = vehicle.effective_speed().value();
-        let travel_distance = speed * fixed_delta_time_ms as f64 / 1000.0;
+        let delta_time_seconds = fixed_delta_time_ms as f64 / 1_000.0;
+        let travel_distance = speed * delta_time_seconds;
         if !travel_distance.is_finite() {
             return Err(CoreError::NonFiniteRouteTravel {
                 vehicle: vehicle.handle,
