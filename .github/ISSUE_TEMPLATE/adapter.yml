@@ -54,7 +54,7 @@ body:
     id: github-metadata
     attributes:
       label: GitHub 元数据 / 依赖关系审计
-      description: 创建或接手 Issue 时必须审计 GitHub 侧边栏和关系字段；不适用项必须写明 N/A 原因。Development PR 未创建但预计需要 PR 时写 pending，PR 创建后写 PR-number 并在 G3 前优先核验 closingIssuesReferences；若只能手动关联 GitHub Development 面板，必须记录显式例外。确实无需 PR 时才写 N/A 原因。
+      description: 创建或接手 Issue 时必须审计 GitHub 侧边栏和关系字段；不适用项必须写明 N/A 原因。Delivery PR 未创建但预计需要 PR 时写 pending，创建后写 PR-number 并在 G3 前核验 closingIssuesReferences；Related PRs 逐条列出并使用 Refs 关联。确实无需 Delivery PR 或 Related PRs 时才写 N/A 原因；若只能手动关联 GitHub Development 面板，必须记录显式例外。
       value: |
         - Project：
         - Project status：
@@ -63,19 +63,31 @@ body:
         - Parent / sub-issues：issue-links / N/A，原因：
         - Blocked by：issue-links / N/A，原因：
         - Blocking：issue-links / N/A，原因：
-        - Development PR：pending / PR-number / N/A，原因：
+        - Delivery PR：pending / #<number> / N/A，原因：
+        - Related PRs：#<number>, #<number> / N/A，原因：
     validations:
       required: true
   - type: textarea
     id: gate-ledger
     attributes:
       label: Gate Ledger
-      description: 按任务推进增量维护；创建 Issue 时至少记录 G0，开工前补 G1/G2，合并前在 PR 记录 G3 并在 Issue 勾选/链接，完成时在 Issue 回写 G4。
+      description: 按任务推进增量维护；G3 完整证据在 PR comment，Issue G3 checkbox 回链 Delivery PR 与 Related PR 的 permalink；G4 完整证据在 Issue comment，Issue G4 checkbox 回链该 permalink。
       value: |
         - [ ] G0 立项已记录：
         - [ ] G1 设计判断已记录：
         - [ ] G2 开工判断已记录：
-        - [ ] G3 合并判断已记录：链接 PR 中的 G3 判断
-        - [ ] G4 完成判断已记录：回写合并后收口结果
+        - [ ] G3 合并判断已记录：链接 Delivery PR 的 G3 comment；Related PR 如有均逐条链接
+        - [ ] G4 完成判断已记录：链接本 Issue 的 G4 comment
+        <!-- G4 comment 模板（所有关联 PR 合并后、关闭 Issue 前发表）：
+        ## G4 完成判断
+        - 合并：
+        - main CI：
+        - 验收：
+        - Project：
+        - 关系：
+        - 分支：
+        - 权限 / bypass：
+        - Gate 断言：
+        -->
     validations:
       required: true

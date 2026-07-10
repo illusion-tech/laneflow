@@ -50,9 +50,9 @@ Review 时关注：
 
 Review 时重点检查：
 
-- PR body 是否按模板说明关联 Issue、切片类型、范围、非目标、影响、验证、风险和 Gate Ledger。
+- PR body 是否按模板说明关联 Issue、Delivery PR / Related PR 角色、切片类型、范围、非目标、影响、验证、风险和 Gate Ledger；G3 checkbox 是否回链 PR G3 comment，Delivery PR 的 G4 回写是否指向 Issue G4 comment。
 - Issue 是否已有 G0/G1/G2 记录；不得把 G0-G3 首次记录推迟到 G4。
-- PR 是否在 G3 前确认 `closingIssuesReferences` 覆盖目标 Issue；部分交付或无法机器关联时是否记录显式例外。
+- Delivery PR 是否在 G3 前确认 `closingIssuesReferences` 覆盖目标 Issue；Related PR 是否避免 closing keyword；部分交付或无法机器关联时是否记录显式例外。
 - PR body 使用 `Closes #<issue>` / `Resolves #<issue>` 建立 Development 关联；commit footer 通常继续使用 `Refs: #<issue>`。
 - commit message 是否符合 Conventional Commits 标题和 LaneFlow 治理字段：`Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`、`Refs` / `Closes`。
 - 必需元数据缺失时是否记录显式例外；不适用项是否有 `N/A` 原因。

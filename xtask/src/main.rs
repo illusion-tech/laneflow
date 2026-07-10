@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::BTreeSet;
 use std::env;
 use std::process::{Command, ExitCode};
 
@@ -38,9 +39,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 .ok_or("缺少 commit message 文件路径，例如: cargo +1.96.0 run --locked -p xtask -- check-commit-message-file .git/COMMIT_EDITMSG")?;
             check_commit_message_file(path)
         }
+        Some("check-gate-evidence") => check_gate_evidence(&args[1..]),
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence"
                 .to_string(),
         ),
     }
@@ -221,6 +223,492 @@ fn git<const N: usize>(args: [&str; N]) -> Result<String, String> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(format!("git 命令失败: {}", stderr.trim()))
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GateEvidencePhase {
+    G3,
+    G4,
+}
+
+impl GateEvidencePhase {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "g3" => Ok(Self::G3),
+            "g4" => Ok(Self::G4),
+            _ => Err(format!(
+                "未知 Gate evidence 阶段 `{value}`，应为 `g3` 或 `g4`"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct GateEvidenceArgs {
+    phase: GateEvidencePhase,
+    repo: String,
+    issue: u64,
+    delivery_pr: u64,
+    related_prs: Vec<u64>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubIssue {
+    body: String,
+    state: String,
+    #[serde(rename = "projectItems")]
+    project_items: Vec<ProjectItem>,
+    comments: Vec<GitHubComment>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubPullRequest {
+    body: String,
+    state: String,
+    #[serde(rename = "mergedAt")]
+    merged_at: Option<String>,
+    #[serde(rename = "closingIssuesReferences")]
+    closing_issues_references: Vec<IssueReference>,
+    #[serde(rename = "projectItems")]
+    project_items: Vec<ProjectItem>,
+    comments: Vec<GitHubComment>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ProjectItem {
+    title: String,
+    status: Option<ProjectStatus>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ProjectStatus {
+    name: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct IssueReference {
+    number: u64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubComment {
+    url: String,
+    body: String,
+    #[serde(rename = "createdAt")]
+    created_at: String,
+}
+
+const G3_COMMENT_FIELDS: &[&str] = &[
+    "## G3 合并判断",
+    "- Checks：",
+    "- 审阅：",
+    "- 验证：",
+    "- 风险：",
+    "- 例外：",
+    "- 合并方式：",
+    "- Gate 断言：",
+];
+
+const G4_COMMENT_FIELDS: &[&str] = &[
+    "## G4 完成判断",
+    "- 合并：",
+    "- main CI：",
+    "- 验收：",
+    "- Project：",
+    "- 关系：",
+    "- 分支：",
+    "- 权限 / bypass：",
+    "- Gate 断言：",
+];
+
+fn check_gate_evidence(args: &[String]) -> Result<(), String> {
+    let args = parse_gate_evidence_args(args)?;
+    let issue = gh_issue_view(&args.repo, args.issue)?;
+    let delivery_pr = gh_pr_view(&args.repo, args.delivery_pr)?;
+    let related_prs = args
+        .related_prs
+        .iter()
+        .map(|number| gh_pr_view(&args.repo, *number))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    validate_g3_evidence(&args, &issue, &delivery_pr, &related_prs)?;
+    if args.phase == GateEvidencePhase::G4 {
+        validate_g4_evidence(&args, &issue, &delivery_pr, &related_prs)?;
+    }
+
+    println!(
+        "已校验 Gate {} 远端证据：Issue #{}，Delivery PR #{}",
+        match args.phase {
+            GateEvidencePhase::G3 => "G3",
+            GateEvidencePhase::G4 => "G4",
+        },
+        args.issue,
+        args.delivery_pr
+    );
+    Ok(())
+}
+
+fn parse_gate_evidence_args(args: &[String]) -> Result<GateEvidenceArgs, String> {
+    let phase = args
+        .first()
+        .ok_or_else(|| "缺少 Gate evidence 阶段，应为 `g3` 或 `g4`".to_string())
+        .and_then(|value| GateEvidencePhase::parse(value))?;
+
+    let mut repo = None;
+    let mut issue = None;
+    let mut delivery_pr = None;
+    let mut related_prs = Vec::new();
+    let mut index = 1;
+    while index < args.len() {
+        let flag = &args[index];
+        let value = args.get(index + 1).ok_or_else(|| {
+            format!(
+                "`{flag}` 缺少值。用法：check-gate-evidence <g3|g4> --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]..."
+            )
+        })?;
+
+        match flag.as_str() {
+            "--repo" => {
+                if repo.replace(value.clone()).is_some() {
+                    return Err("`--repo` 只能指定一次".to_string());
+                }
+            }
+            "--issue" => {
+                if issue
+                    .replace(parse_issue_number("--issue", value)?)
+                    .is_some()
+                {
+                    return Err("`--issue` 只能指定一次".to_string());
+                }
+            }
+            "--delivery-pr" => {
+                if delivery_pr
+                    .replace(parse_issue_number("--delivery-pr", value)?)
+                    .is_some()
+                {
+                    return Err("`--delivery-pr` 只能指定一次".to_string());
+                }
+            }
+            "--related-pr" => related_prs.push(parse_issue_number("--related-pr", value)?),
+            _ => return Err(format!("未知 check-gate-evidence 参数：{flag}")),
+        }
+        index += 2;
+    }
+
+    let repo = repo.ok_or("缺少 `--repo <owner/repo>`")?;
+    if !valid_repository_name(&repo) {
+        return Err(format!("`--repo` 格式不正确：{repo}，应为 `owner/repo`"));
+    }
+    let issue = issue.ok_or("缺少 `--issue <number>`")?;
+    let delivery_pr = delivery_pr.ok_or("缺少 `--delivery-pr <number>`")?;
+    let all_prs = related_prs
+        .iter()
+        .copied()
+        .chain(std::iter::once(delivery_pr))
+        .collect::<BTreeSet<_>>();
+    if all_prs.len() != related_prs.len() + 1 {
+        return Err("Delivery PR 与 Related PR 不能重复".to_string());
+    }
+
+    Ok(GateEvidenceArgs {
+        phase,
+        repo,
+        issue,
+        delivery_pr,
+        related_prs,
+    })
+}
+
+fn parse_issue_number(flag: &str, value: &str) -> Result<u64, String> {
+    value
+        .strip_prefix('#')
+        .unwrap_or(value)
+        .parse::<u64>()
+        .ok()
+        .filter(|number| *number > 0)
+        .ok_or_else(|| format!("`{flag}` 必须是正整数 Issue / PR 编号：{value}"))
+}
+
+fn valid_repository_name(repo: &str) -> bool {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return false;
+    };
+    !owner.is_empty() && !name.is_empty() && !name.contains('/')
+}
+
+fn gh_issue_view(repo: &str, number: u64) -> Result<GitHubIssue, String> {
+    gh_json(&[
+        "issue".to_string(),
+        "view".to_string(),
+        number.to_string(),
+        "--repo".to_string(),
+        repo.to_string(),
+        "--json".to_string(),
+        "body,state,projectItems,comments".to_string(),
+    ])
+}
+
+fn gh_pr_view(repo: &str, number: u64) -> Result<GitHubPullRequest, String> {
+    gh_json(&[
+        "pr".to_string(),
+        "view".to_string(),
+        number.to_string(),
+        "--repo".to_string(),
+        repo.to_string(),
+        "--json".to_string(),
+        "body,state,mergedAt,closingIssuesReferences,projectItems,comments".to_string(),
+    ])
+}
+
+fn gh_json<T: serde::de::DeserializeOwned>(args: &[String]) -> Result<T, String> {
+    let output = Command::new("gh")
+        .args(args)
+        .output()
+        .map_err(|err| format!("无法运行 gh: {err}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "gh 命令失败: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    serde_json::from_slice(&output.stdout).map_err(|err| {
+        format!(
+            "gh 输出不是预期 JSON: {err}; 原始输出：{}",
+            String::from_utf8_lossy(&output.stdout).trim()
+        )
+    })
+}
+
+fn validate_g3_evidence(
+    args: &GateEvidenceArgs,
+    issue: &GitHubIssue,
+    delivery_pr: &GitHubPullRequest,
+    related_prs: &[GitHubPullRequest],
+) -> Result<(), String> {
+    let issue_g3_line = completed_gate_line(&issue.body, "G3")?;
+    let delivery_pr_line = metadata_line(&issue.body, "Delivery PR")?;
+    if !delivery_pr_line.contains(&format!("#{}", args.delivery_pr)) {
+        return Err(format!(
+            "Issue 的 `Delivery PR` 字段未记录 Delivery PR #{}",
+            args.delivery_pr
+        ));
+    }
+    let delivery_permalink = completed_gate_permalink(&delivery_pr.body, "G3")?;
+    if !issue_g3_line.contains(&delivery_permalink) {
+        return Err("Issue 的 G3 checkbox 未回链 Delivery PR 的 G3 comment permalink".to_string());
+    }
+    validate_comment(
+        delivery_pr,
+        &delivery_permalink,
+        G3_COMMENT_FIELDS,
+        "Delivery PR G3",
+    )?;
+    validate_g3_timing(delivery_pr, &delivery_permalink, "Delivery PR")?;
+    if !delivery_pr
+        .closing_issues_references
+        .iter()
+        .any(|reference| reference.number == args.issue)
+    {
+        return Err(format!(
+            "Delivery PR #{} 的 closingIssuesReferences 未覆盖 Issue #{}",
+            args.delivery_pr, args.issue
+        ));
+    }
+
+    for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
+        let related_prs_line = metadata_line(&issue.body, "Related PRs")?;
+        if !related_prs_line.contains(&format!("#{number}")) {
+            return Err(format!(
+                "Issue 的 `Related PRs` 字段未记录 Related PR #{number}"
+            ));
+        }
+        let permalink = completed_gate_permalink(&related_pr.body, "G3")?;
+        if !issue_g3_line.contains(&permalink) {
+            return Err(format!(
+                "Issue 的 G3 checkbox 未回链 Related PR #{number} 的 G3 comment permalink"
+            ));
+        }
+        validate_comment(
+            related_pr,
+            &permalink,
+            G3_COMMENT_FIELDS,
+            &format!("Related PR #{number} G3"),
+        )?;
+        validate_g3_timing(related_pr, &permalink, &format!("Related PR #{number}"))?;
+        if related_pr
+            .closing_issues_references
+            .iter()
+            .any(|reference| reference.number == args.issue)
+        {
+            return Err(format!(
+                "Related PR #{number} 不得以 closing keyword 覆盖 Issue #{}",
+                args.issue
+            ));
+        }
+        if !related_pr.body.contains(&format!("Refs: #{}", args.issue)) {
+            return Err(format!(
+                "Related PR #{number} 缺少 `Refs: #{}` 关系记录",
+                args.issue
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_g4_evidence(
+    args: &GateEvidenceArgs,
+    issue: &GitHubIssue,
+    delivery_pr: &GitHubPullRequest,
+    related_prs: &[GitHubPullRequest],
+) -> Result<(), String> {
+    if issue.state != "OPEN" {
+        return Err("G4 断言必须在手动关闭 Issue 前运行".to_string());
+    }
+    let merged_at = delivery_pr
+        .merged_at
+        .as_deref()
+        .ok_or("Delivery PR 尚未合并，不能通过 G4")?;
+    if delivery_pr.state != "MERGED" {
+        return Err("Delivery PR 状态不是 MERGED，不能通过 G4".to_string());
+    }
+    let mut latest_merge = merged_at;
+    for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
+        let related_merged_at = related_pr
+            .merged_at
+            .as_deref()
+            .ok_or_else(|| format!("Related PR #{number} 尚未合并，不能通过 G4"))?;
+        if related_pr.state != "MERGED" {
+            return Err(format!("Related PR #{number} 状态不是 MERGED，不能通过 G4"));
+        }
+        if related_merged_at > latest_merge {
+            latest_merge = related_merged_at;
+        }
+    }
+
+    let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
+    let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
+    validate_comment_body(&g4_comment.body, G4_COMMENT_FIELDS, "Issue G4")?;
+    if g4_comment.created_at.as_str() < latest_merge {
+        return Err("Issue G4 comment 早于最后一个关联 PR 的合并时间".to_string());
+    }
+    if !delivery_pr.body.contains("G4 回写") || !delivery_pr.body.contains(&issue_g4_permalink) {
+        return Err(
+            "Delivery PR body 缺少指向 Issue G4 comment 的 `G4 回写` permalink".to_string(),
+        );
+    }
+    for gate in ["G0", "G1", "G2", "G3", "G4"] {
+        completed_gate_line(&issue.body, gate)?;
+    }
+    if !is_laneflow_project_done(&issue.project_items) {
+        return Err("Issue 尚未处于 LaneFlow Project 的 Done 状态".to_string());
+    }
+    if !is_laneflow_project_done(&delivery_pr.project_items) {
+        return Err("Delivery PR 尚未处于 LaneFlow Project 的 Done 状态".to_string());
+    }
+    for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
+        if !is_laneflow_project_done(&related_pr.project_items) {
+            return Err(format!(
+                "Related PR #{number} 尚未处于 LaneFlow Project 的 Done 状态"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn is_laneflow_project_done(project_items: &[ProjectItem]) -> bool {
+    project_items.iter().any(|item| {
+        item.title == "LaneFlow"
+            && item
+                .status
+                .as_ref()
+                .is_some_and(|status| status.name == "Done")
+    })
+}
+
+fn completed_gate_line<'a>(body: &'a str, gate: &str) -> Result<&'a str, String> {
+    body.lines()
+        .find(|line| line.starts_with(&format!("- [x] {gate}")))
+        .ok_or_else(|| format!("body 缺少已勾选的 `{gate}` Gate Ledger 项"))
+}
+
+fn metadata_line<'a>(body: &'a str, field: &str) -> Result<&'a str, String> {
+    body.lines()
+        .find(|line| line.starts_with(&format!("- {field}：")))
+        .ok_or_else(|| format!("body 缺少 `{field}` 元数据字段"))
+}
+
+fn completed_gate_permalink(body: &str, gate: &str) -> Result<String, String> {
+    let line = completed_gate_line(body, gate)?;
+    extract_comment_permalink(line)
+        .ok_or_else(|| format!("已勾选的 `{gate}` Gate Ledger 项缺少直接 GitHub comment permalink"))
+}
+
+fn extract_comment_permalink(line: &str) -> Option<String> {
+    let start = line.find("https://github.com/")?;
+    let permalink = line[start..]
+        .split(|character: char| character.is_whitespace() || character == ')')
+        .next()?;
+    permalink
+        .contains("#issuecomment-")
+        .then(|| permalink.to_string())
+}
+
+fn validate_comment(
+    pr: &GitHubPullRequest,
+    permalink: &str,
+    required_fields: &[&str],
+    label: &str,
+) -> Result<(), String> {
+    let comment = pr
+        .comments
+        .iter()
+        .find(|comment| comment.url == permalink)
+        .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
+    validate_comment_body(&comment.body, required_fields, label)
+}
+
+fn comment_for_permalink<'a>(
+    issue: &'a GitHubIssue,
+    permalink: &str,
+    label: &str,
+) -> Result<&'a GitHubComment, String> {
+    issue
+        .comments
+        .iter()
+        .find(|comment| comment.url == permalink)
+        .ok_or_else(|| format!("{label} permalink 未指向该 Issue 的 comment"))
+}
+
+fn validate_comment_body(body: &str, required_fields: &[&str], label: &str) -> Result<(), String> {
+    let missing_fields = required_fields
+        .iter()
+        .filter(|field| !body.contains(**field))
+        .copied()
+        .collect::<Vec<_>>();
+    if missing_fields.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{label} comment 缺少必需字段：{}",
+            missing_fields.join("、")
+        ))
+    }
+}
+
+fn validate_g3_timing(pr: &GitHubPullRequest, permalink: &str, label: &str) -> Result<(), String> {
+    let Some(merged_at) = pr.merged_at.as_deref() else {
+        return Ok(());
+    };
+    let comment = pr
+        .comments
+        .iter()
+        .find(|comment| comment.url == permalink)
+        .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
+    if comment.created_at.as_str() > merged_at {
+        return Err(format!("{label} comment 创建时间晚于 PR 合并时间"));
+    }
+    Ok(())
 }
 
 fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
@@ -568,6 +1056,229 @@ Docs: updated
 BREAKING CHANGE: TickInput.delta_time_ms 从可选改为必填，调用方必须显式传入 tick 间隔。
 Refs: #12
 ";
+
+    const DELIVERY_G3_URL: &str =
+        "https://github.com/illusion-tech/laneflow/pull/61#issuecomment-100";
+    const ISSUE_G4_URL: &str =
+        "https://github.com/illusion-tech/laneflow/issues/60#issuecomment-200";
+    const RELATED_G3_URL: &str =
+        "https://github.com/illusion-tech/laneflow/pull/62#issuecomment-300";
+
+    fn g3_comment(url: &str, created_at: &str) -> GitHubComment {
+        GitHubComment {
+            url: url.to_string(),
+            body: G3_COMMENT_FIELDS.join("\n"),
+            created_at: created_at.to_string(),
+        }
+    }
+
+    fn g4_comment(url: &str, created_at: &str) -> GitHubComment {
+        GitHubComment {
+            url: url.to_string(),
+            body: G4_COMMENT_FIELDS.join("\n"),
+            created_at: created_at.to_string(),
+        }
+    }
+
+    fn delivery_pr(merged_at: Option<&str>) -> GitHubPullRequest {
+        GitHubPullRequest {
+            body: format!(
+                "- [x] G3 合并判断已记录：[G3 评论]({DELIVERY_G3_URL})\n- G4 回写：[Issue G4 评论]({ISSUE_G4_URL})"
+            ),
+            state: if merged_at.is_some() {
+                "MERGED".to_string()
+            } else {
+                "OPEN".to_string()
+            },
+            merged_at: merged_at.map(ToOwned::to_owned),
+            closing_issues_references: vec![IssueReference { number: 60 }],
+            project_items: vec![ProjectItem {
+                title: "LaneFlow".to_string(),
+                status: Some(ProjectStatus {
+                    name: if merged_at.is_some() {
+                        "Done".to_string()
+                    } else {
+                        "In Review".to_string()
+                    },
+                }),
+            }],
+            comments: vec![g3_comment(DELIVERY_G3_URL, "2026-07-10T05:00:00Z")],
+        }
+    }
+
+    fn issue(state: &str, project_status: &str) -> GitHubIssue {
+        GitHubIssue {
+            body: format!(
+                "- Delivery PR：#61\n- Related PRs：N/A，原因：无部分交付。\n- [x] G0 立项已记录：\n- [x] G1 设计判断已记录：\n- [x] G2 开工判断已记录：\n- [x] G3 合并判断已记录：[Delivery G3 评论]({DELIVERY_G3_URL})\n- [x] G4 完成判断已记录：[G4 评论]({ISSUE_G4_URL})"
+            ),
+            state: state.to_string(),
+            project_items: vec![ProjectItem {
+                title: "LaneFlow".to_string(),
+                status: Some(ProjectStatus {
+                    name: project_status.to_string(),
+                }),
+            }],
+            comments: vec![g4_comment(ISSUE_G4_URL, "2026-07-10T06:00:00Z")],
+        }
+    }
+
+    fn related_pr(closes_issue: bool) -> GitHubPullRequest {
+        GitHubPullRequest {
+            body: format!("- [x] G3 合并判断已记录：[G3 评论]({RELATED_G3_URL})\nRefs: #60"),
+            state: "OPEN".to_string(),
+            merged_at: None,
+            closing_issues_references: closes_issue
+                .then_some(vec![IssueReference { number: 60 }])
+                .unwrap_or_default(),
+            project_items: vec![ProjectItem {
+                title: "LaneFlow".to_string(),
+                status: Some(ProjectStatus {
+                    name: "In Review".to_string(),
+                }),
+            }],
+            comments: vec![g3_comment(RELATED_G3_URL, "2026-07-10T05:00:00Z")],
+        }
+    }
+
+    fn gate_args(phase: GateEvidencePhase) -> GateEvidenceArgs {
+        GateEvidenceArgs {
+            phase,
+            repo: "illusion-tech/laneflow".to_string(),
+            issue: 60,
+            delivery_pr: 61,
+            related_prs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn parses_gate_evidence_arguments() {
+        let args = vec![
+            "g4".to_string(),
+            "--repo".to_string(),
+            "illusion-tech/laneflow".to_string(),
+            "--issue".to_string(),
+            "#60".to_string(),
+            "--delivery-pr".to_string(),
+            "61".to_string(),
+            "--related-pr".to_string(),
+            "62".to_string(),
+        ];
+
+        assert_eq!(
+            parse_gate_evidence_args(&args),
+            Ok(GateEvidenceArgs {
+                phase: GateEvidencePhase::G4,
+                repo: "illusion-tech/laneflow".to_string(),
+                issue: 60,
+                delivery_pr: 61,
+                related_prs: vec![62],
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_delivery_and_related_pr() {
+        let args = vec![
+            "g3".to_string(),
+            "--repo".to_string(),
+            "illusion-tech/laneflow".to_string(),
+            "--issue".to_string(),
+            "60".to_string(),
+            "--delivery-pr".to_string(),
+            "61".to_string(),
+            "--related-pr".to_string(),
+            "61".to_string(),
+        ];
+
+        let error =
+            parse_gate_evidence_args(&args).expect_err("delivery PR cannot also be a related PR");
+
+        assert!(error.contains("不能重复"));
+    }
+
+    #[test]
+    fn accepts_complete_g3_evidence() {
+        let issue = issue("OPEN", "In Review");
+        let delivery_pr = delivery_pr(None);
+
+        assert!(
+            validate_g3_evidence(&gate_args(GateEvidencePhase::G3), &issue, &delivery_pr, &[])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_g3_when_issue_does_not_link_delivery_comment() {
+        let mut issue = issue("OPEN", "In Review");
+        issue.body = issue.body.replace(DELIVERY_G3_URL, ISSUE_G4_URL);
+        let delivery_pr = delivery_pr(None);
+
+        let error =
+            validate_g3_evidence(&gate_args(GateEvidencePhase::G3), &issue, &delivery_pr, &[])
+                .expect_err("Issue G3 must link the delivery PR G3 comment");
+
+        assert!(error.contains("未回链"));
+    }
+
+    #[test]
+    fn rejects_related_pr_that_closes_the_delivery_issue() {
+        let mut issue = issue("OPEN", "In Review");
+        issue.body = issue
+            .body
+            .replace(
+                DELIVERY_G3_URL,
+                &format!("{DELIVERY_G3_URL})，[Related G3 评论]({RELATED_G3_URL}"),
+            )
+            .replace("Related PRs：N/A，原因：无部分交付。", "Related PRs：#62");
+        let delivery_pr = delivery_pr(None);
+        let related_pr = related_pr(true);
+        let mut args = gate_args(GateEvidencePhase::G3);
+        args.related_prs = vec![62];
+
+        let error = validate_g3_evidence(&args, &issue, &delivery_pr, &[related_pr])
+            .expect_err("Related PR cannot close the delivery Issue");
+
+        assert!(error.contains("不得以 closing keyword"));
+    }
+
+    #[test]
+    fn accepts_complete_g4_evidence() {
+        let issue = issue("OPEN", "Done");
+        let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+        assert!(
+            validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_g4_comment_created_before_merge() {
+        let mut issue = issue("OPEN", "Done");
+        issue.comments[0].created_at = "2026-07-10T05:00:00Z".to_string();
+        let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+        let error =
+            validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
+                .expect_err("G4 comment must be created after merge");
+
+        assert!(error.contains("早于最后一个关联 PR"));
+    }
+
+    #[test]
+    fn rejects_g4_when_delivery_pr_is_not_project_done() {
+        let issue = issue("OPEN", "Done");
+        let mut delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+        delivery_pr.project_items[0].status = Some(ProjectStatus {
+            name: "In Review".to_string(),
+        });
+
+        let error =
+            validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
+                .expect_err("delivery PR must be Project Done before G4");
+
+        assert!(error.contains("Delivery PR 尚未处于 LaneFlow Project 的 Done"));
+    }
 
     #[test]
     fn accepts_lane_flow_commit_message() {
