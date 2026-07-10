@@ -16,7 +16,13 @@
 - `CoreEvent`：输出结构化 route transition 事件，包括 `VehicleChangedEdgeEvent` 与 `VehicleCompletedRouteEvent`，事件 payload 使用 handle 而不是复制 external ID。
 - `spawn_vehicle` / `despawn_vehicle` / `register_route` / `remove_route`：提供最小 runtime lifecycle API；route 移除会拒绝仍被 live vehicle 引用的 route。
 
-当前仍不实现 vehicle following、signals、parking、Adapter API、C ABI 或 WASM 绑定；这些能力由后续 v0.x 子 issue 增量实现。当前 lane graph / route 输入已对齐 v0.2 data model 的核心结构，但还不是完整 package loader 或稳定外部 data spec。
+当前仍不实现 vehicle following、signals、parking、Adapter API、C ABI 或 WASM 绑定；这些能力由后续 v0.x 子 issue 增量实现。
+
+## v0.2 data-format 边界
+
+v0.2 lane graph / route 的最小外部格式已接受并冻结，正式语义见 [data-format 设计](../../docs/design/data-format.md) 与 [JSON Schema](../../schemas/laneflow-data-v0.2.schema.json)。当前 Core 的 `LaneGraph`、`Route` 和 external ID / handle 边界已与该格式对齐，但本 crate 尚未提供完整 JSON-compatible package loader。
+
+该格式是 v0.2 的稳定设计输入，不代表 v1.0 的长期稳定兼容承诺；跨版本兼容加载、完整 package loader、validator CLI、authoring tool 和 Adapter data contract 均不属于当前 Core 交付范围。
 
 当前工具链策略：
 
