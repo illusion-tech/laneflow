@@ -232,9 +232,12 @@ impl CoreWorld {
         let external_id = route.external_id.clone();
         route.active = false;
         route.edge_handles.clear();
-        route.generation = route.generation.wrapping_add(1);
         self.route_handles.shift_remove(&external_id);
-        self.free_route_indices.push(handle.index());
+        // generation 耗尽时不复用 slot，避免 stale handle 在回绕后复活。
+        if let Some(next_generation) = route.generation.checked_add(1) {
+            route.generation = next_generation;
+            self.free_route_indices.push(handle.index());
+        }
 
         Ok(RouteRemoveRecord {
             handle,
@@ -312,9 +315,12 @@ impl CoreWorld {
             .take()
             .expect("validated vehicle slot must contain state");
         let external_id = slot.external_id.clone();
-        slot.generation = slot.generation.wrapping_add(1);
         self.vehicle_handles.shift_remove(&external_id);
-        self.free_vehicle_indices.push(handle.index());
+        // generation 耗尽时不复用 slot，避免 stale handle 在回绕后复活。
+        if let Some(next_generation) = slot.generation.checked_add(1) {
+            slot.generation = next_generation;
+            self.free_vehicle_indices.push(handle.index());
+        }
         self.vehicle_update_order
             .retain(|candidate| *candidate != handle);
 
@@ -709,5 +715,85 @@ mod tests {
 
         std::assert_matches!(error, CoreError::TimeOverflow);
         assert_eq!(world, before);
+    }
+
+    #[test]
+    fn exhausted_route_generation_retires_slot_without_reviving_stale_handle() {
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(10.0).expect("valid edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("valid lane graph");
+        let mut world = CoreWorld::with_traffic_data(
+            20,
+            lane_graph,
+            [Route::try_new("R1", ["A"]).expect("valid route")],
+            Vec::new(),
+        )
+        .expect("valid world");
+        let original = world.route_handle("R1").expect("route handle exists");
+        let exhausted = RouteHandle::new(original.index(), u32::MAX);
+        world.routes[original.index()].generation = u32::MAX;
+        world.route_handles.insert("R1".to_owned(), exhausted);
+
+        world
+            .remove_route(exhausted)
+            .expect("exhausted route slot can be removed");
+
+        assert!(world.free_route_indices.is_empty());
+        assert_eq!(world.route_external_id(exhausted), None);
+        let replacement = world
+            .register_route(Route::try_new("R1", ["A"]).expect("valid replacement route"))
+            .expect("replacement route registers");
+        assert_ne!(replacement.index(), exhausted.index());
+        assert_eq!(world.route_external_id(exhausted), None);
+    }
+
+    #[test]
+    fn exhausted_vehicle_generation_retires_slot_without_reviving_stale_handle() {
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(10.0).expect("valid edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("valid lane graph");
+        let mut world = CoreWorld::with_traffic_data(
+            20,
+            lane_graph,
+            [Route::try_new("R1", ["A"]).expect("valid route")],
+            Vec::new(),
+        )
+        .expect("valid world");
+        let original = world
+            .spawn_vehicle(VehicleSpawnInput::active(
+                "V1",
+                "R1",
+                0,
+                EdgeProgress::ZERO,
+                Speed::ZERO,
+            ))
+            .expect("vehicle spawns");
+        let exhausted = VehicleHandle::new(original.index(), u32::MAX);
+        world.vehicles[original.index()].generation = u32::MAX;
+        world.vehicle_handles.insert("V1".to_owned(), exhausted);
+
+        world
+            .despawn_vehicle(exhausted)
+            .expect("exhausted vehicle slot can be removed");
+
+        assert!(world.free_vehicle_indices.is_empty());
+        assert_eq!(world.vehicle_external_id(exhausted), None);
+        let replacement = world
+            .spawn_vehicle(VehicleSpawnInput::active(
+                "V1",
+                "R1",
+                0,
+                EdgeProgress::ZERO,
+                Speed::ZERO,
+            ))
+            .expect("replacement vehicle spawns");
+        assert_ne!(replacement.index(), exhausted.index());
+        assert_eq!(world.vehicle_external_id(exhausted), None);
     }
 }
