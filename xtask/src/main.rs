@@ -321,6 +321,8 @@ const G4_COMMENT_FIELDS: &[&str] = &[
     "- Gate 断言：",
 ];
 
+const GATE_ASSERTION_PREFIX: &str = "- Gate 断言：";
+
 fn check_gate_evidence(args: &[String]) -> Result<(), String> {
     let args = parse_gate_evidence_args(args)?;
     let issue = gh_issue_view(&args.repo, args.issue)?;
@@ -409,7 +411,6 @@ fn parse_gate_evidence_args(args: &[String]) -> Result<GateEvidenceArgs, String>
     if all_prs.len() != related_prs.len() + 1 {
         return Err("Delivery PR 与 Related PR 不能重复".to_string());
     }
-
     Ok(GateEvidenceArgs {
         phase,
         repo,
@@ -513,6 +514,7 @@ fn validate_g3_evidence(
         &delivery_permalink,
         G3_COMMENT_FIELDS,
         "Delivery PR G3",
+        args,
     )?;
     validate_g3_timing(delivery_pr, &delivery_permalink, "Delivery PR")?;
     if !delivery_pr
@@ -538,6 +540,7 @@ fn validate_g3_evidence(
             &permalink,
             G3_COMMENT_FIELDS,
             &format!("Related PR #{number} G3"),
+            args,
         )?;
         validate_g3_timing(related_pr, &permalink, &format!("Related PR #{number}"))?;
         if related_pr
@@ -593,6 +596,7 @@ fn validate_g4_evidence(
     let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
     let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
     validate_comment_body(&g4_comment.body, G4_COMMENT_FIELDS, "Issue G4")?;
+    validate_gate_assertion(&g4_comment.body, "Issue G4", args, GateEvidencePhase::G4)?;
     if g4_comment.created_at.as_str() < latest_merge {
         return Err("Issue G4 comment 早于最后一个关联 PR 的合并时间".to_string());
     }
@@ -700,13 +704,15 @@ fn validate_comment(
     permalink: &str,
     required_fields: &[&str],
     label: &str,
+    args: &GateEvidenceArgs,
 ) -> Result<(), String> {
     let comment = pr
         .comments
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
-    validate_comment_body(&comment.body, required_fields, label)
+    validate_comment_body(&comment.body, required_fields, label)?;
+    validate_gate_assertion(&comment.body, label, args, GateEvidencePhase::G3)
 }
 
 fn comment_for_permalink<'a>(
@@ -735,6 +741,66 @@ fn validate_comment_body(body: &str, required_fields: &[&str], label: &str) -> R
             missing_fields.join("、")
         ))
     }
+}
+
+fn validate_gate_assertion(
+    body: &str,
+    label: &str,
+    args: &GateEvidenceArgs,
+    phase: GateEvidencePhase,
+) -> Result<(), String> {
+    let assertion_lines = body
+        .lines()
+        .filter(|line| line.starts_with(GATE_ASSERTION_PREFIX))
+        .collect::<Vec<_>>();
+    let assertion_line = match assertion_lines.as_slice() {
+        [line] => *line,
+        [] => return Err(format!("{label} comment 缺少独立的 `Gate 断言` 行")),
+        _ => return Err(format!("{label} comment 只能包含一条 `Gate 断言` 行")),
+    };
+
+    let value = assertion_line
+        .strip_prefix(GATE_ASSERTION_PREFIX)
+        .expect("filtered assertion line must have the prefix")
+        .trim();
+    let Some(command_and_result) = value.strip_prefix('`') else {
+        return Err(format!(
+            "{label} comment 的 `Gate 断言` 必须先用反引号记录规范命令"
+        ));
+    };
+    let Some((actual_command, result)) = command_and_result.split_once('`') else {
+        return Err(format!("{label} comment 的 `Gate 断言` 命令缺少闭合反引号"));
+    };
+
+    let expected_command = expected_gate_command(args, phase);
+    if actual_command != expected_command {
+        return Err(format!(
+            "{label} comment 的 `Gate 断言` 命令与当前参数不一致：期望 `{expected_command}`；实际 `{actual_command}`"
+        ));
+    }
+
+    if !matches!(result.trim(), "已通过" | "已通过。") {
+        return Err(format!(
+            "{label} comment 的 `Gate 断言` 必须在规范命令后明确记录 `已通过`"
+        ));
+    }
+
+    Ok(())
+}
+
+fn expected_gate_command(args: &GateEvidenceArgs, phase: GateEvidencePhase) -> String {
+    let phase = match phase {
+        GateEvidencePhase::G3 => "g3",
+        GateEvidencePhase::G4 => "g4",
+    };
+    let mut command = format!(
+        "cargo +1.96.0 run --locked -p xtask -- check-gate-evidence {phase} --repo {} --issue {} --delivery-pr {}",
+        args.repo, args.issue, args.delivery_pr
+    );
+    for related_pr in &args.related_prs {
+        command.push_str(&format!(" --related-pr {related_pr}"));
+    }
+    command
 }
 
 fn validate_g3_timing(pr: &GitHubPullRequest, permalink: &str, label: &str) -> Result<(), String> {
@@ -1105,18 +1171,39 @@ Refs: #12
     const RELATED_G3_URL: &str =
         "https://github.com/illusion-tech/laneflow/pull/62#issuecomment-300";
 
-    fn g3_comment(url: &str, created_at: &str) -> GitHubComment {
+    fn gate_comment_body(required_fields: &[&str], args: &GateEvidenceArgs) -> String {
+        required_fields
+            .iter()
+            .map(|field| {
+                if *field == GATE_ASSERTION_PREFIX {
+                    format!(
+                        "{GATE_ASSERTION_PREFIX}`{}` 已通过。",
+                        expected_gate_command(args, args.phase)
+                    )
+                } else {
+                    (*field).to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn g3_comment_for_args(url: &str, created_at: &str, args: &GateEvidenceArgs) -> GitHubComment {
         GitHubComment {
             url: url.to_string(),
-            body: G3_COMMENT_FIELDS.join("\n"),
+            body: gate_comment_body(G3_COMMENT_FIELDS, args),
             created_at: created_at.to_string(),
         }
+    }
+
+    fn g3_comment(url: &str, created_at: &str) -> GitHubComment {
+        g3_comment_for_args(url, created_at, &gate_args(GateEvidencePhase::G3))
     }
 
     fn g4_comment(url: &str, created_at: &str) -> GitHubComment {
         GitHubComment {
             url: url.to_string(),
-            body: G4_COMMENT_FIELDS.join("\n"),
+            body: gate_comment_body(G4_COMMENT_FIELDS, &gate_args(GateEvidencePhase::G4)),
             created_at: created_at.to_string(),
         }
     }
@@ -1164,6 +1251,8 @@ Refs: #12
     }
 
     fn related_pr(closes_issue: bool) -> GitHubPullRequest {
+        let mut args = gate_args(GateEvidencePhase::G3);
+        args.related_prs = vec![62];
         GitHubPullRequest {
             body: format!("- [x] G3 合并判断已记录：[G3 评论]({RELATED_G3_URL})\nRefs: #60"),
             state: "OPEN".to_string(),
@@ -1177,7 +1266,11 @@ Refs: #12
                     name: "In Review".to_string(),
                 }),
             }],
-            comments: vec![g3_comment(RELATED_G3_URL, "2026-07-10T05:00:00Z")],
+            comments: vec![g3_comment_for_args(
+                RELATED_G3_URL,
+                "2026-07-10T05:00:00Z",
+                &args,
+            )],
         }
     }
 
@@ -1276,6 +1369,47 @@ Refs: #12
     }
 
     #[test]
+    fn g4_invocation_still_validates_pr_comment_as_g3() {
+        let issue = issue("OPEN", "In Review");
+        let delivery_pr = delivery_pr(None);
+
+        assert!(
+            validate_g3_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_g3_assertion_that_is_still_pending() {
+        let issue = issue("OPEN", "In Review");
+        let mut delivery_pr = delivery_pr(None);
+        delivery_pr.comments[0].body = delivery_pr.comments[0]
+            .body
+            .replace("` 已通过。", "` 待运行。");
+
+        let error =
+            validate_g3_evidence(&gate_args(GateEvidencePhase::G3), &issue, &delivery_pr, &[])
+                .expect_err("pending G3 assertion must not pass");
+
+        assert!(error.contains("明确记录 `已通过`"));
+    }
+
+    #[test]
+    fn rejects_g3_assertion_with_mismatched_command_arguments() {
+        let issue = issue("OPEN", "In Review");
+        let mut delivery_pr = delivery_pr(None);
+        delivery_pr.comments[0].body = delivery_pr.comments[0]
+            .body
+            .replace("--delivery-pr 61`", "--delivery-pr 99`");
+
+        let error =
+            validate_g3_evidence(&gate_args(GateEvidencePhase::G3), &issue, &delivery_pr, &[])
+                .expect_err("G3 assertion arguments must match the current invocation");
+
+        assert!(error.contains("命令与当前参数不一致"));
+    }
+
+    #[test]
     fn rejects_g3_when_issue_does_not_link_delivery_comment() {
         let mut issue = issue("OPEN", "In Review");
         issue.body = issue.body.replace(DELIVERY_G3_URL, ISSUE_G4_URL);
@@ -1310,10 +1444,12 @@ Refs: #12
                 &format!("{DELIVERY_G3_URL})，[Related G3 评论]({RELATED_G3_URL}"),
             )
             .replace("Related PRs：N/A，原因：无部分交付。", "Related PRs：#62");
-        let delivery_pr = delivery_pr(None);
+        let mut delivery_pr = delivery_pr(None);
         let related_pr = related_pr(true);
         let mut args = gate_args(GateEvidencePhase::G3);
         args.related_prs = vec![62];
+        delivery_pr.comments[0] =
+            g3_comment_for_args(DELIVERY_G3_URL, "2026-07-10T05:00:00Z", &args);
 
         let error = validate_g3_evidence(&args, &issue, &delivery_pr, &[related_pr])
             .expect_err("Related PR cannot close the delivery Issue");
@@ -1324,10 +1460,12 @@ Refs: #12
     #[test]
     fn rejects_related_pr_arguments_that_do_not_match_issue_metadata() {
         let issue = issue("OPEN", "In Review");
-        let delivery_pr = delivery_pr(None);
+        let mut delivery_pr = delivery_pr(None);
         let related_pr = related_pr(false);
         let mut args = gate_args(GateEvidencePhase::G3);
         args.related_prs = vec![62];
+        delivery_pr.comments[0] =
+            g3_comment_for_args(DELIVERY_G3_URL, "2026-07-10T05:00:00Z", &args);
 
         let error = validate_g3_evidence(&args, &issue, &delivery_pr, &[related_pr])
             .expect_err("Related PR arguments must match Issue metadata");
@@ -1344,6 +1482,36 @@ Refs: #12
             validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn rejects_g4_assertion_that_is_still_pending() {
+        let mut issue = issue("OPEN", "Done");
+        issue.comments[0].body = issue.comments[0]
+            .body
+            .replace("` 已通过。", "` 待 body 回链后运行。");
+        let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+        let error =
+            validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
+                .expect_err("pending G4 assertion must not pass");
+
+        assert!(error.contains("明确记录 `已通过`"));
+    }
+
+    #[test]
+    fn rejects_g4_assertion_with_mismatched_command_arguments() {
+        let mut issue = issue("OPEN", "Done");
+        issue.comments[0].body = issue.comments[0]
+            .body
+            .replace("--delivery-pr 61`", "--delivery-pr 99`");
+        let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+        let error =
+            validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
+                .expect_err("G4 assertion arguments must match the current invocation");
+
+        assert!(error.contains("命令与当前参数不一致"));
     }
 
     #[test]

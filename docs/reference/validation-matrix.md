@@ -47,9 +47,9 @@
 7. 例外缺少原因、清理责任或后续 Issue。
 8. 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计且没有显式例外，或不适用项缺少 `N/A` 原因。
 9. Delivery PR 的 `closingIssuesReferences` 未覆盖对应 Issue，或 Related PR 误用 closing keyword，且没有显式例外。
-10. G3 comment / Issue G3 permalink 不完整，或 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 ...` 失败。
+10. G3 comment / Issue G3 permalink 不完整，`Gate 断言` 未记录与实际调用完全一致的规范命令和 `已通过` 结果，或 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 ...` 失败。
 
-G4 清场前还必须运行 `check-gate-evidence g4`；它验证 Issue G4 permalink、关联 PR 合并状态、Gate Ledger 与 Project `Done`，但不替代 G4 comment 中的分支清理与权限撤回证据。
+G4 清场前还必须运行 `check-gate-evidence g4`；它验证 Issue G4 permalink、关联 PR 合并状态、Gate Ledger、Project `Done`，以及 `Gate 断言` 的规范命令和 `已通过` 结果，但不替代 G4 comment 中的分支清理与权限撤回证据。
 
 ## 4. 无法运行时的记录方式
 

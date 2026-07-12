@@ -72,7 +72,9 @@ G3 comment 模板（合并前发表）：
 - 风险：
 - 例外：
 - 合并方式：
-- Gate 断言：`cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...`
+- Gate 断言：`cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...` 已通过。
+
+填写与实际参数完全一致的命令后立即运行；若失败，必须移除“已通过”并修复证据。
 -->
 
 ## 完成边界
