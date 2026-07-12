@@ -28,6 +28,8 @@
 
 目标：稳定车道图和路线系统。
 
+完成状态：2026-07-12 已完成。设计、实现、数据契约、测试与剩余风险的收口依据见 `reference/v0.2-closure-review.md`。
+
 范围：
 
 - lane graph data model
@@ -97,4 +99,3 @@
 - adapter compatibility rules
 - example scenario suite
 - release process
-
