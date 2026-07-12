@@ -69,7 +69,7 @@ LaneFlow 默认使用 **Rebase and merge** 合入 `main`，详见 `docs/governan
 
 ## 6. Commit Message
 
-提交信息必须遵守 `docs/reference/commit-convention.md`。仓库内置 `commit-msg` hook 可在本地提交前复用同一校验，CI 会再次检查 PR / push 的 commit message。
+提交信息必须遵守 `docs/reference/commit-convention.md`。运行 `git config core.hooksPath .githooks` 后，仓库内置 `commit-msg` hook 可在本地提交前复用同一校验；CI 会再次检查 PR / push 的 commit message。
 
 推荐格式：
 
