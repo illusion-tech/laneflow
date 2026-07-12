@@ -42,6 +42,8 @@
 
 目标：支持可信的前车避让和速度控制。
 
+设计输入：[`design/vehicle-following.md`](design/vehicle-following.md) 与 [`adr/0006-vehicle-following-control-and-safety.md`](adr/0006-vehicle-following-control-and-safety.md)。
+
 范围：
 
 - leader vehicle detection
