@@ -31,7 +31,7 @@ AI Agent 开工前应读取：
 AI Agent 应遵守以下流程：
 
 1. 确认任务类型和影响范围。
-2. 审计当前 Issue 的 GitHub 元数据 / 依赖关系，包括 Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Delivery PR 和 Related PRs；Delivery PR 创建后须在 G3 前确认 `closingIssuesReferences` 覆盖目标 Issue，Related PR 不得误用 closing keyword。G3 证据必须写入 PR comment、G4 证据必须写入 Issue comment，body checkbox 只回链对应 permalink；运行 `xtask check-gate-evidence` 失败不得推进对应 Gate。若只能手动关联 GitHub Development 面板，必须记录显式例外；不适用项必须有 `N/A` 原因，无法设置的必需元数据必须记录显式例外。
+2. 审计当前 Issue 的 GitHub 元数据 / 依赖关系，包括 Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Delivery PR 和 Related PRs；Delivery PR 创建后须在 G3 前确认 `closingIssuesReferences` 覆盖目标 Issue，Related PR 不得误用 closing keyword。G3 证据必须写入 PR comment、G4 证据必须写入 Issue comment，body checkbox 只回链对应 permalink；`Gate 断言` 行必须包含与实际参数完全一致的反引号命令并明确写 `已通过`，pending、缺少结果、参数不匹配或运行失败均不得推进对应 Gate。若只能手动关联 GitHub Development 面板，必须记录显式例外；不适用项必须有 `N/A` 原因，无法设置的必需元数据必须记录显式例外。
 3. 检查是否需要 ADR 或 design 文档。
 4. 读取现有代码和测试。
 5. 制定小范围实现计划。

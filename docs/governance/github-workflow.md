@@ -129,7 +129,7 @@ Delivery PR / Related PRs 关联规则：
 - 当 PR 预期覆盖关联 Issue 的完成边界时，它是唯一 Delivery PR，body 应使用 `Closes #<issue>`、`Resolves #<issue>` 或等价 GitHub closing keyword 建立 Development 关联。
 - 当 PR 只是父 Issue 的子切片或部分交付时，它是 Related PR，不得误用 closing keyword；应使用 `Refs: #<issue>`，并在 Issue 中列出该 PR。
 - commit message footer 与 PR body 语义分开：commit message 通常继续使用 `Refs: #<issue>`，不得为了建立 Development 关联而把提交 footer 改成 `Closes`。
-- G3 前默认必须通过 `gh pr view <delivery-pr> --json closingIssuesReferences` 确认 Delivery PR 覆盖目标 Issue；GitHub Development 面板只作为人工辅助证据。必须在合并前发表 PR G3 comment，并运行 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 ...` 验证 permalink、comment 字段、Delivery / Related 关系与时序。若 Delivery PR、父 Issue 子切片、权限或平台限制导致只能手动关联 Development 面板，必须记录显式例外，说明原因、风险、后续收口方式和 Cleanup owner；否则不能进入 `G3 = Pass`。
+- G3 前默认必须通过 `gh pr view <delivery-pr> --json closingIssuesReferences` 确认 Delivery PR 覆盖目标 Issue；GitHub Development 面板只作为人工辅助证据。必须在合并前发表 PR G3 comment，并运行 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 ...` 验证 permalink、comment 字段、Delivery / Related 关系与时序。G3 comment 的 `Gate 断言` 行必须包含与实际调用参数完全一致的反引号命令，并在命令后写 `已通过`；pending、缺少结果或参数不匹配均不能进入 `G3 = Pass`。若 Delivery PR、父 Issue 子切片、权限或平台限制导致只能手动关联 Development 面板，必须记录显式例外，说明原因、风险、后续收口方式和 Cleanup owner；否则不能进入 `G3 = Pass`。
 
 ### Copilot repository instructions
 
@@ -220,7 +220,7 @@ G4 清场必须完成：
 - 勾选 Issue 验收 checklist。
 - 在 Issue comment 发表 `## G4 完成判断`，并在 Issue Gate Ledger 勾选 G4、回链该 comment；Delivery PR body 只回链该 Issue G4 comment。
 - 将 Project 中关联 Issue 和 PR 移动到 `Done`。
-- 确认 Delivery PR、Related PRs、Parent / sub-issues、Blocked by、Blocking 已收口；运行 `check-gate-evidence g4` 后才可关闭 Issue。无法收口的剩余关系必须拆出后续 Issue，并记录原因、风险和 Cleanup owner。
+- 确认 Delivery PR、Related PRs、Parent / sub-issues、Blocked by、Blocking 已收口；Issue G4 comment 的 `Gate 断言` 必须使用与实际调用参数完全一致的规范命令并明确写 `已通过`，运行 `check-gate-evidence g4` 成功后才可关闭 Issue。无法收口的剩余关系必须拆出后续 Issue，并记录原因、风险和 Cleanup owner。
 - 手动关闭关联 Issue；不得依赖 GitHub 自动关闭 Issue 跳过验收 checklist、G4 记录、Project `Done` 和分支清理。
 - 删除远端 PR 分支并 prune 本地 remote-tracking 分支。
 - 切回并更新本地 `main`。
