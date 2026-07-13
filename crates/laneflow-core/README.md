@@ -21,7 +21,7 @@
 - 私有 occupancy / leader detection：按 physical edge 构建可复用扁平索引，沿 follower 已选 route 解析最近 leader，并在初始化与 runtime spawn 时拒绝物理车身重叠。
 - 私有 Vehicle Following pipeline：基于 tick-start snapshot 计算 IIDM comfort acceleration 与 emergency safe-speed，再通过确定性的 functional graph 投影得到最大可行 no-overlap travel；事件与状态只在整 tick 成功后原子提交。
 
-当前仍不实现 lane changing、signals、intersection conflict、parking、公开 controller extension、Adapter API、C ABI 或 WASM 绑定；这些能力由后续 v0.x 子 issue 增量实现。完整确定性、不变量和 10k/100k 性能验收由 #77 收口。
+当前仍不实现 lane changing、signals、intersection conflict、parking、公开 controller extension、Adapter API、C ABI 或 WASM 绑定；这些能力由后续 v0.x 子 issue 增量实现。完整确定性、不变量和 10k/100k 性能验收见 [v0.3 Vehicle Following 验证与性能基线](../../docs/reference/v0.3-vehicle-following-validation.md)。
 
 ## 当前 data-format 边界
 

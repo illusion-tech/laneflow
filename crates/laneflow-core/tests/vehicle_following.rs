@@ -299,3 +299,59 @@ fn repeated_edge_cycle_is_deterministic_across_input_order() {
     assert_eq!(first_result, second_result);
     assert_eq!(first, second);
 }
+
+#[test]
+fn despawned_leader_leaves_snapshot_and_reused_slot_identifies_replacement() {
+    let mut world = single_edge_world(20.0, |profile| {
+        vec![
+            VehicleSpawnInput::active("follower", profile, "R", 0, progress(5.0), speed(8.0)),
+            VehicleSpawnInput::stopped("leader", profile, "R", 0, progress(20.0)),
+        ]
+    });
+    let stale_leader = world.vehicle_handle("leader").expect("leader exists");
+
+    world.step(TickInput::new(1_000)).expect("step succeeds");
+    let constrained_speed = vehicle(&world, "follower").current_speed.value();
+
+    world
+        .despawn_vehicle(stale_leader)
+        .expect("leader despawn succeeds");
+    let free_result = world
+        .step(TickInput::new(1_000))
+        .expect("free step succeeds");
+    assert!(free_result.events.is_empty());
+    assert!(vehicle(&world, "follower").current_speed.value() > constrained_speed);
+    assert!(world.vehicle(stale_leader).is_none());
+
+    let profile = world
+        .vehicle_profile_handle("following-profile")
+        .expect("profile exists");
+    let follower_front = vehicle(&world, "follower").edge_progress.value();
+    let replacement = world
+        .spawn_vehicle(VehicleSpawnInput::stopped(
+            "replacement",
+            profile,
+            "R",
+            0,
+            progress(follower_front + 4.0),
+        ))
+        .expect("replacement leader spawn succeeds");
+
+    assert_ne!(replacement, stale_leader);
+    assert!(world.vehicle(stale_leader).is_none());
+
+    let result = world.step(TickInput::new(1_000)).expect("step succeeds");
+    assert!(result.events.iter().any(|event| {
+        matches!(
+            event,
+            CoreEvent::VehicleFollowingSafetyProjectionApplied(event)
+                if event.leader == replacement
+        )
+    }));
+    assert_close(
+        vehicle(&world, "replacement").edge_progress.value()
+            - vehicle(&world, "follower").edge_progress.value()
+            - 4.0,
+        0.0,
+    );
+}
