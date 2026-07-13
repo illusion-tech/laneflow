@@ -53,6 +53,11 @@ impl LongitudinalMotion {
         distance: f64,
         delta_time: f64,
     ) -> Result<(), CoreError> {
+        self.route_end_distance = Some(distance);
+        if distance >= self.candidate_travel {
+            return Ok(());
+        }
+
         self.candidate_speed = speed_after_travel_cap(
             self.vehicle,
             self.candidate_speed,
@@ -64,7 +69,6 @@ impl LongitudinalMotion {
         self.emergency_min_travel = self.emergency_min_travel.min(distance);
         self.final_speed = self.candidate_speed;
         self.final_travel = distance;
-        self.route_end_distance = Some(distance);
         Ok(())
     }
 
@@ -761,6 +765,32 @@ mod tests {
 
         motion.cap_to_route_end(8.0, 1.0).unwrap();
 
+        assert_eq!(motion.final_travel(), 8.0);
+        assert_eq!(motion.final_speed(), 6.0);
+        assert!(motion.reaches_route_end());
+    }
+
+    #[test]
+    fn route_end_cap_does_not_expand_epsilon_short_motion() {
+        let mut motion = LongitudinalMotion {
+            vehicle: vehicle(0),
+            update_sequence: 0,
+            current_speed: 6.0,
+            leader: None,
+            candidate_speed: 6.0,
+            candidate_travel: 8.0,
+            emergency_min_travel: 5.0,
+            final_speed: 6.0,
+            final_travel: 8.0,
+            route_end_distance: None,
+            safety_projection_applied: false,
+        };
+
+        motion
+            .cap_to_route_end(8.0 + GEOMETRY_GAP_EPSILON / 2.0, 1.0)
+            .unwrap();
+
+        assert_eq!(motion.candidate_travel, 8.0);
         assert_eq!(motion.final_travel(), 8.0);
         assert_eq!(motion.final_speed(), 6.0);
         assert!(motion.reaches_route_end());
