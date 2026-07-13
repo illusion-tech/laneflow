@@ -109,6 +109,15 @@ pub enum CoreError {
         status: VehicleStatus,
         initial_speed: f64,
     },
+    /// candidate vehicle 与现有 vehicle 的物理车身不得重叠。
+    #[error(
+        "vehicle `{follower_id}` 与 leader `{leader_id}` 发生物理重叠：bumper_gap={bumper_gap}"
+    )]
+    VehiclePhysicalOverlap {
+        follower_id: String,
+        leader_id: String,
+        bumper_gap: f64,
+    },
     /// vehicle 引用的 route 必须存在。
     #[error("vehicle `{vehicle_id}` 引用了不存在的 route：{route_id}")]
     UnknownVehicleRoute {
@@ -159,6 +168,15 @@ pub enum CoreError {
     RouteInUse {
         route: RouteHandle,
         vehicle: VehicleHandle,
+    },
+    /// leader detection 的 horizon 或 route distance 计算必须保持 finite。
+    #[error(
+        "vehicle `{vehicle:?}` 的 leader detection 计算不是 finite：stage={stage}, value={value}"
+    )]
+    NonFiniteLeaderComputation {
+        vehicle: VehicleHandle,
+        stage: &'static str,
+        value: f64,
     },
     /// route following 计算出的 travel distance 必须保持 finite。
     #[error(
@@ -259,6 +277,27 @@ mod tests {
             }
             .to_string(),
             "completed vehicle `V1` 的初始状态无效：route `R1` 期望最后 edge index=1 且 progress 在终点 epsilon 内，实际 index=0, progress=1, edge length=5"
+        );
+        assert_eq!(
+            CoreError::VehiclePhysicalOverlap {
+                follower_id: "V1".to_owned(),
+                leader_id: "V2".to_owned(),
+                bumper_gap: -0.5,
+            }
+            .to_string(),
+            "vehicle `V1` 与 leader `V2` 发生物理重叠：bumper_gap=-0.5"
+        );
+        assert_eq!(
+            CoreError::NonFiniteLeaderComputation {
+                vehicle: VehicleHandle::new(0, 0),
+                stage: "hard_horizon",
+                value: f64::INFINITY,
+            }
+            .to_string(),
+            format!(
+                "vehicle `{:?}` 的 leader detection 计算不是 finite：stage=hard_horizon, value=inf",
+                VehicleHandle::new(0, 0)
+            )
         );
         assert_eq!(
             CoreError::NonFiniteRouteTravel {

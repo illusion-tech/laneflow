@@ -2,8 +2,9 @@ mod common;
 
 use common::{test_profile, world_with_test_profile};
 use laneflow_core::{
-    CoreError, CoreEvent, CoreWorld, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed,
-    TickInput, VehicleProfileHandle, VehicleProfileRegistry, VehicleSpawnInput,
+    CoreError, CoreEvent, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData,
+    LaneEdge, LaneGraph, Route, Speed, TickInput, VehicleProfile, VehicleProfileHandle,
+    VehicleProfileRegistry, VehicleSpawnInput,
 };
 
 fn edge_length(value: f64) -> EdgeLength {
@@ -184,19 +185,44 @@ fn route_remove_rejects_live_vehicle_and_stales_old_handle() {
 
 #[test]
 fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
-    let mut world = route_world(|profile| {
+    let lane_graph = LaneGraph::try_new([
+        LaneEdge::new("A", edge_length(1.0), ["B"]),
+        LaneEdge::new("B", edge_length(1.0), std::iter::empty::<&str>()),
+    ])
+    .expect("valid lane graph");
+    let route = Route::try_new("R", ["A", "B"]).expect("valid route");
+    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
+        "short-profile",
+        IidmProfileSpec {
+            length: 0.25,
+            desired_speed: 13.9,
+            min_gap: 0.25,
+            time_headway: 1.5,
+            max_acceleration: 1.4,
+            comfortable_deceleration: 2.0,
+            emergency_deceleration: 4.0,
+        },
+    )
+    .expect("valid short profile")])
+    .expect("valid profile registry");
+    let profile = profiles
+        .profile_handle("short-profile")
+        .expect("profile handle exists");
+    let traffic_data =
+        InitialTrafficData::try_new(lane_graph, [route], profiles).expect("valid traffic data");
+    let mut world = CoreWorld::with_traffic_data(
+        1_000,
+        traffic_data,
         vec![VehicleSpawnInput::active(
             "V2",
             profile,
             "R",
             0,
-            progress(0.0),
+            progress(0.5),
             speed(2.0),
-        )]
-    });
-    let profile = world
-        .vehicle_profile_handle("test-profile")
-        .expect("profile handle exists");
+        )],
+    )
+    .expect("valid world");
     world
         .spawn_vehicle(VehicleSpawnInput::active(
             "V1",

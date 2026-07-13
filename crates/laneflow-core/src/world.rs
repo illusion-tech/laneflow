@@ -8,7 +8,8 @@ use crate::{
     graph::{EDGE_BOUNDARY_EPSILON, LaneGraph},
     handle::{EdgeHandle, RouteHandle, VehicleHandle, VehicleProfileHandle},
     id::validate_external_id,
-    profile::{VehicleProfile, VehicleProfileRegistry},
+    occupancy::{LeaderObservation, OccupancyScratch, Occupant},
+    profile::{GEOMETRY_GAP_EPSILON, VehicleProfile, VehicleProfileRegistry},
     route::{Route, RouteRemoveRecord},
     time::{StepResult, TickInput},
     traffic::{InitialTrafficData, resolve_route_edges},
@@ -48,6 +49,7 @@ pub struct CoreWorld {
     vehicle_handles: IndexMap<String, VehicleHandle>,
     free_vehicle_indices: Vec<usize>,
     vehicle_update_order: Vec<VehicleHandle>,
+    occupancy_scratch: OccupancyScratch,
 }
 
 impl CoreWorld {
@@ -82,6 +84,7 @@ impl CoreWorld {
             vehicle_handles: IndexMap::new(),
             free_vehicle_indices: Vec::new(),
             vehicle_update_order: Vec::new(),
+            occupancy_scratch: OccupancyScratch::default(),
         };
 
         for route in routes {
@@ -90,8 +93,9 @@ impl CoreWorld {
 
         vehicles.sort_by(|left, right| left.id.cmp(&right.id));
         for vehicle in vehicles {
-            world.spawn_vehicle(vehicle)?;
+            world.spawn_vehicle_without_overlap_validation(vehicle)?;
         }
+        world.validate_initial_vehicle_overlaps()?;
 
         Ok(world)
     }
@@ -264,6 +268,21 @@ impl CoreWorld {
 
     /// 创建新的 vehicle runtime entity。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, CoreError> {
+        self.spawn_vehicle_with_overlap_validation(input, true)
+    }
+
+    fn spawn_vehicle_without_overlap_validation(
+        &mut self,
+        input: VehicleSpawnInput,
+    ) -> Result<VehicleHandle, CoreError> {
+        self.spawn_vehicle_with_overlap_validation(input, false)
+    }
+
+    fn spawn_vehicle_with_overlap_validation(
+        &mut self,
+        input: VehicleSpawnInput,
+        validate_overlap: bool,
+    ) -> Result<VehicleHandle, CoreError> {
         validate_external_id("vehicles[].id", &input.id)?;
         validate_external_id("vehicles[].routeId", &input.route_id)?;
         if self.vehicle_handles.contains_key(&input.id) {
@@ -285,6 +304,9 @@ impl CoreWorld {
                     route_id: input.route_id.clone(),
                 })?;
         let normalized = self.normalize_vehicle_input(route, &input)?;
+        if validate_overlap {
+            self.validate_candidate_overlap(route, &input.id, &normalized)?;
+        }
         let external_id = input.id;
         let handle = if let Some(index) = self.free_vehicle_indices.pop() {
             let generation = self.vehicles[index].generation;
@@ -378,6 +400,8 @@ impl CoreWorld {
             .checked_add(self.fixed_delta_time_ms)
             .ok_or(CoreError::TimeOverflow)?;
 
+        self.rebuild_occupancy_and_leaders()?;
+
         // 为失败原子性只克隆紧凑运行态，避免每 tick 复制 external ID registry 字符串。
         let mut next_vehicle_states: Vec<_> = self
             .vehicles
@@ -425,6 +449,446 @@ impl CoreWorld {
             time_ms: next_time_ms,
             events,
         })
+    }
+
+    fn validate_candidate_overlap(
+        &self,
+        route: RouteHandle,
+        candidate_id: &str,
+        candidate: &NormalizedVehicleInput,
+    ) -> Result<(), CoreError> {
+        if candidate.status == VehicleStatus::Completed {
+            return Ok(());
+        }
+
+        let candidate_edge = self
+            .route_slot(route)
+            .expect("candidate route must exist")
+            .edge_handles[candidate.route_edge_index];
+        let candidate_length = self
+            .vehicle_profile(candidate.profile)
+            .expect("candidate profile must exist")
+            .iidm()
+            .length;
+
+        for existing in self.vehicles() {
+            if existing.status == VehicleStatus::Completed {
+                continue;
+            }
+            let existing_edge = self.vehicle_edge(existing);
+            let existing_length = self
+                .vehicle_profile(existing.profile)
+                .expect("existing profile must exist")
+                .iidm()
+                .length;
+            let existing_id = self
+                .vehicle_external_id(existing.handle)
+                .expect("existing vehicle ID must exist");
+
+            if let Some(front_distance) = self.route_front_distance_within(
+                route,
+                candidate.route_edge_index,
+                candidate.edge_progress.value(),
+                existing_edge,
+                existing.edge_progress.value(),
+                existing_length,
+            ) {
+                let bumper_gap = front_distance - existing_length;
+                if bumper_gap < -GEOMETRY_GAP_EPSILON {
+                    return Err(CoreError::VehiclePhysicalOverlap {
+                        follower_id: candidate_id.to_owned(),
+                        leader_id: existing_id.to_owned(),
+                        bumper_gap,
+                    });
+                }
+            }
+
+            if let Some(front_distance) = self.route_front_distance_within(
+                existing.route,
+                existing.route_edge_index,
+                existing.edge_progress.value(),
+                candidate_edge,
+                candidate.edge_progress.value(),
+                candidate_length,
+            ) {
+                let bumper_gap = front_distance - candidate_length;
+                if bumper_gap < -GEOMETRY_GAP_EPSILON {
+                    return Err(CoreError::VehiclePhysicalOverlap {
+                        follower_id: existing_id.to_owned(),
+                        leader_id: candidate_id.to_owned(),
+                        bumper_gap,
+                    });
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn route_front_distance_within(
+        &self,
+        route: RouteHandle,
+        route_edge_index: usize,
+        front_progress: f64,
+        target_edge: EdgeHandle,
+        target_front_progress: f64,
+        max_front_distance: f64,
+    ) -> Option<f64> {
+        let route = self.route_slot(route).expect("route must exist");
+        let current_edge = route.edge_handles[route_edge_index];
+        if current_edge == target_edge && target_front_progress >= front_progress {
+            let front_distance = target_front_progress - front_progress;
+            return (front_distance <= max_front_distance).then_some(front_distance);
+        }
+
+        let mut distance = self
+            .lane_graph
+            .edge_length(current_edge)
+            .expect("route edge must exist")
+            .value()
+            - front_progress;
+        if distance > max_front_distance {
+            return None;
+        }
+        for edge in route
+            .edge_handles
+            .iter()
+            .copied()
+            .skip(route_edge_index + 1)
+        {
+            if edge == target_edge {
+                let remaining = max_front_distance - distance;
+                return (target_front_progress <= remaining)
+                    .then_some(distance + target_front_progress);
+            }
+            let edge_length = self
+                .lane_graph
+                .edge_length(edge)
+                .expect("route edge must exist")
+                .value();
+            if edge_length > max_front_distance - distance {
+                return None;
+            }
+            distance += edge_length;
+        }
+        None
+    }
+
+    fn validate_initial_vehicle_overlaps(&mut self) -> Result<(), CoreError> {
+        let mut scratch = std::mem::take(&mut self.occupancy_scratch);
+        self.build_occupancy(&mut scratch);
+        let result = self.validate_occupancy_overlaps(&scratch);
+        self.occupancy_scratch = scratch;
+        result
+    }
+
+    fn validate_occupancy_overlaps(&self, scratch: &OccupancyScratch) -> Result<(), CoreError> {
+        for edge_index in 0..self.lane_graph.edges().len() {
+            for pair in scratch.edge(EdgeHandle::new(edge_index)).windows(2) {
+                let follower = pair[0];
+                let leader = pair[1];
+                let bumper_gap =
+                    leader.front_progress - follower.front_progress - leader.vehicle_length;
+                if bumper_gap < -GEOMETRY_GAP_EPSILON {
+                    return Err(self.vehicle_overlap_error(
+                        follower.vehicle,
+                        leader.vehicle,
+                        bumper_gap,
+                    ));
+                }
+            }
+        }
+
+        for handle in self.vehicle_update_order.iter().copied() {
+            let Some(vehicle) = self.vehicle(handle) else {
+                continue;
+            };
+            if !matches!(
+                vehicle.status,
+                VehicleStatus::Active | VehicleStatus::Stopped
+            ) {
+                continue;
+            }
+
+            if let Some(observation) = self.find_leader(scratch, vehicle, 0.0)?
+                && observation.bumper_gap < -GEOMETRY_GAP_EPSILON
+            {
+                return Err(self.vehicle_overlap_error(
+                    handle,
+                    observation.leader,
+                    observation.bumper_gap,
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn vehicle_overlap_error(
+        &self,
+        follower: VehicleHandle,
+        leader: VehicleHandle,
+        bumper_gap: f64,
+    ) -> CoreError {
+        CoreError::VehiclePhysicalOverlap {
+            follower_id: self
+                .vehicle_external_id(follower)
+                .expect("occupant vehicle ID must exist")
+                .to_owned(),
+            leader_id: self
+                .vehicle_external_id(leader)
+                .expect("occupant vehicle ID must exist")
+                .to_owned(),
+            bumper_gap,
+        }
+    }
+
+    fn rebuild_occupancy_and_leaders(&mut self) -> Result<(), CoreError> {
+        let mut scratch = std::mem::take(&mut self.occupancy_scratch);
+        let result = (|| {
+            self.build_occupancy(&mut scratch);
+
+            if scratch.occupant_count() <= 1 {
+                return Ok(());
+            }
+
+            for handle in self.vehicle_update_order.iter().copied() {
+                let Some(vehicle) = self.vehicle(handle) else {
+                    continue;
+                };
+                if !matches!(
+                    vehicle.status,
+                    VehicleStatus::Active | VehicleStatus::Stopped
+                ) {
+                    continue;
+                }
+
+                let horizon = self.leader_horizon(vehicle)?;
+                let leader = self.find_leader(&scratch, vehicle, horizon)?;
+                scratch.set_leader(handle, leader);
+            }
+
+            Ok(())
+        })();
+        self.occupancy_scratch = scratch;
+        result
+    }
+
+    fn build_occupancy(&self, scratch: &mut OccupancyScratch) {
+        scratch.begin(self.lane_graph.edges().len(), self.vehicles.len());
+
+        for handle in self.vehicle_update_order.iter().copied() {
+            let Some(vehicle) = self.vehicle(handle) else {
+                continue;
+            };
+            if !matches!(
+                vehicle.status,
+                VehicleStatus::Active | VehicleStatus::Stopped
+            ) {
+                continue;
+            }
+
+            let edge = self.vehicle_edge(vehicle);
+            let vehicle_length = self
+                .vehicle_profile(vehicle.profile)
+                .expect("live vehicle profile must exist")
+                .iidm()
+                .length;
+            scratch.count(edge, vehicle_length);
+        }
+
+        scratch.allocate_occupants();
+        for (update_sequence, handle) in self.vehicle_update_order.iter().copied().enumerate() {
+            let Some(vehicle) = self.vehicle(handle) else {
+                continue;
+            };
+            if !matches!(
+                vehicle.status,
+                VehicleStatus::Active | VehicleStatus::Stopped
+            ) {
+                continue;
+            }
+
+            let edge = self.vehicle_edge(vehicle);
+            let vehicle_length = self
+                .vehicle_profile(vehicle.profile)
+                .expect("live vehicle profile must exist")
+                .iidm()
+                .length;
+            scratch.insert(
+                edge,
+                Occupant {
+                    vehicle: handle,
+                    front_progress: vehicle.edge_progress.value(),
+                    vehicle_length,
+                    update_sequence: u64::try_from(update_sequence)
+                        .expect("vehicle update sequence must fit in u64"),
+                },
+            );
+        }
+        scratch.sort_edges();
+    }
+
+    fn vehicle_edge(&self, vehicle: &VehicleState) -> EdgeHandle {
+        self.route_slot(vehicle.route)
+            .expect("live vehicle route must exist")
+            .edge_handles[vehicle.route_edge_index]
+    }
+
+    fn leader_horizon(&self, vehicle: &VehicleState) -> Result<f64, CoreError> {
+        let profile = self
+            .vehicle_profile(vehicle.profile)
+            .expect("live vehicle profile must exist")
+            .iidm();
+        let speed = vehicle.current_speed.value();
+        let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
+        let upper_speed = speed + profile.max_acceleration * delta_time;
+        Self::finite_leader_value(vehicle.handle, "upper_speed", upper_speed)?;
+        let travel_upper =
+            Self::half_product(speed, delta_time) + Self::half_product(upper_speed, delta_time);
+        Self::finite_leader_value(vehicle.handle, "travel_upper", travel_upper)?;
+        let braking_distance = Self::braking_distance(upper_speed, profile.emergency_deceleration);
+        Self::finite_leader_value(vehicle.handle, "braking_distance", braking_distance)?;
+        let hard_horizon = travel_upper + braking_distance;
+        Self::finite_leader_value(vehicle.handle, "hard_horizon", hard_horizon)?;
+        let comfort_horizon = profile.min_gap + speed * profile.time_headway;
+        Self::finite_leader_value(vehicle.handle, "comfort_horizon", comfort_horizon)?;
+
+        Ok(hard_horizon.max(comfort_horizon))
+    }
+
+    fn find_leader(
+        &self,
+        scratch: &OccupancyScratch,
+        follower: &VehicleState,
+        bumper_gap_horizon: f64,
+    ) -> Result<Option<LeaderObservation>, CoreError> {
+        Self::finite_leader_value(follower.handle, "bumper_gap_horizon", bumper_gap_horizon)?;
+        let front_horizon = bumper_gap_horizon + scratch.max_vehicle_length();
+        Self::finite_leader_value(follower.handle, "front_horizon", front_horizon)?;
+
+        let route = self
+            .route_slot(follower.route)
+            .expect("live vehicle route must exist");
+        let current_edge = route.edge_handles[follower.route_edge_index];
+        let current_occupants = scratch.edge(current_edge);
+        let first_ahead = current_occupants
+            .partition_point(|occupant| occupant.front_progress <= follower.edge_progress.value());
+        for occupant in &current_occupants[first_ahead..] {
+            if occupant.vehicle == follower.handle {
+                continue;
+            }
+            let front_distance = occupant.front_progress - follower.edge_progress.value();
+            let bumper_gap = Self::normalize_bumper_gap(front_distance - occupant.vehicle_length);
+            if bumper_gap <= bumper_gap_horizon {
+                return Ok(Some(LeaderObservation {
+                    leader: occupant.vehicle,
+                    bumper_gap,
+                }));
+            }
+            break;
+        }
+
+        let current_edge_length = self
+            .lane_graph
+            .edge_length(current_edge)
+            .expect("route edge must exist")
+            .value();
+        let mut distance_to_edge_start = current_edge_length - follower.edge_progress.value();
+
+        for edge in route
+            .edge_handles
+            .iter()
+            .copied()
+            .skip(follower.route_edge_index + 1)
+        {
+            Self::finite_leader_value(
+                follower.handle,
+                "distance_to_edge_start",
+                distance_to_edge_start,
+            )?;
+            if distance_to_edge_start > front_horizon {
+                break;
+            }
+
+            for occupant in scratch.edge(edge) {
+                if occupant.vehicle == follower.handle {
+                    continue;
+                }
+                let remaining = front_horizon - distance_to_edge_start;
+                if occupant.front_progress > remaining {
+                    break;
+                }
+                let front_distance = distance_to_edge_start + occupant.front_progress;
+                let bumper_gap =
+                    Self::normalize_bumper_gap(front_distance - occupant.vehicle_length);
+                if bumper_gap <= bumper_gap_horizon {
+                    return Ok(Some(LeaderObservation {
+                        leader: occupant.vehicle,
+                        bumper_gap,
+                    }));
+                }
+            }
+
+            let edge_length = self
+                .lane_graph
+                .edge_length(edge)
+                .expect("route edge must exist")
+                .value();
+            if edge_length > front_horizon - distance_to_edge_start {
+                break;
+            }
+            distance_to_edge_start += edge_length;
+        }
+
+        Ok(None)
+    }
+
+    fn finite_leader_value(
+        vehicle: VehicleHandle,
+        stage: &'static str,
+        value: f64,
+    ) -> Result<f64, CoreError> {
+        if !value.is_finite() {
+            return Err(CoreError::NonFiniteLeaderComputation {
+                vehicle,
+                stage,
+                value,
+            });
+        }
+        Ok(value)
+    }
+
+    fn normalize_bumper_gap(value: f64) -> f64 {
+        if value.abs() <= GEOMETRY_GAP_EPSILON {
+            0.0
+        } else {
+            value
+        }
+    }
+
+    fn braking_distance(speed: f64, deceleration: f64) -> f64 {
+        if speed == 0.0 {
+            return 0.0;
+        }
+        if deceleration > f64::MAX / 2.0 {
+            return speed / deceleration * (0.5 * speed);
+        }
+
+        let denominator = 2.0 * deceleration;
+        if speed < 1.0 {
+            speed / (denominator / speed)
+        } else {
+            speed / denominator * speed
+        }
+    }
+
+    fn half_product(left: f64, right: f64) -> f64 {
+        if left >= right {
+            (0.5 * left) * right
+        } else {
+            left * (0.5 * right)
+        }
     }
 
     fn normalize_vehicle_input(
@@ -638,6 +1102,10 @@ struct NormalizedVehicleInput {
 fn is_less_than_boundary_epsilon(value: f64) -> bool {
     value < EDGE_BOUNDARY_EPSILON
 }
+
+#[cfg(test)]
+#[path = "world_occupancy_tests.rs"]
+mod occupancy_tests;
 
 #[cfg(test)]
 mod tests {
