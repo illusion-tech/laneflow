@@ -5,7 +5,7 @@ use crate::{
     handle::{RouteHandle, VehicleHandle, VehicleProfileHandle},
 };
 
-/// 车辆速度，单位为 meter per second。
+/// 车辆速度，单位为 meter/second。
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Speed(f64);
 
@@ -28,7 +28,7 @@ impl Speed {
     }
 }
 
-/// 车辆在当前 tick 实际应用的纵向加速度，单位为 meter per second squared。
+/// 车辆在当前 tick 实际应用的纵向加速度，单位为 meter/second^2。
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Acceleration(f64);
 
