@@ -178,6 +178,13 @@ pub enum CoreError {
         stage: &'static str,
         value: f64,
     },
+    /// IIDM、safe-speed、ballistic integration 或 geometry projection 必须保持 finite。
+    #[error("vehicle `{vehicle:?}` 的纵向计算不是 finite：stage={stage}, value={value}")]
+    NonFiniteLongitudinalComputation {
+        vehicle: VehicleHandle,
+        stage: &'static str,
+        value: f64,
+    },
     /// route following 计算出的 travel distance 必须保持 finite。
     #[error(
         "vehicle `{vehicle:?}` 的 route travel distance 不是 finite：speed={speed}, delta={delta_time_ms} ms；可通过同一 CoreWorld resolver 查询 external ID"
@@ -296,6 +303,18 @@ mod tests {
             .to_string(),
             format!(
                 "vehicle `{:?}` 的 leader detection 计算不是 finite：stage=hard_horizon, value=inf",
+                VehicleHandle::new(0, 0)
+            )
+        );
+        assert_eq!(
+            CoreError::NonFiniteLongitudinalComputation {
+                vehicle: VehicleHandle::new(0, 0),
+                stage: "ballistic_travel",
+                value: f64::INFINITY,
+            }
+            .to_string(),
+            format!(
+                "vehicle `{:?}` 的纵向计算不是 finite：stage=ballistic_travel, value=inf",
                 VehicleHandle::new(0, 0)
             )
         );

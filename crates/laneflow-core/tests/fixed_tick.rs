@@ -68,7 +68,7 @@ fn delta_mismatch_returns_error_and_keeps_world_unchanged() {
 }
 
 #[test]
-fn active_zero_speed_is_valid_and_does_not_change_progress() {
+fn active_zero_speed_accelerates_under_free_road_iidm() {
     let mut world = single_edge_world(1_000, |profile| {
         vec![VehicleSpawnInput::active(
             "V1",
@@ -85,9 +85,9 @@ fn active_zero_speed_is_valid_and_does_not_change_progress() {
     let vehicles = world.vehicles().collect::<Vec<_>>();
     let vehicle = vehicles[0];
     assert_eq!(vehicle.status, VehicleStatus::Active);
-    assert_eq!(vehicle.current_speed, Speed::ZERO);
-    assert_eq!(vehicle.applied_acceleration, Acceleration::ZERO);
-    assert_eq!(vehicle.edge_progress.value(), 7.5);
+    assert_eq!(vehicle.current_speed.value(), 1.4);
+    assert_eq!(vehicle.applied_acceleration.value(), 1.4);
+    assert_eq!(vehicle.edge_progress.value(), 8.2);
 }
 
 #[test]

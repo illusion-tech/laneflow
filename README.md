@@ -76,7 +76,7 @@ LaneFlow 暂不追求以下能力：
 
 ## Rust workspace
 
-- `crates/laneflow-core`：引擎无关的 Core domain/runtime、typed handles、registry 与 fixed tick。
+- `crates/laneflow-core`：引擎无关的 Core domain/runtime、typed handles、fixed tick，以及私有 occupancy/leader、IIDM、safe-speed 与 no-overlap projection pipeline。
 - `crates/laneflow-data`：当前 v0.3 JSON loader、严格版本闸口与 Core normalization；依赖方向固定为 `laneflow-data -> laneflow-core`。
 - `xtask`：提交消息和 Gate evidence 等仓库治理工具。
 

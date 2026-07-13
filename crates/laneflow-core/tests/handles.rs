@@ -238,6 +238,6 @@ fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
 
     assert_eq!(
         event_vehicle_ids(&world, &result.events),
-        ["V2", "V2", "V1", "V1"]
+        ["V2", "V2", "V1"]
     );
 }

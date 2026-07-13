@@ -4,10 +4,14 @@ use indexmap::IndexMap;
 
 use crate::{
     error::CoreError,
-    event::{CoreEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent},
+    event::{
+        CoreEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
+        VehicleFollowingSafetyProjectionAppliedEvent,
+    },
     graph::{EDGE_BOUNDARY_EPSILON, LaneGraph},
     handle::{EdgeHandle, RouteHandle, VehicleHandle, VehicleProfileHandle},
     id::validate_external_id,
+    longitudinal::{LeaderKinematics, LongitudinalMotion, LongitudinalScratch, compute_motion},
     occupancy::{LeaderObservation, OccupancyScratch, Occupant},
     profile::{GEOMETRY_GAP_EPSILON, VehicleProfile, VehicleProfileRegistry},
     route::{Route, RouteRemoveRecord},
@@ -50,6 +54,7 @@ pub struct CoreWorld {
     free_vehicle_indices: Vec<usize>,
     vehicle_update_order: Vec<VehicleHandle>,
     occupancy_scratch: OccupancyScratch,
+    longitudinal_scratch: LongitudinalScratch,
 }
 
 impl CoreWorld {
@@ -85,6 +90,7 @@ impl CoreWorld {
             free_vehicle_indices: Vec::new(),
             vehicle_update_order: Vec::new(),
             occupancy_scratch: OccupancyScratch::default(),
+            longitudinal_scratch: LongitudinalScratch::default(),
         };
 
         for route in routes {
@@ -402,6 +408,7 @@ impl CoreWorld {
             .ok_or(CoreError::TimeOverflow)?;
 
         self.rebuild_occupancy_and_leaders()?;
+        self.rebuild_longitudinal_motions()?;
 
         // 为失败原子性只克隆紧凑运行态，避免每 tick 复制 external ID registry 字符串。
         let mut next_vehicle_states: Vec<_> = self
@@ -429,12 +436,17 @@ impl CoreWorld {
                 continue;
             };
 
+            let Some(motion) = self.longitudinal_scratch.motion(*vehicle_handle) else {
+                debug_assert_eq!(vehicle.status, VehicleStatus::Completed);
+                continue;
+            };
             Self::advance_vehicle(
                 &self.lane_graph,
                 &self.routes,
                 self.fixed_delta_time_ms,
                 next_tick_index,
                 vehicle,
+                motion,
                 &mut events,
             )?;
         }
@@ -673,6 +685,102 @@ impl CoreWorld {
         })();
         self.occupancy_scratch = scratch;
         result
+    }
+
+    fn rebuild_longitudinal_motions(&mut self) -> Result<(), CoreError> {
+        let mut scratch = std::mem::take(&mut self.longitudinal_scratch);
+        let result = (|| {
+            scratch.begin(self.vehicles.len());
+            let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
+
+            for (update_sequence, handle) in self.vehicle_update_order.iter().copied().enumerate() {
+                let Some(vehicle) = self.vehicle(handle) else {
+                    continue;
+                };
+                let update_sequence = u64::try_from(update_sequence)
+                    .expect("vehicle update sequence must fit in u64");
+
+                match vehicle.status {
+                    VehicleStatus::Completed => continue,
+                    VehicleStatus::Stopped => {
+                        scratch.set(LongitudinalMotion::stationary(handle, update_sequence));
+                    }
+                    VehicleStatus::Active => {
+                        let profile = self
+                            .vehicle_profile(vehicle.profile)
+                            .expect("live vehicle profile must exist")
+                            .iidm();
+                        let leader = self.occupancy_scratch.leader(handle).map(|observation| {
+                            let leader = self
+                                .vehicle(observation.leader)
+                                .expect("occupancy leader must be live");
+                            let leader_profile = self
+                                .vehicle_profile(leader.profile)
+                                .expect("leader profile must exist")
+                                .iidm();
+                            LeaderKinematics {
+                                observation,
+                                current_speed: leader.current_speed.value(),
+                                emergency_deceleration: leader_profile.emergency_deceleration,
+                            }
+                        });
+                        let mut motion = compute_motion(
+                            handle,
+                            update_sequence,
+                            vehicle.current_speed.value(),
+                            profile,
+                            leader,
+                            delta_time,
+                        )?;
+                        if let Some(route_end_distance) =
+                            self.route_end_distance_within(vehicle, motion.final_travel())
+                        {
+                            motion.cap_to_route_end(route_end_distance, delta_time)?;
+                        }
+                        scratch.set(motion);
+                    }
+                }
+            }
+
+            scratch.project(&self.vehicle_update_order, delta_time)
+        })();
+        self.longitudinal_scratch = scratch;
+        result
+    }
+
+    fn route_end_distance_within(&self, vehicle: &VehicleState, max_travel: f64) -> Option<f64> {
+        let route = self
+            .route_slot(vehicle.route)
+            .expect("live vehicle route must exist");
+        let current_edge = route.edge_handles[vehicle.route_edge_index];
+        let current_edge_length = self
+            .lane_graph
+            .edge_length(current_edge)
+            .expect("route edge must exist")
+            .value();
+        let mut distance = current_edge_length - vehicle.edge_progress.value();
+        if distance > max_travel + EDGE_BOUNDARY_EPSILON {
+            return None;
+        }
+
+        for edge in route
+            .edge_handles
+            .iter()
+            .copied()
+            .skip(vehicle.route_edge_index + 1)
+        {
+            let edge_length = self
+                .lane_graph
+                .edge_length(edge)
+                .expect("route edge must exist")
+                .value();
+            if edge_length > max_travel - distance + EDGE_BOUNDARY_EPSILON {
+                return None;
+            }
+            distance += edge_length;
+        }
+
+        Some(distance)
     }
 
     fn build_occupancy(&self, scratch: &mut OccupancyScratch) {
@@ -972,24 +1080,31 @@ impl CoreWorld {
         fixed_delta_time_ms: u64,
         tick_index: u64,
         vehicle: &mut VehicleState,
+        motion: LongitudinalMotion,
         events: &mut Vec<CoreEvent>,
     ) -> Result<(), CoreError> {
         if vehicle.status != VehicleStatus::Active {
             return Ok(());
         }
 
-        vehicle.applied_acceleration = Acceleration::ZERO;
-        let speed = vehicle.current_speed.value();
         let delta_time_seconds = fixed_delta_time_ms as f64 / 1_000.0;
-        let travel_distance = speed * delta_time_seconds;
-        if !travel_distance.is_finite() {
-            return Err(CoreError::NonFiniteRouteTravel {
-                vehicle: vehicle.handle,
-                speed,
-                delta_time_ms: fixed_delta_time_ms,
-            });
+        vehicle.current_speed =
+            Speed::try_new(motion.final_speed()).expect("longitudinal motion speed must be valid");
+        vehicle.applied_acceleration =
+            Acceleration::try_new(motion.applied_acceleration(delta_time_seconds)?)
+                .expect("longitudinal applied acceleration must be valid");
+        if let Some(leader) = motion.safety_projection_leader() {
+            events.push(CoreEvent::VehicleFollowingSafetyProjectionApplied(
+                VehicleFollowingSafetyProjectionAppliedEvent {
+                    tick_index,
+                    vehicle: vehicle.handle,
+                    leader,
+                },
+            ));
         }
-        if travel_distance <= EDGE_BOUNDARY_EPSILON {
+
+        let travel_distance = motion.final_travel();
+        if travel_distance <= EDGE_BOUNDARY_EPSILON && !motion.reaches_route_end() {
             return Ok(());
         }
 
@@ -1002,6 +1117,29 @@ impl CoreWorld {
 
         for _ in 0..max_iterations {
             if is_less_than_boundary_epsilon(remaining) {
+                if motion.reaches_route_end()
+                    && vehicle.route_edge_index + 1 == route.edge_handles.len()
+                {
+                    let current_edge = route.edge_handles[vehicle.route_edge_index];
+                    let edge_length = lane_graph
+                        .edge_length(current_edge)
+                        .expect("validated route edge must exist")
+                        .value();
+                    vehicle.edge_progress =
+                        EdgeProgress::try_new(edge_length).expect("edge length is valid progress");
+                    vehicle.current_speed = Speed::ZERO;
+                    vehicle.applied_acceleration = Acceleration::ZERO;
+                    vehicle.status = VehicleStatus::Completed;
+                    events.push(CoreEvent::VehicleCompletedRoute(
+                        VehicleCompletedRouteEvent {
+                            tick_index,
+                            vehicle: vehicle.handle,
+                            route: vehicle.route,
+                            edge: current_edge,
+                            route_edge_index: vehicle.route_edge_index,
+                        },
+                    ));
+                }
                 break;
             }
 
@@ -1018,7 +1156,7 @@ impl CoreWorld {
             if !next_progress.is_finite() {
                 return Err(CoreError::NonFiniteRouteTravel {
                     vehicle: vehicle.handle,
-                    speed,
+                    speed: motion.final_speed(),
                     delta_time_ms: fixed_delta_time_ms,
                 });
             }

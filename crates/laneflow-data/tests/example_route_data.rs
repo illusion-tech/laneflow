@@ -91,7 +91,7 @@ fn example_route_data_loads_into_core_with_declared_topology_boundaries() {
 }
 
 #[test]
-fn example_route_data_drives_main_and_repeated_routes_to_completion() {
+fn example_route_data_drives_main_and_repeated_routes_to_completion_under_iidm() {
     let mut world = load_example_world();
     let main_route = world.route_handle("main-route").expect("main route exists");
     let loop_route = world.route_handle("loop-once").expect("loop route exists");
@@ -135,12 +135,21 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion() {
         ))
         .expect("loop vehicle spawns");
 
-    let result = world
-        .step(TickInput::new(world.fixed_delta_time_ms()))
-        .expect("example routes complete in one tick");
+    let mut events = Vec::new();
+    for _ in 0..4 {
+        let result = world
+            .step(TickInput::new(world.fixed_delta_time_ms()))
+            .expect("example route step succeeds");
+        events.extend(result.events);
+        if world.vehicle(main_vehicle).unwrap().status == VehicleStatus::Completed
+            && world.vehicle(loop_vehicle).unwrap().status == VehicleStatus::Completed
+        {
+            break;
+        }
+    }
 
     assert_eq!(
-        result.events,
+        events,
         vec![
             CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
                 tick_index: 1,
@@ -150,13 +159,6 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion() {
                 to_edge: exit,
                 from_route_edge_index: 0,
                 to_route_edge_index: 1,
-            }),
-            CoreEvent::VehicleCompletedRoute(VehicleCompletedRouteEvent {
-                tick_index: 1,
-                vehicle: main_vehicle,
-                route: main_route,
-                edge: exit,
-                route_edge_index: 1,
             }),
             CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
                 tick_index: 1,
@@ -172,6 +174,13 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion() {
                 vehicle: loop_vehicle,
                 route: loop_route,
                 edge: loop_edge,
+                route_edge_index: 1,
+            }),
+            CoreEvent::VehicleCompletedRoute(VehicleCompletedRouteEvent {
+                tick_index: 2,
+                vehicle: main_vehicle,
+                route: main_route,
+                edge: exit,
                 route_edge_index: 1,
             }),
         ]
