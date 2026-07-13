@@ -54,6 +54,7 @@ impl Clone for CandidateStateScratch {
 
 impl PartialEq for CandidateStateScratch {
     fn eq(&self, _other: &Self) -> bool {
+        // Scratch 的内容和 capacity 取决于运行历史，不参与 CoreWorld 语义相等。
         true
     }
 }
