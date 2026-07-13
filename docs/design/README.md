@@ -17,7 +17,7 @@
 - `parking-system.md`：停车位、进出停车、占用状态。
 - `adapter-api.md`：Core 与 Engine Adapter 的接口边界。
 - `data-format.md`：lane graph、route 等外部数据格式、validation 和 loader 边界；Rust crate 所有权见 ADR 0007。
-- `data-loading.md`：v0.2/v0.3 Rust loader、严格版本分流、Core normalization、错误与测试边界。
+- `data-loading.md`：当前 v0.3 Rust loader、严格版本闸口、Core normalization、错误与测试边界。
 - `example-scenarios.md`：示例场景和验证路径。
 
 ## 文档状态

@@ -74,7 +74,7 @@ struct ResolvedLaneEdge {
     next_edges: Vec<EdgeHandle>,
 }
 
-/// v0.2 lane graph runtime registry。
+/// Lane graph runtime registry。
 #[derive(Clone, Debug, PartialEq)]
 pub struct LaneGraph {
     edges: Vec<ResolvedLaneEdge>,

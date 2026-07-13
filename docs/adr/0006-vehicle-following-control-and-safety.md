@@ -3,6 +3,7 @@
 **状态**: Accepted  
 **日期**: 2026-07-12  
 **适用范围**: LaneFlow Core 的纵向决策分层、Vehicle Following 控制模型、安全所有权与扩展边界  
+**后续修订**: ADR 0008 已替代本文第 5 节中保留 v0.2 schema 的版本兼容策略；Vehicle Profile 与安全架构决策继续有效  
 **关联文档**:
 
 - 上游决策:
@@ -11,6 +12,7 @@
   - `0003-runtime-tick-and-determinism.md`
   - `0004-core-implementation-language.md`
   - `0005-core-identity-and-handle-model.md`
+  - `0008-pre-1.0-data-format-version-policy.md`
 - 详细设计:
   - `../design/vehicle-following.md`
   - `../design/lane-graph.md`

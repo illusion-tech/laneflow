@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/laneflow-core", "xtask"]
+members = ["crates/laneflow-core", "crates/laneflow-data", "xtask"]
 resolver = "2"
 
 [workspace.package]

@@ -49,6 +49,24 @@ pub struct VehicleHandle {
     generation: u32,
 }
 
+/// immutable Vehicle Profile 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct VehicleProfileHandle {
+    index: u32,
+}
+
+impl VehicleProfileHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("vehicle profile handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
 impl VehicleHandle {
     pub(crate) fn new(index: usize, generation: u32) -> Self {
         Self {

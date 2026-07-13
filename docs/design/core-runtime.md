@@ -34,18 +34,18 @@ v0.1 的目标是建立一个可测试、可嵌入、引擎无关的最小交通
 - 支持确定性测试；
 - 不承诺 v0.2 的稳定数据格式。
 
-### v0.1 历史基线与 v0.2 Accepted 契约
+### v0.1 历史基线与当前 Accepted 契约
 
-本文保留为 v0.1 Core Prototype 的 `Review` 基线，不是 v0.2 的默认实现输入。v0.1 中未被后续决策取代的 tick、确定性、错误处理和最小 route following 原则仍可作为历史背景参考；若与 v0.2 的 Accepted 文档冲突，后者优先。
+本文保留为 v0.1 Core Prototype 的 `Review` 基线，不是当前默认实现输入。v0.1 中未被后续决策取代的 tick、确定性、错误处理和最小 route following 原则仍可作为历史背景参考；若与后续 Accepted 文档冲突，以当前契约为准。
 
-v0.2 的当前事实来源如下：
+当前事实来源如下：
 
 - external ID、typed handle、vehicle / route lifecycle 和稳定 update order：[`core-id-handles.md`](core-id-handles.md) D8 及 ADR 0005；
 - lane graph topology、edge / connection 语义：[`lane-graph.md`](lane-graph.md)；
 - route definition、route target 和 traversal 边界：[`route-system.md`](route-system.md)；
-- 外部 lane graph / route 数据格式、版本、单位和 schema：[`data-format.md`](data-format.md) 与 [`schemas/laneflow-data-v0.2.schema.json`](../../schemas/laneflow-data-v0.2.schema.json)。
+- 当前外部 lane graph / route / Vehicle Profile 数据格式、版本、单位和 schema：[`data-format.md`](data-format.md) 与 [`schemas/laneflow-data-v0.3.schema.json`](../../schemas/laneflow-data-v0.3.schema.json)。
 
-因此，后续 v0.2 实现不得依据本文要求在每个 tick 按 external ID 字符串排序，也不得把本文的最小内部输入当作当前外部 data-format contract。
+因此，后续实现不得依据本文要求在每个 tick 按 external ID 字符串排序，也不得把本文的最小内部输入当作当前外部 data-format contract。
 
 ## 2. 非目标
 

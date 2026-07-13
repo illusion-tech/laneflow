@@ -10,6 +10,7 @@ use crate::{
     id::validate_external_id,
     route::{Route, RouteRemoveRecord},
     time::{StepResult, TickInput},
+    traffic::resolve_route_edges,
     vehicle::{
         EdgeProgress, Speed, VehicleDespawnRecord, VehicleSpawnInput, VehicleState, VehicleStatus,
     },
@@ -187,7 +188,7 @@ impl CoreWorld {
             });
         }
 
-        let edge_handles = self.resolve_route_edges(&route)?;
+        let edge_handles = resolve_route_edges(&self.lane_graph, &route)?;
         let external_id = route.id().to_owned();
 
         let handle = if let Some(index) = self.free_route_indices.pop() {
@@ -399,39 +400,6 @@ impl CoreWorld {
             time_ms: next_time_ms,
             events,
         })
-    }
-
-    fn resolve_route_edges(&self, route: &Route) -> Result<Vec<EdgeHandle>, CoreError> {
-        let mut edge_handles = Vec::with_capacity(route.edge_ids().len());
-        for edge_id in route.edge_ids() {
-            let edge = self.lane_graph.edge_handle(edge_id).ok_or_else(|| {
-                CoreError::UnknownRouteEdge {
-                    route_id: route.id().to_owned(),
-                    edge_id: edge_id.clone(),
-                }
-            })?;
-            edge_handles.push(edge);
-        }
-
-        for [from_edge, to_edge] in edge_handles.array_windows::<2>() {
-            if !self.lane_graph.can_traverse(*from_edge, *to_edge) {
-                return Err(CoreError::DisconnectedRouteEdge {
-                    route_id: route.id().to_owned(),
-                    from_edge_id: self
-                        .lane_graph
-                        .edge_external_id(*from_edge)
-                        .expect("resolved route edge must exist")
-                        .to_owned(),
-                    to_edge_id: self
-                        .lane_graph
-                        .edge_external_id(*to_edge)
-                        .expect("resolved route edge must exist")
-                        .to_owned(),
-                });
-            }
-        }
-
-        Ok(edge_handles)
     }
 
     fn normalize_vehicle_input(

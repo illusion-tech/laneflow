@@ -1,7 +1,8 @@
 {
-  "formatVersion": "0.2",
+  "formatVersion": "0.3",
   "units": {
-    "distance": "meter"
+    "distance": "meter",
+    "time": "second"
   },
   "laneGraph": {
     "edges": [
@@ -35,6 +36,19 @@
     {
       "id": "loop-once",
       "edges": ["loop", "loop"]
+    }
+  ],
+  "vehicleProfiles": [
+    {
+      "id": "passenger-car",
+      "length": 4.5,
+      "model": "iidm",
+      "desiredSpeed": 13.9,
+      "minGap": 2.0,
+      "timeHeadway": 1.5,
+      "maxAcceleration": 1.5,
+      "comfortableDeceleration": 2.0,
+      "emergencyDeceleration": 6.0
     }
   ]
 }

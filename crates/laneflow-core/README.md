@@ -2,7 +2,7 @@
 
 引擎无关的 LaneFlow Core runtime crate。
 
-本 crate 由 issue #9 初始化，作为 Core runtime 的实现边界。当前已在 v0.1 原型能力上对齐 v0.2 lane graph / route / ID handle 设计，提供 fixed-step tick、typed handle registry、最小 vehicle state、lane graph / route validation，以及 simple route following 原语：
+本 crate 由 issue #9 初始化，作为 Core runtime 的实现边界。当前已在 v0.1 原型能力上对齐 v0.2 lane graph / route / ID handle 设计，并开始交付 v0.3 Vehicle Profile 输入，提供 fixed-step tick、typed handle registry、最小 vehicle state、lane graph / route validation，以及 simple route following 原语：
 
 - `CoreWorld`：保存固定步长、tick index、simulation time、lane graph、route / vehicle registry 和 stable update order；
 - `TickInput` / `StepResult`：表达显式 tick 输入和 post-step 可观察输出；
@@ -12,17 +12,20 @@
 - `VehicleSpawnInput`：表达 vehicle 初始化 / spawn 输入，使用 external vehicle ID 和 route ID；
 - `VehicleState` / `VehicleStatus`：表达 handle-based 最小车辆运行状态；
 - `VehicleHandle` / `RouteHandle` / `EdgeHandle`：表达 Core runtime 内部 typed handle，external ID 通过 `CoreWorld` resolver 回查；
+- `VehicleProfile` / `IidmProfileSpec`：表达经过校验的 immutable IIDM Vehicle Profile；
+- `VehicleProfileHandle` / `VehicleProfileRegistry`：表达 profile typed handle、稳定输入顺序和双向 resolver；
+- `InitialTrafficData`：统一校验 lane graph、初始 routes 与 immutable profile registry，供 data loader 与后续 world 初始化复用；
 - `Speed` / `EdgeProgress`：用 newtype 包装 speed 和 edge progress，避免 public API 直接散落裸 `f64`。
 - `CoreEvent`：输出结构化 route transition 事件，包括 `VehicleChangedEdgeEvent` 与 `VehicleCompletedRouteEvent`，事件 payload 使用 handle 而不是复制 external ID。
 - `spawn_vehicle` / `despawn_vehicle` / `register_route` / `remove_route`：提供最小 runtime lifecycle API；route 移除会拒绝仍被 live vehicle 引用的 route。
 
 当前仍不实现 vehicle following、signals、parking、Adapter API、C ABI 或 WASM 绑定；这些能力由后续 v0.x 子 issue 增量实现。
 
-## v0.2 data-format 边界
+## 当前 data-format 边界
 
-v0.2 lane graph / route 的最小外部格式已接受并冻结，正式语义见 [data-format 设计](../../docs/design/data-format.md) 与 [JSON Schema](../../schemas/laneflow-data-v0.2.schema.json)。当前 Core 的 `LaneGraph`、`Route` 和 external ID / handle 边界已与该格式对齐，但本 crate 尚未提供完整 JSON-compatible package loader。
+v0.2 里程碑已稳定 lane graph / route 的领域语义；当前 active 外部格式已直接演进为 v0.3，正式契约见 [data-format 设计](../../docs/design/data-format.md) 与 [JSON Schema](../../schemas/laneflow-data-v0.3.schema.json)。Core 的 `LaneGraph`、`Route`、Vehicle Profile 和 external ID / handle 边界与当前格式对齐；production JSON loader 位于同一 workspace 的 `laneflow-data`，Core 不依赖 Serde、JSON 或 schema validator。
 
-该格式是 v0.2 的稳定设计输入，不代表 v1.0 的长期稳定兼容承诺；跨版本兼容加载、完整 package loader、validator CLI、authoring tool 和 Adapter data contract 均不属于当前 Core 交付范围。
+LaneFlow 在 1.0 前只维护一个 active data format，旧版由 loader 明确拒绝；历史契约通过 Git 与 v0.2 收口报告审计。该政策不构成 v1.0 长期兼容承诺，详见 ADR 0008。
 
 当前工具链策略：
 

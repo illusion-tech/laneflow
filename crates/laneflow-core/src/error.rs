@@ -30,13 +30,33 @@ pub enum CoreError {
         edge_length: f64,
         min_exclusive: f64,
     },
-    /// external ID 必须满足 v0.2 ASCII token 规则。
+    /// external ID 必须满足当前 data format 的 ASCII token 规则。
     #[error("external ID 无效：field={field}, value=`{external_id}`，必须匹配 {pattern}")]
     InvalidExternalId {
         field: &'static str,
         external_id: String,
         pattern: &'static str,
     },
+    /// Vehicle Profile 数值必须满足对应字段约束。
+    #[error("Vehicle Profile `{profile_id}` 的 `{field}` 无效：{value}，{requirement}")]
+    InvalidVehicleProfileValue {
+        profile_id: String,
+        field: &'static str,
+        value: f64,
+        requirement: &'static str,
+    },
+    /// emergency deceleration 必须大于或等于 comfortable deceleration。
+    #[error(
+        "Vehicle Profile `{profile_id}` 的制动参数无效：emergencyDeceleration={emergency_deceleration} 必须大于或等于 comfortableDeceleration={comfortable_deceleration}"
+    )]
+    InvalidVehicleProfileDecelerationOrder {
+        profile_id: String,
+        comfortable_deceleration: f64,
+        emergency_deceleration: f64,
+    },
+    /// Vehicle Profile external ID 在 registry 内必须唯一。
+    #[error("Vehicle Profile id 重复：{profile_id}")]
+    DuplicateVehicleProfileId { profile_id: String },
     /// lane edge id 在 graph 内必须唯一。
     #[error("lane edge id 重复：{edge_id}")]
     DuplicateLaneEdgeId { edge_id: String },
@@ -112,6 +132,7 @@ pub enum CoreError {
     /// vehicle handle 必须指向当前 active vehicle slot。
     #[error("vehicle handle 无效或已过期：{vehicle:?}；active resolver 将返回 None")]
     UnknownVehicleHandle { vehicle: VehicleHandle },
+
     /// route handle 必须指向当前 active route slot。
     #[error("route handle 无效或已过期：{route:?}；active resolver 将返回 None")]
     UnknownRouteHandle { route: RouteHandle },
