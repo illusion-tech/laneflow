@@ -6,10 +6,23 @@ use crate::{EdgeHandle, RouteHandle, VehicleHandle};
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CoreEvent {
+    /// 车辆为维持最终 no-overlap 不变量而应用了超出 emergency envelope 的几何投影。
+    VehicleFollowingSafetyProjectionApplied(VehicleFollowingSafetyProjectionAppliedEvent),
     /// 车辆从 route 中的一个 edge 切换到下一个 edge。
     VehicleChangedEdge(VehicleChangedEdgeEvent),
     /// 车辆到达 route 末端。
     VehicleCompletedRoute(VehicleCompletedRouteEvent),
+}
+
+/// Vehicle Following 最终几何投影事件。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VehicleFollowingSafetyProjectionAppliedEvent {
+    /// 事件所属的 post-step tick index。
+    pub tick_index: u64,
+    /// 被投影的 follower vehicle handle。
+    pub vehicle: VehicleHandle,
+    /// 约束该 follower 的 leader vehicle handle。
+    pub leader: VehicleHandle,
 }
 
 /// 车辆跨 edge 事件。

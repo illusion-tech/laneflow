@@ -344,7 +344,7 @@ fn occupancy_and_leader_results_ignore_initial_input_order() {
 }
 
 #[test]
-fn occupancy_scratch_history_is_ignored_by_world_equality() {
+fn derived_scratch_history_is_ignored_by_world_equality() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         edge_length(20.0),
@@ -365,6 +365,7 @@ fn occupancy_scratch_history_is_ignored_by_world_equality() {
     let before = world.clone();
 
     world.occupancy_scratch.begin(0, 0);
+    world.longitudinal_scratch.begin(0);
 
     assert_eq!(world.occupancy_scratch.occupant_count(), 0);
     assert_eq!(world, before);

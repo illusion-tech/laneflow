@@ -5,6 +5,7 @@ pub mod event;
 pub mod graph;
 pub mod handle;
 mod id;
+mod longitudinal;
 mod occupancy;
 pub mod profile;
 pub mod route;
@@ -14,7 +15,10 @@ pub mod vehicle;
 pub mod world;
 
 pub use error::CoreError;
-pub use event::{CoreEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent};
+pub use event::{
+    CoreEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
+    VehicleFollowingSafetyProjectionAppliedEvent,
+};
 pub use graph::{EDGE_BOUNDARY_EPSILON, EdgeLength, LaneEdge, LaneGraph};
 pub use handle::{EdgeHandle, RouteHandle, VehicleHandle, VehicleProfileHandle};
 pub use profile::{GEOMETRY_GAP_EPSILON, IidmProfileSpec, VehicleProfile, VehicleProfileRegistry};

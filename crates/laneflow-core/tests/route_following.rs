@@ -40,6 +40,36 @@ fn speed(value: f64) -> Speed {
     Speed::try_new(value).expect("valid speed")
 }
 
+fn world_with_cruise_profile<I, F>(
+    fixed_delta_time_ms: u64,
+    desired_speed: f64,
+    lane_graph: LaneGraph,
+    routes: I,
+    vehicle_inputs: F,
+) -> Result<CoreWorld, CoreError>
+where
+    I: IntoIterator<Item = Route>,
+    F: FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>,
+{
+    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
+        "route-test-profile",
+        IidmProfileSpec {
+            length: 4.5,
+            desired_speed,
+            min_gap: 2.0,
+            time_headway: 1.5,
+            max_acceleration: 1.4,
+            comfortable_deceleration: 2.0,
+            emergency_deceleration: 4.0,
+        },
+    )?])?;
+    let profile = profiles
+        .profile_handle("route-test-profile")
+        .expect("profile handle exists");
+    let traffic_data = InitialTrafficData::try_new(lane_graph, routes, profiles)?;
+    CoreWorld::with_traffic_data(fixed_delta_time_ms, traffic_data, vehicle_inputs(profile))
+}
+
 fn assert_close(actual: f64, expected: f64) {
     assert!(
         (actual - expected).abs() <= EDGE_BOUNDARY_EPSILON,
@@ -47,7 +77,10 @@ fn assert_close(actual: f64, expected: f64) {
     );
 }
 
-fn canonical_world(vehicle: impl FnOnce(VehicleProfileHandle) -> VehicleSpawnInput) -> CoreWorld {
+fn canonical_world(
+    desired_speed: f64,
+    vehicle: impl FnOnce(VehicleProfileHandle) -> VehicleSpawnInput,
+) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([
         LaneEdge::new("A", edge_length(10.0), ["B"]),
         LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
@@ -55,8 +88,10 @@ fn canonical_world(vehicle: impl FnOnce(VehicleProfileHandle) -> VehicleSpawnInp
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
 
-    world_with_test_profile(1_000, lane_graph, [route], |profile| vec![vehicle(profile)])
-        .expect("valid world")
+    world_with_cruise_profile(1_000, desired_speed, lane_graph, [route], |profile| {
+        vec![vehicle(profile)]
+    })
+    .expect("valid world")
 }
 
 fn vehicle_by_id<'a>(world: &'a CoreWorld, id: &str) -> &'a VehicleState {
@@ -112,7 +147,7 @@ fn event_views(world: &CoreWorld, events: &[CoreEvent]) -> Vec<EventView> {
 
 #[test]
 fn canonical_fixture_ticks_match_design() {
-    let mut world = canonical_world(|profile| {
+    let mut world = canonical_world(6.0, |profile| {
         VehicleSpawnInput::active("V1", profile, "R", 0, progress(0.0), speed(6.0))
     });
 
@@ -184,7 +219,7 @@ fn single_tick_can_cross_multiple_edges_in_route_order() {
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B", "C"]).expect("valid route");
-    let mut world = world_with_test_profile(1_000, lane_graph, [route], |profile| {
+    let mut world = world_with_cruise_profile(1_000, 30.0, lane_graph, [route], |profile| {
         vec![VehicleSpawnInput::active(
             "V1",
             profile,
@@ -242,7 +277,7 @@ fn repeated_edge_route_uses_route_edge_index_to_disambiguate_position() {
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B", "A"]).expect("valid repeated-edge route");
-    let mut world = world_with_test_profile(1_000, lane_graph, [route], |profile| {
+    let mut world = world_with_cruise_profile(1_000, 30.0, lane_graph, [route], |profile| {
         vec![VehicleSpawnInput::active(
             "V1",
             profile,
@@ -356,19 +391,20 @@ fn event_order_uses_initial_stable_update_order_not_input_order() {
             }
         })
         .collect();
-    assert_eq!(event_vehicle_ids, ["V1", "V1", "V2", "V2"]);
+    assert_eq!(event_vehicle_ids, ["V1", "V2", "V2"]);
 }
 
 #[test]
 fn epsilon_snap_crosses_boundary_when_tick_has_travel() {
-    let mut world = canonical_world(|profile| {
+    let epsilon_speed = EDGE_BOUNDARY_EPSILON * 1.25;
+    let mut world = canonical_world(epsilon_speed, |profile| {
         VehicleSpawnInput::active(
             "V1",
             profile,
             "R",
             0,
             progress(10.0 - EDGE_BOUNDARY_EPSILON / 2.0),
-            speed(EDGE_BOUNDARY_EPSILON * 1.25),
+            speed(epsilon_speed),
         )
     });
 
@@ -392,23 +428,23 @@ fn epsilon_snap_crosses_boundary_when_tick_has_travel() {
 }
 
 #[test]
-fn zero_speed_at_boundary_does_not_transition() {
-    let mut world = canonical_world(|profile| {
-        VehicleSpawnInput::active("V1", profile, "R", 0, progress(10.0), Speed::ZERO)
+fn stopped_vehicle_at_boundary_does_not_transition() {
+    let mut world = canonical_world(13.9, |profile| {
+        VehicleSpawnInput::stopped("V1", profile, "R", 0, progress(10.0))
     });
 
     let result = world.step(TickInput::new(1000)).expect("step succeeds");
 
     assert!(result.events.is_empty());
     let vehicle = vehicle_by_id(&world, "V1");
-    assert_eq!(vehicle.status, VehicleStatus::Active);
+    assert_eq!(vehicle.status, VehicleStatus::Stopped);
     assert_eq!(vehicle.route_edge_index, 0);
     assert_close(vehicle.edge_progress.value(), 10.0);
 }
 
 #[test]
 fn completed_vehicle_initial_state_must_be_at_route_end_and_is_snapped() {
-    let world = canonical_world(|profile| {
+    let world = canonical_world(13.9, |profile| {
         VehicleSpawnInput::completed(
             "V1",
             profile,
@@ -481,7 +517,7 @@ fn canonical_world_result(
 }
 
 #[test]
-fn non_finite_route_travel_returns_error_and_keeps_world_unchanged() {
+fn non_finite_longitudinal_travel_returns_error_and_keeps_world_unchanged() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         edge_length(f64::MAX),
@@ -509,11 +545,11 @@ fn non_finite_route_travel_returns_error_and_keeps_world_unchanged() {
 
     std::assert_matches!(
         error,
-        CoreError::NonFiniteRouteTravel {
+        CoreError::NonFiniteLongitudinalComputation {
             vehicle: actual_vehicle,
-            speed,
-            delta_time_ms: 2000
-        } if actual_vehicle == vehicle && speed == f64::MAX
+            stage: "ballistic_travel",
+            value
+        } if actual_vehicle == vehicle && value.is_infinite()
     );
     assert_eq!(world, before);
 }

@@ -114,7 +114,6 @@ impl OccupancyScratch {
         self.leaders[vehicle.index()] = observation;
     }
 
-    #[cfg(test)]
     pub(crate) fn leader(&self, vehicle: VehicleHandle) -> Option<LeaderObservation> {
         self.leaders.get(vehicle.index()).copied().flatten()
     }

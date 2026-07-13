@@ -47,12 +47,12 @@ fn route_external_id(index: usize) -> String {
     format!("route-{index:05}")
 }
 
-fn profile_registry() -> (VehicleProfileRegistry, VehicleProfileHandle) {
+fn profile_registry(desired_speed: f64) -> (VehicleProfileRegistry, VehicleProfileHandle) {
     let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
         "benchmark-profile",
         IidmProfileSpec {
             length: VEHICLE_LENGTH,
-            desired_speed: 13.9,
+            desired_speed,
             min_gap: 2.0,
             time_headway: 1.5,
             max_acceleration: 1.4,
@@ -78,7 +78,7 @@ fn dense_platoon_world(vehicle_count: usize) -> CoreWorld {
     .expect("dense platoon graph must be valid");
     let route =
         Route::try_new("platoon-route", ["platoon-edge"]).expect("platoon route must be valid");
-    let (profiles, profile) = profile_registry();
+    let (profiles, profile) = profile_registry(13.9);
     let traffic_data = InitialTrafficData::try_new(lane_graph, [route], profiles)
         .expect("dense platoon traffic data must be valid");
     let vehicles = (0..vehicle_count)
@@ -119,11 +119,11 @@ fn transition_heavy_world() -> CoreWorld {
             .expect("transition route must be valid")
         })
         .collect();
-    let (profiles, profile) = profile_registry();
-    let traffic_data = InitialTrafficData::try_new(lane_graph, routes, profiles)
-        .expect("transition traffic data must be valid");
     let seconds_per_step = FIXED_DELTA_TIME_MS as f64 / MILLISECONDS_PER_SECOND;
     let transition_speed = speed(TRANSITION_EDGE_LENGTH / seconds_per_step);
+    let (profiles, profile) = profile_registry(transition_speed.value());
+    let traffic_data = InitialTrafficData::try_new(lane_graph, routes, profiles)
+        .expect("transition traffic data must be valid");
     let vehicles = (0..VEHICLE_COUNT)
         .map(|index| {
             VehicleSpawnInput::active(
@@ -179,7 +179,7 @@ fn benchmark_core_step(criterion: &mut Criterion) {
         TRANSITION_EVENT_COUNT
     );
 
-    let mut group = criterion.benchmark_group("core_step_10k_60");
+    let mut group = criterion.benchmark_group("vehicle_following_step_10k_60");
     group.sample_size(20);
     group.warm_up_time(Duration::from_secs(1));
     group.measurement_time(Duration::from_secs(5));
@@ -198,7 +198,7 @@ fn benchmark_core_step(criterion: &mut Criterion) {
         let scaling_world = dense_platoon_world(SCALING_VEHICLE_COUNT);
         assert_eq!(run_steps(&mut scaling_world.clone()), 0);
 
-        let mut group = criterion.benchmark_group("core_step_100k_60_observation");
+        let mut group = criterion.benchmark_group("vehicle_following_step_100k_60_observation");
         group.sample_size(10);
         group.warm_up_time(Duration::from_secs(1));
         group.measurement_time(Duration::from_secs(5));

@@ -2,11 +2,11 @@
 
 引擎无关的 LaneFlow Core runtime crate。
 
-本 crate 由 issue #9 初始化，作为 Core runtime 的实现边界。当前已在 v0.1 原型能力上对齐 v0.2 lane graph / route / ID handle 设计，并迁移到 v0.3 Vehicle Profile 与纵向运行态，提供 fixed-step tick、typed handle registry、最小 vehicle state、lane graph / route validation，以及 simple route following 原语：
+本 crate 由 issue #9 初始化，作为 Core runtime 的实现边界。当前已在 v0.1 原型能力上对齐 v0.2 lane graph / route / ID handle 设计，并迁移到 v0.3 Vehicle Profile 与 Vehicle Following，提供 fixed-step tick、typed handle registry、lane graph / route validation、IIDM comfort control、emergency safe-speed、ballistic integration 与最终 no-overlap projection：
 
-- `CoreWorld`：保存固定步长、tick index、simulation time、lane graph、immutable Vehicle Profile registry、route / vehicle registry 和 stable update order，并在每个 tick 重建私有 occupancy / leader scratch；
+- `CoreWorld`：保存固定步长、tick index、simulation time、lane graph、immutable Vehicle Profile registry、route / vehicle registry 和 stable update order，并在每个 tick 重建私有 occupancy / leader / longitudinal scratch；
 - `TickInput` / `StepResult`：表达显式 tick 输入和 post-step 可观察输出；
-- `CoreError`：表达 fixed delta、tick delta mismatch、时间溢出、lane graph / route / vehicle 静态校验、物理重叠、leader 计算、stale handle、route lifecycle 和数值校验错误；
+- `CoreError`：表达 fixed delta、tick delta mismatch、时间溢出、lane graph / route / vehicle 静态校验、物理重叠、leader / longitudinal 非有限计算、stale handle、route lifecycle 和数值校验错误；
 - `LaneGraph` / `LaneEdge` / `EdgeLength`：表达 lane graph 输入，并在初始化时把 external edge ID 解析为 `EdgeHandle` runtime 连接；
 - `Route`：表达外部 route edge sequence 输入，并由 `CoreWorld` 注册为 `RouteHandle` + `EdgeHandle` sequence；
 - `VehicleSpawnInput`：表达 vehicle 初始化 / spawn 输入，使用 external vehicle ID、Vehicle Profile handle、route ID 和初始速度；
@@ -16,11 +16,12 @@
 - `VehicleProfileHandle` / `VehicleProfileRegistry`：表达 profile typed handle、稳定输入顺序和双向 resolver；
 - `InitialTrafficData`：统一校验 lane graph、初始 routes 与 immutable profile registry，供 data loader 与后续 world 初始化复用；
 - `Speed` / `Acceleration` / `EdgeProgress`：用 newtype 包装非负速度、finite 有符号加速度和 front-bumper progress，避免 public API 直接散落裸 `f64`。
-- `CoreEvent`：输出结构化 route transition 事件，包括 `VehicleChangedEdgeEvent` 与 `VehicleCompletedRouteEvent`，事件 payload 使用 handle 而不是复制 external ID。
+- `CoreEvent`：输出 safety projection、route transition 与 route completion 事件，payload 使用 handle 而不是复制 external ID。
 - `spawn_vehicle` / `despawn_vehicle` / `register_route` / `remove_route`：提供最小 runtime lifecycle API；route 移除会拒绝仍被 live vehicle 引用的 route。
 - 私有 occupancy / leader detection：按 physical edge 构建可复用扁平索引，沿 follower 已选 route 解析最近 leader，并在初始化与 runtime spawn 时拒绝物理车身重叠。
+- 私有 Vehicle Following pipeline：基于 tick-start snapshot 计算 IIDM comfort acceleration 与 emergency safe-speed，再通过确定性的 functional graph 投影得到最大可行 no-overlap travel；事件与状态只在整 tick 成功后原子提交。
 
-当前仍不实现 IIDM comfort control、safe-speed、no-overlap projection、signals、parking、Adapter API、C ABI 或 WASM 绑定；这些能力由后续 v0.x 子 issue 增量实现。
+当前仍不实现 lane changing、signals、intersection conflict、parking、公开 controller extension、Adapter API、C ABI 或 WASM 绑定；这些能力由后续 v0.x 子 issue 增量实现。完整确定性、不变量和 10k/100k 性能验收由 #77 收口。
 
 ## 当前 data-format 边界
 
