@@ -34,10 +34,9 @@ fn schema_locks_current_version_units_and_vehicle_profile_shape() {
     );
     assert_eq!(schema["additionalProperties"], false);
     assert_eq!(schema["properties"]["formatVersion"]["const"], "0.3");
-    assert_eq!(
-        schema["$defs"]["unitSpec"]["required"],
-        serde_json::json!(["distance", "time"])
-    );
+    let mut required_units = string_array(&schema["$defs"]["unitSpec"]["required"]);
+    required_units.sort_unstable();
+    assert_eq!(required_units, ["distance", "time"]);
     assert_eq!(
         schema["$defs"]["unitSpec"]["properties"]["time"]["const"],
         "second"
