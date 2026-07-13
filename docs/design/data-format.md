@@ -1,7 +1,7 @@
 # Data Format 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-10  
+**最后更新**: 2026-07-13  
 **适用范围**: v0.2 Lane Graph + Route 的外部数据格式、版本策略、lane graph / route 字段语义、validation 边界和 Core 消费入口  
 **关联文档**:
 
@@ -10,8 +10,10 @@
 - `../adr/0001-project-scope.md`
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0005-core-identity-and-handle-model.md`
+- `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../../schemas/laneflow-data-v0.2.schema.json`
 - `core-id-handles.md`
+- `data-loading.md`
 - `lane-graph.md`
 - `route-system.md`
 
@@ -297,9 +299,13 @@ data-format validation 不覆盖：
 
 错误报告应保留 external ID，并按输入顺序稳定输出。若采用 fail-fast，错误发现顺序必须基于 package 字段顺序、edge 输入顺序、connection 输入顺序和 route 输入顺序；若采用批量收集错误，错误列表也必须稳定排序。
 
-## 4. Core Loader 边界
+## 4. Data Loader 与 Core Normalization 边界
 
-Core loader 负责把 v0.2 data package 转换为 Core runtime 可消费的 normalized state。
+Production data loader 负责把 v0.2 data package 转换为 Core runtime 可消费的 normalized state。
+
+具体 Rust 所有权由 ADR 0007 固化：external package、JSON parsing、版本和 units 属于 `laneflow-data`；lane graph、route 和 registry 的 domain invariant 属于 `laneflow-core`。data crate 依赖 Core 并构造 `InitialTrafficData`，Core 不反向依赖 data crate。
+
+v0.2 与后续 v0.3 使用不同 public loaded-package variant。加载 v0.2 时不得用空 profile registry 把它伪装成 v0.3，也不得合成 default profile。loader 接收调用方提供的内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
 
 推荐流程：
 
