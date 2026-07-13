@@ -2,7 +2,7 @@
 
 **文档状态**: Review
 
-**最后更新**: 2026-07-10
+**最后更新**: 2026-07-13
 
 **适用范围**: v0.1 Core Prototype 的 runtime、tick、vehicle state、最小 lane graph traversal 与 simple route following
 
@@ -43,7 +43,8 @@ v0.1 的目标是建立一个可测试、可嵌入、引擎无关的最小交通
 - external ID、typed handle、vehicle / route lifecycle 和稳定 update order：[`core-id-handles.md`](core-id-handles.md) D8 及 ADR 0005；
 - lane graph topology、edge / connection 语义：[`lane-graph.md`](lane-graph.md)；
 - route definition、route target 和 traversal 边界：[`route-system.md`](route-system.md)；
-- 当前外部 lane graph / route / Vehicle Profile 数据格式、版本、单位和 schema：[`data-format.md`](data-format.md) 与 [`schemas/laneflow-data-v0.3.schema.json`](../../schemas/laneflow-data-v0.3.schema.json)。
+- 当前外部 lane graph / route / Vehicle Profile 数据格式、版本、单位和 schema：[`data-format.md`](data-format.md) 与 [`schemas/laneflow-data-v0.3.schema.json`](../../schemas/laneflow-data-v0.3.schema.json)；
+- 当前 Vehicle Profile、front-bumper progress、`current_speed`、`applied_acceleration` 和 inactive motion invariant：[`vehicle-following.md`](vehicle-following.md) 第 4-5 节。
 
 因此，后续实现不得依据本文要求在每个 tick 按 external ID 字符串排序，也不得把本文的最小内部输入当作当前外部 data-format contract。
 

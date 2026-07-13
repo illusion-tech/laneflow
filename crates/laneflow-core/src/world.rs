@@ -6,13 +6,15 @@ use crate::{
     error::CoreError,
     event::{CoreEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent},
     graph::{EDGE_BOUNDARY_EPSILON, LaneGraph},
-    handle::{EdgeHandle, RouteHandle, VehicleHandle},
+    handle::{EdgeHandle, RouteHandle, VehicleHandle, VehicleProfileHandle},
     id::validate_external_id,
+    profile::{VehicleProfile, VehicleProfileRegistry},
     route::{Route, RouteRemoveRecord},
     time::{StepResult, TickInput},
-    traffic::resolve_route_edges,
+    traffic::{InitialTrafficData, resolve_route_edges},
     vehicle::{
-        EdgeProgress, Speed, VehicleDespawnRecord, VehicleSpawnInput, VehicleState, VehicleStatus,
+        Acceleration, EdgeProgress, Speed, VehicleDespawnRecord, VehicleSpawnInput, VehicleState,
+        VehicleStatus,
     },
 };
 
@@ -38,6 +40,7 @@ pub struct CoreWorld {
     tick_index: u64,
     time_ms: u64,
     lane_graph: LaneGraph,
+    vehicle_profiles: VehicleProfileRegistry,
     routes: Vec<RouteSlot>,
     route_handles: IndexMap<String, RouteHandle>,
     free_route_indices: Vec<usize>,
@@ -50,35 +53,28 @@ pub struct CoreWorld {
 impl CoreWorld {
     /// 创建不含 traffic data 和车辆的 Core world。
     pub fn new(fixed_delta_time_ms: u64) -> Result<Self, CoreError> {
-        Self::with_traffic_data(
-            fixed_delta_time_ms,
-            LaneGraph::empty(),
-            Vec::new(),
-            Vec::new(),
-        )
+        Self::with_traffic_data(fixed_delta_time_ms, InitialTrafficData::empty(), Vec::new())
     }
 
-    /// 创建包含 lane graph、routes 和初始车辆的 Core world。
-    pub fn with_traffic_data<I>(
+    /// 创建包含已验证 traffic data 和初始车辆的 Core world。
+    pub fn with_traffic_data(
         fixed_delta_time_ms: u64,
-        lane_graph: LaneGraph,
-        routes: I,
+        traffic_data: InitialTrafficData,
         mut vehicles: Vec<VehicleSpawnInput>,
-    ) -> Result<Self, CoreError>
-    where
-        I: IntoIterator<Item = Route>,
-    {
+    ) -> Result<Self, CoreError> {
         if fixed_delta_time_ms == 0 {
             return Err(CoreError::InvalidFixedDeltaTime {
                 fixed_delta_time_ms,
             });
         }
 
+        let (lane_graph, routes, vehicle_profiles) = traffic_data.into_parts();
         let mut world = Self {
             fixed_delta_time_ms,
             tick_index: 0,
             time_ms: 0,
             lane_graph,
+            vehicle_profiles,
             routes: Vec::new(),
             route_handles: IndexMap::new(),
             free_route_indices: Vec::new(),
@@ -137,6 +133,26 @@ impl CoreWorld {
     pub fn vehicle_external_id(&self, handle: VehicleHandle) -> Option<&str> {
         self.vehicle_slot(handle)
             .map(|vehicle| vehicle.external_id.as_str())
+    }
+
+    /// 返回 immutable Vehicle Profile registry。
+    pub const fn vehicle_profiles(&self) -> &VehicleProfileRegistry {
+        &self.vehicle_profiles
+    }
+
+    /// 返回指定 handle 的 Vehicle Profile。
+    pub fn vehicle_profile(&self, handle: VehicleProfileHandle) -> Option<&VehicleProfile> {
+        self.vehicle_profiles.profile(handle)
+    }
+
+    /// 返回 Vehicle Profile external ID 对应的 handle。
+    pub fn vehicle_profile_handle(&self, id: &str) -> Option<VehicleProfileHandle> {
+        self.vehicle_profiles.profile_handle(id)
+    }
+
+    /// 返回 Vehicle Profile handle 对应的 external ID。
+    pub fn vehicle_profile_external_id(&self, handle: VehicleProfileHandle) -> Option<&str> {
+        self.vehicle_profiles.profile_external_id(handle)
     }
 
     /// 返回当前 lane graph。
@@ -255,6 +271,12 @@ impl CoreWorld {
                 vehicle_id: input.id,
             });
         }
+        if self.vehicle_profile(input.profile).is_none() {
+            return Err(CoreError::UnknownVehicleProfileHandle {
+                vehicle_id: input.id,
+                profile: input.profile,
+            });
+        }
 
         let route =
             self.route_handle(&input.route_id)
@@ -272,10 +294,11 @@ impl CoreWorld {
                 external_id: external_id.clone(),
                 state: Some(VehicleState::new(
                     handle,
+                    normalized.profile,
                     route,
                     normalized.route_edge_index,
                     normalized.edge_progress,
-                    normalized.speed,
+                    normalized.current_speed,
                     normalized.status,
                 )),
             };
@@ -287,10 +310,11 @@ impl CoreWorld {
                 external_id: external_id.clone(),
                 state: Some(VehicleState::new(
                     handle,
+                    normalized.profile,
                     route,
                     normalized.route_edge_index,
                     normalized.edge_progress,
-                    normalized.speed,
+                    normalized.current_speed,
                     normalized.status,
                 )),
             });
@@ -328,6 +352,7 @@ impl CoreWorld {
         Ok(VehicleDespawnRecord {
             handle,
             external_id,
+            profile: state.profile,
             route: state.route,
             status: state.status,
         })
@@ -438,6 +463,14 @@ impl CoreWorld {
             });
         }
 
+        if input.status != VehicleStatus::Active && input.initial_speed != Speed::ZERO {
+            return Err(CoreError::InvalidInactiveVehicleMotion {
+                vehicle_id: input.id.clone(),
+                status: input.status,
+                initial_speed: input.initial_speed.value(),
+            });
+        }
+
         let mut edge_progress = input.edge_progress;
         if input.status == VehicleStatus::Completed {
             let expected_route_edge_index = route_slot.edge_handles.len() - 1;
@@ -459,9 +492,10 @@ impl CoreWorld {
         }
 
         Ok(NormalizedVehicleInput {
+            profile: input.profile,
             route_edge_index: input.route_edge_index,
             edge_progress,
-            speed: input.speed,
+            current_speed: input.initial_speed,
             status: input.status,
         })
     }
@@ -478,7 +512,8 @@ impl CoreWorld {
             return Ok(());
         }
 
-        let speed = vehicle.effective_speed().value();
+        vehicle.applied_acceleration = Acceleration::ZERO;
+        let speed = vehicle.current_speed.value();
         let delta_time_seconds = fixed_delta_time_ms as f64 / 1_000.0;
         let travel_distance = speed * delta_time_seconds;
         if !travel_distance.is_finite() {
@@ -559,6 +594,8 @@ impl CoreWorld {
             } else {
                 vehicle.edge_progress =
                     EdgeProgress::try_new(edge_length).expect("edge length is valid progress");
+                vehicle.current_speed = Speed::ZERO;
+                vehicle.applied_acceleration = Acceleration::ZERO;
                 vehicle.status = VehicleStatus::Completed;
                 events.push(CoreEvent::VehicleCompletedRoute(
                     VehicleCompletedRouteEvent {
@@ -591,9 +628,10 @@ impl CoreWorld {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct NormalizedVehicleInput {
+    profile: VehicleProfileHandle,
     route_edge_index: usize,
     edge_progress: EdgeProgress,
-    speed: Speed,
+    current_speed: Speed,
     status: VehicleStatus,
 }
 
@@ -604,7 +642,39 @@ fn is_less_than_boundary_epsilon(value: f64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CoreError, EdgeLength, EdgeProgress, LaneEdge, Speed, TickInput};
+    use crate::{
+        CoreError, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge, Speed,
+        TickInput, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
+    };
+
+    fn traffic_data<I>(
+        lane_graph: LaneGraph,
+        routes: I,
+    ) -> (InitialTrafficData, VehicleProfileHandle)
+    where
+        I: IntoIterator<Item = Route>,
+    {
+        let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
+            "test-profile",
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed: 13.9,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 1.4,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )
+        .expect("valid profile")])
+        .expect("valid profile registry");
+        let profile = registry
+            .profile_handle("test-profile")
+            .expect("profile handle exists");
+        let traffic_data =
+            InitialTrafficData::try_new(lane_graph, routes, registry).expect("valid traffic data");
+        (traffic_data, profile)
+    }
 
     #[test]
     fn unit_step_advances_post_step_time() {
@@ -627,15 +697,17 @@ mod tests {
         )])
         .expect("valid lane graph");
         let route = Route::try_new("R1", ["A"]).expect("valid route");
+        let (traffic_data, profile) = traffic_data(lane_graph, [route]);
         let vehicle = VehicleSpawnInput::active(
             "V1",
+            profile,
             "R1",
             0,
             EdgeProgress::try_new(1.0).expect("valid progress"),
             Speed::try_new(0.0).expect("valid speed"),
         );
-        let mut world = CoreWorld::with_traffic_data(20, lane_graph, [route], vec![vehicle])
-            .expect("valid world");
+        let mut world =
+            CoreWorld::with_traffic_data(20, traffic_data, vec![vehicle]).expect("valid world");
         let before = world.clone();
 
         let error = world
@@ -694,13 +766,12 @@ mod tests {
             Vec::<String>::new(),
         )])
         .expect("valid lane graph");
-        let mut world = CoreWorld::with_traffic_data(
-            20,
+        let (traffic_data, _) = traffic_data(
             lane_graph,
             [Route::try_new("R1", ["A"]).expect("valid route")],
-            Vec::new(),
-        )
-        .expect("valid world");
+        );
+        let mut world =
+            CoreWorld::with_traffic_data(20, traffic_data, Vec::new()).expect("valid world");
         let original = world.route_handle("R1").expect("route handle exists");
         let exhausted = RouteHandle::new(original.index(), u32::MAX);
         world.routes[original.index()].generation = u32::MAX;
@@ -727,16 +798,16 @@ mod tests {
             Vec::<String>::new(),
         )])
         .expect("valid lane graph");
-        let mut world = CoreWorld::with_traffic_data(
-            20,
+        let (traffic_data, profile) = traffic_data(
             lane_graph,
             [Route::try_new("R1", ["A"]).expect("valid route")],
-            Vec::new(),
-        )
-        .expect("valid world");
+        );
+        let mut world =
+            CoreWorld::with_traffic_data(20, traffic_data, Vec::new()).expect("valid world");
         let original = world
             .spawn_vehicle(VehicleSpawnInput::active(
                 "V1",
+                profile,
                 "R1",
                 0,
                 EdgeProgress::ZERO,
@@ -756,6 +827,7 @@ mod tests {
         let replacement = world
             .spawn_vehicle(VehicleSpawnInput::active(
                 "V1",
+                profile,
                 "R1",
                 0,
                 EdgeProgress::ZERO,

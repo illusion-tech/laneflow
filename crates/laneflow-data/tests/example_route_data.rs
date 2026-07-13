@@ -10,10 +10,14 @@ const MILLISECONDS_PER_SECOND: f64 = 1_000.0;
 
 fn load_example_world() -> CoreWorld {
     let loaded = from_json_str(EXAMPLE_ROUTE_DATA).expect("current example package must load");
-    let (lane_graph, routes, profiles) = loaded.into_initial_traffic_data().into_parts();
-    assert_eq!(profiles.len(), 1, "current fixture declares one profile");
+    let traffic_data = loaded.into_initial_traffic_data();
+    assert_eq!(
+        traffic_data.vehicle_profiles().len(),
+        1,
+        "current fixture declares one profile"
+    );
 
-    CoreWorld::with_traffic_data(1_000, lane_graph, routes, Vec::new())
+    CoreWorld::with_traffic_data(1_000, traffic_data, Vec::new())
         .expect("example route data must initialize CoreWorld")
 }
 
@@ -107,9 +111,13 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion() {
         .expect("loop edge length exists")
         .value();
 
+    let profile = world
+        .vehicle_profile_handle("passenger-car")
+        .expect("fixture profile exists");
     let main_vehicle = world
         .spawn_vehicle(VehicleSpawnInput::active(
             "main-vehicle",
+            profile,
             "main-route",
             0,
             EdgeProgress::ZERO,
@@ -119,6 +127,7 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion() {
     let loop_vehicle = world
         .spawn_vehicle(VehicleSpawnInput::active(
             "loop-vehicle",
+            profile,
             "loop-once",
             0,
             EdgeProgress::ZERO,

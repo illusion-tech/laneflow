@@ -1,6 +1,9 @@
+mod common;
+
+use common::{test_profile, world_with_test_profile};
 use laneflow_core::{
     CoreError, CoreEvent, CoreWorld, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed,
-    TickInput, VehicleSpawnInput,
+    TickInput, VehicleProfileHandle, VehicleProfileRegistry, VehicleSpawnInput,
 };
 
 fn edge_length(value: f64) -> EdgeLength {
@@ -15,7 +18,7 @@ fn speed(value: f64) -> Speed {
     Speed::try_new(value).expect("valid speed")
 }
 
-fn route_world(vehicles: Vec<VehicleSpawnInput>) -> CoreWorld {
+fn route_world(vehicles: impl FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([
         LaneEdge::new("A", edge_length(1.0), ["B"]),
         LaneEdge::new("B", edge_length(1.0), std::iter::empty::<&str>()),
@@ -23,7 +26,7 @@ fn route_world(vehicles: Vec<VehicleSpawnInput>) -> CoreWorld {
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
 
-    CoreWorld::with_traffic_data(1000, lane_graph, [route], vehicles).expect("valid world")
+    world_with_test_profile(1_000, lane_graph, [route], vehicles).expect("valid world")
 }
 
 fn event_vehicle_ids(world: &CoreWorld, events: &[CoreEvent]) -> Vec<String> {
@@ -45,18 +48,25 @@ fn event_vehicle_ids(world: &CoreWorld, events: &[CoreEvent]) -> Vec<String> {
 
 #[test]
 fn vehicle_handle_generation_rejects_stale_handle_after_despawn() {
-    let mut world = route_world(vec![VehicleSpawnInput::active(
-        "V1",
-        "R",
-        0,
-        progress(0.0),
-        speed(0.0),
-    )]);
+    let mut world = route_world(|profile| {
+        vec![VehicleSpawnInput::active(
+            "V1",
+            profile,
+            "R",
+            0,
+            progress(0.0),
+            speed(0.0),
+        )]
+    });
+    let profile = world
+        .vehicle_profile_handle("test-profile")
+        .expect("profile handle exists");
     let old_handle = world.vehicle_handle("V1").expect("vehicle handle exists");
 
     let record = world.despawn_vehicle(old_handle).expect("despawn succeeds");
 
     assert_eq!(record.external_id, "V1");
+    assert_eq!(record.profile, profile);
     assert_eq!(world.vehicle_external_id(old_handle), None);
     std::assert_matches!(
         world
@@ -68,6 +78,7 @@ fn vehicle_handle_generation_rejects_stale_handle_after_despawn() {
     let new_handle = world
         .spawn_vehicle(VehicleSpawnInput::active(
             "V2",
+            profile,
             "R",
             0,
             progress(0.0),
@@ -81,14 +92,65 @@ fn vehicle_handle_generation_rejects_stale_handle_after_despawn() {
 }
 
 #[test]
+fn world_resolves_profile_and_rejects_unknown_profile_handle() {
+    let mut world = route_world(|_| Vec::new());
+    let profile = world
+        .vehicle_profile_handle("test-profile")
+        .expect("profile handle exists");
+
+    assert_eq!(
+        world
+            .vehicle_profile(profile)
+            .expect("profile resolves")
+            .external_id(),
+        "test-profile"
+    );
+    assert_eq!(
+        world.vehicle_profile_external_id(profile),
+        Some("test-profile")
+    );
+
+    let foreign_registry =
+        VehicleProfileRegistry::try_new([test_profile("foreign-a"), test_profile("foreign-b")])
+            .expect("foreign registry is valid");
+    let unknown_profile = foreign_registry
+        .profile_handle("foreign-b")
+        .expect("foreign profile handle exists");
+    let before = world.clone();
+
+    let error = world
+        .spawn_vehicle(VehicleSpawnInput::active(
+            "V1",
+            unknown_profile,
+            "R",
+            0,
+            progress(0.0),
+            speed(1.0),
+        ))
+        .expect_err("out-of-range profile handle must fail");
+
+    std::assert_matches!(
+        error,
+        CoreError::UnknownVehicleProfileHandle {
+            vehicle_id,
+            profile: actual_profile
+        } if vehicle_id == "V1" && actual_profile == unknown_profile
+    );
+    assert_eq!(world, before);
+}
+
+#[test]
 fn route_remove_rejects_live_vehicle_and_stales_old_handle() {
-    let mut world = route_world(vec![VehicleSpawnInput::active(
-        "V1",
-        "R",
-        0,
-        progress(0.0),
-        speed(0.0),
-    )]);
+    let mut world = route_world(|profile| {
+        vec![VehicleSpawnInput::active(
+            "V1",
+            profile,
+            "R",
+            0,
+            progress(0.0),
+            speed(0.0),
+        )]
+    });
     let route = world.route_handle("R").expect("route handle exists");
     let vehicle = world.vehicle_handle("V1").expect("vehicle handle exists");
 
@@ -122,16 +184,23 @@ fn route_remove_rejects_live_vehicle_and_stales_old_handle() {
 
 #[test]
 fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
-    let mut world = route_world(vec![VehicleSpawnInput::active(
-        "V2",
-        "R",
-        0,
-        progress(0.0),
-        speed(2.0),
-    )]);
+    let mut world = route_world(|profile| {
+        vec![VehicleSpawnInput::active(
+            "V2",
+            profile,
+            "R",
+            0,
+            progress(0.0),
+            speed(2.0),
+        )]
+    });
+    let profile = world
+        .vehicle_profile_handle("test-profile")
+        .expect("profile handle exists");
     world
         .spawn_vehicle(VehicleSpawnInput::active(
             "V1",
+            profile,
             "R",
             0,
             progress(0.0),
@@ -139,7 +208,7 @@ fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
         ))
         .expect("spawn succeeds");
 
-    let result = world.step(TickInput::new(1000)).expect("step succeeds");
+    let result = world.step(TickInput::new(1_000)).expect("step succeeds");
 
     assert_eq!(
         event_vehicle_ids(&world, &result.events),

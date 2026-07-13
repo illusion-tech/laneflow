@@ -1,13 +1,19 @@
+mod common;
+
+use common::world_with_test_profile;
 use laneflow_core::{
-    CoreError, CoreWorld, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed, TickInput,
-    VehicleSpawnInput, VehicleStatus,
+    Acceleration, CoreError, CoreWorld, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route,
+    Speed, TickInput, VehicleProfileHandle, VehicleSpawnInput, VehicleStatus,
 };
 
 fn edge_length(value: f64) -> EdgeLength {
     EdgeLength::try_new(value).expect("valid edge length")
 }
 
-fn single_edge_world(fixed_delta_time_ms: u64, vehicles: Vec<VehicleSpawnInput>) -> CoreWorld {
+fn single_edge_world(
+    fixed_delta_time_ms: u64,
+    vehicles: impl FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>,
+) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([
         LaneEdge::new("A", edge_length(10.0), ["B"]),
         LaneEdge::new("B", edge_length(10.0), std::iter::empty::<&str>()),
@@ -15,34 +21,36 @@ fn single_edge_world(fixed_delta_time_ms: u64, vehicles: Vec<VehicleSpawnInput>)
     .expect("valid lane graph");
     let route = Route::try_new("R1", ["A", "B"]).expect("valid route");
 
-    CoreWorld::with_traffic_data(fixed_delta_time_ms, lane_graph, [route], vehicles)
+    world_with_test_profile(fixed_delta_time_ms, lane_graph, [route], vehicles)
         .expect("valid world")
 }
 
 #[test]
 fn fixed_tick_advances_post_step_time() {
-    let mut world = CoreWorld::new(1000).expect("valid world");
+    let mut world = CoreWorld::new(1_000).expect("valid world");
 
-    let result = world.step(TickInput::new(1000)).expect("step succeeds");
+    let result = world.step(TickInput::new(1_000)).expect("step succeeds");
 
-    assert_eq!(world.fixed_delta_time_ms(), 1000);
+    assert_eq!(world.fixed_delta_time_ms(), 1_000);
     assert_eq!(world.tick_index(), 1);
-    assert_eq!(world.time_ms(), 1000);
+    assert_eq!(world.time_ms(), 1_000);
     assert_eq!(result.tick_index, 1);
-    assert_eq!(result.time_ms, 1000);
+    assert_eq!(result.time_ms, 1_000);
     assert!(result.events.is_empty());
 }
 
 #[test]
 fn delta_mismatch_returns_error_and_keeps_world_unchanged() {
-    let vehicle = VehicleSpawnInput::active(
-        "V1",
-        "R1",
-        0,
-        EdgeProgress::try_new(3.0).expect("valid progress"),
-        Speed::try_new(2.0).expect("valid speed"),
-    );
-    let mut world = single_edge_world(1000, vec![vehicle]);
+    let mut world = single_edge_world(1_000, |profile| {
+        vec![VehicleSpawnInput::active(
+            "V1",
+            profile,
+            "R1",
+            0,
+            EdgeProgress::try_new(3.0).expect("valid progress"),
+            Speed::try_new(2.0).expect("valid speed"),
+        )]
+    });
     let before = world.clone();
 
     let error = world
@@ -52,7 +60,7 @@ fn delta_mismatch_returns_error_and_keeps_world_unchanged() {
     std::assert_matches!(
         error,
         CoreError::TickDeltaMismatch {
-            expected_delta_time_ms: 1000,
+            expected_delta_time_ms: 1_000,
             actual_delta_time_ms: 500
         }
     );
@@ -61,58 +69,98 @@ fn delta_mismatch_returns_error_and_keeps_world_unchanged() {
 
 #[test]
 fn active_zero_speed_is_valid_and_does_not_change_progress() {
-    let vehicle = VehicleSpawnInput::active(
-        "V1",
-        "R1",
-        0,
-        EdgeProgress::try_new(7.5).expect("valid progress"),
-        Speed::try_new(0.0).expect("valid speed"),
-    );
-    let mut world = single_edge_world(1000, vec![vehicle]);
+    let mut world = single_edge_world(1_000, |profile| {
+        vec![VehicleSpawnInput::active(
+            "V1",
+            profile,
+            "R1",
+            0,
+            EdgeProgress::try_new(7.5).expect("valid progress"),
+            Speed::ZERO,
+        )]
+    });
 
-    world.step(TickInput::new(1000)).expect("step succeeds");
+    world.step(TickInput::new(1_000)).expect("step succeeds");
 
     let vehicles = world.vehicles().collect::<Vec<_>>();
     let vehicle = vehicles[0];
     assert_eq!(vehicle.status, VehicleStatus::Active);
-    assert_eq!(vehicle.speed.value(), 0.0);
+    assert_eq!(vehicle.current_speed, Speed::ZERO);
+    assert_eq!(vehicle.applied_acceleration, Acceleration::ZERO);
     assert_eq!(vehicle.edge_progress.value(), 7.5);
-    assert_eq!(vehicle.effective_speed(), Speed::ZERO);
 }
 
 #[test]
-fn stopped_and_completed_keep_speed_but_have_zero_effective_speed() {
-    let stopped = VehicleSpawnInput::stopped(
-        "V1",
-        "R1",
-        0,
-        EdgeProgress::try_new(2.0).expect("valid progress"),
-        Speed::try_new(6.0).expect("valid speed"),
-    );
-    let completed = VehicleSpawnInput::completed(
-        "V2",
-        "R1",
-        1,
-        EdgeProgress::try_new(10.0).expect("valid progress"),
-        Speed::try_new(8.0).expect("valid speed"),
-    );
-    let mut world = single_edge_world(1000, vec![stopped, completed]);
+fn stopped_and_completed_have_zero_motion_state() {
+    let mut world = single_edge_world(1_000, |profile| {
+        vec![
+            VehicleSpawnInput::stopped(
+                "V1",
+                profile,
+                "R1",
+                0,
+                EdgeProgress::try_new(2.0).expect("valid progress"),
+            ),
+            VehicleSpawnInput::completed(
+                "V2",
+                profile,
+                "R1",
+                1,
+                EdgeProgress::try_new(10.0).expect("valid progress"),
+            ),
+        ]
+    });
 
-    let result = world.step(TickInput::new(1000)).expect("step succeeds");
+    let result = world.step(TickInput::new(1_000)).expect("step succeeds");
     assert!(result.events.is_empty());
 
     let vehicles = world.vehicles().collect::<Vec<_>>();
     let stopped = vehicles[0];
     assert_eq!(stopped.status, VehicleStatus::Stopped);
-    assert_eq!(stopped.speed.value(), 6.0);
+    assert_eq!(stopped.current_speed, Speed::ZERO);
+    assert_eq!(stopped.applied_acceleration, Acceleration::ZERO);
     assert_eq!(stopped.edge_progress.value(), 2.0);
-    assert_eq!(stopped.effective_speed(), Speed::ZERO);
 
     let completed = vehicles[1];
     assert_eq!(completed.status, VehicleStatus::Completed);
-    assert_eq!(completed.speed.value(), 8.0);
+    assert_eq!(completed.current_speed, Speed::ZERO);
+    assert_eq!(completed.applied_acceleration, Acceleration::ZERO);
     assert_eq!(completed.edge_progress.value(), 10.0);
-    assert_eq!(completed.effective_speed(), Speed::ZERO);
+}
+
+#[test]
+fn inactive_nonzero_initial_speed_is_rejected() {
+    let error = world_with_test_profile(
+        1_000,
+        LaneGraph::try_new([LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            std::iter::empty::<&str>(),
+        )])
+        .expect("valid lane graph"),
+        [Route::try_new("R1", ["A"]).expect("valid route")],
+        |profile| {
+            vec![VehicleSpawnInput::new(
+                "V1",
+                profile,
+                "R1",
+                0,
+                EdgeProgress::ZERO,
+                Speed::try_new(1.0).expect("valid speed"),
+                VehicleStatus::Stopped,
+            )]
+        },
+    )
+    .expect_err("inactive nonzero speed must fail");
+
+    std::assert_matches!(
+        error,
+        CoreError::InvalidInactiveVehicleMotion {
+            vehicle_id,
+            status: VehicleStatus::Stopped,
+            initial_speed
+        } if vehicle_id == "V1" && initial_speed == 1.0
+    );
 }
 
 #[test]
@@ -139,6 +187,42 @@ fn invalid_numeric_inputs_are_rejected() {
     std::assert_matches!(
         Speed::try_new(-1.0),
         Err(CoreError::InvalidSpeed { speed }) if speed == -1.0
+    );
+
+    for invalid_acceleration in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        std::assert_matches!(
+            Acceleration::try_new(invalid_acceleration),
+            Err(CoreError::InvalidAcceleration { acceleration })
+                if acceleration.is_nan() && invalid_acceleration.is_nan()
+                    || acceleration == invalid_acceleration
+        );
+    }
+    assert_eq!(
+        Acceleration::try_new(-2.5)
+            .expect("signed acceleration is valid")
+            .value(),
+        -2.5
+    );
+    assert_eq!(
+        Speed::try_new(-0.0)
+            .expect("zero speed is valid")
+            .value()
+            .to_bits(),
+        0.0_f64.to_bits()
+    );
+    assert_eq!(
+        Acceleration::try_new(-0.0)
+            .expect("zero acceleration is valid")
+            .value()
+            .to_bits(),
+        0.0_f64.to_bits()
+    );
+    assert_eq!(
+        EdgeProgress::try_new(-0.0)
+            .expect("zero progress is valid")
+            .value()
+            .to_bits(),
+        0.0_f64.to_bits()
     );
 
     std::assert_matches!(

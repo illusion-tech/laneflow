@@ -16,6 +16,15 @@ pub struct InitialTrafficData {
 }
 
 impl InitialTrafficData {
+    /// 创建不含 lane graph、route 和 Vehicle Profile 的初始交通输入。
+    pub fn empty() -> Self {
+        Self {
+            lane_graph: LaneGraph::empty(),
+            routes: Vec::new(),
+            vehicle_profiles: VehicleProfileRegistry::empty(),
+        }
+    }
+
     /// 创建并校验 lane graph、初始 routes 与 immutable profile registry。
     ///
     /// # Errors
