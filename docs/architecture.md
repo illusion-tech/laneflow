@@ -1,7 +1,7 @@
 # 架构
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-13  
+**最后更新**: 2026-07-14  
 **适用范围**: LaneFlow 分层、Rust crate 依赖方向、Traffic Data 与 Core/Adapter 边界
 
 ## 1. 架构目标
@@ -71,7 +71,7 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 数据格式应尽量保持引擎无关。
 
-v0.3 目标 Rust workspace 中，Traffic Data Layer 由 `laneflow-data` 表达；具体落地由 #73 负责。它负责：
+当前 Rust workspace 中，Traffic Data Layer 已由 `laneflow-data` 表达。它负责：
 
 - 当前 v0.3 external package、必填版本闸口与旧版/未来版拒绝；
 - JSON syntax、wire shape、units 和字段路径诊断；

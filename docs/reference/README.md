@@ -26,4 +26,5 @@
 - `commit-convention.md`：提交信息规范，以 Conventional Commits 标题为基础，用 `Gate`、`Slice`、`Impact`、`Validation` 等字段记录 LaneFlow 治理状态；并说明 PR 默认使用 Rebase and merge。
 - `validation-matrix.md`：切片类型到最小验证要求的矩阵，用于 `G3` 合并闸口判断。
 - `v0.2-closure-review.md`：v0.2 Lane Graph + Route 收口时核验的契约、验证证据、发现项处置和非阻断风险基线。
+- `v0.3-closure-review.md`：v0.3 Vehicle Following 收口时核验的设计、实现、数据契约、性能、安全与治理基线。
 - `v0.3-vehicle-following-validation.md`：v0.3 Vehicle Following 的确定性、不变量、生命周期、10k 性能和 100k 扩展性验证基线。

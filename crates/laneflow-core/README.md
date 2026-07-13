@@ -2,7 +2,7 @@
 
 引擎无关的 LaneFlow Core runtime crate。
 
-本 crate 由 issue #9 初始化，作为 Core runtime 的实现边界。当前已在 v0.1 原型能力上对齐 v0.2 lane graph / route / ID handle 设计，并迁移到 v0.3 Vehicle Profile 与 Vehicle Following，提供 fixed-step tick、typed handle registry、lane graph / route validation、IIDM comfort control、emergency safe-speed、ballistic integration 与最终 no-overlap projection：
+本 crate 由 issue #9 初始化，作为当前 Core runtime 的实现边界。它提供 fixed-step tick、typed handle registry、lane graph / route validation、Vehicle Profile、IIDM comfort control、emergency safe-speed、ballistic integration 与最终 no-overlap projection：
 
 - `CoreWorld`：保存固定步长、tick index、simulation time、lane graph、immutable Vehicle Profile registry、route / vehicle registry 和 stable update order，并复用私有 candidate state / occupancy / leader / longitudinal scratch；
 - `TickInput` / `StepResult`：表达显式 tick 输入和 post-step 可观察输出；
@@ -21,13 +21,13 @@
 - 私有 occupancy / leader detection：按 physical edge 构建可复用扁平索引，沿 follower 已选 route 解析最近 leader，并在初始化与 runtime spawn 时拒绝物理车身重叠。
 - 私有 Vehicle Following pipeline：基于 tick-start snapshot 计算 IIDM comfort acceleration 与 emergency safe-speed，再通过确定性的 functional graph 投影得到最大可行 no-overlap travel；事件与状态只在整 tick 成功后原子提交。
 
-当前仍不实现 lane changing、signals、intersection conflict、parking、公开 controller extension、Adapter API、C ABI 或 WASM 绑定；这些能力由后续 v0.x 子 issue 增量实现。完整确定性、不变量和 10k/100k 性能验收见 [v0.3 Vehicle Following 验证与性能基线](../../docs/reference/v0.3-vehicle-following-validation.md)。
+当前仍不实现 lane changing、signals、intersection conflict、parking、公开 controller extension、Adapter API、C ABI 或 WASM 绑定；这些能力由后续 v0.x 子 issue 增量实现。完整确定性、不变量和 10k/100k 性能验收见 [v0.3 Vehicle Following 验证与性能基线](../../docs/reference/v0.3-vehicle-following-validation.md)，里程碑结论见 [v0.3 收口审阅基线](../../docs/reference/v0.3-closure-review.md)。
 
 ## 当前 data-format 边界
 
-v0.2 里程碑已稳定 lane graph / route 的领域语义；当前 active 外部格式已直接演进为 v0.3，正式契约见 [data-format 设计](../../docs/design/data-format.md) 与 [JSON Schema](../../schemas/laneflow-data-v0.3.schema.json)。Core 的 `LaneGraph`、`Route`、Vehicle Profile 和 external ID / handle 边界与当前格式对齐；production JSON loader 位于同一 workspace 的 `laneflow-data`，Core 不依赖 Serde、JSON 或 schema validator。
+当前唯一 active 外部格式是 v0.3，正式契约见 [data-format 设计](../../docs/design/data-format.md) 与 [JSON Schema](../../schemas/laneflow-data-v0.3.schema.json)。Core 的 `LaneGraph`、`Route`、Vehicle Profile 和 external ID / handle 边界与当前格式对齐；production JSON loader 位于同一 workspace 的 `laneflow-data`，Core 不依赖 Serde、JSON 或 schema validator。
 
-LaneFlow 在 1.0 前只维护一个 active data format，旧版由 loader 明确拒绝；历史契约通过 Git 与 v0.2 收口报告审计。该政策不构成 v1.0 长期兼容承诺，详见 ADR 0008。
+LaneFlow 在 1.0 前只维护一个 active data format，旧版由 loader 明确拒绝；历史能力来源和迁移证据通过 Git 与 milestone 收口报告审计，不在 production 代码中保留并行兼容实现。该政策不构成 v1.0 长期兼容承诺，详见 ADR 0008。
 
 当前工具链策略：
 
