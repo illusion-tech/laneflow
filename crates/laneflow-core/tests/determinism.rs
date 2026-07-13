@@ -28,7 +28,7 @@ fn deterministic_world() -> CoreWorld {
 
     world_with_test_profile(1_000, lane_graph, [route], |profile| {
         vec![
-            VehicleSpawnInput::active("V2", profile, "R", 0, progress(1.0), speed(2.0)),
+            VehicleSpawnInput::active("V2", profile, "R", 0, progress(6.0), speed(2.0)),
             VehicleSpawnInput::active("V1", profile, "R", 0, progress(0.0), speed(6.0)),
         ]
     })

@@ -5,6 +5,7 @@ pub mod event;
 pub mod graph;
 pub mod handle;
 mod id;
+mod occupancy;
 pub mod profile;
 pub mod route;
 pub mod time;

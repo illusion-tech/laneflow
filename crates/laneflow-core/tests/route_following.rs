@@ -3,8 +3,9 @@ mod common;
 use common::world_with_test_profile;
 use laneflow_core::{
     Acceleration, CoreError, CoreEvent, CoreWorld, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress,
-    LaneEdge, LaneGraph, Route, Speed, TickInput, VehicleProfileHandle, VehicleSpawnInput,
-    VehicleState, VehicleStatus,
+    IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph, Route, Speed, TickInput,
+    VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry, VehicleSpawnInput, VehicleState,
+    VehicleStatus,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -301,16 +302,35 @@ fn event_order_uses_initial_stable_update_order_not_input_order() {
         .expect("valid lane graph");
         let route = Route::try_new("R", ["A", "B"]).expect("valid route");
 
-        world_with_test_profile(1_000, lane_graph, [route], |profile| {
+        let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
+            "short-profile",
+            IidmProfileSpec {
+                length: 0.25,
+                desired_speed: 13.9,
+                min_gap: 0.25,
+                time_headway: 1.5,
+                max_acceleration: 1.4,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )
+        .expect("valid short profile")])
+        .expect("valid profile registry");
+        let profile = profiles
+            .profile_handle("short-profile")
+            .expect("profile handle exists");
+        let traffic_data =
+            InitialTrafficData::try_new(lane_graph, [route], profiles).expect("valid traffic data");
+        let vehicles = {
             let v1 = VehicleSpawnInput::active("V1", profile, "R", 0, progress(0.0), speed(2.0));
-            let v2 = VehicleSpawnInput::active("V2", profile, "R", 0, progress(0.0), speed(2.0));
+            let v2 = VehicleSpawnInput::active("V2", profile, "R", 0, progress(0.5), speed(2.0));
             if reverse_input {
                 vec![v2, v1]
             } else {
                 vec![v1, v2]
             }
-        })
-        .expect("valid world")
+        };
+        CoreWorld::with_traffic_data(1_000, traffic_data, vehicles).expect("valid world")
     }
 
     let mut first = world_with_vehicle_order(true);
@@ -532,7 +552,7 @@ fn finite_route_travel_does_not_overflow_in_millisecond_conversion() {
 #[test]
 fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(1.0), ["B"]),
+        LaneEdge::new("A", edge_length(10.0), ["B"]),
         LaneEdge::new("B", edge_length(f64::MAX), std::iter::empty::<&str>()),
     ])
     .expect("valid lane graph");
@@ -553,11 +573,11 @@ fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
 
     std::assert_matches!(
         error,
-        CoreError::NonFiniteRouteTravel {
+        CoreError::NonFiniteLeaderComputation {
             vehicle: actual_vehicle,
-            speed,
-            delta_time_ms: 2000
-        } if actual_vehicle == vehicle && speed == f64::MAX
+            stage: "travel_upper",
+            value
+        } if actual_vehicle == vehicle && value.is_infinite()
     );
     assert_eq!(world, before);
 }
