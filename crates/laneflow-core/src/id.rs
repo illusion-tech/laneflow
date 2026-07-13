@@ -45,7 +45,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn external_id_token_accepts_v0_2_pattern() {
+    fn external_id_token_accepts_data_format_pattern() {
         for external_id in ["A", "edge_1", "road/1:lane-2.3"] {
             assert!(is_valid_external_id(external_id));
         }

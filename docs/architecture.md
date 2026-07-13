@@ -73,7 +73,7 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 v0.3 目标 Rust workspace 中，Traffic Data Layer 由 `laneflow-data` 表达；具体落地由 #73 负责。它负责：
 
-- v0.2/v0.3 external package 与严格版本分流；
+- 当前 v0.3 external package、必填版本闸口与旧版/未来版拒绝；
 - JSON syntax、wire shape、units 和字段路径诊断；
 - external ID 到 Core domain input 的转换；
 - 调用 Core constructors 完成 lane graph、route 和 Vehicle Profile normalization。

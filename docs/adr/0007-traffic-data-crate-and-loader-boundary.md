@@ -3,6 +3,7 @@
 **状态**: Accepted  
 **日期**: 2026-07-13  
 **适用范围**: LaneFlow 外部数据格式、Rust crate 依赖方向、production loader 与 Core domain normalization 边界  
+**后续修订**: ADR 0008 已替代本文的 v0.2/v0.3 双版本 loader/result 决策；crate 依赖、private DTO、normalization、I/O 与 validation 分层继续有效  
 **关联文档**:
 
 - 上游决策:
@@ -11,6 +12,7 @@
   - `0004-core-implementation-language.md`
   - `0005-core-identity-and-handle-model.md`
   - `0006-vehicle-following-control-and-safety.md`
+  - `0008-pre-1.0-data-format-version-policy.md`
 - 详细设计:
   - `../architecture.md`
   - `../design/data-format.md`

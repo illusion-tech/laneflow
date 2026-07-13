@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/illusion-tech/laneflow/main/schemas/laneflow-data-v0.2.schema.json",
-  "title": "LaneFlow data package v0.2",
+  "$id": "https://raw.githubusercontent.com/illusion-tech/laneflow/main/schemas/laneflow-data-v0.3.schema.json",
+  "title": "LaneFlow data package v0.3",
   "type": "object",
   "additionalProperties": false,
-  "required": ["formatVersion", "units", "laneGraph", "routes"],
+  "required": ["formatVersion", "units", "laneGraph", "routes", "vehicleProfiles"],
   "properties": {
     "formatVersion": {
-      "const": "0.2"
+      "const": "0.3"
     },
     "units": {
       "$ref": "#/$defs/unitSpec"
@@ -19,6 +19,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/route"
+      }
+    },
+    "vehicleProfiles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/vehicleProfile"
       }
     },
     "extensions": {
@@ -35,10 +41,13 @@
     "unitSpec": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["distance"],
+      "required": ["distance", "time"],
       "properties": {
         "distance": {
           "const": "meter"
+        },
+        "time": {
+          "const": "second"
         }
       }
     },
@@ -99,6 +108,57 @@
           "items": {
             "$ref": "#/$defs/externalId"
           }
+        }
+      }
+    },
+    "vehicleProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "length",
+        "model",
+        "desiredSpeed",
+        "minGap",
+        "timeHeadway",
+        "maxAcceleration",
+        "comfortableDeceleration",
+        "emergencyDeceleration"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        },
+        "length": {
+          "type": "number",
+          "exclusiveMinimum": 1e-9
+        },
+        "model": {
+          "const": "iidm"
+        },
+        "desiredSpeed": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "minGap": {
+          "type": "number",
+          "minimum": 0
+        },
+        "timeHeadway": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "maxAcceleration": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "comfortableDeceleration": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "emergencyDeceleration": {
+          "type": "number",
+          "exclusiveMinimum": 0
         }
       }
     }
