@@ -773,9 +773,10 @@ impl CoreWorld {
             .expect("live vehicle route must exist");
         let current_edge = route.edge_handles[follower.route_edge_index];
         let current_occupants = scratch.edge(current_edge);
-        let first_ahead = current_occupants
+        // 相同 front progress 是非法物理重叠；update sequence 只形成确定排序，不能把 tie 合法化为 leader。
+        let first_strictly_ahead = current_occupants
             .partition_point(|occupant| occupant.front_progress <= follower.edge_progress.value());
-        for occupant in &current_occupants[first_ahead..] {
+        for occupant in &current_occupants[first_strictly_ahead..] {
             if occupant.vehicle == follower.handle {
                 continue;
             }
