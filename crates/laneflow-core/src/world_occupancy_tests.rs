@@ -364,9 +364,11 @@ fn derived_scratch_history_is_ignored_by_world_equality() {
     .expect("valid world");
     let before = world.clone();
 
+    world.candidate_state_scratch.begin(&world.vehicles);
     world.occupancy_scratch.begin(0, 0);
     world.longitudinal_scratch.begin(0);
 
+    assert_eq!(world.candidate_state_scratch.states.len(), 2);
     assert_eq!(world.occupancy_scratch.occupant_count(), 0);
     assert_eq!(world, before);
 }

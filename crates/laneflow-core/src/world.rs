@@ -38,6 +38,58 @@ struct VehicleSlot {
     state: Option<VehicleState>,
 }
 
+/// 可跨 tick 复用、但不属于 Core authority state 的候选车辆状态。
+#[derive(Debug, Default)]
+struct CandidateStateScratch {
+    states: Vec<Option<VehicleState>>,
+}
+
+impl Clone for CandidateStateScratch {
+    fn clone(&self) -> Self {
+        let mut states = Vec::with_capacity(self.states.capacity());
+        states.extend(self.states.iter().cloned());
+        Self { states }
+    }
+}
+
+impl PartialEq for CandidateStateScratch {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl CandidateStateScratch {
+    fn reserve_for_slots(&mut self, vehicle_slot_count: usize) {
+        let additional = vehicle_slot_count.saturating_sub(self.states.len());
+        self.states.reserve(additional);
+    }
+
+    fn begin(&mut self, vehicles: &[VehicleSlot]) {
+        self.states.clear();
+        self.states
+            .extend(vehicles.iter().map(|slot| slot.state.clone()));
+    }
+
+    fn state_mut(&mut self, handle: VehicleHandle) -> Option<&mut VehicleState> {
+        self.states.get_mut(handle.index()).and_then(Option::as_mut)
+    }
+
+    fn commit_into(&mut self, vehicles: &mut [VehicleSlot]) {
+        assert_eq!(
+            self.states.len(),
+            vehicles.len(),
+            "candidate state 数量必须与 vehicle slot 数量一致"
+        );
+        for (slot, next_state) in vehicles.iter_mut().zip(self.states.drain(..)) {
+            slot.state = next_state;
+        }
+    }
+
+    fn clear(&mut self) {
+        self.states.clear();
+    }
+}
+
 /// LaneFlow Core 的最小 runtime state。
 #[derive(Clone, Debug, PartialEq)]
 pub struct CoreWorld {
@@ -53,6 +105,7 @@ pub struct CoreWorld {
     vehicle_handles: IndexMap<String, VehicleHandle>,
     free_vehicle_indices: Vec<usize>,
     vehicle_update_order: Vec<VehicleHandle>,
+    candidate_state_scratch: CandidateStateScratch,
     occupancy_scratch: OccupancyScratch,
     longitudinal_scratch: LongitudinalScratch,
 }
@@ -89,6 +142,7 @@ impl CoreWorld {
             vehicle_handles: IndexMap::new(),
             free_vehicle_indices: Vec::new(),
             vehicle_update_order: Vec::new(),
+            candidate_state_scratch: CandidateStateScratch::default(),
             occupancy_scratch: OccupancyScratch::default(),
             longitudinal_scratch: LongitudinalScratch::default(),
         };
@@ -351,6 +405,8 @@ impl CoreWorld {
 
         self.vehicle_handles.insert(external_id, handle);
         self.vehicle_update_order.push(handle);
+        self.candidate_state_scratch
+            .reserve_for_slots(self.vehicles.len());
         Ok(handle)
     }
 
@@ -410,52 +466,53 @@ impl CoreWorld {
         self.rebuild_occupancy_and_leaders()?;
         self.rebuild_longitudinal_motions()?;
 
-        // 为失败原子性只克隆紧凑运行态，避免每 tick 复制 external ID registry 字符串。
-        let mut next_vehicle_states: Vec<_> = self
-            .vehicles
-            .iter()
-            .map(|slot| slot.state.clone())
-            .collect();
+        let mut candidate_states = std::mem::take(&mut self.candidate_state_scratch);
+        candidate_states.begin(&self.vehicles);
         let mut events = Vec::new();
-        for vehicle_handle in &self.vehicle_update_order {
-            let Some(current_slot) = self
-                .vehicles
-                .get(vehicle_handle.index())
-                .filter(|slot| slot.generation == vehicle_handle.generation())
-            else {
-                continue;
-            };
-            if current_slot.state.is_none() {
-                continue;
+        let advance_result = (|| {
+            for vehicle_handle in &self.vehicle_update_order {
+                let Some(current_slot) = self
+                    .vehicles
+                    .get(vehicle_handle.index())
+                    .filter(|slot| slot.generation == vehicle_handle.generation())
+                else {
+                    continue;
+                };
+                if current_slot.state.is_none() {
+                    continue;
+                }
+
+                let Some(vehicle) = candidate_states.state_mut(*vehicle_handle) else {
+                    continue;
+                };
+
+                let Some(motion) = self.longitudinal_scratch.motion(*vehicle_handle) else {
+                    debug_assert_eq!(vehicle.status, VehicleStatus::Completed);
+                    continue;
+                };
+                Self::advance_vehicle(
+                    &self.lane_graph,
+                    &self.routes,
+                    self.fixed_delta_time_ms,
+                    next_tick_index,
+                    vehicle,
+                    motion,
+                    &mut events,
+                )?;
             }
+            Ok(())
+        })();
 
-            let Some(vehicle) = next_vehicle_states
-                .get_mut(vehicle_handle.index())
-                .and_then(Option::as_mut)
-            else {
-                continue;
-            };
-
-            let Some(motion) = self.longitudinal_scratch.motion(*vehicle_handle) else {
-                debug_assert_eq!(vehicle.status, VehicleStatus::Completed);
-                continue;
-            };
-            Self::advance_vehicle(
-                &self.lane_graph,
-                &self.routes,
-                self.fixed_delta_time_ms,
-                next_tick_index,
-                vehicle,
-                motion,
-                &mut events,
-            )?;
+        if let Err(error) = advance_result {
+            candidate_states.clear();
+            self.candidate_state_scratch = candidate_states;
+            return Err(error);
         }
 
+        candidate_states.commit_into(&mut self.vehicles);
         self.tick_index = next_tick_index;
         self.time_ms = next_time_ms;
-        for (slot, next_state) in self.vehicles.iter_mut().zip(next_vehicle_states) {
-            slot.state = next_state;
-        }
+        self.candidate_state_scratch = candidate_states;
 
         Ok(StepResult {
             tick_index: next_tick_index,
@@ -1294,6 +1351,98 @@ mod tests {
         assert_eq!(world.time_ms(), 20);
         assert_eq!(result.tick_index, 1);
         assert_eq!(result.time_ms, 20);
+    }
+
+    #[test]
+    fn candidate_state_scratch_reuses_allocation_across_successful_ticks() {
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(10_000.0).expect("valid edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("valid lane graph");
+        let route = Route::try_new("R1", ["A"]).expect("valid route");
+        let (traffic_data, profile) = traffic_data(lane_graph, [route]);
+        let vehicle =
+            VehicleSpawnInput::active("V1", profile, "R1", 0, EdgeProgress::ZERO, Speed::ZERO);
+        let mut world =
+            CoreWorld::with_traffic_data(16, traffic_data, vec![vehicle]).expect("valid world");
+        let capacity = world.candidate_state_scratch.states.capacity();
+        let allocation = world.candidate_state_scratch.states.as_ptr();
+        assert!(capacity >= world.vehicles.len());
+        assert!(world.clone().candidate_state_scratch.states.capacity() >= capacity);
+
+        world.step(TickInput::new(16)).expect("first step succeeds");
+        assert!(world.candidate_state_scratch.states.is_empty());
+        assert_eq!(world.candidate_state_scratch.states.capacity(), capacity);
+        assert_eq!(world.candidate_state_scratch.states.as_ptr(), allocation);
+
+        world
+            .step(TickInput::new(16))
+            .expect("second step succeeds");
+
+        assert!(world.candidate_state_scratch.states.is_empty());
+        assert_eq!(world.candidate_state_scratch.states.capacity(), capacity);
+        assert_eq!(world.candidate_state_scratch.states.as_ptr(), allocation);
+    }
+
+    #[test]
+    fn candidate_state_scratch_is_restored_after_advance_failure() {
+        let lane_graph = LaneGraph::try_new([
+            LaneEdge::new(
+                "A",
+                EdgeLength::try_new(f64::MAX).expect("valid edge length"),
+                ["B"],
+            ),
+            LaneEdge::new(
+                "B",
+                EdgeLength::try_new(f64::MAX).expect("valid edge length"),
+                Vec::<String>::new(),
+            ),
+        ])
+        .expect("valid lane graph");
+        let route = Route::try_new("R1", ["A", "B"]).expect("valid route");
+        let (traffic_data, profile) = traffic_data(lane_graph, [route]);
+        let vehicle = VehicleSpawnInput::active(
+            "V1",
+            profile,
+            "R1",
+            0,
+            EdgeProgress::try_new(f64::MAX / 2.0).expect("valid progress"),
+            Speed::try_new(f64::MAX).expect("valid speed"),
+        );
+        let mut world =
+            CoreWorld::with_traffic_data(1_000, traffic_data, vec![vehicle]).expect("valid world");
+        let before = world.clone();
+        let vehicle = world.vehicle_handle("V1").expect("vehicle handle exists");
+        let capacity = world.candidate_state_scratch.states.capacity();
+        let allocation = world.candidate_state_scratch.states.as_ptr();
+        assert!(capacity >= world.vehicles.len());
+
+        let first_error = world
+            .step(TickInput::new(1_000))
+            .expect_err("overflowing route progress must fail");
+        std::assert_matches!(
+            first_error,
+            CoreError::NonFiniteRouteTravel {
+                vehicle: actual_vehicle,
+                ..
+            } if actual_vehicle == vehicle
+        );
+        assert_eq!(world, before);
+        assert!(world.candidate_state_scratch.states.is_empty());
+        assert_eq!(world.candidate_state_scratch.states.capacity(), capacity);
+        assert_eq!(world.candidate_state_scratch.states.as_ptr(), allocation);
+
+        let second_error = world
+            .step(TickInput::new(1_000))
+            .expect_err("repeated overflowing route progress must fail");
+        std::assert_matches!(second_error, CoreError::NonFiniteRouteTravel { .. });
+
+        assert_eq!(world, before);
+        assert!(world.candidate_state_scratch.states.is_empty());
+        assert_eq!(world.candidate_state_scratch.states.capacity(), capacity);
+        assert_eq!(world.candidate_state_scratch.states.as_ptr(), allocation);
     }
 
     #[test]

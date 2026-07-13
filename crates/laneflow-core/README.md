@@ -4,7 +4,7 @@
 
 本 crate 由 issue #9 初始化，作为 Core runtime 的实现边界。当前已在 v0.1 原型能力上对齐 v0.2 lane graph / route / ID handle 设计，并迁移到 v0.3 Vehicle Profile 与 Vehicle Following，提供 fixed-step tick、typed handle registry、lane graph / route validation、IIDM comfort control、emergency safe-speed、ballistic integration 与最终 no-overlap projection：
 
-- `CoreWorld`：保存固定步长、tick index、simulation time、lane graph、immutable Vehicle Profile registry、route / vehicle registry 和 stable update order，并在每个 tick 重建私有 occupancy / leader / longitudinal scratch；
+- `CoreWorld`：保存固定步长、tick index、simulation time、lane graph、immutable Vehicle Profile registry、route / vehicle registry 和 stable update order，并复用私有 candidate state / occupancy / leader / longitudinal scratch；
 - `TickInput` / `StepResult`：表达显式 tick 输入和 post-step 可观察输出；
 - `CoreError`：表达 fixed delta、tick delta mismatch、时间溢出、lane graph / route / vehicle 静态校验、物理重叠、leader / longitudinal 非有限计算、stale handle、route lifecycle 和数值校验错误；
 - `LaneGraph` / `LaneEdge` / `EdgeLength`：表达 lane graph 输入，并在初始化时把 external edge ID 解析为 `EdgeHandle` runtime 连接；
