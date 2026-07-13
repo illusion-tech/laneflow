@@ -152,7 +152,7 @@ production loader 使用 fail-fast，阶段顺序为：
 
 阶段 1 的 shape error 按 parser traversal 返回准确路径；成功反序列化后的 validation 按上述 canonical 顺序和数组输入顺序执行。
 
-Serde/`serde_json` 负责 syntax、required field、type 和 unknown field。private DTO 使用 `deny_unknown_fields`，与 schema 的 `additionalProperties: false` 对齐。
+Serde/`serde_json` 负责 syntax、required field、type 和 unknown field。private DTO 使用 `#[serde(deny_unknown_fields)]` 属性，与 schema 的 `additionalProperties: false` 对齐。
 
 external ID、edge length、route topology 和 Vehicle Profile invariant 通过 Core constructors 校验。data crate 可以附加输入 index/path context，但不得用第二份正则、epsilon 或 route algorithm 重新判断。
 
