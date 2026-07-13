@@ -1,6 +1,10 @@
+mod common;
+
+use common::world_with_test_profile;
 use laneflow_core::{
-    CoreError, CoreEvent, CoreWorld, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress, LaneEdge,
-    LaneGraph, Route, Speed, TickInput, VehicleSpawnInput, VehicleState, VehicleStatus,
+    Acceleration, CoreError, CoreEvent, CoreWorld, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress,
+    LaneEdge, LaneGraph, Route, Speed, TickInput, VehicleProfileHandle, VehicleSpawnInput,
+    VehicleState, VehicleStatus,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -42,7 +46,7 @@ fn assert_close(actual: f64, expected: f64) {
     );
 }
 
-fn canonical_world(vehicle: VehicleSpawnInput) -> CoreWorld {
+fn canonical_world(vehicle: impl FnOnce(VehicleProfileHandle) -> VehicleSpawnInput) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([
         LaneEdge::new("A", edge_length(10.0), ["B"]),
         LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
@@ -50,7 +54,8 @@ fn canonical_world(vehicle: VehicleSpawnInput) -> CoreWorld {
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
 
-    CoreWorld::with_traffic_data(1000, lane_graph, [route], vec![vehicle]).expect("valid world")
+    world_with_test_profile(1_000, lane_graph, [route], |profile| vec![vehicle(profile)])
+        .expect("valid world")
 }
 
 fn vehicle_by_id<'a>(world: &'a CoreWorld, id: &str) -> &'a VehicleState {
@@ -106,8 +111,9 @@ fn event_views(world: &CoreWorld, events: &[CoreEvent]) -> Vec<EventView> {
 
 #[test]
 fn canonical_fixture_ticks_match_design() {
-    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(6.0));
-    let mut world = canonical_world(vehicle);
+    let mut world = canonical_world(|profile| {
+        VehicleSpawnInput::active("V1", profile, "R", 0, progress(0.0), speed(6.0))
+    });
 
     let tick1 = world.step(TickInput::new(1000)).expect("tick 1 succeeds");
     assert_eq!(tick1.tick_index, 1);
@@ -155,6 +161,8 @@ fn canonical_fixture_ticks_match_design() {
     assert_eq!(vehicle.status, VehicleStatus::Completed);
     assert_eq!(vehicle.route_edge_index, 1);
     assert_close(vehicle.edge_progress.value(), 5.0);
+    assert_eq!(vehicle.current_speed, Speed::ZERO);
+    assert_eq!(vehicle.applied_acceleration, Acceleration::ZERO);
 
     let tick4 = world.step(TickInput::new(1000)).expect("tick 4 succeeds");
     assert_eq!(tick4.tick_index, 4);
@@ -175,9 +183,17 @@ fn single_tick_can_cross_multiple_edges_in_route_order() {
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B", "C"]).expect("valid route");
-    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(30.0));
-    let mut world = CoreWorld::with_traffic_data(1000, lane_graph, [route], vec![vehicle])
-        .expect("valid world");
+    let mut world = world_with_test_profile(1_000, lane_graph, [route], |profile| {
+        vec![VehicleSpawnInput::active(
+            "V1",
+            profile,
+            "R",
+            0,
+            progress(0.0),
+            speed(30.0),
+        )]
+    })
+    .expect("valid world");
 
     let result = world.step(TickInput::new(1000)).expect("step succeeds");
 
@@ -225,9 +241,17 @@ fn repeated_edge_route_uses_route_edge_index_to_disambiguate_position() {
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B", "A"]).expect("valid repeated-edge route");
-    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(30.0));
-    let mut world = CoreWorld::with_traffic_data(1000, lane_graph, [route], vec![vehicle])
-        .expect("valid world");
+    let mut world = world_with_test_profile(1_000, lane_graph, [route], |profile| {
+        vec![VehicleSpawnInput::active(
+            "V1",
+            profile,
+            "R",
+            0,
+            progress(0.0),
+            speed(30.0),
+        )]
+    })
+    .expect("valid world");
 
     let result = world.step(TickInput::new(1000)).expect("step succeeds");
 
@@ -269,7 +293,7 @@ fn repeated_edge_route_uses_route_edge_index_to_disambiguate_position() {
 
 #[test]
 fn event_order_uses_initial_stable_update_order_not_input_order() {
-    fn world_with_vehicle_order(vehicles: Vec<VehicleSpawnInput>) -> CoreWorld {
+    fn world_with_vehicle_order(reverse_input: bool) -> CoreWorld {
         let lane_graph = LaneGraph::try_new([
             LaneEdge::new("A", edge_length(1.0), ["B"]),
             LaneEdge::new("B", edge_length(1.0), std::iter::empty::<&str>()),
@@ -277,13 +301,20 @@ fn event_order_uses_initial_stable_update_order_not_input_order() {
         .expect("valid lane graph");
         let route = Route::try_new("R", ["A", "B"]).expect("valid route");
 
-        CoreWorld::with_traffic_data(1000, lane_graph, [route], vehicles).expect("valid world")
+        world_with_test_profile(1_000, lane_graph, [route], |profile| {
+            let v1 = VehicleSpawnInput::active("V1", profile, "R", 0, progress(0.0), speed(2.0));
+            let v2 = VehicleSpawnInput::active("V2", profile, "R", 0, progress(0.0), speed(2.0));
+            if reverse_input {
+                vec![v2, v1]
+            } else {
+                vec![v1, v2]
+            }
+        })
+        .expect("valid world")
     }
 
-    let v1 = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(2.0));
-    let v2 = VehicleSpawnInput::active("V2", "R", 0, progress(0.0), speed(2.0));
-    let mut first = world_with_vehicle_order(vec![v2.clone(), v1.clone()]);
-    let mut second = world_with_vehicle_order(vec![v1, v2]);
+    let mut first = world_with_vehicle_order(true);
+    let mut second = world_with_vehicle_order(false);
 
     let first_events = first
         .step(TickInput::new(1000))
@@ -310,14 +341,16 @@ fn event_order_uses_initial_stable_update_order_not_input_order() {
 
 #[test]
 fn epsilon_snap_crosses_boundary_when_tick_has_travel() {
-    let vehicle = VehicleSpawnInput::active(
-        "V1",
-        "R",
-        0,
-        progress(10.0 - EDGE_BOUNDARY_EPSILON / 2.0),
-        speed(EDGE_BOUNDARY_EPSILON * 1.25),
-    );
-    let mut world = canonical_world(vehicle);
+    let mut world = canonical_world(|profile| {
+        VehicleSpawnInput::active(
+            "V1",
+            profile,
+            "R",
+            0,
+            progress(10.0 - EDGE_BOUNDARY_EPSILON / 2.0),
+            speed(EDGE_BOUNDARY_EPSILON * 1.25),
+        )
+    });
 
     let result = world.step(TickInput::new(1000)).expect("step succeeds");
 
@@ -340,8 +373,9 @@ fn epsilon_snap_crosses_boundary_when_tick_has_travel() {
 
 #[test]
 fn zero_speed_at_boundary_does_not_transition() {
-    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(10.0), Speed::ZERO);
-    let mut world = canonical_world(vehicle);
+    let mut world = canonical_world(|profile| {
+        VehicleSpawnInput::active("V1", profile, "R", 0, progress(10.0), Speed::ZERO)
+    });
 
     let result = world.step(TickInput::new(1000)).expect("step succeeds");
 
@@ -354,25 +388,32 @@ fn zero_speed_at_boundary_does_not_transition() {
 
 #[test]
 fn completed_vehicle_initial_state_must_be_at_route_end_and_is_snapped() {
-    let vehicle = VehicleSpawnInput::completed(
-        "V1",
-        "R",
-        1,
-        progress(5.0 - EDGE_BOUNDARY_EPSILON / 2.0),
-        speed(8.0),
-    );
-
-    let world = canonical_world(vehicle);
+    let world = canonical_world(|profile| {
+        VehicleSpawnInput::completed(
+            "V1",
+            profile,
+            "R",
+            1,
+            progress(5.0 - EDGE_BOUNDARY_EPSILON / 2.0),
+        )
+    });
 
     let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.status, VehicleStatus::Completed);
     assert_eq!(vehicle.route_edge_index, 1);
     assert_close(vehicle.edge_progress.value(), 5.0);
-    assert_eq!(vehicle.speed.value(), 8.0);
+    assert_eq!(vehicle.current_speed, Speed::ZERO);
 
-    let invalid_middle = VehicleSpawnInput::completed("V2", "R", 0, progress(10.0), speed(1.0));
-    let error = canonical_world_result(vec![invalid_middle])
-        .expect_err("completed vehicle in middle of route must fail");
+    let error = canonical_world_result(|profile| {
+        vec![VehicleSpawnInput::completed(
+            "V2",
+            profile,
+            "R",
+            0,
+            progress(10.0),
+        )]
+    })
+    .expect_err("completed vehicle in middle of route must fail");
     std::assert_matches!(
         error,
         CoreError::InvalidCompletedVehicleState {
@@ -384,9 +425,16 @@ fn completed_vehicle_initial_state_must_be_at_route_end_and_is_snapped() {
         } if vehicle_id == "V2" && route_id == "R"
     );
 
-    let invalid_progress = VehicleSpawnInput::completed("V3", "R", 1, progress(1.0), speed(1.0));
-    let error = canonical_world_result(vec![invalid_progress])
-        .expect_err("completed vehicle before route end must fail");
+    let error = canonical_world_result(|profile| {
+        vec![VehicleSpawnInput::completed(
+            "V3",
+            profile,
+            "R",
+            1,
+            progress(1.0),
+        )]
+    })
+    .expect_err("completed vehicle before route end must fail");
     std::assert_matches!(
         error,
         CoreError::InvalidCompletedVehicleState {
@@ -399,7 +447,9 @@ fn completed_vehicle_initial_state_must_be_at_route_end_and_is_snapped() {
     );
 }
 
-fn canonical_world_result(vehicles: Vec<VehicleSpawnInput>) -> Result<CoreWorld, CoreError> {
+fn canonical_world_result(
+    vehicles: impl FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>,
+) -> Result<CoreWorld, CoreError> {
     let lane_graph = LaneGraph::try_new([
         LaneEdge::new("A", edge_length(10.0), ["B"]),
         LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
@@ -407,7 +457,7 @@ fn canonical_world_result(vehicles: Vec<VehicleSpawnInput>) -> Result<CoreWorld,
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
 
-    CoreWorld::with_traffic_data(1000, lane_graph, [route], vehicles)
+    world_with_test_profile(1_000, lane_graph, [route], vehicles)
 }
 
 #[test]
@@ -419,9 +469,17 @@ fn non_finite_route_travel_returns_error_and_keeps_world_unchanged() {
     )])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A"]).expect("valid route");
-    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(f64::MAX));
-    let mut world = CoreWorld::with_traffic_data(2000, lane_graph, [route], vec![vehicle])
-        .expect("valid world");
+    let mut world = world_with_test_profile(2_000, lane_graph, [route], |profile| {
+        vec![VehicleSpawnInput::active(
+            "V1",
+            profile,
+            "R",
+            0,
+            progress(0.0),
+            speed(f64::MAX),
+        )]
+    })
+    .expect("valid world");
     let before = world.clone();
     let vehicle = world.vehicle_handle("V1").expect("vehicle handle exists");
 
@@ -449,9 +507,17 @@ fn finite_route_travel_does_not_overflow_in_millisecond_conversion() {
     )])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A"]).expect("valid route");
-    let vehicle = VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(f64::MAX));
-    let mut world = CoreWorld::with_traffic_data(1000, lane_graph, [route], vec![vehicle])
-        .expect("valid world");
+    let mut world = world_with_test_profile(1_000, lane_graph, [route], |profile| {
+        vec![VehicleSpawnInput::active(
+            "V1",
+            profile,
+            "R",
+            0,
+            progress(0.0),
+            speed(f64::MAX),
+        )]
+    })
+    .expect("valid world");
     let vehicle = world.vehicle_handle("V1").expect("vehicle handle exists");
 
     world
@@ -471,12 +537,13 @@ fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
-    let vehicles = vec![
-        VehicleSpawnInput::active("V1", "R", 0, progress(0.0), speed(2.0)),
-        VehicleSpawnInput::active("V2", "R", 1, progress(0.0), speed(f64::MAX)),
-    ];
-    let mut world =
-        CoreWorld::with_traffic_data(2000, lane_graph, [route], vehicles).expect("valid world");
+    let mut world = world_with_test_profile(2_000, lane_graph, [route], |profile| {
+        vec![
+            VehicleSpawnInput::active("V1", profile, "R", 0, progress(0.0), speed(2.0)),
+            VehicleSpawnInput::active("V2", profile, "R", 1, progress(0.0), speed(f64::MAX)),
+        ]
+    })
+    .expect("valid world");
     let before = world.clone();
     let vehicle = world.vehicle_handle("V2").expect("vehicle handle exists");
 

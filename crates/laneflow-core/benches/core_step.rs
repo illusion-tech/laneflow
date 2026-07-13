@@ -7,7 +7,8 @@ use std::{hint::black_box, time::Duration};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use laneflow_core::{
-    CoreWorld, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed, TickInput,
+    CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph,
+    Route, Speed, TickInput, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
     VehicleSpawnInput,
 };
 
@@ -31,11 +32,12 @@ fn vehicle_external_id(index: usize) -> String {
     format!("vehicle-{index:05}-f0e1d2c3-b4a5-6789-0abc-def123456789")
 }
 
-fn vehicles(route_id: &str, speed: Speed) -> Vec<VehicleSpawnInput> {
+fn vehicles(profile: VehicleProfileHandle, route_id: &str, speed: Speed) -> Vec<VehicleSpawnInput> {
     (0..VEHICLE_COUNT)
         .map(|index| {
             VehicleSpawnInput::active(
                 vehicle_external_id(index),
+                profile,
                 route_id,
                 0,
                 EdgeProgress::ZERO,
@@ -43,6 +45,29 @@ fn vehicles(route_id: &str, speed: Speed) -> Vec<VehicleSpawnInput> {
             )
         })
         .collect()
+}
+
+fn traffic_data(lane_graph: LaneGraph, route: Route) -> (InitialTrafficData, VehicleProfileHandle) {
+    let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
+        "benchmark-profile",
+        IidmProfileSpec {
+            length: 4.5,
+            desired_speed: 13.9,
+            min_gap: 2.0,
+            time_headway: 1.5,
+            max_acceleration: 1.4,
+            comfortable_deceleration: 2.0,
+            emergency_deceleration: 4.0,
+        },
+    )
+    .expect("benchmark profile must be valid")])
+    .expect("benchmark profile registry must be valid");
+    let profile = registry
+        .profile_handle("benchmark-profile")
+        .expect("benchmark profile handle must exist");
+    let traffic_data = InitialTrafficData::try_new(lane_graph, [route], registry)
+        .expect("benchmark traffic data must be valid");
+    (traffic_data, profile)
 }
 
 fn steady_state_world() -> CoreWorld {
@@ -55,11 +80,11 @@ fn steady_state_world() -> CoreWorld {
     let route =
         Route::try_new("steady-route", ["steady-edge"]).expect("steady-state route must be valid");
 
+    let (traffic_data, profile) = traffic_data(lane_graph, route);
     CoreWorld::with_traffic_data(
         FIXED_DELTA_TIME_MS,
-        lane_graph,
-        [route],
-        vehicles("steady-route", speed(1.0)),
+        traffic_data,
+        vehicles(profile, "steady-route", speed(1.0)),
     )
     .expect("steady-state world must be valid")
 }
@@ -78,11 +103,12 @@ fn transition_heavy_world() -> CoreWorld {
     .expect("transition route must be valid");
     let seconds_per_step = FIXED_DELTA_TIME_MS as f64 / MILLISECONDS_PER_SECOND;
 
+    let (traffic_data, profile) = traffic_data(lane_graph, route);
     CoreWorld::with_traffic_data(
         FIXED_DELTA_TIME_MS,
-        lane_graph,
-        [route],
+        traffic_data,
         vehicles(
+            profile,
             "transition-route",
             speed(TRANSITION_EDGE_LENGTH / seconds_per_step),
         ),

@@ -2,10 +2,10 @@
 
 use crate::{
     error::CoreError,
-    handle::{RouteHandle, VehicleHandle},
+    handle::{RouteHandle, VehicleHandle, VehicleProfileHandle},
 };
 
-/// 车辆速度，单位为 distance units per second。
+/// 车辆速度，单位为 meter per second。
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Speed(f64);
 
@@ -19,7 +19,7 @@ impl Speed {
             return Err(CoreError::InvalidSpeed { speed: value });
         }
 
-        Ok(Self(value))
+        Ok(Self(canonicalize_zero(value)))
     }
 
     /// 返回底层数值。
@@ -28,7 +28,32 @@ impl Speed {
     }
 }
 
-/// 当前 route edge 内的 progress。
+/// 车辆在当前 tick 实际应用的纵向加速度，单位为 meter per second squared。
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct Acceleration(f64);
+
+impl Acceleration {
+    /// 零加速度。
+    pub const ZERO: Self = Self(0.0);
+
+    /// 创建经过校验的有符号加速度。
+    pub fn try_new(value: f64) -> Result<Self, CoreError> {
+        if !value.is_finite() {
+            return Err(CoreError::InvalidAcceleration {
+                acceleration: value,
+            });
+        }
+
+        Ok(Self(canonicalize_zero(value)))
+    }
+
+    /// 返回底层数值。
+    pub const fn value(self) -> f64 {
+        self.0
+    }
+}
+
+/// 车辆前保险杠在当前 route edge 内的 progress，单位为 meter。
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct EdgeProgress(f64);
 
@@ -44,13 +69,17 @@ impl EdgeProgress {
             });
         }
 
-        Ok(Self(value))
+        Ok(Self(canonicalize_zero(value)))
     }
 
     /// 返回底层数值。
     pub const fn value(self) -> f64 {
         self.0
     }
+}
+
+fn canonicalize_zero(value: f64) -> f64 {
+    if value == 0.0 { 0.0 } else { value }
 }
 
 /// 车辆运行状态。
@@ -70,14 +99,16 @@ pub enum VehicleStatus {
 pub struct VehicleSpawnInput {
     /// vehicle external ID。
     pub id: String,
+    /// immutable Vehicle Profile handle。
+    pub profile: VehicleProfileHandle,
     /// route external ID。
     pub route_id: String,
     /// 当前 route edge index。
     pub route_edge_index: usize,
-    /// 当前 edge 内 progress。
+    /// 车辆前保险杠在当前 edge 内的 progress。
     pub edge_progress: EdgeProgress,
-    /// 车辆配置或当前期望速度。
-    pub speed: Speed,
+    /// 初始当前速度。
+    pub initial_speed: Speed,
     /// 车辆运行状态。
     pub status: VehicleStatus,
 }
@@ -86,18 +117,20 @@ impl VehicleSpawnInput {
     /// 创建指定状态的 vehicle 输入。
     pub fn new(
         id: impl Into<String>,
+        profile: VehicleProfileHandle,
         route_id: impl Into<String>,
         route_edge_index: usize,
         edge_progress: EdgeProgress,
-        speed: Speed,
+        initial_speed: Speed,
         status: VehicleStatus,
     ) -> Self {
         Self {
             id: id.into(),
+            profile,
             route_id: route_id.into(),
             route_edge_index,
             edge_progress,
-            speed,
+            initial_speed,
             status,
         }
     }
@@ -105,53 +138,57 @@ impl VehicleSpawnInput {
     /// 创建 active vehicle 输入。
     pub fn active(
         id: impl Into<String>,
+        profile: VehicleProfileHandle,
         route_id: impl Into<String>,
         route_edge_index: usize,
         edge_progress: EdgeProgress,
-        speed: Speed,
+        initial_speed: Speed,
     ) -> Self {
         Self::new(
             id,
+            profile,
             route_id,
             route_edge_index,
             edge_progress,
-            speed,
+            initial_speed,
             VehicleStatus::Active,
         )
     }
 
-    /// 创建 stopped vehicle 输入。
+    /// 创建 stopped vehicle 输入，其初始运动状态固定为零。
     pub fn stopped(
         id: impl Into<String>,
+        profile: VehicleProfileHandle,
         route_id: impl Into<String>,
         route_edge_index: usize,
         edge_progress: EdgeProgress,
-        speed: Speed,
     ) -> Self {
         Self::new(
             id,
+            profile,
             route_id,
             route_edge_index,
             edge_progress,
-            speed,
+            Speed::ZERO,
             VehicleStatus::Stopped,
         )
     }
 
-    /// 创建 completed vehicle 输入。
+    /// 创建 completed vehicle 输入，其初始运动状态固定为零。
     pub fn completed(
         id: impl Into<String>,
+        profile: VehicleProfileHandle,
         route_id: impl Into<String>,
         route_edge_index: usize,
         edge_progress: EdgeProgress,
-        speed: Speed,
     ) -> Self {
         Self::new(
             id,
+            profile,
             route_id,
             route_edge_index,
             edge_progress,
-            speed,
+            Speed::ZERO,
             VehicleStatus::Completed,
         )
     }
@@ -162,14 +199,18 @@ impl VehicleSpawnInput {
 pub struct VehicleState {
     /// vehicle runtime handle。
     pub handle: VehicleHandle,
+    /// immutable Vehicle Profile handle。
+    pub profile: VehicleProfileHandle,
     /// 当前 route handle。
     pub route: RouteHandle,
     /// 当前 route edge index。
     pub route_edge_index: usize,
-    /// 当前 edge 内 progress。
+    /// 车辆前保险杠在当前 edge 内的 progress。
     pub edge_progress: EdgeProgress,
-    /// 车辆配置或当前期望速度。
-    pub speed: Speed,
+    /// 当前纵向速度。
+    pub current_speed: Speed,
+    /// 当前 tick 实际应用的有符号纵向加速度。
+    pub applied_acceleration: Acceleration,
     /// 车辆运行状态。
     pub status: VehicleStatus,
 }
@@ -177,27 +218,22 @@ pub struct VehicleState {
 impl VehicleState {
     pub(crate) fn new(
         handle: VehicleHandle,
+        profile: VehicleProfileHandle,
         route: RouteHandle,
         route_edge_index: usize,
         edge_progress: EdgeProgress,
-        speed: Speed,
+        current_speed: Speed,
         status: VehicleStatus,
     ) -> Self {
         Self {
             handle,
+            profile,
             route,
             route_edge_index,
             edge_progress,
-            speed,
+            current_speed,
+            applied_acceleration: Acceleration::ZERO,
             status,
-        }
-    }
-
-    /// 返回当前 step 使用的有效速度。
-    pub fn effective_speed(&self) -> Speed {
-        match self.status {
-            VehicleStatus::Active => self.speed,
-            VehicleStatus::Stopped | VehicleStatus::Completed => Speed::ZERO,
         }
     }
 }
@@ -209,6 +245,8 @@ pub struct VehicleDespawnRecord {
     pub handle: VehicleHandle,
     /// 被移除的 vehicle external ID。
     pub external_id: String,
+    /// 移除时绑定的 immutable Vehicle Profile handle。
+    pub profile: VehicleProfileHandle,
     /// 移除时绑定的 route handle。
     pub route: RouteHandle,
     /// 移除时的 vehicle 状态。

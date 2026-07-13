@@ -1,6 +1,9 @@
+mod common;
+
+use common::world_with_test_profile;
 use laneflow_core::{
-    CoreError, CoreWorld, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress, LaneEdge, LaneGraph,
-    Route, Speed, VehicleSpawnInput,
+    CoreError, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed,
+    VehicleProfileHandle, VehicleSpawnInput,
 };
 
 fn edge_length(value: f64) -> EdgeLength {
@@ -17,12 +20,14 @@ fn canonical_graph() -> LaneGraph {
 
 fn active_vehicle(
     id: &str,
+    profile: VehicleProfileHandle,
     route_id: &str,
     route_edge_index: usize,
     edge_progress: f64,
 ) -> VehicleSpawnInput {
     VehicleSpawnInput::active(
         id,
+        profile,
         route_id,
         route_edge_index,
         EdgeProgress::try_new(edge_progress).expect("valid progress"),
@@ -34,10 +39,10 @@ fn active_vehicle(
 fn valid_lane_graph_route_and_vehicle_can_initialize_world() {
     let lane_graph = canonical_graph();
     let route = Route::try_new("R1", ["A", "B", "A"]).expect("valid route");
-    let vehicle = active_vehicle("V1", "R1", 2, 3.0);
-
-    let world = CoreWorld::with_traffic_data(1000, lane_graph, [route], vec![vehicle])
-        .expect("valid world");
+    let world = world_with_test_profile(1_000, lane_graph, [route], |profile| {
+        vec![active_vehicle("V1", profile, "R1", 2, 3.0)]
+    })
+    .expect("valid world");
 
     let edge_a = world.edge_handle("A").expect("edge A handle exists");
     let edge_b = world.edge_handle("B").expect("edge B handle exists");
@@ -196,14 +201,14 @@ fn invalid_edge_lengths_are_rejected() {
 
 #[test]
 fn duplicate_route_id_is_rejected() {
-    let error = CoreWorld::with_traffic_data(
-        1000,
+    let error = world_with_test_profile(
+        1_000,
         canonical_graph(),
         [
             Route::try_new("R1", ["A"]).expect("valid route"),
             Route::try_new("R1", ["B"]).expect("valid route"),
         ],
-        Vec::new(),
+        |_| Vec::new(),
     )
     .expect_err("duplicate route id must fail");
 
@@ -243,7 +248,7 @@ fn invalid_route_edge_external_id_is_rejected() {
 #[test]
 fn unknown_route_edge_is_rejected() {
     let route = Route::try_new("R1", ["A", "missing"]).expect("valid route shape");
-    let error = CoreWorld::with_traffic_data(1000, canonical_graph(), [route], Vec::new())
+    let error = world_with_test_profile(1_000, canonical_graph(), [route], |_| Vec::new())
         .expect_err("unknown route edge must fail");
 
     std::assert_matches!(
@@ -261,7 +266,7 @@ fn unknown_route_edge_error_uses_registration_and_edge_sequence_order() {
         .expect("valid route shape");
     let second = Route::try_new("a-second", ["A", "third-missing"]).expect("valid route shape");
 
-    let error = CoreWorld::with_traffic_data(1000, canonical_graph(), [first, second], Vec::new())
+    let error = world_with_test_profile(1_000, canonical_graph(), [first, second], |_| Vec::new())
         .expect_err("the first unknown route edge must fail validation");
 
     std::assert_matches!(
@@ -280,7 +285,7 @@ fn disconnected_route_edge_is_rejected() {
     .expect("valid lane graph");
     let route = Route::try_new("R1", ["A", "B"]).expect("valid route shape");
 
-    let error = CoreWorld::with_traffic_data(1000, lane_graph, [route], Vec::new())
+    let error = world_with_test_profile(1_000, lane_graph, [route], |_| Vec::new())
         .expect_err("disconnected route must fail");
 
     std::assert_matches!(
@@ -296,13 +301,13 @@ fn disconnected_route_edge_is_rejected() {
 #[test]
 fn duplicate_vehicle_id_is_rejected() {
     let route = Route::try_new("R1", ["A"]).expect("valid route");
-    let vehicles = vec![
-        active_vehicle("V1", "R1", 0, 1.0),
-        active_vehicle("V1", "R1", 0, 2.0),
-    ];
-
-    let error = CoreWorld::with_traffic_data(1000, canonical_graph(), [route], vehicles)
-        .expect_err("duplicate vehicle id must fail");
+    let error = world_with_test_profile(1_000, canonical_graph(), [route], |profile| {
+        vec![
+            active_vehicle("V1", profile, "R1", 0, 1.0),
+            active_vehicle("V1", profile, "R1", 0, 2.0),
+        ]
+    })
+    .expect_err("duplicate vehicle id must fail");
 
     std::assert_matches!(error, CoreError::DuplicateVehicleId { vehicle_id } if vehicle_id == "V1");
 }
@@ -310,10 +315,10 @@ fn duplicate_vehicle_id_is_rejected() {
 #[test]
 fn unknown_vehicle_route_is_rejected() {
     let route = Route::try_new("R1", ["A"]).expect("valid route");
-    let vehicle = active_vehicle("V1", "missing", 0, 1.0);
-
-    let error = CoreWorld::with_traffic_data(1000, canonical_graph(), [route], vec![vehicle])
-        .expect_err("unknown vehicle route must fail");
+    let error = world_with_test_profile(1_000, canonical_graph(), [route], |profile| {
+        vec![active_vehicle("V1", profile, "missing", 0, 1.0)]
+    })
+    .expect_err("unknown vehicle route must fail");
 
     std::assert_matches!(
         error,
@@ -327,10 +332,10 @@ fn unknown_vehicle_route_is_rejected() {
 #[test]
 fn vehicle_route_edge_index_out_of_range_is_rejected() {
     let route = Route::try_new("R1", ["A"]).expect("valid route");
-    let vehicle = active_vehicle("V1", "R1", 1, 1.0);
-
-    let error = CoreWorld::with_traffic_data(1000, canonical_graph(), [route], vec![vehicle])
-        .expect_err("invalid vehicle route edge index must fail");
+    let error = world_with_test_profile(1_000, canonical_graph(), [route], |profile| {
+        vec![active_vehicle("V1", profile, "R1", 1, 1.0)]
+    })
+    .expect_err("invalid vehicle route edge index must fail");
 
     std::assert_matches!(
         error,
@@ -346,10 +351,10 @@ fn vehicle_route_edge_index_out_of_range_is_rejected() {
 #[test]
 fn vehicle_edge_progress_above_edge_length_is_rejected() {
     let route = Route::try_new("R1", ["A"]).expect("valid route");
-    let vehicle = active_vehicle("V1", "R1", 0, 11.0);
-
-    let error = CoreWorld::with_traffic_data(1000, canonical_graph(), [route], vec![vehicle])
-        .expect_err("edge progress above edge length must fail");
+    let error = world_with_test_profile(1_000, canonical_graph(), [route], |profile| {
+        vec![active_vehicle("V1", profile, "R1", 0, 11.0)]
+    })
+    .expect_err("edge progress above edge length must fail");
 
     std::assert_matches!(
         error,
@@ -365,7 +370,7 @@ fn vehicle_edge_progress_above_edge_length_is_rejected() {
 #[test]
 fn validation_failure_does_not_return_partial_world() {
     let route = Route::try_new("R1", ["A", "missing"]).expect("valid route shape");
-    let result = CoreWorld::with_traffic_data(1000, canonical_graph(), [route], Vec::new());
+    let result = world_with_test_profile(1_000, canonical_graph(), [route], |_| Vec::new());
 
     assert!(result.is_err());
 }

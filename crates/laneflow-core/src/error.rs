@@ -1,6 +1,6 @@
 //! Core runtime 的错误类型。
 
-use crate::{RouteHandle, VehicleHandle};
+use crate::{RouteHandle, VehicleHandle, VehicleProfileHandle, VehicleStatus};
 
 /// Core runtime 暴露给调用方的错误。
 #[derive(Clone, Debug, thiserror::Error)]
@@ -21,6 +21,9 @@ pub enum CoreError {
     /// speed 必须是 finite 且大于或等于 0。
     #[error("speed 无效：{speed}")]
     InvalidSpeed { speed: f64 },
+    /// acceleration 必须是 finite 有符号数值。
+    #[error("acceleration 无效：{acceleration}")]
+    InvalidAcceleration { acceleration: f64 },
     /// edge progress 必须是 finite 且大于或等于 0。
     #[error("edge progress 无效：{edge_progress}")]
     InvalidEdgeProgress { edge_progress: f64 },
@@ -91,6 +94,21 @@ pub enum CoreError {
     /// vehicle id 在 world 内必须唯一。
     #[error("vehicle id 重复：{vehicle_id}")]
     DuplicateVehicleId { vehicle_id: String },
+    /// vehicle 引用的 Vehicle Profile handle 必须属于当前 world registry。
+    #[error("vehicle `{vehicle_id}` 引用了未知的 Vehicle Profile handle：{profile:?}")]
+    UnknownVehicleProfileHandle {
+        vehicle_id: String,
+        profile: VehicleProfileHandle,
+    },
+    /// inactive vehicle 的初始运动状态必须为零。
+    #[error(
+        "inactive vehicle `{vehicle_id}` 的初始速度必须为 0：status={status:?}, initial_speed={initial_speed}"
+    )]
+    InvalidInactiveVehicleMotion {
+        vehicle_id: String,
+        status: VehicleStatus,
+        initial_speed: f64,
+    },
     /// vehicle 引用的 route 必须存在。
     #[error("vehicle `{vehicle_id}` 引用了不存在的 route：{route_id}")]
     UnknownVehicleRoute {
@@ -183,6 +201,10 @@ mod tests {
             "speed 无效：-1"
         );
         assert_eq!(
+            CoreError::InvalidAcceleration { acceleration: -2.5 }.to_string(),
+            "acceleration 无效：-2.5"
+        );
+        assert_eq!(
             CoreError::InvalidEdgeProgress {
                 edge_progress: f64::NAN
             }
@@ -205,6 +227,26 @@ mod tests {
             }
             .to_string(),
             "lane edge `A` 重复声明 connection target：B"
+        );
+        assert_eq!(
+            CoreError::UnknownVehicleProfileHandle {
+                vehicle_id: "V1".to_owned(),
+                profile: VehicleProfileHandle::new(1),
+            }
+            .to_string(),
+            format!(
+                "vehicle `V1` 引用了未知的 Vehicle Profile handle：{:?}",
+                VehicleProfileHandle::new(1)
+            )
+        );
+        assert_eq!(
+            CoreError::InvalidInactiveVehicleMotion {
+                vehicle_id: "V1".to_owned(),
+                status: VehicleStatus::Stopped,
+                initial_speed: 1.0,
+            }
+            .to_string(),
+            "inactive vehicle `V1` 的初始速度必须为 0：status=Stopped, initial_speed=1"
         );
         assert_eq!(
             CoreError::InvalidCompletedVehicleState {
