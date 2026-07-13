@@ -6,8 +6,17 @@ use laneflow_core::{
     Speed, TickInput, VehicleProfileHandle, VehicleSpawnInput, VehicleStatus,
 };
 
+const EPSILON: f64 = 1.0e-9;
+
 fn edge_length(value: f64) -> EdgeLength {
     EdgeLength::try_new(value).expect("valid edge length")
+}
+
+fn assert_close(actual: f64, expected: f64) {
+    assert!(
+        (actual - expected).abs() <= EPSILON,
+        "actual={actual}, expected={expected}"
+    );
 }
 
 fn single_edge_world(
@@ -85,9 +94,9 @@ fn active_zero_speed_accelerates_under_free_road_iidm() {
     let vehicles = world.vehicles().collect::<Vec<_>>();
     let vehicle = vehicles[0];
     assert_eq!(vehicle.status, VehicleStatus::Active);
-    assert_eq!(vehicle.current_speed.value(), 1.4);
-    assert_eq!(vehicle.applied_acceleration.value(), 1.4);
-    assert_eq!(vehicle.edge_progress.value(), 8.2);
+    assert_close(vehicle.current_speed.value(), 1.4);
+    assert_close(vehicle.applied_acceleration.value(), 1.4);
+    assert_close(vehicle.edge_progress.value(), 8.2);
 }
 
 #[test]
