@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Draft  
-**最后更新**: 2026-07-13  
+**最后更新**: 2026-07-14  
 **适用范围**: LaneFlow 初始版本路线图
 
 本文记录 LaneFlow 的稳定路线图。GitHub Project 负责当前执行状态，本文负责长期版本边界。
@@ -42,15 +42,17 @@
 
 目标：支持可信的前车避让和速度控制。
 
-设计输入：[`design/vehicle-following.md`](design/vehicle-following.md)、[`design/data-loading.md`](design/data-loading.md)、[`adr/0006-vehicle-following-control-and-safety.md`](adr/0006-vehicle-following-control-and-safety.md) 与 [`adr/0007-traffic-data-crate-and-loader-boundary.md`](adr/0007-traffic-data-crate-and-loader-boundary.md)。
+完成状态：2026-07-14 已完成。设计、实现、当前数据契约、确定性、不变量、性能与剩余风险的收口依据见[收口审阅基线](reference/v0.3-closure-review.md)。
+
+设计输入：[`design/vehicle-following.md`](design/vehicle-following.md)、[`design/data-loading.md`](design/data-loading.md)、[`design/data-format.md`](design/data-format.md)、[`adr/0006-vehicle-following-control-and-safety.md`](adr/0006-vehicle-following-control-and-safety.md)、[`adr/0007-traffic-data-crate-and-loader-boundary.md`](adr/0007-traffic-data-crate-and-loader-boundary.md) 与 [`adr/0008-pre-1.0-data-format-version-policy.md`](adr/0008-pre-1.0-data-format-version-policy.md)。
 
 范围：
 
-- leader vehicle detection
-- following distance
-- speed target
-- stop and resume
-- deterministic behavior tests
+- 当前 v0.3 schema、production loader 与 Vehicle Profile
+- 纵向 VehicleState、occupancy index 与 leader detection
+- IIDM comfort control、emergency safe-speed 与 no-overlap projection
+- 平滑跟驰、停止与恢复
+- 确定性、不变量、10k 性能与 100k 扩展性验证
 
 ## v0.4 Signals
 
