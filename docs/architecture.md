@@ -1,8 +1,8 @@
 # 架构
 
-**文档状态**: Draft  
-**最后更新**: 2026-06-17  
-**适用范围**: LaneFlow 初始架构说明
+**文档状态**: Accepted  
+**最后更新**: 2026-07-13  
+**适用范围**: LaneFlow 分层、Rust crate 依赖方向、Traffic Data 与 Core/Adapter 边界
 
 ## 1. 架构目标
 
@@ -19,15 +19,31 @@ LaneFlow 是一个引擎无关的轻量 NPC 车流 runtime。
 
 ```text
 Authoring Layer
-  ↓
-Traffic Data Layer
-  ↓
-LaneFlow Core
-  ↓
+  │
+  v
+Traffic Data Layer (`laneflow-data`)
+  │
+  v
+LaneFlow Core (`laneflow-core`)
+  │
+  v
 Engine Adapter Layer
-  ↓
+  │
+  v
 Presentation Layer
 ```
+
+v0.3 目标 Rust crate 依赖方向固定为：
+
+```text
+laneflow-data -> laneflow-core
+laneflow-core -X-> laneflow-data
+
+Engine Adapter -> laneflow-core
+Engine Adapter -> laneflow-data  (按需加载外部数据)
+```
+
+外部格式可以依赖 Core domain types 做 normalization；Core 不反向依赖 JSON、Serde、JSON Schema、文件系统或 Adapter。详细决策见 `adr/0007-traffic-data-crate-and-loader-boundary.md`。
 
 ## 3. Authoring Layer
 
@@ -55,6 +71,15 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 数据格式应尽量保持引擎无关。
 
+v0.3 目标 Rust workspace 中，Traffic Data Layer 由 `laneflow-data` 表达；具体落地由 #73 负责。它负责：
+
+- v0.2/v0.3 external package 与严格版本分流；
+- JSON syntax、wire shape、units 和字段路径诊断；
+- external ID 到 Core domain input 的转换；
+- 调用 Core constructors 完成 lane graph、route 和 Vehicle Profile normalization。
+
+`laneflow-data` 不拥有 fixed tick、runtime entity、world lifecycle 或 Engine asset I/O。初始 loader 接收内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
+
 ## 5. LaneFlow Core
 
 LaneFlow Core 负责运行时交通逻辑：
@@ -68,6 +93,10 @@ LaneFlow Core 负责运行时交通逻辑：
 - parking behavior
 
 Core 不依赖具体游戏引擎 API。
+
+Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTrafficData`、lane graph、route、Vehicle Profile、typed handle、registry/resolver 和全部 domain/runtime invariant。
+
+`InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，不拥有 tick、initial vehicles 或 runtime route generation。初始 route validation 与 runtime route registration 必须复用同一 Core 规则。
 
 ## 6. Engine Adapter Layer
 
@@ -83,6 +112,8 @@ Engine Adapter 负责把 Core 状态映射到具体引擎：
 
 Adapter 不应把引擎依赖引入 Core。
 
+Adapter 可以按需调用 `laneflow-data` 解析自身 asset pipeline 已读取的内存数据，但不得要求 Core 理解引擎路径、asset handle 或异步加载协议。
+
 ## 7. Presentation Layer
 
 Presentation Layer 负责用户可见效果：
@@ -95,4 +126,3 @@ Presentation Layer 负责用户可见效果：
 - 示例场景 UI
 
 Presentation 可以因引擎不同而完全不同。
-

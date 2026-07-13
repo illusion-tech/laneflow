@@ -1,7 +1,7 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-12  
+**最后更新**: 2026-07-13  
 **适用范围**: v0.3 Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、no-overlap、事件、确定性与性能验收  
 **关联文档**:
 
@@ -10,7 +10,9 @@
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0006-vehicle-following-control-and-safety.md`
+- `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `core-id-handles.md`
+- `data-loading.md`
 - `lane-graph.md`
 - `route-system.md`
 - `data-format.md`
@@ -146,6 +148,16 @@ Profile external ID 在 world 初始化时归一化为 opaque、world-scoped `Ve
 
 v0.3 profile registry 在 world 生命周期内不可变，不公开 runtime register/remove/mutate API。Core 提供 external ID 与 handle resolver；tick hot path 只读取 handle 和 compact profile data。
 
+### 4.4 Crate 与 loader 边界
+
+依据 ADR 0007，v0.3 production loader 位于 `laneflow-data`，依赖方向为 `laneflow-data -> laneflow-core`。Core 不依赖 Serde、JSON、JSON Schema 或文件系统。
+
+public loader 结果使用严格版本 variant：v0.2 与 v0.3 不共享一个以 optional profile 或空 registry 区分的结果类型。加载 v0.2 不得合成 default profile；v0.3 只由显式 `vehicleProfiles` 字段构造。
+
+Core 使用 `InitialTrafficData` 统一验证 lane graph、初始 routes 与 immutable profile registry。data crate 不重复实现 duplicate route、unknown edge、route continuity 或 profile invariant。loader 只接收内存 bytes/string，并返回版本化、完成 Core normalization 的结果，不创建 `CoreWorld`。
+
+wire DTO 在 #73 阶段保持私有。Vehicle Profile 使用 `IidmProfileSpec` 与 `VehicleProfile::try_new_iidm`，避免多个同类型位置参数；有效 profile 的字段保持私有，v0.3 不公开 model enum 或 controller trait。
+
 ## 5. Vehicle runtime state 与迁移
 
 v0.3 最小 state：
@@ -173,7 +185,7 @@ VehicleState
 - route completion 后 state 归零，并只产生一次 completed event。
 - desired speed、length 和 deceleration 参数只存在于 immutable profile，不复制进 mutable state。
 
-`Acceleration` 应使用 signed finite newtype；speed、distance 和 profile 参数继续使用各自经过 validation 的 newtype，不在 public API 散落无约束裸 `f64`。
+`Acceleration` 应使用 signed finite newtype。Vehicle Profile 参数通过 `IidmProfileSpec` 与 fallible constructor 一次性校验，并封装在私有字段中；v0.3 不要求为每个 profile 参数立即公开独立 newtype。
 
 ## 6. Leader detection 与 route-relative distance
 
