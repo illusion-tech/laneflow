@@ -382,7 +382,8 @@ impl CoreWorld {
 
     /// 推进一个 fixed-step tick。
     ///
-    /// 成功时，`StepResult` 使用 post-step tick/time；失败时 world 保持不变。
+    /// 成功时，`StepResult` 使用 post-step tick/time。失败时权威 tick/time、vehicle state
+    /// 与 events 保持不变；私有派生 scratch 可以重建，且不参与 `CoreWorld` 语义相等。
     pub fn step(&mut self, input: TickInput) -> Result<StepResult, CoreError> {
         if input.delta_time_ms != self.fixed_delta_time_ms {
             return Err(CoreError::TickDeltaMismatch {
