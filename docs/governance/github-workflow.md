@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active  
-**最后更新**: 2026-07-10  
+**最后更新**: 2026-07-14  
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
 ## 1. 工作流原则
@@ -193,6 +193,8 @@ CI 的初始目标是保证基础质量，不追求一次到位。
 - Rust workspace 格式检查通过：`cargo fmt --all -- --check`。
 - Rust workspace 测试通过：`cargo test --workspace --locked`。
 
+GitHub CodeQL、Secret Scanning 和 Dependabot 属于平台安全检查，其配置、状态语义和阻断规则见 `security-scanning.md`。GitHub 为当前 PR 产生的适用 CodeQL check 必须在 G3 前完成；缺失预期分析、失败或平台不可用不能解释为通过。
+
 后续根据实际技术栈继续增加 Markdown/YAML 语法检查、lint、schema validation、adapter build 和 example smoke test。新增 data spec、Adapter 或示例代码后，应同步增加对应专用门禁。
 
 ## 9. Release 规则
@@ -209,6 +211,8 @@ CI 的初始目标是保证基础质量，不追求一次到位。
 - 示例项目状态
 
 Release 说明可以引用 `docs/roadmap.md` 和相关 ADR。
+
+公开发布或对外分发前还必须按 `security-scanning.md` 重新验证 Code Scanning、Secret Scanning 和 Dependabot，历史零告警不能替代本次发布审计。
 
 ## 10. 合并后 G4 清场流程
 
