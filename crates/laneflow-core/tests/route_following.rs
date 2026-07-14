@@ -151,18 +151,18 @@ fn canonical_fixture_ticks_match_design() {
         VehicleSpawnInput::active("V1", profile, "R", 0, progress(0.0), speed(6.0))
     });
 
-    let tick1 = world.step(TickInput::new(1000)).expect("tick 1 succeeds");
+    let tick1 = world.step(TickInput::new(1_000)).expect("tick 1 succeeds");
     assert_eq!(tick1.tick_index, 1);
-    assert_eq!(tick1.time_ms, 1000);
+    assert_eq!(tick1.time_ms, 1_000);
     assert!(tick1.events.is_empty());
     let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.status, VehicleStatus::Active);
     assert_eq!(vehicle.route_edge_index, 0);
     assert_close(vehicle.edge_progress.value(), 6.0);
 
-    let tick2 = world.step(TickInput::new(1000)).expect("tick 2 succeeds");
+    let tick2 = world.step(TickInput::new(1_000)).expect("tick 2 succeeds");
     assert_eq!(tick2.tick_index, 2);
-    assert_eq!(tick2.time_ms, 2000);
+    assert_eq!(tick2.time_ms, 2_000);
     assert_eq!(
         event_views(&world, &tick2.events),
         vec![EventView::Changed {
@@ -180,9 +180,9 @@ fn canonical_fixture_ticks_match_design() {
     assert_eq!(vehicle.route_edge_index, 1);
     assert_close(vehicle.edge_progress.value(), 2.0);
 
-    let tick3 = world.step(TickInput::new(1000)).expect("tick 3 succeeds");
+    let tick3 = world.step(TickInput::new(1_000)).expect("tick 3 succeeds");
     assert_eq!(tick3.tick_index, 3);
-    assert_eq!(tick3.time_ms, 3000);
+    assert_eq!(tick3.time_ms, 3_000);
     assert_eq!(
         event_views(&world, &tick3.events),
         vec![EventView::Completed {
@@ -200,9 +200,9 @@ fn canonical_fixture_ticks_match_design() {
     assert_eq!(vehicle.current_speed, Speed::ZERO);
     assert_eq!(vehicle.applied_acceleration, Acceleration::ZERO);
 
-    let tick4 = world.step(TickInput::new(1000)).expect("tick 4 succeeds");
+    let tick4 = world.step(TickInput::new(1_000)).expect("tick 4 succeeds");
     assert_eq!(tick4.tick_index, 4);
-    assert_eq!(tick4.time_ms, 4000);
+    assert_eq!(tick4.time_ms, 4_000);
     assert!(tick4.events.is_empty());
     let vehicle = vehicle_by_id(&world, "V1");
     assert_eq!(vehicle.status, VehicleStatus::Completed);
@@ -231,7 +231,7 @@ fn single_tick_can_cross_multiple_edges_in_route_order() {
     })
     .expect("valid world");
 
-    let result = world.step(TickInput::new(1000)).expect("step succeeds");
+    let result = world.step(TickInput::new(1_000)).expect("step succeeds");
 
     assert_eq!(
         event_views(&world, &result.events),
@@ -289,7 +289,7 @@ fn repeated_edge_route_uses_route_edge_index_to_disambiguate_position() {
     })
     .expect("valid world");
 
-    let result = world.step(TickInput::new(1000)).expect("step succeeds");
+    let result = world.step(TickInput::new(1_000)).expect("step succeeds");
 
     assert_eq!(
         event_views(&world, &result.events),
@@ -372,11 +372,11 @@ fn event_order_uses_initial_stable_update_order_not_input_order() {
     let mut second = world_with_vehicle_order(false);
 
     let first_events = first
-        .step(TickInput::new(1000))
+        .step(TickInput::new(1_000))
         .expect("step succeeds")
         .events;
     let second_events = second
-        .step(TickInput::new(1000))
+        .step(TickInput::new(1_000))
         .expect("step succeeds")
         .events;
     let first_views = event_views(&first, &first_events);
@@ -408,7 +408,7 @@ fn epsilon_snap_crosses_boundary_when_tick_has_travel() {
         )
     });
 
-    let result = world.step(TickInput::new(1000)).expect("step succeeds");
+    let result = world.step(TickInput::new(1_000)).expect("step succeeds");
 
     assert_eq!(
         event_views(&world, &result.events),
@@ -433,7 +433,7 @@ fn stopped_vehicle_at_boundary_does_not_transition() {
         VehicleSpawnInput::stopped("V1", profile, "R", 0, progress(10.0))
     });
 
-    let result = world.step(TickInput::new(1000)).expect("step succeeds");
+    let result = world.step(TickInput::new(1_000)).expect("step succeeds");
 
     assert!(result.events.is_empty());
     let vehicle = vehicle_by_id(&world, "V1");
@@ -540,7 +540,7 @@ fn non_finite_longitudinal_travel_returns_error_and_keeps_world_unchanged() {
     let vehicle = world.vehicle_handle("V1").expect("vehicle handle exists");
 
     let error = world
-        .step(TickInput::new(2000))
+        .step(TickInput::new(2_000))
         .expect_err("non-finite route travel must fail");
 
     std::assert_matches!(
@@ -577,7 +577,7 @@ fn finite_route_travel_does_not_overflow_in_millisecond_conversion() {
     let vehicle = world.vehicle_handle("V1").expect("vehicle handle exists");
 
     world
-        .step(TickInput::new(1000))
+        .step(TickInput::new(1_000))
         .expect("finite one-second travel must succeed");
 
     let vehicle = world.vehicle(vehicle).expect("vehicle remains live");
@@ -604,7 +604,7 @@ fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
     let vehicle = world.vehicle_handle("V2").expect("vehicle handle exists");
 
     let error = world
-        .step(TickInput::new(2000))
+        .step(TickInput::new(2_000))
         .expect_err("later vehicle failure must fail the whole step");
 
     std::assert_matches!(

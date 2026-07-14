@@ -16,7 +16,8 @@
 6. `docs/governance/development-gates.md`
 7. `docs/governance/github-workflow.md`
 8. `docs/reference/commit-convention.md`
-9. `.github/pull_request_template.md`
+9. `docs/reference/rust-code-style.md`
+10. `.github/pull_request_template.md`
 
 任务涉及 Core、数据格式或 Adapter 时，还应参考对应 `.agents/skills/*/SKILL.md`、`docs/design/` 和 `docs/adr/`。
 
@@ -32,7 +33,7 @@
 
 Review 时关注：
 
-- 风格问题优先依据 `rustfmt`、`clippy`、仓库既有命名、模块组织和中文优先注释约定。
+- 风格问题优先依据 `rustfmt`、Clippy、`docs/reference/rust-code-style.md`、仓库既有命名、模块组织和中文优先注释约定；数字字面量评论应区分 Rust token 与字符串/外部格式，并限制在当前变更范围。
 - 架构问题必须对照 LaneFlow 分层、design / ADR 和切片范围，尤其检查 Core / data-format / Adapter 职责是否混杂。
 - 抽象建议必须说明它减少了什么重复、隔离了什么变化，或避免了什么长期耦合；不要建议无 Issue / design 依据的过早泛化。
 - Rust pattern 建议必须说明具体收益或风险，例如 ownership 语义、newtype / typed handle、trait 边界、`Result` / error 类型、模块可见性、失败原子性、API 可预测性或测试可验证性。

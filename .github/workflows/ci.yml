@@ -67,6 +67,7 @@ jobs:
             "docs/governance/security-scanning.md"
             "docs/reference/README.md"
             "docs/reference/commit-convention.md"
+            "docs/reference/rust-code-style.md"
             "docs/reference/validation-matrix.md"
             "xtask/Cargo.toml"
             "xtask/src/main.rs"

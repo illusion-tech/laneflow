@@ -16,6 +16,7 @@ LaneFlow 采用 GitHub-first 治理：Issue 管任务，PR 管合并证据，仓
 6. `docs/governance/github-workflow.md`
 7. `docs/governance/development-gates.md`
 8. `docs/governance/agent-development-guide.md`
+9. `docs/reference/rust-code-style.md`
 
 ## 2. 提 Issue
 
@@ -100,6 +101,8 @@ Refs: #12
 GitHub Issue、PR 和 Discussion 中形成的稳定结论，应回写到仓库文档。
 
 ## 8. 测试与验证
+
+Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rust-code-style.md` 中的仓库级可读性约定。数字字面量格式审阅只应覆盖当前变更范围；历史不一致应通过独立 Issue 有界清理。
 
 当前 CI 包含：
 
