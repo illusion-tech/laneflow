@@ -85,7 +85,7 @@ Agent 修改文档时应注意：
 Agent 应根据切片类型选择验证：
 
 - `docs-only`：Markdown 和链接基本检查。
-- `governance`：模板、路径、引用和 Issue 元数据 / 依赖关系审计一致性检查。
+- `governance`：模板、路径、引用和 Issue 元数据 / 依赖关系审计一致性检查；涉及许可证或依赖时运行 cargo-deny 并复核 GitHub Dependabot 状态。
 - `core-runtime`：单元测试、确定性行为测试。
 - `data-spec`：schema validation、示例数据检查。
 - `adapter`：adapter build、手工运行说明或截图。

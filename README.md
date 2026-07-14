@@ -82,6 +82,12 @@ LaneFlow 暂不追求以下能力：
 
 Data crate 只接收调用方提供的内存 bytes/string，不读取引擎路径或直接创建 `CoreWorld`。详细边界见 `docs/design/data-loading.md`、ADR 0007 与 ADR 0008。
 
+## 许可证
+
+LaneFlow 公开仓库采用 [Apache License 2.0](LICENSE)。`laneflow-core`、`laneflow-data` 与本仓库其他自有内容按 Apache-2.0-only 分发；第三方材料仍遵循其各自许可证。
+
+未来高级编辑器、城市级或分布式仿真、优化分析、企业 Adapter、云服务与商业支持可以在独立产品和独立许可证下交付。商业产品可以依赖开放 Core/Data，开放仓库不得依赖商业实现。详细边界与依赖审计规则见 `docs/adr/0002-dependency-and-licensing-constraints.md` 和 `docs/governance/dependency-security.md`。
+
 ## 项目治理
 
 LaneFlow 采用 GitHub-first 治理：

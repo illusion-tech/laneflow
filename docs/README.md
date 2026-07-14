@@ -29,6 +29,8 @@ docs/
 
 仓库安全扫描的期望配置、状态语义和发布阻断规则见 `docs/governance/security-scanning.md`。
 
+源代码许可证、开放/商业边界、Cargo 依赖许可证、RustSec 与 Dependabot 基线见 `docs/governance/dependency-security.md`。
+
 ## 推荐阅读顺序
 
 1. `README.md`
@@ -41,5 +43,6 @@ docs/
 8. `docs/governance/development-gates.md`
 9. `docs/governance/agent-development-guide.md`
 10. `docs/governance/security-scanning.md`
-11. `docs/adr/README.md`
-12. `docs/design/README.md`
+11. `docs/governance/dependency-security.md`
+12. `docs/adr/README.md`
+13. `docs/design/README.md`

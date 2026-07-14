@@ -7,6 +7,7 @@
 
 - 上游治理:
   - `../governance/development-gates.md`
+  - `../governance/dependency-security.md`
   - `../governance/security-scanning.md`
   - `commit-convention.md`
 - 模板:
@@ -27,7 +28,7 @@
 | 切片类型         | 必须的验证                                                                                         | 通常不需要                                  |
 | ---------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------- |
 | `docs-only`      | 文档可读性检查、链接有效、无行为变更声明                                                           | build、单元测试、schema 校验                |
-| `governance`     | 模板/路径/引用一致性、Issue 元数据 / 依赖关系审计一致性、受影响流程说明、CI 文件存在性；涉及安全设置时复核 GitHub 实际状态与扫描结果 | 运行时测试                                  |
+| `governance`     | 模板/路径/引用一致性、Issue 元数据 / 依赖关系审计一致性、受影响流程说明、CI 文件存在性；涉及安全或依赖设置时复核 GitHub 实际状态、cargo-deny 与扫描结果 | 运行时测试                                  |
 | `core-runtime`   | `cargo fmt --all -- --check`、`cargo test --workspace --locked`、确定性行为说明、Core API 影响说明 | adapter build、示例 smoke（除非影响主路径） |
 | `data-spec`      | schema/格式校验、兼容性与版本影响、示例数据影响                                                    | adapter build（除非协议联动）               |
 | `adapter`        | adapter build、手工场景验证、transform 同步验证、Core 依赖方向检查                                 | 跨引擎全量测试（除非显式要求）              |
@@ -42,7 +43,7 @@
 1. Adapter 代码把引擎依赖泄漏进 Core。
 2. 数据格式变化没有文档或版本说明。
 3. Core API 破坏性变化没有 ADR 或 design 依据。
-4. 新增运行时依赖违反 `../adr/0002-dependency-and-licensing-constraints.md`。
+4. 新增或更新依赖违反 `../adr/0002-dependency-and-licensing-constraints.md` 或 `../governance/dependency-security.md`，或 cargo-deny 未通过。
 5. 必需验证未运行且没有原因说明。
 6. PR 声称完成父任务，但证据只覆盖子切片。
 7. 例外缺少原因、清理责任或后续 Issue。

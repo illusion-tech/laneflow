@@ -1,7 +1,7 @@
 # 提交规范
 
 **文档状态**: Active  
-**最后更新**: 2026-06-21  
+**最后更新**: 2026-07-14  
 **适用范围**: LaneFlow 的本地提交、AI Agent 提交说明、PR commit 审查和无需完整 PR 审查的小切片留痕
 
 ## 1. 目标
@@ -284,6 +284,14 @@ PR commit message 应通过仓库 CI 的提交信息检查：
 - `Slice` 使用 LaneFlow 支持的切片类型。
 - `Impact` 同时覆盖 `core-api`、`data-format` 和 `adapter-api`。
 
+Dependabot 无法生成 LaneFlow 的完整治理字段。为使依赖自动更新能够进入正常 PR 审阅，range 校验器只对以下机器提交提供窄例外：
+
+- Git author name 精确为 `dependabot[bot]`。
+- Git author email 精确为 `49699333+dependabot[bot]@users.noreply.github.com`。
+- 标题为非 breaking 的 `build(deps): <description>`。
+
+三个条件必须同时满足。人工依赖提交、其他 bot、其他 scope 和 breaking change 仍必须使用完整治理正文。该例外只豁免单个 bot commit 的正文格式，不豁免 PR 模板、测试、cargo-deny、CodeQL、review、Development 关联或 G3/G4。作者字段不是安全身份认证，因此该规则不能替代受保护分支和 required checks。
+
 本地可运行：
 
 ```powershell
@@ -303,6 +311,8 @@ cargo +1.96.0 run --locked -p xtask -- check-commit-message-file .git/COMMIT_EDI
 ```
 
 `check-commit-message-file` 会忽略 Git 提交模板、verbose commit 或 diffstat 生成的 `#` 注释行，再按最终提交正文执行同一套治理规则。
+
+本地 `commit-msg` hook 不应用 Dependabot 例外，因为本地提交没有可信的最终 bot author 上下文；人工提交即使使用 `build(deps)` 标题，也必须填写完整治理字段。
 
 本地运行必须显式传入 rev-range，避免默认 `HEAD` 扩大到历史祖先；CI 会根据 `pull_request` / `push` event 自动推导检查范围。
 

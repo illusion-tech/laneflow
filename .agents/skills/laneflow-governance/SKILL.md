@@ -13,6 +13,7 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 4. `docs/reference/commit-convention.md`
 5. `.github/pull_request_template.md`
 6. 涉及安全设置、扫描或公开发布时，额外阅读 `docs/governance/security-scanning.md`
+7. 涉及许可证、Cargo 依赖、RustSec、cargo-deny 或 Dependabot 时，额外阅读 `docs/governance/dependency-security.md`
 
 ## 工作流
 
@@ -92,6 +93,7 @@ Issue Gate Ledger 模板：
 - 必须通过 GitHub API / Checks 读取实际配置、最近适用分析和开放告警；404、403、disabled、not-configured、无分析或命令失败都不能记为零告警。
 - 修改 CodeQL、Secret Scanning、push protection 或 ruleset 时，先记录设计与开工 Gate，操作后保存设置前后和首次适用分析证据。
 - ruleset bypass 或 push protection bypass 不改变扫描结论；使用 bypass 时仍按例外规则记录原因、风险、接受边界和 Cleanup owner。
+- 源代码许可证、第三方许可证、cargo-deny 与 Dependabot 更新策略以 `docs/governance/dependency-security.md` 为事实源；新增或更新依赖的 PR 必须记录许可证、来源、漏洞和分发影响。
 
 ## 提交说明
 
