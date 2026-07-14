@@ -12,6 +12,7 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 3. `docs/governance/development-gates.md`
 4. `docs/reference/commit-convention.md`
 5. `.github/pull_request_template.md`
+6. 涉及安全设置、扫描或公开发布时，额外阅读 `docs/governance/security-scanning.md`
 
 ## 工作流
 
@@ -84,6 +85,13 @@ Issue Gate Ledger 模板：
 - 清场时只补 G4：在 Issue 发表 G4 comment，body 回链 permalink，Delivery PR 回链该 Issue G4；G4 `Gate 断言` 同样必须记录完整命令和 `已通过` 结果，运行 `check-gate-evidence g4` 成功后才可关闭 Issue。若发现元数据或依赖关系漏项，必须标记为补救记录并说明流程遗漏原因。
 - 本地分支不是长期 Development 关系证据；实施 PR 创建后必须关联 PR，或记录不适用原因。
 - 若遇到非模板创建的 Issue，不得默认接受；必须先补齐模板中的元数据审计和 Gate Ledger，再推进 G0。
+
+## 安全扫描
+
+- 安全设置、扫描 workflow、依赖策略或公开发布任务必须以 `docs/governance/security-scanning.md` 为长期事实源。
+- 必须通过 GitHub API / Checks 读取实际配置、最近适用分析和开放告警；404、403、disabled、not-configured、无分析或命令失败都不能记为零告警。
+- 修改 CodeQL、Secret Scanning、push protection 或 ruleset 时，先记录设计与开工 Gate，操作后保存设置前后和首次适用分析证据。
+- ruleset bypass 或 push protection bypass 不改变扫描结论；使用 bypass 时仍按例外规则记录原因、风险、接受边界和 Cleanup owner。
 
 ## 提交说明
 

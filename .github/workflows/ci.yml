@@ -60,6 +60,7 @@ jobs:
             "docs/governance/github-workflow.md"
             "docs/governance/development-gates.md"
             "docs/governance/agent-development-guide.md"
+            "docs/governance/security-scanning.md"
             "docs/reference/README.md"
             "docs/reference/commit-convention.md"
             "docs/reference/validation-matrix.md"

@@ -27,6 +27,8 @@ docs/
 
 语言约定：模板与治理规范中文优先，详见 `docs/governance/documentation-policy.md` 第 6 节。
 
+仓库安全扫描的期望配置、状态语义和发布阻断规则见 `docs/governance/security-scanning.md`。
+
 ## 推荐阅读顺序
 
 1. `README.md`
@@ -38,6 +40,6 @@ docs/
 7. `docs/governance/github-workflow.md`
 8. `docs/governance/development-gates.md`
 9. `docs/governance/agent-development-guide.md`
-10. `docs/adr/README.md`
-11. `docs/design/README.md`
-
+10. `docs/governance/security-scanning.md`
+11. `docs/adr/README.md`
+12. `docs/design/README.md`
