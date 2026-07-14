@@ -192,6 +192,7 @@ CI 的初始目标是保证基础质量，不追求一次到位。
 - PR / push commit message 符合 `docs/reference/commit-convention.md`。
 - Rust workspace 格式检查通过：`cargo fmt --all -- --check`。
 - Rust workspace 测试通过：`cargo test --workspace --locked`。
+- Rust 依赖政策通过：`Dependency policy` required check 中的 cargo-deny advisories、licenses、bans 和 sources 检查成功。
 
 GitHub CodeQL、Secret Scanning 和 Dependabot 属于平台安全检查，其配置、状态语义和阻断规则见 `security-scanning.md`。GitHub 为当前 PR 产生的适用 CodeQL check 必须在 G3 前完成；缺失预期分析、失败或平台不可用不能解释为通过。
 
@@ -212,7 +213,7 @@ GitHub CodeQL、Secret Scanning 和 Dependabot 属于平台安全检查，其配
 
 Release 说明可以引用 `docs/roadmap.md` 和相关 ADR。
 
-公开发布或对外分发前还必须按 `security-scanning.md` 重新验证 Code Scanning、Secret Scanning 和 Dependabot，历史零告警不能替代本次发布审计。
+公开发布或对外分发前还必须按 `security-scanning.md` 重新验证 Code Scanning、Secret Scanning 和 Dependabot，并按 `dependency-security.md` 复核源代码许可证、Cargo metadata、cargo-deny 和分发物 attribution；历史零告警不能替代本次发布审计。
 
 ## 10. 合并后 G4 清场流程
 

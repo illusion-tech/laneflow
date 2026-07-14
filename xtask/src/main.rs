@@ -20,6 +20,9 @@ const ALLOWED_SLICES: &[&str] = &[
 
 const REQUIRED_FIELDS: &[&str] = &["Gate", "Slice", "Impact", "Scope", "Validation", "Docs"];
 
+const DEPENDABOT_AUTHOR_NAME: &str = "dependabot[bot]";
+const DEPENDABOT_AUTHOR_EMAIL: &str = "49699333+dependabot[bot]@users.noreply.github.com";
+
 fn main() -> ExitCode {
     match run(env::args().skip(1).collect()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -99,6 +102,11 @@ fn check_commit_messages(explicit_range: Option<&str>) -> Result<(), String> {
     let mut errors = Vec::new();
     for commit_hash in &commits {
         let message = git(["log", "-1", "--format=%B", commit_hash])?;
+        let author_name = git(["log", "-1", "--format=%an", commit_hash])?;
+        let author_email = git(["log", "-1", "--format=%ae", commit_hash])?;
+        if is_allowed_dependabot_commit(author_name.trim(), author_email.trim(), &message) {
+            continue;
+        }
         errors.extend(validate_message(commit_hash, &message));
     }
 
@@ -117,6 +125,18 @@ fn check_commit_messages(explicit_range: Option<&str>) -> Result<(), String> {
         }
         Err(output)
     }
+}
+
+fn is_allowed_dependabot_commit(author_name: &str, author_email: &str, message: &str) -> bool {
+    if author_name != DEPENDABOT_AUTHOR_NAME || author_email != DEPENDABOT_AUTHOR_EMAIL {
+        return false;
+    }
+
+    let message = normalize_commit_message_line_endings(message);
+    let title = message.lines().next().unwrap_or_default();
+    title.starts_with("build(deps): ")
+        && valid_conventional_title(title)
+        && !title_has_breaking_bang(title)
 }
 
 fn commit_range_from_env() -> Result<String, String> {
@@ -1974,6 +1994,33 @@ Refs: #12
     #[test]
     fn accepts_breaking_change_bang() {
         assert!(valid_conventional_title("feat(core)!: 调整 tick API"));
+    }
+
+    #[test]
+    fn accepts_dependabot_dependency_commit_without_governance_body() {
+        assert!(is_allowed_dependabot_commit(
+            DEPENDABOT_AUTHOR_NAME,
+            DEPENDABOT_AUTHOR_EMAIL,
+            "build(deps): bump serde from 1.0.227 to 1.0.228\n"
+        ));
+    }
+
+    #[test]
+    fn rejects_human_commit_that_mimics_dependabot_title() {
+        assert!(!is_allowed_dependabot_commit(
+            "LaneFlow Maintainer",
+            "maintainer@example.com",
+            "build(deps): bump serde from 1.0.227 to 1.0.228\n"
+        ));
+    }
+
+    #[test]
+    fn rejects_dependabot_commit_outside_dependency_scope() {
+        assert!(!is_allowed_dependabot_commit(
+            DEPENDABOT_AUTHOR_NAME,
+            DEPENDABOT_AUTHOR_EMAIL,
+            "fix(core): change runtime behavior\n"
+        ));
     }
 
     #[test]

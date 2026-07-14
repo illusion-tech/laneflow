@@ -4,6 +4,7 @@ version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+license.workspace = true
 description = "引擎无关的 LaneFlow Core runtime crate。"
 publish = false
 

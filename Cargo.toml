@@ -6,6 +6,7 @@ resolver = "2"
 edition = "2024"
 rust-version = "1.96"
 repository = "https://github.com/illusion-tech/laneflow"
+license = "Apache-2.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
