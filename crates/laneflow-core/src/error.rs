@@ -322,7 +322,7 @@ mod tests {
             CoreError::NonFiniteRouteTravel {
                 vehicle: VehicleHandle::new(0, 0),
                 speed: f64::MAX,
-                delta_time_ms: 1000,
+                delta_time_ms: 1_000,
             }
             .to_string(),
             format!(
