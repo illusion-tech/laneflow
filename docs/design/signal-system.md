@@ -470,7 +470,7 @@ Signals 服从完整 Core step 总预算，不叠加专项预算：
 
 Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 不计入。10k 使用 20 samples、100k 使用 10 samples，warm-up 1 s、measurement 5 s，连续三轮读取 median point estimate 后再取三轮 median。必须记录 CPU、OS、rustc、target、power mode、commit 和 profile；环境变化时同机重跑 baseline/candidate。
 
-100k 只用于 scaling observation，不构成实时承诺。CI 只做 functional smoke 与 benchmark compile，不用共享 runner wall-clock 阻断。具体 workload、环境和结果进入 `../reference/v0.4-signals-validation.md`，不把单次测量写入本文。
+100k 只用于 scaling observation，不构成实时承诺。CI 只做 functional smoke 与 benchmark compile，不用共享 runner wall-clock 阻断。具体 workload、环境和结果见 [`v0.4-signals-validation.md`](../reference/v0.4-signals-validation.md)，不把单次测量写入本文。
 
 ## 14. Tests 与 canonical fixtures
 

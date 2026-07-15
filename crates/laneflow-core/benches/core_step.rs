@@ -9,10 +9,16 @@ use std::{hint::black_box, time::Duration};
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use laneflow_core::{CoreWorld, TickInput};
 
+#[path = "../tests/support/signals_validation_scenarios.rs"]
+mod signal_scenarios;
 #[path = "../tests/support/vehicle_following_scenarios.rs"]
-mod scenarios;
+mod vehicle_scenarios;
 
-use scenarios::{
+use signal_scenarios::{
+    GROUPS_PER_CONTROLLER, SIGNAL_SCALING_VEHICLE_COUNT, SIGNAL_STEP_COUNT, SIGNAL_VEHICLE_COUNT,
+    SignalScenario, SignalScenarioMode, VEHICLES_PER_ROUTE, signal_scenario,
+};
+use vehicle_scenarios::{
     FIXED_DELTA_TIME_MS, SCALING_VEHICLE_COUNT, STEP_COUNT, VEHICLE_COUNT, dense_platoon_world,
     free_flow_world, projection_event_count, projection_heavy_world, stop_and_go_world,
     transition_event_count, transition_heavy_world,
@@ -67,7 +73,37 @@ fn benchmark_single_step(
     });
 }
 
+fn assert_signal_counts(scenario: &SignalScenario, mode: SignalScenarioMode, vehicle_count: usize) {
+    let route_count = vehicle_count / VEHICLES_PER_ROUTE;
+    let controlled = !matches!(
+        mode,
+        SignalScenarioMode::NoSignals | SignalScenarioMode::AllNone
+    );
+    assert_eq!(scenario.route_count, route_count);
+    assert_eq!(
+        scenario.controller_count,
+        if controlled {
+            route_count / GROUPS_PER_CONTROLLER
+        } else {
+            0
+        }
+    );
+    assert_eq!(
+        scenario.group_count,
+        if controlled { route_count } else { 0 }
+    );
+    assert_eq!(
+        scenario.gate_count,
+        if mode == SignalScenarioMode::NoSignals {
+            0
+        } else {
+            route_count
+        }
+    );
+}
+
 fn benchmark_core_step(criterion: &mut Criterion) {
+    assert_eq!(SIGNAL_STEP_COUNT, STEP_COUNT);
     let free_flow = free_flow_world(VEHICLE_COUNT);
     let dense_platoon = dense_platoon_world(VEHICLE_COUNT);
     let stop_and_go = stop_and_go_world(VEHICLE_COUNT);
@@ -122,6 +158,29 @@ fn benchmark_core_step(criterion: &mut Criterion) {
     );
     transition_group.finish();
 
+    let signal_worlds = SignalScenarioMode::ALL.map(|mode| {
+        let scenario = signal_scenario(SIGNAL_VEHICLE_COUNT, mode);
+        assert_signal_counts(&scenario, mode, SIGNAL_VEHICLE_COUNT);
+        black_box(run_steps(&mut scenario.world.clone()));
+        (mode, scenario.world)
+    });
+    let mut signal_group = criterion.benchmark_group("signals_step_10k_60");
+    signal_group.sample_size(20);
+    signal_group.warm_up_time(Duration::from_secs(1));
+    signal_group.measurement_time(Duration::from_secs(5));
+    signal_group.throughput(Throughput::Elements(
+        (SIGNAL_VEHICLE_COUNT * STEP_COUNT) as u64,
+    ));
+    for (mode, world) in &signal_worlds {
+        benchmark_world(
+            &mut signal_group,
+            mode.benchmark_name(),
+            SIGNAL_VEHICLE_COUNT,
+            world,
+        );
+    }
+    signal_group.finish();
+
     if std::env::var_os("LANEFLOW_BENCH_100K").is_some() {
         let scaling_world = dense_platoon_world(SCALING_VEHICLE_COUNT);
         assert_eq!(run_steps(&mut scaling_world.clone()), 0);
@@ -140,6 +199,31 @@ fn benchmark_core_step(criterion: &mut Criterion) {
             &scaling_world,
         );
         group.finish();
+
+        let signal_scaling = signal_scenario(
+            SIGNAL_SCALING_VEHICLE_COUNT,
+            SignalScenarioMode::MixedOffsets,
+        );
+        assert_signal_counts(
+            &signal_scaling,
+            SignalScenarioMode::MixedOffsets,
+            SIGNAL_SCALING_VEHICLE_COUNT,
+        );
+        black_box(run_steps(&mut signal_scaling.world.clone()));
+        let mut signal_group = criterion.benchmark_group("signals_step_100k_60_observation");
+        signal_group.sample_size(10);
+        signal_group.warm_up_time(Duration::from_secs(1));
+        signal_group.measurement_time(Duration::from_secs(5));
+        signal_group.throughput(Throughput::Elements(
+            (SIGNAL_SCALING_VEHICLE_COUNT * STEP_COUNT) as u64,
+        ));
+        benchmark_world(
+            &mut signal_group,
+            SignalScenarioMode::MixedOffsets.benchmark_name(),
+            SIGNAL_SCALING_VEHICLE_COUNT,
+            &signal_scaling.world,
+        );
+        signal_group.finish();
     }
 }
 

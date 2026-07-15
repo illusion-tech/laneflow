@@ -975,7 +975,7 @@ impl CoreWorld {
                             .vehicle_profile(vehicle.profile)
                             .expect("live vehicle profile must exist")
                             .iidm();
-                        let signal_stop = if self.signals.is_empty() {
+                        let signal_stop = if !self.signal_state.has_restrictive_group() {
                             None
                         } else {
                             let horizon = self.signal_stop_horizon(vehicle)?;
