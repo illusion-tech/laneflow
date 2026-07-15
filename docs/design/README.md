@@ -13,11 +13,11 @@
 - `lane-graph.md`：车道图、连接关系、拓扑约束。
 - `route-system.md`：路线选择、路径跟随、目标点。
 - `vehicle-following.md`：前车避让、速度控制和安全距离。
-- `signal-system.md`：红绿灯、路口规则和信号相位。
+- `signal-system.md`：Accepted planned v0.4 Signals；StopLine/MovementGate、fixed-time phase、车辆合规、query/event、数据契约和性能边界。production current 在 #94 前仍为 v0.3。
 - `parking-system.md`：停车位、进出停车、占用状态。
 - `adapter-api.md`：Core 与 Engine Adapter 的接口边界。
 - `data-format.md`：lane graph、route 等外部数据格式、validation 和 loader 边界；Rust crate 所有权见 ADR 0007。
-- `data-loading.md`：当前 v0.3 Rust loader、严格版本闸口、Core normalization、错误与测试边界。
+- `data-loading.md`：当前 v0.3 Rust loader、严格版本闸口、Core normalization、错误与测试边界；planned v0.4 演进见 `signal-system.md`。
 - `example-scenarios.md`：示例场景和验证路径。
 
 ## 文档状态

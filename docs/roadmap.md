@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Draft  
-**最后更新**: 2026-07-14  
+**最后更新**: 2026-07-15  
 **适用范围**: LaneFlow 初始版本路线图
 
 本文记录 LaneFlow 的稳定路线图。GitHub Project 负责当前执行状态，本文负责长期版本边界。
@@ -58,12 +58,19 @@
 
 目标：支持基础红绿灯和路口通行规则。
 
+设计状态：2026-07-15 已完成 G1 冻结；实现尚未开始。Accepted 输入见 [`design/signal-system.md`](design/signal-system.md) 与 [`adr/0009-signal-indication-gate-and-policy-separation.md`](adr/0009-signal-indication-gate-and-policy-separation.md)。production current data/runtime 在 #94 原子切换前仍为 v0.3，不因设计冻结提前宣称 0.4 已实现。
+
 范围：
 
-- signal phase
-- signal state
-- vehicle stop line behavior
-- minimal intersection rule
+- current 0.4 static StopLine、MovementGate、SignalGroup、fixed-time Controller/Phase 与 strict loader；
+- absolute integer-time phase/aspect snapshot、只读 query 与稀疏事件；
+- protected-entry green、restrictive yellow/red、SignalStop 与 hard projection；
+- permission-aware route-occurrence traversal、排队、放行、确定性与失败原子性；
+- canonical fixtures、schema/loader/Core scenarios、10k/100k 性能与验证基线。
+
+实施链：#93 design/ADR → #94 static/data → #95 runtime/query/events → #96 compliance/traversal → #97 validation/performance → #18 closure。
+
+不覆盖：permissive movement、红灯右转/掉头、无保护左转、待行区专用语义、无信号优先级、conflict/reservation、actuated/adaptive controller 或 Adapter ABI；这些在 1.0 后按 versioned policy 与 maneuver/conflict domain 另行设计。
 
 ## v0.5 Parking
 

@@ -1,8 +1,8 @@
 # 架构
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-14  
-**适用范围**: LaneFlow 分层、Rust crate 依赖方向、Traffic Data 与 Core/Adapter 边界
+**最后更新**: 2026-07-15  
+**适用范围**: LaneFlow 分层、Rust crate 依赖方向、Traffic Data、Signals 与 Core/Adapter 边界
 
 ## 1. 架构目标
 
@@ -33,7 +33,7 @@ Engine Adapter Layer
 Presentation Layer
 ```
 
-v0.3 目标 Rust crate 依赖方向固定为：
+当前 Rust crate 依赖方向固定为：
 
 ```text
 laneflow-data -> laneflow-core
@@ -80,6 +80,8 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 `laneflow-data` 不拥有 fixed tick、runtime entity、world lifecycle 或 Engine asset I/O。初始 loader 接收内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
 
+planned v0.4 将在保持相同依赖方向的前提下增加 StopLine、MovementGate、SignalGroup 与 fixed-time Controller/Phase。详细契约见 `design/signal-system.md`；在 #94 原子更新 schema、private DTO、loader、fixtures 和 current data docs 前，本节的 production current 事实仍为 v0.3。
+
 ## 5. LaneFlow Core
 
 LaneFlow Core 负责运行时交通逻辑：
@@ -97,6 +99,8 @@ Core 不依赖具体游戏引擎 API。
 Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTrafficData`、lane graph、route、Vehicle Profile、typed handle、registry/resolver 和全部 domain/runtime invariant。
 
 `InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，不拥有 tick、initial vehicles 或 runtime route generation。初始 route validation 与 runtime route registration 必须复用同一 Core 规则。
+
+planned v0.4 Signals 在 Core 内保持四层职责：Controller 产生 indication；MovementGate/StopLine 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、安全投影与 permission-aware traversal 保证结果不可绕过。SignalController 不硬编码国家/转向规则，Adapter 只 query/render。长期分层见 ADR 0009 与 `design/signal-system.md`。
 
 ## 6. Engine Adapter Layer
 
