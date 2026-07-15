@@ -279,7 +279,9 @@ pub enum CoreError {
         fixed_delta_time_ms: u64,
     },
     /// #94/#95 的 legacy capability guard error；#96 完整合规闭环后不再返回。
-    #[error("legacy v0.4 Signals capability guard error：#96 完整合规后不再返回")]
+    #[error(
+        "旧版 v0.4 Signals 车辆能力防护错误：#96 完整合规后不应再触发；若再次出现，请检查 SignalStop、hard projection 与 permission-aware traversal 是否完整接入"
+    )]
     SignalsVehicleCapabilityUnavailable,
     /// vehicle id 在 world 内必须唯一。
     #[error("vehicle id 重复：{vehicle_id}")]
@@ -430,6 +432,10 @@ mod tests {
         assert_eq!(
             CoreError::TimeOverflow.to_string(),
             "tick/time 累计发生整数溢出"
+        );
+        assert_eq!(
+            CoreError::SignalsVehicleCapabilityUnavailable.to_string(),
+            "旧版 v0.4 Signals 车辆能力防护错误：#96 完整合规后不应再触发；若再次出现，请检查 SignalStop、hard projection 与 permission-aware traversal 是否完整接入"
         );
         assert_eq!(
             CoreError::InvalidSpeed { speed: -1.0 }.to_string(),
