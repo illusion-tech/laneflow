@@ -73,14 +73,14 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 当前 Rust workspace 中，Traffic Data Layer 已由 `laneflow-data` 表达。它负责：
 
-- 当前 v0.3 external package、必填版本闸口与旧版/未来版拒绝；
+- 当前 v0.4 external package、必填版本闸口与旧版/未来版拒绝；
 - JSON syntax、wire shape、units 和字段路径诊断；
 - external ID 到 Core domain input 的转换；
-- 调用 Core constructors 完成 lane graph、route 和 Vehicle Profile normalization。
+- 调用 Core constructors 完成 lane graph、route、Vehicle Profile 与 static Signals normalization。
 
 `laneflow-data` 不拥有 fixed tick、runtime entity、world lifecycle 或 Engine asset I/O。初始 loader 接收内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
 
-planned v0.4 将在保持相同依赖方向的前提下增加 StopLine、MovementGate、SignalGroup 与 fixed-time Controller/Phase。详细契约见 `design/signal-system.md`；在 #94 原子更新 schema、private DTO、loader、fixtures 和 current data docs 前，本节的 production current 事实仍为 v0.3。
+current v0.4 已在保持相同依赖方向的前提下增加 StopLine、MovementGate、SignalGroup 与 fixed-time Controller/Phase，并由两个 canonical fixtures 锁定。详细契约见 `design/signal-system.md`、`design/data-format.md` 与 `design/data-loading.md`。
 
 ## 5. LaneFlow Core
 
@@ -98,9 +98,9 @@ Core 不依赖具体游戏引擎 API。
 
 Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTrafficData`、lane graph、route、Vehicle Profile、typed handle、registry/resolver 和全部 domain/runtime invariant。
 
-`InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，不拥有 tick、initial vehicles 或 runtime route generation。初始 route validation 与 runtime route registration 必须复用同一 Core 规则。
+`InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane graph、routes、Vehicle Profiles 与 immutable Signals registry，不拥有 tick、initial vehicles 或 runtime route generation。初始 route validation 与 runtime route registration 复用同一 Core 规则，包括 route-final-StopLine 约束。
 
-planned v0.4 Signals 在 Core 内保持四层职责：Controller 产生 indication；MovementGate/StopLine 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、安全投影与 permission-aware traversal 保证结果不可绕过。SignalController 不硬编码国家/转向规则，Adapter 只 query/render。长期分层见 ADR 0009 与 `design/signal-system.md`。
+v0.4 Signals 在 Core 内保持四层职责：Controller 产生 indication；MovementGate/StopLine 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、安全投影与 permission-aware traversal 保证结果不可绕过。#94 已交付 static registry/resolver 与 capability guard；#95/#96 继续交付 runtime 和车辆合规。SignalController 不硬编码国家/转向规则，Adapter 只 query/render。长期分层见 ADR 0009 与 `design/signal-system.md`。
 
 ## 6. Engine Adapter Layer
 

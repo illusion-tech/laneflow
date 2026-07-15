@@ -116,7 +116,7 @@ impl LaneGraph {
             let mut connection_targets = IndexSet::new();
             let mut next_edges = Vec::with_capacity(edge.next_edge_ids.len());
             for next_edge_id in &edge.next_edge_ids {
-                validate_external_id("laneGraph.edges[].connections[].to", next_edge_id)?;
+                validate_external_id("laneGraph.edges[].connections[].toEdgeId", next_edge_id)?;
                 if !connection_targets.insert(next_edge_id.as_str()) {
                     return Err(CoreError::DuplicateLaneEdgeConnection {
                         edge_id: edge.id.clone(),

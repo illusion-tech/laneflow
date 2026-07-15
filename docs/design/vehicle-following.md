@@ -1,7 +1,8 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-14  
+**最后更新**: 2026-07-15
+
 **适用范围**: v0.3 Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、no-overlap、事件、确定性与性能验收  
 **关联文档**:
 
@@ -105,11 +106,11 @@ Validation：
 
 ### 4.2 Package 版本
 
-v0.3 schema 位于 `schemas/laneflow-data-v0.3.schema.json`。概念 package：
+Vehicle Profile shape 由 current `schemas/laneflow-data-v0.4.schema.json` 继续承载。概念 package：
 
 ```json
 {
-  "formatVersion": "0.3",
+  "formatVersion": "0.4",
   "units": {
     "distance": "meter",
     "time": "second"
@@ -130,18 +131,24 @@ v0.3 schema 位于 `schemas/laneflow-data-v0.3.schema.json`。概念 package：
       "comfortableDeceleration": 2.0,
       "emergencyDeceleration": 6.0
     }
-  ]
+  ],
+  "signals": {
+    "stopLines": [],
+    "movementGates": [],
+    "groups": [],
+    "controllers": []
+  }
 }
 ```
 
 规则：
 
-- 当前 v0.3 沿用已接受的 laneGraph/routes 领域语义。
+- 当前 v0.4 沿用已接受的 Vehicle Profile 领域语义，并要求显式 Signals object。
 - 顶层 `vehicleProfiles` 必填，允许空数组。
 - Core-defined objects 继续采用 closed shape。
-- production loader 只接受 `"0.3"`；旧版和未来版在当前 shape validation 前返回 version error。
+- production loader 只接受 `"0.4"`；旧版和未来版在当前 shape validation 前返回 version error。
 - 不隐式合成 profile，不提供历史格式 compatibility shim。
-- v0.3 不持久化 initial vehicles、spawn schedule、demand、runtime handles 或 Adapter metadata。
+- current format 不持久化 initial vehicles、spawn schedule、demand、runtime handles 或 Adapter metadata。
 
 ### 4.3 Runtime identity
 
@@ -151,11 +158,11 @@ v0.3 profile registry 在 world 生命周期内不可变，不公开 runtime reg
 
 ### 4.4 Crate 与 loader 边界
 
-依据 ADR 0007/0008，v0.3 production loader 位于 `laneflow-data`，依赖方向为 `laneflow-data -> laneflow-core`。Core 不依赖 Serde、JSON、JSON Schema 或文件系统；pre-1.0 的 production loader 只维护当前格式。
+依据 ADR 0007/0008，current v0.4 production loader 位于 `laneflow-data`，依赖方向为 `laneflow-data -> laneflow-core`。Core 不依赖 Serde、JSON、JSON Schema 或文件系统；pre-1.0 的 production loader 只维护当前格式。
 
-public loader 返回单一当前 `LoadedPackage`，不公开历史版本 enum/variant，也不以 optional profile 或空 registry 区分格式。v0.3 只由显式 `vehicleProfiles` 字段构造；空数组是当前格式的合法状态。
+public loader 返回单一当前 `LoadedPackage`，不公开历史版本 enum/variant，也不以 optional profile 或空 registry 区分格式。Vehicle Profiles 与 Signals 都由显式字段构造；空数组是当前格式的合法状态。
 
-Core 使用 `InitialTrafficData` 统一验证 lane graph、初始 routes 与 immutable profile registry。data crate 不重复实现 duplicate route、unknown edge、route continuity 或 profile invariant。loader 只接收内存 bytes/string，并返回完成 Core normalization 的当前结果，不创建 `CoreWorld`。
+Core 使用 `InitialTrafficData` 统一验证 lane graph、初始 routes、immutable profile registry 与 static Signals registry。data crate 不重复实现 route/profile/signal domain invariant。loader 只接收内存 bytes/string，并返回完成 Core normalization 的当前结果，不创建 `CoreWorld`。
 
 wire DTO 在 #73 阶段保持私有。Vehicle Profile 使用 `IidmProfileSpec` 与 `VehicleProfile::try_new_iidm`，避免多个同类型位置参数；有效 profile 的字段保持私有，v0.3 不公开 model enum 或 controller trait。
 
@@ -567,7 +574,7 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 | Spawn `speed` | `initial_speed` | 破坏性改名 |
 | 无 profile | 必填 profile reference | 显式绑定 |
 | Point-like progress | front-bumper progress | 语义明确化 |
-| Data `0.2` | 当前 `0.3` schema/loader | 直接替换 active 格式；旧版明确拒绝，历史由 Git 保存 |
+| Data `0.2` | `0.3` schema/loader（该里程碑当时的 active） | 直接替换 active 格式；旧版明确拒绝，历史由 Git 保存 |
 | 无 following event | safety projection event | 稀疏离散事件 |
 
 LaneFlow 处于 pre-1.0 阶段，采用直接迁移，不叠加双字段 alias、隐藏 default profile 或 compatibility shim。

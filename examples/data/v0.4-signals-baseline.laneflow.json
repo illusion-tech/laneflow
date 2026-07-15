@@ -1,0 +1,125 @@
+{
+  "formatVersion": "0.4",
+  "units": {
+    "distance": "meter",
+    "time": "second"
+  },
+  "laneGraph": {
+    "edges": [
+      {
+        "id": "entry",
+        "length": 100.0,
+        "connections": [
+          { "toEdgeId": "through" },
+          { "toEdgeId": "bypass" }
+        ]
+      },
+      {
+        "id": "through",
+        "length": 40.0,
+        "connections": []
+      },
+      {
+        "id": "bypass",
+        "length": 30.0,
+        "connections": []
+      }
+    ]
+  },
+  "routes": [
+    {
+      "id": "controlled-route",
+      "edgeIds": ["entry", "through"]
+    },
+    {
+      "id": "uncontrolled-route",
+      "edgeIds": ["entry", "bypass"]
+    }
+  ],
+  "vehicleProfiles": [
+    {
+      "id": "passenger-car",
+      "length": 4.5,
+      "model": "iidm",
+      "desiredSpeed": 13.9,
+      "minGap": 2.0,
+      "timeHeadway": 1.5,
+      "maxAcceleration": 1.5,
+      "comfortableDeceleration": 2.0,
+      "emergencyDeceleration": 6.0
+    }
+  ],
+  "signals": {
+    "stopLines": [
+      {
+        "id": "stop-entry",
+        "edgeId": "entry",
+        "location": "edgeEnd"
+      }
+    ],
+    "movementGates": [
+      {
+        "fromEdgeId": "entry",
+        "toEdgeId": "through",
+        "stopLineId": "stop-entry",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "main"
+        }
+      },
+      {
+        "fromEdgeId": "entry",
+        "toEdgeId": "bypass",
+        "stopLineId": "stop-entry",
+        "signalControl": {
+          "kind": "none"
+        }
+      }
+    ],
+    "groups": [
+      {
+        "id": "main"
+      }
+    ],
+    "controllers": [
+      {
+        "id": "controller-main",
+        "kind": "fixedTime",
+        "offsetMs": 1000,
+        "groupIds": ["main"],
+        "phases": [
+          {
+            "id": "green",
+            "durationMs": 30000,
+            "states": [
+              {
+                "groupId": "main",
+                "aspect": "green"
+              }
+            ]
+          },
+          {
+            "id": "yellow",
+            "durationMs": 3000,
+            "states": [
+              {
+                "groupId": "main",
+                "aspect": "yellow"
+              }
+            ]
+          },
+          {
+            "id": "red",
+            "durationMs": 20000,
+            "states": [
+              {
+                "groupId": "main",
+                "aspect": "red"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

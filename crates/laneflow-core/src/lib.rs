@@ -9,6 +9,7 @@ mod longitudinal;
 mod occupancy;
 pub mod profile;
 pub mod route;
+pub mod signal;
 pub mod time;
 pub mod traffic;
 pub mod vehicle;
@@ -20,9 +21,17 @@ pub use event::{
     VehicleFollowingSafetyProjectionAppliedEvent,
 };
 pub use graph::{EDGE_BOUNDARY_EPSILON, EdgeLength, LaneEdge, LaneGraph};
-pub use handle::{EdgeHandle, RouteHandle, VehicleHandle, VehicleProfileHandle};
+pub use handle::{
+    EdgeHandle, RouteHandle, SignalControllerHandle, SignalGroupHandle, SignalPhaseRef,
+    StopLineHandle, VehicleHandle, VehicleProfileHandle,
+};
 pub use profile::{GEOMETRY_GAP_EPSILON, IidmProfileSpec, VehicleProfile, VehicleProfileRegistry};
 pub use route::{Route, RouteRemoveRecord};
+pub use signal::{
+    MAX_PORTABLE_SIGNAL_TIME_MS, MovementGate, MovementGateKey, SignalAspect, SignalControl,
+    SignalControlInput, SignalController, SignalControllerKind, SignalGroup, SignalGroupState,
+    SignalPhase, SignalRegistry, StopLine, StopLineLocation,
+};
 pub use time::{StepResult, TickInput};
 pub use traffic::InitialTrafficData;
 pub use vehicle::{

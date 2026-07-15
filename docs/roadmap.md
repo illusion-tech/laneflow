@@ -48,7 +48,7 @@
 
 范围：
 
-- 当前 v0.3 schema、production loader 与 Vehicle Profile
+- v0.3 schema、production loader 与 Vehicle Profile（历史收口事实；active current 已由 v0.4 替换）
 - 纵向 VehicleState、occupancy index 与 leader detection
 - IIDM comfort control、emergency safe-speed 与 no-overlap projection
 - 平滑跟驰、停止与恢复
@@ -58,7 +58,7 @@
 
 目标：支持基础红绿灯和路口通行规则。
 
-设计状态：2026-07-15 已完成 G1 冻结；实现尚未开始。Accepted 输入见 [`design/signal-system.md`](design/signal-system.md) 与 [`adr/0009-signal-indication-gate-and-policy-separation.md`](adr/0009-signal-indication-gate-and-policy-separation.md)。production current data/runtime 在 #94 原子切换前仍为 v0.3，不因设计冻结提前宣称 0.4 已实现。
+实现状态：2026-07-15 已完成 G1 冻结；#94 已落地 static Signals、current v0.4 schema/loader/Core normalization、canonical fixtures 与 capability guard。Controller runtime、query/events、车辆合规和性能收口仍由 #95-#97 承接。Accepted 输入见 [`design/signal-system.md`](design/signal-system.md) 与 [`adr/0009-signal-indication-gate-and-policy-separation.md`](adr/0009-signal-indication-gate-and-policy-separation.md)。
 
 范围：
 

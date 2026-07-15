@@ -135,7 +135,7 @@ fn invalid_connection_external_id_is_rejected_before_resolution() {
     std::assert_matches!(
         error,
         CoreError::InvalidExternalId { field, external_id, .. }
-            if field == "laneGraph.edges[].connections[].to" && external_id == "bad target"
+            if field == "laneGraph.edges[].connections[].toEdgeId" && external_id == "bad target"
     );
 }
 
@@ -241,7 +241,7 @@ fn invalid_route_edge_external_id_is_rejected() {
     std::assert_matches!(
         error,
         CoreError::InvalidExternalId { field, external_id, .. }
-            if field == "routes[].edges[]" && external_id == "bad edge"
+            if field == "routes[].edgeIds[]" && external_id == "bad edge"
     );
 }
 
