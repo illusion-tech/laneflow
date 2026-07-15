@@ -58,7 +58,7 @@
 
 目标：支持基础红绿灯和路口通行规则。
 
-实现状态：2026-07-15 #94 已落地 static Signals、current v0.4 schema/loader/Core normalization、canonical fixtures 与 capability guard；#95 已落地 absolute-time fixed-time runtime、time-0/post-step query 与 phase/aspect events；#96 已落地 restrictive yellow/red SignalStop、hard projection、permission-aware route-occurrence traversal，并以完整车辆合规替代 guard；#97 已进入 G3 candidate 验证，覆盖 production-loader 端到端、resolver 属性、replay/失败原子性、10k matched workload 与 100k pressure observation。Accepted 输入见 [`design/signal-system.md`](design/signal-system.md)、[`reference/v0.4-signals-validation.md`](reference/v0.4-signals-validation.md) 与 [`adr/0009-signal-indication-gate-and-policy-separation.md`](adr/0009-signal-indication-gate-and-policy-separation.md)。
+完成状态：2026-07-15 已完成。设计、current 0.4 数据契约、runtime、车辆合规、确定性、10k/100k 性能、安全与剩余风险的收口依据见 [`v0.4 收口审阅基线`](reference/v0.4-closure-review.md)；详细测量见 [`Signals 验证基线`](reference/v0.4-signals-validation.md)。
 
 范围：
 
