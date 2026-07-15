@@ -1,5 +1,5 @@
 {
-  "formatVersion": "0.3",
+  "formatVersion": "0.4",
   "units": {
     "distance": "meter",
     "time": "second"
@@ -9,7 +9,7 @@
       {
         "id": "entry",
         "length": 12.0,
-        "connections": [{ "to": "exit" }]
+        "connections": [{ "toEdgeId": "exit" }]
       },
       {
         "id": "exit",
@@ -19,7 +19,7 @@
       {
         "id": "loop",
         "length": 5.0,
-        "connections": [{ "to": "loop" }]
+        "connections": [{ "toEdgeId": "loop" }]
       },
       {
         "id": "isolated",
@@ -31,11 +31,11 @@
   "routes": [
     {
       "id": "main-route",
-      "edges": ["entry", "exit"]
+      "edgeIds": ["entry", "exit"]
     },
     {
       "id": "loop-once",
-      "edges": ["loop", "loop"]
+      "edgeIds": ["loop", "loop"]
     }
   ],
   "vehicleProfiles": [
@@ -50,5 +50,11 @@
       "comfortableDeceleration": 2.0,
       "emergencyDeceleration": 6.0
     }
-  ]
+  ],
+  "signals": {
+    "stopLines": [],
+    "movementGates": [],
+    "groups": [],
+    "controllers": []
+  }
 }

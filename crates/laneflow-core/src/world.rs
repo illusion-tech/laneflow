@@ -15,6 +15,7 @@ use crate::{
     occupancy::{LeaderObservation, OccupancyScratch, Occupant},
     profile::{GEOMETRY_GAP_EPSILON, VehicleProfile, VehicleProfileRegistry},
     route::{Route, RouteRemoveRecord},
+    signal::SignalRegistry,
     time::{StepResult, TickInput},
     traffic::{InitialTrafficData, resolve_route_edges},
     vehicle::{
@@ -99,6 +100,7 @@ pub struct CoreWorld {
     time_ms: u64,
     lane_graph: LaneGraph,
     vehicle_profiles: VehicleProfileRegistry,
+    signals: SignalRegistry,
     routes: Vec<RouteSlot>,
     route_handles: IndexMap<String, RouteHandle>,
     free_route_indices: Vec<usize>,
@@ -129,13 +131,18 @@ impl CoreWorld {
             });
         }
 
-        let (lane_graph, routes, vehicle_profiles) = traffic_data.into_parts();
+        let (lane_graph, routes, vehicle_profiles, signals) = traffic_data.into_parts();
+        signals.validate_fixed_delta_time(fixed_delta_time_ms)?;
+        if !signals.is_empty() && !vehicles.is_empty() {
+            return Err(CoreError::SignalsVehicleCapabilityUnavailable);
+        }
         let mut world = Self {
             fixed_delta_time_ms,
             tick_index: 0,
             time_ms: 0,
             lane_graph,
             vehicle_profiles,
+            signals,
             routes: Vec::new(),
             route_handles: IndexMap::new(),
             free_route_indices: Vec::new(),
@@ -205,6 +212,11 @@ impl CoreWorld {
         &self.vehicle_profiles
     }
 
+    /// 返回 immutable Signals registry。
+    pub const fn signals(&self) -> &SignalRegistry {
+        &self.signals
+    }
+
     /// 返回指定 handle 的 Vehicle Profile。
     pub fn vehicle_profile(&self, handle: VehicleProfileHandle) -> Option<&VehicleProfile> {
         self.vehicle_profiles.profile(handle)
@@ -269,7 +281,7 @@ impl CoreWorld {
             });
         }
 
-        let edge_handles = resolve_route_edges(&self.lane_graph, &route)?;
+        let edge_handles = resolve_route_edges(&self.lane_graph, &self.signals, &route)?;
         let external_id = route.id().to_owned();
 
         let handle = if let Some(index) = self.free_route_indices.pop() {
@@ -329,6 +341,9 @@ impl CoreWorld {
 
     /// 创建新的 vehicle runtime entity。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, CoreError> {
+        if !self.signals.is_empty() {
+            return Err(CoreError::SignalsVehicleCapabilityUnavailable);
+        }
         self.spawn_vehicle_with_overlap_validation(input, true)
     }
 

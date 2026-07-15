@@ -4,7 +4,7 @@ use indexmap::IndexSet;
 
 use crate::{
     error::CoreError, graph::LaneGraph, handle::EdgeHandle, profile::VehicleProfileRegistry,
-    route::Route,
+    route::Route, signal::SignalRegistry,
 };
 
 /// 可用于初始化 Core world 的已验证静态交通输入。
@@ -13,6 +13,7 @@ pub struct InitialTrafficData {
     lane_graph: LaneGraph,
     routes: Vec<Route>,
     vehicle_profiles: VehicleProfileRegistry,
+    signals: SignalRegistry,
 }
 
 impl InitialTrafficData {
@@ -22,10 +23,11 @@ impl InitialTrafficData {
             lane_graph: LaneGraph::empty(),
             routes: Vec::new(),
             vehicle_profiles: VehicleProfileRegistry::empty(),
+            signals: SignalRegistry::empty(),
         }
     }
 
-    /// 创建并校验 lane graph、初始 routes 与 immutable profile registry。
+    /// 创建不含 Signals 的初始 traffic data。
     ///
     /// # Errors
     ///
@@ -38,6 +40,30 @@ impl InitialTrafficData {
     where
         I: IntoIterator<Item = Route>,
     {
+        Self::try_new_with_signals(
+            lane_graph,
+            routes,
+            vehicle_profiles,
+            SignalRegistry::empty(),
+        )
+    }
+
+    /// 创建并校验 lane graph、初始 routes、profile registry 与 static Signals。
+    ///
+    /// # Errors
+    ///
+    /// 初始 route ID 重复、引用未知 edge、相邻 edge 不连通或终止在 StopLine edge 时，
+    /// 返回对应 `CoreError`。
+    pub fn try_new_with_signals<I>(
+        lane_graph: LaneGraph,
+        routes: I,
+        vehicle_profiles: VehicleProfileRegistry,
+        signals: SignalRegistry,
+    ) -> Result<Self, CoreError>
+    where
+        I: IntoIterator<Item = Route>,
+    {
+        let signals = signals.rebind_to_lane_graph(&lane_graph)?;
         let mut route_ids = IndexSet::new();
         let mut validated_routes = Vec::new();
 
@@ -47,7 +73,7 @@ impl InitialTrafficData {
                     route_id: route.id().to_owned(),
                 });
             }
-            resolve_route_edges(&lane_graph, &route)?;
+            resolve_route_edges(&lane_graph, &signals, &route)?;
             validated_routes.push(route);
         }
 
@@ -55,6 +81,7 @@ impl InitialTrafficData {
             lane_graph,
             routes: validated_routes,
             vehicle_profiles,
+            signals,
         })
     }
 
@@ -73,14 +100,32 @@ impl InitialTrafficData {
         &self.vehicle_profiles
     }
 
+    /// 返回 immutable Signals registry。
+    pub const fn signals(&self) -> &SignalRegistry {
+        &self.signals
+    }
+
     /// 拆分为 Core-owned parts。
-    pub fn into_parts(self) -> (LaneGraph, Vec<Route>, VehicleProfileRegistry) {
-        (self.lane_graph, self.routes, self.vehicle_profiles)
+    pub fn into_parts(
+        self,
+    ) -> (
+        LaneGraph,
+        Vec<Route>,
+        VehicleProfileRegistry,
+        SignalRegistry,
+    ) {
+        (
+            self.lane_graph,
+            self.routes,
+            self.vehicle_profiles,
+            self.signals,
+        )
     }
 }
 
 pub(crate) fn resolve_route_edges(
     lane_graph: &LaneGraph,
+    signals: &SignalRegistry,
     route: &Route,
 ) -> Result<Vec<EdgeHandle>, CoreError> {
     let mut edge_handles = Vec::with_capacity(route.edge_ids().len());
@@ -108,6 +153,23 @@ pub(crate) fn resolve_route_edges(
                     .to_owned(),
             });
         }
+    }
+
+    let final_edge = *edge_handles
+        .last()
+        .expect("Route constructor guarantees at least one edge");
+    if let Some(stop_line) = signals.stop_line_for_edge(final_edge) {
+        return Err(CoreError::RouteTerminatesAtStopLine {
+            route_id: route.id().to_owned(),
+            edge_id: lane_graph
+                .edge_external_id(final_edge)
+                .expect("resolved route edge must exist")
+                .to_owned(),
+            stop_line_id: signals
+                .stop_line_external_id(stop_line)
+                .expect("resolved StopLine handle must exist")
+                .to_owned(),
+        });
     }
 
     Ok(edge_handles)

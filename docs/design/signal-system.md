@@ -3,7 +3,8 @@
 **文档状态**: Accepted  
 **最后更新**: 2026-07-15  
 **适用范围**: planned v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界  
-**实现状态**: 设计已冻结；production runtime 与 current data format 仍为 v0.3，#94 原子切换前不得宣称 Signals 已实现  
+**实现状态**: #94 已落地 static Signals、current v0.4 data contract、Core normalization/resolver、canonical fixtures 与 capability guard；controller runtime、车辆合规和验证性能仍由 #95-#97 承接
+
 **关联文档**:
 
 - `../architecture.md`
@@ -140,16 +141,16 @@ SignalGroupStateInput
 
 StopLine、Gate、Group、Controller、Phase definition 和 program 在 world 生命周期内不可变。v0.4 不提供 signal mutation command。
 
-## 4. Planned current-0.4 external package
+## 4. Current v0.4 external package
 
-### 4.1 分阶段事实
+### 4.1 Current v0.4 事实
 
-ADR 0008 要求 active tree 只维护一个 current format。#93 设计 PR 只冻结 planned 0.4；在 #94 同一实现 PR 原子更新 schema、private DTO、loader、fixtures、format constant 与 current data docs 前：
+ADR 0008 要求 active tree 只维护一个 current format。#94 已在同一实现切片原子更新 schema、private DTO、loader、fixtures、format constant 与 current data docs：
 
-- production current 仍是 `formatVersion: "0.3"`；
-- `schemas/laneflow-data-v0.3.schema.json` 仍是 active schema；
-- production loader 不接受下列 planned 0.4 shape；
-- 不得把本节描述为已部署的 current contract。
+- production current 是 `formatVersion: "0.4"`；
+- `schemas/laneflow-data-v0.4.schema.json` 是唯一 active schema；
+- production loader 明确拒绝 v0.3、未来版、旧字段与 JSON-LD；
+- static Signals 与 capability guard 已实现，但本节后续 runtime/compliance 设计仍需 #95/#96 才成为 production 行为。
 
 ### 4.2 ID 与引用命名
 
@@ -276,9 +277,9 @@ InitialTrafficData final assembly
 
 First-error 顺序同样是 contract：array domain error 按输入顺序；duplicate 锚定第二个 occurrence；Phase state 先按 record 顺序报告 unknown/duplicate group，再按 `groupIds` 顺序报告第一个 missing group；global coverage/usage 按 StopLine、Group、Controller normalization order；Route 按 route/`edgeIds` 顺序。
 
-World compatibility 在 loader 成功后按以下顺序执行：验证 positive fixed delta；按 Controller/Phase normalization order检查 `durationMs >= fixedDeltaTimeMs`；构建 time-0 signal snapshot；注册 initial routes/vehicles；验证 initial overlap；最后发布 world。
+当前 #94 world compatibility 按以下顺序执行：验证 positive fixed delta；按 Controller/Phase normalization order检查 `durationMs >= fixedDeltaTimeMs`；拒绝 non-empty Signals 与 initial vehicles 的组合；注册 initial routes；最后发布 world。#95/#96 完成后，guard 将由 time-0 signal snapshot、initial vehicle/overlap validation 与完整车辆合规替代。
 
-`InitialTrafficData` 将扩展为包含 immutable signal registry。Core 必须保留不经 JSON 的 programmatic construction path；runtime handles 永不持久化到 external package。
+`InitialTrafficData` 已包含 immutable signal registry，并在组装时按自身 `LaneGraph` 重绑定和复验 graph-dependent handles。Core 保留不经 JSON 的 programmatic construction path；runtime handles 永不持久化到 external package。
 
 ## 6. Fixed-tick phase timing
 
@@ -357,7 +358,7 @@ non-empty Signals + spawned/moving vehicles
 
 ## 9. Public Core observation boundary
 
-计划公开 world-scoped opaque types：
+#94 已公开 static Signals 的 world-scoped opaque types：
 
 - `StopLineHandle`；
 - `SignalGroupHandle`；
@@ -367,13 +368,13 @@ non-empty Signals + spawned/moving vehicles
 
 Handle/ref 至少满足 `Clone + Copy + Debug + Eq + Hash`，不公开 index/generation、没有 `Ord`，不得跨 CoreWorld 持久化或混用。无法解析的只读 handle/ref query 返回 `None`。
 
-Public query 只读取当前已提交 snapshot：
+当前 static query 提供：
 
 - StopLine/Group/Controller external-ID resolver 与稳定 definition iteration；
 - Phase external-ID resolver；
-- current Controller state，包括 phase、cycle position、elapsed、remaining；
-- current Group aspect；
-- Gate 的 StopLine、control binding、aspect 与 signal-layer permission。
+- Gate 的 StopLine 与 control binding。
+
+#95/#96 将在已提交 snapshot 上增加 current Controller state（phase、cycle position、elapsed、remaining）、current Group aspect，以及 Gate aspect / signal-layer permission。
 
 Gate `Uncontrolled` 只表示 `signalControl:none`；permission 也只是 signal-layer decision，不是未来 vehicle-specific 最终 right-of-way。Public CoreWorld 不提供 arbitrary absolute-time query；该能力仅作为 private/reference oracle 用于 property tests。
 

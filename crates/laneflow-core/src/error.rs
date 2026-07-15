@@ -91,6 +91,196 @@ pub enum CoreError {
         from_edge_id: String,
         to_edge_id: String,
     },
+    /// StopLine external ID 在 registry 内必须唯一。
+    #[error("StopLine id 重复：{stop_line_id}")]
+    DuplicateStopLineId { stop_line_id: String },
+    /// StopLine 引用的 edge 必须存在。
+    #[error("StopLine `{stop_line_id}` 引用了不存在的 edge：{edge_id}")]
+    UnknownStopLineEdge {
+        stop_line_id: String,
+        edge_id: String,
+    },
+    /// 每个 edge 最多声明一个 StopLine。
+    #[error(
+        "edge `{edge_id}` 重复声明 StopLine：first=`{first_stop_line_id}`, duplicate=`{duplicate_stop_line_id}`"
+    )]
+    DuplicateStopLineEdge {
+        edge_id: String,
+        first_stop_line_id: String,
+        duplicate_stop_line_id: String,
+    },
+    /// SignalGroup external ID 在 registry 内必须唯一。
+    #[error("SignalGroup id 重复：{group_id}")]
+    DuplicateSignalGroupId { group_id: String },
+    /// SignalController external ID 在 registry 内必须唯一。
+    #[error("SignalController id 重复：{controller_id}")]
+    DuplicateSignalControllerId { controller_id: String },
+    /// SignalController 至少拥有一个 group。
+    #[error("SignalController `{controller_id}` 的 groupIds 不能为空")]
+    EmptySignalControllerGroups { controller_id: String },
+    /// SignalController 至少拥有一个 phase。
+    #[error("SignalController `{controller_id}` 的 phases 不能为空")]
+    EmptySignalControllerPhases { controller_id: String },
+    /// SignalController 不能重复引用同一个 group。
+    #[error("SignalController `{controller_id}` 重复引用 SignalGroup `{group_id}`")]
+    DuplicateSignalControllerGroup {
+        controller_id: String,
+        group_id: String,
+    },
+    /// SignalController 引用的 group 必须存在。
+    #[error("SignalController `{controller_id}` 引用了不存在的 SignalGroup `{group_id}`")]
+    UnknownSignalControllerGroup {
+        controller_id: String,
+        group_id: String,
+    },
+    /// 每个 SignalGroup 必须且只能属于一个 controller。
+    #[error(
+        "SignalGroup `{group_id}` 被多个 controller 持有：first=`{first_controller_id}`, duplicate=`{duplicate_controller_id}`"
+    )]
+    SignalGroupMultipleControllers {
+        group_id: String,
+        first_controller_id: String,
+        duplicate_controller_id: String,
+    },
+    /// 每个 SignalGroup 必须属于一个 controller。
+    #[error("SignalGroup `{group_id}` 没有 SignalController owner")]
+    UnownedSignalGroup { group_id: String },
+    /// 每个 SignalGroup 至少必须被一个 MovementGate 使用。
+    #[error("SignalGroup `{group_id}` 没有被任何 MovementGate 使用")]
+    UnusedSignalGroup { group_id: String },
+    /// Phase duration 必须为 portable positive integer。
+    #[error(
+        "SignalController `{controller_id}` 的 Phase `{phase_id}` durationMs 无效：{duration_ms}，必须在 1..={max_inclusive}"
+    )]
+    InvalidSignalPhaseDuration {
+        controller_id: String,
+        phase_id: String,
+        duration_ms: u64,
+        max_inclusive: u64,
+    },
+    /// Controller offset 必须落在 portable safe-integer 范围内。
+    #[error(
+        "SignalController `{controller_id}` offsetMs 无效：{offset_ms}，必须小于或等于 {max_inclusive}"
+    )]
+    InvalidSignalControllerOffset {
+        controller_id: String,
+        offset_ms: u64,
+        max_inclusive: u64,
+    },
+    /// 同一 controller 内的 phase ID 必须唯一。
+    #[error("SignalController `{controller_id}` 的 Phase id 重复：{phase_id}")]
+    DuplicateSignalPhaseId {
+        controller_id: String,
+        phase_id: String,
+    },
+    /// Phase state 只能引用 controller 拥有的 group。
+    #[error(
+        "SignalController `{controller_id}` 的 Phase `{phase_id}` 引用了未知 group `{group_id}`"
+    )]
+    UnknownSignalPhaseGroup {
+        controller_id: String,
+        phase_id: String,
+        group_id: String,
+    },
+    /// Phase state 不能重复定义同一个 group。
+    #[error("SignalController `{controller_id}` 的 Phase `{phase_id}` 重复定义 group `{group_id}`")]
+    DuplicateSignalPhaseGroup {
+        controller_id: String,
+        phase_id: String,
+        group_id: String,
+    },
+    /// Phase state 必须完整覆盖 controller 的全部 groups。
+    #[error(
+        "SignalController `{controller_id}` 的 Phase `{phase_id}` 缺少 group `{group_id}` state"
+    )]
+    MissingSignalPhaseGroup {
+        controller_id: String,
+        phase_id: String,
+        group_id: String,
+    },
+    /// Controller cycle sum 必须落在 portable safe-integer 范围内。
+    #[error("SignalController `{controller_id}` cycle duration 超过 {max_inclusive}")]
+    SignalCycleDurationOverflow {
+        controller_id: String,
+        max_inclusive: u64,
+    },
+    /// Controller offset 必须是小于 cycle duration 的 canonical value。
+    #[error(
+        "SignalController `{controller_id}` offsetMs={offset_ms} 必须小于 cycleDurationMs={cycle_duration_ms}"
+    )]
+    SignalControllerOffsetOutOfRange {
+        controller_id: String,
+        offset_ms: u64,
+        cycle_duration_ms: u64,
+    },
+    /// MovementGate 的 from edge 必须存在。
+    #[error("MovementGate 引用了不存在的 fromEdgeId：{edge_id}")]
+    UnknownMovementGateFromEdge { edge_id: String },
+    /// MovementGate 的 to edge 必须存在。
+    #[error("MovementGate 引用了不存在的 toEdgeId：{edge_id}")]
+    UnknownMovementGateToEdge { edge_id: String },
+    /// MovementGate pair 必须是 lane graph 中的合法 connection。
+    #[error("MovementGate `{from_edge_id}` -> `{to_edge_id}` 不是合法 connection")]
+    DisconnectedMovementGate {
+        from_edge_id: String,
+        to_edge_id: String,
+    },
+    /// MovementGate pair 在 registry 内必须唯一。
+    #[error("MovementGate pair 重复：`{from_edge_id}` -> `{to_edge_id}`")]
+    DuplicateMovementGate {
+        from_edge_id: String,
+        to_edge_id: String,
+    },
+    /// MovementGate 引用的 StopLine 必须存在。
+    #[error("MovementGate 引用了不存在的 StopLine `{stop_line_id}`")]
+    UnknownMovementGateStopLine { stop_line_id: String },
+    /// MovementGate 的 StopLine 必须属于 from edge。
+    #[error(
+        "MovementGate fromEdgeId `{from_edge_id}` 与 StopLine `{stop_line_id}` 所属 edge `{stop_line_edge_id}` 不一致"
+    )]
+    MovementGateStopLineMismatch {
+        stop_line_id: String,
+        stop_line_edge_id: String,
+        from_edge_id: String,
+    },
+    /// MovementGate 引用的 SignalGroup 必须存在。
+    #[error("MovementGate 引用了不存在的 SignalGroup `{group_id}`")]
+    UnknownMovementGateSignalGroup { group_id: String },
+    /// 声明 StopLine 的 edge 必须为每个 outgoing connection 定义 Gate。
+    #[error(
+        "StopLine `{stop_line_id}` 缺少 MovementGate coverage：`{from_edge_id}` -> `{to_edge_id}`"
+    )]
+    MissingMovementGateCoverage {
+        stop_line_id: String,
+        from_edge_id: String,
+        to_edge_id: String,
+    },
+    /// StopLine 必须位于至少有一个 outgoing connection 的 edge 并被 Gate 使用。
+    #[error("StopLine `{stop_line_id}` 位于 terminal edge `{edge_id}`，无法形成 MovementGate")]
+    OrphanStopLine {
+        stop_line_id: String,
+        edge_id: String,
+    },
+    /// Route 不得终止在声明 StopLine 的 edge 上。
+    #[error("route `{route_id}` 不能终止在声明 StopLine `{stop_line_id}` 的 edge `{edge_id}` 上")]
+    RouteTerminatesAtStopLine {
+        route_id: String,
+        edge_id: String,
+        stop_line_id: String,
+    },
+    /// World fixed delta 不得超过任一 static SignalPhase duration。
+    #[error(
+        "SignalController `{controller_id}` 的 Phase `{phase_id}` durationMs={duration_ms} 小于 fixedDeltaTimeMs={fixed_delta_time_ms}"
+    )]
+    SignalPhaseShorterThanFixedDelta {
+        controller_id: String,
+        phase_id: String,
+        duration_ms: u64,
+        fixed_delta_time_ms: u64,
+    },
+    /// #96 前禁止 non-empty Signals 与任何已生成 vehicle 共存。
+    #[error("v0.4 Signals 车辆合规尚未激活：#96 前不能在 non-empty Signals world 中生成车辆")]
+    SignalsVehicleCapabilityUnavailable,
     /// vehicle id 在 world 内必须唯一。
     #[error("vehicle id 重复：{vehicle_id}")]
     DuplicateVehicleId { vehicle_id: String },

@@ -25,7 +25,7 @@ impl Route {
         }
 
         for edge_id in &edge_ids {
-            validate_external_id("routes[].edges[]", edge_id)?;
+            validate_external_id("routes[].edgeIds[]", edge_id)?;
         }
 
         Ok(Self { id, edge_ids })

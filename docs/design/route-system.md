@@ -1,7 +1,8 @@
 # Route System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-13  
+**最后更新**: 2026-07-15
+
 **适用范围**: v0.2 Lane Graph + Route 的 route definition、route validation、route lifecycle 和 simple route following 边界  
 **关联文档**:
 
@@ -16,9 +17,9 @@
 
 本文固化 v0.2 阶段 Core route system 设计，作为 #29 的 G1 冻结输入。
 
-### 当前 v0.3 覆盖说明
+### 当前 v0.4 覆盖说明
 
-本文保留 v0.2 route definition、validation、lifecycle 和 traversal 契约。v0.3 已由 [`vehicle-following.md`](vehicle-following.md) 第 5 节破坏性替换其中的 vehicle motion state：`speed` 改为 `current_speed`，删除 `effective_speed()`，新增 finite 有符号 `applied_acceleration`，并把 `edge_progress` 明确为前保险杠位置；`Stopped` / `Completed` 与 route completion 后的速度和加速度必须为零。发生冲突时，以该 Accepted v0.3 契约为准。
+本文保留 v0.2 route definition、validation、lifecycle 和 traversal 契约。v0.3 已由 [`vehicle-following.md`](vehicle-following.md) 第 5 节破坏性替换 vehicle motion state；current v0.4 又将 external sequence 字段改为 `edgeIds`，并规定 route 不得终止在声明 StopLine 的 edge 上。initial route 与 runtime `register_route` 复用该规则；#96 前 permission-aware traversal 尚未激活。
 
 目标：
 
