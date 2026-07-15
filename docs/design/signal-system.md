@@ -283,7 +283,7 @@ First-error 顺序同样是 contract：array domain error 按输入顺序；dupl
 
 ## 6. Fixed-tick phase timing
 
-#95 已按本节交付 committed authority snapshot：初始化直接解析 time 0，成功 step 先计算 `T + D` candidate，再在所有 vehicle events 之后产生 signal events 并原子提交；失败 step 不改变当前 query。
+Issue #95 已按本节交付 committed authority snapshot：初始化直接解析 time 0，成功 step 先计算 `T + D` candidate，再在所有 vehicle events 之后产生 signal events 并原子提交；失败 step 不改变当前 query。
 
 Controller 的 effective state 由 immutable program、world integer `timeMs` 和 canonical offset 直接推导：
 

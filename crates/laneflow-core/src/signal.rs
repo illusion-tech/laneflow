@@ -79,7 +79,6 @@ impl SignalGroup {
 
 /// v0.4 SignalGroup indication 闭集。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum SignalAspect {
     /// 禁止进入受控 MovementGate。
     Red,
