@@ -100,7 +100,7 @@ Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTraff
 
 `InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane graph、routes、Vehicle Profiles 与 immutable Signals registry，不拥有 tick、initial vehicles 或 runtime route generation。初始 route validation 与 runtime route registration 复用同一 Core 规则，包括 route-final-StopLine 约束。
 
-v0.4 Signals 在 Core 内保持四层职责：Controller 产生 indication；MovementGate/StopLine 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、安全投影与 permission-aware traversal 保证结果不可绕过。#94 已交付 static registry/resolver 与 capability guard；#95/#96 继续交付 runtime 和车辆合规。SignalController 不硬编码国家/转向规则，Adapter 只 query/render。长期分层见 ADR 0009 与 `design/signal-system.md`。
+v0.4 Signals 在 Core 内保持四层职责：Controller 产生 indication；MovementGate/StopLine 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、安全投影与 permission-aware traversal 保证结果不可绕过。#94 已交付 static registry/resolver 与 capability guard；#95 已交付 absolute-time fixed-time snapshot、只读 Controller/Group/Gate query 与稀疏 phase/aspect events，同时保留 guard；#96 继续交付车辆合规。SignalController 不硬编码国家/转向规则，Adapter 只 query/render。长期分层见 ADR 0009 与 `design/signal-system.md`。
 
 ## 6. Engine Adapter Layer
 

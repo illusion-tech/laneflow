@@ -4,7 +4,7 @@
 
 本 crate 由 issue #9 初始化，作为当前 Core runtime 的实现边界。它提供 fixed-step tick、typed handle registry、lane graph / route validation、Vehicle Profile、IIDM comfort control、emergency safe-speed、ballistic integration 与最终 no-overlap projection：
 
-- `CoreWorld`：保存固定步长、tick index、simulation time、lane graph、immutable Vehicle Profile / Signals registry、route / vehicle registry 和 stable update order，并复用私有 candidate state / occupancy / leader / longitudinal scratch；
+- `CoreWorld`：保存固定步长、tick index、simulation time、lane graph、immutable Vehicle Profile / Signals registry、committed signal snapshot、route / vehicle registry 和 stable update order，并复用私有 signal / candidate state / occupancy / leader / longitudinal scratch；
 - `TickInput` / `StepResult`：表达显式 tick 输入和 post-step 可观察输出；
 - `CoreError`：表达 fixed delta、tick delta mismatch、时间溢出、lane graph / route / Signals / vehicle 静态校验、物理重叠、leader / longitudinal 非有限计算、stale handle、route lifecycle 和数值校验错误；
 - `LaneGraph` / `LaneEdge` / `EdgeLength`：表达 lane graph 输入，并在初始化时把 external edge ID 解析为 `EdgeHandle` runtime 连接；
@@ -14,15 +14,15 @@
 - `VehicleHandle` / `RouteHandle` / `EdgeHandle`：表达 Core runtime 内部 typed handle，external ID 通过 `CoreWorld` resolver 回查；
 - `VehicleProfile` / `IidmProfileSpec`：表达经过校验的 immutable IIDM Vehicle Profile；
 - `VehicleProfileHandle` / `VehicleProfileRegistry`：表达 profile typed handle、稳定输入顺序和双向 resolver；
-- `SignalRegistry` 与 Signal handles：表达经过归一化的 StopLine、MovementGate、Group、Controller/Phase，保留稳定输入顺序和预解析 resolver；
+- `SignalRegistry`、Signal handles 与 current snapshots：表达经过归一化的 StopLine、MovementGate、Group、Controller/Phase，保留稳定输入顺序和预解析 resolver，并以 absolute integer time 提供 time-0/post-step Controller/Group/Gate query；
 - `InitialTrafficData`：统一校验 lane graph、初始 routes、immutable profile registry 与 Signals，并把 graph-dependent Signals 原子重绑定到自身 lane graph；
 - `Speed` / `Acceleration` / `EdgeProgress`：用 newtype 包装非负速度、finite 有符号加速度和 front-bumper progress，避免 public API 直接散落裸 `f64`。
-- `CoreEvent`：输出 safety projection、route transition 与 route completion 事件，payload 使用 handle 而不是复制 external ID。
+- `CoreEvent`：输出 safety projection、route transition、route completion 与稀疏 signal phase/aspect change 事件，payload 使用 handle 而不是复制 external ID。
 - `spawn_vehicle` / `despawn_vehicle` / `register_route` / `remove_route`：提供最小 runtime lifecycle API；route 移除会拒绝仍被 live vehicle 引用的 route。
 - 私有 occupancy / leader detection：按 physical edge 构建可复用扁平索引，沿 follower 已选 route 解析最近 leader，并在初始化与 runtime spawn 时拒绝物理车身重叠。
 - 私有 Vehicle Following pipeline：基于 tick-start snapshot 计算 IIDM comfort acceleration 与 emergency safe-speed，再通过确定性的 functional graph 投影得到最大可行 no-overlap travel；事件与状态只在整 tick 成功后原子提交。
 
-当前已实现 v0.4 static StopLine、MovementGate、SignalGroup、fixed-time Controller/Phase registry、resolver 与 capability guard；尚不实现 controller runtime、SignalStop、permission-aware traversal、lane changing、intersection conflict、parking、公开 controller extension、Adapter API、C ABI 或 WASM 绑定。完整 Signals 边界见 [Signal System 设计](../../docs/design/signal-system.md)；Vehicle Following 的确定性、不变量和性能基线见 [v0.3 收口审阅](../../docs/reference/v0.3-closure-review.md)。
+当前已实现 v0.4 static StopLine、MovementGate、SignalGroup、fixed-time Controller/Phase registry/resolver、absolute-time committed snapshots、只读 query、phase/aspect events 与 capability guard；尚不实现 SignalStop、permission-aware traversal、lane changing、intersection conflict、parking、公开 controller extension、Adapter API、C ABI 或 WASM 绑定。完整 Signals 边界见 [Signal System 设计](../../docs/design/signal-system.md)；Vehicle Following 的确定性、不变量和性能基线见 [v0.3 收口审阅](../../docs/reference/v0.3-closure-review.md)。
 
 ## 当前 data-format 边界
 

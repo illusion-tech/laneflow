@@ -58,7 +58,7 @@
 
 目标：支持基础红绿灯和路口通行规则。
 
-实现状态：2026-07-15 已完成 G1 冻结；#94 已落地 static Signals、current v0.4 schema/loader/Core normalization、canonical fixtures 与 capability guard。Controller runtime、query/events、车辆合规和性能收口仍由 #95-#97 承接。Accepted 输入见 [`design/signal-system.md`](design/signal-system.md) 与 [`adr/0009-signal-indication-gate-and-policy-separation.md`](adr/0009-signal-indication-gate-and-policy-separation.md)。
+实现状态：2026-07-15 已完成 G1 冻结；#94 已落地 static Signals、current v0.4 schema/loader/Core normalization、canonical fixtures 与 capability guard；#95 已落地 absolute-time fixed-time runtime、time-0/post-step query 与 phase/aspect events，并继续保留 guard。车辆合规与性能收口仍由 #96-#97 承接。Accepted 输入见 [`design/signal-system.md`](design/signal-system.md) 与 [`adr/0009-signal-indication-gate-and-policy-separation.md`](adr/0009-signal-indication-gate-and-policy-separation.md)。
 
 范围：
 

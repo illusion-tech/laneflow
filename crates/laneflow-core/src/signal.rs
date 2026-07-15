@@ -79,9 +79,13 @@ impl SignalGroup {
 
 /// v0.4 SignalGroup indication 闭集。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SignalAspect {
+    /// 禁止进入受控 MovementGate。
     Red,
+    /// v0.4 保守策略下禁止进入受控 MovementGate。
     Yellow,
+    /// 允许进入受控 MovementGate，但不代表最终 right-of-way。
     Green,
 }
 
@@ -289,6 +293,203 @@ impl MovementGateKey {
 pub enum SignalControl {
     Group(SignalGroupHandle),
     None,
+}
+
+/// 当前已提交的 fixed-time controller snapshot。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SignalControllerState {
+    /// 由 world absolute integer time 推导的 fixed-time controller state。
+    FixedTime {
+        /// 当前 controller-local phase。
+        current_phase: SignalPhaseRef,
+        /// 当前 cycle 内的半开区间位置，单位毫秒。
+        cycle_position_ms: u64,
+        /// 当前 phase 已经过的时间，单位毫秒。
+        phase_elapsed_ms: u64,
+        /// 当前 phase 尚余的时间，单位毫秒。
+        phase_remaining_ms: u64,
+    },
+}
+
+impl SignalControllerState {
+    /// 返回当前 controller-local phase reference。
+    pub const fn current_phase(self) -> SignalPhaseRef {
+        match self {
+            Self::FixedTime { current_phase, .. } => current_phase,
+        }
+    }
+
+    /// 返回当前 cycle 内的位置。
+    pub const fn cycle_position_ms(self) -> u64 {
+        match self {
+            Self::FixedTime {
+                cycle_position_ms, ..
+            } => cycle_position_ms,
+        }
+    }
+
+    /// 返回当前 phase 已经过的时间。
+    pub const fn phase_elapsed_ms(self) -> u64 {
+        match self {
+            Self::FixedTime {
+                phase_elapsed_ms, ..
+            } => phase_elapsed_ms,
+        }
+    }
+
+    /// 返回当前 phase 尚余的时间。
+    pub const fn phase_remaining_ms(self) -> u64 {
+        match self {
+            Self::FixedTime {
+                phase_remaining_ms, ..
+            } => phase_remaining_ms,
+        }
+    }
+}
+
+/// 当前已提交的 SignalGroup snapshot。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SignalGroupSnapshot {
+    aspect: SignalAspect,
+}
+
+impl SignalGroupSnapshot {
+    const fn new(aspect: SignalAspect) -> Self {
+        Self { aspect }
+    }
+
+    /// 返回当前 indication。
+    pub const fn aspect(self) -> SignalAspect {
+        self.aspect
+    }
+}
+
+/// v0.4 signal layer 对 PreGate entry 的判断。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SignalLayerPermission {
+    /// Signal layer 允许进入 Gate；未来规则层仍可进一步约束。
+    ProtectedAllow,
+    /// Signal layer 要求车辆在 Gate 前停车。
+    DenyAndStop,
+}
+
+/// MovementGate 当前 signal binding snapshot。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MovementGateSignalState {
+    /// `signalControl:none`，仅表示 signal layer 不施加约束。
+    Uncontrolled,
+    /// Gate 由一个 SignalGroup 控制。
+    Controlled {
+        /// 控制该 Gate 的 SignalGroup。
+        group: SignalGroupHandle,
+        /// 当前已提交的 indication。
+        aspect: SignalAspect,
+        /// 由当前 indication 映射出的 signal-layer permission。
+        permission: SignalLayerPermission,
+    },
+}
+
+/// 当前已提交的 MovementGate snapshot。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct MovementGateState {
+    key: MovementGateKey,
+    stop_line: StopLineHandle,
+    signal: MovementGateSignalState,
+}
+
+impl MovementGateState {
+    /// 返回 Gate value identity。
+    pub const fn key(self) -> MovementGateKey {
+        self.key
+    }
+
+    /// 返回 Gate 使用的 StopLine。
+    pub const fn stop_line(self) -> StopLineHandle {
+        self.stop_line
+    }
+
+    /// 返回当前 signal binding/aspect/permission snapshot。
+    pub const fn signal(self) -> MovementGateSignalState {
+        self.signal
+    }
+}
+
+/// Signals 当前已提交的 compact authority snapshot。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SignalRuntimeState {
+    controllers: Vec<SignalControllerState>,
+    groups: Vec<SignalGroupSnapshot>,
+}
+
+impl SignalRuntimeState {
+    pub(crate) fn controller_state(
+        &self,
+        handle: SignalControllerHandle,
+    ) -> Option<SignalControllerState> {
+        self.controllers.get(handle.index()).copied()
+    }
+
+    pub(crate) fn controller_states(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (SignalControllerHandle, SignalControllerState)> + '_ {
+        self.controllers
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, state)| (SignalControllerHandle::new(index), state))
+    }
+
+    pub(crate) fn group_state(&self, handle: SignalGroupHandle) -> Option<SignalGroupSnapshot> {
+        self.groups.get(handle.index()).copied()
+    }
+
+    pub(crate) fn group_states(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (SignalGroupHandle, SignalGroupSnapshot)> + '_ {
+        self.groups
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, state)| (SignalGroupHandle::new(index), state))
+    }
+}
+
+/// 可跨 tick 复用、但不属于 Core authority state 的 signal candidate scratch。
+#[derive(Debug, Default)]
+pub(crate) struct SignalRuntimeScratch {
+    state: SignalRuntimeState,
+}
+
+impl Clone for SignalRuntimeScratch {
+    fn clone(&self) -> Self {
+        Self {
+            state: SignalRuntimeState {
+                controllers: Vec::with_capacity(self.state.controllers.capacity()),
+                groups: Vec::with_capacity(self.state.groups.capacity()),
+            },
+        }
+    }
+}
+
+impl PartialEq for SignalRuntimeScratch {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl SignalRuntimeScratch {
+    pub(crate) const fn state(&self) -> &SignalRuntimeState {
+        &self.state
+    }
+
+    pub(crate) fn state_mut(&mut self) -> &mut SignalRuntimeState {
+        &mut self.state
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -868,6 +1069,74 @@ impl SignalRegistry {
         self.movement_gates.keys().copied()
     }
 
+    pub(crate) fn populate_runtime_state(&self, time_ms: u64, state: &mut SignalRuntimeState) {
+        state.controllers.clear();
+        state.groups.clear();
+        state.controllers.reserve(self.controllers.len());
+        state.groups.resize(
+            self.groups.len(),
+            SignalGroupSnapshot::new(SignalAspect::Red),
+        );
+
+        for (controller_index, controller) in self.controllers.iter().enumerate() {
+            let cycle = u128::from(controller.cycle_duration_ms);
+            let cycle_position_ms = u64::try_from(
+                (u128::from(time_ms) + u128::from(controller.definition.offset_ms())) % cycle,
+            )
+            .expect("cycle position must fit in u64");
+            let phase_index = controller
+                .phases
+                .partition_point(|phase| phase.end_offset_ms <= cycle_position_ms);
+            let phase = controller
+                .phases
+                .get(phase_index)
+                .expect("cycle position must resolve to a phase");
+            let phase_start_ms = phase_index
+                .checked_sub(1)
+                .map_or(0, |index| controller.phases[index].end_offset_ms);
+            let controller_handle = SignalControllerHandle::new(controller_index);
+            state.controllers.push(SignalControllerState::FixedTime {
+                current_phase: SignalPhaseRef::new(controller_handle, phase_index),
+                cycle_position_ms,
+                phase_elapsed_ms: cycle_position_ms - phase_start_ms,
+                phase_remaining_ms: phase.end_offset_ms - cycle_position_ms,
+            });
+
+            for (group_index, group) in controller.groups.iter().copied().enumerate() {
+                state.groups[group.index()] =
+                    SignalGroupSnapshot::new(phase.aspects_by_group[group_index]);
+            }
+        }
+    }
+
+    pub(crate) fn movement_gate_state(
+        &self,
+        runtime: &SignalRuntimeState,
+        key: MovementGateKey,
+    ) -> Option<MovementGateState> {
+        let gate = self.movement_gates.get(&key)?;
+        let signal = match gate.control {
+            SignalControl::None => MovementGateSignalState::Uncontrolled,
+            SignalControl::Group(group) => {
+                let aspect = runtime.group_state(group)?.aspect();
+                let permission = match aspect {
+                    SignalAspect::Green => SignalLayerPermission::ProtectedAllow,
+                    SignalAspect::Red | SignalAspect::Yellow => SignalLayerPermission::DenyAndStop,
+                };
+                MovementGateSignalState::Controlled {
+                    group,
+                    aspect,
+                    permission,
+                }
+            }
+        };
+        Some(MovementGateState {
+            key,
+            stop_line: gate.stop_line,
+            signal,
+        })
+    }
+
     pub(crate) fn validate_fixed_delta_time(
         &self,
         fixed_delta_time_ms: u64,
@@ -891,5 +1160,76 @@ impl SignalRegistry {
 impl Default for SignalRegistry {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{EdgeLength, LaneEdge};
+
+    #[test]
+    fn absolute_time_resolver_is_overflow_safe_at_u64_max() {
+        let graph = LaneGraph::try_new([
+            LaneEdge::new("entry", EdgeLength::try_new(10.0).unwrap(), ["exit"]),
+            LaneEdge::new(
+                "exit",
+                EdgeLength::try_new(10.0).unwrap(),
+                Vec::<String>::new(),
+            ),
+        ])
+        .expect("valid graph");
+        let registry = SignalRegistry::try_new(
+            &graph,
+            [StopLine::new("stop", "entry", StopLineLocation::EdgeEnd)],
+            [SignalGroup::new("group")],
+            [SignalController::new_fixed_time(
+                "controller",
+                17,
+                ["group"],
+                [
+                    SignalPhase::new(
+                        "first",
+                        11,
+                        [SignalGroupState::new("group", SignalAspect::Red)],
+                    ),
+                    SignalPhase::new(
+                        "second",
+                        13,
+                        [SignalGroupState::new("group", SignalAspect::Green)],
+                    ),
+                ],
+            )],
+            [MovementGate::new(
+                "entry",
+                "exit",
+                "stop",
+                SignalControlInput::Group("group".to_owned()),
+            )],
+        )
+        .expect("valid signals");
+        let controller = registry
+            .controller_handle("controller")
+            .expect("controller handle");
+        let expected_position =
+            u64::try_from((u128::from(u64::MAX) + 17) % 24).expect("position fits in u64");
+        let mut state = SignalRuntimeState::default();
+
+        registry.populate_runtime_state(u64::MAX, &mut state);
+
+        let actual = state
+            .controller_state(controller)
+            .expect("controller state");
+        assert_eq!(actual.cycle_position_ms(), expected_position);
+        let expected_phase = if expected_position < 11 {
+            registry
+                .phase_ref(controller, "first")
+                .expect("first phase")
+        } else {
+            registry
+                .phase_ref(controller, "second")
+                .expect("second phase")
+        };
+        assert_eq!(actual.current_phase(), expected_phase);
     }
 }

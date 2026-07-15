@@ -5,17 +5,23 @@ use indexmap::IndexMap;
 use crate::{
     error::CoreError,
     event::{
-        CoreEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
-        VehicleFollowingSafetyProjectionAppliedEvent,
+        CoreEvent, SignalGroupAspectChangedEvent, SignalPhaseChangedEvent, VehicleChangedEdgeEvent,
+        VehicleCompletedRouteEvent, VehicleFollowingSafetyProjectionAppliedEvent,
     },
     graph::{EDGE_BOUNDARY_EPSILON, LaneGraph},
-    handle::{EdgeHandle, RouteHandle, VehicleHandle, VehicleProfileHandle},
+    handle::{
+        EdgeHandle, RouteHandle, SignalControllerHandle, SignalGroupHandle, VehicleHandle,
+        VehicleProfileHandle,
+    },
     id::validate_external_id,
     longitudinal::{LeaderKinematics, LongitudinalMotion, LongitudinalScratch, compute_motion},
     occupancy::{LeaderObservation, OccupancyScratch, Occupant},
     profile::{GEOMETRY_GAP_EPSILON, VehicleProfile, VehicleProfileRegistry},
     route::{Route, RouteRemoveRecord},
-    signal::SignalRegistry,
+    signal::{
+        MovementGateKey, MovementGateState, SignalControllerState, SignalGroupSnapshot,
+        SignalRegistry, SignalRuntimeScratch, SignalRuntimeState,
+    },
     time::{StepResult, TickInput},
     traffic::{InitialTrafficData, resolve_route_edges},
     vehicle::{
@@ -101,6 +107,8 @@ pub struct CoreWorld {
     lane_graph: LaneGraph,
     vehicle_profiles: VehicleProfileRegistry,
     signals: SignalRegistry,
+    signal_state: SignalRuntimeState,
+    signal_candidate_scratch: SignalRuntimeScratch,
     routes: Vec<RouteSlot>,
     route_handles: IndexMap<String, RouteHandle>,
     free_route_indices: Vec<usize>,
@@ -136,6 +144,8 @@ impl CoreWorld {
         if !signals.is_empty() && !vehicles.is_empty() {
             return Err(CoreError::SignalsVehicleCapabilityUnavailable);
         }
+        let mut signal_state = SignalRuntimeState::default();
+        signals.populate_runtime_state(0, &mut signal_state);
         let mut world = Self {
             fixed_delta_time_ms,
             tick_index: 0,
@@ -143,6 +153,8 @@ impl CoreWorld {
             lane_graph,
             vehicle_profiles,
             signals,
+            signal_state,
+            signal_candidate_scratch: SignalRuntimeScratch::default(),
             routes: Vec::new(),
             route_handles: IndexMap::new(),
             free_route_indices: Vec::new(),
@@ -215,6 +227,46 @@ impl CoreWorld {
     /// 返回 immutable Signals registry。
     pub const fn signals(&self) -> &SignalRegistry {
         &self.signals
+    }
+
+    /// 返回当前已提交的 controller snapshot。
+    pub fn signal_controller_state(
+        &self,
+        handle: SignalControllerHandle,
+    ) -> Option<SignalControllerState> {
+        self.signal_state.controller_state(handle)
+    }
+
+    /// 按 controller normalization order 遍历当前 snapshots。
+    pub fn signal_controller_states(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (SignalControllerHandle, SignalControllerState)> + '_ {
+        self.signal_state.controller_states()
+    }
+
+    /// 返回当前已提交的 SignalGroup snapshot。
+    pub fn signal_group_state(&self, handle: SignalGroupHandle) -> Option<SignalGroupSnapshot> {
+        self.signal_state.group_state(handle)
+    }
+
+    /// 按 SignalGroup normalization order 遍历当前 snapshots。
+    pub fn signal_group_states(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (SignalGroupHandle, SignalGroupSnapshot)> + '_ {
+        self.signal_state.group_states()
+    }
+
+    /// 返回当前已提交的 MovementGate signal-layer snapshot。
+    pub fn movement_gate_state(&self, key: MovementGateKey) -> Option<MovementGateState> {
+        self.signals.movement_gate_state(&self.signal_state, key)
+    }
+
+    /// 按 MovementGate normalization order 遍历当前 snapshots。
+    pub fn movement_gate_states(&self) -> impl ExactSizeIterator<Item = MovementGateState> + '_ {
+        self.signals.movement_gates().map(|key| {
+            self.movement_gate_state(key)
+                .expect("normalized MovementGate must have runtime state")
+        })
     }
 
     /// 返回指定 handle 的 Vehicle Profile。
@@ -479,8 +531,18 @@ impl CoreWorld {
             .checked_add(self.fixed_delta_time_ms)
             .ok_or(CoreError::TimeOverflow)?;
 
-        self.rebuild_occupancy_and_leaders()?;
-        self.rebuild_longitudinal_motions()?;
+        let mut signal_candidate_scratch = std::mem::take(&mut self.signal_candidate_scratch);
+        self.signals
+            .populate_runtime_state(next_time_ms, signal_candidate_scratch.state_mut());
+
+        if let Err(error) = self.rebuild_occupancy_and_leaders() {
+            self.signal_candidate_scratch = signal_candidate_scratch;
+            return Err(error);
+        }
+        if let Err(error) = self.rebuild_longitudinal_motions() {
+            self.signal_candidate_scratch = signal_candidate_scratch;
+            return Err(error);
+        }
 
         let mut candidate_states = std::mem::take(&mut self.candidate_state_scratch);
         candidate_states.begin(&self.vehicles);
@@ -522,19 +584,77 @@ impl CoreWorld {
         if let Err(error) = advance_result {
             candidate_states.clear();
             self.candidate_state_scratch = candidate_states;
+            self.signal_candidate_scratch = signal_candidate_scratch;
             return Err(error);
         }
 
+        self.append_signal_events(
+            next_tick_index,
+            signal_candidate_scratch.state(),
+            &mut events,
+        );
         candidate_states.commit_into(&mut self.vehicles);
+        std::mem::swap(&mut self.signal_state, signal_candidate_scratch.state_mut());
         self.tick_index = next_tick_index;
         self.time_ms = next_time_ms;
         self.candidate_state_scratch = candidate_states;
+        self.signal_candidate_scratch = signal_candidate_scratch;
 
         Ok(StepResult {
             tick_index: next_tick_index,
             time_ms: next_time_ms,
             events,
         })
+    }
+
+    fn append_signal_events(
+        &self,
+        tick_index: u64,
+        candidate: &SignalRuntimeState,
+        events: &mut Vec<CoreEvent>,
+    ) {
+        for (controller, next_controller_state) in candidate.controller_states() {
+            let current_controller_state = self
+                .signal_state
+                .controller_state(controller)
+                .expect("committed controller state must exist");
+            let from_phase = current_controller_state.current_phase();
+            let to_phase = next_controller_state.current_phase();
+            if from_phase != to_phase {
+                events.push(CoreEvent::SignalPhaseChanged(SignalPhaseChangedEvent {
+                    tick_index,
+                    controller,
+                    from_phase,
+                    to_phase,
+                }));
+            }
+
+            for group in self
+                .signals
+                .controller_groups(controller)
+                .expect("normalized controller groups must exist")
+            {
+                let from_aspect = self
+                    .signal_state
+                    .group_state(*group)
+                    .expect("committed group state must exist")
+                    .aspect();
+                let to_aspect = candidate
+                    .group_state(*group)
+                    .expect("candidate group state must exist")
+                    .aspect();
+                if from_aspect != to_aspect {
+                    events.push(CoreEvent::SignalGroupAspectChanged(
+                        SignalGroupAspectChangedEvent {
+                            tick_index,
+                            group: *group,
+                            from_aspect,
+                            to_aspect,
+                        },
+                    ));
+                }
+            }
+        }
     }
 
     fn validate_candidate_overlap(

@@ -1,6 +1,9 @@
 //! Core step 输出事件。
 
-use crate::{EdgeHandle, RouteHandle, VehicleHandle};
+use crate::{
+    EdgeHandle, RouteHandle, SignalAspect, SignalControllerHandle, SignalGroupHandle,
+    SignalPhaseRef, VehicleHandle,
+};
 
 /// Core step 产生的可观察事件。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -12,6 +15,10 @@ pub enum CoreEvent {
     VehicleChangedEdge(VehicleChangedEdgeEvent),
     /// 车辆到达 route 末端。
     VehicleCompletedRoute(VehicleCompletedRouteEvent),
+    /// fixed-time controller 的当前 phase identity 已改变。
+    SignalPhaseChanged(SignalPhaseChangedEvent),
+    /// SignalGroup 的当前 indication 已改变。
+    SignalGroupAspectChanged(SignalGroupAspectChangedEvent),
 }
 
 /// Vehicle Following 最终几何投影事件。
@@ -57,4 +64,30 @@ pub struct VehicleCompletedRouteEvent {
     pub edge: EdgeHandle,
     /// 完成时所在的 route edge index。
     pub route_edge_index: usize,
+}
+
+/// fixed-time controller phase 变化事件。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignalPhaseChangedEvent {
+    /// 事件所属的 post-step tick index。
+    pub tick_index: u64,
+    /// 发生变化的 controller。
+    pub controller: SignalControllerHandle,
+    /// step 前已提交的 phase。
+    pub from_phase: SignalPhaseRef,
+    /// step 后提交的 phase。
+    pub to_phase: SignalPhaseRef,
+}
+
+/// SignalGroup aspect 变化事件。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignalGroupAspectChangedEvent {
+    /// 事件所属的 post-step tick index。
+    pub tick_index: u64,
+    /// 发生变化的 group。
+    pub group: SignalGroupHandle,
+    /// step 前已提交的 indication。
+    pub from_aspect: SignalAspect,
+    /// step 后提交的 indication。
+    pub to_aspect: SignalAspect,
 }
