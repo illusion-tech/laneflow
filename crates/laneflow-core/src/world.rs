@@ -7,6 +7,7 @@ use crate::{
     event::{
         CoreEvent, SignalGroupAspectChangedEvent, SignalPhaseChangedEvent, VehicleChangedEdgeEvent,
         VehicleCompletedRouteEvent, VehicleFollowingSafetyProjectionAppliedEvent,
+        VehicleSignalStopProjectionAppliedEvent,
     },
     graph::{EDGE_BOUNDARY_EPSILON, LaneGraph},
     handle::{
@@ -19,8 +20,9 @@ use crate::{
     profile::{GEOMETRY_GAP_EPSILON, VehicleProfile, VehicleProfileRegistry},
     route::{Route, RouteRemoveRecord},
     signal::{
-        MovementGateKey, MovementGateState, SignalControllerState, SignalGroupSnapshot,
-        SignalRegistry, SignalRuntimeScratch, SignalRuntimeState,
+        MovementGateIndex, MovementGateKey, MovementGateSignalState, MovementGateState,
+        SignalControllerState, SignalGroupSnapshot, SignalLayerPermission, SignalRegistry,
+        SignalRuntimeScratch, SignalRuntimeState, SignalStopConstraint,
     },
     time::{StepResult, TickInput},
     traffic::{InitialTrafficData, resolve_route_edges},
@@ -30,12 +32,37 @@ use crate::{
     },
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RouteTransition {
+    to_edge: EdgeHandle,
+    gate: Option<MovementGateIndex>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct NextControlledRouteTransition {
+    from_route_edge_index: usize,
+    gate: MovementGateIndex,
+    distance_from_edge_start: f64,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct RouteSlot {
     generation: u32,
     external_id: String,
     edge_handles: Vec<EdgeHandle>,
+    transitions: Vec<RouteTransition>,
+    next_controlled_transition: Vec<Option<NextControlledRouteTransition>>,
     active: bool,
+}
+
+#[derive(Clone, Copy)]
+struct VehicleAdvanceContext<'a> {
+    lane_graph: &'a LaneGraph,
+    signals: &'a SignalRegistry,
+    signal_state: &'a SignalRuntimeState,
+    routes: &'a [RouteSlot],
+    fixed_delta_time_ms: u64,
+    tick_index: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -141,9 +168,6 @@ impl CoreWorld {
 
         let (lane_graph, routes, vehicle_profiles, signals) = traffic_data.into_parts();
         signals.validate_fixed_delta_time(fixed_delta_time_ms)?;
-        if !signals.is_empty() && !vehicles.is_empty() {
-            return Err(CoreError::SignalsVehicleCapabilityUnavailable);
-        }
         let mut signal_state = SignalRuntimeState::default();
         signals.populate_runtime_state(0, &mut signal_state);
         let mut world = Self {
@@ -334,6 +358,8 @@ impl CoreWorld {
         }
 
         let edge_handles = resolve_route_edges(&self.lane_graph, &self.signals, &route)?;
+        let (transitions, next_controlled_transition) =
+            self.build_route_signal_metadata(&edge_handles);
         let external_id = route.id().to_owned();
 
         let handle = if let Some(index) = self.free_route_indices.pop() {
@@ -342,6 +368,8 @@ impl CoreWorld {
                 generation,
                 external_id: external_id.clone(),
                 edge_handles,
+                transitions,
+                next_controlled_transition,
                 active: true,
             };
             RouteHandle::new(index, generation)
@@ -351,6 +379,8 @@ impl CoreWorld {
                 generation: 0,
                 external_id: external_id.clone(),
                 edge_handles,
+                transitions,
+                next_controlled_transition,
                 active: true,
             });
             handle
@@ -358,6 +388,49 @@ impl CoreWorld {
 
         self.route_handles.insert(external_id, handle);
         Ok(handle)
+    }
+
+    fn build_route_signal_metadata(
+        &self,
+        edge_handles: &[EdgeHandle],
+    ) -> (
+        Vec<RouteTransition>,
+        Vec<Option<NextControlledRouteTransition>>,
+    ) {
+        let transitions = edge_handles
+            .windows(2)
+            .map(|pair| {
+                let to_edge = pair[1];
+                let gate = self
+                    .signals
+                    .movement_gate_index(MovementGateKey::new(pair[0], to_edge));
+                RouteTransition { to_edge, gate }
+            })
+            .collect::<Vec<_>>();
+        let mut next_controlled_transition = vec![None; edge_handles.len()];
+        let mut next = None;
+        for route_edge_index in (0..edge_handles.len()).rev() {
+            let edge_length = self
+                .lane_graph
+                .edge_length(edge_handles[route_edge_index])
+                .expect("normalized route edge must exist")
+                .value();
+            if let Some(gate) = transitions
+                .get(route_edge_index)
+                .and_then(|transition| transition.gate)
+                .filter(|gate| self.signals.movement_gate_is_signal_controlled(*gate))
+            {
+                next = Some(NextControlledRouteTransition {
+                    from_route_edge_index: route_edge_index,
+                    gate,
+                    distance_from_edge_start: edge_length,
+                });
+            } else if let Some(candidate) = next.as_mut() {
+                candidate.distance_from_edge_start += edge_length;
+            }
+            next_controlled_transition[route_edge_index] = next;
+        }
+        (transitions, next_controlled_transition)
     }
 
     /// 移除未被 live vehicle 引用的 route definition。
@@ -378,6 +451,8 @@ impl CoreWorld {
         let external_id = route.external_id.clone();
         route.active = false;
         route.edge_handles.clear();
+        route.transitions.clear();
+        route.next_controlled_transition.clear();
         self.route_handles.shift_remove(&external_id);
         // generation 耗尽时不复用 slot，避免 stale handle 在回绕后复活。
         if let Some(next_generation) = route.generation.checked_add(1) {
@@ -393,9 +468,6 @@ impl CoreWorld {
 
     /// 创建新的 vehicle runtime entity。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, CoreError> {
-        if !self.signals.is_empty() {
-            return Err(CoreError::SignalsVehicleCapabilityUnavailable);
-        }
         self.spawn_vehicle_with_overlap_validation(input, true)
     }
 
@@ -547,6 +619,14 @@ impl CoreWorld {
         let mut candidate_states = std::mem::take(&mut self.candidate_state_scratch);
         candidate_states.begin(&self.vehicles);
         let mut events = Vec::new();
+        let advance_context = VehicleAdvanceContext {
+            lane_graph: &self.lane_graph,
+            signals: &self.signals,
+            signal_state: &self.signal_state,
+            routes: &self.routes,
+            fixed_delta_time_ms: self.fixed_delta_time_ms,
+            tick_index: next_tick_index,
+        };
         let advance_result = (|| {
             for vehicle_handle in &self.vehicle_update_order {
                 let Some(current_slot) = self
@@ -568,15 +648,7 @@ impl CoreWorld {
                     debug_assert_eq!(vehicle.status, VehicleStatus::Completed);
                     continue;
                 };
-                Self::advance_vehicle(
-                    &self.lane_graph,
-                    &self.routes,
-                    self.fixed_delta_time_ms,
-                    next_tick_index,
-                    vehicle,
-                    motion,
-                    &mut events,
-                )?;
+                Self::advance_vehicle(advance_context, vehicle, motion, &mut events)?;
             }
             Ok(())
         })();
@@ -903,6 +975,12 @@ impl CoreWorld {
                             .vehicle_profile(vehicle.profile)
                             .expect("live vehicle profile must exist")
                             .iidm();
+                        let signal_stop = if self.signals.is_empty() {
+                            None
+                        } else {
+                            let horizon = self.signal_stop_horizon(vehicle)?;
+                            self.nearest_denied_signal_stop(vehicle, horizon)?
+                        };
                         let leader = self.occupancy_scratch.leader(handle).map(|observation| {
                             let leader = self
                                 .vehicle(observation.leader)
@@ -929,6 +1007,9 @@ impl CoreWorld {
                             self.route_end_distance_within(vehicle, motion.final_travel())
                         {
                             motion.cap_to_route_end(route_end_distance, delta_time)?;
+                        }
+                        if let Some(signal_stop) = signal_stop {
+                            motion.apply_signal_stop(signal_stop, profile, delta_time)?;
                         }
                         scratch.set(motion);
                     }
@@ -1059,6 +1140,104 @@ impl CoreWorld {
         Ok(hard_horizon.max(comfort_horizon))
     }
 
+    fn signal_stop_horizon(&self, vehicle: &VehicleState) -> Result<f64, CoreError> {
+        let profile = self
+            .vehicle_profile(vehicle.profile)
+            .expect("live vehicle profile must exist")
+            .iidm();
+        let speed = vehicle.current_speed.value();
+        let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
+        let upper_speed = Self::finite_signal_stop_value(
+            vehicle.handle,
+            "signal_upper_speed",
+            speed + profile.max_acceleration * delta_time,
+        )?;
+        let travel_upper = Self::finite_signal_stop_value(
+            vehicle.handle,
+            "signal_travel_upper",
+            Self::half_product(speed, delta_time) + Self::half_product(upper_speed, delta_time),
+        )?;
+        let comfortable_braking_distance = Self::finite_signal_stop_value(
+            vehicle.handle,
+            "signal_comfortable_braking_distance",
+            Self::braking_distance(upper_speed, profile.comfortable_deceleration),
+        )?;
+        let comfortable_horizon = Self::finite_signal_stop_value(
+            vehicle.handle,
+            "signal_comfortable_horizon",
+            travel_upper + comfortable_braking_distance,
+        )?;
+        Ok(comfortable_horizon.max(self.leader_horizon(vehicle)?))
+    }
+
+    fn nearest_denied_signal_stop(
+        &self,
+        vehicle: &VehicleState,
+        horizon: f64,
+    ) -> Result<Option<SignalStopConstraint>, CoreError> {
+        let route = self
+            .route_slot(vehicle.route)
+            .expect("live vehicle route must exist");
+        let mut search_edge_index = vehicle.route_edge_index;
+        let mut distance = 0.0;
+        let mut first = true;
+
+        while let Some(next) = route
+            .next_controlled_transition
+            .get(search_edge_index)
+            .copied()
+            .flatten()
+        {
+            let progress = if first {
+                vehicle.edge_progress.value()
+            } else {
+                0.0
+            };
+            let segment_distance = Self::finite_signal_stop_value(
+                vehicle.handle,
+                "signal_route_segment_distance",
+                next.distance_from_edge_start - progress,
+            )?;
+            distance = Self::finite_signal_stop_value(
+                vehicle.handle,
+                "signal_route_distance",
+                distance + segment_distance.max(0.0),
+            )?;
+            if distance > horizon + EDGE_BOUNDARY_EPSILON {
+                break;
+            }
+
+            let gate = self
+                .signals
+                .movement_gate_state_by_index(&self.signal_state, next.gate)
+                .expect("normalized route Gate must have committed state");
+            if let MovementGateSignalState::Controlled {
+                group,
+                aspect,
+                permission: SignalLayerPermission::DenyAndStop,
+            } = gate.signal()
+            {
+                return Ok(Some(SignalStopConstraint {
+                    route_distance: distance,
+                    gate: gate.key(),
+                    stop_line: gate.stop_line(),
+                    group,
+                    aspect,
+                    from_route_edge_index: next.from_route_edge_index,
+                    to_route_edge_index: next.from_route_edge_index + 1,
+                }));
+            }
+
+            search_edge_index = next.from_route_edge_index + 1;
+            if search_edge_index >= route.edge_handles.len() {
+                break;
+            }
+            first = false;
+        }
+
+        Ok(None)
+    }
+
     fn find_leader(
         &self,
         scratch: &OccupancyScratch,
@@ -1160,6 +1339,21 @@ impl CoreWorld {
             });
         }
         Ok(value)
+    }
+
+    fn finite_signal_stop_value(
+        vehicle: VehicleHandle,
+        stage: &'static str,
+        value: f64,
+    ) -> Result<f64, CoreError> {
+        if !value.is_finite() {
+            return Err(CoreError::NonFiniteSignalStopComputation {
+                vehicle,
+                stage,
+                value,
+            });
+        }
+        Ok(if value == 0.0 { 0.0 } else { value })
     }
 
     fn normalize_bumper_gap(value: f64) -> f64 {
@@ -1268,10 +1462,7 @@ impl CoreWorld {
     }
 
     fn advance_vehicle(
-        lane_graph: &LaneGraph,
-        routes: &[RouteSlot],
-        fixed_delta_time_ms: u64,
-        tick_index: u64,
+        context: VehicleAdvanceContext<'_>,
         vehicle: &mut VehicleState,
         motion: LongitudinalMotion,
         events: &mut Vec<CoreEvent>,
@@ -1280,16 +1471,31 @@ impl CoreWorld {
             return Ok(());
         }
 
-        let delta_time_seconds = fixed_delta_time_ms as f64 / 1_000.0;
+        let delta_time_seconds = context.fixed_delta_time_ms as f64 / 1_000.0;
         vehicle.current_speed =
             Speed::try_new(motion.final_speed()).expect("longitudinal motion speed must be valid");
         vehicle.applied_acceleration =
             Acceleration::try_new(motion.applied_acceleration(delta_time_seconds)?)
                 .expect("longitudinal applied acceleration must be valid");
+        if let Some(signal_stop) = motion.signal_stop_projection() {
+            events.push(CoreEvent::VehicleSignalStopProjectionApplied(
+                VehicleSignalStopProjectionAppliedEvent {
+                    tick_index: context.tick_index,
+                    vehicle: vehicle.handle,
+                    route: vehicle.route,
+                    from_route_edge_index: signal_stop.from_route_edge_index,
+                    to_route_edge_index: signal_stop.to_route_edge_index,
+                    gate: signal_stop.gate,
+                    stop_line: signal_stop.stop_line,
+                    group: signal_stop.group,
+                    aspect: signal_stop.aspect,
+                },
+            ));
+        }
         if let Some(leader) = motion.safety_projection_leader() {
             events.push(CoreEvent::VehicleFollowingSafetyProjectionApplied(
                 VehicleFollowingSafetyProjectionAppliedEvent {
-                    tick_index,
+                    tick_index: context.tick_index,
                     vehicle: vehicle.handle,
                     leader,
                 },
@@ -1301,7 +1507,8 @@ impl CoreWorld {
             return Ok(());
         }
 
-        let route = routes
+        let route = context
+            .routes
             .get(vehicle.route.index())
             .filter(|route| route.active && route.generation == vehicle.route.generation())
             .expect("validated vehicle route must exist");
@@ -1314,7 +1521,8 @@ impl CoreWorld {
                     && vehicle.route_edge_index + 1 == route.edge_handles.len()
                 {
                     let current_edge = route.edge_handles[vehicle.route_edge_index];
-                    let edge_length = lane_graph
+                    let edge_length = context
+                        .lane_graph
                         .edge_length(current_edge)
                         .expect("validated route edge must exist")
                         .value();
@@ -1325,7 +1533,7 @@ impl CoreWorld {
                     vehicle.status = VehicleStatus::Completed;
                     events.push(CoreEvent::VehicleCompletedRoute(
                         VehicleCompletedRouteEvent {
-                            tick_index,
+                            tick_index: context.tick_index,
                             vehicle: vehicle.handle,
                             route: vehicle.route,
                             edge: current_edge,
@@ -1341,7 +1549,8 @@ impl CoreWorld {
                 .get(vehicle.route_edge_index)
                 .copied()
                 .expect("validated route edge index must exist");
-            let edge_length = lane_graph
+            let edge_length = context
+                .lane_graph
                 .edge_length(current_edge)
                 .expect("validated route edge must exist")
                 .value();
@@ -1350,7 +1559,7 @@ impl CoreWorld {
                 return Err(CoreError::NonFiniteRouteTravel {
                     vehicle: vehicle.handle,
                     speed: motion.final_speed(),
-                    delta_time_ms: fixed_delta_time_ms,
+                    delta_time_ms: context.fixed_delta_time_ms,
                 });
             }
 
@@ -1370,14 +1579,48 @@ impl CoreWorld {
             if vehicle.route_edge_index + 1 < route.edge_handles.len() {
                 let from_route_edge_index = vehicle.route_edge_index;
                 let to_route_edge_index = from_route_edge_index + 1;
-                let to_edge = route
-                    .edge_handles
-                    .get(to_route_edge_index)
+                let transition = route
+                    .transitions
+                    .get(from_route_edge_index)
                     .copied()
-                    .expect("next route edge must exist");
+                    .expect("next route transition must exist");
+                let to_edge = transition.to_edge;
+
+                let denied_gate = transition.gate.and_then(|gate_index| {
+                    let gate = context
+                        .signals
+                        .movement_gate_state_by_index(context.signal_state, gate_index)
+                        .expect("normalized route Gate must have committed state");
+                    matches!(
+                        gate.signal(),
+                        MovementGateSignalState::Controlled {
+                            permission: SignalLayerPermission::DenyAndStop,
+                            ..
+                        }
+                    )
+                    .then_some(gate)
+                });
+                if let Some(gate) = denied_gate {
+                    if remaining > EDGE_BOUNDARY_EPSILON
+                        || vehicle.current_speed.value() > GEOMETRY_GAP_EPSILON
+                    {
+                        return Err(CoreError::SignalTraversalDeniedInvariant {
+                            vehicle: vehicle.handle,
+                            route: vehicle.route,
+                            from_route_edge_index,
+                            to_route_edge_index,
+                            gate: gate.key(),
+                            remaining_travel: remaining,
+                            final_speed: vehicle.current_speed.value(),
+                        });
+                    }
+                    vehicle.edge_progress =
+                        EdgeProgress::try_new(edge_length).expect("edge length is valid progress");
+                    break;
+                }
 
                 events.push(CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
-                    tick_index,
+                    tick_index: context.tick_index,
                     vehicle: vehicle.handle,
                     route: vehicle.route,
                     from_edge: current_edge,
@@ -1396,7 +1639,7 @@ impl CoreWorld {
                 vehicle.status = VehicleStatus::Completed;
                 events.push(CoreEvent::VehicleCompletedRoute(
                     VehicleCompletedRouteEvent {
-                        tick_index,
+                        tick_index: context.tick_index,
                         vehicle: vehicle.handle,
                         route: vehicle.route,
                         edge: current_edge,

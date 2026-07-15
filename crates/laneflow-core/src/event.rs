@@ -1,14 +1,16 @@
 //! Core step 输出事件。
 
 use crate::{
-    EdgeHandle, RouteHandle, SignalAspect, SignalControllerHandle, SignalGroupHandle,
-    SignalPhaseRef, VehicleHandle,
+    EdgeHandle, MovementGateKey, RouteHandle, SignalAspect, SignalControllerHandle,
+    SignalGroupHandle, SignalPhaseRef, StopLineHandle, VehicleHandle,
 };
 
 /// Core step 产生的可观察事件。
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CoreEvent {
+    /// SignalStop hard boundary 将车辆 motion 压到 emergency envelope 以下。
+    VehicleSignalStopProjectionApplied(VehicleSignalStopProjectionAppliedEvent),
     /// 车辆为维持最终 no-overlap 不变量而应用了超出 emergency envelope 的几何投影。
     VehicleFollowingSafetyProjectionApplied(VehicleFollowingSafetyProjectionAppliedEvent),
     /// 车辆从 route 中的一个 edge 切换到下一个 edge。
@@ -19,6 +21,29 @@ pub enum CoreEvent {
     SignalPhaseChanged(SignalPhaseChangedEvent),
     /// SignalGroup 的当前 indication 已改变。
     SignalGroupAspectChanged(SignalGroupAspectChangedEvent),
+}
+
+/// SignalStop hard projection 的完整 route-occurrence attribution。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VehicleSignalStopProjectionAppliedEvent {
+    /// 事件所属的 post-step tick index。
+    pub tick_index: u64,
+    /// 被投影的 vehicle。
+    pub vehicle: VehicleHandle,
+    /// vehicle 当前使用的 route。
+    pub route: RouteHandle,
+    /// denied Gate 的 from-edge occurrence index。
+    pub from_route_edge_index: usize,
+    /// denied Gate 的 to-edge occurrence index。
+    pub to_route_edge_index: usize,
+    /// 被拒绝的 MovementGate value identity。
+    pub gate: MovementGateKey,
+    /// Gate 使用的 StopLine。
+    pub stop_line: StopLineHandle,
+    /// 控制 Gate 的 SignalGroup。
+    pub group: SignalGroupHandle,
+    /// 触发 denial 的 tick-start aspect。
+    pub aspect: SignalAspect,
 }
 
 /// Vehicle Following 最终几何投影事件。

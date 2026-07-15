@@ -19,6 +19,7 @@ pub use error::CoreError;
 pub use event::{
     CoreEvent, SignalGroupAspectChangedEvent, SignalPhaseChangedEvent, VehicleChangedEdgeEvent,
     VehicleCompletedRouteEvent, VehicleFollowingSafetyProjectionAppliedEvent,
+    VehicleSignalStopProjectionAppliedEvent,
 };
 pub use graph::{EDGE_BOUNDARY_EPSILON, EdgeLength, LaneEdge, LaneGraph};
 pub use handle::{

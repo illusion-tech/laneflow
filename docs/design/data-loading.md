@@ -143,7 +143,7 @@ Core 负责：
 - Group owner/usage；
 - controller/phase cardinality、complete states、cycle checked sum、canonical offset；
 - route continuity 与 final-StopLine；
-- world fixed delta compatibility 与 capability guard。
+- world fixed delta compatibility；vehicle/signal runtime compliance 由 Core 承担。
 
 Data crate 可以附加输入 index/path，不得复制 Core regex、graph、ownership 或 cycle algorithm。
 
@@ -165,17 +165,17 @@ DataError #[non_exhaustive]
 - missing/coverage 等无直接记录的全局错误定位到拥有该 invariant 的 phase/StopLine/Group。
 - `DataError` 与 `CoreError` 实现 `Error + Send + Sync`；机器匹配 enum，不解析 Display。
 
-## 7. World Compatibility 与 Activation Guard
+## 7. World Compatibility 与 Vehicle Activation
 
 Loader 不创建 world。`CoreWorld::with_traffic_data` 在 loader 成功后按顺序：
 
 1. fixed delta 必须为正。
 2. 每个 phase `durationMs >= fixedDeltaTimeMs`。
-3. #96 前，non-empty Signals 与任何 initial vehicle 组合返回 `SignalsVehicleCapabilityUnavailable`。
-4. 注册 initial routes（复用 final-StopLine rule）。
-5. empty Signals 继续初始化 vehicles 并验证 overlap。
+3. 构造 time-0 signal authority snapshot。
+4. 注册 initial routes（复用 final-StopLine rule，并预解析 route-occurrence Gate metadata）。
+5. 初始化 vehicles 并验证 overlap；empty/non-empty Signals 均走同一 vehicle activation path。
 
-signal-only world 中后续 `spawn_vehicle` 同样返回 capability error且不改变 world。#95 的 time-0/post-step snapshot 不在本切片；#96 完整合规后才可解除 guard。
+#96 已用 SignalStop、hard projection 与 permission-aware traversal 的完整车辆合规替代 legacy capability guard；signal world 中后续 `spawn_vehicle` 复用相同 activation 与 overlap validation。
 
 ## 8. Schema、Fixtures 与 Tests
 
