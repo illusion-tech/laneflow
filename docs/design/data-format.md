@@ -1,7 +1,7 @@
 # Data Format 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-13  
+**最后更新**: 2026-07-15  
 **适用范围**: 当前 v0.3 外部数据格式、版本策略、lane graph / route / Vehicle Profile 字段语义、validation 与消费边界  
 **关联文档**:
 
@@ -12,11 +12,15 @@
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
+- `../adr/0009-signal-indication-gate-and-policy-separation.md`
 - `../../schemas/laneflow-data-v0.3.schema.json`
 - `data-loading.md`
 - `lane-graph.md`
 - `route-system.md`
 - `vehicle-following.md`
+- `signal-system.md`
+
+> **Planned v0.4 提示**：#93 已冻结 Signals 与 0.4 breaking migration 的设计，见 `signal-system.md`。本文件仍是 production current v0.3 契约；#94 必须在同一实现 PR 中原子更新 schema、private DTO、loader、fixtures、format constant 与本文件后，才能把 current 改为 0.4。本文当前链接的 v0.3 schema 仍是 active schema。
 
 ## 1. 目标与非目标
 

@@ -1,7 +1,7 @@
 # Data Loading 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-13  
+**最后更新**: 2026-07-15  
 **适用范围**: 当前 v0.3 JSON package 的 Rust loader、版本闸口、Core normalization、错误模型、测试与输入安全边界  
 **关联文档**:
 
@@ -11,8 +11,12 @@
 - `../adr/0006-vehicle-following-control-and-safety.md`
 - `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
+- `../adr/0009-signal-indication-gate-and-policy-separation.md`
 - `data-format.md`
 - `vehicle-following.md`
+- `signal-system.md`
+
+> **Planned v0.4 提示**：#93 已接受 Signals loader/Core normalization 设计，见 `signal-system.md`。production loader、`CURRENT_FORMAT_VERSION`、private DTO 和 public `LoadedPackage` 当前仍只实现 v0.3；#94 原子切换全部 current artifacts 前，本文件不得提前改写为已实现的 0.4 loader。
 
 ## 1. 目标与非目标
 
