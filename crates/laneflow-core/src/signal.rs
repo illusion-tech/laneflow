@@ -273,6 +273,20 @@ pub struct MovementGateKey {
     to_edge: EdgeHandle,
 }
 
+/// Core 内部按 MovementGate normalization order 分配的 dense index。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct MovementGateIndex(usize);
+
+impl MovementGateIndex {
+    const fn new(index: usize) -> Self {
+        Self(index)
+    }
+
+    const fn index(self) -> usize {
+        self.0
+    }
+}
+
 impl MovementGateKey {
     pub const fn new(from_edge: EdgeHandle, to_edge: EdgeHandle) -> Self {
         Self { from_edge, to_edge }
@@ -399,6 +413,18 @@ pub struct MovementGateState {
     key: MovementGateKey,
     stop_line: StopLineHandle,
     signal: MovementGateSignalState,
+}
+
+/// Tick-local SignalStop spatial target 与事件归因。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SignalStopConstraint {
+    pub(crate) route_distance: f64,
+    pub(crate) gate: MovementGateKey,
+    pub(crate) stop_line: StopLineHandle,
+    pub(crate) group: SignalGroupHandle,
+    pub(crate) aspect: SignalAspect,
+    pub(crate) from_route_edge_index: usize,
+    pub(crate) to_route_edge_index: usize,
 }
 
 impl MovementGateState {
@@ -1068,6 +1094,27 @@ impl SignalRegistry {
         self.movement_gates.keys().copied()
     }
 
+    pub(crate) fn movement_gate_index(&self, key: MovementGateKey) -> Option<MovementGateIndex> {
+        self.movement_gates
+            .get_index_of(&key)
+            .map(MovementGateIndex::new)
+    }
+
+    pub(crate) fn movement_gate_is_signal_controlled(&self, index: MovementGateIndex) -> bool {
+        self.movement_gates
+            .get_index(index.index())
+            .is_some_and(|(_, gate)| matches!(gate.control, SignalControl::Group(_)))
+    }
+
+    pub(crate) fn movement_gate_state_by_index(
+        &self,
+        runtime: &SignalRuntimeState,
+        index: MovementGateIndex,
+    ) -> Option<MovementGateState> {
+        let (key, gate) = self.movement_gates.get_index(index.index())?;
+        Self::resolved_movement_gate_state(runtime, *key, gate)
+    }
+
     pub(crate) fn populate_runtime_state(&self, time_ms: u64, state: &mut SignalRuntimeState) {
         state.controllers.clear();
         state.groups.clear();
@@ -1114,6 +1161,14 @@ impl SignalRegistry {
         key: MovementGateKey,
     ) -> Option<MovementGateState> {
         let gate = self.movement_gates.get(&key)?;
+        Self::resolved_movement_gate_state(runtime, key, gate)
+    }
+
+    fn resolved_movement_gate_state(
+        runtime: &SignalRuntimeState,
+        key: MovementGateKey,
+        gate: &ResolvedMovementGate,
+    ) -> Option<MovementGateState> {
         let signal = match gate.control {
             SignalControl::None => MovementGateSignalState::Uncontrolled,
             SignalControl::Group(group) => {

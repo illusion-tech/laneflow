@@ -1,6 +1,6 @@
 //! Core runtime 的错误类型。
 
-use crate::{RouteHandle, VehicleHandle, VehicleProfileHandle, VehicleStatus};
+use crate::{MovementGateKey, RouteHandle, VehicleHandle, VehicleProfileHandle, VehicleStatus};
 
 /// Core runtime 暴露给调用方的错误。
 #[derive(Clone, Debug, thiserror::Error)]
@@ -278,8 +278,8 @@ pub enum CoreError {
         duration_ms: u64,
         fixed_delta_time_ms: u64,
     },
-    /// #96 前禁止 non-empty Signals 与任何已生成 vehicle 共存。
-    #[error("v0.4 Signals 车辆合规尚未激活：#96 前不能在 non-empty Signals world 中生成车辆")]
+    /// #94/#95 的 legacy capability guard error；#96 完整合规闭环后不再返回。
+    #[error("legacy v0.4 Signals capability guard error：#96 完整合规后不再返回")]
     SignalsVehicleCapabilityUnavailable,
     /// vehicle id 在 world 内必须唯一。
     #[error("vehicle id 重复：{vehicle_id}")]
@@ -374,6 +374,26 @@ pub enum CoreError {
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
+    },
+    /// SignalStop route-distance、reducer 或 hard projection 必须保持 finite。
+    #[error("vehicle `{vehicle:?}` 的 SignalStop 计算不是 finite：stage={stage}, value={value}")]
+    NonFiniteSignalStopComputation {
+        vehicle: VehicleHandle,
+        stage: &'static str,
+        value: f64,
+    },
+    /// D6 motion 与 D7 denied traversal 不得产生可越过 Gate 的剩余位移。
+    #[error(
+        "vehicle `{vehicle:?}` 的 SignalStop motion 与 denied Gate traversal 矛盾：route={route:?}, occurrence={from_route_edge_index}->{to_route_edge_index}, gate={gate:?}, remaining={remaining_travel}, final_speed={final_speed}"
+    )]
+    SignalTraversalDeniedInvariant {
+        vehicle: VehicleHandle,
+        route: RouteHandle,
+        from_route_edge_index: usize,
+        to_route_edge_index: usize,
+        gate: MovementGateKey,
+        remaining_travel: f64,
+        final_speed: f64,
     },
     /// route following 计算出的 travel distance 必须保持 finite。
     #[error(

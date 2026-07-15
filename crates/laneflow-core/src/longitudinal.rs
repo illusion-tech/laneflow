@@ -2,7 +2,7 @@
 
 use crate::{
     CoreError, IidmProfileSpec, VehicleHandle, occupancy::LeaderObservation,
-    profile::GEOMETRY_GAP_EPSILON,
+    profile::GEOMETRY_GAP_EPSILON, signal::SignalStopConstraint,
 };
 
 const UNVISITED: u8 = 0;
@@ -28,6 +28,8 @@ pub(crate) struct LongitudinalMotion {
     final_speed: f64,
     final_travel: f64,
     route_end_distance: Option<f64>,
+    signal_stop: Option<SignalStopConstraint>,
+    signal_projection_applied: bool,
     safety_projection_applied: bool,
 }
 
@@ -44,6 +46,8 @@ impl LongitudinalMotion {
             final_speed: 0.0,
             final_travel: 0.0,
             route_end_distance: None,
+            signal_stop: None,
+            signal_projection_applied: false,
             safety_projection_applied: false,
         }
     }
@@ -72,6 +76,68 @@ impl LongitudinalMotion {
         Ok(())
     }
 
+    pub(crate) fn apply_signal_stop(
+        &mut self,
+        constraint: SignalStopConstraint,
+        profile: IidmProfileSpec,
+        delta_time: f64,
+    ) -> Result<(), CoreError> {
+        self.signal_stop = Some(constraint);
+        let result = (|| {
+            let speed_ceiling = safe_speed(
+                self.vehicle,
+                self.current_speed,
+                profile.comfortable_deceleration,
+                0.0,
+                profile.comfortable_deceleration,
+                constraint.route_distance,
+                delta_time,
+            )?;
+            let emergency_speed_step = finite(
+                self.vehicle,
+                "signal_emergency_speed_step",
+                profile.emergency_deceleration * delta_time,
+            )?;
+            let emergency_floor = (self.current_speed - emergency_speed_step).max(0.0);
+            let constrained_speed = self.candidate_speed.min(speed_ceiling.max(emergency_floor));
+            if constrained_speed < self.candidate_speed {
+                let acceleration = finite(
+                    self.vehicle,
+                    "signal_candidate_acceleration",
+                    (constrained_speed - self.current_speed) / delta_time,
+                )?;
+                let candidate =
+                    ballistic_motion(self.vehicle, self.current_speed, acceleration, delta_time)?;
+                self.candidate_speed = candidate.speed;
+                self.candidate_travel = candidate.travel;
+            }
+
+            let travel_before_hard_projection = self.candidate_travel;
+            if constraint.route_distance < self.candidate_travel {
+                self.candidate_speed = speed_after_travel_cap(
+                    self.vehicle,
+                    self.candidate_speed,
+                    self.candidate_travel,
+                    constraint.route_distance,
+                    delta_time,
+                )?;
+                self.candidate_travel = constraint.route_distance;
+            }
+            if self.candidate_travel + GEOMETRY_GAP_EPSILON >= constraint.route_distance {
+                self.candidate_speed = 0.0;
+            }
+
+            self.final_speed = self.candidate_speed;
+            self.final_travel = self.candidate_travel;
+            self.signal_projection_applied = constraint.route_distance + GEOMETRY_GAP_EPSILON
+                < self.emergency_min_travel
+                && constraint.route_distance < travel_before_hard_projection;
+            Ok(())
+        })();
+
+        result.map_err(signal_stop_error)
+    }
+
     pub(crate) const fn final_speed(self) -> f64 {
         self.final_speed
     }
@@ -96,6 +162,13 @@ impl LongitudinalMotion {
         })
     }
 
+    pub(crate) fn signal_stop_projection(self) -> Option<SignalStopConstraint> {
+        self.signal_projection_applied.then(|| {
+            self.signal_stop
+                .expect("signal projection must have attribution")
+        })
+    }
+
     pub(crate) fn reaches_route_end(self) -> bool {
         self.route_end_distance
             .is_some_and(|distance| self.final_travel + GEOMETRY_GAP_EPSILON >= distance)
@@ -115,7 +188,8 @@ impl LongitudinalMotion {
             leader.bumper_gap + leader_final_travel,
         )?
         .max(0.0);
-        let final_travel = self.candidate_travel.min(geometry_cap);
+        let travel_before_geometry_projection = self.candidate_travel;
+        let final_travel = travel_before_geometry_projection.min(geometry_cap);
 
         if final_travel < self.candidate_travel {
             self.final_speed = speed_after_travel_cap(
@@ -129,8 +203,9 @@ impl LongitudinalMotion {
             self.final_speed = self.candidate_speed;
         }
         self.final_travel = final_travel;
-        self.safety_projection_applied =
-            final_travel + GEOMETRY_GAP_EPSILON < self.emergency_min_travel;
+        self.safety_projection_applied = final_travel + GEOMETRY_GAP_EPSILON
+            < travel_before_geometry_projection
+            && final_travel + GEOMETRY_GAP_EPSILON < self.emergency_min_travel;
         Ok(())
     }
 }
@@ -370,8 +445,25 @@ pub(crate) fn compute_motion(
         final_speed: candidate.speed,
         final_travel: candidate.travel,
         route_end_distance: None,
+        signal_stop: None,
+        signal_projection_applied: false,
         safety_projection_applied: false,
     })
+}
+
+fn signal_stop_error(error: CoreError) -> CoreError {
+    match error {
+        CoreError::NonFiniteLongitudinalComputation {
+            vehicle,
+            stage,
+            value,
+        } => CoreError::NonFiniteSignalStopComputation {
+            vehicle,
+            stage,
+            value,
+        },
+        error => error,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -722,6 +814,8 @@ mod tests {
             final_speed: 2.0,
             final_travel: 2.0,
             route_end_distance: None,
+            signal_stop: None,
+            signal_projection_applied: false,
             safety_projection_applied: false,
         });
         scratch.set(LongitudinalMotion {
@@ -738,6 +832,8 @@ mod tests {
             final_speed: 3.0,
             final_travel: 3.0,
             route_end_distance: None,
+            signal_stop: None,
+            signal_projection_applied: false,
             safety_projection_applied: false,
         });
 
@@ -760,6 +856,8 @@ mod tests {
             final_speed: 10.0,
             final_travel: 10.0,
             route_end_distance: None,
+            signal_stop: None,
+            signal_projection_applied: false,
             safety_projection_applied: false,
         };
 
@@ -783,6 +881,8 @@ mod tests {
             final_speed: 6.0,
             final_travel: 8.0,
             route_end_distance: None,
+            signal_stop: None,
+            signal_projection_applied: false,
             safety_projection_applied: false,
         };
 

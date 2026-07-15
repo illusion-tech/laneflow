@@ -817,7 +817,7 @@ fn initial_traffic_data_rebinds_signals_to_its_own_lane_graph() {
 }
 
 #[test]
-fn world_validates_phase_delta_and_guards_vehicle_activation_atomically() {
+fn world_validates_phase_delta_and_allows_vehicle_activation_after_compliance() {
     let graph = canonical_graph();
     let short_signals = SignalRegistry::try_new(
         &graph,
@@ -872,18 +872,16 @@ fn world_validates_phase_delta_and_guards_vehicle_activation_atomically() {
         signals.clone(),
     )
     .expect("valid traffic data");
-    let error = CoreWorld::with_traffic_data(16, traffic, vec![vehicle.clone()])
-        .expect_err("initial vehicle activation is guarded");
-    std::assert_matches!(error, CoreError::SignalsVehicleCapabilityUnavailable);
+    let world = CoreWorld::with_traffic_data(16, traffic, vec![vehicle.clone()])
+        .expect("initial vehicle activation is supported after #96 compliance");
+    assert_eq!(world.vehicles().count(), 1);
 
     let traffic = InitialTrafficData::try_new_with_signals(graph, [route], profiles, signals)
         .expect("valid traffic data");
     let mut world =
         CoreWorld::with_traffic_data(16, traffic, Vec::new()).expect("signal-only world");
-    let before = world.clone();
-    let error = world
+    let handle = world
         .spawn_vehicle(vehicle)
-        .expect_err("runtime spawn is guarded");
-    std::assert_matches!(error, CoreError::SignalsVehicleCapabilityUnavailable);
-    assert_eq!(world, before, "guard failure must not mutate world");
+        .expect("runtime spawn is supported after #96 compliance");
+    assert!(world.vehicle(handle).is_some());
 }

@@ -19,7 +19,7 @@
 
 ### 当前 v0.4 覆盖说明
 
-本文保留 v0.2 route definition、validation、lifecycle 和 traversal 契约。v0.3 已由 [`vehicle-following.md`](vehicle-following.md) 第 5 节破坏性替换 vehicle motion state；current v0.4 又将 external sequence 字段改为 `edgeIds`，并规定 route 不得终止在声明 StopLine 的 edge 上。initial route 与 runtime `register_route` 复用该规则；#96 前 permission-aware traversal 尚未激活。
+本文保留 v0.2 route definition、validation、lifecycle 和 traversal 契约。v0.3 已由 [`vehicle-following.md`](vehicle-following.md) 第 5 节破坏性替换 vehicle motion state；current v0.4 又将 external sequence 字段改为 `edgeIds`，并规定 route 不得终止在声明 StopLine 的 edge 上。initial route 与 runtime `register_route` 复用该规则；#96 已在 route occurrence 层激活 permission-aware traversal，车辆可连续穿越 permitted Gates，并在首个 denied Gate 的 fromEdge boundary 停止。
 
 目标：
 

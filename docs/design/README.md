@@ -13,7 +13,7 @@
 - `lane-graph.md`：车道图、连接关系、拓扑约束。
 - `route-system.md`：路线选择、路径跟随、目标点。
 - `vehicle-following.md`：前车避让、速度控制和安全距离。
-- `signal-system.md`：Accepted v0.4 Signals；#94 已落地 static domain/current data/guard，#95 已落地 fixed-time runtime/query/events 并保留 guard，#96-#97 继续承担车辆合规与验证性能。
+- `signal-system.md`：Accepted v0.4 Signals；#94 已落地 static domain/current data/guard，#95 已落地 fixed-time runtime/query/events，#96 已落地车辆合规并解除 guard，#97 继续承担端到端验证与性能收口。
 - `parking-system.md`：停车位、进出停车、占用状态。
 - `adapter-api.md`：Core 与 Engine Adapter 的接口边界。
 - `data-format.md`：lane graph、route 等外部数据格式、validation 和 loader 边界；Rust crate 所有权见 ADR 0007。

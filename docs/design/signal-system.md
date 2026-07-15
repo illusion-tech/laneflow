@@ -3,7 +3,7 @@
 **文档状态**: Accepted  
 **最后更新**: 2026-07-15  
 **适用范围**: planned v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界  
-**实现状态**: #94 已落地 static Signals、current v0.4 data contract、Core normalization/resolver、canonical fixtures 与 capability guard；#95 已落地 absolute-time fixed-time snapshot、只读 query 与 phase/aspect events 并保留 guard；车辆合规和验证性能仍由 #96-#97 承接
+**实现状态**: #94 已落地 static Signals、current v0.4 data contract、Core normalization/resolver、canonical fixtures 与 capability guard；#95 已落地 absolute-time fixed-time snapshot、只读 query 与 phase/aspect events；#96 已落地 restrictive yellow/red SignalStop、hard projection、permission-aware route-occurrence traversal，并以完整车辆合规替代 guard；#97 继续承接端到端验证与性能收口
 
 **关联文档**:
 
@@ -150,7 +150,7 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 已在同一实
 - production current 是 `formatVersion: "0.4"`；
 - `schemas/laneflow-data-v0.4.schema.json` 是唯一 active schema；
 - production loader 明确拒绝 v0.3、未来版、旧字段与 JSON-LD；
-- static Signals 与 capability guard 已实现，但本节后续 runtime/compliance 设计仍需 #95/#96 才成为 production 行为。
+- static Signals、fixed-time runtime 与完整车辆合规均已成为 production 行为；#97 继续固化端到端验证与性能证据。
 
 ### 4.2 ID 与引用命名
 
@@ -277,7 +277,7 @@ InitialTrafficData final assembly
 
 First-error 顺序同样是 contract：array domain error 按输入顺序；duplicate 锚定第二个 occurrence；Phase state 先按 record 顺序报告 unknown/duplicate group，再按 `groupIds` 顺序报告第一个 missing group；global coverage/usage 按 StopLine、Group、Controller normalization order；Route 按 route/`edgeIds` 顺序。
 
-当前 #94/#95 world compatibility 按以下顺序执行：验证 positive fixed delta；按 Controller/Phase normalization order检查 `durationMs >= fixedDeltaTimeMs`；拒绝 non-empty Signals 与 initial vehicles 的组合；构造 time-0 signal snapshot；注册 initial routes；最后发布 world。#95 只用 authority snapshot 替代了 guard 的“缺少灯态”部分；#96 完成后，guard 才由 initial vehicle/overlap validation 与完整车辆合规替代。
+当前 world compatibility 按以下顺序执行：验证 positive fixed delta；按 Controller/Phase normalization order 检查 `durationMs >= fixedDeltaTimeMs`；构造 time-0 signal snapshot；注册 initial routes；按既有 overlap 规则校验并创建 initial vehicles；最后发布 world。#96 已用 SignalStop、hard projection 与 permission-aware traversal 的完整车辆合规替代 capability guard，non-empty Signals 可与 initial/runtime vehicles 组合。
 
 `InitialTrafficData` 已包含 immutable signal registry，并在组装时按自身 `LaneGraph` 重绑定和复验 graph-dependent handles。Core 保留不经 JSON 的 programmatic construction path；runtime handles 永不持久化到 external package。
 
@@ -348,15 +348,15 @@ tick-start snapshot
 
 Traversal 按 route occurrence 顺序逐个检查 Gate。单 tick 可以连续穿越多个 permitted Gates；遇到第一个 denied Gate 就停止。精确到达 denied boundary 时保留在 fromEdge occurrence，不更新 route index，不产生 `VehicleChangedEdge`。
 
-### 8.1 Capability activation guard
+### 8.1 Capability activation
 
-#94/#95 可以交付 static data、signal-only runtime、query 与 events，但在 #96 完整交付 SignalStop、projection 和 traversal 前，public runtime 必须显式拒绝或保持不可达：
+#96 已原子交付 SignalStop、hard projection 与 permission-aware traversal，并在专项行为、事件顺序和失败原子性测试通过后解除以下 capability guard：
 
 ```text
 non-empty Signals + spawned/moving vehicles
 ```
 
-不得存在“灯正常运行但车辆静默忽略信号”的公开中间能力。只有 #96 完成完整合规闭环后才能解除 guard。
+public runtime 现在允许 Signals 与 initial/runtime vehicles 组合；车辆始终消费同一 tick-start authority snapshot，不存在“灯正常运行但车辆静默忽略信号”的公开中间能力。
 
 ## 9. Public Core observation boundary
 
@@ -501,8 +501,8 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 ```
 
 - #94 原子完成 current-format 切换并建立 capability guard。
-- #95 不解除 guard。
-- #96 只在完整车辆合规闭环通过后解除 guard。
+- #95 交付 runtime/query/events，但不解除 guard。
+- #96 在完整车辆合规闭环通过后解除 guard。
 - #97 固化验证与性能证据。
 - #18 在所有子 Issue 完成后进行最终全面审阅和收口。
 
