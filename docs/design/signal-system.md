@@ -3,7 +3,7 @@
 **文档状态**: Accepted  
 **最后更新**: 2026-07-15  
 **适用范围**: planned v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界  
-**实现状态**: #94 已落地 static Signals、current v0.4 data contract、Core normalization/resolver、canonical fixtures 与 capability guard；controller runtime、车辆合规和验证性能仍由 #95-#97 承接
+**实现状态**: #94 已落地 static Signals、current v0.4 data contract、Core normalization/resolver、canonical fixtures 与 capability guard；#95 已落地 absolute-time fixed-time snapshot、只读 query 与 phase/aspect events 并保留 guard；车辆合规和验证性能仍由 #96-#97 承接
 
 **关联文档**:
 
@@ -277,11 +277,13 @@ InitialTrafficData final assembly
 
 First-error 顺序同样是 contract：array domain error 按输入顺序；duplicate 锚定第二个 occurrence；Phase state 先按 record 顺序报告 unknown/duplicate group，再按 `groupIds` 顺序报告第一个 missing group；global coverage/usage 按 StopLine、Group、Controller normalization order；Route 按 route/`edgeIds` 顺序。
 
-当前 #94 world compatibility 按以下顺序执行：验证 positive fixed delta；按 Controller/Phase normalization order检查 `durationMs >= fixedDeltaTimeMs`；拒绝 non-empty Signals 与 initial vehicles 的组合；注册 initial routes；最后发布 world。#95/#96 完成后，guard 将由 time-0 signal snapshot、initial vehicle/overlap validation 与完整车辆合规替代。
+当前 #94/#95 world compatibility 按以下顺序执行：验证 positive fixed delta；按 Controller/Phase normalization order检查 `durationMs >= fixedDeltaTimeMs`；拒绝 non-empty Signals 与 initial vehicles 的组合；构造 time-0 signal snapshot；注册 initial routes；最后发布 world。#95 只用 authority snapshot 替代了 guard 的“缺少灯态”部分；#96 完成后，guard 才由 initial vehicle/overlap validation 与完整车辆合规替代。
 
 `InitialTrafficData` 已包含 immutable signal registry，并在组装时按自身 `LaneGraph` 重绑定和复验 graph-dependent handles。Core 保留不经 JSON 的 programmatic construction path；runtime handles 永不持久化到 external package。
 
 ## 6. Fixed-tick phase timing
+
+#95 已按本节交付 committed authority snapshot：初始化直接解析 time 0，成功 step 先计算 `T + D` candidate，再在所有 vehicle events 之后产生 signal events 并原子提交；失败 step 不改变当前 query。
 
 Controller 的 effective state 由 immutable program、world integer `timeMs` 和 canonical offset 直接推导：
 
@@ -374,13 +376,13 @@ Handle/ref 至少满足 `Clone + Copy + Debug + Eq + Hash`，不公开 index/gen
 - Phase external-ID resolver；
 - Gate 的 StopLine 与 control binding。
 
-#95/#96 将在已提交 snapshot 上增加 current Controller state（phase、cycle position、elapsed、remaining）、current Group aspect，以及 Gate aspect / signal-layer permission。
+#95 已在已提交 snapshot 上增加 current Controller state（phase、cycle position、elapsed、remaining）、current Group aspect，以及 Gate aspect / signal-layer permission，并提供 normalization-order 的无分配只读遍历。#96 直接消费同一 tick-start snapshot，不另建 controller clock 或第二份 authority state。
 
 Gate `Uncontrolled` 只表示 `signalControl:none`；permission 也只是 signal-layer decision，不是未来 vehicle-specific 最终 right-of-way。Public CoreWorld 不提供 arbitrary absolute-time query；该能力仅作为 private/reference oracle 用于 property tests。
 
 ## 10. Events 与全局总序
 
-新增稀疏事件：
+稀疏事件边界如下；前两项已由 #95 交付，第三项由 #96 交付：
 
 - `SignalPhaseChanged { tickIndex, controller, fromPhase, toPhase }`；
 - `SignalGroupAspectChanged { tickIndex, group, fromAspect, toAspect }`；

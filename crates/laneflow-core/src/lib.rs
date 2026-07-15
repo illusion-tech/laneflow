@@ -17,8 +17,8 @@ pub mod world;
 
 pub use error::CoreError;
 pub use event::{
-    CoreEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
-    VehicleFollowingSafetyProjectionAppliedEvent,
+    CoreEvent, SignalGroupAspectChangedEvent, SignalPhaseChangedEvent, VehicleChangedEdgeEvent,
+    VehicleCompletedRouteEvent, VehicleFollowingSafetyProjectionAppliedEvent,
 };
 pub use graph::{EDGE_BOUNDARY_EPSILON, EdgeLength, LaneEdge, LaneGraph};
 pub use handle::{
@@ -28,9 +28,11 @@ pub use handle::{
 pub use profile::{GEOMETRY_GAP_EPSILON, IidmProfileSpec, VehicleProfile, VehicleProfileRegistry};
 pub use route::{Route, RouteRemoveRecord};
 pub use signal::{
-    MAX_PORTABLE_SIGNAL_TIME_MS, MovementGate, MovementGateKey, SignalAspect, SignalControl,
-    SignalControlInput, SignalController, SignalControllerKind, SignalGroup, SignalGroupState,
-    SignalPhase, SignalRegistry, StopLine, StopLineLocation,
+    MAX_PORTABLE_SIGNAL_TIME_MS, MovementGate, MovementGateKey, MovementGateSignalState,
+    MovementGateState, SignalAspect, SignalControl, SignalControlInput, SignalController,
+    SignalControllerKind, SignalControllerState, SignalGroup, SignalGroupSnapshot,
+    SignalGroupState, SignalLayerPermission, SignalPhase, SignalRegistry, StopLine,
+    StopLineLocation,
 };
 pub use time::{StepResult, TickInput};
 pub use traffic::InitialTrafficData;
