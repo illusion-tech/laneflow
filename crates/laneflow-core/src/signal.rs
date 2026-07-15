@@ -449,6 +449,7 @@ impl MovementGateState {
 pub(crate) struct SignalRuntimeState {
     controllers: Vec<SignalControllerState>,
     groups: Vec<SignalGroupSnapshot>,
+    has_restrictive_group: bool,
 }
 
 impl SignalRuntimeState {
@@ -482,6 +483,10 @@ impl SignalRuntimeState {
             .enumerate()
             .map(|(index, state)| (SignalGroupHandle::new(index), state))
     }
+
+    pub(crate) const fn has_restrictive_group(&self) -> bool {
+        self.has_restrictive_group
+    }
 }
 
 /// 可跨 tick 复用、但不属于 Core authority state 的 signal candidate scratch。
@@ -496,6 +501,7 @@ impl Clone for SignalRuntimeScratch {
             state: SignalRuntimeState {
                 controllers: Vec::with_capacity(self.state.controllers.capacity()),
                 groups: Vec::with_capacity(self.state.groups.capacity()),
+                has_restrictive_group: false,
             },
         }
     }
@@ -1118,6 +1124,7 @@ impl SignalRegistry {
     pub(crate) fn populate_runtime_state(&self, time_ms: u64, state: &mut SignalRuntimeState) {
         state.controllers.clear();
         state.groups.clear();
+        state.has_restrictive_group = false;
         state.controllers.reserve(self.controllers.len());
         state.groups.resize(
             self.groups.len(),
@@ -1149,8 +1156,10 @@ impl SignalRegistry {
             });
 
             for (group_index, group) in controller.groups.iter().copied().enumerate() {
-                state.groups[group.index()] =
-                    SignalGroupSnapshot::new(phase.aspects_by_group[group_index]);
+                let aspect = phase.aspects_by_group[group_index];
+                state.groups[group.index()] = SignalGroupSnapshot::new(aspect);
+                state.has_restrictive_group |=
+                    matches!(aspect, SignalAspect::Red | SignalAspect::Yellow);
             }
         }
     }
@@ -1221,6 +1230,160 @@ impl Default for SignalRegistry {
 mod tests {
     use super::*;
     use crate::{EdgeLength, LaneEdge};
+    use proptest::prelude::*;
+
+    fn aspect_from_seed(seed: u8) -> SignalAspect {
+        match seed % 3 {
+            0 => SignalAspect::Red,
+            1 => SignalAspect::Yellow,
+            _ => SignalAspect::Green,
+        }
+    }
+
+    fn property_registry(
+        group_count: usize,
+        durations: &[u64],
+        aspect_seeds: &[u8],
+        offset_ms: u64,
+    ) -> SignalRegistry {
+        let mut edges = Vec::with_capacity(group_count * 2);
+        let mut stop_lines = Vec::with_capacity(group_count);
+        let mut groups = Vec::with_capacity(group_count);
+        let mut gates = Vec::with_capacity(group_count);
+        let mut group_ids = Vec::with_capacity(group_count);
+        for group_index in 0..group_count {
+            let entry = format!("entry-{group_index}");
+            let exit = format!("exit-{group_index}");
+            let stop = format!("stop-{group_index}");
+            let group = format!("group-{group_index}");
+            edges.push(LaneEdge::new(
+                entry.clone(),
+                EdgeLength::try_new(10.0).unwrap(),
+                [exit.clone()],
+            ));
+            edges.push(LaneEdge::new(
+                exit.clone(),
+                EdgeLength::try_new(10.0).unwrap(),
+                Vec::<String>::new(),
+            ));
+            stop_lines.push(StopLine::new(
+                stop.clone(),
+                entry.clone(),
+                StopLineLocation::EdgeEnd,
+            ));
+            groups.push(SignalGroup::new(group.clone()));
+            gates.push(MovementGate::new(
+                entry,
+                exit,
+                stop,
+                SignalControlInput::Group(group.clone()),
+            ));
+            group_ids.push(group);
+        }
+
+        let phases = durations
+            .iter()
+            .enumerate()
+            .map(|(phase_index, duration)| {
+                SignalPhase::new(
+                    format!("phase-{phase_index}"),
+                    *duration,
+                    group_ids.iter().enumerate().map(|(group_index, group_id)| {
+                        let seed = aspect_seeds[phase_index * 8 + group_index];
+                        SignalGroupState::new(group_id.clone(), aspect_from_seed(seed))
+                    }),
+                )
+            })
+            .collect::<Vec<_>>();
+        let graph = LaneGraph::try_new(edges).expect("property graph must be valid");
+        SignalRegistry::try_new(
+            &graph,
+            stop_lines,
+            groups,
+            [SignalController::new_fixed_time(
+                "controller",
+                offset_ms,
+                group_ids,
+                phases,
+            )],
+            gates,
+        )
+        .expect("property registry must be valid")
+    }
+
+    fn oracle_phase(durations: &[u64], time_ms: u64, offset_ms: u64) -> (usize, u64, u64, u64) {
+        let cycle = durations
+            .iter()
+            .map(|duration| u128::from(*duration))
+            .sum::<u128>();
+        let position = (u128::from(time_ms) + u128::from(offset_ms)) % cycle;
+        let mut phase_start = 0_u128;
+        for (phase_index, duration) in durations.iter().enumerate() {
+            let phase_end = phase_start + u128::from(*duration);
+            if position < phase_end {
+                return (
+                    phase_index,
+                    u64::try_from(position).unwrap(),
+                    u64::try_from(position - phase_start).unwrap(),
+                    u64::try_from(phase_end - position).unwrap(),
+                );
+            }
+            phase_start = phase_end;
+        }
+        unreachable!("position modulo cycle must resolve to one phase")
+    }
+
+    proptest! {
+        #[test]
+        fn fixed_time_resolver_matches_independent_u128_oracle(
+            group_count in 1_usize..=8,
+            durations in prop::collection::vec(1_u64..=10_000, 1..=8),
+            aspect_seeds in prop::collection::vec(any::<u8>(), 64),
+            raw_offset in any::<u64>(),
+            arbitrary_time in any::<u64>(),
+            near_max_delta in 0_u64..=1_000_000,
+        ) {
+            let cycle = durations.iter().sum::<u64>();
+            let offset_ms = raw_offset % cycle;
+            let registry = property_registry(group_count, &durations, &aspect_seeds, offset_ms);
+            let controller = registry.controller_handle("controller").unwrap();
+            let times = [
+                0,
+                arbitrary_time,
+                u64::MAX,
+                u64::MAX - near_max_delta,
+            ];
+
+            for time_ms in times {
+                let (phase_index, position, elapsed, remaining) =
+                    oracle_phase(&durations, time_ms, offset_ms);
+                let mut state = SignalRuntimeState::default();
+                registry.populate_runtime_state(time_ms, &mut state);
+                let actual = state.controller_state(controller).unwrap();
+
+                prop_assert_eq!(actual.current_phase().index(), phase_index);
+                prop_assert_eq!(actual.cycle_position_ms(), position);
+                prop_assert_eq!(actual.phase_elapsed_ms(), elapsed);
+                prop_assert_eq!(actual.phase_remaining_ms(), remaining);
+                for group_index in 0..group_count {
+                    let group = registry
+                        .group_handle(&format!("group-{group_index}"))
+                        .unwrap();
+                    prop_assert_eq!(
+                        state.group_state(group).unwrap().aspect(),
+                        aspect_from_seed(aspect_seeds[phase_index * 8 + group_index])
+                    );
+                }
+                let expected_restrictive = (0..group_count).any(|group_index| {
+                    matches!(
+                        aspect_from_seed(aspect_seeds[phase_index * 8 + group_index]),
+                        SignalAspect::Red | SignalAspect::Yellow
+                    )
+                });
+                prop_assert_eq!(state.has_restrictive_group(), expected_restrictive);
+            }
+        }
+    }
 
     #[test]
     fn absolute_time_resolver_is_overflow_safe_at_u64_max() {
