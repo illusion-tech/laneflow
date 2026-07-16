@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+mod command_spatial;
 pub mod error;
 pub mod event;
 pub mod graph;
