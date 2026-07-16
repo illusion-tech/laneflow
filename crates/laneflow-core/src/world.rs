@@ -147,7 +147,6 @@ struct RouteSlot {
     edge_handles: Vec<EdgeHandle>,
     transitions: Vec<RouteTransition>,
     next_controlled_transition: Vec<Option<NextControlledRouteTransition>>,
-    distance_index: RouteDistanceIndex,
     reference_index: RouteReferenceIndex,
     active: bool,
 }
@@ -327,6 +326,7 @@ pub struct CoreWorld {
     signal_state: SignalRuntimeState,
     signal_candidate_scratch: SignalRuntimeScratch,
     routes: Vec<RouteSlot>,
+    route_distance_indices: Vec<RouteDistanceIndex>,
     route_handles: IndexMap<String, RouteHandle>,
     free_route_indices: Vec<usize>,
     vehicles: Vec<VehicleSlot>,
@@ -372,6 +372,7 @@ impl CoreWorld {
             signal_state,
             signal_candidate_scratch: SignalRuntimeScratch::default(),
             routes: Vec::new(),
+            route_distance_indices: Vec::new(),
             route_handles: IndexMap::new(),
             free_route_indices: Vec::new(),
             vehicles: Vec::new(),
@@ -574,10 +575,10 @@ impl CoreWorld {
                 edge_handles,
                 transitions,
                 next_controlled_transition,
-                distance_index,
                 reference_index: RouteReferenceIndex::default(),
                 active: true,
             };
+            self.route_distance_indices[index] = distance_index;
             RouteHandle::new(index, generation)
         } else {
             let handle = RouteHandle::new(self.routes.len(), 0);
@@ -587,10 +588,10 @@ impl CoreWorld {
                 edge_handles,
                 transitions,
                 next_controlled_transition,
-                distance_index,
                 reference_index: RouteReferenceIndex::default(),
                 active: true,
             });
+            self.route_distance_indices.push(distance_index);
             handle
         };
 
@@ -665,8 +666,8 @@ impl CoreWorld {
         route.edge_handles.clear();
         route.transitions.clear();
         route.next_controlled_transition.clear();
-        route.distance_index.clear();
         route.reference_index.clear();
+        self.route_distance_indices[handle.index()].clear();
         let removed = self.route_handles.swap_remove(&external_id);
         assert_eq!(
             removed,
@@ -1070,6 +1071,13 @@ impl CoreWorld {
                     .saturating_sub(route.reference_index.live_count)
             })
             .sum();
+        let route_distance_bytes = self.route_distance_indices.capacity()
+            * std::mem::size_of::<RouteDistanceIndex>()
+            + self
+                .route_distance_indices
+                .iter()
+                .map(RouteDistanceIndex::retained_bytes)
+                .sum::<usize>();
         let route_bytes = self.routes.capacity() * std::mem::size_of::<RouteSlot>()
             + self
                 .routes
@@ -1080,11 +1088,11 @@ impl CoreWorld {
                         + route.transitions.capacity() * std::mem::size_of::<RouteTransition>()
                         + route.next_controlled_transition.capacity()
                             * std::mem::size_of::<Option<NextControlledRouteTransition>>()
-                        + route.distance_index.retained_bytes()
                         + route.reference_index.candidates.capacity()
                             * std::mem::size_of::<Reverse<RouteVehicleReference>>()
                 })
-                .sum::<usize>();
+                .sum::<usize>()
+            + route_distance_bytes;
         let vehicle_bytes = self.vehicles.capacity() * std::mem::size_of::<VehicleSlot>()
             + self
                 .vehicles
@@ -1490,7 +1498,8 @@ impl CoreWorld {
         target_front_progress: f64,
         max_front_distance: f64,
     ) -> Option<f64> {
-        let route = self.route_slot(route).expect("route must exist");
+        let route_handle = route;
+        let route = self.route_slot(route_handle).expect("route must exist");
         let current_edge = route.edge_handles[route_edge_index];
         let target_occurrence =
             if current_edge == target_edge && target_front_progress >= front_progress {
@@ -1505,7 +1514,7 @@ impl CoreWorld {
                     .find_map(|(index, edge)| (edge == target_edge).then_some(index))?
             };
 
-        match route.distance_index.distance_within(
+        match self.route_distance_indices[route_handle.index()].distance_within(
             route_edge_index,
             front_progress,
             target_occurrence,
@@ -1688,15 +1697,35 @@ impl CoreWorld {
     }
 
     fn route_end_distance_within(&self, vehicle: &VehicleState, max_travel: f64) -> Option<f64> {
-        let route = self
-            .route_slot(vehicle.route)
-            .expect("live vehicle route must exist");
         let horizon = if max_travel <= f64::MAX - EDGE_BOUNDARY_EPSILON {
             max_travel + EDGE_BOUNDARY_EPSILON
         } else {
             f64::MAX
         };
-        match route.distance_index.distance_to_end_within(
+        let route = self
+            .route_slot(vehicle.route)
+            .expect("live vehicle route must exist");
+        let current_edge_length = self
+            .lane_graph
+            .edge_length(route.edge_handles[vehicle.route_edge_index])
+            .expect("route edge must exist")
+            .value();
+        let remaining_on_edge = current_edge_length - vehicle.edge_progress.value();
+        if remaining_on_edge > horizon {
+            return None;
+        }
+        let Some(next_edge) = route.edge_handles.get(vehicle.route_edge_index + 1) else {
+            return Some(remaining_on_edge.max(0.0));
+        };
+        let next_edge_length = self
+            .lane_graph
+            .edge_length(*next_edge)
+            .expect("route edge must exist")
+            .value();
+        if next_edge_length > horizon - remaining_on_edge {
+            return None;
+        }
+        match self.route_distance_indices[vehicle.route.index()].distance_to_end_within(
             vehicle.route_edge_index,
             vehicle.edge_progress.value(),
             horizon,
