@@ -19,6 +19,7 @@ use crate::{
     occupancy::{LeaderObservation, OccupancyScratch, Occupant},
     profile::{GEOMETRY_GAP_EPSILON, VehicleProfile, VehicleProfileRegistry},
     route::{Route, RouteRemoveRecord},
+    route_distance::{BoundedDistance, RouteDistanceIndex, RouteDistanceQuery},
     signal::{
         MovementGateIndex, MovementGateKey, MovementGateSignalState, MovementGateState,
         SignalControllerState, SignalGroupSnapshot, SignalLayerPermission, SignalRegistry,
@@ -42,7 +43,7 @@ struct RouteTransition {
 struct NextControlledRouteTransition {
     from_route_edge_index: usize,
     gate: MovementGateIndex,
-    distance_from_edge_start: f64,
+    distance_from_edge_start: BoundedDistance,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -52,6 +53,7 @@ struct RouteSlot {
     edge_handles: Vec<EdgeHandle>,
     transitions: Vec<RouteTransition>,
     next_controlled_transition: Vec<Option<NextControlledRouteTransition>>,
+    distance_index: RouteDistanceIndex,
     active: bool,
 }
 
@@ -358,8 +360,18 @@ impl CoreWorld {
         }
 
         let edge_handles = resolve_route_edges(&self.lane_graph, &self.signals, &route)?;
+        let edge_lengths = edge_handles
+            .iter()
+            .map(|edge| {
+                self.lane_graph
+                    .edge_length(*edge)
+                    .expect("normalized route edge must exist")
+                    .value()
+            })
+            .collect::<Vec<_>>();
         let (transitions, next_controlled_transition) =
-            self.build_route_signal_metadata(&edge_handles);
+            self.build_route_signal_metadata(&edge_handles, &edge_lengths);
+        let distance_index = RouteDistanceIndex::build(&edge_lengths);
         let external_id = route.id().to_owned();
 
         let handle = if let Some(index) = self.free_route_indices.pop() {
@@ -370,6 +382,7 @@ impl CoreWorld {
                 edge_handles,
                 transitions,
                 next_controlled_transition,
+                distance_index,
                 active: true,
             };
             RouteHandle::new(index, generation)
@@ -381,6 +394,7 @@ impl CoreWorld {
                 edge_handles,
                 transitions,
                 next_controlled_transition,
+                distance_index,
                 active: true,
             });
             handle
@@ -393,6 +407,7 @@ impl CoreWorld {
     fn build_route_signal_metadata(
         &self,
         edge_handles: &[EdgeHandle],
+        edge_lengths: &[f64],
     ) -> (
         Vec<RouteTransition>,
         Vec<Option<NextControlledRouteTransition>>,
@@ -410,11 +425,7 @@ impl CoreWorld {
         let mut next_controlled_transition = vec![None; edge_handles.len()];
         let mut next = None;
         for route_edge_index in (0..edge_handles.len()).rev() {
-            let edge_length = self
-                .lane_graph
-                .edge_length(edge_handles[route_edge_index])
-                .expect("normalized route edge must exist")
-                .value();
+            let edge_length = edge_lengths[route_edge_index];
             if let Some(gate) = transitions
                 .get(route_edge_index)
                 .and_then(|transition| transition.gate)
@@ -423,10 +434,11 @@ impl CoreWorld {
                 next = Some(NextControlledRouteTransition {
                     from_route_edge_index: route_edge_index,
                     gate,
-                    distance_from_edge_start: edge_length,
+                    distance_from_edge_start: BoundedDistance::Finite(edge_length),
                 });
             } else if let Some(candidate) = next.as_mut() {
-                candidate.distance_from_edge_start += edge_length;
+                candidate.distance_from_edge_start =
+                    candidate.distance_from_edge_start.add(edge_length);
             }
             next_controlled_transition[route_edge_index] = next;
         }
@@ -453,6 +465,7 @@ impl CoreWorld {
         route.edge_handles.clear();
         route.transitions.clear();
         route.next_controlled_transition.clear();
+        route.distance_index.clear();
         self.route_handles.shift_remove(&external_id);
         // generation 耗尽时不复用 slot，避免 stale handle 在回绕后复活。
         if let Some(next_generation) = route.generation.checked_add(1) {
@@ -814,42 +827,29 @@ impl CoreWorld {
     ) -> Option<f64> {
         let route = self.route_slot(route).expect("route must exist");
         let current_edge = route.edge_handles[route_edge_index];
-        if current_edge == target_edge && target_front_progress >= front_progress {
-            let front_distance = target_front_progress - front_progress;
-            return (front_distance <= max_front_distance).then_some(front_distance);
-        }
+        let target_occurrence =
+            if current_edge == target_edge && target_front_progress >= front_progress {
+                route_edge_index
+            } else {
+                route
+                    .edge_handles
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .skip(route_edge_index + 1)
+                    .find_map(|(index, edge)| (edge == target_edge).then_some(index))?
+            };
 
-        let mut distance = self
-            .lane_graph
-            .edge_length(current_edge)
-            .expect("route edge must exist")
-            .value()
-            - front_progress;
-        if distance > max_front_distance {
-            return None;
+        match route.distance_index.distance_within(
+            route_edge_index,
+            front_progress,
+            target_occurrence,
+            target_front_progress,
+            max_front_distance,
+        ) {
+            RouteDistanceQuery::Within(distance) => Some(distance),
+            RouteDistanceQuery::Passed | RouteDistanceQuery::BeyondHorizon => None,
         }
-        for edge in route
-            .edge_handles
-            .iter()
-            .copied()
-            .skip(route_edge_index + 1)
-        {
-            if edge == target_edge {
-                let remaining = max_front_distance - distance;
-                return (target_front_progress <= remaining)
-                    .then_some(distance + target_front_progress);
-            }
-            let edge_length = self
-                .lane_graph
-                .edge_length(edge)
-                .expect("route edge must exist")
-                .value();
-            if edge_length > max_front_distance - distance {
-                return None;
-            }
-            distance += edge_length;
-        }
-        None
     }
 
     fn validate_initial_vehicle_overlaps(&mut self) -> Result<(), CoreError> {
@@ -1026,35 +1026,19 @@ impl CoreWorld {
         let route = self
             .route_slot(vehicle.route)
             .expect("live vehicle route must exist");
-        let current_edge = route.edge_handles[vehicle.route_edge_index];
-        let current_edge_length = self
-            .lane_graph
-            .edge_length(current_edge)
-            .expect("route edge must exist")
-            .value();
-        let mut distance = current_edge_length - vehicle.edge_progress.value();
-        if distance > max_travel + EDGE_BOUNDARY_EPSILON {
-            return None;
+        let horizon = if max_travel <= f64::MAX - EDGE_BOUNDARY_EPSILON {
+            max_travel + EDGE_BOUNDARY_EPSILON
+        } else {
+            f64::MAX
+        };
+        match route.distance_index.distance_to_end_within(
+            vehicle.route_edge_index,
+            vehicle.edge_progress.value(),
+            horizon,
+        ) {
+            RouteDistanceQuery::Within(distance) => Some(distance),
+            RouteDistanceQuery::Passed | RouteDistanceQuery::BeyondHorizon => None,
         }
-
-        for edge in route
-            .edge_handles
-            .iter()
-            .copied()
-            .skip(vehicle.route_edge_index + 1)
-        {
-            let edge_length = self
-                .lane_graph
-                .edge_length(edge)
-                .expect("route edge must exist")
-                .value();
-            if edge_length > max_travel - distance + EDGE_BOUNDARY_EPSILON {
-                return None;
-            }
-            distance += edge_length;
-        }
-
-        Some(distance)
     }
 
     fn build_occupancy(&self, scratch: &mut OccupancyScratch) {
@@ -1193,16 +1177,15 @@ impl CoreWorld {
             } else {
                 0.0
             };
-            let segment_distance = Self::finite_signal_stop_value(
-                vehicle.handle,
-                "signal_route_segment_distance",
-                next.distance_from_edge_start - progress,
-            )?;
-            distance = Self::finite_signal_stop_value(
-                vehicle.handle,
-                "signal_route_distance",
-                distance + segment_distance.max(0.0),
-            )?;
+            let BoundedDistance::Finite(distance_from_edge_start) = next.distance_from_edge_start
+            else {
+                break;
+            };
+            let segment_distance = (distance_from_edge_start - progress).max(0.0);
+            if segment_distance > horizon - distance {
+                break;
+            }
+            distance += segment_distance;
             if distance > horizon + EDGE_BOUNDARY_EPSILON {
                 break;
             }

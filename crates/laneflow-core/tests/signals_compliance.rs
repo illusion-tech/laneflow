@@ -1,6 +1,6 @@
 use laneflow_core::{
-    CoreError, CoreEvent, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData,
-    LaneEdge, LaneGraph, MovementGate, MovementGateKey, Route, SignalAspect, SignalControlInput,
+    CoreEvent, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge,
+    LaneGraph, MovementGate, MovementGateKey, Route, SignalAspect, SignalControlInput,
     SignalController, SignalGroup, SignalGroupState, SignalPhase, SignalRegistry, Speed, StopLine,
     StopLineLocation, TickInput, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
     VehicleSpawnInput, VehicleState, VehicleStatus,
@@ -510,7 +510,7 @@ fn signal_then_following_projection_order_is_per_vehicle() {
 }
 
 #[test]
-fn non_finite_signal_route_distance_fails_atomically() {
+fn signal_beyond_finite_route_distance_horizon_is_ignored() {
     let graph = LaneGraph::try_new([
         LaneEdge::new("a", edge_length(f64::MAX), ["b"]),
         LaneEdge::new("b", edge_length(f64::MAX), ["c"]),
@@ -556,18 +556,10 @@ fn non_finite_signal_route_distance_fails_atomically() {
         )],
     )
     .expect("world");
-    let before = world.clone();
-
-    let error = world
+    let result = world
         .step(TickInput::new(1_000))
-        .expect_err("non-finite signal route distance");
+        .expect("signal beyond every finite horizon must not fail the tick");
 
-    std::assert_matches!(
-        error,
-        CoreError::NonFiniteSignalStopComputation {
-            stage: "signal_route_segment_distance",
-            ..
-        }
-    );
-    assert_eq!(world, before);
+    assert!(result.events.is_empty());
+    assert_eq!(world.tick_index(), 1);
 }
