@@ -1,8 +1,8 @@
 # Data Loading 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-15  
-**适用范围**: 当前 v0.4 JSON package 的 Rust loader、版本闸口、Core normalization、错误、测试与输入安全边界
+**最后更新**: 2026-07-16  
+**适用范围**: 当前 v0.4 JSON package loader，以及 planned v0.5 Parking 的 staged loader ownership 边界
 
 **关联文档**:
 
@@ -11,10 +11,12 @@
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
+- `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
 - `data-format.md`
 - `vehicle-following.md`
 - `signal-system.md`
+- `parking-system.md`
 
 ## 1. 目标与非目标
 
@@ -206,3 +208,9 @@ Contract tests要求：
 v0.4 不设置固定 edge/route/profile/signal count limit。调用方负责在进入 loader 前限制 input byte size；不可信网络/mod 输入需要后续 `LoadLimits`、隔离 validator 或流式 ingestion 设计。
 
 JSON parsing、external ID lookup、Core normalization 和 handle allocation只发生在 load/world initialization。Static registry 使用 dense/indexed resolver，为 #95/#96 的 tick hot path提供 O(1) Gate/Group/Controller lookup，不进行 per-tick JSON、external-ID sort 或 per-vehicle allocation。
+
+## 10. Planned v0.5 Parking loader boundary
+
+#105 只冻结 planned 0.5 loader输入，不改变本文件当前 v0.4 public/production 事实。#107 必须在单一交付中完成 exact 0.5 version gate、strict private Parking DTO、Signals -> Parking -> Routes normalization、Core registry/rebind、paths、fixtures、tests 与 current docs 原子切换；在此之前 production loader 继续只接受 v0.4。
+
+Planned `areaId` 必须用 custom wire decode 区分 omitted 与 explicit `null`；普通 `Option<String>` 不得把 null 静默归一化为 standalone。Loader 继续只接收内存 bytes/string，不创建 `CoreWorld`、不公开 DTO、不持久化 runtime parking state，也不联网解析 schema `$id`。完整输入见 [`parking-system.md`](parking-system.md) 第 12 节。

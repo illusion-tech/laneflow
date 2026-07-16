@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Draft  
-**最后更新**: 2026-07-15  
+**最后更新**: 2026-07-16  
 **适用范围**: LaneFlow 初始版本路线图
 
 本文记录 LaneFlow 的稳定路线图。GitHub Project 负责当前执行状态，本文负责长期版本边界。
@@ -76,12 +76,22 @@
 
 目标：支持基础停车位进出和占用状态。
 
+设计状态：#105 已完成 G1，并通过 [`Parking System 设计`](design/parking-system.md) 与 [ADR 0010](adr/0010-parking-binding-and-vehicle-lifecycle-authority.md) 冻结 planned v0.5 输入；production current 在 #107 完成前仍为 v0.4。
+
 范围：
 
-- parking spot data
-- parking occupancy
-- approach and leave behavior
-- simple parking route integration
+- 停车场泊位与专用路边泊位/停车带的 individual ParkingSpace，以及 optional ParkingArea grouping；
+- entry/exit lane anchors、edge-relative parked geometry 与 immutable Core registry；
+- `Vacant -> Reserved -> Occupied -> Vacant` 一对一 binding authority；
+- caller-order reserve/cancel/commit/leave/rebind/parked-spawn lifecycle；
+- live `VehicleStatus::Parked`、位置 authority transfer 与 route/despawn cleanup；
+- ParkingStop 与 Vehicle Following、Signals、RouteEnd、projection/traversal 的原子组合；
+- planned current 0.5 static data、schema/loader、canonical fixtures 与 current-only migration；
+- determinism、失败原子性、10k/100k、allocation/memory 与端到端 validation。
+
+实施链：#105 design/ADR → (#106 lifecycle/performance，#107 static/current data) → #108 runtime/commands → #109 ParkingStop/activation → #110 validation/performance → #19 closure。
+
+不覆盖：自动选位/调度、共享正常行车道停车、自由空间/倒车轨迹、停车场运营、Parking Adapter ABI/动画/authoring、100k realtime SLA 或跨平台 bit-level determinism。
 
 ## v0.6 First Adapter
 
