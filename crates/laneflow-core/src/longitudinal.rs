@@ -1,5 +1,7 @@
 //! Vehicle Following 的私有纵向计算与 no-overlap 投影。
 
+use std::borrow::Borrow;
+
 use crate::{
     CoreError, IidmProfileSpec, VehicleHandle, occupancy::LeaderObservation,
     profile::GEOMETRY_GAP_EPSILON, signal::SignalStopConstraint,
@@ -249,14 +251,15 @@ impl LongitudinalScratch {
             .filter(|motion| motion.vehicle == vehicle)
     }
 
-    pub(crate) fn project(
-        &mut self,
-        update_order: &[VehicleHandle],
-        delta_time: f64,
-    ) -> Result<(), CoreError> {
+    pub(crate) fn project<I>(&mut self, update_order: I, delta_time: f64) -> Result<(), CoreError>
+    where
+        I: IntoIterator,
+        I::Item: std::borrow::Borrow<VehicleHandle>,
+    {
         let mut path = std::mem::take(&mut self.path);
         let result = (|| {
-            for start in update_order.iter().copied() {
+            for start in update_order {
+                let start = *start.borrow();
                 let start_index = start.index();
                 if self.motion(start).is_none() || self.visit_state[start_index] == RESOLVED {
                     continue;
@@ -837,7 +840,7 @@ mod tests {
             safety_projection_applied: false,
         });
 
-        scratch.project(&[vehicle(0), vehicle(1)], 1.0).unwrap();
+        scratch.project([vehicle(0), vehicle(1)], 1.0).unwrap();
 
         assert_eq!(scratch.motion(vehicle(0)).unwrap().final_travel(), 2.0);
         assert_eq!(scratch.motion(vehicle(1)).unwrap().final_travel(), 2.0);

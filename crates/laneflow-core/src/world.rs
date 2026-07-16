@@ -1,5 +1,10 @@
 //! Core world 与 fixed-step orchestration。
 
+use std::{
+    cmp::{Ordering, Reverse},
+    collections::BinaryHeap,
+};
+
 use indexmap::IndexMap;
 
 use crate::{
@@ -46,6 +51,94 @@ struct NextControlledRouteTransition {
     distance_from_edge_start: BoundedDistance,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RouteVehicleReference {
+    update_order_position: usize,
+    vehicle: VehicleHandle,
+    route_generation: u32,
+}
+
+impl Ord for RouteVehicleReference {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.update_order_position
+            .cmp(&other.update_order_position)
+            .then_with(|| self.vehicle.index().cmp(&other.vehicle.index()))
+            .then_with(|| self.vehicle.generation().cmp(&other.vehicle.generation()))
+            .then_with(|| self.route_generation.cmp(&other.route_generation))
+    }
+}
+
+impl PartialOrd for RouteVehicleReference {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct RouteReferenceIndex {
+    live_count: usize,
+    candidates: BinaryHeap<Reverse<RouteVehicleReference>>,
+}
+
+impl PartialEq for RouteReferenceIndex {
+    fn eq(&self, _other: &Self) -> bool {
+        // 精确派生索引的 heap history/capacity 不属于 Core authority state。
+        true
+    }
+}
+
+impl RouteReferenceIndex {
+    fn reserve_for_attach(&mut self) {
+        self.candidates.reserve(1);
+    }
+
+    fn attach(&mut self, route: RouteHandle, vehicle: VehicleHandle, position: usize) {
+        self.live_count += 1;
+        self.candidates.push(Reverse(RouteVehicleReference {
+            update_order_position: position,
+            vehicle,
+            route_generation: route.generation(),
+        }));
+    }
+
+    fn detach(&mut self) {
+        self.live_count = self
+            .live_count
+            .checked_sub(1)
+            .expect("route live reference count must not underflow");
+    }
+
+    fn clear(&mut self) {
+        self.live_count = 0;
+        self.candidates.clear();
+    }
+
+    fn first_valid(
+        &mut self,
+        route: RouteHandle,
+        vehicles: &[VehicleSlot],
+    ) -> Option<VehicleHandle> {
+        while let Some(candidate) = self.candidates.peek().copied().map(|entry| entry.0) {
+            let valid = candidate.route_generation == route.generation()
+                && vehicles
+                    .get(candidate.vehicle.index())
+                    .filter(|slot| slot.generation == candidate.vehicle.generation())
+                    .is_some_and(|slot| {
+                        slot.update_order_position == Some(candidate.update_order_position)
+                            && slot
+                                .state
+                                .as_ref()
+                                .is_some_and(|state| state.route == route)
+                    });
+            if valid {
+                return Some(candidate.vehicle);
+            }
+            self.candidates.pop();
+        }
+        None
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct RouteSlot {
     generation: u32,
@@ -54,6 +147,7 @@ struct RouteSlot {
     transitions: Vec<RouteTransition>,
     next_controlled_transition: Vec<Option<NextControlledRouteTransition>>,
     distance_index: RouteDistanceIndex,
+    reference_index: RouteReferenceIndex,
     active: bool,
 }
 
@@ -67,11 +161,83 @@ struct VehicleAdvanceContext<'a> {
     tick_index: u64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 struct VehicleSlot {
     generation: u32,
     external_id: String,
     state: Option<VehicleState>,
+    update_order_position: Option<usize>,
+}
+
+impl PartialEq for VehicleSlot {
+    fn eq(&self, other: &Self) -> bool {
+        self.generation == other.generation
+            && self.external_id == other.external_id
+            && self.state == other.state
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct StableVehicleOrder {
+    entries: Vec<Option<VehicleHandle>>,
+    tombstones: usize,
+}
+
+impl PartialEq for StableVehicleOrder {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+
+impl StableVehicleOrder {
+    fn iter(&self) -> impl Iterator<Item = VehicleHandle> + '_ {
+        self.entries.iter().filter_map(|entry| *entry)
+    }
+
+    fn reserve_for_append(&mut self) {
+        self.entries.reserve(1);
+    }
+
+    fn append(&mut self, handle: VehicleHandle) -> usize {
+        let position = self.entries.len();
+        self.entries.push(Some(handle));
+        position
+    }
+
+    fn tombstone(&mut self, position: usize, handle: VehicleHandle) {
+        let entry = self
+            .entries
+            .get_mut(position)
+            .expect("live vehicle reverse position must exist");
+        assert_eq!(
+            *entry,
+            Some(handle),
+            "reverse position must identify vehicle"
+        );
+        *entry = None;
+        self.tombstones += 1;
+    }
+
+    fn should_compact(&self) -> bool {
+        let live = self.entries.len() - self.tombstones;
+        live == 0 || self.tombstones >= live.max(64)
+    }
+
+    fn compact(&mut self, vehicles: &mut [VehicleSlot]) -> bool {
+        if !self.should_compact() {
+            return false;
+        }
+        self.entries.retain(Option::is_some);
+        for (position, handle) in self.iter().enumerate() {
+            let slot = vehicles
+                .get_mut(handle.index())
+                .filter(|slot| slot.generation == handle.generation())
+                .expect("compacted update order must contain only live vehicles");
+            slot.update_order_position = Some(position);
+        }
+        self.tombstones = 0;
+        true
+    }
 }
 
 /// 可跨 tick 复用、但不属于 Core authority state 的候选车辆状态。
@@ -144,7 +310,7 @@ pub struct CoreWorld {
     vehicles: Vec<VehicleSlot>,
     vehicle_handles: IndexMap<String, VehicleHandle>,
     free_vehicle_indices: Vec<usize>,
-    vehicle_update_order: Vec<VehicleHandle>,
+    vehicle_update_order: StableVehicleOrder,
     candidate_state_scratch: CandidateStateScratch,
     occupancy_scratch: OccupancyScratch,
     longitudinal_scratch: LongitudinalScratch,
@@ -187,7 +353,7 @@ impl CoreWorld {
             vehicles: Vec::new(),
             vehicle_handles: IndexMap::new(),
             free_vehicle_indices: Vec::new(),
-            vehicle_update_order: Vec::new(),
+            vehicle_update_order: StableVehicleOrder::default(),
             candidate_state_scratch: CandidateStateScratch::default(),
             occupancy_scratch: OccupancyScratch::default(),
             longitudinal_scratch: LongitudinalScratch::default(),
@@ -225,7 +391,7 @@ impl CoreWorld {
     pub fn vehicles(&self) -> impl Iterator<Item = &VehicleState> {
         self.vehicle_update_order
             .iter()
-            .filter_map(|handle| self.vehicle(*handle))
+            .filter_map(|handle| self.vehicle(handle))
     }
 
     /// 返回指定 vehicle handle 的状态。
@@ -383,6 +549,7 @@ impl CoreWorld {
                 transitions,
                 next_controlled_transition,
                 distance_index,
+                reference_index: RouteReferenceIndex::default(),
                 active: true,
             };
             RouteHandle::new(index, generation)
@@ -395,6 +562,7 @@ impl CoreWorld {
                 transitions,
                 next_controlled_transition,
                 distance_index,
+                reference_index: RouteReferenceIndex::default(),
                 active: true,
             });
             handle
@@ -450,25 +618,37 @@ impl CoreWorld {
         self.route_slot(handle)
             .ok_or(CoreError::UnknownRouteHandle { route: handle })?;
 
-        for vehicle in self.vehicles.iter().filter_map(|slot| slot.state.as_ref()) {
-            if vehicle.route == handle {
-                return Err(CoreError::RouteInUse {
-                    route: handle,
-                    vehicle: vehicle.handle,
-                });
-            }
+        if self.routes[handle.index()].reference_index.live_count > 0 {
+            let vehicle = self.first_route_reference(handle).or_else(|| {
+                self.rebuild_route_reference_index(handle);
+                self.first_route_reference(handle)
+            });
+            return Err(CoreError::RouteInUse {
+                route: handle,
+                vehicle: vehicle.expect("positive route reference count must have a live vehicle"),
+            });
         }
 
+        let reusable = self.routes[handle.index()].generation.checked_add(1);
+        if reusable.is_some() {
+            self.free_route_indices.reserve(1);
+        }
         let route = &mut self.routes[handle.index()];
-        let external_id = route.external_id.clone();
+        let external_id = std::mem::take(&mut route.external_id);
         route.active = false;
         route.edge_handles.clear();
         route.transitions.clear();
         route.next_controlled_transition.clear();
         route.distance_index.clear();
-        self.route_handles.shift_remove(&external_id);
+        route.reference_index.clear();
+        let removed = self.route_handles.swap_remove(&external_id);
+        assert_eq!(
+            removed,
+            Some(handle),
+            "route resolver must identify removed route"
+        );
         // generation 耗尽时不复用 slot，避免 stale handle 在回绕后复活。
-        if let Some(next_generation) = route.generation.checked_add(1) {
+        if let Some(next_generation) = reusable {
             route.generation = next_generation;
             self.free_route_indices.push(handle.index());
         }
@@ -520,46 +700,62 @@ impl CoreWorld {
         if validate_overlap {
             self.validate_candidate_overlap(route, &input.id, &normalized)?;
         }
-        let external_id = input.id;
-        let handle = if let Some(index) = self.free_vehicle_indices.pop() {
-            let generation = self.vehicles[index].generation;
-            let handle = VehicleHandle::new(index, generation);
-            self.vehicles[index] = VehicleSlot {
-                generation,
-                external_id: external_id.clone(),
-                state: Some(VehicleState::new(
-                    handle,
-                    normalized.profile,
-                    route,
-                    normalized.route_edge_index,
-                    normalized.edge_progress,
-                    normalized.current_speed,
-                    normalized.status,
-                )),
-            };
-            handle
-        } else {
-            let handle = VehicleHandle::new(self.vehicles.len(), 0);
-            self.vehicles.push(VehicleSlot {
-                generation: 0,
-                external_id: external_id.clone(),
-                state: Some(VehicleState::new(
-                    handle,
-                    normalized.profile,
-                    route,
-                    normalized.route_edge_index,
-                    normalized.edge_progress,
-                    normalized.current_speed,
-                    normalized.status,
-                )),
-            });
-            handle
-        };
 
-        self.vehicle_handles.insert(external_id, handle);
-        self.vehicle_update_order.push(handle);
-        self.candidate_state_scratch
-            .reserve_for_slots(self.vehicles.len());
+        let planned_slot_index = self
+            .free_vehicle_indices
+            .last()
+            .copied()
+            .unwrap_or(self.vehicles.len());
+        let planned_generation = self
+            .vehicles
+            .get(planned_slot_index)
+            .map_or(0, |slot| slot.generation);
+        let handle = VehicleHandle::new(planned_slot_index, planned_generation);
+        self.vehicle_handles.reserve(1);
+        self.vehicle_update_order.reserve_for_append();
+        if planned_slot_index == self.vehicles.len() {
+            self.vehicles.reserve(1);
+        }
+        self.routes[route.index()]
+            .reference_index
+            .reserve_for_attach();
+        self.candidate_state_scratch.reserve_for_slots(
+            self.vehicles.len() + usize::from(planned_slot_index == self.vehicles.len()),
+        );
+
+        let external_id = input.id;
+        let resolver_id = external_id.clone();
+        let update_order_position = self.vehicle_update_order.append(handle);
+        let slot = VehicleSlot {
+            generation: planned_generation,
+            external_id,
+            state: Some(VehicleState::new(
+                handle,
+                normalized.profile,
+                route,
+                normalized.route_edge_index,
+                normalized.edge_progress,
+                normalized.current_speed,
+                normalized.status,
+            )),
+            update_order_position: Some(update_order_position),
+        };
+        if planned_slot_index < self.vehicles.len() {
+            let popped = self
+                .free_vehicle_indices
+                .pop()
+                .expect("planned reusable vehicle slot must remain available");
+            assert_eq!(popped, planned_slot_index);
+            self.vehicles[planned_slot_index] = slot;
+        } else {
+            self.vehicles.push(slot);
+        }
+
+        self.vehicle_handles.insert(resolver_id, handle);
+        self.routes[route.index()]
+            .reference_index
+            .attach(route, handle, update_order_position);
+        self.compact_update_order_if_needed();
         Ok(handle)
     }
 
@@ -571,28 +767,158 @@ impl CoreWorld {
         self.vehicle_slot(handle)
             .ok_or(CoreError::UnknownVehicleHandle { vehicle: handle })?;
 
-        let slot = &mut self.vehicles[handle.index()];
+        let slot = &self.vehicles[handle.index()];
+        let update_order_position = slot
+            .update_order_position
+            .expect("live vehicle must have reverse update-order position");
         let state = slot
             .state
+            .as_ref()
+            .expect("validated vehicle slot must contain state");
+        let profile = state.profile;
+        let route = state.route;
+        let status = state.status;
+        let reusable = slot.generation.checked_add(1);
+        if reusable.is_some() {
+            self.free_vehicle_indices.reserve(1);
+        }
+
+        let slot = &mut self.vehicles[handle.index()];
+        slot.state
             .take()
             .expect("validated vehicle slot must contain state");
-        let external_id = slot.external_id.clone();
-        self.vehicle_handles.shift_remove(&external_id);
+        let external_id = std::mem::take(&mut slot.external_id);
+        slot.update_order_position = None;
+        let removed = self.vehicle_handles.swap_remove(&external_id);
+        assert_eq!(
+            removed,
+            Some(handle),
+            "vehicle resolver must identify removed vehicle"
+        );
         // generation 耗尽时不复用 slot，避免 stale handle 在回绕后复活。
-        if let Some(next_generation) = slot.generation.checked_add(1) {
+        if let Some(next_generation) = reusable {
             slot.generation = next_generation;
             self.free_vehicle_indices.push(handle.index());
         }
         self.vehicle_update_order
-            .retain(|candidate| *candidate != handle);
+            .tombstone(update_order_position, handle);
+        self.routes[route.index()].reference_index.detach();
+        self.compact_update_order_if_needed();
 
         Ok(VehicleDespawnRecord {
             handle,
             external_id,
-            profile: state.profile,
-            route: state.route,
-            status: state.status,
+            profile,
+            route,
+            status,
         })
+    }
+
+    fn first_route_reference(&mut self, route: RouteHandle) -> Option<VehicleHandle> {
+        self.routes[route.index()]
+            .reference_index
+            .first_valid(route, &self.vehicles)
+    }
+
+    fn rebuild_route_reference_index(&mut self, route: RouteHandle) {
+        let order = &self.vehicle_update_order;
+        let vehicles = &self.vehicles;
+        let index = &mut self.routes[route.index()].reference_index;
+        index.clear();
+        for (position, vehicle) in order
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(position, entry)| entry.map(|vehicle| (position, vehicle)))
+        {
+            let Some(state) = vehicles
+                .get(vehicle.index())
+                .filter(|slot| slot.generation == vehicle.generation())
+                .and_then(|slot| slot.state.as_ref())
+            else {
+                continue;
+            };
+            if state.route == route {
+                index.attach(route, vehicle, position);
+            }
+        }
+    }
+
+    fn rebuild_all_route_reference_indices(&mut self) {
+        for route in &mut self.routes {
+            route.reference_index.clear();
+        }
+        for (position, vehicle) in self
+            .vehicle_update_order
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(position, entry)| entry.map(|vehicle| (position, vehicle)))
+        {
+            let state = self.vehicles[vehicle.index()]
+                .state
+                .as_ref()
+                .expect("stable update order must identify live vehicle");
+            self.routes[state.route.index()]
+                .reference_index
+                .attach(state.route, vehicle, position);
+        }
+    }
+
+    fn compact_update_order_if_needed(&mut self) {
+        if self.vehicle_update_order.compact(&mut self.vehicles) {
+            self.rebuild_all_route_reference_indices();
+        }
+    }
+
+    #[cfg(test)]
+    fn assert_lifecycle_indices_consistent(&mut self) {
+        let mut seen = vec![false; self.vehicles.len()];
+        let mut expected_route_counts = vec![0_usize; self.routes.len()];
+        let mut expected_route_first = vec![None; self.routes.len()];
+
+        for (position, vehicle) in self
+            .vehicle_update_order
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(position, entry)| entry.map(|vehicle| (position, vehicle)))
+        {
+            let slot = self
+                .vehicles
+                .get(vehicle.index())
+                .filter(|slot| slot.generation == vehicle.generation())
+                .expect("stable update order entry must resolve");
+            assert!(
+                !seen[vehicle.index()],
+                "vehicle must occur once in update order"
+            );
+            seen[vehicle.index()] = true;
+            assert_eq!(slot.update_order_position, Some(position));
+            let state = slot.state.as_ref().expect("ordered vehicle must be live");
+            expected_route_counts[state.route.index()] += 1;
+            expected_route_first[state.route.index()].get_or_insert(vehicle);
+        }
+
+        for (index, slot) in self.vehicles.iter().enumerate() {
+            assert_eq!(slot.state.is_some(), seen[index]);
+            assert_eq!(slot.update_order_position.is_some(), seen[index]);
+        }
+
+        for route_index in 0..self.routes.len() {
+            if !self.routes[route_index].active {
+                continue;
+            }
+            let route = RouteHandle::new(route_index, self.routes[route_index].generation);
+            assert_eq!(
+                self.routes[route_index].reference_index.live_count,
+                expected_route_counts[route_index]
+            );
+            let actual_first = self.routes[route_index]
+                .reference_index
+                .first_valid(route, &self.vehicles);
+            assert_eq!(actual_first, expected_route_first[route_index]);
+        }
     }
 
     /// 推进一个 fixed-step tick。
@@ -641,7 +967,7 @@ impl CoreWorld {
             tick_index: next_tick_index,
         };
         let advance_result = (|| {
-            for vehicle_handle in &self.vehicle_update_order {
+            for vehicle_handle in self.vehicle_update_order.iter() {
                 let Some(current_slot) = self
                     .vehicles
                     .get(vehicle_handle.index())
@@ -653,11 +979,11 @@ impl CoreWorld {
                     continue;
                 }
 
-                let Some(vehicle) = candidate_states.state_mut(*vehicle_handle) else {
+                let Some(vehicle) = candidate_states.state_mut(vehicle_handle) else {
                     continue;
                 };
 
-                let Some(motion) = self.longitudinal_scratch.motion(*vehicle_handle) else {
+                let Some(motion) = self.longitudinal_scratch.motion(vehicle_handle) else {
                     debug_assert_eq!(vehicle.status, VehicleStatus::Completed);
                     continue;
                 };
@@ -877,7 +1203,7 @@ impl CoreWorld {
             }
         }
 
-        for handle in self.vehicle_update_order.iter().copied() {
+        for handle in self.vehicle_update_order.iter() {
             let Some(vehicle) = self.vehicle(handle) else {
                 continue;
             };
@@ -930,7 +1256,7 @@ impl CoreWorld {
                 return Ok(());
             }
 
-            for handle in self.vehicle_update_order.iter().copied() {
+            for handle in self.vehicle_update_order.iter() {
                 let Some(vehicle) = self.vehicle(handle) else {
                     continue;
                 };
@@ -958,7 +1284,7 @@ impl CoreWorld {
             scratch.begin(self.vehicles.len());
             let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
 
-            for (update_sequence, handle) in self.vehicle_update_order.iter().copied().enumerate() {
+            for (update_sequence, handle) in self.vehicle_update_order.iter().enumerate() {
                 let Some(vehicle) = self.vehicle(handle) else {
                     continue;
                 };
@@ -1016,7 +1342,7 @@ impl CoreWorld {
                 }
             }
 
-            scratch.project(&self.vehicle_update_order, delta_time)
+            scratch.project(self.vehicle_update_order.iter(), delta_time)
         })();
         self.longitudinal_scratch = scratch;
         result
@@ -1044,7 +1370,7 @@ impl CoreWorld {
     fn build_occupancy(&self, scratch: &mut OccupancyScratch) {
         scratch.begin(self.lane_graph.edges().len(), self.vehicles.len());
 
-        for handle in self.vehicle_update_order.iter().copied() {
+        for handle in self.vehicle_update_order.iter() {
             let Some(vehicle) = self.vehicle(handle) else {
                 continue;
             };
@@ -1065,7 +1391,7 @@ impl CoreWorld {
         }
 
         scratch.allocate_occupants();
-        for (update_sequence, handle) in self.vehicle_update_order.iter().copied().enumerate() {
+        for (update_sequence, handle) in self.vehicle_update_order.iter().enumerate() {
             let Some(vehicle) = self.vehicle(handle) else {
                 continue;
             };
@@ -1878,6 +2204,109 @@ mod tests {
     }
 
     #[test]
+    fn route_in_use_uses_stable_order_after_vehicle_slot_reuse() {
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(10.0).expect("valid edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("valid lane graph");
+        let (traffic_data, profile) = traffic_data(
+            lane_graph,
+            [Route::try_new("R1", ["A"]).expect("valid route")],
+        );
+        let mut world =
+            CoreWorld::with_traffic_data(20, traffic_data, Vec::new()).expect("valid world");
+        let route = world.route_handle("R1").expect("route handle");
+        let end = EdgeProgress::try_new(10.0).expect("valid end progress");
+        let first = world
+            .spawn_vehicle(VehicleSpawnInput::completed("first", profile, "R1", 0, end))
+            .expect("first vehicle");
+        let second = world
+            .spawn_vehicle(VehicleSpawnInput::completed(
+                "second", profile, "R1", 0, end,
+            ))
+            .expect("second vehicle");
+
+        world.despawn_vehicle(first).expect("despawn first");
+        let replacement = world
+            .spawn_vehicle(VehicleSpawnInput::completed(
+                "replacement",
+                profile,
+                "R1",
+                0,
+                end,
+            ))
+            .expect("replacement vehicle");
+
+        assert_eq!(replacement.index(), first.index(), "slot must be reused");
+        assert_eq!(
+            world
+                .vehicles()
+                .map(|vehicle| vehicle.handle)
+                .collect::<Vec<_>>(),
+            vec![second, replacement]
+        );
+        let error = world.remove_route(route).expect_err("route remains in use");
+        std::assert_matches!(
+            error,
+            CoreError::RouteInUse { vehicle, .. } if vehicle == second
+        );
+        world.assert_lifecycle_indices_consistent();
+    }
+
+    #[test]
+    fn deterministic_tombstone_compaction_preserves_live_order_and_route_first() {
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(10.0).expect("valid edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("valid lane graph");
+        let (traffic_data, profile) = traffic_data(
+            lane_graph,
+            [Route::try_new("R1", ["A"]).expect("valid route")],
+        );
+        let mut world =
+            CoreWorld::with_traffic_data(20, traffic_data, Vec::new()).expect("valid world");
+        let route = world.route_handle("R1").expect("route handle");
+        let end = EdgeProgress::try_new(10.0).expect("valid end progress");
+        let mut handles = Vec::new();
+        for index in 0..130 {
+            handles.push(
+                world
+                    .spawn_vehicle(VehicleSpawnInput::completed(
+                        format!("V{index:03}"),
+                        profile,
+                        "R1",
+                        0,
+                        end,
+                    ))
+                    .expect("vehicle spawns"),
+            );
+        }
+        for handle in handles.iter().take(65).copied() {
+            world.despawn_vehicle(handle).expect("vehicle despawns");
+        }
+
+        assert_eq!(world.vehicle_update_order.tombstones, 0);
+        assert_eq!(world.vehicle_update_order.entries.len(), 65);
+        assert_eq!(
+            world
+                .vehicles()
+                .map(|vehicle| vehicle.handle)
+                .collect::<Vec<_>>(),
+            handles[65..]
+        );
+        let error = world.remove_route(route).expect_err("route remains in use");
+        std::assert_matches!(
+            error,
+            CoreError::RouteInUse { vehicle, .. } if vehicle == handles[65]
+        );
+        world.assert_lifecycle_indices_consistent();
+    }
+
+    #[test]
     fn exhausted_route_generation_retires_slot_without_reviving_stale_handle() {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
@@ -1934,8 +2363,18 @@ mod tests {
             ))
             .expect("vehicle spawns");
         let exhausted = VehicleHandle::new(original.index(), u32::MAX);
+        let position = world.vehicles[original.index()]
+            .update_order_position
+            .expect("live vehicle has update position");
         world.vehicles[original.index()].generation = u32::MAX;
+        world.vehicles[original.index()]
+            .state
+            .as_mut()
+            .expect("live vehicle state")
+            .handle = exhausted;
+        world.vehicle_update_order.entries[position] = Some(exhausted);
         world.vehicle_handles.insert("V1".to_owned(), exhausted);
+        world.rebuild_all_route_reference_indices();
 
         world
             .despawn_vehicle(exhausted)
