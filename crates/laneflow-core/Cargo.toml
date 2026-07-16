@@ -24,5 +24,9 @@ proptest = { version = "1.11", default-features = false, features = ["std"] }
 name = "core_step"
 harness = false
 
+[[bench]]
+name = "core_commands"
+harness = false
+
 [lints]
 workspace = true
