@@ -8,6 +8,7 @@ use std::{
 use indexmap::IndexMap;
 
 use crate::{
+    command_spatial::{CommandOccupant, CommandSpatialIndex},
     error::CoreError,
     event::{
         CoreEvent, SignalGroupAspectChangedEvent, SignalPhaseChangedEvent, VehicleChangedEdgeEvent,
@@ -244,13 +245,19 @@ impl StableVehicleOrder {
 #[derive(Debug, Default)]
 struct CandidateStateScratch {
     states: Vec<Option<VehicleState>>,
+    spatial_changes: Vec<VehicleHandle>,
 }
 
 impl Clone for CandidateStateScratch {
     fn clone(&self) -> Self {
         let mut states = Vec::with_capacity(self.states.capacity());
         states.extend(self.states.iter().cloned());
-        Self { states }
+        let mut spatial_changes = Vec::with_capacity(self.spatial_changes.capacity());
+        spatial_changes.extend(self.spatial_changes.iter().copied());
+        Self {
+            states,
+            spatial_changes,
+        }
     }
 }
 
@@ -265,16 +272,18 @@ impl CandidateStateScratch {
     fn reserve_for_slots(&mut self, vehicle_slot_count: usize) {
         let additional = vehicle_slot_count.saturating_sub(self.states.len());
         self.states.reserve(additional);
+        self.spatial_changes.reserve(additional);
     }
 
     fn begin(&mut self, vehicles: &[VehicleSlot]) {
         self.states.clear();
+        self.spatial_changes.clear();
         self.states
             .extend(vehicles.iter().map(|slot| slot.state.clone()));
     }
 
-    fn state_mut(&mut self, handle: VehicleHandle) -> Option<&mut VehicleState> {
-        self.states.get_mut(handle.index()).and_then(Option::as_mut)
+    fn state(&self, handle: VehicleHandle) -> Option<&VehicleState> {
+        self.states.get(handle.index()).and_then(Option::as_ref)
     }
 
     fn commit_into(&mut self, vehicles: &mut [VehicleSlot]) {
@@ -290,6 +299,7 @@ impl CandidateStateScratch {
 
     fn clear(&mut self) {
         self.states.clear();
+        self.spatial_changes.clear();
     }
 }
 
@@ -314,6 +324,7 @@ pub struct CoreWorld {
     candidate_state_scratch: CandidateStateScratch,
     occupancy_scratch: OccupancyScratch,
     longitudinal_scratch: LongitudinalScratch,
+    command_spatial_index: CommandSpatialIndex,
 }
 
 impl CoreWorld {
@@ -338,6 +349,7 @@ impl CoreWorld {
         signals.validate_fixed_delta_time(fixed_delta_time_ms)?;
         let mut signal_state = SignalRuntimeState::default();
         signals.populate_runtime_state(0, &mut signal_state);
+        let command_spatial_index = CommandSpatialIndex::new(&lane_graph, &vehicle_profiles);
         let mut world = Self {
             fixed_delta_time_ms,
             tick_index: 0,
@@ -357,6 +369,7 @@ impl CoreWorld {
             candidate_state_scratch: CandidateStateScratch::default(),
             occupancy_scratch: OccupancyScratch::default(),
             longitudinal_scratch: LongitudinalScratch::default(),
+            command_spatial_index,
         };
 
         for route in routes {
@@ -368,6 +381,7 @@ impl CoreWorld {
             world.spawn_vehicle_without_overlap_validation(vehicle)?;
         }
         world.validate_initial_vehicle_overlaps()?;
+        world.rebuild_command_spatial_index();
 
         Ok(world)
     }
@@ -711,6 +725,19 @@ impl CoreWorld {
             .get(planned_slot_index)
             .map_or(0, |slot| slot.generation);
         let handle = VehicleHandle::new(planned_slot_index, planned_generation);
+        let spatial_occupant = matches!(
+            normalized.status,
+            VehicleStatus::Active | VehicleStatus::Stopped
+        )
+        .then(|| {
+            (
+                self.routes[route.index()].edge_handles[normalized.route_edge_index],
+                CommandOccupant {
+                    vehicle: handle,
+                    front_progress: normalized.edge_progress.value(),
+                },
+            )
+        });
         self.vehicle_handles.reserve(1);
         self.vehicle_update_order.reserve_for_append();
         if planned_slot_index == self.vehicles.len() {
@@ -719,6 +746,19 @@ impl CoreWorld {
         self.routes[route.index()]
             .reference_index
             .reserve_for_attach();
+        if let Some((edge, occupant)) = spatial_occupant {
+            let vehicles = &self.vehicles;
+            let mut resolve_progress = |handle: VehicleHandle| {
+                vehicles[handle.index()]
+                    .state
+                    .as_ref()
+                    .expect("command spatial occupant must be live")
+                    .edge_progress
+                    .value()
+            };
+            self.command_spatial_index
+                .prepare_insert(edge, occupant, &mut resolve_progress);
+        }
         self.candidate_state_scratch.reserve_for_slots(
             self.vehicles.len() + usize::from(planned_slot_index == self.vehicles.len()),
         );
@@ -755,6 +795,19 @@ impl CoreWorld {
         self.routes[route.index()]
             .reference_index
             .attach(route, handle, update_order_position);
+        if let Some((edge, occupant)) = spatial_occupant {
+            let vehicles = &self.vehicles;
+            let mut resolve_progress = |handle: VehicleHandle| {
+                vehicles[handle.index()]
+                    .state
+                    .as_ref()
+                    .expect("command spatial occupant must be live")
+                    .edge_progress
+                    .value()
+            };
+            self.command_spatial_index
+                .insert(edge, occupant, &mut resolve_progress);
+        }
         self.compact_update_order_if_needed();
         Ok(handle)
     }
@@ -778,9 +831,32 @@ impl CoreWorld {
         let profile = state.profile;
         let route = state.route;
         let status = state.status;
+        let spatial_occupant = matches!(status, VehicleStatus::Active | VehicleStatus::Stopped)
+            .then(|| {
+                (
+                    self.routes[route.index()].edge_handles[state.route_edge_index],
+                    CommandOccupant {
+                        vehicle: handle,
+                        front_progress: state.edge_progress.value(),
+                    },
+                )
+            });
         let reusable = slot.generation.checked_add(1);
         if reusable.is_some() {
             self.free_vehicle_indices.reserve(1);
+        }
+        if let Some((edge, occupant)) = spatial_occupant {
+            let vehicles = &self.vehicles;
+            let mut resolve_progress = |candidate: VehicleHandle| {
+                vehicles[candidate.index()]
+                    .state
+                    .as_ref()
+                    .expect("command spatial occupant must be live")
+                    .edge_progress
+                    .value()
+            };
+            self.command_spatial_index
+                .remove(edge, occupant, &mut resolve_progress);
         }
 
         let slot = &mut self.vehicles[handle.index()];
@@ -919,6 +995,43 @@ impl CoreWorld {
                 .first_valid(route, &self.vehicles);
             assert_eq!(actual_first, expected_route_first[route_index]);
         }
+
+        let mut expected_spatial = self
+            .vehicles()
+            .filter(|vehicle| {
+                matches!(
+                    vehicle.status,
+                    VehicleStatus::Active | VehicleStatus::Stopped
+                )
+            })
+            .map(|vehicle| {
+                (
+                    self.vehicle_edge(vehicle),
+                    CommandOccupant {
+                        vehicle: vehicle.handle,
+                        front_progress: vehicle.edge_progress.value(),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut actual_spatial = self.command_spatial_index.occupants().collect::<Vec<_>>();
+        let compare = |left: &(EdgeHandle, CommandOccupant),
+                       right: &(EdgeHandle, CommandOccupant)| {
+            left.0
+                .index()
+                .cmp(&right.0.index())
+                .then_with(|| left.1.front_progress.total_cmp(&right.1.front_progress))
+                .then_with(|| left.1.vehicle.index().cmp(&right.1.vehicle.index()))
+                .then_with(|| {
+                    left.1
+                        .vehicle
+                        .generation()
+                        .cmp(&right.1.vehicle.generation())
+                })
+        };
+        expected_spatial.sort_unstable_by(compare);
+        actual_spatial.sort_unstable_by(compare);
+        assert_eq!(actual_spatial, expected_spatial);
     }
 
     /// 推进一个 fixed-step tick。
@@ -967,6 +1080,8 @@ impl CoreWorld {
             tick_index: next_tick_index,
         };
         let advance_result = (|| {
+            let states = &mut candidate_states.states;
+            let spatial_changes = &mut candidate_states.spatial_changes;
             for vehicle_handle in self.vehicle_update_order.iter() {
                 let Some(current_slot) = self
                     .vehicles
@@ -979,7 +1094,10 @@ impl CoreWorld {
                     continue;
                 }
 
-                let Some(vehicle) = candidate_states.state_mut(vehicle_handle) else {
+                let Some(vehicle) = states
+                    .get_mut(vehicle_handle.index())
+                    .and_then(Option::as_mut)
+                else {
                     continue;
                 };
 
@@ -987,7 +1105,13 @@ impl CoreWorld {
                     debug_assert_eq!(vehicle.status, VehicleStatus::Completed);
                     continue;
                 };
-                Self::advance_vehicle(advance_context, vehicle, motion, &mut events)?;
+                Self::advance_vehicle(
+                    advance_context,
+                    vehicle,
+                    motion,
+                    &mut events,
+                    spatial_changes,
+                )?;
             }
             Ok(())
         })();
@@ -1004,6 +1128,7 @@ impl CoreWorld {
             signal_candidate_scratch.state(),
             &mut events,
         );
+        self.sync_changed_command_spatial_memberships(&candidate_states);
         candidate_states.commit_into(&mut self.vehicles);
         std::mem::swap(&mut self.signal_state, signal_candidate_scratch.state_mut());
         self.tick_index = next_tick_index;
@@ -1016,6 +1141,54 @@ impl CoreWorld {
             time_ms: next_time_ms,
             events,
         })
+    }
+
+    fn rebuild_command_spatial_index(&mut self) {
+        let mut spatial = std::mem::take(&mut self.command_spatial_index);
+        spatial.begin_rebuild(self.vehicles.len());
+        for vehicle in self.vehicles() {
+            if !matches!(
+                vehicle.status,
+                VehicleStatus::Active | VehicleStatus::Stopped
+            ) {
+                continue;
+            }
+            spatial.stage(
+                self.vehicle_edge(vehicle),
+                CommandOccupant {
+                    vehicle: vehicle.handle,
+                    front_progress: vehicle.edge_progress.value(),
+                },
+            );
+        }
+        spatial.finish_rebuild();
+        self.command_spatial_index = spatial;
+    }
+
+    fn sync_changed_command_spatial_memberships(&mut self, candidate: &CandidateStateScratch) {
+        let routes = &self.routes;
+        let vehicles = &self.vehicles;
+        let spatial = &mut self.command_spatial_index;
+        let membership = |state: &VehicleState| {
+            matches!(state.status, VehicleStatus::Active | VehicleStatus::Stopped).then(|| {
+                (
+                    routes[state.route.index()].edge_handles[state.route_edge_index],
+                    CommandOccupant {
+                        vehicle: state.handle,
+                        front_progress: state.edge_progress.value(),
+                    },
+                )
+            })
+        };
+        for vehicle in candidate.spatial_changes.iter().copied() {
+            let old_membership = vehicles
+                .get(vehicle.index())
+                .filter(|slot| slot.generation == vehicle.generation())
+                .and_then(|slot| slot.state.as_ref())
+                .and_then(membership);
+            let new_membership = candidate.state(vehicle).and_then(membership);
+            spatial.sync_vehicle(old_membership, new_membership);
+        }
     }
 
     fn append_signal_events(
@@ -1069,11 +1242,79 @@ impl CoreWorld {
     }
 
     fn validate_candidate_overlap(
+        &mut self,
+        route: RouteHandle,
+        candidate_id: &str,
+        candidate: &NormalizedVehicleInput,
+    ) -> Result<(), CoreError> {
+        if candidate.status == VehicleStatus::Completed {
+            return Ok(());
+        }
+
+        let candidate_length = self
+            .vehicle_profile(candidate.profile)
+            .expect("candidate profile must exist")
+            .iidm()
+            .length;
+        let mut spatial = std::mem::take(&mut self.command_spatial_index);
+        let route_edges = &self
+            .route_slot(route)
+            .expect("candidate route must exist")
+            .edge_handles;
+        let mut resolve_progress = |handle| {
+            self.vehicle(handle)
+                .expect("command spatial occupant must be live")
+                .edge_progress
+                .value()
+        };
+        spatial.gather_overlap_candidates(
+            route_edges,
+            candidate.route_edge_index,
+            candidate.edge_progress.value(),
+            candidate_length,
+            self.vehicles.len(),
+            &mut resolve_progress,
+        );
+        spatial.sort_candidates_by_key(|handle| {
+            self.vehicles[handle.index()]
+                .update_order_position
+                .expect("command candidate must be live")
+        });
+        let result = self.validate_candidate_overlap_for_handles(
+            route,
+            candidate_id,
+            candidate,
+            spatial.candidates().iter().copied(),
+        );
+        self.command_spatial_index = spatial;
+        result
+    }
+
+    #[cfg(test)]
+    fn validate_candidate_overlap_full_scan(
         &self,
         route: RouteHandle,
         candidate_id: &str,
         candidate: &NormalizedVehicleInput,
     ) -> Result<(), CoreError> {
+        self.validate_candidate_overlap_for_handles(
+            route,
+            candidate_id,
+            candidate,
+            self.vehicle_update_order.iter(),
+        )
+    }
+
+    fn validate_candidate_overlap_for_handles<I>(
+        &self,
+        route: RouteHandle,
+        candidate_id: &str,
+        candidate: &NormalizedVehicleInput,
+        existing_handles: I,
+    ) -> Result<(), CoreError>
+    where
+        I: IntoIterator<Item = VehicleHandle>,
+    {
         if candidate.status == VehicleStatus::Completed {
             return Ok(());
         }
@@ -1088,7 +1329,10 @@ impl CoreWorld {
             .iidm()
             .length;
 
-        for existing in self.vehicles() {
+        for handle in existing_handles {
+            let existing = self
+                .vehicle(handle)
+                .expect("command spatial candidate must be live");
             if existing.status == VehicleStatus::Completed {
                 continue;
             }
@@ -1775,6 +2019,7 @@ impl CoreWorld {
         vehicle: &mut VehicleState,
         motion: LongitudinalMotion,
         events: &mut Vec<CoreEvent>,
+        spatial_changes: &mut Vec<VehicleHandle>,
     ) -> Result<(), CoreError> {
         if vehicle.status != VehicleStatus::Active {
             return Ok(());
@@ -1840,6 +2085,9 @@ impl CoreWorld {
                     vehicle.current_speed = Speed::ZERO;
                     vehicle.applied_acceleration = Acceleration::ZERO;
                     vehicle.status = VehicleStatus::Completed;
+                    if spatial_changes.last().copied() != Some(vehicle.handle) {
+                        spatial_changes.push(vehicle.handle);
+                    }
                     events.push(CoreEvent::VehicleCompletedRoute(
                         VehicleCompletedRouteEvent {
                             tick_index: context.tick_index,
@@ -1928,6 +2176,12 @@ impl CoreWorld {
                     break;
                 }
 
+                if current_edge != to_edge
+                    && spatial_changes.last().copied() != Some(vehicle.handle)
+                {
+                    spatial_changes.push(vehicle.handle);
+                }
+
                 events.push(CoreEvent::VehicleChangedEdge(VehicleChangedEdgeEvent {
                     tick_index: context.tick_index,
                     vehicle: vehicle.handle,
@@ -1946,6 +2200,9 @@ impl CoreWorld {
                 vehicle.current_speed = Speed::ZERO;
                 vehicle.applied_acceleration = Acceleration::ZERO;
                 vehicle.status = VehicleStatus::Completed;
+                if spatial_changes.last().copied() != Some(vehicle.handle) {
+                    spatial_changes.push(vehicle.handle);
+                }
                 events.push(CoreEvent::VehicleCompletedRoute(
                     VehicleCompletedRouteEvent {
                         tick_index: context.tick_index,
@@ -1999,6 +2256,7 @@ mod tests {
         CoreError, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge, Speed,
         TickInput, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
     };
+    use proptest::prelude::*;
 
     fn traffic_data<I>(
         lane_graph: LaneGraph,
@@ -2306,6 +2564,160 @@ mod tests {
         world.assert_lifecycle_indices_consistent();
     }
 
+    proptest! {
+        #[test]
+        fn command_spatial_overlap_matches_full_scan_oracle(
+            route_case in 0_usize..10,
+            progress_value in 0_u8..=20,
+            stopped in any::<bool>(),
+        ) {
+            let lane_graph = LaneGraph::try_new([
+                LaneEdge::new("A", EdgeLength::try_new(20.0).expect("length"), ["B", "C"]),
+                LaneEdge::new("B", EdgeLength::try_new(20.0).expect("length"), ["D"]),
+                LaneEdge::new("C", EdgeLength::try_new(20.0).expect("length"), ["D"]),
+                LaneEdge::new("D", EdgeLength::try_new(20.0).expect("length"), ["A"]),
+            ])
+            .expect("valid cyclic graph");
+            let routes = [
+                Route::try_new("R0", ["A", "B", "D", "A", "C", "D"]).expect("R0"),
+                Route::try_new("R1", ["C", "D", "A", "B"]).expect("R1"),
+            ];
+            let (traffic_data, profile) = traffic_data(lane_graph, routes);
+            let vehicles = vec![
+                VehicleSpawnInput::active(
+                    "existing-a",
+                    profile,
+                    "R0",
+                    0,
+                    EdgeProgress::try_new(2.0).expect("progress"),
+                    Speed::ZERO,
+                ),
+                VehicleSpawnInput::stopped(
+                    "existing-b",
+                    profile,
+                    "R0",
+                    1,
+                    EdgeProgress::try_new(9.0).expect("progress"),
+                ),
+                VehicleSpawnInput::active(
+                    "existing-d",
+                    profile,
+                    "R0",
+                    2,
+                    EdgeProgress::try_new(15.0).expect("progress"),
+                    Speed::ZERO,
+                ),
+                VehicleSpawnInput::stopped(
+                    "existing-c",
+                    profile,
+                    "R1",
+                    0,
+                    EdgeProgress::try_new(11.0).expect("progress"),
+                ),
+            ];
+            let mut world = CoreWorld::with_traffic_data(20, traffic_data, vehicles)
+                .expect("oracle world");
+            let cases = [
+                ("R0", 0),
+                ("R0", 1),
+                ("R0", 2),
+                ("R0", 3),
+                ("R0", 4),
+                ("R0", 5),
+                ("R1", 0),
+                ("R1", 1),
+                ("R1", 2),
+                ("R1", 3),
+            ];
+            let (route_id, route_edge_index) = cases[route_case];
+            let progress = EdgeProgress::try_new(f64::from(progress_value)).expect("progress");
+            let input = if stopped {
+                VehicleSpawnInput::stopped(
+                    "candidate",
+                    profile,
+                    route_id,
+                    route_edge_index,
+                    progress,
+                )
+            } else {
+                VehicleSpawnInput::active(
+                    "candidate",
+                    profile,
+                    route_id,
+                    route_edge_index,
+                    progress,
+                    Speed::ZERO,
+                )
+            };
+            let route = world.route_handle(route_id).expect("route handle");
+            let normalized = world.normalize_vehicle_input(route, &input).expect("normalized");
+            let expected = format!(
+                "{:?}",
+                world.validate_candidate_overlap_full_scan(route, &input.id, &normalized)
+            );
+            let actual = format!(
+                "{:?}",
+                world.validate_candidate_overlap(route, &input.id, &normalized)
+            );
+
+            prop_assert_eq!(actual, expected);
+            world.assert_lifecycle_indices_consistent();
+        }
+    }
+
+    #[test]
+    fn command_spatial_membership_follows_committed_physical_edge_transition() {
+        let lane_graph = LaneGraph::try_new([
+            LaneEdge::new("A", EdgeLength::try_new(10.0).expect("length"), ["B"]),
+            LaneEdge::new(
+                "B",
+                EdgeLength::try_new(100.0).expect("length"),
+                Vec::<String>::new(),
+            ),
+        ])
+        .expect("graph");
+        let (traffic_data, profile) = traffic_data(
+            lane_graph,
+            [Route::try_new("R1", ["A", "B"]).expect("route")],
+        );
+        let vehicle = VehicleSpawnInput::active(
+            "existing",
+            profile,
+            "R1",
+            0,
+            EdgeProgress::try_new(9.9).expect("progress"),
+            Speed::try_new(10.0).expect("speed"),
+        );
+        let mut world =
+            CoreWorld::with_traffic_data(20, traffic_data, vec![vehicle]).expect("world");
+        let existing = world.vehicle_handle("existing").expect("handle");
+
+        world.step(TickInput::new(20)).expect("transition step");
+        let state = world.vehicle(existing).expect("state").clone();
+        assert_eq!(state.route_edge_index, 1);
+        let candidate = VehicleSpawnInput::active(
+            "candidate",
+            profile,
+            "R1",
+            1,
+            state.edge_progress,
+            Speed::ZERO,
+        );
+        let error = world
+            .spawn_vehicle(candidate)
+            .expect_err("new edge occupant must be found");
+
+        std::assert_matches!(
+            error,
+            CoreError::VehiclePhysicalOverlap {
+                follower_id,
+                leader_id,
+                ..
+            } if follower_id == "candidate" && leader_id == "existing"
+        );
+        world.assert_lifecycle_indices_consistent();
+    }
+
     #[test]
     fn exhausted_route_generation_retires_slot_without_reviving_stale_handle() {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
@@ -2375,6 +2787,7 @@ mod tests {
         world.vehicle_update_order.entries[position] = Some(exhausted);
         world.vehicle_handles.insert("V1".to_owned(), exhausted);
         world.rebuild_all_route_reference_indices();
+        world.rebuild_command_spatial_index();
 
         world
             .despawn_vehicle(exhausted)

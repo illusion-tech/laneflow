@@ -14,6 +14,7 @@ use command_scenarios::{
     COMMAND_SCALING_VEHICLE_COUNT, COMMAND_VEHICLE_COUNT, CommandScenario, DEFAULT_ROUTE_LENGTH,
     FIXED_COMMAND_COUNT, command_scenario, remove_unused_route, run_in_use_route_failure_batch,
     run_mixed_churn_batch, run_overlap_failure_batch, run_safe_spawn_despawn_batch,
+    warm_command_scenario,
 };
 
 fn benchmark_command_batch(
@@ -27,9 +28,13 @@ fn benchmark_command_batch(
         BenchmarkId::new(name, detail),
         scenario,
         |benchmark, scenario| {
-            benchmark.iter_batched(
-                || scenario.clone(),
-                |mut scenario| black_box(routine(&mut scenario, FIXED_COMMAND_COUNT)),
+            benchmark.iter_batched_ref(
+                || {
+                    let mut scenario = scenario.clone();
+                    warm_command_scenario(&mut scenario);
+                    scenario
+                },
+                |scenario| black_box(routine(scenario, FIXED_COMMAND_COUNT)),
                 BatchSize::LargeInput,
             );
         },
@@ -112,9 +117,13 @@ fn benchmark_fixed_commands(
         BenchmarkId::new("unused_route", DEFAULT_ROUTE_LENGTH),
         &scenario,
         |benchmark, scenario| {
-            benchmark.iter_batched(
-                || scenario.clone(),
-                |mut scenario| black_box(remove_unused_route(&mut scenario)),
+            benchmark.iter_batched_ref(
+                || {
+                    let mut scenario = scenario.clone();
+                    warm_command_scenario(&mut scenario);
+                    scenario
+                },
+                |scenario| black_box(remove_unused_route(scenario)),
                 BatchSize::LargeInput,
             );
         },
