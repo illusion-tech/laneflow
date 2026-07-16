@@ -31,32 +31,140 @@ pub struct CommandScenario {
     mixed_inputs: Vec<VehicleSpawnInput>,
 }
 
+pub struct CompactionScenario {
+    pub world: CoreWorld,
+    pub trigger: VehicleHandle,
+}
+
+pub fn compaction_scenario(background_vehicle_count: usize) -> CompactionScenario {
+    let mut scenario = command_scenario(background_vehicle_count, DEFAULT_ROUTE_LENGTH);
+    let handles = scenario
+        .world
+        .vehicles()
+        .map(|vehicle| vehicle.handle)
+        .collect::<Vec<_>>();
+    let trigger_count = handles.len().div_ceil(2);
+    for handle in handles.iter().take(trigger_count - 1).copied() {
+        scenario
+            .world
+            .despawn_vehicle(handle)
+            .expect("pre-threshold vehicle must despawn");
+    }
+    CompactionScenario {
+        world: scenario.world,
+        trigger: handles[trigger_count - 1],
+    }
+}
+
 pub fn command_scenario(background_vehicle_count: usize, route_length: usize) -> CommandScenario {
+    build_command_scenario(
+        background_vehicle_count,
+        route_length,
+        FIXED_COMMAND_COUNT,
+        false,
+        3,
+    )
+}
+
+pub fn command_count_scenario(
+    background_vehicle_count: usize,
+    route_length: usize,
+    command_count: usize,
+) -> CommandScenario {
+    build_command_scenario(
+        background_vehicle_count,
+        route_length,
+        command_count,
+        false,
+        3,
+    )
+}
+
+pub fn repeated_command_scenario(
+    background_vehicle_count: usize,
+    route_length: usize,
+) -> CommandScenario {
+    build_command_scenario(
+        background_vehicle_count,
+        route_length,
+        FIXED_COMMAND_COUNT,
+        true,
+        3,
+    )
+}
+
+pub fn matched_command_scenario(
+    background_vehicle_count: usize,
+    route_length: usize,
+    command_count: usize,
+    total_route_count: usize,
+) -> CommandScenario {
+    build_command_scenario(
+        background_vehicle_count,
+        route_length,
+        command_count,
+        false,
+        total_route_count,
+    )
+}
+
+fn build_command_scenario(
+    background_vehicle_count: usize,
+    route_length: usize,
+    command_count: usize,
+    repeated_edge: bool,
+    total_route_count: usize,
+) -> CommandScenario {
     assert!(
         route_length > 0,
         "command benchmark route must not be empty"
     );
+    assert!(
+        total_route_count >= 3,
+        "three canonical routes are required"
+    );
 
     let first_edge_length =
         BACKGROUND_PROGRESS_START + BACKGROUND_SPACING * background_vehicle_count as f64 + 1_000.0;
-    let edge_ids = (0..route_length)
-        .map(|index| format!("edge-{index:03}"))
-        .collect::<Vec<_>>();
-    let edges = edge_ids
-        .iter()
-        .enumerate()
-        .map(|(index, id)| {
-            let next = edge_ids.get(index + 1).into_iter().cloned();
-            let length = if index == 0 { first_edge_length } else { 10.0 };
-            LaneEdge::new(
-                id,
-                EdgeLength::try_new(length).expect("command benchmark edge length must be valid"),
-                next,
-            )
-        })
-        .collect::<Vec<_>>();
+    let (edge_ids, edges) = if repeated_edge {
+        let edge_id = "edge-000".to_owned();
+        (
+            std::iter::repeat_n(edge_id.clone(), route_length).collect(),
+            vec![LaneEdge::new(
+                edge_id.clone(),
+                EdgeLength::try_new(first_edge_length)
+                    .expect("command benchmark edge length must be valid"),
+                [edge_id],
+            )],
+        )
+    } else {
+        let edge_ids = (0..route_length)
+            .map(|index| format!("edge-{index:03}"))
+            .collect::<Vec<_>>();
+        let edges = edge_ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| {
+                let next = edge_ids.get(index + 1).into_iter().cloned();
+                let length = if index == 0 { first_edge_length } else { 10.0 };
+                LaneEdge::new(
+                    id,
+                    EdgeLength::try_new(length)
+                        .expect("command benchmark edge length must be valid"),
+                    next,
+                )
+            })
+            .collect::<Vec<_>>();
+        (edge_ids, edges)
+    };
     let lane_graph = LaneGraph::try_new(edges).expect("command benchmark graph must be valid");
-    let routes = [COMMAND_ROUTE_ID, BACKGROUND_ROUTE_ID, UNUSED_ROUTE_ID].map(|id| {
+    let mut route_ids = vec![
+        COMMAND_ROUTE_ID.to_owned(),
+        BACKGROUND_ROUTE_ID.to_owned(),
+        UNUSED_ROUTE_ID.to_owned(),
+    ];
+    route_ids.extend((3..total_route_count).map(|index| format!("extra-route-{index:03}")));
+    let routes = route_ids.into_iter().map(|id| {
         Route::try_new(id, edge_ids.iter().cloned()).expect("command benchmark route must be valid")
     });
 
@@ -131,9 +239,9 @@ pub fn command_scenario(background_vehicle_count: usize, route_length: usize) ->
         EdgeProgress::try_new(LOCAL_PROGRESS).expect("warm overlap progress must be valid"),
         Speed::ZERO,
     );
-    let safe_inputs = command_inputs("safe", FIXED_COMMAND_COUNT / 2, profile, SAFE_PROGRESS);
-    let overlap_inputs = command_inputs("overlap", FIXED_COMMAND_COUNT, profile, LOCAL_PROGRESS);
-    let mixed_inputs = command_inputs("mixed", FIXED_COMMAND_COUNT / 4, profile, SAFE_PROGRESS);
+    let safe_inputs = command_inputs("safe", command_count / 2, profile, SAFE_PROGRESS);
+    let overlap_inputs = command_inputs("overlap", command_count, profile, LOCAL_PROGRESS);
+    let mixed_inputs = command_inputs("mixed", command_count / 4, profile, SAFE_PROGRESS);
 
     CommandScenario {
         world,
