@@ -248,6 +248,18 @@ struct CandidateStateScratch {
     spatial_changes: Vec<VehicleHandle>,
 }
 
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+struct LifecycleRetainedStats {
+    accounted_bytes: usize,
+    live_vehicles: usize,
+    route_occurrences: usize,
+    tombstones: usize,
+    route_candidate_nodes: usize,
+    stale_route_candidate_nodes: usize,
+    spatial_occupants: usize,
+}
+
 impl Clone for CandidateStateScratch {
     fn clone(&self) -> Self {
         let mut states = Vec::with_capacity(self.states.capacity());
@@ -1032,6 +1044,89 @@ impl CoreWorld {
         expected_spatial.sort_unstable_by(compare);
         actual_spatial.sort_unstable_by(compare);
         assert_eq!(actual_spatial, expected_spatial);
+    }
+
+    #[cfg(test)]
+    fn lifecycle_retained_stats(&self) -> LifecycleRetainedStats {
+        let route_occurrences = self
+            .routes
+            .iter()
+            .filter(|route| route.active)
+            .map(|route| route.edge_handles.len())
+            .sum();
+        let route_candidate_nodes = self
+            .routes
+            .iter()
+            .map(|route| route.reference_index.candidates.len())
+            .sum();
+        let stale_route_candidate_nodes = self
+            .routes
+            .iter()
+            .map(|route| {
+                route
+                    .reference_index
+                    .candidates
+                    .len()
+                    .saturating_sub(route.reference_index.live_count)
+            })
+            .sum();
+        let route_bytes = self.routes.capacity() * std::mem::size_of::<RouteSlot>()
+            + self
+                .routes
+                .iter()
+                .map(|route| {
+                    route.external_id.capacity()
+                        + route.edge_handles.capacity() * std::mem::size_of::<EdgeHandle>()
+                        + route.transitions.capacity() * std::mem::size_of::<RouteTransition>()
+                        + route.next_controlled_transition.capacity()
+                            * std::mem::size_of::<Option<NextControlledRouteTransition>>()
+                        + route.distance_index.retained_bytes()
+                        + route.reference_index.candidates.capacity()
+                            * std::mem::size_of::<Reverse<RouteVehicleReference>>()
+                })
+                .sum::<usize>();
+        let vehicle_bytes = self.vehicles.capacity() * std::mem::size_of::<VehicleSlot>()
+            + self
+                .vehicles
+                .iter()
+                .map(|vehicle| vehicle.external_id.capacity())
+                .sum::<usize>();
+        let resolver_bytes = self.route_handles.capacity()
+            * std::mem::size_of::<(String, RouteHandle)>()
+            + self
+                .route_handles
+                .keys()
+                .map(String::capacity)
+                .sum::<usize>()
+            + self.vehicle_handles.capacity() * std::mem::size_of::<(String, VehicleHandle)>()
+            + self
+                .vehicle_handles
+                .keys()
+                .map(String::capacity)
+                .sum::<usize>();
+        let lifecycle_scratch_bytes = self.free_route_indices.capacity()
+            * std::mem::size_of::<usize>()
+            + self.free_vehicle_indices.capacity() * std::mem::size_of::<usize>()
+            + self.vehicle_update_order.entries.capacity()
+                * std::mem::size_of::<Option<VehicleHandle>>()
+            + self.candidate_state_scratch.states.capacity()
+                * std::mem::size_of::<Option<VehicleState>>()
+            + self.candidate_state_scratch.spatial_changes.capacity()
+                * std::mem::size_of::<VehicleHandle>();
+        LifecycleRetainedStats {
+            accounted_bytes: std::mem::size_of::<Self>()
+                + route_bytes
+                + vehicle_bytes
+                + resolver_bytes
+                + lifecycle_scratch_bytes
+                + self.command_spatial_index.retained_bytes(),
+            live_vehicles: self.vehicles().count(),
+            route_occurrences,
+            tombstones: self.vehicle_update_order.tombstones,
+            route_candidate_nodes,
+            stale_route_candidate_nodes,
+            spatial_occupants: self.command_spatial_index.occupant_count(),
+        }
     }
 
     /// 推进一个 fixed-step tick。
@@ -2287,6 +2382,72 @@ mod tests {
         (traffic_data, profile)
     }
 
+    fn lifecycle_scale_world(vehicle_count: usize) -> CoreWorld {
+        let edge_length = 10.0 * vehicle_count as f64 + 100.0;
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(edge_length).expect("scale edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("scale graph");
+        let (traffic_data, profile) = traffic_data(
+            lane_graph,
+            [Route::try_new("R", ["A"]).expect("scale route")],
+        );
+        let vehicles = (0..vehicle_count)
+            .map(|index| {
+                VehicleSpawnInput::active(
+                    format!("V{index:06}"),
+                    profile,
+                    "R",
+                    0,
+                    EdgeProgress::try_new(5.0 + 10.0 * index as f64).expect("scale progress"),
+                    Speed::ZERO,
+                )
+            })
+            .collect();
+        CoreWorld::with_traffic_data(20, traffic_data, vehicles).expect("scale world")
+    }
+
+    fn sparse_command_world(background_count: usize) -> (CoreWorld, VehicleProfileHandle) {
+        let edge_length = 10.0 * background_count as f64 + 2_000.0;
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(edge_length).expect("sparse edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("sparse graph");
+        let (traffic_data, profile) = traffic_data(
+            lane_graph,
+            [Route::try_new("R", ["A"]).expect("sparse route")],
+        );
+        let mut vehicles = (0..background_count)
+            .map(|index| {
+                VehicleSpawnInput::active(
+                    format!("B{index:06}"),
+                    profile,
+                    "R",
+                    0,
+                    EdgeProgress::try_new(1_000.0 + 10.0 * index as f64)
+                        .expect("background progress"),
+                    Speed::ZERO,
+                )
+            })
+            .collect::<Vec<_>>();
+        vehicles.push(VehicleSpawnInput::active(
+            "local",
+            profile,
+            "R",
+            0,
+            EdgeProgress::try_new(5.0).expect("local progress"),
+            Speed::ZERO,
+        ));
+        (
+            CoreWorld::with_traffic_data(20, traffic_data, vehicles).expect("sparse world"),
+            profile,
+        )
+    }
+
     #[test]
     fn unit_step_advances_post_step_time() {
         let mut world = CoreWorld::new(20).expect("valid world");
@@ -2663,6 +2824,246 @@ mod tests {
             prop_assert_eq!(actual, expected);
             world.assert_lifecycle_indices_consistent();
         }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn lifecycle_order_and_route_references_match_vec_model(
+            operations in prop::collection::vec(any::<u8>(), 1..=128),
+        ) {
+            let lane_graph = LaneGraph::try_new([LaneEdge::new(
+                "A",
+                EdgeLength::try_new(100.0).expect("length"),
+                Vec::<String>::new(),
+            )])
+            .expect("graph");
+            let (traffic_data, profile) = traffic_data(
+                lane_graph,
+                [
+                    Route::try_new("R0", ["A"]).expect("R0"),
+                    Route::try_new("R1", ["A"]).expect("R1"),
+                ],
+            );
+            let mut world = CoreWorld::with_traffic_data(20, traffic_data, Vec::new())
+                .expect("world");
+            let routes = [
+                world.route_handle("R0").expect("R0 handle"),
+                world.route_handle("R1").expect("R1 handle"),
+            ];
+            let end = EdgeProgress::try_new(100.0).expect("end progress");
+            let mut model = Vec::<(usize, VehicleHandle, usize)>::new();
+            let mut last_handles = [None; 16];
+
+            for operation in operations {
+                let id_index = usize::from(operation) % last_handles.len();
+                let route_index = id_index % routes.len();
+                let id = format!("V{id_index:02}");
+                if operation % 3 != 2 {
+                    let before = world.clone();
+                    let result = world.spawn_vehicle(VehicleSpawnInput::completed(
+                        id.clone(),
+                        profile,
+                        format!("R{route_index}"),
+                        0,
+                        end,
+                    ));
+                    if let Some((_, expected, _)) =
+                        model.iter().find(|(candidate, _, _)| *candidate == id_index)
+                    {
+                        let error = result.expect_err("duplicate model vehicle");
+                        std::assert_matches!(
+                            error,
+                            CoreError::DuplicateVehicleId { vehicle_id } if vehicle_id == id
+                        );
+                        assert_eq!(world, before);
+                        assert_eq!(world.vehicle_handle(&id), Some(*expected));
+                    } else {
+                        let handle = result.expect("model spawn");
+                        last_handles[id_index] = Some(handle);
+                        model.push((id_index, handle, route_index));
+                    }
+                } else if let Some(position) = model
+                    .iter()
+                    .position(|(candidate, _, _)| *candidate == id_index)
+                {
+                    let (_, handle, expected_route) = model.remove(position);
+                    let record = world.despawn_vehicle(handle).expect("model despawn");
+                    assert_eq!(record.handle, handle);
+                    assert_eq!(record.external_id, id);
+                    assert_eq!(record.route, routes[expected_route]);
+                    assert_eq!(record.status, VehicleStatus::Completed);
+                    assert_eq!(world.vehicle(handle), None);
+                } else {
+                    let stale = last_handles[id_index]
+                        .unwrap_or_else(|| VehicleHandle::new(1_000 + id_index, 0));
+                    let before = world.clone();
+                    let error = world
+                        .despawn_vehicle(stale)
+                        .expect_err("missing model vehicle");
+                    std::assert_matches!(
+                        error,
+                        CoreError::UnknownVehicleHandle { vehicle } if vehicle == stale
+                    );
+                    assert_eq!(world, before);
+                }
+
+                let expected_order = model
+                    .iter()
+                    .map(|(_, handle, _)| *handle)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    world
+                        .vehicles()
+                        .map(|vehicle| vehicle.handle)
+                        .collect::<Vec<_>>(),
+                    expected_order
+                );
+                for (model_id, handle, _) in &model {
+                    assert_eq!(world.vehicle_handle(&format!("V{model_id:02}")), Some(*handle));
+                }
+                for (route_index, route) in routes.iter().copied().enumerate() {
+                    if let Some((_, expected, _)) = model
+                        .iter()
+                        .find(|(_, _, candidate_route)| *candidate_route == route_index)
+                    {
+                        let error = world
+                            .remove_route(route)
+                            .expect_err("referenced model route");
+                        std::assert_matches!(
+                            error,
+                            CoreError::RouteInUse { vehicle, .. } if vehicle == *expected
+                        );
+                    }
+                }
+                world.assert_lifecycle_indices_consistent();
+            }
+        }
+    }
+
+    #[test]
+    fn lifecycle_10k_tombstone_and_stale_high_water_compacts_deterministically() {
+        let mut world = lifecycle_scale_world(10_000);
+        let handles = world
+            .vehicles()
+            .map(|vehicle| vehicle.handle)
+            .collect::<Vec<_>>();
+        let initial = world.lifecycle_retained_stats();
+        assert_eq!(initial.live_vehicles, 10_000);
+        assert_eq!(initial.route_occurrences, 1);
+        assert_eq!(initial.route_candidate_nodes, 10_000);
+        assert_eq!(initial.stale_route_candidate_nodes, 0);
+        assert_eq!(initial.spatial_occupants, 10_000);
+
+        for handle in handles.iter().take(4_999).copied() {
+            world
+                .despawn_vehicle(handle)
+                .expect("pre-threshold despawn");
+        }
+        let high_water = world.lifecycle_retained_stats();
+        assert_eq!(high_water.live_vehicles, 5_001);
+        assert_eq!(high_water.tombstones, 4_999);
+        assert_eq!(high_water.route_candidate_nodes, 10_000);
+        assert_eq!(high_water.stale_route_candidate_nodes, 4_999);
+        assert_eq!(high_water.spatial_occupants, 5_001);
+
+        world
+            .despawn_vehicle(handles[4_999])
+            .expect("threshold despawn");
+        let compacted = world.lifecycle_retained_stats();
+        assert_eq!(compacted.live_vehicles, 5_000);
+        assert_eq!(compacted.tombstones, 0);
+        assert_eq!(compacted.route_candidate_nodes, 5_000);
+        assert_eq!(compacted.stale_route_candidate_nodes, 0);
+        assert_eq!(compacted.spatial_occupants, 5_000);
+        assert!(compacted.accounted_bytes >= compacted.live_vehicles);
+        world.assert_lifecycle_indices_consistent();
+    }
+
+    #[test]
+    fn spatial_operation_counts_depend_on_local_k_not_background_v() {
+        let run = |background_count| {
+            let (mut world, profile) = sparse_command_world(background_count);
+            let route = world.route_handle("R").expect("route");
+            let progress = EdgeProgress::try_new(5.0).expect("progress");
+            let input =
+                VehicleSpawnInput::active("candidate", profile, "R", 0, progress, Speed::ZERO);
+            let normalized = world
+                .normalize_vehicle_input(route, &input)
+                .expect("normalized");
+            world
+                .validate_candidate_overlap(route, &input.id, &normalized)
+                .expect_err("local overlap");
+            let overlap_stats = world.command_spatial_index.query_stats();
+
+            let candidate_edge = world.routes[route.index()].edge_handles[0];
+            let mut spatial = std::mem::take(&mut world.command_spatial_index);
+            let mut resolve_progress = |handle| {
+                world
+                    .vehicle(handle)
+                    .expect("spatial occupant")
+                    .edge_progress
+                    .value()
+            };
+            spatial.gather_direct_follower_candidates(
+                candidate_edge,
+                progress.value(),
+                world
+                    .vehicle_profile(profile)
+                    .expect("profile")
+                    .iidm()
+                    .length,
+                world.vehicles.len(),
+                &mut resolve_progress,
+            );
+            let direct_followers = spatial.candidates().to_vec();
+            let direct_stats = spatial.query_stats();
+            world.command_spatial_index = spatial;
+            (
+                overlap_stats,
+                direct_stats,
+                direct_followers,
+                world.vehicle_handle("local").expect("local handle"),
+            )
+        };
+
+        let small = run(128);
+        let large = run(10_000);
+        assert_eq!(small.0, large.0);
+        assert_eq!(small.1, large.1);
+        assert_eq!(small.0.edge_ranges, 2);
+        assert_eq!(small.0.occupants_visited, 2);
+        assert_eq!(small.1.edge_ranges, 1);
+        assert_eq!(small.1.occupants_visited, 1);
+        assert_eq!(small.2, vec![small.3]);
+        assert_eq!(large.2, vec![large.3]);
+    }
+
+    #[test]
+    #[ignore = "100k retained-memory scaling is an explicit G3 validation"]
+    fn lifecycle_retained_memory_10k_to_100k_is_linear() {
+        let small = lifecycle_scale_world(10_000).lifecycle_retained_stats();
+        let large = lifecycle_scale_world(100_000).lifecycle_retained_stats();
+        assert_eq!(small.route_occurrences, large.route_occurrences);
+        assert_eq!(small.tombstones, 0);
+        assert_eq!(large.tombstones, 0);
+        assert_eq!(small.stale_route_candidate_nodes, 0);
+        assert_eq!(large.stale_route_candidate_nodes, 0);
+        assert_eq!(small.spatial_occupants, 10_000);
+        assert_eq!(large.spatial_occupants, 100_000);
+        assert!(
+            large.accounted_bytes <= small.accounted_bytes * 12,
+            "retained bytes must scale <=12x: small={small:?}, large={large:?}"
+        );
+        eprintln!(
+            "retained_memory small_bytes={} small_bytes_per_live={:.2} large_bytes={} large_bytes_per_live={:.2} ratio={:.4}",
+            small.accounted_bytes,
+            small.accounted_bytes as f64 / small.live_vehicles as f64,
+            large.accounted_bytes,
+            large.accounted_bytes as f64 / large.live_vehicles as f64,
+            large.accounted_bytes as f64 / small.accounted_bytes as f64,
+        );
     }
 
     #[test]

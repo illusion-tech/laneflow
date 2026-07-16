@@ -25,6 +25,7 @@ pub struct CommandScenario {
     pub unused_route: RouteHandle,
     pub local_vehicle: VehicleHandle,
     warm_input: VehicleSpawnInput,
+    warm_overlap_input: VehicleSpawnInput,
     safe_inputs: Vec<VehicleSpawnInput>,
     overlap_inputs: Vec<VehicleSpawnInput>,
     mixed_inputs: Vec<VehicleSpawnInput>,
@@ -122,6 +123,14 @@ pub fn command_scenario(background_vehicle_count: usize, route_length: usize) ->
         EdgeProgress::try_new(SAFE_PROGRESS).expect("warm progress must be valid"),
         Speed::ZERO,
     );
+    let warm_overlap_input = VehicleSpawnInput::active(
+        "warm-overlap",
+        profile,
+        COMMAND_ROUTE_ID,
+        0,
+        EdgeProgress::try_new(LOCAL_PROGRESS).expect("warm overlap progress must be valid"),
+        Speed::ZERO,
+    );
     let safe_inputs = command_inputs("safe", FIXED_COMMAND_COUNT / 2, profile, SAFE_PROGRESS);
     let overlap_inputs = command_inputs("overlap", FIXED_COMMAND_COUNT, profile, LOCAL_PROGRESS);
     let mixed_inputs = command_inputs("mixed", FIXED_COMMAND_COUNT / 4, profile, SAFE_PROGRESS);
@@ -132,6 +141,7 @@ pub fn command_scenario(background_vehicle_count: usize, route_length: usize) ->
         unused_route,
         local_vehicle,
         warm_input,
+        warm_overlap_input,
         safe_inputs,
         overlap_inputs,
         mixed_inputs,
@@ -147,6 +157,21 @@ pub fn warm_command_scenario(scenario: &mut CommandScenario) {
         .world
         .despawn_vehicle(handle)
         .expect("capacity warm despawn must succeed");
+    scenario
+        .world
+        .spawn_vehicle(scenario.warm_overlap_input.clone())
+        .expect_err("candidate scratch warm overlap must fail");
+}
+
+#[allow(
+    dead_code,
+    reason = "used only by the dedicated allocation test binary"
+)]
+pub fn take_safe_input(scenario: &mut CommandScenario) -> VehicleSpawnInput {
+    scenario
+        .safe_inputs
+        .pop()
+        .expect("safe command input must remain")
 }
 
 fn command_inputs(

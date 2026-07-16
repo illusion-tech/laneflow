@@ -93,6 +93,13 @@ impl RouteDistanceIndex {
         self.distance_to_end.clear();
     }
 
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> usize {
+        self.occurrences.capacity() * std::mem::size_of::<OccurrenceCoordinate>()
+            + self.segment_totals.capacity() * std::mem::size_of::<f64>()
+            + self.distance_to_end.capacity() * std::mem::size_of::<BoundedDistance>()
+    }
+
     pub(crate) fn distance_to_end_within(
         &self,
         from_occurrence: usize,
@@ -167,6 +174,59 @@ impl RouteDistanceIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn bounded_index_matches_independent_integer_oracle(
+            raw_lengths in prop::collection::vec(1_u16..=1_000, 1..=64),
+            raw_from in any::<usize>(),
+            raw_target in any::<usize>(),
+            raw_from_progress in any::<u16>(),
+            raw_target_progress in any::<u16>(),
+            horizon in 0_u32..=100_000,
+        ) {
+            let lengths = raw_lengths
+                .iter()
+                .copied()
+                .map(f64::from)
+                .collect::<Vec<_>>();
+            let from = raw_from % lengths.len();
+            let target = raw_target % lengths.len();
+            let from_progress = f64::from(raw_from_progress % (raw_lengths[from] + 1));
+            let target_progress = f64::from(raw_target_progress % (raw_lengths[target] + 1));
+            let horizon = f64::from(horizon);
+            let expected = if target < from
+                || (target == from && target_progress < from_progress)
+            {
+                RouteDistanceQuery::Passed
+            } else {
+                let distance = if target == from {
+                    target_progress - from_progress
+                } else {
+                    lengths[from] - from_progress
+                        + lengths[(from + 1)..target].iter().sum::<f64>()
+                        + target_progress
+                };
+                if distance <= horizon {
+                    RouteDistanceQuery::Within(distance)
+                } else {
+                    RouteDistanceQuery::BeyondHorizon
+                }
+            };
+
+            let actual = RouteDistanceIndex::build(&lengths).distance_within(
+                from,
+                from_progress,
+                target,
+                target_progress,
+                horizon,
+            );
+            prop_assert_eq!(actual, expected);
+        }
+    }
 
     #[test]
     fn total_overflow_is_beyond_any_finite_horizon() {

@@ -402,6 +402,15 @@ pub(crate) struct CommandSpatialIndex {
     reverse_best: Vec<f64>,
     reverse_touched: Vec<EdgeHandle>,
     reverse_queue: Vec<(EdgeHandle, f64)>,
+    #[cfg(test)]
+    query_stats: SpatialQueryStats,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SpatialQueryStats {
+    pub(crate) edge_ranges: usize,
+    pub(crate) occupants_visited: usize,
 }
 
 impl PartialEq for CommandSpatialIndex {
@@ -448,6 +457,8 @@ impl CommandSpatialIndex {
             reverse_best: vec![-1.0; edge_count],
             reverse_touched: Vec::with_capacity(edge_count),
             reverse_queue: Vec::with_capacity(edge_count),
+            #[cfg(test)]
+            query_stats: SpatialQueryStats::default(),
         }
     }
 
@@ -611,6 +622,31 @@ impl CommandSpatialIndex {
     }
 
     #[cfg(test)]
+    pub(crate) fn query_stats(&self) -> SpatialQueryStats {
+        self.query_stats
+    }
+
+    #[cfg(test)]
+    pub(crate) fn gather_direct_follower_candidates<F>(
+        &mut self,
+        candidate_edge: EdgeHandle,
+        candidate_progress: f64,
+        candidate_length: f64,
+        vehicle_slot_count: usize,
+        resolve_progress: &mut F,
+    ) where
+        F: FnMut(VehicleHandle) -> f64,
+    {
+        self.begin_candidates(vehicle_slot_count);
+        self.gather_reverse(
+            candidate_edge,
+            candidate_progress,
+            candidate_length,
+            resolve_progress,
+        );
+    }
+
+    #[cfg(test)]
     pub(crate) fn occupants(&self) -> impl Iterator<Item = (EdgeHandle, CommandOccupant)> + '_ {
         let front_progress = &self.front_progress;
         self.buckets
@@ -626,6 +662,63 @@ impl CommandSpatialIndex {
             })
     }
 
+    #[cfg(test)]
+    pub(crate) fn occupant_count(&self) -> usize {
+        self.buckets
+            .iter()
+            .map(|bucket| {
+                bucket
+                    .active()
+                    .iter()
+                    .map(|chunk| chunk.occupants.len())
+                    .sum::<usize>()
+            })
+            .sum()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> usize {
+        let bucket_bytes = self.buckets.capacity() * std::mem::size_of::<SpatialBucket>()
+            + self
+                .buckets
+                .iter()
+                .map(|bucket| {
+                    bucket.chunks.capacity() * std::mem::size_of::<SpatialChunk>()
+                        + bucket
+                            .chunks
+                            .iter()
+                            .map(|chunk| {
+                                chunk.occupants.capacity() * std::mem::size_of::<CommandOccupant>()
+                            })
+                            .sum::<usize>()
+                })
+                .sum::<usize>();
+        let incoming_bytes = self.incoming_edges.capacity()
+            * std::mem::size_of::<Vec<EdgeHandle>>()
+            + self
+                .incoming_edges
+                .iter()
+                .map(|incoming| incoming.capacity() * std::mem::size_of::<EdgeHandle>())
+                .sum::<usize>();
+        let staging_bytes = self.staging.capacity() * std::mem::size_of::<Vec<CommandOccupant>>()
+            + self
+                .staging
+                .iter()
+                .map(|staging| staging.capacity() * std::mem::size_of::<CommandOccupant>())
+                .sum::<usize>();
+        bucket_bytes
+            + incoming_bytes
+            + staging_bytes
+            + self.edge_lengths.capacity() * std::mem::size_of::<f64>()
+            + self.front_progress.capacity() * std::mem::size_of::<f64>()
+            + self.membership_edges.capacity() * std::mem::size_of::<Option<EdgeHandle>>()
+            + self.candidate_marks.capacity() * std::mem::size_of::<u32>()
+            + self.candidates.capacity() * std::mem::size_of::<VehicleHandle>()
+            + self.reverse_best.capacity() * std::mem::size_of::<f64>()
+            + self.reverse_touched.capacity() * std::mem::size_of::<EdgeHandle>()
+            + self.reverse_queue.capacity() * std::mem::size_of::<(EdgeHandle, f64)>()
+    }
+
     fn begin_candidates(&mut self, vehicle_slot_count: usize) {
         self.candidate_marks
             .resize(self.candidate_marks.len().max(vehicle_slot_count), 0);
@@ -639,6 +732,10 @@ impl CommandSpatialIndex {
             self.reverse_best[edge.index()] = -1.0;
         }
         self.reverse_queue.clear();
+        #[cfg(test)]
+        {
+            self.query_stats = SpatialQueryStats::default();
+        }
     }
 
     fn add_range<F>(
@@ -650,14 +747,24 @@ impl CommandSpatialIndex {
     ) where
         F: FnMut(VehicleHandle) -> f64,
     {
+        #[cfg(test)]
+        {
+            self.query_stats.edge_ranges += 1;
+        }
         let epoch = self.candidate_epoch;
         let marks = &mut self.candidate_marks;
         let candidates = &mut self.candidates;
+        #[cfg(test)]
+        let mut visited = 0;
         self.buckets[edge.index()].for_each_in_range(
             min_progress,
             max_progress,
             resolve_progress,
             |vehicle| {
+                #[cfg(test)]
+                {
+                    visited += 1;
+                }
                 let mark = &mut marks[vehicle.index()];
                 if *mark != epoch {
                     *mark = epoch;
@@ -665,6 +772,10 @@ impl CommandSpatialIndex {
                 }
             },
         );
+        #[cfg(test)]
+        {
+            self.query_stats.occupants_visited += visited;
+        }
     }
 
     fn gather_forward<F>(
