@@ -1,7 +1,7 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-15
+**最后更新**: 2026-07-16
 
 **适用范围**: v0.3 Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、no-overlap、事件、确定性与性能验收  
 **关联文档**:
@@ -18,6 +18,7 @@
 - `lane-graph.md`
 - `route-system.md`
 - `data-format.md`
+- `parking-system.md`
 
 ## 1. 目标与状态
 
@@ -293,6 +294,8 @@ Spatial target 概念字段包括 source kind、distance ahead、target speed、
 Physical constraints 不可绕过；regulatory constraints 由后续 policy subsystem 产生。Road capacity、demand、route cost 和全局统计不进入 longitudinal controller。Signals、intersection 和 parking 后续产生 stop/reservation target，不把规则写入 IIDM。
 
 v0.3 不公开 constraint provider，也不允许 Adapter 任意注入 constraint。
+
+Planned v0.5 Parking 复用本节private spatial-target/safety ownership：ParkingStop与SignalStop/RouteEnd从同一snapshot生成并按最严格admissible motion归约，spatial hard projection先于本设计的no-overlap projection。Parked vehicle排除lane occupancy；Arrived但未commit的Active vehicle仍是stationary leader。完整event/order/performance边界见 [`parking-system.md`](parking-system.md)；本段不表示Parking runtime已实现。
 
 ## 9. IIDM comfort controller
 

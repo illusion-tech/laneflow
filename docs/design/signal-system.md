@@ -1,7 +1,7 @@
 # Signal System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-15  
+**最后更新**: 2026-07-16  
 **适用范围**: planned v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界  
 **实现状态**: #94 已落地 static Signals、current v0.4 data contract、Core normalization/resolver、canonical fixtures 与 capability guard；#95 已落地 absolute-time fixed-time snapshot、只读 query 与 phase/aspect events；#96 已落地 restrictive yellow/red SignalStop、hard projection、permission-aware route-occurrence traversal，并以完整车辆合规替代 guard；#97 继续承接端到端验证与性能收口
 
@@ -19,6 +19,7 @@
 - `data-loading.md`
 - `route-system.md`
 - `vehicle-following.md`
+- `parking-system.md`
 
 ## 1. 目标、状态与非目标
 
@@ -347,6 +348,8 @@ tick-start snapshot
 - `LongitudinalConstraintSet`、provider、reducer、projection solver 与 scratch 均保持 private concrete implementation。
 
 Traversal 按 route occurrence 顺序逐个检查 Gate。单 tick 可以连续穿越多个 permitted Gates；遇到第一个 denied Gate 就停止。精确到达 denied boundary 时保留在 fromEdge occurrence，不更新 route index，不产生 `VehicleChangedEdge`。
+
+Planned v0.5 Parking 不改变 signal permission authority。ParkingStop与SignalStop/RouteEnd从同一 tick-start snapshot产生并按最严格admissible motion归约；exact numeric tie仅按Signal -> Parking -> RouteEnd稳定归因，不能把subsystem调用顺序变成交通优先级。Parking/Signals/Following共同event order与atomic commit见 [`parking-system.md`](parking-system.md)；production v0.4 Signals行为保持不变。
 
 ### 8.1 Capability activation
 

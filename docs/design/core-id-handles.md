@@ -1,7 +1,7 @@
 # Core ID 与 Handle 模型
 
 **文档状态**: Accepted  
-**最后更新**: 2026-06-24  
+**最后更新**: 2026-07-16  
 **适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界  
 **关联文档**:
 
@@ -11,7 +11,9 @@
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0004-core-implementation-language.md`
 - `../adr/0005-core-identity-and-handle-model.md`
+- `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
 - `core-runtime.md`
+- `parking-system.md`
 
 ## 1. 目标
 
@@ -534,3 +536,7 @@ v0.2 可以暂时接受每 tick 克隆 compact `VehicleRuntimeState` 来保持 s
 ## 10. ADR 判断
 
 Core identity / handle 模型影响 Core API、data-format 输入和后续 Adapter resolver 边界，属于高影响设计决策。本文配套 `../adr/0005-core-identity-and-handle-model.md`，ADR 0005 状态为 `Accepted`，作为 #24 的 G1 冻结决策依据。
+
+## 11. Planned v0.5 Parking extension
+
+`parking-system.md` 在不改变本文 external-ID/opaque-handle 原则的前提下，planned 增加 static dense `ParkingAreaHandle` / `ParkingSpaceHandle`、immutable registry/resolver 与 Parking lifecycle records。Parking handles 不持久化、没有 public ordering；dynamic vehicle 继续使用 generation handle。Parking binding 是 Core 私有 aggregate，不进入 handle本身、VehicleState或Adapter。#105 只冻结设计，实际 API 与 lifecycle substrate 分别由 #106-#109 交付。

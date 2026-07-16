@@ -1,8 +1,8 @@
 # Data Format 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-15  
-**适用范围**: 当前 v0.4 外部数据格式、版本策略、lane graph / route / Vehicle Profile / Signals 字段语义、validation 与消费边界
+**最后更新**: 2026-07-16  
+**适用范围**: 当前 v0.4 外部数据格式，以及 planned v0.5 Parking 的 staged ownership 边界
 
 **关联文档**:
 
@@ -11,6 +11,7 @@
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
+- `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
 - `../../schemas/laneflow-data-v0.4.schema.json`
 - `data-loading.md`
@@ -18,6 +19,7 @@
 - `route-system.md`
 - `vehicle-following.md`
 - `signal-system.md`
+- `parking-system.md`
 
 ## 1. 目标与非目标
 
@@ -213,3 +215,15 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 直接以 v0.4 
 | production compatibility | 不提供；返回 `UnsupportedFormatVersion` |
 
 若未来出现真实外部资产或支持窗口，再单独设计离线 migration tool；不得在 current loader 中静默累积历史分支。
+
+## 10. Planned v0.5 Parking staged truth
+
+`parking-system.md` 已冻结 planned v0.5 external package 输入，但本文件前述 current v0.4 schema、loader 和 fixtures 仍是 production 事实。只有 #107 在同一 Delivery PR 中原子完成以下项目后，本文件才能把 current 改写为 v0.5：
+
+- `CURRENT_FORMAT_VERSION = "0.5"` 与唯一 active v0.5 schema；
+- root 必填 closed `parking { areas, spaces }`；
+- ParkingArea/ParkingSpace、optional omitted-only `areaId`、entry/exit anchors 与 edge-relative rectangle；
+- private DTO、loader、Core normalization/`InitialTrafficData` rebind、两个 canonical fixtures 与 active examples；
+- v0.4 明确拒绝，且不提供 production compatibility shim。
+
+Planned wire、validation order、schema `$id`、migration 和 fixtures 的权威输入见 [`parking-system.md`](parking-system.md) 第 12 节。External package 继续只承载 static traffic data，不包含 initial parked vehicles、reservation、occupancy 或 runtime handles；runtime 与 hermetic tests 不联网解析 schema identifier。
