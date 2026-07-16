@@ -9,6 +9,7 @@ mod longitudinal;
 mod occupancy;
 pub mod profile;
 pub mod route;
+mod route_distance;
 pub mod signal;
 pub mod time;
 pub mod traffic;
