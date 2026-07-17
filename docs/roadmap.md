@@ -76,7 +76,7 @@
 
 目标：支持基础停车位进出和占用状态。
 
-实施状态：#105 已冻结 [`Parking System 设计`](design/parking-system.md) 与 [ADR 0010](adr/0010-parking-binding-and-vehicle-lifecycle-authority.md)；#106 已交付 lifecycle/performance substrate；#107 已交付 static Parking 与 production current 0.5 data；#108 已交付 runtime authority/snapshot、Parked lifecycle 与同步 commands；#109 已交付 ParkingStop/arrival/traversal/release/events 并解除 transitional guard；#110 已交付 milestone 全面验证，#19 继续最终 closure。
+完成状态：2026-07-17 已完成。#105-#110 的设计、substrate、current 0.5 data、runtime、activation 与全面验证均已交付；最终设计、实现、数据契约、性能、安全、治理和剩余边界见 [`v0.5 收口审阅基线`](reference/v0.5-closure-review.md)，详细测量见 [`Parking 验证基线`](reference/v0.5-parking-validation.md)。
 
 范围：
 

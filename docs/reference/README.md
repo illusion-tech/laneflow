@@ -36,4 +36,5 @@
 - `v0.5-parking-runtime-validation.md`：#108 Parking authority/snapshot、同步 commands、Parked/despawn lifecycle、transitional guard、local-query oracle、10k/100k、allocation 与同机 matched 性能验证基线。
 - `v0.5-parking-activation-validation.md`：#109 ParkingStop/arrival、unified reducer、parking-aware traversal、route-completion release、事件总序、Reserved ratio、allocation 与 matched step 性能证据。
 - `v0.5-parking-validation.md`：#110 schema/loader/Core 端到端示例、D11 组合矩阵、10k/100k、allocation/retained-memory、pathological scaling 修复与 CPU profile 验证基线。
+- `v0.5-closure-review.md`：v0.5 Parking 收口时核验的治理、设计、实现、current 0.5 数据契约、性能、安全、发现项与剩余边界基线。
 - `v0.5-lifecycle-substrate-validation.json`：#106 验证基线的 machine-readable 原始 round、倍率、环境与依赖审计摘要。
