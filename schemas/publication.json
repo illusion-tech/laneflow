@@ -1,0 +1,36 @@
+{
+  "contractVersion": 1,
+  "retentionPolicy": "immutable-permanent",
+  "pagesBaseUrl": "https://illusion-tech.github.io/laneflow/schema/",
+  "currentFormatVersion": "0.5",
+  "schemas": [
+    {
+      "formatVersion": "0.2",
+      "path": "schemas/laneflow-data-v0.2.schema.json",
+      "canonicalUrl": "https://raw.githubusercontent.com/illusion-tech/laneflow/main/schemas/laneflow-data-v0.2.schema.json",
+      "sourceRevision": "762fd1574ba1379ec849a293eb02ced9140252c1",
+      "sourceBlobOid": "7bf6f625b715fd12a0ba4803e8b745834930db19"
+    },
+    {
+      "formatVersion": "0.3",
+      "path": "schemas/laneflow-data-v0.3.schema.json",
+      "canonicalUrl": "https://raw.githubusercontent.com/illusion-tech/laneflow/main/schemas/laneflow-data-v0.3.schema.json",
+      "sourceRevision": "617a01f9db9cef7d0c9c14f5b621ab451c9a33e0",
+      "sourceBlobOid": "9ed696ed3e372245a2c030d0f1763cb188f3d010"
+    },
+    {
+      "formatVersion": "0.4",
+      "path": "schemas/laneflow-data-v0.4.schema.json",
+      "canonicalUrl": "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.4.schema.json",
+      "sourceRevision": "0bea0ef8f989ad474f2b739f185306e4b83279e3",
+      "sourceBlobOid": "9cd2ed5730d9b3bb8d783fc4cfb5ecfd56087293"
+    },
+    {
+      "formatVersion": "0.5",
+      "path": "schemas/laneflow-data-v0.5.schema.json",
+      "canonicalUrl": "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.5.schema.json",
+      "sourceRevision": "aff544e0545239007003a08a41ccfde280e5d20f",
+      "sourceBlobOid": "d77383ecc9f6b2fe07320ca74613cbf3106efa01"
+    }
+  ]
+}

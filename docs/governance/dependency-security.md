@@ -1,7 +1,7 @@
 # 许可证与依赖安全基线
 
 **文档状态**: Active  
-**最后更新**: 2026-07-14  
+**最后更新**: 2026-07-17
 **适用范围**: LaneFlow 公开仓库的源代码许可、Rust/Cargo 依赖许可证、漏洞、来源与持续更新治理  
 **关联 Issue**: `#56`
 
@@ -48,6 +48,12 @@ open repository -X-> commercial implementation
 - Apache-2.0 不要求项目创建空的 `NOTICE`。只有实际分发内容带来需要传递的 attribution notices 时才新增并维护该文件。
 - 贡献采用 inbound = outbound：除非贡献者明确书面声明并获得维护者同意，提交到本仓库并被接收的 Contribution 按 Apache-2.0 许可。
 - 当前不要求 CLA。若未来需要把贡献同时用于不能由 Apache-2.0 覆盖的商业授权，再通过独立治理 Issue 评估 CLA 或其他贡献协议。
+
+### 2.4 Schema 分发与网络输入
+
+本仓库自有 schema 与代码、文档一样按 Apache-2.0 分发。根据 ADR 0011，catalog 中的 schema `$id` 是 public retrieval URL，但 production loader、Core、Adapter 和 hermetic tests 不联网解析它；因此 publication availability 是 distribution/CD 门禁，不是 Cargo dependency 或 runtime 启动条件。
+
+Publication workflow 必须固定第三方 Action 完整 commit SHA，并以 catalog source revision/byte equality 防止 artifact 漂移。消费者下载 schema/package 时仍须在其边界处理来源、完整性、缓存、输入大小和网络失败；远端内容不能因 URL 位于本组织域名下就绕过不可信输入治理，也不得把网络 fetch 隐式加入 `laneflow-data`。
 
 ## 3. Cargo metadata
 

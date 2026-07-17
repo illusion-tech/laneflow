@@ -13,7 +13,9 @@
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
+- `../adr/0011-schema-identifier-and-publication-contract.md`
 - `../../schemas/laneflow-data-v0.5.schema.json`
+- `../../schemas/README.md`
 - `data-loading.md`
 - `lane-graph.md`
 - `route-system.md`
@@ -246,4 +248,4 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 直接以 v0.4 
 | v0.4 schema/fixtures | 从 active tree 移除，由 Git 与 v0.4 closure review 保存 |
 | production compatibility | 不提供；v0.4 返回 `UnsupportedFormatVersion` |
 
-Schema `$id` 是 absolute versioned identifier，不是 runtime 网络承诺。Loader、Core、Adapter 与 hermetic tests 不联网解析 `$id`/`$schema`；是否发布该 URL 由独立 #103 决定。
+Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL；catalog 中全部版本必须通过 HTTPS 返回与固定 source revision 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析 `$id`/`$schema`。v0.2-v0.4 只作为 immutable publication artifacts 保留，不改变当前唯一 active v0.5 contract；消费者入口见 [`schemas/README.md`](../../schemas/README.md)。
