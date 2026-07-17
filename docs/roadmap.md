@@ -97,7 +97,7 @@
 
 目标：在实现首个 Engine Adapter 前，冻结 LaneFlow 的数值表示边界、引擎无关道路空间几何、长度/坐标权威和最小空间查询能力。
 
-规划状态：2026-07-17 已完成版本边界调整，Milestone tracker 为 #120；#122 与 #123 已通过 G0，但尚未通过 G1/G2，以下技术方向仍须由 ADR、design、误差/性能证据和最小原型冻结。
+规划状态：2026-07-18，Milestone tracker 为 #120。#122 已通过 G1：ADR 0012 决定 Core/Data authority 保持 f64/checked integer，Spatial canonical 使用 LaneFlow-owned f64，并只在 local-origin 后生成 checked f32 presentation；实施链为 #125–#128，G2 尚未通过。#123 已通过 G0、尚未通过 G1/G2，仍需冻结 geometry/frame/length/sampling 与最小原型。
 
 范围：
 
