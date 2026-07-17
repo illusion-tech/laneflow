@@ -1,7 +1,7 @@
 # 架构
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-16  
+**最后更新**: 2026-07-17<br>
 **适用范围**: LaneFlow 分层、Rust crate 依赖方向、Traffic Data、Signals、Parking 与 Core/Adapter 边界
 
 ## 1. 架构目标
