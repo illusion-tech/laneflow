@@ -141,6 +141,15 @@ pub fn signal_scenario_with_parking(
     mode: SignalScenarioMode,
     parking_space_count: usize,
 ) -> SignalScenario {
+    signal_scenario_with_parking_entry(vehicle_count, mode, parking_space_count, 80.0)
+}
+
+fn signal_scenario_with_parking_entry(
+    vehicle_count: usize,
+    mode: SignalScenarioMode,
+    parking_space_count: usize,
+    parking_entry_progress: f64,
+) -> SignalScenario {
     assert_eq!(vehicle_count % VEHICLES_PER_ROUTE, 0);
     let route_count = vehicle_count / VEHICLES_PER_ROUTE;
     assert_eq!(route_count % GROUPS_PER_CONTROLLER, 0);
@@ -232,9 +241,9 @@ pub fn signal_scenario_with_parking(
                 format!("parking-benchmark-space-{index:06}"),
                 None,
                 entry_id(route_index),
-                80.0,
+                parking_entry_progress,
                 entry_id(route_index),
-                80.0,
+                parking_entry_progress,
                 ParkingSpaceGeometry::new(3.0, 0.0, 5.0, 2.4),
             )
         }),
@@ -286,4 +295,45 @@ pub fn signal_scenario_with_parking(
         group_count,
         gate_count,
     }
+}
+
+#[allow(
+    dead_code,
+    reason = "shared scenario is consumed only by Parking scale tests and benchmarks"
+)]
+pub fn reserved_parking_scenario(vehicle_count: usize, reserved_percent: usize) -> SignalScenario {
+    assert!(reserved_percent <= 100);
+    let mut scenario = signal_scenario_with_parking_entry(
+        vehicle_count,
+        SignalScenarioMode::NoSignals,
+        vehicle_count,
+        ENTRY_LENGTH - 1.0,
+    );
+    let route_count = vehicle_count / VEHICLES_PER_ROUTE;
+    let reserved_count = vehicle_count * reserved_percent / 100;
+    for global_index in 0..reserved_count {
+        let route_index = global_index / VEHICLES_PER_ROUTE;
+        let vehicle_index = global_index % VEHICLES_PER_ROUTE;
+        let space_index = route_index + vehicle_index * route_count;
+        let vehicle = scenario
+            .world
+            .vehicle_handle(&format!(
+                "signal-vehicle-{route_index:05}-{vehicle_index:02}"
+            ))
+            .expect("reserved benchmark vehicle");
+        let space = scenario
+            .world
+            .parking()
+            .space_handle(&format!("parking-benchmark-space-{space_index:06}"))
+            .expect("reserved benchmark space");
+        scenario
+            .world
+            .reserve_parking_space(vehicle, space)
+            .expect("reserved benchmark binding");
+    }
+    assert_eq!(
+        scenario.world.parking_snapshot().counts().reserved,
+        reserved_count
+    );
+    scenario
 }

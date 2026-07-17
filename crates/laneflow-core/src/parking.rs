@@ -661,6 +661,19 @@ pub(crate) struct ParkingApproachTarget {
     pub(crate) route_edge_index: usize,
 }
 
+/// 单个 fixed step 内使用的 ParkingStop 约束。
+///
+/// 该值只从 committed reservation、cached approach target 与 static entry 派生，
+/// 不属于 Parking authority，也不会跨 tick 保存。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ParkingStopConstraint {
+    pub(crate) space: ParkingSpaceHandle,
+    pub(crate) route: RouteHandle,
+    pub(crate) route_edge_index: usize,
+    pub(crate) entry_progress: f64,
+    pub(crate) route_distance: f64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeVehicleParkingBinding {
     Reserved {
@@ -873,6 +886,21 @@ impl ParkingRuntimeState {
             .copied()
             .flatten()
             .filter(|binding| binding.vehicle() == vehicle)
+    }
+
+    pub(crate) fn validate_reserved_pair(
+        &self,
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+    ) -> bool {
+        matches!(
+            self.vehicle_binding(vehicle),
+            Some(RuntimeVehicleParkingBinding::Reserved {
+                vehicle: bound_vehicle,
+                space: bound_space,
+                ..
+            }) if bound_vehicle == vehicle && bound_space == space
+        ) && self.space_state(space) == Some(ParkingSpaceState::Reserved { vehicle })
     }
 
     pub(crate) fn prepare_vehicle_slot(&mut self, vehicle_index: usize) {

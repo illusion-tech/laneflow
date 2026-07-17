@@ -24,8 +24,8 @@ mod vehicle_scenarios;
 use parking_scenarios::occupied_parking_world;
 use signal_scenarios::{
     GROUPS_PER_CONTROLLER, SIGNAL_SCALING_VEHICLE_COUNT, SIGNAL_STEP_COUNT, SIGNAL_VEHICLE_COUNT,
-    SignalScenario, SignalScenarioMode, VEHICLES_PER_ROUTE, signal_scenario,
-    signal_scenario_with_parking,
+    SignalScenario, SignalScenarioMode, VEHICLES_PER_ROUTE, reserved_parking_scenario,
+    signal_scenario, signal_scenario_with_parking,
 };
 use vehicle_scenarios::{
     FIXED_DELTA_TIME_MS, SCALING_VEHICLE_COUNT, STEP_COUNT, VEHICLE_COUNT, dense_platoon_world,
@@ -227,6 +227,34 @@ fn benchmark_core_step(criterion: &mut Criterion) {
     );
     parking_group.finish();
 
+    let reserved_worlds = [1_usize, 10, 100].map(|percent| {
+        let scenario = reserved_parking_scenario(SIGNAL_VEHICLE_COUNT, percent);
+        black_box(run_steps(&mut scenario.world.clone()));
+        (percent, scenario.world)
+    });
+    let mut parking_activation_group = criterion.benchmark_group("parking_activation_step_10k_60");
+    parking_activation_group.sample_size(20);
+    parking_activation_group.warm_up_time(Duration::from_secs(1));
+    parking_activation_group.measurement_time(Duration::from_secs(5));
+    parking_activation_group.throughput(Throughput::Elements(
+        (SIGNAL_VEHICLE_COUNT * STEP_COUNT) as u64,
+    ));
+    benchmark_world(
+        &mut parking_activation_group,
+        "all_vacant",
+        "0_percent_reserved",
+        &parking_all_vacant.world,
+    );
+    for (percent, world) in &reserved_worlds {
+        benchmark_world(
+            &mut parking_activation_group,
+            "reserved",
+            format_args!("{percent}_percent"),
+            world,
+        );
+    }
+    parking_activation_group.finish();
+
     let occupied = occupied_parking_world(VEHICLE_COUNT, FIXED_DELTA_TIME_MS);
     assert_eq!(occupied.parking_snapshot().counts().occupied, VEHICLE_COUNT);
     assert_eq!(run_steps(&mut occupied.clone()), 0);
@@ -311,6 +339,29 @@ fn benchmark_core_step(criterion: &mut Criterion) {
             &occupied,
         );
         occupied_group.finish();
+
+        let reserved_worlds = [1_usize, 10, 100].map(|percent| {
+            let scenario = reserved_parking_scenario(SIGNAL_SCALING_VEHICLE_COUNT, percent);
+            black_box(run_steps(&mut scenario.world.clone()));
+            (percent, scenario.world)
+        });
+        let mut activation_group =
+            criterion.benchmark_group("parking_activation_step_100k_60_observation");
+        activation_group.sample_size(10);
+        activation_group.warm_up_time(Duration::from_secs(1));
+        activation_group.measurement_time(Duration::from_secs(10));
+        activation_group.throughput(Throughput::Elements(
+            (SIGNAL_SCALING_VEHICLE_COUNT * STEP_COUNT) as u64,
+        ));
+        for (percent, world) in &reserved_worlds {
+            benchmark_world(
+                &mut activation_group,
+                "reserved",
+                format_args!("{percent}_percent"),
+                world,
+            );
+        }
+        activation_group.finish();
     }
 }
 

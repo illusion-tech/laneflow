@@ -1,8 +1,9 @@
 //! Core step 输出事件。
 
 use crate::{
-    EdgeHandle, MovementGateKey, RouteHandle, SignalAspect, SignalControllerHandle,
-    SignalGroupHandle, SignalPhaseRef, StopLineHandle, VehicleHandle,
+    EdgeHandle, MovementGateKey, ParkingReleaseReason, ParkingSpaceHandle, RouteHandle,
+    SignalAspect, SignalControllerHandle, SignalGroupHandle, SignalPhaseRef, StopLineHandle,
+    VehicleHandle,
 };
 
 /// Core step 产生的可观察事件。
@@ -11,16 +12,65 @@ use crate::{
 pub enum CoreEvent {
     /// SignalStop hard boundary 将车辆 motion 压到 emergency envelope 以下。
     VehicleSignalStopProjectionApplied(VehicleSignalStopProjectionAppliedEvent),
+    /// ParkingStop hard boundary 将车辆 motion 压到 emergency envelope 以下。
+    VehicleParkingStopProjectionApplied(VehicleParkingStopProjectionAppliedEvent),
     /// 车辆为维持最终 no-overlap 不变量而应用了超出 emergency envelope 的几何投影。
     VehicleFollowingSafetyProjectionApplied(VehicleFollowingSafetyProjectionAppliedEvent),
     /// 车辆从 route 中的一个 edge 切换到下一个 edge。
     VehicleChangedEdge(VehicleChangedEdgeEvent),
+    /// Reserved vehicle 在 successful step 中首次满足 arrival predicate。
+    VehicleParkingArrivalReached(VehicleParkingArrivalReachedEvent),
+    /// successful step 由于 lifecycle transition 释放了 Parking reservation。
+    ParkingReservationReleased(ParkingReservationReleasedEvent),
     /// 车辆到达 route 末端。
     VehicleCompletedRoute(VehicleCompletedRouteEvent),
     /// fixed-time controller 的当前 phase identity 已改变。
     SignalPhaseChanged(SignalPhaseChangedEvent),
     /// SignalGroup 的当前 indication 已改变。
     SignalGroupAspectChanged(SignalGroupAspectChangedEvent),
+}
+
+/// ParkingStop hard projection 的完整 route-occurrence attribution。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VehicleParkingStopProjectionAppliedEvent {
+    /// 事件所属的 post-step tick index。
+    pub tick_index: u64,
+    /// 被投影的 vehicle。
+    pub vehicle: VehicleHandle,
+    /// 被该 vehicle 预订的 ParkingSpace。
+    pub space: ParkingSpaceHandle,
+    /// vehicle 当前使用的 route。
+    pub route: RouteHandle,
+    /// selected entry 在 route 中的 occurrence index。
+    pub route_edge_index: usize,
+}
+
+/// Reserved vehicle 首次满足 arrival predicate 的 step event。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VehicleParkingArrivalReachedEvent {
+    /// 事件所属的 post-step tick index。
+    pub tick_index: u64,
+    /// 到达 entry 的 vehicle。
+    pub vehicle: VehicleHandle,
+    /// 被该 vehicle 预订的 ParkingSpace。
+    pub space: ParkingSpaceHandle,
+    /// vehicle 当前使用的 route。
+    pub route: RouteHandle,
+    /// selected entry 在 route 中的 occurrence index。
+    pub route_edge_index: usize,
+}
+
+/// fixed step 释放 Parking reservation 的事件。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParkingReservationReleasedEvent {
+    /// 事件所属的 post-step tick index。
+    pub tick_index: u64,
+    /// reservation owner。
+    pub vehicle: VehicleHandle,
+    /// 被释放的 ParkingSpace。
+    pub space: ParkingSpaceHandle,
+    /// 释放原因。
+    pub reason: ParkingReleaseReason,
 }
 
 /// SignalStop hard projection 的完整 route-occurrence attribution。
