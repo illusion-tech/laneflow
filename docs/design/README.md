@@ -14,10 +14,10 @@
 - `route-system.md`：路线选择、路径跟随、目标点。
 - `vehicle-following.md`：前车避让、速度控制和安全距离。
 - `signal-system.md`：Accepted v0.4 Signals；#94-#97 已落地 static/current data、fixed-time runtime/query/events、车辆合规与端到端性能验证，收口证据见 `../reference/v0.4-closure-review.md`。
-- `parking-system.md`：Accepted planned v0.5 Parking；ParkingSpace/ParkingArea、占用 authority、预约/停车/离开、route/Following/Signals 集成、planned 0.5 data 与性能边界。production current 在 #107 完成前仍为 v0.4。
+- `parking-system.md`：Accepted v0.5 Parking；#107 已落地 ParkingSpace/ParkingArea static registry 与 current 0.5 data，#108-#110 承接占用 authority、预约/停车/离开、route/Following/Signals 集成与完整性能收口。
 - `adapter-api.md`：Core 与 Engine Adapter 的接口边界。
 - `data-format.md`：lane graph、route 等外部数据格式、validation 和 loader 边界；Rust crate 所有权见 ADR 0007。
-- `data-loading.md`：当前 v0.4 Rust loader、严格版本闸口、Core/Signals normalization、错误与测试边界。
+- `data-loading.md`：当前 v0.5 Rust loader、严格版本闸口、Core Signals/Parking normalization、错误与测试边界。
 - `example-scenarios.md`：示例场景和验证路径。
 
 ## 文档状态

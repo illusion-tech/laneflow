@@ -18,6 +18,42 @@ impl EdgeHandle {
     }
 }
 
+/// immutable ParkingArea definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ParkingAreaHandle {
+    index: u32,
+}
+
+impl ParkingAreaHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("parking area handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
+/// immutable ParkingSpace definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ParkingSpaceHandle {
+    index: u32,
+}
+
+impl ParkingSpaceHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("parking space handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
 /// route definition 的不透明 handle。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RouteHandle {

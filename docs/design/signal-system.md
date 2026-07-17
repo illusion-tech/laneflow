@@ -3,7 +3,7 @@
 **文档状态**: Accepted  
 **最后更新**: 2026-07-16  
 **适用范围**: planned v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界  
-**实现状态**: #94 已落地 static Signals、current v0.4 data contract、Core normalization/resolver、canonical fixtures 与 capability guard；#95 已落地 absolute-time fixed-time snapshot、只读 query 与 phase/aspect events；#96 已落地 restrictive yellow/red SignalStop、hard projection、permission-aware route-occurrence traversal，并以完整车辆合规替代 guard；#97 继续承接端到端验证与性能收口
+**实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 已将保持相同 Signals shape/behavior 的 package 原子迁移到 current v0.5，并由新的 Parking+Signals fixtures 承接 active contract
 
 **关联文档**:
 
@@ -142,16 +142,16 @@ SignalGroupStateInput
 
 StopLine、Gate、Group、Controller、Phase definition 和 program 在 world 生命周期内不可变。v0.4 不提供 signal mutation command。
 
-## 4. Current v0.4 external package
+## 4. Historical v0.4 contract 与 current v0.5 embedding
 
-### 4.1 Current v0.4 事实
+### 4.1 Current data facts
 
-ADR 0008 要求 active tree 只维护一个 current format。#94 已在同一实现切片原子更新 schema、private DTO、loader、fixtures、format constant 与 current data docs：
+ADR 0008 要求 active tree 只维护一个 current format。#94 曾原子交付 v0.4；#107 已在保持 Signals static/runtime semantics 不变的前提下迁移到 v0.5：
 
-- production current 是 `formatVersion: "0.4"`；
-- `schemas/laneflow-data-v0.4.schema.json` 是唯一 active schema；
-- production loader 明确拒绝 v0.3、未来版、旧字段与 JSON-LD；
-- static Signals、fixed-time runtime 与完整车辆合规均已成为 production 行为；#97 继续固化端到端验证与性能证据。
+- production current 是 `formatVersion: "0.5"`；
+- `schemas/laneflow-data-v0.5.schema.json` 是唯一 active schema；
+- production loader 明确拒绝 v0.4 及更早版本、未来版、旧字段与 JSON-LD；
+- static Signals、fixed-time runtime 与完整车辆合规仍是 production 行为；v0.4 收口证据继续作为历史行为/性能基线。
 
 ### 4.2 ID 与引用命名
 
@@ -166,11 +166,11 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 已在同一实
 
 ### 4.3 Canonical JSON shape
 
-`signals` 与四个子数组在 0.4 中必填，数组允许为空。概念 shape：
+`signals` 与四个子数组在 current 0.5 中继续必填，数组允许为空。概念 shape：
 
 ```json
 {
-  "formatVersion": "0.4",
+  "formatVersion": "0.5",
   "units": { "distance": "meter", "time": "second" },
   "laneGraph": {
     "edges": [
@@ -216,17 +216,21 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 已在同一实
         ]
       }
     ]
+  },
+  "parking": {
+    "areas": [],
+    "spaces": []
   }
 }
 ```
 
-无信号 0.4 package 仍必须显式提供四个空数组。`signalControl` 是 closed tagged union：`{ "kind": "group", "groupId": "..." }` 或 `{ "kind": "none" }`。
+无信号 current package 仍必须显式提供四个空数组。`signalControl` 是 closed tagged union：`{ "kind": "group", "groupId": "..." }` 或 `{ "kind": "none" }`。
 
 `durationMs` / `offsetMs` 使用 JSON integer，并以 `2^53 - 1` 为 portable safe-integer 上界；cycle checked sum也不得超过该上界。该 invariant 由 Core construction 定义并由 data layer 复用，不能形成两套上界规则。`Ms` 字段显式以毫秒调度，不改变 `units.time = "second"` 对物理时间参数的语义。
 
 顶层 `extensions` 可以继续存在，但不得承载 StopLine、Gate、Controller 或其他影响 Core 行为的 Signals 数据。
 
-0.4 canonical/runtime 输入保持严格普通 JSON，不接受 `@context` 或通用 JSON-LD。未来若有跨文件/ontology 需求，JSON-LD 只能作为独立、离线、版本化的 importer/exporter profile，转换后仍须通过 canonical JSON schema 与 Core normalization。
+Current canonical/runtime 输入保持严格普通 JSON，不接受 `@context` 或通用 JSON-LD。未来若有跨文件/ontology 需求，JSON-LD 只能作为独立、离线、版本化的 importer/exporter profile，转换后仍须通过 canonical JSON schema 与 Core normalization。
 
 ## 5. Normalization 与 validation
 
@@ -249,7 +253,7 @@ JSON syntax
   -> CoreWorld fixed-delta/runtime compatibility
 ```
 
-旧版/未来版必须在 0.4 shape、unknown-field、units 和 domain validation 前返回 `UnsupportedFormatVersion`。Schema/Serde 负责 required/type/closed shape、tagged union、enum 与单字段 integer range；Core constructors 是引用、唯一性、ownership、coverage、cycle、route 和 runtime invariant 的唯一事实源。
+旧版/未来版必须在 0.5 shape、unknown-field、units 和 domain validation 前返回 `UnsupportedFormatVersion`。Schema/Serde 负责 required/type/closed shape、tagged union、enum 与单字段 integer range；Core constructors 是引用、唯一性、ownership、coverage、cycle、route 和 runtime invariant 的唯一事实源。
 
 Core normalization 的 canonical 顺序：
 
@@ -349,7 +353,7 @@ tick-start snapshot
 
 Traversal 按 route occurrence 顺序逐个检查 Gate。单 tick 可以连续穿越多个 permitted Gates；遇到第一个 denied Gate 就停止。精确到达 denied boundary 时保留在 fromEdge occurrence，不更新 route index，不产生 `VehicleChangedEdge`。
 
-Planned v0.5 Parking 不改变 signal permission authority。ParkingStop与SignalStop/RouteEnd从同一 tick-start snapshot产生并按最严格admissible motion归约；exact numeric tie仅按Signal -> Parking -> RouteEnd稳定归因，不能把subsystem调用顺序变成交通优先级。Parking/Signals/Following共同event order与atomic commit见 [`parking-system.md`](parking-system.md)；production v0.4 Signals行为保持不变。
+Current v0.5 static Parking 不改变 signal permission authority。#109 的 ParkingStop 将与 SignalStop/RouteEnd 从同一 tick-start snapshot 产生并按最严格 admissible motion 归约；exact numeric tie 仅按 Signal -> Parking -> RouteEnd 稳定归因。Parking/Signals/Following 共同 event order 与 atomic commit 见 [`parking-system.md`](parking-system.md)；该 runtime composition 尚未激活。
 
 ### 8.1 Capability activation
 
@@ -445,7 +449,7 @@ CoreError
   construction/domain/world-compatibility/runtime invariant
 ```
 
-Data path 采用 `$` 根 + dot/bracket 风格，并使用 0.4 的 `xxxId/xxxIds` 字段，例如 `signals.controllers[0].phases[1].states[2].groupId`。Machine matching 使用 enum variant/字段，不解析 Display 文案。
+Data path 采用 `$` 根 + dot/bracket 风格，并继续使用 `xxxId/xxxIds` 字段，例如 `signals.controllers[0].phases[1].states[2].groupId`。Machine matching 使用 enum variant/字段，不解析 Display 文案。
 
 正常红/黄停车、排队、green release、有限 emergency braking、finite signal/no-overlap projection、phase/aspect change 和 `signalControl:none` 均不是 error。非法输入/引用/invariant、tick/time overflow、非法 command handle 或 non-finite runtime calculation 才返回 error。
 
@@ -487,10 +491,10 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 - property：1-8 groups/phases、boundary/wrap/long-time/near-overflow，对照独立 `u128` reference resolver；
 - performance：10k common/stress、matched all-green/none/no-signals、legacy regression 与 100k scaling。
 
-#94 拥有两个 current-only fixtures，#97 直接消费，不复制：
+#107 拥有两个 current-only fixtures；Signals 端到端测试直接消费，不复制：
 
-1. `v0.4-signals-baseline.laneflow.json`：完整 StopLine/Gates、group/none、green/yellow/red program，route 在无 StopLine downstream edge 终止。其 `none` Gate 只验证拓扑 bypass/right-channel 的 signal-layer 无约束语义，不表达红灯右转法规。
-2. `v0.4-empty-signals.laneflow.json`：四个 signal arrays 显式为空，证明无信号数据仍是 current 0.4。
+1. `v0.5-parking-signals-baseline.laneflow.json`：完整 StopLine/Gates、group/none、green/yellow/red program 与 static Parking；route 在无 StopLine downstream edge 终止。其 `none` Gate 只验证 signal-layer 无约束语义，不表达红灯右转法规。
+2. `v0.5-empty-signals-and-parking.laneflow.json`：Signals 四数组和 Parking 两数组显式为空，证明无信号数据仍是 current 0.5 的合法输入。
 
 ## 15. 实施切片与退出边界
 

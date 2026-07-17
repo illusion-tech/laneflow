@@ -5,14 +5,14 @@ use laneflow_data::{CURRENT_FORMAT_VERSION, DataError, LoadedPackage, from_json_
 use serde_json::{Value, json};
 
 const SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.4-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.5-parking-signals-baseline.laneflow.json");
 const EMPTY_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.4-empty-signals.laneflow.json");
+    include_str!("../../../examples/data/v0.5-empty-signals-and-parking.laneflow.json");
 
 #[test]
-fn current_loader_normalizes_static_signals_and_resolvers() {
-    assert_eq!(CURRENT_FORMAT_VERSION, "0.4");
-    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.4 Signals fixture must load");
+fn current_loader_normalizes_static_signals_parking_and_resolvers() {
+    assert_eq!(CURRENT_FORMAT_VERSION, "0.5");
+    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.5 fixture must load");
     let traffic = loaded.initial_traffic_data();
     let signals = traffic.signals();
 
@@ -61,19 +61,50 @@ fn current_loader_normalizes_static_signals_and_resolvers() {
         signals.movement_gate_control(MovementGateKey::new(entry, bypass)),
         Some(SignalControl::None)
     );
+
+    let parking = traffic.parking();
+    assert_eq!(
+        parking.areas().map(|area| area.id()).collect::<Vec<_>>(),
+        ["lot-main"]
+    );
+    assert_eq!(
+        parking.spaces().map(|space| space.id()).collect::<Vec<_>>(),
+        ["lot-main-01", "lot-main-02", "curbside-01"]
+    );
+    let lot = parking.area_handle("lot-main").expect("ParkingArea handle");
+    assert_eq!(
+        parking
+            .area_spaces(lot)
+            .expect("known area")
+            .iter()
+            .map(|space| parking.space_external_id(*space).expect("known space"))
+            .collect::<Vec<_>>(),
+        ["lot-main-01", "lot-main-02"]
+    );
+    let curbside = parking
+        .space_handle("curbside-01")
+        .expect("standalone curbside space");
+    assert_eq!(parking.space_area(curbside), Some(None));
+    let curbside_entry = parking.space_entry(curbside).expect("entry anchor");
+    assert_eq!(
+        traffic.lane_graph().edge_external_id(curbside_entry.edge()),
+        Some("bypass")
+    );
+    assert_eq!(curbside_entry.progress(), 8.0);
 }
 
 #[test]
-fn explicit_empty_signals_is_valid_current_v0_4() {
+fn explicit_empty_signals_and_parking_is_valid_current_v0_5() {
     let loaded = from_json_str(EMPTY_SIGNALS_FIXTURE).expect("empty Signals fixture must load");
     assert!(loaded.initial_traffic_data().signals().is_empty());
+    assert!(loaded.initial_traffic_data().parking().is_empty());
     assert_eq!(loaded.initial_traffic_data().vehicle_profiles().len(), 1);
     assert_eq!(loaded.initial_traffic_data().routes().len(), 2);
 }
 
 #[test]
 fn unsupported_versions_are_rejected_before_current_shape_and_units() {
-    for version in ["0.3", "0.5"] {
+    for version in ["0.4", "0.6"] {
         let mut value = empty_value();
         value["formatVersion"] = json!(version);
         value["units"]["distance"] = json!("kilometer");
@@ -86,7 +117,7 @@ fn unsupported_versions_are_rejected_before_current_shape_and_units() {
         let error = load_value(value).expect_err("unsupported version must fail first");
         std::assert_matches!(
             error,
-            DataError::UnsupportedFormatVersion { expected: "0.4", actual }
+            DataError::UnsupportedFormatVersion { expected: "0.5", actual }
                 if actual == version
         );
     }
@@ -106,7 +137,7 @@ fn malformed_or_trailing_json_fails_before_version_dispatch() {
 }
 
 #[test]
-fn current_v0_4_requires_signals_and_all_four_arrays() {
+fn current_v0_5_requires_signals_parking_and_all_nested_arrays() {
     let mut missing_signals = empty_value();
     missing_signals
         .as_object_mut()
@@ -126,6 +157,211 @@ fn current_v0_4_requires_signals_and_all_four_arrays() {
         let error = load_value(value).expect_err("every Signals array is required");
         std::assert_matches!(error, DataError::JsonShape { path, .. } if path.contains("signals"));
     }
+
+    let mut missing_parking = empty_value();
+    missing_parking
+        .as_object_mut()
+        .expect("root object")
+        .remove("parking");
+    std::assert_matches!(
+        load_value(missing_parking).expect_err("parking is required"),
+        DataError::JsonShape { .. }
+    );
+
+    for field in ["areas", "spaces"] {
+        let mut value = empty_value();
+        value["parking"]
+            .as_object_mut()
+            .expect("parking object")
+            .remove(field);
+        let error = load_value(value).expect_err("every Parking array is required");
+        std::assert_matches!(error, DataError::JsonShape { path, .. } if path.contains("parking"));
+    }
+}
+
+#[test]
+fn parking_area_id_is_omitted_only_and_all_shapes_are_closed() {
+    let baseline = signals_value();
+    assert!(
+        baseline["parking"]["spaces"][2].get("areaId").is_none(),
+        "canonical standalone space must omit areaId"
+    );
+    load_value(baseline).expect("omitted areaId must load");
+
+    let mut explicit_null = signals_value();
+    explicit_null["parking"]["spaces"][2]["areaId"] = Value::Null;
+    std::assert_matches!(
+        load_value(explicit_null).expect_err("explicit null areaId must fail"),
+        DataError::JsonShape { path, .. } if path.contains("parking.spaces[2].areaId")
+    );
+
+    for target in ["parking", "area", "space", "entry", "geometry"] {
+        let mut value = signals_value();
+        match target {
+            "parking" => value["parking"]["typo"] = json!(true),
+            "area" => value["parking"]["areas"][0]["typo"] = json!(true),
+            "space" => value["parking"]["spaces"][0]["typo"] = json!(true),
+            "entry" => value["parking"]["spaces"][0]["entry"]["typo"] = json!(true),
+            "geometry" => value["parking"]["spaces"][0]["geometry"]["typo"] = json!(true),
+            _ => unreachable!(),
+        }
+        std::assert_matches!(
+            load_value(value).expect_err("Parking shapes must reject unknown fields"),
+            DataError::JsonShape { path, .. } if path.contains("parking")
+        );
+    }
+}
+
+#[test]
+fn parking_domain_errors_use_narrowest_paths() {
+    for expected_path in [
+        "parking.areas[0].id",
+        "parking.spaces[0].id",
+        "parking.spaces[0].areaId",
+        "parking.spaces[0].entry.edgeId",
+        "parking.spaces[0].exit.edgeId",
+    ] {
+        let mut value = signals_value();
+        match expected_path {
+            "parking.areas[0].id" => value["parking"]["areas"][0]["id"] = json!("bad id"),
+            "parking.spaces[0].id" => value["parking"]["spaces"][0]["id"] = json!("bad id"),
+            "parking.spaces[0].areaId" => value["parking"]["spaces"][0]["areaId"] = json!("bad id"),
+            "parking.spaces[0].entry.edgeId" => {
+                value["parking"]["spaces"][0]["entry"]["edgeId"] = json!("bad id")
+            }
+            "parking.spaces[0].exit.edgeId" => {
+                value["parking"]["spaces"][0]["exit"]["edgeId"] = json!("bad id")
+            }
+            _ => unreachable!(),
+        }
+        std::assert_matches!(
+            load_value(value).expect_err("invalid Parking external ID"),
+            DataError::CoreDomain {
+                path,
+                source: CoreError::InvalidExternalId { .. },
+            } if path == expected_path
+        );
+    }
+
+    let mut duplicate_area = signals_value();
+    let duplicate = duplicate_area["parking"]["areas"][0].clone();
+    duplicate_area["parking"]["areas"]
+        .as_array_mut()
+        .expect("areas")
+        .push(duplicate);
+    std::assert_matches!(
+        load_value(duplicate_area).expect_err("duplicate area"),
+        DataError::CoreDomain {
+            path,
+            source: CoreError::DuplicateParkingAreaId { area_id },
+        } if path == "parking.areas[1].id" && area_id == "lot-main"
+    );
+
+    let mut duplicate_space = signals_value();
+    let duplicate = duplicate_space["parking"]["spaces"][0].clone();
+    duplicate_space["parking"]["spaces"]
+        .as_array_mut()
+        .expect("spaces")
+        .push(duplicate);
+    std::assert_matches!(
+        load_value(duplicate_space).expect_err("duplicate space"),
+        DataError::CoreDomain {
+            path,
+            source: CoreError::DuplicateParkingSpaceId { space_id },
+        } if path == "parking.spaces[3].id" && space_id == "lot-main-01"
+    );
+
+    let mut unknown_area = signals_value();
+    unknown_area["parking"]["spaces"][0]["areaId"] = json!("missing");
+    std::assert_matches!(
+        load_value(unknown_area).expect_err("unknown area"),
+        DataError::CoreDomain {
+            path,
+            source: CoreError::UnknownParkingSpaceArea { area_id, .. },
+        } if path == "parking.spaces[0].areaId" && area_id == "missing"
+    );
+
+    let mut unknown_entry = signals_value();
+    unknown_entry["parking"]["spaces"][0]["entry"]["edgeId"] = json!("missing");
+    std::assert_matches!(
+        load_value(unknown_entry).expect_err("unknown entry edge"),
+        DataError::CoreDomain {
+            path,
+            source: CoreError::UnknownParkingAnchorEdge { .. },
+        } if path == "parking.spaces[0].entry.edgeId"
+    );
+
+    let mut invalid_exit_progress = signals_value();
+    invalid_exit_progress["parking"]["spaces"][0]["exit"]["progress"] = json!(40.0);
+    std::assert_matches!(
+        load_value(invalid_exit_progress).expect_err("exit endpoint is invalid"),
+        DataError::CoreDomain {
+            path,
+            source: CoreError::ParkingAnchorProgressOutOfRange { .. },
+        } if path == "parking.spaces[0].exit.progress"
+    );
+
+    let mut invalid_geometry = signals_value();
+    invalid_geometry["parking"]["spaces"][0]["geometry"]["headingOffsetRadians"] =
+        json!(std::f64::consts::PI);
+    std::assert_matches!(
+        load_value(invalid_geometry).expect_err("non-canonical heading"),
+        DataError::CoreDomain {
+            path,
+            source: CoreError::InvalidParkingGeometryValue { field, .. },
+        } if path == "parking.spaces[0].geometry.headingOffsetRadians"
+            && field == "headingOffsetRadians"
+    );
+
+    let mut orphan = signals_value();
+    orphan["parking"]["spaces"][0]
+        .as_object_mut()
+        .expect("space")
+        .remove("areaId");
+    orphan["parking"]["spaces"][1]
+        .as_object_mut()
+        .expect("space")
+        .remove("areaId");
+    std::assert_matches!(
+        load_value(orphan).expect_err("orphan area"),
+        DataError::CoreDomain {
+            path,
+            source: CoreError::OrphanParkingArea { area_id },
+        } if path == "parking.areas[0]" && area_id == "lot-main"
+    );
+}
+
+#[test]
+fn normalization_priority_is_signals_then_parking_then_routes() {
+    let mut value = signals_value();
+    value["signals"]["controllers"][0]["groupIds"][0] = json!("missing-group");
+    value["parking"]["spaces"][0]["areaId"] = json!("missing-area");
+    value["routes"][0]["edgeIds"][1] = json!("missing-edge");
+    std::assert_matches!(
+        load_value(value.clone()).expect_err("Signals must fail first"),
+        DataError::CoreDomain {
+            source: CoreError::UnknownSignalControllerGroup { .. },
+            ..
+        }
+    );
+
+    value["signals"]["controllers"][0]["groupIds"][0] = json!("main");
+    std::assert_matches!(
+        load_value(value.clone()).expect_err("Parking must fail before routes"),
+        DataError::CoreDomain {
+            source: CoreError::UnknownParkingSpaceArea { .. },
+            ..
+        }
+    );
+
+    value["parking"]["spaces"][0]["areaId"] = json!("lot-main");
+    std::assert_matches!(
+        load_value(value).expect_err("route must fail after static registries"),
+        DataError::CoreDomain {
+            source: CoreError::UnknownRouteEdge { .. },
+            ..
+        }
+    );
 }
 
 #[test]

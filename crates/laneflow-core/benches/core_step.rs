@@ -17,6 +17,7 @@ mod vehicle_scenarios;
 use signal_scenarios::{
     GROUPS_PER_CONTROLLER, SIGNAL_SCALING_VEHICLE_COUNT, SIGNAL_STEP_COUNT, SIGNAL_VEHICLE_COUNT,
     SignalScenario, SignalScenarioMode, VEHICLES_PER_ROUTE, signal_scenario,
+    signal_scenario_with_parking,
 };
 use vehicle_scenarios::{
     FIXED_DELTA_TIME_MS, SCALING_VEHICLE_COUNT, STEP_COUNT, VEHICLE_COUNT, dense_platoon_world,
@@ -180,6 +181,43 @@ fn benchmark_core_step(criterion: &mut Criterion) {
         );
     }
     signal_group.finish();
+
+    let parking_empty =
+        signal_scenario_with_parking(SIGNAL_VEHICLE_COUNT, SignalScenarioMode::NoSignals, 0);
+    let parking_all_vacant = signal_scenario_with_parking(
+        SIGNAL_VEHICLE_COUNT,
+        SignalScenarioMode::NoSignals,
+        SIGNAL_VEHICLE_COUNT,
+    );
+    assert_eq!(parking_empty.world.parking().spaces().count(), 0);
+    assert_eq!(
+        parking_all_vacant.world.parking().spaces().count(),
+        SIGNAL_VEHICLE_COUNT
+    );
+    assert_eq!(
+        run_steps(&mut parking_empty.world.clone()),
+        run_steps(&mut parking_all_vacant.world.clone())
+    );
+    let mut parking_group = criterion.benchmark_group("parking_static_step_10k_60");
+    parking_group.sample_size(20);
+    parking_group.warm_up_time(Duration::from_secs(1));
+    parking_group.measurement_time(Duration::from_secs(5));
+    parking_group.throughput(Throughput::Elements(
+        (SIGNAL_VEHICLE_COUNT * STEP_COUNT) as u64,
+    ));
+    benchmark_world(
+        &mut parking_group,
+        "empty_registry",
+        SIGNAL_VEHICLE_COUNT,
+        &parking_empty.world,
+    );
+    benchmark_world(
+        &mut parking_group,
+        "all_vacant",
+        SIGNAL_VEHICLE_COUNT,
+        &parking_all_vacant.world,
+    );
+    parking_group.finish();
 
     if std::env::var_os("LANEFLOW_BENCH_100K").is_some() {
         let scaling_world = dense_platoon_world(SCALING_VEHICLE_COUNT);

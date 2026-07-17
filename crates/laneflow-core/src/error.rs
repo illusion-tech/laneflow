@@ -1,6 +1,9 @@
 //! Core runtime 的错误类型。
 
-use crate::{MovementGateKey, RouteHandle, VehicleHandle, VehicleProfileHandle, VehicleStatus};
+use crate::{
+    MovementGateKey, ParkingAnchorKind, RouteHandle, VehicleHandle, VehicleProfileHandle,
+    VehicleStatus,
+};
 
 /// Core runtime 暴露给调用方的错误。
 #[derive(Clone, Debug, thiserror::Error)]
@@ -268,6 +271,44 @@ pub enum CoreError {
         edge_id: String,
         stop_line_id: String,
     },
+    /// ParkingArea external ID 在 registry 内必须唯一。
+    #[error("ParkingArea id 重复：{area_id}")]
+    DuplicateParkingAreaId { area_id: String },
+    /// ParkingSpace external ID 在 registry 内必须唯一。
+    #[error("ParkingSpace id 重复：{space_id}")]
+    DuplicateParkingSpaceId { space_id: String },
+    /// ParkingSpace 的 optional area 引用必须存在。
+    #[error("ParkingSpace `{space_id}` 引用了不存在的 ParkingArea `{area_id}`")]
+    UnknownParkingSpaceArea { space_id: String, area_id: String },
+    /// Parking entry/exit anchor 引用的 edge 必须存在。
+    #[error("ParkingSpace `{space_id}` 的 {anchor:?} anchor 引用了不存在的 edge `{edge_id}`")]
+    UnknownParkingAnchorEdge {
+        space_id: String,
+        anchor: ParkingAnchorKind,
+        edge_id: String,
+    },
+    /// Parking anchor 必须严格位于 edge 两端 epsilon 之间。
+    #[error(
+        "ParkingSpace `{space_id}` 的 {anchor:?} anchor progress 超出范围：edge=`{edge_id}`, progress={edge_progress}, edge length={edge_length}"
+    )]
+    ParkingAnchorProgressOutOfRange {
+        space_id: String,
+        anchor: ParkingAnchorKind,
+        edge_id: String,
+        edge_progress: f64,
+        edge_length: f64,
+    },
+    /// ParkingSpace geometry 必须满足 canonical numeric constraints。
+    #[error("ParkingSpace `{space_id}` 的 geometry `{field}` 无效：{value}，{requirement}")]
+    InvalidParkingGeometryValue {
+        space_id: String,
+        field: &'static str,
+        value: f64,
+        requirement: &'static str,
+    },
+    /// 每个声明的 ParkingArea 至少包含一个 member space。
+    #[error("ParkingArea `{area_id}` 没有 member ParkingSpace")]
+    OrphanParkingArea { area_id: String },
     /// World fixed delta 不得超过任一 static SignalPhase duration。
     #[error(
         "SignalController `{controller_id}` 的 Phase `{phase_id}` durationMs={duration_ms} 小于 fixedDeltaTimeMs={fixed_delta_time_ms}"

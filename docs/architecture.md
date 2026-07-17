@@ -73,16 +73,16 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 当前 Rust workspace 中，Traffic Data Layer 已由 `laneflow-data` 表达。它负责：
 
-- 当前 v0.4 external package、必填版本闸口与旧版/未来版拒绝；
+- 当前 v0.5 external package、必填版本闸口与旧版/未来版拒绝；
 - JSON syntax、wire shape、units 和字段路径诊断；
 - external ID 到 Core domain input 的转换；
-- 调用 Core constructors 完成 lane graph、route、Vehicle Profile 与 static Signals normalization。
+- 调用 Core constructors 完成 lane graph、route、Vehicle Profile、static Signals 与 static Parking normalization。
 
 `laneflow-data` 不拥有 fixed tick、runtime entity、world lifecycle 或 Engine asset I/O。初始 loader 接收内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
 
-current v0.4 已在保持相同依赖方向的前提下增加 StopLine、MovementGate、SignalGroup 与 fixed-time Controller/Phase，并由两个 canonical fixtures 锁定。详细契约见 `design/signal-system.md`、`design/data-format.md` 与 `design/data-loading.md`。
+current v0.5 在保持相同依赖方向的前提下包含 StopLine、MovementGate、SignalGroup、fixed-time Controller/Phase，以及 immutable ParkingArea/ParkingSpace、entry/exit anchors 和 edge-relative geometry，并由两个 canonical fixtures 锁定。详细契约见 `design/data-format.md` 与 `design/data-loading.md`。
 
-Planned v0.5 Parking 继续保持同一依赖方向：Traffic Data 只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors 与 edge-relative geometry，不持久化 reservation、occupancy、initial parked vehicles 或 runtime handles。#105 只冻结 [`design/parking-system.md`](design/parking-system.md) 与 ADR 0010；production current 在 #107 原子更新 schema、private DTO、loader、fixtures 与 current docs 前仍为 v0.4。
+Traffic Data 只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors 与 edge-relative geometry，不持久化 reservation、occupancy、initial parked vehicles 或 runtime handles。#107 已原子切换 schema、private DTO、loader、fixtures 与 current docs；runtime Parking 继续由 #108/#109 实现。
 
 ## 5. LaneFlow Core
 
@@ -100,7 +100,7 @@ Core 不依赖具体游戏引擎 API。
 
 Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTrafficData`、lane graph、route、Vehicle Profile、typed handle、registry/resolver 和全部 domain/runtime invariant。
 
-`InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane graph、routes、Vehicle Profiles 与 immutable Signals registry，不拥有 tick、initial vehicles 或 runtime route generation。初始 route validation 与 runtime route registration 复用同一 Core 规则，包括 route-final-StopLine 约束。
+`InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane graph、routes、Vehicle Profiles 与 immutable Signals/Parking registries，不拥有 tick、initial vehicles 或 runtime route generation。初始 route validation 与 runtime route registration 复用同一 Core 规则，包括 route-final-StopLine 约束。
 
 v0.4 Signals 在 Core 内保持四层职责：Controller 产生 indication；MovementGate/StopLine 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、安全投影与 permission-aware traversal 保证结果不可绕过。#94-#97 已交付 static registry/current data、absolute-time fixed-time snapshot、只读 query/events、restrictive yellow/red SignalStop、hard projection、permission-aware route-occurrence traversal，以及 10k/100k matched validation。SignalController 不硬编码国家/转向规则，Adapter 只 query/render。长期分层见 ADR 0009、`design/signal-system.md` 与 `reference/v0.4-closure-review.md`。
 

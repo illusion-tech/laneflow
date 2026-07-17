@@ -1,5 +1,5 @@
 {
-  "formatVersion": "0.4",
+  "formatVersion": "0.5",
   "units": {
     "distance": "meter",
     "time": "second"
@@ -119,6 +119,68 @@
             ]
           }
         ]
+      }
+    ]
+  },
+  "parking": {
+    "areas": [
+      {
+        "id": "lot-main"
+      }
+    ],
+    "spaces": [
+      {
+        "id": "lot-main-01",
+        "areaId": "lot-main",
+        "entry": {
+          "edgeId": "entry",
+          "progress": 12.5
+        },
+        "exit": {
+          "edgeId": "through",
+          "progress": 4.0
+        },
+        "geometry": {
+          "lateralOffset": -3.0,
+          "headingOffsetRadians": -1.5707963267948966,
+          "length": 5.0,
+          "width": 2.4
+        }
+      },
+      {
+        "id": "lot-main-02",
+        "areaId": "lot-main",
+        "entry": {
+          "edgeId": "entry",
+          "progress": 25.0
+        },
+        "exit": {
+          "edgeId": "entry",
+          "progress": 25.0
+        },
+        "geometry": {
+          "lateralOffset": 3.0,
+          "headingOffsetRadians": 0.0,
+          "length": 5.2,
+          "width": 2.5
+        }
+      },
+      {
+        "id": "curbside-01",
+        "entry": {
+          "edgeId": "bypass",
+          "progress": 8.0
+        },
+        "exit": {
+          "edgeId": "bypass",
+          "progress": 8.0
+        },
+        "geometry": {
+          "lateralOffset": -2.5,
+          "headingOffsetRadians": 0.0,
+          "length": 5.0,
+          "width": 2.2
+        }
       }
     ]
   }

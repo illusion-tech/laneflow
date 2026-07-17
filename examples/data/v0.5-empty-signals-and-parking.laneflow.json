@@ -1,5 +1,5 @@
 {
-  "formatVersion": "0.4",
+  "formatVersion": "0.5",
   "units": {
     "distance": "meter",
     "time": "second"
@@ -56,5 +56,9 @@
     "movementGates": [],
     "groups": [],
     "controllers": []
+  },
+  "parking": {
+    "areas": [],
+    "spaces": []
   }
 }

@@ -55,11 +55,12 @@ fn valid_initial_traffic_data_preserves_input_order_and_registry() {
     assert_eq!(traffic_data.lane_graph().edges().len(), 2);
     assert_eq!(traffic_data.vehicle_profiles().len(), 1);
 
-    let (lane_graph, routes, profiles, signals) = traffic_data.into_parts();
+    let (lane_graph, routes, profiles, signals, parking) = traffic_data.into_parts();
     assert_eq!(lane_graph.edges().len(), 2);
     assert_eq!(routes.len(), 2);
     assert_eq!(profiles.len(), 1);
     assert!(signals.is_empty());
+    assert!(parking.is_empty());
 }
 
 #[test]
