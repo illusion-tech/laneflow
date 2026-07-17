@@ -82,9 +82,9 @@ struct RouteReferenceIndex {
 }
 
 impl PartialEq for RouteReferenceIndex {
-    fn eq(&self, _other: &Self) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         // 精确派生索引的 heap history/capacity 不属于 Core authority state。
-        true
+        self.live_count == other.live_count
     }
 }
 
@@ -2649,6 +2649,23 @@ mod tests {
 
         std::assert_matches!(error, CoreError::TimeOverflow);
         assert_eq!(world, before);
+    }
+
+    #[test]
+    fn route_reference_equality_covers_live_count_but_ignores_heap_history() {
+        let mut left = RouteReferenceIndex::default();
+        let mut right = RouteReferenceIndex::default();
+
+        left.live_count = 1;
+        assert_ne!(left, right, "live reference count is authority state");
+
+        right.live_count = 1;
+        left.candidates.push(Reverse(RouteVehicleReference {
+            update_order_position: 17,
+            vehicle: VehicleHandle::new(3, 2),
+            route_generation: 4,
+        }));
+        assert_eq!(left, right, "derived heap history must remain ignored");
     }
 
     #[test]
