@@ -3,7 +3,7 @@ use laneflow_core::{
     ParkingCommandEffect, ParkingCommandKind, ParkingSpaceState, Speed, TickInput,
     VehicleParkingState, VehicleSpawnInput, VehicleStatus,
 };
-use laneflow_data::from_json_str;
+use laneflow_data::{DataError, from_json_str};
 use serde_json::{Value, json};
 
 const PARKING_SIGNALS_FIXTURE: &str =
@@ -238,8 +238,13 @@ fn production_loader_rejects_invalid_parking_area_reference_without_partial_worl
         serde_json::from_str(PARKING_SIGNALS_FIXTURE).expect("canonical fixture JSON");
     package["parking"]["spaces"][0]["areaId"] = json!("missing-area");
     let error = from_json_str(&package.to_string()).expect_err("invalid area reference");
-    assert!(
-        format!("{error:?}").contains("UnknownParkingSpaceArea"),
-        "structured Core validation must cross the production loader: {error:?}"
+    std::assert_matches!(
+        error,
+        DataError::CoreDomain {
+            path,
+            source: CoreError::UnknownParkingSpaceArea { space_id, area_id },
+        } if path == "parking.spaces[0].areaId"
+            && space_id == "lot-main-01"
+            && area_id == "missing-area"
     );
 }
