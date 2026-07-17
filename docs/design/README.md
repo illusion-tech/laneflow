@@ -10,6 +10,7 @@
 
 - `core-runtime.md`：Core runtime、tick、vehicle state 和系统边界。
 - `core-id-handles.md`：Core external ID、typed handle、registry / resolver、动态 lifecycle 和事件 payload 边界。
+- `numeric-representation.md`：v0.6 数值表示、精度分层、误差预算、确定性与 Core/Data/Spatial/Adapter 转换边界。
 - `lane-graph.md`：车道图、连接关系、拓扑约束。
 - `route-system.md`：路线选择、路径跟随、目标点。
 - `vehicle-following.md`：前车避让、速度控制和安全距离。
