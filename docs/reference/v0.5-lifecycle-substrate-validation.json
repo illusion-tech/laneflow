@@ -1,0 +1,247 @@
+{
+  "schemaVersion": 1,
+  "issue": 106,
+  "measuredAt": "2026-07-16/2026-07-17 Asia/Hong_Kong",
+  "baseline": {
+    "commit": "082e05dec832cac5895ffaeb64f7d820299a743e",
+    "dirty": true,
+    "dirtyFiles": [
+      "crates/laneflow-core/benches/core_commands.rs",
+      "crates/laneflow-core/tests/support/command_validation_scenarios.rs"
+    ],
+    "patchHash": "9ef670dc4dfb17a33a79d17b0455881013ac7eed",
+    "reason": "synchronized identical corrected/extended command benchmark harness; production source and core_step.rs remain at baseline commit"
+  },
+  "candidate": {
+    "fullMatrixCommit": "0b6f38096eba0af7fd849de19809ddd805a99f4b",
+    "implementationCommit": "602db958348b3c8a1fa5a656f8b028bd16a7d15c",
+    "fullMatrixDirty": false,
+    "finalFixed100Dirty": false,
+    "targetedProbeWorktreeDirty": true,
+    "targetedProbeSourceMatchesImplementationCommit": true
+  },
+  "environment": {
+    "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+    "physicalCores": 16,
+    "logicalProcessors": 32,
+    "os": "Microsoft Windows 11 Pro Insider Preview",
+    "osVersion": "10.0.29617",
+    "osBuild": "29617",
+    "architecture": "x86_64-pc-windows-msvc",
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "llvm": "22.1.2",
+    "cargo": "1.96.0 (30a34c682 2026-05-25)",
+    "powerPlan": "Balanced",
+    "benchProfile": "Cargo default optimized bench profile"
+  },
+  "thresholds": {
+    "fixed100VehicleIsolationTargetRatio": 2.0,
+    "fixed100VehicleIsolationBlockRatio": 4.0,
+    "matched10xTargetRatio": 20.0,
+    "matched10xBlockRatio": 30.0,
+    "coreStepCommonTargetMsPerTick": 1.0,
+    "coreStepHardLimitMsPerTick": 4.0,
+    "preParkingProfileDeltaPercent": 5.0,
+    "preParkingBlockDeltaPercent": 10.0,
+    "retainedMemoryTargetRatio": 12.0,
+    "retainedMemoryBlockRatio": 15.0
+  },
+  "fixed100FinalSha": {
+    "safeSpawnDespawn": {
+      "vehicle10000MedianNs": 33226.8567251462,
+      "vehicle100000MedianNs": 54683.33333333333,
+      "ratio": 1.6457570388218152
+    },
+    "overlapFailure": {
+      "vehicle10000MedianNs": 32123.970170454544,
+      "vehicle100000MedianNs": 52525.52083333333,
+      "ratio": 1.635088083901994
+    },
+    "routeInUseFailure": {
+      "vehicle10000MedianNs": 907.9922027290448,
+      "vehicle100000MedianNs": 1430.5555555555557,
+      "ratio": 1.5755152425933878
+    },
+    "mixedChurn": {
+      "vehicle10000MedianNs": 27629.34670781893,
+      "vehicle100000MedianNs": 44248.055555555555,
+      "ratio": 1.6014875785330687
+    }
+  },
+  "fixed100CandidateThreeRounds": {
+    "safeSpawnDespawn": {
+      "vehicle10000MedianNs": [33288.46, 32765.526, 33921.713],
+      "vehicle100000MedianNs": [53328.42, 67085.156, 55796.2962962963],
+      "roundRatios": [1.601996, 2.047809, 1.644852],
+      "ratioMedian": 1.644852
+    },
+    "overlapFailure": {
+      "vehicle10000MedianNs": [31326.0, 31719.388, 32432.645],
+      "vehicle100000MedianNs": [50083.33, 52570.833, 48572.03703703704],
+      "roundRatios": [1.59878, 1.657374, 1.497001],
+      "ratioMedian": 1.59878
+    },
+    "routeInUseFailure": {
+      "vehicle10000MedianNs": [902.28, 905.029, 951.407],
+      "vehicle100000MedianNs": [1280.83, 1320.312, 1259.172077922078],
+      "roundRatios": [1.419555, 1.458865, 1.323508],
+      "ratioMedian": 1.419555
+    },
+    "mixedChurn": {
+      "vehicle10000MedianNs": [26849.23, 27639.973, 28185.7],
+      "vehicle100000MedianNs": [43547.14, 43777.344, 43923.61111111111],
+      "roundRatios": [1.621919, 1.583842, 1.558371],
+      "ratioMedian": 1.583842
+    }
+  },
+  "extendedCommands": {
+    "batchSize10000": {
+      "commands1MedianNs": 412.8039396737458,
+      "commands100MedianNs": 30574.886877828052,
+      "commands1000MedianNs": 306934.19856459333
+    },
+    "repeatedPhysicalEdgeRoute": {
+      "route8MedianNs": 31036.944444444445,
+      "route64MedianNs": 31261.11111111111,
+      "route512MedianNs": 31350.48076923077,
+      "route512Over8Ratio": 1.010101
+    },
+    "uniquePhysicalEdgeRoute": {
+      "route8MedianNs": 31019.557823129253,
+      "route64MedianNs": 31442.03142536476,
+      "route512MedianNs": 31991.368421052633,
+      "route512Over8Ratio": 1.031328
+    },
+    "matched10x": {
+      "vehicle10000Command100MedianNs": 30855.906212900674,
+      "vehicle100000Command1000MedianNs": 453145.0,
+      "ratio": 14.685844
+    },
+    "compactionThreshold10000MedianNs": 34300.99980299448,
+    "coldBuild10000Route64MedianNs": 4400183.73015873
+  },
+  "coreStepFullMatrix": {
+    "protocol": "per-group adjacent pairing: round1 base-candidate, round2 candidate-base, round3 base-candidate",
+    "freeFlow": {
+      "baseMedianNs": [42521312.08791209, 40759850.0, 40688679.77272727],
+      "candidateMedianNs": [43532362.5, 45098637.5, 41966737.5],
+      "pairedDeltaPercent": [2.3777497975546513, 10.644758260886622, 3.141064626356793],
+      "pairedDeltaMedianPercent": 3.141064626356793,
+      "candidateMedianMsPerTick": 0.725539375
+    },
+    "densePlatoon": {
+      "baseMedianNs": [66928325.0, 64366537.5, 65752750.0],
+      "candidateMedianNs": [68312250.0, 66524962.5, 65928012.5],
+      "pairedDeltaPercent": [2.067771754335701, 3.3533340208023565, 0.2665477869746802],
+      "pairedDeltaMedianPercent": 2.067771754335701,
+      "candidateMedianMsPerTick": 1.108749375
+    },
+    "stopAndGo": {
+      "baseMedianNs": [66254600.0, 64285187.5, 64215775.0],
+      "candidateMedianNs": [70761175.0, 67268237.5, 66667225.0],
+      "pairedDeltaPercent": [6.801905075270254, 4.640338024992152, 3.8175199162510998],
+      "pairedDeltaMedianPercent": 4.640338024992152,
+      "candidateMedianMsPerTick": 1.1211372916666666
+    },
+    "projectionHeavy": {
+      "baseMedianNs": [1189902.6041666665, 1278543.2777777778, 1064126.4553429028],
+      "candidateMedianNs": [1091719.375, 1085685.6666666667, 1085323.5925925926],
+      "pairedDeltaPercent": [-8.251366861696042, -15.084167619755096, 1.9919754032296177],
+      "pairedDeltaMedianPercent": -8.251366861696042,
+      "candidateMedianMsPerTick": 1.0856856666666668
+    },
+    "transitionHeavy": {
+      "baseMedianNs": [85992633.33333333, 86305083.33333334, 85626000.0],
+      "candidateMedianNs": [92984350.0, 92303983.33333333, 92246183.33333334],
+      "pairedDeltaPercent": [8.13059955910953, 6.950807262221881, 7.731510678220799],
+      "pairedDeltaMedianPercent": 7.731510678220799,
+      "candidateMedianMsPerTick": 1.538399722222222
+    },
+    "noSignals": {
+      "baseMedianNs": [53960790.0, 56782000.0, 55528240.0],
+      "candidateMedianNs": [58226370.0, 60354875.0, 56745110.0],
+      "pairedDeltaPercent": [7.904962103038149, 6.292266915571831, 2.19144348893463],
+      "pairedDeltaMedianPercent": 6.292266915571831,
+      "candidateMedianMsPerTick": 0.9704395
+    },
+    "allNone": {
+      "baseMedianNs": [55178770.0, 56594240.0, 56066960.0],
+      "candidateMedianNs": [57520490.0, 59347200.0, 63489375.0],
+      "pairedDeltaPercent": [4.243878578663507, 4.864381958305297, 13.238483056687933],
+      "pairedDeltaMedianPercent": 4.864381958305297,
+      "candidateMedianMsPerTick": 0.98912
+    },
+    "allGreen": {
+      "baseMedianNs": [54803310.0, 56482960.0, 56243210.0],
+      "candidateMedianNs": [57044660.0, 59133737.5, 59614662.5],
+      "pairedDeltaPercent": [4.089807714169091, 4.693056985682054, 5.99441692606093],
+      "pairedDeltaMedianPercent": 4.693056985682054,
+      "candidateMedianMsPerTick": 0.9855622916666666
+    },
+    "allRed": {
+      "baseMedianNs": [64176162.5, 65939262.5, 64699975.0],
+      "candidateMedianNs": [66127475.0, 69919900.0, 69608812.5],
+      "pairedDeltaPercent": [3.040556530627714, 6.036824418532127, 7.58707789299764],
+      "pairedDeltaMedianPercent": 6.036824418532127,
+      "candidateMedianMsPerTick": 1.160146875
+    },
+    "stopRelease": {
+      "baseMedianNs": [60701550.0, 61676012.5, 63322700.0],
+      "candidateMedianNs": [64621375.0, 66660700.0, 63706150.0],
+      "pairedDeltaPercent": [6.457536916273132, 8.082052159257213, 0.6055490369172523],
+      "pairedDeltaMedianPercent": 6.457536916273132,
+      "candidateMedianMsPerTick": 1.0770229166666667
+    },
+    "mixedOffsets": {
+      "baseMedianNs": [64253200.0, 64409225.0, 66494825.0],
+      "candidateMedianNs": [67060500.0, 68533550.0, 67352187.5],
+      "pairedDeltaPercent": [4.369120915378533, 6.403314121540826, 1.2893672552713786],
+      "pairedDeltaMedianPercent": 4.369120915378533,
+      "candidateMedianMsPerTick": 1.1225364583333333
+    }
+  },
+  "finalTargetedProbes": {
+    "noSignals": {
+      "baseMedianNs": 56713080.0,
+      "candidateMedianNs": 57966310.0,
+      "deltaPercent": 2.2097724193431256
+    },
+    "transitionHeavy": {
+      "baseMedianNs": 88580416.66666666,
+      "candidateMedianNs": 96014716.66666666,
+      "deltaPercent": 8.392712836264593
+    }
+  },
+  "operationCounters": {
+    "backgroundVehiclesCompared": [128, 10000],
+    "overlap": { "edgeRanges": 2, "occupantsVisited": 2 },
+    "directFollowers": { "edgeRanges": 1, "occupantsVisited": 1 }
+  },
+  "allocations": {
+    "overlapFailure100Small": { "allocations": 200, "reallocations": 0, "bytesAllocated": 2000 },
+    "overlapFailure100Large": { "allocations": 200, "reallocations": 0, "bytesAllocated": 2000 },
+    "routeInUseFailure100Warm": { "allocations": 0, "reallocations": 0, "bytesAllocated": 0 },
+    "successfulSpawnWarm": { "allocations": 1, "reallocations": 0, "bytesAllocated": 9 },
+    "despawnWarm": { "allocations": 0, "reallocations": 0, "bytesAllocated": 0 },
+    "noEventStepWarm": { "allocations": 0, "reallocations": 0, "bytesAllocated": 0 }
+  },
+  "retainedMemory": {
+    "vehicle10000Bytes": 4869570,
+    "vehicle10000BytesPerLive": 486.96,
+    "vehicle100000Bytes": 39878706,
+    "vehicle100000BytesPerLive": 398.79,
+    "ratio": 8.1894
+  },
+  "dependencyAudit": {
+    "statsAllocVersion": "0.1.10",
+    "scope": "dev-only",
+    "normalGraphMatches": 0,
+    "packageDependencies": 0,
+    "license": "MIT",
+    "cargoLockChecksum": "5c0e04424e733e69714ca1bbb9204c1a57f09f5493439520f9f68c132ad25eec",
+    "cargoDenyVersion": "0.20.2",
+    "cargoDenyArchiveSha256": "975a22143262fd27476d19ee00c7af67978426e40e1dee94eed6bbade1cf87dc",
+    "cargoDenyExecutableSha256": "F7292FAB58C706638C999E64C4BA82E5128AE628130BA55E3266A768EE431FBF",
+    "cargoDenyChecks": ["advisories ok", "bans ok", "licenses ok", "sources ok"]
+  }
+}

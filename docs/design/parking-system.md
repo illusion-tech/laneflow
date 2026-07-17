@@ -1,9 +1,9 @@
 # Parking System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-16  
+**最后更新**: 2026-07-17
 **适用范围**: planned v0.5 Parking 的静态领域、占用与车辆生命周期、ParkingStop/route 集成、Core API、planned 0.5 data contract、确定性、失败原子性与性能边界  
-**实现状态**: #105 已冻结本设计与 ADR 0010；production current 仍为 v0.4，#106-#110 分阶段实施后才形成 v0.5 runtime/data 事实
+**实现状态**: #105 已冻结本设计与 ADR 0010；#106 已交付无 Parking public types 的 lifecycle/performance substrate；production current 仍为 v0.4，#107-#110 分阶段实施后才形成 v0.5 runtime/data 事实
 
 **关联文档**:
 
@@ -39,13 +39,19 @@ v0.5 的目标是在 v0.4 Accepted fixed tick、typed handles、lane graph、rou
 本文是 #105 的 Accepted 实现输入，不是生产实现完成声明。分阶段事实必须保持：
 
 1. #105 合并后只新增 design/ADR，Rust API、schema、loader、fixtures 与 production current 仍是 v0.4。
-2. #106 只交付无 Parking public types 的 lifecycle/route-distance/command-spatial 性能底座。
+2. #106 已交付无 Parking public types 的 lifecycle/route-distance/command-spatial 性能底座；验证基线见 [`../reference/v0.5-lifecycle-substrate-validation.md`](../reference/v0.5-lifecycle-substrate-validation.md)。
 3. #107 才把 static Parking、schema、private DTO、loader、fixtures 与 current docs 原子切换到 production 0.5。
 4. #108 交付 runtime commands/query，但用窄 capability guard 保护 Reserved step。
 5. #109 完整交付 ParkingStop、arrival、traversal/release/events 后解除 guard。
 6. #110 固化端到端、性能、allocation/memory 和 validation artifact；#19 最终 closure。
 
 不得把本文的 planned 0.5 字段、API 或行为描述成 current v0.4 已实现事实。
+
+### 1.1 #106 已交付边界
+
+#106 只建立后续 Parking commands 可复用的私有 substrate：overflow-safe route occurrence distance、O(1) resolver removal、stable tombstone order 与确定性 compaction、exact route reference、physical-edge-local command index、full-scan oracle、allocation/retained-memory instrumentation 和 Criterion matrix。
+
+它没有增加 `ParkingArea` / `ParkingSpace` / `Parked`、schema 0.5、loader、reservation/binding、ParkingStop、leave/commit command 或 Adapter API。因此本节的“已交付”不表示停车场或路边停车位已经成为 production runtime 能力；对外功能仍由 #107-#110 完成。
 
 ## 2. 非目标
 
