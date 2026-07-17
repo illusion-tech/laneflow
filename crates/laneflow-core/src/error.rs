@@ -1,8 +1,8 @@
 //! Core runtime 的错误类型。
 
 use crate::{
-    MovementGateKey, ParkingAnchorKind, RouteHandle, VehicleHandle, VehicleProfileHandle,
-    VehicleStatus,
+    EdgeHandle, MovementGateKey, ParkingAnchorKind, ParkingBindingKind, ParkingCommandKind,
+    ParkingSpaceHandle, RouteHandle, VehicleHandle, VehicleProfileHandle, VehicleStatus,
 };
 
 /// Core runtime 暴露给调用方的错误。
@@ -309,6 +309,145 @@ pub enum CoreError {
     /// 每个声明的 ParkingArea 至少包含一个 member space。
     #[error("ParkingArea `{area_id}` 没有 member ParkingSpace")]
     OrphanParkingArea { area_id: String },
+    /// Runtime ParkingSpace handle 必须解析到当前 world。
+    #[error("未知 ParkingSpace handle：{space:?}")]
+    UnknownParkingSpaceHandle { space: ParkingSpaceHandle },
+    /// 普通 vehicle spawn 不得制造缺失 Occupied binding 的 Parked vehicle。
+    #[error("parked vehicle `{vehicle_id}` 必须通过 spawn_parked_vehicle 创建")]
+    ParkedVehicleRequiresParkingCommand { vehicle_id: String },
+    /// Parking command 要求精确 lifecycle status。
+    #[error(
+        "Parking command {command:?} 的 vehicle {vehicle:?} 状态不匹配：expected={expected:?}, actual={actual:?}"
+    )]
+    ParkingVehicleStatusMismatch {
+        command: ParkingCommandKind,
+        vehicle: VehicleHandle,
+        expected: VehicleStatus,
+        actual: VehicleStatus,
+    },
+    /// Vehicle 已绑定另一 ParkingSpace 或 binding kind。
+    #[error(
+        "Parking command {command:?} 的 vehicle {vehicle:?} 已绑定 space {current_space:?} ({binding:?})，不能请求 {requested_space:?}"
+    )]
+    ParkingVehicleAlreadyBound {
+        command: ParkingCommandKind,
+        vehicle: VehicleHandle,
+        requested_space: ParkingSpaceHandle,
+        current_space: ParkingSpaceHandle,
+        binding: ParkingBindingKind,
+    },
+    /// ParkingSpace 当前不可供请求 vehicle 使用。
+    #[error(
+        "Parking command {command:?} 的 space {space:?} 当前由 vehicle {current_vehicle:?} 以 {binding:?} 占用，请求 vehicle={requested_vehicle:?}"
+    )]
+    ParkingSpaceUnavailable {
+        command: ParkingCommandKind,
+        space: ParkingSpaceHandle,
+        requested_vehicle: VehicleHandle,
+        current_vehicle: VehicleHandle,
+        binding: ParkingBindingKind,
+    },
+    /// Command 要求 exact Reserved pair。
+    #[error(
+        "Parking command {command:?} 要求 exact reservation：vehicle={vehicle:?}, space={space:?}"
+    )]
+    ParkingReservationMismatch {
+        command: ParkingCommandKind,
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+    },
+    /// Command 要求 exact Occupied pair。
+    #[error(
+        "Parking command {command:?} 要求 exact occupancy：vehicle={vehicle:?}, space={space:?}"
+    )]
+    ParkingOccupancyMismatch {
+        command: ParkingCommandKind,
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+    },
+    /// Explicit commit 前 Reserved vehicle 必须满足 arrival predicate。
+    #[error("vehicle {vehicle:?} 尚未到达 ParkingSpace {space:?} 的 entry")]
+    ParkingVehicleNotArrived {
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+    },
+    /// Parking route occurrence 必须落在 active route 范围内。
+    #[error(
+        "Parking command {command:?} 的 route occurrence 越界：vehicle={vehicle:?}, route={route:?}, index={route_edge_index}, count={route_edge_count}"
+    )]
+    InvalidParkingRouteOccurrence {
+        command: ParkingCommandKind,
+        vehicle: VehicleHandle,
+        route: RouteHandle,
+        route_edge_index: usize,
+        route_edge_count: usize,
+    },
+    /// Parking entry/exit anchor 必须与 caller occurrence physical edge 相同。
+    #[error(
+        "Parking command {command:?} 的 {anchor:?} occurrence edge 不匹配：space={space:?}, route={route:?}, index={route_edge_index}, expected={expected_edge:?}, actual={actual_edge:?}"
+    )]
+    ParkingRouteOccurrenceEdgeMismatch {
+        command: ParkingCommandKind,
+        space: ParkingSpaceHandle,
+        anchor: ParkingAnchorKind,
+        route: RouteHandle,
+        route_edge_index: usize,
+        expected_edge: EdgeHandle,
+        actual_edge: EdgeHandle,
+    },
+    /// Reserved rebind 不能改变当前 physical edge。
+    #[error(
+        "reserved vehicle {vehicle:?} rebind 会改变 physical edge：space={space:?}, route={route:?}, index={route_edge_index}, current={current_edge:?}, target={target_edge:?}"
+    )]
+    ParkingRouteRebindEdgeMismatch {
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+        route: RouteHandle,
+        route_edge_index: usize,
+        current_edge: EdgeHandle,
+        target_edge: EdgeHandle,
+    },
+    /// Reserved target route 从 caller occurrence 起必须包含可达 entry。
+    #[error(
+        "vehicle {vehicle:?} 从 route {route:?} occurrence {from_route_edge_index} 无法到达 ParkingSpace {space:?} entry"
+    )]
+    ParkingEntryUnreachable {
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+        route: RouteHandle,
+        from_route_edge_index: usize,
+    },
+    /// Leave 插入会迫使 direct follower 依赖 geometry hard projection。
+    #[error(
+        "vehicle {vehicle:?} 离开 ParkingSpace {space:?} 对 direct follower {follower:?} 不满足 emergency envelope"
+    )]
+    ParkingLeaveUnsafeFollower {
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+        follower: VehicleHandle,
+    },
+    /// Public API 不应制造的 Parking aggregate 矛盾。
+    #[error(
+        "Parking binding invariant violation：stage={stage}, vehicle={vehicle:?}, space={space:?}"
+    )]
+    ParkingBindingInvariantViolation {
+        stage: &'static str,
+        vehicle: Option<VehicleHandle>,
+        space: Option<ParkingSpaceHandle>,
+    },
+    /// Parking command 的有限数值计算失败。
+    #[error(
+        "Parking computation 不是 finite：stage={stage}, vehicle={vehicle:?}, space={space:?}, value={value}"
+    )]
+    NonFiniteParkingComputation {
+        stage: &'static str,
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+        value: f64,
+    },
+    /// #108 在 moving Parking capability 激活前拒绝 Reserved world step。
+    #[error("Parking vehicle moving capability 尚未激活")]
+    ParkingVehicleCapabilityUnavailable,
     /// World fixed delta 不得超过任一 static SignalPhase duration。
     #[error(
         "SignalController `{controller_id}` 的 Phase `{phase_id}` durationMs={duration_ms} 小于 fixedDeltaTimeMs={fixed_delta_time_ms}"

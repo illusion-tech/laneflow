@@ -402,6 +402,8 @@ pub(crate) struct CommandSpatialIndex {
     reverse_best: Vec<f64>,
     reverse_touched: Vec<EdgeHandle>,
     reverse_queue: Vec<(EdgeHandle, f64)>,
+    max_vehicle_speed: f64,
+    min_emergency_deceleration: f64,
     #[cfg(test)]
     query_stats: SpatialQueryStats,
 }
@@ -442,6 +444,10 @@ impl CommandSpatialIndex {
             .profiles()
             .map(|profile| profile.iidm().length)
             .fold(0.0, f64::max);
+        let min_emergency_deceleration = profiles
+            .profiles()
+            .map(|profile| profile.iidm().emergency_deceleration)
+            .fold(f64::MAX, f64::min);
 
         Self {
             buckets: vec![SpatialBucket::default(); edge_count],
@@ -457,6 +463,8 @@ impl CommandSpatialIndex {
             reverse_best: vec![-1.0; edge_count],
             reverse_touched: Vec::with_capacity(edge_count),
             reverse_queue: Vec::with_capacity(edge_count),
+            max_vehicle_speed: 0.0,
+            min_emergency_deceleration,
             #[cfg(test)]
             query_stats: SpatialQueryStats::default(),
         }
@@ -626,12 +634,11 @@ impl CommandSpatialIndex {
         self.query_stats
     }
 
-    #[cfg(test)]
     pub(crate) fn gather_direct_follower_candidates<F>(
         &mut self,
         candidate_edge: EdgeHandle,
         candidate_progress: f64,
-        candidate_length: f64,
+        reverse_horizon: f64,
         vehicle_slot_count: usize,
         resolve_progress: &mut F,
     ) where
@@ -641,9 +648,27 @@ impl CommandSpatialIndex {
         self.gather_reverse(
             candidate_edge,
             candidate_progress,
-            candidate_length,
+            reverse_horizon,
             resolve_progress,
         );
+    }
+
+    pub(crate) const fn max_vehicle_speed(&self) -> f64 {
+        self.max_vehicle_speed
+    }
+
+    pub(crate) const fn min_emergency_deceleration(&self) -> f64 {
+        self.min_emergency_deceleration
+    }
+
+    pub(crate) fn note_vehicle_speed(&mut self, value: f64) {
+        debug_assert!(value.is_finite() && value >= 0.0);
+        self.max_vehicle_speed = self.max_vehicle_speed.max(value);
+    }
+
+    pub(crate) fn set_max_vehicle_speed(&mut self, value: f64) {
+        debug_assert!(value.is_finite() && value >= 0.0);
+        self.max_vehicle_speed = value;
     }
 
     #[cfg(test)]

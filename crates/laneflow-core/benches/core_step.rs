@@ -1,7 +1,8 @@
 //! Core step 性能基线。
 //!
 //! 运行：`cargo +1.96.0 bench -p laneflow-core --bench core_step --locked`。
-//! 设置 `LANEFLOW_BENCH_100K=1` 可额外运行 100k dense platoon 扩展性观察。
+//! 设置 `LANEFLOW_BENCH_100K=1` 可额外运行全部 100k 扩展性观察；只验证 Parking 时可用
+//! `LANEFLOW_BENCH_PARKING_100K=1`，避免构造无关 100k 场景。
 //! 本 benchmark 不进入常规 CI；结果仅与同一基准机上的历史基线比较。
 
 use std::{hint::black_box, time::Duration};
@@ -9,11 +10,18 @@ use std::{hint::black_box, time::Duration};
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use laneflow_core::{CoreWorld, TickInput};
 
+#[path = "../tests/support/parking_runtime_scenarios.rs"]
+#[allow(
+    dead_code,
+    reason = "shared parking helper also exposes command scenarios"
+)]
+mod parking_scenarios;
 #[path = "../tests/support/signals_validation_scenarios.rs"]
 mod signal_scenarios;
 #[path = "../tests/support/vehicle_following_scenarios.rs"]
 mod vehicle_scenarios;
 
+use parking_scenarios::occupied_parking_world;
 use signal_scenarios::{
     GROUPS_PER_CONTROLLER, SIGNAL_SCALING_VEHICLE_COUNT, SIGNAL_STEP_COUNT, SIGNAL_VEHICLE_COUNT,
     SignalScenario, SignalScenarioMode, VEHICLES_PER_ROUTE, signal_scenario,
@@ -219,7 +227,24 @@ fn benchmark_core_step(criterion: &mut Criterion) {
     );
     parking_group.finish();
 
-    if std::env::var_os("LANEFLOW_BENCH_100K").is_some() {
+    let occupied = occupied_parking_world(VEHICLE_COUNT, FIXED_DELTA_TIME_MS);
+    assert_eq!(occupied.parking_snapshot().counts().occupied, VEHICLE_COUNT);
+    assert_eq!(run_steps(&mut occupied.clone()), 0);
+    let mut occupied_group = criterion.benchmark_group("parking_runtime_occupied_step_10k_60");
+    occupied_group.sample_size(20);
+    occupied_group.warm_up_time(Duration::from_secs(1));
+    occupied_group.measurement_time(Duration::from_secs(5));
+    occupied_group.throughput(Throughput::Elements((VEHICLE_COUNT * STEP_COUNT) as u64));
+    benchmark_world(
+        &mut occupied_group,
+        "occupied_only",
+        VEHICLE_COUNT,
+        &occupied,
+    );
+    occupied_group.finish();
+
+    let full_100k = std::env::var_os("LANEFLOW_BENCH_100K").is_some();
+    if full_100k {
         let scaling_world = dense_platoon_world(SCALING_VEHICLE_COUNT);
         assert_eq!(run_steps(&mut scaling_world.clone()), 0);
 
@@ -262,6 +287,30 @@ fn benchmark_core_step(criterion: &mut Criterion) {
             &signal_scaling.world,
         );
         signal_group.finish();
+    }
+
+    if full_100k || std::env::var_os("LANEFLOW_BENCH_PARKING_100K").is_some() {
+        let occupied = occupied_parking_world(SCALING_VEHICLE_COUNT, FIXED_DELTA_TIME_MS);
+        assert_eq!(
+            occupied.parking_snapshot().counts().occupied,
+            SCALING_VEHICLE_COUNT
+        );
+        assert_eq!(run_steps(&mut occupied.clone()), 0);
+        let mut occupied_group =
+            criterion.benchmark_group("parking_runtime_occupied_step_100k_60_observation");
+        occupied_group.sample_size(10);
+        occupied_group.warm_up_time(Duration::from_secs(1));
+        occupied_group.measurement_time(Duration::from_secs(10));
+        occupied_group.throughput(Throughput::Elements(
+            (SCALING_VEHICLE_COUNT * STEP_COUNT) as u64,
+        ));
+        benchmark_world(
+            &mut occupied_group,
+            "occupied_only",
+            SCALING_VEHICLE_COUNT,
+            &occupied,
+        );
+        occupied_group.finish();
     }
 }
 

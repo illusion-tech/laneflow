@@ -82,7 +82,7 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 current v0.5 在保持相同依赖方向的前提下包含 StopLine、MovementGate、SignalGroup、fixed-time Controller/Phase，以及 immutable ParkingArea/ParkingSpace、entry/exit anchors 和 edge-relative geometry，并由两个 canonical fixtures 锁定。详细契约见 `design/data-format.md` 与 `design/data-loading.md`。
 
-Traffic Data 只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors 与 edge-relative geometry，不持久化 reservation、occupancy、initial parked vehicles 或 runtime handles。#107 已原子切换 schema、private DTO、loader、fixtures 与 current docs；runtime Parking 继续由 #108/#109 实现。
+Traffic Data 只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors 与 edge-relative geometry，不持久化 reservation、occupancy、initial parked vehicles 或 runtime handles。#107 已原子切换 schema、private DTO、loader、fixtures 与 current docs；#108 的 runtime authority 完全保留在 CoreWorld，不回写 production data。
 
 ## 5. LaneFlow Core
 
@@ -104,7 +104,7 @@ Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTraff
 
 v0.4 Signals 在 Core 内保持四层职责：Controller 产生 indication；MovementGate/StopLine 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、安全投影与 permission-aware traversal 保证结果不可绕过。#94-#97 已交付 static registry/current data、absolute-time fixed-time snapshot、只读 query/events、restrictive yellow/red SignalStop、hard projection、permission-aware route-occurrence traversal，以及 10k/100k matched validation。SignalController 不硬编码国家/转向规则，Adapter 只 query/render。长期分层见 ADR 0009、`design/signal-system.md` 与 `reference/v0.4-closure-review.md`。
 
-Planned v0.5 Parking 由 Core 私有 binding aggregate 持有唯一 runtime authority；`VehicleStatus::Parked` 与 exact Occupied binding 一致，Parked vehicle 保留 live identity但不进入 travel-lane occupancy。ParkingStop、SignalStop、RouteEnd 与 leader/no-overlap 使用共同 fixed-tick constraint/traversal pipeline；Adapter 只消费 immutable registry、snapshot、records/events 和 position authority。详细设计见 ADR 0010 与 `design/parking-system.md`；该段不表示 production runtime 已实现 Parking。
+v0.5 Parking runtime 由 Core 私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与 exact Occupied binding 一致，Parked vehicle 保留 live identity但不进入 travel-lane occupancy。#108 已公开 borrowed snapshot 和 caller-selected lifecycle commands，并以 `reserved_count > 0` 的窄 guard 阻止尚未安全激活的 moving reservation step。ParkingStop、SignalStop、RouteEnd 与 leader/no-overlap 的共同 fixed-tick constraint/traversal pipeline由 #109 完成；Adapter 只消费 immutable registry、snapshot、records/events 和 position authority。详细设计见 ADR 0010 与 `design/parking-system.md`。
 
 ## 6. Engine Adapter Layer
 

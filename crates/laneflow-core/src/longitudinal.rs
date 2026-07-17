@@ -650,7 +650,7 @@ fn ballistic_motion(
     Ok(BallisticMotion { speed, travel })
 }
 
-fn emergency_min_travel(
+pub(crate) fn emergency_min_travel(
     vehicle: VehicleHandle,
     current_speed: f64,
     emergency_deceleration: f64,

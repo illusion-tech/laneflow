@@ -21,9 +21,19 @@ use crate::{
         VehicleProfileHandle,
     },
     id::validate_external_id,
-    longitudinal::{LeaderKinematics, LongitudinalMotion, LongitudinalScratch, compute_motion},
+    longitudinal::{
+        LeaderKinematics, LongitudinalMotion, LongitudinalScratch, compute_motion,
+        emergency_min_travel,
+    },
     occupancy::{LeaderObservation, OccupancyScratch, Occupant},
-    parking::ParkingRegistry,
+    parking::{
+        LeaveParkingInput, ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord,
+        ParkingApproachTarget, ParkingBindingKind, ParkingCommandEffect, ParkingCommandKind,
+        ParkingCommitRecord, ParkingLeaveRecord, ParkingRegistry, ParkingReleaseReason,
+        ParkingReleaseRecord, ParkingReservationCancellationRecord, ParkingReservationRecord,
+        ParkingRuntimeState, ParkingSnapshot, ParkingSpaceState, RebindReservedVehicleRouteInput,
+        ReservedVehicleRouteRebindRecord, RuntimeVehicleParkingBinding,
+    },
     profile::{GEOMETRY_GAP_EPSILON, VehicleProfile, VehicleProfileRegistry},
     route::{Route, RouteRemoveRecord},
     route_distance::{BoundedDistance, RouteDistanceIndex, RouteDistanceQuery},
@@ -324,6 +334,7 @@ pub struct CoreWorld {
     vehicle_profiles: VehicleProfileRegistry,
     signals: SignalRegistry,
     parking: ParkingRegistry,
+    pub(crate) parking_runtime: ParkingRuntimeState,
     signal_state: SignalRuntimeState,
     signal_candidate_scratch: SignalRuntimeScratch,
     routes: Vec<RouteSlot>,
@@ -364,6 +375,7 @@ impl CoreWorld {
         let mut signal_state = SignalRuntimeState::default();
         signals.populate_runtime_state(0, &mut signal_state);
         let command_spatial_index = CommandSpatialIndex::new(&lane_graph, &vehicle_profiles);
+        let parking_runtime = ParkingRuntimeState::new(&parking);
         let mut world = Self {
             fixed_delta_time_ms,
             tick_index: 0,
@@ -372,6 +384,7 @@ impl CoreWorld {
             vehicle_profiles,
             signals,
             parking,
+            parking_runtime,
             signal_state,
             signal_candidate_scratch: SignalRuntimeScratch::default(),
             routes: Vec::new(),
@@ -455,6 +468,750 @@ impl CoreWorld {
     /// 返回 immutable Parking registry。
     pub const fn parking(&self) -> &ParkingRegistry {
         &self.parking
+    }
+
+    /// 返回借用当前 committed world 的 immutable Parking snapshot。
+    pub const fn parking_snapshot(&self) -> ParkingSnapshot<'_> {
+        ParkingSnapshot::new(self)
+    }
+
+    /// 为 live Active vehicle 预订 caller-selected ParkingSpace。
+    pub fn reserve_parking_space(
+        &mut self,
+        vehicle: VehicleHandle,
+        space: crate::ParkingSpaceHandle,
+    ) -> Result<ParkingReservationRecord, CoreError> {
+        let vehicle_state = self
+            .vehicle(vehicle)
+            .ok_or(CoreError::UnknownVehicleHandle { vehicle })?;
+        let status = vehicle_state.status;
+        if self.parking.space(space).is_none() {
+            return Err(CoreError::UnknownParkingSpaceHandle { space });
+        }
+
+        let binding = self.parking_runtime.vehicle_binding(vehicle);
+        let space_state = self
+            .parking_runtime
+            .space_state(space)
+            .expect("resolved ParkingSpace must have runtime state");
+        if matches!(
+            binding,
+            Some(RuntimeVehicleParkingBinding::Reserved {
+                space: current,
+                ..
+            }) if current == space
+        ) && space_state == (ParkingSpaceState::Reserved { vehicle })
+        {
+            return Ok(ParkingReservationRecord {
+                vehicle,
+                space,
+                effect: ParkingCommandEffect::AlreadySatisfied,
+            });
+        }
+        if status != VehicleStatus::Active {
+            return Err(CoreError::ParkingVehicleStatusMismatch {
+                command: ParkingCommandKind::Reserve,
+                vehicle,
+                expected: VehicleStatus::Active,
+                actual: status,
+            });
+        }
+        if let Some(binding) = binding {
+            return Err(CoreError::ParkingVehicleAlreadyBound {
+                command: ParkingCommandKind::Reserve,
+                vehicle,
+                requested_space: space,
+                current_space: binding.space(),
+                binding: binding.kind(),
+            });
+        }
+        match space_state {
+            ParkingSpaceState::Vacant => {}
+            ParkingSpaceState::Reserved {
+                vehicle: current_vehicle,
+            } => {
+                return Err(CoreError::ParkingSpaceUnavailable {
+                    command: ParkingCommandKind::Reserve,
+                    space,
+                    requested_vehicle: vehicle,
+                    current_vehicle,
+                    binding: ParkingBindingKind::Reserved,
+                });
+            }
+            ParkingSpaceState::Occupied {
+                vehicle: current_vehicle,
+            } => {
+                return Err(CoreError::ParkingSpaceUnavailable {
+                    command: ParkingCommandKind::Reserve,
+                    space,
+                    requested_vehicle: vehicle,
+                    current_vehicle,
+                    binding: ParkingBindingKind::Occupied,
+                });
+            }
+        }
+
+        let target = self.first_reachable_parking_entry(
+            vehicle_state.route,
+            vehicle_state.route_edge_index,
+            vehicle_state.edge_progress.value(),
+            space,
+        );
+        self.parking_runtime
+            .reserve(&self.parking, vehicle, space, target);
+        Ok(ParkingReservationRecord {
+            vehicle,
+            space,
+            effect: ParkingCommandEffect::Applied,
+        })
+    }
+
+    /// 只取消 exact Reserved pair；不会强制释放其他 owner。
+    pub fn cancel_parking_reservation(
+        &mut self,
+        vehicle: VehicleHandle,
+        space: crate::ParkingSpaceHandle,
+    ) -> Result<ParkingReservationCancellationRecord, CoreError> {
+        self.vehicle(vehicle)
+            .ok_or(CoreError::UnknownVehicleHandle { vehicle })?;
+        if self.parking.space(space).is_none() {
+            return Err(CoreError::UnknownParkingSpaceHandle { space });
+        }
+        let binding = self.parking_runtime.vehicle_binding(vehicle);
+        let space_state = self
+            .parking_runtime
+            .space_state(space)
+            .expect("resolved ParkingSpace must have runtime state");
+        if matches!(
+            binding,
+            Some(RuntimeVehicleParkingBinding::Reserved {
+                space: current,
+                ..
+            }) if current == space
+        ) && space_state == (ParkingSpaceState::Reserved { vehicle })
+        {
+            self.parking_runtime.cancel(&self.parking, vehicle, space);
+            return Ok(ParkingReservationCancellationRecord {
+                vehicle,
+                space,
+                effect: ParkingCommandEffect::Applied,
+            });
+        }
+        if binding.is_none() && space_state == ParkingSpaceState::Vacant {
+            return Ok(ParkingReservationCancellationRecord {
+                vehicle,
+                space,
+                effect: ParkingCommandEffect::AlreadySatisfied,
+            });
+        }
+        Err(CoreError::ParkingReservationMismatch {
+            command: ParkingCommandKind::CancelReservation,
+            vehicle,
+            space,
+        })
+    }
+
+    /// 把 exact Arrived reservation 原子提交为 Occupied + Parked。
+    pub fn commit_parking(
+        &mut self,
+        vehicle: VehicleHandle,
+        space: crate::ParkingSpaceHandle,
+    ) -> Result<ParkingCommitRecord, CoreError> {
+        let state = self
+            .vehicle(vehicle)
+            .ok_or(CoreError::UnknownVehicleHandle { vehicle })?;
+        let status = state.status;
+        if self.parking.space(space).is_none() {
+            return Err(CoreError::UnknownParkingSpaceHandle { space });
+        }
+        let binding = self.parking_runtime.vehicle_binding(vehicle);
+        let space_state = self
+            .parking_runtime
+            .space_state(space)
+            .expect("resolved ParkingSpace must have runtime state");
+        if status == VehicleStatus::Parked
+            && matches!(
+                binding,
+                Some(RuntimeVehicleParkingBinding::Occupied {
+                    space: current,
+                    ..
+                }) if current == space
+            )
+            && space_state == (ParkingSpaceState::Occupied { vehicle })
+        {
+            return Ok(ParkingCommitRecord {
+                vehicle,
+                space,
+                effect: ParkingCommandEffect::AlreadySatisfied,
+            });
+        }
+        if status != VehicleStatus::Active {
+            return Err(CoreError::ParkingVehicleStatusMismatch {
+                command: ParkingCommandKind::Commit,
+                vehicle,
+                expected: VehicleStatus::Active,
+                actual: status,
+            });
+        }
+        let target = match binding {
+            Some(RuntimeVehicleParkingBinding::Reserved {
+                space: current,
+                target,
+                ..
+            }) if current == space && space_state == (ParkingSpaceState::Reserved { vehicle }) => {
+                target
+            }
+            _ => {
+                return Err(CoreError::ParkingReservationMismatch {
+                    command: ParkingCommandKind::Commit,
+                    vehicle,
+                    space,
+                });
+            }
+        };
+        if !self.parking_arrived(vehicle, space, target) {
+            return Err(CoreError::ParkingVehicleNotArrived { vehicle, space });
+        }
+
+        let edge = self.vehicle_edge(state);
+        let occupant = CommandOccupant {
+            vehicle,
+            front_progress: state.edge_progress.value(),
+        };
+        let mut spatial = std::mem::take(&mut self.command_spatial_index);
+        let vehicles = &self.vehicles;
+        let mut resolve_progress = |candidate: VehicleHandle| {
+            vehicles[candidate.index()]
+                .state
+                .as_ref()
+                .expect("command spatial occupant must be live")
+                .edge_progress
+                .value()
+        };
+        spatial.remove(edge, occupant, &mut resolve_progress);
+        self.command_spatial_index = spatial;
+
+        let entry = self
+            .parking
+            .space_entry(space)
+            .expect("resolved ParkingSpace must have entry");
+        let state = self.vehicles[vehicle.index()]
+            .state
+            .as_mut()
+            .expect("resolved vehicle must remain live");
+        state.edge_progress = EdgeProgress::try_new(entry.progress()).expect("entry is canonical");
+        state.current_speed = Speed::ZERO;
+        state.applied_acceleration = Acceleration::ZERO;
+        state.status = VehicleStatus::Parked;
+        self.parking_runtime.commit(&self.parking, vehicle, space);
+        Ok(ParkingCommitRecord {
+            vehicle,
+            space,
+            effect: ParkingCommandEffect::Applied,
+        })
+    }
+
+    /// 原子创建 off-lane Parked vehicle 与 Occupied binding。
+    pub fn spawn_parked_vehicle(
+        &mut self,
+        input: ParkedVehicleSpawnInput,
+    ) -> Result<ParkedVehicleSpawnRecord, CoreError> {
+        validate_external_id("vehicles[].id", &input.id)?;
+        validate_external_id("vehicles[].routeId", &input.route_id)?;
+        if self.vehicle_handles.contains_key(&input.id) {
+            return Err(CoreError::DuplicateVehicleId {
+                vehicle_id: input.id,
+            });
+        }
+        if self.vehicle_profile(input.profile).is_none() {
+            return Err(CoreError::UnknownVehicleProfileHandle {
+                vehicle_id: input.id,
+                profile: input.profile,
+            });
+        }
+        let route =
+            self.route_handle(&input.route_id)
+                .ok_or_else(|| CoreError::UnknownVehicleRoute {
+                    vehicle_id: input.id.clone(),
+                    route_id: input.route_id.clone(),
+                })?;
+        if self.parking.space(input.space).is_none() {
+            return Err(CoreError::UnknownParkingSpaceHandle { space: input.space });
+        }
+
+        let planned_slot_index = self
+            .free_vehicle_indices
+            .last()
+            .copied()
+            .unwrap_or(self.vehicles.len());
+        let planned_generation = self
+            .vehicles
+            .get(planned_slot_index)
+            .map_or(0, |slot| slot.generation);
+        let handle = VehicleHandle::new(planned_slot_index, planned_generation);
+        match self
+            .parking_runtime
+            .space_state(input.space)
+            .expect("resolved ParkingSpace must have runtime state")
+        {
+            ParkingSpaceState::Vacant => {}
+            ParkingSpaceState::Reserved { vehicle } => {
+                return Err(CoreError::ParkingSpaceUnavailable {
+                    command: ParkingCommandKind::SpawnParkedVehicle,
+                    space: input.space,
+                    requested_vehicle: handle,
+                    current_vehicle: vehicle,
+                    binding: ParkingBindingKind::Reserved,
+                });
+            }
+            ParkingSpaceState::Occupied { vehicle } => {
+                return Err(CoreError::ParkingSpaceUnavailable {
+                    command: ParkingCommandKind::SpawnParkedVehicle,
+                    space: input.space,
+                    requested_vehicle: handle,
+                    current_vehicle: vehicle,
+                    binding: ParkingBindingKind::Occupied,
+                });
+            }
+        }
+        let route_slot = self
+            .route_slot(route)
+            .expect("resolved route handle must remain active");
+        let Some(actual_edge) = route_slot.edge_handles.get(input.route_edge_index).copied() else {
+            return Err(CoreError::InvalidParkingRouteOccurrence {
+                command: ParkingCommandKind::SpawnParkedVehicle,
+                vehicle: handle,
+                route,
+                route_edge_index: input.route_edge_index,
+                route_edge_count: route_slot.edge_handles.len(),
+            });
+        };
+        let entry = self
+            .parking
+            .space_entry(input.space)
+            .expect("resolved ParkingSpace must have entry");
+        if actual_edge != entry.edge() {
+            return Err(CoreError::ParkingRouteOccurrenceEdgeMismatch {
+                command: ParkingCommandKind::SpawnParkedVehicle,
+                space: input.space,
+                anchor: crate::ParkingAnchorKind::Entry,
+                route,
+                route_edge_index: input.route_edge_index,
+                expected_edge: entry.edge(),
+                actual_edge,
+            });
+        }
+
+        self.vehicle_handles.reserve(1);
+        self.vehicle_update_order.reserve_for_append();
+        if planned_slot_index == self.vehicles.len() {
+            self.vehicles.reserve(1);
+        }
+        self.route_reference_indices[route.index()].reserve_for_attach();
+        self.parking_runtime
+            .prepare_vehicle_slot(planned_slot_index);
+        self.candidate_state_scratch.reserve_for_slots(
+            self.vehicles.len() + usize::from(planned_slot_index == self.vehicles.len()),
+        );
+
+        let external_id = input.id;
+        let resolver_id = external_id.clone();
+        let update_order_position = self.vehicle_update_order.append(handle);
+        let state = VehicleState::new(
+            handle,
+            input.profile,
+            route,
+            input.route_edge_index,
+            EdgeProgress::try_new(entry.progress()).expect("entry progress is canonical"),
+            Speed::ZERO,
+            VehicleStatus::Parked,
+        );
+        let slot = VehicleSlot {
+            generation: planned_generation,
+            external_id,
+            state: Some(state),
+            update_order_position: Some(update_order_position),
+        };
+        if planned_slot_index < self.vehicles.len() {
+            let popped = self
+                .free_vehicle_indices
+                .pop()
+                .expect("planned reusable vehicle slot must remain available");
+            assert_eq!(popped, planned_slot_index);
+            self.vehicles[planned_slot_index] = slot;
+        } else {
+            self.vehicles.push(slot);
+        }
+        self.vehicle_handles.insert(resolver_id, handle);
+        self.route_reference_indices[route.index()].attach(route, handle, update_order_position);
+        self.parking_runtime
+            .occupy_new(&self.parking, handle, input.space);
+        self.compact_update_order_if_needed();
+        Ok(ParkedVehicleSpawnRecord {
+            vehicle: handle,
+            space: input.space,
+            route,
+            route_edge_index: input.route_edge_index,
+        })
+    }
+
+    /// 在不 teleport 的前提下替换 exact Reserved Active vehicle 的 route occurrence。
+    pub fn rebind_reserved_vehicle_route(
+        &mut self,
+        input: RebindReservedVehicleRouteInput,
+    ) -> Result<ReservedVehicleRouteRebindRecord, CoreError> {
+        let state = self
+            .vehicle(input.vehicle)
+            .ok_or(CoreError::UnknownVehicleHandle {
+                vehicle: input.vehicle,
+            })?;
+        let status = state.status;
+        let from_route = state.route;
+        let from_route_edge_index = state.route_edge_index;
+        let current_progress = state.edge_progress;
+        let profile = state.profile;
+        if self.parking.space(input.space).is_none() {
+            return Err(CoreError::UnknownParkingSpaceHandle { space: input.space });
+        }
+        let route_slot = self
+            .route_slot(input.route)
+            .ok_or(CoreError::UnknownRouteHandle { route: input.route })?;
+        let Some(target_edge) = route_slot.edge_handles.get(input.route_edge_index).copied() else {
+            return Err(CoreError::InvalidParkingRouteOccurrence {
+                command: ParkingCommandKind::RebindReservedVehicleRoute,
+                vehicle: input.vehicle,
+                route: input.route,
+                route_edge_index: input.route_edge_index,
+                route_edge_count: route_slot.edge_handles.len(),
+            });
+        };
+        if status != VehicleStatus::Active {
+            return Err(CoreError::ParkingVehicleStatusMismatch {
+                command: ParkingCommandKind::RebindReservedVehicleRoute,
+                vehicle: input.vehicle,
+                expected: VehicleStatus::Active,
+                actual: status,
+            });
+        }
+        let exact_reservation = matches!(
+            self.parking_runtime.vehicle_binding(input.vehicle),
+            Some(RuntimeVehicleParkingBinding::Reserved { space, .. })
+                if space == input.space
+        ) && self.parking_runtime.space_state(input.space)
+            == Some(ParkingSpaceState::Reserved {
+                vehicle: input.vehicle,
+            });
+        if !exact_reservation {
+            return Err(CoreError::ParkingReservationMismatch {
+                command: ParkingCommandKind::RebindReservedVehicleRoute,
+                vehicle: input.vehicle,
+                space: input.space,
+            });
+        }
+        if from_route == input.route && from_route_edge_index == input.route_edge_index {
+            return Ok(ReservedVehicleRouteRebindRecord {
+                vehicle: input.vehicle,
+                space: input.space,
+                from_route,
+                from_route_edge_index,
+                to_route: input.route,
+                to_route_edge_index: input.route_edge_index,
+                effect: ParkingCommandEffect::AlreadySatisfied,
+            });
+        }
+
+        let current_edge = self
+            .routes
+            .get(from_route.index())
+            .and_then(|route| route.edge_handles.get(from_route_edge_index))
+            .copied()
+            .expect("live vehicle occurrence must remain valid");
+        if target_edge != current_edge {
+            return Err(CoreError::ParkingRouteRebindEdgeMismatch {
+                vehicle: input.vehicle,
+                space: input.space,
+                route: input.route,
+                route_edge_index: input.route_edge_index,
+                current_edge,
+                target_edge,
+            });
+        }
+        let target = self
+            .first_reachable_parking_entry(
+                input.route,
+                input.route_edge_index,
+                current_progress.value(),
+                input.space,
+            )
+            .ok_or(CoreError::ParkingEntryUnreachable {
+                vehicle: input.vehicle,
+                space: input.space,
+                route: input.route,
+                from_route_edge_index: input.route_edge_index,
+            })?;
+        let candidate = NormalizedVehicleInput {
+            profile,
+            route_edge_index: input.route_edge_index,
+            edge_progress: current_progress,
+            current_speed: state.current_speed,
+            status: VehicleStatus::Active,
+        };
+        self.validate_candidate_overlap_excluding(input.vehicle, input.route, &candidate)?;
+
+        let update_order_position = self.vehicles[input.vehicle.index()]
+            .update_order_position
+            .expect("live vehicle must have update order");
+        if from_route != input.route {
+            self.route_reference_indices[input.route.index()].reserve_for_attach();
+        }
+        let state = self.vehicles[input.vehicle.index()]
+            .state
+            .as_mut()
+            .expect("resolved vehicle must remain live");
+        state.route = input.route;
+        state.route_edge_index = input.route_edge_index;
+        if from_route != input.route {
+            self.route_reference_indices[from_route.index()].detach();
+            self.route_reference_indices[input.route.index()].attach(
+                input.route,
+                input.vehicle,
+                update_order_position,
+            );
+        }
+        self.parking_runtime.rebind_target(input.vehicle, target);
+        Ok(ReservedVehicleRouteRebindRecord {
+            vehicle: input.vehicle,
+            space: input.space,
+            from_route,
+            from_route_edge_index,
+            to_route: input.route,
+            to_route_edge_index: input.route_edge_index,
+            effect: ParkingCommandEffect::Applied,
+        })
+    }
+
+    /// 把 exact Occupied/Parked pair 安全插入 caller-selected exit occurrence。
+    pub fn leave_parking(
+        &mut self,
+        input: LeaveParkingInput,
+    ) -> Result<ParkingLeaveRecord, CoreError> {
+        let state = self
+            .vehicle(input.vehicle)
+            .ok_or(CoreError::UnknownVehicleHandle {
+                vehicle: input.vehicle,
+            })?;
+        let status = state.status;
+        let from_route = state.route;
+        let profile = state.profile;
+        if self.parking.space(input.space).is_none() {
+            return Err(CoreError::UnknownParkingSpaceHandle { space: input.space });
+        }
+        let route_slot = self
+            .route_slot(input.route)
+            .ok_or(CoreError::UnknownRouteHandle { route: input.route })?;
+        let Some(actual_edge) = route_slot.edge_handles.get(input.route_edge_index).copied() else {
+            return Err(CoreError::InvalidParkingRouteOccurrence {
+                command: ParkingCommandKind::Leave,
+                vehicle: input.vehicle,
+                route: input.route,
+                route_edge_index: input.route_edge_index,
+                route_edge_count: route_slot.edge_handles.len(),
+            });
+        };
+        let exit = self
+            .parking
+            .space_exit(input.space)
+            .expect("resolved ParkingSpace must have exit");
+        if actual_edge != exit.edge() {
+            return Err(CoreError::ParkingRouteOccurrenceEdgeMismatch {
+                command: ParkingCommandKind::Leave,
+                space: input.space,
+                anchor: crate::ParkingAnchorKind::Exit,
+                route: input.route,
+                route_edge_index: input.route_edge_index,
+                expected_edge: exit.edge(),
+                actual_edge,
+            });
+        }
+
+        let binding = self.parking_runtime.vehicle_binding(input.vehicle);
+        let space_state = self
+            .parking_runtime
+            .space_state(input.space)
+            .expect("resolved ParkingSpace must have runtime state");
+        let exact_noop = status == VehicleStatus::Active
+            && binding.is_none()
+            && space_state == ParkingSpaceState::Vacant
+            && state.route == input.route
+            && state.route_edge_index == input.route_edge_index
+            && state.edge_progress.value() == exit.progress()
+            && state.current_speed == Speed::ZERO
+            && state.applied_acceleration == Acceleration::ZERO;
+        if exact_noop {
+            return Ok(ParkingLeaveRecord {
+                vehicle: input.vehicle,
+                space: input.space,
+                route: input.route,
+                route_edge_index: input.route_edge_index,
+                effect: ParkingCommandEffect::AlreadySatisfied,
+            });
+        }
+        if status != VehicleStatus::Parked {
+            return Err(CoreError::ParkingVehicleStatusMismatch {
+                command: ParkingCommandKind::Leave,
+                vehicle: input.vehicle,
+                expected: VehicleStatus::Parked,
+                actual: status,
+            });
+        }
+        let exact_occupancy = matches!(
+            binding,
+            Some(RuntimeVehicleParkingBinding::Occupied { space, .. })
+                if space == input.space
+        ) && space_state
+            == (ParkingSpaceState::Occupied {
+                vehicle: input.vehicle,
+            });
+        if !exact_occupancy {
+            return Err(CoreError::ParkingOccupancyMismatch {
+                command: ParkingCommandKind::Leave,
+                vehicle: input.vehicle,
+                space: input.space,
+            });
+        }
+
+        let candidate = NormalizedVehicleInput {
+            profile,
+            route_edge_index: input.route_edge_index,
+            edge_progress: EdgeProgress::try_new(exit.progress()).expect("exit is canonical"),
+            current_speed: Speed::ZERO,
+            status: VehicleStatus::Active,
+        };
+        self.validate_candidate_overlap_excluding(input.vehicle, input.route, &candidate)?;
+        self.validate_parking_leave_followers(
+            input.vehicle,
+            input.space,
+            input.route,
+            input.route_edge_index,
+            &candidate,
+        )?;
+
+        let update_order_position = self.vehicles[input.vehicle.index()]
+            .update_order_position
+            .expect("live vehicle must have update order");
+        if from_route != input.route {
+            self.route_reference_indices[input.route.index()].reserve_for_attach();
+        }
+        let occupant = CommandOccupant {
+            vehicle: input.vehicle,
+            front_progress: exit.progress(),
+        };
+        let mut spatial = std::mem::take(&mut self.command_spatial_index);
+        let vehicles = &self.vehicles;
+        let mut resolve_progress = |handle: VehicleHandle| {
+            vehicles[handle.index()]
+                .state
+                .as_ref()
+                .expect("command spatial occupant must be live")
+                .edge_progress
+                .value()
+        };
+        spatial.prepare_insert(exit.edge(), occupant, &mut resolve_progress);
+
+        let state = self.vehicles[input.vehicle.index()]
+            .state
+            .as_mut()
+            .expect("resolved vehicle must remain live");
+        state.route = input.route;
+        state.route_edge_index = input.route_edge_index;
+        state.edge_progress = candidate.edge_progress;
+        state.current_speed = Speed::ZERO;
+        state.applied_acceleration = Acceleration::ZERO;
+        state.status = VehicleStatus::Active;
+        if from_route != input.route {
+            self.route_reference_indices[from_route.index()].detach();
+            self.route_reference_indices[input.route.index()].attach(
+                input.route,
+                input.vehicle,
+                update_order_position,
+            );
+        }
+        let released = self.parking_runtime.release(&self.parking, input.vehicle);
+        assert_eq!(released, Some((input.space, ParkingBindingKind::Occupied)));
+        let vehicles = &self.vehicles;
+        let mut resolve_progress = |handle: VehicleHandle| {
+            vehicles[handle.index()]
+                .state
+                .as_ref()
+                .expect("command spatial occupant must be live")
+                .edge_progress
+                .value()
+        };
+        spatial.insert(exit.edge(), occupant, &mut resolve_progress);
+        self.command_spatial_index = spatial;
+        Ok(ParkingLeaveRecord {
+            vehicle: input.vehicle,
+            space: input.space,
+            route: input.route,
+            route_edge_index: input.route_edge_index,
+            effect: ParkingCommandEffect::Applied,
+        })
+    }
+
+    fn first_reachable_parking_entry(
+        &self,
+        route: RouteHandle,
+        from_route_edge_index: usize,
+        from_progress: f64,
+        space: crate::ParkingSpaceHandle,
+    ) -> Option<ParkingApproachTarget> {
+        let entry = self
+            .parking
+            .space_entry(space)
+            .expect("resolved ParkingSpace must have entry");
+        let route_slot = self
+            .route_slot(route)
+            .expect("live vehicle route must remain active");
+        let current_matches = route_slot.edge_handles[from_route_edge_index] == entry.edge()
+            && entry.progress() + EDGE_BOUNDARY_EPSILON >= from_progress;
+        let route_edge_index = if current_matches {
+            from_route_edge_index
+        } else {
+            route_slot
+                .edge_handles
+                .iter()
+                .copied()
+                .enumerate()
+                .skip(from_route_edge_index + 1)
+                .find_map(|(index, edge)| (edge == entry.edge()).then_some(index))?
+        };
+        Some(ParkingApproachTarget {
+            route,
+            route_edge_index,
+        })
+    }
+
+    fn parking_arrived(
+        &self,
+        vehicle: VehicleHandle,
+        space: crate::ParkingSpaceHandle,
+        target: Option<ParkingApproachTarget>,
+    ) -> bool {
+        let Some(target) = target else {
+            return false;
+        };
+        let Some(state) = self.vehicle(vehicle) else {
+            return false;
+        };
+        let entry = self
+            .parking
+            .space_entry(space)
+            .expect("resolved ParkingSpace must have entry");
+        state.status == VehicleStatus::Active
+            && state.route == target.route
+            && state.route_edge_index == target.route_edge_index
+            && (state.edge_progress.value() - entry.progress()).abs() <= EDGE_BOUNDARY_EPSILON
+            && state.current_speed == Speed::ZERO
     }
 
     /// 返回当前已提交的 controller snapshot。
@@ -733,6 +1490,11 @@ impl CoreWorld {
                     vehicle_id: input.id.clone(),
                     route_id: input.route_id.clone(),
                 })?;
+        if input.status == VehicleStatus::Parked {
+            return Err(CoreError::ParkedVehicleRequiresParkingCommand {
+                vehicle_id: input.id,
+            });
+        }
         let normalized = self.normalize_vehicle_input(route, &input)?;
         if validate_overlap {
             self.validate_candidate_overlap(route, &input.id, &normalized)?;
@@ -748,6 +1510,8 @@ impl CoreWorld {
             .get(planned_slot_index)
             .map_or(0, |slot| slot.generation);
         let handle = VehicleHandle::new(planned_slot_index, planned_generation);
+        self.parking_runtime
+            .prepare_vehicle_slot(planned_slot_index);
         let spatial_occupant = matches!(
             normalized.status,
             VehicleStatus::Active | VehicleStatus::Stopped
@@ -813,6 +1577,7 @@ impl CoreWorld {
         }
 
         self.vehicle_handles.insert(resolver_id, handle);
+        self.parking_runtime.register_unbound_vehicle(handle);
         self.route_reference_indices[route.index()].attach(route, handle, update_order_position);
         if let Some((edge, occupant)) = spatial_occupant {
             let vehicles = &self.vehicles;
@@ -826,6 +1591,10 @@ impl CoreWorld {
             };
             self.command_spatial_index
                 .insert(edge, occupant, &mut resolve_progress);
+        }
+        if normalized.status == VehicleStatus::Active {
+            self.command_spatial_index
+                .note_vehicle_speed(normalized.current_speed.value());
         }
         self.compact_update_order_if_needed();
         Ok(handle)
@@ -850,6 +1619,27 @@ impl CoreWorld {
         let profile = state.profile;
         let route = state.route;
         let status = state.status;
+        let parking_binding = self.parking_runtime.vehicle_binding(handle);
+        let parking_binding_valid = match (status, parking_binding) {
+            (VehicleStatus::Parked, Some(RuntimeVehicleParkingBinding::Occupied { space, .. })) => {
+                self.parking_runtime.space_state(space)
+                    == Some(ParkingSpaceState::Occupied { vehicle: handle })
+            }
+            (VehicleStatus::Parked, _) => false,
+            (VehicleStatus::Active, Some(RuntimeVehicleParkingBinding::Reserved { space, .. })) => {
+                self.parking_runtime.space_state(space)
+                    == Some(ParkingSpaceState::Reserved { vehicle: handle })
+            }
+            (_, Some(_)) => false,
+            (_, None) => true,
+        };
+        if !parking_binding_valid {
+            return Err(CoreError::ParkingBindingInvariantViolation {
+                stage: "despawn",
+                vehicle: Some(handle),
+                space: parking_binding.map(RuntimeVehicleParkingBinding::space),
+            });
+        }
         let spatial_occupant = matches!(status, VehicleStatus::Active | VehicleStatus::Stopped)
             .then(|| {
                 (
@@ -878,6 +1668,15 @@ impl CoreWorld {
                 .remove(edge, occupant, &mut resolve_progress);
         }
 
+        let parking_release =
+            self.parking_runtime
+                .release(&self.parking, handle)
+                .map(|(space, previous_binding)| ParkingReleaseRecord {
+                    vehicle: handle,
+                    space,
+                    previous_binding,
+                    reason: ParkingReleaseReason::VehicleDespawn,
+                });
         let slot = &mut self.vehicles[handle.index()];
         slot.state
             .take()
@@ -906,6 +1705,7 @@ impl CoreWorld {
             profile,
             route,
             status,
+            parking_release,
         })
     }
 
@@ -1050,6 +1850,10 @@ impl CoreWorld {
         expected_spatial.sort_unstable_by(compare);
         actual_spatial.sort_unstable_by(compare);
         assert_eq!(actual_spatial, expected_spatial);
+        self.parking_runtime
+            .assert_consistent(&self.parking, |vehicle| {
+                self.vehicle(vehicle).map(|state| state.status)
+            });
     }
 
     #[cfg(test)]
@@ -1135,6 +1939,7 @@ impl CoreWorld {
                 + vehicle_bytes
                 + resolver_bytes
                 + lifecycle_scratch_bytes
+                + self.parking_runtime.retained_bytes()
                 + self.command_spatial_index.retained_bytes(),
             live_vehicles: self.vehicles().count(),
             route_occurrences,
@@ -1166,6 +1971,11 @@ impl CoreWorld {
             .checked_add(self.fixed_delta_time_ms)
             .ok_or(CoreError::TimeOverflow)?;
 
+        self.parking_runtime.validate_step_sentinel(&self.parking)?;
+        if self.parking_runtime.reserved_count() > 0 {
+            return Err(CoreError::ParkingVehicleCapabilityUnavailable);
+        }
+
         let mut signal_candidate_scratch = std::mem::take(&mut self.signal_candidate_scratch);
         self.signals
             .populate_runtime_state(next_time_ms, signal_candidate_scratch.state_mut());
@@ -1190,6 +2000,7 @@ impl CoreWorld {
             fixed_delta_time_ms: self.fixed_delta_time_ms,
             tick_index: next_tick_index,
         };
+        let mut candidate_max_vehicle_speed = 0.0_f64;
         let advance_result = (|| {
             let states = &mut candidate_states.states;
             let spatial_changes = &mut candidate_states.spatial_changes;
@@ -1213,7 +2024,10 @@ impl CoreWorld {
                 };
 
                 let Some(motion) = self.longitudinal_scratch.motion(vehicle_handle) else {
-                    debug_assert_eq!(vehicle.status, VehicleStatus::Completed);
+                    debug_assert!(matches!(
+                        vehicle.status,
+                        VehicleStatus::Completed | VehicleStatus::Parked
+                    ));
                     continue;
                 };
                 Self::advance_vehicle(
@@ -1223,6 +2037,10 @@ impl CoreWorld {
                     &mut events,
                     spatial_changes,
                 )?;
+                if vehicle.status == VehicleStatus::Active {
+                    candidate_max_vehicle_speed =
+                        candidate_max_vehicle_speed.max(vehicle.current_speed.value());
+                }
             }
             Ok(())
         })();
@@ -1240,6 +2058,8 @@ impl CoreWorld {
             &mut events,
         );
         self.sync_changed_command_spatial_memberships(&candidate_states);
+        self.command_spatial_index
+            .set_max_vehicle_speed(candidate_max_vehicle_speed);
         candidate_states.commit_into(&mut self.vehicles);
         std::mem::swap(&mut self.signal_state, signal_candidate_scratch.state_mut());
         self.tick_index = next_tick_index;
@@ -1358,7 +2178,10 @@ impl CoreWorld {
         candidate_id: &str,
         candidate: &NormalizedVehicleInput,
     ) -> Result<(), CoreError> {
-        if candidate.status == VehicleStatus::Completed {
+        if matches!(
+            candidate.status,
+            VehicleStatus::Completed | VehicleStatus::Parked
+        ) {
             return Ok(());
         }
 
@@ -1401,6 +2224,227 @@ impl CoreWorld {
         result
     }
 
+    fn validate_candidate_overlap_excluding(
+        &mut self,
+        excluded: VehicleHandle,
+        route: RouteHandle,
+        candidate: &NormalizedVehicleInput,
+    ) -> Result<(), CoreError> {
+        let candidate_id = self
+            .vehicle_external_id(excluded)
+            .expect("excluded vehicle must be live")
+            .to_owned();
+        let candidate_length = self
+            .vehicle_profile(candidate.profile)
+            .expect("candidate profile must exist")
+            .iidm()
+            .length;
+        let mut spatial = std::mem::take(&mut self.command_spatial_index);
+        let route_edges = &self
+            .route_slot(route)
+            .expect("candidate route must exist")
+            .edge_handles;
+        let mut resolve_progress = |handle| {
+            self.vehicle(handle)
+                .expect("command spatial occupant must be live")
+                .edge_progress
+                .value()
+        };
+        spatial.gather_overlap_candidates(
+            route_edges,
+            candidate.route_edge_index,
+            candidate.edge_progress.value(),
+            candidate_length,
+            self.vehicles.len(),
+            &mut resolve_progress,
+        );
+        spatial.sort_candidates_by_key(|handle| {
+            self.vehicles[handle.index()]
+                .update_order_position
+                .expect("command candidate must be live")
+        });
+        let result = self.validate_candidate_overlap_for_handles(
+            route,
+            &candidate_id,
+            candidate,
+            spatial
+                .candidates()
+                .iter()
+                .copied()
+                .filter(|handle| *handle != excluded),
+        );
+        self.command_spatial_index = spatial;
+        result
+    }
+
+    fn validate_parking_leave_followers(
+        &mut self,
+        leaving_vehicle: VehicleHandle,
+        space: crate::ParkingSpaceHandle,
+        route: RouteHandle,
+        route_edge_index: usize,
+        candidate: &NormalizedVehicleInput,
+    ) -> Result<(), CoreError> {
+        let candidate_edge = self.routes[route.index()].edge_handles[route_edge_index];
+        let candidate_length = self
+            .vehicle_profile(candidate.profile)
+            .expect("candidate profile must exist")
+            .iidm()
+            .length;
+        let emergency_horizon = parking_emergency_travel(
+            "leave_global_emergency_horizon",
+            leaving_vehicle,
+            space,
+            self.command_spatial_index.max_vehicle_speed(),
+            self.command_spatial_index.min_emergency_deceleration(),
+            self.fixed_delta_time_ms as f64 / 1_000.0,
+        )?;
+        let reverse_horizon = if candidate_length > f64::MAX - emergency_horizon {
+            f64::MAX
+        } else {
+            candidate_length + emergency_horizon
+        };
+        let mut spatial = std::mem::take(&mut self.command_spatial_index);
+        let mut resolve_progress = |handle| {
+            self.vehicle(handle)
+                .expect("command spatial occupant must be live")
+                .edge_progress
+                .value()
+        };
+        spatial.gather_direct_follower_candidates(
+            candidate_edge,
+            candidate.edge_progress.value(),
+            reverse_horizon,
+            self.vehicles.len(),
+            &mut resolve_progress,
+        );
+        spatial.sort_candidates_by_key(|handle| {
+            self.vehicles[handle.index()]
+                .update_order_position
+                .expect("command candidate must be live")
+        });
+        let result = self.validate_parking_leave_followers_for_handles(
+            leaving_vehicle,
+            space,
+            candidate_edge,
+            candidate.edge_progress.value(),
+            candidate_length,
+            spatial.candidates(),
+        );
+        self.command_spatial_index = spatial;
+        result
+    }
+
+    fn validate_parking_leave_followers_for_handles(
+        &self,
+        leaving_vehicle: VehicleHandle,
+        space: crate::ParkingSpaceHandle,
+        candidate_edge: EdgeHandle,
+        candidate_progress: f64,
+        candidate_length: f64,
+        handles: &[VehicleHandle],
+    ) -> Result<(), CoreError> {
+        for follower_handle in handles.iter().copied() {
+            if follower_handle == leaving_vehicle {
+                continue;
+            }
+            let follower = self
+                .vehicle(follower_handle)
+                .expect("leave follower candidate must be live");
+            if follower.status != VehicleStatus::Active {
+                continue;
+            }
+            let follower_profile = self
+                .vehicle_profile(follower.profile)
+                .expect("live follower profile must exist")
+                .iidm();
+            let emergency_travel = parking_emergency_travel(
+                "leave_follower_emergency_travel",
+                follower_handle,
+                space,
+                follower.current_speed.value(),
+                follower_profile.emergency_deceleration,
+                self.fixed_delta_time_ms as f64 / 1_000.0,
+            )?;
+            let follower_horizon = if candidate_length > f64::MAX - emergency_travel {
+                f64::MAX
+            } else {
+                candidate_length + emergency_travel
+            };
+            let Some(candidate_front_distance) = self.route_front_distance_within(
+                follower.route,
+                follower.route_edge_index,
+                follower.edge_progress.value(),
+                candidate_edge,
+                candidate_progress,
+                follower_horizon,
+            ) else {
+                continue;
+            };
+
+            let has_intervening_leader = handles.iter().copied().any(|other_handle| {
+                if other_handle == follower_handle || other_handle == leaving_vehicle {
+                    return false;
+                }
+                let Some(other) = self.vehicle(other_handle) else {
+                    return false;
+                };
+                if !matches!(other.status, VehicleStatus::Active | VehicleStatus::Stopped) {
+                    return false;
+                }
+                let other_edge = self.vehicle_edge(other);
+                self.route_front_distance_within(
+                    follower.route,
+                    follower.route_edge_index,
+                    follower.edge_progress.value(),
+                    other_edge,
+                    other.edge_progress.value(),
+                    candidate_front_distance,
+                )
+                .is_some_and(|distance| distance + GEOMETRY_GAP_EPSILON < candidate_front_distance)
+            });
+            if has_intervening_leader {
+                continue;
+            }
+
+            let bumper_gap = candidate_front_distance - candidate_length;
+            if bumper_gap + GEOMETRY_GAP_EPSILON < emergency_travel {
+                return Err(CoreError::ParkingLeaveUnsafeFollower {
+                    vehicle: leaving_vehicle,
+                    space,
+                    follower: follower_handle,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn validate_parking_leave_followers_full_scan(
+        &self,
+        leaving_vehicle: VehicleHandle,
+        space: crate::ParkingSpaceHandle,
+        route: RouteHandle,
+        route_edge_index: usize,
+        candidate: &NormalizedVehicleInput,
+    ) -> Result<(), CoreError> {
+        let candidate_edge = self.routes[route.index()].edge_handles[route_edge_index];
+        let candidate_length = self
+            .vehicle_profile(candidate.profile)
+            .expect("candidate profile must exist")
+            .iidm()
+            .length;
+        let handles = self.vehicle_update_order.iter().collect::<Vec<_>>();
+        self.validate_parking_leave_followers_for_handles(
+            leaving_vehicle,
+            space,
+            candidate_edge,
+            candidate.edge_progress.value(),
+            candidate_length,
+            &handles,
+        )
+    }
+
     #[cfg(test)]
     fn validate_candidate_overlap_full_scan(
         &self,
@@ -1426,7 +2470,10 @@ impl CoreWorld {
     where
         I: IntoIterator<Item = VehicleHandle>,
     {
-        if candidate.status == VehicleStatus::Completed {
+        if matches!(
+            candidate.status,
+            VehicleStatus::Completed | VehicleStatus::Parked
+        ) {
             return Ok(());
         }
 
@@ -1444,7 +2491,10 @@ impl CoreWorld {
             let existing = self
                 .vehicle(handle)
                 .expect("command spatial candidate must be live");
-            if existing.status == VehicleStatus::Completed {
+            if matches!(
+                existing.status,
+                VehicleStatus::Completed | VehicleStatus::Parked
+            ) {
                 continue;
             }
             let existing_edge = self.vehicle_edge(existing);
@@ -1648,7 +2698,7 @@ impl CoreWorld {
                     .expect("vehicle update sequence must fit in u64");
 
                 match vehicle.status {
-                    VehicleStatus::Completed => continue,
+                    VehicleStatus::Completed | VehicleStatus::Parked => continue,
                     VehicleStatus::Stopped => {
                         scratch.set(LongitudinalMotion::stationary(handle, update_sequence));
                     }
@@ -2373,6 +3423,29 @@ struct NormalizedVehicleInput {
     status: VehicleStatus,
 }
 
+fn parking_emergency_travel(
+    stage: &'static str,
+    vehicle: VehicleHandle,
+    space: crate::ParkingSpaceHandle,
+    speed: f64,
+    emergency_deceleration: f64,
+    delta_time: f64,
+) -> Result<f64, CoreError> {
+    emergency_min_travel(vehicle, speed, emergency_deceleration, delta_time).map_err(|error| {
+        match error {
+            CoreError::NonFiniteLongitudinalComputation { value, .. } => {
+                CoreError::NonFiniteParkingComputation {
+                    stage,
+                    vehicle,
+                    space,
+                    value,
+                }
+            }
+            error => error,
+        }
+    })
+}
+
 fn is_less_than_boundary_epsilon(value: f64) -> bool {
     value < EDGE_BOUNDARY_EPSILON
 }
@@ -2385,8 +3458,9 @@ mod occupancy_tests;
 mod tests {
     use super::*;
     use crate::{
-        CoreError, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge, Speed,
-        TickInput, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
+        CoreError, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge,
+        ParkingArea, ParkingSpace, ParkingSpaceGeometry, SignalRegistry, Speed, TickInput,
+        VehicleParkingState, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
     };
     use proptest::prelude::*;
 
@@ -2483,6 +3557,77 @@ mod tests {
             CoreWorld::with_traffic_data(20, traffic_data, vehicles).expect("sparse world"),
             profile,
         )
+    }
+
+    fn parking_runtime_world() -> (CoreWorld, VehicleProfileHandle) {
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(200.0).expect("parking edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("parking graph");
+        let parking = ParkingRegistry::try_new(
+            &lane_graph,
+            [ParkingArea::new("lot")],
+            [
+                ParkingSpace::new(
+                    "S0",
+                    Some("lot".to_owned()),
+                    "A",
+                    20.0,
+                    "A",
+                    40.0,
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
+                ),
+                ParkingSpace::new(
+                    "S1",
+                    Some("lot".to_owned()),
+                    "A",
+                    60.0,
+                    "A",
+                    80.0,
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
+                ),
+            ],
+        )
+        .expect("parking registry");
+        let (base, profile) = traffic_data(
+            lane_graph,
+            [Route::try_new("R", ["A"]).expect("parking route")],
+        );
+        let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+            base.lane_graph().clone(),
+            base.routes().iter().cloned(),
+            base.vehicle_profiles().clone(),
+            SignalRegistry::empty(),
+            parking,
+        )
+        .expect("parking traffic data");
+        let vehicles = vec![
+            VehicleSpawnInput::active("V0", profile, "R", 0, EdgeProgress::ZERO, Speed::ZERO),
+            VehicleSpawnInput::active(
+                "V1",
+                profile,
+                "R",
+                0,
+                EdgeProgress::try_new(120.0).expect("parking progress"),
+                Speed::ZERO,
+            ),
+        ];
+        (
+            CoreWorld::with_traffic_data(20, traffic, vehicles).expect("parking world"),
+            profile,
+        )
+    }
+
+    fn reserved_parking_world() -> CoreWorld {
+        let (mut world, _) = parking_runtime_world();
+        let vehicle = world.vehicle_handle("V0").expect("parking vehicle");
+        let space = world.parking().space_handle("S0").expect("parking space");
+        world
+            .reserve_parking_space(vehicle, space)
+            .expect("parking reservation");
+        world
     }
 
     #[test]
@@ -2657,6 +3802,57 @@ mod tests {
 
         std::assert_matches!(error, CoreError::TimeOverflow);
         assert_eq!(world, before);
+    }
+
+    #[test]
+    fn parking_step_guard_preserves_frozen_error_priority_and_atomicity() {
+        let mut delta_world = reserved_parking_world();
+        let before = delta_world.clone();
+        std::assert_matches!(
+            delta_world.step(TickInput::new(16)),
+            Err(CoreError::TickDeltaMismatch { .. })
+        );
+        assert_eq!(delta_world, before);
+
+        let mut tick_world = reserved_parking_world();
+        tick_world.tick_index = u64::MAX;
+        let before = tick_world.clone();
+        std::assert_matches!(
+            tick_world.step(TickInput::new(20)),
+            Err(CoreError::TimeOverflow)
+        );
+        assert_eq!(tick_world, before);
+
+        let mut time_world = reserved_parking_world();
+        time_world.time_ms = u64::MAX - 10;
+        let before = time_world.clone();
+        std::assert_matches!(
+            time_world.step(TickInput::new(20)),
+            Err(CoreError::TimeOverflow)
+        );
+        assert_eq!(time_world, before);
+
+        let mut integrity_world = reserved_parking_world();
+        integrity_world
+            .parking_runtime
+            .corrupt_global_capacity_for_test();
+        let before = integrity_world.clone();
+        std::assert_matches!(
+            integrity_world.step(TickInput::new(20)),
+            Err(CoreError::ParkingBindingInvariantViolation {
+                stage: "step_sentinel",
+                ..
+            })
+        );
+        assert_eq!(integrity_world, before);
+
+        let mut capability_world = reserved_parking_world();
+        let before = capability_world.clone();
+        std::assert_matches!(
+            capability_world.step(TickInput::new(20)),
+            Err(CoreError::ParkingVehicleCapabilityUnavailable)
+        );
+        assert_eq!(capability_world, before);
     }
 
     #[test]
@@ -2881,6 +4077,191 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn parking_leave_local_follower_query_matches_full_scan_oracle(
+            follower_progress in 0_u8..=100,
+            follower_speed in 0_u8..=20,
+            stopped in any::<bool>(),
+        ) {
+            let (mut world, profile) = parking_runtime_world();
+            for id in ["V0", "V1"] {
+                let vehicle = world.vehicle_handle(id).expect("seed vehicle");
+                world.despawn_vehicle(vehicle).expect("remove seed vehicle");
+            }
+            let space = world.parking().space_handle("S0").expect("space");
+            let route = world.route_handle("R").expect("route");
+            let parked = world
+                .spawn_parked_vehicle(ParkedVehicleSpawnInput {
+                    id: "parked".to_owned(),
+                    profile,
+                    route_id: "R".to_owned(),
+                    route_edge_index: 0,
+                    space,
+                })
+                .expect("parked vehicle")
+                .vehicle;
+            let progress = EdgeProgress::try_new(f64::from(follower_progress)).expect("progress");
+            let follower_input = if stopped {
+                VehicleSpawnInput::stopped("follower", profile, "R", 0, progress)
+            } else {
+                VehicleSpawnInput::active(
+                    "follower",
+                    profile,
+                    "R",
+                    0,
+                    progress,
+                    Speed::try_new(f64::from(follower_speed)).expect("speed"),
+                )
+            };
+            world.spawn_vehicle(follower_input).expect("follower");
+            let candidate = NormalizedVehicleInput {
+                profile,
+                route_edge_index: 0,
+                edge_progress: EdgeProgress::try_new(40.0).expect("exit progress"),
+                current_speed: Speed::ZERO,
+                status: VehicleStatus::Active,
+            };
+            let expected = format!(
+                "{:?}",
+                world.validate_parking_leave_followers_full_scan(
+                    parked,
+                    space,
+                    route,
+                    0,
+                    &candidate,
+                )
+            );
+            let actual = format!(
+                "{:?}",
+                world.validate_parking_leave_followers(parked, space, route, 0, &candidate)
+            );
+
+            prop_assert_eq!(actual, expected);
+            world.assert_lifecycle_indices_consistent();
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn parking_reservation_commands_match_model_and_replay_deterministically(
+            operations in prop::collection::vec(any::<u8>(), 1..=128),
+        ) {
+            let (mut world, _) = parking_runtime_world();
+            let mut replay = world.clone();
+            let vehicles = [
+                world.vehicle_handle("V0").expect("V0"),
+                world.vehicle_handle("V1").expect("V1"),
+            ];
+            let spaces = [
+                world.parking().space_handle("S0").expect("S0"),
+                world.parking().space_handle("S1").expect("S1"),
+            ];
+            let mut vehicle_spaces = [None; 2];
+            let mut space_vehicles = [None; 2];
+
+            for operation in operations {
+                let vehicle_index = usize::from(operation & 1);
+                let space_index = usize::from((operation >> 1) & 1);
+                let vehicle = vehicles[vehicle_index];
+                let space = spaces[space_index];
+                if operation & 4 == 0 {
+                    let actual = world.reserve_parking_space(vehicle, space);
+                    let replayed = replay.reserve_parking_space(vehicle, space);
+                    prop_assert_eq!(format!("{actual:?}"), format!("{replayed:?}"));
+                    if vehicle_spaces[vehicle_index] == Some(space_index) {
+                        prop_assert_eq!(
+                            actual.expect("exact reservation retry").effect,
+                            ParkingCommandEffect::AlreadySatisfied
+                        );
+                    } else if let Some(current_space) = vehicle_spaces[vehicle_index] {
+                        assert!(matches!(
+                            actual,
+                            Err(CoreError::ParkingVehicleAlreadyBound {
+                                current_space: actual_space,
+                                ..
+                            }) if actual_space == spaces[current_space]
+                        ));
+                    } else if let Some(current_vehicle) = space_vehicles[space_index] {
+                        assert!(matches!(
+                            actual,
+                            Err(CoreError::ParkingSpaceUnavailable {
+                                current_vehicle: actual_vehicle,
+                                ..
+                            }) if actual_vehicle == vehicles[current_vehicle]
+                        ));
+                    } else {
+                        prop_assert_eq!(
+                            actual.expect("vacant reservation").effect,
+                            ParkingCommandEffect::Applied
+                        );
+                        vehicle_spaces[vehicle_index] = Some(space_index);
+                        space_vehicles[space_index] = Some(vehicle_index);
+                    }
+                } else {
+                    let actual = world.cancel_parking_reservation(vehicle, space);
+                    let replayed = replay.cancel_parking_reservation(vehicle, space);
+                    prop_assert_eq!(format!("{actual:?}"), format!("{replayed:?}"));
+                    if vehicle_spaces[vehicle_index] == Some(space_index) {
+                        prop_assert_eq!(
+                            actual.expect("exact cancellation").effect,
+                            ParkingCommandEffect::Applied
+                        );
+                        vehicle_spaces[vehicle_index] = None;
+                        space_vehicles[space_index] = None;
+                    } else if vehicle_spaces[vehicle_index].is_none()
+                        && space_vehicles[space_index].is_none()
+                    {
+                        prop_assert_eq!(
+                            actual.expect("vacant cancellation retry").effect,
+                            ParkingCommandEffect::AlreadySatisfied
+                        );
+                    } else {
+                        assert!(matches!(
+                            actual,
+                            Err(CoreError::ParkingReservationMismatch { .. })
+                        ));
+                    }
+                }
+
+                prop_assert_eq!(&world, &replay);
+                let expected_reserved = vehicle_spaces.iter().flatten().count();
+                let counts = world.parking_snapshot().counts();
+                prop_assert_eq!(counts.reserved, expected_reserved);
+                prop_assert_eq!(counts.vacant, spaces.len() - expected_reserved);
+                prop_assert_eq!(counts.occupied, 0);
+                for (space_index, space) in spaces.iter().copied().enumerate() {
+                    let expected = space_vehicles[space_index].map_or(
+                        ParkingSpaceState::Vacant,
+                        |vehicle_index| ParkingSpaceState::Reserved {
+                            vehicle: vehicles[vehicle_index],
+                        },
+                    );
+                    prop_assert_eq!(world.parking_snapshot().space_state(space), Some(expected));
+                }
+                for (vehicle_index, vehicle) in vehicles.iter().copied().enumerate() {
+                    match vehicle_spaces[vehicle_index] {
+                        Some(space_index) => assert!(matches!(
+                            world.parking_snapshot().vehicle_state(vehicle),
+                            Some(VehicleParkingState::Reserved { space, .. })
+                                if space == spaces[space_index]
+                        )),
+                        None => prop_assert_eq!(
+                            world.parking_snapshot().vehicle_state(vehicle),
+                            Some(VehicleParkingState::Unbound)
+                        ),
+                    }
+                }
+                world.assert_lifecycle_indices_consistent();
+                replay.assert_lifecycle_indices_consistent();
+            }
+        }
+    }
+
+    proptest! {
         #![proptest_config(ProptestConfig::with_cases(64))]
 
         #[test]
@@ -3092,6 +4473,98 @@ mod tests {
         assert_eq!(small.1.occupants_visited, 1);
         assert_eq!(small.2, vec![small.3]);
         assert_eq!(large.2, vec![large.3]);
+    }
+
+    #[test]
+    fn parking_leave_follower_query_counts_depend_on_local_k_not_background_v() {
+        let run = |background_count| {
+            let edge_length = 10.0 * background_count as f64 + 2_000.0;
+            let lane_graph = LaneGraph::try_new([LaneEdge::new(
+                "A",
+                EdgeLength::try_new(edge_length).expect("parking scale edge"),
+                Vec::<String>::new(),
+            )])
+            .expect("parking scale graph");
+            let parking = ParkingRegistry::try_new(
+                &lane_graph,
+                [],
+                [ParkingSpace::new(
+                    "S",
+                    None,
+                    "A",
+                    20.0,
+                    "A",
+                    40.0,
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
+                )],
+            )
+            .expect("parking scale registry");
+            let (base, profile) = traffic_data(
+                lane_graph,
+                [Route::try_new("R", ["A"]).expect("parking scale route")],
+            );
+            let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+                base.lane_graph().clone(),
+                base.routes().iter().cloned(),
+                base.vehicle_profiles().clone(),
+                SignalRegistry::empty(),
+                parking,
+            )
+            .expect("parking scale traffic");
+            let mut vehicles = (0..background_count)
+                .map(|index| {
+                    VehicleSpawnInput::active(
+                        format!("B{index:06}"),
+                        profile,
+                        "R",
+                        0,
+                        EdgeProgress::try_new(1_000.0 + 10.0 * index as f64)
+                            .expect("background progress"),
+                        Speed::ZERO,
+                    )
+                })
+                .collect::<Vec<_>>();
+            vehicles.push(VehicleSpawnInput::active(
+                "local",
+                profile,
+                "R",
+                0,
+                EdgeProgress::try_new(35.4).expect("local progress"),
+                Speed::try_new(10.0).expect("local speed"),
+            ));
+            let mut world =
+                CoreWorld::with_traffic_data(20, traffic, vehicles).expect("parking scale world");
+            let space = world.parking().space_handle("S").expect("space");
+            let route = world.route_handle("R").expect("route");
+            let parked = world
+                .spawn_parked_vehicle(ParkedVehicleSpawnInput {
+                    id: "parked".to_owned(),
+                    profile,
+                    route_id: "R".to_owned(),
+                    route_edge_index: 0,
+                    space,
+                })
+                .expect("parked spawn")
+                .vehicle;
+            let candidate = NormalizedVehicleInput {
+                profile,
+                route_edge_index: 0,
+                edge_progress: EdgeProgress::try_new(40.0).expect("exit progress"),
+                current_speed: Speed::ZERO,
+                status: VehicleStatus::Active,
+            };
+            std::assert_matches!(
+                world.validate_parking_leave_followers(parked, space, route, 0, &candidate),
+                Err(CoreError::ParkingLeaveUnsafeFollower { .. })
+            );
+            world.command_spatial_index.query_stats()
+        };
+
+        let small = run(128);
+        let large = run(10_000);
+        assert_eq!(small, large);
+        assert_eq!(small.edge_ranges, 1);
+        assert_eq!(small.occupants_visited, 1);
     }
 
     #[test]
