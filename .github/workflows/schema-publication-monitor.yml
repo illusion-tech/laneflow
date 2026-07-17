@@ -1,0 +1,81 @@
+name: Schema publication monitor
+
+on:
+  workflow_call:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify canonical schema URLs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust MSRV toolchain
+        shell: bash
+        run: rustup toolchain install 1.96.0 --profile minimal
+
+      - name: Build expected publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.96.0 run --locked -p xtask -- check-schema-publication-contract
+          cargo +1.96.0 run --locked -p xtask -- build-schema-publication target/schema-publication-site
+
+      - name: Verify HTTPS, media type, and bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while IFS=$'\t' read -r file_name canonical_url; do
+            expected="target/schema-publication-site/schema/${file_name}"
+            actual="${RUNNER_TEMP}/${file_name}"
+            headers="${RUNNER_TEMP}/${file_name}.headers"
+
+            if [[ "${canonical_url}" != https://* ]]; then
+              echo "Canonical schema URL is not HTTPS: ${canonical_url}" >&2
+              exit 1
+            fi
+
+            http_code="$(curl --proto '=https' --tlsv1.2 --silent --show-error --location \
+              --connect-timeout 15 --max-time 60 \
+              --retry 3 --retry-all-errors --retry-delay 5 \
+              --header 'Accept: application/schema+json, application/json;q=0.9, text/plain;q=0.1' \
+              --dump-header "${headers}" --output "${actual}" --write-out '%{http_code}' \
+              "${canonical_url}")"
+            content_type="$(awk 'BEGIN { IGNORECASE=1 } /^content-type:/ { value=$0 } END { sub(/^[^:]+:[[:space:]]*/, "", value); sub(/\r$/, "", value); print value }' "${headers}")"
+
+            if [[ "${http_code}" != "200" ]]; then
+              echo "Canonical schema URL returned HTTP ${http_code}: ${canonical_url}" >&2
+              exit 1
+            fi
+            case "${content_type}" in
+              application/schema+json*|application/json*) ;;
+              text/plain*)
+                if [[ "${canonical_url}" != https://raw.githubusercontent.com/illusion-tech/laneflow/main/schemas/* ]]; then
+                  echo "Only legacy Raw GitHub schema URLs may use Content-Type '${content_type}': ${canonical_url}" >&2
+                  exit 1
+                fi
+                ;;
+              *)
+                echo "Canonical schema URL returned incompatible Content-Type '${content_type}': ${canonical_url}" >&2
+                exit 1
+                ;;
+            esac
+            if ! cmp --silent "${expected}" "${actual}"; then
+              echo "Canonical schema content drifted: ${canonical_url}" >&2
+              sha256sum "${expected}" "${actual}" >&2
+              echo "Re-run the Schema publication workflow from main after fixing publication.json/source bytes." >&2
+              exit 1
+            fi
+
+            echo "Verified ${canonical_url} (${content_type})"
+          done < <(jq -r '.schemas[] | [.fileName, .canonicalUrl] | @tsv' target/schema-publication-site/schema/index.json)

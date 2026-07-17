@@ -1,7 +1,7 @@
 # 安全扫描基线
 
 **文档状态**: Active  
-**最后更新**: 2026-07-14  
+**最后更新**: 2026-07-17
 **适用范围**: LaneFlow 仓库的 Code Scanning、Secret Scanning、Dependabot 状态审计与公开发布阻断  
 **关联 Issue**: `#88`、`#56`
 
@@ -62,6 +62,12 @@ LaneFlow 使用 GitHub CodeQL default setup：
 源代码许可证、允许的第三方许可证、cargo-deny 配置、Dependabot 更新策略和例外字段以 `dependency-security.md` 为事实源。本文只定义 GitHub 安全能力的实时状态语义及合并/发布阻断；两份文档必须同时满足，不能以一方的空告警替代另一方的门禁。
 
 `#88` 建立 GitHub 扫描基线，`#56` 建立源代码许可证与依赖安全基线；对应长期规则已分别进入本文与 `dependency-security.md`，后续任务不得只引用已关闭 Issue 代替当前文档和实时 API 证据。
+
+### 2.4 Schema publication availability
+
+ADR 0011 把 catalog 中的 JSON Schema `$id` 定义为 public retrieval URL。Schema publication workflow 与 scheduled monitor 负责 HTTP 200、media type、合法 JSON 和 byte equality；失败阻断 #103 G4 或后续受影响 release 的 publication 判断。
+
+该 availability 证据不替代 Code Scanning、Secret Scanning、Dependabot 或 cargo-deny，也不能把这些安全能力的失败解释为 schema hosting 问题。消费者主动下载 schema 时，网络来源、revision/content pin、完整性和输入限制仍由其部署边界负责。
 
 ## 3. 状态语义
 

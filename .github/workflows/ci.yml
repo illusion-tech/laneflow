@@ -58,6 +58,7 @@ jobs:
             "docs/adr/README.md"
             "docs/adr/0001-project-scope.md"
             "docs/adr/0002-dependency-and-licensing-constraints.md"
+            "docs/adr/0011-schema-identifier-and-publication-contract.md"
             "docs/design/README.md"
             "docs/governance/documentation-policy.md"
             "docs/governance/github-workflow.md"
@@ -69,6 +70,10 @@ jobs:
             "docs/reference/commit-convention.md"
             "docs/reference/rust-code-style.md"
             "docs/reference/validation-matrix.md"
+            "schemas/README.md"
+            "schemas/publication.json"
+            ".github/workflows/schema-publication.yml"
+            ".github/workflows/schema-publication-monitor.yml"
             "xtask/Cargo.toml"
             "xtask/src/main.rs"
           )
@@ -105,6 +110,14 @@ jobs:
       - name: Check commit messages
         shell: bash
         run: cargo +1.96.0 run --locked -p xtask -- check-commit-messages
+
+      - name: Check schema publication contract
+        shell: bash
+        run: cargo +1.96.0 run --locked -p xtask -- check-schema-publication-contract
+
+      - name: Build schema publication site
+        shell: bash
+        run: cargo +1.96.0 run --locked -p xtask -- build-schema-publication target/schema-publication-site
   rust:
     name: Rust checks
     runs-on: ubuntu-latest

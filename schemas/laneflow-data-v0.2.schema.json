@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/illusion-tech/laneflow/main/schemas/laneflow-data-v0.2.schema.json",
+  "title": "LaneFlow data package v0.2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "units", "laneGraph", "routes"],
+  "properties": {
+    "formatVersion": {
+      "const": "0.2"
+    },
+    "units": {
+      "$ref": "#/$defs/unitSpec"
+    },
+    "laneGraph": {
+      "$ref": "#/$defs/laneGraph"
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/route"
+      }
+    },
+    "extensions": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "externalId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+    },
+    "unitSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["distance"],
+      "properties": {
+        "distance": {
+          "const": "meter"
+        }
+      }
+    },
+    "laneGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edges"],
+      "properties": {
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/laneEdge"
+          }
+        }
+      }
+    },
+    "laneEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "length", "connections"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        },
+        "length": {
+          "type": "number",
+          "exclusiveMinimum": 1e-9
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/laneConnection"
+          }
+        }
+      }
+    },
+    "laneConnection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["to"],
+      "properties": {
+        "to": {
+          "$ref": "#/$defs/externalId"
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "edges"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        },
+        "edges": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/externalId"
+          }
+        }
+      }
+    }
+  }
+}
