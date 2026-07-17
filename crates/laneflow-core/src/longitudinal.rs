@@ -376,6 +376,14 @@ impl LongitudinalScratch {
         self.parking_stops.capacity() * std::mem::size_of::<SparseParkingStop>()
     }
 
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> usize {
+        self.motions.capacity() * std::mem::size_of::<Option<LongitudinalMotion>>()
+            + self.visit_state.capacity() * std::mem::size_of::<u8>()
+            + self.path.capacity() * std::mem::size_of::<usize>()
+            + self.parking_retained_bytes()
+    }
+
     pub(crate) fn begin(&mut self, vehicle_slot_count: usize) {
         self.motions.clear();
         self.motions.resize(vehicle_slot_count, None);

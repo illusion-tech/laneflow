@@ -29,7 +29,8 @@ use signal_scenarios::{
 };
 use vehicle_scenarios::{
     FIXED_DELTA_TIME_MS, SCALING_VEHICLE_COUNT, STEP_COUNT, VEHICLE_COUNT, dense_platoon_world,
-    free_flow_world, projection_event_count, projection_heavy_world, stop_and_go_world,
+    free_flow_world, locality_dense_platoon_world, locality_free_flow_world,
+    locality_stop_and_go_world, projection_event_count, projection_heavy_world, stop_and_go_world,
     transition_event_count, transition_heavy_world,
 };
 
@@ -140,6 +141,38 @@ fn benchmark_core_step(criterion: &mut Criterion) {
     benchmark_world(&mut group, "dense_platoon", VEHICLE_COUNT, &dense_platoon);
     benchmark_world(&mut group, "stop_and_go", VEHICLE_COUNT, &stop_and_go);
     group.finish();
+
+    let locality_free_flow = locality_free_flow_world(VEHICLE_COUNT);
+    let locality_dense_platoon = locality_dense_platoon_world(VEHICLE_COUNT);
+    let locality_stop_and_go = locality_stop_and_go_world(VEHICLE_COUNT);
+    assert_eq!(run_steps(&mut locality_free_flow.clone()), 0);
+    assert_eq!(run_steps(&mut locality_dense_platoon.clone()), 0);
+    black_box(run_steps(&mut locality_stop_and_go.clone()));
+
+    let mut locality_group = criterion.benchmark_group("vehicle_following_locality_step_10k_60");
+    locality_group.sample_size(20);
+    locality_group.warm_up_time(Duration::from_secs(1));
+    locality_group.measurement_time(Duration::from_secs(5));
+    locality_group.throughput(Throughput::Elements((VEHICLE_COUNT * STEP_COUNT) as u64));
+    benchmark_world(
+        &mut locality_group,
+        "free_flow",
+        VEHICLE_COUNT,
+        &locality_free_flow,
+    );
+    benchmark_world(
+        &mut locality_group,
+        "dense_platoon",
+        VEHICLE_COUNT,
+        &locality_dense_platoon,
+    );
+    benchmark_world(
+        &mut locality_group,
+        "stop_and_go",
+        VEHICLE_COUNT,
+        &locality_stop_and_go,
+    );
+    locality_group.finish();
 
     let mut projection_group = criterion.benchmark_group("vehicle_following_projection_10k_1");
     projection_group.sample_size(20);

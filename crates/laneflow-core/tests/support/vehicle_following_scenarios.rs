@@ -8,6 +8,7 @@ pub const SCALING_VEHICLE_COUNT: usize = 100_000;
 pub const STEP_COUNT: usize = 60;
 pub const FIXED_DELTA_TIME_MS: u64 = 16;
 pub const VEHICLE_LENGTH: f64 = 4.5;
+pub const LOCALITY_EDGE_LENGTH: f64 = 10_000.0;
 
 const MILLISECONDS_PER_SECOND: f64 = 1_000.0;
 const FREE_FLOW_SPACING: f64 = 250.0;
@@ -106,6 +107,67 @@ fn linear_platoon_world(
         .expect("linear scenario world must be valid")
 }
 
+fn locality_preserving_platoon_world(
+    vehicle_count: usize,
+    spacing: f64,
+    initial_speed: f64,
+    desired_speed: f64,
+    stopped_front: bool,
+) -> CoreWorld {
+    let route_length = spacing * vehicle_count as f64 + 1_000.0;
+    let edge_count = (route_length / LOCALITY_EDGE_LENGTH).ceil() as usize;
+    let edge_ids: Vec<_> = (0..edge_count)
+        .map(|index| format!("locality-edge-{index:05}"))
+        .collect();
+    let lane_graph = LaneGraph::try_new(edge_ids.iter().enumerate().map(|(index, edge_id)| {
+        let length = if index + 1 == edge_count {
+            route_length - LOCALITY_EDGE_LENGTH * index as f64
+        } else {
+            LOCALITY_EDGE_LENGTH
+        };
+        LaneEdge::new(
+            edge_id.clone(),
+            edge_length(length),
+            edge_ids.get(index + 1).into_iter().cloned(),
+        )
+    }))
+    .expect("locality-preserving scenario graph must be valid");
+    let route = Route::try_new("locality-platoon-route", edge_ids)
+        .expect("locality-preserving scenario route must be valid");
+    let (profiles, profile) = profile_registry(desired_speed);
+    let traffic_data = InitialTrafficData::try_new(lane_graph, [route], profiles)
+        .expect("locality-preserving scenario traffic data must be valid");
+    let vehicles = (0..vehicle_count)
+        .map(|index| {
+            let route_progress = spacing * index as f64;
+            let route_edge_index = (route_progress / LOCALITY_EDGE_LENGTH).floor() as usize;
+            let edge_progress =
+                progress(route_progress - LOCALITY_EDGE_LENGTH * route_edge_index as f64);
+            if stopped_front && index + 1 == vehicle_count {
+                VehicleSpawnInput::stopped(
+                    vehicle_external_id(index),
+                    profile,
+                    "locality-platoon-route",
+                    route_edge_index,
+                    edge_progress,
+                )
+            } else {
+                VehicleSpawnInput::active(
+                    vehicle_external_id(index),
+                    profile,
+                    "locality-platoon-route",
+                    route_edge_index,
+                    edge_progress,
+                    speed(initial_speed),
+                )
+            }
+        })
+        .collect();
+
+    CoreWorld::with_traffic_data(FIXED_DELTA_TIME_MS, traffic_data, vehicles)
+        .expect("locality-preserving scenario world must be valid")
+}
+
 pub fn free_flow_world(vehicle_count: usize) -> CoreWorld {
     linear_platoon_world(vehicle_count, FREE_FLOW_SPACING, 10.0, 13.9, false)
 }
@@ -116,6 +178,18 @@ pub fn dense_platoon_world(vehicle_count: usize) -> CoreWorld {
 
 pub fn stop_and_go_world(vehicle_count: usize) -> CoreWorld {
     linear_platoon_world(vehicle_count, DENSE_SPACING, 8.0, 13.9, true)
+}
+
+pub fn locality_free_flow_world(vehicle_count: usize) -> CoreWorld {
+    locality_preserving_platoon_world(vehicle_count, FREE_FLOW_SPACING, 10.0, 13.9, false)
+}
+
+pub fn locality_dense_platoon_world(vehicle_count: usize) -> CoreWorld {
+    locality_preserving_platoon_world(vehicle_count, DENSE_SPACING, 1.0, 13.9, false)
+}
+
+pub fn locality_stop_and_go_world(vehicle_count: usize) -> CoreWorld {
+    locality_preserving_platoon_world(vehicle_count, DENSE_SPACING, 8.0, 13.9, true)
 }
 
 pub fn projection_heavy_world(vehicle_count: usize) -> CoreWorld {
