@@ -305,6 +305,10 @@ pub fn parking_six_command_scenario(
 
 pub fn run_six_command_batch(scenario: &mut ParkingSixCommandScenario) -> usize {
     let mut applied = 0;
+    let short_route = scenario
+        .world
+        .route_handle("short")
+        .expect("short route handle");
     for (index, pair) in scenario.pairs.iter().copied().enumerate() {
         let reserved = scenario
             .world
@@ -316,10 +320,6 @@ pub fn run_six_command_batch(scenario: &mut ParkingSixCommandScenario) -> usize 
             .commit_parking(pair.cycle_vehicle, pair.cycle_space)
             .expect("six-command commit");
         applied += usize::from(committed.effect == ParkingCommandEffect::Applied);
-        let short_route = scenario
-            .world
-            .route_handle("short")
-            .expect("short route handle");
         let left = scenario
             .world
             .leave_parking(LeaveParkingInput {
