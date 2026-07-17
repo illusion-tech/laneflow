@@ -1,5 +1,7 @@
 //! Lifecycle command 使用的 non-authoritative physical-edge local index。
 
+use std::{cmp::Ordering, collections::BinaryHeap};
+
 use crate::{EdgeHandle, LaneGraph, VehicleHandle, profile::VehicleProfileRegistry};
 
 const SPATIAL_CHUNK_TARGET: usize = 64;
@@ -31,6 +33,35 @@ fn compare_indexed(
         .total_cmp(&indexed_progress(right, front_progress))
         .then_with(|| left.vehicle.index().cmp(&right.vehicle.index()))
         .then_with(|| left.vehicle.generation().cmp(&right.vehicle.generation()))
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CommandSpeedEntry {
+    speed: f64,
+    vehicle: VehicleHandle,
+}
+
+impl PartialEq for CommandSpeedEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.speed == other.speed && self.vehicle == other.vehicle
+    }
+}
+
+impl Eq for CommandSpeedEntry {}
+
+impl PartialOrd for CommandSpeedEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CommandSpeedEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.speed
+            .total_cmp(&other.speed)
+            .then_with(|| self.vehicle.index().cmp(&other.vehicle.index()))
+            .then_with(|| self.vehicle.generation().cmp(&other.vehicle.generation()))
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -396,6 +427,7 @@ pub(crate) struct CommandSpatialIndex {
     staging: Vec<Vec<CommandOccupant>>,
     front_progress: Vec<f64>,
     membership_edges: Vec<Option<EdgeHandle>>,
+    membership_vehicles: Vec<Option<VehicleHandle>>,
     candidate_marks: Vec<u32>,
     candidate_epoch: u32,
     candidates: Vec<VehicleHandle>,
@@ -403,9 +435,13 @@ pub(crate) struct CommandSpatialIndex {
     reverse_touched: Vec<EdgeHandle>,
     reverse_queue: Vec<(EdgeHandle, f64)>,
     max_vehicle_speed: f64,
+    speed_heap: BinaryHeap<CommandSpeedEntry>,
+    speed_heap_valid: bool,
     min_emergency_deceleration: f64,
     #[cfg(test)]
     query_stats: SpatialQueryStats,
+    #[cfg(test)]
+    speed_heap_rebuilds: usize,
 }
 
 #[cfg(test)]
@@ -457,6 +493,7 @@ impl CommandSpatialIndex {
             staging: vec![Vec::new(); edge_count],
             front_progress: Vec::new(),
             membership_edges: Vec::new(),
+            membership_vehicles: Vec::new(),
             candidate_marks: Vec::new(),
             candidate_epoch: 0,
             candidates: Vec::new(),
@@ -464,9 +501,13 @@ impl CommandSpatialIndex {
             reverse_touched: Vec::with_capacity(edge_count),
             reverse_queue: Vec::with_capacity(edge_count),
             max_vehicle_speed: 0.0,
+            speed_heap: BinaryHeap::new(),
+            speed_heap_valid: false,
             min_emergency_deceleration,
             #[cfg(test)]
             query_stats: SpatialQueryStats::default(),
+            #[cfg(test)]
+            speed_heap_rebuilds: 0,
         }
     }
 
@@ -486,6 +527,8 @@ impl CommandSpatialIndex {
             .reserve((occupant.vehicle.index() + 1).saturating_sub(self.front_progress.len()));
         self.membership_edges
             .reserve((occupant.vehicle.index() + 1).saturating_sub(self.membership_edges.len()));
+        self.membership_vehicles
+            .reserve((occupant.vehicle.index() + 1).saturating_sub(self.membership_vehicles.len()));
         self.buckets[edge.index()].prepare_insert_resolved(occupant, resolve_progress);
     }
 
@@ -507,9 +550,17 @@ impl CommandSpatialIndex {
                 .max(occupant.vehicle.index() + 1),
             None,
         );
+        self.membership_vehicles.resize(
+            self.membership_vehicles
+                .len()
+                .max(occupant.vehicle.index() + 1),
+            None,
+        );
         assert_eq!(self.membership_edges[occupant.vehicle.index()], None);
+        assert_eq!(self.membership_vehicles[occupant.vehicle.index()], None);
         self.front_progress[occupant.vehicle.index()] = occupant.front_progress;
         self.membership_edges[occupant.vehicle.index()] = Some(edge);
+        self.membership_vehicles[occupant.vehicle.index()] = Some(occupant.vehicle);
         self.buckets[edge.index()].insert_resolved(occupant, resolve_progress);
     }
 
@@ -531,6 +582,8 @@ impl CommandSpatialIndex {
             "command spatial occupant must exist"
         );
         self.membership_edges[occupant.vehicle.index()] = None;
+        self.membership_vehicles[occupant.vehicle.index()] = None;
+        self.refresh_max_vehicle_speed();
     }
 
     pub(crate) fn sync_vehicle(
@@ -542,6 +595,10 @@ impl CommandSpatialIndex {
             (Some((old_edge, old)), Some((new_edge, new))) if old_edge == new_edge => {
                 assert_eq!(old.vehicle, new.vehicle);
                 assert_eq!(self.membership_edges[old.vehicle.index()], Some(old_edge));
+                assert_eq!(
+                    self.membership_vehicles[old.vehicle.index()],
+                    Some(old.vehicle)
+                );
             }
             (old_membership, new_membership) => {
                 if let Some((edge, occupant)) = old_membership {
@@ -555,6 +612,7 @@ impl CommandSpatialIndex {
                         "command spatial occupant must exist"
                     );
                     self.membership_edges[occupant.vehicle.index()] = None;
+                    self.membership_vehicles[occupant.vehicle.index()] = None;
                 }
                 if let Some((edge, occupant)) = new_membership {
                     self.candidate_marks.resize(
@@ -564,6 +622,13 @@ impl CommandSpatialIndex {
                     self.buckets[edge.index()].prepare_insert(occupant, &self.front_progress);
                     self.front_progress[occupant.vehicle.index()] = occupant.front_progress;
                     self.membership_edges[occupant.vehicle.index()] = Some(edge);
+                    self.membership_vehicles.resize(
+                        self.membership_vehicles
+                            .len()
+                            .max(occupant.vehicle.index() + 1),
+                        None,
+                    );
+                    self.membership_vehicles[occupant.vehicle.index()] = Some(occupant.vehicle);
                     self.buckets[edge.index()].insert(occupant, &self.front_progress);
                 }
             }
@@ -577,6 +642,9 @@ impl CommandSpatialIndex {
         self.front_progress.resize(vehicle_slot_count, 0.0);
         self.membership_edges.resize(vehicle_slot_count, None);
         self.membership_edges.fill(None);
+        self.membership_vehicles.resize(vehicle_slot_count, None);
+        self.membership_vehicles.fill(None);
+        self.speed_heap_valid = false;
         self.candidate_marks
             .resize(self.candidate_marks.len().max(vehicle_slot_count), 0);
     }
@@ -584,6 +652,7 @@ impl CommandSpatialIndex {
     pub(crate) fn stage(&mut self, edge: EdgeHandle, occupant: CommandOccupant) {
         self.front_progress[occupant.vehicle.index()] = occupant.front_progress;
         self.membership_edges[occupant.vehicle.index()] = Some(edge);
+        self.membership_vehicles[occupant.vehicle.index()] = Some(occupant.vehicle);
         self.staging[edge.index()].push(occupant);
     }
 
@@ -661,14 +730,69 @@ impl CommandSpatialIndex {
         self.min_emergency_deceleration
     }
 
-    pub(crate) fn note_vehicle_speed(&mut self, value: f64) {
+    pub(crate) fn note_vehicle_speed(&mut self, vehicle: VehicleHandle, value: f64) {
         debug_assert!(value.is_finite() && value >= 0.0);
         self.max_vehicle_speed = self.max_vehicle_speed.max(value);
+        if self.speed_heap_valid && value > 0.0 {
+            self.speed_heap.push(CommandSpeedEntry {
+                speed: value,
+                vehicle,
+            });
+        }
     }
 
     pub(crate) fn set_max_vehicle_speed(&mut self, value: f64) {
         debug_assert!(value.is_finite() && value >= 0.0);
         self.max_vehicle_speed = value;
+        self.speed_heap_valid = false;
+    }
+
+    /// 在 command phase 首次移除当前最快 Active vehicle 前建立一次 exact max heap。
+    ///
+    /// 正常 tick 只维护 scalar max；同一 command batch 后续移除通过 lazy deletion 保持
+    /// `O(log V)`，避免每个 command 重扫全部 vehicles。
+    pub(crate) fn prepare_speed_removal<I>(&mut self, removed_speed: f64, active_speeds: I)
+    where
+        I: IntoIterator<Item = (VehicleHandle, f64)>,
+    {
+        debug_assert!(removed_speed.is_finite() && removed_speed >= 0.0);
+        if removed_speed < self.max_vehicle_speed
+            || self.max_vehicle_speed == 0.0
+            || self.speed_heap_valid
+        {
+            return;
+        }
+
+        let mut entries = std::mem::take(&mut self.speed_heap).into_vec();
+        entries.clear();
+        entries.extend(
+            active_speeds
+                .into_iter()
+                .filter(|(_, speed)| *speed > 0.0)
+                .map(|(vehicle, speed)| CommandSpeedEntry { speed, vehicle }),
+        );
+        self.speed_heap = BinaryHeap::from(entries);
+        self.speed_heap_valid = true;
+        #[cfg(test)]
+        {
+            self.speed_heap_rebuilds += 1;
+        }
+    }
+
+    fn refresh_max_vehicle_speed(&mut self) {
+        if !self.speed_heap_valid {
+            return;
+        }
+        while self.speed_heap.peek().is_some_and(|entry| {
+            self.membership_vehicles
+                .get(entry.vehicle.index())
+                .copied()
+                .flatten()
+                != Some(entry.vehicle)
+        }) {
+            self.speed_heap.pop();
+        }
+        self.max_vehicle_speed = self.speed_heap.peek().map_or(0.0, |entry| entry.speed);
     }
 
     #[cfg(test)]
@@ -699,6 +823,11 @@ impl CommandSpatialIndex {
                     .sum::<usize>()
             })
             .sum()
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn speed_heap_rebuilds(&self) -> usize {
+        self.speed_heap_rebuilds
     }
 
     #[cfg(test)]
@@ -737,11 +866,13 @@ impl CommandSpatialIndex {
             + self.edge_lengths.capacity() * std::mem::size_of::<f64>()
             + self.front_progress.capacity() * std::mem::size_of::<f64>()
             + self.membership_edges.capacity() * std::mem::size_of::<Option<EdgeHandle>>()
+            + self.membership_vehicles.capacity() * std::mem::size_of::<Option<VehicleHandle>>()
             + self.candidate_marks.capacity() * std::mem::size_of::<u32>()
             + self.candidates.capacity() * std::mem::size_of::<VehicleHandle>()
             + self.reverse_best.capacity() * std::mem::size_of::<f64>()
             + self.reverse_touched.capacity() * std::mem::size_of::<EdgeHandle>()
             + self.reverse_queue.capacity() * std::mem::size_of::<(EdgeHandle, f64)>()
+            + self.speed_heap.capacity() * std::mem::size_of::<CommandSpeedEntry>()
     }
 
     fn begin_candidates(&mut self, vehicle_slot_count: usize) {

@@ -26,7 +26,9 @@ use command_scenarios::{
 };
 use parking_scenarios::{
     FIXED_PARKING_COMMAND_COUNT, ParkingCommandScenario, parking_command_scenario,
-    run_reserve_cancel_batch,
+    parking_pathological_leave_scenario, parking_six_command_scenario,
+    run_pathological_leave_batch, run_reserve_cancel_batch, run_six_command_batch,
+    warm_six_command_batch, warm_six_command_spawn_capacity,
 };
 
 fn benchmark_command_batch(
@@ -306,6 +308,76 @@ fn benchmark_parking_commands(
                 FIXED_PARKING_COMMAND_COUNT * 2
             );
             benchmark.iter(|| black_box(run_reserve_cancel_batch(&mut scenario)));
+        },
+    );
+    group.finish();
+
+    let pathological =
+        parking_pathological_leave_scenario(vehicle_count, FIXED_PARKING_COMMAND_COUNT);
+    assert_eq!(
+        run_pathological_leave_batch(&mut pathological.clone()),
+        FIXED_PARKING_COMMAND_COUNT + 1
+    );
+    let mut group = criterion.benchmark_group(format!(
+        "parking_pathological_leave_refresh_{vehicle_count}_{}",
+        FIXED_PARKING_COMMAND_COUNT
+    ));
+    group.sample_size(sample_size);
+    group.warm_up_time(Duration::from_secs(1));
+    group.measurement_time(Duration::from_secs(measurement_seconds));
+    group.throughput(Throughput::Elements(
+        (FIXED_PARKING_COMMAND_COUNT + 1) as u64,
+    ));
+    group.bench_with_input(
+        BenchmarkId::new("fastest_first_then_leave", FIXED_PARKING_COMMAND_COUNT),
+        &pathological,
+        |benchmark, scenario| {
+            benchmark.iter_batched_ref(
+                || scenario.clone(),
+                |scenario| black_box(run_pathological_leave_batch(scenario)),
+                BatchSize::LargeInput,
+            );
+        },
+    );
+    group.finish();
+
+    let six_commands = parking_six_command_scenario(vehicle_count, FIXED_PARKING_COMMAND_COUNT);
+    assert_eq!(
+        run_six_command_batch(&mut six_commands.clone()),
+        FIXED_PARKING_COMMAND_COUNT * 7
+    );
+    let mut group = criterion.benchmark_group(format!(
+        "parking_runtime_six_commands_{vehicle_count}_{}",
+        FIXED_PARKING_COMMAND_COUNT
+    ));
+    group.sample_size(sample_size);
+    group.warm_up_time(Duration::from_secs(1));
+    group.measurement_time(Duration::from_secs(measurement_seconds));
+    group.throughput(Throughput::Elements(
+        (FIXED_PARKING_COMMAND_COUNT * 7) as u64,
+    ));
+    group.bench_with_input(
+        BenchmarkId::new("fixed_pairs", FIXED_PARKING_COMMAND_COUNT),
+        &six_commands,
+        |benchmark, scenario| {
+            benchmark.iter_batched_ref(
+                || {
+                    let mut scenario = scenario.clone();
+                    // `IndexMap::clone` 会收紧 resolver capacity；可逆 warm-up 留在 setup
+                    // 区，避免把首次全表 rehash 误计为 steady fixed-command workload。
+                    assert_eq!(
+                        warm_six_command_batch(&mut scenario),
+                        FIXED_PARKING_COMMAND_COUNT * 4
+                    );
+                    assert_eq!(
+                        warm_six_command_spawn_capacity(&mut scenario),
+                        FIXED_PARKING_COMMAND_COUNT * 2
+                    );
+                    scenario
+                },
+                |scenario| black_box(run_six_command_batch(scenario)),
+                BatchSize::LargeInput,
+            );
         },
     );
     group.finish();

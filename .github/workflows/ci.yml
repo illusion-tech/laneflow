@@ -131,9 +131,17 @@ jobs:
         shell: bash
         run: cargo +1.96.0 test --workspace --locked
 
+      - name: Run Parking allocation invariants serially
+        shell: bash
+        run: cargo +1.96.0 test -p laneflow-core --test parking_runtime_allocations --all-features --locked -- --ignored --test-threads=1
+
+      - name: Run Parking lifecycle example
+        shell: bash
+        run: cargo +1.96.0 run -p laneflow-data --example parking_lifecycle --locked
+
       - name: Compile Core benchmarks
         shell: bash
-        run: cargo +1.96.0 bench -p laneflow-core --bench core_step --no-run --locked
+        run: cargo +1.96.0 bench -p laneflow-core --benches --no-run --locked
 
   dependencies:
     name: Dependency policy

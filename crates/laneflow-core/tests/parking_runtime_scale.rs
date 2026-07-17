@@ -9,7 +9,7 @@ mod parking_scenarios;
 
 use parking_scenarios::{
     FIXED_PARKING_COMMAND_COUNT, occupied_parking_world, parking_command_scenario,
-    run_reserve_cancel_batch,
+    parking_six_command_scenario, run_reserve_cancel_batch, run_six_command_batch,
 };
 #[path = "support/signals_validation_scenarios.rs"]
 #[allow(dead_code, reason = "shared helper also exposes signal scenarios")]
@@ -30,6 +30,18 @@ fn ten_thousand_vehicle_parking_runtime_smoke_preserves_counts() {
     assert_eq!(counts.reserved, 0);
     assert_eq!(counts.occupied, 0);
     assert_eq!(commands.world.vehicles().count(), 10_000);
+
+    let mut six_commands = parking_six_command_scenario(10_000, FIXED_PARKING_COMMAND_COUNT);
+    assert_eq!(
+        run_six_command_batch(&mut six_commands),
+        FIXED_PARKING_COMMAND_COUNT * 7
+    );
+    assert_eq!(six_commands.world.vehicles().count(), 10_100);
+    let counts = six_commands.world.parking_snapshot().counts();
+    assert_eq!(counts.capacity, FIXED_PARKING_COMMAND_COUNT * 3);
+    assert_eq!(counts.vacant, FIXED_PARKING_COMMAND_COUNT * 2);
+    assert_eq!(counts.reserved, 0);
+    assert_eq!(counts.occupied, FIXED_PARKING_COMMAND_COUNT);
 
     let mut occupied = occupied_parking_world(10_000, 20);
     let counts = occupied.parking_snapshot().counts();

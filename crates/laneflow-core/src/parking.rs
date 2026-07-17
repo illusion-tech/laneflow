@@ -382,6 +382,50 @@ impl ParkingRegistry {
     pub fn space_geometry(&self, handle: ParkingSpaceHandle) -> Option<ParkingSpaceGeometry> {
         self.space(handle).map(ParkingSpace::geometry)
     }
+
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> usize {
+        let area_bytes = self.areas.capacity() * std::mem::size_of::<ParkingArea>()
+            + self
+                .areas
+                .iter()
+                .map(|area| area.id.capacity())
+                .sum::<usize>();
+        let area_handle_bytes = self.area_handles.capacity()
+            * std::mem::size_of::<(String, ParkingAreaHandle)>()
+            + self
+                .area_handles
+                .keys()
+                .map(String::capacity)
+                .sum::<usize>();
+        let space_bytes = self.spaces.capacity() * std::mem::size_of::<ResolvedParkingSpace>()
+            + self
+                .spaces
+                .iter()
+                .map(|space| {
+                    let definition = &space.definition;
+                    definition.id.capacity()
+                        + definition.area_id.as_ref().map_or(0, String::capacity)
+                        + definition.entry_edge_id.capacity()
+                        + definition.exit_edge_id.capacity()
+                })
+                .sum::<usize>();
+        let space_handle_bytes = self.space_handles.capacity()
+            * std::mem::size_of::<(String, ParkingSpaceHandle)>()
+            + self
+                .space_handles
+                .keys()
+                .map(String::capacity)
+                .sum::<usize>();
+        let area_member_bytes = self.area_spaces.capacity()
+            * std::mem::size_of::<Vec<ParkingSpaceHandle>>()
+            + self
+                .area_spaces
+                .iter()
+                .map(|spaces| spaces.capacity() * std::mem::size_of::<ParkingSpaceHandle>())
+                .sum::<usize>();
+        area_bytes + area_handle_bytes + space_bytes + space_handle_bytes + area_member_bytes
+    }
 }
 
 impl Default for ParkingRegistry {
