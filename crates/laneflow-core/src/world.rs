@@ -4147,6 +4147,137 @@ mod tests {
         #![proptest_config(ProptestConfig::with_cases(64))]
 
         #[test]
+        fn parking_leave_follower_oracle_covers_adjacent_and_repeated_occurrences(
+            follower_case in 0_usize..8,
+            progress_seed in 0_u8..=99,
+            follower_speed in 0_u8..=40,
+            stopped in any::<bool>(),
+        ) {
+            let lane_graph = LaneGraph::try_new([
+                LaneEdge::new("A", EdgeLength::try_new(100.0).expect("length"), ["B", "C"]),
+                LaneEdge::new("B", EdgeLength::try_new(100.0).expect("length"), ["D"]),
+                LaneEdge::new("C", EdgeLength::try_new(100.0).expect("length"), ["D"]),
+                LaneEdge::new("D", EdgeLength::try_new(100.0).expect("length"), ["A"]),
+            ])
+            .expect("cyclic parking graph");
+            let parking = ParkingRegistry::try_new(
+                &lane_graph,
+                [],
+                [ParkingSpace::new(
+                    "S",
+                    None,
+                    "A",
+                    10.0,
+                    "A",
+                    20.0,
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
+                )],
+            )
+            .expect("cyclic parking registry");
+            let (base, profile) = traffic_data(
+                lane_graph,
+                [
+                    Route::try_new("R0", ["A", "B", "D", "A", "C", "D"])
+                        .expect("R0"),
+                    Route::try_new("R1", ["C", "D", "A", "B"]).expect("R1"),
+                ],
+            );
+            let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+                base.lane_graph().clone(),
+                base.routes().iter().cloned(),
+                base.vehicle_profiles().clone(),
+                SignalRegistry::empty(),
+                parking,
+            )
+            .expect("cyclic parking traffic");
+            let mut world = CoreWorld::with_traffic_data(1_000, traffic, Vec::new())
+                .expect("cyclic parking world");
+            let space = world.parking().space_handle("S").expect("space");
+            let route = world.route_handle("R0").expect("R0");
+            let parked = world
+                .spawn_parked_vehicle(ParkedVehicleSpawnInput {
+                    id: "parked".to_owned(),
+                    profile,
+                    route_id: "R0".to_owned(),
+                    route_edge_index: 0,
+                    space,
+                })
+                .expect("parked vehicle")
+                .vehicle;
+            let cases = [
+                ("R0", 0),
+                ("R0", 2),
+                ("R0", 3),
+                ("R0", 5),
+                ("R1", 0),
+                ("R1", 1),
+                ("R1", 2),
+                ("R1", 3),
+            ];
+            let (route_id, route_edge_index) = cases[follower_case];
+            let edge_id = world
+                .lane_graph()
+                .edge_external_id(
+                    world.routes[world.route_handle(route_id).expect("route").index()]
+                        .edge_handles[route_edge_index],
+                )
+                .expect("edge id");
+            let progress = if matches!(edge_id, "B" | "C" | "D") {
+                90.0 + f64::from(progress_seed % 10)
+            } else {
+                f64::from(progress_seed)
+            };
+            let progress = EdgeProgress::try_new(progress).expect("progress");
+            let follower_input = if stopped {
+                VehicleSpawnInput::stopped(
+                    "follower",
+                    profile,
+                    route_id,
+                    route_edge_index,
+                    progress,
+                )
+            } else {
+                VehicleSpawnInput::active(
+                    "follower",
+                    profile,
+                    route_id,
+                    route_edge_index,
+                    progress,
+                    Speed::try_new(f64::from(follower_speed)).expect("speed"),
+                )
+            };
+            world.spawn_vehicle(follower_input).expect("follower");
+            let candidate = NormalizedVehicleInput {
+                profile,
+                route_edge_index: 0,
+                edge_progress: EdgeProgress::try_new(20.0).expect("exit progress"),
+                current_speed: Speed::ZERO,
+                status: VehicleStatus::Active,
+            };
+            let expected = format!(
+                "{:?}",
+                world.validate_parking_leave_followers_full_scan(
+                    parked,
+                    space,
+                    route,
+                    0,
+                    &candidate,
+                )
+            );
+            let actual = format!(
+                "{:?}",
+                world.validate_parking_leave_followers(parked, space, route, 0, &candidate)
+            );
+
+            prop_assert_eq!(actual, expected);
+            world.assert_lifecycle_indices_consistent();
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
         fn parking_reservation_commands_match_model_and_replay_deterministically(
             operations in prop::collection::vec(any::<u8>(), 1..=128),
         ) {
