@@ -147,7 +147,6 @@ struct RouteSlot {
     edge_handles: Vec<EdgeHandle>,
     transitions: Vec<RouteTransition>,
     next_controlled_transition: Vec<Option<NextControlledRouteTransition>>,
-    reference_index: RouteReferenceIndex,
     active: bool,
 }
 
@@ -327,6 +326,7 @@ pub struct CoreWorld {
     signal_candidate_scratch: SignalRuntimeScratch,
     routes: Vec<RouteSlot>,
     route_distance_indices: Vec<RouteDistanceIndex>,
+    route_reference_indices: Vec<RouteReferenceIndex>,
     route_handles: IndexMap<String, RouteHandle>,
     free_route_indices: Vec<usize>,
     vehicles: Vec<VehicleSlot>,
@@ -373,6 +373,7 @@ impl CoreWorld {
             signal_candidate_scratch: SignalRuntimeScratch::default(),
             routes: Vec::new(),
             route_distance_indices: Vec::new(),
+            route_reference_indices: Vec::new(),
             route_handles: IndexMap::new(),
             free_route_indices: Vec::new(),
             vehicles: Vec::new(),
@@ -575,10 +576,10 @@ impl CoreWorld {
                 edge_handles,
                 transitions,
                 next_controlled_transition,
-                reference_index: RouteReferenceIndex::default(),
                 active: true,
             };
             self.route_distance_indices[index] = distance_index;
+            self.route_reference_indices[index] = RouteReferenceIndex::default();
             RouteHandle::new(index, generation)
         } else {
             let handle = RouteHandle::new(self.routes.len(), 0);
@@ -588,10 +589,11 @@ impl CoreWorld {
                 edge_handles,
                 transitions,
                 next_controlled_transition,
-                reference_index: RouteReferenceIndex::default(),
                 active: true,
             });
             self.route_distance_indices.push(distance_index);
+            self.route_reference_indices
+                .push(RouteReferenceIndex::default());
             handle
         };
 
@@ -645,7 +647,7 @@ impl CoreWorld {
         self.route_slot(handle)
             .ok_or(CoreError::UnknownRouteHandle { route: handle })?;
 
-        if self.routes[handle.index()].reference_index.live_count > 0 {
+        if self.route_reference_indices[handle.index()].live_count > 0 {
             let vehicle = self.first_route_reference(handle).or_else(|| {
                 self.rebuild_route_reference_index(handle);
                 self.first_route_reference(handle)
@@ -666,8 +668,8 @@ impl CoreWorld {
         route.edge_handles.clear();
         route.transitions.clear();
         route.next_controlled_transition.clear();
-        route.reference_index.clear();
         self.route_distance_indices[handle.index()].clear();
+        self.route_reference_indices[handle.index()].clear();
         let removed = self.route_handles.swap_remove(&external_id);
         assert_eq!(
             removed,
@@ -756,9 +758,7 @@ impl CoreWorld {
         if planned_slot_index == self.vehicles.len() {
             self.vehicles.reserve(1);
         }
-        self.routes[route.index()]
-            .reference_index
-            .reserve_for_attach();
+        self.route_reference_indices[route.index()].reserve_for_attach();
         if let Some((edge, occupant)) = spatial_occupant {
             let vehicles = &self.vehicles;
             let mut resolve_progress = |handle: VehicleHandle| {
@@ -805,9 +805,7 @@ impl CoreWorld {
         }
 
         self.vehicle_handles.insert(resolver_id, handle);
-        self.routes[route.index()]
-            .reference_index
-            .attach(route, handle, update_order_position);
+        self.route_reference_indices[route.index()].attach(route, handle, update_order_position);
         if let Some((edge, occupant)) = spatial_occupant {
             let vehicles = &self.vehicles;
             let mut resolve_progress = |handle: VehicleHandle| {
@@ -891,7 +889,7 @@ impl CoreWorld {
         }
         self.vehicle_update_order
             .tombstone(update_order_position, handle);
-        self.routes[route.index()].reference_index.detach();
+        self.route_reference_indices[route.index()].detach();
         self.compact_update_order_if_needed();
 
         Ok(VehicleDespawnRecord {
@@ -904,15 +902,13 @@ impl CoreWorld {
     }
 
     fn first_route_reference(&mut self, route: RouteHandle) -> Option<VehicleHandle> {
-        self.routes[route.index()]
-            .reference_index
-            .first_valid(route, &self.vehicles)
+        self.route_reference_indices[route.index()].first_valid(route, &self.vehicles)
     }
 
     fn rebuild_route_reference_index(&mut self, route: RouteHandle) {
         let order = &self.vehicle_update_order;
         let vehicles = &self.vehicles;
-        let index = &mut self.routes[route.index()].reference_index;
+        let index = &mut self.route_reference_indices[route.index()];
         index.clear();
         for (position, vehicle) in order
             .entries
@@ -934,8 +930,8 @@ impl CoreWorld {
     }
 
     fn rebuild_all_route_reference_indices(&mut self) {
-        for route in &mut self.routes {
-            route.reference_index.clear();
+        for index in &mut self.route_reference_indices {
+            index.clear();
         }
         for (position, vehicle) in self
             .vehicle_update_order
@@ -948,9 +944,11 @@ impl CoreWorld {
                 .state
                 .as_ref()
                 .expect("stable update order must identify live vehicle");
-            self.routes[state.route.index()]
-                .reference_index
-                .attach(state.route, vehicle, position);
+            self.route_reference_indices[state.route.index()].attach(
+                state.route,
+                vehicle,
+                position,
+            );
         }
     }
 
@@ -1000,12 +998,11 @@ impl CoreWorld {
             }
             let route = RouteHandle::new(route_index, self.routes[route_index].generation);
             assert_eq!(
-                self.routes[route_index].reference_index.live_count,
+                self.route_reference_indices[route_index].live_count,
                 expected_route_counts[route_index]
             );
-            let actual_first = self.routes[route_index]
-                .reference_index
-                .first_valid(route, &self.vehicles);
+            let actual_first =
+                self.route_reference_indices[route_index].first_valid(route, &self.vehicles);
             assert_eq!(actual_first, expected_route_first[route_index]);
         }
 
@@ -1056,20 +1053,14 @@ impl CoreWorld {
             .map(|route| route.edge_handles.len())
             .sum();
         let route_candidate_nodes = self
-            .routes
+            .route_reference_indices
             .iter()
-            .map(|route| route.reference_index.candidates.len())
+            .map(|index| index.candidates.len())
             .sum();
         let stale_route_candidate_nodes = self
-            .routes
+            .route_reference_indices
             .iter()
-            .map(|route| {
-                route
-                    .reference_index
-                    .candidates
-                    .len()
-                    .saturating_sub(route.reference_index.live_count)
-            })
+            .map(|index| index.candidates.len().saturating_sub(index.live_count))
             .sum();
         let route_distance_bytes = self.route_distance_indices.capacity()
             * std::mem::size_of::<RouteDistanceIndex>()
@@ -1077,6 +1068,16 @@ impl CoreWorld {
                 .route_distance_indices
                 .iter()
                 .map(RouteDistanceIndex::retained_bytes)
+                .sum::<usize>();
+        let route_reference_bytes = self.route_reference_indices.capacity()
+            * std::mem::size_of::<RouteReferenceIndex>()
+            + self
+                .route_reference_indices
+                .iter()
+                .map(|index| {
+                    index.candidates.capacity()
+                        * std::mem::size_of::<Reverse<RouteVehicleReference>>()
+                })
                 .sum::<usize>();
         let route_bytes = self.routes.capacity() * std::mem::size_of::<RouteSlot>()
             + self
@@ -1088,11 +1089,10 @@ impl CoreWorld {
                         + route.transitions.capacity() * std::mem::size_of::<RouteTransition>()
                         + route.next_controlled_transition.capacity()
                             * std::mem::size_of::<Option<NextControlledRouteTransition>>()
-                        + route.reference_index.candidates.capacity()
-                            * std::mem::size_of::<Reverse<RouteVehicleReference>>()
                 })
                 .sum::<usize>()
-            + route_distance_bytes;
+            + route_distance_bytes
+            + route_reference_bytes;
         let vehicle_bytes = self.vehicles.capacity() * std::mem::size_of::<VehicleSlot>()
             + self
                 .vehicles
