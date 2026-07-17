@@ -1,8 +1,8 @@
 # Signal System 设计
 
-**文档状态**: Accepted  
-**最后更新**: 2026-07-16  
-**适用范围**: planned v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界  
+**文档状态**: Accepted<br>
+**最后更新**: 2026-07-17<br>
+**适用范围**: v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界，以及 current v0.5 package embedding<br>
 **实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 已将保持相同 Signals shape/behavior 的 package 原子迁移到 current v0.5，并由新的 Parking+Signals fixtures 承接 active contract
 
 **关联文档**:
