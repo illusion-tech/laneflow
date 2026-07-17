@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active  
-**最后更新**: 2026-07-14  
+**最后更新**: 2026-07-17
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
 ## 1. 工作流原则
@@ -87,7 +87,8 @@ Milestone 用于表达版本边界，而不是单个大任务。
 - `v0.3 Vehicle Following`
 - `v0.4 Signals`
 - `v0.5 Parking`
-- `v0.6 First Adapter`
+- `v0.6 Numeric & Spatial Foundation`
+- `v0.7 Bevy Reference Adapter`
 - `v1.0 Stable Runtime API`
 
 每个 Milestone 应有明确的完成定义，并由一组 Issue 组成。

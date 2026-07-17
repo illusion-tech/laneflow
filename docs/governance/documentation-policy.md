@@ -71,7 +71,8 @@ Milestone 用于组织版本目标，例如：
 - `v0.3 Vehicle Following`
 - `v0.4 Signals`
 - `v0.5 Parking`
-- `v0.6 First Adapter`
+- `v0.6 Numeric & Spatial Foundation`
+- `v0.7 Bevy Reference Adapter`
 - `v1.0 Stable Runtime API`
 
 ### Discussions
