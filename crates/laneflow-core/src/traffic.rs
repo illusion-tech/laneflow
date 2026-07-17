@@ -3,8 +3,8 @@
 use indexmap::IndexSet;
 
 use crate::{
-    error::CoreError, graph::LaneGraph, handle::EdgeHandle, profile::VehicleProfileRegistry,
-    route::Route, signal::SignalRegistry,
+    error::CoreError, graph::LaneGraph, handle::EdgeHandle, parking::ParkingRegistry,
+    profile::VehicleProfileRegistry, route::Route, signal::SignalRegistry,
 };
 
 /// 可用于初始化 Core world 的已验证静态交通输入。
@@ -14,6 +14,7 @@ pub struct InitialTrafficData {
     routes: Vec<Route>,
     vehicle_profiles: VehicleProfileRegistry,
     signals: SignalRegistry,
+    parking: ParkingRegistry,
 }
 
 impl InitialTrafficData {
@@ -24,6 +25,7 @@ impl InitialTrafficData {
             routes: Vec::new(),
             vehicle_profiles: VehicleProfileRegistry::empty(),
             signals: SignalRegistry::empty(),
+            parking: ParkingRegistry::empty(),
         }
     }
 
@@ -63,7 +65,32 @@ impl InitialTrafficData {
     where
         I: IntoIterator<Item = Route>,
     {
+        Self::try_new_with_signals_and_parking(
+            lane_graph,
+            routes,
+            vehicle_profiles,
+            signals,
+            ParkingRegistry::empty(),
+        )
+    }
+
+    /// 创建并校验全部 current static traffic data。
+    ///
+    /// # Errors
+    ///
+    /// Signals、Parking 或 route normalization/rebind 失败时返回对应 `CoreError`。
+    pub fn try_new_with_signals_and_parking<I>(
+        lane_graph: LaneGraph,
+        routes: I,
+        vehicle_profiles: VehicleProfileRegistry,
+        signals: SignalRegistry,
+        parking: ParkingRegistry,
+    ) -> Result<Self, CoreError>
+    where
+        I: IntoIterator<Item = Route>,
+    {
         let signals = signals.rebind_to_lane_graph(&lane_graph)?;
+        let parking = parking.rebind_to_lane_graph(&lane_graph)?;
         let mut route_ids = IndexSet::new();
         let mut validated_routes = Vec::new();
 
@@ -82,6 +109,7 @@ impl InitialTrafficData {
             routes: validated_routes,
             vehicle_profiles,
             signals,
+            parking,
         })
     }
 
@@ -105,6 +133,11 @@ impl InitialTrafficData {
         &self.signals
     }
 
+    /// 返回 immutable Parking registry。
+    pub const fn parking(&self) -> &ParkingRegistry {
+        &self.parking
+    }
+
     /// 拆分为 Core-owned parts。
     pub fn into_parts(
         self,
@@ -113,12 +146,14 @@ impl InitialTrafficData {
         Vec<Route>,
         VehicleProfileRegistry,
         SignalRegistry,
+        ParkingRegistry,
     ) {
         (
             self.lane_graph,
             self.routes,
             self.vehicle_profiles,
             self.signals,
+            self.parking,
         )
     }
 }

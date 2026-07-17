@@ -1,4 +1,4 @@
-//! 当前 v0.4 JSON 格式的私有 wire DTO。
+//! 当前 v0.5 JSON 格式的私有 wire DTO。
 
 use serde::Deserialize;
 
@@ -17,6 +17,7 @@ pub(crate) struct WirePackage {
     pub(crate) routes: Vec<WireRoute>,
     pub(crate) vehicle_profiles: Vec<WireVehicleProfile>,
     pub(crate) signals: WireSignals,
+    pub(crate) parking: WireParking,
     #[serde(default, rename = "extensions")]
     pub(crate) _extensions: serde_json::Map<String, serde_json::Value>,
 }
@@ -68,6 +69,64 @@ pub(crate) struct WireVehicleProfile {
     pub(crate) max_acceleration: f64,
     pub(crate) comfortable_deceleration: f64,
     pub(crate) emergency_deceleration: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WireParking {
+    pub(crate) areas: Vec<WireParkingArea>,
+    pub(crate) spaces: Vec<WireParkingSpace>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WireParkingArea {
+    pub(crate) id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WireParkingSpace {
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) area_id: OmittedAreaId,
+    pub(crate) entry: WireParkingAnchor,
+    pub(crate) exit: WireParkingAnchor,
+    pub(crate) geometry: WireParkingGeometry,
+}
+
+#[derive(Default)]
+pub(crate) struct OmittedAreaId(Option<String>);
+
+impl OmittedAreaId {
+    pub(crate) fn as_deref(&self) -> Option<&str> {
+        self.0.as_deref()
+    }
+}
+
+impl<'de> Deserialize<'de> for OmittedAreaId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer).map(|value| Self(Some(value)))
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WireParkingAnchor {
+    pub(crate) edge_id: String,
+    pub(crate) progress: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WireParkingGeometry {
+    pub(crate) lateral_offset: f64,
+    pub(crate) heading_offset_radians: f64,
+    pub(crate) length: f64,
+    pub(crate) width: f64,
 }
 
 #[derive(Deserialize)]

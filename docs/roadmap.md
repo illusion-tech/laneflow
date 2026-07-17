@@ -76,7 +76,7 @@
 
 目标：支持基础停车位进出和占用状态。
 
-设计状态：#105 已通过 [`Parking System 设计`](design/parking-system.md) 与 [ADR 0010](adr/0010-parking-binding-and-vehicle-lifecycle-authority.md) 冻结 planned v0.5 输入；#106 已交付 lifecycle/performance substrate；production current 在 #107 完成前仍为 v0.4。
+实施状态：#105 已冻结 [`Parking System 设计`](design/parking-system.md) 与 [ADR 0010](adr/0010-parking-binding-and-vehicle-lifecycle-authority.md)；#106 已交付 lifecycle/performance substrate；#107 已交付 static Parking 与 production current 0.5 data；#108-#110 继续承接 runtime/commands、ParkingStop/activation 与全面验证。
 
 范围：
 
@@ -86,7 +86,7 @@
 - caller-order reserve/cancel/commit/leave/rebind/parked-spawn lifecycle；
 - live `VehicleStatus::Parked`、位置 authority transfer 与 route/despawn cleanup；
 - ParkingStop 与 Vehicle Following、Signals、RouteEnd、projection/traversal 的原子组合；
-- planned current 0.5 static data、schema/loader、canonical fixtures 与 current-only migration；
+- current 0.5 static data、schema/loader、canonical fixtures 与 current-only migration；
 - determinism、失败原子性、10k/100k、allocation/memory 与端到端 validation。
 
 实施链：#105 design/ADR → (#106 lifecycle/performance，#107 static/current data) → #108 runtime/commands → #109 ParkingStop/activation → #110 validation/performance → #19 closure。

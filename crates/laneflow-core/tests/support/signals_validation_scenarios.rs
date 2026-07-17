@@ -1,8 +1,9 @@
 use laneflow_core::{
     CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph,
-    MovementGate, Route, SignalAspect, SignalControlInput, SignalController, SignalGroup,
-    SignalGroupState, SignalPhase, SignalRegistry, Speed, StopLine, StopLineLocation,
-    VehicleProfile, VehicleProfileRegistry, VehicleSpawnInput,
+    MovementGate, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, Route, SignalAspect,
+    SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
+    SignalRegistry, Speed, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
+    VehicleSpawnInput,
 };
 
 pub const SIGNAL_VEHICLE_COUNT: usize = 10_000;
@@ -132,6 +133,14 @@ fn phases_for(mode: SignalScenarioMode, group_ids: &[String]) -> Vec<SignalPhase
 }
 
 pub fn signal_scenario(vehicle_count: usize, mode: SignalScenarioMode) -> SignalScenario {
+    signal_scenario_with_parking(vehicle_count, mode, 0)
+}
+
+pub fn signal_scenario_with_parking(
+    vehicle_count: usize,
+    mode: SignalScenarioMode,
+    parking_space_count: usize,
+) -> SignalScenario {
     assert_eq!(vehicle_count % VEHICLES_PER_ROUTE, 0);
     let route_count = vehicle_count / VEHICLES_PER_ROUTE;
     assert_eq!(route_count % GROUPS_PER_CONTROLLER, 0);
@@ -214,6 +223,23 @@ pub fn signal_scenario(vehicle_count: usize, mode: SignalScenarioMode) -> Signal
         .collect::<Vec<_>>();
     let signals = SignalRegistry::try_new(&graph, stop_lines, groups, controllers, gates)
         .expect("signal scenario registry must be valid");
+    let parking = ParkingRegistry::try_new(
+        &graph,
+        [],
+        (0..parking_space_count).map(|index| {
+            let route_index = index % route_count;
+            ParkingSpace::new(
+                format!("parking-benchmark-space-{index:06}"),
+                None,
+                entry_id(route_index),
+                80.0,
+                entry_id(route_index),
+                80.0,
+                ParkingSpaceGeometry::new(3.0, 0.0, 5.0, 2.4),
+            )
+        }),
+    )
+    .expect("parking scenario registry must be valid");
 
     let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
         "signal-benchmark-profile",
@@ -232,8 +258,10 @@ pub fn signal_scenario(vehicle_count: usize, mode: SignalScenarioMode) -> Signal
     let profile = profiles
         .profile_handle("signal-benchmark-profile")
         .expect("signal scenario profile must exist");
-    let traffic = InitialTrafficData::try_new_with_signals(graph, routes, profiles, signals)
-        .expect("signal scenario traffic data must be valid");
+    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+        graph, routes, profiles, signals, parking,
+    )
+    .expect("signal scenario traffic data must be valid");
     let vehicles = (0..route_count)
         .flat_map(|route_index| {
             (0..VEHICLES_PER_ROUTE).map(move |vehicle_index| {

@@ -38,7 +38,7 @@ pub enum DataError {
         expected: &'static str,
         actual: String,
     },
-    /// Vehicle Profile model 不是当前 v0.4 支持的 `iidm`。
+    /// Vehicle Profile model 不是当前 v0.5 支持的 `iidm`。
     #[error("Vehicle Profile `{profile_id}` 使用不支持的 model：path={path}, actual=`{actual}`")]
     UnsupportedVehicleProfileModel {
         path: String,

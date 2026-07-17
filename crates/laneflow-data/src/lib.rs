@@ -5,9 +5,9 @@ mod wire;
 
 use laneflow_core::{
     CoreError, EdgeLength, IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph, MovementGate,
-    Route, SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState,
-    SignalPhase, SignalRegistry, StopLine, StopLineLocation, VehicleProfile,
-    VehicleProfileRegistry,
+    ParkingAnchorKind, ParkingArea, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, Route,
+    SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
+    SignalRegistry, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
 };
 use serde::de::DeserializeOwned;
 use serde_json::error::Category;
@@ -15,12 +15,12 @@ use serde_json::error::Category;
 pub use error::DataError;
 
 use wire::{
-    WirePackage, WireSignalAspect, WireSignalControl, WireSignalControllerKind, WireSignals,
-    WireStopLineLocation, WireVersionHeader,
+    WirePackage, WireParking, WireSignalAspect, WireSignalControl, WireSignalControllerKind,
+    WireSignals, WireStopLineLocation, WireVersionHeader,
 };
 
 /// 当前 production loader 接受的唯一 data format 版本。
-pub const CURRENT_FORMAT_VERSION: &str = "0.4";
+pub const CURRENT_FORMAT_VERSION: &str = "0.5";
 
 /// 已解析并完成 Core normalization 的当前 data package。
 #[derive(Clone, Debug, PartialEq)]
@@ -89,11 +89,17 @@ fn normalize(wire: &WirePackage) -> Result<LoadedPackage, DataError> {
     let profile_registry = normalize_profiles(wire)?;
     let lane_graph = normalize_lane_graph(wire)?;
     let signals = normalize_signals(&lane_graph, &wire.signals)?;
+    let parking = normalize_parking(&lane_graph, &wire.parking)?;
     let routes = normalize_routes(wire)?;
 
-    let initial_traffic_data =
-        InitialTrafficData::try_new_with_signals(lane_graph, routes, profile_registry, signals)
-            .map_err(|source| DataError::core(initial_traffic_error_path(wire, &source), source))?;
+    let initial_traffic_data = InitialTrafficData::try_new_with_signals_and_parking(
+        lane_graph,
+        routes,
+        profile_registry,
+        signals,
+        parking,
+    )
+    .map_err(|source| DataError::core(initial_traffic_error_path(wire, &source), source))?;
     Ok(LoadedPackage {
         initial_traffic_data,
     })
@@ -220,6 +226,39 @@ fn normalize_signals(
         .map_err(|source| DataError::core(signal_error_path(wire, &source), source))
 }
 
+fn normalize_parking(
+    lane_graph: &LaneGraph,
+    wire: &WireParking,
+) -> Result<ParkingRegistry, DataError> {
+    let areas = wire
+        .areas
+        .iter()
+        .map(|area| ParkingArea::new(area.id.clone()))
+        .collect::<Vec<_>>();
+    let spaces = wire
+        .spaces
+        .iter()
+        .map(|space| {
+            ParkingSpace::new(
+                space.id.clone(),
+                space.area_id.as_deref().map(str::to_owned),
+                space.entry.edge_id.clone(),
+                space.entry.progress,
+                space.exit.edge_id.clone(),
+                space.exit.progress,
+                ParkingSpaceGeometry::new(
+                    space.geometry.lateral_offset,
+                    space.geometry.heading_offset_radians,
+                    space.geometry.length,
+                    space.geometry.width,
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
+    ParkingRegistry::try_new(lane_graph, areas, spaces)
+        .map_err(|source| DataError::core(parking_error_path(wire, &source), source))
+}
+
 fn normalize_routes(wire: &WirePackage) -> Result<Vec<Route>, DataError> {
     let mut routes = Vec::with_capacity(wire.routes.len());
     for (index, route) in wire.routes.iter().enumerate() {
@@ -230,6 +269,126 @@ fn normalize_routes(wire: &WirePackage) -> Result<Vec<Route>, DataError> {
         );
     }
     Ok(routes)
+}
+
+fn parking_error_path(wire: &WireParking, source: &CoreError) -> String {
+    match source {
+        CoreError::InvalidExternalId {
+            field, external_id, ..
+        } => match *field {
+            "parking.areas[].id" => wire
+                .areas
+                .iter()
+                .position(|area| area.id == *external_id)
+                .map_or_else(
+                    || "parking.areas".to_owned(),
+                    |index| format!("parking.areas[{index}].id"),
+                ),
+            "parking.spaces[].id" => wire
+                .spaces
+                .iter()
+                .position(|space| space.id == *external_id)
+                .map_or_else(
+                    || "parking.spaces".to_owned(),
+                    |index| format!("parking.spaces[{index}].id"),
+                ),
+            "parking.spaces[].areaId" => wire
+                .spaces
+                .iter()
+                .position(|space| space.area_id.as_deref() == Some(external_id))
+                .map_or_else(
+                    || "parking.spaces".to_owned(),
+                    |index| format!("parking.spaces[{index}].areaId"),
+                ),
+            "parking.spaces[].entry.edgeId" => {
+                parking_anchor_external_id_path(wire, ParkingAnchorKind::Entry, external_id)
+            }
+            "parking.spaces[].exit.edgeId" => {
+                parking_anchor_external_id_path(wire, ParkingAnchorKind::Exit, external_id)
+            }
+            _ => "parking".to_owned(),
+        },
+        CoreError::DuplicateParkingAreaId { area_id } => {
+            second_matching_index(&wire.areas, |area| area.id == *area_id).map_or_else(
+                || "parking.areas".to_owned(),
+                |index| format!("parking.areas[{index}].id"),
+            )
+        }
+        CoreError::DuplicateParkingSpaceId { space_id } => {
+            second_matching_index(&wire.spaces, |space| space.id == *space_id).map_or_else(
+                || "parking.spaces".to_owned(),
+                |index| format!("parking.spaces[{index}].id"),
+            )
+        }
+        CoreError::UnknownParkingSpaceArea { space_id, .. } => parking_space_index(wire, space_id)
+            .map_or_else(
+                || "parking.spaces".to_owned(),
+                |index| format!("parking.spaces[{index}].areaId"),
+            ),
+        CoreError::UnknownParkingAnchorEdge {
+            space_id, anchor, ..
+        } => parking_anchor_path(wire, space_id, *anchor, "edgeId"),
+        CoreError::ParkingAnchorProgressOutOfRange {
+            space_id, anchor, ..
+        } => parking_anchor_path(wire, space_id, *anchor, "progress"),
+        CoreError::InvalidParkingGeometryValue {
+            space_id, field, ..
+        } => parking_space_index(wire, space_id).map_or_else(
+            || "parking.spaces".to_owned(),
+            |index| format!("parking.spaces[{index}].geometry.{field}"),
+        ),
+        CoreError::OrphanParkingArea { area_id } => wire
+            .areas
+            .iter()
+            .position(|area| area.id == *area_id)
+            .map_or_else(
+                || "parking.areas".to_owned(),
+                |index| format!("parking.areas[{index}]"),
+            ),
+        _ => "parking".to_owned(),
+    }
+}
+
+fn parking_space_index(wire: &WireParking, space_id: &str) -> Option<usize> {
+    wire.spaces.iter().position(|space| space.id == space_id)
+}
+
+fn parking_anchor_path(
+    wire: &WireParking,
+    space_id: &str,
+    anchor: ParkingAnchorKind,
+    field: &str,
+) -> String {
+    let anchor = match anchor {
+        ParkingAnchorKind::Entry => "entry",
+        ParkingAnchorKind::Exit => "exit",
+        _ => "anchor",
+    };
+    parking_space_index(wire, space_id).map_or_else(
+        || "parking.spaces".to_owned(),
+        |index| format!("parking.spaces[{index}].{anchor}.{field}"),
+    )
+}
+
+fn parking_anchor_external_id_path(
+    wire: &WireParking,
+    anchor: ParkingAnchorKind,
+    external_id: &str,
+) -> String {
+    let index = wire.spaces.iter().position(|space| match anchor {
+        ParkingAnchorKind::Entry => space.entry.edge_id == external_id,
+        ParkingAnchorKind::Exit => space.exit.edge_id == external_id,
+        _ => false,
+    });
+    let anchor_name = match anchor {
+        ParkingAnchorKind::Entry => "entry",
+        ParkingAnchorKind::Exit => "exit",
+        _ => "anchor",
+    };
+    index.map_or_else(
+        || "parking.spaces".to_owned(),
+        |index| format!("parking.spaces[{index}].{anchor_name}.edgeId"),
+    )
 }
 
 fn signal_error_path(wire: &WireSignals, source: &CoreError) -> String {

@@ -8,6 +8,7 @@ pub mod handle;
 mod id;
 mod longitudinal;
 mod occupancy;
+pub mod parking;
 pub mod profile;
 pub mod route;
 mod route_distance;
@@ -25,8 +26,12 @@ pub use event::{
 };
 pub use graph::{EDGE_BOUNDARY_EPSILON, EdgeLength, LaneEdge, LaneGraph};
 pub use handle::{
-    EdgeHandle, RouteHandle, SignalControllerHandle, SignalGroupHandle, SignalPhaseRef,
-    StopLineHandle, VehicleHandle, VehicleProfileHandle,
+    EdgeHandle, ParkingAreaHandle, ParkingSpaceHandle, RouteHandle, SignalControllerHandle,
+    SignalGroupHandle, SignalPhaseRef, StopLineHandle, VehicleHandle, VehicleProfileHandle,
+};
+pub use parking::{
+    ParkingAnchorKind, ParkingArea, ParkingLaneAnchor, ParkingRegistry, ParkingSpace,
+    ParkingSpaceGeometry,
 };
 pub use profile::{GEOMETRY_GAP_EPSILON, IidmProfileSpec, VehicleProfile, VehicleProfileRegistry};
 pub use route::{Route, RouteRemoveRecord};

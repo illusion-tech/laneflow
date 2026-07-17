@@ -23,6 +23,7 @@ use crate::{
     id::validate_external_id,
     longitudinal::{LeaderKinematics, LongitudinalMotion, LongitudinalScratch, compute_motion},
     occupancy::{LeaderObservation, OccupancyScratch, Occupant},
+    parking::ParkingRegistry,
     profile::{GEOMETRY_GAP_EPSILON, VehicleProfile, VehicleProfileRegistry},
     route::{Route, RouteRemoveRecord},
     route_distance::{BoundedDistance, RouteDistanceIndex, RouteDistanceQuery},
@@ -322,6 +323,7 @@ pub struct CoreWorld {
     lane_graph: LaneGraph,
     vehicle_profiles: VehicleProfileRegistry,
     signals: SignalRegistry,
+    parking: ParkingRegistry,
     signal_state: SignalRuntimeState,
     signal_candidate_scratch: SignalRuntimeScratch,
     routes: Vec<RouteSlot>,
@@ -357,7 +359,7 @@ impl CoreWorld {
             });
         }
 
-        let (lane_graph, routes, vehicle_profiles, signals) = traffic_data.into_parts();
+        let (lane_graph, routes, vehicle_profiles, signals, parking) = traffic_data.into_parts();
         signals.validate_fixed_delta_time(fixed_delta_time_ms)?;
         let mut signal_state = SignalRuntimeState::default();
         signals.populate_runtime_state(0, &mut signal_state);
@@ -369,6 +371,7 @@ impl CoreWorld {
             lane_graph,
             vehicle_profiles,
             signals,
+            parking,
             signal_state,
             signal_candidate_scratch: SignalRuntimeScratch::default(),
             routes: Vec::new(),
@@ -447,6 +450,11 @@ impl CoreWorld {
     /// 返回 immutable Signals registry。
     pub const fn signals(&self) -> &SignalRegistry {
         &self.signals
+    }
+
+    /// 返回 immutable Parking registry。
+    pub const fn parking(&self) -> &ParkingRegistry {
+        &self.parking
     }
 
     /// 返回当前已提交的 controller snapshot。

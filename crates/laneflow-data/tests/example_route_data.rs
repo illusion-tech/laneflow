@@ -5,7 +5,7 @@ use laneflow_core::{
 use laneflow_data::from_json_str;
 
 const EXAMPLE_ROUTE_DATA: &str =
-    include_str!("../../../examples/data/v0.4-empty-signals.laneflow.json");
+    include_str!("../../../examples/data/v0.5-empty-signals-and-parking.laneflow.json");
 const MILLISECONDS_PER_SECOND: f64 = 1_000.0;
 
 fn load_example_world() -> CoreWorld {
@@ -18,7 +18,11 @@ fn load_example_world() -> CoreWorld {
     );
     assert!(
         traffic_data.signals().is_empty(),
-        "legacy route behavior fixture must use explicit empty v0.4 Signals"
+        "route behavior fixture must use explicit empty v0.5 Signals"
+    );
+    assert!(
+        traffic_data.parking().is_empty(),
+        "route behavior fixture must use explicit empty v0.5 Parking"
     );
 
     CoreWorld::with_traffic_data(1_000, traffic_data, Vec::new())

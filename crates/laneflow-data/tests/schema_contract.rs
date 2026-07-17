@@ -2,11 +2,11 @@ use jsonschema::draft202012;
 use laneflow_core::{EDGE_BOUNDARY_EPSILON, GEOMETRY_GAP_EPSILON, MAX_PORTABLE_SIGNAL_TIME_MS};
 use serde_json::Value;
 
-const CURRENT_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.4.schema.json");
+const CURRENT_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.5.schema.json");
 const SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.4-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.5-parking-signals-baseline.laneflow.json");
 const EMPTY_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.4-empty-signals.laneflow.json");
+    include_str!("../../../examples/data/v0.5-empty-signals-and-parking.laneflow.json");
 
 fn schema(source: &str) -> Value {
     serde_json::from_str(source).expect("data format schema must be valid JSON")
@@ -19,8 +19,14 @@ fn schema_satisfies_draft_2020_12_meta_schema() {
 }
 
 #[test]
-fn schema_locks_current_version_units_and_required_signals_shape() {
+fn schema_locks_current_version_units_and_required_static_shape() {
     let schema = schema(CURRENT_SCHEMA);
+
+    assert_eq!(
+        schema["$id"],
+        "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.5.schema.json"
+    );
+    assert_eq!(schema["title"], "LaneFlow Data Package v0.5");
 
     let mut required = string_array(&schema["required"]);
     required.sort_unstable();
@@ -29,6 +35,7 @@ fn schema_locks_current_version_units_and_required_signals_shape() {
         [
             "formatVersion",
             "laneGraph",
+            "parking",
             "routes",
             "signals",
             "units",
@@ -36,7 +43,7 @@ fn schema_locks_current_version_units_and_required_signals_shape() {
         ]
     );
     assert_eq!(schema["additionalProperties"], false);
-    assert_eq!(schema["properties"]["formatVersion"]["const"], "0.4");
+    assert_eq!(schema["properties"]["formatVersion"]["const"], "0.5");
     assert_eq!(
         schema["$defs"]["unitSpec"]["properties"]["time"]["const"],
         "second"
@@ -46,11 +53,24 @@ fn schema_locks_current_version_units_and_required_signals_shape() {
         serde_json::json!(["stopLines", "movementGates", "groups", "controllers"])
     );
     assert_eq!(schema["$defs"]["signals"]["additionalProperties"], false);
+    assert_eq!(
+        schema["$defs"]["parking"]["required"],
+        serde_json::json!(["areas", "spaces"])
+    );
+    assert_eq!(schema["$defs"]["parking"]["additionalProperties"], false);
+    assert_eq!(
+        schema["$defs"]["parkingSpace"]["required"],
+        serde_json::json!(["id", "entry", "exit", "geometry"])
+    );
+    assert_eq!(
+        schema["$defs"]["parkingSpace"]["additionalProperties"],
+        false
+    );
     assert_external_id_and_numeric_bounds(&schema);
 }
 
 #[test]
-fn schema_locks_v0_4_id_names_tagged_union_and_timing_bounds() {
+fn schema_locks_v0_5_id_names_tagged_union_and_timing_bounds() {
     let schema = schema(CURRENT_SCHEMA);
     assert_eq!(
         schema["$defs"]["laneConnection"]["required"],
@@ -117,6 +137,65 @@ fn both_canonical_current_fixtures_satisfy_schema() {
         draft202012::validate(&schema, &instance)
             .expect("current fixture must satisfy repository schema");
     }
+}
+
+#[test]
+fn schema_accepts_omitted_area_id_and_rejects_explicit_null() {
+    let schema = schema(CURRENT_SCHEMA);
+    let instance: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
+    assert!(instance["parking"]["spaces"][2].get("areaId").is_none());
+    draft202012::validate(&schema, &instance).expect("omitted areaId must satisfy schema");
+
+    let mut explicit_null = instance;
+    explicit_null["parking"]["spaces"][2]["areaId"] = Value::Null;
+    assert!(draft202012::validate(&schema, &explicit_null).is_err());
+}
+
+#[test]
+fn schema_enforces_parking_closed_shapes_and_numeric_field_bounds() {
+    let schema = schema(CURRENT_SCHEMA);
+
+    for target in ["parking", "area", "space", "anchor", "geometry"] {
+        let mut instance: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
+        match target {
+            "parking" => instance["parking"]["typo"] = serde_json::json!(true),
+            "area" => instance["parking"]["areas"][0]["typo"] = serde_json::json!(true),
+            "space" => instance["parking"]["spaces"][0]["typo"] = serde_json::json!(true),
+            "anchor" => instance["parking"]["spaces"][0]["entry"]["typo"] = serde_json::json!(true),
+            "geometry" => {
+                instance["parking"]["spaces"][0]["geometry"]["typo"] = serde_json::json!(true)
+            }
+            _ => unreachable!(),
+        }
+        assert!(draft202012::validate(&schema, &instance).is_err());
+    }
+
+    for (path, invalid) in [
+        ("progress", serde_json::json!(EDGE_BOUNDARY_EPSILON)),
+        ("lateralOffset", serde_json::json!(GEOMETRY_GAP_EPSILON)),
+        (
+            "headingOffsetRadians",
+            serde_json::json!(std::f64::consts::PI),
+        ),
+        ("length", serde_json::json!(GEOMETRY_GAP_EPSILON)),
+        ("width", serde_json::json!(0.0)),
+    ] {
+        let mut instance: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
+        if path == "progress" {
+            instance["parking"]["spaces"][0]["entry"][path] = invalid;
+        } else {
+            instance["parking"]["spaces"][0]["geometry"][path] = invalid;
+        }
+        assert!(
+            draft202012::validate(&schema, &instance).is_err(),
+            "{path} boundary must be rejected"
+        );
+    }
+
+    let mut lower_heading: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
+    lower_heading["parking"]["spaces"][0]["geometry"]["headingOffsetRadians"] =
+        serde_json::json!(-std::f64::consts::PI);
+    draft202012::validate(&schema, &lower_heading).expect("-PI is canonical");
 }
 
 #[test]

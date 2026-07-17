@@ -32,4 +32,5 @@
 - `v0.4-signals-validation.md`：v0.4 Signals 的 loader-to-Core、确定性、SignalStop、10k matched workload 与 100k 扩展性验证基线。
 - `v0.4-closure-review.md`：v0.4 Signals 收口时核验的设计、实现、current 0.4 数据契约、性能、安全、治理与剩余风险基线。
 - `v0.5-lifecycle-substrate-validation.md`：#106 lifecycle、overflow-safe route distance、command-spatial、allocation/retained-memory 与同机 base/candidate 性能验证基线。
+- `v0.5-static-parking-validation.md`：#107 static Parking、current 0.5 schema/loader/fixtures、foreign-graph rebind、10k all-vacant 0-allocation 与同机 matched 性能验证基线。
 - `v0.5-lifecycle-substrate-validation.json`：#106 验证基线的 machine-readable 原始 round、倍率、环境与依赖审计摘要。

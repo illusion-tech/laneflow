@@ -549,6 +549,6 @@ v0.2 可以暂时接受每 tick 克隆 compact `VehicleRuntimeState` 来保持 s
 
 Core identity / handle 模型影响 Core API、data-format 输入和后续 Adapter resolver 边界，属于高影响设计决策。本文配套 `../adr/0005-core-identity-and-handle-model.md`，ADR 0005 状态为 `Accepted`，作为 #24 的 G1 冻结决策依据。
 
-## 11. Planned v0.5 Parking extension
+## 11. v0.5 Parking extension
 
-`parking-system.md` 在不改变本文 external-ID/opaque-handle 原则的前提下，planned 增加 static dense `ParkingAreaHandle` / `ParkingSpaceHandle`、immutable registry/resolver 与 Parking lifecycle records。Parking handles 不持久化、没有 public ordering；dynamic vehicle 继续使用 generation handle。Parking binding 是 Core 私有 aggregate，不进入 handle本身、VehicleState或Adapter。#105 只冻结设计，实际 API 与 lifecycle substrate 分别由 #106-#109 交付。
+`parking-system.md` 在不改变本文 external-ID/opaque-handle 原则的前提下增加 static dense `ParkingAreaHandle` / `ParkingSpaceHandle` 与 immutable registry/resolver。#107 已交付 static handles/API；Parking handles 不持久化、没有 public ordering，dynamic vehicle 继续使用 generation handle。Planned Parking binding/lifecycle records 由 #108/#109 交付；binding 是 Core 私有 aggregate，不进入 handle 本身、VehicleState 或 Adapter。
