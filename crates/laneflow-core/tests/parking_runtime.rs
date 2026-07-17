@@ -89,7 +89,7 @@ fn spawn_active(
 }
 
 #[test]
-fn reservation_snapshot_counts_guard_and_cancel_are_atomic() {
+fn reservation_snapshot_counts_activation_and_cancel_are_atomic() {
     let (mut world, profile) = single_edge_world();
     let vehicle = spawn_active(&mut world, profile, "V", 0.0, 0.0);
     let area = world.parking().area_handle("lot").expect("area");
@@ -122,12 +122,10 @@ fn reservation_snapshot_counts_guard_and_cancel_are_atomic() {
         }) if bound_space == space
     );
 
-    let before = world.clone();
-    std::assert_matches!(
-        world.step(TickInput::new(1_000)),
-        Err(CoreError::ParkingVehicleCapabilityUnavailable)
-    );
-    assert_eq!(world, before);
+    world
+        .step(TickInput::new(1_000))
+        .expect("#109 activates moving reservations");
+    assert_eq!(world.parking_snapshot().counts().reserved, 1);
     assert_eq!(
         world
             .cancel_parking_reservation(vehicle, space)
@@ -143,7 +141,9 @@ fn reservation_snapshot_counts_guard_and_cancel_are_atomic() {
         ParkingCommandEffect::AlreadySatisfied
     );
     assert_eq!(world.parking_snapshot().counts().vacant, 2);
-    world.step(TickInput::new(1_000)).expect("guard cleared");
+    world
+        .step(TickInput::new(1_000))
+        .expect("cancelled world step");
 }
 
 #[test]
@@ -163,6 +163,18 @@ fn immediate_arrival_commit_and_leave_switch_position_authority() {
                 route_edge_index: 0,
             },
         })
+    );
+    let command_created_arrival_step = world
+        .step(TickInput::new(1_000))
+        .expect("command-created Arrived waits without synthetic event");
+    assert!(
+        command_created_arrival_step
+            .events
+            .iter()
+            .all(|event| !matches!(
+                event,
+                laneflow_core::CoreEvent::VehicleParkingArrivalReached(_)
+            ))
     );
     assert_eq!(
         world.commit_parking(vehicle, space).unwrap().effect,
@@ -446,7 +458,7 @@ fn command_error_priority_and_pair_mismatches_are_atomic() {
 }
 
 #[test]
-fn reserved_despawn_releases_binding_and_clears_step_guard() {
+fn reserved_despawn_releases_binding_before_later_steps() {
     let (mut world, profile) = single_edge_world();
     let vehicle = spawn_active(&mut world, profile, "reserved", 0.0, 0.0);
     let space = world.parking().space_handle("S1").unwrap();
@@ -469,7 +481,7 @@ fn reserved_despawn_releases_binding_and_clears_step_guard() {
     assert_eq!(world.parking_snapshot().vehicle_state(vehicle), None);
     world
         .step(TickInput::new(1_000))
-        .expect("reservation guard cleared by despawn");
+        .expect("reservation released by despawn");
 }
 
 #[test]

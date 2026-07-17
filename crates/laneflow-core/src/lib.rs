@@ -20,9 +20,10 @@ pub mod world;
 
 pub use error::CoreError;
 pub use event::{
-    CoreEvent, SignalGroupAspectChangedEvent, SignalPhaseChangedEvent, VehicleChangedEdgeEvent,
-    VehicleCompletedRouteEvent, VehicleFollowingSafetyProjectionAppliedEvent,
-    VehicleSignalStopProjectionAppliedEvent,
+    CoreEvent, ParkingReservationReleasedEvent, SignalGroupAspectChangedEvent,
+    SignalPhaseChangedEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
+    VehicleFollowingSafetyProjectionAppliedEvent, VehicleParkingArrivalReachedEvent,
+    VehicleParkingStopProjectionAppliedEvent, VehicleSignalStopProjectionAppliedEvent,
 };
 pub use graph::{EDGE_BOUNDARY_EPSILON, EdgeLength, LaneEdge, LaneGraph};
 pub use handle::{

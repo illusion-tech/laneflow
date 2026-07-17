@@ -445,8 +445,10 @@ pub enum CoreError {
         space: ParkingSpaceHandle,
         value: f64,
     },
-    /// #108 在 moving Parking capability 激活前拒绝 Reserved world step。
-    #[error("Parking vehicle moving capability 尚未激活")]
+    /// #108 过渡期的 legacy capability guard；#109 激活后合法 world 不再返回。
+    #[error(
+        "旧版 v0.5 Parking 车辆能力防护错误：#109 激活后不应再触发；若再次出现，请检查 ParkingStop、arrival、traversal 与 completion release 是否完整接入"
+    )]
     ParkingVehicleCapabilityUnavailable,
     /// World fixed delta 不得超过任一 static SignalPhase duration。
     #[error(
@@ -574,6 +576,18 @@ pub enum CoreError {
         from_route_edge_index: usize,
         to_route_edge_index: usize,
         gate: MovementGateKey,
+        remaining_travel: f64,
+        final_speed: f64,
+    },
+    /// ParkingStop motion 与 traversal 不得产生越过 selected entry 的剩余位移。
+    #[error(
+        "vehicle `{vehicle:?}` 的 ParkingStop motion 与 entry traversal 矛盾：space={space:?}, route={route:?}, occurrence={route_edge_index}, remaining={remaining_travel}, final_speed={final_speed}"
+    )]
+    ParkingTraversalBoundaryInvariant {
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+        route: RouteHandle,
+        route_edge_index: usize,
         remaining_travel: f64,
         final_speed: f64,
     },

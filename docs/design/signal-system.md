@@ -353,7 +353,7 @@ tick-start snapshot
 
 Traversal 按 route occurrence 顺序逐个检查 Gate。单 tick 可以连续穿越多个 permitted Gates；遇到第一个 denied Gate 就停止。精确到达 denied boundary 时保留在 fromEdge occurrence，不更新 route index，不产生 `VehicleChangedEdge`。
 
-Current v0.5 static Parking 不改变 signal permission authority。#109 的 ParkingStop 将与 SignalStop/RouteEnd 从同一 tick-start snapshot 产生并按最严格 admissible motion 归约；exact numeric tie 仅按 Signal -> Parking -> RouteEnd 稳定归因。Parking/Signals/Following 共同 event order 与 atomic commit 见 [`parking-system.md`](parking-system.md)；该 runtime composition 尚未激活。
+Current v0.5 Parking 不改变 signal permission authority。#109 已让 ParkingStop 与 SignalStop/RouteEnd 从同一 tick-start snapshot 产生并按最严格 admissible motion 归约；exact numeric tie 仅按 Signal -> Parking -> RouteEnd 稳定归因。Parking/Signals/Following 共同 event order 与 atomic commit 见 [`parking-system.md`](parking-system.md)；该 runtime composition 已激活。
 
 ### 8.1 Capability activation
 

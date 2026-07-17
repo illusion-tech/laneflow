@@ -24,7 +24,7 @@
 - 私有 occupancy / leader detection：按 physical edge 构建可复用扁平索引，沿 follower 已选 route 解析最近 leader，并在初始化与 runtime spawn 时拒绝物理车身重叠。
 - 私有 Vehicle Following pipeline：基于 tick-start snapshot 计算 IIDM comfort acceleration 与 emergency safe-speed，再通过确定性的 functional graph 投影得到最大可行 no-overlap travel；事件与状态只在整 tick 成功后原子提交。
 
-当前已实现 v0.4 Signals 全链路，以及 v0.5 static Parking、runtime binding/snapshot、`VehicleStatus::Parked` 和六条同步 lifecycle commands。#108 期间的窄 capability guard 会在 committed `reserved_count > 0` 时拒绝 step；moving reservation 的 ParkingStop、arrival、route-completion release 与 step events 由 #109 激活。仍不实现 lane changing、intersection conflict、公开 controller extension、Adapter API、C ABI 或 WASM 绑定。完整边界见 [Signal System](../../docs/design/signal-system.md) 与 [Parking System](../../docs/design/parking-system.md)。
+当前已实现 v0.4 Signals 全链路，以及 v0.5 static Parking、runtime binding/snapshot、`VehicleStatus::Parked`、六条同步 lifecycle commands、ParkingStop/arrival、parking-aware traversal、route-completion release 与 step events。#109 已解除 #108 的 Reserved-step 过渡 guard；`ParkingVehicleCapabilityUnavailable` 仅作为 pre-1.0 legacy variant 保留，合法 world 不再返回。仍不实现 lane changing、intersection conflict、公开 controller extension、Adapter API、C ABI 或 WASM 绑定。完整边界见 [Signal System](../../docs/design/signal-system.md) 与 [Parking System](../../docs/design/parking-system.md)。
 
 ## 当前 data-format 边界
 

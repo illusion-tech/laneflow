@@ -64,6 +64,12 @@ fn parking_commit_and_occupied_only_steady_step_are_zero_allocation() {
     world
         .reserve_parking_space(vehicle, space)
         .expect("arrived reservation");
+    world
+        .step(TickInput::new(20))
+        .expect("arrived scratch warm-up");
+    let (result, arrived_step_stats) = measure(|| world.step(TickInput::new(20)));
+    assert!(result.expect("arrived steady step").events.is_empty());
+    assert_zero_allocation("arrived sparse scratch steady step", arrived_step_stats);
 
     let (record, commit_stats) = measure(|| world.commit_parking(vehicle, space));
     assert_eq!(
@@ -78,4 +84,51 @@ fn parking_commit_and_occupied_only_steady_step_are_zero_allocation() {
     let (result, step_stats) = measure(|| world.step(TickInput::new(20)));
     assert!(result.expect("occupied-only steady step").events.is_empty());
     assert_zero_allocation("occupied-only steady step", step_stats);
+}
+
+#[test]
+fn reserved_approach_steady_step_is_zero_allocation_after_warm_up() {
+    let _measurement_guard = MEASUREMENT_LOCK.lock().expect("measurement lock");
+    let (mut world, vehicle, space) = single_parking_world(0.0);
+    world
+        .reserve_parking_space(vehicle, space)
+        .expect("approaching reservation");
+    world
+        .step(TickInput::new(20))
+        .expect("reserved warm-up step");
+
+    let (result, step_stats) = measure(|| world.step(TickInput::new(20)));
+    assert!(result.expect("reserved steady step").events.is_empty());
+    assert_zero_allocation("reserved approach steady step", step_stats);
+}
+
+#[test]
+fn parking_event_step_allocates_only_the_result_event_buffer() {
+    let _measurement_guard = MEASUREMENT_LOCK.lock().expect("measurement lock");
+    let (mut world, vehicle, space) = single_parking_world(19.0);
+    world
+        .reserve_parking_space(vehicle, space)
+        .expect("approaching reservation");
+    world
+        .step(TickInput::new(20))
+        .expect("warm reusable Parking scratch");
+
+    for _ in 0..200 {
+        let before = world.clone();
+        let probe = world.step(TickInput::new(20)).expect("approach probe step");
+        if probe.events.is_empty() {
+            continue;
+        }
+
+        world = before;
+        let (result, stats) = measure(|| world.step(TickInput::new(20)));
+        let result = result.expect("replayed event step");
+        assert_eq!(result.events, probe.events, "event tick replay parity");
+        assert_eq!(stats.allocations, 1, "event result buffer allocation");
+        assert_eq!(stats.reallocations, 0, "event result buffer growth");
+        assert!(stats.bytes_allocated > 0, "event result buffer bytes");
+        return;
+    }
+
+    panic!("Parking approach must eventually emit a projection or arrival event");
 }
