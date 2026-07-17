@@ -282,6 +282,10 @@ Occupant
 
 Occupancy 不进入 public API、不允许 Adapter 缓存，也不跨 lifecycle command 增量修补；spawn/despawn 后在下一 tick 完整重建。
 
+#106 新增的 command-spatial index 不改变上述 tick authority：它只服务 step 之间的 spawn/leave 类局部验证，是 non-authoritative private cache。查询始终从 committed `VehicleState` 读取 progress，并用 route occurrence 做最终过滤；物理 edge membership 只在 spawn/despawn、完成或真实 physical-edge transition 时同步，不因同一 physical edge 上的 progress 变化做每车每 tick 重排。它与 tick-local Occupancy 保持两套职责，禁止用 command index 替代 leader/no-overlap snapshot。
+
+Route-distance 查询使用 overflow-safe segmented index；route-end 常见 horizon 先走当前/下一 edge 的快速拒绝路径，只有目标可能进入有限 horizon 时才访问完整 occurrence index。这样保留大量 finite edge 累计溢出时的正确性，同时避免无关 route scan 或把三个 `Vec` 放进热 `RouteSlot`。对应 full-scan oracle、operation counter 与性能证据见 [`../reference/v0.5-lifecycle-substrate-validation.md`](../reference/v0.5-lifecycle-substrate-validation.md)。
+
 ## 8. Longitudinal constraints
 
 v0.3 使用 Core 私有、tick-local `LongitudinalConstraintSet`，分为：
