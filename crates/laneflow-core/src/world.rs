@@ -285,6 +285,7 @@ fn parking_arrived_state(
 #[derive(Clone, Copy, Debug)]
 struct LifecycleRetainedStats {
     accounted_bytes: usize,
+    parking_bytes: usize,
     live_vehicles: usize,
     route_occurrences: usize,
     tombstones: usize,
@@ -707,12 +708,21 @@ impl CoreWorld {
         }
 
         let edge = self.vehicle_edge(state);
+        let removed_speed = state.current_speed.value();
         let occupant = CommandOccupant {
             vehicle,
             front_progress: state.edge_progress.value(),
         };
         let mut spatial = std::mem::take(&mut self.command_spatial_index);
         let vehicles = &self.vehicles;
+        spatial.prepare_speed_removal(
+            removed_speed,
+            vehicles.iter().filter_map(|slot| {
+                let state = slot.state.as_ref()?;
+                (state.status == VehicleStatus::Active)
+                    .then_some((state.handle, state.current_speed.value()))
+            }),
+        );
         let mut resolve_progress = |candidate: VehicleHandle| {
             vehicles[candidate.index()]
                 .state
@@ -1627,7 +1637,7 @@ impl CoreWorld {
         }
         if normalized.status == VehicleStatus::Active {
             self.command_spatial_index
-                .note_vehicle_speed(normalized.current_speed.value());
+                .note_vehicle_speed(handle, normalized.current_speed.value());
         }
         self.compact_update_order_if_needed();
         Ok(handle)
@@ -1652,6 +1662,7 @@ impl CoreWorld {
         let profile = state.profile;
         let route = state.route;
         let status = state.status;
+        let removed_speed = state.current_speed.value();
         let parking_binding = self.parking_runtime.vehicle_binding(handle);
         let parking_binding_valid = match (status, parking_binding) {
             (VehicleStatus::Parked, Some(RuntimeVehicleParkingBinding::Occupied { space, .. })) => {
@@ -1688,7 +1699,18 @@ impl CoreWorld {
             self.free_vehicle_indices.reserve(1);
         }
         if let Some((edge, occupant)) = spatial_occupant {
+            let mut spatial = std::mem::take(&mut self.command_spatial_index);
             let vehicles = &self.vehicles;
+            if status == VehicleStatus::Active {
+                spatial.prepare_speed_removal(
+                    removed_speed,
+                    vehicles.iter().filter_map(|slot| {
+                        let state = slot.state.as_ref()?;
+                        (state.status == VehicleStatus::Active)
+                            .then_some((state.handle, state.current_speed.value()))
+                    }),
+                );
+            }
             let mut resolve_progress = |candidate: VehicleHandle| {
                 vehicles[candidate.index()]
                     .state
@@ -1697,8 +1719,8 @@ impl CoreWorld {
                     .edge_progress
                     .value()
             };
-            self.command_spatial_index
-                .remove(edge, occupant, &mut resolve_progress);
+            spatial.remove(edge, occupant, &mut resolve_progress);
+            self.command_spatial_index = spatial;
         }
 
         let parking_release =
@@ -1968,15 +1990,18 @@ impl CoreWorld {
                 * std::mem::size_of::<VehicleHandle>()
             + self.candidate_state_scratch.parking_releases.capacity()
                 * std::mem::size_of::<ParkingStepRelease>();
+        let parking_bytes = self.parking.retained_bytes()
+            + self.longitudinal_scratch.parking_retained_bytes()
+            + self.parking_runtime.retained_bytes();
         LifecycleRetainedStats {
             accounted_bytes: std::mem::size_of::<Self>()
                 + route_bytes
                 + vehicle_bytes
                 + resolver_bytes
                 + lifecycle_scratch_bytes
-                + self.longitudinal_scratch.parking_retained_bytes()
-                + self.parking_runtime.retained_bytes()
+                + parking_bytes
                 + self.command_spatial_index.retained_bytes(),
+            parking_bytes,
             live_vehicles: self.vehicles().count(),
             route_occurrences,
             tombstones: self.vehicle_update_order.tombstones,
@@ -3892,6 +3917,58 @@ mod tests {
         CoreWorld::with_traffic_data(20, traffic_data, vehicles).expect("scale world")
     }
 
+    fn parking_retained_scale_world(vehicle_count: usize) -> CoreWorld {
+        let edge_length = 10.0 * vehicle_count as f64 + 100.0;
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(edge_length).expect("parking retained edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("parking retained graph");
+        let parking = ParkingRegistry::try_new(
+            &lane_graph,
+            [],
+            (0..vehicle_count).map(|index| {
+                ParkingSpace::new(
+                    format!("S{index:06}"),
+                    None,
+                    "A",
+                    1.0 + 10.0 * index as f64,
+                    "A",
+                    2.0 + 10.0 * index as f64,
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 5.0, 2.4),
+                )
+            }),
+        )
+        .expect("parking retained registry");
+        let (base, profile) = traffic_data(
+            lane_graph,
+            [Route::try_new("R", ["A"]).expect("parking retained route")],
+        );
+        let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+            base.lane_graph().clone(),
+            base.routes().iter().cloned(),
+            base.vehicle_profiles().clone(),
+            SignalRegistry::empty(),
+            parking,
+        )
+        .expect("parking retained traffic");
+        let vehicles = (0..vehicle_count)
+            .map(|index| {
+                VehicleSpawnInput::active(
+                    format!("V{index:06}"),
+                    profile,
+                    "R",
+                    0,
+                    EdgeProgress::try_new(5.0 + 10.0 * index as f64)
+                        .expect("parking retained progress"),
+                    Speed::ZERO,
+                )
+            })
+            .collect();
+        CoreWorld::with_traffic_data(20, traffic, vehicles).expect("parking retained world")
+    }
+
     fn sparse_command_world(background_count: usize) -> (CoreWorld, VehicleProfileHandle) {
         let edge_length = 10.0 * background_count as f64 + 2_000.0;
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
@@ -5289,7 +5366,7 @@ mod tests {
                 parking,
             )
             .expect("parking scale traffic");
-            let mut vehicles = (0..background_count)
+            let mut vehicles: Vec<_> = (0..background_count)
                 .map(|index| {
                     VehicleSpawnInput::active(
                         format!("B{index:06}"),
@@ -5346,6 +5423,128 @@ mod tests {
     }
 
     #[test]
+    fn parking_leave_stale_max_speed_profile_exposes_reverse_horizon_work() {
+        let run = |background_count: usize| {
+            let edge_length = 10.0 * background_count as f64 + 100.0;
+            let exit_progress = edge_length - 10.0;
+            let lane_graph = LaneGraph::try_new([
+                LaneEdge::new(
+                    "A",
+                    EdgeLength::try_new(edge_length).expect("pathological edge length"),
+                    Vec::<String>::new(),
+                ),
+                LaneEdge::new(
+                    "C",
+                    EdgeLength::try_new(100.0).expect("fast edge length"),
+                    Vec::<String>::new(),
+                ),
+            ])
+            .expect("pathological graph");
+            let parking = ParkingRegistry::try_new(
+                &lane_graph,
+                [],
+                [ParkingSpace::new(
+                    "S",
+                    None,
+                    "A",
+                    exit_progress - 10.0,
+                    "A",
+                    exit_progress,
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
+                )],
+            )
+            .expect("pathological parking registry");
+            let (base, profile) = traffic_data(
+                lane_graph,
+                [
+                    Route::try_new("R", ["A"]).expect("pathological route"),
+                    Route::try_new("fast-route", ["C"]).expect("fast route"),
+                ],
+            );
+            let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+                base.lane_graph().clone(),
+                base.routes().iter().cloned(),
+                base.vehicle_profiles().clone(),
+                SignalRegistry::empty(),
+                parking,
+            )
+            .expect("pathological traffic");
+            let mut vehicles: Vec<_> = (0..background_count)
+                .map(|index| {
+                    VehicleSpawnInput::active(
+                        format!("B{index:06}"),
+                        profile,
+                        "R",
+                        0,
+                        EdgeProgress::try_new(5.0 + 10.0 * index as f64)
+                            .expect("background progress"),
+                        Speed::ZERO,
+                    )
+                })
+                .collect();
+            vehicles.push(VehicleSpawnInput::active(
+                "fast-1",
+                profile,
+                "fast-route",
+                0,
+                EdgeProgress::try_new(50.0).expect("fast progress"),
+                Speed::try_new(10_000_000.0).expect("fast speed"),
+            ));
+            vehicles.push(VehicleSpawnInput::active(
+                "fast-2",
+                profile,
+                "fast-route",
+                0,
+                EdgeProgress::try_new(70.0).expect("second fast progress"),
+                Speed::try_new(9_000_000.0).expect("second fast speed"),
+            ));
+            let mut world =
+                CoreWorld::with_traffic_data(20, traffic, vehicles).expect("pathological world");
+            let fast = world.vehicle_handle("fast-1").expect("fast vehicle");
+            world
+                .despawn_vehicle(fast)
+                .expect("removing the fastest vehicle refreshes command max speed");
+            let second_fast = world.vehicle_handle("fast-2").expect("second fast vehicle");
+            world
+                .despawn_vehicle(second_fast)
+                .expect("same command batch reuses the exact max heap");
+            let space = world.parking().space_handle("S").expect("space");
+            let route = world.route_handle("R").expect("route");
+            let parked = world
+                .spawn_parked_vehicle(ParkedVehicleSpawnInput {
+                    id: "parked".to_owned(),
+                    profile,
+                    route_id: "R".to_owned(),
+                    route_edge_index: 0,
+                    space,
+                })
+                .expect("parked spawn")
+                .vehicle;
+            let candidate = NormalizedVehicleInput {
+                profile,
+                route_edge_index: 0,
+                edge_progress: EdgeProgress::try_new(exit_progress).expect("exit progress"),
+                current_speed: Speed::ZERO,
+                status: VehicleStatus::Active,
+            };
+            world
+                .validate_parking_leave_followers(parked, space, route, 0, &candidate)
+                .expect("zero-speed direct follower remains safe");
+            (
+                world.command_spatial_index.query_stats(),
+                world.command_spatial_index.speed_heap_rebuilds(),
+            )
+        };
+
+        let small = run(128);
+        let large = run(10_000);
+        assert_eq!(small, large);
+        assert_eq!(small.0.edge_ranges, 1);
+        assert_eq!(small.0.occupants_visited, 0);
+        assert_eq!(small.1, 1, "one command batch builds the max heap once");
+    }
+
+    #[test]
     #[ignore = "100k retained-memory scaling is an explicit G3 validation"]
     fn lifecycle_retained_memory_10k_to_100k_is_linear() {
         let small = lifecycle_scale_world(10_000).lifecycle_retained_stats();
@@ -5368,6 +5567,24 @@ mod tests {
             large.accounted_bytes,
             large.accounted_bytes as f64 / large.live_vehicles as f64,
             large.accounted_bytes as f64 / small.accounted_bytes as f64,
+        );
+    }
+
+    #[test]
+    #[ignore = "100k Parking retained-memory scaling is an explicit G3 validation"]
+    fn parking_retained_memory_10k_to_100k_is_linear() {
+        let small = parking_retained_scale_world(10_000).lifecycle_retained_stats();
+        let large = parking_retained_scale_world(100_000).lifecycle_retained_stats();
+        assert!(small.parking_bytes > 0);
+        assert!(
+            large.parking_bytes <= small.parking_bytes * 12,
+            "Parking retained bytes must scale <=12x: small={small:?}, large={large:?}"
+        );
+        eprintln!(
+            "parking_retained_memory small_bytes={} large_bytes={} ratio={:.4}",
+            small.parking_bytes,
+            large.parking_bytes,
+            large.parking_bytes as f64 / small.parking_bytes as f64,
         );
     }
 

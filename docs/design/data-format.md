@@ -167,7 +167,7 @@ v0.4 引入且 v0.5 保留的 route 规则：route 不得终止在声明 StopLin
 - geometry 以 entry edge 的正向切线为局部基准；`abs(lateralOffset) > GEOMETRY_GAP_EPSILON`，heading 位于 `[-PI, PI)`，length/width 大于 geometry epsilon。
 - External package 不持久化 reservation、occupancy、initial parked vehicles、runtime handles、maneuver path 或 world transform。
 
-停车场、专用路边停车区和 standalone 路边泊位复用同一 `ParkingSpace` 模型；v0.5 static data 不加入影响 Core 行为的 lot/curbside kind。完整 runtime/lifecycle 契约仍由 [`parking-system.md`](parking-system.md) 与 #108-#110 承接。
+停车场、专用路边停车区和 standalone 路边泊位复用同一 `ParkingSpace` 模型；v0.5 static data 不加入影响 Core 行为的 lot/curbside kind。完整 runtime/lifecycle 契约见 [`parking-system.md`](parking-system.md)，已由 #108/#109 交付并由 #110 完成端到端验证。
 
 ## 7. Validation 分层与顺序
 

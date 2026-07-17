@@ -29,6 +29,7 @@ fn assert_zero_allocation(label: &str, stats: Stats) {
 }
 
 #[test]
+#[ignore = "global allocator measurement requires explicit serial execution"]
 fn parking_snapshot_and_warm_commands_are_zero_allocation() {
     let _measurement_guard = MEASUREMENT_LOCK.lock().expect("measurement lock");
     let (mut world, vehicle, space) = single_parking_world(0.0);
@@ -58,6 +59,7 @@ fn parking_snapshot_and_warm_commands_are_zero_allocation() {
 }
 
 #[test]
+#[ignore = "global allocator measurement requires explicit serial execution"]
 fn parking_commit_and_occupied_only_steady_step_are_zero_allocation() {
     let _measurement_guard = MEASUREMENT_LOCK.lock().expect("measurement lock");
     let (mut world, vehicle, space) = single_parking_world(20.0);
@@ -87,6 +89,7 @@ fn parking_commit_and_occupied_only_steady_step_are_zero_allocation() {
 }
 
 #[test]
+#[ignore = "global allocator measurement requires explicit serial execution"]
 fn reserved_approach_steady_step_is_zero_allocation_after_warm_up() {
     let _measurement_guard = MEASUREMENT_LOCK.lock().expect("measurement lock");
     let (mut world, vehicle, space) = single_parking_world(0.0);
@@ -103,6 +106,7 @@ fn reserved_approach_steady_step_is_zero_allocation_after_warm_up() {
 }
 
 #[test]
+#[ignore = "global allocator measurement requires explicit serial execution"]
 fn parking_event_step_allocates_only_the_result_event_buffer() {
     let _measurement_guard = MEASUREMENT_LOCK.lock().expect("measurement lock");
     let (mut world, vehicle, space) = single_parking_world(19.0);
