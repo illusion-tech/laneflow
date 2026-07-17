@@ -18,6 +18,7 @@ thiserror = "2.0"
 
 [dev-dependencies]
 criterion = "0.8"
+half = "2.7.1"
 proptest = { version = "1.11", default-features = false, features = ["std"] }
 stats_alloc = "=0.1.10"
 
@@ -27,6 +28,10 @@ harness = false
 
 [[bench]]
 name = "core_commands"
+harness = false
+
+[[bench]]
+name = "numeric_candidates"
 harness = false
 
 [lints]
