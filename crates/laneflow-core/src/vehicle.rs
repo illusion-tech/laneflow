@@ -3,6 +3,7 @@
 use crate::{
     error::CoreError,
     handle::{RouteHandle, VehicleHandle, VehicleProfileHandle},
+    parking::ParkingReleaseRecord,
 };
 
 /// 车辆速度，单位为 meter/second。
@@ -92,6 +93,8 @@ pub enum VehicleStatus {
     Stopped,
     /// route 结束后的终止状态。
     Completed,
+    /// 由 Parking lifecycle command 持有 off-lane position authority。
+    Parked,
 }
 
 /// 创建或初始化 vehicle 时使用的外部输入。
@@ -251,4 +254,6 @@ pub struct VehicleDespawnRecord {
     pub route: RouteHandle,
     /// 移除时的 vehicle 状态。
     pub status: VehicleStatus,
+    /// Despawn 同步释放的 Parking binding。
+    pub parking_release: Option<ParkingReleaseRecord>,
 }

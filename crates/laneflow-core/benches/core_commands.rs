@@ -1,7 +1,8 @@
 //! Core lifecycle command 性能基线。
 //!
 //! 运行：`cargo +1.96.0 bench -p laneflow-core --bench core_commands --locked`。
-//! 设置 `LANEFLOW_BENCH_100K=1` 额外运行 100k fixed-command isolation。
+//! 设置 `LANEFLOW_BENCH_100K=1` 额外运行全部 100k workload；只验证 Parking 时可用
+//! `LANEFLOW_BENCH_PARKING_100K=1`，避免构造无关 100k 场景。
 
 use std::{hint::black_box, time::Duration};
 
@@ -9,6 +10,12 @@ use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, 
 
 #[path = "../tests/support/command_validation_scenarios.rs"]
 mod command_scenarios;
+#[path = "../tests/support/parking_runtime_scenarios.rs"]
+#[allow(
+    dead_code,
+    reason = "shared parking helper also exposes step scenarios"
+)]
+mod parking_scenarios;
 
 use command_scenarios::{
     COMMAND_SCALING_VEHICLE_COUNT, COMMAND_VEHICLE_COUNT, CommandScenario, DEFAULT_ROUTE_LENGTH,
@@ -16,6 +23,10 @@ use command_scenarios::{
     matched_command_scenario, remove_unused_route, repeated_command_scenario,
     run_in_use_route_failure_batch, run_mixed_churn_batch, run_overlap_failure_batch,
     run_safe_spawn_despawn_batch, warm_command_scenario,
+};
+use parking_scenarios::{
+    FIXED_PARKING_COMMAND_COUNT, ParkingCommandScenario, parking_command_scenario,
+    run_reserve_cancel_batch,
 };
 
 fn benchmark_command_batch(
@@ -258,12 +269,59 @@ fn benchmark_100k_extended(criterion: &mut Criterion) {
     matched.finish();
 }
 
+fn benchmark_parking_commands(
+    criterion: &mut Criterion,
+    vehicle_count: usize,
+    sample_size: usize,
+    measurement_seconds: u64,
+) {
+    let scenario = parking_command_scenario(vehicle_count, FIXED_PARKING_COMMAND_COUNT);
+    assert_eq!(
+        run_reserve_cancel_batch(&mut ParkingCommandScenario {
+            world: scenario.world.clone(),
+            pairs: scenario.pairs.clone(),
+        }),
+        FIXED_PARKING_COMMAND_COUNT * 2
+    );
+    let mut group = criterion.benchmark_group(format!(
+        "parking_runtime_reserve_cancel_{vehicle_count}_{}",
+        FIXED_PARKING_COMMAND_COUNT
+    ));
+    group.sample_size(sample_size);
+    group.warm_up_time(Duration::from_secs(1));
+    group.measurement_time(Duration::from_secs(measurement_seconds));
+    group.throughput(Throughput::Elements(
+        (FIXED_PARKING_COMMAND_COUNT * 2) as u64,
+    ));
+    group.bench_with_input(
+        BenchmarkId::new("fixed_pairs", FIXED_PARKING_COMMAND_COUNT),
+        &scenario,
+        |benchmark, scenario| {
+            let mut scenario = ParkingCommandScenario {
+                world: scenario.world.clone(),
+                pairs: scenario.pairs.clone(),
+            };
+            assert_eq!(
+                run_reserve_cancel_batch(&mut scenario),
+                FIXED_PARKING_COMMAND_COUNT * 2
+            );
+            benchmark.iter(|| black_box(run_reserve_cancel_batch(&mut scenario)));
+        },
+    );
+    group.finish();
+}
+
 fn benchmark_core_commands(criterion: &mut Criterion) {
     benchmark_fixed_commands(criterion, COMMAND_VEHICLE_COUNT, 20, 5);
     benchmark_extended_workloads(criterion);
-    if std::env::var_os("LANEFLOW_BENCH_100K").is_some() {
+    benchmark_parking_commands(criterion, COMMAND_VEHICLE_COUNT, 20, 5);
+    let full_100k = std::env::var_os("LANEFLOW_BENCH_100K").is_some();
+    if full_100k {
         benchmark_fixed_commands(criterion, COMMAND_SCALING_VEHICLE_COUNT, 10, 10);
         benchmark_100k_extended(criterion);
+    }
+    if full_100k || std::env::var_os("LANEFLOW_BENCH_PARKING_100K").is_some() {
+        benchmark_parking_commands(criterion, COMMAND_SCALING_VEHICLE_COUNT, 10, 10);
     }
 }
 

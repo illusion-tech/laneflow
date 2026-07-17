@@ -16,6 +16,7 @@
 - `VehicleProfileHandle` / `VehicleProfileRegistry`：表达 profile typed handle、稳定输入顺序和双向 resolver；
 - `SignalRegistry`、Signal handles 与 current snapshots：表达经过归一化的 StopLine、MovementGate、Group、Controller/Phase，保留稳定输入顺序和预解析 resolver，并以 absolute integer time 提供 time-0/post-step Controller/Group/Gate query；
 - `ParkingRegistry`、`ParkingArea` / `ParkingSpace` 与 opaque handles：表达 immutable area membership、entry/exit anchors、edge-relative geometry、稳定输入/member 顺序和 O(1) resolvers；
+- `ParkingSnapshot` 与 Parking commands/records：表达 Core-owned `Vacant -> Reserved -> Occupied -> Vacant` authority、borrowed committed query、caller-selected reserve/cancel/commit/leave/rebind/parked-spawn，以及 despawn release；
 - `InitialTrafficData`：统一校验 lane graph、初始 routes、immutable profile / Signals / Parking registries，并把 graph-dependent registries 原子重绑定到自身 lane graph；
 - `Speed` / `Acceleration` / `EdgeProgress`：用 newtype 包装非负速度、finite 有符号加速度和 front-bumper progress，避免 public API 直接散落裸 `f64`。
 - `CoreEvent`：输出 signal/following safety projection、route transition、route completion 与稀疏 signal phase/aspect change 事件，payload 使用 handle 而不是复制 external ID。
@@ -23,7 +24,7 @@
 - 私有 occupancy / leader detection：按 physical edge 构建可复用扁平索引，沿 follower 已选 route 解析最近 leader，并在初始化与 runtime spawn 时拒绝物理车身重叠。
 - 私有 Vehicle Following pipeline：基于 tick-start snapshot 计算 IIDM comfort acceleration 与 emergency safe-speed，再通过确定性的 functional graph 投影得到最大可行 no-overlap travel；事件与状态只在整 tick 成功后原子提交。
 
-当前已实现 v0.4 Signals 全链路和 v0.5 immutable static Parking registry/current data；停车 reservation/occupancy/commands、ParkingStop 与 parked lifecycle 尚由 #108/#109 承接。仍不实现 lane changing、intersection conflict、公开 controller extension、Adapter API、C ABI 或 WASM 绑定。完整边界见 [Signal System](../../docs/design/signal-system.md) 与 [Parking System](../../docs/design/parking-system.md)。
+当前已实现 v0.4 Signals 全链路，以及 v0.5 static Parking、runtime binding/snapshot、`VehicleStatus::Parked` 和六条同步 lifecycle commands。#108 期间的窄 capability guard 会在 committed `reserved_count > 0` 时拒绝 step；moving reservation 的 ParkingStop、arrival、route-completion release 与 step events 由 #109 激活。仍不实现 lane changing、intersection conflict、公开 controller extension、Adapter API、C ABI 或 WASM 绑定。完整边界见 [Signal System](../../docs/design/signal-system.md) 与 [Parking System](../../docs/design/parking-system.md)。
 
 ## 当前 data-format 边界
 

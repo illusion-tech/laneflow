@@ -30,8 +30,13 @@ pub use handle::{
     SignalGroupHandle, SignalPhaseRef, StopLineHandle, VehicleHandle, VehicleProfileHandle,
 };
 pub use parking::{
-    ParkingAnchorKind, ParkingArea, ParkingLaneAnchor, ParkingRegistry, ParkingSpace,
-    ParkingSpaceGeometry,
+    LeaveParkingInput, ParkedVehicleSpawnInput, ParkedVehicleSpawnRecord, ParkingAnchorKind,
+    ParkingApproachState, ParkingArea, ParkingBindingKind, ParkingCommandEffect,
+    ParkingCommandKind, ParkingCommitRecord, ParkingCounts, ParkingLaneAnchor, ParkingLeaveRecord,
+    ParkingRegistry, ParkingReleaseReason, ParkingReleaseRecord,
+    ParkingReservationCancellationRecord, ParkingReservationRecord, ParkingSnapshot, ParkingSpace,
+    ParkingSpaceGeometry, ParkingSpaceState, RebindReservedVehicleRouteInput,
+    ReservedVehicleRouteRebindRecord, VehicleParkingState,
 };
 pub use profile::{GEOMETRY_GAP_EPSILON, IidmProfileSpec, VehicleProfile, VehicleProfileRegistry};
 pub use route::{Route, RouteRemoveRecord};

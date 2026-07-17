@@ -7,9 +7,14 @@ use indexmap::IndexMap;
 use crate::{
     error::CoreError,
     graph::{EDGE_BOUNDARY_EPSILON, LaneGraph},
-    handle::{EdgeHandle, ParkingAreaHandle, ParkingSpaceHandle},
+    handle::{
+        EdgeHandle, ParkingAreaHandle, ParkingSpaceHandle, RouteHandle, VehicleHandle,
+        VehicleProfileHandle,
+    },
     id::validate_external_id,
     profile::GEOMETRY_GAP_EPSILON,
+    vehicle::{Speed, VehicleStatus},
+    world::CoreWorld,
 };
 
 /// Parking anchor 的语义位置。
@@ -466,4 +471,642 @@ fn validate_geometry(space: &ParkingSpace) -> Result<(), CoreError> {
         }
     }
     Ok(())
+}
+
+/// Parking lifecycle command identity。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ParkingCommandKind {
+    Reserve,
+    CancelReservation,
+    Commit,
+    Leave,
+    RebindReservedVehicleRoute,
+    SpawnParkedVehicle,
+}
+
+/// Committed ParkingSpace runtime state。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ParkingSpaceState {
+    Vacant,
+    Reserved { vehicle: VehicleHandle },
+    Occupied { vehicle: VehicleHandle },
+}
+
+/// Reserved vehicle 相对 selected entry 的 committed approach 状态。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ParkingApproachState {
+    Dormant,
+    Approaching {
+        route: RouteHandle,
+        route_edge_index: usize,
+    },
+    Arrived {
+        route: RouteHandle,
+        route_edge_index: usize,
+    },
+}
+
+/// 单个 live vehicle 的 Parking binding view。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VehicleParkingState {
+    Unbound,
+    Reserved {
+        space: ParkingSpaceHandle,
+        approach: ParkingApproachState,
+    },
+    Occupied {
+        space: ParkingSpaceHandle,
+    },
+}
+
+/// Global 或 ParkingArea 的 committed capacity/count view。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ParkingCounts {
+    pub capacity: usize,
+    pub vacant: usize,
+    pub reserved: usize,
+    pub occupied: usize,
+}
+
+impl ParkingCounts {
+    /// `available` 与 `vacant` 同义。
+    pub const fn available(self) -> usize {
+        self.vacant
+    }
+}
+
+/// 同步 command 是否改变了 committed authority。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ParkingCommandEffect {
+    Applied,
+    AlreadySatisfied,
+}
+
+/// Parking forward/reverse binding 类型。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ParkingBindingKind {
+    Reserved,
+    Occupied,
+}
+
+/// Parking binding 被 lifecycle cleanup 释放的原因。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ParkingReleaseReason {
+    RouteCompleted,
+    VehicleDespawn,
+}
+
+/// Reservation command result。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParkingReservationRecord {
+    pub vehicle: VehicleHandle,
+    pub space: ParkingSpaceHandle,
+    pub effect: ParkingCommandEffect,
+}
+
+/// Pair-specific reservation cancellation result。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParkingReservationCancellationRecord {
+    pub vehicle: VehicleHandle,
+    pub space: ParkingSpaceHandle,
+    pub effect: ParkingCommandEffect,
+}
+
+/// Explicit park commit result。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParkingCommitRecord {
+    pub vehicle: VehicleHandle,
+    pub space: ParkingSpaceHandle,
+    pub effect: ParkingCommandEffect,
+}
+
+/// Leave command input；progress 固定来自 ParkingSpace exit anchor。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LeaveParkingInput {
+    pub vehicle: VehicleHandle,
+    pub space: ParkingSpaceHandle,
+    pub route: RouteHandle,
+    pub route_edge_index: usize,
+}
+
+/// Successful/no-op leave result。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParkingLeaveRecord {
+    pub vehicle: VehicleHandle,
+    pub space: ParkingSpaceHandle,
+    pub route: RouteHandle,
+    pub route_edge_index: usize,
+    pub effect: ParkingCommandEffect,
+}
+
+/// Reserved vehicle route rebind input。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RebindReservedVehicleRouteInput {
+    pub vehicle: VehicleHandle,
+    pub space: ParkingSpaceHandle,
+    pub route: RouteHandle,
+    pub route_edge_index: usize,
+}
+
+/// Reserved vehicle route rebind result。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReservedVehicleRouteRebindRecord {
+    pub vehicle: VehicleHandle,
+    pub space: ParkingSpaceHandle,
+    pub from_route: RouteHandle,
+    pub from_route_edge_index: usize,
+    pub to_route: RouteHandle,
+    pub to_route_edge_index: usize,
+    pub effect: ParkingCommandEffect,
+}
+
+/// Atomic parked spawn input。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParkedVehicleSpawnInput {
+    pub id: String,
+    pub profile: VehicleProfileHandle,
+    pub route_id: String,
+    pub route_edge_index: usize,
+    pub space: ParkingSpaceHandle,
+}
+
+/// Atomic parked spawn result。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParkedVehicleSpawnRecord {
+    pub vehicle: VehicleHandle,
+    pub space: ParkingSpaceHandle,
+    pub route: RouteHandle,
+    pub route_edge_index: usize,
+}
+
+/// Lifecycle cleanup 释放的 Parking binding。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ParkingReleaseRecord {
+    pub vehicle: VehicleHandle,
+    pub space: ParkingSpaceHandle,
+    pub previous_binding: ParkingBindingKind,
+    pub reason: ParkingReleaseReason,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ParkingApproachTarget {
+    pub(crate) route: RouteHandle,
+    pub(crate) route_edge_index: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RuntimeVehicleParkingBinding {
+    Reserved {
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+        target: Option<ParkingApproachTarget>,
+    },
+    Occupied {
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+    },
+}
+
+impl RuntimeVehicleParkingBinding {
+    const fn vehicle(self) -> VehicleHandle {
+        match self {
+            Self::Reserved { vehicle, .. } | Self::Occupied { vehicle, .. } => vehicle,
+        }
+    }
+
+    pub(crate) const fn space(self) -> ParkingSpaceHandle {
+        match self {
+            Self::Reserved { space, .. } | Self::Occupied { space, .. } => space,
+        }
+    }
+
+    pub(crate) const fn kind(self) -> ParkingBindingKind {
+        match self {
+            Self::Reserved { .. } => ParkingBindingKind::Reserved,
+            Self::Occupied { .. } => ParkingBindingKind::Occupied,
+        }
+    }
+}
+
+/// Core-owned mutable Parking authority。Public callers只能通过 `ParkingSnapshot` 读取。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ParkingRuntimeState {
+    spaces: Vec<ParkingSpaceState>,
+    vehicle_bindings: Vec<Option<RuntimeVehicleParkingBinding>>,
+    global_counts: ParkingCounts,
+    area_counts: Vec<ParkingCounts>,
+}
+
+impl ParkingRuntimeState {
+    pub(crate) fn new(registry: &ParkingRegistry) -> Self {
+        let area_counts = registry
+            .area_spaces
+            .iter()
+            .map(|members| ParkingCounts {
+                capacity: members.len(),
+                vacant: members.len(),
+                reserved: 0,
+                occupied: 0,
+            })
+            .collect::<Vec<_>>();
+        let capacity = registry.spaces.len();
+        Self {
+            spaces: vec![ParkingSpaceState::Vacant; capacity],
+            vehicle_bindings: Vec::new(),
+            global_counts: ParkingCounts {
+                capacity,
+                vacant: capacity,
+                reserved: 0,
+                occupied: 0,
+            },
+            area_counts,
+        }
+    }
+
+    pub(crate) fn validate_step_sentinel(
+        &self,
+        registry: &ParkingRegistry,
+    ) -> Result<(), CoreError> {
+        let valid = self.spaces.len() == registry.spaces.len()
+            && self.area_counts.len() == registry.areas.len()
+            && self.global_counts.capacity == self.spaces.len()
+            && self.global_counts.vacant
+                + self.global_counts.reserved
+                + self.global_counts.occupied
+                == self.global_counts.capacity;
+        if valid {
+            Ok(())
+        } else {
+            Err(CoreError::ParkingBindingInvariantViolation {
+                stage: "step_sentinel",
+                vehicle: None,
+                space: None,
+            })
+        }
+    }
+
+    pub(crate) const fn reserved_count(&self) -> usize {
+        self.global_counts.reserved
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assert_consistent(
+        &self,
+        registry: &ParkingRegistry,
+        mut vehicle_status: impl FnMut(VehicleHandle) -> Option<VehicleStatus>,
+    ) {
+        assert_eq!(self.spaces.len(), registry.spaces.len());
+        assert_eq!(self.area_counts.len(), registry.areas.len());
+
+        let mut expected_global = ParkingCounts {
+            capacity: self.spaces.len(),
+            vacant: 0,
+            reserved: 0,
+            occupied: 0,
+        };
+        let mut expected_areas = registry
+            .area_spaces
+            .iter()
+            .map(|members| ParkingCounts {
+                capacity: members.len(),
+                vacant: 0,
+                reserved: 0,
+                occupied: 0,
+            })
+            .collect::<Vec<_>>();
+
+        for (space_index, state) in self.spaces.iter().copied().enumerate() {
+            let space = ParkingSpaceHandle::new(space_index);
+            let area = registry.spaces[space_index].area;
+            let count = |counts: &mut ParkingCounts| match state {
+                ParkingSpaceState::Vacant => counts.vacant += 1,
+                ParkingSpaceState::Reserved { .. } => counts.reserved += 1,
+                ParkingSpaceState::Occupied { .. } => counts.occupied += 1,
+            };
+            count(&mut expected_global);
+            if let Some(area) = area {
+                count(&mut expected_areas[area.index()]);
+            }
+
+            match state {
+                ParkingSpaceState::Vacant => {
+                    assert!(
+                        self.vehicle_bindings
+                            .iter()
+                            .flatten()
+                            .all(|binding| { binding.space() != space })
+                    );
+                }
+                ParkingSpaceState::Reserved { vehicle } => {
+                    assert!(matches!(
+                        self.vehicle_binding(vehicle),
+                        Some(RuntimeVehicleParkingBinding::Reserved {
+                            vehicle: bound_vehicle,
+                            space: bound_space,
+                            ..
+                        }) if bound_vehicle == vehicle && bound_space == space
+                    ));
+                    assert_eq!(vehicle_status(vehicle), Some(VehicleStatus::Active));
+                }
+                ParkingSpaceState::Occupied { vehicle } => {
+                    assert_eq!(
+                        self.vehicle_binding(vehicle),
+                        Some(RuntimeVehicleParkingBinding::Occupied { vehicle, space })
+                    );
+                    assert_eq!(vehicle_status(vehicle), Some(VehicleStatus::Parked));
+                }
+            }
+        }
+
+        for binding in self.vehicle_bindings.iter().flatten().copied() {
+            let vehicle = binding.vehicle();
+            let expected_space_state = match binding {
+                RuntimeVehicleParkingBinding::Reserved { .. } => {
+                    assert_eq!(vehicle_status(vehicle), Some(VehicleStatus::Active));
+                    ParkingSpaceState::Reserved { vehicle }
+                }
+                RuntimeVehicleParkingBinding::Occupied { .. } => {
+                    assert_eq!(vehicle_status(vehicle), Some(VehicleStatus::Parked));
+                    ParkingSpaceState::Occupied { vehicle }
+                }
+            };
+            assert_eq!(
+                self.space_state(binding.space()),
+                Some(expected_space_state)
+            );
+        }
+
+        assert_eq!(self.global_counts, expected_global);
+        assert_eq!(self.area_counts, expected_areas);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn corrupt_global_capacity_for_test(&mut self) {
+        self.global_counts.capacity = self.global_counts.capacity.saturating_add(1);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> usize {
+        self.spaces.capacity() * std::mem::size_of::<ParkingSpaceState>()
+            + self.vehicle_bindings.capacity()
+                * std::mem::size_of::<Option<RuntimeVehicleParkingBinding>>()
+            + self.area_counts.capacity() * std::mem::size_of::<ParkingCounts>()
+    }
+
+    pub(crate) fn space_state(&self, space: ParkingSpaceHandle) -> Option<ParkingSpaceState> {
+        self.spaces.get(space.index()).copied()
+    }
+
+    pub(crate) fn vehicle_binding(
+        &self,
+        vehicle: VehicleHandle,
+    ) -> Option<RuntimeVehicleParkingBinding> {
+        self.vehicle_bindings
+            .get(vehicle.index())
+            .copied()
+            .flatten()
+            .filter(|binding| binding.vehicle() == vehicle)
+    }
+
+    pub(crate) fn prepare_vehicle_slot(&mut self, vehicle_index: usize) {
+        self.vehicle_bindings
+            .reserve((vehicle_index + 1).saturating_sub(self.vehicle_bindings.len()));
+    }
+
+    pub(crate) fn register_unbound_vehicle(&mut self, vehicle: VehicleHandle) {
+        self.vehicle_bindings
+            .resize(self.vehicle_bindings.len().max(vehicle.index() + 1), None);
+        debug_assert!(self.vehicle_bindings[vehicle.index()].is_none());
+    }
+
+    pub(crate) fn reserve(
+        &mut self,
+        registry: &ParkingRegistry,
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+        target: Option<ParkingApproachTarget>,
+    ) {
+        self.register_unbound_vehicle(vehicle);
+        debug_assert_eq!(self.spaces[space.index()], ParkingSpaceState::Vacant);
+        self.spaces[space.index()] = ParkingSpaceState::Reserved { vehicle };
+        self.vehicle_bindings[vehicle.index()] = Some(RuntimeVehicleParkingBinding::Reserved {
+            vehicle,
+            space,
+            target,
+        });
+        self.update_counts(registry, space, ParkingBindingKind::Reserved, true);
+    }
+
+    pub(crate) fn cancel(
+        &mut self,
+        registry: &ParkingRegistry,
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+    ) {
+        debug_assert_eq!(
+            self.spaces[space.index()],
+            ParkingSpaceState::Reserved { vehicle }
+        );
+        self.spaces[space.index()] = ParkingSpaceState::Vacant;
+        self.vehicle_bindings[vehicle.index()] = None;
+        self.update_counts(registry, space, ParkingBindingKind::Reserved, false);
+    }
+
+    pub(crate) fn commit(
+        &mut self,
+        registry: &ParkingRegistry,
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+    ) {
+        debug_assert_eq!(
+            self.spaces[space.index()],
+            ParkingSpaceState::Reserved { vehicle }
+        );
+        self.spaces[space.index()] = ParkingSpaceState::Occupied { vehicle };
+        self.vehicle_bindings[vehicle.index()] =
+            Some(RuntimeVehicleParkingBinding::Occupied { vehicle, space });
+        self.transition_reserved_to_occupied(registry, space);
+    }
+
+    pub(crate) fn occupy_new(
+        &mut self,
+        registry: &ParkingRegistry,
+        vehicle: VehicleHandle,
+        space: ParkingSpaceHandle,
+    ) {
+        self.register_unbound_vehicle(vehicle);
+        debug_assert_eq!(self.spaces[space.index()], ParkingSpaceState::Vacant);
+        self.spaces[space.index()] = ParkingSpaceState::Occupied { vehicle };
+        self.vehicle_bindings[vehicle.index()] =
+            Some(RuntimeVehicleParkingBinding::Occupied { vehicle, space });
+        self.update_counts(registry, space, ParkingBindingKind::Occupied, true);
+    }
+
+    pub(crate) fn release(
+        &mut self,
+        registry: &ParkingRegistry,
+        vehicle: VehicleHandle,
+    ) -> Option<(ParkingSpaceHandle, ParkingBindingKind)> {
+        let binding = self.vehicle_binding(vehicle)?;
+        let space = binding.space();
+        let kind = binding.kind();
+        self.spaces[space.index()] = ParkingSpaceState::Vacant;
+        self.vehicle_bindings[vehicle.index()] = None;
+        self.update_counts(registry, space, kind, false);
+        Some((space, kind))
+    }
+
+    pub(crate) fn rebind_target(&mut self, vehicle: VehicleHandle, target: ParkingApproachTarget) {
+        let Some(RuntimeVehicleParkingBinding::Reserved {
+            vehicle: bound_vehicle,
+            space,
+            ..
+        }) = self.vehicle_binding(vehicle)
+        else {
+            unreachable!("reserved rebind must have exact binding")
+        };
+        self.vehicle_bindings[vehicle.index()] = Some(RuntimeVehicleParkingBinding::Reserved {
+            vehicle: bound_vehicle,
+            space,
+            target: Some(target),
+        });
+    }
+
+    fn update_counts(
+        &mut self,
+        registry: &ParkingRegistry,
+        space: ParkingSpaceHandle,
+        binding: ParkingBindingKind,
+        bind: bool,
+    ) {
+        update_one_count(&mut self.global_counts, binding, bind);
+        if let Some(area) = registry.spaces[space.index()].area {
+            update_one_count(&mut self.area_counts[area.index()], binding, bind);
+        }
+    }
+
+    fn transition_reserved_to_occupied(
+        &mut self,
+        registry: &ParkingRegistry,
+        space: ParkingSpaceHandle,
+    ) {
+        transition_one_count(&mut self.global_counts);
+        if let Some(area) = registry.spaces[space.index()].area {
+            transition_one_count(&mut self.area_counts[area.index()]);
+        }
+    }
+}
+
+fn update_one_count(counts: &mut ParkingCounts, binding: ParkingBindingKind, bind: bool) {
+    if bind {
+        counts.vacant = counts
+            .vacant
+            .checked_sub(1)
+            .expect("vacant count underflow");
+        match binding {
+            ParkingBindingKind::Reserved => counts.reserved += 1,
+            ParkingBindingKind::Occupied => counts.occupied += 1,
+        }
+    } else {
+        counts.vacant += 1;
+        match binding {
+            ParkingBindingKind::Reserved => {
+                counts.reserved = counts.reserved.checked_sub(1).expect("reserved underflow");
+            }
+            ParkingBindingKind::Occupied => {
+                counts.occupied = counts.occupied.checked_sub(1).expect("occupied underflow");
+            }
+        }
+    }
+}
+
+fn transition_one_count(counts: &mut ParkingCounts) {
+    counts.reserved = counts.reserved.checked_sub(1).expect("reserved underflow");
+    counts.occupied += 1;
+}
+
+/// 借用同一个 committed `CoreWorld` 的 immutable Parking view。
+#[derive(Clone, Copy)]
+pub struct ParkingSnapshot<'a> {
+    world: &'a CoreWorld,
+}
+
+impl<'a> ParkingSnapshot<'a> {
+    pub(crate) const fn new(world: &'a CoreWorld) -> Self {
+        Self { world }
+    }
+
+    pub fn space_state(&self, space: ParkingSpaceHandle) -> Option<ParkingSpaceState> {
+        self.world.parking_runtime.space_state(space)
+    }
+
+    pub fn vehicle_state(&self, vehicle: VehicleHandle) -> Option<VehicleParkingState> {
+        let state = self.world.vehicle(vehicle)?;
+        let binding = self.world.parking_runtime.vehicle_binding(vehicle);
+        Some(match binding {
+            None => VehicleParkingState::Unbound,
+            Some(RuntimeVehicleParkingBinding::Occupied { space, .. }) => {
+                VehicleParkingState::Occupied { space }
+            }
+            Some(RuntimeVehicleParkingBinding::Reserved { space, target, .. }) => {
+                let approach =
+                    match target {
+                        None => ParkingApproachState::Dormant,
+                        Some(target)
+                            if state.status == VehicleStatus::Active
+                                && state.route == target.route
+                                && state.route_edge_index == target.route_edge_index
+                                && self.world.parking().space_entry(space).is_some_and(
+                                    |entry| {
+                                        (state.edge_progress.value() - entry.progress()).abs()
+                                            <= EDGE_BOUNDARY_EPSILON
+                                            && state.current_speed == Speed::ZERO
+                                    },
+                                ) =>
+                        {
+                            ParkingApproachState::Arrived {
+                                route: target.route,
+                                route_edge_index: target.route_edge_index,
+                            }
+                        }
+                        Some(target) => ParkingApproachState::Approaching {
+                            route: target.route,
+                            route_edge_index: target.route_edge_index,
+                        },
+                    };
+                VehicleParkingState::Reserved { space, approach }
+            }
+        })
+    }
+
+    pub const fn counts(&self) -> ParkingCounts {
+        self.world.parking_runtime.global_counts
+    }
+
+    pub fn area_counts(&self, area: ParkingAreaHandle) -> Option<ParkingCounts> {
+        self.world
+            .parking_runtime
+            .area_counts
+            .get(area.index())
+            .copied()
+    }
+
+    pub fn space_states(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (ParkingSpaceHandle, ParkingSpaceState)> + '_ {
+        self.world
+            .parking_runtime
+            .spaces
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, state)| (ParkingSpaceHandle::new(index), state))
+    }
 }
