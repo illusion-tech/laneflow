@@ -501,23 +501,20 @@ fn numeric_quantization_matrix_report() {
     }
     let heading_step = std::f64::consts::TAU / 65_536.0;
     eprintln!(
-        "numeric_integer_quantization domain=progress format=u32_centimeter range_max={} max_error={} accepted={}",
+        "numeric_integer_quantization domain=progress format=u32_centimeter range_max={} max_error={} accepted=true",
         u32::MAX as f64 / 100.0,
         0.005,
-        true,
     );
     eprintln!(
-        "numeric_integer_quantization domain=speed format=u16_centimeter_per_second range_max={} max_error={} accepted={}",
+        "numeric_integer_quantization domain=speed format=u16_centimeter_per_second range_max={} max_error={} accepted=true",
         u16::MAX as f64 / 100.0,
         0.005,
-        true,
     );
     eprintln!(
-        "numeric_integer_quantization domain=acceleration format=i16_centimeter_per_second_squared range_min={} range_max={} max_error={} accepted={}",
+        "numeric_integer_quantization domain=acceleration format=i16_centimeter_per_second_squared range_min={} range_max={} max_error={} accepted=true",
         i16::MIN as f64 / 100.0,
         i16::MAX as f64 / 100.0,
         0.005,
-        true,
     );
     eprintln!(
         "numeric_integer_quantization domain=heading format=u16_turn range=[-pi,pi) step={} max_error={} accepted={}",
