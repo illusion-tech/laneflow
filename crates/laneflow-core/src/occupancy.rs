@@ -37,6 +37,15 @@ impl PartialEq for OccupancyScratch {
 }
 
 impl OccupancyScratch {
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> usize {
+        self.counts.capacity() * std::mem::size_of::<usize>()
+            + self.offsets.capacity() * std::mem::size_of::<usize>()
+            + self.write_positions.capacity() * std::mem::size_of::<usize>()
+            + self.occupants.capacity() * std::mem::size_of::<Occupant>()
+            + self.leaders.capacity() * std::mem::size_of::<Option<LeaderObservation>>()
+    }
+
     pub(crate) fn begin(&mut self, edge_count: usize, vehicle_slot_count: usize) {
         self.counts.clear();
         self.counts.resize(edge_count, 0);

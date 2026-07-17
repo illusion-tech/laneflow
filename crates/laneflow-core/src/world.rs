@@ -285,7 +285,23 @@ fn parking_arrived_state(
 #[derive(Clone, Copy, Debug)]
 struct LifecycleRetainedStats {
     accounted_bytes: usize,
+    expanded_accounted_bytes: usize,
+    world_inline_bytes: usize,
+    route_bytes: usize,
+    route_distance_bytes: usize,
+    route_reference_bytes: usize,
+    vehicle_bytes: usize,
+    resolver_bytes: usize,
+    free_list_bytes: usize,
+    vehicle_order_bytes: usize,
+    candidate_state_bytes: usize,
     parking_bytes: usize,
+    parking_registry_runtime_bytes: usize,
+    occupancy_scratch_bytes: usize,
+    longitudinal_scratch_bytes: usize,
+    command_spatial_bytes: usize,
+    vehicle_state_size: usize,
+    vehicle_slot_size: usize,
     live_vehicles: usize,
     route_occurrences: usize,
     tombstones: usize,
@@ -1979,29 +1995,60 @@ impl CoreWorld {
                 .keys()
                 .map(String::capacity)
                 .sum::<usize>();
-        let lifecycle_scratch_bytes = self.free_route_indices.capacity()
-            * std::mem::size_of::<usize>()
-            + self.free_vehicle_indices.capacity() * std::mem::size_of::<usize>()
-            + self.vehicle_update_order.entries.capacity()
-                * std::mem::size_of::<Option<VehicleHandle>>()
-            + self.candidate_state_scratch.states.capacity()
-                * std::mem::size_of::<Option<VehicleState>>()
+        let free_list_bytes = self.free_route_indices.capacity() * std::mem::size_of::<usize>()
+            + self.free_vehicle_indices.capacity() * std::mem::size_of::<usize>();
+        let vehicle_order_bytes = self.vehicle_update_order.entries.capacity()
+            * std::mem::size_of::<Option<VehicleHandle>>();
+        let candidate_state_bytes = self.candidate_state_scratch.states.capacity()
+            * std::mem::size_of::<Option<VehicleState>>()
             + self.candidate_state_scratch.spatial_changes.capacity()
                 * std::mem::size_of::<VehicleHandle>()
             + self.candidate_state_scratch.parking_releases.capacity()
                 * std::mem::size_of::<ParkingStepRelease>();
-        let parking_bytes = self.parking.retained_bytes()
-            + self.longitudinal_scratch.parking_retained_bytes()
-            + self.parking_runtime.retained_bytes();
+        let lifecycle_scratch_bytes = free_list_bytes + vehicle_order_bytes + candidate_state_bytes;
+        let parking_registry_runtime_bytes =
+            self.parking.retained_bytes() + self.parking_runtime.retained_bytes();
+        let parking_bytes =
+            parking_registry_runtime_bytes + self.longitudinal_scratch.parking_retained_bytes();
+        let world_inline_bytes = std::mem::size_of::<Self>();
+        let occupancy_scratch_bytes = self.occupancy_scratch.retained_bytes();
+        let longitudinal_scratch_bytes = self.longitudinal_scratch.retained_bytes();
+        let command_spatial_bytes = self.command_spatial_index.retained_bytes();
+        let accounted_bytes = world_inline_bytes
+            + route_bytes
+            + vehicle_bytes
+            + resolver_bytes
+            + lifecycle_scratch_bytes
+            + parking_bytes
+            + command_spatial_bytes;
+        let expanded_accounted_bytes = world_inline_bytes
+            + route_bytes
+            + vehicle_bytes
+            + resolver_bytes
+            + lifecycle_scratch_bytes
+            + parking_registry_runtime_bytes
+            + occupancy_scratch_bytes
+            + longitudinal_scratch_bytes
+            + command_spatial_bytes;
         LifecycleRetainedStats {
-            accounted_bytes: std::mem::size_of::<Self>()
-                + route_bytes
-                + vehicle_bytes
-                + resolver_bytes
-                + lifecycle_scratch_bytes
-                + parking_bytes
-                + self.command_spatial_index.retained_bytes(),
+            accounted_bytes,
+            expanded_accounted_bytes,
+            world_inline_bytes,
+            route_bytes,
+            route_distance_bytes,
+            route_reference_bytes,
+            vehicle_bytes,
+            resolver_bytes,
+            free_list_bytes,
+            vehicle_order_bytes,
+            candidate_state_bytes,
             parking_bytes,
+            parking_registry_runtime_bytes,
+            occupancy_scratch_bytes,
+            longitudinal_scratch_bytes,
+            command_spatial_bytes,
+            vehicle_state_size: std::mem::size_of::<VehicleState>(),
+            vehicle_slot_size: std::mem::size_of::<VehicleSlot>(),
             live_vehicles: self.vehicles().count(),
             route_occurrences,
             tombstones: self.vehicle_update_order.tombstones,
@@ -5567,6 +5614,40 @@ mod tests {
             large.accounted_bytes,
             large.accounted_bytes as f64 / large.live_vehicles as f64,
             large.accounted_bytes as f64 / small.accounted_bytes as f64,
+        );
+    }
+
+    #[test]
+    #[ignore = "10k component memory is an explicit #122 research measurement"]
+    fn numeric_component_memory_baseline_10k() {
+        let mut world = lifecycle_scale_world(10_000);
+        world
+            .step(TickInput::new(world.fixed_delta_time_ms()))
+            .expect("component memory warm-up step");
+        let stats = world.lifecycle_retained_stats();
+        assert_eq!(stats.live_vehicles, 10_000);
+        assert!(stats.expanded_accounted_bytes >= stats.accounted_bytes);
+        eprintln!(
+            "numeric_component_memory live={} accounted_bytes={} expanded_accounted_bytes={} world_inline_bytes={} route_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} parking_registry_runtime_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={} vehicle_state_size={} vehicle_slot_size={}",
+            stats.live_vehicles,
+            stats.accounted_bytes,
+            stats.expanded_accounted_bytes,
+            stats.world_inline_bytes,
+            stats.route_bytes,
+            stats.route_distance_bytes,
+            stats.route_reference_bytes,
+            stats.vehicle_bytes,
+            stats.resolver_bytes,
+            stats.free_list_bytes,
+            stats.vehicle_order_bytes,
+            stats.candidate_state_bytes,
+            stats.parking_bytes,
+            stats.parking_registry_runtime_bytes,
+            stats.occupancy_scratch_bytes,
+            stats.longitudinal_scratch_bytes,
+            stats.command_spatial_bytes,
+            stats.vehicle_state_size,
+            stats.vehicle_slot_size,
         );
     }
 
