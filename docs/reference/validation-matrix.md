@@ -1,7 +1,7 @@
 # 验证矩阵
 
 **文档状态**: Active  
-**最后更新**: 2026-07-14  
+**最后更新**: 2026-07-18<br>
 **适用范围**: LaneFlow 各切片类型在 `G3` 合并和 `G4` 收口闸口前的最小验证要求  
 **关联文档**:
 
@@ -25,18 +25,34 @@
 
 ## 2. 切片类型到验证矩阵
 
-| 切片类型         | 必须的验证                                                                                         | 通常不需要                                  |
-| ---------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `docs-only`      | 文档可读性检查、链接有效、无行为变更声明                                                           | build、单元测试、schema 校验                |
+| 切片类型         | 必须的验证                                                                                                                                              | 通常不需要                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `docs-only`      | 文档可读性检查、链接有效、Markdown 表格格式检查、无行为变更声明                                                                                         | build、单元测试、schema 校验                |
 | `governance`     | 模板/路径/引用一致性、Issue 元数据 / 依赖关系审计一致性、受影响流程说明、CI 文件存在性；涉及安全或依赖设置时复核 GitHub 实际状态、cargo-deny 与扫描结果 | 运行时测试                                  |
-| `core-runtime`   | `cargo fmt --all -- --check`、`cargo test --workspace --locked`、确定性行为说明、Core API 影响说明 | adapter build、示例 smoke（除非影响主路径） |
-| `data-spec`      | schema/格式校验、兼容性与版本影响、示例数据影响                                                    | adapter build（除非协议联动）               |
-| `adapter`        | adapter build、手工场景验证、transform 同步验证、Core 依赖方向检查                                 | 跨引擎全量测试（除非显式要求）              |
-| `authoring-tool` | 工具运行验证、输出数据可被 Core 消费、格式一致性                                                   | 引擎端 build                                |
-| `example`        | 示例可运行说明、覆盖能力说明、所依赖数据格式版本                                                   | 完整单元测试套件                            |
-| `cross-layer`    | 以上相关项全部适用、端到端路径验证、是否需要示例 smoke 的显式判断                                  | 无默认豁免                                  |
+| `core-runtime`   | `cargo fmt --all -- --check`、`cargo test --workspace --locked`、确定性行为说明、Core API 影响说明                                                      | adapter build、示例 smoke（除非影响主路径） |
+| `data-spec`      | schema/格式校验、兼容性与版本影响、示例数据影响                                                                                                         | adapter build（除非协议联动）               |
+| `adapter`        | adapter build、手工场景验证、transform 同步验证、Core 依赖方向检查                                                                                      | 跨引擎全量测试（除非显式要求）              |
+| `authoring-tool` | 工具运行验证、输出数据可被 Core 消费、格式一致性                                                                                                        | 引擎端 build                                |
+| `example`        | 示例可运行说明、覆盖能力说明、所依赖数据格式版本                                                                                                        | 完整单元测试套件                            |
+| `cross-layer`    | 以上相关项全部适用、端到端路径验证、是否需要示例 smoke 的显式判断                                                                                       | 无默认豁免                                  |
 
-## 3. 默认阻断条件
+## 3. Markdown 表格格式门禁
+
+凡新增或修改含 GFM 表格的 Markdown，必须使用仓库内同一实现完成格式化：
+
+```powershell
+cargo +1.96.0 run --locked -p xtask -- format-md-tables <path...>
+```
+
+提交前必须对本次涉及的 Markdown 运行只读检查：
+
+```powershell
+cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
+```
+
+命令接受一个或多个文件或目录；目录会递归处理 Markdown。默认模式只重写识别出的表格布局，`--check` 不修改文件，发现未格式化表格时返回失败。CI 对仓库协作范围内的 Markdown 执行相同检查，因此本规则适用于所有切片，而不只适用于 `docs-only`。
+
+## 4. 默认阻断条件
 
 以下情况默认阻断 `G3 = Pass`：
 
@@ -54,7 +70,7 @@
 
 G4 清场前还必须运行 `check-gate-evidence g4`；它验证 Issue G4 permalink、关联 PR 合并状态、Gate Ledger、Project `Done`，以及 `Gate 断言` 的规范命令和 `已通过` 结果，但不替代 G4 comment 中的分支清理与权限撤回证据。
 
-## 4. 无法运行时的记录方式
+## 5. 无法运行时的记录方式
 
 当某项必需检查当前无法运行（例如运行时代码尚未存在、工具链未就绪）：
 
@@ -62,7 +78,7 @@ G4 清场前还必须运行 `check-gate-evidence g4`；它验证 Issue G4 permal
 - 在 commit message 的 `Validation` 字段同步记录，例如 `Validation: 未运行，运行时代码尚未落地`。
 - 不得把未运行的检查写成已通过。
 
-## 5. 与提交规范的关系
+## 6. 与提交规范的关系
 
 本矩阵定义“做什么检查”，`commit-convention.md` 定义“如何记录结果”。
 
