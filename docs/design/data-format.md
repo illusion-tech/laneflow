@@ -1,7 +1,7 @@
 # Data Format 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-17
+**最后更新**: 2026-07-18
 **适用范围**: 当前 v0.5 外部数据格式与 static Parking ownership 边界
 
 **关联文档**:
@@ -14,9 +14,11 @@
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
 - `../adr/0011-schema-identifier-and-publication-contract.md`
+- `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../../schemas/laneflow-data-v0.5.schema.json`
 - `../../schemas/README.md`
 - `data-loading.md`
+- `spatial-geometry.md`
 - `lane-graph.md`
 - `route-system.md`
 - `vehicle-following.md`
@@ -249,3 +251,13 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 直接以 v0.4 
 | production compatibility        | 不提供；v0.4 返回 `UnsupportedFormatVersion`            |
 
 Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL；catalog 中全部版本必须通过 HTTPS 返回与固定 source revision 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析 `$id`/`$schema`。v0.2-v0.4 只作为 immutable publication artifacts 保留，不改变当前唯一 active v0.5 contract；消费者入口见 [`schemas/README.md`](../../schemas/README.md)。
+
+## 8. v0.6 空间层配套制品设计
+
+#123 G1 不把中心线或世界几何加入当前 v0.5 `LaneFlowDataPackage`，也不提升其 `formatVersion`。ADR 0013 和 `spatial-geometry.md` 已接受独立空间包，并由场景清单通过制品引用和原始字节 SHA-256 摘要与交通包精确配对。
+
+- 当前 v0.5 继续拥有交通边外部 ID、Core 边长、拓扑、路线、信号与停车边相对数据。
+- 空间包使用相同的边外部 ID 提供标准坐标框架与三维折线；几何弧长在加载时计算。
+- 场景清单与空间模式使用独立版本系列；精确线格式、模式发布与加载器由 G1 后的数据规范 Issue 交付。
+- 只使用 Core 的消费者无需空间制品；需要位姿的适配器或工具必须提供完整且通过绑定的空间包。
+- 本节已经成为后续空间数据规范的设计输入；在相应模式拉取请求（PR）合入前，它仍不构成当前加载器接受的新字段。

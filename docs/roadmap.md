@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Draft  
-**最后更新**: 2026-07-17
+**最后更新**: 2026-07-18
 **适用范围**: LaneFlow 初始版本路线图
 
 本文记录 LaneFlow 的稳定路线图。GitHub Project 负责当前执行状态，本文负责长期版本边界。
@@ -93,26 +93,26 @@
 
 不覆盖：自动选位/调度、共享正常行车道停车、自由空间/倒车轨迹、停车场运营、Parking Adapter ABI/动画/authoring、100k realtime SLA 或跨平台 bit-level determinism。
 
-## v0.6 Numeric & Spatial Foundation
+## v0.6 数值与空间基础（Numeric & Spatial Foundation）
 
-目标：在实现首个 Engine Adapter 前，冻结 LaneFlow 的数值表示边界、引擎无关道路空间几何、长度/坐标权威和最小空间查询能力。
+目标：在实现首个引擎适配器前，冻结 LaneFlow 的数值表示边界、引擎无关道路空间几何、长度与坐标权威，以及最小空间查询能力。
 
-规划状态：2026-07-18，Milestone tracker 为 #120。#122 已通过 G1：ADR 0012 决定 Core/Data authority 保持 f64/checked integer，Spatial canonical 使用 LaneFlow-owned f64，并只在 local-origin 后生成 checked f32 presentation；实施链为 #125–#128，G2 尚未通过。#123 已通过 G0、尚未通过 G1/G2，仍需冻结 geometry/frame/length/sampling 与最小原型。
+规划状态：2026-07-18，里程碑跟踪议题（Issue）为 #120。#122 已通过 G1：ADR 0012 决定 Core/Data 的权威数值保持 `f64` 或经过检查的整数；Spatial 的标准坐标使用 LaneFlow 自有 `f64`；只有减去局部原点后才能生成经过检查的表现用 `f32`。实施链为 #125–#128，生产实施的 G2 尚未通过。#123 已通过 G1，接受 ADR 0013、独立空间层、配套空间制品、LaneFlow 自有类型和首版无生产几何依赖；既有限定范围 G2 仍只授权设计、Rust 包审计和研究证据交付，生产实施保持阻断。
 
 范围：
 
-- #122：f32/f64/f16 在 runtime hot state、累计/reference、存储/传输与 Adapter 边界中的角色；
-- #122：领域误差预算、epsilon、确定性、数据/API 兼容和代表性 benchmark；
-- #123：canonical/local coordinate、engine-neutral centerline、弧长采样和 spatial binding；
-- #123：Core edge length 与 geometry arc length 的 authority、容差与 traffic/spatial artifact 边界；
-- Adapter 所需的最小只读空间查询或 batch-oriented pose extraction 输入；
-- G1 后拆分 Core/Data/Spatial 实施、validation/performance 和独立 closure review。
+- #122：`f32`、`f64` 和 `f16` 在运行时高频状态、累计或参考计算、存储与传输，以及适配器边界中的角色；
+- #122：领域误差预算、epsilon（误差阈值）、确定性、数据与接口兼容，以及代表性性能基准；
+- #123：标准与局部坐标、引擎无关的中心线、弧长采样和空间绑定；
+- #123：Core 边长与几何弧长的权威职责、容差，以及交通和空间制品边界；
+- 适配器所需的最小只读空间查询或面向批量的位姿提取输入；
+- G1 后拆分 Core、Data 和 Spatial 实施、验证与性能，以及独立收口审阅。
 
 不覆盖：
 
-- Bevy plugin、entity/Transform 同步、Gizmos 或示例场景；
-- engine-specific spline、mesh、material、terrain 或 authoring GUI；
-- #72 的 active-agent partition、并行、多频率、mesoscopic 或分布式 runtime；
+- Bevy 插件、实体与变换同步、Gizmos 调试图形或示例场景；
+- 引擎专用的样条曲线、网格、材质、地形或创作图形界面；
+- #72 的活动车辆分区、并行、多频率、中观仿真或分布式运行时；
 - 未经 #122 G1 证据验证的统一 f32、f64 或 f16 结论。
 
 ## v0.7 Bevy Reference Adapter

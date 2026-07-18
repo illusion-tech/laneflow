@@ -1,7 +1,7 @@
 # Parking System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-17
+**最后更新**: 2026-07-18
 **适用范围**: v0.5 Parking 的 current 静态领域/data contract、runtime authority/commands、ParkingStop/route 集成、确定性、失败原子性与性能边界
 **实现状态**: #105 已冻结设计与 ADR 0010；#106/#107 已交付 substrate 与 static/current data；#108 已交付 runtime/commands；#109 已交付 ParkingStop/arrival/traversal/release/events 与 capability activation；#110 已交付 milestone 全面验证；#19 已完成独立收口审阅
 
@@ -16,6 +16,7 @@
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
+- `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `core-id-handles.md`
 - `lane-graph.md`
 - `route-system.md`
@@ -23,6 +24,7 @@
 - `signal-system.md`
 - `data-format.md`
 - `data-loading.md`
+- `spatial-geometry.md`
 
 ## 1. 目标、状态与分阶段事实
 
@@ -176,7 +178,7 @@ ParkingSpaceGeometry
 - 正 heading 表示逻辑 road frame 中逆时针；canonical 范围为 `[-π, π)`。
 - Length 沿 parked heading，width 与其正交；二者 finite 且严格大于 `GEOMETRY_GAP_EPSILON`。
 - Core 保存、校验并 query normalized anchors/geometry，但不计算 world transform。
-- Adapter 使用自身 edge geometry 映射 position/orientation，并处理引擎坐标轴差异。
+- ADR 0013 已冻结由引擎无关的 Spatial 使用入口边中心线解析标准位置和朝向，Adapter 只处理宿主坐标轴与变换（Transform）。在后续 Spatial 生产实现落地前，现有 Core/Parking 契约保持不变。
 - Core 不拥有 lane width、centerline polygon 或世界 geometry，因此 v0.5 不证明 rectangle 与 lane/其他 space 不重叠。
 
 ### 4.5 Normalization 与稳定顺序

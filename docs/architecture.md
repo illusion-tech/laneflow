@@ -1,7 +1,7 @@
 # 架构
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-17<br>
+**最后更新**: 2026-07-18<br>
 **适用范围**: LaneFlow 分层、Rust crate 依赖方向、Traffic Data、Signals、Parking 与 Core/Adapter 边界
 
 ## 1. 架构目标
@@ -44,6 +44,17 @@ Engine Adapter -> laneflow-data  (按需加载外部数据)
 ```
 
 外部格式可以依赖 Core domain types 做 normalization；Core 不反向依赖 JSON、Serde、JSON Schema、文件系统或 Adapter。详细决策见 `adr/0007-traffic-data-crate-and-loader-boundary.md`。
+
+v0.6 #123 已在 G1 接受引擎无关的空间层（Spatial Layer）。由后续实施 Issue 落地 ADR 0013 后，目标依赖方向为：
+
+```text
+laneflow-spatial -> laneflow-core
+laneflow-data -> laneflow-spatial  (只在空间包加载与绑定路径)
+引擎适配器 -> laneflow-core / laneflow-spatial / laneflow-data
+laneflow-core -X-> laneflow-spatial
+```
+
+Core 继续拥有拓扑、长度、进度与交通行为的权威职责；Spatial 拥有标准中心线、弧长、绑定与位姿采样；Adapter 只把 LaneFlow 位姿映射为宿主变换（Transform）。ADR 0013 与相关设计已经成为后续实施输入，但生产用 `laneflow-spatial` Rust 包和公共接口尚未实现。
 
 ## 3. Authoring Layer
 
@@ -121,6 +132,8 @@ Engine Adapter 负责把 Core 状态映射到具体引擎：
 Adapter 不应把引擎依赖引入 Core。
 
 Adapter 可以按需调用 `laneflow-data` 解析自身 asset pipeline 已读取的内存数据，但不得要求 Core 理解引擎路径、asset handle 或异步加载协议。
+
+ADR 0013 已冻结适配器边界。后续 Spatial 生产实现落地后，各 Adapter 不再自行定义中心线和长度采样权威；它们消费已提交的 Core 快照与引擎无关的标准/局部批量位姿，并只在末端处理坐标轴、坐标系手性、宿主标量类型、变换、插值和细节层次（LOD）。详细设计见 ADR 0013、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
 
 ## 7. Presentation Layer
 

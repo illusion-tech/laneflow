@@ -1,0 +1,15 @@
+[package]
+name = "laneflow-spatial-research"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dev-dependencies]
+euclid = { version = "=0.22.14", default-features = false, features = ["std"] }
+glam = { version = "=0.33.2", default-features = false, features = ["std", "f64"] }
+
+[lints]
+workspace = true
