@@ -94,7 +94,7 @@ jobs:
               echo "Markdown file is empty: $file"
               exit 1
             fi
-          done < <(find README.md AGENTS.md CONTRIBUTING.md crates docs research .github .agents .cursor -name '*.md' -type f)
+          done < <(find README.md AGENTS.md CONTRIBUTING.md crates docs research schemas .github .agents .cursor -name '*.md' -type f)
 
       - name: Fetch base branch for commit message checks
         if: github.event_name == 'pull_request'

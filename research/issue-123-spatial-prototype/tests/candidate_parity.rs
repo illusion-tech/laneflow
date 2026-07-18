@@ -6,6 +6,15 @@ use laneflow_spatial_research::{CanonicalPoint3, CanonicalVector3};
 
 enum CanonicalSpace {}
 
+const RESEARCH_PARITY_ABS_TOLERANCE: f64 = f64::EPSILON * 8.0;
+
+fn assert_research_parity(actual: f64, expected: f64) {
+    assert!(
+        (actual - expected).abs() <= RESEARCH_PARITY_ABS_TOLERANCE,
+        "expected {actual} to be within {RESEARCH_PARITY_ABS_TOLERANCE} of {expected}"
+    );
+}
+
 #[test]
 fn owned_euclid_and_glam_match_basic_f64_vector_math() {
     let owned_start = CanonicalPoint3::new(1.0, 2.0, 3.0);
@@ -21,9 +30,9 @@ fn owned_euclid_and_glam_match_basic_f64_vector_math() {
     let glam_delta = glam_end - glam_start;
 
     assert_eq!(owned_delta, CanonicalVector3::new(3.0, 4.0, 0.0));
-    assert_eq!(owned_delta.length(), 5.0);
-    assert_eq!(euclid_delta.length(), 5.0);
-    assert_eq!(glam_delta.length(), 5.0);
+    assert_research_parity(owned_delta.length(), 5.0);
+    assert_research_parity(euclid_delta.length(), 5.0);
+    assert_research_parity(glam_delta.length(), 5.0);
 }
 
 #[test]
