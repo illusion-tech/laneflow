@@ -2,11 +2,13 @@ mod common;
 
 use common::world_with_test_profile;
 use laneflow_core::{
-    Acceleration, CoreError, CoreEvent, CoreWorld, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress,
-    IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph, Route, Speed, TickInput,
-    VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry, VehicleSpawnInput, VehicleState,
-    VehicleStatus,
+    Acceleration, CoreError, CoreEvent, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec,
+    InitialTrafficData, LaneEdge, LaneGraph, Route, Speed, TickInput, VehicleProfile,
+    VehicleProfileHandle, VehicleProfileRegistry, VehicleSpawnInput, VehicleState, VehicleStatus,
 };
+
+const CURRENT_EDGE_BOUNDARY_TOLERANCE_METERS: f64 = 1.0e-9;
+const PROGRESS_ASSERTION_TOLERANCE_METERS: f64 = 1.0e-9;
 
 #[derive(Debug, PartialEq, Eq)]
 enum EventView {
@@ -72,7 +74,7 @@ where
 
 fn assert_close(actual: f64, expected: f64) {
     assert!(
-        (actual - expected).abs() <= EDGE_BOUNDARY_EPSILON,
+        (actual - expected).abs() <= PROGRESS_ASSERTION_TOLERANCE_METERS,
         "actual={actual}, expected={expected}"
     );
 }
@@ -396,15 +398,15 @@ fn event_order_uses_initial_stable_update_order_not_input_order() {
 
 #[test]
 fn epsilon_snap_crosses_boundary_when_tick_has_travel() {
-    let epsilon_speed = EDGE_BOUNDARY_EPSILON * 1.25;
-    let mut world = canonical_world(epsilon_speed, |profile| {
+    let boundary_crossing_speed_meters_per_second = 1.25e-9;
+    let mut world = canonical_world(boundary_crossing_speed_meters_per_second, |profile| {
         VehicleSpawnInput::active(
             "V1",
             profile,
             "R",
             0,
-            progress(10.0 - EDGE_BOUNDARY_EPSILON / 2.0),
-            speed(epsilon_speed),
+            progress(10.0 - CURRENT_EDGE_BOUNDARY_TOLERANCE_METERS / 2.0),
+            speed(boundary_crossing_speed_meters_per_second),
         )
     });
 
@@ -450,7 +452,7 @@ fn completed_vehicle_initial_state_must_be_at_route_end_and_is_snapped() {
             profile,
             "R",
             1,
-            progress(5.0 - EDGE_BOUNDARY_EPSILON / 2.0),
+            progress(5.0 - CURRENT_EDGE_BOUNDARY_TOLERANCE_METERS / 2.0),
         )
     });
 

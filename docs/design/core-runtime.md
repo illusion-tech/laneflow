@@ -174,7 +174,7 @@ v0.1 可以使用最小内部结构表达 lane graph 和 route，但不得把它
 - lane graph 中的 edge id 必须唯一，但 route edge sequence 可以重复引用同一 edge id；重复 edge 表示有限 route 中的显式回环，车辆位置由 `routeEdgeIndex` 区分；
 - v0.1 内部结构只作为实现输入和测试 fixture，不是长期 data spec。
 
-v0.1 Rust 实现使用 `EdgeLength` newtype 暴露 lane edge length，并使用 `EDGE_BOUNDARY_EPSILON = 1.0e-9` 作为最小 edge length 和后续 boundary snap 的统一 epsilon。`LaneGraph` / `Route` 可以使用 `indexmap` 作为内部稳定顺序存储，但 public API 不暴露 `IndexMap`，避免把内部容器选择冻结为长期 data spec。
+v0.1 Rust 实现使用 `EdgeLength` newtype 暴露 lane edge length。#125 已把最小 edge length 输入下限与后续 edge boundary/remainder 阈值拆成两个 crate-private 领域 owner；current-f64 数值都保持 `1.0e-9`，但不再通过统一公开常量耦合。`LaneGraph` / `Route` 可以使用 `indexmap` 作为内部稳定顺序存储，但 public API 不暴露 `IndexMap`，避免把内部容器选择冻结为长期 data spec。
 
 本文的 v0.1 最小输入仅作为历史实现输入和测试 fixture。v0.2 的正式 lane graph / route 数据模型、版本、校验和示例数据已经由 `lane-graph.md`、`route-system.md`、`data-format.md` 和 JSON Schema 接受；后续实现必须以这些文档为准。
 
@@ -188,19 +188,19 @@ v0.1 车辆沿 route 前进时使用 route edge sequence 和 edge-local progress
 
 1. 如果 `status` 不是 `active`，不推进位置；
 2. 根据当前速度和 `fixedDeltaTimeMs` 计算 travel distance；
-3. 若 travel distance 小于或等于 epsilon，不推进位置，也不触发 edge boundary transition；
+3. 若 travel distance 小于或等于 edge boundary/remainder 阈值，不推进位置，也不触发 edge boundary transition；
 4. 若 travel distance 或计算出的下一个 progress 不是 finite number，step 必须返回 validation error 且 world 不变；
 5. 增加当前 edge progress；
-6. 当 `edgeProgress + epsilon >= edge length` 时进入 edge boundary 处理；
+6. 当 `edgeProgress + edge_boundary_tolerance >= edge length` 时进入 edge boundary 处理；
 7. 若 route 还有下一 edge，emit `vehicle.changedEdge`，切换到下一 edge 并携带 remainder；
 8. 若 route 已到最后 edge，emit `vehicle.completedRoute`，status 改为 `completed`，`routeEdgeIndex` 保持最后 edge index，`edgeProgress` clamp 到最后 edge length；
 9. 一个 tick 可以跨越多个 edge，事件按实际跨越顺序输出。
 
 边界规则：
 
-- 若 `edgeProgress` 与 `edge length` 的差值在 epsilon 内，snap 到 boundary；`epsilon` 必须是实现中单一命名常量，并在测试中显式使用；
-- remainder 小于 epsilon 时按 0 处理；
-- active vehicle 即使初始 progress 已在 edge boundary，若本 tick travel distance 小于或等于 epsilon，也不得仅因 boundary proximity 触发 transition；
+- 若 `edgeProgress` 与 `edge length` 的差值命中 edge boundary 领域阈值，吸附（snap）到 boundary；该 owner 不得与输入最小尺寸或物理间距阈值互相别名；
+- remainder 严格小于 edge boundary/remainder 阈值时按 0 处理，等于阈值时不归零；
+- active vehicle 即使初始 progress 已在 edge boundary，若本 tick travel distance 小于或等于 edge boundary/remainder 阈值，也不得仅因 boundary proximity 触发 transition；
 - 单 tick 跨多 edge 的实现必须有硬上界；v0.1 Rust 实现以上限为当前 route 剩余 edge 数，每次 transition 必须递增 `routeEdgeIndex`，到最后 edge 后完成并退出；
 - completed 事件只在从 `active` 进入 `completed` 的 tick 发出一次；
 - `completed` / `stopped` vehicle 后续 tick 不再移动；
@@ -245,7 +245,7 @@ VehicleState
 - `speed` 必须大于或等于 0，且必须是 finite number；
 - `stopped` 和 `completed` 车辆不移动；`active` 且 `speed = 0` 合法，但不会产生 route progress；
 - `completed` / `stopped` 不会隐式把 `speed` 字段归零，Adapter 或调试工具应以 `status` 判断 effective movement。
-- 初始 `completed` vehicle 必须位于 route 最后一个 edge，且 `edgeProgress` 必须等于或在 epsilon 内接近最后 edge length；v0.1 Rust 实现会把合法的近终点 progress snap 到最后 edge length。若 `completed` vehicle 位于 route 中间或 progress 未到终点，应返回 validation error。
+- 初始 `completed` vehicle 必须位于 route 最后一个 edge，且 `edgeProgress` 必须等于或在 edge boundary 阈值内接近最后 edge length；v0.1 Rust 实现会把合法的近终点 progress snap 到最后 edge length。若 `completed` vehicle 位于 route 中间或 progress 未到终点，应返回 validation error。
 
 v0.1 Rust 实现使用 `Speed` 与 `EdgeProgress` newtype 暴露 `speed` 和 `edgeProgress`，而不是在 public API 中直接散落裸 `f64`。调用方必须通过 newtype constructor 创建这两个值；constructor 负责拒绝 `NaN`、`Infinity`、`-Infinity` 和负数。
 
@@ -278,9 +278,9 @@ Rust 实现约束：
 - deterministic tests 不得依赖 `HashMap` 等无稳定迭代顺序集合的输出顺序；
 - 事件、车辆更新和 edge traversal 输出应有稳定顺序；
 - 距离、速度和 progress 若跨模块或 public API 暴露，应优先使用 Rust newtype 包装，而不是在 API 边界散落裸 `f64`；
-- lane edge length 若跨模块或 public API 暴露，应使用 `EdgeLength` newtype，并拒绝 `NaN`、`Infinity`、`-Infinity` 和小于或等于 `EDGE_BOUNDARY_EPSILON` 的值；
-- 测试应对 tick/time/status/index/events 使用精确断言，对 speed/distance/progress 使用明确 epsilon；
-- edge boundary 和 route completion 等离散行为必须通过稳定 epsilon / snap 规则转换为精确事件和状态断言。
+- lane edge length 若跨模块或 public API 暴露，应使用 `EdgeLength` newtype，并拒绝 `NaN`、`Infinity`、`-Infinity` 和小于或等于领域专用最小 edge length 的值；
+- 测试应对 tick/time/status/index/events 使用精确断言，对 speed/distance/progress 使用带单位、领域明确的断言阈值；
+- edge boundary 和 route completion 等离散行为必须通过稳定、领域化的绝对阈值与吸附规则转换为精确事件和状态断言。
 
 ## 5. 最小概念模型
 
@@ -399,8 +399,8 @@ v0.1 应把校验分为两个阶段：`CoreWorld` 初始化校验静态 graph / 
 - vehicle speed 小于 0，或不是 finite number；
 - vehicle `edgeProgress`、edge length、speed 等 `f64` 值为 `NaN`、`Infinity` 或 `-Infinity`；
 - simple route following 计算出的 travel distance 或下一个 progress 不是 finite number；
-- 初始 `completed` vehicle 未位于 route 最后 edge，或 progress 不在最后 edge length 的 epsilon 范围内；
-- edge length 小于或等于 `epsilon` 时应返回 validation error，避免 boundary snap 规则吞掉整条 edge；
+- 初始 `completed` vehicle 未位于 route 最后 edge，或 progress 不在最后 edge length 的 edge boundary 阈值范围内；
+- edge length 小于或等于最小 edge length 输入下限时应返回 validation error；该输入语义不再由 boundary snap 阈值顺带决定；
 - 未支持的 runtime command 字段不得被接受为隐式行为。
 
 v0.1 Rust 实现中，带 traffic data 和 vehicles 的 world 必须通过 `CoreWorld::with_traffic_data(fixed_delta_time_ms, lane_graph, routes, vehicles)` 创建并完成上述静态校验；不得保留绕过 graph / route / vehicle 一致性校验的非空 vehicles 构造入口。`CoreWorld::new(fixed_delta_time_ms)` 仅用于创建空 graph、空 routes 和空 vehicles 的基础 tick world。
@@ -426,7 +426,7 @@ v0.1 最小测试：
 - event payload 包含可定位 route transition 的最小字段；
 - 非法输入失败路径明确，且初始化失败不返回部分 world、step 失败不部分修改 world；
 - tick/time/status/index/event order 使用精确断言；
-- speed/distance/progress 使用明确 epsilon 断言，并覆盖 `NaN` / `Infinity` rejection；
+- speed/distance/progress 使用带单位、领域明确的断言阈值，并覆盖 `NaN` / `Infinity` rejection；
 - edge boundary 和 route completion 的事件与状态使用精确断言。
 
 如果实现时测试框架尚未落地，Rust Core crate 骨架 issue 必须先补最小单元测试能力。
@@ -470,10 +470,10 @@ Vehicle V1
 补充 fixture：
 
 - `fixedDeltaTimeMs = 1000` 但 `TickInput.deltaTimeMs = 500` 时返回 validation error，world 不变；
-- `edgeProgress = 10.0 - epsilon / 2` 且 travel distance 足以过线时应 snap 到 boundary，并按 edge transition 精确发出事件；
+- `edgeProgress = 10.0 - edge_boundary_tolerance / 2` 且 travel distance 足以过线时应 snap 到 boundary，并按 edge transition 精确发出事件；
 - v0.1 基线中，多 vehicle 输入顺序不同但 id 集合相同时，events 仍按 `vehicleId` 升序输出；v0.2 对应测试应断言 `vehicleUpdateOrder` 的稳定顺序，不应要求每 tick external ID 排序；
 - route `[A, B, A]` 在 `B.nextEdgeIds` 包含 `A` 时合法，用于验证重复 edge 依赖 `routeEdgeIndex` 区分位置；
-- 任一 `f64` 输入为 `NaN` / `Infinity` 或 edge length 小于等于 `epsilon` 时 validation error，world 不变。
+- 任一 `f64` 输入为 `NaN` / `Infinity` 或 edge length 小于等于最小 edge length 输入下限时 validation error，world 不变。
 
 ## 10. 与 v0.2 的边界
 

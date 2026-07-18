@@ -40,7 +40,8 @@
 - **External edge ID**：数据文件、工具、日志、debug 和 Adapter 使用的稳定字符串 ID。
 - **EdgeHandle**：Core runtime 内部和 public runtime API 使用的不透明 typed handle。
 - **Distance unit**：引擎无关距离单位。示例可按 meter 理解，但 Core 不绑定具体单位制。
-- **Boundary epsilon**：edge boundary、最小 edge length 和 progress snap 使用的统一容差。
+- **最小 edge length**：`EdgeLength` 输入的 exclusive 下限；属于输入语义。
+- **Edge boundary tolerance**：edge boundary、remainder 和 progress snap 使用的领域绝对阈值；不拥有最小 edge length。
 
 ## 3. 设计决策
 
@@ -127,7 +128,7 @@ Core 不负责把 edge progress 转换成世界坐标。Adapter 或 Presentation
 CoreWorld 初始化或 lane graph 构建时必须执行以下校验：
 
 - edge external ID 在 edge domain 内唯一。
-- edge length 是 finite number，并且严格大于 `EDGE_BOUNDARY_EPSILON`。
+- edge length 是 finite number，并且严格大于 current-f64 的领域专用最小 edge length（当前为 `1.0e-9 m`）。
 - 每个 connection 的 `toEdgeExternalId` 必须引用已存在 edge。
 - 同一个 source edge 内不得重复声明同一个 target edge connection。
 - self connection 合法，但必须显式声明。
@@ -212,7 +213,7 @@ Adapter 不应：
 后续实现 issue 至少应覆盖：
 
 - duplicate edge ID。
-- invalid edge length：`NaN`、`Infinity`、`-Infinity`、`0`、负数、`EDGE_BOUNDARY_EPSILON` 和小于 epsilon 的正数。
+- invalid edge length：`NaN`、`Infinity`、`-Infinity`、`0`、负数、等于最小 edge length 和与其相邻的更小正数；相邻的更大可表示值必须通过。
 - unknown connection target。
 - duplicate connection target。
 - terminal edge。

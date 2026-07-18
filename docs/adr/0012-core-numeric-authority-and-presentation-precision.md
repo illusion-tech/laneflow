@@ -96,16 +96,11 @@ Core progress f64
 - 整数量化在选定 scale 下可以满足部分 round-trip ceiling，但它改变 range、saturation、arithmetic 和 wire semantics，不能作为无损内部替换。
 - 将来可以在远景 presentation cache、可丢弃 GPU/transport buffer 或明确 versioned encoding 中单独采用 `f16`/quantization；每个用途必须记录 scale、origin、rounding、range、overflow policy、误差预算和不可作为 authority 的声明。
 
-### 6. epsilon 按领域拆分，当前行为不在本 ADR 中静默改变
+### 6. 数值判定按领域拆分，当前行为不静默改变
 
-当前 `EDGE_BOUNDARY_EPSILON` 与 `GEOMETRY_GAP_EPSILON` 数值相同但职责混杂。后续实施必须分别建模：
+历史 `EDGE_BOUNDARY_EPSILON` 与 `GEOMETRY_GAP_EPSILON` 数值相同但职责混杂。#125 已保持 current-f64 值和比较边界不变，把最小 edge/vehicle/Parking 输入、anchor 端点留白、edge boundary/remainder、纵向约束、物理 gap/overlap 和 computed-speed near-zero 拆为九个 crate-private owner，并直接删除两个旧公开常量。
 
-- minimum valid edge length / geometry extent 等输入语义；
-- edge boundary snap/remainder tolerance；
-- gap/overlap zero tolerance；
-- Spatial heading/basis canonicalization tolerance。
-
-这些值必须由范围、ULP、运算链和行为 oracle 推导。`4 * max ULP` 只是 #122 的研究 floor，不是已接受的生产常量。本 ADR 保持 current production `f64` 行为；epsilon 拆分必须由独立实施 Issue、边界测试和兼容判断交付。
+Spatial heading/basis canonicalization 继续由 #123 拥有。target-f32 的九领域值、Spatial 量化余量和边界判定由 #127 使用范围、ULP、真实运算链和行为 oracle 离线标定，并只由 #144 原子启用。`4 * max ULP` 只是研究下限，不是已接受的 production 常量；相对误差和 ULP 不进入 production predicate。
 
 ### 7. 确定性与失败原子性不因 presentation 精度降低
 

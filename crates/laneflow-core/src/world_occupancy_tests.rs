@@ -393,7 +393,7 @@ fn epsilon_overlap_is_normalized_to_zero_bumper_gap() {
                 profile,
                 "R",
                 0,
-                progress(4.5 - GEOMETRY_GAP_EPSILON / 2.0),
+                progress(4.5 - PHYSICAL_GAP_TOLERANCE_METERS / 2.0),
             ),
         ],
     )

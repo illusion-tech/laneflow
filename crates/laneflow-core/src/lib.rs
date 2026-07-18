@@ -7,6 +7,7 @@ pub mod graph;
 pub mod handle;
 mod id;
 mod longitudinal;
+mod numeric_policy;
 mod occupancy;
 pub mod parking;
 pub mod profile;
@@ -25,7 +26,7 @@ pub use event::{
     VehicleFollowingSafetyProjectionAppliedEvent, VehicleParkingArrivalReachedEvent,
     VehicleParkingStopProjectionAppliedEvent, VehicleSignalStopProjectionAppliedEvent,
 };
-pub use graph::{EDGE_BOUNDARY_EPSILON, EdgeLength, LaneEdge, LaneGraph};
+pub use graph::{EdgeLength, LaneEdge, LaneGraph};
 pub use handle::{
     EdgeHandle, ParkingAreaHandle, ParkingSpaceHandle, RouteHandle, SignalControllerHandle,
     SignalGroupHandle, SignalPhaseRef, StopLineHandle, VehicleHandle, VehicleProfileHandle,
@@ -39,7 +40,7 @@ pub use parking::{
     ParkingSpaceGeometry, ParkingSpaceState, RebindReservedVehicleRouteInput,
     ReservedVehicleRouteRebindRecord, VehicleParkingState,
 };
-pub use profile::{GEOMETRY_GAP_EPSILON, IidmProfileSpec, VehicleProfile, VehicleProfileRegistry};
+pub use profile::{IidmProfileSpec, VehicleProfile, VehicleProfileRegistry};
 pub use route::{Route, RouteRemoveRecord};
 pub use signal::{
     MAX_PORTABLE_SIGNAL_TIME_MS, MovementGate, MovementGateKey, MovementGateSignalState,

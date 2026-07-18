@@ -2,10 +2,10 @@
 
 use indexmap::{IndexMap, IndexSet};
 
-use crate::{error::CoreError, handle::EdgeHandle, id::validate_external_id};
-
-/// edge boundary 与最小 edge length 校验使用的统一 epsilon。
-pub const EDGE_BOUNDARY_EPSILON: f64 = 1.0e-9;
+use crate::{
+    error::CoreError, handle::EdgeHandle, id::validate_external_id,
+    numeric_policy::MIN_EDGE_LENGTH_EXCLUSIVE_METERS,
+};
 
 /// lane edge 的长度，单位为 engine-agnostic distance unit。
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
@@ -14,10 +14,10 @@ pub struct EdgeLength(f64);
 impl EdgeLength {
     /// 创建经过校验的 edge length。
     pub fn try_new(value: f64) -> Result<Self, CoreError> {
-        if !value.is_finite() || value <= EDGE_BOUNDARY_EPSILON {
+        if !value.is_finite() || value <= MIN_EDGE_LENGTH_EXCLUSIVE_METERS {
             return Err(CoreError::InvalidLaneEdgeLength {
                 edge_length: value,
-                min_exclusive: EDGE_BOUNDARY_EPSILON,
+                min_exclusive: MIN_EDGE_LENGTH_EXCLUSIVE_METERS,
             });
         }
 

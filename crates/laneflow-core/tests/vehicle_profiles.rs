@@ -1,9 +1,10 @@
 use std::{fmt::Debug, hash::Hash};
 
 use laneflow_core::{
-    CoreError, GEOMETRY_GAP_EPSILON, IidmProfileSpec, VehicleProfile, VehicleProfileHandle,
-    VehicleProfileRegistry,
+    CoreError, IidmProfileSpec, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
 };
+
+const CURRENT_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
 fn canonical_spec() -> IidmProfileSpec {
     IidmProfileSpec {
@@ -82,8 +83,13 @@ fn profile_rejects_non_finite_and_non_positive_values() {
 }
 
 #[test]
-fn profile_length_must_exceed_geometry_gap_epsilon() {
-    for length in [0.0, GEOMETRY_GAP_EPSILON / 2.0, GEOMETRY_GAP_EPSILON] {
+fn profile_length_must_exceed_its_domain_minimum() {
+    for length in [
+        -0.0,
+        0.0,
+        CURRENT_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS.next_down(),
+        CURRENT_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS,
+    ] {
         let spec = IidmProfileSpec {
             length,
             ..canonical_spec()
@@ -103,6 +109,13 @@ fn profile_length_must_exceed_geometry_gap_epsilon() {
                 && requirement.contains("GEOMETRY_GAP_EPSILON")
         );
     }
+
+    let adjacent_valid = IidmProfileSpec {
+        length: CURRENT_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS.next_up(),
+        ..canonical_spec()
+    };
+    VehicleProfile::try_new_iidm("adjacent-valid", adjacent_valid)
+        .expect("value adjacent above the exclusive minimum must pass");
 }
 
 #[test]

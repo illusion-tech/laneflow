@@ -6,13 +6,16 @@ use indexmap::IndexMap;
 
 use crate::{
     error::CoreError,
-    graph::{EDGE_BOUNDARY_EPSILON, LaneGraph},
+    graph::LaneGraph,
     handle::{
         EdgeHandle, ParkingAreaHandle, ParkingSpaceHandle, RouteHandle, VehicleHandle,
         VehicleProfileHandle,
     },
     id::validate_external_id,
-    profile::GEOMETRY_GAP_EPSILON,
+    numeric_policy::{
+        MIN_PARKING_EXTENT_EXCLUSIVE_METERS, MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
+        PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, longitudinal_positions_match,
+    },
     vehicle::{Speed, VehicleStatus},
     world::CoreWorld,
 };
@@ -459,8 +462,8 @@ fn resolve_anchor(
         .expect("resolved parking anchor edge must have length")
         .value();
     if !edge_progress.is_finite()
-        || edge_progress <= EDGE_BOUNDARY_EPSILON
-        || edge_progress >= edge_length - EDGE_BOUNDARY_EPSILON
+        || edge_progress <= PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS
+        || edge_progress >= edge_length - PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS
     {
         return Err(CoreError::ParkingAnchorProgressOutOfRange {
             space_id: space.id().to_owned(),
@@ -480,7 +483,8 @@ fn validate_geometry(space: &ParkingSpace) -> Result<(), CoreError> {
             "lateralOffset",
             geometry.lateral_offset(),
             geometry.lateral_offset().is_finite()
-                && geometry.lateral_offset().abs() > GEOMETRY_GAP_EPSILON,
+                && geometry.lateral_offset().abs()
+                    > MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
             "必须是 finite 且绝对值大于 GEOMETRY_GAP_EPSILON",
         ),
         (
@@ -494,13 +498,14 @@ fn validate_geometry(space: &ParkingSpace) -> Result<(), CoreError> {
         (
             "length",
             geometry.length(),
-            geometry.length().is_finite() && geometry.length() > GEOMETRY_GAP_EPSILON,
+            geometry.length().is_finite()
+                && geometry.length() > MIN_PARKING_EXTENT_EXCLUSIVE_METERS,
             "必须是 finite 且大于 GEOMETRY_GAP_EPSILON",
         ),
         (
             "width",
             geometry.width(),
-            geometry.width().is_finite() && geometry.width() > GEOMETRY_GAP_EPSILON,
+            geometry.width().is_finite() && geometry.width() > MIN_PARKING_EXTENT_EXCLUSIVE_METERS,
             "必须是 finite 且大于 GEOMETRY_GAP_EPSILON",
         ),
     ];
@@ -1137,9 +1142,10 @@ impl<'a> ParkingSnapshot<'a> {
                                 && state.route_edge_index == target.route_edge_index
                                 && self.world.parking().space_entry(space).is_some_and(
                                     |entry| {
-                                        (state.edge_progress.value() - entry.progress()).abs()
-                                            <= EDGE_BOUNDARY_EPSILON
-                                            && state.current_speed == Speed::ZERO
+                                        longitudinal_positions_match(
+                                            state.edge_progress.value(),
+                                            entry.progress(),
+                                        ) && state.current_speed == Speed::ZERO
                                     },
                                 ) =>
                         {

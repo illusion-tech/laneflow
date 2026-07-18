@@ -1,10 +1,13 @@
 use std::f64::consts::PI;
 
 use laneflow_core::{
-    CoreError, EDGE_BOUNDARY_EPSILON, EdgeLength, InitialTrafficData, LaneEdge, LaneGraph,
-    ParkingAnchorKind, ParkingArea, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry,
-    SignalRegistry, VehicleProfileRegistry,
+    CoreError, EdgeLength, InitialTrafficData, LaneEdge, LaneGraph, ParkingAnchorKind, ParkingArea,
+    ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, SignalRegistry, VehicleProfileRegistry,
 };
+
+const CURRENT_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 1.0e-9;
+const CURRENT_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f64 = 1.0e-9;
+const CURRENT_MIN_PARKING_EXTENT_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
 fn graph(edge_ids: &[&str]) -> LaneGraph {
     LaneGraph::try_new(edge_ids.iter().map(|id| {
@@ -174,12 +177,15 @@ fn every_anchor_is_validated_before_any_geometry() {
 }
 
 #[test]
-fn anchors_use_strict_edge_boundary_epsilon() {
+fn anchors_use_their_strict_endpoint_clearance() {
     let graph = graph(&["edge"]);
+    let upper_exclusive = 100.0 - CURRENT_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS;
     for progress in [
         f64::NAN,
-        EDGE_BOUNDARY_EPSILON,
-        100.0 - EDGE_BOUNDARY_EPSILON,
+        -0.0,
+        0.0,
+        CURRENT_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS,
+        upper_exclusive,
         100.0,
     ] {
         let invalid = ParkingSpace::new("space", None, "edge", progress, "edge", 50.0, geometry());
@@ -192,6 +198,15 @@ fn anchors_use_strict_edge_boundary_epsilon() {
                 ..
             }
         );
+    }
+
+    for progress in [
+        CURRENT_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS.next_up(),
+        upper_exclusive.next_down(),
+    ] {
+        let valid = ParkingSpace::new("space", None, "edge", progress, "edge", 50.0, geometry());
+        ParkingRegistry::try_new(&graph, [], [valid])
+            .expect("adjacent value inside the endpoint clearance must pass");
     }
 }
 
@@ -231,6 +246,71 @@ fn geometry_fields_use_fixed_canonical_order_and_ranges() {
             error,
             CoreError::InvalidParkingGeometryValue { field, .. } if field == expected_field
         );
+    }
+}
+
+#[test]
+fn parking_geometry_minimums_are_domain_specific_and_strict() {
+    let graph = graph(&["edge"]);
+    for (geometry, expected_field) in [
+        (
+            ParkingSpaceGeometry::new(
+                CURRENT_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
+                0.0,
+                5.0,
+                2.4,
+            ),
+            "lateralOffset",
+        ),
+        (
+            ParkingSpaceGeometry::new(
+                -CURRENT_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
+                0.0,
+                5.0,
+                2.4,
+            ),
+            "lateralOffset",
+        ),
+        (
+            ParkingSpaceGeometry::new(-0.0, 0.0, 5.0, 2.4),
+            "lateralOffset",
+        ),
+        (
+            ParkingSpaceGeometry::new(-3.0, 0.0, CURRENT_MIN_PARKING_EXTENT_EXCLUSIVE_METERS, 2.4),
+            "length",
+        ),
+        (
+            ParkingSpaceGeometry::new(-3.0, 0.0, 5.0, CURRENT_MIN_PARKING_EXTENT_EXCLUSIVE_METERS),
+            "width",
+        ),
+        (ParkingSpaceGeometry::new(-3.0, 0.0, -0.0, 2.4), "length"),
+    ] {
+        let invalid = ParkingSpace::new("space", None, "edge", 10.0, "edge", 20.0, geometry);
+        let error = ParkingRegistry::try_new(&graph, [], [invalid])
+            .expect_err("value at its exclusive minimum must fail");
+        std::assert_matches!(
+            error,
+            CoreError::InvalidParkingGeometryValue { field, .. } if field == expected_field
+        );
+    }
+
+    for geometry in [
+        ParkingSpaceGeometry::new(
+            CURRENT_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS.next_up(),
+            0.0,
+            CURRENT_MIN_PARKING_EXTENT_EXCLUSIVE_METERS.next_up(),
+            CURRENT_MIN_PARKING_EXTENT_EXCLUSIVE_METERS.next_up(),
+        ),
+        ParkingSpaceGeometry::new(
+            (-CURRENT_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS).next_down(),
+            0.0,
+            5.0,
+            2.4,
+        ),
+    ] {
+        let valid = ParkingSpace::new("space", None, "edge", 10.0, "edge", 20.0, geometry);
+        ParkingRegistry::try_new(&graph, [], [valid])
+            .expect("value adjacent above its exclusive magnitude minimum must pass");
     }
 }
 
