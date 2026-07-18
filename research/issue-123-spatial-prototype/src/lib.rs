@@ -525,7 +525,8 @@ pub fn extract_local_batch_into(
         });
     }
 
-    *output = scratch;
+    output.clear();
+    output.append(&mut scratch);
     Ok(())
 }
 
@@ -711,6 +712,53 @@ mod tests {
             })
         ));
         assert_eq!(output, vec![sentinel]);
+    }
+
+    #[test]
+    fn successful_batch_reuses_output_capacity_after_atomic_compute() {
+        let polyline = horizontal_polyline();
+        let binding =
+            LengthBinding::try_new(polyline.arc_length(), &polyline).expect("fixture must bind");
+        let requests = [BatchRequest {
+            vehicle_id: 1,
+            polyline: &polyline,
+            binding,
+            progress: 5.0,
+        }];
+        let mut output = Vec::with_capacity(8);
+        output.push(LocalPoseRecord {
+            vehicle_id: 99,
+            pose: LocalPoseF32 {
+                position: LocalPoint3F32 {
+                    x: 1.0,
+                    y: 2.0,
+                    z: 3.0,
+                },
+                tangent: LocalVector3F32 {
+                    x: 1.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                up: LocalVector3F32 {
+                    x: 0.0,
+                    y: 1.0,
+                    z: 0.0,
+                },
+            },
+        });
+        let reserved_capacity = output.capacity();
+
+        extract_local_batch_into(
+            &requests,
+            CanonicalPoint3::new(0.0, 0.0, 0.0),
+            RESEARCH_LOCAL_ENVELOPE_METERS,
+            &mut output,
+        )
+        .expect("valid batch must succeed");
+
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0].vehicle_id, 1);
+        assert_eq!(output.capacity(), reserved_capacity);
     }
 
     #[test]
