@@ -1,4 +1,4 @@
-//! #140 research-only edge cap benchmark against production Core control flow.
+//! #140 研究专用的 edge 上界基准，沿用生产 Core 控制流。
 
 use std::{hint::black_box, time::Duration};
 
