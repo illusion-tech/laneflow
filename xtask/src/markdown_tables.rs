@@ -10,6 +10,12 @@ enum Alignment {
     None,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Fence {
+    marker: char,
+    length: usize,
+}
+
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let (check, targets) = parse_args(args)?;
     let mut files = BTreeSet::new();
@@ -126,20 +132,13 @@ fn format_markdown(content: &str) -> String {
 
     while index < lines.len() {
         let line = lines[index];
-        let trimmed = line.trim_start();
-
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            let fence = if trimmed.starts_with("```") {
-                "```"
-            } else {
-                "~~~"
-            };
+        if let Some(fence) = opening_fence(line) {
             output.push(line.to_string());
             index += 1;
 
             while index < lines.len() {
                 output.push(lines[index].to_string());
-                if lines[index].trim_start().starts_with(fence) {
+                if is_closing_fence(lines[index], fence) {
                     index += 1;
                     break;
                 }
@@ -163,6 +162,22 @@ fn format_markdown(content: &str) -> String {
     }
 
     output.join(line_ending)
+}
+
+fn opening_fence(line: &str) -> Option<Fence> {
+    let trimmed = line.trim_start();
+    let marker = match trimmed.chars().next()? {
+        marker @ ('`' | '~') => marker,
+        _ => return None,
+    };
+    let length = trimmed.chars().take_while(|ch| *ch == marker).count();
+    (length >= 3).then_some(Fence { marker, length })
+}
+
+fn is_closing_fence(line: &str, fence: Fence) -> bool {
+    let trimmed = line.trim_start();
+    let marker_length = trimmed.chars().take_while(|ch| *ch == fence.marker).count();
+    marker_length >= fence.length && trimmed[marker_length..].trim().is_empty()
 }
 
 fn format_table(lines: &[&str]) -> Vec<String> {
@@ -392,6 +407,21 @@ mod tests {
         let expected = "```md\n| A | B |\n| --- | --- |\n| x | y |\n```\n\n| A    | B   |\n| ---- | --- |\n| long | y   |\n";
 
         assert_eq!(format_markdown(input), expected);
+    }
+
+    #[test]
+    fn requires_a_closing_fence_at_least_as_long_as_the_opening_fence() {
+        let input = "````md\n```\n| A | B |\n| --- | --- |\n| long | y |\n````\n\n| A | B |\n| --- | --- |\n| long | y |\n";
+        let expected = "````md\n```\n| A | B |\n| --- | --- |\n| long | y |\n````\n\n| A    | B   |\n| ---- | --- |\n| long | y   |\n";
+
+        assert_eq!(format_markdown(input), expected);
+    }
+
+    #[test]
+    fn supports_longer_tilde_closing_fences_with_trailing_spaces() {
+        let input = "~~~~md\n| A |\n| --- |\n| wide |\n~~~~~  \n";
+
+        assert_eq!(format_markdown(input), input);
     }
 
     #[test]
