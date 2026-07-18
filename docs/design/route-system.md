@@ -1,7 +1,7 @@
 # Route System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-16
+**最后更新**: 2026-07-18（#141 ADR 0014 目标数值边界同步）
 
 **适用范围**: v0.2 Lane Graph + Route 的 route definition、route validation、route lifecycle 和 simple route following 边界  
 **关联文档**:
@@ -12,6 +12,7 @@
 - `parking-system.md`
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0005-core-identity-and-handle-model.md`
+- `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../roadmap.md`
 
 ## 1. 目标
@@ -23,6 +24,8 @@
 本文保留 v0.2 route definition、validation、lifecycle 和 traversal 契约。v0.3 由 [`vehicle-following.md`](vehicle-following.md) 第 5 节替换 vehicle motion state；v0.4 将 external sequence 字段改为 `edgeIds`，并规定 route 不得终止在声明 StopLine 的 edge 上；current v0.5 保留这些规则并增加 static Parking anchors。initial route 与 runtime `register_route` 复用同一规则；#96 已激活 permission-aware traversal。
 
 Current static ParkingSpace 不持有 RouteHandle。#108/#109 current runtime 消费有限显式 route/occurrence：Reserved approach 选择当前 cursor 后的 first-reachable entry occurrence，leave/rebind 由 caller 提供明确 route occurrence，Parked/Reserved vehicle 保留 live route reference。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。完整端到端验证由 #110 固化，详细契约见 [`parking-system.md`](parking-system.md)。
+
+ADR 0014 已接受下一数值契约：单 edge 硬上限为 10 km，`EdgeLength` 使用经过检查的 `f32`，`EdgeProgress` 使用补偿残差感知的高位/残差表示。该目标在原子迁移完成前不改变本节当前 v0.5/`f64` 行为。route 距离只冻结派生权威、有限视距查询、复杂度与防溢出语义；物理存储由 #127 比较 `f64` 前缀基线与分块局部 `f32` 候选。
 
 目标：
 
@@ -152,8 +155,10 @@ route following 继续遵守 ADR 0003 与 `core-runtime.md`：
 - 每个 world 使用固定 `fixed_delta_time_ms`。
 - `TickInput.delta_time_ms` 必须与 world 固定步长一致。
 - travel distance 先把 fixed delta 转成秒，再由 `effective_speed * (fixed_delta_time_ms as f64 / 1000.0)` 得到；计算结果必须保持 finite。
-- speed、distance、edge length 和 edge progress 使用 `f64` newtype，并拒绝非 finite 值。
+- 当前生产实现的速度、距离、edge 长度和 edge 进度使用 `f64` 新类型，并拒绝非有限值。
 - edge boundary snap 使用统一 `EDGE_BOUNDARY_EPSILON`。
+
+ADR 0014 的目标不直接改写上述当前行为：迁移后 `EdgeLength` 和单值控制域使用经过检查的 `f32`，`EdgeProgress` 的唯一有效值由高位/残差组合得到；行程、剩余量、边界和快照不得只读取高位分量。#125 先冻结最小 edge、边界吸附与间距/重叠容差，原子生产转换后本节再切换当前描述。
 
 单 tick 可以跨越多个 edge，但实现必须有硬上界：
 
@@ -302,3 +307,4 @@ Adapter 不应：
 - route removal 拒绝 live vehicle 正在引用的 route。
 - stale route handle rejection。
 - event payload 使用 handle，resolver 可回查 external ID。
+- 目标 10 km edge 上界、补偿残差感知进度与 route 距离候选，在生产迁移矩阵中通过精确边界、单 tick 多 edge、多轮 route、溢出和失败原子性验证。
