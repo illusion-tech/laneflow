@@ -28,13 +28,15 @@ fn owned_euclid_and_glam_match_basic_f64_vector_math() {
 
 #[test]
 fn candidate_point_and_vector_layouts_do_not_justify_public_type_leakage() {
-    assert_eq!(size_of::<CanonicalPoint3>(), 24);
-    assert_eq!(size_of::<CanonicalVector3>(), 24);
-    assert_eq!(size_of::<Point3D<f64, CanonicalSpace>>(), 24);
-    assert_eq!(size_of::<Vector3D<f64, CanonicalSpace>>(), 24);
-    assert_eq!(size_of::<DVec3>(), 24);
+    let owned_size = size_of::<CanonicalPoint3>();
+    assert_eq!(size_of::<CanonicalVector3>(), owned_size);
+    assert_eq!(size_of::<Point3D<f64, CanonicalSpace>>(), owned_size);
+    assert_eq!(size_of::<Vector3D<f64, CanonicalSpace>>(), owned_size);
+    assert_eq!(size_of::<DVec3>(), owned_size);
 
-    assert_eq!(align_of::<CanonicalPoint3>(), 8);
-    assert_eq!(align_of::<Point3D<f64, CanonicalSpace>>(), 8);
-    assert_eq!(align_of::<DVec3>(), 8);
+    let owned_alignment = align_of::<CanonicalPoint3>();
+    assert_eq!(align_of::<CanonicalVector3>(), owned_alignment);
+    assert_eq!(align_of::<Point3D<f64, CanonicalSpace>>(), owned_alignment);
+    assert_eq!(align_of::<Vector3D<f64, CanonicalSpace>>(), owned_alignment);
+    assert_eq!(align_of::<DVec3>(), owned_alignment);
 }
