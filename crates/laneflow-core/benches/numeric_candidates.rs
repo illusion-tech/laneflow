@@ -10,7 +10,8 @@ mod candidates;
 
 use candidates::{
     CandidateLayout, CandidateScenario, CandidateWorld, CompensatedF32Mode, F64Mode, MixedF32Mode,
-    PrecisionMode, RawF32Mode, SCALING_VEHICLE_COUNT, STEP_COUNT, VEHICLE_COUNT,
+    PrecisionMode, RawF32Mode, ResidualAwareF32Mode, SCALING_VEHICLE_COUNT, STEP_COUNT,
+    SensitiveControlMixedMode, VEHICLE_COUNT,
 };
 
 fn benchmark_mode<M: PrecisionMode>(
@@ -59,6 +60,13 @@ fn benchmark_candidate_matrix(criterion: &mut Criterion) {
             benchmark_mode::<F64Mode>(&mut group, scenario, layout, VEHICLE_COUNT);
             benchmark_mode::<RawF32Mode>(&mut group, scenario, layout, VEHICLE_COUNT);
             benchmark_mode::<CompensatedF32Mode>(&mut group, scenario, layout, VEHICLE_COUNT);
+            benchmark_mode::<ResidualAwareF32Mode>(&mut group, scenario, layout, VEHICLE_COUNT);
+            benchmark_mode::<SensitiveControlMixedMode>(
+                &mut group,
+                scenario,
+                layout,
+                VEHICLE_COUNT,
+            );
             benchmark_mode::<MixedF32Mode>(&mut group, scenario, layout, VEHICLE_COUNT);
         }
     }
@@ -91,6 +99,18 @@ fn benchmark_candidate_matrix(criterion: &mut Criterion) {
             SCALING_VEHICLE_COUNT,
         );
         benchmark_mode::<CompensatedF32Mode>(
+            &mut group,
+            CandidateScenario::DensePlatoon,
+            layout,
+            SCALING_VEHICLE_COUNT,
+        );
+        benchmark_mode::<ResidualAwareF32Mode>(
+            &mut group,
+            CandidateScenario::DensePlatoon,
+            layout,
+            SCALING_VEHICLE_COUNT,
+        );
+        benchmark_mode::<SensitiveControlMixedMode>(
             &mut group,
             CandidateScenario::DensePlatoon,
             layout,

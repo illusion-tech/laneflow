@@ -15,6 +15,16 @@ const FREE_FLOW_SPACING: f64 = 250.0;
 const DENSE_SPACING: f64 = 6.5;
 const PROJECTION_PAIR_SPACING: f64 = 64.0;
 const TRANSITION_EDGE_LENGTH: f64 = 5.0;
+#[allow(
+    dead_code,
+    reason = "#140 edge-cap benchmark imports the shared scenario module separately"
+)]
+const TRANSITION_PRESSURE_EDGE_LENGTH: f64 = 10.0;
+#[allow(
+    dead_code,
+    reason = "#140 edge-cap benchmark imports the shared scenario module separately"
+)]
+const TRANSITION_PRESSURE_SPEED: f64 = 10.0;
 
 fn edge_length(value: f64) -> EdgeLength {
     EdgeLength::try_new(value).expect("scenario edge length must be valid")
@@ -113,17 +123,19 @@ fn locality_preserving_platoon_world(
     initial_speed: f64,
     desired_speed: f64,
     stopped_front: bool,
+    edge_cap: f64,
 ) -> CoreWorld {
+    assert!(edge_cap.is_finite() && edge_cap > 0.0);
     let route_length = spacing * vehicle_count as f64 + 1_000.0;
-    let edge_count = (route_length / LOCALITY_EDGE_LENGTH).ceil() as usize;
+    let edge_count = (route_length / edge_cap).ceil() as usize;
     let edge_ids: Vec<_> = (0..edge_count)
         .map(|index| format!("locality-edge-{index:05}"))
         .collect();
     let lane_graph = LaneGraph::try_new(edge_ids.iter().enumerate().map(|(index, edge_id)| {
         let length = if index + 1 == edge_count {
-            route_length - LOCALITY_EDGE_LENGTH * index as f64
+            route_length - edge_cap * index as f64
         } else {
-            LOCALITY_EDGE_LENGTH
+            edge_cap
         };
         LaneEdge::new(
             edge_id.clone(),
@@ -140,9 +152,8 @@ fn locality_preserving_platoon_world(
     let vehicles = (0..vehicle_count)
         .map(|index| {
             let route_progress = spacing * index as f64;
-            let route_edge_index = (route_progress / LOCALITY_EDGE_LENGTH).floor() as usize;
-            let edge_progress =
-                progress(route_progress - LOCALITY_EDGE_LENGTH * route_edge_index as f64);
+            let route_edge_index = (route_progress / edge_cap).floor() as usize;
+            let edge_progress = progress(route_progress - edge_cap * route_edge_index as f64);
             if stopped_front && index + 1 == vehicle_count {
                 VehicleSpawnInput::stopped(
                     vehicle_external_id(index),
@@ -181,15 +192,34 @@ pub fn stop_and_go_world(vehicle_count: usize) -> CoreWorld {
 }
 
 pub fn locality_free_flow_world(vehicle_count: usize) -> CoreWorld {
-    locality_preserving_platoon_world(vehicle_count, FREE_FLOW_SPACING, 10.0, 13.9, false)
+    free_flow_world_with_edge_cap(vehicle_count, LOCALITY_EDGE_LENGTH)
 }
 
 pub fn locality_dense_platoon_world(vehicle_count: usize) -> CoreWorld {
-    locality_preserving_platoon_world(vehicle_count, DENSE_SPACING, 1.0, 13.9, false)
+    dense_platoon_world_with_edge_cap(vehicle_count, LOCALITY_EDGE_LENGTH)
 }
 
 pub fn locality_stop_and_go_world(vehicle_count: usize) -> CoreWorld {
-    locality_preserving_platoon_world(vehicle_count, DENSE_SPACING, 8.0, 13.9, true)
+    stop_and_go_world_with_edge_cap(vehicle_count, LOCALITY_EDGE_LENGTH)
+}
+
+pub fn free_flow_world_with_edge_cap(vehicle_count: usize, edge_cap: f64) -> CoreWorld {
+    locality_preserving_platoon_world(
+        vehicle_count,
+        FREE_FLOW_SPACING,
+        10.0,
+        13.9,
+        false,
+        edge_cap,
+    )
+}
+
+pub fn dense_platoon_world_with_edge_cap(vehicle_count: usize, edge_cap: f64) -> CoreWorld {
+    locality_preserving_platoon_world(vehicle_count, DENSE_SPACING, 1.0, 13.9, false, edge_cap)
+}
+
+pub fn stop_and_go_world_with_edge_cap(vehicle_count: usize, edge_cap: f64) -> CoreWorld {
+    locality_preserving_platoon_world(vehicle_count, DENSE_SPACING, 8.0, 13.9, true, edge_cap)
 }
 
 pub fn projection_heavy_world(vehicle_count: usize) -> CoreWorld {
@@ -278,10 +308,69 @@ pub fn transition_heavy_world(vehicle_count: usize) -> CoreWorld {
         .expect("transition world must be valid")
 }
 
+#[allow(
+    dead_code,
+    reason = "#140 edge-cap benchmark imports the shared scenario module separately"
+)]
+pub fn transition_pressure_world(vehicle_count: usize, crossing_percent: usize) -> CoreWorld {
+    assert!(crossing_percent <= 100);
+    let edge_ids: Vec<_> = (0..vehicle_count).map(edge_external_id).collect();
+    let lane_graph = LaneGraph::try_new(edge_ids.iter().map(|edge_id| {
+        LaneEdge::new(
+            edge_id.clone(),
+            edge_length(TRANSITION_PRESSURE_EDGE_LENGTH),
+            [edge_id.clone()],
+        )
+    }))
+    .expect("transition pressure graph must be valid");
+    let routes: Vec<_> = edge_ids
+        .iter()
+        .enumerate()
+        .map(|(index, edge_id)| {
+            Route::try_new(route_external_id(index), [edge_id.clone(), edge_id.clone()])
+                .expect("transition pressure route must be valid")
+        })
+        .collect();
+    let (profiles, profile) = profile_registry(TRANSITION_PRESSURE_SPEED);
+    let traffic_data = InitialTrafficData::try_new(lane_graph, routes, profiles)
+        .expect("transition pressure traffic data must be valid");
+    let crossing_count = vehicle_count * crossing_percent / 100;
+    let vehicles = (0..vehicle_count)
+        .map(|index| {
+            VehicleSpawnInput::active(
+                vehicle_external_id(index),
+                profile,
+                route_external_id(index),
+                0,
+                if index < crossing_count {
+                    progress(TRANSITION_PRESSURE_EDGE_LENGTH - 0.1)
+                } else {
+                    EdgeProgress::ZERO
+                },
+                speed(TRANSITION_PRESSURE_SPEED),
+            )
+        })
+        .collect();
+
+    CoreWorld::with_traffic_data(FIXED_DELTA_TIME_MS, traffic_data, vehicles)
+        .expect("transition pressure world must be valid")
+}
+
 pub const fn projection_event_count(vehicle_count: usize) -> usize {
     vehicle_count / 2
 }
 
 pub const fn transition_event_count(vehicle_count: usize) -> usize {
     vehicle_count * STEP_COUNT
+}
+
+#[allow(
+    dead_code,
+    reason = "#140 edge-cap benchmark imports the shared scenario module separately"
+)]
+pub const fn transition_pressure_event_count(
+    vehicle_count: usize,
+    crossing_percent: usize,
+) -> usize {
+    vehicle_count * crossing_percent / 100
 }
