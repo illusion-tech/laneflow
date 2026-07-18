@@ -398,7 +398,10 @@ fn event_order_uses_initial_stable_update_order_not_input_order() {
 
 #[test]
 fn epsilon_snap_crosses_boundary_when_tick_has_travel() {
-    let boundary_crossing_speed_meters_per_second = 1.25e-9;
+    let tick_milliseconds = 1_000;
+    let tick_seconds = tick_milliseconds as f64 / 1_000.0;
+    let boundary_crossing_speed_meters_per_second =
+        1.25 * CURRENT_EDGE_BOUNDARY_TOLERANCE_METERS / tick_seconds;
     let mut world = canonical_world(boundary_crossing_speed_meters_per_second, |profile| {
         VehicleSpawnInput::active(
             "V1",
@@ -410,7 +413,9 @@ fn epsilon_snap_crosses_boundary_when_tick_has_travel() {
         )
     });
 
-    let result = world.step(TickInput::new(1_000)).expect("step succeeds");
+    let result = world
+        .step(TickInput::new(tick_milliseconds))
+        .expect("step succeeds");
 
     assert_eq!(
         event_views(&world, &result.events),
