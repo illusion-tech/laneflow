@@ -200,6 +200,8 @@ difference > tolerance  -> 阻断错误
 
 本文中的 `normalized_core_length` 是 Core `EdgeLength` 经过领域构造、校验和规范化后的权威边长，并以 `f64` 观察值提供给 Spatial：当前 `f64 EdgeLength` 直接提供该值；目标 `f32 EdgeLength` 先完成舍入和规范化，再精确升宽为 `f64`。它不是原始 Data 输入，也不是几何弧长。
 
+`snapped_effective_core_progress` 是 Core `EdgeProgress` 的 `f64` 有效值经过 #125 冻结的 edge 边界吸附规则处理后的观察值；只有落在端点容差内时才吸附到 `0` 或 `normalized_core_length`，一般越界仍返回错误。
+
 ```text
 ratio = snapped_effective_core_progress / normalized_core_length
 geometry_s = ratio * geometry_arc_length
