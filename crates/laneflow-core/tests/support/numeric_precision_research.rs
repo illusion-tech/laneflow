@@ -103,6 +103,7 @@ pub trait PrecisionMode: Copy + Debug + 'static {
     type Residual: Copy + Debug + Default + PartialEq;
 
     const NAME: &'static str;
+    const RESIDUAL_AWARE: bool = false;
 
     fn compute_from_f64(value: f64) -> Self::Compute {
         Self::Compute::from_f64(value)
@@ -118,6 +119,53 @@ pub trait PrecisionMode: Copy + Debug + 'static {
 
     fn progress_from_compute(value: Self::Compute) -> Self::Progress {
         Self::Progress::from_f64(value.to_f64())
+    }
+
+    fn progress_to_f64(progress: Self::Progress, _residual: Self::Residual) -> f64 {
+        progress.to_f64()
+    }
+
+    fn compute_progress_value(progress: Self::Progress, residual: Self::Residual) -> Self::Compute {
+        let _ = residual;
+        Self::compute_from_progress(progress)
+    }
+
+    fn compute_progress_difference(
+        leader_progress: Self::Progress,
+        leader_residual: Self::Residual,
+        follower_progress: Self::Progress,
+        follower_residual: Self::Residual,
+    ) -> Self::Compute {
+        let _ = (leader_residual, follower_residual);
+        Self::compute_from_progress(leader_progress - follower_progress)
+    }
+
+    fn compute_progress_remaining(
+        edge_length: Self::Progress,
+        progress: Self::Progress,
+        residual: Self::Residual,
+    ) -> Self::Compute {
+        let _ = residual;
+        Self::compute_from_progress(edge_length - progress)
+    }
+
+    fn progress_reaches_boundary(
+        progress: Self::Progress,
+        residual: Self::Residual,
+        edge_length: Self::Progress,
+        epsilon: Self::Progress,
+    ) -> bool {
+        let _ = residual;
+        progress + epsilon >= edge_length
+    }
+
+    fn progress_is_near_zero(
+        progress: Self::Progress,
+        residual: Self::Residual,
+        epsilon: Self::Progress,
+    ) -> bool {
+        let _ = residual;
+        progress.abs() < epsilon
     }
 
     fn add_progress(
@@ -170,6 +218,93 @@ impl PrecisionMode for CompensatedF32Mode {
     type Residual = f32;
 
     const NAME: &'static str = "compensated_f32";
+
+    fn add_progress(progress: &mut f32, residual: &mut f32, delta: f32) {
+        let corrected_delta = delta - *residual;
+        let next = *progress + corrected_delta;
+        *residual = (next - *progress) - corrected_delta;
+        *progress = next;
+    }
+}
+
+macro_rules! residual_aware_progress_methods {
+    () => {
+        fn progress_to_f64(progress: f32, residual: f32) -> f64 {
+            f64::from(progress) - f64::from(residual)
+        }
+
+        fn compute_progress_value(progress: f32, residual: f32) -> Self::Compute {
+            Self::Compute::from_f64(Self::progress_to_f64(progress, residual))
+        }
+
+        fn compute_progress_difference(
+            leader_progress: f32,
+            leader_residual: f32,
+            follower_progress: f32,
+            follower_residual: f32,
+        ) -> Self::Compute {
+            Self::Compute::from_f64(
+                f64::from(leader_progress - follower_progress)
+                    - f64::from(leader_residual - follower_residual),
+            )
+        }
+
+        fn compute_progress_remaining(
+            edge_length: f32,
+            progress: f32,
+            residual: f32,
+        ) -> Self::Compute {
+            Self::Compute::from_f64(f64::from(edge_length - progress) + f64::from(residual))
+        }
+
+        fn progress_reaches_boundary(
+            progress: f32,
+            residual: f32,
+            edge_length: f32,
+            epsilon: f32,
+        ) -> bool {
+            Self::progress_to_f64(progress, residual) + f64::from(epsilon) >= f64::from(edge_length)
+        }
+
+        fn progress_is_near_zero(progress: f32, residual: f32, epsilon: f32) -> bool {
+            Self::progress_to_f64(progress, residual).abs() < f64::from(epsilon)
+        }
+    };
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ResidualAwareF32Mode;
+
+impl PrecisionMode for ResidualAwareF32Mode {
+    type Compute = f32;
+    type Progress = f32;
+    type Residual = f32;
+
+    const NAME: &'static str = "residual_aware_f32";
+    const RESIDUAL_AWARE: bool = true;
+
+    residual_aware_progress_methods!();
+
+    fn add_progress(progress: &mut f32, residual: &mut f32, delta: f32) {
+        let corrected_delta = delta - *residual;
+        let next = *progress + corrected_delta;
+        *residual = (next - *progress) - corrected_delta;
+        *progress = next;
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SensitiveControlMixedMode;
+
+impl PrecisionMode for SensitiveControlMixedMode {
+    type Compute = f64;
+    type Progress = f32;
+    type Residual = f32;
+
+    const NAME: &'static str = "sensitive_f64_control_f32_progress";
+    const RESIDUAL_AWARE: bool = true;
+
+    residual_aware_progress_methods!();
 
     fn add_progress(progress: &mut f32, residual: &mut f32, delta: f32) {
         let corrected_delta = delta - *residual;
@@ -234,13 +369,37 @@ impl CandidateScenario {
 pub enum CandidateLayout {
     LegacySingleEdge,
     LocalityPreserving,
+    EdgeCap4Km,
+    EdgeCap1Km,
+    EdgeCap100M,
 }
 
 impl CandidateLayout {
+    pub const EDGE_CAP_MATRIX: [Self; 5] = [
+        Self::LegacySingleEdge,
+        Self::LocalityPreserving,
+        Self::EdgeCap4Km,
+        Self::EdgeCap1Km,
+        Self::EdgeCap100M,
+    ];
+
     pub const fn benchmark_name(self) -> &'static str {
         match self {
             Self::LegacySingleEdge => "legacy",
-            Self::LocalityPreserving => "locality",
+            Self::LocalityPreserving => "cap_10km",
+            Self::EdgeCap4Km => "cap_4km",
+            Self::EdgeCap1Km => "cap_1km",
+            Self::EdgeCap100M => "cap_100m",
+        }
+    }
+
+    pub const fn edge_cap(self) -> Option<f64> {
+        match self {
+            Self::LegacySingleEdge => None,
+            Self::LocalityPreserving => Some(LOCALITY_EDGE_LENGTH),
+            Self::EdgeCap4Km => Some(4_000.0),
+            Self::EdgeCap1Km => Some(1_000.0),
+            Self::EdgeCap100M => Some(100.0),
         }
     }
 }
@@ -329,6 +488,14 @@ pub struct CandidateSnapshot {
     pub current_speed: f64,
     pub applied_acceleration: f64,
     pub status: CandidateStatus,
+    pub leader: Option<usize>,
+    pub bumper_gap: Option<f64>,
+    pub candidate_speed: f64,
+    pub candidate_travel: f64,
+    pub emergency_min_travel: f64,
+    pub final_speed: f64,
+    pub final_travel: f64,
+    pub safety_projection: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -336,6 +503,9 @@ pub struct CandidateMemoryStats {
     pub vehicle_size: usize,
     pub motion_size: usize,
     pub retained_bytes: usize,
+    pub edge_count: usize,
+    pub route_occurrence_count: usize,
+    pub topology_scalar_floor_bytes: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -356,22 +526,12 @@ impl<M: PrecisionMode> CandidateWorld<M> {
         assert!(vehicle_count > 0);
         let spacing = scenario.spacing();
         let route_length = spacing * vehicle_count as f64 + 1_000.0;
-        let (nominal_edge_length, edge_count) = match layout {
-            CandidateLayout::LegacySingleEdge => (route_length, 1),
-            CandidateLayout::LocalityPreserving => (
-                LOCALITY_EDGE_LENGTH,
-                (route_length / LOCALITY_EDGE_LENGTH).ceil() as usize,
-            ),
-        };
+        let nominal_edge_length = layout.edge_cap().unwrap_or(route_length);
+        let edge_count = (route_length / nominal_edge_length).ceil() as usize;
         let vehicles = (0..vehicle_count)
             .map(|index| {
                 let route_progress = spacing * index as f64;
-                let route_edge_index = match layout {
-                    CandidateLayout::LegacySingleEdge => 0,
-                    CandidateLayout::LocalityPreserving => {
-                        (route_progress / nominal_edge_length).floor() as usize
-                    }
-                };
+                let route_edge_index = (route_progress / nominal_edge_length).floor() as usize;
                 let edge_progress = route_progress - nominal_edge_length * route_edge_index as f64;
                 let stopped = scenario.stopped_front() && index + 1 == vehicle_count;
                 CandidateVehicle {
@@ -474,13 +634,10 @@ impl<M: PrecisionMode> CandidateWorld<M> {
 
     pub fn snapshot(&self, index: usize) -> CandidateSnapshot {
         let vehicle = self.vehicles[index];
-        let edge_progress = vehicle.edge_progress.to_f64();
-        let route_progress = match self.layout {
-            CandidateLayout::LegacySingleEdge => edge_progress,
-            CandidateLayout::LocalityPreserving => {
-                vehicle.route_edge_index as f64 * self.nominal_edge_length.to_f64() + edge_progress
-            }
-        };
+        let motion = self.motions[index];
+        let edge_progress = M::progress_to_f64(vehicle.edge_progress, vehicle.progress_residual);
+        let route_progress =
+            vehicle.route_edge_index as f64 * self.nominal_edge_length.to_f64() + edge_progress;
         CandidateSnapshot {
             route_edge_index: vehicle.route_edge_index,
             edge_progress,
@@ -488,6 +645,14 @@ impl<M: PrecisionMode> CandidateWorld<M> {
             current_speed: vehicle.current_speed.to_f64(),
             applied_acceleration: vehicle.applied_acceleration.to_f64(),
             status: vehicle.status,
+            leader: motion.leader,
+            bumper_gap: motion.bumper_gap.map(ResearchFloat::to_f64),
+            candidate_speed: motion.candidate_speed.to_f64(),
+            candidate_travel: motion.candidate_travel.to_f64(),
+            emergency_min_travel: motion.emergency_min_travel.to_f64(),
+            final_speed: motion.final_speed.to_f64(),
+            final_travel: motion.final_travel.to_f64(),
+            safety_projection: motion.safety_projection,
         }
     }
 
@@ -502,6 +667,9 @@ impl<M: PrecisionMode> CandidateWorld<M> {
             retained_bytes: size_of::<Self>()
                 + self.vehicles.capacity() * size_of::<CandidateVehicle<M>>()
                 + self.motions.capacity() * size_of::<CandidateMotion<M::Compute>>(),
+            edge_count: self.edge_count,
+            route_occurrence_count: self.edge_count,
+            topology_scalar_floor_bytes: self.edge_count * (size_of::<f64>() + size_of::<usize>()),
         }
     }
 
@@ -525,15 +693,32 @@ impl<M: PrecisionMode> CandidateWorld<M> {
         leader: CandidateVehicle<M>,
     ) -> M::Compute {
         if follower.route_edge_index == leader.route_edge_index {
-            return M::compute_from_progress(leader.edge_progress - follower.edge_progress);
+            return M::compute_progress_difference(
+                leader.edge_progress,
+                leader.progress_residual,
+                follower.edge_progress,
+                follower.progress_residual,
+            );
         }
 
-        let mut distance = self.edge_length(follower.route_edge_index) - follower.edge_progress;
-        for edge_index in follower.route_edge_index + 1..leader.route_edge_index {
-            distance = distance + self.edge_length(edge_index);
+        if !M::RESIDUAL_AWARE {
+            let mut distance = self.edge_length(follower.route_edge_index) - follower.edge_progress;
+            for edge_index in follower.route_edge_index + 1..leader.route_edge_index {
+                distance = distance + self.edge_length(edge_index);
+            }
+            distance = distance + leader.edge_progress;
+            return M::compute_from_progress(distance);
         }
-        distance = distance + leader.edge_progress;
-        M::compute_from_progress(distance)
+
+        let mut distance = M::compute_progress_remaining(
+            self.edge_length(follower.route_edge_index),
+            follower.edge_progress,
+            follower.progress_residual,
+        );
+        for edge_index in follower.route_edge_index + 1..leader.route_edge_index {
+            distance = distance + M::compute_from_progress(self.edge_length(edge_index));
+        }
+        distance + M::compute_progress_value(leader.edge_progress, leader.progress_residual)
     }
 
     fn leader_horizon(&self, speed: M::Compute) -> M::Compute {
@@ -561,20 +746,20 @@ impl<M: PrecisionMode> CandidateWorld<M> {
         );
         let mut edge_changes = 0;
         loop {
-            let edge_length = match self.layout {
-                CandidateLayout::LegacySingleEdge => M::progress_from_f64(self.route_length),
-                CandidateLayout::LocalityPreserving => {
-                    if vehicle.route_edge_index + 1 == self.edge_count {
-                        M::progress_from_f64(
-                            self.route_length
-                                - self.nominal_edge_length.to_f64() * (self.edge_count - 1) as f64,
-                        )
-                    } else {
-                        self.nominal_edge_length
-                    }
-                }
+            let edge_length = if vehicle.route_edge_index + 1 == self.edge_count {
+                M::progress_from_f64(
+                    self.route_length
+                        - self.nominal_edge_length.to_f64() * (self.edge_count - 1) as f64,
+                )
+            } else {
+                self.nominal_edge_length
             };
-            if vehicle.edge_progress + epsilon < edge_length {
+            if !M::progress_reaches_boundary(
+                vehicle.edge_progress,
+                vehicle.progress_residual,
+                edge_length,
+                epsilon,
+            ) {
                 break;
             }
             M::add_progress(
@@ -582,7 +767,7 @@ impl<M: PrecisionMode> CandidateWorld<M> {
                 &mut vehicle.progress_residual,
                 -edge_length,
             );
-            if vehicle.edge_progress.abs() < epsilon {
+            if M::progress_is_near_zero(vehicle.edge_progress, vehicle.progress_residual, epsilon) {
                 vehicle.edge_progress = M::Progress::default();
                 M::clear_residual(&mut vehicle.progress_residual);
             }
@@ -597,15 +782,13 @@ impl<M: PrecisionMode> CandidateWorld<M> {
     }
 
     fn edge_length(&self, edge_index: usize) -> M::Progress {
-        match self.layout {
-            CandidateLayout::LegacySingleEdge => M::progress_from_f64(self.route_length),
-            CandidateLayout::LocalityPreserving if edge_index + 1 == self.edge_count => {
-                M::progress_from_f64(
-                    self.route_length
-                        - self.nominal_edge_length.to_f64() * (self.edge_count - 1) as f64,
-                )
-            }
-            CandidateLayout::LocalityPreserving => self.nominal_edge_length,
+        if edge_index + 1 == self.edge_count {
+            M::progress_from_f64(
+                self.route_length
+                    - self.nominal_edge_length.to_f64() * (self.edge_count - 1) as f64,
+            )
+        } else {
+            self.nominal_edge_length
         }
     }
 }
@@ -886,7 +1069,7 @@ pub fn constant_addition<M: PrecisionMode>(
     for _ in 0..ticks {
         M::add_progress(&mut progress, &mut residual, travel);
     }
-    progress.to_f64()
+    M::progress_to_f64(progress, residual)
 }
 
 pub fn finite_candidate_value<T: ResearchFloat>(value: f64) -> Option<T> {

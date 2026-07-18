@@ -10,8 +10,8 @@ mod scenarios;
 
 use candidates::{
     CandidateLayout, CandidateScenario, CandidateStatus, CandidateWorld, CompensatedF32Mode,
-    F64Mode, MixedF32Mode, PrecisionMode, RawF32Mode, STEP_COUNT, VEHICLE_COUNT, constant_addition,
-    finite_candidate_value,
+    F64Mode, MixedF32Mode, PrecisionMode, RawF32Mode, ResidualAwareF32Mode, STEP_COUNT,
+    SensitiveControlMixedMode, VEHICLE_COUNT, constant_addition, finite_candidate_value,
 };
 
 const F64_MODEL_EPSILON: f64 = 1.0e-8;
@@ -21,24 +21,22 @@ fn core_world(
     scenario: CandidateScenario,
     layout: CandidateLayout,
 ) -> CoreWorld {
-    match (scenario, layout) {
-        (CandidateScenario::FreeFlow, CandidateLayout::LegacySingleEdge) => {
-            scenarios::free_flow_world(vehicle_count)
+    let Some(edge_cap) = layout.edge_cap() else {
+        return match scenario {
+            CandidateScenario::FreeFlow => scenarios::free_flow_world(vehicle_count),
+            CandidateScenario::DensePlatoon => scenarios::dense_platoon_world(vehicle_count),
+            CandidateScenario::StopAndGo => scenarios::stop_and_go_world(vehicle_count),
+        };
+    };
+    match scenario {
+        CandidateScenario::FreeFlow => {
+            scenarios::free_flow_world_with_edge_cap(vehicle_count, edge_cap)
         }
-        (CandidateScenario::DensePlatoon, CandidateLayout::LegacySingleEdge) => {
-            scenarios::dense_platoon_world(vehicle_count)
+        CandidateScenario::DensePlatoon => {
+            scenarios::dense_platoon_world_with_edge_cap(vehicle_count, edge_cap)
         }
-        (CandidateScenario::StopAndGo, CandidateLayout::LegacySingleEdge) => {
-            scenarios::stop_and_go_world(vehicle_count)
-        }
-        (CandidateScenario::FreeFlow, CandidateLayout::LocalityPreserving) => {
-            scenarios::locality_free_flow_world(vehicle_count)
-        }
-        (CandidateScenario::DensePlatoon, CandidateLayout::LocalityPreserving) => {
-            scenarios::locality_dense_platoon_world(vehicle_count)
-        }
-        (CandidateScenario::StopAndGo, CandidateLayout::LocalityPreserving) => {
-            scenarios::locality_stop_and_go_world(vehicle_count)
+        CandidateScenario::StopAndGo => {
+            scenarios::stop_and_go_world_with_edge_cap(vehicle_count, edge_cap)
         }
     }
 }
@@ -118,10 +116,7 @@ fn assert_f64_model_matches_core(
 
 #[test]
 fn f64_research_model_matches_core_control_flow() {
-    for layout in [
-        CandidateLayout::LegacySingleEdge,
-        CandidateLayout::LocalityPreserving,
-    ] {
+    for layout in CandidateLayout::EDGE_CAP_MATRIX {
         for scenario in [
             CandidateScenario::FreeFlow,
             CandidateScenario::DensePlatoon,
@@ -135,10 +130,7 @@ fn f64_research_model_matches_core_control_flow() {
 #[test]
 #[ignore = "10k f64 candidate-oracle alignment is an explicit #122 research measurement"]
 fn f64_research_model_matches_core_at_10k() {
-    for layout in [
-        CandidateLayout::LegacySingleEdge,
-        CandidateLayout::LocalityPreserving,
-    ] {
+    for layout in CandidateLayout::EDGE_CAP_MATRIX {
         for scenario in [
             CandidateScenario::FreeFlow,
             CandidateScenario::DensePlatoon,
@@ -154,17 +146,18 @@ fn compensated_and_mixed_progress_reduce_repeated_addition_drift() {
     let expected = 1_000.0;
     let raw = constant_addition::<RawF32Mode>(0.0, 0.16, 6_250);
     let compensated = constant_addition::<CompensatedF32Mode>(0.0, 0.16, 6_250);
+    let residual_aware = constant_addition::<ResidualAwareF32Mode>(0.0, 0.16, 6_250);
+    let sensitive = constant_addition::<SensitiveControlMixedMode>(0.0, 0.16, 6_250);
     let mixed = constant_addition::<MixedF32Mode>(0.0, 0.16, 6_250);
     assert!((raw - expected).abs() > 0.01);
     assert!((compensated - expected).abs() <= 0.01);
+    assert!((residual_aware - expected).abs() <= 0.01);
+    assert!((sensitive - expected).abs() <= 0.01);
     assert!((mixed - expected).abs() <= 0.01);
 }
 
 fn assert_candidate_replay_is_exact<M: PrecisionMode>() {
-    for layout in [
-        CandidateLayout::LegacySingleEdge,
-        CandidateLayout::LocalityPreserving,
-    ] {
+    for layout in CandidateLayout::EDGE_CAP_MATRIX {
         for scenario in [
             CandidateScenario::FreeFlow,
             CandidateScenario::DensePlatoon,
@@ -197,6 +190,8 @@ fn numeric_candidates_replay_deterministically_on_the_same_runtime() {
     assert_candidate_replay_is_exact::<F64Mode>();
     assert_candidate_replay_is_exact::<RawF32Mode>();
     assert_candidate_replay_is_exact::<CompensatedF32Mode>();
+    assert_candidate_replay_is_exact::<ResidualAwareF32Mode>();
+    assert_candidate_replay_is_exact::<SensitiveControlMixedMode>();
     assert_candidate_replay_is_exact::<MixedF32Mode>();
 }
 
@@ -222,6 +217,8 @@ fn numeric_candidate_long_duration_addition_report() {
         print_long_duration_addition::<F64Mode>(speed, 36_000);
         print_long_duration_addition::<RawF32Mode>(speed, 36_000);
         print_long_duration_addition::<CompensatedF32Mode>(speed, 36_000);
+        print_long_duration_addition::<ResidualAwareF32Mode>(speed, 36_000);
+        print_long_duration_addition::<SensitiveControlMixedMode>(speed, 36_000);
         print_long_duration_addition::<MixedF32Mode>(speed, 36_000);
     }
 }
@@ -258,14 +255,103 @@ fn checked_f32_boundary_conversion_rejects_overflow_and_canonicalizes_zero() {
     assert!(4.0 * f64::from(upper_ulp) < 0.01);
 }
 
+#[derive(Clone, Copy, Debug)]
+struct MetricObservation {
+    tick: usize,
+    vehicle_index: usize,
+    reference_value: f64,
+    candidate_value: f64,
+    absolute_error: f64,
+    relative_error: Option<f64>,
+    reference_context: candidates::CandidateSnapshot,
+    candidate_context: candidates::CandidateSnapshot,
+}
+
+impl MetricObservation {
+    fn report(self) -> String {
+        format!(
+            "tick={} vehicle={} reference_value={:.12} candidate_value={:.12} absolute_error={:.12} relative_error={:?} reference_context={:?} candidate_context={:?}",
+            self.tick,
+            self.vehicle_index,
+            self.reference_value,
+            self.candidate_value,
+            self.absolute_error,
+            self.relative_error,
+            self.reference_context,
+            self.candidate_context,
+        )
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct MetricStats {
+    max_absolute_error: f64,
+    max_relative_error: f64,
+    max_hybrid_ratio: f64,
+    absolute_sample: Option<MetricObservation>,
+    relative_sample: Option<MetricObservation>,
+    hybrid_sample: Option<MetricObservation>,
+}
+
+impl MetricStats {
+    #[allow(clippy::too_many_arguments)]
+    fn observe(
+        &mut self,
+        tick: usize,
+        vehicle_index: usize,
+        reference_value: f64,
+        candidate_value: f64,
+        reference_context: candidates::CandidateSnapshot,
+        candidate_context: candidates::CandidateSnapshot,
+        absolute_budget: f64,
+        relative_budget: f64,
+        relative_minimum: f64,
+    ) {
+        let absolute_error = (reference_value - candidate_value).abs();
+        let relative_error = (reference_value.abs() >= relative_minimum)
+            .then_some(absolute_error / reference_value.abs());
+        let observation = MetricObservation {
+            tick,
+            vehicle_index,
+            reference_value,
+            candidate_value,
+            absolute_error,
+            relative_error,
+            reference_context,
+            candidate_context,
+        };
+        if self.absolute_sample.is_none() || absolute_error > self.max_absolute_error {
+            self.max_absolute_error = absolute_error;
+            self.absolute_sample = Some(observation);
+        }
+        if let Some(relative_error) = relative_error
+            && (self.relative_sample.is_none() || relative_error > self.max_relative_error)
+        {
+            self.max_relative_error = relative_error;
+            self.relative_sample = Some(observation);
+        }
+        let hybrid_budget = absolute_budget.max(relative_budget * reference_value.abs());
+        let hybrid_ratio = absolute_error / hybrid_budget;
+        if self.hybrid_sample.is_none() || hybrid_ratio > self.max_hybrid_ratio {
+            self.max_hybrid_ratio = hybrid_ratio;
+            self.hybrid_sample = Some(observation);
+        }
+    }
+
+    fn strict_accepted(&self, absolute_budget: f64, relative_budget: f64) -> bool {
+        self.max_absolute_error <= absolute_budget && self.max_relative_error <= relative_budget
+    }
+
+    fn hybrid_accepted(&self) -> bool {
+        self.max_hybrid_ratio <= 1.0
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct DifferentialStats {
-    max_progress_error: f64,
-    max_progress_relative_error: f64,
-    max_speed_error: f64,
-    max_speed_relative_error: f64,
-    max_acceleration_error: f64,
-    max_acceleration_relative_error: f64,
+    progress: MetricStats,
+    speed: MetricStats,
+    acceleration: MetricStats,
     first_discrete_divergence: Option<String>,
 }
 
@@ -294,39 +380,83 @@ impl DifferentialStats {
                     "tick={tick} vehicle={index} reference={reference:?} candidate={candidate:?}"
                 ));
             }
-            let progress_error = (reference.route_progress - candidate.route_progress).abs();
-            let speed_error = (reference.current_speed - candidate.current_speed).abs();
-            let acceleration_error =
-                (reference.applied_acceleration - candidate.applied_acceleration).abs();
-            self.max_progress_error = self.max_progress_error.max(progress_error);
-            self.max_speed_error = self.max_speed_error.max(speed_error);
-            self.max_acceleration_error = self.max_acceleration_error.max(acceleration_error);
-            if reference.route_progress.abs() >= 1.0 {
-                self.max_progress_relative_error = self
-                    .max_progress_relative_error
-                    .max(progress_error / reference.route_progress.abs());
-            }
-            if reference.current_speed.abs() >= 1.0 {
-                self.max_speed_relative_error = self
-                    .max_speed_relative_error
-                    .max(speed_error / reference.current_speed.abs());
-            }
-            if reference.applied_acceleration.abs() >= 1.0 {
-                self.max_acceleration_relative_error = self
-                    .max_acceleration_relative_error
-                    .max(acceleration_error / reference.applied_acceleration.abs());
-            }
+            self.progress.observe(
+                tick,
+                index,
+                reference.route_progress,
+                candidate.route_progress,
+                reference,
+                candidate,
+                0.01,
+                1.0e-5,
+                1.0,
+            );
+            self.speed.observe(
+                tick,
+                index,
+                reference.current_speed,
+                candidate.current_speed,
+                reference,
+                candidate,
+                0.01,
+                1.0e-4,
+                1.0,
+            );
+            self.acceleration.observe(
+                tick,
+                index,
+                reference.applied_acceleration,
+                candidate.applied_acceleration,
+                reference,
+                candidate,
+                0.02,
+                1.0e-3,
+                1.0,
+            );
         }
     }
 
-    fn accepted(&self) -> bool {
+    fn strict_accepted(&self) -> bool {
         self.first_discrete_divergence.is_none()
-            && self.max_progress_error <= 0.01
-            && self.max_progress_relative_error <= 1.0e-5
-            && self.max_speed_error <= 0.01
-            && self.max_speed_relative_error <= 1.0e-4
-            && self.max_acceleration_error <= 0.02
-            && self.max_acceleration_relative_error <= 1.0e-3
+            && self.progress.strict_accepted(0.01, 1.0e-5)
+            && self.speed.strict_accepted(0.01, 1.0e-4)
+            && self.acceleration.strict_accepted(0.02, 1.0e-3)
+    }
+
+    fn hybrid_accepted(&self) -> bool {
+        self.first_discrete_divergence.is_none()
+            && self.progress.hybrid_accepted()
+            && self.speed.hybrid_accepted()
+            && self.acceleration.hybrid_accepted()
+    }
+
+    fn print_argmax(
+        &self,
+        prefix: &str,
+        layout: CandidateLayout,
+        scenario: CandidateScenario,
+        mode: &str,
+    ) {
+        for (metric, stats) in [
+            ("progress", &self.progress),
+            ("speed", &self.speed),
+            ("acceleration", &self.acceleration),
+        ] {
+            for (kind, sample) in [
+                ("absolute", stats.absolute_sample),
+                ("relative", stats.relative_sample),
+                ("hybrid", stats.hybrid_sample),
+            ] {
+                if let Some(sample) = sample {
+                    eprintln!(
+                        "{prefix}_argmax layout={} scenario={} mode={mode} metric={metric} kind={kind} {}",
+                        layout.benchmark_name(),
+                        scenario.benchmark_name(),
+                        sample.report(),
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -334,17 +464,23 @@ fn run_differential_matrix(
     vehicle_count: usize,
     scenario: CandidateScenario,
     layout: CandidateLayout,
-) -> [DifferentialStats; 3] {
+) -> [DifferentialStats; 5] {
     let mut reference = CandidateWorld::<F64Mode>::new(vehicle_count, scenario, layout);
     let mut raw = CandidateWorld::<RawF32Mode>::new(vehicle_count, scenario, layout);
     let mut compensated =
         CandidateWorld::<CompensatedF32Mode>::new(vehicle_count, scenario, layout);
+    let mut residual_aware =
+        CandidateWorld::<ResidualAwareF32Mode>::new(vehicle_count, scenario, layout);
+    let mut sensitive =
+        CandidateWorld::<SensitiveControlMixedMode>::new(vehicle_count, scenario, layout);
     let mut mixed = CandidateWorld::<MixedF32Mode>::new(vehicle_count, scenario, layout);
     let mut stats = std::array::from_fn(|_| DifferentialStats::default());
     for tick in 1..=STEP_COUNT {
         let reference_summary = reference.step();
         let raw_summary = raw.step();
         let compensated_summary = compensated.step();
+        let residual_aware_summary = residual_aware.step();
+        let sensitive_summary = sensitive.step();
         let mixed_summary = mixed.step();
         stats[0].observe(tick, &reference_summary, &raw_summary, &reference, &raw);
         stats[1].observe(
@@ -354,18 +490,60 @@ fn run_differential_matrix(
             &reference,
             &compensated,
         );
-        stats[2].observe(tick, &reference_summary, &mixed_summary, &reference, &mixed);
+        stats[2].observe(
+            tick,
+            &reference_summary,
+            &residual_aware_summary,
+            &reference,
+            &residual_aware,
+        );
+        stats[3].observe(
+            tick,
+            &reference_summary,
+            &sensitive_summary,
+            &reference,
+            &sensitive,
+        );
+        stats[4].observe(tick, &reference_summary, &mixed_summary, &reference, &mixed);
     }
     stats
 }
 
 #[test]
+fn residual_aware_gap_path_removes_large_coordinate_control_error() {
+    let stats = run_differential_matrix(
+        VEHICLE_COUNT,
+        CandidateScenario::DensePlatoon,
+        CandidateLayout::LegacySingleEdge,
+    );
+    let compensated = &stats[1];
+    let residual_aware = &stats[2];
+    assert!(!compensated.strict_accepted());
+    assert!(residual_aware.strict_accepted());
+    assert!(
+        residual_aware.acceleration.max_absolute_error * 100.0
+            < compensated.acceleration.max_absolute_error
+    );
+    assert!(residual_aware.first_discrete_divergence.is_none());
+}
+
+#[test]
+fn transition_pressure_fixture_controls_first_tick_crossing_ratio() {
+    const VEHICLES: usize = 100;
+    for crossing_percent in [0, 1, 10, 100] {
+        let mut world = scenarios::transition_pressure_world(VEHICLES, crossing_percent);
+        let (_, edge_changes) = step_core(&mut world);
+        assert_eq!(
+            edge_changes,
+            scenarios::transition_pressure_event_count(VEHICLES, crossing_percent),
+        );
+    }
+}
+
+#[test]
 #[ignore = "10k f32/mixed differential matrix is an explicit #122 research measurement"]
 fn numeric_candidate_differential_report_10k() {
-    for layout in [
-        CandidateLayout::LegacySingleEdge,
-        CandidateLayout::LocalityPreserving,
-    ] {
+    for layout in CandidateLayout::EDGE_CAP_MATRIX {
         for scenario in [
             CandidateScenario::FreeFlow,
             CandidateScenario::DensePlatoon,
@@ -375,22 +553,29 @@ fn numeric_candidate_differential_report_10k() {
             for (mode, stats) in [
                 (RawF32Mode::NAME, &stats[0]),
                 (CompensatedF32Mode::NAME, &stats[1]),
-                (MixedF32Mode::NAME, &stats[2]),
+                (ResidualAwareF32Mode::NAME, &stats[2]),
+                (SensitiveControlMixedMode::NAME, &stats[3]),
+                (MixedF32Mode::NAME, &stats[4]),
             ] {
                 eprintln!(
-                    "numeric_candidate_diff layout={} scenario={} mode={} accepted={} max_progress_error={:.12} max_progress_relative_error={:.12} max_speed_error={:.12} max_speed_relative_error={:.12} max_acceleration_error={:.12} max_acceleration_relative_error={:.12} first_discrete_divergence={:?}",
+                    "numeric_candidate_diff layout={} scenario={} mode={} strict_accepted={} hybrid_accepted={} max_progress_error={:.12} max_progress_relative_error={:.12} max_progress_hybrid_ratio={:.12} max_speed_error={:.12} max_speed_relative_error={:.12} max_speed_hybrid_ratio={:.12} max_acceleration_error={:.12} max_acceleration_relative_error={:.12} max_acceleration_hybrid_ratio={:.12} first_discrete_divergence={:?}",
                     layout.benchmark_name(),
                     scenario.benchmark_name(),
                     mode,
-                    stats.accepted(),
-                    stats.max_progress_error,
-                    stats.max_progress_relative_error,
-                    stats.max_speed_error,
-                    stats.max_speed_relative_error,
-                    stats.max_acceleration_error,
-                    stats.max_acceleration_relative_error,
+                    stats.strict_accepted(),
+                    stats.hybrid_accepted(),
+                    stats.progress.max_absolute_error,
+                    stats.progress.max_relative_error,
+                    stats.progress.max_hybrid_ratio,
+                    stats.speed.max_absolute_error,
+                    stats.speed.max_relative_error,
+                    stats.speed.max_hybrid_ratio,
+                    stats.acceleration.max_absolute_error,
+                    stats.acceleration.max_relative_error,
+                    stats.acceleration.max_hybrid_ratio,
                     stats.first_discrete_divergence,
                 );
+                stats.print_argmax("numeric_candidate_diff", layout, scenario, mode);
             }
         }
     }
@@ -399,10 +584,7 @@ fn numeric_candidate_differential_report_10k() {
 #[test]
 #[ignore = "100k dense f32/mixed differential observation is an explicit #122 research measurement"]
 fn numeric_candidate_differential_report_100k_dense_observation() {
-    for layout in [
-        CandidateLayout::LegacySingleEdge,
-        CandidateLayout::LocalityPreserving,
-    ] {
+    for layout in CandidateLayout::EDGE_CAP_MATRIX {
         let stats = run_differential_matrix(
             candidates::SCALING_VEHICLE_COUNT,
             CandidateScenario::DensePlatoon,
@@ -411,20 +593,32 @@ fn numeric_candidate_differential_report_100k_dense_observation() {
         for (mode, stats) in [
             (RawF32Mode::NAME, &stats[0]),
             (CompensatedF32Mode::NAME, &stats[1]),
-            (MixedF32Mode::NAME, &stats[2]),
+            (ResidualAwareF32Mode::NAME, &stats[2]),
+            (SensitiveControlMixedMode::NAME, &stats[3]),
+            (MixedF32Mode::NAME, &stats[4]),
         ] {
             eprintln!(
-                "numeric_candidate_diff_100k layout={} scenario=dense_platoon mode={} accepted={} max_progress_error={:.12} max_progress_relative_error={:.12} max_speed_error={:.12} max_speed_relative_error={:.12} max_acceleration_error={:.12} max_acceleration_relative_error={:.12} first_discrete_divergence={:?}",
+                "numeric_candidate_diff_100k layout={} scenario=dense_platoon mode={} strict_accepted={} hybrid_accepted={} max_progress_error={:.12} max_progress_relative_error={:.12} max_progress_hybrid_ratio={:.12} max_speed_error={:.12} max_speed_relative_error={:.12} max_speed_hybrid_ratio={:.12} max_acceleration_error={:.12} max_acceleration_relative_error={:.12} max_acceleration_hybrid_ratio={:.12} first_discrete_divergence={:?}",
                 layout.benchmark_name(),
                 mode,
-                stats.accepted(),
-                stats.max_progress_error,
-                stats.max_progress_relative_error,
-                stats.max_speed_error,
-                stats.max_speed_relative_error,
-                stats.max_acceleration_error,
-                stats.max_acceleration_relative_error,
+                stats.strict_accepted(),
+                stats.hybrid_accepted(),
+                stats.progress.max_absolute_error,
+                stats.progress.max_relative_error,
+                stats.progress.max_hybrid_ratio,
+                stats.speed.max_absolute_error,
+                stats.speed.max_relative_error,
+                stats.speed.max_hybrid_ratio,
+                stats.acceleration.max_absolute_error,
+                stats.acceleration.max_relative_error,
+                stats.acceleration.max_hybrid_ratio,
                 stats.first_discrete_divergence,
+            );
+            stats.print_argmax(
+                "numeric_candidate_diff_100k",
+                layout,
+                CandidateScenario::DensePlatoon,
+                mode,
             );
         }
     }
@@ -455,7 +649,25 @@ fn numeric_candidate_memory_report() {
         print_memory::<F64Mode>(vehicle_count);
         print_memory::<RawF32Mode>(vehicle_count);
         print_memory::<CompensatedF32Mode>(vehicle_count);
+        print_memory::<ResidualAwareF32Mode>(vehicle_count);
+        print_memory::<SensitiveControlMixedMode>(vehicle_count);
         print_memory::<MixedF32Mode>(vehicle_count);
+        for layout in CandidateLayout::EDGE_CAP_MATRIX {
+            let world = CandidateWorld::<F64Mode>::new(
+                vehicle_count,
+                CandidateScenario::DensePlatoon,
+                layout,
+            );
+            let stats = world.memory_stats();
+            eprintln!(
+                "numeric_candidate_topology layout={} vehicles={} edge_count={} route_occurrence_count={} topology_scalar_floor_bytes={}",
+                layout.benchmark_name(),
+                vehicle_count,
+                stats.edge_count,
+                stats.route_occurrence_count,
+                stats.topology_scalar_floor_bytes,
+            );
+        }
     }
 }
 
