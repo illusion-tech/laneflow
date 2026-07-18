@@ -15,6 +15,7 @@
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
 - `../adr/0011-schema-identifier-and-publication-contract.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
+- `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../../schemas/laneflow-data-v0.5.schema.json`
 - `../../schemas/README.md`
 - `data-loading.md`
@@ -252,7 +253,7 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 直接以 v0.4 
 
 Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL；catalog 中全部版本必须通过 HTTPS 返回与固定 source revision 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析 `$id`/`$schema`。v0.2-v0.4 只作为 immutable publication artifacts 保留，不改变当前唯一 active v0.5 contract；消费者入口见 [`schemas/README.md`](../../schemas/README.md)。
 
-## 8. v0.6 空间层配套制品设计
+## 11. v0.6 空间层配套制品设计
 
 #123 G1 不把中心线或世界几何加入当前 v0.5 `LaneFlowDataPackage`，也不提升其 `formatVersion`。ADR 0013 和 `spatial-geometry.md` 已接受独立空间包，并由场景清单通过制品引用和原始字节 SHA-256 摘要与交通包精确配对。
 
@@ -261,3 +262,16 @@ Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public 
 - 场景清单与空间模式使用独立版本系列；精确线格式、模式发布与加载器由 G1 后的数据规范 Issue 交付。
 - 只使用 Core 的消费者无需空间制品；需要位姿的适配器或工具必须提供完整且通过绑定的空间包。
 - 本节已经成为后续空间数据规范的设计输入；在相应模式拉取请求（PR）合入前，它仍不构成当前加载器接受的新字段。
+
+## 12. ADR 0014 的下一数值格式迁移边界
+
+ADR 0014 接受了下一 Core/Data 数值契约，但没有修改本文件定义的当前 v0.5：
+
+- 当前 v0.5 的线格式 DTO、模式范围、加载器诊断和 `f64` Core 规范化在原子迁移前保持不变；
+- 下一有效格式把单 edge `<=10_000 m`、速度 `<=100 m/s`、Profile 加速度/减速度 `<=50 m/s²`、期望车头时距 `<=60 s`、尺寸/最小间距/偏移 `<=128 m` 等硬范围写入模式与 Core 构造器；最小 edge 长度由 #125 冻结；
+- JSON 词法类型继续是 `number`。Data 可以先以 `f64` 或等价高保真值解析，以便报告原始越界输入；随后必须通过显式受检转换进入单一 `f32` 数值域或补偿残差感知的 `EdgeProgress`；
+- 模式、私有线格式 DTO、加载器路径诊断、标准固定样例、Core 构造器与版本闸口必须在同一迁移切片中更新；#126 冻结准确的版本字符串和迁移说明；
+- 有效代码树仍只维护一个当前加载器。切换后不叠加 v0.5 运行时兼容分支，不自动拆 edge、不静默截断；真实资产如需转换，使用显式离线迁移工具；
+- 规范化和批量命令继续执行“先计算、后提交”，任一范围、转换或引用错误不得留下部分 `InitialTrafficData` 或 world 状态。
+
+因此，ADR 0014 的文档合入只建立目标契约；只有原子 Data/Core 迁移通过正确性、完整内存、性能与 G0-G4 闸口后，本文件的“当前版本”标题和模式链接才切换到新版本。

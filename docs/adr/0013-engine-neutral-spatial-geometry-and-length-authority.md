@@ -15,6 +15,7 @@
   - `0008-pre-1.0-data-format-version-policy.md`
   - `0010-parking-binding-and-vehicle-lifecycle-authority.md`
   - `0012-core-numeric-authority-and-presentation-precision.md`
+  - `0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - 详细设计与证据：
   - `../design/spatial-geometry.md`
   - `../design/adapter-api.md`
@@ -26,7 +27,7 @@
 
 LaneFlow Core 当前拥有车道拓扑、`EdgeLength`、路线区段和边内 `EdgeProgress`，但不拥有把进度映射为世界位置与朝向的道路中心线。若每个引擎适配器（Engine Adapter）独立维护道路样条曲线、长度和采样规则，同一份交通数据会在不同宿主中产生不同位姿，停车系统的边相对几何也没有共同的解析基准。
 
-架构决策记录（ADR）0012 已冻结以下精度边界：Core 和 Data 的权威数值使用 `f64`；Spatial 的标准几何和位姿使用 LaneFlow 自有的 `f64` 类型；局部表现用的 `f32` 只能在标准位姿先减去局部原点后产生。本 ADR 进一步确定几何权威属于哪一层、Core 长度与几何弧长如何绑定，以及适配器消费什么稳定输入。
+本 ADR 最初基于 ADR 0012 的当前 `f64` Core 数值边界，确定几何权威属于哪一层、Core 长度与几何弧长如何绑定，以及适配器消费什么稳定输入。ADR 0014 后续接受目标 `f32 EdgeLength` 与补偿残差感知进度，但保留本 ADR 的 Spatial 标准 `f64` 几何/位姿和局部原点转换；变化只在 Core 有效进度输入与长度绑定必须加入 Core 量化余量。生产迁移前，当前 Core/Data 仍保持 ADR 0012 的实现状态。
 
 本文中的“权威职责（authority）”表示某项状态由哪一层定义并最终裁决；“标准坐标（canonical）”表示 LaneFlow 统一使用、尚未转换为宿主坐标的空间；“制品（artifact）”表示可独立版本化和校验的数据文件。组件名 Core、Data、Spatial、Adapter 和 Presentation 分别表示核心层、数据层、空间层、适配层和表现层。
 
@@ -77,8 +78,8 @@ LaneFlow 增加独立于 Core 和引擎适配器的空间层：
 ### 5. Core 长度是交通权威，几何弧长是空间权威
 
 - 创作和导出流水线应从同一中心线来源派生几何弧长与 Traffic `LaneEdge.length`，不鼓励手工维护两份长度。
-- 绑定时重新计算几何弧长，并用绝对容差与相对容差的组合值和 Core 边长比较；超出容差时返回阻断错误，禁止静默修复。
-- 容差内的采样使用 `ratio = core_progress / core_length`，再计算 `geometry_s = ratio * geometry_arc_length`。这样既保证 Core 终点精确映射到几何终点，也把允许差异限制在已验证的绑定容差内。
+- 绑定时重新计算几何弧长，并用几何绝对/相对容差加 Core `EdgeLength` 量化余量和规范化的 Core 边长比较；超出容差时返回阻断错误，禁止静默修复。当前 `f64 EdgeLength` 的量化余量为零，目标 `f32 EdgeLength` 的余量由 #125 的 ULP/边界判定基准冻结。
+- 容差内的采样使用 `ratio = effective_core_progress / normalized_core_length`，再计算 `geometry_s = ratio * geometry_arc_length`。这样既保证 Core 终点精确映射到几何终点，也把允许差异限制在已验证的绑定容差内；Spatial 不读取进度的高位/残差分量。
 - 适配器不得用引擎样条曲线长度覆盖 Core 长度，也不得把位姿反写为新的进度。
 
 ### 6. 采样与批量提取使用 LaneFlow 自有类型
@@ -119,7 +120,7 @@ LaneFlow 增加独立于 Core 和引擎适配器的空间层：
 - 两个制品必须通过原始字节 SHA-256 摘要和标识符配对，并在加载时完成跨数据包校验。
 - 折线切向量在折点处不连续；视觉平滑、网格、样条曲线和道路倾斜仍由后续适配器或创作层解决。
 - Y 轴向上的首版设计拒绝近垂直道路；若真实场景需要垂直轨迹或道路倾斜，需要扩展上方向或道路剖面契约。
-- Core 长度与几何长度即使在容差内仍可能存在极小比例差，必须由验证证明其不超过位置误差预算。
+- Core 长度与几何长度即使在容差内仍可能存在比例差；目标 `f32 EdgeLength` 还会增加显式量化余量，必须由验证证明组合误差不超过位置预算。
 
 ## 替代方案
 
@@ -147,6 +148,6 @@ LaneFlow 增加独立于 Core 和引擎适配器的空间层：
 
 - #123：完成本 ADR、详细设计、Rust 包调研、研究原型与 G1 评审。
 - G1 后拆分：Spatial 自有类型与注册表、空间数据与模式及清单、绑定与采样、批量提取、验证与性能，以及收口审阅。
-- #125：拆分 Core 的边界、最小长度等数值职责；Spatial 不把研究原型中当前使用的 Core 容差固化为新的全局 epsilon（误差阈值）。
+- #125：拆分 Core 的边界、最小长度等数值职责，并冻结目标 `f32 EdgeLength` 的 Spatial 量化余量；Spatial 不把研究原型中当前使用的 Core 容差固化为新的全局 epsilon（误差阈值）。
 - v0.7：Bevy Adapter 消费批量位姿，并验证坐标轴与手性、`f32` 局部原点和真实 `Transform` 同步。
 - 只有真实曲线、道路倾斜、坐标参考系统、空间索引或宿主类型互操作需求出现时，才重新评估相应 Rust 包与格式扩展。

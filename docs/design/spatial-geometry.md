@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-18
+**最后更新**: 2026-07-18（#141 ADR 0014 数值边界同步）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -10,6 +10,7 @@
 
 - `../adr/0012-core-numeric-authority-and-presentation-precision.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
+- `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `numeric-representation.md`
 - `data-format.md`
 - `adapter-api.md`
@@ -63,7 +64,7 @@ Core 可以在没有 Spatial 数据包时以无图形宿主方式运行；需要
 局部原点是同一标准坐标框架中的 `f64` 点，由适配器、相机或分块管理器，或者调用方选择。转换顺序固定为：
 
 ```text
-Core 的 f64 进度
+Core 的有效 `f64` 进度
   -> Spatial 的标准 f64 位姿
   -> 标准位置 - 局部原点（f64）
   -> 校验坐标框架、有限性、局部范围和朝向基
@@ -161,12 +162,12 @@ P0 -> P1 -> ... -> Pn
 | ---------------------------------------- | --------: | ---------------------- | ------------------------------------------------- |
 | `SPATIAL_MIN_SEGMENT_LENGTH_METERS`      |  `1.0e-4` | `0.1 mm` 输入有效尺寸  | 拒绝重复点或数值噪声线段；远低于道路尺度          |
 | `SPATIAL_LENGTH_ABS_TOLERANCE_METERS`    |  `1.0e-6` | 长度绑定绝对容差下限   | 高于 `f64` ULP 和十进制舍入误差，低于表现误差预算 |
-| `SPATIAL_LENGTH_REL_TOLERANCE`           |  `1.0e-9` | 长度绑定相对容差项     | 随边长扩展；16,384 m 时约为 `0.016384 mm`         |
+| `SPATIAL_LENGTH_REL_TOLERANCE`           |  `1.0e-9` | 长度绑定相对容差项     | 随边长扩展；10,000 m 时约为 `0.01 mm`             |
 | `SPATIAL_JOIN_POSITION_TOLERANCE_METERS` |  `1.0e-3` | 相连端点间隙           | `1 mm`，低于 #122 的 `1 cm` 位置误差上限          |
 | `SPATIAL_BASIS_MIN_PROJECTED_UP_LENGTH`  |  `1.0e-6` | 上方向投影的无量纲下限 | 防止近垂直道路的归一化放大误差                    |
 | `SPATIAL_BASIS_ORTHONORMAL_TOLERANCE`    | `1.0e-12` | 派生朝向基复核容差     | 只校验 `f64` 归一化和正交结果，不作为几何尺寸阈值 |
 
-这些数值是 #123 的 G1 提议，合入前必须由原型、评审和边界测试共同接受；它们不替代 #125 对 Core 边界与间隙误差阈值的拆分。
+这些数值来自 #123 的 `f64 Core EdgeLength` 绑定基线。ADR 0014 接受 `f32 EdgeLength` 作为下一目标后，几何 `f64` 容差继续有效，但不能单独覆盖 Core 长度量化；#125 必须新增并验证量化余量，同时继续拆分 Core 边界与间隙误差阈值。
 
 ## 6. 长度权威与绑定
 
@@ -180,26 +181,30 @@ P0 -> P1 -> ... -> Pn
 
 ```text
 difference = abs(core_length - geometry_arc_length)
-tolerance = max(
+geometry_tolerance = max(
   SPATIAL_LENGTH_ABS_TOLERANCE_METERS,
   SPATIAL_LENGTH_REL_TOLERANCE * max(abs(core_length), abs(geometry_arc_length))
 )
+
+tolerance = geometry_tolerance + core_edge_length_quantization_allowance
 
 difference <= tolerance -> 绑定成功
 difference > tolerance  -> 阻断错误
 ```
 
-禁止静默替换、只给警告、按引擎样条曲线重算，或在适配器端修复。
+当前生产 `f64 EdgeLength` 的量化余量为零。ADR 0014 的下一 `f32 EdgeLength` 契约必须覆盖合法范围内 `f64 -> f32` 舍入到最近可表示值的最坏误差；#125 冻结精确的含等号公式和边界判定基准，可用一个完整的局部 ULP 作为保守候选。10 km 处一个 ULP 约为 `0.977 mm`。
+
+禁止静默替换、只给警告、按引擎样条曲线重算，或在适配器端修复。也不能因为旧几何容差小于 `f32` 量化误差就把 Core 长度恢复为 `f64`；两类误差必须分别记录并组合。
 
 ### 6.3 进度映射
 
 ```text
-ratio = snapped_core_progress / core_length
+ratio = snapped_effective_core_progress / normalized_core_length
 geometry_s = ratio * geometry_arc_length
 ```
 
-- 进度必须来自经过验证的 Core 状态或快照。
-- 只在 Core 边界容差内吸附到 `0` 或 `core_length`；一般越界返回错误。
+- 进度必须来自经过验证的 Core 有效状态或快照；Spatial 不读取高位/残差分量。
+- 只在 Core 边界容差内吸附到 `0` 或 `normalized_core_length`；一般越界返回错误。
 - 比例映射确保 Core 终点精确命中几何终点。
 - 容差内的比例差仍必须小于验证确定的位置误差预算。
 
@@ -298,6 +303,7 @@ Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合
 - 同一运行时重复构建、采样和批量处理时，结果逐位相等，或具有明确的连续值契约；
 - 顶点与端点、微小或退化线段、近垂直朝向基；
 - 长度容差边界内外；
+- 当前 `f64 EdgeLength` 与下一规范化 `f32 EdgeLength` 的量化余量边界内外；
 - 相连端点容差边界内外；
 - Core 终点到几何终点的精确映射；
 - 标准坐标偏移很大时，先减局部原点再转换为 `f32` 的正确顺序；
@@ -315,3 +321,5 @@ Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合
 4. 标准/局部批量位姿提取与停车位姿解析。
 5. 性质测试与边界测试、1 万/10 万性能验证，以及适配器契约冒烟测试。
 6. v0.6 Spatial 收口审阅；之后 #121/v0.7 才能进入 Bevy 实施。
+
+#141/ADR 0014 不改变上述 Spatial 分层和实现顺序，只修订 Core 标量、有效进度与长度绑定容差来源。#125 必须先冻结量化余量，Spatial 生产绑定才能把目标 `f32 EdgeLength` 作为稳定输入。
