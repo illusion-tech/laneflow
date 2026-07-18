@@ -244,8 +244,8 @@ macro_rules! residual_aware_progress_methods {
             follower_residual: f32,
         ) -> Self::Compute {
             Self::Compute::from_f64(
-                f64::from(leader_progress - follower_progress)
-                    - f64::from(leader_residual - follower_residual),
+                (f64::from(leader_progress) - f64::from(follower_progress))
+                    - (f64::from(leader_residual) - f64::from(follower_residual)),
             )
         }
 
@@ -254,7 +254,9 @@ macro_rules! residual_aware_progress_methods {
             progress: f32,
             residual: f32,
         ) -> Self::Compute {
-            Self::Compute::from_f64(f64::from(edge_length - progress) + f64::from(residual))
+            Self::Compute::from_f64(
+                (f64::from(edge_length) - f64::from(progress)) + f64::from(residual),
+            )
         }
 
         fn progress_reaches_boundary(

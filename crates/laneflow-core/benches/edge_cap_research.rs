@@ -83,7 +83,7 @@ fn build_world(vehicle_count: usize, scenario: Scenario, layout: EdgeLayout) -> 
     }
 }
 
-fn run_steps(world: &mut CoreWorld, step_count: usize) -> StepCounts {
+fn observe_steps(world: &mut CoreWorld, step_count: usize) -> StepCounts {
     let mut counts = StepCounts::default();
     for _ in 0..step_count {
         let result = world
@@ -97,6 +97,16 @@ fn run_steps(world: &mut CoreWorld, step_count: usize) -> StepCounts {
             .count();
     }
     counts
+}
+
+fn benchmark_steps(world: &mut CoreWorld, step_count: usize) {
+    for _ in 0..step_count {
+        black_box(
+            world
+                .step(TickInput::new(FIXED_DELTA_TIME_MS))
+                .expect("edge cap research step must succeed"),
+        );
+    }
 }
 
 fn topology_counts(world: &CoreWorld) -> (usize, usize, usize) {
@@ -142,7 +152,7 @@ fn benchmark_step_matrix(criterion: &mut Criterion, vehicle_count: usize) {
         for &scenario in scenarios {
             let world = build_world(vehicle_count, scenario, layout);
             let topology = topology_counts(&world);
-            let observation = run_steps(&mut world.clone(), STEP_COUNT);
+            let observation = observe_steps(&mut world.clone(), STEP_COUNT);
             eprintln!(
                 "edge_cap_observation vehicles={} layout={} scenario={} edges={} routes={} route_occurrences={} events={} edge_changes={} transitions_per_million_vehicle_steps={:.6}",
                 vehicle_count,
@@ -164,7 +174,7 @@ fn benchmark_step_matrix(criterion: &mut Criterion, vehicle_count: usize) {
                 |benchmark, world| {
                     benchmark.iter_batched(
                         || world.clone(),
-                        |mut world| black_box(run_steps(&mut world, STEP_COUNT)),
+                        |mut world| benchmark_steps(&mut world, STEP_COUNT),
                         BatchSize::LargeInput,
                     );
                 },
@@ -209,7 +219,7 @@ fn benchmark_transition_pressure(criterion: &mut Criterion) {
     group.throughput(Throughput::Elements(VEHICLE_COUNT as u64));
     for crossing_percent in [0, 1, 10, 100] {
         let world = transition_pressure_world(VEHICLE_COUNT, crossing_percent);
-        let observation = run_steps(&mut world.clone(), 1);
+        let observation = observe_steps(&mut world.clone(), 1);
         assert_eq!(
             observation.edge_changes,
             transition_pressure_event_count(VEHICLE_COUNT, crossing_percent),
@@ -220,7 +230,7 @@ fn benchmark_transition_pressure(criterion: &mut Criterion) {
             |benchmark, world| {
                 benchmark.iter_batched(
                     || world.clone(),
-                    |mut world| black_box(run_steps(&mut world, 1)),
+                    |mut world| benchmark_steps(&mut world, 1),
                     BatchSize::LargeInput,
                 );
             },

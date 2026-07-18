@@ -510,6 +510,7 @@ fn run_differential_matrix(
 }
 
 #[test]
+#[ignore = "10k residual-aware gap regression is an explicit #140 research measurement"]
 fn residual_aware_gap_path_removes_large_coordinate_control_error() {
     let stats = run_differential_matrix(
         VEHICLE_COUNT,
