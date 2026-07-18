@@ -16,7 +16,7 @@ use crate::{
         VehicleFollowingSafetyProjectionAppliedEvent, VehicleParkingArrivalReachedEvent,
         VehicleParkingStopProjectionAppliedEvent, VehicleSignalStopProjectionAppliedEvent,
     },
-    graph::{EDGE_BOUNDARY_EPSILON, LaneGraph},
+    graph::LaneGraph,
     handle::{
         EdgeHandle, RouteHandle, SignalControllerHandle, SignalGroupHandle, VehicleHandle,
         VehicleProfileHandle,
@@ -25,6 +25,12 @@ use crate::{
     longitudinal::{
         LeaderKinematics, LongitudinalMotion, LongitudinalScratch, compute_motion,
         emergency_min_travel,
+    },
+    numeric_policy::{
+        EDGE_BOUNDARY_TOLERANCE_METERS, LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS,
+        PHYSICAL_GAP_TOLERANCE_METERS, computed_speed_is_above_near_zero,
+        is_edge_boundary_remainder_zero, longitudinal_constraint_reached,
+        longitudinal_positions_match, normalize_physical_gap, physical_gap_is_overlap,
     },
     occupancy::{LeaderObservation, OccupancyScratch, Occupant},
     parking::{
@@ -36,7 +42,7 @@ use crate::{
         RebindReservedVehicleRouteInput, ReservedVehicleRouteRebindRecord,
         RuntimeVehicleParkingBinding,
     },
-    profile::{GEOMETRY_GAP_EPSILON, VehicleProfile, VehicleProfileRegistry},
+    profile::{VehicleProfile, VehicleProfileRegistry},
     route::{Route, RouteRemoveRecord},
     route_distance::{BoundedDistance, RouteDistanceIndex, RouteDistanceQuery},
     signal::{
@@ -277,7 +283,7 @@ fn parking_arrived_state(
     vehicle.status == VehicleStatus::Active
         && vehicle.route == target.route
         && vehicle.route_edge_index == target.route_edge_index
-        && (vehicle.edge_progress.value() - entry_progress).abs() <= EDGE_BOUNDARY_EPSILON
+        && longitudinal_positions_match(vehicle.edge_progress.value(), entry_progress)
         && vehicle.current_speed == Speed::ZERO
 }
 
@@ -1232,7 +1238,7 @@ impl CoreWorld {
             .route_slot(route)
             .expect("live vehicle route must remain active");
         let current_matches = route_slot.edge_handles[from_route_edge_index] == entry.edge()
-            && entry.progress() + EDGE_BOUNDARY_EPSILON >= from_progress;
+            && longitudinal_constraint_reached(entry.progress(), from_progress);
         let route_edge_index = if current_matches {
             from_route_edge_index
         } else {
@@ -1269,7 +1275,7 @@ impl CoreWorld {
         state.status == VehicleStatus::Active
             && state.route == target.route
             && state.route_edge_index == target.route_edge_index
-            && (state.edge_progress.value() - entry.progress()).abs() <= EDGE_BOUNDARY_EPSILON
+            && longitudinal_positions_match(state.edge_progress.value(), entry.progress())
             && state.current_speed == Speed::ZERO
     }
 
@@ -2676,14 +2682,16 @@ impl CoreWorld {
                     other.edge_progress.value(),
                     candidate_front_distance,
                 )
-                .is_some_and(|distance| distance + GEOMETRY_GAP_EPSILON < candidate_front_distance)
+                .is_some_and(|distance| {
+                    distance + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS < candidate_front_distance
+                })
             });
             if has_intervening_leader {
                 continue;
             }
 
             let bumper_gap = candidate_front_distance - candidate_length;
-            if bumper_gap + GEOMETRY_GAP_EPSILON < emergency_travel {
+            if bumper_gap + PHYSICAL_GAP_TOLERANCE_METERS < emergency_travel {
                 return Err(CoreError::ParkingLeaveUnsafeFollower {
                     vehicle: leaving_vehicle,
                     space,
@@ -2791,7 +2799,7 @@ impl CoreWorld {
                 existing_length,
             ) {
                 let bumper_gap = front_distance - existing_length;
-                if bumper_gap < -GEOMETRY_GAP_EPSILON {
+                if physical_gap_is_overlap(bumper_gap) {
                     return Err(CoreError::VehiclePhysicalOverlap {
                         follower_id: candidate_id.to_owned(),
                         leader_id: existing_id.to_owned(),
@@ -2809,7 +2817,7 @@ impl CoreWorld {
                 candidate_length,
             ) {
                 let bumper_gap = front_distance - candidate_length;
-                if bumper_gap < -GEOMETRY_GAP_EPSILON {
+                if physical_gap_is_overlap(bumper_gap) {
                     return Err(CoreError::VehiclePhysicalOverlap {
                         follower_id: existing_id.to_owned(),
                         leader_id: candidate_id.to_owned(),
@@ -2874,7 +2882,7 @@ impl CoreWorld {
                 let leader = pair[1];
                 let bumper_gap =
                     leader.front_progress - follower.front_progress - leader.vehicle_length;
-                if bumper_gap < -GEOMETRY_GAP_EPSILON {
+                if physical_gap_is_overlap(bumper_gap) {
                     return Err(self.vehicle_overlap_error(
                         follower.vehicle,
                         leader.vehicle,
@@ -2896,7 +2904,7 @@ impl CoreWorld {
             }
 
             if let Some(observation) = self.find_leader(scratch, vehicle, 0.0)?
-                && observation.bumper_gap < -GEOMETRY_GAP_EPSILON
+                && physical_gap_is_overlap(observation.bumper_gap)
             {
                 return Err(self.vehicle_overlap_error(
                     handle,
@@ -3120,8 +3128,8 @@ impl CoreWorld {
     }
 
     fn route_end_distance_within(&self, vehicle: &VehicleState, max_travel: f64) -> Option<f64> {
-        let horizon = if max_travel <= f64::MAX - EDGE_BOUNDARY_EPSILON {
-            max_travel + EDGE_BOUNDARY_EPSILON
+        let horizon = if max_travel <= f64::MAX - LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS {
+            max_travel + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS
         } else {
             f64::MAX
         };
@@ -3341,7 +3349,7 @@ impl CoreWorld {
                 break;
             }
             distance += segment_distance;
-            if distance > horizon + EDGE_BOUNDARY_EPSILON {
+            if distance > horizon + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS {
                 break;
             }
 
@@ -3399,7 +3407,7 @@ impl CoreWorld {
                 continue;
             }
             let front_distance = occupant.front_progress - follower.edge_progress.value();
-            let bumper_gap = Self::normalize_bumper_gap(front_distance - occupant.vehicle_length);
+            let bumper_gap = normalize_physical_gap(front_distance - occupant.vehicle_length);
             if bumper_gap <= bumper_gap_horizon {
                 return Ok(Some(LeaderObservation {
                     leader: occupant.vehicle,
@@ -3440,8 +3448,7 @@ impl CoreWorld {
                     break;
                 }
                 let front_distance = distance_to_edge_start + occupant.front_progress;
-                let bumper_gap =
-                    Self::normalize_bumper_gap(front_distance - occupant.vehicle_length);
+                let bumper_gap = normalize_physical_gap(front_distance - occupant.vehicle_length);
                 if bumper_gap <= bumper_gap_horizon {
                     return Ok(Some(LeaderObservation {
                         leader: occupant.vehicle,
@@ -3492,14 +3499,6 @@ impl CoreWorld {
             });
         }
         Ok(if value == 0.0 { 0.0 } else { value })
-    }
-
-    fn normalize_bumper_gap(value: f64) -> f64 {
-        if value.abs() <= GEOMETRY_GAP_EPSILON {
-            0.0
-        } else {
-            value
-        }
     }
 
     fn braking_distance(speed: f64, deceleration: f64) -> f64 {
@@ -3574,7 +3573,8 @@ impl CoreWorld {
         if input.status == VehicleStatus::Completed {
             let expected_route_edge_index = route_slot.edge_handles.len() - 1;
             if input.route_edge_index != expected_route_edge_index
-                || input.edge_progress.value() + EDGE_BOUNDARY_EPSILON < edge_length.value()
+                || input.edge_progress.value() + EDGE_BOUNDARY_TOLERANCE_METERS
+                    < edge_length.value()
             {
                 return Err(CoreError::InvalidCompletedVehicleState {
                     vehicle_id: input.id.clone(),
@@ -3654,7 +3654,7 @@ impl CoreWorld {
         }
 
         let travel_distance = motion.final_travel();
-        if travel_distance <= EDGE_BOUNDARY_EPSILON
+        if travel_distance <= EDGE_BOUNDARY_TOLERANCE_METERS
             && !motion.reaches_route_end()
             && !(PARKING_ACTIVE
                 && parking_stop.is_some_and(|constraint| motion.reaches_parking_stop(constraint)))
@@ -3672,7 +3672,7 @@ impl CoreWorld {
         let mut completed_event = None;
 
         for _ in 0..max_iterations {
-            if is_less_than_boundary_epsilon(remaining) {
+            if is_edge_boundary_remainder_zero(remaining) {
                 if motion.reaches_route_end()
                     && vehicle.route_edge_index + 1 == route.edge_handles.len()
                 {
@@ -3725,10 +3725,13 @@ impl CoreWorld {
                 && stop.route == vehicle.route
                 && stop.route_edge_index == vehicle.route_edge_index
             {
-                let crosses_boundary = next_progress > stop.entry_progress + EDGE_BOUNDARY_EPSILON;
-                let reaches_boundary = next_progress + EDGE_BOUNDARY_EPSILON >= stop.entry_progress;
+                let crosses_boundary =
+                    next_progress > stop.entry_progress + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS;
+                let reaches_boundary =
+                    longitudinal_constraint_reached(next_progress, stop.entry_progress);
                 if crosses_boundary
-                    || (reaches_boundary && vehicle.current_speed.value() > GEOMETRY_GAP_EPSILON)
+                    || (reaches_boundary
+                        && computed_speed_is_above_near_zero(vehicle.current_speed.value()))
                 {
                     return Err(CoreError::ParkingTraversalBoundaryInvariant {
                         vehicle: vehicle.handle,
@@ -3748,14 +3751,14 @@ impl CoreWorld {
                 }
             }
 
-            if next_progress + EDGE_BOUNDARY_EPSILON < edge_length {
+            if next_progress + EDGE_BOUNDARY_TOLERANCE_METERS < edge_length {
                 vehicle.edge_progress =
                     EdgeProgress::try_new(next_progress).expect("progress remains valid");
                 break;
             }
 
             let remainder = next_progress - edge_length;
-            remaining = if is_less_than_boundary_epsilon(remainder) {
+            remaining = if is_edge_boundary_remainder_zero(remainder) {
                 0.0
             } else {
                 remainder
@@ -3786,8 +3789,8 @@ impl CoreWorld {
                     .then_some(gate)
                 });
                 if let Some(gate) = denied_gate {
-                    if remaining > EDGE_BOUNDARY_EPSILON
-                        || vehicle.current_speed.value() > GEOMETRY_GAP_EPSILON
+                    if remaining > EDGE_BOUNDARY_TOLERANCE_METERS
+                        || computed_speed_is_above_near_zero(vehicle.current_speed.value())
                     {
                         return Err(CoreError::SignalTraversalDeniedInvariant {
                             vehicle: vehicle.handle,
@@ -3888,10 +3891,6 @@ fn parking_emergency_travel(
             error => error,
         }
     })
-}
-
-fn is_less_than_boundary_epsilon(value: f64) -> bool {
-    value < EDGE_BOUNDARY_EPSILON
 }
 
 #[cfg(test)]
@@ -4171,8 +4170,8 @@ mod tests {
             0.0,
             19.0,
             20.0,
-            20.0 + EDGE_BOUNDARY_EPSILON / 2.0,
-            20.0 + 2.0 * EDGE_BOUNDARY_EPSILON,
+            20.0 + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS / 2.0,
+            20.0 + 2.0 * LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS,
             99.0,
         ];
 
@@ -4180,8 +4179,8 @@ mod tests {
             for from_progress in progress_samples {
                 let expected = (from_index..5).find(|candidate| {
                     let is_entry_edge = candidate % 2 == 0;
-                    let current_is_reachable =
-                        *candidate != from_index || 20.0 + EDGE_BOUNDARY_EPSILON >= from_progress;
+                    let current_is_reachable = *candidate != from_index
+                        || longitudinal_constraint_reached(20.0, from_progress);
                     is_entry_edge && current_is_reachable
                 });
                 let actual = world
@@ -4338,8 +4337,12 @@ mod tests {
 
     #[test]
     fn boundary_epsilon_is_not_treated_as_zero_remainder() {
-        assert!(is_less_than_boundary_epsilon(EDGE_BOUNDARY_EPSILON / 2.0));
-        assert!(!is_less_than_boundary_epsilon(EDGE_BOUNDARY_EPSILON));
+        assert!(is_edge_boundary_remainder_zero(
+            EDGE_BOUNDARY_TOLERANCE_METERS / 2.0
+        ));
+        assert!(!is_edge_boundary_remainder_zero(
+            EDGE_BOUNDARY_TOLERANCE_METERS
+        ));
     }
 
     #[test]

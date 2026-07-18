@@ -145,7 +145,7 @@ v0.2 Core runtime 支持运行时 register / remove route definition。
 
 v0.2 不提供 in-place route mutation。需要替换 route 时，应注册新 route，并把车辆迁移策略作为单独设计处理。
 
-### D6. route following 使用 fixed tick、edge-local progress 和 epsilon
+### D6. route following 使用 fixed tick、edge-local progress 和领域边界策略
 
 状态：已接受。
 
@@ -156,9 +156,9 @@ route following 继续遵守 ADR 0003 与 `core-runtime.md`：
 - `TickInput.delta_time_ms` 必须与 world 固定步长一致。
 - travel distance 先把 fixed delta 转成秒，再由 `effective_speed * (fixed_delta_time_ms as f64 / 1000.0)` 得到；计算结果必须保持 finite。
 - 当前生产实现的速度、距离、edge 长度和 edge 进度使用 `f64` 新类型，并拒绝非有限值。
-- edge boundary snap 使用统一 `EDGE_BOUNDARY_EPSILON`。
+- edge boundary snap 与 remainder 使用 crate-private 的 edge boundary/remainder owner；它不与最小 edge length、纵向约束或物理 gap owner 合并。
 
-ADR 0014 的目标不直接改写上述当前行为：迁移后 `EdgeLength` 和单值控制域使用经过检查的 `f32`，`EdgeProgress` 的唯一有效值由高位/残差组合得到；行程、剩余量、边界和快照不得只读取高位分量。#125 先冻结最小 edge、边界吸附与间距/重叠容差，原子生产转换后本节再切换当前描述。
+ADR 0014 的目标不直接改写上述 current-f64 行为：迁移后 `EdgeLength` 和单值控制域使用经过检查的 `f32`，`EdgeProgress` 的唯一有效值由高位/残差组合得到；行程、剩余量、边界和快照不得只读取高位分量。#125 只拆分 current-f64 领域 owner并保留当前值；#127 离线标定 target-f32，#144 才原子切换本节的生产描述。
 
 单 tick 可以跨越多个 edge，但实现必须有硬上界：
 
@@ -233,7 +233,7 @@ VehicleRuntime
 - spawn vehicle 时 route handle 必须 active。
 - `routeEdgeIndex` 必须在 route edge sequence 范围内。
 - `edgeProgress` 必须落在当前 edge 的 `[0, edge length]` 范围内。
-- initial completed vehicle 必须位于 route 最后 edge，且 progress 在最后 edge length 的 epsilon 范围内。
+- initial completed vehicle 必须位于 route 最后 edge，且 progress 在最后 edge length 的 edge boundary 领域阈值范围内。
 - stopped / completed vehicle 不移动，但仍保留 route 引用，直到 despawn。
 
 ## 5. Runtime API 影响

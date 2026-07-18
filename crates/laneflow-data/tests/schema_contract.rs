@@ -1,5 +1,5 @@
 use jsonschema::draft202012;
-use laneflow_core::{EDGE_BOUNDARY_EPSILON, GEOMETRY_GAP_EPSILON, MAX_PORTABLE_SIGNAL_TIME_MS};
+use laneflow_core::MAX_PORTABLE_SIGNAL_TIME_MS;
 use serde_json::Value;
 
 const CURRENT_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.5.schema.json");
@@ -7,6 +7,11 @@ const SIGNALS_FIXTURE: &str =
     include_str!("../../../examples/data/v0.5-parking-signals-baseline.laneflow.json");
 const EMPTY_SIGNALS_FIXTURE: &str =
     include_str!("../../../examples/data/v0.5-empty-signals-and-parking.laneflow.json");
+const CURRENT_V0_5_MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_5_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_5_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_5_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_5_MIN_PARKING_EXTENT_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
 fn schema(source: &str) -> Value {
     serde_json::from_str(source).expect("data format schema must be valid JSON")
@@ -171,13 +176,22 @@ fn schema_enforces_parking_closed_shapes_and_numeric_field_bounds() {
     }
 
     for (path, invalid) in [
-        ("progress", serde_json::json!(EDGE_BOUNDARY_EPSILON)),
-        ("lateralOffset", serde_json::json!(GEOMETRY_GAP_EPSILON)),
+        (
+            "progress",
+            serde_json::json!(CURRENT_V0_5_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS),
+        ),
+        (
+            "lateralOffset",
+            serde_json::json!(CURRENT_V0_5_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS),
+        ),
         (
             "headingOffsetRadians",
             serde_json::json!(std::f64::consts::PI),
         ),
-        ("length", serde_json::json!(GEOMETRY_GAP_EPSILON)),
+        (
+            "length",
+            serde_json::json!(CURRENT_V0_5_MIN_PARKING_EXTENT_EXCLUSIVE_METERS),
+        ),
         ("width", serde_json::json!(0.0)),
     ] {
         let mut instance: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
@@ -283,13 +297,13 @@ fn assert_external_id_and_numeric_bounds(schema: &Value) {
         schema["$defs"]["laneEdge"]["properties"]["length"]["exclusiveMinimum"]
             .as_f64()
             .expect("edge length minimum must be numeric"),
-        EDGE_BOUNDARY_EPSILON
+        CURRENT_V0_5_MIN_EDGE_LENGTH_EXCLUSIVE_METERS
     );
     assert_eq!(
         schema["$defs"]["vehicleProfile"]["properties"]["length"]["exclusiveMinimum"]
             .as_f64()
             .expect("profile length minimum must be numeric"),
-        GEOMETRY_GAP_EPSILON
+        CURRENT_V0_5_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS
     );
 }
 

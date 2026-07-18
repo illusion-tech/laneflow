@@ -1,11 +1,13 @@
 use laneflow_core::{
-    CoreEvent, CoreWorld, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress, IidmProfileSpec,
-    InitialTrafficData, LaneEdge, LaneGraph, MovementGate, ParkingApproachState, ParkingRegistry,
-    ParkingSpace, ParkingSpaceGeometry, Route, SignalAspect, SignalControlInput, SignalController,
-    SignalGroup, SignalGroupState, SignalPhase, SignalRegistry, Speed, StopLine, StopLineLocation,
-    TickInput, VehicleParkingState, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
+    CoreEvent, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge,
+    LaneGraph, MovementGate, ParkingApproachState, ParkingRegistry, ParkingSpace,
+    ParkingSpaceGeometry, Route, SignalAspect, SignalControlInput, SignalController, SignalGroup,
+    SignalGroupState, SignalPhase, SignalRegistry, Speed, StopLine, StopLineLocation, TickInput,
+    VehicleParkingState, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
     VehicleSpawnInput,
 };
+
+const CURRENT_LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS: f64 = 1.0e-9;
 
 fn profiles() -> (VehicleProfileRegistry, VehicleProfileHandle) {
     let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
@@ -122,7 +124,11 @@ fn reserve(world: &mut CoreWorld) {
 
 #[test]
 fn parking_boundary_outside_signal_epsilon_remains_stricter() {
-    let mut world = signal_parking_world("entry", 100.0 - 2.0 * EDGE_BOUNDARY_EPSILON, 95.0);
+    let mut world = signal_parking_world(
+        "entry",
+        100.0 - 2.0 * CURRENT_LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS,
+        95.0,
+    );
     reserve(&mut world);
 
     let result = world.step(TickInput::new(1_000)).expect("epsilon step");

@@ -135,7 +135,7 @@ current 格式继续使用 `connections[].toEdgeId` 与 `routes[].edgeIds`；旧
 
 Lane graph 与 Vehicle Profile 的 domain 语义沿用 v0.3：
 
-- edge length 必须 finite 且大于 `EDGE_BOUNDARY_EPSILON`。
+- edge length 必须 finite 且严格大于 current v0.5 自有的 `1.0e-9 m` exclusive minimum；Data 不导入 Core 私有数值策略。
 - connection target 必须存在；同一 source 不得重复 target。
 - route 至少一个 edge；引用必须存在，相邻 pair 必须连通；允许 repeated edge/self loop。
 - Vehicle Profile 全字段必填、immutable，当前 `model` 仅为 `iidm`；数值和 deceleration cross-field 规则由 Core 校验。
@@ -168,8 +168,8 @@ v0.4 引入且 v0.5 保留的 route 规则：route 不得终止在声明 StopLin
 
 - `ParkingArea.id` 与 `ParkingSpace.id` 分别 domain-local unique；area 只做 optional 逻辑分组，不保存 capacity 或 `spaceIds`。
 - `areaId` 省略表示 standalone space；explicit `null` 非法。已声明 area 必须至少拥有一个 member space，reverse member order 使用 space input order。
-- entry/exit anchor edge 必须存在；progress 必须 finite，并严格满足 `EDGE_BOUNDARY_EPSILON < progress < edgeLength - EDGE_BOUNDARY_EPSILON`。
-- geometry 以 entry edge 的正向切线为局部基准；`abs(lateralOffset) > GEOMETRY_GAP_EPSILON`，heading 位于 `[-PI, PI)`，length/width 大于 geometry epsilon。
+- entry/exit anchor edge 必须存在；progress 必须 finite，并严格满足 `1.0e-9 m < progress < edgeLength - 1.0e-9 m`。该值是 current v0.5 的 anchor 数值事实。
+- geometry 以 entry edge 的正向切线为局部基准；`abs(lateralOffset) > 1.0e-9 m`，heading 位于 `[-PI, PI)`，length/width 严格大于 current v0.5 自有的 `1.0e-9 m` exclusive minimum。lateral offset 与 extent 在测试中分别拥有语义，不从 Core 公共常量导入。
 - External package 不持久化 reservation、occupancy、initial parked vehicles、runtime handles、maneuver path 或 world transform。
 
 停车场、专用路边停车区和 standalone 路边泊位复用同一 `ParkingSpace` 模型；v0.5 static data 不加入影响 Core 行为的 lot/curbside kind。完整 runtime/lifecycle 契约见 [`parking-system.md`](parking-system.md)，已由 #108/#109 交付并由 #110 完成端到端验证。
@@ -268,7 +268,7 @@ Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public 
 ADR 0014 接受了下一 Core/Data 数值契约，但没有修改本文件定义的当前 v0.5：
 
 - 当前 v0.5 的线格式 DTO、模式范围、加载器诊断和 `f64` Core 规范化在原子迁移前保持不变；
-- 下一有效格式把单 edge `<=10_000 m`、速度 `<=100 m/s`、Profile 加速度/减速度 `<=50 m/s²`、期望车头时距 `<=60 s`、尺寸/最小间距/偏移 `<=128 m` 等硬范围写入模式与 Core 构造器；最小 edge 长度由 #125 冻结；
+- 下一有效格式把单 edge `<=10_000 m`、速度 `<=100 m/s`、Profile 加速度/减速度 `<=50 m/s²`、期望车头时距 `<=60 s`、尺寸/最小间距/偏移 `<=128 m` 等硬范围写入模式与 Core 构造器；最小 edge 长度目标值由 #127 离线标定，并由 #144 与下一格式原子启用；
 - JSON 词法类型继续是 `number`。Data 可以先以 `f64` 或等价高保真值解析，以便报告原始越界输入；随后必须通过显式受检转换进入单一 `f32` 数值域或补偿残差感知的 `EdgeProgress`；
 - 模式、私有线格式 DTO、加载器路径诊断、标准固定样例、Core 构造器与版本闸口必须在同一迁移切片中更新；#126 冻结准确的版本字符串和迁移说明；
 - 有效代码树仍只维护一个当前加载器。切换后不叠加 v0.5 运行时兼容分支，不自动拆 edge、不静默截断；真实资产如需转换，使用显式离线迁移工具；

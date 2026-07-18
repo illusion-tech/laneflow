@@ -3,8 +3,14 @@
 use std::borrow::Borrow;
 
 use crate::{
-    CoreError, IidmProfileSpec, VehicleHandle, occupancy::LeaderObservation,
-    parking::ParkingStopConstraint, profile::GEOMETRY_GAP_EPSILON, signal::SignalStopConstraint,
+    CoreError, IidmProfileSpec, VehicleHandle,
+    numeric_policy::{
+        LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS, computed_speed_is_near_zero,
+        longitudinal_constraint_reached, physical_gap_is_zero_or_overlap,
+    },
+    occupancy::LeaderObservation,
+    parking::ParkingStopConstraint,
+    signal::SignalStopConstraint,
 };
 
 const UNVISITED: u8 = 0;
@@ -148,7 +154,7 @@ impl LongitudinalMotion {
             } else {
                 self.candidate_speed
             };
-            if travel + GEOMETRY_GAP_EPSILON >= distance {
+            if longitudinal_constraint_reached(travel, distance) {
                 speed = 0.0;
             }
             let candidate = SpatialMotionCandidate {
@@ -255,14 +261,15 @@ impl LongitudinalMotion {
             )?;
             candidate.travel = route_distance;
         }
-        if candidate.travel + GEOMETRY_GAP_EPSILON >= route_distance {
+        if longitudinal_constraint_reached(candidate.travel, route_distance) {
             candidate.speed = 0.0;
         }
 
         Ok(SpatialMotionCandidate {
             speed: candidate.speed,
             travel: candidate.travel,
-            hard_projection: route_distance + GEOMETRY_GAP_EPSILON < self.emergency_min_travel
+            hard_projection: route_distance + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS
+                < self.emergency_min_travel
                 && route_distance < travel_before_hard_projection,
             attribution,
         })
@@ -310,13 +317,13 @@ impl LongitudinalMotion {
     }
 
     pub(crate) fn reaches_parking_stop(self, constraint: ParkingStopConstraint) -> bool {
-        self.final_travel + GEOMETRY_GAP_EPSILON >= constraint.route_distance
-            && self.final_speed <= GEOMETRY_GAP_EPSILON
+        longitudinal_constraint_reached(self.final_travel, constraint.route_distance)
+            && computed_speed_is_near_zero(self.final_speed)
     }
 
     pub(crate) fn reaches_route_end(self) -> bool {
         self.route_end_distance
-            .is_some_and(|distance| self.final_travel + GEOMETRY_GAP_EPSILON >= distance)
+            .is_some_and(|distance| longitudinal_constraint_reached(self.final_travel, distance))
     }
 
     fn apply_geometry_cap(
@@ -348,9 +355,9 @@ impl LongitudinalMotion {
             self.final_speed = self.candidate_speed;
         }
         self.final_travel = final_travel;
-        self.safety_projection_applied = final_travel + GEOMETRY_GAP_EPSILON
+        self.safety_projection_applied = final_travel + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS
             < travel_before_geometry_projection
-            && final_travel + GEOMETRY_GAP_EPSILON < self.emergency_min_travel;
+            && final_travel + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS < self.emergency_min_travel;
         Ok(())
     }
 }
@@ -701,7 +708,7 @@ fn iidm_acceleration(
             free_acceleration.clamp(-profile.comfortable_deceleration, profile.max_acceleration)
         );
     };
-    if leader.observation.bumper_gap <= GEOMETRY_GAP_EPSILON {
+    if physical_gap_is_zero_or_overlap(leader.observation.bumper_gap) {
         return Ok(-profile.comfortable_deceleration);
     }
 
@@ -1098,7 +1105,7 @@ mod tests {
         };
 
         motion
-            .cap_to_route_end(8.0 + GEOMETRY_GAP_EPSILON / 2.0, 1.0)
+            .cap_to_route_end(8.0 + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS / 2.0, 1.0)
             .unwrap();
 
         assert_eq!(motion.candidate_travel, 8.0);

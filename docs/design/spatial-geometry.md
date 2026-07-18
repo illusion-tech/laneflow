@@ -167,7 +167,7 @@ P0 -> P1 -> ... -> Pn
 | `SPATIAL_BASIS_MIN_PROJECTED_UP_LENGTH`  |  `1.0e-6` | 上方向投影的无量纲下限 | 防止近垂直道路的归一化放大误差                    |
 | `SPATIAL_BASIS_ORTHONORMAL_TOLERANCE`    | `1.0e-12` | 派生朝向基复核容差     | 只校验 `f64` 归一化和正交结果，不作为几何尺寸阈值 |
 
-这些数值来自 #123 的 `f64 Core EdgeLength` 绑定基线。ADR 0014 接受 `f32 EdgeLength` 作为下一目标后，几何 `f64` 容差继续有效，但不能单独覆盖 Core 长度量化；#125 必须新增并验证量化余量，同时继续拆分 Core 边界与间隙误差阈值。
+这些数值来自 #123 的 `f64 Core EdgeLength` 绑定基线。ADR 0014 接受 `f32 EdgeLength` 作为下一目标后，几何 `f64` 容差继续有效，但不能单独覆盖 Core 长度量化；#125 已拆分 current-f64 Core 边界与间隙 owner，#127 必须离线标定并验证 target-f32 量化余量。
 
 ## 6. 长度权威与绑定
 
@@ -192,7 +192,7 @@ difference <= tolerance -> 绑定成功
 difference > tolerance  -> 阻断错误
 ```
 
-当前生产 `f64 EdgeLength` 的量化余量为零。ADR 0014 的下一 `f32 EdgeLength` 契约必须覆盖合法范围内 `f64 -> f32` 舍入到最近可表示值的最坏误差；#125 冻结精确的含等号公式和边界判定基准，可用一个完整的局部 ULP 作为保守候选。10 km 处一个 ULP 约为 `0.977 mm`。
+当前生产 `f64 EdgeLength` 的量化余量为零。ADR 0014 的下一 `f32 EdgeLength` 契约必须覆盖合法范围内 `f64 -> f32` 舍入到最近可表示值的最坏误差；#127 冻结精确的含等号公式和边界判定基准，#144 负责原子启用，可用一个完整的局部 ULP 作为保守候选。10 km 处一个 ULP 约为 `0.977 mm`。
 
 禁止静默替换、只给警告、按引擎样条曲线重算，或在适配器端修复。也不能因为旧几何容差小于 `f32` 量化误差就把 Core 长度恢复为 `f64`；两类误差必须分别记录并组合。
 
@@ -200,7 +200,7 @@ difference > tolerance  -> 阻断错误
 
 本文中的 `normalized_core_length` 是 Core `EdgeLength` 经过领域构造、校验和规范化后的权威边长，并以 `f64` 观察值提供给 Spatial：当前 `f64 EdgeLength` 直接提供该值；目标 `f32 EdgeLength` 先完成舍入和规范化，再精确升宽为 `f64`。它不是原始 Data 输入，也不是几何弧长。
 
-`snapped_effective_core_progress` 是 Core `EdgeProgress` 的 `f64` 有效值经过 #125 冻结的 edge 边界吸附规则处理后的观察值；只有落在端点容差内时才吸附到 `0` 或 `normalized_core_length`，一般越界仍返回错误。
+`snapped_effective_core_progress` 是 Core `EdgeProgress` 的 `f64` 有效值经过领域 edge 边界吸附规则处理后的观察值；current-f64 由 #125 拆分 owner，target-f32 由 #127 标定并由 #144 启用。只有落在端点容差内时才吸附到 `0` 或 `normalized_core_length`，一般越界仍返回错误。
 
 ```text
 ratio = snapped_effective_core_progress / normalized_core_length
@@ -326,4 +326,4 @@ Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合
 5. 性质测试与边界测试、1 万/10 万性能验证，以及适配器契约冒烟测试。
 6. v0.6 Spatial 收口审阅；之后 #121/v0.7 才能进入 Bevy 实施。
 
-#141/ADR 0014 不改变上述 Spatial 分层和实现顺序，只修订 Core 标量、有效进度与长度绑定容差来源。#125 必须先冻结量化余量，Spatial 生产绑定才能把目标 `f32 EdgeLength` 作为稳定输入。
+#141/ADR 0014 不改变上述 Spatial 分层和实现顺序，只修订 Core 标量、有效进度与长度绑定容差来源。#127 必须先完成 target-f32 量化余量标定，#144 原子迁移后 Spatial 生产绑定才能把目标 `f32 EdgeLength` 作为稳定输入。

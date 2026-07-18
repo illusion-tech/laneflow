@@ -2,10 +2,10 @@
 
 use indexmap::IndexMap;
 
-use crate::{error::CoreError, handle::VehicleProfileHandle, id::validate_external_id};
-
-/// 车辆几何间距与 no-overlap 校验使用的 epsilon，单位为 meter。
-pub const GEOMETRY_GAP_EPSILON: f64 = 1.0e-9;
+use crate::{
+    error::CoreError, handle::VehicleProfileHandle, id::validate_external_id,
+    numeric_policy::MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS,
+};
 
 /// IIDM Vehicle Profile 的命名构造输入。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -47,7 +47,7 @@ impl VehicleProfile {
         let external_id = external_id.into();
         validate_external_id("vehicleProfiles[].id", &external_id)?;
 
-        if !spec.length.is_finite() || spec.length <= GEOMETRY_GAP_EPSILON {
+        if !spec.length.is_finite() || spec.length <= MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS {
             return Err(CoreError::InvalidVehicleProfileValue {
                 profile_id: external_id,
                 field: "length",

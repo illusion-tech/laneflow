@@ -1,12 +1,13 @@
 use laneflow_core::{
-    CoreEvent, CoreWorld, EDGE_BOUNDARY_EPSILON, EdgeProgress, RouteHandle, Speed, TickInput,
-    VehicleChangedEdgeEvent, VehicleCompletedRouteEvent, VehicleSpawnInput, VehicleStatus,
+    CoreEvent, CoreWorld, EdgeProgress, RouteHandle, Speed, TickInput, VehicleChangedEdgeEvent,
+    VehicleCompletedRouteEvent, VehicleSpawnInput, VehicleStatus,
 };
 use laneflow_data::from_json_str;
 
 const EXAMPLE_ROUTE_DATA: &str =
     include_str!("../../../examples/data/v0.5-empty-signals-and-parking.laneflow.json");
 const MILLISECONDS_PER_SECOND: f64 = 1_000.0;
+const PROGRESS_ASSERTION_TOLERANCE_METERS: f64 = 1.0e-9;
 
 fn load_example_world() -> CoreWorld {
     let loaded = from_json_str(EXAMPLE_ROUTE_DATA).expect("current example package must load");
@@ -200,7 +201,8 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion_under_iidm()
     assert_eq!(main_vehicle.status, VehicleStatus::Completed);
     assert_eq!(main_vehicle.route_edge_index, 1);
     assert!(
-        (main_vehicle.edge_progress.value() - exit_length).abs() <= EDGE_BOUNDARY_EPSILON,
+        (main_vehicle.edge_progress.value() - exit_length).abs()
+            <= PROGRESS_ASSERTION_TOLERANCE_METERS,
         "main vehicle must finish at the terminal edge boundary"
     );
 
@@ -210,7 +212,8 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion_under_iidm()
     assert_eq!(loop_vehicle.status, VehicleStatus::Completed);
     assert_eq!(loop_vehicle.route_edge_index, 1);
     assert!(
-        (loop_vehicle.edge_progress.value() - loop_length).abs() <= EDGE_BOUNDARY_EPSILON,
+        (loop_vehicle.edge_progress.value() - loop_length).abs()
+            <= PROGRESS_ASSERTION_TOLERANCE_METERS,
         "loop vehicle must finish at the second route occurrence"
     );
 }

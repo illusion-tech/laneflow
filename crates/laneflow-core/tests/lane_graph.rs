@@ -2,9 +2,11 @@ mod common;
 
 use common::world_with_test_profile;
 use laneflow_core::{
-    CoreError, EDGE_BOUNDARY_EPSILON, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed,
-    VehicleProfileHandle, VehicleSpawnInput,
+    CoreError, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed, VehicleProfileHandle,
+    VehicleSpawnInput,
 };
+
+const CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
 fn edge_length(value: f64) -> EdgeLength {
     EdgeLength::try_new(value).expect("valid edge length")
@@ -181,9 +183,10 @@ fn invalid_edge_lengths_are_rejected() {
         f64::INFINITY,
         f64::NEG_INFINITY,
         -1.0,
+        -0.0,
         0.0,
-        EDGE_BOUNDARY_EPSILON / 2.0,
-        EDGE_BOUNDARY_EPSILON,
+        CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS.next_down(),
+        CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS,
     ] {
         let error = EdgeLength::try_new(invalid_length).expect_err("invalid length must fail");
 
@@ -194,9 +197,12 @@ fn invalid_edge_lengths_are_rejected() {
                 min_exclusive
             } if (edge_length.is_nan() && invalid_length.is_nan()
                 || edge_length == invalid_length)
-                && min_exclusive == EDGE_BOUNDARY_EPSILON
+                && min_exclusive == CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS
         );
     }
+
+    EdgeLength::try_new(CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS.next_up())
+        .expect("value adjacent above the exclusive minimum must pass");
 }
 
 #[test]

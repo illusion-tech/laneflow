@@ -100,7 +100,7 @@ Validation：
 
 - 所有数值必须 finite。
 - `length`、`desiredSpeed`、`timeHeadway`、`maxAcceleration`、`comfortableDeceleration`、`emergencyDeceleration` 严格大于零。
-- `length > GEOMETRY_GAP_EPSILON`。
+- `length` 严格大于领域专用的最小 vehicle length（current-f64 为 `1.0e-9 m`）。
 - `minGap >= 0`。
 - `emergencyDeceleration >= comfortableDeceleration`。
 - external ID 遵循当前 data-format 的 ASCII token 规则，并在 profile domain 内唯一。
@@ -232,8 +232,8 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 ### 6.4 Overlap
 
 - 同一 physical edge 上两个正 length vehicle 的相同 front progress 是非法重叠，不通过 tie-break 合法化。
-- `bumper_gap < -GEOMETRY_GAP_EPSILON` 非法。
-- epsilon 范围内规范化为零接触。
+- `bumper_gap` 小于负的物理 gap/overlap 阈值时非法。
+- 物理 gap/overlap 阈值范围内规范化为零接触。
 - 只违反 profile `min_gap` 仍合法，由 controller 响应。
 - 初始化和 `spawn_vehicle` 必须原子拒绝同 edge、相邻 route boundary 和 repeated occurrence 可见范围内的物理重叠。
 - 其他 incoming branch 在进入共享 edge 前不做纵向 overlap 投影；Core 没有足够世界几何判断分支间碰撞。
@@ -339,7 +339,7 @@ else:
 
 ### 9.3 Leader interaction
 
-无 leader 或 leader 在 horizon 外时使用 `a_free`。有 leader 且 `s > GEOMETRY_GAP_EPSILON` 时令 `z = s_star / s`：
+无 leader 或 leader 在 horizon 外时使用 `a_free`。有 leader 且 `s` 严格大于物理 gap/overlap 阈值时令 `z = s_star / s`：
 
 ```text
 if z >= 1:
@@ -350,7 +350,7 @@ else:
   a_iidm = a_free
 ```
 
-`s <= GEOMETRY_GAP_EPSILON` 时不做除法，comfort 输出直接取 `-b`。最终 comfort acceleration clamp 到 `[-b, a]`。
+`s` 小于或等于物理 gap/overlap 阈值时不做除法，comfort 输出直接取 `-b`。最终 comfort acceleration clamp 到 `[-b, a]`。
 
 IIDM evaluator 是 Core 私有纯计算单元：输入 profile 与 observation，输出 desired acceleration，不读取 wall clock、随机数或 world mutation。
 
@@ -470,7 +470,7 @@ geometry_cap = max(0, snapshot_bumper_gap + leader_final_travel)
 final_travel = min(candidate_travel, geometry_cap)
 ```
 
-- Geometry cap 仍不小于该 travel（允许 geometry epsilon）时，属于普通 emergency clamp，不发事件。
+- Geometry cap 在物理 gap/overlap 阈值内仍不小于该 travel 时，属于普通 emergency clamp，不发事件。
 - Geometry cap 更小时，final travel clamp 到 cap，final speed 相应降低、必要时归零，允许 effective applied acceleration 超过 profile emergency deceleration，并产生一次 safety projection event。
 
 当 `final_travel < candidate_travel` 时，final speed 使用唯一映射：
@@ -484,12 +484,13 @@ final_speed = min(candidate_speed, speed_from_travel)
 
 `applied_acceleration = (final_speed - current_speed) / dt`。它表示本 tick 状态变化对应的有效平均加速度，必须 finite。
 
-## 12. Epsilon、finite 与错误语义
+## 12. 领域数值策略、finite 与错误语义
 
-- `EDGE_BOUNDARY_EPSILON = 1.0e-9 meter`：只负责 edge boundary/snap。
-- `GEOMETRY_GAP_EPSILON = 1.0e-9 meter`：只负责 bumper gap/no-overlap。
-- 两者初始值相同，但名称和职责不可合并。
-- Speed 直接 clamp 到精确正零，不引入通用低速 epsilon。
+- edge boundary/remainder、纵向约束和物理 gap/overlap 分别由 crate-private owner 负责；current-f64 值都为 `1.0e-9 m`，但不得互相别名或由通用近似比较 helper 代理。
+- Vehicle Profile length 的输入下限独立于物理 gap/overlap 阈值。
+- computed-speed near-zero 使用独立的 `1.0e-9 m/s` owner，只覆盖已有运行时计算速度判断。
+- `Speed::ZERO`、状态速度等 authority 继续使用精确正零与精确相等，不被 near-zero predicate 替代。
+- target-f32 的固定领域绝对阈值由 #127 离线标定并由 #144 启用；相对误差和 ULP 不进入 production predicate。
 - 合法 finite 输入若导致中间计算非有限，返回结构化 longitudinal runtime error，step 原子失败。
 - Safety projection、正常 emergency braking 和拥堵停车不是 validation error。
 
