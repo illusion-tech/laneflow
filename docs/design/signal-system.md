@@ -315,12 +315,12 @@ Boundary 在 tick 内发生时，车辆观察延迟严格小于一个 fixed tick
 
 v0.4 行为表：
 
-| Aspect / state | PreGate 行为 |
-| --- | --- |
-| green | `ProtectedAllow`，但物理安全约束仍生效 |
-| yellow | `DenyAndStop` |
-| red | `DenyAndStop` |
-| `signalControl:none` | 不产生 signal constraint |
+| Aspect / state       | PreGate 行为                           |
+| -------------------- | -------------------------------------- |
+| green                | `ProtectedAllow`，但物理安全约束仍生效 |
+| yellow               | `DenyAndStop`                          |
+| red                  | `DenyAndStop`                          |
+| `signalControl:none` | 不产生 signal constraint               |
 
 Restrictive yellow 的判断读取 tick-start snapshot。只有原子完成对应 route occurrence 的 `fromEdge -> toEdge` transition 才算 `CrossedGate`；仍在 fromEdge，包括 front bumper 精确位于 edge end，均是 PreGate。不保存 `YellowCommitted` 状态。
 

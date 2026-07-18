@@ -107,6 +107,12 @@ jobs:
         shell: bash
         run: rustup toolchain install 1.96.0 --profile minimal
 
+      - name: Check Markdown table formatting
+        shell: bash
+        run: >-
+          cargo +1.96.0 run --locked -p xtask -- format-md-tables --check
+          README.md AGENTS.md CONTRIBUTING.md crates docs schemas .github .agents .cursor
+
       - name: Check commit messages
         shell: bash
         run: cargo +1.96.0 run --locked -p xtask -- check-commit-messages

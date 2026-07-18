@@ -1,3 +1,5 @@
+mod markdown_tables;
+
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::env;
@@ -75,6 +77,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             check_commit_message_file(path)
         }
         Some("check-gate-evidence") => check_gate_evidence(&args[1..]),
+        Some("format-md-tables") => markdown_tables::run(&args[1..]),
         Some("check-schema-publication-contract") => check_schema_publication_contract(),
         Some("build-schema-publication") => match args.as_slice() {
             [_, output_directory] => build_schema_publication(output_directory),
@@ -85,7 +88,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         },
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-schema-publication-contract, build-schema-publication"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, format-md-tables, check-schema-publication-contract, build-schema-publication"
                 .to_string(),
         ),
     }

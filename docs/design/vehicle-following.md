@@ -577,16 +577,16 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 
 ## 17. v0.2 -> v0.3 迁移
 
-| v0.2 | v0.3 | 迁移 |
-| --- | --- | --- |
-| `VehicleState.speed` | `current_speed` | 破坏性改名 |
-| `effective_speed()` | 删除 | 状态直接保存权威当前速度 |
-| 无 acceleration | `applied_acceleration` | 新增 signed finite state |
-| Spawn `speed` | `initial_speed` | 破坏性改名 |
-| 无 profile | 必填 profile reference | 显式绑定 |
-| Point-like progress | front-bumper progress | 语义明确化 |
-| Data `0.2` | `0.3` schema/loader（该里程碑当时的 active） | 直接替换 active 格式；旧版明确拒绝，历史由 Git 保存 |
-| 无 following event | safety projection event | 稀疏离散事件 |
+| v0.2                 | v0.3                                         | 迁移                                                |
+| -------------------- | -------------------------------------------- | --------------------------------------------------- |
+| `VehicleState.speed` | `current_speed`                              | 破坏性改名                                          |
+| `effective_speed()`  | 删除                                         | 状态直接保存权威当前速度                            |
+| 无 acceleration      | `applied_acceleration`                       | 新增 signed finite state                            |
+| Spawn `speed`        | `initial_speed`                              | 破坏性改名                                          |
+| 无 profile           | 必填 profile reference                       | 显式绑定                                            |
+| Point-like progress  | front-bumper progress                        | 语义明确化                                          |
+| Data `0.2`           | `0.3` schema/loader（该里程碑当时的 active） | 直接替换 active 格式；旧版明确拒绝，历史由 Git 保存 |
+| 无 following event   | safety projection event                      | 稀疏离散事件                                        |
 
 LaneFlow 处于 pre-1.0 阶段，采用直接迁移，不叠加双字段 alias、隐藏 default profile 或 compatibility shim。
 

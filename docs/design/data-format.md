@@ -197,12 +197,12 @@ JSON syntax
   -> InitialTrafficData
 ```
 
-| 层级 | 负责者 | 典型错误 |
-| --- | --- | --- |
-| syntax / shape | JSON parser、Serde、JSON Schema | required/type/closed shape、tagged union、enum、integer range |
+| 层级                 | 负责者                                 | 典型错误                                                                                                      |
+| -------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| syntax / shape       | JSON parser、Serde、JSON Schema        | required/type/closed shape、tagged union、enum、integer range                                                 |
 | domain normalization | Core constructors，经 data loader 调用 | duplicate/unknown、ownership、coverage、complete state、Parking anchors/geometry/orphan、route final StopLine |
-| world compatibility | CoreWorld | positive fixed delta、phase duration >= delta、Signals vehicle activation guard |
-| runtime | CoreWorld / lifecycle | stale handle、route in use、tick mismatch |
+| world compatibility  | CoreWorld                              | positive fixed delta、phase duration >= delta、Signals vehicle activation guard                               |
+| runtime              | CoreWorld / lifecycle                  | stale handle、route in use、tick mismatch                                                                     |
 
 Schema 不重复 graph、ownership、coverage 或 complete-state 算法。Schema、private DTO、Core constructor 与本文冲突时必须在同一变更中统一。
 
@@ -227,25 +227,25 @@ laneflow-core -X-> laneflow-data
 
 ADR 0008 要求 active tree 只维护一个 current format。#94 直接以 v0.4 替换 v0.3：
 
-| 历史 v0.3 | 历史 v0.4 |
-| --- | --- |
-| `formatVersion: "0.3"` | `formatVersion: "0.4"` |
-| `connections[].to` | `connections[].toEdgeId` |
-| `routes[].edges` | `routes[].edgeIds` |
-| 无 `signals` | 必填 Signals object 与四数组 |
-| v0.3 schema/fixture | 从 active tree 移除，由 Git history 与 v0.3 closure review 保存 |
-| production compatibility | 不提供；返回 `UnsupportedFormatVersion` |
+| 历史 v0.3                | 历史 v0.4                                                       |
+| ------------------------ | --------------------------------------------------------------- |
+| `formatVersion: "0.3"`   | `formatVersion: "0.4"`                                          |
+| `connections[].to`       | `connections[].toEdgeId`                                        |
+| `routes[].edges`         | `routes[].edgeIds`                                              |
+| 无 `signals`             | 必填 Signals object 与四数组                                    |
+| v0.3 schema/fixture      | 从 active tree 移除，由 Git history 与 v0.3 closure review 保存 |
+| production compatibility | 不提供；返回 `UnsupportedFormatVersion`                         |
 
 若未来出现真实外部资产或支持窗口，再单独设计离线 migration tool；不得在 current loader 中静默累积历史分支。
 
 随后 #107 依据 ADR 0008 以 v0.5 原子替换 v0.4：
 
-| 历史 v0.4 | 当前 v0.5 |
-| --- | --- |
-| `formatVersion: "0.4"` | `formatVersion: "0.5"` |
-| 无 `parking` | 必填 closed Parking object 与 areas/spaces arrays |
-| Signals-only canonical fixtures | Parking + Signals baseline 与显式双空 fixture |
-| v0.4 schema/fixtures | 从 active tree 移除，由 Git 与 v0.4 closure review 保存 |
-| production compatibility | 不提供；v0.4 返回 `UnsupportedFormatVersion` |
+| 历史 v0.4                       | 当前 v0.5                                               |
+| ------------------------------- | ------------------------------------------------------- |
+| `formatVersion: "0.4"`          | `formatVersion: "0.5"`                                  |
+| 无 `parking`                    | 必填 closed Parking object 与 areas/spaces arrays       |
+| Signals-only canonical fixtures | Parking + Signals baseline 与显式双空 fixture           |
+| v0.4 schema/fixtures            | 从 active tree 移除，由 Git 与 v0.4 closure review 保存 |
+| production compatibility        | 不提供；v0.4 返回 `UnsupportedFormatVersion`            |
 
 Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL；catalog 中全部版本必须通过 HTTPS 返回与固定 source revision 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析 `$id`/`$schema`。v0.2-v0.4 只作为 immutable publication artifacts 保留，不改变当前唯一 active v0.5 contract；消费者入口见 [`schemas/README.md`](../../schemas/README.md)。

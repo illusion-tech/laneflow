@@ -1021,13 +1021,13 @@ Parking没有独立宽松预算：
 
 每个workload使用10,000 vehicles/spaces、16 ms fixed tick、连续60 ticks、同机base/candidate配对三轮：
 
-| 比较 | 目标 | 必须 profile | 默认阻断 |
-| --- | ---: | ---: | ---: |
-| pre-Parking base -> candidate + empty registry | `<= 5%` | `> 5%` | `> 10%` |
-| empty registry -> 10k spaces all Vacant | `<= 5%` | `> 5%` | `> 10%` |
-| all Vacant -> 1% Reserved reachable | `<= 10%` | `> 10%` | `> 15%` |
-| all Vacant -> 10% Reserved reachable | `<= 15%` | `> 15%` | `> 20%` |
-| all Vacant -> 100% Reserved pressure | `<= 25%` | `> 25%` | `> 35%` 或 >4 ms |
+| 比较                                           |     目标 | 必须 profile |         默认阻断 |
+| ---------------------------------------------- | -------: | -----------: | ---------------: |
+| pre-Parking base -> candidate + empty registry |  `<= 5%` |       `> 5%` |          `> 10%` |
+| empty registry -> 10k spaces all Vacant        |  `<= 5%` |       `> 5%` |          `> 10%` |
+| all Vacant -> 1% Reserved reachable            | `<= 10%` |      `> 10%` |          `> 15%` |
+| all Vacant -> 10% Reserved reachable           | `<= 15%` |      `> 15%` |          `> 20%` |
+| all Vacant -> 100% Reserved pressure           | `<= 25%` |      `> 25%` | `> 35%` 或 >4 ms |
 
 Delta使用每轮 `median.point_estimate`配对后再取三轮delta中位数；保留confidence interval、outliers与原始Criterion artifact，不用单次wall-clock结论。
 
