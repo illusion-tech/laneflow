@@ -1,4 +1,4 @@
-//! 当前 v0.6 JSON 格式的私有 wire DTO。
+//! 当前 v0.5 JSON 格式的私有 wire DTO。
 
 use serde::Deserialize;
 

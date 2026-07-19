@@ -1,19 +1,18 @@
 use laneflow_core::{
-    CoreError, MAX_PORTABLE_SIGNAL_TIME_MS, MovementGateKey, NumericConversionStage, SignalAspect,
-    SignalControl,
+    CoreError, MAX_PORTABLE_SIGNAL_TIME_MS, MovementGateKey, SignalAspect, SignalControl,
 };
 use laneflow_data::{CURRENT_FORMAT_VERSION, DataError, LoadedPackage, from_json_str};
 use serde_json::{Value, json};
 
 const SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.6-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.5-parking-signals-baseline.laneflow.json");
 const EMPTY_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.6-empty-signals-and-parking.laneflow.json");
+    include_str!("../../../examples/data/v0.5-empty-signals-and-parking.laneflow.json");
 
 #[test]
 fn current_loader_normalizes_static_signals_parking_and_resolvers() {
-    assert_eq!(CURRENT_FORMAT_VERSION, "0.6");
-    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.6 fixture must load");
+    assert_eq!(CURRENT_FORMAT_VERSION, "0.5");
+    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.5 fixture must load");
     let traffic = loaded.initial_traffic_data();
     let signals = traffic.signals();
 
@@ -95,7 +94,7 @@ fn current_loader_normalizes_static_signals_parking_and_resolvers() {
 }
 
 #[test]
-fn explicit_empty_signals_and_parking_is_valid_current_v0_6() {
+fn explicit_empty_signals_and_parking_is_valid_current_v0_5() {
     let loaded = from_json_str(EMPTY_SIGNALS_FIXTURE).expect("empty Signals fixture must load");
     assert!(loaded.initial_traffic_data().signals().is_empty());
     assert!(loaded.initial_traffic_data().parking().is_empty());
@@ -105,7 +104,7 @@ fn explicit_empty_signals_and_parking_is_valid_current_v0_6() {
 
 #[test]
 fn unsupported_versions_are_rejected_before_current_shape_and_units() {
-    for version in ["0.5", "0.7"] {
+    for version in ["0.4", "0.6"] {
         let mut value = empty_value();
         value["formatVersion"] = json!(version);
         value["units"]["distance"] = json!("kilometer");
@@ -118,7 +117,7 @@ fn unsupported_versions_are_rejected_before_current_shape_and_units() {
         let error = load_value(value).expect_err("unsupported version must fail first");
         std::assert_matches!(
             error,
-            DataError::UnsupportedFormatVersion { expected: "0.6", actual }
+            DataError::UnsupportedFormatVersion { expected: "0.5", actual }
                 if actual == version
         );
     }
@@ -138,7 +137,7 @@ fn malformed_or_trailing_json_fails_before_version_dispatch() {
 }
 
 #[test]
-fn current_v0_6_requires_signals_parking_and_all_nested_arrays() {
+fn current_v0_5_requires_signals_parking_and_all_nested_arrays() {
     let mut missing_signals = empty_value();
     missing_signals
         .as_object_mut()
@@ -635,7 +634,7 @@ fn invalid_units_profile_and_shape_errors_remain_structured() {
         load_value(value).expect_err("invalid profile length"),
         DataError::CoreDomain {
             path,
-            source: CoreError::InvalidVehicleProfileInput { field, .. },
+            source: CoreError::InvalidVehicleProfileValue { field, .. },
         } if path == "vehicleProfiles[0]" && field == "length"
     );
 
@@ -646,77 +645,6 @@ fn invalid_units_profile_and_shape_errors_remain_structured() {
         DataError::JsonShape { path, line, column, .. }
             if path.contains("vehicleProfiles[0]") && line > 0 && column > 0
     );
-}
-
-#[test]
-fn raw_numeric_conversion_boundaries_keep_paths_stages_and_signed_zero() {
-    let mut value = empty_value();
-    value["laneGraph"]["edges"][0]["length"] = json!(1.0_f64.next_up());
-    std::assert_matches!(
-        load_value(value).expect_err("raw edge value rounding to the target minimum must fail"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::InvalidLaneEdgeLengthInput {
-                stage: NumericConversionStage::TargetValue,
-                ..
-            },
-        } if path == "laneGraph.edges[0].length"
-    );
-
-    let mut value = empty_value();
-    value["laneGraph"]["edges"][0]["length"] = json!(10_000.0_f64.next_up());
-    std::assert_matches!(
-        load_value(value).expect_err("raw edge maximum must be checked before conversion"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::InvalidLaneEdgeLengthInput {
-                stage: NumericConversionStage::RawInput,
-                ..
-            },
-        } if path == "laneGraph.edges[0].length"
-    );
-
-    let mut value = empty_value();
-    value["vehicleProfiles"][0]["length"] = json!(0.1_f64.next_down());
-    std::assert_matches!(
-        load_value(value).expect_err("raw profile minimum must be checked before conversion"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::InvalidVehicleProfileInput {
-                field: "length",
-                stage: NumericConversionStage::RawInput,
-                ..
-            },
-        } if path == "vehicleProfiles[0]"
-    );
-
-    let mut value = signals_value();
-    value["parking"]["spaces"][0]["geometry"]["lateralOffset"] =
-        json!(f64::from(f32::from_bits(1)) / 2.0);
-    std::assert_matches!(
-        load_value(value).expect_err("raw nonzero lateral offset must not underflow silently"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::InvalidParkingGeometryValue {
-                field: "lateralOffset",
-                stage: NumericConversionStage::TargetValue,
-                ..
-            },
-        } if path == "parking.spaces[0].geometry.lateralOffset"
-    );
-
-    let mut value = empty_value();
-    value["vehicleProfiles"][0]["minGap"] = json!(-0.0);
-    let loaded = load_value(value).expect("raw signed zero min gap must normalize");
-    let min_gap = loaded
-        .initial_traffic_data()
-        .vehicle_profiles()
-        .profiles()
-        .next()
-        .expect("fixture profile")
-        .iidm()
-        .min_gap;
-    assert_eq!(min_gap.to_bits(), 0.0_f32.to_bits());
 }
 
 #[test]

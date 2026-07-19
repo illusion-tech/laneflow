@@ -4,11 +4,10 @@ mod error;
 mod wire;
 
 use laneflow_core::{
-    CoreError, EdgeLength, InitialTrafficData, LaneEdge, LaneGraph, MovementGate,
-    ParkingAnchorKind, ParkingArea, ParkingRegistry, ParkingSpaceGeometryInput, ParkingSpaceInput,
-    RawIidmProfileSpec, Route, SignalAspect, SignalControlInput, SignalController, SignalGroup,
-    SignalGroupState, SignalPhase, SignalRegistry, StopLine, StopLineLocation, VehicleProfile,
-    VehicleProfileRegistry,
+    CoreError, EdgeLength, IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph, MovementGate,
+    ParkingAnchorKind, ParkingArea, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, Route,
+    SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
+    SignalRegistry, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
 };
 use serde::de::DeserializeOwned;
 use serde_json::error::Category;
@@ -21,7 +20,7 @@ use wire::{
 };
 
 /// 当前 production loader 接受的唯一 data format 版本。
-pub const CURRENT_FORMAT_VERSION: &str = "0.6";
+pub const CURRENT_FORMAT_VERSION: &str = "0.5";
 
 /// 已解析并完成 Core normalization 的当前 data package。
 #[derive(Clone, Debug, PartialEq)]
@@ -117,7 +116,7 @@ fn normalize_profiles(wire: &WirePackage) -> Result<VehicleProfileRegistry, Data
             });
         }
 
-        let spec = RawIidmProfileSpec {
+        let spec = IidmProfileSpec {
             length: profile.length,
             desired_speed: profile.desired_speed,
             min_gap: profile.min_gap,
@@ -126,7 +125,7 @@ fn normalize_profiles(wire: &WirePackage) -> Result<VehicleProfileRegistry, Data
             comfortable_deceleration: profile.comfortable_deceleration,
             emergency_deceleration: profile.emergency_deceleration,
         };
-        let normalized = VehicleProfile::try_new_iidm_from_f64(profile.id.clone(), spec)
+        let normalized = VehicleProfile::try_new_iidm(profile.id.clone(), spec)
             .map_err(|source| DataError::core(format!("vehicleProfiles[{index}]"), source))?;
         normalized_profiles.push(normalized);
     }
@@ -137,7 +136,7 @@ fn normalize_profiles(wire: &WirePackage) -> Result<VehicleProfileRegistry, Data
 fn normalize_lane_graph(wire: &WirePackage) -> Result<LaneGraph, DataError> {
     let mut edges = Vec::with_capacity(wire.lane_graph.edges.len());
     for (index, edge) in wire.lane_graph.edges.iter().enumerate() {
-        let length = EdgeLength::try_from(edge.length).map_err(|source| {
+        let length = EdgeLength::try_new(edge.length).map_err(|source| {
             DataError::core(format!("laneGraph.edges[{index}].length"), source)
         })?;
         edges.push(LaneEdge::new(
@@ -240,14 +239,14 @@ fn normalize_parking(
         .spaces
         .iter()
         .map(|space| {
-            ParkingSpaceInput::new(
+            ParkingSpace::new(
                 space.id.clone(),
                 space.area_id.as_deref().map(str::to_owned),
                 space.entry.edge_id.clone(),
                 space.entry.progress,
                 space.exit.edge_id.clone(),
                 space.exit.progress,
-                ParkingSpaceGeometryInput::new(
+                ParkingSpaceGeometry::new(
                     space.geometry.lateral_offset,
                     space.geometry.heading_offset_radians,
                     space.geometry.length,

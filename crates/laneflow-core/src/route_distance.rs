@@ -1,7 +1,6 @@
 //! Overflow-safe route occurrence distance index。
 
-/// 将 route 前缀限制在局部 segment 内，避免长 route 查询用两个过大的全局前缀相减。
-const ROUTE_DISTANCE_SEGMENT_LIMIT_METERS: f64 = 1_000_000_000.0;
+const ROUTE_DISTANCE_SEGMENT_LIMIT: f64 = f64::MAX / 16.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum BoundedDistance {
@@ -39,21 +38,17 @@ pub(crate) struct RouteDistanceIndex {
 }
 
 impl RouteDistanceIndex {
-    pub(crate) fn build(edge_lengths: &[f32]) -> Self {
-        Self::build_with_segment_limit(edge_lengths, ROUTE_DISTANCE_SEGMENT_LIMIT_METERS)
-    }
-
-    fn build_with_segment_limit(edge_lengths: &[f32], segment_limit: f64) -> Self {
+    pub(crate) fn build(edge_lengths: &[f64]) -> Self {
         let mut occurrences = Vec::with_capacity(edge_lengths.len());
         let mut segment_totals = Vec::new();
         let mut current_total = 0.0;
         let mut current_has_occurrence = false;
 
-        for edge_length in edge_lengths.iter().copied().map(f64::from) {
+        for edge_length in edge_lengths.iter().copied() {
             debug_assert!(edge_length.is_finite() && edge_length > 0.0);
             let must_start_segment = current_has_occurrence
-                && (edge_length > segment_limit
-                    || current_total > segment_limit - edge_length
+                && (edge_length > ROUTE_DISTANCE_SEGMENT_LIMIT
+                    || current_total > ROUTE_DISTANCE_SEGMENT_LIMIT - edge_length
                     || current_total + edge_length == current_total);
             if must_start_segment {
                 segment_totals.push(current_total);
@@ -68,7 +63,7 @@ impl RouteDistanceIndex {
             current_total += edge_length;
             current_has_occurrence = true;
 
-            if edge_length > segment_limit {
+            if edge_length > ROUTE_DISTANCE_SEGMENT_LIMIT {
                 segment_totals.push(current_total);
                 current_total = 0.0;
                 current_has_occurrence = false;
@@ -80,13 +75,7 @@ impl RouteDistanceIndex {
 
         let mut distance_to_end = vec![BoundedDistance::Finite(0.0); edge_lengths.len()];
         let mut suffix = BoundedDistance::Finite(0.0);
-        for (index, edge_length) in edge_lengths
-            .iter()
-            .copied()
-            .map(f64::from)
-            .enumerate()
-            .rev()
-        {
+        for (index, edge_length) in edge_lengths.iter().copied().enumerate().rev() {
             suffix = suffix.add(edge_length);
             distance_to_end[index] = suffix;
         }
@@ -202,7 +191,7 @@ mod tests {
             let lengths = raw_lengths
                 .iter()
                 .copied()
-                .map(f32::from)
+                .map(f64::from)
                 .collect::<Vec<_>>();
             let from = raw_from % lengths.len();
             let target = raw_target % lengths.len();
@@ -217,12 +206,8 @@ mod tests {
                 let distance = if target == from {
                     target_progress - from_progress
                 } else {
-                    f64::from(lengths[from]) - from_progress
-                        + lengths[(from + 1)..target]
-                            .iter()
-                            .copied()
-                            .map(f64::from)
-                            .sum::<f64>()
+                    lengths[from] - from_progress
+                        + lengths[(from + 1)..target].iter().sum::<f64>()
                         + target_progress
                 };
                 if distance <= horizon {
@@ -244,20 +229,33 @@ mod tests {
     }
 
     #[test]
-    fn segmented_query_preserves_local_boundaries() {
-        let index =
-            RouteDistanceIndex::build_with_segment_limit(&[10_000.0, 1.0, 2.0, 10_000.0], 10_000.0);
+    fn total_overflow_is_beyond_any_finite_horizon() {
+        let index = RouteDistanceIndex::build(&[f64::MAX, f64::MAX]);
+
+        assert_eq!(
+            index.distance_to_end_within(0, 0.0, f64::MAX),
+            RouteDistanceQuery::BeyondHorizon
+        );
+        assert_eq!(
+            index.distance_to_end_within(1, 0.0, f64::MAX),
+            RouteDistanceQuery::Within(f64::MAX)
+        );
+    }
+
+    #[test]
+    fn segmented_query_preserves_huge_tiny_boundaries() {
+        let index = RouteDistanceIndex::build(&[f64::MAX, 1.0, 2.0, f64::MAX]);
 
         assert_eq!(
             index.distance_within(1, 0.0, 2, 2.0, 3.0),
             RouteDistanceQuery::Within(3.0)
         );
         assert_eq!(
-            index.distance_within(1, 0.0, 3, 10_000.0, 10_003.0),
-            RouteDistanceQuery::Within(10_003.0)
+            index.distance_within(1, 0.0, 3, f64::MAX, f64::MAX),
+            RouteDistanceQuery::BeyondHorizon
         );
         assert_eq!(
-            index.distance_within(2, 1.0, 1, 0.0, 20_000.0),
+            index.distance_within(2, 1.0, 1, 0.0, f64::MAX),
             RouteDistanceQuery::Passed
         );
     }

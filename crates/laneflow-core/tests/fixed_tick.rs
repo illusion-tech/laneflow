@@ -2,19 +2,17 @@ mod common;
 
 use common::world_with_test_profile;
 use laneflow_core::{
-    Acceleration, CoreError, CoreWorld, EdgeLength, EdgeProgress, LaneEdge, LaneGraph,
-    NumericConversionStage, Route, Speed, TickInput, VehicleProfileHandle, VehicleSpawnInput,
-    VehicleStatus,
+    Acceleration, CoreError, CoreWorld, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route,
+    Speed, TickInput, VehicleProfileHandle, VehicleSpawnInput, VehicleStatus,
 };
 
-const EPSILON: f64 = 1.0e-6;
+const EPSILON: f64 = 1.0e-9;
 
 fn edge_length(value: f64) -> EdgeLength {
-    EdgeLength::try_from(value).expect("valid edge length")
+    EdgeLength::try_new(value).expect("valid edge length")
 }
 
-fn assert_close(actual: impl Into<f64>, expected: f64) {
-    let actual = actual.into();
+fn assert_close(actual: f64, expected: f64) {
     assert!(
         (actual - expected).abs() <= EPSILON,
         "actual={actual}, expected={expected}"
@@ -184,15 +182,15 @@ fn invalid_numeric_inputs_are_rejected() {
     );
 
     std::assert_matches!(
-        Speed::try_new(f32::INFINITY),
+        Speed::try_new(f64::INFINITY),
         Err(CoreError::InvalidSpeed { .. })
     );
     std::assert_matches!(
-        Speed::try_new(f32::NEG_INFINITY),
-        Err(CoreError::InvalidSpeed { speed }) if speed == f32::NEG_INFINITY
+        Speed::try_new(f64::NEG_INFINITY),
+        Err(CoreError::InvalidSpeed { speed }) if speed == f64::NEG_INFINITY
     );
     std::assert_matches!(
-        Speed::try_new(f32::NAN),
+        Speed::try_new(f64::NAN),
         Err(CoreError::InvalidSpeed { speed }) if speed.is_nan()
     );
     std::assert_matches!(
@@ -200,7 +198,7 @@ fn invalid_numeric_inputs_are_rejected() {
         Err(CoreError::InvalidSpeed { speed }) if speed == -1.0
     );
 
-    for invalid_acceleration in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+    for invalid_acceleration in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         std::assert_matches!(
             Acceleration::try_new(invalid_acceleration),
             Err(CoreError::InvalidAcceleration { acceleration })
@@ -219,14 +217,14 @@ fn invalid_numeric_inputs_are_rejected() {
             .expect("zero speed is valid")
             .value()
             .to_bits(),
-        0.0_f32.to_bits()
+        0.0_f64.to_bits()
     );
     assert_eq!(
         Acceleration::try_new(-0.0)
             .expect("zero acceleration is valid")
             .value()
             .to_bits(),
-        0.0_f32.to_bits()
+        0.0_f64.to_bits()
     );
     assert_eq!(
         EdgeProgress::try_new(-0.0)
@@ -252,46 +250,5 @@ fn invalid_numeric_inputs_are_rejected() {
     std::assert_matches!(
         EdgeProgress::try_new(-0.5),
         Err(CoreError::InvalidEdgeProgress { edge_progress }) if edge_progress == -0.5
-    );
-
-    for invalid_speed in [
-        f64::NAN,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        (-0.0_f64).next_down(),
-        100.0_f64.next_up(),
-    ] {
-        std::assert_matches!(
-            Speed::try_from(invalid_speed),
-            Err(CoreError::InvalidSpeedInput {
-                speed,
-                stage: NumericConversionStage::RawInput,
-            }) if speed == invalid_speed || speed.is_nan() && invalid_speed.is_nan()
-        );
-    }
-    assert_eq!(
-        Speed::try_from(-0.0)
-            .expect("raw signed zero speed must normalize")
-            .value()
-            .to_bits(),
-        0.0_f32.to_bits()
-    );
-
-    for invalid_acceleration in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-        std::assert_matches!(
-            Acceleration::try_from(invalid_acceleration),
-            Err(CoreError::InvalidAccelerationInput {
-                acceleration,
-                stage: NumericConversionStage::RawInput,
-            }) if acceleration == invalid_acceleration
-                || acceleration.is_nan() && invalid_acceleration.is_nan()
-        );
-    }
-    std::assert_matches!(
-        Acceleration::try_from(f64::from(f32::MAX) * 2.0),
-        Err(CoreError::InvalidAccelerationInput {
-            stage: NumericConversionStage::TargetValue,
-            ..
-        })
     );
 }

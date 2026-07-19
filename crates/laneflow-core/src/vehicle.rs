@@ -1,105 +1,66 @@
 //! Vehicle 输入与 runtime state 原语。
 
 use crate::{
-    error::{CoreError, NumericConversionStage},
-    graph::EdgeLength,
+    error::CoreError,
     handle::{RouteHandle, VehicleHandle, VehicleProfileHandle},
-    numeric_policy::MAX_SPEED_INCLUSIVE_METERS_PER_SECOND,
     parking::ParkingReleaseRecord,
 };
 
 /// 车辆速度，单位为 meter/second。
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct Speed(f32);
+pub struct Speed(f64);
 
 impl Speed {
     /// 零速度。
     pub const ZERO: Self = Self(0.0);
 
     /// 创建经过校验的速度。
-    pub fn try_new(value: f32) -> Result<Self, CoreError> {
-        if !value.is_finite() || !(0.0..=MAX_SPEED_INCLUSIVE_METERS_PER_SECOND).contains(&value) {
+    pub fn try_new(value: f64) -> Result<Self, CoreError> {
+        if !value.is_finite() || value < 0.0 {
             return Err(CoreError::InvalidSpeed { speed: value });
         }
 
-        Ok(Self(canonicalize_zero_f32(value)))
+        Ok(Self(canonicalize_zero(value)))
     }
 
     /// 返回底层数值。
-    pub const fn value(self) -> f32 {
+    pub const fn value(self) -> f64 {
         self.0
-    }
-}
-
-impl TryFrom<f64> for Speed {
-    type Error = CoreError;
-
-    fn try_from(value: f64) -> Result<Self, Self::Error> {
-        let max_inclusive = f64::from(MAX_SPEED_INCLUSIVE_METERS_PER_SECOND);
-        if !value.is_finite() || !(0.0..=max_inclusive).contains(&value) {
-            return Err(CoreError::InvalidSpeedInput {
-                speed: value,
-                stage: NumericConversionStage::RawInput,
-            });
-        }
-        Self::try_new(value as f32).map_err(|_| CoreError::InvalidSpeedInput {
-            speed: value,
-            stage: NumericConversionStage::TargetValue,
-        })
     }
 }
 
 /// 车辆在当前 tick 实际应用的纵向加速度，单位为 meter/second^2。
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct Acceleration(f32);
+pub struct Acceleration(f64);
 
 impl Acceleration {
     /// 零加速度。
     pub const ZERO: Self = Self(0.0);
 
     /// 创建经过校验的有符号加速度。
-    pub fn try_new(value: f32) -> Result<Self, CoreError> {
+    pub fn try_new(value: f64) -> Result<Self, CoreError> {
         if !value.is_finite() {
             return Err(CoreError::InvalidAcceleration {
                 acceleration: value,
             });
         }
 
-        Ok(Self(canonicalize_zero_f32(value)))
+        Ok(Self(canonicalize_zero(value)))
     }
 
     /// 返回底层数值。
-    pub const fn value(self) -> f32 {
+    pub const fn value(self) -> f64 {
         self.0
     }
 }
 
-impl TryFrom<f64> for Acceleration {
-    type Error = CoreError;
-
-    fn try_from(value: f64) -> Result<Self, Self::Error> {
-        if !value.is_finite() {
-            return Err(CoreError::InvalidAccelerationInput {
-                acceleration: value,
-                stage: NumericConversionStage::RawInput,
-            });
-        }
-        Self::try_new(value as f32).map_err(|_| CoreError::InvalidAccelerationInput {
-            acceleration: value,
-            stage: NumericConversionStage::TargetValue,
-        })
-    }
-}
-
 /// 车辆前保险杠在当前 route edge 内的 progress，单位为 meter。
-#[derive(Clone, Copy, Debug)]
-pub struct EdgeProgress {
-    value: f64,
-}
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct EdgeProgress(f64);
 
 impl EdgeProgress {
     /// 零 progress。
-    pub const ZERO: Self = Self { value: 0.0 };
+    pub const ZERO: Self = Self(0.0);
 
     /// 创建经过校验的 edge progress。
     pub fn try_new(value: f64) -> Result<Self, CoreError> {
@@ -109,49 +70,16 @@ impl EdgeProgress {
             });
         }
 
-        Ok(Self {
-            value: canonicalize_zero_f64(value),
-        })
+        Ok(Self(canonicalize_zero(value)))
     }
 
     /// 返回底层数值。
-    pub fn value(self) -> f64 {
-        self.value
-    }
-
-    /// 使用目标 `f32` 行程推进，并在进度权威中精确提升该增量。
-    pub(crate) fn advance(self, travel: f32) -> Result<Self, CoreError> {
-        if !travel.is_finite() || travel < 0.0 {
-            return Err(CoreError::InvalidEdgeProgress {
-                edge_progress: self.value() + f64::from(travel),
-            });
-        }
-        Self::try_new(self.value + f64::from(travel))
-    }
-
-    /// 跨 edge 后减去规范化 edge length，保留局部进度权威。
-    pub(crate) fn rebase_after_edge(self, edge_length: EdgeLength) -> Result<Self, CoreError> {
-        Self::try_new(self.value - f64::from(edge_length.value()))
+    pub const fn value(self) -> f64 {
+        self.0
     }
 }
 
-impl PartialEq for EdgeProgress {
-    fn eq(&self, other: &Self) -> bool {
-        self.value() == other.value()
-    }
-}
-
-impl PartialOrd for EdgeProgress {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.value().partial_cmp(&other.value())
-    }
-}
-
-fn canonicalize_zero_f32(value: f32) -> f32 {
-    if value == 0.0 { 0.0 } else { value }
-}
-
-fn canonicalize_zero_f64(value: f64) -> f64 {
+fn canonicalize_zero(value: f64) -> f64 {
     if value == 0.0 { 0.0 } else { value }
 }
 

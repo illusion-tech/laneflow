@@ -1,13 +1,13 @@
 //! Tick-local occupancy scratch 与 leader observation 原语。
 
-use crate::{EdgeHandle, EdgeProgress, VehicleHandle};
+use crate::{EdgeHandle, VehicleHandle};
 
 /// 单个 physical edge 上的车辆占用记录。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Occupant {
     pub(crate) vehicle: VehicleHandle,
-    pub(crate) front_progress: EdgeProgress,
-    pub(crate) vehicle_length: f32,
+    pub(crate) front_progress: f64,
+    pub(crate) vehicle_length: f64,
     pub(crate) update_sequence: u64,
 }
 
@@ -15,7 +15,7 @@ pub(crate) struct Occupant {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LeaderObservation {
     pub(crate) leader: VehicleHandle,
-    pub(crate) bumper_gap: f32,
+    pub(crate) bumper_gap: f64,
 }
 
 /// 可跨 tick 复用、但不属于 Core authority state 的派生 scratch。
@@ -26,7 +26,7 @@ pub(crate) struct OccupancyScratch {
     write_positions: Vec<usize>,
     occupants: Vec<Occupant>,
     leaders: Vec<Option<LeaderObservation>>,
-    max_vehicle_length: f32,
+    max_vehicle_length: f64,
 }
 
 impl PartialEq for OccupancyScratch {
@@ -59,7 +59,7 @@ impl OccupancyScratch {
         self.max_vehicle_length = 0.0;
     }
 
-    pub(crate) fn count(&mut self, edge: EdgeHandle, vehicle_length: f32) {
+    pub(crate) fn count(&mut self, edge: EdgeHandle, vehicle_length: f64) {
         self.counts[edge.index()] += 1;
         self.max_vehicle_length = self.max_vehicle_length.max(vehicle_length);
     }
@@ -76,7 +76,7 @@ impl OccupancyScratch {
             total,
             Occupant {
                 vehicle: VehicleHandle::new(0, 0),
-                front_progress: EdgeProgress::ZERO,
+                front_progress: 0.0,
                 vehicle_length: 0.0,
                 update_sequence: 0,
             },
@@ -95,8 +95,7 @@ impl OccupancyScratch {
             let end = self.offsets[edge_index + 1];
             self.occupants[start..end].sort_unstable_by(|left, right| {
                 left.front_progress
-                    .value()
-                    .total_cmp(&right.front_progress.value())
+                    .total_cmp(&right.front_progress)
                     .then_with(|| left.update_sequence.cmp(&right.update_sequence))
             });
         }
@@ -108,7 +107,7 @@ impl OccupancyScratch {
         &self.occupants[start..end]
     }
 
-    pub(crate) fn max_vehicle_length(&self) -> f32 {
+    pub(crate) fn max_vehicle_length(&self) -> f64 {
         self.max_vehicle_length
     }
 

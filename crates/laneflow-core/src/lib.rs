@@ -19,7 +19,7 @@ pub mod traffic;
 pub mod vehicle;
 pub mod world;
 
-pub use error::{CoreError, NumericConversionStage};
+pub use error::CoreError;
 pub use event::{
     CoreEvent, ParkingReservationReleasedEvent, SignalGroupAspectChangedEvent,
     SignalPhaseChangedEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
@@ -37,10 +37,10 @@ pub use parking::{
     ParkingCommandKind, ParkingCommitRecord, ParkingCounts, ParkingLaneAnchor, ParkingLeaveRecord,
     ParkingRegistry, ParkingReleaseReason, ParkingReleaseRecord,
     ParkingReservationCancellationRecord, ParkingReservationRecord, ParkingSnapshot, ParkingSpace,
-    ParkingSpaceGeometry, ParkingSpaceGeometryInput, ParkingSpaceInput, ParkingSpaceState,
-    RebindReservedVehicleRouteInput, ReservedVehicleRouteRebindRecord, VehicleParkingState,
+    ParkingSpaceGeometry, ParkingSpaceState, RebindReservedVehicleRouteInput,
+    ReservedVehicleRouteRebindRecord, VehicleParkingState,
 };
-pub use profile::{IidmProfileSpec, RawIidmProfileSpec, VehicleProfile, VehicleProfileRegistry};
+pub use profile::{IidmProfileSpec, VehicleProfile, VehicleProfileRegistry};
 pub use route::{Route, RouteRemoveRecord};
 pub use signal::{
     MAX_PORTABLE_SIGNAL_TIME_MS, MovementGate, MovementGateKey, MovementGateSignalState,

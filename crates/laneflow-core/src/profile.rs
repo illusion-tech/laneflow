@@ -3,45 +3,26 @@
 use indexmap::IndexMap;
 
 use crate::{
-    error::{CoreError, NumericConversionStage},
-    handle::VehicleProfileHandle,
-    id::validate_external_id,
-    numeric_policy::{
-        MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS,
-        MAX_PROFILE_ACCELERATION_INCLUSIVE_METERS_PER_SECOND_SQUARED,
-        MAX_SPEED_INCLUSIVE_METERS_PER_SECOND, MAX_TIME_HEADWAY_INCLUSIVE_SECONDS,
-        MIN_VEHICLE_LENGTH_INCLUSIVE_METERS,
-    },
+    error::CoreError, handle::VehicleProfileHandle, id::validate_external_id,
+    numeric_policy::MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS,
 };
 
 /// IIDM Vehicle Profile 的命名构造输入。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct IidmProfileSpec {
     /// 车辆长度，单位为 meter。
-    pub length: f32,
-    /// free-flow 期望速度，单位为 meter/second。
-    pub desired_speed: f32,
-    /// 行为最小间距，单位为 meter。
-    pub min_gap: f32,
-    /// 期望时间间隔，单位为 second。
-    pub time_headway: f32,
-    /// 最大舒适加速度，单位为 meter/second^2。
-    pub max_acceleration: f32,
-    /// 舒适减速度幅值，单位为 meter/second^2。
-    pub comfortable_deceleration: f32,
-    /// 紧急减速度幅值，单位为 meter/second^2。
-    pub emergency_deceleration: f32,
-}
-
-/// 尚未进入 Core 目标数值权威的高保真 IIDM 输入。
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct RawIidmProfileSpec {
     pub length: f64,
+    /// free-flow 期望速度，单位为 meter/second。
     pub desired_speed: f64,
+    /// 行为最小间距，单位为 meter。
     pub min_gap: f64,
+    /// 期望时间间隔，单位为 second。
     pub time_headway: f64,
+    /// 最大舒适加速度，单位为 meter/second^2。
     pub max_acceleration: f64,
+    /// 舒适减速度幅值，单位为 meter/second^2。
     pub comfortable_deceleration: f64,
+    /// 紧急减速度幅值，单位为 meter/second^2。
     pub emergency_deceleration: f64,
 }
 
@@ -66,58 +47,27 @@ impl VehicleProfile {
         let external_id = external_id.into();
         validate_external_id("vehicleProfiles[].id", &external_id)?;
 
-        if !spec.length.is_finite()
-            || !(MIN_VEHICLE_LENGTH_INCLUSIVE_METERS..=MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS)
-                .contains(&spec.length)
-        {
+        if !spec.length.is_finite() || spec.length <= MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS {
             return Err(CoreError::InvalidVehicleProfileValue {
                 profile_id: external_id,
                 field: "length",
                 value: spec.length,
-                requirement: "必须是 finite 且位于 0.1..=128 m",
+                requirement: "必须是 finite 且大于 GEOMETRY_GAP_EPSILON",
             });
         }
-        validate_positive_bounded_profile_value(
-            &external_id,
-            "desiredSpeed",
-            spec.desired_speed,
-            MAX_SPEED_INCLUSIVE_METERS_PER_SECOND,
-            "必须是 finite 且位于 0 < value <= 100 m/s",
-        )?;
-        validate_nonnegative_bounded_profile_value(
-            &external_id,
-            "minGap",
-            spec.min_gap,
-            MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS,
-            "必须是 finite 且位于 0..=128 m",
-        )?;
-        validate_positive_bounded_profile_value(
-            &external_id,
-            "timeHeadway",
-            spec.time_headway,
-            MAX_TIME_HEADWAY_INCLUSIVE_SECONDS,
-            "必须是 finite 且位于 0 < value <= 60 s",
-        )?;
-        validate_positive_bounded_profile_value(
-            &external_id,
-            "maxAcceleration",
-            spec.max_acceleration,
-            MAX_PROFILE_ACCELERATION_INCLUSIVE_METERS_PER_SECOND_SQUARED,
-            "必须是 finite 且位于 0 < value <= 50 m/s²",
-        )?;
-        validate_positive_bounded_profile_value(
+        validate_positive_profile_value(&external_id, "desiredSpeed", spec.desired_speed)?;
+        validate_nonnegative_profile_value(&external_id, "minGap", spec.min_gap)?;
+        validate_positive_profile_value(&external_id, "timeHeadway", spec.time_headway)?;
+        validate_positive_profile_value(&external_id, "maxAcceleration", spec.max_acceleration)?;
+        validate_positive_profile_value(
             &external_id,
             "comfortableDeceleration",
             spec.comfortable_deceleration,
-            MAX_PROFILE_ACCELERATION_INCLUSIVE_METERS_PER_SECOND_SQUARED,
-            "必须是 finite 且位于 0 < value <= 50 m/s²",
         )?;
-        validate_positive_bounded_profile_value(
+        validate_positive_profile_value(
             &external_id,
             "emergencyDeceleration",
             spec.emergency_deceleration,
-            MAX_PROFILE_ACCELERATION_INCLUSIVE_METERS_PER_SECOND_SQUARED,
-            "必须是 finite 且位于 0 < value <= 50 m/s²",
         )?;
 
         if spec.emergency_deceleration < spec.comfortable_deceleration {
@@ -132,81 +82,6 @@ impl VehicleProfile {
             external_id,
             iidm: spec,
         })
-    }
-
-    /// 从高保真 `f64` 输入按固定顺序完成范围校验与受检转换。
-    pub fn try_new_iidm_from_f64(
-        external_id: impl Into<String>,
-        raw: RawIidmProfileSpec,
-    ) -> Result<Self, CoreError> {
-        let external_id = external_id.into();
-        validate_external_id("vehicleProfiles[].id", &external_id)?;
-        let spec = IidmProfileSpec {
-            length: convert_raw_profile_value(
-                &external_id,
-                "length",
-                raw.length,
-                MIN_VEHICLE_LENGTH_INCLUSIVE_METERS,
-                MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS,
-                true,
-                "必须位于 0.1..=128 m 且可表示为 finite f32",
-            )?,
-            desired_speed: convert_raw_profile_value(
-                &external_id,
-                "desiredSpeed",
-                raw.desired_speed,
-                0.0,
-                MAX_SPEED_INCLUSIVE_METERS_PER_SECOND,
-                false,
-                "必须位于 0 < value <= 100 m/s 且可表示为 finite f32",
-            )?,
-            min_gap: convert_raw_profile_value(
-                &external_id,
-                "minGap",
-                raw.min_gap,
-                0.0,
-                MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS,
-                true,
-                "必须位于 0..=128 m 且可表示为 finite f32",
-            )?,
-            time_headway: convert_raw_profile_value(
-                &external_id,
-                "timeHeadway",
-                raw.time_headway,
-                0.0,
-                MAX_TIME_HEADWAY_INCLUSIVE_SECONDS,
-                false,
-                "必须位于 0 < value <= 60 s 且可表示为 finite f32",
-            )?,
-            max_acceleration: convert_raw_profile_value(
-                &external_id,
-                "maxAcceleration",
-                raw.max_acceleration,
-                0.0,
-                MAX_PROFILE_ACCELERATION_INCLUSIVE_METERS_PER_SECOND_SQUARED,
-                false,
-                "必须位于 0 < value <= 50 m/s² 且可表示为 finite f32",
-            )?,
-            comfortable_deceleration: convert_raw_profile_value(
-                &external_id,
-                "comfortableDeceleration",
-                raw.comfortable_deceleration,
-                0.0,
-                MAX_PROFILE_ACCELERATION_INCLUSIVE_METERS_PER_SECOND_SQUARED,
-                false,
-                "必须位于 0 < value <= 50 m/s² 且可表示为 finite f32",
-            )?,
-            emergency_deceleration: convert_raw_profile_value(
-                &external_id,
-                "emergencyDeceleration",
-                raw.emergency_deceleration,
-                0.0,
-                MAX_PROFILE_ACCELERATION_INCLUSIVE_METERS_PER_SECOND_SQUARED,
-                false,
-                "必须位于 0 < value <= 50 m/s² 且可表示为 finite f32",
-            )?,
-        };
-        Self::try_new_iidm(external_id, spec)
     }
 
     /// 返回 profile external ID。
@@ -317,79 +192,36 @@ impl Default for VehicleProfileRegistry {
     }
 }
 
-fn validate_positive_bounded_profile_value(
-    profile_id: &str,
-    field: &'static str,
-    value: f32,
-    max_inclusive: f32,
-    requirement: &'static str,
-) -> Result<(), CoreError> {
-    if !value.is_finite() || value <= 0.0 || value > max_inclusive {
-        return Err(CoreError::InvalidVehicleProfileValue {
-            profile_id: profile_id.to_owned(),
-            field,
-            value,
-            requirement,
-        });
-    }
-
-    Ok(())
-}
-
-fn validate_nonnegative_bounded_profile_value(
-    profile_id: &str,
-    field: &'static str,
-    value: f32,
-    max_inclusive: f32,
-    requirement: &'static str,
-) -> Result<(), CoreError> {
-    if !value.is_finite() || value < 0.0 || value > max_inclusive {
-        return Err(CoreError::InvalidVehicleProfileValue {
-            profile_id: profile_id.to_owned(),
-            field,
-            value,
-            requirement,
-        });
-    }
-
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn convert_raw_profile_value(
+fn validate_positive_profile_value(
     profile_id: &str,
     field: &'static str,
     value: f64,
-    min: f32,
-    max: f32,
-    min_inclusive: bool,
-    requirement: &'static str,
-) -> Result<f32, CoreError> {
-    let in_raw_range = value.is_finite()
-        && if min_inclusive {
-            value >= f64::from(min)
-        } else {
-            value > f64::from(min)
-        }
-        && value <= f64::from(max);
-    if !in_raw_range {
-        return Err(CoreError::InvalidVehicleProfileInput {
+) -> Result<(), CoreError> {
+    if !value.is_finite() || value <= 0.0 {
+        return Err(CoreError::InvalidVehicleProfileValue {
             profile_id: profile_id.to_owned(),
             field,
             value,
-            stage: NumericConversionStage::RawInput,
-            requirement,
+            requirement: "必须是 finite 且大于 0",
         });
     }
-    let converted = value as f32;
-    if !converted.is_finite() {
-        return Err(CoreError::InvalidVehicleProfileInput {
+
+    Ok(())
+}
+
+fn validate_nonnegative_profile_value(
+    profile_id: &str,
+    field: &'static str,
+    value: f64,
+) -> Result<(), CoreError> {
+    if !value.is_finite() || value < 0.0 {
+        return Err(CoreError::InvalidVehicleProfileValue {
             profile_id: profile_id.to_owned(),
             field,
             value,
-            stage: NumericConversionStage::TargetValue,
-            requirement,
+            requirement: "必须是 finite 且大于或等于 0",
         });
     }
-    Ok(if converted == 0.0 { 0.0 } else { converted })
+
+    Ok(())
 }

@@ -2,7 +2,7 @@
 
 use std::{cmp::Ordering, collections::BinaryHeap};
 
-use crate::{EdgeHandle, EdgeProgress, LaneGraph, VehicleHandle, profile::VehicleProfileRegistry};
+use crate::{EdgeHandle, LaneGraph, VehicleHandle, profile::VehicleProfileRegistry};
 
 const SPATIAL_CHUNK_TARGET: usize = 64;
 const SPATIAL_CHUNK_MAX: usize = SPATIAL_CHUNK_TARGET * 2;
@@ -10,25 +10,24 @@ const SPATIAL_CHUNK_MAX: usize = SPATIAL_CHUNK_TARGET * 2;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CommandOccupant {
     pub(crate) vehicle: VehicleHandle,
-    pub(crate) front_progress: EdgeProgress,
+    pub(crate) front_progress: f64,
 }
 
 fn compare_occupants(left: &CommandOccupant, right: &CommandOccupant) -> std::cmp::Ordering {
     left.front_progress
-        .value()
-        .total_cmp(&right.front_progress.value())
+        .total_cmp(&right.front_progress)
         .then_with(|| left.vehicle.index().cmp(&right.vehicle.index()))
         .then_with(|| left.vehicle.generation().cmp(&right.vehicle.generation()))
 }
 
-fn indexed_progress(occupant: CommandOccupant, front_progress: &[EdgeProgress]) -> f64 {
-    front_progress[occupant.vehicle.index()].value()
+fn indexed_progress(occupant: CommandOccupant, front_progress: &[f64]) -> f64 {
+    front_progress[occupant.vehicle.index()]
 }
 
 fn compare_indexed(
     left: CommandOccupant,
     right: CommandOccupant,
-    front_progress: &[EdgeProgress],
+    front_progress: &[f64],
 ) -> std::cmp::Ordering {
     indexed_progress(left, front_progress)
         .total_cmp(&indexed_progress(right, front_progress))
@@ -38,7 +37,7 @@ fn compare_indexed(
 
 #[derive(Clone, Copy, Debug)]
 struct CommandSpeedEntry {
-    speed: f32,
+    speed: f64,
     vehicle: VehicleHandle,
 }
 
@@ -81,11 +80,7 @@ impl SpatialBucket {
         &self.chunks[..self.active_chunks]
     }
 
-    fn insertion_chunk_for_new(
-        &self,
-        occupant: CommandOccupant,
-        front_progress: &[EdgeProgress],
-    ) -> usize {
+    fn insertion_chunk_for_new(&self, occupant: CommandOccupant, front_progress: &[f64]) -> usize {
         if self.active_chunks == 0 {
             return 0;
         }
@@ -96,7 +91,7 @@ impl SpatialBucket {
                     .last()
                     .expect("active spatial chunk must not be empty");
                 indexed_progress(last, front_progress)
-                    .total_cmp(&occupant.front_progress.value())
+                    .total_cmp(&occupant.front_progress)
                     .then_with(|| last.vehicle.index().cmp(&occupant.vehicle.index()))
                     .then_with(|| {
                         last.vehicle
@@ -108,11 +103,7 @@ impl SpatialBucket {
             .min(self.active_chunks - 1)
     }
 
-    fn insertion_chunk_indexed(
-        &self,
-        occupant: CommandOccupant,
-        front_progress: &[EdgeProgress],
-    ) -> usize {
+    fn insertion_chunk_indexed(&self, occupant: CommandOccupant, front_progress: &[f64]) -> usize {
         if self.active_chunks == 0 {
             return 0;
         }
@@ -131,7 +122,7 @@ impl SpatialBucket {
             .min(self.active_chunks - 1)
     }
 
-    fn prepare_insert(&mut self, occupant: CommandOccupant, front_progress: &[EdgeProgress]) {
+    fn prepare_insert(&mut self, occupant: CommandOccupant, front_progress: &[f64]) {
         self.chunks.reserve(1);
         if self.active_chunks == self.chunks.len() {
             self.chunks.push(SpatialChunk::default());
@@ -148,7 +139,7 @@ impl SpatialBucket {
         }
     }
 
-    fn insert(&mut self, occupant: CommandOccupant, front_progress: &[EdgeProgress]) {
+    fn insert(&mut self, occupant: CommandOccupant, front_progress: &[f64]) {
         if self.active_chunks == 0 {
             self.active_chunks = 1;
             self.chunks[0].occupants.push(occupant);
@@ -184,7 +175,7 @@ impl SpatialBucket {
         chunk.insert(position, occupant);
     }
 
-    fn remove(&mut self, occupant: CommandOccupant, front_progress: &[EdgeProgress]) -> bool {
+    fn remove(&mut self, occupant: CommandOccupant, front_progress: &[f64]) -> bool {
         let mut chunk_index = self.active().partition_point(|chunk| {
             indexed_progress(
                 *chunk
@@ -192,20 +183,20 @@ impl SpatialBucket {
                     .last()
                     .expect("active spatial chunk must not be empty"),
                 front_progress,
-            ) < occupant.front_progress.value()
+            ) < occupant.front_progress
         });
         while chunk_index < self.active_chunks {
             let chunk = &mut self.chunks[chunk_index].occupants;
             if chunk.first().is_some_and(|first| {
-                indexed_progress(*first, front_progress) > occupant.front_progress.value()
+                indexed_progress(*first, front_progress) > occupant.front_progress
             }) {
                 break;
             }
             let start = chunk.partition_point(|existing| {
-                indexed_progress(*existing, front_progress) < occupant.front_progress.value()
+                indexed_progress(*existing, front_progress) < occupant.front_progress
             });
             let end = chunk.partition_point(|existing| {
-                indexed_progress(*existing, front_progress) <= occupant.front_progress.value()
+                indexed_progress(*existing, front_progress) <= occupant.front_progress
             });
             if let Some(relative) = chunk[start..end]
                 .iter()
@@ -241,7 +232,7 @@ impl SpatialBucket {
                     .last()
                     .expect("active spatial chunk must not be empty");
                 resolve_progress(last.vehicle)
-                    .total_cmp(&occupant.front_progress.value())
+                    .total_cmp(&occupant.front_progress)
                     .then_with(|| last.vehicle.index().cmp(&occupant.vehicle.index()))
                     .then_with(|| {
                         last.vehicle
@@ -295,7 +286,7 @@ impl SpatialBucket {
                 .first()
                 .expect("split spatial chunk must have upper half");
             if resolve_progress(first.vehicle)
-                .total_cmp(&occupant.front_progress.value())
+                .total_cmp(&occupant.front_progress)
                 .then_with(|| first.vehicle.index().cmp(&occupant.vehicle.index()))
                 .then_with(|| {
                     first
@@ -313,7 +304,7 @@ impl SpatialBucket {
         let position = chunk
             .binary_search_by(|existing| {
                 resolve_progress(existing.vehicle)
-                    .total_cmp(&occupant.front_progress.value())
+                    .total_cmp(&occupant.front_progress)
                     .then_with(|| existing.vehicle.index().cmp(&occupant.vehicle.index()))
                     .then_with(|| {
                         existing
@@ -337,20 +328,21 @@ impl SpatialBucket {
                     .last()
                     .expect("active spatial chunk must not be empty")
                     .vehicle,
-            ) < occupant.front_progress.value()
+            ) < occupant.front_progress
         });
         while chunk_index < self.active_chunks {
             let chunk = &mut self.chunks[chunk_index].occupants;
-            if chunk.first().is_some_and(|first| {
-                resolve_progress(first.vehicle) > occupant.front_progress.value()
-            }) {
+            if chunk
+                .first()
+                .is_some_and(|first| resolve_progress(first.vehicle) > occupant.front_progress)
+            {
                 break;
             }
             let start = chunk.partition_point(|existing| {
-                resolve_progress(existing.vehicle) < occupant.front_progress.value()
+                resolve_progress(existing.vehicle) < occupant.front_progress
             });
             let end = chunk.partition_point(|existing| {
-                resolve_progress(existing.vehicle) <= occupant.front_progress.value()
+                resolve_progress(existing.vehicle) <= occupant.front_progress
             });
             if let Some(relative) = chunk[start..end]
                 .iter()
@@ -430,10 +422,10 @@ impl SpatialBucket {
 pub(crate) struct CommandSpatialIndex {
     buckets: Vec<SpatialBucket>,
     incoming_edges: Vec<Vec<EdgeHandle>>,
-    edge_lengths: Vec<f32>,
-    max_vehicle_length: f32,
+    edge_lengths: Vec<f64>,
+    max_vehicle_length: f64,
     staging: Vec<Vec<CommandOccupant>>,
-    front_progress: Vec<EdgeProgress>,
+    front_progress: Vec<f64>,
     membership_edges: Vec<Option<EdgeHandle>>,
     membership_vehicles: Vec<Option<VehicleHandle>>,
     candidate_marks: Vec<u32>,
@@ -442,10 +434,10 @@ pub(crate) struct CommandSpatialIndex {
     reverse_best: Vec<f64>,
     reverse_touched: Vec<EdgeHandle>,
     reverse_queue: Vec<(EdgeHandle, f64)>,
-    max_vehicle_speed: f32,
+    max_vehicle_speed: f64,
     speed_heap: BinaryHeap<CommandSpeedEntry>,
     speed_heap_valid: bool,
-    min_emergency_deceleration: f32,
+    min_emergency_deceleration: f64,
     #[cfg(test)]
     query_stats: SpatialQueryStats,
     #[cfg(test)]
@@ -487,11 +479,11 @@ impl CommandSpatialIndex {
         let max_vehicle_length = profiles
             .profiles()
             .map(|profile| profile.iidm().length)
-            .fold(0.0, f32::max);
+            .fold(0.0, f64::max);
         let min_emergency_deceleration = profiles
             .profiles()
             .map(|profile| profile.iidm().emergency_deceleration)
-            .fold(f32::MAX, f32::min);
+            .fold(f64::MAX, f64::min);
 
         Self {
             buckets: vec![SpatialBucket::default(); edge_count],
@@ -550,7 +542,7 @@ impl CommandSpatialIndex {
     {
         self.front_progress.resize(
             self.front_progress.len().max(occupant.vehicle.index() + 1),
-            EdgeProgress::ZERO,
+            0.0,
         );
         self.membership_edges.resize(
             self.membership_edges
@@ -647,8 +639,7 @@ impl CommandSpatialIndex {
         for staging in &mut self.staging {
             staging.clear();
         }
-        self.front_progress
-            .resize(vehicle_slot_count, EdgeProgress::ZERO);
+        self.front_progress.resize(vehicle_slot_count, 0.0);
         self.membership_edges.resize(vehicle_slot_count, None);
         self.membership_edges.fill(None);
         self.membership_vehicles.resize(vehicle_slot_count, None);
@@ -677,7 +668,7 @@ impl CommandSpatialIndex {
         route_edges: &[EdgeHandle],
         route_edge_index: usize,
         front_progress: f64,
-        candidate_length: f32,
+        candidate_length: f64,
         vehicle_slot_count: usize,
         resolve_progress: &mut F,
     ) where
@@ -688,13 +679,13 @@ impl CommandSpatialIndex {
             route_edges,
             route_edge_index,
             front_progress,
-            f64::from(self.max_vehicle_length),
+            self.max_vehicle_length,
             resolve_progress,
         );
         self.gather_reverse(
             route_edges[route_edge_index],
             front_progress,
-            f64::from(candidate_length),
+            candidate_length,
             resolve_progress,
         );
     }
@@ -731,15 +722,15 @@ impl CommandSpatialIndex {
         );
     }
 
-    pub(crate) const fn max_vehicle_speed(&self) -> f32 {
+    pub(crate) const fn max_vehicle_speed(&self) -> f64 {
         self.max_vehicle_speed
     }
 
-    pub(crate) const fn min_emergency_deceleration(&self) -> f32 {
+    pub(crate) const fn min_emergency_deceleration(&self) -> f64 {
         self.min_emergency_deceleration
     }
 
-    pub(crate) fn note_vehicle_speed(&mut self, vehicle: VehicleHandle, value: f32) {
+    pub(crate) fn note_vehicle_speed(&mut self, vehicle: VehicleHandle, value: f64) {
         debug_assert!(value.is_finite() && value >= 0.0);
         self.max_vehicle_speed = self.max_vehicle_speed.max(value);
         if self.speed_heap_valid && value > 0.0 {
@@ -750,7 +741,7 @@ impl CommandSpatialIndex {
         }
     }
 
-    pub(crate) fn set_max_vehicle_speed(&mut self, value: f32) {
+    pub(crate) fn set_max_vehicle_speed(&mut self, value: f64) {
         debug_assert!(value.is_finite() && value >= 0.0);
         self.max_vehicle_speed = value;
         self.speed_heap_valid = false;
@@ -760,9 +751,9 @@ impl CommandSpatialIndex {
     ///
     /// 正常 tick 只维护 scalar max；同一 command batch 后续移除通过 lazy deletion 保持
     /// `O(log V)`，避免每个 command 重扫全部 vehicles。
-    pub(crate) fn prepare_speed_removal<I>(&mut self, removed_speed: f32, active_speeds: I)
+    pub(crate) fn prepare_speed_removal<I>(&mut self, removed_speed: f64, active_speeds: I)
     where
-        I: IntoIterator<Item = (VehicleHandle, f32)>,
+        I: IntoIterator<Item = (VehicleHandle, f64)>,
     {
         debug_assert!(removed_speed.is_finite() && removed_speed >= 0.0);
         if removed_speed < self.max_vehicle_speed
@@ -872,8 +863,8 @@ impl CommandSpatialIndex {
         bucket_bytes
             + incoming_bytes
             + staging_bytes
-            + self.edge_lengths.capacity() * std::mem::size_of::<f32>()
-            + self.front_progress.capacity() * std::mem::size_of::<EdgeProgress>()
+            + self.edge_lengths.capacity() * std::mem::size_of::<f64>()
+            + self.front_progress.capacity() * std::mem::size_of::<f64>()
             + self.membership_edges.capacity() * std::mem::size_of::<Option<EdgeHandle>>()
             + self.membership_vehicles.capacity() * std::mem::size_of::<Option<VehicleHandle>>()
             + self.candidate_marks.capacity() * std::mem::size_of::<u32>()
@@ -954,7 +945,7 @@ impl CommandSpatialIndex {
         F: FnMut(VehicleHandle) -> f64,
     {
         while let Some(edge) = route_edges.get(occurrence).copied() {
-            let edge_length = f64::from(self.edge_lengths[edge.index()]);
+            let edge_length = self.edge_lengths[edge.index()];
             let distance_to_end = edge_length - start_progress;
             let end_progress = if remaining >= distance_to_end {
                 edge_length
@@ -999,7 +990,7 @@ impl CommandSpatialIndex {
         while let Some((edge, available)) = self.reverse_queue.pop() {
             for incoming_index in 0..self.incoming_edges[edge.index()].len() {
                 let predecessor = self.incoming_edges[edge.index()][incoming_index];
-                let predecessor_length = f64::from(self.edge_lengths[predecessor.index()]);
+                let predecessor_length = self.edge_lengths[predecessor.index()];
                 let min_progress = (predecessor_length - available).max(0.0);
                 self.add_range(
                     predecessor,

@@ -7,7 +7,7 @@ use laneflow_core::{
 };
 
 fn edge_length(value: f64) -> EdgeLength {
-    EdgeLength::try_from(value).expect("valid edge length")
+    EdgeLength::try_new(value).expect("valid edge length")
 }
 
 fn progress(value: f64) -> EdgeProgress {
@@ -15,7 +15,7 @@ fn progress(value: f64) -> EdgeProgress {
 }
 
 fn speed(value: f64) -> Speed {
-    Speed::try_from(value).expect("valid speed")
+    Speed::try_new(value).expect("valid speed")
 }
 
 fn deterministic_world() -> CoreWorld {

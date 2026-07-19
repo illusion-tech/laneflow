@@ -1,13 +1,13 @@
 use laneflow_core::{
     CoreEvent, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge,
-    LaneGraph, MovementGate, ParkingApproachState, ParkingRegistry, ParkingSpaceGeometryInput,
-    ParkingSpaceInput, Route, SignalAspect, SignalControlInput, SignalController, SignalGroup,
+    LaneGraph, MovementGate, ParkingApproachState, ParkingRegistry, ParkingSpace,
+    ParkingSpaceGeometry, Route, SignalAspect, SignalControlInput, SignalController, SignalGroup,
     SignalGroupState, SignalPhase, SignalRegistry, Speed, StopLine, StopLineLocation, TickInput,
     VehicleParkingState, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
     VehicleSpawnInput,
 };
 
-const LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS: f64 = 5.0e-5;
+const CURRENT_LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS: f64 = 1.0e-9;
 
 fn profiles() -> (VehicleProfileRegistry, VehicleProfileHandle) {
     let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
@@ -33,7 +33,7 @@ fn progress(value: f64) -> EdgeProgress {
 }
 
 fn speed(value: f64) -> Speed {
-    Speed::try_from(value).expect("speed")
+    Speed::try_new(value).expect("speed")
 }
 
 fn signal_parking_world(
@@ -79,14 +79,14 @@ fn signal_parking_world(
     let parking = ParkingRegistry::try_new(
         &graph,
         [],
-        [ParkingSpaceInput::new(
+        [ParkingSpace::new(
             "space",
             None,
             parking_entry_edge,
             parking_entry_progress,
             "exit",
             20.0,
-            ParkingSpaceGeometryInput::new(-3.0, 0.0, 4.0, 2.4),
+            ParkingSpaceGeometry::new(-3.0, 0.0, 4.0, 2.4),
         )],
     )
     .expect("parking");
@@ -126,7 +126,7 @@ fn reserve(world: &mut CoreWorld) {
 fn parking_boundary_outside_signal_epsilon_remains_stricter() {
     let mut world = signal_parking_world(
         "entry",
-        100.0 - 2.0 * LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS,
+        100.0 - 2.0 * CURRENT_LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS,
         95.0,
     );
     reserve(&mut world);
@@ -204,14 +204,14 @@ fn parking_projection_precedes_stricter_following_projection() {
     let parking = ParkingRegistry::try_new(
         &graph,
         [],
-        [ParkingSpaceInput::new(
+        [ParkingSpace::new(
             "space",
             None,
             "edge",
             10.0,
             "edge",
             20.0,
-            ParkingSpaceGeometryInput::new(-3.0, 0.0, 4.0, 2.4),
+            ParkingSpaceGeometry::new(-3.0, 0.0, 4.0, 2.4),
         )],
     )
     .expect("parking");
@@ -282,14 +282,14 @@ fn repeated_edge_uses_selected_occurrence_and_orders_edge_before_arrival() {
     let parking = ParkingRegistry::try_new(
         &graph,
         [],
-        [ParkingSpaceInput::new(
+        [ParkingSpace::new(
             "space",
             None,
             "a",
             10.0,
             "a",
             20.0,
-            ParkingSpaceGeometryInput::new(-3.0, 0.0, 4.0, 2.4),
+            ParkingSpaceGeometry::new(-3.0, 0.0, 4.0, 2.4),
         )],
     )
     .expect("parking");

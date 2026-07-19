@@ -8,7 +8,7 @@ use laneflow_core::{
 use laneflow_data::from_json_str;
 
 const PARKING_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.6-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.5-parking-signals-baseline.laneflow.json");
 const FIXED_DELTA_TIME_MS: u64 = 100;
 const MAX_APPROACH_TICKS: usize = 1_000;
 

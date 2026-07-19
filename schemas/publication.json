@@ -2,7 +2,7 @@
   "contractVersion": 1,
   "retentionPolicy": "immutable-permanent",
   "pagesBaseUrl": "https://illusion-tech.github.io/laneflow/schema/",
-  "currentFormatVersion": "0.6",
+  "currentFormatVersion": "0.5",
   "schemas": [
     {
       "formatVersion": "0.2",
@@ -31,13 +31,6 @@
       "canonicalUrl": "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.5.schema.json",
       "sourceRevision": "aff544e0545239007003a08a41ccfde280e5d20f",
       "sourceBlobOid": "d77383ecc9f6b2fe07320ca74613cbf3106efa01"
-    },
-    {
-      "formatVersion": "0.6",
-      "path": "schemas/laneflow-data-v0.6.schema.json",
-      "canonicalUrl": "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.6.schema.json",
-      "sourceRevision": "b2bd52e08ef0045dcff715a839967125775506d4",
-      "sourceBlobOid": "2de37ae324f6a437708196e7667f5360c5da59d3"
     }
   ]
 }

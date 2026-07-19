@@ -31,7 +31,7 @@ fn assert_finite_and_non_overlapping(world: &CoreWorld) {
         fronts_by_edge
             .entry(edge)
             .or_default()
-            .push((vehicle.edge_progress.value(), f64::from(length)));
+            .push((vehicle.edge_progress.value(), length));
     }
 
     for vehicles in fronts_by_edge.values_mut() {
@@ -40,7 +40,7 @@ fn assert_finite_and_non_overlapping(world: &CoreWorld) {
             let follower_front = pair[0].0;
             let (leader_front, leader_length) = pair[1];
             assert!(
-                follower_front <= leader_front - leader_length + 1.0e-5,
+                follower_front <= leader_front - leader_length + 1.0e-9,
                 "vehicles must not overlap: follower={follower_front}, leader={leader_front}"
             );
         }

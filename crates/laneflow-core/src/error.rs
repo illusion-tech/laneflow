@@ -5,16 +5,6 @@ use crate::{
     ParkingSpaceHandle, RouteHandle, VehicleHandle, VehicleProfileHandle, VehicleStatus,
 };
 
-/// 原始高保真输入进入目标数值权威时失败的阶段。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum NumericConversionStage {
-    /// 原始 `f64` 的有限性或产品范围校验。
-    RawInput,
-    /// 受检转换后的目标表示校验。
-    TargetValue,
-}
-
 /// Core runtime 暴露给调用方的错误。
 #[derive(Clone, Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -33,47 +23,18 @@ pub enum CoreError {
     TimeOverflow,
     /// speed 必须是 finite 且大于或等于 0。
     #[error("speed 无效：{speed}")]
-    InvalidSpeed { speed: f32 },
-    /// 原始 `f64` speed 输入不能进入目标 `f32` 权威。
-    #[error(
-        "原始 speed 输入无效：value={speed}, stage={stage:?}，必须位于 0..=100 m/s 且可表示为 finite f32"
-    )]
-    InvalidSpeedInput {
-        speed: f64,
-        stage: NumericConversionStage,
-    },
+    InvalidSpeed { speed: f64 },
     /// acceleration 必须是 finite 有符号数值。
     #[error("acceleration 无效：{acceleration}")]
-    InvalidAcceleration { acceleration: f32 },
-    /// 原始 `f64` acceleration 输入不能进入目标 `f32` 权威。
-    #[error(
-        "原始 acceleration 输入无效：value={acceleration}, stage={stage:?}，必须可表示为 finite f32"
-    )]
-    InvalidAccelerationInput {
-        acceleration: f64,
-        stage: NumericConversionStage,
-    },
+    InvalidAcceleration { acceleration: f64 },
     /// edge progress 必须是 finite 且大于或等于 0。
     #[error("edge progress 无效：{edge_progress}")]
     InvalidEdgeProgress { edge_progress: f64 },
-    /// lane edge length 必须落在目标产品范围内。
-    #[error(
-        "lane edge length 无效：{edge_length}，必须是 finite 且满足 {min_exclusive} < length <= {max_inclusive} m"
-    )]
+    /// lane edge length 必须是 finite 且大于 epsilon。
+    #[error("lane edge length 无效：{edge_length}，必须是 finite 且大于 {min_exclusive}")]
     InvalidLaneEdgeLength {
-        edge_length: f32,
-        min_exclusive: f32,
-        max_inclusive: f32,
-    },
-    /// 原始 `f64` edge length 不能进入目标 `f32` 权威。
-    #[error(
-        "原始 lane edge length 输入无效：value={edge_length}, stage={stage:?}，必须满足 {min_exclusive} < length <= {max_inclusive} m 且可表示为 finite f32"
-    )]
-    InvalidLaneEdgeLengthInput {
         edge_length: f64,
         min_exclusive: f64,
-        max_inclusive: f64,
-        stage: NumericConversionStage,
     },
     /// external ID 必须满足当前 data format 的 ASCII token 规则。
     #[error("external ID 无效：field={field}, value=`{external_id}`，必须匹配 {pattern}")]
@@ -87,18 +48,7 @@ pub enum CoreError {
     InvalidVehicleProfileValue {
         profile_id: String,
         field: &'static str,
-        value: f32,
-        requirement: &'static str,
-    },
-    /// 原始 `f64` Vehicle Profile 数值不能进入目标 `f32` 权威。
-    #[error(
-        "Vehicle Profile `{profile_id}` 的原始 `{field}` 输入无效：{value}，stage={stage:?}，{requirement}"
-    )]
-    InvalidVehicleProfileInput {
-        profile_id: String,
-        field: &'static str,
         value: f64,
-        stage: NumericConversionStage,
         requirement: &'static str,
     },
     /// emergency deceleration 必须大于或等于 comfortable deceleration。
@@ -107,8 +57,8 @@ pub enum CoreError {
     )]
     InvalidVehicleProfileDecelerationOrder {
         profile_id: String,
-        comfortable_deceleration: f32,
-        emergency_deceleration: f32,
+        comfortable_deceleration: f64,
+        emergency_deceleration: f64,
     },
     /// Vehicle Profile external ID 在 registry 内必须唯一。
     #[error("Vehicle Profile id 重复：{profile_id}")]
@@ -354,7 +304,6 @@ pub enum CoreError {
         space_id: String,
         field: &'static str,
         value: f64,
-        stage: NumericConversionStage,
         requirement: &'static str,
     },
     /// 每个声明的 ParkingArea 至少包含一个 member space。

@@ -1,11 +1,11 @@
 //! 已完成 Core domain normalization 的 immutable static Parking registry。
 
-use std::{f32::consts::PI as PI_F32, f64::consts::PI as PI_F64};
+use std::f64::consts::PI;
 
 use indexmap::IndexMap;
 
 use crate::{
-    error::{CoreError, NumericConversionStage},
+    error::CoreError,
     graph::LaneGraph,
     handle::{
         EdgeHandle, ParkingAreaHandle, ParkingSpaceHandle, RouteHandle, VehicleHandle,
@@ -13,11 +13,10 @@ use crate::{
     },
     id::validate_external_id,
     numeric_policy::{
-        MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS, MIN_PARKING_EXTENT_INCLUSIVE_METERS,
-        MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS, PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS,
-        longitudinal_positions_match,
+        MIN_PARKING_EXTENT_EXCLUSIVE_METERS, MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
+        PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, longitudinal_positions_match,
     },
-    vehicle::{EdgeProgress, Speed, VehicleStatus},
+    vehicle::{Speed, VehicleStatus},
     world::CoreWorld,
 };
 
@@ -47,17 +46,17 @@ impl ParkingArea {
     }
 }
 
-/// 尚未进入 Core 目标数值权威的 Parking geometry 输入。
+/// ParkingSpace 的 edge-relative rectangular pose。
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ParkingSpaceGeometryInput {
+pub struct ParkingSpaceGeometry {
     lateral_offset: f64,
     heading_offset_radians: f64,
     length: f64,
     width: f64,
 }
 
-impl ParkingSpaceGeometryInput {
-    /// 创建高保真 geometry 输入；校验在 registry normalization 阶段执行。
+impl ParkingSpaceGeometry {
+    /// 创建尚未 normalization 的 geometry value。
     pub const fn new(
         lateral_offset: f64,
         heading_offset_radians: f64,
@@ -72,46 +71,19 @@ impl ParkingSpaceGeometryInput {
         }
     }
 
-    const fn lateral_offset(self) -> f64 {
+    pub const fn lateral_offset(self) -> f64 {
         self.lateral_offset
     }
 
-    const fn heading_offset_radians(self) -> f64 {
+    pub const fn heading_offset_radians(self) -> f64 {
         self.heading_offset_radians
     }
 
-    const fn length(self) -> f64 {
+    pub const fn length(self) -> f64 {
         self.length
     }
 
-    const fn width(self) -> f64 {
-        self.width
-    }
-}
-
-/// 已进入 Core 目标数值权威的 edge-relative rectangular pose。
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ParkingSpaceGeometry {
-    lateral_offset: f32,
-    heading_offset_radians: f32,
-    length: f32,
-    width: f32,
-}
-
-impl ParkingSpaceGeometry {
-    pub const fn lateral_offset(self) -> f32 {
-        self.lateral_offset
-    }
-
-    pub const fn heading_offset_radians(self) -> f32 {
-        self.heading_offset_radians
-    }
-
-    pub const fn length(self) -> f32 {
-        self.length
-    }
-
-    pub const fn width(self) -> f32 {
+    pub const fn width(self) -> f64 {
         self.width
     }
 }
@@ -120,11 +92,11 @@ impl ParkingSpaceGeometry {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ParkingLaneAnchor {
     edge: EdgeHandle,
-    progress: EdgeProgress,
+    progress: f64,
 }
 
 impl ParkingLaneAnchor {
-    const fn new(edge: EdgeHandle, progress: EdgeProgress) -> Self {
+    const fn new(edge: EdgeHandle, progress: f64) -> Self {
         Self { edge, progress }
     }
 
@@ -132,25 +104,25 @@ impl ParkingLaneAnchor {
         self.edge
     }
 
-    pub fn progress(self) -> f64 {
-        self.progress.value()
+    pub const fn progress(self) -> f64 {
+        self.progress
     }
 }
 
-/// 尚未解析 graph handles、尚未进入目标数值权威的 static ParkingSpace 输入。
+/// 尚未解析 graph handles 的 static ParkingSpace definition。
 #[derive(Clone, Debug, PartialEq)]
-pub struct ParkingSpaceInput {
+pub struct ParkingSpace {
     id: String,
     area_id: Option<String>,
     entry_edge_id: String,
     entry_progress: f64,
     exit_edge_id: String,
     exit_progress: f64,
-    geometry: ParkingSpaceGeometryInput,
+    geometry: ParkingSpaceGeometry,
 }
 
-impl ParkingSpaceInput {
-    /// 创建尚未 normalization 的 space 输入。
+impl ParkingSpace {
+    /// 创建尚未 normalization 的 space definition。
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: impl Into<String>,
@@ -159,7 +131,7 @@ impl ParkingSpaceInput {
         entry_progress: f64,
         exit_edge_id: impl Into<String>,
         exit_progress: f64,
-        geometry: ParkingSpaceGeometryInput,
+        geometry: ParkingSpaceGeometry,
     ) -> Self {
         Self {
             id: id.into(),
@@ -172,48 +144,6 @@ impl ParkingSpaceInput {
         }
     }
 
-    fn id(&self) -> &str {
-        &self.id
-    }
-
-    fn area_id(&self) -> Option<&str> {
-        self.area_id.as_deref()
-    }
-
-    fn entry_edge_id(&self) -> &str {
-        &self.entry_edge_id
-    }
-
-    const fn entry_progress(&self) -> f64 {
-        self.entry_progress
-    }
-
-    fn exit_edge_id(&self) -> &str {
-        &self.exit_edge_id
-    }
-
-    const fn exit_progress(&self) -> f64 {
-        self.exit_progress
-    }
-
-    const fn geometry(&self) -> ParkingSpaceGeometryInput {
-        self.geometry
-    }
-}
-
-/// 已完成数值 normalization 并解析到当前 graph 的 static ParkingSpace。
-#[derive(Clone, Debug, PartialEq)]
-pub struct ParkingSpace {
-    id: String,
-    area_id: Option<String>,
-    entry_edge_id: String,
-    entry_progress: EdgeProgress,
-    exit_edge_id: String,
-    exit_progress: EdgeProgress,
-    geometry: ParkingSpaceGeometry,
-}
-
-impl ParkingSpace {
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -226,37 +156,20 @@ impl ParkingSpace {
         &self.entry_edge_id
     }
 
-    pub fn entry_progress(&self) -> f64 {
-        self.entry_progress.value()
+    pub const fn entry_progress(&self) -> f64 {
+        self.entry_progress
     }
 
     pub fn exit_edge_id(&self) -> &str {
         &self.exit_edge_id
     }
 
-    pub fn exit_progress(&self) -> f64 {
-        self.exit_progress.value()
+    pub const fn exit_progress(&self) -> f64 {
+        self.exit_progress
     }
 
     pub const fn geometry(&self) -> ParkingSpaceGeometry {
         self.geometry
-    }
-
-    fn into_input(self) -> ParkingSpaceInput {
-        ParkingSpaceInput::new(
-            self.id,
-            self.area_id,
-            self.entry_edge_id,
-            self.entry_progress.value(),
-            self.exit_edge_id,
-            self.exit_progress.value(),
-            ParkingSpaceGeometryInput::new(
-                f64::from(self.geometry.lateral_offset),
-                f64::from(self.geometry.heading_offset_radians),
-                f64::from(self.geometry.length),
-                f64::from(self.geometry.width),
-            ),
-        )
     }
 }
 
@@ -264,8 +177,8 @@ impl ParkingSpace {
 struct ResolvedParkingSpace {
     definition: ParkingSpace,
     area: Option<ParkingAreaHandle>,
-    entry_edge: EdgeHandle,
-    exit_edge: EdgeHandle,
+    entry: ParkingLaneAnchor,
+    exit: ParkingLaneAnchor,
 }
 
 /// Static Parking definitions、handles 与 ordered reverse indexes。
@@ -294,7 +207,7 @@ impl ParkingRegistry {
     pub fn try_new<A, S>(lane_graph: &LaneGraph, areas: A, spaces: S) -> Result<Self, CoreError>
     where
         A: IntoIterator<Item = ParkingArea>,
-        S: IntoIterator<Item = ParkingSpaceInput>,
+        S: IntoIterator<Item = ParkingSpace>,
     {
         let mut area_definitions = Vec::new();
         let mut area_handles = IndexMap::new();
@@ -359,10 +272,9 @@ impl ParkingRegistry {
             )?);
         }
 
-        let geometries = space_definitions
-            .iter()
-            .map(normalize_geometry)
-            .collect::<Result<Vec<_>, _>>()?;
+        for space in &space_definitions {
+            validate_geometry(space)?;
+        }
 
         for (index, has_member) in area_has_member.iter().copied().enumerate() {
             if !has_member {
@@ -384,23 +296,12 @@ impl ParkingRegistry {
             .zip(space_areas)
             .zip(entries)
             .zip(exits)
-            .zip(geometries)
-            .map(
-                |((((input, area), entry), exit), geometry)| ResolvedParkingSpace {
-                    definition: ParkingSpace {
-                        id: input.id,
-                        area_id: input.area_id,
-                        entry_edge_id: input.entry_edge_id,
-                        entry_progress: entry.progress,
-                        exit_edge_id: input.exit_edge_id,
-                        exit_progress: exit.progress,
-                        geometry,
-                    },
-                    area,
-                    entry_edge: entry.edge,
-                    exit_edge: exit.edge,
-                },
-            )
+            .map(|(((definition, area), entry), exit)| ResolvedParkingSpace {
+                definition,
+                area,
+                entry,
+                exit,
+            })
             .collect();
 
         Ok(Self {
@@ -416,9 +317,7 @@ impl ParkingRegistry {
         Self::try_new(
             lane_graph,
             self.areas,
-            self.spaces
-                .into_iter()
-                .map(|resolved| resolved.definition.into_input()),
+            self.spaces.into_iter().map(|resolved| resolved.definition),
         )
     }
 
@@ -472,15 +371,15 @@ impl ParkingRegistry {
     }
 
     pub fn space_entry(&self, handle: ParkingSpaceHandle) -> Option<ParkingLaneAnchor> {
-        self.spaces.get(handle.index()).map(|resolved| {
-            ParkingLaneAnchor::new(resolved.entry_edge, resolved.definition.entry_progress)
-        })
+        self.spaces
+            .get(handle.index())
+            .map(|resolved| resolved.entry)
     }
 
     pub fn space_exit(&self, handle: ParkingSpaceHandle) -> Option<ParkingLaneAnchor> {
-        self.spaces.get(handle.index()).map(|resolved| {
-            ParkingLaneAnchor::new(resolved.exit_edge, resolved.definition.exit_progress)
-        })
+        self.spaces
+            .get(handle.index())
+            .map(|resolved| resolved.exit)
     }
 
     pub fn space_geometry(&self, handle: ParkingSpaceHandle) -> Option<ParkingSpaceGeometry> {
@@ -540,7 +439,7 @@ impl Default for ParkingRegistry {
 
 fn resolve_anchor(
     lane_graph: &LaneGraph,
-    space: &ParkingSpaceInput,
+    space: &ParkingSpace,
     anchor: ParkingAnchorKind,
     edge_id: &str,
     edge_progress: f64,
@@ -564,118 +463,63 @@ fn resolve_anchor(
         .value();
     if !edge_progress.is_finite()
         || edge_progress <= PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS
-        || edge_progress >= f64::from(edge_length) - PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS
+        || edge_progress >= edge_length - PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS
     {
         return Err(CoreError::ParkingAnchorProgressOutOfRange {
             space_id: space.id().to_owned(),
             anchor,
             edge_id: edge_id.to_owned(),
             edge_progress,
-            edge_length: f64::from(edge_length),
+            edge_length,
         });
     }
-    let progress = EdgeProgress::try_new(edge_progress)?;
-    Ok(ParkingLaneAnchor::new(edge, progress))
+    Ok(ParkingLaneAnchor::new(edge, edge_progress))
 }
 
-fn normalize_geometry(space: &ParkingSpaceInput) -> Result<ParkingSpaceGeometry, CoreError> {
+fn validate_geometry(space: &ParkingSpace) -> Result<(), CoreError> {
     let geometry = space.geometry();
-    let lateral_offset = convert_geometry_value(
-        space,
-        "lateralOffset",
-        geometry.lateral_offset(),
-        |value| {
-            value.is_finite()
-                && value != 0.0
-                && value.abs() <= f64::from(MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS)
-        },
-        |value| {
-            value.is_finite()
-                && value.abs() > MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS
-                && value.abs() <= MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS
-        },
-        "必须是非零 finite 值、绝对值不超过 128 m，且转换后不能下溢为零",
-    )?;
-    let heading_offset_radians = convert_geometry_value(
-        space,
-        "headingOffsetRadians",
-        geometry.heading_offset_radians(),
-        |value| value.is_finite() && (-PI_F64..PI_F64).contains(&value),
-        |value| value.is_finite() && (-PI_F32..PI_F32).contains(&value),
-        "必须是 finite 且位于 [-PI, PI)",
-    )?;
-    let length = convert_geometry_value(
-        space,
-        "length",
-        geometry.length(),
-        |value| {
-            value.is_finite()
-                && (f64::from(MIN_PARKING_EXTENT_INCLUSIVE_METERS)
-                    ..=f64::from(MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS))
-                    .contains(&value)
-        },
-        |value| {
-            value.is_finite()
-                && (MIN_PARKING_EXTENT_INCLUSIVE_METERS
-                    ..=MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS)
-                    .contains(&value)
-        },
-        "必须是 finite 且位于 0.1..=128 m",
-    )?;
-    let width = convert_geometry_value(
-        space,
-        "width",
-        geometry.width(),
-        |value| {
-            value.is_finite()
-                && (f64::from(MIN_PARKING_EXTENT_INCLUSIVE_METERS)
-                    ..=f64::from(MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS))
-                    .contains(&value)
-        },
-        |value| {
-            value.is_finite()
-                && (MIN_PARKING_EXTENT_INCLUSIVE_METERS
-                    ..=MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS)
-                    .contains(&value)
-        },
-        "必须是 finite 且位于 0.1..=128 m",
-    )?;
-    Ok(ParkingSpaceGeometry {
-        lateral_offset,
-        heading_offset_radians,
-        length,
-        width,
-    })
-}
-
-fn convert_geometry_value(
-    space: &ParkingSpaceInput,
-    field: &'static str,
-    value: f64,
-    raw_valid: impl FnOnce(f64) -> bool,
-    target_valid: impl FnOnce(f32) -> bool,
-    requirement: &'static str,
-) -> Result<f32, CoreError> {
-    if !raw_valid(value) {
-        return Err(CoreError::InvalidParkingGeometryValue {
-            space_id: space.id().to_owned(),
-            field,
-            value,
-            stage: NumericConversionStage::RawInput,
-            requirement,
-        });
+    let values = [
+        (
+            "lateralOffset",
+            geometry.lateral_offset(),
+            geometry.lateral_offset().is_finite()
+                && geometry.lateral_offset().abs()
+                    > MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
+            "必须是 finite 且绝对值大于 GEOMETRY_GAP_EPSILON",
+        ),
+        (
+            "headingOffsetRadians",
+            geometry.heading_offset_radians(),
+            geometry.heading_offset_radians().is_finite()
+                && geometry.heading_offset_radians() >= -PI
+                && geometry.heading_offset_radians() < PI,
+            "必须是 finite 且位于 [-PI, PI)",
+        ),
+        (
+            "length",
+            geometry.length(),
+            geometry.length().is_finite()
+                && geometry.length() > MIN_PARKING_EXTENT_EXCLUSIVE_METERS,
+            "必须是 finite 且大于 GEOMETRY_GAP_EPSILON",
+        ),
+        (
+            "width",
+            geometry.width(),
+            geometry.width().is_finite() && geometry.width() > MIN_PARKING_EXTENT_EXCLUSIVE_METERS,
+            "必须是 finite 且大于 GEOMETRY_GAP_EPSILON",
+        ),
+    ];
+    for (field, value, valid, requirement) in values {
+        if !valid {
+            return Err(CoreError::InvalidParkingGeometryValue {
+                space_id: space.id().to_owned(),
+                field,
+                value,
+                requirement,
+            });
+        }
     }
-    let converted = value as f32;
-    if !target_valid(converted) {
-        return Err(CoreError::InvalidParkingGeometryValue {
-            space_id: space.id().to_owned(),
-            field,
-            value,
-            stage: NumericConversionStage::TargetValue,
-            requirement,
-        });
-    }
-    Ok(if converted == 0.0 { 0.0 } else { converted })
+    Ok(())
 }
 
 /// Parking lifecycle command identity。

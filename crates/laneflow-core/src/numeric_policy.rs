@@ -1,49 +1,34 @@
-//! 目标 f32 生产数值判定的领域所有权。
+//! current-f64 生产数值判定的领域所有权。
 //!
-//! 产品范围与运行时绝对阈值由 #127 离线标定，并由 #144 原子启用。
-//! 每个值只服务自己的领域判定；数值相同也不得互相别名。
+//! 这些值当前都保持为 `1.0e-9`，但分别属于不同的输入、距离或速度语义。
+//! #127 负责 target-f32 离线标定；只有 #144 可以原子启用重标定结果。
 
 /// `EdgeLength` 接受值的 exclusive 下限，单位为米。
-pub(crate) const MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f32 = 1.0;
+pub(crate) const MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
-/// 单个 edge 长度的 inclusive 上限，单位为米。
-pub(crate) const MAX_EDGE_LENGTH_INCLUSIVE_METERS: f32 = 10_000.0;
-
-/// Vehicle Profile 车辆长度的 inclusive 下限，单位为米。
-pub(crate) const MIN_VEHICLE_LENGTH_INCLUSIVE_METERS: f32 = 0.1;
-
-/// 车辆尺寸、Parking extent/min-gap 和局部偏移的 inclusive 上限，单位为米。
-pub(crate) const MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS: f32 = 128.0;
-
-/// 速度输入的 inclusive 上限，单位为米/秒。
-pub(crate) const MAX_SPEED_INCLUSIVE_METERS_PER_SECOND: f32 = 100.0;
-
-/// Vehicle Profile 加速度/减速度输入的 inclusive 上限，单位为米/秒²。
-pub(crate) const MAX_PROFILE_ACCELERATION_INCLUSIVE_METERS_PER_SECOND_SQUARED: f32 = 50.0;
-
-/// Vehicle Profile time headway 输入的 inclusive 上限，单位为秒。
-pub(crate) const MAX_TIME_HEADWAY_INCLUSIVE_SECONDS: f32 = 60.0;
+/// Vehicle Profile 车辆长度的 exclusive 下限，单位为米。
+pub(crate) const MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
 /// Parking anchor 与 edge 两端之间的最小留白，单位为米。
-pub(crate) const PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 0.000_05;
+pub(crate) const PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 1.0e-9;
 
 /// Parking lateral offset 非零绝对值的 exclusive 下限，单位为米。
-pub(crate) const MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f32 = 0.0;
+pub(crate) const MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
-/// Parking length/width 的 inclusive 下限，单位为米。
-pub(crate) const MIN_PARKING_EXTENT_INCLUSIVE_METERS: f32 = 0.1;
+/// Parking length/width 的 exclusive 下限，单位为米。
+pub(crate) const MIN_PARKING_EXTENT_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
 /// edge boundary、跨 edge 余量与吸附判定的绝对阈值，单位为米。
-pub(crate) const EDGE_BOUNDARY_TOLERANCE_METERS: f64 = 0.000_000_01;
+pub(crate) const EDGE_BOUNDARY_TOLERANCE_METERS: f64 = 1.0e-9;
 
 /// RouteEnd、SignalStop、ParkingStop 等纵向约束判定的绝对阈值，单位为米。
-pub(crate) const LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS: f64 = 0.000_05;
+pub(crate) const LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS: f64 = 1.0e-9;
 
 /// 物理 bumper gap、接触与重叠判定的绝对阈值，单位为米。
-pub(crate) const PHYSICAL_GAP_TOLERANCE_METERS: f64 = 0.000_01;
+pub(crate) const PHYSICAL_GAP_TOLERANCE_METERS: f64 = 1.0e-9;
 
 /// 运行时计算速度的 near-zero 判定阈值，单位为米/秒。
-pub(crate) const COMPUTED_SPEED_NEAR_ZERO_TOLERANCE_METERS_PER_SECOND: f64 = 0.000_05;
+pub(crate) const COMPUTED_SPEED_NEAR_ZERO_TOLERANCE_METERS_PER_SECOND: f64 = 1.0e-9;
 
 /// 判断 edge traversal 余量是否应按零处理。
 pub(crate) fn is_edge_boundary_remainder_zero(remainder_meters: f64) -> bool {
@@ -97,27 +82,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn target_f32_domain_values_remain_frozen() {
-        assert_eq!(MIN_EDGE_LENGTH_EXCLUSIVE_METERS, 1.0);
-        assert_eq!(MAX_EDGE_LENGTH_INCLUSIVE_METERS, 10_000.0);
-        assert_eq!(MIN_VEHICLE_LENGTH_INCLUSIVE_METERS, 0.1);
-        assert_eq!(MAX_LOCAL_EXTENT_OR_OFFSET_INCLUSIVE_METERS, 128.0);
-        assert_eq!(MAX_SPEED_INCLUSIVE_METERS_PER_SECOND, 100.0);
-        assert_eq!(
-            MAX_PROFILE_ACCELERATION_INCLUSIVE_METERS_PER_SECOND_SQUARED,
-            50.0
-        );
-        assert_eq!(MAX_TIME_HEADWAY_INCLUSIVE_SECONDS, 60.0);
-        assert_eq!(PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, 0.000_05);
-        assert_eq!(MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS, 0.0);
-        assert_eq!(MIN_PARKING_EXTENT_INCLUSIVE_METERS, 0.1);
-        assert_eq!(EDGE_BOUNDARY_TOLERANCE_METERS, 0.000_000_01);
-        assert_eq!(LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS, 0.000_05);
-        assert_eq!(PHYSICAL_GAP_TOLERANCE_METERS, 0.000_01);
-        assert_eq!(
-            COMPUTED_SPEED_NEAR_ZERO_TOLERANCE_METERS_PER_SECOND,
-            0.000_05
-        );
+    fn current_f64_domain_values_remain_frozen() {
+        assert_eq!(MIN_EDGE_LENGTH_EXCLUSIVE_METERS, 1.0e-9);
+        assert_eq!(MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS, 1.0e-9);
+        assert_eq!(PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, 1.0e-9);
+        assert_eq!(MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS, 1.0e-9);
+        assert_eq!(MIN_PARKING_EXTENT_EXCLUSIVE_METERS, 1.0e-9);
+        assert_eq!(EDGE_BOUNDARY_TOLERANCE_METERS, 1.0e-9);
+        assert_eq!(LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS, 1.0e-9);
+        assert_eq!(PHYSICAL_GAP_TOLERANCE_METERS, 1.0e-9);
+        assert_eq!(COMPUTED_SPEED_NEAR_ZERO_TOLERANCE_METERS_PER_SECOND, 1.0e-9);
     }
 
     #[test]

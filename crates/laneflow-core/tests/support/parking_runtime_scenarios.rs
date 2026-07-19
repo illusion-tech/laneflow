@@ -1,9 +1,9 @@
 use laneflow_core::{
     CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph,
     LeaveParkingInput, ParkedVehicleSpawnInput, ParkingCommandEffect, ParkingRegistry,
-    ParkingSpaceGeometryInput, ParkingSpaceHandle, ParkingSpaceInput,
-    RebindReservedVehicleRouteInput, Route, RouteHandle, SignalRegistry, Speed, VehicleHandle,
-    VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry, VehicleSpawnInput,
+    ParkingSpace, ParkingSpaceGeometry, ParkingSpaceHandle, RebindReservedVehicleRouteInput, Route,
+    RouteHandle, SignalRegistry, Speed, VehicleHandle, VehicleProfile, VehicleProfileHandle,
+    VehicleProfileRegistry, VehicleSpawnInput,
 };
 
 pub const FIXED_PARKING_COMMAND_COUNT: usize = 100;
@@ -58,20 +58,20 @@ fn profile_registry() -> (VehicleProfileRegistry, VehicleProfileHandle) {
     (registry, handle)
 }
 
-fn parking_space(id: impl Into<String>) -> ParkingSpaceInput {
-    ParkingSpaceInput::new(
+fn parking_space(id: impl Into<String>) -> ParkingSpace {
+    ParkingSpace::new(
         id,
         None,
         "A",
         20.0,
         "A",
         40.0,
-        ParkingSpaceGeometryInput::new(-3.0, 0.0, 5.0, 2.4),
+        ParkingSpaceGeometry::new(-3.0, 0.0, 5.0, 2.4),
     )
 }
 
 fn traffic_with_spaces(
-    spaces: impl IntoIterator<Item = ParkingSpaceInput>,
+    spaces: impl IntoIterator<Item = ParkingSpace>,
 ) -> (InitialTrafficData, VehicleProfileHandle) {
     let graph = LaneGraph::try_new([LaneEdge::new(
         "A",
@@ -200,32 +200,32 @@ pub fn parking_six_command_scenario(
     let spaces = (0..command_count).flat_map(|index| {
         let base = 100.0 + 40.0 * index as f64;
         [
-            ParkingSpaceInput::new(
+            ParkingSpace::new(
                 format!("cycle-{index:04}"),
                 None,
                 "A",
                 base,
                 "A",
                 base + 10.0,
-                ParkingSpaceGeometryInput::new(-3.0, 0.0, 5.0, 2.4),
+                ParkingSpaceGeometry::new(-3.0, 0.0, 5.0, 2.4),
             ),
-            ParkingSpaceInput::new(
+            ParkingSpace::new(
                 format!("dormant-{index:04}"),
                 None,
                 "B",
                 base,
                 "A",
                 base + 30.0,
-                ParkingSpaceGeometryInput::new(3.0, 0.0, 5.0, 2.4),
+                ParkingSpaceGeometry::new(3.0, 0.0, 5.0, 2.4),
             ),
-            ParkingSpaceInput::new(
+            ParkingSpace::new(
                 format!("spawn-{index:04}"),
                 None,
                 "B",
                 base + 20.0,
                 "B",
                 base + 30.0,
-                ParkingSpaceGeometryInput::new(-3.0, 0.0, 5.0, 2.4),
+                ParkingSpaceGeometry::new(-3.0, 0.0, 5.0, 2.4),
             ),
         ]
     });
@@ -430,12 +430,12 @@ pub fn parking_pathological_leave_scenario(
     let graph = LaneGraph::try_new([
         LaneEdge::new(
             "A",
-            EdgeLength::try_from(edge_length).expect("pathological A length"),
+            EdgeLength::try_new(edge_length).expect("pathological A length"),
             std::iter::empty::<&str>(),
         ),
         LaneEdge::new(
             "C",
-            EdgeLength::try_from(fast_edge_length).expect("pathological C length"),
+            EdgeLength::try_new(fast_edge_length).expect("pathological C length"),
             std::iter::empty::<&str>(),
         ),
     ])
@@ -443,14 +443,14 @@ pub fn parking_pathological_leave_scenario(
     let parking = ParkingRegistry::try_new(
         &graph,
         [],
-        [ParkingSpaceInput::new(
+        [ParkingSpace::new(
             "pathological-space",
             None,
             "A",
             exit_progress - 10.0,
             "A",
             exit_progress,
-            ParkingSpaceGeometryInput::new(-3.0, 0.0, 4.5, 2.4),
+            ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
         )],
     )
     .expect("pathological parking");
@@ -484,7 +484,7 @@ pub fn parking_pathological_leave_scenario(
             "fast-route",
             0,
             EdgeProgress::try_new(5.0 + 10.0 * index as f64).expect("fast progress"),
-            Speed::try_from(100.0 - (index % 100) as f64 * 0.5).expect("pathological speed"),
+            Speed::try_new(10_000_000.0 - index as f64).expect("pathological speed"),
         ));
     }
     let mut world =

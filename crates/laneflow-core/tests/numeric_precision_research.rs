@@ -14,9 +14,7 @@ use candidates::{
     SensitiveControlMixedMode, VEHICLE_COUNT, constant_addition, finite_candidate_value,
 };
 
-const PROGRESS_ERROR_CEILING_METERS: f64 = 0.01;
-const SPEED_ERROR_CEILING_METERS_PER_SECOND: f64 = 0.01;
-const ACCELERATION_ERROR_CEILING_METERS_PER_SECOND_SQUARED: f64 = 0.02;
+const F64_MODEL_EPSILON: f64 = 1.0e-8;
 
 fn core_world(
     vehicle_count: usize,
@@ -71,13 +69,13 @@ fn step_core(world: &mut CoreWorld) -> (Vec<(usize, usize)>, usize) {
     (projections, edge_changes)
 }
 
-fn assert_mixed_progress_model_matches_core(
+fn assert_f64_model_matches_core(
     vehicle_count: usize,
     scenario: CandidateScenario,
     layout: CandidateLayout,
 ) {
     let mut reference = core_world(vehicle_count, scenario, layout);
-    let mut candidate = CandidateWorld::<MixedF32Mode>::new(vehicle_count, scenario, layout);
+    let mut candidate = CandidateWorld::<F64Mode>::new(vehicle_count, scenario, layout);
     for _ in 0..STEP_COUNT {
         let (reference_projections, reference_edge_changes) = step_core(&mut reference);
         let summary = candidate.step();
@@ -99,56 +97,46 @@ fn assert_mixed_progress_model_matches_core(
             );
             assert!(
                 (candidate_state.edge_progress - reference_state.edge_progress.value()).abs()
-                    <= PROGRESS_ERROR_CEILING_METERS,
+                    <= F64_MODEL_EPSILON,
                 "scenario={scenario:?} layout={layout:?} index={index} candidate={candidate_state:?} reference={reference_state:?}"
             );
             assert!(
-                (candidate_state.current_speed - f64::from(reference_state.current_speed.value()))
-                    .abs()
-                    <= SPEED_ERROR_CEILING_METERS_PER_SECOND
+                (candidate_state.current_speed - reference_state.current_speed.value()).abs()
+                    <= F64_MODEL_EPSILON
             );
             assert!(
                 (candidate_state.applied_acceleration
-                    - f64::from(reference_state.applied_acceleration.value()))
+                    - reference_state.applied_acceleration.value())
                 .abs()
-                    <= ACCELERATION_ERROR_CEILING_METERS_PER_SECOND_SQUARED,
-                "scenario={scenario:?} layout={layout:?} index={index} candidate_acceleration={} reference_acceleration={}",
-                candidate_state.applied_acceleration,
-                reference_state.applied_acceleration.value(),
+                    <= F64_MODEL_EPSILON
             );
         }
     }
 }
 
 #[test]
-fn mixed_progress_model_matches_core_control_flow() {
-    for layout in CandidateLayout::EDGE_CAP_MATRIX
-        .into_iter()
-        .filter(|layout| layout.edge_cap().is_some())
-    {
+fn f64_research_model_matches_core_control_flow() {
+    for layout in CandidateLayout::EDGE_CAP_MATRIX {
         for scenario in [
             CandidateScenario::FreeFlow,
             CandidateScenario::DensePlatoon,
             CandidateScenario::StopAndGo,
         ] {
-            assert_mixed_progress_model_matches_core(256, scenario, layout);
+            assert_f64_model_matches_core(256, scenario, layout);
         }
     }
 }
 
 #[test]
-#[ignore = "10k mixed-progress candidate-oracle alignment is an explicit #144 G3 measurement"]
-fn mixed_progress_model_matches_core_at_10k() {
-    for layout in CandidateLayout::EDGE_CAP_MATRIX
-        .into_iter()
-        .filter(|layout| layout.edge_cap().is_some())
-    {
+#[ignore = "10k f64 candidate-oracle alignment is an explicit #122 research measurement"]
+fn f64_research_model_matches_core_at_10k() {
+    for layout in CandidateLayout::EDGE_CAP_MATRIX {
         for scenario in [
             CandidateScenario::FreeFlow,
             CandidateScenario::DensePlatoon,
             CandidateScenario::StopAndGo,
         ] {
-            assert_mixed_progress_model_matches_core(VEHICLE_COUNT, scenario, layout);
+            assert_f64_model_matches_core(VEHICLE_COUNT, scenario, layout);
         }
     }
 }

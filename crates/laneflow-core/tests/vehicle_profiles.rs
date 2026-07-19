@@ -1,11 +1,10 @@
 use std::{fmt::Debug, hash::Hash};
 
 use laneflow_core::{
-    CoreError, IidmProfileSpec, NumericConversionStage, RawIidmProfileSpec, VehicleProfile,
-    VehicleProfileHandle, VehicleProfileRegistry,
+    CoreError, IidmProfileSpec, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
 };
 
-const MIN_VEHICLE_LENGTH_INCLUSIVE_METERS: f32 = 0.1;
+const CURRENT_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
 fn canonical_spec() -> IidmProfileSpec {
     IidmProfileSpec {
@@ -16,19 +15,6 @@ fn canonical_spec() -> IidmProfileSpec {
         max_acceleration: 1.5,
         comfortable_deceleration: 2.0,
         emergency_deceleration: 6.0,
-    }
-}
-
-fn canonical_raw_spec() -> RawIidmProfileSpec {
-    let spec = canonical_spec();
-    RawIidmProfileSpec {
-        length: f64::from(spec.length),
-        desired_speed: f64::from(spec.desired_speed),
-        min_gap: f64::from(spec.min_gap),
-        time_headway: f64::from(spec.time_headway),
-        max_acceleration: f64::from(spec.max_acceleration),
-        comfortable_deceleration: f64::from(spec.comfortable_deceleration),
-        emergency_deceleration: f64::from(spec.emergency_deceleration),
     }
 }
 
@@ -62,9 +48,9 @@ fn profile_external_id_uses_shared_ascii_token_rule() {
 #[test]
 fn profile_rejects_non_finite_and_non_positive_values() {
     let cases = [
-        ("length", f32::NAN),
-        ("desiredSpeed", f32::INFINITY),
-        ("timeHeadway", f32::NEG_INFINITY),
+        ("length", f64::NAN),
+        ("desiredSpeed", f64::INFINITY),
+        ("timeHeadway", f64::NEG_INFINITY),
         ("maxAcceleration", 0.0),
         ("comfortableDeceleration", -1.0),
         ("emergencyDeceleration", 0.0),
@@ -97,14 +83,19 @@ fn profile_rejects_non_finite_and_non_positive_values() {
 }
 
 #[test]
-fn profile_length_uses_inclusive_product_minimum() {
-    for length in [-0.0, 0.0, MIN_VEHICLE_LENGTH_INCLUSIVE_METERS.next_down()] {
+fn profile_length_must_exceed_its_domain_minimum() {
+    for length in [
+        -0.0,
+        0.0,
+        CURRENT_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS.next_down(),
+        CURRENT_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS,
+    ] {
         let spec = IidmProfileSpec {
             length,
             ..canonical_spec()
         };
         let error = VehicleProfile::try_new_iidm("profile", spec)
-            .expect_err("length below product minimum must fail");
+            .expect_err("length at or below epsilon must fail");
 
         std::assert_matches!(
             error,
@@ -115,59 +106,16 @@ fn profile_length_uses_inclusive_product_minimum() {
                 ..
             } if field == "length"
                 && value == length
-                && requirement.contains("0.1..=128")
+                && requirement.contains("GEOMETRY_GAP_EPSILON")
         );
     }
 
     let adjacent_valid = IidmProfileSpec {
-        length: MIN_VEHICLE_LENGTH_INCLUSIVE_METERS,
+        length: CURRENT_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS.next_up(),
         ..canonical_spec()
     };
     VehicleProfile::try_new_iidm("adjacent-valid", adjacent_valid)
-        .expect("inclusive product minimum must pass");
-}
-
-#[test]
-fn raw_profile_boundaries_are_checked_before_f32_rounding() {
-    let cases = [
-        ("length", 0.1_f64.next_down()),
-        ("length", 128.0_f64.next_up()),
-        ("desiredSpeed", 100.0_f64.next_up()),
-        ("minGap", 128.0_f64.next_up()),
-        ("timeHeadway", 60.0_f64.next_up()),
-        ("maxAcceleration", 50.0_f64.next_up()),
-        ("comfortableDeceleration", 50.0_f64.next_up()),
-        ("emergencyDeceleration", 50.0_f64.next_up()),
-    ];
-
-    for (field, value) in cases {
-        let mut raw = canonical_raw_spec();
-        match field {
-            "length" => raw.length = value,
-            "desiredSpeed" => raw.desired_speed = value,
-            "minGap" => raw.min_gap = value,
-            "timeHeadway" => raw.time_headway = value,
-            "maxAcceleration" => raw.max_acceleration = value,
-            "comfortableDeceleration" => raw.comfortable_deceleration = value,
-            "emergencyDeceleration" => raw.emergency_deceleration = value,
-            _ => unreachable!(),
-        }
-        std::assert_matches!(
-            VehicleProfile::try_new_iidm_from_f64("profile", raw),
-            Err(CoreError::InvalidVehicleProfileInput {
-                field: actual_field,
-                value: actual_value,
-                stage: NumericConversionStage::RawInput,
-                ..
-            }) if actual_field == field && actual_value == value
-        );
-    }
-
-    let mut raw = canonical_raw_spec();
-    raw.min_gap = -0.0;
-    let profile = VehicleProfile::try_new_iidm_from_f64("signed-zero", raw)
-        .expect("nonnegative min gap accepts signed zero");
-    assert_eq!(profile.iidm().min_gap.to_bits(), 0.0_f32.to_bits());
+        .expect("value adjacent above the exclusive minimum must pass");
 }
 
 #[test]
@@ -178,7 +126,7 @@ fn profile_min_gap_allows_zero_but_rejects_negative_or_non_finite() {
     };
     VehicleProfile::try_new_iidm("zero-gap", zero_gap).expect("zero min gap is valid");
 
-    for min_gap in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+    for min_gap in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         let spec = IidmProfileSpec {
             min_gap,
             ..canonical_spec()

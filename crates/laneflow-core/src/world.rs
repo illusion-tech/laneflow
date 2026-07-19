@@ -272,40 +272,6 @@ struct ParkingStepRelease {
     space: crate::ParkingSpaceHandle,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct NonFiniteLeaderError {
-    vehicle: VehicleHandle,
-    stage: &'static str,
-    value: f64,
-}
-
-impl From<NonFiniteLeaderError> for CoreError {
-    fn from(error: NonFiniteLeaderError) -> Self {
-        Self::NonFiniteLeaderComputation {
-            vehicle: error.vehicle,
-            stage: error.stage,
-            value: error.value,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct NonFiniteSignalStopError {
-    vehicle: VehicleHandle,
-    stage: &'static str,
-    value: f64,
-}
-
-impl From<NonFiniteSignalStopError> for CoreError {
-    fn from(error: NonFiniteSignalStopError) -> Self {
-        Self::NonFiniteSignalStopComputation {
-            vehicle: error.vehicle,
-            stage: error.stage,
-            value: error.value,
-        }
-    }
-}
-
 fn parking_arrived_state(
     vehicle: &VehicleState,
     target: Option<ParkingApproachTarget>,
@@ -779,7 +745,7 @@ impl CoreWorld {
         let removed_speed = state.current_speed.value();
         let occupant = CommandOccupant {
             vehicle,
-            front_progress: state.edge_progress,
+            front_progress: state.edge_progress.value(),
         };
         let mut spatial = std::mem::take(&mut self.command_spatial_index);
         let vehicles = &self.vehicles;
@@ -1215,7 +1181,7 @@ impl CoreWorld {
         }
         let occupant = CommandOccupant {
             vehicle: input.vehicle,
-            front_progress: EdgeProgress::try_new(exit.progress()).expect("exit is canonical"),
+            front_progress: exit.progress(),
         };
         let mut spatial = std::mem::take(&mut self.command_spatial_index);
         let vehicles = &self.vehicles;
@@ -1480,7 +1446,7 @@ impl CoreWorld {
     fn build_route_signal_metadata(
         &self,
         edge_handles: &[EdgeHandle],
-        edge_lengths: &[f32],
+        edge_lengths: &[f64],
     ) -> (
         Vec<RouteTransition>,
         Vec<Option<NextControlledRouteTransition>>,
@@ -1498,7 +1464,7 @@ impl CoreWorld {
         let mut next_controlled_transition = vec![None; edge_handles.len()];
         let mut next = None;
         for route_edge_index in (0..edge_handles.len()).rev() {
-            let edge_length = f64::from(edge_lengths[route_edge_index]);
+            let edge_length = edge_lengths[route_edge_index];
             if let Some(gate) = transitions
                 .get(route_edge_index)
                 .and_then(|transition| transition.gate)
@@ -1632,7 +1598,7 @@ impl CoreWorld {
                 self.routes[route.index()].edge_handles[normalized.route_edge_index],
                 CommandOccupant {
                     vehicle: handle,
-                    front_progress: normalized.edge_progress,
+                    front_progress: normalized.edge_progress.value(),
                 },
             )
         });
@@ -1758,7 +1724,7 @@ impl CoreWorld {
                     self.routes[route.index()].edge_handles[state.route_edge_index],
                     CommandOccupant {
                         vehicle: handle,
-                        front_progress: state.edge_progress,
+                        front_progress: state.edge_progress.value(),
                     },
                 )
             });
@@ -1950,7 +1916,7 @@ impl CoreWorld {
                     self.vehicle_edge(vehicle),
                     CommandOccupant {
                         vehicle: vehicle.handle,
-                        front_progress: vehicle.edge_progress,
+                        front_progress: vehicle.edge_progress.value(),
                     },
                 )
             })
@@ -1961,12 +1927,7 @@ impl CoreWorld {
             left.0
                 .index()
                 .cmp(&right.0.index())
-                .then_with(|| {
-                    left.1
-                        .front_progress
-                        .value()
-                        .total_cmp(&right.1.front_progress.value())
-                })
+                .then_with(|| left.1.front_progress.total_cmp(&right.1.front_progress))
                 .then_with(|| left.1.vehicle.index().cmp(&right.1.vehicle.index()))
                 .then_with(|| {
                     left.1
@@ -2188,7 +2149,7 @@ impl CoreWorld {
             fixed_delta_time_ms: self.fixed_delta_time_ms,
             tick_index: next_tick_index,
         };
-        let mut candidate_max_vehicle_speed = 0.0_f32;
+        let mut candidate_max_vehicle_speed = 0.0_f64;
         let advance_result = (|| {
             let CandidateStateScratch {
                 states,
@@ -2229,9 +2190,7 @@ impl CoreWorld {
                         None,
                         &mut events,
                         spatial_changes,
-                    )
-                    .map_err(|error| *error)?
-                    {
+                    )? {
                         events.push(CoreEvent::VehicleCompletedRoute(completed_event));
                     }
                     #[cfg(test)]
@@ -2316,8 +2275,7 @@ impl CoreWorld {
                     parking_stop,
                     &mut events,
                     spatial_changes,
-                )
-                .map_err(|error| *error)?;
+                )?;
                 if let Some(space) = reserved_space {
                     if let Some(completed_event) = completed_event {
                         if reserved_target.is_some() {
@@ -2447,7 +2405,7 @@ impl CoreWorld {
                 self.vehicle_edge(vehicle),
                 CommandOccupant {
                     vehicle: vehicle.handle,
-                    front_progress: vehicle.edge_progress,
+                    front_progress: vehicle.edge_progress.value(),
                 },
             );
         }
@@ -2465,7 +2423,7 @@ impl CoreWorld {
                     routes[state.route.index()].edge_handles[state.route_edge_index],
                     CommandOccupant {
                         vehicle: state.handle,
-                        front_progress: state.edge_progress,
+                        front_progress: state.edge_progress.value(),
                     },
                 )
             })
@@ -2656,13 +2614,12 @@ impl CoreWorld {
             space,
             self.command_spatial_index.max_vehicle_speed(),
             self.command_spatial_index.min_emergency_deceleration(),
-            self.fixed_delta_time_ms as f32 / 1_000.0,
+            self.fixed_delta_time_ms as f64 / 1_000.0,
         )?;
-        let candidate_length_f64 = f64::from(candidate_length);
-        let reverse_horizon = if candidate_length_f64 > f64::MAX - emergency_horizon {
+        let reverse_horizon = if candidate_length > f64::MAX - emergency_horizon {
             f64::MAX
         } else {
-            candidate_length_f64 + emergency_horizon
+            candidate_length + emergency_horizon
         };
         let mut spatial = std::mem::take(&mut self.command_spatial_index);
         let mut resolve_progress = |handle| {
@@ -2688,7 +2645,7 @@ impl CoreWorld {
             space,
             candidate_edge,
             candidate.edge_progress.value(),
-            candidate_length_f64,
+            candidate_length,
             spatial.candidates(),
         );
         self.command_spatial_index = spatial;
@@ -2724,7 +2681,7 @@ impl CoreWorld {
                 space,
                 follower.current_speed.value(),
                 follower_profile.emergency_deceleration,
-                self.fixed_delta_time_ms as f32 / 1_000.0,
+                self.fixed_delta_time_ms as f64 / 1_000.0,
             )?;
             let follower_horizon = if candidate_length > f64::MAX - emergency_travel {
                 f64::MAX
@@ -2802,7 +2759,7 @@ impl CoreWorld {
             space,
             candidate_edge,
             candidate.edge_progress.value(),
-            f64::from(candidate_length),
+            candidate_length,
             &handles,
         )
     }
@@ -2875,9 +2832,9 @@ impl CoreWorld {
                 candidate.edge_progress.value(),
                 existing_edge,
                 existing.edge_progress.value(),
-                f64::from(existing_length),
+                existing_length,
             ) {
-                let bumper_gap = front_distance - f64::from(existing_length);
+                let bumper_gap = front_distance - existing_length;
                 if physical_gap_is_overlap(bumper_gap) {
                     return Err(CoreError::VehiclePhysicalOverlap {
                         follower_id: candidate_id.to_owned(),
@@ -2893,9 +2850,9 @@ impl CoreWorld {
                 existing.edge_progress.value(),
                 candidate_edge,
                 candidate.edge_progress.value(),
-                f64::from(candidate_length),
+                candidate_length,
             ) {
-                let bumper_gap = front_distance - f64::from(candidate_length);
+                let bumper_gap = front_distance - candidate_length;
                 if physical_gap_is_overlap(bumper_gap) {
                     return Err(CoreError::VehiclePhysicalOverlap {
                         follower_id: existing_id.to_owned(),
@@ -2959,9 +2916,8 @@ impl CoreWorld {
             for pair in scratch.edge(EdgeHandle::new(edge_index)).windows(2) {
                 let follower = pair[0];
                 let leader = pair[1];
-                let bumper_gap = leader.front_progress.value()
-                    - follower.front_progress.value()
-                    - f64::from(leader.vehicle_length);
+                let bumper_gap =
+                    leader.front_progress - follower.front_progress - leader.vehicle_length;
                 if physical_gap_is_overlap(bumper_gap) {
                     return Err(self.vehicle_overlap_error(
                         follower.vehicle,
@@ -2984,12 +2940,12 @@ impl CoreWorld {
             }
 
             if let Some(observation) = self.find_leader(scratch, vehicle, 0.0)?
-                && physical_gap_is_overlap(f64::from(observation.bumper_gap))
+                && physical_gap_is_overlap(observation.bumper_gap)
             {
                 return Err(self.vehicle_overlap_error(
                     handle,
                     observation.leader,
-                    f64::from(observation.bumper_gap),
+                    observation.bumper_gap,
                 ));
             }
         }
@@ -3061,7 +3017,7 @@ impl CoreWorld {
         let mut scratch = std::mem::take(&mut self.longitudinal_scratch);
         let result = (|| {
             scratch.begin(self.vehicles.len());
-            let delta_time = self.fixed_delta_time_ms as f32 / 1_000.0;
+            let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
 
             for (update_sequence, handle) in self.vehicle_update_order.iter().enumerate() {
                 let Some(vehicle) = self.vehicle(handle) else {
@@ -3108,8 +3064,8 @@ impl CoreWorld {
                             leader,
                             delta_time,
                         )?;
-                        let route_end_distance = self
-                            .route_end_distance_within(vehicle, f64::from(motion.final_travel()));
+                        let route_end_distance =
+                            self.route_end_distance_within(vehicle, motion.final_travel());
                         let parking_stop = if PARKING_ACTIVE {
                             self.parking_stop_within(vehicle, profile)?
                         } else {
@@ -3221,7 +3177,7 @@ impl CoreWorld {
             .edge_length(route.edge_handles[vehicle.route_edge_index])
             .expect("route edge must exist")
             .value();
-        let remaining_on_edge = f64::from(current_edge_length) - vehicle.edge_progress.value();
+        let remaining_on_edge = current_edge_length - vehicle.edge_progress.value();
         if remaining_on_edge > horizon {
             return None;
         }
@@ -3233,7 +3189,7 @@ impl CoreWorld {
             .edge_length(*next_edge)
             .expect("route edge must exist")
             .value();
-        if f64::from(next_edge_length) > horizon - remaining_on_edge {
+        if next_edge_length > horizon - remaining_on_edge {
             return None;
         }
         match self.route_distance_indices[vehicle.route.index()].distance_to_end_within(
@@ -3291,7 +3247,7 @@ impl CoreWorld {
                 edge,
                 Occupant {
                     vehicle: handle,
-                    front_progress: vehicle.edge_progress,
+                    front_progress: vehicle.edge_progress.value(),
                     vehicle_length,
                     update_sequence: u64::try_from(update_sequence)
                         .expect("vehicle update sequence must fit in u64"),
@@ -3312,19 +3268,18 @@ impl CoreWorld {
             .vehicle_profile(vehicle.profile)
             .expect("live vehicle profile must exist")
             .iidm();
-        let speed = f64::from(vehicle.current_speed.value());
+        let speed = vehicle.current_speed.value();
         let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
-        let upper_speed = speed + f64::from(profile.max_acceleration) * delta_time;
+        let upper_speed = speed + profile.max_acceleration * delta_time;
         Self::finite_leader_value(vehicle.handle, "upper_speed", upper_speed)?;
         let travel_upper =
             Self::half_product(speed, delta_time) + Self::half_product(upper_speed, delta_time);
         Self::finite_leader_value(vehicle.handle, "travel_upper", travel_upper)?;
-        let braking_distance =
-            Self::braking_distance(upper_speed, f64::from(profile.emergency_deceleration));
+        let braking_distance = Self::braking_distance(upper_speed, profile.emergency_deceleration);
         Self::finite_leader_value(vehicle.handle, "braking_distance", braking_distance)?;
         let hard_horizon = travel_upper + braking_distance;
         Self::finite_leader_value(vehicle.handle, "hard_horizon", hard_horizon)?;
-        let comfort_horizon = f64::from(profile.min_gap) + speed * f64::from(profile.time_headway);
+        let comfort_horizon = profile.min_gap + speed * profile.time_headway;
         Self::finite_leader_value(vehicle.handle, "comfort_horizon", comfort_horizon)?;
 
         Ok(hard_horizon.max(comfort_horizon))
@@ -3335,12 +3290,12 @@ impl CoreWorld {
         vehicle: &VehicleState,
         profile: crate::IidmProfileSpec,
     ) -> Result<f64, CoreError> {
-        let speed = f64::from(vehicle.current_speed.value());
+        let speed = vehicle.current_speed.value();
         let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
         let upper_speed = Self::finite_signal_stop_value(
             vehicle.handle,
             "signal_upper_speed",
-            speed + f64::from(profile.max_acceleration) * delta_time,
+            speed + profile.max_acceleration * delta_time,
         )?;
         let travel_upper = Self::finite_signal_stop_value(
             vehicle.handle,
@@ -3350,7 +3305,7 @@ impl CoreWorld {
         let comfortable_braking_distance = Self::finite_signal_stop_value(
             vehicle.handle,
             "signal_comfortable_braking_distance",
-            Self::braking_distance(upper_speed, f64::from(profile.comfortable_deceleration)),
+            Self::braking_distance(upper_speed, profile.comfortable_deceleration),
         )?;
         let comfortable_horizon = Self::finite_signal_stop_value(
             vehicle.handle,
@@ -3378,11 +3333,11 @@ impl CoreWorld {
                 })
             }
         };
-        let speed = f64::from(vehicle.current_speed.value());
+        let speed = vehicle.current_speed.value();
         let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
         let upper_speed = finite(
             "parking_upper_speed",
-            speed + f64::from(profile.max_acceleration) * delta_time,
+            speed + profile.max_acceleration * delta_time,
         )?;
         let travel_upper = finite(
             "parking_travel_upper",
@@ -3390,7 +3345,7 @@ impl CoreWorld {
         )?;
         let braking_distance = finite(
             "parking_comfortable_braking_distance",
-            Self::braking_distance(upper_speed, f64::from(profile.comfortable_deceleration)),
+            Self::braking_distance(upper_speed, profile.comfortable_deceleration),
         )?;
         finite(
             "parking_comfortable_horizon",
@@ -3472,7 +3427,7 @@ impl CoreWorld {
         bumper_gap_horizon: f64,
     ) -> Result<Option<LeaderObservation>, CoreError> {
         Self::finite_leader_value(follower.handle, "bumper_gap_horizon", bumper_gap_horizon)?;
-        let front_horizon = bumper_gap_horizon + f64::from(scratch.max_vehicle_length());
+        let front_horizon = bumper_gap_horizon + scratch.max_vehicle_length();
         Self::finite_leader_value(follower.handle, "front_horizon", front_horizon)?;
 
         let route = self
@@ -3481,20 +3436,18 @@ impl CoreWorld {
         let current_edge = route.edge_handles[follower.route_edge_index];
         let current_occupants = scratch.edge(current_edge);
         // 相同 front progress 是非法物理重叠；update sequence 只形成确定排序，不能把 tie 合法化为 leader。
-        let first_strictly_ahead = current_occupants.partition_point(|occupant| {
-            occupant.front_progress.value() <= follower.edge_progress.value()
-        });
+        let first_strictly_ahead = current_occupants
+            .partition_point(|occupant| occupant.front_progress <= follower.edge_progress.value());
         for occupant in &current_occupants[first_strictly_ahead..] {
             if occupant.vehicle == follower.handle {
                 continue;
             }
-            let front_distance = occupant.front_progress.value() - follower.edge_progress.value();
-            let bumper_gap =
-                normalize_physical_gap(front_distance - f64::from(occupant.vehicle_length));
+            let front_distance = occupant.front_progress - follower.edge_progress.value();
+            let bumper_gap = normalize_physical_gap(front_distance - occupant.vehicle_length);
             if bumper_gap <= bumper_gap_horizon {
                 return Ok(Some(LeaderObservation {
                     leader: occupant.vehicle,
-                    bumper_gap: bumper_gap as f32,
+                    bumper_gap,
                 }));
             }
             break;
@@ -3505,8 +3458,7 @@ impl CoreWorld {
             .edge_length(current_edge)
             .expect("route edge must exist")
             .value();
-        let mut distance_to_edge_start =
-            f64::from(current_edge_length) - follower.edge_progress.value();
+        let mut distance_to_edge_start = current_edge_length - follower.edge_progress.value();
 
         for edge in route
             .edge_handles
@@ -3528,16 +3480,15 @@ impl CoreWorld {
                     continue;
                 }
                 let remaining = front_horizon - distance_to_edge_start;
-                if occupant.front_progress.value() > remaining {
+                if occupant.front_progress > remaining {
                     break;
                 }
-                let front_distance = distance_to_edge_start + occupant.front_progress.value();
-                let bumper_gap =
-                    normalize_physical_gap(front_distance - f64::from(occupant.vehicle_length));
+                let front_distance = distance_to_edge_start + occupant.front_progress;
+                let bumper_gap = normalize_physical_gap(front_distance - occupant.vehicle_length);
                 if bumper_gap <= bumper_gap_horizon {
                     return Ok(Some(LeaderObservation {
                         leader: occupant.vehicle,
-                        bumper_gap: bumper_gap as f32,
+                        bumper_gap,
                     }));
                 }
             }
@@ -3547,10 +3498,10 @@ impl CoreWorld {
                 .edge_length(edge)
                 .expect("route edge must exist")
                 .value();
-            if f64::from(edge_length) > front_horizon - distance_to_edge_start {
+            if edge_length > front_horizon - distance_to_edge_start {
                 break;
             }
-            distance_to_edge_start += f64::from(edge_length);
+            distance_to_edge_start += edge_length;
         }
 
         Ok(None)
@@ -3560,9 +3511,9 @@ impl CoreWorld {
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
-    ) -> Result<f64, NonFiniteLeaderError> {
+    ) -> Result<f64, CoreError> {
         if !value.is_finite() {
-            return Err(NonFiniteLeaderError {
+            return Err(CoreError::NonFiniteLeaderComputation {
                 vehicle,
                 stage,
                 value,
@@ -3575,9 +3526,9 @@ impl CoreWorld {
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
-    ) -> Result<f64, NonFiniteSignalStopError> {
+    ) -> Result<f64, CoreError> {
         if !value.is_finite() {
-            return Err(NonFiniteSignalStopError {
+            return Err(CoreError::NonFiniteSignalStopComputation {
                 vehicle,
                 stage,
                 value,
@@ -3633,7 +3584,7 @@ impl CoreWorld {
             .lane_graph
             .edge_length(edge)
             .expect("validated route edge must exist");
-        if input.edge_progress.value() > f64::from(edge_length.value()) {
+        if input.edge_progress.value() > edge_length.value() {
             return Err(CoreError::VehicleEdgeProgressOutOfRange {
                 vehicle_id: input.id.clone(),
                 edge_id: self
@@ -3642,7 +3593,7 @@ impl CoreWorld {
                     .expect("validated route edge must exist")
                     .to_owned(),
                 edge_progress: input.edge_progress.value(),
-                edge_length: f64::from(edge_length.value()),
+                edge_length: edge_length.value(),
             });
         }
 
@@ -3650,7 +3601,7 @@ impl CoreWorld {
             return Err(CoreError::InvalidInactiveVehicleMotion {
                 vehicle_id: input.id.clone(),
                 status: input.status,
-                initial_speed: f64::from(input.initial_speed.value()),
+                initial_speed: input.initial_speed.value(),
             });
         }
 
@@ -3659,7 +3610,7 @@ impl CoreWorld {
             let expected_route_edge_index = route_slot.edge_handles.len() - 1;
             if input.route_edge_index != expected_route_edge_index
                 || input.edge_progress.value() + EDGE_BOUNDARY_TOLERANCE_METERS
-                    < f64::from(edge_length.value())
+                    < edge_length.value()
             {
                 return Err(CoreError::InvalidCompletedVehicleState {
                     vehicle_id: input.id.clone(),
@@ -3667,12 +3618,12 @@ impl CoreWorld {
                     route_edge_index: input.route_edge_index,
                     expected_route_edge_index,
                     edge_progress: input.edge_progress.value(),
-                    edge_length: f64::from(edge_length.value()),
+                    edge_length: edge_length.value(),
                 });
             }
 
-            edge_progress = EdgeProgress::try_new(f64::from(edge_length.value()))
-                .expect("edge length is valid");
+            edge_progress =
+                EdgeProgress::try_new(edge_length.value()).expect("edge length is valid");
         }
 
         Ok(NormalizedVehicleInput {
@@ -3691,12 +3642,12 @@ impl CoreWorld {
         parking_stop: Option<ParkingStopConstraint>,
         events: &mut Vec<CoreEvent>,
         spatial_changes: &mut Vec<VehicleHandle>,
-    ) -> Result<Option<VehicleCompletedRouteEvent>, Box<CoreError>> {
+    ) -> Result<Option<VehicleCompletedRouteEvent>, CoreError> {
         if vehicle.status != VehicleStatus::Active {
             return Ok(None);
         }
 
-        let delta_time_seconds = context.fixed_delta_time_ms as f32 / 1_000.0;
+        let delta_time_seconds = context.fixed_delta_time_ms as f64 / 1_000.0;
         vehicle.current_speed =
             Speed::try_new(motion.final_speed()).expect("longitudinal motion speed must be valid");
         vehicle.applied_acceleration =
@@ -3738,7 +3689,7 @@ impl CoreWorld {
             ));
         }
 
-        let travel_distance = f64::from(motion.final_travel());
+        let travel_distance = motion.final_travel();
         if travel_distance <= EDGE_BOUNDARY_TOLERANCE_METERS
             && !motion.reaches_route_end()
             && !(PARKING_ACTIVE
@@ -3753,7 +3704,6 @@ impl CoreWorld {
             .filter(|route| route.active && route.generation == vehicle.route.generation())
             .expect("validated vehicle route must exist");
         let max_iterations = route.edge_handles.len() - vehicle.route_edge_index;
-        let mut candidate_progress = vehicle.edge_progress.advance(motion.final_travel())?;
         let mut remaining = travel_distance;
         let mut completed_event = None;
 
@@ -3768,8 +3718,8 @@ impl CoreWorld {
                         .edge_length(current_edge)
                         .expect("validated route edge must exist")
                         .value();
-                    vehicle.edge_progress = EdgeProgress::try_new(f64::from(edge_length))
-                        .expect("edge length is valid progress");
+                    vehicle.edge_progress =
+                        EdgeProgress::try_new(edge_length).expect("edge length is valid progress");
                     vehicle.current_speed = Speed::ZERO;
                     vehicle.applied_acceleration = Acceleration::ZERO;
                     vehicle.status = VehicleStatus::Completed;
@@ -3795,16 +3745,15 @@ impl CoreWorld {
             let edge_length = context
                 .lane_graph
                 .edge_length(current_edge)
-                .expect("validated route edge must exist");
-            let edge_length_value = f64::from(edge_length.value());
-            let next_progress = candidate_progress.value();
+                .expect("validated route edge must exist")
+                .value();
+            let next_progress = vehicle.edge_progress.value() + remaining;
             if !next_progress.is_finite() {
                 return Err(CoreError::NonFiniteRouteTravel {
                     vehicle: vehicle.handle,
-                    speed: f64::from(motion.final_speed()),
+                    speed: motion.final_speed(),
                     delta_time_ms: context.fixed_delta_time_ms,
-                }
-                .into());
+                });
             }
 
             if PARKING_ACTIVE
@@ -3818,9 +3767,7 @@ impl CoreWorld {
                     longitudinal_constraint_reached(next_progress, stop.entry_progress);
                 if crosses_boundary
                     || (reaches_boundary
-                        && computed_speed_is_above_near_zero(f64::from(
-                            vehicle.current_speed.value(),
-                        )))
+                        && computed_speed_is_above_near_zero(vehicle.current_speed.value()))
                 {
                     return Err(CoreError::ParkingTraversalBoundaryInvariant {
                         vehicle: vehicle.handle,
@@ -3828,9 +3775,8 @@ impl CoreWorld {
                         route: stop.route,
                         route_edge_index: stop.route_edge_index,
                         remaining_travel: (next_progress - stop.entry_progress).max(0.0),
-                        final_speed: f64::from(vehicle.current_speed.value()),
-                    }
-                    .into());
+                        final_speed: vehicle.current_speed.value(),
+                    });
                 }
                 if reaches_boundary {
                     vehicle.edge_progress = EdgeProgress::try_new(stop.entry_progress)
@@ -3841,18 +3787,17 @@ impl CoreWorld {
                 }
             }
 
-            if next_progress + EDGE_BOUNDARY_TOLERANCE_METERS < edge_length_value {
-                vehicle.edge_progress = candidate_progress;
+            if next_progress + EDGE_BOUNDARY_TOLERANCE_METERS < edge_length {
+                vehicle.edge_progress =
+                    EdgeProgress::try_new(next_progress).expect("progress remains valid");
                 break;
             }
 
-            let remainder = next_progress - edge_length_value;
+            let remainder = next_progress - edge_length;
             remaining = if is_edge_boundary_remainder_zero(remainder) {
-                candidate_progress = EdgeProgress::ZERO;
                 0.0
             } else {
-                candidate_progress = candidate_progress.rebase_after_edge(edge_length)?;
-                candidate_progress.value()
+                remainder
             };
 
             if vehicle.route_edge_index + 1 < route.edge_handles.len() {
@@ -3881,9 +3826,7 @@ impl CoreWorld {
                 });
                 if let Some(gate) = denied_gate {
                     if remaining > EDGE_BOUNDARY_TOLERANCE_METERS
-                        || computed_speed_is_above_near_zero(f64::from(
-                            vehicle.current_speed.value(),
-                        ))
+                        || computed_speed_is_above_near_zero(vehicle.current_speed.value())
                     {
                         return Err(CoreError::SignalTraversalDeniedInvariant {
                             vehicle: vehicle.handle,
@@ -3892,12 +3835,11 @@ impl CoreWorld {
                             to_route_edge_index,
                             gate: gate.key(),
                             remaining_travel: remaining,
-                            final_speed: f64::from(vehicle.current_speed.value()),
-                        }
-                        .into());
+                            final_speed: vehicle.current_speed.value(),
+                        });
                     }
-                    vehicle.edge_progress = EdgeProgress::try_new(edge_length_value)
-                        .expect("edge length is valid progress");
+                    vehicle.edge_progress =
+                        EdgeProgress::try_new(edge_length).expect("edge length is valid progress");
                     break;
                 }
 
@@ -3920,8 +3862,8 @@ impl CoreWorld {
                 vehicle.route_edge_index = to_route_edge_index;
                 vehicle.edge_progress = EdgeProgress::ZERO;
             } else {
-                vehicle.edge_progress = EdgeProgress::try_new(edge_length_value)
-                    .expect("edge length is valid progress");
+                vehicle.edge_progress =
+                    EdgeProgress::try_new(edge_length).expect("edge length is valid progress");
                 vehicle.current_speed = Speed::ZERO;
                 vehicle.applied_acceleration = Acceleration::ZERO;
                 vehicle.status = VehicleStatus::Completed;
@@ -3968,13 +3910,12 @@ fn parking_emergency_travel(
     stage: &'static str,
     vehicle: VehicleHandle,
     space: crate::ParkingSpaceHandle,
-    speed: f32,
-    emergency_deceleration: f32,
-    delta_time: f32,
+    speed: f64,
+    emergency_deceleration: f64,
+    delta_time: f64,
 ) -> Result<f64, CoreError> {
-    emergency_min_travel(vehicle, speed, emergency_deceleration, delta_time)
-        .map(f64::from)
-        .map_err(|error| match error {
+    emergency_min_travel(vehicle, speed, emergency_deceleration, delta_time).map_err(|error| {
+        match error {
             CoreError::NonFiniteLongitudinalComputation { value, .. } => {
                 CoreError::NonFiniteParkingComputation {
                     stage,
@@ -3984,7 +3925,8 @@ fn parking_emergency_travel(
                 }
             }
             error => error,
-        })
+        }
+    })
 }
 
 #[cfg(test)]
@@ -4000,9 +3942,8 @@ mod tests {
     use super::*;
     use crate::{
         CoreError, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge,
-        ParkingArea, ParkingSpaceGeometryInput, ParkingSpaceInput, SignalRegistry, Speed,
-        TickInput, VehicleParkingState, VehicleProfile, VehicleProfileHandle,
-        VehicleProfileRegistry,
+        ParkingArea, ParkingSpace, ParkingSpaceGeometry, SignalRegistry, Speed, TickInput,
+        VehicleParkingState, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
     };
     use proptest::prelude::*;
 
@@ -4035,40 +3976,26 @@ mod tests {
         (traffic_data, profile)
     }
 
-    const SCALE_VEHICLES_PER_EDGE: usize = 999;
-
-    fn scale_chain_graph(prefix: &str, edge_count: usize) -> (LaneGraph, Vec<String>) {
-        let edge_ids = (0..edge_count)
-            .map(|index| format!("{prefix}-{index:06}"))
-            .collect::<Vec<_>>();
-        let graph = LaneGraph::try_new(edge_ids.iter().enumerate().map(|(index, edge_id)| {
-            LaneEdge::new(
-                edge_id.clone(),
-                EdgeLength::try_new(10_000.0).expect("scale edge length"),
-                edge_ids.get(index + 1).into_iter().cloned(),
-            )
-        }))
-        .expect("scale graph");
-        (graph, edge_ids)
-    }
-
     fn lifecycle_scale_world(vehicle_count: usize) -> CoreWorld {
-        let edge_count = vehicle_count.div_ceil(SCALE_VEHICLES_PER_EDGE);
-        let (lane_graph, edge_ids) = scale_chain_graph("lifecycle-edge", edge_count);
+        let edge_length = 10.0 * vehicle_count as f64 + 100.0;
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(edge_length).expect("scale edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("scale graph");
         let (traffic_data, profile) = traffic_data(
             lane_graph,
-            [Route::try_new("R", edge_ids).expect("scale route")],
+            [Route::try_new("R", ["A"]).expect("scale route")],
         );
         let vehicles = (0..vehicle_count)
             .map(|index| {
-                let route_edge_index = index / SCALE_VEHICLES_PER_EDGE;
-                let local_index = index % SCALE_VEHICLES_PER_EDGE;
                 VehicleSpawnInput::active(
                     format!("V{index:06}"),
                     profile,
                     "R",
-                    route_edge_index,
-                    EdgeProgress::try_new(5.0 + 10.0 * local_index as f64).expect("scale progress"),
+                    0,
+                    EdgeProgress::try_new(5.0 + 10.0 * index as f64).expect("scale progress"),
                     Speed::ZERO,
                 )
             })
@@ -4077,29 +4004,32 @@ mod tests {
     }
 
     fn parking_retained_scale_world(vehicle_count: usize) -> CoreWorld {
-        let edge_count = vehicle_count.div_ceil(SCALE_VEHICLES_PER_EDGE);
-        let (lane_graph, edge_ids) = scale_chain_graph("parking-retained-edge", edge_count);
+        let edge_length = 10.0 * vehicle_count as f64 + 100.0;
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(edge_length).expect("parking retained edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("parking retained graph");
         let parking = ParkingRegistry::try_new(
             &lane_graph,
             [],
             (0..vehicle_count).map(|index| {
-                let edge_id = &edge_ids[index / SCALE_VEHICLES_PER_EDGE];
-                let local_index = index % SCALE_VEHICLES_PER_EDGE;
-                ParkingSpaceInput::new(
+                ParkingSpace::new(
                     format!("S{index:06}"),
                     None,
-                    edge_id,
-                    1.0 + 10.0 * local_index as f64,
-                    edge_id,
-                    2.0 + 10.0 * local_index as f64,
-                    ParkingSpaceGeometryInput::new(-3.0, 0.0, 5.0, 2.4),
+                    "A",
+                    1.0 + 10.0 * index as f64,
+                    "A",
+                    2.0 + 10.0 * index as f64,
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 5.0, 2.4),
                 )
             }),
         )
         .expect("parking retained registry");
         let (base, profile) = traffic_data(
             lane_graph,
-            [Route::try_new("R", edge_ids).expect("parking retained route")],
+            [Route::try_new("R", ["A"]).expect("parking retained route")],
         );
         let traffic = InitialTrafficData::try_new_with_signals_and_parking(
             base.lane_graph().clone(),
@@ -4111,14 +4041,12 @@ mod tests {
         .expect("parking retained traffic");
         let vehicles = (0..vehicle_count)
             .map(|index| {
-                let route_edge_index = index / SCALE_VEHICLES_PER_EDGE;
-                let local_index = index % SCALE_VEHICLES_PER_EDGE;
                 VehicleSpawnInput::active(
                     format!("V{index:06}"),
                     profile,
                     "R",
-                    route_edge_index,
-                    EdgeProgress::try_new(5.0 + 10.0 * local_index as f64)
+                    0,
+                    EdgeProgress::try_new(5.0 + 10.0 * index as f64)
                         .expect("parking retained progress"),
                     Speed::ZERO,
                 )
@@ -4128,22 +4056,25 @@ mod tests {
     }
 
     fn sparse_command_world(background_count: usize) -> (CoreWorld, VehicleProfileHandle) {
-        let background_edge_count = background_count.div_ceil(SCALE_VEHICLES_PER_EDGE);
-        let (lane_graph, edge_ids) = scale_chain_graph("sparse-edge", background_edge_count + 1);
+        let edge_length = 10.0 * background_count as f64 + 2_000.0;
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(edge_length).expect("sparse edge length"),
+            Vec::<String>::new(),
+        )])
+        .expect("sparse graph");
         let (traffic_data, profile) = traffic_data(
             lane_graph,
-            [Route::try_new("R", edge_ids).expect("sparse route")],
+            [Route::try_new("R", ["A"]).expect("sparse route")],
         );
         let mut vehicles = (0..background_count)
             .map(|index| {
-                let route_edge_index = 1 + index / SCALE_VEHICLES_PER_EDGE;
-                let local_index = index % SCALE_VEHICLES_PER_EDGE;
                 VehicleSpawnInput::active(
                     format!("B{index:06}"),
                     profile,
                     "R",
-                    route_edge_index,
-                    EdgeProgress::try_new(1_000.0 + 8.0 * local_index as f64)
+                    0,
+                    EdgeProgress::try_new(1_000.0 + 10.0 * index as f64)
                         .expect("background progress"),
                     Speed::ZERO,
                 )
@@ -4174,23 +4105,23 @@ mod tests {
             &lane_graph,
             [ParkingArea::new("lot")],
             [
-                ParkingSpaceInput::new(
+                ParkingSpace::new(
                     "S0",
                     Some("lot".to_owned()),
                     "A",
                     20.0,
                     "A",
                     40.0,
-                    ParkingSpaceGeometryInput::new(-3.0, 0.0, 4.5, 2.4),
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
                 ),
-                ParkingSpaceInput::new(
+                ParkingSpace::new(
                     "S1",
                     Some("lot".to_owned()),
                     "A",
                     60.0,
                     "A",
                     80.0,
-                    ParkingSpaceGeometryInput::new(-3.0, 0.0, 4.5, 2.4),
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
                 ),
             ],
         )
@@ -4233,14 +4164,14 @@ mod tests {
         let parking = ParkingRegistry::try_new(
             &lane_graph,
             [],
-            [ParkingSpaceInput::new(
+            [ParkingSpace::new(
                 "S",
                 None,
                 "A",
                 20.0,
                 "A",
                 40.0,
-                ParkingSpaceGeometryInput::new(-3.0, 0.0, 4.5, 2.4),
+                ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
             )],
         )
         .expect("repeated target parking");
@@ -4351,39 +4282,44 @@ mod tests {
 
     #[test]
     fn candidate_state_scratch_is_restored_after_advance_failure() {
-        let lane_graph = LaneGraph::try_new([LaneEdge::new(
-            "A",
-            EdgeLength::try_new(100.0).expect("valid edge length"),
-            Vec::<String>::new(),
-        )])
+        let lane_graph = LaneGraph::try_new([
+            LaneEdge::new(
+                "A",
+                EdgeLength::try_new(f64::MAX).expect("valid edge length"),
+                ["B"],
+            ),
+            LaneEdge::new(
+                "B",
+                EdgeLength::try_new(f64::MAX).expect("valid edge length"),
+                Vec::<String>::new(),
+            ),
+        ])
         .expect("valid lane graph");
-        let route = Route::try_new("R1", ["A"]).expect("valid route");
+        let route = Route::try_new("R1", ["A", "B"]).expect("valid route");
         let (traffic_data, profile) = traffic_data(lane_graph, [route]);
         let vehicle = VehicleSpawnInput::active(
             "V1",
             profile,
             "R1",
             0,
-            EdgeProgress::try_new(10.0).expect("valid progress"),
-            Speed::try_new(10.0).expect("valid speed"),
+            EdgeProgress::try_new(f64::MAX / 2.0).expect("valid progress"),
+            Speed::try_new(f64::MAX).expect("valid speed"),
         );
         let mut world =
             CoreWorld::with_traffic_data(1_000, traffic_data, vec![vehicle]).expect("valid world");
-        let vehicle = world.vehicle_handle("V1").expect("vehicle handle exists");
-        world.step_failure_after_vehicle = Some(vehicle);
         let before = world.clone();
+        let vehicle = world.vehicle_handle("V1").expect("vehicle handle exists");
         let capacity = world.candidate_state_scratch.states.capacity();
         let allocation = world.candidate_state_scratch.states.as_ptr();
         assert!(capacity >= world.vehicles.len());
 
         let first_error = world
             .step(TickInput::new(1_000))
-            .expect_err("injected post-advance failure must fail");
+            .expect_err("overflowing route progress must fail");
         std::assert_matches!(
             first_error,
-            CoreError::ParkingBindingInvariantViolation {
-                stage: "test_after_vehicle_advance",
-                vehicle: Some(actual_vehicle),
+            CoreError::NonFiniteRouteTravel {
+                vehicle: actual_vehicle,
                 ..
             } if actual_vehicle == vehicle
         );
@@ -4394,14 +4330,8 @@ mod tests {
 
         let second_error = world
             .step(TickInput::new(1_000))
-            .expect_err("repeated injected failure must fail");
-        std::assert_matches!(
-            second_error,
-            CoreError::ParkingBindingInvariantViolation {
-                stage: "test_after_vehicle_advance",
-                ..
-            }
-        );
+            .expect_err("repeated overflowing route progress must fail");
+        std::assert_matches!(second_error, CoreError::NonFiniteRouteTravel { .. });
 
         assert_eq!(world, before);
         assert!(world.candidate_state_scratch.states.is_empty());
@@ -4996,7 +4926,7 @@ mod tests {
                     "R",
                     0,
                     progress,
-                    Speed::try_from(f64::from(follower_speed)).expect("speed"),
+                    Speed::try_new(f64::from(follower_speed)).expect("speed"),
                 )
             };
             world.spawn_vehicle(follower_input).expect("follower");
@@ -5047,14 +4977,14 @@ mod tests {
             let parking = ParkingRegistry::try_new(
                 &lane_graph,
                 [],
-                [ParkingSpaceInput::new(
+                [ParkingSpace::new(
                     "S",
                     None,
                     "A",
                     10.0,
                     "A",
                     20.0,
-                    ParkingSpaceGeometryInput::new(-3.0, 0.0, 4.5, 2.4),
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
                 )],
             )
             .expect("cyclic parking registry");
@@ -5127,7 +5057,7 @@ mod tests {
                     route_id,
                     route_edge_index,
                     progress,
-                    Speed::try_from(f64::from(follower_speed)).expect("speed"),
+                    Speed::try_new(f64::from(follower_speed)).expect("speed"),
                 )
             };
             world.spawn_vehicle(follower_input).expect("follower");
@@ -5401,10 +5331,7 @@ mod tests {
             .collect::<Vec<_>>();
         let initial = world.lifecycle_retained_stats();
         assert_eq!(initial.live_vehicles, 10_000);
-        assert_eq!(
-            initial.route_occurrences,
-            10_000_usize.div_ceil(SCALE_VEHICLES_PER_EDGE)
-        );
+        assert_eq!(initial.route_occurrences, 1);
         assert_eq!(initial.route_candidate_nodes, 10_000);
         assert_eq!(initial.stale_route_candidate_nodes, 0);
         assert_eq!(initial.spatial_occupants, 10_000);
@@ -5436,7 +5363,7 @@ mod tests {
 
     #[test]
     fn spatial_operation_counts_depend_on_local_k_not_background_v() {
-        let run = |background_count: usize| {
+        let run = |background_count| {
             let (mut world, profile) = sparse_command_world(background_count);
             let route = world.route_handle("R").expect("route");
             let progress = EdgeProgress::try_new(5.0).expect("progress");
@@ -5462,13 +5389,11 @@ mod tests {
             spatial.gather_direct_follower_candidates(
                 candidate_edge,
                 progress.value(),
-                f64::from(
-                    world
-                        .vehicle_profile(profile)
-                        .expect("profile")
-                        .iidm()
-                        .length,
-                ),
+                world
+                    .vehicle_profile(profile)
+                    .expect("profile")
+                    .iidm()
+                    .length,
                 world.vehicles.len(),
                 &mut resolve_progress,
             );
@@ -5497,28 +5422,31 @@ mod tests {
 
     #[test]
     fn parking_leave_follower_query_counts_depend_on_local_k_not_background_v() {
-        let run = |background_count: usize| {
-            let background_edge_count = background_count.div_ceil(SCALE_VEHICLES_PER_EDGE);
-            let (lane_graph, edge_ids) =
-                scale_chain_graph("parking-query-edge", background_edge_count + 1);
-            let parking_edge_id = edge_ids[0].clone();
+        let run = |background_count| {
+            let edge_length = 10.0 * background_count as f64 + 2_000.0;
+            let lane_graph = LaneGraph::try_new([LaneEdge::new(
+                "A",
+                EdgeLength::try_new(edge_length).expect("parking scale edge"),
+                Vec::<String>::new(),
+            )])
+            .expect("parking scale graph");
             let parking = ParkingRegistry::try_new(
                 &lane_graph,
                 [],
-                [ParkingSpaceInput::new(
+                [ParkingSpace::new(
                     "S",
                     None,
-                    parking_edge_id.clone(),
+                    "A",
                     20.0,
-                    parking_edge_id,
+                    "A",
                     40.0,
-                    ParkingSpaceGeometryInput::new(-3.0, 0.0, 4.5, 2.4),
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
                 )],
             )
             .expect("parking scale registry");
             let (base, profile) = traffic_data(
                 lane_graph,
-                [Route::try_new("R", edge_ids).expect("parking scale route")],
+                [Route::try_new("R", ["A"]).expect("parking scale route")],
             );
             let traffic = InitialTrafficData::try_new_with_signals_and_parking(
                 base.lane_graph().clone(),
@@ -5530,14 +5458,12 @@ mod tests {
             .expect("parking scale traffic");
             let mut vehicles: Vec<_> = (0..background_count)
                 .map(|index| {
-                    let route_edge_index = 1 + index / SCALE_VEHICLES_PER_EDGE;
-                    let local_index = index % SCALE_VEHICLES_PER_EDGE;
                     VehicleSpawnInput::active(
                         format!("B{index:06}"),
                         profile,
                         "R",
-                        route_edge_index,
-                        EdgeProgress::try_new(1_000.0 + 8.0 * local_index as f64)
+                        0,
+                        EdgeProgress::try_new(1_000.0 + 10.0 * index as f64)
                             .expect("background progress"),
                         Speed::ZERO,
                     )
@@ -5589,52 +5515,39 @@ mod tests {
     #[test]
     fn parking_leave_stale_max_speed_profile_exposes_reverse_horizon_work() {
         let run = |background_count: usize| {
-            let background_edge_count = background_count.div_ceil(SCALE_VEHICLES_PER_EDGE);
-            let route_edge_count = background_edge_count + 1;
-            let edge_ids = (0..route_edge_count)
-                .map(|index| format!("pathological-edge-{index:06}"))
-                .collect::<Vec<_>>();
-            let mut edges = edge_ids
-                .iter()
-                .enumerate()
-                .map(|(index, edge_id)| {
-                    LaneEdge::new(
-                        edge_id.clone(),
-                        EdgeLength::try_new(10_000.0).expect("pathological edge length"),
-                        edge_ids.get(index + 1).into_iter().cloned(),
-                    )
-                })
-                .collect::<Vec<_>>();
-            edges.push(LaneEdge::new(
-                "C",
-                EdgeLength::try_new(100.0).expect("fast edge length"),
-                Vec::<String>::new(),
-            ));
-            let lane_graph = LaneGraph::try_new(edges).expect("pathological graph");
-            let parking_edge_id = edge_ids
-                .last()
-                .expect("parking route has a terminal edge")
-                .clone();
-            let parking_route_edge_index = edge_ids.len() - 1;
-            let exit_progress = 9_990.0;
+            let edge_length = 10.0 * background_count as f64 + 100.0;
+            let exit_progress = edge_length - 10.0;
+            let lane_graph = LaneGraph::try_new([
+                LaneEdge::new(
+                    "A",
+                    EdgeLength::try_new(edge_length).expect("pathological edge length"),
+                    Vec::<String>::new(),
+                ),
+                LaneEdge::new(
+                    "C",
+                    EdgeLength::try_new(100.0).expect("fast edge length"),
+                    Vec::<String>::new(),
+                ),
+            ])
+            .expect("pathological graph");
             let parking = ParkingRegistry::try_new(
                 &lane_graph,
                 [],
-                [ParkingSpaceInput::new(
+                [ParkingSpace::new(
                     "S",
                     None,
-                    parking_edge_id.clone(),
+                    "A",
                     exit_progress - 10.0,
-                    parking_edge_id,
+                    "A",
                     exit_progress,
-                    ParkingSpaceGeometryInput::new(-3.0, 0.0, 4.5, 2.4),
+                    ParkingSpaceGeometry::new(-3.0, 0.0, 4.5, 2.4),
                 )],
             )
             .expect("pathological parking registry");
             let (base, profile) = traffic_data(
                 lane_graph,
                 [
-                    Route::try_new("R", edge_ids).expect("pathological route"),
+                    Route::try_new("R", ["A"]).expect("pathological route"),
                     Route::try_new("fast-route", ["C"]).expect("fast route"),
                 ],
             );
@@ -5648,14 +5561,12 @@ mod tests {
             .expect("pathological traffic");
             let mut vehicles: Vec<_> = (0..background_count)
                 .map(|index| {
-                    let route_edge_index = index / SCALE_VEHICLES_PER_EDGE;
-                    let local_index = index % SCALE_VEHICLES_PER_EDGE;
                     VehicleSpawnInput::active(
                         format!("B{index:06}"),
                         profile,
                         "R",
-                        route_edge_index,
-                        EdgeProgress::try_new(5.0 + 10.0 * local_index as f64)
+                        0,
+                        EdgeProgress::try_new(5.0 + 10.0 * index as f64)
                             .expect("background progress"),
                         Speed::ZERO,
                     )
@@ -5667,7 +5578,7 @@ mod tests {
                 "fast-route",
                 0,
                 EdgeProgress::try_new(50.0).expect("fast progress"),
-                Speed::try_new(100.0).expect("fast speed"),
+                Speed::try_new(10_000_000.0).expect("fast speed"),
             ));
             vehicles.push(VehicleSpawnInput::active(
                 "fast-2",
@@ -5675,7 +5586,7 @@ mod tests {
                 "fast-route",
                 0,
                 EdgeProgress::try_new(70.0).expect("second fast progress"),
-                Speed::try_new(90.0).expect("second fast speed"),
+                Speed::try_new(9_000_000.0).expect("second fast speed"),
             ));
             let mut world =
                 CoreWorld::with_traffic_data(20, traffic, vehicles).expect("pathological world");
@@ -5694,26 +5605,20 @@ mod tests {
                     id: "parked".to_owned(),
                     profile,
                     route_id: "R".to_owned(),
-                    route_edge_index: parking_route_edge_index,
+                    route_edge_index: 0,
                     space,
                 })
                 .expect("parked spawn")
                 .vehicle;
             let candidate = NormalizedVehicleInput {
                 profile,
-                route_edge_index: parking_route_edge_index,
+                route_edge_index: 0,
                 edge_progress: EdgeProgress::try_new(exit_progress).expect("exit progress"),
                 current_speed: Speed::ZERO,
                 status: VehicleStatus::Active,
             };
             world
-                .validate_parking_leave_followers(
-                    parked,
-                    space,
-                    route,
-                    parking_route_edge_index,
-                    &candidate,
-                )
+                .validate_parking_leave_followers(parked, space, route, 0, &candidate)
                 .expect("zero-speed direct follower remains safe");
             (
                 world.command_spatial_index.query_stats(),

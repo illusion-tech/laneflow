@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc d7feb1638f02327805919861febc187e96349c4647d7689eb36f946798555166 # shrinks to PlatoonCase { gaps_mm: [4788, 426, 2887, 5612, 2355, 1311, 1843, 2755, 6317, 12697, 10637, 7933, 5111, 1420, 1189, 16059, 3229, 466, 10525, 3154], speeds_mm_per_second: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 91, 21659, 19393, 2357], tick_count: 18 }
