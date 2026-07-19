@@ -2,7 +2,7 @@
 
 <!-- schema-publication-contract: public-retrieval -->
 <!-- schema-publication-catalog: schemas/publication.json -->
-<!-- schema-publication-current: 0.5 -->
+<!-- schema-publication-current: 0.6 -->
 
 本目录保存 LaneFlow 已公开的 versioned JSON Schema。机器可读的版本、canonical URL 与 provenance 见 [`publication.json`](publication.json)。
 
@@ -16,10 +16,10 @@
 
 当前 active loader/schema contract 是：
 
-- [`laneflow-data-v0.5.schema.json`](laneflow-data-v0.5.schema.json)
-- <https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.5.schema.json>
+- [`laneflow-data-v0.6.schema.json`](laneflow-data-v0.6.schema.json)
+- <https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.6.schema.json>
 
-v0.2-v0.4 只作为 immutable publication artifacts 保留，不进入 current production loader、fixture 或 compatibility matrix。
+v0.2-v0.5 只作为不可变发布制品保留，不进入当前生产加载器、固定样例或兼容矩阵。
 
 ## Runtime 边界
 
