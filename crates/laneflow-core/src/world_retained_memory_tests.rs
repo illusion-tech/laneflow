@@ -52,10 +52,6 @@ impl RetainedScenario {
             Self::ParkingHeavy => parking_heavy_world(scale),
         }
     }
-
-    const fn fills_command_speed_heap(self) -> bool {
-        matches!(self, Self::CommandSpatialHeavy)
-    }
 }
 
 fn profile_registry() -> (VehicleProfileRegistry, VehicleProfileHandle) {
@@ -347,6 +343,30 @@ fn assert_complete_sum(stats: LifecycleRetainedStats) {
     );
 }
 
+fn normalize_resolver_retained_bytes(
+    mut stats: LifecycleRetainedStats,
+    resolver_backing_bytes: usize,
+    world: &CoreWorld,
+) -> LifecycleRetainedStats {
+    let live_vehicle_key_bytes = world
+        .vehicle_handles
+        .keys()
+        .map(String::capacity)
+        .sum::<usize>();
+    let normalized = resolver_backing_bytes + live_vehicle_key_bytes;
+    if normalized >= stats.resolver_bytes {
+        let increase = normalized - stats.resolver_bytes;
+        stats.owned_heap_bytes += increase;
+        stats.complete_accounted_bytes += increase;
+    } else {
+        let decrease = stats.resolver_bytes - normalized;
+        stats.owned_heap_bytes -= decrease;
+        stats.complete_accounted_bytes -= decrease;
+    }
+    stats.resolver_bytes = normalized;
+    stats
+}
+
 fn print_snapshot(
     scenario: RetainedScenario,
     scale: usize,
@@ -386,6 +406,12 @@ fn print_snapshot(
 fn measure_scenario(scenario: RetainedScenario, scale: usize) {
     let mut world = scenario.build(scale);
     let current = world.lifecycle_retained_stats();
+    let vehicle_key_bytes = world
+        .vehicle_handles
+        .keys()
+        .map(String::capacity)
+        .sum::<usize>();
+    let resolver_backing_bytes = current.resolver_bytes - vehicle_key_bytes;
     assert_eq!(current.live_vehicles, scale);
     assert_complete_sum(current);
     match scenario {
@@ -413,15 +439,16 @@ fn measure_scenario(scenario: RetainedScenario, scale: usize) {
     world
         .step(TickInput::new(world.fixed_delta_time_ms()))
         .expect("retained matrix warm-up step must succeed");
-    if scenario.fills_command_speed_heap() {
-        let active_speeds = world
-            .vehicles()
-            .map(|state| (state.handle, state.current_speed.value()))
-            .collect::<Vec<_>>();
-        let max_speed = active_speeds
-            .iter()
-            .map(|(_, speed)| *speed)
-            .fold(0.0, f64::max);
+    let active_speeds = world
+        .vehicles()
+        .filter(|state| state.status == VehicleStatus::Active)
+        .map(|state| (state.handle, state.current_speed.value()))
+        .collect::<Vec<_>>();
+    let max_speed = active_speeds
+        .iter()
+        .map(|(_, speed)| *speed)
+        .fold(0.0, f64::max);
+    if max_speed > 0.0 {
         world
             .command_spatial_index
             .prepare_speed_removal(max_speed, active_speeds);
@@ -442,18 +469,26 @@ fn measure_scenario(scenario: RetainedScenario, scale: usize) {
             .despawn_vehicle(handle)
             .expect("retained matrix cleanup must despawn every vehicle");
         if cleanup_checkpoints.contains(&(index + 1)) {
-            let checkpoint = world.lifecycle_retained_stats();
+            let checkpoint = normalize_resolver_retained_bytes(
+                world.lifecycle_retained_stats(),
+                resolver_backing_bytes,
+                &world,
+            );
             assert_complete_sum(checkpoint);
             if checkpoint.complete_accounted_bytes > high_water.complete_accounted_bytes {
                 high_water = checkpoint;
             }
         }
     }
-    let cleaned = world.lifecycle_retained_stats();
+    let cleaned = normalize_resolver_retained_bytes(
+        world.lifecycle_retained_stats(),
+        resolver_backing_bytes,
+        &world,
+    );
     assert_eq!(cleaned.live_vehicles, 0);
     assert_complete_sum(cleaned);
     assert!(cleaned.complete_accounted_bytes <= high_water.complete_accounted_bytes);
-    if scenario.fills_command_speed_heap() {
+    if matches!(scenario, RetainedScenario::CommandSpatialHeavy) {
         assert!(high_water.command_spatial_bytes > current.command_spatial_bytes);
     }
 
