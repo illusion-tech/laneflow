@@ -27,7 +27,7 @@ mod vehicle_scenarios;
 
 use signal_scenarios::{SignalScenarioMode, reserved_parking_scenario, signal_scenario};
 use vehicle_scenarios::{
-    FIXED_DELTA_TIME_MS, STEP_COUNT, dense_platoon_world, locality_free_flow_world,
+    FIXED_DELTA_TIME_MS, STEP_COUNT, locality_dense_platoon_world, locality_free_flow_world,
     locality_stop_and_go_world, projection_event_count, projection_heavy_world,
     transition_event_count, transition_heavy_world,
 };
@@ -138,7 +138,7 @@ fn benchmark_production_matrix(criterion: &mut Criterion) {
         criterion,
         "dense_platoon",
         scale,
-        dense_platoon_world(scale),
+        locality_dense_platoon_world(scale),
     );
     benchmark_steps(
         criterion,
