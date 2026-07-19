@@ -292,7 +292,14 @@ fn parking_arrived_state(
 struct LifecycleRetainedStats {
     accounted_bytes: usize,
     expanded_accounted_bytes: usize,
+    complete_accounted_bytes: usize,
+    owned_heap_bytes: usize,
     world_inline_bytes: usize,
+    lane_graph_bytes: usize,
+    vehicle_profile_registry_bytes: usize,
+    signal_registry_bytes: usize,
+    signal_runtime_state_bytes: usize,
+    signal_runtime_scratch_bytes: usize,
     route_bytes: usize,
     route_distance_bytes: usize,
     route_reference_bytes: usize,
@@ -306,6 +313,11 @@ struct LifecycleRetainedStats {
     occupancy_scratch_bytes: usize,
     longitudinal_scratch_bytes: usize,
     command_spatial_bytes: usize,
+    lane_graph_inline_size: usize,
+    vehicle_profile_registry_inline_size: usize,
+    signal_registry_inline_size: usize,
+    signal_runtime_state_inline_size: usize,
+    signal_runtime_scratch_inline_size: usize,
     vehicle_state_size: usize,
     vehicle_slot_size: usize,
     live_vehicles: usize,
@@ -2017,6 +2029,11 @@ impl CoreWorld {
         let parking_bytes =
             parking_registry_runtime_bytes + self.longitudinal_scratch.parking_retained_bytes();
         let world_inline_bytes = std::mem::size_of::<Self>();
+        let lane_graph_bytes = self.lane_graph.retained_bytes();
+        let vehicle_profile_registry_bytes = self.vehicle_profiles.retained_bytes();
+        let signal_registry_bytes = self.signals.retained_bytes();
+        let signal_runtime_state_bytes = self.signal_state.retained_bytes();
+        let signal_runtime_scratch_bytes = self.signal_candidate_scratch.retained_bytes();
         let occupancy_scratch_bytes = self.occupancy_scratch.retained_bytes();
         let longitudinal_scratch_bytes = self.longitudinal_scratch.retained_bytes();
         let command_spatial_bytes = self.command_spatial_index.retained_bytes();
@@ -2036,10 +2053,24 @@ impl CoreWorld {
             + occupancy_scratch_bytes
             + longitudinal_scratch_bytes
             + command_spatial_bytes;
+        let complete_accounted_bytes = expanded_accounted_bytes
+            + lane_graph_bytes
+            + vehicle_profile_registry_bytes
+            + signal_registry_bytes
+            + signal_runtime_state_bytes
+            + signal_runtime_scratch_bytes;
+        let owned_heap_bytes = complete_accounted_bytes - world_inline_bytes;
         LifecycleRetainedStats {
             accounted_bytes,
             expanded_accounted_bytes,
+            complete_accounted_bytes,
+            owned_heap_bytes,
             world_inline_bytes,
+            lane_graph_bytes,
+            vehicle_profile_registry_bytes,
+            signal_registry_bytes,
+            signal_runtime_state_bytes,
+            signal_runtime_scratch_bytes,
             route_bytes,
             route_distance_bytes,
             route_reference_bytes,
@@ -2053,6 +2084,11 @@ impl CoreWorld {
             occupancy_scratch_bytes,
             longitudinal_scratch_bytes,
             command_spatial_bytes,
+            lane_graph_inline_size: std::mem::size_of::<LaneGraph>(),
+            vehicle_profile_registry_inline_size: std::mem::size_of::<VehicleProfileRegistry>(),
+            signal_registry_inline_size: std::mem::size_of::<SignalRegistry>(),
+            signal_runtime_state_inline_size: std::mem::size_of::<SignalRuntimeState>(),
+            signal_runtime_scratch_inline_size: std::mem::size_of::<SignalRuntimeScratch>(),
             vehicle_state_size: std::mem::size_of::<VehicleState>(),
             vehicle_slot_size: std::mem::size_of::<VehicleSlot>(),
             live_vehicles: self.vehicles().count(),
@@ -3898,6 +3934,10 @@ fn parking_emergency_travel(
 mod occupancy_tests;
 
 #[cfg(test)]
+#[path = "world_retained_memory_tests.rs"]
+mod retained_memory_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
@@ -5630,12 +5670,20 @@ mod tests {
         let stats = world.lifecycle_retained_stats();
         assert_eq!(stats.live_vehicles, 10_000);
         assert!(stats.expanded_accounted_bytes >= stats.accounted_bytes);
+        assert!(stats.complete_accounted_bytes >= stats.expanded_accounted_bytes);
         eprintln!(
-            "numeric_component_memory live={} accounted_bytes={} expanded_accounted_bytes={} world_inline_bytes={} route_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} parking_registry_runtime_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={} vehicle_state_size={} vehicle_slot_size={}",
+            "numeric_component_memory live={} accounted_bytes={} expanded_accounted_bytes={} complete_accounted_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} vehicle_profile_registry_bytes={} signal_registry_bytes={} signal_runtime_state_bytes={} signal_runtime_scratch_bytes={} route_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} parking_registry_runtime_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={} lane_graph_inline_size={} vehicle_profile_registry_inline_size={} signal_registry_inline_size={} signal_runtime_state_inline_size={} signal_runtime_scratch_inline_size={} vehicle_state_size={} vehicle_slot_size={}",
             stats.live_vehicles,
             stats.accounted_bytes,
             stats.expanded_accounted_bytes,
+            stats.complete_accounted_bytes,
+            stats.owned_heap_bytes,
             stats.world_inline_bytes,
+            stats.lane_graph_bytes,
+            stats.vehicle_profile_registry_bytes,
+            stats.signal_registry_bytes,
+            stats.signal_runtime_state_bytes,
+            stats.signal_runtime_scratch_bytes,
             stats.route_bytes,
             stats.route_distance_bytes,
             stats.route_reference_bytes,
@@ -5649,9 +5697,67 @@ mod tests {
             stats.occupancy_scratch_bytes,
             stats.longitudinal_scratch_bytes,
             stats.command_spatial_bytes,
+            stats.lane_graph_inline_size,
+            stats.vehicle_profile_registry_inline_size,
+            stats.signal_registry_inline_size,
+            stats.signal_runtime_state_inline_size,
+            stats.signal_runtime_scratch_inline_size,
             stats.vehicle_state_size,
             stats.vehicle_slot_size,
         );
+    }
+
+    #[test]
+    fn complete_retained_accountant_sums_each_unique_owner_once() {
+        let mut world = lifecycle_scale_world(128);
+        world
+            .step(TickInput::new(world.fixed_delta_time_ms()))
+            .expect("retained accountant warm-up step");
+        let stats = world.lifecycle_retained_stats();
+        let expected_heap_bytes = stats.lane_graph_bytes
+            + stats.vehicle_profile_registry_bytes
+            + stats.signal_registry_bytes
+            + stats.signal_runtime_state_bytes
+            + stats.signal_runtime_scratch_bytes
+            + stats.route_bytes
+            + stats.vehicle_bytes
+            + stats.resolver_bytes
+            + stats.free_list_bytes
+            + stats.vehicle_order_bytes
+            + stats.candidate_state_bytes
+            + stats.parking_registry_runtime_bytes
+            + stats.occupancy_scratch_bytes
+            + stats.longitudinal_scratch_bytes
+            + stats.command_spatial_bytes;
+
+        assert_eq!(stats.owned_heap_bytes, expected_heap_bytes);
+        assert_eq!(
+            stats.complete_accounted_bytes,
+            stats.world_inline_bytes + expected_heap_bytes
+        );
+        assert_eq!(stats.world_inline_bytes, std::mem::size_of::<CoreWorld>());
+        assert_eq!(
+            stats.lane_graph_inline_size,
+            std::mem::size_of::<LaneGraph>()
+        );
+        assert_eq!(
+            stats.vehicle_profile_registry_inline_size,
+            std::mem::size_of::<VehicleProfileRegistry>()
+        );
+        assert_eq!(
+            stats.signal_registry_inline_size,
+            std::mem::size_of::<SignalRegistry>()
+        );
+        assert_eq!(
+            stats.signal_runtime_state_inline_size,
+            std::mem::size_of::<SignalRuntimeState>()
+        );
+        assert_eq!(
+            stats.signal_runtime_scratch_inline_size,
+            std::mem::size_of::<SignalRuntimeScratch>()
+        );
+        assert!(stats.lane_graph_bytes > 0);
+        assert!(stats.vehicle_profile_registry_bytes > 0);
     }
 
     #[test]

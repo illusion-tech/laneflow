@@ -170,6 +170,20 @@ impl VehicleProfileRegistry {
     pub fn profiles(&self) -> impl ExactSizeIterator<Item = &VehicleProfile> {
         self.profiles.iter()
     }
+
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> usize {
+        let profile_bytes = self.profiles.capacity() * std::mem::size_of::<VehicleProfile>()
+            + self
+                .profiles
+                .iter()
+                .map(|profile| profile.external_id.capacity())
+                .sum::<usize>();
+        let handle_bytes = self.handles.capacity()
+            * std::mem::size_of::<(String, VehicleProfileHandle)>()
+            + self.handles.keys().map(String::capacity).sum::<usize>();
+        profile_bytes + handle_bytes
+    }
 }
 
 impl Default for VehicleProfileRegistry {
