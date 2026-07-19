@@ -78,7 +78,7 @@ LaneFlow 增加独立于 Core 和引擎适配器的空间层：
 ### 5. Core 长度是交通权威，几何弧长是空间权威
 
 - 创作和导出流水线应从同一中心线来源派生几何弧长与 Traffic `LaneEdge.length`，不鼓励手工维护两份长度。
-- 绑定时重新计算几何弧长，并用几何绝对/相对容差加 Core `EdgeLength` 量化余量和规范化的 Core 边长比较；超出容差时返回阻断错误，禁止静默修复。当前 `f64 EdgeLength` 的量化余量为零，目标 `f32 EdgeLength` 的余量由 #127 的 ULP/边界离线判定基准冻结，并由 #144 启用。
+- 绑定时重新计算几何弧长，并用几何绝对/相对容差加 Core `EdgeLength` 量化余量和规范化的 Core 边长比较；超出容差时返回阻断错误，禁止静默修复。当前 `f64 EdgeLength` 的量化余量为零，目标 `f32 EdgeLength` 的余量由 #127 的 ULP/边界离线判定基准冻结；#144 形成不迁移（no-go）结论后没有进入当前生产。
 - 容差内的采样使用 `ratio = effective_core_progress / normalized_core_length`，再计算 `geometry_s = ratio * geometry_arc_length`。这样既保证 Core 终点精确映射到几何终点，也把允许差异限制在已验证的绑定容差内；Spatial 不读取进度的高位/残差分量。
 - 适配器不得用引擎样条曲线长度覆盖 Core 长度，也不得把位姿反写为新的进度。
 
@@ -149,6 +149,6 @@ LaneFlow 增加独立于 Core 和引擎适配器的空间层：
 - #123：完成本 ADR、详细设计、Rust 包调研、研究原型与 G1 评审。
 - G1 后拆分：Spatial 自有类型与注册表、空间数据与模式及清单、绑定与采样、批量提取、验证与性能，以及收口审阅。
 - #125：保持 current-f64 值和行为不变，拆分 Core 的边界、最小长度等数值职责；Spatial 不把研究原型中当前使用的 Core 容差固化为新的全局 epsilon（误差阈值）。
-- #127/#144：前者离线标定目标 `f32 EdgeLength` 的 Spatial 量化余量，后者随 Core/Data 原子迁移启用。
+- #127/#144：前者离线标定目标 `f32 EdgeLength` 的 Spatial 量化余量，后者曾随 Core/Data 原子候选启用但因性能 no-go 回退；未来重启需新建议题。
 - v0.7：Bevy Adapter 消费批量位姿，并验证坐标轴与手性、`f32` 局部原点和真实 `Transform` 同步。
 - 只有真实曲线、道路倾斜、坐标参考系统、空间索引或宿主类型互操作需求出现时，才重新评估相应 Rust 包与格式扩展。

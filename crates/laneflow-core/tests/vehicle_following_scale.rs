@@ -44,7 +44,7 @@ fn step_vehicle_following_summary(
     (safety_projections, edge_changes)
 }
 
-fn assert_finite_and_no_overlap(world: &CoreWorld) {
+fn assert_finite_and_no_overlap(world: &CoreWorld, uniform_route_edge_length: Option<f64>) {
     let mut fronts = Vec::with_capacity(VEHICLE_COUNT);
     for vehicle in world.vehicles() {
         assert!(matches!(
@@ -55,7 +55,13 @@ fn assert_finite_and_no_overlap(world: &CoreWorld) {
         assert!(vehicle.current_speed.value() >= 0.0);
         assert!(vehicle.applied_acceleration.value().is_finite());
         assert!(vehicle.edge_progress.value().is_finite());
-        fronts.push(vehicle.edge_progress.value());
+        let route_progress = uniform_route_edge_length.map_or_else(
+            || vehicle.edge_progress.value(),
+            |edge_length| {
+                vehicle.route_edge_index as f64 * edge_length + vehicle.edge_progress.value()
+            },
+        );
+        fronts.push(route_progress);
     }
     assert_eq!(fronts.len(), VEHICLE_COUNT);
 
@@ -123,9 +129,10 @@ fn ten_thousand_vehicle_scenarios_complete_functional_smoke() {
         projection_event_count(VEHICLE_COUNT)
     );
 
-    for world in [&free_flow, &dense_platoon, &stop_and_go, &projection_heavy] {
-        assert_finite_and_no_overlap(world);
+    for world in [&free_flow, &dense_platoon, &stop_and_go] {
+        assert_finite_and_no_overlap(world, None);
     }
+    assert_finite_and_no_overlap(&projection_heavy, Some(LOCALITY_EDGE_LENGTH));
 }
 
 #[test]

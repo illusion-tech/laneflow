@@ -490,7 +490,7 @@ final_speed = min(candidate_speed, speed_from_travel)
 - Vehicle Profile length 的输入下限独立于物理 gap/overlap 阈值。
 - computed-speed near-zero 使用独立的 `1.0e-9 m/s` owner，只覆盖已有运行时计算速度判断。
 - `Speed::ZERO`、状态速度等 authority 继续使用精确正零与精确相等，不被 near-zero predicate 替代。
-- target-f32 的固定领域绝对阈值由 #127 离线标定并由 #144 启用；相对误差和 ULP 不进入 production predicate。
+- target-f32 的固定领域绝对阈值由 #127 离线标定；#144 曾在候选中启用，但形成性能不迁移（no-go）结论后已回退。相对误差和 ULP 不进入 production predicate。
 - 合法 finite 输入若导致中间计算非有限，返回结构化 longitudinal runtime error，step 原子失败。
 - Safety projection、正常 emergency braking 和拥堵停车不是 validation error。
 

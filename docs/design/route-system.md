@@ -158,7 +158,7 @@ route following 继续遵守 ADR 0003 与 `core-runtime.md`：
 - 当前生产实现的速度、距离、edge 长度和 edge 进度使用 `f64` 新类型，并拒绝非有限值。
 - edge boundary snap 与 remainder 使用 crate-private 的 edge boundary/remainder owner；它不与最小 edge length、纵向约束或物理 gap owner 合并。
 
-ADR 0014 的目标不直接改写上述 current-f64 行为：迁移后 `EdgeLength` 和单值控制域使用经过检查的 `f32`，`EdgeProgress` 的唯一有效值由高位/残差组合得到；行程、剩余量、边界和快照不得只读取高位分量。#125 只拆分 current-f64 领域 owner，并保留当前值；#127 离线标定 target-f32，#144 才原子切换本节的生产描述。
+ADR 0014 的目标不直接改写上述 current-f64 行为：迁移后 `EdgeLength` 和单值控制域使用经过检查的 `f32`，`EdgeProgress` 的唯一有效值由高位/残差组合得到；行程、剩余量、边界和快照不得只读取高位分量。#125 拆分 current-f64 领域 owner，#127 离线标定 target-f32；#144 的原子候选未通过性能门槛并已回退，所以本节生产描述仍是 current-f64。
 
 单 tick 可以跨越多个 edge，但实现必须有硬上界：
 
