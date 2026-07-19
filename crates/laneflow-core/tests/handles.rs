@@ -8,7 +8,7 @@ use laneflow_core::{
 };
 
 fn edge_length(value: f64) -> EdgeLength {
-    EdgeLength::try_new(value).expect("valid edge length")
+    EdgeLength::try_from(value).expect("valid edge length")
 }
 
 fn progress(value: f64) -> EdgeProgress {
@@ -16,13 +16,13 @@ fn progress(value: f64) -> EdgeProgress {
 }
 
 fn speed(value: f64) -> Speed {
-    Speed::try_new(value).expect("valid speed")
+    Speed::try_from(value).expect("valid speed")
 }
 
 fn route_world(vehicles: impl FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(1.0), ["B"]),
-        LaneEdge::new("B", edge_length(1.0), std::iter::empty::<&str>()),
+        LaneEdge::new("A", edge_length(1.000_001), ["B"]),
+        LaneEdge::new("B", edge_length(1.000_001), std::iter::empty::<&str>()),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
@@ -186,8 +186,8 @@ fn route_remove_rejects_live_vehicle_and_stales_old_handle() {
 #[test]
 fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(1.0), ["B"]),
-        LaneEdge::new("B", edge_length(1.0), std::iter::empty::<&str>()),
+        LaneEdge::new("A", edge_length(1.000_001), ["B"]),
+        LaneEdge::new("B", edge_length(1.000_001), std::iter::empty::<&str>()),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
@@ -218,7 +218,7 @@ fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
             profile,
             "R",
             0,
-            progress(0.5),
+            progress(0.501),
             speed(2.0),
         )],
     )
@@ -229,15 +229,12 @@ fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
             profile,
             "R",
             0,
-            progress(0.0),
+            progress(0.001),
             speed(2.0),
         ))
         .expect("spawn succeeds");
 
     let result = world.step(TickInput::new(1_000)).expect("step succeeds");
 
-    assert_eq!(
-        event_vehicle_ids(&world, &result.events),
-        ["V2", "V2", "V1"]
-    );
+    assert_eq!(event_vehicle_ids(&world, &result.events), ["V2", "V1"]);
 }

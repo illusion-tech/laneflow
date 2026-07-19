@@ -2,14 +2,15 @@ mod common;
 
 use common::world_with_test_profile;
 use laneflow_core::{
-    CoreError, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed, VehicleProfileHandle,
-    VehicleSpawnInput,
+    CoreError, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, NumericConversionStage, Route, Speed,
+    VehicleProfileHandle, VehicleSpawnInput,
 };
 
-const CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
+const MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f32 = 1.0;
+const MAX_EDGE_LENGTH_INCLUSIVE_METERS: f32 = 10_000.0;
 
 fn edge_length(value: f64) -> EdgeLength {
-    EdgeLength::try_new(value).expect("valid edge length")
+    EdgeLength::try_from(value).expect("valid edge length")
 }
 
 fn canonical_graph() -> LaneGraph {
@@ -179,14 +180,15 @@ fn terminal_self_connection_and_disconnected_component_are_valid_graph_shapes() 
 #[test]
 fn invalid_edge_lengths_are_rejected() {
     for invalid_length in [
-        f64::NAN,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
+        f32::NAN,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
         -1.0,
         -0.0,
         0.0,
-        CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS.next_down(),
-        CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS,
+        MIN_EDGE_LENGTH_EXCLUSIVE_METERS.next_down(),
+        MIN_EDGE_LENGTH_EXCLUSIVE_METERS,
+        MAX_EDGE_LENGTH_INCLUSIVE_METERS.next_up(),
     ] {
         let error = EdgeLength::try_new(invalid_length).expect_err("invalid length must fail");
 
@@ -194,15 +196,63 @@ fn invalid_edge_lengths_are_rejected() {
             error,
             CoreError::InvalidLaneEdgeLength {
                 edge_length,
-                min_exclusive
+                min_exclusive,
+                max_inclusive,
             } if (edge_length.is_nan() && invalid_length.is_nan()
                 || edge_length == invalid_length)
-                && min_exclusive == CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS
+                && min_exclusive == MIN_EDGE_LENGTH_EXCLUSIVE_METERS
+                && max_inclusive == MAX_EDGE_LENGTH_INCLUSIVE_METERS
         );
     }
 
-    EdgeLength::try_new(CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS.next_up())
+    EdgeLength::try_new(MIN_EDGE_LENGTH_EXCLUSIVE_METERS.next_up())
         .expect("value adjacent above the exclusive minimum must pass");
+    EdgeLength::try_new(MAX_EDGE_LENGTH_INCLUSIVE_METERS)
+        .expect("inclusive product maximum must pass");
+}
+
+#[test]
+fn raw_edge_length_checks_f64_range_before_target_conversion() {
+    for invalid_length in [
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        -0.0,
+        1.0,
+        1.0_f64.next_down(),
+        10_000.0_f64.next_up(),
+    ] {
+        std::assert_matches!(
+            EdgeLength::try_from(invalid_length),
+            Err(CoreError::InvalidLaneEdgeLengthInput {
+                edge_length,
+                stage: NumericConversionStage::RawInput,
+                ..
+            }) if edge_length.to_bits() == invalid_length.to_bits()
+                || edge_length.is_nan() && invalid_length.is_nan()
+        );
+    }
+
+    std::assert_matches!(
+        EdgeLength::try_from(1.0_f64.next_up()),
+        Err(CoreError::InvalidLaneEdgeLengthInput {
+            edge_length,
+            stage: NumericConversionStage::TargetValue,
+            ..
+        }) if edge_length == 1.0_f64.next_up()
+    );
+    assert_eq!(
+        EdgeLength::try_from(f64::from(1.0_f32.next_up()))
+            .expect("first representable target value must pass")
+            .value(),
+        1.0_f32.next_up()
+    );
+    assert_eq!(
+        EdgeLength::try_from(10_000.0)
+            .expect("inclusive raw maximum must pass")
+            .value(),
+        10_000.0
+    );
 }
 
 #[test]

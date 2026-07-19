@@ -7,14 +7,14 @@ pub const VEHICLE_COUNT: usize = 10_000;
 pub const SCALING_VEHICLE_COUNT: usize = 100_000;
 pub const STEP_COUNT: usize = 60;
 pub const FIXED_DELTA_TIME_MS: u64 = 16;
-pub const VEHICLE_LENGTH: f64 = 4.5;
+pub const VEHICLE_LENGTH: f32 = 4.5;
 pub const LOCALITY_EDGE_LENGTH: f64 = 10_000.0;
 
 const MILLISECONDS_PER_SECOND: f64 = 1_000.0;
 const FREE_FLOW_SPACING: f64 = 250.0;
 const DENSE_SPACING: f64 = 6.5;
 const PROJECTION_PAIR_SPACING: f64 = 64.0;
-const TRANSITION_EDGE_LENGTH: f64 = 5.0;
+const TRANSITION_EDGE_LENGTH: f64 = 1.5;
 #[allow(
     dead_code,
     reason = "#140 edge-cap benchmark imports the shared scenario module separately"
@@ -27,7 +27,7 @@ const TRANSITION_PRESSURE_EDGE_LENGTH: f64 = 10.0;
 const TRANSITION_PRESSURE_SPEED: f64 = 10.0;
 
 fn edge_length(value: f64) -> EdgeLength {
-    EdgeLength::try_new(value).expect("scenario edge length must be valid")
+    EdgeLength::try_from(value).expect("scenario edge length must be valid")
 }
 
 fn progress(value: f64) -> EdgeProgress {
@@ -35,7 +35,7 @@ fn progress(value: f64) -> EdgeProgress {
 }
 
 fn speed(value: f64) -> Speed {
-    Speed::try_new(value).expect("scenario speed must be valid")
+    Speed::try_from(value).expect("scenario speed must be valid")
 }
 
 fn vehicle_external_id(index: usize) -> String {
@@ -55,7 +55,7 @@ fn profile_registry(desired_speed: f64) -> (VehicleProfileRegistry, VehicleProfi
         "benchmark-profile",
         IidmProfileSpec {
             length: VEHICLE_LENGTH,
-            desired_speed,
+            desired_speed: desired_speed as f32,
             min_gap: 2.0,
             time_headway: 1.5,
             max_acceleration: 1.4,
@@ -71,6 +71,10 @@ fn profile_registry(desired_speed: f64) -> (VehicleProfileRegistry, VehicleProfi
     (registry, profile)
 }
 
+#[allow(
+    dead_code,
+    reason = "single-edge references are only used by the bounded equivalence integration test"
+)]
 fn linear_platoon_world(
     vehicle_count: usize,
     spacing: f64,
@@ -180,14 +184,38 @@ fn locality_preserving_platoon_world(
 }
 
 pub fn free_flow_world(vehicle_count: usize) -> CoreWorld {
-    linear_platoon_world(vehicle_count, FREE_FLOW_SPACING, 10.0, 13.9, false)
+    locality_free_flow_world(vehicle_count)
 }
 
 pub fn dense_platoon_world(vehicle_count: usize) -> CoreWorld {
-    linear_platoon_world(vehicle_count, DENSE_SPACING, 1.0, 13.9, false)
+    locality_dense_platoon_world(vehicle_count)
 }
 
 pub fn stop_and_go_world(vehicle_count: usize) -> CoreWorld {
+    locality_stop_and_go_world(vehicle_count)
+}
+
+#[allow(
+    dead_code,
+    reason = "single-edge references are only used by the bounded equivalence integration test"
+)]
+pub fn single_edge_free_flow_world(vehicle_count: usize) -> CoreWorld {
+    linear_platoon_world(vehicle_count, FREE_FLOW_SPACING, 10.0, 13.9, false)
+}
+
+#[allow(
+    dead_code,
+    reason = "single-edge references are only used by the bounded equivalence integration test"
+)]
+pub fn single_edge_dense_platoon_world(vehicle_count: usize) -> CoreWorld {
+    linear_platoon_world(vehicle_count, DENSE_SPACING, 1.0, 13.9, false)
+}
+
+#[allow(
+    dead_code,
+    reason = "single-edge references are only used by the bounded equivalence integration test"
+)]
+pub fn single_edge_stop_and_go_world(vehicle_count: usize) -> CoreWorld {
     linear_platoon_world(vehicle_count, DENSE_SPACING, 8.0, 13.9, true)
 }
 
@@ -225,14 +253,26 @@ pub fn stop_and_go_world_with_edge_cap(vehicle_count: usize, edge_cap: f64) -> C
 pub fn projection_heavy_world(vehicle_count: usize) -> CoreWorld {
     assert_eq!(vehicle_count % 2, 0);
     let pair_count = vehicle_count / 2;
-    let lane_graph = LaneGraph::try_new([LaneEdge::new(
-        "projection-edge",
-        edge_length(PROJECTION_PAIR_SPACING * pair_count as f64 + 100.0),
-        std::iter::empty::<&str>(),
-    )])
+    let route_length = PROJECTION_PAIR_SPACING * pair_count as f64 + 100.0;
+    let edge_count = (route_length / LOCALITY_EDGE_LENGTH).ceil() as usize;
+    let edge_ids = (0..edge_count)
+        .map(|index| format!("projection-edge-{index:05}"))
+        .collect::<Vec<_>>();
+    let lane_graph = LaneGraph::try_new(edge_ids.iter().enumerate().map(|(index, edge_id)| {
+        let length = if index + 1 == edge_count {
+            route_length - LOCALITY_EDGE_LENGTH * index as f64
+        } else {
+            LOCALITY_EDGE_LENGTH
+        };
+        LaneEdge::new(
+            edge_id,
+            edge_length(length),
+            edge_ids.get(index + 1).into_iter().cloned(),
+        )
+    }))
     .expect("projection graph must be valid");
-    let route = Route::try_new("projection-route", ["projection-edge"])
-        .expect("projection route must be valid");
+    let route =
+        Route::try_new("projection-route", edge_ids).expect("projection route must be valid");
     let (profiles, profile) = profile_registry(20.0);
     let traffic_data = InitialTrafficData::try_new(lane_graph, [route], profiles)
         .expect("projection traffic data must be valid");
@@ -241,21 +281,27 @@ pub fn projection_heavy_world(vehicle_count: usize) -> CoreWorld {
             let follower_index = pair_index * 2;
             let leader_index = follower_index + 1;
             let follower_front = PROJECTION_PAIR_SPACING * pair_index as f64;
+            let leader_front = follower_front + f64::from(VEHICLE_LENGTH);
+            let follower_route_edge_index =
+                (follower_front / LOCALITY_EDGE_LENGTH).floor() as usize;
+            let leader_route_edge_index = (leader_front / LOCALITY_EDGE_LENGTH).floor() as usize;
             [
                 VehicleSpawnInput::active(
                     vehicle_external_id(follower_index),
                     profile,
                     "projection-route",
-                    0,
-                    progress(follower_front),
+                    follower_route_edge_index,
+                    progress(
+                        follower_front - LOCALITY_EDGE_LENGTH * follower_route_edge_index as f64,
+                    ),
                     speed(20.0),
                 ),
                 VehicleSpawnInput::stopped(
                     vehicle_external_id(leader_index),
                     profile,
                     "projection-route",
-                    0,
-                    progress(follower_front + VEHICLE_LENGTH),
+                    leader_route_edge_index,
+                    progress(leader_front - LOCALITY_EDGE_LENGTH * leader_route_edge_index as f64),
                 ),
             ]
         })
@@ -288,7 +334,7 @@ pub fn transition_heavy_world(vehicle_count: usize) -> CoreWorld {
         .collect();
     let seconds_per_step = FIXED_DELTA_TIME_MS as f64 / MILLISECONDS_PER_SECOND;
     let transition_speed = speed(TRANSITION_EDGE_LENGTH / seconds_per_step);
-    let (profiles, profile) = profile_registry(transition_speed.value());
+    let (profiles, profile) = profile_registry(f64::from(transition_speed.value()));
     let traffic_data = InitialTrafficData::try_new(lane_graph, routes, profiles)
         .expect("transition traffic data must be valid");
     let vehicles = (0..vehicle_count)

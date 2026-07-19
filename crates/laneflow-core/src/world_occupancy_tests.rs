@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     CoreError, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge, Speed,
-    TickInput, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
+    VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
 };
 
 fn traffic_data<I>(lane_graph: LaneGraph, routes: I) -> (InitialTrafficData, VehicleProfileHandle)
@@ -32,7 +32,7 @@ where
     (traffic_data, profile)
 }
 fn edge_length(value: f64) -> EdgeLength {
-    EdgeLength::try_new(value).expect("valid edge length")
+    EdgeLength::try_from(value).expect("valid edge length")
 }
 
 fn progress(value: f64) -> EdgeProgress {
@@ -40,7 +40,7 @@ fn progress(value: f64) -> EdgeProgress {
 }
 
 fn speed(value: f64) -> Speed {
-    Speed::try_new(value).expect("valid speed")
+    Speed::try_from(value).expect("valid speed")
 }
 
 fn leader_of(world: &CoreWorld, vehicle_id: &str) -> Option<(String, f64)> {
@@ -53,7 +53,7 @@ fn leader_of(world: &CoreWorld, vehicle_id: &str) -> Option<(String, f64)> {
                 .vehicle_external_id(observation.leader)
                 .expect("leader external ID must exist")
                 .to_owned(),
-            observation.bumper_gap,
+            f64::from(observation.bumper_gap),
         )
     })
 }
@@ -410,30 +410,30 @@ fn epsilon_overlap_is_normalized_to_zero_bumper_gap() {
 }
 
 #[test]
-fn scaled_braking_distance_avoids_false_square_overflow() {
+fn leader_horizon_remains_finite_at_product_maxima() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
-        edge_length(f64::MAX),
+        edge_length(10_000.0),
         std::iter::empty::<&str>(),
     )])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A"]).expect("valid route");
     let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "large-values",
+        "product-maxima",
         IidmProfileSpec {
             length: 4.5,
-            desired_speed: 1.0e200,
-            min_gap: 0.0,
-            time_headway: 1.0,
-            max_acceleration: 1.0,
-            comfortable_deceleration: 1.0e200,
-            emergency_deceleration: 1.0e200,
+            desired_speed: 100.0,
+            min_gap: 128.0,
+            time_headway: 60.0,
+            max_acceleration: 50.0,
+            comfortable_deceleration: 50.0,
+            emergency_deceleration: 50.0,
         },
     )
-    .expect("valid large-value profile")])
+    .expect("valid product-maximum profile")])
     .expect("valid profile registry");
     let profile = profiles
-        .profile_handle("large-values")
+        .profile_handle("product-maxima")
         .expect("profile handle exists");
     let traffic_data =
         InitialTrafficData::try_new(lane_graph, [route], profiles).expect("valid traffic data");
@@ -441,8 +441,8 @@ fn scaled_braking_distance_avoids_false_square_overflow() {
         16,
         traffic_data,
         vec![
-            VehicleSpawnInput::active("follower", profile, "R", 0, progress(0.0), speed(1.0e200)),
-            VehicleSpawnInput::stopped("leader", profile, "R", 0, progress(1.0e201)),
+            VehicleSpawnInput::active("follower", profile, "R", 0, progress(1.0), speed(100.0)),
+            VehicleSpawnInput::stopped("leader", profile, "R", 0, progress(9_999.0)),
         ],
     )
     .expect("valid world");
@@ -457,47 +457,4 @@ fn scaled_braking_distance_avoids_false_square_overflow() {
 
     assert!(horizon.is_finite());
     assert!(horizon > 0.0);
-    assert!(CoreWorld::braking_distance(f64::MAX, f64::MAX * 0.75).is_finite());
-    assert!(CoreWorld::half_product(f64::from_bits(1), f64::MAX) > 0.0);
-}
-
-#[test]
-fn non_finite_leader_horizon_keeps_authority_state_unchanged() {
-    let lane_graph = LaneGraph::try_new([LaneEdge::new(
-        "A",
-        edge_length(f64::MAX),
-        std::iter::empty::<&str>(),
-    )])
-    .expect("valid lane graph");
-    let route = Route::try_new("R", ["A"]).expect("valid route");
-    let (traffic_data, profile) = traffic_data(lane_graph, [route]);
-    let mut world = CoreWorld::with_traffic_data(
-        2_000,
-        traffic_data,
-        vec![
-            VehicleSpawnInput::active("follower", profile, "R", 0, progress(0.0), speed(f64::MAX)),
-            VehicleSpawnInput::stopped("leader", profile, "R", 0, progress(10.0)),
-        ],
-    )
-    .expect("valid world");
-    let follower = world
-        .vehicle_handle("follower")
-        .expect("follower handle exists");
-    let before = world.clone();
-
-    let error = world
-        .step(TickInput::new(2_000))
-        .expect_err("non-finite leader horizon must fail");
-
-    std::assert_matches!(
-        error,
-        CoreError::NonFiniteLeaderComputation {
-            vehicle,
-            stage: "travel_upper",
-            value
-        } if vehicle == follower && value.is_infinite()
-    );
-    assert_eq!(world, before);
-    assert_eq!(world.tick_index(), 0);
-    assert_eq!(world.time_ms(), 0);
 }

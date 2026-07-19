@@ -1,8 +1,9 @@
 use super::*;
 use crate::{
-    EdgeLength, IidmProfileSpec, LaneEdge, MovementGate, ParkingRegistry, ParkingSpace,
-    ParkingSpaceGeometry, SignalAspect, SignalControlInput, SignalController, SignalGroup,
-    SignalGroupState, SignalPhase, StopLine, StopLineLocation, VehicleProfile,
+    EdgeLength, IidmProfileSpec, LaneEdge, MovementGate, ParkingRegistry,
+    ParkingSpaceGeometryInput, ParkingSpaceInput, SignalAspect, SignalControlInput,
+    SignalController, SignalGroup, SignalGroupState, SignalPhase, StopLine, StopLineLocation,
+    VehicleProfile,
 };
 
 const EDGE_LENGTH_METERS: f64 = 10_000.0;
@@ -82,7 +83,7 @@ fn capped_chain_graph(edge_count: usize) -> (LaneGraph, Vec<String>) {
     let graph = LaneGraph::try_new(edge_ids.iter().enumerate().map(|(index, edge_id)| {
         LaneEdge::new(
             edge_id.clone(),
-            EdgeLength::try_new(EDGE_LENGTH_METERS).expect("retained edge length must be valid"),
+            EdgeLength::try_from(EDGE_LENGTH_METERS).expect("retained edge length must be valid"),
             edge_ids.get(index + 1).into_iter().cloned(),
         )
     }))
@@ -125,7 +126,7 @@ fn route_heavy_world(vehicle_count: usize) -> CoreWorld {
     assert_eq!(vehicle_count % ROUTE_HEAVY_VEHICLES_PER_ROUTE, 0);
     let graph = LaneGraph::try_new([LaneEdge::new(
         "retained-route-loop",
-        EdgeLength::try_new(EDGE_LENGTH_METERS).expect("route-heavy edge length must be valid"),
+        EdgeLength::try_from(EDGE_LENGTH_METERS).expect("route-heavy edge length must be valid"),
         ["retained-route-loop"],
     )])
     .expect("route-heavy graph must be valid");
@@ -210,14 +211,14 @@ fn signal_world(
             SignalControlInput::Group(group),
         ));
         if with_parking {
-            parking_spaces.push(ParkingSpace::new(
+            parking_spaces.push(ParkingSpaceInput::new(
                 format!("retained-balanced-space-{route_index:06}"),
                 None,
                 exit.clone(),
                 20.0,
                 exit,
                 40.0,
-                ParkingSpaceGeometry::new(-3.0, 0.0, 5.0, 2.4),
+                ParkingSpaceGeometryInput::new(-3.0, 0.0, 5.0, 2.4),
             ));
         }
     }
@@ -281,14 +282,14 @@ fn parking_heavy_world(vehicle_count: usize) -> CoreWorld {
             let edge = &edge_ids[index / VEHICLES_PER_EDGE];
             let local_index = index % VEHICLES_PER_EDGE;
             let entry_progress = 1.0 + VEHICLE_SPACING_METERS * local_index as f64;
-            ParkingSpace::new(
+            ParkingSpaceInput::new(
                 format!("retained-parking-space-{index:06}"),
                 None,
                 edge.clone(),
                 entry_progress,
                 edge.clone(),
                 entry_progress + 1.0,
-                ParkingSpaceGeometry::new(-3.0, 0.0, 5.0, 2.4),
+                ParkingSpaceGeometryInput::new(-3.0, 0.0, 5.0, 2.4),
             )
         }),
     )
@@ -447,7 +448,7 @@ fn measure_scenario(scenario: RetainedScenario, scale: usize) {
     let max_speed = active_speeds
         .iter()
         .map(|(_, speed)| *speed)
-        .fold(0.0, f64::max);
+        .fold(0.0, f32::max);
     if max_speed > 0.0 {
         world
             .command_spatial_index

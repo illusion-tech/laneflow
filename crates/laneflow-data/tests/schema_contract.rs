@@ -2,16 +2,17 @@ use jsonschema::draft202012;
 use laneflow_core::MAX_PORTABLE_SIGNAL_TIME_MS;
 use serde_json::Value;
 
-const CURRENT_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.5.schema.json");
+const CURRENT_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.6.schema.json");
 const SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.5-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.6-parking-signals-baseline.laneflow.json");
 const EMPTY_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.5-empty-signals-and-parking.laneflow.json");
-const CURRENT_V0_5_MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_5_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_5_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_5_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_5_MIN_PARKING_EXTENT_EXCLUSIVE_METERS: f64 = 1.0e-9;
+    include_str!("../../../examples/data/v0.6-empty-signals-and-parking.laneflow.json");
+const MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0;
+const MAX_EDGE_LENGTH_INCLUSIVE_METERS: f64 = 10_000.0;
+const MIN_VEHICLE_LENGTH_INCLUSIVE_METERS: f64 = 0.1;
+const MAX_VEHICLE_LENGTH_INCLUSIVE_METERS: f64 = 128.0;
+const PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 5.0e-5;
+const MIN_PARKING_EXTENT_INCLUSIVE_METERS: f64 = 0.1;
 
 fn schema(source: &str) -> Value {
     serde_json::from_str(source).expect("data format schema must be valid JSON")
@@ -29,9 +30,9 @@ fn schema_locks_current_version_units_and_required_static_shape() {
 
     assert_eq!(
         schema["$id"],
-        "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.5.schema.json"
+        "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.6.schema.json"
     );
-    assert_eq!(schema["title"], "LaneFlow Data Package v0.5");
+    assert_eq!(schema["title"], "LaneFlow Data Package v0.6");
 
     let mut required = string_array(&schema["required"]);
     required.sort_unstable();
@@ -48,7 +49,7 @@ fn schema_locks_current_version_units_and_required_static_shape() {
         ]
     );
     assert_eq!(schema["additionalProperties"], false);
-    assert_eq!(schema["properties"]["formatVersion"]["const"], "0.5");
+    assert_eq!(schema["properties"]["formatVersion"]["const"], "0.6");
     assert_eq!(
         schema["$defs"]["unitSpec"]["properties"]["time"]["const"],
         "second"
@@ -75,7 +76,7 @@ fn schema_locks_current_version_units_and_required_static_shape() {
 }
 
 #[test]
-fn schema_locks_v0_5_id_names_tagged_union_and_timing_bounds() {
+fn schema_locks_v0_6_id_names_tagged_union_and_timing_bounds() {
     let schema = schema(CURRENT_SCHEMA);
     assert_eq!(
         schema["$defs"]["laneConnection"]["required"],
@@ -178,19 +179,16 @@ fn schema_enforces_parking_closed_shapes_and_numeric_field_bounds() {
     for (path, invalid) in [
         (
             "progress",
-            serde_json::json!(CURRENT_V0_5_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS),
+            serde_json::json!(PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS),
         ),
-        (
-            "lateralOffset",
-            serde_json::json!(CURRENT_V0_5_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS),
-        ),
+        ("lateralOffset", serde_json::json!(0.0)),
         (
             "headingOffsetRadians",
             serde_json::json!(std::f64::consts::PI),
         ),
         (
             "length",
-            serde_json::json!(CURRENT_V0_5_MIN_PARKING_EXTENT_EXCLUSIVE_METERS),
+            serde_json::json!(MIN_PARKING_EXTENT_INCLUSIVE_METERS.next_down()),
         ),
         ("width", serde_json::json!(0.0)),
     ] {
@@ -297,13 +295,25 @@ fn assert_external_id_and_numeric_bounds(schema: &Value) {
         schema["$defs"]["laneEdge"]["properties"]["length"]["exclusiveMinimum"]
             .as_f64()
             .expect("edge length minimum must be numeric"),
-        CURRENT_V0_5_MIN_EDGE_LENGTH_EXCLUSIVE_METERS
+        MIN_EDGE_LENGTH_EXCLUSIVE_METERS
     );
     assert_eq!(
-        schema["$defs"]["vehicleProfile"]["properties"]["length"]["exclusiveMinimum"]
+        schema["$defs"]["laneEdge"]["properties"]["length"]["maximum"]
+            .as_f64()
+            .expect("edge length maximum must be numeric"),
+        MAX_EDGE_LENGTH_INCLUSIVE_METERS
+    );
+    assert_eq!(
+        schema["$defs"]["vehicleProfile"]["properties"]["length"]["minimum"]
             .as_f64()
             .expect("profile length minimum must be numeric"),
-        CURRENT_V0_5_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS
+        MIN_VEHICLE_LENGTH_INCLUSIVE_METERS
+    );
+    assert_eq!(
+        schema["$defs"]["vehicleProfile"]["properties"]["length"]["maximum"]
+            .as_f64()
+            .expect("profile length maximum must be numeric"),
+        MAX_VEHICLE_LENGTH_INCLUSIVE_METERS
     );
 }
 

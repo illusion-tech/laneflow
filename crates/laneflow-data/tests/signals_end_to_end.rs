@@ -5,11 +5,11 @@ use laneflow_core::{
 use laneflow_data::from_json_str;
 
 const SIGNALS_BASELINE: &str =
-    include_str!("../../../examples/data/v0.5-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.6-parking-signals-baseline.laneflow.json");
 const DELTA_MS: u64 = 1_000;
 
 fn baseline_world() -> CoreWorld {
-    let loaded = from_json_str(SIGNALS_BASELINE).expect("canonical v0.5 fixture must load");
+    let loaded = from_json_str(SIGNALS_BASELINE).expect("canonical v0.6 fixture must load");
     CoreWorld::with_traffic_data(DELTA_MS, loaded.into_initial_traffic_data(), Vec::new())
         .expect("canonical Signals fixture must initialize CoreWorld")
 }

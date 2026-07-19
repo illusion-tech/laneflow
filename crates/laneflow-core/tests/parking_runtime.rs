@@ -1,10 +1,10 @@
 use laneflow_core::{
     CoreError, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge,
     LaneGraph, LeaveParkingInput, ParkedVehicleSpawnInput, ParkingApproachState, ParkingArea,
-    ParkingBindingKind, ParkingCommandEffect, ParkingRegistry, ParkingReleaseReason, ParkingSpace,
-    ParkingSpaceGeometry, ParkingSpaceState, RebindReservedVehicleRouteInput, Route,
-    SignalRegistry, Speed, TickInput, VehicleParkingState, VehicleProfile, VehicleProfileHandle,
-    VehicleProfileRegistry, VehicleSpawnInput, VehicleStatus,
+    ParkingBindingKind, ParkingCommandEffect, ParkingRegistry, ParkingReleaseReason,
+    ParkingSpaceGeometryInput, ParkingSpaceInput, ParkingSpaceState,
+    RebindReservedVehicleRouteInput, Route, SignalRegistry, Speed, TickInput, VehicleParkingState,
+    VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry, VehicleSpawnInput, VehicleStatus,
 };
 
 fn profile_registry() -> (VehicleProfileRegistry, VehicleProfileHandle) {
@@ -26,15 +26,15 @@ fn profile_registry() -> (VehicleProfileRegistry, VehicleProfileHandle) {
     (registry, handle)
 }
 
-fn parking_space(id: &str, area: Option<&str>, entry: &str, exit: &str) -> ParkingSpace {
-    ParkingSpace::new(
+fn parking_space(id: &str, area: Option<&str>, entry: &str, exit: &str) -> ParkingSpaceInput {
+    ParkingSpaceInput::new(
         id,
         area.map(str::to_owned),
         entry,
         20.0,
         exit,
         40.0,
-        ParkingSpaceGeometry::new(-3.0, 0.0, 5.0, 2.4),
+        ParkingSpaceGeometryInput::new(-3.0, 0.0, 5.0, 2.4),
     )
 }
 
@@ -83,7 +83,7 @@ fn spawn_active(
             "R",
             0,
             EdgeProgress::try_new(progress).expect("progress"),
-            Speed::try_new(speed).expect("speed"),
+            Speed::try_from(speed).expect("speed"),
         ))
         .expect("spawn")
 }

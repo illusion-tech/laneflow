@@ -3,21 +3,27 @@
 use indexmap::{IndexMap, IndexSet};
 
 use crate::{
-    error::CoreError, handle::EdgeHandle, id::validate_external_id,
-    numeric_policy::MIN_EDGE_LENGTH_EXCLUSIVE_METERS,
+    error::{CoreError, NumericConversionStage},
+    handle::EdgeHandle,
+    id::validate_external_id,
+    numeric_policy::{MAX_EDGE_LENGTH_INCLUSIVE_METERS, MIN_EDGE_LENGTH_EXCLUSIVE_METERS},
 };
 
 /// lane edge 的长度，单位为 engine-agnostic distance unit。
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct EdgeLength(f64);
+pub struct EdgeLength(f32);
 
 impl EdgeLength {
     /// 创建经过校验的 edge length。
-    pub fn try_new(value: f64) -> Result<Self, CoreError> {
-        if !value.is_finite() || value <= MIN_EDGE_LENGTH_EXCLUSIVE_METERS {
+    pub fn try_new(value: f32) -> Result<Self, CoreError> {
+        if !value.is_finite()
+            || value <= MIN_EDGE_LENGTH_EXCLUSIVE_METERS
+            || value > MAX_EDGE_LENGTH_INCLUSIVE_METERS
+        {
             return Err(CoreError::InvalidLaneEdgeLength {
                 edge_length: value,
                 min_exclusive: MIN_EDGE_LENGTH_EXCLUSIVE_METERS,
+                max_inclusive: MAX_EDGE_LENGTH_INCLUSIVE_METERS,
             });
         }
 
@@ -25,8 +31,33 @@ impl EdgeLength {
     }
 
     /// 返回底层数值。
-    pub const fn value(self) -> f64 {
+    pub const fn value(self) -> f32 {
         self.0
+    }
+}
+
+impl TryFrom<f64> for EdgeLength {
+    type Error = CoreError;
+
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        let min_exclusive = f64::from(MIN_EDGE_LENGTH_EXCLUSIVE_METERS);
+        let max_inclusive = f64::from(MAX_EDGE_LENGTH_INCLUSIVE_METERS);
+        if !value.is_finite() || value <= min_exclusive || value > max_inclusive {
+            return Err(CoreError::InvalidLaneEdgeLengthInput {
+                edge_length: value,
+                min_exclusive,
+                max_inclusive,
+                stage: NumericConversionStage::RawInput,
+            });
+        }
+
+        let converted = value as f32;
+        Self::try_new(converted).map_err(|_| CoreError::InvalidLaneEdgeLengthInput {
+            edge_length: value,
+            min_exclusive,
+            max_inclusive,
+            stage: NumericConversionStage::TargetValue,
+        })
     }
 }
 

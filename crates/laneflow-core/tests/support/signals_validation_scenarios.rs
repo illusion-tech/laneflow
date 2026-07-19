@@ -1,7 +1,7 @@
 use laneflow_core::{
     CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph,
-    MovementGate, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, Route, SignalAspect,
-    SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
+    MovementGate, ParkingRegistry, ParkingSpaceGeometryInput, ParkingSpaceInput, Route,
+    SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
     SignalRegistry, Speed, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
     VehicleSpawnInput,
 };
@@ -67,7 +67,7 @@ pub struct SignalScenario {
 }
 
 fn edge_length(value: f64) -> EdgeLength {
-    EdgeLength::try_new(value).expect("signal scenario edge length must be valid")
+    EdgeLength::try_from(value).expect("signal scenario edge length must be valid")
 }
 
 fn progress(value: f64) -> EdgeProgress {
@@ -75,7 +75,7 @@ fn progress(value: f64) -> EdgeProgress {
 }
 
 fn speed(value: f64) -> Speed {
-    Speed::try_new(value).expect("signal scenario speed must be valid")
+    Speed::try_from(value).expect("signal scenario speed must be valid")
 }
 
 fn route_id(index: usize) -> String {
@@ -237,14 +237,14 @@ fn signal_scenario_with_parking_entry(
         [],
         (0..parking_space_count).map(|index| {
             let route_index = index % route_count;
-            ParkingSpace::new(
+            ParkingSpaceInput::new(
                 format!("parking-benchmark-space-{index:06}"),
                 None,
                 entry_id(route_index),
                 parking_entry_progress,
                 entry_id(route_index),
                 parking_entry_progress,
-                ParkingSpaceGeometry::new(3.0, 0.0, 5.0, 2.4),
+                ParkingSpaceGeometryInput::new(3.0, 0.0, 5.0, 2.4),
             )
         }),
     )

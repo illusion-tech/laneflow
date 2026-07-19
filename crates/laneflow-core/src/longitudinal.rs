@@ -44,8 +44,8 @@ impl SpatialCandidateAttribution {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct SpatialMotionCandidate {
-    speed: f64,
-    travel: f64,
+    speed: f32,
+    travel: f32,
     hard_projection: bool,
     attribution: SpatialCandidateAttribution,
 }
@@ -67,8 +67,8 @@ impl SpatialMotionCandidate {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LeaderKinematics {
     pub(crate) observation: LeaderObservation,
-    pub(crate) current_speed: f64,
-    pub(crate) emergency_deceleration: f64,
+    pub(crate) current_speed: f32,
+    pub(crate) emergency_deceleration: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -81,13 +81,13 @@ pub(crate) struct SparseParkingStop {
 pub(crate) struct LongitudinalMotion {
     pub(crate) vehicle: VehicleHandle,
     update_sequence: u64,
-    current_speed: f64,
+    current_speed: f32,
     leader: Option<LeaderObservation>,
-    candidate_speed: f64,
-    candidate_travel: f64,
-    emergency_min_travel: f64,
-    final_speed: f64,
-    final_travel: f64,
+    candidate_speed: f32,
+    candidate_travel: f32,
+    emergency_min_travel: f32,
+    final_speed: f32,
+    final_travel: f32,
     route_end_distance: Option<f64>,
     signal_stop: Option<SignalStopConstraint>,
     spatial_projection: Option<SpatialProjectionAttribution>,
@@ -117,7 +117,7 @@ impl LongitudinalMotion {
     pub(crate) fn cap_to_route_end(
         &mut self,
         distance: f64,
-        delta_time: f64,
+        delta_time: f32,
     ) -> Result<(), CoreError> {
         self.apply_spatial_stops(Some(distance), None, None, None, delta_time)
     }
@@ -128,7 +128,7 @@ impl LongitudinalMotion {
         signal_stop: Option<SignalStopConstraint>,
         parking_stop: Option<ParkingStopConstraint>,
         profile: Option<IidmProfileSpec>,
-        delta_time: f64,
+        delta_time: f32,
     ) -> Result<(), CoreError> {
         self.route_end_distance = route_end_distance;
         self.signal_stop = signal_stop;
@@ -142,19 +142,24 @@ impl LongitudinalMotion {
         };
 
         if let Some(distance) = route_end_distance {
-            let travel = self.candidate_travel.min(distance);
-            let mut speed = if distance < self.candidate_travel {
+            let distance_before_tick_end = distance < f64::from(self.candidate_travel);
+            let travel = if distance_before_tick_end {
+                distance as f32
+            } else {
+                self.candidate_travel
+            };
+            let mut speed = if distance_before_tick_end {
                 speed_after_travel_cap(
                     self.vehicle,
                     self.candidate_speed,
                     self.candidate_travel,
-                    distance,
+                    travel,
                     delta_time,
                 )?
             } else {
                 self.candidate_speed
             };
-            if longitudinal_constraint_reached(travel, distance) {
+            if longitudinal_constraint_reached(f64::from(travel), distance) {
                 speed = 0.0;
             }
             let candidate = SpatialMotionCandidate {
@@ -218,7 +223,7 @@ impl LongitudinalMotion {
         route_distance: f64,
         profile: IidmProfileSpec,
         attribution: SpatialCandidateAttribution,
-        delta_time: f64,
+        delta_time: f32,
     ) -> Result<SpatialMotionCandidate, CoreError> {
         let speed_ceiling = safe_speed(
             self.vehicle,
@@ -226,7 +231,7 @@ impl LongitudinalMotion {
             profile.comfortable_deceleration,
             0.0,
             profile.comfortable_deceleration,
-            route_distance,
+            route_distance.min(f64::from(f32::MAX)) as f32,
             delta_time,
         )?;
         let emergency_speed_step = finite(
@@ -251,17 +256,18 @@ impl LongitudinalMotion {
         };
 
         let travel_before_hard_projection = candidate.travel;
-        if route_distance < candidate.travel {
+        if route_distance < f64::from(candidate.travel) {
+            let projected_travel = route_distance as f32;
             candidate.speed = speed_after_travel_cap(
                 self.vehicle,
                 candidate.speed,
                 candidate.travel,
-                route_distance,
+                projected_travel,
                 delta_time,
             )?;
-            candidate.travel = route_distance;
+            candidate.travel = projected_travel;
         }
-        if longitudinal_constraint_reached(candidate.travel, route_distance) {
+        if longitudinal_constraint_reached(f64::from(candidate.travel), route_distance) {
             candidate.speed = 0.0;
         }
 
@@ -269,21 +275,21 @@ impl LongitudinalMotion {
             speed: candidate.speed,
             travel: candidate.travel,
             hard_projection: route_distance + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS
-                < self.emergency_min_travel
-                && route_distance < travel_before_hard_projection,
+                < f64::from(self.emergency_min_travel)
+                && route_distance < f64::from(travel_before_hard_projection),
             attribution,
         })
     }
 
-    pub(crate) const fn final_speed(self) -> f64 {
+    pub(crate) const fn final_speed(self) -> f32 {
         self.final_speed
     }
 
-    pub(crate) const fn final_travel(self) -> f64 {
+    pub(crate) const fn final_travel(self) -> f32 {
         self.final_travel
     }
 
-    pub(crate) fn applied_acceleration(self, delta_time: f64) -> Result<f64, CoreError> {
+    pub(crate) fn applied_acceleration(self, delta_time: f32) -> Result<f32, CoreError> {
         finite(
             self.vehicle,
             "applied_acceleration",
@@ -317,19 +323,20 @@ impl LongitudinalMotion {
     }
 
     pub(crate) fn reaches_parking_stop(self, constraint: ParkingStopConstraint) -> bool {
-        longitudinal_constraint_reached(self.final_travel, constraint.route_distance)
-            && computed_speed_is_near_zero(self.final_speed)
+        longitudinal_constraint_reached(f64::from(self.final_travel), constraint.route_distance)
+            && computed_speed_is_near_zero(f64::from(self.final_speed))
     }
 
     pub(crate) fn reaches_route_end(self) -> bool {
-        self.route_end_distance
-            .is_some_and(|distance| longitudinal_constraint_reached(self.final_travel, distance))
+        self.route_end_distance.is_some_and(|distance| {
+            longitudinal_constraint_reached(f64::from(self.final_travel), distance)
+        })
     }
 
     fn apply_geometry_cap(
         &mut self,
-        leader_final_travel: f64,
-        delta_time: f64,
+        leader_final_travel: f32,
+        delta_time: f32,
     ) -> Result<(), CoreError> {
         let Some(leader) = self.leader else {
             return Ok(());
@@ -355,9 +362,11 @@ impl LongitudinalMotion {
             self.final_speed = self.candidate_speed;
         }
         self.final_travel = final_travel;
-        self.safety_projection_applied = final_travel + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS
-            < travel_before_geometry_projection
-            && final_travel + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS < self.emergency_min_travel;
+        self.safety_projection_applied = f64::from(final_travel)
+            + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS
+            < f64::from(travel_before_geometry_projection)
+            && f64::from(final_travel) + LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS
+                < f64::from(self.emergency_min_travel);
         Ok(())
     }
 }
@@ -431,7 +440,7 @@ impl LongitudinalScratch {
             .filter(|motion| motion.vehicle == vehicle)
     }
 
-    pub(crate) fn project<I>(&mut self, update_order: I, delta_time: f64) -> Result<(), CoreError>
+    pub(crate) fn project<I>(&mut self, update_order: I, delta_time: f32) -> Result<(), CoreError>
     where
         I: IntoIterator,
         I::Item: std::borrow::Borrow<VehicleHandle>,
@@ -488,7 +497,7 @@ impl LongitudinalScratch {
         self.motion(leader).map(|_| leader.index())
     }
 
-    fn resolve_node(&mut self, index: usize, delta_time: f64) -> Result<(), CoreError> {
+    fn resolve_node(&mut self, index: usize, delta_time: f32) -> Result<(), CoreError> {
         if self.visit_state[index] == RESOLVED {
             return Ok(());
         }
@@ -508,7 +517,7 @@ impl LongitudinalScratch {
         Ok(())
     }
 
-    fn resolve_cycle(&mut self, cycle: &[usize], delta_time: f64) -> Result<(), CoreError> {
+    fn resolve_cycle(&mut self, cycle: &[usize], delta_time: f32) -> Result<(), CoreError> {
         debug_assert!(
             cycle.len() >= 2,
             "self leader is excluded by occupancy query"
@@ -571,10 +580,10 @@ impl LongitudinalScratch {
 pub(crate) fn compute_motion(
     vehicle: VehicleHandle,
     update_sequence: u64,
-    current_speed: f64,
+    current_speed: f32,
     profile: IidmProfileSpec,
     leader: Option<LeaderKinematics>,
-    delta_time: f64,
+    delta_time: f32,
 ) -> Result<LongitudinalMotion, CoreError> {
     let comfort_acceleration = iidm_acceleration(vehicle, current_speed, profile, leader)?;
     let comfort = ballistic_motion(vehicle, current_speed, comfort_acceleration, delta_time)?;
@@ -667,16 +676,16 @@ fn parking_stop_error(error: CoreError, constraint: ParkingStopConstraint) -> Co
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct BallisticMotion {
-    speed: f64,
-    travel: f64,
+    speed: f32,
+    travel: f32,
 }
 
 fn iidm_acceleration(
     vehicle: VehicleHandle,
-    current_speed: f64,
+    current_speed: f32,
     profile: IidmProfileSpec,
     leader: Option<LeaderKinematics>,
-) -> Result<f64, CoreError> {
+) -> Result<f32, CoreError> {
     let free_acceleration = if current_speed <= profile.desired_speed {
         let ratio = current_speed / profile.desired_speed;
         let speed_term = finite(vehicle, "iidm_free_speed_term", ratio.powi(4))?;
@@ -708,7 +717,7 @@ fn iidm_acceleration(
             free_acceleration.clamp(-profile.comfortable_deceleration, profile.max_acceleration)
         );
     };
-    if physical_gap_is_zero_or_overlap(leader.observation.bumper_gap) {
+    if physical_gap_is_zero_or_overlap(f64::from(leader.observation.bumper_gap)) {
         return Ok(-profile.comfortable_deceleration);
     }
 
@@ -767,13 +776,13 @@ fn iidm_acceleration(
 
 fn safe_speed(
     vehicle: VehicleHandle,
-    follower_speed: f64,
-    follower_deceleration: f64,
-    leader_speed: f64,
-    leader_deceleration: f64,
-    bumper_gap: f64,
-    delta_time: f64,
-) -> Result<f64, CoreError> {
+    follower_speed: f32,
+    follower_deceleration: f32,
+    leader_speed: f32,
+    leader_deceleration: f32,
+    bumper_gap: f32,
+    delta_time: f32,
+) -> Result<f32, CoreError> {
     let gap_term = finite(
         vehicle,
         "safe_speed_gap_term",
@@ -815,9 +824,9 @@ fn safe_speed(
 
 fn ballistic_motion(
     vehicle: VehicleHandle,
-    current_speed: f64,
-    acceleration: f64,
-    delta_time: f64,
+    current_speed: f32,
+    acceleration: f32,
+    delta_time: f32,
 ) -> Result<BallisticMotion, CoreError> {
     if acceleration < 0.0 {
         let stop_time = finite(
@@ -848,10 +857,10 @@ fn ballistic_motion(
 
 pub(crate) fn emergency_min_travel(
     vehicle: VehicleHandle,
-    current_speed: f64,
-    emergency_deceleration: f64,
-    delta_time: f64,
-) -> Result<f64, CoreError> {
+    current_speed: f32,
+    emergency_deceleration: f32,
+    delta_time: f32,
+) -> Result<f32, CoreError> {
     let speed_step = finite(
         vehicle,
         "emergency_speed_step",
@@ -870,13 +879,13 @@ pub(crate) fn emergency_min_travel(
 
 fn braking_distance(
     vehicle: VehicleHandle,
-    speed: f64,
-    deceleration: f64,
-) -> Result<f64, CoreError> {
+    speed: f32,
+    deceleration: f32,
+) -> Result<f32, CoreError> {
     if speed == 0.0 {
         return Ok(0.0);
     }
-    let value = if deceleration > f64::MAX / 2.0 {
+    let value = if deceleration > f32::MAX / 2.0 {
         speed / deceleration * (0.5 * speed)
     } else {
         let denominator = 2.0 * deceleration;
@@ -891,11 +900,11 @@ fn braking_distance(
 
 fn speed_after_travel_cap(
     vehicle: VehicleHandle,
-    candidate_speed: f64,
-    candidate_travel: f64,
-    final_travel: f64,
-    delta_time: f64,
-) -> Result<f64, CoreError> {
+    candidate_speed: f32,
+    candidate_travel: f32,
+    final_travel: f32,
+    delta_time: f32,
+) -> Result<f32, CoreError> {
     if candidate_speed == 0.0 {
         return Ok(0.0);
     }
@@ -910,18 +919,18 @@ fn speed_after_travel_cap(
         .min(candidate_speed))
 }
 
-fn finite(vehicle: VehicleHandle, stage: &'static str, value: f64) -> Result<f64, CoreError> {
+fn finite(vehicle: VehicleHandle, stage: &'static str, value: f32) -> Result<f32, CoreError> {
     if !value.is_finite() {
         return Err(CoreError::NonFiniteLongitudinalComputation {
             vehicle,
             stage,
-            value,
+            value: f64::from(value),
         });
     }
     Ok(if value == 0.0 { 0.0 } else { value })
 }
 
-fn half_product(left: f64, right: f64) -> f64 {
+fn half_product(left: f32, right: f32) -> f32 {
     if left.abs() >= right.abs() {
         (0.5 * left) * right
     } else {
@@ -929,7 +938,7 @@ fn half_product(left: f64, right: f64) -> f64 {
     }
 }
 
-fn multiply_factors<const N: usize>(mut factors: [f64; N]) -> f64 {
+fn multiply_factors<const N: usize>(mut factors: [f32; N]) -> f32 {
     factors.sort_unstable_by(|left, right| left.abs().total_cmp(&right.abs()));
     factors.into_iter().product()
 }

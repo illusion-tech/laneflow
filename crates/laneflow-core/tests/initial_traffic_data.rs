@@ -4,7 +4,7 @@ use laneflow_core::{
 };
 
 fn edge_length(value: f64) -> EdgeLength {
-    EdgeLength::try_new(value).expect("valid edge length")
+    EdgeLength::try_from(value).expect("valid edge length")
 }
 
 fn canonical_graph() -> LaneGraph {

@@ -15,8 +15,11 @@ const UNUSED_ROUTE_ID: &str = "unused-route";
 const LOCAL_VEHICLE_ID: &str = "zz-local";
 const LOCAL_PROGRESS: f64 = 5.0;
 const SAFE_PROGRESS: f64 = 50.0;
-const BACKGROUND_PROGRESS_START: f64 = 1_000.0;
+const COMMAND_EDGE_LENGTH: f64 = 100.0;
+const BACKGROUND_EDGE_LENGTH: f64 = 10_000.0;
+const BACKGROUND_PROGRESS_START: f64 = 5.0;
 const BACKGROUND_SPACING: f64 = 10.0;
+const BACKGROUND_VEHICLES_PER_EDGE: usize = 999;
 
 #[derive(Clone)]
 pub struct CommandScenario {
@@ -124,15 +127,13 @@ fn build_command_scenario(
         "three canonical routes are required"
     );
 
-    let first_edge_length =
-        BACKGROUND_PROGRESS_START + BACKGROUND_SPACING * background_vehicle_count as f64 + 1_000.0;
-    let (edge_ids, edges) = if repeated_edge {
+    let (command_edge_ids, mut edges) = if repeated_edge {
         let edge_id = "edge-000".to_owned();
         (
             std::iter::repeat_n(edge_id.clone(), route_length).collect(),
             vec![LaneEdge::new(
                 edge_id.clone(),
-                EdgeLength::try_new(first_edge_length)
+                EdgeLength::try_from(COMMAND_EDGE_LENGTH)
                     .expect("command benchmark edge length must be valid"),
                 [edge_id],
             )],
@@ -146,10 +147,9 @@ fn build_command_scenario(
             .enumerate()
             .map(|(index, id)| {
                 let next = edge_ids.get(index + 1).into_iter().cloned();
-                let length = if index == 0 { first_edge_length } else { 10.0 };
                 LaneEdge::new(
                     id,
-                    EdgeLength::try_new(length)
+                    EdgeLength::try_from(COMMAND_EDGE_LENGTH)
                         .expect("command benchmark edge length must be valid"),
                     next,
                 )
@@ -157,6 +157,20 @@ fn build_command_scenario(
             .collect::<Vec<_>>();
         (edge_ids, edges)
     };
+    let background_edge_count = background_vehicle_count
+        .div_ceil(BACKGROUND_VEHICLES_PER_EDGE)
+        .max(1);
+    let background_edge_ids = (0..background_edge_count)
+        .map(|index| format!("background-edge-{index:03}"))
+        .collect::<Vec<_>>();
+    edges.extend(background_edge_ids.iter().enumerate().map(|(index, id)| {
+        LaneEdge::new(
+            id,
+            EdgeLength::try_from(BACKGROUND_EDGE_LENGTH)
+                .expect("background edge length must be valid"),
+            background_edge_ids.get(index + 1).into_iter().cloned(),
+        )
+    }));
     let lane_graph = LaneGraph::try_new(edges).expect("command benchmark graph must be valid");
     let mut route_ids = vec![
         COMMAND_ROUTE_ID.to_owned(),
@@ -165,7 +179,12 @@ fn build_command_scenario(
     ];
     route_ids.extend((3..total_route_count).map(|index| format!("extra-route-{index:03}")));
     let routes = route_ids.into_iter().map(|id| {
-        Route::try_new(id, edge_ids.iter().cloned()).expect("command benchmark route must be valid")
+        let route_edges = if id == BACKGROUND_ROUTE_ID {
+            background_edge_ids.iter().cloned()
+        } else {
+            command_edge_ids.iter().cloned()
+        };
+        Route::try_new(id, route_edges).expect("command benchmark route must be valid")
     });
 
     let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
@@ -194,9 +213,10 @@ fn build_command_scenario(
                 format!("background-{index:06}"),
                 profile,
                 BACKGROUND_ROUTE_ID,
-                0,
+                index / BACKGROUND_VEHICLES_PER_EDGE,
                 EdgeProgress::try_new(
-                    BACKGROUND_PROGRESS_START + BACKGROUND_SPACING * index as f64,
+                    BACKGROUND_PROGRESS_START
+                        + BACKGROUND_SPACING * (index % BACKGROUND_VEHICLES_PER_EDGE) as f64,
                 )
                 .expect("background progress must be valid"),
                 Speed::ZERO,

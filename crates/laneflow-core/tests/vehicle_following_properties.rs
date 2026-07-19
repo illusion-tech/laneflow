@@ -11,8 +11,8 @@ use proptest::{
 };
 
 const FIXED_DELTA_TIME_MS: u64 = 100;
-const VEHICLE_LENGTH: f64 = 4.0;
-const EPSILON: f64 = 1.0e-9;
+const VEHICLE_LENGTH: f32 = 4.0;
+const PHYSICAL_GAP_TOLERANCE_METERS: f64 = 1.0e-5;
 const REGRESSION_FILE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/proptest-regressions/vehicle_following_properties.txt"
@@ -41,7 +41,7 @@ fn platoon_cases() -> impl Strategy<Value = PlatoonCase> {
 }
 
 fn edge_length(value: f64) -> EdgeLength {
-    EdgeLength::try_new(value).expect("property edge length must be valid")
+    EdgeLength::try_from(value).expect("property edge length must be valid")
 }
 
 fn progress(value: f64) -> EdgeProgress {
@@ -49,15 +49,15 @@ fn progress(value: f64) -> EdgeProgress {
 }
 
 fn speed(value: f64) -> Speed {
-    Speed::try_new(value).expect("property speed must be valid")
+    Speed::try_from(value).expect("property speed must be valid")
 }
 
 fn build_world(case: &PlatoonCase, reverse_input: bool) -> CoreWorld {
     let mut fronts = Vec::with_capacity(case.speeds_mm_per_second.len());
-    let mut front = 10.0;
+    let mut front = 10.0_f64;
     fronts.push(front);
     for gap_mm in &case.gaps_mm {
-        front += VEHICLE_LENGTH + f64::from(*gap_mm) / 1_000.0;
+        front += f64::from(VEHICLE_LENGTH) + f64::from(*gap_mm) / 1_000.0;
         fronts.push(front);
     }
 
@@ -127,7 +127,7 @@ fn assert_world_invariants(world: &CoreWorld) -> TestCaseResult {
     fronts.sort_unstable_by(f64::total_cmp);
     for pair in fronts.windows(2) {
         prop_assert!(
-            pair[1] - pair[0] + EPSILON >= VEHICLE_LENGTH,
+            pair[1] - pair[0] + PHYSICAL_GAP_TOLERANCE_METERS >= f64::from(VEHICLE_LENGTH),
             "physical overlap: follower_front={}, leader_front={}",
             pair[0],
             pair[1]

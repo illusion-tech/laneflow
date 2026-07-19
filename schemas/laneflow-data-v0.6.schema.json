@@ -1,0 +1,537 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.6.schema.json",
+  "title": "LaneFlow Data Package v0.6",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "formatVersion",
+    "units",
+    "laneGraph",
+    "routes",
+    "vehicleProfiles",
+    "signals",
+    "parking"
+  ],
+  "properties": {
+    "formatVersion": {
+      "const": "0.6"
+    },
+    "units": {
+      "$ref": "#/$defs/unitSpec"
+    },
+    "laneGraph": {
+      "$ref": "#/$defs/laneGraph"
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/route"
+      }
+    },
+    "vehicleProfiles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/vehicleProfile"
+      }
+    },
+    "signals": {
+      "$ref": "#/$defs/signals"
+    },
+    "parking": {
+      "$ref": "#/$defs/parking"
+    },
+    "extensions": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "externalId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+    },
+    "portableMilliseconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "positivePortableMilliseconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "unitSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "distance",
+        "time"
+      ],
+      "properties": {
+        "distance": {
+          "const": "meter"
+        },
+        "time": {
+          "const": "second"
+        }
+      }
+    },
+    "laneGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edges"
+      ],
+      "properties": {
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/laneEdge"
+          }
+        }
+      }
+    },
+    "laneEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "length",
+        "connections"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        },
+        "length": {
+          "type": "number",
+          "exclusiveMinimum": 1,
+          "maximum": 10000
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/laneConnection"
+          }
+        }
+      }
+    },
+    "laneConnection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "toEdgeId"
+      ],
+      "properties": {
+        "toEdgeId": {
+          "$ref": "#/$defs/externalId"
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "edgeIds"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        },
+        "edgeIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/externalId"
+          }
+        }
+      }
+    },
+    "vehicleProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "length",
+        "model",
+        "desiredSpeed",
+        "minGap",
+        "timeHeadway",
+        "maxAcceleration",
+        "comfortableDeceleration",
+        "emergencyDeceleration"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        },
+        "length": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 128
+        },
+        "model": {
+          "const": "iidm"
+        },
+        "desiredSpeed": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
+        },
+        "minGap": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 128
+        },
+        "timeHeadway": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 60
+        },
+        "maxAcceleration": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 50
+        },
+        "comfortableDeceleration": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 50
+        },
+        "emergencyDeceleration": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 50
+        }
+      }
+    },
+    "signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stopLines",
+        "movementGates",
+        "groups",
+        "controllers"
+      ],
+      "properties": {
+        "stopLines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stopLine"
+          }
+        },
+        "movementGates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/movementGate"
+          }
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/signalGroup"
+          }
+        },
+        "controllers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/signalController"
+          }
+        }
+      }
+    },
+    "parking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "areas",
+        "spaces"
+      ],
+      "properties": {
+        "areas": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parkingArea"
+          }
+        },
+        "spaces": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parkingSpace"
+          }
+        }
+      }
+    },
+    "parkingArea": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        }
+      }
+    },
+    "parkingSpace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "entry",
+        "exit",
+        "geometry"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        },
+        "areaId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "entry": {
+          "$ref": "#/$defs/parkingAnchor"
+        },
+        "exit": {
+          "$ref": "#/$defs/parkingAnchor"
+        },
+        "geometry": {
+          "$ref": "#/$defs/parkingGeometry"
+        }
+      }
+    },
+    "parkingAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edgeId",
+        "progress"
+      ],
+      "properties": {
+        "edgeId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "progress": {
+          "type": "number",
+          "exclusiveMinimum": 0.00005
+        }
+      }
+    },
+    "parkingGeometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lateralOffset",
+        "headingOffsetRadians",
+        "length",
+        "width"
+      ],
+      "properties": {
+        "lateralOffset": {
+          "type": "number",
+          "anyOf": [
+            {
+              "minimum": -128,
+              "exclusiveMaximum": 0
+            },
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 128
+            }
+          ]
+        },
+        "headingOffsetRadians": {
+          "type": "number",
+          "minimum": -3.141592653589793,
+          "exclusiveMaximum": 3.141592653589793
+        },
+        "length": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 128
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 128
+        }
+      }
+    },
+    "stopLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "edgeId",
+        "location"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        },
+        "edgeId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "location": {
+          "const": "edgeEnd"
+        }
+      }
+    },
+    "movementGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromEdgeId",
+        "toEdgeId",
+        "stopLineId",
+        "signalControl"
+      ],
+      "properties": {
+        "fromEdgeId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "toEdgeId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "stopLineId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "signalControl": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/groupSignalControl"
+            },
+            {
+              "$ref": "#/$defs/noneSignalControl"
+            }
+          ]
+        }
+      }
+    },
+    "groupSignalControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "groupId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "group"
+        },
+        "groupId": {
+          "$ref": "#/$defs/externalId"
+        }
+      }
+    },
+    "noneSignalControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "none"
+        }
+      }
+    },
+    "signalGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        }
+      }
+    },
+    "signalController": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "offsetMs",
+        "groupIds",
+        "phases"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        },
+        "kind": {
+          "const": "fixedTime"
+        },
+        "offsetMs": {
+          "$ref": "#/$defs/portableMilliseconds"
+        },
+        "groupIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/externalId"
+          }
+        },
+        "phases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/signalPhase"
+          }
+        }
+      }
+    },
+    "signalPhase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "durationMs",
+        "states"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/externalId"
+        },
+        "durationMs": {
+          "$ref": "#/$defs/positivePortableMilliseconds"
+        },
+        "states": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/signalGroupState"
+          }
+        }
+      }
+    },
+    "signalGroupState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "groupId",
+        "aspect"
+      ],
+      "properties": {
+        "groupId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "aspect": {
+          "enum": [
+            "red",
+            "yellow",
+            "green"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -5,7 +5,7 @@ use laneflow_core::{
 use laneflow_data::from_json_str;
 
 const EXAMPLE_ROUTE_DATA: &str =
-    include_str!("../../../examples/data/v0.5-empty-signals-and-parking.laneflow.json");
+    include_str!("../../../examples/data/v0.6-empty-signals-and-parking.laneflow.json");
 const MILLISECONDS_PER_SECOND: f64 = 1_000.0;
 const PROGRESS_ASSERTION_TOLERANCE_METERS: f64 = 1.0e-9;
 
@@ -19,11 +19,11 @@ fn load_example_world() -> CoreWorld {
     );
     assert!(
         traffic_data.signals().is_empty(),
-        "route behavior fixture must use explicit empty v0.5 Signals"
+        "route behavior fixture must use explicit empty v0.6 Signals"
     );
     assert!(
         traffic_data.parking().is_empty(),
-        "route behavior fixture must use explicit empty v0.5 Parking"
+        "route behavior fixture must use explicit empty v0.6 Parking"
     );
 
     CoreWorld::with_traffic_data(1_000, traffic_data, Vec::new())
@@ -36,18 +36,20 @@ fn route_distance(world: &CoreWorld, route: RouteHandle) -> f64 {
         .expect("example route exists")
         .iter()
         .map(|edge| {
-            world
-                .lane_graph()
-                .edge_length(*edge)
-                .expect("route edge exists in the lane graph")
-                .value()
+            f64::from(
+                world
+                    .lane_graph()
+                    .edge_length(*edge)
+                    .expect("route edge exists in the lane graph")
+                    .value(),
+            )
         })
         .sum()
 }
 
 fn speed_to_complete_route_in_one_tick(world: &CoreWorld, route: RouteHandle) -> Speed {
     let delta_time_seconds = world.fixed_delta_time_ms() as f64 / MILLISECONDS_PER_SECOND;
-    Speed::try_new(route_distance(world, route) / delta_time_seconds)
+    Speed::try_from(route_distance(world, route) / delta_time_seconds)
         .expect("example route travel speed must be valid")
 }
 
@@ -201,7 +203,7 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion_under_iidm()
     assert_eq!(main_vehicle.status, VehicleStatus::Completed);
     assert_eq!(main_vehicle.route_edge_index, 1);
     assert!(
-        (main_vehicle.edge_progress.value() - exit_length).abs()
+        (main_vehicle.edge_progress.value() - f64::from(exit_length)).abs()
             <= PROGRESS_ASSERTION_TOLERANCE_METERS,
         "main vehicle must finish at the terminal edge boundary"
     );
@@ -212,7 +214,7 @@ fn example_route_data_drives_main_and_repeated_routes_to_completion_under_iidm()
     assert_eq!(loop_vehicle.status, VehicleStatus::Completed);
     assert_eq!(loop_vehicle.route_edge_index, 1);
     assert!(
-        (loop_vehicle.edge_progress.value() - loop_length).abs()
+        (loop_vehicle.edge_progress.value() - f64::from(loop_length)).abs()
             <= PROGRESS_ASSERTION_TOLERANCE_METERS,
         "loop vehicle must finish at the second route occurrence"
     );

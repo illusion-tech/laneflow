@@ -7,7 +7,7 @@ use laneflow_core::{
 const EPSILON: f64 = 1.0e-9;
 
 fn edge_length(value: f64) -> EdgeLength {
-    EdgeLength::try_new(value).expect("valid edge length")
+    EdgeLength::try_from(value).expect("valid edge length")
 }
 
 fn progress(value: f64) -> EdgeProgress {
@@ -15,7 +15,7 @@ fn progress(value: f64) -> EdgeProgress {
 }
 
 fn speed(value: f64) -> Speed {
-    Speed::try_new(value).expect("valid speed")
+    Speed::try_from(value).expect("valid speed")
 }
 
 fn profile(
@@ -27,12 +27,12 @@ fn profile(
         "following-profile",
         IidmProfileSpec {
             length: 4.0,
-            desired_speed,
+            desired_speed: desired_speed as f32,
             min_gap: 2.0,
             time_headway: 1.5,
             max_acceleration: 2.0,
-            comfortable_deceleration,
-            emergency_deceleration,
+            comfortable_deceleration: comfortable_deceleration as f32,
+            emergency_deceleration: emergency_deceleration as f32,
         },
     )
     .expect("valid following profile")])
@@ -65,7 +65,8 @@ fn vehicle<'a>(world: &'a CoreWorld, id: &str) -> &'a VehicleState {
     world.vehicle(handle).expect("vehicle state exists")
 }
 
-fn assert_close(actual: f64, expected: f64) {
+fn assert_close(actual: impl Into<f64>, expected: f64) {
+    let actual = actual.into();
     assert!(
         (actual - expected).abs() <= EPSILON,
         "actual={actual}, expected={expected}"

@@ -7,7 +7,7 @@ use laneflow_core::{
 };
 
 fn edge_length(value: f64) -> EdgeLength {
-    EdgeLength::try_new(value).expect("valid edge length")
+    EdgeLength::try_from(value).expect("valid edge length")
 }
 
 fn progress(value: f64) -> EdgeProgress {
@@ -15,7 +15,7 @@ fn progress(value: f64) -> EdgeProgress {
 }
 
 fn speed(value: f64) -> Speed {
-    Speed::try_new(value).expect("valid speed")
+    Speed::try_from(value).expect("valid speed")
 }
 
 fn phase(id: &str, duration_ms: u64, states: &[(&str, SignalAspect)]) -> SignalPhase {
@@ -512,8 +512,8 @@ fn signal_then_following_projection_order_is_per_vehicle() {
 #[test]
 fn signal_beyond_finite_route_distance_horizon_is_ignored() {
     let graph = LaneGraph::try_new([
-        LaneEdge::new("a", edge_length(f64::MAX), ["b"]),
-        LaneEdge::new("b", edge_length(f64::MAX), ["c"]),
+        LaneEdge::new("a", edge_length(10_000.0), ["b"]),
+        LaneEdge::new("b", edge_length(10_000.0), ["c"]),
         LaneEdge::new("c", edge_length(100.0), Vec::<String>::new()),
     ])
     .expect("graph");
