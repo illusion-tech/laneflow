@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-19（#133 Spatial 生产类型与注册表边界）
+**最后更新**: 2026-07-20（#134 SpatialPackage 与 ScenarioManifest source contract）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -79,37 +79,41 @@ frame 放置、tile 或相机相对原点不写入 Core 车辆状态，也不改
 
 ### 3.1 三类制品
 
-下列名称表示后续数据规范可能采用的概念名称，不是当前 v0.5 已接受字段：
+三类制品采用独立版本系列；它们不会把空间字段塞入当前 Traffic v0.5：
 
 ```text
 ScenarioManifest（场景清单）
-  traffic: 制品引用 + 原始字节 SHA-256 摘要
-  spatial: 制品引用 + 原始字节 SHA-256 摘要
+  formatVersion: "0.1"
+  traffic/spatial: artifactRef + mediaType + raw byte size + SHA-256 digest
 
 TrafficPackage v0.5（当前有效，保持不变）
   laneGraph.edges[].id / length / connections
   routes / profiles / signals / parking
 
-SpatialPackage（空间包；后续数据规范 Issue 定义首版模式）
-  空间格式版本
-  坐标框架
+SpatialPackage v0.1
+  formatVersion: "0.1"
+  frameId
   edges[].trafficEdgeId
-  edges[].centerline.points[]
+  edges[].centerline.points[]: [x, y, z]
 ```
 
-- 场景清单使用制品原始字节的 SHA-256 摘要精确配对内容。路径或文件名不构成身份，也不得先重新序列化 JSON 再计算摘要。
+- 场景清单使用制品原始 bytes 的长度与 SHA-256 摘要精确配对内容。`artifactRef` 是调用方作用域内不透明、大小写敏感的匹配键；路径或文件名不构成格式身份，也不得先重新序列化 JSON 再计算摘要。
 - 空间边使用交通数据中的外部边 ID 绑定，加载后转换为紧凑的不透明绑定。
 - 如果提供空间包，它必须完整覆盖交通车道图。缺失、重复或未知交通边全部返回阻断错误；只使用 Core 的调用方可以完全不提供空间包。
-- 当前 Traffic Data v0.5 的模式、加载范围和诊断不因 #123 改变。空间模式和场景清单使用独立版本系列；精确字段与发布契约由后续数据规范 Issue 按 ADR 0008/0011 交付。
+- 空间点固定为三个 JSON number 的 `[x, y, z]` 数组，避免重复字段名且不引入首版全局 vertex pool/index。每条中心线至少两个点。
+- 当前 Traffic Data v0.5 的模式、加载范围和诊断不因 #123 改变。Spatial/Manifest schema source、严格 loader、规范样例和双阶段发布目录由 #134 交付。
 - 加载器接收调用方已经读取的字节或字符串，不读取引擎路径，不解析远端 `$id`，也不创建引擎资源。
 
 ### 3.2 配对与加载顺序
 
 ```text
-校验清单结构、版本和摘要
+校验清单结构、版本、制品 ref、size 和摘要
   -> 校验当前有效的交通包
-  -> 校验空间包版本、坐标框架、有限性和结构
-  -> 校验外部边身份与完整覆盖
+  -> 校验空间包版本、坐标框架和 closed shape
+  -> f64 暂存并检查有限性/范围，再转换为 canonical f32 点
+  -> 校验外部边身份、唯一性与完整覆盖
+  -> 生成按 Traffic lane graph 稳定顺序排列的 #135 输入
+  --- #134 / #135 ownership boundary ---
   -> 校验折线结构
   -> 预计算几何弧长
   -> 校验 Core 长度与几何长度的一致性
