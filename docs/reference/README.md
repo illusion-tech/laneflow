@@ -38,3 +38,8 @@
 - `v0.5-parking-validation.md`：#110 schema/loader/Core 端到端示例、D11 组合矩阵、10k/100k、allocation/retained-memory、pathological scaling 修复与 CPU profile 验证基线。
 - `v0.5-closure-review.md`：v0.5 Parking 收口时核验的治理、设计、实现、current 0.5 数据契约、性能、安全、发现项与剩余边界基线。
 - `v0.5-lifecycle-substrate-validation.json`：#106 验证基线的 machine-readable 原始 round、倍率、环境与依赖审计摘要。
+- `v0.6-numeric-validation.md`：#122、#140/#141、#125–#127 与 #144 的数值盘点、误差、产品范围、路线布局、内存、性能和 no-go 生产裁决基线。
+- `v0.6-numeric-performance-evidence.json`：#127 多轮数值候选性能、无效污染轮次、来源提交与配对摘要的机器可读证据。
+- `v0.6-numeric-production-migration-evidence.json`：#144 完整生产候选、五轮 14 项稳态矩阵、来源节点与 no-go 裁决的机器可读证据。
+- `v0.6-numeric-closure-review.md`：v0.6 数值切片收口时核验的治理、当前生产事实、目标/当前分离、机器证据、性能裁决与剩余边界基线。
+- `v0.6-spatial-validation.md`：#123 Spatial 设计研究及 ADR 0015 修订后的有界 canonical `f32` 验证基线；不替代 #138 独立收口。
