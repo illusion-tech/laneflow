@@ -42,13 +42,29 @@
       "family": "spatial",
       "schemaFileStem": "laneflow-spatial",
       "currentFormatVersion": "0.1",
-      "publishedSchemas": []
+      "publishedSchemas": [
+        {
+          "formatVersion": "0.1",
+          "path": "schemas/laneflow-spatial-v0.1.schema.json",
+          "canonicalUrl": "https://illusion-tech.github.io/laneflow/schema/laneflow-spatial-v0.1.schema.json",
+          "sourceRevision": "0d7daf6a1540db04b7e967ebbbab223a0bdd540d",
+          "sourceBlobOid": "63cda92653f5c557b770b0977f49eafa8ebb39b3"
+        }
+      ]
     },
     {
       "family": "scenarioManifest",
       "schemaFileStem": "laneflow-scenario-manifest",
       "currentFormatVersion": "0.1",
-      "publishedSchemas": []
+      "publishedSchemas": [
+        {
+          "formatVersion": "0.1",
+          "path": "schemas/laneflow-scenario-manifest-v0.1.schema.json",
+          "canonicalUrl": "https://illusion-tech.github.io/laneflow/schema/laneflow-scenario-manifest-v0.1.schema.json",
+          "sourceRevision": "0d7daf6a1540db04b7e967ebbbab223a0bdd540d",
+          "sourceBlobOid": "efe55e06683b002128fc845e1d4284185f8a7957"
+        }
+      ]
     }
   ]
 }

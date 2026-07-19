@@ -8,11 +8,11 @@
 
 ## 当前 Source Contract
 
-| Family            | Current source                                                                               | Publication 状态            |
-| ----------------- | -------------------------------------------------------------------------------------------- | --------------------------- |
-| Traffic           | [`laneflow-data-v0.5.schema.json`](laneflow-data-v0.5.schema.json)                           | 已发布                      |
-| Spatial           | [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)                     | source 已入库，等待第二阶段 |
-| Scenario Manifest | [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json) | source 已入库，等待第二阶段 |
+| Family            | Current source                                                                               | Publication 状态 |
+| ----------------- | -------------------------------------------------------------------------------------------- | ---------------- |
+| Traffic           | [`laneflow-data-v0.5.schema.json`](laneflow-data-v0.5.schema.json)                           | 已发布           |
+| Spatial           | [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)                     | 已发布           |
+| Scenario Manifest | [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json) | 已发布           |
 
 `currentFormatVersion` 表示 repository 中由 loader/tests 使用的当前 source；只有列入对应 `publishedSchemas` 且具有固定 `sourceRevision` / `sourceBlobOid` 的文件才属于公共发布集合。新 family 可以先合入 source，再由后续 publication PR 固定 `main` revision 并发布，避免以可变分支提交伪造不可变 provenance。
 
@@ -24,10 +24,14 @@
 - v0.2/v0.3 Traffic 保留历史 Raw GitHub `$id`；后续 schema 使用 organisation-owned GitHub Pages URL。
 - Pages `/schema/` 只包含 `publishedSchemas` 与 machine-readable publication index；source-only schema 不会被误部署。
 
-当前已经公开的 active Traffic loader/schema contract 是：
+当前已经公开的 active schema contract 是：
 
 - [`laneflow-data-v0.5.schema.json`](laneflow-data-v0.5.schema.json)
 - <https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.5.schema.json>
+- [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)
+- <https://illusion-tech.github.io/laneflow/schema/laneflow-spatial-v0.1.schema.json>
+- [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json)
+- <https://illusion-tech.github.io/laneflow/schema/laneflow-scenario-manifest-v0.1.schema.json>
 
 Traffic v0.2-v0.4 只作为 immutable publication artifacts 保留，不进入 current production loader、fixture 或 compatibility matrix。
 
