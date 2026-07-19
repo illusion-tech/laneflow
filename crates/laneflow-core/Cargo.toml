@@ -42,5 +42,9 @@ harness = false
 name = "minimum_edge_candidates"
 harness = false
 
+[[bench]]
+name = "route_distance_candidates"
+harness = false
+
 [lints]
 workspace = true
