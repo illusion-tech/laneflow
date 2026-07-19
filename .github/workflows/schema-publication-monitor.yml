@@ -78,4 +78,4 @@ jobs:
             fi
 
             echo "Verified ${canonical_url} (${content_type})"
-          done < <(jq -r '.schemas[] | [.fileName, .canonicalUrl] | @tsv' target/schema-publication-site/schema/index.json)
+          done < <(jq -r '.families[].schemas[] | [.fileName, .canonicalUrl] | @tsv' target/schema-publication-site/schema/index.json)

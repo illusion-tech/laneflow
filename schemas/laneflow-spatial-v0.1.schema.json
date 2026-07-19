@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://illusion-tech.github.io/laneflow/schema/laneflow-spatial-v0.1.schema.json",
+  "title": "LaneFlow Spatial Package v0.1",
+  "description": "Engine-neutral centerlines in a bounded right-handed, Y-up canonical frame. Coordinates are meters and points are encoded as fixed [x, y, z] triples.",
+  "type": "object",
+  "required": ["formatVersion", "frameId", "edges"],
+  "properties": {
+    "formatVersion": {
+      "const": "0.1"
+    },
+    "frameId": {
+      "$ref": "#/$defs/externalId"
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/spatialEdge"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "externalId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+    },
+    "coordinate": {
+      "type": "number",
+      "minimum": -16384,
+      "maximum": 16384
+    },
+    "point3": {
+      "type": "array",
+      "prefixItems": [
+        { "$ref": "#/$defs/coordinate" },
+        { "$ref": "#/$defs/coordinate" },
+        { "$ref": "#/$defs/coordinate" }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "centerline": {
+      "type": "object",
+      "required": ["points"],
+      "properties": {
+        "points": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/point3"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "spatialEdge": {
+      "type": "object",
+      "required": ["trafficEdgeId", "centerline"],
+      "properties": {
+        "trafficEdgeId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "centerline": {
+          "$ref": "#/$defs/centerline"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://illusion-tech.github.io/laneflow/schema/laneflow-scenario-manifest-v0.1.schema.json",
+  "title": "LaneFlow Scenario Manifest v0.1",
+  "description": "Pairs exact raw Traffic and Spatial JSON artifacts by opaque reference, byte length, media type, and SHA-256 digest.",
+  "type": "object",
+  "required": ["formatVersion", "traffic", "spatial"],
+  "properties": {
+    "formatVersion": {
+      "const": "0.1"
+    },
+    "traffic": {
+      "$ref": "#/$defs/trafficArtifact"
+    },
+    "spatial": {
+      "$ref": "#/$defs/spatialArtifact"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "artifactRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "trafficArtifact": {
+      "type": "object",
+      "required": ["artifactRef", "mediaType", "digest", "size"],
+      "properties": {
+        "artifactRef": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "mediaType": {
+          "const": "application/vnd.laneflow.traffic+json"
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "size": {
+          "$ref": "#/$defs/size"
+        }
+      },
+      "additionalProperties": false
+    },
+    "spatialArtifact": {
+      "type": "object",
+      "required": ["artifactRef", "mediaType", "digest", "size"],
+      "properties": {
+        "artifactRef": {
+          "$ref": "#/$defs/artifactRef"
+        },
+        "mediaType": {
+          "const": "application/vnd.laneflow.spatial+json"
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "size": {
+          "$ref": "#/$defs/size"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

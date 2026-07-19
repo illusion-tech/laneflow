@@ -38,8 +38,16 @@ struct SchemaPublicationCatalog {
     contract_version: u64,
     retention_policy: String,
     pages_base_url: String,
+    families: Vec<SchemaFamily>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SchemaFamily {
+    family: String,
+    schema_file_stem: String,
     current_format_version: String,
-    schemas: Vec<PublishedSchema>,
+    published_schemas: Vec<PublishedSchema>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -97,9 +105,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
 fn check_schema_publication_contract() -> Result<(), String> {
     let (catalog, documents) = validated_schema_publication()?;
     println!(
-        "已校验 {} 个 public schema，current format={}，retention={}",
+        "已校验 {} 个 schema family、{} 个 public schema，retention={}",
+        catalog.families.len(),
         documents.len(),
-        catalog.current_format_version,
         catalog.retention_policy
     );
     Ok(())
@@ -132,19 +140,24 @@ fn build_schema_publication(output_directory: &str) -> Result<(), String> {
     let index = serde_json::json!({
         "contractVersion": catalog.contract_version,
         "retentionPolicy": catalog.retention_policy,
-        "currentFormatVersion": catalog.current_format_version,
-        "schemas": catalog.schemas.iter().map(|schema| {
-            let file_name = Path::new(&schema.path)
-                .file_name()
-                .and_then(|value| value.to_str())
-                .expect("validated schema path must have a UTF-8 file name");
+        "families": catalog.families.iter().map(|family| {
             serde_json::json!({
-                "formatVersion": schema.format_version,
-                "fileName": file_name,
-                "canonicalUrl": schema.canonical_url,
-                "pagesUrl": format!("{}{file_name}", catalog.pages_base_url),
-                "sourceRevision": schema.source_revision,
-                "sourceBlobOid": schema.source_blob_oid,
+                "family": family.family,
+                "currentFormatVersion": family.current_format_version,
+                "schemas": family.published_schemas.iter().map(|schema| {
+                    let file_name = Path::new(&schema.path)
+                        .file_name()
+                        .and_then(|value| value.to_str())
+                        .expect("validated schema path must have a UTF-8 file name");
+                    serde_json::json!({
+                        "formatVersion": schema.format_version,
+                        "fileName": file_name,
+                        "canonicalUrl": schema.canonical_url,
+                        "pagesUrl": format!("{}{file_name}", catalog.pages_base_url),
+                        "sourceRevision": schema.source_revision,
+                        "sourceBlobOid": schema.source_blob_oid,
+                    })
+                }).collect::<Vec<_>>(),
             })
         }).collect::<Vec<_>>(),
     });
@@ -154,16 +167,35 @@ fn build_schema_publication(output_directory: &str) -> Result<(), String> {
     fs::write(schema_output.join("index.json"), index_bytes)
         .map_err(|error| format!("无法写入 schema publication index.json: {error}"))?;
 
-    let current_file_name = catalog
-        .schemas
+    let family_items = catalog
+        .families
         .iter()
-        .find(|schema| schema.format_version == catalog.current_format_version)
-        .and_then(|schema| Path::new(&schema.path).file_name())
-        .and_then(|value| value.to_str())
-        .expect("validated catalog must contain current schema");
+        .map(|family| {
+            let published_current = family
+                .published_schemas
+                .iter()
+                .find(|schema| schema.format_version == family.current_format_version)
+                .and_then(|schema| Path::new(&schema.path).file_name())
+                .and_then(|value| value.to_str());
+            published_current.map_or_else(
+                || {
+                    format!(
+                        "<li>{}: source current {} (publication pending)</li>",
+                        family.family, family.current_format_version
+                    )
+                },
+                |file_name| {
+                    format!(
+                        "<li>{}: <a href=\"schema/{file_name}\">{}</a></li>",
+                        family.family, family.current_format_version
+                    )
+                },
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let root_index = format!(
-        "<!doctype html>\n<meta charset=\"utf-8\">\n<title>LaneFlow JSON Schema</title>\n<h1>LaneFlow JSON Schema</h1>\n<p>Current format: <a href=\"schema/{current_file_name}\">{}</a></p>\n<p><a href=\"schema/index.json\">Publication catalog</a></p>\n",
-        catalog.current_format_version
+        "<!doctype html>\n<meta charset=\"utf-8\">\n<title>LaneFlow JSON Schema</title>\n<h1>LaneFlow JSON Schema</h1>\n<ul>\n{family_items}\n</ul>\n<p><a href=\"schema/index.json\">Publication catalog</a></p>\n"
     );
     fs::write(output_root.join("index.html"), root_index)
         .map_err(|error| format!("无法写入 schema publication index.html: {error}"))?;
@@ -192,9 +224,9 @@ fn validated_schema_publication()
 fn validate_schema_publication_catalog(
     catalog: &SchemaPublicationCatalog,
 ) -> Result<(SchemaPublicationCatalog, Vec<PublishedSchemaDocument>), String> {
-    if catalog.contract_version != 1 {
+    if catalog.contract_version != 2 {
         return Err(format!(
-            "schema publication contractVersion 必须为 1，实际为 {}",
+            "schema publication contractVersion 必须为 2，实际为 {}",
             catalog.contract_version
         ));
     }
@@ -210,143 +242,190 @@ fn validate_schema_publication_catalog(
             catalog.pages_base_url
         ));
     }
-    if catalog.schemas.is_empty() {
-        return Err("schema publication catalog 至少需要一个 schema".to_string());
+    if catalog.families.is_empty() {
+        return Err("schema publication catalog 至少需要一个 schema family".to_string());
     }
 
-    let mut versions = BTreeSet::new();
-    let mut paths = BTreeSet::new();
+    let mut family_names = BTreeSet::new();
+    let mut file_stems = BTreeSet::new();
+    let mut current_paths = BTreeSet::new();
+    let mut published_paths = BTreeSet::new();
     let mut canonical_urls = BTreeSet::new();
-    let mut previous_version = None;
     let mut documents = Vec::new();
-    for schema in &catalog.schemas {
-        let version = parse_format_version(&schema.format_version)?;
-        if previous_version.is_some_and(|previous| version <= previous) {
+    for family in &catalog.families {
+        if family.family.is_empty()
+            || !family
+                .family
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric())
+        {
             return Err(format!(
-                "schema publication schemas 必须按 formatVersion 严格递增，`{}` 顺序错误",
-                schema.format_version
+                "schema family 必须是非空 ASCII alphanumeric token：`{}`",
+                family.family
             ));
         }
-        previous_version = Some(version);
-        if !versions.insert(schema.format_version.as_str()) {
+        if !family_names.insert(family.family.as_str()) {
             return Err(format!(
-                "schema publication catalog 重复 formatVersion `{}`",
-                schema.format_version
+                "schema publication catalog 重复 family `{}`",
+                family.family
             ));
         }
-        if !paths.insert(schema.path.as_str()) {
+        if family.schema_file_stem.is_empty()
+            || !family.schema_file_stem.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_')
+            })
+        {
             return Err(format!(
-                "schema publication catalog 重复 path `{}`",
-                schema.path
+                "schemaFileStem 必须是非空安全文件名 token：`{}`",
+                family.schema_file_stem
             ));
         }
-        if !canonical_urls.insert(schema.canonical_url.as_str()) {
+        if !file_stems.insert(family.schema_file_stem.as_str()) {
             return Err(format!(
-                "schema publication catalog 重复 canonicalUrl `{}`",
-                schema.canonical_url
-            ));
-        }
-
-        let expected_file_name = format!("laneflow-data-v{}.schema.json", schema.format_version);
-        let expected_path = format!("schemas/{expected_file_name}");
-        if schema.path != expected_path {
-            return Err(format!(
-                "schema `{}` 的 path 应为 `{expected_path}`，实际为 `{}`",
-                schema.format_version, schema.path
-            ));
-        }
-        if !schema.canonical_url.starts_with("https://") || schema.canonical_url.contains('#') {
-            return Err(format!(
-                "schema `{}` canonicalUrl 必须是无 fragment 的 HTTPS absolute URI：{}",
-                schema.format_version, schema.canonical_url
-            ));
-        }
-        let pages_url = format!("{}{expected_file_name}", catalog.pages_base_url);
-        let legacy_raw_url = format!("{LEGACY_RAW_SCHEMA_BASE_URL}{expected_file_name}");
-        let expected_canonical_url = if version < (0, 4) {
-            &legacy_raw_url
-        } else {
-            &pages_url
-        };
-        if &schema.canonical_url != expected_canonical_url {
-            return Err(format!(
-                "schema `{}` canonicalUrl 应为 `{expected_canonical_url}`，实际为 `{}`；v0.2/v0.3 保留历史 Raw URL，v0.4 起必须使用 Pages",
-                schema.format_version, schema.canonical_url,
-            ));
-        }
-        if !valid_git_object_id(&schema.source_revision) {
-            return Err(format!(
-                "schema `{}` sourceRevision 必须是完整 40 位 Git OID：{}",
-                schema.format_version, schema.source_revision
-            ));
-        }
-        if !valid_git_object_id(&schema.source_blob_oid) {
-            return Err(format!(
-                "schema `{}` sourceBlobOid 必须是完整 40 位 Git OID：{}",
-                schema.format_version, schema.source_blob_oid
+                "schema publication catalog 重复 schemaFileStem `{}`",
+                family.schema_file_stem
             ));
         }
 
-        let working_bytes = fs::read(&schema.path).map_err(|error| {
+        let current_version = parse_format_version(&family.current_format_version)?;
+        let current_file_name = format!(
+            "{}-v{}.schema.json",
+            family.schema_file_stem, family.current_format_version
+        );
+        let current_path = format!("schemas/{current_file_name}");
+        if !current_paths.insert(current_path.clone()) {
+            return Err(format!(
+                "schema publication catalog 的 current source path 重复：`{current_path}`"
+            ));
+        }
+        let current_bytes = fs::read(&current_path).map_err(|error| {
             format!(
-                "无法读取 published schema `{}`: {error}；已发布版本必须保留在工作树",
-                schema.path
+                "无法读取 family `{}` 的 current source schema `{current_path}`: {error}",
+                family.family
             )
         })?;
-        let source_spec = format!("{}:{}", schema.source_revision, schema.path);
-        let source_bytes = git_bytes(&["show", &source_spec])?;
-        if working_bytes != source_bytes {
-            return Err(format!(
-                "published schema `{}` 与 immutable source `{source_spec}` 不一致；不得原地修改已发布版本，请提升 formatVersion",
-                schema.path
-            ));
-        }
-        let actual_blob_oid = git(["rev-parse", source_spec.as_str()])?;
-        if actual_blob_oid.trim() != schema.source_blob_oid {
-            return Err(format!(
-                "schema `{}` sourceBlobOid 不匹配：catalog={}，Git={}；更新 provenance 前先复核 source revision",
-                schema.format_version,
-                schema.source_blob_oid,
-                actual_blob_oid.trim()
-            ));
-        }
-        validate_schema_document(schema, &working_bytes)?;
-        documents.push(PublishedSchemaDocument {
-            file_name: expected_file_name,
-            bytes: working_bytes,
-        });
-    }
+        let current_canonical_url = format!("{}{current_file_name}", catalog.pages_base_url);
+        validate_schema_document(
+            &current_path,
+            &current_canonical_url,
+            &family.current_format_version,
+            &current_bytes,
+        )?;
 
-    let current = catalog
-        .schemas
-        .iter()
-        .find(|schema| schema.format_version == catalog.current_format_version)
-        .ok_or_else(|| {
-            format!(
-                "currentFormatVersion `{}` 未出现在 publication catalog",
-                catalog.current_format_version
-            )
-        })?;
-    if catalog
-        .schemas
-        .last()
-        .map(|schema| schema.format_version.as_str())
-        != Some(catalog.current_format_version.as_str())
-    {
-        return Err(format!(
-            "currentFormatVersion `{}` 必须是 catalog 中最高且最后的版本",
-            catalog.current_format_version
-        ));
-    }
-    let active_schema_path = format!(
-        "schemas/laneflow-data-v{}.schema.json",
-        catalog.current_format_version
-    );
-    if current.path != active_schema_path {
-        return Err(format!(
-            "current schema path 应为 `{active_schema_path}`，实际为 `{}`",
-            current.path
-        ));
+        let mut versions = BTreeSet::new();
+        let mut previous_version = None;
+        for schema in &family.published_schemas {
+            let version = parse_format_version(&schema.format_version)?;
+            if previous_version.is_some_and(|previous| version <= previous) {
+                return Err(format!(
+                    "family `{}` 的 publishedSchemas 必须按 formatVersion 严格递增，`{}` 顺序错误",
+                    family.family, schema.format_version
+                ));
+            }
+            previous_version = Some(version);
+            if version > current_version {
+                return Err(format!(
+                    "family `{}` 的 published version `{}` 不得高于 current source `{}`",
+                    family.family, schema.format_version, family.current_format_version
+                ));
+            }
+            if !versions.insert(schema.format_version.as_str()) {
+                return Err(format!(
+                    "family `{}` 重复 published formatVersion `{}`",
+                    family.family, schema.format_version
+                ));
+            }
+
+            let expected_file_name = format!(
+                "{}-v{}.schema.json",
+                family.schema_file_stem, schema.format_version
+            );
+            let expected_path = format!("schemas/{expected_file_name}");
+            if schema.path != expected_path {
+                return Err(format!(
+                    "family `{}` schema `{}` 的 path 应为 `{expected_path}`，实际为 `{}`",
+                    family.family, schema.format_version, schema.path
+                ));
+            }
+            if !published_paths.insert(schema.path.as_str()) {
+                return Err(format!(
+                    "schema publication catalog 重复 published path `{}`",
+                    schema.path
+                ));
+            }
+            if !schema.canonical_url.starts_with("https://") || schema.canonical_url.contains('#') {
+                return Err(format!(
+                    "schema `{}` canonicalUrl 必须是无 fragment 的 HTTPS absolute URI：{}",
+                    schema.format_version, schema.canonical_url
+                ));
+            }
+            if !canonical_urls.insert(schema.canonical_url.as_str()) {
+                return Err(format!(
+                    "schema publication catalog 重复 canonicalUrl `{}`",
+                    schema.canonical_url
+                ));
+            }
+            let pages_url = format!("{}{expected_file_name}", catalog.pages_base_url);
+            let legacy_raw_url = format!("{LEGACY_RAW_SCHEMA_BASE_URL}{expected_file_name}");
+            let expected_canonical_url =
+                if family.schema_file_stem == "laneflow-data" && version < (0, 4) {
+                    &legacy_raw_url
+                } else {
+                    &pages_url
+                };
+            if &schema.canonical_url != expected_canonical_url {
+                return Err(format!(
+                    "family `{}` schema `{}` canonicalUrl 应为 `{expected_canonical_url}`，实际为 `{}`",
+                    family.family, schema.format_version, schema.canonical_url,
+                ));
+            }
+            if !valid_git_object_id(&schema.source_revision) {
+                return Err(format!(
+                    "schema `{}` sourceRevision 必须是完整 40 位 Git OID：{}",
+                    schema.format_version, schema.source_revision
+                ));
+            }
+            if !valid_git_object_id(&schema.source_blob_oid) {
+                return Err(format!(
+                    "schema `{}` sourceBlobOid 必须是完整 40 位 Git OID：{}",
+                    schema.format_version, schema.source_blob_oid
+                ));
+            }
+
+            let working_bytes = fs::read(&schema.path).map_err(|error| {
+                format!(
+                    "无法读取 published schema `{}`: {error}；已发布版本必须保留在工作树",
+                    schema.path
+                )
+            })?;
+            let source_spec = format!("{}:{}", schema.source_revision, schema.path);
+            let source_bytes = git_bytes(&["show", &source_spec])?;
+            if working_bytes != source_bytes {
+                return Err(format!(
+                    "published schema `{}` 与 immutable source `{source_spec}` 不一致；不得原地修改已发布版本，请提升 formatVersion",
+                    schema.path
+                ));
+            }
+            let actual_blob_oid = git(["rev-parse", source_spec.as_str()])?;
+            if actual_blob_oid.trim() != schema.source_blob_oid {
+                return Err(format!(
+                    "schema `{}` sourceBlobOid 不匹配：catalog={}，Git={}；更新 provenance 前先复核 source revision",
+                    schema.format_version,
+                    schema.source_blob_oid,
+                    actual_blob_oid.trim()
+                ));
+            }
+            validate_schema_document(
+                &schema.path,
+                &schema.canonical_url,
+                &schema.format_version,
+                &working_bytes,
+            )?;
+            documents.push(PublishedSchemaDocument {
+                file_name: expected_file_name,
+                bytes: working_bytes,
+            });
+        }
     }
 
     validate_catalog_covers_schema_directory(catalog)?;
@@ -356,32 +435,32 @@ fn validate_schema_publication_catalog(
     Ok((catalog.clone(), documents))
 }
 
-fn validate_schema_document(schema: &PublishedSchema, bytes: &[u8]) -> Result<(), String> {
+fn validate_schema_document(
+    path: &str,
+    canonical_url: &str,
+    format_version: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
     let document: serde_json::Value = serde_json::from_slice(bytes)
-        .map_err(|error| format!("published schema `{}` 不是合法 JSON: {error}", schema.path))?;
+        .map_err(|error| format!("schema `{path}` 不是合法 JSON: {error}"))?;
     if document.get("$schema").and_then(serde_json::Value::as_str) != Some(JSON_SCHEMA_2020_12_URI)
     {
         return Err(format!(
-            "published schema `{}` 的 `$schema` 必须为 `{JSON_SCHEMA_2020_12_URI}`",
-            schema.path
+            "schema `{path}` 的 `$schema` 必须为 `{JSON_SCHEMA_2020_12_URI}`"
         ));
     }
-    if document.get("$id").and_then(serde_json::Value::as_str)
-        != Some(schema.canonical_url.as_str())
-    {
+    if document.get("$id").and_then(serde_json::Value::as_str) != Some(canonical_url) {
         return Err(format!(
-            "published schema `{}` 的 `$id` 必须与 catalog canonicalUrl 完全一致：{}",
-            schema.path, schema.canonical_url
+            "schema `{path}` 的 `$id` 必须与 catalog canonical URL 完全一致：{canonical_url}"
         ));
     }
     if document
         .pointer("/properties/formatVersion/const")
         .and_then(serde_json::Value::as_str)
-        != Some(schema.format_version.as_str())
+        != Some(format_version)
     {
         return Err(format!(
-            "published schema `{}` 的 properties.formatVersion.const 必须为 `{}`",
-            schema.path, schema.format_version
+            "schema `{path}` 的 properties.formatVersion.const 必须为 `{format_version}`"
         ));
     }
     Ok(())
@@ -427,14 +506,26 @@ fn validate_catalog_covers_schema_directory(
         .collect::<Vec<_>>();
     actual_paths.sort();
     let mut catalog_paths = catalog
-        .schemas
+        .families
         .iter()
-        .map(|schema| schema.path.clone())
+        .flat_map(|family| {
+            let current = format!(
+                "schemas/{}-v{}.schema.json",
+                family.schema_file_stem, family.current_format_version
+            );
+            std::iter::once(current).chain(
+                family
+                    .published_schemas
+                    .iter()
+                    .map(|schema| schema.path.clone()),
+            )
+        })
         .collect::<Vec<_>>();
     catalog_paths.sort();
+    catalog_paths.dedup();
     if actual_paths != catalog_paths {
         return Err(format!(
-            "schemas 目录与 publication catalog 不一致：目录={actual_paths:?}，catalog={catalog_paths:?}；每个 versioned schema 都必须登记"
+            "schemas 目录与 publication catalog 不一致：目录={actual_paths:?}，catalog={catalog_paths:?}；每个 current source 或 published schema 都必须登记"
         ));
     }
     Ok(())
@@ -443,13 +534,16 @@ fn validate_catalog_covers_schema_directory(
 fn validate_schema_publication_readme(catalog: &SchemaPublicationCatalog) -> Result<(), String> {
     let readme = fs::read_to_string(SCHEMA_PUBLICATION_README_PATH)
         .map_err(|error| format!("无法读取 `{SCHEMA_PUBLICATION_README_PATH}`: {error}"))?;
+    let current_families = catalog
+        .families
+        .iter()
+        .map(|family| format!("{}={}", family.family, family.current_format_version))
+        .collect::<Vec<_>>()
+        .join(";");
     for marker in [
         "<!-- schema-publication-contract: public-retrieval -->".to_string(),
         format!("<!-- schema-publication-catalog: {SCHEMA_PUBLICATION_CATALOG_PATH} -->"),
-        format!(
-            "<!-- schema-publication-current: {} -->",
-            catalog.current_format_version
-        ),
+        format!("<!-- schema-source-current: {current_families} -->"),
     ] {
         if !readme.contains(&marker) {
             return Err(format!(
@@ -463,6 +557,22 @@ fn validate_schema_publication_readme(catalog: &SchemaPublicationCatalog) -> Res
 fn validate_runtime_has_no_schema_network_dependency(
     catalog: &SchemaPublicationCatalog,
 ) -> Result<(), String> {
+    let canonical_urls = catalog
+        .families
+        .iter()
+        .flat_map(|family| {
+            let current = format!(
+                "{}{}-v{}.schema.json",
+                catalog.pages_base_url, family.schema_file_stem, family.current_format_version
+            );
+            std::iter::once(current).chain(
+                family
+                    .published_schemas
+                    .iter()
+                    .map(|schema| schema.canonical_url.clone()),
+            )
+        })
+        .collect::<BTreeSet<_>>();
     let mut source_paths = Vec::new();
     for root in ["crates/laneflow-core/src", "crates/laneflow-data/src"] {
         collect_rust_sources(Path::new(root), &mut source_paths)?;
@@ -470,12 +580,12 @@ fn validate_runtime_has_no_schema_network_dependency(
     for path in source_paths {
         let source = fs::read_to_string(&path)
             .map_err(|error| format!("无法读取 runtime source `{}`: {error}", path.display()))?;
-        for schema in &catalog.schemas {
-            if source.contains(&schema.canonical_url) {
+        for canonical_url in &canonical_urls {
+            if source.contains(canonical_url) {
                 return Err(format!(
                     "runtime source `{}` 硬编码了 canonical schema URL `{}`；public publication 不得成为 Core/Data 网络依赖",
                     path.display(),
-                    schema.canonical_url
+                    canonical_url
                 ));
             }
         }
@@ -1768,12 +1878,25 @@ Refs: #12
             }}"#
         );
 
-        assert!(validate_schema_document(&schema, document.as_bytes()).is_ok());
+        assert!(
+            validate_schema_document(
+                &schema.path,
+                &schema.canonical_url,
+                &schema.format_version,
+                document.as_bytes()
+            )
+            .is_ok()
+        );
 
         let mismatched = document.replace(canonical_url, "https://example.invalid/schema.json");
-        let error = validate_schema_document(&schema, mismatched.as_bytes())
-            .expect_err("catalog and schema $id must match");
-        assert!(error.contains("canonicalUrl"));
+        let error = validate_schema_document(
+            &schema.path,
+            &schema.canonical_url,
+            &schema.format_version,
+            mismatched.as_bytes(),
+        )
+        .expect_err("catalog and schema $id must match");
+        assert!(error.contains("canonical URL"));
     }
 
     fn gate_comment_body(required_fields: &[&str], args: &GateEvidenceArgs) -> String {

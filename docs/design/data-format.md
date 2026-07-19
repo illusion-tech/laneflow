@@ -1,8 +1,8 @@
 # Data Format 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-19
-**适用范围**: 当前 v0.5 外部数据格式、静态 Parking 所有权与 Data v0.6 原子迁移边界
+**最后更新**: 2026-07-20
+**适用范围**: 当前 Traffic v0.5、SpatialPackage v0.1、ScenarioManifest v0.1 与 Data v0.6 原子迁移边界
 
 **关联文档**:
 
@@ -17,6 +17,8 @@
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../../schemas/laneflow-data-v0.5.schema.json`
+- `../../schemas/laneflow-spatial-v0.1.schema.json`
+- `../../schemas/laneflow-scenario-manifest-v0.1.schema.json`
 - `../../schemas/README.md`
 - `data-loading.md`
 - `spatial-geometry.md`
@@ -255,13 +257,17 @@ Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public 
 
 ## 11. v0.6 空间层配套制品设计
 
-#123 G1 不把中心线或世界几何加入当前 v0.5 `LaneFlowDataPackage`，也不提升其 `formatVersion`。ADR 0013 和 `spatial-geometry.md` 已接受独立空间包，并由场景清单通过制品引用和原始字节 SHA-256 摘要与交通包精确配对。
+#123 G1 不把中心线或世界几何加入当前 v0.5 `LaneFlowDataPackage`，也不提升其 `formatVersion`。#134 交付独立的 SpatialPackage v0.1 与 ScenarioManifest v0.1 source contract，由清单通过不透明制品引用、原始 byte size 和 SHA-256 摘要与 Traffic package 精确配对。
 
 - 当前 v0.5 继续拥有交通边外部 ID、Core 边长、拓扑、路线、信号与停车边相对数据。
-- 空间包使用相同的边外部 ID 提供标准坐标框架与三维折线；几何弧长在加载时计算。
-- 场景清单与空间模式使用独立版本系列；精确线格式、模式发布与加载器由 G1 后的数据规范 Issue 交付。
+- SpatialPackage v0.1 是 closed JSON object：`formatVersion`、`frameId`、`edges[]`；每条 edge 使用 `trafficEdgeId` 和 `centerline.points`，点固定编码为 `[x, y, z]` 三元数组，不建立全局 vertex pool/index。
+- 每条中心线至少两个点。wire number 先以 `f64` 暂存，执行有限性和每轴 `[-16_384, 16_384] m` 检查，再受检转换为唯一 runtime `f32` canonical 点；坐标为米、右手、`+Y` 向上。
+- Spatial JSON edge 顺序不具权威性；成功规范化结果按 `LaneGraph::edges()` 稳定顺序排列，并要求对 Traffic graph 的 edge 完整、唯一覆盖。
+- ScenarioManifest v0.1 的 `traffic` / `spatial` descriptor 固定包含 `artifactRef`、角色专属 `mediaType`、`sha256:<64 lowercase hex>` 与 raw byte `size`；两个 ref 必须不同，调用方提供的 ref 集合也不得重复。
+- digest 对调用方提供的原始 bytes 计算，不 trim、不重新序列化。size 必须是 `0..=2^53-1`，并先于 digest mismatch 报错。
+- 场景清单与空间模式使用独立版本系列；pre-1.0 loader 只接受各自精确 current version，不提供历史分派或兼容 shim。
 - 只使用 Core 的消费者无需空间制品；需要位姿的适配器或工具必须提供完整且通过绑定的空间包。
-- 本节已经成为后续空间数据规范的设计输入；在相应模式拉取请求（PR）合入前，它仍不构成当前加载器接受的新字段。
+- #134 只交付 schema、样例、制品身份和到受检点/edge handle 的原子规范化；退化段、弧长、Traffic length binding、连接端点连续性、基底、采样与 `SpatialRegistry` 提交由 #135 负责。
 
 ## 12. Data v0.6 数值格式原子迁移边界
 

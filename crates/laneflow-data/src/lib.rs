@@ -1,6 +1,9 @@
 #![doc = include_str!("../README.md")]
 
 mod error;
+mod scenario;
+mod scenario_error;
+mod scenario_wire;
 mod wire;
 
 use laneflow_core::{
@@ -13,6 +16,12 @@ use serde::de::DeserializeOwned;
 use serde_json::error::Category;
 
 pub use error::DataError;
+pub use scenario::{
+    CURRENT_SCENARIO_MANIFEST_FORMAT_VERSION, CURRENT_SPATIAL_FORMAT_VERSION, LoadedScenario,
+    LoadedSpatialEdge, LoadedSpatialPackage, NamedArtifact, SPATIAL_PACKAGE_MEDIA_TYPE,
+    TRAFFIC_PACKAGE_MEDIA_TYPE, from_scenario_json_slice, from_scenario_json_str,
+};
+pub use scenario_error::{ArtifactRole, ScenarioDocument, ScenarioError};
 
 use wire::{
     WirePackage, WireParking, WireSignalAspect, WireSignalControl, WireSignalControllerKind,

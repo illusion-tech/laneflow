@@ -1,8 +1,8 @@
 # Data Loading 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-19
-**适用范围**: 当前 v0.5 JSON package loader、静态 Parking 规范化与 Data v0.6 原子迁移边界
+**最后更新**: 2026-07-20
+**适用范围**: Traffic v0.5、SpatialPackage/ScenarioManifest v0.1 loader 与 Data v0.6 原子迁移边界
 
 **关联文档**:
 
@@ -14,7 +14,9 @@
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
 - `../adr/0011-schema-identifier-and-publication-contract.md`
+- `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `data-format.md`
+- `spatial-geometry.md`
 - `vehicle-following.md`
 - `signal-system.md`
 - `parking-system.md`
@@ -43,7 +45,8 @@ crates/laneflow-data
   private current wire DTO
   version / units / JSON path
   current schema contract tests
-  Core normalization orchestration
+  Traffic / Spatial artifact identity
+  Core / Spatial normalization orchestration
 
 crates/laneflow-core
   LaneGraph / Route / VehicleProfile
@@ -51,12 +54,17 @@ crates/laneflow-core
   ParkingArea / ParkingSpace / ParkingRegistry
   typed handles / immutable registries / resolvers
   InitialTrafficData / CoreWorld compatibility
+
+crates/laneflow-spatial
+  canonical frame ID
+  bounded canonical f32 point
 ```
 
 依赖方向固定：
 
 ```text
 laneflow-data -> laneflow-core
+laneflow-data -> laneflow-spatial
 ```
 
 Public loader：
@@ -69,6 +77,9 @@ from_json_str(&str) -> Result<LoadedPackage, DataError>
 
 LoadedPackage
   initial_traffic_data: InitialTrafficData
+
+from_scenario_json_slice(manifest, named_artifacts) -> Result<LoadedScenario, ScenarioError>
+from_scenario_json_str(manifest, named_artifacts) -> Result<LoadedScenario, ScenarioError>
 ```
 
 `LoadedPackage` 字段私有，只提供只读 accessor 与 `into_initial_traffic_data`。不公开历史 version enum、raw DTO、file/Read/async overload。
@@ -264,3 +275,30 @@ v0.6 仍使用相同的先验版本闸口顺序：
 #144 曾在同一候选边界内原子切换 `CURRENT_FORMAT_VERSION`、`laneflow-data-v0.6.schema.json` 及其 `$id`、发布当前指针、私有 DTO、规范化、样例和测试，但 no-go 后全部回退。未来迁移仍必须在同一交付 PR 中完成这些切换；切换后只接受 v0.6，不保留 v0.5 分派、弃用别名、双精度开关、自动拆边（edge）、静默截断或迁移工具。
 
 #127 已冻结九个目标 `f32` 固定绝对阈值、`EdgeProgress` 运算链和路线距离（route-distance）目标布局。#144 的回退不废除这些研究输入，但未来迁移仍不得用当前 `f64` 的 `1.0e-9`、动态相对误差、运行时末位单位（ULP）或通用近似比较辅助函数代替它们。
+
+## 12. ScenarioManifest v0.1 原子加载
+
+Scenario loader 不替代现有 Traffic loader，而是在它外层建立精确制品配对和 Spatial 规范化：
+
+```text
+manifest JSON syntax
+  -> minimal manifest formatVersion
+  -> exact "0.1" check
+  -> strict manifest DTO / descriptor / ref uniqueness
+  -> caller artifact ref duplicate / missing
+  -> raw byte size
+  -> raw byte SHA-256
+  -> existing Traffic v0.5 loader
+  -> Spatial JSON syntax / minimal version / exact "0.1" / strict DTO
+  -> f64 coordinate finite + canonical range check
+  -> checked canonical f32 points
+  -> unknown / duplicate Traffic edge in Spatial input order
+  -> missing Traffic edge in LaneGraph order
+  -> one atomic LoadedScenario
+```
+
+`NamedArtifact` 只借用调用方已经读取的原始 bytes；loader 不解释 `artifactRef` 为路径或 URI，不读取文件，也不联网。descriptor media type 固定为 `application/vnd.laneflow.traffic+json` 与 `application/vnd.laneflow.spatial+json`。SHA-256 由 `sha2` 0.11 在 Data crate 内部计算，不新增 hex 依赖。
+
+`LoadedSpatialPackage` 保存 `CanonicalFrameId` 与按 Traffic lane graph 稳定顺序排列的 `LoadedSpatialEdge`；每条 edge 已解析为 `EdgeHandle` 并只含受检 `CanonicalPoint3F32`。它是 #135 几何构建的输入，不是完整 `SpatialRegistry`，也不在 #134 中计算弧长、绑定长度、检查连接端点或生成采样基底。
+
+失败 API 只返回 `ScenarioError`，不会返回 Traffic-only 或部分 Spatial 结果。JSON syntax/shape 保留 document、path、line/column；制品、坐标和 edge coverage 使用结构化 variant，嵌套 Traffic 错误保留原始 `DataError` source。
