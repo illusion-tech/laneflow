@@ -1,4 +1,4 @@
-//! #122 research-only scalar candidate benchmark.
+//! #122/#127 研究专用标量候选性能基准。
 
 use std::{hint::black_box, time::Duration};
 
@@ -42,6 +42,33 @@ fn benchmark_mode<M: PrecisionMode>(
     );
 }
 
+fn benchmark_modes(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    scenario: CandidateScenario,
+    layout: CandidateLayout,
+    vehicle_count: usize,
+) {
+    if reverse_candidate_order() {
+        benchmark_mode::<MixedF32Mode>(group, scenario, layout, vehicle_count);
+        benchmark_mode::<SensitiveControlMixedMode>(group, scenario, layout, vehicle_count);
+        benchmark_mode::<ResidualAwareF32Mode>(group, scenario, layout, vehicle_count);
+        benchmark_mode::<CompensatedF32Mode>(group, scenario, layout, vehicle_count);
+        benchmark_mode::<RawF32Mode>(group, scenario, layout, vehicle_count);
+        benchmark_mode::<F64Mode>(group, scenario, layout, vehicle_count);
+    } else {
+        benchmark_mode::<F64Mode>(group, scenario, layout, vehicle_count);
+        benchmark_mode::<RawF32Mode>(group, scenario, layout, vehicle_count);
+        benchmark_mode::<CompensatedF32Mode>(group, scenario, layout, vehicle_count);
+        benchmark_mode::<ResidualAwareF32Mode>(group, scenario, layout, vehicle_count);
+        benchmark_mode::<SensitiveControlMixedMode>(group, scenario, layout, vehicle_count);
+        benchmark_mode::<MixedF32Mode>(group, scenario, layout, vehicle_count);
+    }
+}
+
+fn reverse_candidate_order() -> bool {
+    std::env::var_os("LANEFLOW_NUMERIC_BENCH_REVERSE_ORDER").is_some()
+}
+
 fn benchmark_candidate_matrix(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("numeric_candidate_step_10k_60");
     group.sample_size(20);
@@ -57,17 +84,7 @@ fn benchmark_candidate_matrix(criterion: &mut Criterion) {
             CandidateScenario::DensePlatoon,
             CandidateScenario::StopAndGo,
         ] {
-            benchmark_mode::<F64Mode>(&mut group, scenario, layout, VEHICLE_COUNT);
-            benchmark_mode::<RawF32Mode>(&mut group, scenario, layout, VEHICLE_COUNT);
-            benchmark_mode::<CompensatedF32Mode>(&mut group, scenario, layout, VEHICLE_COUNT);
-            benchmark_mode::<ResidualAwareF32Mode>(&mut group, scenario, layout, VEHICLE_COUNT);
-            benchmark_mode::<SensitiveControlMixedMode>(
-                &mut group,
-                scenario,
-                layout,
-                VEHICLE_COUNT,
-            );
-            benchmark_mode::<MixedF32Mode>(&mut group, scenario, layout, VEHICLE_COUNT);
+            benchmark_modes(&mut group, scenario, layout, VEHICLE_COUNT);
         }
     }
     group.finish();
@@ -86,37 +103,7 @@ fn benchmark_candidate_matrix(criterion: &mut Criterion) {
         CandidateLayout::LegacySingleEdge,
         CandidateLayout::LocalityPreserving,
     ] {
-        benchmark_mode::<F64Mode>(
-            &mut group,
-            CandidateScenario::DensePlatoon,
-            layout,
-            SCALING_VEHICLE_COUNT,
-        );
-        benchmark_mode::<RawF32Mode>(
-            &mut group,
-            CandidateScenario::DensePlatoon,
-            layout,
-            SCALING_VEHICLE_COUNT,
-        );
-        benchmark_mode::<CompensatedF32Mode>(
-            &mut group,
-            CandidateScenario::DensePlatoon,
-            layout,
-            SCALING_VEHICLE_COUNT,
-        );
-        benchmark_mode::<ResidualAwareF32Mode>(
-            &mut group,
-            CandidateScenario::DensePlatoon,
-            layout,
-            SCALING_VEHICLE_COUNT,
-        );
-        benchmark_mode::<SensitiveControlMixedMode>(
-            &mut group,
-            CandidateScenario::DensePlatoon,
-            layout,
-            SCALING_VEHICLE_COUNT,
-        );
-        benchmark_mode::<MixedF32Mode>(
+        benchmark_modes(
             &mut group,
             CandidateScenario::DensePlatoon,
             layout,
