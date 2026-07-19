@@ -14,7 +14,7 @@ const MILLISECONDS_PER_SECOND: f64 = 1_000.0;
 const FREE_FLOW_SPACING: f64 = 250.0;
 const DENSE_SPACING: f64 = 6.5;
 const PROJECTION_PAIR_SPACING: f64 = 64.0;
-const TRANSITION_EDGE_LENGTH: f64 = 5.0;
+const TRANSITION_EDGE_LENGTH: f64 = 1.5;
 #[allow(
     dead_code,
     reason = "#140 edge-cap benchmark imports the shared scenario module separately"
@@ -225,14 +225,26 @@ pub fn stop_and_go_world_with_edge_cap(vehicle_count: usize, edge_cap: f64) -> C
 pub fn projection_heavy_world(vehicle_count: usize) -> CoreWorld {
     assert_eq!(vehicle_count % 2, 0);
     let pair_count = vehicle_count / 2;
-    let lane_graph = LaneGraph::try_new([LaneEdge::new(
-        "projection-edge",
-        edge_length(PROJECTION_PAIR_SPACING * pair_count as f64 + 100.0),
-        std::iter::empty::<&str>(),
-    )])
+    let route_length = PROJECTION_PAIR_SPACING * pair_count as f64 + 100.0;
+    let edge_count = (route_length / LOCALITY_EDGE_LENGTH).ceil() as usize;
+    let edge_ids = (0..edge_count)
+        .map(|index| format!("projection-edge-{index:05}"))
+        .collect::<Vec<_>>();
+    let lane_graph = LaneGraph::try_new(edge_ids.iter().enumerate().map(|(index, edge_id)| {
+        let length = if index + 1 == edge_count {
+            route_length - LOCALITY_EDGE_LENGTH * index as f64
+        } else {
+            LOCALITY_EDGE_LENGTH
+        };
+        LaneEdge::new(
+            edge_id,
+            edge_length(length),
+            edge_ids.get(index + 1).into_iter().cloned(),
+        )
+    }))
     .expect("projection graph must be valid");
-    let route = Route::try_new("projection-route", ["projection-edge"])
-        .expect("projection route must be valid");
+    let route =
+        Route::try_new("projection-route", edge_ids).expect("projection route must be valid");
     let (profiles, profile) = profile_registry(20.0);
     let traffic_data = InitialTrafficData::try_new(lane_graph, [route], profiles)
         .expect("projection traffic data must be valid");
@@ -241,21 +253,27 @@ pub fn projection_heavy_world(vehicle_count: usize) -> CoreWorld {
             let follower_index = pair_index * 2;
             let leader_index = follower_index + 1;
             let follower_front = PROJECTION_PAIR_SPACING * pair_index as f64;
+            let leader_front = follower_front + VEHICLE_LENGTH;
+            let follower_route_edge_index =
+                (follower_front / LOCALITY_EDGE_LENGTH).floor() as usize;
+            let leader_route_edge_index = (leader_front / LOCALITY_EDGE_LENGTH).floor() as usize;
             [
                 VehicleSpawnInput::active(
                     vehicle_external_id(follower_index),
                     profile,
                     "projection-route",
-                    0,
-                    progress(follower_front),
+                    follower_route_edge_index,
+                    progress(
+                        follower_front - LOCALITY_EDGE_LENGTH * follower_route_edge_index as f64,
+                    ),
                     speed(20.0),
                 ),
                 VehicleSpawnInput::stopped(
                     vehicle_external_id(leader_index),
                     profile,
                     "projection-route",
-                    0,
-                    progress(follower_front + VEHICLE_LENGTH),
+                    leader_route_edge_index,
+                    progress(leader_front - LOCALITY_EDGE_LENGTH * leader_route_edge_index as f64),
                 ),
             ]
         })
