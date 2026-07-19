@@ -2,6 +2,7 @@
 members = [
     "crates/laneflow-core",
     "crates/laneflow-data",
+    "crates/laneflow-spatial",
     "research/issue-123-spatial-prototype",
     "xtask",
 ]

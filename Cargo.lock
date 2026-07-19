@@ -594,6 +594,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-spatial"
+version = "0.0.0"
+dependencies = [
+ "laneflow-core",
+]
+
+[[package]]
 name = "laneflow-spatial-research"
 version = "0.0.0"
 dependencies = [
