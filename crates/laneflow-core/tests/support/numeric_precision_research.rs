@@ -1,9 +1,8 @@
-//! #122 research-only precision candidates.
+//! #122/#127 研究专用精度候选。
 //!
-//! This module intentionally stays outside production Core. It mirrors the current one-dimensional
-//! IIDM, safe-speed, ballistic integration and acyclic no-overlap projection pipeline for the
-//! representative platoon workloads. `F64Mode` is checked against `CoreWorld` before the f32 modes
-//! are used as comparative evidence.
+//! 本模块有意留在生产 Core 之外。它为代表性车队工作负载镜像当前一维改进智能驾驶员模型
+//! （IIDM）、安全速度、弹道积分和无环无重叠投影流水线。只有先用 `CoreWorld` 校验
+//! `F64Mode`，才能把各类 `f32` 模式用作比较证据。
 
 use std::{fmt::Debug, marker::PhantomData, mem::size_of, ops};
 
@@ -113,6 +112,10 @@ pub trait PrecisionMode: Copy + Debug + 'static {
         Self::Progress::from_f64(value)
     }
 
+    fn progress_parts_from_f64(value: f64) -> (Self::Progress, Self::Residual) {
+        (Self::progress_from_f64(value), Self::Residual::default())
+    }
+
     fn compute_from_progress(value: Self::Progress) -> Self::Compute {
         Self::Compute::from_f64(value.to_f64())
     }
@@ -174,6 +177,14 @@ pub trait PrecisionMode: Copy + Debug + 'static {
         delta: Self::Progress,
     );
 
+    fn rebase_after_edge(
+        progress: &mut Self::Progress,
+        residual: &mut Self::Residual,
+        edge_length: Self::Progress,
+    ) {
+        Self::add_progress(progress, residual, -edge_length);
+    }
+
     fn clear_residual(residual: &mut Self::Residual) {
         *residual = Self::Residual::default();
     }
@@ -233,6 +244,11 @@ macro_rules! residual_aware_progress_methods {
             f64::from(progress) - f64::from(residual)
         }
 
+        fn progress_parts_from_f64(value: f64) -> (f32, f32) {
+            let high = value as f32;
+            (high, (f64::from(high) - value) as f32)
+        }
+
         fn compute_progress_value(progress: f32, residual: f32) -> Self::Compute {
             Self::Compute::from_f64(Self::progress_to_f64(progress, residual))
         }
@@ -271,6 +287,11 @@ macro_rules! residual_aware_progress_methods {
         fn progress_is_near_zero(progress: f32, residual: f32, epsilon: f32) -> bool {
             Self::progress_to_f64(progress, residual).abs() < f64::from(epsilon)
         }
+
+        fn rebase_after_edge(progress: &mut f32, residual: &mut f32, edge_length: f32) {
+            let remainder = Self::progress_to_f64(*progress, *residual) - f64::from(edge_length);
+            (*progress, *residual) = Self::progress_parts_from_f64(remainder);
+        }
     };
 }
 
@@ -307,6 +328,10 @@ impl PrecisionMode for SensitiveControlMixedMode {
     const RESIDUAL_AWARE: bool = true;
 
     residual_aware_progress_methods!();
+
+    fn compute_from_f64(value: f64) -> f64 {
+        f64::from(value as f32)
+    }
 
     fn add_progress(progress: &mut f32, residual: &mut f32, delta: f32) {
         let corrected_delta = delta - *residual;
@@ -424,15 +449,15 @@ struct CandidateProfile<T: ResearchFloat> {
 }
 
 impl<T: ResearchFloat> CandidateProfile<T> {
-    fn standard() -> Self {
+    fn standard<M: PrecisionMode<Compute = T>>() -> Self {
         Self {
-            length: T::from_f64(VEHICLE_LENGTH),
-            desired_speed: T::from_f64(DESIRED_SPEED),
-            min_gap: T::from_f64(MIN_GAP),
-            time_headway: T::from_f64(TIME_HEADWAY),
-            max_acceleration: T::from_f64(MAX_ACCELERATION),
-            comfortable_deceleration: T::from_f64(COMFORTABLE_DECELERATION),
-            emergency_deceleration: T::from_f64(EMERGENCY_DECELERATION),
+            length: M::compute_from_f64(VEHICLE_LENGTH),
+            desired_speed: M::compute_from_f64(DESIRED_SPEED),
+            min_gap: M::compute_from_f64(MIN_GAP),
+            time_headway: M::compute_from_f64(TIME_HEADWAY),
+            max_acceleration: M::compute_from_f64(MAX_ACCELERATION),
+            comfortable_deceleration: M::compute_from_f64(COMFORTABLE_DECELERATION),
+            emergency_deceleration: M::compute_from_f64(EMERGENCY_DECELERATION),
         }
     }
 }
@@ -535,10 +560,11 @@ impl<M: PrecisionMode> CandidateWorld<M> {
                 let route_edge_index = (route_progress / nominal_edge_length).floor() as usize;
                 let edge_progress = route_progress - nominal_edge_length * route_edge_index as f64;
                 let stopped = scenario.stopped_front() && index + 1 == vehicle_count;
+                let (edge_progress, progress_residual) = M::progress_parts_from_f64(edge_progress);
                 CandidateVehicle {
                     route_edge_index,
-                    edge_progress: M::progress_from_f64(edge_progress),
-                    progress_residual: M::Residual::default(),
+                    edge_progress,
+                    progress_residual,
                     current_speed: M::compute_from_f64(if stopped {
                         0.0
                     } else {
@@ -557,7 +583,7 @@ impl<M: PrecisionMode> CandidateWorld<M> {
         Self {
             vehicles,
             motions,
-            profile: CandidateProfile::standard(),
+            profile: CandidateProfile::standard::<M>(),
             route_length,
             nominal_edge_length: M::progress_from_f64(nominal_edge_length),
             edge_count,
@@ -762,10 +788,10 @@ impl<M: PrecisionMode> CandidateWorld<M> {
             ) {
                 break;
             }
-            M::add_progress(
+            M::rebase_after_edge(
                 &mut vehicle.edge_progress,
                 &mut vehicle.progress_residual,
-                -edge_length,
+                edge_length,
             );
             if M::progress_is_near_zero(vehicle.edge_progress, vehicle.progress_residual, epsilon) {
                 vehicle.edge_progress = M::Progress::default();
