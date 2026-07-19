@@ -335,18 +335,24 @@ fn physical_gap_safety_matrix_preserves_discrete_behavior() {
     assert!(report.no_overlap_projection_preserved);
 }
 
-#[test]
-fn normalized_authority_runtime_oracle_preserves_control_flow() {
+#[derive(Default)]
+struct NormalizedRuntimeErrorStats {
+    max_progress_error: f64,
+    max_gap_error: f64,
+    max_speed_error: f64,
+    max_acceleration_error: f64,
+    max_travel_error: f64,
+}
+
+fn run_normalized_authority_runtime_oracle<M>() -> NormalizedRuntimeErrorStats
+where
+    M: runtime_candidates::PrecisionMode,
+{
     use runtime_candidates::{
-        CandidateLayout, CandidateScenario, CandidateWorld, ResidualAwareF32Mode, STEP_COUNT,
-        SensitiveControlMixedMode,
+        CandidateLayout, CandidateScenario, CandidateWorld, STEP_COUNT, SensitiveControlMixedMode,
     };
 
-    let mut max_progress_error = 0.0_f64;
-    let mut max_gap_error = 0.0_f64;
-    let mut max_speed_error = 0.0_f64;
-    let mut max_acceleration_error = 0.0_f64;
-    let mut max_travel_error = 0.0_f64;
+    let mut stats = NormalizedRuntimeErrorStats::default();
     for layout in CandidateLayout::EDGE_CAP_MATRIX.into_iter().skip(1) {
         for scenario in [
             CandidateScenario::FreeFlow,
@@ -355,7 +361,7 @@ fn normalized_authority_runtime_oracle_preserves_control_flow() {
         ] {
             let mut reference =
                 CandidateWorld::<SensitiveControlMixedMode>::new(256, scenario, layout);
-            let mut candidate = CandidateWorld::<ResidualAwareF32Mode>::new(256, scenario, layout);
+            let mut candidate = CandidateWorld::<M>::new(256, scenario, layout);
             for tick in 1..=STEP_COUNT {
                 let reference_summary = reference.step();
                 let candidate_summary = candidate.step();
@@ -370,18 +376,22 @@ fn normalized_authority_runtime_oracle_preserves_control_flow() {
                     assert_eq!(candidate.status, reference.status);
                     assert_eq!(candidate.leader, reference.leader);
                     assert_eq!(candidate.safety_projection, reference.safety_projection);
-                    max_progress_error = max_progress_error
+                    stats.max_progress_error = stats
+                        .max_progress_error
                         .max((candidate.route_progress - reference.route_progress).abs());
-                    max_speed_error = max_speed_error
+                    stats.max_speed_error = stats
+                        .max_speed_error
                         .max((candidate.current_speed - reference.current_speed).abs());
-                    max_acceleration_error = max_acceleration_error.max(
+                    stats.max_acceleration_error = stats.max_acceleration_error.max(
                         (candidate.applied_acceleration - reference.applied_acceleration).abs(),
                     );
-                    max_travel_error = max_travel_error
+                    stats.max_travel_error = stats
+                        .max_travel_error
                         .max((candidate.final_travel - reference.final_travel).abs());
                     match (candidate.bumper_gap, reference.bumper_gap) {
                         (Some(candidate), Some(reference)) => {
-                            max_gap_error = max_gap_error.max((candidate - reference).abs());
+                            stats.max_gap_error =
+                                stats.max_gap_error.max((candidate - reference).abs());
                         }
                         (None, None) => {}
                         unexpected => panic!(
@@ -393,16 +403,38 @@ fn normalized_authority_runtime_oracle_preserves_control_flow() {
         }
     }
 
-    eprintln!(
-        "numeric_contract_normalized_runtime max_progress_error={max_progress_error:.12} max_gap_error={max_gap_error:.12} max_speed_error={max_speed_error:.12} max_acceleration_error={max_acceleration_error:.12} max_travel_error={max_travel_error:.12}",
-    );
-    assert!(max_progress_error <= 0.01);
-    assert!(max_gap_error <= 0.01);
-    assert!(max_speed_error <= 0.01);
-    assert!(max_acceleration_error <= 0.02);
-    assert!(max_travel_error <= 0.01);
+    stats
 }
 
+#[test]
+fn normalized_authority_runtime_oracle_preserves_control_flow() {
+    use runtime_candidates::{MixedF32Mode, ResidualAwareF32Mode};
+
+    for (mode, stats) in [
+        (
+            "residual_aware_f32",
+            run_normalized_authority_runtime_oracle::<ResidualAwareF32Mode>(),
+        ),
+        (
+            "mixed_f32_compute_f64_progress",
+            run_normalized_authority_runtime_oracle::<MixedF32Mode>(),
+        ),
+    ] {
+        eprintln!(
+            "numeric_contract_normalized_runtime mode={mode} max_progress_error={:.12} max_gap_error={:.12} max_speed_error={:.12} max_acceleration_error={:.12} max_travel_error={:.12}",
+            stats.max_progress_error,
+            stats.max_gap_error,
+            stats.max_speed_error,
+            stats.max_acceleration_error,
+            stats.max_travel_error,
+        );
+        assert!(stats.max_progress_error <= 0.01, "mode={mode}");
+        assert!(stats.max_gap_error <= 0.01, "mode={mode}");
+        assert!(stats.max_speed_error <= 0.01, "mode={mode}");
+        assert!(stats.max_acceleration_error <= 0.02, "mode={mode}");
+        assert!(stats.max_travel_error <= 0.01, "mode={mode}");
+    }
+}
 #[test]
 fn target_input_candidates_remain_within_frozen_product_ranges() {
     assert_eq!(MIN_VEHICLE_LENGTH_METERS, 0.1);
