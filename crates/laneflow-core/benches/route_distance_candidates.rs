@@ -32,28 +32,47 @@ fn benchmark_build(criterion: &mut Criterion) {
     group.throughput(Throughput::Elements(
         (ROUTE_COUNT * OCCURRENCES_PER_ROUTE) as u64,
     ));
+    if chunked_first() {
+        benchmark_chunked_build(&mut group, &lengths);
+        benchmark_f64_build(&mut group, &lengths);
+    } else {
+        benchmark_f64_build(&mut group, &lengths);
+        benchmark_chunked_build(&mut group, &lengths);
+    }
+    group.finish();
+}
+
+fn benchmark_f64_build(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    lengths: &[f32],
+) {
     group.bench_function(BenchmarkId::new("layout", "f64_prefix"), |benchmark| {
         benchmark.iter(|| {
             black_box(
                 (0..ROUTE_COUNT)
-                    .map(|_| F64PrefixIndex::build(black_box(&lengths)))
+                    .map(|_| F64PrefixIndex::build(black_box(lengths)))
                     .collect::<Vec<_>>(),
             )
         });
     });
+}
+
+fn benchmark_chunked_build(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    lengths: &[f32],
+) {
     group.bench_function(
         BenchmarkId::new("layout", "chunked_local_f32"),
         |benchmark| {
             benchmark.iter(|| {
                 black_box(
                     (0..ROUTE_COUNT)
-                        .map(|_| ChunkedLocalF32Index::build(black_box(&lengths)))
+                        .map(|_| ChunkedLocalF32Index::build(black_box(lengths)))
                         .collect::<Vec<_>>(),
                 )
             });
         },
     );
-    group.finish();
 }
 
 fn benchmark_query(criterion: &mut Criterion) {
@@ -66,18 +85,42 @@ fn benchmark_query(criterion: &mut Criterion) {
     group.warm_up_time(Duration::from_secs(1));
     group.measurement_time(Duration::from_secs(5));
     group.throughput(Throughput::Elements(QUERY_COUNT as u64));
-    group.bench_function(BenchmarkId::new("layout", "f64_prefix"), |benchmark| {
-        benchmark.iter(|| run_queries(black_box(&f64_prefix), black_box(&queries)));
-    });
-    group.bench_function(
-        BenchmarkId::new("layout", "chunked_local_f32"),
-        |benchmark| {
-            benchmark.iter(|| run_queries(black_box(&chunked), black_box(&queries)));
-        },
-    );
+    if chunked_first() {
+        benchmark_chunked_query(&mut group, &chunked, &queries);
+        benchmark_f64_query(&mut group, &f64_prefix, &queries);
+    } else {
+        benchmark_f64_query(&mut group, &f64_prefix, &queries);
+        benchmark_chunked_query(&mut group, &chunked, &queries);
+    }
     group.finish();
 }
 
+fn benchmark_f64_query(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    index: &F64PrefixIndex,
+    queries: &[Query],
+) {
+    group.bench_function(BenchmarkId::new("layout", "f64_prefix"), |benchmark| {
+        benchmark.iter(|| run_queries(black_box(index), black_box(queries)));
+    });
+}
+
+fn benchmark_chunked_query(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    index: &ChunkedLocalF32Index,
+    queries: &[Query],
+) {
+    group.bench_function(
+        BenchmarkId::new("layout", "chunked_local_f32"),
+        |benchmark| {
+            benchmark.iter(|| run_queries(black_box(index), black_box(queries)));
+        },
+    );
+}
+
+fn chunked_first() -> bool {
+    std::env::var_os("LANEFLOW_ROUTE_BENCH_CHUNKED_FIRST").is_some()
+}
 fn run_queries<I: RouteDistanceQuery>(index: &I, queries: &[Query]) -> u64 {
     queries.iter().copied().fold(0_u64, |checksum, query| {
         checksum.rotate_left(7)
