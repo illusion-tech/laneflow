@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "issue": 144,
+  "measurementWindow": {
+    "startedOn": "2026-07-19",
+    "completedOn": "2026-07-20",
+    "timeZone": "Asia/Hong_Kong"
+  },
+  "environment": {
+    "cpu": "AMD Ryzen 9 9955HX 16C/32T",
+    "memoryBytes": 68719476736,
+    "operatingSystem": "Windows 10.0.29617",
+    "powerPlan": "平衡",
+    "primaryRust": "1.96.0",
+    "secondaryRust": "1.97.1",
+    "criterionWarmupSeconds": 1,
+    "criterionMeasurementSeconds": {
+      "10000": 3,
+      "100000": 5
+    },
+    "criterionSampleSize": {
+      "10000": 15,
+      "100000": 10
+    }
+  },
+  "sourceCommits": {
+    "currentF64Production": {
+      "commit": "c9045d555b0039b48af44fbeb8804d5c226721e2",
+      "tree": "814ff1eadedf3ecc28d0ae868757cd70bbde90cd"
+    },
+    "currentF64BenchmarkFixture": {
+      "commit": "40d28dd8fe259d023a6d85c5899fcd8d76d546d8",
+      "tree": "1bc27bd325dbac1196d5a80b8af82ae5fb7cc6c0"
+    },
+    "candidateAOptimized": {
+      "commit": "18fb526a31d0f451ad53d4648e68021114686157",
+      "tree": "0e75970e8f0127b68193a84d09e562230550502c"
+    },
+    "candidateBOptimized": {
+      "commit": "d55b090d16dba4f0ba961803194b8c0c5df61207",
+      "tree": "ae8380cffd3c414261b3ece24cc4be7a074b9678"
+    },
+    "rollback": {
+      "commit": "ecf334ace395133ce9568db269e56636a811ff7d"
+    }
+  },
+  "remoteEvidenceRefs": {
+    "currentF64Production": "refs/heads/main",
+    "currentF64BenchmarkFixture": "refs/heads/codex/144-evidence-current-f64-fixture",
+    "candidateAOptimized": "refs/heads/codex/144-evidence-candidate-a",
+    "candidateBAndRollback": "refs/heads/codex/144-evidence-candidate-b-rollback"
+  },
+  "protocol": {
+    "scales": [10000, 100000],
+    "workloads": [
+      "free_flow",
+      "dense_platoon",
+      "stop_and_go",
+      "projection",
+      "cross_edge",
+      "signals",
+      "parking"
+    ],
+    "stepCount": 60,
+    "projectionStepCount": 1,
+    "rounds": 5,
+    "candidateBOrder": [
+      "candidate-b,current-f64",
+      "current-f64,candidate-b",
+      "candidate-b,current-f64",
+      "current-f64,candidate-b",
+      "candidate-b,current-f64"
+    ],
+    "aggregation": "每个工作负载先取五轮 candidate/current 配对比值的中位数，再对 14 个中位比值计算等权几何平均",
+    "primaryPassCondition": "候选相对 current-f64 至少提升 5%，且不存在可重复、无法解释的超过 5% 单项中位回退",
+    "nonSteadyRule": "构造、命令转换和 route-distance 查询独立报告；主门槛失败后停止，未运行该次级矩阵"
+  },
+  "candidateASelectionEvidence": {
+    "preOptimizationFiveRoundCandidateOverCurrentGeomeanRatio": 1.0931002816754336,
+    "preOptimizationFiveRoundCandidateDeltaPercent": 9.310028167543361,
+    "preOptimizationFiveRoundCandidateBOverCandidateAGeomeanRatio": 0.914334060935826,
+    "preOptimizationFiveRoundCandidateBDeltaPercent": -8.566593906417397,
+    "sharedOptimizationFullProbeCandidateAOverCandidateBGeomeanRatio": 1.08320923584736,
+    "sharedOptimizationFullProbeCandidateADeltaPercent": 8.320923584735995,
+    "decision": "reject",
+    "reason": "候选 A 在原五轮矩阵中比 current-f64 慢 9.310%，候选 B 比 A 快 8.567%；应用同一热路径优化后的完整 14 项探针中，A 仍比 B 慢 8.321%，没有达到相对 B 至少快 5% 的保留条件"
+  },
+  "candidateBPrimaryRuns": [
+    {
+      "scale": 10000,
+      "workload": "free_flow",
+      "baselineMedianNs": [85440600, 85708233.33333333, 85643033.33333333, 87686633.33333333, 86110833.33333333],
+      "candidateMedianNs": [90126433.33333333, 86612900, 85426766.66666667, 89193600, 87910066.66666667],
+      "pairedRatios": [1.0548431697967164, 1.0105551897581213, 0.9974747897377138, 1.0171858196555235, 1.0208943899819032],
+      "medianRatio": 1.0171858196555235
+    },
+    {
+      "scale": 10000,
+      "workload": "dense_platoon",
+      "baselineMedianNs": [152005000, 152270150, 155657450, 155422900, 154880800],
+      "candidateMedianNs": [145033800, 140231150, 140965550, 147970950, 142388300],
+      "pairedRatios": [0.9541383507121476, 0.9209365722697456, 0.9056138976965125, 0.9520537192395715, 0.9193411965847283],
+      "medianRatio": 0.9209365722697456
+    },
+    {
+      "scale": 10000,
+      "workload": "stop_and_go",
+      "baselineMedianNs": [151551700, 150082950, 154194450, 150276300, 152444500],
+      "candidateMedianNs": [140952200, 139494800, 140420400, 143397450, 142245650],
+      "pairedRatios": [0.930060170885579, 0.9294513467385869, 0.9106709093615237, 0.9542253169661483, 0.9330979471217394],
+      "medianRatio": 0.930060170885579
+    },
+    {
+      "scale": 10000,
+      "workload": "projection",
+      "baselineMedianNs": [2852668.3333333335, 2598642, 2774706.6666666665, 2780871.4285714286, 2860928.5714285714],
+      "candidateMedianNs": [2556256.6666666665, 2342970, 2743316.6666666665, 2863729.5454545454, 2224658.1818181816],
+      "pairedRatios": [0.8960931899432169, 0.9016132272163692, 0.9886870924494121, 1.0297957381387035, 0.7776000435786219],
+      "medianRatio": 0.9016132272163692
+    },
+    {
+      "scale": 10000,
+      "workload": "cross_edge",
+      "baselineMedianNs": [211533500, 210013800, 223096000, 206704800, 211726400],
+      "candidateMedianNs": [212675800, 206972700, 213283300, 219635900, 217547200],
+      "pairedRatios": [1.005400090293027, 0.9855195230027741, 0.9560157958905583, 1.062558295695117, 1.0274920841236614],
+      "medianRatio": 1.005400090293027
+    },
+    {
+      "scale": 10000,
+      "workload": "signals",
+      "baselineMedianNs": [178799450, 164311200, 162992500, 166775850, 170023700],
+      "candidateMedianNs": [161103600, 159928550, 160211700, 160024600, 163852600],
+      "pairedRatios": [0.901029617261127, 0.9733271377727142, 0.9829390922895225, 0.9595190190905938, 0.9637044717883448],
+      "medianRatio": 0.9637044717883448
+    },
+    {
+      "scale": 10000,
+      "workload": "parking",
+      "baselineMedianNs": [174099200, 174827050, 179934400, 176274000, 175248900],
+      "candidateMedianNs": [159692500, 160550350, 164209100, 161844950, 163737450],
+      "pairedRatios": [0.9172500505458957, 0.9183381519049827, 0.912605371735477, 0.9181441959676413, 0.9343137103856287],
+      "medianRatio": 0.9181441959676413
+    },
+    {
+      "scale": 100000,
+      "workload": "free_flow",
+      "baselineMedianNs": [897504050, 890154150, 912206650, 884554350, 898866800],
+      "candidateMedianNs": [911999100, 901624700, 902742200, 930951750, 907937500],
+      "pairedRatios": [1.016150400658359, 1.0128860265382125, 0.9896246645428424, 1.052452853801465, 1.0100912615751299],
+      "medianRatio": 1.0128860265382125
+    },
+    {
+      "scale": 100000,
+      "workload": "dense_platoon",
+      "baselineMedianNs": [1559915150, 1563360500, 1607805300, 1577908400, 1577368100],
+      "candidateMedianNs": [1448518950, 1459714900, 1487720950, 1487261050, 1465707950],
+      "pairedRatios": [0.9285882953313198, 0.9337033269038075, 0.925311634437329, 0.942552210255044, 0.9292111017079653],
+      "medianRatio": 0.9292111017079653
+    },
+    {
+      "scale": 100000,
+      "workload": "stop_and_go",
+      "baselineMedianNs": [1571992350, 1569369400, 1573115200, 1573908550, 1571959750],
+      "candidateMedianNs": [1432098300, 1448814700, 1465934850, 1477628450, 1452986750],
+      "pairedRatios": [0.9110084409761918, 0.9231827127507393, 0.9318674500125611, 0.9388273861273579, 0.9243154921746565],
+      "medianRatio": 0.9243154921746565
+    },
+    {
+      "scale": 100000,
+      "workload": "projection",
+      "baselineMedianNs": [32731115, 32930452.976190478, 33341964.285714284, 33271866.666666664, 33093125],
+      "candidateMedianNs": [32156985, 31331178.75, 30915618.75, 32763864.285714284, 33439477.083333336],
+      "pairedRatios": [0.9824591982277414, 0.9514347941904476, 0.9272284765551777, 0.9847317739626157, 1.0104659829899212],
+      "medianRatio": 0.9824591982277414
+    },
+    {
+      "scale": 100000,
+      "workload": "cross_edge",
+      "baselineMedianNs": [3083533700, 3043081100, 3153930350, 3120534300, 3121959200],
+      "candidateMedianNs": [3167601750, 3086348000, 3115783400, 3129950100, 3074538550],
+      "pairedRatios": [1.0272635418254064, 1.0142181225469147, 0.9879049485033808, 1.0030173678911332, 0.9848106118747484],
+      "medianRatio": 1.0030173678911332
+    },
+    {
+      "scale": 100000,
+      "workload": "signals",
+      "baselineMedianNs": [1951750300, 1732636650, 1745630850, 1720659800, 1757937400],
+      "candidateMedianNs": [1688627700, 1679599850, 1688550850, 1698101350, 1670987450],
+      "pairedRatios": [0.8651863406912247, 0.9693895428103751, 0.9673012194989565, 0.9868896512837692, 0.9505386539930262],
+      "medianRatio": 0.9673012194989565
+    },
+    {
+      "scale": 100000,
+      "workload": "parking",
+      "baselineMedianNs": [1851072600, 1849060800, 1858451450, 1873497100, 1819785700],
+      "candidateMedianNs": [1743529700, 1727852150, 1744238750, 1738685700, 1727075350],
+      "pairedRatios": [0.9419023867567377, 0.9344485319249642, 0.9385441572875094, 0.9280429097007943, 0.9490542485304726],
+      "medianRatio": 0.9385441572875094
+    }
+  ],
+  "primarySummary": {
+    "unweightedGeomeanRatio": 0.957428615577629,
+    "improvementPercent": 4.2571384422371,
+    "requiredImprovementPercent": 5,
+    "repeatableUnexplainedMedianRegressionsOverFivePercent": 0,
+    "performanceGate": "fail",
+    "productionDecision": "rollback-current-f64",
+    "secondaryMatrixExecuted": false,
+    "secondaryMatrixReason": "主稳态性能门槛已失败，构造、命令转换和 route-distance 次级矩阵不会改变生产 no-go 结论"
+  }
+}
