@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-18
+**最后更新**: 2026-07-19（ADR 0015 有界 f32 canonical frame）
 
 **适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的最小只读契约；作为 v0.7 具体 Bevy API 设计之前的 G1 输入（#123）
 
@@ -12,6 +12,7 @@
 - `../adr/0001-project-scope.md`
 - `../adr/0012-core-numeric-authority-and-presentation-precision.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
+- `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `core-runtime.md`
 - `spatial-geometry.md`
 
@@ -28,7 +29,7 @@
 | 关注点                               | 权威层               | 适配器职责                               |
 | ------------------------------------ | -------------------- | ---------------------------------------- |
 | 固定步长、车辆、路线、信号和停车状态 | Core                 | 调度并消费已提交的快照与事件             |
-| 中心线、弧长和位姿采样               | Spatial              | 提供快照记录与局部原点，消费批量位姿     |
+| 中心线、弧长和位姿采样               | Spatial              | 提供快照记录与 frame 放置，消费批量位姿  |
 | 交通与空间制品的解析                 | Data/Spatial 加载器  | 提供调用方已读取的字节；管理引擎资源周期 |
 | 实体、预制体、变换、动画和细节层次   | Adapter/Presentation | 作为唯一的宿主表现事实源                 |
 
@@ -68,12 +69,9 @@ PoseInputRecord {
 - 已完成或已移除车辆不产生有效位姿记录，由具体生命周期事件决定是否清理宿主实体。
 - 输入和输出顺序必须稳定，不能依赖引擎实体组件系统（ECS）或散列表的遍历顺序。
 
-Spatial 提供两类 LaneFlow 自有输出：
+Spatial 提供 LaneFlow 自有的有界 `f32` canonical 位姿。每个批次必须绑定稳定 `frameId`，批次内位置每轴位于 `±16_384 m`；点、切向量和上方向都不暴露宿主或第三方类型。LaneFlow 不再维护默认 canonical `f64` 位姿作为第二套运行时权威。
 
-- 标准 `f64` 位姿，适合使用双精度的宿主、离线工具和高精度调试；
-- 经过检查的局部 `f32` 位姿，适合默认使用单精度的 Bevy、Unity、Godot 等宿主。
-
-局部批次必须绑定坐标框架标识，以及原点标识或原点值，即 `frameId + originId/origin value`。适配器切换局部原点后，不得继续使用旧原点对应的批次。
+适配器拥有 frame 到宿主场景的放置和生命周期映射，可以在宿主末端使用 double world placement、tile 或相机相对原点，但不得把转换后的宿主位置反写到 Spatial/Core。frame/origin mismatch、批量切换和失效规则由 #136 冻结；旧 frame 映射对应的批次不得在切换后继续提交。
 
 ## 5. 宿主转换
 
@@ -81,7 +79,7 @@ Spatial 提供两类 LaneFlow 自有输出：
 
 - 从 LaneFlow 标准的右手、Y 轴向上坐标系映射到宿主的手性、上方向和前方向约定；
 - 从 LaneFlow 的切向量和上方向向量构造宿主旋转与变换；
-- 局部原点、分块或相机相对定位；
+- canonical frame 的宿主放置、分块或相机相对定位；
 - 引擎标量类型与数值范围检查；
 - 实体生命周期、插值、细节层次（LOD）和调试绘制。
 
@@ -92,7 +90,7 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 - 批量提取接收调用方拥有的切片，并返回调用方拥有、可直接交换提交的输出。
 - 任一无效的边、坐标框架、进度、朝向基或局部范围记录都会使整个批次失败，并报告稳定的输入序号和车辆句柄。
 - 实现可以复用预留容量和临时缓冲区，但不能先覆盖正在使用的宿主输出再回滚。
-- 标准坐标与局部坐标之间的转换不得修改 `CoreWorld`、Spatial 注册表或快照。
+- canonical frame 与宿主坐标之间的转换不得修改 `CoreWorld`、Spatial 注册表或快照。
 - 单记录查询可以用于调试，但不能作为 1 万或 10 万车辆的默认同步路径。
 
 ## 7. v0.7 留白

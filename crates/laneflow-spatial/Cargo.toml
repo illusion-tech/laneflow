@@ -1,0 +1,19 @@
+[package]
+name = "laneflow-spatial"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "LaneFlow 引擎无关的标准空间类型与几何注册表 crate。"
+publish = false
+
+[lib]
+name = "laneflow_spatial"
+path = "src/lib.rs"
+
+[dependencies]
+laneflow-core = { version = "0.0.0", path = "../laneflow-core" }
+
+[lints]
+workspace = true
