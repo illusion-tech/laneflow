@@ -24,7 +24,7 @@ impl fmt::Debug for SpatialRegistry {
         formatter
             .debug_struct("SpatialRegistry")
             .field("frame_id", &self.frame_id)
-            .field("edge_handles", &self.edge_handles)
+            .field("edge_count", &self.edge_handles.len())
             .finish_non_exhaustive()
     }
 }
@@ -48,11 +48,6 @@ impl SpatialRegistry {
     /// 返回目标 Core edge 是否存在已提交绑定。
     pub fn contains_edge(&self, edge: EdgeHandle) -> bool {
         self.edge_slots.contains_key(&edge)
-    }
-
-    /// 按 `LaneGraph::edges()` 的稳定顺序返回全部 Core edge handle。
-    pub fn edge_handles(&self) -> impl ExactSizeIterator<Item = EdgeHandle> + '_ {
-        self.edge_handles.iter().copied()
     }
 
     #[allow(dead_code, reason = "#135 将使用私有 dense slot 解析折线条目")]
@@ -176,7 +171,7 @@ mod tests {
 
         assert_eq!(registry.frame_id().as_str(), "campus/main");
         assert!(registry.is_empty());
-        assert_eq!(registry.edge_handles().len(), 0);
+        assert!(registry.edge_handles.is_empty());
     }
 
     #[test]
@@ -190,10 +185,7 @@ mod tests {
             .commit(&lane_graph)
             .expect("complete bindings");
 
-        assert_eq!(
-            registry.edge_handles().collect::<Vec<_>>(),
-            [edge_a, edge_b, edge_c]
-        );
+        assert_eq!(registry.edge_handles, [edge_a, edge_b, edge_c]);
         assert_eq!(registry.edge_slot(edge_a), Some(0));
         assert_eq!(registry.edge_slot(edge_b), Some(1));
         assert_eq!(registry.edge_slot(edge_c), Some(2));
