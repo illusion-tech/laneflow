@@ -11,8 +11,8 @@ use calibration::{
     LONGITUDINAL_TOLERANCE_CANDIDATE_METERS, MAX_EDGE_LENGTH_METERS, MAX_EXTENT_OR_OFFSET_METERS,
     MIN_PARKING_EXTENT_METERS, MIN_VEHICLE_LENGTH_METERS,
     PARKING_ANCHOR_CLEARANCE_CANDIDATE_METERS, PHYSICAL_GAP_TOLERANCE_CANDIDATE_METERS,
-    append_converted_batch_atomic, calibrate_constraint_cross_matrix, calibrate_runtime_chains,
-    checked_f32, convert_raw_f64, parking_anchor_is_strictly_inside,
+    append_converted_batch_atomic, calibrate_constraint_cross_matrix, calibrate_gap_safety_matrix,
+    calibrate_runtime_chains, checked_f32, convert_raw_f64, parking_anchor_is_strictly_inside,
 };
 
 #[test]
@@ -294,6 +294,23 @@ fn constraint_cross_matrix_preserves_attribution_and_event_order() {
     assert_eq!(report.divergences, 0, "{:?}", report.first_divergence);
     assert!(report.signal_wins_equal_distance_tie);
     assert!(report.spatial_event_precedes_leader_event);
+}
+
+#[test]
+fn physical_gap_safety_matrix_preserves_discrete_behavior() {
+    let report = calibrate_gap_safety_matrix();
+    eprintln!(
+        "numeric_contract_gap_safety samples={} divergences={} first_divergence={:?}",
+        report.samples, report.divergences, report.first_divergence,
+    );
+    assert_eq!(report.divergences, 0, "{:?}", report.first_divergence);
+    assert!(report.exact_contact_preserved);
+    assert!(report.positive_gap_preserved);
+    assert!(report.negative_overlap_rejected);
+    assert!(report.leader_selection_preserved);
+    assert!(report.spawn_rejection_preserved);
+    assert!(report.leave_rejection_preserved);
+    assert!(report.no_overlap_projection_preserved);
 }
 
 #[test]
