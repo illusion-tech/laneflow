@@ -6,13 +6,15 @@ mod calibration;
 mod runtime_candidates;
 
 use calibration::{
-    COMPUTED_SPEED_TOLERANCE_CANDIDATE_METERS_PER_SECOND, ConversionDomain, ConversionFailure,
-    EDGE_BOUNDARY_TOLERANCE_CANDIDATE_METERS, EDGE_MINIMUM_CANDIDATES_METERS,
+    COMPUTED_SPEED_TOLERANCE_CANDIDATE_METERS_PER_SECOND, ConstraintWorkload, ConversionDomain,
+    ConversionFailure, EDGE_BOUNDARY_TOLERANCE_CANDIDATE_METERS, EDGE_MINIMUM_CANDIDATES_METERS,
     LONGITUDINAL_TOLERANCE_CANDIDATE_METERS, MAX_EDGE_LENGTH_METERS, MAX_EXTENT_OR_OFFSET_METERS,
     MIN_PARKING_EXTENT_METERS, MIN_VEHICLE_LENGTH_METERS,
     PARKING_ANCHOR_CLEARANCE_CANDIDATE_METERS, PHYSICAL_GAP_TOLERANCE_CANDIDATE_METERS,
-    append_converted_batch_atomic, calibrate_constraint_cross_matrix, calibrate_gap_safety_matrix,
-    calibrate_runtime_chains, checked_f32, convert_raw_f64, parking_anchor_is_strictly_inside,
+    append_converted_batch_atomic, calibrate_constraint_cross_matrix,
+    calibrate_constraint_workloads, calibrate_gap_safety_matrix, calibrate_runtime_chains,
+    checked_f32, convert_raw_f64, parking_anchor_is_strictly_inside,
+    run_command_conversion_workload, run_constraint_workload,
 };
 
 #[test]
@@ -294,6 +296,26 @@ fn constraint_cross_matrix_preserves_attribution_and_event_order() {
     assert_eq!(report.divergences, 0, "{:?}", report.first_divergence);
     assert!(report.signal_wins_equal_distance_tie);
     assert!(report.spatial_event_precedes_leader_event);
+}
+
+#[test]
+fn scaled_constraint_and_command_workloads_remain_deterministic() {
+    let report = calibrate_constraint_workloads(100_000);
+    eprintln!(
+        "numeric_contract_scaled_constraints samples={} divergences={} first_divergence={:?}",
+        report.samples, report.divergences, report.first_divergence,
+    );
+    assert_eq!(report.divergences, 0, "{:?}", report.first_divergence);
+    for workload in ConstraintWorkload::ALL {
+        assert_eq!(
+            run_constraint_workload(false, workload, 100_000),
+            run_constraint_workload(true, workload, 100_000),
+        );
+    }
+    assert_eq!(
+        run_command_conversion_workload(false, 100_000),
+        run_command_conversion_workload(true, 100_000),
+    );
 }
 
 #[test]

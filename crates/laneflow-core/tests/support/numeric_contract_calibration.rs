@@ -437,6 +437,150 @@ pub fn calibrate_constraint_cross_matrix() -> DiscreteCalibration {
     report
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConstraintWorkload {
+    SignalStop,
+    ParkingStop,
+    RouteEnd,
+}
+
+impl ConstraintWorkload {
+    pub const ALL: [Self; 3] = [Self::SignalStop, Self::ParkingStop, Self::RouteEnd];
+
+    pub const fn benchmark_name(self) -> &'static str {
+        match self {
+            Self::SignalStop => "signal_stop_projection",
+            Self::ParkingStop => "parking_stop_projection",
+            Self::RouteEnd => "route_end",
+        }
+    }
+}
+
+pub fn calibrate_constraint_workloads(item_count: usize) -> DiscreteCalibration {
+    let mut report = DiscreteCalibration::default();
+    for workload in ConstraintWorkload::ALL {
+        for index in 0..item_count {
+            let reference = constraint_workload_outcome(false, workload, index);
+            let candidate = constraint_workload_outcome(true, workload, index);
+            report.samples += 1;
+            if candidate != reference {
+                report.divergences += 1;
+                report.first_divergence.get_or_insert_with(|| {
+                    format!(
+                        "workload={workload:?} index={index} reference={reference:?} candidate={candidate:?}",
+                    )
+                });
+            }
+        }
+    }
+    report
+}
+
+pub fn run_constraint_workload(
+    target_f32: bool,
+    workload: ConstraintWorkload,
+    item_count: usize,
+) -> u64 {
+    let mut checksum = 0_u64;
+    for index in 0..item_count {
+        let outcome = constraint_workload_outcome(target_f32, workload, index);
+        checksum = checksum
+            .wrapping_mul(16_777_619)
+            .wrapping_add(outcome.attribution as u64)
+            .wrapping_add(outcome.route_completed as u64)
+            .wrapping_add((outcome.parking_reached as u64) << 1)
+            .wrapping_add((outcome.speed_is_near_zero as u64) << 2)
+            .wrapping_add((outcome.event_order.len() as u64) << 3);
+    }
+    checksum
+}
+
+pub fn run_command_conversion_workload(target_f32: bool, item_count: usize) -> u64 {
+    let mut checksum = 0_u64;
+    for index in 0..item_count {
+        let (domain, raw) = match index % 4 {
+            0 => (
+                ConversionDomain::EdgeLength {
+                    min_exclusive_meters: 1.0,
+                },
+                1.000_000_119_209_289_6 + (index % 9_998) as f64,
+            ),
+            1 => (ConversionDomain::VehicleLength, 0.1 + (index % 127) as f64),
+            2 => (ConversionDomain::ParkingExtent, 0.1 + (index % 127) as f64),
+            _ => (
+                ConversionDomain::ParkingLateralOffset,
+                if (index / 4).is_multiple_of(2) {
+                    1.0
+                } else {
+                    -1.0
+                },
+            ),
+        };
+        let normalized = if target_f32 {
+            convert_raw_f64(domain, raw).expect("frozen command fixture must be valid")
+        } else {
+            assert!(raw.is_finite());
+            raw as f32
+        };
+        checksum = checksum
+            .wrapping_mul(16_777_619)
+            .wrapping_add(u64::from(normalized.to_bits()));
+    }
+    checksum
+}
+
+fn constraint_workload_outcome(
+    target_f32: bool,
+    workload: ConstraintWorkload,
+    index: usize,
+) -> DiscreteOutcome {
+    let cases = [
+        (1_u64, 100.0_f32, 0.1_f32),
+        (16, 13.9, 0.222_4),
+        (1_000, 100.0, 100.0),
+    ];
+    let (delta_time_ms, base_speed, base_travel) = cases[index % cases.len()];
+    let tolerance = LONGITUDINAL_TOLERANCE_CANDIDATE_METERS as f32;
+    let distance_probes = [
+        base_travel.next_down(),
+        base_travel,
+        base_travel.next_up(),
+        (base_travel - tolerance).max(0.0),
+        base_travel + tolerance,
+        (base_travel * 0.5).max(f32::MIN_POSITIVE),
+    ];
+    let distance = distance_probes[(index / cases.len()) % distance_probes.len()];
+    let constraints = match workload {
+        ConstraintWorkload::SignalStop => ConstraintSet {
+            route_end: None,
+            signal: Some(distance),
+            parking: None,
+        },
+        ConstraintWorkload::ParkingStop => ConstraintSet {
+            route_end: None,
+            signal: None,
+            parking: Some(distance),
+        },
+        ConstraintWorkload::RouteEnd => ConstraintSet {
+            route_end: Some(distance),
+            signal: None,
+            parking: None,
+        },
+    };
+    let leader_cap = index
+        .is_multiple_of(2)
+        .then_some((base_travel * 0.25).max(0.0));
+    reduce_constraints(
+        target_f32,
+        delta_time_ms,
+        base_speed,
+        base_travel,
+        base_travel * 0.75,
+        constraints,
+        leader_cap,
+    )
+}
+
 fn reduce_constraints(
     target_f32: bool,
     delta_time_ms: u64,
