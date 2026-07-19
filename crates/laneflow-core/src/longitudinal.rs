@@ -290,11 +290,11 @@ impl LongitudinalMotion {
     }
 
     pub(crate) fn applied_acceleration(self, delta_time: f32) -> Result<f32, CoreError> {
-        finite(
+        Ok(finite(
             self.vehicle,
             "applied_acceleration",
             (self.final_speed - self.current_speed) / delta_time,
-        )
+        )?)
     }
 
     pub(crate) fn safety_projection_leader(self) -> Option<VehicleHandle> {
@@ -869,11 +869,11 @@ pub(crate) fn emergency_min_travel(
     if current_speed <= speed_step {
         braking_distance(vehicle, current_speed, emergency_deceleration)
     } else {
-        finite(
+        Ok(finite(
             vehicle,
             "emergency_min_travel",
             (current_speed - 0.5 * speed_step) * delta_time,
-        )
+        )?)
     }
 }
 
@@ -895,7 +895,7 @@ fn braking_distance(
             speed / denominator * speed
         }
     };
-    finite(vehicle, "braking_distance", value)
+    Ok(finite(vehicle, "braking_distance", value)?)
 }
 
 fn speed_after_travel_cap(
@@ -919,12 +919,33 @@ fn speed_after_travel_cap(
         .min(candidate_speed))
 }
 
-fn finite(vehicle: VehicleHandle, stage: &'static str, value: f32) -> Result<f32, CoreError> {
+#[derive(Clone, Copy, Debug)]
+struct NonFiniteLongitudinalError {
+    vehicle: VehicleHandle,
+    stage: &'static str,
+    value: f32,
+}
+
+impl From<NonFiniteLongitudinalError> for CoreError {
+    fn from(error: NonFiniteLongitudinalError) -> Self {
+        Self::NonFiniteLongitudinalComputation {
+            vehicle: error.vehicle,
+            stage: error.stage,
+            value: f64::from(error.value),
+        }
+    }
+}
+
+fn finite(
+    vehicle: VehicleHandle,
+    stage: &'static str,
+    value: f32,
+) -> Result<f32, NonFiniteLongitudinalError> {
     if !value.is_finite() {
-        return Err(CoreError::NonFiniteLongitudinalComputation {
+        return Err(NonFiniteLongitudinalError {
             vehicle,
             stage,
-            value: f64::from(value),
+            value,
         });
     }
     Ok(if value == 0.0 { 0.0 } else { value })

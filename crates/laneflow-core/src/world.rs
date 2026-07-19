@@ -272,6 +272,40 @@ struct ParkingStepRelease {
     space: crate::ParkingSpaceHandle,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct NonFiniteLeaderError {
+    vehicle: VehicleHandle,
+    stage: &'static str,
+    value: f64,
+}
+
+impl From<NonFiniteLeaderError> for CoreError {
+    fn from(error: NonFiniteLeaderError) -> Self {
+        Self::NonFiniteLeaderComputation {
+            vehicle: error.vehicle,
+            stage: error.stage,
+            value: error.value,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct NonFiniteSignalStopError {
+    vehicle: VehicleHandle,
+    stage: &'static str,
+    value: f64,
+}
+
+impl From<NonFiniteSignalStopError> for CoreError {
+    fn from(error: NonFiniteSignalStopError) -> Self {
+        Self::NonFiniteSignalStopComputation {
+            vehicle: error.vehicle,
+            stage: error.stage,
+            value: error.value,
+        }
+    }
+}
+
 fn parking_arrived_state(
     vehicle: &VehicleState,
     target: Option<ParkingApproachTarget>,
@@ -2195,7 +2229,9 @@ impl CoreWorld {
                         None,
                         &mut events,
                         spatial_changes,
-                    )? {
+                    )
+                    .map_err(|error| *error)?
+                    {
                         events.push(CoreEvent::VehicleCompletedRoute(completed_event));
                     }
                     #[cfg(test)]
@@ -2280,7 +2316,8 @@ impl CoreWorld {
                     parking_stop,
                     &mut events,
                     spatial_changes,
-                )?;
+                )
+                .map_err(|error| *error)?;
                 if let Some(space) = reserved_space {
                     if let Some(completed_event) = completed_event {
                         if reserved_target.is_some() {
@@ -3523,9 +3560,9 @@ impl CoreWorld {
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
-    ) -> Result<f64, CoreError> {
+    ) -> Result<f64, NonFiniteLeaderError> {
         if !value.is_finite() {
-            return Err(CoreError::NonFiniteLeaderComputation {
+            return Err(NonFiniteLeaderError {
                 vehicle,
                 stage,
                 value,
@@ -3538,9 +3575,9 @@ impl CoreWorld {
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
-    ) -> Result<f64, CoreError> {
+    ) -> Result<f64, NonFiniteSignalStopError> {
         if !value.is_finite() {
-            return Err(CoreError::NonFiniteSignalStopComputation {
+            return Err(NonFiniteSignalStopError {
                 vehicle,
                 stage,
                 value,
@@ -3654,7 +3691,7 @@ impl CoreWorld {
         parking_stop: Option<ParkingStopConstraint>,
         events: &mut Vec<CoreEvent>,
         spatial_changes: &mut Vec<VehicleHandle>,
-    ) -> Result<Option<VehicleCompletedRouteEvent>, CoreError> {
+    ) -> Result<Option<VehicleCompletedRouteEvent>, Box<CoreError>> {
         if vehicle.status != VehicleStatus::Active {
             return Ok(None);
         }
@@ -3766,7 +3803,8 @@ impl CoreWorld {
                     vehicle: vehicle.handle,
                     speed: f64::from(motion.final_speed()),
                     delta_time_ms: context.fixed_delta_time_ms,
-                });
+                }
+                .into());
             }
 
             if PARKING_ACTIVE
@@ -3791,7 +3829,8 @@ impl CoreWorld {
                         route_edge_index: stop.route_edge_index,
                         remaining_travel: (next_progress - stop.entry_progress).max(0.0),
                         final_speed: f64::from(vehicle.current_speed.value()),
-                    });
+                    }
+                    .into());
                 }
                 if reaches_boundary {
                     vehicle.edge_progress = EdgeProgress::try_new(stop.entry_progress)
@@ -3853,7 +3892,8 @@ impl CoreWorld {
                             gate: gate.key(),
                             remaining_travel: remaining,
                             final_speed: f64::from(vehicle.current_speed.value()),
-                        });
+                        }
+                        .into());
                     }
                     vehicle.edge_progress = EdgeProgress::try_new(edge_length_value)
                         .expect("edge length is valid progress");
