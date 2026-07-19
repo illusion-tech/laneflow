@@ -204,4 +204,32 @@ impl LaneGraph {
     pub fn edges(&self) -> impl ExactSizeIterator<Item = &LaneEdge> {
         self.edges.iter().map(|edge| &edge.definition)
     }
+
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> usize {
+        let edge_bytes = self.edges.capacity() * std::mem::size_of::<ResolvedLaneEdge>()
+            + self
+                .edges
+                .iter()
+                .map(|edge| {
+                    edge.definition.id.capacity()
+                        + edge.definition.next_edge_ids.capacity() * std::mem::size_of::<String>()
+                        + edge
+                            .definition
+                            .next_edge_ids
+                            .iter()
+                            .map(String::capacity)
+                            .sum::<usize>()
+                        + edge.next_edges.capacity() * std::mem::size_of::<EdgeHandle>()
+                })
+                .sum::<usize>();
+        let handle_bytes = self.edge_handles.capacity()
+            * std::mem::size_of::<(String, EdgeHandle)>()
+            + self
+                .edge_handles
+                .keys()
+                .map(String::capacity)
+                .sum::<usize>();
+        edge_bytes + handle_bytes
+    }
 }
