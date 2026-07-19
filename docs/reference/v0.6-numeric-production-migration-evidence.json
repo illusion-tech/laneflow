@@ -44,6 +44,12 @@
       "commit": "ecf334ace395133ce9568db269e56636a811ff7d"
     }
   },
+  "remoteEvidenceRefs": {
+    "currentF64Production": "refs/heads/main",
+    "currentF64BenchmarkFixture": "refs/heads/codex/144-evidence-current-f64-fixture",
+    "candidateAOptimized": "refs/heads/codex/144-evidence-candidate-a",
+    "candidateBAndRollback": "refs/heads/codex/144-evidence-candidate-b-rollback"
+  },
   "protocol": {
     "scales": [10000, 100000],
     "workloads": [
