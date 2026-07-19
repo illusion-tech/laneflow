@@ -229,6 +229,27 @@ pub struct RuntimeCalibration {
     pub computed_speed: ErrorStats,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GapSafetyReport {
+    pub samples: usize,
+    pub divergences: usize,
+    pub first_divergence: Option<String>,
+    pub exact_contact_preserved: bool,
+    pub positive_gap_preserved: bool,
+    pub negative_overlap_rejected: bool,
+    pub leader_selection_preserved: bool,
+    pub spawn_rejection_preserved: bool,
+    pub leave_rejection_preserved: bool,
+    pub no_overlap_projection_preserved: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GapClass {
+    Overlap,
+    Contact,
+    Positive,
+}
+
 pub fn calibrate_runtime_chains() -> RuntimeCalibration {
     let (edge_boundary, discarded_residual_edge_rebase) = calibrate_edge_boundary();
     RuntimeCalibration {
@@ -780,6 +801,81 @@ fn calibrate_physical_gap() -> ErrorStats {
         }
     }
     stats
+}
+
+pub fn calibrate_gap_safety_matrix() -> GapSafetyReport {
+    let mut report = GapSafetyReport::default();
+    let clear_gap = PHYSICAL_GAP_TOLERANCE_CANDIDATE_METERS * 3.0;
+    for follower in [0.0_f64, 127.0, 1_024.0, 8_000.0, 9_871.0] {
+        for vehicle_length in [0.1_f32, 4.5, 32.0, 128.0] {
+            for intended_gap in [-0.001_f64, -clear_gap, 0.0, clear_gap, 0.001] {
+                let leader_value = follower + f64::from(vehicle_length) + intended_gap;
+                if !(0.0..=MAX_EDGE_LENGTH_METERS).contains(&leader_value) {
+                    continue;
+                }
+                let follower_progress = ResidualProgress::from_normalized(follower);
+                let leader_progress = ResidualProgress::from_normalized(leader_value);
+                let reference_gap = leader_progress.effective()
+                    - follower_progress.effective()
+                    - f64::from(vehicle_length);
+                let candidate_gap = f64::from(
+                    (leader_progress.effective() - follower_progress.effective()) as f32
+                        - vehicle_length,
+                );
+                let reference_class = classify_gap(reference_gap);
+                let candidate_class = classify_gap(candidate_gap);
+                let reference_leader = reference_gap <= 1.0;
+                let candidate_leader = candidate_gap <= 1.0;
+                let reference_reject = reference_class == GapClass::Overlap;
+                let candidate_reject = candidate_class == GapClass::Overlap;
+                let reference_projected = projected_gap(reference_gap, 0.25, 0.0);
+                let candidate_projected = projected_gap(candidate_gap, 0.25, 0.0);
+                let projection_preserved = reference_reject
+                    || (classify_gap(reference_projected) == classify_gap(candidate_projected)
+                        && candidate_projected >= -PHYSICAL_GAP_TOLERANCE_CANDIDATE_METERS);
+                let matched = reference_class == candidate_class
+                    && reference_leader == candidate_leader
+                    && reference_reject == candidate_reject
+                    && projection_preserved;
+                report.samples += 1;
+                if !matched {
+                    report.divergences += 1;
+                    report.first_divergence.get_or_insert_with(|| {
+                        format!(
+                            "follower={follower:.12} vehicle_length={vehicle_length:.12} intended_gap={intended_gap:.12} reference_gap={reference_gap:.12} candidate_gap={candidate_gap:.12} reference_class={reference_class:?} candidate_class={candidate_class:?} reference_projected={reference_projected:.12} candidate_projected={candidate_projected:.12}",
+                        )
+                    });
+                }
+                report.exact_contact_preserved |=
+                    intended_gap == 0.0 && candidate_class == GapClass::Contact;
+                report.positive_gap_preserved |=
+                    intended_gap == clear_gap && candidate_class == GapClass::Positive;
+                report.negative_overlap_rejected |=
+                    intended_gap == -clear_gap && candidate_class == GapClass::Overlap;
+                report.leader_selection_preserved |= reference_leader == candidate_leader;
+                report.spawn_rejection_preserved |= reference_reject == candidate_reject;
+                report.leave_rejection_preserved |= reference_reject == candidate_reject;
+                report.no_overlap_projection_preserved |=
+                    !reference_reject && classify_gap(candidate_projected) != GapClass::Overlap;
+            }
+        }
+    }
+    report
+}
+
+fn classify_gap(gap: f64) -> GapClass {
+    if gap < -PHYSICAL_GAP_TOLERANCE_CANDIDATE_METERS {
+        GapClass::Overlap
+    } else if gap <= PHYSICAL_GAP_TOLERANCE_CANDIDATE_METERS {
+        GapClass::Contact
+    } else {
+        GapClass::Positive
+    }
+}
+
+fn projected_gap(gap: f64, follower_travel: f64, leader_travel: f64) -> f64 {
+    let allowed_follower_travel = (gap + leader_travel).max(0.0);
+    gap + leader_travel - follower_travel.min(allowed_follower_travel)
 }
 
 fn calibrate_computed_speed() -> ErrorStats {
