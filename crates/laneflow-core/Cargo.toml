@@ -27,6 +27,10 @@ name = "core_step"
 harness = false
 
 [[bench]]
+name = "numeric_production_migration"
+harness = false
+
+[[bench]]
 name = "core_commands"
 harness = false
 
