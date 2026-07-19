@@ -335,7 +335,7 @@ fn physical_gap_safety_matrix_preserves_discrete_behavior() {
     assert!(report.no_overlap_projection_preserved);
 }
 
-#[derive(Default)]
+#[derive(Debug, Default, PartialEq)]
 struct NormalizedRuntimeErrorStats {
     max_progress_error: f64,
     max_gap_error: f64,
@@ -410,15 +410,16 @@ where
 fn normalized_authority_runtime_oracle_preserves_control_flow() {
     use runtime_candidates::{MixedF32Mode, ResidualAwareF32Mode};
 
+    let residual_aware = run_normalized_authority_runtime_oracle::<ResidualAwareF32Mode>();
+    let mixed_progress = run_normalized_authority_runtime_oracle::<MixedF32Mode>();
+    assert_eq!(
+        residual_aware, mixed_progress,
+        "the two layouts must retain the frozen identical error envelope",
+    );
+
     for (mode, stats) in [
-        (
-            "residual_aware_f32",
-            run_normalized_authority_runtime_oracle::<ResidualAwareF32Mode>(),
-        ),
-        (
-            "mixed_f32_compute_f64_progress",
-            run_normalized_authority_runtime_oracle::<MixedF32Mode>(),
-        ),
+        ("residual_aware_f32", residual_aware),
+        ("mixed_f32_compute_f64_progress", mixed_progress),
     ] {
         eprintln!(
             "numeric_contract_normalized_runtime mode={mode} max_progress_error={:.12} max_gap_error={:.12} max_speed_error={:.12} max_acceleration_error={:.12} max_travel_error={:.12}",
