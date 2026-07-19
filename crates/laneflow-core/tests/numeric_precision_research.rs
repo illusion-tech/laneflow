@@ -71,14 +71,13 @@ fn step_core(world: &mut CoreWorld) -> (Vec<(usize, usize)>, usize) {
     (projections, edge_changes)
 }
 
-fn assert_residual_aware_model_matches_core(
+fn assert_mixed_progress_model_matches_core(
     vehicle_count: usize,
     scenario: CandidateScenario,
     layout: CandidateLayout,
 ) {
     let mut reference = core_world(vehicle_count, scenario, layout);
-    let mut candidate =
-        CandidateWorld::<ResidualAwareF32Mode>::new(vehicle_count, scenario, layout);
+    let mut candidate = CandidateWorld::<MixedF32Mode>::new(vehicle_count, scenario, layout);
     for _ in 0..STEP_COUNT {
         let (reference_projections, reference_edge_changes) = step_core(&mut reference);
         let summary = candidate.step();
@@ -122,7 +121,7 @@ fn assert_residual_aware_model_matches_core(
 }
 
 #[test]
-fn residual_aware_f32_model_matches_core_control_flow() {
+fn mixed_progress_model_matches_core_control_flow() {
     for layout in CandidateLayout::EDGE_CAP_MATRIX
         .into_iter()
         .filter(|layout| layout.edge_cap().is_some())
@@ -132,14 +131,14 @@ fn residual_aware_f32_model_matches_core_control_flow() {
             CandidateScenario::DensePlatoon,
             CandidateScenario::StopAndGo,
         ] {
-            assert_residual_aware_model_matches_core(256, scenario, layout);
+            assert_mixed_progress_model_matches_core(256, scenario, layout);
         }
     }
 }
 
 #[test]
-#[ignore = "10k residual-aware f32 candidate-oracle alignment is an explicit #144 G3 measurement"]
-fn residual_aware_f32_model_matches_core_at_10k() {
+#[ignore = "10k mixed-progress candidate-oracle alignment is an explicit #144 G3 measurement"]
+fn mixed_progress_model_matches_core_at_10k() {
     for layout in CandidateLayout::EDGE_CAP_MATRIX
         .into_iter()
         .filter(|layout| layout.edge_cap().is_some())
@@ -149,7 +148,7 @@ fn residual_aware_f32_model_matches_core_at_10k() {
             CandidateScenario::DensePlatoon,
             CandidateScenario::StopAndGo,
         ] {
-            assert_residual_aware_model_matches_core(VEHICLE_COUNT, scenario, layout);
+            assert_mixed_progress_model_matches_core(VEHICLE_COUNT, scenario, layout);
         }
     }
 }

@@ -94,16 +94,12 @@ impl TryFrom<f64> for Acceleration {
 /// 车辆前保险杠在当前 route edge 内的 progress，单位为 meter。
 #[derive(Clone, Copy, Debug)]
 pub struct EdgeProgress {
-    high: f32,
-    residual: f32,
+    value: f64,
 }
 
 impl EdgeProgress {
     /// 零 progress。
-    pub const ZERO: Self = Self {
-        high: 0.0,
-        residual: 0.0,
-    };
+    pub const ZERO: Self = Self { value: 0.0 };
 
     /// 创建经过校验的 edge progress。
     pub fn try_new(value: f64) -> Result<Self, CoreError> {
@@ -113,62 +109,29 @@ impl EdgeProgress {
             });
         }
 
-        if value == 0.0 {
-            return Ok(Self::ZERO);
-        }
-        let high = value as f32;
-        let residual = (f64::from(high) - value) as f32;
-        if !high.is_finite() || !residual.is_finite() {
-            return Err(CoreError::InvalidEdgeProgress {
-                edge_progress: value,
-            });
-        }
-        let progress = Self {
-            high: canonicalize_zero_f32(high),
-            residual: canonicalize_zero_f32(residual),
-        };
-        if !progress.value().is_finite() || progress.value() < 0.0 {
-            return Err(CoreError::InvalidEdgeProgress {
-                edge_progress: value,
-            });
-        }
-        Ok(progress)
+        Ok(Self {
+            value: canonicalize_zero_f64(value),
+        })
     }
 
     /// 返回底层数值。
     pub fn value(self) -> f64 {
-        f64::from(self.high) - f64::from(self.residual)
+        self.value
     }
 
-    /// 使用目标 `f32` 行程推进，并保留补偿残差。
+    /// 使用目标 `f32` 行程推进，并在进度权威中精确提升该增量。
     pub(crate) fn advance(self, travel: f32) -> Result<Self, CoreError> {
         if !travel.is_finite() || travel < 0.0 {
             return Err(CoreError::InvalidEdgeProgress {
                 edge_progress: self.value() + f64::from(travel),
             });
         }
-        let corrected_travel = travel - self.residual;
-        let high = self.high + corrected_travel;
-        let residual = (high - self.high) - corrected_travel;
-        let next = Self {
-            high: canonicalize_zero_f32(high),
-            residual: canonicalize_zero_f32(residual),
-        };
-        if !next.high.is_finite()
-            || !next.residual.is_finite()
-            || !next.value().is_finite()
-            || next.value() < 0.0
-        {
-            return Err(CoreError::InvalidEdgeProgress {
-                edge_progress: next.value(),
-            });
-        }
-        Ok(next)
+        Self::try_new(self.value + f64::from(travel))
     }
 
-    /// 跨 edge 后从有效值重新拆分高位与残差，避免大负增量吞掉残差。
+    /// 跨 edge 后减去规范化 edge length，保留局部进度权威。
     pub(crate) fn rebase_after_edge(self, edge_length: EdgeLength) -> Result<Self, CoreError> {
-        Self::try_new(self.value() - f64::from(edge_length.value()))
+        Self::try_new(self.value - f64::from(edge_length.value()))
     }
 }
 
@@ -185,6 +148,10 @@ impl PartialOrd for EdgeProgress {
 }
 
 fn canonicalize_zero_f32(value: f32) -> f32 {
+    if value == 0.0 { 0.0 } else { value }
+}
+
+fn canonicalize_zero_f64(value: f64) -> f64 {
     if value == 0.0 { 0.0 } else { value }
 }
 

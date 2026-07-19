@@ -3807,12 +3807,13 @@ impl CoreWorld {
                 break;
             }
 
-            candidate_progress = candidate_progress.rebase_after_edge(edge_length)?;
-            let remainder = candidate_progress.value();
+            let remainder = next_progress - edge_length_value;
             remaining = if is_edge_boundary_remainder_zero(remainder) {
+                candidate_progress = EdgeProgress::ZERO;
                 0.0
             } else {
-                remainder
+                candidate_progress = candidate_progress.rebase_after_edge(edge_length)?;
+                candidate_progress.value()
             };
 
             if vehicle.route_edge_index + 1 < route.edge_handles.len() {
