@@ -38,5 +38,9 @@ harness = false
 name = "edge_cap_research"
 harness = false
 
+[[bench]]
+name = "minimum_edge_candidates"
+harness = false
+
 [lints]
 workspace = true
