@@ -131,9 +131,9 @@ fn benchmark_command_modes(
 
 fn benchmark_extended_matrix(criterion: &mut Criterion) {
     let mut cross_edge = criterion.benchmark_group("numeric_candidate_cross_edge_10k_60");
-    cross_edge.sample_size(20);
+    cross_edge.sample_size(15);
     cross_edge.warm_up_time(Duration::from_secs(1));
-    cross_edge.measurement_time(Duration::from_secs(5));
+    cross_edge.measurement_time(Duration::from_secs(3));
     cross_edge.throughput(Throughput::Elements((VEHICLE_COUNT * STEP_COUNT) as u64));
     benchmark_modes(
         &mut cross_edge,
@@ -144,9 +144,9 @@ fn benchmark_extended_matrix(criterion: &mut Criterion) {
     cross_edge.finish();
 
     let mut constraints = criterion.benchmark_group("numeric_constraint_kernel_10k");
-    constraints.sample_size(20);
+    constraints.sample_size(15);
     constraints.warm_up_time(Duration::from_secs(1));
-    constraints.measurement_time(Duration::from_secs(5));
+    constraints.measurement_time(Duration::from_secs(3));
     constraints.throughput(Throughput::Elements(VEHICLE_COUNT as u64));
     for workload in ConstraintWorkload::ALL {
         benchmark_constraint_modes(&mut constraints, workload, VEHICLE_COUNT);
@@ -154,9 +154,9 @@ fn benchmark_extended_matrix(criterion: &mut Criterion) {
     constraints.finish();
 
     let mut commands = criterion.benchmark_group("numeric_command_conversion_10k");
-    commands.sample_size(20);
+    commands.sample_size(15);
     commands.warm_up_time(Duration::from_secs(1));
-    commands.measurement_time(Duration::from_secs(5));
+    commands.measurement_time(Duration::from_secs(3));
     commands.throughput(Throughput::Elements(VEHICLE_COUNT as u64));
     benchmark_command_modes(&mut commands, VEHICLE_COUNT);
     commands.finish();
@@ -168,7 +168,7 @@ fn benchmark_extended_matrix(criterion: &mut Criterion) {
     let mut cross_edge = criterion.benchmark_group("numeric_candidate_cross_edge_100k_60");
     cross_edge.sample_size(10);
     cross_edge.warm_up_time(Duration::from_secs(1));
-    cross_edge.measurement_time(Duration::from_secs(10));
+    cross_edge.measurement_time(Duration::from_secs(5));
     cross_edge.throughput(Throughput::Elements(
         (SCALING_VEHICLE_COUNT * STEP_COUNT) as u64,
     ));
@@ -183,7 +183,7 @@ fn benchmark_extended_matrix(criterion: &mut Criterion) {
     let mut constraints = criterion.benchmark_group("numeric_constraint_kernel_100k");
     constraints.sample_size(10);
     constraints.warm_up_time(Duration::from_secs(1));
-    constraints.measurement_time(Duration::from_secs(10));
+    constraints.measurement_time(Duration::from_secs(5));
     constraints.throughput(Throughput::Elements(SCALING_VEHICLE_COUNT as u64));
     for workload in ConstraintWorkload::ALL {
         benchmark_constraint_modes(&mut constraints, workload, SCALING_VEHICLE_COUNT);
@@ -193,7 +193,7 @@ fn benchmark_extended_matrix(criterion: &mut Criterion) {
     let mut commands = criterion.benchmark_group("numeric_command_conversion_100k");
     commands.sample_size(10);
     commands.warm_up_time(Duration::from_secs(1));
-    commands.measurement_time(Duration::from_secs(10));
+    commands.measurement_time(Duration::from_secs(5));
     commands.throughput(Throughput::Elements(SCALING_VEHICLE_COUNT as u64));
     benchmark_command_modes(&mut commands, SCALING_VEHICLE_COUNT);
     commands.finish();
