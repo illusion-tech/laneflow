@@ -79,41 +79,43 @@ fn fixed_machine_pose_batch_p95_and_retained_memory_gate() {
         let mut paired_ratios = Vec::with_capacity(ROUNDS);
         for round in 0..ROUNDS {
             let mut measure_f32 = || {
-                measure_p95(|| {
-                    fixture
-                        .spatial
-                        .extract_pose_batch(
-                            &fixture.parking,
-                            FramePlacementToken::new(token.get()),
-                            black_box(&inputs),
-                            black_box(&mut f32_output),
-                            black_box(&mut f32_scratch),
-                        )
-                        .expect("f32 measured extraction");
-                    black_box(f32_output.records());
-                    token.set(token.get() + 1);
-                })
+                fixture
+                    .spatial
+                    .extract_pose_batch(
+                        &fixture.parking,
+                        FramePlacementToken::new(token.get()),
+                        black_box(&inputs),
+                        black_box(&mut f32_output),
+                        black_box(&mut f32_scratch),
+                    )
+                    .expect("f32 measured extraction");
+                black_box(f32_output.records());
+                token.set(token.get() + 1);
             };
             let mut measure_f64 = || {
-                measure_p95(|| {
-                    candidate
-                        .extract(
-                            FramePlacementToken::new(token.get()),
-                            black_box(&inputs),
-                            black_box(&mut f64_output),
-                            black_box(&mut f64_scratch),
-                        )
-                        .expect("f64 measured extraction");
-                    black_box(f64_output.records());
-                    token.set(token.get() + 1);
-                })
+                candidate
+                    .extract(
+                        FramePlacementToken::new(token.get()),
+                        black_box(&inputs),
+                        black_box(&mut f64_output),
+                        black_box(&mut f64_scratch),
+                    )
+                    .expect("f64 measured extraction");
+                black_box(f64_output.records());
+                token.set(token.get() + 1);
             };
 
-            let (f32_p95, f64_p95) = if round % 2 == 0 {
-                (measure_f32(), measure_f64())
-            } else {
-                (measure_f64(), measure_f32())
-            };
+            let (f32_p95, f64_p95) = measure_paired_p95(round, &mut measure_f32, &mut measure_f64);
+            println!(
+                "SPATIAL_PERF_ROUND count={count} round={} first={} f32_p95_ns={f32_p95} f64_p95_ns={f64_p95} paired_ratio={:.6}",
+                round + 1,
+                if round.is_multiple_of(2) {
+                    "f32"
+                } else {
+                    "f64"
+                },
+                f32_p95 as f64 / f64_p95 as f64
+            );
             f32_rounds.push(f32_p95);
             f64_rounds.push(f64_p95);
             paired_ratios.push(f32_p95 as f64 / f64_p95 as f64);
@@ -216,15 +218,32 @@ fn fixed_machine_pose_batch_p95_and_retained_memory_gate() {
     }
 }
 
-fn measure_p95(mut operation: impl FnMut()) -> u128 {
-    let mut samples = Vec::with_capacity(SAMPLES_PER_ROUND);
-    for _ in 0..SAMPLES_PER_ROUND {
-        let started = Instant::now();
-        operation();
-        samples.push(started.elapsed().as_nanos());
+fn measure_paired_p95(
+    round: usize,
+    f32_operation: &mut impl FnMut(),
+    f64_operation: &mut impl FnMut(),
+) -> (u128, u128) {
+    let mut f32_samples = Vec::with_capacity(SAMPLES_PER_ROUND);
+    let mut f64_samples = Vec::with_capacity(SAMPLES_PER_ROUND);
+    for sample in 0..SAMPLES_PER_ROUND {
+        if (round + sample).is_multiple_of(2) {
+            f32_samples.push(measure_once(f32_operation));
+            f64_samples.push(measure_once(f64_operation));
+        } else {
+            f64_samples.push(measure_once(f64_operation));
+            f32_samples.push(measure_once(f32_operation));
+        }
     }
-    samples.sort_unstable();
-    samples[(SAMPLES_PER_ROUND * 95).div_ceil(100) - 1]
+    f32_samples.sort_unstable();
+    f64_samples.sort_unstable();
+    let p95_index = (SAMPLES_PER_ROUND * 95).div_ceil(100) - 1;
+    (f32_samples[p95_index], f64_samples[p95_index])
+}
+
+fn measure_once(operation: &mut impl FnMut()) -> u128 {
+    let started = Instant::now();
+    operation();
+    started.elapsed().as_nanos()
 }
 
 fn median_u128(values: &mut [u128]) -> u128 {
