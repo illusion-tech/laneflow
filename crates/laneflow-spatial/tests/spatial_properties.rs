@@ -51,16 +51,17 @@ fn canonical_f32_sampling_tracks_f64_oracle_across_the_full_edge() {
                 .expect("generated oracle sample");
 
             let position = actual.position();
-            let position_error = (f64::from(position.x()) - expected.position[0])
-                .hypot(f64::from(position.y()) - expected.position[1])
-                .hypot(f64::from(position.z()) - expected.position[2]);
+            let expected_position = expected.position();
+            let position_error = (f64::from(position.x()) - expected_position[0])
+                .hypot(f64::from(position.y()) - expected_position[1])
+                .hypot(f64::from(position.z()) - expected_position[2]);
             let tangent_error = direction_error_degrees(
                 [
                     f64::from(actual.tangent().x()),
                     f64::from(actual.tangent().y()),
                     f64::from(actual.tangent().z()),
                 ],
-                expected.tangent,
+                expected.tangent(),
             );
             let up_error = direction_error_degrees(
                 [
@@ -68,7 +69,7 @@ fn canonical_f32_sampling_tracks_f64_oracle_across_the_full_edge() {
                     f64::from(actual.up().y()),
                     f64::from(actual.up().z()),
                 ],
-                expected.up,
+                expected.up(),
             );
 
             prop_assert!(position_error.is_finite());
@@ -106,7 +107,7 @@ fn endpoint_vertex_and_join_boundaries_are_explicit() {
         let expected = oracle
             .sample(fixture.edge, progress)
             .expect("endpoint oracle sample");
-        assert_position_within_budget(actual.position(), expected.position);
+        assert_position_within_budget(actual.position(), expected.position());
     }
 
     let below = f32::from_bits(SPATIAL_JOIN_POSITION_TOLERANCE_METERS.to_bits() - 1);
