@@ -592,13 +592,42 @@ fn repeated_extraction_is_deterministic_and_reuses_capacity() {
 
 #[test]
 fn fake_host_rejects_batch_from_stale_placement_token() {
+    #[derive(Debug, PartialEq)]
+    struct HostTransform {
+        vehicle: VehicleHandle,
+        translation: [f32; 3],
+        forward: [f32; 3],
+        up: [f32; 3],
+    }
+
     struct FakeHost {
         current_token: FramePlacementToken,
     }
 
     impl FakeHost {
-        fn accepts(&self, batch: &CanonicalPoseBatchF32) -> bool {
-            batch.placement_token() == self.current_token
+        fn apply(&self, batch: &CanonicalPoseBatchF32) -> Option<Vec<HostTransform>> {
+            if batch.placement_token() != self.current_token {
+                return None;
+            }
+            Some(
+                batch
+                    .records()
+                    .iter()
+                    .map(|record| {
+                        let pose = record.pose();
+                        HostTransform {
+                            vehicle: record.vehicle(),
+                            translation: [
+                                pose.position().x(),
+                                pose.position().y(),
+                                pose.position().z(),
+                            ],
+                            forward: [pose.tangent().x(), pose.tangent().y(), pose.tangent().z()],
+                            up: [pose.up().x(), pose.up().y(), pose.up().z()],
+                        }
+                    })
+                    .collect(),
+            )
         }
     }
 
@@ -624,10 +653,15 @@ fn fake_host_rejects_batch_from_stale_placement_token() {
             &mut scratch,
         )
         .expect("initial batch");
-    assert!(host.accepts(&output));
+    let applied = host.apply(&output).expect("current batch is accepted");
+    assert_eq!(applied.len(), 1);
+    assert_eq!(applied[0].vehicle, fixture.vehicles[0]);
+    assert_eq!(applied[0].translation, [10.0, 0.0, 0.0]);
+    assert_eq!(applied[0].forward, [1.0, 0.0, 0.0]);
+    assert_eq!(applied[0].up, [0.0, 1.0, 0.0]);
 
     host.current_token = FramePlacementToken::new(51);
-    assert!(!host.accepts(&output));
+    assert!(host.apply(&output).is_none());
     fixture
         .spatial
         .extract_pose_batch(
@@ -638,6 +672,6 @@ fn fake_host_rejects_batch_from_stale_placement_token() {
             &mut scratch,
         )
         .expect("replacement batch");
-    assert!(host.accepts(&output));
+    assert!(host.apply(&output).is_some());
     assert_eq!(output.placement_token(), FramePlacementToken::new(51));
 }
