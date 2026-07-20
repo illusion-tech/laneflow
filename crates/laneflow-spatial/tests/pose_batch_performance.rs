@@ -33,6 +33,13 @@ struct ScaleResult {
     retained_reduction: f64,
 }
 
+struct PairedRound {
+    f32_p95_ns: u128,
+    f64_p95_ns: u128,
+    f32_median_ns: u128,
+    f64_median_ns: u128,
+}
+
 #[test]
 #[ignore = "wall-clock gate runs only on the documented fixed performance machine"]
 fn fixed_machine_pose_batch_p95_and_retained_memory_gate() {
@@ -105,20 +112,25 @@ fn fixed_machine_pose_batch_p95_and_retained_memory_gate() {
                 token.set(token.get() + 1);
             };
 
-            let (f32_p95, f64_p95) = measure_paired_p95(round, &mut measure_f32, &mut measure_f64);
+            let measured = measure_paired_p95(round, &mut measure_f32, &mut measure_f64);
+            let paired_throughput_ratio =
+                measured.f32_median_ns as f64 / measured.f64_median_ns as f64;
             println!(
-                "SPATIAL_PERF_ROUND count={count} round={} first={} f32_p95_ns={f32_p95} f64_p95_ns={f64_p95} paired_ratio={:.6}",
+                "SPATIAL_PERF_ROUND count={count} round={} first={} f32_p95_ns={} f64_p95_ns={} f32_median_ns={} f64_median_ns={} paired_throughput_ratio={paired_throughput_ratio:.6}",
                 round + 1,
                 if round.is_multiple_of(2) {
                     "f32"
                 } else {
                     "f64"
                 },
-                f32_p95 as f64 / f64_p95 as f64
+                measured.f32_p95_ns,
+                measured.f64_p95_ns,
+                measured.f32_median_ns,
+                measured.f64_median_ns,
             );
-            f32_rounds.push(f32_p95);
-            f64_rounds.push(f64_p95);
-            paired_ratios.push(f32_p95 as f64 / f64_p95 as f64);
+            f32_rounds.push(measured.f32_p95_ns);
+            f64_rounds.push(measured.f64_p95_ns);
+            paired_ratios.push(paired_throughput_ratio);
         }
 
         let f32_p95_ns = median_u128(&mut f32_rounds);
@@ -154,7 +166,7 @@ fn fixed_machine_pose_batch_p95_and_retained_memory_gate() {
         );
 
         println!(
-            "SPATIAL_PERF count={count} f32_p95_ns={f32_p95_ns} f64_p95_ns={f64_p95_ns} paired_ratio={paired_ratio:.6} f32_retained_bytes={f32_retained_bytes} f64_retained_bytes={f64_retained_bytes} retained_reduction={retained_reduction:.6}"
+            "SPATIAL_PERF count={count} f32_p95_ns={f32_p95_ns} f64_p95_ns={f64_p95_ns} paired_throughput_ratio={paired_ratio:.6} f32_retained_bytes={f32_retained_bytes} f64_retained_bytes={f64_retained_bytes} retained_reduction={retained_reduction:.6}"
         );
         results.push(ScaleResult {
             count,
@@ -222,7 +234,7 @@ fn measure_paired_p95(
     round: usize,
     f32_operation: &mut impl FnMut(),
     f64_operation: &mut impl FnMut(),
-) -> (u128, u128) {
+) -> PairedRound {
     let mut f32_samples = Vec::with_capacity(SAMPLES_PER_ROUND);
     let mut f64_samples = Vec::with_capacity(SAMPLES_PER_ROUND);
     for sample in 0..SAMPLES_PER_ROUND {
@@ -237,7 +249,12 @@ fn measure_paired_p95(
     f32_samples.sort_unstable();
     f64_samples.sort_unstable();
     let p95_index = (SAMPLES_PER_ROUND * 95).div_ceil(100) - 1;
-    (f32_samples[p95_index], f64_samples[p95_index])
+    PairedRound {
+        f32_p95_ns: f32_samples[p95_index],
+        f64_p95_ns: f64_samples[p95_index],
+        f32_median_ns: f32_samples[SAMPLES_PER_ROUND / 2],
+        f64_median_ns: f64_samples[SAMPLES_PER_ROUND / 2],
+    }
 }
 
 fn measure_once(operation: &mut impl FnMut()) -> u128 {
