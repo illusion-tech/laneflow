@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-20（#135 折线绑定、连接校验与确定性采样）
+**最后更新**: 2026-07-20（#136 批量位姿、placement token 与 Parking pose）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -73,7 +73,7 @@ Core 的有效进度
   -> 宿主专用朝向基和变换（Transform）
 ```
 
-frame 放置、tile 或相机相对原点不写入 Core 车辆状态，也不改变 Spatial canonical 几何。跨 frame 变换、origin identity 和批量失效由 #136 冻结。
+frame 放置、tile 或相机相对原点不写入 Core 车辆状态，也不改变 Spatial canonical 几何。#136 使用 batch-level `FramePlacementToken` 标记某个 frame 的宿主放置版本；token 只由 Adapter 颁发和复核，不包含世界坐标或 origin value。同一 frame 的放置发生变化时必须换 token，旧批次不得提交。
 
 ## 3. 制品模型
 
@@ -136,6 +136,12 @@ CanonicalVector3F32
 CanonicalUnitVector3F32
 SpatialEdgeInput<'a>
 CanonicalPoseF32
+FramePlacementToken
+PoseSource
+PoseInputRecord
+CanonicalPoseRecordF32
+CanonicalPoseBatchF32
+CanonicalPoseBatchScratch
 SpatialRegistry
 SpatialError
 SpatialAxis
@@ -155,13 +161,24 @@ SpatialAxis
 - `SpatialRegistry::try_new(&LaneGraph, CanonicalFrameId, inputs)` 按 frame/capacity、输入 unknown/duplicate、逐折线 geometry、LaneGraph missing、graph/next-edge join 的稳定顺序原子构造；任一失败都不返回部分 registry，也不修改 Core。
 - `CanonicalPoseF32` 的字段私有，getter 只返回已经通过 canonical 点、单位切向量与单位上方向不变量的值。
 
-以下批量概念仍由对应实施切片固化：
+其中 #136 固化的批量边界为：
 
 ```text
-CanonicalPoseRecordF32 { frame_id, vehicle_handle, pose }   # #136
+PoseInputRecord {
+  vehicle
+  source: Lane { edge, progress } | Parking { space }
+}
+
+CanonicalPoseBatchF32 {
+  frame_id
+  placement_token
+  records: Vec<CanonicalPoseRecordF32>
+}
+
+CanonicalPoseRecordF32 { vehicle, pose }
 ```
 
-不同坐标框架或不同宿主放置不能在没有检查的情况下混用。原始 `f64` 载荷只允许在 #134 的转换前诊断中暂存，不形成第二份 runtime 几何权威。
+frame 与 placement token 只在 batch header 保存一次，不逐点或逐车辆复制。`CanonicalPoseBatchScratch` 保留未提交 records；只有全部输入成功后才与 committed batch 交换。不同坐标框架或不同宿主放置不能在没有检查的情况下混用。原始 `f64` 载荷只允许在 #134 的转换前诊断或 Core Parking geometry 输入中暂存，不形成第二份 runtime 几何权威。
 
 ## 5. 折线与预计算
 
@@ -272,22 +289,29 @@ geometry_s = ratio * geometry_arc_length
 
 ```text
 PoseInputRecord {
-  vehicle_handle
-  edge_handle
-  edge_progress
+  vehicle
+  source: Lane { edge, progress } | Parking { space }
 }
 ```
 
-输出保持相同顺序，并由批次聚合携带 frame ID：
+输出保持相同顺序，并由批次聚合携带 frame ID 与 placement token：
 
 ```text
-CanonicalPoseRecordF32 { vehicle_handle, pose }
+CanonicalPoseBatchF32 {
+  frame_id
+  placement_token
+  records: Vec<CanonicalPoseRecordF32>
+}
+
+CanonicalPoseRecordF32 { vehicle, pose }
 ```
 
 - 批量 API 不遍历引擎实体组件系统（ECS），也不持有宿主演员或实体。
 - Spatial 注册表按已解析的边句柄或索引查询，不在每辆车的高频路径中解析外部字符串 ID。
-- `f32` 路径先把全部记录计算到临时缓冲区；任何失败都不修改调用方已经提交的输出。
-- 调用方可以在成功后交换或复用缓冲区；具体内存分配 API 由实施与性能 Issue 决定。
+- output frame 与 registry frame 不匹配时在读取 records 前失败。record 失败按输入顺序返回 first-error，携带输入序号、vehicle handle 和结构化 source。
+- `SpatialRegistry::extract_pose_batch` 先把全部记录计算到调用方拥有的 `CanonicalPoseBatchScratch`；任何失败都清空 scratch 并保持旧 output 的 frame/token/records 不变，全部成功后才 swap 并更新 token。
+- 调用方可以为 output/scratch 预留容量并跨 tick 复用；稳定容量下的零分配和 10k/100k 性能由 #137 验证。
+- Adapter 在提交宿主 Transform 前比较 batch token 与当前 placement token；同一 frame 的 placement 切换必须颁发新 token。
 - 表现插值、细节层次和相机相对原点切换不能回写 Core/Spatial 的权威状态。
 
 ## 10. 停车位姿
@@ -302,7 +326,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
         + left * sin(heading_offset_radians)
 ```
 
-Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合或停车网格。已停放车辆的生命周期与绑定权威仍在 Core；适配器只消费最终位姿。
+`Parking { space }` 由 #136 使用 immutable `ParkingRegistry` 的 entry anchor 与 geometry 实现。Core `f64` lateral/heading 只作为受检输入，转换和派生结果必须重新进入 canonical `f32` 点/单位方向不变量；越界时作为对应 batch record 的结构化错误返回。Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合或停车网格。已停放车辆的生命周期与绑定权威仍在 Core；适配器只消费最终位姿。
 
 ## 11. 第三方 Rust 包边界
 
@@ -339,15 +363,15 @@ Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合
 - 相同布局下相对 `f64` 候选 retained memory 至少降低 `25%`，吞吐回退不超过 `5%`；
 - Bevy 宿主的坐标轴、手性和 `f32 Transform` 集成（v0.7）。
 
-#135 已以 production 单元测试、公共 API 测试及 #134 loader 集成测试验证上述单条折线契约；批量失败原子性、误差 oracle、内存与性能 Gate 仍分别属于 #136/#137。历史研究原型不替代 production 验证或性能结论。
+#135 已以 production 单元测试、公共 API 测试及 #134 loader 集成测试验证上述单条折线契约。#136 进一步验证 Lane/Parking 稳定顺序、frame mismatch 优先级、placement token 切换、record 上下文、Parking offset/heading/range、伪宿主 stale-token 拒绝，以及中间失败时旧 batch 不变。误差 oracle、稳态分配、retained memory 和 10k/100k 性能 Gate 仍属于 #137；历史研究原型不替代 production 验证或性能结论。
 
 ## 13. G1 后实施拆分
 
 1. LaneFlow 自有 Spatial 类型、注册表与 Rust 包依赖方向（#133 已建立生产边界）。
 2. 空间数据包及其模式、场景清单、加载器与交通包配对（#134 已交付）。
 3. 折线构建、长度绑定、拓扑连续性与采样（#135 已交付）。
-4. 标准/局部批量位姿提取与停车位姿解析。
+4. canonical `f32` 批量位姿、frame placement token 与停车位姿解析（#136 已交付）。
 5. 性质测试与边界测试、1 万/10 万性能验证，以及适配器契约冒烟测试。
 6. v0.6 Spatial 收口审阅；之后 #121/v0.7 才能进入 Bevy 实施。
 
-#141/ADR 0014 不改变上述 Spatial 分层和实现顺序，只修订 Core 标量、有效进度与长度绑定容差来源。#127 已完成 target-f32 量化余量标定；#144 原子迁移形成不迁移（no-go）结论后，Spatial 生产绑定仍不能把目标 `f32 EdgeLength` 当作当前稳定输入。ADR 0015 进一步把 Spatial runtime geometry 修订为有界 `f32` canonical frame；#134–#137 必须分别交付转换、量化后几何、批量 frame 生命周期与性能证据。
+#141/ADR 0014 不改变上述 Spatial 分层和实现顺序，只修订 Core 标量、有效进度与长度绑定容差来源。#127 已完成 target-f32 量化余量标定；#144 原子迁移形成不迁移（no-go）结论后，Spatial 生产绑定仍不能把目标 `f32 EdgeLength` 当作当前稳定输入。ADR 0015 进一步把 Spatial runtime geometry 修订为有界 `f32` canonical frame；#134/#135/#136 已分别交付转换、量化后几何和批量 frame/placement 生命周期，#137 继续负责性能证据。

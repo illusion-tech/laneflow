@@ -1,7 +1,7 @@
 # 架构
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-19<br>
+**最后更新**: 2026-07-20<br>
 **适用范围**: LaneFlow 分层、Rust crate 依赖方向、Traffic Data、Signals、Parking 与 Core/Adapter 边界
 
 ## 1. 架构目标
@@ -54,7 +54,7 @@ laneflow-data -> laneflow-spatial  (只在空间包加载与绑定路径)
 laneflow-core -X-> laneflow-spatial
 ```
 
-Core 继续拥有拓扑、长度、进度与交通行为的权威职责；Spatial 拥有有界 local canonical frame、中心线、弧长、绑定与位姿采样；Adapter 只把 LaneFlow 位姿映射为宿主变换（Transform）。当前 `laneflow-spatial` 已实现 LaneFlow-owned canonical `f32` 基础类型、每轴 `±16_384 m` 点范围、稳定 frame ID、结构化错误，以及按 `LaneGraph::edges()` 排序并使用 Core `EdgeHandle` 查询的 opaque immutable registry 与 crate-private staged construction。空间包/清单、折线绑定/采样和批量位姿仍分别由后续切片交付。
+Core 继续拥有拓扑、长度、进度与交通行为的权威职责；Spatial 拥有有界 local canonical frame、中心线、弧长、绑定与位姿采样；Adapter 只把 LaneFlow 位姿映射为宿主变换（Transform）。当前 `laneflow-spatial` 已实现 LaneFlow-owned canonical `f32` 基础类型、每轴 `±16_384 m` 点范围、稳定 frame ID、结构化错误、按 `LaneGraph::edges()` 排序的 immutable registry、量化后折线绑定/采样，以及带 batch-level placement token、Parking pose 和失败原子性的批量提取。#134 的空间包/清单 loader 可直接构造该 registry；#137 继续负责误差、分配、内存和 10k/100k 性能基线。
 
 ## 3. Authoring Layer
 
@@ -133,7 +133,7 @@ Adapter 不应把引擎依赖引入 Core。
 
 Adapter 可以按需调用 `laneflow-data` 解析自身 asset pipeline 已读取的内存数据，但不得要求 Core 理解引擎路径、asset handle 或异步加载协议。
 
-ADR 0013/0015 已冻结适配器边界。后续 Spatial 中心线与位姿切片落地后，各 Adapter 不再自行定义中心线和长度采样权威；它们消费已提交的 Core 快照与带 frame identity 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
+ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样权威；它们从已提交的 Core 快照构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
 
 ## 7. Presentation Layer
 

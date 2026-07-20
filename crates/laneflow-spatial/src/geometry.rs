@@ -57,6 +57,18 @@ pub struct CanonicalPoseF32 {
 }
 
 impl CanonicalPoseF32 {
+    pub(crate) const fn from_parts(
+        position: CanonicalPoint3F32,
+        tangent: CanonicalUnitVector3F32,
+        up: CanonicalUnitVector3F32,
+    ) -> Self {
+        Self {
+            position,
+            tangent,
+            up,
+        }
+    }
+
     /// 返回采样位置，单位为米。
     pub const fn position(self) -> CanonicalPoint3F32 {
         self.position

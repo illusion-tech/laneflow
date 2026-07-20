@@ -33,7 +33,7 @@
 - 下一契约会改变 Core API、接受范围、Data 版本、舍入和 Spatial 长度绑定，因此不属于纯内部优化；
 - 不承诺跨 CPU、跨语言或跨编译器的位级浮点确定性。
 
-本设计固定数值职责和迁移闸口，不固定 Spatial 几何容器、空间索引、原点生命周期或 v0.7 的具体 Adapter 批量类型。
+本设计固定数值职责和迁移闸口，不固定 Spatial 几何容器、空间索引或 v0.7 的具体引擎 ABI。#136 已在引擎无关边界固定 batch-level frame/placement identity 和 canonical `f32` 位姿类型，但不包含宿主 Transform。
 
 ## 2. 当前实现基线
 
@@ -247,7 +247,9 @@ Core 的有效进度
 
 - 空间包若以 `f64` 或等价高保真值暂存 JSON 数值，必须在 #134 的路径化诊断边界受检转换；禁止未检查的 `as f32`、饱和或值域外 f64 fallback。
 - 转换和批量 API 必须由 LaneFlow 拥有，返回结构化数值域/范围错误，并对整个批次执行“先计算、后提交”；失败不能留下部分输出或修改权威状态。
-- `f32` 批次必须携带明确的 frame identity，不能被另一个 frame 或失效的宿主放置误用。
+- `f32` 批次只在 header 携带一次 `CanonicalFrameId + FramePlacementToken`；每条记录只携带 vehicle handle 与 canonical pose，不重复 frame/placement identity。
+- `FramePlacementToken(u64)` 是 Adapter/调用方颁发、Spatial 原样回显的不透明等值 token。同一 frame 重新放置、切 tile 或 rebase 时必须颁发新 token；Adapter 提交宿主 Transform 前必须比较当前 token 并拒绝旧批次。
+- output frame mismatch 在读取 records 前失败；record 错误携带稳定输入序号和车辆句柄。全部记录先写调用方 scratch，成功后才交换 committed output 并更新 token；任何失败保持旧 frame/token/records 不变。
 - 双精度宿主把 canonical `f32` 位置升宽后应用自己的 frame/world placement；这不会形成第二套 Spatial/Core 状态。
 - 表现插值、原点重设和细节层级（LOD）只影响显示，不能反馈写入进度、速度、占用、状态或事件。
 
@@ -259,7 +261,7 @@ Core 的有效进度
 | 当前 Data v0.5 | 迁移前 JSON 结构、加载器范围/诊断保持不变                           | 当前不变；下一有效格式按 ADR 0008 原子替换         |
 | 下一 Data v0.6 | 硬范围、规范化、诊断与 Core 同步                                    | 模式/加载器/固定样例同一切片；不保留运行时兼容垫片 |
 | Spatial API    | 有界 canonical `f32` + Core 长度量化余量                            | 按 ADR 0015 修订 geometry/frame 与 Adapter 映射    |
-| Adapter API    | 有效进度/位姿到宿主 `Transform`；不暴露残差分量                     | v0.7 首次设计时落实                                |
+| Adapter API    | Lane/Parking 输入到带 frame/token 的批量位姿；不暴露宿主 Transform  | #136 固定引擎无关边界；v0.7 再落实具体宿主 ABI     |
 | 量化存储/传输  | 当前不存在                                                          | 将来必须带版本、通过独立议题迁移                   |
 
 即使 JSON 词法类型仍是 `number`，Core 标量、接受范围、舍入、诊断或线格式规范化的变化也必须按 ADR 0008 视为 Data/API 迁移。Data 可以先以 `f64` 或等价高保真值解析以保留原始错误输入，但只能通过显式受检转换进入 Core。

@@ -1,10 +1,15 @@
 #![doc = include_str!("../README.md")]
 
+mod batch;
 mod error;
 mod geometry;
 mod primitives;
 mod registry;
 
+pub use batch::{
+    CanonicalPoseBatchF32, CanonicalPoseBatchScratch, CanonicalPoseRecordF32, FramePlacementToken,
+    PoseInputRecord, PoseSource,
+};
 pub use error::{SpatialAxis, SpatialError};
 pub use geometry::{
     CanonicalPoseF32, SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS,
