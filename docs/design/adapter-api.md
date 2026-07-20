@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-20（#136 批量位姿、placement token 与 Parking pose）
+**最后更新**: 2026-07-20（#137 正确性、资源与性能 Gate）
 
 **适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的最小只读契约；作为 v0.7 具体 Bevy API 设计之前的 G1 输入（#123）
 
