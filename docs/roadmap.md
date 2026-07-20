@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Draft  
-**最后更新**: 2026-07-18
+**最后更新**: 2026-07-21
 **适用范围**: LaneFlow 初始版本路线图
 
 本文记录 LaneFlow 的稳定路线图。GitHub Project 负责当前执行状态，本文负责长期版本边界。
@@ -97,7 +97,9 @@
 
 目标：在实现首个引擎适配器前，冻结 LaneFlow 的数值表示边界、引擎无关道路空间几何、长度与坐标权威，以及最小空间查询能力。
 
-规划状态：2026-07-20，里程碑跟踪议题（Issue）为 #120。#122 的数值切片已形成独立[收口审阅基线](reference/v0.6-numeric-closure-review.md)：#140 推翻旧补偿候选和无性能收益前提后，#141/ADR 0014 接受下一 Core 数值契约与迁移/回退规则；#125 拆分 current-f64 九个领域数值 owner，#126 审计 API/Data 边界，#127 完成 target-f32 离线标定；#144 的完整原子生产候选通过正确性与内存护栏，但稳态性能只提升 `4.257%`、未达到 `5%` 门槛，已完整回退 current-f64。ADR 0012 继续描述当前 `f64` 生产状态，ADR 0014 继续保存未来目标和门槛；未来若重启数值迁移，必须新建议题并重新进入 G1。#123 已通过 G1，接受 ADR 0013、独立空间层、配套空间制品、LaneFlow 自有类型和首版无生产几何依赖；#133/ADR 0015 后续把 Spatial runtime 精度修订为每轴 `±16_384 m` 的有界 canonical `f32` frame，并保留其他分层与权威决策。数值切片完成不等于 Spatial 或 v0.6 整体完成，Spatial 生产实施继续按自己的闸口推进。
+完成状态：2026-07-21 已完成。数值切片和 Spatial 切片均已完成独立 G4，整体设计、生产实现、数据制品、正确性、性能、安全与治理结论见 [v0.6 收口审阅基线](reference/v0.6-closure-review.md)。
+
+最终生产边界为 Core/Data current-f64 交通权威、Traffic Data v0.5，以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退；Spatial `f32` 通过误差、零分配、内存和 10k/100k 性能 Gate。未来重启 Core/Data 数值迁移必须新建议题并重新进入 G1。
 
 范围：
 
@@ -120,7 +122,7 @@
 
 目标：以 Rust/Bevy 作为首个 Reference Adapter，完成可运行的引擎集成闭环，并用真实宿主验证 Adapter API；Bevy 不是跨 ABI、跨语言稳定性的唯一证明。
 
-规划状态：Milestone tracker 为 #121，当前被 #120 阻塞；v0.6、Adapter API G1 与 Bevy 依赖审计完成前保持 Backlog。
+规划状态：Milestone tracker 为 #121。v0.6 前置与 Adapter API 已完成；#121 仍保持 Backlog，等待 Bevy 版本、最小 feature graph、MSRV、许可证/安全审计和子 Issue 拆分，不因 v0.6 完成而自动进入 G1/G2。
 
 范围：
 
