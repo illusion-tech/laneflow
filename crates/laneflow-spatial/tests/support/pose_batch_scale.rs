@@ -170,10 +170,82 @@ fn benchmark_profile() -> VehicleProfile {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+struct F64Point {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+impl F64Point {
+    fn checked(x: f64, y: f64, z: f64) -> Result<Self, SpatialError> {
+        let mut components = [x, y, z];
+        for component in components {
+            if !component.is_finite() {
+                return Err(SpatialError::ZeroLengthDirection);
+            }
+        }
+        for component in components {
+            if !(-16_384.0..=16_384.0).contains(&component) {
+                return Err(SpatialError::ZeroLengthDirection);
+            }
+        }
+        for component in &mut components {
+            if *component == 0.0 {
+                *component = 0.0;
+            }
+        }
+        Ok(Self {
+            x: components[0],
+            y: components[1],
+            z: components[2],
+        })
+    }
+
+    const fn from_array([x, y, z]: [f64; 3]) -> Self {
+        Self { x, y, z }
+    }
+
+    const fn as_array(self) -> [f64; 3] {
+        [self.x, self.y, self.z]
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct F64UnitVector {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+impl F64UnitVector {
+    const fn from_array([x, y, z]: [f64; 3]) -> Self {
+        Self { x, y, z }
+    }
+
+    const fn as_array(self) -> [f64; 3] {
+        [self.x, self.y, self.z]
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct F64Pose {
-    pub position: [f64; 3],
-    pub tangent: [f64; 3],
-    pub up: [f64; 3],
+    position: F64Point,
+    tangent: F64UnitVector,
+    up: F64UnitVector,
+}
+
+impl F64Pose {
+    pub const fn position(self) -> [f64; 3] {
+        self.position.as_array()
+    }
+
+    pub const fn tangent(self) -> [f64; 3] {
+        self.tangent.as_array()
+    }
+
+    pub const fn up(self) -> [f64; 3] {
+        self.up.as_array()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -186,43 +258,44 @@ pub struct F64PoseRecord {
 struct F64Segment {
     length: f64,
     cumulative_end: f64,
-    tangent: [f64; 3],
-    up: [f64; 3],
+    tangent: F64UnitVector,
+    up: F64UnitVector,
 }
 
 #[derive(Clone, Debug)]
 struct F64Polyline {
-    points: Vec<[f64; 3]>,
+    points: Vec<F64Point>,
     segments: Vec<F64Segment>,
     arc_length: f64,
 }
 
 impl F64Polyline {
     fn new(points: &[[f64; 3]]) -> Self {
+        let points: Vec<_> = points.iter().copied().map(F64Point::from_array).collect();
         let mut segments = Vec::with_capacity(points.len() - 1);
         let mut cumulative_end = 0.0;
         for pair in points.windows(2) {
-            let delta = sub(pair[1], pair[0]);
+            let delta = sub(pair[1].as_array(), pair[0].as_array());
             let length = norm(delta);
-            let tangent = scale(delta, 1.0 / length);
-            let left_length = tangent[0].hypot(tangent[2]);
-            let left = [tangent[2] / left_length, 0.0, -tangent[0] / left_length];
+            let tangent = F64UnitVector::from_array(scale(delta, 1.0 / length));
+            let left_length = tangent.x.hypot(tangent.z);
+            let left = [tangent.z / left_length, 0.0, -tangent.x / left_length];
             let up = normalize([
-                tangent[1] * left[2],
-                tangent[2] * left[0] - tangent[0] * left[2],
-                -tangent[1] * left[0],
+                tangent.y * left[2],
+                tangent.z * left[0] - tangent.x * left[2],
+                -tangent.y * left[0],
             ]);
             cumulative_end += length;
             segments.push(F64Segment {
                 length,
                 cumulative_end,
                 tangent,
-                up,
+                up: F64UnitVector::from_array(up),
             });
         }
 
         Self {
-            points: points.to_vec(),
+            points,
             segments,
             arc_length: cumulative_end,
         }
@@ -264,14 +337,16 @@ impl F64Polyline {
         let ratio = (geometry_s - cumulative_start) / segment.length;
         let start = self.points[segment_index];
         let end = self.points[segment_index + 1];
-        let position =
-            checked_position(add(start, scale(sub(end, start), ratio))).map_err(|source| {
-                SpatialError::SamplePositionComputation {
-                    edge,
-                    segment_index,
-                    source: Box::new(source),
-                }
-            })?;
+        let position = F64Point::checked(
+            start.x + (end.x - start.x) * ratio,
+            start.y + (end.y - start.y) * ratio,
+            start.z + (end.z - start.z) * ratio,
+        )
+        .map_err(|source| SpatialError::SamplePositionComputation {
+            edge,
+            segment_index,
+            source: Box::new(source),
+        })?;
         Ok(F64Pose {
             position,
             tangent: segment.tangent,
@@ -448,23 +523,4 @@ fn norm(vector: [f64; 3]) -> f64 {
 
 fn normalize(vector: [f64; 3]) -> [f64; 3] {
     scale(vector, 1.0 / norm(vector))
-}
-
-fn checked_position(mut position: [f64; 3]) -> Result<[f64; 3], SpatialError> {
-    for component in &position {
-        if !component.is_finite() {
-            return Err(SpatialError::ZeroLengthDirection);
-        }
-    }
-    for component in &position {
-        if !(-16_384.0..=16_384.0).contains(component) {
-            return Err(SpatialError::ZeroLengthDirection);
-        }
-    }
-    for component in &mut position {
-        if *component == 0.0 {
-            *component = 0.0;
-        }
-    }
-    Ok(position)
 }
