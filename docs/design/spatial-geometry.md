@@ -310,7 +310,7 @@ CanonicalPoseRecordF32 { vehicle, pose }
 - Spatial 注册表按已解析的边句柄或索引查询，不在每辆车的高频路径中解析外部字符串 ID。
 - output frame 与 registry frame 不匹配时在读取 records 前失败。record 失败按输入顺序返回 first-error，携带输入序号、vehicle handle 和结构化 source。
 - `SpatialRegistry::extract_pose_batch` 先把全部记录计算到调用方拥有的 `CanonicalPoseBatchScratch`；任何失败都清空 scratch 并保持旧 output 的 frame/token/records 不变，全部成功后才 swap 并更新 token。
-- 调用方可以为 output/scratch 预留容量并跨 tick 复用；稳定容量下的零分配和 10k/100k 性能由 #137 验证。
+- 调用方可以为 output/scratch 预留容量并跨 tick 复用；#137 已验证稳定容量下的零分配和 10k/100k 性能，固定机结果和适用边界见 `../reference/v0.6-spatial-validation.md`。
 - Adapter 在提交宿主 Transform 前比较 batch token 与当前 placement token；同一 frame 的 placement 切换必须颁发新 token。
 - 表现插值、细节层次和相机相对原点切换不能回写 Core/Spatial 的权威状态。
 
@@ -363,7 +363,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
 - 相同布局下相对 `f64` 候选 retained memory 至少降低 `25%`，吞吐回退不超过 `5%`；
 - Bevy 宿主的坐标轴、手性和 `f32 Transform` 集成（v0.7）。
 
-#135 已以 production 单元测试、公共 API 测试及 #134 loader 集成测试验证上述单条折线契约。#136 进一步验证 Lane/Parking 稳定顺序、frame mismatch 优先级、placement token 切换、record 上下文、Parking offset/heading/range、伪宿主 stale-token 拒绝，以及中间失败时旧 batch 不变。误差 oracle、稳态分配、retained memory 和 10k/100k 性能 Gate 仍属于 #137；历史研究原型不替代 production 验证或性能结论。
+#135 已以 production 单元测试、公共 API 测试及 #134 loader 集成测试验证上述单条折线契约。#136 进一步验证 Lane/Parking 稳定顺序、frame mismatch 优先级、placement token 切换、record 上下文、Parking offset/heading/range、伪宿主 stale-token 拒绝，以及中间失败时旧 batch 不变。#137 已交付误差 oracle、稳态零分配、retained memory 和 10k/100k 性能 Gate；历史研究原型不替代 production 验证或性能结论。
 
 ## 13. G1 后实施拆分
 
@@ -371,7 +371,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
 2. 空间数据包及其模式、场景清单、加载器与交通包配对（#134 已交付）。
 3. 折线构建、长度绑定、拓扑连续性与采样（#135 已交付）。
 4. canonical `f32` 批量位姿、frame placement token 与停车位姿解析（#136 已交付）。
-5. 性质测试与边界测试、1 万/10 万性能验证，以及适配器契约冒烟测试。
+5. 性质测试与边界测试、1 万/10 万性能验证，以及适配器契约冒烟测试（#137 已交付）。
 6. v0.6 Spatial 收口审阅；之后 #121/v0.7 才能进入 Bevy 实施。
 
-#141/ADR 0014 不改变上述 Spatial 分层和实现顺序，只修订 Core 标量、有效进度与长度绑定容差来源。#127 已完成 target-f32 量化余量标定；#144 原子迁移形成不迁移（no-go）结论后，Spatial 生产绑定仍不能把目标 `f32 EdgeLength` 当作当前稳定输入。ADR 0015 进一步把 Spatial runtime geometry 修订为有界 `f32` canonical frame；#134/#135/#136 已分别交付转换、量化后几何和批量 frame/placement 生命周期，#137 继续负责性能证据。
+#141/ADR 0014 不改变上述 Spatial 分层和实现顺序，只修订 Core 标量、有效进度与长度绑定容差来源。#127 已完成 target-f32 量化余量标定；#144 原子迁移形成不迁移（no-go）结论后，Spatial 生产绑定仍不能把目标 `f32 EdgeLength` 当作当前稳定输入。ADR 0015 进一步把 Spatial runtime geometry 修订为有界 `f32` canonical frame；#134/#135/#136 已分别交付转换、量化后几何和批量 frame/placement 生命周期，#137 已固化 production correctness、allocation、retained memory 与性能证据。

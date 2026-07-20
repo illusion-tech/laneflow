@@ -106,7 +106,7 @@ CanonicalUnitVector3F32
 
 - 不能把任意大世界绝对坐标直接塞进一个 Spatial registry；创作和 Adapter 必须显式管理 frame/tile。
 - 旧 `f64` 原型、文档和未提交草案不能作为兼容 API；#133 直接采用新的 F32 类型名。
-- #134 已提供受检转换和路径化错误，#135 已按量化结果验证几何，#136 已以 frame ID、placement token、调用方双缓冲和失败原子性管理宿主放置边界；#137 仍必须证明性能收益。
+- #134 已提供受检转换和路径化错误，#135 已按量化结果验证几何，#136 已以 frame ID、placement token、调用方双缓冲和失败原子性管理宿主放置边界；#137 已证明零分配、retained memory 和固定机性能 Gate。
 - 5 mm 连接容差和 1 cm 最终误差适合展示 runtime，不适合测绘或专业工程用途；后者不属于 LaneFlow 当前目标。
 
 ## 4. 被拒绝的替代方案
@@ -133,5 +133,5 @@ CanonicalUnitVector3F32
 2. #134 交付空间包、场景清单、高保真解析暂存、受检 F32 转换、external ID 解析和完整路径诊断。
 3. #135 已交付量化后折线校验、current-f64 零量化余量长度绑定、端点连续、basis 和确定性采样。
 4. #136 已交付 batch-level frame/placement 生命周期、批量位姿、Parking pose 与全批次失败原子性。
-5. #137 交付性质、误差、内存、分配、10k/100k 性能和伪 Adapter smoke。
+5. #137 已交付性质、误差、内存、分配、10k/100k 性能和伪 Adapter smoke。
 6. #138 对照本 ADR 和所有实施证据完成 Spatial 收口；不得用后续收口放宽本 ADR 的范围或性能 Gate。

@@ -101,7 +101,7 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 - `SpatialRegistry::extract_pose_batch` 接收调用方拥有的 input slice、committed `CanonicalPoseBatchF32` 与 `CanonicalPoseBatchScratch`。
 - output frame 与 registry frame 不同会在读取 records 前失败；任一无效 edge、space、progress、朝向基或 canonical 范围记录都会使整个批次失败，并报告稳定输入序号、车辆句柄和结构化 source。
 - 全部 records 先写 scratch；只有全部成功后才 swap 到 output 并更新 placement token。失败时旧 output 的 frame、token 和 records 逐项不变，scratch 清空但保留容量。
-- 调用方可以同时预留并跨 tick 复用 output/scratch；稳定容量下不要求 per-batch allocation。精确 allocation 与 10k/100k 性能由 #137 验证。
+- 调用方可以同时预留并跨 tick 复用 output/scratch；稳定容量下不要求 per-batch allocation。#137 已验证精确零 allocation 与 10k/100k 性能，固定机结果和适用边界见 `../reference/v0.6-spatial-validation.md`。
 - canonical frame 与宿主坐标之间的转换不得修改 `CoreWorld`、Spatial 注册表或快照。
 - 单记录查询可以用于调试，但不能作为 1 万或 10 万车辆的默认同步路径。
 
