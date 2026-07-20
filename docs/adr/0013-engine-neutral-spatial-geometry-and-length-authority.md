@@ -153,5 +153,6 @@ LaneFlow 增加独立于 Core 和引擎适配器的空间层：
 - G1 后拆分：Spatial 自有类型与注册表、空间数据与模式及清单、绑定与采样、批量提取、验证与性能，以及收口审阅。
 - #125：保持 current-f64 值和行为不变，拆分 Core 的边界、最小长度等数值职责；Spatial 不把研究原型中当前使用的 Core 容差固化为新的全局 epsilon（误差阈值）。
 - #127/#144：前者离线标定目标 `f32 EdgeLength` 的 Spatial 量化余量，后者曾随 Core/Data 原子候选启用但因性能不迁移（no-go）结论回退；未来重启需新建议题。
+- #133/#134/#135：依次交付 LaneFlow-owned F32 primitive 与 registry 边界、配套制品加载，以及量化后折线/长度/basis/join 校验和确定性单边采样；#135 不复制 current-f64 Core 的私有边界 epsilon。
 - v0.7：Bevy Adapter 消费批量位姿，并验证 frame 放置、坐标轴与手性和真实 `Transform` 同步。
 - 只有真实曲线、道路倾斜、坐标参考系统、空间索引或宿主类型互操作需求出现时，才重新评估相应 Rust 包与格式扩展。

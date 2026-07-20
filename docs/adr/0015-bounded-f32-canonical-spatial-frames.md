@@ -59,21 +59,22 @@ CanonicalUnitVector3F32
 - Spatial 直接复用 opaque Core `EdgeHandle`；不增加第二套 Spatial handle，也不要求 Core 公开 ordinal。
 - immutable registry 的 dense entry 顺序固定为 `LaneGraph::edges()` 顺序，不依赖空间包 JSON 顺序或散列表迭代。
 - 初始 lookup 使用私有 `HashMap<EdgeHandle, u32>`；map 只负责查询，不公开 hasher、slot 或迭代顺序。
-- crate-private staged builder 借用 `&LaneGraph`，按 frame、capacity、输入 unknown/duplicate、LaneGraph missing 的顺序校验。只有完整覆盖后才返回 registry，不修改 Core，也不返回部分聚合。
+- #135 的公开 `SpatialRegistry::try_new` 借用 `&LaneGraph` 与 `SpatialEdgeInput<'a>`，按 frame/capacity、输入 unknown/duplicate、逐折线 geometry/length、LaneGraph missing、graph/next-edge join 的顺序校验。只有完整覆盖且所有连接连续后才返回 registry，不修改 Core，也不返回部分聚合。
 - 只有性能证据证明 `EdgeHandle -> slot` 是瓶颈时，才通过独立设计修改 Core/Spatial API；#133 不为推测性优化扩展句柄表面。
 
 ### 2.4 后续几何和误差参数以 f32 runtime 值为准
 
-以下参数由 #135 实现并在量化后的 runtime `f32` 坐标上验证：
+以下参数已由 #135 实现并在量化后的 runtime `f32` 坐标上验证：
 
-| 语义               | 接受值                         |
-| ------------------ | ------------------------------ |
-| 最小中心线线段     | `0.1 m`                        |
-| 相连 edge 端点容差 | `0.005 m`                      |
-| 长度一致性几何容差 | `max(0.01 m, length × 1e-6)`   |
-| Core 长度量化余量  | 作为独立加项，不隐藏进几何容差 |
-| 最终位置误差       | 相对 `f64` 参考 `<= 0.01 m`    |
-| 最终切线方向角误差 | 相对 `f64` 参考 `<= 0.5°`      |
+| 语义               | 接受值                                |
+| ------------------ | ------------------------------------- |
+| 最小中心线线段     | `0.1 m`                               |
+| 相连 edge 端点容差 | `0.005 m`                             |
+| 长度一致性几何容差 | `max(0.01 m, length × 1e-6)`          |
+| Core 长度量化余量  | 作为独立加项，不隐藏进几何容差        |
+| projected-up 下限  | `sin(0.5°) ≈ 0.008_726_535`，等号有效 |
+| 最终位置误差       | 相对 `f64` 参考 `<= 0.01 m`           |
+| 最终切线方向角误差 | 相对 `f64` 参考 `<= 0.5°`             |
 
 - 相邻点在受检转换后若量化为同一点，必须作为退化线段拒绝，不能静默合并。
 - 连接连续性使用实际 runtime `f32` 点判断，不能用转换前高精度值掩盖运行时断缝。
@@ -130,7 +131,7 @@ CanonicalUnitVector3F32
 
 1. #133 交付 F32 primitives、frame ID、结构化错误、immutable registry、ADR/design 同步和基础测试。
 2. #134 交付空间包、场景清单、高保真解析暂存、受检 F32 转换、external ID 解析和完整路径诊断。
-3. #135 交付量化后折线校验、长度绑定、端点连续、basis 和确定性采样。
+3. #135 已交付量化后折线校验、current-f64 零量化余量长度绑定、端点连续、basis 和确定性采样。
 4. #136 交付 frame/origin 生命周期、批量位姿、Parking pose 与全批次失败原子性。
 5. #137 交付性质、误差、内存、分配、10k/100k 性能和伪 Adapter smoke。
 6. #138 对照本 ADR 和所有实施证据完成 Spatial 收口；不得用后续收口放宽本 ADR 的范围或性能 Gate。

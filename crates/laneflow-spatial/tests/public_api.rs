@@ -3,8 +3,9 @@ use std::error::Error;
 use laneflow_core::CoreWorld;
 use laneflow_spatial::{
     CANONICAL_FRAME_ID_PATTERN, CANONICAL_POINT_COMPONENT_MAX_METERS,
-    CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameId, CanonicalPoint3F32,
-    CanonicalUnitVector3F32, CanonicalVector3F32, SpatialAxis, SpatialError, SpatialRegistry,
+    CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameId, CanonicalPoint3F32, CanonicalPoseF32,
+    CanonicalUnitVector3F32, CanonicalVector3F32, SpatialAxis, SpatialEdgeInput, SpatialError,
+    SpatialRegistry,
 };
 
 #[test]
@@ -203,6 +204,8 @@ fn public_types_are_laneflow_owned_and_errors_implement_std_error() {
     assert_copy::<CanonicalPoint3F32>();
     assert_copy::<CanonicalVector3F32>();
     assert_copy::<CanonicalUnitVector3F32>();
+    assert_copy::<CanonicalPoseF32>();
+    assert_copy::<SpatialEdgeInput<'static>>();
     assert_error::<SpatialError>();
     assert_public_type::<SpatialRegistry>();
 }
