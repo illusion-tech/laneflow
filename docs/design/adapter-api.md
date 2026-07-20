@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-19（ADR 0015 有界 f32 canonical frame）
+**最后更新**: 2026-07-20（#136 批量位姿、placement token 与 Parking pose）
 
 **适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的最小只读契约；作为 v0.7 具体 Bevy API 设计之前的 G1 输入（#123）
 
@@ -53,25 +53,36 @@
 
 ## 4. 位姿输入与输出
 
-面向适配器的最小位姿输入概念如下；字段名是待实施的技术标识符：
+面向适配器的生产位姿输入由 #136 固定为：
 
 ```text
 PoseInputRecord {
-  vehicle_handle
-  edge_handle
-  edge_progress
-  status/position_authority discriminator（状态或位置权威判别字段，需要时）
+  vehicle: VehicleHandle
+  source: Lane { edge: EdgeHandle, progress: EdgeProgress }
+        | Parking { space: ParkingSpaceHandle }
 }
 ```
 
-- 行驶中或停止中的车道车辆通过边和进度采样。
-- 已停放车辆通过 Core 的停车绑定与 Spatial 的停车位姿解析得到位置。
+- 行驶中或停止中的车道车辆使用 `Lane`；已停放车辆使用 `Parking`。位置权威判别由 source enum 表达，不增加可互相矛盾的 status 字段。
+- Adapter 从同一已提交 Core snapshot 构造调用方拥有的稳定序列；Spatial 不接收 `CoreWorld`、不遍历宿主实体组件系统（ECS），也不重新判断车辆生命周期。
 - 已完成或已移除车辆不产生有效位姿记录，由具体生命周期事件决定是否清理宿主实体。
 - 输入和输出顺序必须稳定，不能依赖引擎实体组件系统（ECS）或散列表的遍历顺序。
 
-Spatial 提供 LaneFlow 自有的有界 `f32` canonical 位姿。每个批次必须绑定稳定 `frameId`，批次内位置每轴位于 `±16_384 m`；点、切向量和上方向都不暴露宿主或第三方类型。LaneFlow 不再维护默认 canonical `f64` 位姿作为第二套运行时权威。
+Spatial 提供 LaneFlow 自有的有界 `f32` canonical 位姿。生产输出为：
 
-适配器拥有 frame 到宿主场景的放置和生命周期映射，可以在宿主末端使用 double world placement、tile 或相机相对原点，但不得把转换后的宿主位置反写到 Spatial/Core。frame/origin mismatch、批量切换和失效规则由 #136 冻结；旧 frame 映射对应的批次不得在切换后继续提交。
+```text
+CanonicalPoseBatchF32 {
+  frame_id: CanonicalFrameId
+  placement_token: FramePlacementToken
+  records: Vec<CanonicalPoseRecordF32>
+}
+
+CanonicalPoseRecordF32 { vehicle: VehicleHandle, pose: CanonicalPoseF32 }
+```
+
+`frame_id` 和 `placement_token` 只在 batch header 保存一次，不逐车辆重复。批次内位置每轴位于 `±16_384 m`；点、切向量和上方向都不暴露宿主或第三方类型。LaneFlow 不维护默认 canonical `f64` 位姿作为第二套运行时权威。
+
+适配器拥有 frame 到宿主场景的放置和生命周期映射，可以在宿主末端使用 double world placement、tile 或相机相对原点，但不得把转换后的宿主位置反写到 Spatial/Core。`FramePlacementToken(u64)` 是调用方颁发、只比较相等性的 opaque token；Spatial 原样回显，Adapter 在提交 Transform 前必须复核 token 仍是当前值。同一 frame 重新放置、切 tile 或 rebase 时必须换 token，因此旧批次不能在 placement 切换后提交。token 不包含世界坐标、origin value 或宿主 Transform。
 
 ## 5. 宿主转换
 
@@ -87,9 +98,10 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 
 ## 6. 批量处理与错误语义
 
-- 批量提取接收调用方拥有的切片，并返回调用方拥有、可直接交换提交的输出。
-- 任一无效的边、坐标框架、进度、朝向基或局部范围记录都会使整个批次失败，并报告稳定的输入序号和车辆句柄。
-- 实现可以复用预留容量和临时缓冲区，但不能先覆盖正在使用的宿主输出再回滚。
+- `SpatialRegistry::extract_pose_batch` 接收调用方拥有的 input slice、committed `CanonicalPoseBatchF32` 与 `CanonicalPoseBatchScratch`。
+- output frame 与 registry frame 不同会在读取 records 前失败；任一无效 edge、space、progress、朝向基或 canonical 范围记录都会使整个批次失败，并报告稳定输入序号、车辆句柄和结构化 source。
+- 全部 records 先写 scratch；只有全部成功后才 swap 到 output 并更新 placement token。失败时旧 output 的 frame、token 和 records 逐项不变，scratch 清空但保留容量。
+- 调用方可以同时预留并跨 tick 复用 output/scratch；稳定容量下不要求 per-batch allocation。精确 allocation 与 10k/100k 性能由 #137 验证。
 - canonical frame 与宿主坐标之间的转换不得修改 `CoreWorld`、Spatial 注册表或快照。
 - 单记录查询可以用于调试，但不能作为 1 万或 10 万车辆的默认同步路径。
 

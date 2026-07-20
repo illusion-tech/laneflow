@@ -2,7 +2,7 @@
 
 use std::{error::Error, fmt};
 
-use laneflow_core::EdgeHandle;
+use laneflow_core::{EdgeHandle, ParkingSpaceHandle, VehicleHandle};
 
 /// 三维标准空间分量轴。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -164,6 +164,45 @@ pub enum SpatialError {
         /// 底层 canonical 点错误。
         source: Box<SpatialError>,
     },
+    /// committed batch 的 frame 与当前 registry 不一致。
+    BatchFrameMismatch {
+        /// 当前 Spatial registry 的 frame ID。
+        registry_frame_id: String,
+        /// 调用方 committed output 的 frame ID。
+        output_frame_id: String,
+    },
+    /// ParkingSpace handle 不属于调用方提供的 Parking registry。
+    UnknownParkingSpaceHandle {
+        /// 无法解析的 Core ParkingSpace handle。
+        space: ParkingSpaceHandle,
+    },
+    /// Core Parking geometry 值不能有限地表示为 canonical `f32` 输入。
+    ParkingGeometryOutOfF32Range {
+        /// 对应的 ParkingSpace handle。
+        space: ParkingSpaceHandle,
+        /// 固定的 geometry 字段名。
+        field: &'static str,
+        /// 被拒绝的 Core `f64` 值。
+        value: f64,
+    },
+    /// Parking anchor pose 的派生运算无法保持 canonical 不变量。
+    ParkingPoseComputation {
+        /// 对应的 ParkingSpace handle。
+        space: ParkingSpaceHandle,
+        /// 固定的派生阶段名称。
+        operation: &'static str,
+        /// 底层 canonical 空间错误。
+        source: Box<SpatialError>,
+    },
+    /// 某条稳定批量输入无法生成位姿。
+    PoseRecordFailed {
+        /// 零基输入序号。
+        input_index: usize,
+        /// 对应的稳定 vehicle handle。
+        vehicle: VehicleHandle,
+        /// 底层 lane 或 Parking 位姿错误。
+        source: Box<SpatialError>,
+    },
 }
 
 impl fmt::Display for SpatialError {
@@ -269,6 +308,40 @@ impl fmt::Display for SpatialError {
                 formatter,
                 "edge {edge:?} 的线段 {segment_index} 插值位置无效: {source}"
             ),
+            Self::BatchFrameMismatch {
+                registry_frame_id,
+                output_frame_id,
+            } => write!(
+                formatter,
+                "位姿批次 frame {output_frame_id:?} 与 Spatial registry frame {registry_frame_id:?} 不一致"
+            ),
+            Self::UnknownParkingSpaceHandle { space } => {
+                write!(formatter, "位姿输入引用未知 ParkingSpace handle {space:?}")
+            }
+            Self::ParkingGeometryOutOfF32Range {
+                space,
+                field,
+                value,
+            } => write!(
+                formatter,
+                "ParkingSpace {space:?} 的 {field} 值 {value:?} 无法有限表示为 canonical f32"
+            ),
+            Self::ParkingPoseComputation {
+                space,
+                operation,
+                source,
+            } => write!(
+                formatter,
+                "ParkingSpace {space:?} 的 {operation} 无法保持 canonical 位姿不变量: {source}"
+            ),
+            Self::PoseRecordFailed {
+                input_index,
+                vehicle,
+                source,
+            } => write!(
+                formatter,
+                "位姿批量输入 {input_index}（vehicle {vehicle:?}）失败: {source}"
+            ),
         }
     }
 }
@@ -276,7 +349,9 @@ impl fmt::Display for SpatialError {
 impl Error for SpatialError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::SamplePositionComputation { source, .. } => Some(source.as_ref()),
+            Self::SamplePositionComputation { source, .. }
+            | Self::ParkingPoseComputation { source, .. }
+            | Self::PoseRecordFailed { source, .. } => Some(source.as_ref()),
             _ => None,
         }
     }
