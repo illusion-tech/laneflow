@@ -1,8 +1,10 @@
+use laneflow_core::EdgeProgress;
 use laneflow_data::{
     ArtifactRole, CURRENT_SCENARIO_MANIFEST_FORMAT_VERSION, CURRENT_SPATIAL_FORMAT_VERSION,
     NamedArtifact, SPATIAL_PACKAGE_MEDIA_TYPE, ScenarioDocument, ScenarioError,
     TRAFFIC_PACKAGE_MEDIA_TYPE, from_scenario_json_slice, from_scenario_json_str,
 };
+use laneflow_spatial::{SpatialEdgeInput, SpatialError, SpatialRegistry};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -42,6 +44,71 @@ fn canonical_scenario_loads_atomically_in_lane_graph_order() {
     assert_eq!(entry.points()[1].x(), 12.0);
     assert_eq!(entry.points()[1].y(), 0.0);
     assert_eq!(entry.points()[1].z(), 0.0);
+}
+
+#[test]
+fn loaded_spatial_package_maps_directly_into_spatial_registry_inputs() {
+    let mut spatial = spatial_value();
+    let loop_edge = spatial["edges"]
+        .as_array_mut()
+        .expect("spatial edges")
+        .iter_mut()
+        .find(|edge| edge["trafficEdgeId"] == "loop")
+        .expect("loop edge");
+    loop_edge["centerline"]["points"] =
+        json!([[0.0, 0.0, 10.0], [2.5, 0.0, 10.0], [0.0, 0.0, 10.0]]);
+    let spatial = serde_json::to_vec(&spatial).expect("spatial JSON");
+    let manifest = manifest_value(TRAFFIC, &spatial);
+    let loaded = load_value(&manifest, TRAFFIC, &spatial).expect("scenario loads");
+    let graph = loaded.traffic().initial_traffic_data().lane_graph();
+
+    let registry = SpatialRegistry::try_new(
+        graph,
+        loaded.spatial().frame_id().clone(),
+        loaded
+            .spatial()
+            .edges()
+            .iter()
+            .map(|edge| SpatialEdgeInput::new(edge.edge(), edge.points())),
+    )
+    .expect("loaded #134 output binds without a conversion copy");
+
+    assert_eq!(registry.len(), graph.edges().len());
+    let loop_handle = graph.edge_handle("loop").expect("loop edge");
+    let pose = registry
+        .sample(
+            loop_handle,
+            EdgeProgress::try_new(2.5).expect("valid progress"),
+        )
+        .expect("loop turnaround sample");
+    assert_eq!([pose.position().x(), pose.position().z()], [2.5, 10.0]);
+    assert_eq!([pose.tangent().x(), pose.tangent().z()], [-1.0, 0.0]);
+}
+
+#[test]
+fn canonical_fixture_exposes_its_disconnected_self_join_at_spatial_binding() {
+    let loaded = load(MANIFEST, TRAFFIC, SPATIAL).expect("scenario loader succeeds");
+    let graph = loaded.traffic().initial_traffic_data().lane_graph();
+    let loop_handle = graph.edge_handle("loop").expect("loop edge");
+
+    assert_eq!(
+        SpatialRegistry::try_new(
+            graph,
+            loaded.spatial().frame_id().clone(),
+            loaded
+                .spatial()
+                .edges()
+                .iter()
+                .map(|edge| SpatialEdgeInput::new(edge.edge(), edge.points())),
+        )
+        .expect_err("loop end and start are five meters apart"),
+        SpatialError::DisconnectedEdgeJoin {
+            from_edge: loop_handle,
+            to_edge: loop_handle,
+            distance_meters: 5.0,
+            tolerance_meters: 0.005,
+        }
+    );
 }
 
 #[test]

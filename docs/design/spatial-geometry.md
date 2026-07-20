@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-20（#134 SpatialPackage 与 ScenarioManifest source contract）
+**最后更新**: 2026-07-20（#135 折线绑定、连接校验与确定性采样）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -127,13 +127,15 @@ SpatialPackage v0.1
 
 生产 crate 为 `crates/laneflow-spatial`（package `laneflow-spatial`、lib `laneflow_spatial`），依赖方向固定为 `laneflow-spatial -> laneflow-core`。除 Core path dependency 外不增加生产依赖，Core 不反向依赖 Spatial。
 
-#133 已固化以下公共类型：
+#133/#135 已固化以下公共类型：
 
 ```text
 CanonicalFrameId
 CanonicalPoint3F32
 CanonicalVector3F32
 CanonicalUnitVector3F32
+SpatialEdgeInput<'a>
+CanonicalPoseF32
 SpatialRegistry
 SpatialError
 SpatialAxis
@@ -149,12 +151,13 @@ SpatialAxis
 - 向量不套用点范围；两个合法端点的差可以达到 `±32_768 m`。
 - `CanonicalUnitVector3F32` 只能从有限非零向量通过缩放归一化产生；近垂直道路的 projected-up 阈值仍由折线/basis 切片拥有，不是通用向量 epsilon。
 - `SpatialRegistry` 是 opaque immutable aggregate，按 `LaneGraph::edges()` 顺序保存 dense edge handles，并使用私有 `HashMap<EdgeHandle, u32>` lookup；HashMap 只用于查找，不作为确定性迭代来源。
-- crate-private staged builder 使用 `&LaneGraph` 原子校验 unknown、duplicate、missing edge 与 `u32` 槽位上限；任一失败都不返回部分 registry，也不修改 Core。
+- `SpatialEdgeInput<'a>` 借用 `EdgeHandle + &[CanonicalPoint3F32]`；#134 的 `LoadedSpatialEdge` 可直接映射，不引入 Data 反向依赖或第二次点转换。
+- `SpatialRegistry::try_new(&LaneGraph, CanonicalFrameId, inputs)` 按 frame/capacity、输入 unknown/duplicate、逐折线 geometry、LaneGraph missing、graph/next-edge join 的稳定顺序原子构造；任一失败都不返回部分 registry，也不修改 Core。
+- `CanonicalPoseF32` 的字段私有，getter 只返回已经通过 canonical 点、单位切向量与单位上方向不变量的值。
 
-以下概念仍由对应实施切片固化：
+以下批量概念仍由对应实施切片固化：
 
 ```text
-CanonicalPoseF32 { position, tangent, up }                  # #135
 CanonicalPoseRecordF32 { frame_id, vehicle_handle, pose }   # #136
 ```
 
@@ -177,16 +180,17 @@ P0 -> P1 -> ... -> Pn
 - 加载器计算线段长度、归一化切向量与上方向向量，以及累计弧长；这些派生值不从线格式接收。
 - 折线拐角允许切向量不连续，不做隐式平滑或样条曲线拟合。
 
-首轮 G1 常量提议：
+#135 冻结并实现以下常量：
 
-| 名称                                     |      值 | 单位或语义           | 依据                                       |
-| ---------------------------------------- | ------: | -------------------- | ------------------------------------------ |
-| `SPATIAL_MIN_SEGMENT_LENGTH_METERS`      |   `0.1` | `10 cm` 输入有效尺寸 | 拒绝量化重合点与无展示价值的短噪声线段     |
-| `SPATIAL_LENGTH_ABS_TOLERANCE_METERS`    |  `0.01` | 长度绑定绝对容差下限 | 与最终 `1 cm` 展示误差预算一致             |
-| `SPATIAL_LENGTH_REL_TOLERANCE`           |  `1e-6` | 长度绑定相对容差项   | 长边上的生产工具与累计误差余量             |
-| `SPATIAL_JOIN_POSITION_TOLERANCE_METERS` | `0.005` | 相连端点间隙         | `5 mm`，保留在最终 `1 cm` 位置误差预算之内 |
+| 名称                                     |              值 | 单位或语义              | 依据                                       |
+| ---------------------------------------- | --------------: | ----------------------- | ------------------------------------------ |
+| `SPATIAL_MIN_SEGMENT_LENGTH_METERS`      |           `0.1` | `10 cm` 输入有效尺寸    | 拒绝量化重合点与无展示价值的短噪声线段     |
+| `SPATIAL_LENGTH_ABS_TOLERANCE_METERS`    |          `0.01` | 长度绑定绝对容差下限    | 与最终 `1 cm` 展示误差预算一致             |
+| `SPATIAL_LENGTH_REL_TOLERANCE`           |          `1e-6` | 长度绑定相对容差项      | 长边上的生产工具与累计误差余量             |
+| `SPATIAL_JOIN_POSITION_TOLERANCE_METERS` |         `0.005` | 相连端点间隙            | `5 mm`，保留在最终 `1 cm` 位置误差预算之内 |
+| `SPATIAL_MIN_PROJECTED_UP_LENGTH`        | `0.008_726_535` | `sin(0.5°)` 的 `f32` 值 | 等号有效；更小值拒绝近垂直 basis           |
 
-这些值应用于受检转换后的 runtime `f32` 坐标。若相邻输入点量化后重合，直接返回退化线段错误，不静默合并。basis 的精确固定阈值由 #135 根据 `f32` 运算链与 `0.5°` 切线角误差预算冻结，不能复制旧 `f64` epsilon。Core 长度量化余量仍作为独立加项，不能隐藏进几何容差。
+这些值应用于受检转换后的 runtime `f32` 坐标。若相邻输入点量化后重合，直接返回退化线段错误，不静默合并。basis 阈值按 `projected_up_length < SPATIAL_MIN_PROJECTED_UP_LENGTH` 拒绝，不能复制旧 `f64` epsilon。Core 长度量化余量仍作为独立加项，不能隐藏进几何容差；current-f64 值固定为 `0.0 m`。
 
 ## 6. 长度权威与绑定
 
@@ -219,15 +223,15 @@ difference > tolerance  -> 阻断错误
 
 本文中的 `normalized_core_length` 是 Core `EdgeLength` 经过领域构造、校验和规范化后的权威边长。Spatial 只消费 Core 提供的有效观察值；它不是原始 Data 输入，也不是几何弧长。Core 的补偿进度可以继续以 `f64` 有效值观察，但 Spatial 顶点和输出位姿保持唯一的 `f32` runtime 权威。
 
-`snapped_effective_core_progress` 是 Core `EdgeProgress` 的 `f64` 有效值经过领域 edge 边界吸附规则处理后的观察值；current-f64 由 #125 拆分 owner，target-f32 由 #127 标定，但 #144 no-go 后未进入当前生产。未来只有落在端点容差内时才吸附到 `0` 或 `normalized_core_length`，一般越界仍返回错误。
+current-f64 实现直接消费 `EdgeProgress` 的有效 `f64` 值，不复制 Core crate-private 的 `1e-9` 边界规则。#135 精确要求 `0 <= progress <= normalized_core_length`：零值直接返回首点，等于 Core 长度时直接返回末点，严格越界返回结构化错误。未来 Core 若先产生已经吸附的有效进度，Spatial 仍只观察结果，不拥有或复制该容差。
 
 ```text
-ratio = snapped_effective_core_progress / normalized_core_length
+ratio = effective_core_progress / normalized_core_length
 geometry_s = ratio * geometry_arc_length
 ```
 
 - 进度必须来自经过验证的 Core 有效状态或快照；Spatial 不读取高位/残差分量。
-- 只在 Core 边界容差内吸附到 `0` 或 `normalized_core_length`；一般越界返回错误。
+- Spatial 不自行吸附或截断；current-f64 输入严格越界即返回错误。
 - 比例映射确保 Core 终点精确命中几何终点。
 - 容差内的比例差仍必须小于验证确定的位置误差预算。
 
@@ -319,12 +323,12 @@ Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合
 
 ## 12. 确定性与验证
 
-必须覆盖：
+#135 正确性测试覆盖：
 
 - 同一运行时重复构建、采样和批量处理时，结果逐位相等，或具有明确的连续值契约；
 - 顶点与端点、微小或退化线段、近垂直朝向基；
 - 长度容差边界内外；
-- 当前 `f64 EdgeLength` 与下一规范化 `f32 EdgeLength` 的量化余量边界内外；
+- 当前 `f64 EdgeLength` 的零量化余量与绝对/相对容差边界；下一规范化 `f32 EdgeLength` 仍属于未来迁移验证；
 - 相连端点容差边界内外；
 - Core 终点到几何终点的精确映射；
 - canonical 点范围闭区间、量化后重合点拒绝，以及受检 `f64 -> f32` 输入转换；
@@ -335,13 +339,13 @@ Spatial 只计算位姿，不验证多边形重叠、机动轨迹、地形贴合
 - 相同布局下相对 `f64` 候选 retained memory 至少降低 `25%`，吞吐回退不超过 `5%`；
 - Bevy 宿主的坐标轴、手性和 `f32 Transform` 集成（v0.7）。
 
-当前研究原型只证明最小算法和类型候选，不等同于生产验证或性能结论。
+#135 已以 production 单元测试、公共 API 测试及 #134 loader 集成测试验证上述单条折线契约；批量失败原子性、误差 oracle、内存与性能 Gate 仍分别属于 #136/#137。历史研究原型不替代 production 验证或性能结论。
 
 ## 13. G1 后实施拆分
 
 1. LaneFlow 自有 Spatial 类型、注册表与 Rust 包依赖方向（#133 已建立生产边界）。
-2. 空间数据包及其模式、场景清单、加载器与交通包配对。
-3. 折线构建、长度绑定、拓扑连续性与采样。
+2. 空间数据包及其模式、场景清单、加载器与交通包配对（#134 已交付）。
+3. 折线构建、长度绑定、拓扑连续性与采样（#135 已交付）。
 4. 标准/局部批量位姿提取与停车位姿解析。
 5. 性质测试与边界测试、1 万/10 万性能验证，以及适配器契约冒烟测试。
 6. v0.6 Spatial 收口审阅；之后 #121/v0.7 才能进入 Bevy 实施。

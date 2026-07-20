@@ -1,10 +1,17 @@
 #![doc = include_str!("../README.md")]
 
 mod error;
+mod geometry;
 mod primitives;
 mod registry;
 
 pub use error::{SpatialAxis, SpatialError};
+pub use geometry::{
+    CanonicalPoseF32, SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS,
+    SPATIAL_JOIN_POSITION_TOLERANCE_METERS, SPATIAL_LENGTH_ABS_TOLERANCE_METERS,
+    SPATIAL_LENGTH_REL_TOLERANCE, SPATIAL_MIN_PROJECTED_UP_LENGTH,
+    SPATIAL_MIN_SEGMENT_LENGTH_METERS, SpatialEdgeInput,
+};
 pub use primitives::{
     CANONICAL_FRAME_ID_PATTERN, CANONICAL_POINT_COMPONENT_MAX_METERS,
     CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameId, CanonicalPoint3F32,

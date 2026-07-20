@@ -80,6 +80,90 @@ pub enum SpatialError {
         /// 缺少绑定的 Core edge handle。
         edge: EdgeHandle,
     },
+    /// 一条中心线不足以形成线段。
+    InsufficientPolylinePoints {
+        /// 对应的 Core edge handle。
+        edge: EdgeHandle,
+        /// 实际点数量。
+        actual: usize,
+        /// 最小点数量。
+        min: usize,
+    },
+    /// 线段没有严格超过最小长度。
+    DegenerateSegment {
+        /// 对应的 Core edge handle。
+        edge: EdgeHandle,
+        /// 零基线段序号。
+        segment_index: usize,
+        /// runtime `f32` 线段长度，单位为米。
+        length_meters: f32,
+        /// 必须严格超过的下限，单位为米。
+        min_exclusive_meters: f32,
+    },
+    /// 累计弧长溢出或因 `f32` 精度停滞而未严格递增。
+    ArcLengthAccumulationFailed {
+        /// 对应的 Core edge handle。
+        edge: EdgeHandle,
+        /// 零基线段序号。
+        segment_index: usize,
+        /// 加入当前线段前的累计弧长，单位为米。
+        accumulated_meters: f32,
+        /// 当前线段长度，单位为米。
+        segment_length_meters: f32,
+    },
+    /// 线段太接近 canonical Y 轴，无法构造稳定的 Y-up 朝向基。
+    DegenerateBasis {
+        /// 对应的 Core edge handle。
+        edge: EdgeHandle,
+        /// 零基线段序号。
+        segment_index: usize,
+        /// canonical `+Y` 投影长度。
+        projected_up_length: f32,
+        /// 允许的最小闭区间边界。
+        min_inclusive: f32,
+    },
+    /// Core 权威长度与量化后几何弧长不一致。
+    LengthMismatch {
+        /// 对应的 Core edge handle。
+        edge: EdgeHandle,
+        /// Core 权威长度，单位为米。
+        core_length_meters: f64,
+        /// runtime `f32` 几何弧长，单位为米。
+        geometry_arc_length_meters: f32,
+        /// 两者绝对差，单位为米。
+        difference_meters: f64,
+        /// 本次长度允许的总容差，单位为米。
+        tolerance_meters: f64,
+    },
+    /// LaneGraph 声明连接的两个 edge 在 runtime 几何中不连续。
+    DisconnectedEdgeJoin {
+        /// 上游 edge。
+        from_edge: EdgeHandle,
+        /// 下游 edge。
+        to_edge: EdgeHandle,
+        /// 上游终点与下游起点的距离，单位为米。
+        distance_meters: f32,
+        /// 允许的最大距离，单位为米。
+        tolerance_meters: f32,
+    },
+    /// 采样进度超过 Core edge 的精确有效范围。
+    ProgressOutOfRange {
+        /// 被采样的 edge。
+        edge: EdgeHandle,
+        /// 输入进度，单位为米。
+        progress_meters: f64,
+        /// Core edge 长度，单位为米。
+        max_meters: f64,
+    },
+    /// 插值位置无法重新进入 canonical 点不变量。
+    SamplePositionComputation {
+        /// 被采样的 edge。
+        edge: EdgeHandle,
+        /// 零基线段序号。
+        segment_index: usize,
+        /// 底层 canonical 点错误。
+        source: Box<SpatialError>,
+    },
 }
 
 impl fmt::Display for SpatialError {
@@ -119,8 +203,81 @@ impl fmt::Display for SpatialError {
             Self::MissingEdgeBinding { edge } => {
                 write!(formatter, "lane edge {edge:?} 缺少 Spatial 绑定")
             }
+            Self::InsufficientPolylinePoints { edge, actual, min } => write!(
+                formatter,
+                "edge {edge:?} 的中心线只有 {actual} 个点，至少需要 {min} 个"
+            ),
+            Self::DegenerateSegment {
+                edge,
+                segment_index,
+                length_meters,
+                min_exclusive_meters,
+            } => write!(
+                formatter,
+                "edge {edge:?} 的线段 {segment_index} 长度 {length_meters:?} m 必须严格大于 {min_exclusive_meters:?} m"
+            ),
+            Self::ArcLengthAccumulationFailed {
+                edge,
+                segment_index,
+                accumulated_meters,
+                segment_length_meters,
+            } => write!(
+                formatter,
+                "edge {edge:?} 的线段 {segment_index} 无法把 {segment_length_meters:?} m 严格累加到 {accumulated_meters:?} m"
+            ),
+            Self::DegenerateBasis {
+                edge,
+                segment_index,
+                projected_up_length,
+                min_inclusive,
+            } => write!(
+                formatter,
+                "edge {edge:?} 的线段 {segment_index} projected-up 长度 {projected_up_length:?} 小于 {min_inclusive:?}"
+            ),
+            Self::LengthMismatch {
+                edge,
+                core_length_meters,
+                geometry_arc_length_meters,
+                difference_meters,
+                tolerance_meters,
+            } => write!(
+                formatter,
+                "edge {edge:?} 的 Core 长度 {core_length_meters:?} m 与几何弧长 {geometry_arc_length_meters:?} m 相差 {difference_meters:?} m，超过容差 {tolerance_meters:?} m"
+            ),
+            Self::DisconnectedEdgeJoin {
+                from_edge,
+                to_edge,
+                distance_meters,
+                tolerance_meters,
+            } => write!(
+                formatter,
+                "edge {from_edge:?} 到 {to_edge:?} 的端点距离 {distance_meters:?} m 超过容差 {tolerance_meters:?} m"
+            ),
+            Self::ProgressOutOfRange {
+                edge,
+                progress_meters,
+                max_meters,
+            } => write!(
+                formatter,
+                "edge {edge:?} 的采样进度 {progress_meters:?} m 超出闭区间 [0, {max_meters:?}] m"
+            ),
+            Self::SamplePositionComputation {
+                edge,
+                segment_index,
+                source,
+            } => write!(
+                formatter,
+                "edge {edge:?} 的线段 {segment_index} 插值位置无效: {source}"
+            ),
         }
     }
 }
 
-impl Error for SpatialError {}
+impl Error for SpatialError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::SamplePositionComputation { source, .. } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
+}
