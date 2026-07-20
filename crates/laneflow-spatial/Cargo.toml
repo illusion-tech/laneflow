@@ -15,5 +15,14 @@ path = "src/lib.rs"
 [dependencies]
 laneflow-core = { version = "0.0.0", path = "../laneflow-core" }
 
+[dev-dependencies]
+criterion = "0.8"
+proptest = { version = "1.11", default-features = false, features = ["std"] }
+stats_alloc = "=0.1.10"
+
+[[bench]]
+name = "pose_batch"
+harness = false
+
 [lints]
 workspace = true

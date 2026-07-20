@@ -645,7 +645,10 @@ dependencies = [
 name = "laneflow-spatial"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "laneflow-core",
+ "proptest",
+ "stats_alloc",
 ]
 
 [[package]]

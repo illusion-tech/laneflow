@@ -194,6 +194,8 @@ fn registry_capacity_error(actual: usize) -> SpatialError {
 
 #[cfg(test)]
 mod tests {
+    use std::{hint::black_box, time::Instant};
+
     use laneflow_core::{EdgeLength, LaneEdge};
 
     use super::*;
@@ -614,5 +616,60 @@ mod tests {
                 })
             );
         }
+    }
+
+    #[test]
+    #[ignore = "wall-clock diagnostic runs only with the fixed-machine evidence command"]
+    fn private_lookup_and_slot_resolved_sampling_are_measured_separately() {
+        const OPERATION_COUNT: usize = 100_000;
+        const SAMPLE_COUNT: usize = 80;
+
+        let lane_graph = graph(&[("A", 2.0, &[])]);
+        let edge = lane_graph.edge_handle("A").expect("edge A");
+        let points = [
+            point(0.0, 0.0, 0.0),
+            point(1.0, 0.0, 0.0),
+            point(1.0, 0.0, 1.0),
+        ];
+        let registry = SpatialRegistry::try_new(
+            &lane_graph,
+            frame_id(),
+            [SpatialEdgeInput::new(edge, &points)],
+        )
+        .expect("valid diagnostic registry");
+        let slot = registry.edge_slot(edge).expect("private edge slot");
+        let progresses: Vec<_> = (0..OPERATION_COUNT)
+            .map(|index| {
+                EdgeProgress::try_new(2.0 * index as f64 / (OPERATION_COUNT - 1) as f64)
+                    .expect("valid diagnostic progress")
+            })
+            .collect();
+
+        let lookup_p95_ns = diagnostic_p95(SAMPLE_COUNT, || {
+            for _ in 0..OPERATION_COUNT {
+                black_box(registry.edge_slot(black_box(edge)));
+            }
+        });
+        let resolved_p95_ns = diagnostic_p95(SAMPLE_COUNT, || {
+            for progress in &progresses {
+                black_box(registry.entries[slot as usize].sample(edge, *progress))
+                    .expect("valid resolved sample");
+            }
+        });
+
+        println!(
+            "SPATIAL_PRIVATE_DIAGNOSTIC operations={OPERATION_COUNT} lookup_p95_ns={lookup_p95_ns} slot_resolved_p95_ns={resolved_p95_ns}"
+        );
+    }
+
+    fn diagnostic_p95(sample_count: usize, mut operation: impl FnMut()) -> u128 {
+        let mut samples = Vec::with_capacity(sample_count);
+        for _ in 0..sample_count {
+            let started = Instant::now();
+            operation();
+            samples.push(started.elapsed().as_nanos());
+        }
+        samples.sort_unstable();
+        samples[(sample_count * 95).div_ceil(100) - 1]
     }
 }
