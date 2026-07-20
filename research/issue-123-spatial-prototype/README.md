@@ -19,3 +19,13 @@ cargo +stable test -p laneflow-spatial-research --locked
 ```
 
 本目录中的常量和接口形状只有研究意义；正式实现必须以 #123 已接受的 ADR、设计文档和后续实施 Issue 为准。
+
+## #137 生产依赖审计结论
+
+#137 已使用真实 production 类型完成性质、误差、零分配、retained memory 与 10k/100k 性能验证。Euclid 和 Glam 继续只作为本研究包的 dev-dependencies：
+
+- Euclid 的 typed units 不能替代 LaneFlow 的 frame ID、范围、结构化错误、数据格式和批量原子性；
+- Glam 不区分 point/vector/frame，会把特定游戏引擎生态选择扩散到其它 Adapter；
+- LaneFlow-owned 小型原语已满足当前运算和性能 Gate，没有证据证明引入二者能减少关键领域代码或解决瓶颈。
+
+因此二者不进入 production dependency 或 `laneflow-spatial` dev graph。本原型保留用于 provenance，不代表 ADR 0015 当前 canonical `f32` 路径。

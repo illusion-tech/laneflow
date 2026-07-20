@@ -43,3 +43,4 @@
 - `v0.6-numeric-production-migration-evidence.json`：#144 完整生产候选、五轮 14 项稳态矩阵、来源节点与 no-go 裁决的机器可读证据。
 - `v0.6-numeric-closure-review.md`：v0.6 数值切片收口时核验的治理、当前生产事实、目标/当前分离、机器证据、性能裁决与剩余边界基线。
 - `v0.6-spatial-validation.md`：#123 Spatial 设计研究及 ADR 0015 修订后的有界 canonical `f32` 验证基线；不替代 #138 独立收口。
+- `v0.6-spatial-performance-evidence.json`：#137 production `f32` 对同构 `f64` oracle、10k/100k p95、零分配、retained memory、Criterion 与 lookup/sampling 分解的机器可读证据。

@@ -1,0 +1,276 @@
+{
+  "schemaVersion": 1,
+  "issue": 137,
+  "measuredOn": "2026-07-20 Asia/Hong_Kong",
+  "environment": {
+    "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+    "physicalCores": 16,
+    "logicalProcessors": 32,
+    "visibleMemoryBytes": 66232508416,
+    "operatingSystem": "Microsoft Windows 11 Pro Insider Preview",
+    "osVersion": "10.0.29617",
+    "architecture": "x86_64-pc-windows-msvc",
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "llvm": "22.1.2",
+    "cargo": "1.96.0 (30a34c682 2026-05-25)",
+    "activePowerScheme": "Balanced",
+    "backgroundCompileAudit": "No UnrealBuildTool, ShaderCompileWorker, MSBuild, cl, or link process before the frozen run"
+  },
+  "sourceCommit": "a9dd0df244edac84e0fddb94fba88de129018fbd",
+  "protocol": {
+    "buildProfile": "release",
+    "scales": [10000, 100000],
+    "rounds": 5,
+    "samplesPerRound": 80,
+    "warmUpIterations": 8,
+    "sampleOrder": "f32 and f64 alternate within every round; the first candidate alternates by round",
+    "absoluteLatencyStatistic": "median of five per-round p95 values",
+    "throughputComparisonStatistic": "median of five same-round f32/f64 median-time ratios",
+    "input": {
+      "frame": "validation/fixed-scale",
+      "edgeCount": 1,
+      "polylinePointCount": 5,
+      "poseSource": "Lane",
+      "progressOrder": "full-range permutation using multiplier 7919",
+      "vehicleHandle": "one valid opaque Core handle repeated because Spatial copies but does not resolve vehicle handles",
+      "externalIdResolutionInMeasuredPath": false,
+      "callerOwnedOutputAndScratch": true
+    },
+    "gates": {
+      "tenThousandP95MaxNs": 2000000,
+      "oneHundredThousandP95MaxNs": 20000000,
+      "tenToOneHundredThousandScaleRatioMax": 12.0,
+      "f32OverF64MedianTimeRatioMax": 1.05,
+      "minimumRetainedReduction": 0.25,
+      "steadyStateAllocationCount": 0
+    }
+  },
+  "commands": {
+    "performanceGate": "$env:LANEFLOW_SPATIAL_PERF_GATE='1'; cargo +1.96.0 test --release -p laneflow-spatial --test pose_batch_performance --locked fixed_machine_pose_batch_p95_and_retained_memory_gate -- --ignored --nocapture --test-threads=1",
+    "allocationGate": "cargo +1.96.0 test -p laneflow-spatial --test pose_batch_allocations --locked -- --ignored --test-threads=1 --nocapture",
+    "privateDiagnostic": "cargo +1.96.0 test --release -p laneflow-spatial --lib --locked private_lookup_and_slot_resolved_sampling_are_measured_separately -- --ignored --nocapture --test-threads=1",
+    "criterion": "cargo +1.96.0 bench -p laneflow-spatial --bench pose_batch --locked -- --noplot"
+  },
+  "correctness": {
+    "f32AgainstF64OracleCases": 512,
+    "positionErrorBudgetMeters": 0.01,
+    "tangentErrorBudgetDegrees": 0.5,
+    "upErrorBudgetDegrees": 0.5,
+    "result": "pass",
+    "productionRegressionCoverage": [
+      "single segment",
+      "multi segment",
+      "vertex and endpoint rules",
+      "length mismatch boundaries",
+      "join tolerance below, equal, and above",
+      "degenerate segment",
+      "near-vertical basis",
+      "non-finite and overflow rejection",
+      "frame and placement identity",
+      "deterministic replay",
+      "atomic batch failure"
+    ]
+  },
+  "allocation": [
+    {
+      "scale": 10000,
+      "allocations": 0,
+      "reallocations": 0,
+      "bytesAllocated": 0,
+      "bytesReallocated": 0,
+      "result": "pass"
+    },
+    {
+      "scale": 100000,
+      "allocations": 0,
+      "reallocations": 0,
+      "bytesAllocated": 0,
+      "bytesReallocated": 0,
+      "result": "pass"
+    }
+  ],
+  "performanceRounds": [
+    {
+      "scale": 10000,
+      "round": 1,
+      "first": "f32",
+      "f32P95Ns": 463900,
+      "f64P95Ns": 422800,
+      "f32MedianNs": 437100,
+      "f64MedianNs": 416400,
+      "pairedThroughputRatio": 1.049712
+    },
+    {
+      "scale": 10000,
+      "round": 2,
+      "first": "f64",
+      "f32P95Ns": 451900,
+      "f64P95Ns": 432600,
+      "f32MedianNs": 433800,
+      "f64MedianNs": 416400,
+      "pairedThroughputRatio": 1.041787
+    },
+    {
+      "scale": 10000,
+      "round": 3,
+      "first": "f32",
+      "f32P95Ns": 664100,
+      "f64P95Ns": 751500,
+      "f32MedianNs": 440300,
+      "f64MedianNs": 417300,
+      "pairedThroughputRatio": 1.055116
+    },
+    {
+      "scale": 10000,
+      "round": 4,
+      "first": "f64",
+      "f32P95Ns": 517500,
+      "f64P95Ns": 472500,
+      "f32MedianNs": 433800,
+      "f64MedianNs": 416800,
+      "pairedThroughputRatio": 1.040787
+    },
+    {
+      "scale": 10000,
+      "round": 5,
+      "first": "f32",
+      "f32P95Ns": 456200,
+      "f64P95Ns": 434800,
+      "f32MedianNs": 434000,
+      "f64MedianNs": 414500,
+      "pairedThroughputRatio": 1.047045
+    },
+    {
+      "scale": 100000,
+      "round": 1,
+      "first": "f32",
+      "f32P95Ns": 5178600,
+      "f64P95Ns": 4683200,
+      "f32MedianNs": 4532100,
+      "f64MedianNs": 4363500,
+      "pairedThroughputRatio": 1.038639
+    },
+    {
+      "scale": 100000,
+      "round": 2,
+      "first": "f64",
+      "f32P95Ns": 5206100,
+      "f64P95Ns": 5040500,
+      "f32MedianNs": 4546500,
+      "f64MedianNs": 4346200,
+      "pairedThroughputRatio": 1.046086
+    },
+    {
+      "scale": 100000,
+      "round": 3,
+      "first": "f32",
+      "f32P95Ns": 4957200,
+      "f64P95Ns": 4827600,
+      "f32MedianNs": 4513700,
+      "f64MedianNs": 4357100,
+      "pairedThroughputRatio": 1.035941
+    },
+    {
+      "scale": 100000,
+      "round": 4,
+      "first": "f64",
+      "f32P95Ns": 5404900,
+      "f64P95Ns": 5211600,
+      "f32MedianNs": 4595800,
+      "f64MedianNs": 4443800,
+      "pairedThroughputRatio": 1.034205
+    },
+    {
+      "scale": 100000,
+      "round": 5,
+      "first": "f32",
+      "f32P95Ns": 5188600,
+      "f64P95Ns": 5614900,
+      "f32MedianNs": 4629300,
+      "f64MedianNs": 4460400,
+      "pairedThroughputRatio": 1.037867
+    }
+  ],
+  "summary": [
+    {
+      "scale": 10000,
+      "productionF32P95Ns": 463900,
+      "sameLayoutF64P95Ns": 434800,
+      "pairedThroughputRatio": 1.047045,
+      "productionF32RetainedBytes": 880000,
+      "sameLayoutF64RetainedBytes": 1600000,
+      "retainedReduction": 0.45,
+      "result": "pass"
+    },
+    {
+      "scale": 100000,
+      "productionF32P95Ns": 5188600,
+      "sameLayoutF64P95Ns": 5040500,
+      "pairedThroughputRatio": 1.037867,
+      "productionF32RetainedBytes": 8800000,
+      "sameLayoutF64RetainedBytes": 16000000,
+      "retainedReduction": 0.45,
+      "result": "pass"
+    }
+  ],
+  "scaleRatio": {
+    "productionF32TenToOneHundredThousandP95": 11.184738,
+    "limit": 12.0,
+    "result": "pass"
+  },
+  "criterion": [
+    {
+      "scale": 10000,
+      "candidate": "production_f32",
+      "estimateNs": 450640,
+      "confidenceLowerNs": 446300,
+      "confidenceUpperNs": 456560
+    },
+    {
+      "scale": 10000,
+      "candidate": "same_layout_f64",
+      "estimateNs": 463480,
+      "confidenceLowerNs": 457660,
+      "confidenceUpperNs": 470610,
+      "productionF32DeltaPercent": -2.77034607750065
+    },
+    {
+      "scale": 100000,
+      "candidate": "production_f32",
+      "estimateNs": 4747300,
+      "confidenceLowerNs": 4726600,
+      "confidenceUpperNs": 4773600
+    },
+    {
+      "scale": 100000,
+      "candidate": "same_layout_f64",
+      "estimateNs": 4871900,
+      "confidenceLowerNs": 4843000,
+      "confidenceUpperNs": 4894300,
+      "productionF32DeltaPercent": -2.55752375869784
+    }
+  ],
+  "diagnostics": {
+    "privateProductionP95NsAt100k": {
+      "edgeHandleToSlot": 2195400,
+      "slotResolvedSampling": 2418200
+    },
+    "criterionSameStructureEstimateNsAt100k": {
+      "edgeHandleToSlot": 1477100,
+      "slotResolvedF64Sampling": 1984200
+    },
+    "externalIdResolution": "not present in the measured path"
+  },
+  "dependencyDecision": {
+    "euclid": "research-only; not adopted in production",
+    "glam": "research-only; not adopted in production",
+    "reason": "LaneFlow-owned wrappers already cover the required operations and preserve frame, range, point/vector, deterministic error, and API ownership semantics without adding a production dependency"
+  },
+  "scopeBoundary": {
+    "absoluteWallClock": "fixed-machine gate only",
+    "sharedCi": "correctness, deterministic behavior, zero allocation, benchmark compilation, and dependency policy",
+    "retainedBytes": "caller-owned output and scratch record capacities multiplied by actual record layout; not RSS and excludes allocator metadata",
+    "crossPlatformSla": false
+  },
+  "decision": "pass"
+}
