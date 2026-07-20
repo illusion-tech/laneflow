@@ -9,7 +9,7 @@
   "spatial": {
     "artifactRef": "v0.1-campus.spatial.json",
     "mediaType": "application/vnd.laneflow.spatial+json",
-    "digest": "sha256:15b69f2ab1cbc22a20bd3f31c3a8b67fbea67207bd98fad109a9e917a267c6b1",
-    "size": 595
+    "digest": "sha256:5ab3c6d4efedec469aaba79d684985ad5d3a850e0b7a728aeb43cd119e0a20ed",
+    "size": 613
   }
 }
