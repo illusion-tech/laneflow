@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-21（#169 Plugin/Session 与 fixed schedule）
+**最后更新**: 2026-07-21（#170 Vehicle/Entity 映射与原子 Transform）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -89,6 +89,13 @@ Adapter 维护 `VehicleHandle <-> Entity` 的部分双射：
 
 Presentation 可以自行创建或回收模型 Entity。用于接收 LaneFlow pose 的 proxy Entity 与模型 Entity 可以分层，模型轴向、尺寸与 pivot 修正只放在 proxy 下的 presentation child。
 
+#170 冻结并实现的公开边界为：
+
+- `LaneFlowSession::{bind_vehicle_entity, unbind_vehicle, unbind_entity, rebind_vehicle_entity}` 是映射的唯一写入口；bind/rebind 只接受当前 Core 中存在的 vehicle。
+- `LaneFlowSession::vehicle_entities()` 返回 `LaneFlowVehicleEntityMap` 只读视图，可按 vehicle 或 Entity 双向查询，不公开 HashMap 迭代顺序。
+- duplicate vehicle、duplicate Entity、unknown vehicle 与未绑定 rebind 都返回 `LaneFlowAdapterError`，失败前后双射不变。
+- rebind 只替换一个 vehicle 的 Entity 并返回旧 Entity；宿主负责新旧 Entity 的 bundle、parent 与回收生命周期。
+
 ## 6. Canonical frame 与 Bevy Transform
 
 每个活动 canonical frame 使用一个 Bevy frame-root Entity，所有 LaneFlow vehicle proxy 是该 root 的 child：
@@ -102,6 +109,10 @@ Presentation 可以自行创建或回收模型 Entity。用于接收 LaneFlow po
 - 模型自身的 forward/pivot/尺寸差异只能由 presentation child 修正。
 
 同一 frame 被重新放置、切 tile、rebase 或替换 root 时，Adapter 必须颁发新的 `FramePlacementToken`。旧 token 的 batch 不得在新 placement 下提交。
+
+具体 API 使用 `LaneFlowFramePlacement::new(root, token)` 与 `LaneFlowSession::set_frame_placement`。完全相同的 placement 可幂等重设；token 不变但 root 变化会被拒绝。`clear_frame_placement` 只清除 placement，不隐式清空 Vehicle/Entity 映射；存在映射而没有 placement 时，presentation 返回结构化错误。
+
+frame-root 和 proxy 的 local `Transform` 必须有限，frame-root 必须为单位缩放，proxy 必须是当前 root 的直接 `ChildOf`。root 可以通过自身 local/global transform 放置到宿主世界，proxy local transform 始终保留 canonical meter 语义。
 
 v0.7 不支持一个 `App` 中的多活动 Session、多活动 canonical frame 或车辆跨 frame 迁移。这些能力需要独立设计和生命周期协议。
 
@@ -132,6 +143,10 @@ Bevy Transform 写入系统运行在 `PostUpdate`，并位于 `TransformSystems:
 - duplicate、registered-stale、frame/token mismatch、non-finite 与无效旋转均为结构化错误。
 - 默认同步路径不得对每辆车调用 Spatial 单记录查询。
 - 稳定容量下必须复用 extraction、validation 与 Transform staging 内存。
+
+#170 的实现从 committed `CoreWorld::vehicles()` 顺序重建 pose inputs：Active/Stopped vehicle 使用当前 route edge 与 progress，Parked vehicle 使用已提交的 Occupied parking binding，Completed vehicle 不进入 presentation batch。batch 同时包含已映射和未绑定 vehicle，映射查询不会改变 record 顺序。
+
+`LaneFlowPlugin` 安装 exclusive `PostUpdate` 系统并显式排序在 `TransformSystems::Propagate` 前。实现先完成 Spatial batch、frame/token、root、所有 mapped Entity/parent/Transform 与转换结果校验，再统一写入 ECS；exclusive system 内两阶段之间没有其他 system 可以修改 Entity。`LaneFlowPresentationReport` 暴露 `pose_records`、`mapped_records`、`unbound_records` 与 `applied_records`，失败时 `applied_records` 恒为零，具体失败保存在 Session 的最近错误中。
 
 ## 8. 可选调试可视化
 
@@ -195,7 +210,7 @@ Spatial batch extract
 | Issue | 交付切片                                     | 直接前置         |
 | ----: | -------------------------------------------- | ---------------- |
 |  #169 | 最小 crate、Plugin/Session 与 fixed schedule | 无活动 blocker   |
-|  #170 | Vehicle/Entity 映射与原子批量 Transform      | #169             |
+|  #170 | Vehicle/Entity 映射与原子批量 Transform      | #169（已实现）   |
 |  #171 | headless E2E、allocation/performance 与 CI   | #170             |
 |  #172 | 可选、预算受控的 debug Gizmos                | #170             |
 |  #173 | 最小 native reference example                | #170             |

@@ -4,9 +4,18 @@ use std::{num::NonZeroU32, time::Duration};
 
 use bevy_ecs::resource::Resource;
 use laneflow_core::{CoreWorld, StepResult};
-use laneflow_spatial::{CanonicalPoseBatchScratch, SpatialRegistry};
+use laneflow_spatial::{
+    CanonicalPoseBatchF32, CanonicalPoseBatchScratch, FramePlacementToken, PoseInputRecord,
+    SpatialRegistry,
+};
 
-use crate::LaneFlowAdapterError;
+use crate::{
+    LaneFlowAdapterError,
+    presentation::{
+        LaneFlowFramePlacement, LaneFlowPresentationReport, LaneFlowVehicleEntityMap,
+        StagedTransform,
+    },
+};
 
 /// 单活动 Session 的 fixed-schedule 配置。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,14 +69,20 @@ impl LaneFlowFrameReport {
 /// 一个 Bevy `App` 中唯一活动的 LaneFlow runtime resource。
 #[derive(Resource)]
 pub struct LaneFlowSession {
-    core: CoreWorld,
-    spatial: SpatialRegistry,
-    pose_scratch: CanonicalPoseBatchScratch,
+    pub(crate) core: CoreWorld,
+    pub(crate) spatial: SpatialRegistry,
+    pub(crate) pose_inputs: Vec<PoseInputRecord>,
+    pub(crate) pose_batch: CanonicalPoseBatchF32,
+    pub(crate) pose_scratch: CanonicalPoseBatchScratch,
+    pub(crate) transform_staging: Vec<StagedTransform>,
+    pub(crate) vehicle_entities: LaneFlowVehicleEntityMap,
+    pub(crate) frame_placement: Option<LaneFlowFramePlacement>,
+    pub(crate) presentation_report: LaneFlowPresentationReport,
     config: LaneFlowSessionConfig,
     accumulator: Duration,
     frame_report: LaneFlowFrameReport,
     frame_step_results: Vec<StepResult>,
-    last_error: Option<LaneFlowAdapterError>,
+    pub(crate) last_error: Option<LaneFlowAdapterError>,
 }
 
 impl LaneFlowSession {
@@ -83,10 +98,21 @@ impl LaneFlowSession {
         config: LaneFlowSessionConfig,
         pose_capacity: usize,
     ) -> Self {
+        let frame_id = spatial.frame_id().clone();
         Self {
             core,
             spatial,
+            pose_inputs: Vec::with_capacity(pose_capacity),
+            pose_batch: CanonicalPoseBatchF32::with_capacity(
+                frame_id,
+                FramePlacementToken::new(0),
+                pose_capacity,
+            ),
             pose_scratch: CanonicalPoseBatchScratch::with_capacity(pose_capacity),
+            transform_staging: Vec::with_capacity(pose_capacity),
+            vehicle_entities: LaneFlowVehicleEntityMap::with_capacity(pose_capacity),
+            frame_placement: None,
+            presentation_report: LaneFlowPresentationReport::default(),
             config,
             accumulator: Duration::ZERO,
             frame_report: LaneFlowFrameReport::default(),
