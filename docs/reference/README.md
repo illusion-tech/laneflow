@@ -46,3 +46,5 @@
 - `v0.6-spatial-performance-evidence.json`：#137 production `f32` 对同构 `f64` oracle、10k/100k p95、零分配、retained memory、Criterion 与 lookup/sampling 分解的机器可读证据。
 - `v0.6-spatial-closure-review.md`：v0.6 Spatial 切片收口时核验的治理、权威分层、数据制品、生产实现、正确性、资源、性能、安全、发布与剩余边界基线。
 - `v0.6-closure-review.md`：v0.6 Numeric & Spatial Foundation 整体收口时汇总的双切片治理、最终生产契约、性能裁决、安全发布状态与 v0.7 进入边界基线。
+- `v0.7-bevy-validation.md`：#171 campus headless E2E、分帧确定性、10k/100k 零分配、固定机 p95、benchmark 与 CI 验证基线。
+- `v0.7-bevy-performance-evidence.json`：#171 固定 Windows 性能机环境、source commit、逐轮 `PostUpdate` p95/median、allocation 与适用边界的机器可读证据。

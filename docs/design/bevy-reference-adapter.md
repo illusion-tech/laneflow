@@ -205,13 +205,15 @@ Spatial batch extract
 
 共享 CI 运行 correctness、determinism、allocation、workspace/MSRV、example/benchmark compile 与 dependency policy。绝对 wall-clock Gate 只在记录了机器、source commit、命令、样本和后台负载的固定环境运行，不作为跨平台 SLA。
 
+#171 已在 source commit `d7e8b1e` 上固化该边界：稳定容量的 10k/100k 完整 `PostUpdate` 均为零 allocation/reallocation；Rust 1.96 固定机五轮 p95 中位数为 `3.067 ms` / `35.852 ms`，扩展 `11.691x`，全部通过冻结 Gate。完整协议与逐轮数据见 `../reference/v0.7-bevy-validation.md` 和 `../reference/v0.7-bevy-performance-evidence.json`。
+
 ## 11. 执行切片与 PR 角色
 
 | Issue | 交付切片                                     | 直接前置         |
 | ----: | -------------------------------------------- | ---------------- |
 |  #169 | 最小 crate、Plugin/Session 与 fixed schedule | 无活动 blocker   |
 |  #170 | Vehicle/Entity 映射与原子批量 Transform      | #169（已实现）   |
-|  #171 | headless E2E、allocation/performance 与 CI   | #170             |
+|  #171 | headless E2E、allocation/performance 与 CI   | #170（已实现）   |
 |  #172 | 可选、预算受控的 debug Gizmos                | #170             |
 |  #173 | 最小 native reference example                | #170             |
 |  #174 | 最终集成文档与独立 closure review            | #171、#172、#173 |
