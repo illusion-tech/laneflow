@@ -1184,8 +1184,11 @@ dependencies = [
  "bevy_ecs",
  "bevy_time",
  "bevy_transform",
+ "criterion",
  "laneflow-core",
+ "laneflow-data",
  "laneflow-spatial",
+ "stats_alloc",
 ]
 
 [[package]]

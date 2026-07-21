@@ -158,16 +158,21 @@ jobs:
         shell: bash
         run: cargo +1.96.0 test -p laneflow-spatial --test pose_batch_allocations --locked -- --ignored --test-threads=1
 
+      - name: Run Bevy Adapter allocation invariants serially
+        shell: bash
+        run: cargo +1.96.0 test -p laneflow-bevy --test presentation_allocations --locked -- --ignored --test-threads=1
+
       - name: Run Parking lifecycle example
         shell: bash
         run: cargo +1.96.0 run -p laneflow-data --example parking_lifecycle --locked
 
-      - name: Compile Core and Spatial benchmarks
+      - name: Compile Core, Spatial, and Bevy Adapter benchmarks
         shell: bash
         run: |
           set -euo pipefail
           cargo +1.96.0 bench -p laneflow-core --benches --no-run --locked
           cargo +1.96.0 bench -p laneflow-spatial --benches --no-run --locked
+          cargo +1.96.0 bench -p laneflow-bevy --benches --no-run --locked
 
   dependencies:
     name: Dependency policy

@@ -20,5 +20,14 @@ bevy_transform = { version = "0.19", default-features = false, features = ["bevy
 laneflow-core = { version = "0.0.0", path = "../laneflow-core" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
 
+[dev-dependencies]
+criterion = "0.8"
+laneflow-data = { version = "0.0.0", path = "../laneflow-data" }
+stats_alloc = "=0.1.10"
+
+[[bench]]
+name = "presentation"
+harness = false
+
 [lints]
 workspace = true
