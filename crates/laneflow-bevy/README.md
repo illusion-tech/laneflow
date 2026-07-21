@@ -2,7 +2,7 @@
 
 LaneFlow 的 Bevy 0.19 Reference Adapter crate。
 
-当前 #169-#172 切片提供最小 headless 宿主、Transform 同步、production validation 边界与可选调试绘制：
+当前 #169-#173 切片提供最小 headless 宿主、Transform 同步、production validation 边界、可选调试绘制与原生参考示例：
 
 - `LaneFlowPlugin`：安装 LaneFlow 专用 outer-frame 与 fixed schedule；
 - `LaneFlowOuterFrame`：位于 Bevy `First` 之后，读取宿主已经更新的 `Time::delta()`；
@@ -13,6 +13,7 @@ LaneFlow 的 Bevy 0.19 Reference Adapter crate。
 - `LaneFlowPresentationReport`：报告 pose、mapped、unbound 与原子写入数量；
 - `LaneFlowFrameReport` / `LaneFlowAdapterError`：暴露 step 数、完整 backlog、上限状态与结构化失败。
 - `LaneFlowDebugGizmosPlugin`：仅在 `debug-gizmos` feature 下提供预算受控的 frame axes、车辆 marker 与调用方中心线绘制。
+- `native_reference`：仅在 `native-example` feature 下读取仓库 campus scenario/traffic/spatial artifacts，并使用完整 Bevy window/render 边界演示车辆移动。
 
 宿主必须在第一次 `App::update` 前安装 Bevy `TimePlugin`（或包含它的 plugin group）并插入一个 `LaneFlowSession`。使用非空 Vehicle/Entity 映射时，宿主还必须安装 `TransformPlugin`，把每个 proxy 作为当前 frame-root 的直接 child，并保持 root 单位缩放。本 crate 不修改 Bevy `Time<Fixed>`，也不重复安装宿主 plugin。
 
@@ -70,4 +71,26 @@ app.insert_resource(LaneFlowDebugGizmosConfig::enabled(1_000, 4_000));
 cargo +1.96.0 run -p laneflow-bevy --example debug_gizmos_smoke --features debug-gizmos-smoke --locked
 ```
 
-校园场景 E2E 与 10k/100k 专项验证由 #171 交付；固定机验证协议、逐轮数据与适用边界见 `../../docs/reference/v0.7-bevy-validation.md` 和 `../../docs/reference/v0.7-bevy-performance-evidence.json`。最小 native reference example 由 #173 交付；#172 的 smoke 只验证 debug Gizmos，不替代 #173 的场景加载与完整演示范围。
+## Campus native reference example
+
+`native_reference` 从 `examples/data/` 读取并通过 production loader 校验 `v0.1-campus.scenario.json` 及其 traffic/spatial 引用。示例用内建 cuboid/plane 生成道路和车辆，创建非原点 frame-root，并把两辆 Core vehicle 通过 Adapter 映射绑定到 Bevy proxy Entity。相机、输入、renderer、mesh/material 和截图逻辑只存在于 example，不属于 production Adapter API。
+
+从仓库根目录运行：
+
+```powershell
+cargo +1.96.0 run -p laneflow-bevy --example native_reference --features native-example --locked
+```
+
+运行时控制：
+
+- `G`：切换预算受控的 debug Gizmos；窗口标题同步显示 `ON/OFF`。
+- `F12`：在当前工作目录保存 `laneflow-native-example.png`。
+- `Esc` 或关闭窗口：退出示例。
+
+启动时的文件读取、manifest 引用、size/digest、Traffic/Spatial normalization 或 Core world 构造失败会带路径和阶段信息返回；运行中的 Adapter 结构化错误写入 Bevy 日志。CI 使用以下 dedicated compile check，GUI smoke 仍只在本机执行：
+
+```powershell
+cargo +1.96.0 check -p laneflow-bevy --example native_reference --features native-example --locked
+```
+
+校园 headless E2E 与 10k/100k 专项验证由 #171 交付；固定机验证协议、逐轮数据与适用边界见 `../../docs/reference/v0.7-bevy-validation.md` 和 `../../docs/reference/v0.7-bevy-performance-evidence.json`。#172 的静态 smoke 只验证 debug Gizmos；#173 的 native example 才覆盖真实制品加载、Core 驱动移动、frame-root、映射和完整 window/render 演示。#173 的本机证据见 `../../docs/reference/v0.7-bevy-native-example-validation.md`。

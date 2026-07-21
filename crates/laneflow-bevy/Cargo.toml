@@ -21,6 +21,7 @@ debug-gizmos = [
     "dep:bevy_math",
 ]
 debug-gizmos-smoke = ["debug-gizmos", "dep:bevy", "dep:bevy_mesh"]
+native-example = ["debug-gizmos", "dep:bevy", "dep:bevy_mesh"]
 
 [dependencies]
 bevy = { version = "0.19", default-features = false, features = [
@@ -55,6 +56,10 @@ harness = false
 [[example]]
 name = "debug_gizmos_smoke"
 required-features = ["debug-gizmos-smoke"]
+
+[[example]]
+name = "native_reference"
+required-features = ["native-example"]
 
 [lints]
 workspace = true
