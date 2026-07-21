@@ -21,7 +21,20 @@ allow = [
     "Zlib",
 ]
 confidence-threshold = 0.93
-exceptions = []
+# #172 Bevy 0.19 debug Gizmos smoke 的显式 render/window 路径需要以下传递依赖；
+# 在不替换 Bevy/Gizmos 实现路径的前提下，没有只使用全局 allow-list 的等价依赖图。
+# 这些许可证均为宽松许可证，不引入 copyleft；第三方归属义务仍按上游许可证保留。
+# 接受范围仅限下列精确 crate/version。Bevy 升级或版本漂移时必须重新审查，不自动继承；
+# 清理负责人为 #172 assignee/仓库维护者，跟踪 Issue 为 #172。
+exceptions = [
+    { allow = ["BSD-2-Clause"], crate = "arrayref@0.3.9" },
+    { allow = ["MIT-0"], crate = "encase@0.12.0" },
+    { allow = ["MIT-0"], crate = "encase_derive@0.12.0" },
+    { allow = ["MIT-0"], crate = "encase_derive_impl@0.12.0" },
+    { allow = ["CC0-1.0"], crate = "hexf-parse@0.2.1" },
+    { allow = ["ISC"], crate = "libloading@0.8.9" },
+    { allow = ["BSD-3-Clause"], crate = "pp-rs@0.2.1" },
+]
 
 [licenses.private]
 ignore = false

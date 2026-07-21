@@ -48,3 +48,4 @@
 - `v0.6-closure-review.md`：v0.6 Numeric & Spatial Foundation 整体收口时汇总的双切片治理、最终生产契约、性能裁决、安全发布状态与 v0.7 进入边界基线。
 - `v0.7-bevy-validation.md`：#171 campus headless E2E、分帧确定性、10k/100k 零分配、固定机 p95、benchmark 与 CI 验证基线。
 - `v0.7-bevy-performance-evidence.json`：#171 固定 Windows 性能机环境、source commit、逐轮 `PostUpdate` p95/median、allocation 与适用边界的机器可读证据。
+- `v0.7-bevy-debug-gizmos-validation.md`：#172 可选 debug Gizmos 的 validated-batch、预算/过滤、依赖图、headless tests、MSRV、dependency policy 与本机可视 smoke 证据。

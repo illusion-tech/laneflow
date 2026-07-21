@@ -7,6 +7,9 @@ use bevy_transform::components::Transform;
 use laneflow_core::{VehicleHandle, VehicleParkingState, VehicleStatus};
 use laneflow_spatial::{FramePlacementToken, PoseInputRecord};
 
+#[cfg(feature = "debug-gizmos")]
+use laneflow_spatial::CanonicalPoseBatchF32;
+
 use crate::{LaneFlowAdapterError, LaneFlowSession};
 
 /// 单活动 canonical frame 在 Bevy 场景中的 root 与 placement identity。
@@ -266,6 +269,11 @@ impl LaneFlowSession {
         self.presentation_report
     }
 
+    #[cfg(feature = "debug-gizmos")]
+    pub(crate) fn validated_pose_batch(&self) -> Option<&CanonicalPoseBatchF32> {
+        self.pose_batch_is_validated.then_some(&self.pose_batch)
+    }
+
     /// 返回 committed pose batch 的当前容量。
     pub const fn pose_batch_capacity(&self) -> usize {
         self.pose_batch.capacity()
@@ -283,15 +291,19 @@ impl LaneFlowSession {
 
     fn sync_presentation(&mut self, world: &mut World) {
         self.presentation_report = LaneFlowPresentationReport::default();
+        self.pose_batch_is_validated = false;
         if self.last_error.is_some() || self.vehicle_entities.is_empty() {
             return;
         }
 
         let result = self.try_sync_presentation(world);
-        if let Err(error) = result {
-            self.presentation_report.applied_records = 0;
-            self.transform_staging.clear();
-            self.last_error = Some(error);
+        match result {
+            Ok(()) => self.pose_batch_is_validated = true,
+            Err(error) => {
+                self.presentation_report.applied_records = 0;
+                self.transform_staging.clear();
+                self.last_error = Some(error);
+            }
         }
     }
 

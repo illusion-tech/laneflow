@@ -12,9 +12,32 @@ publish = false
 name = "laneflow_bevy"
 path = "src/lib.rs"
 
+[features]
+default = []
+debug-gizmos = [
+    "dep:bevy_asset",
+    "dep:bevy_color",
+    "dep:bevy_gizmos",
+    "dep:bevy_math",
+]
+debug-gizmos-smoke = ["debug-gizmos", "dep:bevy", "dep:bevy_mesh"]
+
 [dependencies]
+bevy = { version = "0.19", default-features = false, features = [
+    "3d_bevy_render",
+    "bevy_winit",
+    "default_app",
+    "multi_threaded",
+    "std",
+    "x11",
+], optional = true }
 bevy_app = { version = "0.19", default-features = false, features = ["std"] }
+bevy_asset = { version = "0.19", optional = true }
+bevy_color = { version = "0.19", default-features = false, features = ["std"], optional = true }
 bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
+bevy_gizmos = { version = "0.19", default-features = false, optional = true }
+bevy_math = { version = "0.19", default-features = false, features = ["std"], optional = true }
+bevy_mesh = { version = "0.19", optional = true }
 bevy_time = { version = "0.19", default-features = false, features = ["std"] }
 bevy_transform = { version = "0.19", default-features = false, features = ["bevy-support", "std"] }
 laneflow-core = { version = "0.0.0", path = "../laneflow-core" }
@@ -28,6 +51,10 @@ stats_alloc = "=0.1.10"
 [[bench]]
 name = "presentation"
 harness = false
+
+[[example]]
+name = "debug_gizmos_smoke"
+required-features = ["debug-gizmos-smoke"]
 
 [lints]
 workspace = true

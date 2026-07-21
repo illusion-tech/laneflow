@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-21（#170 Vehicle/Entity 映射与原子 Transform）
+**最后更新**: 2026-07-21（#172 可选、预算受控的 debug Gizmos）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -160,6 +160,25 @@ Bevy Transform 写入系统运行在 `PostUpdate`，并位于 `TransformSystems:
 - Gizmos/render/window 依赖不进入默认 production graph。
 
 调试绘制用于诊断坐标、frame、映射和 pose，不是 editor、authoring tool、通用 inspector 或高车辆数全量可视化承诺。
+
+#172 冻结并实现的公开边界为：
+
+- `LaneFlowDebugGizmosPlugin` 只在 `debug-gizmos` feature 下导出。宿主必须先安装 `GizmoPlugin`；顺序不满足时 plugin 不注册绘制系统，只通过 `LaneFlowDebugGizmosReport` 报告 `MissingGizmoPlugin`。
+- `LaneFlowDebugGizmosConfig::default()` 保持运行时关闭且车辆/中心线预算均为零。调用方通过显式 Resource 配置 frame axes、position cross、forward/up marker 尺寸、车辆预算、中心线 segment 预算和 membership filter。
+- 车辆 filter 支持全部、仅已映射或显式 allow-list；filter 只决定 membership，绘制与预算截取顺序始终来自当前 validated pose batch。
+- presentation 在每个 outer frame 开始时撤销上一帧 validated 标记，只有 Spatial extraction、frame/token、映射、Entity/parent、有限值、Transform staging 与原子提交全部成功后才重新发布当前 batch。debug 系统不接受 stale fallback。
+- debug 系统在 `PostUpdate` 的 `TransformSystems::Propagate` 之后运行，只读取已提交 batch、Session placement、frame-root `GlobalTransform` 与只读映射；它不运行 Core step、不调用 Spatial 单记录采样、不写映射或 local Transform。
+- `LaneFlowDebugCenterlines` 由调用方提供显式 `CanonicalFrameId` 与有序 canonical polylines。Adapter 只按输入顺序展开 segment 并应用预算；frame mismatch 只跳过中心线，不计算长度、不重采样、不生成新的 Spatial registry。
+- `LaneFlowDebugGizmosReport` 为 headless 测试和宿主诊断公开状态、车辆/中心线可用与截断计数、稳定首尾 vehicle 以及 emitted line segment 数。无效 debug 配置或中心线输入不会使 presentation 失败。
+- `debug-gizmos` 只增加 modular `bevy_asset`、`bevy_color`、`bevy_gizmos` 与 `bevy_math`；默认 graph 仍不包含这些依赖。`debug-gizmos-smoke` 才为可视 smoke 激活 umbrella `bevy` 的 3D/window/render graph，并显式选择 winit 与 Linux X11 后端，不启用粗粒度 `default_platform` 或 Wayland。
+
+专用 smoke example 使用三个静止车辆、一个带 frame identity 的弯折中心线和非原点 frame-root，验证 axes、车辆 forward/up、中心线预算与 host-world placement。它使用以下命令运行：
+
+```powershell
+cargo +1.96.0 run -p laneflow-bevy --example debug_gizmos_smoke --features debug-gizmos-smoke --locked
+```
+
+该 smoke 不读取校园 artifacts，也不承诺 native example 的输入、场景或交互 API；#173 仍独立交付完整最小 native reference example。
 
 ## 9. 最小 native example
 
