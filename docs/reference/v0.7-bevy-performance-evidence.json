@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "issue": 171,
+  "measuredOn": "2026-07-21 Asia/Hong_Kong",
+  "environment": {
+    "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+    "physicalCores": 16,
+    "logicalProcessors": 32,
+    "visibleMemoryBytes": 66232508416,
+    "operatingSystem": "Microsoft Windows 11 Pro Insider Preview",
+    "osVersion": "10.0.29617",
+    "osBuild": "29617",
+    "architecture": "x86_64-pc-windows-msvc",
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "llvm": "22.1.2",
+    "cargo": "1.96.0 (30a34c682 2026-05-25)",
+    "activePowerScheme": "Balanced",
+    "backgroundCompileAudit": "No UnrealBuildTool, ShaderCompileWorker, MSBuild, cl, or link process before the formal run"
+  },
+  "sourceCommit": "d7e8b1e2313fdadb318433acaa6ed4c998683456",
+  "protocol": {
+    "performanceBuildProfile": "release",
+    "allocationBuildProfile": "test",
+    "scales": [10000, 100000],
+    "rounds": 5,
+    "samplesPerRound": 80,
+    "warmUpIterations": 8,
+    "absoluteLatencyStatistic": "median of five per-round p95 values",
+    "formalRunSelection": "first audited Rust 1.96 run on the source commit; an earlier Rust 1.97 smoke run is not evidence",
+    "measuredBoundary": [
+      "Spatial pose batch extraction",
+      "Adapter frame, mapping, entity, parent, and Transform validation",
+      "Bevy local Transform writes",
+      "Bevy TransformSystems::Propagate"
+    ],
+    "excludedBoundary": [
+      "fixture and Entity construction",
+      "Core fixed tick and traffic solving",
+      "LaneFlowOuterFrame and non-PostUpdate schedules",
+      "renderer, window, audio, asset, scene, and Gizmos"
+    ],
+    "schedule": "one complete warmed Bevy PostUpdate schedule per sample",
+    "input": {
+      "canonicalFrame": "validation/bevy-scale",
+      "edgeCount": 1,
+      "edgeLengthMeters": {
+        "10000": 2500.0,
+        "100000": 25000.0
+      },
+      "polylinePointCount": 2,
+      "vehicleCountMatchesScale": true,
+      "vehicleHandles": "unique live Core handles in stable committed order",
+      "vehicleStatus": "Stopped",
+      "vehicleLengthMeters": 0.1,
+      "vehicleSpacingMeters": 0.25,
+      "entityMapping": "one unique direct-child proxy per vehicle under one unit-scale frame root",
+      "sessionOwnedBuffersPreallocated": true
+    },
+    "gates": {
+      "tenThousandP95MaxNs": 4000000,
+      "oneHundredThousandP95MaxNs": 40000000,
+      "tenToOneHundredThousandScaleRatioMax": 12.0,
+      "steadyStateAllocationCount": 0,
+      "steadyStateReallocationCount": 0
+    }
+  },
+  "commands": {
+    "packageTests": "cargo +1.96.0 test -p laneflow-bevy --locked",
+    "allocationGate": "cargo +1.96.0 test -p laneflow-bevy --test presentation_allocations --locked -- --ignored --test-threads=1 --nocapture",
+    "performanceGate": "$env:LANEFLOW_BEVY_PERF_GATE='1'; cargo +1.96.0 test --release -p laneflow-bevy --test presentation_performance --locked -- --ignored --test-threads=1 --nocapture",
+    "benchmarkCompile": "cargo +1.96.0 bench -p laneflow-bevy --benches --no-run --locked"
+  },
+  "correctness": {
+    "campusScenarioManifest": "examples/data/v0.1-campus.scenario.json",
+    "trafficArtifact": "examples/data/v0.5-empty-signals-and-parking.laneflow.json",
+    "spatialArtifact": "examples/data/v0.1-campus.spatial.json",
+    "artifactSizeAndDigestVerifiedByProductionLoader": true,
+    "outerFramePartitionsMilliseconds": [[7, 9, 16], [32]],
+    "finalCoreTick": 2,
+    "finalCoreTimeMilliseconds": 32,
+    "stablePoseAndTransformOrder": "Core committed vehicle order",
+    "existingRegressionCoverage": [
+      "zero, one, and multiple fixed steps",
+      "catch-up backlog and limit",
+      "bind, unbind, rebind, and partial mapping",
+      "Y-up and Bevy negative local Z forward",
+      "frame root, rebase, and placement token mismatch",
+      "stable first error and whole-batch atomicity"
+    ],
+    "result": "pass"
+  },
+  "allocation": [
+    {
+      "scale": 10000,
+      "allocations": 0,
+      "reallocations": 0,
+      "bytesAllocated": 0,
+      "bytesReallocated": 0,
+      "result": "pass"
+    },
+    {
+      "scale": 100000,
+      "allocations": 0,
+      "reallocations": 0,
+      "bytesAllocated": 0,
+      "bytesReallocated": 0,
+      "result": "pass"
+    }
+  ],
+  "performanceRounds": [
+    {
+      "scale": 10000,
+      "round": 1,
+      "p95Ns": 2970500,
+      "medianNs": 2516400
+    },
+    {
+      "scale": 10000,
+      "round": 2,
+      "p95Ns": 3454200,
+      "medianNs": 2457700
+    },
+    {
+      "scale": 10000,
+      "round": 3,
+      "p95Ns": 3076800,
+      "medianNs": 2454600
+    },
+    {
+      "scale": 10000,
+      "round": 4,
+      "p95Ns": 3066700,
+      "medianNs": 2495200
+    },
+    {
+      "scale": 10000,
+      "round": 5,
+      "p95Ns": 2965800,
+      "medianNs": 2545200
+    },
+    {
+      "scale": 100000,
+      "round": 1,
+      "p95Ns": 36390100,
+      "medianNs": 29466700
+    },
+    {
+      "scale": 100000,
+      "round": 2,
+      "p95Ns": 37038800,
+      "medianNs": 28861300
+    },
+    {
+      "scale": 100000,
+      "round": 3,
+      "p95Ns": 32924200,
+      "medianNs": 28079500
+    },
+    {
+      "scale": 100000,
+      "round": 4,
+      "p95Ns": 35852300,
+      "medianNs": 29595300
+    },
+    {
+      "scale": 100000,
+      "round": 5,
+      "p95Ns": 35779900,
+      "medianNs": 28867700
+    }
+  ],
+  "summary": [
+    {
+      "scale": 10000,
+      "postUpdateP95Ns": 3066700,
+      "limitNs": 4000000,
+      "headroomPercent": 23.3325,
+      "result": "pass"
+    },
+    {
+      "scale": 100000,
+      "postUpdateP95Ns": 35852300,
+      "limitNs": 40000000,
+      "headroomPercent": 10.36925,
+      "result": "pass"
+    }
+  ],
+  "scaleRatio": {
+    "tenToOneHundredThousandP95": 11.69084,
+    "limit": 12.0,
+    "result": "pass"
+  },
+  "benchmark": {
+    "criterionEntry": "crates/laneflow-bevy/benches/presentation.rs",
+    "sharedCiAction": "compile only",
+    "compileResult": "pass",
+    "criterionNumbersUsedAsGateEvidence": false
+  },
+  "dependencyDecision": {
+    "productionDirectDependenciesChanged": false,
+    "devOnlyDependencies": ["laneflow-data", "stats_alloc", "criterion"],
+    "rendererOrWindowDependencyAdded": false
+  },
+  "scopeBoundary": {
+    "absoluteWallClock": "fixed-machine release gate only",
+    "sharedCi": "correctness, determinism, zero allocation, benchmark compilation, workspace and MSRV checks, and dependency policy",
+    "crossPlatformSla": false,
+    "trafficSolverIncluded": false,
+    "rendererIncluded": false
+  },
+  "decision": "pass"
+}
