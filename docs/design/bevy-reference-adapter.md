@@ -71,7 +71,7 @@ Bevy 拥有 outer frame 与宿主 schedule。LaneFlow 不修改宿主全局 `Tim
 
 Adapter 维护 `VehicleHandle <-> Entity` 的部分双射：
 
-- 已绑定记录必须严格一一对应；同一 Vehicle 绑定多个 Entity、同一 Entity 绑定多个 Vehicle或重复 bind 都是结构化错误。
+- 已绑定记录必须严格一一对应；同一 Vehicle 绑定多个 Entity、同一 Entity 绑定多个 Vehicle 或重复 bind 都是结构化错误。
 - 映射可以只覆盖 Core 车辆子集。未绑定车辆用于 LOD、streaming、pooling 或尚未实例化状态，是正常情况。
 - 已登记但 Entity 已失效的 stale mapping 是错误；不得把它当作未绑定静默跳过。
 - Adapter 提供 bind/unbind/rebind 边界，但不冻结宿主 bundle、prefab、model spawn、pool 或 despawn 类型。
