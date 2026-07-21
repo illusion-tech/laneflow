@@ -2,7 +2,7 @@
 
 LaneFlow 的 Bevy 0.19 Reference Adapter crate。
 
-当前 #169-#173 切片提供最小 headless 宿主、Transform 同步、production validation 边界、可选调试绘制与原生参考示例：
+v0.7 的 #169-#173 已提供最小 headless 宿主、Transform 同步、production validation 边界、可选调试绘制与原生参考示例：
 
 - `LaneFlowPlugin`：安装 LaneFlow 专用 outer-frame 与 fixed schedule；
 - `LaneFlowOuterFrame`：位于 Bevy `First` 之后，读取宿主已经更新的 `Time::delta()`；
@@ -93,4 +93,4 @@ cargo +1.96.0 run -p laneflow-bevy --example native_reference --features native-
 cargo +1.96.0 check -p laneflow-bevy --example native_reference --features native-example --locked
 ```
 
-校园 headless E2E 与 10k/100k 专项验证由 #171 交付；固定机验证协议、逐轮数据与适用边界见 `../../docs/reference/v0.7-bevy-validation.md` 和 `../../docs/reference/v0.7-bevy-performance-evidence.json`。#172 的静态 smoke 只验证 debug Gizmos；#173 的 native example 才覆盖真实制品加载、Core 驱动移动、frame-root、映射和完整 window/render 演示。#173 的本机证据见 `../../docs/reference/v0.7-bevy-native-example-validation.md`。
+校园 headless E2E 与 10k/100k 专项验证由 #171 交付；固定机验证协议、逐轮数据与适用边界见 `../../docs/reference/v0.7-bevy-validation.md` 和 `../../docs/reference/v0.7-bevy-performance-evidence.json`。#172 的静态 smoke 只验证 debug Gizmos；#173 的 native example 才覆盖真实制品加载、Core 驱动移动、frame-root、映射和完整 window/render 演示。#173 的本机证据见 `../../docs/reference/v0.7-bevy-native-example-validation.md`，v0.7 的最终收口基线见 `../../docs/reference/v0.7-bevy-closure-review.md`。

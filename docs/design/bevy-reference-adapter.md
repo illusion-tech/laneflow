@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-21（#173 最小 native reference example）
+**最后更新**: 2026-07-21（#174 v0.7 独立收口审阅）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -17,6 +17,7 @@
 - `spatial-geometry.md`
 - `../reference/validation-matrix.md`
 - `../reference/v0.6-spatial-validation.md`
+- `../reference/v0.7-bevy-closure-review.md`
 
 ## 1. 目标
 
@@ -237,16 +238,18 @@ Spatial batch extract
 
 ## 11. 执行切片与 PR 角色
 
-| Issue | 交付切片                                     | 直接前置         |
-| ----: | -------------------------------------------- | ---------------- |
-|  #169 | 最小 crate、Plugin/Session 与 fixed schedule | 无活动 blocker   |
-|  #170 | Vehicle/Entity 映射与原子批量 Transform      | #169（已实现）   |
-|  #171 | headless E2E、allocation/performance 与 CI   | #170（已实现）   |
-|  #172 | 可选、预算受控的 debug Gizmos                | #170             |
-|  #173 | 最小 native reference example（已实现）      | #170             |
-|  #174 | 最终集成文档与独立 closure review            | #171、#172、#173 |
+| Issue | 交付切片                                               | 直接前置            |
+| ----: | ------------------------------------------------------ | ------------------- |
+|  #169 | 最小 crate、Plugin/Session 与 fixed schedule（已完成） | 无活动 blocker      |
+|  #170 | Vehicle/Entity 映射与原子批量 Transform（已完成）      | #169（已完成）      |
+|  #171 | headless E2E、allocation/performance 与 CI（已完成）   | #170（已完成）      |
+|  #172 | 可选、预算受控的 debug Gizmos（已完成）                | #170（已完成）      |
+|  #173 | 最小 native reference example（已完成）                | #170（已完成）      |
+|  #174 | 最终集成文档与独立 closure review                      | #171-#173（已完成） |
 
 每个子 Issue 使用自己的唯一 Delivery PR。#169-#173 的 PR 对父 #121 只使用 Related PR 语义，不得以 closing keyword 覆盖父 tracker。#174 的最终 integration PR 同时作为 #174 与 #121 的唯一 Delivery PR；所有子 Issue G4 后才允许 #121 进入最终 G3/G4。
+
+#174 的独立审阅没有发现需要回开生产实现、Adapter API、数据格式或 CI 契约的缺口；默认/可选 feature graph、正确性与确定性、失败原子性、固定机性能、可视证据和依赖安全状态统一归档在 `../reference/v0.7-bevy-closure-review.md`。本节的剩余项继续是明确的后续非目标，不阻断 v0.7 收口。
 
 ## 12. 兼容性与后续演进
 
