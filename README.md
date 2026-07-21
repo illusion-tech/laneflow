@@ -76,6 +76,7 @@ LaneFlow 暂不追求以下能力：
 
 ## Rust workspace
 
+- `crates/laneflow-bevy`：Bevy 0.19 Reference Adapter；使用最小 modular dependency graph，提供单活动 `LaneFlowSession`、宿主 outer-frame 驱动的专用 fixed schedule、可配置 catch-up 和完整 backlog 保留。
 - `crates/laneflow-core`：引擎无关的 Core domain/runtime、typed handles、fixed tick、fixed-time Signals snapshot/query/events、SignalStop 与 permission-aware traversal，以及私有 occupancy/leader、IIDM、safe-speed 与 no-overlap projection pipeline。
 - `crates/laneflow-data`：当前 v0.5 JSON loader、严格版本闸口与 Core normalization；依赖方向固定为 `laneflow-data -> laneflow-core`。
 - `crates/laneflow-spatial`：LaneFlow 自有的有界 `f32` canonical 点、向量、单位方向、稳定 frame ID、immutable edge-binding registry，以及带 placement token、Parking pose 和失败原子性的批量位姿提取；依赖方向固定为 `laneflow-spatial -> laneflow-core`，Core 不反向依赖 Spatial。

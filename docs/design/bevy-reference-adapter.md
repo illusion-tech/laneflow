@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-21（#121 G1）
+**最后更新**: 2026-07-21（#169 Plugin/Session 与 fixed schedule）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -31,6 +31,7 @@ v0.7 的完成目标是提供一条可构建、可测试、可演示且默认依
 - LaneFlow workspace MSRV 继续为 Rust `1.96.0`。Bevy 0.19.0 的 MSRV 为 Rust 1.95.0，因此不提高 LaneFlow 的工具链下限。
 - Bevy 0.19.0 使用 `MIT OR Apache-2.0`，可进入 LaneFlow 当前 cargo-deny 允许范围；最终实现仍必须以实际 lock graph 重新运行完整 dependency policy。
 - production `laneflow-bevy` 直接依赖最小 modular crates：`bevy_app`、`bevy_ecs`、`bevy_time` 与 `bevy_transform`。
+- production manifest 对四个 modular crates 关闭 default features；`bevy_app`、`bevy_ecs`、`bevy_time` 只启用 `std`，`bevy_transform` 启用 `std + bevy-support`。默认 graph 不激活 Bevy reflect、async executor 或 backtrace。
 - 默认 production feature graph 不包含 umbrella `bevy`、renderer、window、audio、asset、scene、UI、Gizmos，以及没有被实现证明必要的 reflect/state/input。
 - 完整 `DefaultPlugins`、render/window、mesh/material 和 Gizmos 只能进入显式 opt-in feature 或 example 边界。
 
@@ -66,6 +67,15 @@ Bevy 拥有 outer frame 与宿主 schedule。LaneFlow 不修改宿主全局 `Tim
 6. 每次 Core step 成功提交后，才允许读取 snapshot/events 并构造 presentation 输入。
 
 相同初始状态、输入和总 elapsed time 在不同 outer-frame 分块下必须产生相同 Core tick/state。presentation 提交仍受每个 outer frame 最多一次批量 extraction/apply 的限制。
+
+#169 的具体 Bevy 映射为：
+
+- `LaneFlowPlugin` 安装 `LaneFlowOuterFrame` 与 `LaneFlowFixed` 两个单线程 schedule。
+- `LaneFlowOuterFrame` 插入宿主 `First` 之后，因此读取的是本帧已经由 `TimePlugin` 更新的 `Time::delta()`；调用方负责安装 `TimePlugin` 或包含它的宿主 plugin group。
+- `LaneFlowPlugin` 不重复安装 `TimePlugin` 或 `TransformPlugin`。缺少 Session 时 schedule 无操作；存在 Session 但缺少 `Time` resource 时记录结构化错误。
+- `LaneFlowSessionConfig` 要求调用方显式提供非零 `max_catch_up_steps`，不定义隐藏默认值。
+- accumulator 保存完整 `Duration`，不按 outer frame 截断亚毫秒余量；只有 Core step 成功后才扣除一个 quantum。达到上限或 step 失败时，当帧停止并保留全部 backlog。
+- `LaneFlowFrameReport` 公开 frame delta、成功 step 数、backlog 与 catch-up-limit 状态；Session 保留当帧全部成功 `StepResult` 和最近 `LaneFlowAdapterError`。
 
 ## 5. Vehicle 与 Entity 映射
 
