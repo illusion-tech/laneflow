@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-21（#172 可选、预算受控的 debug Gizmos）
+**最后更新**: 2026-07-21（#173 最小 native reference example）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -194,6 +194,15 @@ native example 使用显式 `native-example` feature，并把完整 Bevy `Defaul
 
 v0.7 不冻结 glTF、prefab、scene、asset pipeline、UI、presentation interpolation 或 LOD/pooling 算法。GUI smoke 不能替代 headless deterministic tests。
 
+#173 冻结并实现的示例边界为：
+
+- `native-example` 是非默认 opt-in feature，复用 #172 已审计的完整 Bevy 3D/window/render 依赖集合，并启用 `debug-gizmos`；默认 production graph 与 all-features crate/version 集合均不改变。
+- `native_reference` 在启动时从仓库 `examples/data/` 读取 campus manifest、traffic artifact 与 spatial artifact，通过 `laneflow_data::from_scenario_json_slice` 校验 artifact ref、media type、size 与 SHA-256，再构造 production `InitialTrafficData`、`SpatialRegistry` 和 `CoreWorld`。
+- 示例创建 main/loop 两辆 Core vehicle、非原点且带 placement token 的 frame-root、直接 child proxy 和内建 cuboid vehicle child。道路只按调用方已加载的中心线点生成简单表现几何，不重算 Spatial 长度，也不反写 Core/Spatial。
+- 完整 `DefaultPlugins`、camera、directional/ambient light、mesh/material、keyboard 与 screenshot 系统全部保留在 example 文件。`G` 切换既有预算受控 Gizmos，`F12` 保存当前工作目录截图；这些控制不进入 library export。
+- 文件、manifest/digest、Traffic/Spatial normalization 与 Core world 构造失败带路径和阶段诊断返回；运行中 Adapter 结构化错误写入宿主日志。
+- 共享 CI 执行 dedicated example compile；本机 smoke 额外验证真实窗口、车辆/道路几何、frame axes、中心线、运行时 Gizmos 开关与截图。证据见 `../reference/v0.7-bevy-native-example-validation.md`。
+
 ## 10. 验证与性能 Gate
 
 默认 headless tests 直接构造 Bevy `App` 并驱动 update，不依赖 window、renderer 或 OS event loop。必须覆盖：
@@ -234,7 +243,7 @@ Spatial batch extract
 |  #170 | Vehicle/Entity 映射与原子批量 Transform      | #169（已实现）   |
 |  #171 | headless E2E、allocation/performance 与 CI   | #170（已实现）   |
 |  #172 | 可选、预算受控的 debug Gizmos                | #170             |
-|  #173 | 最小 native reference example                | #170             |
+|  #173 | 最小 native reference example（已实现）      | #170             |
 |  #174 | 最终集成文档与独立 closure review            | #171、#172、#173 |
 
 每个子 Issue 使用自己的唯一 Delivery PR。#169-#173 的 PR 对父 #121 只使用 Related PR 语义，不得以 closing keyword 覆盖父 tracker。#174 的最终 integration PR 同时作为 #174 与 #121 的唯一 Delivery PR；所有子 Issue G4 后才允许 #121 进入最终 G3/G4。

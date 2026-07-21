@@ -49,3 +49,5 @@
 - `v0.7-bevy-validation.md`：#171 campus headless E2E、分帧确定性、10k/100k 零分配、固定机 p95、benchmark 与 CI 验证基线。
 - `v0.7-bevy-performance-evidence.json`：#171 固定 Windows 性能机环境、source commit、逐轮 `PostUpdate` p95/median、allocation 与适用边界的机器可读证据。
 - `v0.7-bevy-debug-gizmos-validation.md`：#172 可选 debug Gizmos 的 validated-batch、预算/过滤、依赖图、headless tests、MSRV、dependency policy 与本机可视 smoke 证据。
+- `v0.7-bevy-native-example-validation.md`：#173 campus native reference example 的真实制品加载、feature/依赖边界、dedicated compile、运行时控制与本机窗口 smoke 证据。
+- `v0.7-bevy-native-example-smoke.jpg`：#173 本机运行 `native_reference`、启用 debug Gizmos 后保存的窗口内渲染截图。

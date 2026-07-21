@@ -166,6 +166,10 @@ jobs:
         shell: bash
         run: cargo +1.96.0 run -p laneflow-data --example parking_lifecycle --locked
 
+      - name: Compile Bevy native reference example
+        shell: bash
+        run: cargo +1.96.0 check -p laneflow-bevy --example native_reference --features native-example --locked
+
       - name: Compile Core, Spatial, and Bevy Adapter benchmarks
         shell: bash
         run: |
