@@ -2,10 +2,14 @@
 
 mod error;
 mod plugin;
+mod presentation;
 mod session;
 
 pub use error::LaneFlowAdapterError;
 pub use plugin::{LaneFlowFixed, LaneFlowOuterFrame, LaneFlowPlugin};
+pub use presentation::{
+    LaneFlowFramePlacement, LaneFlowPresentationReport, LaneFlowVehicleEntityMap,
+};
 pub use session::{LaneFlowFrameReport, LaneFlowSession, LaneFlowSessionConfig};
 
 #[cfg(test)]

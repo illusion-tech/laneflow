@@ -1,14 +1,15 @@
 //! Bevy 0.19 Plugin 与 LaneFlow 专用 schedule。
 
-use bevy_app::{App, First, MainScheduleOrder, Plugin};
+use bevy_app::{App, First, MainScheduleOrder, Plugin, PostUpdate};
 use bevy_ecs::{
-    schedule::{Schedule, ScheduleLabel, SingleThreadedExecutor},
+    schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel, SingleThreadedExecutor},
     system::ResMut,
     world::World,
 };
 use bevy_time::Time;
+use bevy_transform::TransformSystems;
 
-use crate::LaneFlowSession;
+use crate::{LaneFlowSession, presentation::sync_lane_flow_transforms};
 
 /// 每个 Bevy outer frame 运行一次的 LaneFlow 驱动 schedule。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, ScheduleLabel)]
@@ -33,6 +34,10 @@ impl Plugin for LaneFlowPlugin {
         fixed.add_systems(step_core);
 
         app.add_schedule(outer_frame).add_schedule(fixed);
+        app.add_systems(
+            PostUpdate,
+            sync_lane_flow_transforms.before(TransformSystems::Propagate),
+        );
         app.world_mut()
             .resource_mut::<MainScheduleOrder>()
             .insert_after(First, LaneFlowOuterFrame);
