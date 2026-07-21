@@ -1,0 +1,24 @@
+[package]
+name = "laneflow-bevy"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "LaneFlow 的 Bevy 0.19 Reference Adapter crate。"
+publish = false
+
+[lib]
+name = "laneflow_bevy"
+path = "src/lib.rs"
+
+[dependencies]
+bevy_app = { version = "0.19", default-features = false, features = ["std"] }
+bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
+bevy_time = { version = "0.19", default-features = false, features = ["std"] }
+bevy_transform = { version = "0.19", default-features = false, features = ["bevy-support", "std"] }
+laneflow-core = { version = "0.0.0", path = "../laneflow-core" }
+laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
+
+[lints]
+workspace = true

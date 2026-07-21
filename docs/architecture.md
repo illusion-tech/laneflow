@@ -135,6 +135,8 @@ Adapter 可以按需调用 `laneflow-data` 解析自身 asset pipeline 已读取
 
 ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样权威；它们从已提交的 Core 快照构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
 
+v0.7 的首个生产 Adapter crate 为 `laneflow-bevy`。它依赖 `laneflow-core`、`laneflow-spatial` 和 Bevy 0.19 的最小 modular crates，使用一个 Bevy Resource 表达单活动 Session，并在宿主 `First` 之后运行 LaneFlow 自有 outer-frame/fixed schedules；它不修改 Bevy `Time<Fixed>`，也不把 Bevy 类型引入 Core/Data/Spatial。Vehicle/Entity、Transform、Gizmos 与 native example 继续按 #170-#173 分层交付。
+
 ## 7. Presentation Layer
 
 Presentation Layer 负责用户可见效果：

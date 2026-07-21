@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/laneflow-bevy",
     "crates/laneflow-core",
     "crates/laneflow-data",
     "crates/laneflow-spatial",
