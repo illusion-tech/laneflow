@@ -122,7 +122,7 @@
 
 目标：以 Rust/Bevy 作为首个 Reference Adapter，完成可运行的引擎集成闭环，并用真实宿主验证 Adapter API；Bevy 不是跨 ABI、跨语言稳定性的唯一证明。
 
-规划状态：Milestone tracker 为 #121。v0.6 前置与 Adapter API 已完成；#121 仍保持 Backlog，等待 Bevy 版本、最小 feature graph、MSRV、许可证/安全审计和子 Issue 拆分，不因 v0.6 完成而自动进入 G1/G2。
+规划状态：Milestone tracker 为 #121。v0.6 前置与 Adapter API 已完成；#121 已冻结 Bevy 0.19.x、最小 feature graph、fixed schedule、Entity/Transform、验证、debug 与 example 边界，并拆分 #169-#174。长期设计见 `design/bevy-reference-adapter.md`；运行时实现尚未进入 G2。
 
 范围：
 
@@ -132,7 +132,7 @@
 - batch pose/transform synchronization；
 - headless deterministic integration tests；
 - optional debug visualization 与最小 native example；
-- f32 presentation boundary、坐标转换和 presentation LOD。
+- f32 presentation boundary、坐标转换和 presentation LOD authority 边界；LOD/pooling 算法本身不作为 v0.7 完成条件。
 
 不覆盖：
 
