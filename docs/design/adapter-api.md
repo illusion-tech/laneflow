@@ -2,9 +2,9 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-20（#137 正确性、资源与性能 Gate）
+**最后更新**: 2026-07-21（#121 Bevy Reference Adapter G1）
 
-**适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的最小只读契约；作为 v0.7 具体 Bevy API 设计之前的 G1 输入（#123）
+**适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的最小只读契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
 
 **关联文档**:
 
@@ -15,6 +15,7 @@
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `core-runtime.md`
 - `spatial-geometry.md`
+- `bevy-reference-adapter.md`
 
 ## 1. 目标与术语
 
@@ -105,14 +106,8 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 - canonical frame 与宿主坐标之间的转换不得修改 `CoreWorld`、Spatial 注册表或快照。
 - 单记录查询可以用于调试，但不能作为 1 万或 10 万车辆的默认同步路径。
 
-## 7. v0.7 留白
+## 7. v0.7 Bevy specialization
 
-本设计不冻结：
+#121 已在 `bevy-reference-adapter.md` 冻结 v0.7 的 Bevy 0.19 支持线、最小 modular dependency graph、专用 fixed schedule、单活动 Session、Vehicle/Entity 部分双射、frame-root/child Transform、placement token 复核、两阶段原子批量提交、可选 Gizmos、最小 native example 与 10k/100k 验证 Gate。
 
-- Bevy 插件、资源和系统集合的具体 Rust 名称；
-- 调度标签、并行命令缓冲区或实体组件布局；
-- 变换插值、可见性和细节层次策略；
-- Gizmos 调试图形以及网格、预制体和场景资源 API；
-- 外语绑定的二进制接口、C 外部函数接口（FFI）或 Web 绑定。
-
-这些内容由 #121/v0.7 的 Adapter G1 与实施 Issue 决定，但不得改变本文的权威职责、精度边界、批量失败原子性和类型隔离边界。
+该 specialization 不改变本文的跨引擎权威职责、`f32` canonical 精度边界、稳定批量顺序、失败原子性和宿主类型隔离。v0.7 仍不冻结 presentation interpolation、LOD/pooling、glTF/prefab/scene asset API、WASM、外语绑定的二进制接口、C 外部函数接口（FFI）或第二个 Engine Adapter。
