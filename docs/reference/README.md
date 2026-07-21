@@ -51,3 +51,4 @@
 - `v0.7-bevy-debug-gizmos-validation.md`：#172 可选 debug Gizmos 的 validated-batch、预算/过滤、依赖图、headless tests、MSRV、dependency policy 与本机可视 smoke 证据。
 - `v0.7-bevy-native-example-validation.md`：#173 campus native reference example 的真实制品加载、feature/依赖边界、dedicated compile、运行时控制与本机窗口 smoke 证据。
 - `v0.7-bevy-native-example-smoke.jpg`：#173 本机运行 `native_reference`、启用 debug Gizmos 后保存的窗口内渲染截图。
+- `v0.7-bevy-closure-review.md`：#174 对 v0.7 Bevy Reference Adapter 治理、生产契约、正确性、性能、可视验证、依赖安全与兼容边界的最终独立收口基线。
