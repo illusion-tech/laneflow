@@ -147,13 +147,14 @@
 范围：
 
 - 一条双向六车道主干道与两条双向四车道次干道；两条次干道分别与主干道垂直，形成两个平面交叉口；
-- 道路总长不超过 2 km，主干道限速 60 km/h，次干道限速 40 km/h；
+- 道路总长按三条物理道路轴线计，默认 `800 + 300 + 300 = 1.4 km` 且不超过 2 km；主干道限速 60 km/h，次干道限速 40 km/h；
 - 车辆数量可在 50–200 之间配置；
-- 两个交叉口采用可配置红灯、绿灯时长的 fixed-time 信号控制；
-- 车辆驶出道路后，按确定性随机策略从另一道路入口重新进入，使场景持续运行且固定 seed 可复现；
+- 6 个 portal-level 直行 movement 展开为 14 条 lane-level explicit route；
+- 两个交叉口采用可配置主/次绿灯、黄灯、全红和 offset 的 fixed-time 信号控制，红灯时长由完整 phase program 推导；
+- 车辆驶出道路后，先在其他 5 个 portal 间均匀选择，再在目标 portal 的 lane route 间均匀选择；blocked retry 不重抽，使场景持续运行且固定 seed 可复现；
 - 首版车辆仅直行，提供可运行的 Bevy native reference example、headless 集成验证与独立 closure review。
 
-实施链：#184 直行基线设计 → #185–#188 Core/Data/Adapter 场景能力 → #189 native example 集成 → #195 closure。
+设计 SSOT 为 `design/example-scenarios.md` 与 ADR 0016；Traffic 目标版本为 v0.7，SpatialPackage/ScenarioManifest 保持 v0.1。实施链：#184 直行基线设计 → #185–#188 Core/Data/Adapter 场景能力 → #189 native example 集成 → #195 closure。
 
 不覆盖：左转、右转、受保护转向相位、permissive movement、复杂车道选择或城市级扩展。
 

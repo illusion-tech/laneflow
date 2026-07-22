@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-21（#174 v0.7 独立收口审阅）
+**最后更新**: 2026-07-22（#184 v0.8 场景生命周期同步）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -13,8 +13,10 @@
 - `../adr/0001-project-scope.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
+- `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
 - `adapter-api.md`
 - `spatial-geometry.md`
+- `example-scenarios.md`
 - `../reference/validation-matrix.md`
 - `../reference/v0.6-spatial-validation.md`
 - `../reference/v0.7-bevy-closure-review.md`
@@ -263,3 +265,9 @@ Spatial batch extract
 - 让宿主类型、Transform 或 Gizmos 进入 Core/Data/Spatial 公共接口。
 
 插值、LOD/pooling、prefab/glTF、WASM、第二个 Engine Adapter 和 foreign-host boundary proof 保持后续独立范围，不是 v0.7 完成条件。
+
+## 13. v0.8 直行走廊 schedule 与 proxy 复用
+
+#184 在 v0.7 schedule 上增加的目标顺序是：每个 LaneFlow fixed step 前应用 pending lifecycle commands，step 后消费有序 completion events 并为下一 boundary 入队。一个 outer frame 内的 catch-up steps 逐步执行该顺序，presentation 仍在 outer frame 最多提交一次，因此 frame chunking 不得改变 Population/Core 决策。
+
+车辆完成 route 后，既有 proxy/model 不 despawn。等待可用入口时，Completed vehicle 不产生 pose record，Entity 保留最后 Transform；atomic replace 成功后，Adapter 把同一 Entity 绑定到新的 `VehicleHandle`，下一批次更新入口位姿。道路、灯具、CLI/UI 和 50–200 车辆 native 集成由 #189 交付；engine-neutral population 与 typed Session transaction 由 #188 先行交付。详细场景参数见 `example-scenarios.md`。
