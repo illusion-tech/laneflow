@@ -546,6 +546,42 @@ pub enum CoreError {
     /// vehicle handle 必须指向当前 active vehicle slot。
     #[error("vehicle handle 无效或已过期：{vehicle:?}；active resolver 将返回 None")]
     UnknownVehicleHandle { vehicle: VehicleHandle },
+    /// atomic replace 只接受 Completed old vehicle。
+    #[error("atomic replace 只接受 Completed vehicle：vehicle={vehicle:?}, actual={actual:?}")]
+    VehicleReplaceStatusMismatch {
+        vehicle: VehicleHandle,
+        actual: VehicleStatus,
+    },
+    /// atomic replace 的 route occurrence 必须落在 active route 范围内。
+    #[error(
+        "atomic replace 的 route edge index 无效：vehicle={vehicle:?}, route={route:?}, route_edge_count={route_edge_count}, actual={route_edge_index}"
+    )]
+    InvalidVehicleReplaceRouteEdgeIndex {
+        vehicle: VehicleHandle,
+        route: RouteHandle,
+        route_edge_index: usize,
+        route_edge_count: usize,
+    },
+    /// atomic replace 的 edge progress 必须落在目标 edge 范围内。
+    #[error(
+        "atomic replace 的 edge progress 超出范围：vehicle={vehicle:?}, edge={edge:?}, progress={edge_progress}, edge_length={edge_length}"
+    )]
+    VehicleReplaceEdgeProgressOutOfRange {
+        vehicle: VehicleHandle,
+        edge: EdgeHandle,
+        edge_progress: f64,
+        edge_length: f64,
+    },
+    /// atomic replace 的初始速度不得超过目标 edge 的基础道路限速。
+    #[error(
+        "atomic replace 的初始速度超过基础道路限速：vehicle={vehicle:?}, edge={edge:?}, initial_speed={initial_speed}, speed_limit={speed_limit}"
+    )]
+    VehicleReplaceInitialSpeedExceedsLimit {
+        vehicle: VehicleHandle,
+        edge: EdgeHandle,
+        initial_speed: f64,
+        speed_limit: f64,
+    },
 
     /// route handle 必须指向当前 active route slot。
     #[error("route handle 无效或已过期：{route:?}；active resolver 将返回 None")]

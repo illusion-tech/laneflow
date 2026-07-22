@@ -1,10 +1,5 @@
 //! Core world 与 fixed-step orchestration。
 
-use std::{
-    cmp::{Ordering, Reverse},
-    collections::BinaryHeap,
-};
-
 use indexmap::IndexMap;
 
 use crate::{
@@ -54,7 +49,9 @@ use crate::{
     time::{StepResult, TickInput},
     traffic::{InitialTrafficData, resolve_route_edges},
     vehicle::{
-        Acceleration, EdgeProgress, Speed, VehicleDespawnRecord, VehicleSpawnInput, VehicleState,
+        Acceleration, EdgeProgress, Speed, VehicleDespawnRecord, VehicleReplaceBlock,
+        VehicleReplaceBlockerPosition, VehicleReplaceExternalId, VehicleReplaceInput,
+        VehicleReplaceOutcome, VehicleReplaceRecord, VehicleSpawnInput, VehicleState,
         VehicleStatus,
     },
 };
@@ -79,91 +76,61 @@ struct SpeedLimitRouteTransition {
     target_speed: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct RouteVehicleReference {
-    update_order_position: usize,
-    vehicle: VehicleHandle,
-    route_generation: u32,
-}
-
-impl Ord for RouteVehicleReference {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.update_order_position
-            .cmp(&other.update_order_position)
-            .then_with(|| self.vehicle.index().cmp(&other.vehicle.index()))
-            .then_with(|| self.vehicle.generation().cmp(&other.vehicle.generation()))
-            .then_with(|| self.route_generation.cmp(&other.route_generation))
-    }
-}
-
-impl PartialOrd for RouteVehicleReference {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 #[derive(Clone, Debug, Default)]
 struct RouteReferenceIndex {
-    live_count: usize,
-    candidates: BinaryHeap<Reverse<RouteVehicleReference>>,
+    by_update_position: IndexMap<usize, VehicleHandle>,
 }
 
 impl PartialEq for RouteReferenceIndex {
     fn eq(&self, other: &Self) -> bool {
-        // 精确派生索引的 heap history/capacity 不属于 Core authority state。
-        self.live_count == other.live_count
+        // 精确派生索引的 container order/capacity 不属于 Core authority state。
+        self.by_update_position.len() == other.by_update_position.len()
     }
 }
 
 impl RouteReferenceIndex {
+    fn live_count(&self) -> usize {
+        self.by_update_position.len()
+    }
+
     fn reserve_for_attach(&mut self) {
-        self.candidates.reserve(1);
+        self.by_update_position.reserve(1);
     }
 
-    fn attach(&mut self, route: RouteHandle, vehicle: VehicleHandle, position: usize) {
-        self.live_count += 1;
-        self.candidates.push(Reverse(RouteVehicleReference {
-            update_order_position: position,
-            vehicle,
-            route_generation: route.generation(),
-        }));
+    fn attach(&mut self, vehicle: VehicleHandle, position: usize) {
+        assert_eq!(
+            self.by_update_position.insert(position, vehicle),
+            None,
+            "update-order position must have one route reference"
+        );
     }
 
-    fn detach(&mut self) {
-        self.live_count = self
-            .live_count
-            .checked_sub(1)
-            .expect("route live reference count must not underflow");
+    fn detach(&mut self, vehicle: VehicleHandle, position: usize) {
+        assert_eq!(
+            self.by_update_position.swap_remove(&position),
+            Some(vehicle),
+            "route reference must identify detached vehicle"
+        );
+    }
+
+    fn replace(&mut self, old: VehicleHandle, new: VehicleHandle, update_order_position: usize) {
+        let vehicle = self
+            .by_update_position
+            .get_mut(&update_order_position)
+            .expect("replacement must preserve an existing route reference");
+        assert_eq!(*vehicle, old, "route reference must identify old vehicle");
+        *vehicle = new;
     }
 
     fn clear(&mut self) {
-        self.live_count = 0;
-        self.candidates.clear();
+        self.by_update_position.clear();
     }
 
-    fn first_valid(
-        &mut self,
-        route: RouteHandle,
-        vehicles: &[VehicleSlot],
-    ) -> Option<VehicleHandle> {
-        while let Some(candidate) = self.candidates.peek().copied().map(|entry| entry.0) {
-            let valid = candidate.route_generation == route.generation()
-                && vehicles
-                    .get(candidate.vehicle.index())
-                    .filter(|slot| slot.generation == candidate.vehicle.generation())
-                    .is_some_and(|slot| {
-                        slot.update_order_position == Some(candidate.update_order_position)
-                            && slot
-                                .state
-                                .as_ref()
-                                .is_some_and(|state| state.route == route)
-                    });
-            if valid {
-                return Some(candidate.vehicle);
-            }
-            self.candidates.pop();
-        }
-        None
+    fn first(&self) -> Option<VehicleHandle> {
+        self.by_update_position
+            .iter()
+            .min_by_key(|(position, _)| *position)
+            .map(|(_, vehicle)| *vehicle)
     }
 }
 
@@ -229,6 +196,15 @@ impl StableVehicleOrder {
         let position = self.entries.len();
         self.entries.push(Some(handle));
         position
+    }
+
+    fn replace(&mut self, position: usize, old: VehicleHandle, new: VehicleHandle) {
+        let entry = self
+            .entries
+            .get_mut(position)
+            .expect("replacement update-order position must exist");
+        assert_eq!(*entry, Some(old), "replacement must identify old vehicle");
+        *entry = Some(new);
     }
 
     fn tombstone(&mut self, position: usize, handle: VehicleHandle) {
@@ -425,6 +401,8 @@ pub struct CoreWorld {
     command_spatial_index: CommandSpatialIndex,
     #[cfg(test)]
     step_failure_after_vehicle: Option<VehicleHandle>,
+    #[cfg(test)]
+    replace_failure_after_prepare: bool,
 }
 
 impl CoreWorld {
@@ -477,6 +455,8 @@ impl CoreWorld {
             command_spatial_index,
             #[cfg(test)]
             step_failure_after_vehicle: None,
+            #[cfg(test)]
+            replace_failure_after_prepare: false,
         };
 
         for route in routes {
@@ -929,7 +909,7 @@ impl CoreWorld {
             self.vehicles.push(slot);
         }
         self.vehicle_handles.insert(resolver_id, handle);
-        self.route_reference_indices[route.index()].attach(route, handle, update_order_position);
+        self.route_reference_indices[route.index()].attach(handle, update_order_position);
         self.parking_runtime
             .occupy_new(&self.parking, handle, input.space);
         self.compact_update_order_if_needed();
@@ -1057,12 +1037,10 @@ impl CoreWorld {
         state.route = input.route;
         state.route_edge_index = input.route_edge_index;
         if from_route != input.route {
-            self.route_reference_indices[from_route.index()].detach();
-            self.route_reference_indices[input.route.index()].attach(
-                input.route,
-                input.vehicle,
-                update_order_position,
-            );
+            self.route_reference_indices[from_route.index()]
+                .detach(input.vehicle, update_order_position);
+            self.route_reference_indices[input.route.index()]
+                .attach(input.vehicle, update_order_position);
         }
         self.parking_runtime.rebind_target(input.vehicle, target);
         Ok(ReservedVehicleRouteRebindRecord {
@@ -1215,12 +1193,10 @@ impl CoreWorld {
         state.applied_acceleration = Acceleration::ZERO;
         state.status = VehicleStatus::Active;
         if from_route != input.route {
-            self.route_reference_indices[from_route.index()].detach();
-            self.route_reference_indices[input.route.index()].attach(
-                input.route,
-                input.vehicle,
-                update_order_position,
-            );
+            self.route_reference_indices[from_route.index()]
+                .detach(input.vehicle, update_order_position);
+            self.route_reference_indices[input.route.index()]
+                .attach(input.vehicle, update_order_position);
         }
         let released = self.parking_runtime.release(&self.parking, input.vehicle);
         assert_eq!(released, Some((input.space, ParkingBindingKind::Occupied)));
@@ -1526,7 +1502,7 @@ impl CoreWorld {
         self.route_slot(handle)
             .ok_or(CoreError::UnknownRouteHandle { route: handle })?;
 
-        if self.route_reference_indices[handle.index()].live_count > 0 {
+        if self.route_reference_indices[handle.index()].live_count() > 0 {
             let vehicle = self.first_route_reference(handle).or_else(|| {
                 self.rebuild_route_reference_index(handle);
                 self.first_route_reference(handle)
@@ -1571,6 +1547,238 @@ impl CoreWorld {
     /// 创建新的 vehicle runtime entity。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, CoreError> {
         self.spawn_vehicle_with_overlap_validation(input, true)
+    }
+
+    /// 把一个 live、未绑定 Parking 的 Completed vehicle 原子替换为新的 Active vehicle。
+    ///
+    /// 物理重叠返回可重试的 [`VehicleReplaceOutcome::Blocked`]；其他 validation failure
+    /// 返回 [`CoreError`]。任一失败结果都不会修改 committed world state。
+    pub fn replace_completed_vehicle(
+        &mut self,
+        old: VehicleHandle,
+        input: &VehicleReplaceInput,
+    ) -> Result<VehicleReplaceOutcome, CoreError> {
+        let old_slot = self
+            .vehicle_slot(old)
+            .ok_or(CoreError::UnknownVehicleHandle { vehicle: old })?;
+        let old_state = old_slot
+            .state
+            .as_ref()
+            .expect("validated vehicle slot must contain state");
+        if old_state.status != VehicleStatus::Completed {
+            return Err(CoreError::VehicleReplaceStatusMismatch {
+                vehicle: old,
+                actual: old_state.status,
+            });
+        }
+        if let Some(binding) = self.parking_runtime.vehicle_binding(old) {
+            return Err(CoreError::ParkingBindingInvariantViolation {
+                stage: "replace_completed_vehicle",
+                vehicle: Some(old),
+                space: Some(binding.space()),
+            });
+        }
+
+        let old_external_id = old_slot.external_id.as_str();
+        let preserve_external_id = match &input.external_id {
+            VehicleReplaceExternalId::Preserve => true,
+            VehicleReplaceExternalId::ReplaceWith(external_id)
+                if external_id == old_external_id =>
+            {
+                true
+            }
+            VehicleReplaceExternalId::ReplaceWith(external_id) => {
+                validate_external_id("vehicleReplace.externalId", external_id)?;
+                if self.vehicle_handles.contains_key(external_id) {
+                    return Err(CoreError::DuplicateVehicleId {
+                        vehicle_id: external_id.clone(),
+                    });
+                }
+                false
+            }
+        };
+        if self.vehicle_profile(input.profile).is_none() {
+            return Err(CoreError::UnknownVehicleProfileHandle {
+                vehicle_id: old_external_id.to_owned(),
+                profile: input.profile,
+            });
+        }
+        self.route_slot(input.route)
+            .ok_or(CoreError::UnknownRouteHandle { route: input.route })?;
+        let normalized = self.normalize_vehicle_replace_input(old, input)?;
+        let old_generation = old_slot.generation;
+        let old_route = old_state.route;
+        let update_order_position = old_slot
+            .update_order_position
+            .expect("live vehicle must have reverse update-order position");
+        if let Some(overlap) = self.find_candidate_overlap_excluding(old, input.route, &normalized)
+        {
+            return Ok(VehicleReplaceOutcome::Blocked(VehicleReplaceBlock {
+                old,
+                blocker: overlap.blocker,
+                blocker_position: overlap.blocker_position,
+                bumper_gap: overlap.bumper_gap,
+            }));
+        }
+
+        let reusable_old_generation = old_generation.checked_add(1);
+        let planned_slot_index = reusable_old_generation.map_or_else(
+            || {
+                self.free_vehicle_indices
+                    .last()
+                    .copied()
+                    .unwrap_or(self.vehicles.len())
+            },
+            |_| old.index(),
+        );
+        let planned_generation = reusable_old_generation.unwrap_or_else(|| {
+            self.vehicles
+                .get(planned_slot_index)
+                .map_or(0, |slot| slot.generation)
+        });
+        let new = VehicleHandle::new(planned_slot_index, planned_generation);
+        assert_ne!(old, new, "replacement must create a distinct handle");
+
+        let prepared_ids = if preserve_external_id {
+            PreparedVehicleReplaceIds::Preserve
+        } else {
+            let VehicleReplaceExternalId::ReplaceWith(external_id) = &input.external_id else {
+                unreachable!("non-preserve replacement must provide an external ID")
+            };
+            PreparedVehicleReplaceIds::Replace {
+                slot: external_id.clone(),
+                resolver: external_id.clone(),
+            }
+        };
+        self.parking_runtime
+            .prepare_vehicle_slot(planned_slot_index);
+        if planned_slot_index == self.vehicles.len() {
+            self.vehicles.reserve(1);
+        }
+        if old_route != input.route {
+            self.route_reference_indices[input.route.index()].reserve_for_attach();
+        }
+        let replacement_edge =
+            self.routes[input.route.index()].edge_handles[normalized.route_edge_index];
+        let replacement_occupant = CommandOccupant {
+            vehicle: new,
+            front_progress: normalized.edge_progress.value(),
+        };
+        {
+            let vehicles = &self.vehicles;
+            let mut resolve_progress = |handle: VehicleHandle| {
+                vehicles[handle.index()]
+                    .state
+                    .as_ref()
+                    .expect("command spatial occupant must be live")
+                    .edge_progress
+                    .value()
+            };
+            self.command_spatial_index.prepare_insert(
+                replacement_edge,
+                replacement_occupant,
+                &mut resolve_progress,
+            );
+        }
+        self.command_spatial_index
+            .prepare_note_vehicle_speed(normalized.current_speed.value());
+        self.candidate_state_scratch.reserve_for_slots(
+            self.vehicles.len() + usize::from(planned_slot_index == self.vehicles.len()),
+        );
+
+        #[cfg(test)]
+        if self.replace_failure_after_prepare {
+            return Err(CoreError::ParkingBindingInvariantViolation {
+                stage: "test_after_vehicle_replace_prepare",
+                vehicle: Some(old),
+                space: None,
+            });
+        }
+
+        let old_slot = &mut self.vehicles[old.index()];
+        old_slot
+            .state
+            .take()
+            .expect("validated old vehicle must remain live");
+        let old_slot_external_id = std::mem::take(&mut old_slot.external_id);
+        old_slot.update_order_position = None;
+        let (old_resolver_external_id, removed) = self
+            .vehicle_handles
+            .swap_remove_entry(old_slot_external_id.as_str())
+            .expect("vehicle resolver must contain old external ID");
+        assert_eq!(removed, old, "vehicle resolver must identify old vehicle");
+        let (slot_external_id, resolver_external_id) = match prepared_ids {
+            PreparedVehicleReplaceIds::Preserve => (old_slot_external_id, old_resolver_external_id),
+            PreparedVehicleReplaceIds::Replace { slot, resolver } => (slot, resolver),
+        };
+        let replacement_slot = VehicleSlot {
+            generation: planned_generation,
+            external_id: slot_external_id,
+            state: Some(VehicleState::new(
+                new,
+                normalized.profile,
+                input.route,
+                normalized.route_edge_index,
+                normalized.edge_progress,
+                normalized.current_speed,
+                VehicleStatus::Active,
+            )),
+            update_order_position: Some(update_order_position),
+        };
+        if planned_slot_index == old.index() {
+            self.vehicles[planned_slot_index] = replacement_slot;
+        } else if planned_slot_index < self.vehicles.len() {
+            let popped = self
+                .free_vehicle_indices
+                .pop()
+                .expect("planned reusable vehicle slot must remain available");
+            assert_eq!(popped, planned_slot_index);
+            self.vehicles[planned_slot_index] = replacement_slot;
+        } else {
+            self.vehicles.push(replacement_slot);
+        }
+
+        self.vehicle_update_order
+            .replace(update_order_position, old, new);
+        if old_route == input.route {
+            self.route_reference_indices[input.route.index()].replace(
+                old,
+                new,
+                update_order_position,
+            );
+        } else {
+            self.route_reference_indices[old_route.index()].detach(old, update_order_position);
+            self.route_reference_indices[input.route.index()].attach(new, update_order_position);
+        }
+        let replaced = self.vehicle_handles.insert(resolver_external_id, new);
+        assert!(
+            replaced.is_none(),
+            "validated replacement external ID must remain unoccupied"
+        );
+        self.parking_runtime.register_unbound_vehicle(new);
+        {
+            let vehicles = &self.vehicles;
+            let mut resolve_progress = |handle: VehicleHandle| {
+                vehicles[handle.index()]
+                    .state
+                    .as_ref()
+                    .expect("command spatial occupant must be live")
+                    .edge_progress
+                    .value()
+            };
+            self.command_spatial_index.insert(
+                replacement_edge,
+                replacement_occupant,
+                &mut resolve_progress,
+            );
+        }
+        self.command_spatial_index
+            .note_vehicle_speed(new, normalized.current_speed.value());
+
+        Ok(VehicleReplaceOutcome::Replaced(VehicleReplaceRecord {
+            old,
+            new,
+        }))
     }
 
     fn spawn_vehicle_without_overlap_validation(
@@ -1693,7 +1901,7 @@ impl CoreWorld {
 
         self.vehicle_handles.insert(resolver_id, handle);
         self.parking_runtime.register_unbound_vehicle(handle);
-        self.route_reference_indices[route.index()].attach(route, handle, update_order_position);
+        self.route_reference_indices[route.index()].attach(handle, update_order_position);
         if let Some((edge, occupant)) = spatial_occupant {
             let vehicles = &self.vehicles;
             let mut resolve_progress = |handle: VehicleHandle| {
@@ -1823,7 +2031,7 @@ impl CoreWorld {
         }
         self.vehicle_update_order
             .tombstone(update_order_position, handle);
-        self.route_reference_indices[route.index()].detach();
+        self.route_reference_indices[route.index()].detach(handle, update_order_position);
         self.compact_update_order_if_needed();
 
         Ok(VehicleDespawnRecord {
@@ -1837,7 +2045,7 @@ impl CoreWorld {
     }
 
     fn first_route_reference(&mut self, route: RouteHandle) -> Option<VehicleHandle> {
-        self.route_reference_indices[route.index()].first_valid(route, &self.vehicles)
+        self.route_reference_indices[route.index()].first()
     }
 
     fn rebuild_route_reference_index(&mut self, route: RouteHandle) {
@@ -1859,7 +2067,7 @@ impl CoreWorld {
                 continue;
             };
             if state.route == route {
-                index.attach(route, vehicle, position);
+                index.attach(vehicle, position);
             }
         }
     }
@@ -1879,11 +2087,7 @@ impl CoreWorld {
                 .state
                 .as_ref()
                 .expect("stable update order must identify live vehicle");
-            self.route_reference_indices[state.route.index()].attach(
-                state.route,
-                vehicle,
-                position,
-            );
+            self.route_reference_indices[state.route.index()].attach(vehicle, position);
         }
     }
 
@@ -1931,13 +2135,11 @@ impl CoreWorld {
             if !self.routes[route_index].active {
                 continue;
             }
-            let route = RouteHandle::new(route_index, self.routes[route_index].generation);
             assert_eq!(
-                self.route_reference_indices[route_index].live_count,
+                self.route_reference_indices[route_index].live_count(),
                 expected_route_counts[route_index]
             );
-            let actual_first =
-                self.route_reference_indices[route_index].first_valid(route, &self.vehicles);
+            let actual_first = self.route_reference_indices[route_index].first();
             assert_eq!(actual_first, expected_route_first[route_index]);
         }
 
@@ -1994,13 +2196,9 @@ impl CoreWorld {
         let route_candidate_nodes = self
             .route_reference_indices
             .iter()
-            .map(|index| index.candidates.len())
+            .map(RouteReferenceIndex::live_count)
             .sum();
-        let stale_route_candidate_nodes = self
-            .route_reference_indices
-            .iter()
-            .map(|index| index.candidates.len().saturating_sub(index.live_count))
-            .sum();
+        let stale_route_candidate_nodes = 0;
         let route_distance_bytes = self.route_distance_indices.capacity()
             * std::mem::size_of::<RouteDistanceIndex>()
             + self
@@ -2014,8 +2212,8 @@ impl CoreWorld {
                 .route_reference_indices
                 .iter()
                 .map(|index| {
-                    index.candidates.capacity()
-                        * std::mem::size_of::<Reverse<RouteVehicleReference>>()
+                    index.by_update_position.capacity()
+                        * std::mem::size_of::<(usize, VehicleHandle)>()
                 })
                 .sum::<usize>();
         let route_bytes = self.routes.capacity() * std::mem::size_of::<RouteSlot>()
@@ -2535,50 +2733,10 @@ impl CoreWorld {
         candidate_id: &str,
         candidate: &NormalizedVehicleInput,
     ) -> Result<(), CoreError> {
-        if matches!(
-            candidate.status,
-            VehicleStatus::Completed | VehicleStatus::Parked
-        ) {
+        let Some(overlap) = self.find_candidate_overlap(None, route, candidate) else {
             return Ok(());
-        }
-
-        let candidate_length = self
-            .vehicle_profile(candidate.profile)
-            .expect("candidate profile must exist")
-            .iidm()
-            .length;
-        let mut spatial = std::mem::take(&mut self.command_spatial_index);
-        let route_edges = &self
-            .route_slot(route)
-            .expect("candidate route must exist")
-            .edge_handles;
-        let mut resolve_progress = |handle| {
-            self.vehicle(handle)
-                .expect("command spatial occupant must be live")
-                .edge_progress
-                .value()
         };
-        spatial.gather_overlap_candidates(
-            route_edges,
-            candidate.route_edge_index,
-            candidate.edge_progress.value(),
-            candidate_length,
-            self.vehicles.len(),
-            &mut resolve_progress,
-        );
-        spatial.sort_candidates_by_key(|handle| {
-            self.vehicles[handle.index()]
-                .update_order_position
-                .expect("command candidate must be live")
-        });
-        let result = self.validate_candidate_overlap_for_handles(
-            route,
-            candidate_id,
-            candidate,
-            spatial.candidates().iter().copied(),
-        );
-        self.command_spatial_index = spatial;
-        result
+        Err(self.candidate_overlap_error(candidate_id, overlap))
     }
 
     fn validate_candidate_overlap_excluding(
@@ -2587,10 +2745,36 @@ impl CoreWorld {
         route: RouteHandle,
         candidate: &NormalizedVehicleInput,
     ) -> Result<(), CoreError> {
+        let Some(overlap) = self.find_candidate_overlap(Some(excluded), route, candidate) else {
+            return Ok(());
+        };
         let candidate_id = self
             .vehicle_external_id(excluded)
-            .expect("excluded vehicle must be live")
-            .to_owned();
+            .expect("excluded vehicle must be live");
+        Err(self.candidate_overlap_error(candidate_id, overlap))
+    }
+
+    fn find_candidate_overlap_excluding(
+        &mut self,
+        excluded: VehicleHandle,
+        route: RouteHandle,
+        candidate: &NormalizedVehicleInput,
+    ) -> Option<CandidateVehicleOverlap> {
+        self.find_candidate_overlap(Some(excluded), route, candidate)
+    }
+
+    fn find_candidate_overlap(
+        &mut self,
+        excluded: Option<VehicleHandle>,
+        route: RouteHandle,
+        candidate: &NormalizedVehicleInput,
+    ) -> Option<CandidateVehicleOverlap> {
+        if matches!(
+            candidate.status,
+            VehicleStatus::Completed | VehicleStatus::Parked
+        ) {
+            return None;
+        }
         let candidate_length = self
             .vehicle_profile(candidate.profile)
             .expect("candidate profile must exist")
@@ -2620,15 +2804,14 @@ impl CoreWorld {
                 .update_order_position
                 .expect("command candidate must be live")
         });
-        let result = self.validate_candidate_overlap_for_handles(
+        let result = self.find_candidate_overlap_for_handles(
             route,
-            &candidate_id,
             candidate,
             spatial
                 .candidates()
                 .iter()
                 .copied()
-                .filter(|handle| *handle != excluded),
+                .filter(|handle| Some(*handle) != excluded),
         );
         self.command_spatial_index = spatial;
         result
@@ -2819,6 +3002,7 @@ impl CoreWorld {
         )
     }
 
+    #[cfg(test)]
     fn validate_candidate_overlap_for_handles<I>(
         &self,
         route: RouteHandle,
@@ -2829,11 +3013,28 @@ impl CoreWorld {
     where
         I: IntoIterator<Item = VehicleHandle>,
     {
+        let Some(overlap) =
+            self.find_candidate_overlap_for_handles(route, candidate, existing_handles)
+        else {
+            return Ok(());
+        };
+        Err(self.candidate_overlap_error(candidate_id, overlap))
+    }
+
+    fn find_candidate_overlap_for_handles<I>(
+        &self,
+        route: RouteHandle,
+        candidate: &NormalizedVehicleInput,
+        existing_handles: I,
+    ) -> Option<CandidateVehicleOverlap>
+    where
+        I: IntoIterator<Item = VehicleHandle>,
+    {
         if matches!(
             candidate.status,
             VehicleStatus::Completed | VehicleStatus::Parked
         ) {
-            return Ok(());
+            return None;
         }
 
         let candidate_edge = self
@@ -2862,10 +3063,6 @@ impl CoreWorld {
                 .expect("existing profile must exist")
                 .iidm()
                 .length;
-            let existing_id = self
-                .vehicle_external_id(existing.handle)
-                .expect("existing vehicle ID must exist");
-
             if let Some(front_distance) = self.route_front_distance_within(
                 route,
                 candidate.route_edge_index,
@@ -2876,9 +3073,9 @@ impl CoreWorld {
             ) {
                 let bumper_gap = front_distance - existing_length;
                 if physical_gap_is_overlap(bumper_gap) {
-                    return Err(CoreError::VehiclePhysicalOverlap {
-                        follower_id: candidate_id.to_owned(),
-                        leader_id: existing_id.to_owned(),
+                    return Some(CandidateVehicleOverlap {
+                        blocker: handle,
+                        blocker_position: VehicleReplaceBlockerPosition::Ahead,
                         bumper_gap,
                     });
                 }
@@ -2894,16 +3091,39 @@ impl CoreWorld {
             ) {
                 let bumper_gap = front_distance - candidate_length;
                 if physical_gap_is_overlap(bumper_gap) {
-                    return Err(CoreError::VehiclePhysicalOverlap {
-                        follower_id: existing_id.to_owned(),
-                        leader_id: candidate_id.to_owned(),
+                    return Some(CandidateVehicleOverlap {
+                        blocker: handle,
+                        blocker_position: VehicleReplaceBlockerPosition::Behind,
                         bumper_gap,
                     });
                 }
             }
         }
 
-        Ok(())
+        None
+    }
+
+    fn candidate_overlap_error(
+        &self,
+        candidate_id: &str,
+        overlap: CandidateVehicleOverlap,
+    ) -> CoreError {
+        let blocker_id = self
+            .vehicle_external_id(overlap.blocker)
+            .expect("overlap blocker external ID must exist");
+        let (follower_id, leader_id) = match overlap.blocker_position {
+            VehicleReplaceBlockerPosition::Ahead => {
+                (candidate_id.to_owned(), blocker_id.to_owned())
+            }
+            VehicleReplaceBlockerPosition::Behind => {
+                (blocker_id.to_owned(), candidate_id.to_owned())
+            }
+        };
+        CoreError::VehiclePhysicalOverlap {
+            follower_id,
+            leader_id,
+            bumper_gap: overlap.bumper_gap,
+        }
     }
 
     fn route_front_distance_within(
@@ -3711,6 +3931,58 @@ impl CoreWorld {
         }
     }
 
+    fn normalize_vehicle_replace_input(
+        &self,
+        old: VehicleHandle,
+        input: &VehicleReplaceInput,
+    ) -> Result<NormalizedVehicleInput, CoreError> {
+        let route = self
+            .route_slot(input.route)
+            .expect("replacement route handle must be active");
+        let edge = route
+            .edge_handles
+            .get(input.route_edge_index)
+            .copied()
+            .ok_or(CoreError::InvalidVehicleReplaceRouteEdgeIndex {
+                vehicle: old,
+                route: input.route,
+                route_edge_index: input.route_edge_index,
+                route_edge_count: route.edge_handles.len(),
+            })?;
+        let edge_length = self
+            .lane_graph
+            .edge_length(edge)
+            .expect("validated replacement route edge must exist");
+        if input.edge_progress.value() > edge_length.value() {
+            return Err(CoreError::VehicleReplaceEdgeProgressOutOfRange {
+                vehicle: old,
+                edge,
+                edge_progress: input.edge_progress.value(),
+                edge_length: edge_length.value(),
+            });
+        }
+        let speed_limit = self
+            .lane_graph
+            .edge_speed_limit(edge)
+            .expect("validated replacement route edge must exist");
+        if input.initial_speed.value() > speed_limit.value() {
+            return Err(CoreError::VehicleReplaceInitialSpeedExceedsLimit {
+                vehicle: old,
+                edge,
+                initial_speed: input.initial_speed.value(),
+                speed_limit: speed_limit.value(),
+            });
+        }
+
+        Ok(NormalizedVehicleInput {
+            profile: input.profile,
+            route_edge_index: input.route_edge_index,
+            edge_progress: input.edge_progress,
+            current_speed: input.initial_speed,
+            status: VehicleStatus::Active,
+        })
+    }
+
     fn normalize_vehicle_input(
         &self,
         route: RouteHandle,
@@ -4103,6 +4375,18 @@ struct NormalizedVehicleInput {
     status: VehicleStatus,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CandidateVehicleOverlap {
+    blocker: VehicleHandle,
+    blocker_position: VehicleReplaceBlockerPosition,
+    bumper_gap: f64,
+}
+
+enum PreparedVehicleReplaceIds {
+    Preserve,
+    Replace { slot: String, resolver: String },
+}
+
 fn parking_emergency_travel(
     stage: &'static str,
     vehicle: VehicleHandle,
@@ -4203,6 +4487,34 @@ mod tests {
             })
             .collect();
         CoreWorld::with_traffic_data(20, traffic_data, vehicles).expect("scale world")
+    }
+
+    fn completed_replace_world() -> (CoreWorld, VehicleProfileHandle, RouteHandle) {
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "A",
+            EdgeLength::try_new(10.0).expect("replace edge length"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            Vec::<String>::new(),
+        )])
+        .expect("replace graph");
+        let (traffic_data, profile) = traffic_data(
+            lane_graph,
+            [Route::try_new("R", ["A"]).expect("replace route")],
+        );
+        let world = CoreWorld::with_traffic_data(
+            1_000,
+            traffic_data,
+            vec![VehicleSpawnInput::completed(
+                "V",
+                profile,
+                "R",
+                0,
+                EdgeProgress::try_new(10.0).expect("route end"),
+            )],
+        )
+        .expect("replace world");
+        let route = world.route_handle("R").expect("replace route handle");
+        (world, profile, route)
     }
 
     fn parking_retained_scale_world(vehicle_count: usize) -> CoreWorld {
@@ -4889,20 +5201,19 @@ mod tests {
     }
 
     #[test]
-    fn route_reference_equality_covers_live_count_but_ignores_heap_history() {
+    fn route_reference_equality_covers_live_count_but_ignores_container_capacity() {
         let mut left = RouteReferenceIndex::default();
         let mut right = RouteReferenceIndex::default();
 
-        left.live_count = 1;
+        left.attach(VehicleHandle::new(3, 2), 17);
         assert_ne!(left, right, "live reference count is authority state");
 
-        right.live_count = 1;
-        left.candidates.push(Reverse(RouteVehicleReference {
-            update_order_position: 17,
-            vehicle: VehicleHandle::new(3, 2),
-            route_generation: 4,
-        }));
-        assert_eq!(left, right, "derived heap history must remain ignored");
+        right.attach(VehicleHandle::new(4, 9), 23);
+        left.by_update_position.reserve(64);
+        assert_eq!(
+            left, right,
+            "derived container capacity must remain ignored"
+        );
     }
 
     #[test]
@@ -5585,7 +5896,7 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle_10k_tombstone_and_stale_high_water_compacts_deterministically() {
+    fn lifecycle_10k_tombstone_high_water_keeps_exact_route_references() {
         let mut world = lifecycle_scale_world(10_000);
         let handles = world
             .vehicles()
@@ -5606,8 +5917,8 @@ mod tests {
         let high_water = world.lifecycle_retained_stats();
         assert_eq!(high_water.live_vehicles, 5_001);
         assert_eq!(high_water.tombstones, 4_999);
-        assert_eq!(high_water.route_candidate_nodes, 10_000);
-        assert_eq!(high_water.stale_route_candidate_nodes, 4_999);
+        assert_eq!(high_water.route_candidate_nodes, 5_001);
+        assert_eq!(high_water.stale_route_candidate_nodes, 0);
         assert_eq!(high_water.spatial_occupants, 5_001);
 
         world
@@ -5680,6 +5991,48 @@ mod tests {
         assert_eq!(small.1.occupants_visited, 1);
         assert_eq!(small.2, vec![small.3]);
         assert_eq!(large.2, vec![large.3]);
+    }
+
+    #[test]
+    fn replace_overlap_query_counts_depend_on_local_k_not_background_v() {
+        let run = |background_count| {
+            let (mut world, profile) = sparse_command_world(background_count);
+            let route = world.route_handle("R").expect("route");
+            let edge = world.routes[route.index()].edge_handles[0];
+            let route_end = world
+                .lane_graph
+                .edge_length(edge)
+                .expect("route edge")
+                .value();
+            let old = world
+                .spawn_vehicle(VehicleSpawnInput::completed(
+                    "replace-old",
+                    profile,
+                    "R",
+                    0,
+                    EdgeProgress::try_new(route_end).expect("route end"),
+                ))
+                .expect("completed vehicle");
+            let input = VehicleReplaceInput::new(
+                VehicleReplaceExternalId::Preserve,
+                profile,
+                route,
+                0,
+                EdgeProgress::try_new(5.0).expect("replacement progress"),
+                Speed::ZERO,
+            );
+
+            let outcome = world
+                .replace_completed_vehicle(old, &input)
+                .expect("overlap is recoverable");
+            assert!(matches!(outcome, VehicleReplaceOutcome::Blocked(_)));
+            world.command_spatial_index.query_stats()
+        };
+
+        let small = run(128);
+        let large = run(10_000);
+        assert_eq!(large, small);
+        assert!(large.occupants_visited <= 2);
     }
 
     #[test]
@@ -6193,5 +6546,176 @@ mod tests {
             .expect("replacement vehicle spawns");
         assert_ne!(replacement.index(), exhausted.index());
         assert_eq!(world.vehicle_external_id(exhausted), None);
+    }
+
+    #[test]
+    fn replace_generation_exhaustion_retires_old_slot_and_preserves_update_position() {
+        let (mut world, profile, route) = completed_replace_world();
+        let original = world.vehicle_handle("V").expect("original vehicle");
+        let exhausted = VehicleHandle::new(original.index(), u32::MAX);
+        let position = world.vehicles[original.index()]
+            .update_order_position
+            .expect("live vehicle has update position");
+        world.vehicles[original.index()].generation = u32::MAX;
+        world.vehicles[original.index()]
+            .state
+            .as_mut()
+            .expect("live vehicle state")
+            .handle = exhausted;
+        world.vehicle_update_order.entries[position] = Some(exhausted);
+        world.vehicle_handles.insert("V".to_owned(), exhausted);
+        world.rebuild_all_route_reference_indices();
+
+        let input = VehicleReplaceInput::new(
+            VehicleReplaceExternalId::Preserve,
+            profile,
+            route,
+            0,
+            EdgeProgress::ZERO,
+            Speed::ZERO,
+        );
+        let VehicleReplaceOutcome::Replaced(record) = world
+            .replace_completed_vehicle(exhausted, &input)
+            .expect("exhausted replacement succeeds")
+        else {
+            panic!("replacement must succeed")
+        };
+
+        assert_ne!(record.new.index(), exhausted.index());
+        assert_eq!(world.vehicle(exhausted), None);
+        assert_eq!(world.vehicle_handle("V"), Some(record.new));
+        assert_eq!(
+            world.vehicle_update_order.entries[position],
+            Some(record.new)
+        );
+        assert!(world.free_vehicle_indices.is_empty());
+        world.assert_lifecycle_indices_consistent();
+    }
+
+    #[test]
+    fn replace_rejects_corrupt_completed_parking_binding_atomically() {
+        let mut world = reserved_parking_world();
+        let vehicle = world.vehicle_handle("V0").expect("reserved vehicle");
+        let state = world.vehicles[vehicle.index()]
+            .state
+            .as_mut()
+            .expect("reserved state");
+        state.status = VehicleStatus::Completed;
+        state.current_speed = Speed::ZERO;
+        state.applied_acceleration = Acceleration::ZERO;
+        let profile = state.profile;
+        let route = state.route;
+        let input = VehicleReplaceInput::new(
+            VehicleReplaceExternalId::Preserve,
+            profile,
+            route,
+            0,
+            EdgeProgress::ZERO,
+            Speed::ZERO,
+        );
+        let before = world.clone();
+
+        let error = world
+            .replace_completed_vehicle(vehicle, &input)
+            .expect_err("bound Completed vehicle is an invariant failure");
+        std::assert_matches!(
+            error,
+            CoreError::ParkingBindingInvariantViolation {
+                stage: "replace_completed_vehicle",
+                vehicle: Some(actual),
+                ..
+            } if actual == vehicle
+        );
+        assert_eq!(world, before);
+    }
+
+    #[test]
+    fn replace_failure_after_prepare_keeps_authority_state_unchanged() {
+        let (mut world, profile, route) = completed_replace_world();
+        let old = world.vehicle_handle("V").expect("old vehicle");
+        let input = VehicleReplaceInput::new(
+            VehicleReplaceExternalId::Preserve,
+            profile,
+            route,
+            0,
+            EdgeProgress::ZERO,
+            Speed::ZERO,
+        );
+        world.replace_failure_after_prepare = true;
+        let before = world.clone();
+
+        let error = world
+            .replace_completed_vehicle(old, &input)
+            .expect_err("injected post-prepare failure");
+        std::assert_matches!(
+            error,
+            CoreError::ParkingBindingInvariantViolation {
+                stage: "test_after_vehicle_replace_prepare",
+                vehicle: Some(actual),
+                space: None,
+            } if actual == old
+        );
+        assert_eq!(world, before);
+    }
+
+    #[test]
+    fn repeated_replace_replays_and_retained_memory_stays_bounded() {
+        let (mut world, profile, route) = completed_replace_world();
+        let mut replay = world.clone();
+        let input = VehicleReplaceInput::new(
+            VehicleReplaceExternalId::Preserve,
+            profile,
+            route,
+            0,
+            EdgeProgress::ZERO,
+            Speed::try_new(10.0).expect("replacement speed"),
+        );
+        let mut old = world.vehicle_handle("V").expect("old vehicle");
+        let mut replay_old = replay.vehicle_handle("V").expect("replay vehicle");
+        let mut warmed = None;
+
+        for iteration in 0..10_000 {
+            let outcome = world
+                .replace_completed_vehicle(old, &input)
+                .expect("replacement succeeds");
+            let replay_outcome = replay
+                .replace_completed_vehicle(replay_old, &input)
+                .expect("replay replacement succeeds");
+            assert_eq!(outcome, replay_outcome);
+            let VehicleReplaceOutcome::Replaced(record) = outcome else {
+                panic!("single-vehicle replacement cannot be blocked")
+            };
+            let VehicleReplaceOutcome::Replaced(replay_record) = replay_outcome else {
+                panic!("replay replacement cannot be blocked")
+            };
+            let step = world.step(TickInput::new(1_000)).expect("completion step");
+            let replay_step = replay
+                .step(TickInput::new(1_000))
+                .expect("replay completion step");
+            assert_eq!(step, replay_step);
+            assert_eq!(
+                world.vehicle(record.new).expect("replacement state").status,
+                VehicleStatus::Completed
+            );
+            old = record.new;
+            replay_old = replay_record.new;
+
+            if iteration == 0 {
+                warmed = Some(world.lifecycle_retained_stats());
+            }
+        }
+
+        let warmed = warmed.expect("warm retained stats");
+        let retained = world.lifecycle_retained_stats();
+        assert_eq!(retained.live_vehicles, 1);
+        assert_eq!(retained.route_candidate_nodes, 1);
+        assert_eq!(retained.stale_route_candidate_nodes, 0);
+        assert_eq!(retained.tombstones, 0);
+        assert_eq!(
+            retained.complete_accounted_bytes,
+            warmed.complete_accounted_bytes
+        );
+        assert_eq!(world, replay);
+        world.assert_lifecycle_indices_consistent();
     }
 }

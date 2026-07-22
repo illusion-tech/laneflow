@@ -555,6 +555,21 @@ Core identity / handle 模型影响 Core API、data-format 输入和后续 Adapt
 
 ## 12. v0.8 场景人口与 atomic replace extension
 
-#184/ADR 0016 冻结了持续运行场景所需的 lifecycle 目标：Core 提供 step 之间的 typed atomic replace command，验证 Completed old handle 和完整 replacement input 后一次提交 despawn/spawn。成功后 old handle 立即 stale，new vehicle 获得新的 generation handle；public contract 不保证复用相同 slot index。logical population slot 可以复用相同 external ID，但只有 replace transaction 能在同一事务中处理 duplicate-ID 预检和替换。
+#184/ADR 0016 与 #186 G1 冻结了持续运行场景所需的最小 Core lifecycle 原语：
 
-Core 不选择回流 portal、lane 或 route，也不接触 Entity。失败时 world 完全不变；成功 record 必须足以让 Adapter 原子切换 binding。详细职责和 same-proxy/new-identity 契约见 `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与 `example-scenarios.md`；Core atomic replace 与 Adapter transaction 分别由 #186/#187 实施。
+```rust
+replace_completed_vehicle(
+    old: VehicleHandle,
+    replacement: &VehicleReplaceInput,
+) -> Result<VehicleReplaceOutcome, CoreError>
+```
+
+命令只接受 live、未绑定 Parking 的 `Completed` old vehicle，并创建 `Active` replacement；replacement 的 applied acceleration 固定为零。borrowed input 显式携带 `Preserve | ReplaceWith(String)` external-ID 策略、`VehicleProfileHandle`、`RouteHandle`、route occurrence、edge progress 与 initial speed，因此调用方可在 typed `Blocked` 后复用同一输入。
+
+`Preserve` 转移 Core 已拥有的 external ID，不 clone 字符串；`ReplaceWith` 支持调用方给新旅程分配新 ID，若内容等于旧 ID 则规范化为 `Preserve`。成功返回 `VehicleReplaceRecord { old, new }`，old 立即 stale，new handle 必须不同；public contract 不保证相同 slot index，generation 耗尽时旧 slot 必须退休。
+
+只有物理 overlap 返回可恢复的 typed `VehicleReplaceBlock`，payload 只含 old/blocker handle、前后关系和 bumper gap，不分配 external-ID 字符串。stale、状态、Parking binding、external ID、profile、route、occurrence、progress、speed、限速和内部不变量错误均为 fatal `CoreError`。任一 blocked/fatal 结果都保持 committed world 不变。
+
+replace 保留 old 的 stable update-order position，不产生 tombstone；vehicle registry/resolver、slot/free-list、route reference、Parking unbound state 与 command-spatial membership 在 `validate/compute -> prepare capacities -> infallible apply` 中一次提交。warm `Preserve` 成功和 warm blocked retry 为零 heap allocation；replacement 不 clone `CoreWorld`、不扫描/排序全部 vehicle，也不建立全人口临时容器。route reference 使用 exact update-position index，反复替换不会积累 stale reference nodes。
+
+Core 不选择回流 portal、lane 或 route，不拥有目标人口、seed、PRNG、pending retry 或车辆数量上限，也不接触 Entity。#203/城市游戏等调用方拥有 lifecycle policy；成功 record 足以让 #187 Adapter transaction 原子切换 binding。详细职责和 same-proxy/new-identity 契约见 `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与 `example-scenarios.md`。

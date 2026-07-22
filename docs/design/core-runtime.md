@@ -47,6 +47,7 @@ v0.1 的目标是建立一个可测试、可嵌入、引擎无关的最小交通
 - 当前外部 lane graph / per-edge speed limit / route / Vehicle Profile / Signals / Parking 数据格式、版本、单位和 schema：[`data-format.md`](data-format.md) 与 [`schemas/laneflow-data-v0.7.schema.json`](../../schemas/laneflow-data-v0.7.schema.json)；
 - 当前 Vehicle Profile、front-bumper progress、`current_speed`、`applied_acceleration` 和 inactive motion invariant：[`vehicle-following.md`](vehicle-following.md) 第 4-5 节。
 - v0.5 Parking 的 static registry/current data 已由 #107 交付，runtime binding/snapshot、`Parked` lifecycle 与同步 commands 已由 #108 交付；#109 已按 [`parking-system.md`](parking-system.md) 激活 moving reservation 的 ParkingStop、arrival、traversal、completion release 与 step events，legacy capability guard在合法 world中不可达。
+- v0.8 #186 增加 step 之间的 caller-driven atomic replacement：只允许未绑定 Parking 的 `Completed -> Active`，使用 borrowed typed input、`Replaced | Blocked` outcome、不同 old/new handle 和保留 stable update-order position 的单事务提交；人口数量、seed、入口/route 决策与 retry policy 由 #203/调用方拥有，不进入 `CoreWorld` 隐藏状态。详细契约见 [`core-id-handles.md`](core-id-handles.md) 第 12 节与 ADR 0016。
 
 因此，后续实现不得依据本文要求在每个 tick 按 external ID 字符串排序，也不得把本文的最小内部输入当作当前外部 data-format contract。
 
