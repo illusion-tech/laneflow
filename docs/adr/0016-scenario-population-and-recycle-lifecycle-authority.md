@@ -90,12 +90,12 @@ apply pending lifecycle commands
 
 v0.8 使用项目自有的 `SplitMix64` 序列，不新增 runtime RNG 依赖。state 由 caller 提供的 `u64 seed` 直接初始化，零 seed 合法；`next_u64` 使用 SplitMix64 标准 state increment、xor-shift 和乘法常量。
 
-有界抽样使用 rejection sampling，拒绝 `r < (-bound mod bound)` 的值后返回 `r mod bound`；不得使用有偏的直接 modulo，也不得依赖集合迭代顺序。
+有界抽样的 `bound` 与 draw `r` 都是 `u64`。先以 unsigned wrapping 语义计算 `threshold = bound.wrapping_neg() % bound`（等价于 `2^64 mod bound`），拒绝 `r < threshold` 的值，接受后返回 `r % bound`；不得使用有偏的直接 modulo，也不得依赖集合迭代顺序。
 
 每个首次进入 pending 的 logical slot 固定消耗两次有界决策：
 
 1. 从除刚驶出 portal 外的其余 5 个 portal 中均匀选择；
-2. 从目标 portal 的 2 或 3 条 lane route 中均匀选择。
+2. 从目标 portal 的 2 或 3 条 lane routes 中均匀选择。
 
 blocked retry 不再消耗随机数。初始人口使用同一个 PRNG 对 stable spawn-slot catalog 执行确定性 Fisher–Yates permutation；同版本实现必须用 golden sequence 锁定 seed、draw order 与结果。
 

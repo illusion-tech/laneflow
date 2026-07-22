@@ -17,7 +17,7 @@ v0.8 提供一个可持续运行、可复现且使用 production loader 的 nati
 v0.8 包含：
 
 - 物理道路轴线总长不超过 2 km，默认 1.4 km；
-- 6 个 portal-level 直行 movement，展开为 14 条 lane-level route；
+- 6 个 portal-level 直行 movement，展开为 14 条 lane-level routes；
 - 主干道 60 km/h、次干道 40 km/h 的 per-edge 限速；
 - 两套可配置固定时制信号控制器；
 - `50..=200` 可调车辆人口、显式 seed 和确定性出口回流；
@@ -85,7 +85,7 @@ v0.8 只允许道路轴线方向的直行：
 5. 2 号次干道北到南；
 6. 2 号次干道南到北。
 
-主干道 movement 各有三条 lane route，次干道 movement 各有两条，共 14 条 concrete route：
+主干道 movement 各有三条 lane routes，次干道 movement 各有两条，共 14 条 concrete routes：
 
 | Route ID pattern               | 数量 | 起点 -> 终点          | 穿越路口数 |
 | ------------------------------ | ---: | --------------------- | ---------: |
@@ -173,11 +173,11 @@ generator 从相同 lane centerline 和车辆安全间距规则生成稳定的 i
 车辆完成 route 后不从场景消失。Population Controller 为该 logical slot 建立 pending plan：
 
 1. 从除刚驶出 portal 外的其余 5 个 portal 中均匀选择目标 portal；
-2. 从该 portal 的 2 或 3 条入口 lane route 中均匀选择一条；
+2. 从该 portal 的 2 或 3 条入口 lane routes 中均匀选择一条；
 3. 使用目标 route 的入口 spawn point 和 `0 m/s` 构造 replacement；
 4. 在下一 fixed-step lifecycle boundary 尝试原子 replace。
 
-这是 portal-first、lane-second 的均匀分布，不是对全部 14 条 route 直接均匀；因此主干道 portal 与次干道 portal 被选中的概率相同。
+这是 portal-first、lane-second 的均匀分布，不是对全部 14 条 routes 直接均匀；因此主干道 portal 与次干道 portal 被选中的概率相同。
 
 ### 7.2 Blocked retry
 
@@ -219,7 +219,7 @@ mul2      = 0x94D049BB133111EB
 
 `next_u64` 的混合顺序为：state 加 increment；`z ^= z >> 30` 后乘 `mul1`；`z ^= z >> 27` 后乘 `mul2`；返回 `z ^ (z >> 31)`。
 
-有界抽样 `uniform(bound)` 要求 `bound > 0`，使用 rejection sampling：以 wrapping arithmetic 计算 `threshold = (-bound) mod bound`，拒绝 `r < threshold`，接受后返回 `r mod bound`。不得用一次直接 modulo 代替。
+有界抽样 `uniform(bound)` 要求 `bound > 0`，且 `bound` 与 draw `r` 都是 `u64`。使用 rejection sampling：以 unsigned wrapping 语义计算 `threshold = bound.wrapping_neg() % bound`（等价于 `2^64 mod bound`），拒绝 `r < threshold`，接受后返回 `r % bound`。不得用一次直接 modulo 代替。
 
 初始 permutation、首次 portal draw、首次 lane draw 共享一个显式 state 和冻结的调用顺序。回流 portal candidate 按本文件 Portal 表顺序移除刚驶出的 portal 后构造；目标 portal 内的 lane route 按 lane index 升序构造。blocked retry 不 draw。实现必须用 golden tests 固定至少：
 

@@ -380,4 +380,4 @@ heading = anchor.tangent * cos(heading_offset_radians)
 
 #184 的“道路总长”按三条物理轴线计：主干道 800 m、两条次干道各 300 m，默认合计 1.4 km，配置上限 2 km；directed lane edge、各 lane 和 connector 不重复计入产品道路总长。Traffic progression 仍以各 edge 的 Core `EdgeLength` 为权威，Spatial pose 仍以绑定后的 centerline 弧长为权威，两者由 generator 的同一中心线输入生成并通过既有 binding validation。
 
-每个路口的每条直行 lane 使用独立 connector edge，以便 StopLine/MovementGate 绑定明确 traversal。默认坐标、车道宽度、路口位置和 14 条 route 见 `example-scenarios.md`；#188 负责 generator 与制品验证，不改变 SpatialPackage v0.1 shape。
+每个路口的每条直行 lane 使用独立 connector edge，以便 StopLine/MovementGate 绑定明确 traversal。默认坐标、车道宽度、路口位置和 14 条 routes 见 `example-scenarios.md`；#188 负责 generator 与制品验证，不改变 SpatialPackage v0.1 shape。
