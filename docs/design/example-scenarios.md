@@ -136,7 +136,7 @@ Traffic v0.7 target 在每个 lane edge 上要求严格正、有限的 `speedLim
 
 red time 由完整 phase program 推导，不提供独立 `redMs`。v0.8 只在生成/启动时读取配置，不支持运行中的热修改。
 
-默认配置为 `mainGreenMs=30000`、`secondaryGreenMs=20000`、`yellowMs=3000`、`allRedMs=1000`，两个 intersection offset 均为 `0`。所有时长必须严格正，offset 必须 normalize 到 controller cycle 内。generator/loader 沿用 Signal System 的 fixed-tick 可表示性与完整 group-state validation；默认值只保证可复现和无冲突，不宣称交通优化。
+默认配置为 `mainGreenMs=30000`、`secondaryGreenMs=20000`、`yellowMs=3000`、`allRedMs=1000`，两个 intersection offset 均为 `0`。所有时长必须为严格正整数、不小于 fixed delta 且能由 fixed-tick timing contract 精确表示；offset 必须 normalize 到 controller cycle 内。generator/loader 沿用 Signal System 的完整 group-state validation；默认值只保证可复现和无冲突，不宣称交通优化。
 
 ## 6. 人口、初始分布与启动参数
 
@@ -162,7 +162,7 @@ generator 从相同 lane centerline 和车辆安全间距规则生成稳定的 i
 - 以文档化稳定顺序进入 catalog；
 - 通过 Core production spawn validation 最终确认 overlap 和 route invariant。
 
-默认几何和 profile 必须提供至少 200 个合法 slot，否则 generator/config validation 失败。初始化使用显式 seed 对 catalog 执行确定性 Fisher–Yates permutation，再取前 N 个 slot；不得依赖 hash map、文件系统或 ECS iteration order。
+默认几何和 profile 必须提供至少 200 个合法 slot，否则 generator/config validation 失败。catalog 的规范顺序依次使用本文件 Portal 表顺序、route lane index 升序、route edge index 升序和 edge-local progress 升序；不得依赖 hash map、文件系统或 ECS iteration order。初始化使用显式 seed 对完整 catalog 执行从末尾到开头的 Fisher–Yates：对 `i = len-1..1` 依次计算 `j = uniform(i+1)` 并交换 `slot[i]` / `slot[j]`，完成后取前 N 个 slot。
 
 每个 logical population slot 拥有稳定 external vehicle ID，例如 `corridor-vehicle-000`。初始 spawn 和后续 replace 都使用该 external ID，但每次旅程拥有新的 Core handle generation。
 
@@ -221,7 +221,7 @@ mul2      = 0x94D049BB133111EB
 
 有界抽样 `uniform(bound)` 要求 `bound > 0`，使用 rejection sampling：以 wrapping arithmetic 计算 `threshold = (-bound) mod bound`，拒绝 `r < threshold`，接受后返回 `r mod bound`。不得用一次直接 modulo 代替。
 
-初始 permutation、首次 portal draw、首次 lane draw 共享一个显式 state 和冻结的调用顺序。blocked retry 不 draw。实现必须用 golden tests 固定至少：
+初始 permutation、首次 portal draw、首次 lane draw 共享一个显式 state 和冻结的调用顺序。回流 portal candidate 按本文件 Portal 表顺序移除刚驶出的 portal 后构造；目标 portal 内的 lane route 按 lane index 升序构造。blocked retry 不 draw。实现必须用 golden tests 固定至少：
 
 - seed `0` 和非零 seed 的前若干 `next_u64`；
 - bound `2`、`3`、`5` 的抽样序列；
@@ -253,14 +253,14 @@ ScenarioManifest 继续是静态配对清单，不加入 seed、车辆数、spaw
 
 ## 10. 分层权威与实施切片
 
-| 关注点                                               | 权威层                              | 实施 Issue |
-| ---------------------------------------------------- | ----------------------------------- | ---------- |
-| per-edge speed limit、纵向约束、atomic replace       | Core                                | #185       |
-| Traffic v0.7 target 与场景 generator                 | Data/Authoring                      | #186       |
-| 固定时制 authoring profile 与双路口配置              | Signals/Data                        | #187       |
-| population、seed、blocked retry、Adapter transaction | engine-neutral population + Adapter | #188       |
-| native UI/CLI、道路/车辆/灯具呈现与场景集成          | Bevy Reference Adapter              | #189       |
-| 独立审阅、性能/可视/回归证据                         | Cross-layer closure                 | #195       |
+| 关注点                                               | 权威层                             | 实施 Issue |
+| ---------------------------------------------------- | ---------------------------------- | ---------- |
+| per-edge speed limit、Traffic v0.7 与纵向约束        | Data/Core                          | #185       |
+| population、seed、blocked retry、Core atomic replace | `laneflow-core` population/runtime | #186       |
+| typed lifecycle transaction 与 proxy binding         | Bevy Reference Adapter             | #187       |
+| 场景 generator、固定时制配置与三类静态制品           | Data/Authoring                     | #188       |
+| native UI/CLI、道路/车辆/灯具呈现与场景集成          | Bevy Reference Adapter             | #189       |
+| 独立审阅、性能/可视/回归证据                         | Cross-layer closure                | #195       |
 
 Core 是 vehicle identity、状态、overlap、route 和 speed-limit behavior 的权威；Population Controller 是目标人口、seed 和 portal/lane 决策的权威；Traffic/Spatial 是静态拓扑和几何的权威；Adapter 是 VehicleHandle/Entity 部分双射与宿主 schedule 的权威；Presentation 只拥有 proxy/model/Transform/灯具表现。
 
