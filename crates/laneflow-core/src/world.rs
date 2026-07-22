@@ -1580,12 +1580,12 @@ impl CoreWorld {
         }
 
         let old_external_id = old_slot.external_id.as_str();
-        let preserve_external_id = match &input.external_id {
-            VehicleReplaceExternalId::Preserve => true,
+        let (preserve_external_id, replacement_external_id) = match &input.external_id {
+            VehicleReplaceExternalId::Preserve => (true, old_external_id),
             VehicleReplaceExternalId::ReplaceWith(external_id)
                 if external_id == old_external_id =>
             {
-                true
+                (true, old_external_id)
             }
             VehicleReplaceExternalId::ReplaceWith(external_id) => {
                 validate_external_id("vehicleReplace.externalId", external_id)?;
@@ -1594,12 +1594,12 @@ impl CoreWorld {
                         vehicle_id: external_id.clone(),
                     });
                 }
-                false
+                (false, external_id.as_str())
             }
         };
         if self.vehicle_profile(input.profile).is_none() {
             return Err(CoreError::UnknownVehicleProfileHandle {
-                vehicle_id: old_external_id.to_owned(),
+                vehicle_id: replacement_external_id.to_owned(),
                 profile: input.profile,
             });
         }

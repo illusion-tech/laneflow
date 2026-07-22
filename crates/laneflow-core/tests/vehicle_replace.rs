@@ -480,7 +480,32 @@ fn fatal_validation_failures_leave_world_unchanged() {
             EdgeProgress::ZERO,
             Speed::ZERO,
         ),
-        |error| matches!(error, CoreError::UnknownVehicleProfileHandle { .. }),
+        |error| {
+            matches!(
+                error,
+                CoreError::UnknownVehicleProfileHandle { vehicle_id, .. }
+                    if vehicle_id == "old"
+            )
+        },
+    );
+    assert_failure(
+        world.clone(),
+        old,
+        VehicleReplaceInput::new(
+            VehicleReplaceExternalId::ReplaceWith("new-id".to_owned()),
+            unknown_profile,
+            target,
+            0,
+            EdgeProgress::ZERO,
+            Speed::ZERO,
+        ),
+        |error| {
+            matches!(
+                error,
+                CoreError::UnknownVehicleProfileHandle { vehicle_id, .. }
+                    if vehicle_id == "new-id"
+            )
+        },
     );
 
     let mut stale_route_world = world.clone();
