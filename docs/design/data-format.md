@@ -1,8 +1,7 @@
 # Data Format 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-22
-
+**最后更新**: 2026-07-22<br>
 **适用范围**: 当前 Traffic v0.5、SpatialPackage v0.1、ScenarioManifest v0.1、保留的 Data v0.6 数值迁移与 v0.8 Traffic v0.7 目标
 
 **关联文档**:
