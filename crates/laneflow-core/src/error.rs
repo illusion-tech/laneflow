@@ -552,7 +552,7 @@ pub enum CoreError {
         vehicle: VehicleHandle,
         actual: VehicleStatus,
     },
-    /// atomic replace 的 route occurrence 必须落在 active route 范围内。
+    /// atomic replace 的 `route_edge_index` 必须落在 active route edge sequence 范围内。
     #[error(
         "atomic replace 的 route edge index 无效：vehicle={vehicle:?}, route={route:?}, route_edge_count={route_edge_count}, actual={route_edge_index}"
     )]
