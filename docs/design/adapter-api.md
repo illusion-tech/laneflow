@@ -2,9 +2,9 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-21（#121 Bevy Reference Adapter G1）
+**最后更新**: 2026-07-22（#184 v0.8 lifecycle transaction 同步）
 
-**适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的最小只读契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
+**适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与 typed lifecycle 契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
 
 **关联文档**:
 
@@ -13,9 +13,11 @@
 - `../adr/0012-core-numeric-authority-and-presentation-precision.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
+- `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
 - `core-runtime.md`
 - `spatial-geometry.md`
 - `bevy-reference-adapter.md`
+- `example-scenarios.md`
 
 ## 1. 目标与术语
 
@@ -111,3 +113,9 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 #121 已在 `bevy-reference-adapter.md` 冻结 v0.7 的 Bevy 0.19 支持线、最小 modular dependency graph、专用 fixed schedule、单活动 Session、Vehicle/Entity 部分双射、frame-root/child Transform、placement token 复核、两阶段原子批量提交、可选 Gizmos、最小 native example 与 10k/100k 验证 Gate。
 
 该 specialization 不改变本文的跨引擎权威职责、`f32` canonical 精度边界、稳定批量顺序、失败原子性和宿主类型隔离。v0.7 仍不冻结 presentation interpolation、LOD/pooling、glTF/prefab/scene asset API、WASM、外语绑定的二进制接口、C 外部函数接口（FFI）或第二个 Engine Adapter。
+
+## 8. v0.8 typed lifecycle transaction
+
+#184/ADR 0016 要求 Adapter 为持续场景提供 typed replace-and-rebind 入口，但继续不公开 `&mut CoreWorld`。Session 在提交前验证 old handle/Entity 双向绑定、Entity 存活、replacement Core command 和 mapping 容量；全部通过后先提交 Core atomic replace，再沿已预留的不可失败路径把同一 Entity 从 old handle 切换到 new handle。公共 API 不能暴露一个 Core 已成功但 mapping 仍可任意失败的两步协议。
+
+Completed vehicle 等待入口期间不进入 pose batch，proxy 保留最后一次合法 Transform；成功 replace 后，下一 presentation batch 用 new handle 的入口 pose 更新同一 Entity。Population 的 seed、portal/lane 抽样和 retry policy 仍是 engine-neutral caller-owned authority，不进入 Adapter 或 Bevy ECS。production API 和失败注入测试由 #188 实施。

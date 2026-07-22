@@ -1,7 +1,7 @@
 # Route System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-18（#141 ADR 0014 目标数值边界同步）
+**最后更新**: 2026-07-22（#184 v0.8 直行走廊基线同步）
 
 **适用范围**: v0.2 Lane Graph + Route 的 route definition、route validation、route lifecycle 和 simple route following 边界  
 **关联文档**:
@@ -308,3 +308,9 @@ Adapter 不应：
 - stale route handle rejection。
 - event payload 使用 handle，resolver 可回查 external ID。
 - 目标 10 km edge 上界、补偿残差感知进度与 route 距离候选，在生产迁移矩阵中通过精确边界、单 tick 多 edge、多轮 route、溢出和失败原子性验证。
+
+## 10. v0.8 直行走廊 route profile
+
+#184 不改变 route 是 finite explicit edge sequence、且 Core 不负责 pathfinding 的既有决策。v0.8 generator 为 6 个 portal-level 直行 movement 生成 14 条 lane-level route：主干道两个方向各三条，两个次干道的两个方向各两条。主干道 route 穿越两个独立 connector，次干道 route 穿越一个 connector；不同 lane route 不互连，因此首版没有换道或转向。
+
+route completion event 的稳定顺序是 Population Controller 建立 pending recycle plan 的输入。回流后是复用 logical external ID 的新旅程和新 `VehicleHandle`，不是把 completed route cursor 原地重置。完整 ID、portal 和 route 表见 `example-scenarios.md`；production generator/lifecycle 分别由 #186/#188 交付。

@@ -21,7 +21,7 @@
 - `bevy-reference-adapter.md`：v0.7 Bevy 0.19 Reference Adapter 的依赖、schedule、Entity/Transform、debug、example 与验证边界。
 - `data-format.md`：lane graph、route 等外部数据格式、validation 和 loader 边界；Rust crate 所有权见 ADR 0007。
 - `data-loading.md`：当前 v0.5 Rust loader、严格版本闸口、Core Signals/Parking normalization、错误与测试边界。
-- `example-scenarios.md`：示例场景和验证路径。
+- `example-scenarios.md`：Accepted v0.8 直行信号化走廊；冻结 1.4 km 默认几何、14 条 lane route、限速、固定时制、50–200 车辆人口、seeded 出口回流与分层验收路径。
 
 ## 文档状态
 

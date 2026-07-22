@@ -1,7 +1,7 @@
 # Core ID 与 Handle 模型
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-16  
+**最后更新**: 2026-07-22<br>
 **适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界  
 **关联文档**:
 
@@ -552,3 +552,9 @@ Core identity / handle 模型影响 Core API、data-format 输入和后续 Adapt
 ## 11. v0.5 Parking extension
 
 `parking-system.md` 在不改变本文 external-ID/opaque-handle 原则的前提下增加 static dense `ParkingAreaHandle` / `ParkingSpaceHandle` 与 immutable registry/resolver。#107 已交付 static handles/API；Parking handles 不持久化、没有 public ordering，dynamic vehicle 继续使用 generation handle。Planned Parking binding/lifecycle records 由 #108/#109 交付；binding 是 Core 私有 aggregate，不进入 handle 本身、VehicleState 或 Adapter。
+
+## 12. v0.8 场景人口与 atomic replace extension
+
+#184/ADR 0016 冻结了持续运行场景所需的 lifecycle 目标：Core 提供 step 之间的 typed atomic replace command，验证 Completed old handle 和完整 replacement input 后一次提交 despawn/spawn。成功后 old handle 立即 stale，new vehicle 获得新的 generation handle；public contract 不保证复用相同 slot index。logical population slot 可以复用相同 external ID，但只有 replace transaction 能在同一事务中处理 duplicate-ID 预检和替换。
+
+Core 不选择回流 portal、lane 或 route，也不接触 Entity。失败时 world 完全不变；成功 record 必须足以让 Adapter 原子切换 binding。详细职责和 same-proxy/new-identity 契约见 `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与 `example-scenarios.md`；production API 由 #185/#188 实施。

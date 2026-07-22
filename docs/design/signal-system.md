@@ -1,7 +1,7 @@
 # Signal System 设计
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-07-17<br>
+**最后更新**: 2026-07-22<br>
 **适用范围**: v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界，以及 current v0.5 package embedding<br>
 **实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 已将保持相同 Signals shape/behavior 的 package 原子迁移到 current v0.5，并由新的 Parking+Signals fixtures 承接 active contract
 
@@ -526,3 +526,9 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 - 中段 StopLine：未来扩展 `edgeProgress`，或继续通过拆 edge authoring。
 
 法规行为必须由明确版本、适用地区与可审计依据驱动。中国现行信号通行语义的正式来源之一是[《中华人民共和国道路交通安全法实施条例》](https://www.samr.gov.cn/zljds/zcfg/art/2023/art_5c212e15369443b3b2bea4e17a1c565b.html)；未来实现仍需在对应版本立项时重新核验，不把当前链接永久硬编码为 runtime 规则。
+
+## 17. v0.8 双路口固定时制 profile
+
+#184 复用现有 immutable fixed-time controller、StopLine 和 `(from, to)` MovementGate，不增加第二套 signal runtime。每个交叉口各有一个 controller 和主/次干道两个 group；phase program 固定为主绿、主黄、全红、次绿、次黄、全红。authoring/startup config 提供 `mainGreenMs`、`secondaryGreenMs`、`yellowMs`、`allRedMs` 与两个 controller offset；red duration 由完整 program 推导，不提供独立 `redMs`，v0.8 不支持 runtime hot edit。
+
+generator 负责完整枚举 10 条 lane movement gate/路口与全部 phase group state，并证明主/次冲突 movement 不同时开放；Core 继续只执行已规范化 program，不推导 conflict matrix。默认值、ID 和验证矩阵见 `example-scenarios.md`，production authoring 与集成由 #187 交付。
