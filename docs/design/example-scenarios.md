@@ -162,7 +162,7 @@ generator 从相同 lane centerline 和车辆安全间距规则生成稳定的 i
 - 以文档化稳定顺序进入 catalog；
 - 通过 Core production spawn validation 最终确认 overlap 和 route invariant。
 
-默认几何和 profile 必须提供至少 200 个合法 slot，否则 generator/config validation 失败。catalog 的规范顺序依次使用本文件 Portal 表顺序、route lane index 升序、route edge index 升序和 edge-local progress 升序；不得依赖 hash map、文件系统或 ECS iteration order。初始化使用显式 seed 对完整 catalog 执行从末尾到开头的 Fisher–Yates：对 `i = len-1..1` 依次计算 `j = uniform(i+1)` 并交换 `slot[i]` / `slot[j]`，完成后取前 N 个 slot。
+默认几何和 profile 必须提供至少 200 个合法 slot，否则 generator/config validation 失败。catalog 的规范顺序依次使用本文件 Portal 表顺序、route lane index 升序、route edge index 升序和 edge-local progress 升序；不得依赖 hash map、文件系统或 ECS iteration order。初始化使用显式 seed 对完整 catalog 执行从末尾到开头的 Fisher–Yates：按 `i = len-1, len-2, ..., 1` 的降序依次计算 `j = uniform(i+1)` 并交换 `slot[i]` / `slot[j]`，完成后取前 N 个 slot。
 
 每个 logical population slot 拥有稳定 external vehicle ID，例如 `corridor-vehicle-000`。初始 spawn 和后续 replace 都使用该 external ID，但每次旅程拥有新的 Core handle generation。
 

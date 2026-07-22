@@ -149,7 +149,7 @@
 - 一条双向六车道主干道与两条双向四车道次干道；两条次干道分别与主干道垂直，形成两个平面交叉口；
 - 道路总长按三条物理道路轴线计，默认 `800 + 300 + 300 = 1.4 km` 且不超过 2 km；主干道限速 60 km/h，次干道限速 40 km/h；
 - 车辆数量可在 50–200 之间配置；
-- 6 个 portal-level 直行 movement 展开为 14 条 lane-level explicit route；
+- 6 个 portal-level 直行 movement 展开为 14 条 lane-level explicit routes；
 - 两个交叉口采用可配置主/次绿灯、黄灯、全红和 offset 的 fixed-time 信号控制，红灯时长由完整 phase program 推导；
 - 车辆驶出道路后，先在其他 5 个 portal 间均匀选择，再在目标 portal 的 lane route 间均匀选择；blocked retry 不重抽，使场景持续运行且固定 seed 可复现；
 - 首版车辆仅直行，提供可运行的 Bevy native reference example、headless 集成验证与独立 closure review。
