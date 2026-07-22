@@ -54,7 +54,7 @@ replace_completed_vehicle(old_handle, &replacement_input)
 命令只允许在 `step` 之间执行，并遵循 compute-then-apply：
 
 1. 验证 old handle 当前 live、状态为 Completed 且没有 Parking binding；
-2. 验证 caller 提供的 `Preserve | ReplaceWith` external ID、profile handle、route handle、occurrence、初始位置、速度和 overlap；
+2. 验证 caller 提供的 `Preserve | ReplaceWith` external ID、profile handle、route handle、`route_edge_index`、初始位置、速度和 overlap；
 3. 预留全部 registry、update-order、route-reference 与 command-spatial 变更；
 4. 一次提交 old despawn 和 new spawn；
 5. 返回足以让调用方更新绑定和诊断的 old/new record。
