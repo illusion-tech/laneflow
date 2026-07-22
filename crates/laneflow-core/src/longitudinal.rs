@@ -315,7 +315,17 @@ impl LongitudinalMotion {
             false
         };
         if hard_projection {
-            candidate.travel = constraint.route_distance.min(candidate.travel);
+            let projected_travel = constraint.route_distance.min(candidate.travel);
+            if projected_travel < candidate.travel {
+                candidate.speed = speed_after_travel_cap(
+                    self.vehicle,
+                    candidate.speed,
+                    candidate.travel,
+                    projected_travel,
+                    delta_time,
+                )?;
+            }
+            candidate.travel = projected_travel;
             candidate.speed = candidate.speed.min(constraint.target_speed);
         }
 
@@ -1204,6 +1214,29 @@ mod tests {
                 .unwrap()
         );
         assert_eq!(motion, before);
+    }
+
+    #[test]
+    fn speed_limit_hard_projection_recomputes_speed_after_travel_cap() {
+        let mut motion = spatial_oracle_motion();
+        let constraint = SpeedLimitConstraint {
+            route: crate::RouteHandle::new(0, 0),
+            from_route_edge_index: 0,
+            to_route_edge_index: 1,
+            from_edge: crate::EdgeHandle::new(0),
+            to_edge: crate::EdgeHandle::new(1),
+            route_distance: 5.0,
+            target_speed: 2.0,
+        };
+
+        assert!(
+            motion
+                .apply_speed_limit_constraint(constraint, profile(), 1.0)
+                .unwrap()
+        );
+        assert_eq!(motion.final_travel(), 5.0);
+        assert_eq!(motion.final_speed(), 0.0);
+        assert_eq!(motion.speed_limit_projection(), Some(constraint));
     }
 
     #[test]
