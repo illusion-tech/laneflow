@@ -10,7 +10,7 @@
 
 | Family            | Current source                                                                               | Publication 状态 |
 | ----------------- | -------------------------------------------------------------------------------------------- | ---------------- |
-| Traffic           | [`laneflow-data-v0.7.schema.json`](laneflow-data-v0.7.schema.json)                           | 待发布           |
+| Traffic           | [`laneflow-data-v0.7.schema.json`](laneflow-data-v0.7.schema.json)                           | 已发布           |
 | Spatial           | [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)                     | 已发布           |
 | Scenario Manifest | [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json) | 已发布           |
 
@@ -24,12 +24,11 @@
 - v0.2/v0.3 Traffic 保留历史 Raw GitHub `$id`；后续 schema 使用 organisation-owned GitHub Pages URL。
 - Pages `/schema/` 只包含 `publishedSchemas` 与 machine-readable publication index；source-only schema 不会被误部署。
 
-当前 Traffic production source 是 v0.7；其固定 `main` provenance 与公共发布需要在本次
-source 交付合并后单独登记，避免以可变分支提交伪造 immutable provenance。当前已经公开的
-schema contract 是：
+当前 Traffic production source 是 v0.7，其固定 `main` provenance 已登记到公共发布集合。
+当前 schema contract 是：
 
-- [`laneflow-data-v0.5.schema.json`](laneflow-data-v0.5.schema.json)
-- <https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.5.schema.json>
+- [`laneflow-data-v0.7.schema.json`](laneflow-data-v0.7.schema.json)
+- <https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.7.schema.json>
 - [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)
 - <https://illusion-tech.github.io/laneflow/schema/laneflow-spatial-v0.1.schema.json>
 - [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json)
