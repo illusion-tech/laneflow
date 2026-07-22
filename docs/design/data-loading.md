@@ -1,7 +1,7 @@
 # Data Loading 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-20
+**最后更新**: 2026-07-22
 **适用范围**: Traffic v0.7、SpatialPackage/ScenarioManifest v0.1 loader 与保留的 Data v0.6 数值迁移边界
 
 **关联文档**:

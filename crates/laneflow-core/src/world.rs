@@ -3188,7 +3188,7 @@ impl CoreWorld {
                 RouteDistanceQuery::BeyondHorizon => break,
                 RouteDistanceQuery::Passed => continue,
             };
-            motion.apply_speed_limit_constraint(
+            constrained |= motion.apply_speed_limit_constraint(
                 SpeedLimitConstraint {
                     route: vehicle.route,
                     from_route_edge_index: transition.from_route_edge_index,
@@ -3201,7 +3201,6 @@ impl CoreWorld {
                 profile,
                 delta_time,
             )?;
-            constrained = true;
         }
         Ok(constrained)
     }
