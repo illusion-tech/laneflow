@@ -313,4 +313,4 @@ Adapter 不应：
 
 #184 不改变 route 是 finite explicit edge sequence、且 Core 不负责 pathfinding 的既有决策。v0.8 generator 为 6 个 portal-level 直行 movement 生成 14 条 lane-level routes：主干道两个方向各三条，两个次干道的两个方向各两条。主干道 route 穿越两个独立 connector，次干道 route 穿越一个 connector；不同 lane route 不互连，因此首版没有换道或转向。
 
-route completion event 的稳定顺序是 Population Controller 建立 pending recycle plan 的输入。回流后是复用 logical external ID 的新旅程和新 `VehicleHandle`，不是把 completed route cursor 原地重置。完整 ID、portal 和 route 表见 `example-scenarios.md`；production generator/lifecycle 分别由 #188/#186 交付。
+route completion event 的稳定顺序是 #203/caller-owned policy 建立 pending recycle plan 的输入。回流后是复用 logical external ID 的新旅程和新 `VehicleHandle`，不是把 completed route cursor 原地重置。Core 不拥有人口或回流 policy，只由 #186 提供 caller-driven atomic replace；完整 ID、portal 和 route 表见 `example-scenarios.md`，production generator/policy 分别由 #188/#203 交付。

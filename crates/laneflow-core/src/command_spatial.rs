@@ -730,6 +730,13 @@ impl CommandSpatialIndex {
         self.min_emergency_deceleration
     }
 
+    pub(crate) fn prepare_note_vehicle_speed(&mut self, value: f64) {
+        debug_assert!(value.is_finite() && value >= 0.0);
+        if self.speed_heap_valid && value > 0.0 {
+            self.speed_heap.reserve(1);
+        }
+    }
+
     pub(crate) fn note_vehicle_speed(&mut self, vehicle: VehicleHandle, value: f64) {
         debug_assert!(value.is_finite() && value >= 0.0);
         self.max_vehicle_speed = self.max_vehicle_speed.max(value);

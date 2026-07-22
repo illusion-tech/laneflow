@@ -53,8 +53,9 @@ pub use signal::{
 pub use time::{StepResult, TickInput};
 pub use traffic::InitialTrafficData;
 pub use vehicle::{
-    Acceleration, EdgeProgress, Speed, VehicleDespawnRecord, VehicleSpawnInput, VehicleState,
-    VehicleStatus,
+    Acceleration, EdgeProgress, Speed, VehicleDespawnRecord, VehicleReplaceBlock,
+    VehicleReplaceBlockerPosition, VehicleReplaceExternalId, VehicleReplaceInput,
+    VehicleReplaceOutcome, VehicleReplaceRecord, VehicleSpawnInput, VehicleState, VehicleStatus,
 };
 pub use world::CoreWorld;
 

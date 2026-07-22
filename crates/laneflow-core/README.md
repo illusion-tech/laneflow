@@ -10,6 +10,7 @@
 - `LaneGraph` / `LaneEdge` / `EdgeLength`：表达 lane graph 输入，并在初始化时把 external edge ID 解析为 `EdgeHandle` runtime 连接；
 - `Route`：表达外部 route edge sequence 输入，并由 `CoreWorld` 注册为 `RouteHandle` + `EdgeHandle` sequence；
 - `VehicleSpawnInput`：表达 vehicle 初始化 / spawn 输入，使用 external vehicle ID、Vehicle Profile handle、route ID 和初始速度；
+- `VehicleReplaceInput` / `VehicleReplaceOutcome`：表达 caller-driven 的 `Completed -> Active` 原子替换；支持 external ID 转移/替换、typed overlap block、不同 old/new handle 与 stable update-order position 保留；
 - `VehicleState` / `VehicleStatus`：表达 handle-based 最小车辆运行状态，包含 profile、front-bumper progress、当前速度和本 tick 实际加速度；
 - `VehicleHandle` / `RouteHandle` / `EdgeHandle` / Parking handles：表达 Core runtime 内部 typed handle，external ID 通过对应 registry/world resolver 回查；
 - `VehicleProfile` / `IidmProfileSpec`：表达经过校验的 immutable IIDM Vehicle Profile；
@@ -20,7 +21,7 @@
 - `InitialTrafficData`：统一校验 lane graph、初始 routes、immutable profile / Signals / Parking registries，并把 graph-dependent registries 原子重绑定到自身 lane graph；
 - `SpeedLimit` / `Speed` / `Acceleration` / `EdgeProgress`：用 newtype 包装严格正的基础道路限速、非负速度、finite 有符号加速度和 front-bumper progress，避免 public API 直接散落裸 `f64`。
 - `CoreEvent`：输出 speed-limit/signal/parking/following safety projection、route transition、route completion 与稀疏 signal phase/aspect change 事件，payload 使用 handle 而不是复制 external ID。
-- `spawn_vehicle` / `despawn_vehicle` / `register_route` / `remove_route`：提供最小 runtime lifecycle API；route 移除会拒绝仍被 live vehicle 引用的 route。
+- `spawn_vehicle` / `despawn_vehicle` / `replace_completed_vehicle` / `register_route` / `remove_route`：提供最小 runtime lifecycle API；atomic replace 不拥有人口数量、seed、入口或回流策略，route 移除会拒绝仍被 live vehicle 引用的 route。
 - 私有 occupancy / leader detection：按 physical edge 构建可复用扁平索引，沿 follower 已选 route 解析最近 leader，并在初始化与 runtime spawn 时拒绝物理车身重叠。
 - 私有 Vehicle Following pipeline：基于 tick-start snapshot 计算 IIDM comfort acceleration、当前/下游 per-edge speed limit、emergency safe-speed 与 spatial targets，再通过确定性的 functional graph 投影得到最大可行 no-overlap travel；事件与状态只在整 tick 成功后原子提交。
 
