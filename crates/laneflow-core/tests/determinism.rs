@@ -20,8 +20,18 @@ fn speed(value: f64) -> Speed {
 
 fn deterministic_world() -> CoreWorld {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");

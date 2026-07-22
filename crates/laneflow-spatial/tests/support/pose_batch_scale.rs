@@ -59,6 +59,7 @@ impl RuntimeFixture {
         let graph = LaneGraph::try_new([LaneEdge::new(
             "scale-edge",
             EdgeLength::try_new(core_length).expect("valid benchmark edge length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         )])
         .expect("valid benchmark graph");

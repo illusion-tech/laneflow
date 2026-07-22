@@ -21,8 +21,18 @@ fn speed(value: f64) -> Speed {
 
 fn route_world(vehicles: impl FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(1.0), ["B"]),
-        LaneEdge::new("B", edge_length(1.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(1.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(1.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
@@ -186,8 +196,18 @@ fn route_remove_rejects_live_vehicle_and_stales_old_handle() {
 #[test]
 fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(1.0), ["B"]),
-        LaneEdge::new("B", edge_length(1.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(1.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(1.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");

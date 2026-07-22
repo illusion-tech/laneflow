@@ -24,8 +24,18 @@ fn single_edge_world(
     vehicles: impl FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>,
 ) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(10.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R1", ["A", "B"]).expect("valid route");
@@ -144,6 +154,7 @@ fn inactive_nonzero_initial_speed_is_rejected() {
         LaneGraph::try_new([LaneEdge::new(
             "A",
             edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         )])
         .expect("valid lane graph"),

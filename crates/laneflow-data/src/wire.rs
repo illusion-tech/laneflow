@@ -1,4 +1,4 @@
-//! 当前 v0.5 JSON 格式的私有 wire DTO。
+//! 当前 v0.7 JSON 格式的私有 wire DTO。
 
 use serde::Deserialize;
 
@@ -40,6 +40,8 @@ pub(crate) struct WireLaneGraph {
 pub(crate) struct WireLaneEdge {
     pub(crate) id: String,
     pub(crate) length: f64,
+    #[serde(rename = "speedLimit")]
+    pub(crate) speed_limit: f64,
     #[serde(rename = "connections")]
     pub(crate) connections: Vec<WireLaneConnection>,
 }

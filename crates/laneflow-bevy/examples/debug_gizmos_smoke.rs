@@ -79,6 +79,7 @@ fn smoke_session() -> (LaneFlowSession, LaneFlowDebugCenterlines) {
     let graph = LaneGraph::try_new([LaneEdge::new(
         "edge",
         EdgeLength::try_new(83.777_09).expect("valid edge length"),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid graph");

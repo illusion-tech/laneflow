@@ -1,6 +1,7 @@
 use laneflow_core::{
     CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph,
-    Route, Speed, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry, VehicleSpawnInput,
+    Route, Speed, SpeedLimit, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
+    VehicleSpawnInput,
 };
 
 pub const VEHICLE_COUNT: usize = 10_000;
@@ -9,6 +10,7 @@ pub const STEP_COUNT: usize = 60;
 pub const FIXED_DELTA_TIME_MS: u64 = 16;
 pub const VEHICLE_LENGTH: f64 = 4.5;
 pub const LOCALITY_EDGE_LENGTH: f64 = 10_000.0;
+pub const SPEED_LIMIT_EDGE_LENGTH: f64 = 50.0;
 
 const MILLISECONDS_PER_SECOND: f64 = 1_000.0;
 const FREE_FLOW_SPACING: f64 = 250.0;
@@ -81,6 +83,7 @@ fn linear_platoon_world(
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "platoon-edge",
         edge_length(spacing * vehicle_count as f64 + 1_000.0),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("linear scenario graph must be valid");
@@ -140,6 +143,7 @@ fn locality_preserving_platoon_world(
         LaneEdge::new(
             edge_id.clone(),
             edge_length(length),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             edge_ids.get(index + 1).into_iter().cloned(),
         )
     }))
@@ -222,6 +226,42 @@ pub fn stop_and_go_world_with_edge_cap(vehicle_count: usize, edge_cap: f64) -> C
     locality_preserving_platoon_world(vehicle_count, DENSE_SPACING, 8.0, 13.9, true, edge_cap)
 }
 
+pub fn speed_limit_transition_world(vehicle_count: usize) -> CoreWorld {
+    let edge_ids: Vec<_> = (0..vehicle_count)
+        .map(|index| format!("speed-limit-edge-{index:06}"))
+        .collect();
+    let lane_graph = LaneGraph::try_new(edge_ids.iter().enumerate().map(|(index, edge_id)| {
+        let limit = if index % 2 == 0 { 20.0 } else { 5.0 };
+        LaneEdge::new(
+            edge_id,
+            edge_length(SPEED_LIMIT_EDGE_LENGTH),
+            SpeedLimit::try_new(limit).expect("speed limit"),
+            edge_ids.get(index + 1).into_iter().cloned(),
+        )
+    }))
+    .expect("speed-limit graph must be valid");
+    let route =
+        Route::try_new("speed-limit-route", edge_ids).expect("speed-limit route must be valid");
+    let (profiles, profile) = profile_registry(20.0);
+    let traffic_data = InitialTrafficData::try_new(lane_graph, [route], profiles)
+        .expect("speed-limit traffic data must be valid");
+    let vehicles = (0..vehicle_count)
+        .map(|index| {
+            VehicleSpawnInput::active(
+                vehicle_external_id(index),
+                profile,
+                "speed-limit-route",
+                index,
+                progress(35.0),
+                speed(if index % 2 == 0 { 10.0 } else { 5.0 }),
+            )
+        })
+        .collect();
+
+    CoreWorld::with_traffic_data(FIXED_DELTA_TIME_MS, traffic_data, vehicles)
+        .expect("speed-limit world must be valid")
+}
+
 pub fn projection_heavy_world(vehicle_count: usize) -> CoreWorld {
     assert_eq!(vehicle_count % 2, 0);
     let pair_count = vehicle_count / 2;
@@ -239,6 +279,7 @@ pub fn projection_heavy_world(vehicle_count: usize) -> CoreWorld {
         LaneEdge::new(
             edge_id,
             edge_length(length),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             edge_ids.get(index + 1).into_iter().cloned(),
         )
     }))
@@ -289,6 +330,7 @@ pub fn transition_heavy_world(vehicle_count: usize) -> CoreWorld {
         LaneEdge::new(
             edge_id.clone(),
             edge_length(TRANSITION_EDGE_LENGTH),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             [edge_id.clone()],
         )
     }))
@@ -337,6 +379,7 @@ pub fn transition_pressure_world(vehicle_count: usize, crossing_percent: usize) 
         LaneEdge::new(
             edge_id.clone(),
             edge_length(TRANSITION_PRESSURE_EDGE_LENGTH),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             [edge_id.clone()],
         )
     }))

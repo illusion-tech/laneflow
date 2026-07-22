@@ -50,6 +50,7 @@ fn single_edge_world(
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "E",
         edge_length(200.0),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid graph");
@@ -204,8 +205,18 @@ fn acyclic_platoon_projects_front_to_back_without_overlap() {
 #[test]
 fn safety_projection_event_precedes_actual_edge_transition() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(5.0), ["B"]),
-        LaneEdge::new("B", edge_length(100.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(100.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
@@ -241,6 +252,7 @@ fn leader_route_completion_uses_actual_terminal_travel_for_projection() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "E",
         edge_length(20.0),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid graph");
@@ -274,8 +286,13 @@ fn leader_route_completion_uses_actual_terminal_travel_for_projection() {
 #[test]
 fn repeated_edge_cycle_is_deterministic_across_input_order() {
     fn world(reverse: bool) -> CoreWorld {
-        let lane_graph = LaneGraph::try_new([LaneEdge::new("E", edge_length(100.0), ["E"])])
-            .expect("valid graph");
+        let lane_graph = LaneGraph::try_new([LaneEdge::new(
+            "E",
+            edge_length(100.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["E"],
+        )])
+        .expect("valid graph");
         let route = Route::try_new("R", ["E", "E"]).expect("valid repeated route");
         let (profiles, profile) = profile(20.0, 2.0, 8.0);
         let traffic_data =

@@ -14,6 +14,7 @@ fn graph(edge_ids: &[&str]) -> LaneGraph {
         LaneEdge::new(
             *id,
             EdgeLength::try_new(100.0).expect("valid edge length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         )
     }))

@@ -134,6 +134,7 @@ fn build_command_scenario(
                 edge_id.clone(),
                 EdgeLength::try_new(first_edge_length)
                     .expect("command benchmark edge length must be valid"),
+                laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                 [edge_id],
             )],
         )
@@ -151,6 +152,7 @@ fn build_command_scenario(
                     id,
                     EdgeLength::try_new(length)
                         .expect("command benchmark edge length must be valid"),
+                    laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                     next,
                 )
             })

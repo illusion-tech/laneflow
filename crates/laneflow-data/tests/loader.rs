@@ -5,14 +5,14 @@ use laneflow_data::{CURRENT_FORMAT_VERSION, DataError, LoadedPackage, from_json_
 use serde_json::{Value, json};
 
 const SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.5-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.7-parking-signals-baseline.laneflow.json");
 const EMPTY_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.5-empty-signals-and-parking.laneflow.json");
+    include_str!("../../../examples/data/v0.7-empty-signals-and-parking.laneflow.json");
 
 #[test]
 fn current_loader_normalizes_static_signals_parking_and_resolvers() {
-    assert_eq!(CURRENT_FORMAT_VERSION, "0.5");
-    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.5 fixture must load");
+    assert_eq!(CURRENT_FORMAT_VERSION, "0.7");
+    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.7 fixture must load");
     let traffic = loaded.initial_traffic_data();
     let signals = traffic.signals();
 
@@ -54,6 +54,14 @@ fn current_loader_normalizes_static_signals_parking_and_resolvers() {
         .edge_handle("bypass")
         .expect("bypass edge");
     assert_eq!(
+        traffic
+            .lane_graph()
+            .edge_speed_limit(entry)
+            .expect("entry speed limit")
+            .value(),
+        30.0
+    );
+    assert_eq!(
         signals.movement_gate_control(MovementGateKey::new(entry, through)),
         Some(SignalControl::Group(group))
     );
@@ -94,7 +102,7 @@ fn current_loader_normalizes_static_signals_parking_and_resolvers() {
 }
 
 #[test]
-fn explicit_empty_signals_and_parking_is_valid_current_v0_5() {
+fn explicit_empty_signals_and_parking_is_valid_current_v0_7() {
     let loaded = from_json_str(EMPTY_SIGNALS_FIXTURE).expect("empty Signals fixture must load");
     assert!(loaded.initial_traffic_data().signals().is_empty());
     assert!(loaded.initial_traffic_data().parking().is_empty());
@@ -104,7 +112,7 @@ fn explicit_empty_signals_and_parking_is_valid_current_v0_5() {
 
 #[test]
 fn unsupported_versions_are_rejected_before_current_shape_and_units() {
-    for version in ["0.4", "0.6"] {
+    for version in ["0.4", "0.5", "0.6", "0.8"] {
         let mut value = empty_value();
         value["formatVersion"] = json!(version);
         value["units"]["distance"] = json!("kilometer");
@@ -117,10 +125,42 @@ fn unsupported_versions_are_rejected_before_current_shape_and_units() {
         let error = load_value(value).expect_err("unsupported version must fail first");
         std::assert_matches!(
             error,
-            DataError::UnsupportedFormatVersion { expected: "0.5", actual }
+            DataError::UnsupportedFormatVersion { expected: "0.7", actual }
                 if actual == version
         );
     }
+}
+
+#[test]
+fn speed_limit_is_required_closed_and_uses_the_narrowest_domain_path() {
+    let mut missing = empty_value();
+    missing["laneGraph"]["edges"][0]
+        .as_object_mut()
+        .expect("edge")
+        .remove("speedLimit");
+    std::assert_matches!(
+        load_value(missing).expect_err("speedLimit is required"),
+        DataError::JsonShape { path, .. } if path.contains("laneGraph.edges[0]")
+    );
+
+    for invalid in [0.0, -1.0] {
+        let mut value = empty_value();
+        value["laneGraph"]["edges"][0]["speedLimit"] = json!(invalid);
+        std::assert_matches!(
+            load_value(value).expect_err("invalid speedLimit"),
+            DataError::CoreDomain {
+                path,
+                source: CoreError::InvalidSpeedLimit { speed_limit },
+            } if path == "laneGraph.edges[0].speedLimit" && speed_limit == invalid
+        );
+    }
+
+    let mut unknown = empty_value();
+    unknown["laneGraph"]["edges"][0]["speedLimitMph"] = json!(60);
+    std::assert_matches!(
+        load_value(unknown).expect_err("unknown edge field"),
+        DataError::JsonShape { path, .. } if path.contains("laneGraph.edges[0]")
+    );
 }
 
 #[test]
@@ -137,7 +177,7 @@ fn malformed_or_trailing_json_fails_before_version_dispatch() {
 }
 
 #[test]
-fn current_v0_5_requires_signals_parking_and_all_nested_arrays() {
+fn current_v0_7_requires_signals_parking_and_all_nested_arrays() {
     let mut missing_signals = empty_value();
     missing_signals
         .as_object_mut()

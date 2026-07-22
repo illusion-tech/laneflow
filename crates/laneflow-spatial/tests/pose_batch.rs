@@ -43,6 +43,7 @@ fn fixture() -> Fixture {
     let graph = LaneGraph::try_new([LaneEdge::new(
         "edge",
         EdgeLength::try_new(100.0).expect("valid edge length"),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid graph");
@@ -293,6 +294,7 @@ fn parking_pose_rejects_position_outside_canonical_frame_atomically() {
     let graph = LaneGraph::try_new([LaneEdge::new(
         "vertical-z",
         EdgeLength::try_new(10.0).expect("valid edge length"),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid graph");
@@ -357,6 +359,7 @@ fn unknown_parking_space_is_reported_with_record_context() {
     let graph = LaneGraph::try_new([LaneEdge::new(
         "edge",
         EdgeLength::try_new(100.0).expect("valid edge length"),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid graph");
@@ -429,11 +432,13 @@ fn unknown_edge_is_reported_with_record_context() {
         LaneEdge::new(
             "first",
             EdgeLength::try_new(100.0).expect("valid edge length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             ["second"],
         ),
         LaneEdge::new(
             "second",
             EdgeLength::try_new(100.0).expect("valid edge length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         ),
     ])
@@ -486,6 +491,7 @@ fn parking_anchors_near_both_edge_endpoints_are_sampled() {
     let graph = LaneGraph::try_new([LaneEdge::new(
         "edge",
         EdgeLength::try_new(100.0).expect("valid edge length"),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid graph");

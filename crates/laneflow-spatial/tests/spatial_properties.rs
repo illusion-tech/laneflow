@@ -187,6 +187,7 @@ fn graph(edges: &[(&str, f64, &[&str])]) -> LaneGraph {
         LaneEdge::new(
             *id,
             EdgeLength::try_new(*length).expect("valid edge length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             next.iter().copied(),
         )
     }))

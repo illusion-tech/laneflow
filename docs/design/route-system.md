@@ -19,13 +19,13 @@
 
 本文固化 v0.2 阶段 Core route system 设计，作为 #29 的 G1 冻结输入。
 
-### 当前 v0.5 覆盖说明
+### 当前 v0.7 覆盖说明
 
-本文保留 v0.2 route definition、validation、lifecycle 和 traversal 契约。v0.3 由 [`vehicle-following.md`](vehicle-following.md) 第 5 节替换 vehicle motion state；v0.4 将 external sequence 字段改为 `edgeIds`，并规定 route 不得终止在声明 StopLine 的 edge 上；current v0.5 保留这些规则并增加 static Parking anchors。initial route 与 runtime `register_route` 复用同一规则；#96 已激活 permission-aware traversal。
+本文保留 v0.2 route definition、validation、lifecycle 和 traversal 契约。v0.3 由 [`vehicle-following.md`](vehicle-following.md) 第 5 节替换 vehicle motion state；v0.4 将 external sequence 字段改为 `edgeIds`，并规定 route 不得终止在声明 StopLine 的 edge 上；v0.5 增加 static Parking anchors；current v0.7 再增加 route-occurrence 降限速 metadata。initial route 与 runtime `register_route` 复用同一规则；#96 已激活 permission-aware traversal。
 
 Current static ParkingSpace 不持有 RouteHandle。#108/#109 current runtime 消费有限显式 route/occurrence：Reserved approach 选择当前 cursor 后的 first-reachable entry occurrence，leave/rebind 由 caller 提供明确 route occurrence，Parked/Reserved vehicle 保留 live route reference。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。完整端到端验证由 #110 固化，详细契约见 [`parking-system.md`](parking-system.md)。
 
-ADR 0014 已接受下一数值契约：单 edge 硬上限为 10 km，`EdgeLength` 使用经过检查的 `f32`，`EdgeProgress` 使用补偿残差感知的高位/残差表示。该目标在原子迁移完成前不改变本节当前 v0.5/`f64` 行为。route 距离只冻结派生权威、有限视距查询、复杂度与防溢出语义；物理存储由 #127 比较 `f64` 前缀基线与分块局部 `f32` 候选。
+ADR 0014 已接受下一数值契约：单 edge 硬上限为 10 km，`EdgeLength` 使用经过检查的 `f32`，`EdgeProgress` 使用补偿残差感知的高位/残差表示。该候选在 #144 no-go 后没有进入 production；本节当前 v0.7 继续使用 `f64`。route 距离只冻结派生权威、有限视距查询、复杂度与防溢出语义；物理存储由 #127 比较 `f64` 前缀基线与分块局部 `f32` 候选。
 
 目标：
 

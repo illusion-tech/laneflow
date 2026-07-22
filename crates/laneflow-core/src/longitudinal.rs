@@ -3,7 +3,7 @@
 use std::borrow::Borrow;
 
 use crate::{
-    CoreError, IidmProfileSpec, VehicleHandle,
+    CoreError, EdgeHandle, IidmProfileSpec, RouteHandle, VehicleHandle,
     numeric_policy::{
         LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS, computed_speed_is_near_zero,
         longitudinal_constraint_reached, physical_gap_is_zero_or_overlap,
@@ -19,6 +19,7 @@ const RESOLVED: u8 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum SpatialProjectionAttribution {
+    SpeedLimit,
     Signal,
     Parking,
 }
@@ -26,6 +27,7 @@ enum SpatialProjectionAttribution {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum SpatialCandidateAttribution {
     Base,
+    SpeedLimit,
     Signal,
     Parking,
     RouteEnd,
@@ -36,10 +38,22 @@ impl SpatialCandidateAttribution {
         match self {
             Self::Signal => 0,
             Self::Parking => 1,
-            Self::RouteEnd => 2,
-            Self::Base => 3,
+            Self::SpeedLimit => 2,
+            Self::RouteEnd => 3,
+            Self::Base => 4,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SpeedLimitConstraint {
+    pub(crate) route: RouteHandle,
+    pub(crate) from_route_edge_index: usize,
+    pub(crate) to_route_edge_index: usize,
+    pub(crate) from_edge: EdgeHandle,
+    pub(crate) to_edge: EdgeHandle,
+    pub(crate) route_distance: f64,
+    pub(crate) target_speed: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -83,6 +97,8 @@ pub(crate) struct LongitudinalMotion {
     update_sequence: u64,
     current_speed: f64,
     leader: Option<LeaderObservation>,
+    base_candidate_speed: f64,
+    base_candidate_travel: f64,
     candidate_speed: f64,
     candidate_travel: f64,
     emergency_min_travel: f64,
@@ -90,6 +106,7 @@ pub(crate) struct LongitudinalMotion {
     final_travel: f64,
     route_end_distance: Option<f64>,
     signal_stop: Option<SignalStopConstraint>,
+    speed_limit_projection: Option<SpeedLimitConstraint>,
     spatial_projection: Option<SpatialProjectionAttribution>,
     safety_projection_applied: bool,
 }
@@ -101,6 +118,8 @@ impl LongitudinalMotion {
             update_sequence,
             current_speed: 0.0,
             leader: None,
+            base_candidate_speed: 0.0,
+            base_candidate_travel: 0.0,
             candidate_speed: 0.0,
             candidate_travel: 0.0,
             emergency_min_travel: 0.0,
@@ -108,6 +127,7 @@ impl LongitudinalMotion {
             final_travel: 0.0,
             route_end_distance: None,
             signal_stop: None,
+            speed_limit_projection: None,
             spatial_projection: None,
             safety_projection_applied: false,
         }
@@ -132,27 +152,33 @@ impl LongitudinalMotion {
     ) -> Result<(), CoreError> {
         self.route_end_distance = route_end_distance;
         self.signal_stop = signal_stop;
-        self.spatial_projection = None;
 
         let mut selected = SpatialMotionCandidate {
             speed: self.candidate_speed,
             travel: self.candidate_travel,
-            hard_projection: false,
-            attribution: SpatialCandidateAttribution::Base,
+            hard_projection: self.spatial_projection.is_some(),
+            attribution: match self.spatial_projection {
+                Some(SpatialProjectionAttribution::SpeedLimit) => {
+                    SpatialCandidateAttribution::SpeedLimit
+                }
+                Some(SpatialProjectionAttribution::Signal) => SpatialCandidateAttribution::Signal,
+                Some(SpatialProjectionAttribution::Parking) => SpatialCandidateAttribution::Parking,
+                None => SpatialCandidateAttribution::Base,
+            },
         };
 
         if let Some(distance) = route_end_distance {
-            let travel = self.candidate_travel.min(distance);
-            let mut speed = if distance < self.candidate_travel {
+            let travel = self.base_candidate_travel.min(distance);
+            let mut speed = if distance < self.base_candidate_travel {
                 speed_after_travel_cap(
                     self.vehicle,
-                    self.candidate_speed,
-                    self.candidate_travel,
+                    self.base_candidate_speed,
+                    self.base_candidate_travel,
                     distance,
                     delta_time,
                 )?
             } else {
-                self.candidate_speed
+                self.base_candidate_speed
             };
             if longitudinal_constraint_reached(travel, distance) {
                 speed = 0.0;
@@ -198,19 +224,128 @@ impl LongitudinalMotion {
             }
         }
 
+        self.commit_spatial_candidate(selected);
+        self.emergency_min_travel = self.emergency_min_travel.min(selected.travel);
+        Ok(())
+    }
+
+    pub(crate) fn apply_speed_limit_constraint(
+        &mut self,
+        constraint: SpeedLimitConstraint,
+        profile: IidmProfileSpec,
+        delta_time: f64,
+    ) -> Result<(), CoreError> {
+        let candidate = self
+            .speed_limit_candidate(constraint, profile, delta_time)
+            .map_err(speed_limit_error)?;
+        let selected = SpatialMotionCandidate {
+            speed: self.candidate_speed,
+            travel: self.candidate_travel,
+            hard_projection: self.spatial_projection.is_some(),
+            attribution: match self.spatial_projection {
+                Some(SpatialProjectionAttribution::SpeedLimit) => {
+                    SpatialCandidateAttribution::SpeedLimit
+                }
+                Some(SpatialProjectionAttribution::Signal) => SpatialCandidateAttribution::Signal,
+                Some(SpatialProjectionAttribution::Parking) => SpatialCandidateAttribution::Parking,
+                None => SpatialCandidateAttribution::Base,
+            },
+        };
+        if candidate.is_stricter_than(selected) {
+            self.speed_limit_projection = candidate.hard_projection.then_some(constraint);
+            self.commit_spatial_candidate(candidate);
+        }
+        Ok(())
+    }
+
+    fn speed_limit_candidate(
+        self,
+        constraint: SpeedLimitConstraint,
+        profile: IidmProfileSpec,
+        delta_time: f64,
+    ) -> Result<SpatialMotionCandidate, CoreError> {
+        let comfort_ceiling = safe_speed(
+            self.vehicle,
+            self.current_speed,
+            profile.comfortable_deceleration,
+            constraint.target_speed,
+            profile.comfortable_deceleration,
+            constraint.route_distance,
+            delta_time,
+        )?;
+        let emergency_speed_step = finite(
+            self.vehicle,
+            "speed_limit_emergency_speed_step",
+            profile.emergency_deceleration * delta_time,
+        )?;
+        let emergency_floor = (self.current_speed - emergency_speed_step).max(0.0);
+        let constrained_speed = self
+            .base_candidate_speed
+            .min(comfort_ceiling.max(emergency_floor));
+        let mut candidate = if constrained_speed < self.base_candidate_speed {
+            let acceleration = finite(
+                self.vehicle,
+                "speed_limit_candidate_acceleration",
+                (constrained_speed - self.current_speed) / delta_time,
+            )?;
+            ballistic_motion(self.vehicle, self.current_speed, acceleration, delta_time)?
+        } else {
+            BallisticMotion {
+                speed: self.base_candidate_speed,
+                travel: self.base_candidate_travel,
+            }
+        };
+
+        let reaches_boundary =
+            longitudinal_constraint_reached(candidate.travel, constraint.route_distance);
+        let hard_projection = if reaches_boundary {
+            let crossing_speed = speed_at_travel(
+                self.vehicle,
+                self.current_speed,
+                candidate.speed,
+                constraint.route_distance,
+                delta_time,
+            )?;
+            crossing_speed > constraint.target_speed || candidate.speed > constraint.target_speed
+        } else {
+            false
+        };
+        if hard_projection {
+            candidate.travel = constraint.route_distance.min(candidate.travel);
+            candidate.speed = candidate.speed.min(constraint.target_speed);
+        }
+
+        Ok(SpatialMotionCandidate {
+            speed: candidate.speed,
+            travel: candidate.travel,
+            hard_projection,
+            attribution: SpatialCandidateAttribution::SpeedLimit,
+        })
+    }
+
+    fn commit_spatial_candidate(&mut self, selected: SpatialMotionCandidate) {
         self.candidate_speed = selected.speed;
         self.candidate_travel = selected.travel;
         self.final_speed = selected.speed;
         self.final_travel = selected.travel;
-        self.emergency_min_travel = self.emergency_min_travel.min(selected.travel);
-        if selected.hard_projection {
-            self.spatial_projection = match selected.attribution {
+        self.spatial_projection = if selected.hard_projection {
+            match selected.attribution {
+                SpatialCandidateAttribution::SpeedLimit => {
+                    Some(SpatialProjectionAttribution::SpeedLimit)
+                }
                 SpatialCandidateAttribution::Signal => Some(SpatialProjectionAttribution::Signal),
                 SpatialCandidateAttribution::Parking => Some(SpatialProjectionAttribution::Parking),
                 SpatialCandidateAttribution::Base | SpatialCandidateAttribution::RouteEnd => None,
-            };
+            }
+        } else {
+            None
+        };
+        if !matches!(
+            self.spatial_projection,
+            Some(SpatialProjectionAttribution::SpeedLimit)
+        ) {
+            self.speed_limit_projection = None;
         }
-        Ok(())
     }
 
     fn stop_candidate(
@@ -235,8 +370,10 @@ impl LongitudinalMotion {
             profile.emergency_deceleration * delta_time,
         )?;
         let emergency_floor = (self.current_speed - emergency_speed_step).max(0.0);
-        let constrained_speed = self.candidate_speed.min(speed_ceiling.max(emergency_floor));
-        let mut candidate = if constrained_speed < self.candidate_speed {
+        let constrained_speed = self
+            .base_candidate_speed
+            .min(speed_ceiling.max(emergency_floor));
+        let mut candidate = if constrained_speed < self.base_candidate_speed {
             let acceleration = finite(
                 self.vehicle,
                 "spatial_candidate_acceleration",
@@ -245,8 +382,8 @@ impl LongitudinalMotion {
             ballistic_motion(self.vehicle, self.current_speed, acceleration, delta_time)?
         } else {
             BallisticMotion {
-                speed: self.candidate_speed,
-                travel: self.candidate_travel,
+                speed: self.base_candidate_speed,
+                travel: self.base_candidate_travel,
             }
         };
 
@@ -305,8 +442,19 @@ impl LongitudinalMotion {
                 self.signal_stop
                     .expect("signal projection must have attribution"),
             ),
-            Some(SpatialProjectionAttribution::Parking) | None => None,
+            Some(SpatialProjectionAttribution::SpeedLimit)
+            | Some(SpatialProjectionAttribution::Parking)
+            | None => None,
         }
+    }
+
+    pub(crate) fn speed_limit_projection(self) -> Option<SpeedLimitConstraint> {
+        matches!(
+            self.spatial_projection,
+            Some(SpatialProjectionAttribution::SpeedLimit)
+        )
+        .then_some(self.speed_limit_projection)
+        .flatten()
     }
 
     pub(crate) fn parking_stop_projection(self) -> bool {
@@ -573,10 +721,14 @@ pub(crate) fn compute_motion(
     update_sequence: u64,
     current_speed: f64,
     profile: IidmProfileSpec,
+    effective_speed_ceiling: f64,
     leader: Option<LeaderKinematics>,
     delta_time: f64,
 ) -> Result<LongitudinalMotion, CoreError> {
-    let comfort_acceleration = iidm_acceleration(vehicle, current_speed, profile, leader)?;
+    let mut effective_profile = profile;
+    effective_profile.desired_speed = profile.desired_speed.min(effective_speed_ceiling);
+    let comfort_acceleration =
+        iidm_acceleration(vehicle, current_speed, effective_profile, leader)?;
     let comfort = ballistic_motion(vehicle, current_speed, comfort_acceleration, delta_time)?;
     let emergency_min_travel = emergency_min_travel(
         vehicle,
@@ -616,12 +768,24 @@ pub(crate) fn compute_motion(
     } else {
         comfort
     };
+    let candidate = if candidate.speed > effective_speed_ceiling {
+        let acceleration = finite(
+            vehicle,
+            "speed_ceiling_acceleration",
+            (effective_speed_ceiling - current_speed) / delta_time,
+        )?;
+        ballistic_motion(vehicle, current_speed, acceleration, delta_time)?
+    } else {
+        candidate
+    };
 
     Ok(LongitudinalMotion {
         vehicle,
         update_sequence,
         current_speed,
         leader: leader.map(|value| value.observation),
+        base_candidate_speed: candidate.speed,
+        base_candidate_travel: candidate.travel,
         candidate_speed: candidate.speed,
         candidate_travel: candidate.travel,
         emergency_min_travel,
@@ -629,9 +793,25 @@ pub(crate) fn compute_motion(
         final_travel: candidate.travel,
         route_end_distance: None,
         signal_stop: None,
+        speed_limit_projection: None,
         spatial_projection: None,
         safety_projection_applied: false,
     })
+}
+
+fn speed_limit_error(error: CoreError) -> CoreError {
+    match error {
+        CoreError::NonFiniteLongitudinalComputation {
+            vehicle,
+            stage,
+            value,
+        } => CoreError::NonFiniteSpeedLimitComputation {
+            vehicle,
+            stage,
+            value,
+        },
+        error => error,
+    }
 }
 
 fn signal_stop_error(error: CoreError) -> CoreError {
@@ -910,6 +1090,30 @@ fn speed_after_travel_cap(
         .min(candidate_speed))
 }
 
+fn speed_at_travel(
+    vehicle: VehicleHandle,
+    current_speed: f64,
+    final_speed: f64,
+    travel: f64,
+    delta_time: f64,
+) -> Result<f64, CoreError> {
+    let acceleration = finite(
+        vehicle,
+        "speed_limit_crossing_acceleration",
+        (final_speed - current_speed) / delta_time,
+    )?;
+    let squared_speed = finite(
+        vehicle,
+        "speed_limit_crossing_squared_speed",
+        current_speed * current_speed + 2.0 * acceleration * travel,
+    )?;
+    finite(
+        vehicle,
+        "speed_limit_crossing_speed",
+        squared_speed.max(0.0).sqrt(),
+    )
+}
+
 fn finite(vehicle: VehicleHandle, stage: &'static str, value: f64) -> Result<f64, CoreError> {
     if !value.is_finite() {
         return Err(CoreError::NonFiniteLongitudinalComputation {
@@ -961,6 +1165,8 @@ mod tests {
             update_sequence: 0,
             current_speed: 10.0,
             leader: None,
+            base_candidate_speed: 10.0,
+            base_candidate_travel: 10.0,
             candidate_speed: 10.0,
             candidate_travel: 10.0,
             emergency_min_travel: 6.0,
@@ -968,6 +1174,7 @@ mod tests {
             final_travel: 10.0,
             route_end_distance: None,
             signal_stop: None,
+            speed_limit_projection: None,
             spatial_projection: None,
             safety_projection_applied: false,
         }
@@ -1026,6 +1233,8 @@ mod tests {
                 leader: vehicle(1),
                 bumper_gap: 0.0,
             }),
+            base_candidate_speed: 2.0,
+            base_candidate_travel: 2.0,
             candidate_speed: 2.0,
             candidate_travel: 2.0,
             emergency_min_travel: 1.0,
@@ -1033,6 +1242,7 @@ mod tests {
             final_travel: 2.0,
             route_end_distance: None,
             signal_stop: None,
+            speed_limit_projection: None,
             spatial_projection: None,
             safety_projection_applied: false,
         });
@@ -1044,6 +1254,8 @@ mod tests {
                 leader: vehicle(0),
                 bumper_gap: 0.0,
             }),
+            base_candidate_speed: 3.0,
+            base_candidate_travel: 3.0,
             candidate_speed: 3.0,
             candidate_travel: 3.0,
             emergency_min_travel: 1.0,
@@ -1051,6 +1263,7 @@ mod tests {
             final_travel: 3.0,
             route_end_distance: None,
             signal_stop: None,
+            speed_limit_projection: None,
             spatial_projection: None,
             safety_projection_applied: false,
         });
@@ -1068,6 +1281,8 @@ mod tests {
             update_sequence: 0,
             current_speed: 10.0,
             leader: None,
+            base_candidate_speed: 10.0,
+            base_candidate_travel: 10.0,
             candidate_speed: 10.0,
             candidate_travel: 10.0,
             emergency_min_travel: 6.0,
@@ -1075,6 +1290,7 @@ mod tests {
             final_travel: 10.0,
             route_end_distance: None,
             signal_stop: None,
+            speed_limit_projection: None,
             spatial_projection: None,
             safety_projection_applied: false,
         };
@@ -1093,6 +1309,8 @@ mod tests {
             update_sequence: 0,
             current_speed: 6.0,
             leader: None,
+            base_candidate_speed: 6.0,
+            base_candidate_travel: 8.0,
             candidate_speed: 6.0,
             candidate_travel: 8.0,
             emergency_min_travel: 5.0,
@@ -1100,6 +1318,7 @@ mod tests {
             final_travel: 8.0,
             route_end_distance: None,
             signal_stop: None,
+            speed_limit_projection: None,
             spatial_projection: None,
             safety_projection_applied: false,
         };
@@ -1122,6 +1341,7 @@ mod tests {
             route_distance in 0.0_f64..9.99,
             signal_distance in 0.0_f64..9.99,
             parking_distance in 0.0_f64..9.99,
+            speed_limit_distance in 0.0_f64..9.99,
         ) {
             let signal = SignalStopConstraint {
                 route_distance: signal_distance,
@@ -1142,6 +1362,15 @@ mod tests {
                 entry_progress: parking_distance,
                 route_distance: parking_distance,
             };
+            let speed_limit = SpeedLimitConstraint {
+                route: crate::RouteHandle::new(0, 0),
+                from_route_edge_index: 0,
+                to_route_edge_index: 1,
+                from_edge: crate::EdgeHandle::new(0),
+                to_edge: crate::EdgeHandle::new(1),
+                route_distance: speed_limit_distance,
+                target_speed: 5.0,
+            };
 
             let mut route_only = spatial_oracle_motion();
             route_only
@@ -1155,13 +1384,18 @@ mod tests {
             parking_only
                 .apply_spatial_stops(None, None, Some(parking), Some(profile()), 1.0)
                 .unwrap();
+            let mut speed_limit_only = spatial_oracle_motion();
+            speed_limit_only
+                .apply_speed_limit_constraint(speed_limit, profile(), 1.0)
+                .unwrap();
             let base = spatial_oracle_motion();
 
             let expected = [
                 (signal_only, 0_u8),
                 (parking_only, 1_u8),
-                (route_only, 2_u8),
-                (base, 3_u8),
+                (speed_limit_only, 2_u8),
+                (route_only, 3_u8),
+                (base, 4_u8),
             ]
             .into_iter()
             .min_by(|(left, left_priority), (right, right_priority)| {
@@ -1174,6 +1408,9 @@ mod tests {
             .0;
 
             let mut combined = base;
+            combined
+                .apply_speed_limit_constraint(speed_limit, profile(), 1.0)
+                .unwrap();
             combined
                 .apply_spatial_stops(
                     Some(route_distance),
@@ -1194,16 +1431,34 @@ mod tests {
                 combined.parking_stop_projection(),
                 expected.parking_stop_projection(),
             );
+            prop_assert_eq!(
+                combined.speed_limit_projection(),
+                expected.speed_limit_projection(),
+            );
         }
     }
 
     #[test]
     fn exact_spatial_tie_prefers_signal_then_parking_then_route_end() {
+        assert!(
+            SpatialCandidateAttribution::Signal.priority()
+                < SpatialCandidateAttribution::Parking.priority()
+        );
+        assert!(
+            SpatialCandidateAttribution::Parking.priority()
+                < SpatialCandidateAttribution::SpeedLimit.priority()
+        );
+        assert!(
+            SpatialCandidateAttribution::SpeedLimit.priority()
+                < SpatialCandidateAttribution::RouteEnd.priority()
+        );
         let base = LongitudinalMotion {
             vehicle: vehicle(0),
             update_sequence: 0,
             current_speed: 10.0,
             leader: None,
+            base_candidate_speed: 10.0,
+            base_candidate_travel: 10.0,
             candidate_speed: 10.0,
             candidate_travel: 10.0,
             emergency_min_travel: 6.0,
@@ -1211,6 +1466,7 @@ mod tests {
             final_travel: 10.0,
             route_end_distance: None,
             signal_stop: None,
+            speed_limit_projection: None,
             spatial_projection: None,
             safety_projection_applied: false,
         };

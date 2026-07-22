@@ -1,5 +1,5 @@
 {
-  "formatVersion": "0.5",
+  "formatVersion": "0.7",
   "units": {
     "distance": "meter",
     "time": "second"
@@ -9,6 +9,7 @@
       {
         "id": "entry",
         "length": 100.0,
+        "speedLimit": 30.0,
         "connections": [
           { "toEdgeId": "through" },
           { "toEdgeId": "bypass" }
@@ -17,11 +18,13 @@
       {
         "id": "through",
         "length": 40.0,
+        "speedLimit": 30.0,
         "connections": []
       },
       {
         "id": "bypass",
         "length": 30.0,
+        "speedLimit": 30.0,
         "connections": []
       }
     ]

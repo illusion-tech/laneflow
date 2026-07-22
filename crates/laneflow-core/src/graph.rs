@@ -30,17 +30,46 @@ impl EdgeLength {
     }
 }
 
+/// lane edge 的基础道路限速，单位为 m/s。
+///
+/// 该值描述 immutable 道路事实；运行时纵向策略可以基于它派生 effective speed
+/// ceiling，但不得修改该基础值。
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct SpeedLimit(f64);
+
+impl SpeedLimit {
+    /// 创建经过校验的基础道路限速。
+    pub fn try_new(value: f64) -> Result<Self, CoreError> {
+        if !value.is_finite() || value <= 0.0 {
+            return Err(CoreError::InvalidSpeedLimit { speed_limit: value });
+        }
+
+        Ok(Self(value))
+    }
+
+    /// 返回底层 m/s 数值。
+    pub const fn value(self) -> f64 {
+        self.0
+    }
+}
+
 /// lane edge 输入定义。
 #[derive(Clone, Debug, PartialEq)]
 pub struct LaneEdge {
     id: String,
     length: EdgeLength,
+    speed_limit: SpeedLimit,
     next_edge_ids: Vec<String>,
 }
 
 impl LaneEdge {
     /// 创建 lane edge。跨 edge 引用由 `LaneGraph::try_new` 校验。
-    pub fn new<I, S>(id: impl Into<String>, length: EdgeLength, next_edge_ids: I) -> Self
+    pub fn new<I, S>(
+        id: impl Into<String>,
+        length: EdgeLength,
+        speed_limit: SpeedLimit,
+        next_edge_ids: I,
+    ) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
@@ -48,6 +77,7 @@ impl LaneEdge {
         Self {
             id: id.into(),
             length,
+            speed_limit,
             next_edge_ids: next_edge_ids.into_iter().map(Into::into).collect(),
         }
     }
@@ -60,6 +90,11 @@ impl LaneEdge {
     /// 返回 lane edge length。
     pub const fn length(&self) -> EdgeLength {
         self.length
+    }
+
+    /// 返回 lane edge 的基础道路限速。
+    pub const fn speed_limit(&self) -> SpeedLimit {
+        self.speed_limit
     }
 
     /// 返回可连接的 next edge id 列表。
@@ -191,6 +226,16 @@ impl LaneGraph {
     /// 返回指定 external ID 的 edge 长度。
     pub fn edge_length_by_id(&self, id: &str) -> Option<EdgeLength> {
         self.edge_by_id(id).map(LaneEdge::length)
+    }
+
+    /// 返回指定 edge 的基础道路限速。
+    pub fn edge_speed_limit(&self, handle: EdgeHandle) -> Option<SpeedLimit> {
+        self.edge(handle).map(LaneEdge::speed_limit)
+    }
+
+    /// 返回指定 external ID 的 edge 基础道路限速。
+    pub fn edge_speed_limit_by_id(&self, id: &str) -> Option<SpeedLimit> {
+        self.edge_by_id(id).map(LaneEdge::speed_limit)
     }
 
     /// 返回指定 edge 的 outgoing edge handle 列表。

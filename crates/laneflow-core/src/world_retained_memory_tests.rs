@@ -83,6 +83,7 @@ fn capped_chain_graph(edge_count: usize) -> (LaneGraph, Vec<String>) {
         LaneEdge::new(
             edge_id.clone(),
             EdgeLength::try_new(EDGE_LENGTH_METERS).expect("retained edge length must be valid"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             edge_ids.get(index + 1).into_iter().cloned(),
         )
     }))
@@ -126,6 +127,7 @@ fn route_heavy_world(vehicle_count: usize) -> CoreWorld {
     let graph = LaneGraph::try_new([LaneEdge::new(
         "retained-route-loop",
         EdgeLength::try_new(EDGE_LENGTH_METERS).expect("route-heavy edge length must be valid"),
+        crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         ["retained-route-loop"],
     )])
     .expect("route-heavy graph must be valid");
@@ -182,11 +184,13 @@ fn signal_world(
         edges.push(LaneEdge::new(
             entry.clone(),
             EdgeLength::try_new(200.0).expect("signal entry length must be valid"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             [exit.clone()],
         ));
         edges.push(LaneEdge::new(
             exit.clone(),
             EdgeLength::try_new(200.0).expect("signal exit length must be valid"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             [exit.clone()],
         ));
         routes.push(

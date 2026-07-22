@@ -36,6 +36,7 @@ fn fixture() -> Fixture {
     let graph = LaneGraph::try_new([LaneEdge::new(
         "edge",
         EdgeLength::try_new(100.0).expect("valid edge length"),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid graph");

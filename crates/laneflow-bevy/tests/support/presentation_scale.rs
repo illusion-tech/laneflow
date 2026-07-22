@@ -42,6 +42,7 @@ impl PresentationScaleFixture {
         let graph = LaneGraph::try_new([LaneEdge::new(
             "scale-edge",
             EdgeLength::try_new(edge_length).expect("valid scale edge length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         )])
         .expect("valid scale graph");

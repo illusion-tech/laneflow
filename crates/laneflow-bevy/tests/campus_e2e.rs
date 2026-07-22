@@ -16,7 +16,7 @@ use laneflow_spatial::{FramePlacementToken, SpatialEdgeInput, SpatialRegistry};
 
 const MANIFEST: &[u8] = include_bytes!("../../../examples/data/v0.1-campus.scenario.json");
 const TRAFFIC: &[u8] =
-    include_bytes!("../../../examples/data/v0.5-empty-signals-and-parking.laneflow.json");
+    include_bytes!("../../../examples/data/v0.7-empty-signals-and-parking.laneflow.json");
 const SPATIAL: &[u8] = include_bytes!("../../../examples/data/v0.1-campus.spatial.json");
 
 struct CampusFixture {
@@ -30,7 +30,7 @@ impl CampusFixture {
         let loaded = from_scenario_json_slice(
             MANIFEST,
             &[
-                NamedArtifact::new("v0.5-empty-signals-and-parking.laneflow.json", TRAFFIC),
+                NamedArtifact::new("v0.7-empty-signals-and-parking.laneflow.json", TRAFFIC),
                 NamedArtifact::new("v0.1-campus.spatial.json", SPATIAL),
             ],
         )

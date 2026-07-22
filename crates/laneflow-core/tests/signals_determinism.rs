@@ -20,16 +20,28 @@ fn phase(id: &str, first: SignalAspect, second: SignalAspect) -> SignalPhase {
 
 fn replay_world() -> CoreWorld {
     let graph = LaneGraph::try_new([
-        LaneEdge::new("a", EdgeLength::try_new(10.0).unwrap(), ["b"]),
+        LaneEdge::new(
+            "a",
+            EdgeLength::try_new(10.0).unwrap(),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["b"],
+        ),
         LaneEdge::new(
             "b",
             EdgeLength::try_new(20.0).unwrap(),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         ),
-        LaneEdge::new("c", EdgeLength::try_new(10.0).unwrap(), ["d"]),
+        LaneEdge::new(
+            "c",
+            EdgeLength::try_new(10.0).unwrap(),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["d"],
+        ),
         LaneEdge::new(
             "d",
             EdgeLength::try_new(20.0).unwrap(),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         ),
     ])

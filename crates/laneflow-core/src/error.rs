@@ -36,6 +36,9 @@ pub enum CoreError {
         edge_length: f64,
         min_exclusive: f64,
     },
+    /// 基础道路限速必须是 finite 且严格大于 0。
+    #[error("speed limit 无效：{speed_limit}，必须是 finite 且严格大于 0 m/s")]
+    InvalidSpeedLimit { speed_limit: f64 },
     /// external ID 必须满足当前 data format 的 ASCII token 规则。
     #[error("external ID 无效：field={field}, value=`{external_id}`，必须匹配 {pattern}")]
     InvalidExternalId {
@@ -483,6 +486,16 @@ pub enum CoreError {
         status: VehicleStatus,
         initial_speed: f64,
     },
+    /// vehicle 初始速度不得超过当前 edge 的基础道路限速。
+    #[error(
+        "vehicle `{vehicle_id}` 的初始速度超过 edge `{edge_id}` 基础限速：initial_speed={initial_speed}, speed_limit={speed_limit}"
+    )]
+    VehicleInitialSpeedExceedsLimit {
+        vehicle_id: String,
+        edge_id: String,
+        initial_speed: f64,
+        speed_limit: f64,
+    },
     /// candidate vehicle 与现有 vehicle 的物理车身不得重叠。
     #[error(
         "vehicle `{follower_id}` 与 leader `{leader_id}` 发生物理重叠：bumper_gap={bumper_gap}"
@@ -558,6 +571,27 @@ pub enum CoreError {
         vehicle: VehicleHandle,
         stage: &'static str,
         value: f64,
+    },
+    /// speed-limit route-distance、braking envelope 或 crossing guard 必须保持 finite。
+    #[error("vehicle `{vehicle:?}` 的 speed-limit 计算不是 finite：stage={stage}, value={value}")]
+    NonFiniteSpeedLimitComputation {
+        vehicle: VehicleHandle,
+        stage: &'static str,
+        value: f64,
+    },
+    /// 最终 traversal 不得以超过目标 edge 基础限速的速度跨越降限速边界。
+    #[error(
+        "vehicle `{vehicle:?}` 的 speed-limit motion 与 edge traversal 矛盾：route={route:?}, occurrence={from_route_edge_index}->{to_route_edge_index}, edge={from_edge:?}->{to_edge:?}, final_speed={final_speed}, target_limit={target_limit}"
+    )]
+    SpeedLimitTraversalInvariant {
+        vehicle: VehicleHandle,
+        route: RouteHandle,
+        from_route_edge_index: usize,
+        to_route_edge_index: usize,
+        from_edge: EdgeHandle,
+        to_edge: EdgeHandle,
+        final_speed: f64,
+        target_limit: f64,
     },
     /// SignalStop route-distance、reducer 或 hard projection 必须保持 finite。
     #[error("vehicle `{vehicle:?}` 的 SignalStop 计算不是 finite：stage={stage}, value={value}")]
