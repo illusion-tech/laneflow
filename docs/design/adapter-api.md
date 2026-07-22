@@ -118,4 +118,4 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 
 #184/ADR 0016 要求 Adapter 为持续场景提供 typed replace-and-rebind 入口，但继续不公开 `&mut CoreWorld`。Session 在提交前验证 old handle/Entity 双向绑定、Entity 存活、replacement Core command 和 mapping 容量；全部通过后先提交 Core atomic replace，再沿已预留的不可失败路径把同一 Entity 从 old handle 切换到 new handle。公共 API 不能暴露一个 Core 已成功但 mapping 仍可任意失败的两步协议。
 
-Completed vehicle 等待入口期间不进入 pose batch，proxy 保留最后一次合法 Transform；成功 replace 后，下一 presentation batch 用 new handle 的入口 pose 更新同一 Entity。Population 的 seed、portal/lane 抽样和 retry policy 仍是 engine-neutral caller-owned authority，不进入 Adapter 或 Bevy ECS。production API 和失败注入测试由 #188 实施。
+Completed vehicle 等待入口期间不进入 pose batch，proxy 保留最后一次合法 Transform；成功 replace 后，下一 presentation batch 用 new handle 的入口 pose 更新同一 Entity。Population 的 seed、portal/lane 抽样和 retry policy 仍是 engine-neutral caller-owned authority，不进入 Adapter 或 Bevy ECS。production API 和失败注入测试由 #187 实施。

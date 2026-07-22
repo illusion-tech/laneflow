@@ -557,4 +557,4 @@ Core identity / handle 模型影响 Core API、data-format 输入和后续 Adapt
 
 #184/ADR 0016 冻结了持续运行场景所需的 lifecycle 目标：Core 提供 step 之间的 typed atomic replace command，验证 Completed old handle 和完整 replacement input 后一次提交 despawn/spawn。成功后 old handle 立即 stale，new vehicle 获得新的 generation handle；public contract 不保证复用相同 slot index。logical population slot 可以复用相同 external ID，但只有 replace transaction 能在同一事务中处理 duplicate-ID 预检和替换。
 
-Core 不选择回流 portal、lane 或 route，也不接触 Entity。失败时 world 完全不变；成功 record 必须足以让 Adapter 原子切换 binding。详细职责和 same-proxy/new-identity 契约见 `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与 `example-scenarios.md`；production API 由 #185/#188 实施。
+Core 不选择回流 portal、lane 或 route，也不接触 Entity。失败时 world 完全不变；成功 record 必须足以让 Adapter 原子切换 binding。详细职责和 same-proxy/new-identity 契约见 `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与 `example-scenarios.md`；Core atomic replace 与 Adapter transaction 分别由 #186/#187 实施。
