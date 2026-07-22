@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Draft  
-**最后更新**: 2026-07-21
+**最后更新**: 2026-07-22
 **适用范围**: LaneFlow 初始版本路线图
 
 本文记录 LaneFlow 的稳定路线图。GitHub Project 负责当前执行状态，本文负责长期版本边界。
@@ -140,21 +140,42 @@
 - 把 WASM、第二个 Engine Adapter 或 foreign-host boundary proof 设为完成条件；
 - #72 的 Core simulation fidelity 分层。
 
-## 城市级扩展研究（Milestone N/A）
+## v0.8 Signalized Corridor MVP
 
-#72 保持独立 Backlog 研究入口，不属于 v0.6/v0.7 的完成边界。v0.6 的 geometry 与 #72 的 active-agent spatial partition 是不同层次；v0.7 的 presentation LOD 与 #72 的 Core simulation fidelity 也不得混同。
-
-不要求在 v1.0 前实现 100k/1M runtime，但必须在 `v1.0 Stable Runtime API` 的 G1 前，从 #72 拆出并完成 Core API 对 partition、multi-rate、batch access、commands 和 deterministic event merge 的可扩展性审计。完整并行、多层级或分布式实施只有在证据和产品目标明确后才建立 Milestone。
-
-## v1.0 Stable Runtime API
-
-目标：稳定 Core API、数据格式和 Adapter 协议。
+目标：交付首个可调、可持续运行的直行信号化走廊示例，把既有 Core、Signals、Spatial 与 Bevy Reference Adapter 串成一条可验证的产品路径。Milestone tracker 为 #193。
 
 范围：
 
-- documented Core API
-- versioned data format
-- adapter compatibility rules
-- partition、multi-rate 与 batch access 的 API 可扩展性审计（不等同于实现 100k/1M runtime）
-- example scenario suite
-- release process
+- 一条双向六车道主干道与两条双向四车道次干道；两条次干道分别与主干道垂直，形成两个平面交叉口；
+- 道路总长不超过 2 km，主干道限速 60 km/h，次干道限速 40 km/h；
+- 车辆数量可在 50–200 之间配置；
+- 两个交叉口采用可配置红灯、绿灯时长的 fixed-time 信号控制；
+- 车辆驶出道路后，按确定性随机策略从另一道路入口重新进入，使场景持续运行且固定 seed 可复现；
+- 首版车辆仅直行，提供可运行的 Bevy native reference example、headless 集成验证与独立 closure review。
+
+实施链：#184 直行基线设计 → #185–#188 Core/Data/Adapter 场景能力 → #189 native example 集成 → #195 closure。
+
+不覆盖：左转、右转、受保护转向相位、permissive movement、复杂车道选择或城市级扩展。
+
+## v0.9 Complete Signalized Corridor Example
+
+目标：在 v0.8 直行走廊之上交付支持受保护左转、直行和右转的完整信号化走廊示例。Milestone tracker 为 #194；v0.8 是其前置条件。
+
+范围：
+
+- #196 冻结转向 movement、route、lane connection、signal group/phase 与车辆选择规则；
+- #190–#192 实现并验证两个交叉口的受保护左转、直行和右转，以及对应的 Core/Data/Adapter 行为；
+- 保留 v0.8 的道路尺度、限速、50–200 车辆调节、信号时长配置和确定性出口回流能力；
+- 完成端到端安全、确定性、可配置性、native 可视化和独立 closure review。
+
+不覆盖：无保护左转、红灯右转、感应式或自适应信号、掉头，以及 #72 的城市级扩展。
+
+## 城市级扩展研究（Milestone N/A）
+
+#72 保持独立 Backlog 研究入口，不属于 v0.6–v0.9 的完成边界。v0.6 的 geometry 与 #72 的 active-agent spatial partition 是不同层次；v0.7 的 presentation LOD 与 #72 的 Core simulation fidelity 也不得混同。
+
+#72 何时进入版本范围，以及是否需要在未来稳定 API Milestone 的 G1 前拆出 Core API 对 partition、multi-rate、batch access、commands 和 deterministic event merge 的可扩展性审计，均留待对应 Milestone 规划时决策。完整并行、多层级或分布式实施只有在证据和产品目标明确后才建立 Milestone。
+
+## v1.0 Scope TBD
+
+状态：待规划。产品目标、交付范围、完成定义，以及与 #72、foreign-host boundary proof 和稳定性承诺的关系均未冻结。不得因为 `v1.0 Scope TBD` Milestone 已存在，就默认把未决 Issue 绑定到该 Milestone；其范围必须通过后续治理决策与 G1 重新建立。
