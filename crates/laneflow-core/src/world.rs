@@ -4135,6 +4135,10 @@ mod occupancy_tests;
 mod retained_memory_tests;
 
 #[cfg(test)]
+#[path = "world_event_merge_research_tests.rs"]
+mod event_merge_research_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{

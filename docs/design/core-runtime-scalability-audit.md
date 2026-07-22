@@ -215,7 +215,7 @@ Stable Runtime API G1 前必须选择并验证至少一种 batch/selective read 
 当前单线程 append order 是可重复的，但还不是可并行归并的完整语义。并行前必须为每类事件冻结等价于以下元组的稳定顺序：
 
 ```text
-(tick_index, phase_rank, primary_stable_sequence, local_sequence, domain_tiebreaker)
+(tick_index, phase_rank, primary_stable_sequence, local_sequence, secondary_sequence, domain_tiebreaker)
 ```
 
 最低规则：
@@ -290,6 +290,40 @@ partition、SoA、event merge 或 multi-rate 的实验优先放在 research/benc
 目标：在不并行修改 production step 的情况下，把 current events映射到 canonical phase/key，并证明 1、2、N 个模拟 worker bucket 归并后与 current single-thread oracle 完全一致。
 
 至少覆盖：route transition-heavy、projection-heavy、Signals phase change、Parking arrival/release、simultaneous completion 和失败 first-error。
+
+#### P1 #204 研究结果（2026-07-22）
+
+**状态**：测试专用原型通过；结论是继续把 canonical phase/key 作为 production scheduler 的候选输入，但不接受为 production architecture 或 public event contract。
+
+原型位于 `crates/laneflow-core/src/world_event_merge_research_tests.rs`，仅由 `world` 下的 `#[cfg(test)]` 私有模块编译。production `CoreWorld::step`、`CoreEvent`、handle、Core/Data/Adapter API、data format、runtime dependency 和 runtime allocation 均未改变。原型采用以下六元组：
+
+```text
+(tick_index, phase_rank, primary_stable_sequence, local_sequence, secondary_sequence, domain_tiebreaker)
+```
+
+当前 producer/key 映射如下；这里的数字只属于研究 harness，不是稳定 ABI：
+
+| Producer / event                                 | `phase_rank`     | `primary_stable_sequence`                | `local_sequence` / `secondary_sequence`                              |
+| ------------------------------------------------ | ---------------- | ---------------------------------------- | -------------------------------------------------------------------- |
+| SpeedLimit / SignalStop / ParkingStop projection | `VehicleAdvance` | logical stable vehicle sequence          | projection kind `0` + route occurrence；secondary `0`                |
+| Following safety projection                      | `VehicleAdvance` | follower stable vehicle sequence         | kind `1`；leader stable sequence 只作 secondary                      |
+| `VehicleChangedEdge`                             | `VehicleAdvance` | vehicle stable sequence                  | kind `2` + `from_route_edge_index`；to occurrence 作 secondary       |
+| `ParkingReservationReleased`                     | `VehicleAdvance` | vehicle stable sequence                  | kind `3`；secondary `0`                                              |
+| `VehicleParkingArrivalReached`                   | `VehicleAdvance` | vehicle stable sequence                  | kind `4` + selected route occurrence；secondary `0`                  |
+| `VehicleCompletedRoute`                          | `VehicleAdvance` | vehicle stable sequence                  | kind `5` + terminal route occurrence；secondary `0`                  |
+| `SignalPhaseChanged`                             | `SignalCommit`   | controller normalization sequence        | controller-local kind `0`；secondary `0`                             |
+| `SignalGroupAspectChanged`                       | `SignalCommit`   | owning controller normalization sequence | kind `1` + group normalization sequence；group sequence 作 secondary |
+
+`VehicleAdvance < SignalCommit` 是本原型唯一 phase order。stable vehicle sequence 从现有 logical update order 派生，Signal sequence 从 controller/group normalization order 派生；raw handle bits、slot、partition、bucket 和 worker completion order 均不进入 key。对 current 10 个 `CoreEvent` variant 的 match 是 crate 内 exhaustive mapping，未来新增 variant 会使该研究模块编译失败并要求重新审阅。
+
+自动证据覆盖 7 个场景：多车辆、多 edge transition 与 simultaneous completion；SpeedLimit 与 Following projection；同 tick SignalStop projection 后的两个 controller / 三个 group commit；Parking projection/arrival；Parking release/completion；以及失败原子性和 deterministic first-error。每个成功场景都把事件分配到 `1/2/4/7` 个模拟 bucket，使用三种 assignment seed，反转 bucket 内与 bucket completion 顺序后再归并；结果与 single-thread `StepResult.events` 逐项完全相同。错误场景使用两个真实注入的 vehicle-advance `CoreError` 候选，按相同 logical phase/primary/local key 在相同 bucket/permutation 矩阵中始终选择 single-thread 最早错误；失败 world 不提交 candidate state、tick/time 或 events，清除注入后 retry 与 fresh replay 的 world 和 `StepResult` 完全相同。
+
+研究结论与成本边界：
+
+- current event order 可以脱离 physical storage/worker completion canonicalize，没有发现必须公开 slot、handle bits、partition 或修改 public API 的隐式依赖；因此该路径可以继续作为 #72 后续 scheduler/partition 研究输入。
+- 当前 harness 为每个事件附加私有 key、建立模拟 bucket 并执行 `O(E log E)` sort；它只证明语义可表达和 exact equivalence，不是 production 性能或内存方案，也不应把测试分配和 sort 直接复制进 runtime。
+- 原型没有并行计算 occupancy、longitudinal、vehicle candidate state 或 Signal state，不证明 worker speedup、partition halo、跨 CPU bit-level determinism、production buffer reuse 或 100k/1M SLA。
+- 若未来 production phase graph 接受该方向，应独立 Issue/G1 比较 k-way merge、预排序 worker buffer、caller-owned scratch 与无额外分配方案，并重新判断 ADR；在此之前不新增 ADR。
 
 ### P2. Partitioned occupancy/leader halo
 
