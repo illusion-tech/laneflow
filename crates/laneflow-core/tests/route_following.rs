@@ -84,8 +84,18 @@ fn canonical_world(
     vehicle: impl FnOnce(VehicleProfileHandle) -> VehicleSpawnInput,
 ) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
@@ -215,9 +225,24 @@ fn canonical_fixture_ticks_match_design() {
 #[test]
 fn single_tick_can_cross_multiple_edges_in_route_order() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(5.0), ["C"]),
-        LaneEdge::new("C", edge_length(2.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["C"],
+        ),
+        LaneEdge::new(
+            "C",
+            edge_length(2.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B", "C"]).expect("valid route");
@@ -274,8 +299,18 @@ fn single_tick_can_cross_multiple_edges_in_route_order() {
 #[test]
 fn repeated_edge_route_uses_route_edge_index_to_disambiguate_position() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(5.0), ["A"]),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["A"],
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B", "A"]).expect("valid repeated-edge route");
@@ -333,8 +368,18 @@ fn repeated_edge_route_uses_route_edge_index_to_disambiguate_position() {
 fn event_order_uses_initial_stable_update_order_not_input_order() {
     fn world_with_vehicle_order(reverse_input: bool) -> CoreWorld {
         let lane_graph = LaneGraph::try_new([
-            LaneEdge::new("A", edge_length(1.0), ["B"]),
-            LaneEdge::new("B", edge_length(1.0), std::iter::empty::<&str>()),
+            LaneEdge::new(
+                "A",
+                edge_length(1.0),
+                laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                ["B"],
+            ),
+            LaneEdge::new(
+                "B",
+                edge_length(1.0),
+                laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                std::iter::empty::<&str>(),
+            ),
         ])
         .expect("valid lane graph");
         let route = Route::try_new("R", ["A", "B"]).expect("valid route");
@@ -514,8 +559,18 @@ fn canonical_world_result(
     vehicles: impl FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>,
 ) -> Result<CoreWorld, CoreError> {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
@@ -528,6 +583,7 @@ fn non_finite_longitudinal_travel_returns_error_and_keeps_world_unchanged() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         edge_length(f64::MAX),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid lane graph");
@@ -566,6 +622,7 @@ fn finite_route_travel_does_not_overflow_in_millisecond_conversion() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         edge_length(f64::MAX),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid lane graph");
@@ -595,8 +652,18 @@ fn finite_route_travel_does_not_overflow_in_millisecond_conversion() {
 #[test]
 fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(f64::MAX), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(f64::MAX),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");

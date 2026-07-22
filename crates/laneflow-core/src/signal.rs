@@ -1393,11 +1393,13 @@ mod tests {
             edges.push(LaneEdge::new(
                 entry.clone(),
                 EdgeLength::try_new(10.0).unwrap(),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                 [exit.clone()],
             ));
             edges.push(LaneEdge::new(
                 exit.clone(),
                 EdgeLength::try_new(10.0).unwrap(),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                 Vec::<String>::new(),
             ));
             stop_lines.push(StopLine::new(
@@ -1522,10 +1524,16 @@ mod tests {
     #[test]
     fn absolute_time_resolver_is_overflow_safe_at_u64_max() {
         let graph = LaneGraph::try_new([
-            LaneEdge::new("entry", EdgeLength::try_new(10.0).unwrap(), ["exit"]),
+            LaneEdge::new(
+                "entry",
+                EdgeLength::try_new(10.0).unwrap(),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                ["exit"],
+            ),
             LaneEdge::new(
                 "exit",
                 EdgeLength::try_new(10.0).unwrap(),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                 Vec::<String>::new(),
             ),
         ])

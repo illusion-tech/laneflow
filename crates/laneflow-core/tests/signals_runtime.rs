@@ -20,16 +20,19 @@ fn signal_world(fixed_delta_time_ms: u64, offset_ms: u64, phases: Vec<SignalPhas
         LaneEdge::new(
             "entry",
             EdgeLength::try_new(100.0).expect("valid edge"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             ["exit", "bypass"],
         ),
         LaneEdge::new(
             "exit",
             EdgeLength::try_new(100.0).expect("valid edge"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         ),
         LaneEdge::new(
             "bypass",
             EdgeLength::try_new(100.0).expect("valid edge"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         ),
     ])
@@ -252,22 +255,40 @@ fn phase_identity_events_do_not_require_aspect_change_and_single_phase_wrap_is_s
 #[test]
 fn controller_then_group_event_order_uses_normalization_and_group_input_order() {
     let graph = LaneGraph::try_new([
-        LaneEdge::new("a", EdgeLength::try_new(10.0).expect("valid edge"), ["b"]),
+        LaneEdge::new(
+            "a",
+            EdgeLength::try_new(10.0).expect("valid edge"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["b"],
+        ),
         LaneEdge::new(
             "b",
             EdgeLength::try_new(10.0).expect("valid edge"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         ),
-        LaneEdge::new("c", EdgeLength::try_new(10.0).expect("valid edge"), ["d"]),
+        LaneEdge::new(
+            "c",
+            EdgeLength::try_new(10.0).expect("valid edge"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["d"],
+        ),
         LaneEdge::new(
             "d",
             EdgeLength::try_new(10.0).expect("valid edge"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         ),
-        LaneEdge::new("e", EdgeLength::try_new(10.0).expect("valid edge"), ["f"]),
+        LaneEdge::new(
+            "e",
+            EdgeLength::try_new(10.0).expect("valid edge"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["f"],
+        ),
         LaneEdge::new(
             "f",
             EdgeLength::try_new(10.0).expect("valid edge"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         ),
     ])

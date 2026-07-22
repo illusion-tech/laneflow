@@ -2,8 +2,8 @@ mod common;
 
 use common::world_with_test_profile;
 use laneflow_core::{
-    CoreError, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed, VehicleProfileHandle,
-    VehicleSpawnInput,
+    CoreError, EdgeLength, EdgeProgress, LaneEdge, LaneGraph, Route, Speed, SpeedLimit,
+    VehicleProfileHandle, VehicleSpawnInput,
 };
 
 const CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
@@ -14,8 +14,18 @@ fn edge_length(value: f64) -> EdgeLength {
 
 fn canonical_graph() -> LaneGraph {
     LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(5.0), ["A"]),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["A"],
+        ),
     ])
     .expect("valid lane graph")
 }
@@ -70,8 +80,18 @@ fn valid_lane_graph_route_and_vehicle_can_initialize_world() {
 #[test]
 fn duplicate_edge_id_is_rejected() {
     let error = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), std::iter::empty::<&str>()),
-        LaneEdge::new("A", edge_length(5.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+        LaneEdge::new(
+            "A",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect_err("duplicate edge id must fail");
 
@@ -83,6 +103,7 @@ fn invalid_edge_external_id_is_rejected() {
     let error = LaneGraph::try_new([LaneEdge::new(
         "edge 1",
         edge_length(10.0),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect_err("invalid edge external id must fail");
@@ -96,8 +117,13 @@ fn invalid_edge_external_id_is_rejected() {
 
 #[test]
 fn unknown_next_edge_is_rejected() {
-    let error = LaneGraph::try_new([LaneEdge::new("A", edge_length(10.0), ["missing"])])
-        .expect_err("unknown next edge must fail");
+    let error = LaneGraph::try_new([LaneEdge::new(
+        "A",
+        edge_length(10.0),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+        ["missing"],
+    )])
+    .expect_err("unknown next edge must fail");
 
     std::assert_matches!(
         error,
@@ -114,9 +140,15 @@ fn unknown_connection_error_uses_input_and_connection_order() {
         LaneEdge::new(
             "z-source",
             edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             ["first-missing", "second-missing"],
         ),
-        LaneEdge::new("a-source", edge_length(5.0), ["third-missing"]),
+        LaneEdge::new(
+            "a-source",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["third-missing"],
+        ),
     ])
     .expect_err("the first unknown connection must fail validation");
 
@@ -131,8 +163,13 @@ fn unknown_connection_error_uses_input_and_connection_order() {
 
 #[test]
 fn invalid_connection_external_id_is_rejected_before_resolution() {
-    let error = LaneGraph::try_new([LaneEdge::new("A", edge_length(10.0), ["bad target"])])
-        .expect_err("invalid connection target id must fail");
+    let error = LaneGraph::try_new([LaneEdge::new(
+        "A",
+        edge_length(10.0),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+        ["bad target"],
+    )])
+    .expect_err("invalid connection target id must fail");
 
     std::assert_matches!(
         error,
@@ -144,8 +181,18 @@ fn invalid_connection_external_id_is_rejected_before_resolution() {
 #[test]
 fn duplicate_connection_target_is_rejected() {
     let error = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B", "B"]),
-        LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B", "B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect_err("duplicate connection target must fail");
 
@@ -161,9 +208,24 @@ fn duplicate_connection_target_is_rejected() {
 #[test]
 fn terminal_self_connection_and_disconnected_component_are_valid_graph_shapes() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["A"]),
-        LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
-        LaneEdge::new("C", edge_length(7.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["A"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+        LaneEdge::new(
+            "C",
+            edge_length(7.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("terminal, self connection, and disconnected graph component are valid");
 
@@ -203,6 +265,49 @@ fn invalid_edge_lengths_are_rejected() {
 
     EdgeLength::try_new(CURRENT_MIN_EDGE_LENGTH_EXCLUSIVE_METERS.next_up())
         .expect("value adjacent above the exclusive minimum must pass");
+}
+
+#[test]
+fn speed_limit_is_strictly_positive_and_finite() {
+    for invalid_limit in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0, -0.0, 0.0] {
+        let error = SpeedLimit::try_new(invalid_limit).expect_err("invalid limit must fail");
+
+        std::assert_matches!(
+            error,
+            CoreError::InvalidSpeedLimit { speed_limit }
+                if speed_limit.is_nan() && invalid_limit.is_nan()
+                    || speed_limit == invalid_limit
+        );
+    }
+
+    assert_eq!(
+        SpeedLimit::try_new(f64::MIN_POSITIVE)
+            .expect("positive finite limit")
+            .value(),
+        f64::MIN_POSITIVE
+    );
+}
+
+#[test]
+fn lane_graph_resolves_speed_limit_by_handle_and_external_id() {
+    let graph = LaneGraph::try_new([LaneEdge::new(
+        "A",
+        edge_length(10.0),
+        SpeedLimit::try_new(16.0).expect("valid limit"),
+        std::iter::empty::<&str>(),
+    )])
+    .expect("valid graph");
+    let edge = graph.edge_handle("A").expect("edge handle");
+
+    assert_eq!(
+        graph.edge_speed_limit(edge),
+        Some(SpeedLimit::try_new(16.0).expect("valid limit"))
+    );
+    assert_eq!(
+        graph.edge_speed_limit_by_id("A"),
+        Some(SpeedLimit::try_new(16.0).expect("valid limit"))
+    );
+    assert_eq!(graph.edge_speed_limit_by_id("missing"), None);
 }
 
 #[test]
@@ -285,8 +390,18 @@ fn unknown_route_edge_error_uses_registration_and_edge_sequence_order() {
 #[test]
 fn disconnected_route_edge_is_rejected() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), std::iter::empty::<&str>()),
-        LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R1", ["A", "B"]).expect("valid route shape");

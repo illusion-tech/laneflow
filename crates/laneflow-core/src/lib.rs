@@ -25,8 +25,9 @@ pub use event::{
     SignalPhaseChangedEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
     VehicleFollowingSafetyProjectionAppliedEvent, VehicleParkingArrivalReachedEvent,
     VehicleParkingStopProjectionAppliedEvent, VehicleSignalStopProjectionAppliedEvent,
+    VehicleSpeedLimitProjectionAppliedEvent,
 };
-pub use graph::{EdgeLength, LaneEdge, LaneGraph};
+pub use graph::{EdgeLength, LaneEdge, LaneGraph, SpeedLimit};
 pub use handle::{
     EdgeHandle, ParkingAreaHandle, ParkingSpaceHandle, RouteHandle, SignalControllerHandle,
     SignalGroupHandle, SignalPhaseRef, StopLineHandle, VehicleHandle, VehicleProfileHandle,

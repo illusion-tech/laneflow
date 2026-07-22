@@ -10,7 +10,7 @@ use laneflow_core::{
     CoreError, EdgeLength, IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph, MovementGate,
     ParkingAnchorKind, ParkingArea, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, Route,
     SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
-    SignalRegistry, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
+    SignalRegistry, SpeedLimit, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
 };
 use serde::de::DeserializeOwned;
 use serde_json::error::Category;
@@ -29,7 +29,7 @@ use wire::{
 };
 
 /// 当前 production loader 接受的唯一 data format 版本。
-pub const CURRENT_FORMAT_VERSION: &str = "0.5";
+pub const CURRENT_FORMAT_VERSION: &str = "0.7";
 
 /// 已解析并完成 Core normalization 的当前 data package。
 #[derive(Clone, Debug, PartialEq)]
@@ -148,9 +148,13 @@ fn normalize_lane_graph(wire: &WirePackage) -> Result<LaneGraph, DataError> {
         let length = EdgeLength::try_new(edge.length).map_err(|source| {
             DataError::core(format!("laneGraph.edges[{index}].length"), source)
         })?;
+        let speed_limit = SpeedLimit::try_new(edge.speed_limit).map_err(|source| {
+            DataError::core(format!("laneGraph.edges[{index}].speedLimit"), source)
+        })?;
         edges.push(LaneEdge::new(
             edge.id.clone(),
             length,
+            speed_limit,
             edge.connections
                 .iter()
                 .map(|connection| connection.to_edge_id.clone()),

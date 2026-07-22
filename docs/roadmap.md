@@ -99,7 +99,7 @@
 
 完成状态：2026-07-21 已完成。数值切片和 Spatial 切片均已完成独立 G4，整体设计、生产实现、数据制品、正确性、性能、安全与治理结论见 [v0.6 收口审阅基线](reference/v0.6-closure-review.md)。
 
-最终生产边界为 Core/Data current-f64 交通权威、Traffic Data v0.5，以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退；Spatial `f32` 通过误差、零分配、内存和 10k/100k 性能 Gate。未来重启 Core/Data 数值迁移必须新建议题并重新进入 G1。
+当前生产边界为 Core/Data current-f64 交通权威、Traffic Data v0.7（含 per-edge 基础道路限速），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退；Spatial `f32` 通过误差、零分配、内存和 10k/100k 性能 Gate。未来重启 Core/Data 数值迁移必须新建议题并重新进入 G1。
 
 范围：
 

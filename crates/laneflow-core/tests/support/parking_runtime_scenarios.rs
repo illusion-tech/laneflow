@@ -76,6 +76,7 @@ fn traffic_with_spaces(
     let graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         EdgeLength::try_new(2_000.0).expect("parking edge length"),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("parking graph");
@@ -188,11 +189,13 @@ pub fn parking_six_command_scenario(
         LaneEdge::new(
             "A",
             EdgeLength::try_new(10_000.0).expect("six-command A length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             ["B"],
         ),
         LaneEdge::new(
             "B",
             EdgeLength::try_new(10_000.0).expect("six-command B length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         ),
     ])
@@ -431,11 +434,13 @@ pub fn parking_pathological_leave_scenario(
         LaneEdge::new(
             "A",
             EdgeLength::try_new(edge_length).expect("pathological A length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         ),
         LaneEdge::new(
             "C",
             EdgeLength::try_new(fast_edge_length).expect("pathological C length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         ),
     ])

@@ -64,6 +64,7 @@ fn build_world(case: &PlatoonCase, reverse_input: bool) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "property-edge",
         edge_length(front + 1_000.0),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("property graph must be valid");

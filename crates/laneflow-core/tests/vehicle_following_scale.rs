@@ -5,9 +5,11 @@ use laneflow_core::{CoreEvent, CoreWorld, TickInput, VehicleHandle, VehicleStatu
 mod scenarios;
 
 use scenarios::{
-    FIXED_DELTA_TIME_MS, LOCALITY_EDGE_LENGTH, VEHICLE_COUNT, VEHICLE_LENGTH, dense_platoon_world,
-    free_flow_world, locality_dense_platoon_world, locality_free_flow_world,
-    locality_stop_and_go_world, projection_event_count, projection_heavy_world, stop_and_go_world,
+    FIXED_DELTA_TIME_MS, LOCALITY_EDGE_LENGTH, SCALING_VEHICLE_COUNT, SPEED_LIMIT_EDGE_LENGTH,
+    VEHICLE_COUNT, VEHICLE_LENGTH, dense_platoon_world, free_flow_world,
+    locality_dense_platoon_world, locality_free_flow_world, locality_stop_and_go_world,
+    projection_event_count, projection_heavy_world, speed_limit_transition_world,
+    stop_and_go_world,
 };
 
 const EPSILON: f64 = 1.0e-9;
@@ -45,7 +47,8 @@ fn step_vehicle_following_summary(
 }
 
 fn assert_finite_and_no_overlap(world: &CoreWorld, uniform_route_edge_length: Option<f64>) {
-    let mut fronts = Vec::with_capacity(VEHICLE_COUNT);
+    let vehicle_count = world.vehicles().count();
+    let mut fronts = Vec::with_capacity(vehicle_count);
     for vehicle in world.vehicles() {
         assert!(matches!(
             vehicle.status,
@@ -63,7 +66,7 @@ fn assert_finite_and_no_overlap(world: &CoreWorld, uniform_route_edge_length: Op
         );
         fronts.push(route_progress);
     }
-    assert_eq!(fronts.len(), VEHICLE_COUNT);
+    assert_eq!(fronts.len(), vehicle_count);
 
     fronts.sort_unstable_by(f64::total_cmp);
     for pair in fronts.windows(2) {
@@ -114,12 +117,30 @@ fn assert_locality_preserving_equivalence(reference: &CoreWorld, locality: &Core
     assert_eq!(reference.vehicles().count(), locality.vehicles().count());
 }
 
+fn assert_speed_limit_compliance(world: &CoreWorld) {
+    for vehicle in world.vehicles() {
+        let edge = world.route_edges(vehicle.route).expect("route")[vehicle.route_edge_index];
+        let limit = world
+            .lane_graph()
+            .edge_speed_limit(edge)
+            .expect("edge limit")
+            .value();
+        assert!(
+            vehicle.current_speed.value() <= limit,
+            "vehicle={:?} speed={} limit={limit}",
+            vehicle.handle,
+            vehicle.current_speed.value(),
+        );
+    }
+}
+
 #[test]
 fn ten_thousand_vehicle_scenarios_complete_functional_smoke() {
     let mut free_flow = free_flow_world(VEHICLE_COUNT);
     let mut dense_platoon = dense_platoon_world(VEHICLE_COUNT);
     let mut stop_and_go = stop_and_go_world(VEHICLE_COUNT);
     let mut projection_heavy = projection_heavy_world(VEHICLE_COUNT);
+    let mut speed_limits = speed_limit_transition_world(VEHICLE_COUNT);
 
     assert_eq!(step_once(&mut free_flow), 0);
     assert_eq!(step_once(&mut dense_platoon), 0);
@@ -128,11 +149,25 @@ fn ten_thousand_vehicle_scenarios_complete_functional_smoke() {
         step_once(&mut projection_heavy),
         projection_event_count(VEHICLE_COUNT)
     );
+    assert_eq!(step_once(&mut speed_limits), 0);
 
     for world in [&free_flow, &dense_platoon, &stop_and_go] {
         assert_finite_and_no_overlap(world, None);
     }
     assert_finite_and_no_overlap(&projection_heavy, Some(LOCALITY_EDGE_LENGTH));
+    assert_finite_and_no_overlap(&speed_limits, Some(SPEED_LIMIT_EDGE_LENGTH));
+    assert_speed_limit_compliance(&speed_limits);
+}
+
+#[test]
+#[ignore = "100k speed-limit scaling is an explicit G3 validation"]
+fn hundred_thousand_vehicle_speed_limit_smoke_is_compliant() {
+    let mut world = speed_limit_transition_world(SCALING_VEHICLE_COUNT);
+
+    assert_eq!(step_once(&mut world), 0);
+    assert_eq!(world.vehicles().count(), SCALING_VEHICLE_COUNT);
+    assert_finite_and_no_overlap(&world, Some(SPEED_LIMIT_EDGE_LENGTH));
+    assert_speed_limit_compliance(&world);
 }
 
 #[test]

@@ -180,11 +180,13 @@ fn signal_scenario_with_parking_entry(
         edges.push(LaneEdge::new(
             entry.clone(),
             edge_length(ENTRY_LENGTH),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             [exit.clone()],
         ));
         edges.push(LaneEdge::new(
             exit.clone(),
             edge_length(EXIT_LENGTH),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         ));
         routes.push(

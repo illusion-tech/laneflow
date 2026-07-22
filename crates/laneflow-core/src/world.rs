@@ -15,6 +15,7 @@ use crate::{
         SignalPhaseChangedEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
         VehicleFollowingSafetyProjectionAppliedEvent, VehicleParkingArrivalReachedEvent,
         VehicleParkingStopProjectionAppliedEvent, VehicleSignalStopProjectionAppliedEvent,
+        VehicleSpeedLimitProjectionAppliedEvent,
     },
     graph::LaneGraph,
     handle::{
@@ -23,8 +24,8 @@ use crate::{
     },
     id::validate_external_id,
     longitudinal::{
-        LeaderKinematics, LongitudinalMotion, LongitudinalScratch, compute_motion,
-        emergency_min_travel,
+        LeaderKinematics, LongitudinalMotion, LongitudinalScratch, SpeedLimitConstraint,
+        compute_motion, emergency_min_travel,
     },
     numeric_policy::{
         EDGE_BOUNDARY_TOLERANCE_METERS, LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS,
@@ -69,6 +70,13 @@ struct NextControlledRouteTransition {
     from_route_edge_index: usize,
     gate: MovementGateIndex,
     distance_from_edge_start: BoundedDistance,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SpeedLimitRouteTransition {
+    from_route_edge_index: usize,
+    to_edge: EdgeHandle,
+    target_speed: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -166,6 +174,7 @@ struct RouteSlot {
     edge_handles: Vec<EdgeHandle>,
     transitions: Vec<RouteTransition>,
     next_controlled_transition: Vec<Option<NextControlledRouteTransition>>,
+    speed_limit_transitions: Vec<SpeedLimitRouteTransition>,
     active: bool,
 }
 
@@ -1405,8 +1414,8 @@ impl CoreWorld {
                     .value()
             })
             .collect::<Vec<_>>();
-        let (transitions, next_controlled_transition) =
-            self.build_route_signal_metadata(&edge_handles, &edge_lengths);
+        let (transitions, next_controlled_transition, speed_limit_transitions) =
+            self.build_route_metadata(&edge_handles, &edge_lengths);
         let distance_index = RouteDistanceIndex::build(&edge_lengths);
         let external_id = route.id().to_owned();
 
@@ -1418,6 +1427,7 @@ impl CoreWorld {
                 edge_handles,
                 transitions,
                 next_controlled_transition,
+                speed_limit_transitions,
                 active: true,
             };
             self.route_distance_indices[index] = distance_index;
@@ -1431,6 +1441,7 @@ impl CoreWorld {
                 edge_handles,
                 transitions,
                 next_controlled_transition,
+                speed_limit_transitions,
                 active: true,
             });
             self.route_distance_indices.push(distance_index);
@@ -1443,13 +1454,14 @@ impl CoreWorld {
         Ok(handle)
     }
 
-    fn build_route_signal_metadata(
+    fn build_route_metadata(
         &self,
         edge_handles: &[EdgeHandle],
         edge_lengths: &[f64],
     ) -> (
         Vec<RouteTransition>,
         Vec<Option<NextControlledRouteTransition>>,
+        Vec<SpeedLimitRouteTransition>,
     ) {
         let transitions = edge_handles
             .windows(2)
@@ -1481,7 +1493,32 @@ impl CoreWorld {
             }
             next_controlled_transition[route_edge_index] = next;
         }
-        (transitions, next_controlled_transition)
+        let speed_limit_transitions = edge_handles
+            .windows(2)
+            .enumerate()
+            .filter_map(|(from_route_edge_index, pair)| {
+                let from_speed = self
+                    .lane_graph
+                    .edge_speed_limit(pair[0])
+                    .expect("normalized route edge must exist")
+                    .value();
+                let target_speed = self
+                    .lane_graph
+                    .edge_speed_limit(pair[1])
+                    .expect("normalized route edge must exist")
+                    .value();
+                (target_speed < from_speed).then_some(SpeedLimitRouteTransition {
+                    from_route_edge_index,
+                    to_edge: pair[1],
+                    target_speed,
+                })
+            })
+            .collect();
+        (
+            transitions,
+            next_controlled_transition,
+            speed_limit_transitions,
+        )
     }
 
     /// 移除未被 live vehicle 引用的 route definition。
@@ -1510,6 +1547,7 @@ impl CoreWorld {
         route.edge_handles.clear();
         route.transitions.clear();
         route.next_controlled_transition.clear();
+        route.speed_limit_transitions.clear();
         self.route_distance_indices[handle.index()].clear();
         self.route_reference_indices[handle.index()].clear();
         let removed = self.route_handles.swap_remove(&external_id);
@@ -1990,6 +2028,8 @@ impl CoreWorld {
                         + route.transitions.capacity() * std::mem::size_of::<RouteTransition>()
                         + route.next_controlled_transition.capacity()
                             * std::mem::size_of::<Option<NextControlledRouteTransition>>()
+                        + route.speed_limit_transitions.capacity()
+                            * std::mem::size_of::<SpeedLimitRouteTransition>()
                 })
                 .sum::<usize>()
             + route_distance_bytes
@@ -3061,7 +3101,17 @@ impl CoreWorld {
                             update_sequence,
                             vehicle.current_speed.value(),
                             profile,
+                            self.lane_graph
+                                .edge_speed_limit(self.vehicle_edge(vehicle))
+                                .expect("live vehicle edge must exist")
+                                .value(),
                             leader,
+                            delta_time,
+                        )?;
+                        let speed_limit_constrained = self.apply_speed_limit_constraints(
+                            vehicle,
+                            profile,
+                            &mut motion,
                             delta_time,
                         )?;
                         let route_end_distance =
@@ -3074,6 +3124,7 @@ impl CoreWorld {
                         if route_end_distance.is_none()
                             && signal_stop.is_none()
                             && parking_stop.is_none()
+                            && !speed_limit_constrained
                         {
                             scratch.set(motion);
                             continue;
@@ -3097,6 +3148,91 @@ impl CoreWorld {
         })();
         self.longitudinal_scratch = scratch;
         result
+    }
+
+    fn apply_speed_limit_constraints(
+        &self,
+        vehicle: &VehicleState,
+        profile: crate::IidmProfileSpec,
+        motion: &mut LongitudinalMotion,
+        delta_time: f64,
+    ) -> Result<bool, CoreError> {
+        let route = self
+            .route_slot(vehicle.route)
+            .expect("live vehicle route must exist");
+        let first = route.speed_limit_transitions.partition_point(|transition| {
+            transition.from_route_edge_index < vehicle.route_edge_index
+        });
+        if first == route.speed_limit_transitions.len() {
+            return Ok(false);
+        }
+
+        let horizon = self.speed_limit_horizon(vehicle, profile)?;
+        let mut constrained = false;
+        for transition in &route.speed_limit_transitions[first..] {
+            let from_edge = route.edge_handles[transition.from_route_edge_index];
+            let boundary_progress = self
+                .lane_graph
+                .edge_length(from_edge)
+                .expect("normalized route edge must exist")
+                .value();
+            let route_distance = match self.route_distance_indices[vehicle.route.index()]
+                .distance_within(
+                    vehicle.route_edge_index,
+                    vehicle.edge_progress.value(),
+                    transition.from_route_edge_index,
+                    boundary_progress,
+                    horizon,
+                ) {
+                RouteDistanceQuery::Within(distance) => distance,
+                RouteDistanceQuery::BeyondHorizon => break,
+                RouteDistanceQuery::Passed => continue,
+            };
+            motion.apply_speed_limit_constraint(
+                SpeedLimitConstraint {
+                    route: vehicle.route,
+                    from_route_edge_index: transition.from_route_edge_index,
+                    to_route_edge_index: transition.from_route_edge_index + 1,
+                    from_edge,
+                    to_edge: transition.to_edge,
+                    route_distance,
+                    target_speed: transition.target_speed,
+                },
+                profile,
+                delta_time,
+            )?;
+            constrained = true;
+        }
+        Ok(constrained)
+    }
+
+    fn speed_limit_horizon(
+        &self,
+        vehicle: &VehicleState,
+        profile: crate::IidmProfileSpec,
+    ) -> Result<f64, CoreError> {
+        let speed = vehicle.current_speed.value();
+        let delta_time = self.fixed_delta_time_ms as f64 / 1_000.0;
+        let upper_speed = Self::finite_speed_limit_value(
+            vehicle.handle,
+            "speed_limit_upper_speed",
+            speed + profile.max_acceleration * delta_time,
+        )?;
+        let travel_upper = Self::finite_speed_limit_value(
+            vehicle.handle,
+            "speed_limit_travel_upper",
+            Self::half_product(speed, delta_time) + Self::half_product(upper_speed, delta_time),
+        )?;
+        let braking_distance = Self::finite_speed_limit_value(
+            vehicle.handle,
+            "speed_limit_comfortable_braking_distance",
+            Self::braking_distance(upper_speed, profile.comfortable_deceleration),
+        )?;
+        Self::finite_speed_limit_value(
+            vehicle.handle,
+            "speed_limit_comfortable_horizon",
+            travel_upper + braking_distance,
+        )
     }
 
     fn parking_stop_within(
@@ -3537,6 +3673,21 @@ impl CoreWorld {
         Ok(if value == 0.0 { 0.0 } else { value })
     }
 
+    fn finite_speed_limit_value(
+        vehicle: VehicleHandle,
+        stage: &'static str,
+        value: f64,
+    ) -> Result<f64, CoreError> {
+        if !value.is_finite() {
+            return Err(CoreError::NonFiniteSpeedLimitComputation {
+                vehicle,
+                stage,
+                value,
+            });
+        }
+        Ok(if value == 0.0 { 0.0 } else { value })
+    }
+
     fn braking_distance(speed: f64, deceleration: f64) -> f64 {
         if speed == 0.0 {
             return 0.0;
@@ -3605,6 +3756,23 @@ impl CoreWorld {
             });
         }
 
+        let speed_limit = self
+            .lane_graph
+            .edge_speed_limit(edge)
+            .expect("validated route edge must exist");
+        if input.initial_speed.value() > speed_limit.value() {
+            return Err(CoreError::VehicleInitialSpeedExceedsLimit {
+                vehicle_id: input.id.clone(),
+                edge_id: self
+                    .lane_graph
+                    .edge_external_id(edge)
+                    .expect("validated route edge must exist")
+                    .to_owned(),
+                initial_speed: input.initial_speed.value(),
+                speed_limit: speed_limit.value(),
+            });
+        }
+
         let mut edge_progress = input.edge_progress;
         if input.status == VehicleStatus::Completed {
             let expected_route_edge_index = route_slot.edge_handles.len() - 1;
@@ -3653,7 +3821,19 @@ impl CoreWorld {
         vehicle.applied_acceleration =
             Acceleration::try_new(motion.applied_acceleration(delta_time_seconds)?)
                 .expect("longitudinal applied acceleration must be valid");
-        if let Some(signal_stop) = motion.signal_stop_projection() {
+        if let Some(speed_limit) = motion.speed_limit_projection() {
+            events.push(CoreEvent::VehicleSpeedLimitProjectionApplied(
+                VehicleSpeedLimitProjectionAppliedEvent {
+                    tick_index: context.tick_index,
+                    vehicle: vehicle.handle,
+                    route: speed_limit.route,
+                    from_route_edge_index: speed_limit.from_route_edge_index,
+                    to_route_edge_index: speed_limit.to_route_edge_index,
+                    from_edge: speed_limit.from_edge,
+                    to_edge: speed_limit.to_edge,
+                },
+            ));
+        } else if let Some(signal_stop) = motion.signal_stop_projection() {
             events.push(CoreEvent::VehicleSignalStopProjectionApplied(
                 VehicleSignalStopProjectionAppliedEvent {
                     tick_index: context.tick_index,
@@ -3809,6 +3989,24 @@ impl CoreWorld {
                     .copied()
                     .expect("next route transition must exist");
                 let to_edge = transition.to_edge;
+
+                let target_limit = context
+                    .lane_graph
+                    .edge_speed_limit(to_edge)
+                    .expect("validated route edge must exist")
+                    .value();
+                if vehicle.current_speed.value() > target_limit {
+                    return Err(CoreError::SpeedLimitTraversalInvariant {
+                        vehicle: vehicle.handle,
+                        route: vehicle.route,
+                        from_route_edge_index,
+                        to_route_edge_index,
+                        from_edge: current_edge,
+                        to_edge,
+                        final_speed: vehicle.current_speed.value(),
+                        target_limit,
+                    });
+                }
 
                 let denied_gate = transition.gate.and_then(|gate_index| {
                     let gate = context
@@ -3981,6 +4179,7 @@ mod tests {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(edge_length).expect("scale edge length"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         )])
         .expect("scale graph");
@@ -4008,6 +4207,7 @@ mod tests {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(edge_length).expect("parking retained edge length"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         )])
         .expect("parking retained graph");
@@ -4060,6 +4260,7 @@ mod tests {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(edge_length).expect("sparse edge length"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         )])
         .expect("sparse graph");
@@ -4098,6 +4299,7 @@ mod tests {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(200.0).expect("parking edge length"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         )])
         .expect("parking graph");
@@ -4157,8 +4359,18 @@ mod tests {
 
     fn repeated_parking_target_world() -> CoreWorld {
         let lane_graph = LaneGraph::try_new([
-            LaneEdge::new("A", EdgeLength::try_new(100.0).expect("A length"), ["B"]),
-            LaneEdge::new("B", EdgeLength::try_new(100.0).expect("B length"), ["A"]),
+            LaneEdge::new(
+                "A",
+                EdgeLength::try_new(100.0).expect("A length"),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                ["B"],
+            ),
+            LaneEdge::new(
+                "B",
+                EdgeLength::try_new(100.0).expect("B length"),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                ["A"],
+            ),
         ])
         .expect("repeated target graph");
         let parking = ParkingRegistry::try_new(
@@ -4252,6 +4464,7 @@ mod tests {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(10_000.0).expect("valid edge length"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         )])
         .expect("valid lane graph");
@@ -4286,11 +4499,13 @@ mod tests {
             LaneEdge::new(
                 "A",
                 EdgeLength::try_new(f64::MAX).expect("valid edge length"),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                 ["B"],
             ),
             LaneEdge::new(
                 "B",
                 EdgeLength::try_new(f64::MAX).expect("valid edge length"),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                 Vec::<String>::new(),
             ),
         ])
@@ -4344,6 +4559,7 @@ mod tests {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(10.0).expect("valid edge length"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         )])
         .expect("valid lane graph");
@@ -4691,6 +4907,7 @@ mod tests {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(10.0).expect("valid edge length"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         )])
         .expect("valid lane graph");
@@ -4743,6 +4960,7 @@ mod tests {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(10.0).expect("valid edge length"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         )])
         .expect("valid lane graph");
@@ -4797,10 +5015,30 @@ mod tests {
             stopped in any::<bool>(),
         ) {
             let lane_graph = LaneGraph::try_new([
-                LaneEdge::new("A", EdgeLength::try_new(20.0).expect("length"), ["B", "C"]),
-                LaneEdge::new("B", EdgeLength::try_new(20.0).expect("length"), ["D"]),
-                LaneEdge::new("C", EdgeLength::try_new(20.0).expect("length"), ["D"]),
-                LaneEdge::new("D", EdgeLength::try_new(20.0).expect("length"), ["A"]),
+                LaneEdge::new(
+                    "A",
+                    EdgeLength::try_new(20.0).expect("length"),
+                    crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                    ["B", "C"],
+                ),
+                LaneEdge::new(
+                    "B",
+                    EdgeLength::try_new(20.0).expect("length"),
+                    crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                    ["D"],
+                ),
+                LaneEdge::new(
+                    "C",
+                    EdgeLength::try_new(20.0).expect("length"),
+                    crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                    ["D"],
+                ),
+                LaneEdge::new(
+                    "D",
+                    EdgeLength::try_new(20.0).expect("length"),
+                    crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                    ["A"],
+                ),
             ])
             .expect("valid cyclic graph");
             let routes = [
@@ -4968,10 +5206,30 @@ mod tests {
             stopped in any::<bool>(),
         ) {
             let lane_graph = LaneGraph::try_new([
-                LaneEdge::new("A", EdgeLength::try_new(100.0).expect("length"), ["B", "C"]),
-                LaneEdge::new("B", EdgeLength::try_new(100.0).expect("length"), ["D"]),
-                LaneEdge::new("C", EdgeLength::try_new(100.0).expect("length"), ["D"]),
-                LaneEdge::new("D", EdgeLength::try_new(100.0).expect("length"), ["A"]),
+                LaneEdge::new(
+                    "A",
+                    EdgeLength::try_new(100.0).expect("length"),
+                    crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                    ["B", "C"],
+                ),
+                LaneEdge::new(
+                    "B",
+                    EdgeLength::try_new(100.0).expect("length"),
+                    crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                    ["D"],
+                ),
+                LaneEdge::new(
+                    "C",
+                    EdgeLength::try_new(100.0).expect("length"),
+                    crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                    ["D"],
+                ),
+                LaneEdge::new(
+                    "D",
+                    EdgeLength::try_new(100.0).expect("length"),
+                    crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                    ["A"],
+                ),
             ])
             .expect("cyclic parking graph");
             let parking = ParkingRegistry::try_new(
@@ -5216,6 +5474,7 @@ mod tests {
             let lane_graph = LaneGraph::try_new([LaneEdge::new(
                 "A",
                 EdgeLength::try_new(100.0).expect("length"),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                 Vec::<String>::new(),
             )])
             .expect("graph");
@@ -5427,6 +5686,7 @@ mod tests {
             let lane_graph = LaneGraph::try_new([LaneEdge::new(
                 "A",
                 EdgeLength::try_new(edge_length).expect("parking scale edge"),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                 Vec::<String>::new(),
             )])
             .expect("parking scale graph");
@@ -5521,11 +5781,13 @@ mod tests {
                 LaneEdge::new(
                     "A",
                     EdgeLength::try_new(edge_length).expect("pathological edge length"),
+                    crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                     Vec::<String>::new(),
                 ),
                 LaneEdge::new(
                     "C",
                     EdgeLength::try_new(100.0).expect("fast edge length"),
+                    crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                     Vec::<String>::new(),
                 ),
             ])
@@ -5781,10 +6043,16 @@ mod tests {
     #[test]
     fn command_spatial_membership_follows_committed_physical_edge_transition() {
         let lane_graph = LaneGraph::try_new([
-            LaneEdge::new("A", EdgeLength::try_new(10.0).expect("length"), ["B"]),
+            LaneEdge::new(
+                "A",
+                EdgeLength::try_new(10.0).expect("length"),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                ["B"],
+            ),
             LaneEdge::new(
                 "B",
                 EdgeLength::try_new(100.0).expect("length"),
+                crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
                 Vec::<String>::new(),
             ),
         ])
@@ -5836,6 +6104,7 @@ mod tests {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(10.0).expect("valid edge length"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         )])
         .expect("valid lane graph");
@@ -5868,6 +6137,7 @@ mod tests {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(10.0).expect("valid edge length"),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             Vec::<String>::new(),
         )])
         .expect("valid lane graph");

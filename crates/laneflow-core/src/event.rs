@@ -10,6 +10,8 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CoreEvent {
+    /// 道路限速边界将车辆 motion 压到 emergency envelope 以下。
+    VehicleSpeedLimitProjectionApplied(VehicleSpeedLimitProjectionAppliedEvent),
     /// SignalStop hard boundary 将车辆 motion 压到 emergency envelope 以下。
     VehicleSignalStopProjectionApplied(VehicleSignalStopProjectionAppliedEvent),
     /// ParkingStop hard boundary 将车辆 motion 压到 emergency envelope 以下。
@@ -28,6 +30,25 @@ pub enum CoreEvent {
     SignalPhaseChanged(SignalPhaseChangedEvent),
     /// SignalGroup 的当前 indication 已改变。
     SignalGroupAspectChanged(SignalGroupAspectChangedEvent),
+}
+
+/// 道路限速 hard projection 的完整 route-occurrence attribution。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VehicleSpeedLimitProjectionAppliedEvent {
+    /// 事件所属的 post-step tick index。
+    pub tick_index: u64,
+    /// 被投影的 vehicle。
+    pub vehicle: VehicleHandle,
+    /// vehicle 当前使用的 route。
+    pub route: RouteHandle,
+    /// 降限速边界的 from-edge occurrence index。
+    pub from_route_edge_index: usize,
+    /// 降限速边界的 to-edge occurrence index。
+    pub to_route_edge_index: usize,
+    /// 降限速边界的 from edge。
+    pub from_edge: EdgeHandle,
+    /// 降限速边界的 to edge。
+    pub to_edge: EdgeHandle,
 }
 
 /// ParkingStop hard projection 的完整 route-occurrence attribution。

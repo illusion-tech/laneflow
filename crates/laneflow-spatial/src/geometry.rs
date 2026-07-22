@@ -333,6 +333,7 @@ mod tests {
         let graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(1.0).expect("valid length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         )])
         .expect("valid graph");
@@ -358,6 +359,7 @@ mod tests {
         let graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             EdgeLength::try_new(1.0).expect("valid length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         )])
         .expect("valid graph");

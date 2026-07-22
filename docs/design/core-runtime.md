@@ -44,7 +44,7 @@ v0.1 的目标是建立一个可测试、可嵌入、引擎无关的最小交通
 - external ID、typed handle、vehicle / route lifecycle 和稳定 update order：[`core-id-handles.md`](core-id-handles.md) D8 及 ADR 0005；
 - lane graph topology、edge / connection 语义：[`lane-graph.md`](lane-graph.md)；
 - route definition、route target 和 traversal 边界：[`route-system.md`](route-system.md)；
-- 当前外部 lane graph / route / Vehicle Profile / Signals / Parking 数据格式、版本、单位和 schema：[`data-format.md`](data-format.md) 与 [`schemas/laneflow-data-v0.5.schema.json`](../../schemas/laneflow-data-v0.5.schema.json)；
+- 当前外部 lane graph / per-edge speed limit / route / Vehicle Profile / Signals / Parking 数据格式、版本、单位和 schema：[`data-format.md`](data-format.md) 与 [`schemas/laneflow-data-v0.7.schema.json`](../../schemas/laneflow-data-v0.7.schema.json)；
 - 当前 Vehicle Profile、front-bumper progress、`current_speed`、`applied_acceleration` 和 inactive motion invariant：[`vehicle-following.md`](vehicle-following.md) 第 4-5 节。
 - v0.5 Parking 的 static registry/current data 已由 #107 交付，runtime binding/snapshot、`Parked` lifecycle 与同步 commands 已由 #108 交付；#109 已按 [`parking-system.md`](parking-system.md) 激活 moving reservation 的 ParkingStop、arrival、traversal、completion release 与 step events，legacy capability guard在合法 world中不可达。
 

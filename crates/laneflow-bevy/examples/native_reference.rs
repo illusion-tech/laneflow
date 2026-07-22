@@ -24,7 +24,7 @@ use laneflow_spatial::{
 };
 
 const MANIFEST_NAME: &str = "v0.1-campus.scenario.json";
-const TRAFFIC_NAME: &str = "v0.5-empty-signals-and-parking.laneflow.json";
+const TRAFFIC_NAME: &str = "v0.7-empty-signals-and-parking.laneflow.json";
 const SPATIAL_NAME: &str = "v0.1-campus.spatial.json";
 const WINDOW_TITLE: &str = "LaneFlow #173 Native Reference | G: Gizmos | F12: Screenshot";
 const SCREENSHOT_PATH: &str = "laneflow-native-example.png";

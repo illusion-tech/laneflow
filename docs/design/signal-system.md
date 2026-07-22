@@ -2,8 +2,8 @@
 
 **文档状态**: Accepted<br>
 **最后更新**: 2026-07-22<br>
-**适用范围**: v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界，以及 current v0.5 package embedding<br>
-**实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 已将保持相同 Signals shape/behavior 的 package 原子迁移到 current v0.5，并由新的 Parking+Signals fixtures 承接 active contract
+**适用范围**: v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界，以及 current v0.7 package embedding<br>
+**实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 加入 Parking，#185 在保持 Signals shape/behavior 的前提下把 package 原子迁移到 current v0.7
 
 **关联文档**:
 
@@ -142,15 +142,15 @@ SignalGroupStateInput
 
 StopLine、Gate、Group、Controller、Phase definition 和 program 在 world 生命周期内不可变。v0.4 不提供 signal mutation command。
 
-## 4. Historical v0.4 contract 与 current v0.5 embedding
+## 4. Historical v0.4 contract 与 current v0.7 embedding
 
 ### 4.1 Current data facts
 
-ADR 0008 要求 active tree 只维护一个 current format。#94 曾原子交付 v0.4；#107 已在保持 Signals static/runtime semantics 不变的前提下迁移到 v0.5：
+ADR 0008 要求 active tree 只维护一个 current format。#94 曾原子交付 v0.4，#107 迁移到 v0.5；#185 又在保持 Signals static/runtime semantics 不变的前提下加入 required per-edge limit 并迁移到 v0.7：
 
-- production current 是 `formatVersion: "0.5"`；
-- `schemas/laneflow-data-v0.5.schema.json` 是唯一 active schema；
-- production loader 明确拒绝 v0.4 及更早版本、未来版、旧字段与 JSON-LD；
+- production current 是 `formatVersion: "0.7"`；
+- `schemas/laneflow-data-v0.7.schema.json` 是唯一 active source schema；
+- production loader 明确拒绝 v0.5、v0.6 及更早版本、未来版、旧字段与 JSON-LD；
 - static Signals、fixed-time runtime 与完整车辆合规仍是 production 行为；v0.4 收口证据继续作为历史行为/性能基线。
 
 ### 4.2 ID 与引用命名
@@ -166,22 +166,24 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 曾原子交付
 
 ### 4.3 Canonical JSON shape
 
-`signals` 与四个子数组在 current 0.5 中继续必填，数组允许为空。概念 shape：
+`signals` 与四个子数组在 current 0.7 中继续必填，数组允许为空。概念 shape：
 
 ```json
 {
-  "formatVersion": "0.5",
+  "formatVersion": "0.7",
   "units": { "distance": "meter", "time": "second" },
   "laneGraph": {
     "edges": [
       {
         "id": "edge-a",
         "length": 100.0,
+        "speedLimit": 16.666666666666668,
         "connections": [{ "toEdgeId": "edge-b" }]
       },
       {
         "id": "edge-b",
         "length": 50.0,
+        "speedLimit": 16.666666666666668,
         "connections": []
       }
     ]

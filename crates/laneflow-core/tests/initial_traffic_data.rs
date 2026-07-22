@@ -9,8 +9,18 @@ fn edge_length(value: f64) -> EdgeLength {
 
 fn canonical_graph() -> LaneGraph {
     LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(5.0), ["A"]),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["A"],
+        ),
     ])
     .expect("valid lane graph")
 }
@@ -105,8 +115,18 @@ fn initial_route_unknown_edge_uses_route_and_edge_input_order() {
 #[test]
 fn initial_route_continuity_uses_same_core_error_as_runtime_registration() {
     let graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), std::iter::empty::<&str>()),
-        LaneEdge::new("B", edge_length(5.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid disconnected graph");
     let error = InitialTrafficData::try_new(

@@ -45,11 +45,13 @@ fn signal_parking_world(
         LaneEdge::new(
             "entry",
             EdgeLength::try_new(100.0).expect("entry length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             ["exit"],
         ),
         LaneEdge::new(
             "exit",
             EdgeLength::try_new(100.0).expect("exit length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         ),
     ])
@@ -198,6 +200,7 @@ fn parking_projection_precedes_stricter_following_projection() {
     let graph = LaneGraph::try_new([LaneEdge::new(
         "edge",
         EdgeLength::try_new(100.0).expect("edge length"),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("graph");
@@ -275,8 +278,18 @@ fn parking_projection_precedes_stricter_following_projection() {
 #[test]
 fn repeated_edge_uses_selected_occurrence_and_orders_edge_before_arrival() {
     let graph = LaneGraph::try_new([
-        LaneEdge::new("a", EdgeLength::try_new(100.0).expect("a length"), ["b"]),
-        LaneEdge::new("b", EdgeLength::try_new(100.0).expect("b length"), ["a"]),
+        LaneEdge::new(
+            "a",
+            EdgeLength::try_new(100.0).expect("a length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["b"],
+        ),
+        LaneEdge::new(
+            "b",
+            EdgeLength::try_new(100.0).expect("b length"),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["a"],
+        ),
     ])
     .expect("graph");
     let parking = ParkingRegistry::try_new(

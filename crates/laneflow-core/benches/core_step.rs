@@ -30,8 +30,9 @@ use signal_scenarios::{
 use vehicle_scenarios::{
     FIXED_DELTA_TIME_MS, SCALING_VEHICLE_COUNT, STEP_COUNT, VEHICLE_COUNT, dense_platoon_world,
     free_flow_world, locality_dense_platoon_world, locality_free_flow_world,
-    locality_stop_and_go_world, projection_event_count, projection_heavy_world, stop_and_go_world,
-    transition_event_count, transition_heavy_world,
+    locality_stop_and_go_world, projection_event_count, projection_heavy_world,
+    speed_limit_transition_world, stop_and_go_world, transition_event_count,
+    transition_heavy_world,
 };
 
 fn run_steps(world: &mut CoreWorld) -> usize {
@@ -119,6 +120,7 @@ fn benchmark_core_step(criterion: &mut Criterion) {
     let stop_and_go = stop_and_go_world(VEHICLE_COUNT);
     let projection_heavy = projection_heavy_world(VEHICLE_COUNT);
     let transition_heavy = transition_heavy_world(VEHICLE_COUNT);
+    let speed_limits = speed_limit_transition_world(VEHICLE_COUNT);
 
     assert_eq!(run_steps(&mut free_flow.clone()), 0);
     assert_eq!(run_steps(&mut dense_platoon.clone()), 0);
@@ -131,6 +133,7 @@ fn benchmark_core_step(criterion: &mut Criterion) {
         run_steps(&mut transition_heavy.clone()),
         transition_event_count(VEHICLE_COUNT)
     );
+    assert_eq!(run_steps(&mut speed_limits.clone()), 0);
 
     let mut group = criterion.benchmark_group("vehicle_following_step_10k_60");
     group.sample_size(20);
@@ -199,6 +202,25 @@ fn benchmark_core_step(criterion: &mut Criterion) {
         &transition_heavy,
     );
     transition_group.finish();
+
+    let mut speed_limit_group = criterion.benchmark_group("speed_limits_step_10k_60");
+    speed_limit_group.sample_size(20);
+    speed_limit_group.warm_up_time(Duration::from_secs(1));
+    speed_limit_group.measurement_time(Duration::from_secs(5));
+    speed_limit_group.throughput(Throughput::Elements((VEHICLE_COUNT * STEP_COUNT) as u64));
+    benchmark_world(
+        &mut speed_limit_group,
+        "baseline_unconstrained",
+        VEHICLE_COUNT,
+        &free_flow,
+    );
+    benchmark_world(
+        &mut speed_limit_group,
+        "alternating_drops",
+        VEHICLE_COUNT,
+        &speed_limits,
+    );
+    speed_limit_group.finish();
 
     let signal_worlds = SignalScenarioMode::ALL.map(|mode| {
         let scenario = signal_scenario(SIGNAL_VEHICLE_COUNT, mode);
@@ -307,7 +329,11 @@ fn benchmark_core_step(criterion: &mut Criterion) {
     let full_100k = std::env::var_os("LANEFLOW_BENCH_100K").is_some();
     if full_100k {
         let scaling_world = dense_platoon_world(SCALING_VEHICLE_COUNT);
+        let scaling_free_flow = free_flow_world(SCALING_VEHICLE_COUNT);
+        let scaling_speed_limits = speed_limit_transition_world(SCALING_VEHICLE_COUNT);
         assert_eq!(run_steps(&mut scaling_world.clone()), 0);
+        assert_eq!(run_steps(&mut scaling_free_flow.clone()), 0);
+        assert_eq!(run_steps(&mut scaling_speed_limits.clone()), 0);
 
         let mut group = criterion.benchmark_group("vehicle_following_step_100k_60_observation");
         group.sample_size(10);
@@ -323,6 +349,28 @@ fn benchmark_core_step(criterion: &mut Criterion) {
             &scaling_world,
         );
         group.finish();
+
+        let mut speed_limit_group =
+            criterion.benchmark_group("speed_limits_step_100k_60_observation");
+        speed_limit_group.sample_size(10);
+        speed_limit_group.warm_up_time(Duration::from_secs(1));
+        speed_limit_group.measurement_time(Duration::from_secs(5));
+        speed_limit_group.throughput(Throughput::Elements(
+            (SCALING_VEHICLE_COUNT * STEP_COUNT) as u64,
+        ));
+        benchmark_world(
+            &mut speed_limit_group,
+            "baseline_unconstrained",
+            SCALING_VEHICLE_COUNT,
+            &scaling_free_flow,
+        );
+        benchmark_world(
+            &mut speed_limit_group,
+            "alternating_drops",
+            SCALING_VEHICLE_COUNT,
+            &scaling_speed_limits,
+        );
+        speed_limit_group.finish();
 
         let signal_scaling = signal_scenario(
             SIGNAL_SCALING_VEHICLE_COUNT,

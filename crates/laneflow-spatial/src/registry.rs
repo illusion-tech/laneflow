@@ -210,7 +210,12 @@ mod tests {
 
     fn graph(edges: &[(&str, f64, &[&str])]) -> LaneGraph {
         LaneGraph::try_new(edges.iter().map(|(id, length, next)| {
-            LaneEdge::new(*id, edge_length(*length), next.iter().copied())
+            LaneEdge::new(
+                *id,
+                edge_length(*length),
+                laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+                next.iter().copied(),
+            )
         }))
         .expect("valid lane graph")
     }

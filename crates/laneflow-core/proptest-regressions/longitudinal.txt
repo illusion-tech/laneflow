@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c8f78006e293ffba37621bab4231ef216a5e99786594b0307d5d3e8f64a236cf # shrinks to route_distance = 5.356030245200992, signal_distance = 2.6247452538284395, parking_distance = 7.8598959004623, speed_limit_distance = 0.0

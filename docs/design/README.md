@@ -20,7 +20,7 @@
 - `adapter-api.md`：Core/Spatial 与引擎适配器之间的只读快照、批量位姿、宿主转换和权威职责边界。
 - `bevy-reference-adapter.md`：v0.7 Bevy 0.19 Reference Adapter 的依赖、schedule、Entity/Transform、debug、example 与验证边界。
 - `data-format.md`：lane graph、route 等外部数据格式、validation 和 loader 边界；Rust crate 所有权见 ADR 0007。
-- `data-loading.md`：当前 v0.5 Rust loader、严格版本闸口、Core Signals/Parking normalization、错误与测试边界。
+- `data-loading.md`：当前 v0.7 Rust loader、严格版本闸口、per-edge speed limit、Core Signals/Parking normalization、错误与测试边界。
 - `example-scenarios.md`：Accepted v0.8 直行信号化走廊；冻结 1.4 km 默认几何、14 条 lane routes、限速、固定时制、50–200 车辆人口、seeded 出口回流与分层验收路径。
 
 ## 文档状态

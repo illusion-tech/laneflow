@@ -8,10 +8,10 @@ use laneflow_spatial::{SpatialEdgeInput, SpatialRegistry};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-const TRAFFIC_REF: &str = "v0.5-empty-signals-and-parking.laneflow.json";
+const TRAFFIC_REF: &str = "v0.7-empty-signals-and-parking.laneflow.json";
 const SPATIAL_REF: &str = "v0.1-campus.spatial.json";
 const TRAFFIC: &[u8] =
-    include_bytes!("../../../examples/data/v0.5-empty-signals-and-parking.laneflow.json");
+    include_bytes!("../../../examples/data/v0.7-empty-signals-and-parking.laneflow.json");
 const SPATIAL: &[u8] = include_bytes!("../../../examples/data/v0.1-campus.spatial.json");
 const MANIFEST: &str = include_str!("../../../examples/data/v0.1-campus.scenario.json");
 
@@ -274,7 +274,7 @@ fn spatial_edge_coverage_is_total_unique_and_bound_to_traffic_ids() {
 
 #[test]
 fn traffic_failure_does_not_expose_a_partial_scenario() {
-    let invalid_traffic = br#"{"formatVersion":"0.5"}"#;
+    let invalid_traffic = br#"{"formatVersion":"0.7"}"#;
     let manifest = manifest_value(invalid_traffic, SPATIAL);
     std::assert_matches!(
         load_value(&manifest, invalid_traffic, SPATIAL).expect_err("traffic must fail"),

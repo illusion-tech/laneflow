@@ -84,14 +84,14 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 当前 Rust workspace 中，Traffic Data Layer 已由 `laneflow-data` 表达。它负责：
 
-- 当前 v0.5 external package、必填版本闸口与旧版/未来版拒绝；
+- 当前 v0.7 external package、required per-edge `speedLimit`、必填版本闸口与旧版/未来版拒绝；
 - JSON syntax、wire shape、units 和字段路径诊断；
 - external ID 到 Core domain input 的转换；
 - 调用 Core constructors 完成 lane graph、route、Vehicle Profile、static Signals 与 static Parking normalization。
 
 `laneflow-data` 不拥有 fixed tick、runtime entity、world lifecycle 或 Engine asset I/O。初始 loader 接收内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
 
-current v0.5 在保持相同依赖方向的前提下包含 StopLine、MovementGate、SignalGroup、fixed-time Controller/Phase，以及 immutable ParkingArea/ParkingSpace、entry/exit anchors 和 edge-relative geometry，并由两个 canonical fixtures 锁定。详细契约见 `design/data-format.md` 与 `design/data-loading.md`。
+current v0.7 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、StopLine、MovementGate、SignalGroup、fixed-time Controller/Phase，以及 immutable ParkingArea/ParkingSpace、entry/exit anchors 和 edge-relative geometry，并由两个 canonical fixtures 锁定。详细契约见 `design/data-format.md` 与 `design/data-loading.md`。
 
 Traffic Data 只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors 与 edge-relative geometry，不持久化 reservation、occupancy、initial parked vehicles 或 runtime handles。#107 已原子切换 schema、private DTO、loader、fixtures 与 current docs；#108 的 runtime authority 完全保留在 CoreWorld，不回写 production data。
 

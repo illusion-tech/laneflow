@@ -13,9 +13,24 @@ fn edge_length(value: f64) -> EdgeLength {
 
 fn canonical_graph() -> LaneGraph {
     LaneGraph::try_new([
-        LaneEdge::new("entry", edge_length(100.0), ["through", "bypass"]),
-        LaneEdge::new("through", edge_length(40.0), std::iter::empty::<&str>()),
-        LaneEdge::new("bypass", edge_length(30.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "entry",
+            edge_length(100.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["through", "bypass"],
+        ),
+        LaneEdge::new(
+            "through",
+            edge_length(40.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+        LaneEdge::new(
+            "bypass",
+            edge_length(30.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid graph")
 }
@@ -611,6 +626,7 @@ fn gate_coverage_stop_line_ownership_and_group_usage_are_global_invariants() {
     let terminal_graph = LaneGraph::try_new([LaneEdge::new(
         "terminal",
         edge_length(10.0),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("terminal graph");
@@ -713,9 +729,24 @@ fn gate_references_connection_and_stop_line_must_agree() {
     std::assert_matches!(error, CoreError::UnknownMovementGateSignalGroup { group_id } if group_id == "unknown");
 
     let graph = LaneGraph::try_new([
-        LaneEdge::new("first", edge_length(10.0), ["target"]),
-        LaneEdge::new("second", edge_length(10.0), ["target"]),
-        LaneEdge::new("target", edge_length(10.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "first",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["target"],
+        ),
+        LaneEdge::new(
+            "second",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["target"],
+        ),
+        LaneEdge::new(
+            "target",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid graph");
     let error = SignalRegistry::try_new(
@@ -778,9 +809,24 @@ fn initial_traffic_data_rebinds_signals_to_its_own_lane_graph() {
     let source_graph = canonical_graph();
     let signals = canonical_registry(&source_graph);
     let reordered_graph = LaneGraph::try_new([
-        LaneEdge::new("bypass", edge_length(30.0), std::iter::empty::<&str>()),
-        LaneEdge::new("entry", edge_length(100.0), ["through", "bypass"]),
-        LaneEdge::new("through", edge_length(40.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "bypass",
+            edge_length(30.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+        LaneEdge::new(
+            "entry",
+            edge_length(100.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["through", "bypass"],
+        ),
+        LaneEdge::new(
+            "through",
+            edge_length(40.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("same topology with different handle order");
 
@@ -803,6 +849,7 @@ fn initial_traffic_data_rebinds_signals_to_its_own_lane_graph() {
     let incompatible_graph = LaneGraph::try_new([LaneEdge::new(
         "other",
         edge_length(10.0),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid incompatible graph");

@@ -52,8 +52,18 @@ fn single_gate_world(
     vehicles: impl FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>,
 ) -> CoreWorld {
     let graph = LaneGraph::try_new([
-        LaneEdge::new("entry", edge_length(100.0), ["exit"]),
-        LaneEdge::new("exit", edge_length(100.0), Vec::<String>::new()),
+        LaneEdge::new(
+            "entry",
+            edge_length(100.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["exit"],
+        ),
+        LaneEdge::new(
+            "exit",
+            edge_length(100.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            Vec::<String>::new(),
+        ),
     ])
     .expect("valid graph");
     let signals = SignalRegistry::try_new(
@@ -151,8 +161,18 @@ fn protected_green_and_uncontrolled_gate_allow_crossing() {
     std::assert_matches!(result.events.as_slice(), [CoreEvent::VehicleChangedEdge(_)]);
 
     let graph = LaneGraph::try_new([
-        LaneEdge::new("entry", edge_length(10.0), ["exit"]),
-        LaneEdge::new("exit", edge_length(10.0), Vec::<String>::new()),
+        LaneEdge::new(
+            "entry",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["exit"],
+        ),
+        LaneEdge::new(
+            "exit",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            Vec::<String>::new(),
+        ),
     ])
     .expect("graph");
     let signals = SignalRegistry::try_new(
@@ -277,9 +297,24 @@ fn exact_boundary_crosses_only_on_tick_after_red_turns_green() {
 #[test]
 fn one_tick_crosses_permitted_gate_then_stops_at_nearest_denied_gate() {
     let graph = LaneGraph::try_new([
-        LaneEdge::new("a", edge_length(5.0), ["b"]),
-        LaneEdge::new("b", edge_length(5.0), ["c"]),
-        LaneEdge::new("c", edge_length(100.0), Vec::<String>::new()),
+        LaneEdge::new(
+            "a",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["b"],
+        ),
+        LaneEdge::new(
+            "b",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["c"],
+        ),
+        LaneEdge::new(
+            "c",
+            edge_length(100.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            Vec::<String>::new(),
+        ),
     ])
     .expect("graph");
     let signals = SignalRegistry::try_new(
@@ -345,8 +380,18 @@ fn one_tick_crosses_permitted_gate_then_stops_at_nearest_denied_gate() {
 #[test]
 fn repeated_physical_edge_is_checked_by_route_occurrence() {
     let graph = LaneGraph::try_new([
-        LaneEdge::new("a", edge_length(5.0), ["a", "b"]),
-        LaneEdge::new("b", edge_length(100.0), Vec::<String>::new()),
+        LaneEdge::new(
+            "a",
+            edge_length(5.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["a", "b"],
+        ),
+        LaneEdge::new(
+            "b",
+            edge_length(100.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            Vec::<String>::new(),
+        ),
     ])
     .expect("graph");
     let signals = SignalRegistry::try_new(
@@ -512,9 +557,24 @@ fn signal_then_following_projection_order_is_per_vehicle() {
 #[test]
 fn signal_beyond_finite_route_distance_horizon_is_ignored() {
     let graph = LaneGraph::try_new([
-        LaneEdge::new("a", edge_length(f64::MAX), ["b"]),
-        LaneEdge::new("b", edge_length(f64::MAX), ["c"]),
-        LaneEdge::new("c", edge_length(100.0), Vec::<String>::new()),
+        LaneEdge::new(
+            "a",
+            edge_length(f64::MAX),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["b"],
+        ),
+        LaneEdge::new(
+            "b",
+            edge_length(f64::MAX),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["c"],
+        ),
+        LaneEdge::new(
+            "c",
+            edge_length(100.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            Vec::<String>::new(),
+        ),
     ])
     .expect("graph");
     let signals = SignalRegistry::try_new(

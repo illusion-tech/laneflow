@@ -63,6 +63,7 @@ fn occupancy_detects_same_edge_stopped_leader_and_excludes_completed_vehicle() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         edge_length(20.0),
+        crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid lane graph");
@@ -95,9 +96,24 @@ fn occupancy_detects_same_edge_stopped_leader_and_excludes_completed_vehicle() {
 #[test]
 fn leader_query_follows_selected_branch_and_observes_shared_edge() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("C", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(10.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "C",
+            edge_length(10.0),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(10.0),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route_a = Route::try_new("route-a", ["A", "B"]).expect("valid route");
@@ -133,8 +149,13 @@ fn leader_query_follows_selected_branch_and_observes_shared_edge() {
 
 #[test]
 fn repeated_edge_query_excludes_self_and_uses_next_occurrence() {
-    let lane_graph = LaneGraph::try_new([LaneEdge::new("loop", edge_length(10.0), ["loop"])])
-        .expect("valid lane graph");
+    let lane_graph = LaneGraph::try_new([LaneEdge::new(
+        "loop",
+        edge_length(10.0),
+        crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+        ["loop"],
+    )])
+    .expect("valid lane graph");
     let route = Route::try_new("R", ["loop", "loop"]).expect("valid route");
     let (traffic_data, profile) = traffic_data(lane_graph, [route]);
     let mut world = CoreWorld::with_traffic_data(
@@ -162,6 +183,7 @@ fn initial_same_progress_overlap_is_rejected() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         edge_length(20.0),
+        crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid lane graph");
@@ -191,8 +213,18 @@ fn initial_same_progress_overlap_is_rejected() {
 #[test]
 fn initial_cross_boundary_overlap_is_rejected() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(10.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(10.0),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
@@ -223,6 +255,7 @@ fn min_gap_violation_without_physical_overlap_is_valid() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         edge_length(20.0),
+        crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid lane graph");
@@ -245,8 +278,18 @@ fn min_gap_violation_without_physical_overlap_is_valid() {
 #[test]
 fn spawn_cross_boundary_overlap_failure_is_atomic() {
     let lane_graph = LaneGraph::try_new([
-        LaneEdge::new("A", edge_length(10.0), ["B"]),
-        LaneEdge::new("B", edge_length(10.0), std::iter::empty::<&str>()),
+        LaneEdge::new(
+            "A",
+            edge_length(10.0),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
+        LaneEdge::new(
+            "B",
+            edge_length(10.0),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
@@ -294,6 +337,7 @@ fn occupancy_and_leader_results_ignore_initial_input_order() {
         let lane_graph = LaneGraph::try_new([LaneEdge::new(
             "A",
             edge_length(20.0),
+            crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         )])
         .expect("valid lane graph");
@@ -348,6 +392,7 @@ fn derived_scratch_history_is_ignored_by_world_equality() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         edge_length(20.0),
+        crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid lane graph");
@@ -378,6 +423,7 @@ fn epsilon_overlap_is_normalized_to_zero_bumper_gap() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         edge_length(20.0),
+        crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid lane graph");
@@ -414,6 +460,7 @@ fn scaled_braking_distance_avoids_false_square_overflow() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         edge_length(f64::MAX),
+        crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid lane graph");
@@ -466,6 +513,7 @@ fn non_finite_leader_horizon_keeps_authority_state_unchanged() {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         edge_length(f64::MAX),
+        crate::graph::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("valid lane graph");

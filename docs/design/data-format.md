@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted  
 **最后更新**: 2026-07-22<br>
-**适用范围**: 当前 Traffic v0.5、SpatialPackage v0.1、ScenarioManifest v0.1、保留的 Data v0.6 数值迁移与 v0.8 Traffic v0.7 目标
+**适用范围**: 当前 Traffic v0.7、SpatialPackage v0.1、ScenarioManifest v0.1 与保留的 Data v0.6 数值研究输入
 
 **关联文档**:
 
@@ -17,7 +17,7 @@
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
-- `../../schemas/laneflow-data-v0.5.schema.json`
+- `../../schemas/laneflow-data-v0.7.schema.json`
 - `../../schemas/laneflow-spatial-v0.1.schema.json`
 - `../../schemas/laneflow-scenario-manifest-v0.1.schema.json`
 - `../../schemas/README.md`
@@ -32,7 +32,7 @@
 
 ## 1. 目标与非目标
 
-本文定义 LaneFlow 当前唯一 active 的 v0.5 external package。它是 checked-in schema、production loader、canonical fixtures、validator 和后续 Adapter / authoring tool 的数据契约。
+本文定义 LaneFlow 当前唯一 active 的 v0.7 external package。它是 checked-in schema、production loader、canonical fixtures、validator 和后续 Adapter / authoring tool 的数据契约。
 
 目标：
 
@@ -45,7 +45,7 @@
 
 - 不持久化 initial vehicles、spawn schedule、runtime handles、phase snapshot、Parking reservation/occupancy 或 Adapter asset binding。
 - 不表达 world-space geometry、停车 maneuver、灯具 transform、jurisdiction rules 或 runtime command/event state。
-- 不兼容加载 v0.4 及更早版本，不提供 runtime migration shim。
+- 不兼容加载 v0.5、v0.6 及更早版本，不提供 runtime migration shim。
 - 不接受 JSON-LD；未来如有需要，只能通过独立离线 importer 转换为 canonical JSON。
 - 不承诺 v1.0 的长期稳定格式。
 
@@ -53,7 +53,7 @@
 
 ```text
 LaneFlowDataPackage
-  formatVersion: "0.5"
+  formatVersion: "0.7"
   units: UnitSpec
   laneGraph: LaneGraphData
   routes: RouteData[]
@@ -65,6 +65,7 @@ LaneFlowDataPackage
 LaneEdgeData
   id
   length
+  speedLimit  // m/s，required，finite 且 > 0
   connections[]
     toEdgeId
 
@@ -109,8 +110,8 @@ ParkingData
 
 `signals`、`parking` 及其全部子数组均必填，可以为空。当前 canonical fixtures：
 
-- `examples/data/v0.5-parking-signals-baseline.laneflow.json`：完整 Signals、area-owned 与 standalone spaces、same/distinct anchors、正负 lateral 和 zero/angled heading。
-- `examples/data/v0.5-empty-signals-and-parking.laneflow.json`：显式空 Signals/Parking 数组，承接 route/profile/repeated-edge 行为回归。
+- `examples/data/v0.7-parking-signals-baseline.laneflow.json`：完整 Signals、area-owned 与 standalone spaces、same/distinct anchors、正负 lateral 和 zero/angled heading。
+- `examples/data/v0.7-empty-signals-and-parking.laneflow.json`：显式空 Signals/Parking 数组，承接 route/profile/repeated-edge 行为回归。
 
 ## 3. 通用字段规则
 
@@ -139,12 +140,13 @@ current 格式继续使用 `connections[].toEdgeId` 与 `routes[].edgeIds`；旧
 
 Lane graph 与 Vehicle Profile 的 domain 语义沿用 v0.3：
 
-- edge length 必须 finite 且严格大于 current v0.5 自有的 `1.0e-9 m` exclusive minimum；Data 不导入 Core 私有数值策略。
+- edge length 必须 finite 且严格大于 current v0.7 自有的 `1.0e-9 m` exclusive minimum；Data 不导入 Core 私有数值策略。
+- edge `speedLimit` 必填，单位为 m/s；schema 要求 JSON number 且 `exclusiveMinimum: 0`，Core `SpeedLimit` 最终裁决 finite 且严格大于 0。
 - connection target 必须存在；同一 source 不得重复 target。
 - route 至少一个 edge；引用必须存在，相邻 pair 必须连通；允许 repeated edge/self loop。
 - Vehicle Profile 全字段必填、immutable，当前 `model` 仅为 `iidm`；数值和 deceleration cross-field 规则由 Core 校验。
 
-v0.4 引入且 v0.5 保留的 route 规则：route 不得终止在声明 StopLine 的 edge 上。initial routes 与 runtime `register_route` 复用同一 Core helper，不能借 route completion 绕过 Gate。
+v0.4 引入且 v0.7 保留的 route 规则：route 不得终止在声明 StopLine 的 edge 上。initial routes 与 runtime `register_route` 复用同一 Core helper，不能借 route completion 绕过 Gate。
 
 ## 5. Static Signals Contract
 
@@ -172,11 +174,11 @@ v0.4 引入且 v0.5 保留的 route 规则：route 不得终止在声明 StopLin
 
 - `ParkingArea.id` 与 `ParkingSpace.id` 分别 domain-local unique；area 只做 optional 逻辑分组，不保存 capacity 或 `spaceIds`。
 - `areaId` 省略表示 standalone space；explicit `null` 非法。已声明 area 必须至少拥有一个 member space，reverse member order 使用 space input order。
-- entry/exit anchor edge 必须存在；progress 必须 finite，并严格满足 `1.0e-9 m < progress < edgeLength - 1.0e-9 m`。该值是 current v0.5 的 anchor 数值事实。
-- geometry 以 entry edge 的正向切线为局部基准；`abs(lateralOffset) > 1.0e-9 m`，heading 位于 `[-PI, PI)`，length/width 严格大于 current v0.5 自有的 `1.0e-9 m` exclusive minimum。lateral offset 与 extent 在测试中分别拥有语义，不从 Core 公共常量导入。
+- entry/exit anchor edge 必须存在；progress 必须 finite，并严格满足 `1.0e-9 m < progress < edgeLength - 1.0e-9 m`。该值是 current v0.7 继承的 anchor 数值事实。
+- geometry 以 entry edge 的正向切线为局部基准；`abs(lateralOffset) > 1.0e-9 m`，heading 位于 `[-PI, PI)`，length/width 严格大于 current v0.7 继承的 `1.0e-9 m` exclusive minimum。lateral offset 与 extent 在测试中分别拥有语义，不从 Core 公共常量导入。
 - External package 不持久化 reservation、occupancy、initial parked vehicles、runtime handles、maneuver path 或 world transform。
 
-停车场、专用路边停车区和 standalone 路边泊位复用同一 `ParkingSpace` 模型；v0.5 static data 不加入影响 Core 行为的 lot/curbside kind。完整 runtime/lifecycle 契约见 [`parking-system.md`](parking-system.md)，已由 #108/#109 交付并由 #110 完成端到端验证。
+停车场、专用路边停车区和 standalone 路边泊位复用同一 `ParkingSpace` 模型；v0.7 static data 不加入影响 Core 行为的 lot/curbside kind。完整 runtime/lifecycle 契约见 [`parking-system.md`](parking-system.md)，已由 #108/#109 交付并由 #110 完成端到端验证。
 
 ## 7. Validation 分层与顺序
 
@@ -220,10 +222,10 @@ laneflow-data -> laneflow-core
 laneflow-core -X-> laneflow-data
 ```
 
-- `laneflow-data`：version header、private v0.5 DTO、JSON/units/path 和 external-to-Core 转换。
+- `laneflow-data`：version header、private v0.7 DTO、JSON/units/path 和 external-to-Core 转换。
 - `laneflow-core`：domain types、typed handles、registry/resolver、全局 invariant 与 world compatibility。
 - loader 接收内存 bytes/string，不读取路径、不创建 `CoreWorld`、不公开 raw DTO。
-- `LoadedPackage` 只表示 current v0.5，并持有已验证的 `InitialTrafficData`。
+- `LoadedPackage` 只表示 current v0.7，并持有已验证的 `InitialTrafficData`。
 - normalization 预解析 edge/StopLine/Group/Controller/Phase/Gate/Parking handles 与 reverse indexes；runtime hot path 不读取 JSON 或 external ID。
 
 ## 9. Signals Vehicle Capability
@@ -247,7 +249,7 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 直接以 v0.4 
 
 随后 #107 依据 ADR 0008 以 v0.5 原子替换 v0.4：
 
-| 历史 v0.4                       | 当前 v0.5                                               |
+| 历史 v0.4                       | 当时 v0.5                                               |
 | ------------------------------- | ------------------------------------------------------- |
 | `formatVersion: "0.4"`          | `formatVersion: "0.5"`                                  |
 | 无 `parking`                    | 必填 closed Parking object 与 areas/spaces arrays       |
@@ -255,13 +257,23 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 直接以 v0.4 
 | v0.4 schema/fixtures            | 从 active tree 移除，由 Git 与 v0.4 closure review 保存 |
 | production compatibility        | 不提供；v0.4 返回 `UnsupportedFormatVersion`            |
 
-Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL；catalog 中全部版本必须通过 HTTPS 返回与固定 source revision 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析 `$id`/`$schema`。v0.2-v0.4 只作为 immutable publication artifacts 保留，不改变当前唯一 active v0.5 contract；消费者入口见 [`schemas/README.md`](../../schemas/README.md)。
+随后 #185 以 v0.7 原子替换 v0.5；v0.6 从未成为 production current：
+
+| 历史 v0.5                       | 当前 v0.7                                             |
+| ------------------------------- | ----------------------------------------------------- |
+| `formatVersion: "0.5"`          | `formatVersion: "0.7"`                                |
+| edge 无法规限速                 | required `laneGraph.edges[].speedLimit`，单位 m/s     |
+| `LaneEdge` 只有 length/topology | mandatory `SpeedLimit` + current/downstream Core 约束 |
+| v0.5 canonical fixtures         | v0.7 fixtures 与 Scenario traffic digest 原子切换     |
+| production compatibility        | 不提供；v0.5/v0.6 返回 `UnsupportedFormatVersion`     |
+
+Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL；catalog 中 published version 必须通过 HTTPS 返回与固定 source revision 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析 `$id`/`$schema`。v0.2-v0.5 作为 immutable publication artifacts 保留；v0.7 是 current source，合并后再用固定 `main` revision/blob 登记 publication provenance。消费者入口见 [`schemas/README.md`](../../schemas/README.md)。
 
 ## 11. v0.6 空间层配套制品设计
 
-#123 G1 不把中心线或世界几何加入当前 v0.5 `LaneFlowDataPackage`，也不提升其 `formatVersion`。#134 交付独立的 SpatialPackage v0.1 与 ScenarioManifest v0.1 source contract，由清单通过不透明制品引用、原始 byte size 和 SHA-256 摘要与 Traffic package 精确配对。
+#123 G1 不把中心线或世界几何加入 Traffic `LaneFlowDataPackage`。#134 交付独立的 SpatialPackage v0.1 与 ScenarioManifest v0.1 source contract，由清单通过不透明制品引用、原始 byte size 和 SHA-256 摘要与 current Traffic package 精确配对。
 
-- 当前 v0.5 继续拥有交通边外部 ID、Core 边长、拓扑、路线、信号与停车边相对数据。
+- 当前 v0.7 继续拥有交通边外部 ID、Core 边长、基础限速、拓扑、路线、信号与停车边相对数据。
 - SpatialPackage v0.1 是 closed JSON object：`formatVersion`、`frameId`、`edges[]`；每条 edge 使用 `trafficEdgeId` 和 `centerline.points`，点固定编码为 `[x, y, z]` 三元数组，不建立全局 vertex pool/index。
 - 每条中心线至少两个点。wire number 先以 `f64` 暂存，执行有限性和每轴 `[-16_384, 16_384] m` 检查，再受检转换为唯一 runtime `f32` canonical 点；坐标为米、右手、`+Y` 向上。
 - Spatial JSON edge 顺序不具权威性；成功规范化结果按 `LaneGraph::edges()` 稳定顺序排列，并要求对 Traffic graph 的 edge 完整、唯一覆盖。
@@ -273,25 +285,25 @@ Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public 
 
 ## 12. Data v0.6 数值格式原子迁移边界
 
-ADR 0014 接受了下一 Core/Data 数值契约；#126 进一步冻结目标交通数据（Traffic Data）版本为 `formatVersion: "0.6"`。#144 的首次生产迁移因性能门槛失败而形成不迁移（no-go）结论，因此当前唯一有效格式继续是 v0.5；v0.6 仍只是未来原子迁移输入：
+ADR 0014 接受了目标 Core/Data 数值契约；#126 曾把该研究候选分配给 `formatVersion: "0.6"`。#144 的首次生产迁移因性能门槛失败而形成不迁移（no-go）结论，v0.6 从未成为 current/published production format。当前 v0.7 有意继续使用 v0.5 的 `f64` 数值域，仅增加道路限速契约；以下内容仍是未来数值迁移输入：
 
-- 当前 v0.5 的线格式 DTO、模式范围、加载器诊断和 `f64` Core 规范化在原子迁移前保持当前实现行为；不增加逐字节、旧范围或旧诊断兼容证明；
+- 当前 v0.7 的线格式 DTO、模式范围、加载器诊断和 `f64` Core 规范化在未来数值迁移前保持当前实现行为；不增加逐字节、旧范围或旧诊断兼容证明；
 - 下一目标格式把单 edge `<=10_000 m`、速度 `<=100 m/s`、Profile 加速度/减速度 `<=50 m/s²`、期望车头时距 `<=60 s`、尺寸/最小间距/偏移 `<=128 m` 等硬范围写入模式与 Core 构造器；最小 edge 长度目标值由 #127 离线标定，但 #144 回退后没有进入当前格式；
 - JSON 词法类型继续是 `number`。Data 可以先以 `f64` 或等价高保真值解析，以便报告原始越界输入；随后必须通过显式受检转换进入单一 `f32` 数值域或补偿残差感知的 `EdgeProgress`；
 - Parking 入口/出口锚点的线格式继续是单个 `progress` JSON 数值，但 Core 规范化结果直接使用 `EdgeProgress`；不保留裸 `f64` 静态位置或新增第三种边内位置类型；
 - 原始 `f64` 转换错误可保留输入值；规范化单值域错误使用 `f32`，有效进度与实际采用 `f64` 的路线（route）派生值使用 `f64`。错误显示（Display）使用领域化中文范围，不引用已删除的数值常量名；
 - 模式（schema）文件名/`$id`、发布目录的当前指针、私有线格式 DTO、加载器版本闸口与路径诊断、标准固定样例、Core 构造器、测试和当前文档必须由未来原子迁移在同一交付 PR（Delivery PR）中更新；
-- 有效代码树仍只维护一个当前加载器。未来切换后不叠加 v0.5 运行时兼容分支，不自动拆 edge、不静默截断；仓库内资产随迁移直接更新，不实现离线迁移工具；
+- 有效代码树仍只维护一个当前加载器。未来切换后不叠加 v0.7 运行时兼容分支，不自动拆 edge、不静默截断；仓库内资产随迁移直接更新，不实现离线迁移工具；
 - 规范化和批量命令继续执行“先计算、后提交”，任一范围、转换或引用错误不得留下部分 `InitialTrafficData` 或 world 状态。
 
 #127 拥有九个目标 `f32` 固定绝对阈值、`EdgeProgress` 运算链和路线距离（route-distance）布局证据；#144 已消费这些结果实施生产候选，但因性能 no-go 而完整回退。未来重启不得重新发明阈值；已公开且受 ADR 0011 约束的历史模式（schema）可以作为不可变静态制品保留，但不进入有效加载器、固定样例或规范化测试。
 
-因此，#126 的文档合入只建立直接迁移输入；#144 未通过性能闸口，本文件的“当前版本”标题和模式链接不切换到 v0.6。未来只有新的原子 Data/Core 迁移通过正确性、内存护栏、性能与 G0-G4 后才可切换。
+因此，#126 的文档只保留迁移输入；#144 未通过性能闸口，当前版本不会切换到 v0.6。未来只有新的原子 Data/Core 数值迁移通过正确性、内存护栏、性能与 G0-G4 后才可切换。
 
-## 13. v0.8 Traffic v0.7 target
+## 13. v0.8 Traffic v0.7 道路限速契约
 
-#184 冻结 v0.8 的目标 Traffic 版本为 `formatVersion: "0.7"`。v0.6 已被 Accepted Data design 保留给 #144 曾经 no-go 的 f32 原子数值迁移，不能复用同一版本号表达 per-edge speed limit 的另一种不兼容 shape。
+#184 冻结并由 #185 实现 v0.8 Traffic `formatVersion: "0.7"`。v0.6 保留给 #144 曾经 no-go 的 f32 原子数值迁移，未被复用来表达 per-edge speed limit 的另一种不兼容 shape。
 
-v0.7 target 直接以 current v0.5 shape 和 `f64` Core 数值域为迁移基线，不激活或夹带 v0.6 的 target-f32 变更；它在每个 lane edge 增加 required、严格正且有限的 `speedLimit`，wire/Core 单位为 m/s。主干道及其直行 connector 为 60 km/h，次干道及其 connector 为 40 km/h。`VehicleProfile.desiredSpeed` 继续表达车辆自由流期望速度，不能替代 edge speed limit。具体 schema shape、版本发布与 loader 原子切换由 #185 交付；本设计 PR 不修改 active schema 或 production loader，当前唯一 active Traffic 仍为 v0.5。
+v0.7 直接以 v0.5 shape 和 `f64` Core 数值域为迁移基线，不激活或夹带 v0.6 的 target-f32 变更；它在每个 lane edge 增加 required、严格正且有限的 `speedLimit`，wire/Core 单位为 m/s。主干道及其直行 connector 为 60 km/h，次干道及其 connector 为 40 km/h。`VehicleProfile.desiredSpeed` 继续表达车辆自由流期望速度，不能替代 edge speed limit。production loader 只接受 exact `"0.7"`，v0.5/v0.6 不进入 current DTO；schema、fixtures 与 Scenario traffic digest 已原子切换。
 
 目标人口、seed、portal catalog、initial spawn slots、pending recycle、VehicleHandle 与 Entity 不进入 Traffic/Spatial/Manifest。它们属于 authoring/startup config 或 caller-owned runtime plan；native example 仍必须让生成制品通过 production loader。详细场景和 lifecycle authority 见 `example-scenarios.md` 与 ADR 0016。

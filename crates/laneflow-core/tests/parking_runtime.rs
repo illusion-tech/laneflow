@@ -42,6 +42,7 @@ fn single_edge_world() -> (CoreWorld, VehicleProfileHandle) {
     let graph = LaneGraph::try_new([LaneEdge::new(
         "A",
         EdgeLength::try_new(100.0).expect("length"),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
         std::iter::empty::<&str>(),
     )])
     .expect("graph");
@@ -318,10 +319,16 @@ fn leave_rejects_overlap_and_unsafe_active_follower_without_mutation() {
 #[test]
 fn dormant_reservation_rebinds_without_teleport_and_keeps_route_references_exact() {
     let graph = LaneGraph::try_new([
-        LaneEdge::new("A", EdgeLength::try_new(100.0).unwrap(), ["B"]),
+        LaneEdge::new(
+            "A",
+            EdgeLength::try_new(100.0).unwrap(),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["B"],
+        ),
         LaneEdge::new(
             "B",
             EdgeLength::try_new(100.0).unwrap(),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
             std::iter::empty::<&str>(),
         ),
     ])
