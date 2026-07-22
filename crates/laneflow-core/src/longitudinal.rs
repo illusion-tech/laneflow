@@ -234,7 +234,7 @@ impl LongitudinalMotion {
         constraint: SpeedLimitConstraint,
         profile: IidmProfileSpec,
         delta_time: f64,
-    ) -> Result<(), CoreError> {
+    ) -> Result<bool, CoreError> {
         let candidate = self
             .speed_limit_candidate(constraint, profile, delta_time)
             .map_err(speed_limit_error)?;
@@ -251,11 +251,15 @@ impl LongitudinalMotion {
                 None => SpatialCandidateAttribution::Base,
             },
         };
-        if candidate.is_stricter_than(selected) {
+        let tightens_motion = candidate.travel.total_cmp(&selected.travel).is_lt()
+            || (candidate.travel == selected.travel
+                && candidate.speed.total_cmp(&selected.speed).is_lt());
+        if tightens_motion {
             self.speed_limit_projection = candidate.hard_projection.then_some(constraint);
             self.commit_spatial_candidate(candidate);
+            return Ok(true);
         }
-        Ok(())
+        Ok(false)
     }
 
     fn speed_limit_candidate(
@@ -1178,6 +1182,28 @@ mod tests {
             spatial_projection: None,
             safety_projection_applied: false,
         }
+    }
+
+    #[test]
+    fn non_binding_speed_limit_preserves_the_fast_path_candidate() {
+        let mut motion = spatial_oracle_motion();
+        let before = motion;
+        let constraint = SpeedLimitConstraint {
+            route: crate::RouteHandle::new(0, 0),
+            from_route_edge_index: 0,
+            to_route_edge_index: 1,
+            from_edge: crate::EdgeHandle::new(0),
+            to_edge: crate::EdgeHandle::new(1),
+            route_distance: 5.0,
+            target_speed: 20.0,
+        };
+
+        assert!(
+            !motion
+                .apply_speed_limit_constraint(constraint, profile(), 1.0)
+                .unwrap()
+        );
+        assert_eq!(motion, before);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # Parking System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-20
+**最后更新**: 2026-07-22
 **适用范围**: v0.5 Parking 的 current 静态领域/data contract、runtime authority/commands、ParkingStop/route 集成、确定性、失败原子性与性能边界
 **实现状态**: #105 已冻结设计与 ADR 0010；#106/#107 已交付 substrate 与 static/current data；#108 已交付 runtime/commands；#109 已交付 ParkingStop/arrival/traversal/release/events 与 capability activation；#110 已交付 milestone 全面验证；#19 已完成独立收口审阅；#136 已在 Spatial/Adapter 边界交付 Parking pose
 

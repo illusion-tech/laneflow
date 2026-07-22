@@ -2,7 +2,7 @@
 
 **文档状态**: Review
 
-**最后更新**: 2026-07-17
+**最后更新**: 2026-07-22
 
 **适用范围**: v0.1 Core Prototype 的 runtime、tick、vehicle state、最小 lane graph traversal 与 simple route following
 
