@@ -531,4 +531,4 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 
 #184 复用现有 immutable fixed-time controller、StopLine 和 `(from, to)` MovementGate，不增加第二套 signal runtime。每个交叉口各有一个 controller 和主/次干道两个 group；phase program 固定为主绿、主黄、全红、次绿、次黄、全红。authoring/startup config 提供 `mainGreenMs`、`secondaryGreenMs`、`yellowMs`、`allRedMs` 与两个 controller offset；red duration 由完整 program 推导，不提供独立 `redMs`，v0.8 不支持 runtime hot edit。
 
-generator 负责完整枚举 10 条 lane movement gate/路口与全部 phase group state，并证明主/次冲突 movement 不同时开放；Core 继续只执行已规范化 program，不推导 conflict matrix。默认值、ID 和验证矩阵见 `example-scenarios.md`，production authoring 与制品集成由 #188 交付。
+generator 负责为每个交叉口完整枚举 10 条 lane movement gate（走廊合计 20 条）与全部 phase group state，并证明主/次冲突 movement 不同时开放；Core 继续只执行已规范化 program，不推导 conflict matrix。默认值、ID 和验证矩阵见 `example-scenarios.md`，production authoring 与制品集成由 #188 交付。
