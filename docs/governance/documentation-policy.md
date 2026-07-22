@@ -73,7 +73,9 @@ Milestone 用于组织版本目标，例如：
 - `v0.5 Parking`
 - `v0.6 Numeric & Spatial Foundation`
 - `v0.7 Bevy Reference Adapter`
-- `v1.0 Stable Runtime API`
+- `v0.8 Signalized Corridor MVP`
+- `v0.9 Complete Signalized Corridor Example`
+- `v1.0 Scope TBD`
 
 ### Discussions
 
