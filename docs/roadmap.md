@@ -175,7 +175,7 @@
 
 #72 保持独立 Backlog 研究入口，不属于 v0.6–v0.9 的完成边界。v0.6 的 geometry 与 #72 的 active-agent spatial partition 是不同层次；v0.7 的 presentation LOD 与 #72 的 Core simulation fidelity 也不得混同。
 
-#72 何时进入版本范围，以及是否需要在未来稳定 API Milestone 的 G1 前拆出 Core API 对 partition、multi-rate、batch access、commands 和 deterministic event merge 的可扩展性审计，均留待对应 Milestone 规划时决策。完整并行、多层级或分布式实施只有在证据和产品目标明确后才建立 Milestone。
+#72 何时进入版本范围仍留待对应 Milestone 规划时决策；但在未来 Stable Runtime API Milestone 的 G1 前，必须完成 #199 对 Core API、partition、multi-rate、batch access、commands 和 deterministic event merge 的可扩展性审计，并关闭或显式接受其待决项。该审计不阻塞 v0.8/v0.9，也不代表已选择生产架构；完整并行、多层级或分布式实施只有在证据和产品目标明确后才建立 Milestone。
 
 ## v1.0 Scope TBD
 

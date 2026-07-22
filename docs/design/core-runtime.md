@@ -255,7 +255,7 @@ v0.1 Rust 实现使用 `Speed` 与 `EdgeProgress` newtype 暴露 `speed` 和 `ed
 
 状态：已接受。
 
-Core 输出应足以被测试和临时示例消费，但 v0.1 不冻结 Adapter API。当前路线图先由 `v0.6 Numeric & Spatial Foundation` 冻结数值、空间几何与最小查询输入，再在 `v0.7 Bevy Reference Adapter` 开工前通过独立 design/G1 冻结实际 Adapter 契约；未来稳定 API Milestone 只在真实宿主证据和 #72 的 API 可扩展性审计基础上承诺长期兼容。
+Core 输出应足以被测试和临时示例消费，但 v0.1 不冻结 Adapter API。当前路线图先由 `v0.6 Numeric & Spatial Foundation` 冻结数值、空间几何与最小查询输入，再在 `v0.7 Bevy Reference Adapter` 开工前通过独立 design/G1 冻结实际 Adapter 契约；未来 Stable Runtime API Milestone 只在真实宿主证据和 #72/#199 的 [`core-runtime-scalability-audit.md`](core-runtime-scalability-audit.md) 基础上承诺长期兼容。
 
 ### D9. Core 初始实现目标为 Rust crate
 

@@ -9,6 +9,7 @@
 初始阶段建议逐步补齐：
 
 - `core-runtime.md`：Core runtime、tick、vehicle state 和系统边界。
+- `core-runtime-scalability-audit.md`：#72/#199 的城市级可扩展性前置审计；记录 CoreWorld、handle、batch、commands、deterministic phase/event merge 的 no-regret constraints、individual-first/exact-only/aggregate-first 候选矩阵与 Stable Runtime API G1 待决项，不实现生产 partition。
 - `core-id-handles.md`：Core external ID、typed handle、registry / resolver、动态 lifecycle 和事件 payload 边界。
 - `numeric-representation.md`：v0.6 数值表示、精度分层、误差预算、确定性与 Core/Data/Spatial/Adapter 转换边界。
 - `spatial-geometry.md`：v0.6 引擎无关的坐标框架、折线中心线、长度绑定、采样、制品配对与批量位姿提取。
