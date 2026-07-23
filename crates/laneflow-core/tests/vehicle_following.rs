@@ -23,12 +23,26 @@ fn profile(
     comfortable_deceleration: f64,
     emergency_deceleration: f64,
 ) -> (VehicleProfileRegistry, VehicleProfileHandle) {
+    profile_with_min_gap(
+        desired_speed,
+        2.0,
+        comfortable_deceleration,
+        emergency_deceleration,
+    )
+}
+
+fn profile_with_min_gap(
+    desired_speed: f64,
+    min_gap: f64,
+    comfortable_deceleration: f64,
+    emergency_deceleration: f64,
+) -> (VehicleProfileRegistry, VehicleProfileHandle) {
     let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
         "following-profile",
         IidmProfileSpec {
             length: 4.0,
             desired_speed,
-            min_gap: 2.0,
+            min_gap,
             time_headway: 1.5,
             max_acceleration: 2.0,
             comfortable_deceleration,
@@ -47,6 +61,14 @@ fn single_edge_world(
     desired_speed: f64,
     vehicles: impl FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>,
 ) -> CoreWorld {
+    single_edge_world_with_min_gap(desired_speed, 2.0, vehicles)
+}
+
+fn single_edge_world_with_min_gap(
+    desired_speed: f64,
+    min_gap: f64,
+    vehicles: impl FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>,
+) -> CoreWorld {
     let lane_graph = LaneGraph::try_new([LaneEdge::new(
         "E",
         edge_length(200.0),
@@ -55,7 +77,7 @@ fn single_edge_world(
     )])
     .expect("valid graph");
     let route = Route::try_new("R", ["E"]).expect("valid route");
-    let (profiles, handle) = profile(desired_speed, 2.0, 8.0);
+    let (profiles, handle) = profile_with_min_gap(desired_speed, min_gap, 2.0, 8.0);
     let traffic_data =
         InitialTrafficData::try_new(lane_graph, [route], profiles).expect("valid traffic data");
     CoreWorld::with_traffic_data(1_000, traffic_data, vehicles(handle)).expect("valid world")
@@ -123,7 +145,7 @@ fn ballistic_integration_stops_inside_tick_without_projection() {
 }
 
 #[test]
-fn impossible_emergency_gap_projects_to_no_overlap_and_emits_once() {
+fn preexisting_sub_min_gap_is_not_reduced_and_emits_once() {
     let mut world = single_edge_world(20.0, |profile| {
         vec![
             VehicleSpawnInput::active("follower", profile, "R", 0, progress(5.0), speed(20.0)),
@@ -149,19 +171,107 @@ fn impossible_emergency_gap_projects_to_no_overlap_and_emits_once() {
     assert_eq!(follower.status, VehicleStatus::Active);
     assert_eq!(follower.current_speed, Speed::ZERO);
     assert_close(follower.applied_acceleration.value(), -20.0);
-    assert_close(follower.edge_progress.value(), 6.0);
+    assert_close(follower.edge_progress.value(), 5.0);
     assert_close(
         vehicle(&world, "leader").edge_progress.value() - follower.edge_progress.value() - 4.0,
+        1.0,
+    );
+}
+
+#[test]
+fn stationary_preexisting_sub_min_gap_does_not_emit_repeated_events() {
+    let mut world = single_edge_world(20.0, |profile| {
+        vec![
+            VehicleSpawnInput::active("follower", profile, "R", 0, progress(5.0), Speed::ZERO),
+            VehicleSpawnInput::stopped("leader", profile, "R", 0, progress(10.0)),
+        ]
+    });
+
+    for _ in 0..2 {
+        let result = world.step(TickInput::new(1_000)).expect("step succeeds");
+        assert!(result.events.is_empty());
+        assert_close(vehicle(&world, "follower").edge_progress.value(), 5.0);
+        assert_close(
+            vehicle(&world, "leader").edge_progress.value()
+                - vehicle(&world, "follower").edge_progress.value()
+                - 4.0,
+            1.0,
+        );
+    }
+}
+
+#[test]
+fn minimum_gap_tolerance_keeps_near_boundary_leader_in_horizon() {
+    let leader_front = 16.0_f64.next_up();
+    let mut world = single_edge_world(20.0, |profile| {
+        vec![
+            VehicleSpawnInput::active("follower", profile, "R", 0, progress(10.0), Speed::ZERO),
+            VehicleSpawnInput::stopped("leader", profile, "R", 0, progress(leader_front)),
+        ]
+    });
+    let initial_gap = leader_front - 10.0 - 4.0;
+    assert!(initial_gap > 2.0);
+
+    let result = world.step(TickInput::new(1_000)).expect("step succeeds");
+
+    assert!(result.events.is_empty());
+    assert_close(vehicle(&world, "follower").edge_progress.value(), 10.0);
+    assert_close(
+        vehicle(&world, "leader").edge_progress.value()
+            - vehicle(&world, "follower").edge_progress.value()
+            - 4.0,
+        2.0,
+    );
+}
+
+#[test]
+fn leader_horizon_includes_minimum_gap_plus_tick_travel() {
+    let mut world = single_edge_world(20.0, |profile| {
+        vec![
+            VehicleSpawnInput::active("follower", profile, "R", 0, progress(10.0), Speed::ZERO),
+            VehicleSpawnInput::stopped("leader", profile, "R", 0, progress(16.5)),
+        ]
+    });
+
+    let result = world.step(TickInput::new(1_000)).expect("step succeeds");
+    let final_gap = vehicle(&world, "leader").edge_progress.value()
+        - vehicle(&world, "follower").edge_progress.value()
+        - 4.0;
+
+    assert!(result.events.is_empty());
+    assert!(final_gap + EPSILON >= 2.0, "final_gap={final_gap}");
+    assert!(
+        vehicle(&world, "follower").edge_progress.value() <= 10.5 + EPSILON,
+        "follower must not consume the minimum-gap floor"
+    );
+}
+
+#[test]
+fn zero_min_gap_retains_contact_as_the_no_overlap_floor() {
+    let mut world = single_edge_world_with_min_gap(20.0, 0.0, |profile| {
+        vec![
+            VehicleSpawnInput::active("follower", profile, "R", 0, progress(5.0), speed(20.0)),
+            VehicleSpawnInput::stopped("leader", profile, "R", 0, progress(10.0)),
+        ]
+    });
+
+    world.step(TickInput::new(1_000)).expect("step succeeds");
+
+    assert_close(vehicle(&world, "follower").edge_progress.value(), 6.0);
+    assert_close(
+        vehicle(&world, "leader").edge_progress.value()
+            - vehicle(&world, "follower").edge_progress.value()
+            - 4.0,
         0.0,
     );
 }
 
 #[test]
-fn emergency_envelope_can_stop_at_geometry_cap_without_projection_event() {
+fn emergency_envelope_can_preserve_min_gap_without_projection_event() {
     let mut world = single_edge_world(20.0, |profile| {
         vec![
             VehicleSpawnInput::active("follower", profile, "R", 0, progress(5.0), speed(20.0)),
-            VehicleSpawnInput::stopped("leader", profile, "R", 0, progress(25.0)),
+            VehicleSpawnInput::stopped("leader", profile, "R", 0, progress(27.0)),
         ]
     });
 
@@ -175,27 +285,27 @@ fn emergency_envelope_can_stop_at_geometry_cap_without_projection_event() {
     assert_close(follower.edge_progress.value(), 21.0);
     assert_close(
         vehicle(&world, "leader").edge_progress.value() - follower.edge_progress.value() - 4.0,
-        0.0,
+        2.0,
     );
 }
 
 #[test]
-fn acyclic_platoon_projects_front_to_back_without_overlap() {
+fn acyclic_platoon_preserves_min_gap_front_to_back() {
     let mut world = single_edge_world(20.0, |profile| {
         vec![
             VehicleSpawnInput::active("V1", profile, "R", 0, progress(5.0), speed(20.0)),
-            VehicleSpawnInput::active("V2", profile, "R", 0, progress(10.0), speed(20.0)),
-            VehicleSpawnInput::active("V3", profile, "R", 0, progress(15.0), speed(20.0)),
-            VehicleSpawnInput::stopped("V4", profile, "R", 0, progress(20.0)),
+            VehicleSpawnInput::active("V2", profile, "R", 0, progress(11.0), speed(20.0)),
+            VehicleSpawnInput::active("V3", profile, "R", 0, progress(17.0), speed(20.0)),
+            VehicleSpawnInput::stopped("V4", profile, "R", 0, progress(23.0)),
         ]
     });
 
     world.step(TickInput::new(1_000)).expect("step succeeds");
 
     let fronts = ["V1", "V2", "V3", "V4"].map(|id| vehicle(&world, id).edge_progress.value());
-    assert_eq!(fronts, [8.0, 12.0, 16.0, 20.0]);
+    assert_eq!(fronts, [5.0, 11.0, 17.0, 23.0]);
     for pair in fronts.windows(2) {
-        assert!(pair[1] - pair[0] - 4.0 >= -EPSILON);
+        assert!(pair[1] - pair[0] - 4.0 + EPSILON >= 2.0);
     }
     for id in ["V1", "V2", "V3"] {
         assert_eq!(vehicle(&world, id).status, VehicleStatus::Active);
@@ -228,7 +338,7 @@ fn safety_projection_event_precedes_actual_edge_transition() {
         traffic_data,
         vec![
             VehicleSpawnInput::active("follower", profile, "R", 0, progress(4.0), speed(20.0)),
-            VehicleSpawnInput::stopped("leader", profile, "R", 1, progress(4.0)),
+            VehicleSpawnInput::stopped("leader", profile, "R", 1, progress(6.0)),
         ],
     )
     .expect("valid world");
@@ -264,7 +374,7 @@ fn leader_route_completion_uses_actual_terminal_travel_for_projection() {
         1_000,
         traffic_data,
         vec![
-            VehicleSpawnInput::active("follower", profile, "R", 0, progress(14.0), speed(10.0)),
+            VehicleSpawnInput::active("follower", profile, "R", 0, progress(13.0), speed(10.0)),
             VehicleSpawnInput::active("leader", profile, "R", 0, progress(19.0), speed(10.0)),
         ],
     )
@@ -276,10 +386,10 @@ fn leader_route_completion_uses_actual_terminal_travel_for_projection() {
 
     assert_eq!(leader.status, VehicleStatus::Completed);
     assert_close(leader.edge_progress.value(), 20.0);
-    assert_close(follower.edge_progress.value(), 16.0);
+    assert_close(follower.edge_progress.value(), 14.0);
     assert_close(
         leader.edge_progress.value() - follower.edge_progress.value() - 4.0,
-        0.0,
+        2.0,
     );
 }
 

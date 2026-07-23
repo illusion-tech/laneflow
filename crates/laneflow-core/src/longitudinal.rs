@@ -6,7 +6,8 @@ use crate::{
     CoreError, EdgeHandle, IidmProfileSpec, RouteHandle, VehicleHandle,
     numeric_policy::{
         LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS, computed_speed_is_near_zero,
-        longitudinal_constraint_reached, physical_gap_is_zero_or_overlap,
+        longitudinal_constraint_reached, normalize_minimum_gap_slack,
+        physical_gap_is_zero_or_overlap,
     },
     occupancy::LeaderObservation,
     parking::ParkingStopConstraint,
@@ -92,11 +93,29 @@ pub(crate) struct SparseParkingStop {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+struct ProjectionLeader {
+    leader: VehicleHandle,
+    available_gap: f64,
+}
+
+impl ProjectionLeader {
+    fn new(observation: LeaderObservation, minimum_gap: f64) -> Self {
+        Self {
+            leader: observation.leader,
+            available_gap: normalize_minimum_gap_slack(
+                observation.bumper_gap.max(0.0),
+                minimum_gap,
+            ),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LongitudinalMotion {
     pub(crate) vehicle: VehicleHandle,
     update_sequence: u64,
     current_speed: f64,
-    leader: Option<LeaderObservation>,
+    leader: Option<ProjectionLeader>,
     base_candidate_speed: f64,
     base_candidate_travel: f64,
     candidate_speed: f64,
@@ -435,8 +454,11 @@ impl LongitudinalMotion {
     }
 
     #[cfg(test)]
-    pub(crate) const fn leader_for_research(self) -> Option<LeaderObservation> {
-        self.leader
+    pub(crate) const fn leader_for_research(self) -> Option<VehicleHandle> {
+        match self.leader {
+            Some(leader) => Some(leader.leader),
+            None => None,
+        }
     }
 
     #[cfg(test)]
@@ -444,7 +466,7 @@ impl LongitudinalMotion {
         [
             self.current_speed.to_bits(),
             self.leader
-                .map(|leader| leader.bumper_gap.to_bits())
+                .map(|leader| leader.available_gap.to_bits())
                 .unwrap_or(u64::MAX),
             self.base_candidate_speed.to_bits(),
             self.base_candidate_travel.to_bits(),
@@ -533,7 +555,7 @@ impl LongitudinalMotion {
         let geometry_cap = finite(
             self.vehicle,
             "geometry_cap",
-            leader.bumper_gap + leader_final_travel,
+            leader.available_gap + leader_final_travel,
         )?
         .max(0.0);
         let travel_before_geometry_projection = self.candidate_travel;
@@ -850,7 +872,7 @@ pub(crate) fn compute_motion(
         vehicle,
         update_sequence,
         current_speed,
-        leader: leader.map(|value| value.observation),
+        leader: leader.map(|value| ProjectionLeader::new(value.observation, profile.min_gap)),
         base_candidate_speed: candidate.speed,
         base_candidate_travel: candidate.travel,
         candidate_speed: candidate.speed,
@@ -960,7 +982,7 @@ pub(crate) fn compute_motion_from_controller_intent_for_research(
         vehicle,
         update_sequence,
         current_speed,
-        leader: leader.map(|value| value.observation),
+        leader: leader.map(|value| ProjectionLeader::new(value.observation, profile.min_gap)),
         base_candidate_speed: candidate.speed,
         base_candidate_travel: candidate.travel,
         candidate_speed: candidate.speed,
@@ -1497,16 +1519,16 @@ mod tests {
     }
 
     #[test]
-    fn cycle_projection_uses_deterministic_minimum_anchor() {
+    fn cycle_projection_preserves_min_gap_with_deterministic_anchor() {
         let mut scratch = LongitudinalScratch::default();
         scratch.begin(2);
         scratch.set(LongitudinalMotion {
             vehicle: vehicle(0),
             update_sequence: 0,
             current_speed: 2.0,
-            leader: Some(LeaderObservation {
+            leader: Some(ProjectionLeader {
                 leader: vehicle(1),
-                bumper_gap: 0.0,
+                available_gap: 0.0,
             }),
             base_candidate_speed: 2.0,
             base_candidate_travel: 2.0,
@@ -1525,9 +1547,9 @@ mod tests {
             vehicle: vehicle(1),
             update_sequence: 1,
             current_speed: 3.0,
-            leader: Some(LeaderObservation {
+            leader: Some(ProjectionLeader {
                 leader: vehicle(0),
-                bumper_gap: 0.0,
+                available_gap: 0.0,
             }),
             base_candidate_speed: 3.0,
             base_candidate_travel: 3.0,

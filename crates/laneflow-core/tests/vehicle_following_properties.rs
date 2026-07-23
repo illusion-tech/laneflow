@@ -12,6 +12,7 @@ use proptest::{
 
 const FIXED_DELTA_TIME_MS: u64 = 100;
 const VEHICLE_LENGTH: f64 = 4.0;
+const MIN_GAP: f64 = 2.0;
 const EPSILON: f64 = 1.0e-9;
 const REGRESSION_FILE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -75,7 +76,7 @@ fn build_world(case: &PlatoonCase, reverse_input: bool) -> CoreWorld {
         IidmProfileSpec {
             length: VEHICLE_LENGTH,
             desired_speed: 30.0,
-            min_gap: 2.0,
+            min_gap: MIN_GAP,
             time_headway: 1.5,
             max_acceleration: 2.0,
             comfortable_deceleration: 2.0,
@@ -113,7 +114,19 @@ fn build_world(case: &PlatoonCase, reverse_input: bool) -> CoreWorld {
         .expect("generated platoon must form a valid world")
 }
 
-fn assert_world_invariants(world: &CoreWorld) -> TestCaseResult {
+fn bumper_gaps(world: &CoreWorld) -> Vec<f64> {
+    let mut fronts = world
+        .vehicles()
+        .map(|vehicle| vehicle.edge_progress.value())
+        .collect::<Vec<_>>();
+    fronts.sort_unstable_by(f64::total_cmp);
+    fronts
+        .windows(2)
+        .map(|pair| pair[1] - pair[0] - VEHICLE_LENGTH)
+        .collect()
+}
+
+fn assert_world_invariants(world: &CoreWorld, previous_gaps: &[f64]) -> TestCaseResult {
     let mut fronts = Vec::new();
     for vehicle in world.vehicles() {
         prop_assert_eq!(vehicle.status, VehicleStatus::Active);
@@ -126,12 +139,15 @@ fn assert_world_invariants(world: &CoreWorld) -> TestCaseResult {
     }
 
     fronts.sort_unstable_by(f64::total_cmp);
-    for pair in fronts.windows(2) {
+    let current_gaps = fronts
+        .windows(2)
+        .map(|pair| pair[1] - pair[0] - VEHICLE_LENGTH)
+        .collect::<Vec<_>>();
+    prop_assert_eq!(current_gaps.len(), previous_gaps.len());
+    for (current_gap, previous_gap) in current_gaps.into_iter().zip(previous_gaps) {
         prop_assert!(
-            pair[1] - pair[0] + EPSILON >= VEHICLE_LENGTH,
-            "physical overlap: follower_front={}, leader_front={}",
-            pair[0],
-            pair[1]
+            current_gap + EPSILON >= previous_gap.min(MIN_GAP),
+            "minimum gap regressed: previous_gap={previous_gap}, current_gap={current_gap}"
         );
     }
     Ok(())
@@ -163,6 +179,7 @@ fn check_platoon(case: PlatoonCase) -> TestCaseResult {
     prop_assert_eq!(&first, &reversed);
 
     for _ in 0..case.tick_count {
+        let previous_gaps = bumper_gaps(&first);
         let first_result = first
             .step(TickInput::new(FIXED_DELTA_TIME_MS))
             .expect("valid generated platoon step must succeed");
@@ -172,7 +189,7 @@ fn check_platoon(case: PlatoonCase) -> TestCaseResult {
 
         prop_assert_eq!(&first_result, &reversed_result);
         prop_assert_eq!(&first, &reversed);
-        assert_world_invariants(&first)?;
+        assert_world_invariants(&first, &previous_gaps)?;
         assert_event_invariants(&first_result.events)?;
     }
     Ok(())

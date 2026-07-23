@@ -28,6 +28,9 @@ pub(crate) const LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS: f64 = 1.0e-9;
 /// 物理 bumper gap、接触与重叠判定的绝对阈值，单位为米。
 pub(crate) const PHYSICAL_GAP_TOLERANCE_METERS: f64 = 1.0e-9;
 
+/// Vehicle Following minimum-gap 可消费 slack 的绝对阈值，单位为米。
+pub(crate) const MINIMUM_GAP_TOLERANCE_METERS: f64 = 1.0e-9;
+
 /// 运行时计算速度的 near-zero 判定阈值，单位为米/秒。
 pub(crate) const COMPUTED_SPEED_NEAR_ZERO_TOLERANCE_METERS_PER_SECOND: f64 = 1.0e-9;
 
@@ -68,6 +71,16 @@ pub(crate) fn normalize_physical_gap(bumper_gap_meters: f64) -> f64 {
     }
 }
 
+/// 把 minimum-gap 阈值内的正 slack 规范化为正零。
+pub(crate) fn normalize_minimum_gap_slack(bumper_gap_meters: f64, minimum_gap_meters: f64) -> f64 {
+    let slack = (bumper_gap_meters - minimum_gap_meters).max(0.0);
+    if slack <= MINIMUM_GAP_TOLERANCE_METERS {
+        0.0
+    } else {
+        slack
+    }
+}
+
 /// 判断计算得到的速度是否属于已有的 near-zero 语义。
 pub(crate) fn computed_speed_is_near_zero(speed_meters_per_second: f64) -> bool {
     speed_meters_per_second <= COMPUTED_SPEED_NEAR_ZERO_TOLERANCE_METERS_PER_SECOND
@@ -92,6 +105,7 @@ mod tests {
         assert_eq!(EDGE_BOUNDARY_TOLERANCE_METERS, 1.0e-9);
         assert_eq!(LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS, 1.0e-9);
         assert_eq!(PHYSICAL_GAP_TOLERANCE_METERS, 1.0e-9);
+        assert_eq!(MINIMUM_GAP_TOLERANCE_METERS, 1.0e-9);
         assert_eq!(COMPUTED_SPEED_NEAR_ZERO_TOLERANCE_METERS_PER_SECOND, 1.0e-9);
     }
 
@@ -153,6 +167,20 @@ mod tests {
             normalize_physical_gap(PHYSICAL_GAP_TOLERANCE_METERS.next_up()),
             0.0
         );
+    }
+
+    #[test]
+    fn minimum_gap_slack_includes_exact_threshold() {
+        assert_eq!(normalize_minimum_gap_slack(2.0, 2.0), 0.0);
+        assert_eq!(
+            normalize_minimum_gap_slack(MINIMUM_GAP_TOLERANCE_METERS, 0.0),
+            0.0
+        );
+        assert_eq!(
+            normalize_minimum_gap_slack(MINIMUM_GAP_TOLERANCE_METERS.next_up(), 0.0),
+            MINIMUM_GAP_TOLERANCE_METERS.next_up()
+        );
+        assert_eq!(normalize_minimum_gap_slack(1.0, 2.0), 0.0);
     }
 
     #[test]

@@ -568,7 +568,7 @@ fn canonical_merge_preserves_following_projection_before_transition() {
                 profile,
                 "R",
                 1,
-                EdgeProgress::try_new(4.0).expect("progress"),
+                EdgeProgress::try_new(6.0).expect("progress"),
             ),
         ],
     )
