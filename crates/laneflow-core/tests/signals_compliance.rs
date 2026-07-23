@@ -516,6 +516,33 @@ fn queue_releases_naturally_after_green_without_release_event() {
 }
 
 #[test]
+fn same_tick_red_stop_projects_the_full_platoon_with_min_gap() {
+    let mut world = single_gate_world(
+        vec![phase("red", 60_000, &[("main", SignalAspect::Red)])],
+        |profile| {
+            vec![
+                VehicleSpawnInput::active("V1", profile, "route", 0, progress(78.0), speed(20.0)),
+                VehicleSpawnInput::active("V2", profile, "route", 0, progress(84.0), speed(20.0)),
+                VehicleSpawnInput::active("V3", profile, "route", 0, progress(90.0), speed(20.0)),
+                VehicleSpawnInput::active("V4", profile, "route", 0, progress(96.0), speed(20.0)),
+            ]
+        },
+    );
+
+    world.step(TickInput::new(1_000)).expect("red tick");
+
+    let fronts = ["V1", "V2", "V3", "V4"].map(|id| vehicle(&world, id).edge_progress.value());
+    assert_eq!(fronts, [82.0, 88.0, 94.0, 100.0]);
+    for pair in fronts.windows(2) {
+        assert_eq!(pair[1] - pair[0] - 4.0, 2.0);
+    }
+    for id in ["V1", "V2", "V3", "V4"] {
+        assert_eq!(vehicle(&world, id).route_edge_index, 0);
+        assert_eq!(vehicle(&world, id).current_speed, Speed::ZERO);
+    }
+}
+
+#[test]
 fn signal_then_following_projection_order_is_per_vehicle() {
     let mut world = single_gate_world(
         vec![phase("red", 60_000, &[("main", SignalAspect::Red)])],

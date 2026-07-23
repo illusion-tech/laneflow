@@ -622,6 +622,7 @@ impl<M: PrecisionMode> CandidateWorld<M> {
             apply_geometry_cap(
                 &mut self.motions[index],
                 leader_final_travel,
+                self.profile.min_gap,
                 self.delta_time,
             );
         }
@@ -872,16 +873,24 @@ fn compute_motion<T: ResearchFloat>(
 fn apply_geometry_cap<T: ResearchFloat>(
     motion: &mut CandidateMotion<T>,
     leader_final_travel: T,
+    min_gap: T,
     delta_time: T,
 ) {
     let epsilon = T::from_f64(MECHANICAL_EPSILON);
-    let geometry_cap = maximum(
+    let snapshot_bumper_gap = maximum(
         motion
             .bumper_gap
-            .expect("leader motion must retain its gap")
-            + leader_final_travel,
+            .expect("leader motion must retain its gap"),
         T::default(),
     );
+    let preserved_gap = minimum(snapshot_bumper_gap, min_gap);
+    let raw_available_gap = maximum(snapshot_bumper_gap - preserved_gap, T::default());
+    let available_gap = if raw_available_gap <= epsilon {
+        T::default()
+    } else {
+        raw_available_gap
+    };
+    let geometry_cap = maximum(available_gap + leader_final_travel, T::default());
     let travel_before_projection = motion.candidate_travel;
     let final_travel = minimum(travel_before_projection, geometry_cap);
     motion.final_speed = if final_travel < travel_before_projection {

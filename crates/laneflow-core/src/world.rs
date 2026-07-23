@@ -28,9 +28,10 @@ use crate::{
     },
     numeric_policy::{
         EDGE_BOUNDARY_TOLERANCE_METERS, LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS,
-        PHYSICAL_GAP_TOLERANCE_METERS, computed_speed_is_above_near_zero,
-        is_edge_boundary_remainder_zero, longitudinal_constraint_reached,
-        longitudinal_positions_match, normalize_physical_gap, physical_gap_is_overlap,
+        MINIMUM_GAP_TOLERANCE_METERS, PHYSICAL_GAP_TOLERANCE_METERS,
+        computed_speed_is_above_near_zero, is_edge_boundary_remainder_zero,
+        longitudinal_constraint_reached, longitudinal_positions_match, normalize_physical_gap,
+        physical_gap_is_overlap,
     },
     occupancy::{LeaderObservation, OccupancyScratch, Occupant},
     parking::{
@@ -3851,8 +3852,16 @@ impl CoreWorld {
         Self::finite_leader_value(vehicle.handle, "hard_horizon", hard_horizon)?;
         let comfort_horizon = profile.min_gap + speed * profile.time_headway;
         Self::finite_leader_value(vehicle.handle, "comfort_horizon", comfort_horizon)?;
+        let minimum_gap_with_tick_travel = profile.min_gap + travel_upper;
+        Self::finite_leader_value(
+            vehicle.handle,
+            "minimum_gap_with_tick_travel",
+            minimum_gap_with_tick_travel,
+        )?;
+        let minimum_gap_horizon = minimum_gap_with_tick_travel + MINIMUM_GAP_TOLERANCE_METERS;
+        Self::finite_leader_value(vehicle.handle, "minimum_gap_horizon", minimum_gap_horizon)?;
 
-        Ok(hard_horizon.max(comfort_horizon))
+        Ok(hard_horizon.max(comfort_horizon).max(minimum_gap_horizon))
     }
 
     fn signal_stop_horizon(

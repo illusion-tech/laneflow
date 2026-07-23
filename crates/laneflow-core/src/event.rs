@@ -16,7 +16,7 @@ pub enum CoreEvent {
     VehicleSignalStopProjectionApplied(VehicleSignalStopProjectionAppliedEvent),
     /// ParkingStop hard boundary 将车辆 motion 压到 emergency envelope 以下。
     VehicleParkingStopProjectionApplied(VehicleParkingStopProjectionAppliedEvent),
-    /// 车辆为维持最终 no-overlap 不变量而应用了超出 emergency envelope 的几何投影。
+    /// 车辆为维持最终 minimum-gap 不变量而应用了超出 emergency envelope 的几何投影。
     VehicleFollowingSafetyProjectionApplied(VehicleFollowingSafetyProjectionAppliedEvent),
     /// 车辆从 route 中的一个 edge 切换到下一个 edge。
     VehicleChangedEdge(VehicleChangedEdgeEvent),
@@ -117,7 +117,7 @@ pub struct VehicleSignalStopProjectionAppliedEvent {
     pub aspect: SignalAspect,
 }
 
-/// Vehicle Following 最终几何投影事件。
+/// Vehicle Following minimum-gap-preserving 最终几何投影事件。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VehicleFollowingSafetyProjectionAppliedEvent {
     /// 事件所属的 post-step tick index。

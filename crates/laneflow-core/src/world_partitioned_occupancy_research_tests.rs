@@ -452,7 +452,7 @@ fn logical_components(
         let Some(leader) = scratch
             .motion(handle)
             .and_then(LongitudinalMotion::leader_for_research)
-            .and_then(|leader| positions.get(&leader.leader).copied())
+            .and_then(|leader| positions.get(&leader).copied())
         else {
             continue;
         };
@@ -511,7 +511,6 @@ fn dependency_summary(
             current = scratch
                 .motion(handle)
                 .and_then(LongitudinalMotion::leader_for_research)
-                .map(|leader| leader.leader)
                 .filter(|leader| positions.contains_key(leader));
         }
         max_depth = max_depth.max(path.len());

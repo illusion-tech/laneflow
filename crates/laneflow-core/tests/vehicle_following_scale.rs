@@ -6,14 +6,14 @@ mod scenarios;
 
 use scenarios::{
     FIXED_DELTA_TIME_MS, LOCALITY_EDGE_LENGTH, SCALING_VEHICLE_COUNT, SPEED_LIMIT_EDGE_LENGTH,
-    VEHICLE_COUNT, VEHICLE_LENGTH, dense_platoon_world, free_flow_world,
-    locality_dense_platoon_world, locality_free_flow_world, locality_stop_and_go_world,
-    projection_event_count, projection_heavy_world, speed_limit_transition_world,
-    stop_and_go_world,
+    VEHICLE_COUNT, VEHICLE_LENGTH, dense_platoon_world, dense_platoon_world_with_edge_cap,
+    free_flow_world, free_flow_world_with_edge_cap, projection_event_count, projection_heavy_world,
+    speed_limit_transition_world, stop_and_go_world, stop_and_go_world_with_edge_cap,
 };
 
 const EPSILON: f64 = 1.0e-9;
 const REFERENCE_EQUIVALENCE_EPSILON: f64 = 1.0e-8;
+const EQUIVALENCE_EDGE_LENGTH: f64 = 9_997.5;
 
 fn step_once(world: &mut CoreWorld) -> usize {
     world
@@ -74,16 +74,38 @@ fn assert_finite_and_no_overlap(world: &CoreWorld, uniform_route_edge_length: Op
     }
 }
 
-fn assert_locality_preserving_equivalence(reference: &CoreWorld, locality: &CoreWorld) {
+fn assert_uniform_min_gap(world: &CoreWorld, uniform_route_edge_length: Option<f64>) {
+    let mut fronts = world
+        .vehicles()
+        .map(|vehicle| {
+            uniform_route_edge_length.map_or_else(
+                || vehicle.edge_progress.value(),
+                |edge_length| {
+                    vehicle.route_edge_index as f64 * edge_length + vehicle.edge_progress.value()
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    fronts.sort_unstable_by(f64::total_cmp);
+    for pair in fronts.windows(2) {
+        assert!(pair[1] - pair[0] - VEHICLE_LENGTH + EPSILON >= 2.0);
+    }
+}
+
+fn assert_locality_preserving_equivalence(
+    reference: &CoreWorld,
+    locality: &CoreWorld,
+    edge_length: f64,
+) {
     assert!(
         locality
             .lane_graph()
             .edges()
-            .all(|edge| edge.length().value() <= LOCALITY_EDGE_LENGTH)
+            .all(|edge| edge.length().value() <= edge_length)
     );
     for (reference, locality) in reference.vehicles().zip(locality.vehicles()) {
-        let locality_route_progress = locality.route_edge_index as f64 * LOCALITY_EDGE_LENGTH
-            + locality.edge_progress.value();
+        let locality_route_progress =
+            locality.route_edge_index as f64 * edge_length + locality.edge_progress.value();
         assert_eq!(reference.handle, locality.handle);
         assert_eq!(reference.profile, locality.profile);
         assert_eq!(reference.route, locality.route);
@@ -153,6 +175,7 @@ fn ten_thousand_vehicle_scenarios_complete_functional_smoke() {
 
     for world in [&free_flow, &dense_platoon, &stop_and_go] {
         assert_finite_and_no_overlap(world, None);
+        assert_uniform_min_gap(world, None);
     }
     assert_finite_and_no_overlap(&projection_heavy, Some(LOCALITY_EDGE_LENGTH));
     assert_finite_and_no_overlap(&speed_limits, Some(SPEED_LIMIT_EDGE_LENGTH));
@@ -171,25 +194,36 @@ fn hundred_thousand_vehicle_speed_limit_smoke_is_compliant() {
 }
 
 #[test]
+#[ignore = "100k minimum-gap scaling is an explicit #222 validation"]
+fn hundred_thousand_vehicle_min_gap_smoke_preserves_clearance() {
+    let mut world = dense_platoon_world(SCALING_VEHICLE_COUNT);
+
+    assert_eq!(step_once(&mut world), 0);
+    assert_eq!(world.vehicles().count(), SCALING_VEHICLE_COUNT);
+    assert_finite_and_no_overlap(&world, None);
+    assert_uniform_min_gap(&world, None);
+}
+
+#[test]
 fn locality_preserving_platoons_match_single_edge_reference_for_sixty_steps() {
     let scenario_pairs = [
         (
             free_flow_world(VEHICLE_COUNT),
-            locality_free_flow_world(VEHICLE_COUNT),
+            free_flow_world_with_edge_cap(VEHICLE_COUNT, EQUIVALENCE_EDGE_LENGTH),
         ),
         (
             dense_platoon_world(VEHICLE_COUNT),
-            locality_dense_platoon_world(VEHICLE_COUNT),
+            dense_platoon_world_with_edge_cap(VEHICLE_COUNT, EQUIVALENCE_EDGE_LENGTH),
         ),
         (
             stop_and_go_world(VEHICLE_COUNT),
-            locality_stop_and_go_world(VEHICLE_COUNT),
+            stop_and_go_world_with_edge_cap(VEHICLE_COUNT, EQUIVALENCE_EDGE_LENGTH),
         ),
     ];
 
     let mut locality_edge_changes = 0;
     for (mut reference, mut locality) in scenario_pairs {
-        assert_locality_preserving_equivalence(&reference, &locality);
+        assert_locality_preserving_equivalence(&reference, &locality, EQUIVALENCE_EDGE_LENGTH);
         for _ in 0..scenarios::STEP_COUNT {
             let (reference_safety_projections, reference_edge_changes) =
                 step_vehicle_following_summary(&mut reference);
@@ -198,7 +232,7 @@ fn locality_preserving_platoons_match_single_edge_reference_for_sixty_steps() {
             assert_eq!(reference_safety_projections, locality_safety_projections);
             assert_eq!(reference_edge_changes, 0);
             locality_edge_changes += edge_changes;
-            assert_locality_preserving_equivalence(&reference, &locality);
+            assert_locality_preserving_equivalence(&reference, &locality, EQUIVALENCE_EDGE_LENGTH);
         }
     }
     assert!(locality_edge_changes > 0);

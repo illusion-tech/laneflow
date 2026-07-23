@@ -1,9 +1,9 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-22
+**最后更新**: 2026-07-24
 
-**适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、Traffic v0.7 道路限速、no-overlap、事件、确定性与性能验收
+**适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、Traffic v0.7 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
 **关联文档**:
 
@@ -29,7 +29,7 @@
 
 - 定义车辆纵向几何、profile 和 runtime state。
 - 在 fixed tick 中稳定检测 leader，并实现平滑跟驰、停止和恢复。
-- 在正常受控模式下保证 tick 后车辆不发生纵向几何重叠。
+- 在正常受控模式下保证 tick 后车辆不发生纵向几何重叠，并且不从可行 snapshot 主动侵入 follower `min_gap`。
 - 保持 Core 引擎无关、确定性、失败原子性和可扩展性能。
 - 明确 Core API、data format、未来 Adapter 和迁移影响。
 
@@ -238,7 +238,7 @@ Candidate 自身 route 不影响它对当前 physical edge 的占用。分叉时
 - 同一 physical edge 上两个正 length vehicle 的相同 front progress 是非法重叠，不通过 tie-break 合法化。
 - `bumper_gap` 小于负的物理 gap/overlap 阈值时非法。
 - 物理 gap/overlap 阈值范围内规范化为零接触。
-- 只违反 profile `min_gap` 仍合法，由 controller 响应。
+- 只违反 profile `min_gap`、但未发生物理重叠的 world initialization 或 lifecycle command 输入仍合法；runtime final geometry projection 不得继续缩小该既有异常净距。
 - 初始化和 `spawn_vehicle` 必须原子拒绝同 edge、相邻 route boundary 和 repeated occurrence 可见范围内的物理重叠。
 - 其他 incoming branch 在进入共享 edge 前不做纵向 overlap 投影；Core 没有足够世界几何判断分支间碰撞。
 
@@ -388,11 +388,12 @@ v_upper = v + a*dt
 travel_upper = 0.5*(v + v_upper)*dt
 hard_horizon = travel_upper + v_upper^2/(2*b_emergency)
 comfort_horizon = s0 + v*T
-bumper_gap_horizon = max(hard_horizon, comfort_horizon)
+minimum_gap_horizon = s0 + travel_upper + minimum_gap_tolerance
+bumper_gap_horizon = max(hard_horizon, comfort_horizon, minimum_gap_horizon)
 front_query_horizon = bumper_gap_horizon + max_vehicle_length
 ```
 
-不按固定 edge 数截断，也不默认遍历完整 route。
+`minimum_gap_horizon` 保证低速 follower 也能看到本 tick 内可能被侵入 minimum-gap floor 的 leader；专用 tolerance 覆盖 `s0` 边界附近的 f64 舍入。horizon 外的 leader 即使静止，follower 以 `travel_upper` 前进后仍不会低于 `s0`。查询不按固定 edge 数截断，也不默认遍历完整 route。
 
 ### 10.2 Emergency safe-speed
 
@@ -458,21 +459,35 @@ v_candidate = 0
 
 ### 11.2 Final geometry constraint
 
-每个 follower/leader relation 必须满足：
+对每个 follower/leader relation，先定义：
 
 ```text
-follower_final_travel
-  <= snapshot_bumper_gap + leader_final_travel
+g0 = max(0, normalized snapshot_bumper_gap)
+g_floor = min(g0, follower.min_gap)
+raw_available_gap = g0 - g_floor
+available_gap = 0 if raw_available_gap <= minimum_gap_tolerance
+                else raw_available_gap
+
+follower_final_travel <= available_gap + leader_final_travel
+final_gap = g0 + leader_final_travel - follower_final_travel
+final_gap >= g_floor
 ```
 
-求解目标是在不超过各 vehicle candidate travel 的前提下，得到最大的可行 final travel。
+`normalize_minimum_gap_slack` 把 minimum-gap 专用绝对阈值内的正 slack 规范化为零。因此：
+
+- `g0 >= follower.min_gap` 时，最终至少保留 follower `min_gap`；
+- `0 <= g0 < follower.min_gap` 时，最终至少保留 `g0`，不倒车、不瞬移；
+- `follower.min_gap == 0` 时退化为原有 no-overlap 约束；
+- 该约束在每个有 leader 的 tick 生效，不能等双方完全静止后再应用。
+
+求解目标是在不超过各 vehicle candidate travel 的前提下，得到最大的可行 final travel。Spatial hard projection（Signal/Parking/SpeedLimit/RouteEnd）先确定 leader final travel，再从前向后传播 follower minimum-gap cap。
 
 Leader graph 中每个 vehicle 至多指向一个 leader：
 
 - 无环链从最前方 vehicle 向后传播。
 - 多个 follower 读取同一 leader final travel。
 - Cycle 选择 `(candidate_travel, update_sequence)` 最小的 vehicle 为 anchor，沿反向 follower 链传播一次，再验证 closing constraint。
-- 非负 gap 下该过程给出确定性最大可行解，目标复杂度 `O(V)`；禁止迭代到收敛或 `O(V^2)`。
+- 非负 `available_gap` 下该过程给出确定性最大可行解，目标复杂度 `O(V)`；禁止迭代到收敛或 `O(V^2)`。
 
 ### 11.3 Projection event threshold
 
@@ -488,12 +503,18 @@ else:
 对 follower/leader relation：
 
 ```text
-geometry_cap = max(0, snapshot_bumper_gap + leader_final_travel)
+g0 = max(0, snapshot_bumper_gap)
+preserved_gap = min(g0, follower.min_gap)
+raw_available_gap = g0 - preserved_gap
+available_gap = 0 if raw_available_gap <= minimum_gap_tolerance
+                else raw_available_gap
+geometry_cap = max(0, available_gap + leader_final_travel)
 final_travel = min(candidate_travel, geometry_cap)
 ```
 
-- Geometry cap 在物理 gap/overlap 阈值内仍不小于该 travel 时，属于普通 emergency clamp，不发事件。
+- Geometry cap 仍不小于 emergency minimum travel 时，属于普通 emergency clamp，不发事件。
 - Geometry cap 更小时，final travel clamp 到 cap，final speed 相应降低、必要时归零，允许 effective applied acceleration 超过 profile emergency deceleration，并产生一次 safety projection event。
+- 仅仅存在 pre-existing sub-min-gap 不发事件；静止异常状态不会形成每 tick 事件风暴。事件仍只表示本 tick minimum-gap-preserving geometry cap 超出 emergency envelope。
 
 当 `final_travel < candidate_travel` 时，final speed 使用唯一映射：
 
@@ -509,6 +530,7 @@ final_speed = min(candidate_speed, speed_from_travel)
 ## 12. 领域数值策略、finite 与错误语义
 
 - edge boundary/remainder、纵向约束和物理 gap/overlap 分别由 crate-private owner 负责；current-f64 值都为 `1.0e-9 m`，但不得互相别名或由通用近似比较 helper 代理。
+- minimum-gap available slack 使用独立的 crate-private `1.0e-9 m` 绝对阈值；阈值内正 slack 向安全方向规范化为零，避免 route segmentation 的浮点微差改变投影分支。
 - Vehicle Profile length 的输入下限独立于物理 gap/overlap 阈值。
 - computed-speed near-zero 使用独立的 `1.0e-9 m/s` owner，只覆盖已有运行时计算速度判断。
 - `Speed::ZERO`、状态速度等 authority 继续使用精确正零与精确相等，不被 near-zero predicate 替代。
@@ -540,7 +562,7 @@ VehicleSpeedLimitProjectionApplied
   toEdge
 ```
 
-事件不携带 `f64`，每 vehicle/tick 最多一次。常规减速、停车和恢复不产生事件；Adapter 通过 `VehicleState.current_speed` 和 `applied_acceleration` 观察连续状态。
+事件不携带 `f64`，每 vehicle/tick 最多一次。它表示 minimum-gap-preserving 最终几何投影已把 motion 压到 emergency envelope 以下；常规减速、普通 emergency clamp、既有 sub-min-gap 静止状态、停车和恢复不产生事件。Adapter 通过 `VehicleState.current_speed` 和 `applied_acceleration` 观察连续状态。
 
 事件只随成功原子提交返回。车辆间按稳定 update order；同一车辆内顺序为被选中的 spatial projection（SpeedLimit/Signal/Parking 至多一种）、following safety projection、实际 edge transitions、arrival/completion。Route movement 和 route events 必须依据 final travel 计算。
 
@@ -571,13 +593,14 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 - 相同 world/input 序列逐 tick 状态与事件一致。
 - 初始 vehicle 输入排列变化后，按 external ID 对齐结果一致。
 - Same-edge、cross-edge、branch、merge-after-shared-edge、repeated edge 和 self exclusion。
-- Same progress/overlap rejection 与 min-gap-only 合法状态。
+- Same progress/overlap rejection、min-gap-only 输入合法状态与 pre-existing sub-min-gap 非恶化。
 - Active/Stopped/Completed occupancy。
 - IIDM free/interaction 各分支和 desired speed 上下边界。
 - Safe-speed discriminant、emergency floor 和 projection threshold。
 - 当前 edge ceiling、60→40 advance braking、40→60 不提前加速、连续多个降限、repeated edge、hard projection attribution 与 over-limit spawn 原子失败。
 - Ballistic 中途停车。
-- Acyclic platoon、multiple followers 和 explicit cycle anchor。
+- Acyclic platoon、same-tick hard-stop 的三车以上 front-to-back 传播、multiple followers、repeated edge 和 explicit cycle anchor。
+- `min_gap == 0` 的 no-overlap 退化行为，以及可行 snapshot 的 `final_gap >= min_gap` / 异常 snapshot 的 `final_gap >= g0` property。
 - Spawn/despawn、stale handle 和失败原子性。
 - 事件数量、顺序和 route transition/completion 一致性。
 - 所有状态 finite、speed 非负、normal-mode no-overlap。
