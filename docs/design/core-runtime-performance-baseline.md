@@ -293,15 +293,20 @@ W4 在所有 cell 使用相同 probe slots。`B-1` 表示最后一条 warm-up st
    events、Spatial extract 与 Adapter apply；`B1` 另行包含 route-transition
    probe commands、Core step、ordered events、Spatial extract 与 Adapter apply。
    两个 tick 分别报告，并以二者的 max 作为 W4 causal-burst tail。普通 W4 与
-   failed-step/retry W4 使用同一份 pre-`B0` state 和 input digest；failure case
-   在 `B0` Core proposal 完成、atomic commit 前注入一次真实失败，确认 no-commit
-   后立即以完全相同输入重试。只有 retry 成功后才能进入 `B1`；失败调用与 retry
-   分开计时。
+   failed-step/retry W4 使用同一份 pre-`B0` state、command-batch digest 和 Core
+   step-input digest。pending replace 与 Parking leave 只执行一次；完成这些同步
+   command 后必须记录 post-command/pre-step state `S_B0` 及其 digest。
+7. failure case 从 `S_B0` 开始，在 `B0` Core proposal 完成、atomic commit 前
+   注入一次真实失败。failed step 必须保持 `S_B0` 不变，retry 只重新调用相同
+   Core step，不重复 pending replace、Parking leave 或其他 pre-step command。
+   fresh replay 使用独立 world 从 pre-`B0` state 重建，执行一次相同 command
+   batch，先验证得到相同 `S_B0` digest，再执行同一 Core step。只有 retry 成功后
+   才能进入 `B1`；command batch、失败调用与 retry 分开计时。
 
 任一指定 probe 未产生预期 event、命令顺序改变、发生未声明 Blocked、pre-`B0`
-state/digest 不同，或 retry 不等于 fresh replay，都使该 W4 round 无效。harness
-不得换用其他 cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到
-`B1` 之后。
+state/digest 或 `S_B0` digest 不同、retry 重复 pre-step command，或 retry
+不等于 fresh replay，都使该 W4 round 无效。harness 不得换用其他
+cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` 之后。
 
 ### 4.4 选择、manifest 与防投机约束
 
