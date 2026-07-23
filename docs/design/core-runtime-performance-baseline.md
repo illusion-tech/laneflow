@@ -127,6 +127,9 @@ workload：
 - W1/W3 至少运行 `N_presented = 1% / 10% / 50% / 100%`；其中只有
   10k W1 的 100% 行和 100k W1 的 10% 行是 presentation Gate 主行，其余行是
   强制 observation/sensitivity，不单独产生 Product Pass/Fail。
+- W2 固定为 Core-only，`N_presented = 0`，不得调用 Spatial/Adapter 或报告
+  integrated-frame percentile。W4 只运行与同规模 W1 Gate 主行一致的固定
+  presentation ratio：10k 为 100%，100k 为 10%。
 - `N_intent` 不预设；exact-only 与 reduced-rate candidate 分别报告实际
   mean/distribution。
 - 每个适用场景覆盖完整 Signal cycle 和足够的 route、Parking、lifecycle
@@ -140,11 +143,14 @@ input sequence 与 candidate/oracle 对照边界。
 
 presentation matrix 的判定角色固定如下：
 
-| 规模 / workload | Gate 主行                 | 其余强制行                                    |
-| --------------- | ------------------------- | --------------------------------------------- |
-| 10k W1          | `N_presented=100%`        | `1% / 10% / 50%` observation/sensitivity      |
-| 100k W1         | `N_presented=10%`         | `1% / 50% / 100%` observation/sensitivity     |
-| 10k/100k W3     | 无 W1 presentation budget | `1% / 10% / 50% / 100%` guardrail/observation |
+| 规模 / workload | Gate 主行                  | 其余强制行                                    |
+| --------------- | -------------------------- | --------------------------------------------- |
+| 10k W1          | `N_presented=100%`         | `1% / 10% / 50%` observation/sensitivity      |
+| 100k W1         | `N_presented=10%`          | `1% / 50% / 100%` observation/sensitivity     |
+| 10k/100k W2     | Core-only；`N_presented=0` | 无 presentation row                           |
+| 10k/100k W3     | 无 W1 presentation budget  | `1% / 10% / 50% / 100%` guardrail/observation |
+| 10k W4          | 固定 `N_presented=100%`    | 无其他 presentation row                       |
+| 100k W4         | 固定 `N_presented=10%`     | 无其他 presentation row                       |
 
 ### 4.1 `LF-SYNTH-v1` 确定性生成契约
 
@@ -558,8 +564,9 @@ Aggregate 不是当前 production candidate。若第 10 节触发独立 G1，必
 
 ### 8.2 统计与 tail
 
-W1–W3 的 Core tick、Spatial+Adapter frame 与 integrated outer frame 分别报告
-p50/p95/p99/max。普通帧、catch-up frame 与 lifecycle burst 分开统计。
+W1/W3 的 Core tick、Spatial+Adapter frame 与 integrated outer frame 分别报告
+p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up frame
+与 lifecycle burst 分开统计。
 
 - p50/p95/p99：先得到每个 round 的对应统计量，再取 3 个 round-level 值的中位数。
 - max：使用 3 个有效 round 中的最坏值。
@@ -572,9 +579,11 @@ p50/p95/p99/max。普通帧、catch-up frame 与 lifecycle burst 分开统计。
   Pass/Fail。
 - W2–W4 不直接套用 W1 绝对预算，但必须满足 hard invariants、无持续 backlog、
   无未解释 tail 爆炸。
-- W4 不从每 round 仅两个 samples 伪造 percentile。正常 release-mode 每 round
-  分别报告 `B0`、`B1` raw 值和 `burst_max = max(B0, B1)`；三轮报告
-  `burst_max` median 与 worst。test-only failure/retry timing 只作诊断。
+- W4 不从每 round 仅两个 samples 伪造 percentile。在上述固定
+  `N_presented` 下，正常 release-mode 每 round 分别报告 Core、Spatial+Adapter
+  与 integrated outer frame 的 `B0`、`B1` raw 值，以及每个层级各自的
+  `burst_max = max(B0, B1)`；三轮分别报告各层级 `burst_max` median 与 worst。
+  test-only failure/retry timing 只作诊断。
 - W3 的全部 presentation 行都是强制 guardrail/observation；它们验证
   lifecycle、Parking authority、内存与 presentation scaling，不套用 W1
   presentation budget。
