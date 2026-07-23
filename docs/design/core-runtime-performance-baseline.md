@@ -240,7 +240,7 @@ W3 的 lifecycle probe 使用以下 fixed-step input sequence：
 
 1. warm-up 结束后的首个 observation boundary，按 cell 升序对 route 3 slot 6
    顺序执行 caller-owned despawn 和 spawn command；spawn 复用同一 logical
-   external ID，新 handle 保留该 logical slot，route progress 为 10240 m、
+   external ID，新 handle 保留该 logical slot，route progress 为 10259.9 m、
    speed 为 13.9 m/s。该 command batch 计入 W3 lifecycle burst；任一 command
    失败都使该 round 无效。
 2. Core step 后按 ordered completion event 建立 frozen replacement plan；下一个
