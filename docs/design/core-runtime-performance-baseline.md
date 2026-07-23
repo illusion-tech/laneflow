@@ -111,7 +111,7 @@ workload：
 | W1 Mixed product         | 75% `N_traffic_active` / 25% parked                             | 确定性多 edge/route；混合 following/free-flow、Signals、Parking 与 lifecycle transition            | 主要产品预算、综合吞吐与常规 tail                    |
 | W2 Dense following       | 100% `N_traffic_active`；约 15/16 vehicles 在 leader horizon 内 | 延续 dense cohort 压力形态并保留 free-flow 边界                                                    | occupancy/leader 与 longitudinal 持续最坏负载        |
 | W3 Parking/lifecycle     | 25% `N_traffic_active` / 75% parked                             | Parking arrival/release、Completed、spawn/despawn/atomic replace                                   | 个体内存、Parking authority 与 lifecycle transaction |
-| W4 Synchronized boundary | 使用 W1 个体构成                                                | 将 Signal release、route/edge transition、Parking release 或 lifecycle boundary 对齐为确定性 burst | p95/p99/max、同步尖峰与 failed-step/retry            |
+| W4 Synchronized boundary | 使用 W1 initial population；`B0` 后 76% active / 24% parked     | 将 Signal release、route/edge transition、Parking release 与 lifecycle boundary 对齐为确定性 burst | p95/p99/max、同步尖峰与 failed-step/retry            |
 
 适用规则：
 
@@ -197,7 +197,9 @@ representativeness claim。
 | all red  |  1 s | Red       | Red       |
 
 W1–W3 的 controller offset 为
-`(cell_index × 997) mod 58000 ms`；W4 全部为 `0 ms`，用于形成同步边界。
+`(cell_index × 997) mod 58000 ms`。W4 使用第 4.3 节按 fixed step 派生的统一
+offset，使所有 controller 在第一 observation step 同时从最后一个 all-red
+进入 A-green。
 
 每条 route 在 exit edge 上生成 25 个 parking anchors：第 `s` 个 anchor 的 edge
 progress 为 `5 + 7.5 × s m`。每个 ParkingSpace 的 length 为 5.0 m、width 为
@@ -212,14 +214,16 @@ comfortable deceleration 2.0 m/s²、emergency deceleration 6.0 m/s²。
 
 每条 route 的 25 个 logical slots 同时是稳定 identity 顺序和 ParkingSpace
 顺序。active individual 的 route progress 若小于 5130 m，则映射到 entry edge；
-否则映射到 exit edge，并使用 `edge progress = route progress - 5130 m`。
+否则映射到 exit edge，并使用 `edge progress = route progress - 5130 m`。parked
+individual 以 speed 0 占用同 route、同 slot 的 ParkingSpace，其 resume target
+固定为 exit edge occurrence index 1 和该 space 的 exit anchor。
 
 | Workload                 | 每 cell 的确定性初始 population                                                                                                                                                                                                                                                                            |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | W1 Mixed product         | route 0：25 active，progress `20 + 6.5 × s m`，speed 1.0 m/s；route 1：25 active，同 spacing/speed；route 2：slots 0–11 为 12 active，progress `20 + 28 × s m`，speed 13.9 m/s，其余 13 parked；route 3：slots 0–12 为 13 active，同 free-flow spacing/speed，其余 12 parked。合计 75 active / 25 parked。 |
 | W2 Dense following       | 四条 route 的全部 25 slots active，progress `20 + 6.5 × s m`，speed 1.0 m/s。相邻车辆 front-position 间距为 6.5 m，扣除 4.5 m 车长后恰为 2.0 m minimum gap，因此每条 route 除最前方车辆外的 24/25、全局 15/16 individual 有 leader。                                                                       |
 | W3 Parking/lifecycle     | route 0–2 的 slots 0–5 和 route 3 的 slots 0–6 active，progress `20 + 28 × s m`，speed 13.9 m/s；其余 parked。合计 25 active / 75 parked。route 3 slot 6 是 lifecycle probe，在 observation 首个 boundary 按下文固定序列重建。                                                                             |
-| W4 Synchronized boundary | 继承 W1 的 topology、population 与 spacing，但所有 controller offset 为 0；固定输入序列必须让指定 Signal、route/edge、Parking release 和 atomic lifecycle replace 在同一 observation boundary 发生。W4 只改变边界相位和输入序列，不改变 normalized counts。                                                |
+| W4 Synchronized boundary | 继承 W1 的 topology、初始 population 与 spacing；按第 4.3 节冻结 controller offset、probe slots、command order 与 observation boundary，使 Signal、route/edge、Parking release 和 atomic lifecycle replace 在同一个 `B0` burst 发生。W4 不改变 normalized individual counts。                              |
 
 28 m free-flow front-position 间距高于基础参数在 13.9 m/s 时的
 `4.5 + 2.0 + 1.5 × 13.9 = 27.35 m` equilibrium spacing。任何 benchmark
@@ -247,7 +251,48 @@ W3 的 lifecycle probe 使用以下 fixed-step input sequence：
    不改变顺序，并按同一 frozen input 在后续 boundary 重试；出现未在 manifest
    记录的持续 Blocked 或 active-count drain 时，该 round 无效。
 
-### 4.3 选择、manifest 与防投机约束
+### 4.3 W4 同步 burst 输入序列
+
+令 `B0` 为 warm-up 成功完成 `warm_up_ticks` 后、进入 observation 的第一条 Core
+step；其 pre-step tick index 为 `warm_up_ticks`。对当前 case 的
+`delta_ms`，所有 W4 controller 使用：
+
+```text
+t_B0_post_ms = (warm_up_ticks + 1) * delta_ms
+w4_offset_ms = (58000 - (t_B0_post_ms mod 58000)) mod 58000
+```
+
+因此 `B0` pre-step 位于最后一个 all-red 的最后 `delta_ms`，`B0` successful
+step 的 post-step position 精确为 cycle 0，并同时产生 A-green release。16 ms
+case 的 offset 为 57856 ms；33 ms case 的 offset 为 57515 ms。
+
+W4 在所有 cell 使用相同 probe slots。`B-1` 表示最后一条 warm-up step，`B0`
+表示第一条 observation step；所有跨 cell 操作都按 `cell_index` 升序：
+
+1. 在 `B-1` pre-step，依次 despawn route 3 slot 12 的 active handle，并用同一
+   logical external ID spawn 新 handle，route progress 为 10259.9 m、speed 为
+   13.9 m/s。`B-1` Core step 必须产生这些 handle 的 ordered completion events，
+   并为 `B0` 冻结 replacement inputs。
+2. 在 `B0` pre-step，先按 cell 升序 apply route 3 slot 12 pending atomic
+   replacements；replacement route progress 为 356 m、speed 为 13.9 m/s。
+3. 接着按 cell 升序对 route 2 slot 12 调用 `leave_parking`；space 使用同一
+   slot 的 ParkingSpace，route edge occurrence index 为 1。该操作把 initial
+   W1 mix 从 75 active / 25 parked 变为 burst 期间显式报告的
+   76 active / 24 parked，但不改变 individual count。
+4. 最后按 cell 升序依次 despawn route 2 slot 11，并用同一 logical external ID
+   spawn 到 route progress 5129.9 m、speed 13.9 m/s。随后只运行一次 `B0` Core
+   step；该 slot 必须在 A-green 下提交 entry→exit transition。
+5. `B0` 的计时范围包含上述 pending replace、Parking leave、route-transition
+   probe commands、Core step、ordered events、Spatial extract 与 Adapter apply。
+   普通 W4 与 failed-step/retry W4 使用同一份 pre-`B0` state 和 input digest；
+   failure case 在 Core proposal 完成、atomic commit 前注入一次真实失败，确认
+   no-commit 后立即以完全相同输入重试。失败调用与 retry 分开计时。
+
+任一指定 probe 未产生预期 event、命令顺序改变、发生未声明 Blocked、pre-`B0`
+state/digest 不同，或 retry 不等于 fresh replay，都使该 W4 round 无效。harness
+不得换用其他 cell/route/slot 或把 burst 分散到多个 observation ticks。
+
+### 4.4 选择、manifest 与防投机约束
 
 - canonical seed 固定为 0。需要选取精确 `N_presented` 比例时，为每个
   `logical_rank` 计算
