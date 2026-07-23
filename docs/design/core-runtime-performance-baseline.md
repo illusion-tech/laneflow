@@ -251,6 +251,11 @@ W3 的 lifecycle probe 使用以下 fixed-step input sequence：
    不改变顺序，并按同一 frozen input 在后续 boundary 重试；出现未在 manifest
    记录的持续 Blocked 或 active-count drain 时，该 round 无效。
 
+W3 failed-step/retry guardrail 同样使用第 8.1 节的 optimized test-only binary：
+failpoint 固定指向 cell 0 route 3 slot 6 在 atomic replacement 后的新 handle，
+post-command/pre-step state 必须单独记录 digest；失败后不重复 lifecycle command，
+清除 failpoint 后只重试相同 Core step，并与独立 fresh replay 比较。
+
 ### 4.3 W4 同步 causal burst 输入序列
 
 令 `B0` 为 warm-up 成功完成 `warm_up_ticks` 后、进入 observation 的第一条 Core
@@ -296,12 +301,18 @@ W4 在所有 cell 使用相同 probe slots。`B-1` 表示最后一条 warm-up st
    failed-step/retry W4 使用同一份 pre-`B0` state、command-batch digest 和 Core
    step-input digest。pending replace 与 Parking leave 只执行一次；完成这些同步
    command 后必须记录 post-command/pre-step state `S_B0` 及其 digest。
-7. failure case 从 `S_B0` 开始，在 `B0` Core proposal 完成、atomic commit 前
-   注入一次真实失败。failed step 必须保持 `S_B0` 不变，retry 只重新调用相同
+7. failure guardrail 使用 Core crate 内 `#[cfg(test)]` 的
+   `step_failure_after_vehicle` failpoint，并固定指向 cell 0 route 3 slot 12 在
+   pending replacement 后的新 handle。它从 `S_B0` 开始，在该 vehicle candidate
+   advance 后、atomic commit 前返回
+   `ParkingBindingInvariantViolation(stage="test_after_vehicle_advance")`。
+   failed step 必须保持 `S_B0` 不变；清除 failpoint 后，retry 只重新调用相同
    Core step，不重复 pending replace、Parking leave 或其他 pre-step command。
-   fresh replay 使用独立 world 从 pre-`B0` state 重建，执行一次相同 command
+8. fresh replay 使用独立 world 从 pre-`B0` state 重建，执行一次相同 command
    batch，先验证得到相同 `S_B0` digest，再执行同一 Core step。只有 retry 成功后
-   才能进入 `B1`；command batch、失败调用与 retry 分开计时。
+   才能进入 `B1`。该 guardrail 使用 `cargo test --release` 构建的 optimized
+   test binary，语义结果单独报告；command batch、失败调用与 retry 的 instrumented
+   timing 只作诊断，不进入 release latency/tail 或 Product Pass/Fail。
 
 任一指定 probe 未产生预期 event、命令顺序改变、发生未声明 Blocked、pre-`B0`
 state/digest 或 `S_B0` digest 不同、retry 重复 pre-step command，或 retry
@@ -477,6 +488,11 @@ Aggregate 不是当前 production candidate。若第 10 节触发独立 G1，必
 - 每个 case 运行 3 个独立 fresh-process rounds；candidate 顺序跨 round 轮换。
 - 固定 commit、release binary、Rust 1.96、seed、workload configuration 与
   deterministic outer-frame input sequence。
+- W1–W4 正常 latency/tail rows 必须使用非 instrumented release binary。W3/W4
+  failed-step/retry 是单独的 test-only semantic guardrail：使用同一 commit、
+  topology/state/input digest 和 release optimization，通过
+  `cargo test --release` 中的 `#[cfg(test)]` failpoint 运行；其 wall-clock
+  数值不得与正常 release rows 比较或进入产品 Gate。
 
 ### 8.2 统计与 tail
 
@@ -494,6 +510,8 @@ p50/p95/p99/max。普通帧、catch-up frame 与 lifecycle burst 分开统计。
   Pass/Fail。
 - W2–W4 不直接套用 W1 绝对预算，但必须满足 hard invariants、无持续 backlog、
   无未解释 tail 爆炸。
+- W4 p95/p99/max 只来自正常 release-mode `B0/B1` causal burst；test-only
+  failure/retry timing 只作诊断。
 - W3 的全部 presentation 行都是强制 guardrail/observation；它们验证
   lifecycle、Parking authority、内存与 presentation scaling，不套用 W1
   presentation budget。
@@ -507,8 +525,8 @@ p50/p95/p99/max。普通帧、catch-up frame 与 lifecycle burst 分开统计。
   commit peak，并区分预留容量与实际每 tick 写入量。
 - 覆盖 outer frame 中的 0/1/2 tick、catch-up limit 与 two-quantum backlog。
 - 记录恢复到 `< 1 quantum` backlog 所需 frame 数。
-- W3/W4 注入真实 failed step；失败 latency 与正常路径分开，retry 必须 exact
-  等于 fresh replay。
+- W3/W4 在 optimized test binary 中注入真实 failed step；不把 instrumented
+  latency 混入正常路径，retry 必须 exact 等于 fresh replay。
 
 ### 8.4 Profiling 与证据
 
