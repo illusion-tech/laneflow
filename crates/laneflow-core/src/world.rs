@@ -4423,6 +4423,10 @@ mod retained_memory_tests;
 mod event_merge_research_tests;
 
 #[cfg(test)]
+#[path = "world_partitioned_occupancy_research_tests.rs"]
+mod partitioned_occupancy_research_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{

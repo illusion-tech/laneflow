@@ -434,6 +434,40 @@ impl LongitudinalMotion {
         self.final_travel
     }
 
+    #[cfg(test)]
+    pub(crate) const fn leader_for_research(self) -> Option<LeaderObservation> {
+        self.leader
+    }
+
+    #[cfg(test)]
+    pub(crate) fn float_bits_for_research(self) -> [u64; 13] {
+        [
+            self.current_speed.to_bits(),
+            self.leader
+                .map(|leader| leader.bumper_gap.to_bits())
+                .unwrap_or(u64::MAX),
+            self.base_candidate_speed.to_bits(),
+            self.base_candidate_travel.to_bits(),
+            self.candidate_speed.to_bits(),
+            self.candidate_travel.to_bits(),
+            self.emergency_min_travel.to_bits(),
+            self.final_speed.to_bits(),
+            self.final_travel.to_bits(),
+            self.route_end_distance
+                .map(f64::to_bits)
+                .unwrap_or(u64::MAX),
+            self.signal_stop
+                .map(|constraint| constraint.route_distance.to_bits())
+                .unwrap_or(u64::MAX),
+            self.speed_limit_projection
+                .map(|constraint| constraint.route_distance.to_bits())
+                .unwrap_or(u64::MAX),
+            self.speed_limit_projection
+                .map(|constraint| constraint.target_speed.to_bits())
+                .unwrap_or(u64::MAX),
+        ]
+    }
+
     pub(crate) fn applied_acceleration(self, delta_time: f64) -> Result<f64, CoreError> {
         finite(
             self.vehicle,
@@ -591,6 +625,25 @@ impl LongitudinalScratch {
             .copied()
             .flatten()
             .filter(|motion| motion.vehicle == vehicle)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reset_geometry_projection_for_research(&mut self) {
+        for (index, motion) in self.motions.iter_mut().enumerate() {
+            let Some(motion) = motion.as_mut() else {
+                self.visit_state[index] = RESOLVED;
+                continue;
+            };
+            motion.final_speed = motion.candidate_speed;
+            motion.final_travel = motion.candidate_travel;
+            motion.safety_projection_applied = false;
+            self.visit_state[index] = if motion.leader.is_some() {
+                UNVISITED
+            } else {
+                RESOLVED
+            };
+        }
+        self.path.clear();
     }
 
     pub(crate) fn project<I>(&mut self, update_order: I, delta_time: f64) -> Result<(), CoreError>
