@@ -3071,6 +3071,7 @@ dependencies = [
  "jsonschema",
  "laneflow-core",
  "laneflow-data",
+ "laneflow-scenario",
  "laneflow-spatial",
  "serde",
  "serde_json",
@@ -3091,6 +3092,18 @@ dependencies = [
  "serde_path_to_error",
  "sha2",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "laneflow-scenario"
+version = "0.0.0"
+dependencies = [
+ "laneflow-core",
+ "laneflow-data",
+ "serde",
+ "stats_alloc",
+ "thiserror 2.0.19",
+ "toml",
 ]
 
 [[package]]

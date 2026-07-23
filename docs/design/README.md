@@ -23,6 +23,7 @@
 - `data-format.md`：lane graph、route 等外部数据格式、validation 和 loader 边界；Rust crate 所有权见 ADR 0007。
 - `data-loading.md`：当前 v0.7 Rust loader、严格版本闸口、per-edge speed limit、Core Signals/Parking normalization、错误与测试边界。
 - `example-scenarios.md`：Accepted v0.8 直行信号化走廊；冻结 1.4 km 默认几何、14 条 lane routes、限速、固定时制、50–200 车辆人口、seeded 出口回流与分层验收路径。
+- `signalized-corridor-population.md`：Accepted v0.8 caller-owned reference policy；冻结 `laneflow-scenario` crate 边界、catalog normalization、两阶段 bootstrap、ordered completion、blocked retry、replay 与零分配基线。
 
 ## 文档状态
 

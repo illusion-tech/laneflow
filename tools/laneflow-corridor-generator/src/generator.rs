@@ -4,6 +4,9 @@ use laneflow_core::CoreWorld;
 use laneflow_data::{
     NamedArtifact, SPATIAL_PACKAGE_MEDIA_TYPE, TRAFFIC_PACKAGE_MEDIA_TYPE, from_scenario_json_slice,
 };
+use laneflow_scenario::signalized_corridor::{
+    CorridorCatalog, PortalCatalogEntry, RouteCatalogEntry, SpawnSlotCatalogEntry,
+};
 use laneflow_spatial::{SpatialEdgeInput, SpatialRegistry};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -14,10 +17,9 @@ use crate::config::{
     VEHICLE_LENGTH_METERS,
 };
 use crate::model::{
-    ArtifactDescriptor, Centerline, CorridorCatalog, LaneConnection, LaneEdge, LaneGraph,
-    MovementGate, Parking, PortalCatalogEntry, Route, RouteCatalogEntry, ScenarioManifest,
-    SignalControl, SignalController, SignalGroup, SignalGroupState, SignalPhase, Signals,
-    SpatialEdge, SpatialPackage, SpawnSlotCatalogEntry, StopLine, TrafficPackage, Units,
+    ArtifactDescriptor, Centerline, LaneConnection, LaneEdge, LaneGraph, MovementGate, Parking,
+    Route, ScenarioManifest, SignalControl, SignalController, SignalGroup, SignalGroupState,
+    SignalPhase, Signals, SpatialEdge, SpatialPackage, StopLine, TrafficPackage, Units,
     VehicleProfile,
 };
 
