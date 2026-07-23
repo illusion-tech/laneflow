@@ -111,7 +111,7 @@ workload：
 | W1 Mixed product         | 75% `N_traffic_active` / 25% parked                                             | 确定性多 edge/route；混合 following/free-flow、Signals 与 occupied Parking steady state | 主要产品预算、综合吞吐与常规 tail                    |
 | W2 Dense following       | 100% `N_traffic_active`；24/25 vehicles 在 leader horizon 内                    | 延续 dense cohort 压力形态并保留 free-flow 边界                                         | occupancy/leader 与 longitudinal 持续最坏负载        |
 | W3 Parking/lifecycle     | 初始 25% `N_traffic_active` / 75% parked；Parking commit 后一 tick 为 24% / 76% | Parking reserve/arrival/commit/leave、Completed、spawn/despawn/atomic replace           | 个体内存、Parking authority 与 lifecycle transaction |
-| W4 Synchronized boundary | 使用 W1 initial population；`B0` 后 76% active / 24% parked                     | 将 Signal/Parking/lifecycle 对齐为确定性 `B0/B1` causal burst                           | p95/p99/max、同步尖峰与 failed-step/retry            |
+| W4 Synchronized boundary | 使用 W1 initial population；`B0` 后 76% active / 24% parked                     | 将 Signal/Parking/lifecycle 对齐为确定性 `B0/B1` causal burst                           | B0/B1 raw、burst median/worst 与 failed-step/retry   |
 
 适用规则：
 
@@ -119,6 +119,9 @@ workload：
 - W2–W4 是热点、tail、安全和恢复 guardrail；不能只因绝对耗时高于 W1 就判定
   产品失败。
 - 10k/100k 运行完整 W1–W4 矩阵。
+- W4 是固定两 tick 的 causal-burst case，不把 `B1` 后的 steady state 冒充同一次
+  burst observation；长窗口 fidelity、Signal-cycle 与 sustained-load guardrail
+  由 W1–W3 承担。
 - 1M 默认只运行 identity、retained-memory 与有限 observation；不运行完整实时
   Gate。
 - W1/W3 至少运行 `N_presented = 1% / 10% / 50% / 100%`；其中只有
@@ -357,6 +360,13 @@ W4 在所有 cell 使用相同 probe slots。`B-1` 表示最后一条 warm-up st
    test binary，语义结果单独报告；command batch、失败调用与 retry 的 instrumented
    timing 只作诊断，不进入 release latency/tail 或 Product Pass/Fail。
 
+W4 的正式 observation 在 `B1` successful commit、ordered-event consumption、
+Spatial extract 与 Adapter apply 完成后立即结束，`observation_ticks = 2`。route 2
+slot 12 从 exit edge progress 95 m 离场后，以及 route 2 slot 11 提交
+entry→exit transition 后，二者是否在更长时间窗到达 route end 都不属于本 case；
+harness 不得在 `B1` 后继续采样并仍标记为 W4，也不得为了延长私自 recycle probe。
+需要长窗口 76/24 mix 时必须定义新的 workload ID。
+
 任一指定 probe 未产生预期 event、命令顺序改变、发生未声明 Blocked、pre-`B0`
 state/digest 或 `S_B0` digest 不同、retry 重复 pre-step command，或 retry
 不等于 fresh replay，都使该 W4 round 无效。harness 不得换用其他
@@ -481,7 +491,8 @@ normalized_error = absolute_error / physical_budget
 - progress/pose 与 gap 使用 `distance_budget`。
 - 对每个 logical identity、每个 tick 计算 error。
 - p50 只报告；p95 ≤ 0.25，p99 ≤ 0.50，max ≤ 1.00。
-- H、2H、4H 三个观察长度分别满足预算，不能只看最终 endpoint。
+- W1–W3 在 H、2H、4H 三个观察长度分别满足预算，不能只看最终 endpoint；W4
+  只在冻结的 B0/B1 committed boundaries 做 exact 对照。
 - route、Parking、completion event 的 payload、顺序和因果 exact；timing shift
   ≤ `tau`。
 - exact-only 与 `N=1` 的 `tau = 0`，不执行除零归一化，而要求 exact
@@ -519,20 +530,23 @@ Aggregate 不是当前 production candidate。若第 10 节触发独立 G1，必
 
 - 10k/100k：运行 W1–W4 全矩阵。
 - 1M：只运行明确声明的有限 observation。
-- `H = 1024 ticks`；H/2H/4H 是正式 observation 内的强制 fidelity checkpoint。
+- `H = 1024 ticks`；W1–W3 的 H/2H/4H 是正式 observation 内的强制 fidelity
+  checkpoint。W4 使用冻结的两 tick event window，不适用 H/2H/4H。
 - 每个 case 先按实际 fixed step 和离散 phase 推进语义，计算其中最长完整 Signal
   controller cycle 的 `C_signal_ticks`；没有 Signal controller 时取 `0`。不得只用
   名义毫秒总和忽略逐 phase 的 tick 取整。
-- 运行长度使用：
+- W1–W3 的运行长度使用：
 
   ```text
   warm_up_ticks = max(512, 4 * C_signal_ticks)
   observation_ticks = max(4096, 8 * C_signal_ticks)
   ```
 
-- 正式 observation 必须同时覆盖 H/2H/4H、至少 8 个完整 Signal cycles 和预声明
-  的 lifecycle transitions。为覆盖 Signal cycles 而增加的 ticks 同样进入正式
-  latency/tail 统计，不能在报告时丢弃。
+- W4 使用相同 `warm_up_ticks`，但固定 `observation_ticks = 2`，分别对应
+  `B0/B1`；不得套用上式延长 observation。
+- W1–W3 正式 observation 必须同时覆盖 H/2H/4H、至少 8 个完整 Signal cycles
+  和各 workload 预声明的 transitions；W1/W2 的 caller transition 集为空。为覆盖
+  Signal cycles 而增加的 ticks 同样进入正式 latency/tail 统计，不能在报告时丢弃。
 - 每个 case 运行 3 个独立 fresh-process rounds；candidate 顺序跨 round 轮换。
 - 固定 commit、release binary、Rust 1.96、seed、workload configuration 与
   deterministic outer-frame input sequence。
@@ -544,7 +558,7 @@ Aggregate 不是当前 production candidate。若第 10 节触发独立 G1，必
 
 ### 8.2 统计与 tail
 
-Core tick、Spatial+Adapter frame 与 integrated outer frame 分别报告
+W1–W3 的 Core tick、Spatial+Adapter frame 与 integrated outer frame 分别报告
 p50/p95/p99/max。普通帧、catch-up frame 与 lifecycle burst 分开统计。
 
 - p50/p95/p99：先得到每个 round 的对应统计量，再取 3 个 round-level 值的中位数。
@@ -558,8 +572,9 @@ p50/p95/p99/max。普通帧、catch-up frame 与 lifecycle burst 分开统计。
   Pass/Fail。
 - W2–W4 不直接套用 W1 绝对预算，但必须满足 hard invariants、无持续 backlog、
   无未解释 tail 爆炸。
-- W4 p95/p99/max 只来自正常 release-mode `B0/B1` causal burst；test-only
-  failure/retry timing 只作诊断。
+- W4 不从每 round 仅两个 samples 伪造 percentile。正常 release-mode 每 round
+  分别报告 `B0`、`B1` raw 值和 `burst_max = max(B0, B1)`；三轮报告
+  `burst_max` median 与 worst。test-only failure/retry timing 只作诊断。
 - W3 的全部 presentation 行都是强制 guardrail/observation；它们验证
   lifecycle、Parking authority、内存与 presentation scaling，不套用 W1
   presentation budget。
