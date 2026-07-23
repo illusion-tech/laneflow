@@ -447,6 +447,256 @@ partition、SoA、event merge 或 multi-rate 的实验优先放在 research/benc
 
 至少覆盖：dense following、route transition、SignalStop、Parking arrival/release、controller 刷新边界和跨候选 partition bucket；记录 no-overlap/stop compliance、identity continuity、事件顺序、行为偏差、CPU、内存与 Adapter 输出。产品 tolerance 未明确或收益不足时，不进入 production G1。
 
+#### P4 #212 研究结果（2026-07-23）
+
+**状态**：测试专用语义原型通过，当前全量双缓冲事务 cache 的性能 Gate 未通过。ablation 已证明 IIDM controller-intent 降频本身有可测收益，因此保留 individual-first reduced-rate semantics 及其缓存事务优化作为研究候选；当前实现仍不是 production 候选，不新增 Core/Adapter API、runtime dependency、data format、默认行为或 ADR，也不启动 production G1。
+
+原型位于 `crates/laneflow-core/src/world_reduced_rate_research_tests.rs`，由 `world` 下的 `#[cfg(test)]` 私有模块编译；`longitudinal.rs` 只增加 test-only controller-intent seam。生产路径仍每个 base tick 重建 occupancy/leader、safe-speed、当前 edge/route speed limit、route end、SignalStop、ParkingStop、全局 leader chain/cycle projection、最终 motion/events，并原子提交全部 vehicle state。跨 tick 只允许缓存 finite signed comfort acceleration 及 cadence/失效元数据；leader observation、constraint、projection、candidate/final motion 和 applied acceleration 均不缓存。
+
+研究矩阵冻结并验证了以下行为：
+
+- cadence 为 `N=1/2/4/8`，phase 为 synchronized 或按 logical stable update sequence 的 stable-staggered；invalidations 为 minimal 或 semantic-reactive。
+- missing/generation、spawn/replace、非 Active→Active、profile/route binding、route occurrence/edge transition、Parking release 后首次 Active 强制刷新；Completed/despawn 丢弃缓存。semantic-reactive 另外在 leader identity 或 restrictive Signal/Parking stop-set identity 变化时刷新。
+- forced refresh 不改变固定 cohort phase；每车每 tick 最多刷新一次。cache 使用 committed/candidate 事务边界，failed step 不交换；清除注入后 retry 与 fresh replay 的 world、motion 和 events 相同。
+- `N=1` harness 不创建无用 cache；256 tick 中 `StepResult`、authority state、leader identity 与 13 个 longitudinal float bit pattern 全部等于 production oracle。
+- no-overlap、finite/non-negative speed、route/status/identity continuity 为零容忍；Signal phase/group events 逐 tick 完全一致。ChangedEdge、Parking arrival、route-completion release 与 Completed 的 payload/顺序/因果一致，允许的 tick shift 不超过 `N-1`；release 与 Completed 保持同 tick 且 release 在前。
+- synchronized 只保留为 cadence spike stress；stable-staggered 不把 partition、slot、raw handle bits 或 worker completion order 引入 phase。
+
+fidelity budget 使用：
+
+```text
+tau = (N - 1) * dt
+acceleration_span = max_acceleration + comfortable_deceleration
+speed_budget = acceleration_span * tau
+distance_budget = desired_speed * tau + 0.5 * acceleration_span * tau^2
+```
+
+在 `dt=16 ms`、16-vehicle dense-following、512 tick 的 stable-staggered semantic-reactive fixture 中，progress 同时作为单直线 lane 的 committed pose 距离 oracle；既有 Spatial/Bevy exact test 继续证明 committed pose input 到 canonical pose/local Transform 的逐位映射。
+
+|   N |        speed budget / p50 / p95 / max (m/s) |  progress/pose budget / p50 / p95 / max (m) |          gap p50 / p95 / max (m) |   H / 2H / 4H endpoint drift (m) |
+| --: | ------------------------------------------: | ------------------------------------------: | -------------------------------: | -------------------------------: |
+|   2 | `0.067200 / 0.002916 / 0.010888 / 0.021244` | `0.320538 / 0.005569 / 0.028066 / 0.032467` | `0.003431 / 0.013204 / 0.034043` | `0.009352 / 0.028097 / 0.027591` |
+|   4 | `0.201600 / 0.008346 / 0.031054 / 0.039306` | `0.964838 / 0.016913 / 0.075167 / 0.097760` | `0.011005 / 0.039867 / 0.089333` | `0.028526 / 0.085569 / 0.071451` |
+|   8 | `0.470400 / 0.019861 / 0.074392 / 0.095374` | `2.266342 / 0.039293 / 0.174198 / 0.230754` | `0.025956 / 0.095512 / 0.207645` | `0.068956 / 0.205869 / 0.166137` |
+
+没有 candidate 超出 speed/progress/gap budget，H→2H→4H 也没有持续增长。完整 correctness matrix 同时运行两个相同 candidate replay；state、motion、cache 和全部 events 均保持 deterministic。
+
+性能 primary workload 在测量前声明为：单 route/edge 上的 16-vehicle cohorts，cohort 内 `15 m` spacing、cohort 间 `120 m` gap，初速循环 `7–13 m/s`，约 `15/16` vehicles 处于 following 视野、其余为 free-flow 边界；scale 为 10k/100k，fixed step 为 `16 ms`。本机为 AMD Ryzen 9 9955HX、Windows、Rust 1.96 release；每个 tail case 先 warm 32 tick，再观测 1024 tick（N=8 的 128 个完整 cadence cycle），串行运行三轮。UE Editor 与一个孤儿 filesystem scan 存在时的中断样本全部作废，以下只采用两者退出后的重跑。
+
+H1 对 P0 的 whole-step p50 paired delta 为：
+
+| scale |   round 1 |    round 2 |   round 3 | 三轮中位数 |       Gate |
+| ----: | --------: | ---------: | --------: | ---------: | ---------: |
+|   10k | `-4.797%` |  `+1.944%` | `+2.852%` |  `+1.944%` | `≤5%` Pass |
+|  100k | `-0.127%` | `-13.640%` | `+2.132%` |  `-0.127%` | `≤5%` Pass |
+
+100k tail raw observations 如下；单位均为 ms。`long` 是整个 longitudinal rebuild，不是只计 IIDM 函数。
+
+| round | case            |            whole p50 / p95 / p99 / max |          long p50 / p95 / p99 / max |
+| ----: | --------------- | -------------------------------------: | ----------------------------------: |
+|     1 | P0              |    `35.648 / 40.220 / 42.548 / 44.578` |                                 N/A |
+|     1 | H1 N1           |    `35.603 / 40.103 / 42.962 / 47.998` | `19.490 / 22.365 / 23.954 / 26.800` |
+|     1 | stable N4       |    `36.144 / 40.665 / 42.585 / 44.920` | `19.421 / 22.416 / 24.060 / 25.331` |
+|     1 | stable N8       |    `35.767 / 40.423 / 42.333 / 45.561` | `19.124 / 22.147 / 23.841 / 26.945` |
+|     1 | synchronized N8 |  `36.653 / 88.352 / 104.338 / 136.526` | `19.529 / 45.778 / 56.748 / 95.793` |
+|     2 | P0              | `41.384 / 102.730 / 117.533 / 174.687` |                                 N/A |
+|     2 | H1 N1           |    `35.739 / 40.341 / 42.262 / 45.104` | `19.530 / 22.627 / 24.445 / 27.916` |
+|     2 | stable N4       |    `36.594 / 41.278 / 42.726 / 45.907` | `19.703 / 23.031 / 24.638 / 26.640` |
+|     2 | stable N8       |    `36.601 / 41.605 / 43.801 / 47.888` | `19.568 / 22.926 / 24.829 / 27.997` |
+|     2 | synchronized N8 |    `36.060 / 40.592 / 43.211 / 47.961` | `19.010 / 22.261 / 24.895 / 29.075` |
+|     3 | P0              |    `35.077 / 39.329 / 41.104 / 50.195` |                                 N/A |
+|     3 | H1 N1           |    `35.825 / 39.842 / 41.422 / 45.318` | `19.686 / 22.509 / 23.815 / 31.118` |
+|     3 | stable N4       |    `36.688 / 41.134 / 43.116 / 49.510` | `19.690 / 22.840 / 24.230 / 28.834` |
+|     3 | stable N8       |    `36.261 / 41.589 / 44.412 / 51.794` | `19.386 / 22.442 / 24.525 / 29.862` |
+|     3 | synchronized N8 |    `35.584 / 40.373 / 42.558 / 50.028` | `18.847 / 22.452 / 24.298 / 27.166` |
+
+tail Gate 的直接结果：
+
+- stable N4 的 100k longitudinal gain 为 `+0.356% / -0.890% / -0.018%`，whole-step gain 为 `-1.518% / -2.392% / -2.409%`；未达到 `15% / 5%`。
+- stable N8 的 100k longitudinal gain 为 `+1.878% / -0.197% / +1.527%`，whole-step gain 为 `-0.460% / -2.411% / -1.217%`；第三轮 p99 相对 H1 回归超过 5%，也未达到 median Gate。
+- synchronized N8 的第一轮 p95/p99/max spike 显著，支持“只作 spike stress、不作为交付候选”的冻结结论。
+- 10k stable N4/N8 的 whole-step p50 均未超过 H1 5% guard，但这不能替代 100k gain Gate。
+
+Criterion 使用相同 100k primary workload、每组 10 samples、1 s warm-up、3 s measurement，并保留 `target/criterion/reduced-rate_100k_round-*/.../new/estimates.json`。`median.point_estimate` raw 值如下：
+
+| round | stage        |          P0 (ns) |       H1 N1 (ns) |   stable N8 (ns) | N8 vs H1 gain |
+| ----: | ------------ | ---------------: | ---------------: | ---------------: | ------------: |
+|     1 | whole        | `37,101,469.170` | `37,168,483.330` | `36,508,975.000` |     `+1.770%` |
+|     2 | whole        | `35,911,948.960` | `36,492,293.750` | `36,045,094.440` |     `+1.230%` |
+|     3 | whole        | `36,031,381.250` | `35,784,805.560` | `37,045,719.050` |     `-3.520%` |
+|     1 | longitudinal |              N/A | `20,085,591.670` | `19,853,305.360` |     `+1.160%` |
+|     2 | longitudinal |              N/A | `20,457,482.500` | `19,913,915.620` |     `+2.660%` |
+|     3 | longitudinal |              N/A | `20,695,966.670` | `20,290,075.000` |     `+1.960%` |
+
+Criterion 中 longitudinal 三轮方向一致但远低于 15%；whole-step 方向不一致且远低于 5%。因此 tail 与 Criterion 独立支持相同 no-go 结论：当前 step 的主要成本不在可跳过的 IIDM controller-intent，缓存访问与事务复制也抵消了大部分局部节省。
+
+为把“缓存成本”和“降频收益”从上述组合结果中拆开，另补一轮 ablation。冻结的 workload、release profile、100k scale、10 samples、`1 s` warm-up、`3 s` measurement、三轮串行执行与原 Gate 均不变：
+
+- P0：production；
+- H1：`N=1` test seam，不创建 cache，用于扣除 harness 本身；
+- C1：`N=1` 且每 tick 强制刷新，但仍执行 committed/candidate cache 写入、整表事务复制与 sweep；相对 H1 是“纯缓存事务 bookkeeping”；
+- C2：当前 stable-staggered semantic-reactive `N=8` 事务候选；
+- C3：与 C2 成功步骤逐 tick、逐 bit 相同的 `N=8` 原地 cache，只移除 candidate 双缓冲/整表复制。C3 在注入 failed step 后会改变 cache，测试明确证明其**不满足失败原子性**，因此只作为性能上界，不能参与 production Pass 判定；
+- controller-only：对相同 100k cohort 输入单独执行 IIDM comfort-acceleration intent，量出可跳过函数本身的成本。
+
+ablation 的 Criterion `median.point_estimate` 如下，单位为 ms；`whole / long` 表示 whole-step / 整个 longitudinal rebuild，IIDM-only 为单独的 100k controller-intent batch：
+
+| round | P0 whole |   H1 whole / long |   C1 whole / long |   C2 whole / long |   C3 whole / long | IIDM-only |
+| ----: | -------: | ----------------: | ----------------: | ----------------: | ----------------: | --------: |
+|     1 | `36.018` | `36.374 / 20.674` | `39.792 / 22.978` | `37.433 / 20.755` | `35.375 / 19.031` |   `3.491` |
+|     2 | `37.231` | `36.013 / 20.543` | `39.250 / 23.584` | `37.118 / 20.275` | `34.747 / 19.307` |   `3.442` |
+|     3 | `36.433` | `36.795 / 22.338` | `39.043 / 23.171` | `36.209 / 20.373` | `35.352 / 18.908` |   `3.443` |
+
+逐轮百分比先各自按 paired baseline 计算，再取三轮中位数；正数表示更快，负数表示更慢，归因结果为：
+
+| 问题       | whole-step | longitudinal | 解释                                                           |
+| ---------- | ---------: | -----------: | -------------------------------------------------------------- |
+| C1 相对 H1 |  `-8.988%` |   `-11.147%` | 每 tick 事务 cache 本身是显著负成本                            |
+| C2 相对 C1 |  `+5.930%` |   `+12.076%` | `N=8` 跳过 intent 确实回收了一部分成本                         |
+| C2 相对 H1 |  `-2.909%` |    `+1.302%` | 正式语义候选的净收益基本被事务 cache 抵消                      |
+| C3 相对 C2 |  `+5.497%` |    `+7.189%` | 移除双缓冲/整表复制能回收明显成本，但会破坏 failed-step 原子性 |
+| C3 相对 H1 |  `+3.517%` |    `+7.947%` | 即使采用不可交付的原地上界，三轮中位数仍未达到 `5% / 15%`      |
+
+controller-only 占 H1 longitudinal 的三轮比例中位数为 `16.757%`。即使假设 `N=8` 对其中 `7/8` 的工作完全免费、没有 cache lookup/write、失效判断或事务成本，理论可跳过份额也只有约 `14.662%`，已低于冻结的 `15%` longitudinal Gate。由此可以把结论收窄为：**降频本身有可测价值，但当前 IIDM intent 太便宜；事务 cache 又足以吞掉该价值。** 这不是“所有缓存或所有 reduced-rate 都无效”的结论，而是当前 component、workload、语义和 Gate 组合的 no-go。
+
+第二轮 ablation 将 C2 的 dense transaction 替换为 C4 sparse transaction journal：
+
+- step 内始终只读 committed cache；刷新项顺序写入预分配 journal，Stopped/Parked/Completed 使用独立 invalidation journal；
+- authority step 成功后才把 journal 应用到 committed cache，failed step 不写 committed cache，retry 时丢弃旧 journal；
+- 不再每 tick 复制整个 committed cache，也不再扫描整个 cache 做 sweep；same-tick route completion 由 committed event identity 精确清理；
+- C4 与 C2 在 512 个成功 tick 的 `StepResult`、authority、13 个 longitudinal float bit pattern、cache entries 和 metrics 全部相同；注入失败后 committed cache/metrics 不变，retry 与 fresh replay 相同；
+- C4 仍使用相同 `128 B` cache entry，以便这一轮只隔离事务形态，不混入 compact layout。
+
+C4 使用相同 100k workload 与 Criterion 参数重新配对 P0/H1/C2/C3，`median.point_estimate` 单位为 ms：
+
+| round | P0 whole |   H1 whole / long |   C2 whole / long |   C4 whole / long |   C3 whole / long |
+| ----: | -------: | ----------------: | ----------------: | ----------------: | ----------------: |
+|     1 | `35.945` | `36.155 / 21.158` | `36.628 / 20.649` | `34.870 / 19.793` | `35.604 / 19.319` |
+|     2 | `36.026` | `35.841 / 21.094` | `35.639 / 21.178` | `35.281 / 19.144` | `35.367 / 19.130` |
+|     3 | `36.097` | `36.253 / 20.446` | `36.863 / 20.839` | `34.692 / 19.571` | `34.773 / 19.214` |
+
+逐轮 paired gain 的三轮中位数为：
+
+| 对照       | whole-step | longitudinal | 结论                                                                |
+| ---------- | ---------: | -----------: | ------------------------------------------------------------------- |
+| C4 相对 P0 |  `+2.991%` |          N/A | 三轮 whole-step 均快于 production                                   |
+| C4 相对 H1 |  `+3.554%` |    `+6.453%` | 三轮两个 stage 均为正收益，但仍低于冻结的 `5% / 15%` Gate           |
+| C4 相对 C2 |  `+4.799%` |    `+6.084%` | 去掉全量复制与全表 sweep，回收了 dense transaction 的主要成本       |
+| C4 相对 C3 |  `+0.242%` |    `-1.858%` | C4 whole 已贴近/略优于原地上界，long 只付出小幅原子事务成本         |
+| C2 相对 H1 |  `-1.308%` |    `-0.397%` | 同一轮配对再次确认 dense transaction 会吞掉 reduced-rate 的局部收益 |
+
+因此 C4 给出的新结论是：**失败原子性不是获得性能收益的根本障碍；O(V) 全量复制与 sweep 才是。** sparse journal 在不放弃 strong-individual semantics、determinism 或 failed-step 原子性的前提下，把组合结果从接近零/负值推进为稳定净收益，并几乎达到不合规 C3 的上界。它尚未达到冻结 Gate，所以仍不是 production 候选；但它已经把“寻找性能提升方式”的下一靶点缩小到 per-tick full-entry key read、`128 B` entry/journal 写放大和 IIDM component 本身的成本占比，而不是 reduced-rate 调度或事务语义。
+
+内存和 allocation 证据：
+
+- `Option<ResearchIntentCacheEntry>` 为 `128 B`。10k authoritative cache 为 `1.28 MB`，100k 为 `12.80 MB`；failed-step 原子性需要等大的 candidate transaction scratch，因此 prototype 总高水位分别为 `2.56 MB / 25.60 MB`，不含 allocator metadata。
+- N=1 harness 不分配 cache；C1/C2 使用 cache 加等大的 transaction scratch；C3 只保留 cache、transaction scratch 为 `0 B`，但不满足失败原子性。
+- C4 为了让任意首轮刷新/失效都不分配，预留 `128 B × V` refresh journal 和 `8 B × V` invalidation journal；因此 10k/100k retained high-water 为 `2.64 MB / 26.40 MB`。它减少的是每 tick 实际触达与复制的数据量，当前版本尚未降低 retained high-water。
+- H1、C1、C2、C3、C4 在 10k/100k 预热后连续 16 step 均为 `0 allocation / 0 reallocation / 0 allocated bytes / 0 reallocated bytes`。
+- 既有 `selected_inputs_canonical_pose_counts_and_local_transforms_match_full_oracle` 重跑通过，确认 Adapter 仍只消费 committed snapshot；P4 没有新增 Core interpolation、cache exposure 或 presentation authority。
+
+##### D5. 100k 单线程阶段归因与 longitudinal 内核诊断
+
+为回答“除了 IIDM intent 和降频之外，longitudinal 及整个 step 的下一性能靶点在哪里”，补充了两类只在 `#[cfg(test)]` 下启用的诊断：
+
+1. coarse stage timing（粗粒度阶段计时）：每个 tick、每个阶段只取一次 `Instant`，把 whole-step 拆为 occupancy/leader rebuild、longitudinal proposal/store、global projection、advance/events/authority commit 和 research cache commit；这组数据按同一 tick 采样，可以用于阶段占比和近似加和。
+2. independent Criterion kernels（独立内核基准）：对 IIDM intent、post-intent safe motion、scratch begin、motion store 和 global projection 分别测 100k batch；它们用于解释机制，但因输入布局、cache 状态和循环边界不同，**不得把独立数字简单相加当成 whole-step 分解**。
+
+外部 sampled profile 使用 Windows Performance Recorder（WPR）采集 CPU sampling ETL。非提权进程首次执行 `wpr -start CPU` 返回 `0xc5585011: Failed to enable the policy to profile system performance`；随后通过 UAC 启动一次性 elevated helper，确认令牌包含 `SeSystemProfilePrivilege` 后，WPR start、100k H1 workload 和 WPR stop 的退出码均为 0，不需要修改本地安全策略。第一次 coarse run 还暴露了 instrumentation lifecycle 问题：`begin_step` 会清零刚记录的 occupancy duration；该轮已判无效、不计入结果，修正后从干净 workload 重跑。
+
+修正后的 coarse timing 使用 release profile、100k mixed cohort、H1/C4 各 512 observed ticks、三轮串行执行。下表为各分布的 p50，单位为 ms；各列分别取 p50，因此一行中的 p50 不要求严格相加：
+
+| case | round | whole-step | occupancy / leader | proposal / store | global projection | longitudinal total | advance / events / authority commit | research cache commit |
+| ---- | ----: | ---------: | -----------------: | ---------------: | ----------------: | -----------------: | ----------------------------------: | --------------------: |
+| H1   |     1 |   `36.893` |           `13.074` |         `18.803` |           `1.822` |           `20.625` |                             `3.144` |               `0.000` |
+| H1   |     2 |   `35.915` |           `12.689` |         `18.348` |           `1.767` |           `20.105` |                             `3.038` |               `0.000` |
+| H1   |     3 |   `35.613` |           `12.622` |         `18.162` |           `1.742` |           `19.943` |                             `2.998` |               `0.000` |
+| C4   |     1 |   `34.651` |           `12.521` |         `16.707` |           `1.720` |           `18.505` |                             `3.010` |               `0.532` |
+| C4   |     2 |   `34.699` |           `12.474` |         `16.740` |           `1.738` |           `18.505` |                             `3.007` |               `0.533` |
+| C4   |     3 |   `34.788` |           `12.617` |         `16.664` |           `1.764` |           `18.476` |                             `3.043` |               `0.530` |
+
+H1 各轮 share 的三轮中位数表明：
+
+- occupancy/leader rebuild 占 whole-step `35.438%`，是最大的 non-longitudinal 单项；
+- longitudinal total 占 whole-step `55.980%`；
+- proposal/store 占 longitudinal `91.166%`，约占 whole-step `51%`；global projection 只占 longitudinal `8.786%`，约占 whole-step `4.9%`；
+- advance/events/authority commit 占 whole-step `8.457%`；
+- 按每个 tick 先扣除已记录阶段后再取 p50，whole-step unattributed 只有约 `0.003 ms`，说明 coarse attribution 基本闭合，没有足以改变优先级的未知大块成本。
+
+C4 的 savings 也由阶段数据得到机制解释：三轮 p50 中位数相对 H1，proposal/store 从 `18.348 ms` 降到 `16.707 ms`，约节省 `1.641 ms`；global projection、occupancy/leader 和 post stage 基本不变，同时 sparse journal commit 新增约 `0.532 ms`。因此 C4 的净收益主要来自跳过 IIDM intent 后的 proposal path，而不是 projection；compact journal 最多先回收约半毫秒，仍小于 occupancy/leader 和 proposal path 的可优化份额。
+
+独立 Criterion kernels 使用相同 100k scale、每组 10 samples、`1 s` warm-up、`3 s` measurement、三轮串行执行。`median.point_estimate` 单位为 ms：
+
+| kernel                  | round 1 | round 2 | round 3 | three-round median | 相对 H1 proposal p50 |
+| ----------------------- | ------: | ------: | ------: | -----------------: | -------------------: |
+| IIDM controller intent  | `3.470` | `3.498` | `3.459` |            `3.470` |             `18.91%` |
+| post-intent safe motion | `5.874` | `5.782` | `5.915` |            `5.874` |             `32.02%` |
+| scratch begin           | `0.119` | `0.122` | `0.119` |            `0.119` |              `0.65%` |
+| motion store            | `2.467` | `2.478` | `2.509` |            `2.478` |             `13.50%` |
+| global projection       | `1.679` | `1.627` | `1.648` |            `1.648` |                  N/A |
+
+这组 kernel ablation 把 proposal 的下一靶点进一步收窄：
+
+- post-intent safe motion（ballistic integration、emergency/safe-speed clamp、speed-ceiling clamp 和 motion materialization）是已隔离的最大内核，约为 IIDM intent 的 `1.69×`；只优化或降频 IIDM 不会消除它；
+- motion store 的独立成本约 `2.478 ms`，scratch begin 只有 `0.119 ms`。因此“每 tick 清空 scratch”不是主要问题，motion record 写入与其数据布局更值得继续比较；
+- 四个 proposal kernels 的独立中位数合计约为 H1 proposal p50 的 `65.08%`。剩余部分不能由独立数字直接相减定罪，但结合生产 loop 可将下一诊断范围放在 per-vehicle handle/state/profile/edge/leader lookup、constraint identity/key 构造、cache branch/journal bookkeeping 和 loop/data locality；
+- 独立 projection `1.648 ms` 与 coarse projection `1.767 ms` 同量级，进一步支持 projection 不是当前第一优化靶点。即使把 projection 变成零成本，whole-step 上界也只有约 5%，且不能牺牲跨区 leader chain/cycle 的全局求解语义。
+
+WPR 证据使用 `CPU` profile 覆盖 100k H1 external workload 的 1,024 ticks；workload 本身耗时 `54.98 s`，生成 `1,221,591,040 B` ETL。`xperf -symbols -a profile -detail` 使用同一 release binary 的本地 PDB 解码，以下占比均以目标 `laneflow_core` 进程的 exclusive sampled CPU weight 为分母；LaneFlow binary 自身占该进程 `92.681%`，其余主要是 CRT/kernel runtime：
+
+| exclusive sampled function                           | target process share | LaneFlow module share |
+| ---------------------------------------------------- | -------------------: | --------------------: |
+| `CoreWorld::find_leader`                             |             `23.15%` |              `24.97%` |
+| `CoreWorld::rebuild_longitudinal_motions`            |             `13.17%` |              `14.21%` |
+| `iidm_acceleration`                                  |             `12.36%` |              `13.33%` |
+| `compute_motion_from_controller_intent_for_research` |              `7.82%` |               `8.44%` |
+| `CoreWorld::step`                                    |              `6.20%` |               `6.69%` |
+| `CoreWorld::leader_horizon`                          |              `5.90%` |               `6.37%` |
+| `safe_speed`                                         |              `5.04%` |               `5.44%` |
+| `CoreWorld::build_occupancy`                         |              `3.63%` |               `3.91%` |
+| `CoreWorld::rebuild_occupancy_and_leaders`           |              `2.88%` |               `3.11%` |
+| `LongitudinalScratch::project`                       |              `2.41%` |               `2.60%` |
+| `ReducedRateResearchState::controller_intent`        |              `1.90%` |               `2.05%` |
+| `LongitudinalMotion::apply_speed_limit_constraint`   |              `1.88%` |               `2.02%` |
+| `LongitudinalScratch::begin`                         |              `0.56%` |               `0.60%` |
+
+sampled profile 与 coarse/criterion 交叉验证后的解释是：
+
+- `find_leader + leader_horizon + build_occupancy + rebuild_occupancy_and_leaders` 的 exclusive samples 合计约占目标进程 `35.56%`，与 coarse occupancy/leader 的 `35.438%` 几乎相同；其中 `find_leader` 单项就占 `23.15%`，因此 occupancy 下一轮应先优化 horizon-bounded leader traversal、route-distance candidate/index access 和数据局部性，而不是先优化 edge sort。`sort_edges`、occupancy scratch begin/allocate 的单项 sampled share 均低于 `0.6%`。
+- `iidm_acceleration` 占 `12.36%`；post-intent 的 `compute_motion... + safe_speed` exclusive samples 合计 `12.86%`，再次确认 IIDM 降频只覆盖 longitudinal 的一部分，safe-motion 计算同样值得 batch/SIMD 与数据路径 ablation。
+- `rebuild_longitudinal_motions` 仍有 `13.17%` exclusive self weight，主要容纳未单独成函数或已内联的 per-vehicle lookup、branch、cache/bookkeeping 和 motion store，支持继续拆 proposal loop/data locality。
+- `LongitudinalScratch::project` 只有 `2.41%` target-process share；WPR、coarse timing 与独立 Criterion 三种方法都把 global projection 排在 occupancy 和 proposal 之后。
+
+因此本轮的单线程优化优先级是：
+
+1. **occupancy/leader exact path**：占 whole-step 约 35.4%，先做数据访问、索引和 partition/halo exact ablation；它仍是每 tick safety authority，不能直接降频。真实分区或并行实施超出 #212，必须新 Issue 进入 G1，并继续满足全局 dependency component 求解。
+2. **longitudinal proposal path**：优先隔离 post-intent safe motion 的 batch/SIMD 可行性、motion record 写放大与 lookup/data locality；IIDM cache 只是其中一部分。
+3. **C4 cache/journal layout**：compact hot/cold entry 或 lifecycle epoch 可继续回收约 `0.532 ms` commit 和 per-tick key/journal 触达，但预期收益小于前两项。
+4. **advance/events/authority commit**：约 8.5%，在前两项之后再拆 route advance、event materialization 与 commit。
+5. **global projection**：约 4.9%，除非后续更复杂 leader graph 改变占比，否则不应作为第一项。
+
+这些诊断仍全部是单线程、test-only seam，没有引入线程池、worker、work stealing、production partition、生产 cache 或 public API/Data/Adapter 变更。
+
+可复现命令：
+
+```text
+cargo test -p laneflow-core reduced_rate_research_tests -- --test-threads=1
+cargo test -p laneflow-core stable_semantic_fidelity_report_includes_distributions_and_horizon_drift -- --nocapture --test-threads=1
+cargo test --release -p laneflow-core world::reduced_rate_research_tests::release_tail_matrix_reports_p50_p95_p99_max_and_gate_classification -- --exact --ignored --nocapture --test-threads=1
+cargo test --release -p laneflow-core world::reduced_rate_research_tests::warm_10k_100k_reduced_rate_step_is_zero_allocation -- --exact --ignored --nocapture --test-threads=1
+cargo test --release -p laneflow-core world::reduced_rate_research_tests::criterion_100k_three_round_whole_step_and_longitudinal_matrix -- --exact --ignored --nocapture --test-threads=1
+cargo test --release -p laneflow-core world::reduced_rate_research_tests::criterion_100k_three_round_cache_and_downrate_ablation -- --exact --ignored --nocapture --test-threads=1
+cargo test --release -p laneflow-core world::reduced_rate_research_tests::criterion_100k_three_round_sparse_transaction_ablation -- --exact --ignored --nocapture --test-threads=1
+cargo test --release -p laneflow-core world::reduced_rate_research_tests::release_100k_three_round_step_stage_diagnostics -- --exact --ignored --nocapture --test-threads=1
+cargo test --release -p laneflow-core world::reduced_rate_research_tests::criterion_100k_three_round_longitudinal_kernel_diagnostics -- --exact --ignored --nocapture --test-threads=1
+cargo test --release -p laneflow-core world::reduced_rate_research_tests::release_100k_h1_external_profile_workload -- --exact --ignored --nocapture --test-threads=1
+cargo test -p laneflow-bevy selected_inputs_canonical_pose_counts_and_local_transforms_match_full_oracle -- --test-threads=1
+```
+
+WPR CPU profile 需要从包含 `SeSystemProfilePrivilege` 的 elevated PowerShell 启动；`Disabled` 表示权限存在但尚未由进程启用，不是缺失。采集顺序为 `wpr -start CPU`、运行上述 external workload、`wpr -stop <trace.etl> <description>`；随后设置 `_NT_SYMBOL_PATH` 指向 `target/release/deps` 的本地 PDB，并使用 `xperf -i <trace.etl> -symbols -o <report.txt> -a profile -detail` 解码 exclusive function report。
+
+因此当前 P4 的建议是：**接受 reduced-rate 语义可表达性、strong-individual safety/event contract 和 sparse atomic transaction 作为已验证的性能方向，拒绝把 dense C2 或尚未过 Gate 的 C4 直接提升为 production runtime。** 若继续本 component，应隔离 compact hot/cold entry 或 lifecycle epoch，降低每 tick full-entry key read 与 journal 写放大；但若目标是 whole-step 的下一轮显著收益，优先级应转向 occupancy/leader exact path 与 longitudinal post-intent/motion-store/data-locality，而不是先优化 global projection。冻结 ablation 中 `N=8` IIDM-only 的理论上限约为 longitudinal `14.662%`，若目标仍是 `15%`，必须同时找到另一个可安全优化的 component 或做 IIDM batch/SIMD。不得通过扩大 fidelity budget、减少 per-tick safety authority、隐藏 synchronized spike、移除 failed-step 原子性或把 cache 暴露给 Adapter 来追求过线。
+
 ### P5. Private memory-layout experiment
 
 目标：只有 profiler 证明 candidate clone、AoS cache locality 或 scratch retained memory 是主要成本时，才比较 AoS/SoA/chunked storage。实验不得先改变 public handle 或 Adapter API。
