@@ -170,15 +170,19 @@ representativeness claim。
 
 1. `cell_index`、`route_index`、`edge_index`、`slot_index` 都从 0 开始，并按
    `(cell, route, edge, slot)` 升序 normalization。
-2. 每条 route 只包含一条 180 m entry edge 和一条 200 m exit edge，唯一连接为
-   `entry -> exit`；cell 之间没有 lane graph connection。两条 edge 的 speed
-   limit 均为 13.9 m/s。
+2. 每条 route 只包含一条 5130 m entry edge 和一条 5130 m exit edge，唯一连接为
+   `entry -> exit`，总 route length 为 10260 m；cell 之间没有 lane graph
+   connection。两条 edge 的 speed limit 均为 13.9 m/s。
 3. `column = cell_index mod 32`，`row = floor(cell_index / 32)`；cell origin 为
-   `x = -8192 + 512 × column`、`z = -1024 + 64 × row`，单位为米。
-4. 四条 route 都沿 `+X` 方向，route 的局部 `z` 分别为
-   `0 / 8 / 16 / 24 m`。entry polyline 从 local `x=0` 到 `x=180`，exit
-   polyline 从 `x=180` 到 `x=380`。该布局在 1000 cells 时仍处于 Spatial
-   当前的 `±16384 m` 工作范围内。
+   `x = -16300 + 1024 × column`、`z = -16300 + 1024 × row`，单位为米。
+4. route `r` 的 local base z 为 `80 × r m`。从 `(0, base_z)` 开始生成 51 条
+   200 m 水平 run；偶数 run 沿 `+X`、奇数 run 沿 `-X`，相邻 run 由 1.2 m
+   `+Z` connector 连接。完整 centerline 长度精确为
+   `51 × 200 + 50 × 1.2 = 10260 m`。
+5. 在 centerline progress 5130 m 的 `(100, base_z + 30)` 处分割 entry/exit
+   edge；该点是 run 25 的中点，必须同时成为 entry 的最后一点和 exit 的第一点。
+   1000 cells 的所有点位于每轴闭区间 `[-16384, 16384] m`，不同 route/cell 的
+   geometry band 不重叠。
 
 每条 route 在 entry/exit 边界设置一个 stop line 和一个 gate，并映射到本 cell
 对应的 signal group。controller 使用固定 58 s 六阶段周期：
@@ -197,7 +201,8 @@ W1–W3 的 controller offset 为
 
 每条 route 在 exit edge 上生成 25 个 parking anchors：第 `s` 个 anchor 的 edge
 progress 为 `5 + 7.5 × s m`。每个 ParkingSpace 的 length 为 5.0 m、width 为
-2.4 m，entry/exit anchor 相同，lateral offset 和 heading offset 都为 0。
+2.4 m，entry/exit anchor 相同，lateral offset 为 3.0 m，heading offset 为
+0。该非零 lateral offset 满足 current static Parking contract。
 
 所有 individual 使用同一基础参数：length 4.5 m、desired speed 13.9 m/s、
 minimum gap 2.0 m、time headway 1.5 s、maximum acceleration 1.4 m/s²、
@@ -206,20 +211,41 @@ comfortable deceleration 2.0 m/s²、emergency deceleration 6.0 m/s²。
 ### 4.2 W1–W4 population 与 spacing
 
 每条 route 的 25 个 logical slots 同时是稳定 identity 顺序和 ParkingSpace
-顺序。active individual 的 route progress 若小于 180 m，则映射到 entry edge；
-否则映射到 exit edge，并使用 `edge progress = route progress - 180 m`。
+顺序。active individual 的 route progress 若小于 5130 m，则映射到 entry edge；
+否则映射到 exit edge，并使用 `edge progress = route progress - 5130 m`。
 
 | Workload                 | 每 cell 的确定性初始 population                                                                                                                                                                                                                                                                            |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | W1 Mixed product         | route 0：25 active，progress `20 + 6.5 × s m`，speed 1.0 m/s；route 1：25 active，同 spacing/speed；route 2：slots 0–11 为 12 active，progress `20 + 28 × s m`，speed 13.9 m/s，其余 13 parked；route 3：slots 0–12 为 13 active，同 free-flow spacing/speed，其余 12 parked。合计 75 active / 25 parked。 |
 | W2 Dense following       | 四条 route 的全部 25 slots active，progress `20 + 6.5 × s m`，speed 1.0 m/s。相邻车辆 front-position 间距为 6.5 m，扣除 4.5 m 车长后恰为 2.0 m minimum gap，因此每条 route 除最前方车辆外的 24/25、全局 15/16 individual 有 leader。                                                                       |
-| W3 Parking/lifecycle     | route 0–2 的 slots 0–5 和 route 3 的 slots 0–6 active，progress `20 + 28 × s m`，speed 13.9 m/s；其余 parked。合计 25 active / 75 parked。                                                                                                                                                                 |
+| W3 Parking/lifecycle     | route 0–2 的 slots 0–5 和 route 3 的 slots 0–6 active，progress `20 + 28 × s m`，speed 13.9 m/s；其余 parked。合计 25 active / 75 parked。route 3 slot 6 是 lifecycle probe，在 observation 首个 boundary 按下文固定序列重建。                                                                             |
 | W4 Synchronized boundary | 继承 W1 的 topology、population 与 spacing，但所有 controller offset 为 0；固定输入序列必须让指定 Signal、route/edge、Parking release 和 atomic lifecycle replace 在同一 observation boundary 发生。W4 只改变边界相位和输入序列，不改变 normalized counts。                                                |
 
 28 m free-flow front-position 间距高于基础参数在 13.9 m/s 时的
 `4.5 + 2.0 + 1.5 × 13.9 = 27.35 m` equilibrium spacing。任何 benchmark
 harness 对上述 topology、population、spacing、phase 或 stable order 的改变，
 都必须产生新的 workload ID，不能仍标记为 `LF-SYNTH-v1`。
+
+W1/W2 的 active population 以及 W3 中非 probe 的 active population 在正式
+case 内不得自然耗尽。16 ms 与 33 ms 行从 warm-up 开始到 observation 结束最多分别
+经过 696.384 s 与 697.356 s；13.9 m/s speed limit 下最多前进 9693.249 m。
+最大普通初始 progress 为 356 m，剩余 9904 m，因此在完整 4+8 Signal cycles
+内不会到达 route end。harness 不得用未声明 recycle 补偿更短的私有 route。
+
+W3 的 lifecycle probe 使用以下 fixed-step input sequence：
+
+1. warm-up 结束后的首个 observation boundary，按 cell 升序对 route 3 slot 6
+   顺序执行 caller-owned despawn 和 spawn command；spawn 复用同一 logical
+   external ID，新 handle 保留该 logical slot，route progress 为 10240 m、
+   speed 为 13.9 m/s。该 command batch 计入 W3 lifecycle burst；任一 command
+   失败都使该 round 无效。
+2. Core step 后按 ordered completion event 建立 frozen replacement plan；下一个
+   lifecycle boundary 使用 Core atomic replace，把同一 logical external ID 的新
+   handle 放回 route progress 188 m、speed 13.9 m/s。
+3. 顺序固定为 `apply pending lifecycle commands -> Core fixed step -> consume
+   ordered completion events -> enqueue next-boundary plan`。Blocked plan 不重算、
+   不改变顺序，并按同一 frozen input 在后续 boundary 重试；出现未在 manifest
+   记录的持续 Blocked 或 active-count drain 时，该 round 无效。
 
 ### 4.3 选择、manifest 与防投机约束
 
