@@ -108,7 +108,7 @@ workload：
 
 | Workload                 | 个体构成                                                                        | 场景要求                                                                                | 主要验证目标                                         |
 | ------------------------ | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| W1 Mixed product         | 75% `N_traffic_active` / 25% parked                                             | 确定性多 edge/route；混合 following/free-flow、Signals、Parking 与 lifecycle transition | 主要产品预算、综合吞吐与常规 tail                    |
+| W1 Mixed product         | 75% `N_traffic_active` / 25% parked                                             | 确定性多 edge/route；混合 following/free-flow、Signals 与 occupied Parking steady state | 主要产品预算、综合吞吐与常规 tail                    |
 | W2 Dense following       | 100% `N_traffic_active`；24/25 vehicles 在 leader horizon 内                    | 延续 dense cohort 压力形态并保留 free-flow 边界                                         | occupancy/leader 与 longitudinal 持续最坏负载        |
 | W3 Parking/lifecycle     | 初始 25% `N_traffic_active` / 75% parked；Parking commit 后一 tick 为 24% / 76% | Parking reserve/arrival/commit/leave、Completed、spawn/despawn/atomic replace           | 个体内存、Parking authority 与 lifecycle transaction |
 | W4 Synchronized boundary | 使用 W1 initial population；`B0` 后 76% active / 24% parked                     | 将 Signal/Parking/lifecycle 对齐为确定性 `B0/B1` causal burst                           | p95/p99/max、同步尖峰与 failed-step/retry            |
@@ -235,6 +235,17 @@ case 内不得自然耗尽。16 ms 与 33 ms 行从 warm-up 开始到 observatio
 经过 696.384 s 与 697.356 s；13.9 m/s speed limit 下最多前进 9693.249 m。
 最大普通初始 progress 为 356 m，剩余 9904 m，因此在完整 4+8 Signal cycles
 内不会到达 route end。harness 不得用未声明 recycle 补偿更短的私有 route。
+
+W1/W2 是 command-free steady-state workloads。从 world 构造完成到 observation
+结束，caller 不得调用 Parking reserve/cancel/commit/leave/rebind、vehicle
+spawn/despawn/replace、route mutation 或 Signal mutation command。W1 的 25
+parked individuals/occupied spaces 与 75 active individuals 必须保持相同 status
+counts；W2 的 100 active individuals 也不得改变 status counts。自然发生的
+fixed-time Signal phase、route edge transition、motion 与 ordered step events
+仍属于 workload。出现 caller mutation record、Parking binding/count 变化、
+Completed 或非预期 status-count 变化时，该 round 无效。Parking/lifecycle
+transition 的性能和 tail 只由下述 W3/W4 frozen sequences 承担，不得把私有命令
+混入 W1 产品预算。
 
 W3 的 Parking probe 使用以下 fixed-step input sequence：
 
