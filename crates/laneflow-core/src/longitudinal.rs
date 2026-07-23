@@ -866,6 +866,116 @@ pub(crate) fn compute_motion(
     })
 }
 
+#[cfg(test)]
+pub(crate) fn evaluate_controller_intent_for_research(
+    vehicle: VehicleHandle,
+    current_speed: f64,
+    profile: IidmProfileSpec,
+    effective_speed_ceiling: f64,
+    leader: Option<LeaderKinematics>,
+) -> Result<f64, CoreError> {
+    let mut effective_profile = profile;
+    effective_profile.desired_speed = profile.desired_speed.min(effective_speed_ceiling);
+    iidm_acceleration(vehicle, current_speed, effective_profile, leader)
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(crate) struct ResearchMotionInput {
+    pub(crate) vehicle: VehicleHandle,
+    pub(crate) update_sequence: u64,
+    pub(crate) current_speed: f64,
+    pub(crate) profile: IidmProfileSpec,
+    pub(crate) effective_speed_ceiling: f64,
+    pub(crate) leader: Option<LeaderKinematics>,
+    pub(crate) comfort_acceleration: f64,
+    pub(crate) delta_time: f64,
+}
+
+#[cfg(test)]
+pub(crate) fn compute_motion_from_controller_intent_for_research(
+    input: ResearchMotionInput,
+) -> Result<LongitudinalMotion, CoreError> {
+    let ResearchMotionInput {
+        vehicle,
+        update_sequence,
+        current_speed,
+        profile,
+        effective_speed_ceiling,
+        leader,
+        comfort_acceleration,
+        delta_time,
+    } = input;
+    let comfort = ballistic_motion(vehicle, current_speed, comfort_acceleration, delta_time)?;
+    let emergency_min_travel = emergency_min_travel(
+        vehicle,
+        current_speed,
+        profile.emergency_deceleration,
+        delta_time,
+    )?;
+
+    let candidate = if let Some(leader) = leader {
+        let safe_speed = safe_speed(
+            vehicle,
+            current_speed,
+            profile.emergency_deceleration,
+            leader.current_speed,
+            leader.emergency_deceleration,
+            leader.observation.bumper_gap,
+            delta_time,
+        )?;
+        let emergency_step = finite(
+            vehicle,
+            "emergency_speed_step",
+            profile.emergency_deceleration * delta_time,
+        )?;
+        let emergency_floor = (current_speed - emergency_step).max(0.0);
+        let candidate_speed = comfort.speed.min(safe_speed).max(emergency_floor);
+
+        if candidate_speed == comfort.speed {
+            comfort
+        } else {
+            let acceleration = finite(
+                vehicle,
+                "candidate_acceleration",
+                (candidate_speed - current_speed) / delta_time,
+            )?;
+            ballistic_motion(vehicle, current_speed, acceleration, delta_time)?
+        }
+    } else {
+        comfort
+    };
+    let candidate = if candidate.speed > effective_speed_ceiling {
+        let acceleration = finite(
+            vehicle,
+            "speed_ceiling_acceleration",
+            (effective_speed_ceiling - current_speed) / delta_time,
+        )?;
+        ballistic_motion(vehicle, current_speed, acceleration, delta_time)?
+    } else {
+        candidate
+    };
+
+    Ok(LongitudinalMotion {
+        vehicle,
+        update_sequence,
+        current_speed,
+        leader: leader.map(|value| value.observation),
+        base_candidate_speed: candidate.speed,
+        base_candidate_travel: candidate.travel,
+        candidate_speed: candidate.speed,
+        candidate_travel: candidate.travel,
+        emergency_min_travel,
+        final_speed: candidate.speed,
+        final_travel: candidate.travel,
+        route_end_distance: None,
+        signal_stop: None,
+        speed_limit_projection: None,
+        spatial_projection: None,
+        safety_projection_applied: false,
+    })
+}
+
 fn speed_limit_error(error: CoreError) -> CoreError {
     match error {
         CoreError::NonFiniteLongitudinalComputation {
@@ -1315,6 +1425,59 @@ mod tests {
         assert_eq!(
             iidm_acceleration(vehicle(0), 10.0, profile(), Some(leader)).unwrap(),
             -2.0
+        );
+    }
+
+    #[test]
+    fn research_intent_seam_is_bit_exact_with_production_motion() {
+        let leader = LeaderKinematics {
+            observation: LeaderObservation {
+                leader: vehicle(1),
+                bumper_gap: 12.5,
+            },
+            current_speed: 7.25,
+            emergency_deceleration: 8.0,
+        };
+        let current_speed = 11.75;
+        let speed_ceiling = 13.5;
+        let delta_time = 0.05;
+        let production = compute_motion(
+            vehicle(0),
+            4,
+            current_speed,
+            profile(),
+            speed_ceiling,
+            Some(leader),
+            delta_time,
+        )
+        .expect("production motion");
+        let intent = evaluate_controller_intent_for_research(
+            vehicle(0),
+            current_speed,
+            profile(),
+            speed_ceiling,
+            Some(leader),
+        )
+        .expect("controller intent");
+        let research = compute_motion_from_controller_intent_for_research(ResearchMotionInput {
+            vehicle: vehicle(0),
+            update_sequence: 4,
+            current_speed,
+            profile: profile(),
+            effective_speed_ceiling: speed_ceiling,
+            leader: Some(leader),
+            comfort_acceleration: intent,
+            delta_time,
+        })
+        .expect("research motion");
+
+        assert_eq!(
+            production.float_bits_for_research(),
+            research.float_bits_for_research()
+        );
+        assert_eq!(
+            production.leader_for_research(),
+            research.leader_for_research()
         );
     }
 
