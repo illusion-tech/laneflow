@@ -74,6 +74,7 @@ Bevy 拥有 outer frame 与宿主 schedule。LaneFlow 不修改宿主全局 `Tim
 #169 的具体 Bevy 映射为：
 
 - `LaneFlowPlugin` 安装 `LaneFlowOuterFrame` 与 `LaneFlowFixed` 两个单线程 schedule。
+- `LaneFlowFixedSet::{Lifecycle, Step, Observe}` 在每个 fixed step 内按该顺序执行；同一 outer frame 的每个 catch-up step 都重复完整链。调用方把 replacement policy system 放入 `Lifecycle`，把 committed result/event 消费放入 `Observe`。
 - `LaneFlowOuterFrame` 插入宿主 `First` 之后，因此读取的是本帧已经由 `TimePlugin` 更新的 `Time::delta()`；调用方负责安装 `TimePlugin` 或包含它的宿主 plugin group。
 - `LaneFlowPlugin` 不重复安装 `TimePlugin` 或 `TransformPlugin`。缺少 Session 时 schedule 无操作；存在 Session 但缺少 `Time` resource 时记录结构化错误。
 - `LaneFlowSessionConfig` 要求调用方显式提供非零 `max_catch_up_steps`，不定义隐藏默认值。
@@ -98,6 +99,7 @@ Presentation 可以自行创建或回收模型 Entity。用于接收 LaneFlow po
 - `LaneFlowSession::vehicle_entities()` 返回 `LaneFlowVehicleEntityMap` 只读视图，可按 vehicle 或 Entity 双向查询，不公开 HashMap 迭代顺序。
 - duplicate vehicle、duplicate Entity、unknown vehicle 与未绑定 rebind 都返回 `LaneFlowAdapterError`，失败前后双射不变。
 - rebind 只替换一个 vehicle 的 Entity 并返回旧 Entity；宿主负责新旧 Entity 的 bundle、parent 与回收生命周期。
+- #187 的 `replace_completed_vehicle(&mut World, old, &VehicleReplaceInput)` 是 replacement 唯一公共组合事务；成功时已绑定 vehicle 复用同一 Entity 并原子轮换到 new handle，未绑定 vehicle 继续保持未绑定。它不替代宿主主动调用的 bind/unbind/rebind。
 
 ## 6. Canonical frame 与 Bevy Transform
 
@@ -268,6 +270,8 @@ Spatial batch extract
 
 ## 13. v0.8 直行走廊 schedule 与 proxy 复用
 
-#184 在 v0.7 schedule 上增加的目标顺序是：每个 LaneFlow fixed step 前应用 pending lifecycle commands，step 后消费有序 completion events 并为下一 boundary 入队。一个 outer frame 内的 catch-up steps 逐步执行该顺序，presentation 仍在 outer frame 最多提交一次，因此 frame chunking 不得改变 Population/Core 决策。
+#187 在 v0.7 schedule 上公开 `LaneFlowFixedSet::{Lifecycle, Step, Observe}`，固定顺序为：每个 LaneFlow fixed step 前在 `Lifecycle` 应用 pending lifecycle commands，Adapter 在 `Step` 推进一次 Core，调用方在 `Observe` 消费 committed result/event 并为下一 boundary 入队。一个 outer frame 内的 catch-up steps 逐步重复完整链，presentation 仍在 outer frame 最多提交一次，因此 frame chunking 不得改变 Population/Core 决策。
 
-车辆完成 route 后，既有 proxy/model 不 despawn。等待可用入口时，Completed vehicle 不产生 pose record，Entity 保留最后 Transform；atomic replace 成功后，Adapter 把同一 Entity 绑定到新的 `VehicleHandle`，下一批次更新入口位姿。道路、灯具、CLI/UI 和 50–200 车辆 native 集成由 #189 交付；Core atomic replace、caller-owned reference policy 与 typed Session transaction 分别由 #186/#203/#187 交付。详细场景参数见 `example-scenarios.md`。
+车辆完成 route 后，既有 proxy/model 不 despawn。等待可用入口时，Completed vehicle 不产生 pose record，Entity 保留最后 Transform。caller 在 `Lifecycle` 使用 `replace_completed_vehicle`：`Blocked` 保持 Core/映射/Transform 不变并允许继续处理其他计划；`Replaced` 把同一 Entity 从 old handle 轮换到 new handle，下一次正常 `PostUpdate` presentation 才更新入口位姿。fatal Adapter/Core error 停止该 outer frame 当前和后续 catch-up，完整保留 backlog；已成功的前序 command 不做跨 command 回滚。
+
+该边界不提供通用 runtime spawn/despawn、生命周期枚举、Adapter-owned persistent queue/retry 或人口 controller。初始人口在创建 Session 前由调用方建立；seed、portal/lane 抽样与 retry policy 继续由 #203 的 engine-neutral caller policy 拥有。道路、灯具、CLI/UI 和 50–200 车辆 native 集成由 #189 交付；Core atomic replace、caller-owned reference policy 与 typed Session transaction 分别由 #186/#203/#187 交付。详细场景参数见 `example-scenarios.md`。

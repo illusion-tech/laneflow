@@ -7,11 +7,13 @@ v0.7 的 #169-#173 已提供最小 headless 宿主、Transform 同步、producti
 - `LaneFlowPlugin`：安装 LaneFlow 专用 outer-frame 与 fixed schedule；
 - `LaneFlowOuterFrame`：位于 Bevy `First` 之后，读取宿主已经更新的 `Time::delta()`；
 - `LaneFlowFixed`：按 Session accumulator 运行零次或多次 Core fixed step；
+- `LaneFlowFixedSet::{Lifecycle, Step, Observe}`：每个 fixed/catch-up step 内稳定重复的公共阶段链；
 - `LaneFlowSession`：单活动 Bevy Resource，组合 `CoreWorld`、`SpatialRegistry`、可复用 pose/Transform 缓冲、catch-up 配置与最近一帧结果；
 - `LaneFlowVehicleEntityMap`：由 Session 管理的 `VehicleHandle <-> Entity` 部分双射只读视图；
 - `LaneFlowFramePlacement`：显式登记 canonical frame-root 与 `FramePlacementToken`；
 - `LaneFlowPresentationReport`：报告 pose、mapped、unbound 与原子写入数量；
 - `LaneFlowFrameReport` / `LaneFlowAdapterError`：暴露 step 数、完整 backlog、上限状态与结构化失败。
+- `replace_completed_vehicle` / `LaneFlowVehicleReplaceOutcome`：调用方驱动的 `Completed -> Active` Core replacement 与可选 Entity 原子轮换。
 - `LaneFlowDebugGizmosPlugin`：仅在 `debug-gizmos` feature 下提供预算受控的 frame axes、车辆 marker 与调用方中心线绘制。
 - `native_reference`：仅在 `native-example` feature 下读取仓库 campus scenario/traffic/spatial artifacts，并使用完整 Bevy window/render 边界演示车辆移动。
 
@@ -36,6 +38,14 @@ app.insert_resource(LaneFlowSession::new(core, spatial, config));
 ```
 
 Session 通过 `bind_vehicle_entity`、`unbind_vehicle`、`unbind_entity` 与 `rebind_vehicle_entity` 管理映射，并通过 `set_frame_placement` 设置 root/token。每个 `PostUpdate` 在 `TransformSystems::Propagate` 前，从 committed Core 顺序批量提取 Spatial pose；未绑定记录稳定跳过，任一已映射记录失败则所有目标 local Transform 保持旧值。`1 LaneFlow meter = 1 Bevy unit`，LaneFlow tangent 映射到 Bevy `Transform::forward()`。
+
+## v0.8 vehicle lifecycle boundary
+
+调用方把人口/回流 policy system 放入 `LaneFlowFixedSet::Lifecycle`，在其中调用独占 helper `replace_completed_vehicle(&mut World, old, &VehicleReplaceInput)`；需要读取本次 committed step 的 system 放入 `LaneFlowFixedSet::Observe`。`LaneFlowPlugin` 保证每个 catch-up step 都按 `Lifecycle -> Step -> Observe` 执行，而 presentation 仍在每个 outer frame 最多提交一次。
+
+成功结果 `LaneFlowVehicleReplaceOutcome::Replaced` 包含 old/new handle 与 `Option<Entity>`。已绑定 old handle 会复用同一 Entity；未绑定 old handle 只替换 Core vehicle 并保持未绑定。`Blocked` 是可重试结果，不修改 Core、映射、Transform 或 Session error；fatal error 会停止该 outer frame 的 Core/catch-up 推进并保留 backlog。Completed proxy 在等待和 replacement 当下保留最后 Transform，由下一次正常 presentation 更新入口位姿。
+
+本边界不拥有目标车辆数、seed、入口/route 抽样、pending/retry queue、初始人口或通用 runtime spawn/despawn；这些仍由调用方 policy 管理。初始车辆应在创建 `LaneFlowSession` 前写入 Core。
 
 ## 可选 debug Gizmos
 

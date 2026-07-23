@@ -2,8 +2,8 @@
 
 use bevy_app::{App, First, MainScheduleOrder, Plugin, PostUpdate};
 use bevy_ecs::{
-    schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel, SingleThreadedExecutor},
-    system::ResMut,
+    schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel, SingleThreadedExecutor, SystemSet},
+    system::{Res, ResMut},
     world::World,
 };
 use bevy_time::Time;
@@ -19,6 +19,17 @@ pub struct LaneFlowOuterFrame;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, ScheduleLabel)]
 pub struct LaneFlowFixed;
 
+/// 每个 LaneFlow fixed step 内稳定执行的公共阶段。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, SystemSet)]
+pub enum LaneFlowFixedSet {
+    /// 调用方提交 vehicle lifecycle command 的 fixed-step boundary。
+    Lifecycle,
+    /// Adapter 推进一次 LaneFlow Core fixed tick。
+    Step,
+    /// 调用方读取本次 fixed step committed 结果。
+    Observe,
+}
+
 /// 安装 LaneFlow 专用 outer-frame/fixed schedule 的 Bevy Plugin。
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LaneFlowPlugin;
@@ -31,7 +42,15 @@ impl Plugin for LaneFlowPlugin {
 
         let mut fixed = Schedule::new(LaneFlowFixed);
         fixed.set_executor(SingleThreadedExecutor::new());
-        fixed.add_systems(step_core);
+        fixed.configure_sets(
+            (
+                LaneFlowFixedSet::Lifecycle,
+                LaneFlowFixedSet::Step.run_if(session_has_no_error),
+                LaneFlowFixedSet::Observe.run_if(session_has_no_error),
+            )
+                .chain(),
+        );
+        fixed.add_systems(step_core.in_set(LaneFlowFixedSet::Step));
 
         app.add_schedule(outer_frame).add_schedule(fixed);
         app.add_systems(
@@ -79,4 +98,8 @@ fn run_outer_frame(world: &mut World) {
 
 fn step_core(mut session: ResMut<'_, LaneFlowSession>) {
     session.step_core();
+}
+
+fn session_has_no_error(session: Res<'_, LaneFlowSession>) -> bool {
+    session.last_error().is_none()
 }
