@@ -79,8 +79,9 @@ LaneFlow 暂不追求以下能力：
 - `crates/laneflow-bevy`：Bevy 0.19 Reference Adapter；使用最小 modular dependency graph，提供单活动 `LaneFlowSession`、专用 fixed schedule、Vehicle/Entity 部分双射、frame placement、原子 local Transform 同步、可选 Gizmos 与 campus native reference example。
 - `crates/laneflow-core`：引擎无关的 Core domain/runtime、typed handles、fixed tick、fixed-time Signals snapshot/query/events、SignalStop 与 permission-aware traversal，以及私有 occupancy/leader、IIDM、safe-speed 与 no-overlap projection pipeline。
 - `crates/laneflow-data`：当前 Traffic v0.7 JSON loader、严格版本闸口、per-edge `speedLimit` 与 Core normalization；依赖方向固定为 `laneflow-data -> laneflow-core`。
+- `crates/laneflow-scenario`：可选、引擎无关的 reference scenario policy；当前提供 v0.8 signalized-corridor 的 catalog normalization、50–200 车辆确定性初始化、ordered completion 消费和 blocked recycle retry，依赖方向固定为 `laneflow-scenario -> laneflow-core`。
 - `crates/laneflow-spatial`：LaneFlow 自有的有界 `f32` canonical 点、向量、单位方向、稳定 frame ID、immutable edge-binding registry，以及带 placement token、Parking pose 和失败原子性的批量位姿提取；依赖方向固定为 `laneflow-spatial -> laneflow-core`，Core 不反向依赖 Spatial。
-- `tools/laneflow-corridor-generator`：v0.8 直行信号化走廊的离线 authoring 工具；读取内部 TOML，确定性生成并校验 Traffic/Spatial/Manifest JSON 与 scenario-local catalog TOML。
+- `tools/laneflow-corridor-generator`：v0.8 直行信号化走廊的离线 authoring 工具；读取内部 TOML，确定性生成并校验 Traffic/Spatial/Manifest JSON 与 scenario-local catalog TOML，并复用 `laneflow-scenario` 的 catalog wire DTO。
 - `research/issue-123-spatial-prototype`：#123 G1 使用的研究用工作区成员；不属于生产接口，第三方几何候选只作为开发依赖进行对照。
 - `xtask`：Markdown 表格格式化、提交消息和 Gate evidence 等仓库治理工具。
 

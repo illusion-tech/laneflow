@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -166,41 +166,4 @@ pub(crate) struct ArtifactDescriptor {
     pub media_type: &'static str,
     pub digest: String,
     pub size: u64,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct CorridorCatalog {
-    pub catalog_version: String,
-    pub portals: Vec<PortalCatalogEntry>,
-    pub routes: Vec<RouteCatalogEntry>,
-    pub spawn_slots: Vec<SpawnSlotCatalogEntry>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct PortalCatalogEntry {
-    pub id: String,
-    pub entry_route_ids: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct RouteCatalogEntry {
-    pub route_id: String,
-    pub entry_portal_id: String,
-    pub exit_portal_id: String,
-    pub lane_index: usize,
-    pub entry_spawn_slot_id: String,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct SpawnSlotCatalogEntry {
-    pub slot_id: String,
-    pub portal_id: String,
-    pub route_id: String,
-    pub route_edge_index: usize,
-    pub edge_id: String,
-    pub progress: f64,
 }

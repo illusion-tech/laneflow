@@ -9,7 +9,9 @@ pub use config::{CorridorConfig, ENDPOINT_CLEARANCE_METERS, MIN_SPAWN_SLOT_COUNT
 pub use error::Error;
 use error::IoResultExt;
 pub use generator::{GeneratedScenario, ScenarioCounts, generate};
-pub use model::{CorridorCatalog, PortalCatalogEntry, RouteCatalogEntry, SpawnSlotCatalogEntry};
+pub use laneflow_scenario::signalized_corridor::{
+    CorridorCatalog, PortalCatalogEntry, RouteCatalogEntry, SpawnSlotCatalogEntry,
+};
 
 #[derive(Clone, Debug)]
 pub struct OutputPaths {

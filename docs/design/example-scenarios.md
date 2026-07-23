@@ -27,7 +27,7 @@ v0.8 包含：
 
 v0.8 不包含转向、换道、路径搜索、感应或自适应信号、运行时热修改信号、行人、停车、匝道、路网编辑器和保存/恢复 runtime snapshot。受保护左转、直行和右转属于 v0.9 #194 的强制范围，不能从长期路线图中删除。
 
-Traffic v0.7 per-edge 限速的 production schema/Core 基础由 #185 交付；Core atomic replace 由 #186 承担，v0.8 caller-owned 人口/回流策略由 #203 承担，generator、Adapter 与 native example 由 #187–#189 承担，#195 独立收口。
+Traffic v0.7 per-edge 限速的 production schema/Core 基础由 #185 交付；Core atomic replace 由 #186 承担，v0.8 caller-owned 人口/回流策略由 #203 在 `laneflow-scenario` 落地，generator、Adapter 与 native example 由 #187–#189 承担，#195 独立收口。#203 的 crate/API、严格 validation、两阶段 bootstrap、transport-neutral lifecycle 和零分配边界见 [`signalized-corridor-population.md`](signalized-corridor-population.md)。
 
 ## 2. 单位、坐标与道路尺度
 
@@ -262,17 +262,17 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config exam
 
 ## 10. 分层权威与实施切片
 
-| 关注点                                                      | 权威层                        | 实施 Issue |
-| ----------------------------------------------------------- | ----------------------------- | ---------- |
-| per-edge speed limit、Traffic v0.7 与纵向约束               | Data/Core                     | #185       |
-| caller-driven atomic replace、overlap 与 identity invariant | Core runtime                  | #186       |
-| 目标人口、seed、portal/lane 决策与 blocked retry            | caller-owned reference policy | #203       |
-| typed lifecycle transaction 与 proxy binding                | Bevy Reference Adapter        | #187       |
-| 场景 generator、固定时制配置与三类静态制品                  | Data/Authoring                | #188       |
-| native UI/CLI、道路/车辆/灯具呈现与场景集成                 | Bevy Reference Adapter        | #189       |
-| 独立审阅、性能/可视/回归证据                                | Cross-layer closure           | #195       |
+| 关注点                                                      | 权威层                               | 实施 Issue |
+| ----------------------------------------------------------- | ------------------------------------ | ---------- |
+| per-edge speed limit、Traffic v0.7 与纵向约束               | Data/Core                            | #185       |
+| caller-driven atomic replace、overlap 与 identity invariant | Core runtime                         | #186       |
+| 目标人口、seed、portal/lane 决策与 blocked retry            | `laneflow-scenario` reference policy | #203       |
+| typed lifecycle transaction 与 proxy binding                | Bevy Reference Adapter               | #187       |
+| 场景 generator、固定时制配置与三类静态制品                  | Data/Authoring                       | #188       |
+| native UI/CLI、道路/车辆/灯具呈现与场景集成                 | Bevy Reference Adapter               | #189       |
+| 独立审阅、性能/可视/回归证据                                | Cross-layer closure                  | #195       |
 
-Core 是 vehicle identity、状态、overlap、route 和 speed-limit behavior 的权威，但不限制车辆数量，也不拥有回流 policy。#203 的 caller-owned reference policy 是 v0.8 示例目标人口、seed 和 portal/lane 决策的权威；未来城市游戏可以完全替换它。Traffic/Spatial 是静态拓扑和几何的权威；Adapter 是 VehicleHandle/Entity 部分双射与宿主 schedule 的权威；Presentation 只拥有 proxy/model/Transform/灯具表现。
+Core 是 vehicle identity、状态、overlap、route 和 speed-limit behavior 的权威，但不限制车辆数量，也不拥有回流 policy。`laneflow-scenario` 中 #203 的 caller-owned reference policy 是 v0.8 示例目标人口、seed、catalog normalization 和 portal/lane 决策的权威；未来城市游戏可以完全替换它。Traffic/Spatial 是静态拓扑和几何的权威；Adapter 是 VehicleHandle/Entity 部分双射与宿主 schedule 的权威；Presentation 只拥有 proxy/model/Transform/灯具表现。
 
 ## 11. 验收矩阵
 
