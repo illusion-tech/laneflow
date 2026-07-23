@@ -268,10 +268,20 @@ Aggregate 不是当前 production candidate。若第 10 节触发独立 G1，必
 
 - 10k/100k：运行 W1–W4 全矩阵。
 - 1M：只运行明确声明的有限 observation。
-- `H = 1024 ticks`。
-- 每个 case warm-up 512 ticks，且至少覆盖 4 个完整 Signal cycles。
-- 正式 observation 为 4096 ticks，覆盖 H/2H/4H、至少 8 个 Signal cycles 和
-  预声明的 lifecycle transitions。
+- `H = 1024 ticks`；H/2H/4H 是正式 observation 内的强制 fidelity checkpoint。
+- 每个 case 先按实际 fixed step 和离散 phase 推进语义，计算其中最长完整 Signal
+  controller cycle 的 `C_signal_ticks`；没有 Signal controller 时取 `0`。不得只用
+  名义毫秒总和忽略逐 phase 的 tick 取整。
+- 运行长度使用：
+
+  ```text
+  warm_up_ticks = max(512, 4 * C_signal_ticks)
+  observation_ticks = max(4096, 8 * C_signal_ticks)
+  ```
+
+- 正式 observation 必须同时覆盖 H/2H/4H、至少 8 个完整 Signal cycles 和预声明
+  的 lifecycle transitions。为覆盖 Signal cycles 而增加的 ticks 同样进入正式
+  latency/tail 统计，不能在报告时丢弃。
 - 每个 case 运行 3 个独立 fresh-process rounds；candidate 顺序跨 round 轮换。
 - 固定 commit、release binary、Rust 1.96、seed、workload configuration 与
   deterministic outer-frame input sequence。
