@@ -1,7 +1,7 @@
 # Data Loading 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-22
+**最后更新**: 2026-07-23
 **适用范围**: Traffic v0.7、SpatialPackage/ScenarioManifest v0.1 loader 与保留的 Data v0.6 数值迁移边界
 
 **关联文档**:
@@ -302,3 +302,9 @@ manifest JSON syntax
 `LoadedSpatialPackage` 保存 `CanonicalFrameId` 与按 Traffic lane graph 稳定顺序排列的 `LoadedSpatialEdge`；每条 edge 已解析为 `EdgeHandle` 并只含受检 `CanonicalPoint3F32`。它是 #135 几何构建的输入，不是完整 `SpatialRegistry`，也不在 #134 中计算弧长、绑定长度、检查连接端点或生成采样基底。
 
 失败 API 只返回 `ScenarioError`，不会返回 Traffic-only 或部分 Spatial 结果。JSON syntax/shape 保留 document、path、line/column；制品、坐标和 edge coverage 使用结构化 variant，嵌套 Traffic 错误保留原始 `DataError` source。
+
+## 13. v0.8 Corridor authoring 导航
+
+`tools/laneflow-corridor-generator` 是仓库内部、离线运行的 authoring 工具。它读取 `examples/config/v0.8-signalized-corridor.toml`，生成 checked-in Traffic v0.7、SpatialPackage v0.1、ScenarioManifest v0.1 JSON，并生成不进入 Manifest 的 scenario-local catalog TOML。
+
+该工具的 Serialize DTO 私有且不构成 `laneflow-data` public API；每次生成都依次执行仓库 JSON Schema、`from_scenario_json_slice` production loader、`SpatialRegistry::try_new` 和 `CoreWorld::with_traffic_data` 校验。所有文档在内存中全部成功后才写盘，`check` 命令只读比较确定性 bytes。内部 TOML 不能被 production JSON loader 当成新的 interchange format，使用方式和边界见 [`../../tools/laneflow-corridor-generator/README.md`](../../tools/laneflow-corridor-generator/README.md) 与 [`example-scenarios.md`](example-scenarios.md)。
