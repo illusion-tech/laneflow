@@ -1,0 +1,15 @@
+{
+  "formatVersion": "0.1",
+  "traffic": {
+    "artifactRef": "v0.7-signalized-corridor.laneflow.json",
+    "mediaType": "application/vnd.laneflow.traffic+json",
+    "digest": "sha256:e966a92d925ff6931b562c1037c7006d25aaf630f548327d730e1891e5bf57c0",
+    "size": 32108
+  },
+  "spatial": {
+    "artifactRef": "v0.1-signalized-corridor.spatial.json",
+    "mediaType": "application/vnd.laneflow.spatial+json",
+    "digest": "sha256:7bf312aad9cc51f3f50194b0f38ff36c08cf8ed2a7d6e8fd44166b6bcf98a4d8",
+    "size": 16076
+  }
+}

@@ -21,12 +21,15 @@ allow = [
     "Zlib",
 ]
 confidence-threshold = 0.93
-# #172 Bevy 0.19 debug Gizmos smoke 的显式 render/window 路径需要以下传递依赖；
-# 在不替换 Bevy/Gizmos 实现路径的前提下，没有只使用全局 allow-list 的等价依赖图。
-# 这些许可证均为宽松许可证，不引入 copyleft；第三方归属义务仍按上游许可证保留。
-# 接受范围仅限下列精确 crate/version。Bevy 升级或版本漂移时必须重新审查，不自动继承；
-# 清理负责人为 #172 assignee/仓库维护者，跟踪 Issue 为 #172。
+# 例外只接受下列精确 crate/version，不扩展全局 allow-list；版本漂移时必须重新审查。
 exceptions = [
+    # #188 的离线 corridor generator 在写盘前执行 repository JSON Schema；
+    # jsonschema 0.48.1 经 referencing/fluent-uri 传递依赖此精确版本。
+    # MIT-0 为宽松许可证且不引入 copyleft；例外不扩展到其他 crate/version。
+    { allow = ["MIT-0"], crate = "borrow-or-share@0.2.4" },
+    # #172 Bevy 0.19 debug Gizmos smoke 的显式 render/window 路径需要以下传递依赖；
+    # 在不替换 Bevy/Gizmos 实现路径的前提下，没有只使用全局 allow-list 的等价依赖图。
+    # 这些许可证均为宽松许可证，不引入 copyleft；第三方归属义务仍按上游许可证保留。
     { allow = ["BSD-2-Clause"], crate = "arrayref@0.3.9" },
     { allow = ["MIT-0"], crate = "encase@0.12.0" },
     { allow = ["MIT-0"], crate = "encase_derive@0.12.0" },

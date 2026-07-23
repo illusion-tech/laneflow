@@ -1,0 +1,924 @@
+{
+  "formatVersion": "0.1",
+  "frameId": "signalized-corridor-local",
+  "edges": [
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-0-road-0",
+      "centerline": {
+        "points": [
+          [
+            -400.0,
+            0.0,
+            1.75
+          ],
+          [
+            -207.0,
+            0.0,
+            1.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-0-connector-intersection-1-straight",
+      "centerline": {
+        "points": [
+          [
+            -207.0,
+            0.0,
+            1.75
+          ],
+          [
+            -193.0,
+            0.0,
+            1.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-0-road-2",
+      "centerline": {
+        "points": [
+          [
+            -193.0,
+            0.0,
+            1.75
+          ],
+          [
+            193.0,
+            0.0,
+            1.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-0-connector-intersection-2-straight",
+      "centerline": {
+        "points": [
+          [
+            193.0,
+            0.0,
+            1.75
+          ],
+          [
+            207.0,
+            0.0,
+            1.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-0-road-4",
+      "centerline": {
+        "points": [
+          [
+            207.0,
+            0.0,
+            1.75
+          ],
+          [
+            400.0,
+            0.0,
+            1.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-1-road-0",
+      "centerline": {
+        "points": [
+          [
+            -400.0,
+            0.0,
+            5.25
+          ],
+          [
+            -207.0,
+            0.0,
+            5.25
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-1-connector-intersection-1-straight",
+      "centerline": {
+        "points": [
+          [
+            -207.0,
+            0.0,
+            5.25
+          ],
+          [
+            -193.0,
+            0.0,
+            5.25
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-1-road-2",
+      "centerline": {
+        "points": [
+          [
+            -193.0,
+            0.0,
+            5.25
+          ],
+          [
+            193.0,
+            0.0,
+            5.25
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-1-connector-intersection-2-straight",
+      "centerline": {
+        "points": [
+          [
+            193.0,
+            0.0,
+            5.25
+          ],
+          [
+            207.0,
+            0.0,
+            5.25
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-1-road-4",
+      "centerline": {
+        "points": [
+          [
+            207.0,
+            0.0,
+            5.25
+          ],
+          [
+            400.0,
+            0.0,
+            5.25
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-2-road-0",
+      "centerline": {
+        "points": [
+          [
+            -400.0,
+            0.0,
+            8.75
+          ],
+          [
+            -207.0,
+            0.0,
+            8.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-2-connector-intersection-1-straight",
+      "centerline": {
+        "points": [
+          [
+            -207.0,
+            0.0,
+            8.75
+          ],
+          [
+            -193.0,
+            0.0,
+            8.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-2-road-2",
+      "centerline": {
+        "points": [
+          [
+            -193.0,
+            0.0,
+            8.75
+          ],
+          [
+            193.0,
+            0.0,
+            8.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-2-connector-intersection-2-straight",
+      "centerline": {
+        "points": [
+          [
+            193.0,
+            0.0,
+            8.75
+          ],
+          [
+            207.0,
+            0.0,
+            8.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-w2e-lane-2-road-4",
+      "centerline": {
+        "points": [
+          [
+            207.0,
+            0.0,
+            8.75
+          ],
+          [
+            400.0,
+            0.0,
+            8.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-0-road-0",
+      "centerline": {
+        "points": [
+          [
+            400.0,
+            0.0,
+            -1.75
+          ],
+          [
+            207.0,
+            0.0,
+            -1.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-0-connector-intersection-2-straight",
+      "centerline": {
+        "points": [
+          [
+            207.0,
+            0.0,
+            -1.75
+          ],
+          [
+            193.0,
+            0.0,
+            -1.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-0-road-2",
+      "centerline": {
+        "points": [
+          [
+            193.0,
+            0.0,
+            -1.75
+          ],
+          [
+            -193.0,
+            0.0,
+            -1.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-0-connector-intersection-1-straight",
+      "centerline": {
+        "points": [
+          [
+            -193.0,
+            0.0,
+            -1.75
+          ],
+          [
+            -207.0,
+            0.0,
+            -1.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-0-road-4",
+      "centerline": {
+        "points": [
+          [
+            -207.0,
+            0.0,
+            -1.75
+          ],
+          [
+            -400.0,
+            0.0,
+            -1.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-1-road-0",
+      "centerline": {
+        "points": [
+          [
+            400.0,
+            0.0,
+            -5.25
+          ],
+          [
+            207.0,
+            0.0,
+            -5.25
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-1-connector-intersection-2-straight",
+      "centerline": {
+        "points": [
+          [
+            207.0,
+            0.0,
+            -5.25
+          ],
+          [
+            193.0,
+            0.0,
+            -5.25
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-1-road-2",
+      "centerline": {
+        "points": [
+          [
+            193.0,
+            0.0,
+            -5.25
+          ],
+          [
+            -193.0,
+            0.0,
+            -5.25
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-1-connector-intersection-1-straight",
+      "centerline": {
+        "points": [
+          [
+            -193.0,
+            0.0,
+            -5.25
+          ],
+          [
+            -207.0,
+            0.0,
+            -5.25
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-1-road-4",
+      "centerline": {
+        "points": [
+          [
+            -207.0,
+            0.0,
+            -5.25
+          ],
+          [
+            -400.0,
+            0.0,
+            -5.25
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-2-road-0",
+      "centerline": {
+        "points": [
+          [
+            400.0,
+            0.0,
+            -8.75
+          ],
+          [
+            207.0,
+            0.0,
+            -8.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-2-connector-intersection-2-straight",
+      "centerline": {
+        "points": [
+          [
+            207.0,
+            0.0,
+            -8.75
+          ],
+          [
+            193.0,
+            0.0,
+            -8.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-2-road-2",
+      "centerline": {
+        "points": [
+          [
+            193.0,
+            0.0,
+            -8.75
+          ],
+          [
+            -193.0,
+            0.0,
+            -8.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-2-connector-intersection-1-straight",
+      "centerline": {
+        "points": [
+          [
+            -193.0,
+            0.0,
+            -8.75
+          ],
+          [
+            -207.0,
+            0.0,
+            -8.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-main-e2w-lane-2-road-4",
+      "centerline": {
+        "points": [
+          [
+            -207.0,
+            0.0,
+            -8.75
+          ],
+          [
+            -400.0,
+            0.0,
+            -8.75
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-n2s-lane-0-road-0",
+      "centerline": {
+        "points": [
+          [
+            -201.75,
+            0.0,
+            -150.0
+          ],
+          [
+            -201.75,
+            0.0,
+            -10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-n2s-lane-0-connector-intersection-1-straight",
+      "centerline": {
+        "points": [
+          [
+            -201.75,
+            0.0,
+            -10.5
+          ],
+          [
+            -201.75,
+            0.0,
+            10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-n2s-lane-0-road-2",
+      "centerline": {
+        "points": [
+          [
+            -201.75,
+            0.0,
+            10.5
+          ],
+          [
+            -201.75,
+            0.0,
+            150.0
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-n2s-lane-1-road-0",
+      "centerline": {
+        "points": [
+          [
+            -205.25,
+            0.0,
+            -150.0
+          ],
+          [
+            -205.25,
+            0.0,
+            -10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-n2s-lane-1-connector-intersection-1-straight",
+      "centerline": {
+        "points": [
+          [
+            -205.25,
+            0.0,
+            -10.5
+          ],
+          [
+            -205.25,
+            0.0,
+            10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-n2s-lane-1-road-2",
+      "centerline": {
+        "points": [
+          [
+            -205.25,
+            0.0,
+            10.5
+          ],
+          [
+            -205.25,
+            0.0,
+            150.0
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-s2n-lane-0-road-0",
+      "centerline": {
+        "points": [
+          [
+            -198.25,
+            0.0,
+            150.0
+          ],
+          [
+            -198.25,
+            0.0,
+            10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-s2n-lane-0-connector-intersection-1-straight",
+      "centerline": {
+        "points": [
+          [
+            -198.25,
+            0.0,
+            10.5
+          ],
+          [
+            -198.25,
+            0.0,
+            -10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-s2n-lane-0-road-2",
+      "centerline": {
+        "points": [
+          [
+            -198.25,
+            0.0,
+            -10.5
+          ],
+          [
+            -198.25,
+            0.0,
+            -150.0
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-s2n-lane-1-road-0",
+      "centerline": {
+        "points": [
+          [
+            -194.75,
+            0.0,
+            150.0
+          ],
+          [
+            -194.75,
+            0.0,
+            10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-s2n-lane-1-connector-intersection-1-straight",
+      "centerline": {
+        "points": [
+          [
+            -194.75,
+            0.0,
+            10.5
+          ],
+          [
+            -194.75,
+            0.0,
+            -10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-1-s2n-lane-1-road-2",
+      "centerline": {
+        "points": [
+          [
+            -194.75,
+            0.0,
+            -10.5
+          ],
+          [
+            -194.75,
+            0.0,
+            -150.0
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-n2s-lane-0-road-0",
+      "centerline": {
+        "points": [
+          [
+            198.25,
+            0.0,
+            -150.0
+          ],
+          [
+            198.25,
+            0.0,
+            -10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-n2s-lane-0-connector-intersection-2-straight",
+      "centerline": {
+        "points": [
+          [
+            198.25,
+            0.0,
+            -10.5
+          ],
+          [
+            198.25,
+            0.0,
+            10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-n2s-lane-0-road-2",
+      "centerline": {
+        "points": [
+          [
+            198.25,
+            0.0,
+            10.5
+          ],
+          [
+            198.25,
+            0.0,
+            150.0
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-n2s-lane-1-road-0",
+      "centerline": {
+        "points": [
+          [
+            194.75,
+            0.0,
+            -150.0
+          ],
+          [
+            194.75,
+            0.0,
+            -10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-n2s-lane-1-connector-intersection-2-straight",
+      "centerline": {
+        "points": [
+          [
+            194.75,
+            0.0,
+            -10.5
+          ],
+          [
+            194.75,
+            0.0,
+            10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-n2s-lane-1-road-2",
+      "centerline": {
+        "points": [
+          [
+            194.75,
+            0.0,
+            10.5
+          ],
+          [
+            194.75,
+            0.0,
+            150.0
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-s2n-lane-0-road-0",
+      "centerline": {
+        "points": [
+          [
+            201.75,
+            0.0,
+            150.0
+          ],
+          [
+            201.75,
+            0.0,
+            10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-s2n-lane-0-connector-intersection-2-straight",
+      "centerline": {
+        "points": [
+          [
+            201.75,
+            0.0,
+            10.5
+          ],
+          [
+            201.75,
+            0.0,
+            -10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-s2n-lane-0-road-2",
+      "centerline": {
+        "points": [
+          [
+            201.75,
+            0.0,
+            -10.5
+          ],
+          [
+            201.75,
+            0.0,
+            -150.0
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-s2n-lane-1-road-0",
+      "centerline": {
+        "points": [
+          [
+            205.25,
+            0.0,
+            150.0
+          ],
+          [
+            205.25,
+            0.0,
+            10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-s2n-lane-1-connector-intersection-2-straight",
+      "centerline": {
+        "points": [
+          [
+            205.25,
+            0.0,
+            10.5
+          ],
+          [
+            205.25,
+            0.0,
+            -10.5
+          ]
+        ]
+      }
+    },
+    {
+      "trafficEdgeId": "edge-side-2-s2n-lane-1-road-2",
+      "centerline": {
+        "points": [
+          [
+            205.25,
+            0.0,
+            -10.5
+          ],
+          [
+            205.25,
+            0.0,
+            -150.0
+          ]
+        ]
+      }
+    }
+  ]
+}

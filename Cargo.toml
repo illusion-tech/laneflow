@@ -5,6 +5,7 @@ members = [
     "crates/laneflow-data",
     "crates/laneflow-spatial",
     "research/issue-123-spatial-prototype",
+    "tools/laneflow-corridor-generator",
     "xtask",
 ]
 resolver = "2"

@@ -1,0 +1,1130 @@
+{
+  "formatVersion": "0.7",
+  "units": {
+    "distance": "meter",
+    "time": "second"
+  },
+  "laneGraph": {
+    "edges": [
+      {
+        "id": "edge-main-w2e-lane-0-road-0",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-0-connector-intersection-1-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-0-connector-intersection-1-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-0-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-0-road-2",
+        "length": 386.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-0-connector-intersection-2-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-0-connector-intersection-2-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-0-road-4"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-0-road-4",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": []
+      },
+      {
+        "id": "edge-main-w2e-lane-1-road-0",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-1-connector-intersection-1-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-1-connector-intersection-1-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-1-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-1-road-2",
+        "length": 386.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-1-connector-intersection-2-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-1-connector-intersection-2-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-1-road-4"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-1-road-4",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": []
+      },
+      {
+        "id": "edge-main-w2e-lane-2-road-0",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-2-connector-intersection-1-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-2-connector-intersection-1-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-2-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-2-road-2",
+        "length": 386.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-2-connector-intersection-2-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-2-connector-intersection-2-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-w2e-lane-2-road-4"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-w2e-lane-2-road-4",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": []
+      },
+      {
+        "id": "edge-main-e2w-lane-0-road-0",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-0-connector-intersection-2-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-0-connector-intersection-2-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-0-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-0-road-2",
+        "length": 386.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-0-connector-intersection-1-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-0-connector-intersection-1-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-0-road-4"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-0-road-4",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": []
+      },
+      {
+        "id": "edge-main-e2w-lane-1-road-0",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-1-connector-intersection-2-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-1-connector-intersection-2-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-1-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-1-road-2",
+        "length": 386.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-1-connector-intersection-1-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-1-connector-intersection-1-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-1-road-4"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-1-road-4",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": []
+      },
+      {
+        "id": "edge-main-e2w-lane-2-road-0",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-2-connector-intersection-2-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-2-connector-intersection-2-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-2-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-2-road-2",
+        "length": 386.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-2-connector-intersection-1-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-2-connector-intersection-1-straight",
+        "length": 14.0,
+        "speedLimit": 16.666666666666668,
+        "connections": [
+          {
+            "toEdgeId": "edge-main-e2w-lane-2-road-4"
+          }
+        ]
+      },
+      {
+        "id": "edge-main-e2w-lane-2-road-4",
+        "length": 193.0,
+        "speedLimit": 16.666666666666668,
+        "connections": []
+      },
+      {
+        "id": "edge-side-1-n2s-lane-0-road-0",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-1-n2s-lane-0-connector-intersection-1-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-1-n2s-lane-0-connector-intersection-1-straight",
+        "length": 21.0,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-1-n2s-lane-0-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-1-n2s-lane-0-road-2",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": []
+      },
+      {
+        "id": "edge-side-1-n2s-lane-1-road-0",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-1-n2s-lane-1-connector-intersection-1-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-1-n2s-lane-1-connector-intersection-1-straight",
+        "length": 21.0,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-1-n2s-lane-1-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-1-n2s-lane-1-road-2",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": []
+      },
+      {
+        "id": "edge-side-1-s2n-lane-0-road-0",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-1-s2n-lane-0-connector-intersection-1-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-1-s2n-lane-0-connector-intersection-1-straight",
+        "length": 21.0,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-1-s2n-lane-0-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-1-s2n-lane-0-road-2",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": []
+      },
+      {
+        "id": "edge-side-1-s2n-lane-1-road-0",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-1-s2n-lane-1-connector-intersection-1-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-1-s2n-lane-1-connector-intersection-1-straight",
+        "length": 21.0,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-1-s2n-lane-1-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-1-s2n-lane-1-road-2",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": []
+      },
+      {
+        "id": "edge-side-2-n2s-lane-0-road-0",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-2-n2s-lane-0-connector-intersection-2-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-2-n2s-lane-0-connector-intersection-2-straight",
+        "length": 21.0,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-2-n2s-lane-0-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-2-n2s-lane-0-road-2",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": []
+      },
+      {
+        "id": "edge-side-2-n2s-lane-1-road-0",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-2-n2s-lane-1-connector-intersection-2-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-2-n2s-lane-1-connector-intersection-2-straight",
+        "length": 21.0,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-2-n2s-lane-1-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-2-n2s-lane-1-road-2",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": []
+      },
+      {
+        "id": "edge-side-2-s2n-lane-0-road-0",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-2-s2n-lane-0-connector-intersection-2-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-2-s2n-lane-0-connector-intersection-2-straight",
+        "length": 21.0,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-2-s2n-lane-0-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-2-s2n-lane-0-road-2",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": []
+      },
+      {
+        "id": "edge-side-2-s2n-lane-1-road-0",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-2-s2n-lane-1-connector-intersection-2-straight"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-2-s2n-lane-1-connector-intersection-2-straight",
+        "length": 21.0,
+        "speedLimit": 11.11111111111111,
+        "connections": [
+          {
+            "toEdgeId": "edge-side-2-s2n-lane-1-road-2"
+          }
+        ]
+      },
+      {
+        "id": "edge-side-2-s2n-lane-1-road-2",
+        "length": 139.5,
+        "speedLimit": 11.11111111111111,
+        "connections": []
+      }
+    ]
+  },
+  "routes": [
+    {
+      "id": "route-main-w2e-lane-0",
+      "edgeIds": [
+        "edge-main-w2e-lane-0-road-0",
+        "edge-main-w2e-lane-0-connector-intersection-1-straight",
+        "edge-main-w2e-lane-0-road-2",
+        "edge-main-w2e-lane-0-connector-intersection-2-straight",
+        "edge-main-w2e-lane-0-road-4"
+      ]
+    },
+    {
+      "id": "route-main-w2e-lane-1",
+      "edgeIds": [
+        "edge-main-w2e-lane-1-road-0",
+        "edge-main-w2e-lane-1-connector-intersection-1-straight",
+        "edge-main-w2e-lane-1-road-2",
+        "edge-main-w2e-lane-1-connector-intersection-2-straight",
+        "edge-main-w2e-lane-1-road-4"
+      ]
+    },
+    {
+      "id": "route-main-w2e-lane-2",
+      "edgeIds": [
+        "edge-main-w2e-lane-2-road-0",
+        "edge-main-w2e-lane-2-connector-intersection-1-straight",
+        "edge-main-w2e-lane-2-road-2",
+        "edge-main-w2e-lane-2-connector-intersection-2-straight",
+        "edge-main-w2e-lane-2-road-4"
+      ]
+    },
+    {
+      "id": "route-main-e2w-lane-0",
+      "edgeIds": [
+        "edge-main-e2w-lane-0-road-0",
+        "edge-main-e2w-lane-0-connector-intersection-2-straight",
+        "edge-main-e2w-lane-0-road-2",
+        "edge-main-e2w-lane-0-connector-intersection-1-straight",
+        "edge-main-e2w-lane-0-road-4"
+      ]
+    },
+    {
+      "id": "route-main-e2w-lane-1",
+      "edgeIds": [
+        "edge-main-e2w-lane-1-road-0",
+        "edge-main-e2w-lane-1-connector-intersection-2-straight",
+        "edge-main-e2w-lane-1-road-2",
+        "edge-main-e2w-lane-1-connector-intersection-1-straight",
+        "edge-main-e2w-lane-1-road-4"
+      ]
+    },
+    {
+      "id": "route-main-e2w-lane-2",
+      "edgeIds": [
+        "edge-main-e2w-lane-2-road-0",
+        "edge-main-e2w-lane-2-connector-intersection-2-straight",
+        "edge-main-e2w-lane-2-road-2",
+        "edge-main-e2w-lane-2-connector-intersection-1-straight",
+        "edge-main-e2w-lane-2-road-4"
+      ]
+    },
+    {
+      "id": "route-side-1-n2s-lane-0",
+      "edgeIds": [
+        "edge-side-1-n2s-lane-0-road-0",
+        "edge-side-1-n2s-lane-0-connector-intersection-1-straight",
+        "edge-side-1-n2s-lane-0-road-2"
+      ]
+    },
+    {
+      "id": "route-side-1-n2s-lane-1",
+      "edgeIds": [
+        "edge-side-1-n2s-lane-1-road-0",
+        "edge-side-1-n2s-lane-1-connector-intersection-1-straight",
+        "edge-side-1-n2s-lane-1-road-2"
+      ]
+    },
+    {
+      "id": "route-side-1-s2n-lane-0",
+      "edgeIds": [
+        "edge-side-1-s2n-lane-0-road-0",
+        "edge-side-1-s2n-lane-0-connector-intersection-1-straight",
+        "edge-side-1-s2n-lane-0-road-2"
+      ]
+    },
+    {
+      "id": "route-side-1-s2n-lane-1",
+      "edgeIds": [
+        "edge-side-1-s2n-lane-1-road-0",
+        "edge-side-1-s2n-lane-1-connector-intersection-1-straight",
+        "edge-side-1-s2n-lane-1-road-2"
+      ]
+    },
+    {
+      "id": "route-side-2-n2s-lane-0",
+      "edgeIds": [
+        "edge-side-2-n2s-lane-0-road-0",
+        "edge-side-2-n2s-lane-0-connector-intersection-2-straight",
+        "edge-side-2-n2s-lane-0-road-2"
+      ]
+    },
+    {
+      "id": "route-side-2-n2s-lane-1",
+      "edgeIds": [
+        "edge-side-2-n2s-lane-1-road-0",
+        "edge-side-2-n2s-lane-1-connector-intersection-2-straight",
+        "edge-side-2-n2s-lane-1-road-2"
+      ]
+    },
+    {
+      "id": "route-side-2-s2n-lane-0",
+      "edgeIds": [
+        "edge-side-2-s2n-lane-0-road-0",
+        "edge-side-2-s2n-lane-0-connector-intersection-2-straight",
+        "edge-side-2-s2n-lane-0-road-2"
+      ]
+    },
+    {
+      "id": "route-side-2-s2n-lane-1",
+      "edgeIds": [
+        "edge-side-2-s2n-lane-1-road-0",
+        "edge-side-2-s2n-lane-1-connector-intersection-2-straight",
+        "edge-side-2-s2n-lane-1-road-2"
+      ]
+    }
+  ],
+  "vehicleProfiles": [
+    {
+      "id": "passenger-car",
+      "length": 4.5,
+      "model": "iidm",
+      "desiredSpeed": 20.0,
+      "minGap": 2.0,
+      "timeHeadway": 1.5,
+      "maxAcceleration": 1.5,
+      "comfortableDeceleration": 2.0,
+      "emergencyDeceleration": 6.0
+    }
+  ],
+  "signals": {
+    "stopLines": [
+      {
+        "id": "stop-edge-main-w2e-lane-0-road-0",
+        "edgeId": "edge-main-w2e-lane-0-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-main-w2e-lane-0-road-2",
+        "edgeId": "edge-main-w2e-lane-0-road-2",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-main-w2e-lane-1-road-0",
+        "edgeId": "edge-main-w2e-lane-1-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-main-w2e-lane-1-road-2",
+        "edgeId": "edge-main-w2e-lane-1-road-2",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-main-w2e-lane-2-road-0",
+        "edgeId": "edge-main-w2e-lane-2-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-main-w2e-lane-2-road-2",
+        "edgeId": "edge-main-w2e-lane-2-road-2",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-main-e2w-lane-0-road-0",
+        "edgeId": "edge-main-e2w-lane-0-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-main-e2w-lane-0-road-2",
+        "edgeId": "edge-main-e2w-lane-0-road-2",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-main-e2w-lane-1-road-0",
+        "edgeId": "edge-main-e2w-lane-1-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-main-e2w-lane-1-road-2",
+        "edgeId": "edge-main-e2w-lane-1-road-2",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-main-e2w-lane-2-road-0",
+        "edgeId": "edge-main-e2w-lane-2-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-main-e2w-lane-2-road-2",
+        "edgeId": "edge-main-e2w-lane-2-road-2",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-side-1-n2s-lane-0-road-0",
+        "edgeId": "edge-side-1-n2s-lane-0-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-side-1-n2s-lane-1-road-0",
+        "edgeId": "edge-side-1-n2s-lane-1-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-side-1-s2n-lane-0-road-0",
+        "edgeId": "edge-side-1-s2n-lane-0-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-side-1-s2n-lane-1-road-0",
+        "edgeId": "edge-side-1-s2n-lane-1-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-side-2-n2s-lane-0-road-0",
+        "edgeId": "edge-side-2-n2s-lane-0-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-side-2-n2s-lane-1-road-0",
+        "edgeId": "edge-side-2-n2s-lane-1-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-side-2-s2n-lane-0-road-0",
+        "edgeId": "edge-side-2-s2n-lane-0-road-0",
+        "location": "edgeEnd"
+      },
+      {
+        "id": "stop-edge-side-2-s2n-lane-1-road-0",
+        "edgeId": "edge-side-2-s2n-lane-1-road-0",
+        "location": "edgeEnd"
+      }
+    ],
+    "movementGates": [
+      {
+        "fromEdgeId": "edge-main-w2e-lane-0-road-0",
+        "toEdgeId": "edge-main-w2e-lane-0-connector-intersection-1-straight",
+        "stopLineId": "stop-edge-main-w2e-lane-0-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-1-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-main-w2e-lane-0-road-2",
+        "toEdgeId": "edge-main-w2e-lane-0-connector-intersection-2-straight",
+        "stopLineId": "stop-edge-main-w2e-lane-0-road-2",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-2-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-main-w2e-lane-1-road-0",
+        "toEdgeId": "edge-main-w2e-lane-1-connector-intersection-1-straight",
+        "stopLineId": "stop-edge-main-w2e-lane-1-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-1-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-main-w2e-lane-1-road-2",
+        "toEdgeId": "edge-main-w2e-lane-1-connector-intersection-2-straight",
+        "stopLineId": "stop-edge-main-w2e-lane-1-road-2",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-2-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-main-w2e-lane-2-road-0",
+        "toEdgeId": "edge-main-w2e-lane-2-connector-intersection-1-straight",
+        "stopLineId": "stop-edge-main-w2e-lane-2-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-1-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-main-w2e-lane-2-road-2",
+        "toEdgeId": "edge-main-w2e-lane-2-connector-intersection-2-straight",
+        "stopLineId": "stop-edge-main-w2e-lane-2-road-2",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-2-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-main-e2w-lane-0-road-0",
+        "toEdgeId": "edge-main-e2w-lane-0-connector-intersection-2-straight",
+        "stopLineId": "stop-edge-main-e2w-lane-0-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-2-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-main-e2w-lane-0-road-2",
+        "toEdgeId": "edge-main-e2w-lane-0-connector-intersection-1-straight",
+        "stopLineId": "stop-edge-main-e2w-lane-0-road-2",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-1-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-main-e2w-lane-1-road-0",
+        "toEdgeId": "edge-main-e2w-lane-1-connector-intersection-2-straight",
+        "stopLineId": "stop-edge-main-e2w-lane-1-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-2-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-main-e2w-lane-1-road-2",
+        "toEdgeId": "edge-main-e2w-lane-1-connector-intersection-1-straight",
+        "stopLineId": "stop-edge-main-e2w-lane-1-road-2",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-1-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-main-e2w-lane-2-road-0",
+        "toEdgeId": "edge-main-e2w-lane-2-connector-intersection-2-straight",
+        "stopLineId": "stop-edge-main-e2w-lane-2-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-2-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-main-e2w-lane-2-road-2",
+        "toEdgeId": "edge-main-e2w-lane-2-connector-intersection-1-straight",
+        "stopLineId": "stop-edge-main-e2w-lane-2-road-2",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-1-main"
+        }
+      },
+      {
+        "fromEdgeId": "edge-side-1-n2s-lane-0-road-0",
+        "toEdgeId": "edge-side-1-n2s-lane-0-connector-intersection-1-straight",
+        "stopLineId": "stop-edge-side-1-n2s-lane-0-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-1-secondary"
+        }
+      },
+      {
+        "fromEdgeId": "edge-side-1-n2s-lane-1-road-0",
+        "toEdgeId": "edge-side-1-n2s-lane-1-connector-intersection-1-straight",
+        "stopLineId": "stop-edge-side-1-n2s-lane-1-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-1-secondary"
+        }
+      },
+      {
+        "fromEdgeId": "edge-side-1-s2n-lane-0-road-0",
+        "toEdgeId": "edge-side-1-s2n-lane-0-connector-intersection-1-straight",
+        "stopLineId": "stop-edge-side-1-s2n-lane-0-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-1-secondary"
+        }
+      },
+      {
+        "fromEdgeId": "edge-side-1-s2n-lane-1-road-0",
+        "toEdgeId": "edge-side-1-s2n-lane-1-connector-intersection-1-straight",
+        "stopLineId": "stop-edge-side-1-s2n-lane-1-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-1-secondary"
+        }
+      },
+      {
+        "fromEdgeId": "edge-side-2-n2s-lane-0-road-0",
+        "toEdgeId": "edge-side-2-n2s-lane-0-connector-intersection-2-straight",
+        "stopLineId": "stop-edge-side-2-n2s-lane-0-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-2-secondary"
+        }
+      },
+      {
+        "fromEdgeId": "edge-side-2-n2s-lane-1-road-0",
+        "toEdgeId": "edge-side-2-n2s-lane-1-connector-intersection-2-straight",
+        "stopLineId": "stop-edge-side-2-n2s-lane-1-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-2-secondary"
+        }
+      },
+      {
+        "fromEdgeId": "edge-side-2-s2n-lane-0-road-0",
+        "toEdgeId": "edge-side-2-s2n-lane-0-connector-intersection-2-straight",
+        "stopLineId": "stop-edge-side-2-s2n-lane-0-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-2-secondary"
+        }
+      },
+      {
+        "fromEdgeId": "edge-side-2-s2n-lane-1-road-0",
+        "toEdgeId": "edge-side-2-s2n-lane-1-connector-intersection-2-straight",
+        "stopLineId": "stop-edge-side-2-s2n-lane-1-road-0",
+        "signalControl": {
+          "kind": "group",
+          "groupId": "group-intersection-2-secondary"
+        }
+      }
+    ],
+    "groups": [
+      {
+        "id": "group-intersection-1-main"
+      },
+      {
+        "id": "group-intersection-1-secondary"
+      },
+      {
+        "id": "group-intersection-2-main"
+      },
+      {
+        "id": "group-intersection-2-secondary"
+      }
+    ],
+    "controllers": [
+      {
+        "id": "controller-intersection-1",
+        "kind": "fixedTime",
+        "offsetMs": 0,
+        "groupIds": [
+          "group-intersection-1-main",
+          "group-intersection-1-secondary"
+        ],
+        "phases": [
+          {
+            "id": "main-green",
+            "durationMs": 30000,
+            "states": [
+              {
+                "groupId": "group-intersection-1-main",
+                "aspect": "green"
+              },
+              {
+                "groupId": "group-intersection-1-secondary",
+                "aspect": "red"
+              }
+            ]
+          },
+          {
+            "id": "main-yellow",
+            "durationMs": 3000,
+            "states": [
+              {
+                "groupId": "group-intersection-1-main",
+                "aspect": "yellow"
+              },
+              {
+                "groupId": "group-intersection-1-secondary",
+                "aspect": "red"
+              }
+            ]
+          },
+          {
+            "id": "all-red-before-secondary",
+            "durationMs": 1000,
+            "states": [
+              {
+                "groupId": "group-intersection-1-main",
+                "aspect": "red"
+              },
+              {
+                "groupId": "group-intersection-1-secondary",
+                "aspect": "red"
+              }
+            ]
+          },
+          {
+            "id": "secondary-green",
+            "durationMs": 20000,
+            "states": [
+              {
+                "groupId": "group-intersection-1-main",
+                "aspect": "red"
+              },
+              {
+                "groupId": "group-intersection-1-secondary",
+                "aspect": "green"
+              }
+            ]
+          },
+          {
+            "id": "secondary-yellow",
+            "durationMs": 3000,
+            "states": [
+              {
+                "groupId": "group-intersection-1-main",
+                "aspect": "red"
+              },
+              {
+                "groupId": "group-intersection-1-secondary",
+                "aspect": "yellow"
+              }
+            ]
+          },
+          {
+            "id": "all-red-before-main",
+            "durationMs": 1000,
+            "states": [
+              {
+                "groupId": "group-intersection-1-main",
+                "aspect": "red"
+              },
+              {
+                "groupId": "group-intersection-1-secondary",
+                "aspect": "red"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "controller-intersection-2",
+        "kind": "fixedTime",
+        "offsetMs": 0,
+        "groupIds": [
+          "group-intersection-2-main",
+          "group-intersection-2-secondary"
+        ],
+        "phases": [
+          {
+            "id": "main-green",
+            "durationMs": 30000,
+            "states": [
+              {
+                "groupId": "group-intersection-2-main",
+                "aspect": "green"
+              },
+              {
+                "groupId": "group-intersection-2-secondary",
+                "aspect": "red"
+              }
+            ]
+          },
+          {
+            "id": "main-yellow",
+            "durationMs": 3000,
+            "states": [
+              {
+                "groupId": "group-intersection-2-main",
+                "aspect": "yellow"
+              },
+              {
+                "groupId": "group-intersection-2-secondary",
+                "aspect": "red"
+              }
+            ]
+          },
+          {
+            "id": "all-red-before-secondary",
+            "durationMs": 1000,
+            "states": [
+              {
+                "groupId": "group-intersection-2-main",
+                "aspect": "red"
+              },
+              {
+                "groupId": "group-intersection-2-secondary",
+                "aspect": "red"
+              }
+            ]
+          },
+          {
+            "id": "secondary-green",
+            "durationMs": 20000,
+            "states": [
+              {
+                "groupId": "group-intersection-2-main",
+                "aspect": "red"
+              },
+              {
+                "groupId": "group-intersection-2-secondary",
+                "aspect": "green"
+              }
+            ]
+          },
+          {
+            "id": "secondary-yellow",
+            "durationMs": 3000,
+            "states": [
+              {
+                "groupId": "group-intersection-2-main",
+                "aspect": "red"
+              },
+              {
+                "groupId": "group-intersection-2-secondary",
+                "aspect": "yellow"
+              }
+            ]
+          },
+          {
+            "id": "all-red-before-main",
+            "durationMs": 1000,
+            "states": [
+              {
+                "groupId": "group-intersection-2-main",
+                "aspect": "red"
+              },
+              {
+                "groupId": "group-intersection-2-secondary",
+                "aspect": "red"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "parking": {
+    "areas": [],
+    "spaces": []
+  }
+}

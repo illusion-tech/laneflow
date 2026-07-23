@@ -150,6 +150,10 @@ jobs:
         shell: bash
         run: cargo +1.96.0 test --workspace --locked
 
+      - name: Check signalized corridor artifacts
+        shell: bash
+        run: cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.8-signalized-corridor.toml
+
       - name: Run Parking allocation invariants serially
         shell: bash
         run: cargo +1.96.0 test -p laneflow-core --test parking_runtime_allocations --all-features --locked -- --ignored --test-threads=1

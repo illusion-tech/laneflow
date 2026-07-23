@@ -1,7 +1,7 @@
 # 示例场景设计
 
 **文档状态**: Accepted（#184 G1）<br>
-**最后更新**: 2026-07-22<br>
+**最后更新**: 2026-07-23<br>
 **适用范围**: v0.8 Signalized Corridor MVP 的直行信号化走廊、制品生成、启动配置、人口与车辆回流基线
 
 **关联 ADR**:
@@ -136,7 +136,7 @@ Traffic v0.7 current contract 在每个 lane edge 上要求严格正、有限的
 
 red time 由完整 phase program 推导，不提供独立 `redMs`。v0.8 只在生成/启动时读取配置，不支持运行中的热修改。
 
-默认配置为 `mainGreenMs=30000`、`secondaryGreenMs=20000`、`yellowMs=3000`、`allRedMs=1000`，两个 intersection offset 均为 `0`。所有时长必须为严格正整数、不小于 fixed delta 且能由 fixed-tick timing contract 精确表示；offset 必须 normalize 到 controller cycle 内。generator/loader 沿用 Signal System 的完整 group-state validation；默认值只保证可复现和无冲突，不宣称交通优化。
+默认 TOML 配置为 `main_green_ms=30000`、`secondary_green_ms=20000`、`yellow_ms=3000`、`all_red_ms=1000`，两个 `intersection_offsets_ms` 均为 `0`。所有时长必须为严格正整数且不小于 fixed delta，但不要求能被 fixed delta 整除；offset 必须已经满足 `0 <= offset < cycle`，generator 不做静默取模。generator/loader 沿用 Signal System 的完整 group-state validation；默认值只保证可复现和无冲突，不宣称交通优化。
 
 ## 6. 人口、初始分布与启动参数
 
@@ -163,6 +163,8 @@ generator 从相同 lane centerline 和车辆安全间距规则生成稳定的 i
 - 通过 Core production spawn validation 最终确认 overlap 和 route invariant。
 
 默认几何和 profile 必须提供至少 200 个合法 slot，否则 generator/config validation 失败。catalog 的规范顺序依次使用本文件 Portal 表顺序、route lane index 升序、route edge index 升序和 edge-local progress 升序；不得依赖 hash map、文件系统或 ECS iteration order。初始化使用显式 seed 对完整 catalog 执行从末尾到开头的 Fisher–Yates：按 `i = len-1, len-2, ..., 1` 的降序依次计算 `j = uniform(i+1)` 并交换 `slot[i]` / `slot[j]`，完成后取前 N 个 slot。
+
+checked-in 默认配置使用 `20 m` slot pitch，并在每个 eligible segment 两端保留 `vehicle length + minGap = 6.5 m`；由此确定性生成 230 个 slot。slot 只落在每条 route 的入口 edge（`route_edge_index = 0`），以及六条主干道 route 的路口间 edge（`route_edge_index = 2`），不在 terminal exit segment 生成。
 
 每个 logical population slot 拥有稳定 external vehicle ID，例如 `corridor-vehicle-000`。初始 spawn 和后续 replace 都使用该 external ID，但每次旅程拥有新的 Core handle generation。
 
@@ -243,13 +245,20 @@ v0.8 场景由三类 immutable source artifacts 构成：
 
 ScenarioManifest 继续是静态配对清单，不加入 seed、车辆数、spawn slots、runtime handle、Entity 或 engine asset metadata。
 
-### 9.2 Authoring/startup config
+### 9.2 Authoring config 与 scenario-local catalog
 
-场景 generator 的输入可以包含道路轴线长度、交叉口位置、lane width、主/次干道限速、六阶段 signal timing、两个 offset、默认车辆数、默认 seed、artifacts 输出路径和展示资源选择。
+`examples/config/v0.8-signalized-corridor.toml` 是仓库内部 authoring SSOT，包含道路轴线长度、交叉口位置、lane width、spawn-slot pitch、主/次干道限速、六阶段 signal timing、两个 offset 和 artifacts 输出文件名。它不包含车辆数、seed、回流策略或展示资源；这些分别属于 #203 和 #189 的 caller/Adapter 配置边界。
 
-该配置和生成的 engine-neutral runtime plan 不是新的 Traffic family。native example 无论读取 checked-in artifacts 还是临时再生成，都必须通过 production Traffic/Spatial/Manifest loader，不能直接把 generator 内存结构塞进 Core。
+generator 另行生成 `v0.1-signalized-corridor.catalog.toml`，记录稳定 portal、route、entry slot 和全部 spawn-slot cross-reference。authoring config 与 catalog 都是内部 TOML，不进入 ScenarioManifest，也不改变 Traffic/Spatial production interchange contract。native example 必须先通过 production Traffic/Spatial/Manifest loader，不能直接把 generator 内存结构塞进 Core。
 
-同一配置和 generator 版本必须 byte-deterministically 生成相同 artifacts、size 和 digest。checked-in defaults 必须有 regenerate/check 命令，CI 发现差异即失败。
+同一配置和 generator 版本必须 byte-deterministically 生成相同 artifacts、size、digest 和 catalog。仓库根目录使用下列命令生成或只读检查：
+
+```powershell
+cargo +1.96.0 run --locked -p laneflow-corridor-generator -- generate --config examples/config/v0.8-signalized-corridor.toml
+cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.8-signalized-corridor.toml
+```
+
+`check` 不写文件；CI 发现任一 checked-in byte 差异即失败。
 
 ## 10. 分层权威与实施切片
 

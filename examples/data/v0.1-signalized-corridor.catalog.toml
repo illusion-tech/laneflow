@@ -1,0 +1,1983 @@
+catalog_version = "0.1"
+
+[[portals]]
+id = "portal-main-west"
+entry_route_ids = [
+    "route-main-w2e-lane-0",
+    "route-main-w2e-lane-1",
+    "route-main-w2e-lane-2",
+]
+
+[[portals]]
+id = "portal-main-east"
+entry_route_ids = [
+    "route-main-e2w-lane-0",
+    "route-main-e2w-lane-1",
+    "route-main-e2w-lane-2",
+]
+
+[[portals]]
+id = "portal-side-1-north"
+entry_route_ids = [
+    "route-side-1-n2s-lane-0",
+    "route-side-1-n2s-lane-1",
+]
+
+[[portals]]
+id = "portal-side-1-south"
+entry_route_ids = [
+    "route-side-1-s2n-lane-0",
+    "route-side-1-s2n-lane-1",
+]
+
+[[portals]]
+id = "portal-side-2-north"
+entry_route_ids = [
+    "route-side-2-n2s-lane-0",
+    "route-side-2-n2s-lane-1",
+]
+
+[[portals]]
+id = "portal-side-2-south"
+entry_route_ids = [
+    "route-side-2-s2n-lane-0",
+    "route-side-2-s2n-lane-1",
+]
+
+[[routes]]
+route_id = "route-main-w2e-lane-0"
+entry_portal_id = "portal-main-west"
+exit_portal_id = "portal-main-east"
+lane_index = 0
+entry_spawn_slot_id = "slot-main-w2e-lane-0-edge-0-000"
+
+[[routes]]
+route_id = "route-main-w2e-lane-1"
+entry_portal_id = "portal-main-west"
+exit_portal_id = "portal-main-east"
+lane_index = 1
+entry_spawn_slot_id = "slot-main-w2e-lane-1-edge-0-000"
+
+[[routes]]
+route_id = "route-main-w2e-lane-2"
+entry_portal_id = "portal-main-west"
+exit_portal_id = "portal-main-east"
+lane_index = 2
+entry_spawn_slot_id = "slot-main-w2e-lane-2-edge-0-000"
+
+[[routes]]
+route_id = "route-main-e2w-lane-0"
+entry_portal_id = "portal-main-east"
+exit_portal_id = "portal-main-west"
+lane_index = 0
+entry_spawn_slot_id = "slot-main-e2w-lane-0-edge-0-000"
+
+[[routes]]
+route_id = "route-main-e2w-lane-1"
+entry_portal_id = "portal-main-east"
+exit_portal_id = "portal-main-west"
+lane_index = 1
+entry_spawn_slot_id = "slot-main-e2w-lane-1-edge-0-000"
+
+[[routes]]
+route_id = "route-main-e2w-lane-2"
+entry_portal_id = "portal-main-east"
+exit_portal_id = "portal-main-west"
+lane_index = 2
+entry_spawn_slot_id = "slot-main-e2w-lane-2-edge-0-000"
+
+[[routes]]
+route_id = "route-side-1-n2s-lane-0"
+entry_portal_id = "portal-side-1-north"
+exit_portal_id = "portal-side-1-south"
+lane_index = 0
+entry_spawn_slot_id = "slot-side-1-n2s-lane-0-edge-0-000"
+
+[[routes]]
+route_id = "route-side-1-n2s-lane-1"
+entry_portal_id = "portal-side-1-north"
+exit_portal_id = "portal-side-1-south"
+lane_index = 1
+entry_spawn_slot_id = "slot-side-1-n2s-lane-1-edge-0-000"
+
+[[routes]]
+route_id = "route-side-1-s2n-lane-0"
+entry_portal_id = "portal-side-1-south"
+exit_portal_id = "portal-side-1-north"
+lane_index = 0
+entry_spawn_slot_id = "slot-side-1-s2n-lane-0-edge-0-000"
+
+[[routes]]
+route_id = "route-side-1-s2n-lane-1"
+entry_portal_id = "portal-side-1-south"
+exit_portal_id = "portal-side-1-north"
+lane_index = 1
+entry_spawn_slot_id = "slot-side-1-s2n-lane-1-edge-0-000"
+
+[[routes]]
+route_id = "route-side-2-n2s-lane-0"
+entry_portal_id = "portal-side-2-north"
+exit_portal_id = "portal-side-2-south"
+lane_index = 0
+entry_spawn_slot_id = "slot-side-2-n2s-lane-0-edge-0-000"
+
+[[routes]]
+route_id = "route-side-2-n2s-lane-1"
+entry_portal_id = "portal-side-2-north"
+exit_portal_id = "portal-side-2-south"
+lane_index = 1
+entry_spawn_slot_id = "slot-side-2-n2s-lane-1-edge-0-000"
+
+[[routes]]
+route_id = "route-side-2-s2n-lane-0"
+entry_portal_id = "portal-side-2-south"
+exit_portal_id = "portal-side-2-north"
+lane_index = 0
+entry_spawn_slot_id = "slot-side-2-s2n-lane-0-edge-0-000"
+
+[[routes]]
+route_id = "route-side-2-s2n-lane-1"
+entry_portal_id = "portal-side-2-south"
+exit_portal_id = "portal-side-2-north"
+lane_index = 1
+entry_spawn_slot_id = "slot-side-2-s2n-lane-1-edge-0-000"
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-0-000"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-0-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-0-001"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-0-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-0-002"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-0-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-0-003"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-0-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-0-004"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-0-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-0-005"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-0-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-0-006"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-0-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-0-007"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-0-road-0"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-0-008"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-0-road-0"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-0-009"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-0-road-0"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-000"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-001"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-002"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-003"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-004"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-005"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-006"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-007"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-008"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-009"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-010"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 206.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-011"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 226.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-012"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 246.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-013"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 266.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-014"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 286.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-015"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 306.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-016"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 326.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-017"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 346.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-0-edge-2-018"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-0-road-2"
+progress = 366.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-0-000"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-1-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-0-001"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-1-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-0-002"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-1-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-0-003"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-1-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-0-004"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-1-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-0-005"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-1-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-0-006"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-1-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-0-007"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-1-road-0"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-0-008"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-1-road-0"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-0-009"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-1-road-0"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-000"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-001"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-002"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-003"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-004"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-005"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-006"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-007"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-008"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-009"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-010"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 206.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-011"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 226.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-012"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 246.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-013"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 266.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-014"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 286.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-015"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 306.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-016"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 326.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-017"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 346.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-1-edge-2-018"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-1-road-2"
+progress = 366.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-0-000"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-2-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-0-001"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-2-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-0-002"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-2-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-0-003"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-2-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-0-004"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-2-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-0-005"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-2-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-0-006"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-2-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-0-007"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-2-road-0"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-0-008"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-2-road-0"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-0-009"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-w2e-lane-2-road-0"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-000"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-001"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-002"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-003"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-004"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-005"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-006"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-007"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-008"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-009"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-010"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 206.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-011"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 226.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-012"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 246.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-013"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 266.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-014"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 286.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-015"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 306.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-016"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 326.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-017"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 346.5
+
+[[spawn_slots]]
+slot_id = "slot-main-w2e-lane-2-edge-2-018"
+portal_id = "portal-main-west"
+route_id = "route-main-w2e-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-w2e-lane-2-road-2"
+progress = 366.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-0-000"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-0-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-0-001"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-0-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-0-002"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-0-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-0-003"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-0-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-0-004"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-0-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-0-005"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-0-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-0-006"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-0-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-0-007"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-0-road-0"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-0-008"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-0-road-0"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-0-009"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-0-road-0"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-000"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-001"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-002"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-003"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-004"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-005"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-006"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-007"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-008"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-009"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-010"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 206.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-011"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 226.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-012"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 246.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-013"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 266.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-014"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 286.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-015"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 306.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-016"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 326.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-017"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 346.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-0-edge-2-018"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-0"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-0-road-2"
+progress = 366.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-0-000"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-1-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-0-001"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-1-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-0-002"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-1-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-0-003"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-1-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-0-004"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-1-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-0-005"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-1-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-0-006"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-1-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-0-007"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-1-road-0"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-0-008"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-1-road-0"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-0-009"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-1-road-0"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-000"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-001"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-002"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-003"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-004"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-005"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-006"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-007"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-008"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-009"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-010"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 206.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-011"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 226.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-012"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 246.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-013"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 266.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-014"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 286.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-015"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 306.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-016"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 326.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-017"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 346.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-1-edge-2-018"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-1"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-1-road-2"
+progress = 366.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-0-000"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-2-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-0-001"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-2-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-0-002"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-2-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-0-003"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-2-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-0-004"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-2-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-0-005"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-2-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-0-006"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-2-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-0-007"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-2-road-0"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-0-008"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-2-road-0"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-0-009"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 0
+edge_id = "edge-main-e2w-lane-2-road-0"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-000"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-001"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-002"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-003"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-004"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-005"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-006"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-007"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 146.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-008"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 166.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-009"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 186.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-010"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 206.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-011"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 226.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-012"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 246.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-013"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 266.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-014"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 286.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-015"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 306.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-016"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 326.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-017"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 346.5
+
+[[spawn_slots]]
+slot_id = "slot-main-e2w-lane-2-edge-2-018"
+portal_id = "portal-main-east"
+route_id = "route-main-e2w-lane-2"
+route_edge_index = 2
+edge_id = "edge-main-e2w-lane-2-road-2"
+progress = 366.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-0-edge-0-000"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-0-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-0-edge-0-001"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-0-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-0-edge-0-002"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-0-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-0-edge-0-003"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-0-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-0-edge-0-004"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-0-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-0-edge-0-005"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-0-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-0-edge-0-006"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-0-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-1-edge-0-000"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-1-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-1-edge-0-001"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-1-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-1-edge-0-002"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-1-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-1-edge-0-003"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-1-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-1-edge-0-004"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-1-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-1-edge-0-005"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-1-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-n2s-lane-1-edge-0-006"
+portal_id = "portal-side-1-north"
+route_id = "route-side-1-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-n2s-lane-1-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-0-edge-0-000"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-0-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-0-edge-0-001"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-0-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-0-edge-0-002"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-0-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-0-edge-0-003"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-0-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-0-edge-0-004"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-0-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-0-edge-0-005"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-0-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-0-edge-0-006"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-0-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-1-edge-0-000"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-1-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-1-edge-0-001"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-1-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-1-edge-0-002"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-1-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-1-edge-0-003"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-1-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-1-edge-0-004"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-1-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-1-edge-0-005"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-1-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-side-1-s2n-lane-1-edge-0-006"
+portal_id = "portal-side-1-south"
+route_id = "route-side-1-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-1-s2n-lane-1-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-0-edge-0-000"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-0-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-0-edge-0-001"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-0-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-0-edge-0-002"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-0-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-0-edge-0-003"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-0-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-0-edge-0-004"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-0-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-0-edge-0-005"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-0-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-0-edge-0-006"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-0-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-1-edge-0-000"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-1-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-1-edge-0-001"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-1-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-1-edge-0-002"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-1-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-1-edge-0-003"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-1-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-1-edge-0-004"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-1-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-1-edge-0-005"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-1-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-n2s-lane-1-edge-0-006"
+portal_id = "portal-side-2-north"
+route_id = "route-side-2-n2s-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-n2s-lane-1-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-0-edge-0-000"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-0-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-0-edge-0-001"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-0-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-0-edge-0-002"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-0-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-0-edge-0-003"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-0-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-0-edge-0-004"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-0-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-0-edge-0-005"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-0-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-0-edge-0-006"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-0"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-0-road-0"
+progress = 126.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-1-edge-0-000"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-1-road-0"
+progress = 6.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-1-edge-0-001"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-1-road-0"
+progress = 26.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-1-edge-0-002"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-1-road-0"
+progress = 46.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-1-edge-0-003"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-1-road-0"
+progress = 66.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-1-edge-0-004"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-1-road-0"
+progress = 86.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-1-edge-0-005"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-1-road-0"
+progress = 106.5
+
+[[spawn_slots]]
+slot_id = "slot-side-2-s2n-lane-1-edge-0-006"
+portal_id = "portal-side-2-south"
+route_id = "route-side-2-s2n-lane-1"
+route_edge_index = 0
+edge_id = "edge-side-2-s2n-lane-1-road-0"
+progress = 126.5
