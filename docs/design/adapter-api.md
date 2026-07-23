@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-22（#184 v0.8 lifecycle transaction 同步）
+**最后更新**: 2026-07-23（#187 Bevy lifecycle bridge）
 
 **适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与 typed lifecycle 契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
 
@@ -116,6 +116,18 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 
 ## 8. v0.8 typed lifecycle transaction
 
-#184/ADR 0016 要求 Adapter 为持续场景提供 typed replace-and-rebind 入口，但继续不公开 `&mut CoreWorld`。Session 在提交前验证 old handle/Entity 双向绑定、Entity 存活、replacement Core command 和 mapping 容量；全部通过后先提交 Core atomic replace，再沿已预留的不可失败路径把同一 Entity 从 old handle 切换到 new handle。公共 API 不能暴露一个 Core 已成功但 mapping 仍可任意失败的两步协议。
+#184/ADR 0016 要求 Adapter 为持续场景提供 typed replace-and-rebind 入口，但继续不公开 `&mut CoreWorld`。#187 的 Bevy specialization 公开独占 boundary helper：
 
-Completed vehicle 等待入口期间不进入 pose batch，proxy 保留最后一次合法 Transform；成功 replace 后，下一 presentation batch 用 new handle 的入口 pose 更新同一 Entity。Population 的 seed、portal/lane 抽样和 retry policy 仍是 engine-neutral caller-owned authority，不进入 Adapter 或 Bevy ECS。production API 和失败注入测试由 #187 实施。
+```rust
+replace_completed_vehicle(
+    world: &mut bevy_ecs::world::World,
+    old: VehicleHandle,
+    input: &VehicleReplaceInput,
+) -> Result<LaneFlowVehicleReplaceOutcome, LaneFlowAdapterError>
+```
+
+helper 在 Core 提交前以 O(1) 检查既有正向/反向映射和已绑定 Entity 存活性，然后把完整 replacement validation 委托给 `CoreWorld::replace_completed_vehicle`，不在 Adapter 复制 Core preview 或规则。Core 返回 `Replaced` 后，已绑定 old handle 沿稳定容量、不可失败路径轮换到 new handle，并返回包含 `old`、`new`、`Option<Entity>` 的 `LaneFlowVehicleReplaceRecord`；未绑定 old handle 只替换 Core vehicle 并继续保持未绑定。公共 API 不暴露 Core 已成功但 mapping 仍可任意失败的两步协议。
+
+`LaneFlowVehicleReplaceOutcome::Blocked` 是可恢复结果：Core、映射、Transform 和 `last_error` 均不变，调用方可在后续 boundary 复用相同 borrowed input 重试，并继续处理同一 boundary 的其他计划。映射、Entity 或 Core validation 的 fatal error 会写入 Session，停止当前及后续 catch-up step 并保留 backlog；原子性按单条 command 保证，不回滚此前已经成功的其他 command。
+
+Completed vehicle 等待入口期间不进入 pose batch，proxy 保留最后一次合法 Transform；成功 replace 不立即写 Transform，下一次正常 presentation batch 才用 new handle 的入口 pose 更新同一 Entity。Population 的 seed、portal/lane 抽样、pending/retry queue、runtime spawn/despawn 与初始人口仍是 engine-neutral caller-owned authority，不进入 Adapter 或 Bevy ECS；初始人口在 Session 创建前完成。

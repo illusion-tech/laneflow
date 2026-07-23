@@ -26,6 +26,31 @@ pub enum LaneFlowAdapterError {
         /// Core 的结构化失败原因。
         source: CoreError,
     },
+    /// lifecycle command 在没有安装 [`crate::LaneFlowSession`] 时被调用。
+    MissingSessionForLifecycleCommand,
+    /// Core vehicle replacement 失败。
+    CoreVehicleReplace {
+        /// 调用方请求替换的旧 handle。
+        old: VehicleHandle,
+        /// Core 的结构化失败原因。
+        source: CoreError,
+    },
+    /// replacement 前发现 Vehicle/Entity 部分双射已不一致。
+    VehicleEntityMappingInconsistent {
+        /// 正向映射中的 vehicle。
+        vehicle: VehicleHandle,
+        /// 正向映射中的 Entity。
+        entity: Entity,
+        /// 反向映射的实际 vehicle；缺失时为 `None`。
+        reverse_vehicle: Option<VehicleHandle>,
+    },
+    /// replacement 前发现已绑定的 proxy Entity 已失效。
+    StaleLifecycleEntity {
+        /// 仍在映射中的 vehicle。
+        vehicle: VehicleHandle,
+        /// 已失效 Entity。
+        entity: Entity,
+    },
     /// bind/rebind 使用了当前 Core 中不存在的 vehicle handle。
     UnknownVehicleForBinding {
         /// 被拒绝的 vehicle handle。
@@ -201,6 +226,24 @@ impl fmt::Display for LaneFlowAdapterError {
                     "LaneFlow Core 在 tick {tick_index} 后推进失败：{source}"
                 )
             }
+            Self::MissingSessionForLifecycleCommand => {
+                formatter.write_str("vehicle lifecycle command 需要 LaneFlowSession resource")
+            }
+            Self::CoreVehicleReplace { old, source } => {
+                write!(formatter, "Core 拒绝替换 vehicle {old:?}：{source}")
+            }
+            Self::VehicleEntityMappingInconsistent {
+                vehicle,
+                entity,
+                reverse_vehicle,
+            } => write!(
+                formatter,
+                "vehicle {vehicle:?} 正向映射到 {entity:?}，反向映射实际为 {reverse_vehicle:?}"
+            ),
+            Self::StaleLifecycleEntity { vehicle, entity } => write!(
+                formatter,
+                "replacement vehicle {vehicle:?} 映射到已失效 Entity {entity:?}"
+            ),
             Self::UnknownVehicleForBinding { vehicle } => {
                 write!(formatter, "无法绑定未知 Core vehicle {vehicle:?}")
             }
@@ -337,9 +380,13 @@ impl Error for LaneFlowAdapterError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::CoreStep { source, .. } => Some(source),
+            Self::CoreVehicleReplace { source, .. } => Some(source),
             Self::SpatialBatch { source } => Some(source),
             Self::MissingTimeResource
             | Self::AccumulatorOverflow { .. }
+            | Self::MissingSessionForLifecycleCommand
+            | Self::VehicleEntityMappingInconsistent { .. }
+            | Self::StaleLifecycleEntity { .. }
             | Self::UnknownVehicleForBinding { .. }
             | Self::VehicleAlreadyBound { .. }
             | Self::EntityAlreadyBound { .. }

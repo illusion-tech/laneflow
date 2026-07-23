@@ -139,6 +139,42 @@ impl LaneFlowVehicleEntityMap {
         self.by_entity.insert(requested_entity, vehicle);
         Ok(current_entity)
     }
+
+    pub(crate) fn validate_replacement(
+        &self,
+        old: VehicleHandle,
+    ) -> Result<Option<Entity>, LaneFlowAdapterError> {
+        let Some(entity) = self.entity(old) else {
+            return Ok(None);
+        };
+        let reverse_vehicle = self.vehicle(entity);
+        if reverse_vehicle != Some(old) {
+            return Err(LaneFlowAdapterError::VehicleEntityMappingInconsistent {
+                vehicle: old,
+                entity,
+                reverse_vehicle,
+            });
+        }
+        Ok(Some(entity))
+    }
+
+    pub(crate) fn rotate_replaced_vehicle(
+        &mut self,
+        old: VehicleHandle,
+        new: VehicleHandle,
+        entity: Option<Entity>,
+    ) {
+        let Some(entity) = entity else {
+            return;
+        };
+
+        let removed_entity = self.by_vehicle.remove(&old);
+        assert_eq!(removed_entity, Some(entity));
+        let previous_new_entity = self.by_vehicle.insert(new, entity);
+        assert_eq!(previous_new_entity, None);
+        let previous_vehicle = self.by_entity.insert(entity, new);
+        assert_eq!(previous_vehicle, Some(old));
+    }
 }
 
 /// 最近一次 outer-frame presentation 尝试的稳定计数。
