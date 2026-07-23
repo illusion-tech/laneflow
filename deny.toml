@@ -26,6 +26,7 @@ exceptions = [
     # #188 的离线 corridor generator 在写盘前执行 repository JSON Schema；
     # jsonschema 0.48.1 经 referencing/fluent-uri 传递依赖此精确版本。
     # MIT-0 为宽松许可证且不引入 copyleft；例外不扩展到其他 crate/version。
+    # Cleanup owner：#188 assignee / 仓库维护者；tracking Issue：#188。
     { allow = ["MIT-0"], crate = "borrow-or-share@0.2.4" },
     # #172 Bevy 0.19 debug Gizmos smoke 的显式 render/window 路径需要以下传递依赖；
     # 在不替换 Bevy/Gizmos 实现路径的前提下，没有只使用全局 allow-list 的等价依赖图。
