@@ -1759,6 +1759,133 @@ fn parking_arrival_preserves_payload_and_semantic_stop_identity_refresh() {
 }
 
 #[test]
+fn parking_lifecycle_discards_cache_before_same_edge_minimal_resume() {
+    const PERIOD: u64 = 8;
+
+    let mut world = reserved_parking_world(0.0, 100.0);
+    enable_reduced_rate(
+        &mut world,
+        ReducedRateResearchConfig::new(
+            PERIOD,
+            ResearchPhaseMode::Synchronized,
+            ResearchInvalidation::Minimal,
+        ),
+    );
+    let vehicle = world.vehicle_handle("parking-vehicle").expect("vehicle");
+    let space = world
+        .parking()
+        .space_handle("parking-space")
+        .expect("space");
+    let route = world.route_handle("parking-route").expect("route");
+
+    let mut reached_arrival = false;
+    for _ in 0..2_000 {
+        let result = world.step(TickInput::new(16)).expect("arrival step");
+        if result.events.iter().any(|event| {
+            matches!(
+                event,
+                CoreEvent::VehicleParkingArrivalReached(arrival)
+                    if arrival.vehicle == vehicle && arrival.space == space
+            )
+        }) {
+            reached_arrival = true;
+            break;
+        }
+    }
+    assert!(reached_arrival, "vehicle must reach the parking entry");
+    let stale_entry = world
+        .reduced_rate_research
+        .as_ref()
+        .expect("research state")
+        .committed[vehicle.index()]
+    .expect("arrival step must leave a reusable controller intent");
+
+    world
+        .commit_parking(vehicle, space)
+        .expect("commit parking");
+    assert!(
+        world
+            .reduced_rate_research
+            .as_ref()
+            .expect("research state")
+            .committed[vehicle.index()]
+        .is_none(),
+        "successful Parking commit must discard controller intent immediately"
+    );
+
+    if (world.tick_index() + 1).is_multiple_of(PERIOD) {
+        world
+            .step(TickInput::new(16))
+            .expect("parked alignment step");
+    }
+    assert!(
+        !(world.tick_index() + 1).is_multiple_of(PERIOD),
+        "the first resumed tick must not receive a cadence refresh"
+    );
+
+    // Reinsert the pre-Parked value to exercise the leave boundary independently
+    // from the commit boundary and to guard failed-command atomicity.
+    world
+        .reduced_rate_research
+        .as_mut()
+        .expect("research state")
+        .committed[vehicle.index()] = Some(stale_entry);
+    world
+        .leave_parking(LeaveParkingInput {
+            vehicle,
+            space,
+            route,
+            route_edge_index: 1,
+        })
+        .expect_err("invalid leave occurrence");
+    assert_eq!(
+        world
+            .reduced_rate_research
+            .as_ref()
+            .expect("research state")
+            .committed[vehicle.index()],
+        Some(stale_entry),
+        "failed leave command must not mutate controller intent"
+    );
+
+    world
+        .leave_parking(LeaveParkingInput {
+            vehicle,
+            space,
+            route,
+            route_edge_index: 0,
+        })
+        .expect("leave parking");
+    let state = world
+        .reduced_rate_research
+        .as_ref()
+        .expect("research state");
+    assert!(
+        state.committed[vehicle.index()].is_none(),
+        "successful Parking leave must discard controller intent immediately"
+    );
+    let metrics_before_resume = state.metrics;
+
+    world.step(TickInput::new(16)).expect("first resumed step");
+    let state = world
+        .reduced_rate_research
+        .as_ref()
+        .expect("research state");
+    assert_eq!(state.metrics.evaluated, metrics_before_resume.evaluated + 1);
+    assert_eq!(state.metrics.reused, metrics_before_resume.reused);
+    assert_eq!(
+        state.metrics.common_invalidations,
+        metrics_before_resume.common_invalidations + 1
+    );
+    assert_eq!(
+        state.committed[vehicle.index()]
+            .expect("first resumed tick must refresh controller intent")
+            .refreshed_tick,
+        world.tick_index()
+    );
+}
+
+#[test]
 fn route_completion_release_precedes_completed_with_exact_payloads() {
     let mut production = reserved_parking_world(30.0, 60.0);
     let mut candidate = production.clone();

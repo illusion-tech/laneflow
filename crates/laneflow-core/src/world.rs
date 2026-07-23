@@ -778,6 +778,10 @@ impl CoreWorld {
         state.applied_acceleration = Acceleration::ZERO;
         state.status = VehicleStatus::Parked;
         self.parking_runtime.commit(&self.parking, vehicle, space);
+        #[cfg(test)]
+        if let Some(research) = &mut self.reduced_rate_research {
+            research.discard(vehicle);
+        }
         Ok(ParkingCommitRecord {
             vehicle,
             space,
@@ -1219,6 +1223,10 @@ impl CoreWorld {
         };
         spatial.insert(exit.edge(), occupant, &mut resolve_progress);
         self.command_spatial_index = spatial;
+        #[cfg(test)]
+        if let Some(research) = &mut self.reduced_rate_research {
+            research.discard(input.vehicle);
+        }
         Ok(ParkingLeaveRecord {
             vehicle: input.vehicle,
             space: input.space,
