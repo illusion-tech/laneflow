@@ -111,6 +111,11 @@ impl OccupancyScratch {
         self.max_vehicle_length
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_max_vehicle_length_for_research(&mut self, value: f64) {
+        self.max_vehicle_length = value;
+    }
+
     pub(crate) fn occupant_count(&self) -> usize {
         self.occupants.len()
     }

@@ -331,6 +331,46 @@ partition、SoA、event merge 或 multi-rate 的实验优先放在 research/benc
 
 至少覆盖：长 horizon、多 edge route、环路 leader cycle、拥堵边界、Signals/Parking stop 与同 tick edge transition。
 
+#### P2 #207 研究结果（2026-07-23）
+
+**状态**：测试专用原型通过。结论是 route/horizon-driven read-only halo 与跨分区 logical dependency component 可以在当前强个体语义下精确复现 production oracle；该结果支持继续 P3 selective snapshot/batch，并保留 individual-first / exact-only 为一等候选，但不接受为 production partition、集中式 scheduler 或固定 halo architecture。
+
+原型位于 `crates/laneflow-core/src/world_partitioned_occupancy_research_tests.rs`，仅由 `world` 下的 `#[cfg(test)]` 私有模块编译。`occupancy.rs` 与 `longitudinal.rs` 只增加 test-only research helper；production `CoreWorld::step`、occupancy/leader/projection 算法、handle、Core/Data/Adapter API、data format、runtime dependency 和发布构建均未改变。
+
+原型冻结并验证了以下研究语义：
+
+- fixture 提供显式、不可变、穷尽的 `EdgeHandle -> TestPartitionId` ownership；车辆 pre-step owner 只由当前 physical edge 决定，partition/slot/completion order 不进入 identity 或 stable key。
+- 每个 owner 从 committed occupancy 出发，沿 owned follower 的 selected route occurrence 与 current dynamic leader/front horizon 收集 remote edge slice；halo 只读且按 vehicle/partition 去重。`max_vehicle_length` 作为 whole-world 只读 horizon 元数据共享，避免某 partition 恰好没有最长车辆时错误缩短搜索。
+- owner view 继续按 `(front_progress, update_sequence)` 排序；不同 partition traversal、edge insertion 和 completion permutation 下，per-edge occupant、leader identity 与 bumper-gap float bits 均与 single-thread oracle 精确相同。
+- one-leader-per-vehicle graph 先重建 weakly connected logical component。完全本地 component 可独立 projection；任何跨区 chain/cycle 保持在同一 component，再沿 current stable update order、leader final travel 和 deterministic cycle anchor 求解。component completion order 可以改变，component 内语义不能拆开。
+- boundary migration 只比较 pre-step owner 与最终 committed edge owner；同 tick 多 edge transition 不创建中间 authority state，也不改写 live handle。
+
+自动证据覆盖 corridor/branch/shared edge、长 horizon、多 edge halo、拥堵、同 tick 多 edge transition、route completion、repeated edge leader cycle、SignalStop、ParkingStop/arrival、两个真实 non-finite leader error 候选、late failure、retry/replay。成功场景在 `1/2/4/7` partitions、三种 connected/alternating/stable-hash assignment 与三种 traversal/completion permutation 下形成 144 组 observation；错误场景形成另外 36 组 first-error 对照。逐组比较：
+
+- occupancy record 与 leader observation（包括 float bits）；
+- projection motion 全字段及 13 个相关 float bit pattern；
+- ordered `StepResult` events、committed world、tick/time 与 boundary migration；
+- canonical first error、失败不提交，以及清除 test injection 后 retry 与 fresh replay。
+
+代表性研究指标如下。数值只描述小型语义 fixture 的 cost shape，不是性能 benchmark：
+
+| 场景 / assignment                   | owned vehicles | remote slices | halo unique / copies | cross dependencies | logical components                  | migrations | partition scratch / oracle |
+| ----------------------------------- | -------------- | ------------- | -------------------- | ------------------ | ----------------------------------- | ---------- | -------------------------- |
+| corridor, 1 partition               | `7–7`          | `0`           | `0 / 0`              | `0`                | `4 / 0 cross`                       | `0`        | `640 / 640 B`              |
+| corridor, 4 partitions, clustered   | `1–3`          | `5`           | `4 / 7`              | `3`                | `4 / 2 cross`                       | `2`        | `2240 / 640 B`             |
+| corridor, 7 partitions, alternating | `0–2`          | `5`           | `4 / 7`              | `3`                | `4 / 2 cross`                       | `3`        | `3616 / 640 B`             |
+| 2-vehicle cycle, 2 partitions       | `1–1`          | `2`           | `2 / 2`              | `2`                | `1 / 1 cross`, `1 cycle`, depth `2` | `2`        | `640 / 320 B`              |
+
+这些数据给出三个直接结论：
+
+1. 当前 occupancy/leader/projection 语义没有发现必须公开 slot、partition 或修改 handle 的隐式依赖，强个体 identity、route/progress、Parking/event continuity 可以保留。
+2. 按需 halo 避免无条件复制 whole world，但同一 remote vehicle 仍可能被多个 partition 复制；corridor 4-partition fixture 为 `4 unique / 7 copies`。未来 production 候选必须测量 representative density、route overlap 与 full-world degeneration，不能把本 fixture 外推为固定上界。
+3. tiny fixture 中每 partition 的空 vector/capacity 已使 retained scratch 从 oracle 的 `640 B` 增至最多 `3616 B`。这不是拒绝 partition 的性能结论，但说明 production 研究必须比较 pooled/caller-owned scratch、稀疏 active partition 和 buffer reuse，不能按 partition 永久复制 current full scratch shape。
+
+研究未运行真实线程、scheduler、work stealing、large-scale benchmark、P3 snapshot、P4 multi-rate 或 aggregate/exact migration，也没有证明 speedup、100k/1M SLA、跨 CPU bit-level determinism 或 production buffer layout。集中式 component merge 只作为 exact reference oracle；若进入 production，应独立 G1 比较 SCC/component ownership、预排序/k-way merge、错误归并和原子 commit protocol。
+
+因此 P2 建议是：继续 P3 selective snapshot/batch，以同一 strong-individual oracle 验证 partition-local/caller-owned read path；在产品 workload 与硬件目标形成前，不创建 production Partition API/trait，不新增 ADR。只有选择 production ownership、scheduler、identity provenance 或跨 World/shard contract 时，才重新进入独立 G1/ADR 判断。
+
 ### P3. Selective snapshot/batch
 
 目标：比较 current full `vehicles()` scan 与 caller-owned filtered/dirty/cursor prototype，在 10k/100k 下验证稳定顺序、零分配和 Adapter 等价 Transform；1M 只在有代表性数据布局后运行。
