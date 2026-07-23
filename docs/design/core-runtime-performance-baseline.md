@@ -106,12 +106,12 @@ N_intent=<observed mean/distribution>; N_presented=10000; N_aggregate=0
 不使用单一平均场景承担全部判断。10k/100k 冻结四类互补的 canonical synthetic
 workload：
 
-| Workload                 | 个体构成                                                     | 场景要求                                                                                | 主要验证目标                                         |
-| ------------------------ | ------------------------------------------------------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| W1 Mixed product         | 75% `N_traffic_active` / 25% parked                          | 确定性多 edge/route；混合 following/free-flow、Signals、Parking 与 lifecycle transition | 主要产品预算、综合吞吐与常规 tail                    |
-| W2 Dense following       | 100% `N_traffic_active`；24/25 vehicles 在 leader horizon 内 | 延续 dense cohort 压力形态并保留 free-flow 边界                                         | occupancy/leader 与 longitudinal 持续最坏负载        |
-| W3 Parking/lifecycle     | 25% `N_traffic_active` / 75% parked                          | Parking arrival/release、Completed、spawn/despawn/atomic replace                        | 个体内存、Parking authority 与 lifecycle transaction |
-| W4 Synchronized boundary | 使用 W1 initial population；`B0` 后 76% active / 24% parked  | 将 Signal/Parking/lifecycle 对齐为确定性 `B0/B1` causal burst                           | p95/p99/max、同步尖峰与 failed-step/retry            |
+| Workload                 | 个体构成                                                                        | 场景要求                                                                                | 主要验证目标                                         |
+| ------------------------ | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| W1 Mixed product         | 75% `N_traffic_active` / 25% parked                                             | 确定性多 edge/route；混合 following/free-flow、Signals、Parking 与 lifecycle transition | 主要产品预算、综合吞吐与常规 tail                    |
+| W2 Dense following       | 100% `N_traffic_active`；24/25 vehicles 在 leader horizon 内                    | 延续 dense cohort 压力形态并保留 free-flow 边界                                         | occupancy/leader 与 longitudinal 持续最坏负载        |
+| W3 Parking/lifecycle     | 初始 25% `N_traffic_active` / 75% parked；Parking commit 后一 tick 为 24% / 76% | Parking reserve/arrival/commit/leave、Completed、spawn/despawn/atomic replace           | 个体内存、Parking authority 与 lifecycle transaction |
+| W4 Synchronized boundary | 使用 W1 initial population；`B0` 后 76% active / 24% parked                     | 将 Signal/Parking/lifecycle 对齐为确定性 `B0/B1` causal burst                           | p95/p99/max、同步尖峰与 failed-step/retry            |
 
 适用规则：
 
@@ -222,7 +222,7 @@ individual 以 speed 0 占用同 route、同 slot 的 ParkingSpace，其 resume 
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | W1 Mixed product         | route 0：25 active，progress `20 + 6.5 × s m`，speed 1.0 m/s；route 1：25 active，同 spacing/speed；route 2：slots 0–11 为 12 active，progress `20 + 28 × s m`，speed 13.9 m/s，其余 13 parked；route 3：slots 0–12 为 13 active，同 free-flow spacing/speed，其余 12 parked。合计 75 active / 25 parked。                 |
 | W2 Dense following       | 四条 route 的全部 25 slots active，progress `20 + 6.5 × s m`，speed 1.0 m/s。相邻车辆 front-position 间距为 6.5 m，扣除 4.5 m 车长后恰为 2.0 m minimum gap，因此每条 route 除最前方车辆外的 24/25、全局同样为 24/25 individual 有 leader（每 cell 96/100）。                                                               |
-| W3 Parking/lifecycle     | route 0–2 的 slots 0–5 和 route 3 的 slots 0–6 active，progress `20 + 28 × s m`，speed 13.9 m/s；其余 parked。合计 25 active / 75 parked。route 3 slot 6 是 lifecycle probe，在 observation 首个 boundary 按下文固定序列重建。                                                                                             |
+| W3 Parking/lifecycle     | route 0–2 的 slots 0–5 和 route 3 的 slots 0–6 active，progress `20 + 28 × s m`，speed 13.9 m/s；其余 parked。初始合计 25 active / 75 parked。route 0 slot 0 是 Parking probe；route 3 slot 6 是 lifecycle probe。两者按下文固定序列运行。                                                                                 |
 | W4 Synchronized boundary | 继承 W1 的 topology、初始 population 与 spacing；按第 4.3 节冻结 controller offset、probe slots、command order 与 observation ticks，使 Signal release、Parking release 和 atomic lifecycle replace 在 `B0` 提交，route/edge transition 在读取已提交 green snapshot 的 `B1` 提交。W4 不改变 normalized individual counts。 |
 
 28 m free-flow front-position 间距高于基础参数在 13.9 m/s 时的
@@ -236,7 +236,37 @@ case 内不得自然耗尽。16 ms 与 33 ms 行从 warm-up 开始到 observatio
 最大普通初始 progress 为 356 m，剩余 9904 m，因此在完整 4+8 Signal cycles
 内不会到达 route end。harness 不得用未声明 recycle 补偿更短的私有 route。
 
-W3 的 lifecycle probe 使用以下 fixed-step input sequence：
+W3 的 Parking probe 使用以下 fixed-step input sequence：
+
+1. world 构造完成后、第一条 warm-up step 前，按 cell 升序对 route 0 slot 0
+   调用 `reserve_parking_space`，目标是同一 logical slot 的 ParkingSpace。每次
+   command 必须返回 `Applied`；selected entry 固定为 exit edge occurrence index
+   1、edge progress 5 m。W3 不创建其他 reservation。
+2. 该 probe 的初始 route progress 为 20 m。完整 warm-up 即使始终以
+   13.9 m/s 行驶也只会到达 3244.8 m，小于 entry 的 route progress
+   5135 m，因此 warm-up 不得产生 arrival。observation 内每个 cell 必须恰好产生
+   一条该 probe 的 ordered `VehicleParkingArrivalReached`；缺失、重复或出现在
+   warm-up 都使 round 无效。
+3. harness 只收集 arrival event，不按单个 cell 提前 commit。全部 cells 都已恰好
+   arrival 后，在紧接着的下一 boundary 建立 barrier，并按 cell 升序对所有 exact
+   pairs 调用 `commit_parking`；每次必须返回 `Applied`。随后恰好运行一条
+   successful Core step，使全部 probes 以 `Occupied + Parked` 从 lane authority
+   排除；该 tick 的全局 W3 population 精确为 24% active / 76% parked。若 barrier
+   后不足两条 observation steps，round 无效。
+4. 紧接着的下一 boundary 按 cell 升序对全部 probes 调用 `leave_parking`，目标仍为原 route、
+   exit edge occurrence index 1 和 canonical exit anchor 5 m，且必须返回
+   `Applied`。entry/exit anchor 相同；leave 后恢复 25 active / 75 parked。不得
+   cancel、rebind、延迟 leave 或对该 probe 开始第二轮 reservation。
+
+由此每个 cell 都执行同一条
+`Vacant/Active -> Reserved/Active -> Arrived -> Occupied/Parked ->
+Vacant/Active` authority 路径。commit 与 leave 之间只有一条 Core step；即使
+probe 在该 step 暂时退出 lane occupancy，slot 0 仍是本 route stable order 中的
+最后一辆 active individual，没有 direct follower；不同 route/cell 的 geometry
+band 不重叠，因此 leave 的 safe-insertion 结果不依赖未冻结的背景车辆或私有 gap
+选择。
+
+W3 的 lifecycle probe 同时使用以下 fixed-step input sequence：
 
 1. warm-up 结束后的首个 observation boundary，按 cell 升序对 route 3 slot 6
    顺序执行 caller-owned despawn 和 spawn command；spawn 复用同一 logical
@@ -246,10 +276,12 @@ W3 的 lifecycle probe 使用以下 fixed-step input sequence：
 2. Core step 后按 ordered completion event 建立 frozen replacement plan；下一个
    lifecycle boundary 使用 Core atomic replace，把同一 logical external ID 的新
    handle 放回 route progress 188 m、speed 13.9 m/s。
-3. 顺序固定为 `apply pending lifecycle commands -> Core fixed step -> consume
-   ordered completion events -> enqueue next-boundary plan`。Blocked plan 不重算、
-   不改变顺序，并按同一 frozen input 在后续 boundary 重试；出现未在 manifest
-   记录的持续 Blocked 或 active-count drain 时，该 round 无效。
+3. 每个 boundary 的全局顺序固定为 `apply pending Parking commits by cell ->
+   apply pending Parking leaves by cell -> apply pending lifecycle commands by cell
+   -> Core fixed step -> consume ordered events -> enqueue next-boundary plans`。
+   Blocked lifecycle plan 不重算、不改变顺序，并按同一 frozen input 在后续
+   boundary 重试；Parking command 失败、出现未在 manifest 记录的持续 Blocked
+   或 active-count drain 时，该 round 无效。
 
 W3 failed-step/retry guardrail 同样使用第 8.1 节的 optimized test-only binary：
 failpoint 固定指向 cell 0 route 3 slot 6 在 atomic replacement 后的新 handle，
