@@ -4427,6 +4427,10 @@ mod event_merge_research_tests;
 mod partitioned_occupancy_research_tests;
 
 #[cfg(test)]
+#[path = "world_selective_read_research_tests.rs"]
+mod selective_read_research_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{

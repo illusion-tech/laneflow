@@ -545,6 +545,10 @@ impl LaneFlowSession {
 }
 
 #[cfg(test)]
+#[path = "presentation_selective_read_research_tests.rs"]
+mod selective_read_research_tests;
+
+#[cfg(test)]
 mod tests {
     use std::num::NonZeroU32;
 

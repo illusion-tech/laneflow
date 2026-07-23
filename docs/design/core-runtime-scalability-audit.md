@@ -375,6 +375,72 @@ partition、SoA、event merge 或 multi-rate 的实验优先放在 research/benc
 
 目标：比较 current full `vehicles()` scan 与 caller-owned filtered/dirty/cursor prototype，在 10k/100k 下验证稳定顺序、零分配和 Adapter 等价 Transform；1M 只在有代表性数据布局后运行。
 
+#210 已在 `cfg(test)` 私有模块中完成该研究，不修改 production `CoreWorld`、Spatial 或 Bevy API。研究以 `vehicle_update_order` 驱动的 current `vehicles()` 为唯一 Core 顺序 oracle，并把现有 Spatial canonical pose batch 与 Bevy local Transform 原子提交作为 Adapter oracle。研究 record、selection bitmap、dirty index、epoch 和 cursor 都没有进入 public type、Data format 或持久化边界。
+
+读取与提交边界映射如下：
+
+| 边界               | 当前 production authority                                                               | P3 private harness                                                                                                          |
+| ------------------ | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Core vehicle read  | `vehicle_update_order` 中的 live `VehicleState`，`vehicles()` 返回 borrowed stable scan | value record 复制 handle/profile/status/route occurrence/edge/progress/speed/acceleration/Parking binding 与相关 float bits |
+| Parking            | `ParkingSnapshot` 只读 committed binding；Parked 必须为 Occupied                        | record 同时保存 Parking view 与 lane/Parking/none pose source                                                               |
+| filtered selection | 无 production selective API                                                             | caller-owned membership 只决定是否输出，结果始终保持 global logical stable order                                            |
+| dirty              | 无 production dirty snapshot                                                            | ordered `remove/upsert` delta + caller-owned retained cache；delta 本身不冒充完整 snapshot                                  |
+| cursor             | 无 production cursor/version retention                                                  | 只在一个 private committed epoch 内分页；任一成功 mutation 后旧 cursor stale                                                |
+| Spatial            | caller-owned input、committed output 与 scratch，成功后交换                             | selected inputs 直接复用 `extract_pose_batch`，逐字段和 `f32` bits 对照 full oracle                                         |
+| Bevy               | mapping validation、Transform staging、全部通过后写入                                   | candidate pose 在 validation 成功后才替换 committed selected frame；失败恢复旧 cache/pose，既有 Transform 不变              |
+
+三个 Core candidate 和 selected Adapter path 的结果为：
+
+| Candidate                   | Exact / order                                                                                                                 | Warm allocation                             | 主要成本与限制                                                                                                                |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| stable filtered scan        | 与 full oracle 精确一致；selection 构造/遍历顺序不影响输出                                                                    | 10k/100k 均为 `0`                           | 无论选择率都扫描 `V`；它是语义基线，不解决全量读取成本                                                                        |
+| committed dirty delta       | no-change、selection churn、Parking、spawn/despawn、edge transition 与 atomic replace 均可重建 exact cache                    | 10k/100k 均为 `0`                           | 需要 retained cache、slot-generation-aware index、remove/tombstone 和 selection-change delta；高水位内存不能忽略              |
+| single-epoch cursor/page    | `1/64/1024/K/all` 拼接与 full oracle 一致，mutation 后稳定拒绝 stale cursor                                                   | 10k/100k 均为 `0`                           | current borrowed iterator 不提供 seek；page 越多越会重复 traversal。跨 epoch resume 仍需要正式 snapshot retention，本轮不承担 |
+| selected Spatial/Bevy frame | selected `PoseInputRecord`、canonical pose bits、mapped/unbound/applied counts 与 local Transform 均等于 filtered full oracle | 10k/100k materialize/extract/apply 均为 `0` | downstream extract/apply 近似随 `K` 增长，但从 Core 生成 selection 仍扫描 `V`                                                 |
+
+语义矩阵覆盖：
+
+- Active、Stopped、Parked、Completed，lane/Parking/none 三类 pose source；
+- edge transition、Parking leave/release 与 arrival/commit、spawn、despawn、selection enter/leave、Completed atomic replace；
+- atomic replace 的 old remove + new upsert 保持同一 logical position；
+- 同 epoch 重读、不同 page size、selection handle forward/reverse construction，以及 mutation 后 stale cursor；
+- injected replace failure 保持 committed world，清除 injection 后 retry 与 fresh replay 相同；
+- malformed dirty remove、Spatial invalid progress 与 stale mapped Entity 均保持旧 retained cache、canonical pose batch 和已预验证 Transform；失败帧 `applied=0`；
+- 10k/100k 的 contiguous、alternating、stable-hash selection，比例为 `0% / 0.1% / 1% / 10% / 50% / 100%`；scale selected canonical pose 与 local Transform 逐条对照 full oracle。
+
+2026-07-23 在 AMD Ryzen 9 9955HX、Windows、Rust 1.96 `--release` 的单次 observation 如下。它只描述本机 fixture 的 cost shape，不是稳定 benchmark、SLA 或 speedup Gate：
+
+| Path                                 |  10k observation |   100k observation |
+| ------------------------------------ | ---------------: | -----------------: |
+| filtered，`0%`                       | `0.024–0.041 ms` |   `0.321–0.384 ms` |
+| filtered，`100%`                     | `0.249–0.365 ms` |   `2.520–3.631 ms` |
+| cursor/page `1024`，`100%`           | `0.415–0.595 ms` | `16.088–17.341 ms` |
+| Adapter materialize，`100%`          | `0.124–0.376 ms` |   `1.431–1.998 ms` |
+| Spatial extract + Bevy apply，`0.1%` | `0.004–0.008 ms` |   `0.037–0.075 ms` |
+| Spatial extract + Bevy apply，`10%`  | `0.242–0.485 ms` |   `3.346–3.842 ms` |
+| Spatial extract + Bevy apply，`100%` | `2.054–2.584 ms` | `25.231–26.950 ms` |
+
+容量高水位按测试 type 的 `size_of` 计量，不含 allocator 元数据，也不表示 production 必须同时保留所有 buffer：
+
+| Caller-owned research buffer                                        |        10k |        100k |
+| ------------------------------------------------------------------- | ---------: | ----------: |
+| selection bitmap                                                    | `10,000 B` | `100,000 B` |
+| value-record output 或 retained cache，各自                         |  `1.20 MB` |  `12.00 MB` |
+| dirty operations                                                    |  `2.40 MB` |  `24.00 MB` |
+| previous/current slot-generation dirty index                        |  `0.48 MB` |   `4.80 MB` |
+| selected Adapter committed/candidate input + candidate/scratch pose |  `1.36 MB` |  `13.60 MB` |
+| cursor token                                                        |     `16 B` |      `16 B` |
+
+结果支持以下判断：
+
+1. 强个体 vehicle identity、status、route occurrence、Parking source、canonical pose 和 local Transform 可以在 caller-owned selective read 中精确保留；没有发现必须暴露 slot、partition、ECS Entity 或改变 opaque handle 的语义障碍。
+2. 只增加 filtered batch 不会消除 `O(V)` Core scan。它能减少后续 Spatial/Transform 的 `K` 成本，但不应被宣传为解决 100k/1M read scaling。
+3. current borrowed iterator 上的 cursor 只提供 bounded page output，不提供 bounded traversal；100k/full/page-1024 observation 明显慢于一次 filtered scan。因此本候选不应进入 production G1，除非未来已有 storage-independent seek/index 或正式 immutable snapshot。
+4. dirty 是本轮唯一能表达 no-change/稀疏变化而不要求每次发送完整 selected snapshot 的候选，但 100k full high-water 下 cache + delta + two-generation index 已约 `40.8 MB`，还未包含所有 Adapter/session buffer。其 generation、selection churn、tombstone 和跨层事务成本需要 representative product profiling 才能证明值得。
+5. 预热后零分配在三类 Core candidate 与 selected Adapter materialize/extract/apply 上均已证明；这只说明 caller-owned capacity reuse 可行，不代表 retained memory 或 wall-clock 可接受。
+
+因此 P3 的建议是：**不冻结 production selective snapshot、dirty 或 cursor API，不新增 ADR；#72 可继续进入 P4 individual-first reduced-rate semantics。** 如果未来实际 Adapter profiling 证明 full `vehicles()` read 是主要瓶颈，应新建独立 G1，优先比较更紧凑的 value record、Adapter-local selection/dirty ownership 和真正 storage-independent traversal；不得直接把本研究的 120-byte record、bitmap、epoch width 或 cursor encoding提升为 Stable Runtime API。
+
 ### P4. Individual-first reduced-rate semantics
 
 目标：在不改变 production Core API 的研究 harness 中，让昂贵 controller 以 `N=2/4/8` base ticks 更新，同时保留 live vehicle identity、route/progress、Parking binding、每 tick committed occupancy/safety authority 和确定性事件时间。该 prototype 不要求与 `N=1` state 完全相同，但必须先定义允许的 fidelity delta，并以 `N=1` production path 作为安全、不变量和性能 oracle。
