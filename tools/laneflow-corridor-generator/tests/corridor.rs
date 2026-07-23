@@ -118,6 +118,12 @@ fn config_rejects_unknown_fields_length_geometry_offsets_and_output_conflicts() 
     );
     assert!(CorridorConfig::parse(&overlap).is_err());
 
+    let outside = CONFIG.replace(
+        "intersection_x_meters = [-200.0, 200.0]",
+        "intersection_x_meters = [-400.0, 200.0]",
+    );
+    assert!(CorridorConfig::parse(&outside).is_err());
+
     let offset = CONFIG.replace(
         "intersection_offsets_ms = [0, 0]",
         "intersection_offsets_ms = [58000, 0]",
