@@ -9,7 +9,7 @@
 初始阶段建议逐步补齐：
 
 - `core-runtime.md`：Core runtime、tick、vehicle state 和系统边界。
-- `core-runtime-performance-baseline.md`：#215 Accepted 的 10k/100k 产品目标与 1M 研究包络；冻结规模计数、W1–W4 workload、R0/P10/P100/O1 硬件角色、tick/frame budget、fidelity、benchmark protocol、TBD 与架构升级触发。目标契约不等于 P10/P100 产品认证。
+- `core-runtime-performance-baseline.md`：#215 Accepted 的 10k/100k 产品目标与 1M 研究包络；冻结 `LF-SYNTH-v1` 确定性拓扑、规模计数、W1–W4 workload、R0/P10/P100/O1 硬件角色、tick/frame budget、fidelity、benchmark protocol、TBD 与架构升级触发；真实路网来源与转换由 #224 独立跟踪。目标契约不等于 P10/P100 产品认证。
 - `core-runtime-scalability-audit.md`：#72/#199 的城市级可扩展性前置审计；记录 CoreWorld、handle、batch、commands、deterministic phase/event merge 的 no-regret constraints、individual-first/exact-only/aggregate-first 候选矩阵与 Stable Runtime API G1 待决项，不实现生产 partition。
 - `core-id-handles.md`：Core external ID、typed handle、registry / resolver、动态 lifecycle 和事件 payload 边界。
 - `numeric-representation.md`：v0.6 数值表示、精度分层、误差预算、确定性与 Core/Data/Spatial/Adapter 转换边界。
