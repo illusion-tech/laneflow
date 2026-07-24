@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "providerErrors": [
+    "GitHub reviewThreads query timed out"
+  ],
+  "pullRequest": {
+    "number": 303,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 305,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "reviewThreads": {
+      "nodes": [
+        {
+          "id": "PRRT-duplicate",
+          "isResolved": false,
+          "isOutdated": false,
+          "comments": {
+            "nodes": [
+              {
+                "id": "PRRC-duplicate-1",
+                "author": {
+                  "login": "chatgpt-codex-connector"
+                },
+                "body": "Finding one.",
+                "createdAt": "2026-07-24T02:00:00Z",
+                "updatedAt": "2026-07-24T02:00:00Z",
+                "url": "https://github.com/illusion-tech/laneflow/pull/305#discussion_r1",
+                "pullRequestReview": {
+                  "id": "PRR-duplicate",
+                  "author": {
+                    "login": "chatgpt-codex-connector"
+                  },
+                  "state": "COMMENTED",
+                  "submittedAt": "2026-07-24T02:00:00Z",
+                  "commit": {
+                    "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "PRRT-duplicate",
+          "isResolved": false,
+          "isOutdated": false,
+          "comments": {
+            "nodes": [
+              {
+                "id": "PRRC-duplicate-2",
+                "author": {
+                  "login": "chatgpt-codex-connector"
+                },
+                "body": "Duplicate finding.",
+                "createdAt": "2026-07-24T02:00:01Z",
+                "updatedAt": "2026-07-24T02:00:01Z",
+                "url": "https://github.com/illusion-tech/laneflow/pull/305#discussion_r2",
+                "pullRequestReview": {
+                  "id": "PRR-duplicate",
+                  "author": {
+                    "login": "chatgpt-codex-connector"
+                  },
+                  "state": "COMMENTED",
+                  "submittedAt": "2026-07-24T02:00:00Z",
+                  "commit": {
+                    "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

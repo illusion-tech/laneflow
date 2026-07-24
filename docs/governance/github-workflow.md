@@ -162,6 +162,22 @@ steady-state Gate 必须由 default branch 或其他 trusted ref 上的 validato
 
 `check-external-review` 负责输出稳定 JSON 和人类可读摘要，状态固定为 `pass`、`awaiting_review`、`review_pending`、`findings_open`、`awaiting_rereview`、`stale`、`provider_error`、`waived`。只有 `pass` 对应标准 Check success；歧义、API/provider 错误和 head 竞态 fail closed。
 
+live metadata 校验使用：
+
+```text
+cargo +1.96.0 run --locked -p xtask -- check-external-review --repo <owner/repo> --pr <number> --format json
+```
+
+R0 fixture / 历史事件 replay 使用版本化 snapshot：
+
+```text
+cargo +1.96.0 run --locked -p xtask -- check-external-review --input <snapshot.json> --format json --expect <state>
+```
+
+snapshot 与结果均使用 `schemaVersion: 1`。live evaluator 读取 author、current head/base、review requests、reviews、issue comments 和 review threads，并在计算后再次读取 head/base；任一 connection 超过 100 条、thread comment 截断、actor/SHA/timestamp 缺失、provider 文案歧义或二次读取发生竞态时返回 `provider_error`。`--expect` 只用于 fixture/replay 断言；未提供时只有 `pass` 退出成功，`waived` 仍保持独立状态。
+
+`check-gate-evidence g3` 的 external-review 集成以 Issue #230 的 G2-B 增量开工记录时间 `2026-07-24T15:16:21Z` 为迁移边界：更早的 G3 comment 保留 legacy 历史语义，不追溯要求新增字段；该时点及之后创建的 G3 comment 必须是未编辑的 append-only 记录，包含完整 current head，并晚于 live evaluator 识别的最终 completion。
+
 ### Rollout 与 ruleset 迁移
 
 Issue #230 采用 `R0 -> R1 -> R2`：

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 302,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "comments": {
+      "nodes": [
+        {
+          "id": "IC-untrusted-copy",
+          "author": {
+            "login": "untrusted-review-bot"
+          },
+          "body": "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaaaaa`",
+          "createdAt": "2026-07-24T02:00:00Z",
+          "updatedAt": "2026-07-24T02:00:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/302#issuecomment-1"
+        }
+      ]
+    }
+  }
+}

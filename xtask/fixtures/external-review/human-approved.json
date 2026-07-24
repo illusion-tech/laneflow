@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 300,
+    "author": {
+      "login": "contributor"
+    },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "reviews": {
+      "nodes": [
+        {
+          "id": "PRR-human-approved",
+          "author": {
+            "login": "wangzishi"
+          },
+          "body": "",
+          "state": "APPROVED",
+          "submittedAt": "2026-07-24T02:00:00Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/300#pullrequestreview-1",
+          "commit": {
+            "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      ]
+    }
+  }
+}

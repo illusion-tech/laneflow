@@ -1,0 +1,1476 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+
+use serde::{Deserialize, Serialize};
+
+const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
+const RESULT_SCHEMA_VERSION: u64 = 1;
+const COPILOT_ACTOR: &str = "copilot-pull-request-reviewer";
+const CODEX_ACTOR: &str = "chatgpt-codex-connector";
+const TRUSTED_HUMAN_ACTORS: &[&str] = &["wangzishi"];
+
+const EXTERNAL_REVIEW_QUERY: &str = r#"
+query($owner:String!, $name:String!, $number:Int!) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      number
+      author { login }
+      headRefOid
+      baseRefOid
+      isDraft
+      reviewRequests(first:100) {
+        nodes {
+          requestedReviewer {
+            ... on User { login }
+            ... on Team { name }
+          }
+        }
+        pageInfo { hasNextPage }
+      }
+      reviews(first:100) {
+        nodes {
+          id
+          author { login }
+          body
+          state
+          submittedAt
+          url
+          commit { oid }
+        }
+        pageInfo { hasNextPage }
+      }
+      comments(first:100) {
+        nodes {
+          id
+          author { login }
+          body
+          createdAt
+          updatedAt
+          url
+        }
+        pageInfo { hasNextPage }
+      }
+      reviewThreads(first:100) {
+        nodes {
+          id
+          isResolved
+          isOutdated
+          comments(first:100) {
+            nodes {
+              id
+              author { login }
+              body
+              createdAt
+              updatedAt
+              url
+              pullRequestReview {
+                id
+                author { login }
+                state
+                submittedAt
+                commit { oid }
+              }
+            }
+            pageInfo { hasNextPage }
+          }
+        }
+        pageInfo { hasNextPage }
+      }
+    }
+  }
+}
+"#;
+
+const PULL_REQUEST_IDENTITY_QUERY: &str = r#"
+query($owner:String!, $name:String!, $number:Int!) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      headRefOid
+      baseRefOid
+    }
+  }
+}
+"#;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalReviewState {
+    Pass,
+    AwaitingReview,
+    ReviewPending,
+    FindingsOpen,
+    AwaitingRereview,
+    Stale,
+    ProviderError,
+    Waived,
+}
+
+impl ExternalReviewState {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "pass" => Ok(Self::Pass),
+            "awaiting_review" => Ok(Self::AwaitingReview),
+            "review_pending" => Ok(Self::ReviewPending),
+            "findings_open" => Ok(Self::FindingsOpen),
+            "awaiting_rereview" => Ok(Self::AwaitingRereview),
+            "stale" => Ok(Self::Stale),
+            "provider_error" => Ok(Self::ProviderError),
+            "waived" => Ok(Self::Waived),
+            _ => Err(format!(
+                "未知 external-review 状态 `{value}`；应为 pass、awaiting_review、review_pending、findings_open、awaiting_rereview、stale、provider_error 或 waived"
+            )),
+        }
+    }
+
+    pub fn is_pass(self) -> bool {
+        self == Self::Pass
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum EvidenceOutcome {
+    Clean,
+    Findings,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalReviewSnapshot {
+    schema_version: u64,
+    repository: String,
+    pull_request: PullRequestSnapshot,
+    #[serde(default)]
+    provider_errors: Vec<String>,
+    #[serde(default)]
+    waiver: Option<WaiverInput>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PullRequestSnapshot {
+    number: u64,
+    author: Option<Actor>,
+    head_ref_oid: String,
+    base_ref_oid: String,
+    #[serde(default)]
+    is_draft: bool,
+    #[serde(default)]
+    review_requests: Connection<ReviewRequest>,
+    #[serde(default)]
+    reviews: Connection<Review>,
+    #[serde(default)]
+    comments: Connection<IssueComment>,
+    #[serde(default)]
+    review_threads: Connection<ReviewThread>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Actor {
+    login: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(
+    rename_all = "camelCase",
+    deny_unknown_fields,
+    bound(deserialize = "T: Deserialize<'de>", serialize = "T: Serialize")
+)]
+struct Connection<T> {
+    #[serde(default)]
+    nodes: Vec<T>,
+    #[serde(default)]
+    page_info: PageInfo,
+}
+
+impl<T> Default for Connection<T> {
+    fn default() -> Self {
+        Self {
+            nodes: Vec::new(),
+            page_info: PageInfo::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PageInfo {
+    #[serde(default)]
+    has_next_page: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReviewRequest {
+    requested_reviewer: Option<RequestedReviewer>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RequestedReviewer {
+    #[serde(default)]
+    login: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Review {
+    id: String,
+    author: Option<Actor>,
+    #[serde(default)]
+    body: String,
+    state: String,
+    #[serde(default)]
+    submitted_at: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    commit: Option<CommitRef>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct IssueComment {
+    id: String,
+    author: Option<Actor>,
+    #[serde(default)]
+    body: String,
+    created_at: String,
+    updated_at: String,
+    url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReviewThread {
+    id: String,
+    is_resolved: bool,
+    is_outdated: bool,
+    #[serde(default)]
+    comments: Connection<ReviewThreadComment>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReviewThreadComment {
+    id: String,
+    author: Option<Actor>,
+    #[serde(default)]
+    body: String,
+    created_at: String,
+    updated_at: String,
+    url: String,
+    #[serde(default)]
+    pull_request_review: Option<ReviewReference>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReviewReference {
+    id: String,
+    author: Option<Actor>,
+    state: String,
+    #[serde(default)]
+    submitted_at: Option<String>,
+    #[serde(default)]
+    commit: Option<CommitRef>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CommitRef {
+    oid: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WaiverInput {
+    id: String,
+    exception_type: String,
+    current_head_oid: String,
+    current_base_oid: String,
+    reason: String,
+    evidence_urls: Vec<String>,
+    risk: String,
+    acceptance_boundary: String,
+    expires_at: String,
+    follow_up_issue: String,
+    cleanup_owner: String,
+    authorized_by: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalReviewResult {
+    schema_version: u64,
+    repository: String,
+    pull_request: u64,
+    current_head_oid: String,
+    current_base_oid: String,
+    author: String,
+    pub state: ExternalReviewState,
+    provider: Option<String>,
+    actor: Option<String>,
+    reviewed_head_oid: Option<String>,
+    completion_time: Option<String>,
+    finding_count: usize,
+    unresolved_actionable_threads: usize,
+    requires_rereview: bool,
+    pending_review_requests: usize,
+    evidence: Vec<ReviewEvidence>,
+    waiver_id: Option<String>,
+    diagnostics: Vec<String>,
+}
+
+impl ExternalReviewResult {
+    fn provider_error(repository: &str, pr: u64, diagnostic: String) -> Self {
+        Self {
+            schema_version: RESULT_SCHEMA_VERSION,
+            repository: repository.to_string(),
+            pull_request: pr,
+            current_head_oid: String::new(),
+            current_base_oid: String::new(),
+            author: String::new(),
+            state: ExternalReviewState::ProviderError,
+            provider: None,
+            actor: None,
+            reviewed_head_oid: None,
+            completion_time: None,
+            finding_count: 0,
+            unresolved_actionable_threads: 0,
+            requires_rereview: false,
+            pending_review_requests: 0,
+            evidence: Vec::new(),
+            waiver_id: None,
+            diagnostics: vec![diagnostic],
+        }
+    }
+
+    pub fn current_head_oid(&self) -> &str {
+        &self.current_head_oid
+    }
+
+    pub fn completion_time(&self) -> Option<&str> {
+        self.completion_time.as_deref()
+    }
+
+    fn set_provider_error(&mut self, diagnostic: String) {
+        self.state = ExternalReviewState::ProviderError;
+        self.provider = None;
+        self.actor = None;
+        self.reviewed_head_oid = None;
+        self.completion_time = None;
+        self.requires_rereview = false;
+        self.diagnostics.push(diagnostic);
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewEvidence {
+    provider: String,
+    actor: String,
+    source_kind: String,
+    reviewed_head_oid: String,
+    reviewed_base_oid: String,
+    outcome: EvidenceOutcome,
+    submitted_at: String,
+    evidence_url: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OutputFormat {
+    Json,
+    Summary,
+}
+
+#[derive(Debug)]
+enum InputSource {
+    Live { repository: String, pr: u64 },
+    Snapshot(PathBuf),
+}
+
+#[derive(Debug)]
+struct ExternalReviewArgs {
+    source: InputSource,
+    output_format: OutputFormat,
+    expected_state: Option<ExternalReviewState>,
+}
+
+pub fn run(args: &[String]) -> Result<(), String> {
+    let args = parse_args(args)?;
+    let result = match &args.source {
+        InputSource::Live { repository, pr } => evaluate_live(repository, *pr)
+            .unwrap_or_else(|error| ExternalReviewResult::provider_error(repository, *pr, error)),
+        InputSource::Snapshot(path) => {
+            let bytes = fs::read(path).map_err(|error| {
+                format!(
+                    "无法读取 external-review snapshot `{}`: {error}",
+                    path.display()
+                )
+            })?;
+            let snapshot =
+                serde_json::from_slice::<ExternalReviewSnapshot>(&bytes).map_err(|error| {
+                    format!(
+                        "external-review snapshot `{}` 不是 schema v1 JSON: {error}",
+                        path.display()
+                    )
+                })?;
+            evaluate_snapshot(&snapshot)
+        }
+    };
+
+    match args.output_format {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&result)
+                    .map_err(|error| format!("无法序列化 external-review JSON: {error}"))?
+            );
+        }
+        OutputFormat::Summary => print_summary(&result),
+    }
+
+    match args.expected_state {
+        Some(expected) if result.state == expected => Ok(()),
+        Some(expected) => Err(format!(
+            "external-review 状态与 --expect 不一致：期望 {:?}，实际 {:?}",
+            expected, result.state
+        )),
+        None if result.state.is_pass() => Ok(()),
+        None => Err(format!(
+            "External Review Gate 未通过：状态为 {:?}",
+            result.state
+        )),
+    }
+}
+
+pub fn evaluate_live(repository: &str, pr: u64) -> Result<ExternalReviewResult, String> {
+    let snapshot = load_live_snapshot(repository, pr)?;
+    let initial_head = snapshot.pull_request.head_ref_oid.clone();
+    let initial_base = snapshot.pull_request.base_ref_oid.clone();
+    let mut result = evaluate_snapshot(&snapshot);
+    let (verified_head, verified_base) = load_live_identity(repository, pr)?;
+    if verified_head != initial_head || verified_base != initial_base {
+        result.set_provider_error(format!(
+            "head/base 竞态：首次读取 {initial_head}/{initial_base}，发布前复核 {verified_head}/{verified_base}"
+        ));
+    }
+    Ok(result)
+}
+
+pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewResult {
+    let pr = &snapshot.pull_request;
+    let author = pr
+        .author
+        .as_ref()
+        .map(|actor| actor.login.clone())
+        .unwrap_or_default();
+    let mut diagnostics = snapshot.provider_errors.clone();
+
+    if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
+        diagnostics.push(format!(
+            "snapshot schemaVersion 必须为 {SNAPSHOT_SCHEMA_VERSION}，实际为 {}",
+            snapshot.schema_version
+        ));
+    }
+    if !valid_repository_name(&snapshot.repository) {
+        diagnostics.push(format!("repository 格式不正确：{}", snapshot.repository));
+    }
+    if pr.number == 0 {
+        diagnostics.push("pullRequest.number 必须是正整数".to_string());
+    }
+    if author.is_empty() {
+        diagnostics.push("PR author 缺失，无法排除 self-review".to_string());
+    }
+    if !valid_full_oid(&pr.head_ref_oid) {
+        diagnostics.push("headRefOid 必须是 40 位十六进制 OID".to_string());
+    }
+    if !valid_full_oid(&pr.base_ref_oid) {
+        diagnostics.push("baseRefOid 必须是 40 位十六进制 OID".to_string());
+    }
+    collect_pagination_errors(pr, &mut diagnostics);
+
+    let mut review_to_finding_threads = BTreeMap::<String, usize>::new();
+    let mut finding_thread_ids = BTreeSet::<String>::new();
+    let mut unresolved_actionable_threads = 0;
+    let mut seen_thread_ids = BTreeSet::new();
+    for thread in &pr.review_threads.nodes {
+        if !seen_thread_ids.insert(thread.id.as_str()) {
+            diagnostics.push(format!("重复 review thread id：{}", thread.id));
+            continue;
+        }
+        let Some(first_comment) = thread.comments.nodes.first() else {
+            diagnostics.push(format!("review thread `{}` 没有 comment", thread.id));
+            continue;
+        };
+        let Some(actor) = first_comment.author.as_ref() else {
+            continue;
+        };
+        if trusted_provider(&actor.login, &author).is_none() {
+            continue;
+        }
+        let Some(review) = first_comment.pull_request_review.as_ref() else {
+            diagnostics.push(format!(
+                "受信任 reviewer 的 thread `{}` 缺少 pullRequestReview 关联",
+                thread.id
+            ));
+            continue;
+        };
+        let Some(review_actor) = review.author.as_ref() else {
+            diagnostics.push(format!(
+                "受信任 reviewer 的 thread `{}` 关联 review 缺少 author",
+                thread.id
+            ));
+            continue;
+        };
+        if normalize_actor(&review_actor.login) != normalize_actor(&actor.login) {
+            diagnostics.push(format!(
+                "review thread `{}` 的 comment actor 与 review actor 不一致",
+                thread.id
+            ));
+            continue;
+        }
+        finding_thread_ids.insert(thread.id.clone());
+        *review_to_finding_threads
+            .entry(review.id.clone())
+            .or_default() += 1;
+        if !thread.is_resolved && !thread.is_outdated {
+            unresolved_actionable_threads += 1;
+        }
+    }
+    let review_ids = pr
+        .reviews
+        .nodes
+        .iter()
+        .map(|review| review.id.as_str())
+        .collect::<BTreeSet<_>>();
+    for review_id in review_to_finding_threads.keys() {
+        if !review_ids.contains(review_id.as_str()) {
+            diagnostics.push(format!(
+                "review thread 引用了 reviews connection 中不存在的 review：{review_id}"
+            ));
+        }
+    }
+
+    let mut evidence = Vec::new();
+    let mut stale_or_dismissed = false;
+    let mut unthreaded_findings = 0;
+    for review in &pr.reviews.nodes {
+        let Some(actor) = review.author.as_ref() else {
+            continue;
+        };
+        let Some(provider) = trusted_provider(&actor.login, &author) else {
+            continue;
+        };
+        let actor_login = normalize_actor(&actor.login);
+        let state = review.state.to_ascii_uppercase();
+        if state == "DISMISSED" {
+            stale_or_dismissed = true;
+            continue;
+        }
+
+        let linked_findings = review_to_finding_threads
+            .get(&review.id)
+            .copied()
+            .unwrap_or_default();
+        let outcome = match provider {
+            "copilot" if state == "COMMENTED" || state == "APPROVED" => {
+                match copilot_outcome(&review.body, linked_findings) {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        diagnostics.push(format!("Copilot review `{}`: {error}", review.id));
+                        None
+                    }
+                }
+            }
+            "codex" if state == "COMMENTED" && linked_findings > 0 => {
+                Some(EvidenceOutcome::Findings)
+            }
+            "codex" if state == "APPROVED" => Some(EvidenceOutcome::Clean),
+            "human" if state == "APPROVED" => Some(EvidenceOutcome::Clean),
+            "human" if state == "CHANGES_REQUESTED" => Some(EvidenceOutcome::Findings),
+            _ => None,
+        };
+        let Some(outcome) = outcome else {
+            continue;
+        };
+
+        if outcome == EvidenceOutcome::Findings && linked_findings == 0 {
+            unthreaded_findings += 1;
+        }
+        let Some(submitted_at) = review.submitted_at.as_deref() else {
+            diagnostics.push(format!(
+                "completion review `{}` 缺少 submittedAt",
+                review.id
+            ));
+            continue;
+        };
+        let Some(reviewed_head) = review.commit.as_ref().map(|commit| commit.oid.as_str()) else {
+            diagnostics.push(format!("completion review `{}` 缺少 commit OID", review.id));
+            continue;
+        };
+        let Some(url) = review.url.as_deref() else {
+            diagnostics.push(format!(
+                "completion review `{}` 缺少 evidence URL",
+                review.id
+            ));
+            continue;
+        };
+        push_evidence(
+            &mut evidence,
+            &mut diagnostics,
+            EvidenceInput {
+                provider,
+                actor: &actor_login,
+                source_kind: "review",
+                reviewed_head,
+                reviewed_base: &pr.base_ref_oid,
+                outcome,
+                submitted_at,
+                evidence_url: url,
+            },
+        );
+    }
+
+    for comment in &pr.comments.nodes {
+        let Some(actor) = comment.author.as_ref() else {
+            continue;
+        };
+        if normalize_actor(&actor.login) != CODEX_ACTOR {
+            continue;
+        }
+        if comment.body.contains("To use Codex here") {
+            diagnostics.push(format!("Codex provider 报告环境不可用：{}", comment.url));
+            continue;
+        }
+        if !comment.body.contains("Codex Review:") {
+            continue;
+        }
+        if !comment.body.contains("Didn't find any major issues") {
+            continue;
+        }
+        if comment.updated_at != comment.created_at {
+            diagnostics.push(format!(
+                "Codex clean comment `{}` 在创建后被编辑，不能作为 append-only completion",
+                comment.id
+            ));
+            continue;
+        }
+        let Some(reviewed_head) = parse_reviewed_commit(&comment.body) else {
+            diagnostics.push(format!(
+                "Codex clean comment `{}` 缺少可解析的 Reviewed commit",
+                comment.id
+            ));
+            continue;
+        };
+        push_evidence(
+            &mut evidence,
+            &mut diagnostics,
+            EvidenceInput {
+                provider: "codex",
+                actor: CODEX_ACTOR,
+                source_kind: "issue_comment",
+                reviewed_head,
+                reviewed_base: &pr.base_ref_oid,
+                outcome: EvidenceOutcome::Clean,
+                submitted_at: &comment.created_at,
+                evidence_url: &comment.url,
+            },
+        );
+    }
+
+    evidence.sort_by(|left, right| {
+        left.submitted_at
+            .cmp(&right.submitted_at)
+            .then_with(|| left.evidence_url.cmp(&right.evidence_url))
+    });
+
+    let pending_review_requests = pr
+        .review_requests
+        .nodes
+        .iter()
+        .filter(|request| {
+            request
+                .requested_reviewer
+                .as_ref()
+                .is_some_and(|reviewer| reviewer.login.is_some() || reviewer.name.is_some())
+        })
+        .count();
+
+    let waiver_id = snapshot.waiver.as_ref().map(|waiver| waiver.id.clone());
+    if let Some(waiver) = snapshot.waiver.as_ref() {
+        validate_waiver(waiver, pr, &mut diagnostics);
+    }
+
+    let current_evidence = evidence
+        .iter()
+        .filter(|item| oid_matches_current(&item.reviewed_head_oid, &pr.head_ref_oid))
+        .collect::<Vec<_>>();
+    let latest_clean = current_evidence
+        .iter()
+        .rev()
+        .find(|item| item.outcome == EvidenceOutcome::Clean)
+        .copied();
+    let latest_finding = current_evidence
+        .iter()
+        .rev()
+        .find(|item| item.outcome == EvidenceOutcome::Findings)
+        .copied();
+    let finding_count = finding_thread_ids.len() + unthreaded_findings;
+
+    let (state, requires_rereview, primary, state_diagnostic) = if !diagnostics.is_empty() {
+        (
+            ExternalReviewState::ProviderError,
+            false,
+            None,
+            Some("provider/API/schema 歧义，按 fail-closed 处理".to_string()),
+        )
+    } else if snapshot.waiver.is_some() {
+        (
+            ExternalReviewState::Waived,
+            false,
+            None,
+            Some("存在完整结构化 waiver；不得映射为标准 pass".to_string()),
+        )
+    } else if pr.is_draft {
+        (
+            ExternalReviewState::ReviewPending,
+            false,
+            current_evidence.last().copied(),
+            Some("Draft PR 尚未进入可计数的 external review Gate".to_string()),
+        )
+    } else if let Some(finding) = latest_finding {
+        let clean_after_finding =
+            latest_clean.filter(|clean| clean.submitted_at > finding.submitted_at);
+        if unresolved_actionable_threads > 0 {
+            (
+                ExternalReviewState::FindingsOpen,
+                true,
+                Some(finding),
+                Some("current-head finding 仍有 unresolved actionable thread".to_string()),
+            )
+        } else if let Some(clean) = clean_after_finding {
+            (ExternalReviewState::Pass, false, Some(clean), None)
+        } else {
+            (
+                ExternalReviewState::AwaitingRereview,
+                true,
+                Some(finding),
+                Some("finding 已处置，但缺少其后的 exact-head clean re-review".to_string()),
+            )
+        }
+    } else if let Some(clean) = latest_clean {
+        if unresolved_actionable_threads > 0 {
+            (
+                ExternalReviewState::FindingsOpen,
+                true,
+                Some(clean),
+                Some("存在 unresolved actionable thread，clean completion 不足以放行".to_string()),
+            )
+        } else {
+            (ExternalReviewState::Pass, false, Some(clean), None)
+        }
+    } else if !evidence.is_empty() || stale_or_dismissed {
+        (
+            ExternalReviewState::Stale,
+            false,
+            evidence.last(),
+            Some("只有 old-head 或 dismissed completion".to_string()),
+        )
+    } else if pending_review_requests > 0 {
+        (
+            ExternalReviewState::ReviewPending,
+            false,
+            None,
+            Some("存在 review request，但尚无有效 completion".to_string()),
+        )
+    } else {
+        (
+            ExternalReviewState::AwaitingReview,
+            false,
+            None,
+            Some("尚无有效外部 review completion".to_string()),
+        )
+    };
+
+    if let Some(diagnostic) = state_diagnostic {
+        diagnostics.push(diagnostic);
+    }
+
+    ExternalReviewResult {
+        schema_version: RESULT_SCHEMA_VERSION,
+        repository: snapshot.repository.clone(),
+        pull_request: pr.number,
+        current_head_oid: pr.head_ref_oid.clone(),
+        current_base_oid: pr.base_ref_oid.clone(),
+        author,
+        state,
+        provider: primary.map(|item| item.provider.clone()),
+        actor: primary.map(|item| item.actor.clone()),
+        reviewed_head_oid: primary.map(|item| item.reviewed_head_oid.clone()),
+        completion_time: primary.map(|item| item.submitted_at.clone()),
+        finding_count,
+        unresolved_actionable_threads,
+        requires_rereview,
+        pending_review_requests,
+        evidence,
+        waiver_id,
+        diagnostics,
+    }
+}
+
+struct EvidenceInput<'a> {
+    provider: &'a str,
+    actor: &'a str,
+    source_kind: &'a str,
+    reviewed_head: &'a str,
+    reviewed_base: &'a str,
+    outcome: EvidenceOutcome,
+    submitted_at: &'a str,
+    evidence_url: &'a str,
+}
+
+fn push_evidence(
+    evidence: &mut Vec<ReviewEvidence>,
+    diagnostics: &mut Vec<String>,
+    input: EvidenceInput<'_>,
+) {
+    if !valid_oid_fragment(input.reviewed_head) {
+        diagnostics.push(format!(
+            "{} evidence 的 reviewed head 不是 7-40 位十六进制 OID：{}",
+            input.provider, input.reviewed_head
+        ));
+        return;
+    }
+    if !valid_timestamp(input.submitted_at) {
+        diagnostics.push(format!(
+            "{} evidence 的 completion time 不是 UTC RFC3339：{}",
+            input.provider, input.submitted_at
+        ));
+        return;
+    }
+    if !valid_github_url(input.evidence_url) {
+        diagnostics.push(format!(
+            "{} evidence URL 不是 GitHub HTTPS URL：{}",
+            input.provider, input.evidence_url
+        ));
+        return;
+    }
+    evidence.push(ReviewEvidence {
+        provider: input.provider.to_string(),
+        actor: input.actor.to_string(),
+        source_kind: input.source_kind.to_string(),
+        reviewed_head_oid: input.reviewed_head.to_ascii_lowercase(),
+        reviewed_base_oid: input.reviewed_base.to_string(),
+        outcome: input.outcome,
+        submitted_at: input.submitted_at.to_string(),
+        evidence_url: input.evidence_url.to_string(),
+    });
+}
+
+fn collect_pagination_errors(pr: &PullRequestSnapshot, diagnostics: &mut Vec<String>) {
+    if pr.review_requests.page_info.has_next_page {
+        diagnostics.push("reviewRequests 超过 100 条，snapshot 被截断".to_string());
+    }
+    if pr.reviews.page_info.has_next_page {
+        diagnostics.push("reviews 超过 100 条，snapshot 被截断".to_string());
+    }
+    if pr.comments.page_info.has_next_page {
+        diagnostics.push("issue comments 超过 100 条，snapshot 被截断".to_string());
+    }
+    if pr.review_threads.page_info.has_next_page {
+        diagnostics.push("reviewThreads 超过 100 条，snapshot 被截断".to_string());
+    }
+    for thread in &pr.review_threads.nodes {
+        if thread.comments.page_info.has_next_page {
+            diagnostics.push(format!(
+                "review thread `{}` 的 comments 超过 100 条，snapshot 被截断",
+                thread.id
+            ));
+        }
+    }
+}
+
+fn validate_waiver(waiver: &WaiverInput, pr: &PullRequestSnapshot, diagnostics: &mut Vec<String>) {
+    const ALLOWED_TYPES: &[&str] = &[
+        "content_equivalent_rebase",
+        "provider_platform_outage",
+        "security_emergency_hotfix",
+        "confirmed_gate_defect",
+    ];
+    if !ALLOWED_TYPES.contains(&waiver.exception_type.as_str()) {
+        diagnostics.push(format!(
+            "waiver exceptionType 不在 allowlist：{}",
+            waiver.exception_type
+        ));
+    }
+    for (field, value) in [
+        ("id", waiver.id.as_str()),
+        ("reason", waiver.reason.as_str()),
+        ("risk", waiver.risk.as_str()),
+        ("acceptanceBoundary", waiver.acceptance_boundary.as_str()),
+        ("expiresAt", waiver.expires_at.as_str()),
+        ("followUpIssue", waiver.follow_up_issue.as_str()),
+        ("cleanupOwner", waiver.cleanup_owner.as_str()),
+        ("authorizedBy", waiver.authorized_by.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            diagnostics.push(format!("waiver `{field}` 不能为空"));
+        }
+    }
+    if waiver.current_head_oid != pr.head_ref_oid {
+        diagnostics.push("waiver currentHeadOid 与 PR current head 不一致".to_string());
+    }
+    if waiver.current_base_oid != pr.base_ref_oid {
+        diagnostics.push("waiver currentBaseOid 与 PR current base 不一致".to_string());
+    }
+    if waiver.evidence_urls.is_empty()
+        || waiver
+            .evidence_urls
+            .iter()
+            .any(|url| !valid_github_url(url))
+    {
+        diagnostics.push("waiver evidenceUrls 必须包含至少一个 GitHub HTTPS URL".to_string());
+    }
+    if !valid_timestamp(&waiver.expires_at) {
+        diagnostics.push("waiver expiresAt 必须是 UTC RFC3339".to_string());
+    }
+}
+
+fn copilot_outcome(body: &str, linked_findings: usize) -> Result<Option<EvidenceOutcome>, String> {
+    if linked_findings > 0 {
+        return Ok(Some(EvidenceOutcome::Findings));
+    }
+    let lower = body.to_ascii_lowercase();
+    if lower.contains("generated no new comments") || lower.contains("generated no comments") {
+        return Ok(Some(EvidenceOutcome::Clean));
+    }
+    let Some(generated) = lower.find("generated ") else {
+        return Ok(None);
+    };
+    let tail = &lower[generated + "generated ".len()..];
+    let digits = tail
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    if digits.is_empty() {
+        return Err("无法解析 generated comment count".to_string());
+    }
+    let count = digits
+        .parse::<usize>()
+        .map_err(|error| format!("无法解析 generated comment count：{error}"))?;
+    Ok(Some(if count == 0 {
+        EvidenceOutcome::Clean
+    } else {
+        EvidenceOutcome::Findings
+    }))
+}
+
+fn parse_reviewed_commit(body: &str) -> Option<&str> {
+    let marker = "Reviewed commit:";
+    let tail = body.get(body.find(marker)? + marker.len()..)?;
+    let after_open = tail.get(tail.find('`')? + 1..)?;
+    let candidate = after_open.get(..after_open.find('`')?)?.trim();
+    valid_oid_fragment(candidate).then_some(candidate)
+}
+
+fn trusted_provider(actor: &str, author: &str) -> Option<&'static str> {
+    let normalized = normalize_actor(actor);
+    if normalized == normalize_actor(author) {
+        return None;
+    }
+    match normalized.as_str() {
+        COPILOT_ACTOR => Some("copilot"),
+        CODEX_ACTOR => Some("codex"),
+        actor if TRUSTED_HUMAN_ACTORS.contains(&actor) => Some("human"),
+        _ => None,
+    }
+}
+
+fn normalize_actor(actor: &str) -> String {
+    actor.trim().trim_end_matches("[bot]").to_ascii_lowercase()
+}
+
+fn oid_matches_current(reviewed: &str, current: &str) -> bool {
+    valid_oid_fragment(reviewed)
+        && valid_full_oid(current)
+        && current
+            .to_ascii_lowercase()
+            .starts_with(&reviewed.to_ascii_lowercase())
+}
+
+fn valid_full_oid(value: &str) -> bool {
+    value.len() == 40 && value.chars().all(|character| character.is_ascii_hexdigit())
+}
+
+fn valid_oid_fragment(value: &str) -> bool {
+    (7..=40).contains(&value.len()) && value.chars().all(|character| character.is_ascii_hexdigit())
+}
+
+fn valid_timestamp(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() < 20
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || bytes.last() != Some(&b'Z')
+    {
+        return false;
+    }
+    let fixed_digits = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18];
+    if fixed_digits
+        .iter()
+        .any(|index| !bytes[*index].is_ascii_digit())
+    {
+        return false;
+    }
+    if bytes.len() == 20 {
+        return true;
+    }
+    bytes[19] == b'.' && bytes[20..bytes.len() - 1].iter().all(u8::is_ascii_digit)
+}
+
+fn valid_github_url(value: &str) -> bool {
+    value.starts_with("https://github.com/")
+}
+
+fn valid_repository_name(value: &str) -> bool {
+    let Some((owner, name)) = value.split_once('/') else {
+        return false;
+    };
+    !owner.is_empty() && !name.is_empty() && !name.contains('/')
+}
+
+fn parse_args(args: &[String]) -> Result<ExternalReviewArgs, String> {
+    let mut repository = None;
+    let mut pr = None;
+    let mut input = None;
+    let mut output_format = OutputFormat::Json;
+    let mut expected_state = None;
+    let mut index = 0;
+    while index < args.len() {
+        let flag = &args[index];
+        let value = args
+            .get(index + 1)
+            .ok_or_else(|| format!("`{flag}` 缺少值"))?;
+        match flag.as_str() {
+            "--repo" => {
+                if repository.replace(value.clone()).is_some() {
+                    return Err("`--repo` 只能指定一次".to_string());
+                }
+            }
+            "--pr" => {
+                if pr.replace(parse_pr_number(value)?).is_some() {
+                    return Err("`--pr` 只能指定一次".to_string());
+                }
+            }
+            "--input" => {
+                if input.replace(PathBuf::from(value)).is_some() {
+                    return Err("`--input` 只能指定一次".to_string());
+                }
+            }
+            "--format" => {
+                output_format = match value.as_str() {
+                    "json" => OutputFormat::Json,
+                    "summary" => OutputFormat::Summary,
+                    _ => return Err("`--format` 应为 `json` 或 `summary`".to_string()),
+                };
+            }
+            "--expect" => {
+                if expected_state
+                    .replace(ExternalReviewState::parse(value)?)
+                    .is_some()
+                {
+                    return Err("`--expect` 只能指定一次".to_string());
+                }
+            }
+            _ => return Err(format!("未知 check-external-review 参数：{flag}")),
+        }
+        index += 2;
+    }
+
+    let source = match (input, repository, pr) {
+        (Some(path), None, None) => InputSource::Snapshot(path),
+        (None, Some(repository), Some(pr)) if valid_repository_name(&repository) => {
+            InputSource::Live { repository, pr }
+        }
+        (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
+            return Err("`--input` 不能与 `--repo` / `--pr` 同时使用".to_string());
+        }
+        (None, Some(repository), Some(_)) => {
+            return Err(format!("`--repo` 格式不正确：{repository}"));
+        }
+        _ => {
+            return Err(
+                "用法：check-external-review --repo <owner/repo> --pr <number> [--format json|summary] [--expect <state>]；或 check-external-review --input <snapshot.json> [...]"
+                    .to_string(),
+            );
+        }
+    };
+    Ok(ExternalReviewArgs {
+        source,
+        output_format,
+        expected_state,
+    })
+}
+
+fn parse_pr_number(value: &str) -> Result<u64, String> {
+    value
+        .strip_prefix('#')
+        .unwrap_or(value)
+        .parse::<u64>()
+        .ok()
+        .filter(|number| *number > 0)
+        .ok_or_else(|| format!("`--pr` 必须是正整数：{value}"))
+}
+
+fn print_summary(result: &ExternalReviewResult) {
+    println!(
+        "External Review Gate: {:?}\nPR: {}/pull/{}\nCurrent head/base: {}/{}\nProvider/actor: {}/{}\nReviewed head/completion: {}/{}\nFindings/unresolved/re-review: {}/{}/{}\nEvidence count: {}\nDiagnostics: {}",
+        result.state,
+        result.repository,
+        result.pull_request,
+        result.current_head_oid,
+        result.current_base_oid,
+        result.provider.as_deref().unwrap_or("N/A"),
+        result.actor.as_deref().unwrap_or("N/A"),
+        result.reviewed_head_oid.as_deref().unwrap_or("N/A"),
+        result.completion_time.as_deref().unwrap_or("N/A"),
+        result.finding_count,
+        result.unresolved_actionable_threads,
+        result.requires_rereview,
+        result.evidence.len(),
+        if result.diagnostics.is_empty() {
+            "N/A".to_string()
+        } else {
+            result.diagnostics.join("；")
+        }
+    );
+}
+
+fn load_live_snapshot(repository: &str, pr: u64) -> Result<ExternalReviewSnapshot, String> {
+    let (owner, name) = repository
+        .split_once('/')
+        .ok_or_else(|| format!("repository 格式不正确：{repository}"))?;
+    let response = gh_graphql::<ExternalReviewData>(EXTERNAL_REVIEW_QUERY, owner, name, pr)?;
+    let repository_data = response
+        .repository
+        .ok_or_else(|| format!("GitHub repository 不存在或不可读：{repository}"))?;
+    let pull_request = repository_data
+        .pull_request
+        .ok_or_else(|| format!("GitHub PR 不存在或不可读：{repository}#{pr}"))?;
+    Ok(ExternalReviewSnapshot {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        repository: repository.to_string(),
+        pull_request,
+        provider_errors: Vec::new(),
+        waiver: None,
+    })
+}
+
+fn load_live_identity(repository: &str, pr: u64) -> Result<(String, String), String> {
+    let (owner, name) = repository
+        .split_once('/')
+        .ok_or_else(|| format!("repository 格式不正确：{repository}"))?;
+    let response = gh_graphql::<IdentityData>(PULL_REQUEST_IDENTITY_QUERY, owner, name, pr)?;
+    let identity = response
+        .repository
+        .and_then(|repository| repository.pull_request)
+        .ok_or_else(|| format!("发布前无法复核 GitHub PR identity：{repository}#{pr}"))?;
+    Ok((identity.head_ref_oid, identity.base_ref_oid))
+}
+
+fn gh_graphql<T: for<'de> Deserialize<'de>>(
+    query: &str,
+    owner: &str,
+    name: &str,
+    pr: u64,
+) -> Result<T, String> {
+    let output = Command::new("gh")
+        .args([
+            "api",
+            "graphql",
+            "-F",
+            &format!("owner={owner}"),
+            "-F",
+            &format!("name={name}"),
+            "-F",
+            &format!("number={pr}"),
+            "-f",
+            &format!("query={query}"),
+        ])
+        .output()
+        .map_err(|error| format!("无法运行 gh GraphQL：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "gh GraphQL 失败：{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let envelope =
+        serde_json::from_slice::<GraphQlEnvelope<T>>(&output.stdout).map_err(|error| {
+            format!(
+                "gh GraphQL 输出不是预期 JSON：{error}；原始输出：{}",
+                String::from_utf8_lossy(&output.stdout).trim()
+            )
+        })?;
+    if !envelope.errors.is_empty() {
+        return Err(format!(
+            "GitHub GraphQL errors：{}",
+            envelope
+                .errors
+                .iter()
+                .map(|error| error.message.as_str())
+                .collect::<Vec<_>>()
+                .join("；")
+        ));
+    }
+    envelope
+        .data
+        .ok_or_else(|| "GitHub GraphQL response 缺少 data".to_string())
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphQlEnvelope<T> {
+    data: Option<T>,
+    #[serde(default)]
+    errors: Vec<GraphQlError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphQlError {
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExternalReviewData {
+    repository: Option<ExternalReviewRepository>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExternalReviewRepository {
+    pull_request: Option<PullRequestSnapshot>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IdentityData {
+    repository: Option<IdentityRepository>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IdentityRepository {
+    pull_request: Option<PullRequestIdentity>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullRequestIdentity {
+    head_ref_oid: String,
+    base_ref_oid: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture(contents: &str) -> ExternalReviewSnapshot {
+        serde_json::from_str(contents).expect("fixture must match snapshot schema")
+    }
+
+    #[test]
+    fn replays_provider_and_lifecycle_fixtures() {
+        let cases = [
+            (
+                include_str!("../fixtures/external-review/copilot-clean.json"),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!("../fixtures/external-review/copilot-findings-open.json"),
+                ExternalReviewState::FindingsOpen,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-clean.json"),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-awaiting-rereview.json"),
+                ExternalReviewState::AwaitingRereview,
+            ),
+            (
+                include_str!("../fixtures/external-review/human-approved.json"),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!("../fixtures/external-review/stale-old-head.json"),
+                ExternalReviewState::Stale,
+            ),
+            (
+                include_str!("../fixtures/external-review/wrong-actor.json"),
+                ExternalReviewState::AwaitingReview,
+            ),
+            (
+                include_str!("../fixtures/external-review/review-pending.json"),
+                ExternalReviewState::ReviewPending,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-no-sha.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!("../fixtures/external-review/provider-error.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!("../fixtures/external-review/duplicate-thread.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!("../fixtures/external-review/history-pr-232-final.json"),
+                ExternalReviewState::Pass,
+            ),
+        ];
+
+        for (contents, expected) in cases {
+            assert_eq!(evaluate_snapshot(&fixture(contents)).state, expected);
+        }
+    }
+
+    #[test]
+    fn rejects_self_review_even_for_trusted_human() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/human-approved.json"
+        ));
+        snapshot.pull_request.author = Some(Actor {
+            login: "wangzishi".to_string(),
+        });
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingReview
+        );
+    }
+
+    #[test]
+    fn unresolved_zero_without_completion_is_not_pass() {
+        let mut snapshot = fixture(include_str!("../fixtures/external-review/codex-clean.json"));
+        snapshot.pull_request.comments.nodes.clear();
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingReview
+        );
+    }
+
+    #[test]
+    fn edited_codex_clean_comment_fails_closed() {
+        let mut snapshot = fixture(include_str!("../fixtures/external-review/codex-clean.json"));
+        snapshot.pull_request.comments.nodes[0].updated_at = "2026-07-24T14:47:49Z".to_string();
+        let result = evaluate_snapshot(&snapshot);
+
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("在创建后被编辑"))
+        );
+    }
+
+    #[test]
+    fn draft_pr_never_passes() {
+        let mut snapshot = fixture(include_str!("../fixtures/external-review/codex-clean.json"));
+        snapshot.pull_request.is_draft = true;
+
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::ReviewPending
+        );
+    }
+
+    #[test]
+    fn live_api_error_serializes_as_provider_error() {
+        let result = ExternalReviewResult::provider_error(
+            "illusion-tech/laneflow",
+            232,
+            "network unavailable".to_string(),
+        );
+        let json = serde_json::to_value(&result).expect("result should serialize");
+
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert_eq!(json["state"], "provider_error");
+        assert_eq!(json["diagnostics"][0], "network unavailable");
+    }
+
+    #[test]
+    fn exact_head_clean_after_finding_passes() {
+        let result = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/history-pr-232-final.json"
+        )));
+        assert_eq!(result.state, ExternalReviewState::Pass);
+        assert_eq!(result.finding_count, 2);
+        assert_eq!(result.unresolved_actionable_threads, 0);
+        assert!(!result.requires_rereview);
+    }
+
+    #[test]
+    fn valid_waiver_stays_separate_from_pass() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/stale-old-head.json"
+        ));
+        snapshot.waiver = Some(WaiverInput {
+            id: "waiver-230-1".to_string(),
+            exception_type: "content_equivalent_rebase".to_string(),
+            current_head_oid: snapshot.pull_request.head_ref_oid.clone(),
+            current_base_oid: snapshot.pull_request.base_ref_oid.clone(),
+            reason: "validated equivalent rebase".to_string(),
+            evidence_urls: vec!["https://github.com/illusion-tech/laneflow/issues/230".to_string()],
+            risk: "reviewed commit identity changed".to_string(),
+            acceptance_boundary: "exact paths and blobs only".to_string(),
+            expires_at: "2026-07-25T00:00:00Z".to_string(),
+            follow_up_issue: "#230".to_string(),
+            cleanup_owner: "wangzishi".to_string(),
+            authorized_by: "wangzishi".to_string(),
+        });
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::Waived
+        );
+    }
+
+    #[test]
+    fn parses_codex_reviewed_commit_prefix() {
+        assert_eq!(
+            parse_reviewed_commit(
+                "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `c22802bb6b`"
+            ),
+            Some("c22802bb6b")
+        );
+        assert_eq!(
+            parse_reviewed_commit("Codex Review: Didn't find any major issues."),
+            None
+        );
+    }
+
+    #[test]
+    fn parses_cli_sources_and_expected_state() {
+        let args = vec![
+            "--repo".to_string(),
+            "illusion-tech/laneflow".to_string(),
+            "--pr".to_string(),
+            "232".to_string(),
+            "--expect".to_string(),
+            "pass".to_string(),
+        ];
+        let parsed = parse_args(&args).expect("live args should parse");
+        assert_eq!(parsed.expected_state, Some(ExternalReviewState::Pass));
+        assert!(matches!(parsed.source, InputSource::Live { pr: 232, .. }));
+    }
+}

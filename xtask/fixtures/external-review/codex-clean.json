@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 225,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "a4891b5e6d92d8bd38eddd9c9f446be092036582",
+    "baseRefOid": "d745d25d2e05e136e3f8c318704458a1b69cb06a",
+    "comments": {
+      "nodes": [
+        {
+          "id": "IC-codex-clean",
+          "author": {
+            "login": "chatgpt-codex-connector"
+          },
+          "body": "Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** `a4891b5e6d`",
+          "createdAt": "2026-07-24T01:31:51Z",
+          "updatedAt": "2026-07-24T01:31:51Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/225#issuecomment-5065239911"
+        }
+      ]
+    }
+  }
+}
