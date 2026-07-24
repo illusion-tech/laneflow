@@ -16,6 +16,7 @@ v0.7 的 #169-#173 已提供最小 headless 宿主、Transform 同步、producti
 - `replace_completed_vehicle` / `LaneFlowVehicleReplaceOutcome`：调用方驱动的 `Completed -> Active` Core replacement 与可选 Entity 原子轮换。
 - `LaneFlowDebugGizmosPlugin`：仅在 `debug-gizmos` feature 下提供预算受控的 frame axes、车辆 marker 与调用方中心线绘制。
 - `native_reference`：仅在 `native-example` feature 下读取仓库 campus scenario/traffic/spatial artifacts，并使用完整 Bevy window/render 边界演示车辆移动。
+- `signalized_corridor`：仅在 `native-example` feature 下装配 v0.8 production artifacts、50–200 辆确定性人口、两套信号灯与 same-proxy 出口回流。
 
 宿主必须在第一次 `App::update` 前安装 Bevy `TimePlugin`（或包含它的 plugin group）并插入一个 `LaneFlowSession`。使用非空 Vehicle/Entity 映射时，宿主还必须安装 `TransformPlugin`，把每个 proxy 作为当前 frame-root 的直接 child，并保持 root 单位缩放。本 crate 不修改 Bevy `Time<Fixed>`，也不重复安装宿主 plugin。
 
@@ -104,3 +105,56 @@ cargo +1.96.0 check -p laneflow-bevy --example native_reference --features nativ
 ```
 
 校园 headless E2E 与 10k/100k 专项验证由 #171 交付；固定机验证协议、逐轮数据与适用边界见 `../../docs/reference/v0.7-bevy-validation.md` 和 `../../docs/reference/v0.7-bevy-performance-evidence.json`。#172 的静态 smoke 只验证 debug Gizmos；#173 的 native example 才覆盖真实制品加载、Core 驱动移动、frame-root、映射和完整 window/render 演示。#173 的本机证据见 `../../docs/reference/v0.7-bevy-native-example-validation.md`，v0.7 的最终收口基线见 `../../docs/reference/v0.7-bevy-closure-review.md`。
+
+## Signalized corridor native example
+
+`signalized_corridor` 保留 campus 最小示例不变，并在独立 target 中读取
+`examples/config/v0.8-signalized-corridor.toml`。启动过程根据 config 定位
+ScenarioManifest、Traffic、Spatial 与 scenario-local catalog，先通过 production loader
+校验制品 size/digest/reference，再使用 `laneflow-scenario` 完成两阶段人口
+`prepare -> Core batch -> bind`。
+
+从仓库根目录运行默认 100 车、seed 0：
+
+```powershell
+cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example -- --vehicles 100 --seed 0 --config examples/config/v0.8-signalized-corridor.toml
+```
+
+CLI 只接受：
+
+- `--vehicles <50..=200>`：默认 `100`；
+- `--seed <u64>`：默认 `0`；
+- `--config <path>`：默认使用仓库 checked-in config；
+- `-h` / `--help`。
+
+未知或重复参数、非法车辆数、配置错误、缺失/篡改制品及 bootstrap failure 都在创建
+window 和第一个 Core step 前失败。运行遥测直接显示在画面左上角，窗口标题保持稳定。
+HUD 使用约 1 秒采样窗口展示宿主 FPS/frame time、example-local
+`LaneFlowFixedSet::Step` wall-clock 的平均 `ms/frame` 与 `us/tick`、最近 outer frame 的
+step/backlog/catch-up 状态，以及 #203 controller 的 target/running/pending 人口。
+该诊断不包含 renderer、截图和 `PostUpdate` presentation，不进入 Core/replay，也不是跨
+机器 SLA。滚轮缩放镜头，按住左键拖动在水平面平移，按住右键拖动绕当前中心旋转；
+`G` 切换 debug Gizmos，`F12` 在当前目录保存
+`laneflow-signalized-corridor-<vehicles>-seed-<seed>.png`。
+
+道路、lane marking、StopLine 与信号灯位置从已加载 Spatial/Core 派生。灯具只读取
+committed `SignalGroupSnapshot`；人口系统在每个 fixed step 按
+`Lifecycle -> Step -> Observe` 调用 #203 controller 和 Adapter typed replacement。
+入口阻塞时 proxy 保留最后 Transform，成功后同一 Entity 轮换到新 handle，下一次正常
+presentation 才更新入口 pose。初始与回流速度为 profile 期望速度和当前入口 edge
+限速的较小值；Core 继续处理入口 overlap 和首个 tick 的 leader/signal 约束。车辆
+proxy 原点表示前保险杠，built-in body 从该原点沿 local `+Z` 向后延伸，停止时不会因
+模型以中心对齐而视觉越过 StopLine。默认两个 controller offset 为 `[0, 29000] ms`，在
+58 秒 cycle 中形成可见的半周期相位差。
+
+dedicated compile 与 headless example tests：
+
+```powershell
+cargo +1.96.0 check --locked -p laneflow-bevy --example signalized_corridor --features native-example
+cargo +1.96.0 test --locked -p laneflow-bevy --example signalized_corridor --features native-example
+```
+
+headless tests 覆盖 CLI、HUD sampling math、50/100/200 production bootstrap、三种人口
+规模、至少一次真实 completion/replacement 后的 same-Entity binding，以及不同
+outer-frame 分块下相同 Core/controller replay。最终 G3/G4 仍需 Windows native
+50/100/200 smoke、截图和产品负责人对实际运行程序的再次确认。

@@ -18,7 +18,7 @@ main_green_ms = 30000
 secondary_green_ms = 20000
 yellow_ms = 3000
 all_red_ms = 1000
-intersection_offsets_ms = [0, 0]
+intersection_offsets_ms = [0, 29000]
 
 [output]
 directory = "../data"

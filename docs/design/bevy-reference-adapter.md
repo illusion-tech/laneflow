@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-22（#184 v0.8 场景生命周期同步）
+**最后更新**: 2026-07-23（#189 signalized-corridor native example）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -275,3 +275,54 @@ Spatial batch extract
 车辆完成 route 后，既有 proxy/model 不 despawn。等待可用入口时，Completed vehicle 不产生 pose record，Entity 保留最后 Transform。caller 在 `Lifecycle` 使用 `replace_completed_vehicle`：`Blocked` 保持 Core/映射/Transform 不变并允许继续处理其他计划；`Replaced` 把同一 Entity 从 old handle 轮换到 new handle，下一次正常 `PostUpdate` presentation 才更新入口位姿。fatal Adapter/Core error 停止该 outer frame 当前和后续 catch-up，完整保留 backlog；已成功的前序 command 不做跨 command 回滚。
 
 该边界不提供通用 runtime spawn/despawn、生命周期枚举、Adapter-owned persistent queue/retry 或人口 controller。初始人口在创建 Session 前由调用方建立；seed、portal/lane 抽样与 retry policy 继续由 #203 的 engine-neutral caller policy 拥有。道路、灯具、CLI/UI 和 50–200 车辆 native 集成由 #189 交付；Core atomic replace、caller-owned reference policy 与 typed Session transaction 分别由 #186/#203/#187 交付。详细场景参数见 `example-scenarios.md`。
+
+## 14. v0.8 signalized-corridor native specialization
+
+#189 在 `native-example` feature 下新增独立 `signalized_corridor` target，保留 v0.7
+`native_reference` 的最小边界。`laneflow-scenario`、TOML config projection 与测试依赖
+只进入 `laneflow-bevy` dev/example graph，不成为 Adapter production dependency 或
+public API。
+
+启动顺序固定为：
+
+```text
+严格 CLI/config projection
+  -> production ScenarioManifest/Traffic/Spatial loader
+  -> catalog normalize + population prepare
+  -> Core initial batch
+  -> population bind
+  -> Session + one proxy per vehicle
+  -> 首个 fixed step
+```
+
+任一启动错误都在发布 window/App 前失败。example-local population Resource 在
+`Lifecycle` 调用 Adapter typed replacement，在 `Observe` 只消费本次 committed
+`frame_step_results().last()`；policy invariant failure 立即停止示例，不扩大公共
+Adapter error enum。成功 replacement 保持 Entity identity，blocked/pending 保持最后
+Transform。
+
+表现层只消费已加载事实：
+
+- lane surfaces/markings 来自 Spatial centerlines 与 config lane width；
+- StopLine 与灯具 binding 来自 Core StopLine/MovementGate/SignalGroup registry；
+- lamp material 只由 committed `signal_group_state` 驱动；
+- camera/ground 从 Spatial bounds 派生；example-local orbit camera 支持滚轮缩放、
+  左键水平面平移和右键绕 focus 旋转；
+- 运行遥测由 Bevy UI 绘制在画面内，window title 保持稳定；
+- Core/Spatial vehicle pose 的 `edgeProgress`/translation 是前保险杠位置；built-in
+  vehicle child 沿 local `+Z` 向后延伸，proxy 原点不得作为车身中心；
+- built-in vehicle child mesh、颜色、键盘和 screenshot 只属于 example。
+
+HUD 的 example-local 诊断不进入 Adapter public API。宿主 FPS/frame time 按约 1 秒
+outer-frame 采样窗口计算；LaneFlow step CPU 从 population `Lifecycle` 完成后开始，到
+`Observe` 消费 committed result 前结束，只包围既有 `LaneFlowFixedSet::Step`，并按同一
+窗口展示平均 `ms/frame` 与 `us/tick`。HUD 同时读取 `LaneFlowFrameReport` 的最近
+step/backlog/catch-up 状态，以及 #203 controller 的 target/running/pending 权威人口。
+wall-clock 样本不进入 Core input/state、PRNG 或 replay，不包含 renderer、截图和
+`PostUpdate` presentation，也不替代 #171 固定机 Adapter performance Gate。
+
+默认 authoring config 使用 `[0, 29000] ms` controller offsets，在 `58000 ms` cycle
+中提供可见半周期差；该 sample content 修正不改变 Traffic/Spatial/Manifest/catalog
+格式版本。dedicated example tests 覆盖 50/100/200 production bootstrap/headless
+运行、same-Entity recycle 与 outer-frame partition replay；GUI smoke 与截图仍是 G3/G4
+前独立的本机和产品验收证据。

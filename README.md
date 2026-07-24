@@ -76,7 +76,7 @@ LaneFlow 暂不追求以下能力：
 
 ## Rust workspace
 
-- `crates/laneflow-bevy`：Bevy 0.19 Reference Adapter；使用最小 modular dependency graph，提供单活动 `LaneFlowSession`、专用 fixed schedule、Vehicle/Entity 部分双射、frame placement、原子 local Transform 同步、可选 Gizmos 与 campus native reference example。
+- `crates/laneflow-bevy`：Bevy 0.19 Reference Adapter；使用最小 modular dependency graph，提供单活动 `LaneFlowSession`、专用 fixed schedule、Vehicle/Entity 部分双射、frame placement、原子 local Transform 同步、可选 Gizmos、campus 最小示例与 v0.8 signalized-corridor native example。
 - `crates/laneflow-core`：引擎无关的 Core domain/runtime、typed handles、fixed tick、fixed-time Signals snapshot/query/events、SignalStop 与 permission-aware traversal，以及私有 occupancy/leader、IIDM、safe-speed 与 no-overlap projection pipeline。
 - `crates/laneflow-data`：当前 Traffic v0.7 JSON loader、严格版本闸口、per-edge `speedLimit` 与 Core normalization；依赖方向固定为 `laneflow-data -> laneflow-core`。
 - `crates/laneflow-scenario`：可选、引擎无关的 reference scenario policy；当前提供 v0.8 signalized-corridor 的 catalog normalization、50–200 车辆确定性初始化、ordered completion 消费和 blocked recycle retry，依赖方向固定为 `laneflow-scenario -> laneflow-core`。
