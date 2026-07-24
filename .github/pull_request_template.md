@@ -78,7 +78,7 @@ G3 comment 模板（合并前发表）：
 
 ## G3 合并判断
 
-- Gate 结果：`Pass` / `Block`
+- Gate 结果：`G3 Pass` / `G3 Waived` / `R0-R1 bootstrap`
 - Rollout phase：`R0` / `R1` / `R2`
 - Current head：
 - Checks：
