@@ -1,12 +1,13 @@
 # Signalized Corridor Population
 
 **文档状态**: Accepted（#203 G1）<br>
-**最后更新**: 2026-07-23<br>
-**适用范围**: v0.8 signalized-corridor 的目标人口、确定性初始分布、完成事件消费与出口回流 reference policy
+**最后更新**: 2026-07-25<br>
+**适用范围**: v0.8 signalized-corridor 的 current 人口/回流 policy，以及 v0.9 catalog 0.2 target 对同一 authority 的修订
 
 **关联文档**:
 
 - [`example-scenarios.md`](example-scenarios.md)
+- [`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)
 - [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`](../adr/0016-scenario-population-and-recycle-lifecycle-authority.md)
 - [`core-runtime.md`](core-runtime.md)
 - [`bevy-reference-adapter.md`](bevy-reference-adapter.md)
@@ -135,3 +136,22 @@ controller 在 bind 时按目标人口预留所有 steady containers。completio
 catalog 顺序、SplitMix64 算法、draw order、portal-first/lane-second 规则、initial ID 和 batch permutation 都属于 v0.8 replay contract。修改其中任一项必须通过新的设计/迁移决策，不能作为无说明的内部重构。
 
 本实现不改变 Core API、Traffic/Spatial/Manifest 格式或 Adapter API；共享 catalog DTO 从 generator 移至 scenario crate 只消除 authoring/runtime shape 漂移，checked-in generator bytes 必须保持不变。
+
+## 9. v0.9 catalog 0.2 target
+
+#196 保持本文的 caller-owned lifecycle、ordered completion、bounded state 与
+blocked retry authority，但 clean-break 修订选择结构：
+
+- Portal 拥有 ordered PortalLane；
+- PortalLane 引用共享 entry SpawnSlot，并拥有 weighted full RouteChoice；
+- completion 固定调用 portal、lane、route 三个 logical bounded draw site；
+  每个 site 保留既有 rejection sampling，固定的是调用点与顺序；
+- 初始化先做 physical-slot Fisher–Yates，再按 logical slot order 为每个 slot
+  消费一次 Route draw；
+- SpawnSlot 不再拥有单一 Route，多条 Route 可共享同一 PortalLane entry slot；
+- 默认 pitch 为 10 m，只在真实 portal approach edges 上生成 physical slots。
+
+完整 28 Route、weights、catalog 0.2 ownership 与 golden draw order 见
+[`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)。
+在 #229 生产迁移前，本文件 §2–§8 的 catalog 0.1 与两次 completion draw 继续描述
+current implementation；不得把 target 与 current 混装或提供兼容 shim。

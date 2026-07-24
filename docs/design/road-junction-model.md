@@ -1,9 +1,9 @@
 # Road / Junction / Maneuver 静态模型
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-07-24<br>
+**最后更新**: 2026-07-25<br>
 **适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态生产化 profile、ManeuverGate、Route occurrence、Traffic v0.8 target、确定性与性能边界<br>
-**实现状态**: 本文是 #196/#229 的 G1 输入；current production 仍为 Traffic v0.7、pair-based MovementGate 和无 Junction/Movement/ManeuverPath registry，本文 target 尚未由 #229 实现
+**实现状态**: #196 已在本文之上冻结具体 protected-turning profile；current production 仍为 Traffic v0.7、pair-based MovementGate 和无 Junction/Movement/ManeuverPath registry，本文 target 尚未由 #229 实现
 
 **关联文档**:
 
@@ -24,6 +24,7 @@
 - `spatial-geometry.md`
 - `data-format.md`
 - `example-scenarios.md`
+- `signalized-corridor-protected-turning.md`
 
 ## 1. 目标、状态与非目标
 
@@ -38,7 +39,7 @@
 - external ID、typed handle、normalization、foreign rebind 与 first-error；
 - Traffic v0.8 clean-break target 和 #229 的原子迁移边界；
 - route registration-time occurrence compilation 与 steady-tick 性能约束；
-- #196 必须进一步冻结的 protected-turning profile 和安全证明。
+- #196 已冻结的 protected-turning profile 和安全证明边界。
 
 ### 1.2 当前 production 与 target
 
@@ -50,7 +51,7 @@
 | Gate              | pair-based `MovementGateKey`         | 一等 `ManeuverGateHandle`           |
 | Junction identity | connector ID 命名推断                | 显式 external ID + handle           |
 | Spatial           | SpatialPackage `0.1` edge centerline | shape 保持 `0.1`                    |
-| Conflict          | authoring protected phases           | 仍由 #196 authoring 证明；无 solver |
+| Conflict          | authoring protected phases           | #196 profile 已冻结；无 solver      |
 
 在 #229 G4 前，本文不得被描述为已交付的 Core/Data API。Current loader、schema、
 fixtures、generator 和 native example 继续以 v0.7 为事实。
@@ -770,9 +771,13 @@ Input arrays 是 normalization order。Permutation 后：
 
 本文不为 docs-only #228 运行 runtime benchmark。
 
-## 13. v0.9 protected-turning profile 输入
+## 13. v0.9 protected-turning profile
 
-#196 必须在本通用模型之上冻结具体 corridor profile，至少包括：
+#196 已在
+[`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)
+接受具体 corridor profile。该文档是 #229、#190–#192 的场景级 SSOT；本文继续是
+owner、identity、normalization、Route occurrence 和 performance contract 的通用
+SSOT。具体 profile 已冻结以下输入：
 
 ### 13.1 Identity 与 topology
 
@@ -810,8 +815,11 @@ Input arrays 是 normalization order。Permutation 后：
 - Route order/catalog order 的确定性影响；
 - 50/100/200 三档和所有转向 coverage。
 
-若 #196 无法用 authoring matrix 证明上述安全前提，必须回到 G1 拆分 ConflictZone /
-merge arbitration，不能让 #229 通过 private heuristic 补洞。
+已接受 profile 的 32 条 path 在四个 group 内通过 authoring compatibility 检查，
+默认 yellow + all-red 为 4 秒。但 production 仍必须以规范人口和 seeds 证明 phase
+handoff 时前一 active set 的 internal edges 已清空。若该测试失败，必须重新打开
+#196 G1 并拆分 Junction entry capacity/clearance；不能让 #229 通过 private
+heuristic、放宽测试或隐式 ConflictZone 补洞。
 
 ## 14. Core/Data/Adapter 影响矩阵
 
