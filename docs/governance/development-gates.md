@@ -41,7 +41,7 @@ Gate Ledger 是 Issue 和 PR 上的增量闸口记录，用来说明任务何时
 - G3 的完整事件证据记录在每个 PR 的 `## G3 合并判断` comment，且必须在该 PR 合并前创建；PR body 的 G3 checkbox 只保存当前 PR 的直接 comment permalink。Issue body 的 G3 Gate Ledger 按 Related PR 合入顺序增量追加各自 permalink，在 Delivery PR 与全部 Related PR 均完成前保持未勾选，最终再勾选并保存完整 permalink 索引。
 - G4 的完整事件证据记录在 Issue 的 `## G4 完成判断` comment，且必须在所有关联 PR 合并后、Issue 关闭前创建；Issue body 的 G4 checkbox 保存直接 comment permalink。Delivery PR 的 body 只回链该 Issue G4 comment，Related PR 不承担 Issue G4。
 - GitHub comment 是带时间和作者的过程证据，不是不可变审计日志；长期规则仍由仓库文档和 Git 历史保存。
-- 每个 Related PR 独立 G3 都必须运行 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>`；该 comment 永久保留 Related-only 断言，只验证当前 Related PR 的 comment、Issue 增量 permalink 与关系，不声明 Issue 整体 G3 已完成。
+- 每个 Related PR 独立 G3 都必须运行 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>`；该 comment 永久保留 Related-only 断言，只验证当前 Related PR 的 comment、仍未勾选的 Issue G3 增量 permalink 与关系，不声明 Issue 整体 G3 已完成。若 Issue G3 已提前勾选，Related-only 校验必须失败。
 - Delivery PR G3、整组关系复核与 G4 使用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence <g3|g4> --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...`，并传入 Issue 已记录的全部 Related PR。整组复核按各 Related PR 原有的 Related-only 断言验证其 append-only comment，不要求改写为 full-set 命令；Delivery PR comment 和 Issue 最终断言使用 full-set 命令。`Gate 断言` 行必须用反引号记录与本次参数完全一致的规范命令并明确写 `已通过`；`待运行`、缺少成功标记或参数不匹配均视为 Gate 失败。命令或远端读取失败同样是 Gate 失败。
 - 小型 `docs-only` 或 `governance` 任务可以把 G0-G2 合并为一条开工记录，但该记录必须发生在实现或开 PR 之前。
 - 如果 G4 阶段才发现 G0-G3 缺失，只能标记为补救记录，并说明流程遗漏原因。

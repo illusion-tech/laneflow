@@ -1283,7 +1283,7 @@ fn validate_related_g3_evidence(
             "Issue 的 `Related PRs` 字段未记录 Related PR #{related_number}"
         ));
     }
-    let issue_g3_line = gate_ledger_line(&issue.body, "G3")?;
+    let issue_g3_line = pending_gate_line(&issue.body, "G3")?;
     validate_related_pr_g3(args, issue_g3_line, related_number, related_pr)
 }
 
@@ -1399,14 +1399,12 @@ fn completed_gate_line<'a>(body: &'a str, gate: &str) -> Result<&'a str, String>
         .ok_or_else(|| format!("body 缺少已勾选的 `{gate}` Gate Ledger 项"))
 }
 
-fn gate_ledger_line<'a>(body: &'a str, gate: &str) -> Result<&'a str, String> {
+fn pending_gate_line<'a>(body: &'a str, gate: &str) -> Result<&'a str, String> {
     let completed_prefix = gate_ledger_prefix(gate)?;
     let pending_prefix = completed_prefix.replacen("- [x]", "- [ ]", 1);
     body.lines()
-        .find(|line| {
-            line.starts_with(completed_prefix) || line.starts_with(pending_prefix.as_str())
-        })
-        .ok_or_else(|| format!("body 缺少 `{gate}` Gate Ledger 项"))
+        .find(|line| line.starts_with(pending_prefix.as_str()))
+        .ok_or_else(|| format!("body 缺少未勾选的 `{gate}` Gate Ledger 项"))
 }
 
 fn gate_ledger_prefix(gate: &str) -> Result<&'static str, String> {
@@ -2341,6 +2339,21 @@ Refs: #12
         let related_pr = related_pr_for_args(false, &args);
 
         assert!(validate_related_g3_evidence(&args, &issue, 62, &related_pr).is_ok());
+    }
+
+    #[test]
+    fn rejects_related_g3_when_issue_g3_is_already_completed() {
+        let args = related_only_g3_args();
+        let mut issue = issue_with_pending_delivery_and_related_g3();
+        issue.body = issue
+            .body
+            .replace("- [ ] G3 合并判断已记录：", "- [x] G3 合并判断已记录：");
+        let related_pr = related_pr_for_args(false, &args);
+
+        let error = validate_related_g3_evidence(&args, &issue, 62, &related_pr)
+            .expect_err("Related-only G3 requires the Issue ledger to remain pending");
+
+        assert!(error.contains("缺少未勾选的 `G3` Gate Ledger 项"));
     }
 
     #[test]
