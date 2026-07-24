@@ -22,8 +22,6 @@ on:
       - External Review Signal
     types:
       - completed
-  schedule:
-    - cron: "7,17,27,37,47,57 * * * *"
   workflow_dispatch:
     inputs:
       pr_number:
@@ -81,9 +79,6 @@ jobs:
                   '[.workflow_run.pull_requests[].number | select(type == "number" and . > 0)] | unique' \
                   "$GITHUB_EVENT_PATH"
               )"
-              ;;
-            schedule)
-              pr_numbers="$(all_open_prs)"
               ;;
             workflow_dispatch)
               if [[ -z "$MANUAL_PR" ]]; then

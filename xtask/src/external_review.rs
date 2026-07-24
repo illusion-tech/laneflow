@@ -511,11 +511,6 @@ struct CheckRunResponse {
 }
 
 #[derive(Debug, Deserialize)]
-struct CheckRunsResponse {
-    check_runs: Vec<CheckRunResponse>,
-}
-
-#[derive(Debug, Deserialize)]
 struct CheckRunApp {
     slug: String,
 }
@@ -544,21 +539,6 @@ struct PublishCheckSkip {
     pull_request: u64,
     skipped: bool,
     reason: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PublishCheckReuse {
-    schema_version: u64,
-    repository: String,
-    pull_request: u64,
-    current_head_oid: String,
-    state: ExternalReviewState,
-    conclusion: String,
-    reused: bool,
-    check_run_id: u64,
-    check_run_url: String,
-    external_id: String,
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -656,30 +636,6 @@ pub fn run_publish_check(args: &[String]) -> Result<(), String> {
     );
     let external_id = format!("{evaluation_key}:run-{}-{}", args.run_id, args.run_attempt);
     let payload = build_check_run_payload(&result, &args.details_url, external_id.clone());
-    if let Some(existing) =
-        find_existing_equivalent_check(&args.repository, &payload, &evaluation_key)?
-    {
-        let existing_external_id = existing
-            .external_id
-            .ok_or("等价 Check Run 缺少 external ID")?;
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&PublishCheckReuse {
-                schema_version: CHECK_PUBLISH_RESULT_SCHEMA_VERSION,
-                repository: args.repository,
-                pull_request: args.pr,
-                current_head_oid: result.current_head_oid,
-                state: result.state,
-                conclusion: payload.conclusion.to_string(),
-                reused: true,
-                check_run_id: existing.id,
-                check_run_url: existing.html_url,
-                external_id: existing_external_id,
-            })
-            .map_err(|error| format!("无法序列化 shadow Check 复用结果：{error}"))?
-        );
-        return Ok(());
-    }
     let response = create_check_run(&args.repository, &payload)?;
     verify_check_run_response(&response, &payload)?;
 
@@ -1678,79 +1634,6 @@ fn evaluation_fingerprint(result: &ExternalReviewResult) -> Result<String, Strin
     Ok(format!("{hash:016x}"))
 }
 
-fn find_existing_equivalent_check(
-    repository: &str,
-    payload: &CheckRunPayload,
-    evaluation_key: &str,
-) -> Result<Option<CheckRunResponse>, String> {
-    let endpoint = format!("repos/{repository}/commits/{}/check-runs", payload.head_sha);
-    let output = Command::new("gh")
-        .args([
-            "api",
-            "--method",
-            "GET",
-            &endpoint,
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            "X-GitHub-Api-Version: 2022-11-28",
-            "-f",
-            &format!("check_name={}", payload.name),
-            "-f",
-            "filter=latest",
-            "-f",
-            "per_page=100",
-        ])
-        .output()
-        .map_err(|error| format!("无法运行 gh Check Run 查询：{error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "gh Check Run 查询失败：{}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    let response: CheckRunsResponse = serde_json::from_slice(&output.stdout).map_err(|error| {
-        format!(
-            "gh Check Run 查询输出不是预期 JSON：{error}；原始输出：{}",
-            String::from_utf8_lossy(&output.stdout).trim()
-        )
-    })?;
-    select_existing_equivalent_check(response.check_runs, payload, evaluation_key)
-}
-
-fn select_existing_equivalent_check(
-    check_runs: Vec<CheckRunResponse>,
-    payload: &CheckRunPayload,
-    evaluation_key: &str,
-) -> Result<Option<CheckRunResponse>, String> {
-    let expected_external_prefix = format!("{evaluation_key}:run-");
-    let mut matching = check_runs
-        .into_iter()
-        .filter(|check| {
-            check.app.slug == R1_SHADOW_CHECK_APP_SLUG
-                && check
-                    .external_id
-                    .as_deref()
-                    .is_some_and(|external_id| external_id.starts_with(&expected_external_prefix))
-        })
-        .collect::<Vec<_>>();
-    for check in &matching {
-        let conclusion = check.conclusion.as_deref().unwrap_or_default();
-        if check.name != payload.name
-            || check.head_sha != payload.head_sha
-            || check.status != payload.status
-            || conclusion != payload.conclusion
-        {
-            return Err(format!(
-                "等价 fingerprint 已存在但 Check 绑定不一致：id={} name={} head={} status={} conclusion={} app={}",
-                check.id, check.name, check.head_sha, check.status, conclusion, check.app.slug
-            ));
-        }
-    }
-    matching.sort_by_key(|check| check.id);
-    Ok(matching.pop())
-}
-
 fn create_check_run(
     repository: &str,
     payload: &CheckRunPayload,
@@ -2177,7 +2060,7 @@ mod tests {
     }
 
     #[test]
-    fn fingerprints_and_reuses_only_equivalent_completed_checks() {
+    fn fingerprints_state_and_never_reuses_existing_shadow_checks() {
         let pass = sample_result(ExternalReviewState::Pass);
         let awaiting = sample_result(ExternalReviewState::AwaitingRereview);
         assert_eq!(
@@ -2188,45 +2071,12 @@ mod tests {
             evaluation_fingerprint(&pass).expect("pass fingerprint"),
             evaluation_fingerprint(&awaiting).expect("awaiting fingerprint")
         );
-
-        let payload = build_check_run_payload(
-            &pass,
-            "https://github.com/illusion-tech/laneflow/actions/runs/1",
-            "evaluation-key:run-2-1".to_string(),
-        );
-        let equivalent = CheckRunResponse {
-            id: 2,
-            name: payload.name.to_string(),
-            html_url: "https://github.com/illusion-tech/laneflow/runs/2".to_string(),
-            head_sha: payload.head_sha.clone(),
-            status: payload.status.to_string(),
-            conclusion: Some(payload.conclusion.to_string()),
-            external_id: Some("evaluation-key:run-1-1".to_string()),
-            app: CheckRunApp {
-                slug: R1_SHADOW_CHECK_APP_SLUG.to_string(),
-            },
-        };
-
-        let reused = select_existing_equivalent_check(vec![equivalent], &payload, "evaluation-key")
-            .expect("equivalent check query")
-            .expect("equivalent check");
-        assert_eq!(reused.id, 2);
-
-        let mismatched = CheckRunResponse {
-            id: 3,
-            name: payload.name.to_string(),
-            html_url: "https://github.com/illusion-tech/laneflow/runs/3".to_string(),
-            head_sha: payload.head_sha.clone(),
-            status: payload.status.to_string(),
-            conclusion: Some("failure".to_string()),
-            external_id: Some("evaluation-key:run-3-1".to_string()),
-            app: CheckRunApp {
-                slug: R1_SHADOW_CHECK_APP_SLUG.to_string(),
-            },
-        };
-        assert!(
-            select_existing_equivalent_check(vec![mismatched], &payload, "evaluation-key").is_err()
-        );
+        let source = include_str!("external_review.rs");
+        let forbidden_find = ["find_existing_", "equivalent_check"].concat();
+        let forbidden_select = ["select_existing_", "equivalent_check"].concat();
+        assert!(!source.contains(&forbidden_find));
+        assert!(!source.contains(&forbidden_select));
+        assert!(source.contains("let response = create_check_run(&args.repository, &payload)?;"));
     }
 
     #[test]
@@ -2271,11 +2121,11 @@ mod tests {
             "pull_request_target:",
             "issue_comment:",
             "workflow_run:",
-            "schedule:",
             "workflow_dispatch:",
         ] {
             assert!(gate.contains(trigger), "missing trusted trigger: {trigger}");
         }
+        assert!(!gate.contains("schedule:"));
         assert!(gate.contains("External Review Signal"));
         assert!(gate.contains(
             "permissions:\n  contents: read\n  pull-requests: read\n  issues: read\n  checks: write"
