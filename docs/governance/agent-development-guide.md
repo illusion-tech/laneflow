@@ -40,7 +40,7 @@ AI Agent 应遵守以下流程：
 7. 运行与变更匹配的检查。
 8. 在 PR 或交付说明中记录测试、风险和未覆盖范围。
 
-提交信息应遵守 `docs/reference/commit-convention.md`，标题使用 Conventional Commits，正文必须包含 `Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`，底部 footer 必须包含 `Refs` 或 `Closes`。新提交的 `Gate` 使用 `G3 Candidate` 或 `G3 Block`；正式 `G3 Pass` 只存在于 PR Check 和当前 head 的 append-only G3 comment。
+提交信息应遵守 `docs/reference/commit-convention.md`，标题使用 Conventional Commits，正文必须包含 `Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`，底部 footer 必须包含 `Refs` 或 `Closes`。新提交的本地 `Gate` 使用 `G3 Candidate` 或 `G3 Block`，但 PR / push range 不得包含 `G3 Block`；正式 `G3 Pass` 只存在于 PR Check 和当前 head 的 append-only G3 comment。
 
 修改 Rust 代码时还应读取 `docs/reference/rust-code-style.md`。其中无法由 `rustfmt` 表达的规则只约束本次触及范围；不得在无关功能 PR 中顺带重排历史格式。
 

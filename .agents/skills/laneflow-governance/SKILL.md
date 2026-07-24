@@ -129,7 +129,7 @@ Docs: updated
 Refs: #<id>
 ```
 
-`Gate: G3 Candidate` 只表示该 commit 可进入 PR 级 G3 判断；正式 `G3 Pass` 只存在于当前 head 的 Check 和 append-only G3 comment。阻断中的提交使用 `Gate: G3 Block`。
+`Gate: G3 Candidate` 只表示该 commit 可进入 PR 级 G3 判断；正式 `G3 Pass` 只存在于当前 head 的 Check 和 append-only G3 comment。阻断中的本地提交可使用 `Gate: G3 Block`，但它不得进入 PR / push 合并范围。
 
 只有关联 Issue 满足 G4 完成边界时，才在 commit message footer 使用 `Closes: #<id>`；否则使用 `Refs: #<id>`。PR body 的 `Closes #<id>` / `Resolves #<id>` 用于 GitHub Development 关联，不改变常规 commit footer 规则。
 
