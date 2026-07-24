@@ -52,3 +52,4 @@
 - `v0.7-bevy-native-example-validation.md`：#173 campus native reference example 的真实制品加载、feature/依赖边界、dedicated compile、运行时控制与本机窗口 smoke 证据。
 - `v0.7-bevy-native-example-smoke.jpg`：#173 本机运行 `native_reference`、启用 debug Gizmos 后保存的窗口内渲染截图。
 - `v0.7-bevy-closure-review.md`：#174 对 v0.7 Bevy Reference Adapter 治理、生产契约、正确性、性能、可视验证、依赖安全与兼容边界的最终独立收口基线。
+- `v0.8-signalized-corridor-closure-review.md`：#195 对 v0.8 直行信号化走廊治理、制品、道路限速、双信号控制、50–200 人口、确定性回流、native 证据、安全与兼容边界的最终独立收口基线。

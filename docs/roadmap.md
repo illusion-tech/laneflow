@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Draft  
-**最后更新**: 2026-07-22
+**最后更新**: 2026-07-24
 **适用范围**: LaneFlow 初始版本路线图
 
 本文记录 LaneFlow 的稳定路线图。GitHub Project 负责当前执行状态，本文负责长期版本边界。
@@ -144,6 +144,8 @@
 
 目标：交付首个可调、可持续运行的直行信号化走廊示例，把既有 Core、Signals、Spatial 与 Bevy Reference Adapter 串成一条可验证的产品路径。Milestone tracker 为 #193。
 
+完成状态：2026-07-24 已完成。#184–#189 与 #203 已分别完成 Accepted 设计、道路限速、Core atomic replace、Bevy lifecycle transaction、场景制品、确定性人口/回流策略和 native example；最终生产事实、机器/可视证据、安全状态、兼容边界与剩余风险见 [`v0.8 收口审阅基线`](reference/v0.8-signalized-corridor-closure-review.md)。
+
 范围：
 
 - 一条双向六车道主干道与两条双向四车道次干道；两条次干道分别与主干道垂直，形成两个平面交叉口；
@@ -154,7 +156,7 @@
 - 车辆驶出道路后，先在其他 5 个 portal 间均匀选择，再在目标 portal 的 lane route 间均匀选择；blocked retry 不重抽，使场景持续运行且固定 seed 可复现；
 - 首版车辆仅直行，提供可运行的 Bevy native reference example、headless 集成验证与独立 closure review。
 
-设计 SSOT 为 `design/example-scenarios.md` 与 ADR 0016；Traffic 目标版本为 v0.7，SpatialPackage/ScenarioManifest 保持 v0.1。实施链：#184 直行基线设计 → #185–#188 Core/Data/Adapter 场景能力 → #189 native example 集成 → #195 closure。
+设计 SSOT 为 `design/example-scenarios.md` 与 ADR 0016；Traffic 目标版本为 v0.7，SpatialPackage/ScenarioManifest 保持 v0.1。实施链：#184 直行基线设计 → #185/#186/#188 分别交付道路限速、Core replace 与场景制品 → #187/#203 交付 Adapter lifecycle 与人口回流 policy → #189 native example 集成 → #195 closure。
 
 不覆盖：左转、右转、受保护转向相位、permissive movement、复杂车道选择或城市级扩展。
 
