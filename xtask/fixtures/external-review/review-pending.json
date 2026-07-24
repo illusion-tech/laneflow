@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 306,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "reviewRequests": {
+      "nodes": [
+        {
+          "requestedReviewer": {
+            "login": "copilot-pull-request-reviewer"
+          }
+        }
+      ]
+    }
+  }
+}

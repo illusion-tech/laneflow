@@ -57,25 +57,28 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 
 所有切片默认需要一个有效 external reviewer。首版标准路径只接受 exact-head review；`unresolved=0` 是必要非充分条件。
 
-| 场景                                                                              | 预期状态 / 结果                                                                                            |
-| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| 无 review；仅 request、reaction、任务启动或无 reviewed SHA 摘要                   | `awaiting_review` / `review_pending`，Fail                                                                 |
-| 只有 PR author self-review                                                        | `awaiting_review`，Fail                                                                                    |
-| 受信任 reviewer 在 current head 完成 clean review                                 | `pass` 候选；仍需 threads、Checks 与 G3 comment                                                            |
-| finding 未处置或仍有 unresolved actionable thread                                 | `findings_open`，Fail                                                                                      |
-| finding 已回复/resolve，但没有新的 clean re-review                                | `awaiting_rereview`，Fail                                                                                  |
-| finding 处置后，受信任 reviewer 在 current head clean re-review                   | `pass` 候选                                                                                                |
-| clean completion 后 new push 或 review dismissed                                  | `stale`，Fail 并重新请求 review                                                                            |
-| clean review 绑定旧 head，且没有已批准的等价例外                                  | `stale`，Fail                                                                                              |
-| provider 文案正确但 actor 不在 allowlist                                          | Fail                                                                                                       |
-| author 转贴 Cursor / 本地 Agent 输出                                              | Fail                                                                                                       |
-| content-equivalent rebase 具备全部附加证据                                        | `waived`；不得自动转成标准 `pass`                                                                          |
-| 预创建或编辑旧 G3 comment 回填新证据                                              | Fail；必须新增 superseding comment                                                                         |
-| R0/R1 bootstrap PR 尚无 required External Review Gate                             | 按当前 ruleset完成 G3，但必须记录 rollout phase、current head、人工 exact-head review 与 non-required 原因 |
-| R2 PR 缺少 current-head External Review Gate success                              | Fail                                                                                                       |
-| Check success 与 G3 comment 绑定不同 head，或 comment 早于最终 completion / Check | Fail                                                                                                       |
+| 场景                                                                              | 预期状态 / 结果                                                                             |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 无 review；仅 request、reaction、任务启动或无 reviewed SHA 摘要                   | `awaiting_review` / `review_pending`，Fail                                                  |
+| 只有 PR author self-review                                                        | `awaiting_review`，Fail                                                                     |
+| 受信任 reviewer 在 current head 完成 clean review                                 | `pass` 候选；仍需 threads、Checks 与 G3 comment                                             |
+| finding 未处置或仍有 unresolved actionable thread                                 | `findings_open`，Fail                                                                       |
+| finding 已回复/resolve，但没有新的 clean re-review                                | `awaiting_rereview`，Fail                                                                   |
+| finding 处置后，受信任 reviewer 在 current head clean re-review                   | `pass` 候选                                                                                 |
+| clean completion 后 new push 或 review dismissed                                  | `stale`，Fail 并重新请求 review                                                             |
+| clean review 绑定旧 head，且没有已批准的等价例外                                  | `stale`，Fail                                                                               |
+| provider 文案正确但 actor 不在 allowlist                                          | Fail                                                                                        |
+| author 转贴 Cursor / 本地 Agent 输出                                              | Fail                                                                                        |
+| content-equivalent rebase 具备全部附加证据                                        | `waived`；不得自动转成标准 `pass`                                                           |
+| 预创建或编辑旧 G3 comment 回填新证据                                              | Fail；必须新增 superseding comment                                                          |
+| Related PR B 自身仍由 main 上的旧 validator 判断                                  | 按 R0 bootstrap 人工核验 exact-head review；不得用候选 validator 自批                       |
+| PR B 合入后的 R0/R1 PR 尚无 required External Review Gate                         | `check-gate-evidence g3` 还要求 live external-review `pass`，并记录 non-required Check 原因 |
+| R2 PR 缺少 current-head External Review Gate success                              | Fail                                                                                        |
+| Check success 与 G3 comment 绑定不同 head，或 comment 早于最终 completion / Check | Fail                                                                                        |
 
 Provider fixtures 至少覆盖 Copilot clean/findings、Codex clean/findings、人工 `APPROVED`、无 SHA、错误 actor、new-push stale、finding 后无复审、重复 thread 与 provider outage。历史事件 replay 和人工审计必须与机器最终分类一致。
+
+离线 fixture / replay 使用 `check-external-review --input <snapshot.json> --format json --expect <state>`；live 对照使用 `check-external-review --repo <owner/repo> --pr <number> --format json`。snapshot、结果 schema、固定状态枚举和 fail-closed 退出语义必须保持向后可识别；无法完整分页或二次读取 head/base 不一致时不得降级为 `awaiting_review` 或 `pass`。
 
 workflow 安全检查至少验证：
 

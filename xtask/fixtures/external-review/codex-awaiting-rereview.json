@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 226,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "1210e0e0ecad8b53945bfa41a26cd778e8e8951c",
+    "baseRefOid": "f4a55a5b1d6ef5bce3a608fc9cc64c723331895b",
+    "reviews": {
+      "nodes": [
+        {
+          "id": "PRR-codex-finding",
+          "author": {
+            "login": "chatgpt-codex-connector"
+          },
+          "body": "",
+          "state": "COMMENTED",
+          "submittedAt": "2026-07-24T03:21:50Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/226#pullrequestreview-4769879521",
+          "commit": {
+            "oid": "1210e0e0ecad8b53945bfa41a26cd778e8e8951c"
+          }
+        }
+      ]
+    },
+    "reviewThreads": {
+      "nodes": [
+        {
+          "id": "PRRT-codex-finding",
+          "isResolved": true,
+          "isOutdated": false,
+          "comments": {
+            "nodes": [
+              {
+                "id": "PRRC-codex-finding",
+                "author": {
+                  "login": "chatgpt-codex-connector"
+                },
+                "body": "Preserve lifecycle error state instead of panicking.",
+                "createdAt": "2026-07-24T03:21:50Z",
+                "updatedAt": "2026-07-24T03:21:50Z",
+                "url": "https://github.com/illusion-tech/laneflow/pull/226#discussion_r3642722941",
+                "pullRequestReview": {
+                  "id": "PRR-codex-finding",
+                  "author": {
+                    "login": "chatgpt-codex-connector"
+                  },
+                  "state": "COMMENTED",
+                  "submittedAt": "2026-07-24T03:21:50Z",
+                  "commit": {
+                    "oid": "1210e0e0ecad8b53945bfa41a26cd778e8e8951c"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

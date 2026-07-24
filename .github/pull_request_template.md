@@ -86,7 +86,7 @@ G3 comment 模板（合并前发表）：
 - 审阅：provider、actor、reviewed head、outcome、completion、evidence URL：
 - Findings disposition / clean re-review：
 - Review threads：`unresolved = <count>`，证据：
-- R0 bootstrap 工具边界：Related PR B 合入前，`check-gate-evidence g3` 不校验上述新增外部审阅字段；G3 Owner 已人工逐项核验：
+- R0 bootstrap 工具边界：Related PR B 自身不得用候选 validator 自批；PR B 合入后记录 live `check-external-review` 结果。G3 Owner 已人工核验本阶段仍未由 required Check 覆盖的字段：
 - 验证：
 - 风险：
 - 例外：

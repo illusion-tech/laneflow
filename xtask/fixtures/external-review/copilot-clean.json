@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 38,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "24d8db2125edfff53298c8bf5a9ac8da20b75d0d",
+    "baseRefOid": "2293ffbd40ea86f94e4fde08ddef1e2fb1d2b1cf",
+    "reviews": {
+      "nodes": [
+        {
+          "id": "PRR-copilot-clean",
+          "author": {
+            "login": "copilot-pull-request-reviewer"
+          },
+          "body": "## Pull request overview\n\nCopilot reviewed 15 out of 15 changed files in this pull request and generated no new comments.",
+          "state": "COMMENTED",
+          "submittedAt": "2026-07-09T08:37:58Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/38#pullrequestreview-4661327185",
+          "commit": {
+            "oid": "24d8db2125edfff53298c8bf5a9ac8da20b75d0d"
+          }
+        }
+      ]
+    }
+  }
+}

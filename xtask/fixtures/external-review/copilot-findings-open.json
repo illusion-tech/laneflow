@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 38,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "d6361df7314ae6ae49c13832c66723125510f0e3",
+    "baseRefOid": "2293ffbd40ea86f94e4fde08ddef1e2fb1d2b1cf",
+    "reviews": {
+      "nodes": [
+        {
+          "id": "PRR-copilot-findings",
+          "author": {
+            "login": "copilot-pull-request-reviewer"
+          },
+          "body": "## Pull request overview\n\nCopilot reviewed 15 files and generated 4 comments.",
+          "state": "COMMENTED",
+          "submittedAt": "2026-07-09T08:18:32Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/38#pullrequestreview-4661194019",
+          "commit": {
+            "oid": "d6361df7314ae6ae49c13832c66723125510f0e3"
+          }
+        }
+      ]
+    },
+    "reviewThreads": {
+      "nodes": [
+        {
+          "id": "PRRT-copilot-finding",
+          "isResolved": false,
+          "isOutdated": false,
+          "comments": {
+            "nodes": [
+              {
+                "id": "PRRC-copilot-finding",
+                "author": {
+                  "login": "copilot-pull-request-reviewer"
+                },
+                "body": "Require closingIssuesReferences.",
+                "createdAt": "2026-07-09T08:18:31Z",
+                "updatedAt": "2026-07-09T08:18:31Z",
+                "url": "https://github.com/illusion-tech/laneflow/pull/38#discussion_r3550034350",
+                "pullRequestReview": {
+                  "id": "PRR-copilot-findings",
+                  "author": {
+                    "login": "copilot-pull-request-reviewer"
+                  },
+                  "state": "COMMENTED",
+                  "submittedAt": "2026-07-09T08:18:32Z",
+                  "commit": {
+                    "oid": "d6361df7314ae6ae49c13832c66723125510f0e3"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

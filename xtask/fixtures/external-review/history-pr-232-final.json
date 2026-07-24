@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 232,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "c22802bb6b1f783e823eafcea255bb9dfb6b4170",
+    "baseRefOid": "7575938376a9ca18fbedaa86d93192fa85b22bad",
+    "reviews": {
+      "nodes": [
+        {
+          "id": "PRR-pr232-old-finding",
+          "author": {
+            "login": "chatgpt-codex-connector"
+          },
+          "body": "",
+          "state": "COMMENTED",
+          "submittedAt": "2026-07-24T13:02:12Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/232#pullrequestreview-4773374105",
+          "commit": {
+            "oid": "e309a676dfeecaf4b658e5c309684e508eaedc9c"
+          }
+        },
+        {
+          "id": "PRR-pr232-final-finding",
+          "author": {
+            "login": "chatgpt-codex-connector"
+          },
+          "body": "",
+          "state": "COMMENTED",
+          "submittedAt": "2026-07-24T14:01:46Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/232#pullrequestreview-4773856344",
+          "commit": {
+            "oid": "6a3cf214679ce78ed73ffb547acdc12f076a5828"
+          }
+        }
+      ]
+    },
+    "comments": {
+      "nodes": [
+        {
+          "id": "IC-pr232-final-clean",
+          "author": {
+            "login": "chatgpt-codex-connector"
+          },
+          "body": "Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** `c22802bb6b`",
+          "createdAt": "2026-07-24T14:47:48Z",
+          "updatedAt": "2026-07-24T14:47:48Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/232#issuecomment-5071147374"
+        }
+      ]
+    },
+    "reviewThreads": {
+      "nodes": [
+        {
+          "id": "PRRT-pr232-old-finding",
+          "isResolved": true,
+          "isOutdated": true,
+          "comments": {
+            "nodes": [
+              {
+                "id": "PRRC-pr232-old-finding",
+                "author": {
+                  "login": "chatgpt-codex-connector"
+                },
+                "body": "Point Copilot to the commit convention.",
+                "createdAt": "2026-07-24T13:02:12Z",
+                "updatedAt": "2026-07-24T13:02:12Z",
+                "url": "https://github.com/illusion-tech/laneflow/pull/232#discussion_r3645482655",
+                "pullRequestReview": {
+                  "id": "PRR-pr232-old-finding",
+                  "author": {
+                    "login": "chatgpt-codex-connector"
+                  },
+                  "state": "COMMENTED",
+                  "submittedAt": "2026-07-24T13:02:12Z",
+                  "commit": {
+                    "oid": "e309a676dfeecaf4b658e5c309684e508eaedc9c"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "PRRT-pr232-final-finding",
+          "isResolved": true,
+          "isOutdated": false,
+          "comments": {
+            "nodes": [
+              {
+                "id": "PRRC-pr232-final-finding",
+                "author": {
+                  "login": "chatgpt-codex-connector"
+                },
+                "body": "Strip angle brackets from reference URLs.",
+                "createdAt": "2026-07-24T14:01:47Z",
+                "updatedAt": "2026-07-24T14:01:47Z",
+                "url": "https://github.com/illusion-tech/laneflow/pull/232#discussion_r3645857043",
+                "pullRequestReview": {
+                  "id": "PRR-pr232-final-finding",
+                  "author": {
+                    "login": "chatgpt-codex-connector"
+                  },
+                  "state": "COMMENTED",
+                  "submittedAt": "2026-07-24T14:01:46Z",
+                  "commit": {
+                    "oid": "6a3cf214679ce78ed73ffb547acdc12f076a5828"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,3 +1,4 @@
+mod external_review;
 mod markdown_tables;
 
 use std::borrow::Cow;
@@ -27,6 +28,8 @@ const CURRENT_GATE_VALUES: &[&str] = &["G3 Candidate", "G3 Block"];
 const LEGACY_GATE_VALUES: &[&str] = &["G3 Pass", "G3 Waived", "Docs Only"];
 // 2026-08-07T00:00:00Z: legacy commit-message syntax migration boundary.
 const LEGACY_GATE_CUTOFF_UNIX: u64 = 1_786_060_800;
+// Issue #230 G2-B incremental start record. Older G3 comments remain historical evidence.
+const EXTERNAL_REVIEW_G3_ACTIVATION: &str = "2026-07-24T15:16:21Z";
 
 const DEPENDABOT_AUTHOR_NAME: &str = "dependabot[bot]";
 const DEPENDABOT_AUTHOR_EMAIL: &str = "49699333+dependabot[bot]@users.noreply.github.com";
@@ -89,6 +92,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             check_commit_message_file(path)
         }
         Some("check-gate-evidence") => check_gate_evidence(&args[1..]),
+        Some("check-external-review") => external_review::run(&args[1..]),
         Some("format-md-tables") => markdown_tables::run(&args[1..]),
         Some("check-schema-publication-contract") => check_schema_publication_contract(),
         Some("build-schema-publication") => match args.as_slice() {
@@ -100,7 +104,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         },
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, format-md-tables, check-schema-publication-contract, build-schema-publication"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-external-review, format-md-tables, check-schema-publication-contract, build-schema-publication"
                 .to_string(),
         ),
     }
@@ -996,12 +1000,30 @@ struct GitHubComment {
     body: String,
     #[serde(rename = "createdAt")]
     created_at: String,
+    #[serde(rename = "includesCreatedEdit", default)]
+    includes_created_edit: bool,
 }
 
 const G3_COMMENT_FIELDS: &[&str] = &[
     "## G3 合并判断",
     "- Checks：",
     "- 审阅：",
+    "- 验证：",
+    "- 风险：",
+    "- 例外：",
+    "- 合并方式：",
+    "- Gate 断言：",
+];
+
+const CURRENT_G3_COMMENT_FIELDS: &[&str] = &[
+    "## G3 合并判断",
+    "- Rollout phase：",
+    "- Current head：",
+    "- Checks：",
+    "- External Review Gate：",
+    "- 审阅：",
+    "- Findings disposition / clean re-review：",
+    "- Review threads：",
     "- 验证：",
     "- 风险：",
     "- 例外：",
@@ -1038,6 +1060,19 @@ fn check_gate_evidence(args: &[String]) -> Result<(), String> {
 
     if let (Some(delivery_number), Some(delivery_pr)) = (args.delivery_pr, delivery_pr.as_ref()) {
         validate_g3_evidence(&args, &issue, delivery_pr, &related_prs)?;
+        if g3_requires_external_review(delivery_pr)? {
+            validate_external_review_g3(&args.repo, delivery_number, delivery_pr, "Delivery PR")?;
+        }
+        for (number, related_pr) in args.related_prs.iter().zip(&related_prs) {
+            if g3_requires_external_review(related_pr)? {
+                validate_external_review_g3(
+                    &args.repo,
+                    *number,
+                    related_pr,
+                    &format!("Related PR #{number}"),
+                )?;
+            }
+        }
         if args.phase == GateEvidencePhase::G4 {
             validate_g4_evidence(&args, &issue, delivery_pr, &related_prs)?;
         }
@@ -1053,6 +1088,14 @@ fn check_gate_evidence(args: &[String]) -> Result<(), String> {
     } else {
         let related_number = args.related_prs[0];
         validate_related_g3_evidence(&args, &issue, related_number, &related_prs[0])?;
+        if g3_requires_external_review(&related_prs[0])? {
+            validate_external_review_g3(
+                &args.repo,
+                related_number,
+                &related_prs[0],
+                &format!("Related PR #{related_number}"),
+            )?;
+        }
         println!(
             "已校验 Gate G3 远端证据：Issue #{}，Related PR #{}",
             args.issue, related_number
@@ -1529,6 +1572,16 @@ fn validate_comment(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
+    let required_fields = if comment.created_at.as_str() >= EXTERNAL_REVIEW_G3_ACTIVATION {
+        if comment.includes_created_edit {
+            return Err(format!(
+                "{label} comment 在创建后被编辑；current G3 必须 append-only"
+            ));
+        }
+        CURRENT_G3_COMMENT_FIELDS
+    } else {
+        required_fields
+    };
     validate_comment_body(&comment.body, required_fields, label)?;
     validate_gate_assertion(&comment.body, label, args, GateEvidencePhase::G3)
 }
@@ -1637,6 +1690,53 @@ fn validate_g3_timing(pr: &GitHubPullRequest, permalink: &str, label: &str) -> R
         return Err(format!("{label} comment 创建时间晚于 PR 合并时间"));
     }
     Ok(())
+}
+
+fn validate_external_review_g3(
+    repo: &str,
+    number: u64,
+    pr: &GitHubPullRequest,
+    label: &str,
+) -> Result<(), String> {
+    let result = external_review::evaluate_live(repo, number)?;
+    if !result.state.is_pass() {
+        return Err(format!(
+            "{label} 的 External Review Gate 未通过：状态为 {:?}",
+            result.state
+        ));
+    }
+    let permalink = completed_gate_permalink(&pr.body, "G3")?;
+    let comment = pr
+        .comments
+        .iter()
+        .find(|comment| comment.url == permalink)
+        .ok_or_else(|| format!("{label} G3 permalink 未指向该 PR 的 comment"))?;
+    if !comment.body.contains(result.current_head_oid()) {
+        return Err(format!(
+            "{label} G3 comment 未记录 External Review Gate 对应的完整 current head `{}`",
+            result.current_head_oid()
+        ));
+    }
+    let completion_time = result
+        .completion_time()
+        .ok_or_else(|| format!("{label} pass 结果缺少 completion time"))?;
+    if comment.created_at.as_str() < completion_time {
+        return Err(format!(
+            "{label} G3 comment 早于最终 external review completion：comment={}，completion={completion_time}",
+            comment.created_at
+        ));
+    }
+    Ok(())
+}
+
+fn g3_requires_external_review(pr: &GitHubPullRequest) -> Result<bool, String> {
+    let permalink = completed_gate_permalink(&pr.body, "G3")?;
+    let comment = pr
+        .comments
+        .iter()
+        .find(|comment| comment.url == permalink)
+        .ok_or_else(|| "G3 permalink 未指向该 PR 的 comment".to_string())?;
+    Ok(comment.created_at.as_str() >= EXTERNAL_REVIEW_G3_ACTIVATION)
 }
 
 fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
@@ -2111,6 +2211,7 @@ Refs: #12
             url: url.to_string(),
             body: gate_comment_body(G3_COMMENT_FIELDS, args),
             created_at: created_at.to_string(),
+            includes_created_edit: false,
         }
     }
 
@@ -2123,6 +2224,7 @@ Refs: #12
             url: url.to_string(),
             body: gate_comment_body(G4_COMMENT_FIELDS, &gate_args(GateEvidencePhase::G4)),
             created_at: created_at.to_string(),
+            includes_created_edit: false,
         }
     }
 
@@ -2391,6 +2493,47 @@ Refs: #12
         let related_pr = related_pr_for_args(false, &args);
 
         assert!(validate_related_g3_evidence(&args, &issue, 62, &related_pr).is_ok());
+    }
+
+    #[test]
+    fn accepts_current_g3_fields_at_external_review_activation() {
+        let args = related_only_g3_args();
+        let issue = issue_with_pending_delivery_and_related_g3();
+        let mut related_pr = related_pr_for_args(false, &args);
+        related_pr.comments[0].created_at = EXTERNAL_REVIEW_G3_ACTIVATION.to_string();
+        related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args);
+
+        assert!(validate_related_g3_evidence(&args, &issue, 62, &related_pr).is_ok());
+        assert!(g3_requires_external_review(&related_pr).unwrap());
+    }
+
+    #[test]
+    fn rejects_legacy_g3_fields_after_external_review_activation() {
+        let args = related_only_g3_args();
+        let issue = issue_with_pending_delivery_and_related_g3();
+        let mut related_pr = related_pr_for_args(false, &args);
+        related_pr.comments[0].created_at = EXTERNAL_REVIEW_G3_ACTIVATION.to_string();
+
+        let error = validate_related_g3_evidence(&args, &issue, 62, &related_pr)
+            .expect_err("current G3 must include external-review fields");
+
+        assert!(error.contains("- Rollout phase："));
+        assert!(error.contains("- Current head："));
+    }
+
+    #[test]
+    fn rejects_edited_current_g3_comment() {
+        let args = related_only_g3_args();
+        let issue = issue_with_pending_delivery_and_related_g3();
+        let mut related_pr = related_pr_for_args(false, &args);
+        related_pr.comments[0].created_at = EXTERNAL_REVIEW_G3_ACTIVATION.to_string();
+        related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args);
+        related_pr.comments[0].includes_created_edit = true;
+
+        let error = validate_related_g3_evidence(&args, &issue, 62, &related_pr)
+            .expect_err("current G3 must be append-only");
+
+        assert!(error.contains("创建后被编辑"));
     }
 
     #[test]
