@@ -23,6 +23,10 @@ const ALLOWED_SLICES: &[&str] = &[
 ];
 
 const REQUIRED_FIELDS: &[&str] = &["Gate", "Slice", "Impact", "Scope", "Validation", "Docs"];
+const CURRENT_GATE_VALUES: &[&str] = &["G3 Candidate", "G3 Block"];
+const LEGACY_GATE_VALUES: &[&str] = &["G3 Pass", "G3 Waived", "Docs Only"];
+// 2026-08-07T00:00:00Z: legacy commit-message syntax migration boundary.
+const LEGACY_GATE_CUTOFF_UNIX: u64 = 1_786_060_800;
 
 const DEPENDABOT_AUTHOR_NAME: &str = "dependabot[bot]";
 const DEPENDABOT_AUTHOR_EMAIL: &str = "49699333+dependabot[bot]@users.noreply.github.com";
@@ -752,7 +756,12 @@ fn check_commit_messages(explicit_range: Option<&str>) -> Result<(), String> {
         if is_allowed_dependabot_commit(author_name.trim(), author_email.trim(), &message) {
             continue;
         }
-        errors.extend(validate_message(commit_hash, &message));
+        let gate_policy = commit_gate_policy(commit_hash)?;
+        errors.extend(validate_message_with_gate_policy(
+            commit_hash,
+            &message,
+            gate_policy,
+        ));
     }
 
     if errors.is_empty() {
@@ -769,6 +778,31 @@ fn check_commit_messages(explicit_range: Option<&str>) -> Result<(), String> {
             output.push_str(&error);
         }
         Err(output)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CommitGatePolicy {
+    Current,
+    LegacyCompatible,
+}
+
+fn commit_gate_policy(commit_hash: &str) -> Result<CommitGatePolicy, String> {
+    let committer_timestamp = git(["log", "-1", "--format=%ct", commit_hash])?;
+    let committer_timestamp = committer_timestamp.trim().parse::<u64>().map_err(|error| {
+        format!(
+            "无法解析 commit `{commit_hash}` 的 committer timestamp `{}`: {error}",
+            committer_timestamp.trim()
+        )
+    })?;
+    Ok(commit_gate_policy_for_timestamp(committer_timestamp))
+}
+
+fn commit_gate_policy_for_timestamp(committer_timestamp: u64) -> CommitGatePolicy {
+    if committer_timestamp < LEGACY_GATE_CUTOFF_UNIX {
+        CommitGatePolicy::LegacyCompatible
+    } else {
+        CommitGatePolicy::Current
     }
 }
 
@@ -1484,6 +1518,14 @@ fn validate_g3_timing(pr: &GitHubPullRequest, permalink: &str, label: &str) -> R
 }
 
 fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
+    validate_message_with_gate_policy(commit_hash, message, CommitGatePolicy::Current)
+}
+
+fn validate_message_with_gate_policy(
+    commit_hash: &str,
+    message: &str,
+    gate_policy: CommitGatePolicy,
+) -> Vec<String> {
     let message = normalize_commit_message_line_endings(message);
     let message = message.as_ref();
     let title = message.lines().next().unwrap_or_default();
@@ -1507,6 +1549,16 @@ fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
             "`Gate`/`Slice`/`Impact`/`Scope`/`Validation`/`Docs` 必须作为连续治理字段块；标题后空一行，`Docs` 后空一行并接最后的 `Refs:`/`Closes:` footer"
                 .to_string(),
         );
+    }
+
+    if !has_valid_gate(message, gate_policy) {
+        let allowed = match gate_policy {
+            CommitGatePolicy::Current => "`G3 Candidate` 或 `G3 Block`",
+            CommitGatePolicy::LegacyCompatible => {
+                "`G3 Candidate`、`G3 Block` 或迁移期 legacy 值 `G3 Pass` / `G3 Waived` / `Docs Only`"
+            }
+        };
+        errors.push(format!("`Gate` 必须是 {allowed}"));
     }
 
     if !has_valid_slice(message) {
@@ -1551,6 +1603,17 @@ fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
             format!("{short_hash} {title}: {error}")
         })
         .collect()
+}
+
+fn has_valid_gate(message: &str, gate_policy: CommitGatePolicy) -> bool {
+    message.lines().any(|line| {
+        let Some(gate) = field_value(line, "Gate") else {
+            return false;
+        };
+        CURRENT_GATE_VALUES.contains(&gate)
+            || (gate_policy == CommitGatePolicy::LegacyCompatible
+                && LEGACY_GATE_VALUES.contains(&gate))
+    })
 }
 
 fn valid_conventional_title(title: &str) -> bool {
@@ -1805,7 +1868,7 @@ mod tests {
     const VALID_MESSAGE: &str = "\
 docs(governance): 对齐提交规范
 
-Gate: G3 Pass
+Gate: G3 Candidate
 Slice: governance
 Impact: core-api=none; data-format=none; adapter-api=none
 Scope: 以 Conventional Commits 标题格式重写提交规范
@@ -1818,7 +1881,7 @@ Refs: #23
     const BREAKING_MESSAGE: &str = "\
 feat(core)!: 调整 tick API
 
-Gate: G3 Pass
+Gate: G3 Candidate
 Slice: core-runtime
 Impact: core-api=changed; data-format=none; adapter-api=none
 Scope: 将 TickInput.delta_time_ms 固化为必填字段
@@ -2276,6 +2339,47 @@ Refs: #12
     }
 
     #[test]
+    fn accepts_g3_block_for_a_non_mergeable_branch_record() {
+        let message = VALID_MESSAGE.replace("Gate: G3 Candidate", "Gate: G3 Block");
+
+        assert!(validate_message("0123456789abcdef", &message).is_empty());
+    }
+
+    #[test]
+    fn rejects_legacy_gate_for_a_new_commit() {
+        let message = VALID_MESSAGE.replace("Gate: G3 Candidate", "Gate: G3 Pass");
+
+        let errors = validate_message("0123456789abcdef", &message);
+
+        assert!(errors.iter().any(|error| error.contains("G3 Candidate")));
+    }
+
+    #[test]
+    fn accepts_legacy_gate_before_the_migration_cutoff() {
+        let message = VALID_MESSAGE.replace("Gate: G3 Candidate", "Gate: G3 Pass");
+
+        let errors = validate_message_with_gate_policy(
+            "0123456789abcdef",
+            &message,
+            CommitGatePolicy::LegacyCompatible,
+        );
+
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn switches_to_current_gate_policy_at_the_cutoff() {
+        assert_eq!(
+            commit_gate_policy_for_timestamp(LEGACY_GATE_CUTOFF_UNIX - 1),
+            CommitGatePolicy::LegacyCompatible
+        );
+        assert_eq!(
+            commit_gate_policy_for_timestamp(LEGACY_GATE_CUTOFF_UNIX),
+            CommitGatePolicy::Current
+        );
+    }
+
+    #[test]
     fn accepts_commit_message_with_crlf_line_endings() {
         let message = VALID_MESSAGE.replace('\n', "\r\n");
 
@@ -2427,8 +2531,8 @@ Refs: #12
     #[test]
     fn rejects_missing_blank_line_after_title() {
         let message = VALID_MESSAGE.replace(
-            "docs(governance): 对齐提交规范\n\nGate: G3 Pass",
-            "docs(governance): 对齐提交规范\nGate: G3 Pass",
+            "docs(governance): 对齐提交规范\n\nGate: G3 Candidate",
+            "docs(governance): 对齐提交规范\nGate: G3 Candidate",
         );
 
         let errors = validate_message("0123456789abcdef", &message);
@@ -2439,8 +2543,8 @@ Refs: #12
     #[test]
     fn rejects_blank_line_between_governance_fields() {
         let message = VALID_MESSAGE.replace(
-            "Gate: G3 Pass\nSlice: governance",
-            "Gate: G3 Pass\n\nSlice: governance",
+            "Gate: G3 Candidate\nSlice: governance",
+            "Gate: G3 Candidate\n\nSlice: governance",
         );
 
         let errors = validate_message("0123456789abcdef", &message);
@@ -2451,8 +2555,8 @@ Refs: #12
     #[test]
     fn rejects_governance_fields_out_of_order() {
         let message = VALID_MESSAGE.replace(
-            "Gate: G3 Pass\nSlice: governance",
-            "Slice: governance\nGate: G3 Pass",
+            "Gate: G3 Candidate\nSlice: governance",
+            "Slice: governance\nGate: G3 Candidate",
         );
 
         let errors = validate_message("0123456789abcdef", &message);
@@ -2494,7 +2598,7 @@ Refs: #12
 
     #[test]
     fn rejects_required_field_without_space_after_colon() {
-        let message = VALID_MESSAGE.replace("Gate: G3 Pass", "Gate:G3 Pass");
+        let message = VALID_MESSAGE.replace("Gate: G3 Candidate", "Gate:G3 Candidate");
 
         let errors = validate_message("0123456789abcdef", &message);
 
