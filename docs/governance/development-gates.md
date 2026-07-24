@@ -239,6 +239,8 @@ steady state 的正式 `G3 Pass` 必须同时满足：
 
 `External Review Gate` 是机器权威；G3 comment 是 Owner 决策。PR / Issue body 只保存 permalink 索引，commit 只使用 `Gate: G3 Candidate`，三者不能互相替代。
 
+fork / cross-repository PR 的 head commit 不保证存在于 base repository，base repository 的 `GITHUB_TOKEN` 因而不能可靠创建关联 Check。此类 PR 不计入 R1 eligible sample；R2 不把缺失 Check 当作成功，必须把最终 patchset 迁移为 same-repository PR，并在新 PR 的 exact head 重新完成外部审阅与 G3。只有 security / emergency hotfix 等既有显式例外可以使用临时 ruleset bypass，不能形成 fork 的 standing bypass。
+
 G3 comment 采用 append-only。new push、review dismissal 或 Gate 状态变化后，旧 review、旧 Check 和旧 G3 comment 对新 head 全部 stale；必须产生新的 completion、Check 与 superseding G3 comment，不得编辑旧评论冒充新时点。
 
 在 #230 的 R0 / R1 bootstrap 阶段，required `External Review Gate` 尚未启用：
