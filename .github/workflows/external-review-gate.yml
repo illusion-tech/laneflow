@@ -15,8 +15,6 @@ on:
   issue_comment:
     types:
       - created
-      - edited
-      - deleted
   workflow_run:
     workflows:
       - External Review Signal
@@ -39,8 +37,11 @@ jobs:
   resolve-targets:
     name: Resolve PR targets
     if: >-
-      github.event_name != 'issue_comment' ||
-      github.event.issue.pull_request != null
+      github.event_name != 'issue_comment' || (
+        github.event.action == 'created' &&
+        github.event.issue.pull_request != null &&
+        github.event.comment.body == 'external-review: thread-state-changed'
+      )
     runs-on: ubuntu-latest
     outputs:
       count: ${{ steps.targets.outputs.count }}

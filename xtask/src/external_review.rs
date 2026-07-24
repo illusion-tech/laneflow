@@ -2127,6 +2127,11 @@ mod tests {
         }
         assert!(!gate.contains("schedule:"));
         assert!(gate.contains("External Review Signal"));
+        assert!(gate.contains("issue_comment:\n    types:\n      - created\n  workflow_run:"));
+        assert!(gate.contains("github.event.action == 'created'"));
+        assert!(
+            gate.contains("github.event.comment.body == 'external-review: thread-state-changed'")
+        );
         assert!(gate.contains("repos/${REPOSITORY}/commits/${head_sha}/pulls?per_page=100"));
         assert!(gate.contains("workflow_run head_sha must be a full lowercase Git OID"));
         assert!(!gate.contains(".workflow_run.head_branch"));
@@ -2140,7 +2145,6 @@ mod tests {
         assert!(gate.contains("cancel-in-progress: true"));
         assert!(gate.contains("publish-external-review-check"));
         assert!(!gate.contains("github.event.pull_request.head.sha"));
-        assert!(!gate.contains("github.event.comment.body"));
         assert!(!gate.contains("refs/pull/"));
         assert!(!gate.contains("secrets."));
         assert!(!gate.lines().any(|line| {
