@@ -91,8 +91,8 @@ workflow 安全检查至少验证：
 - publisher 二次确认 `isCrossRepository=false`；fork / cross-repository PR 不尝试向 base repository 写入无法关联的 head Check；
 - 只有 `pass -> success`；`waived -> action_required`，确保 required check 不会把 waiver 当作成功；其他状态均为 failure；
 - PR concurrency 取消旧运行；identity race 不向新 head 发布旧结果；
-- external ID 显式包含 evaluator state 和稳定 fingerprint；只有同 head/source App/trusted-ref/state 下的等价完成态 Check 才可复用，state 变化必须产生新 Check；
-- Draft、非 `main` base、非 open PR 不计入 R1 sample；10 分钟 schedule 只作 review signal 缺失时的补偿；
+- external ID 显式包含 evaluator state、稳定 fingerprint、trusted run 与 attempt；publisher 不查询或复用既有同名 Check，每个 trusted event 必须创建并验证自己的 receipt；
+- Draft、非 `main` base、非 open PR 不计入 R1 sample；漏事件只允许显式 manual dispatch 补偿，不运行周期 schedule；
 - R1 sample 同时绑定 trusted default-branch workflow run、external ID 与 Check receipt；PR 自定义的同名 GitHub Actions job 不得计入；
 - R2 publisher 使用独立专用 GitHub App，ruleset 绑定正式 Check name 与 expected source App；恶意 PR 新增同名 Actions job 的 canary 仍必须阻断合并；
 - API/provider/解析歧义 fail closed。
