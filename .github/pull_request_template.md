@@ -103,7 +103,7 @@ G3 comment 模板（合并前发表）：
 - [ ] 文档已更新，或本 PR 已说明为何无需更新。
 - [ ] 当前 head 已有一个有效外部 reviewer 的完成态审阅；若曾有 findings，处置后已有新的当前 head clean re-review。PR author 自审未计入外部 reviewer。
 - [ ] `unresolved review threads = 0`，且未把该条件当作外部审阅完成的替代证据。
-- [ ] PR commits 符合 `docs/reference/commit-convention.md`（Conventional Commits 标题 + `Gate: G3 Candidate` + 其他 LaneFlow 治理字段）；合并范围内没有 `Gate: G3 Block`，或已记录显式例外。
+- [ ] PR commits 符合 `docs/reference/commit-convention.md`（Conventional Commits 标题 + `Gate: G3 Candidate` + 其他 LaneFlow 治理字段）；合并范围内没有 `Gate: G3 Block`。
 - [ ] commit message footer 与 PR body 语义已区分：commit 通常使用 `Refs: #<issue>`，PR body 使用 `Closes/Resolves` 建立 Development 关联。
 - [ ] 本 PR 未在只完成子切片的情况下声称父任务已完成。
 - [ ] 合并方式：默认 **Rebase and merge**；若使用 Squash / Merge commit，已在 PR 中说明原因。
