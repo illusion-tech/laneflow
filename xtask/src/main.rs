@@ -7,6 +7,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const ALLOWED_TYPES: &[&str] = &[
     "feat", "fix", "docs", "test", "refactor", "perf", "build", "ci", "chore", "revert",
@@ -998,10 +999,17 @@ struct IssueReference {
 struct GitHubComment {
     url: String,
     body: String,
+    #[serde(default)]
+    author: Option<GitHubActor>,
     #[serde(rename = "createdAt")]
     created_at: String,
     #[serde(rename = "includesCreatedEdit", default)]
     includes_created_edit: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubActor {
+    login: String,
 }
 
 const G3_COMMENT_FIELDS: &[&str] = &[
@@ -1017,6 +1025,7 @@ const G3_COMMENT_FIELDS: &[&str] = &[
 
 const CURRENT_G3_COMMENT_FIELDS: &[&str] = &[
     "## G3 合并判断",
+    "- Gate 结果：",
     "- Rollout phase：",
     "- Current head：",
     "- Checks：",
@@ -1030,6 +1039,36 @@ const CURRENT_G3_COMMENT_FIELDS: &[&str] = &[
     "- 合并方式：",
     "- Gate 断言：",
 ];
+
+const EXTERNAL_REVIEW_WAIVER_START: &str = "<!-- external-review-waiver:v1";
+const EXTERNAL_REVIEW_WAIVER_END: &str = "-->";
+const EXTERNAL_REVIEW_WAIVER_MAX_SECONDS: u64 = 24 * 60 * 60;
+const G3_OWNER_ACTORS: &[&str] = &["wangzishi"];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum G3Result {
+    Pass,
+    Waived,
+    Bootstrap,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GateWaiverRecord {
+    schema_version: u64,
+    id: String,
+    exception_type: String,
+    current_head_oid: String,
+    current_base_oid: String,
+    reason: String,
+    evidence_refs: Vec<String>,
+    risk: String,
+    acceptance_boundary: String,
+    expires_at: String,
+    follow_up_issue: String,
+    cleanup_owner: String,
+    authorized_by: String,
+}
 
 const G4_COMMENT_FIELDS: &[&str] = &[
     "## G4 完成判断",
@@ -1061,12 +1100,19 @@ fn check_gate_evidence(args: &[String]) -> Result<(), String> {
     if let (Some(delivery_number), Some(delivery_pr)) = (args.delivery_pr, delivery_pr.as_ref()) {
         validate_g3_evidence(&args, &issue, delivery_pr, &related_prs)?;
         if g3_requires_external_review(delivery_pr)? {
-            validate_external_review_g3(&args.repo, delivery_number, delivery_pr, "Delivery PR")?;
+            validate_external_review_g3(
+                &args.repo,
+                args.issue,
+                delivery_number,
+                delivery_pr,
+                "Delivery PR",
+            )?;
         }
         for (number, related_pr) in args.related_prs.iter().zip(&related_prs) {
             if g3_requires_external_review(related_pr)? {
                 validate_external_review_g3(
                     &args.repo,
+                    args.issue,
                     *number,
                     related_pr,
                     &format!("Related PR #{number}"),
@@ -1091,6 +1137,7 @@ fn check_gate_evidence(args: &[String]) -> Result<(), String> {
         if g3_requires_external_review(&related_prs[0])? {
             validate_external_review_g3(
                 &args.repo,
+                args.issue,
                 related_number,
                 &related_prs[0],
                 &format!("Related PR #{related_number}"),
@@ -1694,39 +1741,280 @@ fn validate_g3_timing(pr: &GitHubPullRequest, permalink: &str, label: &str) -> R
 
 fn validate_external_review_g3(
     repo: &str,
+    issue_number: u64,
     number: u64,
     pr: &GitHubPullRequest,
     label: &str,
 ) -> Result<(), String> {
-    let result = external_review::evaluate_live(repo, number)?;
-    if !result.state.is_pass() {
-        return Err(format!(
-            "{label} 的 External Review Gate 未通过：状态为 {:?}",
-            result.state
-        ));
-    }
     let permalink = completed_gate_permalink(&pr.body, "G3")?;
     let comment = pr
         .comments
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} G3 permalink 未指向该 PR 的 comment"))?;
+    let gate_result = parse_g3_result(&comment.body)?;
+    let result = match gate_result {
+        G3Result::Waived => {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|error| format!("系统时间早于 Unix epoch：{error}"))?
+                .as_secs();
+            let waiver = parse_gate_waiver(comment, issue_number, now)?;
+            external_review::evaluate_live_with_waiver(repo, number, waiver)?
+        }
+        G3Result::Pass | G3Result::Bootstrap => external_review::evaluate_live(repo, number)?,
+    };
+    let expected_state = match gate_result {
+        G3Result::Waived => external_review::ExternalReviewState::Waived,
+        G3Result::Pass | G3Result::Bootstrap => external_review::ExternalReviewState::Pass,
+    };
+    if result.state != expected_state {
+        return Err(format!(
+            "{label} 的 G3 结果与 External Review Gate 不一致：G3={gate_result:?}，期望 {expected_state:?}，实际 {:?}",
+            result.state
+        ));
+    }
     if !comment.body.contains(result.current_head_oid()) {
         return Err(format!(
             "{label} G3 comment 未记录 External Review Gate 对应的完整 current head `{}`",
             result.current_head_oid()
         ));
     }
-    let completion_time = result
-        .completion_time()
-        .ok_or_else(|| format!("{label} pass 结果缺少 completion time"))?;
-    if comment.created_at.as_str() < completion_time {
-        return Err(format!(
-            "{label} G3 comment 早于最终 external review completion：comment={}，completion={completion_time}",
-            comment.created_at
-        ));
+    if gate_result != G3Result::Waived {
+        let completion_time = result
+            .completion_time()
+            .ok_or_else(|| format!("{label} pass 结果缺少 completion time"))?;
+        if comment.created_at.as_str() < completion_time {
+            return Err(format!(
+                "{label} G3 comment 早于最终 external review completion：comment={}，completion={completion_time}",
+                comment.created_at
+            ));
+        }
     }
     Ok(())
+}
+
+fn parse_g3_result(body: &str) -> Result<G3Result, String> {
+    let prefix = "- Gate 结果：";
+    let mut lines = body
+        .lines()
+        .filter(|line| line.trim_start().starts_with(prefix));
+    let line = lines
+        .next()
+        .ok_or_else(|| "current G3 comment 缺少 `- Gate 结果：`".to_string())?;
+    if lines.next().is_some() {
+        return Err("current G3 comment 的 `- Gate 结果：` 不能重复".to_string());
+    }
+    let value = line
+        .trim_start()
+        .strip_prefix(prefix)
+        .unwrap_or_default()
+        .trim()
+        .trim_end_matches('。')
+        .trim();
+    let value = value
+        .strip_prefix('`')
+        .and_then(|value| value.strip_suffix('`'))
+        .unwrap_or(value);
+    match value {
+        "G3 Pass" => Ok(G3Result::Pass),
+        "G3 Waived" => Ok(G3Result::Waived),
+        "R0-R1 bootstrap" => Ok(G3Result::Bootstrap),
+        _ => Err(format!(
+            "current G3 comment 的 Gate 结果无效：`{value}`；应为 `G3 Pass`、`G3 Waived` 或 `R0-R1 bootstrap`"
+        )),
+    }
+}
+
+fn parse_gate_waiver(
+    comment: &GitHubComment,
+    issue_number: u64,
+    now: u64,
+) -> Result<external_review::WaiverInput, String> {
+    let marker_count = comment.body.matches(EXTERNAL_REVIEW_WAIVER_START).count();
+    if marker_count != 1 {
+        return Err(format!(
+            "G3 Waived comment 必须包含且只包含一个 `{EXTERNAL_REVIEW_WAIVER_START}` 结构化记录"
+        ));
+    }
+    let (_, after_start) = comment
+        .body
+        .split_once(EXTERNAL_REVIEW_WAIVER_START)
+        .ok_or_else(|| "G3 Waived comment 缺少结构化 waiver 起始标记".to_string())?;
+    let (json, _) = after_start
+        .split_once(EXTERNAL_REVIEW_WAIVER_END)
+        .ok_or_else(|| "G3 Waived comment 缺少结构化 waiver 结束标记".to_string())?;
+    let record = serde_json::from_str::<GateWaiverRecord>(json.trim())
+        .map_err(|error| format!("G3 Waived 结构化记录不是 schema v1 JSON：{error}"))?;
+    if record.schema_version != 1 {
+        return Err(format!(
+            "G3 Waived schemaVersion 必须为 1，实际为 {}",
+            record.schema_version
+        ));
+    }
+    if record.follow_up_issue != format!("#{issue_number}") {
+        return Err(format!(
+            "G3 Waived followUpIssue 必须指向当前 Issue `#{issue_number}`"
+        ));
+    }
+    let author = comment
+        .author
+        .as_ref()
+        .map(|actor| actor.login.as_str())
+        .ok_or_else(|| "G3 Waived comment 缺少 author，无法验证授权人".to_string())?;
+    if !author.eq_ignore_ascii_case(&record.authorized_by) {
+        return Err(format!(
+            "G3 Waived authorizedBy `{}` 与 comment author `{author}` 不一致",
+            record.authorized_by
+        ));
+    }
+    if !G3_OWNER_ACTORS
+        .iter()
+        .any(|actor| actor.eq_ignore_ascii_case(author))
+    {
+        return Err(format!(
+            "G3 Waived comment author `{author}` 不在 trusted G3 Owner allowlist"
+        ));
+    }
+    let created_at = parse_utc_timestamp_seconds(&comment.created_at)
+        .ok_or_else(|| "G3 Waived comment createdAt 不是 UTC RFC3339 秒级时间".to_string())?;
+    let expires_at = parse_utc_timestamp_seconds(&record.expires_at)
+        .ok_or_else(|| "G3 Waived expiresAt 必须是 UTC RFC3339 秒级时间".to_string())?;
+    if expires_at <= created_at {
+        return Err("G3 Waived expiresAt 必须晚于 comment createdAt".to_string());
+    }
+    if expires_at - created_at > EXTERNAL_REVIEW_WAIVER_MAX_SECONDS {
+        return Err("G3 Waived 有效期不得超过 24 小时".to_string());
+    }
+    if expires_at <= now {
+        return Err("G3 Waived 已过期，不能满足当前 Gate".to_string());
+    }
+
+    let exception_line = comment
+        .body
+        .lines()
+        .find(|line| line.trim_start().starts_with("- 例外："))
+        .ok_or_else(|| "G3 Waived comment 缺少 `- 例外：`".to_string())?;
+    let visible_refs = markdown_reference_labels(exception_line)
+        .into_iter()
+        .map(str::to_ascii_lowercase)
+        .collect::<BTreeSet<_>>();
+    if record.evidence_refs.is_empty() {
+        return Err("G3 Waived evidenceRefs 不能为空".to_string());
+    }
+    let mut seen_refs = BTreeSet::new();
+    let mut evidence_urls = Vec::with_capacity(record.evidence_refs.len());
+    for evidence_ref in &record.evidence_refs {
+        let normalized = evidence_ref.to_ascii_lowercase();
+        if !seen_refs.insert(normalized.clone()) {
+            return Err(format!("G3 Waived evidenceRefs 重复：{evidence_ref}"));
+        }
+        if !visible_refs.contains(&normalized) {
+            return Err(format!(
+                "G3 Waived evidence ref `{evidence_ref}` 未由 `- 例外：` 行可见引用"
+            ));
+        }
+        evidence_urls.push(
+            reference_github_url(&comment.body, evidence_ref).ok_or_else(|| {
+                format!("G3 Waived evidence ref `{evidence_ref}` 缺少 GitHub HTTPS 文末引用定义")
+            })?,
+        );
+    }
+
+    Ok(external_review::WaiverInput {
+        id: record.id,
+        exception_type: record.exception_type,
+        current_head_oid: record.current_head_oid,
+        current_base_oid: record.current_base_oid,
+        reason: record.reason,
+        evidence_urls,
+        risk: record.risk,
+        acceptance_boundary: record.acceptance_boundary,
+        expires_at: record.expires_at,
+        follow_up_issue: record.follow_up_issue,
+        cleanup_owner: record.cleanup_owner,
+        authorized_by: record.authorized_by,
+    })
+}
+
+fn reference_github_url(body: &str, label: &str) -> Option<String> {
+    body.lines().find_map(|line| {
+        let definition = line.trim().strip_prefix('[')?;
+        let (candidate, value) = definition.split_once("]:")?;
+        if !candidate.eq_ignore_ascii_case(label) {
+            return None;
+        }
+        let value = value.trim();
+        let value = value
+            .strip_prefix('<')
+            .and_then(|value| value.strip_suffix('>'))
+            .unwrap_or(value);
+        (value.starts_with("https://github.com/") && !value.chars().any(char::is_whitespace))
+            .then(|| value.to_string())
+    })
+}
+
+fn parse_utc_timestamp_seconds(value: &str) -> Option<u64> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 20
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || bytes[19] != b'Z'
+    {
+        return None;
+    }
+    let year = value.get(0..4)?.parse::<u64>().ok()?;
+    let month = value.get(5..7)?.parse::<u64>().ok()?;
+    let day = value.get(8..10)?.parse::<u64>().ok()?;
+    let hour = value.get(11..13)?.parse::<u64>().ok()?;
+    let minute = value.get(14..16)?.parse::<u64>().ok()?;
+    let second = value.get(17..19)?.parse::<u64>().ok()?;
+    if year < 1970 || !(1..=12).contains(&month) || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    let leap = is_leap_year(year);
+    let month_days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let max_day = month_days[(month - 1) as usize];
+    if day == 0 || day > max_day {
+        return None;
+    }
+    let years_before = year - 1;
+    let epoch_years_before = 1969;
+    let leap_days_before = years_before / 4 - years_before / 100 + years_before / 400;
+    let epoch_leap_days_before =
+        epoch_years_before / 4 - epoch_years_before / 100 + epoch_years_before / 400;
+    let days_before_year = (year - 1970) * 365 + leap_days_before - epoch_leap_days_before;
+    let days_before_month = month_days
+        .iter()
+        .take((month - 1) as usize)
+        .copied()
+        .sum::<u64>();
+    Some(
+        (days_before_year + days_before_month + day - 1) * 86_400
+            + hour * 3_600
+            + minute * 60
+            + second,
+    )
+}
+
+fn is_leap_year(year: u64) -> bool {
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 fn g3_requires_external_review(pr: &GitHubPullRequest) -> Result<bool, String> {
@@ -2198,6 +2486,8 @@ Refs: #12
                         "{GATE_ASSERTION_PREFIX}`{}` 已通过。",
                         expected_gate_command(args, args.phase)
                     )
+                } else if *field == "- Gate 结果：" {
+                    format!("{field}`R0-R1 bootstrap`")
                 } else {
                     (*field).to_string()
                 }
@@ -2210,6 +2500,9 @@ Refs: #12
         GitHubComment {
             url: url.to_string(),
             body: gate_comment_body(G3_COMMENT_FIELDS, args),
+            author: Some(GitHubActor {
+                login: "wangzishi".to_string(),
+            }),
             created_at: created_at.to_string(),
             includes_created_edit: false,
         }
@@ -2223,6 +2516,9 @@ Refs: #12
         GitHubComment {
             url: url.to_string(),
             body: gate_comment_body(G4_COMMENT_FIELDS, &gate_args(GateEvidencePhase::G4)),
+            author: Some(GitHubActor {
+                login: "wangzishi".to_string(),
+            }),
             created_at: created_at.to_string(),
             includes_created_edit: false,
         }
@@ -2517,8 +2813,119 @@ Refs: #12
         let error = validate_related_g3_evidence(&args, &issue, 62, &related_pr)
             .expect_err("current G3 must include external-review fields");
 
+        assert!(error.contains("- Gate 结果："));
         assert!(error.contains("- Rollout phase："));
         assert!(error.contains("- Current head："));
+    }
+
+    #[test]
+    fn parses_explicit_current_g3_results() {
+        assert_eq!(
+            parse_g3_result("- Gate 结果：`G3 Pass`").unwrap(),
+            G3Result::Pass
+        );
+        assert_eq!(
+            parse_g3_result("- Gate 结果：`G3 Waived`").unwrap(),
+            G3Result::Waived
+        );
+        assert_eq!(
+            parse_g3_result("- Gate 结果：`R0-R1 bootstrap`").unwrap(),
+            G3Result::Bootstrap
+        );
+        assert!(parse_g3_result("- Gate 结果：pending").is_err());
+        assert!(parse_g3_result("- Gate 结果：`G3 Pass`\n- Gate 结果：`G3 Waived`").is_err());
+    }
+
+    #[test]
+    fn parses_reference_style_structured_gate_waiver() {
+        let mut comment = GitHubComment {
+            url: RELATED_G3_URL.to_string(),
+            body: r##"- Gate 结果：`G3 Waived`
+- 例外：`G3 Waived`；结构化 waiver `waiver-60-1`；证据：[批准记录][waiver-evidence]。
+<!-- external-review-waiver:v1
+{
+  "schemaVersion": 1,
+  "id": "waiver-60-1",
+  "exceptionType": "provider_platform_outage",
+  "currentHeadOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "currentBaseOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "reason": "all configured providers unavailable",
+  "evidenceRefs": ["waiver-evidence"],
+  "risk": "review coverage unavailable",
+  "acceptanceBoundary": "metadata-only governance change",
+  "expiresAt": "2026-07-24T17:00:00Z",
+  "followUpIssue": "#60",
+  "cleanupOwner": "wangzishi",
+  "authorizedBy": "wangzishi"
+}
+-->
+
+[waiver-evidence]: https://github.com/illusion-tech/laneflow/issues/60#issuecomment-1"##
+                .to_string(),
+            author: Some(GitHubActor {
+                login: "wangzishi".to_string(),
+            }),
+            created_at: "2026-07-24T16:00:00Z".to_string(),
+            includes_created_edit: false,
+        };
+        let now = parse_utc_timestamp_seconds("2026-07-24T16:30:00Z").unwrap();
+        let waiver = parse_gate_waiver(&comment, 60, now).unwrap();
+
+        assert_eq!(waiver.id, "waiver-60-1");
+        assert_eq!(waiver.exception_type, "provider_platform_outage");
+        assert_eq!(
+            waiver.evidence_urls,
+            vec!["https://github.com/illusion-tech/laneflow/issues/60#issuecomment-1".to_string()]
+        );
+        comment.author = Some(GitHubActor {
+            login: "untrusted-contributor".to_string(),
+        });
+        comment.body = comment.body.replace(
+            r#""authorizedBy": "wangzishi""#,
+            r#""authorizedBy": "untrusted-contributor""#,
+        );
+        let error = parse_gate_waiver(&comment, 60, now)
+            .expect_err("waiver author must be a trusted G3 Owner");
+        assert!(error.contains("不在 trusted G3 Owner allowlist"));
+    }
+
+    #[test]
+    fn rejects_expired_structured_gate_waiver() {
+        let comment = GitHubComment {
+            url: RELATED_G3_URL.to_string(),
+            body: r##"- Gate 结果：`G3 Waived`
+- 例外：`G3 Waived`；证据：[批准记录][waiver-evidence]。
+<!-- external-review-waiver:v1
+{
+  "schemaVersion": 1,
+  "id": "waiver-60-1",
+  "exceptionType": "provider_platform_outage",
+  "currentHeadOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "currentBaseOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "reason": "all configured providers unavailable",
+  "evidenceRefs": ["waiver-evidence"],
+  "risk": "review coverage unavailable",
+  "acceptanceBoundary": "metadata-only governance change",
+  "expiresAt": "2026-07-24T17:00:00Z",
+  "followUpIssue": "#60",
+  "cleanupOwner": "wangzishi",
+  "authorizedBy": "wangzishi"
+}
+-->
+
+[waiver-evidence]: https://github.com/illusion-tech/laneflow/issues/60#issuecomment-1"##
+                .to_string(),
+            author: Some(GitHubActor {
+                login: "wangzishi".to_string(),
+            }),
+            created_at: "2026-07-24T16:00:00Z".to_string(),
+            includes_created_edit: false,
+        };
+        let after_expiry = parse_utc_timestamp_seconds("2026-07-24T17:00:01Z").unwrap();
+        let error = parse_gate_waiver(&comment, 60, after_expiry)
+            .expect_err("expired waiver must fail closed");
+
+        assert!(error.contains("已过期"));
     }
 
     #[test]

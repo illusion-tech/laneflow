@@ -94,6 +94,8 @@ G3 comment 模板（合并前发表）：
 - Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` 已通过。
 
 每个 Related PR 都使用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 并永久保留该 Related-only 断言；Delivery PR / full-set 使用 `--delivery-pr <number>` 并传入全部 Related PR，不改写历史 Related comment。填写与实际参数完全一致的命令后立即运行；若失败，必须移除“已通过”并修复证据。Related PR B 合入前，该命令只校验 legacy comment 结构、permalink、PR 关系和时序，不能替代对 current head 与外部审阅字段的人工核验。
+
+如 Gate 结果为 `G3 Waived`，还必须按 `docs/governance/development-gates.md` 写入唯一 `external-review-waiver:v1` 结构化记录；evidence 使用可见 `- 例外：` 行和文末 reference-style 定义，不在 JSON 中直接写 URL。
 -->
 
 ## 完成边界
