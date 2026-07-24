@@ -146,6 +146,9 @@ blocked retry authority，但 clean-break 修订选择结构：
 - PortalLane 引用共享 entry SpawnSlot，并拥有 weighted full RouteChoice；
 - completion 固定调用 portal、lane、route 三个 logical bounded draw site；
   每个 site 保留既有 rejection sampling，固定的是调用点与顺序；
+- route site 对所有 PortalLane 统一调用 `uniform(totalPositiveWeight)`；单一
+  RouteChoice 也以其正整数 raw weight 为 bound，必然选中唯一 Route，但不得改用
+  `uniform(1)`、跳过 draw 或预先约分权重；
 - 初始化先做 physical-slot Fisher–Yates，再按 logical slot order 为每个 slot
   消费一次 Route draw；
 - SpawnSlot 不再拥有单一 Route，多条 Route 可共享同一 PortalLane entry slot；
