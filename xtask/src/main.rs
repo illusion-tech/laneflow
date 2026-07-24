@@ -788,18 +788,18 @@ enum CommitGatePolicy {
 }
 
 fn commit_gate_policy(commit_hash: &str) -> Result<CommitGatePolicy, String> {
-    let committer_timestamp = git(["log", "-1", "--format=%ct", commit_hash])?;
-    let committer_timestamp = committer_timestamp.trim().parse::<u64>().map_err(|error| {
+    let author_timestamp = git(["log", "-1", "--format=%at", commit_hash])?;
+    let author_timestamp = author_timestamp.trim().parse::<u64>().map_err(|error| {
         format!(
-            "无法解析 commit `{commit_hash}` 的 committer timestamp `{}`: {error}",
-            committer_timestamp.trim()
+            "无法解析 commit `{commit_hash}` 的 author timestamp `{}`: {error}",
+            author_timestamp.trim()
         )
     })?;
-    Ok(commit_gate_policy_for_timestamp(committer_timestamp))
+    Ok(commit_gate_policy_for_timestamp(author_timestamp))
 }
 
-fn commit_gate_policy_for_timestamp(committer_timestamp: u64) -> CommitGatePolicy {
-    if committer_timestamp < LEGACY_GATE_CUTOFF_UNIX {
+fn commit_gate_policy_for_timestamp(author_timestamp: u64) -> CommitGatePolicy {
+    if author_timestamp < LEGACY_GATE_CUTOFF_UNIX {
         CommitGatePolicy::LegacyCompatible
     } else {
         CommitGatePolicy::Current

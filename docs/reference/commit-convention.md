@@ -146,9 +146,9 @@ LaneFlow 允许的 `type`：
 迁移规则：
 
 - 本地 `commit-msg` hook 对新提交立即要求 `G3 Candidate` 或 `G3 Block`。
-- range 校验器对 committer timestamp 早于 `2026-08-07T00:00:00Z` 的既有 commit 暂时兼容 `G3 Pass`、`G3 Waived` 与 `Docs Only`，避免为开放分支重写历史。
+- range 校验器对 author timestamp 早于 `2026-08-07T00:00:00Z` 的既有 commit 暂时兼容 `G3 Pass`、`G3 Waived` 与 `Docs Only`，避免为开放分支重写历史。使用 author timestamp 是为了在默认 Rebase and merge 重写 committer 信息后保持判定稳定。
 - cutoff 只用于迁移兼容，不赋予 legacy 值正式 G3 权威，也不能替代 PR 外部审阅、Check 或 G3 comment。
-- committer timestamp 不是安全身份或审阅证明；它只决定 commit message 的兼容语法。
+- author timestamp 不是安全身份或审阅证明；它只决定 commit message 的兼容语法。
 
 如果提交只是早期探索，不应合入 `main`，应使用分支或 PR 草稿；需要保存阻断事实时使用 `G3 Block`。
 
@@ -285,7 +285,7 @@ PR commit message 应通过仓库 CI 的提交信息检查：
 
 - 标题符合 Conventional Commits 标题格式。
 - 正文包含 `Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`。
-- 新提交的 `Gate` 为 `G3 Candidate` 或 `G3 Block`；legacy 值只在上述 cutoff 前按 committer timestamp 兼容。
+- 新提交的 `Gate` 为 `G3 Candidate` 或 `G3 Block`；legacy 值只在上述 cutoff 前按 author timestamp 兼容。
 - 治理字段块按推荐格式连续排列，字段之间没有额外空行。
 - 破坏性变更同时包含标题 `!`、单行 `BREAKING CHANGE:` footer，以及至少一个 `Impact` 的 `changed`。
 - 底部包含 `Refs` 或 `Closes`。
