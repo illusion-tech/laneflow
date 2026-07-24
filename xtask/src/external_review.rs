@@ -96,6 +96,7 @@ query($owner:String!, $name:String!, $number:Int!) {
       headRefOid
       baseRefOid
       baseRefName
+      isCrossRepository
       isDraft
       state
     }
@@ -1435,6 +1436,10 @@ fn shadow_skip_reason(identity: &PullRequestIdentity) -> Option<&'static str> {
         Some("draft PR 不属于 R1 eligible sample")
     } else if identity.state != "OPEN" {
         Some("PR 已不是 OPEN 状态")
+    } else if identity.is_cross_repository {
+        Some(
+            "fork / cross-repository PR head 无法由 base repository GITHUB_TOKEN 发布关联 Check；不计入 R1 sample，R2 前必须迁移到 same-repository PR",
+        )
     } else {
         None
     }
@@ -1529,21 +1534,24 @@ fn ensure_identity_unchanged(
         || initial.head_ref_oid != final_identity.head_ref_oid
         || initial.base_ref_oid != final_identity.base_ref_oid
         || initial.base_ref_name != final_identity.base_ref_name
+        || initial.is_cross_repository != final_identity.is_cross_repository
         || initial.is_draft != final_identity.is_draft
         || initial.state != final_identity.state
     {
         return Err(format!(
-            "PR identity 在 shadow Gate 运行期间发生变化：initial=({}, {}, {}, {}, {}, {}) final=({}, {}, {}, {}, {}, {})",
+            "PR identity 在 shadow Gate 运行期间发生变化：initial=({}, {}, {}, {}, {}, {}, {}) final=({}, {}, {}, {}, {}, {}, {})",
             initial.number,
             initial.head_ref_oid,
             initial.base_ref_oid,
             initial.base_ref_name,
+            initial.is_cross_repository,
             initial.is_draft,
             initial.state,
             final_identity.number,
             final_identity.head_ref_oid,
             final_identity.base_ref_oid,
             final_identity.base_ref_name,
+            final_identity.is_cross_repository,
             final_identity.is_draft,
             final_identity.state
         ));
@@ -1977,6 +1985,7 @@ struct PullRequestIdentity {
     head_ref_oid: String,
     base_ref_oid: String,
     base_ref_name: String,
+    is_cross_repository: bool,
     is_draft: bool,
     state: String,
 }
@@ -1998,6 +2007,7 @@ mod tests {
             head_ref_oid: head.to_string(),
             base_ref_oid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
             base_ref_name: "main".to_string(),
+            is_cross_repository: false,
             is_draft: false,
             state: "OPEN".to_string(),
         }
@@ -2128,6 +2138,15 @@ mod tests {
         assert_eq!(
             shadow_skip_reason(&other_base),
             Some("PR 不以 main 为 base，不属于本 shadow Gate 范围")
+        );
+
+        let mut fork = sample_identity("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        fork.is_cross_repository = true;
+        assert_eq!(
+            shadow_skip_reason(&fork),
+            Some(
+                "fork / cross-repository PR head 无法由 base repository GITHUB_TOKEN 发布关联 Check；不计入 R1 sample，R2 前必须迁移到 same-repository PR"
+            )
         );
     }
 
