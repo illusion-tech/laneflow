@@ -56,7 +56,7 @@ Review 时重点检查：
 - Issue 是否已有 G0/G1/G2 记录；不得把 G0-G3 首次记录推迟到 G4。
 - Delivery PR 是否在 G3 前确认 `closingIssuesReferences` 覆盖目标 Issue；Related PR 是否避免 closing keyword；部分交付或无法机器关联时是否记录显式例外。
 - PR body 使用 `Closes #<issue>` / `Resolves #<issue>` 建立 Development 关联；commit footer 通常继续使用 `Refs: #<issue>`。
-- commit message 是否符合 Conventional Commits 标题和 LaneFlow 治理字段：新提交的 `Gate` 使用 `G3 Candidate` / `G3 Block`，并包含 `Slice`、`Impact`、`Scope`、`Validation`、`Docs`、`Refs` / `Closes`。正式 `G3 Pass` 不写入 commit。
+- commit message 是否符合 `docs/reference/commit-convention.md`；Gate 语法、字段顺序、迁移兼容和正式 G3 表达均以该事实源为准，本提示层不复制。
 - 必需元数据缺失时是否记录显式例外；不适用项是否有 `N/A` 原因。
 - ruleset bypass、admin override 或其他例外是否记录原因、风险、接受边界和 Cleanup owner。
 
