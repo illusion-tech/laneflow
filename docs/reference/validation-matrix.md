@@ -97,7 +97,7 @@ workflow 安全检查至少验证：
 - Draft、非 `main` base、非 open PR 不计入 R1 sample；漏事件只允许显式 manual dispatch 补偿，不运行周期 schedule；
 - R1 sample 同时绑定 trusted default-branch workflow run、external ID 与 Check receipt；PR 自定义的同名 GitHub Actions job 不得计入；
 - R2 publisher 使用独立专用 GitHub App，ruleset 绑定正式 Check name 与 expected source App；恶意 PR 新增同名 Actions job 的 canary 仍必须阻断合并；
-- R1 thread resolve / unresolve 批次必须以顶层 marker 唤醒 trusted `issue_comment` workflow；R2 专用 App 必须实测 `pull_request_review_thread` / 等价自动信号覆盖两个方向，缺一则阻断 cutover；
+- R1 thread resolve / unresolve 批次必须以顶层 marker 唤醒 trusted `issue_comment` workflow；workflow 只接受 `created` 且正文精确匹配 marker 的 PR comment，edited / deleted 或其他 PR comment 不得刷新 shadow Check；R2 专用 App 必须实测 `pull_request_review_thread` / 等价自动信号覆盖两个方向，缺一则阻断 cutover；
 - API/provider/解析歧义 fail closed。
 
 publisher 的本地接口为 `publish-external-review-check --repo <owner/repo> --pr <number> --details-url <workflow-run-url> --run-id <id> --run-attempt <number> --trusted-ref-oid <oid>`。该命令会产生外部 Check 写操作，只能在 trusted workflow 中使用；本地 / PR head 验证只运行 payload、state mapping、identity race 与 workflow 静态安全单元测试，不得向真实 PR 发布候选 Check。
