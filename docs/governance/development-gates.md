@@ -39,6 +39,7 @@ Gate Ledger 是 Issue 和 PR 上的增量闸口记录，用来说明任务何时
 - 每次任务跨过一个 Gate，都应在对应载体留下记录。
 - G0、G1、G2 在 Issue Gate Ledger 中增量记录。
 - G3 的完整事件证据记录在每个 PR 的 `## G3 合并判断` comment，且必须在该 PR 合并前创建；PR body 的 G3 checkbox 只保存当前 PR 的直接 comment permalink。Issue body 的 G3 Gate Ledger 按 Related PR 合入顺序增量追加各自 permalink，在 Delivery PR 与全部 Related PR 均完成前保持未勾选，最终再勾选并保存完整 permalink 索引。
+- PR / Issue body 与 comment 中的 GitHub URL 使用文末 reference-style 定义，并在正文与引用定义之间保留空行；Gate validator 同时解析既有 inline permalink 和 reference-style permalink，引用定义存在但 Gate 行未实际引用时不得通过。
 - G4 的完整事件证据记录在 Issue 的 `## G4 完成判断` comment，且必须在所有关联 PR 合并后、Issue 关闭前创建；Issue body 的 G4 checkbox 保存直接 comment permalink。Delivery PR 的 body 只回链该 Issue G4 comment，Related PR 不承担 Issue G4。
 - GitHub comment 是带时间和作者的过程证据，不是不可变审计日志；长期规则仍由仓库文档和 Git 历史保存。
 - 每个 Related PR 独立 G3 都必须运行 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>`；该 comment 永久保留 Related-only 断言，只验证当前 Related PR 的 comment、仍未勾选的 Issue G3 增量 permalink 与关系，不声明 Issue 整体 G3 已完成。若 Issue G3 已提前勾选，Related-only 校验必须失败。
