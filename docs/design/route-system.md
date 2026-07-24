@@ -1,7 +1,7 @@
 # Route System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-22（#184 v0.8 直行走廊基线同步）
+**最后更新**: 2026-07-24（#228 v0.9 static-domain target 同步）
 
 **适用范围**: v0.2 Lane Graph + Route 的 route definition、route validation、route lifecycle 和 simple route following 边界  
 **关联文档**:
@@ -9,10 +9,12 @@
 - `core-runtime.md`
 - `core-id-handles.md`
 - `lane-graph.md`
+- `road-junction-model.md`
 - `parking-system.md`
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
+- `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../roadmap.md`
 
 ## 1. 目标
@@ -314,3 +316,26 @@ Adapter 不应：
 #184 不改变 route 是 finite explicit edge sequence、且 Core 不负责 pathfinding 的既有决策。v0.8 generator 为 6 个 portal-level 直行 movement 生成 14 条 lane-level routes：主干道两个方向各三条，两个次干道的两个方向各两条。主干道 route 穿越两个独立 connector，次干道 route 穿越一个 connector；不同 lane route 不互连，因此首版没有换道或转向。
 
 route completion event 的稳定顺序是 #203/caller-owned policy 建立 pending recycle plan 的输入。回流后是复用 logical external ID 的新旅程和新 `VehicleHandle`，不是把 completed route cursor 原地重置。Core 不拥有人口或回流 policy，只由 #186 提供 caller-driven atomic replace；完整 ID、portal 和 route 表见 `example-scenarios.md`，production generator/policy 分别由 #188/#203 交付。
+
+## 11. v0.9 Maneuver occurrence target
+
+#228/ADR 0017 保持 Route 是车辆实际 traversal authority。ManeuverPath 不替代、
+补全或重排 Route；它只在 Route 中完整连续匹配时形成语义 occurrence。
+
+Initial 和 runtime `register_route` target 在 command/normalization path 编译：
+
+```text
+ManeuverOccurrence(route, entryRouteEdgeIndex, exitRouteEdgeIndex, maneuverPath)
+GateOccurrence(routeTransitionIndex, maneuverGate)
+```
+
+Repeated edge 继续由 `routeEdgeIndex` 区分。Topology registry 必须使用
+entry-transition candidate index 缩小匹配范围，不得对每个 Route position 扫描全部
+ManeuverPaths。Compiled metadata 由 Route 共享；vehicle tick 不匹配 path、不查
+external ID、不扫描全局 catalog，也不为每辆车复制 occurrence。
+
+Dynamic Route 必须先完成 path/Gate/StopLine coverage 编译和验证，再原子提交 handle、
+definition 与 metadata。失败不得留下部分 occurrence 或可观察 allocation/order。
+完整 shape、歧义规则与性能边界见
+[`road-junction-model.md`](road-junction-model.md)。该 target 由 #229 实现前，
+current Route production behavior 不变。

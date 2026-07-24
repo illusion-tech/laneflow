@@ -1,6 +1,6 @@
 # 0009 Signal Indication, Movement Gate, and Policy Separation
 
-**状态**: Accepted  
+**状态**: Accepted（pair-based Gate identity target 由 ADR 0017 取代；indication/policy/conflict/safety 分层继续有效）<br>
 **日期**: 2026-07-15  
 **适用范围**: LaneFlow Signals 的 indication、空间准入边界、法规策略、冲突仲裁与 Core safety 所有权  
 **关联文档**:
@@ -12,8 +12,10 @@
   - `0006-vehicle-following-control-and-safety.md`
   - `0007-traffic-data-crate-and-loader-boundary.md`
   - `0008-pre-1.0-data-format-version-policy.md`
+  - `0017-static-road-junction-maneuver-and-gate-identity.md`
 - 详细设计:
   - `../design/signal-system.md`
+  - `../design/road-junction-model.md`
   - `../design/vehicle-following.md`
   - `../design/data-format.md`
   - `../design/data-loading.md`
@@ -109,3 +111,11 @@ v0.4 固定使用 static fixed-time cyclic controller、explicit StopLine/Moveme
 - #18：v0.4 最终全面审阅与收口。
 
 若未来让 SignalController 直接决定 jurisdiction/conflict、允许 Adapter 绕过 Core safety、改变 Gate/StopLine 分层或公开可替换的 policy/controller ABI，应新增或 supersede 本 ADR，不得静默改写。
+
+## ADR 0017 target 更新
+
+ADR 0017 在保持本文 indication、StopLine、policy、conflict 与 Core safety 分层的前提下，
+把长期 target 从 pair-based `MovementGate` 迁移为拥有 external ID、typed handle、
+ManeuverPath reference 与 transition index 的一等 `ManeuverGate`。Current production
+在 #229 G4 前仍使用本文 v0.4 pair-based Gate；不得把 target 写成已实现能力，也不得
+为兼容保留双 Gate identity。

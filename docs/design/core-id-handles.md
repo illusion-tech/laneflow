@@ -1,7 +1,7 @@
 # Core ID 与 Handle 模型
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-22<br>
+**最后更新**: 2026-07-24<br>
 **适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界  
 **关联文档**:
 
@@ -12,8 +12,10 @@
 - `../adr/0004-core-implementation-language.md`
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
+- `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `core-runtime.md`
 - `parking-system.md`
+- `road-junction-model.md`
 
 ## 1. 目标
 
@@ -573,3 +575,28 @@ replace_completed_vehicle(
 replace 保留 old 的 stable update-order position，不产生 tombstone；vehicle registry/resolver、slot/free-list、route reference、Parking unbound state 与 command-spatial membership 在 `validate/compute -> prepare capacities -> infallible apply` 中一次提交。warm `Preserve` 成功和 warm blocked retry 为零 heap allocation；replacement 不 clone `CoreWorld`、不扫描/排序全部 vehicle，也不建立全人口临时容器。route reference 使用 exact update-position index，反复替换不会积累 stale reference nodes。
 
 Core 不选择回流 portal、lane 或 route，不拥有目标人口、seed、PRNG、pending retry 或车辆数量上限，也不接触 Entity。#203/城市游戏等调用方拥有 lifecycle policy；成功 record 足以让 #187 Adapter transaction 原子切换 binding。详细职责和 same-proxy/new-identity 契约见 `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md` 与 `example-scenarios.md`。
+
+## 13. v0.9 static Road/Junction/Maneuver handle extension
+
+#228/ADR 0017 接受尚未由 #229 实现的四个 static handle domain：
+
+```text
+JunctionHandle
+MovementHandle
+ManeuverPathHandle
+ManeuverGateHandle
+```
+
+它们复用本文 external-ID/opaque-handle/resolver 原则，但 static registry 在
+initialization 后 immutable，v0.9 不需要 generation lifecycle。Entity/member/path
+edge 使用 normalization-order dense/flat storage；handle 没有 public ordering 或
+持久化数值。
+
+这些 handle 是 session/world-scoped caller contract。为保持现有 static handles
+一致，v0.9 不单独加入 per-value world nonce，也不承诺检测所有 same-index foreign
+handle。跨 graph/world 的 `InitialTrafficData` assembly 必须按 retained external IDs
+对最终 LaneGraph rebind/revalidate，禁止复制 dense handles。
+
+Route 注册期把 ManeuverPath/ManeuverGate 编译为 route-shared occurrences；
+steady tick 不使用 external string resolver、不按 handle 数值排序，也不扫描全局
+registry。#229 G4 前，current public API 不包含这些 handles。
