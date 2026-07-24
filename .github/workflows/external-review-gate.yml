@@ -66,6 +66,44 @@ jobs:
               jq -Rsc 'split("\n") | map(select(length > 0) | tonumber) | unique'
           }
 
+          workflow_run_prs() {
+            local direct_prs
+            local head_sha
+            local associated_prs
+
+            direct_prs="$(
+              jq -c \
+                '[.workflow_run.pull_requests[].number |
+                  select(type == "number" and . > 0)] | unique' \
+                "$GITHUB_EVENT_PATH"
+            )"
+            if [[ "$(jq -r 'length' <<<"$direct_prs")" != "0" ]]; then
+              printf '%s\n' "$direct_prs"
+              return
+            fi
+
+            head_sha="$(jq -er '.workflow_run.head_sha' "$GITHUB_EVENT_PATH")"
+            if [[ ! "$head_sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "workflow_run head_sha must be a full lowercase Git OID" >&2
+              exit 1
+            fi
+            associated_prs="$(
+              gh api --paginate --slurp \
+                "repos/${REPOSITORY}/commits/${head_sha}/pulls?per_page=100"
+            )"
+            jq -ce \
+              '[.[][] |
+                select(
+                  ((.number | type) == "number") and
+                  (.number > 0) and
+                  .state == "open" and
+                  .base.ref == "main"
+                ) |
+                .number] |
+                unique' \
+              <<<"$associated_prs"
+          }
+
           case "$EVENT_NAME" in
             pull_request_target)
               pr_numbers="$(jq -c '[.pull_request.number]' "$GITHUB_EVENT_PATH")"
@@ -74,11 +112,7 @@ jobs:
               pr_numbers="$(jq -c '[.issue.number]' "$GITHUB_EVENT_PATH")"
               ;;
             workflow_run)
-              pr_numbers="$(
-                jq -c \
-                  '[.workflow_run.pull_requests[].number | select(type == "number" and . > 0)] | unique' \
-                  "$GITHUB_EVENT_PATH"
-              )"
+              pr_numbers="$(workflow_run_prs)"
               ;;
             workflow_dispatch)
               if [[ -z "$MANUAL_PR" ]]; then
