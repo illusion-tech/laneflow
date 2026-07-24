@@ -1234,7 +1234,7 @@ fn validate_g3_evidence(
         ));
     }
     let delivery_permalink = completed_gate_permalink(&delivery_pr.body, "G3")?;
-    if !issue_g3_line.contains(&delivery_permalink) {
+    if !line_links_to_comment_permalink(&issue.body, issue_g3_line, &delivery_permalink) {
         return Err("Issue 的 G3 checkbox 未回链 Delivery PR 的 G3 comment permalink".to_string());
     }
     validate_comment(
@@ -1264,7 +1264,13 @@ fn validate_g3_evidence(
             delivery_pr: None,
             related_prs: vec![*number],
         };
-        validate_related_pr_g3(&related_args, issue_g3_line, *number, related_pr)?;
+        validate_related_pr_g3(
+            &related_args,
+            &issue.body,
+            issue_g3_line,
+            *number,
+            related_pr,
+        )?;
     }
     Ok(())
 }
@@ -1284,17 +1290,18 @@ fn validate_related_g3_evidence(
         ));
     }
     let issue_g3_line = pending_gate_line(&issue.body, "G3")?;
-    validate_related_pr_g3(args, issue_g3_line, related_number, related_pr)
+    validate_related_pr_g3(args, &issue.body, issue_g3_line, related_number, related_pr)
 }
 
 fn validate_related_pr_g3(
     args: &GateEvidenceArgs,
+    issue_body: &str,
     issue_g3_line: &str,
     number: u64,
     related_pr: &GitHubPullRequest,
 ) -> Result<(), String> {
     let permalink = completed_gate_permalink(&related_pr.body, "G3")?;
-    if !issue_g3_line.contains(&permalink) {
+    if !line_links_to_comment_permalink(issue_body, issue_g3_line, &permalink) {
         return Err(format!(
             "Issue 的 G3 Gate Ledger 未回链 Related PR #{number} 的 G3 comment permalink"
         ));
@@ -1451,8 +1458,9 @@ fn format_issue_numbers(numbers: &BTreeSet<u64>) -> String {
 
 fn completed_gate_permalink(body: &str, gate: &str) -> Result<String, String> {
     let line = completed_gate_line(body, gate)?;
-    extract_comment_permalink(line)
-        .ok_or_else(|| format!("已勾选的 `{gate}` Gate Ledger 项缺少直接 GitHub comment permalink"))
+    resolve_comment_permalink(body, line).ok_or_else(|| {
+        format!("已勾选的 `{gate}` Gate Ledger 项缺少 GitHub comment permalink（inline 或 reference-style）")
+    })
 }
 
 fn extract_comment_permalink(line: &str) -> Option<String> {
@@ -1463,6 +1471,50 @@ fn extract_comment_permalink(line: &str) -> Option<String> {
     permalink
         .contains("#issuecomment-")
         .then(|| permalink.to_string())
+}
+
+fn resolve_comment_permalink(body: &str, line: &str) -> Option<String> {
+    extract_comment_permalink(line).or_else(|| {
+        markdown_reference_labels(line)
+            .into_iter()
+            .find_map(|label| reference_comment_permalink(body, label))
+    })
+}
+
+fn line_links_to_comment_permalink(body: &str, line: &str, permalink: &str) -> bool {
+    line.contains(permalink)
+        || markdown_reference_labels(line)
+            .into_iter()
+            .filter_map(|label| reference_comment_permalink(body, label))
+            .any(|resolved| resolved == permalink)
+}
+
+fn markdown_reference_labels(line: &str) -> Vec<&str> {
+    let mut labels = Vec::new();
+    let mut remainder = line;
+    while let Some(start) = remainder.find("][") {
+        let after_open = &remainder[start + 2..];
+        let Some(end) = after_open.find(']') else {
+            break;
+        };
+        let label = &after_open[..end];
+        if !label.is_empty() {
+            labels.push(label);
+        }
+        remainder = &after_open[end + 1..];
+    }
+    labels
+}
+
+fn reference_comment_permalink(body: &str, label: &str) -> Option<String> {
+    body.lines().find_map(|line| {
+        let definition = line.trim().strip_prefix('[')?;
+        let (candidate, value) = definition.split_once("]:")?;
+        candidate
+            .eq_ignore_ascii_case(label)
+            .then(|| extract_comment_permalink(value.trim()))
+            .flatten()
+    })
 }
 
 fn validate_comment(
@@ -2342,6 +2394,28 @@ Refs: #12
     }
 
     #[test]
+    fn accepts_related_g3_with_reference_style_permalinks() {
+        let args = related_only_g3_args();
+        let mut issue = issue_with_pending_delivery_and_related_g3();
+        issue.body = issue.body.replace(
+            &format!("[Related G3 评论]({RELATED_G3_URL})"),
+            "[Related G3 评论][related-g3]",
+        );
+        issue
+            .body
+            .push_str(&format!("\n\n[related-g3]: {RELATED_G3_URL}\n"));
+        let mut related_pr = related_pr_for_args(false, &args);
+        related_pr.body = related_pr
+            .body
+            .replace(&format!("[G3 评论]({RELATED_G3_URL})"), "[G3 评论][g3]");
+        related_pr
+            .body
+            .push_str(&format!("\n\n[g3]: {RELATED_G3_URL}\n"));
+
+        assert!(validate_related_g3_evidence(&args, &issue, 62, &related_pr).is_ok());
+    }
+
+    #[test]
     fn rejects_related_g3_when_issue_g3_is_already_completed() {
         let args = related_only_g3_args();
         let mut issue = issue_with_pending_delivery_and_related_g3();
@@ -2446,6 +2520,29 @@ Refs: #12
             completed_gate_permalink(&body, "G3"),
             Ok(DELIVERY_G3_URL.to_string())
         );
+    }
+
+    #[test]
+    fn resolves_reference_style_gate_permalink_from_the_completed_line() {
+        let body = format!(
+            "- [x] G3 合并判断已记录：[Delivery G3 评论][delivery-g3]\n\n[unrelated]: {ISSUE_G4_URL}\n[delivery-g3]: {DELIVERY_G3_URL}\n"
+        );
+
+        assert_eq!(
+            completed_gate_permalink(&body, "G3"),
+            Ok(DELIVERY_G3_URL.to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_unreferenced_permalink_definition() {
+        let body =
+            format!("- [x] G3 合并判断已记录：待补链接\n\n[delivery-g3]: {DELIVERY_G3_URL}\n");
+
+        let error = completed_gate_permalink(&body, "G3")
+            .expect_err("an unreferenced definition is not Gate evidence");
+
+        assert!(error.contains("inline 或 reference-style"));
     }
 
     #[test]
