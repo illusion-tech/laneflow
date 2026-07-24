@@ -162,16 +162,28 @@
 
 ## v0.9 Complete Signalized Corridor Example
 
-目标：在 v0.8 直行走廊之上交付支持受保护左转、直行和右转的完整信号化走廊示例。Milestone tracker 为 #194；v0.8 是其前置条件。
+目标：在 v0.8 直行走廊之上，先建立显式 Junction/Movement/ManeuverPath/
+ManeuverGate 静态身份，再交付支持受保护左转、直行和右转的完整信号化走廊示例。
+Milestone tracker 为 #194；v0.8 已完成前置收口。
 
 范围：
 
-- #196 冻结转向 movement、route、lane connection、signal group/phase 与车辆选择规则；
+- #228/ADR 0017 冻结长期 Road/Junction/Maneuver 分层、Route occurrence、一等
+  ManeuverGate、authority、determinism 与 performance target；
+- #196 在该通用模型上冻结转向 movement/path、route、lane connection、
+  signal group/phase、兼容矩阵与车辆选择规则；
+- #229 以 clean break 原子实现 Junction/Movement/ManeuverPath/ManeuverGate
+  Core/Data static model、Traffic v0.8、fixtures、generator 和 generated artifacts；
 - #190–#192 实现并验证两个交叉口的受保护左转、直行和右转，以及对应的 Core/Data/Adapter 行为；
 - 保留 v0.8 的道路尺度、限速、50–200 车辆调节、信号时长配置和确定性出口回流能力；
 - 完成端到端安全、确定性、可配置性、native 可视化和独立 closure review。
 
-不覆盖：无保护左转、红灯右转、感应式或自适应信号、掉头，以及 #72 的城市级扩展。
+实施顺序为 `#228 -> #196 -> #229 -> #190 -> #191 -> #192`。RoadSection、
+LaneGroup 与 JunctionGroup 在 v0.9 只冻结长期语义，不生产化。
+
+不覆盖：无保护左转、红灯右转、感应式或自适应信号、掉头、lane change、
+ConflictZone/right-of-way solver、RoadSection/JunctionGroup runtime，以及 #72 的
+城市级扩展。
 
 ## 城市级扩展研究（Milestone N/A）
 

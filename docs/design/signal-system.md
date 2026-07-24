@@ -15,8 +15,10 @@
 - `../adr/0007-traffic-data-crate-and-loader-boundary.md`
 - `../adr/0008-pre-1.0-data-format-version-policy.md`
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
+- `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `data-format.md`
 - `data-loading.md`
+- `road-junction-model.md`
 - `route-system.md`
 - `vehicle-following.md`
 - `parking-system.md`
@@ -522,7 +524,7 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 
 ## 16. 1.0 后中国场景扩展
 
-未来扩展使用 `ManeuverPath + MovementGate + WaitingZone + ConflictZone + versioned rule policy`，而不是向 SignalController 增加国家/转向 if/else：
+未来扩展使用 `ManeuverPath + ManeuverGate + WaitingZone + ConflictZone + versioned rule policy`，而不是向 SignalController 增加国家/转向 if/else：
 
 - 左转/直行待行区：`Gate A -> waiting edge/zone -> Gate B` 的多阶段准入；
 - 红灯右转：SignalAspect 输入 + jurisdiction policy + 冲突/让行判断；
@@ -539,3 +541,25 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 #184 复用现有 immutable fixed-time controller、StopLine 和 `(from, to)` MovementGate，不增加第二套 signal runtime。每个交叉口各有一个 controller 和主/次干道两个 group；phase program 固定为主绿、主黄、全红、次绿、次黄、全红。authoring/startup config 提供 `mainGreenMs`、`secondaryGreenMs`、`yellowMs`、`allRedMs` 与两个 controller offset；red duration 由完整 program 推导，不提供独立 `redMs`，v0.8 不支持 runtime hot edit。
 
 generator 负责为每个交叉口完整枚举 10 条 lane movement gates（走廊合计 20 条）与全部 phase group state，并证明主/次冲突 movement 不同时开放；Core 继续只执行已规范化 program，不推导 conflict matrix。默认值、ID 和验证矩阵见 `example-scenarios.md`，production authoring 与制品集成由 #188 交付。
+
+## 18. v0.9 ManeuverGate clean-break target
+
+#228/ADR 0017 保留本文 indication、StopLine、compliance、future conflict 与 Core
+safety 分层，但接受以下尚未实现的 target：
+
+- pair-based `MovementGate`/`MovementGateKey` 改名并破坏性迁移为一等
+  `ManeuverGate`/`ManeuverGateHandle`；
+- Gate wire/runtime identity 包含 external ID、ManeuverPath、transition index、
+  StopLine 和 signal control；
+- `transitionIndex=i` 表示 `pathEdges[i] -> pathEdges[i+1]`，StopLine 必须绑定
+  `pathEdges[i]`；
+- v0.9 protected profile 只允许 entry transition，并要求每条受控 ManeuverPath
+  恰好一个 entry Gate；
+- Route 注册期把 path/Gate 编译为 route-shared occurrences，vehicle tick 不再用
+  edge pair 推导完整行为 identity；
+- old pair key、deprecated alias、dual query 与 Traffic v0.7 runtime compatibility
+  均不保留。
+
+未来 multi-stage Gate 可在同一 ManeuverPath 的不同 transition 上拥有独立
+ManeuverGate identity；WaitingZone/conflict/policy behavior 仍需独立 G1。#229 G4
+前，本文前述 v0.4-v0.8 pair-based 内容继续描述 current production。

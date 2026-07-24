@@ -1,8 +1,8 @@
 # 架构
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-22<br>
-**适用范围**: LaneFlow 分层、Rust crate 依赖方向、Traffic Data、Signals、Parking、场景人口与 Core/Adapter 边界
+**最后更新**: 2026-07-24<br>
+**适用范围**: LaneFlow 分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界
 
 ## 1. 架构目标
 
@@ -95,6 +95,12 @@ current v0.7 在保持相同依赖方向的前提下包含 per-edge 基础道路
 
 Traffic Data 只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors 与 edge-relative geometry，不持久化 reservation、occupancy、initial parked vehicles 或 runtime handles。#107 已原子切换 schema、private DTO、loader、fixtures 与 current docs；#108 的 runtime authority 完全保留在 CoreWorld，不回写 production data。
 
+#228/ADR 0017 已接受 v0.9 static-domain target，但尚未改变 production：Traffic v0.8
+将以 clean break 增加 Junction、Movement、ManeuverPath，并把 pair-based
+MovementGate 替换为一等 ManeuverGate。RoadSection、LaneGroup 与 JunctionGroup
+只冻结长期语义，不进入 v0.9 schema。SpatialPackage/ScenarioManifest 保持 v0.1；
+完整 target 与 current/implemented 边界见 `design/road-junction-model.md`。
+
 ## 5. LaneFlow Core
 
 LaneFlow Core 负责运行时交通逻辑：
@@ -114,6 +120,13 @@ Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTraff
 `InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane graph、routes、Vehicle Profiles 与 immutable Signals/Parking registries，不拥有 tick、initial vehicles 或 runtime route generation。初始 route validation 与 runtime route registration 复用同一 Core 规则，包括 route-final-StopLine 约束。
 
 v0.4 Signals 在 Core 内保持四层职责：Controller 产生 indication；MovementGate/StopLine 表达空间准入；compliance policy 解释 signal-layer permission；纵向 constraint、安全投影与 permission-aware traversal 保证结果不可绕过。#94-#97 已交付 static registry/current data、absolute-time fixed-time snapshot、只读 query/events、restrictive yellow/red SignalStop、hard projection、permission-aware route-occurrence traversal，以及 10k/100k matched validation。SignalController 不硬编码国家/转向规则，Adapter 只 query/render。长期分层见 ADR 0009、`design/signal-system.md` 与 `reference/v0.4-closure-review.md`。
+
+ADR 0017 的 Accepted target 在不改变上述职责分层的前提下建立
+`Junction -> Movement -> ManeuverPath` immutable owner hierarchy、derived
+internal-edge Junction ownership 和一等 ManeuverGate。Route 继续拥有车辆实际
+traversal；initial/dynamic Route 在注册期编译 Maneuver/Gate occurrences，vehicle
+tick 不匹配 path、不查 external ID 或扫描全局 catalog。该能力由 #229 实现前，
+Core current API 仍是 v0.7/pair-based Gate。
 
 v0.5 Parking runtime 由 Core 私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与 exact Occupied binding 一致，Parked vehicle 保留 live identity但不进入 travel-lane occupancy。#108 已公开 borrowed snapshot 和 caller-selected lifecycle commands；#109 已把 ParkingStop、SignalStop、RouteEnd 与 leader/no-overlap 纳入同一 fixed-tick constraint/traversal pipeline，并交付 arrival、route-completion release、step events 与 Reserved capability activation。Adapter 只消费 immutable registry、snapshot、records/events 和 position authority。详细设计见 ADR 0010 与 `design/parking-system.md`。
 
