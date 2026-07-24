@@ -139,14 +139,14 @@ LaneFlow 允许的 `type`：
 新提交只允许：
 
 - `G3 Candidate`：实现者已完成当前提交的本地验证，可以进入 PR 外部审阅；它不声明正式 G3 通过。
-- `G3 Block`：提交用于分支上的阻断调查或纠偏记录，不应合入 `main` 或视为完成。
+- `G3 Block`：提交用于分支上的阻断调查或纠偏记录，不应合入 `main` 或视为完成。本地 hook 接受该值，但 PR / push range 校验必须拒绝它；解除阻断后应重写或移除该 commit，再以 `G3 Candidate` 进入合并范围。
 
 正式 `G3 Pass` 只由绑定 current head 的 `External Review Gate` Check 与 append-only `## G3 合并判断` comment 双钥匙表达，不再通过 amend commit 回写。`G3 Waived` 同样只存在于 PR Check / comment 的显式例外证据层；`Docs Only` 不再绕过外部审阅。
 
 迁移规则：
 
 - 本地 `commit-msg` hook 对新提交立即要求 `G3 Candidate` 或 `G3 Block`。
-- range 校验器对 author timestamp 早于 `2026-08-07T00:00:00Z` 的既有 commit 暂时兼容 `G3 Pass`、`G3 Waived` 与 `Docs Only`，避免为开放分支重写历史。使用 author timestamp 是为了在默认 Rebase and merge 重写 committer 信息后保持判定稳定。
+- PR / push range 校验器只接受 `G3 Candidate`；对 author timestamp 早于 `2026-08-07T00:00:00Z` 的既有 commit 暂时兼容 `G3 Pass`、`G3 Waived` 与 `Docs Only`，避免为开放分支重写历史。使用 author timestamp 是为了在默认 Rebase and merge 重写 committer 信息后保持判定稳定。`G3 Block` 在任何 range 中都失败。
 - cutoff 只用于迁移兼容，不赋予 legacy 值正式 G3 权威，也不能替代 PR 外部审阅、Check 或 G3 comment。
 - author timestamp 不是安全身份或审阅证明；它只决定 commit message 的兼容语法。
 
@@ -285,7 +285,7 @@ PR commit message 应通过仓库 CI 的提交信息检查：
 
 - 标题符合 Conventional Commits 标题格式。
 - 正文包含 `Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`。
-- 新提交的 `Gate` 为 `G3 Candidate` 或 `G3 Block`；legacy 值只在上述 cutoff 前按 author timestamp 兼容。
+- 新提交的本地 `Gate` 为 `G3 Candidate` 或 `G3 Block`；PR / push range 只接受 `G3 Candidate`，legacy 值只在上述 cutoff 前按 author timestamp 兼容。
 - 治理字段块按推荐格式连续排列，字段之间没有额外空行。
 - 破坏性变更同时包含标题 `!`、单行 `BREAKING CHANGE:` footer，以及至少一个 `Impact` 的 `changed`。
 - 底部包含 `Refs` 或 `Closes`。

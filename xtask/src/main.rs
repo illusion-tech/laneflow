@@ -783,8 +783,9 @@ fn check_commit_messages(explicit_range: Option<&str>) -> Result<(), String> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CommitGatePolicy {
-    Current,
-    LegacyCompatible,
+    LocalHook,
+    RangeCurrent,
+    RangeLegacyCompatible,
 }
 
 fn commit_gate_policy(commit_hash: &str) -> Result<CommitGatePolicy, String> {
@@ -800,9 +801,9 @@ fn commit_gate_policy(commit_hash: &str) -> Result<CommitGatePolicy, String> {
 
 fn commit_gate_policy_for_timestamp(author_timestamp: u64) -> CommitGatePolicy {
     if author_timestamp < LEGACY_GATE_CUTOFF_UNIX {
-        CommitGatePolicy::LegacyCompatible
+        CommitGatePolicy::RangeLegacyCompatible
     } else {
-        CommitGatePolicy::Current
+        CommitGatePolicy::RangeCurrent
     }
 }
 
@@ -1518,7 +1519,7 @@ fn validate_g3_timing(pr: &GitHubPullRequest, permalink: &str, label: &str) -> R
 }
 
 fn validate_message(commit_hash: &str, message: &str) -> Vec<String> {
-    validate_message_with_gate_policy(commit_hash, message, CommitGatePolicy::Current)
+    validate_message_with_gate_policy(commit_hash, message, CommitGatePolicy::LocalHook)
 }
 
 fn validate_message_with_gate_policy(
@@ -1553,9 +1554,10 @@ fn validate_message_with_gate_policy(
 
     if !has_valid_gate(message, gate_policy) {
         let allowed = match gate_policy {
-            CommitGatePolicy::Current => "`G3 Candidate` 或 `G3 Block`",
-            CommitGatePolicy::LegacyCompatible => {
-                "`G3 Candidate`、`G3 Block` 或迁移期 legacy 值 `G3 Pass` / `G3 Waived` / `Docs Only`"
+            CommitGatePolicy::LocalHook => "`G3 Candidate` 或 `G3 Block`",
+            CommitGatePolicy::RangeCurrent => "`G3 Candidate`；`G3 Block` 不得进入合并范围",
+            CommitGatePolicy::RangeLegacyCompatible => {
+                "`G3 Candidate` 或迁移期 legacy 值 `G3 Pass` / `G3 Waived` / `Docs Only`；`G3 Block` 不得进入合并范围"
             }
         };
         errors.push(format!("`Gate` 必须是 {allowed}"));
@@ -1610,9 +1612,13 @@ fn has_valid_gate(message: &str, gate_policy: CommitGatePolicy) -> bool {
         let Some(gate) = field_value(line, "Gate") else {
             return false;
         };
-        CURRENT_GATE_VALUES.contains(&gate)
-            || (gate_policy == CommitGatePolicy::LegacyCompatible
-                && LEGACY_GATE_VALUES.contains(&gate))
+        match gate_policy {
+            CommitGatePolicy::LocalHook => CURRENT_GATE_VALUES.contains(&gate),
+            CommitGatePolicy::RangeCurrent => gate == "G3 Candidate",
+            CommitGatePolicy::RangeLegacyCompatible => {
+                gate == "G3 Candidate" || LEGACY_GATE_VALUES.contains(&gate)
+            }
+        }
     })
 }
 
@@ -2346,6 +2352,24 @@ Refs: #12
     }
 
     #[test]
+    fn rejects_g3_block_in_a_commit_range() {
+        let message = VALID_MESSAGE.replace("Gate: G3 Candidate", "Gate: G3 Block");
+
+        for gate_policy in [
+            CommitGatePolicy::RangeCurrent,
+            CommitGatePolicy::RangeLegacyCompatible,
+        ] {
+            let errors =
+                validate_message_with_gate_policy("0123456789abcdef", &message, gate_policy);
+            assert!(
+                errors
+                    .iter()
+                    .any(|error| error.contains("不得进入合并范围"))
+            );
+        }
+    }
+
+    #[test]
     fn rejects_legacy_gate_for_a_new_commit() {
         let message = VALID_MESSAGE.replace("Gate: G3 Candidate", "Gate: G3 Pass");
 
@@ -2361,7 +2385,7 @@ Refs: #12
         let errors = validate_message_with_gate_policy(
             "0123456789abcdef",
             &message,
-            CommitGatePolicy::LegacyCompatible,
+            CommitGatePolicy::RangeLegacyCompatible,
         );
 
         assert!(errors.is_empty());
@@ -2371,11 +2395,11 @@ Refs: #12
     fn switches_to_current_gate_policy_at_the_cutoff() {
         assert_eq!(
             commit_gate_policy_for_timestamp(LEGACY_GATE_CUTOFF_UNIX - 1),
-            CommitGatePolicy::LegacyCompatible
+            CommitGatePolicy::RangeLegacyCompatible
         );
         assert_eq!(
             commit_gate_policy_for_timestamp(LEGACY_GATE_CUTOFF_UNIX),
-            CommitGatePolicy::Current
+            CommitGatePolicy::RangeCurrent
         );
     }
 

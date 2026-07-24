@@ -103,7 +103,7 @@ workflow 安全检查至少验证：
 11. `../governance/security-scanning.md` 要求的适用扫描仍为 `pending`、失败、无分析、已禁用或不可用，且没有显式例外；或把 API / 命令失败误写成零开放告警。
 12. external review 缺失、pending、stale、actor/provider 不可信、finding 未完成 clean re-review，或只用 `reviewThreads=0` 证明 clean。
 13. R2 激活后 current-head `External Review Gate` 未成功，或 G3 comment 不是 Check 后新增的 append-only Owner 判断。
-14. 新 commit 使用 legacy `G3 Pass` / `G3 Waived` / `Docs Only`，且不满足 `commit-convention.md` 的 cutoff 兼容条件。
+14. PR / push range 包含 `G3 Block`，或新 commit 使用 legacy `G3 Pass` / `G3 Waived` / `Docs Only` 且不满足 `commit-convention.md` 的 cutoff 兼容条件。
 
 G4 清场前还必须运行 `check-gate-evidence g4`；它验证 Issue G4 permalink、关联 PR 合并状态、Gate Ledger、Project `Done`，以及 `Gate 断言` 的规范命令和 `已通过` 结果，但不替代 G4 comment 中的分支清理与权限撤回证据。
 
