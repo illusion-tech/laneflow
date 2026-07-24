@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-22（#184 v0.8 走廊几何口径同步）
+**最后更新**: 2026-07-25（#196 v0.9 受保护转向几何口径同步）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -16,6 +16,7 @@
 - `data-format.md`
 - `adapter-api.md`
 - `parking-system.md`
+- `signalized-corridor-protected-turning.md`
 - `../reference/v0.6-spatial-validation.md`
 
 ## 1. 目标、边界与术语
@@ -381,3 +382,20 @@ heading = anchor.tangent * cos(heading_offset_radians)
 #184 的“道路总长”按三条物理轴线计：主干道 800 m、两条次干道各 300 m，默认合计 1.4 km，配置上限 2 km；directed lane edge、各 lane 和 connector 不重复计入产品道路总长。Traffic progression 仍以各 edge 的 Core `EdgeLength` 为权威，Spatial pose 仍以绑定后的 centerline 弧长为权威，两者由 generator 的同一中心线输入生成并通过既有 binding validation。
 
 每个路口的每条直行 lane 使用独立 connector edge，以便 StopLine/MovementGate 绑定明确 traversal。默认坐标、车道宽度、路口位置和 14 条 routes 见 `example-scenarios.md`；#188 负责 generator 与制品验证，不改变 SpatialPackage v0.1 shape。
+
+## 15. v0.9 受保护转向 target
+
+#196 保持 SpatialPackage 0.1 shape、canonical frame、量化、长度绑定与 pose
+authority 不变，但将 connector profile clean-break 为 32 条 lane-level
+ManeuverPath：
+
+- same-lane straight 使用两点折线；
+- main `lane 1 -> lane 0` straight 使用纵向线性、横向 smoothstep 的 64 段折线；
+- left/right 使用 64 段 XZ quarter-ellipse；
+- 全部采样点量化到 1 mm，Traffic length 从同一量化后 point sequence 派生；
+- 继续执行 1 cm length binding、5 mm join、0.1 m 最小线段与既有 pose validation。
+
+完整 boundary、公式、reference lengths、turn radius 和安全净距见
+[`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)。
+这些是 #229 的 Accepted target；在生成制品和 loader 往返通过前，不代表 current
+Spatial artifacts 已改变。

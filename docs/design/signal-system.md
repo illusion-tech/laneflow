@@ -1,7 +1,7 @@
 # Signal System 设计
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-07-24<br>
+**最后更新**: 2026-07-25<br>
 **适用范围**: v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界，以及 current v0.7 package embedding<br>
 **实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 加入 Parking，#185 在保持 Signals shape/behavior 的前提下把 package 原子迁移到 current v0.7
 
@@ -19,6 +19,7 @@
 - `data-format.md`
 - `data-loading.md`
 - `road-junction-model.md`
+- `signalized-corridor-protected-turning.md`
 - `route-system.md`
 - `vehicle-following.md`
 - `parking-system.md`
@@ -563,3 +564,11 @@ safety 分层，但接受以下尚未实现的 target：
 未来 multi-stage Gate 可在同一 ManeuverPath 的不同 transition 上拥有独立
 ManeuverGate identity；WaitingZone/conflict/policy behavior 仍需独立 G1。#229 G4
 前，本文前述 v0.4-v0.8 pair-based 内容继续描述 current production。
+
+#196 已在
+[`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)
+冻结每个 Junction 的 `main-left`、`main-through-right`、`secondary-left`、
+`secondary-through-right` 四个 group、完整 12-phase/84 秒 program、32 个
+group-controlled entry ManeuverGate 和 authoring compatibility matrix。该 profile
+不扩展 SignalController runtime authority；#229 只能把已规范化数据接入上述通用
+target。
