@@ -1466,7 +1466,7 @@ fn completed_gate_permalink(body: &str, gate: &str) -> Result<String, String> {
 fn extract_comment_permalink(line: &str) -> Option<String> {
     let start = line.find("https://github.com/")?;
     let permalink = line[start..]
-        .split(|character: char| character.is_whitespace() || character == ')')
+        .split(|character: char| character.is_whitespace() || character == ')' || character == '>')
         .next()?;
     permalink
         .contains("#issuecomment-")
@@ -2526,6 +2526,18 @@ Refs: #12
     fn resolves_reference_style_gate_permalink_from_the_completed_line() {
         let body = format!(
             "- [x] G3 合并判断已记录：[Delivery G3 评论][delivery-g3]\n\n[unrelated]: {ISSUE_G4_URL}\n[delivery-g3]: {DELIVERY_G3_URL}\n"
+        );
+
+        assert_eq!(
+            completed_gate_permalink(&body, "G3"),
+            Ok(DELIVERY_G3_URL.to_string())
+        );
+    }
+
+    #[test]
+    fn resolves_angle_bracketed_reference_style_gate_permalink() {
+        let body = format!(
+            "- [x] G3 合并判断已记录：[Delivery G3 评论][delivery-g3]\n\n[delivery-g3]: <{DELIVERY_G3_URL}>\n"
         );
 
         assert_eq!(
