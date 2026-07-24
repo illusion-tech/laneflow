@@ -91,9 +91,9 @@ G3 comment 模板（合并前发表）：
 - 风险：
 - 例外：
 - 合并方式：
-- Gate 断言：`cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...` 已通过。
+- Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` 已通过。
 
-填写与实际参数完全一致的命令后立即运行；若失败，必须移除“已通过”并修复证据。Related PR B 合入前，该命令只校验 legacy comment 结构、permalink、PR 关系和时序，不能替代对 current head 与外部审阅字段的人工核验。
+Delivery PR 尚未创建时，Related PR 使用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>`；Delivery PR / full-set 使用 `--delivery-pr <number>` 并传入全部 Related PR。填写与实际参数完全一致的命令后立即运行；若失败，必须移除“已通过”并修复证据。Related PR B 合入前，该命令只校验 legacy comment 结构、permalink、PR 关系和时序，不能替代对 current head 与外部审阅字段的人工核验。
 -->
 
 ## 完成边界
