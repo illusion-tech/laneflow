@@ -31,6 +31,7 @@ pub struct CorridorPopulationPrepare {
     config: CorridorPopulationConfig,
     catalog: NormalizedCorridorCatalog,
     profile: VehicleProfileHandle,
+    route_entry_speeds: Vec<Speed>,
     rng: SplitMix64,
     slots: Vec<PreparedLogicalSlot>,
     initial_vehicles: Option<Vec<VehicleSpawnInput>>,
@@ -42,6 +43,7 @@ pub struct CorridorPopulationController {
     catalog: NormalizedCorridorCatalog,
     route_handles: Vec<RouteHandle>,
     route_completion_edges: Vec<RouteCompletionIdentity>,
+    route_entry_speeds: Vec<Speed>,
     profile: VehicleProfileHandle,
     rng: SplitMix64,
     slots: Vec<LogicalSlot>,
@@ -168,6 +170,20 @@ impl CorridorPopulationPrepare {
                 actual: catalog.spawn_slots.len(),
             });
         }
+        let desired_speed = traffic
+            .vehicle_profiles()
+            .profile(profile)
+            .expect("profile was validated above")
+            .iidm()
+            .desired_speed;
+        let route_entry_speeds = catalog
+            .routes
+            .iter()
+            .map(|route| {
+                let entry = &catalog.spawn_slots[route.entry_spawn_slot_index];
+                normal_speed_for_edge(traffic, &entry.edge_id, desired_speed)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         let mut rng = SplitMix64::new(config.seed);
         let mut shuffled_slots = (0..catalog.spawn_slots.len()).collect::<Vec<_>>();
@@ -185,6 +201,7 @@ impl CorridorPopulationPrepare {
         {
             let spawn_slot = &catalog.spawn_slots[spawn_slot_index];
             let route = &catalog.routes[spawn_slot.route_index];
+            let initial_speed = normal_speed_for_edge(traffic, &spawn_slot.edge_id, desired_speed)?;
             let vehicle_id = format!("corridor-vehicle-{logical_index:03}");
             initial_vehicles.push(VehicleSpawnInput::active(
                 vehicle_id.clone(),
@@ -192,13 +209,14 @@ impl CorridorPopulationPrepare {
                 route.id.clone(),
                 spawn_slot.route_edge_index,
                 spawn_slot.edge_progress,
-                Speed::ZERO,
+                initial_speed,
             ));
             slots.push(PreparedLogicalSlot {
                 vehicle_id,
                 route_index: spawn_slot.route_index,
                 route_edge_index: spawn_slot.route_edge_index,
                 edge_progress: spawn_slot.edge_progress,
+                initial_speed,
             });
         }
 
@@ -206,6 +224,7 @@ impl CorridorPopulationPrepare {
             config,
             catalog,
             profile,
+            route_entry_speeds,
             rng,
             slots,
             initial_vehicles: Some(initial_vehicles),
@@ -300,6 +319,7 @@ impl CorridorPopulationPrepare {
                 || state.route != route_handles[prepared.route_index]
                 || state.route_edge_index != prepared.route_edge_index
                 || state.edge_progress != prepared.edge_progress
+                || state.current_speed != prepared.initial_speed
                 || state.status != VehicleStatus::Active
             {
                 return Err(CorridorPopulationError::InitialVehicleMismatch {
@@ -321,6 +341,7 @@ impl CorridorPopulationPrepare {
             catalog: self.catalog,
             route_handles,
             route_completion_edges,
+            route_entry_speeds: self.route_entry_speeds,
             profile: self.profile,
             rng: self.rng,
             slots,
@@ -400,7 +421,7 @@ impl CorridorPopulationController {
                 self.route_handles[plan.route_index],
                 entry.route_edge_index,
                 entry.edge_progress,
-                Speed::ZERO,
+                self.route_entry_speeds[plan.route_index],
             );
             report.attempted += 1;
             let outcome = match apply(old, &input) {
@@ -593,6 +614,7 @@ struct PreparedLogicalSlot {
     route_index: usize,
     route_edge_index: usize,
     edge_progress: laneflow_core::EdgeProgress,
+    initial_speed: Speed,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -621,4 +643,22 @@ struct FrozenPlan {
 struct RouteCompletionIdentity {
     edge: EdgeHandle,
     route_edge_index: usize,
+}
+
+fn normal_speed_for_edge(
+    traffic: &InitialTrafficData,
+    edge_id: &str,
+    desired_speed: f64,
+) -> Result<Speed, CorridorPopulationError> {
+    let speed_limit = traffic
+        .lane_graph()
+        .edge_speed_limit_by_id(edge_id)
+        .ok_or_else(|| CorridorPopulationError::BoundWorldCatalogMismatch {
+            detail: format!("spawn edge {edge_id:?} 缺少 speed-limit authority"),
+        })?;
+    Speed::try_new(desired_speed.min(speed_limit.value())).map_err(|source| {
+        CorridorPopulationError::BoundWorldCatalogMismatch {
+            detail: format!("spawn edge {edge_id:?} 无法派生正常初速度：{source}"),
+        }
+    })
 }

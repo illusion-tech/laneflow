@@ -113,7 +113,11 @@ Traffic v0.7 current contract 在每个 lane edge 上要求严格正、有限的
 
 车辆不得以超过当前 edge 限速的初始速度 spawn/replace。车辆不得在 crossing 下游限速边界时仍超过新限速。若多个约束同时存在，沿 route 最近且最严格的可行约束生效；道路限速不得绕过既有 SignalStop 或 no-overlap hard projection。
 
-默认初始与回流速度均为 `0 m/s`，减少入口容量和限速切换的歧义。
+默认初始与回流使用当前 spawn edge 的正常行驶初速度：
+`min(VehicleProfile.desiredSpeed, current edge speedLimit)`。Core 仍在提交 initial
+batch/replace 时验证 overlap、route 和速度上限；入口被占用时回流返回可重试的
+`Blocked`，既不把速度降为零后强塞，也不绕过首个 fixed tick 的 leader、SignalStop
+和 no-overlap authority。
 
 ## 5. 信号控制器
 
@@ -136,7 +140,7 @@ Traffic v0.7 current contract 在每个 lane edge 上要求严格正、有限的
 
 red time 由完整 phase program 推导，不提供独立 `redMs`。v0.8 只在生成/启动时读取配置，不支持运行中的热修改。
 
-默认 TOML 配置为 `main_green_ms=30000`、`secondary_green_ms=20000`、`yellow_ms=3000`、`all_red_ms=1000`，两个 `intersection_offsets_ms` 均为 `0`。所有时长必须为严格正整数且不小于 fixed delta，但不要求能被 fixed delta 整除；offset 必须已经满足 `0 <= offset < cycle`，generator 不做静默取模。generator/loader 沿用 Signal System 的完整 group-state validation；默认值只保证可复现和无冲突，不宣称交通优化。
+默认 TOML 配置为 `main_green_ms=30000`、`secondary_green_ms=20000`、`yellow_ms=3000`、`all_red_ms=1000`，`intersection_offsets_ms = [0, 29000]`。完整 cycle 为 `58000 ms`；第二个 controller 使用半周期 offset，让 production native 默认路径可以直接观察两个路口的相位差。所有时长必须为严格正整数且不小于 fixed delta，但不要求能被 fixed delta 整除；offset 必须已经满足 `0 <= offset < cycle`，generator 不做静默取模。generator/loader 沿用 Signal System 的完整 group-state validation；默认值只保证可复现、无冲突和可视验证，不宣称交通优化。
 
 ## 6. 人口、初始分布与启动参数
 
@@ -151,6 +155,35 @@ native reference 至少公开：
 ```
 
 非法车辆数、解析失败、未知 portal/route、无足够 spawn slots 或 artifact validation failure 都必须在第一个 Core step 前返回明确错误，不能静默 clamp 或降级。
+
+#189 的 Bevy target 名为 `signalized_corridor`，继续复用 opt-in `native-example`
+feature；它不改写 v0.7 `native_reference`。example 只读取 authoring config 的启动
+projection（版本、fixed delta、lane width、输出目录与文件名），不调用 generator，也
+不把 generator 变成 runtime dependency。相对输出目录以 config 所在目录为基准；随后
+必须通过 production Scenario loader 的 size/digest/reference validation。
+
+运行命令为：
+
+```powershell
+cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example -- --vehicles 100 --seed 0 --config examples/config/v0.8-signalized-corridor.toml
+```
+
+道路、lane marking、StopLine、灯具与 camera 从已加载 Spatial/Core/config projection
+派生，不维护第二套手写 corridor 坐标。灯具 aspect 只读取 committed Core snapshot；
+完成车辆继续复用同一 Bevy Entity，pending 时保持最后合法 Transform。
+
+运行遥测通过 Bevy UI 直接绘制在画面左上角，window title 保持稳定。camera 是
+example-local orbit camera：滚轮缩放，左键拖动沿水平面平移 focus，右键拖动绕 focus
+旋转。Core/Spatial 的车辆 pose 仍以车辆前保险杠为原点；built-in body 只沿 local
+`+Z` 向后延伸，不能把 proxy 原点误当成车身中心。
+
+HUD 使用约 1 秒 outer-frame 采样窗口展示宿主 FPS/frame time；example-local wall-clock
+计时从 population `Lifecycle` 完成后开始，到 `Observe` 消费 committed result 前结束，
+只包围 `LaneFlowFixedSet::Step`，并展示平均 `ms/frame`、`us/tick`、最近 outer frame 的
+step/backlog/catch-up 状态。车辆计数只读取 #203 controller 的
+target/running/pending，不以 ECS Entity 数替代 logical population authority。计时样本
+不进入 Core、PRNG、回流决策或 replay，不包含 renderer、截图和 `PostUpdate`
+presentation，也不定义跨机器性能 SLA。
 
 ### 6.2 Stable spawn-slot catalog
 
@@ -176,7 +209,7 @@ checked-in 默认配置使用 `20 m` slot pitch，并在每个 eligible segment 
 
 1. 从除刚驶出 portal 外的其余 5 个 portal 中均匀选择目标 portal；
 2. 从该 portal 的 2 或 3 条入口 lane routes 中均匀选择一条；
-3. 使用目标 route 的入口 spawn point 和 `0 m/s` 构造 replacement；
+3. 使用目标 route 的入口 spawn point 和入口 edge 正常行驶初速度构造 replacement；
 4. 在下一 fixed-step lifecycle boundary 尝试原子 replace。
 
 这是 portal-first、lane-second 的均匀分布，不是对全部 14 条 routes 直接均匀；因此主干道 portal 与次干道 portal 被选中的概率相同。

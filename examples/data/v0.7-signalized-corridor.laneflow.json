@@ -1029,7 +1029,7 @@
       {
         "id": "controller-intersection-2",
         "kind": "fixedTime",
-        "offsetMs": 0,
+        "offsetMs": 29000,
         "groupIds": [
           "group-intersection-2-main",
           "group-intersection-2-secondary"

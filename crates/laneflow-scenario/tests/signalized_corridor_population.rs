@@ -49,6 +49,7 @@ fn fingerprint(inputs: &[VehicleSpawnInput]) -> u64 {
             .chain(input.route_id.bytes())
             .chain((input.route_edge_index as u64).to_le_bytes())
             .chain(input.edge_progress.value().to_bits().to_le_bytes())
+            .chain(input.initial_speed.value().to_bits().to_le_bytes())
         {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
@@ -262,16 +263,38 @@ fn catalog_rejects_version_duplicates_dangling_routes_and_invalid_progress() {
 fn initial_population_has_replay_golden_batches_for_50_100_and_200() {
     let mut fingerprints = Vec::new();
     for target in [50, 100, 200] {
-        let (prepared, _) = prepare(target, 0);
+        let (prepared, traffic) = prepare(target, 0);
         assert_eq!(prepared.initial_vehicles().len(), target);
+        let desired_speed = traffic
+            .vehicle_profiles()
+            .profiles()
+            .next()
+            .expect("checked-in profile")
+            .iidm()
+            .desired_speed;
+        for input in prepared.initial_vehicles() {
+            let route = traffic
+                .routes()
+                .iter()
+                .find(|route| route.id() == input.route_id)
+                .expect("prepared route");
+            let edge_id = &route.edge_ids()[input.route_edge_index];
+            let speed_limit = traffic
+                .lane_graph()
+                .edge_speed_limit_by_id(edge_id)
+                .expect("prepared edge speed limit")
+                .value();
+            assert_eq!(input.initial_speed.value(), desired_speed.min(speed_limit));
+            assert!(input.initial_speed.value() > 0.0);
+        }
         fingerprints.push(fingerprint(prepared.initial_vehicles()));
     }
     assert_eq!(
         fingerprints,
         [
-            7_862_788_836_103_869_669,
-            15_182_271_831_379_184_249,
-            12_649_494_368_937_487_676,
+            16_156_378_506_726_775_869,
+            11_800_982_076_080_898_908,
+            7_342_111_641_424_313_322,
         ]
     );
 }
@@ -330,6 +353,7 @@ fn completion_plan_is_frozen_across_blocked_retry_and_success_rotates_identity()
     let blocked = controller
         .apply_pending::<_, ()>(|attempt_old, input| {
             assert_eq!(attempt_old, old);
+            assert!(input.initial_speed.value() > 0.0);
             first_input = Some(input.clone());
             Ok(blocked_outcome(&world, old, input))
         })

@@ -125,7 +125,7 @@ fn config_rejects_unknown_fields_length_geometry_offsets_and_output_conflicts() 
     assert!(CorridorConfig::parse(&outside).is_err());
 
     let offset = CONFIG.replace(
-        "intersection_offsets_ms = [0, 0]",
+        "intersection_offsets_ms = [0, 29000]",
         "intersection_offsets_ms = [58000, 0]",
     );
     assert!(CorridorConfig::parse(&offset).is_err());

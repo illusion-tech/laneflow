@@ -26,8 +26,12 @@ native-example = ["debug-gizmos", "dep:bevy", "dep:bevy_mesh"]
 [dependencies]
 bevy = { version = "0.19", default-features = false, features = [
     "3d_bevy_render",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_ui_render",
     "bevy_winit",
     "default_app",
+    "default_font",
     "multi_threaded",
     "std",
     "x11",
@@ -47,7 +51,10 @@ laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
 [dev-dependencies]
 criterion = "0.8"
 laneflow-data = { version = "0.0.0", path = "../laneflow-data" }
+laneflow-scenario = { version = "0.0.0", path = "../laneflow-scenario" }
+serde = { version = "1.0", features = ["derive"] }
 stats_alloc = "=0.1.10"
+toml = "1.1.3"
 
 [[bench]]
 name = "presentation"
@@ -59,6 +66,10 @@ required-features = ["debug-gizmos-smoke"]
 
 [[example]]
 name = "native_reference"
+required-features = ["native-example"]
+
+[[example]]
+name = "signalized_corridor"
 required-features = ["native-example"]
 
 [lints]
