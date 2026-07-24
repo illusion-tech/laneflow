@@ -178,13 +178,31 @@ snapshot 与结果均使用 `schemaVersion: 1`。live evaluator 读取 author、
 
 `check-gate-evidence g3` 的 external-review 集成以 Issue #230 的 G2-B 增量开工记录时间 `2026-07-24T15:16:21Z` 为迁移边界：更早的 G3 comment 保留 legacy 历史语义，不追溯要求新增字段；该时点及之后创建的 G3 comment 必须显式包含 `Gate 结果`，是未编辑的 append-only 记录，并包含完整 current head。`G3 Pass` / `R0-R1 bootstrap` 必须晚于 live evaluator 识别的最终 completion；`G3 Waived` 必须使用 `development-gates.md` 规定的 `external-review-waiver:v1` 结构化记录，live evaluator 保持 `waived` 而不冒充 `pass`。waiver 路径只读取并二次确认 PR number、author、draft、current head/base identity，不依赖 provider review connection；GitHub identity API 不可读、head/base 竞态或 Draft PR 仍然 fail closed。
 
+#### R1 shadow workflow 实现边界
+
+R1 的 non-required shadow 由两个 workflow 分离不可信事件与可信发布权限：
+
+- `External Review Signal` 只监听 `pull_request_review` 与 `pull_request_review_comment`，使用空权限，不 checkout、不读取 artifact、不调用 API，也不执行 PR 内容。它的完成事件只作为唤醒信号，不能携带审阅结论。
+- `External Review Gate Shadow` 只从 default branch 运行：直接监听 `pull_request_target`、PR conversation comment、signal 的 `workflow_run` 和手工 dispatch。它显式 checkout `refs/heads/main`，关闭 credential persistence，并只授予 `contents: read`、`pull-requests: read`、`issues: read` 与 `checks: write`。
+- trusted `workflow_run` 优先读取 GitHub payload 的 PR number；若 `workflow_run.pull_requests` 为空，则校验完整 `head_sha`，调用 commit-to-PR association API，并只保留 open、targeting `main` 的 PR。关联 API 失败时 workflow 失败，不能把缺失 target 静默当作无变化；fallback 不解析 branch name、run title、artifact 或 PR 提供的输出。
+- GitHub Actions 不提供 `pull_request_review_thread` workflow trigger。R1 中每批 resolve / unresolve 后，操作者必须新增一条顶层 PR comment，正文精确为 `external-review: thread-state-changed`；trusted `issue_comment` workflow 只接受 `created` 且正文精确匹配该 marker 的 PR comment，把 PR number 当信号并通过 API 重读全部 thread 状态。正文只用于固定值入口判定，不进入 shell、不作为 evaluator 结论；edited / deleted 或其他 PR comment 均不能刷新 shadow Check。缺少 marker 时不得声称 shadow Check 已反映最新 resolution。
+- trusted publisher 不读取 signal artifact 或输出，不把 event/comment 字段插入 shell。它只解析有界的数字 PR ID，再通过 GitHub API 重新读取 current identity。
+- `publish-external-review-check` 在 evaluator 前后复核 PR number、open/draft、main base、same-repository、head/base OID；只有 identity 稳定时才创建完成态 Check Run。R1 Check 固定名为 `External Review Gate Shadow`，external ID 绑定 repository、PR、head、trusted validator OID 与 workflow run/attempt，并在 API 响应中复核 source App 为 `github-actions`。
+- `pass` 映射为 `success`；`waived` 映射为 `action_required`，确保未来成为 required check 后仍需显式临时 bypass；其他状态均为 `failure`。Check output 保存状态、head/base、provider/actor、completion、finding/thread/re-review 统计与 reference-style evidence；完整 evaluator JSON 留在 trusted workflow log。
+- publisher 按 PR 设置 concurrency 并取消旧运行。发布前 identity race 直接失败且不向新 head 写入旧结果；new head 由 `synchronize` 重新计算，漏事件只能显式 manual dispatch 补偿。evaluator result 的显式 state 与固定 FNV-1a fingerprint 会和 PR/head/trusted-ref/run/attempt 共同形成 external ID。publisher 永不查询或复用既有同名 Check，每个 trusted event 都创建并复核自己的 receipt，避免 PR 预造同 source App / external-id prefix 使 trusted run 跳过发布。
+- Draft、非 `main` base、非 open 和 fork / cross-repository PR 不属于 R1 eligible sample，不发布 shadow 结论。base repository 的 `GITHUB_TOKEN` 不能保证向 fork head commit 创建可关联的 Check；R2 不为此放宽 required check，贡献者或维护者必须把最终 patchset 迁移为 same-repository PR，并在其 exact head 重新取得 external review。schedule 仍只枚举 targeting `main` 的 open PR，publisher 对其中的 fork 再 fail-safe skip。
+- R1 的 `github-actions` source App 只证明 shadow telemetry 由 GitHub Actions 写入，不是防伪身份。同仓 PR 可以定义同名 Actions job；required status check 又不区分 workflow、matrix 或 event，因此 `External Review Gate Shadow` 永远不得加入 ruleset。R1 样本必须同时索引 default-branch trusted workflow run、external ID 和 Check receipt；PR 自定义的同名 Check 不计样本。
+
+该 workflow 合入 `main` 前不能用于 Related PR C 自身的 G3；PR C 仍由已合入 main 的 validator、current-head external review 与当前 ruleset 完成 R0 bootstrap。合入后先追加 R1 起点记录，再通过手工 dispatch 和真实事件验证首次 Check；未完成该记录与首次 live 验证前不得开始计算 14 天 / 10 eligible PR 退出门槛。
+
 ### Rollout 与 ruleset 迁移
 
 Issue #230 采用 `R0 -> R1 -> R2`：
 
 - R0 交付 governance contract 与 validator。
 - R1 由 trusted-ref workflow 发布 non-required shadow Check，至少运行 14 天并覆盖 10 个 eligible PR；退出指标见 `development-gates.md`。
-- R2 达标后，把 `External Review Gate` 加入 required status checks，启用 conversation resolution，保持 native required approvals 为 0，移除 `update` restriction 和 `wangzishi: always` bypass。
+- R2 激活前必须注册并仅在 base repository 安装专用 External Review Gate GitHub App；其短期 installation token 只能提供给 trusted publisher。App repository permissions 固定为 `Checks: read and write`（创建 / 复核 Check Run）、`Commit statuses: read and write`（允许 ruleset 选择 expected source）与 `Pull requests: read`（接收 review-thread webhook），不授予 Contents、Actions 或 Issues。App 必须订阅 `pull_request_review_thread` webhook 并让 trusted publisher 重读当前 PR；PR D canary 必须实测 resolved 与 unresolve 两个方向。若平台只交付文档化的 `resolved` action，unresolve 仍需 marker 或另一条自动信号，且在该缺口关闭前不得进入 R2。PR D 把正式 Check 政名为 `External Review Gate`，验证 API 返回该专用 App 的 slug / integration ID，并在 ruleset 中同时绑定 Check 名和 expected source App。缺少该独立身份、完整 thread signal、仍由 `github-actions` 发布或 spoof canary 能满足 required check 时，R2 一律阻断。
+- R2 达标且专用 App canary 通过后，把正式 `External Review Gate` 加入 required status checks，启用 conversation resolution，保持 native required approvals 为 0，移除 `update` restriction 和 `wangzishi: always` bypass。
 
 ruleset 变更前后必须保存完整 JSON snapshot 并做字段级对比；随后用低风险 canary PR 验证全部 Gate 通过时 `gh pr merge <number> --rebase` 无需 `--admin`。R2 激活时重新评估全部 open PR，不进行无证据 grandfathering。
 

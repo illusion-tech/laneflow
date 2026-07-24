@@ -86,7 +86,8 @@ G3 comment 模板（合并前发表）：
 - 审阅：provider、actor、reviewed head、outcome、completion、evidence URL：
 - Findings disposition / clean re-review：
 - Review threads：`unresolved = <count>`，证据：
-- R0 bootstrap 工具边界：Related PR B 自身不得用候选 validator 自批；PR B 合入后记录 live `check-external-review` 结果。G3 Owner 已人工核验本阶段仍未由 required Check 覆盖的字段：
+- R1 thread-state signal：每批 resolve / unresolve 后新增顶层 `external-review: thread-state-changed` comment；R2 写 GitHub App webhook receipt：
+- R0 bootstrap 工具边界：Related PR B 自身不得用候选 validator 自批；Related PR C 自身不得用尚未合入 default branch 的候选 shadow workflow 自批。PR B 合入后记录 live `check-external-review` 结果；PR C 合入后才记录首次 trusted-ref Check 与 R1 起点。G3 Owner 已人工核验本阶段仍未由 required Check 覆盖的字段：
 - 验证：
 - 风险：
 - 例外：

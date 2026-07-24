@@ -1,0 +1,24 @@
+name: External Review Signal
+
+on:
+  pull_request_review:
+    types:
+      - submitted
+      - edited
+      - dismissed
+  pull_request_review_comment:
+    types:
+      - created
+      - edited
+      - deleted
+
+permissions: {}
+
+jobs:
+  signal:
+    name: Emit metadata-only signal
+    runs-on: ubuntu-latest
+    steps:
+      - name: Signal trusted publisher
+        shell: bash
+        run: echo "Review metadata changed; the trusted publisher will re-read current PR state."
