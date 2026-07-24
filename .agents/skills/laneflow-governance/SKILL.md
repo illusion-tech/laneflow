@@ -96,6 +96,7 @@ Issue Gate Ledger 模板：
 - reviewer 报告 findings 后，author 必须记录每项 disposition，并在修复后的当前 head 请求新的 clean re-review；旧 head 的 approval、无新评论或仅解决线程都不能沿用。
 - 单维护者场景不降低门槛：维护者可以且应当自审、处置 findings 并发表 G3 comment，但必须另有一个有效外部 reviewer。
 - R0/R1 尚未具备 required check 时，按文档中的 bootstrap 规则显式记录阶段和缺失项。Related PR B 自身不能用候选 validator 自批，仍由 G3 Owner 人工核验新增外部审阅字段；PR B 合入后，后续 PR 的 `check-gate-evidence g3` 还必须取得 live `check-external-review` exact-head `pass`。进入 R2 后，`External Review Gate` Check success 与当前 head 的 append-only G3 comment 构成双钥匙。
+- Related PR C 自身不能使用尚未合入 default branch 的候选 shadow workflow 自批；使用 main 上的 live validator 完成 exact-head 判断，并在 G3 comment 记录 Check 尚未发布 / required 的 R0 bootstrap 边界。PR C 合入、首次 trusted-ref Check 验证与 R1 起点 comment 完成前，不开始 14 天 / 10 eligible PR 计时。
 - content-equivalent rebase、provider / platform outage、security / emergency hotfix、confirmed gate defect 只能走文档定义的显式例外；current comment 必须写 `- Gate 结果：G3 Waived` 并提供 `external-review-waiver:v1` 结构化、未过期证据，validator 保持 `waived` 而不映射成 `pass`；不得扩展成日常 bypass。
 
 ## 安全扫描
