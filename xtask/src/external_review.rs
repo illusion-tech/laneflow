@@ -2169,6 +2169,9 @@ mod tests {
             "R2 激活前必须注册并仅在 base repository 安装专用 External Review Gate GitHub App"
         ));
         assert!(workflow_contract.contains("ruleset 中同时绑定 Check 名和 expected source App"));
+        assert!(workflow_contract.contains("external-review: thread-state-changed"));
+        assert!(workflow_contract.contains("订阅 `pull_request_review_thread` webhook"));
+        assert!(workflow_contract.contains("若平台只交付文档化的 `resolved` action"));
     }
 
     #[test]

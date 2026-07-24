@@ -65,6 +65,7 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 | finding 未处置或仍有 unresolved actionable thread                                 | `findings_open`，Fail                                                                         |
 | finding 已回复/resolve，但没有新的 clean re-review                                | `awaiting_rereview`，Fail                                                                     |
 | finding 处置后，受信任 reviewer 在 current head clean re-review                   | `pass` 候选                                                                                   |
+| R1 resolve / unresolve 后未新增 `external-review: thread-state-changed` comment   | shadow 状态可能 stale，Fail；marker 触发 trusted metadata re-read 后再判断                    |
 | clean completion 后 new push 或 review dismissed                                  | `stale`，Fail 并重新请求 review                                                               |
 | clean review 绑定旧 head，且没有已批准的等价例外                                  | `stale`，Fail                                                                                 |
 | provider 文案正确但 actor 不在 allowlist                                          | Fail                                                                                          |
@@ -95,6 +96,7 @@ workflow 安全检查至少验证：
 - Draft、非 `main` base、非 open PR 不计入 R1 sample；漏事件只允许显式 manual dispatch 补偿，不运行周期 schedule；
 - R1 sample 同时绑定 trusted default-branch workflow run、external ID 与 Check receipt；PR 自定义的同名 GitHub Actions job 不得计入；
 - R2 publisher 使用独立专用 GitHub App，ruleset 绑定正式 Check name 与 expected source App；恶意 PR 新增同名 Actions job 的 canary 仍必须阻断合并；
+- R1 thread resolve / unresolve 批次必须以顶层 marker 唤醒 trusted `issue_comment` workflow；R2 专用 App 必须实测 `pull_request_review_thread` / 等价自动信号覆盖两个方向，缺一则阻断 cutover；
 - API/provider/解析歧义 fail closed。
 
 publisher 的本地接口为 `publish-external-review-check --repo <owner/repo> --pr <number> --details-url <workflow-run-url> --run-id <id> --run-attempt <number> --trusted-ref-oid <oid>`。该命令会产生外部 Check 写操作，只能在 trusted workflow 中使用；本地 / PR head 验证只运行 payload、state mapping、identity race 与 workflow 静态安全单元测试，不得向真实 PR 发布候选 Check。
