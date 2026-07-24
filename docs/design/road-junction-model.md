@@ -546,14 +546,14 @@ Adapter 不得：
 
 ### 9.1 Wire shape
 
-概念 JSON：
+以下概念 JSON 只展示 Traffic v0.8 新增或替换字段，是非可加载的局部 wire
+shape。现有必填字段，以及被引用的 LaneEdge、StopLine、SignalGroup 和
+SignalController definition 均已省略并假定有效；#229 的 schema fixture 必须提供
+完整、可通过 loader 与 Core normalization 的 package。
 
 ```json
 {
   "formatVersion": "0.8",
-  "laneGraph": {
-    "edges": []
-  },
   "junctions": [
     {
       "id": "junction-1"
@@ -576,9 +576,7 @@ Adapter 不得：
       "exitEdgeId": "edge-south-exit-lane-1"
     }
   ],
-  "routes": [],
   "signals": {
-    "stopLines": [],
     "maneuverGates": [
       {
         "id": "gate-junction-1-west-left-lane-1",
@@ -590,9 +588,7 @@ Adapter 不得：
           "groupId": "group-junction-1-west-left"
         }
       }
-    ],
-    "groups": [],
-    "controllers": []
+    ]
   }
 }
 ```
