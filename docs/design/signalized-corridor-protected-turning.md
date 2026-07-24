@@ -297,9 +297,12 @@ uniform(排除刚完成 exit portal 后的 5 个 entry portals)
 
 每次成功冻结新 plan 固定调用 portal/lane/route 三个 logical bounded draw site。
 它们继续使用 v0.8 的 `uniform(bound)` rejection sampling；“三个”冻结的是调用点和
-顺序，不表示发生 rejection 时 `next_u64` 最多推进三次。即使某 lane 只有一个
-RouteChoice，`uniform(1)` 仍调用。weighted route draw 先按规范顺序求正整数权重
-总和，再以一次 `uniform(total)` 的结果做 cumulative selection。
+顺序，不表示发生 rejection 时 `next_u64` 最多推进三次。route site 不对单一
+RouteChoice 特判：始终先按规范顺序求全部正整数权重的
+`totalPositiveWeight`，再以一次 `uniform(totalPositiveWeight)` 的结果做
+cumulative selection。某 lane 只有一个 RouteChoice 时，bound 仍是该 choice 的
+正整数 raw weight，draw 后必然选中该 Route；不得改用 `uniform(1)`、跳过 draw 或
+预先约分权重。
 
 blocked retry 不 draw、不改变 frozen plan。初始化先对全部 physical slots 做
 Fisher–Yates，然后按 logical slot order 对其 PortalLane 各执行一次 weighted
