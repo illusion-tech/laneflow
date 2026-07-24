@@ -99,7 +99,7 @@ workflow 安全检查至少验证：
 7. 例外缺少原因、清理责任或后续 Issue。
 8. 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计且没有显式例外，或不适用项缺少 `N/A` 原因。
 9. Delivery PR 的 `closingIssuesReferences` 未覆盖对应 Issue，或 Related PR 误用 closing keyword，且没有显式例外。
-10. G3 comment / Issue G3 permalink 不完整，Related PR 独立 G3 未永久保留单一 `--related-pr <current-related-pr>` 断言，full-set 未使用 `--delivery-pr` 加全部 Related PR，或错误要求改写历史 Related comment，`Gate 断言` 未记录与实际调用完全一致的规范命令和 `已通过` 结果，或 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 ...` 失败。
+10. G3 comment / Issue G3 permalink 不完整，Related-only 阶段提前勾选 Issue G3，Related PR 独立 G3 未永久保留单一 `--related-pr <current-related-pr>` 断言，full-set 未使用 `--delivery-pr` 加全部 Related PR，或错误要求改写历史 Related comment，`Gate 断言` 未记录与实际调用完全一致的规范命令和 `已通过` 结果，或 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 ...` 失败。
 11. `../governance/security-scanning.md` 要求的适用扫描仍为 `pending`、失败、无分析、已禁用或不可用，且没有显式例外；或把 API / 命令失败误写成零开放告警。
 12. external review 缺失、pending、stale、actor/provider 不可信、finding 未完成 clean re-review，或只用 `reviewThreads=0` 证明 clean。
 13. R2 激活后 current-head `External Review Gate` 未成功，或 G3 comment 不是 Check 后新增的 append-only Owner 判断。
