@@ -1,7 +1,8 @@
 # AI Agent 开发指南
 
 **文档状态**: Active  
-**最后更新**: 2026-07-14  
+**最后更新**: 2026-07-24
+
 **适用范围**: 使用 AI Agent 参与 LaneFlow 的设计、开发、测试、文档和治理工作
 
 ## 1. 目标
@@ -31,7 +32,7 @@ AI Agent 开工前应读取：
 AI Agent 应遵守以下流程：
 
 1. 确认任务类型和影响范围。
-2. 审计当前 Issue 的 GitHub 元数据 / 依赖关系，包括 Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Delivery PR 和 Related PRs；Delivery PR 创建后须在 G3 前确认 `closingIssuesReferences` 覆盖目标 Issue，Related PR 不得误用 closing keyword。G3 证据必须写入 PR comment、G4 证据必须写入 Issue comment，body checkbox 只回链对应 permalink；`Gate 断言` 行必须包含与实际参数完全一致的反引号命令并明确写 `已通过`，pending、缺少结果、参数不匹配或运行失败均不得推进对应 Gate。若只能手动关联 GitHub Development 面板，必须记录显式例外；不适用项必须有 `N/A` 原因，无法设置的必需元数据必须记录显式例外。
+2. 审计当前 Issue 的 GitHub 元数据 / 依赖关系，包括 Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Delivery PR 和 Related PRs；Delivery PR 创建后须在 G3 前确认 `closingIssuesReferences` 覆盖目标 Issue，Related PR 不得误用 closing keyword。G3 前必须取得 trusted reviewer 对当前 exact head 的完成态外部审阅；PR author 自审不计入外部 reviewer，有 findings 时必须在处置后取得新的当前 head clean re-review。G3 证据必须写入一条新的 append-only PR comment、G4 证据必须写入 Issue comment，body checkbox 只回链对应 permalink；`Gate 断言` 行必须包含与实际参数完全一致的反引号命令并明确写 `已通过`，pending、缺少结果、参数不匹配或运行失败均不得推进对应 Gate。若只能手动关联 GitHub Development 面板，必须记录显式例外；不适用项必须有 `N/A` 原因，无法设置的必需元数据必须记录显式例外。
 3. 检查是否需要 ADR 或 design 文档。
 4. 读取现有代码和测试。
 5. 制定小范围实现计划。
@@ -39,7 +40,7 @@ AI Agent 应遵守以下流程：
 7. 运行与变更匹配的检查。
 8. 在 PR 或交付说明中记录测试、风险和未覆盖范围。
 
-提交信息应遵守 `docs/reference/commit-convention.md`，标题使用 Conventional Commits，正文必须包含 `Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`，底部 footer 必须包含 `Refs` 或 `Closes`。
+提交信息应遵守 `docs/reference/commit-convention.md`，标题使用 Conventional Commits，正文必须包含 `Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`，底部 footer 必须包含 `Refs` 或 `Closes`。新提交的 `Gate` 使用 `G3 Candidate` 或 `G3 Block`；正式 `G3 Pass` 只存在于 PR Check 和当前 head 的 append-only G3 comment。
 
 修改 Rust 代码时还应读取 `docs/reference/rust-code-style.md`。其中无法由 `rustfmt` 表达的规则只约束本次触及范围；不得在无关功能 PR 中顺带重排历史格式。
 
@@ -117,6 +118,7 @@ Agent 完成工作后，PR 或最终说明至少应包含：
 - 未运行检查及原因
 - 文档更新情况
 - 已知风险
+- 当前 head 的外部审阅、findings disposition / clean re-review 与 External Review Gate 证据
 - 后续 Issue 或留白
 
 ## 11. PR 合并策略

@@ -52,15 +52,25 @@
 - Adapter 验证：
 - 示例 smoke test：
 
+## 外部审阅
+
+- Rollout phase：`R0` / `R1` / `R2`
+- Current head：
+- Reviewer provider / actor：
+- Reviewed head / outcome / completion / evidence：
+- Findings disposition / clean re-review：
+- Review threads：`unresolved = <count>`，证据：
+- External Review Gate：Check URL；R0/R1 尚未启用时写明 bootstrap 状态和缺失项：
+
 ## 风险与例外
 
 - 已知风险：
-- 例外：
+- 例外：`N/A`，或填写类型、原因、证据、风险、批准人、到期时间和 Cleanup owner：
 - 后续 Issue：
 
 ## Gate Ledger
 
-- [ ] G3 合并判断已记录：[PR G3 comment](...)。该 comment 必须在合并前发表，并包含 checks、审阅、验证、风险、例外、合并方式和 Gate 断言。
+- [ ] G3 合并判断已记录：[当前 head 的 PR G3 comment](...)。该 comment 必须在合并前新增且保持 append-only，并包含当前 head、rollout phase、checks、External Review Gate、结构化审阅证据、review threads、验证、风险、例外、合并方式和 Gate 断言。
 - G4 回写：Delivery PR 在关联 Issue 的 G4 comment 发表后填入 permalink；Related PR 填 `N/A` 并说明不承担 Issue G4。
 
 <!--
@@ -68,8 +78,14 @@ G3 comment 模板（合并前发表）：
 
 ## G3 合并判断
 
+- Gate 结果：`Pass` / `Block`
+- Rollout phase：`R0` / `R1` / `R2`
+- Current head：
 - Checks：
-- 审阅：
+- External Review Gate：
+- 审阅：provider、actor、reviewed head、outcome、completion、evidence URL：
+- Findings disposition / clean re-review：
+- Review threads：`unresolved = <count>`，证据：
 - 验证：
 - 风险：
 - 例外：
@@ -84,7 +100,9 @@ G3 comment 模板（合并前发表）：
 - [ ] 已覆盖关联 Issue 的验收标准，或剩余范围已拆成后续 Issue。
 - [ ] 关联 Issue 的 GitHub 元数据 / 依赖关系审计已完成。
 - [ ] 文档已更新，或本 PR 已说明为何无需更新。
-- [ ] PR commits 符合 `docs/reference/commit-convention.md`（Conventional Commits 标题 + LaneFlow 治理字段），或已记录显式例外。
+- [ ] 当前 head 已有一个有效外部 reviewer 的完成态审阅；若曾有 findings，处置后已有新的当前 head clean re-review。PR author 自审未计入外部 reviewer。
+- [ ] `unresolved review threads = 0`，且未把该条件当作外部审阅完成的替代证据。
+- [ ] PR commits 符合 `docs/reference/commit-convention.md`（Conventional Commits 标题 + `Gate: G3 Candidate` / `Gate: G3 Block` + 其他 LaneFlow 治理字段），或已记录显式例外。
 - [ ] commit message footer 与 PR body 语义已区分：commit 通常使用 `Refs: #<issue>`，PR body 使用 `Closes/Resolves` 建立 Development 关联。
 - [ ] 本 PR 未在只完成子切片的情况下声称父任务已完成。
 - [ ] 合并方式：默认 **Rebase and merge**；若使用 Squash / Merge commit，已在 PR 中说明原因。

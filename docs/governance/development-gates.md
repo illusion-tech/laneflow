@@ -1,7 +1,8 @@
 # 开发闸口
 
 **文档状态**: Active  
-**最后更新**: 2026-07-14  
+**最后更新**: 2026-07-24
+
 **适用范围**: LaneFlow 的需求、设计、实现、评审与完成治理
 
 ## 1. 目标
@@ -187,6 +188,83 @@ G1 证据可以是：
 
 安全设置、扫描 workflow、依赖策略或公开发布相关变更还必须按 `security-scanning.md` 记录适用扫描状态、最近运行和开放告警结论；涉及许可证、Cargo 依赖、cargo-deny 或 Dependabot 时还必须满足 `dependency-security.md`。
 
+### 6.1 外部审阅硬门槛
+
+所有 PR 在进入标准 `G3 Pass` 前至少需要一个有效外部 reviewer。`docs-only`、`governance` 和小改动不自动豁免；确需跳过时只能使用第 8 节和本节定义的显式 `G3 Waived`。
+
+单维护者仓库采用双层责任：
+
+- PR author 可以且应执行 author self-review，并可以同时担任 Maintainer / G3 Owner。
+- author self-review 不计入外部 reviewer 数量；G3 Owner 负责最终判断，但不能自行补写缺失的外部审阅证据。
+- “外部”指独立于 PR author 的受信任审阅执行主体，不要求必须是另一名自然人。受信任的 Copilot、Codex Connector 或其他 GitHub actor/provider 可以满足门槛；其他贡献者创建 PR 时，`wangzishi` 的人工 `APPROVED` 也可以满足门槛。
+- 作者转贴的本地 Cursor / Agent 输出、作者本人发布的“已审阅”文字、review request、reaction、pending 状态和没有 reviewed SHA 的摘要均不计数。
+
+有效 completion event 必须记录：
+
+- reviewer actor 与 provider；
+- reviewed head SHA，且等于当前 PR head；
+- `clean` 或 `findings` 结论；
+- 完成时间；
+- 可追溯的 review、comment、Check URL 或数据库 ID。
+
+首版状态机为：
+
+```text
+AwaitingReview
+  -> InReview
+  -> Clean
+  -> FindingsOpen
+  -> AwaitingRereview
+  -> Clean
+
+任意 new push / review dismissal：当前结论 -> Stale -> AwaitingReview
+```
+
+判定规则：
+
+- 没有有效 completion event 时，即使 `reviewThreads=0` 也保持 `AwaitingReview`。
+- 当前 exact head 首次得到一个有效 reviewer 的 clean completion 后，才满足 reviewer 数量门槛。
+- 出现 finding 后，仅修复代码、回复或由作者 resolve thread 不能恢复为 clean；必须形成 `finding -> disposition -> exact-head clean re-review`。
+- `unresolved actionable threads == 0` 是必要条件，不是充分条件。
+- 首版标准路径只接受 exact-head review。content-equivalent rebase 不自动继承 Pass，只能按显式例外处理。
+
+### 6.2 G3 双钥匙与时序
+
+steady state 的正式 `G3 Pass` 必须同时满足：
+
+1. current head 上的 `External Review Gate` Check 为 success；
+2. Check success 后新增的 `## G3 合并判断` comment 由 G3 Owner 发布并引用同一 head。
+
+`External Review Gate` 是机器权威；G3 comment 是 Owner 决策。PR / Issue body 只保存 permalink 索引，commit 只使用 `Gate: G3 Candidate`，三者不能互相替代。
+
+G3 comment 采用 append-only。new push、review dismissal 或 Gate 状态变化后，旧 review、旧 Check 和旧 G3 comment 对新 head 全部 stale；必须产生新的 completion、Check 与 superseding G3 comment，不得编辑旧评论冒充新时点。
+
+在 #230 的 R0 / R1 bootstrap 阶段，required `External Review Gate` 尚未启用：
+
+- governance contract、validator 和 shadow workflow 三个 Related PR 仍按当前 ruleset 完成各自 G3；
+- G3 comment 必须明确 rollout phase、current head、人工复核的 exact-head 外部 review URL，以及 Check 尚未 required 的原因；
+- 该过渡记录只证明 bootstrap PR 按当时有效规则通过，不证明 steady-state External Review Gate 已生效；
+- R2 激活后不再接受该 bootstrap 路径。
+
+### 6.3 Rollout、ruleset 与 waiver
+
+外部审阅门禁按三阶段实施：
+
+- `R0`：provider fixtures、历史事件 replay、fail-closed、head binding 与 trusted-ref workflow 离线验证。
+- `R1`：Check 以 non-required shadow 运行至少 14 天且覆盖至少 10 个 eligible PR；0 false-pass、最终分类全部与人工审计一致、new push 与 re-review 语义全部正确，且 workflow 无权限/secret/untrusted-code 事件。
+- `R2`：R1 达标后启用 required Check、conversation resolution，移除 `update` restriction 与 standing `always` bypass；再观察至少 7 天且 5 个 merged PR。break-glass、false-pass 或安全异常使稳定期重新计时。
+
+首版只允许四类 `G3 Waived`：
+
+- content-equivalent rebase；
+- 所有已配置 provider / Gate platform 不可用且存在明确时间边界；
+- security / emergency hotfix；
+- 已确认且无法及时修复的 Gate false-block。
+
+普通审阅延迟、作者不同意 finding、`docs-only`、赶进度和减少步骤均不是 waiver 理由。waiver 必须记录 exception type、PR/current head、已有证据、风险、临时接受边界、默认不超过 24 小时的到期时间、follow-up Issue、Cleanup owner，以及临时 bypass 的添加/撤回时间。Check 与 G3 comment 必须显示 `G3 Waived`，不得伪装成标准 `G3 Pass`。
+
+content-equivalent rebase 还必须记录 reviewed/new head、old/new base、changed paths、稳定 patch fingerprint、受影响路径 blob 对照和常规 checks；workflow、Gate、权限、安全策略、依赖锁定语义变化或任何无法解释的不等价都禁止使用该例外。
+
 默认阻断条件：
 
 - Adapter 代码把引擎依赖泄漏进 Core。
@@ -199,6 +277,10 @@ G1 证据可以是：
 - 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计且没有显式例外，或不适用项缺少 `N/A` 原因。
 - Delivery PR 的 `closingIssuesReferences` 未覆盖对应 Issue，或 Related PR 误用 closing keyword，且没有显式例外。
 - PR commit message 不符合 `docs/reference/commit-convention.md`，且没有记录显式例外。
+- 缺少有效外部 review completion、reviewed head 不是 current head、review 仍 pending/stale，或 actor/provider 不可信。
+- finding 尚未处置、处置后没有 exact-head clean re-review，或仍有 unresolved actionable thread。
+- R2 激活后，current-head `External Review Gate` 未成功，或 G3 comment 早于最终 Check / completion。
+- G3 comment 通过编辑旧记录回填，或 commit 使用 `G3 Pass` / `G3 Waived` 冒充 PR Gate 结果。
 - 源代码许可证、依赖许可证、RustSec advisory、crate 来源或 Dependabot 配置违反 `dependency-security.md`，或适用 cargo-deny 检查未通过。
 - `security-scanning.md` 要求的适用扫描仍为 `pending`、失败、无分析、已禁用或不可用，且没有记录显式例外。
 
@@ -209,11 +291,16 @@ G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 `Ch
 ```text
 ## G3 合并判断
 
+- Gate 结果：G3 Pass / G3 Waived / R0-R1 bootstrap
+- Rollout phase：R0 / R1 / R2
+- Current head：
 - Checks：
-- 审阅：
+- External Review Gate：Check URL / R0-R1 non-required 原因
+- 审阅：provider、actor、reviewed head、outcome、completion time、evidence URL
+- Review threads：actionable / unresolved / disposition / re-review
 - 验证：
 - 风险：
-- 例外：
+- 例外：N/A / exception type、风险、到期、follow-up、Cleanup owner
 - 合并方式：Rebase and merge / 例外原因
 - Gate 断言：`cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...` 已通过。
 ```

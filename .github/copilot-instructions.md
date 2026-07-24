@@ -52,10 +52,12 @@ Review 时关注：
 Review 时重点检查：
 
 - PR body 是否按模板说明关联 Issue、Delivery PR / Related PR 角色、切片类型、范围、非目标、影响、验证、风险和 Gate Ledger；G3 checkbox 是否回链 PR G3 comment，Delivery PR 的 G4 回写是否指向 Issue G4 comment。
+- 当前 exact head 是否已有一个 trusted external reviewer 的完成态审阅；PR author 自审不得计入外部 reviewer。若曾有 findings，是否已记录 disposition 并在修复后的当前 head 取得新的 clean re-review；`unresolved review threads = 0` 不得替代该证据。
+- G3 comment 是否为当前 head 新增的 append-only 记录，并包含 rollout phase、External Review Gate、结构化审阅证据和 review threads；不得通过编辑旧 head 的 comment 冒充新结论。
 - Issue 是否已有 G0/G1/G2 记录；不得把 G0-G3 首次记录推迟到 G4。
 - Delivery PR 是否在 G3 前确认 `closingIssuesReferences` 覆盖目标 Issue；Related PR 是否避免 closing keyword；部分交付或无法机器关联时是否记录显式例外。
 - PR body 使用 `Closes #<issue>` / `Resolves #<issue>` 建立 Development 关联；commit footer 通常继续使用 `Refs: #<issue>`。
-- commit message 是否符合 Conventional Commits 标题和 LaneFlow 治理字段：`Gate`、`Slice`、`Impact`、`Scope`、`Validation`、`Docs`、`Refs` / `Closes`。
+- commit message 是否符合 Conventional Commits 标题和 LaneFlow 治理字段：新提交的 `Gate` 使用 `G3 Candidate` / `G3 Block`，并包含 `Slice`、`Impact`、`Scope`、`Validation`、`Docs`、`Refs` / `Closes`。正式 `G3 Pass` 不写入 commit。
 - 必需元数据缺失时是否记录显式例外；不适用项是否有 `N/A` 原因。
 - ruleset bypass、admin override 或其他例外是否记录原因、风险、接受边界和 Cleanup owner。
 

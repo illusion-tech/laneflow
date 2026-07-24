@@ -77,7 +77,7 @@ LaneFlow 默认使用 **Rebase and merge** 合入 `main`，详见 `docs/governan
 ```text
 feat(core): 校验 route segment 连续性
 
-Gate: G3 Pass
+Gate: G3 Candidate
 Slice: core-runtime
 Impact: core-api=changed; data-format=none; adapter-api=none
 Scope: 增加 route edge sequence 连通性校验
@@ -88,6 +88,8 @@ Refs: #12
 ```
 
 提交标题遵循 Conventional Commits，正文保留 LaneFlow 治理字段。只有满足 G4 完成边界时，才使用 `Closes: #<id>`；否则使用 `Refs: #<id>`。
+
+`Gate: G3 Candidate` 表示 commit 已准备进入 PR 级 G3 判断，不等同于正式通过。正式 `G3 Pass` 只记录在当前 head 的 `External Review Gate` Check 和 append-only G3 comment；阻断中的新提交使用 `Gate: G3 Block`。
 
 ## 7. 文档要求
 

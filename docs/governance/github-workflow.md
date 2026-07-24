@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active  
-**最后更新**: 2026-07-17
+**最后更新**: 2026-07-24
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
 ## 1. 工作流原则
@@ -121,6 +121,7 @@ Milestone 用于表达版本边界，而不是单个大任务。
 - 记录测试、构建和文档检查结果。
 - 记录已知风险和例外。
 - 在 PR comment 记录 `## G3 合并判断`：checks、审阅、验证、风险、例外、合并方式和 Gate 断言；PR body 与 Issue body 的 G3 checkbox 必须回链该 comment。
+- 在标准 G3 前取得至少一个受信任 external reviewer 的 exact-head completion；finding 必须处置并由新的 exact-head clean re-review 封口。
 
 不得用父任务标题合入只覆盖部分能力的实现。部分交付必须明确子切片边界。
 
@@ -133,6 +134,45 @@ Delivery PR / Related PRs 关联规则：
 - 当 PR 只是父 Issue 的子切片或部分交付时，它是 Related PR，不得误用 closing keyword；应使用 `Refs: #<issue>`，并在 Issue 中列出该 PR。
 - commit message footer 与 PR body 语义分开：commit message 通常继续使用 `Refs: #<issue>`，不得为了建立 Development 关联而把提交 footer 改成 `Closes`。
 - G3 前默认必须通过 `gh pr view <delivery-pr> --json closingIssuesReferences` 确认 Delivery PR 覆盖目标 Issue；GitHub Development 面板只作为人工辅助证据。必须在合并前发表 PR G3 comment，并运行 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 ...` 验证 permalink、comment 字段、Delivery / Related 关系与时序。G3 comment 的 `Gate 断言` 行必须包含与实际调用参数完全一致的反引号命令，并在命令后写 `已通过`；pending、缺少结果或参数不匹配均不能进入 `G3 = Pass`。若 Delivery PR、父 Issue 子切片、权限或平台限制导致只能手动关联 Development 面板，必须记录显式例外，说明原因、风险、后续收口方式和 Cleanup owner；否则不能进入 `G3 = Pass`。
+
+### 外部审阅与复审
+
+外部审阅的完整状态机和 Gate 规则以 `development-gates.md` 第 6 节为准。GitHub 工作流执行时：
+
+- PR author 可以做 self-review 并担任 G3 Owner，但不能把自己的 review 计入外部 reviewer 数量。
+- Copilot、Codex Connector 与人工 reviewer 通过 provider adapter 归一化；只信任 allowlist actor 和可追溯 GitHub event，不信任作者转贴文本。
+- review request、reaction、任务启动和无 reviewed SHA 摘要只表示 pending。
+- `reviewThreads=0` 只表示当前没有 unresolved thread；没有有效 completion 时仍为未审阅。
+- finding 被作者 resolve 后进入 `AwaitingRereview`，必须重新请求 reviewer 并取得 current-head clean completion。
+- new push 或 review dismissal 使旧 completion、Check 与 G3 comment stale。G3 comment 必须新增，不得编辑旧评论回填。
+- 其他贡献者创建 PR 时，`wangzishi` 的 exact-head `APPROVED` 可以计数；`wangzishi` 自己创建 PR 时，由受信任 AI / GitHub actor 提供外部审阅。
+
+PR commit 使用 `Gate: G3 Candidate`，只说明实现者验证完成并准备进入 review。正式 G3 结果不写回 commit。
+
+### External Review Gate workflow 安全
+
+steady-state Gate 必须由 default branch 或其他 trusted ref 上的 validator 执行，并把结果发布到通过 API 二次确认的 current head：
+
+- metadata-only；禁止 checkout 或执行 PR head，禁止执行评论正文或把未信任字段直接插入 shell。
+- 最小权限只包含读取 repository/PR/Issue/Checks 与发布目标 Check Run 所需权限；不读取 repository secret。
+- 监听 head、review、review comment 和 conversation comment 变化，按 PR/head 使用 concurrency 与 external ID；旧 head 的迟到任务不得覆盖新 head。
+- Check Run 发布前再次读取 current head；变化时将旧运行标为 stale。
+- required check 绑定预期 GitHub App/source，避免同名 status 冒充。
+- workflow/action 依赖继续 pin 完整 commit SHA。修改 Gate workflow 的 PR 由 `main` 上的旧 validator 判断，不能用候选实现自批。
+
+`check-external-review` 负责输出稳定 JSON 和人类可读摘要，状态固定为 `pass`、`awaiting_review`、`review_pending`、`findings_open`、`awaiting_rereview`、`stale`、`provider_error`、`waived`。只有 `pass` 对应标准 Check success；歧义、API/provider 错误和 head 竞态 fail closed。
+
+### Rollout 与 ruleset 迁移
+
+Issue #230 采用 `R0 -> R1 -> R2`：
+
+- R0 交付 governance contract 与 validator。
+- R1 由 trusted-ref workflow 发布 non-required shadow Check，至少运行 14 天并覆盖 10 个 eligible PR；退出指标见 `development-gates.md`。
+- R2 达标后，把 `External Review Gate` 加入 required status checks，启用 conversation resolution，保持 native required approvals 为 0，移除 `update` restriction 和 `wangzishi: always` bypass。
+
+ruleset 变更前后必须保存完整 JSON snapshot 并做字段级对比；随后用低风险 canary PR 验证全部 Gate 通过时 `gh pr merge <number> --rebase` 无需 `--admin`。R2 激活时重新评估全部 open PR，不进行无证据 grandfathering。
+
+紧急路径不保留 standing bypass。仅在 `development-gates.md` 允许的四类事件中临时授权，记录 `G3 Waived`、风险、到期、follow-up 和 Cleanup owner，并默认在 24 小时内撤回。
 
 ### Copilot repository instructions
 
@@ -171,6 +211,8 @@ PR commit message 应使用 Conventional Commits 标题，并在正文保留 Lan
 
 CI 会校验 PR commit 标题和必需治理字段。若确需例外，必须在 PR 中说明原因，并按 `development-gates.md` 的例外治理规则记录。
 
+新提交的 `Gate` 使用 `G3 Candidate`；`G3 Pass` 与 `G3 Waived` 只属于 PR Check / comment 证据层。迁移 cutoff 和历史 commit 兼容规则见 `docs/reference/commit-convention.md`。
+
 例外（须在 PR 或 Issue 中说明原因）：
 
 - **Squash and merge**：PR 内含多个无独立意义的 wip commit，或明确要求 `main` 上 1 个 PR 对应 1 个 commit。
@@ -196,6 +238,8 @@ CI 的初始目标是保证基础质量，不追求一次到位。
 - Rust workspace 格式检查通过：`cargo fmt --all -- --check`。
 - Rust workspace 测试通过：`cargo test --workspace --locked`。
 - Rust 依赖政策通过：`Dependency policy` required check 中的 cargo-deny advisories、licenses、bans 和 sources 检查成功。
+
+外部审阅检查按 #230 rollout 逐步加入：R1 以 non-required shadow 运行；R2 达标后 `External Review Gate` 成为 required check。当前阶段不得把“workflow 文件已存在”写成 ruleset 已启用。
 
 GitHub CodeQL、Secret Scanning 和 Dependabot 属于平台安全检查，其配置、状态语义和阻断规则见 `security-scanning.md`。GitHub 为当前 PR 产生的适用 CodeQL check 必须在 G3 前完成；缺失预期分析、失败或平台不可用不能解释为通过。
 
