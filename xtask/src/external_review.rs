@@ -2127,6 +2127,9 @@ mod tests {
         }
         assert!(!gate.contains("schedule:"));
         assert!(gate.contains("External Review Signal"));
+        assert!(gate.contains("repos/${REPOSITORY}/commits/${head_sha}/pulls?per_page=100"));
+        assert!(gate.contains("workflow_run head_sha must be a full lowercase Git OID"));
+        assert!(!gate.contains(".workflow_run.head_branch"));
         assert!(gate.contains(
             "permissions:\n  contents: read\n  pull-requests: read\n  issues: read\n  checks: write"
         ));
