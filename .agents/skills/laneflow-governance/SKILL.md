@@ -99,6 +99,7 @@ Issue Gate Ledger 模板：
 - Related PR C 自身不能使用尚未合入 default branch 的候选 shadow workflow 自批；使用 main 上的 live validator 完成 exact-head 判断，并在 G3 comment 记录 Check 尚未发布 / required 的 R0 bootstrap 边界。PR C 合入、首次 trusted-ref Check 验证与 R1 起点 comment 完成前，不开始 14 天 / 10 eligible PR 计时。
 - content-equivalent rebase、provider / platform outage、security / emergency hotfix、confirmed gate defect 只能走文档定义的显式例外；current comment 必须写 `- Gate 结果：G3 Waived` 并提供 `external-review-waiver:v1` 结构化、未过期证据，validator 保持 `waived` 而不映射成 `pass`；不得扩展成日常 bypass。
 - fork / cross-repository PR 不计入 R1 eligible sample，也不能在 R2 以缺失 `External Review Gate` Check 合并；必须把最终 patchset 迁移到 same-repository PR，并对新 PR exact head 重新完成外部审阅与 G3。
+- R1 的 `External Review Gate Shadow` / `github-actions` 只用于 non-required telemetry，绝不能直接成为 required Check。R2 必须先改由独立专用 GitHub App 发布正式 `External Review Gate`，在 ruleset 绑定 expected source App，并用同名 Actions spoof canary 证明 PR 代码无法伪造通过。
 
 ## 安全扫描
 
