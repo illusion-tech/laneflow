@@ -178,6 +178,20 @@ snapshot 与结果均使用 `schemaVersion: 1`。live evaluator 读取 author、
 
 `check-gate-evidence g3` 的 external-review 集成以 Issue #230 的 G2-B 增量开工记录时间 `2026-07-24T15:16:21Z` 为迁移边界：更早的 G3 comment 保留 legacy 历史语义，不追溯要求新增字段；该时点及之后创建的 G3 comment 必须显式包含 `Gate 结果`，是未编辑的 append-only 记录，并包含完整 current head。`G3 Pass` / `R0-R1 bootstrap` 必须晚于 live evaluator 识别的最终 completion；`G3 Waived` 必须使用 `development-gates.md` 规定的 `external-review-waiver:v1` 结构化记录，live evaluator 保持 `waived` 而不冒充 `pass`。waiver 路径只读取并二次确认 PR number、author、draft、current head/base identity，不依赖 provider review connection；GitHub identity API 不可读、head/base 竞态或 Draft PR 仍然 fail closed。
 
+#### R1 shadow workflow 实现边界
+
+R1 的 non-required shadow 由两个 workflow 分离不可信事件与可信发布权限：
+
+- `External Review Signal` 只监听 `pull_request_review` 与 `pull_request_review_comment`，使用空权限，不 checkout、不读取 artifact、不调用 API，也不执行 PR 内容。它的完成事件只作为唤醒信号，不能携带审阅结论。
+- `External Review Gate Shadow` 只从 default branch 运行：直接监听 `pull_request_target`、PR conversation comment、signal 的 `workflow_run`、10 分钟定时补偿和手工 dispatch。它显式 checkout `refs/heads/main`，关闭 credential persistence，并只授予 `contents: read`、`pull-requests: read`、`issues: read` 与 `checks: write`。
+- trusted publisher 不读取 signal artifact 或输出，不把 event/comment 字段插入 shell。它只解析有界的数字 PR ID，再通过 GitHub API 重新读取 current identity。
+- `publish-external-review-check` 在 evaluator 前后复核 PR number、open/draft、main base、head/base OID；只有 identity 稳定时才创建完成态 Check Run。Check 固定名为 `External Review Gate`，external ID 绑定 repository、PR、head、trusted validator OID 与 workflow run/attempt，并在 API 响应中复核 source App 为 `github-actions`。
+- `pass` 映射为 `success`；`waived` 映射为 `action_required`，确保未来成为 required check 后仍需显式临时 bypass；其他状态均为 `failure`。Check output 保存状态、head/base、provider/actor、completion、finding/thread/re-review 统计与 reference-style evidence；完整 evaluator JSON 留在 trusted workflow log。
+- publisher 按 PR 设置 concurrency 并取消旧运行。发布前 identity race 直接失败且不向新 head 写入旧结果；new head 由 `synchronize` 或定时补偿重新计算。evaluator result 的显式 state 与固定 FNV-1a fingerprint 会和 PR/head/trusted-ref 共同形成 external ID 前缀；state 变化不能因 fingerprint 碰撞而复用旧结论。同一 source App 已存在等价完成态 Check 时复用现有记录，避免 schedule 产生重复 Check。
+- Draft、非 `main` base 和非 open PR 不属于 R1 eligible sample，不发布 shadow 结论。schedule 只枚举 targeting `main` 的 open PR。
+
+该 workflow 合入 `main` 前不能用于 Related PR C 自身的 G3；PR C 仍由已合入 main 的 validator、current-head external review 与当前 ruleset 完成 R0 bootstrap。合入后先追加 R1 起点记录，再通过手工 dispatch 和真实事件验证首次 Check；未完成该记录与首次 live 验证前不得开始计算 14 天 / 10 eligible PR 退出门槛。
+
 ### Rollout 与 ruleset 迁移
 
 Issue #230 采用 `R0 -> R1 -> R2`：

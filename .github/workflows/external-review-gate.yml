@@ -1,0 +1,165 @@
+name: External Review Gate Shadow
+
+on:
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - converted_to_draft
+      - review_requested
+      - review_request_removed
+  issue_comment:
+    types:
+      - created
+      - edited
+      - deleted
+  workflow_run:
+    workflows:
+      - External Review Signal
+    types:
+      - completed
+  schedule:
+    - cron: "7,17,27,37,47,57 * * * *"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Optional PR number; leave empty to evaluate every open PR targeting main
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  checks: write
+
+jobs:
+  resolve-targets:
+    name: Resolve PR targets
+    if: >-
+      github.event_name != 'issue_comment' ||
+      github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    outputs:
+      count: ${{ steps.targets.outputs.count }}
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - name: Resolve PR numbers from trusted event metadata
+        id: targets
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_PR: ${{ inputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          all_open_prs() {
+            local open_prs
+            open_prs="$(gh api --paginate \
+              "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" \
+              --jq '.[].number')"
+            printf '%s\n' "$open_prs" |
+              jq -Rsc 'split("\n") | map(select(length > 0) | tonumber) | unique'
+          }
+
+          case "$EVENT_NAME" in
+            pull_request_target)
+              pr_numbers="$(jq -c '[.pull_request.number]' "$GITHUB_EVENT_PATH")"
+              ;;
+            issue_comment)
+              pr_numbers="$(jq -c '[.issue.number]' "$GITHUB_EVENT_PATH")"
+              ;;
+            workflow_run)
+              pr_numbers="$(
+                jq -c \
+                  '[.workflow_run.pull_requests[].number | select(type == "number" and . > 0)] | unique' \
+                  "$GITHUB_EVENT_PATH"
+              )"
+              ;;
+            schedule)
+              pr_numbers="$(all_open_prs)"
+              ;;
+            workflow_dispatch)
+              if [[ -z "$MANUAL_PR" ]]; then
+                pr_numbers="$(all_open_prs)"
+              elif [[ "$MANUAL_PR" =~ ^[1-9][0-9]*$ ]]; then
+                pr_numbers="$(jq -cn --argjson number "$MANUAL_PR" '[$number]')"
+              else
+                echo "pr_number must be a positive integer" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Unsupported trusted event: $EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+
+          pr_numbers="$(
+            jq -ce \
+              'if type != "array" then error("PR target must be an array")
+               else [.[] | select(type == "number" and . > 0)] | unique
+               end' \
+              <<<"$pr_numbers"
+          )"
+          count="$(jq -r 'length' <<<"$pr_numbers")"
+          echo "count=$count" >>"$GITHUB_OUTPUT"
+          echo "matrix={\"pr\":$pr_numbers}" >>"$GITHUB_OUTPUT"
+
+  publish-shadow-check:
+    name: Publish shadow Check for PR #${{ matrix.pr }}
+    needs:
+      - resolve-targets
+    if: needs.resolve-targets.outputs.count != '0'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve-targets.outputs.matrix) }}
+    concurrency:
+      group: external-review-gate-pr-${{ matrix.pr }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted validator from main
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: refs/heads/main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify trusted checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "main"
+          git diff --exit-code
+
+      - name: Install Rust MSRV toolchain for trusted validator
+        shell: bash
+        run: rustup toolchain install 1.96.0 --profile minimal
+
+      - name: Evaluate metadata and publish completed shadow Check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ matrix.pr }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          trusted_ref_oid="$(git rev-parse HEAD)"
+          cargo +1.96.0 run --locked -p xtask -- \
+            publish-external-review-check \
+            --repo "$REPOSITORY" \
+            --pr "$PR_NUMBER" \
+            --details-url "$RUN_URL" \
+            --run-id "$RUN_ID" \
+            --run-attempt "$RUN_ATTEMPT" \
+            --trusted-ref-oid "$trusted_ref_oid"

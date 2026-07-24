@@ -94,6 +94,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         Some("check-gate-evidence") => check_gate_evidence(&args[1..]),
         Some("check-external-review") => external_review::run(&args[1..]),
+        Some("publish-external-review-check") => {
+            external_review::run_publish_check(&args[1..])
+        }
         Some("format-md-tables") => markdown_tables::run(&args[1..]),
         Some("check-schema-publication-contract") => check_schema_publication_contract(),
         Some("build-schema-publication") => match args.as_slice() {
@@ -105,7 +108,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         },
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-external-review, format-md-tables, check-schema-publication-contract, build-schema-publication"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-external-review, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
                 .to_string(),
         ),
     }
