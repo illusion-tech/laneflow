@@ -72,13 +72,13 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 | content-equivalent rebase 具备全部附加证据                                        | `waived`；不得自动转成标准 `pass`                                                           |
 | 预创建或编辑旧 G3 comment 回填新证据                                              | Fail；必须新增 superseding comment                                                          |
 | Related PR B 自身仍由 main 上的旧 validator 判断                                  | 按 R0 bootstrap 人工核验 exact-head review；不得用候选 validator 自批                       |
-| PR B 合入后的 R0/R1 PR 尚无 required External Review Gate                         | `check-gate-evidence g3` 还要求 live external-review `pass`，并记录 non-required Check 原因 |
+| PR B 合入后的 R0/R1 PR 尚无 required External Review Gate                         | `G3 Pass` / bootstrap 要求 live `pass`；结构化 `G3 Waived` 保持 `waived`，并记录 Check 缺失 |
 | R2 PR 缺少 current-head External Review Gate success                              | Fail                                                                                        |
 | Check success 与 G3 comment 绑定不同 head，或 comment 早于最终 completion / Check | Fail                                                                                        |
 
 Provider fixtures 至少覆盖 Copilot clean/findings、Codex clean/findings、人工 `APPROVED`、无 SHA、错误 actor、new-push stale、finding 后无复审、重复 thread 与 provider outage。历史事件 replay 和人工审计必须与机器最终分类一致。
 
-离线 fixture / replay 使用 `check-external-review --input <snapshot.json> --format json --expect <state>`；live 对照使用 `check-external-review --repo <owner/repo> --pr <number> --format json`。snapshot、结果 schema、固定状态枚举和 fail-closed 退出语义必须保持向后可识别；无法完整分页或二次读取 head/base 不一致时不得降级为 `awaiting_review` 或 `pass`。
+离线 fixture / replay 使用 `check-external-review --input <snapshot.json> --format json --expect <state>`；live 对照使用 `check-external-review --repo <owner/repo> --pr <number> --format json`。snapshot、结果 schema、固定状态枚举和 fail-closed 退出语义必须保持向后可识别；无法完整分页或二次读取 head/base 不一致时不得降级为 `awaiting_review` 或 `pass`。current G3 comment 缺少显式 `Gate 结果` 时必须失败；`G3 Waived` 还必须覆盖结构化 record、current head/base、reference-style evidence、授权人、当前 follow-up Issue、24 小时上限与过期回归。
 
 workflow 安全检查至少验证：
 

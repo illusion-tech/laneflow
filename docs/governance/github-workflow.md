@@ -176,7 +176,7 @@ cargo +1.96.0 run --locked -p xtask -- check-external-review --input <snapshot.j
 
 snapshot 与结果均使用 `schemaVersion: 1`。live evaluator 读取 author、current head/base、review requests、reviews、issue comments 和 review threads，并在计算后再次读取 head/base；任一 connection 超过 100 条、thread comment 截断、actor/SHA/timestamp 缺失、provider 文案歧义或二次读取发生竞态时返回 `provider_error`。`--expect` 只用于 fixture/replay 断言；未提供时只有 `pass` 退出成功，`waived` 仍保持独立状态。
 
-`check-gate-evidence g3` 的 external-review 集成以 Issue #230 的 G2-B 增量开工记录时间 `2026-07-24T15:16:21Z` 为迁移边界：更早的 G3 comment 保留 legacy 历史语义，不追溯要求新增字段；该时点及之后创建的 G3 comment 必须是未编辑的 append-only 记录，包含完整 current head，并晚于 live evaluator 识别的最终 completion。
+`check-gate-evidence g3` 的 external-review 集成以 Issue #230 的 G2-B 增量开工记录时间 `2026-07-24T15:16:21Z` 为迁移边界：更早的 G3 comment 保留 legacy 历史语义，不追溯要求新增字段；该时点及之后创建的 G3 comment 必须显式包含 `Gate 结果`，是未编辑的 append-only 记录，并包含完整 current head。`G3 Pass` / `R0-R1 bootstrap` 必须晚于 live evaluator 识别的最终 completion；`G3 Waived` 必须使用 `development-gates.md` 规定的 `external-review-waiver:v1` 结构化记录，live evaluator 保持 `waived` 而不冒充 `pass`。waiver 路径只读取并二次确认 PR number、author、draft、current head/base identity，不依赖 provider review connection；GitHub identity API 不可读、head/base 竞态或 Draft PR 仍然 fail closed。
 
 ### Rollout 与 ruleset 迁移
 

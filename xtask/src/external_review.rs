@@ -87,8 +87,11 @@ const PULL_REQUEST_IDENTITY_QUERY: &str = r#"
 query($owner:String!, $name:String!, $number:Int!) {
   repository(owner:$owner, name:$name) {
     pullRequest(number:$number) {
+      number
+      author { login }
       headRefOid
       baseRefOid
+      isDraft
     }
   }
 }
@@ -289,19 +292,19 @@ struct CommitRef {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct WaiverInput {
-    id: String,
-    exception_type: String,
-    current_head_oid: String,
-    current_base_oid: String,
-    reason: String,
-    evidence_urls: Vec<String>,
-    risk: String,
-    acceptance_boundary: String,
-    expires_at: String,
-    follow_up_issue: String,
-    cleanup_owner: String,
-    authorized_by: String,
+pub(crate) struct WaiverInput {
+    pub(crate) id: String,
+    pub(crate) exception_type: String,
+    pub(crate) current_head_oid: String,
+    pub(crate) current_base_oid: String,
+    pub(crate) reason: String,
+    pub(crate) evidence_urls: Vec<String>,
+    pub(crate) risk: String,
+    pub(crate) acceptance_boundary: String,
+    pub(crate) expires_at: String,
+    pub(crate) follow_up_issue: String,
+    pub(crate) cleanup_owner: String,
+    pub(crate) authorized_by: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -451,14 +454,34 @@ pub fn run(args: &[String]) -> Result<(), String> {
 }
 
 pub fn evaluate_live(repository: &str, pr: u64) -> Result<ExternalReviewResult, String> {
-    let snapshot = load_live_snapshot(repository, pr)?;
+    evaluate_live_with_optional_waiver(repository, pr, None)
+}
+
+pub(crate) fn evaluate_live_with_waiver(
+    repository: &str,
+    pr: u64,
+    waiver: WaiverInput,
+) -> Result<ExternalReviewResult, String> {
+    evaluate_live_with_optional_waiver(repository, pr, Some(waiver))
+}
+
+fn evaluate_live_with_optional_waiver(
+    repository: &str,
+    pr: u64,
+    waiver: Option<WaiverInput>,
+) -> Result<ExternalReviewResult, String> {
+    let snapshot = match waiver {
+        Some(waiver) => load_live_waiver_snapshot(repository, pr, waiver)?,
+        None => load_live_snapshot(repository, pr)?,
+    };
     let initial_head = snapshot.pull_request.head_ref_oid.clone();
     let initial_base = snapshot.pull_request.base_ref_oid.clone();
     let mut result = evaluate_snapshot(&snapshot);
-    let (verified_head, verified_base) = load_live_identity(repository, pr)?;
-    if verified_head != initial_head || verified_base != initial_base {
+    let verified = load_live_identity(repository, pr)?;
+    if verified.head_ref_oid != initial_head || verified.base_ref_oid != initial_base {
         result.set_provider_error(format!(
-            "head/base 竞态：首次读取 {initial_head}/{initial_base}，发布前复核 {verified_head}/{verified_base}"
+            "head/base 竞态：首次读取 {initial_head}/{initial_base}，发布前复核 {}/{}",
+            verified.head_ref_oid, verified.base_ref_oid
         ));
     }
     Ok(result)
@@ -731,19 +754,19 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             None,
             Some("provider/API/schema 歧义，按 fail-closed 处理".to_string()),
         )
-    } else if snapshot.waiver.is_some() {
-        (
-            ExternalReviewState::Waived,
-            false,
-            None,
-            Some("存在完整结构化 waiver；不得映射为标准 pass".to_string()),
-        )
     } else if pr.is_draft {
         (
             ExternalReviewState::ReviewPending,
             false,
             current_evidence.last().copied(),
             Some("Draft PR 尚未进入可计数的 external review Gate".to_string()),
+        )
+    } else if snapshot.waiver.is_some() {
+        (
+            ExternalReviewState::Waived,
+            false,
+            None,
+            Some("存在完整结构化 waiver；不得映射为标准 pass".to_string()),
         )
     } else if let Some(finding) = latest_finding {
         let clean_after_finding =
@@ -1176,7 +1199,38 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<ExternalReviewSnapsho
     })
 }
 
-fn load_live_identity(repository: &str, pr: u64) -> Result<(String, String), String> {
+fn load_live_waiver_snapshot(
+    repository: &str,
+    pr: u64,
+    waiver: WaiverInput,
+) -> Result<ExternalReviewSnapshot, String> {
+    let identity = load_live_identity(repository, pr)?;
+    if identity.number != pr {
+        return Err(format!(
+            "GitHub PR identity number 不一致：请求 #{pr}，返回 #{}",
+            identity.number
+        ));
+    }
+    Ok(ExternalReviewSnapshot {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        repository: repository.to_string(),
+        pull_request: PullRequestSnapshot {
+            number: identity.number,
+            author: identity.author,
+            head_ref_oid: identity.head_ref_oid,
+            base_ref_oid: identity.base_ref_oid,
+            is_draft: identity.is_draft,
+            review_requests: Connection::default(),
+            reviews: Connection::default(),
+            comments: Connection::default(),
+            review_threads: Connection::default(),
+        },
+        provider_errors: Vec::new(),
+        waiver: Some(waiver),
+    })
+}
+
+fn load_live_identity(repository: &str, pr: u64) -> Result<PullRequestIdentity, String> {
     let (owner, name) = repository
         .split_once('/')
         .ok_or_else(|| format!("repository 格式不正确：{repository}"))?;
@@ -1185,7 +1239,7 @@ fn load_live_identity(repository: &str, pr: u64) -> Result<(String, String), Str
         .repository
         .and_then(|repository| repository.pull_request)
         .ok_or_else(|| format!("发布前无法复核 GitHub PR identity：{repository}#{pr}"))?;
-    Ok((identity.head_ref_oid, identity.base_ref_oid))
+    Ok(identity)
 }
 
 fn gh_graphql<T: for<'de> Deserialize<'de>>(
@@ -1275,8 +1329,11 @@ struct IdentityRepository {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PullRequestIdentity {
+    number: u64,
+    author: Option<Actor>,
     head_ref_oid: String,
     base_ref_oid: String,
+    is_draft: bool,
 }
 
 #[cfg(test)]
@@ -1442,6 +1499,33 @@ mod tests {
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::Waived
+        );
+    }
+
+    #[test]
+    fn draft_pr_cannot_be_waived() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/stale-old-head.json"
+        ));
+        snapshot.pull_request.is_draft = true;
+        snapshot.waiver = Some(WaiverInput {
+            id: "waiver-230-2".to_string(),
+            exception_type: "provider_platform_outage".to_string(),
+            current_head_oid: snapshot.pull_request.head_ref_oid.clone(),
+            current_base_oid: snapshot.pull_request.base_ref_oid.clone(),
+            reason: "all configured providers unavailable".to_string(),
+            evidence_urls: vec!["https://github.com/illusion-tech/laneflow/issues/230".to_string()],
+            risk: "review coverage unavailable".to_string(),
+            acceptance_boundary: "metadata-only governance change".to_string(),
+            expires_at: "2026-07-25T00:00:00Z".to_string(),
+            follow_up_issue: "#230".to_string(),
+            cleanup_owner: "wangzishi".to_string(),
+            authorized_by: "wangzishi".to_string(),
+        });
+
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::ReviewPending
         );
     }
 
