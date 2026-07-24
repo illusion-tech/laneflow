@@ -95,7 +95,7 @@ Issue Gate Ledger 模板：
 - 标准路径只接受 trusted reviewer 对 PR 当前 exact head 的完成态审阅；`unresolved review threads = 0` 只是必要条件，不能替代外部审阅证据。
 - reviewer 报告 findings 后，author 必须记录每项 disposition，并在修复后的当前 head 请求新的 clean re-review；旧 head 的 approval、无新评论或仅解决线程都不能沿用。
 - 单维护者场景不降低门槛：维护者可以且应当自审、处置 findings 并发表 G3 comment，但必须另有一个有效外部 reviewer。
-- R0/R1 尚未具备 required check 时，按文档中的 bootstrap 规则显式记录阶段和缺失项；进入 R2 后，`External Review Gate` Check success 与当前 head 的 append-only G3 comment 构成双钥匙。
+- R0/R1 尚未具备 required check 时，按文档中的 bootstrap 规则显式记录阶段和缺失项；Related PR B 合入前，现有 `check-gate-evidence g3` 只保证 legacy comment 结构、permalink、PR 关系和时序，G3 Owner 必须人工核验新增外部审阅字段。进入 R2 后，`External Review Gate` Check success 与当前 head 的 append-only G3 comment 构成双钥匙。
 - content-equivalent rebase、provider / platform outage、security / emergency hotfix、confirmed gate defect 只能走文档定义的显式例外；不得扩展成日常 bypass。
 
 ## 安全扫描
