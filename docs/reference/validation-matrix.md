@@ -87,12 +87,14 @@ workflow 安全检查至少验证：
 - review / inline comment 事件只进入空权限、无 checkout 的 signal；trusted `workflow_run` 不读取 signal artifact / output；
 - validator 显式从 `refs/heads/main` checkout，关闭 credential persistence，不 checkout、下载或执行 PR head，不执行 comment body，不读取 repository secret；
 - token 权限固定为 `contents: read`、`pull-requests: read`、`issues: read`、`checks: write`，第三方 Action 完整 SHA pin；
-- Check Run 绑定 API 最终确认的 current head/base，并复核 source App=`github-actions`；external ID 同时绑定 PR/head/trusted-ref/run；
+- R1 Check 固定为 `External Review Gate Shadow`，绑定 API 最终确认的 current head/base，并复核 telemetry source App=`github-actions`；external ID 同时绑定 PR/head/trusted-ref/run；
 - publisher 二次确认 `isCrossRepository=false`；fork / cross-repository PR 不尝试向 base repository 写入无法关联的 head Check；
 - 只有 `pass -> success`；`waived -> action_required`，确保 required check 不会把 waiver 当作成功；其他状态均为 failure；
 - PR concurrency 取消旧运行；identity race 不向新 head 发布旧结果；
 - external ID 显式包含 evaluator state 和稳定 fingerprint；只有同 head/source App/trusted-ref/state 下的等价完成态 Check 才可复用，state 变化必须产生新 Check；
 - Draft、非 `main` base、非 open PR 不计入 R1 sample；10 分钟 schedule 只作 review signal 缺失时的补偿；
+- R1 sample 同时绑定 trusted default-branch workflow run、external ID 与 Check receipt；PR 自定义的同名 GitHub Actions job 不得计入；
+- R2 publisher 使用独立专用 GitHub App，ruleset 绑定正式 Check name 与 expected source App；恶意 PR 新增同名 Actions job 的 canary 仍必须阻断合并；
 - API/provider/解析歧义 fail closed。
 
 publisher 的本地接口为 `publish-external-review-check --repo <owner/repo> --pr <number> --details-url <workflow-run-url> --run-id <id> --run-attempt <number> --trusted-ref-oid <oid>`。该命令会产生外部 Check 写操作，只能在 trusted workflow 中使用；本地 / PR head 验证只运行 payload、state mapping、identity race 与 workflow 静态安全单元测试，不得向真实 PR 发布候选 Check。
@@ -113,7 +115,7 @@ publisher 的本地接口为 `publish-external-review-check --repo <owner/repo> 
 10. G3 comment / Issue G3 permalink 不完整或 reference-style 定义未由对应 Gate 行实际引用，Related-only 阶段提前勾选 Issue G3，Related PR 独立 G3 未永久保留单一 `--related-pr <current-related-pr>` 断言，full-set 未使用 `--delivery-pr` 加全部 Related PR，或错误要求改写历史 Related comment，`Gate 断言` 未记录与实际调用完全一致的规范命令和 `已通过` 结果，或 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 ...` 失败。
 11. `../governance/security-scanning.md` 要求的适用扫描仍为 `pending`、失败、无分析、已禁用或不可用，且没有显式例外；或把 API / 命令失败误写成零开放告警。
 12. external review 缺失、pending、stale、actor/provider 不可信、finding 未完成 clean re-review，或只用 `reviewThreads=0` 证明 clean。
-13. R2 激活后 current-head `External Review Gate` 未成功，或 G3 comment 不是 Check 后新增的 append-only Owner 判断。
+13. R2 激活后 current-head `External Review Gate` 未成功、source 不是 ruleset 绑定的专用 GitHub App，spoof canary 可由 PR 自定义同名 Actions job 满足，或 G3 comment 不是 Check 后新增的 append-only Owner 判断。
 14. PR / push range 包含 `G3 Block`，或新 commit 使用 legacy `G3 Pass` / `G3 Waived` / `Docs Only` 且不满足 `commit-convention.md` 的 cutoff 兼容条件。
 
 G4 清场前还必须运行 `check-gate-evidence g4`；它验证 Issue G4 permalink、关联 PR 合并状态、Gate Ledger、Project `Done`，以及 `Gate 断言` 的规范命令和 `已通过` 结果，但不替代 G4 comment 中的分支清理与权限撤回证据。

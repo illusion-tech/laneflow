@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
 const RESULT_SCHEMA_VERSION: u64 = 1;
 const CHECK_PUBLISH_RESULT_SCHEMA_VERSION: u64 = 1;
-const EXTERNAL_REVIEW_CHECK_NAME: &str = "External Review Gate";
-const EXPECTED_CHECK_APP_SLUG: &str = "github-actions";
+const EXTERNAL_REVIEW_SHADOW_CHECK_NAME: &str = "External Review Gate Shadow";
+const R1_SHADOW_CHECK_APP_SLUG: &str = "github-actions";
 const COPILOT_ACTOR: &str = "copilot-pull-request-reviewer";
 const CODEX_ACTOR: &str = "chatgpt-codex-connector";
 const TRUSTED_HUMAN_ACTORS: &[&str] = &["wangzishi"];
@@ -1645,7 +1645,7 @@ fn build_check_run_payload(
     }
 
     CheckRunPayload {
-        name: EXTERNAL_REVIEW_CHECK_NAME,
+        name: EXTERNAL_REVIEW_SHADOW_CHECK_NAME,
         head_sha: result.current_head_oid.clone(),
         status: "completed",
         conclusion: result.state.check_conclusion(),
@@ -1727,7 +1727,7 @@ fn select_existing_equivalent_check(
     let mut matching = check_runs
         .into_iter()
         .filter(|check| {
-            check.app.slug == EXPECTED_CHECK_APP_SLUG
+            check.app.slug == R1_SHADOW_CHECK_APP_SLUG
                 && check
                     .external_id
                     .as_deref()
@@ -1809,7 +1809,7 @@ fn verify_check_run_response(
         || response.status != payload.status
         || conclusion != payload.conclusion
         || response.external_id.as_deref() != Some(payload.external_id.as_str())
-        || response.app.slug != EXPECTED_CHECK_APP_SLUG
+        || response.app.slug != R1_SHADOW_CHECK_APP_SLUG
     {
         return Err(format!(
             "Check Run 发布结果不符合绑定要求：name={} head={} status={} conclusion={} external_id={:?} app={}；期望 name={} head={} status={} conclusion={} external_id={} app={}",
@@ -1824,7 +1824,7 @@ fn verify_check_run_response(
             payload.status,
             payload.conclusion,
             payload.external_id,
-            EXPECTED_CHECK_APP_SLUG
+            R1_SHADOW_CHECK_APP_SLUG
         ));
     }
     Ok(())
@@ -2074,7 +2074,7 @@ mod tests {
             "external-review:test".to_string(),
         );
 
-        assert_eq!(payload.name, EXTERNAL_REVIEW_CHECK_NAME);
+        assert_eq!(payload.name, EXTERNAL_REVIEW_SHADOW_CHECK_NAME);
         assert_eq!(payload.head_sha, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         assert_eq!(payload.status, "completed");
         assert_eq!(payload.conclusion, "success");
@@ -2167,7 +2167,7 @@ mod tests {
             conclusion: Some(payload.conclusion.to_string()),
             external_id: Some(payload.external_id.clone()),
             app: CheckRunApp {
-                slug: EXPECTED_CHECK_APP_SLUG.to_string(),
+                slug: R1_SHADOW_CHECK_APP_SLUG.to_string(),
             },
         };
 
@@ -2203,7 +2203,7 @@ mod tests {
             conclusion: Some(payload.conclusion.to_string()),
             external_id: Some("evaluation-key:run-1-1".to_string()),
             app: CheckRunApp {
-                slug: EXPECTED_CHECK_APP_SLUG.to_string(),
+                slug: R1_SHADOW_CHECK_APP_SLUG.to_string(),
             },
         };
 
@@ -2221,7 +2221,7 @@ mod tests {
             conclusion: Some("failure".to_string()),
             external_id: Some("evaluation-key:run-3-1".to_string()),
             app: CheckRunApp {
-                slug: EXPECTED_CHECK_APP_SLUG.to_string(),
+                slug: R1_SHADOW_CHECK_APP_SLUG.to_string(),
             },
         };
         assert!(
@@ -2304,6 +2304,21 @@ mod tests {
         assert!(!signal.contains("gh api"));
         assert!(!signal.contains("cargo "));
         assert!(!signal.contains("secrets."));
+    }
+
+    #[test]
+    fn shadow_check_contract_requires_a_dedicated_app_before_r2() {
+        let workflow_contract = include_str!("../../docs/governance/github-workflow.md");
+
+        assert_eq!(
+            EXTERNAL_REVIEW_SHADOW_CHECK_NAME,
+            "External Review Gate Shadow"
+        );
+        assert!(workflow_contract.contains("`External Review Gate Shadow` 永远不得加入 ruleset"));
+        assert!(workflow_contract.contains(
+            "R2 激活前必须注册并仅在 base repository 安装专用 External Review Gate GitHub App"
+        ));
+        assert!(workflow_contract.contains("ruleset 中同时绑定 Check 名和 expected source App"));
     }
 
     #[test]
