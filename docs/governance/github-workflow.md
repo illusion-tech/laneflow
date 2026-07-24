@@ -133,7 +133,7 @@ Delivery PR / Related PRs 关联规则：
 - 当 PR 预期覆盖关联 Issue 的完成边界时，它是唯一 Delivery PR，body 应使用 `Closes #<issue>`、`Resolves #<issue>` 或等价 GitHub closing keyword 建立 Development 关联。
 - 当 PR 只是父 Issue 的子切片或部分交付时，它是 Related PR，不得误用 closing keyword；应使用 `Refs: #<issue>`，并在 Issue 中列出该 PR。
 - commit message footer 与 PR body 语义分开：commit message 通常继续使用 `Refs: #<issue>`，不得为了建立 Development 关联而把提交 footer 改成 `Closes`。
-- G3 前默认必须通过 `gh pr view <delivery-pr> --json closingIssuesReferences` 确认 Delivery PR 覆盖目标 Issue；GitHub Development 面板只作为人工辅助证据。Delivery PR 尚未创建时，Related PR 用 `check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 独立验证当前 comment、Issue 增量 permalink 与关系；Delivery PR 创建后使用 `--delivery-pr <number>` 并传入 Issue 已记录的全部 `--related-pr` 做整组复核。G3 comment 的 `Gate 断言` 行必须包含与实际调用参数完全一致的反引号命令，并在命令后写 `已通过`；pending、缺少结果或参数不匹配均不能进入 `G3 = Pass`。若 Delivery PR、父 Issue 子切片、权限或平台限制导致只能手动关联 Development 面板，必须记录显式例外，说明原因、风险、后续收口方式和 Cleanup owner；否则不能进入 `G3 = Pass`。
+- G3 前默认必须通过 `gh pr view <delivery-pr> --json closingIssuesReferences` 确认 Delivery PR 覆盖目标 Issue；GitHub Development 面板只作为人工辅助证据。每个 Related PR 都用 `check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 独立验证并永久保留该 Related-only 断言；Delivery PR 使用 `--delivery-pr <number>` 并传入 Issue 已记录的全部 `--related-pr` 做整组复核，逐个读取历史 Related-only comment 而不改写它们。G3 comment 的 `Gate 断言` 行必须包含与实际调用参数完全一致的反引号命令，并在命令后写 `已通过`；pending、缺少结果或参数不匹配均不能进入 `G3 = Pass`。若 Delivery PR、父 Issue 子切片、权限或平台限制导致只能手动关联 Development 面板，必须记录显式例外，说明原因、风险、后续收口方式和 Cleanup owner；否则不能进入 `G3 = Pass`。
 
 ### 外部审阅与复审
 

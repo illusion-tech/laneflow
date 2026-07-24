@@ -1257,7 +1257,14 @@ fn validate_g3_evidence(
     }
 
     for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
-        validate_related_pr_g3(args, issue_g3_line, *number, related_pr)?;
+        let related_args = GateEvidenceArgs {
+            phase: GateEvidencePhase::G3,
+            repo: args.repo.clone(),
+            issue: args.issue,
+            delivery_pr: None,
+            related_prs: vec![*number],
+        };
+        validate_related_pr_g3(&related_args, issue_g3_line, *number, related_pr)?;
     }
     Ok(())
 }
@@ -2112,8 +2119,7 @@ Refs: #12
     }
 
     fn related_pr(closes_issue: bool) -> GitHubPullRequest {
-        let mut args = gate_args(GateEvidencePhase::G3);
-        args.related_prs = vec![62];
+        let args = related_only_g3_args();
         related_pr_for_args(closes_issue, &args)
     }
 
@@ -2306,6 +2312,26 @@ Refs: #12
             validate_g3_evidence(&gate_args(GateEvidencePhase::G3), &issue, &delivery_pr, &[])
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn accepts_full_set_g3_with_related_only_assertion() {
+        let mut args = gate_args(GateEvidencePhase::G3);
+        args.related_prs = vec![62];
+        let mut issue = issue("OPEN", "In Review");
+        issue.body = issue
+            .body
+            .replace("Related PRs：N/A，原因：无部分交付。", "Related PRs：#62")
+            .replace(
+                DELIVERY_G3_URL,
+                &format!("{DELIVERY_G3_URL})，[Related G3 评论]({RELATED_G3_URL}"),
+            );
+        let mut delivery_pr = delivery_pr(None);
+        delivery_pr.comments[0] =
+            g3_comment_for_args(DELIVERY_G3_URL, "2026-07-10T05:00:00Z", &args);
+        let related_pr = related_pr(false);
+
+        assert!(validate_g3_evidence(&args, &issue, &delivery_pr, &[related_pr]).is_ok());
     }
 
     #[test]
