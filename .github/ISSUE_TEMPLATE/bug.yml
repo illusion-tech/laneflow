@@ -77,7 +77,7 @@ body:
     id: gate-ledger
     attributes:
       label: Gate Ledger
-      description: 按任务推进增量维护；G3 完整证据在 PR comment，Issue G3 checkbox 回链 Delivery PR 与 Related PR 的 permalink；G4 完整证据在 Issue comment，Issue G4 checkbox 回链该 permalink。
+      description: 按任务推进增量维护；G3 完整证据在 PR comment，Issue G3 Gate Ledger 增量回链 Related PR permalink，并在 Delivery PR 与全部 Related PR 完成后勾选；G4 完整证据在 Issue comment，Issue G4 checkbox 回链该 permalink。
       value: |
         - [ ] G0 立项已记录：
         - [ ] G1 设计判断已记录：

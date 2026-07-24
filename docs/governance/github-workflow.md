@@ -120,7 +120,7 @@ Milestone 用于表达版本边界，而不是单个大任务。
 - 复核关联 Issue 的 Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Delivery PR 和 Related PRs 关联状态。
 - 记录测试、构建和文档检查结果。
 - 记录已知风险和例外。
-- 在 PR comment 记录 `## G3 合并判断`：checks、审阅、验证、风险、例外、合并方式和 Gate 断言；PR body 与 Issue body 的 G3 checkbox 必须回链该 comment。
+- 在 PR comment 记录 `## G3 合并判断`：checks、审阅、验证、风险、例外、合并方式和 Gate 断言；PR body 的 G3 checkbox 回链当前 comment，Issue body 的 G3 Gate Ledger 对 Related PR 增量回链并保持未勾选，直到 Delivery PR 与全部 Related PR 均完成。
 - 在标准 G3 前取得至少一个受信任 external reviewer 的 exact-head completion；finding 必须处置并由新的 exact-head clean re-review 封口。
 
 不得用父任务标题合入只覆盖部分能力的实现。部分交付必须明确子切片边界。
@@ -133,7 +133,7 @@ Delivery PR / Related PRs 关联规则：
 - 当 PR 预期覆盖关联 Issue 的完成边界时，它是唯一 Delivery PR，body 应使用 `Closes #<issue>`、`Resolves #<issue>` 或等价 GitHub closing keyword 建立 Development 关联。
 - 当 PR 只是父 Issue 的子切片或部分交付时，它是 Related PR，不得误用 closing keyword；应使用 `Refs: #<issue>`，并在 Issue 中列出该 PR。
 - commit message footer 与 PR body 语义分开：commit message 通常继续使用 `Refs: #<issue>`，不得为了建立 Development 关联而把提交 footer 改成 `Closes`。
-- G3 前默认必须通过 `gh pr view <delivery-pr> --json closingIssuesReferences` 确认 Delivery PR 覆盖目标 Issue；GitHub Development 面板只作为人工辅助证据。必须在合并前发表 PR G3 comment，并运行 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 ...` 验证 permalink、comment 字段、Delivery / Related 关系与时序。G3 comment 的 `Gate 断言` 行必须包含与实际调用参数完全一致的反引号命令，并在命令后写 `已通过`；pending、缺少结果或参数不匹配均不能进入 `G3 = Pass`。若 Delivery PR、父 Issue 子切片、权限或平台限制导致只能手动关联 Development 面板，必须记录显式例外，说明原因、风险、后续收口方式和 Cleanup owner；否则不能进入 `G3 = Pass`。
+- G3 前默认必须通过 `gh pr view <delivery-pr> --json closingIssuesReferences` 确认 Delivery PR 覆盖目标 Issue；GitHub Development 面板只作为人工辅助证据。Delivery PR 尚未创建时，Related PR 用 `check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 独立验证当前 comment、Issue 增量 permalink 与关系；Delivery PR 创建后使用 `--delivery-pr <number>` 并传入 Issue 已记录的全部 `--related-pr` 做整组复核。G3 comment 的 `Gate 断言` 行必须包含与实际调用参数完全一致的反引号命令，并在命令后写 `已通过`；pending、缺少结果或参数不匹配均不能进入 `G3 = Pass`。若 Delivery PR、父 Issue 子切片、权限或平台限制导致只能手动关联 Development 面板，必须记录显式例外，说明原因、风险、后续收口方式和 Cleanup owner；否则不能进入 `G3 = Pass`。
 
 ### 外部审阅与复审
 
