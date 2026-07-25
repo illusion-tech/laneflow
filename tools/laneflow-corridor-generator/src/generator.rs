@@ -385,7 +385,7 @@ fn build_documents(
         frame_id: config.frame_id.clone(),
         edges: spatial_edges,
     };
-    let catalog = build_catalog(config, corridor);
+    let catalog = build_catalog(config, corridor)?;
     Ok((traffic, spatial, catalog))
 }
 
@@ -1279,7 +1279,10 @@ fn signal_controller(config: &CorridorConfig, index: usize) -> SignalController 
     }
 }
 
-fn build_catalog(config: &CorridorConfig, corridor: &CorridorBuild) -> CorridorCatalog {
+fn build_catalog(
+    config: &CorridorConfig,
+    corridor: &CorridorBuild,
+) -> Result<CorridorCatalog, Error> {
     let routes = &corridor.routes;
     let edge_by_id = corridor.edge_by_id();
     let portal_order = [
@@ -1293,7 +1296,7 @@ fn build_catalog(config: &CorridorConfig, corridor: &CorridorBuild) -> CorridorC
     let mut slots = Vec::new();
     let portals = portal_order
         .into_iter()
-        .map(|portal_id| {
+        .map(|portal_id| -> Result<PortalCatalogEntry, Error> {
             let portal_routes = routes
                 .iter()
                 .filter(|route| route.entry_portal_id == portal_id)
@@ -1306,7 +1309,7 @@ fn build_catalog(config: &CorridorConfig, corridor: &CorridorBuild) -> CorridorC
             lane_indices.dedup();
             let lanes = lane_indices
                 .into_iter()
-                .map(|lane_index| {
+                .map(|lane_index| -> Result<PortalLaneCatalogEntry, Error> {
                     let lane_routes = portal_routes
                         .iter()
                         .copied()
@@ -1321,15 +1324,25 @@ fn build_catalog(config: &CorridorConfig, corridor: &CorridorBuild) -> CorridorC
                         .get(entry_edge_id.as_str())
                         .expect("route edge exists in corridor topology");
                     let length = edge.length();
+                    let minimum_length = ENDPOINT_CLEARANCE_METERS * 2.0;
+                    if length < minimum_length {
+                        return Err(Error::Config(format!(
+                            "portal {portal_id:?} lane {lane_index} entry edge \
+                             {entry_edge_id:?} is {length} m long; at least \
+                             {minimum_length} m is required for one spawn slot"
+                        )));
+                    }
                     let mut progress = ENDPOINT_CLEARANCE_METERS;
                     let mut local_index = 0;
-                    let mut entry_spawn_slot_id = None;
+                    let entry_spawn_slot_id = format!(
+                        "slot-{}-lane-{lane_index}-000",
+                        portal_id.trim_start_matches("portal-")
+                    );
                     while progress <= length - ENDPOINT_CLEARANCE_METERS {
                         let slot_id = format!(
                             "slot-{}-lane-{lane_index}-{local_index:03}",
                             portal_id.trim_start_matches("portal-")
                         );
-                        entry_spawn_slot_id.get_or_insert_with(|| slot_id.clone());
                         slots.push(SpawnSlotCatalogEntry {
                             slot_id,
                             portal_id: portal_id.to_owned(),
@@ -1340,10 +1353,9 @@ fn build_catalog(config: &CorridorConfig, corridor: &CorridorBuild) -> CorridorC
                         local_index += 1;
                         progress += config.geometry.spawn_slot_pitch_meters;
                     }
-                    PortalLaneCatalogEntry {
+                    Ok(PortalLaneCatalogEntry {
                         lane_index,
-                        entry_spawn_slot_id: entry_spawn_slot_id
-                            .expect("every portal lane has an entry spawn slot"),
+                        entry_spawn_slot_id,
                         route_choices: lane_routes
                             .into_iter()
                             .map(|route| WeightedRouteChoiceCatalogEntry {
@@ -1351,15 +1363,15 @@ fn build_catalog(config: &CorridorConfig, corridor: &CorridorBuild) -> CorridorC
                                 weight: route.weight,
                             })
                             .collect(),
-                    }
+                    })
                 })
-                .collect();
-            PortalCatalogEntry {
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(PortalCatalogEntry {
                 id: portal_id.to_owned(),
                 lanes,
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     let route_catalog = routes
         .iter()
         .map(|route| RouteCatalogEntry {
@@ -1368,12 +1380,12 @@ fn build_catalog(config: &CorridorConfig, corridor: &CorridorBuild) -> CorridorC
         })
         .collect();
 
-    CorridorCatalog {
+    Ok(CorridorCatalog {
         catalog_version: CATALOG_VERSION.to_owned(),
         portals,
         routes: route_catalog,
         spawn_slots: slots,
-    }
+    })
 }
 
 fn validate_catalog(catalog: &CorridorCatalog, corridor: &CorridorBuild) -> Result<(), Error> {
