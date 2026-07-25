@@ -312,4 +312,11 @@ G4 清场必须完成：
 - 切回并更新本地 `main`。
 - 撤回临时 ruleset bypass、admin override 或其他临时权限；若不能撤回，记录保留原因、风险和 Cleanup owner。
 
+若 Delivery 合并后才发现验收缺口并创建 late Related PR，历史 Delivery G3 既不能编辑，
+也不能在 merge 后补写。此时只能按
+[`development-gates.md` 的 G4 recovery](development-gates.md#71-delivery-合并后新增-related-pr-的-g4-recovery)
+在新的 append-only G4 comment 记录 `g3-full-set-recovery:v1`；校验器必须证明 late
+Related PR 确实在 Delivery merge 后创建、逐个 Related-only G3 已通过、最终集合和
+证据回链完全一致。该路径不用于普通 G3，也不替代事前冻结完整 PR 集合。
+
 如果 G4 阶段发现 G0-G3 没有按时记录，只能追加“补救记录”，并说明流程遗漏原因。补救记录不能作为后续任务的标准流程。

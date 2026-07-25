@@ -361,6 +361,55 @@ G4 记录只负责最终闭环；不应在 G4 阶段首次补写 G0-G3。若必�
 - Gate 断言：`cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g4 --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...` 已通过。
 ```
 
+### 7.1 Delivery 合并后新增 Related PR 的 G4 recovery
+
+正常流程必须在 Delivery G3 前冻结完整 Related PR 集合，并使用 full-set 命令。只有
+Delivery 已合法合并、之后才发现验收缺口且 late Related PR 也已分别完成 Related-only
+G3 时，才可在最终 G4 comment 使用 `g3-full-set-recovery:v1`。该路径只恢复 G4
+整组复核，不改变 `check-gate-evidence g3`，也不允许编辑 Delivery 的历史 G3 comment
+或在合并后补写 G3。
+
+recovery 必须同时满足：
+
+- Delivery 的原 G3 comment 按其原始 `originalRelatedPrs` 命令仍可验证，保持
+  append-only，且创建时间早于 Delivery merge；
+- 每个 `lateRelatedPrs` 的 PR `createdAt` 严格晚于 Delivery `mergedAt`，并继续满足
+  Related-only G3、current-head external review、非 closing linkage、merge 和 Project
+  `Done`；
+- `originalRelatedPrs + lateRelatedPrs` 按顺序等于最终 G4 命令和 Issue 元数据记录的
+  Related PR 全集；
+- 最终 G4 comment 未编辑，author 与 `authorizedBy` 一致且属于 trusted G3 Owner；
+  `- 关系：` 可见回链 Delivery 和每个 Related PR 的 G3 permalink；
+- G4 的其余 merge timing、Gate Ledger、Project、Delivery backlink 和 exact command
+  校验保持不变。
+
+结构化记录格式：
+
+```text
+<!-- g3-full-set-recovery:v1
+{
+  "schemaVersion": 1,
+  "exceptionType": "late_related_after_delivery_merge",
+  "issue": 123,
+  "deliveryPr": 124,
+  "deliveryMergedAt": "2026-07-25T10:32:36Z",
+  "originalRelatedPrs": [],
+  "lateRelatedPrs": [125],
+  "reason": "验收缺口在 Delivery merge 后才被确认",
+  "evidenceRefs": ["delivery-g3", "related-125-g3"],
+  "risk": "历史 Delivery G3 无法预先命名未来 PR",
+  "acceptanceBoundary": "只恢复最终 G4；normal G3 不放宽",
+  "followUpIssue": "#126",
+  "cleanupOwner": "owner-login",
+  "authorizedBy": "owner-login"
+}
+-->
+```
+
+`evidenceRefs` 必须由同一 G4 comment 的 `- 关系：` 行可见引用，并通过文末
+reference-style 定义解析为对应的 GitHub G3 permalinks。缺少结构化记录时，G4 继续
+使用严格 full-set G3；时间、集合、授权或证据任一不匹配均 fail closed。
+
 ## 8. 例外治理
 
 允许例外，但必须显式留痕。

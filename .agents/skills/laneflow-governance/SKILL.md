@@ -85,6 +85,7 @@ Issue Gate Ledger 模板：
 - 常规 PR commit message 仍使用 `Refs: #<issue>`；不要为了 Development 关联把 commit footer 改成 `Closes`。
 - G3 前默认必须用 `gh pr view <delivery-pr> --json closingIssuesReferences` 复核目标 Issue 是否被覆盖。每个 Related PR 都用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 独立验证，把 comment permalink 增量写入仍未勾选的 Issue G3 Gate Ledger，并永久保留 Related-only 断言；Delivery PR 用 `--delivery-pr <number>` 加 Issue 已记录的全部 `--related-pr` 做整组复核，不改写历史 Related comment。`Gate 断言` 使用与实际调用完全一致的完整命令并在反引号后写 `已通过`；若运行失败，立即移除成功标记并修复证据。GitHub Development 面板只作人工辅助证据。若只能手动关联 Development 面板，必须记录显式例外原因、风险、后续收口方式和 Cleanup owner；缺失且无显式例外时不得进入 `G3 = Pass`。
 - 清场时只补 G4：在 Issue 发表 G4 comment，body 回链 permalink，Delivery PR 回链该 Issue G4；G4 `Gate 断言` 同样必须记录完整命令和 `已通过` 结果，运行 `check-gate-evidence g4` 成功后才可关闭 Issue。若发现元数据或依赖关系漏项，必须标记为补救记录并说明流程遗漏原因。
+- 若 Delivery 合并后才创建 late Related PR，禁止编辑历史 Delivery G3 或补发 post-merge G3；只有在 `development-gates.md` 的严格条件全部满足时，才可在新的 append-only G4 comment 使用 `g3-full-set-recovery:v1`。该结构化记录必须绑定原/新增 Related 集合、Delivery merge 时间、逐 PR G3 permalinks、风险、接受边界、follow-up Issue、Cleanup owner 和 trusted G3 Owner 授权；normal G3 行为不变。
 - 本地分支不是长期 Development 关系证据；实施 PR 创建后必须关联 PR，或记录不适用原因。
 - 若遇到非模板创建的 Issue，不得默认接受；必须先补齐模板中的元数据审计和 Gate Ledger，再推进 G0。
 

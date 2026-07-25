@@ -973,6 +973,8 @@ struct GitHubIssue {
 struct GitHubPullRequest {
     body: String,
     state: String,
+    #[serde(rename = "createdAt")]
+    created_at: String,
     #[serde(rename = "mergedAt")]
     merged_at: Option<String>,
     #[serde(rename = "closingIssuesReferences")]
@@ -1046,7 +1048,28 @@ const CURRENT_G3_COMMENT_FIELDS: &[&str] = &[
 const EXTERNAL_REVIEW_WAIVER_START: &str = "<!-- external-review-waiver:v1";
 const EXTERNAL_REVIEW_WAIVER_END: &str = "-->";
 const EXTERNAL_REVIEW_WAIVER_MAX_SECONDS: u64 = 24 * 60 * 60;
+const G3_FULL_SET_RECOVERY_START: &str = "<!-- g3-full-set-recovery:v1";
+const G3_FULL_SET_RECOVERY_END: &str = "-->";
 const G3_OWNER_ACTORS: &[&str] = &["wangzishi"];
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct G3FullSetRecoveryRecord {
+    schema_version: u64,
+    exception_type: String,
+    issue: u64,
+    delivery_pr: u64,
+    delivery_merged_at: String,
+    original_related_prs: Vec<u64>,
+    late_related_prs: Vec<u64>,
+    reason: String,
+    evidence_refs: Vec<String>,
+    risk: String,
+    acceptance_boundary: String,
+    follow_up_issue: String,
+    cleanup_owner: String,
+    authorized_by: String,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum G3Result {
@@ -1101,7 +1124,20 @@ fn check_gate_evidence(args: &[String]) -> Result<(), String> {
         .collect::<Result<Vec<_>, _>>()?;
 
     if let (Some(delivery_number), Some(delivery_pr)) = (args.delivery_pr, delivery_pr.as_ref()) {
-        validate_g3_evidence(&args, &issue, delivery_pr, &related_prs)?;
+        if args.phase == GateEvidencePhase::G4 {
+            if let Err(strict_error) =
+                validate_g3_evidence(&args, &issue, delivery_pr, &related_prs)
+            {
+                validate_g4_g3_full_set_recovery(&args, &issue, delivery_pr, &related_prs)
+                    .map_err(|recovery_error| {
+                        format!(
+                            "{strict_error}\nG4 structured G3 full-set recovery 也未通过：{recovery_error}"
+                        )
+                    })?;
+            }
+        } else {
+            validate_g3_evidence(&args, &issue, delivery_pr, &related_prs)?;
+        }
         if g3_requires_external_review(delivery_pr)? {
             validate_external_review_g3(
                 &args.repo,
@@ -1275,7 +1311,7 @@ fn gh_pr_view(repo: &str, number: u64) -> Result<GitHubPullRequest, String> {
         "--repo".to_string(),
         repo.to_string(),
         "--json".to_string(),
-        "body,state,mergedAt,closingIssuesReferences,projectItems,comments".to_string(),
+        "body,state,createdAt,mergedAt,closingIssuesReferences,projectItems,comments".to_string(),
     ])
 }
 
@@ -1364,6 +1400,171 @@ fn validate_g3_evidence(
             *number,
             related_pr,
         )?;
+    }
+    Ok(())
+}
+
+fn validate_g4_g3_full_set_recovery(
+    args: &GateEvidenceArgs,
+    issue: &GitHubIssue,
+    delivery_pr: &GitHubPullRequest,
+    related_prs: &[GitHubPullRequest],
+) -> Result<(), String> {
+    if args.phase != GateEvidencePhase::G4 {
+        return Err("G3 full-set recovery 只允许用于 G4".to_string());
+    }
+    let delivery_number = args
+        .delivery_pr
+        .ok_or("G3 full-set recovery 缺少 Delivery PR")?;
+    let delivery_merged_at = delivery_pr
+        .merged_at
+        .as_deref()
+        .ok_or("Delivery PR 尚未合并，不能使用 G3 full-set recovery")?;
+    let issue_g3_line = completed_gate_line(&issue.body, "G3")?;
+    let delivery_pr_line = metadata_line(&issue.body, "Delivery PR")?;
+    if !delivery_pr_line.contains(&format!("#{delivery_number}")) {
+        return Err(format!(
+            "Issue 的 `Delivery PR` 字段未记录 Delivery PR #{}",
+            delivery_number
+        ));
+    }
+    let related_prs_line = metadata_line(&issue.body, "Related PRs")?;
+    let recorded_related_prs = metadata_issue_numbers(related_prs_line);
+    let requested_related_prs = args.related_prs.iter().copied().collect::<BTreeSet<_>>();
+    if recorded_related_prs != requested_related_prs {
+        return Err(format!(
+            "Issue 的 `Related PRs` 字段与命令参数不一致：Issue 记录 [{}]；命令传入 [{}]",
+            format_issue_numbers(&recorded_related_prs),
+            format_issue_numbers(&requested_related_prs)
+        ));
+    }
+
+    let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
+    let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
+    let (record, evidence_urls) = parse_g3_full_set_recovery(g4_comment, args, delivery_merged_at)?;
+    let mut reconstructed_related_prs = record.original_related_prs.clone();
+    reconstructed_related_prs.extend(record.late_related_prs.iter().copied());
+    if reconstructed_related_prs != args.related_prs {
+        return Err(format!(
+            "G3 full-set recovery 的 originalRelatedPrs + lateRelatedPrs 必须按顺序等于最终 Related PR 参数 [{}]",
+            format_issue_numbers(&requested_related_prs)
+        ));
+    }
+
+    let delivery_permalink = completed_gate_permalink(&delivery_pr.body, "G3")?;
+    if !line_links_to_comment_permalink(&issue.body, issue_g3_line, &delivery_permalink) {
+        return Err("Issue 的 G3 checkbox 未回链 Delivery PR 的 G3 comment permalink".to_string());
+    }
+    if !evidence_urls.contains(&delivery_permalink) {
+        return Err(
+            "G3 full-set recovery evidenceRefs 未覆盖 Delivery PR G3 permalink".to_string(),
+        );
+    }
+    let original_args = GateEvidenceArgs {
+        phase: GateEvidencePhase::G3,
+        repo: args.repo.clone(),
+        issue: args.issue,
+        delivery_pr: Some(delivery_number),
+        related_prs: record.original_related_prs.clone(),
+    };
+    validate_comment(
+        delivery_pr,
+        &delivery_permalink,
+        G3_COMMENT_FIELDS,
+        "Delivery PR original G3",
+        &original_args,
+    )?;
+    validate_g3_timing(delivery_pr, &delivery_permalink, "Delivery PR original G3")?;
+    if !delivery_pr
+        .closing_issues_references
+        .iter()
+        .any(|reference| reference.number == args.issue)
+    {
+        return Err(format!(
+            "Delivery PR #{} 的 closingIssuesReferences 未覆盖 Issue #{}",
+            delivery_number, args.issue
+        ));
+    }
+
+    let delivery_merged_at_seconds = parse_utc_timestamp_seconds(delivery_merged_at)
+        .ok_or("Delivery PR mergedAt 不是 UTC RFC3339 秒级时间")?;
+    let original_related_prs = record
+        .original_related_prs
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let late_related_prs = record
+        .late_related_prs
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if original_related_prs.len() != record.original_related_prs.len()
+        || late_related_prs.len() != record.late_related_prs.len()
+        || !original_related_prs.is_disjoint(&late_related_prs)
+    {
+        return Err(
+            "G3 full-set recovery 的 originalRelatedPrs / lateRelatedPrs 不得重复或重叠"
+                .to_string(),
+        );
+    }
+    if late_related_prs.is_empty() {
+        return Err("G3 full-set recovery 至少需要一个 late Related PR".to_string());
+    }
+
+    for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
+        let related_args = GateEvidenceArgs {
+            phase: GateEvidencePhase::G3,
+            repo: args.repo.clone(),
+            issue: args.issue,
+            delivery_pr: None,
+            related_prs: vec![*number],
+        };
+        validate_related_pr_g3(
+            &related_args,
+            &issue.body,
+            issue_g3_line,
+            *number,
+            related_pr,
+        )?;
+        let related_permalink = completed_gate_permalink(&related_pr.body, "G3")?;
+        if !evidence_urls.contains(&related_permalink) {
+            return Err(format!(
+                "G3 full-set recovery evidenceRefs 未覆盖 Related PR #{number} G3 permalink"
+            ));
+        }
+        let related_created_at = parse_utc_timestamp_seconds(&related_pr.created_at)
+            .ok_or_else(|| format!("Related PR #{number} createdAt 不是 UTC RFC3339 秒级时间"))?;
+        if late_related_prs.contains(number) {
+            if related_created_at <= delivery_merged_at_seconds {
+                return Err(format!(
+                    "late Related PR #{number} 必须在 Delivery PR 合并后创建"
+                ));
+            }
+        } else if original_related_prs.contains(number) {
+            if related_created_at > delivery_merged_at_seconds {
+                return Err(format!(
+                    "original Related PR #{number} 不得在 Delivery PR 合并后创建"
+                ));
+            }
+            let related_g3_comment = related_pr
+                .comments
+                .iter()
+                .find(|comment| comment.url == related_permalink)
+                .ok_or_else(|| format!("Related PR #{number} G3 permalink 未指向该 PR comment"))?;
+            let related_g3_created_at = parse_utc_timestamp_seconds(&related_g3_comment.created_at)
+                .ok_or_else(|| {
+                    format!("Related PR #{number} G3 comment createdAt 不是 UTC RFC3339 秒级时间")
+                })?;
+            if related_g3_created_at > delivery_merged_at_seconds {
+                return Err(format!(
+                    "original Related PR #{number} G3 comment 不得晚于 Delivery PR 合并时间"
+                ));
+            }
+        } else {
+            return Err(format!(
+                "Related PR #{number} 未归入 originalRelatedPrs 或 lateRelatedPrs"
+            ));
+        }
     }
     Ok(())
 }
@@ -1827,6 +2028,145 @@ fn parse_g3_result(body: &str) -> Result<G3Result, String> {
             "current G3 comment 的 Gate 结果无效：`{value}`；应为 `G3 Pass`、`G3 Waived` 或 `R0-R1 bootstrap`"
         )),
     }
+}
+
+fn parse_g3_full_set_recovery(
+    comment: &GitHubComment,
+    args: &GateEvidenceArgs,
+    delivery_merged_at: &str,
+) -> Result<(G3FullSetRecoveryRecord, BTreeSet<String>), String> {
+    if comment.includes_created_edit {
+        return Err("G3 full-set recovery 所在 G4 comment 在创建后被编辑".to_string());
+    }
+    let marker_count = comment.body.matches(G3_FULL_SET_RECOVERY_START).count();
+    if marker_count != 1 {
+        return Err(format!(
+            "G3 full-set recovery 必须包含且只包含一个 `{G3_FULL_SET_RECOVERY_START}` 结构化记录"
+        ));
+    }
+    let (_, after_start) = comment
+        .body
+        .split_once(G3_FULL_SET_RECOVERY_START)
+        .ok_or_else(|| "G3 full-set recovery 缺少结构化记录起始标记".to_string())?;
+    let (json, _) = after_start
+        .split_once(G3_FULL_SET_RECOVERY_END)
+        .ok_or_else(|| "G3 full-set recovery 缺少结构化记录结束标记".to_string())?;
+    let record = serde_json::from_str::<G3FullSetRecoveryRecord>(json.trim())
+        .map_err(|error| format!("G3 full-set recovery 不是 schema v1 JSON：{error}"))?;
+    if record.schema_version != 1 {
+        return Err(format!(
+            "G3 full-set recovery schemaVersion 必须为 1，实际为 {}",
+            record.schema_version
+        ));
+    }
+    if record.exception_type != "late_related_after_delivery_merge" {
+        return Err(
+            "G3 full-set recovery exceptionType 必须为 `late_related_after_delivery_merge`"
+                .to_string(),
+        );
+    }
+    if record.issue != args.issue {
+        return Err(format!(
+            "G3 full-set recovery issue 必须为当前 Issue {}",
+            args.issue
+        ));
+    }
+    let delivery_number = args
+        .delivery_pr
+        .ok_or("G3 full-set recovery 缺少 Delivery PR 参数")?;
+    if record.delivery_pr != delivery_number {
+        return Err(format!(
+            "G3 full-set recovery deliveryPr 必须为 {delivery_number}"
+        ));
+    }
+    if record.delivery_merged_at != delivery_merged_at {
+        return Err(format!(
+            "G3 full-set recovery deliveryMergedAt 与 GitHub 当前值不一致：记录 `{}`；实际 `{delivery_merged_at}`",
+            record.delivery_merged_at
+        ));
+    }
+    parse_utc_timestamp_seconds(&record.delivery_merged_at).ok_or_else(|| {
+        "G3 full-set recovery deliveryMergedAt 不是 UTC RFC3339 秒级时间".to_string()
+    })?;
+    for (field, value) in [
+        ("reason", record.reason.as_str()),
+        ("risk", record.risk.as_str()),
+        ("acceptanceBoundary", record.acceptance_boundary.as_str()),
+        ("followUpIssue", record.follow_up_issue.as_str()),
+        ("cleanupOwner", record.cleanup_owner.as_str()),
+        ("authorizedBy", record.authorized_by.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(format!("G3 full-set recovery `{field}` 不能为空"));
+        }
+    }
+    let follow_up_number = record
+        .follow_up_issue
+        .strip_prefix('#')
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|number| *number > 0)
+        .ok_or_else(|| {
+            "G3 full-set recovery followUpIssue 必须是 `#<positive number>`".to_string()
+        })?;
+    if follow_up_number == args.issue {
+        return Err("G3 full-set recovery followUpIssue 必须独立于当前交付 Issue".to_string());
+    }
+
+    let author = comment
+        .author
+        .as_ref()
+        .map(|actor| actor.login.as_str())
+        .ok_or_else(|| "G3 full-set recovery G4 comment 缺少 author".to_string())?;
+    if !author.eq_ignore_ascii_case(&record.authorized_by) {
+        return Err(format!(
+            "G3 full-set recovery authorizedBy `{}` 与 comment author `{author}` 不一致",
+            record.authorized_by
+        ));
+    }
+    if !G3_OWNER_ACTORS
+        .iter()
+        .any(|actor| actor.eq_ignore_ascii_case(author))
+    {
+        return Err(format!(
+            "G3 full-set recovery comment author `{author}` 不在 trusted G3 Owner allowlist"
+        ));
+    }
+
+    let relation_line = comment
+        .body
+        .lines()
+        .find(|line| line.trim_start().starts_with("- 关系："))
+        .ok_or_else(|| "G3 full-set recovery G4 comment 缺少 `- 关系：`".to_string())?;
+    let visible_refs = markdown_reference_labels(relation_line)
+        .into_iter()
+        .map(str::to_ascii_lowercase)
+        .collect::<BTreeSet<_>>();
+    if record.evidence_refs.is_empty() {
+        return Err("G3 full-set recovery evidenceRefs 不能为空".to_string());
+    }
+    let mut seen_refs = BTreeSet::new();
+    let mut evidence_urls = BTreeSet::new();
+    for evidence_ref in &record.evidence_refs {
+        let normalized = evidence_ref.to_ascii_lowercase();
+        if !seen_refs.insert(normalized.clone()) {
+            return Err(format!(
+                "G3 full-set recovery evidenceRefs 重复：{evidence_ref}"
+            ));
+        }
+        if !visible_refs.contains(&normalized) {
+            return Err(format!(
+                "G3 full-set recovery evidence ref `{evidence_ref}` 未由 `- 关系：` 行可见引用"
+            ));
+        }
+        let evidence_url = reference_github_url(&comment.body, evidence_ref).ok_or_else(|| {
+            format!(
+                "G3 full-set recovery evidence ref `{evidence_ref}` 缺少 GitHub HTTPS 文末引用定义"
+            )
+        })?;
+        evidence_urls.insert(evidence_url);
+    }
+
+    Ok((record, evidence_urls))
 }
 
 fn parse_gate_waiver(
@@ -2515,16 +2855,54 @@ Refs: #12
         g3_comment_for_args(url, created_at, &gate_args(GateEvidencePhase::G3))
     }
 
-    fn g4_comment(url: &str, created_at: &str) -> GitHubComment {
+    fn g4_comment_for_args(url: &str, created_at: &str, args: &GateEvidenceArgs) -> GitHubComment {
         GitHubComment {
             url: url.to_string(),
-            body: gate_comment_body(G4_COMMENT_FIELDS, &gate_args(GateEvidencePhase::G4)),
+            body: gate_comment_body(G4_COMMENT_FIELDS, args),
             author: Some(GitHubActor {
                 login: "wangzishi".to_string(),
             }),
             created_at: created_at.to_string(),
             includes_created_edit: false,
         }
+    }
+
+    fn g4_comment(url: &str, created_at: &str) -> GitHubComment {
+        g4_comment_for_args(url, created_at, &gate_args(GateEvidencePhase::G4))
+    }
+
+    fn g4_recovery_comment(args: &GateEvidenceArgs) -> GitHubComment {
+        let mut comment = g4_comment_for_args(ISSUE_G4_URL, "2026-07-10T06:00:00Z", args);
+        comment.body = comment.body.replace(
+            "- 关系：",
+            "- 关系：[Delivery G3][delivery-g3]、[Related G3][related-g3]。",
+        );
+        comment.body.push_str(
+            r##"
+<!-- g3-full-set-recovery:v1
+{
+  "schemaVersion": 1,
+  "exceptionType": "late_related_after_delivery_merge",
+  "issue": 60,
+  "deliveryPr": 61,
+  "deliveryMergedAt": "2026-07-10T05:30:00Z",
+  "originalRelatedPrs": [],
+  "lateRelatedPrs": [62],
+  "reason": "publication gap was discovered after Delivery merge",
+  "evidenceRefs": ["delivery-g3", "related-g3"],
+  "risk": "historical Delivery G3 cannot name a future Related PR",
+  "acceptanceBoundary": "G4 recovery only; normal G3 remains strict",
+  "followUpIssue": "#246",
+  "cleanupOwner": "wangzishi",
+  "authorizedBy": "wangzishi"
+}
+-->
+
+[delivery-g3]: https://github.com/illusion-tech/laneflow/pull/61#issuecomment-100
+[related-g3]: https://github.com/illusion-tech/laneflow/pull/62#issuecomment-300
+"##,
+        );
+        comment
     }
 
     fn delivery_pr(merged_at: Option<&str>) -> GitHubPullRequest {
@@ -2537,6 +2915,7 @@ Refs: #12
             } else {
                 "OPEN".to_string()
             },
+            created_at: "2026-07-10T04:00:00Z".to_string(),
             merged_at: merged_at.map(ToOwned::to_owned),
             closing_issues_references: vec![IssueReference { number: 60 }],
             project_items: vec![ProjectItem {
@@ -2578,6 +2957,7 @@ Refs: #12
         GitHubPullRequest {
             body: format!("- [x] G3 合并判断已记录：[G3 评论]({RELATED_G3_URL})\nRefs: #60"),
             state: "OPEN".to_string(),
+            created_at: "2026-07-10T04:30:00Z".to_string(),
             merged_at: None,
             closing_issues_references: closes_issue
                 .then_some(vec![IssueReference { number: 60 }])
@@ -2627,6 +3007,39 @@ Refs: #12
                 &format!("- [ ] G3 合并判断已记录：[Related G3 评论]({RELATED_G3_URL})"),
             );
         issue
+    }
+
+    fn late_related_recovery_fixture() -> (
+        GateEvidenceArgs,
+        GitHubIssue,
+        GitHubPullRequest,
+        GitHubPullRequest,
+    ) {
+        let mut args = gate_args(GateEvidencePhase::G4);
+        args.related_prs = vec![62];
+        let mut issue = issue("OPEN", "Done");
+        issue.body = issue
+            .body
+            .replace("Related PRs：N/A，原因：无部分交付。", "Related PRs：#62")
+            .replace(
+                &format!(
+                    "- [x] G3 合并判断已记录：[Delivery G3 评论]({DELIVERY_G3_URL})"
+                ),
+                &format!(
+                    "- [x] G3 合并判断已记录：[Delivery G3 评论]({DELIVERY_G3_URL})；[Related G3 评论]({RELATED_G3_URL})"
+                ),
+            );
+        issue.comments[0] = g4_recovery_comment(&args);
+        let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+        let mut related_pr = related_pr(false);
+        related_pr.state = "MERGED".to_string();
+        related_pr.created_at = "2026-07-10T05:31:00Z".to_string();
+        related_pr.merged_at = Some("2026-07-10T05:50:00Z".to_string());
+        related_pr.project_items[0].status = Some(ProjectStatus {
+            name: "Done".to_string(),
+        });
+        related_pr.comments[0].created_at = "2026-07-10T05:40:00Z".to_string();
+        (args, issue, delivery_pr, related_pr)
     }
 
     #[test]
@@ -2713,6 +3126,7 @@ Refs: #12
             r#"{
                 "body": "body",
                 "state": "MERGED",
+                "createdAt": "2026-07-10T04:00:00Z",
                 "mergedAt": "2026-07-10T05:30:00Z",
                 "closingIssuesReferences": [],
                 "projectItems": [{
@@ -3158,6 +3572,90 @@ Refs: #12
             validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn accepts_structured_g4_recovery_for_late_related_pr() {
+        let (args, issue, delivery_pr, related_pr) = late_related_recovery_fixture();
+
+        assert!(
+            validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr]).is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_g4_recovery_when_related_pr_predates_delivery_merge() {
+        let (args, issue, delivery_pr, mut related_pr) = late_related_recovery_fixture();
+        related_pr.created_at = "2026-07-10T05:29:59Z".to_string();
+
+        let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
+            .expect_err("late Related PR must be created after Delivery merge");
+
+        assert!(error.contains("必须在 Delivery PR 合并后创建"));
+    }
+
+    #[test]
+    fn rejects_edited_g4_recovery_comment() {
+        let (args, mut issue, delivery_pr, related_pr) = late_related_recovery_fixture();
+        issue.comments[0].includes_created_edit = true;
+
+        let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
+            .expect_err("recovery evidence must remain append-only");
+
+        assert!(error.contains("创建后被编辑"));
+    }
+
+    #[test]
+    fn rejects_g4_recovery_without_structured_record() {
+        let (args, mut issue, delivery_pr, related_pr) = late_related_recovery_fixture();
+        issue.comments[0] = g4_comment_for_args(ISSUE_G4_URL, "2026-07-10T06:00:00Z", &args);
+
+        let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
+            .expect_err("recovery requires a structured record");
+
+        assert!(error.contains("必须包含且只包含一个"));
+    }
+
+    #[test]
+    fn rejects_g4_recovery_when_final_related_set_mismatches_record() {
+        let (mut args, mut issue, delivery_pr, related_pr) = late_related_recovery_fixture();
+        args.related_prs = vec![62, 63];
+        issue.body = issue
+            .body
+            .replace("Related PRs：#62", "Related PRs：#62、#63");
+
+        let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
+            .expect_err("recovery record must match the final Related PR set");
+
+        assert!(error.contains("必须按顺序等于最终 Related PR 参数"));
+    }
+
+    #[test]
+    fn rejects_g4_recovery_with_untrusted_author() {
+        let (args, mut issue, delivery_pr, related_pr) = late_related_recovery_fixture();
+        issue.comments[0].author = Some(GitHubActor {
+            login: "untrusted-contributor".to_string(),
+        });
+        issue.comments[0].body = issue.comments[0].body.replace(
+            r#""authorizedBy": "wangzishi""#,
+            r#""authorizedBy": "untrusted-contributor""#,
+        );
+
+        let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
+            .expect_err("recovery author must be a trusted G3 Owner");
+
+        assert!(error.contains("不在 trusted G3 Owner allowlist"));
+    }
+
+    #[test]
+    fn rejects_g4_recovery_outside_g4_phase() {
+        let (mut args, issue, delivery_pr, related_pr) = late_related_recovery_fixture();
+        args.phase = GateEvidencePhase::G3;
+
+        let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
+            .expect_err("recovery is a G4-only path");
+
+        assert!(error.contains("只允许用于 G4"));
     }
 
     #[test]
