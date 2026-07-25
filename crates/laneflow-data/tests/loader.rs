@@ -649,6 +649,111 @@ fn domain_errors_use_the_narrowest_available_id_path() {
 }
 
 #[test]
+fn maneuver_path_role_conflicts_point_to_the_later_definition() {
+    let earlier_internal_later_entry = role_conflict_value(
+        json!({
+            "id": "path-controlled",
+            "movementId": "movement-controlled",
+            "entryEdgeId": "entry",
+            "internalEdgeIds": ["through"],
+            "exitEdgeId": "bypass"
+        }),
+        json!({
+            "id": "path-uncontrolled",
+            "movementId": "movement-uncontrolled",
+            "entryEdgeId": "through",
+            "internalEdgeIds": [],
+            "exitEdgeId": "bypass"
+        }),
+    );
+    std::assert_matches!(
+        into_core_domain(
+            load_value(earlier_internal_later_entry)
+                .expect_err("later entry boundary must conflict with earlier internal edge")
+        ),
+        (
+            path,
+            CoreError::ManeuverPathEdgeRoleConflict {
+                internal_maneuver_path_id,
+                boundary_maneuver_path_id,
+                edge_id,
+            }
+        ) if path == "maneuverPaths[1].entryEdgeId"
+            && internal_maneuver_path_id == "path-controlled"
+            && boundary_maneuver_path_id == "path-uncontrolled"
+            && edge_id == "through"
+    );
+
+    let earlier_internal_later_exit = role_conflict_value(
+        json!({
+            "id": "path-controlled",
+            "movementId": "movement-controlled",
+            "entryEdgeId": "entry",
+            "internalEdgeIds": ["through"],
+            "exitEdgeId": "bypass"
+        }),
+        json!({
+            "id": "path-uncontrolled",
+            "movementId": "movement-uncontrolled",
+            "entryEdgeId": "entry",
+            "internalEdgeIds": [],
+            "exitEdgeId": "through"
+        }),
+    );
+    std::assert_matches!(
+        into_core_domain(
+            load_value(earlier_internal_later_exit)
+                .expect_err("later exit boundary must conflict with earlier internal edge")
+        ),
+        (
+            path,
+            CoreError::ManeuverPathEdgeRoleConflict {
+                internal_maneuver_path_id,
+                boundary_maneuver_path_id,
+                edge_id,
+            }
+        ) if path == "maneuverPaths[1].exitEdgeId"
+            && internal_maneuver_path_id == "path-controlled"
+            && boundary_maneuver_path_id == "path-uncontrolled"
+            && edge_id == "through"
+    );
+
+    let earlier_boundary_later_internal = role_conflict_value(
+        json!({
+            "id": "path-controlled",
+            "movementId": "movement-controlled",
+            "entryEdgeId": "entry",
+            "internalEdgeIds": [],
+            "exitEdgeId": "through"
+        }),
+        json!({
+            "id": "path-uncontrolled",
+            "movementId": "movement-uncontrolled",
+            "entryEdgeId": "entry",
+            "internalEdgeIds": ["through"],
+            "exitEdgeId": "bypass"
+        }),
+    );
+    std::assert_matches!(
+        into_core_domain(
+            load_value(earlier_boundary_later_internal)
+                .expect_err("later internal edge must conflict with earlier boundary")
+        ),
+        (
+            path,
+            CoreError::ManeuverPathEdgeRoleConflict {
+                internal_maneuver_path_id,
+                boundary_maneuver_path_id,
+                edge_id,
+            }
+        ) if path == "maneuverPaths[1].internalEdgeIds[0]"
+            && internal_maneuver_path_id == "path-uncontrolled"
+            && boundary_maneuver_path_id == "path-controlled"
+            && edge_id == "through"
+    );
+}
+
+#[test]
 fn global_coverage_and_route_final_stop_line_errors_are_structured() {
     let mut value = signals_value();
     value["signals"]["maneuverGates"]
@@ -738,4 +843,11 @@ fn signals_value() -> Value {
 
 fn empty_value() -> Value {
     serde_json::from_str(EMPTY_SIGNALS_FIXTURE).expect("empty Signals fixture JSON")
+}
+
+fn role_conflict_value(first_path: Value, second_path: Value) -> Value {
+    let mut value = signals_value();
+    value["laneGraph"]["edges"][1]["connections"] = json!([{ "toEdgeId": "bypass" }]);
+    value["maneuverPaths"] = json!([first_path, second_path]);
+    value
 }
