@@ -1,7 +1,9 @@
 use laneflow_core::{
     CoreError, CoreEvent, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData,
-    LaneEdge, LaneGraph, Route, Speed, SpeedLimit, TickInput, VehicleProfile, VehicleProfileHandle,
-    VehicleProfileRegistry, VehicleSpawnInput,
+    Junction, JunctionRegistry, LaneEdge, LaneGraph, ManeuverGate, ManeuverPath, Movement, Route,
+    SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
+    SignalRegistry, Speed, SpeedLimit, StopLine, StopLineLocation, TickInput, VehicleProfile,
+    VehicleProfileHandle, VehicleProfileRegistry, VehicleSpawnInput,
 };
 
 const MAIN_LIMIT: f64 = 60.0 / 3.6;
@@ -341,5 +343,137 @@ fn infeasible_crossing_projects_once_and_attributes_repeated_occurrence() {
                 to_route_edge_index: 3,
             }),
         ]
+    );
+}
+
+#[test]
+fn red_signal_stop_dominates_the_sixty_to_forty_transition_until_green() {
+    let graph = LaneGraph::try_new([
+        edge("A", 100.0, MAIN_LIMIT, &["B"]),
+        edge("B", 500.0, SIDE_LIMIT, &[]),
+    ])
+    .expect("graph");
+    let junctions = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("junction")],
+        [Movement::new("movement", "junction")],
+        [ManeuverPath::new(
+            "path",
+            "movement",
+            "A",
+            std::iter::empty::<&str>(),
+            "B",
+        )],
+    )
+    .expect("topology");
+    let signals = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [StopLine::new("stop", "A", StopLineLocation::EdgeEnd)],
+        [SignalGroup::new("group")],
+        [SignalController::new_fixed_time(
+            "controller",
+            0,
+            ["group"],
+            [
+                SignalPhase::new(
+                    "red",
+                    10_000,
+                    [SignalGroupState::new("group", SignalAspect::Red)],
+                ),
+                SignalPhase::new(
+                    "green",
+                    60_000,
+                    [SignalGroupState::new("group", SignalAspect::Green)],
+                ),
+            ],
+        )],
+        [ManeuverGate::new(
+            "gate",
+            "path",
+            0,
+            "stop",
+            SignalControlInput::Group("group".to_owned()),
+        )],
+    )
+    .expect("signals");
+    let (profiles, profile) = profile();
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        [Route::try_new("R", ["A", "B"]).expect("route")],
+        profiles,
+        junctions,
+        signals,
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("traffic");
+    let mut world = CoreWorld::with_traffic_data(
+        500,
+        traffic,
+        vec![VehicleSpawnInput::active(
+            "V",
+            profile,
+            "R",
+            0,
+            EdgeProgress::try_new(50.0).expect("progress"),
+            Speed::try_new(16.0).expect("speed"),
+        )],
+    )
+    .expect("world");
+    let vehicle = world.vehicle_handle("V").expect("vehicle");
+
+    // 与无信号的 sixty_to_forty_brakes_before_boundary_without_projection 相同的
+    // 初始运动学，但红灯期间 SignalStop 是最严约束：车辆必须停在 StopLine，
+    // 而不是按 40 km/h 限速包络穿越边界。
+    for tick in 1..=20 {
+        let result = world.step(TickInput::new(500)).expect("red step");
+        let state = world.vehicle(vehicle).expect("vehicle");
+        assert_eq!(
+            state.route_edge_index, 0,
+            "tick {tick}: red must hold the vehicle at the stop line"
+        );
+        assert!(state.edge_progress.value() <= 100.0);
+        assert!(
+            result.events.iter().all(|event| !matches!(
+                event,
+                CoreEvent::VehicleSignalStopProjectionApplied(_)
+                    | CoreEvent::VehicleSpeedLimitProjectionApplied(_)
+            )),
+            "tick {tick}: 50 m at 16 m/s leaves room for an emergency-feasible stop"
+        );
+    }
+    let stopped = world.vehicle(vehicle).expect("vehicle");
+    assert_eq!(
+        stopped.edge_progress,
+        EdgeProgress::try_new(100.0).expect("stop line progress")
+    );
+    assert_eq!(stopped.current_speed, Speed::ZERO);
+
+    // 转绿后放行并穿越边界；40 km/h 下游限速在整个穿越过程中仍然成立。
+    let mut crossed_tick = None;
+    for tick in 21..=40 {
+        let result = world.step(TickInput::new(500)).expect("green step");
+        let state = world.vehicle(vehicle).expect("vehicle");
+        let edge = world.route_edges(state.route).expect("route")[state.route_edge_index];
+        let limit = world
+            .lane_graph()
+            .edge_speed_limit(edge)
+            .expect("limit")
+            .value();
+        assert!(state.current_speed.value() <= limit);
+        if state.route_edge_index == 1 {
+            crossed_tick = Some(tick);
+            assert!(
+                result
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, CoreEvent::VehicleChangedEdge(_)))
+            );
+            break;
+        }
+    }
+    assert!(
+        crossed_tick.is_some(),
+        "green must release the vehicle across the boundary"
     );
 }
