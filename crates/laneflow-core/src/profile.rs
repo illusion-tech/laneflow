@@ -173,15 +173,15 @@ impl VehicleProfileRegistry {
 
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> usize {
-        let profile_bytes = self.profiles.capacity() * std::mem::size_of::<VehicleProfile>()
-            + self
-                .profiles
+        let Self { profiles, handles } = self;
+        let profile_bytes = profiles.capacity() * std::mem::size_of::<VehicleProfile>()
+            + profiles
                 .iter()
                 .map(|profile| profile.external_id.capacity())
                 .sum::<usize>();
-        let handle_bytes = self.handles.capacity()
+        let handle_bytes = handles.capacity()
             * std::mem::size_of::<(String, VehicleProfileHandle)>()
-            + self.handles.keys().map(String::capacity).sum::<usize>();
+            + handles.keys().map(String::capacity).sum::<usize>();
         profile_bytes + handle_bytes
     }
 }

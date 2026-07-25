@@ -1,10 +1,10 @@
 {
   "formatVersion": "0.1",
   "traffic": {
-    "artifactRef": "v0.7-empty-signals-and-parking.laneflow.json",
+    "artifactRef": "v0.8-empty-signals-and-parking.laneflow.json",
     "mediaType": "application/vnd.laneflow.traffic+json",
-    "digest": "sha256:a297dd20c50ab327fcfc8642f3c48f00bd62b03a99e3bbe888c46e9756cc0f3a",
-    "size": 1264
+    "digest": "sha256:1d07eca0c63bf040caaff6702dea8a1784a228fa44fccdf3348f13b2e8dbd57b",
+    "size": 1325
   },
   "spatial": {
     "artifactRef": "v0.1-campus.spatial.json",

@@ -22,18 +22,22 @@ v0.8 包含：
 - 两套可配置固定时制信号控制器；
 - `50..=200` 可调车辆人口、显式 seed 和确定性出口回流；
 - 同一 Bevy proxy/model 复用，但每次回流获得新的 Core `VehicleHandle`；
-- Traffic v0.7 current contract、SpatialPackage v0.1 和 ScenarioManifest v0.1；
+- Traffic v0.8 current contract、SpatialPackage v0.1 和 ScenarioManifest v0.1；
 - checked-in 默认制品、确定性 generator 与 production loader 往返验证。
 
 v0.8 不包含转向、换道、路径搜索、感应或自适应信号、运行时热修改信号、行人、停车、匝道、路网编辑器和保存/恢复 runtime snapshot。受保护左转、直行和右转属于 v0.9 #194 的强制范围，不能从长期路线图中删除。
 
-Traffic v0.7 per-edge 限速的 production schema/Core 基础由 #185 交付；Core atomic replace 由 #186 承担，v0.8 caller-owned 人口/回流策略由 #203 在 `laneflow-scenario` 落地，generator、Adapter 与 native example 由 #187–#189 承担，#195 独立收口。#203 的 crate/API、严格 validation、两阶段 bootstrap、transport-neutral lifecycle 和零分配边界见 [`signalized-corridor-population.md`](signalized-corridor-population.md)。
+Traffic v0.7 per-edge 限速基础由 #185 交付；#229 已把同一场景制品 clean-break
+迁移到 Traffic v0.8 并显式增加 2 Junction、8 Movement 与 20
+ManeuverPath/ManeuverGate。Core atomic replace 由 #186 承担，caller-owned
+人口/回流策略由 #203 在 `laneflow-scenario` 落地。
 
 v0.9 的 Accepted 受保护转向 target 见
 [`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)。
 它保留本文件的 1.4 km envelope、portal 和 production-loader 分层，但以 Traffic
 0.8、catalog 0.2、32 条 ManeuverPath 和 28 条 Route clean-break 替换直行 profile；
-在 #229 G4 前，本文件仍描述 current production 场景。
+本文件继续描述 current 的直行 profile；#196 转向 profile 仍由后续 #190/#191
+替换几何和 route catalog。
 
 ## 2. 单位、坐标与道路尺度
 
@@ -104,11 +108,14 @@ v0.8 只允许道路轴线方向的直行：
 
 每条 route 是 finite explicit edge sequence，不使用 runtime pathfinding。主干道 route 包含三个道路区段和两个直行 connector；次干道 route 包含 approach、一个直行 connector 和 exit。不同 lane route 不互相连接，因此 v0.8 不发生换道。
 
-generator 必须为每个交叉口生成独立的直行 connector edge，并让 Traffic edge length 与 Spatial polyline quantize 后弧长通过既有长度绑定校验。不能用一个跨越停止线和 conflict area 的长 edge 替代 connector，否则 Signal gate 无法绑定明确的 `(from, to)` traversal。
+generator 必须为每个交叉口生成独立的直行 connector edge，并让 Traffic edge
+length 与 Spatial polyline quantize 后弧长通过既有长度绑定校验。每个直行
+ManeuverPath 使用 approach entry、一个 connector internal edge 与 exit edge；
+ManeuverGate 位于 path transition 0。
 
 ## 4. 限速与车辆纵向行为
 
-Traffic v0.7 current contract 在每个 lane edge 上要求严格正、有限的 `speedLimit`，单位为 m/s：
+Traffic v0.8 current contract 在每个 lane edge 上要求严格正、有限的 `speedLimit`，单位为 m/s：
 
 | 道路类别                 |  公示值 |                   制品值 |
 | ------------------------ | ------: | -----------------------: |
@@ -131,7 +138,10 @@ batch/replace 时验证 overlap、route 和速度上限；入口被占用时回�
 
 每个交叉口拥有独立 controller：`controller-intersection-1` 与 `controller-intersection-2`。Signal group ID 在 package 内全局唯一：1 号路口使用 `group-intersection-1-main` / `group-intersection-1-secondary`，2 号路口使用 `group-intersection-2-main` / `group-intersection-2-secondary`；每对 group 分别控制本路口主干道双向六条和次干道双向四条直行 lane movement。
 
-每个 lane connector 的 MovementGate 绑定对应入口 edge 与 connector edge。authoring/generator 负责完整枚举 gate 与 phase group state，并证明同一 phase 内不存在主/次干道冲突开放；Core 不推断 conflict matrix。
+每个 lane connector 对应显式 ManeuverPath；一等 ManeuverGate 绑定 path transition
+0、入口 StopLine 与 signal group。authoring/generator 负责完整枚举 topology、Gate
+与 phase group state，并证明同一 phase 内不存在主/次干道冲突开放；Core 不推断
+conflict matrix。
 
 ### 5.2 固定六阶段程序
 
@@ -163,7 +173,7 @@ native reference 至少公开：
 非法车辆数、解析失败、未知 portal/route、无足够 spawn slots 或 artifact validation failure 都必须在第一个 Core step 前返回明确错误，不能静默 clamp 或降级。
 
 #189 的 Bevy target 名为 `signalized_corridor`，继续复用 opt-in `native-example`
-feature；它不改写 v0.7 `native_reference`。example 只读取 authoring config 的启动
+feature；它与 current v0.8 `native_reference` 共用 production loader。example 只读取 authoring config 的启动
 projection（版本、fixed delta、lane width、输出目录与文件名），不调用 generator，也
 不把 generator 变成 runtime dependency。相对输出目录以 config 所在目录为基准；随后
 必须通过 production Scenario loader 的 size/digest/reference validation。
@@ -278,7 +288,9 @@ mul2      = 0x94D049BB133111EB
 
 v0.8 场景由三类 immutable source artifacts 构成：
 
-- Traffic package v0.7：lane graph、14 routes、vehicle profiles、Signals、Parking 空集合和 per-edge speed limit；
+- Traffic package v0.8：lane graph、2 Junction、8 Movement、20
+  ManeuverPath/Gate、14 routes、vehicle profiles、Signals、Parking 空集合和
+  per-edge speed limit；
 - SpatialPackage v0.1：所有 lane/connector centerline 与 canonical frame；
 - ScenarioManifest v0.1：Traffic/Spatial 不透明路径、byte size 和 SHA-256 digest 配对。
 
@@ -303,7 +315,7 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config exam
 
 | 关注点                                                      | 权威层                               | 实施 Issue |
 | ----------------------------------------------------------- | ------------------------------------ | ---------- |
-| per-edge speed limit、Traffic v0.7 与纵向约束               | Data/Core                            | #185       |
+| per-edge speed limit、Traffic v0.8 topology 与纵向约束      | Data/Core                            | #185/#229  |
 | caller-driven atomic replace、overlap 与 identity invariant | Core runtime                         | #186       |
 | 目标人口、seed、portal/lane 决策与 blocked retry            | `laneflow-scenario` reference policy | #203       |
 | typed lifecycle transaction 与 proxy binding                | Bevy Reference Adapter               | #187       |

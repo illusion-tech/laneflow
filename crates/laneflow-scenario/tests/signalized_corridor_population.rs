@@ -12,7 +12,7 @@ use laneflow_scenario::signalized_corridor::{
 };
 
 const TRAFFIC: &[u8] =
-    include_bytes!("../../../examples/data/v0.7-signalized-corridor.laneflow.json");
+    include_bytes!("../../../examples/data/v0.8-signalized-corridor.laneflow.json");
 const CATALOG: &str = include_str!("../../../examples/data/v0.1-signalized-corridor.catalog.toml");
 
 fn traffic() -> InitialTrafficData {
@@ -275,7 +275,6 @@ fn initial_population_has_replay_golden_batches_for_50_100_and_200() {
         for input in prepared.initial_vehicles() {
             let route = traffic
                 .routes()
-                .iter()
                 .find(|route| route.id() == input.route_id)
                 .expect("prepared route");
             let edge_id = &route.edge_ids()[input.route_edge_index];

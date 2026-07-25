@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use super::*;
 use crate::{
-    EdgeLength, IidmProfileSpec, LaneEdge, MovementGate, ParkingRegistry, ParkingSpace,
+    EdgeLength, IidmProfileSpec, LaneEdge, ManeuverGate, ParkingRegistry, ParkingSpace,
     ParkingSpaceGeometry, SignalAspect, SignalControlInput, SignalController, SignalGroup,
     SignalGroupState, SignalPhase, SignalRegistry, SpeedLimit, StopLine, StopLineLocation,
     TickInput, VehicleProfile, VehicleProfileRegistry,
@@ -375,7 +375,15 @@ fn two_vehicle_completion_world() -> CoreWorld {
         Route::try_new("route-y", ["Y0", "Y1"]).expect("route Y"),
     ];
     let (profiles, profile) = profile("failure-profile", 10.0);
-    let traffic = InitialTrafficData::try_new(graph, routes, profiles).expect("traffic data");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        routes,
+        profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
+    )
+    .expect("traffic data");
     CoreWorld::with_traffic_data(
         1_000,
         traffic,
@@ -418,10 +426,11 @@ fn parking_world(id: &str, progress: f64) -> CoreWorld {
     )
     .expect("parking registry");
     let (profiles, profile) = profile("parking-profile", 30.0);
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("R", ["A"]).expect("route")],
         profiles,
+        crate::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -461,7 +470,15 @@ fn canonical_merge_preserves_route_transitions_and_simultaneous_completions() {
         Route::try_new("route-b", ["B0", "B1", "B2"]).expect("route B"),
     ];
     let (profiles, profile) = profile("route-merge-profile", 10.0);
-    let traffic = InitialTrafficData::try_new(graph, routes, profiles).expect("traffic data");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        routes,
+        profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
+    )
+    .expect("traffic data");
     let mut world = CoreWorld::with_traffic_data(
         1_000,
         traffic,
@@ -514,7 +531,15 @@ fn canonical_merge_preserves_projection_before_transition() {
     .expect("lane graph");
     let route = Route::try_new("R", ["A", "B", "A", "B"]).expect("route");
     let (profiles, profile) = profile("projection-profile", 30.0);
-    let traffic = InitialTrafficData::try_new(graph, [route], profiles).expect("traffic data");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        [route],
+        profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
+    )
+    .expect("traffic data");
     let mut world = CoreWorld::with_traffic_data(
         1_000,
         traffic,
@@ -550,7 +575,15 @@ fn canonical_merge_preserves_following_projection_before_transition() {
     .expect("lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("route");
     let (profiles, profile) = profile("following-profile", 20.0);
-    let traffic = InitialTrafficData::try_new(graph, [route], profiles).expect("traffic data");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        [route],
+        profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
+    )
+    .expect("traffic data");
     let mut world = CoreWorld::with_traffic_data(
         1_000,
         traffic,
@@ -597,8 +630,17 @@ fn canonical_merge_preserves_controller_and_group_normalization_order() {
         edge("f", 10.0, f64::MAX, &[]),
     ])
     .expect("lane graph");
+    let junctions = crate::test_support::zero_internal_junctions(
+        &graph,
+        &[
+            ("path-a", "a", "b"),
+            ("path-c", "c", "d"),
+            ("path-e", "e", "f"),
+        ],
+    );
     let signals = SignalRegistry::try_new(
         &graph,
+        &junctions,
         [
             StopLine::new("sa", "a", StopLineLocation::EdgeEnd),
             StopLine::new("sc", "c", StopLineLocation::EdgeEnd),
@@ -638,18 +680,38 @@ fn canonical_merge_preserves_controller_and_group_normalization_order() {
             ),
         ],
         [
-            MovementGate::new("a", "b", "sa", SignalControlInput::Group("g1".to_owned())),
-            MovementGate::new("c", "d", "sc", SignalControlInput::Group("g2".to_owned())),
-            MovementGate::new("e", "f", "se", SignalControlInput::Group("g3".to_owned())),
+            ManeuverGate::new(
+                "gate-a",
+                "path-a",
+                0,
+                "sa",
+                SignalControlInput::Group("g1".to_owned()),
+            ),
+            ManeuverGate::new(
+                "gate-c",
+                "path-c",
+                0,
+                "sc",
+                SignalControlInput::Group("g2".to_owned()),
+            ),
+            ManeuverGate::new(
+                "gate-e",
+                "path-e",
+                0,
+                "se",
+                SignalControlInput::Group("g3".to_owned()),
+            ),
         ],
     )
     .expect("signal registry");
     let (profiles, profile) = profile("signal-projection-profile", 20.0);
-    let traffic = InitialTrafficData::try_new_with_signals(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("controlled-route", ["a", "b"]).expect("controlled route")],
         profiles,
+        junctions,
         signals,
+        crate::ParkingRegistry::empty(),
     )
     .expect("traffic data");
     let mut world = CoreWorld::with_traffic_data(

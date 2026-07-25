@@ -1,9 +1,9 @@
 use laneflow_core::{
-    CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph,
-    MovementGate, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, Route, SignalAspect,
-    SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
-    SignalRegistry, Speed, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
-    VehicleSpawnInput,
+    CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, Junction,
+    JunctionRegistry, LaneEdge, LaneGraph, ManeuverGate, ManeuverPath, Movement, ParkingRegistry,
+    ParkingSpace, ParkingSpaceGeometry, Route, SignalAspect, SignalControlInput, SignalController,
+    SignalGroup, SignalGroupState, SignalPhase, SignalRegistry, Speed, StopLine, StopLineLocation,
+    VehicleProfile, VehicleProfileRegistry, VehicleSpawnInput,
 };
 
 pub const SIGNAL_VEHICLE_COUNT: usize = 10_000;
@@ -174,6 +174,9 @@ fn signal_scenario_with_parking_entry(
     let mut stop_lines = Vec::with_capacity(gate_count);
     let mut gates = Vec::with_capacity(gate_count);
     let mut groups = Vec::with_capacity(group_count);
+    let mut junctions = Vec::with_capacity(gate_count);
+    let mut movements = Vec::with_capacity(gate_count);
+    let mut maneuver_paths = Vec::with_capacity(gate_count);
     for route_index in 0..route_count {
         let entry = entry_id(route_index);
         let exit = exit_id(route_index);
@@ -196,6 +199,9 @@ fn signal_scenario_with_parking_entry(
 
         if mode.has_stop_lines() {
             let stop_line = stop_line_id(route_index);
+            let junction = format!("signal-junction-{route_index:05}");
+            let movement = format!("signal-movement-{route_index:05}");
+            let maneuver_path = format!("signal-path-{route_index:05}");
             stop_lines.push(StopLine::new(
                 stop_line.clone(),
                 entry.clone(),
@@ -208,11 +214,28 @@ fn signal_scenario_with_parking_entry(
             } else {
                 SignalControlInput::None
             };
-            gates.push(MovementGate::new(entry, exit, stop_line, signal_control));
+            junctions.push(Junction::new(junction.clone()));
+            movements.push(Movement::new(movement.clone(), junction));
+            maneuver_paths.push(ManeuverPath::new(
+                maneuver_path.clone(),
+                movement,
+                entry,
+                std::iter::empty::<String>(),
+                exit,
+            ));
+            gates.push(ManeuverGate::new(
+                format!("signal-gate-{route_index:05}"),
+                maneuver_path,
+                0,
+                stop_line,
+                signal_control,
+            ));
         }
     }
 
     let graph = LaneGraph::try_new(edges).expect("signal scenario graph must be valid");
+    let junctions = JunctionRegistry::try_new(&graph, junctions, movements, maneuver_paths)
+        .expect("signal scenario topology must be valid");
     let controllers = (0..controller_count)
         .map(|controller_index| {
             let first_group = controller_index * GROUPS_PER_CONTROLLER;
@@ -232,8 +255,9 @@ fn signal_scenario_with_parking_entry(
             )
         })
         .collect::<Vec<_>>();
-    let signals = SignalRegistry::try_new(&graph, stop_lines, groups, controllers, gates)
-        .expect("signal scenario registry must be valid");
+    let signals =
+        SignalRegistry::try_new(&graph, &junctions, stop_lines, groups, controllers, gates)
+            .expect("signal scenario registry must be valid");
     let parking = ParkingRegistry::try_new(
         &graph,
         [],
@@ -269,10 +293,8 @@ fn signal_scenario_with_parking_entry(
     let profile = profiles
         .profile_handle("signal-benchmark-profile")
         .expect("signal scenario profile must exist");
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
-        graph, routes, profiles, signals, parking,
-    )
-    .expect("signal scenario traffic data must be valid");
+    let traffic = InitialTrafficData::try_new(graph, routes, profiles, junctions, signals, parking)
+        .expect("signal scenario traffic data must be valid");
     let vehicles = (0..route_count)
         .flat_map(|route_index| {
             (0..VEHICLES_PER_ROUTE).map(move |vehicle_index| {

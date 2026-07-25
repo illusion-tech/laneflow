@@ -86,7 +86,7 @@ fn assert_topology(scenario: &SignalScenario, mode: SignalScenarioMode, vehicle_
         }
     );
     assert_eq!(
-        scenario.world.movement_gate_states().count(),
+        scenario.world.maneuver_gate_states().count(),
         scenario.gate_count
     );
 }

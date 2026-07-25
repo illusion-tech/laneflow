@@ -4,8 +4,9 @@
 **最后更新**: 2026-07-25<br>
 **适用范围**: v0.9 双路口走廊的受保护左转、直行、右转、lane-level
 ManeuverPath、完整 Route catalog、固定时制与验证边界<br>
-**实现状态**: 本文是 #229、#190–#192 的 production 输入；current production
-仍为 v0.8 直行走廊、Traffic 0.7、catalog 0.1 和 pair-based `MovementGate`
+**实现状态**: #229 已交付通用 Traffic 0.8 static domains 与一等
+`ManeuverGate`；current artifact 仍是 v0.8 直行走廊、catalog 0.1，#190–#192
+负责转向 profile 的几何、route 与验证
 
 **关联文档**:
 

@@ -1,8 +1,9 @@
 use laneflow_core::{
-    CoreError, CoreEvent, CoreWorld, EdgeLength, InitialTrafficData, LaneEdge, LaneGraph,
-    MovementGate, MovementGateKey, MovementGateSignalState, Route, SignalAspect,
-    SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalLayerPermission,
-    SignalPhase, SignalRegistry, StopLine, StopLineLocation, TickInput, VehicleProfileRegistry,
+    CoreError, CoreEvent, CoreWorld, EdgeLength, InitialTrafficData, Junction, JunctionRegistry,
+    LaneEdge, LaneGraph, ManeuverGate, ManeuverGateSignalState, ManeuverPath, Movement, Route,
+    SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState,
+    SignalLayerPermission, SignalPhase, SignalRegistry, StopLine, StopLineLocation, TickInput,
+    VehicleProfileRegistry,
 };
 
 fn phase(id: &str, duration_ms: u64, states: &[(&str, SignalAspect)]) -> SignalPhase {
@@ -37,8 +38,34 @@ fn signal_world(fixed_delta_time_ms: u64, offset_ms: u64, phases: Vec<SignalPhas
         ),
     ])
     .expect("valid graph");
+    let junctions = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("junction")],
+        [
+            Movement::new("movement-exit", "junction"),
+            Movement::new("movement-bypass", "junction"),
+        ],
+        [
+            ManeuverPath::new(
+                "path-exit",
+                "movement-exit",
+                "entry",
+                std::iter::empty::<&str>(),
+                "exit",
+            ),
+            ManeuverPath::new(
+                "path-bypass",
+                "movement-bypass",
+                "entry",
+                std::iter::empty::<&str>(),
+                "bypass",
+            ),
+        ],
+    )
+    .expect("valid topology");
     let signals = SignalRegistry::try_new(
         &graph,
+        &junctions,
         [StopLine::new("stop", "entry", StopLineLocation::EdgeEnd)],
         [SignalGroup::new("group")],
         [SignalController::new_fixed_time(
@@ -48,21 +75,30 @@ fn signal_world(fixed_delta_time_ms: u64, offset_ms: u64, phases: Vec<SignalPhas
             phases,
         )],
         [
-            MovementGate::new(
-                "entry",
-                "exit",
+            ManeuverGate::new(
+                "gate-exit",
+                "path-exit",
+                0,
                 "stop",
                 SignalControlInput::Group("group".to_owned()),
             ),
-            MovementGate::new("entry", "bypass", "stop", SignalControlInput::None),
+            ManeuverGate::new(
+                "gate-bypass",
+                "path-bypass",
+                0,
+                "stop",
+                SignalControlInput::None,
+            ),
         ],
     )
     .expect("valid signals");
-    let traffic = InitialTrafficData::try_new_with_signals(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("route", ["entry", "exit"]).expect("valid route")],
         VehicleProfileRegistry::empty(),
+        junctions,
         signals,
+        laneflow_core::ParkingRegistry::empty(),
     )
     .expect("valid traffic");
     CoreWorld::with_traffic_data(fixed_delta_time_ms, traffic, Vec::new())
@@ -92,10 +128,14 @@ fn time_zero_queries_and_post_step_events_follow_absolute_offset_timing() {
         .signals()
         .phase_ref(controller, "green")
         .expect("green phase");
-    let entry = world.edge_handle("entry").expect("entry");
-    let exit = world.edge_handle("exit").expect("exit");
-    let gate = MovementGateKey::new(entry, exit);
-    let bypass = world.edge_handle("bypass").expect("bypass");
+    let gate = world
+        .signals()
+        .maneuver_gate_handle("gate-exit")
+        .expect("controlled gate");
+    let bypass_gate = world
+        .signals()
+        .maneuver_gate_handle("gate-bypass")
+        .expect("bypass gate");
 
     let time_zero = world
         .signal_controller_state(controller)
@@ -112,8 +152,8 @@ fn time_zero_queries_and_post_step_events_follow_absolute_offset_timing() {
         SignalAspect::Red
     );
     std::assert_matches!(
-        world.movement_gate_state(gate).expect("gate").signal(),
-        MovementGateSignalState::Controlled {
+        world.maneuver_gate_state(gate).expect("gate").signal(),
+        ManeuverGateSignalState::Controlled {
             group: actual_group,
             aspect: SignalAspect::Red,
             permission: SignalLayerPermission::DenyAndStop,
@@ -122,14 +162,14 @@ fn time_zero_queries_and_post_step_events_follow_absolute_offset_timing() {
     );
     std::assert_matches!(
         world
-            .movement_gate_state(MovementGateKey::new(entry, bypass))
+            .maneuver_gate_state(bypass_gate)
             .expect("uncontrolled gate")
             .signal(),
-        MovementGateSignalState::Uncontrolled
+        ManeuverGateSignalState::Uncontrolled
     );
     assert_eq!(world.signal_controller_states().count(), 1);
     assert_eq!(world.signal_group_states().count(), 1);
-    assert_eq!(world.movement_gate_states().count(), 2);
+    assert_eq!(world.maneuver_gate_states().count(), 2);
 
     let before_boundary = world.step(TickInput::new(10)).expect("step succeeds");
     assert!(before_boundary.events.is_empty());
@@ -170,8 +210,8 @@ fn time_zero_queries_and_post_step_events_follow_absolute_offset_timing() {
     assert_eq!(post_step.phase_elapsed_ms(), 5);
     assert_eq!(post_step.phase_remaining_ms(), 25);
     std::assert_matches!(
-        world.movement_gate_state(gate).expect("gate").signal(),
-        MovementGateSignalState::Controlled {
+        world.maneuver_gate_state(gate).expect("gate").signal(),
+        ManeuverGateSignalState::Controlled {
             aspect: SignalAspect::Green,
             permission: SignalLayerPermission::ProtectedAllow,
             ..
@@ -293,8 +333,28 @@ fn controller_then_group_event_order_uses_normalization_and_group_input_order() 
         ),
     ])
     .expect("graph");
+    let junctions = JunctionRegistry::try_new(
+        &graph,
+        [
+            Junction::new("junction-a"),
+            Junction::new("junction-c"),
+            Junction::new("junction-e"),
+        ],
+        [
+            Movement::new("movement-a", "junction-a"),
+            Movement::new("movement-c", "junction-c"),
+            Movement::new("movement-e", "junction-e"),
+        ],
+        [
+            ManeuverPath::new("path-a", "movement-a", "a", std::iter::empty::<&str>(), "b"),
+            ManeuverPath::new("path-c", "movement-c", "c", std::iter::empty::<&str>(), "d"),
+            ManeuverPath::new("path-e", "movement-e", "e", std::iter::empty::<&str>(), "f"),
+        ],
+    )
+    .expect("topology");
     let signals = SignalRegistry::try_new(
         &graph,
+        &junctions,
         [
             StopLine::new("sa", "a", StopLineLocation::EdgeEnd),
             StopLine::new("sc", "c", StopLineLocation::EdgeEnd),
@@ -334,17 +394,37 @@ fn controller_then_group_event_order_uses_normalization_and_group_input_order() 
             ),
         ],
         [
-            MovementGate::new("a", "b", "sa", SignalControlInput::Group("g1".to_owned())),
-            MovementGate::new("c", "d", "sc", SignalControlInput::Group("g2".to_owned())),
-            MovementGate::new("e", "f", "se", SignalControlInput::Group("g3".to_owned())),
+            ManeuverGate::new(
+                "gate-a",
+                "path-a",
+                0,
+                "sa",
+                SignalControlInput::Group("g1".to_owned()),
+            ),
+            ManeuverGate::new(
+                "gate-c",
+                "path-c",
+                0,
+                "sc",
+                SignalControlInput::Group("g2".to_owned()),
+            ),
+            ManeuverGate::new(
+                "gate-e",
+                "path-e",
+                0,
+                "se",
+                SignalControlInput::Group("g3".to_owned()),
+            ),
         ],
     )
     .expect("signals");
-    let traffic = InitialTrafficData::try_new_with_signals(
+    let traffic = InitialTrafficData::try_new(
         graph,
         Vec::<Route>::new(),
         VehicleProfileRegistry::empty(),
+        junctions,
         signals,
+        laneflow_core::ParkingRegistry::empty(),
     )
     .expect("traffic");
     let mut world = CoreWorld::with_traffic_data(10, traffic, Vec::new()).expect("world");

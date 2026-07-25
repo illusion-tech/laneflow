@@ -52,10 +52,11 @@ impl PresentationScaleFixture {
         let profile = profiles
             .profile_handle("scale-profile")
             .expect("scale profile");
-        let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+        let traffic = InitialTrafficData::try_new(
             graph.clone(),
             [Route::try_new("scale-route", ["scale-edge"]).expect("valid scale route")],
             profiles,
+            laneflow_core::JunctionRegistry::empty(),
             SignalRegistry::empty(),
             ParkingRegistry::empty(),
         )

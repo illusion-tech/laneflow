@@ -2,8 +2,9 @@
 
 **文档状态**: Accepted<br>
 **最后更新**: 2026-07-25<br>
-**适用范围**: v0.4 Signals 的静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界，以及 current v0.7 package embedding<br>
-**实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 加入 Parking，#185 在保持 Signals shape/behavior 的前提下把 package 原子迁移到 current v0.7
+**适用范围**: Signals 静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界，以及 current v0.8 package embedding<br>
+**实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 加入 Parking，
+#185 迁移到 v0.7；#229 以一等 ManeuverGate clean-break 替换 pair-based Gate 并迁移到 current v0.8
 
 **关联文档**:
 
@@ -145,16 +146,18 @@ SignalGroupStateInput
 
 StopLine、Gate、Group、Controller、Phase definition 和 program 在 world 生命周期内不可变。v0.4 不提供 signal mutation command。
 
-## 4. Historical v0.4 contract 与 current v0.7 embedding
+## 4. Historical v0.4 contract 与当时的 v0.7 embedding
 
-### 4.1 Current data facts
+### 4.1 v0.7 历史 data facts
 
 ADR 0008 要求 active tree 只维护一个 current format。#94 曾原子交付 v0.4，#107 迁移到 v0.5；#185 又在保持 Signals static/runtime semantics 不变的前提下加入 required per-edge limit 并迁移到 v0.7：
 
-- production current 是 `formatVersion: "0.7"`；
-- `schemas/laneflow-data-v0.7.schema.json` 是唯一 active source schema；
-- production loader 明确拒绝 v0.5、v0.6 及更早版本、未来版、旧字段与 JSON-LD；
+- 当时的 production current 是 `formatVersion: "0.7"`；
+- `schemas/laneflow-data-v0.7.schema.json` 是当时的 active source schema；
+- 当时的 production loader 明确拒绝 v0.5、v0.6 及更早版本、未来版、旧字段与 JSON-LD；
 - static Signals、fixed-time runtime 与完整车辆合规仍是 production 行为；v0.4 收口证据继续作为历史行为/性能基线。
+
+#229 随后把 current package clean-break 到 v0.8；当前 Gate/data facts 见第 18 节。
 
 ### 4.2 ID 与引用命名
 
@@ -169,7 +172,7 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 曾原子交付
 
 ### 4.3 Canonical JSON shape
 
-`signals` 与四个子数组在 current 0.7 中继续必填，数组允许为空。概念 shape：
+`signals` 与四个子数组在当时的 current 0.7 中继续必填，数组允许为空。概念 shape：
 
 ```json
 {
@@ -537,16 +540,16 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 
 法规行为必须由明确版本、适用地区与可审计依据驱动。中国现行信号通行语义的正式来源之一是[《中华人民共和国道路交通安全法实施条例》](https://www.samr.gov.cn/zljds/zcfg/art/2023/art_5c212e15369443b3b2bea4e17a1c565b.html)；未来实现仍需在对应版本立项时重新核验，不把当前链接永久硬编码为 runtime 规则。
 
-## 17. v0.8 双路口固定时制 profile
+## 17. 历史 v0.8 双路口固定时制 profile
 
 #184 复用现有 immutable fixed-time controller、StopLine 和 `(from, to)` MovementGate，不增加第二套 signal runtime。每个交叉口各有一个 controller 和主/次干道两个 group；phase program 固定为主绿、主黄、全红、次绿、次黄、全红。authoring/startup config 提供 `mainGreenMs`、`secondaryGreenMs`、`yellowMs`、`allRedMs` 与两个 controller offset；red duration 由完整 program 推导，不提供独立 `redMs`，v0.8 不支持 runtime hot edit。
 
 generator 负责为每个交叉口完整枚举 10 条 lane movement gates（走廊合计 20 条）与全部 phase group state，并证明主/次冲突 movement 不同时开放；Core 继续只执行已规范化 program，不推导 conflict matrix。默认值、ID 和验证矩阵见 `example-scenarios.md`，production authoring 与制品集成由 #188 交付。
 
-## 18. v0.9 ManeuverGate clean-break target
+## 18. v0.9 ManeuverGate clean-break
 
-#228/ADR 0017 保留本文 indication、StopLine、compliance、future conflict 与 Core
-safety 分层，但接受以下尚未实现的 target：
+#229 已按 #228/ADR 0017 保留本文 indication、StopLine、compliance、future
+conflict 与 Core safety 分层，并实现：
 
 - pair-based `MovementGate`/`MovementGateKey` 改名并破坏性迁移为一等
   `ManeuverGate`/`ManeuverGateHandle`；
@@ -562,8 +565,8 @@ safety 分层，但接受以下尚未实现的 target：
   均不保留。
 
 未来 multi-stage Gate 可在同一 ManeuverPath 的不同 transition 上拥有独立
-ManeuverGate identity；WaitingZone/conflict/policy behavior 仍需独立 G1。#229 G4
-前，本文前述 v0.4-v0.8 pair-based 内容继续描述 current production。
+ManeuverGate identity；WaitingZone/conflict/policy behavior 仍需独立 G1。本文
+前述 pair-based 内容只描述历史 v0.4-v0.8 contract，不再是 current public API。
 
 #196 已在
 [`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)

@@ -6,6 +6,9 @@ pub(crate) struct TrafficPackage {
     pub format_version: &'static str,
     pub units: Units,
     pub lane_graph: LaneGraph,
+    pub junctions: Vec<Junction>,
+    pub movements: Vec<Movement>,
+    pub maneuver_paths: Vec<ManeuverPath>,
     pub routes: Vec<Route>,
     pub vehicle_profiles: Vec<VehicleProfile>,
     pub signals: Signals,
@@ -38,6 +41,28 @@ pub(crate) struct LaneConnection {
     pub to_edge_id: String,
 }
 
+#[derive(Debug, Serialize)]
+pub(crate) struct Junction {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Movement {
+    pub id: String,
+    pub junction_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ManeuverPath {
+    pub id: String,
+    pub movement_id: String,
+    pub entry_edge_id: String,
+    pub internal_edge_ids: Vec<String>,
+    pub exit_edge_id: String,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Route {
@@ -63,7 +88,7 @@ pub(crate) struct VehicleProfile {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Signals {
     pub stop_lines: Vec<StopLine>,
-    pub movement_gates: Vec<MovementGate>,
+    pub maneuver_gates: Vec<ManeuverGate>,
     pub groups: Vec<SignalGroup>,
     pub controllers: Vec<SignalController>,
 }
@@ -78,9 +103,10 @@ pub(crate) struct StopLine {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct MovementGate {
-    pub from_edge_id: String,
-    pub to_edge_id: String,
+pub(crate) struct ManeuverGate {
+    pub id: String,
+    pub maneuver_path_id: String,
+    pub transition_index: u32,
     pub stop_line_id: String,
     pub signal_control: SignalControl,
 }

@@ -68,7 +68,14 @@ where
     let profile = profiles
         .profile_handle("route-test-profile")
         .expect("profile handle exists");
-    let traffic_data = InitialTrafficData::try_new(lane_graph, routes, profiles)?;
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        routes,
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )?;
     CoreWorld::with_traffic_data(fixed_delta_time_ms, traffic_data, vehicle_inputs(profile))
 }
 
@@ -401,8 +408,15 @@ fn event_order_uses_initial_stable_update_order_not_input_order() {
         let profile = profiles
             .profile_handle("short-profile")
             .expect("profile handle exists");
-        let traffic_data =
-            InitialTrafficData::try_new(lane_graph, [route], profiles).expect("valid traffic data");
+        let traffic_data = InitialTrafficData::try_new(
+            lane_graph,
+            [route],
+            profiles,
+            laneflow_core::JunctionRegistry::empty(),
+            laneflow_core::SignalRegistry::empty(),
+            laneflow_core::ParkingRegistry::empty(),
+        )
+        .expect("valid traffic data");
         let vehicles = {
             let v1 = VehicleSpawnInput::active("V1", profile, "R", 0, progress(0.0), speed(2.0));
             let v2 = VehicleSpawnInput::active("V2", profile, "R", 0, progress(0.5), speed(2.0));

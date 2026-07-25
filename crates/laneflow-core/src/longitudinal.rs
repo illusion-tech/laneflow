@@ -598,15 +598,27 @@ impl PartialEq for LongitudinalScratch {
 impl LongitudinalScratch {
     #[cfg(test)]
     pub(crate) fn parking_retained_bytes(&self) -> usize {
-        self.parking_stops.capacity() * std::mem::size_of::<SparseParkingStop>()
+        let Self {
+            motions: _,
+            visit_state: _,
+            path: _,
+            parking_stops,
+        } = self;
+        parking_stops.capacity() * std::mem::size_of::<SparseParkingStop>()
     }
 
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> usize {
-        self.motions.capacity() * std::mem::size_of::<Option<LongitudinalMotion>>()
-            + self.visit_state.capacity() * std::mem::size_of::<u8>()
-            + self.path.capacity() * std::mem::size_of::<usize>()
-            + self.parking_retained_bytes()
+        let Self {
+            motions,
+            visit_state,
+            path,
+            parking_stops,
+        } = self;
+        motions.capacity() * std::mem::size_of::<Option<LongitudinalMotion>>()
+            + visit_state.capacity() * std::mem::size_of::<u8>()
+            + path.capacity() * std::mem::size_of::<usize>()
+            + parking_stops.capacity() * std::mem::size_of::<SparseParkingStop>()
     }
 
     pub(crate) fn begin(&mut self, vehicle_slot_count: usize) {
@@ -1642,10 +1654,7 @@ mod tests {
         ) {
             let signal = SignalStopConstraint {
                 route_distance: signal_distance,
-                gate: crate::MovementGateKey::new(
-                    crate::EdgeHandle::new(0),
-                    crate::EdgeHandle::new(1),
-                ),
+                gate: crate::ManeuverGateHandle::new(0),
                 stop_line: crate::StopLineHandle::new(0),
                 group: crate::SignalGroupHandle::new(0),
                 aspect: crate::SignalAspect::Red,
@@ -1769,7 +1778,7 @@ mod tests {
         };
         let signal = SignalStopConstraint {
             route_distance: 1.0,
-            gate: crate::MovementGateKey::new(crate::EdgeHandle::new(0), crate::EdgeHandle::new(1)),
+            gate: crate::ManeuverGateHandle::new(0),
             stop_line: crate::StopLineHandle::new(0),
             group: crate::SignalGroupHandle::new(0),
             aspect: crate::SignalAspect::Red,

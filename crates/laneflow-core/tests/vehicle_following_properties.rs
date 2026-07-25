@@ -88,8 +88,15 @@ fn build_world(case: &PlatoonCase, reverse_input: bool) -> CoreWorld {
     let profile = profiles
         .profile_handle("property-profile")
         .expect("property profile handle must exist");
-    let traffic_data = InitialTrafficData::try_new(lane_graph, [route], profiles)
-        .expect("property traffic data must be valid");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        [route],
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("property traffic data must be valid");
 
     let mut vehicles: Vec<_> = fronts
         .into_iter()

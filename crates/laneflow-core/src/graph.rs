@@ -252,9 +252,12 @@ impl LaneGraph {
 
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> usize {
-        let edge_bytes = self.edges.capacity() * std::mem::size_of::<ResolvedLaneEdge>()
-            + self
-                .edges
+        let Self {
+            edges,
+            edge_handles,
+        } = self;
+        let edge_bytes = edges.capacity() * std::mem::size_of::<ResolvedLaneEdge>()
+            + edges
                 .iter()
                 .map(|edge| {
                     edge.definition.id.capacity()
@@ -268,13 +271,8 @@ impl LaneGraph {
                         + edge.next_edges.capacity() * std::mem::size_of::<EdgeHandle>()
                 })
                 .sum::<usize>();
-        let handle_bytes = self.edge_handles.capacity()
-            * std::mem::size_of::<(String, EdgeHandle)>()
-            + self
-                .edge_handles
-                .keys()
-                .map(String::capacity)
-                .sum::<usize>();
+        let handle_bytes = edge_handles.capacity() * std::mem::size_of::<(String, EdgeHandle)>()
+            + edge_handles.keys().map(String::capacity).sum::<usize>();
         edge_bytes + handle_bytes
     }
 }

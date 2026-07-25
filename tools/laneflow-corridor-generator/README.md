@@ -2,7 +2,7 @@
 
 本工具为 #188 提供 v0.8 直行信号化走廊的可复现 authoring 路径。它读取仓库内部 TOML 配置，生成并校验：
 
-- Traffic package v0.7 JSON；
+- Traffic package v0.8 JSON；
 - SpatialPackage v0.1 JSON；
 - ScenarioManifest v0.1 JSON；
 - scenario-local startup catalog TOML。

@@ -18,6 +18,78 @@ impl EdgeHandle {
     }
 }
 
+/// immutable Junction definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct JunctionHandle {
+    index: u32,
+}
+
+impl JunctionHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("junction handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
+/// immutable Movement definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MovementHandle {
+    index: u32,
+}
+
+impl MovementHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("movement handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
+/// immutable ManeuverPath definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ManeuverPathHandle {
+    index: u32,
+}
+
+impl ManeuverPathHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("maneuver path handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
+/// immutable ManeuverGate definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ManeuverGateHandle {
+    index: u32,
+}
+
+impl ManeuverGateHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("maneuver gate handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
 /// immutable ParkingArea definition 的不透明 handle。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ParkingAreaHandle {

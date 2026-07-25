@@ -2,8 +2,9 @@
 
 **文档状态**: Accepted<br>
 **最后更新**: 2026-07-25<br>
-**适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态生产化 profile、ManeuverGate、Route occurrence、Traffic v0.8 target、确定性与性能边界<br>
-**实现状态**: #196 已在本文之上冻结具体 protected-turning profile；current production 仍为 Traffic v0.7、pair-based MovementGate 和无 Junction/Movement/ManeuverPath registry，本文 target 尚未由 #229 实现
+**适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态生产化 profile、ManeuverGate、Route occurrence、Traffic v0.8、确定性与性能边界<br>
+**实现状态**: #229 已实现 Traffic v0.8、Junction/Movement/ManeuverPath registry、
+Route occurrence compiler 与一等 ManeuverGate；#196 protected-turning profile 继续是后续消费边界
 
 **关联文档**:
 
@@ -41,20 +42,17 @@
 - route registration-time occurrence compilation 与 steady-tick 性能约束；
 - #196 已冻结的 protected-turning profile 和安全证明边界。
 
-### 1.2 当前 production 与 target
+### 1.2 当前 production
 
-| 范围              | Current production                   | Accepted target                     |
-| ----------------- | ------------------------------------ | ----------------------------------- |
-| Traffic           | exact-current `0.7`                  | #229 clean-break `0.8`              |
-| Lane topology     | LaneEdge + directed connection       | 保持，并增加静态 Junction hierarchy |
-| Route             | 显式有限 edge sequence               | 保持为实际 traversal authority      |
-| Gate              | pair-based `MovementGateKey`         | 一等 `ManeuverGateHandle`           |
-| Junction identity | connector ID 命名推断                | 显式 external ID + handle           |
-| Spatial           | SpatialPackage `0.1` edge centerline | shape 保持 `0.1`                    |
-| Conflict          | authoring protected phases           | #196 profile 已冻结；无 solver      |
-
-在 #229 G4 前，本文不得被描述为已交付的 Core/Data API。Current loader、schema、
-fixtures、generator 和 native example 继续以 v0.7 为事实。
+| 范围              | Current production                                  |
+| ----------------- | --------------------------------------------------- |
+| Traffic           | exact-current `0.8`                                 |
+| Lane topology     | LaneEdge + directed connection + Junction hierarchy |
+| Route             | 显式有限 edge sequence，注册期编译 occurrences      |
+| Gate              | 一等 `ManeuverGateHandle`                           |
+| Junction identity | 显式 external ID + handle                           |
+| Spatial           | SpatialPackage `0.1` edge centerline                |
+| Conflict          | authoring protected phases；无 solver               |
 
 ### 1.3 非目标
 
@@ -605,7 +603,7 @@ SignalController definition 均已省略并假定有效；#229 的 schema fixtur
 
 ### 9.2 版本与兼容
 
-- Traffic target 直接从 current `0.7` 切到 `0.8`。
+- Traffic 已从历史 current `0.7` clean-break 切到 `0.8`。
 - Loader 只接受 exact `"0.8"`；不并行接受 `0.7`。
 - 不提供 runtime migration、deprecated constructors 或 dual query。
 - Source/schema/loader/Core/fixtures/generator/artifacts/catalog/docs/digests 同一可观察
@@ -838,9 +836,9 @@ heuristic、放宽测试或隐式 ConflictZone 补洞。
 | Adapter            | observation 迁移到 Gate/Path handles；authority 不变   | 无                   | #229/#190      |
 | Presentation       | 可显示 Junction/Movement/Path/Gate，非规则 owner       | 无                   | #190           |
 
-## 15. #229 最小生产实现输入
+## 15. #229 最小生产实现
 
-#229 必须作为单一可观察迁移交付：
+#229 作为单一可观察迁移交付以下内容：
 
 1. 新 Core inputs、handles、dense registries、resolvers 与 borrowed iterators；
 2. owner/cardinality/connectivity/first-error/foreign-rebind validation；

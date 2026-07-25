@@ -1,9 +1,9 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-24
+**最后更新**: 2026-07-25
 
-**适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、Traffic v0.7 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
+**适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、Traffic v0.8 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
 **关联文档**:
 
@@ -111,11 +111,11 @@ Validation：
 
 ### 4.2 Package 版本
 
-Vehicle Profile shape 由 current `schemas/laneflow-data-v0.7.schema.json` 继续承载。概念 package：
+Vehicle Profile shape 由 current `schemas/laneflow-data-v0.8.schema.json` 继续承载。概念 package：
 
 ```json
 {
-  "formatVersion": "0.7",
+  "formatVersion": "0.8",
   "units": {
     "distance": "meter",
     "time": "second"
@@ -123,6 +123,9 @@ Vehicle Profile shape 由 current `schemas/laneflow-data-v0.7.schema.json` 继�
   "laneGraph": {
     "edges": []
   },
+  "junctions": [],
+  "movements": [],
+  "maneuverPaths": [],
   "routes": [],
   "vehicleProfiles": [
     {
@@ -139,7 +142,7 @@ Vehicle Profile shape 由 current `schemas/laneflow-data-v0.7.schema.json` 继�
   ],
   "signals": {
     "stopLines": [],
-    "movementGates": [],
+    "maneuverGates": [],
     "groups": [],
     "controllers": []
   },
@@ -152,10 +155,10 @@ Vehicle Profile shape 由 current `schemas/laneflow-data-v0.7.schema.json` 继�
 
 规则：
 
-- 当前 v0.7 沿用已接受的 Vehicle Profile 领域语义，并要求每条 edge 显式 `speedLimit` 以及顶层 Signals/Parking objects。
+- 当前 v0.8 沿用已接受的 Vehicle Profile 领域语义，并要求每条 edge 显式 `speedLimit`、顶层 Junction/Movement/ManeuverPath arrays 以及 Signals/Parking objects。
 - 顶层 `vehicleProfiles` 必填，允许空数组。
 - Core-defined objects 继续采用 closed shape。
-- production loader 只接受 `"0.7"`；v0.5、v0.6 和未来版在当前 shape validation 前返回 version error。
+- production loader 只接受 `"0.8"`；v0.5、v0.6、v0.7 和未来版在当前 shape validation 前返回 version error。
 - 不隐式合成 profile，不提供历史格式 compatibility shim。
 - current format 不持久化 initial vehicles、spawn schedule、demand、runtime handles 或 Adapter metadata。
 
@@ -167,11 +170,11 @@ v0.3 profile registry 在 world 生命周期内不可变，不公开 runtime reg
 
 ### 4.4 Crate 与 loader 边界
 
-依据 ADR 0007/0008，current v0.7 production loader 位于 `laneflow-data`，依赖方向为 `laneflow-data -> laneflow-core`。Core 不依赖 Serde、JSON、JSON Schema 或文件系统；pre-1.0 的 production loader 只维护当前格式。
+依据 ADR 0007/0008，current v0.8 production loader 位于 `laneflow-data`，依赖方向为 `laneflow-data -> laneflow-core`。Core 不依赖 Serde、JSON、JSON Schema 或文件系统；pre-1.0 的 production loader 只维护当前格式。
 
 public loader 返回单一当前 `LoadedPackage`，不公开历史版本 enum/variant，也不以 optional profile 或空 registry 区分格式。Vehicle Profiles、Signals 与 Parking 都由显式字段构造；空数组是当前格式的合法状态。
 
-Core 使用 `InitialTrafficData` 统一验证 lane graph、初始 routes、immutable profile registry 与 static Signals/Parking registries。data crate 不重复实现 route/profile/signal/parking domain invariant。loader 只接收内存 bytes/string，并返回完成 Core normalization 的当前结果，不创建 `CoreWorld`。
+Core 使用 `InitialTrafficData` 统一验证 lane graph、初始 routes、immutable profile registry、Junction registry 与 static Signals/Parking registries。data crate 不重复实现 route/profile/junction/signal/parking domain invariant。loader 只接收内存 bytes/string，并返回完成 Core normalization 的当前结果，不创建 `CoreWorld`。
 
 wire DTO 在 #73 阶段保持私有。Vehicle Profile 使用 `IidmProfileSpec` 与 `VehicleProfile::try_new_iidm`，避免多个同类型位置参数；有效 profile 的字段保持私有，v0.3 不公开 model enum 或 controller trait。
 

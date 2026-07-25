@@ -7,9 +7,9 @@ use laneflow_data::{DataError, from_json_str};
 use serde_json::{Value, json};
 
 const PARKING_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.7-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.8-parking-signals-baseline.laneflow.json");
 const EMPTY_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.7-empty-signals-and-parking.laneflow.json");
+    include_str!("../../../examples/data/v0.8-empty-signals-and-parking.laneflow.json");
 
 fn run_area_space_lifecycle() -> Vec<String> {
     let traffic = from_json_str(PARKING_SIGNALS_FIXTURE)
@@ -238,12 +238,13 @@ fn production_loader_rejects_invalid_parking_area_reference_without_partial_worl
         serde_json::from_str(PARKING_SIGNALS_FIXTURE).expect("canonical fixture JSON");
     package["parking"]["spaces"][0]["areaId"] = json!("missing-area");
     let error = from_json_str(&package.to_string()).expect_err("invalid area reference");
+    let DataError::CoreDomain { path, source } = error else {
+        panic!("expected CoreDomain error");
+    };
     std::assert_matches!(
-        error,
-        DataError::CoreDomain {
-            path,
-            source: CoreError::UnknownParkingSpaceArea { space_id, area_id },
-        } if path == "parking.spaces[0].areaId"
+        *source,
+        CoreError::UnknownParkingSpaceArea { space_id, area_id }
+            if path == "parking.spaces[0].areaId"
             && space_id == "lot-main-01"
             && area_id == "missing-area"
     );

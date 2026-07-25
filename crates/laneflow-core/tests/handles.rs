@@ -228,8 +228,15 @@ fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
     let profile = profiles
         .profile_handle("short-profile")
         .expect("profile handle exists");
-    let traffic_data =
-        InitialTrafficData::try_new(lane_graph, [route], profiles).expect("valid traffic data");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        [route],
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("valid traffic data");
     let mut world = CoreWorld::with_traffic_data(
         1_000,
         traffic_data,

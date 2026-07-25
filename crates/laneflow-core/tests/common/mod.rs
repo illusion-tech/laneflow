@@ -39,6 +39,13 @@ where
     F: FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>,
 {
     let (registry, profile) = test_profile_registry();
-    let traffic_data = InitialTrafficData::try_new(lane_graph, routes, registry)?;
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        routes,
+        registry,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )?;
     CoreWorld::with_traffic_data(fixed_delta_time_ms, traffic_data, vehicle_inputs(profile))
 }

@@ -54,7 +54,25 @@ let color = 0xFF00_FF00;
 
 本规则只约束 Rust 数字字面量，不要求修改字符串、日志、错误信息、JSON、Schema、文档示例或其他序列化数据。格式清理不得改变用户可见文本、持久化内容或测试所验证的运行时输出。
 
-## 5. 工具与执行
+## 5. Retained-memory 计账
+
+Core 的 retained-memory 测试账本按 Rust storage ownership 统计，不沿 handle 或
+borrowed reference 重复统计目标对象。拥有 `Vec`、`String`、`IndexMap`、`Box`、
+`Arc` 或其他 heap backing 的 Core 类型应在 crate-private、`cfg(test)` 的计账方法中
+使用不带 `..` 的穷尽 struct 解构：
+
+- 新增字段必须触发 test target 编译失败，迫使作者明确把字段分类为 owned heap、
+  inline-only 或 non-owning reference/handle；
+- nested container 同时统计 outer backing capacity 与实际拥有的 inner allocation；
+- component 子指标只进入其 owner total 一次，不得在 world total 重复相加；
+- world complete total 使用单一 component ledger 求和，测试和日志不得复制另一份
+  独立公式。
+
+每个新增 heap owner 至少需要一个使对应 component 非零的 smoke fixture；无该
+owner 的场景应在可稳定判断时断言为零。常规 PR 运行 complete retained-memory
+smoke，10k/100k matrix 继续作为对应 Delivery/G3 的显式验证。
+
+## 6. 工具与执行
 
 - `rustfmt` 不负责统一数字分组，不能把 `cargo fmt` 通过解释为本规则已经满足。
 - Clippy 的 `clippy::unreadable_literal` 可以发现部分较长字面量，但 Rust 1.96 下不覆盖本规则关注的四位数 `1000`，只能作为补充检查。
@@ -64,7 +82,7 @@ let color = 0xFF00_FF00;
 
 Rust 对数字字面量下划线的语言语义见 [Rust Reference: Literal expressions](https://doc.rust-lang.org/reference/expressions/literal-expr.html)；Clippy 补充检查见 [`unreadable_literal`](https://rust-lang.github.io/rust-clippy/stable/index.html#unreadable_literal)。
 
-## 6. Review 检查
+## 7. Review 检查
 
 Review Rust 变更时：
 
@@ -73,3 +91,5 @@ Review Rust 变更时：
 3. 对年份、端口、协议码等例外检查上下文是否足够明确。
 4. 把纯格式问题限定在当前变更范围；历史问题应单独跟踪。
 5. 不得把等价字面量格式评论提升为运行时、API 或数据格式缺陷。
+6. Core owning struct 新增 heap-backed 字段时，确认 owner-local 穷尽计账、world
+   component ledger 与零/非零 smoke fixture 已同步。

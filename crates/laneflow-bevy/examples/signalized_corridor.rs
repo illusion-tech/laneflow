@@ -445,16 +445,16 @@ fn build_signal_stop_visuals(
     let signals = core.signals();
     let mut seen = HashSet::new();
     let mut visuals = Vec::new();
-    for gate in signals.movement_gates() {
+    for gate in signals.maneuver_gates() {
         let stop_line = signals
-            .movement_gate_stop_line(gate)
-            .ok_or_else(|| invalid_data("normalized MovementGate 缺少 StopLine"))?;
+            .maneuver_gate_stop_line(gate)
+            .ok_or_else(|| invalid_data("normalized ManeuverGate 缺少 StopLine"))?;
         if !seen.insert(stop_line) {
             continue;
         }
         let SignalControl::Group(group) = signals
-            .movement_gate_control(gate)
-            .ok_or_else(|| invalid_data("normalized MovementGate 缺少 signal control"))?
+            .maneuver_gate_control(gate)
+            .ok_or_else(|| invalid_data("normalized ManeuverGate 缺少 signal control"))?
         else {
             continue;
         };

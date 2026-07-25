@@ -1,4 +1,4 @@
-//! 当前 v0.7 JSON 格式的私有 wire DTO。
+//! 当前 v0.8 JSON 格式的私有 wire DTO。
 
 use serde::Deserialize;
 
@@ -14,6 +14,9 @@ pub(crate) struct WirePackage {
     pub(crate) format_version: String,
     pub(crate) units: WireUnits,
     pub(crate) lane_graph: WireLaneGraph,
+    pub(crate) junctions: Vec<WireJunction>,
+    pub(crate) movements: Vec<WireMovement>,
+    pub(crate) maneuver_paths: Vec<WireManeuverPath>,
     pub(crate) routes: Vec<WireRoute>,
     pub(crate) vehicle_profiles: Vec<WireVehicleProfile>,
     pub(crate) signals: WireSignals,
@@ -50,6 +53,29 @@ pub(crate) struct WireLaneEdge {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct WireLaneConnection {
     pub(crate) to_edge_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WireJunction {
+    pub(crate) id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WireMovement {
+    pub(crate) id: String,
+    pub(crate) junction_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WireManeuverPath {
+    pub(crate) id: String,
+    pub(crate) movement_id: String,
+    pub(crate) entry_edge_id: String,
+    pub(crate) internal_edge_ids: Vec<String>,
+    pub(crate) exit_edge_id: String,
 }
 
 #[derive(Deserialize)]
@@ -135,7 +161,7 @@ pub(crate) struct WireParkingGeometry {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct WireSignals {
     pub(crate) stop_lines: Vec<WireStopLine>,
-    pub(crate) movement_gates: Vec<WireMovementGate>,
+    pub(crate) maneuver_gates: Vec<WireManeuverGate>,
     pub(crate) groups: Vec<WireSignalGroup>,
     pub(crate) controllers: Vec<WireSignalController>,
 }
@@ -156,9 +182,10 @@ pub(crate) enum WireStopLineLocation {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct WireMovementGate {
-    pub(crate) from_edge_id: String,
-    pub(crate) to_edge_id: String,
+pub(crate) struct WireManeuverGate {
+    pub(crate) id: String,
+    pub(crate) maneuver_path_id: String,
+    pub(crate) transition_index: u32,
     pub(crate) stop_line_id: String,
     pub(crate) signal_control: WireSignalControl,
 }

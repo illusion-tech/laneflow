@@ -1,7 +1,7 @@
 # Route System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-24（#228 v0.9 static-domain target 同步）
+**最后更新**: 2026-07-25（#229 Traffic v0.8 occurrence compiler 同步）
 
 **适用范围**: v0.2 Lane Graph + Route 的 route definition、route validation、route lifecycle 和 simple route following 边界  
 **关联文档**:
@@ -21,13 +21,21 @@
 
 本文固化 v0.2 阶段 Core route system 设计，作为 #29 的 G1 冻结输入。
 
-### 当前 v0.7 覆盖说明
+### 当前 v0.8 覆盖说明
 
-本文保留 v0.2 route definition、validation、lifecycle 和 traversal 契约。v0.3 由 [`vehicle-following.md`](vehicle-following.md) 第 5 节替换 vehicle motion state；v0.4 将 external sequence 字段改为 `edgeIds`，并规定 route 不得终止在声明 StopLine 的 edge 上；v0.5 增加 static Parking anchors；current v0.7 再增加 route-occurrence 降限速 metadata。initial route 与 runtime `register_route` 复用同一规则；#96 已激活 permission-aware traversal。
+本文保留 v0.2 route definition、validation、lifecycle 和 traversal 契约。v0.3 由
+[`vehicle-following.md`](vehicle-following.md) 第 5 节替换 vehicle motion state；
+v0.4 将 external sequence 字段改为 `edgeIds`，并规定 route 不得终止在声明
+StopLine 的 edge 上；v0.5 增加 static Parking anchors；v0.7 增加 per-edge speed
+limit；current v0.8 再增加 ManeuverPath/Gate occurrence compiler。initial route
+与 runtime `register_route` 复用同一 compiler。
 
 Current static ParkingSpace 不持有 RouteHandle。#108/#109 current runtime 消费有限显式 route/occurrence：Reserved approach 选择当前 cursor 后的 first-reachable entry occurrence，leave/rebind 由 caller 提供明确 route occurrence，Parked/Reserved vehicle 保留 live route reference。Overflow-safe route prefix 不得新增“整条 route 累计距离必须 finite”的合法性条件。完整端到端验证由 #110 固化，详细契约见 [`parking-system.md`](parking-system.md)。
 
-ADR 0014 已接受下一数值契约：单 edge 硬上限为 10 km，`EdgeLength` 使用经过检查的 `f32`，`EdgeProgress` 使用补偿残差感知的高位/残差表示。该候选在 #144 no-go 后没有进入 production；本节当前 v0.7 继续使用 `f64`。route 距离只冻结派生权威、有限视距查询、复杂度与防溢出语义；物理存储由 #127 比较 `f64` 前缀基线与分块局部 `f32` 候选。
+ADR 0014 已接受下一数值契约：单 edge 硬上限为 10 km，`EdgeLength` 使用经过检查的
+`f32`，`EdgeProgress` 使用补偿残差感知的高位/残差表示。该候选在 #144 no-go 后
+没有进入 production；current v0.8 继续使用 `f64`。route 距离只冻结派生权威、
+有限视距查询、复杂度与防溢出语义。
 
 目标：
 
@@ -337,5 +345,5 @@ external ID、不扫描全局 catalog，也不为每辆车复制 occurrence。
 Dynamic Route 必须先完成 path/Gate/StopLine coverage 编译和验证，再原子提交 handle、
 definition 与 metadata。失败不得留下部分 occurrence 或可观察 allocation/order。
 完整 shape、歧义规则与性能边界见
-[`road-junction-model.md`](road-junction-model.md)。该 target 由 #229 实现前，
-current Route production behavior 不变。
+[`road-junction-model.md`](road-junction-model.md)。#229 已将该 compiler 用于
+initial 和 dynamic Route，并在失败时保持 handle/order 原子性。

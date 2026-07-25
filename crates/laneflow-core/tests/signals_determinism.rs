@@ -1,8 +1,9 @@
 use laneflow_core::{
     CoreError, CoreEvent, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData,
-    LaneEdge, LaneGraph, MovementGate, Route, SignalAspect, SignalControlInput, SignalController,
-    SignalGroup, SignalGroupState, SignalPhase, SignalRegistry, Speed, StopLine, StopLineLocation,
-    TickInput, VehicleProfile, VehicleProfileRegistry, VehicleSpawnInput,
+    Junction, JunctionRegistry, LaneEdge, LaneGraph, ManeuverGate, ManeuverPath, Movement, Route,
+    SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
+    SignalRegistry, Speed, StopLine, StopLineLocation, TickInput, VehicleProfile,
+    VehicleProfileRegistry, VehicleSpawnInput,
 };
 
 const DELTA_MS: u64 = 16;
@@ -46,8 +47,22 @@ fn replay_world() -> CoreWorld {
         ),
     ])
     .expect("replay graph");
+    let junctions = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("junction-a"), Junction::new("junction-c")],
+        [
+            Movement::new("movement-a", "junction-a"),
+            Movement::new("movement-c", "junction-c"),
+        ],
+        [
+            ManeuverPath::new("path-a", "movement-a", "a", std::iter::empty::<&str>(), "b"),
+            ManeuverPath::new("path-c", "movement-c", "c", std::iter::empty::<&str>(), "d"),
+        ],
+    )
+    .expect("replay topology");
     let signals = SignalRegistry::try_new(
         &graph,
+        &junctions,
         [
             StopLine::new("stop-a", "a", StopLineLocation::EdgeEnd),
             StopLine::new("stop-c", "c", StopLineLocation::EdgeEnd),
@@ -63,15 +78,17 @@ fn replay_world() -> CoreWorld {
             ],
         )],
         [
-            MovementGate::new(
-                "a",
-                "b",
+            ManeuverGate::new(
+                "gate-a",
+                "path-a",
+                0,
                 "stop-a",
                 SignalControlInput::Group("group-a".to_owned()),
             ),
-            MovementGate::new(
-                "c",
-                "d",
+            ManeuverGate::new(
+                "gate-c",
+                "path-c",
+                0,
                 "stop-c",
                 SignalControlInput::Group("group-c".to_owned()),
             ),
@@ -93,14 +110,16 @@ fn replay_world() -> CoreWorld {
     .unwrap()])
     .unwrap();
     let profile = profiles.profile_handle("car").unwrap();
-    let traffic = InitialTrafficData::try_new_with_signals(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [
             Route::try_new("route-a", ["a", "b"]).unwrap(),
             Route::try_new("route-c", ["c", "d"]).unwrap(),
         ],
         profiles,
+        junctions,
         signals,
+        laneflow_core::ParkingRegistry::empty(),
     )
     .unwrap();
     CoreWorld::with_traffic_data(

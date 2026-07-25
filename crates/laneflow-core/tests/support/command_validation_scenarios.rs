@@ -187,8 +187,15 @@ fn build_command_scenario(
     let profile = registry
         .profile_handle("command-profile")
         .expect("command benchmark profile handle must exist");
-    let traffic_data = InitialTrafficData::try_new(lane_graph, routes, registry)
-        .expect("command benchmark traffic data must be valid");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        routes,
+        registry,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("command benchmark traffic data must be valid");
 
     let mut vehicles = (0..background_vehicle_count)
         .map(|index| {

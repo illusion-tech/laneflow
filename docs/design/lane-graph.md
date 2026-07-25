@@ -3,7 +3,7 @@
 **文档状态**: Accepted  
 **最后更新**: 2026-07-24
 
-**适用范围**: Lane Graph + Route 的 Core 模型、edge / connection / topology、Traffic v0.7 per-edge 基础道路限速和 data-format 输入边界
+**适用范围**: Lane Graph + Route 的 Core 模型、edge / connection / topology、Traffic v0.8 per-edge 基础道路限速和 data-format 输入边界
 
 **关联文档**:
 
@@ -184,7 +184,10 @@ v0.2 Core API 应从字符串 edge 引用迁移到 handle 引用：
 - directed connection 列表。
 - route 使用的 edge external ID sequence。
 
-#30 曾将 v0.2/v0.3 序列化字段冻结为 `laneGraph.edges[].connections[].to`；v0.4 已按 #94 迁移为 `toEdgeId`，current v0.7 继续使用该字段，并新增 required `laneGraph.edges[].speedLimit`。其 directed connection 语义不变，terminal edge 继续使用空 `connections` 数组。
+#30 曾将 v0.2/v0.3 序列化字段冻结为
+`laneGraph.edges[].connections[].to`；v0.4 已按 #94 迁移为 `toEdgeId`，current
+v0.8 继续使用该字段和 required `laneGraph.edges[].speedLimit`。其 directed
+connection 语义不变，terminal edge 继续使用空 `connections` 数组。
 
 data format 不应持久化 `EdgeHandle`。`EdgeHandle` 只在单个 `CoreWorld` / simulation session 内有效。
 
@@ -232,10 +235,10 @@ Adapter 不应：
 - resolver 能在 handle 与 external edge ID 之间稳定转换。
 - event / traversal 不依赖 connection 输入顺序做隐式 route choice。
 
-## 9. v0.9 Junction/Maneuver target
+## 9. v0.9 Junction/Maneuver layer
 
 #228/ADR 0017 不改变 LaneGraph 对 edge、length、speed limit 和 directed connection
-的 authority。Accepted target 在 LaneGraph 之上增加 immutable
+的 authority。#229 已在 LaneGraph 之上增加 immutable
 `Junction -> Movement -> ManeuverPath` registry：
 
 - ManeuverPath 以 `entry + ordered internal[] + exit` 引用 LaneEdges；
@@ -246,6 +249,6 @@ Adapter 不应：
 - Core 不从 geometry、connector 名称或 edge pair 推导 Junction/Movement identity；
 - RoadSection、LaneGroup 与 JunctionGroup 在 v0.9 只设计，不进入 LaneGraph runtime。
 
-该 target 由 #229 实现前，current LaneGraph API 和 Traffic v0.7 shape 保持不变。
-完整 owner、validation、Route occurrence 与性能契约见
+current Traffic v0.8 不把 Junction owner 写回 LaneGraph；完整 owner、validation、
+Route occurrence 与性能契约见
 [`road-junction-model.md`](road-junction-model.md)。

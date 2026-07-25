@@ -1,8 +1,9 @@
 use super::*;
 use crate::{
-    EdgeLength, IidmProfileSpec, LaneEdge, MovementGate, ParkingRegistry, ParkingSpace,
-    ParkingSpaceGeometry, SignalAspect, SignalControlInput, SignalController, SignalGroup,
-    SignalGroupState, SignalPhase, StopLine, StopLineLocation, VehicleProfile,
+    EdgeLength, IidmProfileSpec, Junction, JunctionRegistry, LaneEdge, ManeuverGate, ManeuverPath,
+    Movement, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, SignalAspect,
+    SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase, StopLine,
+    StopLineLocation, VehicleProfile,
 };
 
 const EDGE_LENGTH_METERS: f64 = 10_000.0;
@@ -97,8 +98,15 @@ fn vehicle_heavy_world(vehicle_count: usize) -> CoreWorld {
     let route = Route::try_new("retained-shared-route", edge_ids)
         .expect("retained shared route must be valid");
     let (profiles, profile) = profile_registry();
-    let traffic = InitialTrafficData::try_new(graph, [route], profiles)
-        .expect("vehicle-heavy traffic must be valid");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        [route],
+        profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
+    )
+    .expect("vehicle-heavy traffic must be valid");
     let vehicles = (0..vehicle_count)
         .map(|index| {
             let route_edge_index = index / VEHICLES_PER_EDGE;
@@ -140,8 +148,15 @@ fn route_heavy_world(vehicle_count: usize) -> CoreWorld {
         .expect("route-heavy route must be valid")
     });
     let (profiles, profile) = profile_registry();
-    let traffic = InitialTrafficData::try_new(graph, routes, profiles)
-        .expect("route-heavy traffic must be valid");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        routes,
+        profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
+    )
+    .expect("route-heavy traffic must be valid");
     let vehicles = (0..vehicle_count)
         .map(|index| {
             let route_index = index / ROUTE_HEAVY_VEHICLES_PER_ROUTE;
@@ -174,6 +189,9 @@ fn signal_world(
     let mut stop_lines = Vec::with_capacity(route_count);
     let mut groups = Vec::with_capacity(route_count);
     let mut gates = Vec::with_capacity(route_count);
+    let mut junctions = Vec::with_capacity(route_count);
+    let mut movements = Vec::with_capacity(route_count);
+    let mut maneuver_paths = Vec::with_capacity(route_count);
     let mut parking_spaces = Vec::with_capacity(usize::from(with_parking) * route_count);
     for route_index in 0..route_count {
         let entry = format!("retained-signal-entry-{route_index:06}");
@@ -181,6 +199,9 @@ fn signal_world(
         let route_id = format!("retained-signal-route-{route_index:06}");
         let stop_line = format!("retained-signal-stop-{route_index:06}");
         let group = format!("retained-signal-group-{route_index:06}");
+        let junction = format!("retained-signal-junction-{route_index:06}");
+        let movement = format!("retained-signal-movement-{route_index:06}");
+        let maneuver_path = format!("retained-signal-path-{route_index:06}");
         edges.push(LaneEdge::new(
             entry.clone(),
             EdgeLength::try_new(200.0).expect("signal entry length must be valid"),
@@ -207,9 +228,19 @@ fn signal_world(
             StopLineLocation::EdgeEnd,
         ));
         groups.push(SignalGroup::new(group.clone()));
-        gates.push(MovementGate::new(
+        junctions.push(Junction::new(junction.clone()));
+        movements.push(Movement::new(movement.clone(), junction));
+        maneuver_paths.push(ManeuverPath::new(
+            maneuver_path.clone(),
+            movement,
             entry,
+            std::iter::empty::<&str>(),
             exit.clone(),
+        ));
+        gates.push(ManeuverGate::new(
+            format!("retained-signal-gate-{route_index:06}"),
+            maneuver_path,
+            0,
             stop_line,
             SignalControlInput::Group(group),
         ));
@@ -227,6 +258,8 @@ fn signal_world(
     }
 
     let graph = LaneGraph::try_new(edges).expect("signal retained graph must be valid");
+    let junctions = JunctionRegistry::try_new(&graph, junctions, movements, maneuver_paths)
+        .expect("signal retained topology must be valid");
     let controllers = (0..route_count / SIGNAL_GROUPS_PER_CONTROLLER).map(|controller_index| {
         let first_group = controller_index * SIGNAL_GROUPS_PER_CONTROLLER;
         let group_ids = (first_group..first_group + SIGNAL_GROUPS_PER_CONTROLLER)
@@ -245,15 +278,14 @@ fn signal_world(
             )],
         )
     });
-    let signals = SignalRegistry::try_new(&graph, stop_lines, groups, controllers, gates)
-        .expect("signal retained registry must be valid");
+    let signals =
+        SignalRegistry::try_new(&graph, &junctions, stop_lines, groups, controllers, gates)
+            .expect("signal retained registry must be valid");
     let parking = ParkingRegistry::try_new(&graph, [], parking_spaces)
         .expect("balanced Parking registry must be valid");
     let (profiles, profile) = profile_registry();
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
-        graph, routes, profiles, signals, parking,
-    )
-    .expect("signal retained traffic must be valid");
+    let traffic = InitialTrafficData::try_new(graph, routes, profiles, junctions, signals, parking)
+        .expect("signal retained traffic must be valid");
     let vehicles = (0..route_count)
         .flat_map(|route_index| {
             (0..vehicles_per_route).map(move |vehicle_index| {
@@ -298,10 +330,11 @@ fn parking_heavy_world(vehicle_count: usize) -> CoreWorld {
     )
     .expect("Parking-heavy registry must be valid");
     let (profiles, profile) = profile_registry();
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [route],
         profiles,
+        crate::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -325,21 +358,7 @@ fn parking_heavy_world(vehicle_count: usize) -> CoreWorld {
 }
 
 fn assert_complete_sum(stats: LifecycleRetainedStats) {
-    let heap = stats.lane_graph_bytes
-        + stats.vehicle_profile_registry_bytes
-        + stats.signal_registry_bytes
-        + stats.signal_runtime_state_bytes
-        + stats.signal_runtime_scratch_bytes
-        + stats.route_bytes
-        + stats.vehicle_bytes
-        + stats.resolver_bytes
-        + stats.free_list_bytes
-        + stats.vehicle_order_bytes
-        + stats.candidate_state_bytes
-        + stats.parking_registry_runtime_bytes
-        + stats.occupancy_scratch_bytes
-        + stats.longitudinal_scratch_bytes
-        + stats.command_spatial_bytes;
+    let heap = stats.complete_components().owned_heap_bytes();
     assert_eq!(stats.owned_heap_bytes, heap);
     assert_eq!(
         stats.complete_accounted_bytes,
@@ -378,7 +397,7 @@ fn print_snapshot(
     stats: LifecycleRetainedStats,
 ) {
     eprintln!(
-        "retained_matrix scenario={} scale={} phase={} live={} route_occurrences={} complete_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} profile_registry_bytes={} signal_registry_bytes={} signal_state_bytes={} signal_scratch_bytes={} route_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={}",
+        "retained_matrix scenario={} scale={} phase={} live={} route_occurrences={} complete_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} profile_registry_bytes={} junction_registry_bytes={} signal_registry_bytes={} signal_state_bytes={} signal_scratch_bytes={} route_bytes={} route_maneuver_occurrence_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={}",
         scenario.name(),
         scale,
         phase,
@@ -389,10 +408,12 @@ fn print_snapshot(
         stats.world_inline_bytes,
         stats.lane_graph_bytes,
         stats.vehicle_profile_registry_bytes,
+        stats.junction_registry_bytes,
         stats.signal_registry_bytes,
         stats.signal_runtime_state_bytes,
         stats.signal_runtime_scratch_bytes,
         stats.route_bytes,
+        stats.route_maneuver_occurrence_bytes,
         stats.route_distance_bytes,
         stats.route_reference_bytes,
         stats.vehicle_bytes,
@@ -421,21 +442,28 @@ fn measure_scenario(scenario: RetainedScenario, scale: usize) {
     match scenario {
         RetainedScenario::VehicleHeavy | RetainedScenario::CommandSpatialHeavy => {
             assert!(current.route_occurrences < scale);
+            assert_eq!(current.route_maneuver_occurrence_bytes, 0);
         }
         RetainedScenario::RouteHeavy => {
             assert_eq!(current.route_occurrences, scale * 10);
+            assert_eq!(current.route_maneuver_occurrence_bytes, 0);
         }
         RetainedScenario::Balanced => {
             assert_eq!(current.route_occurrences, scale);
+            assert!(current.junction_registry_bytes > 0);
+            assert!(current.route_maneuver_occurrence_bytes > 0);
             assert!(current.signal_registry_bytes > 0);
             assert!(current.parking_registry_runtime_bytes > 0);
         }
         RetainedScenario::SignalHeavy => {
             assert_eq!(current.route_occurrences, scale * 2);
+            assert!(current.junction_registry_bytes > 0);
+            assert!(current.route_maneuver_occurrence_bytes > 0);
             assert!(current.signal_registry_bytes > 0);
             assert!(current.signal_runtime_state_bytes > 0);
         }
         RetainedScenario::ParkingHeavy => {
+            assert_eq!(current.route_maneuver_occurrence_bytes, 0);
             assert!(current.parking_registry_runtime_bytes > current.route_bytes);
         }
     }

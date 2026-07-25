@@ -51,26 +51,22 @@ fn valid_initial_traffic_data_preserves_input_order_and_registry() {
             Route::try_new("short", ["A", "B"]).expect("valid route"),
         ],
         canonical_profiles(),
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
     )
     .expect("valid initial traffic data");
 
     assert_eq!(
-        traffic_data
-            .routes()
-            .iter()
-            .map(Route::id)
-            .collect::<Vec<_>>(),
+        traffic_data.routes().map(Route::id).collect::<Vec<_>>(),
         ["loop", "short"]
     );
     assert_eq!(traffic_data.lane_graph().edges().len(), 2);
     assert_eq!(traffic_data.vehicle_profiles().len(), 1);
 
-    let (lane_graph, routes, profiles, signals, parking) = traffic_data.into_parts();
-    assert_eq!(lane_graph.edges().len(), 2);
-    assert_eq!(routes.len(), 2);
-    assert_eq!(profiles.len(), 1);
-    assert!(signals.is_empty());
-    assert!(parking.is_empty());
+    assert!(traffic_data.junctions().is_empty());
+    assert!(traffic_data.signals().is_empty());
+    assert!(traffic_data.parking().is_empty());
 }
 
 #[test]
@@ -83,6 +79,9 @@ fn duplicate_initial_route_id_is_rejected_before_later_routes() {
             Route::try_new("later", ["missing"]).expect("valid route shape"),
         ],
         VehicleProfileRegistry::empty(),
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
     )
     .expect_err("duplicate route id must fail first");
 
@@ -102,6 +101,9 @@ fn initial_route_unknown_edge_uses_route_and_edge_input_order() {
             Route::try_new("second", ["third-missing"]).expect("valid route shape"),
         ],
         VehicleProfileRegistry::empty(),
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
     )
     .expect_err("first unknown route edge must fail");
 
@@ -133,6 +135,9 @@ fn initial_route_continuity_uses_same_core_error_as_runtime_registration() {
         graph,
         [Route::try_new("disconnected", ["A", "B"]).expect("valid route shape")],
         VehicleProfileRegistry::empty(),
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
     )
     .expect_err("disconnected route must fail");
 

@@ -1,8 +1,8 @@
 # Data Loading 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-23
-**适用范围**: Traffic v0.7、SpatialPackage/ScenarioManifest v0.1 loader 与保留的 Data v0.6 数值迁移边界
+**最后更新**: 2026-07-25
+**适用范围**: Traffic v0.8、SpatialPackage/ScenarioManifest v0.1 loader 与保留的 Data v0.6 数值迁移边界
 
 **关联文档**:
 
@@ -25,15 +25,16 @@
 
 目标：
 
-- 为当前 `formatVersion: "0.7"` 提供唯一 production JSON loader。
+- 为当前 `formatVersion: "0.8"` 提供唯一 production JSON loader。
 - 在 strict current DTO 前拒绝旧版、未来版和缺失版本。
 - 保持 `laneflow-data -> laneflow-core`，让 Core constructors 拥有全部 domain invariant。
-- 原子 normalization lane graph、route、Vehicle Profile、static Signals 与 static Parking，并保留稳定输入路径。
+- 原子 normalization lane graph、Junction/Movement/ManeuverPath、route、Vehicle
+  Profile、static Signals 与 static Parking，并保留稳定输入路径。
 - 让 external ID resolution 和 handle allocation 停留在加载/初始化阶段。
 
 非目标：
 
-- 不兼容加载 v0.5、v0.6 及更早版本，不自动迁移旧字段或补默认限速。
+- 不兼容加载 v0.7 及更早版本，不自动迁移旧字段或补默认限速。
 - 不读取文件、不创建 CoreWorld、不接收 initial vehicles 或 fixed tick。
 - 不公开 wire DTO/serialization API，不一次收集全部 authoring errors。
 - 不实现 controller runtime、Parking reservation/occupancy/commands、车辆合规或 hostile oversized JSON 完整防护。
@@ -49,8 +50,8 @@ crates/laneflow-data
   Core / Spatial normalization orchestration
 
 crates/laneflow-core
-  LaneGraph / Route / VehicleProfile
-  StopLine / MovementGate / SignalGroup / SignalController / Phase
+  LaneGraph / Junction / Movement / ManeuverPath / Route / VehicleProfile
+  StopLine / ManeuverGate / SignalGroup / SignalController / Phase
   ParkingArea / ParkingSpace / ParkingRegistry
   typed handles / immutable registries / resolvers
   InitialTrafficData / CoreWorld compatibility
@@ -70,7 +71,7 @@ laneflow-data -> laneflow-spatial
 Public loader：
 
 ```text
-CURRENT_FORMAT_VERSION: &str = "0.7"
+CURRENT_FORMAT_VERSION: &str = "0.8"
 
 from_json_slice(&[u8]) -> Result<LoadedPackage, DataError>
 from_json_str(&str) -> Result<LoadedPackage, DataError>
@@ -88,7 +89,7 @@ from_scenario_json_str(manifest, named_artifacts) -> Result<LoadedScenario, Scen
 
 ```text
 minimal version header
-  -> exact "0.7" check
+  -> exact "0.8" check
   -> strict current DTO
   -> normalization
 ```
@@ -96,8 +97,9 @@ minimal version header
 - 缺失、`null` 或非字符串 `formatVersion` 返回 JSON shape error。
 - `"0.4"`、未来版或其他字符串返回 `UnsupportedFormatVersion { expected, actual }`。
 - Unsupported version 不进入 current units、unknown field 或 domain validation。
-- current root 必填 `units`、`laneGraph`、`routes`、`vehicleProfiles`、`signals` 和 `parking`。
-- `signals.stopLines/movementGates/groups/controllers` 四数组均必填，可以为空。
+- current root 必填 `units`、`laneGraph`、`junctions`、`movements`、
+  `maneuverPaths`、`routes`、`vehicleProfiles`、`signals` 和 `parking`。
+- `signals.stopLines/maneuverGates/groups/controllers` 四数组均必填，可以为空。
 - `parking.areas/spaces` 两数组均必填，可以为空；space `areaId` 只能省略，explicit `null` 非法。
 - private DTO 全面 `deny_unknown_fields`；`signalControl` 使用 closed group/none union。
 
@@ -110,32 +112,35 @@ InitialTrafficData
   lane_graph
   routes
   vehicle_profiles
+  junctions: JunctionRegistry
   signals: SignalRegistry
   parking: ParkingRegistry
 ```
 
-Programmatic callers 可使用 `InitialTrafficData::try_new` 构造显式无 Signals/Parking 数据，使用 `try_new_with_signals` 只提供 Signals，或使用 `try_new_with_signals_and_parking` 提供两个已 normalization registry。Final assembly 会消费 registries，并按 `InitialTrafficData` 自身的 `LaneGraph` 重新解析和复验全部 graph-dependent handles，禁止把另一张 graph 的预解析索引静默带入 world。
+Programmatic callers 只使用 canonical 六参数 `InitialTrafficData::try_new`，显式提供
+Junction、Signals 与 Parking registries；空 domain 使用相应 `empty()`。Final
+assembly 会消费 registries，并按 `InitialTrafficData` 自身的 `LaneGraph` 重新解析和
+复验全部 graph-dependent handles，禁止把另一张 graph 的预解析索引静默带入 world。
 
 Canonical loader 顺序：
 
 1. JSON syntax 与 version header。
 2. exact current version。
-3. strict v0.7 wire shape。
+3. strict v0.8 wire shape。
 4. distance/time units。
 5. Vehicle Profiles。
 6. lane graph edge length、required `speedLimit` 与 connections；`speedLimit` 错误收窄到具体 edge field。
-7. StopLines。
-8. SignalGroups。
-9. Controllers / Phases / States。
-10. MovementGates。
-11. signal global coverage / ownership / usage。
-12. Parking areas identity。
-13. Parking spaces identity / optional membership。
-14. entry/exit anchors。
-15. geometry。
-16. orphan areas / ordered reverse indexes。
-17. routes 与 final-StopLine rule。
-18. `InitialTrafficData` final assembly/rebind。
+7. Junction IDs。
+8. Movement IDs、Junction owner 与 cardinality。
+9. ManeuverPath IDs、Movement owner、edge references、connectivity 与 role ownership。
+10. StopLines。
+11. SignalGroups。
+12. Controllers / Phases / States。
+13. ManeuverGates。
+14. signal path/Gate coverage / ownership / usage。
+15. Parking areas/spaces、anchors、geometry 与 reverse indexes。
+16. routes、Maneuver occurrences 与 final-StopLine rule。
+17. `InitialTrafficData` final assembly/rebind。
 
 `SignalRegistry` 预解析：
 
@@ -143,7 +148,8 @@ Canonical loader 顺序：
 - Group ID -> `SignalGroupHandle` 与 owner controller。
 - Controller ID -> `SignalControllerHandle`。
 - controller-local phase ID -> `SignalPhaseRef`。
-- `(fromEdge, toEdge)` -> `MovementGateKey`、StopLine 与 normalized `SignalControl`。
+- ManeuverGate ID -> `ManeuverGateHandle`、ManeuverPath transition、StopLine 与
+  normalized `SignalControl`。
 - phase states -> controller group input order 的 compact aspect vector，并预计算 cycle 内 exclusive phase end offsets。
 
 `ParkingRegistry` 预解析：
@@ -167,8 +173,9 @@ Serde / Schema 负责：
 Core 负责：
 
 - external ID、duplicate、unknown reference；
-- StopLine one-per-edge、Gate pair/connection/StopLine ownership；
-- outgoing Gate coverage、StopLine non-orphan；
+- Junction/Movement/Path owner、cardinality、edge role、connectivity 与 sequence coherence；
+- StopLine one-per-edge、ManeuverGate path transition/StopLine ownership；
+- outgoing path/Gate coverage、StopLine non-orphan；
 - Group owner/usage；
 - controller/phase cardinality、complete states、cycle checked sum、canonical offset；
 - route continuity 与 final-StopLine；
@@ -190,7 +197,7 @@ DataError #[non_exhaustive]
 ```
 
 - syntax/shape 保留 path、line、column 与 serde source。
-- domain error 保留 v0.7 field path 与结构化 `CoreError` source。
+- domain error 保留 v0.8 field path 与结构化 `CoreError` source。
 - state record 的 unknown/duplicate 错误定位到 `signals.controllers[i].phases[j].states[k].groupId`。
 - missing/coverage 等无直接记录的全局错误定位到拥有该 invariant 的 phase/StopLine/Group。
 - Parking duplicate 指向第二个 `.id`，unknown membership 指向 `.areaId`，anchor/geometry 指向具体 field，orphan 指向 area record。
@@ -213,20 +220,25 @@ Loader 不创建 world。`CoreWorld::with_traffic_data` 在 loader 成功后按�
 Active schema：
 
 ```text
-schemas/laneflow-data-v0.7.schema.json
+schemas/laneflow-data-v0.8.schema.json
 ```
 
-该文件是 current active source schema。`$id` 按 ADR 0011 也是目标 public retrieval URL；合并后以固定 `main` revision/blob 登记 immutable publication provenance，production loader 仍不执行网络 I/O。v0.2-v0.5 schema 作为 immutable publication artifact 保留，但 current loader、fixture 与 normalization tests 只消费 v0.7。消费者入口见 [`schemas/README.md`](../../schemas/README.md)。
+该文件是 current active source schema。`$id` 按 ADR 0011 也是目标 public retrieval
+URL；source PR 合并后由 publication Delivery PR 以固定 `main` revision/blob
+登记 immutable provenance。production loader 不执行网络 I/O。v0.2-v0.5 与 v0.7
+schema 作为 immutable publication artifacts 保留，但 current loader、fixture 与
+normalization tests 只消费 v0.8。
 
 Canonical fixtures：
 
-- `examples/data/v0.7-parking-signals-baseline.laneflow.json`
-- `examples/data/v0.7-empty-signals-and-parking.laneflow.json`
+- `examples/data/v0.8-parking-signals-baseline.laneflow.json`
+- `examples/data/v0.8-empty-signals-and-parking.laneflow.json`
+- `examples/data/v0.8-signalized-corridor.laneflow.json`
 
 Contract tests要求：
 
 - schema 满足 Draft 2020-12 meta-schema；
-- 两个 fixtures 同时通过 schema、production loader 与 Core normalization；
+- canonical fixtures 同时通过 schema、production loader 与 Core normalization；
 - v0.4、未来版、旧字段、JSON-LD、unknown field 与 open signal union 被拒绝；
 - portable integer、identity/reference/ownership/coverage/complete-state/route-final-StopLine 有结构化错误；
 - signal-only world compatibility 与失败原子性有 Core tests；
@@ -237,7 +249,7 @@ Contract tests要求：
 
 ## 9. Input Safety 与 Performance
 
-v0.7 不设置固定 edge/route/profile/signal/parking count limit。调用方负责在进入 loader 前限制 input byte size；不可信网络/mod 输入需要后续 `LoadLimits`、隔离 validator 或流式 ingestion 设计。
+v0.8 不设置固定 edge/route/profile/topology/signal/parking count limit。调用方负责在进入 loader 前限制 input byte size；不可信网络/mod 输入需要后续 `LoadLimits`、隔离 validator 或流式 ingestion 设计。
 
 JSON parsing、external ID lookup、Core normalization 和 handle allocation只发生在 load/world initialization。Static registries 使用 dense/indexed resolver，为 runtime 提供 O(1) lookup；10k all-vacant Parking 与 empty registry 的 warm step 均为 0 allocation，Parking registry 不进入 #107 的 per-tick/per-vehicle hot path。
 
@@ -249,7 +261,10 @@ JSON parsing、external ID lookup、Core normalization 和 handle allocation只�
 
 ## 11. Data v0.6 原子切换输入
 
-#126 曾把目标数值迁移分配给 `formatVersion: "0.6"`。#144 因性能门槛失败而形成不迁移（no-go）结论，v0.6 从未成为 production current/published format。#185 后当前唯一生产加载器为 v0.7，并继续使用原有 `f64` 数值域；v0.5 只保留 immutable published schema，不建立 runtime 兼容责任。
+#126 曾把目标数值迁移分配给 `formatVersion: "0.6"`。#144 因性能门槛失败而形成
+不迁移（no-go）结论，v0.6 从未成为 production current/published format。#229 后
+当前唯一生产加载器为 v0.8，并继续使用原有 `f64` 数值域；历史 schema 只作为
+immutable published artifact 保留，不建立 runtime 兼容责任。
 
 v0.6 仍使用相同的先验版本闸口顺序：
 
@@ -272,7 +287,11 @@ v0.6 仍使用相同的先验版本闸口顺序：
 - 模式（schema）必须与 Core 同向执行 ADR 0014 产品范围；Core 构造器仍是最终裁决者，Data 不复制 #127 的运行时判定实现；
 - 任一转换、引用或全局不变量失败都在提交前返回，不留下部分 `LoadedPackage`、注册表、世界状态或事件。
 
-#144 曾在同一候选边界内原子切换 `CURRENT_FORMAT_VERSION`、`laneflow-data-v0.6.schema.json` 及其 `$id`、发布当前指针、私有 DTO、规范化、样例和测试，但 no-go 后全部回退。未来若重启数值迁移，必须分配新的 format version 并在同一交付 PR 中完成这些切换；不保留 v0.7 分派、弃用别名、双精度开关、自动拆边（edge）、静默截断或迁移工具。
+#144 曾在同一候选边界内原子切换 `CURRENT_FORMAT_VERSION`、
+`laneflow-data-v0.6.schema.json` 及其 `$id`、发布当前指针、私有 DTO、规范化、
+样例和测试，但 no-go 后全部回退。未来若重启数值迁移，必须分配新的 format
+version 并在同一交付 PR 中完成这些切换；不保留 v0.8 分派、弃用别名、双精度
+开关、自动拆边（edge）、静默截断或迁移工具。
 
 #127 已冻结九个目标 `f32` 固定绝对阈值、`EdgeProgress` 运算链和路线距离（route-distance）目标布局。#144 的回退不废除这些研究输入，但未来迁移仍不得用当前 `f64` 的 `1.0e-9`、动态相对误差、运行时末位单位（ULP）或通用近似比较辅助函数代替它们。
 
@@ -288,7 +307,7 @@ manifest JSON syntax
   -> caller artifact ref duplicate / missing
   -> raw byte size
   -> raw byte SHA-256
-  -> existing exact-current Traffic v0.7 loader
+  -> existing exact-current Traffic v0.8 loader
   -> Spatial JSON syntax / minimal version / exact "0.1" / strict DTO
   -> f64 coordinate finite + canonical range check
   -> checked canonical f32 points
@@ -305,6 +324,9 @@ manifest JSON syntax
 
 ## 13. v0.8 Corridor authoring 导航
 
-`tools/laneflow-corridor-generator` 是仓库内部、离线运行的 authoring 工具。它读取 `examples/config/v0.8-signalized-corridor.toml`，生成 checked-in Traffic v0.7、SpatialPackage v0.1、ScenarioManifest v0.1 JSON，并生成不进入 Manifest 的 scenario-local catalog TOML。
+`tools/laneflow-corridor-generator` 是仓库内部、离线运行的 authoring 工具。它读取
+`examples/config/v0.8-signalized-corridor.toml`，生成 checked-in Traffic v0.8、
+SpatialPackage v0.1、ScenarioManifest v0.1 JSON，并生成不进入 Manifest 的
+scenario-local catalog TOML。
 
 该工具的 Serialize DTO 私有且不构成 `laneflow-data` public API；每次生成都依次执行仓库 JSON Schema、`from_scenario_json_slice` production loader、`SpatialRegistry::try_new` 和 `CoreWorld::with_traffic_data` 校验。所有文档在内存中全部成功后才写盘，`check` 命令只读比较确定性 bytes。内部 TOML 不能被 production JSON loader 当成新的 interchange format，使用方式和边界见 [`../../tools/laneflow-corridor-generator/README.md`](../../tools/laneflow-corridor-generator/README.md) 与 [`example-scenarios.md`](example-scenarios.md)。
