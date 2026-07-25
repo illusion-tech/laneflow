@@ -312,6 +312,12 @@ borrowed path-edge iteration。Public API 不暴露内部 index/range。
 Normalized registry 不得把 dense EdgeHandle 或 parent handles 直接移植到另一张
 LaneGraph/CoreWorld。
 
+`SignalRegistry::try_new` 是 public cross-domain normalization boundary。它必须先
+按 retained external definitions 把传入的 Junction registry rebind 到目标
+LaneGraph，再解析 StopLine、ManeuverGate 和 coverage；不得直接解引用可能来自
+另一张 graph 的 path EdgeHandle。Final assembly 可以在 crate-private 路径复用已
+rebind 的 Junction registry，避免重复 normalization。
+
 `InitialTrafficData` final assembly 必须：
 
 1. 保留或恢复 external definitions；
