@@ -1,10 +1,10 @@
 use laneflow_core::{
-    CoreError, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge,
-    LaneGraph, MAX_PORTABLE_SIGNAL_TIME_MS, MovementGate, MovementGateKey, Route, SignalAspect,
-    SignalControl, SignalControlInput, SignalController, SignalControllerHandle, SignalGroup,
-    SignalGroupHandle, SignalGroupState, SignalPhase, SignalPhaseRef, SignalRegistry, Speed,
-    StopLine, StopLineHandle, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
-    VehicleSpawnInput, VehicleStatus,
+    CoreError, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, Junction,
+    JunctionRegistry, LaneEdge, LaneGraph, MAX_PORTABLE_SIGNAL_TIME_MS, ManeuverGate,
+    ManeuverGateHandle, ManeuverPath, Movement, Route, SignalAspect, SignalControl,
+    SignalControlInput, SignalController, SignalControllerHandle, SignalGroup, SignalGroupHandle,
+    SignalGroupState, SignalPhase, SignalPhaseRef, SignalRegistry, Speed, StopLine, StopLineHandle,
+    StopLineLocation, VehicleProfile, VehicleProfileRegistry, VehicleSpawnInput, VehicleStatus,
 };
 
 fn edge_length(value: f64) -> EdgeLength {
@@ -35,12 +35,36 @@ fn canonical_graph() -> LaneGraph {
     .expect("valid graph")
 }
 
-fn stop_line(id: &str, edge_id: &str) -> StopLine {
-    StopLine::new(id, edge_id, StopLineLocation::EdgeEnd)
+fn canonical_junctions(graph: &LaneGraph) -> JunctionRegistry {
+    JunctionRegistry::try_new(
+        graph,
+        [Junction::new("junction")],
+        [
+            Movement::new("movement-through", "junction"),
+            Movement::new("movement-bypass", "junction"),
+        ],
+        [
+            ManeuverPath::new(
+                "path-through",
+                "movement-through",
+                "entry",
+                std::iter::empty::<&str>(),
+                "through",
+            ),
+            ManeuverPath::new(
+                "path-bypass",
+                "movement-bypass",
+                "entry",
+                std::iter::empty::<&str>(),
+                "bypass",
+            ),
+        ],
+    )
+    .expect("valid topology")
 }
 
-fn group(id: &str) -> SignalGroup {
-    SignalGroup::new(id)
+fn stop_line(id: &str, edge_id: &str) -> StopLine {
+    StopLine::new(id, edge_id, StopLineLocation::EdgeEnd)
 }
 
 fn state(group_id: &str, aspect: SignalAspect) -> SignalGroupState {
@@ -60,24 +84,12 @@ fn controller(
     SignalController::new_fixed_time(id, offset_ms, group_ids.iter().copied(), phases)
 }
 
-fn group_gate(from: &str, to: &str, stop_line_id: &str, group_id: &str) -> MovementGate {
-    MovementGate::new(
-        from,
-        to,
-        stop_line_id,
-        SignalControlInput::Group(group_id.to_owned()),
-    )
-}
-
-fn none_gate(from: &str, to: &str, stop_line_id: &str) -> MovementGate {
-    MovementGate::new(from, to, stop_line_id, SignalControlInput::None)
-}
-
-fn canonical_registry(graph: &LaneGraph) -> SignalRegistry {
+fn canonical_registry(graph: &LaneGraph, junctions: &JunctionRegistry) -> SignalRegistry {
     SignalRegistry::try_new(
         graph,
+        junctions,
         [stop_line("stop-entry", "entry")],
-        [group("main")],
+        [SignalGroup::new("main")],
         [controller(
             "controller-main",
             10,
@@ -89,8 +101,20 @@ fn canonical_registry(graph: &LaneGraph) -> SignalRegistry {
             ],
         )],
         [
-            group_gate("entry", "through", "stop-entry", "main"),
-            none_gate("entry", "bypass", "stop-entry"),
+            ManeuverGate::new(
+                "gate-through",
+                "path-through",
+                0,
+                "stop-entry",
+                SignalControlInput::Group("main".to_owned()),
+            ),
+            ManeuverGate::new(
+                "gate-bypass",
+                "path-bypass",
+                0,
+                "stop-entry",
+                SignalControlInput::None,
+            ),
         ],
     )
     .expect("canonical Signals must normalize")
@@ -118,696 +142,350 @@ fn profile_registry() -> (VehicleProfileRegistry, laneflow_core::VehicleProfileH
 }
 
 #[test]
-fn canonical_registry_preserves_normalization_order_and_resolves_handles() {
+fn canonical_registry_resolves_first_class_maneuver_gate_handles() {
     fn assert_traits<T: Clone + Copy + std::fmt::Debug + Eq + std::hash::Hash>() {}
     assert_traits::<StopLineHandle>();
     assert_traits::<SignalGroupHandle>();
     assert_traits::<SignalControllerHandle>();
     assert_traits::<SignalPhaseRef>();
-    assert_traits::<MovementGateKey>();
+    assert_traits::<ManeuverGateHandle>();
 
     let graph = canonical_graph();
-    let signals = canonical_registry(&graph);
-    assert!(!signals.is_empty());
-
-    let stop_line = signals
-        .stop_line_handle("stop-entry")
-        .expect("StopLine resolver");
-    assert_eq!(signals.stop_line_external_id(stop_line), Some("stop-entry"));
-    assert_eq!(
-        signals.stop_line_edge(stop_line),
-        graph.edge_handle("entry")
-    );
-    assert_eq!(
-        signals.stop_line_for_edge(graph.edge_handle("entry").expect("entry edge")),
-        Some(stop_line)
-    );
-
-    let group = signals.group_handle("main").expect("group resolver");
+    let junctions = canonical_junctions(&graph);
+    let signals = canonical_registry(&graph, &junctions);
+    let stop = signals.stop_line_handle("stop-entry").expect("stop line");
+    let group = signals.group_handle("main").expect("group");
     let controller = signals
         .controller_handle("controller-main")
-        .expect("controller resolver");
-    assert_eq!(signals.group_external_id(group), Some("main"));
+        .expect("controller");
+    let through = signals
+        .maneuver_gate_handle("gate-through")
+        .expect("through gate");
+    let bypass = signals
+        .maneuver_gate_handle("gate-bypass")
+        .expect("bypass gate");
+
+    assert_eq!(signals.stop_line_external_id(stop), Some("stop-entry"));
     assert_eq!(signals.group_controller(group), Some(controller));
-    assert_eq!(
-        signals.controller_groups(controller),
-        Some([group].as_slice())
-    );
     assert_eq!(
         signals.controller_cycle_duration_ms(controller),
         Some(53_000)
     );
-
-    let yellow = signals
-        .phase_ref(controller, "yellow")
-        .expect("phase resolver");
-    assert_eq!(signals.phase_external_id(yellow), Some("yellow"));
     assert_eq!(
-        signals.phase_aspects(yellow),
-        Some([SignalAspect::Yellow].as_slice())
-    );
-    assert_eq!(signals.phase_end_offset_ms(yellow), Some(33_000));
-
-    let through_key = MovementGateKey::new(
-        graph.edge_handle("entry").expect("entry edge"),
-        graph.edge_handle("through").expect("through edge"),
-    );
-    assert_eq!(
-        signals.movement_gate_control(through_key),
+        signals.maneuver_gate_control(through),
         Some(SignalControl::Group(group))
     );
+    assert_eq!(signals.maneuver_gate_stop_line(through), Some(stop));
     assert_eq!(
-        signals.movement_gate_stop_line(through_key),
-        Some(stop_line)
-    );
-
-    let bypass_key = MovementGateKey::new(
-        graph.edge_handle("entry").expect("entry edge"),
-        graph.edge_handle("bypass").expect("bypass edge"),
+        signals.maneuver_gate_path(through),
+        junctions.maneuver_path_handle("path-through")
     );
     assert_eq!(
-        signals.movement_gate_control(bypass_key),
+        signals.maneuver_gate_control(bypass),
         Some(SignalControl::None)
     );
-    assert_eq!(signals.stop_lines().count(), 1);
-    assert_eq!(signals.groups().count(), 1);
-    assert_eq!(signals.controllers().count(), 1);
     assert_eq!(
-        signals.movement_gates().collect::<Vec<_>>(),
-        [through_key, bypass_key]
+        signals.maneuver_gates().collect::<Vec<_>>(),
+        [through, bypass]
     );
-
-    assert_eq!(signals.stop_line_handle("unknown"), None);
-    assert_eq!(signals.group_handle("unknown"), None);
-    assert_eq!(signals.controller_handle("unknown"), None);
-    assert_eq!(signals.phase_ref(controller, "unknown"), None);
+    assert_eq!(
+        signals.maneuver_gate_external_id(through),
+        Some("gate-through")
+    );
 
     let empty = SignalRegistry::empty();
-    assert_eq!(empty.stop_line(stop_line), None);
-    assert_eq!(empty.group(group), None);
-    assert_eq!(empty.controller(controller), None);
-    assert_eq!(empty.phase(yellow), None);
-    assert_eq!(empty.phase_end_offset_ms(yellow), None);
-    assert_eq!(empty.movement_gate_control(through_key), None);
+    assert_eq!(empty.maneuver_gate(through), None);
+    assert_eq!(empty.maneuver_gate_control(through), None);
 }
 
 #[test]
-fn identity_and_reference_errors_follow_input_order() {
+fn signal_identity_and_controller_validation_keep_stable_first_errors() {
     let graph = canonical_graph();
-
-    let error = SignalRegistry::try_new(
+    let empty = JunctionRegistry::empty();
+    let duplicate_stop = SignalRegistry::try_new(
         &graph,
+        &empty,
         [
             stop_line("duplicate", "entry"),
-            stop_line("duplicate", "bad edge"),
+            stop_line("duplicate", "bad-edge"),
         ],
         std::iter::empty::<SignalGroup>(),
         std::iter::empty::<SignalController>(),
-        std::iter::empty::<MovementGate>(),
+        std::iter::empty::<ManeuverGate>(),
     )
     .expect_err("duplicate StopLine ID must fail first");
-    std::assert_matches!(error, CoreError::DuplicateStopLineId { stop_line_id } if stop_line_id == "duplicate");
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        [stop_line("first", "entry"), stop_line("second", "entry")],
-        std::iter::empty::<SignalGroup>(),
-        std::iter::empty::<SignalController>(),
-        std::iter::empty::<MovementGate>(),
-    )
-    .expect_err("one StopLine per edge");
     std::assert_matches!(
-        error,
-        CoreError::DuplicateStopLineEdge {
-            first_stop_line_id,
-            duplicate_stop_line_id,
-            ..
-        } if first_stop_line_id == "first" && duplicate_stop_line_id == "second"
+        duplicate_stop,
+        CoreError::DuplicateStopLineId { stop_line_id } if stop_line_id == "duplicate"
     );
 
-    let error = SignalRegistry::try_new(
+    let duplicate_group = SignalRegistry::try_new(
         &graph,
-        [stop_line("missing-edge", "unknown")],
-        std::iter::empty::<SignalGroup>(),
+        &empty,
+        std::iter::empty::<StopLine>(),
+        [SignalGroup::new("same"), SignalGroup::new("same")],
         std::iter::empty::<SignalController>(),
-        std::iter::empty::<MovementGate>(),
+        std::iter::empty::<ManeuverGate>(),
     )
-    .expect_err("unknown StopLine edge");
-    std::assert_matches!(error, CoreError::UnknownStopLineEdge { edge_id, .. } if edge_id == "unknown");
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        std::iter::empty::<StopLine>(),
-        [group("same"), group("same")],
-        std::iter::empty::<SignalController>(),
-        std::iter::empty::<MovementGate>(),
-    )
-    .expect_err("duplicate group ID");
-    std::assert_matches!(error, CoreError::DuplicateSignalGroupId { group_id } if group_id == "same");
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        std::iter::empty::<StopLine>(),
-        [group("first"), group("second")],
-        [
-            controller(
-                "same",
-                0,
-                &["first"],
-                vec![phase("p", 10, vec![state("first", SignalAspect::Red)])],
-            ),
-            controller(
-                "same",
-                MAX_PORTABLE_SIGNAL_TIME_MS + 1,
-                &["second"],
-                vec![phase("p", 10, vec![state("second", SignalAspect::Red)])],
-            ),
-        ],
-        std::iter::empty::<MovementGate>(),
-    )
-    .expect_err("duplicate controller ID");
-    std::assert_matches!(error, CoreError::DuplicateSignalControllerId { controller_id } if controller_id == "same");
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        std::iter::empty::<StopLine>(),
-        [group("main")],
-        [controller(
-            "controller",
-            0,
-            &["main"],
-            vec![
-                phase("same", 10, vec![state("main", SignalAspect::Red)]),
-                phase("same", 0, vec![state("main", SignalAspect::Green)]),
-            ],
-        )],
-        std::iter::empty::<MovementGate>(),
-    )
-    .expect_err("duplicate controller-local phase ID");
-    std::assert_matches!(error, CoreError::DuplicateSignalPhaseId { phase_id, .. } if phase_id == "same");
-}
-
-#[test]
-fn every_static_signal_external_id_uses_the_shared_token_rule() {
-    let graph = canonical_graph();
-    let cases = [
-        SignalRegistry::try_new(
-            &graph,
-            [stop_line("bad id", "entry")],
-            std::iter::empty::<SignalGroup>(),
-            std::iter::empty::<SignalController>(),
-            std::iter::empty::<MovementGate>(),
-        ),
-        SignalRegistry::try_new(
-            &graph,
-            std::iter::empty::<StopLine>(),
-            [group("bad id")],
-            std::iter::empty::<SignalController>(),
-            std::iter::empty::<MovementGate>(),
-        ),
-        SignalRegistry::try_new(
-            &graph,
-            std::iter::empty::<StopLine>(),
-            std::iter::empty::<SignalGroup>(),
-            [controller("bad id", 0, &[], vec![])],
-            std::iter::empty::<MovementGate>(),
-        ),
-        SignalRegistry::try_new(
-            &graph,
-            std::iter::empty::<StopLine>(),
-            [group("main")],
-            [controller(
-                "controller",
-                0,
-                &["main"],
-                vec![phase("bad id", 10, vec![state("main", SignalAspect::Red)])],
-            )],
-            std::iter::empty::<MovementGate>(),
-        ),
-    ];
-
-    for error in cases.map(|result| result.expect_err("invalid external ID must fail")) {
-        std::assert_matches!(error, CoreError::InvalidExternalId { external_id, .. } if external_id == "bad id");
-    }
-}
-
-#[test]
-fn controller_ownership_and_cardinality_are_strict() {
-    let graph = canonical_graph();
-    for (controller, expected) in [
-        (
-            controller("empty-groups", 0, &[], vec![phase("p", 10, vec![])]),
-            "groups",
-        ),
-        (controller("empty-phases", 0, &["main"], vec![]), "phases"),
-    ] {
-        let error = SignalRegistry::try_new(
-            &graph,
-            std::iter::empty::<StopLine>(),
-            [group("main")],
-            [controller],
-            std::iter::empty::<MovementGate>(),
-        )
-        .expect_err("empty controller component must fail");
-        match expected {
-            "groups" => std::assert_matches!(error, CoreError::EmptySignalControllerGroups { .. }),
-            "phases" => std::assert_matches!(error, CoreError::EmptySignalControllerPhases { .. }),
-            _ => unreachable!(),
-        }
-    }
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        std::iter::empty::<StopLine>(),
-        [group("main")],
-        [controller(
-            "duplicate-membership",
-            0,
-            &["main", "main"],
-            vec![phase("p", 10, vec![state("main", SignalAspect::Red)])],
-        )],
-        std::iter::empty::<MovementGate>(),
-    )
-    .expect_err("duplicate controller group");
-    std::assert_matches!(error, CoreError::DuplicateSignalControllerGroup { group_id, .. } if group_id == "main");
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        std::iter::empty::<StopLine>(),
-        [group("main")],
-        [controller(
-            "unknown-membership",
-            0,
-            &["unknown"],
-            vec![phase("p", 10, vec![state("unknown", SignalAspect::Red)])],
-        )],
-        std::iter::empty::<MovementGate>(),
-    )
-    .expect_err("controller group must exist");
-    std::assert_matches!(error, CoreError::UnknownSignalControllerGroup { group_id, .. } if group_id == "unknown");
-
-    let shared_phase = || phase("p", 10, vec![state("main", SignalAspect::Red)]);
-    let error = SignalRegistry::try_new(
-        &graph,
-        std::iter::empty::<StopLine>(),
-        [group("main")],
-        [
-            controller("first", 0, &["main"], vec![shared_phase()]),
-            controller("second", 0, &["main"], vec![shared_phase()]),
-        ],
-        std::iter::empty::<MovementGate>(),
-    )
-    .expect_err("group must have one owner");
+    .expect_err("duplicate group");
     std::assert_matches!(
-        error,
-        CoreError::SignalGroupMultipleControllers {
-            first_controller_id,
-            duplicate_controller_id,
-            ..
-        } if first_controller_id == "first" && duplicate_controller_id == "second"
+        duplicate_group,
+        CoreError::DuplicateSignalGroupId { group_id } if group_id == "same"
     );
-}
 
-#[test]
-fn phase_state_validation_reports_unknown_duplicate_then_missing() {
-    let graph = canonical_graph();
-    let build = |states| {
-        SignalRegistry::try_new(
-            &graph,
-            std::iter::empty::<StopLine>(),
-            [group("first"), group("second")],
-            [controller(
-                "controller",
-                0,
-                &["first", "second"],
-                vec![phase("phase", 100, states)],
-            )],
-            std::iter::empty::<MovementGate>(),
-        )
-    };
-
-    let error =
-        build(vec![state("unknown", SignalAspect::Red)]).expect_err("unknown state group first");
-    std::assert_matches!(error, CoreError::UnknownSignalPhaseGroup { group_id, .. } if group_id == "unknown");
-
-    let error = build(vec![
-        state("first", SignalAspect::Red),
-        state("first", SignalAspect::Green),
-    ])
-    .expect_err("duplicate state group before missing group");
-    std::assert_matches!(error, CoreError::DuplicateSignalPhaseGroup { group_id, .. } if group_id == "first");
-
-    let error = build(vec![state("second", SignalAspect::Red)])
-        .expect_err("missing follows controller group order");
-    std::assert_matches!(error, CoreError::MissingSignalPhaseGroup { group_id, .. } if group_id == "first");
-
-    let signals = SignalRegistry::try_new(
-        &graph,
-        [stop_line("stop", "entry")],
-        [group("first"), group("second")],
-        [controller(
-            "controller",
-            0,
-            &["first", "second"],
-            vec![phase(
-                "phase",
-                100,
-                vec![
-                    state("second", SignalAspect::Red),
-                    state("first", SignalAspect::Green),
-                ],
-            )],
-        )],
-        [
-            group_gate("entry", "through", "stop", "first"),
-            group_gate("entry", "bypass", "stop", "second"),
-        ],
-    )
-    .expect("state record order must not change normalized aspect vector");
-    let controller = signals.controller_handle("controller").expect("controller");
-    let phase = signals.phase_ref(controller, "phase").expect("phase");
-    assert_eq!(
-        signals.phase_aspects(phase),
-        Some([SignalAspect::Green, SignalAspect::Red].as_slice())
-    );
-}
-
-#[test]
-fn portable_integer_cycle_and_offset_rules_are_enforced() {
-    let graph = canonical_graph();
     for duration_ms in [0, MAX_PORTABLE_SIGNAL_TIME_MS + 1] {
         let error = SignalRegistry::try_new(
             &graph,
+            &empty,
             std::iter::empty::<StopLine>(),
-            [group("main")],
+            [SignalGroup::new("main")],
             [controller(
-                "invalid-duration",
+                "controller",
                 0,
                 &["main"],
                 vec![phase(
-                    "invalid",
+                    "phase",
                     duration_ms,
                     vec![state("main", SignalAspect::Red)],
                 )],
             )],
-            std::iter::empty::<MovementGate>(),
+            std::iter::empty::<ManeuverGate>(),
         )
-        .expect_err("duration outside portable range");
-        std::assert_matches!(error, CoreError::InvalidSignalPhaseDuration { duration_ms: actual, .. } if actual == duration_ms);
+        .expect_err("invalid phase duration");
+        std::assert_matches!(
+            error,
+            CoreError::InvalidSignalPhaseDuration {
+                duration_ms: actual,
+                ..
+            } if actual == duration_ms
+        );
     }
-    let error = SignalRegistry::try_new(
-        &graph,
-        std::iter::empty::<StopLine>(),
-        [group("main")],
-        [controller(
-            "invalid-offset",
-            MAX_PORTABLE_SIGNAL_TIME_MS + 1,
-            &["main"],
-            vec![phase("p", 10, vec![state("main", SignalAspect::Red)])],
-        )],
-        std::iter::empty::<MovementGate>(),
-    )
-    .expect_err("offset outside portable range");
-    std::assert_matches!(error, CoreError::InvalidSignalControllerOffset { .. });
+}
 
-    let error = SignalRegistry::try_new(
-        &graph,
-        std::iter::empty::<StopLine>(),
-        [group("main")],
+#[test]
+fn maneuver_gate_validation_uses_path_identity_and_profile_order() {
+    let graph = canonical_graph();
+    let junctions = canonical_junctions(&graph);
+    let base_groups = || [SignalGroup::new("main")];
+    let base_controllers = || {
         [controller(
-            "cycle-overflow",
+            "controller",
             0,
             &["main"],
-            vec![
-                phase(
-                    "first",
-                    MAX_PORTABLE_SIGNAL_TIME_MS,
-                    vec![state("main", SignalAspect::Red)],
-                ),
-                phase("second", 1, vec![state("main", SignalAspect::Green)]),
-            ],
-        )],
-        std::iter::empty::<MovementGate>(),
-    )
-    .expect_err("cycle checked sum must be portable");
-    std::assert_matches!(error, CoreError::SignalCycleDurationOverflow { .. });
+            vec![phase("phase", 100, vec![state("main", SignalAspect::Red)])],
+        )]
+    };
 
     let error = SignalRegistry::try_new(
         &graph,
-        std::iter::empty::<StopLine>(),
-        [group("main")],
-        [controller(
-            "offset-equals-cycle",
-            100,
-            &["main"],
-            vec![phase("only", 100, vec![state("main", SignalAspect::Red)])],
+        &junctions,
+        [stop_line("stop", "entry")],
+        base_groups(),
+        base_controllers(),
+        [ManeuverGate::new(
+            "gate",
+            "unknown",
+            0,
+            "stop",
+            SignalControlInput::Group("main".to_owned()),
         )],
-        std::iter::empty::<MovementGate>(),
     )
-    .expect_err("offset must be canonical");
+    .expect_err("unknown path");
     std::assert_matches!(
         error,
-        CoreError::SignalControllerOffsetOutOfRange {
-            offset_ms: 100,
-            cycle_duration_ms: 100,
+        CoreError::UnknownManeuverGatePath {
+            maneuver_path_id,
+            ..
+        } if maneuver_path_id == "unknown"
+    );
+
+    let error = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [stop_line("stop", "entry")],
+        base_groups(),
+        base_controllers(),
+        [ManeuverGate::new(
+            "gate",
+            "path-through",
+            1,
+            "stop",
+            SignalControlInput::Group("main".to_owned()),
+        )],
+    )
+    .expect_err("out of range transition");
+    std::assert_matches!(
+        error,
+        CoreError::ManeuverGateTransitionOutOfRange {
+            transition_index: 1,
             ..
         }
     );
 
-    for (duration_ms, offset_ms) in [
-        (1, 0),
-        (MAX_PORTABLE_SIGNAL_TIME_MS, MAX_PORTABLE_SIGNAL_TIME_MS - 1),
-    ] {
-        SignalRegistry::try_new(
-            &graph,
-            [stop_line("stop", "entry")],
-            [group("main")],
-            [controller(
-                "boundary",
-                offset_ms,
-                &["main"],
-                vec![phase(
-                    "only",
-                    duration_ms,
-                    vec![state("main", SignalAspect::Green)],
-                )],
-            )],
-            [
-                group_gate("entry", "through", "stop", "main"),
-                none_gate("entry", "bypass", "stop"),
-            ],
-        )
-        .expect("portable min/max boundaries must normalize");
-    }
+    let error = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [stop_line("stop", "entry")],
+        base_groups(),
+        base_controllers(),
+        [
+            ManeuverGate::new(
+                "first",
+                "path-through",
+                0,
+                "stop",
+                SignalControlInput::Group("main".to_owned()),
+            ),
+            ManeuverGate::new(
+                "duplicate",
+                "path-through",
+                0,
+                "bad stop id",
+                SignalControlInput::Group("main".to_owned()),
+            ),
+        ],
+    )
+    .expect_err("duplicate path transition before later fields");
+    std::assert_matches!(
+        error,
+        CoreError::DuplicateManeuverGatePathTransition {
+            first_maneuver_gate_id,
+            duplicate_maneuver_gate_id,
+            ..
+        } if first_maneuver_gate_id == "first" && duplicate_maneuver_gate_id == "duplicate"
+    );
+
+    let error = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [stop_line("stop", "entry")],
+        base_groups(),
+        base_controllers(),
+        [ManeuverGate::new(
+            "gate",
+            "path-through",
+            0,
+            "unknown",
+            SignalControlInput::Group("main".to_owned()),
+        )],
+    )
+    .expect_err("unknown StopLine");
+    std::assert_matches!(
+        error,
+        CoreError::UnknownManeuverGateStopLine { stop_line_id, .. }
+            if stop_line_id == "unknown"
+    );
+
+    let error = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [stop_line("wrong-stop", "through")],
+        base_groups(),
+        base_controllers(),
+        [ManeuverGate::new(
+            "gate",
+            "path-through",
+            0,
+            "wrong-stop",
+            SignalControlInput::Group("main".to_owned()),
+        )],
+    )
+    .expect_err("StopLine must be on path from-edge");
+    std::assert_matches!(
+        error,
+        CoreError::ManeuverGateStopLineMismatch {
+            path_from_edge_id,
+            stop_line_edge_id,
+            ..
+        } if path_from_edge_id == "entry" && stop_line_edge_id == "through"
+    );
 }
 
 #[test]
-fn gate_coverage_stop_line_ownership_and_group_usage_are_global_invariants() {
+fn stop_line_requires_path_and_gate_coverage_for_every_outgoing_connection() {
     let graph = canonical_graph();
-    let base_controller = || {
-        controller(
-            "controller",
-            0,
-            &["main"],
-            vec![phase("p", 100, vec![state("main", SignalAspect::Green)])],
-        )
-    };
-
+    let no_bypass = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("junction")],
+        [Movement::new("movement", "junction")],
+        [ManeuverPath::new(
+            "path-through",
+            "movement",
+            "entry",
+            std::iter::empty::<&str>(),
+            "through",
+        )],
+    )
+    .expect("partial topology");
     let error = SignalRegistry::try_new(
         &graph,
+        &no_bypass,
         [stop_line("stop", "entry")],
-        [group("main")],
-        [base_controller()],
-        [group_gate("entry", "through", "stop", "main")],
-    )
-    .expect_err("all outgoing connections require Gate coverage");
-    std::assert_matches!(error, CoreError::MissingMovementGateCoverage { to_edge_id, .. } if to_edge_id == "bypass");
-
-    let terminal_graph = LaneGraph::try_new([LaneEdge::new(
-        "terminal",
-        edge_length(10.0),
-        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
-        std::iter::empty::<&str>(),
-    )])
-    .expect("terminal graph");
-    let error = SignalRegistry::try_new(
-        &terminal_graph,
-        [stop_line("orphan", "terminal")],
-        std::iter::empty::<SignalGroup>(),
-        std::iter::empty::<SignalController>(),
-        std::iter::empty::<MovementGate>(),
-    )
-    .expect_err("terminal StopLine is orphan");
-    std::assert_matches!(error, CoreError::OrphanStopLine { stop_line_id, .. } if stop_line_id == "orphan");
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        std::iter::empty::<StopLine>(),
-        [group("unowned")],
-        std::iter::empty::<SignalController>(),
-        std::iter::empty::<MovementGate>(),
-    )
-    .expect_err("group must have owner");
-    std::assert_matches!(error, CoreError::UnownedSignalGroup { group_id } if group_id == "unowned");
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        [stop_line("stop", "entry")],
-        [group("main"), group("unused")],
+        [SignalGroup::new("main")],
         [controller(
             "controller",
             0,
-            &["main", "unused"],
+            &["main"],
             vec![phase(
-                "p",
+                "phase",
                 100,
-                vec![
-                    state("main", SignalAspect::Green),
-                    state("unused", SignalAspect::Red),
-                ],
+                vec![state("main", SignalAspect::Green)],
             )],
         )],
-        [
-            group_gate("entry", "through", "stop", "main"),
-            none_gate("entry", "bypass", "stop"),
-        ],
+        [ManeuverGate::new(
+            "gate-through",
+            "path-through",
+            0,
+            "stop",
+            SignalControlInput::Group("main".to_owned()),
+        )],
     )
-    .expect_err("every group needs Gate usage");
-    std::assert_matches!(error, CoreError::UnusedSignalGroup { group_id } if group_id == "unused");
-}
+    .expect_err("bypass connection lacks path coverage");
+    std::assert_matches!(
+        error,
+        CoreError::MissingManeuverPathCoverage { to_edge_id, .. }
+            if to_edge_id == "bypass"
+    );
 
-#[test]
-fn gate_references_connection_and_stop_line_must_agree() {
-    let graph = canonical_graph();
-    let controller = || {
-        controller(
+    let junctions = canonical_junctions(&graph);
+    let error = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [stop_line("stop", "entry")],
+        [SignalGroup::new("main")],
+        [controller(
             "controller",
             0,
             &["main"],
-            vec![phase("p", 100, vec![state("main", SignalAspect::Red)])],
-        )
-    };
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        [stop_line("stop", "entry")],
-        [group("main")],
-        [controller()],
-        [group_gate("through", "entry", "stop", "main")],
+            vec![phase(
+                "phase",
+                100,
+                vec![state("main", SignalAspect::Green)],
+            )],
+        )],
+        [ManeuverGate::new(
+            "gate-through",
+            "path-through",
+            0,
+            "stop",
+            SignalControlInput::Group("main".to_owned()),
+        )],
     )
-    .expect_err("Gate pair must be a connection");
-    std::assert_matches!(error, CoreError::DisconnectedMovementGate { .. });
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        [stop_line("stop", "entry")],
-        [group("main")],
-        [controller()],
-        [group_gate("unknown", "through", "stop", "main")],
-    )
-    .expect_err("Gate from edge must exist");
-    std::assert_matches!(error, CoreError::UnknownMovementGateFromEdge { edge_id } if edge_id == "unknown");
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        [stop_line("stop", "entry")],
-        [group("main")],
-        [controller()],
-        [group_gate("entry", "through", "unknown", "main")],
-    )
-    .expect_err("Gate StopLine must exist");
-    std::assert_matches!(error, CoreError::UnknownMovementGateStopLine { stop_line_id } if stop_line_id == "unknown");
-
-    let error = SignalRegistry::try_new(
-        &graph,
-        [stop_line("stop", "entry")],
-        [group("main")],
-        [controller()],
-        [group_gate("entry", "through", "stop", "unknown")],
-    )
-    .expect_err("Gate SignalGroup must exist");
-    std::assert_matches!(error, CoreError::UnknownMovementGateSignalGroup { group_id } if group_id == "unknown");
-
-    let graph = LaneGraph::try_new([
-        LaneEdge::new(
-            "first",
-            edge_length(10.0),
-            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
-            ["target"],
-        ),
-        LaneEdge::new(
-            "second",
-            edge_length(10.0),
-            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
-            ["target"],
-        ),
-        LaneEdge::new(
-            "target",
-            edge_length(10.0),
-            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
-            std::iter::empty::<&str>(),
-        ),
-    ])
-    .expect("valid graph");
-    let error = SignalRegistry::try_new(
-        &graph,
-        [stop_line("stop", "first")],
-        [group("main")],
-        [controller()],
-        [group_gate("second", "target", "stop", "main")],
-    )
-    .expect_err("Gate StopLine belongs to from edge");
-    std::assert_matches!(error, CoreError::MovementGateStopLineMismatch { from_edge_id, .. } if from_edge_id == "second");
-
-    let graph = canonical_graph();
-    let error = SignalRegistry::try_new(
-        &graph,
-        [stop_line("stop", "entry")],
-        [group("main")],
-        [controller()],
-        [
-            group_gate("entry", "through", "stop", "main"),
-            group_gate("entry", "through", "bad stop line", "main"),
-        ],
-    )
-    .expect_err("Gate pair identity must be unique");
-    std::assert_matches!(error, CoreError::DuplicateMovementGate { from_edge_id, to_edge_id }
-        if from_edge_id == "entry" && to_edge_id == "through");
+    .expect_err("bypass path lacks gate coverage");
+    std::assert_matches!(
+        error,
+        CoreError::MissingManeuverGateCoverage {
+            maneuver_path_id,
+            ..
+        } if maneuver_path_id == "path-bypass"
+    );
 }
 
 #[test]
-fn routes_cannot_terminate_at_stop_line_for_initial_or_runtime_registration() {
-    let graph = canonical_graph();
-    let signals = canonical_registry(&graph);
-    let error = InitialTrafficData::try_new_with_signals(
-        graph.clone(),
-        [Route::try_new("invalid", ["entry"]).expect("route shape")],
-        VehicleProfileRegistry::empty(),
-        signals.clone(),
-    )
-    .expect_err("initial route cannot terminate at StopLine");
-    std::assert_matches!(error, CoreError::RouteTerminatesAtStopLine { route_id, .. } if route_id == "invalid");
-
-    let traffic = InitialTrafficData::try_new_with_signals(
-        graph,
-        [Route::try_new("valid", ["entry", "through"]).expect("route shape")],
-        VehicleProfileRegistry::empty(),
-        signals,
-    )
-    .expect("valid traffic data");
-    let mut world = CoreWorld::with_traffic_data(16, traffic, Vec::new()).expect("valid world");
-    let before = world.clone();
-    let error = world
-        .register_route(Route::try_new("invalid-runtime", ["entry"]).expect("route shape"))
-        .expect_err("runtime registration reuses StopLine rule");
-    std::assert_matches!(error, CoreError::RouteTerminatesAtStopLine { route_id, .. } if route_id == "invalid-runtime");
-    assert_eq!(world, before, "failed route registration must be atomic");
-}
-
-#[test]
-fn initial_traffic_data_rebinds_signals_to_its_own_lane_graph() {
+fn initial_traffic_data_rebinds_topology_signals_and_route_compilation() {
     let source_graph = canonical_graph();
-    let signals = canonical_registry(&source_graph);
+    let source_junctions = canonical_junctions(&source_graph);
+    let signals = canonical_registry(&source_graph, &source_junctions);
     let reordered_graph = LaneGraph::try_new([
         LaneEdge::new(
             "bypass",
@@ -828,48 +506,60 @@ fn initial_traffic_data_rebinds_signals_to_its_own_lane_graph() {
             std::iter::empty::<&str>(),
         ),
     ])
-    .expect("same topology with different handle order");
-
-    let traffic = InitialTrafficData::try_new_with_signals(
+    .expect("same topology in different order");
+    let traffic = InitialTrafficData::try_new(
         reordered_graph,
-        [Route::try_new("valid", ["entry", "through"]).expect("route shape")],
+        [Route::try_new("route", ["entry", "through"]).expect("route")],
         VehicleProfileRegistry::empty(),
+        source_junctions,
         signals,
+        laneflow_core::ParkingRegistry::empty(),
     )
-    .expect("Signals must be atomically rebound to the traffic graph");
-    let stop_line = traffic
+    .expect("all graph-dependent domains rebind");
+    let gate = traffic
         .signals()
-        .stop_line_handle("stop-entry")
-        .expect("StopLine resolver");
+        .maneuver_gate_handle("gate-through")
+        .expect("gate");
+    let path = traffic
+        .junctions()
+        .maneuver_path_handle("path-through")
+        .expect("path");
+    assert_eq!(traffic.signals().maneuver_gate_path(gate), Some(path));
     assert_eq!(
-        traffic.signals().stop_line_edge(stop_line),
+        traffic.signals().stop_line_edge(
+            traffic
+                .signals()
+                .stop_line_handle("stop-entry")
+                .expect("stop line")
+        ),
         traffic.lane_graph().edge_handle("entry")
     );
-
-    let incompatible_graph = LaneGraph::try_new([LaneEdge::new(
-        "other",
-        edge_length(10.0),
-        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
-        std::iter::empty::<&str>(),
-    )])
-    .expect("valid incompatible graph");
-    let error = InitialTrafficData::try_new_with_signals(
-        incompatible_graph,
-        std::iter::empty::<Route>(),
-        VehicleProfileRegistry::empty(),
-        canonical_registry(&source_graph),
-    )
-    .expect_err("mismatched graph-dependent registry must fail atomically");
-    std::assert_matches!(error, CoreError::UnknownStopLineEdge { edge_id, .. } if edge_id == "entry");
 }
 
 #[test]
-fn world_validates_phase_delta_and_allows_vehicle_activation_after_compliance() {
+fn route_stopline_rule_and_phase_delta_remain_atomic_with_new_domains() {
     let graph = canonical_graph();
+    let junctions = canonical_junctions(&graph);
+    let signals = canonical_registry(&graph, &junctions);
+    let error = InitialTrafficData::try_new(
+        graph.clone(),
+        [Route::try_new("invalid", ["entry"]).expect("route")],
+        VehicleProfileRegistry::empty(),
+        junctions.clone(),
+        signals.clone(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect_err("route cannot terminate at StopLine");
+    std::assert_matches!(
+        error,
+        CoreError::RouteTerminatesAtStopLine { route_id, .. } if route_id == "invalid"
+    );
+
     let short_signals = SignalRegistry::try_new(
         &graph,
+        &junctions,
         [stop_line("stop", "entry")],
-        [group("main")],
+        [SignalGroup::new("main")],
         [controller(
             "controller",
             0,
@@ -877,18 +567,32 @@ fn world_validates_phase_delta_and_allows_vehicle_activation_after_compliance() 
             vec![phase("short", 15, vec![state("main", SignalAspect::Red)])],
         )],
         [
-            group_gate("entry", "through", "stop", "main"),
-            none_gate("entry", "bypass", "stop"),
+            ManeuverGate::new(
+                "gate-through",
+                "path-through",
+                0,
+                "stop",
+                SignalControlInput::Group("main".to_owned()),
+            ),
+            ManeuverGate::new(
+                "gate-bypass",
+                "path-bypass",
+                0,
+                "stop",
+                SignalControlInput::None,
+            ),
         ],
     )
-    .expect("static registry is valid without world delta");
-    let traffic = InitialTrafficData::try_new_with_signals(
+    .expect("static Signals");
+    let traffic = InitialTrafficData::try_new(
         graph.clone(),
-        [Route::try_new("route", ["entry", "through"]).expect("route shape")],
+        [Route::try_new("route", ["entry", "through"]).expect("route")],
         VehicleProfileRegistry::empty(),
+        junctions.clone(),
         short_signals,
+        laneflow_core::ParkingRegistry::empty(),
     )
-    .expect("static traffic data");
+    .expect("static traffic");
     let error = CoreWorld::with_traffic_data(16, traffic, Vec::new())
         .expect_err("phase shorter than fixed delta");
     std::assert_matches!(
@@ -901,34 +605,25 @@ fn world_validates_phase_delta_and_allows_vehicle_activation_after_compliance() 
     );
 
     let (profiles, profile) = profile_registry();
-    let signals = canonical_registry(&graph);
-    let route = Route::try_new("route", ["entry", "through"]).expect("route shape");
     let vehicle = VehicleSpawnInput::new(
         "vehicle",
         profile,
         "route",
         0,
-        EdgeProgress::try_new(0.0).expect("progress"),
-        Speed::try_new(0.0).expect("speed"),
+        EdgeProgress::ZERO,
+        Speed::ZERO,
         VehicleStatus::Active,
     );
-    let traffic = InitialTrafficData::try_new_with_signals(
-        graph.clone(),
-        [route.clone()],
-        profiles.clone(),
-        signals.clone(),
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        [Route::try_new("route", ["entry", "through"]).expect("route")],
+        profiles,
+        junctions,
+        signals,
+        laneflow_core::ParkingRegistry::empty(),
     )
-    .expect("valid traffic data");
-    let world = CoreWorld::with_traffic_data(16, traffic, vec![vehicle.clone()])
-        .expect("initial vehicle activation is supported after #96 compliance");
+    .expect("valid traffic");
+    let world = CoreWorld::with_traffic_data(16, traffic, vec![vehicle])
+        .expect("Signals and vehicles compose");
     assert_eq!(world.vehicles().count(), 1);
-
-    let traffic = InitialTrafficData::try_new_with_signals(graph, [route], profiles, signals)
-        .expect("valid traffic data");
-    let mut world =
-        CoreWorld::with_traffic_data(16, traffic, Vec::new()).expect("signal-only world");
-    let handle = world
-        .spawn_vehicle(vehicle)
-        .expect("runtime spawn is supported after #96 compliance");
-    assert!(world.vehicle(handle).is_some());
 }

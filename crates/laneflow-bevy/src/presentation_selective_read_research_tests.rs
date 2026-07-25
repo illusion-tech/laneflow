@@ -414,10 +414,11 @@ fn mixed_adapter_fixture() -> MixedAdapterFixture {
     )
     .expect("research Parking registry");
     let (profiles, profile) = research_profile("research-profile");
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph.clone(),
         [Route::try_new("research-route", ["research-edge"]).expect("research route")],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -527,6 +528,9 @@ impl ScaleAdapterFixture {
             graph.clone(),
             [Route::try_new("scale-route", ["scale-edge"]).expect("scale route")],
             profiles,
+            laneflow_core::JunctionRegistry::empty(),
+            SignalRegistry::empty(),
+            ParkingRegistry::empty(),
         )
         .expect("scale traffic");
         let vehicles = (0..vehicle_count)

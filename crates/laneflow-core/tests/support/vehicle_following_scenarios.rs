@@ -90,8 +90,15 @@ fn linear_platoon_world(
     let route =
         Route::try_new("platoon-route", ["platoon-edge"]).expect("scenario route must be valid");
     let (profiles, profile) = profile_registry(desired_speed);
-    let traffic_data = InitialTrafficData::try_new(lane_graph, [route], profiles)
-        .expect("linear scenario traffic data must be valid");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        [route],
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("linear scenario traffic data must be valid");
     let vehicles = (0..vehicle_count)
         .map(|index| {
             let front = progress(spacing * index as f64);
@@ -151,8 +158,15 @@ fn locality_preserving_platoon_world(
     let route = Route::try_new("locality-platoon-route", edge_ids)
         .expect("locality-preserving scenario route must be valid");
     let (profiles, profile) = profile_registry(desired_speed);
-    let traffic_data = InitialTrafficData::try_new(lane_graph, [route], profiles)
-        .expect("locality-preserving scenario traffic data must be valid");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        [route],
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("locality-preserving scenario traffic data must be valid");
     let vehicles = (0..vehicle_count)
         .map(|index| {
             let route_progress = spacing * index as f64;
@@ -243,8 +257,15 @@ pub fn speed_limit_transition_world(vehicle_count: usize) -> CoreWorld {
     let route =
         Route::try_new("speed-limit-route", edge_ids).expect("speed-limit route must be valid");
     let (profiles, profile) = profile_registry(20.0);
-    let traffic_data = InitialTrafficData::try_new(lane_graph, [route], profiles)
-        .expect("speed-limit traffic data must be valid");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        [route],
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("speed-limit traffic data must be valid");
     let vehicles = (0..vehicle_count)
         .map(|index| {
             VehicleSpawnInput::active(
@@ -287,8 +308,15 @@ pub fn projection_heavy_world(vehicle_count: usize) -> CoreWorld {
     let route =
         Route::try_new("projection-route", edge_ids).expect("projection route must be valid");
     let (profiles, profile) = profile_registry(20.0);
-    let traffic_data = InitialTrafficData::try_new(lane_graph, [route], profiles)
-        .expect("projection traffic data must be valid");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        [route],
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("projection traffic data must be valid");
     let vehicles = (0..pair_count)
         .flat_map(|pair_index| {
             let follower_index = pair_index * 2;
@@ -349,8 +377,15 @@ pub fn transition_heavy_world(vehicle_count: usize) -> CoreWorld {
     let seconds_per_step = FIXED_DELTA_TIME_MS as f64 / MILLISECONDS_PER_SECOND;
     let transition_speed = speed(TRANSITION_EDGE_LENGTH / seconds_per_step);
     let (profiles, profile) = profile_registry(transition_speed.value());
-    let traffic_data = InitialTrafficData::try_new(lane_graph, routes, profiles)
-        .expect("transition traffic data must be valid");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        routes,
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("transition traffic data must be valid");
     let vehicles = (0..vehicle_count)
         .map(|index| {
             VehicleSpawnInput::active(
@@ -393,8 +428,15 @@ pub fn transition_pressure_world(vehicle_count: usize, crossing_percent: usize) 
         })
         .collect();
     let (profiles, profile) = profile_registry(TRANSITION_PRESSURE_SPEED);
-    let traffic_data = InitialTrafficData::try_new(lane_graph, routes, profiles)
-        .expect("transition pressure traffic data must be valid");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        routes,
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("transition pressure traffic data must be valid");
     let crossing_count = vehicle_count * crossing_percent / 100;
     let vehicles = (0..vehicle_count)
         .map(|index| {

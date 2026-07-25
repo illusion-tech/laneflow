@@ -78,8 +78,15 @@ fn single_edge_world_with_min_gap(
     .expect("valid graph");
     let route = Route::try_new("R", ["E"]).expect("valid route");
     let (profiles, handle) = profile_with_min_gap(desired_speed, min_gap, 2.0, 8.0);
-    let traffic_data =
-        InitialTrafficData::try_new(lane_graph, [route], profiles).expect("valid traffic data");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        [route],
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("valid traffic data");
     CoreWorld::with_traffic_data(1_000, traffic_data, vehicles(handle)).expect("valid world")
 }
 
@@ -331,8 +338,15 @@ fn safety_projection_event_precedes_actual_edge_transition() {
     .expect("valid graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
     let (profiles, profile) = profile(20.0, 2.0, 8.0);
-    let traffic_data =
-        InitialTrafficData::try_new(lane_graph, [route], profiles).expect("valid traffic data");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        [route],
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("valid traffic data");
     let mut world = CoreWorld::with_traffic_data(
         1_000,
         traffic_data,
@@ -368,8 +382,15 @@ fn leader_route_completion_uses_actual_terminal_travel_for_projection() {
     .expect("valid graph");
     let route = Route::try_new("R", ["E"]).expect("valid route");
     let (profiles, profile) = profile(20.0, 2.0, 8.0);
-    let traffic_data =
-        InitialTrafficData::try_new(lane_graph, [route], profiles).expect("valid traffic data");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        [route],
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("valid traffic data");
     let mut world = CoreWorld::with_traffic_data(
         1_000,
         traffic_data,
@@ -405,8 +426,15 @@ fn repeated_edge_cycle_is_deterministic_across_input_order() {
         .expect("valid graph");
         let route = Route::try_new("R", ["E", "E"]).expect("valid repeated route");
         let (profiles, profile) = profile(20.0, 2.0, 8.0);
-        let traffic_data =
-            InitialTrafficData::try_new(lane_graph, [route], profiles).expect("valid traffic data");
+        let traffic_data = InitialTrafficData::try_new(
+            lane_graph,
+            [route],
+            profiles,
+            laneflow_core::JunctionRegistry::empty(),
+            laneflow_core::SignalRegistry::empty(),
+            laneflow_core::ParkingRegistry::empty(),
+        )
+        .expect("valid traffic data");
         let first = VehicleSpawnInput::active("A", profile, "R", 0, progress(20.0), speed(10.0));
         let second = VehicleSpawnInput::active("B", profile, "R", 0, progress(70.0), speed(10.0));
         let vehicles = if reverse {

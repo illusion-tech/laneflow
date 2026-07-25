@@ -1,10 +1,10 @@
 use laneflow_core::{
-    CoreEvent, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, LaneEdge,
-    LaneGraph, MovementGate, ParkingApproachState, ParkingRegistry, ParkingSpace,
-    ParkingSpaceGeometry, Route, SignalAspect, SignalControlInput, SignalController, SignalGroup,
-    SignalGroupState, SignalPhase, SignalRegistry, Speed, StopLine, StopLineLocation, TickInput,
-    VehicleParkingState, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
-    VehicleSpawnInput,
+    CoreEvent, CoreWorld, EdgeLength, EdgeProgress, IidmProfileSpec, InitialTrafficData, Junction,
+    JunctionRegistry, LaneEdge, LaneGraph, ManeuverGate, ManeuverPath, Movement,
+    ParkingApproachState, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, Route, SignalAspect,
+    SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
+    SignalRegistry, Speed, StopLine, StopLineLocation, TickInput, VehicleParkingState,
+    VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry, VehicleSpawnInput,
 };
 
 const CURRENT_LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS: f64 = 1.0e-9;
@@ -56,8 +56,22 @@ fn signal_parking_world(
         ),
     ])
     .expect("graph");
+    let junctions = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("junction")],
+        [Movement::new("movement", "junction")],
+        [ManeuverPath::new(
+            "path",
+            "movement",
+            "entry",
+            std::iter::empty::<&str>(),
+            "exit",
+        )],
+    )
+    .expect("topology");
     let signals = SignalRegistry::try_new(
         &graph,
+        &junctions,
         [StopLine::new("stop", "entry", StopLineLocation::EdgeEnd)],
         [SignalGroup::new("main")],
         [SignalController::new_fixed_time(
@@ -70,9 +84,10 @@ fn signal_parking_world(
                 [SignalGroupState::new("main", SignalAspect::Red)],
             )],
         )],
-        [MovementGate::new(
-            "entry",
-            "exit",
+        [ManeuverGate::new(
+            "gate",
+            "path",
+            0,
             "stop",
             SignalControlInput::Group("main".to_owned()),
         )],
@@ -93,10 +108,11 @@ fn signal_parking_world(
     )
     .expect("parking");
     let (profiles, profile) = profiles();
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("route", ["entry", "exit"]).expect("route")],
         profiles,
+        junctions,
         signals,
         parking,
     )
@@ -219,10 +235,11 @@ fn parking_projection_precedes_stricter_following_projection() {
     )
     .expect("parking");
     let (profiles, profile) = profiles();
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("route", ["edge"]).expect("route")],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -307,10 +324,11 @@ fn repeated_edge_uses_selected_occurrence_and_orders_edge_before_arrival() {
     )
     .expect("parking");
     let (profiles, profile) = profiles();
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("route", ["a", "b", "a"]).expect("route")],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )

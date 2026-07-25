@@ -1,14 +1,18 @@
 //! v0.4 Signals 静态领域、normalization registry 与 resolver。
 
+use std::ops::Range;
+
 use indexmap::{IndexMap, IndexSet};
 
 use crate::{
     error::CoreError,
     graph::LaneGraph,
     handle::{
-        EdgeHandle, SignalControllerHandle, SignalGroupHandle, SignalPhaseRef, StopLineHandle,
+        EdgeHandle, ManeuverGateHandle, ManeuverPathHandle, SignalControllerHandle,
+        SignalGroupHandle, SignalPhaseRef, StopLineHandle,
     },
     id::validate_external_id,
+    junction::JunctionRegistry,
 };
 
 /// JSON interoperable integer 能无损表达的最大 signal scheduling 毫秒值（`2^53 - 1`）。
@@ -80,11 +84,11 @@ impl SignalGroup {
 /// v0.4 SignalGroup indication 闭集。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SignalAspect {
-    /// 禁止进入受控 MovementGate。
+    /// 禁止进入受控 ManeuverGate。
     Red,
-    /// v0.4 保守策略下禁止进入受控 MovementGate。
+    /// v0.4 保守策略下禁止进入受控 ManeuverGate。
     Yellow,
-    /// 允许进入受控 MovementGate，但不代表最终 right-of-way。
+    /// 允许进入受控 ManeuverGate，但不代表最终 right-of-way。
     Green,
 }
 
@@ -217,91 +221,68 @@ impl SignalController {
     }
 }
 
-/// MovementGate 的 external signal binding。
+/// ManeuverGate 的 external signal binding。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SignalControlInput {
     Group(String),
     None,
 }
 
-/// directed connection 上的 immutable MovementGate 输入定义。
+/// ManeuverPath transition 上的 immutable ManeuverGate 输入定义。
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MovementGate {
-    from_edge_id: String,
-    to_edge_id: String,
+pub struct ManeuverGate {
+    id: String,
+    maneuver_path_id: String,
+    transition_index: u32,
     stop_line_id: String,
     signal_control: SignalControlInput,
 }
 
-impl MovementGate {
-    /// 创建待由 `SignalRegistry` normalization 的 MovementGate definition。
+impl ManeuverGate {
+    /// 创建待由 `SignalRegistry` normalization 的 ManeuverGate definition。
     pub fn new(
-        from_edge_id: impl Into<String>,
-        to_edge_id: impl Into<String>,
+        id: impl Into<String>,
+        maneuver_path_id: impl Into<String>,
+        transition_index: u32,
         stop_line_id: impl Into<String>,
         signal_control: SignalControlInput,
     ) -> Self {
         Self {
-            from_edge_id: from_edge_id.into(),
-            to_edge_id: to_edge_id.into(),
+            id: id.into(),
+            maneuver_path_id: maneuver_path_id.into(),
+            transition_index,
             stop_line_id: stop_line_id.into(),
             signal_control,
         }
     }
 
-    pub fn from_edge_id(&self) -> &str {
-        &self.from_edge_id
+    /// 返回 ManeuverGate external ID。
+    pub fn id(&self) -> &str {
+        &self.id
     }
 
-    pub fn to_edge_id(&self) -> &str {
-        &self.to_edge_id
+    /// 返回绑定的 ManeuverPath external ID。
+    pub fn maneuver_path_id(&self) -> &str {
+        &self.maneuver_path_id
     }
 
+    /// 返回 path-local transition index。
+    pub const fn transition_index(&self) -> u32 {
+        self.transition_index
+    }
+
+    /// 返回绑定的 StopLine external ID。
     pub fn stop_line_id(&self) -> &str {
         &self.stop_line_id
     }
 
+    /// 返回 external signal control。
     pub const fn signal_control(&self) -> &SignalControlInput {
         &self.signal_control
     }
 }
 
-/// normalized MovementGate value identity。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct MovementGateKey {
-    from_edge: EdgeHandle,
-    to_edge: EdgeHandle,
-}
-
-/// Core 内部按 MovementGate normalization order 分配的 dense index。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct MovementGateIndex(usize);
-
-impl MovementGateIndex {
-    const fn new(index: usize) -> Self {
-        Self(index)
-    }
-
-    const fn index(self) -> usize {
-        self.0
-    }
-}
-
-impl MovementGateKey {
-    pub const fn new(from_edge: EdgeHandle, to_edge: EdgeHandle) -> Self {
-        Self { from_edge, to_edge }
-    }
-
-    pub const fn from_edge(self) -> EdgeHandle {
-        self.from_edge
-    }
-
-    pub const fn to_edge(self) -> EdgeHandle {
-        self.to_edge
-    }
-}
-
-/// normalized MovementGate signal binding。
+/// normalized ManeuverGate signal binding。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SignalControl {
     Group(SignalGroupHandle),
@@ -389,10 +370,10 @@ pub enum SignalLayerPermission {
     DenyAndStop,
 }
 
-/// MovementGate 当前 signal binding snapshot。
+/// ManeuverGate 当前 signal binding snapshot。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum MovementGateSignalState {
+pub enum ManeuverGateSignalState {
     /// `signalControl:none`，仅表示 signal layer 不施加约束。
     Uncontrolled,
     /// Gate 由一个 SignalGroup 控制。
@@ -406,20 +387,20 @@ pub enum MovementGateSignalState {
     },
 }
 
-/// 当前已提交的 MovementGate snapshot。
+/// 当前已提交的 ManeuverGate snapshot。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct MovementGateState {
-    key: MovementGateKey,
+pub struct ManeuverGateState {
+    gate: ManeuverGateHandle,
     stop_line: StopLineHandle,
-    signal: MovementGateSignalState,
+    signal: ManeuverGateSignalState,
 }
 
 /// Tick-local SignalStop spatial target 与事件归因。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct SignalStopConstraint {
     pub(crate) route_distance: f64,
-    pub(crate) gate: MovementGateKey,
+    pub(crate) gate: ManeuverGateHandle,
     pub(crate) stop_line: StopLineHandle,
     pub(crate) group: SignalGroupHandle,
     pub(crate) aspect: SignalAspect,
@@ -427,10 +408,10 @@ pub(crate) struct SignalStopConstraint {
     pub(crate) to_route_edge_index: usize,
 }
 
-impl MovementGateState {
-    /// 返回 Gate value identity。
-    pub const fn key(self) -> MovementGateKey {
-        self.key
+impl ManeuverGateState {
+    /// 返回 Gate identity。
+    pub const fn gate(self) -> ManeuverGateHandle {
+        self.gate
     }
 
     /// 返回 Gate 使用的 StopLine。
@@ -439,7 +420,7 @@ impl MovementGateState {
     }
 
     /// 返回当前 signal binding/aspect/permission snapshot。
-    pub const fn signal(self) -> MovementGateSignalState {
+    pub const fn signal(self) -> ManeuverGateSignalState {
         self.signal
     }
 }
@@ -490,8 +471,13 @@ impl SignalRuntimeState {
 
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> usize {
-        self.controllers.capacity() * std::mem::size_of::<SignalControllerState>()
-            + self.groups.capacity() * std::mem::size_of::<SignalGroupSnapshot>()
+        let Self {
+            controllers,
+            groups,
+            has_restrictive_group: _,
+        } = self;
+        controllers.capacity() * std::mem::size_of::<SignalControllerState>()
+            + groups.capacity() * std::mem::size_of::<SignalGroupSnapshot>()
     }
 }
 
@@ -530,7 +516,8 @@ impl SignalRuntimeScratch {
 
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> usize {
-        self.state.retained_bytes()
+        let Self { state } = self;
+        state.retained_bytes()
     }
 }
 
@@ -563,8 +550,9 @@ struct ResolvedSignalController {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct ResolvedMovementGate {
-    definition: MovementGate,
+struct ResolvedManeuverGate {
+    definition: ManeuverGate,
+    maneuver_path: ManeuverPathHandle,
     stop_line: StopLineHandle,
     control: SignalControl,
 }
@@ -579,7 +567,11 @@ pub struct SignalRegistry {
     group_handles: IndexMap<String, SignalGroupHandle>,
     controllers: Vec<ResolvedSignalController>,
     controller_handles: IndexMap<String, SignalControllerHandle>,
-    movement_gates: IndexMap<MovementGateKey, ResolvedMovementGate>,
+    maneuver_gates: Vec<ResolvedManeuverGate>,
+    maneuver_gate_handles: IndexMap<String, ManeuverGateHandle>,
+    maneuver_gate_by_path_transition: IndexMap<(ManeuverPathHandle, u32), ManeuverGateHandle>,
+    maneuver_gate_ranges: Vec<Range<usize>>,
+    maneuver_gates_by_path: Vec<ManeuverGateHandle>,
 }
 
 impl SignalRegistry {
@@ -593,23 +585,28 @@ impl SignalRegistry {
             group_handles: IndexMap::new(),
             controllers: Vec::new(),
             controller_handles: IndexMap::new(),
-            movement_gates: IndexMap::new(),
+            maneuver_gates: Vec::new(),
+            maneuver_gate_handles: IndexMap::new(),
+            maneuver_gate_by_path_transition: IndexMap::new(),
+            maneuver_gate_ranges: Vec::new(),
+            maneuver_gates_by_path: Vec::new(),
         }
     }
 
     /// 按 canonical 顺序 normalization 全部 static Signals definitions。
     pub fn try_new<SL, SG, SC, MG>(
         lane_graph: &LaneGraph,
+        junctions: &JunctionRegistry,
         stop_lines: SL,
         groups: SG,
         controllers: SC,
-        movement_gates: MG,
+        maneuver_gates: MG,
     ) -> Result<Self, CoreError>
     where
         SL: IntoIterator<Item = StopLine>,
         SG: IntoIterator<Item = SignalGroup>,
         SC: IntoIterator<Item = SignalController>,
-        MG: IntoIterator<Item = MovementGate>,
+        MG: IntoIterator<Item = ManeuverGate>,
     {
         let mut resolved_stop_lines: Vec<ResolvedStopLine> = Vec::new();
         let mut stop_line_handles = IndexMap::new();
@@ -814,60 +811,101 @@ impl SignalRegistry {
             });
         }
 
-        let mut normalized_gates = IndexMap::new();
-        let mut gate_identities = IndexSet::new();
+        let mut normalized_gates: Vec<ResolvedManeuverGate> = Vec::new();
+        let mut maneuver_gate_handles = IndexMap::new();
+        let mut gate_by_path_transition: IndexMap<(ManeuverPathHandle, u32), ManeuverGateHandle> =
+            IndexMap::new();
+        let mut gate_counts_by_path = vec![0_usize; junctions.maneuver_paths().len()];
         let mut group_usage = vec![false; group_definitions.len()];
-        for gate in movement_gates {
-            validate_external_id("signals.movementGates[].fromEdgeId", gate.from_edge_id())?;
-            validate_external_id("signals.movementGates[].toEdgeId", gate.to_edge_id())?;
-            if !gate_identities
-                .insert((gate.from_edge_id().to_owned(), gate.to_edge_id().to_owned()))
+        for gate in maneuver_gates {
+            validate_external_id("signals.maneuverGates[].id", gate.id())?;
+            if maneuver_gate_handles.contains_key(gate.id()) {
+                return Err(CoreError::DuplicateManeuverGateId {
+                    maneuver_gate_id: gate.id().to_owned(),
+                });
+            }
+            if normalized_gates.len() >= u32::MAX as usize {
+                return Err(CoreError::StaticDomainCapacityExceeded {
+                    domain: "maneuverGates",
+                    count: normalized_gates.len().saturating_add(1),
+                    max_inclusive: u32::MAX,
+                });
+            }
+
+            validate_external_id(
+                "signals.maneuverGates[].maneuverPathId",
+                gate.maneuver_path_id(),
+            )?;
+            let maneuver_path = junctions
+                .maneuver_path_handle(gate.maneuver_path_id())
+                .ok_or_else(|| CoreError::UnknownManeuverGatePath {
+                    maneuver_gate_id: gate.id().to_owned(),
+                    maneuver_path_id: gate.maneuver_path_id().to_owned(),
+                })?;
+            let path_edges = junctions
+                .maneuver_path_edges(maneuver_path)
+                .expect("resolved ManeuverPath handle must exist");
+            let transition_count = path_edges.len() - 1;
+            let transition_index = gate.transition_index() as usize;
+            if transition_index >= transition_count {
+                return Err(CoreError::ManeuverGateTransitionOutOfRange {
+                    maneuver_gate_id: gate.id().to_owned(),
+                    maneuver_path_id: gate.maneuver_path_id().to_owned(),
+                    transition_index: gate.transition_index(),
+                    transition_count,
+                });
+            }
+            if gate.transition_index() != 0 {
+                return Err(CoreError::UnsupportedManeuverGateTransition {
+                    maneuver_gate_id: gate.id().to_owned(),
+                    transition_index: gate.transition_index(),
+                });
+            }
+            if let Some(first) = gate_by_path_transition
+                .get(&(maneuver_path, gate.transition_index()))
+                .copied()
             {
-                return Err(CoreError::DuplicateMovementGate {
-                    from_edge_id: gate.from_edge_id().to_owned(),
-                    to_edge_id: gate.to_edge_id().to_owned(),
+                return Err(CoreError::DuplicateManeuverGatePathTransition {
+                    maneuver_path_id: gate.maneuver_path_id().to_owned(),
+                    transition_index: gate.transition_index(),
+                    first_maneuver_gate_id: normalized_gates[first.index()]
+                        .definition
+                        .id()
+                        .to_owned(),
+                    duplicate_maneuver_gate_id: gate.id().to_owned(),
                 });
             }
-            let from_edge = lane_graph.edge_handle(gate.from_edge_id()).ok_or_else(|| {
-                CoreError::UnknownMovementGateFromEdge {
-                    edge_id: gate.from_edge_id().to_owned(),
-                }
-            })?;
-            let to_edge = lane_graph.edge_handle(gate.to_edge_id()).ok_or_else(|| {
-                CoreError::UnknownMovementGateToEdge {
-                    edge_id: gate.to_edge_id().to_owned(),
-                }
-            })?;
-            if !lane_graph.can_traverse(from_edge, to_edge) {
-                return Err(CoreError::DisconnectedMovementGate {
-                    from_edge_id: gate.from_edge_id().to_owned(),
-                    to_edge_id: gate.to_edge_id().to_owned(),
-                });
-            }
-            let key = MovementGateKey::new(from_edge, to_edge);
-            validate_external_id("signals.movementGates[].stopLineId", gate.stop_line_id())?;
+
+            validate_external_id("signals.maneuverGates[].stopLineId", gate.stop_line_id())?;
             let stop_line = stop_line_handles
                 .get(gate.stop_line_id())
                 .copied()
-                .ok_or_else(|| CoreError::UnknownMovementGateStopLine {
+                .ok_or_else(|| CoreError::UnknownManeuverGateStopLine {
+                    maneuver_gate_id: gate.id().to_owned(),
                     stop_line_id: gate.stop_line_id().to_owned(),
                 })?;
             let normalized_stop_line = &resolved_stop_lines[stop_line.index()];
+            let from_edge = path_edges[transition_index];
             if normalized_stop_line.edge != from_edge {
-                return Err(CoreError::MovementGateStopLineMismatch {
+                return Err(CoreError::ManeuverGateStopLineMismatch {
+                    maneuver_gate_id: gate.id().to_owned(),
                     stop_line_id: gate.stop_line_id().to_owned(),
                     stop_line_edge_id: normalized_stop_line.definition.edge_id().to_owned(),
-                    from_edge_id: gate.from_edge_id().to_owned(),
+                    path_from_edge_id: lane_graph
+                        .edge_external_id(from_edge)
+                        .expect("resolved path edge must belong to LaneGraph")
+                        .to_owned(),
                 });
             }
             let control = match gate.signal_control() {
                 SignalControlInput::Group(group_id) => {
                     validate_external_id(
-                        "signals.movementGates[].signalControl.groupId",
+                        "signals.maneuverGates[].signalControl.groupId",
                         group_id,
                     )?;
                     let group = group_handles.get(group_id).copied().ok_or_else(|| {
-                        CoreError::UnknownMovementGateSignalGroup {
+                        CoreError::UnknownManeuverGateSignalGroup {
+                            maneuver_gate_id: gate.id().to_owned(),
                             group_id: group_id.clone(),
                         }
                     })?;
@@ -876,14 +914,17 @@ impl SignalRegistry {
                 }
                 SignalControlInput::None => SignalControl::None,
             };
-            normalized_gates.insert(
-                key,
-                ResolvedMovementGate {
-                    definition: gate,
-                    stop_line,
-                    control,
-                },
-            );
+
+            let handle = ManeuverGateHandle::new(normalized_gates.len());
+            maneuver_gate_handles.insert(gate.id().to_owned(), handle);
+            gate_by_path_transition.insert((maneuver_path, gate.transition_index()), handle);
+            gate_counts_by_path[maneuver_path.index()] += 1;
+            normalized_gates.push(ResolvedManeuverGate {
+                definition: gate,
+                maneuver_path,
+                stop_line,
+                control,
+            });
         }
 
         for resolved in &resolved_stop_lines {
@@ -897,9 +938,9 @@ impl SignalRegistry {
                 });
             }
             for to_edge in next_edges {
-                let key = MovementGateKey::new(resolved.edge, *to_edge);
-                if !normalized_gates.contains_key(&key) {
-                    return Err(CoreError::MissingMovementGateCoverage {
+                let candidates = junctions.entry_transition_candidates(resolved.edge, *to_edge);
+                if candidates.is_empty() {
+                    return Err(CoreError::MissingManeuverPathCoverage {
                         stop_line_id: resolved.definition.id().to_owned(),
                         from_edge_id: resolved.definition.edge_id().to_owned(),
                         to_edge_id: lane_graph
@@ -908,8 +949,42 @@ impl SignalRegistry {
                             .to_owned(),
                     });
                 }
+                for path in candidates {
+                    if !gate_by_path_transition.contains_key(&(*path, 0)) {
+                        return Err(CoreError::MissingManeuverGateCoverage {
+                            stop_line_id: resolved.definition.id().to_owned(),
+                            maneuver_path_id: junctions
+                                .maneuver_path_external_id(*path)
+                                .expect("resolved ManeuverPath handle must exist")
+                                .to_owned(),
+                        });
+                    }
+                }
             }
         }
+
+        let mut gate_starts = Vec::with_capacity(gate_counts_by_path.len());
+        let mut gate_total = 0_usize;
+        for count in &gate_counts_by_path {
+            gate_starts.push(gate_total);
+            gate_total += count;
+        }
+        let maneuver_gate_ranges = gate_starts
+            .iter()
+            .zip(&gate_counts_by_path)
+            .map(|(start, count)| *start..*start + *count)
+            .collect::<Vec<_>>();
+        let mut gate_next = gate_starts;
+        let mut maneuver_gates_by_path = vec![None; normalized_gates.len()];
+        for (index, gate) in normalized_gates.iter().enumerate() {
+            let slot = gate_next[gate.maneuver_path.index()];
+            maneuver_gates_by_path[slot] = Some(ManeuverGateHandle::new(index));
+            gate_next[gate.maneuver_path.index()] += 1;
+        }
+        let maneuver_gates_by_path = maneuver_gates_by_path
+            .into_iter()
+            .map(|gate| gate.expect("gate counts must match normalized paths"))
+            .collect();
 
         let mut resolved_groups = Vec::with_capacity(group_definitions.len());
         for (index, definition) in group_definitions.into_iter().enumerate() {
@@ -936,13 +1011,22 @@ impl SignalRegistry {
             group_handles,
             controllers: resolved_controllers,
             controller_handles,
-            movement_gates: normalized_gates,
+            maneuver_gates: normalized_gates,
+            maneuver_gate_handles,
+            maneuver_gate_by_path_transition: gate_by_path_transition,
+            maneuver_gate_ranges,
+            maneuver_gates_by_path,
         })
     }
 
-    pub(crate) fn rebind_to_lane_graph(self, lane_graph: &LaneGraph) -> Result<Self, CoreError> {
+    pub(crate) fn rebind_to_static_topology(
+        self,
+        lane_graph: &LaneGraph,
+        junctions: &JunctionRegistry,
+    ) -> Result<Self, CoreError> {
         Self::try_new(
             lane_graph,
+            junctions,
             self.stop_lines
                 .into_iter()
                 .map(|resolved| resolved.definition),
@@ -950,8 +1034,8 @@ impl SignalRegistry {
             self.controllers
                 .into_iter()
                 .map(|resolved| resolved.definition),
-            self.movement_gates
-                .into_values()
+            self.maneuver_gates
+                .into_iter()
                 .map(|resolved| resolved.definition),
         )
     }
@@ -960,7 +1044,7 @@ impl SignalRegistry {
         self.stop_lines.is_empty()
             && self.groups.is_empty()
             && self.controllers.is_empty()
-            && self.movement_gates.is_empty()
+            && self.maneuver_gates.is_empty()
     }
 
     pub fn stop_line_handle(&self, id: &str) -> Option<StopLineHandle> {
@@ -1089,47 +1173,73 @@ impl SignalRegistry {
             .map(|resolved| resolved.end_offset_ms)
     }
 
-    pub fn movement_gate(&self, key: MovementGateKey) -> Option<&MovementGate> {
-        self.movement_gates
-            .get(&key)
+    pub fn maneuver_gate(&self, handle: ManeuverGateHandle) -> Option<&ManeuverGate> {
+        self.maneuver_gates
+            .get(handle.index())
             .map(|resolved| &resolved.definition)
     }
 
-    pub fn movement_gate_stop_line(&self, key: MovementGateKey) -> Option<StopLineHandle> {
-        self.movement_gates
-            .get(&key)
+    pub fn maneuver_gate_handle(&self, external_id: &str) -> Option<ManeuverGateHandle> {
+        self.maneuver_gate_handles.get(external_id).copied()
+    }
+
+    pub fn maneuver_gate_external_id(&self, handle: ManeuverGateHandle) -> Option<&str> {
+        self.maneuver_gate(handle).map(ManeuverGate::id)
+    }
+
+    pub fn maneuver_gate_path(&self, handle: ManeuverGateHandle) -> Option<ManeuverPathHandle> {
+        self.maneuver_gates
+            .get(handle.index())
+            .map(|resolved| resolved.maneuver_path)
+    }
+
+    pub fn maneuver_gate_stop_line(&self, handle: ManeuverGateHandle) -> Option<StopLineHandle> {
+        self.maneuver_gates
+            .get(handle.index())
             .map(|resolved| resolved.stop_line)
     }
 
-    pub fn movement_gate_control(&self, key: MovementGateKey) -> Option<SignalControl> {
-        self.movement_gates
-            .get(&key)
+    pub fn maneuver_gate_control(&self, handle: ManeuverGateHandle) -> Option<SignalControl> {
+        self.maneuver_gates
+            .get(handle.index())
             .map(|resolved| resolved.control)
     }
 
-    pub fn movement_gates(&self) -> impl ExactSizeIterator<Item = MovementGateKey> + '_ {
-        self.movement_gates.keys().copied()
+    pub fn maneuver_gates(&self) -> impl ExactSizeIterator<Item = ManeuverGateHandle> + '_ {
+        (0..self.maneuver_gates.len()).map(ManeuverGateHandle::new)
     }
 
-    pub(crate) fn movement_gate_index(&self, key: MovementGateKey) -> Option<MovementGateIndex> {
-        self.movement_gates
-            .get_index_of(&key)
-            .map(MovementGateIndex::new)
+    pub fn maneuver_path_gates(
+        &self,
+        path: ManeuverPathHandle,
+    ) -> Option<impl ExactSizeIterator<Item = ManeuverGateHandle> + '_> {
+        let range = self.maneuver_gate_ranges.get(path.index())?.clone();
+        Some(self.maneuver_gates_by_path[range].iter().copied())
     }
 
-    pub(crate) fn movement_gate_is_signal_controlled(&self, index: MovementGateIndex) -> bool {
-        self.movement_gates
-            .get_index(index.index())
-            .is_some_and(|(_, gate)| matches!(gate.control, SignalControl::Group(_)))
+    pub(crate) fn maneuver_gate_for_path_transition(
+        &self,
+        path: ManeuverPathHandle,
+        transition_index: u32,
+    ) -> Option<ManeuverGateHandle> {
+        self.maneuver_gate_by_path_transition
+            .get(&(path, transition_index))
+            .copied()
     }
 
-    pub(crate) fn movement_gate_state_by_index(
+    pub(crate) fn maneuver_gate_is_signal_controlled(&self, handle: ManeuverGateHandle) -> bool {
+        self.maneuver_gates
+            .get(handle.index())
+            .is_some_and(|gate| matches!(gate.control, SignalControl::Group(_)))
+    }
+
+    pub(crate) fn maneuver_gate_state_by_handle(
         &self,
         runtime: &SignalRuntimeState,
-        index: MovementGateIndex,
-    ) -> Option<MovementGateState> {
-        let (key, gate) = self.movement_gates.get_index(index.index())?;
-        Self::resolved_movement_gate_state(runtime, *key, gate)
+        handle: ManeuverGateHandle,
+    ) -> Option<ManeuverGateState> {
+        let gate = self.maneuver_gates.get(handle.index())?;
+        Self::resolved_maneuver_gate_state(runtime, handle, gate)
     }
 
     pub(crate) fn populate_runtime_state(&self, time_ms: u64, state: &mut SignalRuntimeState) {
@@ -1175,37 +1285,37 @@ impl SignalRegistry {
         }
     }
 
-    pub(crate) fn movement_gate_state(
+    pub(crate) fn maneuver_gate_state(
         &self,
         runtime: &SignalRuntimeState,
-        key: MovementGateKey,
-    ) -> Option<MovementGateState> {
-        let gate = self.movement_gates.get(&key)?;
-        Self::resolved_movement_gate_state(runtime, key, gate)
+        handle: ManeuverGateHandle,
+    ) -> Option<ManeuverGateState> {
+        let gate = self.maneuver_gates.get(handle.index())?;
+        Self::resolved_maneuver_gate_state(runtime, handle, gate)
     }
 
-    fn resolved_movement_gate_state(
+    fn resolved_maneuver_gate_state(
         runtime: &SignalRuntimeState,
-        key: MovementGateKey,
-        gate: &ResolvedMovementGate,
-    ) -> Option<MovementGateState> {
+        handle: ManeuverGateHandle,
+        gate: &ResolvedManeuverGate,
+    ) -> Option<ManeuverGateState> {
         let signal = match gate.control {
-            SignalControl::None => MovementGateSignalState::Uncontrolled,
+            SignalControl::None => ManeuverGateSignalState::Uncontrolled,
             SignalControl::Group(group) => {
                 let aspect = runtime.group_state(group)?.aspect();
                 let permission = match aspect {
                     SignalAspect::Green => SignalLayerPermission::ProtectedAllow,
                     SignalAspect::Red | SignalAspect::Yellow => SignalLayerPermission::DenyAndStop,
                 };
-                MovementGateSignalState::Controlled {
+                ManeuverGateSignalState::Controlled {
                     group,
                     aspect,
                     permission,
                 }
             }
         };
-        Some(MovementGateState {
-            key,
+        Some(ManeuverGateState {
+            gate: handle,
             stop_line: gate.stop_line,
             signal,
         })
@@ -1258,9 +1368,9 @@ impl SignalRegistry {
                     .sum::<usize>()
         }
 
-        fn movement_gate_heap_bytes(gate: &MovementGate) -> usize {
-            gate.from_edge_id.capacity()
-                + gate.to_edge_id.capacity()
+        fn maneuver_gate_heap_bytes(gate: &ManeuverGate) -> usize {
+            gate.id.capacity()
+                + gate.maneuver_path_id.capacity()
                 + gate.stop_line_id.capacity()
                 + match &gate.signal_control {
                     SignalControlInput::Group(group_id) => group_id.capacity(),
@@ -1268,42 +1378,49 @@ impl SignalRegistry {
                 }
         }
 
-        let stop_line_bytes = self.stop_lines.capacity() * std::mem::size_of::<ResolvedStopLine>()
-            + self
-                .stop_lines
+        let Self {
+            stop_lines,
+            stop_line_handles,
+            stop_lines_by_edge,
+            groups,
+            group_handles,
+            controllers,
+            controller_handles,
+            maneuver_gates,
+            maneuver_gate_handles,
+            maneuver_gate_by_path_transition,
+            maneuver_gate_ranges,
+            maneuver_gates_by_path,
+        } = self;
+
+        let stop_line_bytes = stop_lines.capacity() * std::mem::size_of::<ResolvedStopLine>()
+            + stop_lines
                 .iter()
                 .map(|stop_line| {
                     stop_line.definition.id.capacity() + stop_line.definition.edge_id.capacity()
                 })
                 .sum::<usize>();
-        let stop_line_handle_bytes = self.stop_line_handles.capacity()
+        let stop_line_handle_bytes = stop_line_handles.capacity()
             * std::mem::size_of::<(String, StopLineHandle)>()
-            + self
-                .stop_line_handles
+            + stop_line_handles
                 .keys()
                 .map(String::capacity)
                 .sum::<usize>();
-        let stop_line_edge_bytes = self.stop_lines_by_edge.capacity()
-            * std::mem::size_of::<(EdgeHandle, StopLineHandle)>();
+        let stop_line_edge_bytes =
+            stop_lines_by_edge.capacity() * std::mem::size_of::<(EdgeHandle, StopLineHandle)>();
 
-        let group_bytes = self.groups.capacity() * std::mem::size_of::<ResolvedSignalGroup>()
-            + self
-                .groups
+        let group_bytes = groups.capacity() * std::mem::size_of::<ResolvedSignalGroup>()
+            + groups
                 .iter()
                 .map(|group| group.definition.id.capacity())
                 .sum::<usize>();
-        let group_handle_bytes = self.group_handles.capacity()
+        let group_handle_bytes = group_handles.capacity()
             * std::mem::size_of::<(String, SignalGroupHandle)>()
-            + self
-                .group_handles
-                .keys()
-                .map(String::capacity)
-                .sum::<usize>();
+            + group_handles.keys().map(String::capacity).sum::<usize>();
 
-        let controller_bytes = self.controllers.capacity()
+        let controller_bytes = controllers.capacity()
             * std::mem::size_of::<ResolvedSignalController>()
-            + self
-                .controllers
+            + controllers
                 .iter()
                 .map(|controller| {
                     controller_definition_heap_bytes(&controller.definition)
@@ -1327,21 +1444,29 @@ impl SignalRegistry {
                             .sum::<usize>()
                 })
                 .sum::<usize>();
-        let controller_handle_bytes = self.controller_handles.capacity()
+        let controller_handle_bytes = controller_handles.capacity()
             * std::mem::size_of::<(String, SignalControllerHandle)>()
-            + self
-                .controller_handles
+            + controller_handles
                 .keys()
                 .map(String::capacity)
                 .sum::<usize>();
 
-        let movement_gate_bytes = self.movement_gates.capacity()
-            * std::mem::size_of::<(MovementGateKey, ResolvedMovementGate)>()
-            + self
-                .movement_gates
-                .values()
-                .map(|gate| movement_gate_heap_bytes(&gate.definition))
+        let maneuver_gate_bytes = maneuver_gates.capacity()
+            * std::mem::size_of::<ResolvedManeuverGate>()
+            + maneuver_gates
+                .iter()
+                .map(|gate| maneuver_gate_heap_bytes(&gate.definition))
                 .sum::<usize>();
+        let maneuver_gate_handle_bytes = maneuver_gate_handles.capacity()
+            * std::mem::size_of::<(String, ManeuverGateHandle)>()
+            + maneuver_gate_handles
+                .keys()
+                .map(String::capacity)
+                .sum::<usize>();
+        let maneuver_gate_lookup_bytes = maneuver_gate_by_path_transition.capacity()
+            * std::mem::size_of::<((ManeuverPathHandle, u32), ManeuverGateHandle)>()
+            + maneuver_gate_ranges.capacity() * std::mem::size_of::<Range<usize>>()
+            + maneuver_gates_by_path.capacity() * std::mem::size_of::<ManeuverGateHandle>();
 
         stop_line_bytes
             + stop_line_handle_bytes
@@ -1350,7 +1475,9 @@ impl SignalRegistry {
             + group_handle_bytes
             + controller_bytes
             + controller_handle_bytes
-            + movement_gate_bytes
+            + maneuver_gate_bytes
+            + maneuver_gate_handle_bytes
+            + maneuver_gate_lookup_bytes
     }
 }
 
@@ -1363,7 +1490,7 @@ impl Default for SignalRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{EdgeLength, LaneEdge};
+    use crate::{EdgeLength, Junction, JunctionRegistry, LaneEdge, ManeuverPath, Movement};
     use proptest::prelude::*;
 
     fn aspect_from_seed(seed: u8) -> SignalAspect {
@@ -1384,12 +1511,18 @@ mod tests {
         let mut stop_lines = Vec::with_capacity(group_count);
         let mut groups = Vec::with_capacity(group_count);
         let mut gates = Vec::with_capacity(group_count);
+        let mut junctions = Vec::with_capacity(group_count);
+        let mut movements = Vec::with_capacity(group_count);
+        let mut paths = Vec::with_capacity(group_count);
         let mut group_ids = Vec::with_capacity(group_count);
         for group_index in 0..group_count {
             let entry = format!("entry-{group_index}");
             let exit = format!("exit-{group_index}");
             let stop = format!("stop-{group_index}");
             let group = format!("group-{group_index}");
+            let junction = format!("junction-{group_index}");
+            let movement = format!("movement-{group_index}");
+            let path = format!("path-{group_index}");
             edges.push(LaneEdge::new(
                 entry.clone(),
                 EdgeLength::try_new(10.0).unwrap(),
@@ -1408,9 +1541,19 @@ mod tests {
                 StopLineLocation::EdgeEnd,
             ));
             groups.push(SignalGroup::new(group.clone()));
-            gates.push(MovementGate::new(
+            junctions.push(Junction::new(junction.clone()));
+            movements.push(Movement::new(movement.clone(), junction));
+            paths.push(ManeuverPath::new(
+                path.clone(),
+                movement,
                 entry,
+                std::iter::empty::<String>(),
                 exit,
+            ));
+            gates.push(ManeuverGate::new(
+                format!("gate-{group_index}"),
+                path,
+                0,
                 stop,
                 SignalControlInput::Group(group.clone()),
             ));
@@ -1432,8 +1575,11 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let graph = LaneGraph::try_new(edges).expect("property graph must be valid");
+        let junctions = JunctionRegistry::try_new(&graph, junctions, movements, paths)
+            .expect("property topology must be valid");
         SignalRegistry::try_new(
             &graph,
+            &junctions,
             stop_lines,
             groups,
             [SignalController::new_fixed_time(
@@ -1538,8 +1684,22 @@ mod tests {
             ),
         ])
         .expect("valid graph");
+        let junctions = JunctionRegistry::try_new(
+            &graph,
+            [Junction::new("junction")],
+            [Movement::new("movement", "junction")],
+            [ManeuverPath::new(
+                "path",
+                "movement",
+                "entry",
+                std::iter::empty::<&str>(),
+                "exit",
+            )],
+        )
+        .expect("valid topology");
         let registry = SignalRegistry::try_new(
             &graph,
+            &junctions,
             [StopLine::new("stop", "entry", StopLineLocation::EdgeEnd)],
             [SignalGroup::new("group")],
             [SignalController::new_fixed_time(
@@ -1559,9 +1719,10 @@ mod tests {
                     ),
                 ],
             )],
-            [MovementGate::new(
-                "entry",
-                "exit",
+            [ManeuverGate::new(
+                "gate",
+                "path",
+                0,
                 "stop",
                 SignalControlInput::Group("group".to_owned()),
             )],

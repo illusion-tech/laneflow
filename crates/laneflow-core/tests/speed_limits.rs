@@ -46,7 +46,15 @@ fn world(
     let graph = LaneGraph::try_new(edges).expect("graph");
     let route = Route::try_new("R", route_edges.iter().copied()).expect("route");
     let (profiles, profile) = profile();
-    let traffic = InitialTrafficData::try_new(graph, [route], profiles).expect("traffic");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        [route],
+        profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+    )
+    .expect("traffic");
     CoreWorld::with_traffic_data(fixed_delta_time_ms, traffic, vehicle(profile)).expect("world")
 }
 

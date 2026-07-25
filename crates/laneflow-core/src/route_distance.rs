@@ -95,9 +95,14 @@ impl RouteDistanceIndex {
 
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> usize {
-        self.occurrences.capacity() * std::mem::size_of::<OccurrenceCoordinate>()
-            + self.segment_totals.capacity() * std::mem::size_of::<f64>()
-            + self.distance_to_end.capacity() * std::mem::size_of::<BoundedDistance>()
+        let Self {
+            occurrences,
+            segment_totals,
+            distance_to_end,
+        } = self;
+        occurrences.capacity() * std::mem::size_of::<OccurrenceCoordinate>()
+            + segment_totals.capacity() * std::mem::size_of::<f64>()
+            + distance_to_end.capacity() * std::mem::size_of::<BoundedDistance>()
     }
 
     pub(crate) fn distance_to_end_within(

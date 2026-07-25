@@ -38,7 +38,7 @@ pub enum DataError {
         expected: &'static str,
         actual: String,
     },
-    /// Vehicle Profile model 不是当前 v0.7 支持的 `iidm`。
+    /// Vehicle Profile model 不是当前 v0.8 支持的 `iidm`。
     #[error("Vehicle Profile `{profile_id}` 使用不支持的 model：path={path}, actual=`{actual}`")]
     UnsupportedVehicleProfileModel {
         path: String,
@@ -50,7 +50,7 @@ pub enum DataError {
     CoreDomain {
         path: String,
         #[source]
-        source: CoreError,
+        source: Box<CoreError>,
     },
 }
 
@@ -88,7 +88,7 @@ impl DataError {
     pub(crate) fn core(path: impl Into<String>, source: CoreError) -> Self {
         Self::CoreDomain {
             path: path.into(),
-            source,
+            source: Box::new(source),
         }
     }
 }

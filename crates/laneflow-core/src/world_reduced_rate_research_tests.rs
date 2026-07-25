@@ -14,7 +14,7 @@ use std::{
 
 use super::*;
 use crate::{
-    EdgeLength, IidmProfileSpec, InitialTrafficData, LaneEdge, MovementGate, ParkingRegistry,
+    EdgeLength, IidmProfileSpec, InitialTrafficData, LaneEdge, ManeuverGate, ParkingRegistry,
     ParkingReleaseReason, ParkingSpace, ParkingSpaceGeometry, Route, SignalAspect,
     SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
     SignalRegistry, SpeedLimit, StopLine, StopLineLocation, VehicleProfileRegistry,
@@ -72,7 +72,7 @@ impl ReducedRateResearchConfig {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ResearchSignalStopIdentity {
-    gate: MovementGateKey,
+    gate: ManeuverGateHandle,
     stop_line: crate::StopLineHandle,
     group: SignalGroupHandle,
     from_route_edge_index: usize,
@@ -557,6 +557,9 @@ fn convoy_world(vehicle_count: usize) -> CoreWorld {
         graph,
         [Route::try_new("reduced-rate-route", ["reduced-rate-edge"]).expect("research route")],
         profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
     )
     .expect("research traffic");
     let vehicles = (0..vehicle_count)
@@ -1275,6 +1278,9 @@ fn two_edge_world() -> CoreWorld {
                 .expect("transition route"),
         ],
         profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
     )
     .expect("transition traffic");
     CoreWorld::with_traffic_data(
@@ -1499,8 +1505,13 @@ fn signal_only_world() -> CoreWorld {
         ),
     ])
     .expect("signal graph");
+    let junctions = crate::test_support::zero_internal_junctions(
+        &graph,
+        &[("signal-path", "signal-entry", "signal-exit")],
+    );
     let signals = SignalRegistry::try_new(
         &graph,
+        &junctions,
         [StopLine::new(
             "signal-stop",
             "signal-entry",
@@ -1517,19 +1528,22 @@ fn signal_only_world() -> CoreWorld {
                 signal_phase("yellow", 16, SignalAspect::Yellow),
             ],
         )],
-        [MovementGate::new(
-            "signal-entry",
-            "signal-exit",
+        [ManeuverGate::new(
+            "signal-gate",
+            "signal-path",
+            0,
             "signal-stop",
             SignalControlInput::Group("signal-group".to_owned()),
         )],
     )
     .expect("signal registry");
-    let traffic = InitialTrafficData::try_new_with_signals(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("signal-route", ["signal-entry", "signal-exit"]).expect("signal route")],
         VehicleProfileRegistry::empty(),
+        junctions,
         signals,
+        ParkingRegistry::empty(),
     )
     .expect("signal traffic");
     CoreWorld::with_traffic_data(16, traffic, Vec::new()).expect("signal world")
@@ -1581,10 +1595,11 @@ fn reserved_parking_world(start_progress: f64, edge_length: f64) -> CoreWorld {
     )
     .expect("parking registry");
     let (profiles, profile) = research_profile();
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("parking-route", ["parking-edge"]).expect("parking route")],
         profiles,
+        crate::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -1931,6 +1946,9 @@ fn mixed_scale_world(vehicle_count: usize) -> CoreWorld {
         graph,
         [Route::try_new("mixed-scale-route", ["mixed-scale-edge"]).expect("mixed scale route")],
         profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
     )
     .expect("mixed scale traffic");
     let vehicles = (0..vehicle_count)

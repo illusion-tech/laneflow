@@ -27,8 +27,15 @@ where
     let profile = registry
         .profile_handle("test-profile")
         .expect("profile handle exists");
-    let traffic_data =
-        InitialTrafficData::try_new(lane_graph, routes, registry).expect("valid traffic data");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        routes,
+        registry,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
+    )
+    .expect("valid traffic data");
     (traffic_data, profile)
 }
 fn edge_length(value: f64) -> EdgeLength {
@@ -482,8 +489,15 @@ fn scaled_braking_distance_avoids_false_square_overflow() {
     let profile = profiles
         .profile_handle("large-values")
         .expect("profile handle exists");
-    let traffic_data =
-        InitialTrafficData::try_new(lane_graph, [route], profiles).expect("valid traffic data");
+    let traffic_data = InitialTrafficData::try_new(
+        lane_graph,
+        [route],
+        profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
+    )
+    .expect("valid traffic data");
     let world = CoreWorld::with_traffic_data(
         16,
         traffic_data,

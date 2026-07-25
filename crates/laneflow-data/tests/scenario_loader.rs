@@ -8,10 +8,10 @@ use laneflow_spatial::{SpatialEdgeInput, SpatialRegistry};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-const TRAFFIC_REF: &str = "v0.7-empty-signals-and-parking.laneflow.json";
+const TRAFFIC_REF: &str = "v0.8-empty-signals-and-parking.laneflow.json";
 const SPATIAL_REF: &str = "v0.1-campus.spatial.json";
 const TRAFFIC: &[u8] =
-    include_bytes!("../../../examples/data/v0.7-empty-signals-and-parking.laneflow.json");
+    include_bytes!("../../../examples/data/v0.8-empty-signals-and-parking.laneflow.json");
 const SPATIAL: &[u8] = include_bytes!("../../../examples/data/v0.1-campus.spatial.json");
 const MANIFEST: &str = include_str!("../../../examples/data/v0.1-campus.scenario.json");
 

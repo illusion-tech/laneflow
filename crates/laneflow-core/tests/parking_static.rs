@@ -345,10 +345,11 @@ fn initial_traffic_data_rebinds_parking_to_its_own_graph() {
         ParkingRegistry::try_new(&source_graph, [], [space("space", None, "entry", "exit")])
             .expect("source parking registry");
     let target_graph = graph(&["exit", "entry"]);
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         target_graph,
         [],
         VehicleProfileRegistry::empty(),
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -377,10 +378,11 @@ fn initial_traffic_data_rejects_parking_that_cannot_rebind() {
         ParkingRegistry::try_new(&source_graph, [], [space("space", None, "entry", "exit")])
             .expect("source parking registry");
     let target_graph = graph(&["entry"]);
-    let error = InitialTrafficData::try_new_with_signals_and_parking(
+    let error = InitialTrafficData::try_new(
         target_graph,
         [],
         VehicleProfileRegistry::empty(),
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -433,10 +435,11 @@ fn core_world_exposes_same_immutable_parking_registry() {
     let graph = graph(&["edge"]);
     let parking = ParkingRegistry::try_new(&graph, [], [space("standalone", None, "edge", "edge")])
         .expect("parking");
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [],
         VehicleProfileRegistry::empty(),
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )

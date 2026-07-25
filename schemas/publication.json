@@ -6,7 +6,7 @@
     {
       "family": "traffic",
       "schemaFileStem": "laneflow-data",
-      "currentFormatVersion": "0.7",
+      "currentFormatVersion": "0.8",
       "publishedSchemas": [
         {
           "formatVersion": "0.2",

@@ -116,6 +116,6 @@ v0.4 固定使用 static fixed-time cyclic controller、explicit StopLine/Moveme
 
 ADR 0017 在保持本文 indication、StopLine、policy、conflict 与 Core safety 分层的前提下，
 把长期 target 从 pair-based `MovementGate` 迁移为拥有 external ID、typed handle、
-ManeuverPath reference 与 transition index 的一等 `ManeuverGate`。Current production
-在 #229 G4 前仍使用本文 v0.4 pair-based Gate；不得把 target 写成已实现能力，也不得
-为兼容保留双 Gate identity。
+ManeuverPath reference 与 transition index 的一等 `ManeuverGate`。#229 已完成该
+clean-break；current production 只保留 `ManeuverGate`，本文 v0.4 pair-based Gate
+仅作为历史决策背景，不保留双 Gate identity。

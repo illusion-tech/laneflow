@@ -23,8 +23,11 @@ fn default_corridor_locks_scope_counts_and_deterministic_bytes() {
     let counts = first.counts();
     assert_eq!(counts.edges, 54);
     assert_eq!(counts.routes, 14);
+    assert_eq!(counts.junctions, 2);
+    assert_eq!(counts.movements, 8);
+    assert_eq!(counts.maneuver_paths, 20);
     assert_eq!(counts.stop_lines, 20);
-    assert_eq!(counts.movement_gates, 20);
+    assert_eq!(counts.maneuver_gates, 20);
     assert_eq!(counts.signal_groups, 4);
     assert_eq!(counts.controllers, 2);
     assert_eq!(counts.phases, 12);
@@ -41,7 +44,7 @@ fn checked_in_artifacts_are_exact_generator_outputs() {
     let generated = default_generated();
     for (relative, expected) in [
         (
-            "examples/data/v0.7-signalized-corridor.laneflow.json",
+            "examples/data/v0.8-signalized-corridor.laneflow.json",
             generated.traffic_bytes(),
         ),
         (
@@ -83,6 +86,13 @@ fn default_corridor_locks_limits_routes_and_catalog_eligibility() {
         edges
             .iter()
             .any(|edge| { edge["id"] == "edge-main-w2e-lane-0-connector-intersection-1-straight" })
+    );
+    assert_eq!(traffic["junctions"].as_array().map(Vec::len), Some(2));
+    assert_eq!(traffic["movements"].as_array().map(Vec::len), Some(8));
+    assert_eq!(traffic["maneuverPaths"].as_array().map(Vec::len), Some(20));
+    assert_eq!(
+        traffic["signals"]["maneuverGates"].as_array().map(Vec::len),
+        Some(20)
     );
 
     let catalog: laneflow_corridor_generator::CorridorCatalog =
@@ -132,7 +142,7 @@ fn config_rejects_unknown_fields_length_geometry_offsets_and_output_conflicts() 
 
     let conflict = CONFIG.replace(
         "spatial_artifact_ref = \"v0.1-signalized-corridor.spatial.json\"",
-        "spatial_artifact_ref = \"v0.7-signalized-corridor.laneflow.json\"",
+        "spatial_artifact_ref = \"v0.8-signalized-corridor.laneflow.json\"",
     );
     assert!(CorridorConfig::parse(&conflict).is_err());
 }

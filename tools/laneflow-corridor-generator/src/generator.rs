@@ -17,13 +17,13 @@ use crate::config::{
     VEHICLE_LENGTH_METERS,
 };
 use crate::model::{
-    ArtifactDescriptor, Centerline, LaneConnection, LaneEdge, LaneGraph, MovementGate, Parking,
-    Route, ScenarioManifest, SignalControl, SignalController, SignalGroup, SignalGroupState,
-    SignalPhase, Signals, SpatialEdge, SpatialPackage, StopLine, TrafficPackage, Units,
-    VehicleProfile,
+    ArtifactDescriptor, Centerline, Junction, LaneConnection, LaneEdge, LaneGraph, ManeuverGate,
+    ManeuverPath, Movement, Parking, Route, ScenarioManifest, SignalControl, SignalController,
+    SignalGroup, SignalGroupState, SignalPhase, Signals, SpatialEdge, SpatialPackage, StopLine,
+    TrafficPackage, Units, VehicleProfile,
 };
 
-const TRAFFIC_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.7.schema.json");
+const TRAFFIC_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.8.schema.json");
 const SPATIAL_SCHEMA: &str = include_str!("../../../schemas/laneflow-spatial-v0.1.schema.json");
 const MANIFEST_SCHEMA: &str =
     include_str!("../../../schemas/laneflow-scenario-manifest-v0.1.schema.json");
@@ -36,7 +36,7 @@ struct RouteBuild {
     exit_portal_id: String,
     lane_index: usize,
     edges: Vec<EdgeBuild>,
-    connector_indices: Vec<usize>,
+    connectors: Vec<ConnectorBuild>,
 }
 
 #[derive(Clone, Debug)]
@@ -56,6 +56,15 @@ struct EdgeBuild {
 }
 
 #[derive(Clone, Debug)]
+struct ConnectorBuild {
+    edge_index: usize,
+    movement_id: String,
+    maneuver_path_id: String,
+    maneuver_gate_id: String,
+    signal_group_id: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct GeneratedScenario {
     traffic: Vec<u8>,
     spatial: Vec<u8>,
@@ -68,8 +77,11 @@ pub struct GeneratedScenario {
 pub struct ScenarioCounts {
     pub edges: usize,
     pub routes: usize,
+    pub junctions: usize,
+    pub movements: usize,
+    pub maneuver_paths: usize,
     pub stop_lines: usize,
-    pub movement_gates: usize,
+    pub maneuver_gates: usize,
     pub signal_groups: usize,
     pub controllers: usize,
     pub phases: usize,
@@ -138,8 +150,11 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
     let counts = ScenarioCounts {
         edges: traffic.lane_graph.edges.len(),
         routes: traffic.routes.len(),
+        junctions: traffic.junctions.len(),
+        movements: traffic.movements.len(),
+        maneuver_paths: traffic.maneuver_paths.len(),
         stop_lines: traffic.signals.stop_lines.len(),
-        movement_gates: traffic.signals.movement_gates.len(),
+        maneuver_gates: traffic.signals.maneuver_gates.len(),
         signal_groups: traffic.signals.groups.len(),
         controllers: traffic.signals.controllers.len(),
         phases: traffic
@@ -174,7 +189,8 @@ fn build_documents(
     let mut lane_edges = Vec::new();
     let mut spatial_edges = Vec::new();
     let mut stop_lines = Vec::new();
-    let mut movement_gates = Vec::new();
+    let mut maneuver_paths = Vec::new();
+    let mut maneuver_gates = Vec::new();
 
     for route in routes {
         for (index, edge) in route.edges.iter().enumerate() {
@@ -194,23 +210,31 @@ fn build_documents(
                 },
             });
         }
-        for connector_index in &route.connector_indices {
-            let from = &route.edges[connector_index - 1];
-            let connector = &route.edges[*connector_index];
+        for connector in &route.connectors {
+            let from = &route.edges[connector.edge_index - 1];
+            let internal = &route.edges[connector.edge_index];
+            let exit = &route.edges[connector.edge_index + 1];
             let stop_line_id = format!("stop-{}", from.id);
-            let group_id = group_for_connector(&connector.id)?;
             stop_lines.push(StopLine {
                 id: stop_line_id.clone(),
                 edge_id: from.id.clone(),
                 location: "edgeEnd",
             });
-            movement_gates.push(MovementGate {
-                from_edge_id: from.id.clone(),
-                to_edge_id: connector.id.clone(),
+            maneuver_paths.push(ManeuverPath {
+                id: connector.maneuver_path_id.clone(),
+                movement_id: connector.movement_id.clone(),
+                entry_edge_id: from.id.clone(),
+                internal_edge_ids: vec![internal.id.clone()],
+                exit_edge_id: exit.id.clone(),
+            });
+            maneuver_gates.push(ManeuverGate {
+                id: connector.maneuver_gate_id.clone(),
+                maneuver_path_id: connector.maneuver_path_id.clone(),
+                transition_index: 0,
                 stop_line_id,
                 signal_control: SignalControl {
                     kind: "group",
-                    group_id,
+                    group_id: connector.signal_group_id.clone(),
                 },
             });
         }
@@ -221,7 +245,7 @@ fn build_documents(
         .collect::<Vec<_>>();
     let signals = Signals {
         stop_lines,
-        movement_gates,
+        maneuver_gates,
         groups: (1..=2)
             .flat_map(|intersection| {
                 ["main", "secondary"].map(|road| SignalGroup {
@@ -233,12 +257,32 @@ fn build_documents(
     };
 
     let traffic = TrafficPackage {
-        format_version: "0.7",
+        format_version: "0.8",
         units: Units {
             distance: "meter",
             time: "second",
         },
         lane_graph: LaneGraph { edges: lane_edges },
+        junctions: (1..=2)
+            .map(|intersection| Junction {
+                id: format!("junction-{intersection}"),
+            })
+            .collect(),
+        movements: (1..=2)
+            .flat_map(|intersection| {
+                [
+                    "main-w2e".to_owned(),
+                    "main-e2w".to_owned(),
+                    format!("side-{intersection}-n2s"),
+                    format!("side-{intersection}-s2n"),
+                ]
+                .map(|direction| Movement {
+                    id: format!("movement-junction-{intersection}-{direction}"),
+                    junction_id: format!("junction-{intersection}"),
+                })
+            })
+            .collect(),
+        maneuver_paths,
         routes: routes.iter().map(|item| item.route.clone()).collect(),
         vehicle_profiles: vec![VehicleProfile {
             id: "passenger-car",
@@ -397,6 +441,31 @@ fn route_from_points(
             speed_limit,
         });
     }
+    let connectors = connector_indices
+        .iter()
+        .copied()
+        .map(|edge_index| {
+            let intersection = connector_intersection(edge_prefix, edge_index);
+            let road = if edge_prefix.starts_with("main-") {
+                "main"
+            } else {
+                "secondary"
+            };
+            ConnectorBuild {
+                edge_index,
+                movement_id: format!("movement-junction-{intersection}-{edge_prefix}"),
+                maneuver_path_id: format!(
+                    "path-junction-{intersection}-{edge_prefix}-lane-{}",
+                    identity.lane_index
+                ),
+                maneuver_gate_id: format!(
+                    "gate-junction-{intersection}-{edge_prefix}-lane-{}",
+                    identity.lane_index
+                ),
+                signal_group_id: format!("group-intersection-{intersection}-{road}"),
+            }
+        })
+        .collect();
     RouteBuild {
         route: Route {
             id: identity.route_id,
@@ -406,7 +475,7 @@ fn route_from_points(
         exit_portal_id: identity.exit_portal_id,
         lane_index: identity.lane_index,
         edges,
-        connector_indices: connector_indices.to_vec(),
+        connectors,
     }
 }
 
@@ -421,25 +490,6 @@ fn connector_intersection(edge_prefix: &str, edge_index: usize) -> usize {
     } else {
         2
     }
-}
-
-fn group_for_connector(connector_id: &str) -> Result<String, Error> {
-    let intersection = if connector_id.contains("intersection-1") {
-        1
-    } else if connector_id.contains("intersection-2") {
-        2
-    } else {
-        return Err(Error::Validation {
-            stage: "generator",
-            message: format!("connector {connector_id:?} has no intersection identity"),
-        });
-    };
-    let road = if connector_id.contains("edge-main-") {
-        "main"
-    } else {
-        "secondary"
-    };
-    Ok(format!("group-intersection-{intersection}-{road}"))
 }
 
 fn signal_controller(config: &CorridorConfig, index: usize) -> SignalController {

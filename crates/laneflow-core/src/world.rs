@@ -18,10 +18,11 @@ use crate::{
     },
     graph::LaneGraph,
     handle::{
-        EdgeHandle, RouteHandle, SignalControllerHandle, SignalGroupHandle, VehicleHandle,
-        VehicleProfileHandle,
+        EdgeHandle, ManeuverGateHandle, RouteHandle, SignalControllerHandle, SignalGroupHandle,
+        VehicleHandle, VehicleProfileHandle,
     },
     id::validate_external_id,
+    junction::JunctionRegistry,
     longitudinal::{
         LeaderKinematics, LongitudinalMotion, LongitudinalScratch, SpeedLimitConstraint,
         compute_motion, emergency_min_travel,
@@ -47,12 +48,12 @@ use crate::{
     route::{Route, RouteRemoveRecord},
     route_distance::{BoundedDistance, RouteDistanceIndex, RouteDistanceQuery},
     signal::{
-        MovementGateIndex, MovementGateKey, MovementGateSignalState, MovementGateState,
-        SignalControllerState, SignalGroupSnapshot, SignalLayerPermission, SignalRegistry,
-        SignalRuntimeScratch, SignalRuntimeState, SignalStopConstraint,
+        ManeuverGateSignalState, ManeuverGateState, SignalControllerState, SignalGroupSnapshot,
+        SignalLayerPermission, SignalRegistry, SignalRuntimeScratch, SignalRuntimeState,
+        SignalStopConstraint,
     },
     time::{StepResult, TickInput},
-    traffic::{InitialTrafficData, resolve_route_edges},
+    traffic::{CompiledRoute, InitialTrafficData, ManeuverOccurrence, compile_route},
     vehicle::{
         Acceleration, EdgeProgress, Speed, VehicleDespawnRecord, VehicleReplaceBlock,
         VehicleReplaceBlockerPosition, VehicleReplaceExternalId, VehicleReplaceInput,
@@ -64,13 +65,13 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct RouteTransition {
     to_edge: EdgeHandle,
-    gate: Option<MovementGateIndex>,
+    gate: Option<ManeuverGateHandle>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct NextControlledRouteTransition {
     from_route_edge_index: usize,
-    gate: MovementGateIndex,
+    gate: ManeuverGateHandle,
     distance_from_edge_start: BoundedDistance,
 }
 
@@ -137,6 +138,12 @@ impl RouteReferenceIndex {
             .min_by_key(|(position, _)| *position)
             .map(|(_, vehicle)| *vehicle)
     }
+
+    #[cfg(test)]
+    fn retained_bytes(&self) -> usize {
+        let Self { by_update_position } = self;
+        by_update_position.capacity() * std::mem::size_of::<(usize, VehicleHandle)>()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -145,9 +152,46 @@ struct RouteSlot {
     external_id: String,
     edge_handles: Vec<EdgeHandle>,
     transitions: Vec<RouteTransition>,
+    maneuver_occurrences: Vec<ManeuverOccurrence>,
     next_controlled_transition: Vec<Option<NextControlledRouteTransition>>,
     speed_limit_transitions: Vec<SpeedLimitRouteTransition>,
     active: bool,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+struct RouteSlotRetainedStats {
+    total_bytes: usize,
+    maneuver_occurrence_bytes: usize,
+}
+
+#[cfg(test)]
+impl RouteSlot {
+    fn retained_stats(&self) -> RouteSlotRetainedStats {
+        let Self {
+            generation: _,
+            external_id,
+            edge_handles,
+            transitions,
+            maneuver_occurrences,
+            next_controlled_transition,
+            speed_limit_transitions,
+            active: _,
+        } = self;
+        let maneuver_occurrence_bytes =
+            maneuver_occurrences.capacity() * std::mem::size_of::<ManeuverOccurrence>();
+        let total_bytes = external_id.capacity()
+            + edge_handles.capacity() * std::mem::size_of::<EdgeHandle>()
+            + transitions.capacity() * std::mem::size_of::<RouteTransition>()
+            + maneuver_occurrence_bytes
+            + next_controlled_transition.capacity()
+                * std::mem::size_of::<Option<NextControlledRouteTransition>>()
+            + speed_limit_transitions.capacity() * std::mem::size_of::<SpeedLimitRouteTransition>();
+        RouteSlotRetainedStats {
+            total_bytes,
+            maneuver_occurrence_bytes,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -173,6 +217,19 @@ impl PartialEq for VehicleSlot {
         self.generation == other.generation
             && self.external_id == other.external_id
             && self.state == other.state
+    }
+}
+
+#[cfg(test)]
+impl VehicleSlot {
+    fn retained_bytes(&self) -> usize {
+        let Self {
+            generation: _,
+            external_id,
+            state: _,
+            update_order_position: _,
+        } = self;
+        external_id.capacity()
     }
 }
 
@@ -246,6 +303,15 @@ impl StableVehicleOrder {
         self.tombstones = 0;
         true
     }
+
+    #[cfg(test)]
+    fn retained_bytes(&self) -> usize {
+        let Self {
+            entries,
+            tombstones: _,
+        } = self;
+        entries.capacity() * std::mem::size_of::<Option<VehicleHandle>>()
+    }
 }
 
 /// 可跨 tick 复用、但不属于 Core authority state 的候选车辆状态。
@@ -279,6 +345,67 @@ fn parking_arrived_state(
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug)]
+struct CompleteRetainedComponents {
+    lane_graph_bytes: usize,
+    vehicle_profile_registry_bytes: usize,
+    junction_registry_bytes: usize,
+    signal_registry_bytes: usize,
+    signal_runtime_state_bytes: usize,
+    signal_runtime_scratch_bytes: usize,
+    route_bytes: usize,
+    vehicle_bytes: usize,
+    resolver_bytes: usize,
+    free_list_bytes: usize,
+    vehicle_order_bytes: usize,
+    candidate_state_bytes: usize,
+    parking_registry_runtime_bytes: usize,
+    occupancy_scratch_bytes: usize,
+    longitudinal_scratch_bytes: usize,
+    command_spatial_bytes: usize,
+}
+
+#[cfg(test)]
+impl CompleteRetainedComponents {
+    fn owned_heap_bytes(self) -> usize {
+        let Self {
+            lane_graph_bytes,
+            vehicle_profile_registry_bytes,
+            junction_registry_bytes,
+            signal_registry_bytes,
+            signal_runtime_state_bytes,
+            signal_runtime_scratch_bytes,
+            route_bytes,
+            vehicle_bytes,
+            resolver_bytes,
+            free_list_bytes,
+            vehicle_order_bytes,
+            candidate_state_bytes,
+            parking_registry_runtime_bytes,
+            occupancy_scratch_bytes,
+            longitudinal_scratch_bytes,
+            command_spatial_bytes,
+        } = self;
+        lane_graph_bytes
+            + vehicle_profile_registry_bytes
+            + junction_registry_bytes
+            + signal_registry_bytes
+            + signal_runtime_state_bytes
+            + signal_runtime_scratch_bytes
+            + route_bytes
+            + vehicle_bytes
+            + resolver_bytes
+            + free_list_bytes
+            + vehicle_order_bytes
+            + candidate_state_bytes
+            + parking_registry_runtime_bytes
+            + occupancy_scratch_bytes
+            + longitudinal_scratch_bytes
+            + command_spatial_bytes
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
 struct LifecycleRetainedStats {
     accounted_bytes: usize,
     expanded_accounted_bytes: usize,
@@ -287,10 +414,12 @@ struct LifecycleRetainedStats {
     world_inline_bytes: usize,
     lane_graph_bytes: usize,
     vehicle_profile_registry_bytes: usize,
+    junction_registry_bytes: usize,
     signal_registry_bytes: usize,
     signal_runtime_state_bytes: usize,
     signal_runtime_scratch_bytes: usize,
     route_bytes: usize,
+    route_maneuver_occurrence_bytes: usize,
     route_distance_bytes: usize,
     route_reference_bytes: usize,
     vehicle_bytes: usize,
@@ -305,6 +434,7 @@ struct LifecycleRetainedStats {
     command_spatial_bytes: usize,
     lane_graph_inline_size: usize,
     vehicle_profile_registry_inline_size: usize,
+    junction_registry_inline_size: usize,
     signal_registry_inline_size: usize,
     signal_runtime_state_inline_size: usize,
     signal_runtime_scratch_inline_size: usize,
@@ -316,6 +446,30 @@ struct LifecycleRetainedStats {
     route_candidate_nodes: usize,
     stale_route_candidate_nodes: usize,
     spatial_occupants: usize,
+}
+
+#[cfg(test)]
+impl LifecycleRetainedStats {
+    fn complete_components(self) -> CompleteRetainedComponents {
+        CompleteRetainedComponents {
+            lane_graph_bytes: self.lane_graph_bytes,
+            vehicle_profile_registry_bytes: self.vehicle_profile_registry_bytes,
+            junction_registry_bytes: self.junction_registry_bytes,
+            signal_registry_bytes: self.signal_registry_bytes,
+            signal_runtime_state_bytes: self.signal_runtime_state_bytes,
+            signal_runtime_scratch_bytes: self.signal_runtime_scratch_bytes,
+            route_bytes: self.route_bytes,
+            vehicle_bytes: self.vehicle_bytes,
+            resolver_bytes: self.resolver_bytes,
+            free_list_bytes: self.free_list_bytes,
+            vehicle_order_bytes: self.vehicle_order_bytes,
+            candidate_state_bytes: self.candidate_state_bytes,
+            parking_registry_runtime_bytes: self.parking_registry_runtime_bytes,
+            occupancy_scratch_bytes: self.occupancy_scratch_bytes,
+            longitudinal_scratch_bytes: self.longitudinal_scratch_bytes,
+            command_spatial_bytes: self.command_spatial_bytes,
+        }
+    }
 }
 
 impl Clone for CandidateStateScratch {
@@ -376,6 +530,18 @@ impl CandidateStateScratch {
         self.spatial_changes.clear();
         self.parking_releases.clear();
     }
+
+    #[cfg(test)]
+    fn retained_bytes(&self) -> usize {
+        let Self {
+            states,
+            spatial_changes,
+            parking_releases,
+        } = self;
+        states.capacity() * std::mem::size_of::<Option<VehicleState>>()
+            + spatial_changes.capacity() * std::mem::size_of::<VehicleHandle>()
+            + parking_releases.capacity() * std::mem::size_of::<ParkingStepRelease>()
+    }
 }
 
 /// LaneFlow Core 的最小 runtime state。
@@ -386,6 +552,7 @@ pub struct CoreWorld {
     time_ms: u64,
     lane_graph: LaneGraph,
     vehicle_profiles: VehicleProfileRegistry,
+    junctions: JunctionRegistry,
     signals: SignalRegistry,
     parking: ParkingRegistry,
     pub(crate) parking_runtime: ParkingRuntimeState,
@@ -430,7 +597,8 @@ impl CoreWorld {
             });
         }
 
-        let (lane_graph, routes, vehicle_profiles, signals, parking) = traffic_data.into_parts();
+        let (lane_graph, routes, vehicle_profiles, junctions, signals, parking) =
+            traffic_data.into_parts();
         signals.validate_fixed_delta_time(fixed_delta_time_ms)?;
         let mut signal_state = SignalRuntimeState::default();
         signals.populate_runtime_state(0, &mut signal_state);
@@ -442,6 +610,7 @@ impl CoreWorld {
             time_ms: 0,
             lane_graph,
             vehicle_profiles,
+            junctions,
             signals,
             parking,
             parking_runtime,
@@ -469,7 +638,7 @@ impl CoreWorld {
         };
 
         for route in routes {
-            world.register_route(route)?;
+            world.register_compiled_route(route)?;
         }
 
         vehicles.sort_by(|left, right| left.id.cmp(&right.id));
@@ -524,6 +693,11 @@ impl CoreWorld {
     /// 返回 immutable Vehicle Profile registry。
     pub const fn vehicle_profiles(&self) -> &VehicleProfileRegistry {
         &self.vehicle_profiles
+    }
+
+    /// 返回 immutable Junction registry。
+    pub const fn junctions(&self) -> &JunctionRegistry {
+        &self.junctions
     }
 
     /// 返回 immutable Signals registry。
@@ -1320,16 +1494,16 @@ impl CoreWorld {
         self.signal_state.group_states()
     }
 
-    /// 返回当前已提交的 MovementGate signal-layer snapshot。
-    pub fn movement_gate_state(&self, key: MovementGateKey) -> Option<MovementGateState> {
-        self.signals.movement_gate_state(&self.signal_state, key)
+    /// 返回当前已提交的 ManeuverGate signal-layer snapshot。
+    pub fn maneuver_gate_state(&self, gate: ManeuverGateHandle) -> Option<ManeuverGateState> {
+        self.signals.maneuver_gate_state(&self.signal_state, gate)
     }
 
-    /// 按 MovementGate normalization order 遍历当前 snapshots。
-    pub fn movement_gate_states(&self) -> impl ExactSizeIterator<Item = MovementGateState> + '_ {
-        self.signals.movement_gates().map(|key| {
-            self.movement_gate_state(key)
-                .expect("normalized MovementGate must have runtime state")
+    /// 按 ManeuverGate normalization order 遍历当前 snapshots。
+    pub fn maneuver_gate_states(&self) -> impl ExactSizeIterator<Item = ManeuverGateState> + '_ {
+        self.signals.maneuver_gates().map(|gate| {
+            self.maneuver_gate_state(gate)
+                .expect("normalized ManeuverGate must have runtime state")
         })
     }
 
@@ -1380,6 +1554,23 @@ impl CoreWorld {
             .map(|route| route.edge_handles.as_slice())
     }
 
+    /// 返回 Route registration-time 编译的 ManeuverPath occurrences。
+    pub fn route_maneuver_occurrences(&self, handle: RouteHandle) -> Option<&[ManeuverOccurrence]> {
+        self.route_slot(handle)
+            .map(|route| route.maneuver_occurrences.as_slice())
+    }
+
+    /// 返回指定 Route transition 编译得到的 optional ManeuverGate。
+    pub fn route_transition_gate(
+        &self,
+        handle: RouteHandle,
+        from_route_edge_index: usize,
+    ) -> Option<Option<ManeuverGateHandle>> {
+        self.route_slot(handle)
+            .and_then(|route| route.transitions.get(from_route_edge_index))
+            .map(|transition| transition.gate)
+    }
+
     /// 返回所有 active route handle，顺序与注册顺序一致。
     pub fn routes(&self) -> impl Iterator<Item = RouteHandle> + '_ {
         self.routes
@@ -1397,7 +1588,23 @@ impl CoreWorld {
             });
         }
 
-        let edge_handles = resolve_route_edges(&self.lane_graph, &self.signals, &route)?;
+        let route = compile_route(&self.lane_graph, &self.junctions, &self.signals, route)?;
+        self.register_compiled_route(route)
+    }
+
+    fn register_compiled_route(&mut self, route: CompiledRoute) -> Result<RouteHandle, CoreError> {
+        if self.route_handles.contains_key(route.definition().id()) {
+            return Err(CoreError::DuplicateRouteId {
+                route_id: route.definition().id().to_owned(),
+            });
+        }
+
+        let CompiledRoute {
+            definition,
+            edge_handles,
+            transition_gates,
+            maneuver_occurrences,
+        } = route;
         let edge_lengths = edge_handles
             .iter()
             .map(|edge| {
@@ -1408,9 +1615,9 @@ impl CoreWorld {
             })
             .collect::<Vec<_>>();
         let (transitions, next_controlled_transition, speed_limit_transitions) =
-            self.build_route_metadata(&edge_handles, &edge_lengths);
+            self.build_route_metadata(&edge_handles, &edge_lengths, &transition_gates);
         let distance_index = RouteDistanceIndex::build(&edge_lengths);
-        let external_id = route.id().to_owned();
+        let external_id = definition.id().to_owned();
 
         let handle = if let Some(index) = self.free_route_indices.pop() {
             let generation = self.routes[index].generation;
@@ -1419,6 +1626,7 @@ impl CoreWorld {
                 external_id: external_id.clone(),
                 edge_handles,
                 transitions,
+                maneuver_occurrences,
                 next_controlled_transition,
                 speed_limit_transitions,
                 active: true,
@@ -1433,6 +1641,7 @@ impl CoreWorld {
                 external_id: external_id.clone(),
                 edge_handles,
                 transitions,
+                maneuver_occurrences,
                 next_controlled_transition,
                 speed_limit_transitions,
                 active: true,
@@ -1451,6 +1660,7 @@ impl CoreWorld {
         &self,
         edge_handles: &[EdgeHandle],
         edge_lengths: &[f64],
+        transition_gates: &[Option<ManeuverGateHandle>],
     ) -> (
         Vec<RouteTransition>,
         Vec<Option<NextControlledRouteTransition>>,
@@ -1458,11 +1668,9 @@ impl CoreWorld {
     ) {
         let transitions = edge_handles
             .windows(2)
-            .map(|pair| {
+            .zip(transition_gates.iter().copied())
+            .map(|(pair, gate)| {
                 let to_edge = pair[1];
-                let gate = self
-                    .signals
-                    .movement_gate_index(MovementGateKey::new(pair[0], to_edge));
                 RouteTransition { to_edge, gate }
             })
             .collect::<Vec<_>>();
@@ -1473,7 +1681,7 @@ impl CoreWorld {
             if let Some(gate) = transitions
                 .get(route_edge_index)
                 .and_then(|transition| transition.gate)
-                .filter(|gate| self.signals.movement_gate_is_signal_controlled(*gate))
+                .filter(|gate| self.signals.maneuver_gate_is_signal_controlled(*gate))
             {
                 next = Some(NextControlledRouteTransition {
                     from_route_edge_index: route_edge_index,
@@ -1539,6 +1747,7 @@ impl CoreWorld {
         route.active = false;
         route.edge_handles.clear();
         route.transitions.clear();
+        route.maneuver_occurrences.clear();
         route.next_controlled_transition.clear();
         route.speed_limit_transitions.clear();
         self.route_distance_indices[handle.index()].clear();
@@ -2208,129 +2417,141 @@ impl CoreWorld {
 
     #[cfg(test)]
     fn lifecycle_retained_stats(&self) -> LifecycleRetainedStats {
-        let route_occurrences = self
-            .routes
+        let Self {
+            fixed_delta_time_ms: _,
+            tick_index: _,
+            time_ms: _,
+            lane_graph,
+            vehicle_profiles,
+            junctions,
+            signals,
+            parking,
+            parking_runtime,
+            signal_state,
+            signal_candidate_scratch,
+            routes,
+            route_distance_indices,
+            route_reference_indices,
+            route_handles,
+            free_route_indices,
+            vehicles,
+            vehicle_handles,
+            free_vehicle_indices,
+            vehicle_update_order,
+            candidate_state_scratch,
+            occupancy_scratch,
+            longitudinal_scratch,
+            command_spatial_index,
+            reduced_rate_research: _,
+            step_failure_after_vehicle: _,
+            replace_failure_after_prepare: _,
+        } = self;
+
+        let route_occurrences = routes
             .iter()
             .filter(|route| route.active)
             .map(|route| route.edge_handles.len())
             .sum();
-        let route_candidate_nodes = self
-            .route_reference_indices
+        let route_candidate_nodes = route_reference_indices
             .iter()
             .map(RouteReferenceIndex::live_count)
             .sum();
         let stale_route_candidate_nodes = 0;
-        let route_distance_bytes = self.route_distance_indices.capacity()
+        let route_distance_bytes = route_distance_indices.capacity()
             * std::mem::size_of::<RouteDistanceIndex>()
-            + self
-                .route_distance_indices
+            + route_distance_indices
                 .iter()
                 .map(RouteDistanceIndex::retained_bytes)
                 .sum::<usize>();
-        let route_reference_bytes = self.route_reference_indices.capacity()
+        let route_reference_bytes = route_reference_indices.capacity()
             * std::mem::size_of::<RouteReferenceIndex>()
-            + self
-                .route_reference_indices
+            + route_reference_indices
                 .iter()
-                .map(|index| {
-                    index.by_update_position.capacity()
-                        * std::mem::size_of::<(usize, VehicleHandle)>()
-                })
+                .map(RouteReferenceIndex::retained_bytes)
                 .sum::<usize>();
-        let route_bytes = self.routes.capacity() * std::mem::size_of::<RouteSlot>()
-            + self
-                .routes
-                .iter()
-                .map(|route| {
-                    route.external_id.capacity()
-                        + route.edge_handles.capacity() * std::mem::size_of::<EdgeHandle>()
-                        + route.transitions.capacity() * std::mem::size_of::<RouteTransition>()
-                        + route.next_controlled_transition.capacity()
-                            * std::mem::size_of::<Option<NextControlledRouteTransition>>()
-                        + route.speed_limit_transitions.capacity()
-                            * std::mem::size_of::<SpeedLimitRouteTransition>()
-                })
-                .sum::<usize>()
+        let (route_slot_bytes, route_maneuver_occurrence_bytes) = routes
+            .iter()
+            .map(RouteSlot::retained_stats)
+            .fold((0_usize, 0_usize), |(total, maneuver), stats| {
+                (
+                    total + stats.total_bytes,
+                    maneuver + stats.maneuver_occurrence_bytes,
+                )
+            });
+        let route_bytes = routes.capacity() * std::mem::size_of::<RouteSlot>()
+            + route_slot_bytes
             + route_distance_bytes
             + route_reference_bytes;
-        let vehicle_bytes = self.vehicles.capacity() * std::mem::size_of::<VehicleSlot>()
-            + self
-                .vehicles
+        let vehicle_bytes = vehicles.capacity() * std::mem::size_of::<VehicleSlot>()
+            + vehicles
                 .iter()
-                .map(|vehicle| vehicle.external_id.capacity())
+                .map(VehicleSlot::retained_bytes)
                 .sum::<usize>();
-        let resolver_bytes = self.route_handles.capacity()
+        let resolver_bytes = route_handles.capacity()
             * std::mem::size_of::<(String, RouteHandle)>()
-            + self
-                .route_handles
-                .keys()
-                .map(String::capacity)
-                .sum::<usize>()
-            + self.vehicle_handles.capacity() * std::mem::size_of::<(String, VehicleHandle)>()
-            + self
-                .vehicle_handles
-                .keys()
-                .map(String::capacity)
-                .sum::<usize>();
-        let free_list_bytes = self.free_route_indices.capacity() * std::mem::size_of::<usize>()
-            + self.free_vehicle_indices.capacity() * std::mem::size_of::<usize>();
-        let vehicle_order_bytes = self.vehicle_update_order.entries.capacity()
-            * std::mem::size_of::<Option<VehicleHandle>>();
-        let candidate_state_bytes = self.candidate_state_scratch.states.capacity()
-            * std::mem::size_of::<Option<VehicleState>>()
-            + self.candidate_state_scratch.spatial_changes.capacity()
-                * std::mem::size_of::<VehicleHandle>()
-            + self.candidate_state_scratch.parking_releases.capacity()
-                * std::mem::size_of::<ParkingStepRelease>();
+            + route_handles.keys().map(String::capacity).sum::<usize>()
+            + vehicle_handles.capacity() * std::mem::size_of::<(String, VehicleHandle)>()
+            + vehicle_handles.keys().map(String::capacity).sum::<usize>();
+        let free_list_bytes = free_route_indices.capacity() * std::mem::size_of::<usize>()
+            + free_vehicle_indices.capacity() * std::mem::size_of::<usize>();
+        let vehicle_order_bytes = vehicle_update_order.retained_bytes();
+        let candidate_state_bytes = candidate_state_scratch.retained_bytes();
         let lifecycle_scratch_bytes = free_list_bytes + vehicle_order_bytes + candidate_state_bytes;
         let parking_registry_runtime_bytes =
-            self.parking.retained_bytes() + self.parking_runtime.retained_bytes();
+            parking.retained_bytes() + parking_runtime.retained_bytes();
         let parking_bytes =
-            parking_registry_runtime_bytes + self.longitudinal_scratch.parking_retained_bytes();
+            parking_registry_runtime_bytes + longitudinal_scratch.parking_retained_bytes();
         let world_inline_bytes = std::mem::size_of::<Self>();
-        let lane_graph_bytes = self.lane_graph.retained_bytes();
-        let vehicle_profile_registry_bytes = self.vehicle_profiles.retained_bytes();
-        let signal_registry_bytes = self.signals.retained_bytes();
-        let signal_runtime_state_bytes = self.signal_state.retained_bytes();
-        let signal_runtime_scratch_bytes = self.signal_candidate_scratch.retained_bytes();
-        let occupancy_scratch_bytes = self.occupancy_scratch.retained_bytes();
-        let longitudinal_scratch_bytes = self.longitudinal_scratch.retained_bytes();
-        let command_spatial_bytes = self.command_spatial_index.retained_bytes();
+        let complete_components = CompleteRetainedComponents {
+            lane_graph_bytes: lane_graph.retained_bytes(),
+            vehicle_profile_registry_bytes: vehicle_profiles.retained_bytes(),
+            junction_registry_bytes: junctions.retained_bytes(),
+            signal_registry_bytes: signals.retained_bytes(),
+            signal_runtime_state_bytes: signal_state.retained_bytes(),
+            signal_runtime_scratch_bytes: signal_candidate_scratch.retained_bytes(),
+            route_bytes,
+            vehicle_bytes,
+            resolver_bytes,
+            free_list_bytes,
+            vehicle_order_bytes,
+            candidate_state_bytes,
+            parking_registry_runtime_bytes,
+            occupancy_scratch_bytes: occupancy_scratch.retained_bytes(),
+            longitudinal_scratch_bytes: longitudinal_scratch.retained_bytes(),
+            command_spatial_bytes: command_spatial_index.retained_bytes(),
+        };
         let accounted_bytes = world_inline_bytes
             + route_bytes
             + vehicle_bytes
             + resolver_bytes
             + lifecycle_scratch_bytes
             + parking_bytes
-            + command_spatial_bytes;
+            + complete_components.command_spatial_bytes;
         let expanded_accounted_bytes = world_inline_bytes
             + route_bytes
             + vehicle_bytes
             + resolver_bytes
             + lifecycle_scratch_bytes
             + parking_registry_runtime_bytes
-            + occupancy_scratch_bytes
-            + longitudinal_scratch_bytes
-            + command_spatial_bytes;
-        let complete_accounted_bytes = expanded_accounted_bytes
-            + lane_graph_bytes
-            + vehicle_profile_registry_bytes
-            + signal_registry_bytes
-            + signal_runtime_state_bytes
-            + signal_runtime_scratch_bytes;
-        let owned_heap_bytes = complete_accounted_bytes - world_inline_bytes;
+            + complete_components.occupancy_scratch_bytes
+            + complete_components.longitudinal_scratch_bytes
+            + complete_components.command_spatial_bytes;
+        let owned_heap_bytes = complete_components.owned_heap_bytes();
+        let complete_accounted_bytes = world_inline_bytes + owned_heap_bytes;
         LifecycleRetainedStats {
             accounted_bytes,
             expanded_accounted_bytes,
             complete_accounted_bytes,
             owned_heap_bytes,
             world_inline_bytes,
-            lane_graph_bytes,
-            vehicle_profile_registry_bytes,
-            signal_registry_bytes,
-            signal_runtime_state_bytes,
-            signal_runtime_scratch_bytes,
+            lane_graph_bytes: complete_components.lane_graph_bytes,
+            vehicle_profile_registry_bytes: complete_components.vehicle_profile_registry_bytes,
+            junction_registry_bytes: complete_components.junction_registry_bytes,
+            signal_registry_bytes: complete_components.signal_registry_bytes,
+            signal_runtime_state_bytes: complete_components.signal_runtime_state_bytes,
+            signal_runtime_scratch_bytes: complete_components.signal_runtime_scratch_bytes,
             route_bytes,
+            route_maneuver_occurrence_bytes,
             route_distance_bytes,
             route_reference_bytes,
             vehicle_bytes,
@@ -2340,22 +2561,23 @@ impl CoreWorld {
             candidate_state_bytes,
             parking_bytes,
             parking_registry_runtime_bytes,
-            occupancy_scratch_bytes,
-            longitudinal_scratch_bytes,
-            command_spatial_bytes,
+            occupancy_scratch_bytes: complete_components.occupancy_scratch_bytes,
+            longitudinal_scratch_bytes: complete_components.longitudinal_scratch_bytes,
+            command_spatial_bytes: complete_components.command_spatial_bytes,
             lane_graph_inline_size: std::mem::size_of::<LaneGraph>(),
             vehicle_profile_registry_inline_size: std::mem::size_of::<VehicleProfileRegistry>(),
+            junction_registry_inline_size: std::mem::size_of::<JunctionRegistry>(),
             signal_registry_inline_size: std::mem::size_of::<SignalRegistry>(),
             signal_runtime_state_inline_size: std::mem::size_of::<SignalRuntimeState>(),
             signal_runtime_scratch_inline_size: std::mem::size_of::<SignalRuntimeScratch>(),
             vehicle_state_size: std::mem::size_of::<VehicleState>(),
             vehicle_slot_size: std::mem::size_of::<VehicleSlot>(),
-            live_vehicles: self.vehicles().count(),
+            live_vehicles: vehicle_update_order.iter().count(),
             route_occurrences,
-            tombstones: self.vehicle_update_order.tombstones,
+            tombstones: vehicle_update_order.tombstones,
             route_candidate_nodes,
             stale_route_candidate_nodes,
-            spatial_occupants: self.command_spatial_index.occupant_count(),
+            spatial_occupants: command_spatial_index.occupant_count(),
         }
     }
 
@@ -3970,9 +4192,9 @@ impl CoreWorld {
 
             let gate = self
                 .signals
-                .movement_gate_state_by_index(&self.signal_state, next.gate)
+                .maneuver_gate_state_by_handle(&self.signal_state, next.gate)
                 .expect("normalized route Gate must have committed state");
-            if let MovementGateSignalState::Controlled {
+            if let ManeuverGateSignalState::Controlled {
                 group,
                 aspect,
                 permission: SignalLayerPermission::DenyAndStop,
@@ -3980,7 +4202,7 @@ impl CoreWorld {
             {
                 return Ok(Some(SignalStopConstraint {
                     route_distance: distance,
-                    gate: gate.key(),
+                    gate: gate.gate(),
                     stop_line: gate.stop_line(),
                     group,
                     aspect,
@@ -4503,14 +4725,14 @@ impl CoreWorld {
                     });
                 }
 
-                let denied_gate = transition.gate.and_then(|gate_index| {
+                let denied_gate = transition.gate.and_then(|gate_handle| {
                     let gate = context
                         .signals
-                        .movement_gate_state_by_index(context.signal_state, gate_index)
+                        .maneuver_gate_state_by_handle(context.signal_state, gate_handle)
                         .expect("normalized route Gate must have committed state");
                     matches!(
                         gate.signal(),
-                        MovementGateSignalState::Controlled {
+                        ManeuverGateSignalState::Controlled {
                             permission: SignalLayerPermission::DenyAndStop,
                             ..
                         }
@@ -4526,7 +4748,7 @@ impl CoreWorld {
                             route: vehicle.route,
                             from_route_edge_index,
                             to_route_edge_index,
-                            gate: gate.key(),
+                            gate: gate.gate(),
                             remaining_travel: remaining,
                             final_speed: vehicle.current_speed.value(),
                         });
@@ -4692,8 +4914,15 @@ mod tests {
         let profile = registry
             .profile_handle("test-profile")
             .expect("profile handle exists");
-        let traffic_data =
-            InitialTrafficData::try_new(lane_graph, routes, registry).expect("valid traffic data");
+        let traffic_data = InitialTrafficData::try_new(
+            lane_graph,
+            routes,
+            registry,
+            crate::JunctionRegistry::empty(),
+            crate::SignalRegistry::empty(),
+            crate::ParkingRegistry::empty(),
+        )
+        .expect("valid traffic data");
         (traffic_data, profile)
     }
 
@@ -4782,10 +5011,11 @@ mod tests {
             lane_graph,
             [Route::try_new("R", ["A"]).expect("parking retained route")],
         );
-        let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+        let traffic = InitialTrafficData::try_new(
             base.lane_graph().clone(),
-            base.routes().iter().cloned(),
+            base.routes().cloned(),
             base.vehicle_profiles().clone(),
+            crate::JunctionRegistry::empty(),
             SignalRegistry::empty(),
             parking,
         )
@@ -4883,10 +5113,11 @@ mod tests {
             lane_graph,
             [Route::try_new("R", ["A"]).expect("parking route")],
         );
-        let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+        let traffic = InitialTrafficData::try_new(
             base.lane_graph().clone(),
-            base.routes().iter().cloned(),
+            base.routes().cloned(),
             base.vehicle_profiles().clone(),
+            crate::JunctionRegistry::empty(),
             SignalRegistry::empty(),
             parking,
         )
@@ -4942,10 +5173,11 @@ mod tests {
             lane_graph,
             [Route::try_new("R", ["A", "B", "A", "B", "A"]).expect("repeated target route")],
         );
-        let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+        let traffic = InitialTrafficData::try_new(
             base.lane_graph().clone(),
-            base.routes().iter().cloned(),
+            base.routes().cloned(),
             base.vehicle_profiles().clone(),
+            crate::JunctionRegistry::empty(),
             SignalRegistry::empty(),
             parking,
         )
@@ -5804,10 +6036,11 @@ mod tests {
                     Route::try_new("R1", ["C", "D", "A", "B"]).expect("R1"),
                 ],
             );
-            let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+            let traffic = InitialTrafficData::try_new(
                 base.lane_graph().clone(),
-                base.routes().iter().cloned(),
+                base.routes().cloned(),
                 base.vehicle_profiles().clone(),
+                crate::JunctionRegistry::empty(),
                 SignalRegistry::empty(),
                 parking,
             )
@@ -6300,10 +6533,11 @@ mod tests {
                 lane_graph,
                 [Route::try_new("R", ["A"]).expect("parking scale route")],
             );
-            let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+            let traffic = InitialTrafficData::try_new(
                 base.lane_graph().clone(),
-                base.routes().iter().cloned(),
+                base.routes().cloned(),
                 base.vehicle_profiles().clone(),
+                crate::JunctionRegistry::empty(),
                 SignalRegistry::empty(),
                 parking,
             )
@@ -6405,10 +6639,11 @@ mod tests {
                     Route::try_new("fast-route", ["C"]).expect("fast route"),
                 ],
             );
-            let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+            let traffic = InitialTrafficData::try_new(
                 base.lane_graph().clone(),
-                base.routes().iter().cloned(),
+                base.routes().cloned(),
                 base.vehicle_profiles().clone(),
+                crate::JunctionRegistry::empty(),
                 SignalRegistry::empty(),
                 parking,
             )
@@ -6526,7 +6761,7 @@ mod tests {
         assert!(stats.expanded_accounted_bytes >= stats.accounted_bytes);
         assert!(stats.complete_accounted_bytes >= stats.expanded_accounted_bytes);
         eprintln!(
-            "numeric_component_memory live={} accounted_bytes={} expanded_accounted_bytes={} complete_accounted_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} vehicle_profile_registry_bytes={} signal_registry_bytes={} signal_runtime_state_bytes={} signal_runtime_scratch_bytes={} route_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} parking_registry_runtime_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={} lane_graph_inline_size={} vehicle_profile_registry_inline_size={} signal_registry_inline_size={} signal_runtime_state_inline_size={} signal_runtime_scratch_inline_size={} vehicle_state_size={} vehicle_slot_size={}",
+            "numeric_component_memory live={} accounted_bytes={} expanded_accounted_bytes={} complete_accounted_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} vehicle_profile_registry_bytes={} junction_registry_bytes={} signal_registry_bytes={} signal_runtime_state_bytes={} signal_runtime_scratch_bytes={} route_bytes={} route_maneuver_occurrence_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} parking_registry_runtime_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={} lane_graph_inline_size={} vehicle_profile_registry_inline_size={} junction_registry_inline_size={} signal_registry_inline_size={} signal_runtime_state_inline_size={} signal_runtime_scratch_inline_size={} vehicle_state_size={} vehicle_slot_size={}",
             stats.live_vehicles,
             stats.accounted_bytes,
             stats.expanded_accounted_bytes,
@@ -6535,10 +6770,12 @@ mod tests {
             stats.world_inline_bytes,
             stats.lane_graph_bytes,
             stats.vehicle_profile_registry_bytes,
+            stats.junction_registry_bytes,
             stats.signal_registry_bytes,
             stats.signal_runtime_state_bytes,
             stats.signal_runtime_scratch_bytes,
             stats.route_bytes,
+            stats.route_maneuver_occurrence_bytes,
             stats.route_distance_bytes,
             stats.route_reference_bytes,
             stats.vehicle_bytes,
@@ -6553,6 +6790,7 @@ mod tests {
             stats.command_spatial_bytes,
             stats.lane_graph_inline_size,
             stats.vehicle_profile_registry_inline_size,
+            stats.junction_registry_inline_size,
             stats.signal_registry_inline_size,
             stats.signal_runtime_state_inline_size,
             stats.signal_runtime_scratch_inline_size,
@@ -6563,26 +6801,13 @@ mod tests {
 
     #[test]
     fn complete_retained_accountant_sums_each_unique_owner_once() {
+        assert_eq!(JunctionRegistry::empty().retained_bytes(), 0);
         let mut world = lifecycle_scale_world(128);
         world
             .step(TickInput::new(world.fixed_delta_time_ms()))
             .expect("retained accountant warm-up step");
         let stats = world.lifecycle_retained_stats();
-        let expected_heap_bytes = stats.lane_graph_bytes
-            + stats.vehicle_profile_registry_bytes
-            + stats.signal_registry_bytes
-            + stats.signal_runtime_state_bytes
-            + stats.signal_runtime_scratch_bytes
-            + stats.route_bytes
-            + stats.vehicle_bytes
-            + stats.resolver_bytes
-            + stats.free_list_bytes
-            + stats.vehicle_order_bytes
-            + stats.candidate_state_bytes
-            + stats.parking_registry_runtime_bytes
-            + stats.occupancy_scratch_bytes
-            + stats.longitudinal_scratch_bytes
-            + stats.command_spatial_bytes;
+        let expected_heap_bytes = stats.complete_components().owned_heap_bytes();
 
         assert_eq!(stats.owned_heap_bytes, expected_heap_bytes);
         assert_eq!(
@@ -6599,6 +6824,10 @@ mod tests {
             std::mem::size_of::<VehicleProfileRegistry>()
         );
         assert_eq!(
+            stats.junction_registry_inline_size,
+            std::mem::size_of::<JunctionRegistry>()
+        );
+        assert_eq!(
             stats.signal_registry_inline_size,
             std::mem::size_of::<SignalRegistry>()
         );
@@ -6612,6 +6841,8 @@ mod tests {
         );
         assert!(stats.lane_graph_bytes > 0);
         assert!(stats.vehicle_profile_registry_bytes > 0);
+        assert!(stats.junction_registry_bytes > 0);
+        assert_eq!(stats.route_maneuver_occurrence_bytes, 0);
     }
 
     #[test]

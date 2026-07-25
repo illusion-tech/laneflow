@@ -15,7 +15,8 @@
 - `VehicleHandle` / `RouteHandle` / `EdgeHandle` / Parking handles：表达 Core runtime 内部 typed handle，external ID 通过对应 registry/world resolver 回查；
 - `VehicleProfile` / `IidmProfileSpec`：表达经过校验的 immutable IIDM Vehicle Profile；
 - `VehicleProfileHandle` / `VehicleProfileRegistry`：表达 profile typed handle、稳定输入顺序和双向 resolver；
-- `SignalRegistry`、Signal handles 与 current snapshots：表达经过归一化的 StopLine、MovementGate、Group、Controller/Phase，保留稳定输入顺序和预解析 resolver，并以 absolute integer time 提供 time-0/post-step Controller/Group/Gate query；
+- `JunctionRegistry`：表达 Junction、Movement 与 lane-level ManeuverPath，并在 Route 注册期编译 occurrence；
+- `SignalRegistry`、Signal handles 与 current snapshots：表达经过归一化的 StopLine、ManeuverGate、Group、Controller/Phase，保留稳定输入顺序和预解析 resolver，并以 absolute integer time 提供 time-0/post-step Controller/Group/Gate query；
 - `ParkingRegistry`、`ParkingArea` / `ParkingSpace` 与 opaque handles：表达 immutable area membership、entry/exit anchors、edge-relative geometry、稳定输入/member 顺序和 O(1) resolvers；
 - `ParkingSnapshot` 与 Parking commands/records：表达 Core-owned `Vacant -> Reserved -> Occupied -> Vacant` authority、borrowed committed query、caller-selected reserve/cancel/commit/leave/rebind/parked-spawn，以及 despawn release；
 - `InitialTrafficData`：统一校验 lane graph、初始 routes、immutable profile / Signals / Parking registries，并把 graph-dependent registries 原子重绑定到自身 lane graph；
@@ -29,7 +30,7 @@
 
 ## 当前 data-format 边界
 
-当前唯一 active 外部格式是 v0.7，正式契约见 [data-format 设计](../../docs/design/data-format.md) 与 [JSON Schema](../../schemas/laneflow-data-v0.7.schema.json)。Core 的 `LaneGraph`、`SpeedLimit`、`Route`、Vehicle Profile、Signals、Parking 和 external ID / handle 边界与当前格式对齐；production JSON loader 位于同一 workspace 的 `laneflow-data`，Core 不依赖 Serde、JSON 或 schema validator。
+当前唯一 active 外部格式是 v0.8，正式契约见 [data-format 设计](../../docs/design/data-format.md) 与 [JSON Schema](../../schemas/laneflow-data-v0.8.schema.json)。Core 的 `LaneGraph`、`JunctionRegistry`、`Route`、Vehicle Profile、Signals、Parking 和 external ID / typed handle 边界与当前格式对齐；production JSON loader 位于同一 workspace 的 `laneflow-data`，Core 不依赖 Serde、JSON 或 schema validator。
 
 LaneFlow 在 1.0 前只维护一个 active data format，旧版由 loader 明确拒绝；历史能力来源和迁移证据通过 Git 与 milestone 收口报告审计，不在 production 代码中保留并行兼容实现。该政策不构成 v1.0 长期兼容承诺，详见 ADR 0008。
 

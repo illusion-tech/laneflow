@@ -1,20 +1,26 @@
-use laneflow_core::{
-    CoreError, MAX_PORTABLE_SIGNAL_TIME_MS, MovementGateKey, SignalAspect, SignalControl,
-};
+use laneflow_core::{CoreError, MAX_PORTABLE_SIGNAL_TIME_MS, SignalAspect, SignalControl};
 use laneflow_data::{CURRENT_FORMAT_VERSION, DataError, LoadedPackage, from_json_str};
 use serde_json::{Value, json};
 
 const SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.7-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.8-parking-signals-baseline.laneflow.json");
 const EMPTY_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.7-empty-signals-and-parking.laneflow.json");
+    include_str!("../../../examples/data/v0.8-empty-signals-and-parking.laneflow.json");
+
+fn into_core_domain(error: DataError) -> (String, CoreError) {
+    match error {
+        DataError::CoreDomain { path, source } => (path, *source),
+        other => panic!("expected CoreDomain error, got {other:?}"),
+    }
+}
 
 #[test]
 fn current_loader_normalizes_static_signals_parking_and_resolvers() {
-    assert_eq!(CURRENT_FORMAT_VERSION, "0.7");
-    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.7 fixture must load");
+    assert_eq!(CURRENT_FORMAT_VERSION, "0.8");
+    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.8 fixture must load");
     let traffic = loaded.initial_traffic_data();
     let signals = traffic.signals();
+    let topology = traffic.junctions();
 
     let stop_line = signals
         .stop_line_handle("stop-entry")
@@ -45,14 +51,6 @@ fn current_loader_normalizes_static_signals_parking_and_resolvers() {
         .lane_graph()
         .edge_handle("entry")
         .expect("entry edge");
-    let through = traffic
-        .lane_graph()
-        .edge_handle("through")
-        .expect("through edge");
-    let bypass = traffic
-        .lane_graph()
-        .edge_handle("bypass")
-        .expect("bypass edge");
     assert_eq!(
         traffic
             .lane_graph()
@@ -62,12 +60,34 @@ fn current_loader_normalizes_static_signals_parking_and_resolvers() {
         30.0
     );
     assert_eq!(
-        signals.movement_gate_control(MovementGateKey::new(entry, through)),
+        signals.maneuver_gate_control(
+            signals
+                .maneuver_gate_handle("gate-controlled")
+                .expect("controlled Gate"),
+        ),
         Some(SignalControl::Group(group))
     );
     assert_eq!(
-        signals.movement_gate_control(MovementGateKey::new(entry, bypass)),
+        signals.maneuver_gate_control(
+            signals
+                .maneuver_gate_handle("gate-uncontrolled")
+                .expect("uncontrolled Gate"),
+        ),
         Some(SignalControl::None)
+    );
+    let junction = topology
+        .junction_handle("junction-main")
+        .expect("Junction handle");
+    let controlled = topology
+        .movement_handle("movement-controlled")
+        .expect("Movement handle");
+    let controlled_path = topology
+        .maneuver_path_handle("path-controlled")
+        .expect("ManeuverPath handle");
+    assert_eq!(topology.movement_junction(controlled), Some(junction));
+    assert_eq!(
+        topology.maneuver_path_movement(controlled_path),
+        Some(controlled)
     );
 
     let parking = traffic.parking();
@@ -102,8 +122,9 @@ fn current_loader_normalizes_static_signals_parking_and_resolvers() {
 }
 
 #[test]
-fn explicit_empty_signals_and_parking_is_valid_current_v0_7() {
+fn explicit_empty_static_domains_are_valid_current_v0_8() {
     let loaded = from_json_str(EMPTY_SIGNALS_FIXTURE).expect("empty Signals fixture must load");
+    assert!(loaded.initial_traffic_data().junctions().is_empty());
     assert!(loaded.initial_traffic_data().signals().is_empty());
     assert!(loaded.initial_traffic_data().parking().is_empty());
     assert_eq!(loaded.initial_traffic_data().vehicle_profiles().len(), 1);
@@ -112,7 +133,7 @@ fn explicit_empty_signals_and_parking_is_valid_current_v0_7() {
 
 #[test]
 fn unsupported_versions_are_rejected_before_current_shape_and_units() {
-    for version in ["0.4", "0.5", "0.6", "0.8"] {
+    for version in ["0.4", "0.5", "0.6", "0.7", "0.9"] {
         let mut value = empty_value();
         value["formatVersion"] = json!(version);
         value["units"]["distance"] = json!("kilometer");
@@ -125,7 +146,7 @@ fn unsupported_versions_are_rejected_before_current_shape_and_units() {
         let error = load_value(value).expect_err("unsupported version must fail first");
         std::assert_matches!(
             error,
-            DataError::UnsupportedFormatVersion { expected: "0.7", actual }
+            DataError::UnsupportedFormatVersion { expected: "0.8", actual }
                 if actual == version
         );
     }
@@ -147,11 +168,9 @@ fn speed_limit_is_required_closed_and_uses_the_narrowest_domain_path() {
         let mut value = empty_value();
         value["laneGraph"]["edges"][0]["speedLimit"] = json!(invalid);
         std::assert_matches!(
-            load_value(value).expect_err("invalid speedLimit"),
-            DataError::CoreDomain {
-                path,
-                source: CoreError::InvalidSpeedLimit { speed_limit },
-            } if path == "laneGraph.edges[0].speedLimit" && speed_limit == invalid
+            into_core_domain(load_value(value).expect_err("invalid speedLimit")),
+            (path, CoreError::InvalidSpeedLimit { speed_limit })
+                if path == "laneGraph.edges[0].speedLimit" && speed_limit == invalid
         );
     }
 
@@ -177,7 +196,14 @@ fn malformed_or_trailing_json_fails_before_version_dispatch() {
 }
 
 #[test]
-fn current_v0_7_requires_signals_parking_and_all_nested_arrays() {
+fn current_v0_8_requires_all_static_domains_and_nested_arrays() {
+    for field in ["junctions", "movements", "maneuverPaths"] {
+        let mut value = empty_value();
+        value.as_object_mut().expect("root object").remove(field);
+        let error = load_value(value).expect_err("every topology array is required");
+        std::assert_matches!(error, DataError::JsonShape { path, .. } if path == "$");
+    }
+
     let mut missing_signals = empty_value();
     missing_signals
         .as_object_mut()
@@ -188,7 +214,7 @@ fn current_v0_7_requires_signals_parking_and_all_nested_arrays() {
         DataError::JsonShape { .. }
     );
 
-    for field in ["stopLines", "movementGates", "groups", "controllers"] {
+    for field in ["stopLines", "maneuverGates", "groups", "controllers"] {
         let mut value = empty_value();
         value["signals"]
             .as_object_mut()
@@ -275,11 +301,8 @@ fn parking_domain_errors_use_narrowest_paths() {
             _ => unreachable!(),
         }
         std::assert_matches!(
-            load_value(value).expect_err("invalid Parking external ID"),
-            DataError::CoreDomain {
-                path,
-                source: CoreError::InvalidExternalId { .. },
-            } if path == expected_path
+            into_core_domain(load_value(value).expect_err("invalid Parking external ID")),
+            (path, CoreError::InvalidExternalId { .. }) if path == expected_path
         );
     }
 
@@ -290,11 +313,9 @@ fn parking_domain_errors_use_narrowest_paths() {
         .expect("areas")
         .push(duplicate);
     std::assert_matches!(
-        load_value(duplicate_area).expect_err("duplicate area"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::DuplicateParkingAreaId { area_id },
-        } if path == "parking.areas[1].id" && area_id == "lot-main"
+        into_core_domain(load_value(duplicate_area).expect_err("duplicate area")),
+        (path, CoreError::DuplicateParkingAreaId { area_id })
+            if path == "parking.areas[1].id" && area_id == "lot-main"
     );
 
     let mut duplicate_space = signals_value();
@@ -304,52 +325,44 @@ fn parking_domain_errors_use_narrowest_paths() {
         .expect("spaces")
         .push(duplicate);
     std::assert_matches!(
-        load_value(duplicate_space).expect_err("duplicate space"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::DuplicateParkingSpaceId { space_id },
-        } if path == "parking.spaces[3].id" && space_id == "lot-main-01"
+        into_core_domain(load_value(duplicate_space).expect_err("duplicate space")),
+        (path, CoreError::DuplicateParkingSpaceId { space_id })
+            if path == "parking.spaces[3].id" && space_id == "lot-main-01"
     );
 
     let mut unknown_area = signals_value();
     unknown_area["parking"]["spaces"][0]["areaId"] = json!("missing");
     std::assert_matches!(
-        load_value(unknown_area).expect_err("unknown area"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::UnknownParkingSpaceArea { area_id, .. },
-        } if path == "parking.spaces[0].areaId" && area_id == "missing"
+        into_core_domain(load_value(unknown_area).expect_err("unknown area")),
+        (path, CoreError::UnknownParkingSpaceArea { area_id, .. })
+            if path == "parking.spaces[0].areaId" && area_id == "missing"
     );
 
     let mut unknown_entry = signals_value();
     unknown_entry["parking"]["spaces"][0]["entry"]["edgeId"] = json!("missing");
     std::assert_matches!(
-        load_value(unknown_entry).expect_err("unknown entry edge"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::UnknownParkingAnchorEdge { .. },
-        } if path == "parking.spaces[0].entry.edgeId"
+        into_core_domain(load_value(unknown_entry).expect_err("unknown entry edge")),
+        (path, CoreError::UnknownParkingAnchorEdge { .. })
+            if path == "parking.spaces[0].entry.edgeId"
     );
 
     let mut invalid_exit_progress = signals_value();
     invalid_exit_progress["parking"]["spaces"][0]["exit"]["progress"] = json!(40.0);
     std::assert_matches!(
-        load_value(invalid_exit_progress).expect_err("exit endpoint is invalid"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::ParkingAnchorProgressOutOfRange { .. },
-        } if path == "parking.spaces[0].exit.progress"
+        into_core_domain(
+            load_value(invalid_exit_progress).expect_err("exit endpoint is invalid")
+        ),
+        (path, CoreError::ParkingAnchorProgressOutOfRange { .. })
+            if path == "parking.spaces[0].exit.progress"
     );
 
     let mut invalid_geometry = signals_value();
     invalid_geometry["parking"]["spaces"][0]["geometry"]["headingOffsetRadians"] =
         json!(std::f64::consts::PI);
     std::assert_matches!(
-        load_value(invalid_geometry).expect_err("non-canonical heading"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::InvalidParkingGeometryValue { field, .. },
-        } if path == "parking.spaces[0].geometry.headingOffsetRadians"
+        into_core_domain(load_value(invalid_geometry).expect_err("non-canonical heading")),
+        (path, CoreError::InvalidParkingGeometryValue { field, .. })
+            if path == "parking.spaces[0].geometry.headingOffsetRadians"
             && field == "headingOffsetRadians"
     );
 
@@ -363,11 +376,9 @@ fn parking_domain_errors_use_narrowest_paths() {
         .expect("space")
         .remove("areaId");
     std::assert_matches!(
-        load_value(orphan).expect_err("orphan area"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::OrphanParkingArea { area_id },
-        } if path == "parking.areas[0]" && area_id == "lot-main"
+        into_core_domain(load_value(orphan).expect_err("orphan area")),
+        (path, CoreError::OrphanParkingArea { area_id })
+            if path == "parking.areas[0]" && area_id == "lot-main"
     );
 }
 
@@ -378,29 +389,20 @@ fn normalization_priority_is_signals_then_parking_then_routes() {
     value["parking"]["spaces"][0]["areaId"] = json!("missing-area");
     value["routes"][0]["edgeIds"][1] = json!("missing-edge");
     std::assert_matches!(
-        load_value(value.clone()).expect_err("Signals must fail first"),
-        DataError::CoreDomain {
-            source: CoreError::UnknownSignalControllerGroup { .. },
-            ..
-        }
+        into_core_domain(load_value(value.clone()).expect_err("Signals must fail first")),
+        (_, CoreError::UnknownSignalControllerGroup { .. })
     );
 
     value["signals"]["controllers"][0]["groupIds"][0] = json!("main");
     std::assert_matches!(
-        load_value(value.clone()).expect_err("Parking must fail before routes"),
-        DataError::CoreDomain {
-            source: CoreError::UnknownParkingSpaceArea { .. },
-            ..
-        }
+        into_core_domain(load_value(value.clone()).expect_err("Parking must fail before routes")),
+        (_, CoreError::UnknownParkingSpaceArea { .. })
     );
 
     value["parking"]["spaces"][0]["areaId"] = json!("lot-main");
     std::assert_matches!(
-        load_value(value).expect_err("route must fail after static registries"),
-        DataError::CoreDomain {
-            source: CoreError::UnknownRouteEdge { .. },
-            ..
-        }
+        into_core_domain(load_value(value).expect_err("route must fail after static registries")),
+        (_, CoreError::UnknownRouteEdge { .. })
     );
 }
 
@@ -434,21 +436,21 @@ fn legacy_reference_fields_and_json_ld_are_rejected() {
 #[test]
 fn signal_control_is_a_closed_tagged_union() {
     let mut value = signals_value();
-    value["signals"]["movementGates"][1]["signalControl"]["groupId"] = json!("main");
+    value["signals"]["maneuverGates"][1]["signalControl"]["groupId"] = json!("main");
     std::assert_matches!(
         load_value(value).expect_err("none control cannot carry groupId"),
         DataError::JsonShape { path, .. } if path.contains("signalControl")
     );
 
     let mut value = signals_value();
-    value["signals"]["movementGates"][0]["signalControl"] = json!({ "kind": "group" });
+    value["signals"]["maneuverGates"][0]["signalControl"] = json!({ "kind": "group" });
     std::assert_matches!(
         load_value(value).expect_err("group control requires groupId"),
         DataError::JsonShape { path, .. } if path.contains("signalControl")
     );
 
     let mut value = signals_value();
-    value["signals"]["movementGates"][0]["signalControl"] = json!({ "kind": "free" });
+    value["signals"]["maneuverGates"][0]["signalControl"] = json!({ "kind": "free" });
     std::assert_matches!(
         load_value(value).expect_err("unknown control kind must fail"),
         DataError::JsonShape { path, .. } if path.contains("signalControl")
@@ -504,11 +506,9 @@ fn portable_integer_timing_is_enforced_by_shape_and_core() {
     value["signals"]["controllers"][0]["offsetMs"] = json!(MAX_PORTABLE_SIGNAL_TIME_MS + 1);
     let error = load_value(value).expect_err("Core owns portable scheduling invariant");
     std::assert_matches!(
-        error,
-        DataError::CoreDomain {
-            path,
-            source: CoreError::InvalidSignalControllerOffset { .. },
-        } if path == "signals.controllers[0].offsetMs"
+        into_core_domain(error),
+        (path, CoreError::InvalidSignalControllerOffset { .. })
+            if path == "signals.controllers[0].offsetMs"
     );
 
     for duration_ms in [0, MAX_PORTABLE_SIGNAL_TIME_MS + 1] {
@@ -516,11 +516,9 @@ fn portable_integer_timing_is_enforced_by_shape_and_core() {
         value["signals"]["controllers"][0]["phases"][0]["durationMs"] = json!(duration_ms);
         let error = load_value(value).expect_err("duration outside portable range");
         std::assert_matches!(
-            error,
-            DataError::CoreDomain {
-                path,
-                source: CoreError::InvalidSignalPhaseDuration { duration_ms: actual, .. },
-            } if path == "signals.controllers[0].phases[0].durationMs"
+            into_core_domain(error),
+            (path, CoreError::InvalidSignalPhaseDuration { duration_ms: actual, .. })
+                if path == "signals.controllers[0].phases[0].durationMs"
                 && actual == duration_ms
         );
     }
@@ -550,11 +548,9 @@ fn phase_state_errors_preserve_exact_path_and_core_source() {
         .push(duplicate);
     let error = load_value(value).expect_err("duplicate phase group must fail");
     std::assert_matches!(
-        error,
-        DataError::CoreDomain {
-            path,
-            source: CoreError::DuplicateSignalPhaseGroup { group_id, .. },
-        } if path == "signals.controllers[0].phases[0].states[1].groupId"
+        into_core_domain(error),
+        (path, CoreError::DuplicateSignalPhaseGroup { group_id, .. })
+            if path == "signals.controllers[0].phases[0].states[1].groupId"
             && group_id == "main"
     );
 
@@ -562,24 +558,57 @@ fn phase_state_errors_preserve_exact_path_and_core_source() {
     value["signals"]["controllers"][0]["phases"][0]["states"] = json!([]);
     let error = load_value(value).expect_err("missing phase group must fail");
     std::assert_matches!(
-        error,
-        DataError::CoreDomain {
-            path,
-            source: CoreError::MissingSignalPhaseGroup { group_id, .. },
-        } if path == "signals.controllers[0].phases[0].states" && group_id == "main"
+        into_core_domain(error),
+        (path, CoreError::MissingSignalPhaseGroup { group_id, .. })
+            if path == "signals.controllers[0].phases[0].states" && group_id == "main"
     );
 }
 
 #[test]
 fn domain_errors_use_the_narrowest_available_id_path() {
+    for (expected_path, core_field) in [
+        (
+            "maneuverPaths[0].entryEdgeId",
+            "maneuverPaths[].entryEdgeId",
+        ),
+        (
+            "maneuverPaths[0].internalEdgeIds[0]",
+            "maneuverPaths[].internalEdgeIds[]",
+        ),
+        ("maneuverPaths[0].exitEdgeId", "maneuverPaths[].exitEdgeId"),
+    ] {
+        let mut value = signals_value();
+        match core_field {
+            "maneuverPaths[].entryEdgeId" => {
+                value["maneuverPaths"][0]["entryEdgeId"] = json!("bad id");
+            }
+            "maneuverPaths[].internalEdgeIds[]" => {
+                value["maneuverPaths"][0]["internalEdgeIds"] = json!(["bad id"]);
+            }
+            "maneuverPaths[].exitEdgeId" => {
+                value["maneuverPaths"][0]["exitEdgeId"] = json!("bad id");
+            }
+            _ => unreachable!(),
+        }
+        std::assert_matches!(
+            into_core_domain(load_value(value).expect_err("invalid ManeuverPath edge ID")),
+            (
+                path,
+                CoreError::InvalidExternalId {
+                    field,
+                    external_id,
+                    ..
+                }
+            ) if path == expected_path && field == core_field && external_id == "bad id"
+        );
+    }
+
     let mut value = signals_value();
     value["signals"]["controllers"][0]["groupIds"][0] = json!("unknown");
     std::assert_matches!(
-        load_value(value).expect_err("unknown controller group must fail"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::UnknownSignalControllerGroup { group_id, .. },
-        } if path == "signals.controllers[0].groupIds[0]" && group_id == "unknown"
+        into_core_domain(load_value(value).expect_err("unknown controller group must fail")),
+        (path, CoreError::UnknownSignalControllerGroup { group_id, .. })
+            if path == "signals.controllers[0].groupIds[0]" && group_id == "unknown"
     );
 
     let mut value = signals_value();
@@ -589,69 +618,57 @@ fn domain_errors_use_the_narrowest_available_id_path() {
         .expect("phase array")
         .push(duplicate);
     std::assert_matches!(
-        load_value(value).expect_err("duplicate phase ID must fail"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::DuplicateSignalPhaseId { phase_id, .. },
-        } if path == "signals.controllers[0].phases[3].id" && phase_id == "green"
+        into_core_domain(load_value(value).expect_err("duplicate phase ID must fail")),
+        (path, CoreError::DuplicateSignalPhaseId { phase_id, .. })
+            if path == "signals.controllers[0].phases[3].id" && phase_id == "green"
     );
 
     let mut value = signals_value();
     value["signals"]["controllers"][0]["phases"][0]["id"] = json!("bad id");
     std::assert_matches!(
-        load_value(value).expect_err("invalid phase ID must fail"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::InvalidExternalId { external_id, .. },
-        } if path == "signals.controllers[0].phases[0].id" && external_id == "bad id"
+        into_core_domain(load_value(value).expect_err("invalid phase ID must fail")),
+        (path, CoreError::InvalidExternalId { external_id, .. })
+            if path == "signals.controllers[0].phases[0].id" && external_id == "bad id"
     );
 
     let mut value = signals_value();
-    value["signals"]["movementGates"][0]["signalControl"]["groupId"] = json!("unknown");
+    value["signals"]["maneuverGates"][0]["signalControl"]["groupId"] = json!("unknown");
     std::assert_matches!(
-        load_value(value).expect_err("unknown Gate group must fail"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::UnknownMovementGateSignalGroup { group_id },
-        } if path == "signals.movementGates[0].signalControl.groupId" && group_id == "unknown"
+        into_core_domain(load_value(value).expect_err("unknown Gate group must fail")),
+        (path, CoreError::UnknownManeuverGateSignalGroup { group_id, .. })
+            if path == "signals.maneuverGates[0].signalControl.groupId" && group_id == "unknown"
     );
 
     let mut value = empty_value();
     value["routes"][0]["edgeIds"][1] = json!("missing");
     std::assert_matches!(
-        load_value(value).expect_err("unknown route edge must fail"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::UnknownRouteEdge { edge_id, .. },
-        } if path == "routes[0].edgeIds[1]" && edge_id == "missing"
+        into_core_domain(load_value(value).expect_err("unknown route edge must fail")),
+        (path, CoreError::UnknownRouteEdge { edge_id, .. })
+            if path == "routes[0].edgeIds[1]" && edge_id == "missing"
     );
 }
 
 #[test]
 fn global_coverage_and_route_final_stop_line_errors_are_structured() {
     let mut value = signals_value();
-    value["signals"]["movementGates"]
+    value["signals"]["maneuverGates"]
         .as_array_mut()
         .expect("Gate array")
         .pop();
     let error = load_value(value).expect_err("missing Gate coverage must fail");
     std::assert_matches!(
-        error,
-        DataError::CoreDomain {
-            path,
-            source: CoreError::MissingMovementGateCoverage { to_edge_id, .. },
-        } if path == "signals.stopLines[0]" && to_edge_id == "bypass"
+        into_core_domain(error),
+        (path, CoreError::MissingManeuverGateCoverage { maneuver_path_id, .. })
+            if path == "signals.stopLines[0]" && maneuver_path_id == "path-uncontrolled"
     );
 
     let mut value = signals_value();
     value["routes"][0]["edgeIds"] = json!(["entry"]);
     let error = load_value(value).expect_err("route cannot terminate at StopLine");
     std::assert_matches!(
-        error,
-        DataError::CoreDomain {
-            path,
-            source: CoreError::RouteTerminatesAtStopLine { route_id, .. },
-        } if path == "routes[0].edgeIds[0]" && route_id == "controlled-route"
+        into_core_domain(error),
+        (path, CoreError::RouteTerminatesAtStopLine { route_id, .. })
+            if path == "routes[0].edgeIds[0]" && route_id == "controlled-route"
     );
 }
 
@@ -671,11 +688,9 @@ fn invalid_units_profile_and_shape_errors_remain_structured() {
     let mut value = empty_value();
     value["vehicleProfiles"][0]["length"] = json!(0.0);
     std::assert_matches!(
-        load_value(value).expect_err("invalid profile length"),
-        DataError::CoreDomain {
-            path,
-            source: CoreError::InvalidVehicleProfileValue { field, .. },
-        } if path == "vehicleProfiles[0]" && field == "length"
+        into_core_domain(load_value(value).expect_err("invalid profile length")),
+        (path, CoreError::InvalidVehicleProfileValue { field, .. })
+            if path == "vehicleProfiles[0]" && field == "length"
     );
 
     let mut value = empty_value();

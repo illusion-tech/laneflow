@@ -63,6 +63,9 @@ fn allocation_world(with_blocker: bool) -> (CoreWorld, VehicleProfileHandle) {
             Route::try_new("target-route", ["target-edge"]).expect("target route"),
         ],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
     )
     .expect("valid traffic");
     let mut vehicles = vec![VehicleSpawnInput::completed(

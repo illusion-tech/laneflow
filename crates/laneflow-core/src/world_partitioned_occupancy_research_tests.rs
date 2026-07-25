@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::*;
 use crate::{
-    EdgeLength, IidmProfileSpec, LaneEdge, MovementGate, ParkingRegistry, ParkingSpace,
+    EdgeLength, IidmProfileSpec, LaneEdge, ManeuverGate, ParkingRegistry, ParkingSpace,
     ParkingSpaceGeometry, SignalAspect, SignalControlInput, SignalController, SignalGroup,
     SignalGroupState, SignalPhase, SignalRegistry, SpeedLimit, StopLine, StopLineLocation,
     VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
@@ -916,7 +916,15 @@ fn corridor_world() -> CoreWorld {
         Route::try_new("transition", ["T0", "T1", "T2"]).expect("transition route"),
     ];
     let (profiles, profile) = profile("corridor-profile", 30.0);
-    let traffic = InitialTrafficData::try_new(graph, routes, profiles).expect("traffic data");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        routes,
+        profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
+    )
+    .expect("traffic data");
     CoreWorld::with_traffic_data(
         1_000,
         traffic,
@@ -951,7 +959,15 @@ fn cycle_world() -> CoreWorld {
         Route::try_new("route-b", ["loop-b", "loop-a", "loop-b"]).expect("route B"),
     ];
     let (profiles, profile) = profile("cycle-profile", 30.0);
-    let traffic = InitialTrafficData::try_new(graph, routes, profiles).expect("traffic data");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        routes,
+        profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
+    )
+    .expect("traffic data");
     CoreWorld::with_traffic_data(
         1_000,
         traffic,
@@ -979,8 +995,13 @@ fn signal_world() -> CoreWorld {
         edge("signal-b", 10.0, &[]),
     ])
     .expect("signal graph");
+    let junctions = crate::test_support::zero_internal_junctions(
+        &graph,
+        &[("signal-path", "signal-a", "signal-b")],
+    );
     let signals = SignalRegistry::try_new(
         &graph,
+        &junctions,
         [StopLine::new(
             "signal-stop",
             "signal-a",
@@ -996,20 +1017,23 @@ fn signal_world() -> CoreWorld {
                 phase("green", 1_000, &[("signal-group", SignalAspect::Green)]),
             ],
         )],
-        [MovementGate::new(
-            "signal-a",
-            "signal-b",
+        [ManeuverGate::new(
+            "signal-gate",
+            "signal-path",
+            0,
             "signal-stop",
             SignalControlInput::Group("signal-group".to_owned()),
         )],
     )
     .expect("signal registry");
     let (profiles, profile) = profile("signal-profile", 20.0);
-    let traffic = InitialTrafficData::try_new_with_signals(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("signal-route", ["signal-a", "signal-b"]).expect("signal route")],
         profiles,
+        junctions,
         signals,
+        ParkingRegistry::empty(),
     )
     .expect("signal traffic");
     CoreWorld::with_traffic_data(
@@ -1044,10 +1068,11 @@ fn parking_world() -> CoreWorld {
     )
     .expect("parking registry");
     let (profiles, profile) = profile("parking-profile", 30.0);
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("parking-route", ["parking-edge"]).expect("parking route")],
         profiles,
+        crate::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -1089,7 +1114,15 @@ fn non_finite_horizon_world() -> CoreWorld {
         Route::try_new("overflow-route-z", ["overflow-z"]).expect("overflow route Z"),
     ];
     let (profiles, profile) = profile("overflow-profile", 30.0);
-    let traffic = InitialTrafficData::try_new(graph, routes, profiles).expect("traffic data");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        routes,
+        profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
+    )
+    .expect("traffic data");
     CoreWorld::with_traffic_data(
         2_000,
         traffic,

@@ -1,15 +1,15 @@
 use laneflow_core::{
-    CoreEvent, CoreWorld, EdgeProgress, MovementGateKey, MovementGateSignalState, SignalAspect,
+    CoreEvent, CoreWorld, EdgeProgress, ManeuverGateSignalState, SignalAspect,
     SignalLayerPermission, Speed, TickInput, VehicleSpawnInput,
 };
 use laneflow_data::from_json_str;
 
 const SIGNALS_BASELINE: &str =
-    include_str!("../../../examples/data/v0.7-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.8-parking-signals-baseline.laneflow.json");
 const DELTA_MS: u64 = 1_000;
 
 fn baseline_world() -> CoreWorld {
-    let loaded = from_json_str(SIGNALS_BASELINE).expect("canonical v0.7 fixture must load");
+    let loaded = from_json_str(SIGNALS_BASELINE).expect("canonical v0.8 fixture must load");
     CoreWorld::with_traffic_data(DELTA_MS, loaded.into_initial_traffic_data(), Vec::new())
         .expect("canonical Signals fixture must initialize CoreWorld")
 }
@@ -17,16 +17,21 @@ fn baseline_world() -> CoreWorld {
 #[test]
 fn production_loader_drives_controlled_and_uncontrolled_gate_snapshots() {
     let world = baseline_world();
-    let entry = world.edge_handle("entry").expect("entry");
-    let through = world.edge_handle("through").expect("through");
-    let bypass = world.edge_handle("bypass").expect("bypass");
+    let controlled = world
+        .signals()
+        .maneuver_gate_handle("gate-controlled")
+        .expect("controlled Gate");
+    let uncontrolled = world
+        .signals()
+        .maneuver_gate_handle("gate-uncontrolled")
+        .expect("uncontrolled Gate");
 
     std::assert_matches!(
         world
-            .movement_gate_state(MovementGateKey::new(entry, through))
+            .maneuver_gate_state(controlled)
             .expect("controlled Gate")
             .signal(),
-        MovementGateSignalState::Controlled {
+        ManeuverGateSignalState::Controlled {
             aspect: SignalAspect::Green,
             permission: SignalLayerPermission::ProtectedAllow,
             ..
@@ -34,10 +39,10 @@ fn production_loader_drives_controlled_and_uncontrolled_gate_snapshots() {
     );
     std::assert_matches!(
         world
-            .movement_gate_state(MovementGateKey::new(entry, bypass))
+            .maneuver_gate_state(uncontrolled)
             .expect("uncontrolled Gate")
             .signal(),
-        MovementGateSignalState::Uncontrolled
+        ManeuverGateSignalState::Uncontrolled
     );
 }
 

@@ -203,7 +203,6 @@ impl CorridorCatalog {
             }
             if !traffic
                 .routes()
-                .iter()
                 .any(|candidate| candidate.id() == route.route_id)
             {
                 return Err(CorridorPopulationError::UnknownTrafficRoute {
@@ -290,7 +289,6 @@ impl CorridorCatalog {
             }
             let traffic_route = traffic
                 .routes()
-                .iter()
                 .find(|candidate| candidate.id() == route.id)
                 .expect("route existence was validated");
             let Some(expected_edge_id) = traffic_route.edge_ids().get(slot.route_edge_index) else {

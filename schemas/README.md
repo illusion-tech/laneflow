@@ -2,7 +2,7 @@
 
 <!-- schema-publication-contract: public-retrieval -->
 <!-- schema-publication-catalog: schemas/publication.json -->
-<!-- schema-source-current: traffic=0.7;spatial=0.1;scenarioManifest=0.1 -->
+<!-- schema-source-current: traffic=0.8;spatial=0.1;scenarioManifest=0.1 -->
 
 本目录同时保存当前 schema source 与已经公开的 immutable schema artifacts。机器可读的 family、current source、canonical URL 与 publication provenance 见 [`publication.json`](publication.json)。
 
@@ -10,7 +10,7 @@
 
 | Family            | Current source                                                                               | Publication 状态 |
 | ----------------- | -------------------------------------------------------------------------------------------- | ---------------- |
-| Traffic           | [`laneflow-data-v0.7.schema.json`](laneflow-data-v0.7.schema.json)                           | 已发布           |
+| Traffic           | [`laneflow-data-v0.8.schema.json`](laneflow-data-v0.8.schema.json)                           | Source-only      |
 | Spatial           | [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)                     | 已发布           |
 | Scenario Manifest | [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json) | 已发布           |
 
@@ -24,17 +24,20 @@
 - v0.2/v0.3 Traffic 保留历史 Raw GitHub `$id`；后续 schema 使用 organisation-owned GitHub Pages URL。
 - Pages `/schema/` 只包含 `publishedSchemas` 与 machine-readable publication index；source-only schema 不会被误部署。
 
-当前 Traffic production source 是 v0.7，其固定 `main` provenance 已登记到公共发布集合。
+当前 Traffic production source 是 v0.8；它在 #229 source PR 合入后仍是 source-only，
+由后续 publication Delivery PR 固定 `main` provenance 并加入公共发布集合。已发布
+v0.7 继续按固定 provenance 永久保留。
 当前 schema contract 是：
 
-- [`laneflow-data-v0.7.schema.json`](laneflow-data-v0.7.schema.json)
-- <https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.7.schema.json>
+- [`laneflow-data-v0.8.schema.json`](laneflow-data-v0.8.schema.json)
 - [`laneflow-spatial-v0.1.schema.json`](laneflow-spatial-v0.1.schema.json)
 - <https://illusion-tech.github.io/laneflow/schema/laneflow-spatial-v0.1.schema.json>
 - [`laneflow-scenario-manifest-v0.1.schema.json`](laneflow-scenario-manifest-v0.1.schema.json)
 - <https://illusion-tech.github.io/laneflow/schema/laneflow-scenario-manifest-v0.1.schema.json>
 
-Traffic v0.2-v0.5 只作为 immutable publication artifacts 保留，不进入 current production loader、fixture 或 compatibility matrix。
+Traffic v0.2-v0.5 与 v0.7 只作为 immutable publication artifacts 保留，不进入
+current production loader、fixture 或 compatibility matrix。v0.8 的 `$id` 是目标
+canonical URL，但在 publication catalog 登记固定 provenance 前不得声称已经可下载。
 
 ## Runtime 边界
 

@@ -1,7 +1,7 @@
 //! Core runtime 的错误类型。
 
 use crate::{
-    EdgeHandle, MovementGateKey, ParkingAnchorKind, ParkingBindingKind, ParkingCommandKind,
+    EdgeHandle, ManeuverGateHandle, ParkingAnchorKind, ParkingBindingKind, ParkingCommandKind,
     ParkingSpaceHandle, RouteHandle, VehicleHandle, VehicleProfileHandle, VehicleStatus,
 };
 
@@ -97,6 +97,133 @@ pub enum CoreError {
         from_edge_id: String,
         to_edge_id: String,
     },
+    /// 新 static domain 的 normalization-order handle count 必须可由 u32 表示。
+    #[error(
+        "static domain `{domain}` entity count 超出 handle capacity：count={count}, max={max_inclusive}"
+    )]
+    StaticDomainCapacityExceeded {
+        domain: &'static str,
+        count: usize,
+        max_inclusive: u32,
+    },
+    /// Junction external ID 在 registry 内必须唯一。
+    #[error("Junction id 重复：{junction_id}")]
+    DuplicateJunctionId { junction_id: String },
+    /// Movement external ID 在 registry 内必须唯一。
+    #[error("Movement id 重复：{movement_id}")]
+    DuplicateMovementId { movement_id: String },
+    /// Movement 必须引用已声明的 Junction。
+    #[error("Movement `{movement_id}` 引用了不存在的 Junction `{junction_id}`")]
+    UnknownMovementJunction {
+        movement_id: String,
+        junction_id: String,
+    },
+    /// ManeuverPath external ID 在 registry 内必须唯一。
+    #[error("ManeuverPath id 重复：{maneuver_path_id}")]
+    DuplicateManeuverPathId { maneuver_path_id: String },
+    /// ManeuverPath 必须引用已声明的 Movement。
+    #[error("ManeuverPath `{maneuver_path_id}` 引用了不存在的 Movement `{movement_id}`")]
+    UnknownManeuverPathMovement {
+        maneuver_path_id: String,
+        movement_id: String,
+    },
+    /// ManeuverPath 的 entry/internal/exit edge 必须存在。
+    #[error("ManeuverPath `{maneuver_path_id}` 的 {role} edge 引用了不存在的 LaneEdge `{edge_id}`")]
+    UnknownManeuverPathEdge {
+        maneuver_path_id: String,
+        role: &'static str,
+        edge_id: String,
+    },
+    /// ManeuverPath 的每个相邻 edge pair 必须可遍历。
+    #[error(
+        "ManeuverPath `{maneuver_path_id}` transition {transition_index} 不连通：`{from_edge_id}` -> `{to_edge_id}`"
+    )]
+    DisconnectedManeuverPath {
+        maneuver_path_id: String,
+        transition_index: usize,
+        from_edge_id: String,
+        to_edge_id: String,
+    },
+    /// 一个 resolved traversal signature 只能对应一个 ManeuverPath。
+    #[error(
+        "ManeuverPath 完整 edge sequence 重复：first=`{first_maneuver_path_id}` (Junction `{first_junction_id}`), duplicate=`{duplicate_maneuver_path_id}` (Junction `{duplicate_junction_id}`)"
+    )]
+    DuplicateManeuverPathSequence {
+        first_maneuver_path_id: String,
+        first_junction_id: String,
+        duplicate_maneuver_path_id: String,
+        duplicate_junction_id: String,
+    },
+    /// internal edge 的 semantic owner 在 Junction 间必须唯一。
+    #[error(
+        "LaneEdge `{edge_id}` 被多个 Junction 声明为 internal：first=`{first_junction_id}`, duplicate=`{duplicate_junction_id}`"
+    )]
+    ManeuverInternalEdgeJunctionConflict {
+        edge_id: String,
+        first_junction_id: String,
+        duplicate_junction_id: String,
+    },
+    /// 同一 edge 不能同时充当 ManeuverPath internal 与 entry/exit boundary。
+    #[error(
+        "LaneEdge `{edge_id}` 同时声明为 internal 与 boundary：internal path=`{internal_maneuver_path_id}`, boundary path=`{boundary_maneuver_path_id}`"
+    )]
+    ManeuverPathEdgeRoleConflict {
+        edge_id: String,
+        internal_maneuver_path_id: String,
+        boundary_maneuver_path_id: String,
+    },
+    /// 每个 Junction 至少拥有一个 Movement。
+    #[error("Junction `{junction_id}` 没有 Movement")]
+    EmptyJunction { junction_id: String },
+    /// 每个 Movement 至少拥有一个 ManeuverPath。
+    #[error("Movement `{movement_id}` 没有 ManeuverPath")]
+    EmptyMovement { movement_id: String },
+    /// Route 不能从 Junction internal edge 开始。
+    #[error("route `{route_id}` 不能从 Junction internal edge `{edge_id}` 开始")]
+    RouteStartsInsideJunction { route_id: String, edge_id: String },
+    /// Route 不能在 Junction internal edge 结束。
+    #[error("route `{route_id}` 不能在 Junction internal edge `{edge_id}` 结束")]
+    RouteEndsInsideJunction { route_id: String, edge_id: String },
+    /// entry transition 存在候选 path 时 Route 必须完整匹配一个候选。
+    #[error(
+        "route `{route_id}` 在 edge index {entry_route_edge_index} 未完整匹配 ManeuverPath：`{from_edge_id}` -> `{to_edge_id}`, candidates={candidate_count}"
+    )]
+    RouteManeuverNoFullMatch {
+        route_id: String,
+        entry_route_edge_index: usize,
+        from_edge_id: String,
+        to_edge_id: String,
+        candidate_count: usize,
+    },
+    /// 同一 Route position 只能完整匹配一个 ManeuverPath。
+    #[error(
+        "route `{route_id}` 在 edge index {entry_route_edge_index} 同时匹配多个 ManeuverPath：first=`{first_maneuver_path_id}`, second=`{second_maneuver_path_id}`"
+    )]
+    RouteManeuverMultipleFullMatches {
+        route_id: String,
+        entry_route_edge_index: usize,
+        first_maneuver_path_id: String,
+        second_maneuver_path_id: String,
+    },
+    /// 两个 compiled occurrence 的 internal spans 不得重叠。
+    #[error(
+        "route `{route_id}` 的 internal edge occurrence {route_edge_index} 被多个 ManeuverPath 覆盖：first=`{first_maneuver_path_id}`, second=`{second_maneuver_path_id}`"
+    )]
+    RouteManeuverInternalOverlap {
+        route_id: String,
+        route_edge_index: usize,
+        first_maneuver_path_id: String,
+        second_maneuver_path_id: String,
+    },
+    /// Route 中的每个 Junction internal edge occurrence 必须由一个 path occurrence 覆盖。
+    #[error(
+        "route `{route_id}` 的 Junction internal edge occurrence 未被 ManeuverPath 覆盖：index={route_edge_index}, edge=`{edge_id}`"
+    )]
+    RouteInternalEdgeUncovered {
+        route_id: String,
+        route_edge_index: usize,
+        edge_id: String,
+    },
     /// StopLine external ID 在 registry 内必须唯一。
     #[error("StopLine id 重复：{stop_line_id}")]
     DuplicateStopLineId { stop_line_id: String },
@@ -151,8 +278,8 @@ pub enum CoreError {
     /// 每个 SignalGroup 必须属于一个 controller。
     #[error("SignalGroup `{group_id}` 没有 SignalController owner")]
     UnownedSignalGroup { group_id: String },
-    /// 每个 SignalGroup 至少必须被一个 MovementGate 使用。
-    #[error("SignalGroup `{group_id}` 没有被任何 MovementGate 使用")]
+    /// 每个 SignalGroup 至少必须被一个 ManeuverGate 使用。
+    #[error("SignalGroup `{group_id}` 没有被任何 ManeuverGate 使用")]
     UnusedSignalGroup { group_id: String },
     /// Phase duration 必须为 portable positive integer。
     #[error(
@@ -219,50 +346,84 @@ pub enum CoreError {
         offset_ms: u64,
         cycle_duration_ms: u64,
     },
-    /// MovementGate 的 from edge 必须存在。
-    #[error("MovementGate 引用了不存在的 fromEdgeId：{edge_id}")]
-    UnknownMovementGateFromEdge { edge_id: String },
-    /// MovementGate 的 to edge 必须存在。
-    #[error("MovementGate 引用了不存在的 toEdgeId：{edge_id}")]
-    UnknownMovementGateToEdge { edge_id: String },
-    /// MovementGate pair 必须是 lane graph 中的合法 connection。
-    #[error("MovementGate `{from_edge_id}` -> `{to_edge_id}` 不是合法 connection")]
-    DisconnectedMovementGate {
-        from_edge_id: String,
-        to_edge_id: String,
+    /// ManeuverGate external ID 在 registry 内必须唯一。
+    #[error("ManeuverGate id 重复：{maneuver_gate_id}")]
+    DuplicateManeuverGateId { maneuver_gate_id: String },
+    /// ManeuverGate 必须引用已声明的 ManeuverPath。
+    #[error("ManeuverGate `{maneuver_gate_id}` 引用了不存在的 ManeuverPath `{maneuver_path_id}`")]
+    UnknownManeuverGatePath {
+        maneuver_gate_id: String,
+        maneuver_path_id: String,
     },
-    /// MovementGate pair 在 registry 内必须唯一。
-    #[error("MovementGate pair 重复：`{from_edge_id}` -> `{to_edge_id}`")]
-    DuplicateMovementGate {
-        from_edge_id: String,
-        to_edge_id: String,
-    },
-    /// MovementGate 引用的 StopLine 必须存在。
-    #[error("MovementGate 引用了不存在的 StopLine `{stop_line_id}`")]
-    UnknownMovementGateStopLine { stop_line_id: String },
-    /// MovementGate 的 StopLine 必须属于 from edge。
+    /// ManeuverGate transition index 必须落在 path transition 范围内。
     #[error(
-        "MovementGate fromEdgeId `{from_edge_id}` 与 StopLine `{stop_line_id}` 所属 edge `{stop_line_edge_id}` 不一致"
+        "ManeuverGate `{maneuver_gate_id}` transitionIndex={transition_index} 越界：ManeuverPath `{maneuver_path_id}` 只有 {transition_count} 个 transitions"
     )]
-    MovementGateStopLineMismatch {
+    ManeuverGateTransitionOutOfRange {
+        maneuver_gate_id: String,
+        maneuver_path_id: String,
+        transition_index: u32,
+        transition_count: usize,
+    },
+    /// v0.9 protected profile 只支持 entry transition。
+    #[error(
+        "ManeuverGate `{maneuver_gate_id}` 使用不支持的 transitionIndex={transition_index}；v0.9 protected profile 只接受 0"
+    )]
+    UnsupportedManeuverGateTransition {
+        maneuver_gate_id: String,
+        transition_index: u32,
+    },
+    /// 同一 path transition 最多声明一个 ManeuverGate。
+    #[error(
+        "ManeuverPath `{maneuver_path_id}` transition {transition_index} 重复声明 ManeuverGate：first=`{first_maneuver_gate_id}`, duplicate=`{duplicate_maneuver_gate_id}`"
+    )]
+    DuplicateManeuverGatePathTransition {
+        maneuver_path_id: String,
+        transition_index: u32,
+        first_maneuver_gate_id: String,
+        duplicate_maneuver_gate_id: String,
+    },
+    /// ManeuverGate 引用的 StopLine 必须存在。
+    #[error("ManeuverGate `{maneuver_gate_id}` 引用了不存在的 StopLine `{stop_line_id}`")]
+    UnknownManeuverGateStopLine {
+        maneuver_gate_id: String,
+        stop_line_id: String,
+    },
+    /// ManeuverGate 的 StopLine 必须属于 path transition 的 from edge。
+    #[error(
+        "ManeuverGate `{maneuver_gate_id}` transition from-edge `{path_from_edge_id}` 与 StopLine `{stop_line_id}` 所属 edge `{stop_line_edge_id}` 不一致"
+    )]
+    ManeuverGateStopLineMismatch {
+        maneuver_gate_id: String,
         stop_line_id: String,
         stop_line_edge_id: String,
-        from_edge_id: String,
+        path_from_edge_id: String,
     },
-    /// MovementGate 引用的 SignalGroup 必须存在。
-    #[error("MovementGate 引用了不存在的 SignalGroup `{group_id}`")]
-    UnknownMovementGateSignalGroup { group_id: String },
-    /// 声明 StopLine 的 edge 必须为每个 outgoing connection 定义 Gate。
+    /// ManeuverGate 引用的 SignalGroup 必须存在。
+    #[error("ManeuverGate `{maneuver_gate_id}` 引用了不存在的 SignalGroup `{group_id}`")]
+    UnknownManeuverGateSignalGroup {
+        maneuver_gate_id: String,
+        group_id: String,
+    },
+    /// 声明 StopLine 的 outgoing connection 必须对应至少一条 ManeuverPath。
     #[error(
-        "StopLine `{stop_line_id}` 缺少 MovementGate coverage：`{from_edge_id}` -> `{to_edge_id}`"
+        "StopLine `{stop_line_id}` 缺少 ManeuverPath coverage：`{from_edge_id}` -> `{to_edge_id}`"
     )]
-    MissingMovementGateCoverage {
+    MissingManeuverPathCoverage {
         stop_line_id: String,
         from_edge_id: String,
         to_edge_id: String,
     },
-    /// StopLine 必须位于至少有一个 outgoing connection 的 edge 并被 Gate 使用。
-    #[error("StopLine `{stop_line_id}` 位于 terminal edge `{edge_id}`，无法形成 MovementGate")]
+    /// StopLine entry 的每条 ManeuverPath 必须拥有唯一 entry Gate。
+    #[error(
+        "StopLine `{stop_line_id}` 的 ManeuverPath `{maneuver_path_id}` 缺少 entry ManeuverGate"
+    )]
+    MissingManeuverGateCoverage {
+        stop_line_id: String,
+        maneuver_path_id: String,
+    },
+    /// StopLine 必须位于至少有一个 outgoing connection 的 edge 并被 path/Gate 使用。
+    #[error("StopLine `{stop_line_id}` 位于 terminal edge `{edge_id}`，无法形成 ManeuverPath")]
     OrphanStopLine {
         stop_line_id: String,
         edge_id: String,
@@ -645,7 +806,7 @@ pub enum CoreError {
         route: RouteHandle,
         from_route_edge_index: usize,
         to_route_edge_index: usize,
-        gate: MovementGateKey,
+        gate: ManeuverGateHandle,
         remaining_travel: f64,
         final_speed: f64,
     },

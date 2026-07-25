@@ -56,10 +56,11 @@ fn single_edge_world() -> (CoreWorld, VehicleProfileHandle) {
     )
     .expect("parking");
     let (profiles, profile) = profile_registry();
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("R", ["A"]).expect("route")],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -336,7 +337,7 @@ fn dormant_reservation_rebinds_without_teleport_and_keeps_route_references_exact
     let parking =
         ParkingRegistry::try_new(&graph, [], [parking_space("S", None, "B", "A")]).unwrap();
     let (profiles, profile) = profile_registry();
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [
             Route::try_new("short", ["A"]).unwrap(),
@@ -344,6 +345,7 @@ fn dormant_reservation_rebinds_without_teleport_and_keeps_route_references_exact
             Route::try_new("unreachable", ["A"]).unwrap(),
         ],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )

@@ -388,22 +388,20 @@ impl ParkingRegistry {
 
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> usize {
-        let area_bytes = self.areas.capacity() * std::mem::size_of::<ParkingArea>()
-            + self
-                .areas
-                .iter()
-                .map(|area| area.id.capacity())
-                .sum::<usize>();
-        let area_handle_bytes = self.area_handles.capacity()
+        let Self {
+            areas,
+            area_handles,
+            area_spaces,
+            spaces,
+            space_handles,
+        } = self;
+        let area_bytes = areas.capacity() * std::mem::size_of::<ParkingArea>()
+            + areas.iter().map(|area| area.id.capacity()).sum::<usize>();
+        let area_handle_bytes = area_handles.capacity()
             * std::mem::size_of::<(String, ParkingAreaHandle)>()
-            + self
-                .area_handles
-                .keys()
-                .map(String::capacity)
-                .sum::<usize>();
-        let space_bytes = self.spaces.capacity() * std::mem::size_of::<ResolvedParkingSpace>()
-            + self
-                .spaces
+            + area_handles.keys().map(String::capacity).sum::<usize>();
+        let space_bytes = spaces.capacity() * std::mem::size_of::<ResolvedParkingSpace>()
+            + spaces
                 .iter()
                 .map(|space| {
                     let definition = &space.definition;
@@ -413,17 +411,12 @@ impl ParkingRegistry {
                         + definition.exit_edge_id.capacity()
                 })
                 .sum::<usize>();
-        let space_handle_bytes = self.space_handles.capacity()
+        let space_handle_bytes = space_handles.capacity()
             * std::mem::size_of::<(String, ParkingSpaceHandle)>()
-            + self
-                .space_handles
-                .keys()
-                .map(String::capacity)
-                .sum::<usize>();
-        let area_member_bytes = self.area_spaces.capacity()
+            + space_handles.keys().map(String::capacity).sum::<usize>();
+        let area_member_bytes = area_spaces.capacity()
             * std::mem::size_of::<Vec<ParkingSpaceHandle>>()
-            + self
-                .area_spaces
+            + area_spaces
                 .iter()
                 .map(|spaces| spaces.capacity() * std::mem::size_of::<ParkingSpaceHandle>())
                 .sum::<usize>();
@@ -916,10 +909,16 @@ impl ParkingRuntimeState {
 
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> usize {
-        self.spaces.capacity() * std::mem::size_of::<ParkingSpaceState>()
-            + self.vehicle_bindings.capacity()
+        let Self {
+            spaces,
+            vehicle_bindings,
+            global_counts: _,
+            area_counts,
+        } = self;
+        spaces.capacity() * std::mem::size_of::<ParkingSpaceState>()
+            + vehicle_bindings.capacity()
                 * std::mem::size_of::<Option<RuntimeVehicleParkingBinding>>()
-            + self.area_counts.capacity() * std::mem::size_of::<ParkingCounts>()
+            + area_counts.capacity() * std::mem::size_of::<ParkingCounts>()
     }
 
     pub(crate) fn space_state(&self, space: ParkingSpaceHandle) -> Option<ParkingSpaceState> {

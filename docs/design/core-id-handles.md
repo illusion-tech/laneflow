@@ -599,4 +599,5 @@ handle。跨 graph/world 的 `InitialTrafficData` assembly 必须按 retained ex
 
 Route 注册期把 ManeuverPath/ManeuverGate 编译为 route-shared occurrences；
 steady tick 不使用 external string resolver、不按 handle 数值排序，也不扫描全局
-registry。#229 G4 前，current public API 不包含这些 handles。
+registry。#229 已公开这些 opaque handles 与 external-ID resolvers；不公开数值
+ordering，也不提供 pair-based Gate alias。

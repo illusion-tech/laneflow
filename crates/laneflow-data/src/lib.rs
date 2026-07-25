@@ -7,10 +7,11 @@ mod scenario_wire;
 mod wire;
 
 use laneflow_core::{
-    CoreError, EdgeLength, IidmProfileSpec, InitialTrafficData, LaneEdge, LaneGraph, MovementGate,
-    ParkingAnchorKind, ParkingArea, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, Route,
-    SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
-    SignalRegistry, SpeedLimit, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
+    CoreError, EdgeLength, IidmProfileSpec, InitialTrafficData, Junction, JunctionRegistry,
+    LaneEdge, LaneGraph, ManeuverGate, ManeuverPath, Movement, ParkingAnchorKind, ParkingArea,
+    ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, Route, SignalAspect, SignalControlInput,
+    SignalController, SignalGroup, SignalGroupState, SignalPhase, SignalRegistry, SpeedLimit,
+    StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
 };
 use serde::de::DeserializeOwned;
 use serde_json::error::Category;
@@ -29,7 +30,7 @@ use wire::{
 };
 
 /// 当前 production loader 接受的唯一 data format 版本。
-pub const CURRENT_FORMAT_VERSION: &str = "0.7";
+pub const CURRENT_FORMAT_VERSION: &str = "0.8";
 
 /// 已解析并完成 Core normalization 的当前 data package。
 #[derive(Clone, Debug, PartialEq)]
@@ -97,14 +98,16 @@ fn normalize(wire: &WirePackage) -> Result<LoadedPackage, DataError> {
 
     let profile_registry = normalize_profiles(wire)?;
     let lane_graph = normalize_lane_graph(wire)?;
-    let signals = normalize_signals(&lane_graph, &wire.signals)?;
+    let junctions = normalize_junctions(&lane_graph, wire)?;
+    let signals = normalize_signals(&lane_graph, &junctions, &wire.signals)?;
     let parking = normalize_parking(&lane_graph, &wire.parking)?;
     let routes = normalize_routes(wire)?;
 
-    let initial_traffic_data = InitialTrafficData::try_new_with_signals_and_parking(
+    let initial_traffic_data = InitialTrafficData::try_new(
         lane_graph,
         routes,
         profile_registry,
+        junctions,
         signals,
         parking,
     )
@@ -163,8 +166,41 @@ fn normalize_lane_graph(wire: &WirePackage) -> Result<LaneGraph, DataError> {
     LaneGraph::try_new(edges).map_err(|source| DataError::core("laneGraph.edges", source))
 }
 
+fn normalize_junctions(
+    lane_graph: &LaneGraph,
+    wire: &WirePackage,
+) -> Result<JunctionRegistry, DataError> {
+    let junctions = wire
+        .junctions
+        .iter()
+        .map(|junction| Junction::new(junction.id.clone()))
+        .collect::<Vec<_>>();
+    let movements = wire
+        .movements
+        .iter()
+        .map(|movement| Movement::new(movement.id.clone(), movement.junction_id.clone()))
+        .collect::<Vec<_>>();
+    let maneuver_paths = wire
+        .maneuver_paths
+        .iter()
+        .map(|path| {
+            ManeuverPath::new(
+                path.id.clone(),
+                path.movement_id.clone(),
+                path.entry_edge_id.clone(),
+                path.internal_edge_ids.iter().cloned(),
+                path.exit_edge_id.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    JunctionRegistry::try_new(lane_graph, junctions, movements, maneuver_paths)
+        .map_err(|source| DataError::core(junction_error_path(wire, &source), source))
+}
+
 fn normalize_signals(
     lane_graph: &LaneGraph,
+    junctions: &JunctionRegistry,
     wire: &WireSignals,
 ) -> Result<SignalRegistry, DataError> {
     let mut stop_lines = Vec::with_capacity(wire.stop_lines.len());
@@ -215,8 +251,8 @@ fn normalize_signals(
         controllers.push(normalized);
     }
 
-    let mut movement_gates = Vec::with_capacity(wire.movement_gates.len());
-    for gate in &wire.movement_gates {
+    let mut maneuver_gates = Vec::with_capacity(wire.maneuver_gates.len());
+    for gate in &wire.maneuver_gates {
         let control = match &gate.signal_control {
             WireSignalControl::Group(control) => {
                 let _kind = control.kind;
@@ -227,16 +263,24 @@ fn normalize_signals(
                 SignalControlInput::None
             }
         };
-        movement_gates.push(MovementGate::new(
-            gate.from_edge_id.clone(),
-            gate.to_edge_id.clone(),
+        maneuver_gates.push(ManeuverGate::new(
+            gate.id.clone(),
+            gate.maneuver_path_id.clone(),
+            gate.transition_index,
             gate.stop_line_id.clone(),
             control,
         ));
     }
 
-    SignalRegistry::try_new(lane_graph, stop_lines, groups, controllers, movement_gates)
-        .map_err(|source| DataError::core(signal_error_path(wire, &source), source))
+    SignalRegistry::try_new(
+        lane_graph,
+        junctions,
+        stop_lines,
+        groups,
+        controllers,
+        maneuver_gates,
+    )
+    .map_err(|source| DataError::core(signal_error_path(wire, &source), source))
 }
 
 fn normalize_parking(
@@ -404,6 +448,242 @@ fn parking_anchor_external_id_path(
     )
 }
 
+fn junction_error_path(wire: &WirePackage, source: &CoreError) -> String {
+    match source {
+        CoreError::InvalidExternalId {
+            field, external_id, ..
+        } => match *field {
+            "junctions[].id" => {
+                item_id_path(&wire.junctions, "junctions", external_id, |item| &item.id)
+            }
+            "movements[].id" => {
+                item_id_path(&wire.movements, "movements", external_id, |item| &item.id)
+            }
+            "movements[].junctionId" => wire
+                .movements
+                .iter()
+                .position(|item| item.junction_id == *external_id)
+                .map_or_else(
+                    || "movements".to_owned(),
+                    |index| format!("movements[{index}].junctionId"),
+                ),
+            "maneuverPaths[].id" => {
+                item_id_path(&wire.maneuver_paths, "maneuverPaths", external_id, |item| {
+                    &item.id
+                })
+            }
+            "maneuverPaths[].movementId" => wire
+                .maneuver_paths
+                .iter()
+                .position(|item| item.movement_id == *external_id)
+                .map_or_else(
+                    || "maneuverPaths".to_owned(),
+                    |index| format!("maneuverPaths[{index}].movementId"),
+                ),
+            "maneuverPaths[].entryEdgeId" => {
+                maneuver_path_edge_value_path(wire, "entry", external_id)
+            }
+            "maneuverPaths[].internalEdgeIds[]" => {
+                maneuver_path_edge_value_path(wire, "internal", external_id)
+            }
+            "maneuverPaths[].exitEdgeId" => {
+                maneuver_path_edge_value_path(wire, "exit", external_id)
+            }
+            _ => "junctions".to_owned(),
+        },
+        CoreError::DuplicateJunctionId { junction_id } => {
+            second_matching_index(&wire.junctions, |item| item.id == *junction_id).map_or_else(
+                || "junctions".to_owned(),
+                |index| format!("junctions[{index}].id"),
+            )
+        }
+        CoreError::DuplicateMovementId { movement_id } => {
+            second_matching_index(&wire.movements, |item| item.id == *movement_id).map_or_else(
+                || "movements".to_owned(),
+                |index| format!("movements[{index}].id"),
+            )
+        }
+        CoreError::UnknownMovementJunction { movement_id, .. } => {
+            movement_path(wire, movement_id, ".junctionId")
+        }
+        CoreError::DuplicateManeuverPathId { maneuver_path_id } => {
+            second_matching_index(&wire.maneuver_paths, |item| item.id == *maneuver_path_id)
+                .map_or_else(
+                    || "maneuverPaths".to_owned(),
+                    |index| format!("maneuverPaths[{index}].id"),
+                )
+        }
+        CoreError::UnknownManeuverPathMovement {
+            maneuver_path_id, ..
+        } => maneuver_path_path(wire, maneuver_path_id, ".movementId"),
+        CoreError::UnknownManeuverPathEdge {
+            maneuver_path_id,
+            role,
+            edge_id,
+        } => maneuver_path_edge_path(wire, maneuver_path_id, role, edge_id),
+        CoreError::DisconnectedManeuverPath {
+            maneuver_path_id,
+            transition_index,
+            ..
+        } => maneuver_path_transition_target_path(wire, maneuver_path_id, *transition_index),
+        CoreError::DuplicateManeuverPathSequence {
+            duplicate_maneuver_path_id,
+            ..
+        } => maneuver_path_path(wire, duplicate_maneuver_path_id, ""),
+        CoreError::ManeuverInternalEdgeJunctionConflict {
+            edge_id,
+            duplicate_junction_id,
+            ..
+        } => wire
+            .maneuver_paths
+            .iter()
+            .enumerate()
+            .find_map(|(path_index, path)| {
+                let movement = wire
+                    .movements
+                    .iter()
+                    .find(|movement| movement.id == path.movement_id)?;
+                (movement.junction_id == *duplicate_junction_id)
+                    .then(|| {
+                        path.internal_edge_ids
+                            .iter()
+                            .position(|item| item == edge_id)
+                            .map(|edge_index| {
+                                format!("maneuverPaths[{path_index}].internalEdgeIds[{edge_index}]")
+                            })
+                    })
+                    .flatten()
+            })
+            .unwrap_or_else(|| "maneuverPaths".to_owned()),
+        CoreError::ManeuverPathEdgeRoleConflict {
+            internal_maneuver_path_id,
+            edge_id,
+            ..
+        } => maneuver_path_edge_path(wire, internal_maneuver_path_id, "internal", edge_id),
+        CoreError::EmptyJunction { junction_id } => wire
+            .junctions
+            .iter()
+            .position(|item| item.id == *junction_id)
+            .map_or_else(
+                || "junctions".to_owned(),
+                |index| format!("junctions[{index}]"),
+            ),
+        CoreError::EmptyMovement { movement_id } => movement_path(wire, movement_id, ""),
+        CoreError::StaticDomainCapacityExceeded { domain, .. } => match *domain {
+            "junctions" => "junctions".to_owned(),
+            "movements" => "movements".to_owned(),
+            "maneuverPaths" | "maneuverPathEdgeRefs" => "maneuverPaths".to_owned(),
+            _ => "junctions".to_owned(),
+        },
+        _ => "junctions".to_owned(),
+    }
+}
+
+fn item_id_path<T>(
+    items: &[T],
+    root: &str,
+    external_id: &str,
+    id: impl Fn(&T) -> &String,
+) -> String {
+    items
+        .iter()
+        .position(|item| id(item) == external_id)
+        .map_or_else(|| root.to_owned(), |index| format!("{root}[{index}].id"))
+}
+
+fn movement_path(wire: &WirePackage, movement_id: &str, suffix: &str) -> String {
+    wire.movements
+        .iter()
+        .position(|item| item.id == movement_id)
+        .map_or_else(
+            || "movements".to_owned(),
+            |index| format!("movements[{index}]{suffix}"),
+        )
+}
+
+fn maneuver_path_path(wire: &WirePackage, maneuver_path_id: &str, suffix: &str) -> String {
+    wire.maneuver_paths
+        .iter()
+        .position(|item| item.id == maneuver_path_id)
+        .map_or_else(
+            || "maneuverPaths".to_owned(),
+            |index| format!("maneuverPaths[{index}]{suffix}"),
+        )
+}
+
+fn maneuver_path_edge_path(
+    wire: &WirePackage,
+    maneuver_path_id: &str,
+    role: &str,
+    edge_id: &str,
+) -> String {
+    let Some(path_index) = wire
+        .maneuver_paths
+        .iter()
+        .position(|item| item.id == maneuver_path_id)
+    else {
+        return "maneuverPaths".to_owned();
+    };
+    let path = &wire.maneuver_paths[path_index];
+    match role {
+        "entry" => format!("maneuverPaths[{path_index}].entryEdgeId"),
+        "exit" => format!("maneuverPaths[{path_index}].exitEdgeId"),
+        "internal" => path
+            .internal_edge_ids
+            .iter()
+            .position(|item| item == edge_id)
+            .map_or_else(
+                || format!("maneuverPaths[{path_index}].internalEdgeIds"),
+                |index| format!("maneuverPaths[{path_index}].internalEdgeIds[{index}]"),
+            ),
+        _ => format!("maneuverPaths[{path_index}]"),
+    }
+}
+
+fn maneuver_path_edge_value_path(wire: &WirePackage, role: &str, edge_id: &str) -> String {
+    for (path_index, path) in wire.maneuver_paths.iter().enumerate() {
+        match role {
+            "entry" if path.entry_edge_id == edge_id => {
+                return format!("maneuverPaths[{path_index}].entryEdgeId");
+            }
+            "internal" => {
+                if let Some(edge_index) = path
+                    .internal_edge_ids
+                    .iter()
+                    .position(|item| item == edge_id)
+                {
+                    return format!("maneuverPaths[{path_index}].internalEdgeIds[{edge_index}]");
+                }
+            }
+            "exit" if path.exit_edge_id == edge_id => {
+                return format!("maneuverPaths[{path_index}].exitEdgeId");
+            }
+            _ => {}
+        }
+    }
+    "maneuverPaths".to_owned()
+}
+
+fn maneuver_path_transition_target_path(
+    wire: &WirePackage,
+    maneuver_path_id: &str,
+    transition_index: usize,
+) -> String {
+    let Some(path_index) = wire
+        .maneuver_paths
+        .iter()
+        .position(|item| item.id == maneuver_path_id)
+    else {
+        return "maneuverPaths".to_owned();
+    };
+    let path = &wire.maneuver_paths[path_index];
+    if transition_index < path.internal_edge_ids.len() {
+        format!("maneuverPaths[{path_index}].internalEdgeIds[{transition_index}]")
+    } else {
+        format!("maneuverPaths[{path_index}].exitEdgeId")
+    }
+}
+
 fn signal_error_path(wire: &WireSignals, source: &CoreError) -> String {
     match source {
         CoreError::InvalidExternalId {
@@ -424,7 +704,8 @@ fn signal_error_path(wire: &WireSignals, source: &CoreError) -> String {
                 |index| format!("signals.stopLines[{index}].edgeId"),
             ),
         CoreError::OrphanStopLine { stop_line_id, .. }
-        | CoreError::MissingMovementGateCoverage { stop_line_id, .. } => wire
+        | CoreError::MissingManeuverPathCoverage { stop_line_id, .. }
+        | CoreError::MissingManeuverGateCoverage { stop_line_id, .. } => wire
             .stop_lines
             .iter()
             .position(|item| item.id == *stop_line_id)
@@ -511,49 +792,35 @@ fn signal_error_path(wire: &WireSignals, source: &CoreError) -> String {
             phase_id,
             group_id,
         } => state_path(wire, controller_id, phase_id, group_id, true),
-        CoreError::DuplicateMovementGate {
-            from_edge_id,
-            to_edge_id,
-        } => second_matching_index(&wire.movement_gates, |item| {
-            item.from_edge_id == *from_edge_id && item.to_edge_id == *to_edge_id
-        })
-        .map_or_else(
-            || "signals.movementGates".to_owned(),
-            |index| format!("signals.movementGates[{index}]"),
-        ),
-        CoreError::UnknownMovementGateFromEdge { edge_id } => {
-            gate_path(wire, |gate| gate.from_edge_id == *edge_id, ".fromEdgeId")
+        CoreError::DuplicateManeuverGateId { maneuver_gate_id } => {
+            second_matching_index(&wire.maneuver_gates, |item| item.id == *maneuver_gate_id)
+                .map_or_else(
+                    || "signals.maneuverGates".to_owned(),
+                    |index| format!("signals.maneuverGates[{index}].id"),
+                )
         }
-        CoreError::UnknownMovementGateToEdge { edge_id } => {
-            gate_path(wire, |gate| gate.to_edge_id == *edge_id, ".toEdgeId")
+        CoreError::UnknownManeuverGatePath {
+            maneuver_gate_id, ..
+        } => gate_id_path(wire, maneuver_gate_id, ".maneuverPathId"),
+        CoreError::ManeuverGateTransitionOutOfRange {
+            maneuver_gate_id, ..
         }
-        CoreError::DisconnectedMovementGate {
-            from_edge_id,
-            to_edge_id,
-        } => gate_path(
-            wire,
-            |gate| gate.from_edge_id == *from_edge_id && gate.to_edge_id == *to_edge_id,
-            "",
-        ),
-        CoreError::UnknownMovementGateStopLine { stop_line_id } => gate_path(
-            wire,
-            |gate| gate.stop_line_id == *stop_line_id,
-            ".stopLineId",
-        ),
-        CoreError::MovementGateStopLineMismatch {
-            stop_line_id,
-            from_edge_id,
+        | CoreError::UnsupportedManeuverGateTransition {
+            maneuver_gate_id, ..
+        } => gate_id_path(wire, maneuver_gate_id, ".transitionIndex"),
+        CoreError::DuplicateManeuverGatePathTransition {
+            duplicate_maneuver_gate_id,
             ..
-        } => gate_path(
-            wire,
-            |gate| gate.stop_line_id == *stop_line_id && gate.from_edge_id == *from_edge_id,
-            ".stopLineId",
-        ),
-        CoreError::UnknownMovementGateSignalGroup { group_id } => gate_path(
-            wire,
-            |gate| matches!(&gate.signal_control, WireSignalControl::Group(control) if control.group_id == *group_id),
-            ".signalControl.groupId",
-        ),
+        } => gate_id_path(wire, duplicate_maneuver_gate_id, ".maneuverPathId"),
+        CoreError::UnknownManeuverGateStopLine {
+            maneuver_gate_id, ..
+        }
+        | CoreError::ManeuverGateStopLineMismatch {
+            maneuver_gate_id, ..
+        } => gate_id_path(wire, maneuver_gate_id, ".stopLineId"),
+        CoreError::UnknownManeuverGateSignalGroup {
+            maneuver_gate_id, ..
+        } => gate_id_path(wire, maneuver_gate_id, ".signalControl.groupId"),
         _ => "signals".to_owned(),
     }
 }
@@ -636,16 +903,16 @@ fn signal_external_id_path(wire: &WireSignals, field: &str, external_id: &str) -
             }
             "signals.controllers".to_owned()
         }
-        "signals.movementGates[].fromEdgeId" => {
-            gate_path(wire, |gate| gate.from_edge_id == external_id, ".fromEdgeId")
-        }
-        "signals.movementGates[].toEdgeId" => {
-            gate_path(wire, |gate| gate.to_edge_id == external_id, ".toEdgeId")
-        }
-        "signals.movementGates[].stopLineId" => {
+        "signals.maneuverGates[].id" => gate_path(wire, |gate| gate.id == external_id, ".id"),
+        "signals.maneuverGates[].maneuverPathId" => gate_path(
+            wire,
+            |gate| gate.maneuver_path_id == external_id,
+            ".maneuverPathId",
+        ),
+        "signals.maneuverGates[].stopLineId" => {
             gate_path(wire, |gate| gate.stop_line_id == external_id, ".stopLineId")
         }
-        "signals.movementGates[].signalControl.groupId" => gate_path(
+        "signals.maneuverGates[].signalControl.groupId" => gate_path(
             wire,
             |gate| {
                 matches!(
@@ -770,13 +1037,17 @@ fn state_path(
 
 fn gate_path(
     wire: &WireSignals,
-    predicate: impl Fn(&wire::WireMovementGate) -> bool,
+    predicate: impl Fn(&wire::WireManeuverGate) -> bool,
     suffix: &str,
 ) -> String {
-    wire.movement_gates.iter().position(predicate).map_or_else(
-        || "signals.movementGates".to_owned(),
-        |index| format!("signals.movementGates[{index}]{suffix}"),
+    wire.maneuver_gates.iter().position(predicate).map_or_else(
+        || "signals.maneuverGates".to_owned(),
+        |index| format!("signals.maneuverGates[{index}]{suffix}"),
     )
+}
+
+fn gate_id_path(wire: &WireSignals, maneuver_gate_id: &str, suffix: &str) -> String {
+    gate_path(wire, |gate| gate.id == maneuver_gate_id, suffix)
 }
 
 fn route_input_error_path(index: usize, route: &wire::WireRoute, source: &CoreError) -> String {
@@ -826,6 +1097,32 @@ fn initial_traffic_error_path(wire: &WirePackage, source: &CoreError) -> String 
         CoreError::RouteTerminatesAtStopLine { route_id, .. } => {
             route_edge_path(wire, route_id, |route| route.edge_ids.len().checked_sub(1))
         }
+        CoreError::RouteStartsInsideJunction { route_id, .. } => {
+            route_edge_path(wire, route_id, |_| Some(0))
+        }
+        CoreError::RouteEndsInsideJunction { route_id, .. } => {
+            route_edge_path(wire, route_id, |route| route.edge_ids.len().checked_sub(1))
+        }
+        CoreError::RouteManeuverNoFullMatch {
+            route_id,
+            entry_route_edge_index,
+            ..
+        }
+        | CoreError::RouteManeuverMultipleFullMatches {
+            route_id,
+            entry_route_edge_index,
+            ..
+        } => route_edge_path(wire, route_id, |_| entry_route_edge_index.checked_add(1)),
+        CoreError::RouteManeuverInternalOverlap {
+            route_id,
+            route_edge_index,
+            ..
+        }
+        | CoreError::RouteInternalEdgeUncovered {
+            route_id,
+            route_edge_index,
+            ..
+        } => route_edge_path(wire, route_id, |_| Some(*route_edge_index)),
         _ => "initialTrafficData".to_owned(),
     }
 }

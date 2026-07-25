@@ -82,10 +82,11 @@ fn traffic_with_spaces(
     .expect("parking graph");
     let parking = ParkingRegistry::try_new(&graph, [], spaces).expect("parking registry");
     let (profiles, profile) = profile_registry();
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("R", ["A"]).expect("parking route")],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -234,13 +235,14 @@ pub fn parking_six_command_scenario(
     });
     let parking = ParkingRegistry::try_new(&graph, [], spaces).expect("six-command parking");
     let (profiles, profile) = profile_registry();
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [
             Route::try_new("short", ["A"]).expect("short route"),
             Route::try_new("target", ["A", "B"]).expect("target route"),
         ],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -460,13 +462,14 @@ pub fn parking_pathological_leave_scenario(
     )
     .expect("pathological parking");
     let (profiles, profile) = profile_registry();
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [
             Route::try_new("R", ["A"]).expect("pathological route"),
             Route::try_new("fast-route", ["C"]).expect("pathological fast route"),
         ],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )

@@ -66,10 +66,11 @@ fn fixture() -> Fixture {
 
     let profiles = VehicleProfileRegistry::try_new([profile()]).expect("valid profiles");
     let profile = profiles.profile_handle("profile").expect("profile handle");
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph.clone(),
         [Route::try_new("route", ["edge"]).expect("valid route")],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking.clone(),
     )

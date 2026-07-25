@@ -83,6 +83,9 @@ fn replace_world(
             Route::try_new("unused-route", ["unused-edge"]).expect("unused route"),
         ],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
     )
     .expect("valid traffic");
     let world = CoreWorld::with_traffic_data(20, traffic, vehicles(standard, compact))

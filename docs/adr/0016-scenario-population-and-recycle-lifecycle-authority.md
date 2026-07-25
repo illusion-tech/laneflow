@@ -108,7 +108,7 @@ blocked retry 不再消耗随机数。初始人口使用同一个 PRNG 对 stabl
 
 ### 6. Runtime population 不进入 Traffic 或 ScenarioManifest
 
-Traffic v0.7 继续只承载 immutable lane graph、routes、profiles、Signals、Parking 与 per-edge speed limit。SpatialPackage v0.1 继续承载中心线；ScenarioManifest v0.1 继续只配对 Traffic/Spatial bytes、size 和 digest。
+Traffic v0.8 只承载 immutable lane graph、Junction/Movement/ManeuverPath、routes、profiles、Signals、Parking 与 per-edge speed limit。SpatialPackage v0.1 继续承载中心线；ScenarioManifest v0.1 继续只配对 Traffic/Spatial bytes、size 和 digest。
 
 目标人口、seed、portal catalog、initial spawn slots、pending queue、VehicleHandle 和 Entity 不写入这些制品。v0.8 authoring/startup config 可以生成 artifacts 与 engine-neutral runtime plan，但它不是新的 production Traffic family，也不能绕过 production loader。
 

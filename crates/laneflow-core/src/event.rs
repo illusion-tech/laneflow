@@ -1,7 +1,7 @@
 //! Core step 输出事件。
 
 use crate::{
-    EdgeHandle, MovementGateKey, ParkingReleaseReason, ParkingSpaceHandle, RouteHandle,
+    EdgeHandle, ManeuverGateHandle, ParkingReleaseReason, ParkingSpaceHandle, RouteHandle,
     SignalAspect, SignalControllerHandle, SignalGroupHandle, SignalPhaseRef, StopLineHandle,
     VehicleHandle,
 };
@@ -107,8 +107,8 @@ pub struct VehicleSignalStopProjectionAppliedEvent {
     pub from_route_edge_index: usize,
     /// denied Gate 的 to-edge occurrence index。
     pub to_route_edge_index: usize,
-    /// 被拒绝的 MovementGate value identity。
-    pub gate: MovementGateKey,
+    /// 被拒绝的 ManeuverGate identity。
+    pub gate: ManeuverGateHandle,
     /// Gate 使用的 StopLine。
     pub stop_line: StopLineHandle,
     /// 控制 Gate 的 SignalGroup。

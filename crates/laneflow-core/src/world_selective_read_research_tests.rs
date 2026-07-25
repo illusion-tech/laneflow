@@ -593,10 +593,11 @@ fn mixed_world() -> MixedFixture {
     )
     .expect("research Parking registry");
     let (profiles, profile) = research_profile("research-profile");
-    let traffic = InitialTrafficData::try_new_with_signals_and_parking(
+    let traffic = InitialTrafficData::try_new(
         graph,
         [Route::try_new("research-route", ["research-edge"]).expect("research route")],
         profiles,
+        crate::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
     )
@@ -669,6 +670,9 @@ fn scale_world(vehicle_count: usize) -> CoreWorld {
         graph,
         [Route::try_new("scale-route", ["scale-edge"]).expect("scale route")],
         profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
     )
     .expect("scale traffic");
     let vehicles = (0..vehicle_count)
@@ -931,6 +935,9 @@ fn committed_edge_transition_updates_exact_record_and_stales_old_cursor() {
                 .expect("transition route"),
         ],
         profiles,
+        crate::JunctionRegistry::empty(),
+        crate::SignalRegistry::empty(),
+        crate::ParkingRegistry::empty(),
     )
     .expect("transition traffic");
     let mut world = CoreWorld::with_traffic_data(

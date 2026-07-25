@@ -2,16 +2,16 @@ use jsonschema::draft202012;
 use laneflow_core::MAX_PORTABLE_SIGNAL_TIME_MS;
 use serde_json::Value;
 
-const CURRENT_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.7.schema.json");
+const CURRENT_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.8.schema.json");
 const SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.7-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.8-parking-signals-baseline.laneflow.json");
 const EMPTY_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.7-empty-signals-and-parking.laneflow.json");
-const CURRENT_V0_7_MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_7_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_7_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_7_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_7_MIN_PARKING_EXTENT_EXCLUSIVE_METERS: f64 = 1.0e-9;
+    include_str!("../../../examples/data/v0.8-empty-signals-and-parking.laneflow.json");
+const CURRENT_V0_8_MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_8_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_8_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_8_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_8_MIN_PARKING_EXTENT_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
 fn schema(source: &str) -> Value {
     serde_json::from_str(source).expect("data format schema must be valid JSON")
@@ -29,9 +29,9 @@ fn schema_locks_current_version_units_and_required_static_shape() {
 
     assert_eq!(
         schema["$id"],
-        "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.7.schema.json"
+        "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.8.schema.json"
     );
-    assert_eq!(schema["title"], "LaneFlow Data Package v0.7");
+    assert_eq!(schema["title"], "LaneFlow Data Package v0.8");
 
     let mut required = string_array(&schema["required"]);
     required.sort_unstable();
@@ -39,7 +39,10 @@ fn schema_locks_current_version_units_and_required_static_shape() {
         required,
         [
             "formatVersion",
+            "junctions",
             "laneGraph",
+            "maneuverPaths",
+            "movements",
             "parking",
             "routes",
             "signals",
@@ -48,7 +51,7 @@ fn schema_locks_current_version_units_and_required_static_shape() {
         ]
     );
     assert_eq!(schema["additionalProperties"], false);
-    assert_eq!(schema["properties"]["formatVersion"]["const"], "0.7");
+    assert_eq!(schema["properties"]["formatVersion"]["const"], "0.8");
     assert_eq!(
         schema["$defs"]["laneEdge"]["required"],
         serde_json::json!(["id", "length", "speedLimit", "connections"])
@@ -63,7 +66,7 @@ fn schema_locks_current_version_units_and_required_static_shape() {
     );
     assert_eq!(
         schema["$defs"]["signals"]["required"],
-        serde_json::json!(["stopLines", "movementGates", "groups", "controllers"])
+        serde_json::json!(["stopLines", "maneuverGates", "groups", "controllers"])
     );
     assert_eq!(schema["$defs"]["signals"]["additionalProperties"], false);
     assert_eq!(
@@ -83,7 +86,7 @@ fn schema_locks_current_version_units_and_required_static_shape() {
 }
 
 #[test]
-fn schema_locks_v0_7_id_names_tagged_union_and_timing_bounds() {
+fn schema_locks_v0_8_topology_gate_ids_tagged_union_and_timing_bounds() {
     let schema = schema(CURRENT_SCHEMA);
     assert_eq!(
         schema["$defs"]["laneConnection"]["required"],
@@ -92,6 +95,34 @@ fn schema_locks_v0_7_id_names_tagged_union_and_timing_bounds() {
     assert_eq!(
         schema["$defs"]["route"]["required"],
         serde_json::json!(["id", "edgeIds"])
+    );
+    assert_eq!(
+        schema["$defs"]["movement"]["required"],
+        serde_json::json!(["id", "junctionId"])
+    );
+    assert_eq!(
+        schema["$defs"]["maneuverPath"]["required"],
+        serde_json::json!([
+            "id",
+            "movementId",
+            "entryEdgeId",
+            "internalEdgeIds",
+            "exitEdgeId"
+        ])
+    );
+    assert_eq!(
+        schema["$defs"]["maneuverGate"]["required"],
+        serde_json::json!([
+            "id",
+            "maneuverPathId",
+            "transitionIndex",
+            "stopLineId",
+            "signalControl"
+        ])
+    );
+    assert_eq!(
+        schema["$defs"]["maneuverGate"]["properties"]["transitionIndex"]["maximum"],
+        u32::MAX
     );
     assert_eq!(
         schema["$defs"]["groupSignalControl"]["properties"]["kind"]["const"],
@@ -186,11 +217,11 @@ fn schema_enforces_parking_closed_shapes_and_numeric_field_bounds() {
     for (path, invalid) in [
         (
             "progress",
-            serde_json::json!(CURRENT_V0_7_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS),
+            serde_json::json!(CURRENT_V0_8_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS),
         ),
         (
             "lateralOffset",
-            serde_json::json!(CURRENT_V0_7_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS),
+            serde_json::json!(CURRENT_V0_8_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS),
         ),
         (
             "headingOffsetRadians",
@@ -198,7 +229,7 @@ fn schema_enforces_parking_closed_shapes_and_numeric_field_bounds() {
         ),
         (
             "length",
-            serde_json::json!(CURRENT_V0_7_MIN_PARKING_EXTENT_EXCLUSIVE_METERS),
+            serde_json::json!(CURRENT_V0_8_MIN_PARKING_EXTENT_EXCLUSIVE_METERS),
         ),
         ("width", serde_json::json!(0.0)),
     ] {
@@ -236,7 +267,7 @@ fn schema_rejects_legacy_fields_json_ld_and_open_signal_control() {
     assert!(draft202012::validate(&schema, &instance).is_err());
 
     let mut instance: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
-    instance["signals"]["movementGates"][1]["signalControl"]["groupId"] = serde_json::json!("main");
+    instance["signals"]["maneuverGates"][1]["signalControl"]["groupId"] = serde_json::json!("main");
     assert!(draft202012::validate(&schema, &instance).is_err());
 }
 
@@ -305,13 +336,13 @@ fn assert_external_id_and_numeric_bounds(schema: &Value) {
         schema["$defs"]["laneEdge"]["properties"]["length"]["exclusiveMinimum"]
             .as_f64()
             .expect("edge length minimum must be numeric"),
-        CURRENT_V0_7_MIN_EDGE_LENGTH_EXCLUSIVE_METERS
+        CURRENT_V0_8_MIN_EDGE_LENGTH_EXCLUSIVE_METERS
     );
     assert_eq!(
         schema["$defs"]["vehicleProfile"]["properties"]["length"]["exclusiveMinimum"]
             .as_f64()
             .expect("profile length minimum must be numeric"),
-        CURRENT_V0_7_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS
+        CURRENT_V0_8_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS
     );
 }
 

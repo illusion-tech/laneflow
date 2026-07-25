@@ -31,8 +31,16 @@ fn run() -> Result<(), String> {
     }
     .map_err(|error| error.to_string())?;
     println!(
-        "{command} ok: {} edges, {} routes, {} stop lines, {} spawn slots",
-        counts.edges, counts.routes, counts.stop_lines, counts.spawn_slots
+        "{command} ok: {} edges, {} routes, {} junctions, {} movements, \
+         {} maneuver paths, {} maneuver gates, {} stop lines, {} spawn slots",
+        counts.edges,
+        counts.routes,
+        counts.junctions,
+        counts.movements,
+        counts.maneuver_paths,
+        counts.maneuver_gates,
+        counts.stop_lines,
+        counts.spawn_slots
     );
     Ok(())
 }

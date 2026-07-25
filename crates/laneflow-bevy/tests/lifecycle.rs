@@ -95,6 +95,9 @@ fn fixture(old_status: VehicleStatus, with_blocker: bool, pose_capacity: usize) 
             Route::try_new("target-route", ["target-edge"]).expect("target route"),
         ],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
     )
     .expect("valid traffic");
     let old = VehicleSpawnInput::new(
@@ -320,6 +323,9 @@ fn blocked_command_does_not_prevent_a_later_command_at_the_same_boundary() {
             Route::try_new("route-b", ["target-b"]).expect("route b"),
         ],
         profiles,
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
     )
     .expect("valid traffic");
     let core = CoreWorld::with_traffic_data(

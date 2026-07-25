@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-23（#189 signalized-corridor native example）
+**最后更新**: 2026-07-25（#229 ManeuverGate / Traffic v0.8 迁移）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -304,7 +304,7 @@ Transform。
 表现层只消费已加载事实：
 
 - lane surfaces/markings 来自 Spatial centerlines 与 config lane width；
-- StopLine 与灯具 binding 来自 Core StopLine/MovementGate/SignalGroup registry；
+- StopLine 与灯具 binding 来自 Core StopLine/ManeuverGate/SignalGroup registry；
 - lamp material 只由 committed `signal_group_state` 驱动；
 - camera/ground 从 Spatial bounds 派生；example-local orbit camera 支持滚轮缩放、
   左键水平面平移和右键绕 focus 旋转；
