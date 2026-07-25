@@ -274,6 +274,18 @@ fn catalog_rejects_version_duplicates_dangling_routes_and_invalid_progress() {
 }
 
 #[test]
+fn catalog_rejects_physical_spawn_slots_after_portal_entry_edge() {
+    let traffic = traffic();
+    let mut downstream_slot = raw_catalog();
+    downstream_slot.spawn_slots[0].edge_id =
+        "edge-junction-1-west-left-lane-0-to-0-internal-0".to_owned();
+    assert!(matches!(
+        downstream_slot.normalize(&traffic),
+        Err(CorridorPopulationError::SpawnSlotNotOnEntryEdge { actual: 1, .. })
+    ));
+}
+
+#[test]
 fn initial_population_has_replay_golden_batches_for_50_100_and_200() {
     let mut fingerprints = Vec::new();
     for target in [50, 100, 200] {
