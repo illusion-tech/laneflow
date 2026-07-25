@@ -154,7 +154,11 @@ jobs:
 
       - name: Check signalized corridor artifacts
         shell: bash
-        run: cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.8-signalized-corridor.toml
+        run: cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.9-signalized-corridor.toml
+
+      - name: Compile protected-turning native example
+        shell: bash
+        run: cargo +1.96.0 check --locked -p laneflow-bevy --example signalized_corridor --features native-example
 
       - name: Run Parking allocation invariants serially
         shell: bash

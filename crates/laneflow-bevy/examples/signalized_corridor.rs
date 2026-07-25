@@ -1,7 +1,7 @@
-//! #189 使用 production artifacts 的 v0.8 signalized-corridor native example。
+//! #190 使用 production artifacts 的 v0.9 protected-turning corridor native example。
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env,
     error::Error,
     ffi::OsString,
@@ -24,7 +24,8 @@ use laneflow_bevy::{
     LaneFlowSessionConfig, LaneFlowVehicleReplaceOutcome, replace_completed_vehicle,
 };
 use laneflow_core::{
-    CoreWorld, EdgeProgress, SignalAspect, SignalControl, SignalGroupHandle, VehicleReplaceRecord,
+    CoreWorld, EdgeProgress, MovementHandle, RouteHandle, SignalAspect, SignalControl,
+    SignalGroupHandle, VehicleReplaceRecord,
 };
 use laneflow_data::{NamedArtifact, from_scenario_json_slice};
 use laneflow_scenario::signalized_corridor::{
@@ -37,12 +38,12 @@ use laneflow_spatial::{
 };
 use serde::Deserialize;
 
-const CONFIG_VERSION: &str = "0.1";
+const CONFIG_VERSION: &str = "0.2";
 const PROFILE_ID: &str = "passenger-car";
 const MAX_CATCH_UP_STEPS: u32 = 8;
 const WINDOW_WIDTH: u32 = 1_600;
 const WINDOW_HEIGHT: u32 = 900;
-const BASE_WINDOW_TITLE: &str = "LaneFlow #189 Signalized Corridor";
+const BASE_WINDOW_TITLE: &str = "LaneFlow #190 Protected Turning Corridor";
 const CAMERA_MAX_MOTION_PER_FRAME: f32 = 64.0;
 const CAMERA_ORBIT_SENSITIVITY: f32 = 0.004;
 const CAMERA_PAN_SENSITIVITY: f32 = 0.0005;
@@ -51,6 +52,26 @@ const CAMERA_MIN_PITCH_RADIANS: f32 = 0.18;
 const CAMERA_MAX_PITCH_RADIANS: f32 = 1.42;
 const PERFORMANCE_SAMPLE_WINDOW: Duration = Duration::from_secs(1);
 const HUD_REFRESH_INTERVAL: Duration = Duration::from_millis(350);
+const PROTECTED_LEFT_MOVEMENT_IDS: [&str; 8] = [
+    "movement-junction-1-west-left",
+    "movement-junction-1-east-left",
+    "movement-junction-1-north-left",
+    "movement-junction-1-south-left",
+    "movement-junction-2-west-left",
+    "movement-junction-2-east-left",
+    "movement-junction-2-north-left",
+    "movement-junction-2-south-left",
+];
+const PROTECTED_RIGHT_MOVEMENT_IDS: [&str; 8] = [
+    "movement-junction-1-west-right",
+    "movement-junction-1-east-right",
+    "movement-junction-1-north-right",
+    "movement-junction-1-south-right",
+    "movement-junction-2-west-right",
+    "movement-junction-2-east-right",
+    "movement-junction-2-north-right",
+    "movement-junction-2-south-right",
+];
 
 fn main() -> Result<(), Box<dyn Error>> {
     let action = parse_args(env::args_os().skip(1))?;
@@ -79,6 +100,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .insert_resource(CorridorPopulationRuntime::new(bootstrap.controller))
         .insert_resource(bootstrap.scene)
         .insert_resource(bootstrap.centerlines)
+        .insert_resource(bootstrap.route_visuals)
         .insert_resource(metadata)
         .insert_resource(RuntimePerformance::default())
         .insert_resource(debug_config)
@@ -107,6 +129,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             Update,
             (
                 update_signal_lamps,
+                update_vehicle_route_observation,
                 (sample_runtime_performance, update_runtime_hud).chain(),
                 update_orbit_camera,
                 toggle_debug_gizmos,
@@ -214,7 +237,7 @@ where
 
 fn default_config_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/config/v0.8-signalized-corridor.toml")
+        .join("../../examples/config/v0.9-signalized-corridor.toml")
 }
 
 fn print_help() {
@@ -313,6 +336,7 @@ struct CorridorBootstrap {
     controller: CorridorPopulationController,
     scene: CorridorScene,
     centerlines: LaneFlowDebugCenterlines,
+    route_visuals: RouteVisualRegistry,
 }
 
 fn load_corridor_runtime(args: &RunArgs) -> Result<CorridorBootstrap, Box<dyn Error>> {
@@ -403,6 +427,7 @@ fn load_corridor_runtime(args: &RunArgs) -> Result<CorridorBootstrap, Box<dyn Er
     let controller = prepared
         .bind(&core)
         .map_err(|source| invalid_data(format!("无法绑定 corridor population：{source}")))?;
+    let route_visuals = RouteVisualRegistry::try_new(&core)?;
     let signal_stops = build_signal_stop_visuals(&core, &spatial)?;
     let bounds = SceneBounds::from_edges(&scene_edges)
         .ok_or_else(|| invalid_data("corridor Spatial package 没有可渲染点"))?;
@@ -426,6 +451,7 @@ fn load_corridor_runtime(args: &RunArgs) -> Result<CorridorBootstrap, Box<dyn Er
         controller,
         scene,
         centerlines,
+        route_visuals,
     })
 }
 
@@ -443,21 +469,39 @@ fn build_signal_stop_visuals(
     spatial: &SpatialRegistry,
 ) -> Result<Vec<SignalStopVisual>, Box<dyn Error>> {
     let signals = core.signals();
-    let mut seen = HashSet::new();
+    let mut group_by_stop_line = HashMap::new();
     let mut visuals = Vec::new();
     for gate in signals.maneuver_gates() {
         let stop_line = signals
             .maneuver_gate_stop_line(gate)
             .ok_or_else(|| invalid_data("normalized ManeuverGate 缺少 StopLine"))?;
-        if !seen.insert(stop_line) {
-            continue;
-        }
         let SignalControl::Group(group) = signals
             .maneuver_gate_control(gate)
             .ok_or_else(|| invalid_data("normalized ManeuverGate 缺少 signal control"))?
         else {
+            return Err(invalid_data(format!(
+                "protected profile ManeuverGate {:?} 必须引用 SignalGroup",
+                signals.maneuver_gate_external_id(gate).unwrap_or("unknown")
+            ))
+            .into());
+        };
+        if let Some(expected_group) = group_by_stop_line.get(&stop_line).copied() {
+            if expected_group != group {
+                return Err(invalid_data(format!(
+                    "StopLine {:?} 的共享 ManeuverGate 引用了不同 SignalGroup：{:?} 与 {:?}",
+                    signals
+                        .stop_line_external_id(stop_line)
+                        .unwrap_or("unknown"),
+                    signals
+                        .group_external_id(expected_group)
+                        .unwrap_or("unknown"),
+                    signals.group_external_id(group).unwrap_or("unknown")
+                ))
+                .into());
+            }
             continue;
         };
+        group_by_stop_line.insert(stop_line, group);
         let edge = signals
             .stop_line_edge(stop_line)
             .ok_or_else(|| invalid_data("normalized StopLine 缺少 edge"))?;
@@ -476,6 +520,121 @@ fn build_signal_stop_visuals(
         });
     }
     Ok(visuals)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RouteVisualKind {
+    ProtectedLeft,
+    Straight,
+    ProtectedRight,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct RouteVisualCounts {
+    protected_left: usize,
+    straight: usize,
+    protected_right: usize,
+}
+
+impl RouteVisualCounts {
+    fn add(&mut self, kind: RouteVisualKind) {
+        match kind {
+            RouteVisualKind::ProtectedLeft => self.protected_left += 1,
+            RouteVisualKind::Straight => self.straight += 1,
+            RouteVisualKind::ProtectedRight => self.protected_right += 1,
+        }
+    }
+}
+
+#[derive(Resource)]
+struct RouteVisualRegistry {
+    kind_by_route: HashMap<RouteHandle, RouteVisualKind>,
+}
+
+impl RouteVisualRegistry {
+    fn try_new(core: &CoreWorld) -> Result<Self, io::Error> {
+        let left_movements =
+            resolve_profile_movements(core, "protected-left", &PROTECTED_LEFT_MOVEMENT_IDS)?;
+        let right_movements =
+            resolve_profile_movements(core, "protected-right", &PROTECTED_RIGHT_MOVEMENT_IDS)?;
+        let mut kind_by_route = HashMap::new();
+        let mut profile_counts = RouteVisualCounts::default();
+        for route in core.routes() {
+            let route_id = core
+                .route_external_id(route)
+                .ok_or_else(|| invalid_data(format!("corridor route handle {route:?} 已 stale")))?;
+            let occurrences = core.route_maneuver_occurrences(route).ok_or_else(|| {
+                invalid_data(format!(
+                    "corridor route {route_id:?} 缺少 compiled occurrences"
+                ))
+            })?;
+            if occurrences.is_empty() {
+                return Err(invalid_data(format!(
+                    "corridor route {route_id:?} 必须至少包含一个 Maneuver occurrence"
+                )));
+            }
+            let mut has_left = false;
+            let mut has_right = false;
+            for occurrence in occurrences {
+                let movement = core
+                    .junctions()
+                    .maneuver_path_movement(occurrence.maneuver_path())
+                    .ok_or_else(|| {
+                        invalid_data(format!(
+                            "corridor route {route_id:?} 引用了 stale ManeuverPath handle {:?}",
+                            occurrence.maneuver_path()
+                        ))
+                    })?;
+                has_left |= left_movements.contains(&movement);
+                has_right |= right_movements.contains(&movement);
+            }
+            let kind = match (has_left, has_right) {
+                (true, false) => RouteVisualKind::ProtectedLeft,
+                (false, true) => RouteVisualKind::ProtectedRight,
+                (false, false) => RouteVisualKind::Straight,
+                (true, true) => {
+                    return Err(invalid_data(format!(
+                        "corridor route {route_id:?} 同时包含 protected-left 与 protected-right"
+                    )));
+                }
+            };
+            profile_counts.add(kind);
+            kind_by_route.insert(route, kind);
+        }
+        if profile_counts
+            != (RouteVisualCounts {
+                protected_left: 8,
+                straight: 10,
+                protected_right: 10,
+            })
+        {
+            return Err(invalid_data(format!(
+                "protected route visual profile 必须为 8 left / 10 straight / 10 right，实际为 {} / {} / {}",
+                profile_counts.protected_left,
+                profile_counts.straight,
+                profile_counts.protected_right
+            )));
+        }
+        Ok(Self { kind_by_route })
+    }
+
+    fn kind(&self, route: RouteHandle) -> Option<RouteVisualKind> {
+        self.kind_by_route.get(&route).copied()
+    }
+}
+
+fn resolve_profile_movements(
+    core: &CoreWorld,
+    class: &str,
+    ids: &[&str],
+) -> Result<HashSet<MovementHandle>, io::Error> {
+    ids.iter()
+        .map(|id| {
+            core.junctions().movement_handle(id).ok_or_else(|| {
+                invalid_data(format!("protected profile 缺少 {class} Movement {id:?}"))
+            })
+        })
+        .collect()
 }
 
 #[derive(Resource)]
@@ -824,11 +983,34 @@ struct SignalLamp {
     aspect: SignalAspect,
 }
 
+#[derive(Resource)]
+struct RouteVehicleMaterials {
+    protected_left: Handle<StandardMaterial>,
+    straight: Handle<StandardMaterial>,
+    protected_right: Handle<StandardMaterial>,
+}
+
+impl RouteVehicleMaterials {
+    fn material(&self, kind: RouteVisualKind) -> Handle<StandardMaterial> {
+        match kind {
+            RouteVisualKind::ProtectedLeft => self.protected_left.clone(),
+            RouteVisualKind::Straight => self.straight.clone(),
+            RouteVisualKind::ProtectedRight => self.protected_right.clone(),
+        }
+    }
+}
+
+#[derive(Component)]
+struct RouteObservedVehicle {
+    proxy: Entity,
+}
+
 fn setup_scene(
     mut commands: Commands<'_, '_>,
     mut meshes: ResMut<'_, Assets<Mesh>>,
     mut materials: ResMut<'_, Assets<StandardMaterial>>,
     scene: Res<'_, CorridorScene>,
+    route_visuals: Res<'_, RouteVisualRegistry>,
     metadata: Res<'_, RuntimeMetadata>,
     mut session: ResMut<'_, LaneFlowSession>,
 ) {
@@ -906,13 +1088,15 @@ fn setup_scene(
     let lamp_materials =
         spawn_signal_infrastructure(&mut commands, &mut meshes, &mut materials, root, &scene);
     commands.insert_resource(lamp_materials);
-    spawn_vehicles(
+    let route_vehicle_materials = spawn_vehicles(
         &mut commands,
         &mut meshes,
         &mut materials,
         root,
         &mut session,
+        &route_visuals,
     );
+    commands.insert_resource(route_vehicle_materials);
     session
         .set_frame_placement(LaneFlowFramePlacement::new(
             root,
@@ -1085,25 +1269,15 @@ fn spawn_vehicles(
     materials: &mut Assets<StandardMaterial>,
     root: Entity,
     session: &mut LaneFlowSession,
-) {
+    route_visuals: &RouteVisualRegistry,
+) -> RouteVehicleMaterials {
     let body_mesh = meshes.add(Cuboid::default());
     let nose_mesh = meshes.add(Cuboid::default());
-    let body_materials = [
-        Color::srgb(0.9, 0.12, 0.08),
-        Color::srgb(0.05, 0.42, 0.92),
-        Color::srgb(0.96, 0.58, 0.04),
-        Color::srgb(0.16, 0.72, 0.35),
-        Color::srgb(0.62, 0.18, 0.84),
-        Color::srgb(0.82, 0.82, 0.86),
-    ]
-    .map(|color| {
-        materials.add(StandardMaterial {
-            base_color: color,
-            metallic: 0.18,
-            perceptual_roughness: 0.5,
-            ..default()
-        })
-    });
+    let route_materials = RouteVehicleMaterials {
+        protected_left: add_vehicle_material(materials, Color::srgb(0.95, 0.08, 0.5)),
+        straight: add_vehicle_material(materials, Color::srgb(0.08, 0.42, 0.92)),
+        protected_right: add_vehicle_material(materials, Color::srgb(0.02, 0.82, 0.68)),
+    };
     let nose_material = materials.add(StandardMaterial {
         base_color: Color::srgb(1.0, 0.88, 0.32),
         emissive: LinearRgba::new(1.2, 0.9, 0.25, 1.0),
@@ -1116,13 +1290,19 @@ fn spawn_vehicles(
         .collect::<Vec<_>>();
 
     for (index, vehicle) in vehicles.into_iter().enumerate() {
-        let vehicle_length = session
+        let state = session
             .core()
             .vehicle(vehicle)
-            .and_then(|state| session.core().vehicle_profile(state.profile))
+            .expect("corridor vehicle handle remains live");
+        let vehicle_length = session
+            .core()
+            .vehicle_profile(state.profile)
             .expect("corridor vehicle profile remains live")
             .iidm()
             .length as f32;
+        let route_kind = route_visuals
+            .kind(state.route)
+            .expect("every protected corridor route has a visual kind");
         let proxy = commands
             .spawn((
                 Name::new(format!("LaneFlow corridor vehicle proxy {index:03}")),
@@ -1131,9 +1311,10 @@ fn spawn_vehicles(
             ))
             .id();
         commands.spawn((
-            Name::new("Built-in corridor vehicle body"),
+            Name::new("Built-in protected corridor vehicle body"),
+            RouteObservedVehicle { proxy },
             Mesh3d(body_mesh.clone()),
-            MeshMaterial3d(body_materials[index % body_materials.len()].clone()),
+            MeshMaterial3d(route_materials.material(route_kind)),
             vehicle_body_local_transform(vehicle_length),
             ChildOf(proxy),
         ));
@@ -1148,6 +1329,19 @@ fn spawn_vehicles(
             .bind_vehicle_entity(vehicle, proxy)
             .expect("corridor proxy binding is one-to-one");
     }
+    route_materials
+}
+
+fn add_vehicle_material(
+    materials: &mut Assets<StandardMaterial>,
+    color: Color,
+) -> Handle<StandardMaterial> {
+    materials.add(StandardMaterial {
+        base_color: color,
+        metallic: 0.18,
+        perceptual_roughness: 0.5,
+        ..default()
+    })
 }
 
 fn vehicle_body_local_transform(length: f32) -> Transform {
@@ -1156,6 +1350,32 @@ fn vehicle_body_local_transform(length: f32) -> Transform {
 
 fn vehicle_nose_local_transform() -> Transform {
     Transform::from_xyz(0.0, 0.9, 0.12).with_scale(Vec3::new(1.15, 0.34, 0.24))
+}
+
+fn update_vehicle_route_observation(
+    session: Res<'_, LaneFlowSession>,
+    route_visuals: Res<'_, RouteVisualRegistry>,
+    route_materials: Res<'_, RouteVehicleMaterials>,
+    mut vehicles: Query<'_, '_, (&RouteObservedVehicle, &mut MeshMaterial3d<StandardMaterial>)>,
+) {
+    for (observed, mut material) in &mut vehicles {
+        let kind = observed_route_kind(&session, &route_visuals, observed.proxy)
+            .expect("route-observed proxy maps to a protected corridor route");
+        let desired = route_materials.material(kind);
+        if material.0 != desired {
+            material.0 = desired;
+        }
+    }
+}
+
+fn observed_route_kind(
+    session: &LaneFlowSession,
+    route_visuals: &RouteVisualRegistry,
+    proxy: Entity,
+) -> Option<RouteVisualKind> {
+    let vehicle = session.vehicle_entities().vehicle(proxy)?;
+    let route = session.core().vehicle(vehicle)?.route;
+    route_visuals.kind(route)
 }
 
 fn update_signal_lamps(
@@ -1178,6 +1398,7 @@ fn update_signal_lamps(
 fn update_runtime_hud(
     session: Res<'_, LaneFlowSession>,
     population: Res<'_, CorridorPopulationRuntime>,
+    route_visuals: Res<'_, RouteVisualRegistry>,
     metadata: Res<'_, RuntimeMetadata>,
     mut performance: ResMut<'_, RuntimePerformance>,
     debug: Res<'_, LaneFlowDebugGizmosConfig>,
@@ -1188,23 +1409,34 @@ fn update_runtime_hud(
     }
     let counts = population.controller.counts();
     let core = session.core();
-    let (speed_sum, speed_count) =
-        (0..metadata.vehicle_count).fold((0.0, 0_u32), |(sum, count), logical_index| {
-            let speed = population
-                .controller
-                .logical_vehicle(logical_index)
-                .and_then(|vehicle| core.vehicle(vehicle))
-                .map(|vehicle| vehicle.current_speed.value());
-            match speed {
-                Some(speed) => (sum + speed, count + 1),
-                None => (sum, count),
-            }
-        });
+    let mut speed_sum = 0.0;
+    let mut speed_count = 0_u32;
+    let mut route_counts = RouteVisualCounts::default();
+    for logical_index in 0..metadata.vehicle_count {
+        let Some(state) = population
+            .controller
+            .logical_vehicle(logical_index)
+            .and_then(|vehicle| core.vehicle(vehicle))
+        else {
+            continue;
+        };
+        speed_sum += state.current_speed.value();
+        speed_count += 1;
+        if let Some(kind) = route_visuals.kind(state.route) {
+            route_counts.add(kind);
+        }
+    }
     let average_speed_kmh = if speed_count == 0 {
         0.0
     } else {
         speed_sum / f64::from(speed_count) * 3.6
     };
+    let observed_route_id = population
+        .controller
+        .logical_vehicle(0)
+        .and_then(|vehicle| core.vehicle(vehicle))
+        .and_then(|vehicle| core.route_external_id(vehicle.route))
+        .unwrap_or("pending");
     let signal_status = core
         .signals()
         .controllers()
@@ -1219,7 +1451,7 @@ fn update_runtime_hud(
                 "{}: {phase} ({:.1}s remaining)",
                 controller
                     .id()
-                    .strip_prefix("controller-")
+                    .strip_prefix("signal-controller-")
                     .unwrap_or(controller.id()),
                 state.phase_remaining_ms() as f32 / 1_000.0
             ))
@@ -1238,9 +1470,12 @@ fn update_runtime_hud(
              FPS: {:.1} ({:.2} ms/frame)\n\
              LaneFlow step: {:.3} ms/frame | {:.1} us/tick | steps {} | backlog {:.1} ms{}\n\
              Vehicles: {} total | {} running | {} entry pending | average {:.1} km/h\n\
+             Routes: {} protected-left | {} straight | {} protected-right\n\
+             Observed route[000]: {}\n\
              Seed: {}  Tick: {}\n\
              Recycled: {}  Entry retries: {}  Debug lines: {}\n\
              {}\n\
+             Vehicle colors: magenta left | blue straight | cyan right\n\
              Controls: wheel zoom | left drag pan | right drag orbit | G debug | F12 screenshot",
             performance.fps,
             performance.frame_time_ms,
@@ -1253,6 +1488,10 @@ fn update_runtime_hud(
             counts.running,
             counts.pending,
             average_speed_kmh,
+            route_counts.protected_left,
+            route_counts.straight,
+            route_counts.protected_right,
+            observed_route_id,
             metadata.seed,
             core.tick_index(),
             population.replaced,
@@ -1402,18 +1641,76 @@ mod tests {
                     .vehicles()
                     .all(|vehicle| vehicle.current_speed.value() > 0.0)
             );
-            assert_eq!(bootstrap.scene.signal_stops.len(), 20);
-            assert_eq!(bootstrap.session.core().signals().controllers().len(), 2);
+            let core = bootstrap.session.core();
+            assert_eq!(core.routes().count(), 28);
             assert_eq!(
-                bootstrap
-                    .session
-                    .core()
-                    .signals()
+                core.routes()
+                    .map(|route| {
+                        core.route_maneuver_occurrences(route)
+                            .expect("compiled route occurrences")
+                            .len()
+                    })
+                    .sum::<usize>(),
+                44
+            );
+            assert_eq!(core.junctions().movements().len(), 24);
+            assert_eq!(core.junctions().maneuver_paths().len(), 32);
+            assert_eq!(bootstrap.scene.signal_stops.len(), 20);
+            assert_eq!(core.signals().groups().len(), 8);
+            assert_eq!(core.signals().maneuver_gates().len(), 32);
+            assert_eq!(core.signals().controllers().len(), 2);
+            assert_eq!(
+                core.signals()
                     .controllers()
                     .map(|controller| controller.offset_ms())
                     .collect::<Vec<_>>(),
-                [0, 29_000]
+                [0, 42_000]
             );
+            assert!(
+                core.signals()
+                    .controllers()
+                    .all(|controller| controller.phases().len() == 12)
+            );
+            let mut profile_counts = RouteVisualCounts::default();
+            for route in core.routes() {
+                profile_counts.add(
+                    bootstrap
+                        .route_visuals
+                        .kind(route)
+                        .expect("route visual kind"),
+                );
+            }
+            assert_eq!(
+                profile_counts,
+                RouteVisualCounts {
+                    protected_left: 8,
+                    straight: 10,
+                    protected_right: 10,
+                }
+            );
+            for junction in 1..=2 {
+                for (suffix, expected) in [
+                    ("main-left", 2),
+                    ("main-through-right", 4),
+                    ("secondary-left", 2),
+                    ("secondary-through-right", 2),
+                ] {
+                    let group_id = format!("signal-group-junction-{junction}-{suffix}");
+                    let group = core
+                        .signals()
+                        .group_handle(&group_id)
+                        .expect("protected signal group");
+                    assert_eq!(
+                        bootstrap
+                            .scene
+                            .signal_stops
+                            .iter()
+                            .filter(|stop| stop.group == group)
+                            .count(),
+                        expected
+                    );
+                }
+            }
         }
     }
 
@@ -1439,6 +1736,27 @@ mod tests {
         let nose = vehicle_nose_local_transform();
         assert!((body.translation.z - body.scale.z * 0.5).abs() < f32::EPSILON);
         assert!((nose.translation.z - nose.scale.z * 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn default_population_exposes_left_and_right_routes_through_core_handles() {
+        let bootstrap =
+            load_corridor_runtime(&run_args(100, 0)).expect("default production bootstrap");
+        let mut counts = RouteVisualCounts::default();
+        for vehicle in bootstrap.session.core().vehicles() {
+            counts.add(
+                bootstrap
+                    .route_visuals
+                    .kind(vehicle.route)
+                    .expect("vehicle route has a compiled visual kind"),
+            );
+        }
+        assert_eq!(
+            counts.protected_left + counts.straight + counts.protected_right,
+            100
+        );
+        assert!(counts.protected_left > 0);
+        assert!(counts.protected_right > 0);
     }
 
     #[test]
@@ -1569,6 +1887,7 @@ mod tests {
                 FramePlacementToken::new(1),
             ))
             .expect("headless frame placement");
+        app.insert_resource(bootstrap.route_visuals);
         app.insert_resource(bootstrap.session);
         app.insert_resource(CorridorPopulationRuntime::new(bootstrap.controller));
         app.insert_resource(RuntimePerformance::default());
@@ -1592,6 +1911,157 @@ mod tests {
         *app.world_mut().resource_mut::<TimeUpdateStrategy>() =
             TimeUpdateStrategy::ManualDuration(delta);
         app.update();
+    }
+
+    #[derive(Default)]
+    struct ProtectedRuntimeEvidence {
+        internal_traversals: RouteVisualCounts,
+        signal_stops: RouteVisualCounts,
+        signal_releases: RouteVisualCounts,
+        shared_entry_queue: bool,
+        adapter_pose_committed: bool,
+    }
+
+    impl ProtectedRuntimeEvidence {
+        fn is_complete(&self) -> bool {
+            all_route_kinds_observed(self.internal_traversals)
+                && all_route_kinds_observed(self.signal_stops)
+                && all_route_kinds_observed(self.signal_releases)
+                && self.shared_entry_queue
+                && self.adapter_pose_committed
+        }
+    }
+
+    fn all_route_kinds_observed(counts: RouteVisualCounts) -> bool {
+        counts.protected_left > 0 && counts.straight > 0 && counts.protected_right > 0
+    }
+
+    fn has_shared_entry_queue(core: &CoreWorld) -> bool {
+        let mut routes_by_entry_edge = HashMap::new();
+        let mut stopped_entry_edges = HashSet::new();
+        for vehicle in core.vehicles() {
+            let Some(occurrence) =
+                core.route_maneuver_occurrences(vehicle.route)
+                    .and_then(|occurrences| {
+                        occurrences
+                            .iter()
+                            .find(|occurrence| {
+                                occurrence.entry_route_edge_index() == vehicle.route_edge_index
+                            })
+                            .copied()
+                    })
+            else {
+                continue;
+            };
+            let entry_edge = core
+                .route_edges(vehicle.route)
+                .and_then(|edges| edges.get(occurrence.entry_route_edge_index()))
+                .copied()
+                .expect("compiled occurrence entry edge");
+            routes_by_entry_edge
+                .entry(entry_edge)
+                .or_insert_with(HashSet::new)
+                .insert(vehicle.route);
+            if vehicle.current_speed.value() == 0.0 {
+                stopped_entry_edges.insert(entry_edge);
+            }
+        }
+        routes_by_entry_edge
+            .into_iter()
+            .any(|(edge, routes)| routes.len() >= 2 && stopped_entry_edges.contains(&edge))
+    }
+
+    #[test]
+    fn protected_routes_traverse_stop_release_queue_and_commit_adapter_poses() {
+        let mut evidence = ProtectedRuntimeEvidence::default();
+
+        'seed_matrix: for seed in [0, 7, 11, 13] {
+            let bootstrap =
+                load_corridor_runtime(&run_args(100, seed)).expect("production bootstrap");
+            let (mut app, entities) = headless_app(bootstrap);
+            let mut stopped_transitions = HashSet::new();
+            for _ in 0..625 {
+                update_with_delta(&mut app, Duration::from_millis(128));
+                let session = app.world().resource::<LaneFlowSession>();
+                let core = session.core();
+                let route_visuals = app.world().resource::<RouteVisualRegistry>();
+                for result in session.frame_step_results() {
+                    for event in &result.events {
+                        match event {
+                            CoreEvent::VehicleSignalStopProjectionApplied(event) => {
+                                evidence.signal_stops.add(
+                                    route_visuals
+                                        .kind(event.route)
+                                        .expect("signal event route visual kind"),
+                                );
+                                stopped_transitions.insert((
+                                    event.vehicle,
+                                    event.route,
+                                    event.from_route_edge_index,
+                                    event.to_route_edge_index,
+                                ));
+                            }
+                            CoreEvent::VehicleChangedEdge(event)
+                                if core
+                                    .junctions()
+                                    .internal_edge_owner(event.to_edge)
+                                    .is_some() =>
+                            {
+                                let kind = route_visuals
+                                    .kind(event.route)
+                                    .expect("changed-edge route visual kind");
+                                evidence.internal_traversals.add(kind);
+                                if stopped_transitions.remove(&(
+                                    event.vehicle,
+                                    event.route,
+                                    event.from_route_edge_index,
+                                    event.to_route_edge_index,
+                                )) {
+                                    evidence.signal_releases.add(kind);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                evidence.shared_entry_queue |= has_shared_entry_queue(core);
+                for entity in &entities {
+                    let transform = app
+                        .world()
+                        .get::<Transform>(*entity)
+                        .expect("mapped proxy Transform");
+                    assert!(transform.is_finite());
+                    evidence.adapter_pose_committed |= transform.translation != Vec3::ZERO;
+                }
+                if evidence.is_complete() {
+                    break 'seed_matrix;
+                }
+            }
+        }
+
+        assert!(
+            all_route_kinds_observed(evidence.internal_traversals),
+            "all left/straight/right classes must enter compiled internal edges: {:?}",
+            evidence.internal_traversals
+        );
+        assert!(
+            all_route_kinds_observed(evidence.signal_stops),
+            "all left/straight/right classes must observe SignalStop: {:?}",
+            evidence.signal_stops
+        );
+        assert!(
+            all_route_kinds_observed(evidence.signal_releases),
+            "all stopped left/straight/right classes must later cross the same Gate: {:?}",
+            evidence.signal_releases
+        );
+        assert!(
+            evidence.shared_entry_queue,
+            "a stopped shared entry edge must contain at least two route choices"
+        );
+        assert!(
+            evidence.adapter_pose_committed,
+            "Adapter must commit at least one non-identity proxy pose"
+        );
     }
 
     #[test]
@@ -1634,12 +2104,14 @@ mod tests {
             50
         );
         let session = app.world().resource::<LaneFlowSession>();
+        let route_visuals = app.world().resource::<RouteVisualRegistry>();
         for (index, entity) in entities.into_iter().enumerate() {
             let vehicle = population
                 .controller
                 .logical_vehicle(index)
                 .expect("logical vehicle");
             assert_eq!(session.vehicle_entities().entity(vehicle), Some(entity));
+            assert!(observed_route_kind(session, route_visuals, entity).is_some());
         }
     }
 
