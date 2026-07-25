@@ -1397,11 +1397,25 @@ fn validate_gate_g3_evidence(
     delivery_pr: &GitHubPullRequest,
     related_prs: &[GitHubPullRequest],
 ) -> Result<(), String> {
-    if args.phase == GateEvidencePhase::G4 && has_late_related_pr(args, delivery_pr, related_prs)? {
-        validate_g4_g3_full_set_recovery(args, issue, delivery_pr, related_prs)
-    } else {
-        validate_g3_evidence(args, issue, delivery_pr, related_prs)
+    if args.phase == GateEvidencePhase::G4 {
+        if has_late_related_pr(args, delivery_pr, related_prs)? {
+            return validate_g4_g3_full_set_recovery(args, issue, delivery_pr, related_prs);
+        }
+        reject_inapplicable_g4_recovery_marker(issue)?;
     }
+    validate_g3_evidence(args, issue, delivery_pr, related_prs)
+}
+
+fn reject_inapplicable_g4_recovery_marker(issue: &GitHubIssue) -> Result<(), String> {
+    let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
+    let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
+    if g4_comment.body.contains(G3_FULL_SET_RECOVERY_START) {
+        return Err(
+            "不存在 late Related PR 时，Issue G4 comment 不得包含 G3 full-set recovery 记录"
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 fn has_late_related_pr(
@@ -1449,6 +1463,8 @@ fn validate_g4_g3_full_set_recovery(
         .merged_at
         .as_deref()
         .ok_or("Delivery PR 尚未合并，不能使用 G3 full-set recovery")?;
+    let delivery_merged_at_seconds = parse_utc_timestamp_seconds(delivery_merged_at)
+        .ok_or("Delivery PR mergedAt 不是 UTC RFC3339 秒级时间")?;
     let issue_g3_line = completed_gate_line(&issue.body, "G3")?;
     let delivery_pr_line = metadata_line(&issue.body, "Delivery PR")?;
     if !delivery_pr_line.contains(&format!("#{delivery_number}")) {
@@ -1492,6 +1508,14 @@ fn validate_g4_g3_full_set_recovery(
             "G3 full-set recovery 的 Delivery PR original G3 comment 在创建后被编辑".to_string(),
         );
     }
+    let delivery_g3_created_at = parse_utc_timestamp_seconds(&delivery_g3_comment.created_at)
+        .ok_or("Delivery PR original G3 comment createdAt 不是 UTC RFC3339 秒级时间")?;
+    if delivery_g3_created_at >= delivery_merged_at_seconds {
+        return Err(
+            "G3 full-set recovery 的 Delivery PR original G3 comment 必须严格早于 Delivery merge"
+                .to_string(),
+        );
+    }
     let original_args = GateEvidenceArgs {
         phase: GateEvidencePhase::G3,
         repo: args.repo.clone(),
@@ -1518,8 +1542,6 @@ fn validate_g4_g3_full_set_recovery(
         ));
     }
 
-    let delivery_merged_at_seconds = parse_utc_timestamp_seconds(delivery_merged_at)
-        .ok_or("Delivery PR mergedAt 不是 UTC RFC3339 秒级时间")?;
     let original_related_prs = record
         .original_related_prs
         .iter()
@@ -3694,6 +3716,17 @@ Refs: #12
     }
 
     #[test]
+    fn rejects_timestamp_equal_delivery_g3_during_recovery() {
+        let (args, issue, mut delivery_pr, related_pr) = late_related_recovery_fixture();
+        delivery_pr.comments[0].created_at = "2026-07-10T05:30:00Z".to_string();
+
+        let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
+            .expect_err("the original Delivery G3 must strictly predate its merge");
+
+        assert!(error.contains("必须严格早于 Delivery merge"));
+    }
+
+    #[test]
     fn rejects_g4_recovery_without_structured_record() {
         let (args, mut issue, delivery_pr, related_pr) = late_related_recovery_fixture();
         issue.comments[0] = g4_comment_for_args(ISSUE_G4_URL, "2026-07-10T06:00:00Z", &args);
@@ -3749,6 +3782,21 @@ Refs: #12
         .expect_err("timestamp equality is ambiguous at GitHub's reported precision");
 
         assert!(error.contains("同秒"));
+    }
+
+    #[test]
+    fn strict_g4_rejects_inapplicable_recovery_marker() {
+        let args = gate_args(GateEvidencePhase::G4);
+        let mut issue = issue("OPEN", "Done");
+        issue.comments[0]
+            .body
+            .push_str("\n<!-- g3-full-set-recovery:v1\n{}\n-->");
+        let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+        let error = validate_gate_g3_evidence(&args, &issue, &delivery_pr, &[])
+            .expect_err("strict G4 must reject an inapplicable recovery record");
+
+        assert!(error.contains("不存在 late Related PR"));
     }
 
     #[test]

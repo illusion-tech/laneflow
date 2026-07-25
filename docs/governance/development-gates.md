@@ -372,7 +372,7 @@ G3 时，才可在最终 G4 comment 使用 `g3-full-set-recovery:v1`。该路径
 recovery 必须同时满足：
 
 - Delivery 的原 G3 comment 按其原始 `originalRelatedPrs` 命令仍可验证，保持
-  append-only，且创建时间早于 Delivery merge；
+  append-only，且创建时间严格早于 Delivery merge；
 - 每个 `lateRelatedPrs` 的 PR `createdAt` 严格晚于 Delivery `mergedAt`，并继续满足
   Related-only G3、current-head external review、非 closing linkage、merge 和 Project
   `Done`；
@@ -408,9 +408,10 @@ recovery 必须同时满足：
 
 `evidenceRefs` 必须由同一 G4 comment 的 `- 关系：` 行可见引用，并通过文末
 reference-style 定义解析为对应的 GitHub G3 permalinks。不存在 late Related PR 时，
-G4 继续使用严格 full-set G3；一旦检测到 late Related PR，缺少结构化记录，或时间、
-集合、授权、证据任一不匹配，均 fail closed。GitHub 时间只有秒级；Related
-`createdAt` 与 Delivery `mergedAt` 同秒时无法安全分类，也必须失败。
+G4 继续使用严格 full-set G3，且 G4 comment 不得包含 recovery 标记；一旦检测到
+late Related PR，缺少结构化记录，或时间、集合、授权、证据任一不匹配，均 fail
+closed。GitHub 时间只有秒级；Delivery 原 G3 `createdAt` 或 Related `createdAt`
+与 Delivery `mergedAt` 同秒时无法安全判定先后，也必须失败。
 
 ## 8. 例外治理
 
