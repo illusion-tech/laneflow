@@ -314,3 +314,19 @@ fn configuration_must_retain_at_least_two_hundred_spawn_slots() {
     let error = generate(&config).expect_err("insufficient catalog capacity must fail");
     assert!(error.to_string().contains("at least 200"));
 }
+
+#[test]
+fn every_portal_lane_must_have_spawn_capacity() {
+    let short_secondary_approaches = CONFIG
+        .replace("main_length_meters = 800.0", "main_length_meters = 1800.0")
+        .replace(
+            "secondary_lengths_meters = [300.0, 300.0]",
+            "secondary_lengths_meters = [29.0, 29.0]",
+        );
+    let config =
+        CorridorConfig::parse(&short_secondary_approaches).expect("raw geometry remains valid");
+    let error = generate(&config).expect_err("every portal lane needs at least one spawn slot");
+    let message = error.to_string();
+    assert!(message.contains("portal-side-1-north"));
+    assert!(message.contains("at least 13 m"));
+}
