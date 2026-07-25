@@ -1124,20 +1124,7 @@ fn check_gate_evidence(args: &[String]) -> Result<(), String> {
         .collect::<Result<Vec<_>, _>>()?;
 
     if let (Some(delivery_number), Some(delivery_pr)) = (args.delivery_pr, delivery_pr.as_ref()) {
-        if args.phase == GateEvidencePhase::G4 {
-            if let Err(strict_error) =
-                validate_g3_evidence(&args, &issue, delivery_pr, &related_prs)
-            {
-                validate_g4_g3_full_set_recovery(&args, &issue, delivery_pr, &related_prs)
-                    .map_err(|recovery_error| {
-                        format!(
-                            "{strict_error}\nG4 structured G3 full-set recovery 也未通过：{recovery_error}"
-                        )
-                    })?;
-            }
-        } else {
-            validate_g3_evidence(&args, &issue, delivery_pr, &related_prs)?;
-        }
+        validate_gate_g3_evidence(&args, &issue, delivery_pr, &related_prs)?;
         if g3_requires_external_review(delivery_pr)? {
             validate_external_review_g3(
                 &args.repo,
@@ -1402,6 +1389,43 @@ fn validate_g3_evidence(
         )?;
     }
     Ok(())
+}
+
+fn validate_gate_g3_evidence(
+    args: &GateEvidenceArgs,
+    issue: &GitHubIssue,
+    delivery_pr: &GitHubPullRequest,
+    related_prs: &[GitHubPullRequest],
+) -> Result<(), String> {
+    if args.phase == GateEvidencePhase::G4 && has_late_related_pr(args, delivery_pr, related_prs)? {
+        validate_g4_g3_full_set_recovery(args, issue, delivery_pr, related_prs)
+    } else {
+        validate_g3_evidence(args, issue, delivery_pr, related_prs)
+    }
+}
+
+fn has_late_related_pr(
+    args: &GateEvidenceArgs,
+    delivery_pr: &GitHubPullRequest,
+    related_prs: &[GitHubPullRequest],
+) -> Result<bool, String> {
+    if args.related_prs.len() != related_prs.len() {
+        return Err("Related PR 参数与已读取 PR 数量不一致".to_string());
+    }
+    let delivery_merged_at = delivery_pr
+        .merged_at
+        .as_deref()
+        .ok_or("Delivery PR 尚未合并，不能判断 late Related PR")?;
+    let delivery_merged_at_seconds = parse_utc_timestamp_seconds(delivery_merged_at)
+        .ok_or("Delivery PR mergedAt 不是 UTC RFC3339 秒级时间")?;
+    for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
+        let related_created_at = parse_utc_timestamp_seconds(&related_pr.created_at)
+            .ok_or_else(|| format!("Related PR #{number} createdAt 不是 UTC RFC3339 秒级时间"))?;
+        if related_created_at > delivery_merged_at_seconds {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn validate_g4_g3_full_set_recovery(
@@ -3633,6 +3657,37 @@ Refs: #12
 
         let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
             .expect_err("recovery requires a structured record");
+
+        assert!(error.contains("必须包含且只包含一个"));
+    }
+
+    #[test]
+    fn late_related_pr_cannot_take_edited_legacy_strict_shortcut() {
+        let (args, mut issue, mut delivery_pr, related_pr) = late_related_recovery_fixture();
+        issue.comments[0] = g4_comment_for_args(ISSUE_G4_URL, "2026-07-10T06:00:00Z", &args);
+        let mut strict_g3_args = gate_args(GateEvidencePhase::G3);
+        strict_g3_args.related_prs = vec![62];
+        delivery_pr.comments[0] =
+            g3_comment_for_args(DELIVERY_G3_URL, "2026-07-10T05:00:00Z", &strict_g3_args);
+        delivery_pr.comments[0].includes_created_edit = true;
+
+        assert!(
+            validate_g3_evidence(
+                &args,
+                &issue,
+                &delivery_pr,
+                std::slice::from_ref(&related_pr),
+            )
+            .is_ok(),
+            "legacy strict validation alone demonstrates the bypass precondition"
+        );
+        let error = validate_gate_g3_evidence(
+            &args,
+            &issue,
+            &delivery_pr,
+            std::slice::from_ref(&related_pr),
+        )
+        .expect_err("a late Related PR must force structured recovery");
 
         assert!(error.contains("必须包含且只包含一个"));
     }
