@@ -1460,6 +1460,16 @@ fn validate_g4_g3_full_set_recovery(
             "G3 full-set recovery evidenceRefs 未覆盖 Delivery PR G3 permalink".to_string(),
         );
     }
+    let delivery_g3_comment = delivery_pr
+        .comments
+        .iter()
+        .find(|comment| comment.url == delivery_permalink)
+        .ok_or_else(|| "Delivery PR original G3 permalink 未指向该 PR comment".to_string())?;
+    if delivery_g3_comment.includes_created_edit {
+        return Err(
+            "G3 full-set recovery 的 Delivery PR original G3 comment 在创建后被编辑".to_string(),
+        );
+    }
     let original_args = GateEvidenceArgs {
         phase: GateEvidencePhase::G3,
         repo: args.repo.clone(),
@@ -3603,6 +3613,17 @@ Refs: #12
             .expect_err("recovery evidence must remain append-only");
 
         assert!(error.contains("创建后被编辑"));
+    }
+
+    #[test]
+    fn rejects_edited_legacy_delivery_g3_during_recovery() {
+        let (args, issue, mut delivery_pr, related_pr) = late_related_recovery_fixture();
+        delivery_pr.comments[0].includes_created_edit = true;
+
+        let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
+            .expect_err("recovery must reject edits even for a legacy Delivery G3");
+
+        assert!(error.contains("Delivery PR original G3 comment 在创建后被编辑"));
     }
 
     #[test]
