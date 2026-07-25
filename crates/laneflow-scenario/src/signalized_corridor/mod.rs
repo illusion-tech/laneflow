@@ -1,4 +1,4 @@
-//! v0.8 signalized-corridor 的 caller-owned population policy。
+//! v0.9 protected-turning signalized-corridor 的 caller-owned population policy。
 
 mod catalog;
 mod error;
@@ -6,8 +6,10 @@ mod population;
 mod prng;
 
 pub use catalog::{
-    CATALOG_VERSION, CorridorCatalog, NormalizedCorridorCatalog, NormalizedPortal, NormalizedRoute,
-    NormalizedSpawnSlot, PORTAL_IDS, PortalCatalogEntry, RouteCatalogEntry, SpawnSlotCatalogEntry,
+    CATALOG_VERSION, CorridorCatalog, NormalizedCorridorCatalog, NormalizedPortal,
+    NormalizedPortalLane, NormalizedRoute, NormalizedSpawnSlot, NormalizedWeightedRouteChoice,
+    PORTAL_IDS, PortalCatalogEntry, PortalLaneCatalogEntry, RouteCatalogEntry,
+    SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry,
 };
 pub use error::CorridorPopulationError;
 pub use population::{

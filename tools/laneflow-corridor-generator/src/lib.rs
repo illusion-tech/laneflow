@@ -10,7 +10,8 @@ pub use error::Error;
 use error::IoResultExt;
 pub use generator::{GeneratedScenario, ScenarioCounts, generate};
 pub use laneflow_scenario::signalized_corridor::{
-    CorridorCatalog, PortalCatalogEntry, RouteCatalogEntry, SpawnSlotCatalogEntry,
+    CorridorCatalog, PortalCatalogEntry, PortalLaneCatalogEntry, RouteCatalogEntry,
+    SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry,
 };
 
 #[derive(Clone, Debug)]

@@ -7,18 +7,18 @@ use laneflow_core::{
     VehicleStatus,
 };
 
-use super::{CorridorPopulationError, NormalizedCorridorCatalog, SplitMix64};
+use super::{CorridorPopulationError, NormalizedCorridorCatalog, NormalizedPortalLane, SplitMix64};
 
-/// v0.8 corridor 最小人口。
+/// v0.9 corridor 最小人口。
 pub const MIN_TARGET_VEHICLE_COUNT: usize = 50;
-/// v0.8 corridor 最大人口。
+/// v0.9 corridor 最大人口。
 pub const MAX_TARGET_VEHICLE_COUNT: usize = 200;
-/// v0.8 corridor 默认人口。
+/// v0.9 corridor 默认人口。
 pub const DEFAULT_TARGET_VEHICLE_COUNT: usize = 100;
-/// v0.8 corridor 默认 replay seed。
+/// v0.9 corridor 默认 replay seed。
 pub const DEFAULT_SEED: u64 = 0;
 
-/// v0.8 signalized-corridor population domain config。
+/// v0.9 signalized-corridor population domain config。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CorridorPopulationConfig {
     target_vehicle_count: usize,
@@ -200,7 +200,9 @@ impl CorridorPopulationPrepare {
             .enumerate()
         {
             let spawn_slot = &catalog.spawn_slots[spawn_slot_index];
-            let route = &catalog.routes[spawn_slot.route_index];
+            let portal_lane = &catalog.portal_lanes[spawn_slot.portal_lane_index];
+            let route_index = draw_weighted_route(&mut rng, portal_lane);
+            let route = &catalog.routes[route_index];
             let initial_speed = normal_speed_for_edge(traffic, &spawn_slot.edge_id, desired_speed)?;
             let vehicle_id = format!("corridor-vehicle-{logical_index:03}");
             initial_vehicles.push(VehicleSpawnInput::active(
@@ -213,7 +215,7 @@ impl CorridorPopulationPrepare {
             ));
             slots.push(PreparedLogicalSlot {
                 vehicle_id,
-                route_index: spawn_slot.route_index,
+                route_index,
                 route_edge_index: spawn_slot.route_edge_index,
                 edge_progress: spawn_slot.edge_progress,
                 initial_speed,
@@ -280,24 +282,27 @@ impl CorridorPopulationPrepare {
             });
         }
         for spawn_slot in &self.catalog.spawn_slots {
-            let route_handle = route_handles[spawn_slot.route_index];
-            let route_edges = world.route_edges(route_handle).ok_or_else(|| {
-                CorridorPopulationError::BoundWorldCatalogMismatch {
-                    detail: format!(
-                        "world route {:?} 已 stale",
-                        self.catalog.routes[spawn_slot.route_index].id
-                    ),
+            let lane = &self.catalog.portal_lanes[spawn_slot.portal_lane_index];
+            for choice in &lane.route_choices {
+                let route_handle = route_handles[choice.route_index];
+                let route_edges = world.route_edges(route_handle).ok_or_else(|| {
+                    CorridorPopulationError::BoundWorldCatalogMismatch {
+                        detail: format!(
+                            "world route {:?} 已 stale",
+                            self.catalog.routes[choice.route_index].id
+                        ),
+                    }
+                })?;
+                let Some(edge) = route_edges.get(spawn_slot.route_edge_index) else {
+                    return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                        detail: format!("slot {:?} route edge index 越界", spawn_slot.id),
+                    });
+                };
+                if world.edge_external_id(*edge) != Some(spawn_slot.edge_id.as_str()) {
+                    return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
+                        detail: format!("slot {:?} edge identity 不一致", spawn_slot.id),
+                    });
                 }
-            })?;
-            let Some(edge) = route_edges.get(spawn_slot.route_edge_index) else {
-                return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
-                    detail: format!("slot {:?} route edge index 越界", spawn_slot.id),
-                });
-            };
-            if world.edge_external_id(*edge) != Some(spawn_slot.edge_id.as_str()) {
-                return Err(CorridorPopulationError::BoundWorldCatalogMismatch {
-                    detail: format!("slot {:?} edge identity 不一致", spawn_slot.id),
-                });
             }
         }
 
@@ -419,7 +424,7 @@ impl CorridorPopulationController {
                 VehicleReplaceExternalId::Preserve,
                 self.profile,
                 self.route_handles[plan.route_index],
-                entry.route_edge_index,
+                route.entry_route_edge_index,
                 entry.edge_progress,
                 self.route_entry_speeds[plan.route_index],
             );
@@ -569,9 +574,11 @@ impl CorridorPopulationController {
             } else {
                 portal_draw
             };
-            let target_routes = &self.catalog.portals[target_portal_index].route_indices;
-            let lane_draw = self.rng.uniform(target_routes.len() as u64) as usize;
-            let target_route_index = target_routes[lane_draw];
+            let target_lanes = &self.catalog.portals[target_portal_index].portal_lane_indices;
+            let lane_draw = self.rng.uniform(target_lanes.len() as u64) as usize;
+            let target_lane_index = target_lanes[lane_draw];
+            let target_route_index =
+                draw_weighted_route(&mut self.rng, &self.catalog.portal_lanes[target_lane_index]);
 
             let removed = self.vehicle_slots.remove(&vehicle);
             debug_assert_eq!(removed, Some(slot_index));
@@ -661,4 +668,59 @@ fn normal_speed_for_edge(
             detail: format!("spawn edge {edge_id:?} 无法派生正常初速度：{source}"),
         }
     })
+}
+
+fn draw_weighted_route(rng: &mut SplitMix64, lane: &NormalizedPortalLane) -> usize {
+    let mut draw = rng.uniform(lane.total_positive_weight);
+    for choice in &lane.route_choices {
+        if draw < choice.weight {
+            return choice.route_index;
+        }
+        draw -= choice.weight;
+    }
+    unreachable!("normalized route-choice weights cover the complete draw range")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::signalized_corridor::NormalizedWeightedRouteChoice;
+
+    fn lane(choices: &[(usize, u64)]) -> NormalizedPortalLane {
+        NormalizedPortalLane {
+            portal_index: 0,
+            lane_index: 0,
+            entry_spawn_slot_index: 0,
+            route_choices: choices
+                .iter()
+                .map(|(route_index, weight)| NormalizedWeightedRouteChoice {
+                    route_index: *route_index,
+                    weight: *weight,
+                })
+                .collect(),
+            total_positive_weight: choices.iter().map(|(_, weight)| weight).sum(),
+        }
+    }
+
+    #[test]
+    fn single_route_choice_still_consumes_its_raw_weight_draw() {
+        let mut rng = SplitMix64::new(7);
+        let before = rng.state();
+
+        assert_eq!(draw_weighted_route(&mut rng, &lane(&[(3, 20)])), 3);
+        assert_ne!(rng.state(), before);
+    }
+
+    #[test]
+    fn weighted_route_choice_uses_frozen_cumulative_order() {
+        let mut rng = SplitMix64::new(7);
+        let lane = lane(&[(7, 2), (9, 3)]);
+
+        assert_eq!(
+            (0..4)
+                .map(|_| draw_weighted_route(&mut rng, &lane))
+                .collect::<Vec<_>>(),
+            [9, 9, 7, 9]
+        );
+    }
 }

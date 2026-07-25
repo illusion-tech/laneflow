@@ -5,7 +5,8 @@ use laneflow_data::{
     NamedArtifact, SPATIAL_PACKAGE_MEDIA_TYPE, TRAFFIC_PACKAGE_MEDIA_TYPE, from_scenario_json_slice,
 };
 use laneflow_scenario::signalized_corridor::{
-    CorridorCatalog, PortalCatalogEntry, RouteCatalogEntry, SpawnSlotCatalogEntry,
+    CATALOG_VERSION, CorridorCatalog, PortalCatalogEntry, PortalLaneCatalogEntry,
+    RouteCatalogEntry, SpawnSlotCatalogEntry, WeightedRouteChoiceCatalogEntry,
 };
 use laneflow_spatial::{SpatialEdgeInput, SpatialRegistry};
 use serde::Serialize;
@@ -27,7 +28,16 @@ const TRAFFIC_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.8.s
 const SPATIAL_SCHEMA: &str = include_str!("../../../schemas/laneflow-spatial-v0.1.schema.json");
 const MANIFEST_SCHEMA: &str =
     include_str!("../../../schemas/laneflow-scenario-manifest-v0.1.schema.json");
-const CATALOG_VERSION: &str = "0.1";
+const CURVE_SEGMENT_COUNT: usize = 64;
+const MIN_SPATIAL_SEGMENT_METERS: f64 = 0.1;
+
+#[derive(Clone, Debug)]
+struct CorridorBuild {
+    edges: Vec<EdgeBuild>,
+    routes: Vec<RouteBuild>,
+    connectors: Vec<ConnectorBuild>,
+    stop_lines: Vec<StopLineBuild>,
+}
 
 #[derive(Clone, Debug)]
 struct RouteBuild {
@@ -35,33 +45,97 @@ struct RouteBuild {
     entry_portal_id: String,
     exit_portal_id: String,
     lane_index: usize,
-    edges: Vec<EdgeBuild>,
-    connectors: Vec<ConnectorBuild>,
+    weight: u64,
 }
 
 #[derive(Clone, Debug)]
-struct RouteIdentity {
-    route_id: String,
-    entry_portal_id: String,
-    exit_portal_id: String,
+struct RouteSpec {
+    id: &'static str,
+    entry_portal_id: &'static str,
+    exit_portal_id: &'static str,
     lane_index: usize,
+    weight: u64,
+    occurrences: Vec<PathKey>,
 }
 
 #[derive(Clone, Debug)]
 struct EdgeBuild {
     id: String,
-    start: [f32; 3],
-    end: [f32; 3],
+    points: Vec<[f32; 3]>,
     speed_limit: f64,
+    connections: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
 struct ConnectorBuild {
-    edge_index: usize,
+    key: PathKey,
+    entry_edge_id: String,
+    internal_edge_id: String,
+    exit_edge_id: String,
     movement_id: String,
     maneuver_path_id: String,
     maneuver_gate_id: String,
+    stop_line_id: String,
     signal_group_id: String,
+}
+
+#[derive(Clone, Debug)]
+struct StopLineBuild {
+    id: String,
+    edge_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum Approach {
+    West,
+    East,
+    North,
+    South,
+}
+
+impl Approach {
+    const ALL: [Self; 4] = [Self::West, Self::East, Self::North, Self::South];
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::West => "west",
+            Self::East => "east",
+            Self::North => "north",
+            Self::South => "south",
+        }
+    }
+
+    const fn is_main(self) -> bool {
+        matches!(self, Self::West | Self::East)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum Turn {
+    Left,
+    Straight,
+    Right,
+}
+
+impl Turn {
+    const ALL: [Self; 3] = [Self::Left, Self::Straight, Self::Right];
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Straight => "straight",
+            Self::Right => "right",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct PathKey {
+    junction: usize,
+    approach: Approach,
+    turn: Turn,
+    entry_lane: usize,
+    exit_lane: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -113,8 +187,8 @@ impl GeneratedScenario {
 
 pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
     config.validate()?;
-    let routes = build_routes(config);
-    let (traffic, spatial, catalog) = build_documents(config, &routes)?;
+    let corridor = build_corridor(config)?;
+    let (traffic, spatial, catalog) = build_documents(config, &corridor)?;
 
     let traffic_bytes = json_bytes("TrafficPackage", &traffic)?;
     let spatial_bytes = json_bytes("SpatialPackage", &spatial)?;
@@ -145,7 +219,7 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
     let catalog_bytes = catalog_text.into_bytes();
 
     validate_runtime(config, &traffic_bytes, &spatial_bytes, &manifest_bytes)?;
-    validate_catalog(&catalog, &routes)?;
+    validate_catalog(&catalog, &corridor)?;
 
     let counts = ScenarioCounts {
         edges: traffic.lane_graph.edges.len(),
@@ -184,72 +258,77 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
 
 fn build_documents(
     config: &CorridorConfig,
-    routes: &[RouteBuild],
+    corridor: &CorridorBuild,
 ) -> Result<(TrafficPackage, SpatialPackage, CorridorCatalog), Error> {
     let mut lane_edges = Vec::new();
     let mut spatial_edges = Vec::new();
-    let mut stop_lines = Vec::new();
     let mut maneuver_paths = Vec::new();
     let mut maneuver_gates = Vec::new();
 
-    for route in routes {
-        for (index, edge) in route.edges.iter().enumerate() {
-            let connection = route.edges.get(index + 1).map(|next| LaneConnection {
-                to_edge_id: next.id.clone(),
-            });
-            lane_edges.push(LaneEdge {
-                id: edge.id.clone(),
-                length: edge_length(edge.start, edge.end),
-                speed_limit: edge.speed_limit,
-                connections: connection.into_iter().collect(),
-            });
-            spatial_edges.push(SpatialEdge {
-                traffic_edge_id: edge.id.clone(),
-                centerline: Centerline {
-                    points: vec![point_f64(edge.start), point_f64(edge.end)],
-                },
-            });
-        }
-        for connector in &route.connectors {
-            let from = &route.edges[connector.edge_index - 1];
-            let internal = &route.edges[connector.edge_index];
-            let exit = &route.edges[connector.edge_index + 1];
-            let stop_line_id = format!("stop-{}", from.id);
-            stop_lines.push(StopLine {
-                id: stop_line_id.clone(),
-                edge_id: from.id.clone(),
-                location: "edgeEnd",
-            });
-            maneuver_paths.push(ManeuverPath {
-                id: connector.maneuver_path_id.clone(),
-                movement_id: connector.movement_id.clone(),
-                entry_edge_id: from.id.clone(),
-                internal_edge_ids: vec![internal.id.clone()],
-                exit_edge_id: exit.id.clone(),
-            });
-            maneuver_gates.push(ManeuverGate {
-                id: connector.maneuver_gate_id.clone(),
-                maneuver_path_id: connector.maneuver_path_id.clone(),
-                transition_index: 0,
-                stop_line_id,
-                signal_control: SignalControl {
-                    kind: "group",
-                    group_id: connector.signal_group_id.clone(),
-                },
-            });
-        }
+    for edge in &corridor.edges {
+        lane_edges.push(LaneEdge {
+            id: edge.id.clone(),
+            length: edge.length(),
+            speed_limit: edge.speed_limit,
+            connections: edge
+                .connections
+                .iter()
+                .map(|to_edge_id| LaneConnection {
+                    to_edge_id: to_edge_id.clone(),
+                })
+                .collect(),
+        });
+        spatial_edges.push(SpatialEdge {
+            traffic_edge_id: edge.id.clone(),
+            centerline: Centerline {
+                points: edge.points.iter().copied().map(point_f64).collect(),
+            },
+        });
+    }
+    for connector in &corridor.connectors {
+        maneuver_paths.push(ManeuverPath {
+            id: connector.maneuver_path_id.clone(),
+            movement_id: connector.movement_id.clone(),
+            entry_edge_id: connector.entry_edge_id.clone(),
+            internal_edge_ids: vec![connector.internal_edge_id.clone()],
+            exit_edge_id: connector.exit_edge_id.clone(),
+        });
+        maneuver_gates.push(ManeuverGate {
+            id: connector.maneuver_gate_id.clone(),
+            maneuver_path_id: connector.maneuver_path_id.clone(),
+            transition_index: 0,
+            stop_line_id: connector.stop_line_id.clone(),
+            signal_control: SignalControl {
+                kind: "group",
+                group_id: connector.signal_group_id.clone(),
+            },
+        });
     }
 
     let controllers = (0..2)
         .map(|index| signal_controller(config, index))
         .collect::<Vec<_>>();
     let signals = Signals {
-        stop_lines,
+        stop_lines: corridor
+            .stop_lines
+            .iter()
+            .map(|stop_line| StopLine {
+                id: stop_line.id.clone(),
+                edge_id: stop_line.edge_id.clone(),
+                location: "edgeEnd",
+            })
+            .collect(),
         maneuver_gates,
         groups: (1..=2)
-            .flat_map(|intersection| {
-                ["main", "secondary"].map(|road| SignalGroup {
-                    id: format!("group-intersection-{intersection}-{road}"),
+            .flat_map(|junction| {
+                [
+                    "main-left",
+                    "main-through-right",
+                    "secondary-left",
+                    "secondary-through-right",
+                ]
+                .map(|suffix| SignalGroup {
+                    id: format!("signal-group-junction-{junction}-{suffix}"),
                 })
             })
             .collect(),
@@ -264,26 +343,26 @@ fn build_documents(
         },
         lane_graph: LaneGraph { edges: lane_edges },
         junctions: (1..=2)
-            .map(|intersection| Junction {
-                id: format!("junction-{intersection}"),
+            .map(|junction| Junction {
+                id: format!("junction-{junction}"),
             })
             .collect(),
         movements: (1..=2)
-            .flat_map(|intersection| {
-                [
-                    "main-w2e".to_owned(),
-                    "main-e2w".to_owned(),
-                    format!("side-{intersection}-n2s"),
-                    format!("side-{intersection}-s2n"),
-                ]
-                .map(|direction| Movement {
-                    id: format!("movement-junction-{intersection}-{direction}"),
-                    junction_id: format!("junction-{intersection}"),
+            .flat_map(|junction| {
+                Approach::ALL.into_iter().flat_map(move |approach| {
+                    Turn::ALL.into_iter().map(move |turn| Movement {
+                        id: movement_id(junction, approach, turn),
+                        junction_id: format!("junction-{junction}"),
+                    })
                 })
             })
             .collect(),
         maneuver_paths,
-        routes: routes.iter().map(|item| item.route.clone()).collect(),
+        routes: corridor
+            .routes
+            .iter()
+            .map(|item| item.route.clone())
+            .collect(),
         vehicle_profiles: vec![VehicleProfile {
             id: "passenger-car",
             length: VEHICLE_LENGTH_METERS,
@@ -306,249 +385,903 @@ fn build_documents(
         frame_id: config.frame_id.clone(),
         edges: spatial_edges,
     };
-    let catalog = build_catalog(config, routes);
+    let catalog = build_catalog(config, corridor);
     Ok((traffic, spatial, catalog))
 }
 
-fn build_routes(config: &CorridorConfig) -> Vec<RouteBuild> {
+fn build_corridor(config: &CorridorConfig) -> Result<CorridorBuild, Error> {
+    let mut edges = build_road_edges(config);
+    let mut edge_index_by_id = edges
+        .iter()
+        .enumerate()
+        .map(|(index, edge)| (edge.id.clone(), index))
+        .collect::<HashMap<_, _>>();
+    let stop_lines = build_stop_lines();
+    let path_keys = path_keys();
+    let mut connectors = Vec::with_capacity(path_keys.len());
+
+    for key in path_keys {
+        let entry_edge_id = entry_edge_id(key);
+        let exit_edge_id = exit_edge_id(key);
+        let entry_index = *edge_index_by_id
+            .get(&entry_edge_id)
+            .expect("protected-turning entry road edge exists");
+        let exit_index = *edge_index_by_id
+            .get(&exit_edge_id)
+            .expect("protected-turning exit road edge exists");
+        let start = edges[entry_index].end();
+        let end = edges[exit_index].start();
+        let points = connector_points(key, start, end)?;
+        let internal_edge_id = internal_edge_id(key);
+        let internal_index = edges.len();
+
+        edges[entry_index]
+            .connections
+            .push(internal_edge_id.clone());
+        edges.push(EdgeBuild {
+            id: internal_edge_id.clone(),
+            points,
+            speed_limit: connector_speed(config, key),
+            connections: vec![exit_edge_id.clone()],
+        });
+        edge_index_by_id.insert(internal_edge_id.clone(), internal_index);
+        connectors.push(ConnectorBuild {
+            key,
+            entry_edge_id,
+            internal_edge_id,
+            exit_edge_id,
+            movement_id: movement_id(key.junction, key.approach, key.turn),
+            maneuver_path_id: maneuver_path_id(key),
+            maneuver_gate_id: maneuver_gate_id(key),
+            stop_line_id: stop_line_id(key.junction, key.approach, key.entry_lane),
+            signal_group_id: signal_group_id(key),
+        });
+    }
+
+    let routes = build_routes(&connectors)?;
+    if edges.len() != 66 || routes.len() != 28 || connectors.len() != 32 || stop_lines.len() != 20 {
+        return Err(Error::Config(format!(
+            "protected-turning topology count mismatch: {} edges, {} routes, {} paths, {} stop lines",
+            edges.len(),
+            routes.len(),
+            connectors.len(),
+            stop_lines.len()
+        )));
+    }
+
+    Ok(CorridorBuild {
+        edges,
+        routes,
+        connectors,
+        stop_lines,
+    })
+}
+
+fn build_road_edges(config: &CorridorConfig) -> Vec<EdgeBuild> {
     let main_speed =
         kilometers_per_hour_to_meters_per_second(config.speed_limits.main_kilometers_per_hour);
     let secondary_speed =
         kilometers_per_hour_to_meters_per_second(config.speed_limits.secondary_kilometers_per_hour);
     let lane_width = config.geometry.lane_width_meters as f32;
     let main_half = (config.geometry.main_length_meters / 2.0) as f32;
-    let [intersection_1, intersection_2] = config
+    let [junction_1, junction_2] = config
         .geometry
         .intersection_x_meters
         .map(|value| value as f32);
-    let connector_half = lane_width * 2.0;
-    let main_bounds = [
-        -main_half,
-        intersection_1 - connector_half,
-        intersection_1 + connector_half,
-        intersection_2 - connector_half,
-        intersection_2 + connector_half,
-        main_half,
-    ];
+    let main_connector_half = lane_width * 3.0;
+    let secondary_connector_half = lane_width * 4.0;
+    let mut edges = Vec::with_capacity(34);
 
-    let mut routes = Vec::with_capacity(14);
     for lane in 0..3 {
         let z = (lane as f32 + 0.5) * lane_width;
-        routes.push(route_from_points(
-            RouteIdentity {
-                route_id: format!("route-main-w2e-lane-{lane}"),
-                entry_portal_id: "portal-main-west".to_owned(),
-                exit_portal_id: "portal-main-east".to_owned(),
-                lane_index: lane,
-            },
-            "main-w2e",
-            &main_bounds.map(|x| [x, 0.0, z]),
-            main_speed,
-            &[1, 3],
-        ));
+        for (road, start, end) in [
+            (0, -main_half, junction_1 - main_connector_half),
+            (
+                2,
+                junction_1 + main_connector_half,
+                junction_2 - main_connector_half,
+            ),
+            (4, junction_2 + main_connector_half, main_half),
+        ] {
+            edges.push(road_edge(
+                format!("edge-main-w2e-lane-{lane}-road-{road}"),
+                [start, 0.0, z],
+                [end, 0.0, z],
+                main_speed,
+            ));
+        }
     }
     for lane in 0..3 {
         let z = -(lane as f32 + 0.5) * lane_width;
-        let points = main_bounds.map(|x| [x, 0.0, z]);
-        let points = points.into_iter().rev().collect::<Vec<_>>();
-        routes.push(route_from_points(
-            RouteIdentity {
-                route_id: format!("route-main-e2w-lane-{lane}"),
-                entry_portal_id: "portal-main-east".to_owned(),
-                exit_portal_id: "portal-main-west".to_owned(),
-                lane_index: lane,
-            },
-            "main-e2w",
-            &points,
-            main_speed,
-            &[1, 3],
-        ));
-    }
-
-    for (intersection_index, intersection_x) in
-        [intersection_1, intersection_2].into_iter().enumerate()
-    {
-        let road_number = intersection_index + 1;
-        let half_length =
-            (config.geometry.secondary_lengths_meters[intersection_index] / 2.0) as f32;
-        let main_half_width = lane_width * 3.0;
-        let bounds = [-half_length, -main_half_width, main_half_width, half_length];
-        for lane in 0..2 {
-            let x = intersection_x - (lane as f32 + 0.5) * lane_width;
-            routes.push(route_from_points(
-                RouteIdentity {
-                    route_id: format!("route-side-{road_number}-n2s-lane-{lane}"),
-                    entry_portal_id: format!("portal-side-{road_number}-north"),
-                    exit_portal_id: format!("portal-side-{road_number}-south"),
-                    lane_index: lane,
-                },
-                &format!("side-{road_number}-n2s"),
-                &bounds.map(|z| [x, 0.0, z]),
-                secondary_speed,
-                &[1],
-            ));
-        }
-        for lane in 0..2 {
-            let x = intersection_x + (lane as f32 + 0.5) * lane_width;
-            let points = bounds
-                .map(|z| [x, 0.0, z])
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>();
-            routes.push(route_from_points(
-                RouteIdentity {
-                    route_id: format!("route-side-{road_number}-s2n-lane-{lane}"),
-                    entry_portal_id: format!("portal-side-{road_number}-south"),
-                    exit_portal_id: format!("portal-side-{road_number}-north"),
-                    lane_index: lane,
-                },
-                &format!("side-{road_number}-s2n"),
-                &points,
-                secondary_speed,
-                &[1],
+        for (road, start, end) in [
+            (0, main_half, junction_2 + main_connector_half),
+            (
+                2,
+                junction_2 - main_connector_half,
+                junction_1 + main_connector_half,
+            ),
+            (4, junction_1 - main_connector_half, -main_half),
+        ] {
+            edges.push(road_edge(
+                format!("edge-main-e2w-lane-{lane}-road-{road}"),
+                [start, 0.0, z],
+                [end, 0.0, z],
+                main_speed,
             ));
         }
     }
-    routes
-}
-
-fn route_from_points(
-    identity: RouteIdentity,
-    edge_prefix: &str,
-    points: &[[f32; 3]],
-    speed_limit: f64,
-    connector_indices: &[usize],
-) -> RouteBuild {
-    let connector_set = connector_indices.iter().copied().collect::<HashSet<_>>();
-    let mut edges = Vec::with_capacity(points.len() - 1);
-    for (index, pair) in points.windows(2).enumerate() {
-        let id = if connector_set.contains(&index) {
-            let intersection = connector_intersection(edge_prefix, index);
-            format!(
-                "edge-{edge_prefix}-lane-{}-connector-intersection-{intersection}-straight",
-                identity.lane_index
-            )
-        } else {
-            format!(
-                "edge-{edge_prefix}-lane-{}-road-{index}",
-                identity.lane_index
-            )
-        };
-        edges.push(EdgeBuild {
-            id,
-            start: pair[0],
-            end: pair[1],
-            speed_limit,
-        });
-    }
-    let connectors = connector_indices
-        .iter()
-        .copied()
-        .map(|edge_index| {
-            let intersection = connector_intersection(edge_prefix, edge_index);
-            let road = if edge_prefix.starts_with("main-") {
-                "main"
-            } else {
-                "secondary"
-            };
-            ConnectorBuild {
-                edge_index,
-                movement_id: format!("movement-junction-{intersection}-{edge_prefix}"),
-                maneuver_path_id: format!(
-                    "path-junction-{intersection}-{edge_prefix}-lane-{}",
-                    identity.lane_index
-                ),
-                maneuver_gate_id: format!(
-                    "gate-junction-{intersection}-{edge_prefix}-lane-{}",
-                    identity.lane_index
-                ),
-                signal_group_id: format!("group-intersection-{intersection}-{road}"),
+    for (junction_index, junction_x) in [junction_1, junction_2].into_iter().enumerate() {
+        let junction = junction_index + 1;
+        let half_length = (config.geometry.secondary_lengths_meters[junction_index] / 2.0) as f32;
+        for lane in 0..2 {
+            let x = junction_x - (lane as f32 + 0.5) * lane_width;
+            for (road, start, end) in [
+                (0, -half_length, -secondary_connector_half),
+                (2, secondary_connector_half, half_length),
+            ] {
+                edges.push(road_edge(
+                    format!("edge-side-{junction}-n2s-lane-{lane}-road-{road}"),
+                    [x, 0.0, start],
+                    [x, 0.0, end],
+                    secondary_speed,
+                ));
             }
-        })
-        .collect();
-    RouteBuild {
-        route: Route {
-            id: identity.route_id,
-            edge_ids: edges.iter().map(|edge| edge.id.clone()).collect(),
-        },
-        entry_portal_id: identity.entry_portal_id,
-        exit_portal_id: identity.exit_portal_id,
-        lane_index: identity.lane_index,
-        edges,
-        connectors,
+        }
+        for lane in 0..2 {
+            let x = junction_x + (lane as f32 + 0.5) * lane_width;
+            for (road, start, end) in [
+                (0, half_length, secondary_connector_half),
+                (2, -secondary_connector_half, -half_length),
+            ] {
+                edges.push(road_edge(
+                    format!("edge-side-{junction}-s2n-lane-{lane}-road-{road}"),
+                    [x, 0.0, start],
+                    [x, 0.0, end],
+                    secondary_speed,
+                ));
+            }
+        }
+    }
+    edges
+}
+
+fn road_edge(id: String, start: [f32; 3], end: [f32; 3], speed_limit: f64) -> EdgeBuild {
+    EdgeBuild {
+        id,
+        points: vec![start, end],
+        speed_limit,
+        connections: Vec::new(),
     }
 }
 
-fn connector_intersection(edge_prefix: &str, edge_index: usize) -> usize {
-    if edge_prefix.starts_with("main-") {
-        match (edge_prefix, edge_index) {
-            ("main-w2e", 1) | ("main-e2w", 3) => 1,
-            _ => 2,
+fn path_keys() -> Vec<PathKey> {
+    let mut keys = Vec::with_capacity(32);
+    for junction in 1..=2 {
+        for approach in Approach::ALL {
+            let assignments: &[(Turn, usize, usize)] = if approach.is_main() {
+                &[
+                    (Turn::Left, 0, 0),
+                    (Turn::Straight, 1, 0),
+                    (Turn::Straight, 1, 1),
+                    (Turn::Straight, 2, 2),
+                    (Turn::Right, 2, 1),
+                ]
+            } else {
+                &[
+                    (Turn::Left, 0, 0),
+                    (Turn::Straight, 1, 1),
+                    (Turn::Right, 1, 2),
+                ]
+            };
+            keys.extend(
+                assignments
+                    .iter()
+                    .map(|&(turn, entry_lane, exit_lane)| PathKey {
+                        junction,
+                        approach,
+                        turn,
+                        entry_lane,
+                        exit_lane,
+                    }),
+            );
         }
-    } else if edge_prefix.starts_with("side-1-") {
-        1
-    } else {
-        2
     }
+    keys
+}
+
+fn build_stop_lines() -> Vec<StopLineBuild> {
+    (1..=2)
+        .flat_map(|junction| {
+            Approach::ALL.into_iter().flat_map(move |approach| {
+                let lane_count = if approach.is_main() { 3 } else { 2 };
+                (0..lane_count).map(move |lane| StopLineBuild {
+                    id: stop_line_id(junction, approach, lane),
+                    edge_id: entry_edge_id(PathKey {
+                        junction,
+                        approach,
+                        turn: Turn::Straight,
+                        entry_lane: lane,
+                        exit_lane: lane,
+                    }),
+                })
+            })
+        })
+        .collect()
+}
+
+fn entry_edge_id(key: PathKey) -> String {
+    match key.approach {
+        Approach::West => format!(
+            "edge-main-w2e-lane-{}-road-{}",
+            key.entry_lane,
+            if key.junction == 1 { 0 } else { 2 }
+        ),
+        Approach::East => format!(
+            "edge-main-e2w-lane-{}-road-{}",
+            key.entry_lane,
+            if key.junction == 2 { 0 } else { 2 }
+        ),
+        Approach::North => format!(
+            "edge-side-{}-n2s-lane-{}-road-0",
+            key.junction, key.entry_lane
+        ),
+        Approach::South => format!(
+            "edge-side-{}-s2n-lane-{}-road-0",
+            key.junction, key.entry_lane
+        ),
+    }
+}
+
+fn exit_edge_id(key: PathKey) -> String {
+    match (key.approach, key.turn) {
+        (Approach::West, Turn::Left) => {
+            format!(
+                "edge-side-{}-s2n-lane-{}-road-2",
+                key.junction, key.exit_lane
+            )
+        }
+        (Approach::West, Turn::Straight) => format!(
+            "edge-main-w2e-lane-{}-road-{}",
+            key.exit_lane,
+            if key.junction == 1 { 2 } else { 4 }
+        ),
+        (Approach::West, Turn::Right) => {
+            format!(
+                "edge-side-{}-n2s-lane-{}-road-2",
+                key.junction, key.exit_lane
+            )
+        }
+        (Approach::East, Turn::Left) => {
+            format!(
+                "edge-side-{}-n2s-lane-{}-road-2",
+                key.junction, key.exit_lane
+            )
+        }
+        (Approach::East, Turn::Straight) => format!(
+            "edge-main-e2w-lane-{}-road-{}",
+            key.exit_lane,
+            if key.junction == 2 { 2 } else { 4 }
+        ),
+        (Approach::East, Turn::Right) => {
+            format!(
+                "edge-side-{}-s2n-lane-{}-road-2",
+                key.junction, key.exit_lane
+            )
+        }
+        (Approach::North, Turn::Left) => format!(
+            "edge-main-w2e-lane-{}-road-{}",
+            key.exit_lane,
+            if key.junction == 1 { 2 } else { 4 }
+        ),
+        (Approach::North, Turn::Straight) => format!(
+            "edge-side-{}-n2s-lane-{}-road-2",
+            key.junction, key.exit_lane
+        ),
+        (Approach::North, Turn::Right) => format!(
+            "edge-main-e2w-lane-{}-road-{}",
+            key.exit_lane,
+            if key.junction == 1 { 4 } else { 2 }
+        ),
+        (Approach::South, Turn::Left) => format!(
+            "edge-main-e2w-lane-{}-road-{}",
+            key.exit_lane,
+            if key.junction == 1 { 4 } else { 2 }
+        ),
+        (Approach::South, Turn::Straight) => format!(
+            "edge-side-{}-s2n-lane-{}-road-2",
+            key.junction, key.exit_lane
+        ),
+        (Approach::South, Turn::Right) => format!(
+            "edge-main-w2e-lane-{}-road-{}",
+            key.exit_lane,
+            if key.junction == 1 { 2 } else { 4 }
+        ),
+    }
+}
+
+fn connector_points(key: PathKey, start: [f32; 3], end: [f32; 3]) -> Result<Vec<[f32; 3]>, Error> {
+    let mut points = if key.turn == Turn::Straight && key.entry_lane == key.exit_lane {
+        vec![start, end]
+    } else {
+        (0..=CURVE_SEGMENT_COUNT)
+            .map(|index| {
+                let t = index as f64 / CURVE_SEGMENT_COUNT as f64;
+                let [start_x, _, start_z] = point_f64(start);
+                let [end_x, _, end_z] = point_f64(end);
+                let (x, z) = match key.turn {
+                    Turn::Straight => {
+                        let smooth = t * t * (3.0 - 2.0 * t);
+                        if key.approach.is_main() {
+                            (
+                                start_x + (end_x - start_x) * t,
+                                start_z + (end_z - start_z) * smooth,
+                            )
+                        } else {
+                            (
+                                start_x + (end_x - start_x) * smooth,
+                                start_z + (end_z - start_z) * t,
+                            )
+                        }
+                    }
+                    Turn::Left | Turn::Right => {
+                        let angle = std::f64::consts::FRAC_PI_2 * t;
+                        if key.approach.is_main() {
+                            (
+                                start_x + (end_x - start_x) * angle.sin(),
+                                end_z + (start_z - end_z) * angle.cos(),
+                            )
+                        } else {
+                            (
+                                end_x + (start_x - end_x) * angle.cos(),
+                                start_z + (end_z - start_z) * angle.sin(),
+                            )
+                        }
+                    }
+                };
+                quantized_point(x, z)
+            })
+            .collect()
+    };
+    points[0] = start;
+    *points.last_mut().expect("connector has an endpoint") = end;
+    let minimum_segment = points
+        .windows(2)
+        .map(|pair| edge_length(pair[0], pair[1]))
+        .fold(f64::INFINITY, f64::min);
+    if minimum_segment < MIN_SPATIAL_SEGMENT_METERS {
+        return Err(Error::Config(format!(
+            "{} has a {minimum_segment:.6} m segment below the {:.3} m spatial minimum",
+            internal_edge_id(key),
+            MIN_SPATIAL_SEGMENT_METERS
+        )));
+    }
+    Ok(points)
+}
+
+fn quantized_point(x: f64, z: f64) -> [f32; 3] {
+    [
+        ((x * 1_000.0).round() / 1_000.0) as f32,
+        0.0,
+        ((z * 1_000.0).round() / 1_000.0) as f32,
+    ]
+}
+
+fn connector_speed(config: &CorridorConfig, key: PathKey) -> f64 {
+    let kilometers_per_hour = match key.turn {
+        Turn::Left => config.speed_limits.left_kilometers_per_hour,
+        Turn::Right => config.speed_limits.right_kilometers_per_hour,
+        Turn::Straight if key.approach.is_main() => config.speed_limits.main_kilometers_per_hour,
+        Turn::Straight => config.speed_limits.secondary_kilometers_per_hour,
+    };
+    kilometers_per_hour_to_meters_per_second(kilometers_per_hour)
+}
+
+fn build_routes(connectors: &[ConnectorBuild]) -> Result<Vec<RouteBuild>, Error> {
+    let connector_by_key = connectors
+        .iter()
+        .map(|connector| (connector.key, connector))
+        .collect::<HashMap<_, _>>();
+    let specs = route_specs();
+    let occurrence_count = specs
+        .iter()
+        .map(|spec| spec.occurrences.len())
+        .sum::<usize>();
+    let coverage = specs
+        .iter()
+        .flat_map(|spec| spec.occurrences.iter().copied())
+        .collect::<HashSet<_>>();
+    if specs.len() != 28 || occurrence_count != 44 || coverage.len() != 32 {
+        return Err(Error::Config(format!(
+            "protected-turning route table mismatch: {} routes, {occurrence_count} occurrences, {} covered paths",
+            specs.len(),
+            coverage.len()
+        )));
+    }
+
+    specs
+        .into_iter()
+        .map(|spec| {
+            let mut edge_ids = Vec::with_capacity(spec.occurrences.len() * 2 + 1);
+            for key in spec.occurrences {
+                let connector = connector_by_key
+                    .get(&key)
+                    .expect("route table only references declared maneuver paths");
+                if let Some(previous_exit) = edge_ids.last() {
+                    if previous_exit != &connector.entry_edge_id {
+                        return Err(Error::Config(format!(
+                            "route {:?} is discontinuous between {:?} and {:?}",
+                            spec.id, previous_exit, connector.entry_edge_id
+                        )));
+                    }
+                } else {
+                    edge_ids.push(connector.entry_edge_id.clone());
+                }
+                edge_ids.push(connector.internal_edge_id.clone());
+                edge_ids.push(connector.exit_edge_id.clone());
+            }
+            Ok(RouteBuild {
+                route: Route {
+                    id: spec.id.to_owned(),
+                    edge_ids,
+                },
+                entry_portal_id: spec.entry_portal_id.to_owned(),
+                exit_portal_id: spec.exit_portal_id.to_owned(),
+                lane_index: spec.lane_index,
+                weight: spec.weight,
+            })
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_lines)]
+fn route_specs() -> Vec<RouteSpec> {
+    let key = |junction, approach, turn, entry_lane, exit_lane| PathKey {
+        junction,
+        approach,
+        turn,
+        entry_lane,
+        exit_lane,
+    };
+    let route = |id, entry_portal_id, exit_portal_id, lane_index, weight, occurrences| RouteSpec {
+        id,
+        entry_portal_id,
+        exit_portal_id,
+        lane_index,
+        weight,
+        occurrences,
+    };
+    vec![
+        route(
+            "route-main-west-near-left",
+            "portal-main-west",
+            "portal-side-1-north",
+            0,
+            20,
+            vec![key(1, Approach::West, Turn::Left, 0, 0)],
+        ),
+        route(
+            "route-main-west-far-left-via-lane-1",
+            "portal-main-west",
+            "portal-side-2-north",
+            1,
+            12,
+            vec![
+                key(1, Approach::West, Turn::Straight, 1, 0),
+                key(2, Approach::West, Turn::Left, 0, 0),
+            ],
+        ),
+        route(
+            "route-main-west-through-lane-1-to-0",
+            "portal-main-west",
+            "portal-main-east",
+            1,
+            12,
+            vec![
+                key(1, Approach::West, Turn::Straight, 1, 1),
+                key(2, Approach::West, Turn::Straight, 1, 0),
+            ],
+        ),
+        route(
+            "route-main-west-through-lane-1-to-1",
+            "portal-main-west",
+            "portal-main-east",
+            1,
+            12,
+            vec![
+                key(1, Approach::West, Turn::Straight, 1, 1),
+                key(2, Approach::West, Turn::Straight, 1, 1),
+            ],
+        ),
+        route(
+            "route-main-west-near-right",
+            "portal-main-west",
+            "portal-side-1-south",
+            2,
+            20,
+            vec![key(1, Approach::West, Turn::Right, 2, 1)],
+        ),
+        route(
+            "route-main-west-through-lane-2-to-2",
+            "portal-main-west",
+            "portal-main-east",
+            2,
+            12,
+            vec![
+                key(1, Approach::West, Turn::Straight, 2, 2),
+                key(2, Approach::West, Turn::Straight, 2, 2),
+            ],
+        ),
+        route(
+            "route-main-west-far-right-via-lane-2",
+            "portal-main-west",
+            "portal-side-2-south",
+            2,
+            12,
+            vec![
+                key(1, Approach::West, Turn::Straight, 2, 2),
+                key(2, Approach::West, Turn::Right, 2, 1),
+            ],
+        ),
+        route(
+            "route-main-east-near-left",
+            "portal-main-east",
+            "portal-side-2-south",
+            0,
+            20,
+            vec![key(2, Approach::East, Turn::Left, 0, 0)],
+        ),
+        route(
+            "route-main-east-far-left-via-lane-1",
+            "portal-main-east",
+            "portal-side-1-south",
+            1,
+            12,
+            vec![
+                key(2, Approach::East, Turn::Straight, 1, 0),
+                key(1, Approach::East, Turn::Left, 0, 0),
+            ],
+        ),
+        route(
+            "route-main-east-through-lane-1-to-0",
+            "portal-main-east",
+            "portal-main-west",
+            1,
+            12,
+            vec![
+                key(2, Approach::East, Turn::Straight, 1, 1),
+                key(1, Approach::East, Turn::Straight, 1, 0),
+            ],
+        ),
+        route(
+            "route-main-east-through-lane-1-to-1",
+            "portal-main-east",
+            "portal-main-west",
+            1,
+            12,
+            vec![
+                key(2, Approach::East, Turn::Straight, 1, 1),
+                key(1, Approach::East, Turn::Straight, 1, 1),
+            ],
+        ),
+        route(
+            "route-main-east-near-right",
+            "portal-main-east",
+            "portal-side-2-north",
+            2,
+            20,
+            vec![key(2, Approach::East, Turn::Right, 2, 1)],
+        ),
+        route(
+            "route-main-east-through-lane-2-to-2",
+            "portal-main-east",
+            "portal-main-west",
+            2,
+            12,
+            vec![
+                key(2, Approach::East, Turn::Straight, 2, 2),
+                key(1, Approach::East, Turn::Straight, 2, 2),
+            ],
+        ),
+        route(
+            "route-main-east-far-right-via-lane-2",
+            "portal-main-east",
+            "portal-side-1-north",
+            2,
+            12,
+            vec![
+                key(2, Approach::East, Turn::Straight, 2, 2),
+                key(1, Approach::East, Turn::Right, 2, 1),
+            ],
+        ),
+        route(
+            "route-side-1-north-corridor-left-far-left",
+            "portal-side-1-north",
+            "portal-side-2-north",
+            0,
+            20,
+            vec![
+                key(1, Approach::North, Turn::Left, 0, 0),
+                key(2, Approach::West, Turn::Left, 0, 0),
+            ],
+        ),
+        route(
+            "route-side-1-north-through",
+            "portal-side-1-north",
+            "portal-side-1-south",
+            1,
+            60,
+            vec![key(1, Approach::North, Turn::Straight, 1, 1)],
+        ),
+        route(
+            "route-side-1-north-away-right",
+            "portal-side-1-north",
+            "portal-main-west",
+            1,
+            20,
+            vec![key(1, Approach::North, Turn::Right, 1, 2)],
+        ),
+        route(
+            "route-side-1-south-away-left",
+            "portal-side-1-south",
+            "portal-main-west",
+            0,
+            20,
+            vec![key(1, Approach::South, Turn::Left, 0, 0)],
+        ),
+        route(
+            "route-side-1-south-through",
+            "portal-side-1-south",
+            "portal-side-1-north",
+            1,
+            60,
+            vec![key(1, Approach::South, Turn::Straight, 1, 1)],
+        ),
+        route(
+            "route-side-1-south-corridor-right-through",
+            "portal-side-1-south",
+            "portal-main-east",
+            1,
+            15,
+            vec![
+                key(1, Approach::South, Turn::Right, 1, 2),
+                key(2, Approach::West, Turn::Straight, 2, 2),
+            ],
+        ),
+        route(
+            "route-side-1-south-corridor-right-far-right",
+            "portal-side-1-south",
+            "portal-side-2-south",
+            1,
+            5,
+            vec![
+                key(1, Approach::South, Turn::Right, 1, 2),
+                key(2, Approach::West, Turn::Right, 2, 1),
+            ],
+        ),
+        route(
+            "route-side-2-north-away-left",
+            "portal-side-2-north",
+            "portal-main-east",
+            0,
+            20,
+            vec![key(2, Approach::North, Turn::Left, 0, 0)],
+        ),
+        route(
+            "route-side-2-north-through",
+            "portal-side-2-north",
+            "portal-side-2-south",
+            1,
+            60,
+            vec![key(2, Approach::North, Turn::Straight, 1, 1)],
+        ),
+        route(
+            "route-side-2-north-corridor-right-through",
+            "portal-side-2-north",
+            "portal-main-west",
+            1,
+            15,
+            vec![
+                key(2, Approach::North, Turn::Right, 1, 2),
+                key(1, Approach::East, Turn::Straight, 2, 2),
+            ],
+        ),
+        route(
+            "route-side-2-north-corridor-right-far-right",
+            "portal-side-2-north",
+            "portal-side-1-north",
+            1,
+            5,
+            vec![
+                key(2, Approach::North, Turn::Right, 1, 2),
+                key(1, Approach::East, Turn::Right, 2, 1),
+            ],
+        ),
+        route(
+            "route-side-2-south-corridor-left-far-left",
+            "portal-side-2-south",
+            "portal-side-1-south",
+            0,
+            20,
+            vec![
+                key(2, Approach::South, Turn::Left, 0, 0),
+                key(1, Approach::East, Turn::Left, 0, 0),
+            ],
+        ),
+        route(
+            "route-side-2-south-through",
+            "portal-side-2-south",
+            "portal-side-2-north",
+            1,
+            60,
+            vec![key(2, Approach::South, Turn::Straight, 1, 1)],
+        ),
+        route(
+            "route-side-2-south-away-right",
+            "portal-side-2-south",
+            "portal-main-east",
+            1,
+            20,
+            vec![key(2, Approach::South, Turn::Right, 1, 2)],
+        ),
+    ]
+}
+
+fn movement_id(junction: usize, approach: Approach, turn: Turn) -> String {
+    format!(
+        "movement-junction-{junction}-{}-{}",
+        approach.as_str(),
+        turn.as_str()
+    )
+}
+
+fn maneuver_path_id(key: PathKey) -> String {
+    format!(
+        "path-junction-{}-{}-{}-lane-{}-to-{}",
+        key.junction,
+        key.approach.as_str(),
+        key.turn.as_str(),
+        key.entry_lane,
+        key.exit_lane
+    )
+}
+
+fn internal_edge_id(key: PathKey) -> String {
+    format!(
+        "edge-junction-{}-{}-{}-lane-{}-to-{}-internal-0",
+        key.junction,
+        key.approach.as_str(),
+        key.turn.as_str(),
+        key.entry_lane,
+        key.exit_lane
+    )
+}
+
+fn maneuver_gate_id(key: PathKey) -> String {
+    format!(
+        "gate-junction-{}-{}-{}-lane-{}-to-{}",
+        key.junction,
+        key.approach.as_str(),
+        key.turn.as_str(),
+        key.entry_lane,
+        key.exit_lane
+    )
+}
+
+fn stop_line_id(junction: usize, approach: Approach, lane: usize) -> String {
+    format!(
+        "stop-line-junction-{junction}-{}-lane-{lane}",
+        approach.as_str()
+    )
+}
+
+fn signal_group_id(key: PathKey) -> String {
+    let suffix = match (key.approach.is_main(), key.turn) {
+        (true, Turn::Left) => "main-left",
+        (true, Turn::Straight | Turn::Right) => "main-through-right",
+        (false, Turn::Left) => "secondary-left",
+        (false, Turn::Straight | Turn::Right) => "secondary-through-right",
+    };
+    format!("signal-group-junction-{}-{suffix}", key.junction)
 }
 
 fn signal_controller(config: &CorridorConfig, index: usize) -> SignalController {
-    let intersection = index + 1;
-    let main = format!("group-intersection-{intersection}-main");
-    let secondary = format!("group-intersection-{intersection}-secondary");
-    let states = |main_aspect, secondary_aspect| {
-        vec![
-            SignalGroupState {
-                group_id: main.clone(),
-                aspect: main_aspect,
-            },
-            SignalGroupState {
-                group_id: secondary.clone(),
-                aspect: secondary_aspect,
-            },
-        ]
+    let junction = index + 1;
+    let suffixes = [
+        "main-left",
+        "main-through-right",
+        "secondary-left",
+        "secondary-through-right",
+    ];
+    let group_ids = suffixes
+        .map(|suffix| format!("signal-group-junction-{junction}-{suffix}"))
+        .to_vec();
+    let states = |active_index: Option<usize>, active_aspect: &'static str| {
+        group_ids
+            .iter()
+            .enumerate()
+            .map(|(group_index, group_id)| SignalGroupState {
+                group_id: group_id.clone(),
+                aspect: if active_index == Some(group_index) {
+                    active_aspect
+                } else {
+                    "red"
+                },
+            })
+            .collect()
     };
     SignalController {
-        id: format!("controller-intersection-{intersection}"),
+        id: format!("signal-controller-junction-{junction}"),
         kind: "fixedTime",
         offset_ms: config.signals.controller_offsets_ms[index],
-        group_ids: vec![main.clone(), secondary.clone()],
+        group_ids: group_ids.clone(),
         phases: vec![
             SignalPhase {
-                id: "main-green".to_owned(),
-                duration_ms: config.signals.main_green_ms,
-                states: states("green", "red"),
+                id: "phase-main-left-green".to_owned(),
+                duration_ms: config.signals.main_left_green_ms,
+                states: states(Some(0), "green"),
             },
             SignalPhase {
-                id: "main-yellow".to_owned(),
+                id: "phase-main-left-yellow".to_owned(),
                 duration_ms: config.signals.yellow_ms,
-                states: states("yellow", "red"),
+                states: states(Some(0), "yellow"),
             },
             SignalPhase {
-                id: "all-red-before-secondary".to_owned(),
+                id: "phase-after-main-left-all-red".to_owned(),
                 duration_ms: config.signals.all_red_ms,
-                states: states("red", "red"),
+                states: states(None, "red"),
             },
             SignalPhase {
-                id: "secondary-green".to_owned(),
-                duration_ms: config.signals.secondary_green_ms,
-                states: states("red", "green"),
+                id: "phase-main-through-right-green".to_owned(),
+                duration_ms: config.signals.main_through_right_green_ms,
+                states: states(Some(1), "green"),
             },
             SignalPhase {
-                id: "secondary-yellow".to_owned(),
+                id: "phase-main-through-right-yellow".to_owned(),
                 duration_ms: config.signals.yellow_ms,
-                states: states("red", "yellow"),
+                states: states(Some(1), "yellow"),
             },
             SignalPhase {
-                id: "all-red-before-main".to_owned(),
+                id: "phase-after-main-through-right-all-red".to_owned(),
                 duration_ms: config.signals.all_red_ms,
-                states: states("red", "red"),
+                states: states(None, "red"),
+            },
+            SignalPhase {
+                id: "phase-secondary-left-green".to_owned(),
+                duration_ms: config.signals.secondary_left_green_ms,
+                states: states(Some(2), "green"),
+            },
+            SignalPhase {
+                id: "phase-secondary-left-yellow".to_owned(),
+                duration_ms: config.signals.yellow_ms,
+                states: states(Some(2), "yellow"),
+            },
+            SignalPhase {
+                id: "phase-after-secondary-left-all-red".to_owned(),
+                duration_ms: config.signals.all_red_ms,
+                states: states(None, "red"),
+            },
+            SignalPhase {
+                id: "phase-secondary-through-right-green".to_owned(),
+                duration_ms: config.signals.secondary_through_right_green_ms,
+                states: states(Some(3), "green"),
+            },
+            SignalPhase {
+                id: "phase-secondary-through-right-yellow".to_owned(),
+                duration_ms: config.signals.yellow_ms,
+                states: states(Some(3), "yellow"),
+            },
+            SignalPhase {
+                id: "phase-after-secondary-through-right-all-red".to_owned(),
+                duration_ms: config.signals.all_red_ms,
+                states: states(None, "red"),
             },
         ],
     }
 }
 
-fn build_catalog(config: &CorridorConfig, routes: &[RouteBuild]) -> CorridorCatalog {
+fn build_catalog(config: &CorridorConfig, corridor: &CorridorBuild) -> CorridorCatalog {
+    let routes = &corridor.routes;
+    let edge_by_id = corridor.edge_by_id();
     let portal_order = [
         "portal-main-west",
         "portal-main-east",
@@ -557,61 +1290,83 @@ fn build_catalog(config: &CorridorConfig, routes: &[RouteBuild]) -> CorridorCata
         "portal-side-2-north",
         "portal-side-2-south",
     ];
+    let mut slots = Vec::new();
     let portals = portal_order
         .into_iter()
-        .map(|id| PortalCatalogEntry {
-            id: id.to_owned(),
-            entry_route_ids: routes
+        .map(|portal_id| {
+            let portal_routes = routes
                 .iter()
-                .filter(|route| route.entry_portal_id == id)
-                .map(|route| route.route.id.clone())
-                .collect(),
+                .filter(|route| route.entry_portal_id == portal_id)
+                .collect::<Vec<_>>();
+            let mut lane_indices = portal_routes
+                .iter()
+                .map(|route| route.lane_index)
+                .collect::<Vec<_>>();
+            lane_indices.sort_unstable();
+            lane_indices.dedup();
+            let lanes = lane_indices
+                .into_iter()
+                .map(|lane_index| {
+                    let lane_routes = portal_routes
+                        .iter()
+                        .copied()
+                        .filter(|route| route.lane_index == lane_index)
+                        .collect::<Vec<_>>();
+                    let entry_edge_id = lane_routes[0]
+                        .route
+                        .edge_ids
+                        .first()
+                        .expect("every route has an entry edge");
+                    let edge = edge_by_id
+                        .get(entry_edge_id.as_str())
+                        .expect("route edge exists in corridor topology");
+                    let length = edge.length();
+                    let mut progress = ENDPOINT_CLEARANCE_METERS;
+                    let mut local_index = 0;
+                    let mut entry_spawn_slot_id = None;
+                    while progress <= length - ENDPOINT_CLEARANCE_METERS {
+                        let slot_id = format!(
+                            "slot-{}-lane-{lane_index}-{local_index:03}",
+                            portal_id.trim_start_matches("portal-")
+                        );
+                        entry_spawn_slot_id.get_or_insert_with(|| slot_id.clone());
+                        slots.push(SpawnSlotCatalogEntry {
+                            slot_id,
+                            portal_id: portal_id.to_owned(),
+                            lane_index,
+                            edge_id: edge.id.clone(),
+                            progress,
+                        });
+                        local_index += 1;
+                        progress += config.geometry.spawn_slot_pitch_meters;
+                    }
+                    PortalLaneCatalogEntry {
+                        lane_index,
+                        entry_spawn_slot_id: entry_spawn_slot_id
+                            .expect("every portal lane has an entry spawn slot"),
+                        route_choices: lane_routes
+                            .into_iter()
+                            .map(|route| WeightedRouteChoiceCatalogEntry {
+                                route_id: route.route.id.clone(),
+                                weight: route.weight,
+                            })
+                            .collect(),
+                    }
+                })
+                .collect();
+            PortalCatalogEntry {
+                id: portal_id.to_owned(),
+                lanes,
+            }
         })
         .collect();
-
-    let mut slots = Vec::new();
-    let mut route_catalog = Vec::with_capacity(routes.len());
-    for route in routes {
-        let eligible_indices: &[usize] = if route.route.id.starts_with("route-main-") {
-            &[0, 2]
-        } else {
-            &[0]
-        };
-        let mut first_slot_id = None;
-        for edge_index in eligible_indices {
-            let edge = &route.edges[*edge_index];
-            let length = edge_length(edge.start, edge.end);
-            let mut progress = ENDPOINT_CLEARANCE_METERS;
-            let mut local_index = 0;
-            while progress <= length - ENDPOINT_CLEARANCE_METERS {
-                let slot_id = format!(
-                    "slot-{}-edge-{}-{local_index:03}",
-                    route.route.id.trim_start_matches("route-"),
-                    edge_index
-                );
-                if first_slot_id.is_none() {
-                    first_slot_id = Some(slot_id.clone());
-                }
-                slots.push(SpawnSlotCatalogEntry {
-                    slot_id,
-                    portal_id: route.entry_portal_id.clone(),
-                    route_id: route.route.id.clone(),
-                    route_edge_index: *edge_index,
-                    edge_id: edge.id.clone(),
-                    progress,
-                });
-                local_index += 1;
-                progress += config.geometry.spawn_slot_pitch_meters;
-            }
-        }
-        route_catalog.push(RouteCatalogEntry {
+    let route_catalog = routes
+        .iter()
+        .map(|route| RouteCatalogEntry {
             route_id: route.route.id.clone(),
-            entry_portal_id: route.entry_portal_id.clone(),
             exit_portal_id: route.exit_portal_id.clone(),
-            lane_index: route.lane_index,
-            entry_spawn_slot_id: first_slot_id.unwrap_or_default(),
-        });
-    }
+        })
+        .collect();
 
     CorridorCatalog {
         catalog_version: CATALOG_VERSION.to_owned(),
@@ -621,7 +1376,7 @@ fn build_catalog(config: &CorridorConfig, routes: &[RouteBuild]) -> CorridorCata
     }
 }
 
-fn validate_catalog(catalog: &CorridorCatalog, routes: &[RouteBuild]) -> Result<(), Error> {
+fn validate_catalog(catalog: &CorridorCatalog, corridor: &CorridorBuild) -> Result<(), Error> {
     let encoded = toml::to_string(catalog)?;
     let decoded: CorridorCatalog =
         toml::from_str(&encoded).map_err(|error| Error::Catalog(error.to_string()))?;
@@ -631,15 +1386,27 @@ fn validate_catalog(catalog: &CorridorCatalog, routes: &[RouteBuild]) -> Result<
         ));
     }
 
-    let route_by_id = routes
+    let route_by_id = corridor
+        .routes
         .iter()
         .map(|route| (route.route.id.as_str(), route))
         .collect::<HashMap<_, _>>();
+    let edge_by_id = corridor.edge_by_id();
     let portal_ids = catalog
         .portals
         .iter()
         .map(|portal| portal.id.as_str())
         .collect::<HashSet<_>>();
+    let lane_by_key = catalog
+        .portals
+        .iter()
+        .flat_map(|portal| {
+            portal
+                .lanes
+                .iter()
+                .map(move |lane| ((portal.id.as_str(), lane.lane_index), lane))
+        })
+        .collect::<HashMap<_, _>>();
     let mut slot_ids = HashSet::new();
     for slot in &catalog.spawn_slots {
         if !slot_ids.insert(slot.slot_id.as_str()) {
@@ -648,35 +1415,35 @@ fn validate_catalog(catalog: &CorridorCatalog, routes: &[RouteBuild]) -> Result<
                 slot.slot_id
             )));
         }
-        let route = route_by_id
-            .get(slot.route_id.as_str())
-            .ok_or_else(|| Error::Catalog(format!("unknown route {:?}", slot.route_id)))?;
         if !portal_ids.contains(slot.portal_id.as_str()) {
             return Err(Error::Catalog(format!(
                 "unknown portal {:?}",
                 slot.portal_id
             )));
         }
-        let expected_edge = route
-            .route
-            .edge_ids
-            .get(slot.route_edge_index)
+        let lane = lane_by_key
+            .get(&(slot.portal_id.as_str(), slot.lane_index))
             .ok_or_else(|| {
                 Error::Catalog(format!(
-                    "route_edge_index {} is out of range for {:?}",
-                    slot.route_edge_index, slot.route_id
+                    "slot {:?} has no matching portal lane",
+                    slot.slot_id
                 ))
             })?;
-        if expected_edge != &slot.edge_id {
-            return Err(Error::Catalog(format!(
-                "slot {:?} edge_id does not match route_edge_index",
-                slot.slot_id
-            )));
+        for choice in &lane.route_choices {
+            let route = route_by_id
+                .get(choice.route_id.as_str())
+                .ok_or_else(|| Error::Catalog(format!("unknown route {:?}", choice.route_id)))?;
+            if !route.route.edge_ids.contains(&slot.edge_id) {
+                return Err(Error::Catalog(format!(
+                    "slot {:?} edge_id is not present in route {:?}",
+                    slot.slot_id, choice.route_id
+                )));
+            }
         }
-        let length = edge_length(
-            route.edges[slot.route_edge_index].start,
-            route.edges[slot.route_edge_index].end,
-        );
+        let length = edge_by_id
+            .get(slot.edge_id.as_str())
+            .expect("route edge exists in corridor topology")
+            .length();
         if slot.progress < ENDPOINT_CLEARANCE_METERS
             || slot.progress > length - ENDPOINT_CLEARANCE_METERS
         {
@@ -686,12 +1453,14 @@ fn validate_catalog(catalog: &CorridorCatalog, routes: &[RouteBuild]) -> Result<
             )));
         }
     }
-    for route in &catalog.routes {
-        if !slot_ids.contains(route.entry_spawn_slot_id.as_str()) {
-            return Err(Error::Catalog(format!(
-                "route {:?} has no valid entry_spawn_slot_id",
-                route.route_id
-            )));
+    for portal in &catalog.portals {
+        for lane in &portal.lanes {
+            if !slot_ids.contains(lane.entry_spawn_slot_id.as_str()) {
+                return Err(Error::Catalog(format!(
+                    "portal {:?} lane {} has no valid entry_spawn_slot_id",
+                    portal.id, lane.lane_index
+                )));
+            }
         }
     }
     Ok(())
@@ -780,6 +1549,32 @@ fn point_f64(point: [f32; 3]) -> [f64; 3] {
     point.map(f64::from)
 }
 
+impl CorridorBuild {
+    fn edge_by_id(&self) -> HashMap<&str, &EdgeBuild> {
+        self.edges
+            .iter()
+            .map(|edge| (edge.id.as_str(), edge))
+            .collect()
+    }
+}
+
+impl EdgeBuild {
+    fn start(&self) -> [f32; 3] {
+        *self.points.first().expect("edge has a start point")
+    }
+
+    fn end(&self) -> [f32; 3] {
+        *self.points.last().expect("edge has an end point")
+    }
+
+    fn length(&self) -> f64 {
+        self.points
+            .windows(2)
+            .map(|pair| edge_length(pair[0], pair[1]))
+            .sum()
+    }
+}
+
 fn edge_length(start: [f32; 3], end: [f32; 3]) -> f64 {
     let dx = end[0] - start[0];
     let dy = end[1] - start[1];
@@ -789,4 +1584,21 @@ fn edge_length(start: [f32; 3], end: [f32; 3]) -> f64 {
 
 fn kilometers_per_hour_to_meters_per_second(value: f64) -> f64 {
     value / 3.6
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn edge_length_sums_every_polyline_segment() {
+        let edge = EdgeBuild {
+            id: "edge-polyline".to_owned(),
+            points: vec![[0.0, 0.0, 0.0], [3.0, 0.0, 4.0], [6.0, 0.0, 8.0]],
+            speed_limit: 10.0,
+            connections: Vec::new(),
+        };
+
+        assert_eq!(edge.length(), 10.0);
+    }
 }

@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-/// v0.8 直行信号化走廊的可选 runtime support。
+/// v0.9 protected-turning 信号化走廊的可选 runtime support。
 pub mod signalized_corridor;
 
 #[cfg(test)]

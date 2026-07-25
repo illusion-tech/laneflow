@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use laneflow_corridor_generator::{CorridorConfig, generate};
 use serde_json::Value;
 
-const CONFIG: &str = include_str!("../../../examples/config/v0.8-signalized-corridor.toml");
+const CONFIG: &str = include_str!("../../../examples/config/v0.9-signalized-corridor.toml");
 
 fn repository_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -21,18 +21,18 @@ fn default_corridor_locks_scope_counts_and_deterministic_bytes() {
     let first = default_generated();
     let second = default_generated();
     let counts = first.counts();
-    assert_eq!(counts.edges, 54);
-    assert_eq!(counts.routes, 14);
+    assert_eq!(counts.edges, 66);
+    assert_eq!(counts.routes, 28);
     assert_eq!(counts.junctions, 2);
-    assert_eq!(counts.movements, 8);
-    assert_eq!(counts.maneuver_paths, 20);
+    assert_eq!(counts.movements, 24);
+    assert_eq!(counts.maneuver_paths, 32);
     assert_eq!(counts.stop_lines, 20);
-    assert_eq!(counts.maneuver_gates, 20);
-    assert_eq!(counts.signal_groups, 4);
+    assert_eq!(counts.maneuver_gates, 32);
+    assert_eq!(counts.signal_groups, 8);
     assert_eq!(counts.controllers, 2);
-    assert_eq!(counts.phases, 12);
+    assert_eq!(counts.phases, 24);
     assert_eq!(counts.portals, 6);
-    assert_eq!(counts.spawn_slots, 230);
+    assert_eq!(counts.spawn_slots, 212);
     assert_eq!(first.traffic_bytes(), second.traffic_bytes());
     assert_eq!(first.spatial_bytes(), second.spatial_bytes());
     assert_eq!(first.manifest_bytes(), second.manifest_bytes());
@@ -56,7 +56,7 @@ fn checked_in_artifacts_are_exact_generator_outputs() {
             generated.manifest_bytes(),
         ),
         (
-            "examples/data/v0.1-signalized-corridor.catalog.toml",
+            "examples/data/v0.2-signalized-corridor.catalog.toml",
             generated.catalog_bytes(),
         ),
     ] {
@@ -67,7 +67,7 @@ fn checked_in_artifacts_are_exact_generator_outputs() {
 }
 
 #[test]
-fn default_corridor_locks_limits_routes_and_catalog_eligibility() {
+fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
     let generated = default_generated();
     let traffic: Value =
         serde_json::from_slice(generated.traffic_bytes()).expect("traffic JSON must parse");
@@ -82,33 +82,190 @@ fn default_corridor_locks_limits_routes_and_catalog_eligibility() {
         edge["id"] == "edge-side-1-n2s-lane-0-road-0"
             && edge["speedLimit"].as_f64() == Some(40.0 / 3.6)
     }));
-    assert!(
-        edges
+    for (id, expected_length, expected_speed) in [
+        (
+            "edge-junction-1-west-straight-lane-2-to-2-internal-0",
+            21.0,
+            60.0 / 3.6,
+        ),
+        (
+            "edge-junction-1-north-straight-lane-1-to-1-internal-0",
+            28.0,
+            40.0 / 3.6,
+        ),
+        (
+            "edge-junction-1-west-straight-lane-1-to-0-internal-0",
+            21.345_867_633_819_58,
+            60.0 / 3.6,
+        ),
+        (
+            "edge-junction-1-west-left-lane-0-to-0-internal-0",
+            22.076_601_803_302_765,
+            25.0 / 3.6,
+        ),
+        (
+            "edge-junction-1-west-right-lane-2-to-1-internal-0",
+            8.246_497_988_700_867,
+            15.0 / 3.6,
+        ),
+    ] {
+        let edge = edges
             .iter()
-            .any(|edge| { edge["id"] == "edge-main-w2e-lane-0-connector-intersection-1-straight" })
-    );
+            .find(|edge| edge["id"] == id)
+            .expect("protected-turning edge must exist");
+        assert_eq!(edge["length"].as_f64(), Some(expected_length));
+        assert_eq!(edge["speedLimit"].as_f64(), Some(expected_speed));
+    }
     assert_eq!(traffic["junctions"].as_array().map(Vec::len), Some(2));
-    assert_eq!(traffic["movements"].as_array().map(Vec::len), Some(8));
-    assert_eq!(traffic["maneuverPaths"].as_array().map(Vec::len), Some(20));
+    assert_eq!(traffic["movements"].as_array().map(Vec::len), Some(24));
+    assert_eq!(traffic["maneuverPaths"].as_array().map(Vec::len), Some(32));
+    let stop_lines = traffic["signals"]["stopLines"]
+        .as_array()
+        .expect("stop lines must be an array");
+    let gates = traffic["signals"]["maneuverGates"]
+        .as_array()
+        .expect("maneuver gates must be an array");
+    assert_eq!(stop_lines.len(), 20);
+    assert_eq!(gates.len(), 32);
+    assert!(gates.iter().all(|gate| gate["transitionIndex"] == 0));
+    assert!(gates.iter().all(|gate| {
+        stop_lines
+            .iter()
+            .any(|stop_line| stop_line["id"] == gate["stopLineId"])
+    }));
+    for junction in 1..=2 {
+        for (suffix, expected) in [
+            ("main-left", 2),
+            ("main-through-right", 8),
+            ("secondary-left", 2),
+            ("secondary-through-right", 4),
+        ] {
+            let group_id = format!("signal-group-junction-{junction}-{suffix}");
+            assert_eq!(
+                gates
+                    .iter()
+                    .filter(|gate| gate["signalControl"]["groupId"] == group_id)
+                    .count(),
+                expected
+            );
+        }
+    }
+    let routes = traffic["routes"]
+        .as_array()
+        .expect("routes must be an array");
+    let occurrences = routes
+        .iter()
+        .flat_map(|route| {
+            route["edgeIds"]
+                .as_array()
+                .expect("route edge IDs must be an array")
+        })
+        .filter_map(Value::as_str)
+        .filter(|edge_id| edge_id.ends_with("-internal-0"))
+        .collect::<Vec<_>>();
+    assert_eq!(routes.len(), 28);
+    assert_eq!(occurrences.len(), 44);
     assert_eq!(
-        traffic["signals"]["maneuverGates"].as_array().map(Vec::len),
-        Some(20)
+        occurrences
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        32
     );
+    for controller in traffic["signals"]["controllers"]
+        .as_array()
+        .expect("controllers must be an array")
+    {
+        let phases = controller["phases"]
+            .as_array()
+            .expect("phases must be an array");
+        assert_eq!(phases.len(), 12);
+        assert_eq!(
+            phases
+                .iter()
+                .map(|phase| phase["durationMs"].as_u64().unwrap())
+                .sum::<u64>(),
+            84_000
+        );
+        assert!(phases.iter().all(|phase| {
+            let states = phase["states"].as_array().unwrap();
+            states.len() == 4
+                && states
+                    .iter()
+                    .filter(|state| state["aspect"] != "red")
+                    .count()
+                    <= 1
+        }));
+    }
 
+    let spatial: Value =
+        serde_json::from_slice(generated.spatial_bytes()).expect("spatial JSON must parse");
+    for (id, expected_points) in [
+        ("edge-junction-1-west-straight-lane-2-to-2-internal-0", 2),
+        ("edge-junction-1-north-straight-lane-1-to-1-internal-0", 2),
+        ("edge-junction-1-west-straight-lane-1-to-0-internal-0", 65),
+        ("edge-junction-1-west-left-lane-0-to-0-internal-0", 65),
+        ("edge-junction-1-west-right-lane-2-to-1-internal-0", 65),
+    ] {
+        let edge = spatial["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|edge| edge["trafficEdgeId"] == id)
+            .expect("spatial edge must exist");
+        assert_eq!(
+            edge["centerline"]["points"].as_array().map(Vec::len),
+            Some(expected_points)
+        );
+    }
+}
+
+#[test]
+fn default_catalog_locks_physical_slots_lane_choices_and_weights() {
+    let generated = default_generated();
     let catalog: laneflow_corridor_generator::CorridorCatalog =
         toml::from_str(std::str::from_utf8(generated.catalog_bytes()).expect("catalog is UTF-8"))
             .expect("catalog TOML must parse");
-    assert_eq!(catalog.spawn_slots.len(), 230);
-    assert!(catalog.spawn_slots.iter().all(|slot| {
-        slot.route_edge_index == 0
-            || (slot.route_id.starts_with("route-main-") && slot.route_edge_index == 2)
-    }));
+    assert_eq!(catalog.catalog_version, "0.2");
+    assert_eq!(
+        catalog
+            .portals
+            .iter()
+            .map(|portal| portal.lanes.len())
+            .sum::<usize>(),
+        14
+    );
+    assert_eq!(catalog.spawn_slots.len(), 212);
     assert!(
         catalog
             .spawn_slots
             .iter()
-            .all(|slot| !slot.edge_id.contains("connector"))
+            .all(|slot| slot.edge_id.ends_with("-road-0"))
     );
+    assert_eq!(
+        catalog
+            .portals
+            .iter()
+            .map(|portal| {
+                portal
+                    .lanes
+                    .iter()
+                    .map(|lane| lane.route_choices.len())
+                    .sum::<usize>()
+            })
+            .collect::<Vec<_>>(),
+        [7, 7, 3, 4, 4, 3]
+    );
+    assert!(catalog.portals.iter().all(|portal| {
+        portal
+            .lanes
+            .iter()
+            .flat_map(|lane| &lane.route_choices)
+            .map(|choice| choice.weight)
+            .sum::<u64>()
+            == 100
+    }));
 }
 
 #[test]
@@ -135,8 +292,8 @@ fn config_rejects_unknown_fields_length_geometry_offsets_and_output_conflicts() 
     assert!(CorridorConfig::parse(&outside).is_err());
 
     let offset = CONFIG.replace(
-        "intersection_offsets_ms = [0, 29000]",
-        "intersection_offsets_ms = [58000, 0]",
+        "intersection_offsets_ms = [0, 42000]",
+        "intersection_offsets_ms = [84000, 0]",
     );
     assert!(CorridorConfig::parse(&offset).is_err());
 
@@ -150,7 +307,7 @@ fn config_rejects_unknown_fields_length_geometry_offsets_and_output_conflicts() 
 #[test]
 fn configuration_must_retain_at_least_two_hundred_spawn_slots() {
     let sparse = CONFIG.replace(
-        "spawn_slot_pitch_meters = 20.0",
+        "spawn_slot_pitch_meters = 10.0",
         "spawn_slot_pitch_meters = 40.0",
     );
     let config = CorridorConfig::parse(&sparse).expect("pitch is structurally valid");

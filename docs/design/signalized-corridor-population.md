@@ -2,7 +2,8 @@
 
 **文档状态**: Accepted（#203 G1）<br>
 **最后更新**: 2026-07-25<br>
-**适用范围**: v0.8 signalized-corridor 的 current 人口/回流 policy，以及 v0.9 catalog 0.2 target 对同一 authority 的修订
+**适用范围**: current v0.9 signalized-corridor catalog 0.2 人口/回流 policy；
+caller-owned authority 继续继承 v0.8/#203
 
 **关联文档**:
 
@@ -52,24 +53,34 @@ generator 只复用 scenario crate 公开的 catalog wire DTO；scenario crate �
 
 ## 3. Catalog 契约
 
-catalog version 固定为 `0.1`，必须精确包含：
+catalog version 固定为 `0.2`，必须精确包含：
 
 - 文档化顺序中的 6 个 portal；
-- 14 条 lane route，主干道 portal 各 3 条、次干道 portal 各 2 条；
-- 至少 200 个 stable spawn slot；
-- 每条 route 的 entry spawn slot。
+- 每个 portal 的 ordered PortalLane：主干道 portal 各 3 条、次干道 portal 各 2 条；
+- 每条 PortalLane 的共享 entry SpawnSlot 与至少一个正权重 RouteChoice；
+- 全部 28 条 Traffic Route 到 exit portal 的唯一 cross-reference；
+- 至少 200 个 route-independent physical SpawnSlot。
 
-normalize 必须拒绝未知或重复 portal/route/slot、portal route set 不一致、重复 portal/lane、相同 entry/exit portal、dangling Traffic route、slot portal/route/edge occurrence 不一致、非有限或越界 progress、重复物理位置及非法 entry slot。
+normalize 必须拒绝未知或重复 portal/route/slot、lane count/index 不一致、空 route
+choice、零权重或 weight sum overflow、重复 choice、dangling Traffic route、相同
+entry/exit portal、slot portal/lane/edge occurrence 不一致、非有限或越界 progress、
+重复物理位置及非法共享 entry slot。
 
-原始 TOML 中 portal、route、slot 和 `entry_route_ids` 的排列不是 runtime authority。normalize 后顺序固定为 portal 文档顺序、lane index、route edge occurrence、edge progress、slot ID；同一语义 catalog 的原始重排必须得到相同结果。
+原始 TOML 中 portal、lane、route choice、route cross-reference 和 slot 的排列不是
+runtime authority。normalize 后 portal 使用文档顺序，lane 使用 lane index，route
+choice 使用 Traffic Route 输入顺序，physical slot 使用
+`(portal, lane, route edge occurrence, edge progress, slot ID)`；同一语义 catalog 的
+原始重排必须得到相同结果。
 
 ## 4. Replay 与初始人口
 
 PRNG 使用 `example-scenarios.md` 冻结的 SplitMix64 和 rejection sampling。初始 permutation 与所有回流 draw 共享一个 controller-owned state；不使用 thread RNG、hash iteration、文件系统顺序或 ECS iteration。
 
 每个 logical slot 使用 `corridor-vehicle-{index:03}` external ID。`prepare` 对完整规范
-slot catalog 执行从末尾到开头的 Fisher–Yates 后取前 N 个 slot。每个 initial slot
-与每条 route 的 entry slot 都派生
+physical slot catalog 执行从末尾到开头的 Fisher–Yates 后取前 N 个 slot，再按 logical
+slot 顺序对其 PortalLane 执行一次 weighted RouteChoice draw。单 choice 也必须使用
+原始正整数 weight 作为 `uniform` bound，不能跳过 draw。每个 initial slot 与每条
+route 的共享 entry slot 都派生
 `min(VehicleProfile.desiredSpeed, spawn edge speedLimit)` 作为正常行驶初速度；没有
 speed-limit authority 时启动失败。50、100、200 三种目标人口都必须通过同 seed
 整批 golden、初速度上限/正值、Core batch no-overlap 和 tick-0 bind 验证。
@@ -94,7 +105,10 @@ apply pending lifecycle commands
 
 任一校验失败时，batch 不更新 logical state、PRNG、pending queue 或 last consumed tick。
 
-验证通过后按 event 原始顺序处理。每个完成车辆先从排除原出口的 5 个 portal 中均匀抽取一个 portal，再从目标 portal 的 2 或 3 条 lane route 中均匀抽取一条；不使用 movement weight，也不对 14 条 route 直接均匀抽样。
+验证通过后按 event 原始顺序处理。每个完成车辆固定消费三个 logical draw site：
+先从排除原出口的 5 个 portal 中均匀抽取目标 portal，再从目标 portal 的 2 或 3 条
+PortalLane 中均匀抽取 lane，最后按该 lane 完整、规范化的正整数权重 cumulative
+选择 Route。它不对全部 28 条 Route 直接均匀抽样。
 
 pending plan 冻结目标 route 及其 entry edge 正常行驶初速度。入口 overlap 返回
 `Blocked` 时不改 plan、不消耗 PRNG、不降速重试；成功 replacement 后仍由 Core 在首个
@@ -131,16 +145,22 @@ controller 在 bind 时按目标人口预留所有 steady containers。completio
 
 200 车持续运行不得产生无界 queue、history 或 retained capacity 增长。测试基线至少覆盖 10,000 次 completion/replacement 轮换，以及不同 outer-frame catch-up chunking 下相同 fixed-step input 的 replay 一致性。
 
-## 8. 兼容性
+## 8. Replay 与兼容性
 
-catalog 顺序、SplitMix64 算法、draw order、portal-first/lane-second 规则、initial ID 和 batch permutation 都属于 v0.8 replay contract。修改其中任一项必须通过新的设计/迁移决策，不能作为无说明的内部重构。
+catalog 0.2 规范顺序、SplitMix64 算法、physical-slot Fisher–Yates、initial
+weighted route draw、completion 的 portal/lane/route draw order、raw weights、
+initial ID 和 batch permutation 共同构成 current replay contract。blocked retry
+不 draw、不改变 frozen plan。修改其中任一项必须通过新的设计/迁移决策，不能作为
+无说明的内部重构。
 
-本实现不改变 Core API、Traffic/Spatial/Manifest 格式或 Adapter API；共享 catalog DTO 从 generator 移至 scenario crate 只消除 authoring/runtime shape 漂移，checked-in generator bytes 必须保持不变。
+catalog `0.1 -> 0.2` 是无兼容 clean break，不提供旧 DTO、dual parser、alias 或
+migration shim。本实现不改变 Core API、Traffic/Spatial/Manifest shape 或 Adapter
+API；Traffic/Spatial/Manifest bytes 随 protected profile 原子更新。
 
-## 9. v0.9 catalog 0.2 target
+## 9. v0.9 catalog 0.2 current 实现
 
-#196 保持本文的 caller-owned lifecycle、ordered completion、bounded state 与
-blocked retry authority，但 clean-break 修订选择结构：
+#190 在不改变 caller-owned lifecycle、ordered completion、bounded state 与 blocked
+retry authority 的前提下，已按 #196 clean-break 实现：
 
 - Portal 拥有 ordered PortalLane；
 - PortalLane 引用共享 entry SpawnSlot，并拥有 weighted full RouteChoice；
@@ -156,5 +176,3 @@ blocked retry authority，但 clean-break 修订选择结构：
 
 完整 28 Route、weights、catalog 0.2 ownership 与 golden draw order 见
 [`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)。
-在 #229 生产迁移前，本文件 §2–§8 的 catalog 0.1 与两次 completion draw 继续描述
-current implementation；不得把 target 与 current 混装或提供兼容 shim。

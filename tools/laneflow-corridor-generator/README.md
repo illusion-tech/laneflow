@@ -1,26 +1,27 @@
 # LaneFlow Signalized Corridor Generator
 
-本工具为 #188 提供 v0.8 直行信号化走廊的可复现 authoring 路径。它读取仓库内部 TOML 配置，生成并校验：
+本工具提供 v0.9 受保护左转、直行和右转走廊的可复现 authoring 路径。它读取仓库内部 TOML 配置，生成并校验：
 
 - Traffic package v0.8 JSON；
 - SpatialPackage v0.1 JSON；
 - ScenarioManifest v0.1 JSON；
-- scenario-local startup catalog TOML。
+- scenario-local catalog 0.2 TOML。
 
-Traffic、Spatial 和 Manifest 是 production interchange 制品；catalog 只用于 #203/#189 的仓库内部启动路径，不进入 Manifest。
+Traffic、Spatial 和 Manifest 是 production interchange 制品；catalog 只用于
+`laneflow-scenario` 与 native example 的仓库内部启动路径，不进入 Manifest。
 
 ## 使用
 
 从仓库根目录生成 checked-in 默认制品：
 
 ```powershell
-cargo +1.96.0 run --locked -p laneflow-corridor-generator -- generate --config examples/config/v0.8-signalized-corridor.toml
+cargo +1.96.0 run --locked -p laneflow-corridor-generator -- generate --config examples/config/v0.9-signalized-corridor.toml
 ```
 
 只检查当前制品是否与配置逐字节一致：
 
 ```powershell
-cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.8-signalized-corridor.toml
+cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.9-signalized-corridor.toml
 ```
 
 `check` 不写文件。两个命令都会执行 JSON Schema、production loader、Manifest size/SHA-256、Spatial length/join 和 catalog cross-reference 校验。
@@ -34,6 +35,9 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config exam
 ## 边界
 
 - lane count 固定为主路双向六车道、两条次路各双向四车道。
-- 默认只生成直行 connector/route，但 ID 和 catalog 使用显式 movement/route 数组，不假设唯一 outgoing。
+- 显式生成共享 road edge、32 条 ManeuverPath/internal edge/Gate、28 条 Route
+  和 44 个 route occurrence；不从 connector 名称或 geometry 反推 owner。
+- catalog 0.2 由 Portal 拥有 ordered PortalLane，PortalLane 拥有共享 entry
+  SpawnSlot 与 weighted RouteChoice。
 - `vehicles`、`seed`、回流策略、Bevy Entity 和展示资源不属于本工具配置。
 - 工具不进入 Core fixed-step 热路径，不改变 Core/Data/Spatial/Adapter public API。
