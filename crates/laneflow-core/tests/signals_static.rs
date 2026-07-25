@@ -63,6 +63,22 @@ fn canonical_junctions(graph: &LaneGraph) -> JunctionRegistry {
     .expect("valid topology")
 }
 
+fn single_path_junctions(graph: &LaneGraph) -> JunctionRegistry {
+    JunctionRegistry::try_new(
+        graph,
+        [Junction::new("junction")],
+        [Movement::new("movement", "junction")],
+        [ManeuverPath::new(
+            "path",
+            "movement",
+            "entry",
+            std::iter::empty::<&str>(),
+            "exit",
+        )],
+    )
+    .expect("valid single-path topology")
+}
+
 fn stop_line(id: &str, edge_id: &str) -> StopLine {
     StopLine::new(id, edge_id, StopLineLocation::EdgeEnd)
 }
@@ -534,6 +550,172 @@ fn initial_traffic_data_rebinds_topology_signals_and_route_compilation() {
         ),
         traffic.lane_graph().edge_handle("entry")
     );
+}
+
+#[test]
+fn signal_registry_rebinds_foreign_topology_before_resolving_gate_edges() {
+    let source_graph = LaneGraph::try_new([
+        LaneEdge::new(
+            "padding-a",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+        LaneEdge::new(
+            "padding-b",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+        LaneEdge::new(
+            "entry",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["exit"],
+        ),
+        LaneEdge::new(
+            "exit",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+    ])
+    .expect("source graph");
+    let source_junctions = single_path_junctions(&source_graph);
+    let target_graph = LaneGraph::try_new([LaneEdge::new(
+        "stop-edge",
+        edge_length(10.0),
+        laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+        std::iter::empty::<&str>(),
+    )])
+    .expect("target graph");
+
+    let error = SignalRegistry::try_new(
+        &target_graph,
+        &source_junctions,
+        [stop_line("stop", "stop-edge")],
+        std::iter::empty::<SignalGroup>(),
+        std::iter::empty::<SignalController>(),
+        [ManeuverGate::new(
+            "gate",
+            "path",
+            0,
+            "stop",
+            SignalControlInput::None,
+        )],
+    )
+    .expect_err("foreign topology must fail during target-graph rebind");
+
+    std::assert_matches!(
+        error,
+        CoreError::UnknownManeuverPathEdge {
+            maneuver_path_id,
+            role: "entry",
+            edge_id,
+        } if maneuver_path_id == "path" && edge_id == "entry"
+    );
+}
+
+#[test]
+fn signal_registry_rejects_same_index_foreign_topology_aliases() {
+    let source_graph = LaneGraph::try_new([
+        LaneEdge::new(
+            "entry",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["exit"],
+        ),
+        LaneEdge::new(
+            "exit",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+    ])
+    .expect("source graph");
+    let source_junctions = single_path_junctions(&source_graph);
+    let target_graph = LaneGraph::try_new([
+        LaneEdge::new(
+            "wrong-entry",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["wrong-exit"],
+        ),
+        LaneEdge::new(
+            "wrong-exit",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+    ])
+    .expect("same-index target graph");
+
+    let error = SignalRegistry::try_new(
+        &target_graph,
+        &source_junctions,
+        [stop_line("stop", "wrong-entry")],
+        std::iter::empty::<SignalGroup>(),
+        std::iter::empty::<SignalController>(),
+        [ManeuverGate::new(
+            "gate",
+            "path",
+            0,
+            "stop",
+            SignalControlInput::None,
+        )],
+    )
+    .expect_err("same-index foreign handles must not alias target edges");
+
+    std::assert_matches!(
+        error,
+        CoreError::UnknownManeuverPathEdge {
+            maneuver_path_id,
+            role: "entry",
+            edge_id,
+        } if maneuver_path_id == "path" && edge_id == "entry"
+    );
+}
+
+#[test]
+fn signal_registry_rebinds_foreign_topology_with_reordered_edges() {
+    let source_graph = canonical_graph();
+    let source_junctions = canonical_junctions(&source_graph);
+    let reordered_graph = LaneGraph::try_new([
+        LaneEdge::new(
+            "bypass",
+            edge_length(30.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+        LaneEdge::new(
+            "entry",
+            edge_length(100.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            ["through", "bypass"],
+        ),
+        LaneEdge::new(
+            "through",
+            edge_length(40.0),
+            laneflow_core::SpeedLimit::try_new(f64::MAX).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+    ])
+    .expect("same topology in different order");
+
+    let signals = canonical_registry(&reordered_graph, &source_junctions);
+    let stop_line = signals.stop_line_handle("stop-entry").expect("stop line");
+    let through_gate = signals
+        .maneuver_gate_handle("gate-through")
+        .expect("through gate");
+    let through_path = source_junctions
+        .maneuver_path_handle("path-through")
+        .expect("through path");
+
+    assert_eq!(
+        signals.stop_line_edge(stop_line),
+        reordered_graph.edge_handle("entry")
+    );
+    assert_eq!(signals.maneuver_gate_path(through_gate), Some(through_path));
 }
 
 #[test]

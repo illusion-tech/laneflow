@@ -594,7 +594,35 @@ impl SignalRegistry {
     }
 
     /// 按 canonical 顺序 normalization 全部 static Signals definitions。
+    ///
+    /// `junctions` 可以来自另一张 LaneGraph；构造器会先按 retained external
+    /// definitions 对 `lane_graph` 重新绑定，再解析 StopLine 与 ManeuverGate。
     pub fn try_new<SL, SG, SC, MG>(
+        lane_graph: &LaneGraph,
+        junctions: &JunctionRegistry,
+        stop_lines: SL,
+        groups: SG,
+        controllers: SC,
+        maneuver_gates: MG,
+    ) -> Result<Self, CoreError>
+    where
+        SL: IntoIterator<Item = StopLine>,
+        SG: IntoIterator<Item = SignalGroup>,
+        SC: IntoIterator<Item = SignalController>,
+        MG: IntoIterator<Item = ManeuverGate>,
+    {
+        let rebound_junctions = junctions.rebind_to_lane_graph(lane_graph)?;
+        Self::try_new_with_rebound_junctions(
+            lane_graph,
+            &rebound_junctions,
+            stop_lines,
+            groups,
+            controllers,
+            maneuver_gates,
+        )
+    }
+
+    fn try_new_with_rebound_junctions<SL, SG, SC, MG>(
         lane_graph: &LaneGraph,
         junctions: &JunctionRegistry,
         stop_lines: SL,
@@ -1024,7 +1052,7 @@ impl SignalRegistry {
         lane_graph: &LaneGraph,
         junctions: &JunctionRegistry,
     ) -> Result<Self, CoreError> {
-        Self::try_new(
+        Self::try_new_with_rebound_junctions(
             lane_graph,
             junctions,
             self.stop_lines
