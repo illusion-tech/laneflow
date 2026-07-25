@@ -322,11 +322,13 @@ manifest JSON syntax
 
 失败 API 只返回 `ScenarioError`，不会返回 Traffic-only 或部分 Spatial 结果。JSON syntax/shape 保留 document、path、line/column；制品、坐标和 edge coverage 使用结构化 variant，嵌套 Traffic 错误保留原始 `DataError` source。
 
-## 13. v0.8 Corridor authoring 导航
+## 13. v0.9 Corridor authoring 导航
 
 `tools/laneflow-corridor-generator` 是仓库内部、离线运行的 authoring 工具。它读取
-`examples/config/v0.8-signalized-corridor.toml`，生成 checked-in Traffic v0.8、
+`examples/config/v0.9-signalized-corridor.toml`，生成 checked-in Traffic v0.8、
 SpatialPackage v0.1、ScenarioManifest v0.1 JSON，并生成不进入 Manifest 的
-scenario-local catalog TOML。
+scenario-local catalog 0.2 TOML。Traffic wire version 保持 `0.8`，但当前 corridor
+bytes 已包含 66 edges、24 Movement、32 ManeuverPath/Gate、28 Route 和完整
+protected-turning signal program。
 
 该工具的 Serialize DTO 私有且不构成 `laneflow-data` public API；每次生成都依次执行仓库 JSON Schema、`from_scenario_json_slice` production loader、`SpatialRegistry::try_new` 和 `CoreWorld::with_traffic_data` 校验。所有文档在内存中全部成功后才写盘，`check` 命令只读比较确定性 bytes。内部 TOML 不能被 production JSON loader 当成新的 interchange format，使用方式和边界见 [`../../tools/laneflow-corridor-generator/README.md`](../../tools/laneflow-corridor-generator/README.md) 与 [`example-scenarios.md`](example-scenarios.md)。

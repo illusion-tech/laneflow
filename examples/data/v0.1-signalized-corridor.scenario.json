@@ -3,13 +3,13 @@
   "traffic": {
     "artifactRef": "v0.8-signalized-corridor.laneflow.json",
     "mediaType": "application/vnd.laneflow.traffic+json",
-    "digest": "sha256:db9e4941b01d487356bd5cfeb971d57d837e8a365c7207e3c6d2a6989bee98c0",
-    "size": 39543
+    "digest": "sha256:81aa9be0ec5b8cb4b33909d44091949e267c9f73095ad3538d4bc2fe66936b59",
+    "size": 71513
   },
   "spatial": {
     "artifactRef": "v0.1-signalized-corridor.spatial.json",
     "mediaType": "application/vnd.laneflow.spatial+json",
-    "digest": "sha256:7bf312aad9cc51f3f50194b0f38ff36c08cf8ed2a7d6e8fd44166b6bcf98a4d8",
-    "size": 16076
+    "digest": "sha256:5f9b657cd2001219c561d15ab37722017bf1a38179951253721f3efb1e5682e8",
+    "size": 151268
   }
 }

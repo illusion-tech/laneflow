@@ -172,11 +172,11 @@ Milestone tracker 为 #194；v0.8 已完成前置收口。
   ManeuverGate、authority、determinism 与 performance target；
 - #196 已接受具体转向 profile，冻结 lane assignment、32 条 ManeuverPath、28 条
   Route、catalog 0.2、四组 12-phase program、兼容矩阵与车辆选择规则；SSOT 见
-  [`signalized-corridor-protected-turning.md`](design/signalized-corridor-protected-turning.md)，
-  production 尚未实现；
+  [`signalized-corridor-protected-turning.md`](design/signalized-corridor-protected-turning.md)；
 - #229 以 clean break 原子实现 Junction/Movement/ManeuverPath/ManeuverGate
   Core/Data static model、Traffic v0.8、fixtures、generator 和 generated artifacts；
-- #190–#192 实现并验证两个交叉口的受保护左转、直行和右转，以及对应的 Core/Data/Adapter 行为；
+- #190 当前实现具体 profile artifacts、catalog 0.2、scenario policy 与 native 最小
+  集成；#191 扩大 cross-layer 验证，#192 执行独立 closure review；
 - 保留 v0.8 的道路尺度、限速、50–200 车辆调节、信号时长配置和确定性出口回流能力；
 - 完成端到端安全、确定性、可配置性、native 可视化和独立 closure review。
 

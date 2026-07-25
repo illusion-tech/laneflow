@@ -1,11 +1,11 @@
 use laneflow_core::{EdgeHandle, RouteHandle, VehicleHandle};
 use thiserror::Error;
 
-/// v0.8 signalized-corridor population startup 或 lifecycle 失败。
+/// v0.9 signalized-corridor population startup 或 lifecycle 失败。
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum CorridorPopulationError {
-    /// startup target 不在 v0.8 corridor 允许范围内。
+    /// startup target 不在 v0.9 corridor 允许范围内。
     #[error("target vehicle count {actual} 不在 {min}..={max} 范围内")]
     InvalidTargetVehicleCount {
         /// 最小允许值。
@@ -44,9 +44,9 @@ pub enum CorridorPopulationError {
         /// 重复的 portal ID。
         portal_id: String,
     },
-    /// portal 的 entry route 数量不符合固定 6/4/4 topology。
-    #[error("portal {portal_id:?} 需要 {expected} 条 entry routes，实际为 {actual}")]
-    InvalidPortalRouteCount {
+    /// portal 的 lane 数量不符合固定 3/3/2/2/2/2 topology。
+    #[error("portal {portal_id:?} 需要 {expected} 条 entry lanes，实际为 {actual}")]
+    InvalidPortalLaneCount {
         /// portal ID。
         portal_id: String,
         /// 冻结数量。
@@ -54,11 +54,75 @@ pub enum CorridorPopulationError {
         /// 实际数量。
         actual: usize,
     },
-    /// portal entry route 引用重复。
+    /// portal lane index 超出固定 lane 数。
+    #[error("portal {portal_id:?} lane index {lane_index} 超出该 portal 的 {lane_count} 条 lanes")]
+    InvalidLaneIndex {
+        /// portal ID。
+        portal_id: String,
+        /// lane index。
+        lane_index: usize,
+        /// lane count。
+        lane_count: usize,
+    },
+    /// 同一 portal/lane 出现多个定义。
+    #[error("portal {portal_id:?} lane {lane_index} 定义重复")]
+    DuplicatePortalLane {
+        /// portal ID。
+        portal_id: String,
+        /// lane index。
+        lane_index: usize,
+    },
+    /// portal lane 没有任何 route choice。
+    #[error("portal {portal_id:?} lane {lane_index} 没有 route choice")]
+    EmptyRouteChoices {
+        /// portal ID。
+        portal_id: String,
+        /// lane index。
+        lane_index: usize,
+    },
+    /// route choice weight 必须为正整数。
+    #[error(
+        "portal {portal_id:?} lane {lane_index} route {route_id:?} 的 weight {weight} 必须为正"
+    )]
+    InvalidRouteChoiceWeight {
+        /// portal ID。
+        portal_id: String,
+        /// lane index。
+        lane_index: usize,
+        /// route ID。
+        route_id: String,
+        /// 实际 raw weight。
+        weight: u64,
+    },
+    /// route choice weight 总和超出 `u64`。
+    #[error("portal {portal_id:?} lane {lane_index} 的 route-choice weight 总和溢出")]
+    RouteChoiceWeightOverflow {
+        /// portal ID。
+        portal_id: String,
+        /// lane index。
+        lane_index: usize,
+    },
+    /// portal lane 引用没有 RouteCatalogEntry 的 route。
+    #[error("portal {portal_id:?} lane {lane_index} 引用未知 route {route_id:?}")]
+    UnknownRouteChoice {
+        /// portal ID。
+        portal_id: String,
+        /// lane index。
+        lane_index: usize,
+        /// route ID。
+        route_id: String,
+    },
+    /// portal route choice 引用重复。
     #[error("portal {portal_id:?} 重复引用 route {route_id:?}")]
     DuplicatePortalRoute {
         /// portal ID。
         portal_id: String,
+        /// route ID。
+        route_id: String,
+    },
+    /// RouteCatalogEntry 没有被任何 portal lane 引用。
+    #[error("catalog route {route_id:?} 没有被任何 portal lane 引用")]
+    UnreferencedRoute {
         /// route ID。
         route_id: String,
     },
@@ -86,79 +150,55 @@ pub enum CorridorPopulationError {
         /// exit portal。
         exit_portal_id: String,
     },
-    /// lane index 超出 portal 固定 lane 数。
-    #[error(
-        "route {route_id:?} lane index {lane_index} 超出 portal {portal_id:?} 的 {lane_count} 条 lanes"
-    )]
-    InvalidLaneIndex {
-        /// route ID。
-        route_id: String,
-        /// portal ID。
-        portal_id: String,
-        /// lane index。
-        lane_index: usize,
-        /// lane count。
-        lane_count: usize,
-    },
-    /// 同一 portal/lane 出现多个 route。
-    #[error("portal {portal_id:?} lane {lane_index} 存在重复 route")]
-    DuplicatePortalLane {
-        /// portal ID。
-        portal_id: String,
-        /// lane index。
-        lane_index: usize,
-    },
-    /// portal entry route set 与 route entries 不一致。
-    #[error("portal {portal_id:?} 的 entry_route_ids 与 route catalog 不一致")]
-    PortalRouteSetMismatch {
-        /// portal ID。
-        portal_id: String,
-    },
     /// spawn slot ID 重复。
     #[error("spawn slot {slot_id:?} 重复")]
     DuplicateSpawnSlot {
         /// slot ID。
         slot_id: String,
     },
-    /// spawn slot 引用未知 route。
-    #[error("spawn slot {slot_id:?} 引用未知 route {route_id:?}")]
-    UnknownSlotRoute {
-        /// slot ID。
-        slot_id: String,
-        /// route ID。
-        route_id: String,
-    },
-    /// spawn slot 的 portal 与 route entry portal 不一致。
-    #[error(
-        "spawn slot {slot_id:?} portal {portal_id:?} 与 route {route_id:?} entry portal 不一致"
-    )]
-    SlotPortalMismatch {
+    /// spawn slot 没有匹配的 portal lane。
+    #[error("spawn slot {slot_id:?} 没有匹配 portal {portal_id:?} lane {lane_index}")]
+    SlotLaneMismatch {
         /// slot ID。
         slot_id: String,
         /// portal ID。
         portal_id: String,
+        /// lane index。
+        lane_index: usize,
+    },
+    /// spawn slot edge 不存在于 lane route。
+    #[error("spawn slot {slot_id:?} edge {edge_id:?} 不存在于 route {route_id:?}")]
+    SlotEdgeMissingFromRoute {
+        /// slot ID。
+        slot_id: String,
         /// route ID。
         route_id: String,
+        /// edge ID。
+        edge_id: String,
     },
-    /// spawn slot 的 route occurrence 不存在。
-    #[error("spawn slot {slot_id:?} route edge index {route_edge_index} 越界")]
-    SlotRouteEdgeIndexOutOfRange {
+    /// spawn slot edge 在 lane route 内出现多次。
+    #[error("spawn slot {slot_id:?} edge {edge_id:?} 在 route {route_id:?} 中不唯一")]
+    SlotEdgeOccurrenceAmbiguous {
         /// slot ID。
         slot_id: String,
-        /// route edge index。
-        route_edge_index: usize,
+        /// route ID。
+        route_id: String,
+        /// edge ID。
+        edge_id: String,
     },
-    /// spawn slot edge ID 与 route occurrence 不一致。
+    /// 同一 PortalLane 的 route choices 对 physical slot edge 使用不同 occurrence index。
     #[error(
-        "spawn slot {slot_id:?} edge {actual_edge_id:?} 与 route occurrence {expected_edge_id:?} 不一致"
+        "spawn slot {slot_id:?} 在 route {route_id:?} 的 edge index {actual} 与共享 index {expected} 不一致"
     )]
-    SlotEdgeMismatch {
+    SlotRouteEdgeIndexMismatch {
         /// slot ID。
         slot_id: String,
-        /// route occurrence 要求的 edge ID。
-        expected_edge_id: String,
-        /// catalog 实际 edge ID。
-        actual_edge_id: String,
+        /// route ID。
+        route_id: String,
+        /// 先前 route choice 的 occurrence index。
+        expected: usize,
+        /// 当前 route choice 的 occurrence index。
+        actual: usize,
     },
     /// spawn slot progress 非有限、为负或超出 edge。
     #[error("spawn slot {slot_id:?} progress {progress} 不在 0..={edge_length} 范围内")]
@@ -178,15 +218,19 @@ pub enum CorridorPopulationError {
         /// 先出现的 slot。
         existing_slot_id: String,
     },
-    /// route entry slot 不存在或不匹配。
-    #[error("route {route_id:?} 的 entry spawn slot {slot_id:?} 不存在或不位于 route edge 0")]
+    /// portal lane entry slot 不存在或不匹配。
+    #[error(
+        "portal {portal_id:?} lane {lane_index} 的 entry spawn slot {slot_id:?} 不存在或不位于 route edge 0"
+    )]
     InvalidEntrySpawnSlot {
-        /// route ID。
-        route_id: String,
+        /// portal ID。
+        portal_id: &'static str,
+        /// lane index。
+        lane_index: usize,
         /// entry slot ID。
         slot_id: String,
     },
-    /// catalog 没有达到 v0.8 或 target 容量。
+    /// catalog 没有达到 current profile 或 target 容量。
     #[error("spawn slots 不足：至少需要 {required}，实际为 {actual}")]
     InsufficientSpawnSlots {
         /// 要求数量。

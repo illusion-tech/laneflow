@@ -17,7 +17,7 @@
 - `spatial-geometry.md`：v0.6 引擎无关的坐标框架、折线中心线、长度绑定、采样、制品配对与批量位姿提取。
 - `lane-graph.md`：车道图、连接关系、拓扑约束。
 - `road-junction-model.md`：#228 Accepted 的长期 Road/Junction/Maneuver 分层与 v0.9 最小静态 profile；冻结 Junction/Movement/ManeuverPath owner、一等 ManeuverGate、Route occurrence、Traffic v0.8 target、确定性与性能边界。
-- `signalized-corridor-protected-turning.md`：#196 Accepted 的 v0.9 双路口受保护转向 profile；冻结 lane assignment、32 条 ManeuverPath、28 条 Route、catalog 0.2、四组 12-phase signal program、安全矩阵与验收边界；当前 production 尚未切换。
+- `signalized-corridor-protected-turning.md`：#196 Accepted 的 v0.9 双路口受保护转向 profile；冻结 lane assignment、32 条 ManeuverPath、28 条 Route、catalog 0.2、四组 12-phase signal program、安全矩阵与验收边界；#190 当前交付 profile artifacts、scenario policy 与 native 最小集成。
 - `route-system.md`：路线选择、路径跟随、目标点。
 - `vehicle-following.md`：前车避让、速度控制和安全距离。
 - `signal-system.md`：Accepted v0.4 Signals；#94-#97 已落地 static/current data、fixed-time runtime/query/events、车辆合规与端到端性能验证，收口证据见 `../reference/v0.4-closure-review.md`。
@@ -26,8 +26,8 @@
 - `bevy-reference-adapter.md`：v0.7 Bevy 0.19 Reference Adapter 的依赖、schedule、Entity/Transform、debug、example 与验证边界。
 - `data-format.md`：lane graph、route 等外部数据格式、validation 和 loader 边界；Rust crate 所有权见 ADR 0007。
 - `data-loading.md`：当前 v0.8 Rust loader、严格版本闸口、Junction/Movement/ManeuverPath、ManeuverGate、per-edge speed limit、Core Signals/Parking normalization、错误与测试边界。
-- `example-scenarios.md`：Accepted v0.8 直行信号化走廊；冻结 1.4 km 默认几何、14 条 lane routes、限速、固定时制、50–200 车辆人口、seeded 出口回流与分层验收路径。
-- `signalized-corridor-population.md`：Accepted v0.8 caller-owned reference policy；冻结 `laneflow-scenario` crate 边界、catalog normalization、两阶段 bootstrap、ordered completion、blocked retry、replay 与零分配基线。
+- `example-scenarios.md`：v0.8 直行走廊基线与 current v0.9 protected-turning 增量；记录 1.4 km 几何、28 Route、限速、固定时制、50–200 车辆人口、native 入口与分层验收路径。
+- `signalized-corridor-population.md`：current v0.9 caller-owned reference policy；冻结 `laneflow-scenario` crate 边界、catalog 0.2 PortalLane/weighted RouteChoice normalization、三 draw-site completion、blocked retry、replay 与零分配基线。
 
 ## 文档状态
 

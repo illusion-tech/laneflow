@@ -5,8 +5,8 @@
 **适用范围**: v0.9 双路口走廊的受保护左转、直行、右转、lane-level
 ManeuverPath、完整 Route catalog、固定时制与验证边界<br>
 **实现状态**: #229 已交付通用 Traffic 0.8 static domains 与一等
-`ManeuverGate`；current artifact 仍是 v0.8 直行走廊、catalog 0.1，#190–#192
-负责转向 profile 的几何、route 与验证
+`ManeuverGate`；#190 当前交付 production profile artifacts、catalog 0.2、scenario
+policy 与 native example，#191/#192 继续负责扩大验证与独立收口
 
 **关联文档**:
 
@@ -457,12 +457,15 @@ reservation、RoadSection/LaneGroup/JunctionGroup runtime。
 
 ## 10. 实施切片与完成边界
 
-| 交付                                                               | owner Issue |
-| ------------------------------------------------------------------ | ----------: |
-| Core/Data static model、Traffic 0.8、generator、fixtures/artifacts |        #229 |
-| 场景 Route、人口 policy、受保护转向 runtime 集成                   |   #190–#191 |
-| Adapter/native observation 与端到端验证                            |        #192 |
+| 交付                                                                   | owner Issue |
+| ---------------------------------------------------------------------- | ----------: |
+| 通用 Core/Data static model、Traffic 0.8 schema/loader、generator 基础 |        #229 |
+| protected profile artifacts、catalog 0.2、scenario/native 最小集成     |        #190 |
+| 50/100/200、stress seeds、clearance/replay/proxy/performance 完整证据  |        #191 |
+| 独立 closure review、文档/关系/Gate 汇总，不新增 runtime 行为          |        #192 |
 
 #196 只交付 Accepted profile 及同步文档，不生产 Rust、schema、loader、generator、
-fixtures、artifacts 或 native example。#229 只有在 #196 G4 后，且通过自身独立 G2，
-才能把本文转为 production。
+fixtures、artifacts 或 native example。#229 提供通用静态底座；#190 才拥有本文具体
+profile 的生成制品、catalog/runtime policy 和最小 native smoke。#191 扩大验证样本并
+承担 clearance/performance 证明，#192 只做独立收口；任一后续 Issue 都不得借验证或
+closure 名义新增 production 行为。

@@ -8,12 +8,13 @@ use laneflow_data::from_json_slice;
 use laneflow_scenario::signalized_corridor::{
     CorridorCatalog, CorridorPopulationConfig, CorridorPopulationCounts, CorridorPopulationError,
     CorridorPopulationPrepare, CorridorReplaceAttemptOutcome, DEFAULT_SEED,
-    DEFAULT_TARGET_VEHICLE_COUNT, MAX_TARGET_VEHICLE_COUNT, MIN_TARGET_VEHICLE_COUNT,
+    DEFAULT_TARGET_VEHICLE_COUNT, MAX_TARGET_VEHICLE_COUNT, MIN_TARGET_VEHICLE_COUNT, PORTAL_IDS,
+    SplitMix64,
 };
 
 const TRAFFIC: &[u8] =
     include_bytes!("../../../examples/data/v0.8-signalized-corridor.laneflow.json");
-const CATALOG: &str = include_str!("../../../examples/data/v0.1-signalized-corridor.catalog.toml");
+const CATALOG: &str = include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
 
 fn traffic() -> InitialTrafficData {
     from_json_slice(TRAFFIC)
@@ -82,9 +83,12 @@ fn world_with_spare(
         .initial_vehicles()
         .iter()
         .map(|input| {
+            let route = traffic
+                .routes()
+                .find(|route| route.id() == input.route_id)
+                .expect("prepared route");
             (
-                input.route_id.as_str(),
-                input.route_edge_index,
+                route.edge_ids()[input.route_edge_index].clone(),
                 input.edge_progress.value().to_bits(),
             )
         })
@@ -93,15 +97,14 @@ fn world_with_spare(
         .spawn_slots()
         .iter()
         .find(|slot| {
-            let route = &catalog.routes()[slot.route_index()];
             !occupied.contains(&(
-                route.id(),
-                slot.route_edge_index(),
+                slot.edge_id().to_owned(),
                 slot.edge_progress().value().to_bits(),
             ))
         })
-        .expect("230-slot catalog leaves a spare slot");
-    let spare_route = &catalog.routes()[spare_slot.route_index()];
+        .expect("212-slot catalog leaves a spare slot");
+    let spare_lane = &catalog.portal_lanes()[spare_slot.portal_lane_index()];
+    let spare_route = &catalog.routes()[spare_lane.route_choices()[0].route_index()];
     let mut vehicles = prepared.take_initial_vehicles();
     vehicles.push(VehicleSpawnInput::active(
         "corridor-test-spare",
@@ -208,15 +211,19 @@ fn catalog_normalization_freezes_counts_and_ignores_raw_order() {
     let raw = raw_catalog();
     let expected = raw.clone().normalize(&traffic).expect("canonical catalog");
     assert_eq!(expected.portals().len(), 6);
-    assert_eq!(expected.routes().len(), 14);
-    assert_eq!(expected.spawn_slots().len(), 230);
+    assert_eq!(expected.portal_lanes().len(), 14);
+    assert_eq!(expected.routes().len(), 28);
+    assert_eq!(expected.spawn_slots().len(), 212);
 
     let mut reordered = raw;
     reordered.portals.reverse();
     reordered.routes.reverse();
     reordered.spawn_slots.reverse();
     for portal in &mut reordered.portals {
-        portal.entry_route_ids.reverse();
+        portal.lanes.reverse();
+        for lane in &mut portal.lanes {
+            lane.route_choices.reverse();
+        }
     }
     assert_eq!(
         reordered.normalize(&traffic).expect("reordered catalog"),
@@ -229,7 +236,7 @@ fn catalog_rejects_version_duplicates_dangling_routes_and_invalid_progress() {
     let traffic = traffic();
 
     let mut wrong_version = raw_catalog();
-    wrong_version.catalog_version = "0.2".to_owned();
+    wrong_version.catalog_version = "0.1".to_owned();
     assert!(matches!(
         wrong_version.normalize(&traffic),
         Err(CorridorPopulationError::UnsupportedCatalogVersion { .. })
@@ -245,10 +252,17 @@ fn catalog_rejects_version_duplicates_dangling_routes_and_invalid_progress() {
     ));
 
     let mut dangling_route = raw_catalog();
-    dangling_route.spawn_slots[0].route_id = "missing-route".to_owned();
+    dangling_route.portals[0].lanes[0].route_choices[0].route_id = "missing-route".to_owned();
     assert!(matches!(
         dangling_route.normalize(&traffic),
-        Err(CorridorPopulationError::UnknownSlotRoute { .. })
+        Err(CorridorPopulationError::UnknownRouteChoice { .. })
+    ));
+
+    let mut zero_weight = raw_catalog();
+    zero_weight.portals[0].lanes[0].route_choices[0].weight = 0;
+    assert!(matches!(
+        zero_weight.normalize(&traffic),
+        Err(CorridorPopulationError::InvalidRouteChoiceWeight { .. })
     ));
 
     let mut invalid_progress = raw_catalog();
@@ -291,11 +305,44 @@ fn initial_population_has_replay_golden_batches_for_50_100_and_200() {
     assert_eq!(
         fingerprints,
         [
-            16_156_378_506_726_775_869,
-            11_800_982_076_080_898_908,
-            7_342_111_641_424_313_322,
+            9_929_752_539_114_013_427,
+            15_584_958_085_149_573_878,
+            13_288_967_388_891_822_315,
         ]
     );
+}
+
+#[test]
+fn bootstrap_rng_consumes_one_raw_weight_route_draw_per_logical_slot() {
+    for target in [50, 100, 200] {
+        let traffic = traffic();
+        let profile = traffic
+            .vehicle_profiles()
+            .profile_handle("passenger-car")
+            .expect("checked-in profile");
+        let catalog = raw_catalog()
+            .normalize(&traffic)
+            .expect("normalized catalog");
+        let config = CorridorPopulationConfig::try_new(target, 0).expect("test config");
+        let mut expected_rng = SplitMix64::new(0);
+        let mut shuffled_slots = (0..catalog.spawn_slots().len()).collect::<Vec<_>>();
+        for index in (1..shuffled_slots.len()).rev() {
+            let swap_index = expected_rng.uniform((index + 1) as u64) as usize;
+            shuffled_slots.swap(index, swap_index);
+        }
+        for spawn_slot_index in shuffled_slots.into_iter().take(target) {
+            let slot = &catalog.spawn_slots()[spawn_slot_index];
+            let lane = &catalog.portal_lanes()[slot.portal_lane_index()];
+            expected_rng.uniform(lane.total_positive_weight());
+        }
+
+        let mut prepared = CorridorPopulationPrepare::prepare(config, catalog, &traffic, profile)
+            .expect("population prepare");
+        let world = CoreWorld::with_traffic_data(20, traffic, prepared.take_initial_vehicles())
+            .expect("world");
+        let controller = prepared.bind(&world).expect("bind");
+        assert_eq!(controller.rng_state(), expected_rng.state());
+    }
 }
 
 #[test]
@@ -389,6 +436,70 @@ fn completion_plan_is_frozen_across_blocked_retry_and_success_rotates_identity()
 }
 
 #[test]
+fn completion_consumes_portal_lane_and_raw_weight_route_draws() {
+    let (prepared, world, spare) = world_with_spare(50, 91);
+    let mut controller = prepared.bind(&world).expect("bind");
+    let old = controller.logical_vehicle(0).expect("logical vehicle");
+    let old_route_id = world
+        .route_external_id(world.vehicle(old).expect("old state").route)
+        .expect("old route ID");
+    let traffic = traffic();
+    let catalog = raw_catalog()
+        .normalize(&traffic)
+        .expect("normalized catalog");
+    let old_route = catalog
+        .routes()
+        .iter()
+        .find(|route| route.id() == old_route_id)
+        .expect("old normalized route");
+
+    let mut expected_rng = SplitMix64::new(controller.rng_state());
+    let portal_draw = expected_rng.uniform(5) as usize;
+    let target_portal_index = if portal_draw >= old_route.exit_portal_index() {
+        portal_draw + 1
+    } else {
+        portal_draw
+    };
+    assert_ne!(
+        PORTAL_IDS[target_portal_index],
+        PORTAL_IDS[old_route.exit_portal_index()]
+    );
+    let portal = &catalog.portals()[target_portal_index];
+    let lane_draw = expected_rng.uniform(portal.portal_lane_indices().len() as u64) as usize;
+    let lane = &catalog.portal_lanes()[portal.portal_lane_indices()[lane_draw]];
+    let mut route_draw = expected_rng.uniform(lane.total_positive_weight());
+    let expected_route_index = lane
+        .route_choices()
+        .iter()
+        .find_map(|choice| {
+            if route_draw < choice.weight() {
+                Some(choice.route_index())
+            } else {
+                route_draw -= choice.weight();
+                None
+            }
+        })
+        .expect("normalized weights cover the draw");
+
+    controller
+        .consume_step_result(&completion(&world, old, 1))
+        .expect("completion");
+    assert_eq!(controller.rng_state(), expected_rng.state());
+    controller
+        .apply_pending::<_, ()>(|attempt_old, input| {
+            assert_eq!(attempt_old, old);
+            assert_eq!(
+                world.route_external_id(input.route),
+                Some(catalog.routes()[expected_route_index].id())
+            );
+            Ok(CorridorReplaceAttemptOutcome::Replaced(
+                VehicleReplaceRecord { old, new: spare },
+            ))
+        })
+        .expect("replacement");
+}
+
+#[test]
 fn invalid_completion_batches_are_atomic_and_ordered_ticks_are_strict() {
     let (prepared, world, spare) = world_with_spare(50, 4);
     let mut controller = prepared.bind(&world).expect("bind");
@@ -417,6 +528,7 @@ fn invalid_completion_batches_are_atomic_and_ordered_ticks_are_strict() {
         unreachable!()
     };
     event.vehicle = old;
+    event.route = world.vehicle(old).expect("old vehicle state").route;
     event.edge = world.route_edges(event.route).expect("route edges")[0];
     event.route_edge_index = 0;
     assert!(matches!(
@@ -562,8 +674,8 @@ fn same_tick_completion_order_is_golden_and_blocked_does_not_starve_later_plans(
     assert_eq!(
         selected_routes,
         [
-            "route-side-1-s2n-lane-1".to_owned(),
-            "route-side-1-s2n-lane-0".to_owned(),
+            "route-side-2-north-away-left".to_owned(),
+            "route-main-west-far-left-via-lane-1".to_owned(),
         ]
     );
     assert_eq!(controller.rng_state(), after_draws);
@@ -581,11 +693,17 @@ fn same_tick_completion_order_is_golden_and_blocked_does_not_starve_later_plans(
             .exit_portal_id
             .as_str();
         let selected_entry = raw
-            .routes
+            .portals
             .iter()
-            .find(|route| route.route_id == *selected_route)
-            .expect("selected route catalog")
-            .entry_portal_id
+            .find(|portal| {
+                portal.lanes.iter().any(|lane| {
+                    lane.route_choices
+                        .iter()
+                        .any(|choice| choice.route_id == *selected_route)
+                })
+            })
+            .expect("selected route entry portal")
+            .id
             .as_str();
         assert_ne!(selected_entry, exit);
     }

@@ -16,7 +16,7 @@ static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 const TRAFFIC: &[u8] =
     include_bytes!("../../../examples/data/v0.8-signalized-corridor.laneflow.json");
-const CATALOG: &str = include_str!("../../../examples/data/v0.1-signalized-corridor.catalog.toml");
+const CATALOG: &str = include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
 
 fn traffic() -> InitialTrafficData {
     from_json_slice(TRAFFIC)
@@ -42,9 +42,12 @@ fn controller_with_spare() -> (CorridorPopulationController, CoreWorld, VehicleH
         .initial_vehicles()
         .iter()
         .map(|input| {
+            let route = traffic
+                .routes()
+                .find(|route| route.id() == input.route_id)
+                .expect("prepared route");
             (
-                input.route_id.as_str(),
-                input.route_edge_index,
+                route.edge_ids()[input.route_edge_index].clone(),
                 input.edge_progress.value().to_bits(),
             )
         })
@@ -53,15 +56,14 @@ fn controller_with_spare() -> (CorridorPopulationController, CoreWorld, VehicleH
         .spawn_slots()
         .iter()
         .find(|slot| {
-            let route = &catalog.routes()[slot.route_index()];
             !occupied.contains(&(
-                route.id(),
-                slot.route_edge_index(),
+                slot.edge_id().to_owned(),
                 slot.edge_progress().value().to_bits(),
             ))
         })
         .expect("spare slot");
-    let spare_route = &catalog.routes()[spare_slot.route_index()];
+    let spare_lane = &catalog.portal_lanes()[spare_slot.portal_lane_index()];
+    let spare_route = &catalog.routes()[spare_lane.route_choices()[0].route_index()];
     let mut vehicles = prepared.take_initial_vehicles();
     vehicles.push(VehicleSpawnInput::active(
         "allocation-spare",

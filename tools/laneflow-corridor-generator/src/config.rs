@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::Error;
 
-pub const CONFIG_VERSION: &str = "0.1";
+pub const CONFIG_VERSION: &str = "0.2";
 pub const VEHICLE_LENGTH_METERS: f64 = 4.5;
 pub const MIN_GAP_METERS: f64 = 2.0;
 pub const ENDPOINT_CLEARANCE_METERS: f64 = VEHICLE_LENGTH_METERS + MIN_GAP_METERS;
@@ -42,13 +42,19 @@ pub struct SpeedLimitConfig {
     pub main_kilometers_per_hour: f64,
     #[serde(rename = "secondary")]
     pub secondary_kilometers_per_hour: f64,
+    #[serde(rename = "left")]
+    pub left_kilometers_per_hour: f64,
+    #[serde(rename = "right")]
+    pub right_kilometers_per_hour: f64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SignalConfig {
-    pub main_green_ms: u64,
-    pub secondary_green_ms: u64,
+    pub main_left_green_ms: u64,
+    pub main_through_right_green_ms: u64,
+    pub secondary_left_green_ms: u64,
+    pub secondary_through_right_green_ms: u64,
     pub yellow_ms: u64,
     pub all_red_ms: u64,
     #[serde(rename = "intersection_offsets_ms")]
@@ -113,6 +119,14 @@ impl CorridorConfig {
                 "speed_limits.secondary_kilometers_per_hour",
                 self.speed_limits.secondary_kilometers_per_hour,
             ),
+            (
+                "speed_limits.left_kilometers_per_hour",
+                self.speed_limits.left_kilometers_per_hour,
+            ),
+            (
+                "speed_limits.right_kilometers_per_hour",
+                self.speed_limits.right_kilometers_per_hour,
+            ),
         ] {
             if !value.is_finite() || value <= 0.0 {
                 return Err(config_error(format!("{name} must be finite and positive")));
@@ -140,21 +154,21 @@ impl CorridorConfig {
         }
 
         let main_half = self.geometry.main_length_meters / 2.0;
-        let secondary_half_width = self.geometry.lane_width_meters * 2.0;
-        let main_half_width = self.geometry.lane_width_meters * 3.0;
+        let main_connector_half = self.geometry.lane_width_meters * 3.0;
+        let secondary_connector_half = self.geometry.lane_width_meters * 4.0;
         let [left, right] = self.geometry.intersection_x_meters;
-        if left - secondary_half_width <= -main_half || right + secondary_half_width >= main_half {
+        if left - main_connector_half <= -main_half || right + main_connector_half >= main_half {
             return Err(config_error(
                 "each intersection must leave a positive main-road portal segment",
             ));
         }
-        if left + secondary_half_width >= right - secondary_half_width {
+        if left + main_connector_half >= right - main_connector_half {
             return Err(config_error(
                 "intersection connector envelopes overlap or leave no middle segment",
             ));
         }
         for (index, length) in self.geometry.secondary_lengths_meters.iter().enumerate() {
-            if length / 2.0 <= main_half_width {
+            if length / 2.0 <= secondary_connector_half {
                 return Err(config_error(format!(
                     "secondary road {index} must extend beyond the main-road envelope"
                 )));
@@ -168,10 +182,21 @@ impl CorridorConfig {
 
         let cycle = self.signal_cycle_ms()?;
         for (name, duration) in [
-            ("signals.main_green_ms", self.signals.main_green_ms),
             (
-                "signals.secondary_green_ms",
-                self.signals.secondary_green_ms,
+                "signals.main_left_green_ms",
+                self.signals.main_left_green_ms,
+            ),
+            (
+                "signals.main_through_right_green_ms",
+                self.signals.main_through_right_green_ms,
+            ),
+            (
+                "signals.secondary_left_green_ms",
+                self.signals.secondary_left_green_ms,
+            ),
+            (
+                "signals.secondary_through_right_green_ms",
+                self.signals.secondary_through_right_green_ms,
             ),
             ("signals.yellow_ms", self.signals.yellow_ms),
             ("signals.all_red_ms", self.signals.all_red_ms),
@@ -218,10 +243,12 @@ impl CorridorConfig {
 
     pub fn signal_cycle_ms(&self) -> Result<u64, Error> {
         self.signals
-            .main_green_ms
-            .checked_add(self.signals.secondary_green_ms)
-            .and_then(|value| value.checked_add(self.signals.yellow_ms.checked_mul(2)?))
-            .and_then(|value| value.checked_add(self.signals.all_red_ms.checked_mul(2)?))
+            .main_left_green_ms
+            .checked_add(self.signals.main_through_right_green_ms)
+            .and_then(|value| value.checked_add(self.signals.secondary_left_green_ms))
+            .and_then(|value| value.checked_add(self.signals.secondary_through_right_green_ms))
+            .and_then(|value| value.checked_add(self.signals.yellow_ms.checked_mul(4)?))
+            .and_then(|value| value.checked_add(self.signals.all_red_ms.checked_mul(4)?))
             .filter(|value| *value <= MAX_PORTABLE_SIGNAL_TIME_MS)
             .ok_or_else(|| config_error("signal cycle overflows the portable signal time range"))
     }

@@ -1,4 +1,4 @@
-corridor_config_version = "0.1"
+corridor_config_version = "0.2"
 frame_id = "signalized-corridor-local"
 fixed_delta_ms = 16
 
@@ -7,22 +7,26 @@ main_length_meters = 800.0
 secondary_lengths_meters = [300.0, 300.0]
 intersection_x_meters = [-200.0, 200.0]
 lane_width_meters = 3.5
-spawn_slot_pitch_meters = 20.0
+spawn_slot_pitch_meters = 10.0
 
 [speed_limits_kmh]
 main = 60.0
 secondary = 40.0
+left = 25.0
+right = 15.0
 
 [signals]
-main_green_ms = 30000
-secondary_green_ms = 20000
+main_left_green_ms = 10000
+main_through_right_green_ms = 30000
+secondary_left_green_ms = 8000
+secondary_through_right_green_ms = 20000
 yellow_ms = 3000
 all_red_ms = 1000
-intersection_offsets_ms = [0, 29000]
+intersection_offsets_ms = [0, 42000]
 
 [output]
 directory = "../data"
 traffic_artifact_ref = "v0.8-signalized-corridor.laneflow.json"
 spatial_artifact_ref = "v0.1-signalized-corridor.spatial.json"
 manifest_file_name = "v0.1-signalized-corridor.scenario.json"
-catalog_file_name = "v0.1-signalized-corridor.catalog.toml"
+catalog_file_name = "v0.2-signalized-corridor.catalog.toml"
