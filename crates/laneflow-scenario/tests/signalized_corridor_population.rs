@@ -387,128 +387,132 @@ fn bootstrap_submits_one_batch_and_binds_every_logical_identity() {
 
 #[test]
 fn completion_plan_is_frozen_across_blocked_retry_and_success_rotates_identity() {
-    let (prepared, world, spare) = world_with_spare(50, 9);
-    let mut controller = prepared.bind(&world).expect("bind");
-    let old = controller.logical_vehicle(0).expect("logical vehicle");
-    let before_draw = controller.rng_state();
-    assert_eq!(
-        controller
-            .consume_step_result(&completion(&world, old, 1))
-            .expect("valid completion"),
-        1
-    );
-    assert_ne!(controller.rng_state(), before_draw);
-    assert_eq!(
-        controller.counts(),
-        CorridorPopulationCounts {
-            running: 49,
-            pending: 1,
-            target: 50,
-        }
-    );
+    for target in [50, 100, 200] {
+        let (prepared, world, spare) = world_with_spare(target, 9);
+        let mut controller = prepared.bind(&world).expect("bind");
+        let old = controller.logical_vehicle(0).expect("logical vehicle");
+        let before_draw = controller.rng_state();
+        assert_eq!(
+            controller
+                .consume_step_result(&completion(&world, old, 1))
+                .expect("valid completion"),
+            1
+        );
+        assert_ne!(controller.rng_state(), before_draw);
+        assert_eq!(
+            controller.counts(),
+            CorridorPopulationCounts {
+                running: target - 1,
+                pending: 1,
+                target,
+            }
+        );
 
-    let mut first_input = None;
-    let blocked = controller
-        .apply_pending::<_, ()>(|attempt_old, input| {
-            assert_eq!(attempt_old, old);
-            assert!(input.initial_speed.value() > 0.0);
-            first_input = Some(input.clone());
-            Ok(blocked_outcome(&world, old, input))
-        })
-        .expect("blocked is recoverable");
-    assert_eq!(
-        (blocked.attempted, blocked.blocked, blocked.replaced),
-        (1, 1, 0)
-    );
-    let after_block = controller.rng_state();
+        let mut first_input = None;
+        let blocked = controller
+            .apply_pending::<_, ()>(|attempt_old, input| {
+                assert_eq!(attempt_old, old);
+                assert!(input.initial_speed.value() > 0.0);
+                first_input = Some(input.clone());
+                Ok(blocked_outcome(&world, old, input))
+            })
+            .expect("blocked is recoverable");
+        assert_eq!(
+            (blocked.attempted, blocked.blocked, blocked.replaced),
+            (1, 1, 0)
+        );
+        let after_block = controller.rng_state();
 
-    let replaced = controller
-        .apply_pending::<_, ()>(|attempt_old, input| {
-            assert_eq!(attempt_old, old);
-            assert_eq!(Some(input), first_input.as_ref());
-            Ok(CorridorReplaceAttemptOutcome::Replaced(
-                VehicleReplaceRecord { old, new: spare },
-            ))
-        })
-        .expect("replacement success");
-    assert_eq!(
-        (replaced.attempted, replaced.blocked, replaced.replaced),
-        (1, 0, 1)
-    );
-    assert_eq!(controller.rng_state(), after_block);
-    assert_eq!(controller.logical_vehicle(0), Some(spare));
-    assert_eq!(
-        controller.counts(),
-        CorridorPopulationCounts {
-            running: 50,
-            pending: 0,
-            target: 50,
-        }
-    );
+        let replaced = controller
+            .apply_pending::<_, ()>(|attempt_old, input| {
+                assert_eq!(attempt_old, old);
+                assert_eq!(Some(input), first_input.as_ref());
+                Ok(CorridorReplaceAttemptOutcome::Replaced(
+                    VehicleReplaceRecord { old, new: spare },
+                ))
+            })
+            .expect("replacement success");
+        assert_eq!(
+            (replaced.attempted, replaced.blocked, replaced.replaced),
+            (1, 0, 1)
+        );
+        assert_eq!(controller.rng_state(), after_block);
+        assert_eq!(controller.logical_vehicle(0), Some(spare));
+        assert_eq!(
+            controller.counts(),
+            CorridorPopulationCounts {
+                running: target,
+                pending: 0,
+                target,
+            }
+        );
+    }
 }
 
 #[test]
 fn completion_consumes_portal_lane_and_raw_weight_route_draws() {
-    let (prepared, world, spare) = world_with_spare(50, 91);
-    let mut controller = prepared.bind(&world).expect("bind");
-    let old = controller.logical_vehicle(0).expect("logical vehicle");
-    let old_route_id = world
-        .route_external_id(world.vehicle(old).expect("old state").route)
-        .expect("old route ID");
-    let traffic = traffic();
-    let catalog = raw_catalog()
-        .normalize(&traffic)
-        .expect("normalized catalog");
-    let old_route = catalog
-        .routes()
-        .iter()
-        .find(|route| route.id() == old_route_id)
-        .expect("old normalized route");
+    for target in [50, 100, 200] {
+        let (prepared, world, spare) = world_with_spare(target, 91);
+        let mut controller = prepared.bind(&world).expect("bind");
+        let old = controller.logical_vehicle(0).expect("logical vehicle");
+        let old_route_id = world
+            .route_external_id(world.vehicle(old).expect("old state").route)
+            .expect("old route ID");
+        let traffic = traffic();
+        let catalog = raw_catalog()
+            .normalize(&traffic)
+            .expect("normalized catalog");
+        let old_route = catalog
+            .routes()
+            .iter()
+            .find(|route| route.id() == old_route_id)
+            .expect("old normalized route");
 
-    let mut expected_rng = SplitMix64::new(controller.rng_state());
-    let portal_draw = expected_rng.uniform(5) as usize;
-    let target_portal_index = if portal_draw >= old_route.exit_portal_index() {
-        portal_draw + 1
-    } else {
-        portal_draw
-    };
-    assert_ne!(
-        PORTAL_IDS[target_portal_index],
-        PORTAL_IDS[old_route.exit_portal_index()]
-    );
-    let portal = &catalog.portals()[target_portal_index];
-    let lane_draw = expected_rng.uniform(portal.portal_lane_indices().len() as u64) as usize;
-    let lane = &catalog.portal_lanes()[portal.portal_lane_indices()[lane_draw]];
-    let mut route_draw = expected_rng.uniform(lane.total_positive_weight());
-    let expected_route_index = lane
-        .route_choices()
-        .iter()
-        .find_map(|choice| {
-            if route_draw < choice.weight() {
-                Some(choice.route_index())
-            } else {
-                route_draw -= choice.weight();
-                None
-            }
-        })
-        .expect("normalized weights cover the draw");
+        let mut expected_rng = SplitMix64::new(controller.rng_state());
+        let portal_draw = expected_rng.uniform(5) as usize;
+        let target_portal_index = if portal_draw >= old_route.exit_portal_index() {
+            portal_draw + 1
+        } else {
+            portal_draw
+        };
+        assert_ne!(
+            PORTAL_IDS[target_portal_index],
+            PORTAL_IDS[old_route.exit_portal_index()]
+        );
+        let portal = &catalog.portals()[target_portal_index];
+        let lane_draw = expected_rng.uniform(portal.portal_lane_indices().len() as u64) as usize;
+        let lane = &catalog.portal_lanes()[portal.portal_lane_indices()[lane_draw]];
+        let mut route_draw = expected_rng.uniform(lane.total_positive_weight());
+        let expected_route_index = lane
+            .route_choices()
+            .iter()
+            .find_map(|choice| {
+                if route_draw < choice.weight() {
+                    Some(choice.route_index())
+                } else {
+                    route_draw -= choice.weight();
+                    None
+                }
+            })
+            .expect("normalized weights cover the draw");
 
-    controller
-        .consume_step_result(&completion(&world, old, 1))
-        .expect("completion");
-    assert_eq!(controller.rng_state(), expected_rng.state());
-    controller
-        .apply_pending::<_, ()>(|attempt_old, input| {
-            assert_eq!(attempt_old, old);
-            assert_eq!(
-                world.route_external_id(input.route),
-                Some(catalog.routes()[expected_route_index].id())
-            );
-            Ok(CorridorReplaceAttemptOutcome::Replaced(
-                VehicleReplaceRecord { old, new: spare },
-            ))
-        })
-        .expect("replacement");
+        controller
+            .consume_step_result(&completion(&world, old, 1))
+            .expect("completion");
+        assert_eq!(controller.rng_state(), expected_rng.state());
+        controller
+            .apply_pending::<_, ()>(|attempt_old, input| {
+                assert_eq!(attempt_old, old);
+                assert_eq!(
+                    world.route_external_id(input.route),
+                    Some(catalog.routes()[expected_route_index].id())
+                );
+                Ok(CorridorReplaceAttemptOutcome::Replaced(
+                    VehicleReplaceRecord { old, new: spare },
+                ))
+            })
+            .expect("replacement");
+    }
 }
 
 #[test]
@@ -558,8 +562,12 @@ fn invalid_completion_batches_are_atomic_and_ordered_ticks_are_strict() {
     ));
 }
 
-fn replay_frame_partition(frame_steps: &[usize]) -> (u64, laneflow_core::VehicleHandle) {
-    let (prepared, world, spare) = world_with_spare(50, 77);
+fn replay_frame_partition(
+    target: usize,
+    seed: u64,
+    frame_steps: &[usize],
+) -> (u64, laneflow_core::VehicleHandle) {
+    let (prepared, world, spare) = world_with_spare(target, seed);
     let mut controller = prepared.bind(&world).expect("bind");
     let first = controller.logical_vehicle(0).expect("first identity");
     let mut current = first;
@@ -604,7 +612,7 @@ fn replay_frame_partition(frame_steps: &[usize]) -> (u64, laneflow_core::Vehicle
         })
         .expect("final lifecycle boundary");
     assert!(final_route.is_some());
-    assert_eq!(controller.counts().running, 50);
+    assert_eq!(controller.counts().running, target);
     (
         controller.rng_state(),
         controller.logical_vehicle(0).expect("final identity"),
@@ -635,101 +643,118 @@ fn completion_for_route(
 
 #[test]
 fn outer_frame_chunking_does_not_change_fixed_step_replay() {
-    let single_outer_frame = replay_frame_partition(&[100]);
-    let one_step_frames = replay_frame_partition(&[1; 100]);
-    let uneven_frames = replay_frame_partition(&[7, 3, 19, 1, 28, 4, 38]);
-    assert_eq!(single_outer_frame, one_step_frames);
-    assert_eq!(single_outer_frame, uneven_frames);
+    for (target, seed) in [(50, 77), (100, 77), (200, 77)] {
+        let single_outer_frame = replay_frame_partition(target, seed, &[100]);
+        let one_step_frames = replay_frame_partition(target, seed, &[1; 100]);
+        let uneven_frames = replay_frame_partition(target, seed, &[7, 3, 19, 1, 28, 4, 38]);
+        assert_eq!(single_outer_frame, one_step_frames);
+        assert_eq!(single_outer_frame, uneven_frames);
+    }
 }
 
 #[test]
 fn same_tick_completion_order_is_golden_and_blocked_does_not_starve_later_plans() {
-    let (prepared, world, spare) = world_with_spare(50, 23);
-    let mut controller = prepared.bind(&world).expect("bind");
-    let old_a = controller.logical_vehicle(0).expect("logical vehicle A");
-    let old_b = controller.logical_vehicle(1).expect("logical vehicle B");
-    let mut step = completion(&world, old_a, 1);
-    step.events.extend(completion(&world, old_b, 1).events);
-    assert_eq!(
-        controller
-            .consume_step_result(&step)
-            .expect("ordered completion batch"),
-        2
-    );
-    let after_draws = controller.rng_state();
+    for (target, expected_routes) in [
+        (
+            50,
+            [
+                "route-side-2-north-away-left",
+                "route-main-west-far-left-via-lane-1",
+            ],
+        ),
+        (
+            100,
+            ["route-side-1-north-through", "route-side-2-north-away-left"],
+        ),
+        (
+            200,
+            [
+                "route-side-1-south-through",
+                "route-side-1-north-corridor-left-far-left",
+            ],
+        ),
+    ] {
+        let (prepared, world, spare) = world_with_spare(target, 23);
+        let mut controller = prepared.bind(&world).expect("bind");
+        let old_a = controller.logical_vehicle(0).expect("logical vehicle A");
+        let old_b = controller.logical_vehicle(1).expect("logical vehicle B");
+        let mut step = completion(&world, old_a, 1);
+        step.events.extend(completion(&world, old_b, 1).events);
+        assert_eq!(
+            controller
+                .consume_step_result(&step)
+                .expect("ordered completion batch"),
+            2
+        );
+        let after_draws = controller.rng_state();
 
-    let mut attempts = Vec::new();
-    let mut selected_routes = Vec::new();
-    let report = controller
-        .apply_pending::<_, ()>(|old, input| {
-            attempts.push(old);
-            selected_routes.push(
-                world
-                    .route_external_id(input.route)
-                    .expect("selected route")
-                    .to_owned(),
-            );
-            if old == old_a {
-                Ok(blocked_outcome(&world, old, input))
-            } else {
-                Ok(CorridorReplaceAttemptOutcome::Replaced(
-                    VehicleReplaceRecord { old, new: spare },
-                ))
-            }
-        })
-        .expect("mixed boundary");
-    assert_eq!(attempts, [old_a, old_b]);
-    assert_eq!(
-        (report.attempted, report.blocked, report.replaced),
-        (2, 1, 1)
-    );
-    assert_eq!(
-        selected_routes,
-        [
-            "route-side-2-north-away-left".to_owned(),
-            "route-main-west-far-left-via-lane-1".to_owned(),
-        ]
-    );
-    assert_eq!(controller.rng_state(), after_draws);
-
-    let raw = raw_catalog();
-    for (old, selected_route) in [(old_a, &selected_routes[0]), (old_b, &selected_routes[1])] {
-        let old_route = world
-            .route_external_id(world.vehicle(old).expect("old state").route)
-            .expect("old route ID");
-        let exit = raw
-            .routes
-            .iter()
-            .find(|route| route.route_id == old_route)
-            .expect("old route catalog")
-            .exit_portal_id
-            .as_str();
-        let selected_entry = raw
-            .portals
-            .iter()
-            .find(|portal| {
-                portal.lanes.iter().any(|lane| {
-                    lane.route_choices
-                        .iter()
-                        .any(|choice| choice.route_id == *selected_route)
-                })
+        let mut attempts = Vec::new();
+        let mut selected_routes = Vec::new();
+        let report = controller
+            .apply_pending::<_, ()>(|old, input| {
+                attempts.push(old);
+                selected_routes.push(
+                    world
+                        .route_external_id(input.route)
+                        .expect("selected route")
+                        .to_owned(),
+                );
+                if old == old_a {
+                    Ok(blocked_outcome(&world, old, input))
+                } else {
+                    Ok(CorridorReplaceAttemptOutcome::Replaced(
+                        VehicleReplaceRecord { old, new: spare },
+                    ))
+                }
             })
-            .expect("selected route entry portal")
-            .id
-            .as_str();
-        assert_ne!(selected_entry, exit);
-    }
+            .expect("mixed boundary");
+        assert_eq!(attempts, [old_a, old_b]);
+        assert_eq!(
+            (report.attempted, report.blocked, report.replaced),
+            (2, 1, 1)
+        );
+        assert_eq!(selected_routes, expected_routes);
+        assert_eq!(controller.rng_state(), after_draws);
 
-    let retry = controller
-        .apply_pending::<_, ()>(|old, input| {
-            assert_eq!(old, old_a);
-            assert_eq!(
-                world.route_external_id(input.route).expect("retry route"),
-                selected_routes[0]
-            );
-            Ok(blocked_outcome(&world, old, input))
-        })
-        .expect("blocked retry");
-    assert_eq!((retry.attempted, retry.blocked), (1, 1));
-    assert_eq!(controller.rng_state(), after_draws);
+        let raw = raw_catalog();
+        for (old, selected_route) in [(old_a, &selected_routes[0]), (old_b, &selected_routes[1])] {
+            let old_route = world
+                .route_external_id(world.vehicle(old).expect("old state").route)
+                .expect("old route ID");
+            let exit = raw
+                .routes
+                .iter()
+                .find(|route| route.route_id == old_route)
+                .expect("old route catalog")
+                .exit_portal_id
+                .as_str();
+            let selected_entry = raw
+                .portals
+                .iter()
+                .find(|portal| {
+                    portal.lanes.iter().any(|lane| {
+                        lane.route_choices
+                            .iter()
+                            .any(|choice| choice.route_id == *selected_route)
+                    })
+                })
+                .expect("selected route entry portal")
+                .id
+                .as_str();
+            assert_ne!(selected_entry, exit);
+        }
+
+        let retry = controller
+            .apply_pending::<_, ()>(|old, input| {
+                assert_eq!(old, old_a);
+                assert_eq!(
+                    world.route_external_id(input.route).expect("retry route"),
+                    selected_routes[0]
+                );
+                Ok(blocked_outcome(&world, old, input))
+            })
+            .expect("blocked retry");
+        assert_eq!((retry.attempted, retry.blocked), (1, 1));
+        assert_eq!(controller.rng_state(), after_draws);
+    }
 }

@@ -2115,6 +2115,228 @@ mod tests {
         }
     }
 
+    struct HeadlessSoakEvidence {
+        completed: u64,
+        replaced: u64,
+        blocked: u64,
+        max_pending: usize,
+        final_pending: usize,
+        final_tick: u64,
+    }
+
+    fn run_headless_soak(vehicles: usize, seed: u64, frames: u32) -> HeadlessSoakEvidence {
+        let bootstrap =
+            load_corridor_runtime(&run_args(vehicles, seed)).expect("production bootstrap");
+        let (mut app, entities) = headless_app(bootstrap);
+        let mut max_pending = 0_usize;
+        for _ in 0..frames {
+            update_with_delta(&mut app, Duration::from_millis(128));
+            let session = app.world().resource::<LaneFlowSession>();
+            assert!(
+                session.last_error().is_none(),
+                "{vehicles} vehicles seed {seed}: Adapter must not fail during soak: {:?}",
+                session.last_error()
+            );
+            let population = app.world().resource::<CorridorPopulationRuntime>();
+            let counts = population.controller.counts();
+            assert_eq!(counts.target, vehicles);
+            assert_eq!(counts.running + counts.pending, vehicles);
+            max_pending = max_pending.max(counts.pending);
+        }
+        let population = app.world().resource::<CorridorPopulationRuntime>();
+        let counts = population.controller.counts();
+        let session = app.world().resource::<LaneFlowSession>();
+        for (index, entity) in entities.into_iter().enumerate() {
+            let vehicle = population
+                .controller
+                .logical_vehicle(index)
+                .expect("logical vehicle");
+            assert_eq!(session.vehicle_entities().entity(vehicle), Some(entity));
+        }
+        HeadlessSoakEvidence {
+            completed: population.completed,
+            replaced: population.replaced,
+            blocked: population.blocked,
+            max_pending,
+            final_pending: counts.pending,
+            final_tick: session.core().tick_index(),
+        }
+    }
+
+    #[test]
+    fn headless_soak_200_recycles_population_with_bounded_pending_fifo() {
+        // 1_250 个 128 ms outer frame 在 16 ms fixed quantum 下恰好推进 10_000 tick；
+        // 首次回流远早于该时长，因此 completion/replacement 在断言时必然已真实发生。
+        let evidence = run_headless_soak(200, 0, 1_250);
+        assert_eq!(evidence.final_tick, 10_000);
+        assert!(evidence.completed > 0, "soak must observe completions");
+        assert!(evidence.replaced > 0, "soak must observe replacements");
+        assert!(
+            evidence.blocked > 0,
+            "200 vehicles over 12 spare slots must exercise blocked retries"
+        );
+        assert_eq!(
+            evidence.completed,
+            evidence.replaced + evidence.final_pending as u64,
+            "every completion is either replaced or still pending"
+        );
+        assert!(evidence.max_pending > 0, "pending FIFO must be exercised");
+        // 实测本 (200, seed 0) 回放 max_pending 为 2；上界取 16 留出跨 seed/平台余量，
+        // 同时仍然锁死“pending FIFO 保持浅队列、不随运行时长增长”的契约。
+        assert!(
+            evidence.max_pending <= 16,
+            "pending FIFO must stay shallow, got {}",
+            evidence.max_pending
+        );
+    }
+
+    #[test]
+    fn stress_seed_matrix_keeps_population_stable_through_real_recycling() {
+        // 每个 (规模, seed) 组合运行 5_000/8_000 tick（128 ms outer frame = 8 个 16 ms tick），
+        // 足以让首批车辆完成 route 并真实回流；运行期不变量在 run_headless_soak 内逐帧断言。
+        for (vehicles, frames) in [(50, 625), (100, 625), (200, 1_000)] {
+            for seed in [0, 7, 42, 101] {
+                let evidence = run_headless_soak(vehicles, seed, frames);
+                assert_eq!(evidence.final_tick, u64::from(frames) * 8);
+                assert!(
+                    evidence.completed > 0 && evidence.replaced > 0,
+                    "{vehicles} vehicles seed {seed} must observe real recycling"
+                );
+                assert_eq!(
+                    evidence.completed,
+                    evidence.replaced + evidence.final_pending as u64,
+                    "{vehicles} vehicles seed {seed}: every completion is either replaced or still pending"
+                );
+                // 12 个组合实测 max_pending 最大为 5（200 seed 42 高拥堵）；
+                // 上界 16 锁死浅队列契约并保留跨平台余量。
+                assert!(
+                    evidence.max_pending <= 16,
+                    "{vehicles} vehicles seed {seed}: pending FIFO must stay shallow, got {}",
+                    evidence.max_pending
+                );
+            }
+        }
+    }
+
+    fn assert_lamps_match_committed_aspects(app: &mut App) {
+        let aspects = app
+            .world()
+            .resource::<LaneFlowSession>()
+            .core()
+            .signal_group_states()
+            .map(|(group, snapshot)| (group, snapshot.aspect()))
+            .collect::<HashMap<_, _>>();
+        assert_eq!(aspects.len(), 8, "corridor has 8 committed signal groups");
+        let [red_on, red_off, yellow_on, yellow_off, green_on, green_off] = {
+            let materials = app.world().resource::<SignalLampMaterials>();
+            [
+                materials.red_on.clone(),
+                materials.red_off.clone(),
+                materials.yellow_on.clone(),
+                materials.yellow_off.clone(),
+                materials.green_on.clone(),
+                materials.green_off.clone(),
+            ]
+        };
+        let expected = |aspect: SignalAspect, active: bool| match (aspect, active) {
+            (SignalAspect::Red, true) => &red_on,
+            (SignalAspect::Red, false) => &red_off,
+            (SignalAspect::Yellow, true) => &yellow_on,
+            (SignalAspect::Yellow, false) => &yellow_off,
+            (SignalAspect::Green, true) => &green_on,
+            (SignalAspect::Green, false) => &green_off,
+        };
+        let world = app.world_mut();
+        let mut lamps = world.query::<(&SignalLamp, &MeshMaterial3d<StandardMaterial>)>();
+        let mut lamp_count = 0_usize;
+        for (lamp, material) in lamps.iter(world) {
+            let committed = aspects
+                .get(&lamp.group)
+                .expect("lamp group has a committed snapshot");
+            assert_eq!(
+                &material.0,
+                expected(lamp.aspect, *committed == lamp.aspect),
+                "lamp {:?} for group {:?} must track the committed {:?} aspect",
+                lamp.aspect,
+                lamp.group,
+                committed
+            );
+            lamp_count += 1;
+        }
+        assert_eq!(lamp_count, 60, "20 stop groups spawn 3 lamps each");
+    }
+
+    #[test]
+    fn signal_lamps_track_committed_group_aspects_across_phase_switches() {
+        let bootstrap = load_corridor_runtime(&run_args(50, 5)).expect("production bootstrap");
+        let stop_groups = bootstrap
+            .scene
+            .signal_stops
+            .iter()
+            .map(|stop| stop.group)
+            .collect::<Vec<_>>();
+        assert_eq!(stop_groups.len(), 20);
+        let (mut app, _) = headless_app(bootstrap);
+        let mut materials = Assets::<StandardMaterial>::default();
+        let lamp_materials = SignalLampMaterials {
+            red_on: add_lamp_material(&mut materials, Color::srgb(1.0, 0.035, 0.025), 7.0),
+            red_off: add_lamp_material(&mut materials, Color::srgb(0.12, 0.01, 0.01), 0.0),
+            yellow_on: add_lamp_material(&mut materials, Color::srgb(1.0, 0.62, 0.015), 7.0),
+            yellow_off: add_lamp_material(&mut materials, Color::srgb(0.12, 0.065, 0.005), 0.0),
+            green_on: add_lamp_material(&mut materials, Color::srgb(0.015, 1.0, 0.12), 7.0),
+            green_off: add_lamp_material(&mut materials, Color::srgb(0.005, 0.12, 0.02), 0.0),
+        };
+        for group in stop_groups {
+            for aspect in [SignalAspect::Red, SignalAspect::Yellow, SignalAspect::Green] {
+                app.world_mut().spawn((
+                    SignalLamp { group, aspect },
+                    MeshMaterial3d(lamp_materials.material(aspect, false)),
+                ));
+            }
+        }
+        app.insert_resource(materials);
+        app.insert_resource(lamp_materials);
+        app.add_systems(Update, update_signal_lamps);
+
+        let initial_aspects = app
+            .world()
+            .resource::<LaneFlowSession>()
+            .core()
+            .signal_group_states()
+            .map(|(group, snapshot)| (group, snapshot.aspect()))
+            .collect::<HashMap<_, _>>();
+
+        // 700 个 128 ms outer frame = 5_600 tick = 89.6 s 虚拟时间，覆盖完整 84 s
+        // signal cycle，每个 group 的 aspect 在窗口内必然至少切换一次。
+        let mut aspect_changes = 0_u64;
+        for _ in 0..700 {
+            update_with_delta(&mut app, Duration::from_millis(128));
+            let session = app.world().resource::<LaneFlowSession>();
+            assert!(session.last_error().is_none());
+            aspect_changes += session
+                .frame_step_results()
+                .iter()
+                .flat_map(|result| result.events.iter())
+                .filter(|event| matches!(event, CoreEvent::SignalGroupAspectChanged(_)))
+                .count() as u64;
+            assert_lamps_match_committed_aspects(&mut app);
+        }
+        assert!(aspect_changes > 0, "phase switches must be observed");
+        let final_aspects = app
+            .world()
+            .resource::<LaneFlowSession>()
+            .core()
+            .signal_group_states()
+            .map(|(group, snapshot)| (group, snapshot.aspect()))
+            .collect::<HashMap<_, _>>();
+        assert!(
+            initial_aspects
+                .iter()
+                .any(|(group, initial)| final_aspects.get(group) != Some(initial)),
+            "at least one group must change aspect across the cycle"
+        );
+    }
+
     #[test]
     fn lifecycle_host_error_preserves_session_error_and_pending_plan() {
         let bootstrap = load_corridor_runtime(&run_args(50, 13)).expect("production bootstrap");
@@ -2172,40 +2394,47 @@ mod tests {
 
     #[test]
     fn controller_and_core_replay_ignore_outer_frame_partitioning() {
-        let partitioned = load_corridor_runtime(&run_args(50, 17)).expect("partitioned bootstrap");
-        let batched = load_corridor_runtime(&run_args(50, 17)).expect("batched bootstrap");
-        let (mut partitioned, _) = headless_app(partitioned);
-        let (mut batched, _) = headless_app(batched);
+        for vehicles in [50, 100, 200] {
+            let partitioned =
+                load_corridor_runtime(&run_args(vehicles, 17)).expect("partitioned bootstrap");
+            let batched =
+                load_corridor_runtime(&run_args(vehicles, 17)).expect("batched bootstrap");
+            let (mut partitioned, _) = headless_app(partitioned);
+            let (mut batched, _) = headless_app(batched);
 
-        for _ in 0..1_000 {
-            update_with_delta(&mut partitioned, Duration::from_millis(64));
-        }
-        for _ in 0..500 {
-            update_with_delta(&mut batched, Duration::from_millis(128));
-        }
+            // 16 ms fixed quantum 下 64 ms 恰为 4 tick、128 ms 恰为 8 tick，
+            // 两种 outer-frame 切分推进完全相同的 4_000 tick。
+            for _ in 0..1_000 {
+                update_with_delta(&mut partitioned, Duration::from_millis(64));
+            }
+            for _ in 0..500 {
+                update_with_delta(&mut batched, Duration::from_millis(128));
+            }
 
-        let partitioned_session = partitioned.world().resource::<LaneFlowSession>();
-        let batched_session = batched.world().resource::<LaneFlowSession>();
-        assert_eq!(partitioned_session.core(), batched_session.core());
-        let partitioned_population = partitioned.world().resource::<CorridorPopulationRuntime>();
-        let batched_population = batched.world().resource::<CorridorPopulationRuntime>();
-        assert_eq!(
-            partitioned_population.controller.counts(),
-            batched_population.controller.counts()
-        );
-        assert_eq!(
-            partitioned_population.controller.rng_state(),
-            batched_population.controller.rng_state()
-        );
-        assert_eq!(
-            partitioned_population.controller.last_consumed_tick(),
-            batched_population.controller.last_consumed_tick()
-        );
-        for index in 0..50 {
+            let partitioned_session = partitioned.world().resource::<LaneFlowSession>();
+            let batched_session = batched.world().resource::<LaneFlowSession>();
+            assert_eq!(partitioned_session.core(), batched_session.core());
+            let partitioned_population =
+                partitioned.world().resource::<CorridorPopulationRuntime>();
+            let batched_population = batched.world().resource::<CorridorPopulationRuntime>();
             assert_eq!(
-                partitioned_population.controller.logical_vehicle(index),
-                batched_population.controller.logical_vehicle(index)
+                partitioned_population.controller.counts(),
+                batched_population.controller.counts()
             );
+            assert_eq!(
+                partitioned_population.controller.rng_state(),
+                batched_population.controller.rng_state()
+            );
+            assert_eq!(
+                partitioned_population.controller.last_consumed_tick(),
+                batched_population.controller.last_consumed_tick()
+            );
+            for index in 0..vehicles {
+                assert_eq!(
+                    partitioned_population.controller.logical_vehicle(index),
+                    batched_population.controller.logical_vehicle(index)
+                );
+            }
         }
     }
 }

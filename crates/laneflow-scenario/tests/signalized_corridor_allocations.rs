@@ -24,7 +24,9 @@ fn traffic() -> InitialTrafficData {
         .into_initial_traffic_data()
 }
 
-fn controller_with_spare() -> (CorridorPopulationController, CoreWorld, VehicleHandle) {
+fn controller_with_spare(
+    target: usize,
+) -> (CorridorPopulationController, CoreWorld, VehicleHandle) {
     let traffic = traffic();
     let profile = traffic
         .vehicle_profiles()
@@ -34,7 +36,7 @@ fn controller_with_spare() -> (CorridorPopulationController, CoreWorld, VehicleH
         .expect("catalog parse")
         .normalize(&traffic)
         .expect("catalog normalize");
-    let config = CorridorPopulationConfig::try_new(50, 11).expect("config");
+    let config = CorridorPopulationConfig::try_new(target, 11).expect("config");
     let mut prepared =
         CorridorPopulationPrepare::prepare(config, catalog.clone(), &traffic, profile)
             .expect("prepare");
@@ -167,7 +169,16 @@ fn assert_zero_allocation(label: &str, stats: Stats) {
 
 #[test]
 fn steady_lifecycle_is_allocation_free_and_retained_capacity_is_bounded() {
-    let (mut controller, world, spare) = controller_with_spare();
+    // 50 与 200 完全同构：被测路径（consume/apply/blocked/identity rotation）只操作
+    // slot 0 一辆车的 FIFO 元素，retained containers 在 bind 时已按 target 预分配，
+    // 因此零分配与容量不变量与规模无关。
+    for target in [50, 200] {
+        assert_steady_lifecycle_for_target(target);
+    }
+}
+
+fn assert_steady_lifecycle_for_target(target: usize) {
+    let (mut controller, world, spare) = controller_with_spare(target);
     let empty = StepResult {
         tick_index: 1,
         time_ms: 20,
@@ -216,7 +227,7 @@ fn steady_lifecycle_is_allocation_free_and_retained_capacity_is_bounded() {
     assert_eq!(replace_result.expect("replacement").replaced, 1);
     assert_zero_allocation("successful identity rotation", replace_stats);
 
-    let (mut controller, world, spare) = controller_with_spare();
+    let (mut controller, world, spare) = controller_with_spare(target);
     let first = controller.logical_vehicle(0).expect("first identity");
     let baseline_capacities = controller.capacities();
     let mut current = first;
@@ -266,6 +277,6 @@ fn steady_lifecycle_is_allocation_free_and_retained_capacity_is_bounded() {
         final_capacities.completion_seen,
         baseline_capacities.completion_seen
     );
-    assert_eq!(controller.counts().running, 50);
+    assert_eq!(controller.counts().running, target);
     assert_eq!(controller.counts().pending, 0);
 }

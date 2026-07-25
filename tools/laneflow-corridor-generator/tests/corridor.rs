@@ -316,6 +316,64 @@ fn configuration_must_retain_at_least_two_hundred_spawn_slots() {
 }
 
 #[test]
+fn traffic_and_spatial_lengths_match_independently_for_all_66_edges() {
+    let generated = default_generated();
+    let traffic: Value =
+        serde_json::from_slice(generated.traffic_bytes()).expect("traffic JSON must parse");
+    let spatial: Value =
+        serde_json::from_slice(generated.spatial_bytes()).expect("spatial JSON must parse");
+    let traffic_lengths = traffic["laneGraph"]["edges"]
+        .as_array()
+        .expect("edges must be an array")
+        .iter()
+        .map(|edge| {
+            (
+                edge["id"].as_str().expect("traffic edge id"),
+                edge["length"].as_f64().expect("traffic edge length"),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let spatial_edges = spatial["edges"].as_array().expect("edges must be an array");
+    assert_eq!(traffic_lengths.len(), 66);
+    assert_eq!(spatial_edges.len(), 66);
+
+    let mut spatial_ids = std::collections::HashSet::new();
+    for edge in spatial_edges {
+        let id = edge["trafficEdgeId"].as_str().expect("spatial edge id");
+        spatial_ids.insert(id);
+        let points = edge["centerline"]["points"]
+            .as_array()
+            .expect("centerline points must be an array");
+        assert!(points.len() >= 2, "edge {id} needs at least two points");
+        // 从 spatial JSON 点列独立重算折线长度；Traffic length 由同一 f32 点列
+        // 以 f32 hypot 求和，这里用 f64 重算，数值差在 1e-5 m 量级以内。
+        let polyline_length = points
+            .windows(2)
+            .map(|pair| {
+                let dx = pair[1][0].as_f64().expect("x") - pair[0][0].as_f64().expect("x");
+                let dy = pair[1][1].as_f64().expect("y") - pair[0][1].as_f64().expect("y");
+                let dz = pair[1][2].as_f64().expect("z") - pair[0][2].as_f64().expect("z");
+                dx.hypot(dy).hypot(dz)
+            })
+            .sum::<f64>();
+        let traffic_length = traffic_lengths
+            .get(id)
+            .copied()
+            .expect("every spatial edge references a traffic edge");
+        assert!(
+            (polyline_length - traffic_length).abs() <= 1e-3,
+            "edge {id}: spatial polyline {polyline_length} m vs traffic length {traffic_length} m"
+        );
+    }
+    for id in traffic_lengths.keys() {
+        assert!(
+            spatial_ids.contains(id),
+            "traffic edge {id} is missing from the spatial package"
+        );
+    }
+}
+
+#[test]
 fn every_portal_lane_must_have_spawn_capacity() {
     let short_secondary_approaches = CONFIG
         .replace("main_length_meters = 800.0", "main_length_meters = 1800.0")
