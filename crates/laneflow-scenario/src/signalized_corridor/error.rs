@@ -200,6 +200,20 @@ pub enum CorridorPopulationError {
         /// 当前 route choice 的 occurrence index。
         actual: usize,
     },
+    /// spawn slot 不位于 PortalLane 的 entry edge。
+    #[error(
+        "spawn slot {slot_id:?} edge {edge_id:?} 在 route {route_id:?} 的 edge index {actual} 不是 portal entry index 0"
+    )]
+    SpawnSlotNotOnEntryEdge {
+        /// slot ID。
+        slot_id: String,
+        /// route ID。
+        route_id: String,
+        /// edge ID。
+        edge_id: String,
+        /// route 内的实际 occurrence index。
+        actual: usize,
+    },
     /// spawn slot progress 非有限、为负或超出 edge。
     #[error("spawn slot {slot_id:?} progress {progress} 不在 0..={edge_length} 范围内")]
     InvalidSlotProgress {

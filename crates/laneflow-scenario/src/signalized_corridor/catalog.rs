@@ -396,6 +396,17 @@ impl CorridorCatalog {
                     shared_route_edge_index = Some(route_edge_index);
                 }
             }
+            let route_edge_index = shared_route_edge_index
+                .expect("portal lanes always have at least one route choice");
+            if route_edge_index != 0 {
+                let route = &temporary_routes[lane.route_choices[0].route_index];
+                return Err(CorridorPopulationError::SpawnSlotNotOnEntryEdge {
+                    slot_id: slot.slot_id,
+                    route_id: route.id.clone(),
+                    edge_id: slot.edge_id,
+                    actual: route_edge_index,
+                });
+            }
             let edge_handle = traffic
                 .lane_graph()
                 .edge_handle(&slot.edge_id)
@@ -437,8 +448,7 @@ impl CorridorCatalog {
                 id: slot.slot_id,
                 portal_index,
                 portal_lane_index,
-                route_edge_index: shared_route_edge_index
-                    .expect("portal lanes always have at least one route choice"),
+                route_edge_index,
                 edge_id: slot.edge_id,
                 edge_progress,
             });
