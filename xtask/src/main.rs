@@ -1421,6 +1421,11 @@ fn has_late_related_pr(
     for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
         let related_created_at = parse_utc_timestamp_seconds(&related_pr.created_at)
             .ok_or_else(|| format!("Related PR #{number} createdAt 不是 UTC RFC3339 秒级时间"))?;
+        if related_created_at == delivery_merged_at_seconds {
+            return Err(format!(
+                "Related PR #{number} createdAt 与 Delivery mergedAt 同秒，无法安全判断是否为 late Related PR"
+            ));
+        }
         if related_created_at > delivery_merged_at_seconds {
             return Ok(true);
         }
@@ -3728,6 +3733,22 @@ Refs: #12
         .expect_err("a late Related PR must force structured recovery");
 
         assert!(error.contains("必须包含且只包含一个"));
+    }
+
+    #[test]
+    fn rejects_timestamp_equal_related_pr_boundary() {
+        let (args, issue, delivery_pr, mut related_pr) = late_related_recovery_fixture();
+        related_pr.created_at = "2026-07-10T05:30:00Z".to_string();
+
+        let error = validate_gate_g3_evidence(
+            &args,
+            &issue,
+            &delivery_pr,
+            std::slice::from_ref(&related_pr),
+        )
+        .expect_err("timestamp equality is ambiguous at GitHub's reported precision");
+
+        assert!(error.contains("同秒"));
     }
 
     #[test]
