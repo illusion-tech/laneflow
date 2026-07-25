@@ -158,3 +158,102 @@ fn route_compiler_uses_full_path_identity_for_shared_entry_pair() {
     assert_eq!(world.routes().count(), route_count);
     assert!(world.route_handle("route-bypass").is_none());
 }
+
+#[test]
+fn adjacent_junction_zero_internal_paths_share_boundary_edge() {
+    let graph = LaneGraph::try_new([edge("A", &["B"]), edge("B", &["C"]), edge("C", &[])])
+        .expect("test graph");
+    let junctions = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("junction-1"), Junction::new("junction-2")],
+        [
+            Movement::new("movement-1", "junction-1"),
+            Movement::new("movement-2", "junction-2"),
+        ],
+        [
+            ManeuverPath::new("path-1", "movement-1", "A", std::iter::empty::<&str>(), "B"),
+            ManeuverPath::new("path-2", "movement-2", "B", std::iter::empty::<&str>(), "C"),
+        ],
+    )
+    .expect("adjacent zero-internal paths sharing boundary B are legal");
+
+    let signals = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [
+            StopLine::new("stop-1", "A", StopLineLocation::EdgeEnd),
+            StopLine::new("stop-2", "B", StopLineLocation::EdgeEnd),
+        ],
+        [SignalGroup::new("group")],
+        [SignalController::new_fixed_time(
+            "controller",
+            0,
+            ["group"],
+            [SignalPhase::new(
+                "red",
+                1_000,
+                [SignalGroupState::new("group", SignalAspect::Red)],
+            )],
+        )],
+        [
+            ManeuverGate::new(
+                "gate-1",
+                "path-1",
+                0,
+                "stop-1",
+                SignalControlInput::Group("group".to_owned()),
+            ),
+            ManeuverGate::new(
+                "gate-2",
+                "path-2",
+                0,
+                "stop-2",
+                SignalControlInput::Group("group".to_owned()),
+            ),
+        ],
+    )
+    .expect("signal registry");
+
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        [Route::try_new("route", ["A", "B", "C"]).expect("route definition")],
+        VehicleProfileRegistry::empty(),
+        junctions,
+        signals,
+        ParkingRegistry::empty(),
+    )
+    .expect("initial traffic");
+    let world = CoreWorld::with_traffic_data(20, traffic, Vec::new()).expect("world");
+
+    let route = world.route_handle("route").expect("route handle");
+    let path_1 = world
+        .junctions()
+        .maneuver_path_handle("path-1")
+        .expect("path-1 handle");
+    let path_2 = world
+        .junctions()
+        .maneuver_path_handle("path-2")
+        .expect("path-2 handle");
+    let gate_1 = world
+        .signals()
+        .maneuver_gate_handle("gate-1")
+        .expect("gate-1 handle");
+    let gate_2 = world
+        .signals()
+        .maneuver_gate_handle("gate-2")
+        .expect("gate-2 handle");
+
+    let occurrences = world
+        .route_maneuver_occurrences(route)
+        .expect("route occurrences");
+    assert_eq!(occurrences.len(), 2);
+    assert_eq!(occurrences[0].maneuver_path(), path_1);
+    assert_eq!(occurrences[0].entry_route_edge_index(), 0);
+    assert_eq!(occurrences[0].exit_route_edge_index(), 1);
+    assert_eq!(occurrences[1].maneuver_path(), path_2);
+    assert_eq!(occurrences[1].entry_route_edge_index(), 1);
+    assert_eq!(occurrences[1].exit_route_edge_index(), 2);
+
+    assert_eq!(world.route_transition_gate(route, 0), Some(Some(gate_1)));
+    assert_eq!(world.route_transition_gate(route, 1), Some(Some(gate_2)));
+}

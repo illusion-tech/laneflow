@@ -199,6 +199,36 @@ fn internal_edge_cannot_cross_junction_owners() {
 }
 
 #[test]
+fn internal_edge_cannot_also_be_path_entry_boundary() {
+    let graph = LaneGraph::try_new([edge("A", &["I"]), edge("I", &["B"]), edge("B", &[])])
+        .expect("test graph");
+    let error = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("junction-a"), Junction::new("junction-b")],
+        [
+            Movement::new("movement-a", "junction-a"),
+            Movement::new("movement-b", "junction-b"),
+        ],
+        [
+            ManeuverPath::new("path-a", "movement-a", "A", ["I"], "B"),
+            ManeuverPath::new("path-b", "movement-b", "I", std::iter::empty::<&str>(), "B"),
+        ],
+    )
+    .expect_err("path entry on another path's internal edge must fail");
+
+    assert!(matches!(
+        error,
+        CoreError::ManeuverPathEdgeRoleConflict {
+            edge_id,
+            internal_maneuver_path_id,
+            boundary_maneuver_path_id,
+        } if edge_id == "I"
+            && internal_maneuver_path_id == "path-a"
+            && boundary_maneuver_path_id == "path-b"
+    ));
+}
+
+#[test]
 fn junction_and_movement_cardinality_are_required() {
     let graph = graph();
     let empty_junction = JunctionRegistry::try_new(
