@@ -1453,15 +1453,8 @@ fn validate_g4_g3_full_set_recovery(
         ));
     }
     let related_prs_line = metadata_line(&issue.body, "Related PRs")?;
-    let recorded_related_prs = metadata_issue_numbers(related_prs_line);
+    validate_recovery_related_pr_order(related_prs_line, &args.related_prs)?;
     let requested_related_prs = args.related_prs.iter().copied().collect::<BTreeSet<_>>();
-    if recorded_related_prs != requested_related_prs {
-        return Err(format!(
-            "Issue 的 `Related PRs` 字段与命令参数不一致：Issue 记录 [{}]；命令传入 [{}]",
-            format_issue_numbers(&recorded_related_prs),
-            format_issue_numbers(&requested_related_prs)
-        ));
-    }
 
     let issue_g4_permalink = completed_gate_permalink(&issue.body, "G4")?;
     let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
@@ -1760,6 +1753,10 @@ fn metadata_line<'a>(body: &'a str, field: &str) -> Result<&'a str, String> {
 }
 
 fn metadata_issue_numbers(line: &str) -> BTreeSet<u64> {
+    metadata_issue_numbers_in_order(line).into_iter().collect()
+}
+
+fn metadata_issue_numbers_in_order(line: &str) -> Vec<u64> {
     line.split('#')
         .skip(1)
         .filter_map(|tail| {
@@ -1770,6 +1767,34 @@ fn metadata_issue_numbers(line: &str) -> BTreeSet<u64> {
             digits.parse::<u64>().ok().filter(|number| *number > 0)
         })
         .collect()
+}
+
+fn validate_recovery_related_pr_order(line: &str, expected: &[u64]) -> Result<(), String> {
+    let actual = metadata_issue_numbers_in_order(line);
+    let unique = actual.iter().copied().collect::<BTreeSet<_>>();
+    if unique.len() != actual.len() {
+        return Err("Issue 的 `Related PRs` 字段不得包含重复 PR".to_string());
+    }
+    if actual != expected {
+        return Err(format!(
+            "Issue 的 `Related PRs` 顺序与 G4 recovery 命令不一致：Issue 记录 [{}]；命令传入 [{}]",
+            format_issue_number_sequence(&actual),
+            format_issue_number_sequence(expected)
+        ));
+    }
+    Ok(())
+}
+
+fn format_issue_number_sequence(numbers: &[u64]) -> String {
+    if numbers.is_empty() {
+        "N/A".to_string()
+    } else {
+        numbers
+            .iter()
+            .map(|number| format!("#{number}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 fn format_issue_numbers(numbers: &BTreeSet<u64>) -> String {
@@ -3100,6 +3125,19 @@ Refs: #12
                 related_prs: vec![62],
             })
         );
+    }
+
+    #[test]
+    fn recovery_preserves_issue_related_pr_order_and_rejects_duplicates() {
+        assert!(validate_recovery_related_pr_order("- Related PRs：#62、#63", &[62, 63]).is_ok());
+
+        let order_error = validate_recovery_related_pr_order("- Related PRs：#63、#62", &[62, 63])
+            .expect_err("recovery must preserve Issue metadata order");
+        assert!(order_error.contains("顺序"));
+
+        let duplicate_error = validate_recovery_related_pr_order("- Related PRs：#62、#62", &[62])
+            .expect_err("recovery must reject duplicate Related PR metadata");
+        assert!(duplicate_error.contains("不得包含重复 PR"));
     }
 
     #[test]
