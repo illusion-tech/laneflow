@@ -1586,6 +1586,16 @@ fn validate_g4_g3_full_set_recovery(
                 "G3 full-set recovery evidenceRefs 未覆盖 Related PR #{number} G3 permalink"
             ));
         }
+        let related_g3_comment = related_pr
+            .comments
+            .iter()
+            .find(|comment| comment.url == related_permalink)
+            .ok_or_else(|| format!("Related PR #{number} G3 permalink 未指向该 PR comment"))?;
+        if related_g3_comment.includes_created_edit {
+            return Err(format!(
+                "G3 full-set recovery 的 Related PR #{number} G3 comment 在创建后被编辑"
+            ));
+        }
         let related_created_at = parse_utc_timestamp_seconds(&related_pr.created_at)
             .ok_or_else(|| format!("Related PR #{number} createdAt 不是 UTC RFC3339 秒级时间"))?;
         if late_related_prs.contains(number) {
@@ -1600,11 +1610,6 @@ fn validate_g4_g3_full_set_recovery(
                     "original Related PR #{number} 不得在 Delivery PR 合并后创建"
                 ));
             }
-            let related_g3_comment = related_pr
-                .comments
-                .iter()
-                .find(|comment| comment.url == related_permalink)
-                .ok_or_else(|| format!("Related PR #{number} G3 permalink 未指向该 PR comment"))?;
             let related_g3_created_at = parse_utc_timestamp_seconds(&related_g3_comment.created_at)
                 .ok_or_else(|| {
                     format!("Related PR #{number} G3 comment createdAt 不是 UTC RFC3339 秒级时间")
@@ -3724,6 +3729,17 @@ Refs: #12
             .expect_err("the original Delivery G3 must strictly predate its merge");
 
         assert!(error.contains("必须严格早于 Delivery merge"));
+    }
+
+    #[test]
+    fn rejects_edited_related_g3_during_recovery() {
+        let (args, issue, delivery_pr, mut related_pr) = late_related_recovery_fixture();
+        related_pr.comments[0].includes_created_edit = true;
+
+        let error = validate_g4_g3_full_set_recovery(&args, &issue, &delivery_pr, &[related_pr])
+            .expect_err("recovery must reject edits to every Related G3");
+
+        assert!(error.contains("Related PR #62 G3 comment 在创建后被编辑"));
     }
 
     #[test]
