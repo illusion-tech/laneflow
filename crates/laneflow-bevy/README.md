@@ -109,7 +109,7 @@ cargo +1.96.0 check -p laneflow-bevy --example native_reference --features nativ
 ## Signalized corridor native example
 
 `signalized_corridor` 保留 campus 最小示例不变，并在独立 target 中读取
-`examples/config/v0.8-signalized-corridor.toml`。启动过程根据 config 定位
+`examples/config/v0.9-signalized-corridor.toml`。启动过程根据 config 定位
 ScenarioManifest、Traffic、Spatial 与 scenario-local catalog，先通过 production loader
 校验制品 size/digest/reference，再使用 `laneflow-scenario` 完成两阶段人口
 `prepare -> Core batch -> bind`。
@@ -117,7 +117,7 @@ ScenarioManifest、Traffic、Spatial 与 scenario-local catalog，先通过 prod
 从仓库根目录运行默认 100 车、seed 0：
 
 ```powershell
-cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example -- --vehicles 100 --seed 0 --config examples/config/v0.8-signalized-corridor.toml
+cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example -- --vehicles 100 --seed 0 --config examples/config/v0.9-signalized-corridor.toml
 ```
 
 CLI 只接受：
@@ -144,8 +144,10 @@ committed `SignalGroupSnapshot`；人口系统在每个 fixed step 按
 presentation 才更新入口 pose。初始与回流速度为 profile 期望速度和当前入口 edge
 限速的较小值；Core 继续处理入口 overlap 和首个 tick 的 leader/signal 约束。车辆
 proxy 原点表示前保险杠，built-in body 从该原点沿 local `+Z` 向后延伸，停止时不会因
-模型以中心对齐而视觉越过 StopLine。默认两个 controller offset 为 `[0, 29000] ms`，在
-58 秒 cycle 中形成可见的半周期相位差。
+模型以中心对齐而视觉越过 StopLine。example 使用编译后的 Maneuver/Route handles
+把车辆显示为 magenta protected-left、blue straight、cyan protected-right；HUD 同步
+显示三类 live route 数量。默认两个 controller offset 为 `[0, 42000] ms`，在 84 秒
+cycle 中形成可见的半周期相位差。
 
 dedicated compile 与 headless example tests：
 
@@ -154,7 +156,9 @@ cargo +1.96.0 check --locked -p laneflow-bevy --example signalized_corridor --fe
 cargo +1.96.0 test --locked -p laneflow-bevy --example signalized_corridor --features native-example
 ```
 
-headless tests 覆盖 CLI、HUD sampling math、50/100/200 production bootstrap、三种人口
-规模、至少一次真实 completion/replacement 后的 same-Entity binding，以及不同
-outer-frame 分块下相同 Core/controller replay。最终 G3/G4 仍需 Windows native
-50/100/200 smoke、截图和产品负责人对实际运行程序的再次确认。
+headless tests 覆盖 CLI、HUD sampling math、50/100/200 production bootstrap、
+left/straight/right internal traversal、SignalStop 后跨同一 Gate 放行、共享 entry
+queue、Adapter pose、真实 completion/replacement 后的 same-Entity binding，以及
+不同 outer-frame 分块下相同 Core/controller replay。#190 G3 前仍需 Windows native
+默认 100 车/seed 0 smoke 和截图；#191 才承担 50/100/200 与 stress seeds 的 expanded
+cross-layer 证据。

@@ -326,3 +326,24 @@ wall-clock 样本不进入 Core input/state、PRNG 或 replay，不包含 render
 格式版本。dedicated example tests 覆盖 50/100/200 production bootstrap/headless
 运行、same-Entity recycle 与 outer-frame partition replay；GUI smoke 与截图仍是 G3/G4
 前独立的本机和产品验收证据。
+
+## 15. v0.9 protected-turning native specialization
+
+#190 将 `signalized_corridor` 的 authoring/startup config clean-break 到 `0.2`，入口为
+`examples/config/v0.9-signalized-corridor.toml`；Traffic/Spatial/Manifest 继续使用
+`0.8/0.1/0.1`，scenario-local catalog 切换为 `0.2`。该切片只消费 #229 已有的
+Junction/Movement/ManeuverPath/ManeuverGate handles 和 Route occurrences，不改变
+production Adapter public API。
+
+example-local observation 在启动期把 protected-left/right Movement external ID
+解析为 handles，再按每条 Route 的 compiled Maneuver occurrences 冻结
+`RouteHandle -> {ProtectedLeft, Straight, ProtectedRight}`。steady frame/tick 只读取
+handles；HUD、车辆材质和 recycle 后的 route 更新不做 external-ID lookup、path
+matching 或 geometry inference。共享 StopLine 的多个 Gate 只生成一个 lamp visual，
+且启动时必须证明它们引用同一 SignalGroup。
+
+默认 controller program 为 12 phase/84 秒，offset `[0, 42000] ms`。headless tests
+覆盖三类 Route 进入 internal edge、SignalStop 后同 vehicle/route 跨同一 Gate 放行、
+共享 entry queue、有限 Adapter pose 和 same-Entity recycle identity。#190 G3 前仍
+要求 Windows 默认 100 车/seed 0 GUI smoke 与截图；50/100/200、stress seeds、
+clearance/performance 的扩大验证由 #191 拥有，独立收口由 #192 拥有。
