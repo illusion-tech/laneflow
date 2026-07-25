@@ -557,9 +557,15 @@ fn junction_error_path(wire: &WirePackage, source: &CoreError) -> String {
             .unwrap_or_else(|| "maneuverPaths".to_owned()),
         CoreError::ManeuverPathEdgeRoleConflict {
             internal_maneuver_path_id,
+            boundary_maneuver_path_id,
             edge_id,
             ..
-        } => maneuver_path_edge_path(wire, internal_maneuver_path_id, "internal", edge_id),
+        } => maneuver_path_edge_role_conflict_path(
+            wire,
+            internal_maneuver_path_id,
+            boundary_maneuver_path_id,
+            edge_id,
+        ),
         CoreError::EmptyJunction { junction_id } => wire
             .junctions
             .iter()
@@ -638,6 +644,37 @@ fn maneuver_path_edge_path(
             ),
         _ => format!("maneuverPaths[{path_index}]"),
     }
+}
+
+fn maneuver_path_edge_role_conflict_path(
+    wire: &WirePackage,
+    internal_maneuver_path_id: &str,
+    boundary_maneuver_path_id: &str,
+    edge_id: &str,
+) -> String {
+    let internal_index = wire
+        .maneuver_paths
+        .iter()
+        .position(|item| item.id == internal_maneuver_path_id);
+    let boundary_index = wire
+        .maneuver_paths
+        .iter()
+        .position(|item| item.id == boundary_maneuver_path_id);
+
+    if let (Some(internal), Some(boundary)) = (internal_index, boundary_index)
+        && boundary > internal
+    {
+        let path = &wire.maneuver_paths[boundary];
+        if path.entry_edge_id == edge_id {
+            return format!("maneuverPaths[{boundary}].entryEdgeId");
+        }
+        if path.exit_edge_id == edge_id {
+            return format!("maneuverPaths[{boundary}].exitEdgeId");
+        }
+        return format!("maneuverPaths[{boundary}]");
+    }
+
+    maneuver_path_edge_path(wire, internal_maneuver_path_id, "internal", edge_id)
 }
 
 fn maneuver_path_edge_value_path(wire: &WirePackage, role: &str, edge_id: &str) -> String {

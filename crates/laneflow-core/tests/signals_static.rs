@@ -418,6 +418,112 @@ fn maneuver_gate_validation_uses_path_identity_and_profile_order() {
 }
 
 #[test]
+fn duplicate_non_entry_gate_transition_precedes_profile_restriction() {
+    let graph = LaneGraph::try_new([
+        LaneEdge::new(
+            "entry",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(10.0).expect("speed limit"),
+            ["internal"],
+        ),
+        LaneEdge::new(
+            "internal",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(10.0).expect("speed limit"),
+            ["exit"],
+        ),
+        LaneEdge::new(
+            "exit",
+            edge_length(10.0),
+            laneflow_core::SpeedLimit::try_new(10.0).expect("speed limit"),
+            std::iter::empty::<&str>(),
+        ),
+    ])
+    .expect("valid graph");
+    let junctions = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("junction")],
+        [Movement::new("movement", "junction")],
+        [ManeuverPath::new(
+            "path",
+            "movement",
+            "entry",
+            ["internal"],
+            "exit",
+        )],
+    )
+    .expect("valid topology");
+    let groups = || [SignalGroup::new("main")];
+    let controllers = || {
+        [controller(
+            "controller",
+            0,
+            &["main"],
+            vec![phase("phase", 100, vec![state("main", SignalAspect::Red)])],
+        )]
+    };
+
+    let duplicate = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [stop_line("stop", "internal")],
+        groups(),
+        controllers(),
+        [
+            ManeuverGate::new(
+                "first",
+                "path",
+                1,
+                "stop",
+                SignalControlInput::Group("main".to_owned()),
+            ),
+            ManeuverGate::new(
+                "duplicate",
+                "path",
+                1,
+                "stop",
+                SignalControlInput::Group("main".to_owned()),
+            ),
+        ],
+    )
+    .expect_err("duplicate transition must precede the entry-only profile restriction");
+    std::assert_matches!(
+        duplicate,
+        CoreError::DuplicateManeuverGatePathTransition {
+            maneuver_path_id,
+            transition_index: 1,
+            first_maneuver_gate_id,
+            duplicate_maneuver_gate_id,
+        } if maneuver_path_id == "path"
+            && first_maneuver_gate_id == "first"
+            && duplicate_maneuver_gate_id == "duplicate"
+    );
+
+    let unsupported = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [stop_line("stop", "internal")],
+        groups(),
+        controllers(),
+        [ManeuverGate::new(
+            "gate",
+            "path",
+            1,
+            "stop",
+            SignalControlInput::Group("main".to_owned()),
+        )],
+    )
+    .expect_err("a unique non-entry transition remains unsupported");
+    std::assert_matches!(
+        unsupported,
+        CoreError::UnsupportedManeuverGateTransition {
+            maneuver_gate_id,
+            transition_index: 1,
+        } if maneuver_gate_id == "gate"
+    );
+}
+
+#[test]
 fn stop_line_requires_path_and_gate_coverage_for_every_outgoing_connection() {
     let graph = canonical_graph();
     let no_bypass = JunctionRegistry::try_new(

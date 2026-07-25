@@ -229,6 +229,116 @@ fn internal_edge_cannot_also_be_path_entry_boundary() {
 }
 
 #[test]
+fn maneuver_path_identity_phase_precedes_edge_resolution() {
+    let graph =
+        LaneGraph::try_new([edge("entry", &["exit"]), edge("exit", &[])]).expect("test graph");
+
+    let unknown_parent = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("junction")],
+        [Movement::new("movement", "junction")],
+        [
+            ManeuverPath::new(
+                "path-a",
+                "movement",
+                "unknown-entry",
+                std::iter::empty::<&str>(),
+                "exit",
+            ),
+            ManeuverPath::new(
+                "path-b",
+                "unknown-movement",
+                "entry",
+                std::iter::empty::<&str>(),
+                "exit",
+            ),
+        ],
+    )
+    .expect_err("all path parents must be validated before edge resolution");
+    assert!(matches!(
+        unknown_parent,
+        CoreError::UnknownManeuverPathMovement {
+            maneuver_path_id,
+            movement_id,
+        } if maneuver_path_id == "path-b" && movement_id == "unknown-movement"
+    ));
+
+    let duplicate_id = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("junction")],
+        [Movement::new("movement", "junction")],
+        [
+            ManeuverPath::new(
+                "path",
+                "movement",
+                "unknown-entry",
+                std::iter::empty::<&str>(),
+                "exit",
+            ),
+            ManeuverPath::new(
+                "path",
+                "movement",
+                "entry",
+                std::iter::empty::<&str>(),
+                "exit",
+            ),
+        ],
+    )
+    .expect_err("all path IDs must be validated before edge resolution");
+    assert!(matches!(
+        duplicate_id,
+        CoreError::DuplicateManeuverPathId { maneuver_path_id } if maneuver_path_id == "path"
+    ));
+}
+
+#[test]
+fn maneuver_path_edge_resolution_phase_precedes_connectivity() {
+    let graph = LaneGraph::try_new([
+        edge("entry-a", &[]),
+        edge("exit-a", &[]),
+        edge("entry-b", &["exit-b"]),
+        edge("exit-b", &[]),
+    ])
+    .expect("test graph");
+    let error = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("junction")],
+        [
+            Movement::new("movement-a", "junction"),
+            Movement::new("movement-b", "junction"),
+        ],
+        [
+            ManeuverPath::new(
+                "path-a",
+                "movement-a",
+                "entry-a",
+                std::iter::empty::<&str>(),
+                "exit-a",
+            ),
+            ManeuverPath::new(
+                "path-b",
+                "movement-b",
+                "unknown-entry",
+                std::iter::empty::<&str>(),
+                "exit-b",
+            ),
+        ],
+    )
+    .expect_err("all path edges must resolve before connectivity validation");
+
+    assert!(matches!(
+        error,
+        CoreError::UnknownManeuverPathEdge {
+            maneuver_path_id,
+            role,
+            edge_id,
+        } if maneuver_path_id == "path-b"
+            && role == "entry"
+            && edge_id == "unknown-entry"
+    ));
+}
+
+#[test]
 fn junction_and_movement_cardinality_are_required() {
     let graph = graph();
     let empty_junction = JunctionRegistry::try_new(

@@ -248,7 +248,6 @@ impl JunctionRegistry {
         let mut maneuver_path_handles = IndexMap::new();
         let mut movement_member_counts = vec![0_usize; movement_definitions.len()];
         let mut path_scratch = Vec::with_capacity(maneuver_path_definitions.len());
-        let mut path_edge_count = 0_usize;
         for (index, path) in maneuver_path_definitions.into_iter().enumerate() {
             validate_external_id("maneuverPaths[].id", path.id())?;
             if maneuver_path_handles.contains_key(path.id()) {
@@ -266,13 +265,28 @@ impl JunctionRegistry {
                 })?;
             let junction = movement_parents[movement.index()];
 
-            let edge_count = path.internal_edge_ids().len().checked_add(2).ok_or(
-                CoreError::StaticDomainCapacityExceeded {
+            maneuver_path_handles.insert(path.id().to_owned(), ManeuverPathHandle::new(index));
+            movement_member_counts[movement.index()] += 1;
+            path_scratch.push(PathScratch {
+                definition: path,
+                movement,
+                junction,
+                edges: Vec::new(),
+            });
+        }
+
+        let mut path_edge_count = 0_usize;
+        for path in &path_scratch {
+            let edge_count = path
+                .definition
+                .internal_edge_ids()
+                .len()
+                .checked_add(2)
+                .ok_or(CoreError::StaticDomainCapacityExceeded {
                     domain: "maneuverPathEdgeRefs",
                     count: usize::MAX,
                     max_inclusive: u32::MAX,
-                },
-            )?;
+                })?;
             path_edge_count = path_edge_count.checked_add(edge_count).ok_or(
                 CoreError::StaticDomainCapacityExceeded {
                     domain: "maneuverPathEdgeRefs",
@@ -281,33 +295,40 @@ impl JunctionRegistry {
                 },
             )?;
             validate_capacity("maneuverPathEdgeRefs", path_edge_count)?;
+        }
 
+        for path in &mut path_scratch {
+            let definition = &path.definition;
+            let edge_count = definition.internal_edge_ids().len() + 2;
             let mut edges = Vec::with_capacity(edge_count);
             edges.push(resolve_path_edge(
                 lane_graph,
-                &path,
+                definition,
                 "entry",
-                path.entry_edge_id(),
+                definition.entry_edge_id(),
             )?);
-            for internal_edge_id in path.internal_edge_ids() {
+            for internal_edge_id in definition.internal_edge_ids() {
                 edges.push(resolve_path_edge(
                     lane_graph,
-                    &path,
+                    definition,
                     "internal",
                     internal_edge_id,
                 )?);
             }
             edges.push(resolve_path_edge(
                 lane_graph,
-                &path,
+                definition,
                 "exit",
-                path.exit_edge_id(),
+                definition.exit_edge_id(),
             )?);
+            path.edges = edges;
+        }
 
-            for (transition_index, pair) in edges.windows(2).enumerate() {
+        for path in &path_scratch {
+            for (transition_index, pair) in path.edges.windows(2).enumerate() {
                 if !lane_graph.can_traverse(pair[0], pair[1]) {
                     return Err(CoreError::DisconnectedManeuverPath {
-                        maneuver_path_id: path.id().to_owned(),
+                        maneuver_path_id: path.definition.id().to_owned(),
                         transition_index,
                         from_edge_id: lane_graph
                             .edge_external_id(pair[0])
@@ -320,15 +341,6 @@ impl JunctionRegistry {
                     });
                 }
             }
-
-            maneuver_path_handles.insert(path.id().to_owned(), ManeuverPathHandle::new(index));
-            movement_member_counts[movement.index()] += 1;
-            path_scratch.push(PathScratch {
-                definition: path,
-                movement,
-                junction,
-                edges,
-            });
         }
 
         let mut traversal_signatures = IndexMap::<Vec<EdgeHandle>, usize>::new();

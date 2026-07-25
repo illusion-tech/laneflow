@@ -839,12 +839,8 @@ impl SignalRegistry {
             });
         }
 
-        let mut normalized_gates: Vec<ResolvedManeuverGate> = Vec::new();
+        let mut gate_definitions = Vec::new();
         let mut maneuver_gate_handles = IndexMap::new();
-        let mut gate_by_path_transition: IndexMap<(ManeuverPathHandle, u32), ManeuverGateHandle> =
-            IndexMap::new();
-        let mut gate_counts_by_path = vec![0_usize; junctions.maneuver_paths().len()];
-        let mut group_usage = vec![false; group_definitions.len()];
         for gate in maneuver_gates {
             validate_external_id("signals.maneuverGates[].id", gate.id())?;
             if maneuver_gate_handles.contains_key(gate.id()) {
@@ -852,14 +848,21 @@ impl SignalRegistry {
                     maneuver_gate_id: gate.id().to_owned(),
                 });
             }
-            if normalized_gates.len() >= u32::MAX as usize {
+            if gate_definitions.len() >= u32::MAX as usize {
                 return Err(CoreError::StaticDomainCapacityExceeded {
                     domain: "maneuverGates",
-                    count: normalized_gates.len().saturating_add(1),
+                    count: gate_definitions.len().saturating_add(1),
                     max_inclusive: u32::MAX,
                 });
             }
 
+            let handle = ManeuverGateHandle::new(gate_definitions.len());
+            maneuver_gate_handles.insert(gate.id().to_owned(), handle);
+            gate_definitions.push(gate);
+        }
+
+        let mut gate_paths = Vec::with_capacity(gate_definitions.len());
+        for gate in &gate_definitions {
             validate_external_id(
                 "signals.maneuverGates[].maneuverPathId",
                 gate.maneuver_path_id(),
@@ -870,8 +873,13 @@ impl SignalRegistry {
                     maneuver_gate_id: gate.id().to_owned(),
                     maneuver_path_id: gate.maneuver_path_id().to_owned(),
                 })?;
+            gate_paths.push(maneuver_path);
+        }
+
+        let mut gate_from_edges = Vec::with_capacity(gate_definitions.len());
+        for (gate, maneuver_path) in gate_definitions.iter().zip(&gate_paths) {
             let path_edges = junctions
-                .maneuver_path_edges(maneuver_path)
+                .maneuver_path_edges(*maneuver_path)
                 .expect("resolved ManeuverPath handle must exist");
             let transition_count = path_edges.len() - 1;
             let transition_index = gate.transition_index() as usize;
@@ -883,27 +891,31 @@ impl SignalRegistry {
                     transition_count,
                 });
             }
-            if gate.transition_index() != 0 {
-                return Err(CoreError::UnsupportedManeuverGateTransition {
-                    maneuver_gate_id: gate.id().to_owned(),
-                    transition_index: gate.transition_index(),
-                });
-            }
+            gate_from_edges.push(path_edges[transition_index]);
+        }
+
+        let mut gate_by_path_transition: IndexMap<(ManeuverPathHandle, u32), ManeuverGateHandle> =
+            IndexMap::new();
+        for (index, (gate, maneuver_path)) in gate_definitions.iter().zip(&gate_paths).enumerate() {
             if let Some(first) = gate_by_path_transition
-                .get(&(maneuver_path, gate.transition_index()))
+                .get(&(*maneuver_path, gate.transition_index()))
                 .copied()
             {
                 return Err(CoreError::DuplicateManeuverGatePathTransition {
                     maneuver_path_id: gate.maneuver_path_id().to_owned(),
                     transition_index: gate.transition_index(),
-                    first_maneuver_gate_id: normalized_gates[first.index()]
-                        .definition
-                        .id()
-                        .to_owned(),
+                    first_maneuver_gate_id: gate_definitions[first.index()].id().to_owned(),
                     duplicate_maneuver_gate_id: gate.id().to_owned(),
                 });
             }
+            gate_by_path_transition.insert(
+                (*maneuver_path, gate.transition_index()),
+                ManeuverGateHandle::new(index),
+            );
+        }
 
+        let mut gate_stop_lines = Vec::with_capacity(gate_definitions.len());
+        for gate in &gate_definitions {
             validate_external_id("signals.maneuverGates[].stopLineId", gate.stop_line_id())?;
             let stop_line = stop_line_handles
                 .get(gate.stop_line_id())
@@ -912,19 +924,31 @@ impl SignalRegistry {
                     maneuver_gate_id: gate.id().to_owned(),
                     stop_line_id: gate.stop_line_id().to_owned(),
                 })?;
+            gate_stop_lines.push(stop_line);
+        }
+
+        for ((gate, stop_line), from_edge) in gate_definitions
+            .iter()
+            .zip(&gate_stop_lines)
+            .zip(&gate_from_edges)
+        {
             let normalized_stop_line = &resolved_stop_lines[stop_line.index()];
-            let from_edge = path_edges[transition_index];
-            if normalized_stop_line.edge != from_edge {
+            if normalized_stop_line.edge != *from_edge {
                 return Err(CoreError::ManeuverGateStopLineMismatch {
                     maneuver_gate_id: gate.id().to_owned(),
                     stop_line_id: gate.stop_line_id().to_owned(),
                     stop_line_edge_id: normalized_stop_line.definition.edge_id().to_owned(),
                     path_from_edge_id: lane_graph
-                        .edge_external_id(from_edge)
+                        .edge_external_id(*from_edge)
                         .expect("resolved path edge must belong to LaneGraph")
                         .to_owned(),
                 });
             }
+        }
+
+        let mut group_usage = vec![false; group_definitions.len()];
+        let mut gate_controls = Vec::with_capacity(gate_definitions.len());
+        for gate in &gate_definitions {
             let control = match gate.signal_control() {
                 SignalControlInput::Group(group_id) => {
                     validate_external_id(
@@ -942,17 +966,33 @@ impl SignalRegistry {
                 }
                 SignalControlInput::None => SignalControl::None,
             };
+            gate_controls.push(control);
+        }
 
-            let handle = ManeuverGateHandle::new(normalized_gates.len());
-            maneuver_gate_handles.insert(gate.id().to_owned(), handle);
-            gate_by_path_transition.insert((maneuver_path, gate.transition_index()), handle);
-            gate_counts_by_path[maneuver_path.index()] += 1;
-            normalized_gates.push(ResolvedManeuverGate {
-                definition: gate,
-                maneuver_path,
-                stop_line,
-                control,
+        let mut resolved_groups = Vec::with_capacity(group_definitions.len());
+        for (index, definition) in group_definitions.into_iter().enumerate() {
+            let controller =
+                owner_by_group[index].ok_or_else(|| CoreError::UnownedSignalGroup {
+                    group_id: definition.id().to_owned(),
+                })?;
+            if !group_usage[index] {
+                return Err(CoreError::UnusedSignalGroup {
+                    group_id: definition.id().to_owned(),
+                });
+            }
+            resolved_groups.push(ResolvedSignalGroup {
+                definition,
+                controller,
             });
+        }
+
+        for gate in &gate_definitions {
+            if gate.transition_index() != 0 {
+                return Err(CoreError::UnsupportedManeuverGateTransition {
+                    maneuver_gate_id: gate.id().to_owned(),
+                    transition_index: gate.transition_index(),
+                });
+            }
         }
 
         for resolved in &resolved_stop_lines {
@@ -991,6 +1031,23 @@ impl SignalRegistry {
             }
         }
 
+        let mut normalized_gates = Vec::with_capacity(gate_definitions.len());
+        let mut gate_counts_by_path = vec![0_usize; junctions.maneuver_paths().len()];
+        for (((gate, maneuver_path), stop_line), control) in gate_definitions
+            .into_iter()
+            .zip(gate_paths)
+            .zip(gate_stop_lines)
+            .zip(gate_controls)
+        {
+            gate_counts_by_path[maneuver_path.index()] += 1;
+            normalized_gates.push(ResolvedManeuverGate {
+                definition: gate,
+                maneuver_path,
+                stop_line,
+                control,
+            });
+        }
+
         let mut gate_starts = Vec::with_capacity(gate_counts_by_path.len());
         let mut gate_total = 0_usize;
         for count in &gate_counts_by_path {
@@ -1013,23 +1070,6 @@ impl SignalRegistry {
             .into_iter()
             .map(|gate| gate.expect("gate counts must match normalized paths"))
             .collect();
-
-        let mut resolved_groups = Vec::with_capacity(group_definitions.len());
-        for (index, definition) in group_definitions.into_iter().enumerate() {
-            let controller =
-                owner_by_group[index].ok_or_else(|| CoreError::UnownedSignalGroup {
-                    group_id: definition.id().to_owned(),
-                })?;
-            if !group_usage[index] {
-                return Err(CoreError::UnusedSignalGroup {
-                    group_id: definition.id().to_owned(),
-                });
-            }
-            resolved_groups.push(ResolvedSignalGroup {
-                definition,
-                controller,
-            });
-        }
 
         Ok(Self {
             stop_lines: resolved_stop_lines,
