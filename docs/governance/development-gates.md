@@ -374,8 +374,8 @@ recovery 必须同时满足：
 - Delivery 的原 G3 comment 按其原始 `originalRelatedPrs` 命令仍可验证，保持
   append-only，且创建时间严格早于 Delivery merge；
 - 每个 `lateRelatedPrs` 的 PR `createdAt` 严格晚于 Delivery `mergedAt`，并继续满足
-  Related-only G3、current-head external review、非 closing linkage、merge 和 Project
-  `Done`；
+  Related-only G3、G3 comment append-only、current-head external review、非 closing
+  linkage、merge 和 Project `Done`；
 - `originalRelatedPrs + lateRelatedPrs` 按顺序等于最终 G4 命令和 Issue 元数据记录的
   Related PR 全集；
 - 最终 G4 comment 未编辑，author 与 `authorizedBy` 一致且属于 trusted G3 Owner；
