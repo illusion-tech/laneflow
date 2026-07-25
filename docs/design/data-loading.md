@@ -223,11 +223,11 @@ Active schema：
 schemas/laneflow-data-v0.8.schema.json
 ```
 
-该文件是 current active source schema。`$id` 按 ADR 0011 也是目标 public retrieval
-URL；source PR 合并后由 publication Delivery PR 以固定 `main` revision/blob
-登记 immutable provenance。production loader 不执行网络 I/O。v0.2-v0.5 与 v0.7
-schema 作为 immutable publication artifacts 保留，但 current loader、fixture 与
-normalization tests 只消费 v0.8。
+该文件是 current active source schema。`$id` 按 ADR 0011 也是 public retrieval
+URL；v0.8 已以固定 `main` revision/blob 登记 immutable provenance，并通过 live
+availability 与 byte-equality 验证。production loader 不执行网络 I/O。v0.2-v0.5
+与 v0.7 schema 作为 immutable publication artifacts 保留，但 current loader、
+fixture 与 normalization tests 只消费 v0.8。
 
 Canonical fixtures：
 

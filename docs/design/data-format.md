@@ -301,7 +301,7 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 直接以 v0.4 
 | v0.5 canonical fixtures         | v0.7 fixtures 与 Scenario traffic digest 原子切换     |
 | production compatibility        | 不提供；v0.5/v0.6 返回 `UnsupportedFormatVersion`     |
 
-Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL；catalog 中 published version 必须通过 HTTPS 返回与固定 source revision 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析 `$id`/`$schema`。v0.2-v0.7 作为 immutable publication artifacts 保留；v0.8 是 current source-only contract，合并 source PR 后再用固定 `main` revision/blob 登记 publication provenance。消费者入口见 [`schemas/README.md`](../../schemas/README.md)。
+Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL；catalog 中 published version 必须通过 HTTPS 返回与固定 source revision 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析 `$id`/`$schema`。v0.2-v0.5、v0.7 与 current v0.8 均作为 immutable publication artifacts 保留；v0.8 已登记固定 `main` revision/blob，并通过 canonical URL 的 live availability 与 byte-equality 验证。消费者入口见 [`schemas/README.md`](../../schemas/README.md)。
 
 ## 11. v0.6 空间层配套制品设计
 

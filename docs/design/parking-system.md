@@ -967,7 +967,7 @@ Schema identifier：
 }
 ```
 
-该字符串按 ADR 0011 同时作为 absolute versioned identifier 与目标 public retrieval URL。v0.8 当前处于 source-only 阶段；只有 publication Delivery PR 登记固定 main provenance 后才可声明公开可取回。Publication CI/CD 保证 catalog 中已发布版本的 HTTPS 200、immutable source 与 byte equality；Runtime、loader、Adapter 与 hermetic tests 永不联网解析 `$id`/`$schema`，公共 hosting 不成为停车或数据加载行为依赖。
+该字符串按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL。v0.8 已登记固定 main provenance，并通过 HTTPS 200、合法 JSON、兼容 media type 与 byte equality live 验证。Publication CI/CD 持续保证 catalog 中已发布版本的 immutable source 与可取回性；Runtime、loader、Adapter 与 hermetic tests 永不联网解析 `$id`/`$schema`，公共 hosting 不成为停车或数据加载行为依赖。
 
 ### 12.5 Loader order 与 paths
 
