@@ -546,23 +546,25 @@ schema 为准，语义不得偏离：
 
 1. ParticipantClass：ID syntax/duplicate、unknown `extendsId`、继承环；
 2. FacilityBand：ID syntax/duplicate、unknown kindId、kind 类别错误；
-3. RoadSection：ID syntax/duplicate、unknown/non-lane-bearing kindId、empty
+3. LaneGroup identity：ID syntax/duplicate、unknown roadSectionId（先于
+   RoadSection 成员检查，否则 lane 的 `laneGroupId` 无法无歧义解析）；
+4. RoadSection：ID syntax/duplicate、unknown/non-lane-bearing kindId、empty
    lanes、empty lane chain、unknown edge、chain 内 disconnected transition、
    同一 edge 出现在多条 lane/多个 section、unknown laneGroupId、lane 引用
    group 的 `roadSectionId` 与该 lane 所属 section 不一致、多 lane 链段
    对齐违例（段数不等）；
-4. LaneGroup：ID syntax/duplicate、unknown roadSectionId、empty group（无 lane
-   引用）；
-5. RoadCorridor：ID syntax/duplicate、unknown element 引用、同一 section/band
+5. LaneGroup membership：empty group（无 lane 引用），在 lane 成员关系已知后
+   检查；
+6. RoadCorridor：ID syntax/duplicate、unknown element 引用、同一 section/band
    出现在多个 corridor、section/band 零归属（§3.1 完备 owner 树）、
    referenceSectionId 不是成员 section、empty elements；
-6. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
+7. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
    timeWindow shape（days 空集、分钟越界、start == end）、`regulation`
    provenance 混合（声明了 regulation 的规则不共享同一
    `(jurisdiction, version)`）、按平面与 time segment 分别检查 §6.4
    第 4 步的残留组合歧义（edge 平面按 (segment, edge, class)，path 平面按
    (segment, path, class)，含 always-active segment）；
-7. 构造 dense storage、member ranges、class bitset 与 resolved effect 表。
+8. 构造 dense storage、member ranges、class bitset 与 resolved effect 表。
 
 Schema 只校验 syntax/shape/range；owner、reference、containment、组合歧义由
 Core constructors/normalization 报告（ADR 0007 分层不变）。

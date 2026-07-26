@@ -102,7 +102,8 @@ Traffic Data 只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors �
 
 #229 已按 #228/ADR 0017 把 Traffic 原子切换为 v0.8：clean break 增加
 Junction、Movement、ManeuverPath，并以一等 ManeuverGate 取代 pair-based Gate。
-RoadSection、LaneGroup 与 JunctionGroup 只冻结长期语义，不进入 v0.9 schema。
+RoadSection、LaneGroup 与 JunctionGroup 只冻结长期语义，不进入该次 schema
+（Traffic `0.8`，即 v0.9 产品里程碑的数据格式）。
 SpatialPackage/ScenarioManifest 保持 v0.1；完整实现与边界见
 `design/road-junction-model.md`。
 
