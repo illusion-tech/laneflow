@@ -7,9 +7,9 @@ LuST Scenario v2.0 source/static converter for Issue #253.
 ## 当前范围（切片 A 增量）
 
 - `verify-source`：按 §2.2 对固定 commit / 文件做 size + SHA-256 fail-closed 校验。
-- 库 API：`parse_sumo_network_xml` / `parse_tll_static_xml` / `convert_topology_from_xml_with_tll` —— 将 net + `tll.static.xml` 转为 Traffic v0.8（含 §3.1 Junction/Movement/ManeuverPath 与 §3.3 static Signals）+ Spatial v0.1 + ScenarioManifest，并跑 schema / loader / `SpatialRegistry` / `CoreWorld` 校验。
-- 本增量仍 **空** routes / vehicleProfiles；完整 static bundle 后续同 draft PR 交付。
-- `convert` CLI：仍先跑 source verify，随后返回 `StaticConversionNotImplemented`（待 profiles/provenance/tar 齐备后再接线）。
+- 库 API：`parse_sumo_network_xml` / `parse_tll_static_xml` / `parse_vtypes_xml` / `convert_topology_from_xml_with_tll_and_vtypes` —— 转为 Traffic v0.8（§3.1 Junction/Movement/ManeuverPath、§3.3 Signals、§3.4 六个 passenger profiles）+ Spatial v0.1 + ScenarioManifest。
+- 本增量仍 **空** routes；完整 static bundle（DUE routes / report / provenance / tar）后续同 draft PR 交付。
+- `convert` CLI：仍先跑 source verify，随后返回 `StaticConversionNotImplemented`（待 routes/provenance/tar 齐备后再接线）。
 - **不**交付 TOPO/DEMAND plan（#254 / #255）。
 - **不**把 LuST 大体量 source/static 提交进 Git。
 

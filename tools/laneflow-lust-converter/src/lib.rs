@@ -1,8 +1,8 @@
 //! LuST Scenario v2.0 source/static converter (#253).
 //!
 //! Current delivery: pinned source verification, SUMO net → Traffic lane graph /
-//! Spatial / Junction-Movement-ManeuverPath / static Signals conversion.
-//! Profiles, DUE routes, provenance and tar land in follow-up commits.
+//! Spatial / Junction-Movement-ManeuverPath / static Signals / vehicleProfiles.
+//! DUE routes, provenance and tar land in follow-up commits.
 
 mod config;
 mod convert;
@@ -13,7 +13,8 @@ mod sumo;
 
 pub use config::{LustConverterConfig, load_config};
 pub use convert::{
-    TopologyConvertOptions, convert_network_topology, convert_network_topology_with_tll,
+    LUST_PASSENGER_VTYPE_IDS, TopologyConvertOptions, convert_network_topology,
+    convert_network_topology_with_tll, select_passenger_vtypes,
 };
 pub use error::{Error, Result};
 pub use output::TopologyArtifacts;
@@ -23,17 +24,19 @@ pub use source::{
 };
 pub use sumo::{
     ExactDecimal, LUST_CONV_BOUNDARY, LUST_FRAME_ID, LUST_NET_OFFSET, SUMO_ID_PREFIX, SumoNetwork,
-    parse_sumo_network_xml, parse_tll_static_xml,
+    SumoVType, parse_sumo_network_xml, parse_tll_static_xml, parse_vtypes_xml,
 };
 
 use std::path::Path;
+
+use crate::convert::{convert_network_topology_with_tll_and_profiles, convert_vehicle_profiles};
 
 /// Verify the pinned LuST source set under `source_dir`.
 pub fn verify_source(source_dir: &Path) -> Result<VerifiedSourceSet> {
     verify_source_dir(source_dir)
 }
 
-/// Convert topology packages from an already-parsed SUMO network (no tll programs).
+/// Convert topology packages from an already-parsed SUMO network (no tll/profiles).
 pub fn convert_topology_from_network(
     network: &SumoNetwork,
     options: &TopologyConvertOptions,
@@ -41,7 +44,7 @@ pub fn convert_topology_from_network(
     convert_network_topology(network, options)
 }
 
-/// Convert topology packages from SUMO network XML text (no tll programs).
+/// Convert topology packages from SUMO network XML text (no tll/profiles).
 pub fn convert_topology_from_xml(
     xml: &str,
     options: &TopologyConvertOptions,
@@ -59,6 +62,21 @@ pub fn convert_topology_from_xml_with_tll(
     let network = parse_sumo_network_xml(net_xml)?;
     let tll = parse_tll_static_xml(tll_xml)?;
     convert_network_topology_with_tll(&network, &tll, options)
+}
+
+/// Convert topology + signals + passenger profiles from net/tll/vtypes XML.
+pub fn convert_topology_from_xml_with_tll_and_vtypes(
+    net_xml: &str,
+    tll_xml: &str,
+    vtypes_xml: &str,
+    options: &TopologyConvertOptions,
+) -> Result<TopologyArtifacts> {
+    let network = parse_sumo_network_xml(net_xml)?;
+    let tll = parse_tll_static_xml(tll_xml)?;
+    let vtypes = parse_vtypes_xml(vtypes_xml)?;
+    let passengers = select_passenger_vtypes(&vtypes)?;
+    let profiles = convert_vehicle_profiles(&passengers)?;
+    convert_network_topology_with_tll_and_profiles(&network, &tll, &profiles, options)
 }
 
 /// Run convert after verifying pinned source; full static conversion is not ready yet.

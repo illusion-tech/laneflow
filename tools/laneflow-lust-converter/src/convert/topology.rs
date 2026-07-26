@@ -1,7 +1,7 @@
 //! Convert a parsed SUMO network into Traffic + Spatial packages.
 //!
-//! Emits Junction / Movement / ManeuverPath and optional static Signals.
-//! vehicleProfiles / routes remain empty until later slices.
+//! Emits Junction / Movement / ManeuverPath, optional static Signals, and
+//! optional vehicleProfiles. routes remain empty until later slices.
 
 use std::collections::HashMap;
 
@@ -13,7 +13,7 @@ use crate::{
         json_bytes,
         model::{
             Centerline, LaneConnection, LaneEdge, LaneGraph, Parking, SpatialEdge, SpatialPackage,
-            TrafficPackage, Units,
+            TrafficPackage, Units, VehicleProfile,
         },
     },
     sumo::{LUST_FRAME_ID, SUMO_ID_PREFIX, SumoLane, SumoNetwork, SumoTlLogic},
@@ -56,6 +56,16 @@ pub fn convert_network_topology(
 pub fn convert_network_topology_with_tll(
     network: &SumoNetwork,
     tll_programs: &[SumoTlLogic],
+    options: &TopologyConvertOptions,
+) -> Result<TopologyArtifacts> {
+    convert_network_topology_with_tll_and_profiles(network, tll_programs, &[], options)
+}
+
+/// Build validated packages with static signals and vehicle profiles.
+pub(crate) fn convert_network_topology_with_tll_and_profiles(
+    network: &SumoNetwork,
+    tll_programs: &[SumoTlLogic],
+    vehicle_profiles: &[VehicleProfile],
     options: &TopologyConvertOptions,
 ) -> Result<TopologyArtifacts> {
     if options.require_lust_location_anchors && !network.location.matches_lust_anchors() {
@@ -162,7 +172,7 @@ pub fn convert_network_topology_with_tll(
         movements: topology.movements,
         maneuver_paths: topology.maneuver_paths,
         routes: Vec::new(),
-        vehicle_profiles: Vec::new(),
+        vehicle_profiles: vehicle_profiles.to_vec(),
         signals,
         parking: Parking {
             areas: Vec::new(),
