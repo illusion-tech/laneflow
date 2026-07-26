@@ -132,7 +132,9 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
   Core safety
   约束。
 - edge 平面组合裁决在 normalization 期消解为 `(edge, class) -> effect`
-  resolved 表，时变规则按确定性 time segment 切换表；绑定期准入判断是 O(1)
+  resolved 表，时变规则按确定性 time segment 切换 segment 索引结构（共享
+  未变条目，内存以 edges × classes + 变化条目为界，禁止 O(segments × edges
+  × classes) 全量物化）；绑定期准入判断是 O(1)
   查表 + occurrence 比对，tick 不做字符串匹配、层级匹配或组合裁决。
 
 ### 6. Identity、authority 与版本

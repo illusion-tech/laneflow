@@ -644,9 +644,13 @@ Core constructors/normalization 报告（ADR 0007 分层不变）。
   §6.4 的字典序结果，形成 `(edge, class) -> effect` resolved 表；绑定时对任意
   (class, edge) 的准入判断是一次 O(1) 查表。
 - 时变规则按全部 timeWindow 边界把 simulation day/week 切成确定性 time
-  segment，每个 segment 一张 resolved 表；窗口切换是预定 sim-time 的表切换
-  （与 SignalController immutable program 的 phase 推进同构），不是逐 tick 的
-  窗口求值。timeWindow 语义基于 simulation clock，不读墙钟。
+  segment。冻结的是**语义契约**而非表示：normalization 期全量预编译、任意
+  segment 的 `(edge, class)` 准入查询保持 O(1)、窗口切换是预定 sim-time 的
+  结构切换（与 SignalController immutable program 的 phase 推进同构）、不逐
+  tick 求值窗口。表示由时变 runtime G1 选择，但必须在 segment 间共享未变
+  条目（如静态基表 + per-segment sparse delta），内存以
+  O(edges × classes + 变化条目总数) 为界，禁止 O(segments × edges × classes)
+  的全量物化。timeWindow 语义基于 simulation clock，不读墙钟。
 - catalog 规模不进入无关车辆的 steady-tick 复杂度。
 
 ## 12. 影响矩阵
@@ -744,7 +748,8 @@ no-allocation 测试矩阵。
 - 准入 overlay 只引用、不复制 ManeuverPath，保持 ADR 0017 全局 traversal
   coherence；
 - edge 平面组合裁决 normalization 期消解为 resolved effect 表，时变规则按
-  time segment 表切换，tick O(1) 查表；
+  time segment 切换 segment 索引结构（共享未变条目，禁止全量物化），tick
+  O(1) 查表；
 - Traffic `0.8 -> 0.9` 原子 clean-break；Spatial/Manifest 保持 `0.1`；
 - 静态规则在 (ParticipantClass, Route) 绑定期 fail-fast（Route 保持
   class-agnostic，v1 仅严格语义）；绑定期校验只覆盖车辆**当前 route cursor
