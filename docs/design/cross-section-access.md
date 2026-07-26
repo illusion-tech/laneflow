@@ -302,7 +302,7 @@ AccessRule
   effect: allow | deny
   participantClassIds[]   -> 非空
   timeWindows[]?          -> 缺省 = 永远适用
-    days[]                -> mon..sun 子集
+    days[]                -> mon..sun 子集；标识窗口的**起始日**
     startMinuteOfDay
     endMinuteOfDay        -> 允许跨午夜（start > end 表示跨日窗口）
   regulation?             -> 法规 provenance
@@ -311,6 +311,11 @@ AccessRule
     source?
   priority?               -> 整数，缺省 0
 ```
+
+跨午夜窗口语义（确定性，`simulation clock` 求值）：`days` 标识窗口**起始日**；
+窗口从起始日 `startMinuteOfDay` 起生效，`start > end` 时延续到次日
+`endMinuteOfDay`（含 Sun→Mon 回绕）。例：`days: [mon], 22:00–02:00` 覆盖周一
+22:00 至周二 02:00；周二 01:00 属于该窗口，周一 01:00 不属于。
 
 ### 6.2 Target 平面与展开
 
@@ -365,7 +370,10 @@ FacilityBand target 在 v1 只对 pedestrian 类有语义，对车辆 motion 无
 3. **显式 priority**：数值更高者获胜；
 4. 经过 1–3 仍在 allow/deny 间并列的，属于 authoring 歧义，normalization 返回
    结构化错误，拒绝载入。**不设 deny-overrides 兜底**——静默的保守裁决会把
-   authoring 错误变成不可见的运行时行为，与可审计目标冲突。
+   authoring 错误变成不可见的运行时行为，与可审计目标冲突。歧义检查按
+   **(time segment, target 展开单元, class)** 进行：永不同时适用的规则
+   （如仅早高峰的 allow 与仅晚高峰的 deny）不构成歧义；always-active segment
+   也必须检查。
 
 **跨平面合取**。最终准入 = 两平面结果合取：任一适用平面给出 deny 即 deny；
 allow 只在平面内充当豁免，不跨平面解除 deny。
@@ -405,7 +413,10 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
   语义私下引入。
 - **时变规则**：作为 Core constraint pipeline 的 runtime constraint 在 edge-entry
   决策点求值，具体时间语义与 motion 表现由最小 production Issue 的 G1 冻结；
-  在其实现前，时变规则由 capability guard 阻止静默生效。
+  在其实现前，时变规则由 capability guard 阻止静默生效。**v1 中时变规则完全
+  惰性**：绑定期校验只消费静态规则，timed allow 不得豁免静态 deny，timed
+  deny 也不追加约束；时变与静态规则的组合语义整体留给时变 runtime G1，v1
+  不得通过绑定期或运行时的任何路径让 timeWindows 产生效果。
 - 任何 allow 都不能覆盖 safety 约束；deny 只能追加约束，不能移除其他域的约束。
 - Adapter 只能 query/render 准入状态，不得裁决、覆盖或注入绕行结果。
 
@@ -521,18 +532,20 @@ schema 为准，语义不得偏离：
 2. FacilityBand：ID syntax/duplicate、unknown kindId、kind 类别错误；
 3. RoadSection：ID syntax/duplicate、unknown/non-lane-bearing kindId、empty
    lanes、empty lane chain、unknown edge、chain 内 disconnected transition、
-   同一 edge 出现在多条 lane/多个 section、unknown laneGroupId、多 lane 链段
+   同一 edge 出现在多条 lane/多个 section、unknown laneGroupId、lane 引用
+   group 的 `roadSectionId` 与该 lane 所属 section 不一致、多 lane 链段
    对齐违例（段数不等）；
 4. LaneGroup：ID syntax/duplicate、unknown roadSectionId、empty group（无 lane
    引用）；
 5. RoadCorridor：ID syntax/duplicate、unknown element 引用、同一 section/band
-   出现在多个 corridor、referenceSectionId 不是成员 section、empty elements；
+   出现在多个 corridor、section/band 零归属（§3.1 完备 owner 树）、
+   referenceSectionId 不是成员 section、empty elements；
 6. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
    timeWindow shape（days 空集、分钟越界、start == end）、`regulation`
    provenance 混合（声明了 regulation 的规则不共享同一
-   `(jurisdiction, version)`）、按平面分别检查 §6.4
-   第 4 步的残留组合歧义（edge 平面按 (edge, class)，path 平面按
-   (path, class)）；
+   `(jurisdiction, version)`）、按平面与 time segment 分别检查 §6.4
+   第 4 步的残留组合歧义（edge 平面按 (segment, edge, class)，path 平面按
+   (segment, path, class)，含 always-active segment）；
 7. 构造 dense storage、member ranges、class bitset 与 resolved effect 表。
 
 Schema 只校验 syntax/shape/range；owner、reference、containment、组合歧义由
