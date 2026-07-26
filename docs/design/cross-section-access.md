@@ -153,9 +153,16 @@ lane
   无需方向数据即确定性可得（与 OpenDRIVE 相对参考线编号同构）。lane
   adjacency（#237 消费）的事实源是该 index 顺序，与 LaneGroup 无关。
 - lane 的 edge 链内相邻 edge 必须存在 LaneGraph directed connection（链是沿纵向
-  的连续 traversal）。各 lane 的切分点独立，无跨 lane 对齐要求——没有横向几
-  何，Core 无法定义或校验跨 lane 的纵向段对应（段数相等不等于纵向对齐，
-  长度相等又与弯道弧长冲突），v1 不冻结段级对应关系。
+  的连续 traversal）。各 lane 的**内部切分点**独立，无跨 lane 段级对齐要求——
+  没有横向几何，Core 无法定义或校验跨 lane 的纵向段对应（段数相等不等于纵
+  向对齐，长度相等又与弯道弧长冲突），v1 不冻结段级对应关系。**lane 纵向
+  共延伸不变量**：同一 section 的所有 lane 覆盖同一纵向区段（链的首尾端面
+  一致）——一条 lane 中途开始或结束意味着横向组成在该处变化，按本节
+  section 边界定义那必须是 section 边界。该不变量使 section 的纵向范围良
+  定义（= 各 lane 的共同范围），是 `(RoadSection, i)` 整边界锚点与 §3.1
+  corridor 共延伸的前提。Core 不可校验：lane 端面一致不等于首尾 node 相同
+  （junction 下游 section 的各 lane 从不同 exit edge 起始），位置比较需要
+  几何；由 authoring 保证，tooling/横向几何 G1 补强。
 - 一条 LaneEdge 至多属于一条 lane、至多一个 RoadSection；未被覆盖的 edge 合法
   （Junction internal edge、未分段路段等）。同一条 lane 链内 edge 也不得重复
   （如 `[A, B, A]`）——重复 edge 会让同一物理 edge 占据同一 lane 的两个纵向
@@ -177,7 +184,8 @@ lane
 完整横向边界全集由两层结构锚点构成，v1 边界语义均为**整边界级**：
 
 - **section 内边界**：lane `i` 与 lane `i + 1` 之间的边界由 `(RoadSection, i)`
-  唯一标识（lane index 顺序构造保证）。
+  唯一标识（lane index 顺序构造保证）；整边界语义以 §3.2 lane 纵向共延伸
+  不变量为前提（authoring 保证）。
 - **corridor 接缝边界**：相邻元素 `elements[j-1]` 与 `elements[j]` 之间的
   边界由 `(RoadCorridor, j)` 唯一标识（elements 顺序构造保证）。接缝两侧的
   横向邻居由元素顺序确定性派生：section 元素贡献其 index 序最外侧 lane
@@ -703,8 +711,9 @@ no-allocation 测试矩阵。
    的 elements 顺序（相邻元素互为横向邻居）（§3.2/§3.2.1）。
 2. **边界锚点**：`(RoadSection, 相邻 lane 对)` 标识 section 内横向边界，
    `(RoadCorridor, 相邻元素对)` 标识 corridor 接缝边界，均为整边界级
-   （§3.2.1）；接缝语义以 corridor 元素纵向共延伸（authoring 保证，§3.1）
-   为前提；段级锚定 `(section, lane 对, 段 k)` 依赖跨 lane 共享纵向分段，
+   （§3.2.1）；前者以 lane 纵向共延伸（§3.2）、后者以 corridor 元素纵向
+   共延伸（§3.1）为前提（均 authoring 保证）；段级锚定
+   `(section, lane 对, 段 k)` 依赖跨 lane 共享纵向分段，
    整体推迟到横向几何 G1，#237 首版不得依赖段级边界 identity。
 3. **overlay 模式**：ParticipantClass 层级匹配、AccessRule 五元与确定性组合
    （§5、§6），变道许可、动态车道用途、lane-use state 的参与者/时段例外复用
@@ -743,7 +752,8 @@ no-allocation 测试矩阵。
   接缝边界 `(corridor, j)`，均为整边界级锚点（§3.2.1）；元素纵向共延伸为
   authoring 语义（§3.1）；
 - RoadSection 的 corridor reference 系 ordered lanes + edge 链 + 单 section
-  归属 + 同向不变量；LaneGroup 为可选命名分组，不影响 lane 顺序；
+  归属 + 同向不变量 + lane 纵向共延伸（authoring 语义）；LaneGroup 为可选
+  命名分组，不影响 lane 顺序；
 - FacilityBand 非遍历、非 LaneEdge；FacilityKind seed + `x-` 开放词汇只承载
   物理设施身份；
 - ParticipantClass 数据声明、单继承、Core 无内置类；VehicleProfile 单引用；
