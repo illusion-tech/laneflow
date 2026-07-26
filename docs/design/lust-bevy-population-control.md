@@ -105,7 +105,12 @@ boundary 的 replace 生效之前，允许短暂 `N_presented < N_individual`。
 5. S1 标记为 excess 的 slot：completion 后 **不** replace；identity 保留至 H1 重建
    或未来另立的 typed despawn G1。若该 slot 在变为 excess **之前**已有 Blocked
    pending replace，必须在下一次 lifecycle 决策前 **确定性取消/作废**该 pending
-   plan，且不得再重试；取消不消耗 PRNG。
+   plan，且不得再重试；取消不消耗 PRNG。此外，excess slot 一旦 `Completed`，
+   #257 必须在同一 lifecycle boundary（或紧随其后的 presentation 提交前）对绑定
+   proxy 执行 **unbind + 移出场景**（`unbind_vehicle` 后 despawn Entity，或等价
+   隐藏且不再参与 picking/HUD 计数）。不得留下“最后合法 Transform 冻结在终点”
+   的可见幽灵车；该清理是 Presentation 义务，**不是** Core despawn（仍非 S4），
+   也 **不是** S2（不改 `target_N` / 不自动降展示目标）。
 
 同 `seed` / 同入选集合 / 同 fixed-step completion 序 ⇒ 同回流决策序列；#257 golden
 须覆盖至少一次 selected-slot replace 与一次 Blocked 重试。
@@ -156,12 +161,12 @@ bundle **不**提供 tick-0 无碰撞 placement（§3.6 明确排除初始车辆
 
 ## 5. 缩编分层
 
-| 策略                | 行为                                                                      | 本契约                                          |
-| ------------------- | ------------------------------------------------------------------------- | ----------------------------------------------- |
-| S1 停补位           | 超出目标的 logical slot 停止 replace/回流；Completed 仍保留 Core identity | **允许**，但 **不**保证 `N_individual→target_N` |
-| S3 H1 重建缩编      | 降低 `target_N` 后按第 4 节前缀重建 Session，使 `N_individual = target_N` | **精确缩编的权威路径**                          |
-| S2 自动立刻降展示   | 缩编时自动把 `N_presented` 打到新目标                                     | **不做默认**（与 100% 展示默认冲突）            |
-| S4 超时主动 despawn | 超时后 despawn 仍 Active 的 live 车以加速收敛                             | **本契约不做**                                  |
+| 策略                | 行为                                                                                            | 本契约                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| S1 停补位           | 超出目标的 logical slot 停止 replace/回流；Completed 后 unbind/移出 proxy；Core identity 仍保留 | **允许**，但 **不**保证 `N_individual→target_N` |
+| S3 H1 重建缩编      | 降低 `target_N` 后按第 4 节前缀重建 Session，使 `N_individual = target_N`                       | **精确缩编的权威路径**                          |
+| S2 自动立刻降展示   | 缩编时自动把 `N_presented` 打到新目标                                                           | **不做默认**（与 100% 展示默认冲突）            |
+| S4 超时主动 despawn | 超时后 despawn 仍 Active 的 live 车以加速收敛                                                   | **本契约不做**                                  |
 
 说明：
 
