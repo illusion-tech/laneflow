@@ -104,7 +104,7 @@ sequence 的 ManeuverPath（ADR 0017 §3 不变）。
 ```text
 AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
            + effect(allow|deny) + participantClassIds[] + timeWindows[]?
-           + regulation{jurisdiction,version,source?}? + priority?
+           + regulation{jurisdiction,version,source?}? + priority?(i32)
 ```
 
 - 默认语义：无适用规则 = 准入 overlay 无约束；不表示永久自由通行，不解除任何

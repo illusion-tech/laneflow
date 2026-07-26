@@ -351,15 +351,19 @@ AccessRule
     jurisdiction
     version
     source?
-  priority?               -> 整数，缺省 0
+  priority?               -> 有符号 32 位整数（i32，[-2^31, 2^31-1]），缺省 0
 ```
+
+`priority` 取 i32：JSON 整数无界而 DTO 必须定宽，不定界会让不同实现接受/拒绝/
+排序同一 rule set 的结果漂移；i32 落在 JS safe-integer 范围内（authoring 工具
+可精确表示），对确定性裁决的粒度绰绰有余，越界由 schema range 校验拒绝。
 
 跨午夜窗口语义（确定性，`simulation clock` 求值）：`days` 标识窗口**起始日**；
 窗口从起始日 `startMinuteOfDay` 起生效，`start > end` 时延续到次日
 `endMinuteOfDay`（含 Sun→Mon 回绕）。例：`days: [mon], 22:00–02:00` 覆盖周一
 22:00 至周二 02:00；周二 01:00 属于该窗口，周一 01:00 不属于。
 
-两条配套约定（同属已冻结的静态语义）：
+配套约定（同属已冻结的静态语义）：
 
 - **周原点**：simulation time 0 定义为周一 00:00:00，周按 7 天循环。固定原点
   而非 package 级可配 epoch——可配原点是为 v1 guard 拒绝的能力增加 schema
