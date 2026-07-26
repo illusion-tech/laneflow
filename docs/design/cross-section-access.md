@@ -305,24 +305,31 @@ AccessRule
   priority?               -> 整数，缺省 0
 ```
 
-### 6.2 Target 展开与 containment
+### 6.2 Target 平面与展开
 
-规则对一条 LaneEdge 适用，当：
+AccessRule 的 target 分为两个求值平面，不得互相展平：
 
-- target 是该 edge 本身；或
-- target 是包含该 edge 的 LaneGroup / RoadSection（经 lane 成员展开）；或
-- target 是完整 edge sequence 包含该 edge 的 ManeuverPath。
+**edge 平面**（laneEdge / laneGroup / roadSection）：规则对一条 LaneEdge 适用，当
+target 是该 edge 本身，或 target 是包含该 edge 的 LaneGroup / RoadSection（经
+lane 成员展开）。edge 平面规则在 normalization 消解为
+`(edge, class) -> effect` resolved 表。
 
-ManeuverPath target 表达 traversal 级准入（如"禁止货车左转"）；其静态 enforce
-点在 Route 注册期的 occurrence 校验，不做 path 复制。FacilityBand target 在 v1
-只对 pedestrian 类有语义，对车辆 motion 无效果；为 #236 保留 identity 与引用
-通道，半成品语义不得静默生效（capability guard）。
+**path 平面**（maneuverPath）：规则对一个 Maneuver occurrence（某条 Route 对某条
+path 的完整连续匹配）适用，**不展开为 edge**。ADR 0017 允许不同 path 共享 entry
+transition 与 internal edge，若把 path 规则展平进 per-edge 表，`deny truck @
+左转 path` 会误伤共享 edge 上合法的直行/右转 traversal。path 平面规则在
+normalization 编译为 per-path rule refs，在 (class, Route) 绑定时对该 Route 的
+全部 Maneuver occurrence 求值。
 
-target specificity 排序（用于组合）：
+target specificity 排序（仅用于 edge 平面内组合；path 平面只有单一 target 类型，
+不参与跨平面比较）：
 
 ```text
-laneEdge > laneGroup > roadSection > maneuverPath > facilityBand
+laneEdge > laneGroup > roadSection
 ```
+
+FacilityBand target 在 v1 只对 pedestrian 类有语义，对车辆 motion 无效果；为
+#236 保留 identity 与引用通道，半成品语义不得静默生效（capability guard）。
 
 ### 6.3 适用性与默认语义
 
@@ -337,15 +344,20 @@ laneEdge > laneGroup > roadSection > maneuverPath > facilityBand
 
 ### 6.4 确定性组合语义
 
-对同一 (vehicle profile, edge, time) 收集全部适用规则后，按字典序裁决：
+**平面内裁决**。对同一 (vehicle profile, edge)（edge 平面）或
+(vehicle profile, occurrence)（path 平面）收集该平面全部适用规则后，按字典序
+裁决：
 
 1. **参与者 specificity**：匹配路径更深的 class 获胜（规则通过
    `participantClassIds` 中使 profile 匹配成功的最深类计）；
-2. **target specificity**：按 §6.2 排序，更具体的 target 获胜；
+2. **target specificity**：仅 edge 平面，按 §6.2 排序，更具体的 target 获胜；
 3. **显式 priority**：数值更高者获胜；
-4. **deny-overrides**：仍并列时 deny 获胜（保守方向）；
-5. 若最终仍残留 allow/deny 冲突（同参与者深度、同 target 级别、同 priority），
-   属于 authoring 歧义，normalization 返回结构化错误，拒绝载入。
+4. 经过 1–3 仍在 allow/deny 间并列的，属于 authoring 歧义，normalization 返回
+   结构化错误，拒绝载入。**不设 deny-overrides 兜底**——静默的保守裁决会把
+   authoring 错误变成不可见的运行时行为，与可审计目标冲突。
+
+**跨平面合取**。最终准入 = 两平面结果合取：任一适用平面给出 deny 即 deny；
+allow 只在平面内充当豁免，不跨平面解除 deny。
 
 该顺序保证常见模式可表达且可审计：
 
@@ -362,16 +374,22 @@ allow bus         @ roadSection-A （参与者深 2，target=roadSection）
 ```
 
 对 class=bus 的 profile，参与者轴先裁决：allow `bus`（深 2）胜，公交可通行
-edge-1。若 authoring 意图是"edge-1 连公交也禁"，必须把 allow 写到同等或更细
-target，或给 deny 更高 priority——意图因此永远显式、可审计。
+edge-1。若 authoring 意图是"edge-1 连公交也禁"，正确处方是
+`deny bus @ edge-1`：参与者同深（bus = 深 2）后 target specificity 决胜，
+laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorVehicle` deny
+加 priority 或把 bus allow 移到更细 target 都无法让该 deny 生效——例外必须以
+同等或更深 class 表达，意图因此永远显式、可审计。
 
 ### 6.5 运行时集成边界
 
 准入是 ADR 0009 分层中的 regulatory constraint，不是终态判定：
 
-- **静态规则**（无 timeWindows）：在 Route 注册期（initial 与 dynamic 同一
-  compiler）校验；Route 的 edge 或 Maneuver occurrence 命中静态 deny 即返回
-  结构化错误，原子拒绝，不留下部分 Route。v1 只有严格语义：**违规/劝诫式准入
+- **静态规则**（无 timeWindows）：enforce 点是 **(ParticipantClass, Route)
+  绑定**——vehicle spawn 或 runtime 路线指派时，用 edge 平面 resolved 表与
+  path 平面 occurrence 规则校验该 (class, route) 组合，命中 deny 即原子拒绝该
+  绑定并返回结构化错误。Route 保持 class-agnostic：同一 Route 可被公交合法
+  使用、被货车拒绝，准入判断只在有 class 上下文的绑定点发生；
+  `register_route` 本身不做准入判断。v1 只有严格语义：**违规/劝诫式准入
   （软约束、记录事件但不拦截）是行为设计，必须独立 G1**，不得通过放宽 deny
   语义私下引入。
 - **时变规则**：作为 Core constraint pipeline 的 runtime constraint 在 edge-entry
@@ -396,8 +414,9 @@ target，或给 deny 更高 priority——意图因此永远显式、可审计�
 - Normalized storage 沿用 road-junction-model §5 的 flat 形状：dense definitions、
   flat member handles + per-parent range、flat edge handles + per-lane range。
 - ParticipantClass 层级在 normalization 编译为 per-class descendants bitset；
-  AccessRule 的四步组合裁决（§6.4）在 normalization 期**完全消解**为
-  `(edge, class) -> effect` 的 resolved 表（route-shared，不按 vehicle 复制）；
+  edge 平面 AccessRule 的组合裁决（§6.4）在 normalization 期**完全消解**为
+  `(edge, class) -> effect` 的 resolved 表，path 平面规则编译为 per-path
+  rule refs 供绑定时 occurrence 校验（route-shared，不按 vehicle 复制）；
   steady tick 不做 external-ID lookup、字符串匹配、层级匹配或组合裁决。
 
 ## 8. Authority 矩阵
@@ -498,8 +517,9 @@ schema 为准，语义不得偏离：
 5. RoadCorridor：ID syntax/duplicate、unknown element 引用、同一 section/band
    出现在多个 corridor、referenceSectionId 不是成员 section、empty elements；
 6. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
-   timeWindow shape（days 空集、分钟越界、start == end）、§6.4 第 5 步的残留
-   组合歧义；
+   timeWindow shape（days 空集、分钟越界、start == end）、按平面分别检查 §6.4
+   第 4 步的残留组合歧义（edge 平面按 (edge, class)，path 平面按
+   (path, class)）；
 7. 构造 dense storage、member ranges、class bitset 与 resolved effect 表。
 
 Schema 只校验 syntax/shape/range；owner、reference、containment、组合歧义由
@@ -511,12 +531,13 @@ Core constructors/normalization 报告（ADR 0007 分层不变）。
   path 得到相同 handle allocation、iteration、first-error attribution 与运行结果；
   input permutation 只改变 raw handle 数值与迭代顺序，不改变 external-ID 对齐的
   语义等价。
-- class bitset、resolved effect 表与 member ranges 在 normalization/route
-  registration 一次编译；vehicle tick 不查字符串、不匹配层级、不做组合裁决、
+- class bitset、edge 平面 resolved effect 表、path 平面 per-path rule refs 与
+  member ranges 在 normalization 一次编译，(class, Route) 绑定时只做查表与
+  occurrence 比对；vehicle tick 不查字符串、不匹配层级、不做组合裁决、
   不扫描全局 rule catalog、不做 per-vehicle allocation。
-- 组合裁决只发生在 normalization：对每条 edge 与其 class 集合预计算
-  §6.4 的字典序结果，形成 `(edge, class) -> effect` resolved 表；tick 上对任意
-  (vehicle, edge) 的准入判断是一次 O(1) 查表。
+- edge 平面组合裁决只发生在 normalization：对每条 edge 与其 class 集合预计算
+  §6.4 的字典序结果，形成 `(edge, class) -> effect` resolved 表；绑定时对任意
+  (class, edge) 的准入判断是一次 O(1) 查表。
 - 时变规则按全部 timeWindow 边界把 simulation day/week 切成确定性 time
   segment，每个 segment 一张 resolved 表；窗口切换是预定 sim-time 的表切换
   （与 SignalController immutable program 的 phase 推进同构），不是逐 tick 的
@@ -525,28 +546,28 @@ Core constructors/normalization 报告（ADR 0007 分层不变）。
 
 ## 12. 影响矩阵
 
-| 层                 | Target 影响                                                 | 本 Issue 变更 | 后续 owner       |
-| ------------------ | ----------------------------------------------------------- | ------------- | ---------------- |
-| Core API           | 新增 5 类 handle/resolver/registry；Route 注册期准入校验    | 无（设计）    | production Issue |
-| LaneGraph          | 不变；edge 成员关系由 RoadSection 引用反查                  | 无            | —                |
-| Route              | 注册期增加静态准入校验与 occurrence 级 path 规则            | 无            | production Issue |
-| Traffic Data       | exact-current `0.9` 新 arrays + profile 必填字段            | 无            | production Issue |
-| Spatial            | shape 保持 `0.1`；横断面为顺序拓扑，无横向几何              | 无            | —                |
-| Manifest           | shape 保持 `0.1`；production 后更新 Traffic size/digest     | 无            | production Issue |
-| Authoring          | 显式 corridor/section/lane/rule 输入；generator 显式生成    | 无            | production Issue |
-| Adapter            | observation 新增 corridor/section/rule 只读 query；无裁决权 | 无            | production Issue |
-| Presentation       | 可按 cross-section 顺序渲染横断面；宽度/材质自有            | 无            | production Issue |
-| Fixtures/artifacts | 原子切换 v0.9 并更新 canonical bytes/digests                | 无            | production Issue |
+| 层                 | Target 影响                                                           | 本 Issue 变更 | 后续 owner       |
+| ------------------ | --------------------------------------------------------------------- | ------------- | ---------------- |
+| Core API           | 新增 5 类 handle/resolver/registry；(class, Route) 绑定期准入校验     | 无（设计）    | production Issue |
+| LaneGraph          | 不变；edge 成员关系由 RoadSection 引用反查                            | 无            | —                |
+| Route              | 保持 class-agnostic；绑定期增加静态准入与 occurrence 级 path 规则校验 | 无            | production Issue |
+| Traffic Data       | exact-current `0.9` 新 arrays + profile 必填字段                      | 无            | production Issue |
+| Spatial            | shape 保持 `0.1`；横断面为顺序拓扑，无横向几何                        | 无            | —                |
+| Manifest           | shape 保持 `0.1`；production 后更新 Traffic size/digest               | 无            | production Issue |
+| Authoring          | 显式 corridor/section/lane/rule 输入；generator 显式生成              | 无            | production Issue |
+| Adapter            | observation 新增 corridor/section/rule 只读 query；无裁决权           | 无            | production Issue |
+| Presentation       | 可按 cross-section 顺序渲染横断面；宽度/材质自有                      | 无            | production Issue |
+| Fixtures/artifacts | 原子切换 v0.9 并更新 canonical bytes/digests                          | 无            | production Issue |
 
 ## 13. 最小 production 实现拆分
 
-#234 之后拆出一个最小 production Issue（候选）：
+#234 之后拆出一个最小 production Issue（#262）：
 
 **范围**：生产化 §3–§7 的静态模型——RoadCorridor/RoadSection/LaneGroup/
 FacilityBand/ParticipantClass/AccessRule 的 Core registry、handle、resolver、
 validation（含 §3.2 强制段对齐校验）、Traffic v0.9 schema/DTO/loader/fixtures、
-Route 注册期静态准入校验、generator 显式横断面输出与 canonical artifacts 原子
-切换。
+(class, Route) 绑定期静态准入校验（edge 平面查表 + path 平面 occurrence 校验）、
+generator 显式横断面输出与 canonical artifacts 原子切换。
 
 **显式不做**：时变规则的 runtime constraint（capability guard 拦截，独立后续
 G1）、违规/劝诫式准入语义（独立 G1）、lane change/adjacency 消费（#237）、
@@ -600,15 +621,16 @@ no-allocation 测试矩阵。
 - FacilityBand 非遍历、非 LaneEdge；FacilityKind seed + `x-` 开放词汇只承载
   物理设施身份；
 - ParticipantClass 数据声明、单继承、Core 无内置类；VehicleProfile 单引用；
-- AccessRule 五元（target/effect/参与者/时间/法规 provenance）+ 参与者优先的
-  确定性四步组合与残留歧义拒绝；
+- AccessRule 五元（target/effect/参与者/时间/法规 provenance）+ 双平面
+  （edge / path occurrence）求值 + 参与者优先的确定性三步裁决与残留歧义
+  拒绝（无 deny-overrides 兜底）+ 跨平面合取；
 - 准入 overlay 只引用、不复制 ManeuverPath，保持 ADR 0017 全局 traversal
   coherence；
-- 组合裁决 normalization 期消解为 resolved effect 表，时变规则按 time segment
-  表切换，tick O(1) 查表；
+- edge 平面组合裁决 normalization 期消解为 resolved effect 表，时变规则按
+  time segment 表切换，tick O(1) 查表；
 - Traffic `0.8 -> 0.9` 原子 clean-break；Spatial/Manifest 保持 `0.1`；
-- 静态规则 Route 注册期 fail-fast（v1 仅严格语义），时变规则 capability guard
-  后独立 G1；
+- 静态规则在 (ParticipantClass, Route) 绑定期 fail-fast（Route 保持
+  class-agnostic，v1 仅严格语义），时变规则 capability guard 后独立 G1；
 - 与 #237 的接口共设计契约（§14），两 Issue 不合并。
 
 若 production 实现发现必须改变 owner 层级、组合语义、版本政策或 steady-tick

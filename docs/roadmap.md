@@ -198,7 +198,7 @@ SSOT 见 [`cross-section-access.md`](design/cross-section-access.md)。该设计
 #227 复杂道路设施演进路线，Milestone N/A（尚未进入已冻结产品 Milestone）。
 
 后续顺序：#234 拆出的最小 production Issue（静态模型 + Traffic v0.9 原子迁移 +
-Route 注册期静态准入校验）→ #237 动态车道用途/resolved lane plan G1（消费本
+(class, Route) 绑定期静态准入校验）→ #237 动态车道用途/resolved lane plan G1（消费本
 SSOT）→ #236 非机动车/步行产品范围。时变准入 runtime、横向几何与多法规版本
 共存各自独立 G1，不属于当前完成边界。
 
