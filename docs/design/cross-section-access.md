@@ -629,10 +629,11 @@ profiles → lane graph → Junction → Signals → Parking → Routes）：
    引用 group 的 `roadSectionId` 与该 lane 所属 section 不一致；
 7. LaneGroup membership：empty group（无 lane 引用），在 lane 成员关系已知后
    检查；
-8. RoadCorridor：ID syntax/duplicate、unknown element 引用、elements 内重复
+8. RoadCorridor：ID syntax/duplicate、empty elements（先于一切 element 依赖
+   检查，否则 reference 成员性恒失败、empty 错误不可达）、unknown element
+   引用、elements 内重复
    引用同一 section/band、同一 section/band 出现在多个 corridor、section/band
-   零归属（§3.1 完备 owner 树）、referenceSectionId 不是成员 section、
-   empty elements；
+   零归属（§3.1 完备 owner 树）、referenceSectionId 不是成员 section；
 9. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
    capability guard（FacilityBand target 或声明 timeWindows 的规则返回
    capability-unavailable 并拒绝载入；guard 依赖 target 已解析，故在 unknown
