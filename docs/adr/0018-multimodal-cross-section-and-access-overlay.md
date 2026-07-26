@@ -109,9 +109,10 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
   occurrence 作为原子整体）；Route 保持 class-agnostic 可复用，`register_route`
   无 class
   上下文、不做准入判断（v1 仅严格语义；违规/劝诫式准入是独立 G1）。时变规则
-  作为 Core constraint pipeline 的 runtime constraint，其实现由独立 G1 冻结，
-  未实现前以 capability guard 阻止静默生效；**v1 时变规则完全惰性**——绑定期
-  校验只消费静态规则，timeWindows 不产生任何绑定或运行时效果。timeWindow
+  作为 Core constraint pipeline 的 runtime constraint，其实现由独立 G1 冻结；
+  在其实现前，**v1 production 对声明 timeWindows 的规则与 FacilityBand
+  target 的规则返回 capability-unavailable 结构化错误，拒绝载入**——guard
+  必须是显式拒绝，不得让已声明的限制静默无效。timeWindow
   的 `days` 标识窗口起始日，跨午夜延续到次日（含 Sun→Mon 回绕），保证分段
   确定性。任何 allow 不得覆盖 Core safety
   约束。

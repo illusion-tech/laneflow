@@ -149,7 +149,13 @@ lane
   EdgeLength 与自身中心线一致，强制等长会让弯道 section 无法 author。
 - 一条 LaneEdge 至多属于一条 lane、至多一个 RoadSection；未被覆盖的 edge 合法
   （Junction internal edge、未分段路段等）。
-- RoadSection 的方向由其 lane edge 链的方向派生，不存储方向字段。
+- RoadSection 的方向由其 lane edge 链的方向派生，不存储方向字段。**同向不变
+  量**：同一 section 的所有 lane 链必须同向行驶——反向链会让
+  "lane index 0 = 行驶方向最左"在 section 内自相矛盾，corridor 的
+  referenceSectionId 也无法定义左右。该不变量由 authoring 保证：Core 无横向
+  几何，无法在 normalization 确定性地区分同向与反向链（平行车道间通常无
+  directed connection 可供判别）；几何感知的离线校验（如比对绑定中心线的
+  heading）由 tooling 或横向几何 G1 补强，不进入 v1 Core validation。
 - RoadSection 引用 edge，不复制 length、connection 或 speed limit；LaneEdge 继续
   只由 LaneGraph 拥有。
 - section 边界是 authoring 语义：横向组成（车道数、设施带、分隔形式）发生变化的
@@ -241,6 +247,10 @@ FacilityKind 是开放 token 词汇，SSOT 保留 seed 值：
   band kind，不赋予任何行为语义，Adapter/authoring 可自行解释。
 - 未在 seed 表且无 `x-` 前缀的 unknown kind 是 load error（防拼写漂移）。
 - kind 的类别（lane-bearing / non-traversable）用错实体类型是 validation error。
+- **lane-bearing 只声明结构语义**（lane 链、顺序、准入 target），不激活任何
+  参与者行为：v1 Core 没有非机动车行为，`nonMotorLane` section 只是横断面
+  结构与 AccessRule 引用目标；非机动车/步行是否获得 traversal 与行为语义由
+  #236 的 G1 决定（§15），本表不预决该产品边界。
 - FacilityKind 永远不携带参与者、时段或地区语义；新增物理 kind 只扩展 SSOT 表，
   不改变 AccessRule 语义。
 
@@ -340,10 +350,11 @@ target specificity 排序（仅用于 edge 平面内组合；path 平面只有�
 laneEdge > laneGroup > roadSection
 ```
 
-FacilityBand target 在 v1 **整体 capability guard**：规则可载入但完全惰性，不
-产生任何绑定或运行时语义。Core 不内置参与者类名，无法在 v1 区分 pedestrian
-与其他类；band 准入语义（可能引入参与者 category/capability 字段）由 #236
-的 G1 定义后激活。
+FacilityBand target 在 v1 由 **capability guard 结构化拒绝**：production 对
+FacilityBand target 的规则返回 capability-unavailable 结构化错误，拒绝载入，
+不得静默无效。Core 不内置参与者类名，无法在 v1 区分 pedestrian 与其他类；
+band 准入语义（可能引入参与者 category/capability 字段）由 #236 的 G1 定义后
+解禁。
 
 ### 6.3 适用性与默认语义
 
@@ -417,11 +428,11 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
   （软约束、记录事件但不拦截）是行为设计，必须独立 G1**，不得通过放宽 deny
   语义私下引入。
 - **时变规则**：作为 Core constraint pipeline 的 runtime constraint 在 edge-entry
-  决策点求值，具体时间语义与 motion 表现由最小 production Issue 的 G1 冻结；
-  在其实现前，时变规则由 capability guard 阻止静默生效。**v1 中时变规则完全
-  惰性**：绑定期校验只消费静态规则，timed allow 不得豁免静态 deny，timed
-  deny 也不追加约束；时变与静态规则的组合语义整体留给时变 runtime G1，v1
-  不得通过绑定期或运行时的任何路径让 timeWindows 产生效果。
+  决策点求值，具体时间语义与 motion 表现由时变 runtime G1 冻结。在其实现前，
+  **v1 production 对声明了 timeWindows 的规则返回 capability-unavailable 结构
+  化错误，拒绝载入**——guard 必须是显式拒绝，不得让声明了时段限制的规则
+  静默无效（那会让车辆在无报错的情况下穿越已声明的限制）。绑定期校验只
+  消费静态规则；时变与静态规则的组合语义整体留给时变 runtime G1。
 - 任何 allow 都不能覆盖 safety 约束；deny 只能追加约束，不能移除其他域的约束。
 - Adapter 只能 query/render 准入状态，不得裁决、覆盖或注入绕行结果。
 
@@ -600,9 +611,11 @@ validation（含 §3.2 强制段对齐校验）、Traffic v0.9 schema/DTO/loader
 (class, Route) 绑定期静态准入校验（edge 平面查表 + path 平面 occurrence 校验）、
 generator 显式横断面输出与 canonical artifacts 原子切换。
 
-**显式不做**：时变规则的 runtime constraint（capability guard 拦截，独立后续
-G1）、违规/劝诫式准入语义（独立 G1）、lane change/adjacency 消费（#237）、
-非机动车/行人行为（#236）、横断面横向几何、Adapter 渲染实现。
+**显式不做**：时变规则的 runtime constraint（v1 对带 timeWindows 的规则返回
+capability-unavailable 结构化错误，拒绝载入；runtime 独立后续 G1）、
+FacilityBand target 规则语义（同形 guard，归 #236）、违规/劝诫式准入语义
+（独立 G1）、lane change/adjacency 消费（#237）、非机动车/行人行为（#236）、
+横断面横向几何、Adapter 渲染实现。
 
 **验收对齐**：road-junction-model §16 同形的 identity/owner、reference、
 first-error、determinism、permutation、round-trip 与 steady-tick no-scan/
@@ -666,8 +679,9 @@ no-allocation 测试矩阵。
 - 静态规则在 (ParticipantClass, Route) 绑定期 fail-fast（Route 保持
   class-agnostic，v1 仅严格语义）；绑定期校验只覆盖车辆**当前 route cursor
   起的可达后缀**（cursor 之前的 edge/occurrence 不会被 traversal，不参与
-  校验；cursor 落在某 occurrence 内部时该 occurrence 作为原子整体校验），
-  时变规则 capability guard 后独立 G1；
+  校验；cursor 落在某 occurrence 内部时该 occurrence 作为原子整体校验）；
+  时变规则与 FacilityBand target 规则在 v1 由 capability guard 结构化拒绝，
+  语义各自独立 G1；
 - 与 #237 的接口共设计契约（§14），两 Issue 不合并。
 
 若 production 实现发现必须改变 owner 层级、组合语义、版本政策或 steady-tick
