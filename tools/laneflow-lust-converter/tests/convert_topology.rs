@@ -2,8 +2,8 @@ use std::{fs, path::PathBuf};
 
 use laneflow_lust_converter::{
     ExactDecimal, LUST_FRAME_ID, TopologyConvertOptions,
-    convert_topology_from_xml_with_tll_and_vtypes, parse_sumo_network_xml, parse_vtypes_xml,
-    select_passenger_vtypes,
+    convert_static_from_xml_with_due, convert_topology_from_xml_with_tll_and_vtypes,
+    parse_due_routes_xml, parse_sumo_network_xml, parse_vtypes_xml, select_passenger_vtypes,
 };
 
 #[test]
@@ -69,6 +69,76 @@ fn fixture_topology_is_byte_deterministic() {
     assert_eq!(first.traffic, second.traffic);
     assert_eq!(first.spatial, second.spatial);
     assert_eq!(first.manifest, second.manifest);
+}
+
+#[test]
+fn fixture_due_parse_keeps_source_ordinals() {
+    let vehicles = parse_due_routes_xml(&fixture_due0_xml(), 0).expect("parse due0");
+    assert_eq!(vehicles.len(), 6);
+    assert_eq!(vehicles[0].id, "early");
+    assert_eq!(vehicles[0].source_file_ordinal, 0);
+    assert_eq!(vehicles[0].source_vehicle_ordinal, 0);
+    assert_eq!(vehicles[5].id, "late");
+    assert_eq!(vehicles[5].source_vehicle_ordinal, 5);
+}
+
+#[test]
+fn fixture_due_routes_and_population_round_trip() {
+    let artifacts = convert_static_from_xml_with_due(
+        &fixture_net_xml(),
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        [
+            &fixture_due0_xml(),
+            &fixture_due1_xml(),
+            &fixture_due2_xml(),
+        ],
+        &TopologyConvertOptions::default(),
+    )
+    .expect("static+due convert");
+    assert_eq!(artifacts.population_record_count, 3);
+    assert_eq!(artifacts.route_count, 2);
+    let traffic = String::from_utf8_lossy(&artifacts.topology.traffic);
+    assert!(traffic.contains("sumo:route-0"));
+    assert!(traffic.contains("sumo:west_0"));
+    assert!(traffic.contains("sumo::J_0_0") || traffic.contains("sumo::J_1_0"));
+    let population = String::from_utf8_lossy(&artifacts.population);
+    assert!(population.contains("\"populationRank\": 0"));
+    assert!(population.contains("west-east-a") || population.contains("west-south-b"));
+    assert!(population.contains("\"selectedCount\": 3"));
+    assert!(!population.contains("bus-in-window"));
+    assert!(!String::from_utf8_lossy(&artifacts.topology.manifest).contains("populationRank"));
+}
+
+#[test]
+fn fixture_due_population_is_byte_deterministic() {
+    let options = TopologyConvertOptions::default();
+    let first = convert_static_from_xml_with_due(
+        &fixture_net_xml(),
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        [
+            &fixture_due0_xml(),
+            &fixture_due1_xml(),
+            &fixture_due2_xml(),
+        ],
+        &options,
+    )
+    .expect("first");
+    let second = convert_static_from_xml_with_due(
+        &fixture_net_xml(),
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        [
+            &fixture_due0_xml(),
+            &fixture_due1_xml(),
+            &fixture_due2_xml(),
+        ],
+        &options,
+    )
+    .expect("second");
+    assert_eq!(first.topology.traffic, second.topology.traffic);
+    assert_eq!(first.population, second.population);
 }
 
 #[test]
@@ -139,6 +209,30 @@ fn fixture_vtypes_xml() -> String {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/minimal/vtypes.add.xml"),
     )
     .expect("read vtypes fixture")
+}
+
+fn fixture_due0_xml() -> String {
+    fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/minimal/local.static.0.rou.xml"),
+    )
+    .expect("read due0 fixture")
+}
+
+fn fixture_due1_xml() -> String {
+    fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/minimal/local.static.1.rou.xml"),
+    )
+    .expect("read due1 fixture")
+}
+
+fn fixture_due2_xml() -> String {
+    fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/minimal/local.static.2.rou.xml"),
+    )
+    .expect("read due2 fixture")
 }
 
 trait FromStrChecked {

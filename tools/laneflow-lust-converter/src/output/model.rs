@@ -65,7 +65,7 @@ pub(crate) struct ManeuverPath {
     pub exit_edge_id: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Route {
     pub id: String,
@@ -194,4 +194,37 @@ pub(crate) struct ArtifactDescriptor {
     pub media_type: &'static str,
     pub digest: String,
     pub size: u64,
+}
+
+/// Harness-only population table (not Traffic / Spatial / Manifest).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PopulationTable {
+    pub format_version: &'static str,
+    pub selection: PopulationSelection,
+    pub records: Vec<PopulationTableRecord>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PopulationSelection {
+    pub depart_start_seconds: &'static str,
+    pub depart_end_seconds_exclusive: &'static str,
+    pub require_lust_candidate_count: bool,
+    pub candidate_count_expected: Option<u64>,
+    pub selected_count: u64,
+    pub route_catalog_count: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PopulationTableRecord {
+    pub population_rank: u32,
+    pub vehicle_id: String,
+    pub vehicle_profile_id: String,
+    pub depart_seconds: String,
+    pub route_id: String,
+    pub road_edge_ids: Vec<String>,
+    pub source_file_ordinal: u8,
+    pub source_vehicle_ordinal: u64,
 }
