@@ -1,20 +1,20 @@
 //! Convert a parsed SUMO network into Traffic lane graph + Spatial centerlines.
 //!
-//! This slice emits empty junctions / movements / maneuverPaths / routes /
-//! vehicleProfiles / signals. Junction normalization and static signals land later.
+//! Emits Junction / Movement / ManeuverPath from §3.1 normalization.
+//! vehicleProfiles / signals / routes remain empty until later slices.
 
 use std::collections::HashMap;
 
 use crate::{
     Error, Result,
+    convert::junction::normalize_junctions,
     output::{
-        finish_topology_artifacts,
+        TopologyArtifacts, finish_topology_artifacts,
         json_bytes,
         model::{
             Centerline, LaneConnection, LaneEdge, LaneGraph, Parking, Signals, SpatialEdge,
             SpatialPackage, TrafficPackage, Units,
         },
-        TopologyArtifacts,
     },
     sumo::{LUST_FRAME_ID, SUMO_ID_PREFIX, SumoLane, SumoNetwork},
 };
@@ -23,7 +23,7 @@ const DEFAULT_FIXED_DELTA_MS: u64 = 16;
 const DEFAULT_TRAFFIC_REF: &str = "lust-topology.traffic.json";
 const DEFAULT_SPATIAL_REF: &str = "lust-topology.spatial.json";
 
-/// Options for topology-only conversion.
+/// Options for topology conversion (lane graph + junctions; no signals/profiles yet).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TopologyConvertOptions {
     pub fixed_delta_ms: u64,
@@ -44,7 +44,7 @@ impl Default for TopologyConvertOptions {
     }
 }
 
-/// Build validated topology-only Traffic/Spatial/Manifest bytes from a SUMO network.
+/// Build validated Traffic/Spatial/Manifest bytes from a SUMO network.
 pub fn convert_network_topology(
     network: &SumoNetwork,
     options: &TopologyConvertOptions,
@@ -90,6 +90,8 @@ pub fn convert_network_topology(
         targets.sort();
         targets.dedup();
     }
+
+    let (junctions, movements, maneuver_paths) = normalize_junctions(network)?;
 
     let mut lane_edges = Vec::with_capacity(network.lanes.len());
     let mut spatial_edges = Vec::with_capacity(network.lanes.len());
@@ -146,9 +148,9 @@ pub fn convert_network_topology(
             time: "second",
         },
         lane_graph: LaneGraph { edges: lane_edges },
-        junctions: Vec::new(),
-        movements: Vec::new(),
-        maneuver_paths: Vec::new(),
+        junctions,
+        movements,
+        maneuver_paths,
         routes: Vec::new(),
         vehicle_profiles: Vec::new(),
         signals: Signals {
@@ -205,7 +207,7 @@ fn resolve_lane<'a>(
 }
 
 fn ensure_lane_exists(network: &SumoNetwork, lane_id: &str) -> Result<()> {
-    if network.lanes.iter().any(|lane| lane.id == lane_id) {
+    if network.lane(lane_id).is_some() {
         Ok(())
     } else {
         Err(Error::SumoModel(format!(

@@ -28,9 +28,23 @@ fn fixture_topology_round_trips_loader_and_spatial() {
         String::from_utf8_lossy(&artifacts.traffic).contains("sumo:west_0"),
         "lane IDs must use sumo: namespace"
     );
+    let traffic = String::from_utf8_lossy(&artifacts.traffic);
     assert!(
-        String::from_utf8_lossy(&artifacts.traffic).contains("\"junctions\": []"),
-        "topology slice keeps junctions empty"
+        traffic.contains("\"id\": \"sumo:J\""),
+        "fixture must emit road junction sumo:J"
+    );
+    assert!(
+        traffic.contains("sumo:J:west-to-east"),
+        "fixture must emit west-to-east Movement"
+    );
+    assert!(
+        traffic.contains("sumo:J:west-to-south"),
+        "fixture must emit west-to-south Movement"
+    );
+    assert!(
+        traffic.contains("\"internalEdgeIds\": [\n        \"sumo::J_0_0\"\n      ]")
+            || traffic.contains("\"internalEdgeIds\": [\"sumo::J_0_0\"]"),
+        "fixture must emit ManeuverPath via :J_0_0"
     );
 }
 
