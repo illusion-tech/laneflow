@@ -241,18 +241,18 @@ jobs:
         shell: bash
         run: cargo +1.96.0 run -p laneflow-data --example parking_lifecycle --locked
 
-      - name: Check Core and Spatial benchmarks compile
+      - name: Build Core and Spatial benchmarks
         if: steps.filter.outputs.rust == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.96.0 check --locked -p laneflow-core --benches
-          cargo +1.96.0 check --locked -p laneflow-spatial --benches
+          cargo +1.96.0 build --locked -p laneflow-core --benches
+          cargo +1.96.0 build --locked -p laneflow-spatial --benches
 
-      - name: Check Bevy Adapter benchmarks compile
+      - name: Build Bevy Adapter benchmarks
         if: steps.filter.outputs.bevy == 'true'
         shell: bash
-        run: cargo +1.96.0 check --locked -p laneflow-bevy --benches
+        run: cargo +1.96.0 build --locked -p laneflow-bevy --benches
 
       - name: Skip heavy Rust checks for non-Rust paths
         if: steps.filter.outputs.rust != 'true'
