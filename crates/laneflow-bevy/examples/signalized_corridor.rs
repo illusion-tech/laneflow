@@ -2124,13 +2124,16 @@ mod tests {
         final_tick: u64,
     }
 
-    fn run_headless_soak(vehicles: usize, seed: u64, frames: u32) -> HeadlessSoakEvidence {
+    fn run_headless_soak(vehicles: usize, seed: u64, ticks: u32) -> HeadlessSoakEvidence {
         let bootstrap =
             load_corridor_runtime(&run_args(vehicles, seed)).expect("production bootstrap");
         let (mut app, entities) = headless_app(bootstrap);
         let mut max_pending = 0_usize;
-        for _ in 0..frames {
-            update_with_delta(&mut app, Duration::from_millis(128));
+        // 逐 16 ms fixed-step boundary 推进并采样 pending：completion 可能在单个
+        // step 内把 FIFO 推高、又在同一 outer frame 的后续 step 被 retry 降回，
+        // 按 128 ms outer frame 采样会漏掉这种 step 粒度峰值。
+        for _ in 0..ticks {
+            update_with_delta(&mut app, Duration::from_millis(16));
             let session = app.world().resource::<LaneFlowSession>();
             assert!(
                 session.last_error().is_none(),
@@ -2172,12 +2175,13 @@ mod tests {
 
     #[test]
     fn headless_soak_200_recycles_population_with_bounded_pending_fifo() {
-        // 3_750 个 128 ms outer frame 在 16 ms fixed quantum 下恰好推进 30_000 tick，
+        // 逐 16 ms fixed-step boundary 推进 30_000 tick 并逐步采样 pending，
         // 覆盖 native GUI smoke 观察到 entry pending 20 的 tick 24_631 horizon。
-        // 实测本回放：completed 407、replaced 382、blocked 253_690、pending 峰值 27、
-        // 终态 pending 25 —— 入口饱和后 pending 在数十量级稳定波动，结构设计边界
-        //（pending ≤ target = 200，由 run_headless_soak 逐帧断言）始终成立。
-        let evidence = run_headless_soak(200, 0, 3_750);
+        // 逐 step 实测本回放：completed 407、replaced 382、blocked 253_690、
+        // pending 峰值 27（与帧粒度一致，证明无 step 内隐藏峰值）、终态 pending 25
+        // —— 入口饱和后 pending 在数十量级稳定波动，结构设计边界
+        //（pending ≤ target = 200，由 run_headless_soak 逐步断言）始终成立。
+        let evidence = run_headless_soak(200, 0, 30_000);
         assert_eq!(evidence.final_tick, 30_000);
         assert!(evidence.completed > 0, "soak must observe completions");
         assert!(evidence.replaced > 0, "soak must observe replacements");
@@ -2191,8 +2195,8 @@ mod tests {
             "every completion is either replaced or still pending"
         );
         assert!(evidence.max_pending > 0, "pending FIFO must be exercised");
-        // 经验浅队列上界：实测峰值 27，取 64（2.4 倍余量）锁死“饱和后 pending
-        // 不随运行时长持续增长”的契约。
+        // 经验浅队列上界：逐 step 实测峰值 27，取 64（2.4 倍余量）锁死“饱和后
+        // pending 不随运行时长持续增长”的契约。
         assert!(
             evidence.max_pending <= 64,
             "pending FIFO must stay shallow relative to the 200-slot structural bound, got {}",
@@ -2202,12 +2206,12 @@ mod tests {
 
     #[test]
     fn stress_seed_matrix_keeps_population_stable_through_real_recycling() {
-        // 每个 (规模, seed) 组合运行 5_000/8_000 tick（128 ms outer frame = 8 个 16 ms tick），
-        // 足以让首批车辆完成 route 并真实回流；运行期不变量在 run_headless_soak 内逐帧断言。
-        for (vehicles, frames) in [(50, 625), (100, 625), (200, 1_000)] {
+        // 每个 (规模, seed) 组合逐 16 ms step 推进 5_000/8_000 tick 并逐步采样；
+        // 足以让首批车辆完成 route 并真实回流；运行期不变量在 run_headless_soak 内逐步断言。
+        for (vehicles, ticks) in [(50, 5_000), (100, 5_000), (200, 8_000)] {
             for seed in [0, 7, 42, 101] {
-                let evidence = run_headless_soak(vehicles, seed, frames);
-                assert_eq!(evidence.final_tick, u64::from(frames) * 8);
+                let evidence = run_headless_soak(vehicles, seed, ticks);
+                assert_eq!(evidence.final_tick, u64::from(ticks));
                 assert!(
                     evidence.completed > 0 && evidence.replaced > 0,
                     "{vehicles} vehicles seed {seed} must observe real recycling"
@@ -2217,9 +2221,9 @@ mod tests {
                     evidence.replaced + evidence.final_pending as u64,
                     "{vehicles} vehicles seed {seed}: every completion is either replaced or still pending"
                 );
-                // 结构边界 pending ≤ target 由 run_headless_soak 逐帧断言。
-                // 本矩阵为 ≤ 8_000 tick 中程运行，12 个组合实测 max_pending 最大为 5
-                //（200 seed 42 高拥堵）；经验上界 16 为实测 3.2 倍余量。
+                // 结构边界 pending ≤ target 由 run_headless_soak 逐步断言。
+                // 逐 step 采样后 12 个组合实测 max_pending 最大为 6（200 seed 42
+                // 高拥堵）；经验上界 16 为实测 2.7 倍余量。
                 // 更长 horizon 的 200 车峰值证据由 headless_soak_200（30_000 tick）承担。
                 assert!(
                     evidence.max_pending <= 16,
