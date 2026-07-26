@@ -18,6 +18,7 @@
 - `spatial-geometry.md`：v0.6 引擎无关的坐标框架、折线中心线、长度绑定、采样、制品配对与批量位姿提取。
 - `lane-graph.md`：车道图、连接关系、拓扑约束。
 - `road-junction-model.md`：#228 Accepted 的长期 Road/Junction/Maneuver 分层与 v0.9 最小静态 profile；冻结 Junction/Movement/ManeuverPath owner、一等 ManeuverGate、Route occurrence、Traffic v0.8 target、确定性与性能边界。
+- `cross-section-access.md`：#234 Accepted 的多模式横断面与准入分层；冻结 RoadCorridor 横断面唯一 owner、RoadSection/LaneGroup/FacilityBand 关系、整边界级横向边界锚点（含 corridor 接缝）、FacilityKind/ParticipantClass/AccessRule 分层、确定性组合语义、validation 相序与 #262 最小 production 边界。
 - `signalized-corridor-protected-turning.md`：#196 Accepted 的 v0.9 双路口受保护转向 profile；冻结 lane assignment、32 条 ManeuverPath、28 条 Route、catalog 0.2、四组 12-phase signal program、安全矩阵与验收边界；#190 当前交付 profile artifacts、scenario policy 与 native 最小集成。
 - `route-system.md`：路线选择、路径跟随、目标点。
 - `vehicle-following.md`：前车避让、速度控制和安全距离。
