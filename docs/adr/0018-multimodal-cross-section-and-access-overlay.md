@@ -44,7 +44,10 @@ production 化之前拥有明确 SSOT。
 一等实体引用，二选一：方向性、承载车道的 `RoadSection`，或非方向、非遍历的
 `FacilityBand`。元素按 corridor 声明的参考方向（`referenceSectionId`）从左到右
 排列，与 Spatial 的正横向偏移约定一致；同一 corridor 的 `elements[]` 内不得
-重复引用同一元素（唯一有序序列定义的直接推论）。
+重复引用同一元素（唯一有序序列定义的直接推论）。corridor 所有元素纵向共延伸
+（覆盖同一纵向区段）是接缝边界整边界语义的前提；与同向不变量同类，无横向
+几何/stationing 时不可由 Core 校验，由 authoring 保证、tooling 与横向几何 G1
+补强。
 
 RoadCorridor 遵循 JunctionGroup 先例：结构组合，非行为实体——不拥有 route
 planner、conflict solver、controller clock 或 runtime availability。横断面只冻结
@@ -52,7 +55,11 @@ planner、conflict solver、controller clock 或 runtime availability。横断�
 
 ### 2. RoadSection/LaneGroup 获得生产语义，设施带不伪装成 LaneEdge
 
-- RoadSection：有方向，`lanes[]` 按 lateral index 排序（index 0 = 行驶方向最左），
+- RoadSection：有方向，`lanes[]` 按 lateral index 排序，index 框架是
+  **corridor reference 方向**（index 0 = reference 方向最左，与 OpenDRIVE
+  相对参考线编号同构）而非各 section 自己的行驶方向——成员 section 可能与
+  reference 反向行驶，各自行驶方向系会让接缝邻居派生依赖 Core 无法获知的
+  方向关系；统一 reference 系后派生零方向数据、构造性确定。
   每条 lane 是连续 LaneEdge 链；一条 LaneEdge 至多属于一条 lane，同一 lane 链内
   也不得重复；lane index 顺序与 corridor elements 顺序共同构成未来 lane
   adjacency 的事实源。**横向边界锚点 v1 是整边界级的**，分两层：section 内
@@ -158,11 +165,13 @@ Traffic `0.8 -> 0.9`，Spatial/Manifest 保持 `0.1`。
   意义，必须防止半成品语义被当作已生效。
 - 横断面只有顺序没有宽度，presentation 的横向布局质量仍依赖 Adapter 自有
   假设，直到横向几何 G1。
-- 同向不变量 v1 不可由 Core 校验：平行 lane 链间无共享参考系，链方向即其
-  自身 traversal 方向，Core 无法确定性区分同向与反向链。错误 authoring 会
-  被静默接受并在 runtime 表现为对向邻接。缓解路径：generator 几何感知生成
-  保证同向、离线 tooling 校验（比对绑定中心线 heading）、横向几何 G1 后补
-  normalization 校验钩子；hand-authored 数据承担该残余风险（§3.2 已声明）。
+- 同向不变量与 corridor 元素纵向共延伸不变量 v1 都不可由 Core 校验：平行
+  lane 链间无共享参考系，链方向即其自身 traversal 方向；元素纵向范围无
+  stationing 可度量（FacilityBand 甚至没有纵向数据）。错误 authoring 会被
+  静默接受并在 runtime 表现为对向邻接或错位接缝。缓解路径：generator 几何
+  感知生成保证两者、离线 tooling 校验（比对绑定中心线 heading/范围）、横向
+  几何 G1 后补 normalization 校验钩子；hand-authored 数据承担该残余风险
+  （§3.1/§3.2 已声明）。
 
 ## 被拒绝的替代方案
 
@@ -217,6 +226,13 @@ RoadSection 作为结构分段的语义、破坏"横向组成变化即 section �
 方向字段没有独立的校验锚点：lane 链方向即其自身 traversal 方向，平行链间无
 共享参考系，字段只是重复声明 authoring 意图，Core 无法将其与链结构交叉验证，
 只会制造虚假的可校验感并增加一处可漂移的事实，因此拒绝。
+
+### corridor 成员记录显式 orientation（same/opposite）字段
+
+该字段不是可校验数据，只是第三处可漂移的 declaration：cross-section 顺序与
+lane index 顺序本身就是声明，方向关系无法与任何结构交叉验证。把 lane index
+框架统一定义为 corridor reference 方向后，接缝邻居派生构造性确定、零新增
+数据，因此拒绝 orientation 字段。
 
 ### 缺少几何证明时拒绝构造 RoadSection
 

@@ -116,6 +116,11 @@ RoadCorridor
 - 同一 corridor 的 `elements[]` 内不得重复引用同一 section/band——cross-section
   是唯一有序横向序列，重复引用会让同一元素占据两个横向位置，与 §2.2 定义
   矛盾。
+- **纵向共延伸不变量**：corridor 的所有元素覆盖同一纵向区段——接缝边界
+  （§3.2.1）的整边界语义以此为准。与同向不变量同类：没有横向几何与
+  stationing，Core 无法度量或比较元素的纵向范围（FacilityBand 甚至没有
+  纵向数据），该不变量由 authoring 保证，几何校验由 tooling 或横向几何
+  G1 补强，不进入 v1 Core validation。
 - 不拥有单一 conflict solver、SignalController clock、route planner 或 runtime
   availability。
 
@@ -140,8 +145,13 @@ lane
 
 规则：
 
-- lane index 0 是沿行驶方向最左侧车道；lane adjacency（#237 消费）的唯一事实源
-  是该 index 顺序，与 LaneGroup 无关。
+- lane index 按 **corridor reference 方向**从左到右排序（index 0 = reference
+  方向最左），而不是按各 section 自己的行驶方向：成员 section 可能与
+  reference 反向行驶，若以各自行驶方向定 index，接缝邻居派生（§3.2.1）将
+  依赖 Core 无法获知的方向关系。统一 reference 系后，反向 section 的 index
+  顺序相对其行驶方向反转，但任何 section 的"reference 系最外侧 lane"都
+  无需方向数据即确定性可得（与 OpenDRIVE 相对参考线编号同构）。lane
+  adjacency（#237 消费）的事实源是该 index 顺序，与 LaneGroup 无关。
 - lane 的 edge 链内相邻 edge 必须存在 LaneGraph directed connection（链是沿纵向
   的连续 traversal）。各 lane 的切分点独立，无跨 lane 对齐要求——没有横向几
   何，Core 无法定义或校验跨 lane 的纵向段对应（段数相等不等于纵向对齐，
@@ -151,12 +161,12 @@ lane
   （如 `[A, B, A]`）——重复 edge 会让同一物理 edge 占据同一 lane 的两个纵向
   位置，占用/锚定语义自相矛盾。
 - RoadSection 的方向由其 lane edge 链的方向派生，不存储方向字段。**同向不变
-  量**：同一 section 的所有 lane 链必须同向行驶——反向链会让
-  "lane index 0 = 行驶方向最左"在 section 内自相矛盾，corridor 的
-  referenceSectionId 也无法定义左右。该不变量由 authoring 保证：Core 无横向
-  几何，无法在 normalization 确定性地区分同向与反向链（平行车道间通常无
-  directed connection 可供判别）；几何感知的离线校验（如比对绑定中心线的
-  heading）由 tooling 或横向几何 G1 补强，不进入 v1 Core validation。
+  量**：同一 section 的所有 lane 链必须同向行驶——反向链会让 section 方向
+  派生自相矛盾（同一 section 两个行驶方向），lane index 的 reference 系语义
+  也无法统一。该不变量由 authoring 保证：Core 无横向几何，无法在
+  normalization 确定性地区分同向与反向链（平行车道间通常无 directed
+  connection 可供判别）；几何感知的离线校验（如比对绑定中心线的 heading）
+  由 tooling 或横向几何 G1 补强，不进入 v1 Core validation。
 - RoadSection 引用 edge，不复制 length、connection 或 speed limit；LaneEdge 继续
   只由 LaneGraph 拥有。
 - section 边界是 authoring 语义：横向组成（车道数、设施带、分隔形式）发生变化的
@@ -170,8 +180,10 @@ lane
   唯一标识（lane index 顺序构造保证）。
 - **corridor 接缝边界**：相邻元素 `elements[j-1]` 与 `elements[j]` 之间的
   边界由 `(RoadCorridor, j)` 唯一标识（elements 顺序构造保证）。接缝两侧的
-  横向邻居由元素顺序确定性派生：section 元素贡献其按 reference 方向的最外侧
-  lane，FacilityBand 元素作为非遍历侧参与接缝（如路缘/分隔带标线锚点）。
+  横向邻居由元素顺序确定性派生：section 元素贡献其 index 序最外侧 lane
+  （lane index 已按 corridor reference 方向排序，§3.2，派生不需要任何方向
+  数据），FacilityBand 元素作为非遍历侧参与接缝（如路缘/分隔带标线锚点）。
+  接缝的整边界语义以 §3.1 纵向共延伸不变量为前提（authoring 保证）。
   接缝锚点是完整横断面邻接图的必要组成：`kindId` 在 section 级，跨 kind
   相邻（如 motorLane section 与 nonMotorLane section 的接缝）必然跨 section，
   只有 section 内锚点无法表达这类物理边界。
@@ -657,12 +669,13 @@ no-allocation 测试矩阵。
 #234 与 #237 保持独立 G1（接口共设计，不合并）。本文向 #237 提供以下**冻结
 保证**，#237 的 G1 只做契约校验，不得重复冻结：
 
-1. **相邻事实源**：RoadSection 的 lane index 顺序（lane `i` 与 `i ± 1` 相邻，
-   与 LaneGroup 无关）+ RoadCorridor 的 elements 顺序（相邻元素互为横向
-   邻居）（§3.2/§3.2.1）。
+1. **相邻事实源**：RoadSection 的 lane index 顺序（按 corridor reference
+   方向排序，lane `i` 与 `i ± 1` 相邻，与 LaneGroup 无关）+ RoadCorridor
+   的 elements 顺序（相邻元素互为横向邻居）（§3.2/§3.2.1）。
 2. **边界锚点**：`(RoadSection, 相邻 lane 对)` 标识 section 内横向边界，
    `(RoadCorridor, 相邻元素对)` 标识 corridor 接缝边界，均为整边界级
-   （§3.2.1）；段级锚定 `(section, lane 对, 段 k)` 依赖跨 lane 共享纵向分段，
+   （§3.2.1）；接缝语义以 corridor 元素纵向共延伸（authoring 保证，§3.1）
+   为前提；段级锚定 `(section, lane 对, 段 k)` 依赖跨 lane 共享纵向分段，
    整体推迟到横向几何 G1，#237 首版不得依赖段级边界 identity。
 3. **overlay 模式**：ParticipantClass 层级匹配、AccessRule 五元与确定性组合
    （§5、§6），变道许可、动态车道用途、lane-use state 的参与者/时段例外复用
@@ -698,9 +711,10 @@ no-allocation 测试矩阵。
 
 - `RoadCorridor` 作为横断面唯一 owner 的非方向性结构组合；方向性 RoadSection
   保留为车道承载单元；横向边界全集 = section 内边界 `(section, i)` + corridor
-  接缝边界 `(corridor, j)`，均为整边界级锚点（§3.2.1）；
-- RoadSection 的 ordered lanes + edge 链 + 单 section 归属 + 同向不变量；
-  LaneGroup 为可选命名分组，不影响 lane 顺序；
+  接缝边界 `(corridor, j)`，均为整边界级锚点（§3.2.1）；元素纵向共延伸为
+  authoring 语义（§3.1）；
+- RoadSection 的 corridor reference 系 ordered lanes + edge 链 + 单 section
+  归属 + 同向不变量；LaneGroup 为可选命名分组，不影响 lane 顺序；
 - FacilityBand 非遍历、非 LaneEdge；FacilityKind seed + `x-` 开放词汇只承载
   物理设施身份；
 - ParticipantClass 数据声明、单继承、Core 无内置类；VehicleProfile 单引用；
