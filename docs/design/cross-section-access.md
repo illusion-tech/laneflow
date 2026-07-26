@@ -394,8 +394,10 @@ lane 成员展开）。edge 平面规则在 normalization 消解为
 path 的完整连续匹配）适用，**不展开为 edge**。ADR 0017 允许不同 path 共享 entry
 transition 与 internal edge，若把 path 规则展平进 per-edge 表，`deny truck @
 左转 path` 会误伤共享 edge 上合法的直行/右转 traversal。path 平面规则在
-normalization 编译为 per-path rule refs，在 (class, Route) 绑定时对该 Route 的
-全部 Maneuver occurrence 求值。
+normalization 与 edge 平面同构地消解为 `(path, class) -> effect` resolved 表
+（参与者/优先级组合裁决一次完成，§6.4）；occurrence 语义保留在绑定期——
+(class, Route) 绑定时对该 Route 的 pending occurrence 逐个 O(1) 查表，
+不在绑定期做任何层级匹配或组合裁决。
 
 target specificity 排序（仅用于 edge 平面内组合；path 平面只有单一 target 类型，
 不参与跨平面比较）：
@@ -516,10 +518,11 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
 - Normalized storage 沿用 road-junction-model §5 的 flat 形状：dense definitions、
   flat member handles + per-parent range、flat edge handles + per-lane range。
 - ParticipantClass 层级在 normalization 编译为 per-class descendants bitset；
-  edge 平面 AccessRule 的组合裁决（§6.4）在 normalization 期**完全消解**为
-  `(edge, class) -> effect` 的 resolved 表，path 平面规则编译为 per-path
-  rule refs 供绑定时 occurrence 校验（route-shared，不按 vehicle 复制）；
-  steady tick 不做 external-ID lookup、字符串匹配、层级匹配或组合裁决。
+  两个平面 AccessRule 的组合裁决（§6.4）都在 normalization 期**完全消解**——
+  edge 平面为 `(edge, class) -> effect`、path 平面为 `(path, class) -> effect`
+  的 resolved 表（route-shared，不按 vehicle 复制）；绑定期对 edge 与 pending
+  occurrence 只做 O(1) 查表，steady tick 不做 external-ID lookup、字符串匹配、
+  层级匹配或组合裁决。
 
 ## 8. Authority 矩阵
 
@@ -663,13 +666,13 @@ Core constructors/normalization 报告（ADR 0007 分层不变）。
   path 得到相同 handle allocation、iteration、first-error attribution 与运行结果；
   input permutation 只改变 raw handle 数值与迭代顺序，不改变 external-ID 对齐的
   语义等价。
-- class bitset、edge 平面 resolved effect 表、path 平面 per-path rule refs 与
-  member ranges 在 normalization 一次编译，(class, Route) 绑定时只做查表与
-  occurrence 比对；vehicle tick 不查字符串、不匹配层级、不做组合裁决、
-  不扫描全局 rule catalog、不做 per-vehicle allocation。
-- edge 平面组合裁决只发生在 normalization：对每条 edge 与其 class 集合预计算
-  §6.4 的字典序结果，形成 `(edge, class) -> effect` resolved 表；绑定时对任意
-  (class, edge) 的准入判断是一次 O(1) 查表。
+- class bitset、edge 平面 `(edge, class)` 与 path 平面 `(path, class)`
+  resolved effect 表、member ranges 在 normalization 一次编译，(class, Route)
+  绑定时只做查表与 occurrence 比对；vehicle tick 不查字符串、不匹配层级、
+  不做组合裁决、不扫描全局 rule catalog、不做 per-vehicle allocation。
+- 两个平面的组合裁决都只发生在 normalization：edge 平面对每条 edge、path
+  平面对每条 path，与其 class 集合预计算 §6.4 的字典序结果；绑定时对任意
+  (class, edge) 或 (class, pending occurrence) 的准入判断是一次 O(1) 查表。
 - 时变规则按全部 timeWindow 边界把 simulation day/week 切成确定性 time
   segment。冻结的是**语义契约**而非表示：normalization 期全量预编译、任意
   segment 的 `(edge, class)` 准入查询保持 O(1)、窗口切换是预定 sim-time 的
@@ -776,7 +779,8 @@ no-allocation 测试矩阵。
   拒绝（无 deny-overrides 兜底）+ 跨平面合取；
 - 准入 overlay 只引用、不复制 ManeuverPath，保持 ADR 0017 全局 traversal
   coherence；
-- edge 平面组合裁决 normalization 期消解为 resolved effect 表，时变规则按
+- edge/path 两平面组合裁决都在 normalization 期消解为 resolved effect 表
+  （`(edge, class)` / `(path, class)`），时变规则按
   time segment 切换 segment 索引结构（共享未变条目，禁止全量物化），tick
   O(1) 查表；
 - Traffic `0.8 -> 0.9` 原子 clean-break；Spatial/Manifest 保持 `0.1`；
