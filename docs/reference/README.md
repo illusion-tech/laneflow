@@ -55,3 +55,5 @@
 - `v0.8-signalized-corridor-closure-review.md`：#195 对 v0.8 直行信号化走廊治理、制品、道路限速、双信号控制、50–200 人口、确定性回流、native 证据、安全与兼容边界的最终独立收口基线。
 - `v0.9-protected-turning-native-validation.md`：#190 protected-left / straight / protected-right native example 的 targeted headless 与 Windows 本机 smoke 证据。
 - `v0.9-protected-turning-native-smoke.png`：#190 本机运行 `signalized_corridor` 默认 100 vehicles / seed 0 并通过 `F12` 保存的窗口内渲染截图。
+- `v0.9-cross-layer-validation.md`：#191 的 50/100/200 人口、stress seeds、回流与生命周期、chunking replay、灯具一致性、speed×signal、制品长度绑定与性能/有界性统一 cross-layer 证据。
+- `v0.9-cross-layer-native-smoke-50.png` / `v0.9-cross-layer-native-smoke-100.png` / `v0.9-cross-layer-native-smoke-200.png`：#191 本机运行 50/100/200 vehicles / seed 0 并通过 `F12` 保存的窗口内渲染截图。
