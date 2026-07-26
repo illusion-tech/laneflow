@@ -1,7 +1,7 @@
 # Road / Junction / Maneuver 静态模型
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-07-25<br>
+**最后更新**: 2026-07-26<br>
 **适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态生产化 profile、ManeuverGate、Route occurrence、Traffic v0.8、确定性与性能边界<br>
 **实现状态**: #229 已实现 Traffic v0.8、Junction/Movement/ManeuverPath registry、
 Route occurrence compiler 与一等 ManeuverGate；#196 protected-turning profile 继续是后续消费边界
@@ -18,7 +18,9 @@ Route occurrence compiler 与一等 ManeuverGate；#196 protected-turning profil
 - `../adr/0011-schema-identifier-and-publication-contract.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
+- `../adr/0018-multimodal-cross-section-and-access-overlay.md`
 - `lane-graph.md`
+- `cross-section-access.md`
 - `route-system.md`
 - `signal-system.md`
 - `vehicle-following.md`
@@ -80,7 +82,7 @@ LaneEdge 不自动等于道路、Junction、Movement 或 ManeuverPath。
 
 ### 2.2 RoadSection
 
-RoadSection 是未来有方向的道路结构分段，用于表达：
+RoadSection 是有方向的道路结构分段，用于表达：
 
 - 稳定的道路级上游/下游边界；
 - 同一方向的 ordered lanes；
@@ -88,14 +90,19 @@ RoadSection 是未来有方向的道路结构分段，用于表达：
 - lane adjacency / lane change 的结构 owner。
 
 RoadSection 不是 Route，不决定车辆当前 path，也不复制 LaneEdge 的 length 或
-connection。v0.9 只冻结术语，不引入 `RoadSectionHandle`、Core registry 或 Traffic
-array。
+connection。其生产语义（ordered lanes、edge 链、单 section 归属、与横断面 owner
+RoadCorridor 的关系）已由 #234 在
+[`cross-section-access.md`](cross-section-access.md) §3.2 冻结；Core registry、
+handle 与 Traffic array 仍待其最小 production Issue 实现。
 
 ### 2.3 LaneGroup
 
-LaneGroup 是 RoadSection 内可选的 authoring/组织概念，可用于表达一组共享用途或
-方向的 lanes。它不是 v0.9 Core root entity。未来是否需要独立 handle、是否与
-RoadSection 一对多、以及如何进入 lane-change policy，必须由后续 G1 冻结。
+LaneGroup 是 RoadSection 内可选的命名分组，可用于表达一组共享用途的 lanes。
+它不是 Core root entity，但 #234 已在
+[`cross-section-access.md`](cross-section-access.md) §3.3 冻结其生产语义：
+一等 external ID/handle、child-owned 归属恰好一个 RoadSection、不影响 lane
+顺序；lane adjacency 的唯一事实源仍是 RoadSection 的 lane index。如何进入
+lane-change policy 由 #237 在该 SSOT 上冻结。
 
 ### 2.4 Junction
 
@@ -938,14 +945,14 @@ PR + final Delivery PR 的两阶段流程，但 Issue/PR 必须显式记录，�
 
 ### 17.1 RoadSection 与 lane change
 
-未来 production RoadSection 必须单独冻结：
+RoadSection 的生产语义（section 的 ordered lane membership、LaneEdge chain 与
+section 的关系、schema 版本边界）已由 #234 在
+[`cross-section-access.md`](cross-section-access.md) 冻结，其最小 production
+Issue 负责实现。以下各项仍需独立冻结：
 
-- section boundary；
-- ordered lane membership；
-- LaneEdge chain 与 section 的关系；
 - Movement from/to section endpoints；
-- lane adjacency、lane-change plan 与 resolved lane plan；
-- schema migration 和性能影响。
+- lane adjacency、lane-change plan 与 resolved lane plan（#237，消费 #234 SSOT）；
+- 横向几何（宽度、偏移）与性能影响。
 
 不得在 #229 以未验证 string placeholder 代替该设计。
 
