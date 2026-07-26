@@ -545,25 +545,30 @@ schema 为准，语义不得偏离：
 内按 input order 返回首错，任一错误不得发布部分 registry：
 
 1. ParticipantClass：ID syntax/duplicate、unknown `extendsId`、继承环；
-2. FacilityBand：ID syntax/duplicate、unknown kindId、kind 类别错误；
-3. LaneGroup identity：ID syntax/duplicate、unknown roadSectionId（先于
+2. VehicleProfile：unknown `participantClassId`（依赖 phase 1 的 class identity
+   解析结果；profile 其余字段校验沿用现有 pipeline，本设计不新增）；
+3. FacilityBand：ID syntax/duplicate、unknown kindId、kind 类别错误；
+4. LaneGroup identity：ID syntax/duplicate、unknown roadSectionId（先于
    RoadSection 成员检查，否则 lane 的 `laneGroupId` 无法无歧义解析）；
-4. RoadSection：ID syntax/duplicate、unknown/non-lane-bearing kindId、empty
+5. RoadSection：ID syntax/duplicate、unknown/non-lane-bearing kindId、empty
    lanes、empty lane chain、unknown edge、chain 内 disconnected transition、
    同一 edge 出现在多条 lane/多个 section、unknown laneGroupId、lane 引用
    group 的 `roadSectionId` 与该 lane 所属 section 不一致；
-5. LaneGroup membership：empty group（无 lane 引用），在 lane 成员关系已知后
+6. LaneGroup membership：empty group（无 lane 引用），在 lane 成员关系已知后
    检查；
-6. RoadCorridor：ID syntax/duplicate、unknown element 引用、同一 section/band
+7. RoadCorridor：ID syntax/duplicate、unknown element 引用、同一 section/band
    出现在多个 corridor、section/band 零归属（§3.1 完备 owner 树）、
    referenceSectionId 不是成员 section、empty elements；
-7. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
-   timeWindow shape（days 空集、分钟越界、start == end）、`regulation`
+8. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
+   capability guard（FacilityBand target 或声明 timeWindows 的规则返回
+   capability-unavailable 并拒绝载入；guard 依赖 target 已解析，故在 unknown
+   检查之后；guard 先于 shape/组合检查——能力整体拒绝后其内部细节校验无
+   意义）、timeWindow shape（days 空集、分钟越界、start == end）、`regulation`
    provenance 混合（声明了 regulation 的规则不共享同一
    `(jurisdiction, version)`）、按平面与 time segment 分别检查 §6.4
    第 4 步的残留组合歧义（edge 平面按 (segment, edge, class)，path 平面按
    (segment, path, class)，含 always-active segment）；
-8. 构造 dense storage、member ranges、class bitset 与 resolved effect 表。
+9. 构造 dense storage、member ranges、class bitset 与 resolved effect 表。
 
 Schema 只校验 syntax/shape/range；owner、reference、containment、组合歧义由
 Core constructors/normalization 报告（ADR 0007 分层不变）。
@@ -591,7 +596,7 @@ Core constructors/normalization 报告（ADR 0007 分层不变）。
 
 | 层                 | Target 影响                                                           | 本 Issue 变更 | 后续 owner       |
 | ------------------ | --------------------------------------------------------------------- | ------------- | ---------------- |
-| Core API           | 新增 5 类 handle/resolver/registry；(class, Route) 绑定期准入校验     | 无（设计）    | production Issue |
+| Core API           | 新增 6 类 handle/resolver/registry；(class, Route) 绑定期准入校验     | 无（设计）    | production Issue |
 | LaneGraph          | 不变；edge 成员关系由 RoadSection 引用反查                            | 无            | —                |
 | Route              | 保持 class-agnostic；绑定期增加静态准入与 occurrence 级 path 规则校验 | 无            | production Issue |
 | Traffic Data       | exact-current `0.9` 新 arrays + profile 必填字段                      | 无            | production Issue |

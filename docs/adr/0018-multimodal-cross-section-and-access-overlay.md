@@ -146,7 +146,7 @@ Traffic `0.8 -> 0.9`，Spatial/Manifest 保持 `0.1`。
 
 ### 代价与风险
 
-- Core 增加五个 handle domain 与 registry；Traffic 再次原子迁移（0.8 -> 0.9）。
+- Core 增加六个 handle domain 与 registry；Traffic 再次原子迁移（0.8 -> 0.9）。
 - RoadSection 的 lane edge 链与 LaneGraph connection 的双重一致性增加
   normalization 校验面。
 - 时变准入的 runtime 语义被显式推迟；在其 G1 前，timeWindows 只有静态数据
