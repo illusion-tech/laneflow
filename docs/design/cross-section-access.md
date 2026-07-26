@@ -580,8 +580,18 @@ schema 为准，语义不得偏离：
 
 ## 10. Validation 与 first-error
 
-在现有 lane graph / Junction / Signals phase 之后，按以下 phase order，同 phase
-内按 input order 返回首错，任一错误不得发布部分 registry：
+新校验 phase 按数据依赖分两段插入 canonical loader 顺序（`data-loading.md`：
+profiles → lane graph → Junction → Signals → Parking → Routes）：
+
+- **profile 域段**（下表 phase 1–2）：随 `normalize_profiles` 一并完成，在
+  lane graph 之前——ParticipantClass 与 profile 的 class 引用不依赖任何
+  拓扑，放在拓扑 phase 之后会让 class/profile 错误与拓扑错误的首错顺序
+  背离 canonical 顺序；
+- **拓扑依赖段**（phase 3–10）：在现有 lane graph / Junction / Signals
+  phase 之后——RoadSection 需解析 LaneGraph edge，AccessRule 需解析
+  Junction ManeuverPath 与 lane/section 成员。
+
+同 phase 内按 input order 返回首错，任一错误不得发布部分 registry：
 
 1. ParticipantClass：ID syntax/duplicate、unknown `extendsId`、继承环；
 2. VehicleProfile：unknown `participantClassId`（依赖 phase 1 的 class identity
