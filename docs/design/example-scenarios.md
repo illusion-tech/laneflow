@@ -1,7 +1,7 @@
 # 示例场景设计
 
 **文档状态**: Accepted（#184 G1；#196 v0.9 增量）<br>
-**最后更新**: 2026-07-25<br>
+**最后更新**: 2026-07-26<br>
 **适用范围**: v0.8 Signalized Corridor 基线，以及 current v0.9
 protected-turning 制品、启动配置、人口和车辆回流入口
 
@@ -10,6 +10,16 @@ protected-turning 制品、启动配置、人口和车辆回流入口
 - [`../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`](../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md)
 - [`../adr/0015-bounded-f32-canonical-spatial-frames.md`](../adr/0015-bounded-f32-canonical-spatial-frames.md)
 - [`../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`](../adr/0016-scenario-population-and-recycle-lifecycle-authority.md)
+
+**关联设计**:
+
+- [`signalized-corridor-population.md`](signalized-corridor-population.md)：走廊
+  `50..=200` caller-owned reference policy。
+- [`lust-bevy-population-control.md`](lust-bevy-population-control.md)：LuST/Bevy
+  示例层 1–10k 调节契约（#256）；**不**扩展本走廊人口上限，也不把 LuST 滑杆语义
+  写回本文件。
+- [`real-road-workloads.md`](real-road-workloads.md)：LuST static / TOPO / DEMAND
+  权威。
 
 ## 1. 目标与交付边界
 
