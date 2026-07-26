@@ -17,8 +17,9 @@ TOPO/DEMAND workload ID
 
 ## 1. 目的与边界
 
-本文冻结 LuST/Bevy 示例层如何把共享的精确 10k `population_rank` 人口表调节到
-`target_N∈[1,10000]`，以及 HUD/证据必须暴露哪些正交计数。
+本文冻结 LuST/Bevy 示例层如何把 TOPO plan 的 10k `logical_rank` placement
+调节到 `target_N∈[1,10000]`，以及 HUD/证据必须暴露哪些正交计数。共享
+`population_rank` 表仍是 provenance 输入，但不是 placement 权威。
 
 权威分层继承 ADR 0016：
 
@@ -63,13 +64,21 @@ HUD 与 headless 证据必须同时可读：
 
 ### 3.2 受约束 H2（运行中改目标）
 
-- 运行中允许修改 `target_N`。
+- 运行中允许 **降低或保持** `target_N`。
 - 收敛只发生在 **fixed-step lifecycle boundary**（ADR 0016 顺序：pending
   commands → Core step → completions → 下一 boundary 的计划），不得按
   outer-frame 次数偷改。
-- **扩编**：对尚未入选的 `population_rank` 继续 seeded 无放回抽样，补足差额；
-  仅使用现有 Core spawn / Adapter bind 路径。
-- **缩编**：见第 5 节。
+- **缩编**：见第 5 节；在目标内的回流/替换仅使用现有
+  `replace_completed_vehicle`（Session 只读 `core()` + Adapter 组合事务）。
+- **提高 `target_N`（扩编）禁止在 Running Session 内 live-spawn**。
+  现有 Bevy public surface 没有 typed Session spawn：`LaneFlowSession::core()`
+  只暴露 `&CoreWorld`，`bind_vehicle_entity` 只绑定已存在车辆，Adapter
+  lifecycle 仅有 completed-vehicle replace。扩编必须走 **H1 重建 session**
+  （销毁当前 Session，按第 4/6 节用初始 batch 重建 `CoreWorld` 后再挂 Session），
+  与走廊两阶段 bootstrap 同构。若未来需要 Running 内扩编，必须另立 G1/ADR，
+  不得在本契约下静默扩展 public API。
+- 同 `seed` 下把 `target_N` 从较小值重建到较大值时，新入选集合必须是第 4 节
+  全量 shuffle 的更长前缀（旧集合为其真前缀）；不得另起一套抽样。
 
 ### 3.3 可选手动 H3（展示覆盖）
 
@@ -80,21 +89,37 @@ HUD 与 headless 证据必须同时可读：
 ## 4. Seeded 无放回抽样
 
 共享人口表含精确 10,000 条记录，`population_rank = 0..9999`
-（[`real-road-workloads.md`](real-road-workloads.md) §4）。`target_N < 10000`
-时必须规定选中哪一子集。
+（[`real-road-workloads.md`](real-road-workloads.md) §4）。但共享表与 static
+bundle **不**提供 tick-0 无碰撞 placement（§3.6 明确排除初始车辆）。#257
+交互示例的抽样宇宙因此是 **TOPO plan 的唯一 `logical_rank ∈ 0..9999`**
+（[`real-road-workloads.md`](real-road-workloads.md) §5.2）；每条 logical slot
+已绑定唯一 `(route_edge_index, edge, progress)` placement 与
+`source_population_rank` provenance。不得按可能重复的
+`source_population_rank` 反查 placement。
 
 冻结规则：
 
 1. PRNG 使用与走廊 reference 相同的 **SplitMix64 + rejection sampling** 契约
    （见 `example-scenarios.md` / ADR 0016）；state 由 caller `seed` 初始化，并由
    example policy 独占，不进入 Core。
-2. **启动**：对索引数组 `0..9999` 做一次 Fisher–Yates shuffle，取前 `target_N`
-   个 ranks 作为初始入选集合（顺序保留为 logical slot 顺序）。
-3. **扩编**：在同一 PRNG 流上，仅对 **尚未入选** 的 ranks 继续无放回抽取差额；
-   不得重洗已入选集合。
-4. **同** `seed` + **同** `target_N` + **同** 算法版本 ⇒ **同** 初始入选集合；
+2. **算法（必须逐字节可复现）**：令 `arr = [0, 1, …, 9999]`。对
+   `index` 从 `9999` 递减到 `1`：
+   `swap_index = uniform(index + 1)`（即 `0..=index`），然后
+   `swap(arr[index], arr[swap_index])`。这与走廊
+   `signalized_corridor` 初始 slot permutation 同构。整次 shuffle 固定消耗
+   9999 次有界 `uniform`（含其内部 rejection `next_u64`），与随后取用的
+   `target_N` 无关。
+3. **入选集合**：取 shuffle 后 `arr[0..target_N)` 作为入选 `logical_rank`
+   序列；该顺序即为示例 logical slot 顺序。每个 selected rank 直接使用 TOPO
+   plan 中对应 logical slot 的 spawn cursor / profile / route 构造
+   `VehicleSpawnInput`（`initialSpeed` 遵循 #257 所选演示模式；TOPO 满载
+   harness 语义仍为 0，交互示例可另定但必须写入 #257 证据）。
+4. **同** `seed` + **同** `target_N` + **同** 算法版本 ⇒ **同** 入选序列；
+   同 `seed` 下更大的 `target_N'` 的入选序列必须以前一 `target_N` 序列为真前缀。
    #257 必须提供 golden。
-5. 拒绝「稳定前缀 `0..N-1`」作为本示例默认；前缀规则不属于本契约。
+5. 拒绝「稳定前缀 `logical_rank = 0..N-1`」作为本示例默认。
+6. Running 内不存在“继续抽剩余 pool”的扩编路径；提高人口只能 H1 重建并按本
+   节对同一 `seed` 取更长前缀。
 
 ## 5. 缩编分层
 
@@ -114,17 +139,20 @@ HUD 与 headless 证据必须同时可读：
 
 ## 6. 与 A/B/C 制品的关系
 
-| 制品               | 关系                                                                    |
-| ------------------ | ----------------------------------------------------------------------- |
-| #253 static bundle | 示例加载的路网/信号权威                                                 |
-| 共享 10k rank 表   | 抽样宇宙；由 converter/population 表提供                                |
-| #254 TOPO plan     | 可选「满载 10k」布局源；`target_N<10000` 时仍按本文抽样，不得改 TOPO ID |
-| #255 DEMAND        | 不作为可滑杆人口模型；若演示 departure，须独立模式且不与 H2 热改混用    |
+| 制品               | 关系                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
+| #253 static bundle | 示例加载的路网/信号权威；**不含**初始车辆 placement                                               |
+| 共享 10k rank 表   | TOPO/DEMAND 共享 provenance；**不是** #257 的 placement 权威                                      |
+| #254 TOPO plan     | **#257 交互示例必需**的 rank→placement 权威；抽样作用于其 `logical_rank`；不得改 TOPO workload ID |
+| #255 DEMAND        | 不作为可滑杆人口模型；若演示 departure，须独立模式且不与 H2 热改 / TOPO 子集抽样混用              |
+
+无 TOPO plan 时，#257 不得声称已满足本契约的 H1 bootstrap；不得用 static
+bundle + 人口表临时发明 collision-free `route_edge_index`/progress。
 
 ## 7. 验证要求（由 #257 交付）
 
 - 同 seed / `target_N` / fixed-step 输入 ⇒ 同抽样与回流决策序列。
-- H2 扩缩编不破坏 hard invariants；失败 fail-closed 或保持上一合法目标。
+- H2 缩编与 H1 重建扩编不破坏 hard invariants；非法升档请求 fail-closed 或保持上一合法目标。
 - 证据矩阵至少覆盖 `target_N ∈ {1, 100, 1000}`；`10000` 按机器能力记录，未认证前
   不写 Product Pass。
 - GUI smoke 必须能读出第 2 节四个计数。
