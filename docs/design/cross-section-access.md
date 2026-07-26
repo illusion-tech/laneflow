@@ -360,6 +360,10 @@ AccessRule
   跨午夜窗口对两侧区间同样半开）。相邻窗口由此无缝拼接（`8:00–17:00` 与
   `17:00–20:00` 在 17:00 时刻只有后者适用），time segment 切分、组合歧义
   检查与未来的表切换共享同一边界约定，无重叠也无空隙。
+- **端点界值**：`startMinuteOfDay ∈ [0, 1439]`（起点必须落在当日内）；
+  `endMinuteOfDay ∈ [1, 1440]`，`1440` 表示当日 24:00，仅作半开终点合法
+  （跨午夜窗口的 end 是次日时刻，界值相同）。全天窗口编码为 `0–1440`；
+  `start == end` 由 §10 shape 检查拒绝，不产生空窗口歧义。
 
 ### 6.2 Target 平面与展开
 
@@ -616,7 +620,8 @@ profiles → lane graph → Junction → Signals → Parking → Routes）：
    capability guard（FacilityBand target 或声明 timeWindows 的规则返回
    capability-unavailable 并拒绝载入；guard 依赖 target 已解析，故在 unknown
    检查之后；guard 先于 shape/组合检查——能力整体拒绝后其内部细节校验无
-   意义）、timeWindow shape（days 空集、分钟越界、start == end）、`regulation`
+   意义）、timeWindow shape（days 空集、分钟越界——`start ∈ [0, 1439]`、
+   `end ∈ [1, 1440]`、`start == end`）、`regulation`
    provenance 混合（声明了 regulation 的规则不共享同一
    `(jurisdiction, version)`）、按平面与 time segment 分别检查 §6.4
    第 4 步的残留组合歧义（edge 平面按 (segment, edge, class)，path 平面按
