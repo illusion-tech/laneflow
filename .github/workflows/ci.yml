@@ -109,6 +109,13 @@ jobs:
         shell: bash
         run: rustup toolchain install 1.96.0 --profile minimal
 
+      - name: Cache Rust dependencies for governance tools
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: laneflow-msrv-1.96.0-governance
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-targets: true
+
       - name: Check Markdown table formatting
         shell: bash
         run: >-
@@ -129,15 +136,49 @@ jobs:
   rust:
     name: Rust checks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      - name: Detect Rust and Bevy path changes
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'xtask/**'
+              - 'tools/**'
+              - 'examples/**'
+              - 'research/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'deny.toml'
+              - '.github/workflows/ci.yml'
+            bevy:
+              - 'crates/laneflow-bevy/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+
       - name: Install Rust MSRV toolchain
+        if: steps.filter.outputs.rust == 'true'
         shell: bash
         run: rustup toolchain install 1.96.0 --profile minimal --component rustfmt
 
+      - name: Cache Rust dependencies
+        if: steps.filter.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: laneflow-msrv-1.96.0-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-targets: true
+
       - name: Check Rust toolchain
+        if: steps.filter.outputs.rust == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -145,53 +186,74 @@ jobs:
           cargo +1.96.0 --version
 
       - name: Check formatting
+        if: steps.filter.outputs.rust == 'true'
         shell: bash
         run: cargo +1.96.0 fmt --all -- --check
 
       - name: Run workspace tests
+        if: steps.filter.outputs.rust == 'true'
         shell: bash
         run: cargo +1.96.0 test --workspace --locked
 
       - name: Check signalized corridor artifacts
+        if: steps.filter.outputs.rust == 'true'
         shell: bash
         run: cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.9-signalized-corridor.toml
 
-      - name: Compile protected-turning native example
+      - name: Compile Bevy native examples
+        if: steps.filter.outputs.bevy == 'true'
         shell: bash
-        run: cargo +1.96.0 check --locked -p laneflow-bevy --example signalized_corridor --features native-example
+        run: >-
+          cargo +1.96.0 check --locked -p laneflow-bevy
+          --example signalized_corridor
+          --example native_reference
+          --features native-example
 
       - name: Run Parking allocation invariants serially
+        if: steps.filter.outputs.rust == 'true'
         shell: bash
         run: cargo +1.96.0 test -p laneflow-core --test parking_runtime_allocations --all-features --locked -- --ignored --test-threads=1
 
       - name: Run speed-limit allocation invariant serially
+        if: steps.filter.outputs.rust == 'true'
         shell: bash
         run: cargo +1.96.0 test -p laneflow-core --test speed_limit_allocations --locked -- --ignored --test-threads=1
 
       - name: Run Spatial allocation invariants serially
+        if: steps.filter.outputs.rust == 'true'
         shell: bash
         run: cargo +1.96.0 test -p laneflow-spatial --test pose_batch_allocations --locked -- --ignored --test-threads=1
 
       - name: Run Bevy Adapter allocation invariants serially
+        if: steps.filter.outputs.bevy == 'true'
         shell: bash
         run: cargo +1.96.0 test -p laneflow-bevy --test presentation_allocations --locked -- --ignored --test-threads=1
 
       - name: Run Parking lifecycle example
+        if: steps.filter.outputs.rust == 'true'
         shell: bash
         run: cargo +1.96.0 run -p laneflow-data --example parking_lifecycle --locked
 
-      - name: Compile Bevy native reference example
-        shell: bash
-        run: cargo +1.96.0 check -p laneflow-bevy --example native_reference --features native-example --locked
-
-      - name: Compile Core, Spatial, and Bevy Adapter benchmarks
+      - name: Check Core and Spatial benchmarks compile
+        if: steps.filter.outputs.rust == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.96.0 bench -p laneflow-core --benches --no-run --locked
-          cargo +1.96.0 bench -p laneflow-spatial --benches --no-run --locked
-          cargo +1.96.0 bench -p laneflow-bevy --benches --no-run --locked
+          cargo +1.96.0 check --locked -p laneflow-core --benches
+          cargo +1.96.0 check --locked -p laneflow-spatial --benches
 
+      - name: Check Bevy Adapter benchmarks compile
+        if: steps.filter.outputs.bevy == 'true'
+        shell: bash
+        run: cargo +1.96.0 check --locked -p laneflow-bevy --benches
+
+      - name: Skip heavy Rust checks for non-Rust paths
+        if: steps.filter.outputs.rust != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "No Rust/Cargo/CI-workflow paths changed; skipping cargo fmt/test/check/benches."
+          echo "Governance and dependency-policy jobs still cover docs and deny.toml when applicable."
   dependencies:
     name: Dependency policy
     runs-on: ubuntu-latest
