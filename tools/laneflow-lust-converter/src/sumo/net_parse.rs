@@ -8,7 +8,7 @@ use crate::{
     Error, Result,
     sumo::{
         decimal::ExactDecimal,
-        net::{SumoConnection, SumoLane, SumoLocation, SumoNetwork},
+        net::{SumoConnection, SumoEdge, SumoJunction, SumoLane, SumoLocation, SumoNetwork},
     },
 };
 
@@ -24,12 +24,15 @@ pub fn parse_sumo_network_xml(xml: &str) -> Result<SumoNetwork> {
     }
 
     let location = parse_location(root)?;
+    let mut edges = Vec::new();
     let mut lanes = Vec::new();
+    let mut junctions = Vec::new();
     let mut connections = Vec::new();
 
     for child in root.children().filter(Node::is_element) {
         match child.tag_name().name() {
-            "edge" => parse_edge(child, &mut lanes)?,
+            "edge" => parse_edge(child, &mut edges, &mut lanes)?,
+            "junction" => junctions.push(parse_junction(child)?),
             "connection" => connections.push(parse_connection(child)?),
             _ => {}
         }
@@ -43,7 +46,9 @@ pub fn parse_sumo_network_xml(xml: &str) -> Result<SumoNetwork> {
 
     Ok(SumoNetwork {
         location,
+        edges,
         lanes,
+        junctions,
         connections,
     })
 }
@@ -65,9 +70,19 @@ fn parse_location(root: Node<'_, '_>) -> Result<SumoLocation> {
     })
 }
 
-fn parse_edge(edge: Node<'_, '_>, lanes: &mut Vec<SumoLane>) -> Result<()> {
+fn parse_edge(
+    edge: Node<'_, '_>,
+    edges: &mut Vec<SumoEdge>,
+    lanes: &mut Vec<SumoLane>,
+) -> Result<()> {
     let edge_id = required_attr(edge, "id")?;
     let function_internal = edge.attribute("function") == Some("internal");
+    edges.push(SumoEdge {
+        id: edge_id.clone(),
+        from_junction_id: edge.attribute("from").map(str::to_owned),
+        to_junction_id: edge.attribute("to").map(str::to_owned),
+        function_internal,
+    });
     for lane in edge
         .children()
         .filter(|child| child.is_element() && child.tag_name().name() == "lane")
@@ -93,6 +108,23 @@ fn parse_edge(edge: Node<'_, '_>, lanes: &mut Vec<SumoLane>) -> Result<()> {
         });
     }
     Ok(())
+}
+
+fn parse_junction(node: Node<'_, '_>) -> Result<SumoJunction> {
+    let id = required_attr(node, "id")?;
+    let junction_type = required_attr(node, "type")?;
+    let int_lane_ids = match node.attribute("intLanes") {
+        Some(raw) if !raw.trim().is_empty() => raw
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    Ok(SumoJunction {
+        id,
+        junction_type,
+        int_lane_ids,
+    })
 }
 
 fn parse_connection(node: Node<'_, '_>) -> Result<SumoConnection> {
@@ -128,7 +160,10 @@ fn parse_pair(raw: &str) -> Result<(ExactDecimal, ExactDecimal)> {
     let (x, y) = raw.split_once(',').ok_or_else(|| {
         Error::SumoModel(format!("expected comma-separated pair, got {raw:?}"))
     })?;
-    Ok((ExactDecimal::from_str(x.trim())?, ExactDecimal::from_str(y.trim())?))
+    Ok((
+        ExactDecimal::from_str(x.trim())?,
+        ExactDecimal::from_str(y.trim())?,
+    ))
 }
 
 fn parse_quad(
@@ -149,14 +184,12 @@ fn parse_quad(
 }
 
 fn required_attr(node: Node<'_, '_>, name: &str) -> Result<String> {
-    node.attribute(name)
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            Error::SumoModel(format!(
-                "<{}> missing required attribute @{name}",
-                node.tag_name().name()
-            ))
-        })
+    node.attribute(name).map(str::to_owned).ok_or_else(|| {
+        Error::SumoModel(format!(
+            "<{}> missing required attribute @{name}",
+            node.tag_name().name()
+        ))
+    })
 }
 
 fn parse_u32(raw: String, field: &str) -> Result<u32> {

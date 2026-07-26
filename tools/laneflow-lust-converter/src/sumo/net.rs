@@ -1,4 +1,4 @@
-//! Parsed SUMO network model (lanes, edges, connections, location).
+//! Parsed SUMO network model (lanes, edges, junctions, connections, location).
 
 use crate::sumo::decimal::ExactDecimal;
 
@@ -16,7 +16,9 @@ pub const SUMO_ID_PREFIX: &str = "sumo:";
 #[derive(Clone, Debug)]
 pub struct SumoNetwork {
     pub location: SumoLocation,
+    pub edges: Vec<SumoEdge>,
     pub lanes: Vec<SumoLane>,
+    pub junctions: Vec<SumoJunction>,
     pub connections: Vec<SumoConnection>,
 }
 
@@ -49,6 +51,15 @@ impl SumoLocation {
     }
 }
 
+/// One SUMO `<edge>`.
+#[derive(Clone, Debug)]
+pub struct SumoEdge {
+    pub id: String,
+    pub from_junction_id: Option<String>,
+    pub to_junction_id: Option<String>,
+    pub function_internal: bool,
+}
+
 /// One SUMO `<lane>` (external or internal).
 #[derive(Clone, Debug)]
 pub struct SumoLane {
@@ -65,6 +76,21 @@ impl SumoLane {
     /// LaneFlow external ID (`sumo:{laneId}`).
     pub fn laneflow_id(&self) -> String {
         format!("{SUMO_ID_PREFIX}{}", self.id)
+    }
+}
+
+/// One SUMO `<junction>`.
+#[derive(Clone, Debug)]
+pub struct SumoJunction {
+    pub id: String,
+    pub junction_type: String,
+    pub int_lane_ids: Vec<String>,
+}
+
+impl SumoJunction {
+    /// Whether this source node may own emitted Traffic junctions.
+    pub fn can_own_road_junction(&self) -> bool {
+        self.junction_type != "dead_end" && self.junction_type != "internal"
     }
 }
 
@@ -89,14 +115,24 @@ impl SumoNetwork {
 
     /// Count distinct external edge IDs.
     pub fn external_edge_count(&self) -> usize {
-        let mut ids: Vec<&str> = self
-            .lanes
+        self.edges
             .iter()
-            .filter(|lane| !lane.function_internal)
-            .map(|lane| lane.edge_id.as_str())
-            .collect();
-        ids.sort_unstable();
-        ids.dedup();
-        ids.len()
+            .filter(|edge| !edge.function_internal)
+            .count()
+    }
+
+    /// Look up an edge by id.
+    pub fn edge(&self, edge_id: &str) -> Option<&SumoEdge> {
+        self.edges.iter().find(|edge| edge.id == edge_id)
+    }
+
+    /// Look up a junction by id.
+    pub fn junction(&self, junction_id: &str) -> Option<&SumoJunction> {
+        self.junctions.iter().find(|junction| junction.id == junction_id)
+    }
+
+    /// Look up a lane by id.
+    pub fn lane(&self, lane_id: &str) -> Option<&SumoLane> {
+        self.lanes.iter().find(|lane| lane.id == lane_id)
     }
 }

@@ -1,9 +1,8 @@
 //! LuST Scenario v2.0 source/static converter (#253).
 //!
-//! Current delivery: pinned source verification, SUMO net → topology-only
-//! Traffic/Spatial/Manifest conversion (empty junctions/signals/profiles/routes).
-//! Full static bundle (junctions, signals, profiles, DUE routes, provenance, tar)
-//! lands in follow-up commits on the same Delivery PR.
+//! Current delivery: pinned source verification, SUMO net → Traffic lane graph /
+//! Spatial / Junction-Movement-ManeuverPath topology conversion.
+//! Signals, profiles, DUE routes, provenance and tar land in follow-up commits.
 
 mod config;
 mod convert;
@@ -32,7 +31,7 @@ pub fn verify_source(source_dir: &Path) -> Result<VerifiedSourceSet> {
     verify_source_dir(source_dir)
 }
 
-/// Convert topology-only packages from an already-parsed SUMO network.
+/// Convert topology packages from an already-parsed SUMO network.
 pub fn convert_topology_from_network(
     network: &SumoNetwork,
     options: &TopologyConvertOptions,
@@ -40,7 +39,7 @@ pub fn convert_topology_from_network(
     convert_network_topology(network, options)
 }
 
-/// Convert topology-only packages from SUMO network XML text.
+/// Convert topology packages from SUMO network XML text.
 pub fn convert_topology_from_xml(
     xml: &str,
     options: &TopologyConvertOptions,
