@@ -150,8 +150,8 @@ Junction/Movement/ManeuverPath/ManeuverGate handles 和 resolvers，不保留 pa
 
 #234/ADR 0018 在此之上冻结横断面与准入的长期职责边界：横断面是 LaneGraph 之上的
 可选结构 overlay（RoadCorridor/RoadSection 引用 edge，不复制拓扑权威）；准入规则
-作为 regulatory constraint 进入 Core constraint 管线，静态规则在 Route 注册期
-原子校验，时变规则以 capability guard 拦截直到独立 G1；任何 allow 不覆盖 Core
+作为 regulatory constraint 进入 Core constraint 管线，静态规则在 (class, Route)
+绑定期原子校验，时变规则以 capability guard 拦截直到独立 G1；任何 allow 不覆盖 Core
 safety。生产化前 Core 不含上述 registry 与 handle。
 
 v0.5 Parking runtime 由 Core 私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与 exact Occupied binding 一致，Parked vehicle 保留 live identity但不进入 travel-lane occupancy。#108 已公开 borrowed snapshot 和 caller-selected lifecycle commands；#109 已把 ParkingStop、SignalStop、RouteEnd 与 leader/no-overlap 纳入同一 fixed-tick constraint/traversal pipeline，并交付 arrival、route-completion release、step events 与 Reserved capability activation。Adapter 只消费 immutable registry、snapshot、records/events 和 position authority。详细设计见 ADR 0010 与 `design/parking-system.md`。

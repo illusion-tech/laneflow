@@ -90,17 +90,24 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
 
 - 默认语义：无适用规则 = 准入 overlay 无约束；不表示永久自由通行，不解除任何
   其他域约束（ADR 0009 原则）。
-- 组合按字典序裁决：**参与者 specificity 优先于 target specificity**（身份豁免
-  是主导模式），然后显式 priority，最后 deny-overrides；仍残留 allow/deny 冲突
-  是 authoring 歧义，normalization 拒绝。
+- target 分两个求值平面：edge 平面（laneEdge/laneGroup/roadSection，展开为
+  per-edge 事实）与 path 平面（maneuverPath，只对 occurrence 求值，**不展平进
+  per-edge 表**——ADR 0017 允许 path 共享 edge，展平会误伤共享 edge 的合法
+  traversal）。跨平面合取：任一平面 deny 即 deny。
+- 平面内组合按字典序裁决：**参与者 specificity 优先于 target specificity**
+  （身份豁免是主导模式），然后显式 priority；经三步仍在 allow/deny 间并列的
+  是 authoring 歧义，normalization 直接拒绝——不设 deny-overrides 兜底，否则
+  歧义拒绝永远不可达，authoring 错误会变成不可见的运行时行为。
 - `regulation` 是 provenance/审计字段，v1 不参与计算语义。
-- 静态规则在 Route 注册期校验并原子拒绝违规 Route（v1 仅严格语义；
-  违规/劝诫式准入是独立 G1）；时变规则作为 Core constraint pipeline 的
-  runtime constraint，其实现由独立 G1 冻结，未实现前以 capability guard 阻止
-  静默生效。任何 allow 不得覆盖 Core safety 约束。
-- 组合裁决在 normalization 期消解为 `(edge, class) -> effect` resolved 表，
-  时变规则按确定性 time segment 切换表；tick 对任意 (vehicle, edge) 是 O(1)
-  查表，不做字符串匹配、层级匹配或组合裁决。
+- 静态规则在 **(ParticipantClass, Route) 绑定期**（spawn/路线指派）校验并原子
+  拒绝违规绑定；Route 保持 class-agnostic 可复用，`register_route` 无 class
+  上下文、不做准入判断（v1 仅严格语义；违规/劝诫式准入是独立 G1）。时变规则
+  作为 Core constraint pipeline 的 runtime constraint，其实现由独立 G1 冻结，
+  未实现前以 capability guard 阻止静默生效。任何 allow 不得覆盖 Core safety
+  约束。
+- edge 平面组合裁决在 normalization 期消解为 `(edge, class) -> effect`
+  resolved 表，时变规则按确定性 time segment 切换表；绑定期准入判断是 O(1)
+  查表 + occurrence 比对，tick 不做字符串匹配、层级匹配或组合裁决。
 
 ### 6. Identity、authority 与版本
 
@@ -180,14 +187,20 @@ Issue 保持独立 G1，以 `cross-section-access.md` §14 的冻结消费契约
 
 ### 纯 priority 组合（无 specificity）
 
-公交专用道模式（deny motorVehicle、allow bus）在 deny-overrides 下失败，迫使
-所有例外都靠手工 priority 编号，不可审计，因此拒绝。
+公交专用道模式（deny motorVehicle、allow bus）在纯 priority/deny-overrides 下
+失败，迫使所有例外都靠手工 priority 编号，不可审计，因此拒绝。
+
+### deny-overrides 作为最终兜底
+
+会让"残留 allow/deny 歧义 = normalization 拒绝"永远不可达：兜底先裁决，歧义
+检查成为死代码，authoring 错误被静默吞掉，因此拒绝；三步裁决后仍并列即拒绝
+载入。
 
 ## 后续
 
 - #234：交付本 ADR 与 `cross-section-access.md`，完成设计 G3/G4。
-- 最小 production Issue（#234 拆出）：生产化静态模型与 Traffic v0.9、Route
-  注册期静态准入校验；时变 runtime 由 capability guard 拦截。
+- 最小 production Issue #262（#234 拆出）：生产化静态模型与 Traffic v0.9、
+  (class, Route) 绑定期静态准入校验；时变 runtime 由 capability guard 拦截。
 - #237：消费本 SSOT 冻结动态车道用途、车道边界标线（实线/虚线，物理事实）与
   变道许可（policy overlay）的分层、adjacency 与 resolved lane plan。
 - #236：决定非机动车/步行 traversal 与 CrossingFacility 产品边界。
