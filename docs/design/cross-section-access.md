@@ -164,8 +164,17 @@ lane
 
 #### 3.2.1 车道边界（lane boundary）锚点
 
-lane index 顺序提供车道边界的结构锚点：lane `i` 与 lane `i + 1` 之间的边界由
-`(RoadSection, i)` 唯一标识，v1 边界语义是**整边界级**的。
+完整横向边界全集由两层结构锚点构成，v1 边界语义均为**整边界级**：
+
+- **section 内边界**：lane `i` 与 lane `i + 1` 之间的边界由 `(RoadSection, i)`
+  唯一标识（lane index 顺序构造保证）。
+- **corridor 接缝边界**：相邻元素 `elements[j-1]` 与 `elements[j]` 之间的
+  边界由 `(RoadCorridor, j)` 唯一标识（elements 顺序构造保证）。接缝两侧的
+  横向邻居由元素顺序确定性派生：section 元素贡献其按 reference 方向的最外侧
+  lane，FacilityBand 元素作为非遍历侧参与接缝（如路缘/分隔带标线锚点）。
+  接缝锚点是完整横断面邻接图的必要组成：`kindId` 在 section 级，跨 kind
+  相邻（如 motorLane section 与 nonMotorLane section 的接缝）必然跨 section，
+  只有 section 内锚点无法表达这类物理边界。
 
 段级锚定 `(RoadSection, i, 段 k)` 需要跨 lane 的共享纵向分段，而这在没有横向
 几何时无法良定义：段数相等不代表纵向对齐（切分点可以任意错开），长度相等又
@@ -435,7 +444,10 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
   **v1 production 对声明了 timeWindows 的规则返回 capability-unavailable 结构
   化错误，拒绝载入**——guard 必须是显式拒绝，不得让声明了时段限制的规则
   静默无效（那会让车辆在无报错的情况下穿越已声明的限制）。绑定期校验只
-  消费静态规则；时变与静态规则的组合语义整体留给时变 runtime G1。
+  消费静态规则。**推迟边界**：时变规则的 timeWindow 语义、time segment
+  切分、按 segment 的组合歧义裁决与 resolved 表切换（§6.4/§11）是静态
+  normalization 语义，已在本文冻结，时变 runtime G1 不得改变；只有 motion
+  集成（entry 停让、合规窗口判断与 event）留给该 G1。
 - 任何 allow 都不能覆盖 safety 约束；deny 只能追加约束，不能移除其他域的约束。
 - Adapter 只能 query/render 准入状态，不得裁决、覆盖或注入绕行结果。
 
@@ -645,9 +657,11 @@ no-allocation 测试矩阵。
 #234 与 #237 保持独立 G1（接口共设计，不合并）。本文向 #237 提供以下**冻结
 保证**，#237 的 G1 只做契约校验，不得重复冻结：
 
-1. **相邻事实源**：RoadSection 的 lane index 顺序；lane `i` 与 `i ± 1` 相邻，
-   与 LaneGroup 无关（§3.2）。
-2. **边界锚点**：`(RoadSection, 相邻 lane 对)` 整边界级标识横向边界
+1. **相邻事实源**：RoadSection 的 lane index 顺序（lane `i` 与 `i ± 1` 相邻，
+   与 LaneGroup 无关）+ RoadCorridor 的 elements 顺序（相邻元素互为横向
+   邻居）（§3.2/§3.2.1）。
+2. **边界锚点**：`(RoadSection, 相邻 lane 对)` 标识 section 内横向边界，
+   `(RoadCorridor, 相邻元素对)` 标识 corridor 接缝边界，均为整边界级
    （§3.2.1）；段级锚定 `(section, lane 对, 段 k)` 依赖跨 lane 共享纵向分段，
    整体推迟到横向几何 G1，#237 首版不得依赖段级边界 identity。
 3. **overlay 模式**：ParticipantClass 层级匹配、AccessRule 五元与确定性组合
@@ -670,7 +684,8 @@ no-allocation 测试矩阵。
 - **违规/劝诫式准入**：软约束、事件记录不拦截等 violation 语义必须独立 G1；
   v1 deny 只有严格语义。
 - **横向几何**：车道宽度、横向偏移、路缘与横坡需要独立几何 G1（对齐 ADR 0013
-  首版限制）；本文的顺序拓扑是其自然锚点。
+  首版限制）；本文的顺序拓扑是其自然锚点，同向不变量的几何校验补强与段级
+  边界锚定也在该 G1 解冻。
 - **多法规版本共存**：v1 强制同一 package 内 regulation provenance 单一
   （§6.3/§10）；跨法域 rule set 的组合与冲突裁决留待真实需求触发，用
   package 级分离。
@@ -682,7 +697,8 @@ no-allocation 测试矩阵。
 本设计接受：
 
 - `RoadCorridor` 作为横断面唯一 owner 的非方向性结构组合；方向性 RoadSection
-  保留为车道承载单元；
+  保留为车道承载单元；横向边界全集 = section 内边界 `(section, i)` + corridor
+  接缝边界 `(corridor, j)`，均为整边界级锚点（§3.2.1）；
 - RoadSection 的 ordered lanes + edge 链 + 单 section 归属 + 同向不变量；
   LaneGroup 为可选命名分组，不影响 lane 顺序；
 - FacilityBand 非遍历、非 LaneEdge；FacilityKind seed + `x-` 开放词汇只承载
