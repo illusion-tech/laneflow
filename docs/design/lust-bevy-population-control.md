@@ -51,14 +51,20 @@ HUD 与 headless 证据必须同时可读：
 | `N_traffic_active` | 参与道路交通权威的个体数                              |
 | `N_presented`      | 本 outer frame 被 materialize / 提交展示的个体数      |
 
-默认演示目标是 **100% of presentable vehicles**：在无 pending `Completed`、且未启用
-手动 H3 的 outer frame，应有 `N_presented = N_individual`。不得用 `N_presented`
-冒充 `N_individual`。
+默认演示目标是 **100% of presentable vehicles**：在无 pending `Completed`、未启用
+手动 H3、且 **没有** S1-retained Completed identity（excess slot 已 Completed、已
+unbind/移出 proxy、仍占 Core identity 等待 H1）的 outer frame，应有
+`N_presented = N_individual`。不得用 `N_presented` 冒充 `N_individual`。
 
 瞬时例外：Bevy presentation 不提交 `Completed` pose，而 `N_individual` 在
 despawn/replace 前仍计入该 handle。因此 route completion 之后、下一 lifecycle
 boundary 的 replace 生效之前，允许短暂 `N_presented < N_individual`。证据与 HUD
 必须同时暴露四计数，不得把该瞬时差解释为已降档。
+
+S1 例外：excess slot 按 §3.2.1 保留 Core identity 但已移出场景后，允许持续
+`N_presented < N_individual`（差额等于仍 live 的 S1-retained Completed 数）。
+此时不得再要求无条件 `N_presented = N_individual`；HUD 须能区分
+`target_N` / `N_individual` / presentable 计数。精确恢复四计数对齐仍靠 S3/H1。
 
 ## 3. 调节组合（H1 / H2 / H3）
 
@@ -120,7 +126,7 @@ boundary 的 replace 生效之前，允许短暂 `N_presented < N_individual`。
 - 用户可手动设置 `N_presented ≤ N_individual` 作为性能覆盖。
 - **不是**启动默认，也 **不是** 缩编时的自动策略。
 - 演示默认：**100% of presentable**（见第 2 节）；不得把 completion→replace 间隙的
-  瞬时 `N_presented < N_individual` 当成 H3。
+  瞬时差，或 S1-retained Completed 造成的持续差，当成 H3。
 
 ## 4. Seeded 无放回抽样
 
