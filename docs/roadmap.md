@@ -189,6 +189,19 @@ LaneGroup 与 JunctionGroup 在 v0.9 只冻结长期语义，不生产化。
 ConflictZone/right-of-way solver、RoadSection/JunctionGroup runtime，以及 #72 的
 城市级扩展。
 
+## 多模式横断面与准入（设计冻结，Milestone N/A）
+
+#234/ADR 0018 冻结多模式道路横断面与准入分层：`RoadCorridor` 横断面 owner、
+方向性 `RoadSection`/可选 `LaneGroup` 生产语义、非遍历 `FacilityBand`、
+`FacilityKind`/`ParticipantClass`/`AccessRule` 显式分离与时间/地区 overlay；
+SSOT 见 [`cross-section-access.md`](design/cross-section-access.md)。该设计属于
+#227 复杂道路设施演进路线，Milestone N/A（尚未进入已冻结产品 Milestone）。
+
+后续顺序：#234 拆出的最小 production Issue（静态模型 + Traffic v0.9 原子迁移 +
+Route 注册期静态准入校验）→ #237 动态车道用途/resolved lane plan G1（消费本
+SSOT）→ #236 非机动车/步行产品范围。时变准入 runtime、横向几何与多法规版本
+共存各自独立 G1，不属于当前完成边界。
+
 ## 城市级扩展研究（Milestone N/A）
 
 #72 保持独立 Backlog 研究入口，不属于 v0.6–v0.9 的完成边界。v0.6 的 geometry 与 #72 的 active-agent spatial partition 是不同层次；v0.7 的 presentation LOD 与 #72 的 Core simulation fidelity 也不得混同。

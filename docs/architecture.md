@@ -106,6 +106,13 @@ RoadSection、LaneGroup 与 JunctionGroup 只冻结长期语义，不进入 v0.9
 SpatialPackage/ScenarioManifest 保持 v0.1；完整实现与边界见
 `design/road-junction-model.md`。
 
+#234 已按 ADR 0018 冻结多模式横断面与准入分层的长期语义：`RoadCorridor` 作为
+横断面唯一 owner 组织方向性 `RoadSection` 与非遍历 `FacilityBand`，
+`FacilityKind`（物理设施）、`ParticipantClass`（数据声明的单继承参与者分类）与
+`AccessRule`（target/effect/时间窗口/法规 provenance 的准入 overlay）显式分离。
+其 Core/Data 生产化与 Traffic `0.8 -> 0.9` 原子迁移由 #234 拆出的最小
+production Issue 承担；SSOT 见 `design/cross-section-access.md`。
+
 ## 5. LaneFlow Core
 
 LaneFlow Core 负责运行时交通逻辑：
@@ -140,6 +147,12 @@ internal-edge Junction ownership 和一等 ManeuverGate。Route 继续拥有车�
 traversal；initial/dynamic Route 在注册期编译 Maneuver/Gate occurrences，vehicle
 tick 不匹配 path、不查 external ID 或扫描全局 catalog。Core current API 只公开
 Junction/Movement/ManeuverPath/ManeuverGate handles 和 resolvers，不保留 pair key。
+
+#234/ADR 0018 在此之上冻结横断面与准入的长期职责边界：横断面是 LaneGraph 之上的
+可选结构 overlay（RoadCorridor/RoadSection 引用 edge，不复制拓扑权威）；准入规则
+作为 regulatory constraint 进入 Core constraint 管线，静态规则在 Route 注册期
+原子校验，时变规则以 capability guard 拦截直到独立 G1；任何 allow 不覆盖 Core
+safety。生产化前 Core 不含上述 registry 与 handle。
 
 v0.5 Parking runtime 由 Core 私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与 exact Occupied binding 一致，Parked vehicle 保留 live identity但不进入 travel-lane occupancy。#108 已公开 borrowed snapshot 和 caller-selected lifecycle commands；#109 已把 ParkingStop、SignalStop、RouteEnd 与 leader/no-overlap 纳入同一 fixed-tick constraint/traversal pipeline，并交付 arrival、route-completion release、step events 与 Reserved capability activation。Adapter 只消费 immutable registry、snapshot、records/events 和 position authority。详细设计见 ADR 0010 与 `design/parking-system.md`。
 
