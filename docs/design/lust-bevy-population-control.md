@@ -51,8 +51,14 @@ HUD 与 headless 证据必须同时可读：
 | `N_traffic_active` | 参与道路交通权威的个体数                              |
 | `N_presented`      | 本 outer frame 被 materialize / 提交展示的个体数      |
 
-默认稳态满足 `N_presented = N_individual`。不得用 `N_presented` 冒充
-`N_individual`。
+默认演示目标是 **100% of presentable vehicles**：在无 pending `Completed`、且未启用
+手动 H3 的 outer frame，应有 `N_presented = N_individual`。不得用 `N_presented`
+冒充 `N_individual`。
+
+瞬时例外：Bevy presentation 不提交 `Completed` pose，而 `N_individual` 在
+despawn/replace 前仍计入该 handle。因此 route completion 之后、下一 lifecycle
+boundary 的 replace 生效之前，允许短暂 `N_presented < N_individual`。证据与 HUD
+必须同时暴露四计数，不得把该瞬时差解释为已降档。
 
 ## 3. 调节组合（H1 / H2 / H3）
 
@@ -80,11 +86,31 @@ HUD 与 headless 证据必须同时可读：
 - 同 `seed` 下重建到更大 `target_N` 时，新入选集合必须是第 4 节全量 shuffle 的更长
   前缀（旧集合为其真前缀）；重建到更小 `target_N` 时取同一 shuffle 的更短前缀。
 
+### 3.2.1 Running 回流（selected slot replace）
+
+对仍属于当前目标入选集合、且未处于 S1 停补位的 logical slot：
+
+1. vehicle 进入 `Completed` 后，按 ADR 0016 在下一 fixed-step lifecycle boundary
+   调用 `replace_completed_vehicle`。
+2. **replacement 输入冻结为该 slot 的原始 TOPO placement**：同一 `logical_rank`
+   对应的 profile、route、`route_edge_index`、edge/progress spawn cursor；
+   `initialSpeed` 遵循 #257 演示模式（与 H1 bootstrap 该 slot 的取值规则一致）。
+3. **不**为回流改写 placement 再抽签，**不**换到其他 `logical_rank`，**不**从
+   static bundle 发明新 placement。
+4. 入口 `Blocked`：保留该 pending plan 到后续 boundary 重试，**不**消耗额外 PRNG，
+   **不**改 placement（ADR 0016 blocked-retry 语义）。
+5. S1 标记为 excess 的 slot：completion 后 **不** replace；identity 保留至 H1 重建
+   或未来另立的 typed despawn G1。
+
+同 `seed` / 同入选集合 / 同 fixed-step completion 序 ⇒ 同回流决策序列；#257 golden
+须覆盖至少一次 selected-slot replace 与一次 Blocked 重试。
+
 ### 3.3 可选手动 H3（展示覆盖）
 
 - 用户可手动设置 `N_presented ≤ N_individual` 作为性能覆盖。
 - **不是**启动默认，也 **不是** 缩编时的自动策略。
-- 演示默认：**100% presentation**，即 `N_presented = N_individual`。
+- 演示默认：**100% of presentable**（见第 2 节）；不得把 completion→replace 间隙的
+  瞬时 `N_presented < N_individual` 当成 H3。
 
 ## 4. Seeded 无放回抽样
 
@@ -156,7 +182,8 @@ bundle + 人口表临时发明 collision-free `route_edge_index`/progress。
 
 ## 7. 验证要求（由 #257 交付）
 
-- 同 seed / `target_N` / fixed-step 输入 ⇒ 同抽样与回流决策序列。
+- 同 seed / `target_N` / fixed-step 输入 ⇒ 同抽样、同 selected-slot 回流与 Blocked
+  重试决策序列。
 - H1 重建升/降档与 S1 停补位不破坏 hard invariants；非法请求 fail-closed 或保持上一合法目标。
 - 证据须区分：S1 后 `N_individual` 可仍高于 `target_N`；S3/H1 后必须相等。
 - 证据矩阵至少覆盖 `target_N ∈ {1, 100, 1000}`；`10000` 按机器能力记录，未认证前
