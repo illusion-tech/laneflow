@@ -675,12 +675,13 @@ Core constructors/normalization 报告（ADR 0007 分层不变）。
   (class, edge) 或 (class, pending occurrence) 的准入判断是一次 O(1) 查表。
 - 时变规则按全部 timeWindow 边界把 simulation day/week 切成确定性 time
   segment。冻结的是**语义契约**而非表示：normalization 期全量预编译、任意
-  segment 的 `(edge, class)` 准入查询保持 O(1)、窗口切换是预定 sim-time 的
-  结构切换（与 SignalController immutable program 的 phase 推进同构）、不逐
-  tick 求值窗口。表示由时变 runtime G1 选择，但必须在 segment 间共享未变
-  条目（如静态基表 + per-segment sparse delta），内存以
-  O(edges × classes + 变化条目总数) 为界，禁止 O(segments × edges × classes)
-  的全量物化。timeWindow 语义基于 simulation clock，不读墙钟。
+  segment 的 `(edge, class)` 与 `(path, class)` 准入查询保持 O(1)、窗口切换
+  是预定 sim-time 的结构切换（与 SignalController immutable program 的
+  phase 推进同构）、不逐 tick 求值窗口。表示由时变 runtime G1 选择，但必须
+  在 segment 间共享未变条目（如静态基表 + per-segment sparse delta），内存以
+  O((edges + paths) × classes + 变化条目总数) 为界，禁止
+  O(segments × (edges + paths) × classes) 的全量物化。timeWindow 语义基于
+  simulation clock，不读墙钟。
 - catalog 规模不进入无关车辆的 steady-tick 复杂度。
 
 ## 12. 影响矩阵

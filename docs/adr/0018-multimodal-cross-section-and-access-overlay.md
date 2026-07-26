@@ -142,9 +142,9 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
   约束。
 - 两个平面的组合裁决都在 normalization 期消解为 resolved 表（edge 平面
   `(edge, class) -> effect`、path 平面 `(path, class) -> effect`），时变规则按
-  确定性 time segment 切换 segment 索引结构（共享
-  未变条目，内存以 edges × classes + 变化条目为界，禁止 O(segments × edges
-  × classes) 全量物化）；绑定期准入判断是 O(1)
+  确定性 time segment 切换 segment 索引结构（两个平面同形：共享
+  未变条目，内存以 (edges + paths) × classes + 变化条目为界，禁止
+  O(segments × (edges + paths) × classes) 全量物化）；绑定期准入判断是 O(1)
   查表 + occurrence 比对，tick 不做字符串匹配、层级匹配或组合裁决。
 
 ### 6. Identity、authority 与版本
