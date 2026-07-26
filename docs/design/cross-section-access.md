@@ -3,7 +3,7 @@
 **文档状态**: Accepted（#234 G1 冻结）<br>
 **最后更新**: 2026-07-26<br>
 **适用范围**: #234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity/authority/validation 与后续最小 production 边界<br>
-**实现状态**: 设计冻结候选；Core/Data/schema 均未生产化
+**实现状态**: 设计已冻结（#234 G1 + A1–A3 修订）；Core/Data/schema 均未生产化
 
 **关联文档**:
 
@@ -340,8 +340,10 @@ target specificity 排序（仅用于 edge 平面内组合；path 平面只有�
 laneEdge > laneGroup > roadSection
 ```
 
-FacilityBand target 在 v1 只对 pedestrian 类有语义，对车辆 motion 无效果；为
-#236 保留 identity 与引用通道，半成品语义不得静默生效（capability guard）。
+FacilityBand target 在 v1 **整体 capability guard**：规则可载入但完全惰性，不
+产生任何绑定或运行时语义。Core 不内置参与者类名，无法在 v1 区分 pedestrian
+与其他类；band 准入语义（可能引入参与者 category/capability 字段）由 #236
+的 G1 定义后激活。
 
 ### 6.3 适用性与默认语义
 
@@ -406,8 +408,11 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
 - **静态规则**（无 timeWindows）：enforce 点是 **(ParticipantClass, Route)
   绑定**——vehicle spawn 或 runtime 路线指派时，用 edge 平面 resolved 表与
   path 平面 occurrence 规则校验该 (class, route) 组合，命中 deny 即原子拒绝该
-  绑定并返回结构化错误。Route 保持 class-agnostic：同一 Route 可被公交合法
-  使用、被货车拒绝，准入判断只在有 class 上下文的绑定点发生；
+  绑定并返回结构化错误。校验只覆盖车辆**当前 route cursor 起的可达后缀**：
+  spawn/replace 可以在非零 `routeEdgeIndex` 发生，cursor 之前的 edge 与
+  occurrence 不会被 traversal，不参与校验；cursor 落在某 occurrence 内部时，
+  该 occurrence 作为原子整体校验。Route 保持 class-agnostic：同一 Route 可被
+  公交合法使用、被货车拒绝，准入判断只在有 class 上下文的绑定点发生；
   `register_route` 本身不做准入判断。v1 只有严格语义：**违规/劝诫式准入
   （软约束、记录事件但不拦截）是行为设计，必须独立 G1**，不得通过放宽 deny
   语义私下引入。
@@ -639,7 +644,7 @@ no-allocation 测试矩阵。
 - **多维度参与者分类**：v1 单继承单维度（§5.2）；多 membership + 绑定期跨
   成员组合（含 specificity 歧义裁决与 resolved 表形状变化）必须独立 G1。
 
-## 16. G1 冻结结论（候选）
+## 16. G1 冻结结论
 
 本设计接受：
 
@@ -659,7 +664,10 @@ no-allocation 测试矩阵。
   time segment 表切换，tick O(1) 查表；
 - Traffic `0.8 -> 0.9` 原子 clean-break；Spatial/Manifest 保持 `0.1`；
 - 静态规则在 (ParticipantClass, Route) 绑定期 fail-fast（Route 保持
-  class-agnostic，v1 仅严格语义），时变规则 capability guard 后独立 G1；
+  class-agnostic，v1 仅严格语义）；绑定期校验只覆盖车辆**当前 route cursor
+  起的可达后缀**（cursor 之前的 edge/occurrence 不会被 traversal，不参与
+  校验；cursor 落在某 occurrence 内部时该 occurrence 作为原子整体校验），
+  时变规则 capability guard 后独立 G1；
 - 与 #237 的接口共设计契约（§14），两 Issue 不合并。
 
 若 production 实现发现必须改变 owner 层级、组合语义、版本政策或 steady-tick
