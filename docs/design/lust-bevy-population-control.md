@@ -94,13 +94,18 @@ boundary 的 replace 生效之前，允许短暂 `N_presented < N_individual`。
    调用 `replace_completed_vehicle`。
 2. **replacement 输入冻结为该 slot 的原始 TOPO placement**：同一 `logical_rank`
    对应的 profile、route、`route_edge_index`、edge/progress spawn cursor；
-   `initialSpeed` 遵循 #257 演示模式（与 H1 bootstrap 该 slot 的取值规则一致）。
+   `initialSpeed` 遵循 #257 演示模式（与 H1 bootstrap 该 slot 的取值规则一致）；
+   `VehicleReplaceExternalId` 固定为 **`Preserve`**（同一 logical slot 的 identity
+   连续性，对齐 ADR 0016 slot 复用）。**禁止**用可能重复的
+   `source_population_rank` 推导 `ReplaceWith` ID。
 3. **不**为回流改写 placement 再抽签，**不**换到其他 `logical_rank`，**不**从
    static bundle 发明新 placement。
 4. 入口 `Blocked`：保留该 pending plan 到后续 boundary 重试，**不**消耗额外 PRNG，
    **不**改 placement（ADR 0016 blocked-retry 语义）。
 5. S1 标记为 excess 的 slot：completion 后 **不** replace；identity 保留至 H1 重建
-   或未来另立的 typed despawn G1。
+   或未来另立的 typed despawn G1。若该 slot 在变为 excess **之前**已有 Blocked
+   pending replace，必须在下一次 lifecycle 决策前 **确定性取消/作废**该 pending
+   plan，且不得再重试；取消不消耗 PRNG。
 
 同 `seed` / 同入选集合 / 同 fixed-step completion 序 ⇒ 同回流决策序列；#257 golden
 须覆盖至少一次 selected-slot replace 与一次 Blocked 重试。
@@ -139,7 +144,9 @@ bundle **不**提供 tick-0 无碰撞 placement（§3.6 明确排除初始车辆
    序列；该顺序即为示例 logical slot 顺序。每个 selected rank 直接使用 TOPO
    plan 中对应 logical slot 的 spawn cursor / profile / route 构造
    `VehicleSpawnInput`（`initialSpeed` 遵循 #257 所选演示模式；TOPO 满载
-   harness 语义仍为 0，交互示例可另定但必须写入 #257 证据）。
+   harness 语义仍为 0，交互示例可另定但必须写入 #257 证据）。初始
+   `vehicle` external ID 冻结为 `lust-logical-{logical_rank}`（十进制、无前导零
+   padding 以外的填充）；**禁止**用 `source_population_rank` 当唯一 external ID。
 4. **同** `seed` + **同** `target_N` + **同** 算法版本 ⇒ **同** 入选序列；
    同 `seed` 下更大的 `target_N'` 的入选序列必须以前一 `target_N` 序列为真前缀。
    #257 必须提供 golden。
