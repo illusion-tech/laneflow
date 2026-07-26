@@ -109,7 +109,7 @@ Rust 代码除通过 `rustfmt` 和 Clippy 外，还应遵守 `docs/reference/rus
 当前 CI 包含：
 
 - Governance checks：必需治理文件存在、Markdown 文件非空、commit message 符合提交规范；`xtask` 构建使用 `Swatinem/rust-cache`（仅 `main` 写回缓存）。
-- Rust checks：job 始终运行以保持 required check 稳定。若变更触及 `crates/`、`xtask/`、`tools/`、`examples/`、`research/`、`Cargo.toml` / `Cargo.lock`、`deny.toml` 或本 workflow，则安装 Rust 1.96.0、恢复/写入 cargo 缓存、运行 `fmt`、`test --workspace`、Core/Spatial allocation 与 `cargo check --benches`。若变更触及 `crates/laneflow-bevy/`、workspace lockfile/manifest 或本 workflow，额外编译 `native-example` 示例并检查 Bevy allocation / Bevy benches。纯文档等非 Rust 路径会跳过重型 cargo 步骤并显式记录 skip。
+- Rust checks：job 始终运行以保持 required check 稳定。若变更触及 `crates/`、`xtask/`、`tools/`、`examples/`、`research/`、`schemas/`、`Cargo.toml` / `Cargo.lock`、`deny.toml` 或本 workflow，则安装 Rust 1.96.0、恢复/写入 cargo 缓存、运行 `fmt`、`test --workspace`、Core/Spatial allocation 与 `cargo check --benches`。若变更触及 Bevy Adapter、其 workspace 依赖（`laneflow-core` / `spatial` / `data` / `scenario`）、native example 制品路径、workspace lockfile/manifest 或本 workflow，额外编译 `native-example` 示例并检查 Bevy allocation / Bevy benches。纯文档等非 Rust 路径会跳过重型 cargo 步骤并显式记录 skip。
 - Dependency policy：cargo-deny 检查 RustSec advisories、许可证、wildcard dependency 和 crate 来源。
 
 数据 schema、Adapter build、示例 smoke test 和 Release 检查应在对应切片落地后继续加入专用门禁。
