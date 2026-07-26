@@ -43,7 +43,8 @@ production 化之前拥有明确 SSOT。
 `RoadCorridor` 是非方向性的道路结构组合，拥有唯一有序 cross-section；元素是
 一等实体引用，二选一：方向性、承载车道的 `RoadSection`，或非方向、非遍历的
 `FacilityBand`。元素按 corridor 声明的参考方向（`referenceSectionId`）从左到右
-排列，与 Spatial 的正横向偏移约定一致。
+排列，与 Spatial 的正横向偏移约定一致；同一 corridor 的 `elements[]` 内不得
+重复引用同一元素（唯一有序序列定义的直接推论）。
 
 RoadCorridor 遵循 JunctionGroup 先例：结构组合，非行为实体——不拥有 route
 planner、conflict solver、controller clock 或 runtime availability。横断面只冻结
@@ -52,8 +53,8 @@ planner、conflict solver、controller clock 或 runtime availability。横断�
 ### 2. RoadSection/LaneGroup 获得生产语义，设施带不伪装成 LaneEdge
 
 - RoadSection：有方向，`lanes[]` 按 lateral index 排序（index 0 = 行驶方向最左），
-  每条 lane 是连续 LaneEdge 链；一条 LaneEdge 至多属于一条 lane；lane index 顺序
-  是未来 lane adjacency 的唯一事实源。**车道边界锚点 v1 是整边界级的**：
+  每条 lane 是连续 LaneEdge 链；一条 LaneEdge 至多属于一条 lane，同一 lane 链内
+  也不得重复；lane index 顺序是未来 lane adjacency 的唯一事实源。**车道边界锚点 v1 是整边界级的**：
   `(section, 相邻 lane 对)` 由 lane index 顺序构造保证成立，供 #237 的边界标线
   与变道许可设计消费。段级锚定 `(section, lane 对, 段 k)` 需要跨 lane 的共享
   纵向分段，而没有横向几何时该对应无法良定义（段数相等不代表纵向对齐，等长
