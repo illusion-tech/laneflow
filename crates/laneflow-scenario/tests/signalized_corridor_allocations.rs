@@ -234,37 +234,40 @@ fn assert_steady_lifecycle_for_target(target: usize) {
     let mut current_route = world.vehicle(first).expect("first state").route;
     let mut next = spare;
     let mut step = event_for(&world, current, current_route, 1);
-    for tick in 1..=10_000 {
-        step.tick_index = tick;
-        step.time_ms = tick * 20;
-        let CoreEvent::VehicleCompletedRoute(event) = &mut step.events[0] else {
-            unreachable!()
-        };
-        event.tick_index = tick;
-        event.vehicle = current;
-        event.route = current_route;
-        let route_edges = world.route_edges(current_route).expect("route edges");
-        event.edge = *route_edges.last().expect("route edge");
-        event.route_edge_index = route_edges.len() - 1;
-        controller
-            .consume_step_result(&step)
-            .expect("ordered completion");
-        let mut planned_route = None;
-        controller
-            .apply_pending::<_, ()>(|attempt_old, input| {
-                planned_route = Some(input.route);
-                Ok(CorridorReplaceAttemptOutcome::Replaced(
-                    VehicleReplaceRecord {
-                        old: attempt_old,
-                        new: next,
-                    },
-                ))
-            })
-            .expect("identity rotation");
-        current = next;
-        next = if next == spare { first } else { spare };
-        current_route = planned_route.expect("planned route");
-    }
+    let ((), rotation_stats) = measure(|| {
+        for tick in 1..=10_000 {
+            step.tick_index = tick;
+            step.time_ms = tick * 20;
+            let CoreEvent::VehicleCompletedRoute(event) = &mut step.events[0] else {
+                unreachable!()
+            };
+            event.tick_index = tick;
+            event.vehicle = current;
+            event.route = current_route;
+            let route_edges = world.route_edges(current_route).expect("route edges");
+            event.edge = *route_edges.last().expect("route edge");
+            event.route_edge_index = route_edges.len() - 1;
+            controller
+                .consume_step_result(&step)
+                .expect("ordered completion");
+            let mut planned_route = None;
+            controller
+                .apply_pending::<_, ()>(|attempt_old, input| {
+                    planned_route = Some(input.route);
+                    Ok(CorridorReplaceAttemptOutcome::Replaced(
+                        VehicleReplaceRecord {
+                            old: attempt_old,
+                            new: next,
+                        },
+                    ))
+                })
+                .expect("identity rotation");
+            current = next;
+            next = if next == spare { first } else { spare };
+            current_route = planned_route.expect("planned route");
+        }
+    });
+    assert_zero_allocation("10,000 completion/replacement rotations", rotation_stats);
     let final_capacities = controller.capacities();
     assert_eq!(final_capacities.slots, baseline_capacities.slots);
     assert!(final_capacities.vehicle_slots <= baseline_capacities.vehicle_slots);
