@@ -113,6 +113,9 @@ RoadCorridor
 - 每个 RoadSection/FacilityBand 恰好属于一个 RoadCorridor（完备 owner 树），
   但 LaneGraph 中存在不属于任何 RoadSection 的 LaneEdge 是合法的（横断面是
   LaneGraph 之上的可选结构 overlay）。
+- 同一 corridor 的 `elements[]` 内不得重复引用同一 section/band——cross-section
+  是唯一有序横向序列，重复引用会让同一元素占据两个横向位置，与 §2.2 定义
+  矛盾。
 - 不拥有单一 conflict solver、SignalController clock、route planner 或 runtime
   availability。
 
@@ -144,7 +147,9 @@ lane
   何，Core 无法定义或校验跨 lane 的纵向段对应（段数相等不等于纵向对齐，
   长度相等又与弯道弧长冲突），v1 不冻结段级对应关系。
 - 一条 LaneEdge 至多属于一条 lane、至多一个 RoadSection；未被覆盖的 edge 合法
-  （Junction internal edge、未分段路段等）。
+  （Junction internal edge、未分段路段等）。同一条 lane 链内 edge 也不得重复
+  （如 `[A, B, A]`）——重复 edge 会让同一物理 edge 占据同一 lane 的两个纵向
+  位置，占用/锚定语义自相矛盾。
 - RoadSection 的方向由其 lane edge 链的方向派生，不存储方向字段。**同向不变
   量**：同一 section 的所有 lane 链必须同向行驶——反向链会让
   "lane index 0 = 行驶方向最左"在 section 内自相矛盾，corridor 的
@@ -554,14 +559,15 @@ schema 为准，语义不得偏离：
 5. LaneGroup identity：ID syntax/duplicate、unknown roadSectionId（先于
    RoadSection 成员检查，否则 lane 的 `laneGroupId` 无法无歧义解析）；
 6. RoadSection body：unknown/non-lane-bearing kindId、empty lanes、empty
-   lane chain、unknown edge、chain 内 disconnected transition、同一 edge
-   出现在多条 lane/多个 section、unknown laneGroupId、lane 引用 group 的
-   `roadSectionId` 与该 lane 所属 section 不一致；
+   lane chain、unknown edge、chain 内 disconnected transition、lane 链内 edge
+   重复、同一 edge 出现在多条 lane/多个 section、unknown laneGroupId、lane
+   引用 group 的 `roadSectionId` 与该 lane 所属 section 不一致；
 7. LaneGroup membership：empty group（无 lane 引用），在 lane 成员关系已知后
    检查；
-8. RoadCorridor：ID syntax/duplicate、unknown element 引用、同一 section/band
-   出现在多个 corridor、section/band 零归属（§3.1 完备 owner 树）、
-   referenceSectionId 不是成员 section、empty elements；
+8. RoadCorridor：ID syntax/duplicate、unknown element 引用、elements 内重复
+   引用同一 section/band、同一 section/band 出现在多个 corridor、section/band
+   零归属（§3.1 完备 owner 树）、referenceSectionId 不是成员 section、
+   empty elements；
 9. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
    capability guard（FacilityBand target 或声明 timeWindows 的规则返回
    capability-unavailable 并拒绝载入；guard 依赖 target 已解析，故在 unknown
