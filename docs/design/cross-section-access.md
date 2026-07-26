@@ -343,7 +343,7 @@ AccessRule
     id
   effect: allow | deny
   participantClassIds[]   -> 非空
-  timeWindows[]?          -> 缺省 = 永远适用
+  timeWindows[]?          -> 缺省 = 永远适用；字段存在时至少一个窗口
     days[]                -> mon..sun 子集；标识窗口的**起始日**
     startMinuteOfDay
     endMinuteOfDay        -> 允许跨午夜（start > end 表示跨日窗口）
@@ -478,7 +478,8 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
   （软约束、记录事件但不拦截）是行为设计，必须独立 G1**，不得通过放宽 deny
   语义私下引入。
 - **时变规则**：作为 Core constraint pipeline 的 runtime constraint 在 edge-entry
-  决策点求值，具体时间语义与 motion 表现由时变 runtime G1 冻结。在其实现前，
+  决策点求值；只有 motion 表现（entry 停让、合规窗口判断与 event）由时变
+  runtime G1 冻结，时间语义不在其内（见下）。在其实现前，
   **v1 production 对声明了 timeWindows 的规则返回 capability-unavailable 结构
   化错误，拒绝载入**——guard 必须是显式拒绝，不得让声明了时段限制的规则
   静默无效（那会让车辆在无报错的情况下穿越已声明的限制）。绑定期校验只
@@ -632,8 +633,8 @@ profiles → lane graph → Junction → Signals → Parking → Routes）：
    capability guard（FacilityBand target 或声明 timeWindows 的规则返回
    capability-unavailable 并拒绝载入；guard 依赖 target 已解析，故在 unknown
    检查之后；guard 先于 shape/组合检查——能力整体拒绝后其内部细节校验无
-   意义）、timeWindow shape（days 空集、分钟越界——`start ∈ [0, 1439]`、
-   `end ∈ [1, 1440]`、`start == end`）、`regulation`
+   意义）、timeWindow shape（timeWindows 空数组、days 空集、分钟越界——
+   `start ∈ [0, 1439]`、`end ∈ [1, 1440]`、`start == end`）、`regulation`
    provenance 混合（声明了 regulation 的规则不共享同一
    `(jurisdiction, version)`）、按平面与 time segment 分别检查 §6.4
    第 4 步的残留组合歧义（edge 平面按 (segment, edge, class)，path 平面按
