@@ -44,13 +44,13 @@
 
 ### 1.2 当前 production
 
-| 范围            | Current production                              |
-| --------------- | ----------------------------------------------- |
-| Traffic         | exact-current `0.8`（无横断面/准入片段）        |
-| Lane topology   | LaneEdge 无类型；RoadSection/LaneGroup 未生产化 |
-| 参与者分类      | 不存在；VehicleProfile 无 participant class     |
-| 准入规则        | 不存在                                          |
-| 横断面横向几何  | 不冻结（宽度/偏移继续留在 Spatial/Adapter 外）  |
+| 范围           | Current production                              |
+| -------------- | ----------------------------------------------- |
+| Traffic        | exact-current `0.8`（无横断面/准入片段）        |
+| Lane topology  | LaneEdge 无类型；RoadSection/LaneGroup 未生产化 |
+| 参与者分类     | 不存在；VehicleProfile 无 participant class     |
+| 准入规则       | 不存在                                          |
+| 横断面横向几何 | 不冻结（宽度/偏移继续留在 Spatial/Adapter 外）  |
 
 ### 1.3 非目标
 
@@ -207,12 +207,12 @@ LaneEdge 职责不变（`lane-graph.md`）：有方向、可遍历的最小拓�
 
 LaneFlow 不使用单一封闭 `laneType` 枚举。四类关注点显式分层：
 
-| 关注点                     | 承载者                              |
-| -------------------------- | ----------------------------------- |
-| 物理设施是什么             | `FacilityKind`                      |
-| 谁（哪类参与者）可以使用   | `AccessRule` + `ParticipantClass`   |
-| 什么时间适用               | `AccessRule.timeWindows`            |
-| 哪个地区/法规版本          | `AccessRule.regulation` provenance  |
+| 关注点                   | 承载者                             |
+| ------------------------ | ---------------------------------- |
+| 物理设施是什么           | `FacilityKind`                     |
+| 谁（哪类参与者）可以使用 | `AccessRule` + `ParticipantClass`  |
+| 什么时间适用             | `AccessRule.timeWindows`           |
+| 哪个地区/法规版本        | `AccessRule.regulation` provenance |
 
 一条公交专用道 = `motorLane` 设施 + 一条 deny-motorVehicle / allow-bus 的
 AccessRule 组合；物理上不"是"公交道。
@@ -221,10 +221,10 @@ AccessRule 组合；物理上不"是"公交道。
 
 FacilityKind 是开放 token 词汇，SSOT 保留 seed 值：
 
-| kind            | 类别          | 可承载实体   |
-| --------------- | ------------- | ------------ |
-| `motorLane`     | lane-bearing  | RoadSection  |
-| `nonMotorLane`  | lane-bearing  | RoadSection  |
+| kind            | 类别            | 可承载实体   |
+| --------------- | --------------- | ------------ |
+| `motorLane`     | lane-bearing    | RoadSection  |
+| `nonMotorLane`  | lane-bearing    | RoadSection  |
 | `sidewalk`      | non-traversable | FacilityBand |
 | `median`        | non-traversable | FacilityBand |
 | `plantingStrip` | non-traversable | FacilityBand |
@@ -402,18 +402,18 @@ target，或给 deny 更高 priority——意图因此永远显式、可审计�
 
 ## 8. Authority 矩阵
 
-| 事实/行为                          | Authority                                  | 非 Authority                          |
-| ---------------------------------- | ------------------------------------------ | ------------------------------------- |
-| LaneEdge 拓扑/length/speed limit   | LaneGraph/Core                             | RoadSection、RoadCorridor、Adapter    |
-| 横断面横向顺序                     | RoadCorridor cross-section                 | Adapter 推断、Spatial 几何            |
-| lane 顺序与 adjacency 事实源       | RoadSection lane index                     | LaneGroup、AccessRule                 |
-| 设施物理身份                       | FacilityKind（SSOT seed + `x-` 扩展）      | AccessRule、laneType 式封闭枚举       |
-| 参与者分类                         | Traffic data 声明 + Core 层级匹配          | Core 内置类名、SignalController       |
-| 准入许可                           | AccessRule overlay + Core constraint 管线  | FacilityKind、ManeuverPath 复制       |
-| 法规来源/版本审计                  | AccessRule.regulation provenance           | SignalController 内嵌 if/else         |
-| 最终 motion/safety                 | Core longitudinal/traversal pipeline       | allow 规则、Adapter                   |
-| 横断面渲染/宽度/材质               | Adapter/Presentation                       | Core/Data                             |
-| 中心线几何/pose                    | Spatial edge binding（不变）               | 横断面 overlay                        |
+| 事实/行为                        | Authority                                 | 非 Authority                       |
+| -------------------------------- | ----------------------------------------- | ---------------------------------- |
+| LaneEdge 拓扑/length/speed limit | LaneGraph/Core                            | RoadSection、RoadCorridor、Adapter |
+| 横断面横向顺序                   | RoadCorridor cross-section                | Adapter 推断、Spatial 几何         |
+| lane 顺序与 adjacency 事实源     | RoadSection lane index                    | LaneGroup、AccessRule              |
+| 设施物理身份                     | FacilityKind（SSOT seed + `x-` 扩展）     | AccessRule、laneType 式封闭枚举    |
+| 参与者分类                       | Traffic data 声明 + Core 层级匹配         | Core 内置类名、SignalController    |
+| 准入许可                         | AccessRule overlay + Core constraint 管线 | FacilityKind、ManeuverPath 复制    |
+| 法规来源/版本审计                | AccessRule.regulation provenance          | SignalController 内嵌 if/else      |
+| 最终 motion/safety               | Core longitudinal/traversal pipeline      | allow 规则、Adapter                |
+| 横断面渲染/宽度/材质             | Adapter/Presentation                      | Core/Data                          |
+| 中心线几何/pose                  | Spatial edge binding（不变）              | 横断面 overlay                     |
 
 ## 9. Wire shape 与版本
 
@@ -525,18 +525,18 @@ Core constructors/normalization 报告（ADR 0007 分层不变）。
 
 ## 12. 影响矩阵
 
-| 层                 | Target 影响                                                  | 本 Issue 变更 | 后续 owner        |
-| ------------------ | ------------------------------------------------------------ | ------------- | ----------------- |
-| Core API           | 新增 5 类 handle/resolver/registry；Route 注册期准入校验     | 无（设计）    | production Issue  |
-| LaneGraph          | 不变；edge 成员关系由 RoadSection 引用反查                   | 无            | —                 |
-| Route              | 注册期增加静态准入校验与 occurrence 级 path 规则             | 无            | production Issue  |
-| Traffic Data       | exact-current `0.9` 新 arrays + profile 必填字段             | 无            | production Issue  |
-| Spatial            | shape 保持 `0.1`；横断面为顺序拓扑，无横向几何               | 无            | —                 |
-| Manifest           | shape 保持 `0.1`；production 后更新 Traffic size/digest      | 无            | production Issue  |
-| Authoring          | 显式 corridor/section/lane/rule 输入；generator 显式生成     | 无            | production Issue  |
-| Adapter            | observation 新增 corridor/section/rule 只读 query；无裁决权  | 无            | production Issue  |
-| Presentation       | 可按 cross-section 顺序渲染横断面；宽度/材质自有             | 无            | production Issue  |
-| Fixtures/artifacts | 原子切换 v0.9 并更新 canonical bytes/digests                 | 无            | production Issue  |
+| 层                 | Target 影响                                                 | 本 Issue 变更 | 后续 owner       |
+| ------------------ | ----------------------------------------------------------- | ------------- | ---------------- |
+| Core API           | 新增 5 类 handle/resolver/registry；Route 注册期准入校验    | 无（设计）    | production Issue |
+| LaneGraph          | 不变；edge 成员关系由 RoadSection 引用反查                  | 无            | —                |
+| Route              | 注册期增加静态准入校验与 occurrence 级 path 规则            | 无            | production Issue |
+| Traffic Data       | exact-current `0.9` 新 arrays + profile 必填字段            | 无            | production Issue |
+| Spatial            | shape 保持 `0.1`；横断面为顺序拓扑，无横向几何              | 无            | —                |
+| Manifest           | shape 保持 `0.1`；production 后更新 Traffic size/digest     | 无            | production Issue |
+| Authoring          | 显式 corridor/section/lane/rule 输入；generator 显式生成    | 无            | production Issue |
+| Adapter            | observation 新增 corridor/section/rule 只读 query；无裁决权 | 无            | production Issue |
+| Presentation       | 可按 cross-section 顺序渲染横断面；宽度/材质自有            | 无            | production Issue |
+| Fixtures/artifacts | 原子切换 v0.9 并更新 canonical bytes/digests                | 无            | production Issue |
 
 ## 13. 最小 production 实现拆分
 
