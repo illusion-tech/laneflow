@@ -114,7 +114,8 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
 - target 分两个求值平面：edge 平面（laneEdge/laneGroup/roadSection，展开为
   per-edge 事实）与 path 平面（maneuverPath，只对 occurrence 求值，**不展平进
   per-edge 表**——ADR 0017 允许 path 共享 edge，展平会误伤共享 edge 的合法
-  traversal）。跨平面合取：任一平面 deny 即 deny。
+  traversal；组合裁决改为消解为 `(path, class) -> effect` resolved 表，
+  occurrence 语义保留在绑定期查表）。跨平面合取：任一平面 deny 即 deny。
 - 平面内组合按字典序裁决：**参与者 specificity 优先于 target specificity**
   （身份豁免是主导模式），然后显式 priority；经三步仍在 allow/deny 间并列的
   是 authoring 歧义，normalization 直接拒绝——不设 deny-overrides 兜底，否则
@@ -139,8 +140,9 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
   保证分段确定性与相邻窗口无缝拼接。任何 allow 不得覆盖
   Core safety
   约束。
-- edge 平面组合裁决在 normalization 期消解为 `(edge, class) -> effect`
-  resolved 表，时变规则按确定性 time segment 切换 segment 索引结构（共享
+- 两个平面的组合裁决都在 normalization 期消解为 resolved 表（edge 平面
+  `(edge, class) -> effect`、path 平面 `(path, class) -> effect`），时变规则按
+  确定性 time segment 切换 segment 索引结构（共享
   未变条目，内存以 edges × classes + 变化条目为界，禁止 O(segments × edges
   × classes) 全量物化）；绑定期准入判断是 O(1)
   查表 + occurrence 比对，tick 不做字符串匹配、层级匹配或组合裁决。
@@ -150,9 +152,10 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
 新实体一律一等身份：external ID + dense typed handle + resolver + flat storage，
 静态 immutable registry 无 generation（ADR 0005/0017 先例）；ParticipantClass
 同样拥有一等外部身份（`ParticipantClassHandle`，供 VehicleProfile、Adapter
-observation 与 query API 稳定引用），其层级匹配与 per-edge rule refs 在
-normalization 编译为 dense class index 与 bitset/resolved 表，steady tick 不查
-字符串、不扫描 catalog。准入 wire/schema 归 `laneflow-data`，domain invariant 归
+observation 与 query API 稳定引用），其层级匹配与两个平面的 AccessRule 组合
+裁决在 normalization 编译为 dense class index、bitset 与 resolved 表，steady
+tick 不查字符串、不扫描 catalog。准入 wire/schema 归 `laneflow-data`，domain
+invariant 归
 Core constructors（ADR 0007）。production 化按 ADR 0008 原子 clean-break：
 Traffic `0.8 -> 0.9`，Spatial/Manifest 保持 `0.1`。
 
