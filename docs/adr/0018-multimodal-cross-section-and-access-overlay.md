@@ -54,9 +54,13 @@ planner、conflict solver、controller clock 或 runtime availability。横断�
 
 - RoadSection：有方向，`lanes[]` 按 lateral index 排序（index 0 = 行驶方向最左），
   每条 lane 是连续 LaneEdge 链；一条 LaneEdge 至多属于一条 lane，同一 lane 链内
-  也不得重复；lane index 顺序是未来 lane adjacency 的唯一事实源。**车道边界锚点 v1 是整边界级的**：
-  `(section, 相邻 lane 对)` 由 lane index 顺序构造保证成立，供 #237 的边界标线
-  与变道许可设计消费。段级锚定 `(section, lane 对, 段 k)` 需要跨 lane 的共享
+  也不得重复；lane index 顺序与 corridor elements 顺序共同构成未来 lane
+  adjacency 的事实源。**横向边界锚点 v1 是整边界级的**，分两层：section 内
+  边界 `(section, 相邻 lane 对)` 由 lane index 顺序构造保证；corridor 接缝
+  边界 `(corridor, 相邻元素对)` 由 elements 顺序构造保证——`kindId` 在
+  section 级，跨 kind 相邻（如机动车道与非机动车道接缝）必然跨 section，
+  接缝锚点是完整横断面邻接图的必要组成。两者供 #237 的边界标线与变道许可
+  设计消费。段级锚定 `(section, lane 对, 段 k)` 需要跨 lane 的共享
   纵向分段，而没有横向几何时该对应无法良定义（段数相等不代表纵向对齐，等长
   又与弯道弧长冲突），段级边界 identity 整体推迟到横向几何 G1，v1 不冻结
   任何形式的跨 lane 段对应。
@@ -154,6 +158,11 @@ Traffic `0.8 -> 0.9`，Spatial/Manifest 保持 `0.1`。
   意义，必须防止半成品语义被当作已生效。
 - 横断面只有顺序没有宽度，presentation 的横向布局质量仍依赖 Adapter 自有
   假设，直到横向几何 G1。
+- 同向不变量 v1 不可由 Core 校验：平行 lane 链间无共享参考系，链方向即其
+  自身 traversal 方向，Core 无法确定性区分同向与反向链。错误 authoring 会
+  被静默接受并在 runtime 表现为对向邻接。缓解路径：generator 几何感知生成
+  保证同向、离线 tooling 校验（比对绑定中心线 heading）、横向几何 G1 后补
+  normalization 校验钩子；hand-authored 数据承担该残余风险（§3.2 已声明）。
 
 ## 被拒绝的替代方案
 
@@ -195,6 +204,25 @@ resolved 表形状从 (edge, class) 退化为 (edge, class 集合) 的绑定期�
 复杂度，运行时还要把区间映射回 edge。v1 只冻结由 lane index 顺序构造保证的
 整边界级锚点，段级 identity 待横向几何 G1 用 stationing 良定义后再冻结，因此
 两种提前冻结方案都拒绝。
+
+### FacilityKind 下沉到 lane 级（替代 corridor 接缝锚点）
+
+让混合 kind 的 lane 共存于同一 section 以保留单一 section 内邻接，会模糊
+RoadSection 作为结构分段的语义、破坏"横向组成变化即 section 边界"的定义，并
+把 kind 一致性检查面扩大到每个 lane。corridor 接缝锚点以派生结构（零新增
+实体、零新校验面）覆盖同一需求，因此拒绝下沉。
+
+### RoadSection 存储显式方向字段
+
+方向字段没有独立的校验锚点：lane 链方向即其自身 traversal 方向，平行链间无
+共享参考系，字段只是重复声明 authoring 意图，Core 无法将其与链结构交叉验证，
+只会制造虚假的可校验感并增加一处可漂移的事实，因此拒绝。
+
+### 缺少几何证明时拒绝构造 RoadSection
+
+当前契约没有横向几何权威层（ADR 0013），该方案会让 v1 横断面整体不可用，
+代价远超收益。同向不变量维持 authoring 保证 + generator/tooling 校验 + 横向
+几何 G1 补强（残余风险见"代价与风险"），因此拒绝。
 
 ### 合并 #234 与 #237 为单一 G1
 
