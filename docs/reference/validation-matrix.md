@@ -1,7 +1,7 @@
 # 验证矩阵
 
 **文档状态**: Active  
-**最后更新**: 2026-07-24
+**最后更新**: 2026-07-26
 
 **适用范围**: LaneFlow 各切片类型在 `G3` 合并和 `G4` 收口闸口前的最小验证要求  
 **关联文档**:
@@ -22,7 +22,7 @@
 - 哪些检查通常不需要。
 - 无法运行时如何记录。
 
-矩阵不要求所有 PR 跑同一组重复检查，但要求每次变更显式说明验证结论。Rust Core workspace 落地后，`core-runtime` 切片默认应运行 `cargo fmt --all -- --check` 与 `cargo test --workspace --locked`；其他技术栈检查在对应代码落地后逐步启用。
+矩阵不要求所有 PR 跑同一组重复检查，但要求每次变更显式说明验证结论。Rust Core workspace 落地后，`core-runtime` 切片默认应运行 `cargo fmt --all -- --check` 与 `cargo test --workspace --locked`；其他技术栈检查在对应代码落地后逐步启用。仓库 CI 的 `Rust checks` job 按路径分流：非 Rust 路径跳过重型 cargo；仅 Core 等非 Bevy 路径默认不编译 `native-example` / Bevy benches；Bevy Adapter、`Cargo.lock` / `Cargo.toml` 或 CI workflow 变更才启用完整 Bevy 门禁。本地仍应按本矩阵主动运行与切片相关的命令，不能只依赖 CI skip。
 
 ## 2. 切片类型到验证矩阵
 
