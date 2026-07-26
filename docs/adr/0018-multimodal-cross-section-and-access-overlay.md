@@ -126,8 +126,10 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
   在其实现前，**v1 production 对声明 timeWindows 的规则与 FacilityBand
   target 的规则返回 capability-unavailable 结构化错误，拒绝载入**——guard
   必须是显式拒绝，不得让已声明的限制静默无效。timeWindow
-  的 `days` 标识窗口起始日，跨午夜延续到次日（含 Sun→Mon 回绕），保证分段
-  确定性。任何 allow 不得覆盖 Core safety
+  的 `days` 标识窗口起始日，跨午夜延续到次日（含 Sun→Mon 回绕）；simulation
+  time 0 固定为周一 00:00:00（周 7 天循环，不设可配 epoch），窗口为半开区间
+  `[start, end)`，保证分段确定性与相邻窗口无缝拼接。任何 allow 不得覆盖
+  Core safety
   约束。
 - edge 平面组合裁决在 normalization 期消解为 `(edge, class) -> effect`
   resolved 表，时变规则按确定性 time segment 切换表；绑定期准入判断是 O(1)
