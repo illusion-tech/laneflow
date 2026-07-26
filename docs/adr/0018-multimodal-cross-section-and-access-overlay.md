@@ -53,11 +53,12 @@ planner、conflict solver、controller clock 或 runtime availability。横断�
 
 - RoadSection：有方向，`lanes[]` 按 lateral index 排序（index 0 = 行驶方向最左），
   每条 lane 是连续 LaneEdge 链；一条 LaneEdge 至多属于一条 lane；lane index 顺序
-  是未来 lane adjacency 的唯一事实源。**同一 section 的多 lane 链强制段对齐
-  （段数相等）**，使 `(section, 相邻 lane 对, 段 k)` 的车道边界锚点由构造保证
-  成立，供 #237 的边界标线与变道许可设计消费。段索引只保证序号对应，不要求
-  对应段 EdgeLength 相等——弯道处内外车道中心线弧长天然不同，强制等长会让
-  弯道 section 无法 author；metric 对应关系留待横向几何 G1。
+  是未来 lane adjacency 的唯一事实源。**车道边界锚点 v1 是整边界级的**：
+  `(section, 相邻 lane 对)` 由 lane index 顺序构造保证成立，供 #237 的边界标线
+  与变道许可设计消费。段级锚定 `(section, lane 对, 段 k)` 需要跨 lane 的共享
+  纵向分段，而没有横向几何时该对应无法良定义（段数相等不代表纵向对齐，等长
+  又与弯道弧长冲突），段级边界 identity 整体推迟到横向几何 G1，v1 不冻结
+  任何形式的跨 lane 段对应。
 - LaneGroup：RoadSection 内可选命名分组，拥有一等 identity 供准入与观测引用，
   不影响 lane 顺序。
 - FacilityBand：人行道、分隔带、绿化/设施带等非遍历设施，不进入 traversal
@@ -124,17 +125,19 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
 
 新实体一律一等身份：external ID + dense typed handle + resolver + flat storage，
 静态 immutable registry 无 generation（ADR 0005/0017 先例）；ParticipantClass
-层级与 per-edge rule refs 在 normalization 编译，steady tick 不查字符串、不扫描
-catalog。准入 wire/schema 归 `laneflow-data`，domain invariant 归 Core
-constructors（ADR 0007）。production 化按 ADR 0008 原子 clean-break：
+同样拥有一等外部身份（`ParticipantClassHandle`，供 VehicleProfile、Adapter
+observation 与 query API 稳定引用），其层级匹配与 per-edge rule refs 在
+normalization 编译为 dense class index 与 bitset/resolved 表，steady tick 不查
+字符串、不扫描 catalog。准入 wire/schema 归 `laneflow-data`，domain invariant 归
+Core constructors（ADR 0007）。production 化按 ADR 0008 原子 clean-break：
 Traffic `0.8 -> 0.9`，Spatial/Manifest 保持 `0.1`。
 
 ## 后果
 
 ### 正向后果
 
-- 多模式横断面有单一 owner 与稳定 identity；车道 adjacency 获得结构锚点（#237
-  的直接输入）。
+- 多模式横断面有单一 owner 与稳定 identity；车道 adjacency 获得整边界级结构
+  锚点（#237 的直接输入）。
 - 设施、参与者、时间、地区四类关注点可独立演进，不再被封闭枚举锁死。
 - 准入差异不再诱使 authoring 复制 ManeuverPath，保持全局 traversal coherence。
 - 组合语义确定性且可审计，常见模式（公交专用、车型禁行、分时禁行、单车道
@@ -183,12 +186,14 @@ resolved 表形状从 (edge, class) 退化为 (edge, class 集合) 的绑定期�
 
 违反 ADR 0009 的 controller 纯净性（不得含国家、车型、设施特例），因此拒绝。
 
-### 车道边界用浮点纵向区间表达（替代强制段对齐）
+### 提前冻结段级边界 identity（强制段对齐或浮点纵向区间）
 
-会引入第二套长度权威（offset 与 EdgeLength 漂移）、放大 first-error 复杂度，且
-运行时还要把区间映射回 edge。强制段对齐把代价前移到 authoring，边界锚点由构造
-保证，因此拒绝区间方案；"按需对齐"则让后补边界语义的历史数据被迫迁移，同样
-拒绝。
+段级锚定 `(section, lane 对, 段 k)` 需要跨 lane 的共享纵向分段，而没有横向几何时
+该对应无法良定义：段数相等不代表切分点纵向对齐，强制等长又与弯道内外弧长冲突；
+浮点纵向区间则引入第二套长度权威（offset 与 EdgeLength 漂移）、放大 first-error
+复杂度，运行时还要把区间映射回 edge。v1 只冻结由 lane index 顺序构造保证的
+整边界级锚点，段级 identity 待横向几何 G1 用 stationing 良定义后再冻结，因此
+两种提前冻结方案都拒绝。
 
 ### 合并 #234 与 #237 为单一 G1
 

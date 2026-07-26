@@ -140,13 +140,9 @@ lane
 - lane index 0 是沿行驶方向最左侧车道；lane adjacency（#237 消费）的唯一事实源
   是该 index 顺序，与 LaneGroup 无关。
 - lane 的 edge 链内相邻 edge 必须存在 LaneGraph directed connection（链是沿纵向
-  的连续 traversal）。
-- **段对齐（强制）**：同一 RoadSection 内所有 lane 的 edge 链段数相等。Core 在
-  normalization 校验（纯结构、确定性，无需横向几何）；这让
-  `(section, 相邻 lane 对, 段 k)` 的边界锚点由构造保证成立（§3.2.1）。单 lane
-  section 天然满足。**不要求对应段 EdgeLength 相等**：弯道处内外车道中心线
-  弧长天然不同（同心弧 Rθ 与 (R+w)θ），而 spatial-geometry §6 要求每条
-  EdgeLength 与自身中心线一致，强制等长会让弯道 section 无法 author。
+  的连续 traversal）。各 lane 的切分点独立，无跨 lane 对齐要求——没有横向几
+  何，Core 无法定义或校验跨 lane 的纵向段对应（段数相等不等于纵向对齐，
+  长度相等又与弯道弧长冲突），v1 不冻结段级对应关系。
 - 一条 LaneEdge 至多属于一条 lane、至多一个 RoadSection；未被覆盖的 edge 合法
   （Junction internal edge、未分段路段等）。
 - RoadSection 的方向由其 lane edge 链的方向派生，不存储方向字段。**同向不变
@@ -163,15 +159,17 @@ lane
 
 #### 3.2.1 车道边界（lane boundary）锚点
 
-lane index 顺序与 §3.2 的强制段对齐共同提供车道边界语义的结构锚点：lane `i`
-与 lane `i + 1` 之间的边界由 `(RoadSection, i)` 唯一标识；边界的纵向分段由
-对齐的 edge 链保证，`(RoadSection, i, 段 k)` 永远良定义，无需任何浮点纵向
-区间。段索引只保证**序号对应**（两条链的第 k 段都从其 section 起点起第 k 个
-分段），不保证 metric 纵向对齐——弯道处相邻 lane 的第 k 段长度可以不同；
-精确的 metric 对应关系留待横向几何 G1。
+lane index 顺序提供车道边界的结构锚点：lane `i` 与 lane `i + 1` 之间的边界由
+`(RoadSection, i)` 唯一标识，v1 边界语义是**整边界级**的。
 
-本设计不定义边界标线或变道许可本身（见 §14）：实线/虚线是物理标线事实，变道
-许可是 policy 层，二者都不改变本节冻结的 lane 顺序、链结构与对齐约束。
+段级锚定 `(RoadSection, i, 段 k)` 需要跨 lane 的共享纵向分段，而这在没有横向
+几何时无法良定义：段数相等不代表纵向对齐（切分点可以任意错开），长度相等又
+与弯道弧长冲突。因此段级边界 identity 整体推迟到横向几何 G1——届时可用
+stationing 定义共享纵向分段。#237 首版按整边界语义设计（如整条边界实线/虚线，
+或以 Junction/section 边界为界的分段）。
+
+本设计不定义边界标线或变道许可本身（见 §15）：实线/虚线是物理标线事实，变道
+许可是 policy 层，二者都不改变本节冻结的 lane 顺序与链结构。
 
 ### 3.3 LaneGroup
 
@@ -441,9 +439,11 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
 - RoadCorridor、RoadSection、LaneGroup、FacilityBand、ParticipantClass、AccessRule
   均为一等实体：wire 用 external ID（沿用 current Traffic ASCII token 规则），
   Core runtime 用 dense typed handle（`RoadCorridorHandle`、`RoadSectionHandle`、
-  `LaneGroupHandle`、`FacilityBandHandle`、`AccessRuleHandle`；ParticipantClass 在
-  normalization 后编译为 dense class index，层级匹配编译为 bitset，不以字符串
-  进入 runtime）。
+  `LaneGroupHandle`、`FacilityBandHandle`、`ParticipantClassHandle`、
+  `AccessRuleHandle`）。ParticipantClass 的外部身份同样是一等 handle：
+  VehicleProfile、Adapter observation 与 query API 需要稳定引用参与者类别；
+  准入求值在 normalization 后编译为 dense class index 与层级 bitset（§5），
+  字符串不进入 steady-tick 求值路径。
 - registry 静态 immutable，初始化后稳定，不需要 generation（ADR 0005 的
   lane-graph 先例）；handle 不持久化、不跨 CoreWorld 混用。
 - Core 提供与 Junction registry 同形的 resolver、normalization-order iteration、
@@ -551,8 +551,7 @@ schema 为准，语义不得偏离：
 4. RoadSection：ID syntax/duplicate、unknown/non-lane-bearing kindId、empty
    lanes、empty lane chain、unknown edge、chain 内 disconnected transition、
    同一 edge 出现在多条 lane/多个 section、unknown laneGroupId、lane 引用
-   group 的 `roadSectionId` 与该 lane 所属 section 不一致、多 lane 链段
-   对齐违例（段数不等）；
+   group 的 `roadSectionId` 与该 lane 所属 section 不一致；
 5. LaneGroup membership：empty group（无 lane 引用），在 lane 成员关系已知后
    检查；
 6. RoadCorridor：ID syntax/duplicate、unknown element 引用、同一 section/band
@@ -609,7 +608,7 @@ Core constructors/normalization 报告（ADR 0007 分层不变）。
 
 **范围**：生产化 §3–§7 的静态模型——RoadCorridor/RoadSection/LaneGroup/
 FacilityBand/ParticipantClass/AccessRule 的 Core registry、handle、resolver、
-validation（含 §3.2 强制段对齐校验）、Traffic v0.9 schema/DTO/loader/fixtures、
+validation、Traffic v0.9 schema/DTO/loader/fixtures、
 (class, Route) 绑定期静态准入校验（edge 平面查表 + path 平面 occurrence 校验）、
 generator 显式横断面输出与 canonical artifacts 原子切换。
 
@@ -630,8 +629,9 @@ no-allocation 测试矩阵。
 
 1. **相邻事实源**：RoadSection 的 lane index 顺序；lane `i` 与 `i ± 1` 相邻，
    与 LaneGroup 无关（§3.2）。
-2. **边界锚点**：`(RoadSection, 相邻 lane 对)` 标识横向边界；`(section, lane 对,
-   段 k)` 由 §3.2 强制段对齐保证永远良定义（§3.2.1）。
+2. **边界锚点**：`(RoadSection, 相邻 lane 对)` 整边界级标识横向边界
+   （§3.2.1）；段级锚定 `(section, lane 对, 段 k)` 依赖跨 lane 共享纵向分段，
+   整体推迟到横向几何 G1，#237 首版不得依赖段级边界 identity。
 3. **overlay 模式**：ParticipantClass 层级匹配、AccessRule 五元与确定性组合
    （§5、§6），变道许可、动态车道用途、lane-use state 的参与者/时段例外复用
    该模式，不发明第二套规则语义。
@@ -665,7 +665,7 @@ no-allocation 测试矩阵。
 
 - `RoadCorridor` 作为横断面唯一 owner 的非方向性结构组合；方向性 RoadSection
   保留为车道承载单元；
-- RoadSection 的 ordered lanes + edge 链 + 单 section 归属 + 强制段对齐；
+- RoadSection 的 ordered lanes + edge 链 + 单 section 归属 + 同向不变量；
   LaneGroup 为可选命名分组，不影响 lane 顺序；
 - FacilityBand 非遍历、非 LaneEdge；FacilityKind seed + `x-` 开放词汇只承载
   物理设施身份；
