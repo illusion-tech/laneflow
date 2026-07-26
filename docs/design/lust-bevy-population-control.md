@@ -64,21 +64,21 @@ HUD 与 headless 证据必须同时可读：
 
 ### 3.2 受约束 H2（运行中改目标）
 
-- 运行中允许 **降低或保持** `target_N`。
-- 收敛只发生在 **fixed-step lifecycle boundary**（ADR 0016 顺序：pending
+- 运行中允许改写 `target_N` 意图，但 **精确人口收敛**（`N_individual == target_N`）
+  的升档与降档都走 **H1 重建 session**；见第 5 节。Running 内仅允许 S1 停补位
+  （不保证 identity 计数收敛）以及目标内的
+  `replace_completed_vehicle` 回流。
+- 生命周期决策只发生在 **fixed-step lifecycle boundary**（ADR 0016 顺序：pending
   commands → Core step → completions → 下一 boundary 的计划），不得按
   outer-frame 次数偷改。
-- **缩编**：见第 5 节；在目标内的回流/替换仅使用现有
-  `replace_completed_vehicle`（Session 只读 `core()` + Adapter 组合事务）。
-- **提高 `target_N`（扩编）禁止在 Running Session 内 live-spawn**。
-  现有 Bevy public surface 没有 typed Session spawn：`LaneFlowSession::core()`
-  只暴露 `&CoreWorld`，`bind_vehicle_entity` 只绑定已存在车辆，Adapter
-  lifecycle 仅有 completed-vehicle replace。扩编必须走 **H1 重建 session**
-  （销毁当前 Session，按第 4/6 节用初始 batch 重建 `CoreWorld` 后再挂 Session），
-  与走廊两阶段 bootstrap 同构。若未来需要 Running 内扩编，必须另立 G1/ADR，
-  不得在本契约下静默扩展 public API。
-- 同 `seed` 下把 `target_N` 从较小值重建到较大值时，新入选集合必须是第 4 节
-  全量 shuffle 的更长前缀（旧集合为其真前缀）；不得另起一套抽样。
+- **禁止 Running Session 内 live-spawn / live-despawn 扩缩编**。现有 Bevy public
+  surface：`LaneFlowSession::core()` 只暴露 `&CoreWorld`；`bind_vehicle_entity`
+  只绑定已存在车辆；Adapter lifecycle 仅有 completed-vehicle replace。H1 重建 =
+  销毁当前 Session，按第 4/6 节用初始 batch 重建 `CoreWorld` 后再挂 Session（与
+  走廊两阶段 bootstrap 同构）。若需要 Running 内 typed spawn/despawn，必须另立
+  G1/ADR，不得在本契约下静默扩展 public API。
+- 同 `seed` 下重建到更大 `target_N` 时，新入选集合必须是第 4 节全量 shuffle 的更长
+  前缀（旧集合为其真前缀）；重建到更小 `target_N` 时取同一 shuffle 的更短前缀。
 
 ### 3.3 可选手动 H3（展示覆盖）
 
@@ -123,18 +123,23 @@ bundle **不**提供 tick-0 无碰撞 placement（§3.6 明确排除初始车辆
 
 ## 5. 缩编分层
 
-| 策略                | 行为                                                                  | 本契约                               |
-| ------------------- | --------------------------------------------------------------------- | ------------------------------------ |
-| S1 自然缩编         | 停止对超出目标的 slot 做 replace/回流；等 route completion 后不再补位 | **默认权威路径**                     |
-| S3 大降幅重启       | 降幅 ≥ 50% 或绝对下降 ≥ 1000 时 **推荐** H1 重建 session              | 推荐，不强制                         |
-| S2 自动立刻降展示   | 缩编时自动把 `N_presented` 打到新目标                                 | **不做默认**（与 100% 展示默认冲突） |
-| S4 超时主动 despawn | 超时后 despawn live 车以加速收敛                                      | **本契约不做**                       |
+| 策略                | 行为                                                                      | 本契约                                          |
+| ------------------- | ------------------------------------------------------------------------- | ----------------------------------------------- |
+| S1 停补位           | 超出目标的 logical slot 停止 replace/回流；Completed 仍保留 Core identity | **允许**，但 **不**保证 `N_individual→target_N` |
+| S3 H1 重建缩编      | 降低 `target_N` 后按第 4 节前缀重建 Session，使 `N_individual = target_N` | **精确缩编的权威路径**                          |
+| S2 自动立刻降展示   | 缩编时自动把 `N_presented` 打到新目标                                     | **不做默认**（与 100% 展示默认冲突）            |
+| S4 超时主动 despawn | 超时后 despawn 仍 Active 的 live 车以加速收敛                             | **本契约不做**                                  |
 
 说明：
 
-- LuST 路网尺度大，S1 的 wall-clock 收敛可能很长；产品应通过 HUD 暴露真实
-  `N_individual`，并用 S3 处理大跳档预期。
-- 缩编期间默认 `N_presented` 跟随当前 `N_individual`（仍为 100% of remaining）。
+- ADR 0016：Completed 车辆在 despawn / atomic replace 前仍占 identity；replace 保持
+  人口基数。现有 Bevy Session 无 typed despawn（`core()` 只读），因此 **S1 单独无法**
+  把 `N_individual` 降到新 `target_N`，也不能兑现“稳态 `N_presented = target_N`”。
+- 凡需要 `N_individual == target_N`（含演示默认 100% presentation 对目标人口）的降档，
+  **必须 S3 / H1 重建**。S1 只用于明确接受“identity 暂高于目标、仅停止补位”的观测模式，
+  HUD 必须继续暴露真实 `N_individual`。
+- 若 #257 需要 Running 内对 excess Completed 做 typed despawn 而不重建 Session，停止并
+  另立 Adapter/G1；不得把 S4（对 Active live 车的超时驱逐）偷换为该能力。
 - 手动 H3 仍可临时降低展示，但不得静默修改 Core 人口。
 
 ## 6. 与 A/B/C 制品的关系
@@ -152,7 +157,8 @@ bundle + 人口表临时发明 collision-free `route_edge_index`/progress。
 ## 7. 验证要求（由 #257 交付）
 
 - 同 seed / `target_N` / fixed-step 输入 ⇒ 同抽样与回流决策序列。
-- H2 缩编与 H1 重建扩编不破坏 hard invariants；非法升档请求 fail-closed 或保持上一合法目标。
+- H1 重建升/降档与 S1 停补位不破坏 hard invariants；非法请求 fail-closed 或保持上一合法目标。
+- 证据须区分：S1 后 `N_individual` 可仍高于 `target_N`；S3/H1 后必须相等。
 - 证据矩阵至少覆盖 `target_N ∈ {1, 100, 1000}`；`10000` 按机器能力记录，未认证前
   不写 Product Pass。
 - GUI smoke 必须能读出第 2 节四个计数。

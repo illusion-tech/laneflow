@@ -567,7 +567,7 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 | 切片     | 交付                             | 依赖/边界                                                                                |
 | -------- | -------------------------------- | ---------------------------------------------------------------------------------------- |
 | H (#256) | LuST/Bevy 1–10k 个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`](lust-bevy-population-control.md) |
-| I (#257) | Bevy LuST native 示例与调节 UI   | 依赖 A 的 static 与 H 的契约；可选消费 B/C                                               |
+| I (#257) | Bevy LuST native 示例与调节 UI   | 依赖 A 的 static、B 的 TOPO plan（placement 权威）与 H 的契约；C/DEMAND 仍可选           |
 
 本文不改变 Core API、Data format、Spatial API、Adapter API、production runtime
 behavior 或 crate dependency direction，也不新增 ADR。
