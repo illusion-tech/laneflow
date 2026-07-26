@@ -53,10 +53,11 @@ planner、conflict solver、controller clock 或 runtime availability。横断�
 
 - RoadSection：有方向，`lanes[]` 按 lateral index 排序（index 0 = 行驶方向最左），
   每条 lane 是连续 LaneEdge 链；一条 LaneEdge 至多属于一条 lane；lane index 顺序
-  是未来 lane adjacency 的唯一事实源。**同一 section 的多 lane 链强制段对齐**
-  （段数相等且对应段 EdgeLength 相等，Core 可确定性校验），使
-  `(section, 相邻 lane 对, 段 k)` 的车道边界锚点由构造保证成立，供 #237 的
-  边界标线与变道许可设计消费。
+  是未来 lane adjacency 的唯一事实源。**同一 section 的多 lane 链强制段对齐
+  （段数相等）**，使 `(section, 相邻 lane 对, 段 k)` 的车道边界锚点由构造保证
+  成立，供 #237 的边界标线与变道许可设计消费。段索引只保证序号对应，不要求
+  对应段 EdgeLength 相等——弯道处内外车道中心线弧长天然不同，强制等长会让
+  弯道 section 无法 author；metric 对应关系留待横向几何 G1。
 - LaneGroup：RoadSection 内可选命名分组，拥有一等 identity 供准入与观测引用，
   不影响 lane 顺序。
 - FacilityBand：人行道、分隔带、绿化/设施带等非遍历设施，不进入 traversal
@@ -76,9 +77,11 @@ provenance。公交专用道 = `motorLane` 设施 + deny/allow 规则组合，�
 
 `participantClasses[]` 在 Traffic data 中声明（`id` + 可选 `extendsId`，无环单
 继承）；匹配语义为"自身或传递祖先"。所有引用必须解析到声明，unknown 即 load
-error。`VehicleProfile` 新增必填 `participantClassId`（恰好一个；多维度归属由
-层级表达）。Route 与 ManeuverPath 不携带 class；参与者差异只能由 AccessRule
-overlay 表达，不得复制相同 edge sequence 的 ManeuverPath（ADR 0017 §3 不变）。
+error。`VehicleProfile` 新增必填 `participantClassId`（恰好一个）。单继承只能
+表达一个分类维度（功能/尺寸不可兼得）；v1 按主导维度建模，多维度分类
+（多 membership + 绑定期组合）是独立 G1 的候选扩展。Route 与 ManeuverPath 不
+携带 class；参与者差异只能由 AccessRule overlay 表达，不得复制相同 edge
+sequence 的 ManeuverPath（ADR 0017 §3 不变）。
 
 ### 5. AccessRule 是 versioned、可审计的准入 overlay
 
@@ -98,7 +101,9 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
   （身份豁免是主导模式），然后显式 priority；经三步仍在 allow/deny 间并列的
   是 authoring 歧义，normalization 直接拒绝——不设 deny-overrides 兜底，否则
   歧义拒绝永远不可达，authoring 错误会变成不可见的运行时行为。
-- `regulation` 是 provenance/审计字段，v1 不参与计算语义。
+- `regulation` 是 provenance/审计字段，v1 不参与计算语义；同一 package 内
+  所有声明 regulation 的规则必须共享同一 `(jurisdiction, version)`，
+  normalization 强制校验，保证审计口径一致。
 - 静态规则在 **(ParticipantClass, Route) 绑定期**（spawn/路线指派）校验并原子
   拒绝违规绑定；Route 保持 class-agnostic 可复用，`register_route` 无 class
   上下文、不做准入判断（v1 仅严格语义；违规/劝诫式准入是独立 G1）。时变规则
@@ -164,8 +169,9 @@ length/speedLimit，因此拒绝。
 
 ### VehicleProfile 多 class membership
 
-引入 membership 间 specificity 歧义（公交且大型车命中两条链时无稳定裁决）；
-单引用 + 层级已覆盖现实需求，因此拒绝。
+引入 membership 间 specificity 歧义（公交且大型车命中两条链时无稳定裁决），且
+resolved 表形状从 (edge, class) 退化为 (edge, class 集合) 的绑定期组合。v1 以
+单引用 + 单维度层级覆盖主导场景，多维需求按独立 G1 扩展，因此 v1 拒绝。
 
 ### 把准入写进 SignalController/ManeuverGate
 
