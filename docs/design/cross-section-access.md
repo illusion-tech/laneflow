@@ -471,8 +471,12 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
   path 平面 occurrence 规则校验该 (class, route) 组合，命中 deny 即原子拒绝该
   绑定并返回结构化错误。校验只覆盖车辆**当前 route cursor 起的可达后缀**：
   spawn/replace 可以在非零 `routeEdgeIndex` 发生，cursor 之前的 edge 与
-  occurrence 不会被 traversal，不参与校验；cursor 落在某 occurrence 内部时，
-  该 occurrence 作为原子整体校验。Route 保持 class-agnostic：同一 Route 可被
+  occurrence 不会被 traversal，不参与校验。pending occurrence 的确切范围：
+  `exitRouteEdgeIndex` 严格大于 cursor 的 occurrence——`cursor < entry` 的
+  未来 occurrence 与 `entry ≤ cursor < exit` 的进行中 occurrence 都作为
+  原子整体校验；`cursor == exitRouteEdgeIndex` 时该 maneuver traversal 已
+  完成（exit edge 本身的准入由 edge 平面覆盖），occurrence 不参与校验。
+  Route 保持 class-agnostic：同一 Route 可被
   公交合法使用、被货车拒绝，准入判断只在有 class 上下文的绑定点发生；
   `register_route` 本身不做准入判断。v1 只有严格语义：**违规/劝诫式准入
   （软约束、记录事件但不拦截）是行为设计，必须独立 G1**，不得通过放宽 deny
