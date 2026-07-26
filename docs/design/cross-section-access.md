@@ -548,18 +548,21 @@ schema 为准，语义不得偏离：
 2. VehicleProfile：unknown `participantClassId`（依赖 phase 1 的 class identity
    解析结果；profile 其余字段校验沿用现有 pipeline，本设计不新增）；
 3. FacilityBand：ID syntax/duplicate、unknown kindId、kind 类别错误；
-4. LaneGroup identity：ID syntax/duplicate、unknown roadSectionId（先于
+4. RoadSection identity：ID syntax/duplicate（先于 LaneGroup parent 解析，
+   否则 `laneGroups[].roadSectionId` 指向 malformed/重复 ID 时
+   "unknown parent" 无确定性归因）；
+5. LaneGroup identity：ID syntax/duplicate、unknown roadSectionId（先于
    RoadSection 成员检查，否则 lane 的 `laneGroupId` 无法无歧义解析）；
-5. RoadSection：ID syntax/duplicate、unknown/non-lane-bearing kindId、empty
-   lanes、empty lane chain、unknown edge、chain 内 disconnected transition、
-   同一 edge 出现在多条 lane/多个 section、unknown laneGroupId、lane 引用
-   group 的 `roadSectionId` 与该 lane 所属 section 不一致；
-6. LaneGroup membership：empty group（无 lane 引用），在 lane 成员关系已知后
+6. RoadSection body：unknown/non-lane-bearing kindId、empty lanes、empty
+   lane chain、unknown edge、chain 内 disconnected transition、同一 edge
+   出现在多条 lane/多个 section、unknown laneGroupId、lane 引用 group 的
+   `roadSectionId` 与该 lane 所属 section 不一致；
+7. LaneGroup membership：empty group（无 lane 引用），在 lane 成员关系已知后
    检查；
-7. RoadCorridor：ID syntax/duplicate、unknown element 引用、同一 section/band
+8. RoadCorridor：ID syntax/duplicate、unknown element 引用、同一 section/band
    出现在多个 corridor、section/band 零归属（§3.1 完备 owner 树）、
    referenceSectionId 不是成员 section、empty elements；
-8. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
+9. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
    capability guard（FacilityBand target 或声明 timeWindows 的规则返回
    capability-unavailable 并拒绝载入；guard 依赖 target 已解析，故在 unknown
    检查之后；guard 先于 shape/组合检查——能力整体拒绝后其内部细节校验无
@@ -568,7 +571,11 @@ schema 为准，语义不得偏离：
    `(jurisdiction, version)`）、按平面与 time segment 分别检查 §6.4
    第 4 步的残留组合歧义（edge 平面按 (segment, edge, class)，path 平面按
    (segment, path, class)，含 always-active segment）；
-9. 构造 dense storage、member ranges、class bitset 与 resolved effect 表。
+10. 构造 dense storage、member ranges、class bitset 与 resolved effect 表。
+
+phase order 的组织原则：**identity phase 一律先于引用解析 phase**——LaneGroup
+的 identity/membership 拆分与 RoadSection 的 identity/body 拆分同形，任何
+"解析对 X 的引用"的检查都排在"X 的 ID syntax/duplicate"之后。
 
 Schema 只校验 syntax/shape/range；owner、reference、containment、组合歧义由
 Core constructors/normalization 报告（ADR 0007 分层不变）。
