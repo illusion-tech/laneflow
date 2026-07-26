@@ -1,7 +1,7 @@
 # 真实路网 Workload
 
 **文档状态**: Accepted（#224 G1）<br>
-**最后更新**: 2026-07-25<br>
+**最后更新**: 2026-07-26<br>
 **适用范围**: LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、10k
 真实路网性能补充 workload 与需求代表性 observation
 
@@ -561,6 +561,13 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 | E    | bus/stop semantics                                                       | 独立 G1                        |
 | F    | 中国特色手工 authoring 样本和独立 workload ID                            | 独立排期                       |
 | G    | BeST 100k 来源、裁剪和 workload                                          | 10k 获取/转换链路稳定后独立 G1 |
+
+产品路径上另有示例层切片（Parent #252），**不**改变上表 A–G 的 workload 语义：
+
+| 切片     | 交付                             | 依赖/边界                                                                                |
+| -------- | -------------------------------- | ---------------------------------------------------------------------------------------- |
+| H (#256) | LuST/Bevy 1–10k 个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`](lust-bevy-population-control.md) |
+| I (#257) | Bevy LuST native 示例与调节 UI   | 依赖 A 的 static 与 H 的契约；可选消费 B/C                                               |
 
 本文不改变 Core API、Data format、Spatial API、Adapter API、production runtime
 behavior 或 crate dependency direction，也不新增 ADR。
