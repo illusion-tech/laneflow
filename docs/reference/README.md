@@ -57,3 +57,4 @@
 - `v0.9-protected-turning-native-smoke.png`：#190 本机运行 `signalized_corridor` 默认 100 vehicles / seed 0 并通过 `F12` 保存的窗口内渲染截图。
 - `v0.9-cross-layer-validation.md`：#191 的 50/100/200 人口、stress seeds、回流与生命周期、chunking replay、灯具一致性、speed×signal、制品长度绑定与性能/有界性统一 cross-layer 证据。
 - `v0.9-cross-layer-native-smoke-50.png` / `v0.9-cross-layer-native-smoke-100.png` / `v0.9-cross-layer-native-smoke-200.png`：#191 本机运行 50/100/200 vehicles / seed 0 并通过 `F12` 保存的窗口内渲染截图。
+- `v0.9-signalized-corridor-closure-review.md`：#192 对 v0.9 受保护转向信号化走廊治理、显式 Junction/Movement/ManeuverPath 静态身份、制品、限速、双 12-phase 信号控制、50–200 人口、确定性回流、统一 cross-layer 证据、安全与兼容边界的最终独立收口基线。

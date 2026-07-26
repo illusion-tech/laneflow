@@ -166,6 +166,8 @@
 ManeuverGate 静态身份，再交付支持受保护左转、直行和右转的完整信号化走廊示例。
 Milestone tracker 为 #194；v0.8 已完成前置收口。
 
+完成状态：2026-07-26 已完成。#228、#196、#229、#190、#191 已分别完成长期 Road/Junction/Maneuver 分层冻结、protected-turning profile G1、Junction/Movement/ManeuverPath 最小静态模型与 Traffic v0.8 原子迁移、受保护左/直/右场景与 native 集成、50/100/200 cross-layer 统一验证；#192 执行独立 closure review 并同步覆盖 #194 与 #183。最终生产事实、机器/可视证据、安全状态、兼容边界与剩余风险见 [`v0.9 收口审阅基线`](reference/v0.9-signalized-corridor-closure-review.md)。
+
 范围：
 
 - #228/ADR 0017 冻结长期 Road/Junction/Maneuver 分层、Route occurrence、一等
@@ -175,7 +177,7 @@ Milestone tracker 为 #194；v0.8 已完成前置收口。
   [`signalized-corridor-protected-turning.md`](design/signalized-corridor-protected-turning.md)；
 - #229 以 clean break 原子实现 Junction/Movement/ManeuverPath/ManeuverGate
   Core/Data static model、Traffic v0.8、fixtures、generator 和 generated artifacts；
-- #190 当前实现具体 profile artifacts、catalog 0.2、scenario policy 与 native 最小
+- #190 交付具体 profile artifacts、catalog 0.2、scenario policy 与 native 最小
   集成；#191 扩大 cross-layer 验证，#192 执行独立 closure review；
 - 保留 v0.8 的道路尺度、限速、50–200 车辆调节、信号时长配置和确定性出口回流能力；
 - 完成端到端安全、确定性、可配置性、native 可视化和独立 closure review。
