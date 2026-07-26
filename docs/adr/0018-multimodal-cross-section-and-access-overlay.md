@@ -84,7 +84,9 @@ planner、conflict solver、controller clock 或 runtime availability。横断�
 ### 3. FacilityKind 与 AccessRule 显式分离，拒绝单一封闭 laneType
 
 四类关注点各归其位：物理设施身份 = `FacilityKind`（开放 token 词汇，SSOT seed +
-`x-` 前缀扩展，永远不含参与者/时段/地区语义）；参与者准入 = `AccessRule`；
+`x-` 前缀扩展——`x-lane-` 前缀声明 lane-bearing 自定义 kind，其余 `x-` 为
+non-traversable band kind，均不携带行为语义；词汇永远不含参与者/时段/地区
+语义）；参与者准入 = `AccessRule`；
 时间 = `AccessRule.timeWindows`；地区/法规版本 = `AccessRule.regulation`
 provenance。公交专用道 = `motorLane` 设施 + deny/allow 规则组合，物理上不是
 "公交道"。
