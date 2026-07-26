@@ -141,10 +141,12 @@ lane
   是该 index 顺序，与 LaneGroup 无关。
 - lane 的 edge 链内相邻 edge 必须存在 LaneGraph directed connection（链是沿纵向
   的连续 traversal）。
-- **段对齐（强制）**：同一 RoadSection 内所有 lane 的 edge 链段数相等，且对应段
-  的 EdgeLength 两两相等。Core 在 normalization 校验（长度权威在 Core，校验
-  确定性，无需横向几何）；这让 `(section, 相邻 lane 对, 段 k)` 的边界锚点由构造
-  保证成立（§3.2.1）。单 lane section 天然满足。
+- **段对齐（强制）**：同一 RoadSection 内所有 lane 的 edge 链段数相等。Core 在
+  normalization 校验（纯结构、确定性，无需横向几何）；这让
+  `(section, 相邻 lane 对, 段 k)` 的边界锚点由构造保证成立（§3.2.1）。单 lane
+  section 天然满足。**不要求对应段 EdgeLength 相等**：弯道处内外车道中心线
+  弧长天然不同（同心弧 Rθ 与 (R+w)θ），而 spatial-geometry §6 要求每条
+  EdgeLength 与自身中心线一致，强制等长会让弯道 section 无法 author。
 - 一条 LaneEdge 至多属于一条 lane、至多一个 RoadSection；未被覆盖的 edge 合法
   （Junction internal edge、未分段路段等）。
 - RoadSection 的方向由其 lane edge 链的方向派生，不存储方向字段。
@@ -158,7 +160,9 @@ lane
 lane index 顺序与 §3.2 的强制段对齐共同提供车道边界语义的结构锚点：lane `i`
 与 lane `i + 1` 之间的边界由 `(RoadSection, i)` 唯一标识；边界的纵向分段由
 对齐的 edge 链保证，`(RoadSection, i, 段 k)` 永远良定义，无需任何浮点纵向
-区间。
+区间。段索引只保证**序号对应**（两条链的第 k 段都从其 section 起点起第 k 个
+分段），不保证 metric 纵向对齐——弯道处相邻 lane 的第 k 段长度可以不同；
+精确的 metric 对应关系留待横向几何 G1。
 
 本设计不定义边界标线或变道许可本身（见 §14）：实线/虚线是物理标线事实，变道
 许可是 policy 层，二者都不改变本节冻结的 lane 顺序、链结构与对齐约束。
@@ -274,8 +278,11 @@ pedestrian
 ### 5.2 与 VehicleProfile / Route / ManeuverPath 的关系
 
 - `VehicleProfile` 新增必填 `participantClassId`，恰好引用一个声明的
-  ParticipantClass；多维度归属（如"既是公交又是大型车"）由层级表达，不引入
-  多 membership。
+  ParticipantClass。**单继承只能表达一个分类维度**：同一 profile 无法同时落在
+  功能维度（bus）与尺寸维度（largeVehicle）两条独立链上；v1 的权宜是按主导
+  维度建模（如 `largeBus extends bus` 或 `largeTruck extends truck`），并由
+  authoring 保证规则与该维度一致。真正的多维度分类（多 membership + 绑定期
+  跨成员组合）是独立 G1 的候选扩展，见 §15。
 - Route 不携带 class；Route 继续是实际 traversal authority，不因参与者类别分叉。
 - ManeuverPath 不携带 class；同一物理 traversal 仍然只有一个规范 ManeuverPath
   definition，参与者差异只能由 AccessRule overlay 表达（ADR 0017 §3）。
@@ -341,6 +348,10 @@ FacilityBand target 在 v1 只对 pedestrian 类有语义，对车辆 motion 无
   约束。
 - `regulation` 是 provenance/审计字段（对齐 ADR 0009"法规来源、版本和适用地区
   必须可审计"），v1 不参与计算语义；不同法规版本 = 不同 rule set/package。
+  为保证审计口径一致，同一 package 内所有声明了 `regulation` 的规则必须共享
+  同一 `(jurisdiction, version)`（`source` 可不同）；未声明 `regulation` 的
+  规则视为 provenance 未指定，不参与该约束。normalization 对违例返回结构化
+  错误（§10）。
 
 ### 6.4 确定性组合语义
 
@@ -511,13 +522,15 @@ schema 为准，语义不得偏离：
 3. RoadSection：ID syntax/duplicate、unknown/non-lane-bearing kindId、empty
    lanes、empty lane chain、unknown edge、chain 内 disconnected transition、
    同一 edge 出现在多条 lane/多个 section、unknown laneGroupId、多 lane 链段
-   对齐违例（段数不等或对应段 EdgeLength 不等）；
+   对齐违例（段数不等）；
 4. LaneGroup：ID syntax/duplicate、unknown roadSectionId、empty group（无 lane
    引用）；
 5. RoadCorridor：ID syntax/duplicate、unknown element 引用、同一 section/band
    出现在多个 corridor、referenceSectionId 不是成员 section、empty elements；
 6. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
-   timeWindow shape（days 空集、分钟越界、start == end）、按平面分别检查 §6.4
+   timeWindow shape（days 空集、分钟越界、start == end）、`regulation`
+   provenance 混合（声明了 regulation 的规则不共享同一
+   `(jurisdiction, version)`）、按平面分别检查 §6.4
    第 4 步的残留组合歧义（edge 平面按 (edge, class)，path 平面按
    (path, class)）；
 7. 构造 dense storage、member ranges、class bitset 与 resolved effect 表。
@@ -607,8 +620,11 @@ no-allocation 测试矩阵。
   v1 deny 只有严格语义。
 - **横向几何**：车道宽度、横向偏移、路缘与横坡需要独立几何 G1（对齐 ADR 0013
   首版限制）；本文的顺序拓扑是其自然锚点。
-- **多法规版本共存**：同一 package 内多 jurisdiction rule set 的冲突裁决留待
-  真实需求触发；v1 用 package 级分离。
+- **多法规版本共存**：v1 强制同一 package 内 regulation provenance 单一
+  （§6.3/§10）；跨法域 rule set 的组合与冲突裁决留待真实需求触发，用
+  package 级分离。
+- **多维度参与者分类**：v1 单继承单维度（§5.2）；多 membership + 绑定期跨
+  成员组合（含 specificity 歧义裁决与 resolved 表形状变化）必须独立 G1。
 
 ## 16. G1 冻结结论（候选）
 
