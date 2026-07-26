@@ -552,15 +552,15 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 
 #224 G4 后分别创建以下 G0 Issue：
 
-| 切片 | 交付                                                                     | 依赖/边界                      |
-| ---- | ------------------------------------------------------------------------ | ------------------------------ |
-| A    | source/static converter、Release assets、provenance 与 conversion report | 其他 workload 实施的共同前置   |
-| B    | TOPO plan、harness 与 evidence                                           | 依赖 A                         |
-| C    | DEMAND caller policy、plan、harness 与 evidence                          | 依赖 A                         |
-| D    | DUA rerouting                                                            | 独立 G1/ADR 判断               |
-| E    | bus/stop semantics                                                       | 独立 G1                        |
-| F    | 中国特色手工 authoring 样本和独立 workload ID                            | 独立排期                       |
-| G    | BeST 100k 来源、裁剪和 workload                                          | 10k 获取/转换链路稳定后独立 G1 |
+| 切片     | 交付                                                                     | 依赖/边界                                                                                                   |
+| -------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| A (#253) | source/static converter、Release assets、provenance 与 conversion report | 实现入口：[`tools/laneflow-lust-converter`](../../tools/laneflow-lust-converter/)；其他 workload 的共同前置 |
+| B        | TOPO plan、harness 与 evidence                                           | 依赖 A                                                                                                      |
+| C        | DEMAND caller policy、plan、harness 与 evidence                          | 依赖 A                                                                                                      |
+| D        | DUA rerouting                                                            | 独立 G1/ADR 判断                                                                                            |
+| E        | bus/stop semantics                                                       | 独立 G1                                                                                                     |
+| F        | 中国特色手工 authoring 样本和独立 workload ID                            | 独立排期                                                                                                    |
+| G        | BeST 100k 来源、裁剪和 workload                                          | 10k 获取/转换链路稳定后独立 G1                                                                              |
 
 产品路径上另有示例层切片（Parent #252），**不**改变上表 A–G 的 workload 语义：
 

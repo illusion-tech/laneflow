@@ -3176,6 +3176,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-lust-converter"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "sha2",
+ "thiserror 2.0.19",
+ "toml",
+]
+
+[[package]]
 name = "laneflow-scenario"
 version = "0.0.0"
 dependencies = [
