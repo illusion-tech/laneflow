@@ -275,8 +275,12 @@ FacilityKind 是开放 token 词汇，SSOT 保留 seed 值：
 
 扩展规则：
 
-- 项目自定义 kind 必须使用 `x-` 前缀；Core 把 `x-` kind 一律视为 non-traversable
-  band kind，不赋予任何行为语义，Adapter/authoring 可自行解释。
+- 项目自定义 kind 必须使用 `x-` 前缀，类别由前缀细分：`x-lane-` 前缀声明
+  **lane-bearing**（可作 RoadSection `kindId`，如 `x-lane-tram`），其余 `x-`
+  kind 一律为 non-traversable band kind；两者都不被 Core 赋予任何行为语义，
+  Adapter/authoring 可自行解释。类别由 token 约定承载与 `x-` 前缀机制同源，
+  无需新增声明结构。通用性得到验证的自定义 kind 应回流 SSOT seed 表，
+  `x-lane-` 是项目级逃生口而非词汇分叉的捷径。
 - 未在 seed 表且无 `x-` 前缀的 unknown kind 是 load error（防拼写漂移）。
 - kind 的类别（lane-bearing / non-traversable）用错实体类型是 validation error。
 - **lane-bearing 只声明结构语义**（lane 链、顺序、准入 target），不激活任何
