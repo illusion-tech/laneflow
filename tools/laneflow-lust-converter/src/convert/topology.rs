@@ -1,29 +1,37 @@
 //! Convert a parsed SUMO network into Traffic + Spatial packages.
 //!
-//! Emits Junction / Movement / ManeuverPath, optional static Signals, and
-//! optional vehicleProfiles. routes remain empty until later slices.
+//! Emits Junction / Movement / ManeuverPath, optional static Signals,
+//! vehicleProfiles, and optional DUE-derived routes + population table.
 
 use std::collections::HashMap;
 
 use crate::{
     Error, Result,
-    convert::{junction::normalize_junctions, signals::convert_signals},
+    convert::{
+        junction::normalize_junctions,
+        population::{
+            POPULATION_CANDIDATE_COUNT, POPULATION_DEPART_END_SECONDS,
+            POPULATION_DEPART_START_SECONDS, select_population,
+        },
+        routes::build_routes_and_bind_population,
+        signals::convert_signals,
+    },
     output::{
-        TopologyArtifacts, finish_topology_artifacts,
-        json_bytes,
+        TopologyArtifacts, finish_topology_artifacts, json_bytes,
         model::{
-            Centerline, LaneConnection, LaneEdge, LaneGraph, Parking, SpatialEdge, SpatialPackage,
+            Centerline, LaneConnection, LaneEdge, LaneGraph, Parking, PopulationSelection,
+            PopulationTable, PopulationTableRecord, Route, SpatialEdge, SpatialPackage,
             TrafficPackage, Units, VehicleProfile,
         },
     },
-    sumo::{LUST_FRAME_ID, SUMO_ID_PREFIX, SumoLane, SumoNetwork, SumoTlLogic},
+    sumo::{DueVehicle, LUST_FRAME_ID, SUMO_ID_PREFIX, SumoLane, SumoNetwork, SumoTlLogic},
 };
 
 const DEFAULT_FIXED_DELTA_MS: u64 = 16;
 const DEFAULT_TRAFFIC_REF: &str = "lust-topology.traffic.json";
 const DEFAULT_SPATIAL_REF: &str = "lust-topology.spatial.json";
 
-/// Options for topology conversion.
+/// Options for topology / static conversion.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TopologyConvertOptions {
     pub fixed_delta_ms: u64,
@@ -31,6 +39,8 @@ pub struct TopologyConvertOptions {
     pub spatial_artifact_ref: String,
     /// When true, require pinned LuST `<location>` lexical anchors.
     pub require_lust_location_anchors: bool,
+    /// When true, require exactly 10,592 filtered DUE candidates before taking 10k.
+    pub require_lust_population_count: bool,
 }
 
 impl Default for TopologyConvertOptions {
@@ -40,8 +50,18 @@ impl Default for TopologyConvertOptions {
             traffic_artifact_ref: DEFAULT_TRAFFIC_REF.to_owned(),
             spatial_artifact_ref: DEFAULT_SPATIAL_REF.to_owned(),
             require_lust_location_anchors: false,
+            require_lust_population_count: false,
         }
     }
+}
+
+/// Topology packages plus harness-only population table bytes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StaticConversionArtifacts {
+    pub topology: TopologyArtifacts,
+    pub population: Vec<u8>,
+    pub population_record_count: usize,
+    pub route_count: usize,
 }
 
 /// Build validated Traffic/Spatial/Manifest bytes from a SUMO network.
@@ -66,6 +86,73 @@ pub(crate) fn convert_network_topology_with_tll_and_profiles(
     network: &SumoNetwork,
     tll_programs: &[SumoTlLogic],
     vehicle_profiles: &[VehicleProfile],
+    options: &TopologyConvertOptions,
+) -> Result<TopologyArtifacts> {
+    convert_network_packages(network, tll_programs, vehicle_profiles, &[], options)
+}
+
+/// Convert topology + routes + population from network inputs and ordered DUE vehicles.
+pub(crate) fn convert_static_with_due(
+    network: &SumoNetwork,
+    tll_programs: &[SumoTlLogic],
+    vehicle_profiles: &[VehicleProfile],
+    due_vehicles: &[DueVehicle],
+    options: &TopologyConvertOptions,
+) -> Result<StaticConversionArtifacts> {
+    let topology_norm = normalize_junctions(network)?;
+    let population =
+        select_population(due_vehicles, options.require_lust_population_count)?;
+    let bundle = build_routes_and_bind_population(network, &topology_norm, &population)?;
+
+    let topology = convert_network_packages(
+        network,
+        tll_programs,
+        vehicle_profiles,
+        &bundle.routes,
+        options,
+    )?;
+
+    let table = PopulationTable {
+        format_version: "0.1",
+        selection: PopulationSelection {
+            depart_start_seconds: POPULATION_DEPART_START_SECONDS,
+            depart_end_seconds_exclusive: POPULATION_DEPART_END_SECONDS,
+            require_lust_candidate_count: options.require_lust_population_count,
+            candidate_count_expected: options
+                .require_lust_population_count
+                .then_some(POPULATION_CANDIDATE_COUNT as u64),
+            selected_count: u64::try_from(bundle.records.len()).expect("count fits u64"),
+            route_catalog_count: u64::try_from(bundle.routes.len()).expect("count fits u64"),
+        },
+        records: bundle
+            .records
+            .iter()
+            .map(|record| PopulationTableRecord {
+                population_rank: record.population_rank,
+                vehicle_id: record.vehicle_id.clone(),
+                vehicle_profile_id: record.vehicle_profile_id.clone(),
+                depart_seconds: record.depart.to_string(),
+                route_id: record.route_id.clone(),
+                road_edge_ids: record.road_edge_ids.clone(),
+                source_file_ordinal: record.source_file_ordinal,
+                source_vehicle_ordinal: record.source_vehicle_ordinal,
+            })
+            .collect(),
+    };
+    let population_bytes = json_bytes("PopulationTable", &table)?;
+    Ok(StaticConversionArtifacts {
+        population_record_count: bundle.records.len(),
+        route_count: bundle.routes.len(),
+        topology,
+        population: population_bytes,
+    })
+}
+
+fn convert_network_packages(
+    network: &SumoNetwork,
+    tll_programs: &[SumoTlLogic],
+    vehicle_profiles: &[VehicleProfile],
+    routes: &[Route],
     options: &TopologyConvertOptions,
 ) -> Result<TopologyArtifacts> {
     if options.require_lust_location_anchors && !network.location.matches_lust_anchors() {
@@ -171,7 +258,7 @@ pub(crate) fn convert_network_topology_with_tll_and_profiles(
         junctions: topology.junctions,
         movements: topology.movements,
         maneuver_paths: topology.maneuver_paths,
-        routes: Vec::new(),
+        routes: routes.to_vec(),
         vehicle_profiles: vehicle_profiles.to_vec(),
         signals,
         parking: Parking {

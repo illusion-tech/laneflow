@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal DUE fixture for #253 population + route expansion tests. -->
+<routes>
+    <vehicle id="early" type="passenger1" depart="28799.99">
+        <route edges="west east"/>
+    </vehicle>
+    <vehicle id="west-east-a" type="passenger1" depart="28800">
+        <route edges="west east"/>
+    </vehicle>
+    <vehicle id="west-south-b" type="passenger2a" depart="28810.5">
+        <route edges="west south"/>
+    </vehicle>
+    <vehicle id="bus-in-window" type="bus" depart="28820">
+        <route edges="west east"/>
+    </vehicle>
+    <vehicle id="west-east-c" type="passenger3" depart="30599.99">
+        <route edges="west east"/>
+    </vehicle>
+    <vehicle id="late" type="passenger1" depart="30600">
+        <route edges="west east"/>
+    </vehicle>
+</routes>

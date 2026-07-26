@@ -114,6 +114,24 @@ impl ExactDecimal {
         self.to_strict_positive_millis()
     }
 
+    /// Compare two exact decimals.
+    pub fn cmp_decimal(self, other: Self) -> Ordering {
+        let scale = self.scale.max(other.scale);
+        let left = self.rescale(scale).unwrap_or(i128::MAX);
+        let right = other.rescale(scale).unwrap_or(i128::MAX);
+        left.cmp(&right)
+    }
+
+    /// `self < other`
+    pub fn is_less_than(self, other: Self) -> bool {
+        self.cmp_decimal(other) == Ordering::Less
+    }
+
+    /// `self >= other`
+    pub fn is_greater_or_equal(self, other: Self) -> bool {
+        matches!(self.cmp_decimal(other), Ordering::Greater | Ordering::Equal)
+    }
+
     fn rescale(self, scale: u32) -> Result<i128> {
         match scale.cmp(&self.scale) {
             Ordering::Equal => Ok(self.digits),
