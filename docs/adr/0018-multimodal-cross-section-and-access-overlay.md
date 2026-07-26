@@ -121,9 +121,11 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
   所有声明 regulation 的规则必须共享同一 `(jurisdiction, version)`，
   normalization 强制校验，保证审计口径一致。
 - 静态规则在 **(ParticipantClass, Route) 绑定期**（spawn/路线指派）校验并原子
-  拒绝违规绑定，校验只覆盖当前 route cursor 起的可达后缀（cursor 内
-  occurrence 作为原子整体）；Route 保持 class-agnostic 可复用，`register_route`
-  无 class
+  拒绝违规绑定，校验只覆盖当前 route cursor 起的可达后缀：pending
+  occurrence = `exitRouteEdgeIndex` 严格大于 cursor 的 occurrence（未来与进行
+  中的都作为原子整体；cursor 到达 exit index 即 traversal 完成，不参与校验，
+  exit edge 本身的准入由 edge 平面覆盖）；Route 保持 class-agnostic 可复用，
+  `register_route` 无 class
   上下文、不做准入判断（v1 仅严格语义；违规/劝诫式准入是独立 G1）。时变规则
   作为 Core constraint pipeline 的 runtime constraint，其实现由独立 G1 冻结；
   在其实现前，**v1 production 对声明 timeWindows 的规则与 FacilityBand
