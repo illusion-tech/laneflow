@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic T-junction fixture for #253 topology conversion tests. Uses LuST location anchors. -->
+<net version="1.16" junctionCornerDetail="5" limitTurnSpeed="5.50">
+    <location netOffset="-285448.66,-5492398.13" convBoundary="0.00,0.00,13613.76,11455.04" origBoundary="-285448.66,-5492398.13,-271834.90,-5480943.09" projParameter="!"/>
+
+    <edge id="west" from="W" to="J" priority="2">
+        <lane id="west_0" index="0" speed="13.89" length="20.00" shape="6786.88,5727.52 6806.88,5727.52"/>
+    </edge>
+    <edge id="east" from="J" to="E" priority="2">
+        <lane id="east_0" index="0" speed="13.89" length="20.00" shape="6816.88,5727.52 6836.88,5727.52"/>
+    </edge>
+    <edge id="south" from="J" to="S" priority="2">
+        <lane id="south_0" index="0" speed="13.89" length="20.00" shape="6806.88,5717.52 6806.88,5697.52"/>
+    </edge>
+    <edge id=":J_0" function="internal">
+        <lane id=":J_0_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6811.88,5727.52 6816.88,5727.52"/>
+    </edge>
+    <edge id=":J_1" function="internal">
+        <lane id=":J_1_0" index="0" speed="13.89" length="10.00" shape="6806.88,5727.52 6806.88,5722.52 6806.88,5717.52"/>
+    </edge>
+
+    <junction id="W" type="dead_end" x="6786.88" y="5727.52" incLanes="" intLanes="" shape="6786.88,5727.52"/>
+    <junction id="E" type="dead_end" x="6836.88" y="5727.52" incLanes="east_0" intLanes="" shape="6836.88,5727.52"/>
+    <junction id="S" type="dead_end" x="6806.88" y="5697.52" incLanes="south_0" intLanes="" shape="6806.88,5697.52"/>
+    <junction id="J" type="priority" x="6806.88" y="5727.52" incLanes="west_0" intLanes=":J_0_0 :J_1_0" shape="6806.88,5727.52">
+        <request index="0" response="00" foes="00" cont="0"/>
+        <request index="1" response="00" foes="00" cont="0"/>
+    </junction>
+
+    <connection from="west" to="east" fromLane="0" toLane="0" via=":J_0_0" dir="s" state="M"/>
+    <connection from=":J_0" to="east" fromLane="0" toLane="0" dir="s" state="M"/>
+    <connection from="west" to="south" fromLane="0" toLane="0" via=":J_1_0" dir="r" state="M"/>
+    <connection from=":J_1" to="south" fromLane="0" toLane="0" dir="r" state="M"/>
+</net>

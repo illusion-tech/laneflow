@@ -38,6 +38,31 @@ pub enum Error {
         actual: String,
     },
 
+    #[error("failed to parse SUMO XML: {0}")]
+    XmlParse(String),
+
+    #[error("invalid SUMO network model: {0}")]
+    SumoModel(String),
+
+    #[error("could not serialize {document} JSON: {source}")]
+    Json {
+        document: &'static str,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("{document} does not satisfy its repository JSON Schema: {message}")]
+    Schema {
+        document: &'static str,
+        message: String,
+    },
+
+    #[error("{stage} validation failed: {message}")]
+    Validation {
+        stage: &'static str,
+        message: String,
+    },
+
     #[error("static conversion is not implemented yet (source verify passed)")]
     StaticConversionNotImplemented,
 }
