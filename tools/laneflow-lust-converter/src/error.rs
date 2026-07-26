@@ -62,9 +62,6 @@ pub enum Error {
         stage: &'static str,
         message: String,
     },
-
-    #[error("static conversion is not implemented yet (source verify passed)")]
-    StaticConversionNotImplemented,
 }
 
 /// Convenience result alias for this crate.

@@ -6,11 +6,13 @@ use laneflow_data::{
 };
 use laneflow_spatial::{SpatialEdgeInput, SpatialRegistry};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 use crate::{
     Error, Result,
-    output::model::{ArtifactDescriptor, ScenarioManifest},
+    output::{
+        digest::sha256_digest,
+        model::{ArtifactDescriptor, ScenarioManifest},
+    },
 };
 
 const TRAFFIC_SCHEMA: &str = include_str!("../../../../schemas/laneflow-data-v0.8.schema.json");
@@ -42,7 +44,7 @@ pub fn descriptor(artifact_ref: String, media_type: &'static str, bytes: &[u8]) 
     ArtifactDescriptor {
         artifact_ref,
         media_type,
-        digest: format!("sha256:{}", hex_digest(Sha256::digest(bytes).as_slice())),
+        digest: sha256_digest(bytes),
         size: u64::try_from(bytes.len()).expect("artifact size fits in u64"),
     }
 }
@@ -146,14 +148,4 @@ fn validate_schema(document: &'static str, schema_source: &str, input: &[u8]) ->
         document,
         message: error.to_string(),
     })
-}
-
-fn hex_digest(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
 }

@@ -14,6 +14,15 @@ pub struct LustConverterConfig {
     pub source_dir: PathBuf,
     /// Directory that will receive static / report outputs.
     pub output_dir: PathBuf,
+    /// Converter git commit recorded in build provenance (or set `LANEFLOW_CONVERTER_COMMIT`).
+    #[serde(default)]
+    pub converter_commit: Option<String>,
+    /// Optional GitHub Release URL for the source tar asset.
+    #[serde(default)]
+    pub source_bundle_url: Option<String>,
+    /// Optional GitHub Release URL for the static tar asset.
+    #[serde(default)]
+    pub static_bundle_url: Option<String>,
 }
 
 impl LustConverterConfig {
@@ -38,4 +47,21 @@ pub fn load_config(path: &Path) -> Result<LustConverterConfig> {
     let config: LustConverterConfig = toml::from_str(&text)?;
     config.validate()?;
     Ok(config)
+}
+
+/// Load config together with the exact TOML bytes used for config digest.
+pub fn load_config_with_bytes(path: &Path) -> Result<(LustConverterConfig, Vec<u8>)> {
+    let bytes = fs::read(path).map_err(|source| Error::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| {
+        Error::Config(format!(
+            "converter config {} is not valid UTF-8",
+            path.display()
+        ))
+    })?;
+    let config: LustConverterConfig = toml::from_str(text)?;
+    config.validate()?;
+    Ok((config, bytes))
 }

@@ -93,6 +93,9 @@ fn load_config_reads_toml() {
         LustConverterConfig {
             source_dir: PathBuf::from("C:/tmp/lust"),
             output_dir: PathBuf::from("C:/tmp/out"),
+            converter_commit: None,
+            source_bundle_url: None,
+            static_bundle_url: None,
         }
     );
 }

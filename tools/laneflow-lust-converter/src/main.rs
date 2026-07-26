@@ -52,8 +52,21 @@ fn run() -> Result<(), String> {
             if flag != "--config" || arguments.next().is_some() {
                 return Err(usage());
             }
-            convert(&path).map_err(|error| error.to_string())?;
-            unreachable!("convert currently always returns NotImplemented");
+            let outputs = convert(&path).map_err(|error| error.to_string())?;
+            println!(
+                "convert ok: wrote static/source bundles under {}",
+                outputs.output_dir.display()
+            );
+            println!("  {}", outputs.traffic.display());
+            println!("  {}", outputs.spatial.display());
+            println!("  {}", outputs.manifest.display());
+            println!("  {}", outputs.conversion_report.display());
+            println!("  {}", outputs.population.display());
+            println!("  {}", outputs.source_tar.display());
+            println!("  {}", outputs.static_tar.display());
+            println!("  {}", outputs.semantic_provenance.display());
+            println!("  {}", outputs.build_provenance.display());
+            Ok(())
         }
         _ => Err(usage()),
     }
