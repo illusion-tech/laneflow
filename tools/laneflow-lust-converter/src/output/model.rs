@@ -72,7 +72,7 @@ pub(crate) struct Route {
     pub edge_ids: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct VehicleProfile {
     pub id: String,

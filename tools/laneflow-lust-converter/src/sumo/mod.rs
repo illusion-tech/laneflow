@@ -4,6 +4,8 @@ pub mod decimal;
 pub mod net;
 pub mod net_parse;
 pub mod tll_parse;
+pub mod vtype;
+pub mod vtype_parse;
 
 pub use decimal::ExactDecimal;
 pub use net::{
@@ -12,3 +14,5 @@ pub use net::{
 };
 pub use net_parse::parse_sumo_network_xml;
 pub use tll_parse::parse_tll_static_xml;
+pub use vtype::SumoVType;
+pub use vtype_parse::parse_vtypes_xml;

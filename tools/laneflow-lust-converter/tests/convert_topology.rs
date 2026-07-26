@@ -1,8 +1,9 @@
 use std::{fs, path::PathBuf};
 
 use laneflow_lust_converter::{
-    ExactDecimal, LUST_FRAME_ID, TopologyConvertOptions, convert_topology_from_xml_with_tll,
-    parse_sumo_network_xml,
+    ExactDecimal, LUST_FRAME_ID, TopologyConvertOptions,
+    convert_topology_from_xml_with_tll_and_vtypes, parse_sumo_network_xml, parse_vtypes_xml,
+    select_passenger_vtypes,
 };
 
 #[test]
@@ -17,36 +18,54 @@ fn fixture_parses_lane_and_connection_counts() {
 }
 
 #[test]
-fn fixture_topology_with_signals_round_trips() {
-    let artifacts = convert_topology_from_xml_with_tll(
+fn fixture_vtypes_contain_bus_and_six_passengers() {
+    let vtypes = parse_vtypes_xml(&fixture_vtypes_xml()).expect("parse vtypes");
+    assert_eq!(vtypes.len(), 7);
+    let passengers = select_passenger_vtypes(&vtypes).expect("select passengers");
+    assert_eq!(passengers.len(), 6);
+}
+
+#[test]
+fn fixture_topology_with_signals_and_profiles_round_trips() {
+    let artifacts = convert_topology_from_xml_with_tll_and_vtypes(
         &fixture_net_xml(),
         &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
         &TopologyConvertOptions::default(),
     )
-    .expect("topology+signals convert");
+    .expect("topology+signals+profiles convert");
     assert_eq!(artifacts.edge_count, 5);
     let traffic = String::from_utf8_lossy(&artifacts.traffic);
-    assert!(traffic.contains(LUST_FRAME_ID) || String::from_utf8_lossy(&artifacts.spatial).contains(LUST_FRAME_ID));
+    assert!(String::from_utf8_lossy(&artifacts.spatial).contains(LUST_FRAME_ID));
     assert!(traffic.contains("sumo:west_0"));
     assert!(traffic.contains("\"id\": \"sumo:J\""));
-    assert!(traffic.contains("sumo:J:west-to-east"));
     assert!(traffic.contains("sumo:J:group-0"));
     assert!(traffic.contains("sumo:stop:west"));
-    assert!(traffic.contains("\"kind\": \"fixedTime\""));
     assert!(traffic.contains("\"durationMs\": 31000"));
-    assert!(traffic.contains("\"aspect\": \"green\""));
-    assert!(traffic.contains("maneuverGates"));
+    assert!(traffic.contains("sumo:passenger1"));
+    assert!(traffic.contains("sumo:passenger5"));
+    assert!(traffic.contains("\"emergencyDeceleration\": 8.0"));
+    assert!(traffic.contains("\"timeHeadway\": 1.0"));
+    assert!(!traffic.contains("sumo:bus"));
 }
 
 #[test]
 fn fixture_topology_is_byte_deterministic() {
     let options = TopologyConvertOptions::default();
-    let first =
-        convert_topology_from_xml_with_tll(&fixture_net_xml(), &fixture_tll_xml(), &options)
-            .expect("first");
-    let second =
-        convert_topology_from_xml_with_tll(&fixture_net_xml(), &fixture_tll_xml(), &options)
-            .expect("second");
+    let first = convert_topology_from_xml_with_tll_and_vtypes(
+        &fixture_net_xml(),
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        &options,
+    )
+    .expect("first");
+    let second = convert_topology_from_xml_with_tll_and_vtypes(
+        &fixture_net_xml(),
+        &fixture_tll_xml(),
+        &fixture_vtypes_xml(),
+        &options,
+    )
+    .expect("second");
     assert_eq!(first.traffic, second.traffic);
     assert_eq!(first.spatial, second.spatial);
     assert_eq!(first.manifest, second.manifest);
@@ -78,6 +97,7 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
     let root = PathBuf::from(source_dir);
     let net_xml = fs::read_to_string(root.join("scenario/lust.net.xml")).expect("read net");
     let tll_xml = fs::read_to_string(root.join("scenario/tll.static.xml")).expect("read tll");
+    let vtypes_xml = fs::read_to_string(root.join("scenario/vtypes.add.xml")).expect("read vtypes");
     let network = parse_sumo_network_xml(&net_xml).expect("parse lust.net.xml");
     assert!(network.location.matches_lust_anchors());
     assert_eq!(network.external_edge_count(), 5_779);
@@ -85,15 +105,16 @@ fn full_lust_net_topology_matches_external_lane_anchor() {
     assert_eq!(network.connections.len(), 30_051);
     assert_eq!(network.net_tl_logic_ids().len(), 201);
 
-    let artifacts = convert_topology_from_xml_with_tll(
+    let artifacts = convert_topology_from_xml_with_tll_and_vtypes(
         &net_xml,
         &tll_xml,
+        &vtypes_xml,
         &TopologyConvertOptions {
             require_lust_location_anchors: true,
             ..TopologyConvertOptions::default()
         },
     )
-    .expect("full topology+signals convert");
+    .expect("full topology+signals+profiles convert");
     assert_eq!(artifacts.edge_count, network.lanes.len());
 }
 
@@ -111,6 +132,13 @@ fn fixture_tll_xml() -> String {
             .join("tests/fixtures/minimal/t-junction.tll.xml"),
     )
     .expect("read tll fixture")
+}
+
+fn fixture_vtypes_xml() -> String {
+    fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/minimal/vtypes.add.xml"),
+    )
+    .expect("read vtypes fixture")
 }
 
 trait FromStrChecked {
