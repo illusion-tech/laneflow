@@ -159,6 +159,9 @@ jobs:
               - 'Cargo.lock'
               - 'deny.toml'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/external-review-gate.yml'
+              - '.github/workflows/external-review-signal.yml'
+              - 'docs/governance/github-workflow.md'
             bevy:
               - 'crates/laneflow-bevy/**'
               - 'crates/laneflow-core/**'

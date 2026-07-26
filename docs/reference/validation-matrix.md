@@ -22,7 +22,7 @@
 - 哪些检查通常不需要。
 - 无法运行时如何记录。
 
-矩阵不要求所有 PR 跑同一组重复检查，但要求每次变更显式说明验证结论。Rust Core workspace 落地后，`core-runtime` 切片默认应运行 `cargo fmt --all -- --check` 与 `cargo test --workspace --locked`；其他技术栈检查在对应代码落地后逐步启用。仓库 CI 的 `Rust checks` job 按路径分流：非 Rust / 非 `schemas/` 路径跳过重型 cargo；`schemas/` 变更会跑 workspace 测试以覆盖 schema contract。Bevy `native-example` / Bevy benches / Bevy allocation 在 Bevy Adapter、其 Core/Spatial/Data/Scenario 依赖、example 制品、`Cargo.lock` / `Cargo.toml` 或 CI workflow 变更时启用。本地仍应按本矩阵主动运行与切片相关的命令，不能只依赖 CI skip。
+矩阵不要求所有 PR 跑同一组重复检查，但要求每次变更显式说明验证结论。Rust Core workspace 落地后，`core-runtime` 切片默认应运行 `cargo fmt --all -- --check` 与 `cargo test --workspace --locked`；其他技术栈检查在对应代码落地后逐步启用。仓库 CI 的 `Rust checks` job 按路径分流：非 Rust / 非 `schemas/` / 非 external-review 契约输入路径跳过重型 cargo；`schemas/` 与 `xtask` 嵌入的 external-review workflow / `docs/governance/github-workflow.md` 变更会跑 workspace 测试以覆盖 schema contract 与 trusted-ref 契约。Bevy `native-example` / Bevy benches / Bevy allocation 在 Bevy Adapter、其 Core/Spatial/Data/Scenario 依赖、example 制品、`Cargo.lock` / `Cargo.toml` 或 CI workflow 变更时启用。本地仍应按本矩阵主动运行与切片相关的命令，不能只依赖 CI skip。
 
 ## 2. 切片类型到验证矩阵
 
