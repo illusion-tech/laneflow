@@ -8,7 +8,10 @@ use crate::{
     Error, Result,
     sumo::{
         decimal::ExactDecimal,
-        net::{SumoConnection, SumoEdge, SumoJunction, SumoLane, SumoLocation, SumoNetwork},
+        net::{
+            SumoConnection, SumoEdge, SumoJunction, SumoLane, SumoLocation, SumoNetwork, SumoTlLogic,
+            SumoTlPhase,
+        },
     },
 };
 
@@ -28,12 +31,14 @@ pub fn parse_sumo_network_xml(xml: &str) -> Result<SumoNetwork> {
     let mut lanes = Vec::new();
     let mut junctions = Vec::new();
     let mut connections = Vec::new();
+    let mut tl_logics = Vec::new();
 
     for child in root.children().filter(Node::is_element) {
         match child.tag_name().name() {
             "edge" => parse_edge(child, &mut edges, &mut lanes)?,
             "junction" => junctions.push(parse_junction(child)?),
             "connection" => connections.push(parse_connection(child)?),
+            "tlLogic" => tl_logics.push(parse_tl_logic(child)?),
             _ => {}
         }
     }
@@ -50,6 +55,7 @@ pub fn parse_sumo_network_xml(xml: &str) -> Result<SumoNetwork> {
         lanes,
         junctions,
         connections,
+        tl_logics,
     })
 }
 
@@ -139,12 +145,53 @@ fn parse_connection(node: Node<'_, '_>) -> Result<SumoConnection> {
             .collect::<Vec<_>>(),
         _ => Vec::new(),
     };
+    let tl_id = node.attribute("tl").map(str::to_owned);
+    let link_index = match node.attribute("linkIndex") {
+        Some(raw) => Some(parse_u32(raw.to_owned(), "connection@linkIndex")?),
+        None => None,
+    };
+    if tl_id.is_some() != link_index.is_some() {
+        return Err(Error::SumoModel(format!(
+            "connection {from_edge_id:?}->{to_edge_id:?} must set both @tl and @linkIndex or neither"
+        )));
+    }
     Ok(SumoConnection {
         from_edge_id,
         to_edge_id,
         from_lane,
         to_lane,
         via_lane_ids,
+        tl_id,
+        link_index,
+    })
+}
+
+pub(crate) fn parse_tl_logic(node: Node<'_, '_>) -> Result<SumoTlLogic> {
+    let id = required_attr(node, "id")?;
+    let logic_type = required_attr(node, "type")?;
+    let program_id = required_attr(node, "programID")?;
+    let offset = ExactDecimal::from_str(&required_attr(node, "offset")?)?;
+    let mut phases = Vec::new();
+    for child in node
+        .children()
+        .filter(|child| child.is_element() && child.tag_name().name() == "phase")
+    {
+        phases.push(SumoTlPhase {
+            duration: ExactDecimal::from_str(&required_attr(child, "duration")?)?,
+            state: required_attr(child, "state")?,
+        });
+    }
+    if phases.is_empty() {
+        return Err(Error::SumoModel(format!(
+            "tlLogic {id:?} has no <phase> children"
+        )));
+    }
+    Ok(SumoTlLogic {
+        id,
+        logic_type,
+        program_id,
+        offset,
+        phases,
     })
 }
 

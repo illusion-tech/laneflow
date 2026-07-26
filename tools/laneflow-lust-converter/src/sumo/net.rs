@@ -20,6 +20,8 @@ pub struct SumoNetwork {
     pub lanes: Vec<SumoLane>,
     pub junctions: Vec<SumoJunction>,
     pub connections: Vec<SumoConnection>,
+    /// `<tlLogic>` elements embedded in the net (often actuated stubs).
+    pub tl_logics: Vec<SumoTlLogic>,
 }
 
 /// `<location>` attributes as exact decimals.
@@ -102,6 +104,25 @@ pub struct SumoConnection {
     pub from_lane: u32,
     pub to_lane: u32,
     pub via_lane_ids: Vec<String>,
+    pub tl_id: Option<String>,
+    pub link_index: Option<u32>,
+}
+
+/// One SUMO `<tlLogic>` program (from net stub or `tll.static.xml`).
+#[derive(Clone, Debug)]
+pub struct SumoTlLogic {
+    pub id: String,
+    pub logic_type: String,
+    pub program_id: String,
+    pub offset: ExactDecimal,
+    pub phases: Vec<SumoTlPhase>,
+}
+
+/// One `<phase>` inside a tlLogic.
+#[derive(Clone, Debug)]
+pub struct SumoTlPhase {
+    pub duration: ExactDecimal,
+    pub state: String,
 }
 
 impl SumoNetwork {
@@ -134,5 +155,17 @@ impl SumoNetwork {
     /// Look up a lane by id.
     pub fn lane(&self, lane_id: &str) -> Option<&SumoLane> {
         self.lanes.iter().find(|lane| lane.id == lane_id)
+    }
+
+    /// Controller IDs declared by net `<tlLogic>` elements, sorted uniquely.
+    pub fn net_tl_logic_ids(&self) -> Vec<String> {
+        let mut ids = self
+            .tl_logics
+            .iter()
+            .map(|logic| logic.id.clone())
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids.dedup();
+        ids
     }
 }

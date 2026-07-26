@@ -26,9 +26,7 @@ struct NormalizedTraversal {
 }
 
 /// Emit Junction / Movement / ManeuverPath aggregates for a SUMO network.
-pub fn normalize_junctions(
-    network: &SumoNetwork,
-) -> Result<(Vec<Junction>, Vec<Movement>, Vec<ManeuverPath>)> {
+pub fn normalize_junctions(network: &SumoNetwork) -> Result<NormalizedTopology> {
     let lane_by_edge_index = build_lane_index(network);
     let adjacency = build_lane_adjacency(network, &lane_by_edge_index)?;
     let owners_by_int_lane = build_int_lane_owners(network)?;
@@ -158,23 +156,36 @@ pub fn normalize_junctions(
     }
     movements.sort_by(|left, right| left.id.cmp(&right.id));
 
+    let mut path_by_connection = HashMap::new();
     let maneuver_paths = traversals
         .iter()
-        .map(|traversal| ManeuverPath {
-            id: maneuver_path_id(traversal),
-            movement_id: movement_id(
-                &traversal.key.junction_id,
-                &traversal.key.from_road_edge_id,
-                &traversal.key.to_road_edge_id,
-            ),
-            entry_edge_id: format!("{SUMO_ID_PREFIX}{}", traversal.entry_lane_id),
-            internal_edge_ids: traversal
-                .key
-                .internal_lane_ids
-                .iter()
-                .map(|id| format!("{SUMO_ID_PREFIX}{id}"))
-                .collect(),
-            exit_edge_id: format!("{SUMO_ID_PREFIX}{}", traversal.exit_lane_id),
+        .map(|traversal| {
+            let path = ManeuverPath {
+                id: maneuver_path_id(traversal),
+                movement_id: movement_id(
+                    &traversal.key.junction_id,
+                    &traversal.key.from_road_edge_id,
+                    &traversal.key.to_road_edge_id,
+                ),
+                entry_edge_id: format!("{SUMO_ID_PREFIX}{}", traversal.entry_lane_id),
+                internal_edge_ids: traversal
+                    .key
+                    .internal_lane_ids
+                    .iter()
+                    .map(|id| format!("{SUMO_ID_PREFIX}{id}"))
+                    .collect(),
+                exit_edge_id: format!("{SUMO_ID_PREFIX}{}", traversal.exit_lane_id),
+            };
+            path_by_connection.insert(
+                (
+                    traversal.key.from_road_edge_id.clone(),
+                    traversal.key.from_lane_index,
+                    traversal.key.to_road_edge_id.clone(),
+                    traversal.key.to_lane_index,
+                ),
+                path.id.clone(),
+            );
+            path
         })
         .collect::<Vec<_>>();
 
@@ -197,7 +208,22 @@ pub fn normalize_junctions(
         ));
     }
 
-    Ok((junctions, movements, maneuver_paths))
+    Ok(NormalizedTopology {
+        junctions,
+        movements,
+        maneuver_paths,
+        path_by_connection,
+    })
+}
+
+/// Junction normalization output used by topology and signal conversion.
+#[derive(Clone, Debug)]
+pub struct NormalizedTopology {
+    pub junctions: Vec<Junction>,
+    pub movements: Vec<Movement>,
+    pub maneuver_paths: Vec<ManeuverPath>,
+    /// `(from_road_edge, from_lane, to_road_edge, to_lane) -> ManeuverPath.id`
+    pub path_by_connection: HashMap<(String, u32, String, u32), String>,
 }
 
 fn resolve_owner(
@@ -396,18 +422,20 @@ mod tests {
     fn fixture_emits_one_junction_two_movements_two_paths() {
         let xml = include_str!("../../tests/fixtures/minimal/t-junction.net.xml");
         let network = parse_sumo_network_xml(xml).expect("parse");
-        let (junctions, movements, paths) = normalize_junctions(&network).expect("normalize");
-        assert_eq!(junctions.len(), 1);
-        assert_eq!(junctions[0].id, "sumo:J");
-        assert_eq!(movements.len(), 2);
-        assert_eq!(paths.len(), 2);
+        let topology = normalize_junctions(&network).expect("normalize");
+        assert_eq!(topology.junctions.len(), 1);
+        assert_eq!(topology.junctions[0].id, "sumo:J");
+        assert_eq!(topology.movements.len(), 2);
+        assert_eq!(topology.maneuver_paths.len(), 2);
         assert!(
-            paths
+            topology
+                .maneuver_paths
                 .iter()
                 .any(|path| path.internal_edge_ids == ["sumo::J_0_0".to_owned()])
         );
         assert!(
-            paths
+            topology
+                .maneuver_paths
                 .iter()
                 .any(|path| path.internal_edge_ids == ["sumo::J_1_0".to_owned()])
         );

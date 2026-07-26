@@ -71,6 +71,49 @@ impl ExactDecimal {
         }
     }
 
+    /// Convert a non-negative exact decimal number of seconds into integer milliseconds.
+    ///
+    /// Fails unless the value is strictly positive and exactly representable in whole milliseconds.
+    pub fn to_strict_positive_millis(self) -> Result<u64> {
+        if self.digits <= 0 {
+            return Err(Error::SumoModel(
+                "duration/offset must be a strictly positive exact decimal".to_owned(),
+            ));
+        }
+        let millis_digits = if self.scale <= 3 {
+            let factor = pow10(3 - self.scale)?;
+            self.digits.checked_mul(factor).ok_or_else(|| {
+                Error::SumoModel("duration/offset millisecond conversion overflowed".to_owned())
+            })?
+        } else {
+            let divisor = pow10(self.scale - 3)?;
+            if self.digits % divisor != 0 {
+                return Err(Error::SumoModel(format!(
+                    "duration/offset {self} is not an exact integer number of milliseconds"
+                )));
+            }
+            self.digits / divisor
+        };
+        u64::try_from(millis_digits).map_err(|_| {
+            Error::SumoModel("duration/offset millisecond value does not fit in u64".to_owned())
+        })
+    }
+
+    /// Convert a non-negative exact decimal number of seconds into integer milliseconds.
+    ///
+    /// Zero is allowed (controller offsets).
+    pub fn to_non_negative_millis(self) -> Result<u64> {
+        if self.digits < 0 {
+            return Err(Error::SumoModel(
+                "offset must not be negative".to_owned(),
+            ));
+        }
+        if self.digits == 0 {
+            return Ok(0);
+        }
+        self.to_strict_positive_millis()
+    }
+
     fn rescale(self, scale: u32) -> Result<i128> {
         match scale.cmp(&self.scale) {
             Ordering::Equal => Ok(self.digits),

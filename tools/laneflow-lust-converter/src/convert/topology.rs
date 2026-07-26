@@ -1,29 +1,29 @@
-//! Convert a parsed SUMO network into Traffic lane graph + Spatial centerlines.
+//! Convert a parsed SUMO network into Traffic + Spatial packages.
 //!
-//! Emits Junction / Movement / ManeuverPath from §3.1 normalization.
-//! vehicleProfiles / signals / routes remain empty until later slices.
+//! Emits Junction / Movement / ManeuverPath and optional static Signals.
+//! vehicleProfiles / routes remain empty until later slices.
 
 use std::collections::HashMap;
 
 use crate::{
     Error, Result,
-    convert::junction::normalize_junctions,
+    convert::{junction::normalize_junctions, signals::convert_signals},
     output::{
         TopologyArtifacts, finish_topology_artifacts,
         json_bytes,
         model::{
-            Centerline, LaneConnection, LaneEdge, LaneGraph, Parking, Signals, SpatialEdge,
-            SpatialPackage, TrafficPackage, Units,
+            Centerline, LaneConnection, LaneEdge, LaneGraph, Parking, SpatialEdge, SpatialPackage,
+            TrafficPackage, Units,
         },
     },
-    sumo::{LUST_FRAME_ID, SUMO_ID_PREFIX, SumoLane, SumoNetwork},
+    sumo::{LUST_FRAME_ID, SUMO_ID_PREFIX, SumoLane, SumoNetwork, SumoTlLogic},
 };
 
 const DEFAULT_FIXED_DELTA_MS: u64 = 16;
 const DEFAULT_TRAFFIC_REF: &str = "lust-topology.traffic.json";
 const DEFAULT_SPATIAL_REF: &str = "lust-topology.spatial.json";
 
-/// Options for topology conversion (lane graph + junctions; no signals/profiles yet).
+/// Options for topology conversion.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TopologyConvertOptions {
     pub fixed_delta_ms: u64,
@@ -47,6 +47,15 @@ impl Default for TopologyConvertOptions {
 /// Build validated Traffic/Spatial/Manifest bytes from a SUMO network.
 pub fn convert_network_topology(
     network: &SumoNetwork,
+    options: &TopologyConvertOptions,
+) -> Result<TopologyArtifacts> {
+    convert_network_topology_with_tll(network, &[], options)
+}
+
+/// Build validated packages using static programs from `tll.static.xml`.
+pub fn convert_network_topology_with_tll(
+    network: &SumoNetwork,
+    tll_programs: &[SumoTlLogic],
     options: &TopologyConvertOptions,
 ) -> Result<TopologyArtifacts> {
     if options.require_lust_location_anchors && !network.location.matches_lust_anchors() {
@@ -91,7 +100,8 @@ pub fn convert_network_topology(
         targets.dedup();
     }
 
-    let (junctions, movements, maneuver_paths) = normalize_junctions(network)?;
+    let topology = normalize_junctions(network)?;
+    let signals = convert_signals(network, tll_programs, &topology.path_by_connection)?;
 
     let mut lane_edges = Vec::with_capacity(network.lanes.len());
     let mut spatial_edges = Vec::with_capacity(network.lanes.len());
@@ -148,17 +158,12 @@ pub fn convert_network_topology(
             time: "second",
         },
         lane_graph: LaneGraph { edges: lane_edges },
-        junctions,
-        movements,
-        maneuver_paths,
+        junctions: topology.junctions,
+        movements: topology.movements,
+        maneuver_paths: topology.maneuver_paths,
         routes: Vec::new(),
         vehicle_profiles: Vec::new(),
-        signals: Signals {
-            stop_lines: Vec::new(),
-            maneuver_gates: Vec::new(),
-            groups: Vec::new(),
-            controllers: Vec::new(),
-        },
+        signals,
         parking: Parking {
             areas: Vec::new(),
             spaces: Vec::new(),
