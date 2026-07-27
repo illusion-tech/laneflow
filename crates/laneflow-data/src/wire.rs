@@ -229,6 +229,11 @@ pub(crate) enum WireAccessEffect {
 
 // timeWindows 字段只参与 closed-shape 校验：v1 capability guard 对声明
 // timeWindows 的规则一律拒绝载入，窗口内容不进入 Core，故字段保持未读。
+// 分钟字段保留原始数值（serde_json::Number）而非 u32：负数或超 u32 范围的
+// 值在语义上同样越界，但范围属于 phase 9 shape 检查，必须排在 capability
+// guard 之后（cross-section-access.md §10）——解码期范围检查会让
+// DataError::JsonShape 抢在 AccessCapabilityUnavailable 之前，使诊断依赖
+// 不被支持的窗口内容。任何 JSON 数值都能解码为 Number 并先抵达 guard。
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[allow(
@@ -237,8 +242,8 @@ pub(crate) enum WireAccessEffect {
 )]
 pub(crate) struct WireTimeWindow {
     pub(crate) days: Vec<String>,
-    pub(crate) start_minute_of_day: u32,
-    pub(crate) end_minute_of_day: u32,
+    pub(crate) start_minute_of_day: serde_json::Number,
+    pub(crate) end_minute_of_day: serde_json::Number,
 }
 
 #[derive(Deserialize)]
