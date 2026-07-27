@@ -775,42 +775,40 @@ impl AccessRegistry {
 /// 归一化：`1.00000000000000001` 这类 f64 不可精确表示的小数必须拒绝。
 /// 输入可能来自不经过 wire 层的公开 Core API，字面量语法由本函数自行校验。
 fn parse_access_priority(literal: &str) -> Option<i32> {
-    // 快速路径：纯整数字面量。
-    if let Ok(value) = literal.parse::<i64>() {
-        return i32::try_from(value).ok();
-    }
-    if let Ok(value) = literal.parse::<u64>() {
-        return i32::try_from(value).ok();
-    }
     i32::try_from(exact_integer_lexeme(literal)?).ok()
 }
 
 /// 若 JSON number 字面量精确表示一个整数则返回其 i128 值，否则 None。
 /// 小数位与指数按十进制字面值运算，不经过任何浮点转换。
-/// 语法按 JSON number 结构（`-?digits(.digits)?([eE][+-]?digits)?`）逐字节
-/// 校验：公开 Core API 的调用方不经过 wire/JSON Schema，Core 的形状校验
-/// 必须自行拒绝非法字面量，任何语义捷径（含全零尾数）都不得跳过语法校验。
+/// 语法按 JSON number 严格结构（`-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`）
+/// 逐字节校验：公开 Core API 的调用方不经过 wire/JSON Schema，Core 的形状校验
+/// 必须自行拒绝非法字面量（含 `01`/`+1` 这类 Rust 整数解析器会容忍的写法），
+/// 任何语义捷径（数值快速路径、全零尾数）都不得先于语法校验执行。
 fn exact_integer_lexeme(literal: &str) -> Option<i128> {
-    let (mantissa, exponent) = match literal.find(['e', 'E']) {
-        Some(index) => (&literal[..index], &literal[index + 1..]),
-        None => (literal, "0"),
+    let (mantissa, exponent, has_exponent) = match literal.find(['e', 'E']) {
+        Some(index) => (&literal[..index], &literal[index + 1..], true),
+        None => (literal, "0", false),
     };
     let (negative, mantissa) = match mantissa.strip_prefix('-') {
         Some(rest) => (true, rest),
         None => (false, mantissa),
     };
-    let (integer_digits, fraction_digits) = match mantissa.find('.') {
+    let (integer_digits, fraction_digits, has_fraction) = match mantissa.find('.') {
         Some(index) => {
             let fraction = &mantissa[index + 1..];
             // 有小数点时小数段必须非空且全为数字（含第二个小数点的输入在此拒绝）。
             if fraction.is_empty() || !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
                 return None;
             }
-            (&mantissa[..index], fraction)
+            (&mantissa[..index], fraction, true)
         }
-        None => (mantissa, ""),
+        None => (mantissa, "", false),
     };
-    if integer_digits.is_empty() || !integer_digits.bytes().all(|byte| byte.is_ascii_digit()) {
+    // 整数段非空全数字，且 JSON 禁止前导零（`0` 合法，`00`/`01` 非法）。
+    if integer_digits.is_empty()
+        || !integer_digits.bytes().all(|byte| byte.is_ascii_digit())
+        || (integer_digits.len() > 1 && integer_digits.as_bytes()[0] == b'0')
+    {
         return None;
     }
     // 指数为可选符号 + 非空数字；取值是否溢出 i64 留到语义阶段判定。
@@ -819,6 +817,10 @@ fn exact_integer_lexeme(literal: &str) -> Option<i128> {
         || !exponent_magnitude.bytes().all(|byte| byte.is_ascii_digit())
     {
         return None;
+    }
+    // 快速路径：纯整数字面量（无小数点、无指数）语法已校验，直接数值解析。
+    if !has_exponent && !has_fraction {
+        return literal.parse().ok();
     }
     let digits: String = integer_digits
         .chars()
