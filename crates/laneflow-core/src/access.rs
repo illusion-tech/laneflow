@@ -773,7 +773,7 @@ impl AccessRegistry {
 /// 校验 priority 字面量：必须是 i32 范围内的整数（JSON Schema `integer` 语义，
 /// 允许零小数/指数表示如 `100.0`/`1e2`）。按十进制字面值精确判定，不做浮点
 /// 归一化：`1.00000000000000001` 这类 f64 不可精确表示的小数必须拒绝。
-/// 输入由 wire 层保证是合法 JSON number 字面量。
+/// 输入可能来自不经过 wire 层的公开 Core API，字面量语法由本函数自行校验。
 fn parse_access_priority(literal: &str) -> Option<i32> {
     // 快速路径：纯整数字面量。
     if let Ok(value) = literal.parse::<i64>() {
@@ -787,6 +787,9 @@ fn parse_access_priority(literal: &str) -> Option<i32> {
 
 /// 若 JSON number 字面量精确表示一个整数则返回其 i128 值，否则 None。
 /// 小数位与指数按十进制字面值运算，不经过任何浮点转换。
+/// 语法按 JSON number 结构（`-?digits(.digits)?([eE][+-]?digits)?`）逐字节
+/// 校验：公开 Core API 的调用方不经过 wire/JSON Schema，Core 的形状校验
+/// 必须自行拒绝非法字面量，任何语义捷径（含全零尾数）都不得跳过语法校验。
 fn exact_integer_lexeme(literal: &str) -> Option<i128> {
     let (mantissa, exponent) = match literal.find(['e', 'E']) {
         Some(index) => (&literal[..index], &literal[index + 1..]),
@@ -797,20 +800,37 @@ fn exact_integer_lexeme(literal: &str) -> Option<i128> {
         None => (false, mantissa),
     };
     let (integer_digits, fraction_digits) = match mantissa.find('.') {
-        Some(index) => (&mantissa[..index], &mantissa[index + 1..]),
+        Some(index) => {
+            let fraction = &mantissa[index + 1..];
+            // 有小数点时小数段必须非空且全为数字（含第二个小数点的输入在此拒绝）。
+            if fraction.is_empty() || !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
+                return None;
+            }
+            (&mantissa[..index], fraction)
+        }
         None => (mantissa, ""),
     };
+    if integer_digits.is_empty() || !integer_digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    // 指数为可选符号 + 非空数字；取值是否溢出 i64 留到语义阶段判定。
+    let exponent_magnitude = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+    if exponent_magnitude.is_empty()
+        || !exponent_magnitude.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
     let digits: String = integer_digits
         .chars()
         .chain(fraction_digits.chars())
         .collect();
     // 0 的任何表示（0e5、0.000、-0.0）都是整数 0，与指数取值无关——
-    // 必须先于指数解析判定：指数超出 i64 的合法零字面量
+    // 语法已校验合法，此处跳过指数数值解析：指数超出 i64 的合法零字面量
     // （如 `0e9223372036854775808`）值仍精确为 0，不得误拒。
     if digits.bytes().all(|digit| digit == b'0') {
         return Some(0);
     }
-    // 非零尾数才需要指数：超出 i64 的指数其量级（±2^63 数量级的 10 的幂）
+    // 非零尾数才需要指数数值：超出 i64 的指数其量级（±2^63 数量级的 10 的幂）
     // 必然落在 i128 可精确表示的整数范围之外，解析失败即按 None 拒绝，
     // 与后续 shift 上界检查口径一致。
     let exponent = exponent.parse::<i64>().ok()?;
