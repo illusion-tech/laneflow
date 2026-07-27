@@ -344,7 +344,7 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 直接以 v0.4 
 | v0.5 canonical fixtures         | v0.7 fixtures 与 Scenario traffic digest 原子切换     |
 | production compatibility        | 不提供；v0.5/v0.6 返回 `UnsupportedFormatVersion`     |
 
-Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL；catalog 中 published version 必须通过 HTTPS 返回与固定 source revision 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析 `$id`/`$schema`。v0.2-v0.5、v0.7 与 v0.8 均作为 immutable publication artifacts 保留；v0.8 已登记固定 `main` revision/blob，并通过 canonical URL 的 live availability 与 byte-equality 验证。current v0.9 是 source current，publication pending，其固定 `main` provenance 由后续 publication PR 登记。消费者入口见 [`schemas/README.md`](../../schemas/README.md)。
+Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL；catalog 中 published version 必须通过 HTTPS 返回与固定 source revision 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析 `$id`/`$schema`。v0.2-v0.5、v0.7 与 v0.8 均作为 immutable publication artifacts 保留；v0.8 已登记固定 `main` revision/blob，并通过 canonical URL 的 live availability 与 byte-equality 验证。current v0.9 已登记固定 `main` revision/blob，并通过 canonical URL 的 live availability 与 byte-equality 验证。消费者入口见 [`schemas/README.md`](../../schemas/README.md)。
 
 ## 11. v0.6 空间层配套制品设计
 
@@ -442,7 +442,8 @@ Current `formatVersion: "0.9"` 原子增加：
 - schema/private DTO/loader/Core/fixtures/generator/artifacts/docs 同一 production
   交付切换；
 - SpatialPackage/ScenarioManifest 保持 `0.1`；
-- v0.9 schema 为 source current，publication pending；已发布 v0.8 schema/bytes 按
+- v0.9 schema 已发布（固定 `main` provenance + live availability 与 byte-equality
+  验证）；已发布 v0.8 schema/bytes 按
   ADR 0011 immutable，不原地覆写；
 - v0.8 fixtures 作为历史 artifact 保留，不进入 current contract tests。
 

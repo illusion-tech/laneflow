@@ -115,7 +115,7 @@ SpatialPackage/ScenarioManifest 保持 v0.1；完整实现与边界见
 `FacilityKind`（物理设施）、`ParticipantClass`（数据声明的单继承参与者分类）与
 `AccessRule`（target/effect/时间窗口/法规 provenance 的准入 overlay）显式分离。
 其 Core/Data 生产化与 Traffic `0.8 -> 0.9` 原子迁移已由 #234 拆出的最小
-production Issue #262 交付（v0.9 schema 为 source current，publication pending）；
+production Issue #262 交付（v0.9 schema 已发布并经 live 验证）；
 SSOT 见 `design/cross-section-access.md`。
 
 ## 5. LaneFlow Core

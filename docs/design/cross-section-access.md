@@ -3,7 +3,7 @@
 **文档状态**: Accepted（#234 G1 冻结）<br>
 **最后更新**: 2026-07-27<br>
 **适用范围**: #234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity/authority/validation 与后续最小 production 边界<br>
-**实现状态**: 静态模型已由 #262 生产化（Core registries、Data/schema 与 Traffic `0.9`，source current、publication pending；含 (class, Route) 绑定期静态准入校验）；时变规则与 FacilityBand target 规则仍由 capability guard 结构化拒绝
+**实现状态**: 静态模型已由 #262 生产化（Core registries、Data/schema 与 Traffic `0.9`，schema 已发布并经 live 验证；含 (class, Route) 绑定期静态准入校验）；时变规则与 FacilityBand target 规则仍由 capability guard 结构化拒绝
 
 **关联文档**:
 
