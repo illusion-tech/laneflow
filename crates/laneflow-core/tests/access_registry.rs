@@ -445,7 +445,81 @@ fn capability_guard_orders_after_unknown_and_before_composition() {
     );
 }
 
-// ---------- phase 9.5：regulation provenance 单一性 ----------
+// ---------- phase 9.5：regulation shape ----------
+
+#[test]
+fn regulation_shape_orders_after_unknown_and_capability_guard() {
+    // shape 校验在 registry 内按 phase 顺序执行：unknown target 先于 regulation shape。
+    let error = AccessRegistry::try_new(
+        &graph(),
+        &junctions(),
+        &cross_section(),
+        &classes(),
+        vec![
+            AccessRule::new(
+                "rule-unknown-target",
+                AccessTargetId::lane_edge("missing"),
+                AccessEffect::Deny,
+                ["car"],
+            )
+            .with_regulation("", "2026", None),
+        ],
+    )
+    .expect_err("unknown target must precede regulation shape");
+    std::assert_matches!(
+        error,
+        CoreError::UnknownAccessRuleTarget { rule_id, .. } if rule_id == "rule-unknown-target"
+    );
+
+    // capability guard 先于 regulation shape（能力整体拒绝后其内部 shape 校验无意义）。
+    let error = AccessRegistry::try_new(
+        &graph(),
+        &junctions(),
+        &cross_section(),
+        &classes(),
+        vec![
+            AccessRule::new(
+                "rule-time",
+                AccessTargetId::lane_edge("e1"),
+                AccessEffect::Deny,
+                ["car"],
+            )
+            .with_time_windows(true)
+            .with_regulation("", "2026", None),
+        ],
+    )
+    .expect_err("capability guard must precede regulation shape");
+    std::assert_matches!(
+        error,
+        CoreError::AccessCapabilityUnavailable { rule_id, capability }
+            if rule_id == "rule-time" && capability == "timeWindows"
+    );
+
+    // 无更早 phase 错误时，regulation shape 违规由 registry 拒绝（definition 不预校验）。
+    let error = AccessRegistry::try_new(
+        &graph(),
+        &junctions(),
+        &cross_section(),
+        &classes(),
+        vec![
+            AccessRule::new(
+                "rule-shape",
+                AccessTargetId::lane_edge("e1"),
+                AccessEffect::Deny,
+                ["car"],
+            )
+            .with_regulation("CN", "", None),
+        ],
+    )
+    .expect_err("registry must reject invalid regulation shape");
+    std::assert_matches!(
+        error,
+        CoreError::InvalidAccessRegulationString { field, len }
+            if field == "version" && len == 0
+    );
+}
+
+// ---------- phase 9.6：regulation provenance 单一性 ----------
 
 #[test]
 fn regulation_string_length_bounds_are_enforced() {
@@ -500,14 +574,14 @@ fn regulation_provenance_must_be_uniform() {
                 AccessEffect::Deny,
                 ["car"],
             )
-            .with_regulation(AccessRegulation::try_new("CN", "2026", Some("src-a")).unwrap()),
+            .with_regulation("CN", "2026", Some("src-a")),
             AccessRule::new(
                 "rule-2",
                 AccessTargetId::lane_edge("e2"),
                 AccessEffect::Deny,
                 ["car"],
             )
-            .with_regulation(AccessRegulation::try_new("CN", "2027", None).unwrap()),
+            .with_regulation("CN", "2027", None),
         ],
     )
     .expect_err("mixed regulation provenance must fail");
@@ -533,14 +607,14 @@ fn regulation_provenance_must_be_uniform() {
             AccessEffect::Deny,
             ["car"],
         )
-        .with_regulation(AccessRegulation::try_new("CN", "2026", Some("src-a")).unwrap()),
+        .with_regulation("CN", "2026", Some("src-a")),
         AccessRule::new(
             "rule-2",
             AccessTargetId::lane_edge("e2"),
             AccessEffect::Deny,
             ["car"],
         )
-        .with_regulation(AccessRegulation::try_new("CN", "2026", Some("src-b")).unwrap()),
+        .with_regulation("CN", "2026", Some("src-b")),
         AccessRule::new(
             "rule-3",
             AccessTargetId::lane_edge("e3"),
