@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-25（Traffic v0.8 static-domain clean-break、ADR 0015 Spatial f32 frame 与 #144 生产性能不迁移结论同步）
+**最后更新**: 2026-07-27（current Traffic v0.9 与 #235 conflict tolerance 候选同步）
 
 **适用范围**: v0.6 数值与空间基础（Numeric & Spatial Foundation）的 Core 数值表示、精度分层、公开表面和跨层转换边界（#122、#126、#140、#141）
 
@@ -58,7 +58,7 @@
 
 ### 2.2 current-f64 领域数值策略
 
-#125 删除了公开的 `EDGE_BOUNDARY_EPSILON` / `GEOMETRY_GAP_EPSILON`，不保留弃用项、别名或兼容垫片。生产调用点由 crate-private `numeric_policy` 分别拥有；九个值当前都保持 `1.0e-9`，原有 `<`、`<=`、`+ tolerance >=`、精确相等、状态与事件行为不变：
+#125 删除了公开的 `EDGE_BOUNDARY_EPSILON` / `GEOMETRY_GAP_EPSILON`，不保留弃用项、别名或兼容垫片，并拆出首批九个 crate-private owner；#222 为最终 minimum-gap projection 又增加独立 minimum-gap slack owner。current production 共十个值，均保持 `1.0e-9`：
 
 | 领域 owner                            | 单位 | current-f64 值 | 当前职责                                          |
 | ------------------------------------- | ---- | -------------: | ------------------------------------------------- |
@@ -70,9 +70,19 @@
 | edge boundary/remainder               | m    |       `1.0e-9` | boundary snap、remainder 和 edge transition       |
 | 纵向约束                              | m    |       `1.0e-9` | RouteEnd、SignalStop、ParkingStop 和约束距离      |
 | 物理 gap/overlap                      | m    |       `1.0e-9` | bumper gap、接触、no-overlap 和 projection        |
+| minimum-gap slack                     | m    |       `1.0e-9` | follower 可消费的 `minimumGap` 边界 slack         |
 | computed-speed near-zero              | m/s  |       `1.0e-9` | 已有计算速度近零判断；不替代 `Speed::ZERO`        |
 
 最小尺寸属于输入语义，不是算术误差阈值；精确零状态和有符号零规范化也不使用近零判定函数。生产代码不提供通用近似比较辅助函数，不使用运行时相对容差或动态末位单位（ULP）。#127 可以把相对误差和 ULP 用作目标 `f32` 离线标定工具，但只能产出固定、带单位、领域化的绝对阈值；#144 未通过性能门槛，因此这些目标值没有进入当前生产代码。
+
+#235 的 Review 候选将为 PathAnchor crossing、ConflictZone enter/clear 与对应事件
+增加独立 `CONFLICT_ANCHOR_CROSSING_TOLERANCE_METERS` owner，并为 future
+current-f64 implementation 冻结候选值 `1.0e-9 m`。它不复用上述 edge-boundary、
+longitudinal-constraint 或 physical-gap owner；front enter 使用
+`cursor + tolerance >= anchor`，tail clear/downstream proof 使用
+`front + tolerance >= exit + vehicle.length`，ETA distance 使用
+`d <= tolerance -> 0`，event 只在 predicate false -> true 时 one-shot。在 #235
+G1/Delivery PR 完成前它不计入 current production 十领域，也不改变当前常量。
 
 ### 2.3 风险集中区
 
@@ -213,7 +223,13 @@ route 总长、制动距离、候选行程、硬投影加速度和查询视距�
 
 跨平台位级确定性仍不属于 v0.6 承诺。若候选精度改变事件、edge 跨越、前车或约束决策，即使最终位置误差很小，也视为行为差异，必须单独解释或阻断。
 
-当前 `f64` 的九个所有者已由 #125 按第 2.2 节拆分，不得在未来的局部 `f32` 路径中直接转换后复用。目标 `f32` 阈值必须由 #127 使用硬范围的最大末位单位（ULP）、真实运算次数、连续误差上限和精确值/相邻值预言机离线标定。首轮 `4 * max ULP` 只作为加法、减法和吸附的研究下限：在 `10_000 m` 处约为 `0.00390625 m`，低于 `0.01 m` 上限；它不是生产常量，#144 的回退树也没有保留这些候选值。
+current `f64` 的首批九个 owner 已由 #125 按第 2.2 节拆分，#222 后续增加
+minimum-gap slack owner；它们都不得在未来的局部 `f32` 路径中直接转换后复用。#127
+完成的目标 `f32` 九领域证据早于 #222，因此任何新迁移还必须补做 minimum-gap
+slack 的独立标定。目标 `f32` 阈值必须使用硬范围的最大末位单位（ULP）、真实运算
+次数、连续误差上限和精确值/相邻值预言机离线标定。首轮 `4 * max ULP` 只作为
+加法、减法和吸附的研究下限：在 `10_000 m` 处约为 `0.00390625 m`，低于
+`0.01 m` 上限；它不是生产常量，#144 的回退树也没有保留这些候选值。
 
 ## 6. 跨层转换边界
 

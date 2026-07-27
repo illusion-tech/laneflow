@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-25（#229 ManeuverGate / Traffic v0.8 迁移）
+**最后更新**: 2026-07-27（#262 current Traffic v0.9 artifact 迁移）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 

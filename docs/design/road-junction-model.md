@@ -1,10 +1,11 @@
 # Road / Junction / Maneuver 静态模型
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-07-26<br>
-**适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态生产化 profile、ManeuverGate、Route occurrence、Traffic v0.8、确定性与性能边界<br>
+**最后更新**: 2026-07-27<br>
+**适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态产品 profile、ManeuverGate、Route occurrence、历史 Traffic v0.8 clean-break（current v0.9 继承）、确定性与性能边界<br>
 **实现状态**: #229 已实现 Traffic v0.8、Junction/Movement/ManeuverPath registry、
-Route occurrence compiler 与一等 ManeuverGate；#196 protected-turning profile 继续是后续消费边界
+Route occurrence compiler 与一等 ManeuverGate；#262 的 Traffic v0.9 迁移保留上述
+identity/behavior，新增横断面与准入静态模型；#196 protected-turning profile 继续是后续消费边界
 
 **关联文档**:
 
@@ -554,7 +555,12 @@ Adapter 不得：
 | Route/movement weights             | Scenario/authoring policy                | Core static topology                     |
 | Host transform/rendering           | Adapter/Presentation                     | Core/Data                                |
 
-## 9. Traffic v0.8 target
+## 9. Traffic v0.8 历史 clean-break target
+
+本节记录 #229 当时从 v0.7 到 v0.8 的原子迁移事实，不把 v0.8 声称为 current。
+current Traffic v0.9 完整继承本节的 Junction/Movement/ManeuverPath/ManeuverGate
+shape 与 Core identity/route occurrence 语义，并在其上增加 #262 的横断面与准入
+静态模型；#235 未来实施必须从届时 current version 再做新的原子迁移。
 
 ### 9.1 Wire shape
 
@@ -958,18 +964,23 @@ Issue 负责实现。以下各项仍需独立冻结：
 
 ### 17.2 Multi-stage Gate 与 waiting zone
 
-`ManeuverGate.transitionIndex` 已提供 identity 位置。未来仍需独立 G1 冻结：
-
-- multiple Gate order；
-- WaitingZone geometry/state；
-- vehicle committed/clearing state；
-- policy 与 conflict interaction；
-- SignalStop attribution/event order。
+`ManeuverGate.transitionIndex` 已提供 identity 位置。#235 正在
+[`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
+中评审独立 G1 候选：同一路径 Gate 按 transitionIndex 排序，Route 注册期编译
+Gate/Waiting/Conflict occurrences；WaitingZone 由同一路径 entry/release Gate
+有界，Core 拥有容量/队列与 committed/waiting/clearing 状态，Spatial
+只拥有可选 3D region。Conflict approach 必须从 current route cursor 覆盖 horizon
+内的 upcoming/repeated occurrence，把 Route-specific contributions 归约到每个
+static `(ConflictZone, ParticipantStream)` 的 distinct-owner frontier 并排除 exact
+subject；grant 前还必须证明车尾可清空 coverage，并原子取得
+Waiting/Conflict/physical downstream claim。该候选在 #235 G1/Delivery PR 完成前
+不解除 current `transitionIndex = 0` production guard。
 
 ### 17.3 Conflict/priority
 
-Future ConflictZone/right-of-way domain 可以引用 Junction、Movement、ManeuverPath 与
-Gate handles，但不得：
+#235 候选把 ConflictZone/ParticipantStream 放入独立 ConflictRegistry，并由 Core
+ConflictArbiter 产生 vehicle-specific grant/reservation。它可以引用 Junction、
+ManeuverPath 与 Gate handles，但不得：
 
 - 把 conflict state 写入 SignalController；
 - 让 Adapter 裁决；

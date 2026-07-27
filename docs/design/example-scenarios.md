@@ -1,7 +1,7 @@
 # 示例场景设计
 
 **文档状态**: Accepted（#184 G1；#196 v0.9 增量）<br>
-**最后更新**: 2026-07-26<br>
+**最后更新**: 2026-07-27<br>
 **适用范围**: v0.8 Signalized Corridor 基线，以及 current v0.9
 protected-turning 制品、启动配置、人口和车辆回流入口
 
@@ -37,7 +37,7 @@ current v0.9 包含：
 - 两套可配置固定时制信号控制器，每个 Junction 四组、12 phase/84 秒；
 - `50..=200` 可调车辆人口、显式 seed 和确定性出口回流；
 - 同一 Bevy proxy/model 复用，但每次回流获得新的 Core `VehicleHandle`；
-- Traffic v0.8、SpatialPackage/ScenarioManifest v0.1 与 scenario-local catalog 0.2；
+- Traffic v0.9、SpatialPackage/ScenarioManifest v0.1 与 scenario-local catalog 0.2；
 - checked-in 默认制品、确定性 generator 与 production loader 往返验证。
 
 current 场景不包含换道、路径搜索、permissive turn、红灯右转、感应或自适应信号、
@@ -46,7 +46,9 @@ current 场景不包含换道、路径搜索、permissive turn、红灯右转、
 Traffic v0.7 per-edge 限速基础由 #185 交付；#229 已把同一场景制品 clean-break
 迁移到 Traffic v0.8 并显式增加 2 Junction、8 Movement 与 20
 ManeuverPath/ManeuverGate。Core atomic replace 由 #186 承担，caller-owned
-人口/回流策略由 #203 在 `laneflow-scenario` 落地。
+人口/回流策略由 #203 在 `laneflow-scenario` 落地。#262 随后把 canonical Traffic
+artifact 原子迁移到 v0.9，并加入 ParticipantClass、CrossSection 与 AccessRule
+静态模型；protected-turning topology、Signals、人口和回流行为保持不变。
 
 v0.9 的 Accepted 受保护转向 SSOT 见
 [`signalized-corridor-protected-turning.md`](signalized-corridor-protected-turning.md)。
@@ -115,7 +117,8 @@ steady tick 不做 runtime pathfinding、external-ID lookup 或 geometry matchin
 
 ## 4. 限速与车辆纵向行为
 
-Traffic v0.8 current contract 在每个 lane edge 上要求严格正、有限的 `speedLimit`：
+Traffic v0.7 引入且 current Traffic v0.9 继承的 contract 在每个 lane edge 上要求
+严格正、有限的 `speedLimit`：
 
 | edge class                         |  公示值 |
 | ---------------------------------- | ------: |
@@ -309,9 +312,9 @@ raw weights 或 draw order 必须经过新的版本/迁移决策，不能静默�
 
 current v0.9 场景由三类 immutable source artifacts 构成：
 
-- Traffic package v0.8：66 LaneEdge、2 Junction、24 Movement、32
-  ManeuverPath/Gate、28 Route、vehicle profiles、Signals、Parking 空集合和
-  per-edge speed limit；
+- Traffic package v0.9：66 LaneEdge、2 Junction、24 Movement、32
+  ManeuverPath/Gate、28 Route、vehicle profiles/participant classes、横断面/准入
+  静态模型、Signals、Parking 空集合和 per-edge speed limit；
 - SpatialPackage v0.1：所有 lane/connector centerline 与 canonical frame；
 - ScenarioManifest v0.1：Traffic/Spatial 不透明路径、byte size 和 SHA-256 digest 配对。
 
@@ -342,18 +345,18 @@ cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config exam
 
 ## 10. 分层权威与实施切片
 
-| 关注点                                                         | 权威层                               | 实施 Issue |
-| -------------------------------------------------------------- | ------------------------------------ | ---------- |
-| per-edge speed limit、Traffic v0.8 topology 与纵向约束         | Data/Core                            | #185/#229  |
-| caller-driven atomic replace、overlap 与 identity invariant    | Core runtime                         | #186       |
-| 目标人口、seed、portal/lane 决策与 blocked retry               | `laneflow-scenario` reference policy | #203       |
-| typed lifecycle transaction 与 proxy binding                   | Bevy Reference Adapter               | #187       |
-| 场景 generator、固定时制配置与三类静态制品                     | Data/Authoring                       | #188       |
-| native UI/CLI、道路/车辆/灯具呈现与场景集成                    | Bevy Reference Adapter               | #189       |
-| 独立审阅、性能/可视/回归证据                                   | Cross-layer closure                  | #195       |
-| protected profile artifacts、catalog 0.2、scenario/native 集成 | Cross-layer                          | #190       |
-| expanded clearance/replay/proxy/performance 证据               | Cross-layer validation               | #191       |
-| v0.9 独立 closure review，不新增 runtime 行为                  | Cross-layer closure                  | #192       |
+| 关注点                                                                  | 权威层                               | 实施 Issue     |
+| ----------------------------------------------------------------------- | ------------------------------------ | -------------- |
+| per-edge speed limit、v0.8 引入且 current v0.9 继承的 topology/纵向约束 | Data/Core                            | #185/#229/#262 |
+| caller-driven atomic replace、overlap 与 identity invariant             | Core runtime                         | #186           |
+| 目标人口、seed、portal/lane 决策与 blocked retry                        | `laneflow-scenario` reference policy | #203           |
+| typed lifecycle transaction 与 proxy binding                            | Bevy Reference Adapter               | #187           |
+| 场景 generator、固定时制配置与三类静态制品                              | Data/Authoring                       | #188           |
+| native UI/CLI、道路/车辆/灯具呈现与场景集成                             | Bevy Reference Adapter               | #189           |
+| 独立审阅、性能/可视/回归证据                                            | Cross-layer closure                  | #195           |
+| protected profile artifacts、catalog 0.2、scenario/native 集成          | Cross-layer                          | #190           |
+| expanded clearance/replay/proxy/performance 证据                        | Cross-layer validation               | #191           |
+| v0.9 独立 closure review，不新增 runtime 行为                           | Cross-layer closure                  | #192           |
 
 Core 是 vehicle identity、状态、overlap、Route、SignalStop 和 speed-limit behavior 的
 权威，但不限制车辆数量，也不拥有回流 policy。`laneflow-scenario` 是目标人口、seed、

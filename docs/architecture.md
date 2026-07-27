@@ -1,7 +1,7 @@
 # 架构
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-24<br>
+**最后更新**: 2026-07-27<br>
 **适用范围**: LaneFlow 分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界
 
 ## 1. 架构目标
@@ -118,6 +118,14 @@ SpatialPackage/ScenarioManifest 保持 v0.1；完整实现与边界见
 production Issue #262 交付（v0.9 schema 已发布并经 live 验证）；
 SSOT 见 `design/cross-section-access.md`。
 
+#235 正在评审多阶段复杂路口 G1 候选：沿用 ManeuverPath/Route authority，把
+multiple Gate、WaitingZone 与 ConflictZone occurrence 在 Route 注册期编译；
+Traffic/Core 中显式声明的 ParticipantStream/ConflictZone 关系拥有行为 authority，
+并复用 current Traffic v0.9 的 ParticipantClass/AccessRegistry 静态准入结果；
+Spatial 只拥有 canonical 3D geometry/validation。候选 SSOT 见
+`design/waiting-zone-conflict-right-of-way.md`；在 G1/Delivery PR 完成前不构成
+production API 或 schema 授权。
+
 ## 5. LaneFlow Core
 
 LaneFlow Core 负责运行时交通逻辑：
@@ -157,7 +165,21 @@ Junction/Movement/ManeuverPath/ManeuverGate handles 和 resolvers，不保留 pa
 可选结构 overlay（RoadCorridor/RoadSection 引用 edge，不复制拓扑权威）；准入规则
 作为 regulatory constraint 进入 Core constraint 管线，静态规则在 (class, Route)
 绑定期原子校验，时变规则以 capability guard 拦截直到独立 G1；任何 allow 不覆盖 Core
-safety。生产化前 Core 不含上述 registry 与 handle。
+safety。上述 ParticipantClass/CrossSection/Access registries、typed handles 与静态
+route-binding 校验已由 #262 生产化；时变准入与 FacilityBand target 仍未生产化。
+
+#235/ADR 0019 候选在 signal/regulatory 与 Core safety 之间增加独立 conflict
+domain：versioned compliance policy 只产生 protected/permissive/uncontrolled
+candidate，Core ConflictArbiter 才能结合 yield/priority、gap acceptance、zone
+occupancy/reservation 产生 vehicle-specific tick grant；crossing 成功后 grant
+原子升级为 reservation。v1 grant 前还必须以 route-local occupancy/hard boundary
+证明车辆能让车尾清空 coverage zone，并在 stable single-writer arbitration 中原子
+取得 Waiting/Conflict/physical downstream claim；不能证明下游存储或与
+committed/earlier-staged claim 冲突时 fail closed。candidate proposal 可以并行，
+但线程调度/锁竞争不能决定 winner。
+SignalController、Adapter、JunctionGroup 与二维几何均不拥有最终通行权；任何
+grant 不覆盖 leader、safe-speed、RouteEnd、minimum-gap 或 no-overlap。该段在
+#235 G1 接受前仅是 Review 候选。
 
 v0.5 Parking runtime 由 Core 私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与 exact Occupied binding 一致，Parked vehicle 保留 live identity但不进入 travel-lane occupancy。#108 已公开 borrowed snapshot 和 caller-selected lifecycle commands；#109 已把 ParkingStop、SignalStop、RouteEnd 与 leader/no-overlap 纳入同一 fixed-tick constraint/traversal pipeline，并交付 arrival、route-completion release、step events 与 Reserved capability activation。Adapter 只消费 immutable registry、snapshot、records/events 和 position authority。详细设计见 ADR 0010 与 `design/parking-system.md`。
 

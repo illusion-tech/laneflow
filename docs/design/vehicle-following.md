@@ -1,9 +1,9 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-25
+**最后更新**: 2026-07-27
 
-**适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、Traffic v0.8 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
+**适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、current Traffic v0.9 继承的 per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
 **关联文档**:
 
@@ -53,7 +53,7 @@
 - **Comfort controller**：正常驾驶时产生期望加速度的 IIDM 层。
 - **Safe-speed**：把 next speed 限制在 emergency braking 可处理范围内的确定性上界。
 - **Base speed limit**：Traffic/LaneGraph immutable per-edge 基础道路限速。
-- **Effective speed ceiling**：纵向管线当前实际采用的速度上限；v0.8 没有超车或驾驶风格放宽，因此等于 base speed limit。
+- **Effective speed ceiling**：纵向管线当前实际采用的速度上限；current v0.9 没有超车或驾驶风格放宽，因此等于 base speed limit。
 - **Safety projection**：emergency braking 仍不能避免本 tick 重叠时的最终 travel 修正。
 - **Occupancy snapshot**：单个 tick 内不可变的车辆物理占用视图。
 
@@ -111,11 +111,13 @@ Validation：
 
 ### 4.2 Package 版本
 
-Vehicle Profile shape 由 current `schemas/laneflow-data-v0.8.schema.json` 继续承载。概念 package：
+Vehicle Profile shape 由 current
+`schemas/laneflow-data-v0.9.schema.json` 承载。以下概念 package 同步列出 v0.9
+必填的 ParticipantClass 与横断面/准入顶层 arrays：
 
 ```json
 {
-  "formatVersion": "0.8",
+  "formatVersion": "0.9",
   "units": {
     "distance": "meter",
     "time": "second"
@@ -137,9 +139,19 @@ Vehicle Profile shape 由 current `schemas/laneflow-data-v0.8.schema.json` 继�
       "timeHeadway": 1.5,
       "maxAcceleration": 1.5,
       "comfortableDeceleration": 2.0,
-      "emergencyDeceleration": 6.0
+      "emergencyDeceleration": 6.0,
+      "participantClassId": "car"
     }
   ],
+  "participantClasses": [
+    { "id": "motorVehicle" },
+    { "id": "car", "extendsId": "motorVehicle" }
+  ],
+  "facilityBands": [],
+  "roadSections": [],
+  "laneGroups": [],
+  "roadCorridors": [],
+  "accessRules": [],
   "signals": {
     "stopLines": [],
     "maneuverGates": [],
@@ -155,10 +167,17 @@ Vehicle Profile shape 由 current `schemas/laneflow-data-v0.8.schema.json` 继�
 
 规则：
 
-- 当前 v0.8 沿用已接受的 Vehicle Profile 领域语义，并要求每条 edge 显式 `speedLimit`、顶层 Junction/Movement/ManeuverPath arrays 以及 Signals/Parking objects。
+- 当前 v0.9 沿用已接受的 Vehicle Profile/IIDM 数值语义，并要求每条 edge 显式
+  `speedLimit`、顶层 Junction/Movement/ManeuverPath、ParticipantClass、
+  FacilityBand/RoadSection/LaneGroup/RoadCorridor/AccessRule arrays，以及
+  Signals/Parking objects。
+- 每个 VehicleProfile 必填 `participantClassId` 并引用已声明 ParticipantClass；
+  current static AccessRule 在 `(ParticipantClass, Route)` 绑定期校验，不改变 IIDM
+  profile 数值或 longitudinal solver。
 - 顶层 `vehicleProfiles` 必填，允许空数组。
 - Core-defined objects 继续采用 closed shape。
-- production loader 只接受 `"0.8"`；v0.5、v0.6、v0.7 和未来版在当前 shape validation 前返回 version error。
+- production loader 只接受 `"0.9"`；v0.8 及更早版本和未来版在 current shape
+  validation 前返回 version error。
 - 不隐式合成 profile，不提供历史格式 compatibility shim。
 - current format 不持久化 initial vehicles、spawn schedule、demand、runtime handles 或 Adapter metadata。
 
@@ -170,11 +189,19 @@ v0.3 profile registry 在 world 生命周期内不可变，不公开 runtime reg
 
 ### 4.4 Crate 与 loader 边界
 
-依据 ADR 0007/0008，current v0.8 production loader 位于 `laneflow-data`，依赖方向为 `laneflow-data -> laneflow-core`。Core 不依赖 Serde、JSON、JSON Schema 或文件系统；pre-1.0 的 production loader 只维护当前格式。
+依据 ADR 0007/0008，current v0.9 production loader 位于 `laneflow-data`，依赖方向为
+`laneflow-data -> laneflow-core`。Core 不依赖 Serde、JSON、JSON Schema 或文件系统；
+pre-1.0 的 production loader 只维护当前格式。
 
-public loader 返回单一当前 `LoadedPackage`，不公开历史版本 enum/variant，也不以 optional profile 或空 registry 区分格式。Vehicle Profiles、Signals 与 Parking 都由显式字段构造；空数组是当前格式的合法状态。
+public loader 返回单一当前 `LoadedPackage`，不公开历史版本 enum/variant，也不以
+optional profile 或空 registry 区分格式。VehicleProfile、ParticipantClass、
+CrossSection、AccessRule、Signals 与 Parking 都由显式字段构造；允许为空的 domain
+使用显式空数组表达。
 
-Core 使用 `InitialTrafficData` 统一验证 lane graph、初始 routes、immutable profile registry、Junction registry 与 static Signals/Parking registries。data crate 不重复实现 route/profile/junction/signal/parking domain invariant。loader 只接收内存 bytes/string，并返回完成 Core normalization 的当前结果，不创建 `CoreWorld`。
+Core 使用 `InitialTrafficData` 统一验证 lane graph、初始 routes、immutable profile、
+Junction、ParticipantClass、CrossSection、Access 与 static Signals/Parking
+registries。data crate 不重复实现对应 domain invariant。loader 只接收内存
+bytes/string，并返回完成 Core normalization 的当前结果，不创建 `CoreWorld`。
 
 wire DTO 在 #73 阶段保持私有。Vehicle Profile 使用 `IidmProfileSpec` 与 `VehicleProfile::try_new_iidm`，避免多个同类型位置参数；有效 profile 的字段保持私有，v0.3 不公开 model enum 或 controller trait。
 
@@ -312,9 +339,23 @@ v0.3 不公开 constraint provider，也不允许 Adapter 任意注入 constrain
 
 Current Parking 复用本节 private spatial-target/safety ownership：ParkingStop 与 SignalStop/RouteEnd/SpeedLimit 从同一 snapshot 生成并按最严格 admissible motion 归约，spatial hard projection 先于 no-overlap projection。Parked vehicle 排除 lane occupancy；Arrived 但未 commit 的 Active vehicle 仍是 stationary leader。完整 event/order/performance 边界见 [`parking-system.md`](parking-system.md)。
 
+#235 的 Review 候选
+[`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
+把 GateStop、WaitingZone capacity/storage 与 missing ConflictGrant 定义为新的
+Core-owned spatial constraints。它们只能收紧 candidate motion；right-of-way
+business priority 与 reducer attribution tie-break 完全分离，grant 不能覆盖
+leader、safe-speed、minimum-gap、RouteEnd 或 final no-overlap。该候选还在 grant
+前复用 route-local leader/hard-boundary query，证明车尾可清空全部 conflict
+coverage，并针对 physical edge/progress 取得 committed + earlier-staged 可见的
+downstream claim；出口存储不足或 claim 冲突是 normal no-grant。未落位 claim 不
+伪装成可依赖其继续移动的 leader。同 edge 相邻 claims 必须按 progress 识别实际
+follower，并复用本设计的 follower-owned minimum-gap tolerance；candidate 在前方时
+不能错误使用 candidate profile 代替后方 existing owner。
+
 ### 8.1 Per-edge 道路限速
 
-- `LaneEdge.speed_limit` 是 immutable 基础道路事实；v0.8 的 `effective_speed_ceiling = base_speed_limit`。
+- `LaneEdge.speed_limit` 是 immutable 基础道路事实；v0.8 引入且 current v0.9 继承
+  `effective_speed_ceiling = base_speed_limit`。
 - 当前 edge 先令 IIDM free-flow target 为 `min(profile.desiredSpeed, effective_speed_ceiling)`；candidate speed 若仍会因离散 tick 越限，则先收紧 speed 并重新计算 ballistic motion，成功 step 后不得高于 committed current edge limit。
 - route 注册时按 occurrence 预计算全部相邻降限速 transition；hot path 只遍历当前 occurrence 之后、comfortable braking horizon 内的 compact metadata，不查 external ID、不构造临时集合。
 - 对距离 `d`、目标限速 `L` 与舒适减速度 `b`，next speed `u` 必须满足：
@@ -681,8 +722,10 @@ LaneFlow 处于 pre-1.0 阶段，采用直接迁移，不叠加双字段 alias�
 
 若实施发现安全矛盾、公式不可实现或未记录 public breaking change，必须回到本设计/ADR 或拆 follow-up；不得通过私有实现静默改变 Accepted 语义。
 
-## 20. v0.8 道路限速约束
+## 20. v0.8 引入的道路限速约束
 
 #184 将 per-edge road speed limit 纳入同一 `LongitudinalConstraintSet`，不建立第二套车辆控制器。当前 edge 提供 speed ceiling；route 下游更低限速边界提供 advance-braking spatial target，使车辆在 crossing 边界时已不超过新限速。它与 leader/no-overlap、SignalStop 和 route completion 同步求解，不能以 `VehicleProfile.desiredSpeed` 或最后一步 clamp 代替。
 
-spawn/atomic replace 的初始速度不得超过当前 edge 限速，v0.8 默认初始与回流速度为零。限速值、14 条 routes 与测试矩阵见 `example-scenarios.md`；Core API、行为和性能验证由 #185 实施。
+spawn/atomic replace 的初始速度不得超过当前 edge 限速；v0.8 引入且 current v0.9
+继承默认初始/回流速度为零的行为。限速值、14 条 routes 与测试矩阵见
+`example-scenarios.md`；Core API、行为和性能验证由 #185 实施。
