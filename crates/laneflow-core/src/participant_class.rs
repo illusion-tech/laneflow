@@ -7,8 +7,6 @@ use crate::{
     junction::validate_capacity,
 };
 
-const BITS_PER_BLOCK: usize = u64::BITS as usize;
-
 /// ParticipantClass 输入定义（单继承）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParticipantClass {
@@ -46,14 +44,18 @@ struct ResolvedParticipantClass {
 
 /// ParticipantClass immutable normalized registry。
 ///
-/// normalization 编译 per-class 继承深度与 descendants bitset（标记自身与全部传递
-/// 后代），层级匹配在绑定期为 O(1) bitset 查询，不进入字符串比较。
+/// normalization 编译 per-class 继承深度与子树区间（Euler tour 半开区间
+/// `[enter, exit)`：层级为无环单继承森林，`descendant ∈ subtree(ancestor)`
+/// 当且仅当 `enter[ancestor] ≤ enter[descendant] < exit[ancestor]`），层级匹配
+/// 在绑定期为 O(1) 区间包含查询，不进入字符串比较。存储 O(classes)——此前的
+/// descendants bitset 是 O(classes²/64)，不可信输入下 10 万个 class 就要
+/// 分配 ~1.25 GB 并付出平方级初始化时间（容量校验只约束 class 数量本身）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParticipantClassRegistry {
     classes: Vec<ResolvedParticipantClass>,
     handles: IndexMap<String, ParticipantClassHandle>,
-    descendant_blocks: Vec<u64>,
-    blocks_per_class: usize,
+    /// 每 class 的 Euler tour 半开子树区间 `(enter, exit)`（exit = enter + 子树大小）。
+    subtree_intervals: Vec<(u32, u32)>,
 }
 
 impl ParticipantClassRegistry {
@@ -62,8 +64,7 @@ impl ParticipantClassRegistry {
         Self {
             classes: Vec::new(),
             handles: IndexMap::new(),
-            descendant_blocks: Vec::new(),
-            blocks_per_class: 0,
+            subtree_intervals: Vec::new(),
         }
     }
 
@@ -107,9 +108,7 @@ impl ParticipantClassRegistry {
         detect_inheritance_cycle(&classes, &parents)?;
 
         let depths = compile_depths(&parents);
-        let blocks_per_class = classes.len().div_ceil(BITS_PER_BLOCK);
-        let descendant_blocks =
-            compile_descendant_blocks(&parents, classes.len(), blocks_per_class);
+        let subtree_intervals = compile_subtree_intervals(&parents);
 
         let classes = classes
             .into_iter()
@@ -125,8 +124,7 @@ impl ParticipantClassRegistry {
         Ok(Self {
             classes,
             handles,
-            descendant_blocks,
-            blocks_per_class,
+            subtree_intervals,
         })
     }
 
@@ -167,19 +165,21 @@ impl ParticipantClassRegistry {
         self.classes.get(handle.index()).map(|class| class.depth)
     }
 
-    /// 判断 `descendant` 是否等于或为 `ancestor` 的传递后代（O(1) bitset 查询）。
+    /// 判断 `descendant` 是否等于或为 `ancestor` 的传递后代（O(1) 区间包含查询）。
     /// 任一 handle 不属于本 registry 时返回 `false`。
     pub fn is_descendant_or_self(
         &self,
         descendant: ParticipantClassHandle,
         ancestor: ParticipantClassHandle,
     ) -> bool {
-        if descendant.index() >= self.classes.len() || ancestor.index() >= self.classes.len() {
+        let Some(&(descendant_enter, _)) = self.subtree_intervals.get(descendant.index()) else {
             return false;
-        }
-        let block = self.descendant_blocks
-            [ancestor.index() * self.blocks_per_class + descendant.index() / BITS_PER_BLOCK];
-        block & (1_u64 << (descendant.index() % BITS_PER_BLOCK)) != 0
+        };
+        let Some(&(ancestor_enter, ancestor_exit)) = self.subtree_intervals.get(ancestor.index())
+        else {
+            return false;
+        };
+        ancestor_enter <= descendant_enter && descendant_enter < ancestor_exit
     }
 
     #[cfg(test)]
@@ -187,8 +187,7 @@ impl ParticipantClassRegistry {
         let Self {
             classes,
             handles,
-            descendant_blocks,
-            blocks_per_class: _,
+            subtree_intervals,
         } = self;
 
         let class_bytes = classes.capacity() * std::mem::size_of::<ResolvedParticipantClass>()
@@ -206,9 +205,9 @@ impl ParticipantClassRegistry {
         let resolver_bytes = handles.capacity()
             * std::mem::size_of::<(String, ParticipantClassHandle)>()
             + handles.keys().map(String::capacity).sum::<usize>();
-        let bitset_bytes = descendant_blocks.capacity() * std::mem::size_of::<u64>();
+        let interval_bytes = subtree_intervals.capacity() * std::mem::size_of::<(u32, u32)>();
 
-        class_bytes + resolver_bytes + bitset_bytes
+        class_bytes + resolver_bytes + interval_bytes
     }
 }
 
@@ -277,23 +276,47 @@ fn compile_depths(parents: &[Option<ParticipantClassHandle>]) -> Vec<u32> {
         .collect()
 }
 
-fn compile_descendant_blocks(
-    parents: &[Option<ParticipantClassHandle>],
-    class_count: usize,
-    blocks_per_class: usize,
-) -> Vec<u64> {
-    let mut blocks = vec![0_u64; class_count * blocks_per_class];
-    for descendant in 0..class_count {
-        let bit = 1_u64 << (descendant % BITS_PER_BLOCK);
-        let block_index = descendant / BITS_PER_BLOCK;
-        blocks[descendant * blocks_per_class + block_index] |= bit;
-        let mut current = parents[descendant];
-        while let Some(parent) = current {
-            blocks[parent.index() * blocks_per_class + block_index] |= bit;
-            current = parents[parent.index()];
+/// 为无环单继承森林编译 Euler tour 半开子树区间 `(enter, exit)`：
+/// `exit = enter + 子树大小`，`d ∈ subtree(a)` ⟺ `enter[a] ≤ enter[d] < exit[a]`。
+/// 存储与初始化都是 O(classes)（迭代 DFS，深继承链不递归），替代平方级
+/// descendants bitset。
+fn compile_subtree_intervals(parents: &[Option<ParticipantClassHandle>]) -> Vec<(u32, u32)> {
+    let mut children: Vec<Vec<u32>> = vec![Vec::new(); parents.len()];
+    for (child, parent) in parents.iter().enumerate() {
+        if let Some(parent) = parent {
+            children[parent.index()].push(
+                u32::try_from(child).expect("class count 已 validate_capacity 约束在 u32 范围"),
+            );
         }
     }
-    blocks
+    let mut intervals = vec![(0_u32, 0_u32); parents.len()];
+    let mut next_enter: u32 = 0;
+    // 栈元素为 (节点, 下一个待访问子节点下标)；enter 在首次访问赋值，
+    // exit 在子树遍历完赋值为当前 next_enter（= enter + 子树大小）。
+    for root in 0..parents.len() {
+        if parents[root].is_some() {
+            continue;
+        }
+        let mut stack = vec![(
+            u32::try_from(root).expect("class count 已 validate_capacity 约束在 u32 范围"),
+            0_usize,
+        )];
+        while let Some(&(node, cursor)) = stack.last() {
+            if cursor == 0 {
+                intervals[node as usize].0 = next_enter;
+                next_enter += 1;
+            }
+            if cursor < children[node as usize].len() {
+                let child = children[node as usize][cursor];
+                stack.last_mut().expect("stack 非空").1 += 1;
+                stack.push((child, 0));
+            } else {
+                intervals[node as usize].1 = next_enter;
+                stack.pop();
+            }
+        }
+    }
+    intervals
 }
 
 #[cfg(test)]
@@ -311,5 +334,30 @@ mod tests {
 
         assert_eq!(empty.retained_bytes(), 0);
         assert!(registry.retained_bytes() > 0);
+    }
+
+    #[test]
+    fn hierarchy_matching_uses_subtree_intervals() {
+        let registry = ParticipantClassRegistry::try_new(vec![
+            ParticipantClass::new("motorVehicle", None),
+            ParticipantClass::new("car", Some("motorVehicle")),
+            ParticipantClass::new("taxi", Some("car")),
+            ParticipantClass::new("bicycle", None),
+        ])
+        .expect("valid class registry");
+        let handle = |id: &str| registry.class_handle(id).expect("declared class");
+
+        // 自身与传递后代为 true；祖先、兄弟、无关节点为 false。
+        assert!(registry.is_descendant_or_self(handle("taxi"), handle("taxi")));
+        assert!(registry.is_descendant_or_self(handle("taxi"), handle("car")));
+        assert!(registry.is_descendant_or_self(handle("taxi"), handle("motorVehicle")));
+        assert!(!registry.is_descendant_or_self(handle("motorVehicle"), handle("taxi")));
+        assert!(!registry.is_descendant_or_self(handle("taxi"), handle("bicycle")));
+        assert!(!registry.is_descendant_or_self(handle("bicycle"), handle("motorVehicle")));
+        // 越界 handle 按 false 处理。
+        assert!(!registry.is_descendant_or_self(
+            ParticipantClassHandle::new(u32::MAX as usize),
+            handle("motorVehicle")
+        ));
     }
 }

@@ -523,45 +523,30 @@ impl AccessRegistry {
             }
         }
 
-        // phase 9.7 + 10：target 展开 + 组合裁决 + dense resolved 表。
+        // phase 9.7 + 10：target 引用按 kind 分列 + 组合裁决 + resolved 表。
+        // section/group 规则不再展开为逐 edge 的规则索引（rules × section edges
+        // 的展开在不可信输入下是平方级中间存储）；edge 平面由
+        // resolve_edge_cells 经成员关系反查流式收集候选规则并按签名去重共享行。
         let class_count = classes.class_count();
         let edge_count = lane_graph.edges().len();
         let path_count = junctions.maneuver_paths().len();
 
-        let mut edge_rule_indices: Vec<Vec<usize>> = vec![Vec::new(); edge_count];
+        let mut edge_target_rules: Vec<Vec<usize>> = vec![Vec::new(); edge_count];
+        let mut group_target_rules: Vec<Vec<usize>> =
+            vec![Vec::new(); cross_section.groups().len()];
+        let mut section_target_rules: Vec<Vec<usize>> =
+            vec![Vec::new(); cross_section.sections().len()];
         let mut path_rule_indices: Vec<Vec<usize>> = vec![Vec::new(); path_count];
         for (rule_index, target) in resolved_targets.iter().enumerate() {
             match target {
                 ResolvedAccessTarget::LaneEdge(edge) => {
-                    edge_rule_indices[edge.index()].push(rule_index);
+                    edge_target_rules[edge.index()].push(rule_index);
                 }
                 ResolvedAccessTarget::RoadSection(section) => {
-                    let lanes = cross_section
-                        .section_lanes(*section)
-                        .expect("resolved section must have lanes");
-                    for (_, edges) in lanes {
-                        for edge in edges {
-                            edge_rule_indices[edge.index()].push(rule_index);
-                        }
-                    }
+                    section_target_rules[section.index()].push(rule_index);
                 }
                 ResolvedAccessTarget::LaneGroup(group) => {
-                    let section = cross_section
-                        .lane_group_section(*group)
-                        .expect("resolved group must have section");
-                    let lanes: Vec<&[EdgeHandle]> = cross_section
-                        .section_lanes(section)
-                        .expect("resolved section must have lanes")
-                        .map(|(_, edges)| edges)
-                        .collect();
-                    let members = cross_section
-                        .group_lanes(*group)
-                        .expect("resolved group must have member lanes");
-                    for lane_index in members {
-                        for edge in lanes[lane_index] {
-                            edge_rule_indices[edge.index()].push(rule_index);
-                        }
-                    }
+                    group_target_rules[group.index()].push(rule_index);
                 }
                 ResolvedAccessTarget::ManeuverPath(path) => {
                     path_rule_indices[path.index()].push(rule_index);
@@ -572,17 +557,18 @@ impl AccessRegistry {
             }
         }
 
-        let edge_plane = resolve_cells(
+        let edge_plane = resolve_edge_cells(
             &rules,
             &resolved_targets,
             &resolved_classes,
             &resolved_priorities,
             classes,
             class_count,
-            (0..edge_count).map(EdgeHandle::new),
-            &edge_rule_indices,
-            "edge",
-            "accessEdgeCells",
+            edge_count,
+            cross_section,
+            &edge_target_rules,
+            &group_target_rules,
+            &section_target_rules,
             |edge| {
                 lane_graph
                     .edge_external_id(edge)
@@ -850,14 +836,12 @@ fn exact_integer_lexeme(literal: &str) -> Option<i128> {
     Some(if negative { -magnitude } else { magnitude })
 }
 
-/// 对一个平面的全部 `(unit, class)` 组合做 §6.4 字典序裁决并填充 dense 表。
+/// 对一个平面逐单元做 §6.4 裁决并填充稀疏行 resolved 表（path 平面：
+/// target 与单元一一对应，单元候选规则集互不相同，无需签名去重）。
 ///
-/// 字典序：①参与者 specificity（使匹配成功的最深 class 深度）②target
-/// specificity（仅 edge 平面）③priority 数值高者。裁决先求最大 key 的
-/// contenders 集合：低 key 规则之间的 allow/deny 并列不构成歧义（它们已被
-/// 更高 key 的规则整体击败）；只有最大 key contenders 内部仍 effect 混合才
-/// 返回 `CoreError::AccessRuleAmbiguity`。同 effect 并列合法，保留 input
-/// order 先声明者作为归因。结果不随输入排列漂移。
+/// 只为有适用规则的单元物化 class 行（[`AccessPlane`] 文档）：cell 总数经
+/// checked 乘法 + validate_capacity 约束在 u32 范围，不可信输入无法让
+/// 分配量或初始化时间随 units × classes 全量笛卡尔积爆炸。
 #[expect(
     clippy::too_many_arguments,
     reason = "normalization 期一次性裁决需要全部上下文"
@@ -878,9 +862,6 @@ fn resolve_cells<H>(
 where
     H: Copy,
 {
-    // 只为有适用规则的单元物化 class 行（AccessPlane 文档）：cell 总数经
-    // checked 乘法 + validate_capacity 约束在 u32 范围，不可信输入无法让
-    // 分配量或初始化时间随 units × classes 全量笛卡尔积爆炸。
     let constrained_count = unit_rule_indices
         .iter()
         .filter(|indices| !indices.is_empty())
@@ -906,77 +887,221 @@ where
         next_row_start += class_count;
         row_starts[unit_index] =
             u32::try_from(row_start).expect("cell_count 已经 validate_capacity 约束在 u32 范围");
-        for class_index in 0..class_count {
-            let profile_class = ParticipantClassHandle::new(class_index);
-            // 第一遍：计算每条适用规则的 (depth, target specificity, priority)
-            // key，收集最大 key 的 contenders（保持 input order）。
-            let mut best_key: Option<(u32, u8, i32)> = None;
-            contenders.clear();
-            for &rule_index in &unit_rule_indices[unit_index] {
-                // 参与者匹配：profile class 是规则任一 participantClassIds 成员的
-                // 传递后代或自身；specificity 取使匹配成功的最深 class 深度。
-                let mut depth: Option<u32> = None;
-                for class_handle in &resolved_classes[rule_index] {
-                    if classes.is_descendant_or_self(profile_class, *class_handle) {
-                        let class_depth = classes
-                            .depth(*class_handle)
-                            .expect("resolved class must have depth");
-                        depth = Some(depth.map_or(class_depth, |best| best.max(class_depth)));
-                    }
-                }
-                let Some(depth) = depth else {
-                    continue;
-                };
-                let key = (
-                    depth,
-                    resolved_targets[rule_index].target_specificity(),
-                    resolved_priorities[rule_index],
-                );
-                match best_key {
-                    Some(best) if key < best => {}
-                    Some(best) if key == best => contenders.push(rule_index),
-                    _ => {
-                        best_key = Some(key);
-                        contenders.clear();
-                        contenders.push(rule_index);
-                    }
-                }
-            }
-            // 第二遍：只检查最大 key contenders 内部的 effect 一致性。
-            if let Some(&first) = contenders.first() {
-                let effect = rules[first].effect();
-                if let Some(&opposite) = contenders
-                    .iter()
-                    .skip(1)
-                    .find(|&&rule_index| rules[rule_index].effect() != effect)
-                {
-                    return Err(CoreError::AccessRuleAmbiguity {
-                        plane,
-                        target_id: unit_external_id(unit),
-                        class_id: classes
-                            .class_external_id(profile_class)
-                            .expect("class index must belong to class registry")
-                            .to_owned(),
-                        first_rule_id: rules[first].id().to_owned(),
-                        second_rule_id: rules[opposite].id().to_owned(),
-                    });
-                }
-                // 同 effect 并列合法：保留先声明者作为归因。
-                cells[row_start + class_index] = AccessCell::Decided {
-                    rule: AccessRuleHandle::new(first),
-                    effect,
-                };
-            }
-        }
+        resolve_unit_row(
+            rules,
+            resolved_targets,
+            resolved_classes,
+            resolved_priorities,
+            classes,
+            &unit_rule_indices[unit_index],
+            plane,
+            || unit_external_id(unit),
+            &mut cells[row_start..row_start + class_count],
+            &mut contenders,
+        )?;
     }
     Ok(AccessPlane { row_starts, cells })
+}
+
+/// edge 平面 resolved 表构造：经 lane 成员关系反查流式收集每条 edge 的候选
+/// 规则（laneEdge 直接规则 + 所属 section 规则 + 所属 lane 的 group 规则），
+/// 按候选集合签名去重共享行——同一 section/group 覆盖下的同构 edge 只裁决
+/// 一次。中间存储 O(rules + edges + group 成员数)，不物化 rules × edges 的
+/// 平方级展开（不可信输入下该展开会先耗尽内存）。
+#[expect(
+    clippy::too_many_arguments,
+    reason = "normalization 期一次性裁决需要全部上下文"
+)]
+fn resolve_edge_cells(
+    rules: &[AccessRule],
+    resolved_targets: &[ResolvedAccessTarget],
+    resolved_classes: &[Vec<ParticipantClassHandle>],
+    resolved_priorities: &[i32],
+    classes: &ParticipantClassRegistry,
+    class_count: usize,
+    edge_count: usize,
+    cross_section: &CrossSectionRegistry,
+    edge_target_rules: &[Vec<usize>],
+    group_target_rules: &[Vec<usize>],
+    section_target_rules: &[Vec<usize>],
+    edge_external_id: impl Fn(EdgeHandle) -> String,
+) -> Result<AccessPlane, CoreError> {
+    // lane → 包含它且有规则的 group（只遍历 group 成员关系本身）。
+    let mut lane_groups: IndexMap<(usize, usize), Vec<usize>> = IndexMap::new();
+    for (group_index, group) in cross_section.groups().enumerate() {
+        if group_target_rules[group_index].is_empty() {
+            continue;
+        }
+        let section = cross_section
+            .lane_group_section(group)
+            .expect("resolved group must have section");
+        for lane_index in cross_section
+            .group_lanes(group)
+            .expect("resolved group must have member lanes")
+        {
+            lane_groups
+                .entry((section.index(), lane_index))
+                .or_default()
+                .push(group_index);
+        }
+    }
+
+    let mut candidates: Vec<usize> = Vec::new();
+    let mut signature_rows: IndexMap<Box<[usize]>, u32> = IndexMap::new();
+    let mut row_starts: Vec<u32> = Vec::with_capacity(edge_count);
+    let mut cells: Vec<AccessCell> = Vec::new();
+    let mut contenders: Vec<usize> = Vec::new();
+    for edge_index in 0..edge_count {
+        candidates.clear();
+        candidates.extend_from_slice(&edge_target_rules[edge_index]);
+        if let Some((section, lane_index)) =
+            cross_section.edge_lane_membership(EdgeHandle::new(edge_index))
+        {
+            candidates.extend_from_slice(&section_target_rules[section.index()]);
+            if let Some(groups) = lane_groups.get(&(section.index(), lane_index)) {
+                for &group_index in groups {
+                    candidates.extend_from_slice(&group_target_rules[group_index]);
+                }
+            }
+        }
+        if candidates.is_empty() {
+            row_starts.push(AccessPlane::UNCONSTRAINED_ROW);
+            continue;
+        }
+        // 排序使签名与裁决扫描序同为 rule 声明序（并列归因保持先声明者）。
+        candidates.sort_unstable();
+        if let Some(&row_start) = signature_rows.get(candidates.as_slice()) {
+            row_starts.push(row_start);
+            continue;
+        }
+        // 每新增一行 class_count 个 cell；总行数与 path 平面同口径约束。
+        let row_start = cells.len();
+        let cell_count = (signature_rows.len() + 1).checked_mul(class_count).ok_or(
+            CoreError::StaticDomainCapacityExceeded {
+                domain: "accessEdgeCells",
+                count: usize::MAX,
+                max_inclusive: u32::MAX,
+            },
+        )?;
+        validate_capacity("accessEdgeCells", cell_count)?;
+        cells.resize(row_start + class_count, AccessCell::Unconstrained);
+        resolve_unit_row(
+            rules,
+            resolved_targets,
+            resolved_classes,
+            resolved_priorities,
+            classes,
+            &candidates,
+            "edge",
+            || edge_external_id(EdgeHandle::new(edge_index)),
+            &mut cells[row_start..row_start + class_count],
+            &mut contenders,
+        )?;
+        let row_start =
+            u32::try_from(row_start).expect("cell_count 已经 validate_capacity 约束在 u32 范围");
+        signature_rows.insert(candidates.as_slice().into(), row_start);
+        row_starts.push(row_start);
+    }
+    Ok(AccessPlane { row_starts, cells })
+}
+
+/// 对单个单元的候选规则集合按 §6.4 字典序裁决每个 class 的胜者并填充
+/// `cells_row`（len = class_count）。
+///
+/// 字典序：①参与者 specificity（使匹配成功的最深 class 深度）②target
+/// specificity（仅 edge 平面）③priority 数值高者。裁决先求最大 key 的
+/// contenders 集合：低 key 规则之间的 allow/deny 并列不构成歧义（它们已被
+/// 更高 key 的规则整体击败）；只有最大 key contenders 内部仍 effect 混合才
+/// 返回 `CoreError::AccessRuleAmbiguity`。同 effect 并列合法，保留 input
+/// order 先声明者作为归因。结果不随输入排列漂移。
+#[expect(
+    clippy::too_many_arguments,
+    reason = "normalization 期一次性裁决需要全部上下文"
+)]
+fn resolve_unit_row(
+    rules: &[AccessRule],
+    resolved_targets: &[ResolvedAccessTarget],
+    resolved_classes: &[Vec<ParticipantClassHandle>],
+    resolved_priorities: &[i32],
+    classes: &ParticipantClassRegistry,
+    candidate_rules: &[usize],
+    plane: &'static str,
+    unit_external_id: impl Fn() -> String,
+    cells_row: &mut [AccessCell],
+    contenders: &mut Vec<usize>,
+) -> Result<(), CoreError> {
+    for (class_index, cell) in cells_row.iter_mut().enumerate() {
+        let profile_class = ParticipantClassHandle::new(class_index);
+        // 第一遍：计算每条适用规则的 (depth, target specificity, priority)
+        // key，收集最大 key 的 contenders（保持 input order）。
+        let mut best_key: Option<(u32, u8, i32)> = None;
+        contenders.clear();
+        for &rule_index in candidate_rules {
+            // 参与者匹配：profile class 是规则任一 participantClassIds 成员的
+            // 传递后代或自身；specificity 取使匹配成功的最深 class 深度。
+            let mut depth: Option<u32> = None;
+            for class_handle in &resolved_classes[rule_index] {
+                if classes.is_descendant_or_self(profile_class, *class_handle) {
+                    let class_depth = classes
+                        .depth(*class_handle)
+                        .expect("resolved class must have depth");
+                    depth = Some(depth.map_or(class_depth, |best| best.max(class_depth)));
+                }
+            }
+            let Some(depth) = depth else {
+                continue;
+            };
+            let key = (
+                depth,
+                resolved_targets[rule_index].target_specificity(),
+                resolved_priorities[rule_index],
+            );
+            match best_key {
+                Some(best) if key < best => {}
+                Some(best) if key == best => contenders.push(rule_index),
+                _ => {
+                    best_key = Some(key);
+                    contenders.clear();
+                    contenders.push(rule_index);
+                }
+            }
+        }
+        // 第二遍：只检查最大 key contenders 内部的 effect 一致性。
+        if let Some(&first) = contenders.first() {
+            let effect = rules[first].effect();
+            if let Some(&opposite) = contenders
+                .iter()
+                .skip(1)
+                .find(|&&rule_index| rules[rule_index].effect() != effect)
+            {
+                return Err(CoreError::AccessRuleAmbiguity {
+                    plane,
+                    target_id: unit_external_id(),
+                    class_id: classes
+                        .class_external_id(profile_class)
+                        .expect("class index must belong to class registry")
+                        .to_owned(),
+                    first_rule_id: rules[first].id().to_owned(),
+                    second_rule_id: rules[opposite].id().to_owned(),
+                });
+            }
+            // 同 effect 并列合法：保留先声明者作为归因。
+            *cell = AccessCell::Decided {
+                rule: AccessRuleHandle::new(first),
+                effect,
+            };
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        cross_section::{FacilityBand, LaneGroup, RoadCorridor, RoadSection},
+        cross_section::{
+            CorridorElementId, FacilityBand, LaneGroup, RoadCorridor, RoadSection, SectionLane,
+        },
         graph::{EdgeLength, LaneEdge, SpeedLimit},
         participant_class::ParticipantClass,
     };
@@ -1130,6 +1255,111 @@ mod tests {
             error,
             CoreError::StaticDomainCapacityExceeded {
                 domain: "accessEdgeCells",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn broad_target_rules_share_resolution_rows() {
+        // 两条 edge 同属于一个 section 的不同 lane：同一 section 规则对两条
+        // edge 的候选集合相同，签名去重后只物化一行（broad target 不做
+        // rules × edges 展开）；edge-2 额外有直接规则时候选集不同，另起一行。
+        let graph = LaneGraph::try_new([
+            LaneEdge::new(
+                "edge-1",
+                EdgeLength::try_new(10.0).expect("test edge length"),
+                SpeedLimit::try_new(10.0).expect("test speed limit"),
+                Vec::<String>::new(),
+            ),
+            LaneEdge::new(
+                "edge-2",
+                EdgeLength::try_new(10.0).expect("test edge length"),
+                SpeedLimit::try_new(10.0).expect("test speed limit"),
+                Vec::<String>::new(),
+            ),
+        ])
+        .expect("test graph");
+        let junctions = JunctionRegistry::empty();
+        let cross_section = CrossSectionRegistry::try_new(
+            &graph,
+            Vec::<FacilityBand>::new(),
+            [RoadSection::new(
+                "section-a",
+                "motorLane",
+                [
+                    SectionLane::new(["edge-1"], None),
+                    SectionLane::new(["edge-2"], None),
+                ],
+            )],
+            Vec::<LaneGroup>::new(),
+            [RoadCorridor::new(
+                "corridor-1",
+                "section-a",
+                [CorridorElementId::section("section-a")],
+            )],
+        )
+        .expect("test cross-section");
+        let classes =
+            ParticipantClassRegistry::try_new(vec![ParticipantClass::new("motorVehicle", None)])
+                .expect("test classes");
+        let class = classes.class_handle("motorVehicle").expect("test class");
+
+        let section_rules = || {
+            vec![
+                AccessRule::new(
+                    "rule-section-1",
+                    AccessTargetId::road_section("section-a"),
+                    AccessEffect::Deny,
+                    ["motorVehicle"],
+                ),
+                AccessRule::new(
+                    "rule-section-2",
+                    AccessTargetId::road_section("section-a"),
+                    AccessEffect::Deny,
+                    ["motorVehicle"],
+                ),
+            ]
+        };
+
+        // 只有 section 规则：两条 edge 共享同一签名，恰物化一行且裁决一致。
+        let shared = AccessRegistry::try_new(
+            &graph,
+            &junctions,
+            &cross_section,
+            &classes,
+            section_rules(),
+        )
+        .expect("valid access registry");
+        assert_eq!(shared.edge_plane.cells.len(), 1);
+        assert_eq!(shared.edge_plane.row_starts, vec![0, 0]);
+        for edge_index in 0..2 {
+            assert!(matches!(
+                shared.edge_access(EdgeHandle::new(edge_index), class),
+                AccessCell::Decided {
+                    effect: AccessEffect::Deny,
+                    ..
+                }
+            ));
+        }
+
+        // edge-2 追加直接规则后候选集不同：两行，各自裁决正确。
+        let mut rules = section_rules();
+        rules.push(AccessRule::new(
+            "rule-edge-2",
+            AccessTargetId::lane_edge("edge-2"),
+            AccessEffect::Allow,
+            ["motorVehicle"],
+        ));
+        let distinct = AccessRegistry::try_new(&graph, &junctions, &cross_section, &classes, rules)
+            .expect("valid access registry");
+        assert_eq!(distinct.edge_plane.cells.len(), 2);
+        assert_eq!(distinct.edge_plane.row_starts, vec![0, 1]);
+        // laneEdge target specificity 高于 roadSection：edge-2 由直接规则 Allow 胜出。
+        assert!(matches!(
+            distinct.edge_access(EdgeHandle::new(1), class),
+            AccessCell::Decided {
+                effect: AccessEffect::Allow,
                 ..
             }
         ));
