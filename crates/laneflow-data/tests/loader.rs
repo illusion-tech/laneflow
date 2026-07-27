@@ -1081,6 +1081,43 @@ fn access_capability_guards_are_structured_and_attributed() {
 }
 
 #[test]
+fn time_window_minute_range_decoding_defers_to_capability_guard() {
+    // 分钟字段在 wire 层保留原始数值：负数、超 u32 范围、小数等 JSON 数值都必须
+    // 先抵达 capability guard（AccessCapabilityUnavailable），而不是在解码期被
+    // u32 范围检查以 JsonShape 抢先拒绝——guard 先于 phase 9 shape 检查。
+    for (start, end) in [
+        (serde_json::json!(-1), serde_json::json!(60)),
+        (
+            serde_json::json!(u64::from(u32::MAX) + 1),
+            serde_json::json!(60),
+        ),
+        (serde_json::json!(420.5), serde_json::json!(60)),
+    ] {
+        let mut value = signals_value();
+        value["accessRules"] = json!([{
+            "id": "rule-peak",
+            "target": { "kind": "laneEdge", "id": "entry" },
+            "effect": "deny",
+            "participantClassIds": ["motorVehicle"],
+            "timeWindows": [{
+                "days": ["mon"],
+                "startMinuteOfDay": start,
+                "endMinuteOfDay": end
+            }]
+        }]);
+        std::assert_matches!(
+            into_core_domain(
+                load_value(value).expect_err("numeric timeWindows must reach the guard")
+            ),
+            (path, CoreError::AccessCapabilityUnavailable { rule_id, capability })
+                if path == "accessRules[0].timeWindows"
+                    && rule_id == "rule-peak"
+                    && capability == "timeWindows"
+        );
+    }
+}
+
+#[test]
 fn regulation_shape_defers_to_capability_guard() {
     // 同一条规则同时带 timeWindows 与非法 regulation 字符串时，capability guard
     // 必须先于 regulation shape 报错（SSOT §10 phase 9：guard 先于 shape 检查）。
