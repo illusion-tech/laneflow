@@ -3,12 +3,12 @@
 use std::{num::NonZeroU32, time::Duration};
 
 use bevy_app::App;
-#[cfg(feature = "debug-gizmos-smoke")]
+#[cfg(any(feature = "debug-gizmos-smoke", feature = "native-example"))]
 use bevy_asset::AssetApp;
 use bevy_asset::AssetPlugin;
 use bevy_ecs::hierarchy::ChildOf;
 use bevy_gizmos::GizmoPlugin;
-#[cfg(feature = "debug-gizmos-smoke")]
+#[cfg(any(feature = "debug-gizmos-smoke", feature = "native-example"))]
 use bevy_mesh::{Mesh, skinning::SkinnedMeshInverseBindposes};
 use bevy_time::{TimePlugin, TimeUpdateStrategy};
 use bevy_transform::{TransformPlugin, components::Transform};
@@ -121,10 +121,10 @@ fn point(x: f32, y: f32, z: f32) -> CanonicalPoint3F32 {
 fn debug_app() -> App {
     let mut app = App::new();
     app.add_plugins((TimePlugin, TransformPlugin, AssetPlugin::default()));
-    // `debug-gizmos-smoke` unifies Bevy's optional mesh integration into
-    // `GizmoPlugin`; provide the assets expected by that host integration while
+    // Both `debug-gizmos-smoke` and `native-example` pull in Bevy's optional mesh
+    // integration for `GizmoPlugin`; provide the assets that host expects while
     // keeping the test app renderer- and window-free.
-    #[cfg(feature = "debug-gizmos-smoke")]
+    #[cfg(any(feature = "debug-gizmos-smoke", feature = "native-example"))]
     app.init_asset::<Mesh>()
         .init_asset::<SkinnedMeshInverseBindposes>();
     app.add_plugins((GizmoPlugin, LaneFlowPlugin, LaneFlowDebugGizmosPlugin));
