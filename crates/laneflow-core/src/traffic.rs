@@ -91,7 +91,11 @@ impl InitialTrafficData {
     /// Final assembly 总是按 retained external definitions 对最终 LaneGraph 重新绑定
     /// Junction、Signals、Parking 与 CrossSection，然后使用同一 compiler 编译 initial
     /// Routes。Access 必须最后 rebind：它消费 rebind 后的 Junction 与 CrossSection
-    /// registry，顺序错误会静默混用 handle。
+    /// registry，顺序错误会静默混用 handle。Profiles 只依赖最终
+    /// ParticipantClassRegistry（class registry 本身无 rebind，caller 传入即最终
+    /// 形态），在 Access 之前按 retained class external ID 重新解析 handle——
+    /// 不 rebind 会把旧 class registry 的 dense index 静默错挂到同 index 的另一个
+    /// class 上。
     #[expect(
         clippy::too_many_arguments,
         reason = "final assembly 需要全部 static domain registry"
@@ -114,6 +118,10 @@ impl InitialTrafficData {
         let signals = signals.rebind_to_static_topology(&lane_graph, &junctions)?;
         let parking = parking.rebind_to_lane_graph(&lane_graph)?;
         let cross_section = cross_section.rebind_to_lane_graph(&lane_graph)?;
+        // profiles 的 class handle 只依赖最终 ParticipantClassRegistry，与 lane
+        // graph/Junction rebind 无依赖；放在 Access 之前，与其他 registry 的
+        // final-assembly rebind 一起完成（见上注）。
+        let vehicle_profiles = vehicle_profiles.rebind_classes(&participant_classes)?;
         let access = access.rebind(
             &lane_graph,
             &junctions,

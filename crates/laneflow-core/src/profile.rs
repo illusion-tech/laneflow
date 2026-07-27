@@ -110,10 +110,16 @@ impl VehicleProfile {
 }
 
 /// world 初始化后保持 immutable 的 Vehicle Profile registry。
+///
+/// `class_external_ids` 是 registry 侧 retained identity（junction retained
+/// definitions 先例）：按 profile 对齐保留构造时解析出的 ParticipantClass
+/// external ID，供 `rebind_classes` 对另一个 class registry 重新解析 handle，
+/// 不进入 steady tick 求值路径。
 #[derive(Clone, Debug, PartialEq)]
 pub struct VehicleProfileRegistry {
     profiles: Vec<VehicleProfile>,
     handles: IndexMap<String, VehicleProfileHandle>,
+    class_external_ids: Vec<String>,
 }
 
 impl VehicleProfileRegistry {
@@ -122,13 +128,15 @@ impl VehicleProfileRegistry {
         Self {
             profiles: Vec::new(),
             handles: IndexMap::new(),
+            class_external_ids: Vec::new(),
         }
     }
 
     /// 按输入顺序创建并校验 immutable registry。
     ///
     /// 每个 profile 的 ParticipantClass handle 必须落在 `classes` 范围内
-    /// （index < class_count），防止跨 registry 混用 handle。
+    /// （index < class_count），防止跨 registry 混用 handle；通过范围校验后
+    /// 按 handle 保留对应的 class external ID 作为 rebind 的 identity。
     ///
     /// # Errors
     ///
@@ -141,6 +149,7 @@ impl VehicleProfileRegistry {
     {
         let mut resolved_profiles = Vec::new();
         let mut handles = IndexMap::new();
+        let mut class_external_ids = Vec::new();
 
         for profile in profiles {
             if handles.contains_key(profile.external_id()) {
@@ -155,6 +164,12 @@ impl VehicleProfileRegistry {
                     class_count: classes.class_count(),
                 });
             }
+            class_external_ids.push(
+                classes
+                    .class_external_id(profile.participant_class())
+                    .expect("range-checked class handle must have external ID")
+                    .to_owned(),
+            );
 
             let handle = VehicleProfileHandle::new(resolved_profiles.len());
             handles.insert(profile.external_id().to_owned(), handle);
@@ -164,7 +179,41 @@ impl VehicleProfileRegistry {
         Ok(Self {
             profiles: resolved_profiles,
             handles,
+            class_external_ids,
         })
+    }
+
+    /// 按 retained class external ID 对目标 ParticipantClassRegistry 重新解析
+    /// 每个 profile 的 class handle（junction `rebind_to_lane_graph` 先例）。
+    ///
+    /// handle 是 dense index，只在构造它们的 registry 内有意义；profile registry
+    /// 与 final assembly 的 class registry 声明顺序不同时，直接沿用旧 handle 会
+    /// 把 profile 静默错挂到另一个 class。本方法按外部 ID 重新绑定语义。
+    ///
+    /// # Errors
+    ///
+    /// 任一 retained class external ID 在目标 registry 中不存在时返回
+    /// `CoreError::UnknownVehicleProfileParticipantClass`。
+    pub fn rebind_classes(&self, classes: &ParticipantClassRegistry) -> Result<Self, CoreError> {
+        let profiles = self
+            .profiles
+            .iter()
+            .zip(&self.class_external_ids)
+            .map(|(profile, class_id)| {
+                let class = classes.class_handle(class_id).ok_or_else(|| {
+                    CoreError::UnknownVehicleProfileParticipantClass {
+                        profile_id: profile.external_id().to_owned(),
+                        class_id: class_id.clone(),
+                    }
+                })?;
+                Ok(VehicleProfile {
+                    external_id: profile.external_id.clone(),
+                    participant_class: class,
+                    iidm: profile.iidm,
+                })
+            })
+            .collect::<Result<Vec<_>, CoreError>>()?;
+        Self::try_new(classes, profiles)
     }
 
     /// 返回 profile 数量。
@@ -199,7 +248,11 @@ impl VehicleProfileRegistry {
 
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> usize {
-        let Self { profiles, handles } = self;
+        let Self {
+            profiles,
+            handles,
+            class_external_ids,
+        } = self;
         let profile_bytes = profiles.capacity() * std::mem::size_of::<VehicleProfile>()
             + profiles
                 .iter()
@@ -208,7 +261,12 @@ impl VehicleProfileRegistry {
         let handle_bytes = handles.capacity()
             * std::mem::size_of::<(String, VehicleProfileHandle)>()
             + handles.keys().map(String::capacity).sum::<usize>();
-        profile_bytes + handle_bytes
+        let retained_class_bytes = class_external_ids.capacity() * std::mem::size_of::<String>()
+            + class_external_ids
+                .iter()
+                .map(String::capacity)
+                .sum::<usize>();
+        profile_bytes + handle_bytes + retained_class_bytes
     }
 }
 

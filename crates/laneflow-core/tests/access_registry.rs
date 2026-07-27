@@ -804,6 +804,102 @@ fn same_effect_tie_is_legal_and_keeps_first_rule_for_attribution() {
     );
 }
 
+#[test]
+fn higher_priority_rule_outranks_lower_key_allow_deny_tie_under_any_input_order() {
+    // §6.4：歧义检查只在最大 key contenders 内部进行。deny/allow 在 priority 0
+    // 并列，但 priority 5 的第三条规则整体胜出——任何输入排列都必须解析为
+    // allow 且不报错（旧实现按 input order 扫描会在 deny 先出现时误报歧义）。
+    let deny_low = || {
+        AccessRule::new(
+            "rule-deny-low",
+            AccessTargetId::lane_edge("e1"),
+            AccessEffect::Deny,
+            ["car"],
+        )
+    };
+    let allow_low = || {
+        AccessRule::new(
+            "rule-allow-low",
+            AccessTargetId::lane_edge("e1"),
+            AccessEffect::Allow,
+            ["car"],
+        )
+    };
+    let allow_high = || {
+        AccessRule::new(
+            "rule-allow-high",
+            AccessTargetId::lane_edge("e1"),
+            AccessEffect::Allow,
+            ["car"],
+        )
+        .with_priority(5)
+    };
+
+    for rules in [
+        vec![deny_low(), allow_low(), allow_high()],
+        vec![deny_low(), allow_high(), allow_low()],
+        vec![allow_low(), deny_low(), allow_high()],
+        vec![allow_low(), allow_high(), deny_low()],
+        vec![allow_high(), deny_low(), allow_low()],
+        vec![allow_high(), allow_low(), deny_low()],
+    ] {
+        let registry = access(rules);
+        let classes = classes();
+        std::assert_matches!(
+            edge_cell(&registry, &classes, "e1", "car"),
+            AccessCell::Decided { rule, effect: AccessEffect::Allow }
+                if registry.rule_external_id(rule) == Some("rule-allow-high")
+        );
+    }
+}
+
+#[test]
+fn mixed_effects_at_max_key_are_rejected_despite_lower_key_rules() {
+    // 最大 key（priority 5）处 allow/deny 混合仍是 authoring 歧义；低 key 的
+    // 第三条规则不参与裁决。归因保留 input order 先声明的 contender 与首个
+    // effect 相反者。
+    let error = AccessRegistry::try_new(
+        &graph(),
+        &junctions(),
+        &cross_section(),
+        &classes(),
+        vec![
+            AccessRule::new(
+                "rule-allow-low",
+                AccessTargetId::lane_edge("e1"),
+                AccessEffect::Allow,
+                ["car"],
+            ),
+            AccessRule::new(
+                "rule-deny-high",
+                AccessTargetId::lane_edge("e1"),
+                AccessEffect::Deny,
+                ["car"],
+            )
+            .with_priority(5),
+            AccessRule::new(
+                "rule-allow-high",
+                AccessTargetId::lane_edge("e1"),
+                AccessEffect::Allow,
+                ["car"],
+            )
+            .with_priority(5),
+        ],
+    )
+    .expect_err("mixed effects at max key must fail");
+    std::assert_matches!(
+        error,
+        CoreError::AccessRuleAmbiguity {
+            plane,
+            target_id,
+            class_id,
+            first_rule_id,
+            second_rule_id,
+        } if plane == "edge" && target_id == "e1" && class_id == "car"
+            && first_rule_id == "rule-deny-high" && second_rule_id == "rule-allow-high"
+    );
+}
+
 // ---------- path 平面 ----------
 
 #[test]
