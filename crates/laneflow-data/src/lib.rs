@@ -694,8 +694,11 @@ fn cross_section_error_path(wire: &WirePackage, source: &CoreError) -> String {
                     &item.id
                 })
             }
-            "roadCorridors[].elements[].sectionId" | "roadCorridors[].elements[].bandId" => {
-                corridor_element_value_path(wire, external_id)
+            "roadCorridors[].elements[].sectionId" => {
+                corridor_element_value_path(wire, external_id, "section")
+            }
+            "roadCorridors[].elements[].bandId" => {
+                corridor_element_value_path(wire, external_id, "band")
             }
             _ => "roadSections".to_owned(),
         },
@@ -757,11 +760,6 @@ fn cross_section_error_path(wire: &WirePackage, source: &CoreError) -> String {
             section_id,
             lane_index,
             edge_id,
-        }
-        | CoreError::DuplicateSectionLaneEdge {
-            section_id,
-            lane_index,
-            edge_id,
         } => {
             let Some(section_index) = section_index(wire, section_id) else {
                 return "roadSections".to_owned();
@@ -778,6 +776,24 @@ fn cross_section_error_path(wire: &WirePackage, source: &CoreError) -> String {
                         )
                     },
                 )
+        }
+        CoreError::DuplicateSectionLaneEdge {
+            section_id,
+            lane_index,
+            edge_id,
+        } => {
+            let Some(section_index) = section_index(wire, section_id) else {
+                return "roadSections".to_owned();
+            };
+            let lane = &wire.road_sections[section_index].lanes[*lane_index];
+            second_matching_index(&lane.edge_ids, |item| item == edge_id).map_or_else(
+                || format!("roadSections[{section_index}].lanes[{lane_index}].edgeIds"),
+                |edge_index| {
+                    format!(
+                        "roadSections[{section_index}].lanes[{lane_index}].edgeIds[{edge_index}]"
+                    )
+                },
+            )
         }
         CoreError::DisconnectedSectionLane {
             section_id,
@@ -841,19 +857,22 @@ fn cross_section_error_path(wire: &WirePackage, source: &CoreError) -> String {
         }
         CoreError::UnknownCorridorElement {
             corridor_id,
+            element_kind,
             element_id,
             ..
-        } => corridor_element_path(wire, corridor_id, element_id, false),
+        } => corridor_element_path(wire, corridor_id, element_id, element_kind, false),
         CoreError::DuplicateCorridorElement {
             corridor_id,
+            element_kind,
             element_id,
             ..
-        } => corridor_element_path(wire, corridor_id, element_id, true),
+        } => corridor_element_path(wire, corridor_id, element_id, element_kind, true),
         CoreError::CorridorElementMultipleOwners {
+            element_kind,
             element_id,
             duplicate_corridor_id,
             ..
-        } => corridor_element_path(wire, duplicate_corridor_id, element_id, false),
+        } => corridor_element_path(wire, duplicate_corridor_id, element_id, element_kind, false),
         CoreError::UnownedCorridorElement {
             element_kind,
             element_id,
@@ -954,14 +973,17 @@ fn corridor_path(wire: &WirePackage, corridor_id: &str, suffix: &str) -> String 
 fn corridor_element_index(
     corridor: &wire::WireRoadCorridor,
     element_id: &str,
+    element_kind: &str,
     duplicate: bool,
 ) -> Option<usize> {
+    // section 与 band 可以合法共享同一 external ID，必须同时按元素类别与 ID 匹配，
+    // 否则重复/unknown 错误会被归因到另一类同名元素。
     let matches = |element: &WireCorridorElement| {
-        let id = match element {
-            WireCorridorElement::Section(section) => &section.section_id,
-            WireCorridorElement::Band(band) => &band.band_id,
+        let (id, kind) = match element {
+            WireCorridorElement::Section(section) => (&section.section_id, "section"),
+            WireCorridorElement::Band(band) => (&band.band_id, "band"),
         };
-        id == element_id
+        id == element_id && kind == element_kind
     };
     if duplicate {
         second_matching_index(&corridor.elements, matches)
@@ -974,6 +996,7 @@ fn corridor_element_path(
     wire: &WirePackage,
     corridor_id: &str,
     element_id: &str,
+    element_kind: &str,
     duplicate: bool,
 ) -> String {
     let Some(corridor_index) = wire
@@ -983,15 +1006,23 @@ fn corridor_element_path(
     else {
         return "roadCorridors".to_owned();
     };
-    corridor_element_index(&wire.road_corridors[corridor_index], element_id, duplicate).map_or_else(
+    corridor_element_index(
+        &wire.road_corridors[corridor_index],
+        element_id,
+        element_kind,
+        duplicate,
+    )
+    .map_or_else(
         || format!("roadCorridors[{corridor_index}].elements"),
         |element_index| format!("roadCorridors[{corridor_index}].elements[{element_index}]"),
     )
 }
 
-fn corridor_element_value_path(wire: &WirePackage, element_id: &str) -> String {
+fn corridor_element_value_path(wire: &WirePackage, element_id: &str, element_kind: &str) -> String {
     for (corridor_index, corridor) in wire.road_corridors.iter().enumerate() {
-        if let Some(element_index) = corridor_element_index(corridor, element_id, false) {
+        if let Some(element_index) =
+            corridor_element_index(corridor, element_id, element_kind, false)
+        {
             let field = match &corridor.elements[element_index] {
                 WireCorridorElement::Section(_) => "sectionId",
                 WireCorridorElement::Band(_) => "bandId",
