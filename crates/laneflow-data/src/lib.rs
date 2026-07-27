@@ -444,8 +444,12 @@ fn normalize_access(
                 rule.participant_class_ids.iter().cloned(),
             )
             // wire 层 timeWindows 只作 capability guard 归因标记进 Core（v1 一律拒绝）。
-            .with_time_windows(rule.time_windows.is_some())
-            .with_priority(rule.priority.unwrap_or(0));
+            .with_time_windows(rule.time_windows.is_some());
+            if let Some(priority) = &rule.priority {
+                // shape 校验由 AccessRegistry::try_new phase 9.5 执行（capability
+                // guard 之后），此处只搬运原始数值字面量，保持首错顺序契约。
+                definition = definition.with_priority_literal(priority.to_string());
+            }
             if let Some(regulation) = &rule.regulation {
                 // shape 校验由 AccessRegistry::try_new phase 9.5 执行（capability
                 // guard 之后），此处只搬运原始字符串，保持首错顺序契约。
@@ -1102,10 +1106,15 @@ fn access_error_path(wire: &WirePackage, source: &CoreError) -> String {
             _ => access_rule_path(wire, rule_id, ".target.id"),
         },
         CoreError::InvalidAccessRulePriority { priority } => {
-            // phase 9.5 按 input order 返回首条 shape 违规规则，按值定位即所报规则。
+            // phase 9.5 按 input order 返回首条 shape 违规规则；报告值即 wire 层
+            // 原始字面量的 canonical 形式，按值定位即所报规则。
             wire.access_rules
                 .iter()
-                .position(|rule| rule.priority == Some(*priority))
+                .position(|rule| {
+                    rule.priority
+                        .as_ref()
+                        .is_some_and(|value| value.to_string() == *priority)
+                })
                 .map_or_else(
                     || "accessRules".to_owned(),
                     |index| format!("accessRules[{index}].priority"),

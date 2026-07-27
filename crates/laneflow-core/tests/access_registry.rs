@@ -545,8 +545,15 @@ fn priority_shape_orders_after_capability_guard() {
             if rule_id == "rule-time" && capability == "timeWindows"
     );
 
-    // 无更早 phase 错误时，超 i32 范围的 priority 由 registry phase 9.5 拒绝。
-    for priority in [i64::from(i32::MAX) + 1, i64::from(i32::MIN) - 1] {
+    // 无更早 phase 错误时，超 i32 范围的 priority 由 registry phase 9.5 拒绝
+    // （含超 i64 范围的原始字面量与小数）。
+    for literal in [
+        "2147483648",
+        "-2147483649",
+        "9223372036854775808",
+        "-9223372036854775809",
+        "1.5",
+    ] {
         let error = AccessRegistry::try_new(
             &graph(),
             &junctions(),
@@ -559,13 +566,13 @@ fn priority_shape_orders_after_capability_guard() {
                     AccessEffect::Deny,
                     ["car"],
                 )
-                .with_priority(priority),
+                .with_priority_literal(literal),
             ],
         )
         .expect_err("registry must reject out-of-i32 priority");
         std::assert_matches!(
             error,
-            CoreError::InvalidAccessRulePriority { priority: actual } if actual == priority
+            CoreError::InvalidAccessRulePriority { priority } if priority == literal
         );
     }
 
@@ -599,7 +606,31 @@ fn priority_shape_orders_after_capability_guard() {
         CoreError::InvalidAccessRegulationString { field, .. } if field == "version"
     );
 
-    // i32 边界值合法。
+    // 超 i64 范围的 priority 同样先抵达 capability guard（原始字面量入 Core）。
+    let error = AccessRegistry::try_new(
+        &graph(),
+        &junctions(),
+        &cross_section(),
+        &classes(),
+        vec![
+            AccessRule::new(
+                "rule-time",
+                AccessTargetId::lane_edge("e1"),
+                AccessEffect::Deny,
+                ["car"],
+            )
+            .with_time_windows(true)
+            .with_priority_literal("9223372036854775808"),
+        ],
+    )
+    .expect_err("guard must precede priority shape for out-of-i64 literals");
+    std::assert_matches!(
+        error,
+        CoreError::AccessCapabilityUnavailable { rule_id, capability }
+            if rule_id == "rule-time" && capability == "timeWindows"
+    );
+
+    // i32 边界值合法；JSON Schema integer 语义的零小数表示（100.0）合法。
     access(vec![
         AccessRule::new(
             "rule-min",
@@ -615,6 +646,13 @@ fn priority_shape_orders_after_capability_guard() {
             ["bus"],
         )
         .with_priority(i64::from(i32::MAX)),
+        AccessRule::new(
+            "rule-float-int",
+            AccessTargetId::lane_edge("e3"),
+            AccessEffect::Allow,
+            ["bus"],
+        )
+        .with_priority_literal("100.0"),
     ]);
 }
 

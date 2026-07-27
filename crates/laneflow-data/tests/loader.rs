@@ -1119,8 +1119,9 @@ fn time_window_minute_range_decoding_defers_to_capability_guard() {
 
 #[test]
 fn priority_range_decoding_defers_to_capability_guard() {
-    // priority 在 wire 层保留原始整数（i64）：超 i32 范围不再于解码期 JsonShape
-    // 抢先，必须先抵达 capability guard；i32 语义范围由 Core phase 9.5 校验。
+    // priority 在 wire 层保留原始数值（serde_json::Number）：超 i32/i64 范围不再
+    // 于解码期 JsonShape 抢先，必须先抵达 capability guard；整数性与 i32 语义
+    // 范围由 Core phase 9.5 校验。
     let mut guarded = signals_value();
     guarded["accessRules"] = json!([{
         "id": "rule-peak",
@@ -1132,7 +1133,7 @@ fn priority_range_decoding_defers_to_capability_guard() {
             "startMinuteOfDay": 420,
             "endMinuteOfDay": 540
         }],
-        "priority": 2147483648_i64
+        "priority": 9223372036854775808_u64
     }]);
     std::assert_matches!(
         into_core_domain(load_value(guarded).expect_err("guard must precede priority shape")),
@@ -1156,16 +1157,16 @@ fn priority_range_decoding_defers_to_capability_guard() {
             "target": { "kind": "laneEdge", "id": "bypass" },
             "effect": "allow",
             "participantClassIds": ["motorVehicle"],
-            "priority": -2147483649_i64
+            "priority": 9223372036854775808_u64
         }
     ]);
     std::assert_matches!(
         into_core_domain(load_value(invalid).expect_err("out-of-i32 priority must be rejected")),
         (path, CoreError::InvalidAccessRulePriority { priority })
-            if path == "accessRules[1].priority" && priority == -2147483649_i64
+            if path == "accessRules[1].priority" && priority == "9223372036854775808"
     );
 
-    // JSON integer type 检查仍留在 wire：小数 priority 以 JsonShape 拒绝。
+    // 小数 priority 越过 JSON Schema integer 语义，同样由 phase 9.5 拒绝并归因。
     let mut fractional = signals_value();
     fractional["accessRules"] = json!([{
         "id": "rule-peak",
@@ -1175,7 +1176,24 @@ fn priority_range_decoding_defers_to_capability_guard() {
         "priority": 1.5
     }]);
     std::assert_matches!(
-        load_value(fractional).expect_err("fractional priority is a wire type error"),
+        into_core_domain(
+            load_value(fractional).expect_err("fractional priority must be rejected by Core")
+        ),
+        (path, CoreError::InvalidAccessRulePriority { priority })
+            if path == "accessRules[0].priority" && priority == "1.5"
+    );
+
+    // JSON number type 检查仍留在 wire：非数值 priority 以 JsonShape 拒绝。
+    let mut non_numeric = signals_value();
+    non_numeric["accessRules"] = json!([{
+        "id": "rule-peak",
+        "target": { "kind": "laneEdge", "id": "entry" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"],
+        "priority": "high"
+    }]);
+    std::assert_matches!(
+        load_value(non_numeric).expect_err("non-numeric priority is a wire type error"),
         DataError::JsonShape { .. }
     );
 }
