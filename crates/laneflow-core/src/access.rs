@@ -789,8 +789,8 @@ fn parse_access_priority(literal: &str) -> Option<i32> {
 /// 小数位与指数按十进制字面值运算，不经过任何浮点转换。
 fn exact_integer_lexeme(literal: &str) -> Option<i128> {
     let (mantissa, exponent) = match literal.find(['e', 'E']) {
-        Some(index) => (&literal[..index], literal[index + 1..].parse::<i64>().ok()?),
-        None => (literal, 0),
+        Some(index) => (&literal[..index], &literal[index + 1..]),
+        None => (literal, "0"),
     };
     let (negative, mantissa) = match mantissa.strip_prefix('-') {
         Some(rest) => (true, rest),
@@ -804,10 +804,16 @@ fn exact_integer_lexeme(literal: &str) -> Option<i128> {
         .chars()
         .chain(fraction_digits.chars())
         .collect();
-    // 0 的任何表示（0e5、0.000、-0.0）都是整数 0。
+    // 0 的任何表示（0e5、0.000、-0.0）都是整数 0，与指数取值无关——
+    // 必须先于指数解析判定：指数超出 i64 的合法零字面量
+    // （如 `0e9223372036854775808`）值仍精确为 0，不得误拒。
     if digits.bytes().all(|digit| digit == b'0') {
         return Some(0);
     }
+    // 非零尾数才需要指数：超出 i64 的指数其量级（±2^63 数量级的 10 的幂）
+    // 必然落在 i128 可精确表示的整数范围之外，解析失败即按 None 拒绝，
+    // 与后续 shift 上界检查口径一致。
+    let exponent = exponent.parse::<i64>().ok()?;
     let fraction_len = i64::try_from(fraction_digits.len()).ok()?;
     let shift = exponent.checked_sub(fraction_len)?;
     let canonical = if shift >= 0 {
