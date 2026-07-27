@@ -3,7 +3,7 @@
   "traffic": {
     "artifactRef": "v0.9-signalized-corridor.laneflow.json",
     "mediaType": "application/vnd.laneflow.traffic+json",
-    "digest": "sha256:985a2f9c3eae0a4e7f407855da03af0f6519f6bd08adf9548c0b2c07a04a53e1",
+    "digest": "sha256:68b617d360ad54d651cbb405e8d4ed895c59525fa332fca1b6fe9a335087d9b4",
     "size": 85316
   },
   "spatial": {

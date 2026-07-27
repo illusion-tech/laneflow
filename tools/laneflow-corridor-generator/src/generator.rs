@@ -684,11 +684,16 @@ struct CrossSectionDocs {
 fn build_cross_section(corridor: &CorridorBuild) -> CrossSectionDocs {
     // 物理 corridor 单元 = 一条 road 分段（junction 之间/之外）：主干道三段 +
     // 每条支路两段。reference 方向：主干道取 w2e，支路取 n2s。
+    // segment 是按方向 traversal order 编号而非物理区间：w2e road-0 是最西段，
+    // 而 e2w road-0 是最东段（build_road_edges），因此同一物理单元的对向
+    // segment 键必须反转（主干 4−segment、支路 2−segment），否则 corridor 会把
+    // 几何上互不相交的两个方向 section 拼在一起，违反纵向共延伸不变量。
     let mut units = Vec::with_capacity(7);
     for segment in [0, 2, 4] {
         units.push((
             RoadClass::Main,
             segment,
+            4 - segment,
             RoadDirection::WestToEast,
             RoadDirection::EastToWest,
         ));
@@ -698,6 +703,7 @@ fn build_cross_section(corridor: &CorridorBuild) -> CrossSectionDocs {
             units.push((
                 RoadClass::Side(junction),
                 segment,
+                2 - segment,
                 RoadDirection::NorthToSouth,
                 RoadDirection::SouthToNorth,
             ));
@@ -711,19 +717,21 @@ fn build_cross_section(corridor: &CorridorBuild) -> CrossSectionDocs {
         road_corridors: Vec::new(),
         access_rules: Vec::new(),
     };
-    for (road, segment, reference, opposite) in units {
+    for (road, segment, opposite_segment, reference, opposite) in units {
         let road_fragment = road.id_fragment();
-        let metas_of = |direction: RoadDirection| {
+        let metas_of = |direction: RoadDirection, direction_segment: usize| {
             corridor
                 .road_metas
                 .iter()
                 .filter(|meta| {
-                    meta.road == road && meta.direction == direction && meta.segment == segment
+                    meta.road == road
+                        && meta.direction == direction
+                        && meta.segment == direction_segment
                 })
                 .collect::<Vec<_>>()
         };
-        let reference_metas = metas_of(reference);
-        let opposite_metas = metas_of(opposite);
+        let reference_metas = metas_of(reference, segment);
+        let opposite_metas = metas_of(opposite, opposite_segment);
 
         // 横向顺序从几何派生：reference 方向切向量 T 与左方向 L = up × T
         // （对齐 spatial-geometry §7 的正横向偏移约定），lane/元素的横向坐标是
@@ -749,25 +757,28 @@ fn build_cross_section(corridor: &CorridorBuild) -> CrossSectionDocs {
 
         // 每个方向一个 RoadSection；lanes 按 corridor reference 系从左到右
         // （lateral 降序）。主干道 section 的路缘侧 lane（离中央分隔带横向距离
-        // 最远）划为公交专用道 LaneGroup。
+        // 最远）划为公交专用道 LaneGroup。ID 的 road 键沿用各方向自己的
+        // traversal segment 编号（与 edge ID 一致）。
         let mut section_ids = [String::new(), String::new()];
         let mut group_ids = [None, None];
-        for (slot, (direction, metas)) in
-            [(reference, &reference_metas), (opposite, &opposite_metas)]
-                .into_iter()
-                .enumerate()
+        for (slot, (direction, direction_segment, metas)) in [
+            (reference, segment, &reference_metas),
+            (opposite, opposite_segment, &opposite_metas),
+        ]
+        .into_iter()
+        .enumerate()
         {
             let mut ordered = metas.clone();
             ordered.sort_by(|left_meta, right_meta| {
                 lateral(right_meta).total_cmp(&lateral(left_meta))
             });
             let section_id = format!(
-                "section-{road_fragment}-{}-road-{segment}",
+                "section-{road_fragment}-{}-road-{direction_segment}",
                 direction.id_fragment()
             );
             let group_id = (road == RoadClass::Main).then(|| {
                 format!(
-                    "group-{road_fragment}-{}-bus-road-{segment}",
+                    "group-{road_fragment}-{}-bus-road-{direction_segment}",
                     direction.id_fragment()
                 )
             });
@@ -845,10 +856,13 @@ fn build_cross_section(corridor: &CorridorBuild) -> CrossSectionDocs {
         // 公交专用道组合（SSOT §6.4 范例）：deny motorVehicle + allow bus。
         // 本 corridor 演示车队的 population 全部是 passenger-car，附加显式
         // allow car 豁免使演示车队保持合法；规则即意图，豁免因此可审计。
-        for (direction, group_id) in [(reference, &group_ids[0]), (opposite, &group_ids[1])] {
+        for (direction, direction_segment, group_id) in [
+            (reference, segment, &group_ids[0]),
+            (opposite, opposite_segment, &group_ids[1]),
+        ] {
             let Some(group_id) = group_id else { continue };
             let prefix = format!(
-                "rule-{road_fragment}-{}-bus-road-{segment}",
+                "rule-{road_fragment}-{}-bus-road-{direction_segment}",
                 direction.id_fragment()
             );
             for (suffix, effect, classes) in [

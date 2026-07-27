@@ -1395,23 +1395,23 @@
       ]
     },
     {
-      "id": "section-main-e2w-road-0",
+      "id": "section-main-e2w-road-4",
       "kindId": "motorLane",
       "lanes": [
         {
           "edgeIds": [
-            "edge-main-e2w-lane-2-road-0"
+            "edge-main-e2w-lane-2-road-4"
           ],
-          "laneGroupId": "group-main-e2w-bus-road-0"
+          "laneGroupId": "group-main-e2w-bus-road-4"
         },
         {
           "edgeIds": [
-            "edge-main-e2w-lane-1-road-0"
+            "edge-main-e2w-lane-1-road-4"
           ]
         },
         {
           "edgeIds": [
-            "edge-main-e2w-lane-0-road-0"
+            "edge-main-e2w-lane-0-road-4"
           ]
         }
       ]
@@ -1483,23 +1483,23 @@
       ]
     },
     {
-      "id": "section-main-e2w-road-4",
+      "id": "section-main-e2w-road-0",
       "kindId": "motorLane",
       "lanes": [
         {
           "edgeIds": [
-            "edge-main-e2w-lane-2-road-4"
+            "edge-main-e2w-lane-2-road-0"
           ],
-          "laneGroupId": "group-main-e2w-bus-road-4"
+          "laneGroupId": "group-main-e2w-bus-road-0"
         },
         {
           "edgeIds": [
-            "edge-main-e2w-lane-1-road-4"
+            "edge-main-e2w-lane-1-road-0"
           ]
         },
         {
           "edgeIds": [
-            "edge-main-e2w-lane-0-road-4"
+            "edge-main-e2w-lane-0-road-0"
           ]
         }
       ]
@@ -1521,17 +1521,17 @@
       ]
     },
     {
-      "id": "section-side-1-s2n-road-0",
+      "id": "section-side-1-s2n-road-2",
       "kindId": "motorLane",
       "lanes": [
         {
           "edgeIds": [
-            "edge-side-1-s2n-lane-1-road-0"
+            "edge-side-1-s2n-lane-1-road-2"
           ]
         },
         {
           "edgeIds": [
-            "edge-side-1-s2n-lane-0-road-0"
+            "edge-side-1-s2n-lane-0-road-2"
           ]
         }
       ]
@@ -1553,17 +1553,17 @@
       ]
     },
     {
-      "id": "section-side-1-s2n-road-2",
+      "id": "section-side-1-s2n-road-0",
       "kindId": "motorLane",
       "lanes": [
         {
           "edgeIds": [
-            "edge-side-1-s2n-lane-1-road-2"
+            "edge-side-1-s2n-lane-1-road-0"
           ]
         },
         {
           "edgeIds": [
-            "edge-side-1-s2n-lane-0-road-2"
+            "edge-side-1-s2n-lane-0-road-0"
           ]
         }
       ]
@@ -1585,17 +1585,17 @@
       ]
     },
     {
-      "id": "section-side-2-s2n-road-0",
+      "id": "section-side-2-s2n-road-2",
       "kindId": "motorLane",
       "lanes": [
         {
           "edgeIds": [
-            "edge-side-2-s2n-lane-1-road-0"
+            "edge-side-2-s2n-lane-1-road-2"
           ]
         },
         {
           "edgeIds": [
-            "edge-side-2-s2n-lane-0-road-0"
+            "edge-side-2-s2n-lane-0-road-2"
           ]
         }
       ]
@@ -1617,17 +1617,17 @@
       ]
     },
     {
-      "id": "section-side-2-s2n-road-2",
+      "id": "section-side-2-s2n-road-0",
       "kindId": "motorLane",
       "lanes": [
         {
           "edgeIds": [
-            "edge-side-2-s2n-lane-1-road-2"
+            "edge-side-2-s2n-lane-1-road-0"
           ]
         },
         {
           "edgeIds": [
-            "edge-side-2-s2n-lane-0-road-2"
+            "edge-side-2-s2n-lane-0-road-0"
           ]
         }
       ]
@@ -1639,8 +1639,8 @@
       "roadSectionId": "section-main-w2e-road-0"
     },
     {
-      "id": "group-main-e2w-bus-road-0",
-      "roadSectionId": "section-main-e2w-road-0"
+      "id": "group-main-e2w-bus-road-4",
+      "roadSectionId": "section-main-e2w-road-4"
     },
     {
       "id": "group-main-w2e-bus-road-2",
@@ -1655,8 +1655,8 @@
       "roadSectionId": "section-main-w2e-road-4"
     },
     {
-      "id": "group-main-e2w-bus-road-4",
-      "roadSectionId": "section-main-e2w-road-4"
+      "id": "group-main-e2w-bus-road-0",
+      "roadSectionId": "section-main-e2w-road-0"
     }
   ],
   "roadCorridors": [
@@ -1665,7 +1665,7 @@
       "referenceSectionId": "section-main-w2e-road-0",
       "elements": [
         {
-          "sectionId": "section-main-e2w-road-0"
+          "sectionId": "section-main-e2w-road-4"
         },
         {
           "bandId": "band-main-median-road-0"
@@ -1695,7 +1695,7 @@
       "referenceSectionId": "section-main-w2e-road-4",
       "elements": [
         {
-          "sectionId": "section-main-e2w-road-4"
+          "sectionId": "section-main-e2w-road-0"
         },
         {
           "bandId": "band-main-median-road-4"
@@ -1710,7 +1710,7 @@
       "referenceSectionId": "section-side-1-n2s-road-0",
       "elements": [
         {
-          "sectionId": "section-side-1-s2n-road-0"
+          "sectionId": "section-side-1-s2n-road-2"
         },
         {
           "bandId": "band-side-1-median-road-0"
@@ -1725,7 +1725,7 @@
       "referenceSectionId": "section-side-1-n2s-road-2",
       "elements": [
         {
-          "sectionId": "section-side-1-s2n-road-2"
+          "sectionId": "section-side-1-s2n-road-0"
         },
         {
           "bandId": "band-side-1-median-road-2"
@@ -1740,7 +1740,7 @@
       "referenceSectionId": "section-side-2-n2s-road-0",
       "elements": [
         {
-          "sectionId": "section-side-2-s2n-road-0"
+          "sectionId": "section-side-2-s2n-road-2"
         },
         {
           "bandId": "band-side-2-median-road-0"
@@ -1755,7 +1755,7 @@
       "referenceSectionId": "section-side-2-n2s-road-2",
       "elements": [
         {
-          "sectionId": "section-side-2-s2n-road-2"
+          "sectionId": "section-side-2-s2n-road-0"
         },
         {
           "bandId": "band-side-2-median-road-2"
@@ -1801,10 +1801,10 @@
       ]
     },
     {
-      "id": "rule-main-e2w-bus-road-0-deny-motor-vehicle",
+      "id": "rule-main-e2w-bus-road-4-deny-motor-vehicle",
       "target": {
         "kind": "laneGroup",
-        "id": "group-main-e2w-bus-road-0"
+        "id": "group-main-e2w-bus-road-4"
       },
       "effect": "deny",
       "participantClassIds": [
@@ -1812,10 +1812,10 @@
       ]
     },
     {
-      "id": "rule-main-e2w-bus-road-0-allow-bus",
+      "id": "rule-main-e2w-bus-road-4-allow-bus",
       "target": {
         "kind": "laneGroup",
-        "id": "group-main-e2w-bus-road-0"
+        "id": "group-main-e2w-bus-road-4"
       },
       "effect": "allow",
       "participantClassIds": [
@@ -1823,10 +1823,10 @@
       ]
     },
     {
-      "id": "rule-main-e2w-bus-road-0-allow-car",
+      "id": "rule-main-e2w-bus-road-4-allow-car",
       "target": {
         "kind": "laneGroup",
-        "id": "group-main-e2w-bus-road-0"
+        "id": "group-main-e2w-bus-road-4"
       },
       "effect": "allow",
       "participantClassIds": [
@@ -1933,10 +1933,10 @@
       ]
     },
     {
-      "id": "rule-main-e2w-bus-road-4-deny-motor-vehicle",
+      "id": "rule-main-e2w-bus-road-0-deny-motor-vehicle",
       "target": {
         "kind": "laneGroup",
-        "id": "group-main-e2w-bus-road-4"
+        "id": "group-main-e2w-bus-road-0"
       },
       "effect": "deny",
       "participantClassIds": [
@@ -1944,10 +1944,10 @@
       ]
     },
     {
-      "id": "rule-main-e2w-bus-road-4-allow-bus",
+      "id": "rule-main-e2w-bus-road-0-allow-bus",
       "target": {
         "kind": "laneGroup",
-        "id": "group-main-e2w-bus-road-4"
+        "id": "group-main-e2w-bus-road-0"
       },
       "effect": "allow",
       "participantClassIds": [
@@ -1955,10 +1955,10 @@
       ]
     },
     {
-      "id": "rule-main-e2w-bus-road-4-allow-car",
+      "id": "rule-main-e2w-bus-road-0-allow-car",
       "target": {
         "kind": "laneGroup",
-        "id": "group-main-e2w-bus-road-4"
+        "id": "group-main-e2w-bus-road-0"
       },
       "effect": "allow",
       "participantClassIds": [
