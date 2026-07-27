@@ -1082,9 +1082,10 @@ fn access_capability_guards_are_structured_and_attributed() {
 
 #[test]
 fn time_window_minute_range_decoding_defers_to_capability_guard() {
-    // 分钟字段在 wire 层保留原始数值：负数、超 u32 范围、小数等 JSON 数值都必须
-    // 先抵达 capability guard（AccessCapabilityUnavailable），而不是在解码期被
-    // u32 范围检查以 JsonShape 抢先拒绝——guard 先于 phase 9 shape 检查。
+    // timeWindows 子树在 wire 层以 RawValue 不透明捕获：负数、超 u32 范围、
+    // 小数等 JSON 数值都必须先抵达 capability guard（AccessCapabilityUnavailable），
+    // 而不是在解码期被 shape/range 检查以 JsonShape 抢先拒绝——guard 先于
+    // phase 9 shape 检查（cross-section-access.md §10）。
     for (start, end) in [
         (serde_json::json!(-1), serde_json::json!(60)),
         (
@@ -1115,6 +1116,48 @@ fn time_window_minute_range_decoding_defers_to_capability_guard() {
                     && capability == "timeWindows"
         );
     }
+
+    // serde_json::Number 无法表示的极端字面量（1e400）与窗口内部结构错误
+    // （未知字段、缺字段、错误类型）同属 capability 内部细节，必须同样先抵达
+    // guard——用原始文本注入（json! 宏无法构造 1e400 这类字面量）。
+    let raw_windows = |time_windows: &str| {
+        let text = serde_json::to_string(&signals_value()).expect("fixture must serialize");
+        text.replace(
+            "\"accessRules\":[]",
+            &format!(
+                "\"accessRules\":[{{\"id\":\"rule-peak\",\"target\":{{\"kind\":\"laneEdge\",\"id\":\"entry\"}},\"effect\":\"deny\",\"participantClassIds\":[\"motorVehicle\"],\"timeWindows\":{time_windows}}}]"
+            ),
+        )
+    };
+    for time_windows in [
+        // 极端指数字面量：serde_json::Number 解码会溢出为 JsonShape。
+        "[{\"days\":[\"mon\"],\"startMinuteOfDay\":1e400,\"endMinuteOfDay\":540}]",
+        "[{\"days\":[\"mon\"],\"startMinuteOfDay\":420,\"endMinuteOfDay\":1e400}]",
+        // 窗口未知字段。
+        "[{\"days\":[\"mon\"],\"startMinuteOfDay\":420,\"endMinuteOfDay\":540,\"zone\":\"peak\"}]",
+        // 窗口缺 required 字段。
+        "[{\"days\":[\"mon\"],\"startMinuteOfDay\":420}]",
+        // 分钟字段错误类型。
+        "[{\"days\":[\"mon\"],\"startMinuteOfDay\":\"peak\",\"endMinuteOfDay\":540}]",
+    ] {
+        let text = raw_windows(time_windows);
+        std::assert_matches!(
+            into_core_domain(
+                from_json_str(&text).expect_err("gated timeWindows content must reach the guard")
+            ),
+            (path, CoreError::AccessCapabilityUnavailable { rule_id, capability })
+                if path == "accessRules[0].timeWindows"
+                    && rule_id == "rule-peak"
+                    && capability == "timeWindows"
+        );
+    }
+
+    // 字段自身的 JSON type 检查仍留在 wire：非数组 timeWindows 是 JsonShape。
+    let not_array = raw_windows("\"peak\"");
+    std::assert_matches!(
+        from_json_str(&not_array).expect_err("non-array timeWindows is a wire type error"),
+        DataError::JsonShape { .. }
+    );
 }
 
 #[test]

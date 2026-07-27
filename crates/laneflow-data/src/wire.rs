@@ -245,7 +245,7 @@ pub(crate) struct WireAccessRule {
     pub(crate) effect: WireAccessEffect,
     pub(crate) participant_class_ids: Vec<String>,
     #[serde(default, deserialize_with = "non_null_option")]
-    pub(crate) time_windows: Option<Vec<WireTimeWindow>>,
+    pub(crate) time_windows: Option<Vec<Box<serde_json::value::RawValue>>>,
     #[serde(default, deserialize_with = "non_null_option")]
     pub(crate) regulation: Option<WireRegulation>,
     #[serde(default, deserialize_with = "access_priority_lexeme")]
@@ -276,24 +276,14 @@ pub(crate) enum WireAccessEffect {
     Deny,
 }
 
-// timeWindows 字段只参与 closed-shape 校验：v1 capability guard 对声明
-// timeWindows 的规则一律拒绝载入，窗口内容不进入 Core，故字段保持未读。
-// 分钟字段保留原始数值（serde_json::Number）而非 u32：负数或超 u32 范围的
-// 值在语义上同样越界，但范围属于 phase 9 shape 检查，必须排在 capability
-// guard 之后（cross-section-access.md §10）——解码期范围检查会让
-// DataError::JsonShape 抢在 AccessCapabilityUnavailable 之前，使诊断依赖
-// 不被支持的窗口内容。任何 JSON 数值都能解码为 Number 并先抵达 guard。
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[allow(
-    dead_code,
-    reason = "timeWindows 内容只作 closed-shape 校验，capability guard 不读取"
-)]
-pub(crate) struct WireTimeWindow {
-    pub(crate) days: Vec<String>,
-    pub(crate) start_minute_of_day: serde_json::Number,
-    pub(crate) end_minute_of_day: serde_json::Number,
-}
+// timeWindows 是 v1 不可用 capability：wire 层只校验字段是数组（JSON type
+// 检查）并以 RawValue 不透明捕获元素，窗口内容（字段结构、分钟数值）一律不
+// 解码。capability guard 先于 shape（cross-section-access.md §10 phase 9：
+// 能力整体拒绝后其内部细节校验无意义），因此极端数值（1e400 这类
+// serde_json::Number 无法表示的字面量）、缺字段、未知字段、错误类型都必须先
+// 抵达 guard 得到 AccessCapabilityUnavailable，而不是在 DTO 解码期以
+// DataError::JsonShape 抢先。capability 未来可用时，窗口子树在 guard 之后的
+// phase 再做完整 shape/range 校验（空数组、days 空集、分钟越界等 §10 已规约）。
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
