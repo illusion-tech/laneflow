@@ -98,6 +98,9 @@ pub enum CoreError {
         profile_id: String,
         class_id: String,
     },
+    /// AccessRule 的 regulation provenance 字符串必须为 1 到 128 字符（与 schema 契约一致）。
+    #[error("regulation.{field} 必须为 1 到 128 字符，实际为 {len} 字符")]
+    InvalidAccessRegulationString { field: &'static str, len: usize },
     /// FacilityBand external ID 在 registry 内必须唯一。
     #[error("FacilityBand id 重复：{band_id}")]
     DuplicateFacilityBandId { band_id: String },

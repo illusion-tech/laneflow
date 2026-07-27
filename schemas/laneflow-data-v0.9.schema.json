@@ -384,6 +384,7 @@
         },
         "lanes": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "$ref": "#/$defs/sectionLane"
           }
@@ -399,6 +400,7 @@
       "properties": {
         "edgeIds": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "$ref": "#/$defs/externalId"
           }
@@ -441,6 +443,7 @@
         },
         "elements": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "$ref": "#/$defs/corridorElement"
           }
@@ -512,6 +515,7 @@
         },
         "timeWindows": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "$ref": "#/$defs/timeWindow"
           }

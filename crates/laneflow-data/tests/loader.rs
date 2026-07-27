@@ -1099,6 +1099,24 @@ fn access_rule_errors_use_narrowest_paths() {
         (path, CoreError::DuplicateAccessRuleId { rule_id })
             if path == "accessRules[1].id" && rule_id == "rule-1"
     );
+
+    // regulation 字段长度越界（loader 路径不执行 JSON Schema，由 Core 构造器拒绝）。
+    let mut empty_jurisdiction = signals_value();
+    empty_jurisdiction["accessRules"] = json!([{
+        "id": "rule-1",
+        "target": { "kind": "laneEdge", "id": "entry" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"],
+        "regulation": { "jurisdiction": "", "version": "2024" }
+    }]);
+    std::assert_matches!(
+        into_core_domain(
+            load_value(empty_jurisdiction).expect_err("empty regulation jurisdiction")
+        ),
+        (path, CoreError::InvalidAccessRegulationString { field, len })
+            if path == "accessRules[0].regulation.jurisdiction" && field == "jurisdiction"
+                && len == 0
+    );
 }
 
 #[test]

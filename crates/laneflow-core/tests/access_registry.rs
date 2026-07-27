@@ -448,6 +448,44 @@ fn capability_guard_orders_after_unknown_and_before_composition() {
 // ---------- phase 9.5：regulation provenance 单一性 ----------
 
 #[test]
+fn regulation_string_length_bounds_are_enforced() {
+    // 空串与超长串拒绝（与 schema 的 1..=128 字符契约一致，loader 路径不执行 JSON Schema）。
+    let long = "a".repeat(129);
+    let boundary = "a".repeat(128);
+    for (field, result) in [
+        ("jurisdiction", AccessRegulation::try_new("", "2026", None)),
+        (
+            "jurisdiction",
+            AccessRegulation::try_new(long.as_str(), "2026", None),
+        ),
+        ("version", AccessRegulation::try_new("CN", "", None)),
+        (
+            "version",
+            AccessRegulation::try_new("CN", long.as_str(), None),
+        ),
+        ("source", AccessRegulation::try_new("CN", "2026", Some(""))),
+        (
+            "source",
+            AccessRegulation::try_new("CN", "2026", Some(long.as_str())),
+        ),
+    ] {
+        std::assert_matches!(
+            result,
+            Err(CoreError::InvalidAccessRegulationString { field: actual, .. })
+                if actual == field
+        );
+    }
+    // 边界值 1 与 128 字符合法。
+    AccessRegulation::try_new("C", "2", Some("s")).expect("single-char fields must pass");
+    AccessRegulation::try_new(
+        boundary.as_str(),
+        boundary.as_str(),
+        Some(boundary.as_str()),
+    )
+    .expect("128-char fields must pass");
+}
+
+#[test]
 fn regulation_provenance_must_be_uniform() {
     // (jurisdiction, version) 混合 → 拒绝。
     let error = AccessRegistry::try_new(
@@ -462,14 +500,14 @@ fn regulation_provenance_must_be_uniform() {
                 AccessEffect::Deny,
                 ["car"],
             )
-            .with_regulation(AccessRegulation::new("CN", "2026", Some("src-a"))),
+            .with_regulation(AccessRegulation::try_new("CN", "2026", Some("src-a")).unwrap()),
             AccessRule::new(
                 "rule-2",
                 AccessTargetId::lane_edge("e2"),
                 AccessEffect::Deny,
                 ["car"],
             )
-            .with_regulation(AccessRegulation::new("CN", "2027", None)),
+            .with_regulation(AccessRegulation::try_new("CN", "2027", None).unwrap()),
         ],
     )
     .expect_err("mixed regulation provenance must fail");
@@ -495,14 +533,14 @@ fn regulation_provenance_must_be_uniform() {
             AccessEffect::Deny,
             ["car"],
         )
-        .with_regulation(AccessRegulation::new("CN", "2026", Some("src-a"))),
+        .with_regulation(AccessRegulation::try_new("CN", "2026", Some("src-a")).unwrap()),
         AccessRule::new(
             "rule-2",
             AccessTargetId::lane_edge("e2"),
             AccessEffect::Deny,
             ["car"],
         )
-        .with_regulation(AccessRegulation::new("CN", "2026", Some("src-b"))),
+        .with_regulation(AccessRegulation::try_new("CN", "2026", Some("src-b")).unwrap()),
         AccessRule::new(
             "rule-3",
             AccessTargetId::lane_edge("e3"),
