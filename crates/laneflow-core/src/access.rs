@@ -2,7 +2,8 @@
 //!
 //! 两个求值平面（edge / path）互不展平；组合裁决（参与者 specificity >
 //! target specificity > priority）在 normalization 期完全消解为
-//! `(edge, class)` 与 `(path, class)` 的 dense resolved 表，绑定期只做 O(1) 查表。
+//! `(edge, class)` 与 `(path, class)` resolved 表（稀疏行物化，见
+//! [`AccessPlane`]），绑定期只做 O(1) 查表。
 
 use indexmap::IndexMap;
 
@@ -326,17 +327,52 @@ struct ResolvedAccessRule {
     classes: Vec<ParticipantClassHandle>,
 }
 
+/// 单平面 resolved 表：只为有适用规则的单元物化 class 行。
+///
+/// 无约束单元在 `row_starts` 中标记哨兵、不占 `cells` 存储也不参与
+/// normalization 的 (unit, class) 双重循环：内存与初始化时间以
+/// O(受约束单元 × classes) 为界，而非全量 units × classes 笛卡尔积
+/// （loader 输入不可信，全量物化会让空规则包也分配 units × classes 个
+/// cell）。cell 总数经 checked 乘法 + `validate_capacity` 约束在 u32 范围，
+/// 与全部静态域的 handle capacity 同口径。
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AccessPlane {
+    /// unit index → 行起始 cell index；`UNCONSTRAINED_ROW` 表示无约束单元。
+    row_starts: Vec<u32>,
+    /// 按 (constrained unit, class) 行优先排列的裁决结果。
+    cells: Vec<AccessCell>,
+}
+
+impl AccessPlane {
+    /// 无约束单元的 `row_starts` 哨兵（合法行起点恒小于 cell 总数 ≤ u32::MAX，
+    /// 不会与哨兵冲突）。
+    const UNCONSTRAINED_ROW: u32 = u32::MAX;
+
+    fn cell(&self, unit_index: usize, class_index: usize) -> AccessCell {
+        let Some(&row_start) = self.row_starts.get(unit_index) else {
+            return AccessCell::Unconstrained;
+        };
+        if row_start == Self::UNCONSTRAINED_ROW {
+            return AccessCell::Unconstrained;
+        }
+        self.cells
+            .get(row_start as usize + class_index)
+            .copied()
+            .unwrap_or(AccessCell::Unconstrained)
+    }
+}
+
 /// AccessRule immutable normalized registry（SSOT §6/§7）。
 ///
-/// 两个平面的组合裁决在 normalization 期完全消解：edge 平面为
-/// `edges.len() × class_count` 行优先 dense 表，path 平面为
-/// `paths × class_count` 行优先 dense 表；查询 O(1)。
+/// 两个平面的组合裁决在 normalization 期完全消解为 `(edge, class)` 与
+/// `(path, class)` resolved 表；查询 O(1)。表按稀疏行物化：只有受规则约束的
+/// 单元占 class 行存储，无约束单元经哨兵解析（见 [`AccessPlane`]）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccessRegistry {
     rules: Vec<ResolvedAccessRule>,
     rule_handles: IndexMap<String, AccessRuleHandle>,
-    edge_cells: Vec<AccessCell>,
-    path_cells: Vec<AccessCell>,
+    edge_plane: AccessPlane,
+    path_plane: AccessPlane,
     class_count: usize,
 }
 
@@ -357,7 +393,7 @@ impl AccessRegistry {
     /// 6. regulation provenance 单一性（同一 `(jurisdiction, version)`）；
     /// 7. §6.4 确定性组合裁决（残留 allow/deny 并列拒绝载入）。
     ///
-    /// phase 10：构造 dense resolved 表。空 rules 合法（全部 `Unconstrained`）。
+    /// phase 10：构造 resolved 表（稀疏行物化）。空 rules 合法（全部 `Unconstrained`）。
     pub fn try_new(
         lane_graph: &LaneGraph,
         junctions: &JunctionRegistry,
@@ -536,7 +572,7 @@ impl AccessRegistry {
             }
         }
 
-        let edge_cells = resolve_cells(
+        let edge_plane = resolve_cells(
             &rules,
             &resolved_targets,
             &resolved_classes,
@@ -546,6 +582,7 @@ impl AccessRegistry {
             (0..edge_count).map(EdgeHandle::new),
             &edge_rule_indices,
             "edge",
+            "accessEdgeCells",
             |edge| {
                 lane_graph
                     .edge_external_id(edge)
@@ -553,7 +590,7 @@ impl AccessRegistry {
                     .to_owned()
             },
         )?;
-        let path_cells = resolve_cells(
+        let path_plane = resolve_cells(
             &rules,
             &resolved_targets,
             &resolved_classes,
@@ -563,6 +600,7 @@ impl AccessRegistry {
             (0..path_count).map(ManeuverPathHandle::new),
             &path_rule_indices,
             "path",
+            "accessPathCells",
             |path| {
                 junctions
                     .maneuver_path_external_id(path)
@@ -585,8 +623,8 @@ impl AccessRegistry {
         Ok(Self {
             rules,
             rule_handles,
-            edge_cells,
-            path_cells,
+            edge_plane,
+            path_plane,
             class_count,
         })
     }
@@ -596,8 +634,14 @@ impl AccessRegistry {
         Self {
             rules: Vec::new(),
             rule_handles: IndexMap::new(),
-            edge_cells: Vec::new(),
-            path_cells: Vec::new(),
+            edge_plane: AccessPlane {
+                row_starts: Vec::new(),
+                cells: Vec::new(),
+            },
+            path_plane: AccessPlane {
+                row_starts: Vec::new(),
+                cells: Vec::new(),
+            },
             class_count: 0,
         }
     }
@@ -659,7 +703,7 @@ impl AccessRegistry {
     /// 任一 handle 不属于本 registry 对应的 LaneGraph/ParticipantClassRegistry
     /// 时返回 `Unconstrained`。
     pub fn edge_access(&self, edge: EdgeHandle, class: ParticipantClassHandle) -> AccessCell {
-        self.cell(&self.edge_cells, edge.index(), class)
+        self.cell(&self.edge_plane, edge.index(), class)
     }
 
     /// 返回 `(path, class)` 的 normalization 裁决结果（O(1) 查表）。
@@ -671,28 +715,19 @@ impl AccessRegistry {
         path: ManeuverPathHandle,
         class: ParticipantClassHandle,
     ) -> AccessCell {
-        self.cell(&self.path_cells, path.index(), class)
+        self.cell(&self.path_plane, path.index(), class)
     }
 
     fn cell(
         &self,
-        cells: &[AccessCell],
+        plane: &AccessPlane,
         unit_index: usize,
         class: ParticipantClassHandle,
     ) -> AccessCell {
         if class.index() >= self.class_count {
             return AccessCell::Unconstrained;
         }
-        let Some(cell_index) = unit_index
-            .checked_mul(self.class_count)
-            .and_then(|row| row.checked_add(class.index()))
-        else {
-            return AccessCell::Unconstrained;
-        };
-        cells
-            .get(cell_index)
-            .copied()
-            .unwrap_or(AccessCell::Unconstrained)
+        plane.cell(unit_index, class.index())
     }
 
     #[cfg(test)]
@@ -700,8 +735,8 @@ impl AccessRegistry {
         let Self {
             rules,
             rule_handles,
-            edge_cells,
-            path_cells,
+            edge_plane,
+            path_plane,
             class_count: _,
         } = self;
 
@@ -737,8 +772,13 @@ impl AccessRegistry {
         let resolver_bytes = rule_handles.capacity()
             * std::mem::size_of::<(String, AccessRuleHandle)>()
             + rule_handles.keys().map(String::capacity).sum::<usize>();
-        let cell_bytes = edge_cells.capacity() * std::mem::size_of::<AccessCell>()
-            + path_cells.capacity() * std::mem::size_of::<AccessCell>();
+        let cell_bytes = [edge_plane, path_plane]
+            .into_iter()
+            .map(|plane| {
+                plane.row_starts.capacity() * std::mem::size_of::<u32>()
+                    + plane.cells.capacity() * std::mem::size_of::<AccessCell>()
+            })
+            .sum::<usize>();
 
         rule_bytes + resolver_bytes + cell_bytes
     }
@@ -832,14 +872,40 @@ fn resolve_cells<H>(
     units: impl Iterator<Item = H>,
     unit_rule_indices: &[Vec<usize>],
     plane: &'static str,
+    capacity_domain: &'static str,
     unit_external_id: impl Fn(H) -> String,
-) -> Result<Vec<AccessCell>, CoreError>
+) -> Result<AccessPlane, CoreError>
 where
     H: Copy,
 {
-    let mut cells = vec![AccessCell::Unconstrained; unit_rule_indices.len() * class_count];
+    // 只为有适用规则的单元物化 class 行（AccessPlane 文档）：cell 总数经
+    // checked 乘法 + validate_capacity 约束在 u32 范围，不可信输入无法让
+    // 分配量或初始化时间随 units × classes 全量笛卡尔积爆炸。
+    let constrained_count = unit_rule_indices
+        .iter()
+        .filter(|indices| !indices.is_empty())
+        .count();
+    let cell_count = constrained_count.checked_mul(class_count).ok_or(
+        CoreError::StaticDomainCapacityExceeded {
+            domain: capacity_domain,
+            count: usize::MAX,
+            max_inclusive: u32::MAX,
+        },
+    )?;
+    validate_capacity(capacity_domain, cell_count)?;
+
+    let mut row_starts = vec![AccessPlane::UNCONSTRAINED_ROW; unit_rule_indices.len()];
+    let mut cells = vec![AccessCell::Unconstrained; cell_count];
     let mut contenders: Vec<usize> = Vec::new();
+    let mut next_row_start: usize = 0;
     for (unit_index, unit) in units.enumerate() {
+        if unit_rule_indices[unit_index].is_empty() {
+            continue;
+        }
+        let row_start = next_row_start;
+        next_row_start += class_count;
+        row_starts[unit_index] =
+            u32::try_from(row_start).expect("cell_count 已经 validate_capacity 约束在 u32 范围");
         for class_index in 0..class_count {
             let profile_class = ParticipantClassHandle::new(class_index);
             // 第一遍：计算每条适用规则的 (depth, target specificity, priority)
@@ -896,14 +962,14 @@ where
                     });
                 }
                 // 同 effect 并列合法：保留先声明者作为归因。
-                cells[unit_index * class_count + class_index] = AccessCell::Decided {
+                cells[row_start + class_index] = AccessCell::Decided {
                     rule: AccessRuleHandle::new(first),
                     effect,
                 };
             }
         }
     }
-    Ok(cells)
+    Ok(AccessPlane { row_starts, cells })
 }
 
 #[cfg(test)]
@@ -975,5 +1041,97 @@ mod tests {
 
         assert_eq!(empty.retained_bytes(), 0);
         assert!(registry.retained_bytes() > 0);
+    }
+
+    #[test]
+    fn resolved_tables_materialize_only_constrained_rows() {
+        let graph = LaneGraph::try_new([
+            LaneEdge::new(
+                "edge-1",
+                EdgeLength::try_new(10.0).expect("test edge length"),
+                SpeedLimit::try_new(10.0).expect("test speed limit"),
+                Vec::<String>::new(),
+            ),
+            LaneEdge::new(
+                "edge-2",
+                EdgeLength::try_new(10.0).expect("test edge length"),
+                SpeedLimit::try_new(10.0).expect("test speed limit"),
+                Vec::<String>::new(),
+            ),
+        ])
+        .expect("test graph");
+        let junctions = JunctionRegistry::empty();
+        let cross_section = CrossSectionRegistry::try_new(
+            &graph,
+            Vec::<FacilityBand>::new(),
+            Vec::<RoadSection>::new(),
+            Vec::<LaneGroup>::new(),
+            Vec::<RoadCorridor>::new(),
+        )
+        .expect("empty cross-section is valid");
+        let classes =
+            ParticipantClassRegistry::try_new(vec![ParticipantClass::new("motorVehicle", None)])
+                .expect("test classes");
+        let registry = AccessRegistry::try_new(
+            &graph,
+            &junctions,
+            &cross_section,
+            &classes,
+            vec![AccessRule::new(
+                "rule-1",
+                AccessTargetId::lane_edge("edge-1"),
+                AccessEffect::Deny,
+                ["motorVehicle"],
+            )],
+        )
+        .expect("valid access registry");
+
+        // 只有 edge-1 受约束：cells 恰物化一行，edge-2 经哨兵解析，不占存储。
+        assert_eq!(registry.edge_plane.cells.len(), 1);
+        assert_eq!(
+            registry.edge_plane.row_starts,
+            vec![0, AccessPlane::UNCONSTRAINED_ROW]
+        );
+        let class = classes.class_handle("motorVehicle").expect("test class");
+        assert!(matches!(
+            registry.edge_access(EdgeHandle::new(0), class),
+            AccessCell::Decided {
+                effect: AccessEffect::Deny,
+                ..
+            }
+        ));
+        assert!(matches!(
+            registry.edge_access(EdgeHandle::new(1), class),
+            AccessCell::Unconstrained
+        ));
+    }
+
+    #[test]
+    fn resolved_table_capacity_is_validated_before_allocation() {
+        // constrained × classes 超 u32 范围必须按静态域容量拒绝（checked 乘法 +
+        // validate_capacity），而不是分配失败 abort；两个非空单元即触发，
+        // 无需真实构造超大 graph/class registry。
+        let unit_rule_indices = vec![vec![0], vec![0]];
+        let error = resolve_cells(
+            &[],
+            &[],
+            &[],
+            &[],
+            &ParticipantClassRegistry::empty(),
+            (u32::MAX as usize) / 2 + 1,
+            (0..2).map(EdgeHandle::new),
+            &unit_rule_indices,
+            "edge",
+            "accessEdgeCells",
+            |_| "unit".to_owned(),
+        )
+        .expect_err("units × classes 超 u32 范围必须按容量拒绝");
+        assert!(matches!(
+            error,
+            CoreError::StaticDomainCapacityExceeded {
+                domain: "accessEdgeCells",
+                ..
+            }
+        ));
     }
 }
