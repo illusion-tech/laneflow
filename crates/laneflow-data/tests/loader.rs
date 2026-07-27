@@ -1231,6 +1231,19 @@ fn priority_range_decoding_defers_to_capability_guard() {
         (path, CoreError::InvalidAccessRulePriority { priority })
             if path == "accessRules[0].priority" && priority == "1.00000000000000001"
     );
+
+    // 极端指数：i64::MAX 正指数与 i64::MIN 负指数都曾让十进制移位运算溢出
+    // panic；两者都必非 i32 整数，必须按值归因拒绝而不是崩溃。
+    for extreme in ["1e9223372036854775807", "1e-9223372036854775808"] {
+        let text = raw_rules(extreme, "");
+        std::assert_matches!(
+            into_core_domain(
+                from_json_str(&text).expect_err("extreme-exponent priority must be rejected")
+            ),
+            (path, CoreError::InvalidAccessRulePriority { priority })
+                if path == "accessRules[0].priority" && priority == extreme
+        );
+    }
 }
 
 #[test]

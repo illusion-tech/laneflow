@@ -786,7 +786,9 @@ fn exact_integer_lexeme(literal: &str) -> Option<i128> {
     let shift = exponent.checked_sub(fraction_len)?;
     let canonical = if shift >= 0 {
         // 整数值 = digits * 10^shift。i128 至多 39 位十进制数字，超长必越界。
-        if digits.len() as i64 + shift > 39 {
+        // 输入是不可信 JSON：极端正指数（如 `1e9223372036854775807`）先按上界
+        // 拒绝，之后 shift ∈ [0, 39]，usize 转换与加法均不可能溢出。
+        if shift > 39 || digits.len() + shift as usize > 39 {
             return None;
         }
         let mut canonical = digits;
@@ -794,7 +796,11 @@ fn exact_integer_lexeme(literal: &str) -> Option<i128> {
         canonical
     } else {
         // 精确为整数当且仅当被小数点截去的 -shift 位全为 0。
-        let keep = digits.len().checked_sub((-shift) as usize)?;
+        // `i64::MIN` 取负会溢出；那种量级的负指数本就不可能精确为整数，
+        // checked_neg/try_from 失败即按 None 拒绝，保持函数对任意输入全无 panic。
+        let keep = digits
+            .len()
+            .checked_sub(usize::try_from(shift.checked_neg()?).ok()?)?;
         if digits[keep..].bytes().any(|digit| digit != b'0') {
             return None;
         }
