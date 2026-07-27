@@ -836,6 +836,145 @@ fn exact_integer_lexeme(literal: &str) -> Option<i128> {
     Some(if negative { -magnitude } else { magnitude })
 }
 
+/// 单 class 的 §6.4 裁决中间态（可结合、可交换的半群）：max key 与两类
+/// effect 各自的最小 rule index。合并 = key 取大、同 key 按 effect 取最小
+/// index——与按声明序对合并候选集做顺序扫描的语义严格一致（首错配对：
+/// first = 最小 index 胜者、opposite = 另一 effect 的最小 index；并列归因
+/// 保留先声明者）。因此 section/group 级裁决可预计算一次，再按 lane
+/// context 与 edge 直接规则逐级合并，共享规则列表无需逐 context 重扫重存。
+#[derive(Clone, Copy, Debug)]
+struct ClassVerdict {
+    key: (u32, u8, i32),
+    min_allow: Option<usize>,
+    min_deny: Option<usize>,
+}
+
+impl ClassVerdict {
+    fn new(rule_index: usize, key: (u32, u8, i32), effect: AccessEffect) -> Self {
+        let (min_allow, min_deny) = match effect {
+            AccessEffect::Allow => (Some(rule_index), None),
+            AccessEffect::Deny => (None, Some(rule_index)),
+        };
+        Self {
+            key,
+            min_allow,
+            min_deny,
+        }
+    }
+
+    fn merge(self, other: Self) -> Self {
+        if other.key > self.key {
+            return other;
+        }
+        if other.key < self.key {
+            return self;
+        }
+        Self {
+            key: self.key,
+            min_allow: opt_min(self.min_allow, other.min_allow),
+            min_deny: opt_min(self.min_deny, other.min_deny),
+        }
+    }
+}
+
+fn opt_min(a: Option<usize>, b: Option<usize>) -> Option<usize> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.min(y)),
+        (x, y) => x.or(y),
+    }
+}
+
+/// 把一组候选规则按 class 折叠进 verdict 向量（len = class_count）。
+/// 字典序 key：①参与者 specificity（使匹配成功的最深 class 深度）②target
+/// specificity（仅 edge 平面）③priority 数值高者。
+#[expect(
+    clippy::too_many_arguments,
+    reason = "normalization 期一次性裁决需要全部上下文"
+)]
+fn fold_rules_into(
+    verdicts: &mut [Option<ClassVerdict>],
+    rule_indices: &[usize],
+    rules: &[AccessRule],
+    resolved_targets: &[ResolvedAccessTarget],
+    resolved_classes: &[Vec<ParticipantClassHandle>],
+    resolved_priorities: &[i32],
+    classes: &ParticipantClassRegistry,
+) {
+    for (class_index, slot) in verdicts.iter_mut().enumerate() {
+        let profile_class = ParticipantClassHandle::new(class_index);
+        for &rule_index in rule_indices {
+            // 参与者匹配：profile class 是规则任一 participantClassIds 成员的
+            // 传递后代或自身；specificity 取使匹配成功的最深 class 深度。
+            let mut depth: Option<u32> = None;
+            for class_handle in &resolved_classes[rule_index] {
+                if classes.is_descendant_or_self(profile_class, *class_handle) {
+                    let class_depth = classes
+                        .depth(*class_handle)
+                        .expect("resolved class must have depth");
+                    depth = Some(depth.map_or(class_depth, |best| best.max(class_depth)));
+                }
+            }
+            let Some(depth) = depth else {
+                continue;
+            };
+            let key = (
+                depth,
+                resolved_targets[rule_index].target_specificity(),
+                resolved_priorities[rule_index],
+            );
+            let verdict = ClassVerdict::new(rule_index, key, rules[rule_index].effect());
+            *slot = Some(match *slot {
+                Some(existing) => existing.merge(verdict),
+                None => verdict,
+            });
+        }
+    }
+}
+
+/// 把一行 verdict 转换为 cells：两类 effect 的最小 index 同时存在即
+/// `CoreError::AccessRuleAmbiguity`（首错配对与顺序扫描一致）；单一 effect
+/// 取最小 index 规则（同 effect 并列保留先声明者）；None 即 `Unconstrained`。
+fn row_from_verdicts(
+    verdicts: &[Option<ClassVerdict>],
+    rules: &[AccessRule],
+    classes: &ParticipantClassRegistry,
+    plane: &'static str,
+    unit_external_id: impl Fn() -> String,
+    cells_row: &mut [AccessCell],
+) -> Result<(), CoreError> {
+    for (class_index, (cell, verdict)) in cells_row.iter_mut().zip(verdicts).enumerate() {
+        let Some(verdict) = *verdict else {
+            continue;
+        };
+        if let (Some(allow), Some(deny)) = (verdict.min_allow, verdict.min_deny) {
+            let (first, opposite) = if allow < deny {
+                (allow, deny)
+            } else {
+                (deny, allow)
+            };
+            return Err(CoreError::AccessRuleAmbiguity {
+                plane,
+                target_id: unit_external_id(),
+                class_id: classes
+                    .class_external_id(ParticipantClassHandle::new(class_index))
+                    .expect("class index must belong to class registry")
+                    .to_owned(),
+                first_rule_id: rules[first].id().to_owned(),
+                second_rule_id: rules[opposite].id().to_owned(),
+            });
+        }
+        let winner = verdict
+            .min_allow
+            .or(verdict.min_deny)
+            .expect("verdict 必有最小 index 规则");
+        *cell = AccessCell::Decided {
+            rule: AccessRuleHandle::new(winner),
+            effect: rules[winner].effect(),
+        };
+    }
+    Ok(())
+}
+
 /// 对一个平面逐单元做 §6.4 裁决并填充稀疏行 resolved 表（path 平面：
 /// target 与单元一一对应，单元候选规则集互不相同，无需签名去重）。
 ///
@@ -877,7 +1016,7 @@ where
 
     let mut row_starts = vec![AccessPlane::UNCONSTRAINED_ROW; unit_rule_indices.len()];
     let mut cells = vec![AccessCell::Unconstrained; cell_count];
-    let mut contenders: Vec<usize> = Vec::new();
+    let mut verdicts: Vec<Option<ClassVerdict>> = vec![None; class_count];
     let mut next_row_start: usize = 0;
     for (unit_index, unit) in units.enumerate() {
         if unit_rule_indices[unit_index].is_empty() {
@@ -887,28 +1026,35 @@ where
         next_row_start += class_count;
         row_starts[unit_index] =
             u32::try_from(row_start).expect("cell_count 已经 validate_capacity 约束在 u32 范围");
-        resolve_unit_row(
+        verdicts.fill(None);
+        fold_rules_into(
+            &mut verdicts,
+            &unit_rule_indices[unit_index],
             rules,
             resolved_targets,
             resolved_classes,
             resolved_priorities,
             classes,
-            &unit_rule_indices[unit_index],
+        );
+        row_from_verdicts(
+            &verdicts,
+            rules,
+            classes,
             plane,
             || unit_external_id(unit),
             &mut cells[row_start..row_start + class_count],
-            &mut contenders,
         )?;
     }
     Ok(AccessPlane { row_starts, cells })
 }
 
 /// edge 平面 resolved 表构造：候选规则 = laneEdge 直接规则 + 继承规则（所属
-/// section 规则 + 所属 lane 的 group 规则）。继承集按 lane context 只物化一次
-/// （同 section 同 group 组合的 lane 共享，lane 内全部 edge 共享），edge 局部
-/// 只应用直接规则 delta——不逐 edge 重建合并列表（那样 normalization 时间与
-/// 签名存储都是 Θ(edges × 继承规则数)）。行按 (context, 直接规则) 签名去重
-/// 共享，中间存储 O(rules + edges + group 成员数 + distinct context 规则数)。
+/// section 规则 + 所属 lane 的 group 规则）。裁决用 [`ClassVerdict`] 半群
+/// 分层进行：section/group 级 verdict 每个有规则的 target 只算一次，lane
+/// context 逐 class 合并这些 verdict（不复制、不重扫共享规则列表），edge
+/// 局部再 fold 直接规则 delta。行按 (context, 直接规则) 签名去重共享。
+/// 时间/存储 O((rules + memberships + distinct contexts + 直接规则) ×
+/// classes + edges)，不会随 单元数 × 共享规则数 平方增长。
 #[expect(
     clippy::too_many_arguments,
     reason = "normalization 期一次性裁决需要全部上下文"
@@ -947,27 +1093,71 @@ fn resolve_edge_cells(
         }
     }
 
-    // 继承 context 两级缓存：(section, lane) → context；(section, group 组合)
-    // → context（同构 lane 共享）。context 规则列表排序后每 distinct context
-    // 只存一份；无继承规则的 lane 记 None（与无成员关系的 edge 同签名）。
+    // section/group 级 verdict 预计算：每个有规则的 target 只算一次，跨
+    // lane/context 共享。分配前先按 (有规则的 section + group) × classes
+    // 做容量校验（每个这样的 target 至少产出一个 context/行，最终行容量
+    // 校验会再次覆盖）。
+    let section_target_count = section_target_rules
+        .iter()
+        .filter(|indices| !indices.is_empty())
+        .count();
+    let group_target_count = group_target_rules
+        .iter()
+        .filter(|indices| !indices.is_empty())
+        .count();
+    let verdict_count = section_target_count
+        .checked_add(group_target_count)
+        .and_then(|count| count.checked_mul(class_count))
+        .ok_or(CoreError::StaticDomainCapacityExceeded {
+            domain: "accessEdgeCells",
+            count: usize::MAX,
+            max_inclusive: u32::MAX,
+        })?;
+    validate_capacity("accessEdgeCells", verdict_count)?;
+    let build_verdicts = |rule_indices: &[usize]| -> Option<Vec<Option<ClassVerdict>>> {
+        (!rule_indices.is_empty()).then(|| {
+            let mut verdicts = vec![None; class_count];
+            fold_rules_into(
+                &mut verdicts,
+                rule_indices,
+                rules,
+                resolved_targets,
+                resolved_classes,
+                resolved_priorities,
+                classes,
+            );
+            verdicts
+        })
+    };
+    let section_verdicts: Vec<Option<Vec<Option<ClassVerdict>>>> = section_target_rules
+        .iter()
+        .map(|r| build_verdicts(r))
+        .collect();
+    let group_verdicts: Vec<Option<Vec<Option<ClassVerdict>>>> = group_target_rules
+        .iter()
+        .map(|r| build_verdicts(r))
+        .collect();
+
+    // lane context 两级缓存：(section, lane) → context；(section, group 组合)
+    // → context（同构 lane 共享合并 verdict）。无继承规则的 lane 记 None
+    // （与无成员关系的 edge 同签名）。
     let mut lane_contexts: IndexMap<(usize, usize), Option<u32>> = IndexMap::new();
     let mut context_keys: IndexMap<(usize, Box<[usize]>), u32> = IndexMap::new();
-    let mut context_rules: Vec<Box<[usize]>> = Vec::new();
+    let mut context_verdicts: Vec<Vec<Option<ClassVerdict>>> = Vec::new();
     // (context, edge 直接规则) 签名 → 行起点；空直接规则的 Box 不分配堆内存。
     let mut signature_rows: IndexMap<(Option<u32>, Box<[usize]>), u32> = IndexMap::new();
-    let mut candidates: Vec<usize> = Vec::new();
     let mut row_starts: Vec<u32> = Vec::with_capacity(edge_count);
     let mut cells: Vec<AccessCell> = Vec::new();
-    let mut contenders: Vec<usize> = Vec::new();
     for edge_index in 0..edge_count {
         let direct = &edge_target_rules[edge_index];
         let context_id = match cross_section.edge_lane_membership(EdgeHandle::new(edge_index)) {
             Some((section, lane_index)) => *lane_contexts
                 .entry((section.index(), lane_index))
                 .or_insert_with(|| {
-                    let section_rules = &section_target_rules[section.index()];
                     let groups = lane_groups.get(&(section.index(), lane_index));
-                    if section_rules.is_empty() && groups.is_none_or(Vec::is_empty) {
+                    if section_verdicts[section.index()].is_none()
+                        && groups.is_none_or(Vec::is_empty)
+                    {
                         return None;
                     }
                     let key = (
@@ -977,16 +1167,28 @@ fn resolve_edge_cells(
                     if let Some(&id) = context_keys.get(&key) {
                         return Some(id);
                     }
-                    let mut inherited = section_rules.clone();
+                    // section verdict ⊕ 各 group verdict（半群逐 class 合并）。
+                    let mut merged: Vec<Option<ClassVerdict>> =
+                        match &section_verdicts[section.index()] {
+                            Some(verdicts) => verdicts.clone(),
+                            None => vec![None; class_count],
+                        };
                     if let Some(groups) = groups {
                         for &group_index in groups {
-                            inherited.extend_from_slice(&group_target_rules[group_index]);
+                            if let Some(group_verdict) = &group_verdicts[group_index] {
+                                for (slot, &delta) in merged.iter_mut().zip(group_verdict) {
+                                    *slot = match (*slot, delta) {
+                                        (Some(base), Some(delta)) => Some(base.merge(delta)),
+                                        (None, delta) => delta,
+                                        (base, None) => base,
+                                    };
+                                }
+                            }
                         }
                     }
-                    inherited.sort_unstable();
-                    let id = u32::try_from(context_rules.len())
+                    let id = u32::try_from(context_verdicts.len())
                         .expect("context 数量不超过 lane 总数，已在 u32 范围");
-                    context_rules.push(inherited.into_boxed_slice());
+                    context_verdicts.push(merged);
                     context_keys.insert(key, id);
                     Some(id)
                 }),
@@ -1012,122 +1214,47 @@ fn resolve_edge_cells(
         )?;
         validate_capacity("accessEdgeCells", cell_count)?;
         cells.resize(row_start + class_count, AccessCell::Unconstrained);
-        // 继承集与直接规则各自按声明序有序，合并后排序即全局声明序
-        // （并列归因保持先声明者）。
-        candidates.clear();
-        if let Some(context) = context_id {
-            candidates.extend_from_slice(&context_rules[context as usize]);
+        if direct.is_empty() {
+            let Some(context) = context_id else {
+                unreachable!("无直接规则且无继承 context 的 edge 已被哨兵短路")
+            };
+            row_from_verdicts(
+                &context_verdicts[context as usize],
+                rules,
+                classes,
+                "edge",
+                || edge_external_id(EdgeHandle::new(edge_index)),
+                &mut cells[row_start..row_start + class_count],
+            )?;
+        } else {
+            let mut merged: Vec<Option<ClassVerdict>> = match context_id {
+                Some(context) => context_verdicts[context as usize].clone(),
+                None => vec![None; class_count],
+            };
+            fold_rules_into(
+                &mut merged,
+                direct,
+                rules,
+                resolved_targets,
+                resolved_classes,
+                resolved_priorities,
+                classes,
+            );
+            row_from_verdicts(
+                &merged,
+                rules,
+                classes,
+                "edge",
+                || edge_external_id(EdgeHandle::new(edge_index)),
+                &mut cells[row_start..row_start + class_count],
+            )?;
         }
-        candidates.extend_from_slice(direct);
-        candidates.sort_unstable();
-        resolve_unit_row(
-            rules,
-            resolved_targets,
-            resolved_classes,
-            resolved_priorities,
-            classes,
-            &candidates,
-            "edge",
-            || edge_external_id(EdgeHandle::new(edge_index)),
-            &mut cells[row_start..row_start + class_count],
-            &mut contenders,
-        )?;
         let row_start =
             u32::try_from(row_start).expect("cell_count 已经 validate_capacity 约束在 u32 范围");
         signature_rows.insert(signature, row_start);
         row_starts.push(row_start);
     }
     Ok(AccessPlane { row_starts, cells })
-}
-
-/// 对单个单元的候选规则集合按 §6.4 字典序裁决每个 class 的胜者并填充
-/// `cells_row`（len = class_count）。
-///
-/// 字典序：①参与者 specificity（使匹配成功的最深 class 深度）②target
-/// specificity（仅 edge 平面）③priority 数值高者。裁决先求最大 key 的
-/// contenders 集合：低 key 规则之间的 allow/deny 并列不构成歧义（它们已被
-/// 更高 key 的规则整体击败）；只有最大 key contenders 内部仍 effect 混合才
-/// 返回 `CoreError::AccessRuleAmbiguity`。同 effect 并列合法，保留 input
-/// order 先声明者作为归因。结果不随输入排列漂移。
-#[expect(
-    clippy::too_many_arguments,
-    reason = "normalization 期一次性裁决需要全部上下文"
-)]
-fn resolve_unit_row(
-    rules: &[AccessRule],
-    resolved_targets: &[ResolvedAccessTarget],
-    resolved_classes: &[Vec<ParticipantClassHandle>],
-    resolved_priorities: &[i32],
-    classes: &ParticipantClassRegistry,
-    candidate_rules: &[usize],
-    plane: &'static str,
-    unit_external_id: impl Fn() -> String,
-    cells_row: &mut [AccessCell],
-    contenders: &mut Vec<usize>,
-) -> Result<(), CoreError> {
-    for (class_index, cell) in cells_row.iter_mut().enumerate() {
-        let profile_class = ParticipantClassHandle::new(class_index);
-        // 第一遍：计算每条适用规则的 (depth, target specificity, priority)
-        // key，收集最大 key 的 contenders（保持 input order）。
-        let mut best_key: Option<(u32, u8, i32)> = None;
-        contenders.clear();
-        for &rule_index in candidate_rules {
-            // 参与者匹配：profile class 是规则任一 participantClassIds 成员的
-            // 传递后代或自身；specificity 取使匹配成功的最深 class 深度。
-            let mut depth: Option<u32> = None;
-            for class_handle in &resolved_classes[rule_index] {
-                if classes.is_descendant_or_self(profile_class, *class_handle) {
-                    let class_depth = classes
-                        .depth(*class_handle)
-                        .expect("resolved class must have depth");
-                    depth = Some(depth.map_or(class_depth, |best| best.max(class_depth)));
-                }
-            }
-            let Some(depth) = depth else {
-                continue;
-            };
-            let key = (
-                depth,
-                resolved_targets[rule_index].target_specificity(),
-                resolved_priorities[rule_index],
-            );
-            match best_key {
-                Some(best) if key < best => {}
-                Some(best) if key == best => contenders.push(rule_index),
-                _ => {
-                    best_key = Some(key);
-                    contenders.clear();
-                    contenders.push(rule_index);
-                }
-            }
-        }
-        // 第二遍：只检查最大 key contenders 内部的 effect 一致性。
-        if let Some(&first) = contenders.first() {
-            let effect = rules[first].effect();
-            if let Some(&opposite) = contenders
-                .iter()
-                .skip(1)
-                .find(|&&rule_index| rules[rule_index].effect() != effect)
-            {
-                return Err(CoreError::AccessRuleAmbiguity {
-                    plane,
-                    target_id: unit_external_id(),
-                    class_id: classes
-                        .class_external_id(profile_class)
-                        .expect("class index must belong to class registry")
-                        .to_owned(),
-                    first_rule_id: rules[first].id().to_owned(),
-                    second_rule_id: rules[opposite].id().to_owned(),
-                });
-            }
-            // 同 effect 并列合法：保留先声明者作为归因。
-            *cell = AccessCell::Decided {
-                rule: AccessRuleHandle::new(first),
-                effect,
-            };
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1395,6 +1522,90 @@ mod tests {
             distinct.edge_access(EdgeHandle::new(1), class),
             AccessCell::Decided {
                 effect: AccessEffect::Allow,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn group_delta_merges_with_shared_section_verdict() {
+        // section 规则 verdict 跨 lane/context 共享，group 规则以 delta 合并：
+        // group 内 edge 由 group 规则（target specificity 更高）胜出，group 外
+        // edge 沿用 section 裁决，两个 context 各自成行。
+        let graph = LaneGraph::try_new([
+            LaneEdge::new(
+                "edge-1",
+                EdgeLength::try_new(10.0).expect("test edge length"),
+                SpeedLimit::try_new(10.0).expect("test speed limit"),
+                Vec::<String>::new(),
+            ),
+            LaneEdge::new(
+                "edge-2",
+                EdgeLength::try_new(10.0).expect("test edge length"),
+                SpeedLimit::try_new(10.0).expect("test speed limit"),
+                Vec::<String>::new(),
+            ),
+        ])
+        .expect("test graph");
+        let junctions = JunctionRegistry::empty();
+        let cross_section = CrossSectionRegistry::try_new(
+            &graph,
+            Vec::<FacilityBand>::new(),
+            [RoadSection::new(
+                "section-a",
+                "motorLane",
+                [
+                    SectionLane::new(["edge-1"], Some("group-a")),
+                    SectionLane::new(["edge-2"], None),
+                ],
+            )],
+            [LaneGroup::new("group-a", "section-a")],
+            [RoadCorridor::new(
+                "corridor-1",
+                "section-a",
+                [CorridorElementId::section("section-a")],
+            )],
+        )
+        .expect("test cross-section");
+        let classes =
+            ParticipantClassRegistry::try_new(vec![ParticipantClass::new("motorVehicle", None)])
+                .expect("test classes");
+        let class = classes.class_handle("motorVehicle").expect("test class");
+        let registry = AccessRegistry::try_new(
+            &graph,
+            &junctions,
+            &cross_section,
+            &classes,
+            vec![
+                AccessRule::new(
+                    "rule-section",
+                    AccessTargetId::road_section("section-a"),
+                    AccessEffect::Deny,
+                    ["motorVehicle"],
+                ),
+                AccessRule::new(
+                    "rule-group",
+                    AccessTargetId::lane_group("group-a"),
+                    AccessEffect::Allow,
+                    ["motorVehicle"],
+                ),
+            ],
+        )
+        .expect("valid access registry");
+
+        assert_eq!(registry.edge_plane.cells.len(), 2);
+        assert_eq!(registry.edge_plane.row_starts, vec![0, 1]);
+        assert!(matches!(
+            registry.edge_access(EdgeHandle::new(0), class),
+            AccessCell::Decided {
+                effect: AccessEffect::Allow,
+                ..
+            }
+        ));
+        assert!(matches!(
+            registry.edge_access(EdgeHandle::new(1), class),
+            AccessCell::Decided {
+                effect: AccessEffect::Deny,
                 ..
             }
         ));
