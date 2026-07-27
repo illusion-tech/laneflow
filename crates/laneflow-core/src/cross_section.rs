@@ -52,7 +52,16 @@ pub enum FacilityKind {
 impl FacilityKind {
     /// 解析 kind token。未在 seed 表且无合法 `x-` 前缀的 token 返回
     /// `CoreError::UnknownFacilityKind`；纯 `x-`/`x-lane-`（前缀后无剩余部分）同样拒绝。
+    /// token 长度超过 128 字符返回 `CoreError::FacilityKindTokenTooLong`（与 schema 的
+    /// `facilityKindId` 契约一致：loader 路径不执行 JSON Schema，长度界必须在 Core 强制）。
     pub fn parse(token: &str) -> Result<Self, CoreError> {
+        let len = token.chars().count();
+        if len > 128 {
+            return Err(CoreError::FacilityKindTokenTooLong {
+                kind: token.to_owned(),
+                len,
+            });
+        }
         match token {
             "motorLane" => return Ok(Self::MotorLane),
             "nonMotorLane" => return Ok(Self::NonMotorLane),

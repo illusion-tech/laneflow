@@ -699,7 +699,8 @@ fn cross_section_error_path(wire: &WirePackage, source: &CoreError) -> String {
             }
             _ => "roadSections".to_owned(),
         },
-        CoreError::UnknownFacilityKind { kind } => {
+        CoreError::UnknownFacilityKind { kind }
+        | CoreError::FacilityKindTokenTooLong { kind, .. } => {
             if let Some(index) = wire
                 .facility_bands
                 .iter()

@@ -2,6 +2,23 @@
 
 use serde::Deserialize;
 
+/// 可选字段拒绝显式 `null`：缺省字段返回 `None`（配合 `#[serde(default)]`），
+/// 显式 `null` 返回反序列化错误。loader 路径不执行 JSON Schema，而 schema 不接受
+/// `null`；对 `timeWindows` 这类 null 会改变语义的字段（被当作未声明而绕过
+/// capability guard），缺省与显式 null 必须可区分。
+fn non_null_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    match Option::<T>::deserialize(deserializer)? {
+        Some(value) => Ok(Some(value)),
+        None => Err(serde::de::Error::custom(
+            "可选字段不接受显式 null；请省略该字段",
+        )),
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WireVersionHeader {
@@ -110,6 +127,7 @@ pub(crate) struct WireVehicleProfile {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct WireParticipantClass {
     pub(crate) id: String,
+    #[serde(default, deserialize_with = "non_null_option")]
     pub(crate) extends_id: Option<String>,
 }
 
@@ -132,6 +150,7 @@ pub(crate) struct WireRoadSection {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct WireSectionLane {
     pub(crate) edge_ids: Vec<String>,
+    #[serde(default, deserialize_with = "non_null_option")]
     pub(crate) lane_group_id: Option<String>,
 }
 
@@ -176,8 +195,11 @@ pub(crate) struct WireAccessRule {
     pub(crate) target: WireAccessTarget,
     pub(crate) effect: WireAccessEffect,
     pub(crate) participant_class_ids: Vec<String>,
+    #[serde(default, deserialize_with = "non_null_option")]
     pub(crate) time_windows: Option<Vec<WireTimeWindow>>,
+    #[serde(default, deserialize_with = "non_null_option")]
     pub(crate) regulation: Option<WireRegulation>,
+    #[serde(default, deserialize_with = "non_null_option")]
     pub(crate) priority: Option<i32>,
 }
 
@@ -224,6 +246,7 @@ pub(crate) struct WireTimeWindow {
 pub(crate) struct WireRegulation {
     pub(crate) jurisdiction: String,
     pub(crate) version: String,
+    #[serde(default, deserialize_with = "non_null_option")]
     pub(crate) source: Option<String>,
 }
 
