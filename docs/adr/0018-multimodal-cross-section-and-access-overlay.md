@@ -153,7 +153,7 @@ AccessRule = target(laneEdge|laneGroup|roadSection|maneuverPath|facilityBand)
 静态 immutable registry 无 generation（ADR 0005/0017 先例）；ParticipantClass
 同样拥有一等外部身份（`ParticipantClassHandle`，供 VehicleProfile、Adapter
 observation 与 query API 稳定引用），其层级匹配与两个平面的 AccessRule 组合
-裁决在 normalization 编译为 dense class index、bitset 与 resolved 表，steady
+裁决在 normalization 编译为 dense class index、子树区间与 resolved 表，steady
 tick 不查字符串、不扫描 catalog。准入 wire/schema 归 `laneflow-data`，domain
 invariant 归
 Core constructors（ADR 0007）。production 化按 ADR 0008 原子 clean-break：

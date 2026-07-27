@@ -508,7 +508,7 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
   `LaneGroupHandle`、`FacilityBandHandle`、`ParticipantClassHandle`、
   `AccessRuleHandle`）。ParticipantClass 的外部身份同样是一等 handle：
   VehicleProfile、Adapter observation 与 query API 需要稳定引用参与者类别；
-  准入求值在 normalization 后编译为 dense class index 与层级 bitset（§5），
+  准入求值在 normalization 后编译为 dense class index 与层级子树区间（§5），
   字符串不进入 steady-tick 求值路径。
 - registry 静态 immutable，初始化后稳定，不需要 generation（ADR 0005 的
   lane-graph 先例）；handle 不持久化、不跨 CoreWorld 混用。
@@ -517,10 +517,13 @@ laneEdge 胜过 roadSection。在参与者轴先裁决的顺序下，给 `motorV
   index/range。
 - Normalized storage 沿用 road-junction-model §5 的 flat 形状：dense definitions、
   flat member handles + per-parent range、flat edge handles + per-lane range。
-- ParticipantClass 层级在 normalization 编译为 per-class descendants bitset；
+- ParticipantClass 层级在 normalization 编译为 per-class 子树区间（无环单继承
+  森林的 Euler tour `(enter, exit)`，O(classes) 存储与初始化，匹配为 O(1)
+  区间包含查询）；
   两个平面 AccessRule 的组合裁决（§6.4）都在 normalization 期**完全消解**——
   edge 平面为 `(edge, class) -> effect`、path 平面为 `(path, class) -> effect`
-  的 resolved 表（route-shared，不按 vehicle 复制）；绑定期对 edge 与 pending
+  的 resolved 表（稀疏行物化：仅受约束单元占 class 行，route-shared，不按
+  vehicle 复制）；绑定期对 edge 与 pending
   occurrence 只做 O(1) 查表，steady tick 不做 external-ID lookup、字符串匹配、
   层级匹配或组合裁决。
 
@@ -656,7 +659,7 @@ profiles → lane graph → Junction → Signals → Parking → Routes）：
    `(jurisdiction, version)`）、按平面与 time segment 分别检查 §6.4
    第 4 步的残留组合歧义（edge 平面按 (segment, edge, class)，path 平面按
    (segment, path, class)，含 always-active segment）；
-10. 构造 dense storage、member ranges、class bitset 与 resolved effect 表。
+10. 构造 dense storage、member ranges、class 子树区间与 resolved effect 表。
 
 phase order 的组织原则：**identity phase 一律先于引用解析 phase**——LaneGroup
 的 identity/membership 拆分与 RoadSection 的 identity/body 拆分同形，任何
@@ -671,7 +674,7 @@ Core constructors/normalization 报告（ADR 0007 分层不变）。
   path 得到相同 handle allocation、iteration、first-error attribution 与运行结果；
   input permutation 只改变 raw handle 数值与迭代顺序，不改变 external-ID 对齐的
   语义等价。
-- class bitset、edge 平面 `(edge, class)` 与 path 平面 `(path, class)`
+- class 子树区间、edge 平面 `(edge, class)` 与 path 平面 `(path, class)`
   resolved effect 表、member ranges 在 normalization 一次编译，(class, Route)
   绑定时只做查表与 occurrence 比对；vehicle tick 不查字符串、不匹配层级、
   不做组合裁决、不扫描全局 rule catalog、不做 per-vehicle allocation。

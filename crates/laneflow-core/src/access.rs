@@ -903,11 +903,12 @@ where
     Ok(AccessPlane { row_starts, cells })
 }
 
-/// edge 平面 resolved 表构造：经 lane 成员关系反查流式收集每条 edge 的候选
-/// 规则（laneEdge 直接规则 + 所属 section 规则 + 所属 lane 的 group 规则），
-/// 按候选集合签名去重共享行——同一 section/group 覆盖下的同构 edge 只裁决
-/// 一次。中间存储 O(rules + edges + group 成员数)，不物化 rules × edges 的
-/// 平方级展开（不可信输入下该展开会先耗尽内存）。
+/// edge 平面 resolved 表构造：候选规则 = laneEdge 直接规则 + 继承规则（所属
+/// section 规则 + 所属 lane 的 group 规则）。继承集按 lane context 只物化一次
+/// （同 section 同 group 组合的 lane 共享，lane 内全部 edge 共享），edge 局部
+/// 只应用直接规则 delta——不逐 edge 重建合并列表（那样 normalization 时间与
+/// 签名存储都是 Θ(edges × 继承规则数)）。行按 (context, 直接规则) 签名去重
+/// 共享，中间存储 O(rules + edges + group 成员数 + distinct context 规则数)。
 #[expect(
     clippy::too_many_arguments,
     reason = "normalization 期一次性裁决需要全部上下文"
@@ -946,31 +947,57 @@ fn resolve_edge_cells(
         }
     }
 
+    // 继承 context 两级缓存：(section, lane) → context；(section, group 组合)
+    // → context（同构 lane 共享）。context 规则列表排序后每 distinct context
+    // 只存一份；无继承规则的 lane 记 None（与无成员关系的 edge 同签名）。
+    let mut lane_contexts: IndexMap<(usize, usize), Option<u32>> = IndexMap::new();
+    let mut context_keys: IndexMap<(usize, Box<[usize]>), u32> = IndexMap::new();
+    let mut context_rules: Vec<Box<[usize]>> = Vec::new();
+    // (context, edge 直接规则) 签名 → 行起点；空直接规则的 Box 不分配堆内存。
+    let mut signature_rows: IndexMap<(Option<u32>, Box<[usize]>), u32> = IndexMap::new();
     let mut candidates: Vec<usize> = Vec::new();
-    let mut signature_rows: IndexMap<Box<[usize]>, u32> = IndexMap::new();
     let mut row_starts: Vec<u32> = Vec::with_capacity(edge_count);
     let mut cells: Vec<AccessCell> = Vec::new();
     let mut contenders: Vec<usize> = Vec::new();
     for edge_index in 0..edge_count {
-        candidates.clear();
-        candidates.extend_from_slice(&edge_target_rules[edge_index]);
-        if let Some((section, lane_index)) =
-            cross_section.edge_lane_membership(EdgeHandle::new(edge_index))
-        {
-            candidates.extend_from_slice(&section_target_rules[section.index()]);
-            if let Some(groups) = lane_groups.get(&(section.index(), lane_index)) {
-                for &group_index in groups {
-                    candidates.extend_from_slice(&group_target_rules[group_index]);
-                }
-            }
-        }
-        if candidates.is_empty() {
+        let direct = &edge_target_rules[edge_index];
+        let context_id = match cross_section.edge_lane_membership(EdgeHandle::new(edge_index)) {
+            Some((section, lane_index)) => *lane_contexts
+                .entry((section.index(), lane_index))
+                .or_insert_with(|| {
+                    let section_rules = &section_target_rules[section.index()];
+                    let groups = lane_groups.get(&(section.index(), lane_index));
+                    if section_rules.is_empty() && groups.is_none_or(Vec::is_empty) {
+                        return None;
+                    }
+                    let key = (
+                        section.index(),
+                        groups.map_or_else(Box::default, |list| list.as_slice().into()),
+                    );
+                    if let Some(&id) = context_keys.get(&key) {
+                        return Some(id);
+                    }
+                    let mut inherited = section_rules.clone();
+                    if let Some(groups) = groups {
+                        for &group_index in groups {
+                            inherited.extend_from_slice(&group_target_rules[group_index]);
+                        }
+                    }
+                    inherited.sort_unstable();
+                    let id = u32::try_from(context_rules.len())
+                        .expect("context 数量不超过 lane 总数，已在 u32 范围");
+                    context_rules.push(inherited.into_boxed_slice());
+                    context_keys.insert(key, id);
+                    Some(id)
+                }),
+            None => None,
+        };
+        if context_id.is_none() && direct.is_empty() {
             row_starts.push(AccessPlane::UNCONSTRAINED_ROW);
             continue;
         }
-        // 排序使签名与裁决扫描序同为 rule 声明序（并列归因保持先声明者）。
-        candidates.sort_unstable();
-        if let Some(&row_start) = signature_rows.get(candidates.as_slice()) {
+        let signature: (Option<u32>, Box<[usize]>) = (context_id, direct.as_slice().into());
+        if let Some(&row_start) = signature_rows.get(&signature) {
             row_starts.push(row_start);
             continue;
         }
@@ -985,6 +1012,14 @@ fn resolve_edge_cells(
         )?;
         validate_capacity("accessEdgeCells", cell_count)?;
         cells.resize(row_start + class_count, AccessCell::Unconstrained);
+        // 继承集与直接规则各自按声明序有序，合并后排序即全局声明序
+        // （并列归因保持先声明者）。
+        candidates.clear();
+        if let Some(context) = context_id {
+            candidates.extend_from_slice(&context_rules[context as usize]);
+        }
+        candidates.extend_from_slice(direct);
+        candidates.sort_unstable();
         resolve_unit_row(
             rules,
             resolved_targets,
@@ -999,7 +1034,7 @@ fn resolve_edge_cells(
         )?;
         let row_start =
             u32::try_from(row_start).expect("cell_count 已经 validate_capacity 约束在 u32 范围");
-        signature_rows.insert(candidates.as_slice().into(), row_start);
+        signature_rows.insert(signature, row_start);
         row_starts.push(row_start);
     }
     Ok(AccessPlane { row_starts, cells })
