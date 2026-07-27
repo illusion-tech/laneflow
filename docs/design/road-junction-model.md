@@ -46,15 +46,15 @@ Route occurrence compiler 与一等 ManeuverGate；#196 protected-turning profil
 
 ### 1.2 当前 production
 
-| 范围              | Current production                                  |
-| ----------------- | --------------------------------------------------- |
-| Traffic           | exact-current `0.8`                                 |
-| Lane topology     | LaneEdge + directed connection + Junction hierarchy |
-| Route             | 显式有限 edge sequence，注册期编译 occurrences      |
-| Gate              | 一等 `ManeuverGateHandle`                           |
-| Junction identity | 显式 external ID + handle                           |
-| Spatial           | SpatialPackage `0.1` edge centerline                |
-| Conflict          | authoring protected phases；无 solver               |
+| 范围              | Current production                                                 |
+| ----------------- | ------------------------------------------------------------------ |
+| Traffic           | exact-current `0.9`（横断面/准入扩展见 `cross-section-access.md`） |
+| Lane topology     | LaneEdge + directed connection + Junction hierarchy                |
+| Route             | 显式有限 edge sequence，注册期编译 occurrences                     |
+| Gate              | 一等 `ManeuverGateHandle`                                          |
+| Junction identity | 显式 external ID + handle                                          |
+| Spatial           | SpatialPackage `0.1` edge centerline                               |
+| Conflict          | authoring protected phases；无 solver                              |
 
 ### 1.3 非目标
 

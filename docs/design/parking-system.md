@@ -1,7 +1,7 @@
 # Parking System 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-25
+**最后更新**: 2026-07-27（Traffic v0.9 当前态同步）  
 **适用范围**: v0.5 Parking 的 current 静态领域/data contract、runtime authority/commands、ParkingStop/route 集成、确定性、失败原子性与性能边界
 **实现状态**: #105 已冻结设计与 ADR 0010；#106/#107 已交付 substrate 与 static/current data；#108 已交付 runtime/commands；#109 已交付 ParkingStop/arrival/traversal/release/events 与 capability activation；#110 已交付 milestone 全面验证；#19 已完成独立收口审阅；#136 已在 Spatial/Adapter 边界交付 Parking pose
 
@@ -881,26 +881,26 @@ SignalPhaseChanged?
 
 Arrival与route completion互斥；release在completed event前。Failed step没有部分event list，retry从同一 committed world得到与fresh replay相同结果。
 
-## 12. Current data format 0.8（Parking shape 自 v0.5 保持不变）
+## 12. Current data format 0.9（Parking shape 自 v0.5 保持不变）
 
 ### 12.1 Implementation truth
 
-#107 曾在同一个 Delivery PR 中原子加入 Parking；#185 又在保持 Parking shape/behavior 不变的前提下加入 per-edge speed limit 并把 package 迁移到 v0.7；#229 再以相同原则加入 static Junction/Maneuver domains 并迁移到 v0.8。本节的 Parking static/data 内容仍为 production current 事实。Runtime parking state 仍不进入 external package。
+#107 曾在同一个 Delivery PR 中原子加入 Parking；#185 又在保持 Parking shape/behavior 不变的前提下加入 per-edge speed limit 并把 package 迁移到 v0.7；#229 再以相同原则加入 static Junction/Maneuver domains 并迁移到 v0.8；#262 再以相同原则加入横断面/准入静态域并迁移到 v0.9，Parking shape 仍不变。本节的 Parking static/data 内容仍为 production current 事实。Runtime parking state 仍不进入 external package。
 
 ### 12.2 Package shape
 
 唯一 current version：
 
 ```text
-formatVersion: "0.8"
-active schema: schemas/laneflow-data-v0.8.schema.json
+formatVersion: "0.9"
+active schema: schemas/laneflow-data-v0.9.schema.json
 ```
 
 Root新增必填 closed object：
 
 ```text
 LaneFlowDataPackage
-  formatVersion: "0.8"
+  formatVersion: "0.9"
   units
   laneGraph
   junctions
@@ -908,6 +908,12 @@ LaneFlowDataPackage
   maneuverPaths
   routes
   vehicleProfiles
+  participantClasses
+  facilityBands
+  roadSections
+  laneGroups
+  roadCorridors
+  accessRules
   signals
   parking: ParkingData
   extensions?
@@ -917,7 +923,7 @@ ParkingData
   spaces: ParkingSpaceData[]
 ```
 
-`parking`、`areas`、`spaces`均必填，数组可空。External package继续只承载static traffic data，不包含initial/parked vehicles、reservation、occupancy、capacity、runtime handles或command log。
+`parking`、`areas`、`spaces`均必填，数组可空；横断面/准入六数组（`participantClasses`/`facilityBands`/`roadSections`/`laneGroups`/`roadCorridors`/`accessRules`）同规则，其 domain 语义见 `cross-section-access.md`。External package继续只承载static traffic data，不包含initial/parked vehicles、reservation、occupancy、capacity、runtime handles或command log。
 
 ### 12.3 Exact wire fields
 
@@ -962,12 +968,12 @@ Schema identifier：
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.8.schema.json",
-  "title": "LaneFlow Data Package v0.8"
+  "$id": "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.9.schema.json",
+  "title": "LaneFlow Data Package v0.9"
 }
 ```
 
-该字符串按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL。v0.8 已登记固定 main provenance，并通过 HTTPS 200、合法 JSON、兼容 media type 与 byte equality live 验证。Publication CI/CD 持续保证 catalog 中已发布版本的 immutable source 与可取回性；Runtime、loader、Adapter 与 hermetic tests 永不联网解析 `$id`/`$schema`，公共 hosting 不成为停车或数据加载行为依赖。
+该字符串按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL。v0.9 已登记固定 main provenance，并通过 HTTPS 200、合法 JSON、兼容 media type 与 byte equality live 验证。Publication CI/CD 持续保证 catalog 中已发布版本的 immutable source 与可取回性；Runtime、loader、Adapter 与 hermetic tests 永不联网解析 `$id`/`$schema`，公共 hosting 不成为停车或数据加载行为依赖。
 
 ### 12.5 Loader order 与 paths
 
@@ -976,10 +982,10 @@ Production fail-fast order：
 ```text
 JSON syntax
 -> minimal formatVersion shape
--> exact 0.8 check
--> strict 0.8 DTO
+-> exact 0.9 check
+-> strict 0.9 DTO
 -> units
--> Vehicle Profiles
+-> ParticipantClasses + Vehicle Profiles（含 class 引用）
 -> LaneGraph
 -> Junctions / Movements / ManeuverPaths
 -> Signals
@@ -988,11 +994,13 @@ JSON syntax
 -> entry/exit anchors
 -> geometry
 -> orphan areas/reverse indexes
+-> 横断面域（FacilityBands -> RoadSections/LaneGroups -> RoadCorridors）
+-> AccessRules（capability guard -> timeWindow/priority/regulation shape -> 组合歧义）
 -> routes + final-StopLine
 -> InitialTrafficData final assembly/rebind
 ```
 
-同一输入错误优先级因此为 Signals -> Parking -> Routes。DataError使用最窄path：duplicate指向第二个 `.id`、unknown area指向 `.areaId`、anchor指向具体 `entry|exit.edgeId|progress`、geometry指向字段、orphan指向 `parking.areas[i]`。
+同一输入错误优先级因此为 Signals -> Parking -> 横断面/准入 -> Routes。DataError使用最窄path：duplicate指向第二个 `.id`、unknown area指向 `.areaId`、anchor指向具体 `entry|exit.edgeId|progress`、geometry指向字段、orphan指向 `parking.areas[i]`。
 
 Public loader surface不变，仍只接收in-memory bytes/string并返回单一current `LoadedPackage`；不公开raw DTO/history enum/file/async API，也不运行production schema validator。
 
@@ -1003,14 +1011,15 @@ Public loader surface不变，仍只接收in-memory bytes/string并返回单一c
 1. #107 曾将 `CURRENT_FORMAT_VERSION` 切到 `0.5` 并加入 Parking。
 2. #185 将 `CURRENT_FORMAT_VERSION`、schema/fixtures/DTO/tests 与 Scenario digest 原子切到 `0.7`，Parking shape 不变。
 3. #229 将当前 Traffic contract clean-break 到 `0.8`，增加 Junction/Movement/ManeuverPath 与 ManeuverGate，Parking shape 仍不变。
-4. 仓库 active examples 已随每次 current-format 迁移。
-5. Git/收口报告保留 v0.5/v0.7 历史事实；已发布 schema bytes 作为 immutable publication artifacts 保留。
-6. v0.5/v0.6/v0.7 输入返回 `UnsupportedFormatVersion`，不自动补 topology、limit 或 empty Parking，不提供 shim/converter。
+4. #262 将当前 Traffic contract clean-break 到 `0.9`，增加横断面/准入静态域（participantClasses/roadSections/roadCorridors 等），Parking shape 仍不变。
+5. 仓库 active examples 已随每次 current-format 迁移。
+6. Git/收口报告保留 v0.5/v0.7/v0.8 历史事实；已发布 schema bytes 作为 immutable publication artifacts 保留。
+7. v0.5-v0.8 输入返回 `UnsupportedFormatVersion`，不自动补 topology、limit 或 empty Parking，不提供 shim/converter。
 
 只保留两个active canonical fixtures：
 
-- `v0.8-parking-signals-baseline.laneflow.json`：non-empty Signals + Parking，显式 Junction/Movement/ManeuverPath/ManeuverGate，area members + standalone、same/distinct entry/exit、正负 lateral、zero/angled heading，不含 runtime state。
-- `v0.8-empty-signals-and-parking.laneflow.json`：Junction/Movement/ManeuverPath arrays、Signals 四数组和 Parking 两数组显式为空，继续承担 route/profile/repeated-edge 回归。
+- `v0.9-parking-signals-baseline.laneflow.json`：non-empty Signals + Parking，显式 Junction/Movement/ManeuverPath 与最小 RoadSection/RoadCorridor 声明，area members + standalone、same/distinct entry/exit、正负 lateral、zero/angled heading，不含 runtime state。
+- `v0.9-empty-signals-and-parking.laneflow.json`：Junction/Movement/ManeuverPath arrays、Signals 四数组和 Parking 两数组显式为空（横断面域按必填最小声明），继续承担 route/profile/repeated-edge 回归。
 
 ## 13. Performance contract
 
@@ -1147,8 +1156,8 @@ Exact private containers、compaction threshold和allocation crate不由本文�
 - 合并#105 D1-D12全部Accepted决策；
 - 吸收全面审阅P1-1至P1-4：overflow-safe route prefix、local lookup correctness oracle、sparse atomic step、exact transitional guard；
 - 分配P2：command-created Arrived event、stable remove_route error、legacy guard unreachable、areaId omitted/null、staged current docs、三轮性能统计和Windows cache noise；
-- 对齐 ADR 0003/0005/0006/0007/0008/0009/0017 与 current v0.8 static data 实现边界；
+- 对齐 ADR 0003/0005/0006/0007/0008/0009/0017 与 current v0.9 static data 实现边界；
 - 明确Core/data/Adapter影响、determinism、error/event order、tests、10k/100k、allocation/memory与activation chain；
-- 已由 #107 交付 v0.5 Parking、#108 交付 runtime authority/commands、#109 交付 activation，并由 #110 完成端到端、性能、allocation/memory 与 pathological profile 验证；#185 的 v0.7 及 #229 的 current v0.8 迁移均保持 Parking shape/behavior 不变；#19 已完成最终独立收口审阅。
+- 已由 #107 交付 v0.5 Parking、#108 交付 runtime authority/commands、#109 交付 activation，并由 #110 完成端到端、性能、allocation/memory 与 pathological profile 验证；#185 的 v0.7、#229 的 v0.8 与 #262 的 v0.9 迁移均保持 Parking shape/behavior 不变；#19 已完成最终独立收口审阅。
 
 若后续实施发现 authority 矛盾、局部 lookup 无法与 full-scan 语义等价、sparse atomicity 必须退化为 full-S/V hot path，或 guard 无法保持安全中间主线，必须回到本设计/ADR或拆 follow-up；不得用 private 实现静默改变 Accepted 语义。

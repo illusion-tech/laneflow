@@ -37,7 +37,7 @@ current v0.9 包含：
 - 两套可配置固定时制信号控制器，每个 Junction 四组、12 phase/84 秒；
 - `50..=200` 可调车辆人口、显式 seed 和确定性出口回流；
 - 同一 Bevy proxy/model 复用，但每次回流获得新的 Core `VehicleHandle`；
-- Traffic v0.8、SpatialPackage/ScenarioManifest v0.1 与 scenario-local catalog 0.2；
+- Traffic v0.9、SpatialPackage/ScenarioManifest v0.1 与 scenario-local catalog 0.2；
 - checked-in 默认制品、确定性 generator 与 production loader 往返验证。
 
 current 场景不包含换道、路径搜索、permissive turn、红灯右转、感应或自适应信号、
@@ -115,7 +115,7 @@ steady tick 不做 runtime pathfinding、external-ID lookup 或 geometry matchin
 
 ## 4. 限速与车辆纵向行为
 
-Traffic v0.8 current contract 在每个 lane edge 上要求严格正、有限的 `speedLimit`：
+Traffic v0.9 current contract 在每个 lane edge 上要求严格正、有限的 `speedLimit`：
 
 | edge class                         |  公示值 |
 | ---------------------------------- | ------: |
@@ -309,9 +309,10 @@ raw weights 或 draw order 必须经过新的版本/迁移决策，不能静默�
 
 current v0.9 场景由三类 immutable source artifacts 构成：
 
-- Traffic package v0.8：66 LaneEdge、2 Junction、24 Movement、32
+- Traffic package v0.9：66 LaneEdge、2 Junction、24 Movement、32
   ManeuverPath/Gate、28 Route、vehicle profiles、Signals、Parking 空集合和
-  per-edge speed limit；
+  per-edge speed limit，以及横断面/准入静态域（3 ParticipantClass、14
+  RoadSection、6 LaneGroup、7 RoadCorridor、7 FacilityBand、18 AccessRule）；
 - SpatialPackage v0.1：所有 lane/connector centerline 与 canonical frame；
 - ScenarioManifest v0.1：Traffic/Spatial 不透明路径、byte size 和 SHA-256 digest 配对。
 
