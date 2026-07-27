@@ -2140,7 +2140,7 @@ mod tests {
         ));
         assert!(gate.contains("ref: refs/heads/main"));
         assert!(gate.contains("persist-credentials: false"));
-        assert!(gate.contains("actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0"));
+        assert!(gate.contains("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"));
         assert!(gate.contains("group: external-review-gate-pr-${{ matrix.pr }}"));
         assert!(gate.contains("cancel-in-progress: true"));
         assert!(gate.contains("publish-external-review-check"));
