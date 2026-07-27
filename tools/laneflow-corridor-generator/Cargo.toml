@@ -8,7 +8,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-jsonschema = { version = "0.48", default-features = false }
+jsonschema = { version = "0.49", default-features = false }
 laneflow-core = { version = "0.0.0", path = "../../crates/laneflow-core" }
 laneflow-data = { version = "0.0.0", path = "../../crates/laneflow-data" }
 laneflow-scenario = { version = "0.0.0", path = "../../crates/laneflow-scenario" }
