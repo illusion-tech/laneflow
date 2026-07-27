@@ -984,6 +984,50 @@ fn cross_section_errors_use_narrowest_paths() {
 }
 
 #[test]
+fn duplicate_section_lane_edge_attributes_second_occurrence() {
+    // 构造 through→entry 回边，使重复 edge 落在连通链的第二次出现处；
+    // 归因必须指向第二次出现，而不是第一次合法出现。
+    let mut value = signals_value();
+    value["laneGraph"]["edges"][1]["connections"] = json!([{ "toEdgeId": "entry" }]);
+    value["roadSections"][0]["lanes"][0]["edgeIds"] = json!(["entry", "through", "entry"]);
+    std::assert_matches!(
+        into_core_domain(load_value(value).expect_err("duplicate edge in lane chain")),
+        (path, CoreError::DuplicateSectionLaneEdge { edge_id, .. })
+            if path == "roadSections[0].lanes[0].edgeIds[2]" && edge_id == "entry"
+    );
+}
+
+#[test]
+fn corridor_element_attribution_distinguishes_section_and_band_kinds() {
+    // section 与 band 合法共享 external ID "section-main"；重复 band 元素的错误
+    // 必须归因到 band 类别的第二次出现，而不是同名 section 元素。
+    let mut value = signals_value();
+    value["facilityBands"] = json!([{ "id": "section-main", "kindId": "median" }]);
+    value["roadCorridors"][0]["elements"] = json!([
+        { "sectionId": "section-main" },
+        { "bandId": "section-main" },
+        { "bandId": "section-main" }
+    ]);
+    std::assert_matches!(
+        into_core_domain(load_value(value).expect_err("duplicate band corridor element")),
+        (path, CoreError::DuplicateCorridorElement { element_id, .. })
+            if path == "roadCorridors[0].elements[2]" && element_id == "section-main"
+    );
+
+    // 同样地，unknown band 元素不能归因到同名 section 元素的位置。
+    let mut unknown_band = signals_value();
+    unknown_band["roadCorridors"][0]["elements"] = json!([
+        { "sectionId": "section-main" },
+        { "bandId": "missing-band" }
+    ]);
+    std::assert_matches!(
+        into_core_domain(load_value(unknown_band).expect_err("unknown band corridor element")),
+        (path, CoreError::UnknownCorridorElement { element_id, .. })
+            if path == "roadCorridors[0].elements[1]" && element_id == "missing-band"
+    );
+}
+
+#[test]
 fn access_capability_guards_are_structured_and_attributed() {
     let mut time_windows = signals_value();
     time_windows["accessRules"] = json!([{
