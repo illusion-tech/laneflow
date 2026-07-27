@@ -448,7 +448,7 @@ fn normalize_access(
             if let Some(priority) = &rule.priority {
                 // shape 校验由 AccessRegistry::try_new phase 9.5 执行（capability
                 // guard 之后），此处只搬运原始数值字面量，保持首错顺序契约。
-                definition = definition.with_priority_literal(priority.to_string());
+                definition = definition.with_priority_literal(priority.clone());
             }
             if let Some(regulation) = &rule.regulation {
                 // shape 校验由 AccessRegistry::try_new phase 9.5 执行（capability
@@ -1107,13 +1107,13 @@ fn access_error_path(wire: &WirePackage, source: &CoreError) -> String {
         },
         CoreError::InvalidAccessRulePriority { priority } => {
             // phase 9.5 按 input order 返回首条 shape 违规规则；报告值即 wire 层
-            // 原始字面量的 canonical 形式，按值定位即所报规则。
+            // 原始字面量，按值定位即所报规则。
             wire.access_rules
                 .iter()
                 .position(|rule| {
                     rule.priority
                         .as_ref()
-                        .is_some_and(|value| value.to_string() == *priority)
+                        .is_some_and(|value| value == priority)
                 })
                 .map_or_else(
                     || "accessRules".to_owned(),

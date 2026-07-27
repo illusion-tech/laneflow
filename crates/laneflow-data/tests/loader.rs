@@ -1196,6 +1196,41 @@ fn priority_range_decoding_defers_to_capability_guard() {
         load_value(non_numeric).expect_err("non-numeric priority is a wire type error"),
         DataError::JsonShape { .. }
     );
+
+    // f64 不可精确表示/溢出的字面量必须按原样进入 Core（serde_json::json! 会
+    // 归一化浮点，这里用原始文本注入 lexeme）。
+    let raw_rules = |priority: &str, time_windows: &str| {
+        let text = serde_json::to_string(&signals_value()).expect("fixture must serialize");
+        text.replace(
+            "\"accessRules\":[]",
+            &format!(
+                "\"accessRules\":[{{\"id\":\"rule-raw\",\"target\":{{\"kind\":\"laneEdge\",\"id\":\"entry\"}},\"effect\":\"deny\",\"participantClassIds\":[\"motorVehicle\"]{time_windows},\"priority\":{priority}}}]"
+            ),
+        )
+    };
+
+    // 1e400：f64 溢出，但 guard 必须先报。
+    let guarded = raw_rules(
+        "1e400",
+        ",\"timeWindows\":[{\"days\":[\"mon\"],\"startMinuteOfDay\":420,\"endMinuteOfDay\":540}]",
+    );
+    std::assert_matches!(
+        into_core_domain(from_json_str(&guarded).expect_err("guard must precede f64 overflow")),
+        (path, CoreError::AccessCapabilityUnavailable { rule_id, capability })
+            if path == "accessRules[0].timeWindows"
+                && rule_id == "rule-raw"
+                && capability == "timeWindows"
+    );
+
+    // 1.00000000000000001：f64 归一化会变 1.0，精确字面量必须被 phase 9.5 拒绝。
+    let fractional = raw_rules("1.00000000000000001", "");
+    std::assert_matches!(
+        into_core_domain(
+            from_json_str(&fractional).expect_err("inexact fractional priority must be rejected")
+        ),
+        (path, CoreError::InvalidAccessRulePriority { priority })
+            if path == "accessRules[0].priority" && priority == "1.00000000000000001"
+    );
 }
 
 #[test]

@@ -730,6 +730,7 @@ impl AccessRegistry {
                                 + regulation.version.capacity()
                                 + regulation.source.as_ref().map_or(0, String::capacity)
                         })
+                        + definition.priority.capacity()
                         + rule.classes.capacity() * std::mem::size_of::<ParticipantClassHandle>()
                 })
                 .sum::<usize>();
@@ -741,6 +742,66 @@ impl AccessRegistry {
 
         rule_bytes + resolver_bytes + cell_bytes
     }
+}
+
+/// 校验 priority 字面量：必须是 i32 范围内的整数（JSON Schema `integer` 语义，
+/// 允许零小数/指数表示如 `100.0`/`1e2`）。按十进制字面值精确判定，不做浮点
+/// 归一化：`1.00000000000000001` 这类 f64 不可精确表示的小数必须拒绝。
+/// 输入由 wire 层保证是合法 JSON number 字面量。
+fn parse_access_priority(literal: &str) -> Option<i32> {
+    // 快速路径：纯整数字面量。
+    if let Ok(value) = literal.parse::<i64>() {
+        return i32::try_from(value).ok();
+    }
+    if let Ok(value) = literal.parse::<u64>() {
+        return i32::try_from(value).ok();
+    }
+    i32::try_from(exact_integer_lexeme(literal)?).ok()
+}
+
+/// 若 JSON number 字面量精确表示一个整数则返回其 i128 值，否则 None。
+/// 小数位与指数按十进制字面值运算，不经过任何浮点转换。
+fn exact_integer_lexeme(literal: &str) -> Option<i128> {
+    let (mantissa, exponent) = match literal.find(['e', 'E']) {
+        Some(index) => (&literal[..index], literal[index + 1..].parse::<i64>().ok()?),
+        None => (literal, 0),
+    };
+    let (negative, mantissa) = match mantissa.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, mantissa),
+    };
+    let (integer_digits, fraction_digits) = match mantissa.find('.') {
+        Some(index) => (&mantissa[..index], &mantissa[index + 1..]),
+        None => (mantissa, ""),
+    };
+    let digits: String = integer_digits
+        .chars()
+        .chain(fraction_digits.chars())
+        .collect();
+    // 0 的任何表示（0e5、0.000、-0.0）都是整数 0。
+    if digits.bytes().all(|digit| digit == b'0') {
+        return Some(0);
+    }
+    let fraction_len = i64::try_from(fraction_digits.len()).ok()?;
+    let shift = exponent.checked_sub(fraction_len)?;
+    let canonical = if shift >= 0 {
+        // 整数值 = digits * 10^shift。i128 至多 39 位十进制数字，超长必越界。
+        if digits.len() as i64 + shift > 39 {
+            return None;
+        }
+        let mut canonical = digits;
+        canonical.extend(std::iter::repeat_n('0', shift as usize));
+        canonical
+    } else {
+        // 精确为整数当且仅当被小数点截去的 -shift 位全为 0。
+        let keep = digits.len().checked_sub((-shift) as usize)?;
+        if digits[keep..].bytes().any(|digit| digit != b'0') {
+            return None;
+        }
+        digits[..keep].to_owned()
+    };
+    let magnitude: i128 = canonical.parse().ok()?;
+    Some(if negative { -magnitude } else { magnitude })
 }
 
 /// 对一个平面的全部 `(unit, class)` 组合做 §6.4 字典序裁决并填充 dense 表。
@@ -755,26 +816,6 @@ impl AccessRegistry {
     clippy::too_many_arguments,
     reason = "normalization 期一次性裁决需要全部上下文"
 )]
-/// 校验 priority 字面量：必须是 i32 范围内的整数（JSON Schema `integer` 语义，
-/// 允许零小数表示如 `100.0`；loader 路径不执行 JSON Schema，由本函数把关）。
-fn parse_access_priority(literal: &str) -> Option<i32> {
-    if let Ok(value) = literal.parse::<i64>() {
-        return i32::try_from(value).ok();
-    }
-    if let Ok(value) = literal.parse::<u64>() {
-        return i32::try_from(value).ok();
-    }
-    let value: f64 = literal.parse().ok()?;
-    if value.fract() == 0.0 && value >= f64::from(i32::MIN) && value <= f64::from(i32::MAX) {
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "范围与零小数已检查，转换精确"
-        )]
-        return Some(value as i32);
-    }
-    None
-}
-
 fn resolve_cells<H>(
     rules: &[AccessRule],
     resolved_targets: &[ResolvedAccessTarget],
