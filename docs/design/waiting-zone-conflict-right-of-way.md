@@ -631,6 +631,18 @@ World 初始化必须把 pinned policy 编译为
   priority 都必须
   严格高于 subject；若法规需要按 target class 变化，必须扩展显式 target selector
   并重新走 G1，不能在 runtime 猜测；
+- 每条 resolved rule 必须按 subject stream 的规范 passage-cell 顺序，预编译
+  per-subject-cell `yieldTargetCellRange`：对 subject cell
+  `(zone, subjectStream)`，只保留确实存在 exact
+  `(zone, targetStream)` passage cell 的 yield target。一个 policy-level yield edge
+  只要求在至少一个共享 zone 中产生 target cell；target 未参与 subject 的其他 zone
+  时，该 zone 的 range 中没有该 target，不合成 missing cell，也不把 missing
+  解释为 `OutsideHorizon`/deny/allow。每个 yield edge 若在全部 subject cells 中都
+  没有 target cell，按前述“至少共享一个 ConflictZone”规则在 normalization
+  拒绝；
+- 每个 per-subject-cell target range 按 `targetStreamCanonicalRank` 编译，wire
+  declaration order 只用于 first-error attribution；tick 不做 target/zone
+  笛卡尔积、handle lookup 或 missing-cell 分支；
 - `Protected`、`Permissive` 与 `Uncontrolled` candidate 都从该总表读取规范
   `rightOfWayPriority`；Protected 只跳过 yield/gap，不跳过规则解析。
 
@@ -977,22 +989,25 @@ AccessRule-denied 的合成 stream/profile 组合不贡献，而 public route-bi
 traversal 仍由 zone authority fail closed。current red/leader/parking stop 不放宽
 eligible foe ETA，因为 foe 下一 tick 可能重新加速；只使用物理最大加速度上界。
 
-候选对 coverage 中每个 ConflictZone、每个 yield target stream 直接查 exact static
-cell 并执行 O(1) self-exclusion，不扫描 registered Routes 或 all vehicles。benchmark
-必须报告 frontier contribution count、static cell count、top-two retained bytes 与
-每 active vehicle 的 visited-passage 分布，发现接近 vehicle ×
-whole-conflict-catalog 时阻断。
+候选对 coverage 中每个 exact subject passage cell，从已选择的 resolved rule 直接
+索引该 subject-cell ordinal 的预编译 `yieldTargetCellRange`，再对 range 内每个 exact
+target cell 执行 O(1) self-exclusion。target stream 没有参与当前 zone 时不会出现在
+该 range 中；tick 不查询不存在的 `(zone, targetStream)` cell，也不扫描 registered
+Routes 或 all vehicles。benchmark 必须报告 frontier contribution count、static cell
+count、编译后 target-cell count、top-two retained bytes 与每 active vehicle 的
+visited-passage 分布，发现接近 vehicle × whole-conflict-catalog 时阻断。
 
 对 subject coverage 中每个 ConflictZone，按以下规范顺序求值：
 
 1. 任一 incompatible occupant、committed reservation 或本 tick 已先行 grant
    存在：no-grant；
-2. 对 subject 需要 yield 的每个 stream，若最近一次 incompatible passage clear
-   存在，要求
+2. 对当前 subject cell 的 compiled target-cell range 中每个 target，若最近一次
+   incompatible passage clear 存在，要求
    `currentTimeMs - lastClearTimeMs >= minimumLagGapMs + clearanceBufferMs`；
 3. 以 checked integer addition 计算
    `requiredLeadMs = fixedDeltaTimeMs + minimumLeadGapMs + clearanceBufferMs`；
-4. 每个 yield target 的 `valueExcluding(subject)` 为 `OutsideHorizon` 时通过，为
+4. 当前 subject cell range 中每个 exact target cell 的
+   `valueExcluding(subject)` 为 `OutsideHorizon` 时通过，为
    `Finite(foeEarliestEntryMs)` 时必须严格大于 `requiredLeadMs`；等于 boundary
    或 `Unprovable` 时 no-grant；
 5. 所有 coverage zones 均通过才产生一个原子 grant。
@@ -1076,33 +1091,42 @@ Core vehicle 新增私有权威状态；public API 暴露只读 snapshot：
 
 ```text
 ManeuverTraversalState
-  PreGate {
-    route,
-    maneuverOccurrenceIndex,
-    nextGateOccurrenceIndex,
-    firstEligibleTick?
-  }
-  Committed {
-    route,
-    maneuverOccurrenceIndex,
-    lastCrossedGateOccurrenceIndex
-  }
-  Waiting {
-    route,
-    maneuverOccurrenceIndex,
-    waitingZone,
-    admissionSequence,
+  route
+  maneuverOccurrenceIndex
+  phase
+    PreGate {
+      nextGateOccurrenceIndex,
+      firstEligibleTick?
+    }
+    Committed {
+      lastCrossedGateOccurrenceIndex
+    }
+    Waiting
+    Clearing {
+      reservation
+    }
+  activeWaitingMembership?
+    waitingZone
+    admissionSequence
     releaseGateOccurrenceIndex
-  }
-  Clearing {
-    route,
-    maneuverOccurrenceIndex,
-    reservation
-  }
 ```
 
 不在 active Maneuver occurrence 的车辆没有该状态；`PreGate` 可在 occurrence
 lookahead 内惰性建立。
+
+Waiting membership 与“当前是否已停住”等 motion phase 正交：
+
+- `Waiting` phase 必须有且只有一个 `activeWaitingMembership`；
+- `Committed` 可以没有 membership，也可以在车辆已跨 entry Gate、仍向 zone
+  内前进或从等待重新起步但尚未跨 release Gate 时携带一个 membership；
+- `PreGate` 与 `Clearing` 不得携带 membership；crossing release Gate 必须先原子
+  移除旧 membership，若同一 boundary 同时是下一 WaitingZone entry Gate，则以
+  本次 successful admission claim 原子替换为新 membership；
+- semantic membership record 是 occupancy/release/despawn/route-command 的车辆侧
+  authority；per-zone head/tail 与 per-member intrusive links 只是与其同事务维护的
+  稠密索引，任一不一致都是 invariant failure；
+- public snapshot 可以暴露上述 semantic membership，不暴露 intrusive link 或
+  mutable queue authority。
 
 grant/no-grant 的可观察性由 CoreWorld 级稀疏 latest-decision batch 承担；它只为
 本 tick 实际求值的 active Gate frontier 生成有序 records：
@@ -1146,12 +1170,17 @@ Clearing
 ```
 
 - crossing 第一 Gate：PreGate -> Committed；
-- crossing WaitingZone entry Gate：提交 zone membership；若当 tick 继续前进，
-  仍保持 Committed，直到停止等待时转 Waiting；
+- crossing WaitingZone entry Gate：提交 `activeWaitingMembership`；若当 tick
+  继续前进，phase 仍为 Committed；停止等待时只把 phase 转为 Waiting，membership
+  不变；
+- Waiting member 在 release Gate 前重新起步时只把 phase 转回 Committed，
+  membership 不变；只有 successful release crossing、despawn 或被允许的等价
+  transaction 才能移除它；
 - 取得 release/admission grant 但未 crossing：Waiting/Committed committed state
   不变，只更新 latest-decision snapshot，grant 在 step 结束时失效；
 - crossing grant Gate：若后续还有 safe non-conflict path，直接进入/保持
-  Committed；若取得 reservation 则直接进入 Clearing；
+  Committed；若取得 reservation 则直接进入 Clearing；同一 crossing 的旧 Waiting
+  membership leave 与可选下一 zone admission 必须和 phase/reservation 原子提交；
 - 清除 reservation 后，若 occurrence 尚有下一 Gate，进入 Committed/PreGate；
   occurrence exit 后清除 state；
 - 多 WaitingZone 允许上述中段重复，不把 enum 误解为只能单次线性经过。
@@ -1362,12 +1391,17 @@ RightOfWayPolicyRegistry
   rules: Vec<ResolvedStreamRule>
   yieldTargets: Vec<ParticipantStreamHandle>
   yieldTargetCells: Vec<PassageCellHandle>
+  ruleSubjectCells: Vec<ResolvedRuleSubjectCell>
+    subjectPassageCell
+    yieldTargetCellRange
   streamProfileRuleTable: dense total resolved table
 ```
 
 external ID 用于 load/resolve/public diagnostics，并在 normalization 一次编译
 permutation-stable `canonicalRank`；hot path 只用 handle/index/range/rank，不做字符串
-比较或排序。
+比较或排序。每个 `ResolvedStreamRule` 的 `ruleSubjectCells` 与 subject stream 的
+规范 passage-cell 顺序一一对应；其 target range 只包含同一 ConflictZone 中实际存在
+的 exact target cells。
 
 ### 11.2 Route-local metadata
 
@@ -1391,7 +1425,10 @@ Route registration 对每个 occurrence 一次性编译：
 
 ### 11.3 Runtime state
 
-- per WaitingZone：occupancy count、head/tail、next admission sequence；
+- per WaitingZone：occupancy count、head/tail、next admission sequence；per active
+  member 使用按 VehicleHandle 稠密索引的 intrusive prev/next link，以 O(1) 维护
+  head/tail、release 与 despawn；link 与车辆侧 semantic membership 同事务提交，
+  不作为独立业务 authority；
 - per ConflictZone：dense occupant/reservation owner range；
 - per active Clearing vehicle：committed downstream claim 与 flat physical interval
   range；claim owner 与 reservation owner 必须一致；
@@ -1678,6 +1715,9 @@ Adapter 不得移动 authoritative progress、修改 queue order、授予 reserv
   specificity ambiguity、`everConflictEligible`、stream-profile totality、gap
   required/forbidden；
 - target-profile priority 与 simultaneous protected conflict；
+- subject stream 覆盖 zone A/B、yield target 只覆盖 A 时，normalization 只为 A
+  编译 exact target cell，B range 为空；不得查询 missing `(B, target)` cell，也
+  不得误要求 target 覆盖全部 subject zones；
 - exact first-error phase 与 JSON path。
 
 ### 16.2 Route compilation
@@ -1701,6 +1741,9 @@ Adapter 不得移动 authoritative progress、修改 queue order、授予 reserv
 
 - PreGate/Committed/Waiting/Clearing 正常迁移；
 - multiple WaitingZone cycle；
+- entry crossing 后仍移动的 Committed vehicle 保留 active membership；stop/resume
+  只切 phase，release/shared-boundary replacement/despawn 原子更新 membership、
+  occupancy、intrusive links 与 admission sequence；
 - full count、physical tail storage、variable vehicle length；
 - 同 WaitingZone 多辆车同 tick crossing 时按 post-step physical front-to-back
   顺序分配 zone-global admission sequence，且与 reducer/update order permutation
@@ -1773,7 +1816,7 @@ Adapter 不得移动 authoritative progress、修改 queue order、授予 reserv
 
 ## 17. 后续实施切片
 
-G1 接受后至少拆为以下独立 Issue；每个 Issue 自行完成 G0-G4 与元数据审计：
+G1 已接受；后续至少拆为以下独立 Issue，每个 Issue 自行完成 G0-G4 与元数据审计：
 
 1. **multi-Gate + WaitingZone static/Data**：解除 entry-only guard，新增 WaitingZone
    registry，并从届时 current Traffic（当前为 v0.9）原子升级 schema/loader/
@@ -1805,9 +1848,9 @@ static identity、coverage 与 occurrence compilation 未冻结时先行实现�
 #264 消费本设计与 #237 的 accepted 结论后，才拆 JunctionGroup、环岛、停车连接与
 互通组合设施；不得在 #264 内重新定义 ConflictZone/right-of-way owner。
 
-## 18. G1 候选结论
+## 18. G1 接受结论
 
-#235 的候选冻结点：
+#235 的冻结点：
 
 1. WaitingZone 是同一 ManeuverPath 上 entry/release Gate 有界的一等实体；
    admission sequence 由 zone-global counter 按 successful crossing 后的 physical

@@ -204,11 +204,11 @@ SSOT 见 [`cross-section-access.md`](design/cross-section-access.md)。该设计
 SSOT）→ #236 非机动车/步行产品范围。时变准入 runtime、横向几何与多法规版本
 共存各自独立 G1，不属于当前完成边界。
 
-## WaitingZone、ConflictZone 与通行权（G1 评审中，Milestone N/A）
+## WaitingZone、ConflictZone 与通行权（G1 已接受，尚未生产化，Milestone N/A）
 
-#235/ADR 0019 候选正在冻结 multiple ManeuverGate occurrence、WaitingZone
+#235/ADR 0019 已冻结 multiple ManeuverGate occurrence、WaitingZone
 容量/队列、ConflictZone/ParticipantStream、versioned jurisdiction/right-of-way
-policy、Core ConflictArbiter 与 grant/reservation；SSOT 候选见
+policy、Core ConflictArbiter 与 grant/reservation；SSOT 见
 [`waiting-zone-conflict-right-of-way.md`](design/waiting-zone-conflict-right-of-way.md)。
 性能优先 v1 使用 current/upcoming approach frontier、directed lower-bound ETA 与
 mandatory downstream-clearance guard；每个 static zone-stream passage 的 top-two
@@ -220,10 +220,11 @@ single-writer claim ledger 防止 Waiting/Conflict/downstream 同 tick 重复分
 multi-Gate/Waiting static 实施必须从届时 current version 原子升级，#235 不预占
 具体版本号。
 
-G1 接受后建议按 multi-Gate/Waiting static → Waiting runtime → Conflict
+后续 production 建议按 multi-Gate/Waiting static → Waiting runtime → Conflict
 static/Spatial → policy/arbiter runtime → cross-layer 10k/100k/closure 拆分。
-#264 必须等待本设计与 #237 冻结后再拆 JunctionGroup、环岛、停车连接与互通组合；
-在 G1/Delivery PR 完成前不得依据本候选开始 production 实现。
+#264 对 #235 的设计输入已经满足，但仍必须等待 #237 冻结后再拆 JunctionGroup、
+环岛、停车连接与互通组合；本 Delivery PR 合并前不得把尚未进入 `main` 的文档当作
+仓库 authority，合并后各 production 切片仍必须独立完成 G0-G4。
 
 ## 城市级扩展研究（Milestone N/A）
 
