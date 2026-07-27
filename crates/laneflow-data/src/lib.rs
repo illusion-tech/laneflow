@@ -1101,6 +1101,16 @@ fn access_error_path(wire: &WirePackage, source: &CoreError) -> String {
             "timeWindows" => access_rule_path(wire, rule_id, ".timeWindows"),
             _ => access_rule_path(wire, rule_id, ".target.id"),
         },
+        CoreError::InvalidAccessRulePriority { priority } => {
+            // phase 9.5 按 input order 返回首条 shape 违规规则，按值定位即所报规则。
+            wire.access_rules
+                .iter()
+                .position(|rule| rule.priority == Some(*priority))
+                .map_or_else(
+                    || "accessRules".to_owned(),
+                    |index| format!("accessRules[{index}].priority"),
+                )
+        }
         CoreError::InvalidAccessRegulationString { field, len } => {
             // phase 9.5 按 input order 返回首条 shape 违规规则；报告的 (field, len)
             // 本身越界，凡同 field 同字符数的规则同样违规，因此首个匹配规则即

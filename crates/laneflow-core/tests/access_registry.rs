@@ -519,6 +519,105 @@ fn regulation_shape_orders_after_unknown_and_capability_guard() {
     );
 }
 
+#[test]
+fn priority_shape_orders_after_capability_guard() {
+    // capability guard 先于 priority i32 范围 shape。
+    let error = AccessRegistry::try_new(
+        &graph(),
+        &junctions(),
+        &cross_section(),
+        &classes(),
+        vec![
+            AccessRule::new(
+                "rule-time",
+                AccessTargetId::lane_edge("e1"),
+                AccessEffect::Deny,
+                ["car"],
+            )
+            .with_time_windows(true)
+            .with_priority(i64::from(i32::MAX) + 1),
+        ],
+    )
+    .expect_err("capability guard must precede priority shape");
+    std::assert_matches!(
+        error,
+        CoreError::AccessCapabilityUnavailable { rule_id, capability }
+            if rule_id == "rule-time" && capability == "timeWindows"
+    );
+
+    // 无更早 phase 错误时，超 i32 范围的 priority 由 registry phase 9.5 拒绝。
+    for priority in [i64::from(i32::MAX) + 1, i64::from(i32::MIN) - 1] {
+        let error = AccessRegistry::try_new(
+            &graph(),
+            &junctions(),
+            &cross_section(),
+            &classes(),
+            vec![
+                AccessRule::new(
+                    "rule-priority",
+                    AccessTargetId::lane_edge("e1"),
+                    AccessEffect::Deny,
+                    ["car"],
+                )
+                .with_priority(priority),
+            ],
+        )
+        .expect_err("registry must reject out-of-i32 priority");
+        std::assert_matches!(
+            error,
+            CoreError::InvalidAccessRulePriority { priority: actual } if actual == priority
+        );
+    }
+
+    // 同一 phase 内按 input order 返回首错：rule-1 的 regulation shape 先于
+    // rule-2 的 priority shape。
+    let error = AccessRegistry::try_new(
+        &graph(),
+        &junctions(),
+        &cross_section(),
+        &classes(),
+        vec![
+            AccessRule::new(
+                "rule-1",
+                AccessTargetId::lane_edge("e1"),
+                AccessEffect::Deny,
+                ["car"],
+            )
+            .with_regulation("CN", "", None),
+            AccessRule::new(
+                "rule-2",
+                AccessTargetId::lane_edge("e2"),
+                AccessEffect::Deny,
+                ["car"],
+            )
+            .with_priority(i64::from(i32::MAX) + 1),
+        ],
+    )
+    .expect_err("input order must decide within phase 9.5");
+    std::assert_matches!(
+        error,
+        CoreError::InvalidAccessRegulationString { field, .. } if field == "version"
+    );
+
+    // i32 边界值合法。
+    access(vec![
+        AccessRule::new(
+            "rule-min",
+            AccessTargetId::lane_edge("e1"),
+            AccessEffect::Deny,
+            ["car"],
+        )
+        .with_priority(i64::from(i32::MIN)),
+        AccessRule::new(
+            "rule-max",
+            AccessTargetId::lane_edge("e2"),
+            AccessEffect::Allow,
+            ["bus"],
+        )
+        .with_priority(i64::from(i32::MAX)),
+    ]);
+}
+
 // ---------- phase 9.6：regulation provenance 单一性 ----------
 
 #[test]

@@ -167,13 +167,13 @@ pub struct AccessRule {
     effect: AccessEffect,
     participant_class_ids: Vec<String>,
     regulation: Option<AccessRegulation>,
-    priority: i32,
+    priority: i64,
     has_time_windows: bool,
 }
 
 impl AccessRule {
     /// 创建 AccessRule。ID 语法、唯一性、target/class 引用、capability guard、
-    /// regulation shape 与组合歧义由 `AccessRegistry::try_new` 校验。
+    /// priority/regulation shape 与组合歧义由 `AccessRegistry::try_new` 校验。
     pub fn new<I, S>(
         id: impl Into<String>,
         target: AccessTargetId,
@@ -215,7 +215,11 @@ impl AccessRule {
     }
 
     /// 设置显式 priority（缺省 0）。
-    pub fn with_priority(mut self, priority: i32) -> Self {
+    ///
+    /// 与 regulation 同理不在此处做范围校验：i32 范围由 `AccessRegistry::try_new`
+    /// phase 9.5 统一校验，保证 capability guard 先于 shape 检查的首错顺序，
+    /// 故此处按原始整数存储（`i64`）。
+    pub fn with_priority(mut self, priority: i64) -> Self {
         self.priority = priority;
         self
     }
@@ -251,8 +255,8 @@ impl AccessRule {
         self.regulation.as_ref()
     }
 
-    /// 返回显式 priority。
-    pub const fn priority(&self) -> i32 {
+    /// 返回显式 priority（经 `AccessRegistry::try_new` 校验后保证在 i32 范围内）。
+    pub const fn priority(&self) -> i64 {
         self.priority
     }
 
@@ -338,8 +342,9 @@ impl AccessRegistry {
     /// 3. participantClassIds 非空且每个解析到已声明 class；
     /// 4. capability guard（FacilityBand target 或声明 timeWindows 的规则拒绝载入；
     ///    在 unknown 检查之后、shape/组合检查之前）；
-    /// 5. regulation shape（字段长度 1 到 128 字符；guard 整体拒绝后其内部
-    ///    shape 校验无意义，故在 guard 之后）；
+    /// 5. shape（priority i32 范围、regulation 字段长度 1 到 128 字符；guard
+    ///    整体拒绝后其内部 shape 校验无意义，故在 guard 之后；同 phase 按
+    ///    input order 返回首错）；
     /// 6. regulation provenance 单一性（同一 `(jurisdiction, version)`）；
     /// 7. §6.4 确定性组合裁决（残留 allow/deny 并列拒绝载入）。
     ///
@@ -431,9 +436,14 @@ impl AccessRegistry {
             }
         }
 
-        // phase 9.5：regulation shape（capability guard 之后、provenance 单一性之前；
-        // 按 input order 返回首错）。
+        // phase 9.5：shape（capability guard 之后、provenance 单一性之前；同一
+        // phase 内按 input order 逐规则返回首错——priority i32 范围先于 regulation
+        // 字段长度）。
         for rule in &rules {
+            let priority = rule.priority();
+            if i32::try_from(priority).is_err() {
+                return Err(CoreError::InvalidAccessRulePriority { priority });
+            }
             if let Some(regulation) = rule.regulation() {
                 regulation.validate()?;
             }
@@ -752,7 +762,7 @@ where
             let profile_class = ParticipantClassHandle::new(class_index);
             // 第一遍：计算每条适用规则的 (depth, target specificity, priority)
             // key，收集最大 key 的 contenders（保持 input order）。
-            let mut best_key: Option<(u32, u8, i32)> = None;
+            let mut best_key: Option<(u32, u8, i64)> = None;
             contenders.clear();
             for &rule_index in &unit_rule_indices[unit_index] {
                 // 参与者匹配：profile class 是规则任一 participantClassIds 成员的
