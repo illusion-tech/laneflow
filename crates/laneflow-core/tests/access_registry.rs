@@ -671,6 +671,21 @@ fn priority_shape_orders_after_capability_guard() {
             ["truck"],
         )
         .with_priority_literal("0.0"),
+        // 零尾数与指数取值无关：指数超出 i64 的合法零字面量仍精确为 0。
+        AccessRule::new(
+            "rule-zero-huge-exp",
+            AccessTargetId::lane_edge("e3"),
+            AccessEffect::Allow,
+            ["car"],
+        )
+        .with_priority_literal("0e9223372036854775808"),
+        AccessRule::new(
+            "rule-neg-zero-huge-exp",
+            AccessTargetId::lane_edge("e1"),
+            AccessEffect::Allow,
+            ["car"],
+        )
+        .with_priority_literal("-0.0e-99999999999999999999"),
     ]);
 }
 
