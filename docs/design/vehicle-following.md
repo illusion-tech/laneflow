@@ -1,7 +1,7 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-25
+**最后更新**: 2026-07-27（Traffic v0.9 当前态同步）  
 
 **适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、Traffic v0.8 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
@@ -111,11 +111,11 @@ Validation：
 
 ### 4.2 Package 版本
 
-Vehicle Profile shape 由 current `schemas/laneflow-data-v0.8.schema.json` 继续承载。概念 package：
+Vehicle Profile shape 由 current `schemas/laneflow-data-v0.9.schema.json` 继续承载。概念 package：
 
 ```json
 {
-  "formatVersion": "0.8",
+  "formatVersion": "0.9",
   "units": {
     "distance": "meter",
     "time": "second"
@@ -127,6 +127,11 @@ Vehicle Profile shape 由 current `schemas/laneflow-data-v0.8.schema.json` 继�
   "movements": [],
   "maneuverPaths": [],
   "routes": [],
+  "participantClasses": [
+    {
+      "id": "motorVehicle"
+    }
+  ],
   "vehicleProfiles": [
     {
       "id": "passenger-car",
@@ -137,7 +142,8 @@ Vehicle Profile shape 由 current `schemas/laneflow-data-v0.8.schema.json` 继�
       "timeHeadway": 1.5,
       "maxAcceleration": 1.5,
       "comfortableDeceleration": 2.0,
-      "emergencyDeceleration": 6.0
+      "emergencyDeceleration": 6.0,
+      "participantClassId": "motorVehicle"
     }
   ],
   "signals": {
@@ -149,16 +155,21 @@ Vehicle Profile shape 由 current `schemas/laneflow-data-v0.8.schema.json` 继�
   "parking": {
     "areas": [],
     "spaces": []
-  }
+  },
+  "facilityBands": [],
+  "roadSections": [],
+  "laneGroups": [],
+  "roadCorridors": [],
+  "accessRules": []
 }
 ```
 
 规则：
 
-- 当前 v0.8 沿用已接受的 Vehicle Profile 领域语义，并要求每条 edge 显式 `speedLimit`、顶层 Junction/Movement/ManeuverPath arrays 以及 Signals/Parking objects。
-- 顶层 `vehicleProfiles` 必填，允许空数组。
+- 当前 v0.9 沿用已接受的 Vehicle Profile 领域语义，并要求每条 edge 显式 `speedLimit`、顶层 Junction/Movement/ManeuverPath arrays、Signals/Parking objects 与横断面/准入六数组（`participantClasses`/`facilityBands`/`roadSections`/`laneGroups`/`roadCorridors`/`accessRules`，必填、可空）。
+- 顶层 `vehicleProfiles` 必填，允许空数组；每条 profile 必须引用已声明的 `participantClassId`。
 - Core-defined objects 继续采用 closed shape。
-- production loader 只接受 `"0.8"`；v0.5、v0.6、v0.7 和未来版在当前 shape validation 前返回 version error。
+- production loader 只接受 `"0.9"`；v0.5-v0.8 和未来版在当前 shape validation 前返回 version error。
 - 不隐式合成 profile，不提供历史格式 compatibility shim。
 - current format 不持久化 initial vehicles、spawn schedule、demand、runtime handles 或 Adapter metadata。
 
@@ -170,7 +181,7 @@ v0.3 profile registry 在 world 生命周期内不可变，不公开 runtime reg
 
 ### 4.4 Crate 与 loader 边界
 
-依据 ADR 0007/0008，current v0.8 production loader 位于 `laneflow-data`，依赖方向为 `laneflow-data -> laneflow-core`。Core 不依赖 Serde、JSON、JSON Schema 或文件系统；pre-1.0 的 production loader 只维护当前格式。
+依据 ADR 0007/0008，current v0.9 production loader 位于 `laneflow-data`，依赖方向为 `laneflow-data -> laneflow-core`。Core 不依赖 Serde、JSON、JSON Schema 或文件系统；pre-1.0 的 production loader 只维护当前格式。
 
 public loader 返回单一当前 `LoadedPackage`，不公开历史版本 enum/variant，也不以 optional profile 或空 registry 区分格式。Vehicle Profiles、Signals 与 Parking 都由显式字段构造；空数组是当前格式的合法状态。
 

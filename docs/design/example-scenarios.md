@@ -115,7 +115,7 @@ steady tick 不做 runtime pathfinding、external-ID lookup 或 geometry matchin
 
 ## 4. 限速与车辆纵向行为
 
-Traffic v0.8 current contract 在每个 lane edge 上要求严格正、有限的 `speedLimit`：
+Traffic v0.9 current contract 在每个 lane edge 上要求严格正、有限的 `speedLimit`：
 
 | edge class                         |  公示值 |
 | ---------------------------------- | ------: |
