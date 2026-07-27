@@ -647,7 +647,8 @@ profiles → lane graph → Junction → Signals → Parking → Routes）：
    检查之后；guard 先于 shape/组合检查——能力整体拒绝后其内部细节校验无
    意义）、timeWindow shape（timeWindows 空数组、days 空集、分钟越界——
    `start ∈ [0, 1439]`、`end ∈ [1, 1440]`、`start == end`）、`priority`
-   shape（i32 范围；definition 存原始整数，统一在 guard 之后执行）、
+   shape（整数性 + i32 范围；definition 存原始数值字面量，统一在 guard
+   之后执行）、
    `regulation`
    shape（jurisdiction/version/source 长度 1 到 128 字符；definition 不预校验，
    统一在 guard 之后执行）、`regulation`

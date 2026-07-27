@@ -200,10 +200,10 @@ pub(crate) struct WireAccessRule {
     #[serde(default, deserialize_with = "non_null_option")]
     pub(crate) regulation: Option<WireRegulation>,
     #[serde(default, deserialize_with = "non_null_option")]
-    // 与 timeWindows 分钟字段同理：JSON integer type 检查留在 wire（小数仍
-    // JsonShape 拒绝），i32 语义范围保留原始整数值，由 Core phase 9.5 在
-    // capability guard 之后校验。
-    pub(crate) priority: Option<i64>,
+    // 与 timeWindows 分钟字段同理：JSON number type 检查留在 wire（非数值仍
+    // JsonShape 拒绝），整数性与 i32 语义范围保留原始数值字面量，由 Core
+    // phase 9.5 在 capability guard 之后校验。
+    pub(crate) priority: Option<serde_json::Number>,
 }
 
 #[derive(Deserialize)]

@@ -167,7 +167,7 @@ pub struct AccessRule {
     effect: AccessEffect,
     participant_class_ids: Vec<String>,
     regulation: Option<AccessRegulation>,
-    priority: i64,
+    priority: String,
     has_time_windows: bool,
 }
 
@@ -190,7 +190,7 @@ impl AccessRule {
             effect,
             participant_class_ids: participant_class_ids.into_iter().map(Into::into).collect(),
             regulation: None,
-            priority: 0,
+            priority: "0".to_owned(),
             has_time_windows: false,
         }
     }
@@ -216,11 +216,19 @@ impl AccessRule {
 
     /// 设置显式 priority（缺省 0）。
     ///
-    /// 与 regulation 同理不在此处做范围校验：i32 范围由 `AccessRegistry::try_new`
-    /// phase 9.5 统一校验，保证 capability guard 先于 shape 检查的首错顺序，
-    /// 故此处按原始整数存储（`i64`）。
+    /// 与 regulation 同理不在此处做范围校验，也不受任何整数表示边界约束：
+    /// definition 存原始数值字面量，整数性与 i32 范围由
+    /// `AccessRegistry::try_new` phase 9.5 统一校验，保证 capability guard
+    /// 先于 shape 检查的首错顺序。
     pub fn with_priority(mut self, priority: i64) -> Self {
-        self.priority = priority;
+        self.priority = priority.to_string();
+        self
+    }
+
+    /// 以原始 JSON 数值字面量设置 priority（供已持有字面量的 normalization
+    /// 层使用，使任意大小的数值都能先抵达 capability guard）。
+    pub fn with_priority_literal(mut self, literal: impl Into<String>) -> Self {
+        self.priority = literal.into();
         self
     }
 
@@ -255,9 +263,10 @@ impl AccessRule {
         self.regulation.as_ref()
     }
 
-    /// 返回显式 priority（经 `AccessRegistry::try_new` 校验后保证在 i32 范围内）。
-    pub const fn priority(&self) -> i64 {
-        self.priority
+    /// 返回显式 priority 的原始字面量（经 `AccessRegistry::try_new` 校验后
+    /// 保证是 i32 范围内的整数）。
+    pub fn priority(&self) -> &str {
+        &self.priority
     }
 
     /// 返回 timeWindows guard 归因标记。
@@ -437,13 +446,16 @@ impl AccessRegistry {
         }
 
         // phase 9.5：shape（capability guard 之后、provenance 单一性之前；同一
-        // phase 内按 input order 逐规则返回首错——priority i32 范围先于 regulation
-        // 字段长度）。
+        // phase 内按 input order 逐规则返回首错——priority 整数性/i32 范围先于
+        // regulation 字段长度）。
+        let mut resolved_priorities = Vec::with_capacity(rules.len());
         for rule in &rules {
-            let priority = rule.priority();
-            if i32::try_from(priority).is_err() {
-                return Err(CoreError::InvalidAccessRulePriority { priority });
-            }
+            let Some(priority) = parse_access_priority(rule.priority()) else {
+                return Err(CoreError::InvalidAccessRulePriority {
+                    priority: rule.priority().to_owned(),
+                });
+            };
+            resolved_priorities.push(priority);
             if let Some(regulation) = rule.regulation() {
                 regulation.validate()?;
             }
@@ -528,6 +540,7 @@ impl AccessRegistry {
             &rules,
             &resolved_targets,
             &resolved_classes,
+            &resolved_priorities,
             classes,
             class_count,
             (0..edge_count).map(EdgeHandle::new),
@@ -544,6 +557,7 @@ impl AccessRegistry {
             &rules,
             &resolved_targets,
             &resolved_classes,
+            &resolved_priorities,
             classes,
             class_count,
             (0..path_count).map(ManeuverPathHandle::new),
@@ -741,10 +755,31 @@ impl AccessRegistry {
     clippy::too_many_arguments,
     reason = "normalization 期一次性裁决需要全部上下文"
 )]
+/// 校验 priority 字面量：必须是 i32 范围内的整数（JSON Schema `integer` 语义，
+/// 允许零小数表示如 `100.0`；loader 路径不执行 JSON Schema，由本函数把关）。
+fn parse_access_priority(literal: &str) -> Option<i32> {
+    if let Ok(value) = literal.parse::<i64>() {
+        return i32::try_from(value).ok();
+    }
+    if let Ok(value) = literal.parse::<u64>() {
+        return i32::try_from(value).ok();
+    }
+    let value: f64 = literal.parse().ok()?;
+    if value.fract() == 0.0 && value >= f64::from(i32::MIN) && value <= f64::from(i32::MAX) {
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "范围与零小数已检查，转换精确"
+        )]
+        return Some(value as i32);
+    }
+    None
+}
+
 fn resolve_cells<H>(
     rules: &[AccessRule],
     resolved_targets: &[ResolvedAccessTarget],
     resolved_classes: &[Vec<ParticipantClassHandle>],
+    resolved_priorities: &[i32],
     classes: &ParticipantClassRegistry,
     class_count: usize,
     units: impl Iterator<Item = H>,
@@ -762,7 +797,7 @@ where
             let profile_class = ParticipantClassHandle::new(class_index);
             // 第一遍：计算每条适用规则的 (depth, target specificity, priority)
             // key，收集最大 key 的 contenders（保持 input order）。
-            let mut best_key: Option<(u32, u8, i64)> = None;
+            let mut best_key: Option<(u32, u8, i32)> = None;
             contenders.clear();
             for &rule_index in &unit_rule_indices[unit_index] {
                 // 参与者匹配：profile class 是规则任一 participantClassIds 成员的
@@ -782,7 +817,7 @@ where
                 let key = (
                     depth,
                     resolved_targets[rule_index].target_specificity(),
-                    rules[rule_index].priority(),
+                    resolved_priorities[rule_index],
                 );
                 match best_key {
                     Some(best) if key < best => {}
