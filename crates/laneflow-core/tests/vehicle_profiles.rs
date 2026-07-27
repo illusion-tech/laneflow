@@ -269,3 +269,72 @@ fn registry_rejects_participant_class_handle_outside_class_registry() {
         } if profile_id == "passenger-car"
     );
 }
+
+/// 声明顺序相反的等价 class registry：`car` 的 dense index 从 1 变为 0。
+fn reversed_participant_classes() -> ParticipantClassRegistry {
+    ParticipantClassRegistry::try_new(vec![
+        ParticipantClass::new("car", Some("motorVehicle")),
+        ParticipantClass::new("motorVehicle", None),
+    ])
+    .expect("reversed class registry must be valid")
+}
+
+#[test]
+fn rebind_classes_preserves_class_semantics_across_registries() {
+    let (classes, car) = participant_classes();
+    let registry = VehicleProfileRegistry::try_new(&classes, [profile("passenger-car")])
+        .expect("valid profile registry");
+
+    // 同 registry rebind 是恒等。
+    let identity = registry
+        .rebind_classes(&classes)
+        .expect("identity rebind must succeed");
+    let handle = identity
+        .profile_handle("passenger-car")
+        .expect("profile handle exists");
+    assert_eq!(
+        identity
+            .profile(handle)
+            .map(VehicleProfile::participant_class),
+        Some(car)
+    );
+
+    // 目标 registry 声明顺序相反：若沿用旧 dense index 会把 profile 错挂到
+    // `motorVehicle`（index 1）；rebind 按 retained 外部 ID 解析回 `car`。
+    let reversed = reversed_participant_classes();
+    let rebound = registry
+        .rebind_classes(&reversed)
+        .expect("rebind to reversed registry must succeed");
+    let handle = rebound
+        .profile_handle("passenger-car")
+        .expect("profile handle exists");
+    let rebound_class = rebound
+        .profile(handle)
+        .map(VehicleProfile::participant_class)
+        .expect("profile exists");
+    assert_eq!(
+        reversed.class_external_id(rebound_class),
+        Some("car"),
+        "rebind 后 profile 的 class 语义必须仍是 car"
+    );
+}
+
+#[test]
+fn rebind_classes_rejects_class_missing_in_target_registry() {
+    let (classes, _) = participant_classes();
+    let registry = VehicleProfileRegistry::try_new(&classes, [profile("passenger-car")])
+        .expect("valid profile registry");
+
+    // 目标 registry 缺 `car`：结构化错误并归因到 profile 与 class。
+    let without_car =
+        ParticipantClassRegistry::try_new(vec![ParticipantClass::new("motorVehicle", None)])
+            .expect("valid class registry");
+    let error = registry
+        .rebind_classes(&without_car)
+        .expect_err("unknown retained class must fail");
+    std::assert_matches!(
+        error,
+        CoreError::UnknownVehicleProfileParticipantClass { profile_id, class_id }
+            if profile_id == "passenger-car" && class_id == "car"
+    );
+}

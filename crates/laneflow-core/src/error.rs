@@ -90,6 +90,14 @@ pub enum CoreError {
         class_index: usize,
         class_count: usize,
     },
+    /// rebind 时 Vehicle Profile 保留的 ParticipantClass external ID 必须解析到目标 registry。
+    #[error(
+        "Vehicle Profile `{profile_id}` 的 ParticipantClass `{class_id}` 在目标 ParticipantClassRegistry 中不存在"
+    )]
+    UnknownVehicleProfileParticipantClass {
+        profile_id: String,
+        class_id: String,
+    },
     /// FacilityBand external ID 在 registry 内必须唯一。
     #[error("FacilityBand id 重复：{band_id}")]
     DuplicateFacilityBandId { band_id: String },

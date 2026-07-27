@@ -283,3 +283,72 @@ fn participant_classes() -> (
     let car = classes.class_handle("car").expect("car class must exist");
     (classes, car)
 }
+
+/// 声明顺序相反的等价 class registry（`car` 的 dense index 从 1 变为 0）。
+fn reversed_participant_classes() -> laneflow_core::ParticipantClassRegistry {
+    laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+    ])
+    .expect("reversed class registry must be valid")
+}
+
+#[test]
+fn assembly_rebinds_profiles_to_final_participant_classes() {
+    // profiles 按 caller 侧 class registry（[motorVehicle, car]）构造，final
+    // assembly 收到声明顺序相反的 registry。若不做 profiles rebind，旧 dense
+    // index 1 会把 passenger-car 错挂到 final registry 的 `motorVehicle`。
+    let traffic_data = InitialTrafficData::try_new(
+        canonical_graph(),
+        [],
+        canonical_profiles(),
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+        reversed_participant_classes(),
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
+    )
+    .expect("valid initial traffic data");
+
+    let profiles = traffic_data.vehicle_profiles();
+    let handle = profiles
+        .profile_handle("passenger-car")
+        .expect("profile handle exists");
+    let class = profiles
+        .profile(handle)
+        .map(VehicleProfile::participant_class)
+        .expect("profile exists");
+    assert_eq!(
+        traffic_data.participant_classes().class_external_id(class),
+        Some("car"),
+        "final assembly 后 profile 的 class 语义必须仍是 car"
+    );
+}
+
+#[test]
+fn assembly_rejects_profile_class_missing_in_final_participant_classes() {
+    // final class registry 缺 `car`：profiles rebind 返回结构化错误，装配失败。
+    let without_car = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+    ])
+    .expect("valid class registry");
+    let error = InitialTrafficData::try_new(
+        canonical_graph(),
+        [],
+        canonical_profiles(),
+        laneflow_core::JunctionRegistry::empty(),
+        laneflow_core::SignalRegistry::empty(),
+        laneflow_core::ParkingRegistry::empty(),
+        without_car,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
+    )
+    .expect_err("profile class missing in final registry must fail");
+
+    std::assert_matches!(
+        error,
+        CoreError::UnknownVehicleProfileParticipantClass { profile_id, class_id }
+            if profile_id == "passenger-car" && class_id == "car"
+    );
+}

@@ -672,9 +672,11 @@ impl AccessRegistry {
 /// 对一个平面的全部 `(unit, class)` 组合做 §6.4 字典序裁决并填充 dense 表。
 ///
 /// 字典序：①参与者 specificity（使匹配成功的最深 class 深度）②target
-/// specificity（仅 edge 平面）③priority 数值高者。经 1-3 仍在 allow/deny 间
-/// 并列返回 `CoreError::AccessRuleAmbiguity`；同 effect 并列保留 input order
-/// 先声明者作为归因。
+/// specificity（仅 edge 平面）③priority 数值高者。裁决先求最大 key 的
+/// contenders 集合：低 key 规则之间的 allow/deny 并列不构成歧义（它们已被
+/// 更高 key 的规则整体击败）；只有最大 key contenders 内部仍 effect 混合才
+/// 返回 `CoreError::AccessRuleAmbiguity`。同 effect 并列合法，保留 input
+/// order 先声明者作为归因。结果不随输入排列漂移。
 #[expect(
     clippy::too_many_arguments,
     reason = "normalization 期一次性裁决需要全部上下文"
@@ -694,10 +696,14 @@ where
     H: Copy,
 {
     let mut cells = vec![AccessCell::Unconstrained; unit_rule_indices.len() * class_count];
+    let mut contenders: Vec<usize> = Vec::new();
     for (unit_index, unit) in units.enumerate() {
         for class_index in 0..class_count {
             let profile_class = ParticipantClassHandle::new(class_index);
-            let mut best: Option<((u32, u8, i32), usize)> = None;
+            // 第一遍：计算每条适用规则的 (depth, target specificity, priority)
+            // key，收集最大 key 的 contenders（保持 input order）。
+            let mut best_key: Option<(u32, u8, i32)> = None;
+            contenders.clear();
             for &rule_index in &unit_rule_indices[unit_index] {
                 // 参与者匹配：profile class 是规则任一 participantClassIds 成员的
                 // 传递后代或自身；specificity 取使匹配成功的最深 class 深度。
@@ -718,34 +724,39 @@ where
                     resolved_targets[rule_index].target_specificity(),
                     rules[rule_index].priority(),
                 );
-                match &mut best {
-                    None => best = Some((key, rule_index)),
-                    Some((best_key, best_rule_index)) => {
-                        if key > *best_key {
-                            *best_key = key;
-                            *best_rule_index = rule_index;
-                        } else if key == *best_key
-                            && rules[rule_index].effect() != rules[*best_rule_index].effect()
-                        {
-                            return Err(CoreError::AccessRuleAmbiguity {
-                                plane,
-                                target_id: unit_external_id(unit),
-                                class_id: classes
-                                    .class_external_id(profile_class)
-                                    .expect("class index must belong to class registry")
-                                    .to_owned(),
-                                first_rule_id: rules[*best_rule_index].id().to_owned(),
-                                second_rule_id: rules[rule_index].id().to_owned(),
-                            });
-                        }
-                        // 同 effect 并列合法：保留先声明者作为归因。
+                match best_key {
+                    Some(best) if key < best => {}
+                    Some(best) if key == best => contenders.push(rule_index),
+                    _ => {
+                        best_key = Some(key);
+                        contenders.clear();
+                        contenders.push(rule_index);
                     }
                 }
             }
-            if let Some((_, rule_index)) = best {
+            // 第二遍：只检查最大 key contenders 内部的 effect 一致性。
+            if let Some(&first) = contenders.first() {
+                let effect = rules[first].effect();
+                if let Some(&opposite) = contenders
+                    .iter()
+                    .skip(1)
+                    .find(|&&rule_index| rules[rule_index].effect() != effect)
+                {
+                    return Err(CoreError::AccessRuleAmbiguity {
+                        plane,
+                        target_id: unit_external_id(unit),
+                        class_id: classes
+                            .class_external_id(profile_class)
+                            .expect("class index must belong to class registry")
+                            .to_owned(),
+                        first_rule_id: rules[first].id().to_owned(),
+                        second_rule_id: rules[opposite].id().to_owned(),
+                    });
+                }
+                // 同 effect 并列合法：保留先声明者作为归因。
                 cells[unit_index * class_count + class_index] = AccessCell::Decided {
-                    rule: AccessRuleHandle::new(rule_index),
-                    effect: rules[rule_index].effect(),
+                    rule: AccessRuleHandle::new(first),
+                    effect,
                 };
             }
         }
