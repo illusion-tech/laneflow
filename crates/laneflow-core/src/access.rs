@@ -101,16 +101,35 @@ pub struct AccessRegulation {
 
 impl AccessRegulation {
     /// 创建 regulation provenance。
-    pub fn new(
+    ///
+    /// 三个字段的长度限定为 1 到 128 字符（与 schema 契约一致）：loader 路径不执行
+    /// JSON Schema，provenance 是可审计字段，空串或超长串不得绕过校验进入 Core。
+    pub fn try_new(
         jurisdiction: impl Into<String>,
         version: impl Into<String>,
         source: Option<&str>,
-    ) -> Self {
-        Self {
-            jurisdiction: jurisdiction.into(),
-            version: version.into(),
-            source: source.map(str::to_owned),
+    ) -> Result<Self, CoreError> {
+        let jurisdiction = jurisdiction.into();
+        let version = version.into();
+        let source = source.map(str::to_owned);
+        for (field, value) in [
+            ("jurisdiction", Some(jurisdiction.as_str())),
+            ("version", Some(version.as_str())),
+            ("source", source.as_deref()),
+        ]
+        .into_iter()
+        .filter_map(|(field, value)| value.map(|value| (field, value)))
+        {
+            let len = value.chars().count();
+            if !(1..=128).contains(&len) {
+                return Err(CoreError::InvalidAccessRegulationString { field, len });
+            }
         }
+        Ok(Self {
+            jurisdiction,
+            version,
+            source,
+        })
     }
 
     /// 返回法域。

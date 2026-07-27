@@ -396,6 +396,23 @@ fn schema_locks_v0_9_cross_section_and_access_shapes() {
         schema["$defs"]["accessRule"]["properties"]["participantClassIds"]["minItems"],
         1
     );
+    // 结构数组在契约中显式非空（SSOT §3/§6.1），schema 与 loader 拒绝口径保持一致。
+    assert_eq!(
+        schema["$defs"]["roadSection"]["properties"]["lanes"]["minItems"],
+        1
+    );
+    assert_eq!(
+        schema["$defs"]["sectionLane"]["properties"]["edgeIds"]["minItems"],
+        1
+    );
+    assert_eq!(
+        schema["$defs"]["roadCorridor"]["properties"]["elements"]["minItems"],
+        1
+    );
+    assert_eq!(
+        schema["$defs"]["accessRule"]["properties"]["timeWindows"]["minItems"],
+        1
+    );
     assert_eq!(
         schema["$defs"]["accessRule"]["properties"]["priority"],
         serde_json::json!({
@@ -528,6 +545,37 @@ fn schema_enforces_v0_9_participant_class_and_access_ranges() {
     let mut instance: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
     instance["accessRules"] = serde_json::json!([empty_class_ids]);
     assert!(draft202012::validate(&schema, &instance).is_err());
+
+    // 结构数组空数组拒绝（与 production normalization / capability guard 口径一致）。
+    let mut empty_time_windows = valid_rule.clone();
+    empty_time_windows["timeWindows"] = serde_json::json!([]);
+    let mut instance: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
+    instance["accessRules"] = serde_json::json!([empty_time_windows]);
+    assert!(
+        draft202012::validate(&schema, &instance).is_err(),
+        "declared timeWindows must be non-empty"
+    );
+
+    let mut empty_lanes: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
+    empty_lanes["roadSections"][0]["lanes"] = serde_json::json!([]);
+    assert!(
+        draft202012::validate(&schema, &empty_lanes).is_err(),
+        "roadSection.lanes must be non-empty"
+    );
+
+    let mut empty_edge_ids: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
+    empty_edge_ids["roadSections"][0]["lanes"][0]["edgeIds"] = serde_json::json!([]);
+    assert!(
+        draft202012::validate(&schema, &empty_edge_ids).is_err(),
+        "sectionLane.edgeIds must be non-empty"
+    );
+
+    let mut empty_elements: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
+    empty_elements["roadCorridors"][0]["elements"] = serde_json::json!([]);
+    assert!(
+        draft202012::validate(&schema, &empty_elements).is_err(),
+        "roadCorridor.elements must be non-empty"
+    );
 
     for element in [
         serde_json::json!({ "sectionId": "section-main", "bandId": "band-1" }),

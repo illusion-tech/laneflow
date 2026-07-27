@@ -416,7 +416,8 @@ fn normalize_access(
     let rules = wire
         .access_rules
         .iter()
-        .map(|rule| {
+        .enumerate()
+        .map(|(index, rule)| {
             let target = match rule.target.kind {
                 wire::WireAccessTargetKind::LaneEdge => {
                     AccessTargetId::lane_edge(rule.target.id.clone())
@@ -448,15 +449,23 @@ fn normalize_access(
             .with_time_windows(rule.time_windows.is_some())
             .with_priority(rule.priority.unwrap_or(0));
             if let Some(regulation) = &rule.regulation {
-                definition = definition.with_regulation(AccessRegulation::new(
+                let parsed = AccessRegulation::try_new(
                     regulation.jurisdiction.clone(),
                     regulation.version.clone(),
                     regulation.source.as_deref(),
-                ));
+                )
+                .map_err(|source| {
+                    let field = match &source {
+                        CoreError::InvalidAccessRegulationString { field, .. } => *field,
+                        _ => unreachable!("AccessRegulation::try_new 只返回 regulation 字段错误"),
+                    };
+                    DataError::core(format!("accessRules[{index}].regulation.{field}"), source)
+                })?;
+                definition = definition.with_regulation(parsed);
             }
-            definition
+            Ok(definition)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, DataError>>()?;
 
     AccessRegistry::try_new(
         lane_graph,
