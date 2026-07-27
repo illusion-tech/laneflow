@@ -556,6 +556,14 @@ fn priority_shape_orders_after_capability_guard() {
         "1.00000000000000001",
         "1e400",
         "1e-3",
+        // 非法字面量语法（公开 Core API 不经过 wire 层，Core 自行拒绝）：
+        // 非法指数（含全零尾数也不得豁免语法校验）、空尾数、空小数段。
+        "0eBAD",
+        "0e",
+        "0e+",
+        "0e5e5",
+        "-e5",
+        "5.",
     ] {
         let error = AccessRegistry::try_new(
             &graph(),
