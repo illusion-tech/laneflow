@@ -1,7 +1,7 @@
 # WaitingZone、ConflictZone 与通行权分层
 
 **文档状态**: Accepted（#235 G1）<br>
-**最后更新**: 2026-07-27<br>
+**最后更新**: 2026-07-28<br>
 **适用范围**: #235 的多阶段 ManeuverGate、WaitingZone、ConflictZone、versioned jurisdiction/right-of-way policy、车辆级 grant/reservation、确定性与 Core constraint 集成<br>
 **实现状态**: 尚未生产化；current production 仍是每条 ManeuverPath 仅 entry Gate、protected-only signal compliance，不得把本文概念当作已存在 API
 
@@ -1838,34 +1838,36 @@ Adapter 不得移动 authoritative progress、修改 queue order、授予 reserv
 
 ## 17. 后续实施切片
 
-G1 已接受；后续至少拆为以下独立 Issue，每个 Issue 自行完成 G0-G4 与元数据审计：
+G1 已接受；#280 已将后续生产化范围拆为以下独立 Issue。每个 Issue 自行完成
+G0-G4 与元数据审计：
 
-1. **multi-Gate + WaitingZone static/Data**：解除 entry-only guard，新增 WaitingZone
-   registry，并从届时 current Traffic（当前为 v0.9）原子升级 schema/loader/
-   fixtures、Route occurrence compilation 与 profile-route-cursor static feasibility
-   binding，不激活 tick runtime。
-2. **WaitingZone runtime**：vehicle state、capacity/physical storage、queue、
-   admission claim、constraint/hard guard/events。
-3. **Conflict static + Spatial**：ConflictZone/ParticipantStream/PathAnchor、
-   route passage compilation、可选 Spatial pairing 与 authoring validation。
-4. **policy + ConflictArbiter runtime**：RegulationIdentity、stream rules、
-   gap profile、top-two forward approach frontier、downstream-clearance guard、
-   single-writer claim ledger、candidate/grant/reservation、失败原子性。
-5. **cross-layer validation/performance**：canonical fixtures、Data round-trip、
-   Adapter observation、10k/100k、独立 closure review。
+1. **#281 multi-Gate + WaitingZone static/Data**：解除 entry-only guard，新增
+   WaitingZone registry，并从届时 current Traffic（当前为 v0.9）原子升级
+   schema/loader/fixtures、Route occurrence compilation 与
+   profile-route-cursor static feasibility binding，不激活 tick runtime。
+2. **#282 WaitingZone runtime**：vehicle state、capacity/physical storage、
+   queue、admission claim、constraint/hard guard/events。
+3. **#283 Conflict static + Spatial**：ConflictZone/ParticipantStream/
+   PathAnchor、route passage compilation、可选 Spatial pairing 与 authoring
+   validation。
+4. **#284 policy + ConflictArbiter runtime**：RegulationIdentity、stream
+   rules、gap profile、top-two forward approach frontier、downstream-clearance
+   guard、single-writer claim ledger、candidate/grant/reservation、失败原子性。
+5. **#285 cross-layer validation/performance**：canonical fixtures、Data
+   round-trip、Adapter observation、10k/100k、独立 closure review。
 
 切片顺序建议：
 
 ```text
-multi-Gate/Waiting static
-  -> Waiting runtime
-  -> Conflict static/Spatial
-  -> policy/arbiter runtime
-  -> cross-layer validation/closure
+#281 multi-Gate/Waiting static
+  ├─> #282 Waiting runtime ───────────┐
+  └─> #283 Conflict static/Spatial ───┴─> #284 policy/arbiter runtime
+                                              └─> #285 validation/closure
 ```
 
-Conflict static 可以在 Waiting runtime 后半段并行准备，但 policy/arbiter 不得在
-static identity、coverage 与 occurrence compilation 未冻结时先行实现。
+#282 与 #283 在共同前置 #281 完成后可以并行；#284 不得在二者的 runtime/static
+identity、coverage 与 occurrence compilation 完成前先行；#285 最后验证组合后的
+Data/Spatial/Core/Adapter 契约、确定性与性能。
 
 #264 消费本设计与 #237 的 accepted 结论后，才拆 JunctionGroup、环岛、停车连接与
 互通组合设施；不得在 #264 内重新定义 ConflictZone/right-of-way owner。

@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Draft  
-**最后更新**: 2026-07-24
+**最后更新**: 2026-07-28
 **适用范围**: LaneFlow 初始版本路线图
 
 本文记录 LaneFlow 的稳定路线图。GitHub Project 负责当前执行状态，本文负责长期版本边界。
@@ -220,11 +220,22 @@ single-writer claim ledger 防止 Waiting/Conflict/downstream 同 tick 重复分
 multi-Gate/Waiting static 实施必须从届时 current version 原子升级，#235 不预占
 具体版本号。
 
-后续 production 建议按 multi-Gate/Waiting static → Waiting runtime → Conflict
-static/Spatial → policy/arbiter runtime → cross-layer 10k/100k/closure 拆分。
-#264 对 #235 的设计输入已经满足，但仍必须等待 #237 冻结后再拆 JunctionGroup、
-环岛、停车连接与互通组合；本 Delivery PR 合并前不得把尚未进入 `main` 的文档当作
-仓库 authority，合并后各 production 切片仍必须独立完成 G0-G4。
+生产化规划由 #280 回写，实施 DAG 已拆为：
+
+```text
+#281 multi-Gate/Waiting static
+  ├─> #282 Waiting runtime ───────────┐
+  └─> #283 Conflict static/Spatial ───┴─> #284 policy/arbiter runtime
+                                              └─> #285 cross-layer 10k/100k/closure
+```
+
+#281–#285 都是 #227 的独立后续切片，不是 #235 的子任务；每个切片必须自行完成
+G0-G4 与元数据审计。#281 在 #235 G4 前保持 Blocked，#235 完成路线图回写和清场后
+转 Ready；#282 与 #283 可在 #281 完成后并行，#284 必须等待二者，#285 负责最终
+跨层验证与独立收口。
+
+#264 对 #235 的设计输入已经满足；#235 G4 后移除该原生 blocker，但 #264 仍必须
+等待 #237 冻结后再拆 JunctionGroup、环岛、停车连接与互通组合。
 
 ## 城市级扩展研究（Milestone N/A）
 
