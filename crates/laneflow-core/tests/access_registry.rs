@@ -546,13 +546,16 @@ fn priority_shape_orders_after_capability_guard() {
     );
 
     // 无更早 phase 错误时，超 i32 范围的 priority 由 registry phase 9.5 拒绝
-    // （含超 i64 范围的原始字面量与小数）。
+    // （含超 i64 范围的原始字面量、f64 不可精确表示的小数与指数溢出）。
     for literal in [
         "2147483648",
         "-2147483649",
         "9223372036854775808",
         "-9223372036854775809",
         "1.5",
+        "1.00000000000000001",
+        "1e400",
+        "1e-3",
     ] {
         let error = AccessRegistry::try_new(
             &graph(),
@@ -630,7 +633,8 @@ fn priority_shape_orders_after_capability_guard() {
             if rule_id == "rule-time" && capability == "timeWindows"
     );
 
-    // i32 边界值合法；JSON Schema integer 语义的零小数表示（100.0）合法。
+    // i32 边界值合法；JSON Schema integer 语义的零小数/指数表示
+    // （100.0、1e2、0.0）合法。
     access(vec![
         AccessRule::new(
             "rule-min",
@@ -653,6 +657,20 @@ fn priority_shape_orders_after_capability_guard() {
             ["bus"],
         )
         .with_priority_literal("100.0"),
+        AccessRule::new(
+            "rule-exponent-int",
+            AccessTargetId::lane_edge("e1"),
+            AccessEffect::Allow,
+            ["truck"],
+        )
+        .with_priority_literal("1e2"),
+        AccessRule::new(
+            "rule-zero",
+            AccessTargetId::lane_edge("e2"),
+            AccessEffect::Allow,
+            ["truck"],
+        )
+        .with_priority_literal("0.0"),
     ]);
 }
 

@@ -19,6 +19,55 @@ where
     }
 }
 
+// priority 保留原始数值字面量：serde_json::Number 会按 f64 归一化
+// （1.00000000000000001 变 1.0、1e400 溢出为 JsonShape），字面量必须不经
+// 浮点转换进入 Core phase 9.5 精确校验（capability guard 之后）。wire 层只
+// 把关 JSON number type/语法，整数性与 i32 范围语义归 Core。
+fn access_priority_lexeme<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = match Option::<Box<serde_json::value::RawValue>>::deserialize(deserializer)? {
+        Some(raw) => raw,
+        None => {
+            return Err(serde::de::Error::custom(
+                "可选字段不接受显式 null；请省略该字段",
+            ));
+        }
+    };
+    let lexeme = raw.get().trim();
+    if is_json_number_lexeme(lexeme) {
+        Ok(Some(lexeme.to_owned()))
+    } else {
+        Err(serde::de::Error::custom(format!(
+            "priority 必须是 JSON number，实际为 `{lexeme}`"
+        )))
+    }
+}
+
+/// JSON number 语法：`-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`。
+fn is_json_number_lexeme(lexeme: &str) -> bool {
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    let lexeme = lexeme.strip_prefix('-').unwrap_or(lexeme);
+    let (mantissa, exponent) = match lexeme.find(['e', 'E']) {
+        Some(index) => (&lexeme[..index], Some(&lexeme[index + 1..])),
+        None => (lexeme, None),
+    };
+    if let Some(exponent) = exponent {
+        let exponent = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+        if !digits(exponent) {
+            return false;
+        }
+    }
+    let (integer, fraction) = match mantissa.find('.') {
+        Some(index) => (&mantissa[..index], Some(&mantissa[index + 1..])),
+        None => (mantissa, None),
+    };
+    let integer_ok = integer == "0"
+        || (integer.starts_with(|c: char| c.is_ascii_digit() && c != '0') && digits(integer));
+    integer_ok && fraction.is_none_or(digits)
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WireVersionHeader {
@@ -199,11 +248,8 @@ pub(crate) struct WireAccessRule {
     pub(crate) time_windows: Option<Vec<WireTimeWindow>>,
     #[serde(default, deserialize_with = "non_null_option")]
     pub(crate) regulation: Option<WireRegulation>,
-    #[serde(default, deserialize_with = "non_null_option")]
-    // 与 timeWindows 分钟字段同理：JSON number type 检查留在 wire（非数值仍
-    // JsonShape 拒绝），整数性与 i32 语义范围保留原始数值字面量，由 Core
-    // phase 9.5 在 capability guard 之后校验。
-    pub(crate) priority: Option<serde_json::Number>,
+    #[serde(default, deserialize_with = "access_priority_lexeme")]
+    pub(crate) priority: Option<String>,
 }
 
 #[derive(Deserialize)]
