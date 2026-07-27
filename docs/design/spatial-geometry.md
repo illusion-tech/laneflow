@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-27（current Traffic v0.9 与 #235 Waiting/Conflict 候选边界同步）
+**最后更新**: 2026-07-27（current Traffic v0.9 与 #235 Accepted Waiting/Conflict 边界同步）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -403,9 +403,9 @@ ManeuverPath：
 这些是 #229 的 Accepted target；在生成制品和 loader 往返通过前，不代表 current
 Spatial artifacts 已改变。
 
-## 16. WaitingZone / ConflictZone 候选边界
+## 16. WaitingZone / ConflictZone Accepted 设计边界
 
-#235 的 Review 候选
+#235 的 Accepted 设计
 [`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
 允许未来 SpatialPackage 绑定 WaitingZone/ConflictZone 的 canonical 3D region，
 用于 authoring validation、debug draw 与 presentation；Traffic/Core 的
@@ -413,6 +413,6 @@ Gate-bounded path interval、PathAnchor、ParticipantStream/ConflictZone 显式�
 仍是行为 authority。二维中心线相交、mesh bounds、physics collider 或 Adapter
 visual overlap 不能自动创建/删除 conflict 语义，高架/下穿不得因俯视相交被误判。
 Spatial geometry tolerance 也不能充当 Core PathAnchor crossing tolerance；#235
-候选为 conflict boundary 保留独立 Core numeric owner。
+已为 conflict boundary 冻结独立 Core numeric owner。
 具体 Spatial shape/version 由后续独立 implementation G1 决定，#235 不改变 current
 SpatialPackage 0.1。

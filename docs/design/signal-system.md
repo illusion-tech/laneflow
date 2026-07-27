@@ -549,14 +549,14 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 - 无信号优先级：独立 priority/sign/jurisdiction policy，不伪装成 SignalGroup；
 - 中段 StopLine：未来扩展 `edgeProgress`，或继续通过拆 edge authoring。
 
-#235 的 Review 候选
+#235 的 Accepted 设计
 [`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
 已把上述组合细化为 registration-time Gate/Waiting/Conflict occurrence、车辆级
-Gate decision、Core ConflictArbiter 与 tick-local grant/reservation。该候选保持
+Gate decision、Core ConflictArbiter 与 tick-local grant/reservation。该设计保持
 本文 Controller -> indication -> policy -> conflict -> safety 顺序，并要求 pinned
 policy/profile 在初始化时拒绝同 phase simultaneous Protected 的 incompatible
 Gate coverage；runtime reservation 不是错误 signal authoring 的降级机制。在
-G1/Delivery PR 完成前 current protected-only runtime 不变。
+后续 implementation slices 完成前 current protected-only runtime 不变。
 
 法规行为必须由明确版本、适用地区与可审计依据驱动。中国现行信号通行语义的正式来源之一是[《中华人民共和国道路交通安全法实施条例》](https://www.samr.gov.cn/zljds/zcfg/art/2023/art_5c212e15369443b3b2bea4e17a1c565b.html)；未来实现仍需在对应版本立项时重新核验，不把当前链接永久硬编码为 runtime 规则。
 
@@ -586,7 +586,7 @@ conflict 与 Core safety 分层，并实现：
 
 未来 multi-stage Gate 可在同一 ManeuverPath 的不同 transition 上拥有独立
 ManeuverGate identity；WaitingZone/conflict/policy behavior 已由 #235 的独立 G1
-候选承接，但尚未完成 Gate/Delivery PR。本文前述 pair-based 内容只描述历史
+Accepted 设计冻结，但尚未由后续切片生产化。本文前述 pair-based 内容只描述历史
 v0.4-v0.8 contract，不再是 current public API。
 
 #196 已在
