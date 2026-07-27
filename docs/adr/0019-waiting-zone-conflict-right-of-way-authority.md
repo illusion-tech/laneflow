@@ -265,6 +265,11 @@ evaluated Gate frontier 的归因，不能在下一 tick 复用为 permission。
 切换只影响尚未跨越的 Gate，不能撤销已提交的 Gate crossing；后续 Gate 仍按各自
 当前 snapshot 独立裁决。
 
+Waiting membership 与车辆当前是 `Committed` 还是已停住的 `Waiting` phase 正交：
+车辆跨 entry Gate 后即持有 membership，即使同 tick 继续行驶也不能丢失；stop/resume
+只切换 phase，successful release crossing 或显式原子 removal 才移除 membership。
+per-zone queue index 必须与该车辆侧 semantic authority 同事务维护。
+
 既有 spawn/initial/Completed replacement 可以指定非零 route cursor，但 v1 不根据
 cursor 猜测历史 Gate、Waiting 或 Conflict authority。对含 stateful occurrence 的
 Route，车辆只可在 first stateful Gate 未跨越侧或 occurrence exit 之后
