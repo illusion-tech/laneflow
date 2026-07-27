@@ -101,6 +101,9 @@ pub enum CoreError {
     /// AccessRule 的 regulation provenance 字符串必须为 1 到 128 字符（与 schema 契约一致）。
     #[error("regulation.{field} 必须为 1 到 128 字符，实际为 {len} 字符")]
     InvalidAccessRegulationString { field: &'static str, len: usize },
+    /// FacilityKind token 长度必须为 1 到 128 字符（与 schema 的 `facilityKindId` 契约一致）。
+    #[error("FacilityKind token `{kind}` 长度必须为 1 到 128 字符，实际为 {len} 字符")]
+    FacilityKindTokenTooLong { kind: String, len: usize },
     /// FacilityBand external ID 在 registry 内必须唯一。
     #[error("FacilityBand id 重复：{band_id}")]
     DuplicateFacilityBandId { band_id: String },

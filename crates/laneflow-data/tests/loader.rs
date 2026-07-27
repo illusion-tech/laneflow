@@ -1027,6 +1027,54 @@ fn access_capability_guards_are_structured_and_attributed() {
 }
 
 #[test]
+fn explicit_null_on_optional_fields_is_rejected() {
+    // 显式 null 不等于字段缺省（loader 路径不执行 JSON Schema）：timeWindows 为 null
+    // 不得被当作未声明而绕过 capability guard；其余可选字段同口径拒绝。
+    for field in ["timeWindows", "regulation", "priority"] {
+        let mut doc = signals_value();
+        let mut rule = json!({
+            "id": "rule-1",
+            "target": { "kind": "laneEdge", "id": "entry" },
+            "effect": "deny",
+            "participantClassIds": ["motorVehicle"]
+        });
+        rule[field] = json!(null);
+        doc["accessRules"] = json!([rule]);
+        assert!(
+            load_value(doc).is_err(),
+            "explicit null accessRules[].{field} must be rejected"
+        );
+    }
+
+    let mut null_extends = signals_value();
+    null_extends["participantClasses"][0]["extendsId"] = json!(null);
+    assert!(
+        load_value(null_extends).is_err(),
+        "explicit null extendsId must be rejected"
+    );
+
+    let mut null_lane_group = signals_value();
+    null_lane_group["roadSections"][0]["lanes"][0]["laneGroupId"] = json!(null);
+    assert!(
+        load_value(null_lane_group).is_err(),
+        "explicit null laneGroupId must be rejected"
+    );
+
+    let mut null_source = signals_value();
+    null_source["accessRules"] = json!([{
+        "id": "rule-1",
+        "target": { "kind": "laneEdge", "id": "entry" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"],
+        "regulation": { "jurisdiction": "cn-sh", "version": "2024", "source": null }
+    }]);
+    assert!(
+        load_value(null_source).is_err(),
+        "explicit null regulation.source must be rejected"
+    );
+}
+
+#[test]
 fn access_rule_errors_use_narrowest_paths() {
     let mut unknown_target = signals_value();
     unknown_target["accessRules"] = json!([{

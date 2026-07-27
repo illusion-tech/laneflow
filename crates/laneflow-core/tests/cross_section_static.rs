@@ -96,3 +96,20 @@ fn unknown_or_malformed_kinds_are_rejected() {
         );
     }
 }
+
+#[test]
+fn overlong_custom_kind_is_rejected_at_schema_bound() {
+    // 与 schema `facilityKindId` 的 maxLength 128 契约一致（loader 路径不执行 JSON Schema）。
+    let overlong = format!("x-lane-{}", "a".repeat(122));
+    std::assert_matches!(
+        FacilityKind::parse(&overlong),
+        Err(CoreError::FacilityKindTokenTooLong { len, .. }) if len == 129
+    );
+    // 边界：恰好 128 字符的自定义 kind 合法。
+    let boundary = format!("x-lane-{}", "a".repeat(121));
+    assert_eq!(boundary.chars().count(), 128);
+    std::assert_matches!(
+        FacilityKind::parse(&boundary),
+        Ok(FacilityKind::CustomLaneBearing(_))
+    );
+}
