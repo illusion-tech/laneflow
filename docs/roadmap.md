@@ -182,8 +182,9 @@ Milestone tracker 为 #194；v0.8 已完成前置收口。
 - 保留 v0.8 的道路尺度、限速、50–200 车辆调节、信号时长配置和确定性出口回流能力；
 - 完成端到端安全、确定性、可配置性、native 可视化和独立 closure review。
 
-实施顺序为 `#228 -> #196 -> #229 -> #190 -> #191 -> #192`。RoadSection、
-LaneGroup 与 JunctionGroup 在 v0.9 只冻结长期语义，不生产化。
+实施顺序为 `#228 -> #196 -> #229 -> #190 -> #191 -> #192`。在该 v0.9
+signalized-corridor 产品里程碑收口时，RoadSection、LaneGroup 与 JunctionGroup
+只冻结长期语义，不生产化；其后 #262 已按下节生产化前两者及相关横断面/准入模型。
 
 不覆盖：无保护左转、红灯右转、感应式或自适应信号、掉头、lane change、
 ConflictZone/right-of-way solver、RoadSection/JunctionGroup runtime，以及 #72 的
@@ -202,6 +203,27 @@ SSOT 见 [`cross-section-access.md`](design/cross-section-access.md)。该设计
 静态准入校验。后续顺序：#237 动态车道用途/resolved lane plan G1（消费本
 SSOT）→ #236 非机动车/步行产品范围。时变准入 runtime、横向几何与多法规版本
 共存各自独立 G1，不属于当前完成边界。
+
+## WaitingZone、ConflictZone 与通行权（G1 评审中，Milestone N/A）
+
+#235/ADR 0019 候选正在冻结 multiple ManeuverGate occurrence、WaitingZone
+容量/队列、ConflictZone/ParticipantStream、versioned jurisdiction/right-of-way
+policy、Core ConflictArbiter 与 grant/reservation；SSOT 候选见
+[`waiting-zone-conflict-right-of-way.md`](design/waiting-zone-conflict-right-of-way.md)。
+性能优先 v1 使用 current/upcoming approach frontier、directed lower-bound ETA 与
+mandatory downstream-clearance guard；每个 static zone-stream passage 的 top-two
+owner frontier 支持 subject self-exclusion，不随 dynamic Route 数复制 cell；stable
+single-writer claim ledger 防止 Waiting/Conflict/downstream 同 tick 重复分配。不能
+证明车尾可清空 coverage zone 时不放行。
+该设计属于 #227 的跨版本复杂路口演进，Milestone N/A，当前不改变 Traffic v0.9
+中 protected-only 的路口 runtime。Traffic v0.9 已发布且 immutable；后续
+multi-Gate/Waiting static 实施必须从届时 current version 原子升级，#235 不预占
+具体版本号。
+
+G1 接受后建议按 multi-Gate/Waiting static → Waiting runtime → Conflict
+static/Spatial → policy/arbiter runtime → cross-layer 10k/100k/closure 拆分。
+#264 必须等待本设计与 #237 冻结后再拆 JunctionGroup、环岛、停车连接与互通组合；
+在 G1/Delivery PR 完成前不得依据本候选开始 production 实现。
 
 ## 城市级扩展研究（Milestone N/A）
 

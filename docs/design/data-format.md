@@ -388,11 +388,11 @@ v0.7 直接以 v0.5 shape 和 `f64` Core 数值域为迁移基线，不激活或
 
 目标人口、seed、portal catalog、initial spawn slots、pending recycle、VehicleHandle 与 Entity 不进入 Traffic/Spatial/Manifest。它们属于 authoring/startup config 或 caller-owned runtime plan；native example 仍必须让生成制品通过 production loader。详细场景和 lifecycle authority 见 `example-scenarios.md` 与 ADR 0016。
 
-## 14. v0.9 Traffic v0.8 static-domain contract
+## 14. v0.9 产品里程碑采用的历史 Traffic v0.8 static-domain contract
 
 #229 已按 #228/ADR 0017 实现以下 clean-break contract：
 
-Current `formatVersion: "0.8"` 原子增加：
+当时的 `formatVersion: "0.8"` 原子增加：
 
 - top-level `junctions[]`，元素至少包含 `id`；
 - top-level `movements[]`，child-owned `junctionId`；
@@ -406,7 +406,7 @@ Wire 不保存 parent child arrays、derived internal-edge owner、runtime handl
 Route occurrences 或 candidate indices。Core normalization 负责 owner、cardinality、
 connectivity、Gate/StopLine、Route coverage、first-error 与 foreign-graph rebind。
 
-迁移规则：
+当时的迁移规则：
 
 - loader 只接受 exact `0.8`，不并行接受 `0.7`；
 - 不提供 deprecated fields/types、dual schema 或 runtime upgrade shim；
@@ -418,6 +418,9 @@ connectivity、Gate/StopLine、Route coverage、first-error 与 foreign-graph re
 
 完整字段语义、原子迁移和影响矩阵见
 [`road-junction-model.md`](road-junction-model.md)。
+current Traffic v0.9 完整继承这些 Junction/Movement/ManeuverPath/ManeuverGate
+shape 与 route-occurrence 语义，并在下节增加横断面与准入静态模型；本节不再声称
+v0.8 是 active loader contract。
 
 ## 15. Traffic 0.9 横断面与准入静态模型契约
 

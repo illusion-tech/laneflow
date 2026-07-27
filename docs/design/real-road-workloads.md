@@ -1,7 +1,7 @@
 # 真实路网 Workload
 
 **文档状态**: Accepted（#224 G1）<br>
-**最后更新**: 2026-07-26<br>
+**最后更新**: 2026-07-27<br>
 **适用范围**: LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、10k
 真实路网性能补充 workload 与需求代表性 observation
 
@@ -116,9 +116,10 @@ fail closed 回到 #224 G1。
   `speed`，单位保持 m 和 m/s。不得丢弃 internal lane 或把路口两侧 external lane
   直接连接。
 - 只有拥有至少一条 normalized external-entry → external-exit traversal 的 SUMO
-  road junction 才映射为 Traffic v0.8 `Junction`。owner 由 external from-edge 的
-  `to`、external to-edge 的 `from`、`junction@intLanes` 显式 membership 与完整
-  connection chain 共同确定；四者不能唯一闭合时 fail closed。
+  road junction 才映射为 current Traffic v0.9 `Junction`。该 identity/owner shape
+  由 v0.8 引入并被 v0.9 继承；owner 由 external from-edge 的 `to`、external
+  to-edge 的 `from`、`junction@intLanes` 显式 membership 与完整 connection chain
+  共同确定；四者不能唯一闭合时 fail closed。
 - `type="internal"` helper node、dead-end node，以及 normalization 后没有合法
   traversal 的 source junction 不生成 LaneFlow `Junction`。helper/internal node
   只通过上述显式 topology membership 折叠进所属 traversal，不允许用 `:j` 等 ID
@@ -200,14 +201,17 @@ v1 只接受已复核的 201 个 static controllers：
 
 ### 3.4 Vehicle Profile
 
-只允许六个 passenger vtypes。profile normalization 使用：
+只允许六个 passenger vtypes。Traffic v0.9 输出固定声明
+`motorVehicle -> car` 两级 ParticipantClass，全部六个 profile 必填
+`participantClassId: "car"`；bus class/profile 不生成。Traffic v0.9 wire
+normalization 使用：
 
-| SUMO vtype 输入 | LaneFlow profile          |
+| SUMO vtype 输入 | Traffic v0.9 wire field   |
 | --------------- | ------------------------- |
 | `accel`         | `maxAcceleration`         |
 | `decel`         | `comfortableDeceleration` |
 | `length`        | `length`                  |
-| `minGap`        | `minimumGap`              |
+| `minGap`        | `minGap`                  |
 | `maxSpeed`      | `desiredSpeed`            |
 
 `emergencyDeceleration = 8 m/s²`、`timeHeadway = 1.0 s` 是 v1 常量；
@@ -225,8 +229,10 @@ artifact digest，必须使用新 workload ID。
 
 converter 分别生成：
 
-- Traffic v0.8 package，包含 `junctions[]`、`movements[]`、
-  `maneuverPaths[]` 与 `signals.maneuverGates[]`；
+- Traffic v0.9 package，包含 `junctions[]`、`movements[]`、
+  `maneuverPaths[]`、`signals.maneuverGates[]`、上述 ParticipantClass/profile
+  binding，以及显式空 `facilityBands[]`、`roadSections[]`、`laneGroups[]`、
+  `roadCorridors[]`、`accessRules[]`；LuST v1 不伪造尚未设计的横断面或准入语义；
 - SpatialPackage v0.1；
 - ScenarioManifest v0.1，用 size 和 SHA-256 配对 Traffic/Spatial；
 - conversion report，记录 source health、normalization object counts、
@@ -527,7 +533,8 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 以下任一条件失败都停止转换或运行，并回到 #224 G1：
 
 - 固定 source URL/commit/file bytes、对象计数或 201-controller closure 不匹配；
-- XML shape、Traffic v0.8 schema/full-reference、Junction/Movement/ManeuverPath
+- XML shape、current Traffic v0.9 schema/full-reference、ParticipantClass/profile
+  binding、显式 CrossSection/Access arrays、Junction/Movement/ManeuverPath
   ownership/path connectivity、ManeuverGate binding 或 Traffic/Spatial
   length/endpoint binding 失败；
 - SUMO internal / `via` chain unknown、dangling、cyclic、跨 Junction，或任何

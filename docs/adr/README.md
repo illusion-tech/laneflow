@@ -43,6 +43,7 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - `0016`: 场景人口、确定性出口回流、Core 原子 replace 与 Adapter binding 生命周期权威（已接受）
 - `0017`: 静态 Junction/Movement/ManeuverPath owner、ManeuverGate identity、Route occurrence 与复杂设施演进边界（已接受）
 - `0018`: 多模式横断面 owner（RoadCorridor/RoadSection/FacilityBand）、FacilityKind/ParticipantClass/AccessRule 分层与准入 overlay（已接受）
+- `0019`: WaitingZone/ConflictZone identity、多阶段 Gate occurrence、车辆级 right-of-way authority 与 grant/reservation（已接受）
 
 ## 命名规则
 
