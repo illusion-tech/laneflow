@@ -647,6 +647,8 @@ profiles → lane graph → Junction → Signals → Parking → Routes）：
    检查之后；guard 先于 shape/组合检查——能力整体拒绝后其内部细节校验无
    意义）、timeWindow shape（timeWindows 空数组、days 空集、分钟越界——
    `start ∈ [0, 1439]`、`end ∈ [1, 1440]`、`start == end`）、`regulation`
+   shape（jurisdiction/version/source 长度 1 到 128 字符；definition 不预校验，
+   统一在 guard 之后执行）、`regulation`
    provenance 混合（声明了 regulation 的规则不共享同一
    `(jurisdiction, version)`）、按平面与 time segment 分别检查 §6.4
    第 4 步的残留组合歧义（edge 平面按 (segment, edge, class)，path 平面按

@@ -7,14 +7,13 @@ mod scenario_wire;
 mod wire;
 
 use laneflow_core::{
-    AccessEffect, AccessRegistry, AccessRegulation, AccessRule, AccessTargetId, CoreError,
-    CorridorElementId, CrossSectionRegistry, EdgeLength, FacilityBand, IidmProfileSpec,
-    InitialTrafficData, Junction, JunctionRegistry, LaneEdge, LaneGraph, LaneGroup, ManeuverGate,
-    ManeuverPath, Movement, ParkingAnchorKind, ParkingArea, ParkingRegistry, ParkingSpace,
-    ParkingSpaceGeometry, ParticipantClass, ParticipantClassRegistry, RoadCorridor, RoadSection,
-    Route, SectionLane, SignalAspect, SignalControlInput, SignalController, SignalGroup,
-    SignalGroupState, SignalPhase, SignalRegistry, SpeedLimit, StopLine, StopLineLocation,
-    VehicleProfile, VehicleProfileRegistry,
+    AccessEffect, AccessRegistry, AccessRule, AccessTargetId, CoreError, CorridorElementId,
+    CrossSectionRegistry, EdgeLength, FacilityBand, IidmProfileSpec, InitialTrafficData, Junction,
+    JunctionRegistry, LaneEdge, LaneGraph, LaneGroup, ManeuverGate, ManeuverPath, Movement,
+    ParkingAnchorKind, ParkingArea, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry,
+    ParticipantClass, ParticipantClassRegistry, RoadCorridor, RoadSection, Route, SectionLane,
+    SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
+    SignalRegistry, SpeedLimit, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
 };
 use serde::de::DeserializeOwned;
 use serde_json::error::Category;
@@ -416,8 +415,7 @@ fn normalize_access(
     let rules = wire
         .access_rules
         .iter()
-        .enumerate()
-        .map(|(index, rule)| {
+        .map(|rule| {
             let target = match rule.target.kind {
                 wire::WireAccessTargetKind::LaneEdge => {
                     AccessTargetId::lane_edge(rule.target.id.clone())
@@ -449,19 +447,13 @@ fn normalize_access(
             .with_time_windows(rule.time_windows.is_some())
             .with_priority(rule.priority.unwrap_or(0));
             if let Some(regulation) = &rule.regulation {
-                let parsed = AccessRegulation::try_new(
+                // shape 校验由 AccessRegistry::try_new phase 9.5 执行（capability
+                // guard 之后），此处只搬运原始字符串，保持首错顺序契约。
+                definition = definition.with_regulation(
                     regulation.jurisdiction.clone(),
                     regulation.version.clone(),
                     regulation.source.as_deref(),
-                )
-                .map_err(|source| {
-                    let field = match &source {
-                        CoreError::InvalidAccessRegulationString { field, .. } => *field,
-                        _ => unreachable!("AccessRegulation::try_new 只返回 regulation 字段错误"),
-                    };
-                    DataError::core(format!("accessRules[{index}].regulation.{field}"), source)
-                })?;
-                definition = definition.with_regulation(parsed);
+                );
             }
             Ok(definition)
         })
@@ -694,6 +686,14 @@ fn cross_section_error_path(wire: &WirePackage, source: &CoreError) -> String {
                     &item.id
                 })
             }
+            "roadCorridors[].referenceSectionId" => wire
+                .road_corridors
+                .iter()
+                .position(|item| item.reference_section_id == *external_id)
+                .map_or_else(
+                    || "roadCorridors".to_owned(),
+                    |index| format!("roadCorridors[{index}].referenceSectionId"),
+                ),
             "roadCorridors[].elements[].sectionId" => {
                 corridor_element_value_path(wire, external_id, "section")
             }
@@ -1101,6 +1101,26 @@ fn access_error_path(wire: &WirePackage, source: &CoreError) -> String {
             "timeWindows" => access_rule_path(wire, rule_id, ".timeWindows"),
             _ => access_rule_path(wire, rule_id, ".target.id"),
         },
+        CoreError::InvalidAccessRegulationString { field, len } => {
+            // phase 9.5 按 input order 返回首条 shape 违规规则；报告的 (field, len)
+            // 本身越界，凡同 field 同字符数的规则同样违规，因此首个匹配规则即
+            // registry 报告的规则（与 FacilityKindTokenTooLong 按值归因同理）。
+            wire.access_rules
+                .iter()
+                .enumerate()
+                .find_map(|(index, rule)| {
+                    let regulation = rule.regulation.as_ref()?;
+                    let value = match *field {
+                        "jurisdiction" => Some(regulation.jurisdiction.as_str()),
+                        "version" => Some(regulation.version.as_str()),
+                        "source" => regulation.source.as_deref(),
+                        _ => None,
+                    }?;
+                    (value.chars().count() == *len)
+                        .then(|| format!("accessRules[{index}].regulation.{field}"))
+                })
+                .unwrap_or_else(|| "accessRules".to_owned())
+        }
         CoreError::AccessRegulationMismatch {
             duplicate_rule_id, ..
         } => access_rule_path(wire, duplicate_rule_id, ".regulation"),

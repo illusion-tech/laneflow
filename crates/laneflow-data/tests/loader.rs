@@ -981,6 +981,16 @@ fn cross_section_errors_use_narrowest_paths() {
         (path, CoreError::RoadSectionKindNotLaneBearing { .. })
             if path == "roadSections[0].kindId"
     );
+
+    // referenceSectionId 语法非法必须归因到自身字段，而不是回落到 roadSections。
+    let mut bad_reference = signals_value();
+    bad_reference["roadCorridors"][0]["referenceSectionId"] = json!("bad id");
+    std::assert_matches!(
+        into_core_domain(load_value(bad_reference).expect_err("invalid referenceSectionId syntax")),
+        (path, CoreError::InvalidExternalId { field, .. })
+            if path == "roadCorridors[0].referenceSectionId"
+                && field == "roadCorridors[].referenceSectionId"
+    );
 }
 
 #[test]
@@ -1067,6 +1077,56 @@ fn access_capability_guards_are_structured_and_attributed() {
             if path == "accessRules[0].target.id"
                 && rule_id == "rule-band"
                 && capability == "facilityBandTarget"
+    );
+}
+
+#[test]
+fn regulation_shape_defers_to_capability_guard() {
+    // 同一条规则同时带 timeWindows 与非法 regulation 字符串时，capability guard
+    // 必须先于 regulation shape 报错（SSOT §10 phase 9：guard 先于 shape 检查）。
+    let mut value = signals_value();
+    value["accessRules"] = json!([{
+        "id": "rule-peak",
+        "target": { "kind": "laneEdge", "id": "entry" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"],
+        "timeWindows": [{
+            "days": ["mon"],
+            "startMinuteOfDay": 420,
+            "endMinuteOfDay": 540
+        }],
+        "regulation": { "jurisdiction": "", "version": "2024" }
+    }]);
+    std::assert_matches!(
+        into_core_domain(load_value(value).expect_err("guard must precede regulation shape")),
+        (path, CoreError::AccessCapabilityUnavailable { rule_id, capability })
+            if path == "accessRules[0].timeWindows"
+                && rule_id == "rule-peak"
+                && capability == "timeWindows"
+    );
+
+    // 无更早 phase 错误时，shape 违规按 (field, len) 归因到对应规则字段。
+    let mut invalid = signals_value();
+    invalid["accessRules"] = json!([
+        {
+            "id": "rule-ok",
+            "target": { "kind": "laneEdge", "id": "entry" },
+            "effect": "deny",
+            "participantClassIds": ["motorVehicle"],
+            "regulation": { "jurisdiction": "cn-sh", "version": "2024" }
+        },
+        {
+            "id": "rule-bad",
+            "target": { "kind": "laneEdge", "id": "bypass" },
+            "effect": "allow",
+            "participantClassIds": ["motorVehicle"],
+            "regulation": { "jurisdiction": "cn-sh", "version": "" }
+        }
+    ]);
+    std::assert_matches!(
+        into_core_domain(load_value(invalid).expect_err("invalid regulation shape")),
+        (path, CoreError::InvalidAccessRegulationString { field, len })
+            if path == "accessRules[1].regulation.version" && field == "version" && len == 0
     );
 }
 

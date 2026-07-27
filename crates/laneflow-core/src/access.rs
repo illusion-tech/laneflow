@@ -104,18 +104,30 @@ impl AccessRegulation {
     ///
     /// 三个字段的长度限定为 1 到 128 字符（与 schema 契约一致）：loader 路径不执行
     /// JSON Schema，provenance 是可审计字段，空串或超长串不得绕过校验进入 Core。
+    ///
+    /// 经 `AccessRule::with_regulation` 进 registry 的规则不经过本构造函数，
+    /// 同一 shape 校验由 `AccessRegistry::try_new` phase 9.5（capability guard
+    /// 之后、provenance 单一性之前）统一执行。
     pub fn try_new(
         jurisdiction: impl Into<String>,
         version: impl Into<String>,
         source: Option<&str>,
     ) -> Result<Self, CoreError> {
-        let jurisdiction = jurisdiction.into();
-        let version = version.into();
-        let source = source.map(str::to_owned);
+        let regulation = Self {
+            jurisdiction: jurisdiction.into(),
+            version: version.into(),
+            source: source.map(str::to_owned),
+        };
+        regulation.validate()?;
+        Ok(regulation)
+    }
+
+    /// 字段长度 shape 校验（1 到 128 字符，与 schema 契约一致）。
+    fn validate(&self) -> Result<(), CoreError> {
         for (field, value) in [
-            ("jurisdiction", Some(jurisdiction.as_str())),
-            ("version", Some(version.as_str())),
-            ("source", source.as_deref()),
+            ("jurisdiction", Some(self.jurisdiction.as_str())),
+            ("version", Some(self.version.as_str())),
+            ("source", self.source.as_deref()),
         ]
         .into_iter()
         .filter_map(|(field, value)| value.map(|value| (field, value)))
@@ -125,11 +137,7 @@ impl AccessRegulation {
                 return Err(CoreError::InvalidAccessRegulationString { field, len });
             }
         }
-        Ok(Self {
-            jurisdiction,
-            version,
-            source,
-        })
+        Ok(())
     }
 
     /// 返回法域。
@@ -164,8 +172,8 @@ pub struct AccessRule {
 }
 
 impl AccessRule {
-    /// 创建 AccessRule。ID 语法、唯一性、target/class 引用、capability guard
-    /// 与组合歧义由 `AccessRegistry::try_new` 校验。
+    /// 创建 AccessRule。ID 语法、唯一性、target/class 引用、capability guard、
+    /// regulation shape 与组合歧义由 `AccessRegistry::try_new` 校验。
     pub fn new<I, S>(
         id: impl Into<String>,
         target: AccessTargetId,
@@ -188,8 +196,21 @@ impl AccessRule {
     }
 
     /// 设置 regulation provenance。
-    pub fn with_regulation(mut self, regulation: AccessRegulation) -> Self {
-        self.regulation = Some(regulation);
+    ///
+    /// 不在此处做 shape 校验（与 `id`/`target`/`participant_class_ids` 一致，
+    /// definition 一律存原始输入）：字段长度由 `AccessRegistry::try_new`
+    /// phase 9.5 统一校验，保证 capability guard 先于 shape 检查的首错顺序。
+    pub fn with_regulation(
+        mut self,
+        jurisdiction: impl Into<String>,
+        version: impl Into<String>,
+        source: Option<&str>,
+    ) -> Self {
+        self.regulation = Some(AccessRegulation {
+            jurisdiction: jurisdiction.into(),
+            version: version.into(),
+            source: source.map(str::to_owned),
+        });
         self
     }
 
@@ -317,8 +338,10 @@ impl AccessRegistry {
     /// 3. participantClassIds 非空且每个解析到已声明 class；
     /// 4. capability guard（FacilityBand target 或声明 timeWindows 的规则拒绝载入；
     ///    在 unknown 检查之后、shape/组合检查之前）；
-    /// 5. regulation provenance 单一性（同一 `(jurisdiction, version)`）；
-    /// 6. §6.4 确定性组合裁决（残留 allow/deny 并列拒绝载入）。
+    /// 5. regulation shape（字段长度 1 到 128 字符；guard 整体拒绝后其内部
+    ///    shape 校验无意义，故在 guard 之后）；
+    /// 6. regulation provenance 单一性（同一 `(jurisdiction, version)`）；
+    /// 7. §6.4 确定性组合裁决（残留 allow/deny 并列拒绝载入）。
     ///
     /// phase 10：构造 dense resolved 表。空 rules 合法（全部 `Unconstrained`）。
     pub fn try_new(
@@ -408,7 +431,15 @@ impl AccessRegistry {
             }
         }
 
-        // phase 9.5：regulation provenance 单一性（source 可不同；未声明者不参与）。
+        // phase 9.5：regulation shape（capability guard 之后、provenance 单一性之前；
+        // 按 input order 返回首错）。
+        for rule in &rules {
+            if let Some(regulation) = rule.regulation() {
+                regulation.validate()?;
+            }
+        }
+
+        // phase 9.6：regulation provenance 单一性（source 可不同；未声明者不参与）。
         let mut canonical: Option<(&str, &str, &str)> = None;
         for rule in &rules {
             let Some(regulation) = rule.regulation() else {
@@ -434,7 +465,7 @@ impl AccessRegistry {
             }
         }
 
-        // phase 9.6 + 10：target 展开 + 组合裁决 + dense resolved 表。
+        // phase 9.7 + 10：target 展开 + 组合裁决 + dense resolved 表。
         let class_count = classes.class_count();
         let edge_count = lane_graph.edges().len();
         let path_count = junctions.maneuver_paths().len();
