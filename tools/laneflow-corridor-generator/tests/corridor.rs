@@ -311,6 +311,8 @@ fn default_corridor_locks_explicit_cross_section_and_bus_lane_rules() {
     );
 
     // corridor elements：反向 section 在左、中央分隔带居中、reference section 在右。
+    // 对向 section 的 road 键与 reference 反转（segment 是方向 traversal 编号：
+    // w2e road-0 最西而 e2w road-0 最东），物理上共延伸的配对是 w2e-0 ↔ e2w-4。
     let corridor = |id: &str| {
         corridors
             .iter()
@@ -341,7 +343,7 @@ fn default_corridor_locks_explicit_cross_section_and_bus_lane_rules() {
     );
     assert_eq!(
         main_corridor["elements"][0]["sectionId"],
-        "section-main-e2w-road-0"
+        "section-main-e2w-road-4"
     );
     assert_eq!(
         main_corridor["elements"][1]["bandId"],
@@ -358,7 +360,7 @@ fn default_corridor_locks_explicit_cross_section_and_bus_lane_rules() {
     );
     assert_eq!(
         side_corridor["elements"][0]["sectionId"],
-        "section-side-1-s2n-road-0"
+        "section-side-1-s2n-road-2"
     );
     assert!(corridors.iter().all(|corridor| {
         corridor["elements"]
@@ -596,4 +598,77 @@ fn every_portal_lane_must_have_spawn_capacity() {
     let message = error.to_string();
     assert!(message.contains("portal-side-1-north"));
     assert!(message.contains("at least 13 m"));
+}
+
+#[test]
+fn corridor_paired_sections_share_physical_interval() {
+    // 纵向共延伸不变量：corridor 的两个方向 section 必须占据同一物理分段。
+    // segment 是方向 traversal 编号（w2e road-0 最西、e2w road-0 最东），若配对
+    // 键不反转，两个 section 的几何中心会相距数百米而非仅一个路宽。
+    let generated = default_generated();
+    let traffic: Value =
+        serde_json::from_slice(generated.traffic_bytes()).expect("traffic JSON must parse");
+    let spatial: Value =
+        serde_json::from_slice(generated.spatial_bytes()).expect("spatial JSON must parse");
+    let spatial_edges = spatial["edges"].as_array().expect("spatial edges");
+    let edge_midpoint = |edge_id: &str| {
+        let edge = spatial_edges
+            .iter()
+            .find(|edge| edge["trafficEdgeId"] == edge_id)
+            .expect("section lane edge must exist in spatial package");
+        let points = edge["centerline"]["points"]
+            .as_array()
+            .expect("centerline points");
+        let (first, last) = (
+            points.first().expect("start point"),
+            points.last().expect("end point"),
+        );
+        [
+            (first[0].as_f64().expect("x") + last[0].as_f64().expect("x")) / 2.0,
+            (first[1].as_f64().expect("y") + last[1].as_f64().expect("y")) / 2.0,
+            (first[2].as_f64().expect("z") + last[2].as_f64().expect("z")) / 2.0,
+        ]
+    };
+    let sections = traffic["roadSections"].as_array().expect("sections");
+    let section_midpoint = |section_id: &str| {
+        let section = sections
+            .iter()
+            .find(|section| section["id"] == section_id)
+            .expect("corridor section must exist");
+        let mut sum = [0.0_f64; 3];
+        let mut count = 0_usize;
+        for lane in section["lanes"].as_array().expect("lanes") {
+            for edge_id in lane["edgeIds"].as_array().expect("edgeIds") {
+                let midpoint = edge_midpoint(edge_id.as_str().expect("edge id"));
+                for (axis, value) in sum.iter_mut().zip(midpoint) {
+                    *axis += value;
+                }
+                count += 1;
+            }
+        }
+        sum.map(|value| value / count as f64)
+    };
+    for corridor in traffic["roadCorridors"].as_array().expect("corridors") {
+        let section_ids = corridor["elements"]
+            .as_array()
+            .expect("elements")
+            .iter()
+            .filter_map(|element| element["sectionId"].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(section_ids.len(), 2, "corridor must pair two sections");
+        let (reference, opposite) = (
+            section_midpoint(section_ids[0]),
+            section_midpoint(section_ids[1]),
+        );
+        let distance = (0..3)
+            .map(|axis| (reference[axis] - opposite[axis]).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        assert!(
+            distance < 20.0,
+            "corridor {} sections {:?} are {distance:.1} m apart, not co-extensive",
+            corridor["id"],
+            section_ids
+        );
+    }
 }
