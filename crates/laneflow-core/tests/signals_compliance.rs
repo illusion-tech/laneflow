@@ -52,19 +52,23 @@ fn phase(id: &str, duration_ms: u64, states: &[(&str, SignalAspect)]) -> SignalP
 }
 
 fn profiles() -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "car",
-        IidmProfileSpec {
-            length: 4.0,
-            desired_speed: 30.0,
-            min_gap: 2.0,
-            time_headway: 1.0,
-            max_acceleration: 2.0,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 8.0,
-        },
+    let registry = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "car",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 4.0,
+                desired_speed: 30.0,
+                min_gap: 2.0,
+                time_headway: 1.0,
+                max_acceleration: 2.0,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 8.0,
+            },
+        )
+        .expect("valid profile")],
     )
-    .expect("valid profile")])
     .expect("valid profile registry");
     let handle = registry.profile_handle("car").expect("profile handle");
     (registry, handle)
@@ -122,6 +126,9 @@ fn single_gate_world(
         junctions,
         signals,
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic");
     CoreWorld::with_traffic_data(1_000, traffic, vehicles(profile)).expect("valid world")
@@ -227,6 +234,9 @@ fn protected_green_and_uncontrolled_gate_allow_crossing() {
         junctions,
         signals,
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     let mut uncontrolled = CoreWorld::with_traffic_data(
@@ -398,6 +408,9 @@ fn one_tick_crosses_permitted_gate_then_stops_at_nearest_denied_gate() {
         junctions,
         signals,
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     let mut world = CoreWorld::with_traffic_data(
@@ -488,6 +501,9 @@ fn repeated_physical_edge_is_checked_by_route_occurrence() {
         junctions,
         signals,
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     let mut world = CoreWorld::with_traffic_data(
@@ -691,6 +707,9 @@ fn signal_beyond_finite_route_distance_horizon_is_ignored() {
         junctions,
         signals,
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     let mut world = CoreWorld::with_traffic_data(
@@ -712,4 +731,17 @@ fn signal_beyond_finite_route_distance_horizon_is_ignored() {
 
     assert!(result.events.is_empty());
     assert_eq!(world.tick_index(), 1);
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

@@ -82,6 +82,9 @@ fn route_compiler_uses_full_path_identity_for_shared_entry_pair() {
         junctions,
         signals,
         ParkingRegistry::empty(),
+        laneflow_core::ParticipantClassRegistry::empty(),
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("initial traffic");
     let mut world = CoreWorld::with_traffic_data(20, traffic, Vec::new()).expect("world");
@@ -221,6 +224,9 @@ fn adjacent_junction_zero_internal_paths_share_boundary_edge() {
         junctions,
         signals,
         ParkingRegistry::empty(),
+        laneflow_core::ParticipantClassRegistry::empty(),
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("initial traffic");
     let world = CoreWorld::with_traffic_data(20, traffic, Vec::new()).expect("world");

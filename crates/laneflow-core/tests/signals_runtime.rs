@@ -99,6 +99,9 @@ fn signal_world(fixed_delta_time_ms: u64, offset_ms: u64, phases: Vec<SignalPhas
         junctions,
         signals,
         laneflow_core::ParkingRegistry::empty(),
+        laneflow_core::ParticipantClassRegistry::empty(),
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic");
     CoreWorld::with_traffic_data(fixed_delta_time_ms, traffic, Vec::new())
@@ -425,6 +428,9 @@ fn controller_then_group_event_order_uses_normalization_and_group_input_order() 
         junctions,
         signals,
         laneflow_core::ParkingRegistry::empty(),
+        laneflow_core::ParticipantClassRegistry::empty(),
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     let mut world = CoreWorld::with_traffic_data(10, traffic, Vec::new()).expect("world");

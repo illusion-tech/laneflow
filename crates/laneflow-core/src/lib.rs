@@ -1,6 +1,8 @@
 #![doc = include_str!("../README.md")]
 
+pub mod access;
 mod command_spatial;
+pub mod cross_section;
 pub mod error;
 pub mod event;
 pub mod graph;
@@ -11,6 +13,7 @@ mod longitudinal;
 mod numeric_policy;
 mod occupancy;
 pub mod parking;
+pub mod participant_class;
 pub mod profile;
 pub mod route;
 mod route_distance;
@@ -22,6 +25,13 @@ pub mod traffic;
 pub mod vehicle;
 pub mod world;
 
+pub use access::{
+    AccessCell, AccessEffect, AccessRegistry, AccessRegulation, AccessRule, AccessTargetId,
+};
+pub use cross_section::{
+    CorridorElement, CorridorElementId, CrossSectionRegistry, FacilityBand, FacilityKind,
+    FacilityKindCategory, LaneGroup, RoadCorridor, RoadSection, SeamNeighbor, SectionLane,
+};
 pub use error::CoreError;
 pub use event::{
     CoreEvent, ParkingReservationReleasedEvent, SignalGroupAspectChangedEvent,
@@ -32,9 +42,11 @@ pub use event::{
 };
 pub use graph::{EdgeLength, LaneEdge, LaneGraph, SpeedLimit};
 pub use handle::{
-    EdgeHandle, JunctionHandle, ManeuverGateHandle, ManeuverPathHandle, MovementHandle,
-    ParkingAreaHandle, ParkingSpaceHandle, RouteHandle, SignalControllerHandle, SignalGroupHandle,
-    SignalPhaseRef, StopLineHandle, VehicleHandle, VehicleProfileHandle,
+    AccessRuleHandle, EdgeHandle, FacilityBandHandle, JunctionHandle, LaneGroupHandle,
+    ManeuverGateHandle, ManeuverPathHandle, MovementHandle, ParkingAreaHandle, ParkingSpaceHandle,
+    ParticipantClassHandle, RoadCorridorHandle, RoadSectionHandle, RouteHandle,
+    SignalControllerHandle, SignalGroupHandle, SignalPhaseRef, StopLineHandle, VehicleHandle,
+    VehicleProfileHandle,
 };
 pub use junction::{Junction, JunctionRegistry, ManeuverPath, Movement};
 pub use parking::{
@@ -46,6 +58,7 @@ pub use parking::{
     ParkingSpaceGeometry, ParkingSpaceState, RebindReservedVehicleRouteInput,
     ReservedVehicleRouteRebindRecord, VehicleParkingState,
 };
+pub use participant_class::{ParticipantClass, ParticipantClassRegistry};
 pub use profile::{IidmProfileSpec, VehicleProfile, VehicleProfileRegistry};
 pub use route::{Route, RouteRemoveRecord};
 pub use signal::{

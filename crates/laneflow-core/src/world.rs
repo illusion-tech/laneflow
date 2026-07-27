@@ -7,7 +7,9 @@ use crate::longitudinal::{
     ResearchMotionInput, compute_motion_from_controller_intent_for_research,
 };
 use crate::{
+    access::{AccessCell, AccessEffect, AccessRegistry},
     command_spatial::{CommandOccupant, CommandSpatialIndex},
+    cross_section::CrossSectionRegistry,
     error::CoreError,
     event::{
         CoreEvent, ParkingReservationReleasedEvent, SignalGroupAspectChangedEvent,
@@ -18,8 +20,8 @@ use crate::{
     },
     graph::LaneGraph,
     handle::{
-        EdgeHandle, ManeuverGateHandle, RouteHandle, SignalControllerHandle, SignalGroupHandle,
-        VehicleHandle, VehicleProfileHandle,
+        AccessRuleHandle, EdgeHandle, ManeuverGateHandle, RouteHandle, SignalControllerHandle,
+        SignalGroupHandle, VehicleHandle, VehicleProfileHandle,
     },
     id::validate_external_id,
     junction::JunctionRegistry,
@@ -44,6 +46,7 @@ use crate::{
         RebindReservedVehicleRouteInput, ReservedVehicleRouteRebindRecord,
         RuntimeVehicleParkingBinding,
     },
+    participant_class::ParticipantClassRegistry,
     profile::{VehicleProfile, VehicleProfileRegistry},
     route::{Route, RouteRemoveRecord},
     route_distance::{BoundedDistance, RouteDistanceIndex, RouteDistanceQuery},
@@ -352,6 +355,9 @@ struct CompleteRetainedComponents {
     signal_registry_bytes: usize,
     signal_runtime_state_bytes: usize,
     signal_runtime_scratch_bytes: usize,
+    participant_class_registry_bytes: usize,
+    cross_section_registry_bytes: usize,
+    access_registry_bytes: usize,
     route_bytes: usize,
     vehicle_bytes: usize,
     resolver_bytes: usize,
@@ -374,6 +380,9 @@ impl CompleteRetainedComponents {
             signal_registry_bytes,
             signal_runtime_state_bytes,
             signal_runtime_scratch_bytes,
+            participant_class_registry_bytes,
+            cross_section_registry_bytes,
+            access_registry_bytes,
             route_bytes,
             vehicle_bytes,
             resolver_bytes,
@@ -391,6 +400,9 @@ impl CompleteRetainedComponents {
             + signal_registry_bytes
             + signal_runtime_state_bytes
             + signal_runtime_scratch_bytes
+            + participant_class_registry_bytes
+            + cross_section_registry_bytes
+            + access_registry_bytes
             + route_bytes
             + vehicle_bytes
             + resolver_bytes
@@ -418,6 +430,9 @@ struct LifecycleRetainedStats {
     signal_registry_bytes: usize,
     signal_runtime_state_bytes: usize,
     signal_runtime_scratch_bytes: usize,
+    participant_class_registry_bytes: usize,
+    cross_section_registry_bytes: usize,
+    access_registry_bytes: usize,
     route_bytes: usize,
     route_maneuver_occurrence_bytes: usize,
     route_distance_bytes: usize,
@@ -458,6 +473,9 @@ impl LifecycleRetainedStats {
             signal_registry_bytes: self.signal_registry_bytes,
             signal_runtime_state_bytes: self.signal_runtime_state_bytes,
             signal_runtime_scratch_bytes: self.signal_runtime_scratch_bytes,
+            participant_class_registry_bytes: self.participant_class_registry_bytes,
+            cross_section_registry_bytes: self.cross_section_registry_bytes,
+            access_registry_bytes: self.access_registry_bytes,
             route_bytes: self.route_bytes,
             vehicle_bytes: self.vehicle_bytes,
             resolver_bytes: self.resolver_bytes,
@@ -555,6 +573,9 @@ pub struct CoreWorld {
     junctions: JunctionRegistry,
     signals: SignalRegistry,
     parking: ParkingRegistry,
+    participant_classes: ParticipantClassRegistry,
+    cross_section: CrossSectionRegistry,
+    access: AccessRegistry,
     pub(crate) parking_runtime: ParkingRuntimeState,
     signal_state: SignalRuntimeState,
     signal_candidate_scratch: SignalRuntimeScratch,
@@ -597,8 +618,17 @@ impl CoreWorld {
             });
         }
 
-        let (lane_graph, routes, vehicle_profiles, junctions, signals, parking) =
-            traffic_data.into_parts();
+        let (
+            lane_graph,
+            routes,
+            vehicle_profiles,
+            junctions,
+            signals,
+            parking,
+            participant_classes,
+            cross_section,
+            access,
+        ) = traffic_data.into_parts();
         signals.validate_fixed_delta_time(fixed_delta_time_ms)?;
         let mut signal_state = SignalRuntimeState::default();
         signals.populate_runtime_state(0, &mut signal_state);
@@ -613,6 +643,9 @@ impl CoreWorld {
             junctions,
             signals,
             parking,
+            participant_classes,
+            cross_section,
+            access,
             parking_runtime,
             signal_state,
             signal_candidate_scratch: SignalRuntimeScratch::default(),
@@ -708,6 +741,21 @@ impl CoreWorld {
     /// 返回 immutable Parking registry。
     pub const fn parking(&self) -> &ParkingRegistry {
         &self.parking
+    }
+
+    /// 返回 immutable ParticipantClass registry。
+    pub const fn participant_classes(&self) -> &ParticipantClassRegistry {
+        &self.participant_classes
+    }
+
+    /// 返回 immutable CrossSection registry。
+    pub const fn cross_section(&self) -> &CrossSectionRegistry {
+        &self.cross_section
+    }
+
+    /// 返回 immutable Access registry。
+    pub const fn access(&self) -> &AccessRegistry {
+        &self.access
     }
 
     /// 返回借用当前 committed world 的 immutable Parking snapshot。
@@ -1054,6 +1102,7 @@ impl CoreWorld {
                 actual_edge,
             });
         }
+        self.validate_route_access(input.profile, route, input.route_edge_index)?;
 
         self.vehicle_handles.reserve(1);
         self.vehicle_update_order.reserve_for_append();
@@ -1209,6 +1258,7 @@ impl CoreWorld {
             current_speed: state.current_speed,
             status: VehicleStatus::Active,
         };
+        self.validate_route_access(profile, input.route, input.route_edge_index)?;
         self.validate_candidate_overlap_excluding(input.vehicle, input.route, &candidate)?;
 
         let update_order_position = self.vehicles[input.vehicle.index()]
@@ -1338,6 +1388,7 @@ impl CoreWorld {
             current_speed: Speed::ZERO,
             status: VehicleStatus::Active,
         };
+        self.validate_route_access(profile, input.route, input.route_edge_index)?;
         self.validate_candidate_overlap_excluding(input.vehicle, input.route, &candidate)?;
         self.validate_parking_leave_followers(
             input.vehicle,
@@ -1770,6 +1821,94 @@ impl CoreWorld {
         })
     }
 
+    /// (ParticipantClass, Route) 绑定期静态准入校验（SSOT §6.5）。
+    ///
+    /// 只覆盖 `cursor` 起的可达后缀：edge 平面查 `[cursor..]` 的 edge，path 平面查
+    /// `exit_route_edge_index > cursor` 的 pending occurrence（`cursor < entry` 的未来
+    /// occurrence 与 `entry <= cursor < exit` 的进行中 occurrence 都作为原子整体校验；
+    /// `cursor == exit` 时 traversal 已完成，exit edge 准入由 edge 平面覆盖）。两平面
+    /// 合取：任一平面命中 deny 即原子拒绝，allow 不跨平面解除 deny。成功路径只做
+    /// O(1) 查表，不做字符串匹配、层级匹配、组合裁决或 per-vehicle allocation。
+    fn validate_route_access(
+        &self,
+        profile: VehicleProfileHandle,
+        route: RouteHandle,
+        cursor: usize,
+    ) -> Result<(), CoreError> {
+        let class = self
+            .vehicle_profile(profile)
+            .expect("validated profile must exist")
+            .participant_class();
+        let route_slot = self
+            .route_slot(route)
+            .expect("validated route handle must remain active");
+        let denied = |plane: &'static str,
+                      route_edge_index: usize,
+                      target_id: String,
+                      rule: AccessRuleHandle| {
+            CoreError::RouteAccessDenied {
+                profile_id: self
+                    .vehicle_profiles
+                    .profile_external_id(profile)
+                    .expect("validated profile must have external ID")
+                    .to_owned(),
+                route_id: route_slot.external_id.clone(),
+                plane,
+                route_edge_index,
+                target_id,
+                rule_id: self
+                    .access
+                    .rule_external_id(rule)
+                    .expect("resolved AccessRule must have external ID")
+                    .to_owned(),
+            }
+        };
+        for (route_edge_index, edge) in route_slot
+            .edge_handles
+            .iter()
+            .copied()
+            .enumerate()
+            .skip(cursor)
+        {
+            if let AccessCell::Decided {
+                rule,
+                effect: AccessEffect::Deny,
+            } = self.access.edge_access(edge, class)
+            {
+                return Err(denied(
+                    "edge",
+                    route_edge_index,
+                    self.lane_graph
+                        .edge_external_id(edge)
+                        .expect("normalized route edge must exist")
+                        .to_owned(),
+                    rule,
+                ));
+            }
+        }
+        for occurrence in &route_slot.maneuver_occurrences {
+            if occurrence.exit_route_edge_index() <= cursor {
+                continue;
+            }
+            if let AccessCell::Decided {
+                rule,
+                effect: AccessEffect::Deny,
+            } = self.access.path_access(occurrence.maneuver_path(), class)
+            {
+                return Err(denied(
+                    "path",
+                    occurrence.entry_route_edge_index(),
+                    self.junctions
+                        .maneuver_path_external_id(occurrence.maneuver_path())
+                        .expect("normalized occurrence ManeuverPath must exist")
+                        .to_owned(),
+                    rule,
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// 创建新的 vehicle runtime entity。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, CoreError> {
         self.spawn_vehicle_with_overlap_validation(input, true)
@@ -1832,6 +1971,7 @@ impl CoreWorld {
         self.route_slot(input.route)
             .ok_or(CoreError::UnknownRouteHandle { route: input.route })?;
         let normalized = self.normalize_vehicle_replace_input(old, input)?;
+        self.validate_route_access(input.profile, input.route, normalized.route_edge_index)?;
         let old_generation = old_slot.generation;
         let old_route = old_state.route;
         let update_order_position = old_slot
@@ -2045,6 +2185,7 @@ impl CoreWorld {
             });
         }
         let normalized = self.normalize_vehicle_input(route, &input)?;
+        self.validate_route_access(input.profile, route, normalized.route_edge_index)?;
         if validate_overlap {
             self.validate_candidate_overlap(route, &input.id, &normalized)?;
         }
@@ -2426,6 +2567,9 @@ impl CoreWorld {
             junctions,
             signals,
             parking,
+            participant_classes,
+            cross_section,
+            access,
             parking_runtime,
             signal_state,
             signal_candidate_scratch,
@@ -2509,6 +2653,9 @@ impl CoreWorld {
             signal_registry_bytes: signals.retained_bytes(),
             signal_runtime_state_bytes: signal_state.retained_bytes(),
             signal_runtime_scratch_bytes: signal_candidate_scratch.retained_bytes(),
+            participant_class_registry_bytes: participant_classes.retained_bytes(),
+            cross_section_registry_bytes: cross_section.retained_bytes(),
+            access_registry_bytes: access.retained_bytes(),
             route_bytes,
             vehicle_bytes,
             resolver_bytes,
@@ -2550,6 +2697,9 @@ impl CoreWorld {
             signal_registry_bytes: complete_components.signal_registry_bytes,
             signal_runtime_state_bytes: complete_components.signal_runtime_state_bytes,
             signal_runtime_scratch_bytes: complete_components.signal_runtime_scratch_bytes,
+            participant_class_registry_bytes: complete_components.participant_class_registry_bytes,
+            cross_section_registry_bytes: complete_components.cross_section_registry_bytes,
+            access_registry_bytes: complete_components.access_registry_bytes,
             route_bytes,
             route_maneuver_occurrence_bytes,
             route_distance_bytes,
@@ -4897,19 +5047,23 @@ mod tests {
     where
         I: IntoIterator<Item = Route>,
     {
-        let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-            "test-profile",
-            IidmProfileSpec {
-                length: 4.5,
-                desired_speed: 13.9,
-                min_gap: 2.0,
-                time_headway: 1.5,
-                max_acceleration: 1.4,
-                comfortable_deceleration: 2.0,
-                emergency_deceleration: 4.0,
-            },
+        let registry = VehicleProfileRegistry::try_new(
+            &crate::test_support::test_participant_class_registry(),
+            [VehicleProfile::try_new_iidm(
+                "test-profile",
+                crate::test_support::test_car_participant_class(),
+                IidmProfileSpec {
+                    length: 4.5,
+                    desired_speed: 13.9,
+                    min_gap: 2.0,
+                    time_headway: 1.5,
+                    max_acceleration: 1.4,
+                    comfortable_deceleration: 2.0,
+                    emergency_deceleration: 4.0,
+                },
+            )
+            .expect("valid profile")],
         )
-        .expect("valid profile")])
         .expect("valid profile registry");
         let profile = registry
             .profile_handle("test-profile")
@@ -4921,6 +5075,9 @@ mod tests {
             crate::JunctionRegistry::empty(),
             crate::SignalRegistry::empty(),
             crate::ParkingRegistry::empty(),
+            crate::test_support::test_participant_class_registry(),
+            crate::CrossSectionRegistry::empty(),
+            crate::AccessRegistry::empty(),
         )
         .expect("valid traffic data");
         (traffic_data, profile)
@@ -5018,6 +5175,9 @@ mod tests {
             crate::JunctionRegistry::empty(),
             SignalRegistry::empty(),
             parking,
+            crate::test_support::test_participant_class_registry(),
+            crate::CrossSectionRegistry::empty(),
+            crate::AccessRegistry::empty(),
         )
         .expect("parking retained traffic");
         let vehicles = (0..vehicle_count)
@@ -5120,6 +5280,9 @@ mod tests {
             crate::JunctionRegistry::empty(),
             SignalRegistry::empty(),
             parking,
+            crate::test_support::test_participant_class_registry(),
+            crate::CrossSectionRegistry::empty(),
+            crate::AccessRegistry::empty(),
         )
         .expect("parking traffic data");
         let vehicles = vec![
@@ -5180,6 +5343,9 @@ mod tests {
             crate::JunctionRegistry::empty(),
             SignalRegistry::empty(),
             parking,
+            crate::test_support::test_participant_class_registry(),
+            crate::CrossSectionRegistry::empty(),
+            crate::AccessRegistry::empty(),
         )
         .expect("repeated target traffic");
         CoreWorld::with_traffic_data(20, traffic, Vec::<VehicleSpawnInput>::new())
@@ -6043,6 +6209,9 @@ mod tests {
                 crate::JunctionRegistry::empty(),
                 SignalRegistry::empty(),
                 parking,
+                crate::test_support::test_participant_class_registry(),
+                crate::CrossSectionRegistry::empty(),
+                crate::AccessRegistry::empty(),
             )
             .expect("cyclic parking traffic");
             let mut world = CoreWorld::with_traffic_data(1_000, traffic, Vec::new())
@@ -6540,6 +6709,9 @@ mod tests {
                 crate::JunctionRegistry::empty(),
                 SignalRegistry::empty(),
                 parking,
+                crate::test_support::test_participant_class_registry(),
+                crate::CrossSectionRegistry::empty(),
+                crate::AccessRegistry::empty(),
             )
             .expect("parking scale traffic");
             let mut vehicles: Vec<_> = (0..background_count)
@@ -6646,6 +6818,9 @@ mod tests {
                 crate::JunctionRegistry::empty(),
                 SignalRegistry::empty(),
                 parking,
+                crate::test_support::test_participant_class_registry(),
+                crate::CrossSectionRegistry::empty(),
+                crate::AccessRegistry::empty(),
             )
             .expect("pathological traffic");
             let mut vehicles: Vec<_> = (0..background_count)
@@ -6761,7 +6936,7 @@ mod tests {
         assert!(stats.expanded_accounted_bytes >= stats.accounted_bytes);
         assert!(stats.complete_accounted_bytes >= stats.expanded_accounted_bytes);
         eprintln!(
-            "numeric_component_memory live={} accounted_bytes={} expanded_accounted_bytes={} complete_accounted_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} vehicle_profile_registry_bytes={} junction_registry_bytes={} signal_registry_bytes={} signal_runtime_state_bytes={} signal_runtime_scratch_bytes={} route_bytes={} route_maneuver_occurrence_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} parking_registry_runtime_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={} lane_graph_inline_size={} vehicle_profile_registry_inline_size={} junction_registry_inline_size={} signal_registry_inline_size={} signal_runtime_state_inline_size={} signal_runtime_scratch_inline_size={} vehicle_state_size={} vehicle_slot_size={}",
+            "numeric_component_memory live={} accounted_bytes={} expanded_accounted_bytes={} complete_accounted_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} vehicle_profile_registry_bytes={} junction_registry_bytes={} signal_registry_bytes={} signal_runtime_state_bytes={} signal_runtime_scratch_bytes={} participant_class_registry_bytes={} cross_section_registry_bytes={} access_registry_bytes={} route_bytes={} route_maneuver_occurrence_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} parking_registry_runtime_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={} lane_graph_inline_size={} vehicle_profile_registry_inline_size={} junction_registry_inline_size={} signal_registry_inline_size={} signal_runtime_state_inline_size={} signal_runtime_scratch_inline_size={} vehicle_state_size={} vehicle_slot_size={}",
             stats.live_vehicles,
             stats.accounted_bytes,
             stats.expanded_accounted_bytes,
@@ -6774,6 +6949,9 @@ mod tests {
             stats.signal_registry_bytes,
             stats.signal_runtime_state_bytes,
             stats.signal_runtime_scratch_bytes,
+            stats.participant_class_registry_bytes,
+            stats.cross_section_registry_bytes,
+            stats.access_registry_bytes,
             stats.route_bytes,
             stats.route_maneuver_occurrence_bytes,
             stats.route_distance_bytes,

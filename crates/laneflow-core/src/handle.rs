@@ -126,6 +126,114 @@ impl ParkingSpaceHandle {
     }
 }
 
+/// immutable RoadCorridor definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct RoadCorridorHandle {
+    index: u32,
+}
+
+impl RoadCorridorHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("road corridor handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
+/// immutable RoadSection definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct RoadSectionHandle {
+    index: u32,
+}
+
+impl RoadSectionHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("road section handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
+/// immutable LaneGroup definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct LaneGroupHandle {
+    index: u32,
+}
+
+impl LaneGroupHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("lane group handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
+/// immutable FacilityBand definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FacilityBandHandle {
+    index: u32,
+}
+
+impl FacilityBandHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("facility band handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
+/// immutable ParticipantClass definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ParticipantClassHandle {
+    index: u32,
+}
+
+impl ParticipantClassHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("participant class handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
+/// immutable AccessRule definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct AccessRuleHandle {
+    index: u32,
+}
+
+impl AccessRuleHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("access rule handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
 /// route definition 的不透明 handle。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RouteHandle {

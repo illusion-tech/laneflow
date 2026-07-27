@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use laneflow_corridor_generator::{CorridorConfig, generate};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 const CONFIG: &str = include_str!("../../../examples/config/v0.9-signalized-corridor.toml");
 
@@ -33,6 +33,11 @@ fn default_corridor_locks_scope_counts_and_deterministic_bytes() {
     assert_eq!(counts.phases, 24);
     assert_eq!(counts.portals, 6);
     assert_eq!(counts.spawn_slots, 212);
+    assert_eq!(counts.facility_bands, 7);
+    assert_eq!(counts.road_sections, 14);
+    assert_eq!(counts.lane_groups, 6);
+    assert_eq!(counts.road_corridors, 7);
+    assert_eq!(counts.access_rules, 18);
     assert_eq!(first.traffic_bytes(), second.traffic_bytes());
     assert_eq!(first.spatial_bytes(), second.spatial_bytes());
     assert_eq!(first.manifest_bytes(), second.manifest_bytes());
@@ -44,7 +49,7 @@ fn checked_in_artifacts_are_exact_generator_outputs() {
     let generated = default_generated();
     for (relative, expected) in [
         (
-            "examples/data/v0.8-signalized-corridor.laneflow.json",
+            "examples/data/v0.9-signalized-corridor.laneflow.json",
             generated.traffic_bytes(),
         ),
         (
@@ -222,6 +227,210 @@ fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
 }
 
 #[test]
+fn default_corridor_locks_explicit_cross_section_and_bus_lane_rules() {
+    let generated = default_generated();
+    let traffic: Value =
+        serde_json::from_slice(generated.traffic_bytes()).expect("traffic JSON must parse");
+
+    // 横断面数组非空且数量锁定：7 个物理 corridor 单元（主干 3 段 + 支路 4 段），
+    // 每单元 2 个方向 section + 1 条中央分隔带；主干道每个 section 一个公交道组，
+    // 每组 deny motorVehicle + allow bus + allow car 三条规则。
+    let sections = traffic["roadSections"].as_array().expect("sections");
+    let corridors = traffic["roadCorridors"].as_array().expect("corridors");
+    let bands = traffic["facilityBands"].as_array().expect("bands");
+    let groups = traffic["laneGroups"].as_array().expect("groups");
+    let rules = traffic["accessRules"].as_array().expect("rules");
+    assert_eq!(sections.len(), 14);
+    assert_eq!(corridors.len(), 7);
+    assert_eq!(bands.len(), 7);
+    assert_eq!(groups.len(), 6);
+    assert_eq!(rules.len(), 18);
+    assert!(bands.iter().all(|band| band["kindId"] == "median"));
+    assert!(
+        sections
+            .iter()
+            .all(|section| section["kindId"] == "motorLane")
+    );
+
+    let section = |id: &str| {
+        sections
+            .iter()
+            .find(|section| section["id"] == id)
+            .expect("section must exist")
+    };
+    let lane_edges = |section: &Value| {
+        section["lanes"]
+            .as_array()
+            .expect("lanes")
+            .iter()
+            .map(|lane| {
+                lane["edgeIds"]
+                    .as_array()
+                    .expect("edge ids")
+                    .iter()
+                    .map(|edge_id| edge_id.as_str().expect("edge id string").to_owned())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // corridor reference 方向：主干取 w2e、支路取 n2s；lane index 与 corridor
+    // elements 都按 reference 系从左到右（generator 由几何派生：左 = up × tangent）。
+    // w2e 自身即 reference：lane-0（中央侧）在左，lane-2（路缘侧）在右。
+    assert_eq!(
+        lane_edges(section("section-main-w2e-road-0")),
+        [
+            vec!["edge-main-w2e-lane-0-road-0"],
+            vec!["edge-main-w2e-lane-1-road-0"],
+            vec!["edge-main-w2e-lane-2-road-0"],
+        ]
+    );
+    // e2w 与 reference 反向：lane index 相对其行驶方向反转，lane-2 在左。
+    assert_eq!(
+        lane_edges(section("section-main-e2w-road-0")),
+        [
+            vec!["edge-main-e2w-lane-2-road-0"],
+            vec!["edge-main-e2w-lane-1-road-0"],
+            vec!["edge-main-e2w-lane-0-road-0"],
+        ]
+    );
+    // 支路 reference 为 n2s：s2n 整体在左，其 lane-1 最左。
+    assert_eq!(
+        lane_edges(section("section-side-1-s2n-road-0")),
+        [
+            vec!["edge-side-1-s2n-lane-1-road-0"],
+            vec!["edge-side-1-s2n-lane-0-road-0"],
+        ]
+    );
+    assert_eq!(
+        lane_edges(section("section-side-1-n2s-road-0")),
+        [
+            vec!["edge-side-1-n2s-lane-0-road-0"],
+            vec!["edge-side-1-n2s-lane-1-road-0"],
+        ]
+    );
+
+    // corridor elements：反向 section 在左、中央分隔带居中、reference section 在右。
+    let corridor = |id: &str| {
+        corridors
+            .iter()
+            .find(|corridor| corridor["id"] == id)
+            .expect("corridor must exist")
+    };
+    let main_corridor = corridor("corridor-main-road-0");
+    assert_eq!(
+        main_corridor["referenceSectionId"],
+        "section-main-w2e-road-0"
+    );
+    assert_eq!(
+        main_corridor["elements"]
+            .as_array()
+            .expect("elements")
+            .iter()
+            .map(|element| {
+                element
+                    .as_object()
+                    .expect("element")
+                    .keys()
+                    .next()
+                    .expect("one key")
+                    .as_str()
+            })
+            .collect::<Vec<_>>(),
+        ["sectionId", "bandId", "sectionId"]
+    );
+    assert_eq!(
+        main_corridor["elements"][0]["sectionId"],
+        "section-main-e2w-road-0"
+    );
+    assert_eq!(
+        main_corridor["elements"][1]["bandId"],
+        "band-main-median-road-0"
+    );
+    assert_eq!(
+        main_corridor["elements"][2]["sectionId"],
+        "section-main-w2e-road-0"
+    );
+    let side_corridor = corridor("corridor-side-1-road-0");
+    assert_eq!(
+        side_corridor["referenceSectionId"],
+        "section-side-1-n2s-road-0"
+    );
+    assert_eq!(
+        side_corridor["elements"][0]["sectionId"],
+        "section-side-1-s2n-road-0"
+    );
+    assert!(corridors.iter().all(|corridor| {
+        corridor["elements"]
+            .as_array()
+            .expect("elements")
+            .iter()
+            .any(|element| element.get("bandId").is_some())
+    }));
+
+    // 公交专用道：主干道每个 section 的路缘侧 lane 挂 LaneGroup——w2e 是 index 2
+    // （reference 系最右），e2w 是 index 0（reference 系最右即其行驶方向路缘侧）。
+    for (section_id, group_id, bus_index) in [
+        ("section-main-w2e-road-0", "group-main-w2e-bus-road-0", 2),
+        ("section-main-e2w-road-0", "group-main-e2w-bus-road-0", 0),
+        ("section-main-w2e-road-4", "group-main-w2e-bus-road-4", 2),
+        ("section-main-e2w-road-4", "group-main-e2w-bus-road-4", 0),
+    ] {
+        let section = section(section_id);
+        let lanes = section["lanes"].as_array().expect("lanes");
+        assert_eq!(lanes[bus_index]["laneGroupId"], json!(group_id));
+        assert!(
+            lanes
+                .iter()
+                .enumerate()
+                .all(|(index, lane)| index == bus_index || lane.get("laneGroupId").is_none())
+        );
+        assert!(groups.iter().any(|group| {
+            group["id"] == json!(group_id) && group["roadSectionId"] == json!(section_id)
+        }));
+    }
+
+    // 每个公交道组都有 deny motorVehicle + allow bus 组合（外加演示车队的
+    // allow car 豁免），target 均指向 laneGroup。
+    for group in groups {
+        let group_id = group["id"].as_str().expect("group id");
+        let group_rules = rules
+            .iter()
+            .filter(|rule| rule["target"]["id"] == json!(group_id))
+            .collect::<Vec<_>>();
+        assert_eq!(group_rules.len(), 3);
+        assert!(
+            group_rules
+                .iter()
+                .all(|rule| rule["target"]["kind"] == "laneGroup")
+        );
+        assert!(group_rules.iter().any(|rule| {
+            rule["effect"] == "deny" && rule["participantClassIds"] == json!(["motorVehicle"])
+        }));
+        assert!(group_rules.iter().any(|rule| {
+            rule["effect"] == "allow" && rule["participantClassIds"] == json!(["bus"])
+        }));
+        assert!(group_rules.iter().any(|rule| {
+            rule["effect"] == "allow" && rule["participantClassIds"] == json!(["car"])
+        }));
+    }
+
+    // 参与者分类与 profile 归属：motorVehicle root + car/bus 子类。
+    assert_eq!(
+        traffic["participantClasses"],
+        json!([
+            { "id": "motorVehicle" },
+            { "id": "car", "extendsId": "motorVehicle" },
+            { "id": "bus", "extendsId": "motorVehicle" },
+        ])
+    );
+    let profiles = traffic["vehicleProfiles"].as_array().expect("profiles");
+    assert_eq!(profiles.len(), 2);
+    assert_eq!(profiles[0]["participantClassId"], "car");
+    assert_eq!(profiles[1]["participantClassId"], "bus");
+}
+
+#[test]
 fn default_catalog_locks_physical_slots_lane_choices_and_weights() {
     let generated = default_generated();
     let catalog: laneflow_corridor_generator::CorridorCatalog =
@@ -299,7 +508,7 @@ fn config_rejects_unknown_fields_length_geometry_offsets_and_output_conflicts() 
 
     let conflict = CONFIG.replace(
         "spatial_artifact_ref = \"v0.1-signalized-corridor.spatial.json\"",
-        "spatial_artifact_ref = \"v0.8-signalized-corridor.laneflow.json\"",
+        "spatial_artifact_ref = \"v0.9-signalized-corridor.laneflow.json\"",
     );
     assert!(CorridorConfig::parse(&conflict).is_err());
 }

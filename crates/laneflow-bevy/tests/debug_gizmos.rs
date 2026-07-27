@@ -41,19 +41,23 @@ fn fixture() -> Fixture {
     )])
     .expect("valid graph");
     let edge = graph.edge_handle("edge").expect("edge handle");
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "profile",
-        IidmProfileSpec {
-            length: 4.5,
-            desired_speed: 13.9,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 1.4,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 4.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "profile",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed: 13.9,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 1.4,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )
+        .expect("valid profile")],
     )
-    .expect("valid profile")])
     .expect("valid profiles");
     let profile = profiles.profile_handle("profile").expect("profile handle");
     let traffic = InitialTrafficData::try_new(
@@ -63,6 +67,9 @@ fn fixture() -> Fixture {
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic data");
     let core = CoreWorld::with_traffic_data(
@@ -327,4 +334,17 @@ fn failed_current_presentation_batch_never_falls_back_to_previous_validated_batc
     let session = app.world().resource::<LaneFlowSession>();
     assert_eq!(session.presentation_report().applied_records(), 0);
     assert!(session.last_error().is_some());
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

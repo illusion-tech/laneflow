@@ -41,19 +41,23 @@ fn allocation_world(with_blocker: bool) -> (CoreWorld, VehicleProfileHandle) {
         ),
     ])
     .expect("valid graph");
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "profile",
-        IidmProfileSpec {
-            length: 4.5,
-            desired_speed: 13.9,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 1.4,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 4.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "profile",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed: 13.9,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 1.4,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )
+        .expect("valid profile")],
     )
-    .expect("valid profile")])
     .expect("valid profile registry");
     let profile = profiles.profile_handle("profile").expect("profile handle");
     let traffic = InitialTrafficData::try_new(
@@ -66,6 +70,9 @@ fn allocation_world(with_blocker: bool) -> (CoreWorld, VehicleProfileHandle) {
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic");
     let mut vehicles = vec![VehicleSpawnInput::completed(
@@ -173,4 +180,17 @@ fn assert_replace_with_allocation_bound() {
     assert_eq!(stats.reallocations, 0);
     assert_eq!(stats.bytes_allocated, replacement_id.len() * 2);
     assert_eq!(stats.bytes_reallocated, 0);
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

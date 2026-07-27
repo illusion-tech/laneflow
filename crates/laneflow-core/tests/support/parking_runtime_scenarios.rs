@@ -38,19 +38,23 @@ struct ParkingSixCommandPair {
 }
 
 fn profile_registry() -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "car",
-        IidmProfileSpec {
-            length: 5.0,
-            desired_speed: 20.0,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 2.0,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 8.0,
-        },
+    let registry = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "car",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 5.0,
+                desired_speed: 20.0,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 2.0,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 8.0,
+            },
+        )
+        .expect("parking profile")],
     )
-    .expect("parking profile")])
     .expect("parking profiles");
     let handle = registry
         .profile_handle("car")
@@ -89,6 +93,9 @@ fn traffic_with_spaces(
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("parking traffic");
     (traffic, profile)
@@ -245,6 +252,9 @@ pub fn parking_six_command_scenario(
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("six-command traffic");
     let mut vehicles = Vec::with_capacity(vehicle_count);
@@ -472,6 +482,9 @@ pub fn parking_pathological_leave_scenario(
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("pathological traffic");
     let mut vehicles = Vec::with_capacity(background_count + fast_count);
@@ -566,4 +579,17 @@ pub fn occupied_parking_world(vehicle_count: usize, fixed_delta_time_ms: u64) ->
             .expect("parked spawn");
     }
     world
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

@@ -3,7 +3,7 @@
 **文档状态**: Accepted  
 **最后更新**: 2026-07-24
 
-**适用范围**: Lane Graph + Route 的 Core 模型、edge / connection / topology、Traffic v0.8 per-edge 基础道路限速和 data-format 输入边界
+**适用范围**: Lane Graph + Route 的 Core 模型、edge / connection / topology、Traffic v0.9 per-edge 基础道路限速和 data-format 输入边界
 
 **关联文档**:
 
@@ -74,7 +74,7 @@ LaneConnectionInput
 说明：
 
 - `length` 是 Core route following 的权威长度。
-- `speedLimit` 是道路静态事实；v0.8 的 effective speed ceiling 与该值相等，未来驾驶风格或临时 maneuver allowance 不得修改它。
+- `speedLimit` 是道路静态事实；当前的 effective speed ceiling 与该值相等，未来驾驶风格或临时 maneuver allowance 不得修改它。
 - `connections` 只表达可从当前 edge 进入哪些下游 edge。
 - 没有 outgoing connection 的 edge 是合法 terminal edge。
 - route 的实际行驶顺序由 route edge sequence 决定，不由 connection 顺序隐式选择。
@@ -186,7 +186,7 @@ v0.2 Core API 应从字符串 edge 引用迁移到 handle 引用：
 
 #30 曾将 v0.2/v0.3 序列化字段冻结为
 `laneGraph.edges[].connections[].to`；v0.4 已按 #94 迁移为 `toEdgeId`，current
-v0.8 继续使用该字段和 required `laneGraph.edges[].speedLimit`。其 directed
+v0.9 继续使用该字段和 required `laneGraph.edges[].speedLimit`。其 directed
 connection 语义不变，terminal edge 继续使用空 `connections` 数组。
 
 data format 不应持久化 `EdgeHandle`。`EdgeHandle` 只在单个 `CoreWorld` / simulation session 内有效。
@@ -249,6 +249,6 @@ Adapter 不应：
 - Core 不从 geometry、connector 名称或 edge pair 推导 Junction/Movement identity；
 - RoadSection、LaneGroup 与 JunctionGroup 在 v0.9 只设计，不进入 LaneGraph runtime。
 
-current Traffic v0.8 不把 Junction owner 写回 LaneGraph；完整 owner、validation、
+current Traffic v0.9 不把 Junction owner 写回 LaneGraph；完整 owner、validation、
 Route occurrence 与性能契约见
 [`road-junction-model.md`](road-junction-model.md)。

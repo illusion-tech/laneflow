@@ -95,19 +95,23 @@ fn replay_world() -> CoreWorld {
         ],
     )
     .expect("replay signals");
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "car",
-        IidmProfileSpec {
-            length: 4.5,
-            desired_speed: 10.0,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 1.5,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 6.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "car",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed: 10.0,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 1.5,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 6.0,
+            },
+        )
+        .unwrap()],
     )
-    .unwrap()])
     .unwrap();
     let profile = profiles.profile_handle("car").unwrap();
     let traffic = InitialTrafficData::try_new(
@@ -120,6 +124,9 @@ fn replay_world() -> CoreWorld {
         junctions,
         signals,
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .unwrap();
     CoreWorld::with_traffic_data(
@@ -202,4 +209,17 @@ fn failed_step_is_atomic_and_retry_matches_fresh_world_at_phase_boundary() {
         .collect::<Vec<_>>();
     assert_eq!(group_positions.len(), 2);
     assert!(group_positions.iter().all(|index| *index > phase_position));
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

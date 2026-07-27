@@ -3,9 +3,9 @@ use laneflow_data::{CURRENT_FORMAT_VERSION, DataError, LoadedPackage, from_json_
 use serde_json::{Value, json};
 
 const SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.8-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.9-parking-signals-baseline.laneflow.json");
 const EMPTY_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.8-empty-signals-and-parking.laneflow.json");
+    include_str!("../../../examples/data/v0.9-empty-signals-and-parking.laneflow.json");
 
 fn into_core_domain(error: DataError) -> (String, CoreError) {
     match error {
@@ -16,11 +16,32 @@ fn into_core_domain(error: DataError) -> (String, CoreError) {
 
 #[test]
 fn current_loader_normalizes_static_signals_parking_and_resolvers() {
-    assert_eq!(CURRENT_FORMAT_VERSION, "0.8");
-    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.8 fixture must load");
+    assert_eq!(CURRENT_FORMAT_VERSION, "0.9");
+    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.9 fixture must load");
     let traffic = loaded.initial_traffic_data();
     let signals = traffic.signals();
     let topology = traffic.junctions();
+
+    let motor_vehicle = traffic
+        .participant_classes()
+        .class_handle("motorVehicle")
+        .expect("ParticipantClass handle must resolve");
+    assert_eq!(
+        traffic
+            .participant_classes()
+            .class_external_id(motor_vehicle),
+        Some("motorVehicle")
+    );
+    let cross_section = traffic.cross_section();
+    assert!(
+        cross_section
+            .section_handle("section-main")
+            .is_some_and(
+                |section| cross_section.section_external_id(section) == Some("section-main")
+            )
+    );
+    assert!(cross_section.corridor_handle("corridor-main").is_some());
+    assert!(traffic.access().is_empty());
 
     let stop_line = signals
         .stop_line_handle("stop-entry")
@@ -122,7 +143,7 @@ fn current_loader_normalizes_static_signals_parking_and_resolvers() {
 }
 
 #[test]
-fn explicit_empty_static_domains_are_valid_current_v0_8() {
+fn explicit_empty_static_domains_are_valid_current_v0_9() {
     let loaded = from_json_str(EMPTY_SIGNALS_FIXTURE).expect("empty Signals fixture must load");
     assert!(loaded.initial_traffic_data().junctions().is_empty());
     assert!(loaded.initial_traffic_data().signals().is_empty());
@@ -133,7 +154,7 @@ fn explicit_empty_static_domains_are_valid_current_v0_8() {
 
 #[test]
 fn unsupported_versions_are_rejected_before_current_shape_and_units() {
-    for version in ["0.4", "0.5", "0.6", "0.7", "0.9"] {
+    for version in ["0.4", "0.5", "0.6", "0.7", "0.8", "1.0"] {
         let mut value = empty_value();
         value["formatVersion"] = json!(version);
         value["units"]["distance"] = json!("kilometer");
@@ -146,7 +167,7 @@ fn unsupported_versions_are_rejected_before_current_shape_and_units() {
         let error = load_value(value).expect_err("unsupported version must fail first");
         std::assert_matches!(
             error,
-            DataError::UnsupportedFormatVersion { expected: "0.8", actual }
+            DataError::UnsupportedFormatVersion { expected: "0.9", actual }
                 if actual == version
         );
     }
@@ -196,8 +217,18 @@ fn malformed_or_trailing_json_fails_before_version_dispatch() {
 }
 
 #[test]
-fn current_v0_8_requires_all_static_domains_and_nested_arrays() {
-    for field in ["junctions", "movements", "maneuverPaths"] {
+fn current_v0_9_requires_all_static_domains_and_nested_arrays() {
+    for field in [
+        "junctions",
+        "movements",
+        "maneuverPaths",
+        "participantClasses",
+        "facilityBands",
+        "roadSections",
+        "laneGroups",
+        "roadCorridors",
+        "accessRules",
+    ] {
         let mut value = empty_value();
         value.as_object_mut().expect("root object").remove(field);
         let error = load_value(value).expect_err("every topology array is required");
@@ -831,6 +862,384 @@ fn missing_or_null_format_version_is_a_shape_error() {
 fn data_error_is_send_and_sync() {
     fn assert_traits<T: std::error::Error + Send + Sync>() {}
     assert_traits::<DataError>();
+}
+
+#[test]
+fn participant_class_and_profile_phase_precedes_lane_graph() {
+    let mut duplicate_class = empty_value();
+    let duplicate = duplicate_class["participantClasses"][0].clone();
+    duplicate_class["participantClasses"]
+        .as_array_mut()
+        .expect("participantClasses")
+        .push(duplicate);
+    duplicate_class["laneGraph"]["edges"][0]["length"] = json!(0.0);
+    std::assert_matches!(
+        into_core_domain(
+            load_value(duplicate_class).expect_err("participant class phase must fail first")
+        ),
+        (path, CoreError::DuplicateParticipantClassId { class_id })
+            if path == "participantClasses[1].id" && class_id == "motorVehicle"
+    );
+
+    let mut unknown_class = empty_value();
+    unknown_class["vehicleProfiles"][0]["participantClassId"] = json!("missing");
+    unknown_class["laneGraph"]["edges"][0]["length"] = json!(0.0);
+    std::assert_matches!(
+        load_value(unknown_class).expect_err("profile class phase must fail before lane graph"),
+        DataError::UnknownVehicleProfileParticipantClass { path, profile_id, class_id }
+            if path == "vehicleProfiles[0].participantClassId"
+                && profile_id == "passenger-car"
+                && class_id == "missing"
+    );
+}
+
+#[test]
+fn participant_class_errors_use_narrowest_paths() {
+    let mut unknown_extends = empty_value();
+    unknown_extends["participantClasses"]
+        .as_array_mut()
+        .expect("participantClasses")
+        .push(json!({ "id": "bus", "extendsId": "missing" }));
+    std::assert_matches!(
+        into_core_domain(load_value(unknown_extends).expect_err("unknown extendsId")),
+        (path, CoreError::UnknownParticipantClassExtends { class_id, .. })
+            if path == "participantClasses[1].extendsId" && class_id == "bus"
+    );
+
+    let mut invalid_id = empty_value();
+    invalid_id["participantClasses"][0]["id"] = json!("bad id");
+    std::assert_matches!(
+        into_core_domain(load_value(invalid_id).expect_err("invalid class id")),
+        (path, CoreError::InvalidExternalId { .. }) if path == "participantClasses[0].id"
+    );
+}
+
+#[test]
+fn cross_section_phase_precedes_access() {
+    let mut value = signals_value();
+    value["roadSections"][0]["lanes"][0]["edgeIds"][1] = json!("missing");
+    value["accessRules"] = json!([{
+        "id": "rule-1",
+        "target": { "kind": "laneEdge", "id": "also-missing" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"]
+    }]);
+    std::assert_matches!(
+        into_core_domain(load_value(value).expect_err("cross-section must fail before access")),
+        (path, CoreError::UnknownSectionLaneEdge { .. })
+            if path == "roadSections[0].lanes[0].edgeIds[1]"
+    );
+}
+
+#[test]
+fn cross_section_errors_use_narrowest_paths() {
+    let mut disconnected = signals_value();
+    disconnected["roadSections"][0]["lanes"][0]["edgeIds"] = json!(["through", "entry"]);
+    std::assert_matches!(
+        into_core_domain(load_value(disconnected).expect_err("disconnected lane chain")),
+        (path, CoreError::DisconnectedSectionLane { lane_index, transition_index, .. })
+            if path == "roadSections[0].lanes[0].edgeIds[1]"
+                && lane_index == 0
+                && transition_index == 0
+    );
+
+    let mut unknown_element = signals_value();
+    unknown_element["roadCorridors"][0]["elements"] = json!([{ "sectionId": "missing" }]);
+    std::assert_matches!(
+        into_core_domain(load_value(unknown_element).expect_err("unknown corridor element")),
+        (path, CoreError::UnknownCorridorElement { element_id, .. })
+            if path == "roadCorridors[0].elements[0]" && element_id == "missing"
+    );
+
+    let mut unowned = signals_value();
+    unowned["roadSections"]
+        .as_array_mut()
+        .expect("roadSections")
+        .push(json!({
+            "id": "section-side",
+            "kindId": "motorLane",
+            "lanes": [{ "edgeIds": ["bypass"] }]
+        }));
+    std::assert_matches!(
+        into_core_domain(load_value(unowned).expect_err("section without corridor owner")),
+        (path, CoreError::UnownedCorridorElement { element_id, .. })
+            if path == "roadSections[1]" && element_id == "section-side"
+    );
+
+    let mut unknown_group = signals_value();
+    unknown_group["roadSections"][0]["lanes"][0]["laneGroupId"] = json!("missing");
+    std::assert_matches!(
+        into_core_domain(load_value(unknown_group).expect_err("unknown lane group")),
+        (path, CoreError::UnknownSectionLaneGroup { .. })
+            if path == "roadSections[0].lanes[0].laneGroupId"
+    );
+
+    let mut not_lane_bearing = signals_value();
+    not_lane_bearing["roadSections"][0]["kindId"] = json!("median");
+    std::assert_matches!(
+        into_core_domain(load_value(not_lane_bearing).expect_err("non lane-bearing section kind")),
+        (path, CoreError::RoadSectionKindNotLaneBearing { .. })
+            if path == "roadSections[0].kindId"
+    );
+}
+
+#[test]
+fn access_capability_guards_are_structured_and_attributed() {
+    let mut time_windows = signals_value();
+    time_windows["accessRules"] = json!([{
+        "id": "rule-peak",
+        "target": { "kind": "laneEdge", "id": "entry" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"],
+        "timeWindows": [{
+            "days": ["mon", "tue"],
+            "startMinuteOfDay": 420,
+            "endMinuteOfDay": 540
+        }]
+    }]);
+    std::assert_matches!(
+        into_core_domain(load_value(time_windows).expect_err("timeWindows rule must be guarded")),
+        (path, CoreError::AccessCapabilityUnavailable { rule_id, capability })
+            if path == "accessRules[0].timeWindows"
+                && rule_id == "rule-peak"
+                && capability == "timeWindows"
+    );
+
+    let mut band_target = signals_value();
+    band_target["facilityBands"] = json!([{ "id": "band-median", "kindId": "median" }]);
+    band_target["roadCorridors"][0]["elements"]
+        .as_array_mut()
+        .expect("corridor elements")
+        .push(json!({ "bandId": "band-median" }));
+    band_target["accessRules"] = json!([{
+        "id": "rule-band",
+        "target": { "kind": "facilityBand", "id": "band-median" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"]
+    }]);
+    std::assert_matches!(
+        into_core_domain(load_value(band_target).expect_err("facilityBand target must be guarded")),
+        (path, CoreError::AccessCapabilityUnavailable { rule_id, capability })
+            if path == "accessRules[0].target.id"
+                && rule_id == "rule-band"
+                && capability == "facilityBandTarget"
+    );
+}
+
+#[test]
+fn access_rule_errors_use_narrowest_paths() {
+    let mut unknown_target = signals_value();
+    unknown_target["accessRules"] = json!([{
+        "id": "rule-1",
+        "target": { "kind": "laneEdge", "id": "missing" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"]
+    }]);
+    std::assert_matches!(
+        into_core_domain(load_value(unknown_target).expect_err("unknown access target")),
+        (path, CoreError::UnknownAccessRuleTarget { target_id, .. })
+            if path == "accessRules[0].target.id" && target_id == "missing"
+    );
+
+    let mut unknown_class = signals_value();
+    unknown_class["accessRules"] = json!([{
+        "id": "rule-1",
+        "target": { "kind": "laneEdge", "id": "entry" },
+        "effect": "deny",
+        "participantClassIds": ["missing"]
+    }]);
+    std::assert_matches!(
+        into_core_domain(load_value(unknown_class).expect_err("unknown access class")),
+        (path, CoreError::UnknownAccessRuleParticipantClass { class_id, .. })
+            if path == "accessRules[0].participantClassIds[0]" && class_id == "missing"
+    );
+
+    let mut regulation_mismatch = signals_value();
+    regulation_mismatch["accessRules"] = json!([
+        {
+            "id": "rule-1",
+            "target": { "kind": "laneEdge", "id": "entry" },
+            "effect": "deny",
+            "participantClassIds": ["motorVehicle"],
+            "regulation": { "jurisdiction": "cn-sh", "version": "2024" }
+        },
+        {
+            "id": "rule-2",
+            "target": { "kind": "laneEdge", "id": "bypass" },
+            "effect": "allow",
+            "participantClassIds": ["motorVehicle"],
+            "regulation": { "jurisdiction": "cn-sh", "version": "2025", "source": "gov" }
+        }
+    ]);
+    std::assert_matches!(
+        into_core_domain(
+            load_value(regulation_mismatch).expect_err("regulation provenance must be uniform")
+        ),
+        (path, CoreError::AccessRegulationMismatch { duplicate_rule_id, .. })
+            if path == "accessRules[1].regulation" && duplicate_rule_id == "rule-2"
+    );
+
+    let mut duplicate_rule = signals_value();
+    duplicate_rule["accessRules"] = json!([
+        {
+            "id": "rule-1",
+            "target": { "kind": "laneEdge", "id": "entry" },
+            "effect": "deny",
+            "participantClassIds": ["motorVehicle"]
+        },
+        {
+            "id": "rule-1",
+            "target": { "kind": "laneEdge", "id": "bypass" },
+            "effect": "allow",
+            "participantClassIds": ["motorVehicle"]
+        }
+    ]);
+    std::assert_matches!(
+        into_core_domain(load_value(duplicate_rule).expect_err("duplicate rule id")),
+        (path, CoreError::DuplicateAccessRuleId { rule_id })
+            if path == "accessRules[1].id" && rule_id == "rule-1"
+    );
+}
+
+#[test]
+fn access_combination_ambiguity_is_rejected_with_narrowest_path() {
+    let mut value = signals_value();
+    value["accessRules"] = json!([
+        {
+            "id": "rule-allow",
+            "target": { "kind": "laneEdge", "id": "entry" },
+            "effect": "allow",
+            "participantClassIds": ["motorVehicle"]
+        },
+        {
+            "id": "rule-deny",
+            "target": { "kind": "laneEdge", "id": "entry" },
+            "effect": "deny",
+            "participantClassIds": ["motorVehicle"]
+        }
+    ]);
+    std::assert_matches!(
+        into_core_domain(load_value(value).expect_err("allow/deny tie must be ambiguous")),
+        (path, CoreError::AccessRuleAmbiguity { first_rule_id, second_rule_id, .. })
+            if path == "accessRules[1]"
+                && first_rule_id == "rule-allow"
+                && second_rule_id == "rule-deny"
+    );
+
+    let mut exempted = signals_value();
+    exempted["participantClasses"]
+        .as_array_mut()
+        .expect("participantClasses")
+        .push(json!({ "id": "bus", "extendsId": "motorVehicle" }));
+    exempted["accessRules"] = json!([
+        {
+            "id": "rule-bus-lane",
+            "target": { "kind": "laneGroup", "id": "group-main" },
+            "effect": "deny",
+            "participantClassIds": ["motorVehicle"]
+        },
+        {
+            "id": "rule-bus-lane-allow-bus",
+            "target": { "kind": "laneGroup", "id": "group-main" },
+            "effect": "allow",
+            "participantClassIds": ["bus"]
+        }
+    ]);
+    exempted["laneGroups"] = json!([{ "id": "group-main", "roadSectionId": "section-main" }]);
+    exempted["roadSections"][0]["lanes"][0]["laneGroupId"] = json!("group-main");
+    let loaded = load_value(exempted).expect("deeper class exemption must resolve");
+    assert!(!loaded.initial_traffic_data().access().is_empty());
+}
+
+#[test]
+fn maneuver_path_target_rule_resolves_on_path_plane_end_to_end() {
+    // path 平面规则经真实 fixture 端到端通过：只落在目标 ManeuverPath 上，
+    // 不展平到共享 entry edge 的 edge 平面（SSOT §6.2）。
+    let mut value = signals_value();
+    value["accessRules"] = json!([{
+        "id": "rule-path-deny",
+        "target": { "kind": "maneuverPath", "id": "path-controlled" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"]
+    }]);
+    let loaded = load_value(value).expect("maneuverPath target rule must load");
+    let traffic = loaded.initial_traffic_data();
+    let motor_vehicle = traffic
+        .participant_classes()
+        .class_handle("motorVehicle")
+        .expect("ParticipantClass handle must resolve");
+    let controlled = traffic
+        .junctions()
+        .maneuver_path_handle("path-controlled")
+        .expect("ManeuverPath handle must resolve");
+    let uncontrolled = traffic
+        .junctions()
+        .maneuver_path_handle("path-uncontrolled")
+        .expect("ManeuverPath handle must resolve");
+    assert!(matches!(
+        traffic.access().path_access(controlled, motor_vehicle),
+        laneflow_core::AccessCell::Decided {
+            effect: laneflow_core::AccessEffect::Deny,
+            ..
+        }
+    ));
+    assert!(matches!(
+        traffic.access().path_access(uncontrolled, motor_vehicle),
+        laneflow_core::AccessCell::Unconstrained
+    ));
+    let entry = traffic
+        .lane_graph()
+        .edge_handle("entry")
+        .expect("LaneEdge handle must resolve");
+    assert!(matches!(
+        traffic.access().edge_access(entry, motor_vehicle),
+        laneflow_core::AccessCell::Unconstrained
+    ));
+}
+
+#[test]
+fn current_v0_9_profile_and_new_domain_shapes_are_closed() {
+    let mut missing_class_id = empty_value();
+    missing_class_id["vehicleProfiles"][0]
+        .as_object_mut()
+        .expect("profile")
+        .remove("participantClassId");
+    std::assert_matches!(
+        load_value(missing_class_id).expect_err("participantClassId is required"),
+        DataError::JsonShape { path, .. } if path.contains("vehicleProfiles[0]")
+    );
+
+    let mut typo_class = empty_value();
+    typo_class["participantClasses"][0]["typo"] = json!(true);
+    std::assert_matches!(
+        load_value(typo_class).expect_err("participantClass shape is closed"),
+        DataError::JsonShape { path, .. } if path.contains("participantClasses[0]")
+    );
+
+    let mut typo_rule = empty_value();
+    typo_rule["accessRules"] = json!([{
+        "id": "rule-1",
+        "target": { "kind": "laneEdge", "id": "entry" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"],
+        "typo": true
+    }]);
+    std::assert_matches!(
+        load_value(typo_rule).expect_err("accessRule shape is closed"),
+        DataError::JsonShape { path, .. } if path.contains("accessRules[0]")
+    );
+
+    for element in [
+        json!({ "sectionId": "section-main", "bandId": "band-1" }),
+        json!({ "typo": "section-main" }),
+    ] {
+        let mut value = empty_value();
+        value["roadCorridors"][0]["elements"] = json!([element]);
+        std::assert_matches!(
+            load_value(value).expect_err("corridor element must be exactly one reference"),
+            DataError::JsonShape { path, .. } if path.contains("roadCorridors[0].elements[0]")
+        );
+    }
 }
 
 fn load_value(value: Value) -> Result<LoadedPackage, DataError> {

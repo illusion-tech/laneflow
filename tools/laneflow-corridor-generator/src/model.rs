@@ -11,8 +11,90 @@ pub(crate) struct TrafficPackage {
     pub maneuver_paths: Vec<ManeuverPath>,
     pub routes: Vec<Route>,
     pub vehicle_profiles: Vec<VehicleProfile>,
+    pub participant_classes: Vec<ParticipantClass>,
+    pub facility_bands: Vec<FacilityBand>,
+    pub road_sections: Vec<RoadSection>,
+    pub lane_groups: Vec<LaneGroup>,
+    pub road_corridors: Vec<RoadCorridor>,
+    pub access_rules: Vec<AccessRule>,
     pub signals: Signals,
     pub parking: Parking,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ParticipantClass {
+    pub id: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extends_id: Option<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FacilityBand {
+    pub id: String,
+    pub kind_id: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RoadSection {
+    pub id: String,
+    pub kind_id: &'static str,
+    pub lanes: Vec<SectionLane>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SectionLane {
+    pub edge_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lane_group_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LaneGroup {
+    pub id: String,
+    pub road_section_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RoadCorridor {
+    pub id: String,
+    pub reference_section_id: String,
+    pub elements: Vec<CorridorElement>,
+}
+
+/// corridor cross-section 元素：RoadSection 与 FacilityBand 二选一引用。
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub(crate) enum CorridorElement {
+    Section {
+        #[serde(rename = "sectionId")]
+        section_id: String,
+    },
+    Band {
+        #[serde(rename = "bandId")]
+        band_id: String,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AccessRule {
+    pub id: String,
+    pub target: AccessTarget,
+    pub effect: &'static str,
+    pub participant_class_ids: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AccessTarget {
+    pub kind: &'static str,
+    pub id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -82,6 +164,7 @@ pub(crate) struct VehicleProfile {
     pub max_acceleration: f64,
     pub comfortable_deceleration: f64,
     pub emergency_deceleration: f64,
+    pub participant_class_id: &'static str,
 }
 
 #[derive(Debug, Serialize)]

@@ -66,6 +66,223 @@ pub enum CoreError {
     /// Vehicle Profile external ID 在 registry 内必须唯一。
     #[error("Vehicle Profile id 重复：{profile_id}")]
     DuplicateVehicleProfileId { profile_id: String },
+    /// FacilityKind 必须是 SSOT seed 值或以 `x-` 前缀声明的自定义 kind。
+    #[error("未知 FacilityKind：`{kind}`，必须是 seed kind 或以 `x-` 前缀声明自定义 kind")]
+    UnknownFacilityKind { kind: String },
+    /// ParticipantClass external ID 在 registry 内必须唯一。
+    #[error("ParticipantClass id 重复：{class_id}")]
+    DuplicateParticipantClassId { class_id: String },
+    /// ParticipantClass 的 extendsId 必须引用已声明的 class。
+    #[error("ParticipantClass `{class_id}` 引用了不存在的父类 `{extends_id}`")]
+    UnknownParticipantClassExtends {
+        class_id: String,
+        extends_id: String,
+    },
+    /// ParticipantClass 继承链必须无环。
+    #[error("ParticipantClass `{class_id}` 的继承链存在环")]
+    ParticipantClassInheritanceCycle { class_id: String },
+    /// Vehicle Profile 的 ParticipantClass handle 必须属于注册时使用的 ParticipantClassRegistry。
+    #[error(
+        "Vehicle Profile `{profile_id}` 的 ParticipantClass handle 越界：index={class_index}, class count={class_count}"
+    )]
+    VehicleProfileParticipantClassOutOfRange {
+        profile_id: String,
+        class_index: usize,
+        class_count: usize,
+    },
+    /// FacilityBand external ID 在 registry 内必须唯一。
+    #[error("FacilityBand id 重复：{band_id}")]
+    DuplicateFacilityBandId { band_id: String },
+    /// FacilityBand 的 kindId 必须是 non-traversable 类别。
+    #[error("FacilityBand `{band_id}` 的 kindId `{kind_id}` 不是 non-traversable 类别")]
+    FacilityBandKindNotNonTraversable { band_id: String, kind_id: String },
+    /// RoadSection external ID 在 registry 内必须唯一。
+    #[error("RoadSection id 重复：{section_id}")]
+    DuplicateRoadSectionId { section_id: String },
+    /// RoadSection 的 kindId 必须是 lane-bearing 类别。
+    #[error("RoadSection `{section_id}` 的 kindId `{kind_id}` 不是 lane-bearing 类别")]
+    RoadSectionKindNotLaneBearing { section_id: String, kind_id: String },
+    /// LaneGroup external ID 在 registry 内必须唯一。
+    #[error("LaneGroup id 重复：{group_id}")]
+    DuplicateLaneGroupId { group_id: String },
+    /// LaneGroup 必须引用已声明的 RoadSection。
+    #[error("LaneGroup `{group_id}` 引用了不存在的 RoadSection `{section_id}`")]
+    UnknownLaneGroupRoadSection {
+        group_id: String,
+        section_id: String,
+    },
+    /// 每个 RoadSection 至少拥有一条 lane。
+    #[error("RoadSection `{section_id}` 没有 lane")]
+    EmptyRoadSectionLanes { section_id: String },
+    /// 每条 lane 的 edge 链必须非空。
+    #[error("RoadSection `{section_id}` 的 lane {lane_index} 没有 edge")]
+    EmptySectionLaneChain {
+        section_id: String,
+        lane_index: usize,
+    },
+    /// lane 引用的 edge 必须存在。
+    #[error("RoadSection `{section_id}` 的 lane {lane_index} 引用了不存在的 LaneEdge `{edge_id}`")]
+    UnknownSectionLaneEdge {
+        section_id: String,
+        lane_index: usize,
+        edge_id: String,
+    },
+    /// lane 链内相邻 edge 必须存在 LaneGraph directed connection。
+    #[error(
+        "RoadSection `{section_id}` 的 lane {lane_index} transition {transition_index} 不连通：`{from_edge_id}` -> `{to_edge_id}`"
+    )]
+    DisconnectedSectionLane {
+        section_id: String,
+        lane_index: usize,
+        transition_index: usize,
+        from_edge_id: String,
+        to_edge_id: String,
+    },
+    /// 同一 lane 链内不得重复引用同一 edge。
+    #[error("RoadSection `{section_id}` 的 lane {lane_index} 重复引用 LaneEdge `{edge_id}`")]
+    DuplicateSectionLaneEdge {
+        section_id: String,
+        lane_index: usize,
+        edge_id: String,
+    },
+    /// 一条 LaneEdge 至多属于一条 lane、至多一个 RoadSection。
+    #[error(
+        "LaneEdge `{edge_id}` 被多条 lane 占用：first=`{first_section_id}` lane {first_lane_index}, duplicate=`{duplicate_section_id}` lane {duplicate_lane_index}"
+    )]
+    SectionLaneEdgeClaimConflict {
+        edge_id: String,
+        first_section_id: String,
+        first_lane_index: usize,
+        duplicate_section_id: String,
+        duplicate_lane_index: usize,
+    },
+    /// lane 的 laneGroupId 必须引用已声明的 LaneGroup。
+    #[error(
+        "RoadSection `{section_id}` 的 lane {lane_index} 引用了不存在的 LaneGroup `{group_id}`"
+    )]
+    UnknownSectionLaneGroup {
+        section_id: String,
+        lane_index: usize,
+        group_id: String,
+    },
+    /// lane 引用的 LaneGroup 必须属于该 lane 所在的 RoadSection。
+    #[error(
+        "RoadSection `{section_id}` 的 lane {lane_index} 引用的 LaneGroup `{group_id}` 属于 RoadSection `{group_section_id}`"
+    )]
+    SectionLaneGroupSectionMismatch {
+        section_id: String,
+        lane_index: usize,
+        group_id: String,
+        group_section_id: String,
+    },
+    /// 每个 LaneGroup 至少聚合一条 lane。
+    #[error("LaneGroup `{group_id}` 没有成员 lane")]
+    EmptyLaneGroup { group_id: String },
+    /// RoadCorridor external ID 在 registry 内必须唯一。
+    #[error("RoadCorridor id 重复：{corridor_id}")]
+    DuplicateRoadCorridorId { corridor_id: String },
+    /// RoadCorridor 的 elements 必须非空。
+    #[error("RoadCorridor `{corridor_id}` 的 elements 不能为空")]
+    EmptyRoadCorridorElements { corridor_id: String },
+    /// RoadCorridor 的 element 必须引用已声明的 RoadSection 或 FacilityBand。
+    #[error("RoadCorridor `{corridor_id}` 引用了不存在的 {element_kind} `{element_id}`")]
+    UnknownCorridorElement {
+        corridor_id: String,
+        element_kind: &'static str,
+        element_id: String,
+    },
+    /// 同一 corridor 的 elements 内不得重复引用同一 section/band。
+    #[error("RoadCorridor `{corridor_id}` 重复引用 {element_kind} `{element_id}`")]
+    DuplicateCorridorElement {
+        corridor_id: String,
+        element_kind: &'static str,
+        element_id: String,
+    },
+    /// 同一 section/band 只能出现在一个 corridor。
+    #[error(
+        "{element_kind} `{element_id}` 被多个 RoadCorridor 持有：first=`{first_corridor_id}`, duplicate=`{duplicate_corridor_id}`"
+    )]
+    CorridorElementMultipleOwners {
+        element_kind: &'static str,
+        element_id: String,
+        first_corridor_id: String,
+        duplicate_corridor_id: String,
+    },
+    /// 每个 section/band 恰好属于一个 corridor（完备 owner 树）。
+    #[error("{element_kind} `{element_id}` 没有 RoadCorridor owner")]
+    UnownedCorridorElement {
+        element_kind: &'static str,
+        element_id: String,
+    },
+    /// RoadCorridor 的 referenceSectionId 必须是其成员 RoadSection。
+    #[error(
+        "RoadCorridor `{corridor_id}` 的 referenceSectionId `{reference_section_id}` 不是其成员 RoadSection"
+    )]
+    CorridorReferenceSectionNotMember {
+        corridor_id: String,
+        reference_section_id: String,
+    },
+    /// AccessRule external ID 在 registry 内必须唯一。
+    #[error("AccessRule id 重复：{rule_id}")]
+    DuplicateAccessRuleId { rule_id: String },
+    /// AccessRule 的 target 必须引用已声明的实体。
+    #[error("AccessRule `{rule_id}` 的 target 引用了不存在的 {target_kind} `{target_id}`")]
+    UnknownAccessRuleTarget {
+        rule_id: String,
+        target_kind: &'static str,
+        target_id: String,
+    },
+    /// AccessRule 的 participantClassIds 必须非空。
+    #[error("AccessRule `{rule_id}` 的 participantClassIds 不能为空")]
+    EmptyAccessRuleParticipantClasses { rule_id: String },
+    /// AccessRule 引用的 ParticipantClass 必须存在。
+    #[error("AccessRule `{rule_id}` 引用了不存在的 ParticipantClass `{class_id}`")]
+    UnknownAccessRuleParticipantClass { rule_id: String, class_id: String },
+    /// AccessRule 声明了 v1 不支持的能力，必须显式拒绝载入。
+    #[error("AccessRule `{rule_id}` 声明了 v1 不支持的能力：{capability}")]
+    AccessCapabilityUnavailable {
+        rule_id: String,
+        capability: &'static str,
+    },
+    /// 同一 package 内声明了 regulation 的规则必须共享同一 (jurisdiction, version)。
+    #[error(
+        "AccessRule regulation provenance 不一致：first=`{first_rule_id}` ({jurisdiction}, {version}), duplicate=`{duplicate_rule_id}` ({duplicate_jurisdiction}, {duplicate_version})"
+    )]
+    AccessRegulationMismatch {
+        first_rule_id: String,
+        jurisdiction: String,
+        version: String,
+        duplicate_rule_id: String,
+        duplicate_jurisdiction: String,
+        duplicate_version: String,
+    },
+    /// 经参与者/target/priority 裁决仍在 allow/deny 间并列的规则属于 authoring 歧义。
+    #[error(
+        "AccessRule 组合歧义：{plane} 平面 target `{target_id}` 对 ParticipantClass `{class_id}`，规则 `{first_rule_id}` 与 `{second_rule_id}` 在全部裁决轴上并列但 effect 相反"
+    )]
+    AccessRuleAmbiguity {
+        plane: &'static str,
+        target_id: String,
+        class_id: String,
+        first_rule_id: String,
+        second_rule_id: String,
+    },
+    /// (ParticipantClass, Route) 绑定期静态准入校验命中 deny，绑定被原子拒绝。
+    ///
+    /// edge 平面时 `route_edge_index` 是命中 edge 在 route 中的 index、`target_id` 是
+    /// LaneEdge external ID；path 平面时 `route_edge_index` 是 pending occurrence 的
+    /// entry route edge index、`target_id` 是 ManeuverPath external ID。
+    #[error(
+        "(class, Route) 绑定期准入校验失败：profile `{profile_id}` 在 route `{route_id}` 的 {plane} 平面命中 deny（routeEdgeIndex={route_edge_index}, target=`{target_id}`, rule=`{rule_id}`）"
+    )]
+    RouteAccessDenied {
+        profile_id: String,
+        route_id: String,
+        plane: &'static str,
+        route_edge_index: usize,
+        target_id: String,
+        rule_id: String,
+    },
     /// lane edge id 在 graph 内必须唯一。
     #[error("lane edge id 重复：{edge_id}")]
     DuplicateLaneEdgeId { edge_id: String },

@@ -47,7 +47,7 @@ impl PresentationScaleFixture {
         )])
         .expect("valid scale graph");
         let edge = graph.edge_handle("scale-edge").expect("scale edge");
-        let profiles = VehicleProfileRegistry::try_new([scale_profile()])
+        let profiles = VehicleProfileRegistry::try_new(&participant_classes().0, [scale_profile()])
             .expect("valid scale profile registry");
         let profile = profiles
             .profile_handle("scale-profile")
@@ -59,6 +59,9 @@ impl PresentationScaleFixture {
             laneflow_core::JunctionRegistry::empty(),
             SignalRegistry::empty(),
             ParkingRegistry::empty(),
+            participant_classes().0,
+            laneflow_core::CrossSectionRegistry::empty(),
+            laneflow_core::AccessRegistry::empty(),
         )
         .expect("valid scale traffic data");
         let vehicles = (0..count)
@@ -162,6 +165,7 @@ impl PresentationScaleFixture {
 fn scale_profile() -> VehicleProfile {
     VehicleProfile::try_new_iidm(
         "scale-profile",
+        participant_classes().1,
         IidmProfileSpec {
             length: 0.1,
             desired_speed: 1.0,
@@ -173,4 +177,17 @@ fn scale_profile() -> VehicleProfile {
         },
     )
     .expect("valid scale profile")
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

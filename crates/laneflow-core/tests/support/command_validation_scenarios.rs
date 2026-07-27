@@ -170,19 +170,23 @@ fn build_command_scenario(
         Route::try_new(id, edge_ids.iter().cloned()).expect("command benchmark route must be valid")
     });
 
-    let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "command-profile",
-        IidmProfileSpec {
-            length: 4.5,
-            desired_speed: 13.9,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 1.4,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 4.0,
-        },
+    let registry = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "command-profile",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed: 13.9,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 1.4,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )
+        .expect("command benchmark profile must be valid")],
     )
-    .expect("command benchmark profile must be valid")])
     .expect("command benchmark profile registry must be valid");
     let profile = registry
         .profile_handle("command-profile")
@@ -194,6 +198,9 @@ fn build_command_scenario(
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("command benchmark traffic data must be valid");
 
@@ -419,4 +426,17 @@ pub fn remove_unused_route(scenario: &mut CommandScenario) -> usize {
         .expect("unused route removal must succeed")
         .external_id
         .len()
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

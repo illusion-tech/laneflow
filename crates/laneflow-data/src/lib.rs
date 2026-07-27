@@ -7,11 +7,14 @@ mod scenario_wire;
 mod wire;
 
 use laneflow_core::{
-    CoreError, EdgeLength, IidmProfileSpec, InitialTrafficData, Junction, JunctionRegistry,
-    LaneEdge, LaneGraph, ManeuverGate, ManeuverPath, Movement, ParkingAnchorKind, ParkingArea,
-    ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, Route, SignalAspect, SignalControlInput,
-    SignalController, SignalGroup, SignalGroupState, SignalPhase, SignalRegistry, SpeedLimit,
-    StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
+    AccessEffect, AccessRegistry, AccessRegulation, AccessRule, AccessTargetId, CoreError,
+    CorridorElementId, CrossSectionRegistry, EdgeLength, FacilityBand, IidmProfileSpec,
+    InitialTrafficData, Junction, JunctionRegistry, LaneEdge, LaneGraph, LaneGroup, ManeuverGate,
+    ManeuverPath, Movement, ParkingAnchorKind, ParkingArea, ParkingRegistry, ParkingSpace,
+    ParkingSpaceGeometry, ParticipantClass, ParticipantClassRegistry, RoadCorridor, RoadSection,
+    Route, SectionLane, SignalAspect, SignalControlInput, SignalController, SignalGroup,
+    SignalGroupState, SignalPhase, SignalRegistry, SpeedLimit, StopLine, StopLineLocation,
+    VehicleProfile, VehicleProfileRegistry,
 };
 use serde::de::DeserializeOwned;
 use serde_json::error::Category;
@@ -25,12 +28,12 @@ pub use scenario::{
 pub use scenario_error::{ArtifactRole, ScenarioDocument, ScenarioError};
 
 use wire::{
-    WirePackage, WireParking, WireSignalAspect, WireSignalControl, WireSignalControllerKind,
-    WireSignals, WireStopLineLocation, WireVersionHeader,
+    WireCorridorElement, WirePackage, WireParking, WireSignalAspect, WireSignalControl,
+    WireSignalControllerKind, WireSignals, WireStopLineLocation, WireVersionHeader,
 };
 
 /// 当前 production loader 接受的唯一 data format 版本。
-pub const CURRENT_FORMAT_VERSION: &str = "0.8";
+pub const CURRENT_FORMAT_VERSION: &str = "0.9";
 
 /// 已解析并完成 Core normalization 的当前 data package。
 #[derive(Clone, Debug, PartialEq)]
@@ -96,11 +99,22 @@ fn normalize(wire: &WirePackage) -> Result<LoadedPackage, DataError> {
     validate_unit("units.distance", "meter", &wire.units.distance)?;
     validate_unit("units.time", "second", &wire.units.time)?;
 
-    let profile_registry = normalize_profiles(wire)?;
+    // SSOT cross-section-access §10：profile 域段（phase 1-2）在 lane graph 之前；
+    // 拓扑依赖段（phase 3-10）在 lane graph / Junction / Signals / Parking 之后。
+    let participant_classes = normalize_participant_classes(wire)?;
+    let profile_registry = normalize_profiles(wire, &participant_classes)?;
     let lane_graph = normalize_lane_graph(wire)?;
     let junctions = normalize_junctions(&lane_graph, wire)?;
     let signals = normalize_signals(&lane_graph, &junctions, &wire.signals)?;
     let parking = normalize_parking(&lane_graph, &wire.parking)?;
+    let cross_section = normalize_cross_section(&lane_graph, wire)?;
+    let access = normalize_access(
+        &lane_graph,
+        &junctions,
+        &cross_section,
+        &participant_classes,
+        wire,
+    )?;
     let routes = normalize_routes(wire)?;
 
     let initial_traffic_data = InitialTrafficData::try_new(
@@ -110,6 +124,9 @@ fn normalize(wire: &WirePackage) -> Result<LoadedPackage, DataError> {
         junctions,
         signals,
         parking,
+        participant_classes,
+        cross_section,
+        access,
     )
     .map_err(|source| DataError::core(initial_traffic_error_path(wire, &source), source))?;
     Ok(LoadedPackage {
@@ -117,7 +134,22 @@ fn normalize(wire: &WirePackage) -> Result<LoadedPackage, DataError> {
     })
 }
 
-fn normalize_profiles(wire: &WirePackage) -> Result<VehicleProfileRegistry, DataError> {
+fn normalize_participant_classes(
+    wire: &WirePackage,
+) -> Result<ParticipantClassRegistry, DataError> {
+    let classes = wire
+        .participant_classes
+        .iter()
+        .map(|class| ParticipantClass::new(class.id.clone(), class.extends_id.as_deref()))
+        .collect::<Vec<_>>();
+    ParticipantClassRegistry::try_new(classes)
+        .map_err(|source| DataError::core(participant_class_error_path(wire, &source), source))
+}
+
+fn normalize_profiles(
+    wire: &WirePackage,
+    participant_classes: &ParticipantClassRegistry,
+) -> Result<VehicleProfileRegistry, DataError> {
     let mut normalized_profiles = Vec::with_capacity(wire.vehicle_profiles.len());
     for (index, profile) in wire.vehicle_profiles.iter().enumerate() {
         if profile.model != "iidm" {
@@ -128,6 +160,14 @@ fn normalize_profiles(wire: &WirePackage) -> Result<VehicleProfileRegistry, Data
             });
         }
 
+        let participant_class = participant_classes
+            .class_handle(&profile.participant_class_id)
+            .ok_or_else(|| DataError::UnknownVehicleProfileParticipantClass {
+                path: format!("vehicleProfiles[{index}].participantClassId"),
+                profile_id: profile.id.clone(),
+                class_id: profile.participant_class_id.clone(),
+            })?;
+
         let spec = IidmProfileSpec {
             length: profile.length,
             desired_speed: profile.desired_speed,
@@ -137,11 +177,11 @@ fn normalize_profiles(wire: &WirePackage) -> Result<VehicleProfileRegistry, Data
             comfortable_deceleration: profile.comfortable_deceleration,
             emergency_deceleration: profile.emergency_deceleration,
         };
-        let normalized = VehicleProfile::try_new_iidm(profile.id.clone(), spec)
+        let normalized = VehicleProfile::try_new_iidm(profile.id.clone(), participant_class, spec)
             .map_err(|source| DataError::core(format!("vehicleProfiles[{index}]"), source))?;
         normalized_profiles.push(normalized);
     }
-    VehicleProfileRegistry::try_new(normalized_profiles)
+    VehicleProfileRegistry::try_new(participant_classes, normalized_profiles)
         .map_err(|source| DataError::core("vehicleProfiles", source))
 }
 
@@ -316,6 +356,118 @@ fn normalize_parking(
         .map_err(|source| DataError::core(parking_error_path(wire, &source), source))
 }
 
+fn normalize_cross_section(
+    lane_graph: &LaneGraph,
+    wire: &WirePackage,
+) -> Result<CrossSectionRegistry, DataError> {
+    let bands = wire
+        .facility_bands
+        .iter()
+        .map(|band| FacilityBand::new(band.id.clone(), band.kind_id.clone()))
+        .collect::<Vec<_>>();
+    let sections = wire
+        .road_sections
+        .iter()
+        .map(|section| {
+            RoadSection::new(
+                section.id.clone(),
+                section.kind_id.clone(),
+                section.lanes.iter().map(|lane| {
+                    SectionLane::new(lane.edge_ids.iter().cloned(), lane.lane_group_id.as_deref())
+                }),
+            )
+        })
+        .collect::<Vec<_>>();
+    let groups = wire
+        .lane_groups
+        .iter()
+        .map(|group| LaneGroup::new(group.id.clone(), group.road_section_id.clone()))
+        .collect::<Vec<_>>();
+    let corridors = wire
+        .road_corridors
+        .iter()
+        .map(|corridor| {
+            RoadCorridor::new(
+                corridor.id.clone(),
+                corridor.reference_section_id.clone(),
+                corridor.elements.iter().map(|element| match element {
+                    WireCorridorElement::Section(section) => {
+                        CorridorElementId::section(section.section_id.clone())
+                    }
+                    WireCorridorElement::Band(band) => {
+                        CorridorElementId::band(band.band_id.clone())
+                    }
+                }),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    CrossSectionRegistry::try_new(lane_graph, bands, sections, groups, corridors)
+        .map_err(|source| DataError::core(cross_section_error_path(wire, &source), source))
+}
+
+fn normalize_access(
+    lane_graph: &LaneGraph,
+    junctions: &JunctionRegistry,
+    cross_section: &CrossSectionRegistry,
+    participant_classes: &ParticipantClassRegistry,
+    wire: &WirePackage,
+) -> Result<AccessRegistry, DataError> {
+    let rules = wire
+        .access_rules
+        .iter()
+        .map(|rule| {
+            let target = match rule.target.kind {
+                wire::WireAccessTargetKind::LaneEdge => {
+                    AccessTargetId::lane_edge(rule.target.id.clone())
+                }
+                wire::WireAccessTargetKind::LaneGroup => {
+                    AccessTargetId::lane_group(rule.target.id.clone())
+                }
+                wire::WireAccessTargetKind::RoadSection => {
+                    AccessTargetId::road_section(rule.target.id.clone())
+                }
+                wire::WireAccessTargetKind::ManeuverPath => {
+                    AccessTargetId::maneuver_path(rule.target.id.clone())
+                }
+                wire::WireAccessTargetKind::FacilityBand => {
+                    AccessTargetId::facility_band(rule.target.id.clone())
+                }
+            };
+            let effect = match rule.effect {
+                wire::WireAccessEffect::Allow => AccessEffect::Allow,
+                wire::WireAccessEffect::Deny => AccessEffect::Deny,
+            };
+            let mut definition = AccessRule::new(
+                rule.id.clone(),
+                target,
+                effect,
+                rule.participant_class_ids.iter().cloned(),
+            )
+            // wire 层 timeWindows 只作 capability guard 归因标记进 Core（v1 一律拒绝）。
+            .with_time_windows(rule.time_windows.is_some())
+            .with_priority(rule.priority.unwrap_or(0));
+            if let Some(regulation) = &rule.regulation {
+                definition = definition.with_regulation(AccessRegulation::new(
+                    regulation.jurisdiction.clone(),
+                    regulation.version.clone(),
+                    regulation.source.as_deref(),
+                ));
+            }
+            definition
+        })
+        .collect::<Vec<_>>();
+
+    AccessRegistry::try_new(
+        lane_graph,
+        junctions,
+        cross_section,
+        participant_classes,
+        rules,
+    )
+    .map_err(|source| DataError::core(access_error_path(wire, &source), source))
+}
+
 fn normalize_routes(wire: &WirePackage) -> Result<Vec<Route>, DataError> {
     let mut routes = Vec::with_capacity(wire.routes.len());
     for (index, route) in wire.routes.iter().enumerate() {
@@ -445,6 +597,487 @@ fn parking_anchor_external_id_path(
     index.map_or_else(
         || "parking.spaces".to_owned(),
         |index| format!("parking.spaces[{index}].{anchor_name}.edgeId"),
+    )
+}
+
+fn participant_class_error_path(wire: &WirePackage, source: &CoreError) -> String {
+    match source {
+        CoreError::InvalidExternalId {
+            field, external_id, ..
+        } => match *field {
+            "participantClasses[].id" => item_id_path(
+                &wire.participant_classes,
+                "participantClasses",
+                external_id,
+                |item| &item.id,
+            ),
+            "participantClasses[].extendsId" => wire
+                .participant_classes
+                .iter()
+                .position(|item| item.extends_id.as_deref() == Some(external_id))
+                .map_or_else(
+                    || "participantClasses".to_owned(),
+                    |index| format!("participantClasses[{index}].extendsId"),
+                ),
+            _ => "participantClasses".to_owned(),
+        },
+        CoreError::DuplicateParticipantClassId { class_id } => {
+            second_matching_index(&wire.participant_classes, |item| item.id == *class_id)
+                .map_or_else(
+                    || "participantClasses".to_owned(),
+                    |index| format!("participantClasses[{index}].id"),
+                )
+        }
+        CoreError::UnknownParticipantClassExtends { class_id, .. } => {
+            participant_class_path(wire, class_id, ".extendsId")
+        }
+        CoreError::ParticipantClassInheritanceCycle { class_id } => {
+            participant_class_path(wire, class_id, "")
+        }
+        _ => "participantClasses".to_owned(),
+    }
+}
+
+fn participant_class_path(wire: &WirePackage, class_id: &str, suffix: &str) -> String {
+    wire.participant_classes
+        .iter()
+        .position(|item| item.id == class_id)
+        .map_or_else(
+            || "participantClasses".to_owned(),
+            |index| format!("participantClasses[{index}]{suffix}"),
+        )
+}
+
+fn cross_section_error_path(wire: &WirePackage, source: &CoreError) -> String {
+    match source {
+        CoreError::InvalidExternalId {
+            field, external_id, ..
+        } => match *field {
+            "facilityBands[].id" => {
+                item_id_path(&wire.facility_bands, "facilityBands", external_id, |item| {
+                    &item.id
+                })
+            }
+            "roadSections[].id" => {
+                item_id_path(&wire.road_sections, "roadSections", external_id, |item| {
+                    &item.id
+                })
+            }
+            "laneGroups[].id" => {
+                item_id_path(&wire.lane_groups, "laneGroups", external_id, |item| {
+                    &item.id
+                })
+            }
+            "laneGroups[].roadSectionId" => wire
+                .lane_groups
+                .iter()
+                .position(|item| item.road_section_id == *external_id)
+                .map_or_else(
+                    || "laneGroups".to_owned(),
+                    |index| format!("laneGroups[{index}].roadSectionId"),
+                ),
+            "roadSections[].lanes[].edgeIds[]" => section_lane_edge_value_path(wire, external_id),
+            "roadSections[].lanes[].laneGroupId" => {
+                section_lane_group_value_path(wire, external_id)
+            }
+            "roadCorridors[].id" => {
+                item_id_path(&wire.road_corridors, "roadCorridors", external_id, |item| {
+                    &item.id
+                })
+            }
+            "roadCorridors[].elements[].sectionId" | "roadCorridors[].elements[].bandId" => {
+                corridor_element_value_path(wire, external_id)
+            }
+            _ => "roadSections".to_owned(),
+        },
+        CoreError::UnknownFacilityKind { kind } => {
+            if let Some(index) = wire
+                .facility_bands
+                .iter()
+                .position(|item| item.kind_id == *kind)
+            {
+                return format!("facilityBands[{index}].kindId");
+            }
+            wire.road_sections
+                .iter()
+                .position(|item| item.kind_id == *kind)
+                .map_or_else(
+                    || "roadSections".to_owned(),
+                    |index| format!("roadSections[{index}].kindId"),
+                )
+        }
+        CoreError::DuplicateFacilityBandId { band_id } => {
+            second_matching_index(&wire.facility_bands, |item| item.id == *band_id).map_or_else(
+                || "facilityBands".to_owned(),
+                |index| format!("facilityBands[{index}].id"),
+            )
+        }
+        CoreError::FacilityBandKindNotNonTraversable { band_id, .. } => wire
+            .facility_bands
+            .iter()
+            .position(|item| item.id == *band_id)
+            .map_or_else(
+                || "facilityBands".to_owned(),
+                |index| format!("facilityBands[{index}].kindId"),
+            ),
+        CoreError::DuplicateRoadSectionId { section_id } => {
+            second_matching_index(&wire.road_sections, |item| item.id == *section_id).map_or_else(
+                || "roadSections".to_owned(),
+                |index| format!("roadSections[{index}].id"),
+            )
+        }
+        CoreError::RoadSectionKindNotLaneBearing { section_id, .. } => {
+            section_path(wire, section_id, ".kindId")
+        }
+        CoreError::DuplicateLaneGroupId { group_id } => {
+            second_matching_index(&wire.lane_groups, |item| item.id == *group_id).map_or_else(
+                || "laneGroups".to_owned(),
+                |index| format!("laneGroups[{index}].id"),
+            )
+        }
+        CoreError::UnknownLaneGroupRoadSection { group_id, .. } => {
+            lane_group_path(wire, group_id, ".roadSectionId")
+        }
+        CoreError::EmptyRoadSectionLanes { section_id } => section_path(wire, section_id, ".lanes"),
+        CoreError::EmptySectionLaneChain {
+            section_id,
+            lane_index,
+        } => section_lane_path(wire, section_id, *lane_index, ".edgeIds"),
+        CoreError::UnknownSectionLaneEdge {
+            section_id,
+            lane_index,
+            edge_id,
+        }
+        | CoreError::DuplicateSectionLaneEdge {
+            section_id,
+            lane_index,
+            edge_id,
+        } => {
+            let Some(section_index) = section_index(wire, section_id) else {
+                return "roadSections".to_owned();
+            };
+            let lane = &wire.road_sections[section_index].lanes[*lane_index];
+            lane.edge_ids
+                .iter()
+                .position(|item| item == edge_id)
+                .map_or_else(
+                    || format!("roadSections[{section_index}].lanes[{lane_index}].edgeIds"),
+                    |edge_index| {
+                        format!(
+                            "roadSections[{section_index}].lanes[{lane_index}].edgeIds[{edge_index}]"
+                        )
+                    },
+                )
+        }
+        CoreError::DisconnectedSectionLane {
+            section_id,
+            lane_index,
+            transition_index,
+            ..
+        } => {
+            let Some(section_index) = section_index(wire, section_id) else {
+                return "roadSections".to_owned();
+            };
+            format!(
+                "roadSections[{section_index}].lanes[{lane_index}].edgeIds[{transition}]",
+                transition = transition_index + 1
+            )
+        }
+        CoreError::SectionLaneEdgeClaimConflict {
+            edge_id,
+            duplicate_section_id,
+            duplicate_lane_index,
+            ..
+        } => {
+            let Some(section_index) = section_index(wire, duplicate_section_id) else {
+                return "roadSections".to_owned();
+            };
+            let lane = &wire.road_sections[section_index].lanes[*duplicate_lane_index];
+            lane.edge_ids
+                .iter()
+                .position(|item| item == edge_id)
+                .map_or_else(
+                    || {
+                        format!(
+                            "roadSections[{section_index}].lanes[{duplicate_lane_index}].edgeIds"
+                        )
+                    },
+                    |edge_index| {
+                        format!(
+                            "roadSections[{section_index}].lanes[{duplicate_lane_index}].edgeIds[{edge_index}]"
+                        )
+                    },
+                )
+        }
+        CoreError::UnknownSectionLaneGroup {
+            section_id,
+            lane_index,
+            ..
+        }
+        | CoreError::SectionLaneGroupSectionMismatch {
+            section_id,
+            lane_index,
+            ..
+        } => section_lane_path(wire, section_id, *lane_index, ".laneGroupId"),
+        CoreError::EmptyLaneGroup { group_id } => lane_group_path(wire, group_id, ""),
+        CoreError::DuplicateRoadCorridorId { corridor_id } => {
+            second_matching_index(&wire.road_corridors, |item| item.id == *corridor_id).map_or_else(
+                || "roadCorridors".to_owned(),
+                |index| format!("roadCorridors[{index}].id"),
+            )
+        }
+        CoreError::EmptyRoadCorridorElements { corridor_id } => {
+            corridor_path(wire, corridor_id, ".elements")
+        }
+        CoreError::UnknownCorridorElement {
+            corridor_id,
+            element_id,
+            ..
+        } => corridor_element_path(wire, corridor_id, element_id, false),
+        CoreError::DuplicateCorridorElement {
+            corridor_id,
+            element_id,
+            ..
+        } => corridor_element_path(wire, corridor_id, element_id, true),
+        CoreError::CorridorElementMultipleOwners {
+            element_id,
+            duplicate_corridor_id,
+            ..
+        } => corridor_element_path(wire, duplicate_corridor_id, element_id, false),
+        CoreError::UnownedCorridorElement {
+            element_kind,
+            element_id,
+        } => match *element_kind {
+            "band" => wire
+                .facility_bands
+                .iter()
+                .position(|item| item.id == *element_id)
+                .map_or_else(
+                    || "facilityBands".to_owned(),
+                    |index| format!("facilityBands[{index}]"),
+                ),
+            _ => section_path(wire, element_id, ""),
+        },
+        CoreError::CorridorReferenceSectionNotMember { corridor_id, .. } => {
+            corridor_path(wire, corridor_id, ".referenceSectionId")
+        }
+        CoreError::StaticDomainCapacityExceeded { domain, .. } => match *domain {
+            "facilityBands" => "facilityBands".to_owned(),
+            "roadSections" | "sectionLanes" | "sectionLaneEdgeRefs" => "roadSections".to_owned(),
+            "laneGroups" => "laneGroups".to_owned(),
+            "roadCorridors" | "corridorElements" => "roadCorridors".to_owned(),
+            _ => "roadSections".to_owned(),
+        },
+        _ => "roadSections".to_owned(),
+    }
+}
+
+fn section_index(wire: &WirePackage, section_id: &str) -> Option<usize> {
+    wire.road_sections
+        .iter()
+        .position(|item| item.id == section_id)
+}
+
+fn section_path(wire: &WirePackage, section_id: &str, suffix: &str) -> String {
+    section_index(wire, section_id).map_or_else(
+        || "roadSections".to_owned(),
+        |index| format!("roadSections[{index}]{suffix}"),
+    )
+}
+
+fn section_lane_path(
+    wire: &WirePackage,
+    section_id: &str,
+    lane_index: usize,
+    suffix: &str,
+) -> String {
+    section_index(wire, section_id).map_or_else(
+        || "roadSections".to_owned(),
+        |index| format!("roadSections[{index}].lanes[{lane_index}]{suffix}"),
+    )
+}
+
+fn section_lane_edge_value_path(wire: &WirePackage, edge_id: &str) -> String {
+    for (section_index, section) in wire.road_sections.iter().enumerate() {
+        for (lane_index, lane) in section.lanes.iter().enumerate() {
+            if let Some(edge_index) = lane.edge_ids.iter().position(|item| item == edge_id) {
+                return format!(
+                    "roadSections[{section_index}].lanes[{lane_index}].edgeIds[{edge_index}]"
+                );
+            }
+        }
+    }
+    "roadSections".to_owned()
+}
+
+fn section_lane_group_value_path(wire: &WirePackage, group_id: &str) -> String {
+    for (section_index, section) in wire.road_sections.iter().enumerate() {
+        for (lane_index, lane) in section.lanes.iter().enumerate() {
+            if lane.lane_group_id.as_deref() == Some(group_id) {
+                return format!("roadSections[{section_index}].lanes[{lane_index}].laneGroupId");
+            }
+        }
+    }
+    "roadSections".to_owned()
+}
+
+fn lane_group_path(wire: &WirePackage, group_id: &str, suffix: &str) -> String {
+    wire.lane_groups
+        .iter()
+        .position(|item| item.id == group_id)
+        .map_or_else(
+            || "laneGroups".to_owned(),
+            |index| format!("laneGroups[{index}]{suffix}"),
+        )
+}
+
+fn corridor_path(wire: &WirePackage, corridor_id: &str, suffix: &str) -> String {
+    wire.road_corridors
+        .iter()
+        .position(|item| item.id == corridor_id)
+        .map_or_else(
+            || "roadCorridors".to_owned(),
+            |index| format!("roadCorridors[{index}]{suffix}"),
+        )
+}
+
+fn corridor_element_index(
+    corridor: &wire::WireRoadCorridor,
+    element_id: &str,
+    duplicate: bool,
+) -> Option<usize> {
+    let matches = |element: &WireCorridorElement| {
+        let id = match element {
+            WireCorridorElement::Section(section) => &section.section_id,
+            WireCorridorElement::Band(band) => &band.band_id,
+        };
+        id == element_id
+    };
+    if duplicate {
+        second_matching_index(&corridor.elements, matches)
+    } else {
+        corridor.elements.iter().position(matches)
+    }
+}
+
+fn corridor_element_path(
+    wire: &WirePackage,
+    corridor_id: &str,
+    element_id: &str,
+    duplicate: bool,
+) -> String {
+    let Some(corridor_index) = wire
+        .road_corridors
+        .iter()
+        .position(|item| item.id == corridor_id)
+    else {
+        return "roadCorridors".to_owned();
+    };
+    corridor_element_index(&wire.road_corridors[corridor_index], element_id, duplicate).map_or_else(
+        || format!("roadCorridors[{corridor_index}].elements"),
+        |element_index| format!("roadCorridors[{corridor_index}].elements[{element_index}]"),
+    )
+}
+
+fn corridor_element_value_path(wire: &WirePackage, element_id: &str) -> String {
+    for (corridor_index, corridor) in wire.road_corridors.iter().enumerate() {
+        if let Some(element_index) = corridor_element_index(corridor, element_id, false) {
+            let field = match &corridor.elements[element_index] {
+                WireCorridorElement::Section(_) => "sectionId",
+                WireCorridorElement::Band(_) => "bandId",
+            };
+            return format!("roadCorridors[{corridor_index}].elements[{element_index}].{field}");
+        }
+    }
+    "roadCorridors".to_owned()
+}
+
+fn access_error_path(wire: &WirePackage, source: &CoreError) -> String {
+    match source {
+        CoreError::InvalidExternalId {
+            field, external_id, ..
+        } => match *field {
+            "accessRules[].id" => {
+                item_id_path(&wire.access_rules, "accessRules", external_id, |item| {
+                    &item.id
+                })
+            }
+            "accessRules[].target.id" => wire
+                .access_rules
+                .iter()
+                .position(|item| item.target.id == *external_id)
+                .map_or_else(
+                    || "accessRules".to_owned(),
+                    |index| format!("accessRules[{index}].target.id"),
+                ),
+            "accessRules[].participantClassIds[]" => {
+                for (rule_index, rule) in wire.access_rules.iter().enumerate() {
+                    if let Some(class_index) = rule
+                        .participant_class_ids
+                        .iter()
+                        .position(|item| item == external_id)
+                    {
+                        return format!(
+                            "accessRules[{rule_index}].participantClassIds[{class_index}]"
+                        );
+                    }
+                }
+                "accessRules".to_owned()
+            }
+            _ => "accessRules".to_owned(),
+        },
+        CoreError::DuplicateAccessRuleId { rule_id } => {
+            second_matching_index(&wire.access_rules, |item| item.id == *rule_id).map_or_else(
+                || "accessRules".to_owned(),
+                |index| format!("accessRules[{index}].id"),
+            )
+        }
+        CoreError::UnknownAccessRuleTarget { rule_id, .. } => {
+            access_rule_path(wire, rule_id, ".target.id")
+        }
+        CoreError::EmptyAccessRuleParticipantClasses { rule_id } => {
+            access_rule_path(wire, rule_id, ".participantClassIds")
+        }
+        CoreError::UnknownAccessRuleParticipantClass { rule_id, class_id } => {
+            let Some(rule_index) = access_rule_index(wire, rule_id) else {
+                return "accessRules".to_owned();
+            };
+            wire.access_rules[rule_index]
+                .participant_class_ids
+                .iter()
+                .position(|item| item == class_id)
+                .map_or_else(
+                    || format!("accessRules[{rule_index}].participantClassIds"),
+                    |class_index| {
+                        format!("accessRules[{rule_index}].participantClassIds[{class_index}]")
+                    },
+                )
+        }
+        CoreError::AccessCapabilityUnavailable {
+            rule_id,
+            capability,
+        } => match *capability {
+            "timeWindows" => access_rule_path(wire, rule_id, ".timeWindows"),
+            _ => access_rule_path(wire, rule_id, ".target.id"),
+        },
+        CoreError::AccessRegulationMismatch {
+            duplicate_rule_id, ..
+        } => access_rule_path(wire, duplicate_rule_id, ".regulation"),
+        CoreError::AccessRuleAmbiguity { second_rule_id, .. } => {
+            access_rule_path(wire, second_rule_id, "")
+        }
+        _ => "accessRules".to_owned(),
+    }
+}
+
+fn access_rule_index(wire: &WirePackage, rule_id: &str) -> Option<usize> {
+    wire.access_rules.iter().position(|item| item.id == rule_id)
+}
+
+fn access_rule_path(wire: &WirePackage, rule_id: &str, suffix: &str) -> String {
+    access_rule_index(wire, rule_id).map_or_else(
+        || "accessRules".to_owned(),
+        |index| format!("accessRules[{index}]{suffix}"),
     )
 }
 

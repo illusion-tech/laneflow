@@ -38,12 +38,21 @@ pub enum DataError {
         expected: &'static str,
         actual: String,
     },
-    /// Vehicle Profile model 不是当前 v0.8 支持的 `iidm`。
+    /// Vehicle Profile model 不是当前 v0.9 支持的 `iidm`。
     #[error("Vehicle Profile `{profile_id}` 使用不支持的 model：path={path}, actual=`{actual}`")]
     UnsupportedVehicleProfileModel {
         path: String,
         profile_id: String,
         actual: String,
+    },
+    /// Vehicle Profile 的 participantClassId 必须引用已声明的 ParticipantClass。
+    #[error(
+        "Vehicle Profile `{profile_id}` 引用了不存在的 ParticipantClass：path={path}, classId=`{class_id}`"
+    )]
+    UnknownVehicleProfileParticipantClass {
+        path: String,
+        profile_id: String,
+        class_id: String,
     },
     /// wire package 在转换为 Core types 时违反 domain invariant。
     #[error("Core domain validation 失败：path={path}：{source}")]

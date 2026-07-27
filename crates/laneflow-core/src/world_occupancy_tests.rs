@@ -10,19 +10,23 @@ fn traffic_data<I>(lane_graph: LaneGraph, routes: I) -> (InitialTrafficData, Veh
 where
     I: IntoIterator<Item = Route>,
 {
-    let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "test-profile",
-        IidmProfileSpec {
-            length: 4.5,
-            desired_speed: 13.9,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 1.4,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 4.0,
-        },
+    let registry = VehicleProfileRegistry::try_new(
+        &crate::test_support::test_participant_class_registry(),
+        [VehicleProfile::try_new_iidm(
+            "test-profile",
+            crate::test_support::test_car_participant_class(),
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed: 13.9,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 1.4,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )
+        .expect("valid profile")],
     )
-    .expect("valid profile")])
     .expect("valid profile registry");
     let profile = registry
         .profile_handle("test-profile")
@@ -34,6 +38,9 @@ where
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("valid traffic data");
     (traffic_data, profile)
@@ -472,19 +479,23 @@ fn scaled_braking_distance_avoids_false_square_overflow() {
     )])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A"]).expect("valid route");
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "large-values",
-        IidmProfileSpec {
-            length: 4.5,
-            desired_speed: 1.0e200,
-            min_gap: 0.0,
-            time_headway: 1.0,
-            max_acceleration: 1.0,
-            comfortable_deceleration: 1.0e200,
-            emergency_deceleration: 1.0e200,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &crate::test_support::test_participant_class_registry(),
+        [VehicleProfile::try_new_iidm(
+            "large-values",
+            crate::test_support::test_car_participant_class(),
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed: 1.0e200,
+                min_gap: 0.0,
+                time_headway: 1.0,
+                max_acceleration: 1.0,
+                comfortable_deceleration: 1.0e200,
+                emergency_deceleration: 1.0e200,
+            },
+        )
+        .expect("valid large-value profile")],
     )
-    .expect("valid large-value profile")])
     .expect("valid profile registry");
     let profile = profiles
         .profile_handle("large-values")
@@ -496,6 +507,9 @@ fn scaled_braking_distance_avoids_false_square_overflow() {
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("valid traffic data");
     let world = CoreWorld::with_traffic_data(

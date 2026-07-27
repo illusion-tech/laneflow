@@ -8,19 +8,23 @@ use laneflow_core::{
 };
 
 fn profile_registry() -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "car",
-        IidmProfileSpec {
-            length: 5.0,
-            desired_speed: 20.0,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 2.0,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 8.0,
-        },
+    let registry = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "car",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 5.0,
+                desired_speed: 20.0,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 2.0,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 8.0,
+            },
+        )
+        .expect("profile")],
     )
-    .expect("profile")])
     .expect("profiles");
     let handle = registry.profile_handle("car").expect("profile handle");
     (registry, handle)
@@ -63,6 +67,9 @@ fn single_edge_world() -> (CoreWorld, VehicleProfileHandle) {
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     (
@@ -348,6 +355,9 @@ fn dormant_reservation_rebinds_without_teleport_and_keeps_route_references_exact
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .unwrap();
     let mut world = CoreWorld::with_traffic_data(1_000, traffic, Vec::new()).unwrap();
@@ -545,4 +555,17 @@ fn stale_vehicle_handle_is_rejected_before_parking_state_checks() {
         Err(CoreError::UnknownVehicleHandle { vehicle }) if vehicle == stale
     );
     assert_eq!(world, before);
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

@@ -99,7 +99,7 @@
 
 完成状态：2026-07-21 已完成。数值切片和 Spatial 切片均已完成独立 G4，整体设计、生产实现、数据制品、正确性、性能、安全与治理结论见 [v0.6 收口审阅基线](reference/v0.6-closure-review.md)。
 
-当前生产边界为 Core/Data current-f64 交通权威、Traffic Data v0.8（含 static Junction/Movement/ManeuverPath、ManeuverGate 与 per-edge 基础道路限速），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退；Spatial `f32` 通过误差、零分配、内存和 10k/100k 性能 Gate。未来重启 Core/Data 数值迁移必须新建议题并重新进入 G1。
+当前生产边界为 Core/Data current-f64 交通权威、Traffic Data v0.9（含 static Junction/Movement/ManeuverPath、ManeuverGate、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退；Spatial `f32` 通过误差、零分配、内存和 10k/100k 性能 Gate。未来重启 Core/Data 数值迁移必须新建议题并重新进入 G1。
 
 范围：
 
@@ -189,7 +189,7 @@ LaneGroup 与 JunctionGroup 在 v0.9 只冻结长期语义，不生产化。
 ConflictZone/right-of-way solver、RoadSection/JunctionGroup runtime，以及 #72 的
 城市级扩展。
 
-## 多模式横断面与准入（设计冻结，Milestone N/A）
+## 多模式横断面与准入（静态模型已生产化，Milestone N/A）
 
 #234/ADR 0018 冻结多模式道路横断面与准入分层：`RoadCorridor` 横断面 owner、
 方向性 `RoadSection`/可选 `LaneGroup` 生产语义、非遍历 `FacilityBand`、
@@ -197,8 +197,9 @@ ConflictZone/right-of-way solver、RoadSection/JunctionGroup runtime，以及 #7
 SSOT 见 [`cross-section-access.md`](design/cross-section-access.md)。该设计属于
 #227 复杂道路设施演进路线，Milestone N/A（尚未进入已冻结产品 Milestone）。
 
-后续顺序：#234 拆出的最小 production Issue（静态模型 + Traffic v0.9 原子迁移 +
-(class, Route) 绑定期静态准入校验）→ #237 动态车道用途/resolved lane plan G1（消费本
+#234 拆出的最小 production Issue #262 已交付静态模型、Traffic v0.9 原子迁移
+（v0.9 schema 为 source current，publication pending）与 (class, Route) 绑定期
+静态准入校验。后续顺序：#237 动态车道用途/resolved lane plan G1（消费本
 SSOT）→ #236 非机动车/步行产品范围。时变准入 runtime、横向几何与多法规版本
 共存各自独立 G1，不属于当前完成边界。
 

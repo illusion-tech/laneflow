@@ -71,19 +71,23 @@ fn build_world(case: &PlatoonCase, reverse_input: bool) -> CoreWorld {
     .expect("property graph must be valid");
     let route =
         Route::try_new("property-route", ["property-edge"]).expect("property route must be valid");
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "property-profile",
-        IidmProfileSpec {
-            length: VEHICLE_LENGTH,
-            desired_speed: 30.0,
-            min_gap: MIN_GAP,
-            time_headway: 1.5,
-            max_acceleration: 2.0,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 8.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "property-profile",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: VEHICLE_LENGTH,
+                desired_speed: 30.0,
+                min_gap: MIN_GAP,
+                time_headway: 1.5,
+                max_acceleration: 2.0,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 8.0,
+            },
+        )
+        .expect("property profile must be valid")],
     )
-    .expect("property profile must be valid")])
     .expect("property profile registry must be valid");
     let profile = profiles
         .profile_handle("property-profile")
@@ -95,6 +99,9 @@ fn build_world(case: &PlatoonCase, reverse_input: bool) -> CoreWorld {
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("property traffic data must be valid");
 
@@ -213,4 +220,17 @@ fn legal_platoons_preserve_determinism_and_longitudinal_invariants() {
     TestRunner::new(config)
         .run(&platoon_cases(), check_platoon)
         .expect("generated legal platoons must preserve all invariants");
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

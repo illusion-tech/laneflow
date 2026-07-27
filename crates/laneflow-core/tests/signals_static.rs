@@ -137,19 +137,23 @@ fn canonical_registry(graph: &LaneGraph, junctions: &JunctionRegistry) -> Signal
 }
 
 fn profile_registry() -> (VehicleProfileRegistry, laneflow_core::VehicleProfileHandle) {
-    let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "passenger-car",
-        IidmProfileSpec {
-            length: 4.5,
-            desired_speed: 13.9,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 1.5,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 6.0,
-        },
+    let registry = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "passenger-car",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed: 13.9,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 1.5,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 6.0,
+            },
+        )
+        .expect("valid profile")],
     )
-    .expect("valid profile")])
     .expect("valid registry");
     let handle = registry
         .profile_handle("passenger-car")
@@ -636,6 +640,9 @@ fn initial_traffic_data_rebinds_topology_signals_and_route_compilation() {
         source_junctions,
         signals,
         laneflow_core::ParkingRegistry::empty(),
+        laneflow_core::ParticipantClassRegistry::empty(),
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("all graph-dependent domains rebind");
     let gate = traffic
@@ -836,6 +843,9 @@ fn route_stopline_rule_and_phase_delta_remain_atomic_with_new_domains() {
         junctions.clone(),
         signals.clone(),
         laneflow_core::ParkingRegistry::empty(),
+        laneflow_core::ParticipantClassRegistry::empty(),
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect_err("route cannot terminate at StopLine");
     std::assert_matches!(
@@ -879,6 +889,9 @@ fn route_stopline_rule_and_phase_delta_remain_atomic_with_new_domains() {
         junctions.clone(),
         short_signals,
         laneflow_core::ParkingRegistry::empty(),
+        laneflow_core::ParticipantClassRegistry::empty(),
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("static traffic");
     let error = CoreWorld::with_traffic_data(16, traffic, Vec::new())
@@ -909,9 +922,25 @@ fn route_stopline_rule_and_phase_delta_remain_atomic_with_new_domains() {
         junctions,
         signals,
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic");
     let world = CoreWorld::with_traffic_data(16, traffic, vec![vehicle])
         .expect("Signals and vehicles compose");
     assert_eq!(world.vehicles().count(), 1);
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

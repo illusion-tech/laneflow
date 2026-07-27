@@ -3,8 +3,11 @@
 use indexmap::IndexMap;
 
 use crate::{
-    error::CoreError, handle::VehicleProfileHandle, id::validate_external_id,
+    error::CoreError,
+    handle::{ParticipantClassHandle, VehicleProfileHandle},
+    id::validate_external_id,
     numeric_policy::MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS,
+    participant_class::ParticipantClassRegistry,
 };
 
 /// IIDM Vehicle Profile 的命名构造输入。
@@ -30,11 +33,15 @@ pub struct IidmProfileSpec {
 #[derive(Clone, Debug, PartialEq)]
 pub struct VehicleProfile {
     external_id: String,
+    participant_class: ParticipantClassHandle,
     iidm: IidmProfileSpec,
 }
 
 impl VehicleProfile {
     /// 创建经过完整 domain validation 的 IIDM profile。
+    ///
+    /// `participant_class` 必须来自注册时使用的 `ParticipantClassRegistry`（范围由
+    /// `VehicleProfileRegistry::try_new` 校验）。
     ///
     /// # Errors
     ///
@@ -42,6 +49,7 @@ impl VehicleProfile {
     /// 小于 comfortable deceleration 时返回 `CoreError`。
     pub fn try_new_iidm(
         external_id: impl Into<String>,
+        participant_class: ParticipantClassHandle,
         spec: IidmProfileSpec,
     ) -> Result<Self, CoreError> {
         let external_id = external_id.into();
@@ -80,6 +88,7 @@ impl VehicleProfile {
 
         Ok(Self {
             external_id,
+            participant_class,
             iidm: spec,
         })
     }
@@ -87,6 +96,11 @@ impl VehicleProfile {
     /// 返回 profile external ID。
     pub fn external_id(&self) -> &str {
         &self.external_id
+    }
+
+    /// 返回 profile 归属的 ParticipantClass handle。
+    pub const fn participant_class(&self) -> ParticipantClassHandle {
+        self.participant_class
     }
 
     /// 返回经过校验的 IIDM 参数。
@@ -113,10 +127,15 @@ impl VehicleProfileRegistry {
 
     /// 按输入顺序创建并校验 immutable registry。
     ///
+    /// 每个 profile 的 ParticipantClass handle 必须落在 `classes` 范围内
+    /// （index < class_count），防止跨 registry 混用 handle。
+    ///
     /// # Errors
     ///
-    /// profile external ID 重复时返回 `CoreError::DuplicateVehicleProfileId`。
-    pub fn try_new<I>(profiles: I) -> Result<Self, CoreError>
+    /// profile external ID 重复时返回 `CoreError::DuplicateVehicleProfileId`；
+    /// ParticipantClass handle 越界时返回
+    /// `CoreError::VehicleProfileParticipantClassOutOfRange`。
+    pub fn try_new<I>(classes: &ParticipantClassRegistry, profiles: I) -> Result<Self, CoreError>
     where
         I: IntoIterator<Item = VehicleProfile>,
     {
@@ -127,6 +146,13 @@ impl VehicleProfileRegistry {
             if handles.contains_key(profile.external_id()) {
                 return Err(CoreError::DuplicateVehicleProfileId {
                     profile_id: profile.external_id().to_owned(),
+                });
+            }
+            if profile.participant_class().index() >= classes.class_count() {
+                return Err(CoreError::VehicleProfileParticipantClassOutOfRange {
+                    profile_id: profile.external_id().to_owned(),
+                    class_index: profile.participant_class().index(),
+                    class_count: classes.class_count(),
                 });
             }
 
