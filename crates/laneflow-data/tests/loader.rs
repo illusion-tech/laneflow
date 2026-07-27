@@ -1118,6 +1118,69 @@ fn time_window_minute_range_decoding_defers_to_capability_guard() {
 }
 
 #[test]
+fn priority_range_decoding_defers_to_capability_guard() {
+    // priority 在 wire 层保留原始整数（i64）：超 i32 范围不再于解码期 JsonShape
+    // 抢先，必须先抵达 capability guard；i32 语义范围由 Core phase 9.5 校验。
+    let mut guarded = signals_value();
+    guarded["accessRules"] = json!([{
+        "id": "rule-peak",
+        "target": { "kind": "laneEdge", "id": "entry" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"],
+        "timeWindows": [{
+            "days": ["mon"],
+            "startMinuteOfDay": 420,
+            "endMinuteOfDay": 540
+        }],
+        "priority": 2147483648_i64
+    }]);
+    std::assert_matches!(
+        into_core_domain(load_value(guarded).expect_err("guard must precede priority shape")),
+        (path, CoreError::AccessCapabilityUnavailable { rule_id, capability })
+            if path == "accessRules[0].timeWindows"
+                && rule_id == "rule-peak"
+                && capability == "timeWindows"
+    );
+
+    // 无更早 phase 错误时，超范围 priority 按值归因到对应规则字段。
+    let mut invalid = signals_value();
+    invalid["accessRules"] = json!([
+        {
+            "id": "rule-ok",
+            "target": { "kind": "laneEdge", "id": "entry" },
+            "effect": "deny",
+            "participantClassIds": ["motorVehicle"]
+        },
+        {
+            "id": "rule-bad",
+            "target": { "kind": "laneEdge", "id": "bypass" },
+            "effect": "allow",
+            "participantClassIds": ["motorVehicle"],
+            "priority": -2147483649_i64
+        }
+    ]);
+    std::assert_matches!(
+        into_core_domain(load_value(invalid).expect_err("out-of-i32 priority must be rejected")),
+        (path, CoreError::InvalidAccessRulePriority { priority })
+            if path == "accessRules[1].priority" && priority == -2147483649_i64
+    );
+
+    // JSON integer type 检查仍留在 wire：小数 priority 以 JsonShape 拒绝。
+    let mut fractional = signals_value();
+    fractional["accessRules"] = json!([{
+        "id": "rule-peak",
+        "target": { "kind": "laneEdge", "id": "entry" },
+        "effect": "deny",
+        "participantClassIds": ["motorVehicle"],
+        "priority": 1.5
+    }]);
+    std::assert_matches!(
+        load_value(fractional).expect_err("fractional priority is a wire type error"),
+        DataError::JsonShape { .. }
+    );
+}
+
+#[test]
 fn regulation_shape_defers_to_capability_guard() {
     // 同一条规则同时带 timeWindows 与非法 regulation 字符串时，capability guard
     // 必须先于 regulation shape 报错（SSOT §10 phase 9：guard 先于 shape 检查）。
