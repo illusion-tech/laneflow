@@ -900,7 +900,7 @@ Root新增必填 closed object：
 
 ```text
 LaneFlowDataPackage
-  formatVersion: "0.8"
+  formatVersion: "0.9"
   units
   laneGraph
   junctions
@@ -908,6 +908,12 @@ LaneFlowDataPackage
   maneuverPaths
   routes
   vehicleProfiles
+  participantClasses
+  facilityBands
+  roadSections
+  laneGroups
+  roadCorridors
+  accessRules
   signals
   parking: ParkingData
   extensions?
@@ -917,7 +923,7 @@ ParkingData
   spaces: ParkingSpaceData[]
 ```
 
-`parking`、`areas`、`spaces`均必填，数组可空。External package继续只承载static traffic data，不包含initial/parked vehicles、reservation、occupancy、capacity、runtime handles或command log。
+`parking`、`areas`、`spaces`均必填，数组可空；横断面/准入六数组（`participantClasses`/`facilityBands`/`roadSections`/`laneGroups`/`roadCorridors`/`accessRules`）同规则，其 domain 语义见 `cross-section-access.md`。External package继续只承载static traffic data，不包含initial/parked vehicles、reservation、occupancy、capacity、runtime handles或command log。
 
 ### 12.3 Exact wire fields
 
@@ -976,10 +982,10 @@ Production fail-fast order：
 ```text
 JSON syntax
 -> minimal formatVersion shape
--> exact 0.8 check
--> strict 0.8 DTO
+-> exact 0.9 check
+-> strict 0.9 DTO
 -> units
--> Vehicle Profiles
+-> ParticipantClasses + Vehicle Profiles（含 class 引用）
 -> LaneGraph
 -> Junctions / Movements / ManeuverPaths
 -> Signals
@@ -988,11 +994,13 @@ JSON syntax
 -> entry/exit anchors
 -> geometry
 -> orphan areas/reverse indexes
+-> 横断面域（FacilityBands -> RoadSections/LaneGroups -> RoadCorridors）
+-> AccessRules（capability guard -> timeWindow/priority/regulation shape -> 组合歧义）
 -> routes + final-StopLine
 -> InitialTrafficData final assembly/rebind
 ```
 
-同一输入错误优先级因此为 Signals -> Parking -> Routes。DataError使用最窄path：duplicate指向第二个 `.id`、unknown area指向 `.areaId`、anchor指向具体 `entry|exit.edgeId|progress`、geometry指向字段、orphan指向 `parking.areas[i]`。
+同一输入错误优先级因此为 Signals -> Parking -> 横断面/准入 -> Routes。DataError使用最窄path：duplicate指向第二个 `.id`、unknown area指向 `.areaId`、anchor指向具体 `entry|exit.edgeId|progress`、geometry指向字段、orphan指向 `parking.areas[i]`。
 
 Public loader surface不变，仍只接收in-memory bytes/string并返回单一current `LoadedPackage`；不公开raw DTO/history enum/file/async API，也不运行production schema validator。
 

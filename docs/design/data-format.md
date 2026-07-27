@@ -392,7 +392,7 @@ v0.7 直接以 v0.5 shape 和 `f64` Core 数值域为迁移基线，不激活或
 
 #229 已按 #228/ADR 0017 实现以下 clean-break contract：
 
-Current `formatVersion: "0.8"` 原子增加：
+`formatVersion: "0.8"` 原子增加：
 
 - top-level `junctions[]`，元素至少包含 `id`；
 - top-level `movements[]`，child-owned `junctionId`；
