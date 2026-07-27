@@ -643,8 +643,16 @@ World 初始化必须把 pinned policy 编译为
 - 每个 per-subject-cell target range 按 `targetStreamCanonicalRank` 编译，wire
   declaration order 只用于 first-error attribution；tick 不做 target/zone
   笛卡尔积、handle lookup 或 missing-cell 分支；
-- `Protected`、`Permissive` 与 `Uncontrolled` candidate 都从该总表读取规范
-  `rightOfWayPriority`；Protected 只跳过 yield/gap，不跳过规则解析。
+- 一个 Gate coverage 可以包含同一 ManeuverPath 上多个不同 subject stream 的 exact
+  passage cells。对具体 profile，每个 subject cell 都按自己的 stream 从总表解析
+  rule；candidate 的 `candidateRightOfWayPriority` 取全部 distinct resolved subject
+  rules 的最小值，作为 atomic coverage 的保守 effective priority。yield/gap 仍按
+  各 subject cell 自己的 rule/range 求值，不把多个 rules 合成一条虚构 policy row；
+- `Protected`、`Permissive` 与 `Uncontrolled` candidate 都执行上述 rule resolution
+  与 priority reduction；Protected 只跳过 yield/gap，不跳过规则解析。没有任何
+  ConflictPassage、只有 Waiting admission 的 resource request 不读取 stream rule，
+  `candidateRightOfWayPriority` 为 absent，由 arbitration key 的显式 presence rank
+  与 arrival/waiting ticket 排序，不能伪造默认 policy priority。
 
 ### 6.4 protected 与 permissive
 
@@ -716,7 +724,8 @@ arbitration candidate 按稳定键排序：
 ```text
 (
   protectedRank ASC,                 // Protected = 0, others = 1
-  rightOfWayPriority DESC,
+  policyPriorityPresentRank ASC,     // conflict-backed = 0, pure Waiting = 1
+  candidateRightOfWayPriority DESC,  // present 时为 coverage 全部 subject rules 的 min
   firstEligibleTick ASC,
   waitingTicketPresentRank ASC,      // existing Waiting member = 0, absent = 1
   waitingAdmissionSequenceOrZero ASC,
@@ -727,6 +736,11 @@ arbitration candidate 按稳定键排序：
 显式 presence rank 避免用合法 `u64::MAX` 冒充“无 sequence”；raw
 `VehicleHandle` 不参与业务排序。`protectedRank` 不能让车辆进入已占用 zone，只影响
 多个可同时申请者的顺序。
+`policyPriorityPresentRank` 同样不是默认 priority：有 ConflictPassage 的 candidate
+必须解析至少一个 subject rule 并携带 coverage-min priority；纯 Waiting admission
+没有 conflict policy row，数值 priority slot 规范为 `0` 且在 presence rank 相同前
+不参与比较。同一 Gate coverage 含多个 subject streams 时，不能任选第一条、最后
+一条或最高 priority。
 `firstEligibleTick` 在车辆首次满足 Gate arrival predicate 时分配；车辆离开该 Gate
 lookahead、换 Route/occurrence 或完成 crossing 后清除。
 
@@ -1169,7 +1183,11 @@ Clearing
   -> none
 ```
 
-- crossing 第一 Gate：PreGate -> Committed；
+- crossing 第一 Gate 使用与任意 Gate 相同的 resource-specific commit：无
+  Waiting/Conflict resource 时 PreGate -> Committed；提交 Waiting membership 且
+  post-step 已停住时进入 Waiting，仍在移动时进入携带 membership 的 Committed；
+  non-empty ConflictReservation 则直接进入 Clearing。第一 Gate 不得用无条件
+  `PreGate -> Committed` 覆盖 grant bundle 的 committed resources；
 - crossing WaitingZone entry Gate：提交 `activeWaitingMembership`；若当 tick
   继续前进，phase 仍为 Committed；停止等待时只把 phase 转为 Waiting，membership
   不变；
@@ -1715,6 +1733,10 @@ Adapter 不得移动 authoritative progress、修改 queue order、授予 reserv
   specificity ambiguity、`everConflictEligible`、stream-profile totality、gap
   required/forbidden；
 - target-profile priority 与 simultaneous protected conflict；
+- 同一 Gate coverage 含多个 subject streams 时，对同一 profile 解析全部 subject
+  rules 并取 minimum effective priority；per-cell yield/gap 保持各自 rule，
+  permutation 不得变为任选一条。pure Waiting admission 使用 absent-priority rank，
+  不创建默认 stream rule；
 - subject stream 覆盖 zone A/B、yield target 只覆盖 A 时，normalization 只为 A
   编译 exact target cell，B range 为空；不得查询 missing `(B, target)` cell，也
   不得误要求 target 覆盖全部 subject zones；

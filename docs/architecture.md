@@ -118,13 +118,13 @@ SpatialPackage/ScenarioManifest 保持 v0.1；完整实现与边界见
 production Issue #262 交付（v0.9 schema 已发布并经 live 验证）；
 SSOT 见 `design/cross-section-access.md`。
 
-#235 正在评审多阶段复杂路口 G1 候选：沿用 ManeuverPath/Route authority，把
+#235/ADR 0019 已接受多阶段复杂路口 G1：沿用 ManeuverPath/Route authority，把
 multiple Gate、WaitingZone 与 ConflictZone occurrence 在 Route 注册期编译；
 Traffic/Core 中显式声明的 ParticipantStream/ConflictZone 关系拥有行为 authority，
 并复用 current Traffic v0.9 的 ParticipantClass/AccessRegistry 静态准入结果；
-Spatial 只拥有 canonical 3D geometry/validation。候选 SSOT 见
-`design/waiting-zone-conflict-right-of-way.md`；在 G1/Delivery PR 完成前不构成
-production API 或 schema 授权。
+Spatial 只拥有 canonical 3D geometry/validation。SSOT 见
+`design/waiting-zone-conflict-right-of-way.md`；该 Accepted 设计尚未生产化，不构成
+current API 或 schema 已实现的声称。
 
 ## 5. LaneFlow Core
 
@@ -168,7 +168,7 @@ Junction/Movement/ManeuverPath/ManeuverGate handles 和 resolvers，不保留 pa
 safety。上述 ParticipantClass/CrossSection/Access registries、typed handles 与静态
 route-binding 校验已由 #262 生产化；时变准入与 FacilityBand target 仍未生产化。
 
-#235/ADR 0019 候选在 signal/regulatory 与 Core safety 之间增加独立 conflict
+#235/ADR 0019 Accepted 设计在 signal/regulatory 与 Core safety 之间增加独立 conflict
 domain：versioned compliance policy 只产生 protected/permissive/uncontrolled
 candidate，Core ConflictArbiter 才能结合 yield/priority、gap acceptance、zone
 occupancy/reservation 产生 vehicle-specific tick grant；crossing 成功后 grant
@@ -178,8 +178,8 @@ occupancy/reservation 产生 vehicle-specific tick grant；crossing 成功后 gr
 committed/earlier-staged claim 冲突时 fail closed。candidate proposal 可以并行，
 但线程调度/锁竞争不能决定 winner。
 SignalController、Adapter、JunctionGroup 与二维几何均不拥有最终通行权；任何
-grant 不覆盖 leader、safe-speed、RouteEnd、minimum-gap 或 no-overlap。该段在
-#235 G1 接受前仅是 Review 候选。
+grant 不覆盖 leader、safe-speed、RouteEnd、minimum-gap 或 no-overlap。该设计已
+通过 G1，但仍须由后续独立 implementation slices 生产化并完成各自 G0-G4。
 
 v0.5 Parking runtime 由 Core 私有 binding aggregate 持有唯一 authority；`VehicleStatus::Parked` 与 exact Occupied binding 一致，Parked vehicle 保留 live identity但不进入 travel-lane occupancy。#108 已公开 borrowed snapshot 和 caller-selected lifecycle commands；#109 已把 ParkingStop、SignalStop、RouteEnd 与 leader/no-overlap 纳入同一 fixed-tick constraint/traversal pipeline，并交付 arrival、route-completion release、step events 与 Reserved capability activation。Adapter 只消费 immutable registry、snapshot、records/events 和 position authority。详细设计见 ADR 0010 与 `design/parking-system.md`。
 

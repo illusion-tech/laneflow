@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-27（current Traffic v0.9 与 #235 conflict tolerance 候选同步）
+**最后更新**: 2026-07-27（current Traffic v0.9 与 #235 Accepted conflict tolerance 同步）
 
 **适用范围**: v0.6 数值与空间基础（Numeric & Spatial Foundation）的 Core 数值表示、精度分层、公开表面和跨层转换边界（#122、#126、#140、#141）
 
@@ -75,14 +75,14 @@
 
 最小尺寸属于输入语义，不是算术误差阈值；精确零状态和有符号零规范化也不使用近零判定函数。生产代码不提供通用近似比较辅助函数，不使用运行时相对容差或动态末位单位（ULP）。#127 可以把相对误差和 ULP 用作目标 `f32` 离线标定工具，但只能产出固定、带单位、领域化的绝对阈值；#144 未通过性能门槛，因此这些目标值没有进入当前生产代码。
 
-#235 的 Review 候选将为 PathAnchor crossing、ConflictZone enter/clear 与对应事件
-增加独立 `CONFLICT_ANCHOR_CROSSING_TOLERANCE_METERS` owner，并为 future
-current-f64 implementation 冻结候选值 `1.0e-9 m`。它不复用上述 edge-boundary、
+#235 的 Accepted 设计为 PathAnchor crossing、ConflictZone enter/clear 与对应事件
+冻结独立 `CONFLICT_ANCHOR_CROSSING_TOLERANCE_METERS` owner，并为 future
+current-f64 implementation 冻结值 `1.0e-9 m`。它不复用上述 edge-boundary、
 longitudinal-constraint 或 physical-gap owner；front enter 使用
 `cursor + tolerance >= anchor`，tail clear/downstream proof 使用
 `front + tolerance >= exit + vehicle.length`，ETA distance 使用
-`d <= tolerance -> 0`，event 只在 predicate false -> true 时 one-shot。在 #235
-G1/Delivery PR 完成前它不计入 current production 十领域，也不改变当前常量。
+`d <= tolerance -> 0`，event 只在 predicate false -> true 时 one-shot。在后续
+implementation slice 完成前它不计入 current production 十领域，也不改变当前常量。
 
 ### 2.3 风险集中区
 

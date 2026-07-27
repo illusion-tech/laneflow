@@ -163,8 +163,8 @@ contribution，不复制 frontier cell。candidate 查询排除 exact subject �
 剩余值，避免 looping/repeated Route 的车辆用自己的 future target-stream passage
 阻塞自己，同时保持 O(1) lookup。normalization 中 static AccessRule deny 的合成
 stream/profile approach 不贡献 frontier；public route binding 不会创建该 active
-vehicle，已 occupied/reserved 的状态仍由 zone authority fail closed。对 subject
-必须让行的每个 stream，Core 先以
+vehicle，已 occupied/reserved 的状态仍由 zone authority fail closed。对每个
+subject passage cell 在同一 ConflictZone 中编译出的 exact yield target cell，Core 先以
 segmented directed-bound route-distance query 得到冲突车辆到 passage entry 的
 距离下界，再使用 fixed-order directed-bound 运算得到 ETA 下界，并要求：
 
@@ -307,6 +307,10 @@ target stream 任一 eligible profile 不具备严格更高 priority 时拒绝�
 默认值。pinned policy 还必须与 signal phase/ConflictZone 做 protected-coherence
 validation：同 phase 不能让 incompatible PreGate streams 同时得到 Protected；
 runtime reservation 只是 invariant 防线，不是错误 authoring 的静默降级。
+一个 Gate coverage 含多个 subject streams 时，每个 exact subject cell 仍使用自己的
+resolved rule/yield range，candidate effective priority 取全部 distinct subject
+rules 的最小值；不得任选一条 rule。纯 Waiting admission 不虚构 stream priority，
+以显式 absent-priority rank 进入 arrival/waiting-ticket 排序。
 
 多法规版本在同一 world 热切换、实时政策下载与城市级预约系统不属于本 ADR。
 
@@ -324,12 +328,14 @@ static entity handle 继续按 normalization order 分配，但 raw handle 数�
 `canonicalRank`。input permutation 后按 external ID 对齐的 grant、diagnostic 与
 same-anchor event 必须语义等价，steady tick 不做字符串排序。
 
-同一 tick 的候选按 protected rank、right-of-way priority、首次到达 tick、带显式
-presence rank 的 Waiting admission sequence、唯一 vehicle update sequence 组成的
-规范键排序；raw vehicle handle 不参与 tie-break。同输入、同 fixed delta、同命令
-序列必须得到逐位一致的 state/event order。生产实施必须维持现有 10k product
-budget 与 100k research scaling guard，并报告 top-two frontier bytes、claim
-count/collision 与 physical-span visits；具体协议见详细设计。
+同一 tick 的候选按 protected rank、policy-priority presence rank、coverage-min
+right-of-way priority、首次到达 tick、带显式 presence rank 的 Waiting admission
+sequence、唯一 vehicle update sequence 组成的规范键排序；pure Waiting 的 absent
+numeric slot 规范为 `0` 且不参与有/无 priority 的相对顺序，不能冒充 policy default。
+raw vehicle handle 不参与 tie-break。同输入、同 fixed delta、同命令序列必须得到
+逐位一致的 state/event order。生产实施必须维持现有 10k product budget 与 100k
+research scaling guard，并报告 top-two frontier bytes、claim count/collision 与
+physical-span visits；具体协议见详细设计。
 
 ## 与既有 ADR 的关系
 

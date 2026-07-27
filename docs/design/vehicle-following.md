@@ -339,18 +339,19 @@ v0.3 不公开 constraint provider，也不允许 Adapter 任意注入 constrain
 
 Current Parking 复用本节 private spatial-target/safety ownership：ParkingStop 与 SignalStop/RouteEnd/SpeedLimit 从同一 snapshot 生成并按最严格 admissible motion 归约，spatial hard projection 先于 no-overlap projection。Parked vehicle 排除 lane occupancy；Arrived 但未 commit 的 Active vehicle 仍是 stationary leader。完整 event/order/performance 边界见 [`parking-system.md`](parking-system.md)。
 
-#235 的 Review 候选
+#235 的 Accepted 设计
 [`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
 把 GateStop、WaitingZone capacity/storage 与 missing ConflictGrant 定义为新的
 Core-owned spatial constraints。它们只能收紧 candidate motion；right-of-way
 business priority 与 reducer attribution tie-break 完全分离，grant 不能覆盖
-leader、safe-speed、minimum-gap、RouteEnd 或 final no-overlap。该候选还在 grant
+leader、safe-speed、minimum-gap、RouteEnd 或 final no-overlap。该设计还在 grant
 前复用 route-local leader/hard-boundary query，证明车尾可清空全部 conflict
 coverage，并针对 physical edge/progress 取得 committed + earlier-staged 可见的
 downstream claim；出口存储不足或 claim 冲突是 normal no-grant。未落位 claim 不
 伪装成可依赖其继续移动的 leader。同 edge 相邻 claims 必须按 progress 识别实际
 follower，并复用本设计的 follower-owned minimum-gap tolerance；candidate 在前方时
-不能错误使用 candidate profile 代替后方 existing owner。
+不能错误使用 candidate profile 代替后方 existing owner。上述 #235 边界尚未
+生产化，current longitudinal runtime 不因此改变。
 
 ### 8.1 Per-edge 道路限速
 

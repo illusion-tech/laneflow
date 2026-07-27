@@ -964,21 +964,21 @@ Issue 负责实现。以下各项仍需独立冻结：
 
 ### 17.2 Multi-stage Gate 与 waiting zone
 
-`ManeuverGate.transitionIndex` 已提供 identity 位置。#235 正在
+`ManeuverGate.transitionIndex` 已提供 identity 位置。#235 已在
 [`waiting-zone-conflict-right-of-way.md`](waiting-zone-conflict-right-of-way.md)
-中评审独立 G1 候选：同一路径 Gate 按 transitionIndex 排序，Route 注册期编译
+完成独立 G1 接受：同一路径 Gate 按 transitionIndex 排序，Route 注册期编译
 Gate/Waiting/Conflict occurrences；WaitingZone 由同一路径 entry/release Gate
 有界，Core 拥有容量/队列与 committed/waiting/clearing 状态，Spatial
 只拥有可选 3D region。Conflict approach 必须从 current route cursor 覆盖 horizon
 内的 upcoming/repeated occurrence，把 Route-specific contributions 归约到每个
 static `(ConflictZone, ParticipantStream)` 的 distinct-owner frontier 并排除 exact
 subject；grant 前还必须证明车尾可清空 coverage，并原子取得
-Waiting/Conflict/physical downstream claim。该候选在 #235 G1/Delivery PR 完成前
-不解除 current `transitionIndex = 0` production guard。
+Waiting/Conflict/physical downstream claim。该 Accepted 设计尚未生产化，不解除
+current `transitionIndex = 0` production guard。
 
 ### 17.3 Conflict/priority
 
-#235 候选把 ConflictZone/ParticipantStream 放入独立 ConflictRegistry，并由 Core
+#235 Accepted 设计把 ConflictZone/ParticipantStream 放入独立 ConflictRegistry，并由 Core
 ConflictArbiter 产生 vehicle-specific grant/reservation。它可以引用 Junction、
 ManeuverPath 与 Gate handles，但不得：
 
