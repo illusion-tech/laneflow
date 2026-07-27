@@ -53,19 +53,23 @@ fn route_external_id(index: usize) -> String {
 }
 
 fn profile_registry(desired_speed: f64) -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "benchmark-profile",
-        IidmProfileSpec {
-            length: VEHICLE_LENGTH,
-            desired_speed,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 1.4,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 4.0,
-        },
+    let registry = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "benchmark-profile",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: VEHICLE_LENGTH,
+                desired_speed,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 1.4,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )
+        .expect("scenario profile must be valid")],
     )
-    .expect("scenario profile must be valid")])
     .expect("scenario profile registry must be valid");
     let profile = registry
         .profile_handle("benchmark-profile")
@@ -97,6 +101,9 @@ fn linear_platoon_world(
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("linear scenario traffic data must be valid");
     let vehicles = (0..vehicle_count)
@@ -165,6 +172,9 @@ fn locality_preserving_platoon_world(
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("locality-preserving scenario traffic data must be valid");
     let vehicles = (0..vehicle_count)
@@ -264,6 +274,9 @@ pub fn speed_limit_transition_world(vehicle_count: usize) -> CoreWorld {
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("speed-limit traffic data must be valid");
     let vehicles = (0..vehicle_count)
@@ -315,6 +328,9 @@ pub fn projection_heavy_world(vehicle_count: usize) -> CoreWorld {
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("projection traffic data must be valid");
     let vehicles = (0..pair_count)
@@ -384,6 +400,9 @@ pub fn transition_heavy_world(vehicle_count: usize) -> CoreWorld {
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("transition traffic data must be valid");
     let vehicles = (0..vehicle_count)
@@ -435,6 +454,9 @@ pub fn transition_pressure_world(vehicle_count: usize, crossing_percent: usize) 
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("transition pressure traffic data must be valid");
     let crossing_count = vehicle_count * crossing_percent / 100;
@@ -476,4 +498,17 @@ pub const fn transition_pressure_event_count(
     crossing_percent: usize,
 ) -> usize {
     vehicle_count * crossing_percent / 100
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

@@ -66,8 +66,9 @@ impl RuntimeFixture {
         let edge = graph.edge_handle("scale-edge").expect("benchmark edge");
         let parking = ParkingRegistry::empty();
 
-        let profiles = VehicleProfileRegistry::try_new([benchmark_profile()])
-            .expect("valid benchmark profiles");
+        let profiles =
+            VehicleProfileRegistry::try_new(&participant_classes().0, [benchmark_profile()])
+                .expect("valid benchmark profiles");
         let profile = profiles
             .profile_handle("scale-profile")
             .expect("benchmark profile");
@@ -78,6 +79,9 @@ impl RuntimeFixture {
             laneflow_core::JunctionRegistry::empty(),
             SignalRegistry::empty(),
             parking.clone(),
+            participant_classes().0,
+            laneflow_core::CrossSectionRegistry::empty(),
+            laneflow_core::AccessRegistry::empty(),
         )
         .expect("valid benchmark traffic data");
         let world = CoreWorld::with_traffic_data(
@@ -158,6 +162,7 @@ impl RuntimeFixture {
 fn benchmark_profile() -> VehicleProfile {
     VehicleProfile::try_new_iidm(
         "scale-profile",
+        participant_classes().1,
         IidmProfileSpec {
             length: 4.5,
             desired_speed: 13.9,
@@ -525,4 +530,17 @@ fn norm(vector: [f64; 3]) -> f64 {
 
 fn normalize(vector: [f64; 3]) -> [f64; 3] {
     scale(vector, 1.0 / norm(vector))
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

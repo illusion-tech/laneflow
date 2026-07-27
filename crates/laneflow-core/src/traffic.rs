@@ -3,11 +3,14 @@
 use indexmap::IndexSet;
 
 use crate::{
+    access::AccessRegistry,
+    cross_section::CrossSectionRegistry,
     error::CoreError,
     graph::LaneGraph,
     handle::{EdgeHandle, ManeuverGateHandle, ManeuverPathHandle},
     junction::JunctionRegistry,
     parking::ParkingRegistry,
+    participant_class::ParticipantClassRegistry,
     profile::VehicleProfileRegistry,
     route::Route,
     signal::SignalRegistry,
@@ -62,6 +65,9 @@ pub struct InitialTrafficData {
     junctions: JunctionRegistry,
     signals: SignalRegistry,
     parking: ParkingRegistry,
+    participant_classes: ParticipantClassRegistry,
+    cross_section: CrossSectionRegistry,
+    access: AccessRegistry,
 }
 
 impl InitialTrafficData {
@@ -74,13 +80,22 @@ impl InitialTrafficData {
             junctions: JunctionRegistry::empty(),
             signals: SignalRegistry::empty(),
             parking: ParkingRegistry::empty(),
+            participant_classes: ParticipantClassRegistry::empty(),
+            cross_section: CrossSectionRegistry::empty(),
+            access: AccessRegistry::empty(),
         }
     }
 
     /// 创建并校验全部 current static traffic data。
     ///
     /// Final assembly 总是按 retained external definitions 对最终 LaneGraph 重新绑定
-    /// Junction、Signals 与 Parking，然后使用同一 compiler 编译 initial Routes。
+    /// Junction、Signals、Parking 与 CrossSection，然后使用同一 compiler 编译 initial
+    /// Routes。Access 必须最后 rebind：它消费 rebind 后的 Junction 与 CrossSection
+    /// registry，顺序错误会静默混用 handle。
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "final assembly 需要全部 static domain registry"
+    )]
     pub fn try_new<I>(
         lane_graph: LaneGraph,
         routes: I,
@@ -88,6 +103,9 @@ impl InitialTrafficData {
         junctions: JunctionRegistry,
         signals: SignalRegistry,
         parking: ParkingRegistry,
+        participant_classes: ParticipantClassRegistry,
+        cross_section: CrossSectionRegistry,
+        access: AccessRegistry,
     ) -> Result<Self, CoreError>
     where
         I: IntoIterator<Item = Route>,
@@ -95,6 +113,13 @@ impl InitialTrafficData {
         let junctions = junctions.rebind_to_lane_graph(&lane_graph)?;
         let signals = signals.rebind_to_static_topology(&lane_graph, &junctions)?;
         let parking = parking.rebind_to_lane_graph(&lane_graph)?;
+        let cross_section = cross_section.rebind_to_lane_graph(&lane_graph)?;
+        let access = access.rebind(
+            &lane_graph,
+            &junctions,
+            &cross_section,
+            &participant_classes,
+        )?;
         let mut route_ids = IndexSet::new();
         let mut compiled_routes = Vec::new();
 
@@ -114,6 +139,9 @@ impl InitialTrafficData {
             junctions,
             signals,
             parking,
+            participant_classes,
+            cross_section,
+            access,
         })
     }
 
@@ -147,6 +175,21 @@ impl InitialTrafficData {
         &self.parking
     }
 
+    /// 返回 immutable ParticipantClass registry。
+    pub const fn participant_classes(&self) -> &ParticipantClassRegistry {
+        &self.participant_classes
+    }
+
+    /// 返回 immutable CrossSection registry。
+    pub const fn cross_section(&self) -> &CrossSectionRegistry {
+        &self.cross_section
+    }
+
+    /// 返回 immutable Access registry。
+    pub const fn access(&self) -> &AccessRegistry {
+        &self.access
+    }
+
     /// 拆分为 Core-owned parts。
     pub(crate) fn into_parts(
         self,
@@ -157,6 +200,9 @@ impl InitialTrafficData {
         JunctionRegistry,
         SignalRegistry,
         ParkingRegistry,
+        ParticipantClassRegistry,
+        CrossSectionRegistry,
+        AccessRegistry,
     ) {
         (
             self.lane_graph,
@@ -165,6 +211,9 @@ impl InitialTrafficData {
             self.junctions,
             self.signals,
             self.parking,
+            self.participant_classes,
+            self.cross_section,
+            self.access,
         )
     }
 }

@@ -19,19 +19,23 @@ fn edge(id: &str, length: f64, limit: f64, next: &[&str]) -> LaneEdge {
 }
 
 fn profile() -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "speed-limit-profile",
-        IidmProfileSpec {
-            length: 4.0,
-            desired_speed: 30.0,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 2.0,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 4.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "speed-limit-profile",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 4.0,
+                desired_speed: 30.0,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 2.0,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )
+        .expect("profile")],
     )
-    .expect("profile")])
     .expect("profile registry");
     let handle = profiles
         .profile_handle("speed-limit-profile")
@@ -55,6 +59,9 @@ fn world(
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     CoreWorld::with_traffic_data(fixed_delta_time_ms, traffic, vehicle(profile)).expect("world")
@@ -405,6 +412,9 @@ fn red_signal_stop_dominates_the_sixty_to_forty_transition_until_green() {
         junctions,
         signals,
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     let mut world = CoreWorld::with_traffic_data(
@@ -476,4 +486,17 @@ fn red_signal_stop_dominates_the_sixty_to_forty_transition_until_green() {
         crossed_tick.is_some(),
         "green must release the vehicle across the boundary"
     );
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

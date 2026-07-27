@@ -1,7 +1,8 @@
 use std::{fmt::Debug, hash::Hash};
 
 use laneflow_core::{
-    CoreError, IidmProfileSpec, VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
+    CoreError, IidmProfileSpec, ParticipantClass, ParticipantClassHandle, ParticipantClassRegistry,
+    VehicleProfile, VehicleProfileHandle, VehicleProfileRegistry,
 };
 
 const CURRENT_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
@@ -19,7 +20,8 @@ fn canonical_spec() -> IidmProfileSpec {
 }
 
 fn profile(id: &str) -> VehicleProfile {
-    VehicleProfile::try_new_iidm(id, canonical_spec()).expect("valid IIDM profile")
+    VehicleProfile::try_new_iidm(id, participant_classes().1, canonical_spec())
+        .expect("valid IIDM profile")
 }
 
 #[test]
@@ -32,8 +34,9 @@ fn valid_iidm_profile_preserves_external_id_and_parameters() {
 
 #[test]
 fn profile_external_id_uses_shared_ascii_token_rule() {
-    let error = VehicleProfile::try_new_iidm("passenger car", canonical_spec())
-        .expect_err("invalid profile id must fail");
+    let error =
+        VehicleProfile::try_new_iidm("passenger car", participant_classes().1, canonical_spec())
+            .expect_err("invalid profile id must fail");
 
     std::assert_matches!(
         error,
@@ -68,7 +71,7 @@ fn profile_rejects_non_finite_and_non_positive_values() {
             _ => unreachable!("all cases use known fields"),
         }
 
-        let error = VehicleProfile::try_new_iidm("profile", spec)
+        let error = VehicleProfile::try_new_iidm("profile", participant_classes().1, spec)
             .expect_err("invalid profile value must fail");
         std::assert_matches!(
             error,
@@ -94,7 +97,7 @@ fn profile_length_must_exceed_its_domain_minimum() {
             length,
             ..canonical_spec()
         };
-        let error = VehicleProfile::try_new_iidm("profile", spec)
+        let error = VehicleProfile::try_new_iidm("profile", participant_classes().1, spec)
             .expect_err("length at or below epsilon must fail");
 
         std::assert_matches!(
@@ -114,7 +117,7 @@ fn profile_length_must_exceed_its_domain_minimum() {
         length: CURRENT_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS.next_up(),
         ..canonical_spec()
     };
-    VehicleProfile::try_new_iidm("adjacent-valid", adjacent_valid)
+    VehicleProfile::try_new_iidm("adjacent-valid", participant_classes().1, adjacent_valid)
         .expect("value adjacent above the exclusive minimum must pass");
 }
 
@@ -124,14 +127,15 @@ fn profile_min_gap_allows_zero_but_rejects_negative_or_non_finite() {
         min_gap: 0.0,
         ..canonical_spec()
     };
-    VehicleProfile::try_new_iidm("zero-gap", zero_gap).expect("zero min gap is valid");
+    VehicleProfile::try_new_iidm("zero-gap", participant_classes().1, zero_gap)
+        .expect("zero min gap is valid");
 
     for min_gap in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         let spec = IidmProfileSpec {
             min_gap,
             ..canonical_spec()
         };
-        let error = VehicleProfile::try_new_iidm("invalid-gap", spec)
+        let error = VehicleProfile::try_new_iidm("invalid-gap", participant_classes().1, spec)
             .expect_err("invalid min gap must fail");
         std::assert_matches!(
             error,
@@ -149,7 +153,7 @@ fn emergency_deceleration_must_cover_comfortable_deceleration() {
         emergency_deceleration: 3.0,
         ..canonical_spec()
     };
-    let error = VehicleProfile::try_new_iidm("invalid-braking", spec)
+    let error = VehicleProfile::try_new_iidm("invalid-braking", participant_classes().1, spec)
         .expect_err("invalid deceleration order must fail");
 
     std::assert_matches!(
@@ -164,11 +168,10 @@ fn emergency_deceleration_must_cover_comfortable_deceleration() {
 
 #[test]
 fn registry_assigns_stable_input_order_handles_and_resolves_both_directions() {
-    let registry = VehicleProfileRegistry::try_new([
-        profile("truck"),
-        profile("passenger-car"),
-        profile("bus"),
-    ])
+    let registry = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [profile("truck"), profile("passenger-car"), profile("bus")],
+    )
     .expect("valid profile registry");
 
     assert_eq!(registry.len(), 3);
@@ -198,11 +201,10 @@ fn registry_assigns_stable_input_order_handles_and_resolves_both_directions() {
 
 #[test]
 fn duplicate_profile_id_is_rejected_in_input_order() {
-    let error = VehicleProfileRegistry::try_new([
-        profile("truck"),
-        profile("passenger-car"),
-        profile("truck"),
-    ])
+    let error = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [profile("truck"), profile("passenger-car"), profile("truck")],
+    )
     .expect_err("duplicate profile id must fail");
 
     std::assert_matches!(
@@ -219,4 +221,51 @@ fn empty_registry_and_handle_public_traits_match_contract() {
     let registry = VehicleProfileRegistry::empty();
     assert!(registry.is_empty());
     assert_eq!(registry.len(), 0);
+}
+
+fn participant_classes() -> (ParticipantClassRegistry, ParticipantClassHandle) {
+    let classes = ParticipantClassRegistry::try_new(vec![
+        ParticipantClass::new("motorVehicle", None),
+        ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
+}
+
+#[test]
+fn profile_preserves_participant_class_attribution() {
+    let (classes, car) = participant_classes();
+    let registry = VehicleProfileRegistry::try_new(&classes, [profile("passenger-car")])
+        .expect("valid profile registry");
+
+    let handle = registry
+        .profile_handle("passenger-car")
+        .expect("profile handle exists");
+    assert_eq!(
+        registry
+            .profile(handle)
+            .map(VehicleProfile::participant_class),
+        Some(car)
+    );
+}
+
+#[test]
+fn registry_rejects_participant_class_handle_outside_class_registry() {
+    // profile helper 归属两类 registry 的 `car`（index 1），超出单类 registry 范围。
+    let single_class_registry =
+        ParticipantClassRegistry::try_new(vec![ParticipantClass::new("motorVehicle", None)])
+            .expect("valid class registry");
+
+    let error = VehicleProfileRegistry::try_new(&single_class_registry, [profile("passenger-car")])
+        .expect_err("out-of-range participant class handle must fail");
+
+    std::assert_matches!(
+        error,
+        CoreError::VehicleProfileParticipantClassOutOfRange {
+            profile_id,
+            class_index: 1,
+            class_count: 1,
+        } if profile_id == "passenger-car"
+    );
 }

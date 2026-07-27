@@ -844,19 +844,23 @@ fn edge(id: &str, length: f64, next: &[&str]) -> LaneEdge {
 }
 
 fn profile(id: &str, desired_speed: f64) -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        id,
-        IidmProfileSpec {
-            length: 4.0,
-            desired_speed,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 2.0,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 8.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &crate::test_support::test_participant_class_registry(),
+        [VehicleProfile::try_new_iidm(
+            id,
+            crate::test_support::test_car_participant_class(),
+            IidmProfileSpec {
+                length: 4.0,
+                desired_speed,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 2.0,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 8.0,
+            },
+        )
+        .expect("vehicle profile")],
     )
-    .expect("vehicle profile")])
     .expect("vehicle profile registry");
     let handle = profiles.profile_handle(id).expect("vehicle profile handle");
     (profiles, handle)
@@ -923,6 +927,9 @@ fn corridor_world() -> CoreWorld {
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("traffic data");
     CoreWorld::with_traffic_data(
@@ -966,6 +973,9 @@ fn cycle_world() -> CoreWorld {
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("traffic data");
     CoreWorld::with_traffic_data(
@@ -1034,6 +1044,9 @@ fn signal_world() -> CoreWorld {
         junctions,
         signals,
         ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("signal traffic");
     CoreWorld::with_traffic_data(
@@ -1075,6 +1088,9 @@ fn parking_world() -> CoreWorld {
         crate::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("parking traffic");
     let mut world = CoreWorld::with_traffic_data(
@@ -1121,6 +1137,9 @@ fn non_finite_horizon_world() -> CoreWorld {
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("traffic data");
     CoreWorld::with_traffic_data(

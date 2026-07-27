@@ -56,19 +56,23 @@ impl RetainedScenario {
 }
 
 fn profile_registry() -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "retained-memory-profile",
-        IidmProfileSpec {
-            length: 4.5,
-            desired_speed: 13.9,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 1.4,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 6.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &crate::test_support::test_participant_class_registry(),
+        [VehicleProfile::try_new_iidm(
+            "retained-memory-profile",
+            crate::test_support::test_car_participant_class(),
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed: 13.9,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 1.4,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 6.0,
+            },
+        )
+        .expect("retained-memory profile must be valid")],
     )
-    .expect("retained-memory profile must be valid")])
     .expect("retained-memory profile registry must be valid");
     let profile = profiles
         .profile_handle("retained-memory-profile")
@@ -105,6 +109,9 @@ fn vehicle_heavy_world(vehicle_count: usize) -> CoreWorld {
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("vehicle-heavy traffic must be valid");
     let vehicles = (0..vehicle_count)
@@ -155,6 +162,9 @@ fn route_heavy_world(vehicle_count: usize) -> CoreWorld {
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("route-heavy traffic must be valid");
     let vehicles = (0..vehicle_count)
@@ -284,8 +294,18 @@ fn signal_world(
     let parking = ParkingRegistry::try_new(&graph, [], parking_spaces)
         .expect("balanced Parking registry must be valid");
     let (profiles, profile) = profile_registry();
-    let traffic = InitialTrafficData::try_new(graph, routes, profiles, junctions, signals, parking)
-        .expect("signal retained traffic must be valid");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        routes,
+        profiles,
+        junctions,
+        signals,
+        parking,
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
+    )
+    .expect("signal retained traffic must be valid");
     let vehicles = (0..route_count)
         .flat_map(|route_index| {
             (0..vehicles_per_route).map(move |vehicle_index| {
@@ -337,6 +357,9 @@ fn parking_heavy_world(vehicle_count: usize) -> CoreWorld {
         crate::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("Parking-heavy traffic must be valid");
     let vehicles = (0..vehicle_count)
@@ -397,7 +420,7 @@ fn print_snapshot(
     stats: LifecycleRetainedStats,
 ) {
     eprintln!(
-        "retained_matrix scenario={} scale={} phase={} live={} route_occurrences={} complete_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} profile_registry_bytes={} junction_registry_bytes={} signal_registry_bytes={} signal_state_bytes={} signal_scratch_bytes={} route_bytes={} route_maneuver_occurrence_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={}",
+        "retained_matrix scenario={} scale={} phase={} live={} route_occurrences={} complete_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} profile_registry_bytes={} junction_registry_bytes={} signal_registry_bytes={} signal_state_bytes={} signal_scratch_bytes={} participant_class_registry_bytes={} cross_section_registry_bytes={} access_registry_bytes={} route_bytes={} route_maneuver_occurrence_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={}",
         scenario.name(),
         scale,
         phase,
@@ -412,6 +435,9 @@ fn print_snapshot(
         stats.signal_registry_bytes,
         stats.signal_runtime_state_bytes,
         stats.signal_runtime_scratch_bytes,
+        stats.participant_class_registry_bytes,
+        stats.cross_section_registry_bytes,
+        stats.access_registry_bytes,
         stats.route_bytes,
         stats.route_maneuver_occurrence_bytes,
         stats.route_distance_bytes,

@@ -84,18 +84,21 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 当前 Rust workspace 中，Traffic Data Layer 已由 `laneflow-data` 表达。它负责：
 
-- 当前 v0.8 external package、required per-edge `speedLimit`、必填版本闸口与旧版/未来版拒绝；
+- 当前 v0.9 external package（横断面/准入静态模型、profile 必填 `participantClassId`）、required per-edge `speedLimit`、必填版本闸口与旧版/未来版拒绝；
 - JSON syntax、wire shape、units 和字段路径诊断；
 - external ID 到 Core domain input 的转换；
 - 调用 Core constructors 完成 lane graph、Junction/Movement/ManeuverPath、route、
-  Vehicle Profile、static Signals 与 static Parking normalization。
+  Vehicle Profile、ParticipantClass、RoadCorridor/RoadSection/LaneGroup/FacilityBand、
+  AccessRule、static Signals 与 static Parking normalization。
 
 `laneflow-data` 不拥有 fixed tick、runtime entity、world lifecycle 或 Engine asset I/O。初始 loader 接收内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
 
-current v0.8 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、
+current v0.9 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、
 Junction/Movement/ManeuverPath、StopLine、一等 ManeuverGate、SignalGroup、
-fixed-time Controller/Phase，以及 immutable ParkingArea/ParkingSpace、entry/exit
-anchors 和 edge-relative geometry，并由 canonical fixtures 锁定。详细契约见
+fixed-time Controller/Phase、immutable ParkingArea/ParkingSpace、entry/exit
+anchors 和 edge-relative geometry，以及 #262 生产化的 ParticipantClass、
+RoadCorridor/RoadSection/LaneGroup/FacilityBand 横断面与 AccessRule 准入静态模型
+（profile 必填 `participantClassId`），并由 canonical fixtures 锁定。详细契约见
 `design/data-format.md` 与 `design/data-loading.md`。
 
 Traffic Data 只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors 与 edge-relative geometry，不持久化 reservation、occupancy、initial parked vehicles 或 runtime handles。#107 已原子切换 schema、private DTO、loader、fixtures 与 current docs；#108 的 runtime authority 完全保留在 CoreWorld，不回写 production data。
@@ -111,8 +114,9 @@ SpatialPackage/ScenarioManifest 保持 v0.1；完整实现与边界见
 横断面唯一 owner 组织方向性 `RoadSection` 与非遍历 `FacilityBand`，
 `FacilityKind`（物理设施）、`ParticipantClass`（数据声明的单继承参与者分类）与
 `AccessRule`（target/effect/时间窗口/法规 provenance 的准入 overlay）显式分离。
-其 Core/Data 生产化与 Traffic `0.8 -> 0.9` 原子迁移由 #234 拆出的最小
-production Issue 承担；SSOT 见 `design/cross-section-access.md`。
+其 Core/Data 生产化与 Traffic `0.8 -> 0.9` 原子迁移已由 #234 拆出的最小
+production Issue #262 交付（v0.9 schema 为 source current，publication pending）；
+SSOT 见 `design/cross-section-access.md`。
 
 ## 5. LaneFlow Core
 

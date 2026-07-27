@@ -524,19 +524,23 @@ impl ReducedRateResearchState {
 }
 
 fn research_profile() -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "reduced-rate-profile",
-        IidmProfileSpec {
-            length: 4.5,
-            desired_speed: 20.0,
-            min_gap: 2.0,
-            time_headway: 1.25,
-            max_acceleration: 1.8,
-            comfortable_deceleration: 2.4,
-            emergency_deceleration: 8.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &crate::test_support::test_participant_class_registry(),
+        [VehicleProfile::try_new_iidm(
+            "reduced-rate-profile",
+            crate::test_support::test_car_participant_class(),
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed: 20.0,
+                min_gap: 2.0,
+                time_headway: 1.25,
+                max_acceleration: 1.8,
+                comfortable_deceleration: 2.4,
+                emergency_deceleration: 8.0,
+            },
+        )
+        .expect("research profile")],
     )
-    .expect("research profile")])
     .expect("research profile registry");
     let profile = profiles
         .profile_handle("reduced-rate-profile")
@@ -560,6 +564,9 @@ fn convoy_world(vehicle_count: usize) -> CoreWorld {
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("research traffic");
     let vehicles = (0..vehicle_count)
@@ -1281,6 +1288,9 @@ fn two_edge_world() -> CoreWorld {
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("transition traffic");
     CoreWorld::with_traffic_data(
@@ -1544,6 +1554,9 @@ fn signal_only_world() -> CoreWorld {
         junctions,
         signals,
         ParkingRegistry::empty(),
+        crate::ParticipantClassRegistry::empty(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("signal traffic");
     CoreWorld::with_traffic_data(16, traffic, Vec::new()).expect("signal world")
@@ -1602,6 +1615,9 @@ fn reserved_parking_world(start_progress: f64, edge_length: f64) -> CoreWorld {
         crate::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("parking traffic");
     let mut world = CoreWorld::with_traffic_data(
@@ -1949,6 +1965,9 @@ fn mixed_scale_world(vehicle_count: usize) -> CoreWorld {
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("mixed scale traffic");
     let vehicles = (0..vehicle_count)

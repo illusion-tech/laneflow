@@ -17,6 +17,7 @@ fn speed(value: f64) -> Speed {
 fn profile(id: &str, length: f64) -> VehicleProfile {
     VehicleProfile::try_new_iidm(
         id,
+        participant_classes().1,
         IidmProfileSpec {
             length,
             desired_speed: 9.0,
@@ -66,9 +67,11 @@ fn replace_world(
         ),
     ])
     .expect("valid graph");
-    let profiles =
-        VehicleProfileRegistry::try_new([profile("standard", 4.5), profile("compact", 3.5)])
-            .expect("valid profiles");
+    let profiles = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [profile("standard", 4.5), profile("compact", 3.5)],
+    )
+    .expect("valid profiles");
     let standard = profiles
         .profile_handle("standard")
         .expect("standard profile");
@@ -86,6 +89,9 @@ fn replace_world(
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic");
     let world = CoreWorld::with_traffic_data(20, traffic, vehicles(standard, compact))
@@ -463,11 +469,14 @@ fn fatal_validation_failures_leave_world_unchanged() {
         },
     );
 
-    let foreign_profiles = VehicleProfileRegistry::try_new([
-        profile("foreign-a", 4.0),
-        profile("foreign-b", 4.0),
-        profile("foreign-c", 4.0),
-    ])
+    let foreign_profiles = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [
+            profile("foreign-a", 4.0),
+            profile("foreign-b", 4.0),
+            profile("foreign-c", 4.0),
+        ],
+    )
     .expect("foreign profiles");
     let unknown_profile = foreign_profiles
         .profile_handle("foreign-c")
@@ -547,4 +556,17 @@ fn fatal_validation_failures_leave_world_unchanged() {
     assert_failure(stale_vehicle_world, old, input, |error| {
         matches!(error, CoreError::UnknownVehicleHandle { .. })
     });
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

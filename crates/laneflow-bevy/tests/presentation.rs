@@ -28,6 +28,7 @@ struct Fixture {
 fn profile() -> VehicleProfile {
     VehicleProfile::try_new_iidm(
         "profile",
+        participant_classes().1,
         IidmProfileSpec {
             length: 4.5,
             desired_speed: 13.9,
@@ -50,7 +51,8 @@ fn fixture() -> Fixture {
     )])
     .expect("valid graph");
     let edge = graph.edge_handle("edge").expect("edge handle");
-    let profiles = VehicleProfileRegistry::try_new([profile()]).expect("valid profiles");
+    let profiles = VehicleProfileRegistry::try_new(&participant_classes().0, [profile()])
+        .expect("valid profiles");
     let profile = profiles.profile_handle("profile").expect("profile handle");
     let traffic = InitialTrafficData::try_new(
         graph.clone(),
@@ -59,6 +61,9 @@ fn fixture() -> Fixture {
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic data");
     let core = CoreWorld::with_traffic_data(
@@ -452,4 +457,17 @@ fn unbind_vehicle_reports_the_removed_entity() {
         .expect("binding");
     assert_eq!(session.unbind_vehicle(vehicles[0]), Some(entity));
     assert_eq!(session.unbind_vehicle(vehicles[0]), None);
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

@@ -37,19 +37,23 @@ fn profile_with_min_gap(
     comfortable_deceleration: f64,
     emergency_deceleration: f64,
 ) -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "following-profile",
-        IidmProfileSpec {
-            length: 4.0,
-            desired_speed,
-            min_gap,
-            time_headway: 1.5,
-            max_acceleration: 2.0,
-            comfortable_deceleration,
-            emergency_deceleration,
-        },
+    let registry = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "following-profile",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 4.0,
+                desired_speed,
+                min_gap,
+                time_headway: 1.5,
+                max_acceleration: 2.0,
+                comfortable_deceleration,
+                emergency_deceleration,
+            },
+        )
+        .expect("valid following profile")],
     )
-    .expect("valid following profile")])
     .expect("valid profile registry");
     let handle = registry
         .profile_handle("following-profile")
@@ -85,6 +89,9 @@ fn single_edge_world_with_min_gap(
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic data");
     CoreWorld::with_traffic_data(1_000, traffic_data, vehicles(handle)).expect("valid world")
@@ -345,6 +352,9 @@ fn safety_projection_event_precedes_actual_edge_transition() {
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic data");
     let mut world = CoreWorld::with_traffic_data(
@@ -389,6 +399,9 @@ fn leader_route_completion_uses_actual_terminal_travel_for_projection() {
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic data");
     let mut world = CoreWorld::with_traffic_data(
@@ -433,6 +446,9 @@ fn repeated_edge_cycle_is_deterministic_across_input_order() {
             laneflow_core::JunctionRegistry::empty(),
             laneflow_core::SignalRegistry::empty(),
             laneflow_core::ParkingRegistry::empty(),
+            participant_classes().0,
+            laneflow_core::CrossSectionRegistry::empty(),
+            laneflow_core::AccessRegistry::empty(),
         )
         .expect("valid traffic data");
         let first = VehicleSpawnInput::active("A", profile, "R", 0, progress(20.0), speed(10.0));
@@ -509,4 +525,17 @@ fn despawned_leader_leaves_snapshot_and_reused_slot_identifies_replacement() {
             - 4.0,
         0.0,
     );
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

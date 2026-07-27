@@ -18,13 +18,14 @@ use crate::config::{
     VEHICLE_LENGTH_METERS,
 };
 use crate::model::{
-    ArtifactDescriptor, Centerline, Junction, LaneConnection, LaneEdge, LaneGraph, ManeuverGate,
-    ManeuverPath, Movement, Parking, Route, ScenarioManifest, SignalControl, SignalController,
-    SignalGroup, SignalGroupState, SignalPhase, Signals, SpatialEdge, SpatialPackage, StopLine,
-    TrafficPackage, Units, VehicleProfile,
+    AccessRule, AccessTarget, ArtifactDescriptor, Centerline, CorridorElement, FacilityBand,
+    Junction, LaneConnection, LaneEdge, LaneGraph, LaneGroup, ManeuverGate, ManeuverPath, Movement,
+    Parking, ParticipantClass, RoadCorridor, RoadSection, Route, ScenarioManifest, SectionLane,
+    SignalControl, SignalController, SignalGroup, SignalGroupState, SignalPhase, Signals,
+    SpatialEdge, SpatialPackage, StopLine, TrafficPackage, Units, VehicleProfile,
 };
 
-const TRAFFIC_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.8.schema.json");
+const TRAFFIC_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.9.schema.json");
 const SPATIAL_SCHEMA: &str = include_str!("../../../schemas/laneflow-spatial-v0.1.schema.json");
 const MANIFEST_SCHEMA: &str =
     include_str!("../../../schemas/laneflow-scenario-manifest-v0.1.schema.json");
@@ -34,9 +35,54 @@ const MIN_SPATIAL_SEGMENT_METERS: f64 = 0.1;
 #[derive(Clone, Debug)]
 struct CorridorBuild {
     edges: Vec<EdgeBuild>,
+    road_metas: Vec<RoadEdgeMeta>,
     routes: Vec<RouteBuild>,
     connectors: Vec<ConnectorBuild>,
     stop_lines: Vec<StopLineBuild>,
+}
+
+/// 道路段 edge 的横断面元数据：与 `build_road_edges` 同序产生，
+/// 供 cross-section 派生按（road, direction, segment）分组。
+#[derive(Clone, Copy, Debug)]
+struct RoadEdgeMeta {
+    edge_index: usize,
+    road: RoadClass,
+    direction: RoadDirection,
+    segment: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RoadClass {
+    Main,
+    Side(usize),
+}
+
+impl RoadClass {
+    fn id_fragment(self) -> String {
+        match self {
+            Self::Main => "main".to_owned(),
+            Self::Side(junction) => format!("side-{junction}"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RoadDirection {
+    WestToEast,
+    EastToWest,
+    NorthToSouth,
+    SouthToNorth,
+}
+
+impl RoadDirection {
+    const fn id_fragment(self) -> &'static str {
+        match self {
+            Self::WestToEast => "w2e",
+            Self::EastToWest => "e2w",
+            Self::NorthToSouth => "n2s",
+            Self::SouthToNorth => "s2n",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -161,6 +207,11 @@ pub struct ScenarioCounts {
     pub phases: usize,
     pub portals: usize,
     pub spawn_slots: usize,
+    pub facility_bands: usize,
+    pub road_sections: usize,
+    pub lane_groups: usize,
+    pub road_corridors: usize,
+    pub access_rules: usize,
 }
 
 impl GeneratedScenario {
@@ -239,6 +290,11 @@ pub fn generate(config: &CorridorConfig) -> Result<GeneratedScenario, Error> {
             .sum(),
         portals: catalog.portals.len(),
         spawn_slots: catalog.spawn_slots.len(),
+        facility_bands: traffic.facility_bands.len(),
+        road_sections: traffic.road_sections.len(),
+        lane_groups: traffic.lane_groups.len(),
+        road_corridors: traffic.road_corridors.len(),
+        access_rules: traffic.access_rules.len(),
     };
     if counts.spawn_slots < MIN_SPAWN_SLOT_COUNT {
         return Err(Error::Config(format!(
@@ -308,6 +364,7 @@ fn build_documents(
     let controllers = (0..2)
         .map(|index| signal_controller(config, index))
         .collect::<Vec<_>>();
+    let cross_section = build_cross_section(corridor);
     let signals = Signals {
         stop_lines: corridor
             .stop_lines
@@ -336,7 +393,7 @@ fn build_documents(
     };
 
     let traffic = TrafficPackage {
-        format_version: "0.8",
+        format_version: "0.9",
         units: Units {
             distance: "meter",
             time: "second",
@@ -363,17 +420,51 @@ fn build_documents(
             .iter()
             .map(|item| item.route.clone())
             .collect(),
-        vehicle_profiles: vec![VehicleProfile {
-            id: "passenger-car",
-            length: VEHICLE_LENGTH_METERS,
-            model: "iidm",
-            desired_speed: 20.0,
-            min_gap: MIN_GAP_METERS,
-            time_headway: 1.5,
-            max_acceleration: 1.5,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 6.0,
-        }],
+        vehicle_profiles: vec![
+            VehicleProfile {
+                id: "passenger-car",
+                length: VEHICLE_LENGTH_METERS,
+                model: "iidm",
+                desired_speed: 20.0,
+                min_gap: MIN_GAP_METERS,
+                time_headway: 1.5,
+                max_acceleration: 1.5,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 6.0,
+                participant_class_id: "car",
+            },
+            VehicleProfile {
+                id: "shuttle-bus",
+                length: 12.0,
+                model: "iidm",
+                desired_speed: 15.0,
+                min_gap: 3.0,
+                time_headway: 2.0,
+                max_acceleration: 1.0,
+                comfortable_deceleration: 1.5,
+                emergency_deceleration: 5.0,
+                participant_class_id: "bus",
+            },
+        ],
+        participant_classes: vec![
+            ParticipantClass {
+                id: "motorVehicle",
+                extends_id: None,
+            },
+            ParticipantClass {
+                id: "car",
+                extends_id: Some("motorVehicle"),
+            },
+            ParticipantClass {
+                id: "bus",
+                extends_id: Some("motorVehicle"),
+            },
+        ],
+        facility_bands: cross_section.facility_bands,
+        road_sections: cross_section.road_sections,
+        lane_groups: cross_section.lane_groups,
+        road_corridors: cross_section.road_corridors,
+        access_rules: cross_section.access_rules,
         signals,
         parking: Parking {
             areas: Vec::new(),
@@ -390,7 +481,7 @@ fn build_documents(
 }
 
 fn build_corridor(config: &CorridorConfig) -> Result<CorridorBuild, Error> {
-    let mut edges = build_road_edges(config);
+    let (mut edges, road_metas) = build_road_edges(config);
     let mut edge_index_by_id = edges
         .iter()
         .enumerate()
@@ -451,13 +542,14 @@ fn build_corridor(config: &CorridorConfig) -> Result<CorridorBuild, Error> {
 
     Ok(CorridorBuild {
         edges,
+        road_metas,
         routes,
         connectors,
         stop_lines,
     })
 }
 
-fn build_road_edges(config: &CorridorConfig) -> Vec<EdgeBuild> {
+fn build_road_edges(config: &CorridorConfig) -> (Vec<EdgeBuild>, Vec<RoadEdgeMeta>) {
     let main_speed =
         kilometers_per_hour_to_meters_per_second(config.speed_limits.main_kilometers_per_hour);
     let secondary_speed =
@@ -471,6 +563,7 @@ fn build_road_edges(config: &CorridorConfig) -> Vec<EdgeBuild> {
     let main_connector_half = lane_width * 3.0;
     let secondary_connector_half = lane_width * 4.0;
     let mut edges = Vec::with_capacity(34);
+    let mut metas = Vec::with_capacity(34);
 
     for lane in 0..3 {
         let z = (lane as f32 + 0.5) * lane_width;
@@ -483,6 +576,12 @@ fn build_road_edges(config: &CorridorConfig) -> Vec<EdgeBuild> {
             ),
             (4, junction_2 + main_connector_half, main_half),
         ] {
+            metas.push(RoadEdgeMeta {
+                edge_index: edges.len(),
+                road: RoadClass::Main,
+                direction: RoadDirection::WestToEast,
+                segment: road,
+            });
             edges.push(road_edge(
                 format!("edge-main-w2e-lane-{lane}-road-{road}"),
                 [start, 0.0, z],
@@ -502,6 +601,12 @@ fn build_road_edges(config: &CorridorConfig) -> Vec<EdgeBuild> {
             ),
             (4, junction_1 - main_connector_half, -main_half),
         ] {
+            metas.push(RoadEdgeMeta {
+                edge_index: edges.len(),
+                road: RoadClass::Main,
+                direction: RoadDirection::EastToWest,
+                segment: road,
+            });
             edges.push(road_edge(
                 format!("edge-main-e2w-lane-{lane}-road-{road}"),
                 [start, 0.0, z],
@@ -519,6 +624,12 @@ fn build_road_edges(config: &CorridorConfig) -> Vec<EdgeBuild> {
                 (0, -half_length, -secondary_connector_half),
                 (2, secondary_connector_half, half_length),
             ] {
+                metas.push(RoadEdgeMeta {
+                    edge_index: edges.len(),
+                    road: RoadClass::Side(junction),
+                    direction: RoadDirection::NorthToSouth,
+                    segment: road,
+                });
                 edges.push(road_edge(
                     format!("edge-side-{junction}-n2s-lane-{lane}-road-{road}"),
                     [x, 0.0, start],
@@ -533,6 +644,12 @@ fn build_road_edges(config: &CorridorConfig) -> Vec<EdgeBuild> {
                 (0, half_length, secondary_connector_half),
                 (2, -secondary_connector_half, -half_length),
             ] {
+                metas.push(RoadEdgeMeta {
+                    edge_index: edges.len(),
+                    road: RoadClass::Side(junction),
+                    direction: RoadDirection::SouthToNorth,
+                    segment: road,
+                });
                 edges.push(road_edge(
                     format!("edge-side-{junction}-s2n-lane-{lane}-road-{road}"),
                     [x, 0.0, start],
@@ -542,7 +659,7 @@ fn build_road_edges(config: &CorridorConfig) -> Vec<EdgeBuild> {
             }
         }
     }
-    edges
+    (edges, metas)
 }
 
 fn road_edge(id: String, start: [f32; 3], end: [f32; 3], speed_limit: f64) -> EdgeBuild {
@@ -552,6 +669,227 @@ fn road_edge(id: String, start: [f32; 3], end: [f32; 3], speed_limit: f64) -> Ed
         speed_limit,
         connections: Vec::new(),
     }
+}
+
+/// 由 corridor 拓扑显式派生的横断面声明（SSOT §3：lane index 按 corridor
+/// reference 方向从左到右；同一 corridor 的元素按 road 分段保持纵向共延伸）。
+struct CrossSectionDocs {
+    facility_bands: Vec<FacilityBand>,
+    road_sections: Vec<RoadSection>,
+    lane_groups: Vec<LaneGroup>,
+    road_corridors: Vec<RoadCorridor>,
+    access_rules: Vec<AccessRule>,
+}
+
+fn build_cross_section(corridor: &CorridorBuild) -> CrossSectionDocs {
+    // 物理 corridor 单元 = 一条 road 分段（junction 之间/之外）：主干道三段 +
+    // 每条支路两段。reference 方向：主干道取 w2e，支路取 n2s。
+    let mut units = Vec::with_capacity(7);
+    for segment in [0, 2, 4] {
+        units.push((
+            RoadClass::Main,
+            segment,
+            RoadDirection::WestToEast,
+            RoadDirection::EastToWest,
+        ));
+    }
+    for junction in 1..=2 {
+        for segment in [0, 2] {
+            units.push((
+                RoadClass::Side(junction),
+                segment,
+                RoadDirection::NorthToSouth,
+                RoadDirection::SouthToNorth,
+            ));
+        }
+    }
+
+    let mut docs = CrossSectionDocs {
+        facility_bands: Vec::new(),
+        road_sections: Vec::new(),
+        lane_groups: Vec::new(),
+        road_corridors: Vec::new(),
+        access_rules: Vec::new(),
+    };
+    for (road, segment, reference, opposite) in units {
+        let road_fragment = road.id_fragment();
+        let metas_of = |direction: RoadDirection| {
+            corridor
+                .road_metas
+                .iter()
+                .filter(|meta| {
+                    meta.road == road && meta.direction == direction && meta.segment == segment
+                })
+                .collect::<Vec<_>>()
+        };
+        let reference_metas = metas_of(reference);
+        let opposite_metas = metas_of(opposite);
+
+        // 横向顺序从几何派生：reference 方向切向量 T 与左方向 L = up × T
+        // （对齐 spatial-geometry §7 的正横向偏移约定），lane/元素的横向坐标是
+        // 其 edge 起点在 L 上的投影；"从左到右"即按投影降序排列。
+        let reference_edge = &corridor.edges[reference_metas[0].edge_index];
+        let origin = point_f64(reference_edge.start());
+        let tangent = normalize3(sub3(point_f64(reference_edge.end()), origin));
+        let left = cross3([0.0, 1.0, 0.0], tangent);
+        let lateral = |meta: &RoadEdgeMeta| {
+            let start = point_f64(corridor.edges[meta.edge_index].start());
+            dot3(left, sub3(start, origin))
+        };
+        let mean_lateral = |metas: &[&RoadEdgeMeta]| {
+            metas.iter().map(|meta| lateral(meta)).sum::<f64>() / metas.len() as f64
+        };
+        let band_lateral = mean_lateral(
+            &reference_metas
+                .iter()
+                .chain(opposite_metas.iter())
+                .copied()
+                .collect::<Vec<_>>(),
+        );
+
+        // 每个方向一个 RoadSection；lanes 按 corridor reference 系从左到右
+        // （lateral 降序）。主干道 section 的路缘侧 lane（离中央分隔带横向距离
+        // 最远）划为公交专用道 LaneGroup。
+        let mut section_ids = [String::new(), String::new()];
+        let mut group_ids = [None, None];
+        for (slot, (direction, metas)) in
+            [(reference, &reference_metas), (opposite, &opposite_metas)]
+                .into_iter()
+                .enumerate()
+        {
+            let mut ordered = metas.clone();
+            ordered.sort_by(|left_meta, right_meta| {
+                lateral(right_meta).total_cmp(&lateral(left_meta))
+            });
+            let section_id = format!(
+                "section-{road_fragment}-{}-road-{segment}",
+                direction.id_fragment()
+            );
+            let group_id = (road == RoadClass::Main).then(|| {
+                format!(
+                    "group-{road_fragment}-{}-bus-road-{segment}",
+                    direction.id_fragment()
+                )
+            });
+            let bus_lane_position = group_id.as_ref().map(|_| {
+                ordered
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, left_meta), (_, right_meta)| {
+                        (lateral(left_meta) - band_lateral)
+                            .abs()
+                            .total_cmp(&(lateral(right_meta) - band_lateral).abs())
+                    })
+                    .map(|(index, _)| index)
+                    .expect("section has at least one lane")
+            });
+            let lanes = ordered
+                .iter()
+                .enumerate()
+                .map(|(index, meta)| SectionLane {
+                    edge_ids: vec![corridor.edges[meta.edge_index].id.clone()],
+                    lane_group_id: (Some(index) == bus_lane_position)
+                        .then(|| group_id.clone().expect("bus lane implies group")),
+                })
+                .collect();
+            if let Some(group_id) = &group_id {
+                docs.lane_groups.push(LaneGroup {
+                    id: group_id.clone(),
+                    road_section_id: section_id.clone(),
+                });
+            }
+            docs.road_sections.push(RoadSection {
+                id: section_id.clone(),
+                kind_id: "motorLane",
+                lanes,
+            });
+            section_ids[slot] = section_id;
+            group_ids[slot] = group_id;
+        }
+
+        let band_id = format!("band-{road_fragment}-median-road-{segment}");
+        docs.facility_bands.push(FacilityBand {
+            id: band_id.clone(),
+            kind_id: "median",
+        });
+
+        // corridor elements 与 lanes 同序派生（reference 系从左到右）。
+        let mut elements = [
+            (
+                mean_lateral(&reference_metas),
+                CorridorElement::Section {
+                    section_id: section_ids[0].clone(),
+                },
+            ),
+            (
+                mean_lateral(&opposite_metas),
+                CorridorElement::Section {
+                    section_id: section_ids[1].clone(),
+                },
+            ),
+            (
+                band_lateral,
+                CorridorElement::Band {
+                    band_id: band_id.clone(),
+                },
+            ),
+        ];
+        elements
+            .sort_by(|(left_lateral, _), (right_lateral, _)| right_lateral.total_cmp(left_lateral));
+        docs.road_corridors.push(RoadCorridor {
+            id: format!("corridor-{road_fragment}-road-{segment}"),
+            reference_section_id: section_ids[0].clone(),
+            elements: elements.into_iter().map(|(_, element)| element).collect(),
+        });
+
+        // 公交专用道组合（SSOT §6.4 范例）：deny motorVehicle + allow bus。
+        // 本 corridor 演示车队的 population 全部是 passenger-car，附加显式
+        // allow car 豁免使演示车队保持合法；规则即意图，豁免因此可审计。
+        for (direction, group_id) in [(reference, &group_ids[0]), (opposite, &group_ids[1])] {
+            let Some(group_id) = group_id else { continue };
+            let prefix = format!(
+                "rule-{road_fragment}-{}-bus-road-{segment}",
+                direction.id_fragment()
+            );
+            for (suffix, effect, classes) in [
+                ("deny-motor-vehicle", "deny", vec!["motorVehicle"]),
+                ("allow-bus", "allow", vec!["bus"]),
+                ("allow-car", "allow", vec!["car"]),
+            ] {
+                docs.access_rules.push(AccessRule {
+                    id: format!("{prefix}-{suffix}"),
+                    target: AccessTarget {
+                        kind: "laneGroup",
+                        id: group_id.clone(),
+                    },
+                    effect,
+                    participant_class_ids: classes,
+                });
+            }
+        }
+    }
+    docs
+}
+
+fn sub3(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+    [left[0] - right[0], left[1] - right[1], left[2] - right[2]]
+}
+
+fn dot3(left: [f64; 3], right: [f64; 3]) -> f64 {
+    left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
+}
+
+fn cross3(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+    [
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    ]
+}
+
+fn normalize3(vector: [f64; 3]) -> [f64; 3] {
+    let length = dot3(vector, vector).sqrt();
+    vector.map(|component| component / length)
 }
 
 fn path_keys() -> Vec<PathKey> {

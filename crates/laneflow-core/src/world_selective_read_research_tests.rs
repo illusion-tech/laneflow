@@ -536,19 +536,23 @@ fn collect_cursor(
 }
 
 fn research_profile(id: &str) -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        id,
-        IidmProfileSpec {
-            length: 0.1,
-            desired_speed: 20.0,
-            min_gap: 0.0,
-            time_headway: 1.0,
-            max_acceleration: 1.0,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 4.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &crate::test_support::test_participant_class_registry(),
+        [VehicleProfile::try_new_iidm(
+            id,
+            crate::test_support::test_car_participant_class(),
+            IidmProfileSpec {
+                length: 0.1,
+                desired_speed: 20.0,
+                min_gap: 0.0,
+                time_headway: 1.0,
+                max_acceleration: 1.0,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )
+        .expect("research profile")],
     )
-    .expect("research profile")])
     .expect("research profile registry");
     let handle = profiles
         .profile_handle(id)
@@ -600,6 +604,9 @@ fn mixed_world() -> MixedFixture {
         crate::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("research traffic data");
     let mut world = CoreWorld::with_traffic_data(
@@ -673,6 +680,9 @@ fn scale_world(vehicle_count: usize) -> CoreWorld {
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("scale traffic");
     let vehicles = (0..vehicle_count)
@@ -938,6 +948,9 @@ fn committed_edge_transition_updates_exact_record_and_stales_old_cursor() {
         crate::JunctionRegistry::empty(),
         crate::SignalRegistry::empty(),
         crate::ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
     )
     .expect("transition traffic");
     let mut world = CoreWorld::with_traffic_data(

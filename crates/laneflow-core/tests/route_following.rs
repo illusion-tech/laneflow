@@ -53,18 +53,22 @@ where
     I: IntoIterator<Item = Route>,
     F: FnOnce(VehicleProfileHandle) -> Vec<VehicleSpawnInput>,
 {
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "route-test-profile",
-        IidmProfileSpec {
-            length: 4.5,
-            desired_speed,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 1.4,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 4.0,
-        },
-    )?])?;
+    let profiles = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "route-test-profile",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 1.4,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )?],
+    )?;
     let profile = profiles
         .profile_handle("route-test-profile")
         .expect("profile handle exists");
@@ -75,6 +79,9 @@ where
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )?;
     CoreWorld::with_traffic_data(fixed_delta_time_ms, traffic_data, vehicle_inputs(profile))
 }
@@ -391,19 +398,23 @@ fn event_order_uses_initial_stable_update_order_not_input_order() {
         .expect("valid lane graph");
         let route = Route::try_new("R", ["A", "B"]).expect("valid route");
 
-        let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-            "short-profile",
-            IidmProfileSpec {
-                length: 0.25,
-                desired_speed: 13.9,
-                min_gap: 0.25,
-                time_headway: 1.5,
-                max_acceleration: 1.4,
-                comfortable_deceleration: 2.0,
-                emergency_deceleration: 4.0,
-            },
+        let profiles = VehicleProfileRegistry::try_new(
+            &participant_classes().0,
+            [VehicleProfile::try_new_iidm(
+                "short-profile",
+                participant_classes().1,
+                IidmProfileSpec {
+                    length: 0.25,
+                    desired_speed: 13.9,
+                    min_gap: 0.25,
+                    time_headway: 1.5,
+                    max_acceleration: 1.4,
+                    comfortable_deceleration: 2.0,
+                    emergency_deceleration: 4.0,
+                },
+            )
+            .expect("valid short profile")],
         )
-        .expect("valid short profile")])
         .expect("valid profile registry");
         let profile = profiles
             .profile_handle("short-profile")
@@ -415,6 +426,9 @@ fn event_order_uses_initial_stable_update_order_not_input_order() {
             laneflow_core::JunctionRegistry::empty(),
             laneflow_core::SignalRegistry::empty(),
             laneflow_core::ParkingRegistry::empty(),
+            participant_classes().0,
+            laneflow_core::CrossSectionRegistry::empty(),
+            laneflow_core::AccessRegistry::empty(),
         )
         .expect("valid traffic data");
         let vehicles = {
@@ -704,4 +718,17 @@ fn step_failure_after_prior_vehicle_progress_keeps_world_unchanged() {
         } if actual_vehicle == vehicle && value.is_infinite()
     );
     assert_eq!(world, before);
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

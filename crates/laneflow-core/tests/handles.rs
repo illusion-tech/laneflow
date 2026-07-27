@@ -121,9 +121,11 @@ fn world_resolves_profile_and_rejects_unknown_profile_handle() {
         Some("test-profile")
     );
 
-    let foreign_registry =
-        VehicleProfileRegistry::try_new([test_profile("foreign-a"), test_profile("foreign-b")])
-            .expect("foreign registry is valid");
+    let foreign_registry = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [test_profile("foreign-a"), test_profile("foreign-b")],
+    )
+    .expect("foreign registry is valid");
     let unknown_profile = foreign_registry
         .profile_handle("foreign-b")
         .expect("foreign profile handle exists");
@@ -211,19 +213,23 @@ fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
     ])
     .expect("valid lane graph");
     let route = Route::try_new("R", ["A", "B"]).expect("valid route");
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "short-profile",
-        IidmProfileSpec {
-            length: 0.25,
-            desired_speed: 13.9,
-            min_gap: 0.25,
-            time_headway: 1.5,
-            max_acceleration: 1.4,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 4.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "short-profile",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 0.25,
+                desired_speed: 13.9,
+                min_gap: 0.25,
+                time_headway: 1.5,
+                max_acceleration: 1.4,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )
+        .expect("valid short profile")],
     )
-    .expect("valid short profile")])
     .expect("valid profile registry");
     let profile = profiles
         .profile_handle("short-profile")
@@ -235,6 +241,9 @@ fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic data");
     let mut world = CoreWorld::with_traffic_data(
@@ -267,4 +276,17 @@ fn spawned_vehicle_keeps_command_order_after_initial_update_order() {
         event_vehicle_ids(&world, &result.events),
         ["V2", "V2", "V1"]
     );
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

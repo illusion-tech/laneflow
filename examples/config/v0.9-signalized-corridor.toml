@@ -26,7 +26,7 @@ intersection_offsets_ms = [0, 42000]
 
 [output]
 directory = "../data"
-traffic_artifact_ref = "v0.8-signalized-corridor.laneflow.json"
+traffic_artifact_ref = "v0.9-signalized-corridor.laneflow.json"
 spatial_artifact_ref = "v0.1-signalized-corridor.spatial.json"
 manifest_file_name = "v0.1-signalized-corridor.scenario.json"
 catalog_file_name = "v0.2-signalized-corridor.catalog.toml"

@@ -11,7 +11,7 @@ use crate::{
     id::validate_external_id,
 };
 
-const MAX_STATIC_ENTITY_COUNT: usize = u32::MAX as usize;
+pub(crate) const MAX_STATIC_ENTITY_COUNT: usize = u32::MAX as usize;
 
 /// Junction 输入定义。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -733,7 +733,7 @@ impl JunctionRegistry {
     }
 }
 
-fn validate_capacity(domain: &'static str, count: usize) -> Result<(), CoreError> {
+pub(crate) fn validate_capacity(domain: &'static str, count: usize) -> Result<(), CoreError> {
     if count > MAX_STATIC_ENTITY_COUNT {
         return Err(CoreError::StaticDomainCapacityExceeded {
             domain,

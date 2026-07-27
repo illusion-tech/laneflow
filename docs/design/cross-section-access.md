@@ -1,9 +1,9 @@
 # 多模式横断面与准入分层
 
 **文档状态**: Accepted（#234 G1 冻结）<br>
-**最后更新**: 2026-07-26<br>
+**最后更新**: 2026-07-27<br>
 **适用范围**: #234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity/authority/validation 与后续最小 production 边界<br>
-**实现状态**: 设计已冻结（#234 G1 + A1–A3 修订）；Core/Data/schema 均未生产化
+**实现状态**: 静态模型已由 #262 生产化（Core registries、Data/schema 与 Traffic `0.9`，source current、publication pending；含 (class, Route) 绑定期静态准入校验）；时变规则与 FacilityBand target 规则仍由 capability guard 结构化拒绝
 
 **关联文档**:
 
@@ -20,7 +20,7 @@
 - `lane-graph.md`
 - `spatial-geometry.md`
 - `data-format.md`
-- GitHub: #227、#228、#229、#234、#237
+- GitHub: #227、#228、#229、#234、#237、#262
 
 ## 1. 目标、状态与非目标
 
@@ -44,13 +44,13 @@
 
 ### 1.2 当前 production
 
-| 范围           | Current production                              |
-| -------------- | ----------------------------------------------- |
-| Traffic        | exact-current `0.8`（无横断面/准入片段）        |
-| Lane topology  | LaneEdge 无类型；RoadSection/LaneGroup 未生产化 |
-| 参与者分类     | 不存在；VehicleProfile 无 participant class     |
-| 准入规则       | 不存在                                          |
-| 横断面横向几何 | 不冻结（宽度/偏移继续留在 Spatial/Adapter 外）  |
+| 范围           | Current production                                                                      |
+| -------------- | --------------------------------------------------------------------------------------- |
+| Traffic        | exact-current `0.9`（含横断面/准入片段，#262）                                          |
+| Lane topology  | LaneEdge 无类型；RoadSection/LaneGroup 已生产化为 LaneGraph 之上的结构 overlay          |
+| 参与者分类     | ParticipantClass 已存在（数据声明、单继承）；VehicleProfile 必填 `participantClassId`   |
+| 准入规则       | AccessRule 静态模型已存在；(class, Route) 绑定期校验；时变/FacilityBand target 规则拒绝 |
+| 横断面横向几何 | 不冻结（宽度/偏移继续留在 Spatial/Adapter 外）                                          |
 
 ### 1.3 非目标
 

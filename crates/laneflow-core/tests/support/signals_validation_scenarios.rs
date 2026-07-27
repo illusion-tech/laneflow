@@ -276,25 +276,39 @@ fn signal_scenario_with_parking_entry(
     )
     .expect("parking scenario registry must be valid");
 
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "signal-benchmark-profile",
-        IidmProfileSpec {
-            length: 4.5,
-            desired_speed: 13.9,
-            min_gap: 2.0,
-            time_headway: 1.5,
-            max_acceleration: 1.4,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 6.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "signal-benchmark-profile",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 4.5,
+                desired_speed: 13.9,
+                min_gap: 2.0,
+                time_headway: 1.5,
+                max_acceleration: 1.4,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 6.0,
+            },
+        )
+        .expect("signal scenario profile must be valid")],
     )
-    .expect("signal scenario profile must be valid")])
     .expect("signal scenario profile registry must be valid");
     let profile = profiles
         .profile_handle("signal-benchmark-profile")
         .expect("signal scenario profile must exist");
-    let traffic = InitialTrafficData::try_new(graph, routes, profiles, junctions, signals, parking)
-        .expect("signal scenario traffic data must be valid");
+    let traffic = InitialTrafficData::try_new(
+        graph,
+        routes,
+        profiles,
+        junctions,
+        signals,
+        parking,
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
+    )
+    .expect("signal scenario traffic data must be valid");
     let vehicles = (0..route_count)
         .flat_map(|route_index| {
             (0..VEHICLES_PER_ROUTE).map(move |vehicle_index| {
@@ -360,4 +374,17 @@ pub fn reserved_parking_scenario(vehicle_count: usize, reserved_percent: usize) 
         reserved_count
     );
     scenario
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

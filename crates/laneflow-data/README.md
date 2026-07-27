@@ -1,11 +1,12 @@
 # laneflow_data
 
-LaneFlow 当前 Traffic v0.8、SpatialPackage v0.1 与 ScenarioManifest v0.1 的内存 JSON loader 和 normalization crate。
+LaneFlow 当前 Traffic v0.9、SpatialPackage v0.1 与 ScenarioManifest v0.1 的内存 JSON loader 和 normalization crate。
 
 Traffic loader 继续：
 
-- 只接受 Traffic `formatVersion: "0.8"`，并在 strict current shape 前拒绝旧版和未来版；
-- 解析 closed v0.8 DTO、required per-edge `speedLimit`、Junction/Movement/ManeuverPath、SI units、static Signals 与 static Parking；
+- 只接受 Traffic `formatVersion: "0.9"`，并在 strict current shape 前拒绝旧版和未来版；
+- 解析 closed v0.9 DTO、required per-edge `speedLimit`、Junction/Movement/ManeuverPath、SI units、static Signals 与 static Parking；
+- 解析 ParticipantClass、横断面（FacilityBand/RoadSection/LaneGroup/RoadCorridor）与 AccessRule overlay，v1 capability guard 对声明 timeWindows 或 FacilityBand target 的规则显式拒绝载入；
 - 调用 `laneflow-core` constructors 规范化 lane graph、routes、Vehicle Profiles、Signals 与 Parking；
 - 返回单一 current `LoadedPackage`，不公开 raw wire DTO 或历史 version variant。
 

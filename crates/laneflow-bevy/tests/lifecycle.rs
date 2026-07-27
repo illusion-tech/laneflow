@@ -38,6 +38,7 @@ fn progress(value: f64) -> EdgeProgress {
 fn profile() -> VehicleProfile {
     VehicleProfile::try_new_iidm(
         "profile",
+        participant_classes().1,
         IidmProfileSpec {
             length: 4.5,
             desired_speed: 13.9,
@@ -86,7 +87,8 @@ fn fixture(old_status: VehicleStatus, with_blocker: bool, pose_capacity: usize) 
         ],
     )
     .expect("spatial registry");
-    let profiles = VehicleProfileRegistry::try_new([profile()]).expect("valid profiles");
+    let profiles = VehicleProfileRegistry::try_new(&participant_classes().0, [profile()])
+        .expect("valid profiles");
     let profile = profiles.profile_handle("profile").expect("profile handle");
     let traffic = InitialTrafficData::try_new(
         graph,
@@ -98,6 +100,9 @@ fn fixture(old_status: VehicleStatus, with_blocker: bool, pose_capacity: usize) 
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic");
     let old = VehicleSpawnInput::new(
@@ -313,7 +318,8 @@ fn blocked_command_does_not_prevent_a_later_command_at_the_same_boundary() {
         ),
     ])
     .expect("valid graph");
-    let profiles = VehicleProfileRegistry::try_new([profile()]).expect("valid profiles");
+    let profiles = VehicleProfileRegistry::try_new(&participant_classes().0, [profile()])
+        .expect("valid profiles");
     let profile = profiles.profile_handle("profile").expect("profile handle");
     let traffic = InitialTrafficData::try_new(
         graph,
@@ -326,6 +332,9 @@ fn blocked_command_does_not_prevent_a_later_command_at_the_same_boundary() {
         laneflow_core::JunctionRegistry::empty(),
         laneflow_core::SignalRegistry::empty(),
         laneflow_core::ParkingRegistry::empty(),
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("valid traffic");
     let core = CoreWorld::with_traffic_data(
@@ -688,4 +697,17 @@ fn missing_session_is_a_structured_error() {
         replace_completed_vehicle(&mut world, old, &replacement),
         Err(LaneFlowAdapterError::MissingSessionForLifecycleCommand)
     ));
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

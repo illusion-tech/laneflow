@@ -352,6 +352,9 @@ fn initial_traffic_data_rebinds_parking_to_its_own_graph() {
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        laneflow_core::ParticipantClassRegistry::empty(),
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("parking must rebind");
     let handle = traffic.parking().space_handle("space").expect("space");
@@ -385,6 +388,9 @@ fn initial_traffic_data_rejects_parking_that_cannot_rebind() {
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        laneflow_core::ParticipantClassRegistry::empty(),
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect_err("missing exit edge must fail during final rebind");
     std::assert_matches!(
@@ -442,6 +448,9 @@ fn core_world_exposes_same_immutable_parking_registry() {
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        laneflow_core::ParticipantClassRegistry::empty(),
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     let world =

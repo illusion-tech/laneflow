@@ -366,19 +366,23 @@ struct MixedAdapterFixture {
 }
 
 fn research_profile(id: &str) -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let profiles = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        id,
-        IidmProfileSpec {
-            length: 0.1,
-            desired_speed: 20.0,
-            min_gap: 0.0,
-            time_headway: 1.0,
-            max_acceleration: 1.0,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 4.0,
-        },
+    let profiles = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            id,
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 0.1,
+                desired_speed: 20.0,
+                min_gap: 0.0,
+                time_headway: 1.0,
+                max_acceleration: 1.0,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 4.0,
+            },
+        )
+        .expect("research profile")],
     )
-    .expect("research profile")])
     .expect("research profiles");
     let handle = profiles
         .profile_handle(id)
@@ -421,6 +425,9 @@ fn mixed_adapter_fixture() -> MixedAdapterFixture {
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("research traffic");
     let mut core = CoreWorld::with_traffic_data(
@@ -531,6 +538,9 @@ impl ScaleAdapterFixture {
             laneflow_core::JunctionRegistry::empty(),
             SignalRegistry::empty(),
             ParkingRegistry::empty(),
+            participant_classes().0,
+            laneflow_core::CrossSectionRegistry::empty(),
+            laneflow_core::AccessRegistry::empty(),
         )
         .expect("scale traffic");
         let vehicles = (0..vehicle_count)
@@ -972,4 +982,17 @@ fn assert_zero_allocation(vehicle_count: usize, stats: Stats) {
         stats.bytes_reallocated, 0,
         "{vehicle_count}: reallocated bytes"
     );
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

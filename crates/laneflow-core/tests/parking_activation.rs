@@ -10,19 +10,23 @@ use laneflow_core::{
 const CURRENT_LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS: f64 = 1.0e-9;
 
 fn profiles() -> (VehicleProfileRegistry, VehicleProfileHandle) {
-    let registry = VehicleProfileRegistry::try_new([VehicleProfile::try_new_iidm(
-        "car",
-        IidmProfileSpec {
-            length: 4.0,
-            desired_speed: 30.0,
-            min_gap: 2.0,
-            time_headway: 1.0,
-            max_acceleration: 2.0,
-            comfortable_deceleration: 2.0,
-            emergency_deceleration: 8.0,
-        },
+    let registry = VehicleProfileRegistry::try_new(
+        &participant_classes().0,
+        [VehicleProfile::try_new_iidm(
+            "car",
+            participant_classes().1,
+            IidmProfileSpec {
+                length: 4.0,
+                desired_speed: 30.0,
+                min_gap: 2.0,
+                time_headway: 1.0,
+                max_acceleration: 2.0,
+                comfortable_deceleration: 2.0,
+                emergency_deceleration: 8.0,
+            },
+        )
+        .expect("profile")],
     )
-    .expect("profile")])
     .expect("profiles");
     let profile = registry.profile_handle("car").expect("profile handle");
     (registry, profile)
@@ -115,6 +119,9 @@ fn signal_parking_world(
         junctions,
         signals,
         parking,
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     CoreWorld::with_traffic_data(
@@ -242,6 +249,9 @@ fn parking_projection_precedes_stricter_following_projection() {
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     let mut world = CoreWorld::with_traffic_data(
@@ -331,6 +341,9 @@ fn repeated_edge_uses_selected_occurrence_and_orders_edge_before_arrival() {
         laneflow_core::JunctionRegistry::empty(),
         SignalRegistry::empty(),
         parking,
+        participant_classes().0,
+        laneflow_core::CrossSectionRegistry::empty(),
+        laneflow_core::AccessRegistry::empty(),
     )
     .expect("traffic");
     let mut world = CoreWorld::with_traffic_data(
@@ -366,4 +379,17 @@ fn repeated_edge_uses_selected_occurrence_and_orders_edge_before_arrival() {
     assert_eq!(state.route_edge_index, 2);
     assert_eq!(state.edge_progress, progress(10.0));
     assert_eq!(state.current_speed, Speed::ZERO);
+}
+
+fn participant_classes() -> (
+    laneflow_core::ParticipantClassRegistry,
+    laneflow_core::ParticipantClassHandle,
+) {
+    let classes = laneflow_core::ParticipantClassRegistry::try_new(vec![
+        laneflow_core::ParticipantClass::new("motorVehicle", None),
+        laneflow_core::ParticipantClass::new("car", Some("motorVehicle")),
+    ])
+    .expect("participant classes must be valid");
+    let car = classes.class_handle("car").expect("car class must exist");
+    (classes, car)
 }

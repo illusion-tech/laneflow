@@ -2,7 +2,7 @@
 
 本工具提供 v0.9 受保护左转、直行和右转走廊的可复现 authoring 路径。它读取仓库内部 TOML 配置，生成并校验：
 
-- Traffic package v0.8 JSON；
+- Traffic package v0.9 JSON；
 - SpatialPackage v0.1 JSON；
 - ScenarioManifest v0.1 JSON；
 - scenario-local catalog 0.2 TOML。
