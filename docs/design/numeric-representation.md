@@ -49,7 +49,7 @@
 | Vehicle Profile         | raw `f64` fields                    | `profile.rs`                | length、gap、headway、acceleration/deceleration 参数     |
 | occupancy / leader      | raw `f64` fields                    | `occupancy.rs`              | front progress、vehicle length、bumper gap               |
 | command spatial scratch | `Vec<f64>` 与 raw `f64`             | `command_spatial.rs`        | edge length、front progress、reverse distance 与速度上界 |
-| route distance index    | `Vec<f64>` 与 checked finite state  | `route_distance.rs`         | segment totals、offset 与 horizon 查询                   |
+| route distance index    | `Vec<f64>` 与 checked finite state  | `route_distance.rs`         | segment totals、offset、horizon 与 Waiting storage 查询  |
 | static Parking geometry | raw `f64` 经 Core domain validation | `parking.rs`、`wire.rs`     | anchor progress、lateral/heading/length/width            |
 | external JSON DTO       | raw `f64`                           | `laneflow-data/src/wire.rs` | JSON number 到 Core domain constructor 的输入            |
 | tick / simulation time  | checked `u64`                       | `world.rs`                  | fixed delta、tick index、absolute milliseconds           |

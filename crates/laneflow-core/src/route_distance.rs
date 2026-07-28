@@ -15,6 +15,36 @@ impl BoundedDistance {
             Self::Finite(_) | Self::BeyondFinite => Self::BeyondFinite,
         }
     }
+
+    fn compensated_positive_sum(values: impl IntoIterator<Item = f64>) -> Self {
+        let mut sum = 0.0;
+        let mut compensation = 0.0;
+
+        for value in values {
+            debug_assert!(value.is_finite() && value >= 0.0);
+            let next = sum + value;
+            if !next.is_finite() {
+                return Self::BeyondFinite;
+            }
+            let correction = if sum >= value {
+                (sum - next) + value
+            } else {
+                (value - next) + sum
+            };
+            compensation += correction;
+            if !compensation.is_finite() {
+                return Self::BeyondFinite;
+            }
+            sum = next;
+        }
+
+        let total = sum + compensation;
+        if total.is_finite() {
+            Self::Finite(total.max(0.0))
+        } else {
+            Self::BeyondFinite
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -46,10 +76,12 @@ impl RouteDistanceIndex {
 
         for edge_length in edge_lengths.iter().copied() {
             debug_assert!(edge_length.is_finite() && edge_length > 0.0);
+            let combined = current_total + edge_length;
             let must_start_segment = current_has_occurrence
                 && (edge_length > ROUTE_DISTANCE_SEGMENT_LIMIT
                     || current_total > ROUTE_DISTANCE_SEGMENT_LIMIT - edge_length
-                    || current_total + edge_length == current_total);
+                    || combined == current_total
+                    || combined == edge_length);
             if must_start_segment {
                 segment_totals.push(current_total);
                 current_total = 0.0;
@@ -174,6 +206,48 @@ impl RouteDistanceIndex {
         }
         RouteDistanceQuery::Within(distance + target_distance)
     }
+
+    pub(crate) fn finite_distance(
+        &self,
+        from_occurrence: usize,
+        from_progress: f64,
+        target_occurrence: usize,
+        target_progress: f64,
+    ) -> Option<BoundedDistance> {
+        if target_occurrence < from_occurrence
+            || (target_occurrence == from_occurrence && target_progress < from_progress)
+        {
+            return None;
+        }
+        let from = self.occurrences.get(from_occurrence).copied()?;
+        let target = self.occurrences.get(target_occurrence).copied()?;
+
+        if from.segment == target.segment {
+            let from_distance = from.offset + from_progress;
+            let target_distance = target.offset + target_progress;
+            if !from_distance.is_finite() || !target_distance.is_finite() {
+                return Some(BoundedDistance::BeyondFinite);
+            }
+            return Some(BoundedDistance::Finite(
+                (target_distance - from_distance).max(0.0),
+            ));
+        }
+
+        let from_distance = from.offset + from_progress;
+        let target_distance = target.offset + target_progress;
+        if !from_distance.is_finite() || !target_distance.is_finite() {
+            return Some(BoundedDistance::BeyondFinite);
+        }
+        let first_segment_distance = self.segment_totals[from.segment] - from_distance;
+        let middle_segments = self.segment_totals[(from.segment + 1)..target.segment]
+            .iter()
+            .copied();
+        Some(BoundedDistance::compensated_positive_sum(
+            std::iter::once(first_segment_distance)
+                .chain(middle_segments)
+                .chain(std::iter::once(target_distance)),
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -262,6 +336,27 @@ mod tests {
         assert_eq!(
             index.distance_within(2, 1.0, 1, 0.0, f64::MAX),
             RouteDistanceQuery::Passed
+        );
+    }
+
+    #[test]
+    fn finite_distance_recovers_small_segments_around_large_values() {
+        let large = 9_007_199_254_740_992.0;
+        let index = RouteDistanceIndex::build(&[1.0, large, 1.0]);
+
+        assert_eq!(
+            index.finite_distance(0, 0.0, 2, 1.0),
+            Some(BoundedDistance::Finite(large + 2.0))
+        );
+    }
+
+    #[test]
+    fn finite_distance_reports_unrepresentable_sum() {
+        let index = RouteDistanceIndex::build(&[f64::MAX, f64::MAX]);
+
+        assert_eq!(
+            index.finite_distance(0, 0.0, 1, f64::MAX),
+            Some(BoundedDistance::BeyondFinite)
         );
     }
 }

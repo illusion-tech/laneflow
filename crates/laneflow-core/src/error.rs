@@ -1134,6 +1134,17 @@ pub enum WaitingZoneError {
         first_waiting_zone_id: String,
         second_waiting_zone_id: String,
     },
+    /// WaitingZone 的 boundary-to-boundary route distance 必须可证明为 finite。
+    #[error(
+        "Vehicle Profile `{profile_id}` 无法绑定 route `{route_id}`：WaitingZone `{waiting_zone_id}` 空容量在 route edge {entry_route_edge_index}..={release_route_edge_index} 上无法证明为 finite"
+    )]
+    StorageDistanceUnprovable {
+        profile_id: String,
+        route_id: String,
+        waiting_zone_id: String,
+        entry_route_edge_index: usize,
+        release_route_edge_index: usize,
+    },
     /// profile-route binding 必须满足空 WaitingZone 的整车长度容量。
     #[error(
         "Vehicle Profile `{profile_id}` 无法绑定 route `{route_id}`：WaitingZone `{waiting_zone_id}` 空容量 {available_meters} m 小于车长 {required_meters} m"
