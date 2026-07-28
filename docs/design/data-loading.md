@@ -1,8 +1,8 @@
 # Data Loading 设计
 
-**文档状态**: Accepted  
-**最后更新**: 2026-07-28（#281 Traffic v0.10 multi-Gate/WaitingZone static）
-**适用范围**: Traffic v0.10、SpatialPackage/ScenarioManifest v0.1 loader 与保留的 Data v0.6 数值迁移边界
+**文档状态**: Accepted（current）＋ Draft（#291 target 导航）<br>
+**最后更新**: 2026-07-28（#281 current；#291/ADR 0020 target）
+**适用范围**: Traffic v0.10、SpatialPackage/ScenarioManifest v0.1 production loader、保留的 Data v0.6 数值迁移边界，以及 target runtime image verifier
 
 **关联文档**:
 
@@ -16,6 +16,7 @@
 - `../adr/0011-schema-identifier-and-publication-contract.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0018-multimodal-cross-section-and-access-overlay.md`
+- `../adr/0020-compiler-owned-static-network-and-runtime-image.md`
 - `data-format.md`
 - `cross-section-access.md`
 - `spatial-geometry.md`
@@ -41,6 +42,20 @@
 - 不读取文件、不创建 CoreWorld、不接收 initial vehicles 或 fixed tick。
 - 不公开 wire DTO/serialization API，不一次收集全部 authoring errors。
 - 不实现 controller runtime、Parking reservation/occupancy/commands、车辆合规或 hostile oversized JSON 完整防护。
+
+### 1.1 #291 target loader（未实现）
+
+ADR 0020 target 把完整静态 semantic normalization 前移到 compiler。Production
+startup 只通过 runtime image verifier 检查 magic/version/target/digest、offset、
+alignment、section bounds、cardinality 与 cross-index，然后建立
+`StaticTrafficImage` / `StaticSpatialImage` 只读 view。它不解析 JSON、不按
+external string rebind、不重建 static registry、不重新 join Traffic/Spatial，也
+不重跑 authoring topology/coverage/geometry validation。
+
+完整语义由 compiler 与不复用 compiler semantic implementation 的 independent
+validator 双重裁决。本文其余 `LoadedPackage` / `InitialTrafficData` 路径仍是
+current production contract，直到 shared-image cutover 完成 G4；target 不复用
+private current DTO 作为 IR。
 
 ## 2. Crate 与 API 边界
 

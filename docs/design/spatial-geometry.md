@@ -1,8 +1,8 @@
 # 空间几何设计
 
-**文档状态**: 已接受（Accepted）
+**文档状态**: 已接受（current）＋ Draft（#291 target 导航）
 
-**最后更新**: 2026-07-27（current Traffic v0.10 与 #235 Accepted Waiting/Conflict 边界同步）
+**最后更新**: 2026-07-28（current Traffic v0.10；#291/ADR 0020 target）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -12,6 +12,7 @@
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
+- `../adr/0020-compiler-owned-static-network-and-runtime-image.md`
 - `numeric-representation.md`
 - `data-format.md`
 - `adapter-api.md`
@@ -42,6 +43,23 @@
 | Adapter | 快照调度、frame 放置、宿主朝向基与变换、表现提交       | 重算交通进度、覆盖几何或长度权威                     |
 
 Core 可以在没有 Spatial 数据包时以无图形宿主方式运行；需要车辆空间位姿的调用方必须提供已经通过配对和绑定的 Spatial 注册表。
+
+### 1.1 #291 target 静态空间镜像（未实现）
+
+ADR 0020 保留本章的 Spatial authority、bounded canonical f32、length/pose、
+batch ordering、placement token 与失败原子性，但改变静态数据形成位置：
+
+- compiler 在同一 MIR/LIR 中联合生成 Traffic length、canonical geometry 和绑定；
+- target runtime image 的 `StaticSpatialImage` 与 `StaticTrafficImage` 共享 logical
+  edge ordinal/cross-table index；
+- Spatial 直接读取 immutable geometry/sampling tables，不再按 external edge ID
+  join 两个 JSON package，也不重建 `HashMap<EdgeHandle, slot>`；
+- 多个 world/Adapter session 可共享静态 image，只保留各自 pose scratch/output 和
+  placement lifecycle。
+
+本章 §3 的 Traffic/Spatial/Manifest 三制品与 §3.2 加载顺序继续描述 current，
+直到 target image 路径完成 G4。Target runtime image 不改变 Core/Spatial/Adapter
+的语义 authority。
 
 ## 2. 坐标框架
 

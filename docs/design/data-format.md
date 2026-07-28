@@ -1,8 +1,8 @@
 # Data Format 设计
 
-**文档状态**: Accepted  
-**最后更新**: 2026-07-28（#281 Traffic v0.10 multi-Gate/WaitingZone static）<br>
-**适用范围**: 当前 Traffic v0.10、SpatialPackage v0.1、ScenarioManifest v0.1 与保留的 Data v0.6 数值研究输入
+**文档状态**: Accepted（current）＋ Draft（#291 target 导航）<br>
+**最后更新**: 2026-07-28（#281 current；#291/ADR 0020 target）<br>
+**适用范围**: 当前 Traffic v0.10、SpatialPackage v0.1、ScenarioManifest v0.1、保留的 Data v0.6 数值研究输入，以及 compiler target 的格式边界
 
 **关联文档**:
 
@@ -19,6 +19,7 @@
 - `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../adr/0018-multimodal-cross-section-and-access-overlay.md`
+- `../adr/0020-compiler-owned-static-network-and-runtime-image.md`
 - `../../schemas/laneflow-data-v0.10.schema.json`
 - `../../schemas/laneflow-spatial-v0.1.schema.json`
 - `../../schemas/laneflow-scenario-manifest-v0.1.schema.json`
@@ -54,6 +55,21 @@ production loader、canonical fixtures、validator 和 Adapter/authoring tool �
 - 不兼容加载 v0.7 及更早版本，不提供 runtime migration shim。
 - 不接受 JSON-LD；未来如有需要，只能通过独立离线 importer 转换为 canonical JSON。
 - 不承诺 v1.0 的长期稳定格式。
+
+### 1.1 #291 compiler target（未实现）
+
+ADR 0020 不把 current Traffic JSON 直接改名为 compiler IR。Target 把版本与职责拆为：
+
+- authoring source format：frontend/Geometry document；
+- portable canonical artifact：平台无关、可发布、可独立校验；
+- target runtime image：按 target/layout/feature 生成、可重建；
+- source map / semantic diff：治理与诊断制品。
+
+编译器从 validated canonical LIR 同时生成这些产物；Core/Spatial 直接消费 runtime
+image 的对齐视图。`formatVersion: "0.10"`、本章 Package Model 和 §7–§8 的
+JSON→Core normalization 在 cutover G4 前继续是 current contract，但不再约束
+target IR 或 image layout。Target 版本轴、publication 与迁移规则见 ADR 0020 和
+`network-compiler.md`。
 
 ## 2. 当前 Package Model
 

@@ -234,8 +234,8 @@ protected-only runtime 仍未改变，Waiting runtime 由 #282 接续。v0.10 sc
 #281–#285 都是 #227 的独立后续切片，不是 #235 的子任务；每个切片必须自行完成
 G0-G4 与元数据审计。#281 已交付 static/Data 0.10 并合入主干。按 #291 的路线
 暂停声明：#282/#283 自 Ready 退回 Backlog，#284/#285 自 Blocked 退回
-Backlog，新功能开发暂停、工作焦点转入编译器路线。恢复条件：#292（L1 拓扑
-生成器）G4 完成后恢复，届时拓扑密集验证场景改由编译器生成承担——暂停是
+Backlog，新功能开发暂停、工作焦点转入编译器路线。恢复条件：#292（compiler
+foundation + Synthetic DSL frontend）G4 完成后恢复，届时拓扑密集验证场景改由编译器生成承担——暂停是
 换序而非取消；DAG 依赖关系与已完成 Gate 记录继续有效。通行权 runtime 能力
 在本阶段停留 static 层，该代价登记于
 [`design/network-compiler.md`](design/network-compiler.md) 风险表。
@@ -243,21 +243,35 @@ Backlog，新功能开发暂停、工作焦点转入编译器路线。恢复条�
 #264 对 #235 的设计输入已经满足；#235 G4 后移除该原生 blocker，但 #264 仍必须
 等待 #237 冻结后再拆 JunctionGroup、环岛、停车连接与互通组合。
 
-## 编译器时代数据供应链（#291 G0 已立项，Milestone N/A）
+## 编译器时代静态网络（#291 G1 M2 终态修订中，Milestone N/A）
 
-#291 已立项编译器路线：以几何文档为 authoring SSOT、确定性多 pass 编译管线为
-数据生产方式、独立校验器为预言机、双产物（canonical JSON 治理产物 + 二进制加载
-产物）分别服务治理与加载，并按显式退役条件最终让 canonical 产物退出 SSOT 地位。
-架构 SSOT 草案见 [`design/network-compiler.md`](design/network-compiler.md)
-（#291 G1 的设计输入）。该路线属 authoring-tool 切片，不改变 Core runtime 行为
-与公开 API；canonical JSON 管线在退役条件触发前继续服役。Milestone N/A（未进入
-已冻结产品版本）。
+#291 已把目标从“L1/L2 生成器 + JSON 管线”修订为 compiler-owned static network：
+Synthetic DSL、Geometry document、Import 与 Editor 是平级 frontend，共同进入
+`typed AST → HIR → MIR → validated canonical LIR`。同一 LIR 原子生成 portable
+canonical artifact、target-specific runtime image、source map/diagnostics 与
+semantic diff；Core/Spatial 直接消费同一 immutable image 中对齐的 Traffic/Spatial
+视图，静态数据与每 world 可变状态物理分离。生产启动不再解析 JSON、按字符串
+rebind、重建 registry、重复 Traffic/Spatial join 或重编译 static occurrences。
 
-实施顺序为 `#291（愿景/架构 G1）→ #292（L1 拓扑生成器）→ 恢复 #282–#285 → L2
-几何编译器 → 双产物与独立校验器 → 退役条件评估`。#292 已 G0，Blocked by #291
-G1。#72 的城市级研究是本路线二进制镜像选型与零拷贝加载的证据来源；#236/#237
-的未来负载（非机动车/步行 traversal、动态车道）是几何文档横断面/设施模型的
-设计输入。
+ADR 0020 与 [`design/network-compiler.md`](design/network-compiler.md) 是本次 G1
+修订输入。M1 已冻结 canonical identity tuple、稳定 authoring key、
+road/internal edge 身份域、Movement metadata / ManeuverPath occurrence 分离、
+BLAKE3-128 持久 identity、XXH3 仅限 compiler 瞬态加速，以及 tick 只用 dense
+`u32` handle。M2 取消 L1/L2 架构层，增加 portable/runtime 双后端、独立版本轴、
+独立 validator、runtime structural verifier 和 hot/warm/cold image layout。
+
+当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
+`InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target
+迁移完成 G4；target 文档不得误写成现状。#292 已重划为 compiler foundation +
+Synthetic DSL frontend 的首个纵向闭环，继续保持 Project `Backlog` 与 native
+`Blocked by #291`，不得在 #291 G1 前冻结实现 API。
+
+迁移顺序为 `#291 架构 G1 → #292 compiler foundation/Synthetic DSL → 恢复
+#282–#285`；之后 Geometry frontend/MIR 可以与恢复的 runtime slices 并行推进，
+再依次交付 portable artifact/独立 validator/source map/semantic diff、target
+runtime image/Core+Spatial shared-image path 和 behavior/performance/security
+cutover。#72 提供 1M entity 离线编译、镜像布局与城市级性能证据；#236/#237 仍是
+独立产品/研究输入，不自动并入首个 frontend。
 
 ## 城市级扩展研究（Milestone N/A）
 

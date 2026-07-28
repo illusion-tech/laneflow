@@ -1,8 +1,8 @@
 # 架构
 
-**文档状态**: Accepted  
-**最后更新**: 2026-07-27<br>
-**适用范围**: LaneFlow 分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界
+**文档状态**: Accepted（current）＋ Draft（#291 compiler target）<br>
+**最后更新**: 2026-07-28<br>
+**适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界，以及 #291/ADR 0020 的目标静态编译架构
 
 ## 1. 架构目标
 
@@ -56,6 +56,29 @@ laneflow-core -X-> laneflow-spatial
 
 Core 继续拥有拓扑、长度、进度与交通行为的权威职责；Spatial 拥有有界 local canonical frame、中心线、弧长、绑定与位姿采样；Adapter 只把 LaneFlow 位姿映射为宿主变换（Transform）。当前 `laneflow-spatial` 已实现 LaneFlow-owned canonical `f32` 基础类型、每轴 `±16_384 m` 点范围、稳定 frame ID、结构化错误、按 `LaneGraph::edges()` 排序的 immutable registry、量化后折线绑定/采样，以及带 batch-level placement token、Parking pose 和失败原子性的批量提取。#134 的空间包/清单 loader 可直接构造该 registry；#137 继续负责误差、分配、内存和 10k/100k 性能基线。
 
+### 2.1 #291 目标静态编译分层
+
+ADR 0020 Proposed 的 target 不在上述 current 链条旁增加 L1/L2，而是把全部静态
+网络编译前移：
+
+```text
+Synthetic DSL / Geometry / Import / Editor frontends
+  -> typed AST -> HIR -> MIR -> validated canonical LIR
+  -> portable canonical artifact + target runtime image + source map + semantic diff
+
+target runtime image
+  -> laneflow-core: shared StaticTrafficImage + per-world mutable state
+  -> laneflow-spatial: shared StaticSpatialImage + pose scratch/output
+  -> Adapter: committed snapshot + pose batch
+```
+
+compiler 拥有静态 identity、topology、geometry、owner/member、coverage、length、
+initial/static occurrence 与 dense layout；Core 继续拥有 tick、vehicle、dynamic
+Route 和其他可变交通 authority，Spatial 继续拥有 pose sampling。Production
+startup 只验证并挂载 runtime image，不解析 JSON、按 external ID rebind、重建
+registry 或重复 Traffic/Spatial join。目标职责和历史 ADR 的取代范围见 ADR 0020；
+在其 Accepted 且迁移 G4 前，本文其余 current 章节继续有效。
+
 ## 3. Authoring Layer
 
 Authoring Layer 负责生成或编辑交通数据：
@@ -68,6 +91,10 @@ Authoring Layer 负责生成或编辑交通数据：
 - 示例数据生成
 
 它可以是独立工具、引擎编辑器插件或离线转换脚本。
+
+#291 target 中，上述工具是平级 compiler frontend。它们输出 typed AST 和 source
+span，不直接构造 Core/Spatial runtime 对象；Geometry document 是长期唯一
+authoring SSOT。
 
 ## 4. Traffic Data Layer
 
@@ -92,6 +119,12 @@ Traffic Data Layer 保存 Core 可消费的数据：
   AccessRule、multi-Gate/WaitingZone、static Signals 与 static Parking normalization。
 
 `laneflow-data` 不拥有 fixed tick、runtime entity、world lifecycle 或 Engine asset I/O。初始 loader 接收内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
+
+ADR 0020 target 中，`laneflow-data` 只作为 current JSON compatibility façade；
+portable canonical artifact 由 `laneflow-format`/compiler contract 描述，生产
+runtime 由 `laneflow-runtime-image` verifier/view 挂载。静态 semantic normalization
+从 Data/Core constructors 前移到 compiler，runtime image 不取代 public
+publication/provenance 契约。
 
 current v0.10 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、
 Junction/Movement/ManeuverPath、StopLine、一等 ManeuverGate、SignalGroup、
@@ -143,6 +176,12 @@ LaneFlow Core 负责运行时交通逻辑：
 Core 不依赖具体游戏引擎 API。
 
 Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTrafficData`、lane graph、route、Vehicle Profile、typed handle、registry/resolver 和全部 domain/runtime invariant。
+
+这句话描述 current。ADR 0020 target 中，Core 不再从 `InitialTrafficData` 构建
+静态 registries，而是共享 `StaticTrafficImage`；每个 `CoreWorld` 只拥有 vehicle、
+dynamic Route、controller/reservation/parking 等可变 arrays。Initial/static
+occurrence 由 compiler 预编译，dynamic Route occurrence 仍由 Core 按 image index
+编译，steady tick 继续只使用 typed dense handle。
 
 `InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane
 graph、Junction registry、compiled routes、Vehicle Profiles 与 immutable
@@ -200,6 +239,10 @@ Engine Adapter 负责把 Core 状态映射到具体引擎：
 Adapter 不应把引擎依赖引入 Core。
 
 Adapter 可以按需调用 `laneflow-data` 解析自身 asset pipeline 已读取的内存数据，但不得要求 Core 理解引擎路径、asset handle 或异步加载协议。
+
+ADR 0020 target 中，Adapter/宿主 asset pipeline 提供 runtime image bytes 或已验证
+view，并把同一 image 的 Traffic/Spatial 视图交给 Core/Spatial。Adapter 不读取
+compiler IR、portable artifact 语义，也不拥有 image 内静态规则。
 
 ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样权威；它们从已提交的 Core 快照构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
 
