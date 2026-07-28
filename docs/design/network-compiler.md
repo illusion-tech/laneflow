@@ -26,6 +26,7 @@ ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial 
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
 - `../adr/0021-city-simulation-game-traffic-foundation.md`
 - `core-id-handles.md`
+- `cross-section-access.md`
 - `data-format.md`
 - `data-loading.md`
 - `spatial-geometry.md`
@@ -320,13 +321,21 @@ parse/type
   -> expand cross-section and synthetic constructs
   -> construct topology and geometry
   -> bind signals/parking/access/waiting
-  -> derive canonical identity
-  -> validate global semantics
+  -> resolve and validate relations required by identity
+  -> derive canonical identity in parent-before-child order
+  -> validate remaining global semantics
   -> normalize deterministic LIR order
   -> precompute occurrence/index/sampling/execution-constraint data
   -> freeze validated canonical LIR
   -> emit all artifacts atomically
 ```
+
+“标识所需关系验证”只提前关闭规范标识元组依赖的引用、所有者 / 成员和唯一性，不
+替代后续完整全局语义验证。任何实体若使用父实体稳定标识作为锚点，编译器必须先
+完成父实体标识，再对该子实体的父关系证明恰好一个有效所有者；未知引用
+（Unknown）、重复引用（Duplicate）、多所有者（Multiple Owner）或零所有者
+（Unowned）都必须在派生子实体标识前失败关闭。不得先选择第一个所有者、按排序
+结果消歧或生成临时标识后再继续验证。
 
 pass 可以并行或增量执行，但 clean single-thread compile 是确定性 oracle；任何模式
 都必须生成相同 portable artifact 和 semantic diff。
@@ -414,6 +423,20 @@ Movement 的 left/straight/right/u-turn 分类是可重算元数据，不参与�
 Signal phase、ParkingSpace、LaneGroup 和 FacilityBand 使用 parent StableId，而不是
 当前 parent ordinal。StaticRoute 只表示编译期 authoring route；runtime 注册的
 dynamic Route 继续使用 generation-aware handle，不获得持久 StableId128。
+
+`FacilityBand` 的 tag 35 `roadCorridorStableId` 来自已验证的唯一所有者关系
+（Unique Owner Relation）：
+恰好一个 `RoadCorridor.elements[].bandId` 引用该 band。该关系已经由
+`cross-section-access.md` 冻结为完备所有者树（Complete Owner Tree）；当前态
+（Current）的 `FacilityBandData` 有意不重复保存父实体（Parent）字段。编译器先
+根据道路走廊声明派生 `RoadCorridor` StableId，再解析 `RoadCorridor.elements[]`、
+拒绝未知引用、重复引用、多所有者和零所有者，随后以已证明唯一的
+`roadCorridorStableId` 与
+`facilityBandKey` 派生 `FacilityBand` StableId。前端可以用嵌套或显式引用表达该
+关系，但进入 HIR/MIR 后必须归一为同一所有者语义；validated canonical LIR 必须保存
+有类型（Typed）的 `FacilityBand -> RoadCorridor` 所有者关系，不能让发射器
+（Emitter）、投影器（Projection）或交通运行时（Traffic Runtime）从输入顺序重新
+猜测。
 
 `ConflictZone`、`ParticipantStream`、`JunctionGroup` 等未来 domain 只有在各自 G1
 冻结后才 append 新 kind code。新增 kind 提升 `identityRegistryRevision`，但不改变
@@ -518,6 +541,9 @@ entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest �
 - missing/duplicate/unknown/out-of-order tag 负向向量；
 - sibling reorder、无关 insertion 和 geometry-only edit metamorphic tests；
 - section split、boundary/key 和显式 topology closure 变化测试；
+- FacilityBand 多所有者 / 零所有者失败、`RoadCorridor.elements[]` 重排 ID 不变、
+  跨 corridor 移动 ID 改变，以及相同 `facilityBandKey` 在不同 corridor 下 ID
+  不同；
 - compiler、independent validator 和至少一个独立语言/脚本 oracle 的 bytes/ID
   一致性。
 
@@ -861,7 +887,10 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
 - startup wall time、peak allocation、retained static memory；
 - multi-world shared-static memory；
 - 10k/100k Traffic Runtime tick 与 Spatial pose；
-- #72 的 1M entity offline compile/image-build baseline。
+- 城市级 1M 实体离线编译 / 镜像构建基线（1M Entity Offline Compile /
+  Image-build Baseline）；该证据由编译器路线的后继实现切片建立，作为 #72 运行时
+  扩展研究（Runtime Scalability Research）的静态 / 离线输入（Static / Offline
+  Input），不归入 #72 的活动代理运行时（Active-agent Runtime）交付范围。
 
 ## 11. 版本、发布与供应链
 
@@ -1013,7 +1042,11 @@ AST/HIR/MIR/LIR 与 artifact/image contract 前进，不允许先建一个注定
 builder API。阶段 3 的 bridge 固定为 `laneflow-compiler-test-support` 或等价
 integration-only crate：它可以依赖 compiler + current Core/Spatial，将 validated
 LIR 投影为 current inputs；compiler 不依赖它，它不构成 public backend contract，
-并由阶段 8 的 cutover owner 删除。
+并由阶段 8 的 cutover owner 删除。该投影器（Projection）只消费 LIR 已验证的
+StableId、有类型所有者关系（Typed Owner Relation）与其他规范语义，不从当前 JSON
+或核心对象图（Core Object Graph）反向派生标识（Identity）；未来当前 JSON 的迁移 /
+导入前端（Migration / Import Frontend）也必须先产生并验证同一唯一所有者关系，
+才能进入 LIR。
 
 阶段 8 的一次性不兼容改名不仅覆盖 crate/type，也覆盖文档导航、Agent Skill ID、
 工具薄包装和治理枚举：`laneflow-core-design` 目标改为
@@ -1050,6 +1083,7 @@ Cutover 前必须证明：
 | 最终分区进入共享镜像（Final Partition in Shared Image）              | 地图与硬件/世界耦合，存档不可移植    | 静态约束 + 可重建提示 + 每世界执行计划                       |
 | 分区诱发行为延迟（Partition-induced Behavioral Delay）               | 结果随 cut 改变                      | 同 tick committed-state barrier 与置换等价测试               |
 | 原地修改静态镜像（In-place Static-image Mutation）                   | 摘要、共享、信任和确定性失效         | 不可变路网修订 + 失败关闭镜像切换事务                        |
+| 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）       | 静态契约与运行时执行能力长期不对称   | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环    |
 
 ## 16. #291 G1 完成条件
 

@@ -484,6 +484,15 @@ Current `formatVersion: "0.9"` 原子增加：
 - top-level `accessRules[]`：`target`/`effect`/`participantClassIds` 准入 overlay；
 - `vehicleProfiles[].participantClassId` 必填。
 
+`FacilityBandData` 有意不重复持久化父实体（Parent）字段：每个设施带必须被恰好
+一个 `RoadCorridorData.elements[].bandId` 引用，核心规范化（Core Normalization）
+从该正向成员关系建立成员到所有者的反向索引（Reverse Index），并对多所有者
+（Multiple Owner）或零所有者（Unowned）失败关闭。该当前态（Current）单一事实源
+也是 #291 目标态（Target）`FacilityBand` 父实体稳定标识（Parent StableId）的输入；
+编译器（Compiler）必须在派生设施带标识前验证同一唯一所有者关系，不得由数组顺序
+选择父实体。完整所有者 / 成员（Owner / Member）语义见
+[`cross-section-access.md`](cross-section-access.md)。
+
 迁移规则：
 
 - loader 只接受 exact `0.9`，不并行接受 `0.8`；
