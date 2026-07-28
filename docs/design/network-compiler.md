@@ -734,6 +734,7 @@ networkRevisionDerivationVersion
 networkRevision
 canonicalArtifactDigest
 staticImageDigest
+staticImageByteLength
 staticImageLayoutVersion
 staticImageProfileId
 sectionMask
@@ -748,6 +749,12 @@ validatorBuildId
 validationReceiptDigest
 ```
 
+`staticImageByteLength` 是 descriptor 所认证、参与 `staticImageDigest` 的原始未压缩
+image bytes 的精确 `u64` 长度，不是 transport/container 的压缩长度。Descriptor
+签发者必须从最终 exact bytes 记录 digest + length；validation receipt 和 independent
+image rebuild comparison 同时绑定二者。若分发层使用压缩，压缩输入另受宿主上限，
+解压器的输出上限必须预设为 `staticImageByteLength`，不得先无界解压再核对。
+
 descriptor 可以由签名 publication manifest、宿主已认证 asset/package manifest 或
 应用内 pinned digest 提供。Image header 内的
 `networkRevision`/`canonicalArtifactDigest`/target/provenance 只是待核对声明；
@@ -756,8 +763,8 @@ descriptor 可以由签名 publication manifest、宿主已认证 asset/package 
 
 Trusted descriptor 的签发前置条件是：portable artifact 已通过 independent
 semantic validator，且不复用 compiler emitter 的 independent image rebuild 在相同
-target/layout/profile 下产生相同 exact bytes digest。Validation receipt 必须记录
-这两项成功证据，并绑定 independent validator 重算所得的
+target/layout/profile 下产生相同 exact bytes digest + length。Validation receipt
+必须记录这两项成功证据，并绑定 independent validator 重算所得的
 `networkRevisionDerivationVersion + networkRevision + canonicalArtifactDigest`。
 `TrustedStaticImage` 只从已认证 descriptor 获得修订标识；调用方参数、image header
 或未验证 artifact 均不能另行指定运行时当前修订。
@@ -864,13 +871,32 @@ Production `TrafficWorld`/Spatial 只从 `TrustedStaticImage` 拆出 view。允�
 显式路径：
 
 - **published trusted**：认证 descriptor + image bytes -> digest/profile/target
-  比对 -> structural verifier -> trusted view；
+  比对 -> structural verifier -> trusted view；实际固定顺序是先认证小型 descriptor，
+  再执行下述 byte-length preflight，之后才读取 / 解压 / 分配 / hash image；
 - **local validated build**：portable artifact 先通过 independent validator，再由
   compiler builder 与 independent image builder 生成同 target/layout/profile
-  image；digest 相等后生成与本次构建绑定的 receipt，或直接采用 independent
+  image；digest + exact length 相等后生成与本次构建绑定的 receipt，或直接采用 independent
   builder 的已验证输出；
 - **untrusted external**：必须提供 portable artifact，独立验证后本地重建；只有
   image bytes 时拒绝，不能直接进入 fast path。
+
+所有 image 路径在任何与输入长度成正比的工作前都执行失败关闭的镜像长度预检
+（Image-length Preflight）：
+
+1. 先认证并解析有固定小上限的 `StaticImageDescriptor`，检查
+   `staticImageByteLength` 非零、可转换为当前地址空间长度，且不超过 caller /
+   process 的 `maxStaticImageBytes`；任一失败时不得打开大对象、分配、解压或 hash；
+2. 对 buffer、mmap 或已打开 asset blob，使用 O(1) 长度与 descriptor exact length
+   比较；对 filesystem/asset handle 必须 hash 同一已打开对象，不能用路径 metadata
+   预检后再重新打开另一个对象；
+3. 对无法 O(1) 获得长度的 stream，只允许 bounded reader 最多消费
+   checked `staticImageByteLength + 1` bytes；必须恰好读到声明长度并确认无追加
+   byte，hash 只覆盖该 exact sequence，不能先收完整 stream 再判断；
+4. transport compression 同时受压缩输入上限和解压输出 exact-length 上限；truncated、
+   appended、oversized 或 decompression-overrun 均在构造 image view 前拒绝；
+5. preflight 后才比较 `staticImageDigest`、核对 header/profile/target 并执行 bounded
+   structural verifier。Verifier 内的 section/entity/point limits 仍保留为第二道
+   防线，不能替代 pre-hash byte bound。
 
 ### 9.4 有界结构校验器（Bounded Structural Verifier）
 
@@ -1062,6 +1088,9 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
 - forged header canonical digest/provenance、attacker-recomputed image digest、
   forged `networkRevision`、tampered descriptor/receipt 和 wrong-profile
   rejection；
+- oversized/truncated/appended image、descriptor length mismatch、unknown-length
+  stream 与 decompression overrun 在 hash / 大分配前拒绝，并用读取 / hash byte
+  counter 证明工作量不超过已认证 exact length 与 caller limit；
 - independent validator 重算路网修订标识、同一 artifact 的跨 target/profile
   修订标识相等，以及任一静态语义/派生版本变化的修订标识不等；
 - `traffic-headless-v1` 无 Spatial bytes、但包含完整 `StaticIdentityIndex` 的
@@ -1278,6 +1307,7 @@ Cutover 前必须证明：
 | 编译器系统性缺陷（Compiler Systemic Bug）                                    | 批量污染全部资产                                 | 独立验证器、差分 / 模糊测试（Differential / Fuzz）、语义差异 |
 | 二进制校验器漏洞（Binary Verifier Vulnerability）                            | 不可信字节破坏内存安全                           | 基于偏移量的格式、加载限制、模糊测试 / `unsafe` 审计         |
 | 镜像头声明被误当作信任（Header-as-Trust）                                    | 恶意但结构合法的镜像绕过语义闸口                 | 外部描述符、验证收据、不可信重建                             |
+| 哈希前输入无界（Unbounded Input Before Hash）                                | 超大替换资产制造无界读取、解压、分配或摘要工作   | descriptor 绑定 exact length；O(1) / bounded-reader 预检     |
 | 未认证路网修订（Unauthenticated Network Revision）                           | 快照/路由绕过修订检查或兼容恢复误拒绝            | 语义载荷派生标识；descriptor/receipt/cutover 三重绑定        |
 | 中间表示泄漏运行时类型（IR Leaks Runtime Types）                             | 后端 / 目标被当前核心对象图锁死                  | 静态契约、目标中立 LIR、无环包依赖图                         |
 | 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效                   | 制品内规范身份表、独立重算、已知向量、变形测试               |

@@ -288,6 +288,7 @@ image 中剥离，但 `StaticIdentityIndex` 不能被裁掉；可通过共享只
 - `networkRevision`
 - `canonicalArtifactDigest`
 - `staticImageDigest`
+- `staticImageByteLength`
 - `semanticDiffDigest`
 - `validationReceiptDigest`
 
@@ -295,6 +296,16 @@ image 中剥离，但 `StaticIdentityIndex` 不能被裁掉；可通过共享只
 自己的 digest 嵌回自身 byte sequence。Publication manifest / external descriptor
 负责保存目标对象的 digest；image header 可以保存另一个对象的
 `canonicalArtifactDigest`，但不保存自己的 `staticImageDigest`。
+
+`StaticImageDescriptor` 必须同时认证 `staticImageByteLength`，表示参与
+`staticImageDigest` 的原始未压缩 image exact bytes 的 `u64` 长度；validation
+receipt 与 independent rebuild comparison 绑定 digest + length。Loader 先认证有
+固定小上限的 descriptor，再在任何与输入大小成正比的读取、解压、分配或 hash 前
+检查该长度非零、可表示且不超过 caller/process limit。已知长度的 buffer/mmap/blob
+执行 O(1) exact-length 比较；未知长度 stream 只能通过最多读取
+checked `staticImageByteLength + 1` bytes 的 bounded reader，并拒绝
+truncated/appended 输入。压缩传输同时限制压缩输入与解压输出；结构校验器的内部
+count/range limits 作为后续第二道防线，不能替代 pre-hash byte bound。
 
 路网修订标识（Network Revision ID）`NetworkRevisionId` 不复用上述 exact-bytes
 digest。v1 以带域分离（Domain Separation）的 SHA-256 对冻结的目标无关规范路网
@@ -324,8 +335,9 @@ canonical artifact 不变时因布局或 CPU target 变化而重建。
    tuple 与 digest collision；不得调用 compiler semantic validation，也不得依赖
    source map 补齐身份字段；
 3. **Validation receipt / external descriptor**：绑定路网修订标识、artifact/image
-   digest、target、profile、constraint、compiler/validator build；其 authenticity
-   由签名 publication manifest、宿主认证 asset chain 或 pinned digest 提供；
+   digest、image exact byte length、target、profile、constraint、compiler/validator
+   build；其 authenticity 由签名 publication manifest、宿主认证 asset chain 或
+   pinned digest 提供；
 4. **Static image structural verifier**：对不可信 bytes 有界检查 header、版本、
    offset/alignment、table/range/cross-index、numeric/runtime precondition 和 load
    limits，不重跑全量 authoring 语义。
