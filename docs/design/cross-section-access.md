@@ -1,7 +1,7 @@
 # 多模式横断面与准入分层
 
-**文档状态**: Accepted（#234 G1 冻结）<br>
-**最后更新**: 2026-07-27<br>
+**文档状态**: Accepted（current）＋ Draft（#291 target identity 导航）<br>
+**最后更新**: 2026-07-29<br>
 **适用范围**: #234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity/authority/validation 与后续最小 production 边界<br>
 **实现状态**: 静态模型已由 #262 生产化（Core registries、Data/schema 与 Traffic `0.9`，schema 已发布并经 live 验证；含 (class, Route) 绑定期静态准入校验）；时变规则与 FacilityBand target 规则仍由 capability guard 结构化拒绝
 
@@ -16,10 +16,13 @@
 - `../adr/0009-signal-indication-gate-and-policy-separation.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
+- `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../reference/glossary.md`
 - `road-junction-model.md`
 - `lane-graph.md`
 - `spatial-geometry.md`
 - `data-format.md`
+- `network-compiler.md`
 - GitHub: #227、#228、#229、#234、#237、#262
 
 ## 1. 目标、状态与非目标
@@ -51,6 +54,11 @@
 | 参与者分类     | ParticipantClass 已存在（数据声明、单继承）；VehicleProfile 必填 `participantClassId`   |
 | 准入规则       | AccessRule 静态模型已存在；(class, Route) 绑定期校验；时变/FacilityBand target 规则拒绝 |
 | 横断面横向几何 | 不冻结（宽度/偏移继续留在 Spatial/Adapter 外）                                          |
+
+本章主体继续裁决当前态（Current）的横断面与准入语义；#291 目标态（Target）只复用
+其中已经生产化的唯一所有者关系（Unique Owner Relation）和完备所有者树
+（Complete Owner Tree）作为稳定标识派生输入，不把尚未实现的编译器或静态镜像写成
+当前 API。完整目标标识和迁移契约见 `network-compiler.md`。
 
 ### 1.3 非目标
 

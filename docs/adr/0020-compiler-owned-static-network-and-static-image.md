@@ -1,7 +1,7 @@
 # ADR 0020：编译器拥有静态路网与目标静态镜像
 
 **状态**: Proposed（#291 G1 修订输入）<br>
-**日期**: 2026-07-28<br>
+**日期**: 2026-07-29<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网权威、可移植规范制品（Portable Canonical Artifact）、
 目标静态镜像（Target Static Image）、验证收据（Validation Receipt）、源映射
@@ -148,7 +148,9 @@ publishable programmatic generator 必须保留 build ID、参数、seed、names
 Signals/Phase、Parking、cross-section/access/profile、static Route 与 canonical
 frame declaration。新增 kind 只 append registry revision；修改既有 kind 的字段
 集合、tag 含义或编码必须提升 encoding version。完整 kind/tag/required-sequence
-表以 `network-compiler.md` 为规范。
+表以 `network-compiler.md` 为规范。所有真实父子关系必须以父实体 StableId 作为
+父锚点，不能只复制父实体在其来源模块内稳定的裸局部 key；这样跨模块同名父实体与
+重新归属仍由完整命名空间裁决。
 
 ### 4. 一个规范低层中间表示（Canonical LIR）产生四类配套输出
 
@@ -183,17 +185,21 @@ StaticNetworkImage
   Header / provenance / profile
   SectionDirectory
   Required: StaticTrafficImage
+  Required: StaticIdentityIndex
   Required: PartitionPlanningHints
   Optional: StaticSpatialImage
   Optional: WarmQueryTables
-  Optional: ColdIdentityAndDiagnostics
+  Optional: ColdDiagnostics
 ```
 
-- `traffic-headless-v1` 要求 Traffic + PartitionPlanningHints；
+- `traffic-headless-v1` 要求 Traffic + StaticIdentityIndex + PartitionPlanningHints；
   `traffic-spatial-v1` 再要求 Spatial；`traffic-debug-v1` 再加入
-  warm/cold/debug section；
+  warm/diagnostic/debug section；
 - target `laneflow-runtime`/`TrafficWorld` 只借用或共享 `StaticTrafficView`，不要求
   Spatial bytes；
+- `StaticIdentityIndex` 对稳定实体保存 typed ordinal → StableId128 正向表和按
+  `(entityKind, StableId128)` 排序的反向表；它是 snapshot save/load、dynamic Route
+  重建和路网修订切换的生产必需冷索引，但不进入 steady tick；
 - Spatial section 存在时完整覆盖 v1 所需 edge，并与 Traffic 使用同一 logical edge
   ordinal/cross-index；v1 不引入 sparse geometry mapping；
 - Adapter 继续只消费 Traffic committed snapshot 与 Spatial pose batch，不读取
@@ -232,13 +238,16 @@ image/state binding；旧 image 在全部借用视图/token 退出后回收。�
 - **hot**：tick/pose 所需 SoA/CSR 数据、flat ranges、precompiled occurrence、
   speed/length/gate constraint 与 geometry sampling index；
 - **warm**：低频 query、owner/member、debug draw 和可选 spatial detail；
-- **cold**：StableId128、external display name、source provenance、canonical tuple、
-  诊断文本和 publication metadata。
+- **cold identity**：全部 production profile 共享、可按需映射的
+  `StaticIdentityIndex`；
+- **cold diagnostics**：external display name、source provenance、canonical tuple、
+  诊断文本和 publication metadata，只由 diagnostic/debug profile 携带。
 
 hot path 只使用 typed dense handle、contiguous range 和预编译索引。StableId128、
 BLAKE3、XXH3、字符串、hash lookup、path matching 与 schema validation 都不得进入
-steady tick。Spatial/cold section 可以按 closed profile 从 headless/server image 中剥离，
-但 artifact digest 和 source map 仍能恢复诊断。
+steady tick。Spatial/diagnostic section 可以按 closed profile 从 headless/server
+image 中剥离，但 `StaticIdentityIndex` 不能被裁掉；可通过共享只读映射、分块/压缩
+或按需分页控制内存和 cache 影响。Artifact digest 和 source map 仍能恢复完整诊断。
 
 ### 7. 可移植制品（Portable Artifact）与静态镜像（Static Image）使用独立版本轴
 
@@ -251,6 +260,9 @@ steady tick。Spatial/cold section 可以按 closed profile 从 headless/server 
 - `staticImageLayoutVersion`
 - `staticImageProfileId`
 - `staticImageDescriptorVersion`
+- `semanticDiffFormatVersion`
+- `networkRevisionCutoverDescriptorVersion`
+- `migrationPolicyVersion`
 - `executionConstraintVersion`
 - `partitionHintVersion`
 - `runtimeSnapshotVersion`
@@ -260,9 +272,10 @@ steady tick。Spatial/cold section 可以按 closed profile 从 headless/server 
 - `targetTriple`
 - `canonicalArtifactDigest`
 - `staticImageDigest`
+- `semanticDiffDigest`
 - `validationReceiptDigest`
 
-三个 digest 均为各自目标对象完整 exact bytes 的 SHA-256，因此任何对象都不得把
+四个 digest 均为各自目标对象完整 exact bytes 的 SHA-256，因此任何对象都不得把
 自己的 digest 嵌回自身 byte sequence。Publication manifest / external descriptor
 负责保存目标对象的 digest；image header 可以保存另一个对象的
 `canonicalArtifactDigest`，但不保存自己的 `staticImageDigest`。
@@ -382,12 +395,24 @@ tick 的规范输入；跨分区依赖不能通过额外一 tick 边界邻域延
 
 ### 12. 运行时快照、回放和路径规划不进入共享静态权威
 
-运行时快照（Runtime Snapshot）是独立版本化制品，至少绑定规范制品摘要、静态镜像
-摘要、运行时/约束/快照版本、路网修订、world identity、tick、输入命令游标和全部
-每世界可变交通状态；只有后续 G1 显式授予的 Runtime 自有随机流才进入该快照。跨
-修订恢复必须通过稳定标识与语义差异执行显式迁移；旧 dense ordinal
-不得直接解释为新修订实体。动态 Route、车辆和其他运行时实体以快照局部标识保存
-引用关系，原进程 runtime handle/slot/generation 不得成为恢复后身份。
+运行时快照（Runtime Snapshot）是独立版本化制品，至少绑定规范制品摘要、创建快照
+时的 `originStaticImageDigest`、运行时/约束/快照版本、路网修订、world identity、
+tick、输入命令游标和全部每世界可变交通状态；只有后续 G1 显式授予的 Runtime 自有
+随机流才进入该快照。Caller-owned seed/随机流由上层 Save Manifest 绑定，不进入
+Traffic Runtime 隐藏状态。
+
+同修订恢复可以使用另一个已认证 target/profile image，但必须绑定相同规范制品、
+路网修订、identity/constraint versions，并通过 `StaticIdentityIndex` 完整重建稳定
+静态引用；`originStaticImageDigest` 只承担来源审计和同镜像快速恢复。跨修订恢复
+必须通过稳定标识与受信任语义差异执行显式迁移；旧 dense ordinal 不得直接解释为新
+修订实体。动态 Route、车辆和其他运行时实体以快照局部标识保存引用关系，原进程
+runtime handle/slot/generation 不得成为恢复后身份。
+
+运行时若用 semantic diff 驱动迁移，外部可信
+`NetworkRevisionCutoverDescriptor` 必须绑定 base/target canonical artifact 和
+static image digest、exact `semanticDiffDigest`、migration policy version 与独立
+validation receipt；Runtime 再以旧/新 `StaticIdentityIndex` 复核全部映射。未绑定
+或验证的 diff 只能用于诊断，不得成为状态迁移权威。
 运行时执行计划在恢复时按当前硬件重建，快照不得要求复现原分区/工作线程布局。
 
 回放使用显式输入命令序列（Input Command Sequence）、checkpoint 和确定性状态
@@ -434,15 +459,15 @@ Target image 的具体零拷贝/归档实现（自有 offset tables、经过审�
 
 ## 对既有 ADR 的取代矩阵
 
-| ADR  | 继续有效                                                                                                      | 本 ADR 目标取代                                                                                                                                     |
-| ---- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0005 | 外部稳定标识（External Stable Identity）、有类型密集句柄（Typed Dense Handle）、热冷分离、动态车辆 / 路线生成 | 核心初始化时分配静态句柄 / 登记表；目标态动态执行层改名为交通运行时（Traffic Runtime）                                                              |
-| 0007 | 运行时（Runtime）不依赖 Serde / 文件系统 / 引擎，以及内存中字节边界（In-memory Bytes Boundary）               | 私有 DTO → `InitialTrafficData` 作为终态唯一输入、核心构造器作为全部静态规范化权威                                                                  |
-| 0008 | 精确当前版本（Exact-current）、失败关闭（Fail-closed）、离线迁移（Offline Migration）                         | 单一 `formatVersion` 同时承担来源、制品与静态镜像布局版本                                                                                           |
-| 0011 | 不可变发布（Immutable Publication）、规范 URL（Canonical URL）、来源沿袭（Provenance）、运行时不联网          | 发布目录只描述 JSON Schema 系列；未来扩展规范制品、静态镜像变体与验证收据                                                                           |
-| 0013 | 交通运行时 / 空间层 / 适配器权威、规范几何、长度 / 位姿、失败原子性、无图形支持                               | 交通 / 空间两个独立制品在运行时按外部标识（External ID）和清单摘要（Manifest Digest）联结；不再以“无空间层核心（Core-without-Spatial）”作为目标架构 |
-| 0015 | 有界规范 `f32` 坐标框架、误差 / 内存 / 批量性能边界、无空间层核心（Core-without-Spatial）                     | 空间层初始化时从核心句柄和 JSON 几何重建登记表；静态镜像的空间节保持可选                                                                            |
-| 0017 | 路口、通行流向、机动路径、机动门、路线出现项语义，共享内部边，热路径无字符串                                  | 核心规范化 / 路线注册期首次编译静态出现项；静态初始出现项改由编译器镜像预编译                                                                       |
+| ADR  | 继续有效                                                                                                      | 本 ADR 目标取代                                                                           |
+| ---- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 0005 | 外部稳定标识（External Stable Identity）、有类型密集句柄（Typed Dense Handle）、热冷分离、动态车辆 / 路线生成 | 核心初始化时分配静态句柄 / 登记表；目标态动态执行层改名为交通运行时（Traffic Runtime）    |
+| 0007 | 运行时（Runtime）不依赖 Serde / 文件系统 / 引擎，以及内存中字节边界（In-memory Bytes Boundary）               | 私有 DTO → `InitialTrafficData` 作为终态唯一输入、核心构造器作为全部静态规范化权威        |
+| 0008 | 精确当前版本（Exact-current）、失败关闭（Fail-closed）、离线迁移（Offline Migration）                         | 单一 `formatVersion` 同时承担来源、制品与静态镜像布局版本                                 |
+| 0011 | 不可变发布（Immutable Publication）、规范 URL（Canonical URL）、来源沿袭（Provenance）、运行时不联网          | 发布目录只描述 JSON Schema 系列；未来扩展规范制品、静态镜像变体与验证收据                 |
+| 0013 | 交通运行时 / 空间层 / 适配器权威、规范几何、长度 / 位姿、失败原子性、无图形支持                               | 交通 / 空间两个独立制品在运行时按外部标识（External ID）和清单摘要（Manifest Digest）联结 |
+| 0015 | 有界规范 `f32` 坐标框架、误差 / 内存 / 批量性能边界、无空间层核心（Core-without-Spatial）                     | 空间层初始化时从核心句柄和 JSON 几何重建登记表；静态镜像的空间节保持可选                  |
+| 0017 | 路口、通行流向、机动路径、机动门、路线出现项语义，共享内部边，热路径无字符串                                  | 核心规范化 / 路线注册期首次编译静态出现项；静态初始出现项改由编译器镜像预编译             |
 
 本矩阵只取代“工作发生在哪一层、何时发生、如何存储”的条款，不重新定义上述 ADR
 已经冻结的交通、空间和 runtime 行为语义。ADR 0020 Accepted 时，应在各历史 ADR
@@ -545,8 +570,9 @@ Spatial section 由 closed profile 控制；拒绝 mandatory combined payload。
 4. 受影响 ADR 的继续有效与取代范围逐项登记；
 5. 性能 Gate 包含 headless profile、启动/load limits、内存共享、10k/100k runtime
    和城市级离线编译基线；
-6. untrusted image rejection、标识 registry known vectors 和 external descriptor
-   trust path 已进入 implementation acceptance；
+6. untrusted image rejection、标识 registry known vectors、全 production profile
+   `StaticIdentityIndex` 与 external descriptor/cutover descriptor trust path 已进入
+   implementation acceptance；
 7. 未把具体 archive library、并行框架或增量数据库当作未经基准的既定事实。
 8. 城市模拟游戏上层、路径规划、不可变路网修订、运行时快照和每世界唯一性边界
    已同步到 architecture、roadmap、glossary 与 Agent Skills。

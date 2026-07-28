@@ -1,7 +1,7 @@
 # 路线图
 
 **文档状态**: Draft  
-**最后更新**: 2026-07-28
+**最后更新**: 2026-07-29
 **适用范围**: LaneFlow 版本路线图与中国特色城市模拟游戏交通基础的长期演进
 
 本文记录 LaneFlow 的稳定路线图。GitHub Project 负责当前执行状态，本文负责长期版本边界。
@@ -267,10 +267,13 @@ ADR 0020、ADR 0021 与 [`design/network-compiler.md`](design/network-compiler.m
 是本次 G1 再修订输入。Identity v1 区分 StableId128 declaration/addressable-derived、
 owner-local occurrence 与全部 table row 的 typed `u32` ordinal，冻结完整
 kind/tag registry、严格 field order、known vectors、BLAKE3-128 持久 identity 和
-XXH3 compiler-only 加速。Static image 采用 Traffic-mandatory、
-Spatial-profile-optional section，target 把 current `laneflow-core/CoreWorld`
-clean-break 为 `laneflow-runtime/TrafficWorld`，并通过中立
-`laneflow-static-contract`/`laneflow-static-image` 保持无环依赖。
+XXH3 compiler-only 加速。Static image 采用 Traffic 与冷稳定身份索引（Static
+Identity Index，`StaticIdentityIndex`）mandatory、Spatial profile optional；稳定
+身份索引服务快照恢复（Snapshot Restore）、dynamic Route 重建与修订切换
+（Revision Cutover），不进入 steady tick，也不能被 headless/production profile
+删除。target 把 current
+`laneflow-core/CoreWorld` clean-break 为 `laneflow-runtime/TrafficWorld`，并通过
+中立 `laneflow-static-contract`/`laneflow-static-image` 保持无环依赖。
 
 编译器从 LIR 派生 worker 数无关的静态执行约束图，并可发射可丢弃的分区规划提示；
 每个 `TrafficWorld` 再依据硬件、容量和动态负载建立自己的运行时执行计划。最终
@@ -279,9 +282,12 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 组件各有唯一规范归约权威，互不相交组件可并行归约。
 
 静态镜像表示不可变路网修订，不表示城市永不变化。玩家道路编辑通过新修订、独立
-验证和失败关闭镜像切换事务进入运行世界。每世界 identity、seed/随机流、动态路线、
-执行计划与运行时快照不进入共享 image。路径规划读取静态网络和已提交动态成本
-快照；出行需求与路线选择策略仍由城市游戏/出行编排层拥有。
+验证和失败关闭镜像切换事务进入运行世界；语义差异（Semantic Diff）必须由独立验证
+或外部可信的路网修订切换描述符（Network Revision Cutover Descriptor，
+`NetworkRevisionCutoverDescriptor`）绑定，不能自行授予迁移权限。每世界 identity、
+调用方拥有的 seed/随机流（Caller-owned Seed / Random Stream）、动态路线、执行计划
+与运行时快照不进入共享 image。路径规划读取静态网络和已提交动态成本快照；出行需求
+与路线选择策略仍由城市游戏/出行编排层拥有。
 
 当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
 `InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target

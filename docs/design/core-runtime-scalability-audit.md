@@ -1,7 +1,7 @@
 # Core Runtime 可扩展性前置审计
 
 **文档状态**: Review<br>
-**最后更新**: 2026-07-28<br>
+**最后更新**: 2026-07-29<br>
 **适用范围**: #199 对 #72 的前置 Core API、identity、batch、command、deterministic scheduling 与 event merge 审计<br>
 **关联文档**:
 
@@ -322,8 +322,11 @@ halo delay；互不相交资源组件可以并行归约，不能把“single red
 ### C13. 路网修订、快照和执行布局各自版本化
 
 共享静态网络按不可变修订发布；运行时世界通过失败关闭的镜像切换事务迁移。运行时
-快照绑定 image/revision/runtime/constraint/world/seed/tick 与全部可变状态，但不把
-worker/partition assignment 当作跨硬件恢复权威。dense ordinal 不得跨修订直接复用。
+快照绑定 canonical artifact、origin image、revision、runtime、constraint、world、
+tick 与全部每世界可变交通状态，但不把 worker/partition assignment 当作跨硬件恢复
+权威。人口、出行、Routing 与游戏规则的 caller-owned seed/随机流由上层 Save
+Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime 的自有随机流才进入运行时
+快照。dense ordinal 不得跨修订直接复用。
 
 ## 6. Prototype 顺序与通过条件
 

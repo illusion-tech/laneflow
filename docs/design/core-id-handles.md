@@ -1,8 +1,8 @@
 # Core ID 与 Handle 模型
 
 **文档状态**: Accepted（current）＋ Draft（#291 target 导航）<br>
-**最后更新**: 2026-07-28<br>
-**适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界，以及 compiler target 的静态 image handle 边界
+**最后更新**: 2026-07-29<br>
+**适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界，以及 compiler target 的静态 image handle 边界<br>
 **关联文档**:
 
 - `../architecture.md`
@@ -40,9 +40,12 @@ compiler/static image。Target 动态执行层 clean-break 命名为
 image-scoped typed `u32` ordinal，只有稳定 declaration/addressable-derived 另有
 StableId128；owner-local occurrence 使用仅对当前 owning sequence snapshot 有效的
 typed `(ownerOrdinal, role, localIndex)` key。每 world 的 Vehicle、dynamic Route 与
-generation handle 继续由 Runtime 管理。StableId128、external ID 和 reverse
-resolver 位于 cold boundary，steady tick 只使用 dense handle。本文后续“Core
-初始化阶段 normalization”继续描述 current，直到 image cutover G4。
+generation handle 继续由 Runtime 管理。所有 production profile 都必须保留冷稳定
+身份索引（Static Identity Index，`StaticIdentityIndex`），为快照恢复（Snapshot
+Restore）、dynamic Route 重建和修订切换（Revision Cutover）提供 StableId128 ↔
+typed ordinal 双向翻译；它不进入 steady tick，显示名、来源位置和完整规范元组等冷
+诊断节（Cold Diagnostics，`ColdDiagnostics`）才是可选项。本文后续“Core 初始化
+阶段 normalization”继续描述 current，直到 image cutover G4。
 
 ## 2. 背景
 

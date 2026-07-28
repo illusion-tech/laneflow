@@ -14,7 +14,13 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 5. `docs/reference/glossary.md`
 6. 修改 Rust 时读取 `docs/reference/rust-code-style.md`
 7. 相关的 `docs/design/` 与 `docs/adr/` 文档
-8. 涉及城市模拟游戏范围、Routing、路网修订、存档/回放、并行或 fidelity 时读取
+8. 涉及 #291 目标静态路网编译、静态镜像（Static Image）、静态执行约束/分区规划
+   提示/运行时执行计划（Static Execution Constraint / Partition Planning Hints /
+   Runtime Execution Plan），或 `laneflow-core/CoreWorld` →
+   `laneflow-runtime/TrafficWorld` 生产切换时，读取
+   `docs/adr/0020-compiler-owned-static-network-and-static-image.md` 与
+   `docs/design/network-compiler.md`
+9. 涉及城市模拟游戏范围、Routing、路网修订、存档/回放、并行或 fidelity 时读取
    `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
 若任务涉及当前态 Core API、目标态 Traffic Runtime API、数据格式或 Adapter API，
