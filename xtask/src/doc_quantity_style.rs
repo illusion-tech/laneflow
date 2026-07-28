@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use proc_macro2::{Delimiter, LineColumn, TokenStream, TokenTree};
@@ -118,6 +119,7 @@ fn is_rust_file(path: &Path) -> bool {
 
 fn find_markdown_violations(content: &str, first_source_line: usize) -> Vec<Violation> {
     let mut prose_by_line = BTreeMap::<usize, String>::new();
+    let mut rendered_breaks = Vec::<(usize, usize)>::new();
     let mut code_block_depth = 0_usize;
     let mut html_projection = HtmlProjection::default();
 
@@ -148,13 +150,39 @@ fn find_markdown_violations(content: &str, first_source_line: usize) -> Vec<Viol
                 let visible_text = html_projection.project(&html);
                 append_prose_projection(&mut prose_by_line, &visible_text, source_line);
             }
+            Event::SoftBreak | Event::HardBreak
+                if code_block_depth == 0 && !html_projection.suppresses_reader_prose() =>
+            {
+                let source_line =
+                    first_source_line + count_line_breaks(&content[..source_range.start]);
+                let next_source_line =
+                    source_line + count_line_breaks(&content[source_range]).max(1);
+                rendered_breaks.push((source_line, next_source_line));
+            }
             _ => {}
         }
+    }
+
+    let mut cross_break_tokens = BTreeMap::<usize, Vec<String>>::new();
+    for (source_line, next_source_line) in rendered_breaks {
+        let (Some(before), Some(after)) = (
+            prose_by_line.get(&source_line),
+            prose_by_line.get(&next_source_line),
+        ) else {
+            continue;
+        };
+        cross_break_tokens
+            .entry(source_line)
+            .or_default()
+            .extend(quantity_abbreviations_across_break(before, after));
     }
 
     let mut violations = Vec::new();
     for (line, prose) in prose_by_line {
         for token in quantity_abbreviations(&prose) {
+            violations.push(Violation { line, token });
+        }
+        for token in cross_break_tokens.remove(&line).unwrap_or_default() {
             violations.push(Violation { line, token });
         }
     }
@@ -332,7 +360,7 @@ fn append_html_text(visible: &mut String, text: &str) {
 
     while cursor < bytes.len() {
         if bytes[cursor] == b'&'
-            && let Some((decoded, end)) = decode_numeric_html_reference(text, cursor)
+            && let Some((decoded, end)) = decode_html_reference(text, cursor)
         {
             if decoded.is_whitespace() {
                 visible.push(' ');
@@ -352,7 +380,22 @@ fn append_html_text(visible: &mut String, text: &str) {
     }
 }
 
-fn decode_numeric_html_reference(text: &str, start: usize) -> Option<(char, usize)> {
+fn decode_html_reference(text: &str, start: usize) -> Option<(char, usize)> {
+    for (entity, decoded) in [
+        ("&nbsp;", '\u{00a0}'),
+        ("&ensp;", '\u{2002}'),
+        ("&emsp;", '\u{2003}'),
+        ("&thinsp;", '\u{2009}'),
+        ("&hairsp;", '\u{200a}'),
+        ("&MediumSpace;", '\u{205f}'),
+        ("&Tab;", '\t'),
+        ("&NewLine;", '\n'),
+    ] {
+        if text[start..].starts_with(entity) {
+            return Some((decoded, start + entity.len()));
+        }
+    }
+
     let bytes = text.as_bytes();
     if bytes.get(start..start + 2)? != b"&#" {
         return None;
@@ -775,13 +818,35 @@ fn count_line_breaks(content: &str) -> usize {
 }
 
 fn quantity_abbreviations(segment: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    scan_ascii_quantity_abbreviations(segment, &mut tokens);
-    scan_mixed_chinese_quantity_style(segment, &mut tokens);
-    tokens
+    quantity_abbreviation_ranges(segment)
+        .into_iter()
+        .map(|range| segment[range].to_string())
+        .collect()
 }
 
-fn scan_ascii_quantity_abbreviations(segment: &str, tokens: &mut Vec<String>) {
+fn quantity_abbreviations_across_break(before: &str, after: &str) -> Vec<String> {
+    let mut combined = String::with_capacity(before.len() + 1 + after.len());
+    combined.push_str(before);
+    let break_start = combined.len();
+    combined.push(' ');
+    let after_start = combined.len();
+    combined.push_str(after);
+
+    quantity_abbreviation_ranges(&combined)
+        .into_iter()
+        .filter(|range| range.start < break_start && range.end > after_start)
+        .map(|range| combined[range].to_string())
+        .collect()
+}
+
+fn quantity_abbreviation_ranges(segment: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    scan_ascii_quantity_abbreviations(segment, &mut ranges);
+    scan_mixed_chinese_quantity_style(segment, &mut ranges);
+    ranges
+}
+
+fn scan_ascii_quantity_abbreviations(segment: &str, ranges: &mut Vec<Range<usize>>) {
     let bytes = segment.as_bytes();
     let mut cursor = 0;
 
@@ -822,11 +887,11 @@ fn scan_ascii_quantity_abbreviations(segment: &str, tokens: &mut Vec<String>) {
             continue;
         }
 
-        tokens.push(segment[start..cursor].to_string());
+        ranges.push(start..cursor);
     }
 }
 
-fn scan_mixed_chinese_quantity_style(segment: &str, tokens: &mut Vec<String>) {
+fn scan_mixed_chinese_quantity_style(segment: &str, ranges: &mut Vec<Range<usize>>) {
     let bytes = segment.as_bytes();
     let mut cursor = 0;
 
@@ -851,8 +916,10 @@ fn scan_mixed_chinese_quantity_style(segment: &str, tokens: &mut Vec<String>) {
             }
         }
 
-        while cursor < bytes.len() && matches!(bytes[cursor], b' ' | b'\t') {
-            cursor += 1;
+        while let Some(character) = segment[cursor..].chars().next()
+            && character.is_whitespace()
+        {
+            cursor += character.len_utf8();
         }
 
         let Some(suffix) = segment.get(cursor..) else {
@@ -866,7 +933,7 @@ fn scan_mixed_chinese_quantity_style(segment: &str, tokens: &mut Vec<String>) {
         }
 
         let end = cursor + first.len_utf8();
-        tokens.push(segment[start..end].to_string());
+        ranges.push(start..end);
         cursor = end;
     }
 }
@@ -981,6 +1048,31 @@ mod tests {
     }
 
     #[test]
+    fn markdown_breaks_preserve_rendered_quantity_continuity() {
+        let content = concat!(
+            "目标为 100\n",
+            "k 个参与单元。\n\n",
+            "研究边界为 1  \n",
+            "M 个参与单元。\n\n",
+            "段落边界前的 100\n\n",
+            "k 不是同一个数量。\n",
+        );
+        assert_eq!(
+            find_markdown_violations(content, 1),
+            vec![
+                Violation {
+                    line: 1,
+                    token: "100 k".to_string()
+                },
+                Violation {
+                    line: 4,
+                    token: "1 M".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
     fn checks_visible_text_in_raw_html_blocks() {
         let content = concat!(
             "<table data-scale=\"100k\">\n",
@@ -1037,11 +1129,24 @@ mod tests {
     #[test]
     fn raw_html_numeric_references_do_not_bypass_quantity_gate() {
         assert_eq!(
-            find_markdown_violations("<div>支持 100&#107;</div>\n", 1),
-            vec![Violation {
-                line: 1,
-                token: "100k".to_string()
-            }]
+            find_markdown_violations(
+                "<div>支持 100&#107;，混写 1&nbsp;万，正文 2&nbsp;k。</div>\n",
+                1
+            ),
+            vec![
+                Violation {
+                    line: 1,
+                    token: "100k".to_string()
+                },
+                Violation {
+                    line: 1,
+                    token: "2 k".to_string()
+                },
+                Violation {
+                    line: 1,
+                    token: "1 万".to_string()
+                }
+            ]
         );
     }
 
@@ -1083,7 +1188,10 @@ mod tests {
     #[test]
     fn rejects_mixed_arabic_and_chinese_quantity_styles() {
         assert_eq!(
-            find_markdown_violations("目标为 1 万，研究边界为 100 万，抽样 1.5 万。\n", 1),
+            find_markdown_violations(
+                "目标为 1 万，研究边界为 100 万，抽样 1.5 万，不换行空格为 2\u{00a0}万。\n",
+                1
+            ),
             vec![
                 Violation {
                     line: 1,
@@ -1096,6 +1204,10 @@ mod tests {
                 Violation {
                     line: 1,
                     token: "1.5 万".to_string()
+                },
+                Violation {
+                    line: 1,
+                    token: "2\u{00a0}万".to_string()
                 }
             ]
         );
