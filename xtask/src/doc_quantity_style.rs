@@ -2,11 +2,11 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Fence {
-    marker: char,
-    length: usize,
-}
+use proc_macro2::LineColumn;
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use syn::spanned::Spanned;
+use syn::visit::{self, Visit};
+use syn::{Attribute, Expr, ExprLit, Lit, Meta};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Violation {
@@ -32,9 +32,14 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         let content = fs::read_to_string(file)
             .map_err(|error| format!("无法读取文档源文件 `{}`: {error}", file.display()))?;
         let violations = if is_rust_file(file) {
-            find_rustdoc_violations(&content)
+            find_rustdoc_violations(&content).map_err(|error| {
+                format!(
+                    "无法解析 Rustdoc 源文件 `{}`；数量书写门禁失败关闭: {error}",
+                    file.display()
+                )
+            })?
         } else {
-            find_violations(&content)
+            find_markdown_violations(&content, 1)
         };
         for violation in violations {
             violation_count += 1;
@@ -108,131 +113,139 @@ fn is_rust_file(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("rs"))
 }
 
-fn find_violations(content: &str) -> Vec<Violation> {
+fn find_markdown_violations(content: &str, first_source_line: usize) -> Vec<Violation> {
     let mut violations = Vec::new();
-    let mut fence = None;
+    let mut code_block_depth = 0_usize;
 
-    for (line_index, line) in content.lines().enumerate() {
-        if let Some(opening) = opening_fence(line) {
-            match fence {
-                None => fence = Some(opening),
-                Some(current)
-                    if opening.marker == current.marker
-                        && opening.length >= current.length
-                        && is_closing_fence(line, current) =>
-                {
-                    fence = None;
-                }
-                Some(_) => {}
+    for (event, source_range) in Parser::new_ext(content, Options::all()).into_offset_iter() {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => code_block_depth += 1,
+            Event::End(TagEnd::CodeBlock) => {
+                code_block_depth = code_block_depth.saturating_sub(1);
             }
-            continue;
-        }
-
-        if fence.is_some() {
-            continue;
-        }
-
-        for token in quantity_abbreviations_outside_inline_code(line) {
-            violations.push(Violation {
-                line: line_index + 1,
-                token,
-            });
+            Event::Text(_) if code_block_depth == 0 => {
+                let source = &content[source_range.clone()];
+                let line = first_source_line + count_line_breaks(&content[..source_range.start]);
+                scan_lines(source, line, &mut violations);
+            }
+            _ => {}
         }
     }
 
     violations
 }
 
-fn find_rustdoc_violations(content: &str) -> Vec<Violation> {
-    let mut rustdoc = String::with_capacity(content.len());
-    for line in content.lines() {
-        let trimmed = line.trim_start();
-        let documentation = trimmed
-            .strip_prefix("//!")
-            .or_else(|| trimmed.strip_prefix("///"));
-        if let Some(documentation) = documentation {
-            rustdoc.push_str(documentation.strip_prefix(' ').unwrap_or(documentation));
-        }
-        rustdoc.push('\n');
-    }
-    find_violations(&rustdoc)
-}
+fn find_rustdoc_violations(content: &str) -> Result<Vec<Violation>, syn::Error> {
+    let syntax = syn::parse_file(content)?;
+    let mut visitor = RustdocVisitor::default();
+    visitor.visit_file(&syntax);
+    visitor
+        .fragments
+        .sort_by_key(|fragment| fragment.start_line);
 
-fn opening_fence(line: &str) -> Option<Fence> {
-    let trimmed = line.trim_start();
-    let marker = match trimmed.chars().next()? {
-        marker @ ('`' | '~') => marker,
-        _ => return None,
-    };
-    let length = trimmed.chars().take_while(|ch| *ch == marker).count();
-    (length >= 3).then_some(Fence { marker, length })
-}
-
-fn is_closing_fence(line: &str, fence: Fence) -> bool {
-    let trimmed = line.trim_start();
-    let marker_length = trimmed.chars().take_while(|ch| *ch == fence.marker).count();
-    marker_length >= fence.length && trimmed[marker_length..].trim().is_empty()
-}
-
-fn quantity_abbreviations_outside_inline_code(line: &str) -> Vec<String> {
-    let bytes = line.as_bytes();
-    let mut tokens = Vec::new();
-    let mut cursor = 0;
-
-    while cursor < bytes.len() {
-        if bytes[cursor] == b'`' {
-            let delimiter_length = backtick_run_length(bytes, cursor);
-            let content_start = cursor + delimiter_length;
-            if let Some(closing_start) =
-                find_matching_backtick_run(bytes, content_start, delimiter_length)
-            {
-                cursor = closing_start + delimiter_length;
-                continue;
+    let mut groups = Vec::<RustdocGroup>::new();
+    for fragment in visitor.fragments {
+        match groups.last_mut() {
+            Some(group) if fragment.start_line <= group.last_source_line.saturating_add(1) => {
+                group.push(fragment);
             }
+            _ => groups.push(RustdocGroup::new(fragment)),
         }
-
-        let segment_end = bytes[cursor..]
-            .iter()
-            .position(|byte| *byte == b'`')
-            .map_or(bytes.len(), |offset| cursor + offset);
-        scan_segment(&line[cursor..segment_end], &mut tokens);
-        cursor = if segment_end == cursor {
-            cursor + backtick_run_length(bytes, cursor)
-        } else {
-            segment_end
-        };
     }
 
+    Ok(groups
+        .into_iter()
+        .flat_map(|group| find_markdown_violations(&group.markdown, group.first_source_line))
+        .collect())
+}
+
+#[derive(Default)]
+struct RustdocVisitor {
+    fragments: Vec<RustdocFragment>,
+}
+
+struct RustdocFragment {
+    start_line: usize,
+    end_line: usize,
+    markdown: String,
+}
+
+struct RustdocGroup {
+    first_source_line: usize,
+    last_source_line: usize,
+    markdown: String,
+}
+
+impl RustdocGroup {
+    fn new(fragment: RustdocFragment) -> Self {
+        Self {
+            first_source_line: fragment.start_line,
+            last_source_line: fragment.end_line,
+            markdown: fragment.markdown,
+        }
+    }
+
+    fn push(&mut self, fragment: RustdocFragment) {
+        let represented_source_line = self.first_source_line + count_line_breaks(&self.markdown);
+        let line_gap = fragment.start_line.saturating_sub(represented_source_line);
+        for _ in 0..line_gap.max(1) {
+            self.markdown.push('\n');
+        }
+        self.markdown.push_str(&fragment.markdown);
+        self.last_source_line = fragment.end_line;
+    }
+}
+
+impl<'ast> Visit<'ast> for RustdocVisitor {
+    fn visit_attribute(&mut self, attribute: &'ast Attribute) {
+        if attribute.path().is_ident("doc") {
+            if let Meta::NameValue(meta) = &attribute.meta
+                && let Expr::Lit(ExprLit {
+                    lit: Lit::Str(documentation),
+                    ..
+                }) = &meta.value
+            {
+                let span = attribute.span();
+                self.fragments.push(RustdocFragment {
+                    start_line: source_line(span.start()),
+                    end_line: source_line(span.end()),
+                    markdown: documentation.value(),
+                });
+            }
+            return;
+        }
+
+        visit::visit_attribute(self, attribute);
+    }
+}
+
+fn source_line(location: LineColumn) -> usize {
+    location.line.max(1)
+}
+
+fn count_line_breaks(content: &str) -> usize {
+    content.bytes().filter(|byte| *byte == b'\n').count()
+}
+
+fn scan_lines(content: &str, first_source_line: usize, violations: &mut Vec<Violation>) {
+    for (line_offset, line) in content.lines().enumerate() {
+        for token in quantity_abbreviations(line) {
+            violations.push(Violation {
+                line: first_source_line + line_offset,
+                token,
+            });
+        }
+    }
+}
+
+fn quantity_abbreviations(segment: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    scan_ascii_quantity_abbreviations(segment, &mut tokens);
+    scan_mixed_chinese_quantity_style(segment, &mut tokens);
     tokens
 }
 
-fn backtick_run_length(bytes: &[u8], start: usize) -> usize {
-    bytes[start..]
-        .iter()
-        .take_while(|byte| **byte == b'`')
-        .count()
-}
-
-fn find_matching_backtick_run(
-    bytes: &[u8],
-    mut cursor: usize,
-    delimiter_length: usize,
-) -> Option<usize> {
-    while cursor < bytes.len() {
-        if bytes[cursor] != b'`' {
-            cursor += 1;
-            continue;
-        }
-        let run_length = backtick_run_length(bytes, cursor);
-        if run_length == delimiter_length {
-            return Some(cursor);
-        }
-        cursor += run_length;
-    }
-    None
-}
-
-fn scan_segment(segment: &str, tokens: &mut Vec<String>) {
+fn scan_ascii_quantity_abbreviations(segment: &str, tokens: &mut Vec<String>) {
     let bytes = segment.as_bytes();
     let mut cursor = 0;
 
@@ -263,8 +276,6 @@ fn scan_segment(segment: &str, tokens: &mut Vec<String>) {
 
         tokens.push(segment[start..cursor].to_string());
     }
-
-    scan_mixed_chinese_quantity_style(segment, tokens);
 }
 
 fn scan_mixed_chinese_quantity_style(segment: &str, tokens: &mut Vec<String>) {
@@ -323,7 +334,7 @@ mod tests {
     #[test]
     fn rejects_reader_facing_quantity_abbreviations() {
         assert_eq!(
-            find_violations("目标为 10k，研究边界为 1M。\n"),
+            find_markdown_violations("目标为 10k，研究边界为 1M。\n", 1),
             vec![
                 Violation {
                     line: 1,
@@ -338,15 +349,48 @@ mod tests {
     }
 
     #[test]
-    fn allows_exact_identifiers_in_code_format() {
+    fn allows_inline_and_fenced_exact_identifiers() {
         let content = "baseline 为 `run-10k-r1`。\n```text\nrun --scale 100k\n```\n";
-        assert!(find_violations(content).is_empty());
+        assert!(find_markdown_violations(content, 1).is_empty());
+    }
+
+    #[test]
+    fn allows_indented_and_container_nested_code_blocks() {
+        let content = concat!(
+            "命令：\n\n",
+            "    run --scale 100k\n\n",
+            "> ```text\n",
+            "> run --scale 100k\n",
+            "> ```\n\n",
+            "- 示例：\n\n",
+            "  ```text\n",
+            "  run --scale 100k\n",
+            "  ```\n",
+        );
+        assert!(find_markdown_violations(content, 1).is_empty());
+    }
+
+    #[test]
+    fn container_code_does_not_hide_following_prose() {
+        let content = concat!(
+            "> ```text\n",
+            "> run --scale 100k\n",
+            "> ```\n\n",
+            "正文仍禁止 100k。\n",
+        );
+        assert_eq!(
+            find_markdown_violations(content, 1),
+            vec![Violation {
+                line: 5,
+                token: "100k".to_string()
+            }]
+        );
     }
 
     #[test]
     fn rejects_unformatted_hyphenated_identifier() {
         assert_eq!(
-            find_violations("baseline 为 run-100k-r1。\n"),
+            find_markdown_violations("baseline 为 run-100k-r1。\n", 1),
             vec![Violation {
                 line: 1,
                 token: "100k".to_string()
@@ -356,13 +400,16 @@ mod tests {
 
     #[test]
     fn accepts_chinese_and_full_decimal_quantities() {
-        assert!(find_violations("一万、十万、一百万；10000、100000、1000000。\n").is_empty());
+        assert!(
+            find_markdown_violations("一万、十万、一百万；10000、100000、1000000。\n", 1)
+                .is_empty()
+        );
     }
 
     #[test]
     fn rejects_mixed_arabic_and_chinese_quantity_styles() {
         assert_eq!(
-            find_violations("目标为 1 万，研究边界为 100 万，抽样 1.5 万。\n"),
+            find_markdown_violations("目标为 1 万，研究边界为 100 万，抽样 1.5 万。\n", 1),
             vec![
                 Violation {
                     line: 1,
@@ -382,22 +429,74 @@ mod tests {
 
     #[test]
     fn accepts_versions_followed_by_chinese_quantities() {
-        assert!(find_violations("v0.3 十万与 v0.4 十万。\n").is_empty());
+        assert!(find_markdown_violations("v0.3 十万与 v0.4 十万。\n", 1).is_empty());
     }
 
     #[test]
-    fn checks_rustdoc_without_treating_runtime_strings_as_documentation() {
+    fn checks_line_block_and_literal_attribute_rustdoc() {
         let content = concat!(
-            "//! 十万规模由 `BENCH_100K` 启用。\n",
+            "//! 一万规模由 `BENCH_100K` 启用。\n",
             "/// 仍禁止 100k prose。\n",
+            "/** 块文档仍禁止 1M prose。 */\n",
+            "#[doc = \"属性文档仍禁止 10k prose。\"]\n",
+            "pub struct Documented;\n",
             "const LABEL: &str = \"100k runtime identifier\";\n",
         );
         assert_eq!(
-            find_rustdoc_violations(content),
+            find_rustdoc_violations(content).expect("valid Rust"),
+            vec![
+                Violation {
+                    line: 2,
+                    token: "100k".to_string()
+                },
+                Violation {
+                    line: 3,
+                    token: "1M".to_string()
+                },
+                Violation {
+                    line: 4,
+                    token: "10k".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn checks_inner_block_rustdoc_and_ignores_runtime_strings() {
+        let content = concat!(
+            "/*! 内部块文档仍禁止 100k prose。 */\n",
+            "const LABEL: &str = \"100k runtime identifier\";\n",
+        );
+        assert_eq!(
+            find_rustdoc_violations(content).expect("valid Rust"),
             vec![Violation {
-                line: 2,
+                line: 1,
                 token: "100k".to_string()
             }]
         );
+    }
+
+    #[test]
+    fn rustdoc_markdown_code_blocks_keep_exact_identifiers() {
+        let content = concat!(
+            "/// 示例：\n",
+            "///\n",
+            "///     run --scale 100k\n",
+            "///\n",
+            "/// ```text\n",
+            "/// run --scale 100k\n",
+            "/// ```\n",
+            "pub struct Documented;\n",
+        );
+        assert!(
+            find_rustdoc_violations(content)
+                .expect("valid Rust")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn invalid_rust_fails_closed() {
+        assert!(find_rustdoc_violations("pub struct Broken {").is_err());
     }
 }
