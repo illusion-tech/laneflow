@@ -57,7 +57,7 @@ ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial 
 
 ## 1. 结论与状态
 
-#291 冻结的目标不是“生成另一份 JSON 的工具”，而是新的静态数据体系：
+#291 G1 候选目标不是“生成另一份 JSON 的工具”，而是新的静态数据体系：
 
 下图为了对应精确类型名和代码搜索保留英文辅助别名；中文规范链路以上一节为准。
 图中英文不能独立改变架构语义。
@@ -104,8 +104,8 @@ StaticNetworkImage ─┬─> Traffic Runtime: StaticTrafficView + per-world mut
   partition/worker assignment 不进入稳定标识、可移植制品语义或共享镜像。
 - 静态镜像是一个不可变路网修订，而非城市永久不变；道路编辑通过新修订与失败关闭
   镜像切换事务进入运行世界。
-- LaneFlow 第一长期产品目标是服务中国特色城市模拟游戏交通基础，但城市经济、
-  出行需求、路线选择策略和游戏规则继续由上层拥有。
+- Proposed ADR 0021 提议把服务中国特色城市模拟游戏交通基础定义为 LaneFlow 第一
+  长期产品目标，并让城市经济、出行需求、路线选择策略和游戏规则继续由上层拥有。
 
 本文描述目标态。ADR 0020/0021 Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，
 现有 JSON/Data/Core/Spatial 路径仍是当前态生产契约。
