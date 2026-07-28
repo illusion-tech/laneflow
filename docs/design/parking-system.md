@@ -881,15 +881,16 @@ SignalPhaseChanged?
 
 Arrival与route completion互斥；release在completed event前。Failed step没有部分event list，retry从同一 committed world得到与fresh replay相同结果。
 
-## 12. Current data format 0.9（Parking shape 自 v0.5 保持不变）
+## 12. Current data format 0.10（Parking shape 自 v0.5 保持不变）
 
 ### 12.1 Implementation truth
 
 #107 曾在同一个 Delivery PR 中原子加入 Parking；#185 在保持 Parking
 shape/behavior 不变的前提下加入 per-edge speed limit 并迁移到 v0.7；#229 再加入
 static Junction/Maneuver domains 并迁移到 v0.8；#262 已加入 ParticipantClass、
-CrossSection 与 AccessRule 静态模型并把 current package 原子迁移到 v0.9。上述迁移
-均保持本节 Parking shape/behavior 不变；Runtime parking state 仍不进入 external
+CrossSection 与 AccessRule 静态模型并把当时 package 原子迁移到 v0.9；#281 再加入
+multi-Gate/WaitingZone 静态模型并把 current package 原子迁移到 v0.10。上述迁移均
+保持本节 Parking shape/behavior 不变；Runtime parking state 仍不进入 external
 package。
 
 ### 12.2 Package shape
@@ -897,7 +898,7 @@ package。
 唯一 current version：
 
 ```text
-formatVersion: "0.9"
+formatVersion: "0.10"
 active schema: schemas/laneflow-data-v0.10.schema.json
 ```
 
@@ -905,7 +906,7 @@ Root新增必填 closed object：
 
 ```text
 LaneFlowDataPackage
-  formatVersion: "0.9"
+  formatVersion: "0.10"
   units
   laneGraph
   junctions
@@ -919,6 +920,7 @@ LaneFlowDataPackage
   laneGroups
   roadCorridors
   accessRules
+  waitingZones
   signals
   parking: ParkingData
   extensions?
@@ -973,14 +975,14 @@ Schema identifier：
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.9.schema.json",
-  "title": "LaneFlow Data Package v0.9"
+  "$id": "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.10.schema.json",
+  "title": "LaneFlow Data Package v0.10"
 }
 ```
 
 该字符串按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval
-URL。v0.9 已登记固定 main provenance，并通过 HTTPS 200、合法 JSON、兼容 media
-type 与 byte equality live 验证；v0.8 作为已发布 immutable 历史 artifact 保留。
+URL。v0.10 当前是 source-only，后续 publication PR 才登记固定 main provenance
+并发布；v0.9 及更早已发布版本继续作为 immutable 历史 artifacts 保留。
 Publication CI/CD 持续保证 catalog 中已发布版本的 immutable source 与可取回性；
 Runtime、loader、Adapter 与 hermetic tests 永不联网解析 `$id`/`$schema`，公共
 hosting 不成为停车或数据加载行为依赖。
@@ -992,8 +994,8 @@ Production fail-fast order：
 ```text
 JSON syntax
 -> minimal formatVersion shape
--> exact 0.9 check
--> strict 0.9 DTO
+-> exact 0.10 check
+-> strict 0.10 DTO
 -> units
 -> ParticipantClasses
 -> Vehicle Profiles + participantClassId
@@ -1007,6 +1009,7 @@ JSON syntax
 -> orphan areas/reverse indexes
 -> FacilityBands / RoadSections / LaneGroups / RoadCorridors
 -> AccessRules
+-> WaitingZones
 -> routes + final-StopLine
 -> InitialTrafficData final assembly/rebind
 ```
@@ -1029,22 +1032,24 @@ Public loader surface不变，仍只接收in-memory bytes/string并返回单一c
    Junction/Movement/ManeuverPath 与 ManeuverGate，Parking shape 仍不变。
 4. #262 将 current Traffic contract clean-break 到 `0.9`，增加
    ParticipantClass/CrossSection/AccessRule，Parking shape 仍不变。
-5. 仓库 active examples 已随每次 current-format 迁移。
-6. Git/收口报告保留 v0.5/v0.7/v0.8 历史事实；已发布 schema bytes 作为 immutable
+5. #281 将 current Traffic contract clean-break 到 `0.10`，增加
+   multi-Gate/WaitingZone 静态模型，Parking shape 仍不变。
+6. 仓库 active examples 已随每次 current-format 迁移。
+7. Git/收口报告保留 v0.5/v0.7/v0.8/v0.9 历史事实；已发布 schema bytes 作为 immutable
    publication artifacts 保留。
-7. v0.8 及更早输入返回 `UnsupportedFormatVersion`，不自动补
-   ParticipantClass/CrossSection/Access、topology、limit 或 empty Parking，不提供
-   shim/converter。
+8. v0.9 及更早输入返回 `UnsupportedFormatVersion`，不自动补
+   WaitingZone、ParticipantClass/CrossSection/Access、topology、limit 或 empty
+   Parking，不提供 shim/converter。
 
 只保留两个active canonical fixtures：
 
-- `v0.9-parking-signals-baseline.laneflow.json`：non-empty Signals + Parking，显式
+- `v0.10-parking-signals-baseline.laneflow.json`：non-empty Signals + Parking，显式
   Junction/Movement/ManeuverPath/ManeuverGate、ParticipantClass/CrossSection/
-  AccessRule，area members + standalone、same/distinct entry/exit、正负 lateral、
-  zero/angled heading，不含 runtime state。
-- `v0.9-empty-signals-and-parking.laneflow.json`：Junction/Movement/ManeuverPath、
-  ParticipantClass/CrossSection/Access arrays、Signals 四数组和 Parking 两数组显式
-  提供，继续承担 route/profile/repeated-edge 回归。
+  AccessRule 与空 WaitingZone array，area members + standalone、same/distinct
+  entry/exit、正负 lateral、zero/angled heading，不含 runtime state。
+- `v0.10-empty-signals-and-parking.laneflow.json`：Junction/Movement/ManeuverPath、
+  ParticipantClass/CrossSection/Access/WaitingZone arrays、Signals 四数组和
+  Parking 两数组显式提供，继续承担 route/profile/repeated-edge 回归。
 
 ## 13. Performance contract
 
@@ -1186,7 +1191,8 @@ Exact private containers、compaction threshold和allocation crate不由本文�
 - 明确Core/data/Adapter影响、determinism、error/event order、tests、10k/100k、allocation/memory与activation chain；
 - 已由 #107 交付 v0.5 Parking、#108 交付 runtime authority/commands、#109 交付
   activation，并由 #110 完成端到端、性能、allocation/memory 与 pathological
-  profile 验证；#185 的 v0.7、#229 当时的 Traffic v0.8 与 #262 的 current
-  Traffic v0.9 迁移均保持 Parking shape/behavior 不变；#19 已完成最终独立收口审阅。
+  profile 验证；#185 的 v0.7、#229 当时的 Traffic v0.8、#262 当时的 Traffic
+  v0.9 与 #281 的 current Traffic v0.10 迁移均保持 Parking shape/behavior 不变；
+  #19 已完成最终独立收口审阅。
 
 若后续实施发现 authority 矛盾、局部 lookup 无法与 full-scan 语义等价、sparse atomicity 必须退化为 full-S/V hot path，或 guard 无法保持安全中间主线，必须回到本设计/ADR或拆 follow-up；不得用 private 实现静默改变 Accepted 语义。

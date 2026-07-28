@@ -1569,6 +1569,7 @@ fn signal_error_path(wire: &WireSignals, source: &CoreError) -> String {
                 |index| format!("signals.stopLines[{index}].edgeId"),
             ),
         CoreError::OrphanStopLine { stop_line_id, .. }
+        | CoreError::UnreferencedStopLine { stop_line_id, .. }
         | CoreError::MissingManeuverPathCoverage { stop_line_id, .. }
         | CoreError::MissingManeuverGateCoverage { stop_line_id, .. } => wire
             .stop_lines
