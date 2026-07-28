@@ -7,6 +7,7 @@ members = [
     "crates/laneflow-spatial",
     "research/issue-123-spatial-prototype",
     "tools/laneflow-corridor-generator",
+    "tools/laneflow-lust-converter",
     "xtask",
 ]
 resolver = "2"

@@ -3198,6 +3198,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-lust-converter"
+version = "0.0.0"
+dependencies = [
+ "jsonschema",
+ "laneflow-core",
+ "laneflow-data",
+ "laneflow-spatial",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.19",
+ "toml",
+]
+
+[[package]]
 name = "laneflow-scenario"
 version = "0.0.0"
 dependencies = [
@@ -4433,6 +4449,15 @@ dependencies = [
  "serde_derive",
  "typeid",
  "unicode-ident",
+]
+
+[[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
