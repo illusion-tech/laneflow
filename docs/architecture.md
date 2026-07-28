@@ -126,7 +126,11 @@ Graph）；v1 `PartitionPlanningHints` 节保存运行时可忽略或重建的�
 运行世界只能在显式安全边界通过失败关闭的镜像切换事务（Image Cutover
 Transaction）原子迁移。语义差异不能自行授予迁移权限，必须由独立验证或外部可信的
 路网修订切换描述符（Network Revision Cutover Descriptor）绑定，并用切换前后的
-稳定身份索引完成引用翻译。目标职责、上层边界与历史 ADR 的关系见 ADR 0020/0021；
+稳定身份索引完成引用翻译。每个修订由 independent validator 从目标无关规范路网
+语义载荷（Canonical Network Semantic Payload）重算的路网修订标识（Network
+Revision ID）`NetworkRevisionId` 认证；验证收据、静态镜像描述符及切换描述符分别
+绑定该标识，Runtime 不接受调用方或镜像头自报修订。
+目标职责、上层边界与历史 ADR 的关系见 ADR 0020/0021；
 在二者 Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，本文其余 current 章节
 继续有效。
 
@@ -245,8 +249,9 @@ Initial/static occurrence 由 compiler
 继续只使用 typed dense handle。
 
 运行时快照（Runtime Snapshot）是与 image bytes 分离的版本化制品，必须绑定
-canonical artifact digest、路网修订、原始静态镜像摘要、运行时/约束版本、world
-identity、tick、输入命令游标和全部每世界可变状态；同一修订可以在契约版本兼容且
+canonical artifact digest、版本化路网修订标识、原始静态镜像摘要、运行时/约束
+版本、world identity、tick、输入命令游标和全部每世界可变状态；同一修订可以在
+契约版本兼容且
 `StaticIdentityIndex` 能完整重建引用时恢复到另一个可信 target/profile image，
 原始镜像摘要只作为审计绑定与同镜像快速路径。dense ordinal 不能跨路网修订直接复用。
 回放使用显式输入命令流、checkpoint 与确定性状态摘要，调试构建可通过冷诊断和源映射

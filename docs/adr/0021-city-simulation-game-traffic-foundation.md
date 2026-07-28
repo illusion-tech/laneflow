@@ -92,9 +92,10 @@ LaneFlow 的第一长期产品目标定义为：
 不拥有全局路径成本政策。路径规划/出行编排层结合静态网络、已提交交通观测、收费、
 游戏政策和出行偏好构造动态成本快照（Dynamic Cost Snapshot），并拥有其版本与
 成本模型；Traffic Runtime 只验证/注册候选动态通行定义并安全执行。当前道路机动车
-执行域的具体投影是 `Route`。动态成本快照和候选动态通行定义必须绑定路网修订、
-观测固定步进与成本模型版本；Runtime 对修订不匹配的候选失败关闭，过期容忍策略由
-Routing G1 显式冻结。
+执行域的具体投影是 `Route`。动态成本快照和候选动态通行定义必须绑定从
+`TrustedStaticImage` 静态视图或已提交观测快照取得的路网修订标识、观测固定步进与
+成本模型版本；Runtime 对修订不匹配的候选失败关闭，并继续验证候选稳定引用和拓扑，
+不能以修订标识相等替代内容验证。过期容忍策略由 Routing G1 显式冻结。
 
 本 ADR 不冻结路径规划服务的 crate、算法或公共 API。后续 G1 可以选择独立
 `laneflow-routing` 或宿主自有实现，但交通运行时的参与单元热路径不得执行全图
@@ -164,6 +165,14 @@ LaneFlow 中可独立保留身份的计数原子，例如当前一辆道路机�
 “静态路网”表示一个已编译路网修订（Network Revision）在其生命周期内不可变，
 不表示城市道路从游戏开始到结束永不改变。
 
+路网修订以路网修订标识（Network Revision ID）`NetworkRevisionId` 认证：它是
+independent validator 从 portable artifact 的目标无关规范路网语义载荷（Canonical
+Network Semantic Payload）独立重算的版本化不透明摘要，不是调用方编号，也不等同
+于完整 artifact/image bytes digest。
+Validation receipt、`StaticImageDescriptor` 与切换描述符必须分别绑定该标识；
+Runtime 当前修订只来自 `TrustedStaticImage`。相同语义的不同 target/profile image
+共享修订，布局或工具 provenance 变化不制造伪修订。
+
 玩家或工具修改权威来源模块后：
 
 1. 增量编译器生成新的可移植规范制品、目标静态镜像、源映射和语义差异；
@@ -200,6 +209,7 @@ token 退出后再回收。准备或提交失败时世界继续绑定旧修订�
 - `originStaticImageDigest`
 - `runtimeSnapshotVersion`
 - 交通运行时版本和约束版本
+- `networkRevisionDerivationVersion + networkRevision`
 - world identity、tick/time、输入命令序列游标
 - 仅在后续 G1 显式授予 Traffic Runtime 随机权威时，才包含运行时自有随机流状态
 - 全部每世界可变交通状态
@@ -209,12 +219,14 @@ token 退出后再回收。准备或提交失败时世界继续绑定旧修订�
 同镜像快速恢复。恢复可以改用绑定相同规范制品、路网修订和 identity/constraint
 versions 的另一可信 image，但必须通过其生产必需的 `StaticIdentityIndex` 重建全部
 稳定静态引用；否则失败关闭。
+快照中的修订 token 只能从当前 `TrustedStaticImage` descriptor 复制，恢复时也只与
+候选可信 descriptor 比较；Save Manifest、调用方参数或 image header 不能覆盖它。
 
 跨路网修订恢复必须显式执行快照迁移，并使用旧/新 `StaticIdentityIndex` 与受信任
 语义差异；不能把旧 dense ordinal 直接解释为新镜像实体。参与迁移的语义差异必须
-由外部 `NetworkRevisionCutoverDescriptor` 绑定 base/target 制品与镜像摘要、
-`semanticDiffDigest`、migration policy version 和独立 validation receipt；裸
-compiler diff 只能用于诊断。
+由外部 `NetworkRevisionCutoverDescriptor` 绑定 base/target 路网修订标识、制品与
+镜像摘要、`semanticDiffDigest`、migration policy version 和独立 validation
+receipt；裸 compiler diff 只能用于诊断。
 
 动态通行定义、交通参与单元和其他运行时实体必须使用快照局部标识
 （Snapshot-local Identity）保存引用关系；当前动态 Route 或未来各执行域的等价

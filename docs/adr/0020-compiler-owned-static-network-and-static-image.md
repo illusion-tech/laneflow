@@ -261,6 +261,7 @@ image 中剥离，但 `StaticIdentityIndex` 不能被裁掉；可通过共享只
 - `canonicalFormatVersion`
 - `identityEncodingVersion`
 - `identityRegistryRevision`
+- `networkRevisionDerivationVersion`
 - `staticImageLayoutVersion`
 - `staticImageProfileId`
 - `staticImageDescriptorVersion`
@@ -274,6 +275,7 @@ image 中剥离，但 `StaticIdentityIndex` 不能被裁掉；可通过共享只
 - `validatorBuildId`
 - `constraintSetVersion`
 - `targetTriple`
+- `networkRevision`
 - `canonicalArtifactDigest`
 - `staticImageDigest`
 - `semanticDiffDigest`
@@ -283,6 +285,19 @@ image 中剥离，但 `StaticIdentityIndex` 不能被裁掉；可通过共享只
 自己的 digest 嵌回自身 byte sequence。Publication manifest / external descriptor
 负责保存目标对象的 digest；image header 可以保存另一个对象的
 `canonicalArtifactDigest`，但不保存自己的 `staticImageDigest`。
+
+路网修订标识（Network Revision ID）`NetworkRevisionId` 不复用上述 exact-bytes
+digest。v1 以带域分离（Domain Separation）的 SHA-256 对冻结的目标无关规范路网
+语义载荷（Canonical Network Semantic Payload）计算 `networkRevision`；该载荷包含
+identity/constraint/execution-constraint versions
+和全部静态网络语义，排除摘要自身、artifact envelope、工具 provenance、source
+map/diagnostics、publication metadata、target/profile/layout。Independent validator
+必须从 portable artifact 独立重算；validation receipt、`StaticImageDescriptor`
+和 image header 的外部核对必须绑定
+`networkRevisionDerivationVersion + networkRevision`。因此同一规范语义的不同
+target/profile image 共享修订，而任何运行时可观察静态语义变化都会产生新修订。
+相同 `NetworkRevisionId` 对应不同规范路网语义载荷时 publication/cutover 必须以
+`NetworkRevisionDigestCollision` 失败关闭，不得追加 ordinal、salt 或 suffix。
 
 loader/runtime 对 static image layout、target、profile、descriptor 与 digest 采用 exact-current、
 fail-closed 规则；不在生产启动路径执行历史迁移。旧 authoring/canonical artifact
@@ -295,9 +310,9 @@ canonical artifact 不变时因布局或 CPU target 变化而重建。
 2. **Independent artifact validator**：只消费 portable canonical artifact 和公开
    constraint contract，独立实现 topology、标识、ownership、coverage、
    geometry 与 occurrence 检查；不得调用 compiler semantic validation；
-3. **Validation receipt / external descriptor**：绑定 artifact/image digest、target、
-   profile、constraint、compiler/validator build；其 authenticity 由签名 publication
-   manifest、宿主认证 asset chain 或 pinned digest 提供；
+3. **Validation receipt / external descriptor**：绑定路网修订标识、artifact/image
+   digest、target、profile、constraint、compiler/validator build；其 authenticity
+   由签名 publication manifest、宿主认证 asset chain 或 pinned digest 提供；
 4. **Static image structural verifier**：对不可信 bytes 有界检查 header、版本、
    offset/alignment、table/range/cross-index、numeric/runtime precondition 和 load
    limits，不重跑全量 authoring 语义。
@@ -314,9 +329,10 @@ Published trusted image 必须匹配外部 descriptor；local build 必须绑定
 independent validation receipt；untrusted external input 必须提供 portable artifact
 并在本地验证/重建，只有 image bytes 时拒绝。
 
-Validation receipt 必须记录 artifact semantic validation 与 independent image
-rebuild comparison 的成功结果。未完成两者时不得签发可进入 production fast path
-的 descriptor。
+Validation receipt 必须记录 artifact semantic validation、路网修订标识独立重算
+与 independent image rebuild comparison 的成功结果。未完成三者时不得签发可进入
+production fast path 的 descriptor。运行时当前修订只来自已认证
+`StaticImageDescriptor`，不接受调用方或 image header 自报。
 
 ### 9. 包（Crate）目标边界
 
@@ -332,8 +348,9 @@ laneflow-spatial --------> laneflow-static-contract / runtime / static-image
 laneflow-adapter-* ------> laneflow-runtime / spatial / static-image
 ```
 
-`laneflow-static-contract` 只拥有 StableId/kind/tag、typed ordinal 和
-version/digest/profile primitives，不依赖 Serde、filesystem、Runtime 或 Spatial。
+`laneflow-static-contract` 只拥有 StableId/kind/tag、`NetworkRevisionId`、typed
+ordinal 和 version/digest/profile primitives，不依赖 Serde、filesystem、Runtime
+或 Spatial。
 `laneflow-static-image` 只拥有 image ABI、section/profile、bounded verifier 和
 borrowed views，不依赖 compiler/validator/Runtime/Spatial。
 
@@ -401,10 +418,12 @@ tick 的规范输入；跨分区依赖不能通过额外一 tick 边界邻域延
 ### 12. 运行时快照、回放和路径规划不进入共享静态权威
 
 运行时快照（Runtime Snapshot）是独立版本化制品，至少绑定规范制品摘要、创建快照
-时的 `originStaticImageDigest`、运行时/约束/快照版本、路网修订、world identity、
-tick、输入命令游标和全部每世界可变交通状态；只有后续 G1 显式授予的 Runtime 自有
-随机流才进入该快照。Caller-owned seed/随机流由上层 Save Manifest 绑定，不进入
-Traffic Runtime 隐藏状态。
+时的 `originStaticImageDigest`、运行时/约束/快照版本、
+`networkRevisionDerivationVersion + networkRevision`、world identity、tick、
+输入命令游标和全部每世界可变交通状态；只有后续 G1 显式授予的 Runtime 自有随机流
+才进入该快照。Caller-owned seed/随机流由上层 Save Manifest 绑定，不进入 Traffic
+Runtime 隐藏状态。保存和恢复只能从 `TrustedStaticImage` descriptor 复制/比较
+修订 token，不能由调用方或镜像头覆盖。
 
 同修订恢复可以使用另一个已认证 target/profile image，但必须绑定相同规范制品、
 路网修订、identity/constraint versions，并通过 `StaticIdentityIndex` 完整重建稳定
@@ -416,9 +435,11 @@ Traffic Runtime 隐藏状态。
 
 运行时若用 semantic diff 驱动迁移，外部可信
 `NetworkRevisionCutoverDescriptor` 必须绑定 base/target canonical artifact 和
-static image digest、exact `semanticDiffDigest`、migration policy version 与独立
-validation receipt；Runtime 再以旧/新 `StaticIdentityIndex` 复核全部映射。未绑定
-或验证的 diff 只能用于诊断，不得成为状态迁移权威。
+static image digest、base/target 路网修订标识、exact `semanticDiffDigest`、
+migration policy version 与独立 validation receipt；Runtime 先核对其
+base/target revision/artifact/image 三元组与两个可信 image descriptor 精确一致，
+再以旧/新 `StaticIdentityIndex` 复核全部映射。未绑定或验证的 diff 只能用于诊断，
+不得成为状态迁移权威。
 运行时执行计划在恢复时按当前硬件重建，快照不得要求复现原分区/工作线程布局。
 
 回放使用显式输入命令序列（Input Command Sequence）、checkpoint 和确定性状态
@@ -428,10 +449,11 @@ phase、实体和资源组件。
 交通运行时从已提交状态导出交通观测快照，不拥有全局成本政策。路径规划/出行编排
 层结合静态网络、观测、收费、游戏政策和偏好构造动态成本快照并产生候选路径。
 出行需求和路线选择策略由上层出行与交通编排拥有；交通参与单元 fixed-tick 热路径
-不执行全图寻路。成本快照和候选通行定义绑定路网修订、观测 tick 与成本模型版本；
-当前车辆执行域使用 Route，未来执行域由其 G1 冻结等价通行定义。Runtime 对修订
-不匹配失败关闭。具体过期容忍、快照线格式、摘要算法、routing crate/API 与跨修订
-迁移算法由后续独立 G1 冻结。
+不执行全图寻路。成本快照和候选通行定义绑定从 `TrustedStaticImage` 静态视图或已
+提交观测快照取得的路网修订 token、观测 tick 与成本模型版本；当前车辆执行域使用
+Route，未来执行域由其 G1 冻结等价通行定义。Runtime 对修订不匹配失败关闭，并继续
+验证候选静态引用/拓扑；修订标识相等不替代内容验证。具体过期容忍、快照线
+格式、摘要算法、routing crate/API 与跨修订迁移算法由后续独立 G1 冻结。
 
 ## 性能与确定性契约
 
