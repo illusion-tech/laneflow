@@ -273,7 +273,9 @@ owner-local occurrence 与全部 table row 的 typed `u32` ordinal，冻结完�
 kind/tag registry、严格 field order、known vectors、BLAKE3-128 持久 identity 和
 XXH3 compiler-only 加速。基础 `LaneEdge` 使用独立稳定边键；RoadSection 覆盖与
 Junction internal role 不参与边身份，合法未覆盖边同样进入身份索引。Static image
-采用 Traffic 与冷稳定身份索引（Static
+只保留 ID/ordinal 冷索引；完整规范身份表（Canonical Identity Table）
+`CanonicalIdentityTable` 进入 portable artifact，供 independent validator 从前像
+独立重算身份。Static image 采用 Traffic 与冷稳定身份索引（Static
 Identity Index，`StaticIdentityIndex`）mandatory、Spatial profile optional；稳定
 身份索引服务快照恢复（Snapshot Restore）、dynamic Route 重建与修订切换
 （Revision Cutover），不进入 steady tick，也不能被 headless/production profile

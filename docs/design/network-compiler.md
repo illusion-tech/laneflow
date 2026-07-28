@@ -618,6 +618,9 @@ entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest �
 - canonical format、identity encoding/registry、network revision derivation 与
   constraint versions；
 - 路网修订标识（Network Revision ID）`NetworkRevisionId`；
+- 规范身份表（Canonical Identity Table）`CanonicalIdentityTable`：对每个稳定实体
+  保存 `entityKind`、typed ordinal、制品声明的 `StableId128` 与完整有序
+  `(fieldTag, fieldValue)` 规范元组前像；该表属于制品语义，不是可裁剪诊断；
 - logical entities、typed ordinals、normalized numeric values；
 - topology/geometry/static rule relations；
 - canonical payload envelope 与 compiler provenance；自身 digest 不嵌入 artifact
@@ -639,15 +642,15 @@ networkRevision =
 
 规范路网语义载荷（Canonical Network Semantic Payload）
 `canonicalNetworkSemanticPayload` 是冻结编码的目标无关规范字节，包含 identity
-encoding/registry、constraint/execution-constraint versions，以及全部目标无关的
-拓扑、几何、静态规则、规范 relation 和静态执行约束；不包含该摘要自身、artifact
-envelope、compiler/validator provenance、source map/diagnostics、publication
-metadata、target、profile 或 image layout。这样相同规范语义在不同 compiler
-provenance 与 target/profile image 中保持同一修订，而任何运行时可观察静态语义或
-参与派生的契约版本变化都会产生新修订。Compiler 在 LIR freeze 后计算该字段；
-independent validator 必须从 artifact semantic payload 独立重算并逐字节比较，
-不能信任 artifact 内自报的值。`canonicalArtifactDigest` 仍认证完整 artifact exact
-bytes，二者不得互相替代。
+encoding/registry、完整 `CanonicalIdentityTable`、constraint/execution-constraint
+versions，以及全部目标无关的拓扑、几何、静态规则、规范 relation 和静态执行约束；
+不包含该摘要自身、artifact envelope、compiler/validator provenance、source
+map/diagnostics、publication metadata、target、profile 或 image layout。这样相同
+规范语义在不同 compiler provenance 与 target/profile image 中保持同一修订，而任何
+运行时可观察静态语义或参与派生的契约版本变化都会产生新修订。Compiler 在 LIR
+freeze 后计算该字段；independent validator 必须从 artifact semantic payload 独立
+重算并逐字节比较，不能信任 artifact 内自报的值。`canonicalArtifactDigest` 仍认证
+完整 artifact exact bytes，二者不得互相替代。
 若 publication 或 cutover 同时观察到相同 `NetworkRevisionId` 对应不同
 `canonicalNetworkSemanticPayload` exact bytes，必须以
 `NetworkRevisionDigestCollision` 失败关闭；不得追加 ordinal、随机 salt 或 suffix。
@@ -692,6 +695,9 @@ v1 profile 是版本化 closed set，不允许调用方任意拼 feature bits：
   declaration/addressable-derived 提供 typed ordinal → StableId128 的正向表，以及按
   `(entityKind, StableId128)` 排序的 StableId128 → typed ordinal 反向表；它服务
   snapshot save/load、dynamic Route 重建和 network-revision cutover；
+- portable artifact 的 `CanonicalIdentityTable` 是独立验证所需前像权威；
+  static image 只保留上述 `StaticIdentityIndex`，不复制 field-tag/value 前像，生产
+  Runtime 因而不为验证元数据承担 retained memory 或 cache 成本；
 - 身份索引可以独立分页、按需映射或在 steady tick 期间不驻留 CPU cache，但不得与
   `ColdDiagnostics` 一起从 production profile 裁掉；
 - `sectionMask` 必须与 profile 的 closed section set 精确匹配；缺失、额外或未知
@@ -761,7 +767,10 @@ target/layout/profile 下产生相同 exact bytes digest。Validation receipt �
 源映射按标识类别选择 key：
 
 - owning declaration 和 contributing spans；
-- declaration/addressable-derived 使用 StableId128 与 canonical identity tuple；
+- declaration/addressable-derived 使用
+  `(entityKind, StableId128, typed ordinal)` 引用 portable artifact 中的
+  `CanonicalIdentityTable` row，并附加 source span / provenance；可以为诊断展示
+  冗余规范元组，但该副本不是 validator 输入或身份权威；
 - owner-local relation/occurrence 使用 owning StableId128、typed role 和本次
   compilation 的 `localIndex`；
 - 所有记录保留 LIR table/ordinal 作为本次 compilation 的定位；
@@ -1014,8 +1023,8 @@ Routing G1 冻结。
 
 ```text
 source module graph ─> compiler ─> canonical artifact ─> independent validator
-                              │                           └> validation receipt
-                              └> target static image ───────> structural verifier
+                              │      (identity preimages)   └> validation receipt
+                              └> target static image ─────────> structural verifier
 
 canonical artifact + validation receipt
   ─> independent image rebuild ─> byte/digest comparison
@@ -1030,9 +1039,23 @@ independent validator 不调用 compiler semantic validation。两者可以共�
 emitter 的 layout population 实现。只有 artifact validation 与 image rebuild
 comparison 都成功，publication 才能签发 trusted descriptor/receipt。
 
+对 `CanonicalIdentityTable`，independent validator 必须：
+
+1. 按 `identityRegistryRevision` 检查每个 kind 的 required tag sequence、ASCII /
+   16-byte 长度、顺序和字段类型；
+2. 解析 parent anchor 并证明其引用的 kind / `StableId128` 与 artifact 中目标 row
+   一致，不接受只在 source map 中出现的补充字段；
+3. 从 field-tag/value 前像独立构造 canonical bytes，重算带域分离的 BLAKE3-128，
+   与 row 声明的 `StableId128` 逐字节比较；
+4. 独立执行 duplicate canonical tuple 与 digest-collision 检查。
+
+缺失前像、source-map-only 前像、前像 / 声明 ID 不匹配或无法闭合 parent anchor
+都必须使 artifact validation 失败，不得签发 validation receipt。
+
 验证矩阵：
 
-- identity known vectors、reorder/insertion/metamorphic tests；
+- identity known vectors、reorder/insertion/metamorphic tests，以及 compiler 故意写错
+  `StableId128`、删除 / 篡改前像或 parent anchor 时 independent validator 的拒绝；
 - clean/incremental/parallel equivalence；
 - compiler vs independent validator differential/fuzz；
 - canonical artifact corruption 和 static image offset/range/limit fuzz；
@@ -1257,7 +1280,7 @@ Cutover 前必须证明：
 | 镜像头声明被误当作信任（Header-as-Trust）                                    | 恶意但结构合法的镜像绕过语义闸口                 | 外部描述符、验证收据、不可信重建                             |
 | 未认证路网修订（Unauthenticated Network Revision）                           | 快照/路由绕过修订检查或兼容恢复误拒绝            | 语义载荷派生标识；descriptor/receipt/cutover 三重绑定        |
 | 中间表示泄漏运行时类型（IR Leaks Runtime Types）                             | 后端 / 目标被当前核心对象图锁死                  | 静态契约、目标中立 LIR、无环包依赖图                         |
-| 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效                   | 精确种类 / 标签登记表、已知向量、变形测试                    |
+| 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效                   | 制品内规范身份表、独立重算、已知向量、变形测试               |
 | 边身份耦合可选角色（Edge Identity Coupled to Optional Role）                 | 未覆盖边无身份，或调整 overlay 造成伪删除 / 新增 | `LaneEdge` 独立稳定键；RoadSection/Junction 只保存关系       |
 | 增量 / 并行非确定性（Incremental / Parallel Nondeterminism）                 | CI / 发布字节漂移                                | 干净单线程预言机、稳定合并                                   |
 | 配置档边界错误（Profile Boundary Error）                                     | 无图形配置档携带几何，或交叉索引漂移             | 交通必需 / 空间可选矩阵、配置档测试                          |
