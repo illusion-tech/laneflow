@@ -87,12 +87,12 @@ ScenarioManifest（场景清单）
   formatVersion: "0.1"
   traffic/spatial: artifactRef + mediaType + raw byte size + SHA-256 digest
 
-TrafficPackage v0.9（当前有效）
+TrafficPackage v0.10（当前 source/loader；source-only）
   laneGraph.edges[].id / length / connections
   junctions / movements / maneuverPaths
   routes / profiles / signals / parking
   participantClasses / facilityBands / roadSections
-  laneGroups / roadCorridors / accessRules
+  laneGroups / roadCorridors / accessRules / waitingZones
 
 SpatialPackage v0.1
   formatVersion: "0.1"

@@ -112,8 +112,8 @@ Validation：
 ### 4.2 Package 版本
 
 Vehicle Profile shape 由 current
-`schemas/laneflow-data-v0.10.schema.json` 承载。以下概念 package 同步列出 v0.9
-必填的 ParticipantClass 与横断面/准入顶层 arrays：
+`schemas/laneflow-data-v0.10.schema.json` 承载。以下概念 package 同步列出 current
+v0.10 必填的 ParticipantClass、横断面/准入与 WaitingZone 顶层 arrays：
 
 ```json
 {
@@ -152,6 +152,7 @@ Vehicle Profile shape 由 current
   "laneGroups": [],
   "roadCorridors": [],
   "accessRules": [],
+  "waitingZones": [],
   "signals": {
     "stopLines": [],
     "maneuverGates": [],
@@ -174,9 +175,10 @@ Vehicle Profile shape 由 current
 - 每个 VehicleProfile 必填 `participantClassId` 并引用已声明 ParticipantClass；
   current static AccessRule 在 `(ParticipantClass, Route)` 绑定期校验，不改变 IIDM
   profile 数值或 longitudinal solver。
+- 顶层 `waitingZones` 必填，允许空数组；它不改变 Vehicle Profile wire shape。
 - 顶层 `vehicleProfiles` 必填，允许空数组。
 - Core-defined objects 继续采用 closed shape。
-- production loader 只接受 `"0.9"`；v0.8 及更早版本和未来版在 current shape
+- production loader 只接受 `"0.10"`；v0.9 及更早版本和未来版在 current shape
   validation 前返回 version error。
 - 不隐式合成 profile，不提供历史格式 compatibility shim。
 - current format 不持久化 initial vehicles、spawn schedule、demand、runtime handles 或 Adapter metadata。

@@ -1005,7 +1005,7 @@ impl SignalRegistry {
                         (*candidate == stop_line).then_some(gate.transition_index())
                     });
             let Some(first_transition) = gate_transitions.next() else {
-                return Err(CoreError::OrphanStopLine {
+                return Err(CoreError::UnreferencedStopLine {
                     stop_line_id: resolved.definition.id().to_owned(),
                     edge_id: resolved.definition.edge_id().to_owned(),
                 });

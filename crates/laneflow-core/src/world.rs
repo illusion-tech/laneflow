@@ -1981,8 +1981,15 @@ impl CoreWorld {
         // static feasibility second, then stateful bootstrap/runtime capability.
         self.validate_route_access(profile, route, cursor)?;
         self.validate_waiting_zone_static_feasibility(profile, route, cursor)?;
-        self.validate_waiting_zone_bootstrap(route, cursor)?;
+        self.validate_stateful_maneuver_bootstrap(route, cursor)?;
         self.validate_waiting_zone_runtime_capability(route, cursor)
+    }
+
+    fn waiting_zone_occurrence_is_pending(
+        occurrence: WaitingZoneOccurrence,
+        cursor: usize,
+    ) -> bool {
+        cursor <= occurrence.release_route_edge_index()
     }
 
     fn validate_waiting_zone_static_feasibility(
@@ -1999,8 +2006,7 @@ impl CoreWorld {
             .expect("validated profile must exist");
         let required_meters = vehicle_profile.iidm().length;
         for occurrence in &route_slot.waiting_zone_occurrences {
-            let maneuver = route_slot.maneuver_occurrences[occurrence.maneuver_occurrence_index()];
-            if maneuver.exit_route_edge_index() <= cursor {
+            if !Self::waiting_zone_occurrence_is_pending(*occurrence, cursor) {
                 continue;
             }
             let available_meters = occurrence.empty_storage_meters();
@@ -2022,7 +2028,7 @@ impl CoreWorld {
         Ok(())
     }
 
-    fn validate_waiting_zone_bootstrap(
+    fn validate_stateful_maneuver_bootstrap(
         &self,
         route: RouteHandle,
         cursor: usize,
@@ -2030,21 +2036,28 @@ impl CoreWorld {
         let route_slot = self
             .route_slot(route)
             .expect("validated route handle must remain active");
-        for occurrence in &route_slot.waiting_zone_occurrences {
-            let maneuver = route_slot.maneuver_occurrences[occurrence.maneuver_occurrence_index()];
-            if cursor > occurrence.entry_route_edge_index()
+        for maneuver in &route_slot.maneuver_occurrences {
+            let gate_range = maneuver.gate_occurrence_range();
+            let waiting_zone_range = maneuver.waiting_zone_occurrence_range();
+            let is_stateful = gate_range.len() > 1 || !waiting_zone_range.is_empty();
+            if !is_stateful {
+                continue;
+            }
+            let first_gate = route_slot.gate_occurrences[gate_range.start];
+            if cursor > first_gate.from_route_edge_index()
                 && cursor < maneuver.exit_route_edge_index()
             {
-                return Err(WaitingZoneError::BootstrapUnavailable {
+                return Err(CoreError::StatefulManeuverBootstrapUnavailable {
                     route_id: route_slot.external_id.clone(),
-                    waiting_zone_id: self
-                        .waiting
-                        .waiting_zone_external_id(occurrence.waiting_zone())
-                        .expect("compiled WaitingZone occurrence must exist")
+                    maneuver_path_id: self
+                        .junctions
+                        .maneuver_path_external_id(maneuver.maneuver_path())
+                        .expect("compiled ManeuverPath occurrence must exist")
                         .to_owned(),
+                    first_gate_route_edge_index: first_gate.from_route_edge_index(),
+                    exit_route_edge_index: maneuver.exit_route_edge_index(),
                     cursor,
-                }
-                .into());
+                });
             }
         }
         Ok(())
@@ -2061,11 +2074,7 @@ impl CoreWorld {
         if let Some(occurrence) = route_slot
             .waiting_zone_occurrences
             .iter()
-            .find(|occurrence| {
-                route_slot.maneuver_occurrences[occurrence.maneuver_occurrence_index()]
-                    .exit_route_edge_index()
-                    > cursor
-            })
+            .find(|occurrence| Self::waiting_zone_occurrence_is_pending(**occurrence, cursor))
         {
             return Err(WaitingZoneError::RuntimeUnavailable {
                 route_id: route_slot.external_id.clone(),

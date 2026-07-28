@@ -648,13 +648,32 @@ pub enum CoreError {
         stop_line_id: String,
         maneuver_path_id: String,
     },
-    /// StopLine 必须位于至少有一个 outgoing connection 的 edge 并被 path/Gate 使用。
+    /// StopLine 不得位于没有 outgoing connection 的 terminal edge。
     #[error("StopLine `{stop_line_id}` 位于 terminal edge `{edge_id}`，无法形成 ManeuverPath")]
     OrphanStopLine {
         stop_line_id: String,
         edge_id: String,
     },
-    /// WaitingZone 静态模型、绑定与 capability guard 错误。
+    /// 非 terminal edge 上的 StopLine 必须至少被一个 ManeuverGate 引用。
+    #[error(
+        "StopLine `{stop_line_id}` 位于非 terminal edge `{edge_id}`，但未被任何 ManeuverGate 引用"
+    )]
+    UnreferencedStopLine {
+        stop_line_id: String,
+        edge_id: String,
+    },
+    /// stateful Maneuver occurrence 内部 cursor 的 bootstrap 尚未实现。
+    #[error(
+        "route `{route_id}` cursor={cursor} 位于 ManeuverPath `{maneuver_path_id}` 的 stateful occurrence 内部：firstGateRouteEdgeIndex={first_gate_route_edge_index}, exitRouteEdgeIndex={exit_route_edge_index}；bootstrap capability 尚未实现"
+    )]
+    StatefulManeuverBootstrapUnavailable {
+        route_id: String,
+        maneuver_path_id: String,
+        first_gate_route_edge_index: usize,
+        exit_route_edge_index: usize,
+        cursor: usize,
+    },
+    /// WaitingZone 静态模型、绑定与 runtime capability guard 错误。
     #[error(transparent)]
     WaitingZone(#[from] WaitingZoneError),
     /// Route 不得终止在声明 StopLine 的 edge 上。
@@ -1125,15 +1144,6 @@ pub enum WaitingZoneError {
         waiting_zone_id: String,
         available_meters: f64,
         required_meters: f64,
-    },
-    /// stateful occurrence 内部 cursor 的 bootstrap 尚未实现。
-    #[error(
-        "route `{route_id}` cursor={cursor} 位于 WaitingZone `{waiting_zone_id}` 的 stateful maneuver occurrence 内部；bootstrap capability 尚未实现"
-    )]
-    BootstrapUnavailable {
-        route_id: String,
-        waiting_zone_id: String,
-        cursor: usize,
     },
     /// WaitingZone runtime authority 尚未实现，禁止静默穿越。
     #[error(

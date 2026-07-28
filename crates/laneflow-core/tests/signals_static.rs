@@ -529,6 +529,53 @@ fn duplicate_non_entry_gate_transition_is_rejected_and_unique_gate_is_supported(
 }
 
 #[test]
+fn terminal_and_unreferenced_stop_lines_have_distinct_errors() {
+    let graph = canonical_graph();
+    let junctions = canonical_junctions(&graph);
+    let terminal = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [stop_line("terminal-stop", "through")],
+        std::iter::empty::<SignalGroup>(),
+        std::iter::empty::<SignalController>(),
+        std::iter::empty::<ManeuverGate>(),
+    )
+    .expect_err("terminal StopLine must fail");
+    assert_eq!(
+        terminal.to_string(),
+        "StopLine `terminal-stop` 位于 terminal edge `through`，无法形成 ManeuverPath"
+    );
+    std::assert_matches!(
+        terminal,
+        CoreError::OrphanStopLine {
+            stop_line_id,
+            edge_id,
+        } if stop_line_id == "terminal-stop" && edge_id == "through"
+    );
+
+    let unreferenced = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [stop_line("unreferenced-stop", "entry")],
+        std::iter::empty::<SignalGroup>(),
+        std::iter::empty::<SignalController>(),
+        std::iter::empty::<ManeuverGate>(),
+    )
+    .expect_err("non-terminal StopLine without a Gate reference must fail");
+    assert_eq!(
+        unreferenced.to_string(),
+        "StopLine `unreferenced-stop` 位于非 terminal edge `entry`，但未被任何 ManeuverGate 引用"
+    );
+    std::assert_matches!(
+        unreferenced,
+        CoreError::UnreferencedStopLine {
+            stop_line_id,
+            edge_id,
+        } if stop_line_id == "unreferenced-stop" && edge_id == "entry"
+    );
+}
+
+#[test]
 fn stop_line_requires_path_and_gate_coverage_for_every_outgoing_connection() {
     let graph = canonical_graph();
     let no_bypass = JunctionRegistry::try_new(

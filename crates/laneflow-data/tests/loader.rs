@@ -916,6 +916,42 @@ fn maneuver_path_role_conflicts_point_to_the_later_definition() {
 
 #[test]
 fn global_coverage_and_route_final_stop_line_errors_are_structured() {
+    let mut terminal = empty_value();
+    terminal["signals"]["stopLines"] =
+        json!([{ "id": "terminal-stop", "edgeId": "exit", "location": "edgeEnd" }]);
+    let (path, source) =
+        into_core_domain(load_value(terminal).expect_err("terminal StopLine must fail"));
+    assert_eq!(path, "signals.stopLines[0]");
+    assert_eq!(
+        source.to_string(),
+        "StopLine `terminal-stop` 位于 terminal edge `exit`，无法形成 ManeuverPath"
+    );
+    std::assert_matches!(
+        source,
+        CoreError::OrphanStopLine {
+            stop_line_id,
+            edge_id,
+        } if stop_line_id == "terminal-stop" && edge_id == "exit"
+    );
+
+    let mut unreferenced = empty_value();
+    unreferenced["signals"]["stopLines"] =
+        json!([{ "id": "unreferenced-stop", "edgeId": "entry", "location": "edgeEnd" }]);
+    let (path, source) =
+        into_core_domain(load_value(unreferenced).expect_err("unreferenced StopLine must fail"));
+    assert_eq!(path, "signals.stopLines[0]");
+    assert_eq!(
+        source.to_string(),
+        "StopLine `unreferenced-stop` 位于非 terminal edge `entry`，但未被任何 ManeuverGate 引用"
+    );
+    std::assert_matches!(
+        source,
+        CoreError::UnreferencedStopLine {
+            stop_line_id,
+            edge_id,
+        } if stop_line_id == "unreferenced-stop" && edge_id == "entry"
+    );
+
     let mut value = signals_value();
     value["signals"]["maneuverGates"]
         .as_array_mut()

@@ -119,11 +119,12 @@ fn classes_and_profiles() -> (ParticipantClassRegistry, VehicleProfileRegistry) 
     (classes, profiles)
 }
 
-fn world() -> CoreWorld {
-    let graph = graph();
-    let junctions = junctions(&graph);
-    let signals = signals(&graph, &junctions);
-    let waiting = waiting(&junctions, &signals);
+fn world_from_parts(
+    graph: LaneGraph,
+    junctions: JunctionRegistry,
+    signals: SignalRegistry,
+    waiting: WaitingRegistry,
+) -> CoreWorld {
     let (classes, profiles) = classes_and_profiles();
     let traffic = InitialTrafficData::try_new_with_waiting(
         graph,
@@ -139,6 +140,14 @@ fn world() -> CoreWorld {
     )
     .expect("traffic");
     CoreWorld::with_traffic_data(20, traffic, Vec::new()).expect("world")
+}
+
+fn world() -> CoreWorld {
+    let graph = graph();
+    let junctions = junctions(&graph);
+    let signals = signals(&graph, &junctions);
+    let waiting = waiting(&junctions, &signals);
+    world_from_parts(graph, junctions, signals, waiting)
 }
 
 #[test]
@@ -321,19 +330,212 @@ fn binding_checks_static_capacity_before_runtime_capability_guards() {
         }) if profile_id == "long" && route_id == "route" && waiting_zone_id == "zone-a"
     );
 
+    let release_boundary_error = world
+        .spawn_vehicle(spawn("long-at-release", long, 1))
+        .expect_err("release Gate edge remains pending for static feasibility");
+    std::assert_matches!(
+        release_boundary_error,
+        CoreError::WaitingZone(WaitingZoneError::InsufficientStorage {
+            profile_id,
+            route_id,
+            waiting_zone_id,
+            available_meters: 6.0,
+            required_meters: 8.0,
+        }) if profile_id == "long" && route_id == "route" && waiting_zone_id == "zone-a"
+    );
+
     let bootstrap_error = world
         .spawn_vehicle(spawn("short-inside", short, 1))
         .expect_err("stateful interior cursor needs explicit bootstrap");
     std::assert_matches!(
         bootstrap_error,
-        CoreError::WaitingZone(WaitingZoneError::BootstrapUnavailable {
+        CoreError::StatefulManeuverBootstrapUnavailable {
             route_id,
-            waiting_zone_id,
+            maneuver_path_id,
+            first_gate_route_edge_index: 0,
+            exit_route_edge_index: 3,
             cursor: 1,
-        }) if route_id == "route" && waiting_zone_id == "zone-a"
+        } if route_id == "route" && maneuver_path_id == "path"
     );
 
     world
         .spawn_vehicle(spawn("short-after", short, 3))
         .expect("completed maneuver suffix has no pending WaitingZone");
+}
+
+#[test]
+fn pure_multi_gate_maneuver_requires_bootstrap_but_single_gate_does_not() {
+    let multi_graph = graph();
+    let multi_junctions = junctions(&multi_graph);
+    let multi_signals = signals(&multi_graph, &multi_junctions);
+    let mut multi_gate_world = world_from_parts(
+        multi_graph,
+        multi_junctions,
+        multi_signals,
+        WaitingRegistry::empty(),
+    );
+    let short = multi_gate_world
+        .vehicle_profiles()
+        .profile_handle("short")
+        .expect("short profile");
+    let spawn = |id| {
+        laneflow_core::VehicleSpawnInput::active(
+            id,
+            short,
+            "route",
+            1,
+            EdgeProgress::try_new(0.0).expect("progress"),
+            Speed::ZERO,
+        )
+    };
+
+    let error = multi_gate_world
+        .spawn_vehicle(spawn("multi-gate-inside"))
+        .expect_err("pure multi-Gate occurrence is stateful");
+    std::assert_matches!(
+        error,
+        CoreError::StatefulManeuverBootstrapUnavailable {
+            route_id,
+            maneuver_path_id,
+            first_gate_route_edge_index: 0,
+            exit_route_edge_index: 3,
+            cursor: 1,
+        } if route_id == "route" && maneuver_path_id == "path"
+    );
+
+    let single_graph = graph();
+    let single_junctions = junctions(&single_graph);
+    let single_gate_signals = SignalRegistry::try_new(
+        &single_graph,
+        &single_junctions,
+        [StopLine::new(
+            "stop-entry",
+            "entry",
+            StopLineLocation::EdgeEnd,
+        )],
+        std::iter::empty(),
+        std::iter::empty(),
+        [ManeuverGate::new(
+            "gate-entry",
+            "path",
+            0,
+            "stop-entry",
+            SignalControlInput::None,
+        )],
+    )
+    .expect("single gate signals");
+    let mut single_gate_world = world_from_parts(
+        single_graph,
+        single_junctions,
+        single_gate_signals,
+        WaitingRegistry::empty(),
+    );
+    let short = single_gate_world
+        .vehicle_profiles()
+        .profile_handle("short")
+        .expect("short profile");
+
+    single_gate_world
+        .spawn_vehicle(laneflow_core::VehicleSpawnInput::active(
+            "single-gate-inside",
+            short,
+            "route",
+            1,
+            EdgeProgress::try_new(0.0).expect("progress"),
+            Speed::ZERO,
+        ))
+        .expect("single-Gate occurrence needs no state bootstrap");
+}
+
+#[test]
+fn pending_waiting_uses_release_boundary_before_bootstrap_and_runtime_guards() {
+    let later_graph = graph();
+    let later_junctions = junctions(&later_graph);
+    let later_signals = signals(&later_graph, &later_junctions);
+    let later_waiting = WaitingRegistry::try_new(
+        &later_junctions,
+        &later_signals,
+        [WaitingZone::new(
+            "zone-b",
+            "path",
+            "gate-middle",
+            "gate-release",
+            1,
+        )],
+    )
+    .expect("later waiting zone");
+    let mut later_world =
+        world_from_parts(later_graph, later_junctions, later_signals, later_waiting);
+    let short = later_world
+        .vehicle_profiles()
+        .profile_handle("short")
+        .expect("short profile");
+
+    let error = later_world
+        .spawn_vehicle(laneflow_core::VehicleSpawnInput::active(
+            "before-later-zone",
+            short,
+            "route",
+            1,
+            EdgeProgress::try_new(0.0).expect("progress"),
+            Speed::ZERO,
+        ))
+        .expect_err("maneuver bootstrap precedes pending Waiting runtime guard");
+    std::assert_matches!(
+        error,
+        CoreError::StatefulManeuverBootstrapUnavailable {
+            route_id,
+            maneuver_path_id,
+            first_gate_route_edge_index: 0,
+            exit_route_edge_index: 3,
+            cursor: 1,
+        } if route_id == "route" && maneuver_path_id == "path"
+    );
+
+    let completed_graph = graph();
+    let completed_junctions = junctions(&completed_graph);
+    let completed_signals = signals(&completed_graph, &completed_junctions);
+    let completed_waiting = WaitingRegistry::try_new(
+        &completed_junctions,
+        &completed_signals,
+        [WaitingZone::new(
+            "zone-a",
+            "path",
+            "gate-entry",
+            "gate-middle",
+            2,
+        )],
+    )
+    .expect("completed waiting zone");
+    let mut completed_world = world_from_parts(
+        completed_graph,
+        completed_junctions,
+        completed_signals,
+        completed_waiting,
+    );
+    let long = completed_world
+        .vehicle_profiles()
+        .profile_handle("long")
+        .expect("long profile");
+
+    let error = completed_world
+        .spawn_vehicle(laneflow_core::VehicleSpawnInput::active(
+            "after-zone-release",
+            long,
+            "route",
+            2,
+            EdgeProgress::try_new(0.0).expect("progress"),
+            Speed::ZERO,
+        ))
+        .expect_err("completed WaitingZone is ignored before maneuver bootstrap");
+    std::assert_matches!(
+        error,
+        CoreError::StatefulManeuverBootstrapUnavailable {
+            route_id,
+            maneuver_path_id,
+            first_gate_route_edge_index: 0,
+            exit_route_edge_index: 3,
+            cursor: 2,
+        } if route_id == "route" && maneuver_path_id == "path"
+    );
 }

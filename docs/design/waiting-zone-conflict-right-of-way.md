@@ -76,9 +76,11 @@ Waiting runtime、Conflict/Spatial、policy/arbiter 与组合验证尚未生产�
   编译 30k/300k Gate occurrences 与 20k/200k Waiting occurrences；三类 route
   metadata retained bytes 为 `4,849,664` / `55,574,528`，比例 `11.4595x`，
   通过 `<= 12x` 线性门槛；WaitingRegistry retained bytes 在两档均为 `516`；
-- profile-route-cursor 绑定先执行现有 Access validation，再执行 pending Waiting
-  empty-storage feasibility，最后由 bootstrap/runtime capability guard 拒绝尚未
-  实现的 stateful traversal；`register_route` 保持 profile-agnostic；
+- profile-route-cursor 绑定先执行现有 Access validation，再对 release Gate 尚未越过
+  的 pending Waiting 执行 empty-storage feasibility；随后由 ManeuverOccurrence
+  统一拒绝 first canonical Gate 与 exit 之间的 stateful bootstrap（包括无
+  WaitingZone 的纯 multi-Gate path），最后才执行 pending Waiting runtime
+  capability guard；`register_route` 保持 profile-agnostic；
 - current signal tick 先计算 next-time indication candidate，但当前 interval 的
   vehicle/compliance 仍读取 tick-start committed snapshot(T)，随后再构建
   occupancy/leader 与 longitudinal motion；

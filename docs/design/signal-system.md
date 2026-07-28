@@ -286,7 +286,11 @@ InitialTrafficData final assembly
 
 - StopLine ID、edge reference、one-per-edge 与 `edgeEnd` 合法；
 - Gate pair 唯一、是合法 connection、StopLine 属于 fromEdge；
-- StopLine edge 的 outgoing Gates 覆盖完整，StopLine 不 orphan；
+- terminal edge 上不得声明 StopLine；非 terminal StopLine 必须至少被一个
+  ManeuverGate 引用；
+- 若 StopLine 至少拥有一个 entry Gate，则其 edge 的每条 outgoing connection
+  必须有 ManeuverPath coverage，且每条候选 path 必须有 entry Gate；仅拥有
+  non-entry Gate 的内部 StopLine 不承担 entry coverage；
 - Group ID 唯一、恰好一个 Controller owner、至少一个 Gate usage；
 - Controller groups/phases 非空，Phase ID controller-local 唯一；
 - state record 对 group unknown/duplicate/missing 可稳定诊断；
@@ -469,6 +473,13 @@ CoreError
 
 Data path 采用 `$` 根 + dot/bracket 风格，并继续使用 `xxxId/xxxIds` 字段，例如 `signals.controllers[0].phases[1].states[2].groupId`。Machine matching 使用 enum variant/字段，不解析 Display 文案。
 
+StopLine 的失败原因保持结构化区分：terminal edge 使用
+`CoreError::OrphanStopLine`；非 terminal edge 上未被任何 ManeuverGate 引用使用
+`CoreError::UnreferencedStopLine`；已有 entry Gate 后缺少 outgoing path/Gate
+coverage 才分别使用 `MissingManeuverPathCoverage` /
+`MissingManeuverGateCoverage`。Data 层均定位到拥有该 invariant 的
+`signals.stopLines[i]`，但不得用同一误导性 Display 文案合并不同原因。
+
 正常红/黄停车、排队、green release、有限 emergency braking、finite signal/no-overlap projection、phase/aspect change 和 `signalControl:none` 均不是 error。非法输入/引用/invariant、tick/time overflow、非法 command handle 或 non-finite runtime calculation 才返回 error。
 
 ## 13. 性能与 private implementation
@@ -502,7 +513,8 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 测试矩阵必须覆盖：
 
 - schema/DTO/loader：current version、closed shape、tagged union、safe integer、旧字段/JSON-LD 拒绝、path/source；
-- Core domain：identity/reference/coverage/ownership/complete state/cycle/route-final-StopLine；
+- Core domain：identity/reference/coverage/ownership/complete state/cycle、
+  terminal/unreferenced StopLine 与 route-final-StopLine；
 - timing/query：time 0、boundary、offset、non-divisible delta、single-phase wrap、overflow 与失败原子性；
 - vehicle behavior：green/red/yellow、exact boundary、nearest denied Gate、多 Gate、repeated edge、same-tick hard stop 的三车以上 minimum-gap platoon、queue/release、shared StopLine；
 - events/determinism：全局总序、dual projection、multi-controller、replay 与 fresh-world retry；
