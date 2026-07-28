@@ -45,9 +45,9 @@
   section 可选，无图形配置不携带 geometry；编译器拥有 worker 数无关的静态执行
   约束，最终分区属于每世界运行时执行计划；不可变路网修订通过失败关闭镜像切换事务
   进入运行世界，并保留 runtime snapshot/replay 与 routing 接入边界。该架构服务
-  ADR 0021 的中国特色城市模拟游戏交通基础产品北极星，但不把城市经济或出行需求
-  放入 Traffic Runtime。双语术语以
-  `../reference/glossary.md` 的中文定义为权威。#292 继续 Blocked by #291 G1。
+  Proposed ADR 0021 的中国特色城市模拟游戏交通基础目标提案；#291 G1 接受前不把它
+  声明为 Accepted 长期事实，也不把城市经济或出行需求放入 Traffic Runtime。双语
+  术语以 `../reference/glossary.md` 的中文定义为权威。#292 继续 Blocked by #291 G1。
 
 ## 文档状态
 

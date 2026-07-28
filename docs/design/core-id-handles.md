@@ -45,7 +45,8 @@ generation handle 继续由 Runtime 管理。所有 production profile 都必须
 Restore）、dynamic Route 重建和修订切换（Revision Cutover）提供 StableId128 ↔
 typed ordinal 双向翻译；它不进入 steady tick，显示名、来源位置和完整规范元组等冷
 诊断节（Cold Diagnostics，`ColdDiagnostics`）才是可选项。本文后续“Core 初始化
-阶段 normalization”继续描述 current，直到 image cutover G4。
+阶段 normalization”继续描述 current，直到阶段 8 生产切换 Issue #294 完成 image
+cutover G4。
 
 ## 2. 背景
 

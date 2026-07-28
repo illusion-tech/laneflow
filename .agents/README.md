@@ -27,7 +27,8 @@
 
 Agent 应选择与当前任务最相关、范围最小的 Skill。若任务跨多个领域，先读 governance，再读领域 Skill。
 
-`laneflow-core-design` Skill 标识符（Skill ID）在 #291 生产切换 G4 前保留，用于
+`laneflow-core-design` Skill 标识符（Skill ID）在阶段 8 生产切换 Issue #294 完成
+G4 前保留，用于
 发现当前态核心（Current Core）任务；其内容已经同时覆盖目标态交通运行时（Target
 Traffic Runtime）。生产切换时再与 `laneflow-core/CoreWorld` 一起原子改名，避免
 工具发现、当前 API 和目标文档提前分叉。
@@ -38,5 +39,6 @@ Traffic Runtime）。生产切换时再与 `laneflow-core/CoreWorld` 一起原�
 
 LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟游戏提供交通基础。涉及
 城市级范围、出行编排、Routing、路网修订、存档/回放、并行或 fidelity 的任务必须
-读取 ADR 0021；不得把城市经济/出行需求塞入 Traffic Runtime，也不得用 Adapter LOD
-或多世界（Multi-world）吞吐替代单个大型交通世界的正确性与性能。
+读取 ADR 0021；在 #291 G1 接受前，它只提供 Proposed 目标提案，不得写成当前已实现
+事实。不得把城市经济/出行需求塞入 Traffic Runtime，也不得用 Adapter LOD 或多世界
+（Multi-world）吞吐替代单个大型交通世界的正确性与性能。
