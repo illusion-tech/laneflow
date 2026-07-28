@@ -1,6 +1,10 @@
 //! WaitingZone static topology normalization。
 
-use std::ops::Range;
+use std::{
+    cmp::Reverse,
+    collections::{BTreeSet, BinaryHeap},
+    ops::Range,
+};
 
 use indexmap::IndexMap;
 
@@ -72,6 +76,14 @@ struct ResolvedWaitingZone {
     maneuver_path: ManeuverPathHandle,
     entry_gate: ManeuverGateHandle,
     release_gate: ManeuverGateHandle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WaitingZoneInterval {
+    handle: WaitingZoneHandle,
+    maneuver_path: ManeuverPathHandle,
+    entry_transition_index: u32,
+    release_transition_index: u32,
 }
 
 /// immutable WaitingZone normalized registry。
@@ -172,56 +184,48 @@ impl WaitingRegistry {
             });
         }
 
-        for (first_index, first) in normalized.iter().enumerate() {
-            let first_release = signals
-                .maneuver_gate(first.release_gate)
-                .expect("resolved release gate must exist")
-                .transition_index();
-            let first_entry = signals
-                .maneuver_gate(first.entry_gate)
-                .expect("resolved entry gate must exist")
-                .transition_index();
-            for second in &normalized[(first_index + 1)..] {
-                if first.maneuver_path != second.maneuver_path {
-                    continue;
-                }
-                let second_entry = signals
-                    .maneuver_gate(second.entry_gate)
-                    .expect("resolved entry gate must exist")
-                    .transition_index();
-                let second_release = signals
-                    .maneuver_gate(second.release_gate)
-                    .expect("resolved release gate must exist")
-                    .transition_index();
-                if first_entry < second_release && second_entry < first_release {
-                    return Err(WaitingZoneError::Overlap {
-                        maneuver_path_id: first.definition.maneuver_path_id().to_owned(),
-                        first_waiting_zone_id: first.definition.id().to_owned(),
-                        second_waiting_zone_id: second.definition.id().to_owned(),
-                    }
-                    .into());
-                }
-            }
-        }
-
-        let mut by_path = (0..normalized.len())
-            .map(WaitingZoneHandle::new)
-            .collect::<Vec<_>>();
-        by_path.sort_by_key(|handle| {
-            let zone = &normalized[handle.index()];
-            (
-                zone.maneuver_path.index(),
-                signals
+        let mut topology_intervals = normalized
+            .iter()
+            .enumerate()
+            .map(|(index, zone)| WaitingZoneInterval {
+                handle: WaitingZoneHandle::new(index),
+                maneuver_path: zone.maneuver_path,
+                entry_transition_index: signals
                     .maneuver_gate(zone.entry_gate)
                     .expect("resolved entry gate must exist")
                     .transition_index(),
-                signals
+                release_transition_index: signals
                     .maneuver_gate(zone.release_gate)
                     .expect("resolved release gate must exist")
                     .transition_index(),
-                handle.index(),
+            })
+            .collect::<Vec<_>>();
+        topology_intervals.sort_by_key(|interval| {
+            (
+                interval.maneuver_path.index(),
+                interval.entry_transition_index,
+                interval.release_transition_index,
+                interval.handle.index(),
             )
         });
+
+        if let Some((first_handle, second_handle)) =
+            first_overlapping_declaration_pair(&topology_intervals)
+        {
+            let first = &normalized[first_handle.index()];
+            let second = &normalized[second_handle.index()];
+            return Err(WaitingZoneError::Overlap {
+                maneuver_path_id: first.definition.maneuver_path_id().to_owned(),
+                first_waiting_zone_id: first.definition.id().to_owned(),
+                second_waiting_zone_id: second.definition.id().to_owned(),
+            }
+            .into());
+        }
+
+        let by_path = topology_intervals
+            .iter()
+            .map(|interval| interval.handle)
+            .collect::<Vec<_>>();
 
         let mut waiting_zone_ranges = vec![0..0; junctions.maneuver_paths().len()];
         let mut cursor = 0;
@@ -341,6 +345,68 @@ impl WaitingRegistry {
     }
 }
 
+fn first_overlapping_declaration_pair(
+    topology_intervals: &[WaitingZoneInterval],
+) -> Option<(WaitingZoneHandle, WaitingZoneHandle)> {
+    let mut earliest_pair: Option<(usize, usize)> = None;
+    let mut path_start = 0;
+
+    while path_start < topology_intervals.len() {
+        let maneuver_path = topology_intervals[path_start].maneuver_path;
+        let mut path_end = path_start + 1;
+        while path_end < topology_intervals.len()
+            && topology_intervals[path_end].maneuver_path == maneuver_path
+        {
+            path_end += 1;
+        }
+        if path_end - path_start == 1 {
+            path_start = path_end;
+            continue;
+        }
+
+        let mut active_by_release = BinaryHeap::new();
+        let mut active_declaration_indices = BTreeSet::new();
+        for current in &topology_intervals[path_start..path_end] {
+            while let Some(Reverse((release_transition_index, declaration_index))) =
+                active_by_release.peek().copied()
+            {
+                if release_transition_index > current.entry_transition_index {
+                    break;
+                }
+                active_by_release.pop();
+                active_declaration_indices.remove(&declaration_index);
+            }
+
+            if let Some(other_index) = active_declaration_indices.first().copied() {
+                let current_index = current.handle.index();
+                let (first_index, second_index) = if other_index < current_index {
+                    (other_index, current_index)
+                } else {
+                    (current_index, other_index)
+                };
+                let candidate = (first_index, second_index);
+                earliest_pair =
+                    Some(earliest_pair.map_or(candidate, |existing| existing.min(candidate)));
+            }
+
+            active_by_release.push(Reverse((
+                current.release_transition_index,
+                current.handle.index(),
+            )));
+            active_declaration_indices.insert(current.handle.index());
+        }
+
+        path_start = path_end;
+    }
+
+    earliest_pair.map(|(first, second)| {
+        (
+            WaitingZoneHandle::new(first),
+            WaitingZoneHandle::new(second),
+        )
+    })
+}
+
 fn resolve_gate(
     signals: &SignalRegistry,
     zone: &WaitingZone,
@@ -376,4 +442,55 @@ fn validate_gate_path(
         .into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn interval(
+        declaration_index: usize,
+        maneuver_path: ManeuverPathHandle,
+        entry_transition_index: u32,
+        release_transition_index: u32,
+    ) -> WaitingZoneInterval {
+        WaitingZoneInterval {
+            handle: WaitingZoneHandle::new(declaration_index),
+            maneuver_path,
+            entry_transition_index,
+            release_transition_index,
+        }
+    }
+
+    #[test]
+    fn overlap_sweep_preserves_global_declaration_order() {
+        let first_path = ManeuverPathHandle::new(0);
+        let second_path = ManeuverPathHandle::new(1);
+        let mut topology_intervals = vec![
+            interval(0, second_path, 4, 7),
+            interval(1, second_path, 0, 1),
+            interval(2, second_path, 3, 5),
+            interval(3, first_path, 0, 4),
+            interval(4, first_path, 1, 2),
+            interval(5, second_path, 1, 3),
+        ];
+        topology_intervals.sort_by_key(|candidate| {
+            (
+                candidate.maneuver_path.index(),
+                candidate.entry_transition_index,
+                candidate.release_transition_index,
+                candidate.handle.index(),
+            )
+        });
+
+        let overlap = first_overlapping_declaration_pair(&topology_intervals)
+            .expect("two paths contain overlaps");
+        assert_eq!((overlap.0.index(), overlap.1.index()), (0, 2));
+
+        let shared_boundary_only = [interval(0, first_path, 0, 2), interval(1, first_path, 2, 4)];
+        assert_eq!(
+            first_overlapping_declaration_pair(&shared_boundary_only),
+            None
+        );
+    }
 }

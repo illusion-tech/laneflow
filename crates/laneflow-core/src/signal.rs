@@ -527,6 +527,12 @@ struct ResolvedStopLine {
     edge: EdgeHandle,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct StopLineGateUsage {
+    referenced: bool,
+    has_entry_gate: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ResolvedSignalGroup {
     definition: SignalGroup,
@@ -915,6 +921,10 @@ impl SignalRegistry {
         }
 
         let mut gate_stop_lines = Vec::with_capacity(gate_definitions.len());
+        // 单次索引 Gate 使用，使 StopLine coverage normalization 保持 O(S + G)；
+        // final assembly rebind 会再次执行该 normalization。
+        let mut stop_line_gate_usage =
+            vec![StopLineGateUsage::default(); resolved_stop_lines.len()];
         for gate in &gate_definitions {
             validate_external_id("signals.maneuverGates[].stopLineId", gate.stop_line_id())?;
             let stop_line = stop_line_handles
@@ -924,6 +934,9 @@ impl SignalRegistry {
                     maneuver_gate_id: gate.id().to_owned(),
                     stop_line_id: gate.stop_line_id().to_owned(),
                 })?;
+            let usage = &mut stop_line_gate_usage[stop_line.index()];
+            usage.referenced = true;
+            usage.has_entry_gate |= gate.transition_index() == 0;
             gate_stop_lines.push(stop_line);
         }
 
@@ -996,23 +1009,14 @@ impl SignalRegistry {
                     edge_id: resolved.definition.edge_id().to_owned(),
                 });
             }
-            let stop_line = StopLineHandle::new(stop_line_index);
-            let mut gate_transitions =
-                gate_definitions
-                    .iter()
-                    .zip(&gate_stop_lines)
-                    .filter_map(|(gate, candidate)| {
-                        (*candidate == stop_line).then_some(gate.transition_index())
-                    });
-            let Some(first_transition) = gate_transitions.next() else {
+            let usage = stop_line_gate_usage[stop_line_index];
+            if !usage.referenced {
                 return Err(CoreError::UnreferencedStopLine {
                     stop_line_id: resolved.definition.id().to_owned(),
                     edge_id: resolved.definition.edge_id().to_owned(),
                 });
-            };
-            let has_entry_gate =
-                first_transition == 0 || gate_transitions.any(|transition| transition == 0);
-            if !has_entry_gate {
+            }
+            if !usage.has_entry_gate {
                 continue;
             }
             for to_edge in next_edges {
