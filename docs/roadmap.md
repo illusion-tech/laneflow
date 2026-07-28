@@ -232,12 +232,32 @@ protected-only runtime 仍未改变，Waiting runtime 由 #282 接续。v0.10 sc
 ```
 
 #281–#285 都是 #227 的独立后续切片，不是 #235 的子任务；每个切片必须自行完成
-G0-G4 与元数据审计。#281 正在交付 static/Data 0.10；其 G4 完成后 #282 与 #283
-可以并行，#284 必须等待二者，#285 负责最终
-跨层验证与独立收口。
+G0-G4 与元数据审计。#281 已交付 static/Data 0.10 并合入主干。按 #291 的路线
+暂停声明：#282/#283 自 Ready 退回 Backlog，#284/#285 自 Blocked 退回
+Backlog，新功能开发暂停、工作焦点转入编译器路线。恢复条件：#292（L1 拓扑
+生成器）G4 完成后恢复，届时拓扑密集验证场景改由编译器生成承担——暂停是
+换序而非取消；DAG 依赖关系与已完成 Gate 记录继续有效。通行权 runtime 能力
+在本阶段停留 static 层，该代价登记于
+[`design/network-compiler.md`](design/network-compiler.md) 风险表。
 
 #264 对 #235 的设计输入已经满足；#235 G4 后移除该原生 blocker，但 #264 仍必须
 等待 #237 冻结后再拆 JunctionGroup、环岛、停车连接与互通组合。
+
+## 编译器时代数据供应链（#291 G0 已立项，Milestone N/A）
+
+#291 已立项编译器路线：以几何文档为 authoring SSOT、确定性多 pass 编译管线为
+数据生产方式、独立校验器为预言机、双产物（canonical JSON 治理产物 + 二进制加载
+产物）分别服务治理与加载，并按显式退役条件最终让 canonical 产物退出 SSOT 地位。
+架构 SSOT 草案见 [`design/network-compiler.md`](design/network-compiler.md)
+（#291 G1 的设计输入）。该路线属 authoring-tool 切片，不改变 Core runtime 行为
+与公开 API；canonical JSON 管线在退役条件触发前继续服役。Milestone N/A（未进入
+已冻结产品版本）。
+
+实施顺序为 `#291（愿景/架构 G1）→ #292（L1 拓扑生成器）→ 恢复 #282–#285 → L2
+几何编译器 → 双产物与独立校验器 → 退役条件评估`。#292 已 G0，Blocked by #291
+G1。#72 的城市级研究是本路线二进制镜像选型与零拷贝加载的证据来源；#236/#237
+的未来负载（非机动车/步行 traversal、动态车道）是几何文档横断面/设施模型的
+设计输入。
 
 ## 城市级扩展研究（Milestone N/A）
 
