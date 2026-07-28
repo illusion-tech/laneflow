@@ -628,6 +628,7 @@ struct RustdocVisitor<'path, 'source> {
 struct AttributeRun {
     group_id: usize,
     end_offset: usize,
+    is_inner: bool,
 }
 
 struct SourceIndex {
@@ -684,6 +685,7 @@ impl<'path, 'source> RustdocVisitor<'path, 'source> {
 
     fn ast_attribute_group(&mut self, attribute: &Attribute) -> usize {
         let span = attribute.span();
+        let is_inner = matches!(attribute.style, syn::AttrStyle::Inner(_));
         let start_offset = self
             .source_index
             .byte_offset(span.start(), self.source_content);
@@ -692,7 +694,8 @@ impl<'path, 'source> RustdocVisitor<'path, 'source> {
             .byte_offset(span.end(), self.source_content);
         let existing_group = self.current_ast_attribute_group.as_ref().and_then(|run| {
             let start_offset = start_offset?;
-            (start_offset >= run.end_offset
+            (is_inner == run.is_inner
+                && start_offset >= run.end_offset
                 && self.source_content[run.end_offset..start_offset]
                     .parse::<TokenStream>()
                     .is_ok_and(|tokens| tokens.is_empty()))
@@ -702,6 +705,7 @@ impl<'path, 'source> RustdocVisitor<'path, 'source> {
         self.current_ast_attribute_group = end_offset.map(|end_offset| AttributeRun {
             group_id,
             end_offset,
+            is_inner,
         });
         group_id
     }
@@ -1451,6 +1455,14 @@ mod tests {
     #[test]
     fn groups_rustdoc_by_attribute_owner_instead_of_source_adjacency() {
         let content = concat!(
+            "//! crate 文档末尾为 100\n",
+            "/// k 是首个条目的普通开头。\n",
+            "pub struct FirstItem;\n",
+            "mod nested {\n",
+            "    //! module 文档末尾为 100\n",
+            "    /// k 是首个子条目的普通开头。\n",
+            "    pub struct FirstChild;\n",
+            "}\n",
             "/// 目标为 100\n",
             "#[allow(dead_code)]\n",
             "/// k 个参与单元。\n",
@@ -1466,7 +1478,7 @@ mod tests {
         assert_eq!(
             find_rustdoc_violations(content, None).expect("valid owner-grouped Rustdoc"),
             vec![Violation {
-                line: 1,
+                line: 9,
                 token: "100 k".to_string()
             }]
         );
