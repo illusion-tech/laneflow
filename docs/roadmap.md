@@ -242,7 +242,7 @@ Backlog，新功能开发暂停、工作焦点转入编译器路线。恢复条�
 foundation + Synthetic DSL frontend）G4 完成后恢复，届时拓扑密集验证场景改由编译器生成承担——暂停是
 换序而非取消；DAG 依赖关系与已完成 Gate 记录继续有效。通行权 runtime 能力
 在本阶段停留 static 层，该代价登记于
-[`design/network-compiler.md`](design/network-compiler.md) 风险表。
+[`design/network-compiler.md` §15](design/network-compiler.md#15-风险登记) 风险表。
 
 #264 对 #235 的设计输入已经满足；#235 G4 后移除该原生 blocker，但 #264 仍必须
 等待 #237 冻结后再拆 JunctionGroup、环岛、停车连接与互通组合。
@@ -294,9 +294,12 @@ DSL → integration-only LIR→current projection → 恢复 #282–#285`；之�
 frontend/MIR 可以与恢复的 runtime slices 并行推进，再依次交付 portable
 artifact/独立 validator/source map/semantic diff、target static-image +
 Traffic Runtime/Spatial shared-image path 和 behavior/performance/security cutover。
-Projection 不进入 compiler production dependency，cutover 时删除。#72 提供 1M
-entity 离线编译、镜像布局与城市级性能证据；#236/#237 仍是独立产品/研究输入，不
-自动并入首个 frontend。
+Projection 不进入 compiler production dependency，cutover 时删除。1M 实体离线
+编译、镜像构建与布局证据（1M Entity Offline Compile / Image-build / Layout
+Evidence）由编译器路线的后继实现切片建立，作为 #72 运行时扩展研究（Runtime
+Scalability Research）的静态 / 离线输入；#72 继续拥有活动代理（Active-agent）的
+保真度（Fidelity）、分区（Partition）、调度、迁移与内存证据。#236/#237 仍是独立
+产品 / 研究输入，不自动并入首个前端（Frontend）。
 
 ## 城市级扩展研究（Milestone N/A）
 

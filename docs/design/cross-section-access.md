@@ -110,9 +110,9 @@ RoadCorridor
 ```
 
 - 非方向性结构组合；唯一 cross-section owner。
-- 每个 RoadSection/FacilityBand 恰好属于一个 RoadCorridor（完备 owner 树），
-  但 LaneGraph 中存在不属于任何 RoadSection 的 LaneEdge 是合法的（横断面是
-  LaneGraph 之上的可选结构 overlay）。
+- 每个 RoadSection/FacilityBand 恰好属于一个 RoadCorridor；该关系构成完备
+  所有者树（Complete Owner Tree），但 LaneGraph 中存在不属于任何 RoadSection 的
+  LaneEdge 是合法的（横断面是 LaneGraph 之上的可选结构 overlay）。
 - 同一 corridor 的 `elements[]` 内不得重复引用同一 section/band——cross-section
   是唯一有序横向序列，重复引用会让同一元素占据两个横向位置，与 §2.2 定义
   矛盾。
@@ -643,7 +643,7 @@ profiles → lane graph → Junction → Signals → Parking → Routes）：
    检查，否则 reference 成员性恒失败、empty 错误不可达）、unknown element
    引用、elements 内重复
    引用同一 section/band、同一 section/band 出现在多个 corridor、section/band
-   零归属（§3.1 完备 owner 树）、referenceSectionId 不是成员 section；
+   零归属（§3.1 完备所有者树）、referenceSectionId 不是成员 section；
 9. AccessRule：ID syntax/duplicate、unknown target、unknown participant class、
    capability guard（FacilityBand target 或声明 timeWindows 的规则返回
    capability-unavailable 并拒绝载入；guard 依赖 target 已解析，故在 unknown

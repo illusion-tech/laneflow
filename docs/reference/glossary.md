@@ -85,6 +85,8 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 密集句柄               | dense handle                | —                   | 运行时使用的紧凑有类型引用；热路径不携带字符串或稳定标识。                              |
 | 所有者局部关系         | owner-local relation        | —                   | 只在所属实体的当前序列快照内有意义、没有全局稳定标识的关系记录。                        |
 | 所有者局部出现项       | owner-local occurrence      | —                   | 由 `(ownerOrdinal, role, localIndex)` 定位的当前快照记录；`localIndex` 不是跨编译标识。 |
+| 唯一所有者关系         | unique owner relation       | —                   | 一个成员必须解析到恰好一个有效所有者；零所有者或多所有者均为结构化错误。                |
+| 完备所有者树           | complete owner tree         | —                   | 所有要求归属的成员都具有唯一所有者、且不存在重复归属或孤儿成员的所有者 / 成员结构。     |
 | 反向索引               | reverse index               | —                   | 从目标或成员回到所有者、关系或候选集合的预计算索引。                                    |
 | 交叉索引               | cross-index                 | —                   | 在两个有类型表或镜像节之间预计算的定向引用索引。                                        |
 | 数组分列结构           | structure of arrays         | SoA                 | 按字段分列保存同类记录，以提高连续访问和向量化效率的数据布局。                          |
