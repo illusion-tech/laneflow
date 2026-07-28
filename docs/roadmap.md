@@ -243,22 +243,30 @@ foundation + Synthetic DSL frontend）G4 完成后恢复，届时拓扑密集验
 #264 对 #235 的设计输入已经满足；#235 G4 后移除该原生 blocker，但 #264 仍必须
 等待 #237 冻结后再拆 JunctionGroup、环岛、停车连接与互通组合。
 
-## 编译器时代静态网络（#291 G1 M2 终态修订中，Milestone N/A）
+## 编译器时代静态网络（#291 G1 综合架构修订中，Milestone N/A）
+
+本节双语术语遵循 [`reference/glossary.md`](reference/glossary.md)，中文定义为
+权威事实，英文只作辅助理解。
 
 #291 已把目标从“L1/L2 生成器 + JSON 管线”修订为 compiler-owned static network：
-Synthetic DSL、Geometry document、Import 与 Editor 是平级 frontend，共同进入
+Geometry、Synthetic DSL、imported 与 editor-authored module 共同组成唯一
+authoritative source module graph，再进入
 `typed AST → HIR → MIR → validated canonical LIR`。同一 LIR 原子生成 portable
-canonical artifact、target-specific runtime image、source map/diagnostics 与
-semantic diff；Core/Spatial 直接消费同一 immutable image 中对齐的 Traffic/Spatial
-视图，静态数据与每 world 可变状态物理分离。生产启动不再解析 JSON、按字符串
-rebind、重建 registry、重复 Traffic/Spatial join 或重编译 static occurrences。
+canonical artifact、target-specific `StaticNetworkImage`、source map/diagnostics
+与 semantic diff；target `laneflow-runtime`/Spatial 消费同一 immutable image 中的
+Traffic/optional Spatial view，静态数据与每 world 可变状态物理分离。生产启动通过
+image 外部 trusted descriptor/validation receipt 与 bounded verifier 建立 view，
+不再解析 JSON、按字符串 rebind、重建 registry、重复 Traffic/Spatial join 或重编译
+static occurrences。
 
 ADR 0020 与 [`design/network-compiler.md`](design/network-compiler.md) 是本次 G1
-修订输入。M1 已冻结 canonical identity tuple、稳定 authoring key、
-road/internal edge 身份域、Movement metadata / ManeuverPath occurrence 分离、
-BLAKE3-128 持久 identity、XXH3 仅限 compiler 瞬态加速，以及 tick 只用 dense
-`u32` handle。M2 取消 L1/L2 架构层，增加 portable/runtime 双后端、独立版本轴、
-独立 validator、runtime structural verifier 和 hot/warm/cold image layout。
+修订输入。Identity v1 区分 StableId128 declaration/addressable-derived、
+owner-local occurrence 与全部 table row 的 typed `u32` ordinal，冻结完整
+kind/tag registry、严格 field order、known vectors、BLAKE3-128 持久 identity 和
+XXH3 compiler-only 加速。Static image 采用 Traffic-mandatory、
+Spatial-profile-optional section，target 把 current `laneflow-core/CoreWorld`
+clean-break 为 `laneflow-runtime/TrafficWorld`，并通过中立
+`laneflow-static-contract`/`laneflow-static-image` 保持无环依赖。
 
 当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
 `InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target
@@ -266,12 +274,14 @@ BLAKE3-128 持久 identity、XXH3 仅限 compiler 瞬态加速，以及 tick 只
 Synthetic DSL frontend 的首个纵向闭环，继续保持 Project `Backlog` 与 native
 `Blocked by #291`，不得在 #291 G1 前冻结实现 API。
 
-迁移顺序为 `#291 架构 G1 → #292 compiler foundation/Synthetic DSL → 恢复
-#282–#285`；之后 Geometry frontend/MIR 可以与恢复的 runtime slices 并行推进，
-再依次交付 portable artifact/独立 validator/source map/semantic diff、target
-runtime image/Core+Spatial shared-image path 和 behavior/performance/security
-cutover。#72 提供 1M entity 离线编译、镜像布局与城市级性能证据；#236/#237 仍是
-独立产品/研究输入，不自动并入首个 frontend。
+迁移顺序为 `#291 架构 G1 → #292 static-contract/compiler foundation/Synthetic
+DSL → integration-only LIR→current projection → 恢复 #282–#285`；之后 Geometry
+frontend/MIR 可以与恢复的 runtime slices 并行推进，再依次交付 portable
+artifact/独立 validator/source map/semantic diff、target static-image +
+Traffic Runtime/Spatial shared-image path 和 behavior/performance/security cutover。
+Projection 不进入 compiler production dependency，cutover 时删除。#72 提供 1M
+entity 离线编译、镜像布局与城市级性能证据；#236/#237 仍是独立产品/研究输入，不
+自动并入首个 frontend。
 
 ## 城市级扩展研究（Milestone N/A）
 

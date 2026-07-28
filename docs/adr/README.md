@@ -44,7 +44,10 @@ ADR 关注“为什么这样定”，不替代详细设计文档。涉及高影�
 - `0017`: 静态 Junction/Movement/ManeuverPath owner、ManeuverGate identity、Route occurrence 与复杂设施演进边界（已接受）
 - `0018`: 多模式横断面 owner（RoadCorridor/RoadSection/FacilityBand）、FacilityKind/ParticipantClass/AccessRule 分层与准入 overlay（已接受）
 - `0019`: WaitingZone/ConflictZone identity、多阶段 Gate occurrence、车辆级 right-of-way authority 与 grant/reservation（已接受）
-- `0020`: 编译器拥有静态路网、typed IR、portable canonical artifact 与 target runtime image（Proposed；#291 G1 修订输入）
+- `0020`: 权威来源模块图（Authoritative Source Module Graph）、编译器拥有静态路网、
+  有类型中间表示（Typed IR）、完整标识登记表（Identity Registry）、可移植规范
+  制品（Portable Canonical Artifact）、可信配置档控制的静态镜像，以及目标态
+  交通运行时（Traffic Runtime）边界（Proposed；#291 G1 修订输入）
 
 ## 命名规则
 

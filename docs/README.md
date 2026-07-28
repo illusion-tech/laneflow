@@ -25,7 +25,9 @@ docs/
 - `docs/reference/`：记录术语、模板、校验矩阵和长期复用的辅助规范。
 - `.agents/`：记录跨 Agent 的执行工作流；工具专用入口只应薄包装这些工作流。
 
-语言约定：模板与治理规范中文优先，详见 `docs/governance/documentation-policy.md` 第 6 节。
+语言约定：长期设计、模板与治理规范以中文为权威事实，英文仅作辅助理解；双语术语
+以 `docs/reference/glossary.md` 为 SSOT，详见
+`docs/governance/documentation-policy.md` 第 6 节。
 
 仓库安全扫描的期望配置、状态语义和发布阻断规则见 `docs/governance/security-scanning.md`。
 

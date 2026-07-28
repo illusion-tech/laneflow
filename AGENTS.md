@@ -9,6 +9,7 @@ LaneFlow 采用单一事实源管理 Agent 工作流。
 3. `.agents/README.md`
 4. `docs/governance/agent-development-guide.md`
 5. `docs/governance/development-gates.md`
+6. `docs/reference/glossary.md`
 
 按任务类型阅读对应 Skill：
 
@@ -18,3 +19,6 @@ LaneFlow 采用单一事实源管理 Agent 工作流。
 - `.agents/skills/laneflow-adapter/SKILL.md`
 
 不要在工具专用说明文件中重复长期项目规则。`.cursor/skills/` 等工具入口应保持薄包装，并转读 `.agents/` 与 `docs/`。
+
+长期设计和 Agent 工作流中的中文术语与中文定义是权威事实，英文只作辅助理解；双语
+映射统一由 `docs/reference/glossary.md` 管理。
