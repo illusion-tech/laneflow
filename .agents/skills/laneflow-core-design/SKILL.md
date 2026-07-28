@@ -5,9 +5,9 @@ description: 处理 LaneFlow 当前态核心运行时（Current Core Runtime）�
 
 # LaneFlow 交通运行时设计（Traffic Runtime Design）
 
-Skill 标识符（Skill ID）`laneflow-core-design` 在 #291 生产切换 G4 前保留，作为
-当前态核心（Current Core）与目标态交通运行时（Target Traffic Runtime）的兼容发现
-入口；它不表示目标态继续命名为 Core。
+Skill 标识符（Skill ID）`laneflow-core-design` 在阶段 8 生产切换 Issue #294 完成
+G4 前保留，作为当前态核心（Current Core）与目标态交通运行时（Target Traffic
+Runtime）的兼容发现入口；它不表示目标态继续命名为 Core。
 
 ## 先读这些
 
@@ -17,7 +17,8 @@ Skill 标识符（Skill ID）`laneflow-core-design` 在 #291 生产切换 G4 前
 4. `docs/governance/development-gates.md`
 5. `docs/reference/glossary.md`
 6. 已存在的相关 Core / Traffic Runtime design 文档
-7. 涉及 #291 静态路网编译、静态镜像（Static Image）或 core→runtime 切换时，读取
+7. 涉及 #291 静态路网编译、静态镜像（Static Image）或 #294 core→runtime
+   生产切换时，读取
    `docs/adr/0020-compiler-owned-static-network-and-static-image.md` 与
    `docs/design/network-compiler.md`
 8. 涉及城市模拟游戏范围、出行编排、Routing、路网修订、存档/回放、并行或
@@ -32,8 +33,8 @@ Skill 标识符（Skill ID）`laneflow-core-design` 在 #291 生产切换 G4 前
   `laneflow-core` / `CoreWorld`。
 - #291 目标态：中文规范名“LaneFlow 交通运行时（LaneFlow Traffic Runtime）”，
   精确标识符 `laneflow-runtime` / `TrafficWorld`。
-- ADR 0020 Accepted 且生产切换 G4 前，代码与现有 API 继续使用当前态名称；目标
-  设计不得把 `Core` 当成终态名称。
+- ADR 0020 Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，代码与现有 API
+  继续使用当前态名称；目标设计不得把 `Core` 当成终态名称。
 - 中文术语和中文定义以 `docs/reference/glossary.md` 为权威，英文只作辅助理解。
 
 ## 动态执行层边界

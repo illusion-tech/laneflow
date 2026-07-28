@@ -74,9 +74,9 @@ ADR 0020 不把 current Traffic JSON 直接改名为 compiler IR。Target 把版
 `laneflow-runtime`/`TrafficWorld`，并通过 `laneflow-static-image` 的 external
 descriptor + bounded verifier 挂载 view。`formatVersion: "0.10"`、本章 Package
 Model 和 §7–§8 的
-JSON→Core normalization 在 cutover G4 前继续是 current contract，但不再约束
-target IR 或 image layout。Target 版本轴、publication 与迁移规则见 ADR 0020 和
-`network-compiler.md`。
+JSON→Core normalization 在阶段 8 生产切换 Issue #294 完成 cutover G4 前继续是
+current contract，但不再约束 target IR 或 image layout。Target 版本轴、publication
+与迁移规则见 ADR 0020 和 `network-compiler.md`。
 
 ## 2. 当前 Package Model
 

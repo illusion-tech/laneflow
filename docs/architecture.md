@@ -34,8 +34,8 @@ LaneFlow 是一个引擎无关、可嵌入的交通 runtime；第一长期产品
 出行编排层再结合静态网络、观测、收费、游戏政策和偏好构造动态成本快照并生成候选
 路径；交通运行时只验证/注册由候选路径构成的动态通行定义，并负责交通参与单元如何
 在所属执行域安全推进。当前 Core 只实现道路机动车车辆特化；长期通用抽象不把
-非机动车、行人或轨道交通排除在目标 Traffic Runtime 之外。完整产品边界见
-ADR 0021。
+非机动车、行人或轨道交通排除在目标 Traffic Runtime 之外。#291 G1 接受前的目标
+产品边界提案见 Proposed ADR 0021，不表示对应 Traffic Runtime 已实现。
 
 ## 2. 分层
 
@@ -127,7 +127,8 @@ Graph）；v1 `PartitionPlanningHints` 节保存运行时可忽略或重建的�
 Transaction）原子迁移。语义差异不能自行授予迁移权限，必须由独立验证或外部可信的
 路网修订切换描述符（Network Revision Cutover Descriptor）绑定，并用切换前后的
 稳定身份索引完成引用翻译。目标职责、上层边界与历史 ADR 的关系见 ADR 0020/0021；
-在二者 Accepted 且迁移 G4 前，本文其余 current 章节继续有效。
+在二者 Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，本文其余 current 章节
+继续有效。
 
 ## 3. Authoring Layer
 

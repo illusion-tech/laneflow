@@ -7,7 +7,7 @@
 目标静态镜像（Target Static Image）、验证收据（Validation Receipt）、源映射
 （Source Map）、独立验证器（Independent Validator），以及当前态 Core / 目标态
 交通运行时（Traffic Runtime）、Data、Spatial 初始化边界<br>
-**目标取代范围**: ADR 0005、0007、0008、0011、0013、0015、0017 中与静态数据 normalization、制品配对和运行时 registry 构建位置冲突的条款，并把 target `LaneFlow Core`/`laneflow-core` 重命名为 `LaneFlow Traffic Runtime`/`laneflow-runtime`；在本 ADR Accepted 且迁移 G4 前，当前生产实现继续由原 ADR 约束<br>
+**目标取代范围**: ADR 0005、0007、0008、0011、0013、0015、0017 中与静态数据 normalization、制品配对和运行时 registry 构建位置冲突的条款，并把 target `LaneFlow Core`/`laneflow-core` 重命名为 `LaneFlow Traffic Runtime`/`laneflow-runtime`；在本 ADR Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，当前生产实现继续由原 ADR 约束<br>
 
 **关联文档**:
 
@@ -33,6 +33,7 @@
 - GitHub:
   - #291
   - #292
+  - #294
 
 ## 术语规范
 
@@ -68,10 +69,10 @@ LaneFlow 当前以 Traffic JSON、Spatial JSON 和 Scenario Manifest 为运行�
 离线编译期，并让 target Traffic Runtime 只从具有外部信任锚的派生静态镜像建立
 只读 view。
 
-ADR 0021 进一步明确：LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟
-游戏提供交通基础。#291 因此不仅要优化加载，还必须保留单个大型城市世界的并行
-扩展、玩家修改道路、存档/回放、路径规划接入与每世界唯一性演进空间，同时不把
-城市经济和出行需求塞入交通运行时。
+Proposed ADR 0021 进一步提议：LaneFlow 的第一长期产品目标是为未来的中国特色城市
+模拟游戏提供交通基础。#291 的 G1 输入因此不仅要优化加载，还必须保留单个大型城市
+世界的并行扩展、玩家修改道路、存档/回放、路径规划接入与每世界唯一性演进空间，
+同时不把城市经济和出行需求塞入交通运行时。
 
 ## 决策
 
@@ -346,8 +347,8 @@ Static/shared contract 不得留在 Runtime；否则 compiler/validator 会反�
 
 ### 10. 迁移必须保持当前态（Current）与目标态（Target）语义可区分
 
-本 ADR 在 Accepted 前是 #291 的目标决策输入；在 static-image/Traffic Runtime
-cutover 完成 G4 前：
+本 ADR 在 Accepted 前是 #291 的目标决策输入；在阶段 8 生产切换 Issue #294 的
+static-image/Traffic Runtime cutover 完成 G4 前：
 
 - Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1 继续是当前 production
   contract；

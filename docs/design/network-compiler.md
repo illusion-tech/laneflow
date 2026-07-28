@@ -107,8 +107,8 @@ StaticNetworkImage ─┬─> Traffic Runtime: StaticTrafficView + per-world mut
 - LaneFlow 第一长期产品目标是服务中国特色城市模拟游戏交通基础，但城市经济、
   出行需求、路线选择策略和游戏规则继续由上层拥有。
 
-本文描述目标态。ADR 0020/0021 Accepted 且迁移 G4 完成前，现有
-JSON/Data/Core/Spatial 路径仍是当前态生产契约。
+本文描述目标态。ADR 0020/0021 Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，
+现有 JSON/Data/Core/Spatial 路径仍是当前态生产契约。
 
 ## 2. 为什么不能继续 L1/L2
 
@@ -1124,7 +1124,7 @@ normalization authority。
 阶段 5  portable artifact + independent validator + source map/semantic diff
 阶段 6  target static image + Traffic Runtime/Spatial shared image path
 阶段 7  behavior/perf/security cutover Gate
-阶段 8  production cutover，完成 core→runtime rename 并移除 projection/重复构建
+阶段 8  #294：production cutover，完成 core→runtime rename 并移除 projection/重复构建
 ```
 
 阶段是架构迁移顺序，不是把终态降级为最小方案。每个阶段都必须沿同一个
@@ -1132,14 +1132,14 @@ AST/HIR/MIR/LIR 与 artifact/image contract 前进，不允许先建一个注定
 builder API。阶段 3 的 bridge 固定为 `laneflow-compiler-test-support` 或等价
 integration-only crate：它可以依赖 compiler + current Core/Spatial，将 validated
 LIR 投影为 current inputs；compiler 不依赖它，它不构成 public backend contract，
-并由阶段 8 的 cutover owner 删除。该投影器（Projection）只消费 LIR 已验证的
+并由阶段 8 的 cutover owner #294 删除。该投影器（Projection）只消费 LIR 已验证的
 StableId、有类型所有者关系（Typed Owner Relation）与其他规范语义，不从当前 JSON
 或核心对象图（Core Object Graph）反向派生标识（Identity）；未来当前 JSON 的迁移 /
 导入前端（Migration / Import Frontend）也必须先产生并验证同一唯一所有者关系，
 才能进入 LIR。
 
-阶段 8 的一次性不兼容改名不仅覆盖 crate/type，也覆盖文档导航、Agent Skill ID、
-工具薄包装和治理枚举：`laneflow-core-design` 目标改为
+阶段 8 的 #294 一次性不兼容改名不仅覆盖 crate/type，也覆盖文档导航、Agent Skill
+ID、工具薄包装和治理枚举：`laneflow-core-design` 目标改为
 `laneflow-runtime-design`。在 current `laneflow-core/CoreWorld` 仍服役时只同步
 Skill 内容并明确 current/target，不提前删除旧发现入口；具体治理枚举迁移必须由
 独立 implementation Issue 原子更新 validator、模板和历史兼容规则。
@@ -1187,6 +1187,8 @@ Cutover 前必须证明：
   target；
 - #292 已重划为 compiler foundation + Synthetic DSL frontend，并继续保持
   `Blocked by #291`；
+- 阶段 8 生产切换、core→runtime 原子改名与旧路径移除由 #294 的 G4 独占，不再
+  误绑到 #291 的设计交付 G4；
 - 标识 v1、artifact/image/profile/version/validation/performance contract 一致，所有
   生产配置档保留 snapshot/cutover 必需的 `StaticIdentityIndex`；
 - 静态执行约束、分区规划提示和每世界运行时执行计划职责分离，且 exact path 无

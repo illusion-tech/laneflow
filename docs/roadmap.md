@@ -292,21 +292,22 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 
 当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
 `InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target
-迁移完成 G4；target 文档不得误写成现状。#292 已重划为 compiler foundation +
-Synthetic DSL frontend 的首个纵向闭环，继续保持 Project `Backlog` 与 native
-`Blocked by #291`，不得在 #291 G1 前冻结实现 API。
+迁移由阶段 8 生产切换 Issue #294 完成 G4；target 文档不得误写成现状。#292 已
+重划为 compiler foundation + Synthetic DSL frontend 的首个纵向闭环，继续保持
+Project `Backlog` 与 native `Blocked by #291`，不得在 #291 G1 前冻结实现 API。
 
 迁移顺序为 `#291 架构 G1 → #292 static-contract/compiler foundation/Synthetic
 DSL → integration-only LIR→current projection → 恢复 #282–#285`；之后 Geometry
 frontend/MIR 可以与恢复的 runtime slices 并行推进，再依次交付 portable
 artifact/独立 validator/source map/semantic diff、target static-image +
 Traffic Runtime/Spatial shared-image path 和 behavior/performance/security cutover。
-Projection 不进入 compiler production dependency，cutover 时删除。编译器性能
-工作负载及其规模计数必须在后继实现 G1 中依据产品证据独立冻结，不能从 #72 的
-运行时交通参与单元规模反推。#72 继续拥有交通参与单元按执行域分解的保真度
-（Fidelity）、分区（Partition）、调度、迁移与内存证据；其既有证据只覆盖当前
-道路机动车车辆特化。#236/#237 仍是独立产品 / 研究输入，不自动并入首个前端
-（Frontend）。
+最后由 #294 独占阶段 8 production cutover、core→runtime 原子改名与 projection/
+旧路径移除；#294 G4 前不得提前满足切换条件。Projection 不进入 compiler production
+dependency。编译器性能工作负载及其规模计数必须在后继实现 G1 中依据产品证据独立
+冻结，不能从 #72 的运行时交通参与单元规模反推。#72 继续拥有交通参与单元按执行域
+分解的保真度（Fidelity）、分区（Partition）、调度、迁移与内存证据；其既有证据只
+覆盖当前道路机动车车辆特化。#236/#237 仍是独立产品 / 研究输入，不自动并入首个
+前端（Frontend）。
 
 ## 城市级扩展研究（Milestone N/A）
 
