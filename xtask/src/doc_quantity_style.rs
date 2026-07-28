@@ -261,11 +261,16 @@ impl HtmlProjection {
                 self.suppressed_elements.push(tag.name.clone());
             }
 
-            if (is_html_text_boundary(&tag.name) || separates_visible_prose)
-                && (!was_suppressed || self.suppressed_elements.is_empty())
-                && !visible.ends_with(PROSE_BOUNDARY)
-            {
-                visible.push(PROSE_BOUNDARY);
+            if !was_suppressed || self.suppressed_elements.is_empty() {
+                if tag.name == "br" {
+                    if !visible.ends_with(char::is_whitespace) {
+                        visible.push(' ');
+                    }
+                } else if (is_html_text_boundary(&tag.name) || separates_visible_prose)
+                    && !visible.ends_with(PROSE_BOUNDARY)
+                {
+                    visible.push(PROSE_BOUNDARY);
+                }
             }
             cursor = tag.end;
         }
@@ -449,7 +454,6 @@ fn is_html_text_boundary(name: &str) -> bool {
             | "article"
             | "aside"
             | "blockquote"
-            | "br"
             | "dd"
             | "details"
             | "div"
@@ -1054,6 +1058,7 @@ mod tests {
             "k 个参与单元。\n\n",
             "研究边界为 1  \n",
             "M 个参与单元。\n\n",
+            "HTML 换行为 10<br>k 个参与单元。\n\n",
             "段落边界前的 100\n\n",
             "k 不是同一个数量。\n",
         );
@@ -1067,6 +1072,10 @@ mod tests {
                 Violation {
                     line: 4,
                     token: "1 M".to_string()
+                },
+                Violation {
+                    line: 7,
+                    token: "10 k".to_string()
                 }
             ]
         );
