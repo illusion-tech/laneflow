@@ -164,12 +164,15 @@ frame declaration。新增 kind 只 append registry revision；修改既有 kind
 一次成功编译原子地产生：
 
 1. **可移植规范制品（Portable Canonical Artifact）**：平台无关、确定性、可发布和长期审计的静态网络
-   事实；承接 public artifact、迁移和跨实现互操作；
+   事实；内含每个稳定实体的规范身份表（Canonical Identity Table）
+   `CanonicalIdentityTable`，保存完整 field-tag/value 前像、声明的 `StableId128` 与
+   typed ordinal，承接 public artifact、独立身份重算、迁移和跨实现互操作；
 2. **目标静态镜像（Target Static Image）**：按目标平台、布局版本、封闭配置档
    （Closed Profile）与性能要求
    生成，可重建、面向 mmap/顺序读取和直接索引；
-3. **源映射 / 诊断制品（Source Map / Diagnostics Artifact）**：StableId128/LIR entity 到 source span、
-   canonical tuple 和 pass provenance 的映射；
+3. **源映射 / 诊断制品（Source Map / Diagnostics Artifact）**：从
+   `(entityKind, StableId128, typed ordinal)` 到 source span 和 pass provenance 的
+   映射；可以冗余 tuple 用于显示，但不是身份验证的唯一前像来源；
 4. **语义差异（Semantic Diff）**：以稳定标识和字段语义描述新增、删除、重接、
    geometry/behavior 变化，供 PR/Gate 审阅。
 
@@ -207,6 +210,9 @@ StaticNetworkImage
 - `StaticIdentityIndex` 对稳定实体保存 typed ordinal → StableId128 正向表和按
   `(entityKind, StableId128)` 排序的反向表；它是 snapshot save/load、dynamic Route
   重建和路网修订切换的生产必需冷索引，但不进入 steady tick；
+- `CanonicalIdentityTable` 只属于 portable artifact / independent validation 输入；
+  static image 不复制规范元组前像，生产 Runtime 不为身份重算元数据承担 retained
+  memory 或 cache 成本；
 - Spatial section 存在时完整覆盖 v1 所需 edge，并与 Traffic 使用同一 logical edge
   ordinal/cross-index；v1 不引入 sparse geometry mapping；
 - Adapter 继续只消费 Traffic committed snapshot 与 Spatial pose batch，不读取
@@ -313,7 +319,10 @@ canonical artifact 不变时因布局或 CPU target 变化而重建。
 1. **Compiler validation**：对 AST/HIR/MIR/LIR 执行完整语义和生成前置检查；
 2. **Independent artifact validator**：只消费 portable canonical artifact 和公开
    constraint contract，独立实现 topology、标识、ownership、coverage、
-   geometry 与 occurrence 检查；不得调用 compiler semantic validation；
+   geometry 与 occurrence 检查；必须从 artifact 内 `CanonicalIdentityTable` 的完整
+   前像独立编码并重算每个 BLAKE3-128 `StableId128`，验证 parent anchor、duplicate
+   tuple 与 digest collision；不得调用 compiler semantic validation，也不得依赖
+   source map 补齐身份字段；
 3. **Validation receipt / external descriptor**：绑定路网修订标识、artifact/image
    digest、target、profile、constraint、compiler/validator build；其 authenticity
    由签名 publication manifest、宿主认证 asset chain 或 pinned digest 提供；
@@ -333,8 +342,9 @@ Published trusted image 必须匹配外部 descriptor；local build 必须绑定
 independent validation receipt；untrusted external input 必须提供 portable artifact
 并在本地验证/重建，只有 image bytes 时拒绝。
 
-Validation receipt 必须记录 artifact semantic validation、路网修订标识独立重算
-与 independent image rebuild comparison 的成功结果。未完成三者时不得签发可进入
+Validation receipt 必须记录 artifact semantic validation（包括全部稳定身份独立
+重算）、路网修订标识独立重算与 independent image rebuild comparison 的成功结果。
+缺失 / 篡改身份前像或声明 ID 不匹配时必须失败，未完成三者时不得签发可进入
 production fast path 的 descriptor。运行时当前修订只来自已认证
 `StaticImageDescriptor`，不接受调用方或 image header 自报。
 
