@@ -188,9 +188,14 @@ fn current_loader_normalizes_multi_gate_waiting_zone_occurrences() {
             .route_waiting_zone_occurrences(route)
             .expect("waiting occurrences")
             .iter()
-            .map(|occurrence| occurrence.empty_storage_meters())
+            .map(|occurrence| {
+                (
+                    occurrence.entry_route_edge_index(),
+                    occurrence.release_route_edge_index(),
+                )
+            })
             .collect::<Vec<_>>(),
-        [6.0, 7.0]
+        [(0, 1), (1, 2)]
     );
 }
 

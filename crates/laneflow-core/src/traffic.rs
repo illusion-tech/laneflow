@@ -108,7 +108,6 @@ pub struct WaitingZoneOccurrence {
     release_gate_occurrence_index: usize,
     entry_route_edge_index: usize,
     release_route_edge_index: usize,
-    empty_storage_meters: f64,
 }
 
 impl WaitingZoneOccurrence {
@@ -140,11 +139,6 @@ impl WaitingZoneOccurrence {
     /// 返回 release Gate transition 的 from-edge route index。
     pub const fn release_route_edge_index(self) -> usize {
         self.release_route_edge_index
-    }
-
-    /// 返回空 WaitingZone 的 boundary-to-boundary storage length。
-    pub const fn empty_storage_meters(self) -> f64 {
-        self.empty_storage_meters
     }
 }
 
@@ -549,16 +543,6 @@ pub(crate) fn compile_route(
                 gate_occurrences[entry_gate_occurrence_index].from_route_edge_index;
             let release_route_edge_index =
                 gate_occurrences[release_gate_occurrence_index].from_route_edge_index;
-            let empty_storage_meters = edge_handles
-                [entry_route_edge_index + 1..=release_route_edge_index]
-                .iter()
-                .map(|edge| {
-                    lane_graph
-                        .edge_length(*edge)
-                        .expect("compiled route edge must exist")
-                        .value()
-                })
-                .sum();
             let waiting_zone_occurrence_index = waiting_zone_occurrences.len();
             gate_occurrences[entry_gate_occurrence_index].waiting_zone_occurrence_index =
                 Some(waiting_zone_occurrence_index);
@@ -569,7 +553,6 @@ pub(crate) fn compile_route(
                 release_gate_occurrence_index,
                 entry_route_edge_index,
                 release_route_edge_index,
-                empty_storage_meters,
             });
         }
         let waiting_zone_occurrence_end = waiting_zone_occurrences.len();

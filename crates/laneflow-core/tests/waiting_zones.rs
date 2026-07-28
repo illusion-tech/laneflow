@@ -217,10 +217,12 @@ fn route_compiles_all_gate_and_waiting_zone_occurrences() {
     assert_eq!(zones.len(), 2);
     assert_eq!(zones[0].entry_gate_occurrence_index(), 0);
     assert_eq!(zones[0].release_gate_occurrence_index(), 1);
-    assert_eq!(zones[0].empty_storage_meters(), 6.0);
+    assert_eq!(zones[0].entry_route_edge_index(), 0);
+    assert_eq!(zones[0].release_route_edge_index(), 1);
     assert_eq!(zones[1].entry_gate_occurrence_index(), 1);
     assert_eq!(zones[1].release_gate_occurrence_index(), 2);
-    assert_eq!(zones[1].empty_storage_meters(), 7.0);
+    assert_eq!(zones[1].entry_route_edge_index(), 1);
+    assert_eq!(zones[1].release_route_edge_index(), 2);
 
     let maneuver = world
         .route_maneuver_occurrences(route)
@@ -361,6 +363,61 @@ fn binding_checks_static_capacity_before_runtime_capability_guards() {
     world
         .spawn_vehicle(spawn("short-after", short, 3))
         .expect("completed maneuver suffix has no pending WaitingZone");
+}
+
+#[test]
+fn binding_rejects_unprovable_waiting_storage_distance() {
+    let graph = LaneGraph::try_new([
+        edge("entry", 10.0, &["internal-a"]),
+        edge("internal-a", f64::MAX, &["internal-b"]),
+        edge("internal-b", f64::MAX, &["exit"]),
+        edge("exit", 10.0, &["entry"]),
+    ])
+    .expect("graph");
+    let junctions = junctions(&graph);
+    let signals = signals(&graph, &junctions);
+    let waiting = WaitingRegistry::try_new(
+        &junctions,
+        &signals,
+        [WaitingZone::new(
+            "zone-overflow",
+            "path",
+            "gate-entry",
+            "gate-release",
+            1,
+        )],
+    )
+    .expect("waiting zone");
+    let mut world = world_from_parts(graph, junctions, signals, waiting);
+    let short = world
+        .vehicle_profiles()
+        .profile_handle("short")
+        .expect("short profile");
+
+    let error = world
+        .spawn_vehicle(laneflow_core::VehicleSpawnInput::active(
+            "unprovable-storage",
+            short,
+            "route",
+            0,
+            EdgeProgress::try_new(0.0).expect("progress"),
+            Speed::ZERO,
+        ))
+        .expect_err("unrepresentable storage distance must fail closed");
+
+    std::assert_matches!(
+        error,
+        CoreError::WaitingZone(WaitingZoneError::StorageDistanceUnprovable {
+            profile_id,
+            route_id,
+            waiting_zone_id,
+            entry_route_edge_index: 0,
+            release_route_edge_index: 2,
+        }) if profile_id == "short"
+            && route_id == "route"
+            && waiting_zone_id == "zone-overflow"
+    );
+    assert!(world.vehicle_handle("unprovable-storage").is_none());
 }
 
 #[test]

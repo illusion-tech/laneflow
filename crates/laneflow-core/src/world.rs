@@ -2005,20 +2005,51 @@ impl CoreWorld {
             .vehicle_profile(profile)
             .expect("validated profile must exist");
         let required_meters = vehicle_profile.iidm().length;
+        let distance_index = &self.route_distance_indices[route.index()];
         for occurrence in &route_slot.waiting_zone_occurrences {
             if !Self::waiting_zone_occurrence_is_pending(*occurrence, cursor) {
                 continue;
             }
-            let available_meters = occurrence.empty_storage_meters();
-            if available_meters + WAITING_ZONE_STORAGE_TOLERANCE_METERS < required_meters {
+            let storage_start_route_edge_index = occurrence.entry_route_edge_index() + 1;
+            let release_route_edge_index = occurrence.release_route_edge_index();
+            let release_edge = route_slot.edge_handles[release_route_edge_index];
+            let release_edge_length = self
+                .lane_graph
+                .edge_length(release_edge)
+                .expect("compiled route edge must exist")
+                .value();
+            let waiting_zone_id = self
+                .waiting
+                .waiting_zone_external_id(occurrence.waiting_zone())
+                .expect("compiled WaitingZone occurrence must exist");
+            let available_meters = match distance_index
+                .finite_distance(
+                    storage_start_route_edge_index,
+                    0.0,
+                    release_route_edge_index,
+                    release_edge_length,
+                )
+                .expect("WaitingZone entry must precede its release boundary")
+            {
+                BoundedDistance::Finite(available_meters) => available_meters,
+                BoundedDistance::BeyondFinite => {
+                    return Err(WaitingZoneError::StorageDistanceUnprovable {
+                        profile_id: vehicle_profile.external_id().to_owned(),
+                        route_id: route_slot.external_id.clone(),
+                        waiting_zone_id: waiting_zone_id.to_owned(),
+                        entry_route_edge_index: occurrence.entry_route_edge_index(),
+                        release_route_edge_index,
+                    }
+                    .into());
+                }
+            };
+            if available_meters < required_meters
+                && required_meters - available_meters > WAITING_ZONE_STORAGE_TOLERANCE_METERS
+            {
                 return Err(WaitingZoneError::InsufficientStorage {
                     profile_id: vehicle_profile.external_id().to_owned(),
                     route_id: route_slot.external_id.clone(),
-                    waiting_zone_id: self
-                        .waiting
-                        .waiting_zone_external_id(occurrence.waiting_zone())
-                        .expect("compiled WaitingZone occurrence must exist")
-                        .to_owned(),
+                    waiting_zone_id: waiting_zone_id.to_owned(),
                     available_meters,
                     required_meters,
                 }
