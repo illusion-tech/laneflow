@@ -172,6 +172,38 @@ impl WaitingRegistry {
             });
         }
 
+        for (first_index, first) in normalized.iter().enumerate() {
+            let first_release = signals
+                .maneuver_gate(first.release_gate)
+                .expect("resolved release gate must exist")
+                .transition_index();
+            let first_entry = signals
+                .maneuver_gate(first.entry_gate)
+                .expect("resolved entry gate must exist")
+                .transition_index();
+            for second in &normalized[(first_index + 1)..] {
+                if first.maneuver_path != second.maneuver_path {
+                    continue;
+                }
+                let second_entry = signals
+                    .maneuver_gate(second.entry_gate)
+                    .expect("resolved entry gate must exist")
+                    .transition_index();
+                let second_release = signals
+                    .maneuver_gate(second.release_gate)
+                    .expect("resolved release gate must exist")
+                    .transition_index();
+                if first_entry < second_release && second_entry < first_release {
+                    return Err(WaitingZoneError::Overlap {
+                        maneuver_path_id: first.definition.maneuver_path_id().to_owned(),
+                        first_waiting_zone_id: first.definition.id().to_owned(),
+                        second_waiting_zone_id: second.definition.id().to_owned(),
+                    }
+                    .into());
+                }
+            }
+        }
+
         let mut by_path = (0..normalized.len())
             .map(WaitingZoneHandle::new)
             .collect::<Vec<_>>();
@@ -190,30 +222,6 @@ impl WaitingRegistry {
                 handle.index(),
             )
         });
-
-        for pair in by_path.array_windows::<2>() {
-            let first = &normalized[pair[0].index()];
-            let second = &normalized[pair[1].index()];
-            if first.maneuver_path != second.maneuver_path {
-                continue;
-            }
-            let first_release = signals
-                .maneuver_gate(first.release_gate)
-                .expect("resolved release gate must exist")
-                .transition_index();
-            let second_entry = signals
-                .maneuver_gate(second.entry_gate)
-                .expect("resolved entry gate must exist")
-                .transition_index();
-            if second_entry < first_release {
-                return Err(WaitingZoneError::Overlap {
-                    maneuver_path_id: first.definition.maneuver_path_id().to_owned(),
-                    first_waiting_zone_id: first.definition.id().to_owned(),
-                    second_waiting_zone_id: second.definition.id().to_owned(),
-                }
-                .into());
-            }
-        }
 
         let mut waiting_zone_ranges = vec![0..0; junctions.maneuver_paths().len()];
         let mut cursor = 0;

@@ -173,8 +173,8 @@ fn waiting_registry_orders_shared_boundaries_and_rejects_overlap() {
         &junctions,
         &signals,
         [
-            WaitingZone::new("outer", "path", "gate-entry", "gate-release", 1),
-            WaitingZone::new("nested", "path", "gate-middle", "gate-release", 1),
+            WaitingZone::new("declared-first", "path", "gate-middle", "gate-release", 1),
+            WaitingZone::new("declared-second", "path", "gate-entry", "gate-release", 1),
         ],
     )
     .expect_err("overlap and nesting must fail");
@@ -185,8 +185,8 @@ fn waiting_registry_orders_shared_boundaries_and_rejects_overlap() {
             first_waiting_zone_id,
             second_waiting_zone_id,
         }) if maneuver_path_id == "path"
-            && first_waiting_zone_id == "outer"
-            && second_waiting_zone_id == "nested"
+            && first_waiting_zone_id == "declared-first"
+            && second_waiting_zone_id == "declared-second"
     );
 }
 

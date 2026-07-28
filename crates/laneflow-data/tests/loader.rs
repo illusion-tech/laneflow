@@ -268,11 +268,14 @@ fn waiting_zone_domain_errors_use_narrowest_paths() {
         (
             path,
             CoreError::WaitingZone(WaitingZoneError::Overlap {
+                first_waiting_zone_id,
                 second_waiting_zone_id,
                 ..
             }),
         )
-            if path == "waitingZones[0]" && second_waiting_zone_id == "zone-b"
+            if path == "waitingZones[1]"
+                && first_waiting_zone_id == "zone-b"
+                && second_waiting_zone_id == "zone-a"
     );
 }
 
