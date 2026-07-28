@@ -56,6 +56,13 @@
           "canonicalUrl": "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.9.schema.json",
           "sourceRevision": "b639eb030fa1652a05eb4c0bdded8d01124d197a",
           "sourceBlobOid": "2ea421e2fa4fd6b3372fee413d1c05c594de47ca"
+        },
+        {
+          "formatVersion": "0.10",
+          "path": "schemas/laneflow-data-v0.10.schema.json",
+          "canonicalUrl": "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.10.schema.json",
+          "sourceRevision": "bbb1daea35c57d8d6c08b2e971e133e893c29e43",
+          "sourceBlobOid": "1dba5074eb1ffc88eaae8a2b802b6b702c954f00"
         }
       ]
     },
