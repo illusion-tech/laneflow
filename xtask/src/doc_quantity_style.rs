@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use proc_macro2::LineColumn;
+use proc_macro2::{Delimiter, LineColumn, TokenStream, TokenTree};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
@@ -14,6 +14,8 @@ struct Violation {
     line: usize,
     token: String,
 }
+
+const PROSE_BOUNDARY: char = '\u{fffc}';
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     if args.is_empty() {
@@ -137,7 +139,8 @@ fn find_markdown_violations(content: &str, first_source_line: usize) -> Vec<Viol
             {
                 let source_line =
                     first_source_line + count_line_breaks(&content[..source_range.start]);
-                append_prose_projection(&mut prose_by_line, " ", source_line);
+                let boundary = PROSE_BOUNDARY.to_string();
+                append_prose_projection(&mut prose_by_line, &boundary, source_line);
             }
             Event::Html(html) | Event::InlineHtml(html) if code_block_depth == 0 => {
                 let source_line =
@@ -232,9 +235,9 @@ impl HtmlProjection {
 
             if (is_html_text_boundary(&tag.name) || separates_visible_prose)
                 && (!was_suppressed || self.suppressed_elements.is_empty())
-                && !visible.ends_with(char::is_whitespace)
+                && !visible.ends_with(PROSE_BOUNDARY)
             {
-                visible.push(' ');
+                visible.push(PROSE_BOUNDARY);
             }
             cursor = tag.end;
         }
@@ -549,7 +552,7 @@ impl<'path> RustdocVisitor<'path> {
         }
     }
 
-    fn process_doc_meta(&mut self, meta: &Meta) {
+    fn process_doc_meta(&mut self, meta: &Meta, allow_include: bool) {
         let Meta::NameValue(name_value) = meta else {
             return;
         };
@@ -567,7 +570,14 @@ impl<'path> RustdocVisitor<'path> {
                 });
             }
             Expr::Macro(expression) if expression.mac.path.is_ident("include_str") => {
-                self.include_document(meta, expression);
+                if allow_include {
+                    self.include_document(meta, expression);
+                } else {
+                    self.errors.push(format!(
+                        "第 {} 行宏 token 中的 `doc = include_str!(...)` 无法静态确定展开文件上下文；数量书写门禁失败关闭",
+                        source_line(meta.span().start())
+                    ));
+                }
             }
             _ => self.errors.push(format!(
                 "第 {} 行 `#[doc = ...]` 必须使用字符串字面量或 `include_str!`，避免动态文档绕过数量书写门禁",
@@ -603,13 +613,13 @@ impl<'path> RustdocVisitor<'path> {
             return;
         }
         for meta in nested {
-            self.process_conditional_meta(meta);
+            self.process_conditional_meta(meta, true);
         }
     }
 
-    fn process_conditional_meta(&mut self, meta: &Meta) {
+    fn process_conditional_meta(&mut self, meta: &Meta, allow_include: bool) {
         if meta.path().is_ident("doc") {
-            self.process_doc_meta(meta);
+            self.process_doc_meta(meta, allow_include);
             return;
         }
         if meta.path().is_ident("cfg_attr") {
@@ -640,10 +650,63 @@ impl<'path> RustdocVisitor<'path> {
                 return;
             }
             for nested_meta in nested {
-                self.process_conditional_meta(nested_meta);
+                self.process_conditional_meta(nested_meta, allow_include);
             }
         }
     }
+
+    fn process_macro_tokens(&mut self, tokens: TokenStream) {
+        let tokens = tokens.into_iter().collect::<Vec<_>>();
+        let mut cursor = 0_usize;
+
+        while cursor < tokens.len() {
+            if let TokenTree::Punct(pound) = &tokens[cursor]
+                && pound.as_char() == '#'
+            {
+                let mut group_index = cursor + 1;
+                if let Some(TokenTree::Punct(bang)) = tokens.get(group_index)
+                    && bang.as_char() == '!'
+                {
+                    group_index += 1;
+                }
+                if let Some(TokenTree::Group(group)) = tokens.get(group_index)
+                    && group.delimiter() == Delimiter::Bracket
+                {
+                    let attribute_tokens = group.stream();
+                    match syn::parse2::<Meta>(attribute_tokens.clone()) {
+                        Ok(meta)
+                            if meta.path().is_ident("doc") || meta.path().is_ident("cfg_attr") =>
+                        {
+                            self.process_conditional_meta(&meta, false);
+                        }
+                        Ok(_) => {}
+                        Err(error) if starts_with_document_meta(&attribute_tokens) => {
+                            self.errors.push(format!(
+                                "第 {} 行宏 token 中的 `doc`/`cfg_attr` 无法静态解析；数量书写门禁失败关闭: {error}",
+                                source_line(group.span().start())
+                            ));
+                        }
+                        Err(_) => {}
+                    }
+                    cursor = group_index + 1;
+                    continue;
+                }
+            }
+
+            if let TokenTree::Group(group) = &tokens[cursor] {
+                self.process_macro_tokens(group.stream());
+            }
+            cursor += 1;
+        }
+    }
+}
+
+fn starts_with_document_meta(tokens: &TokenStream) -> bool {
+    matches!(
+        tokens.clone().into_iter().next(),
+        Some(TokenTree::Ident(identifier))
+            if identifier == "doc" || identifier == "cfg_attr"
+    )
 }
 
 struct RustdocFragment {
@@ -686,7 +749,7 @@ impl RustdocGroup {
 impl<'ast> Visit<'ast> for RustdocVisitor<'_> {
     fn visit_attribute(&mut self, attribute: &'ast Attribute) {
         if attribute.path().is_ident("doc") {
-            self.process_doc_meta(&attribute.meta);
+            self.process_doc_meta(&attribute.meta, true);
             return;
         }
         if attribute.path().is_ident("cfg_attr") {
@@ -695,6 +758,11 @@ impl<'ast> Visit<'ast> for RustdocVisitor<'_> {
         }
 
         visit::visit_attribute(self, attribute);
+    }
+
+    fn visit_macro(&mut self, expression: &'ast syn::Macro) {
+        self.process_macro_tokens(expression.tokens.clone());
+        visit::visit_macro(self, expression);
     }
 }
 
@@ -733,7 +801,19 @@ fn scan_ascii_quantity_abbreviations(segment: &str, tokens: &mut Vec<String>) {
             cursor += 1;
         }
 
-        if cursor >= bytes.len() || !matches!(bytes[cursor], b'k' | b'K' | b'm' | b'M') {
+        let suffix_spacing_start = cursor;
+        while let Some(character) = segment[cursor..].chars().next()
+            && character.is_whitespace()
+        {
+            cursor += character.len_utf8();
+        }
+
+        let allowed_suffix = if cursor == suffix_spacing_start {
+            matches!(bytes.get(cursor), Some(b'k' | b'K' | b'm' | b'M'))
+        } else {
+            matches!(bytes.get(cursor), Some(b'k' | b'M'))
+        };
+        if !allowed_suffix {
             continue;
         }
         cursor += 1;
@@ -802,7 +882,10 @@ mod tests {
     #[test]
     fn rejects_reader_facing_quantity_abbreviations() {
         assert_eq!(
-            find_markdown_violations("目标为 10k，研究边界为 1M。\n", 1),
+            find_markdown_violations(
+                "目标为 10k，研究边界为 1M，带空格形式为 100 k、1\tM、2\u{00a0}k。\n",
+                1
+            ),
             vec![
                 Violation {
                     line: 1,
@@ -811,9 +894,26 @@ mod tests {
                 Violation {
                     line: 1,
                     token: "1M".to_string()
+                },
+                Violation {
+                    line: 1,
+                    token: "100 k".to_string()
+                },
+                Violation {
+                    line: 1,
+                    token: "1\tM".to_string()
+                },
+                Violation {
+                    line: 1,
+                    token: "2\u{00a0}k".to_string()
                 }
             ]
         );
+    }
+
+    #[test]
+    fn spaced_si_units_are_not_quantity_abbreviations() {
+        assert!(find_markdown_violations("距离 13.9 m，温度 300 K，时延 100 ms。\n", 1).is_empty());
     }
 
     #[test]
@@ -1116,6 +1216,49 @@ mod tests {
             find_rustdoc_violations(content, None)
                 .expect_err("dynamic conditional Rustdoc must fail closed")
                 .contains("避免动态文档绕过数量书写门禁")
+        );
+    }
+
+    #[test]
+    fn checks_literal_rustdoc_emitted_from_macro_tokens() {
+        let content = concat!(
+            "macro_rules! documented {\n",
+            "    () => {\n",
+            "        /// 宏生成的行文档仍禁止 100k prose。\n",
+            "        #[cfg_attr(feature = \"docs\", doc = \"条件宏文档仍禁止 1M prose。\")]\n",
+            "        pub struct Generated;\n",
+            "    };\n",
+            "}\n",
+        );
+        assert_eq!(
+            find_rustdoc_violations(content, None).expect("valid macro-generated Rustdoc"),
+            vec![
+                Violation {
+                    line: 3,
+                    token: "100k".to_string()
+                },
+                Violation {
+                    line: 4,
+                    token: "1M".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn dynamic_macro_generated_rustdoc_fails_closed() {
+        let content = concat!(
+            "macro_rules! documented {\n",
+            "    ($documentation:literal) => {\n",
+            "        #[doc = $documentation]\n",
+            "        pub struct Generated;\n",
+            "    };\n",
+            "}\n",
+        );
+        assert!(
+            find_rustdoc_violations(content, None)
+                .expect_err("dynamic macro-generated Rustdoc must fail closed")
+                .contains("宏 token 中的 `doc`/`cfg_attr` 无法静态解析")
         );
     }
 }
