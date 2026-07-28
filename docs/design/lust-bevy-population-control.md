@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（#256 G1）<br>
 **最后更新**: 2026-07-26<br>
-**适用范围**: LuST 真实路网 Bevy native 示例（#257）的 1–10k 个体人口调节、
+**适用范围**: LuST 真实路网 Bevy native 示例（#257）的 1–一万个体人口调节、
 展示计数与确定性抽样；不覆盖走廊 `50..=200` reference policy，也不改写
 TOPO/DEMAND workload ID
 
@@ -17,7 +17,7 @@ TOPO/DEMAND workload ID
 
 ## 1. 目的与边界
 
-本文冻结 LuST/Bevy 示例层如何把 TOPO plan 的 10k `logical_rank` placement
+本文冻结 LuST/Bevy 示例层如何把 TOPO plan 的一万 `logical_rank` placement
 调节到 `target_N∈[1,10000]`，以及 HUD/证据必须暴露哪些正交计数。共享
 `population_rank` 表仍是 provenance 输入，但不是 placement 权威。
 
@@ -34,8 +34,8 @@ TOPO/DEMAND workload ID
 
 - 把人口 controller 放进 Core 或新增 batch lifecycle public API；
 - 把 `target_N` / seed / 抽样集合写入 Traffic、Spatial 或 ScenarioManifest；
-- 改写 `LF-REAL-LUST-TOPO-v1` / `LF-REAL-LUST-DEMAND-v1` 的固定 10k 语义；
-- 宣称 10k@100% presentation 的 Product Pass / realtime SLA（见 #215；P10 未认证）。
+- 改写 `LF-REAL-LUST-TOPO-v1` / `LF-REAL-LUST-DEMAND-v1` 的固定一万语义；
+- 宣称一万@100% presentation 的 Product Pass / realtime SLA（见 #215；P10 未认证）。
 
 走廊场景继续以 [`signalized-corridor-population.md`](signalized-corridor-population.md)
 的 `50..=200` 为权威；本文只服务 LuST 示例路径（Parent #252 / #257）。
@@ -44,12 +44,16 @@ TOPO/DEMAND workload ID
 
 HUD 与 headless 证据必须同时可读：
 
-| 符号               | 含义                                                  |
-| ------------------ | ----------------------------------------------------- |
-| `target_N`         | 示例 policy 当前目标 logical population，`[1, 10000]` |
-| `N_individual`     | Core 中仍保留完整 identity 的个体数                   |
-| `N_traffic_active` | 参与道路交通权威的个体数                              |
-| `N_presented`      | 本 outer frame 被 materialize / 提交展示的个体数      |
+| 符号           | 含义                                                     |
+| -------------- | -------------------------------------------------------- |
+| `target_N`     | 示例 policy 当前目标 logical population，`[1, 10000]`    |
+| `N_individual` | Core 中仍保留完整 identity 的道路机动车参与单元数        |
+| `N_active`     | 参与道路机动车执行域交通权威的个体参与单元数             |
+| `N_presented`  | 本 outer frame 被 materialize / 提交展示的个体参与单元数 |
+
+本文是 current `CoreWorld`/LuST 车辆特化，所有无下标计数均绑定
+`execution_domain=road_motor_vehicle`；它不定义目标 Traffic Runtime 的非机动车、
+步行或轨道交通计数原子。
 
 默认演示目标是 **100% of presentable vehicles**：在无 pending `Completed`、未启用
 手动 H3、且 **没有** S1-retained Completed identity（excess slot 已 Completed、已
@@ -71,7 +75,7 @@ S1 例外：excess slot 按 §3.2.1 保留 Core identity 但已移出场景后�
 ### 3.1 H1 启动档位
 
 - 启动必须显式提供 `target_N∈[1,10000]` 与 `u64 seed`（零 seed 合法）。
-- 禁止隐式默认静默升到 10k。
+- 禁止隐式默认静默升到一万。
 - bootstrap 在第一个 Core step 之前完成；失败则整体不进入 Running。
 
 ### 3.2 受约束 H2（运行中改目标）
@@ -191,7 +195,7 @@ bundle **不**提供 tick-0 无碰撞 placement（§3.6 明确排除初始车辆
 | 制品               | 关系                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------- |
 | #253 static bundle | 示例加载的路网/信号权威；**不含**初始车辆 placement                                               |
-| 共享 10k rank 表   | TOPO/DEMAND 共享 provenance；**不是** #257 的 placement 权威                                      |
+| 共享一万 rank 表   | TOPO/DEMAND 共享 provenance；**不是** #257 的 placement 权威                                      |
 | #254 TOPO plan     | **#257 交互示例必需**的 rank→placement 权威；抽样作用于其 `logical_rank`；不得改 TOPO workload ID |
 | #255 DEMAND        | 不作为可滑杆人口模型；若演示 departure，须独立模式且不与 H2 热改 / TOPO 子集抽样混用              |
 

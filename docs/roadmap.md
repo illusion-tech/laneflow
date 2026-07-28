@@ -56,13 +56,13 @@ LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟游�
 - 纵向 VehicleState、occupancy index 与 leader detection
 - IIDM comfort control、emergency safe-speed 与 no-overlap projection
 - 平滑跟驰、停止与恢复
-- 确定性、不变量、10k 性能与 100k 扩展性验证
+- 确定性、不变量、一万性能与十万扩展性验证
 
 ## v0.4 Signals
 
 目标：支持基础红绿灯和路口通行规则。
 
-完成状态：2026-07-15 已完成。设计、current 0.4 数据契约、runtime、车辆合规、确定性、10k/100k 性能、安全与剩余风险的收口依据见 [`v0.4 收口审阅基线`](reference/v0.4-closure-review.md)；详细测量见 [`Signals 验证基线`](reference/v0.4-signals-validation.md)。
+完成状态：2026-07-15 已完成。设计、current 0.4 数据契约、runtime、车辆合规、确定性、一万/十万性能、安全与剩余风险的收口依据见 [`v0.4 收口审阅基线`](reference/v0.4-closure-review.md)；详细测量见 [`Signals 验证基线`](reference/v0.4-signals-validation.md)。
 
 范围：
 
@@ -70,7 +70,7 @@ LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟游�
 - absolute integer-time phase/aspect snapshot、只读 query 与稀疏事件；
 - protected-entry green、restrictive yellow/red、SignalStop 与 hard projection；
 - permission-aware route-occurrence traversal、排队、放行、确定性与失败原子性；
-- canonical fixtures、schema/loader/Core scenarios、10k/100k 性能与验证基线。
+- canonical fixtures、schema/loader/Core scenarios、一万/十万性能与验证基线。
 
 实施链：#93 design/ADR → #94 static/data → #95 runtime/query/events → #96 compliance/traversal → #97 validation/performance → #18 closure。
 
@@ -91,11 +91,11 @@ LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟游�
 - live `VehicleStatus::Parked`、位置 authority transfer 与 route/despawn cleanup；
 - ParkingStop 与 Vehicle Following、Signals、RouteEnd、projection/traversal 的原子组合；
 - current 0.5 static data、schema/loader、canonical fixtures 与 current-only migration；
-- determinism、失败原子性、10k/100k、allocation/memory 与端到端 validation。
+- determinism、失败原子性、一万/十万、allocation/memory 与端到端 validation。
 
 实施链：#105 design/ADR → (#106 lifecycle/performance，#107 static/current data) → #108 runtime/commands → #109 ParkingStop/activation → #110 validation/performance → #19 closure。
 
-不覆盖：自动选位/调度、共享正常行车道停车、自由空间/倒车轨迹、停车场运营、Parking Adapter ABI/动画/authoring、100k realtime SLA 或跨平台 bit-level determinism。
+不覆盖：自动选位/调度、共享正常行车道停车、自由空间/倒车轨迹、停车场运营、Parking Adapter ABI/动画/authoring、十万 realtime SLA 或跨平台 bit-level determinism。
 
 ## v0.6 数值与空间基础（Numeric & Spatial Foundation）
 
@@ -103,7 +103,7 @@ LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟游�
 
 完成状态：2026-07-21 已完成。数值切片和 Spatial 切片均已完成独立 G4，整体设计、生产实现、数据制品、正确性、性能、安全与治理结论见 [v0.6 收口审阅基线](reference/v0.6-closure-review.md)。
 
-当前生产边界为 Core/Data current-f64 交通权威、Traffic Data v0.10（含 static Junction/Movement/ManeuverPath、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退；Spatial `f32` 通过误差、零分配、内存和 10k/100k 性能 Gate。未来重启 Core/Data 数值迁移必须新建议题并重新进入 G1。
+当前生产边界为 Core/Data current-f64 交通权威、Traffic Data v0.10（含 static Junction/Movement/ManeuverPath、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退；Spatial `f32` 通过误差、零分配、内存和一万/十万性能 Gate。未来重启 Core/Data 数值迁移必须新建议题并重新进入 G1。
 
 范围：
 
@@ -119,7 +119,8 @@ LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟游�
 
 - Bevy 插件、实体与变换同步、Gizmos 调试图形或示例场景；
 - 引擎专用的样条曲线、网格、材质、地形或创作图形界面；
-- #72 的活动车辆分区、并行、多频率、中观仿真或分布式运行时；
+- #72 的交通参与单元按执行域分区、并行、多频率、中观仿真或分布式运行时；其当前
+  证据只覆盖道路机动车执行域；
 - 未经 #122 G1 证据验证的统一 f32、f64 或 f16 结论。
 
 ## v0.7 Bevy Reference Adapter
@@ -232,7 +233,7 @@ protected-only runtime 仍未改变，Waiting runtime 由 #282 接续。v0.10 sc
 #281 multi-Gate/Waiting static
   ├─> #282 Waiting runtime ───────────┐
   └─> #283 Conflict static/Spatial ───┴─> #284 policy/arbiter runtime
-                                              └─> #285 cross-layer 10k/100k/closure
+                                              └─> #285 cross-layer 一万/十万/closure
 ```
 
 #281–#285 都是 #227 的独立后续切片，不是 #235 的子任务；每个切片必须自行完成
@@ -300,16 +301,19 @@ DSL → integration-only LIR→current projection → 恢复 #282–#285`；之�
 frontend/MIR 可以与恢复的 runtime slices 并行推进，再依次交付 portable
 artifact/独立 validator/source map/semantic diff、target static-image +
 Traffic Runtime/Spatial shared-image path 和 behavior/performance/security cutover。
-Projection 不进入 compiler production dependency，cutover 时删除。1M 实体离线
-编译、镜像构建与布局证据（1M Entity Offline Compile / Image-build / Layout
-Evidence）由编译器路线的后继实现切片建立，作为 #72 运行时扩展研究（Runtime
-Scalability Research）的静态 / 离线输入；#72 继续拥有活动代理（Active-agent）的
-保真度（Fidelity）、分区（Partition）、调度、迁移与内存证据。#236/#237 仍是独立
-产品 / 研究输入，不自动并入首个前端（Frontend）。
+Projection 不进入 compiler production dependency，cutover 时删除。编译器性能
+工作负载及其规模计数必须在后继实现 G1 中依据产品证据独立冻结，不能从 #72 的
+运行时交通参与单元规模反推。#72 继续拥有交通参与单元按执行域分解的保真度
+（Fidelity）、分区（Partition）、调度、迁移与内存证据；其既有证据只覆盖当前
+道路机动车车辆特化。#236/#237 仍是独立产品 / 研究输入，不自动并入首个前端
+（Frontend）。
 
 ## 城市级扩展研究（Milestone N/A）
 
-#72 保持独立 Backlog 研究入口，不属于 v0.6–v0.9 的完成边界。v0.6 的 geometry 与 #72 的 active-agent spatial partition 是不同层次；v0.7 的 presentation LOD 与 #72 的 Core simulation fidelity 也不得混同。多世界共享静态镜像可以验证内存复用、回放和参数探索，但不能代替单个大型城市世界的 barrier、边界交换、负载偏斜与迁移性能。
+#72 保持独立 Backlog 研究入口，不属于 v0.6–v0.9 的完成边界。v0.6 的 geometry 与
+#72 的交通参与单元空间分区是不同层次；v0.7 的 presentation LOD 与 #72 的
+Traffic Runtime fidelity 也不得混同。多世界共享静态镜像可以验证内存复用、回放
+和参数探索，但不能代替单个大型城市世界的 barrier、边界交换、负载偏斜与迁移性能。
 
 #72 何时进入版本范围仍留待对应 Milestone 规划时决策；但在未来 Stable Runtime API Milestone 的 G1 前，必须完成 #199 对 Core API、partition、multi-rate、batch access、commands 和 deterministic event merge 的可扩展性审计，并关闭或显式接受其待决项。该审计不阻塞 v0.8/v0.9，也不代表已选择生产架构；完整并行、多层级或分布式实施只有在证据和产品目标明确后才建立 Milestone。
 
@@ -323,9 +327,10 @@ Scalability Research）的静态 / 离线输入；#72 继续拥有活动代理�
    并为非机动车/步行保留正式后继输入。
 
 这些工作负载与 `LF-SYNTH-v1` 和 LuST 基线并列，不能静默替换既有 ID，也不能用
-尚未支持的参与者伪装机动车。城市人口、持久个体、道路活动车辆、昂贵意图、表现
-车辆和聚合流量必须分别报告；“城市规模”不等于每个居民始终以完整微观车辆参与每
-tick。
+尚未支持的参与者伪装机动车。城市人口、乘客、出行需求与交通参与单元必须分层；
+个体、活动、意图更新、表现、聚合记录和聚合等价计数必须按交通执行域分别报告。
+“城市规模”不等于每个居民始终作为完整微观参与单元进入每个 tick，当前车辆证据也
+不能代表非机动车、行人或轨道交通。
 
 ## v1.0 Scope TBD
 

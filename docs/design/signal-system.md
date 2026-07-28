@@ -496,17 +496,23 @@ Tick hot path 要求：
 
 Signals 服从完整 Core step 总预算，不叠加专项预算：
 
-- 10k common target `<= 1 ms/tick`，G3 hard limit `<= 4 ms/tick`，连续 60 ticks `<= 240 ms`；
+- 一万 common target `<= 1 ms/tick`，G3 hard limit `<= 4 ms/tick`，连续 60 ticks `<= 240 ms`；
 - no-Signals legacy 场景相对同机 v0.3 等价基线回归 `>20%` 必须分析，`>30%` 默认阻断；
 - matched all-green controlled 与 all-none 场景必须报告增量，`>20%` 必须 profile；
-- 100k 同时把车辆和 signal topology 放大 10 倍，10k→100k 耗时比目标 `<= 20x`；
+- 十万同时把车辆和 signal topology 放大 10 倍，一万→十万耗时比目标 `<= 20x`；
 - 发现 vehicle × all-Gates/Controllers/Groups、全表扫描、per-vehicle allocation 或接近二次增长时直接阻断。
 
-10k common workload 固定为 10,000 Active vehicles、100 Controllers、每 Controller 4 Groups/Gates 和 4 Phases、400 controlled routes、16 ms fixed tick、60 ticks；至少覆盖 all-green、all-none、red queue、stop/release、mixed offsets 与现有 legacy scenarios。100k observation 同时放大到 100,000 vehicles、1,000 Controllers、4,000 Groups/Gates 和 matched route horizon。
+当前道路机动车执行域（`execution_domain=road_motor_vehicle`）的一万 common
+workload 固定为 `N_active=10000`、100 Controllers、每 Controller 4 Groups/Gates
+和 4 Phases、400 controlled routes、16 ms fixed tick、60 ticks；至少覆盖
+all-green、all-none、red queue、stop/release、mixed offsets 与现有 legacy
+scenarios。十万 observation 同时放大到 `N_active=100000`、1,000 Controllers、
+4,000 Groups/Gates 和 matched route horizon。该车辆特化 workload 不代表其他
+执行域的规模或能力。
 
-Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 不计入。10k 使用 20 samples、100k 使用 10 samples，warm-up 1 s、measurement 5 s，连续三轮读取 median point estimate 后再取三轮 median。必须记录 CPU、OS、rustc、target、power mode、commit 和 profile；环境变化时同机重跑 baseline/candidate。
+Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 不计入。一万使用 20 samples、十万使用 10 samples，warm-up 1 s、measurement 5 s，连续三轮读取 median point estimate 后再取三轮 median。必须记录 CPU、OS、rustc、target、power mode、commit 和 profile；环境变化时同机重跑 baseline/candidate。
 
-100k 只用于 scaling observation，不构成实时承诺。CI 只做 functional smoke 与 benchmark compile，不用共享 runner wall-clock 阻断。具体 workload、环境和结果见 [`v0.4-signals-validation.md`](../reference/v0.4-signals-validation.md)，不把单次测量写入本文。
+十万只用于 scaling observation，不构成实时承诺。CI 只做 functional smoke 与 benchmark compile，不用共享 runner wall-clock 阻断。具体 workload、环境和结果见 [`v0.4-signals-validation.md`](../reference/v0.4-signals-validation.md)，不把单次测量写入本文。
 
 ## 14. Tests 与 canonical fixtures
 
@@ -519,7 +525,7 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 - vehicle behavior：green/red/yellow、exact boundary、nearest denied Gate、多 Gate、repeated edge、same-tick hard stop 的三车以上 minimum-gap platoon、queue/release、shared StopLine；
 - events/determinism：全局总序、dual projection、multi-controller、replay 与 fresh-world retry；
 - property：1-8 groups/phases、boundary/wrap/long-time/near-overflow，对照独立 `u128` reference resolver；
-- performance：10k common/stress、matched all-green/none/no-signals、legacy regression 与 100k scaling。
+- performance：一万 common/stress、matched all-green/none/no-signals、legacy regression 与十万 scaling。
 
 #107 建立的两个 fixture 角色已随格式迁移到 current v0.10；Signals 端到端测试直接
 消费，不复制：

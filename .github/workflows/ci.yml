@@ -122,6 +122,13 @@ jobs:
           cargo +1.96.0 run --locked -p xtask -- format-md-tables --check
           README.md AGENTS.md CONTRIBUTING.md crates docs research schemas .github .agents .cursor
 
+      - name: Check documentation quantity style
+        shell: bash
+        run: >-
+          cargo +1.96.0 run --locked -p xtask -- check-doc-quantity-style
+          README.md AGENTS.md CONTRIBUTING.md crates docs research schemas tools examples xtask
+          .github .agents .cursor
+
       - name: Check commit messages
         shell: bash
         run: cargo +1.96.0 run --locked -p xtask -- check-commit-messages

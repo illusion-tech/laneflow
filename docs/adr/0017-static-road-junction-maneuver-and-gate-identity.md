@@ -247,7 +247,7 @@ repeated occurrence 与 caller-owned route selection，因此拒绝。
 
 ### 在 vehicle tick 动态匹配 path
 
-会让全局 catalog 规模、字符串或 sequence matching 进入热路径，并放大 10k/100k
+会让全局 catalog 规模、字符串或 sequence matching 进入热路径，并放大一万/十万
 成本，因此拒绝。
 
 ### v0.9 同时生产化 RoadSection/JunctionGroup

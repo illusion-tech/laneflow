@@ -31,14 +31,14 @@
 - `validation-matrix.md`：切片类型到最小验证要求的矩阵，用于 `G3` 合并闸口判断。
 - `v0.2-closure-review.md`：v0.2 Lane Graph + Route 收口时核验的契约、验证证据、发现项处置和非阻断风险基线。
 - `v0.3-closure-review.md`：v0.3 Vehicle Following 收口时核验的设计、实现、数据契约、性能、安全与治理基线。
-- `v0.3-vehicle-following-validation.md`：v0.3 Vehicle Following 的确定性、不变量、生命周期、10k 性能和 100k 扩展性验证基线。
-- `v0.4-signals-validation.md`：v0.4 Signals 的 loader-to-Core、确定性、SignalStop、10k matched workload 与 100k 扩展性验证基线。
+- `v0.3-vehicle-following-validation.md`：v0.3 Vehicle Following 的确定性、不变量、生命周期、一万性能和十万扩展性验证基线。
+- `v0.4-signals-validation.md`：v0.4 Signals 的 loader-to-Core、确定性、SignalStop、一万 matched workload 与十万扩展性验证基线。
 - `v0.4-closure-review.md`：v0.4 Signals 收口时核验的设计、实现、current 0.4 数据契约、性能、安全、治理与剩余风险基线。
 - `v0.5-lifecycle-substrate-validation.md`：#106 lifecycle、overflow-safe route distance、command-spatial、allocation/retained-memory 与同机 base/candidate 性能验证基线。
-- `v0.5-static-parking-validation.md`：#107 static Parking、current 0.5 schema/loader/fixtures、foreign-graph rebind、10k all-vacant 0-allocation 与同机 matched 性能验证基线。
-- `v0.5-parking-runtime-validation.md`：#108 Parking authority/snapshot、同步 commands、Parked/despawn lifecycle、transitional guard、local-query oracle、10k/100k、allocation 与同机 matched 性能验证基线。
+- `v0.5-static-parking-validation.md`：#107 static Parking、current 0.5 schema/loader/fixtures、foreign-graph rebind、一万 all-vacant 0-allocation 与同机 matched 性能验证基线。
+- `v0.5-parking-runtime-validation.md`：#108 Parking authority/snapshot、同步 commands、Parked/despawn lifecycle、transitional guard、local-query oracle、一万/十万、allocation 与同机 matched 性能验证基线。
 - `v0.5-parking-activation-validation.md`：#109 ParkingStop/arrival、unified reducer、parking-aware traversal、route-completion release、事件总序、Reserved ratio、allocation 与 matched step 性能证据。
-- `v0.5-parking-validation.md`：#110 schema/loader/Core 端到端示例、D11 组合矩阵、10k/100k、allocation/retained-memory、pathological scaling 修复与 CPU profile 验证基线。
+- `v0.5-parking-validation.md`：#110 schema/loader/Core 端到端示例、D11 组合矩阵、一万/十万、allocation/retained-memory、pathological scaling 修复与 CPU profile 验证基线。
 - `v0.5-closure-review.md`：v0.5 Parking 收口时核验的治理、设计、实现、current 0.5 数据契约、性能、安全、发现项与剩余边界基线。
 - `v0.5-lifecycle-substrate-validation.json`：#106 验证基线的 machine-readable 原始 round、倍率、环境与依赖审计摘要。
 - `v0.6-numeric-validation.md`：#122、#140/#141、#125–#127 与 #144 的数值盘点、误差、产品范围、路线布局、内存、性能和 no-go 生产裁决基线。
@@ -46,10 +46,10 @@
 - `v0.6-numeric-production-migration-evidence.json`：#144 完整生产候选、五轮 14 项稳态矩阵、来源节点与 no-go 裁决的机器可读证据。
 - `v0.6-numeric-closure-review.md`：v0.6 数值切片收口时核验的治理、当前生产事实、目标/当前分离、机器证据、性能裁决与剩余边界基线。
 - `v0.6-spatial-validation.md`：#123 Spatial 设计研究及 ADR 0015 修订后的有界 canonical `f32` 验证基线；不替代 #138 独立收口。
-- `v0.6-spatial-performance-evidence.json`：#137 production `f32` 对同构 `f64` oracle、10k/100k p95、零分配、retained memory、Criterion 与 lookup/sampling 分解的机器可读证据。
+- `v0.6-spatial-performance-evidence.json`：#137 production `f32` 对同构 `f64` oracle、一万/十万 p95、零分配、retained memory、Criterion 与 lookup/sampling 分解的机器可读证据。
 - `v0.6-spatial-closure-review.md`：v0.6 Spatial 切片收口时核验的治理、权威分层、数据制品、生产实现、正确性、资源、性能、安全、发布与剩余边界基线。
 - `v0.6-closure-review.md`：v0.6 Numeric & Spatial Foundation 整体收口时汇总的双切片治理、最终生产契约、性能裁决、安全发布状态与 v0.7 进入边界基线。
-- `v0.7-bevy-validation.md`：#171 campus headless E2E、分帧确定性、10k/100k 零分配、固定机 p95、benchmark 与 CI 验证基线。
+- `v0.7-bevy-validation.md`：#171 campus headless E2E、分帧确定性、一万/十万零分配、固定机 p95、benchmark 与 CI 验证基线。
 - `v0.7-bevy-performance-evidence.json`：#171 固定 Windows 性能机环境、source commit、逐轮 `PostUpdate` p95/median、allocation 与适用边界的机器可读证据。
 - `v0.7-bevy-debug-gizmos-validation.md`：#172 可选 debug Gizmos 的 validated-batch、预算/过滤、依赖图、headless tests、MSRV、dependency policy 与本机可视 smoke 证据。
 - `v0.7-bevy-native-example-validation.md`：#173 campus native reference example 的真实制品加载、feature/依赖边界、dedicated compile、运行时控制与本机窗口 smoke 证据。

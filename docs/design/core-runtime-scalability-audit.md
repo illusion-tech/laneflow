@@ -2,7 +2,9 @@
 
 **文档状态**: Review<br>
 **最后更新**: 2026-07-29<br>
-**适用范围**: #199 对 #72 的前置 Core API、identity、batch、command、deterministic scheduling 与 event merge 审计<br>
+**适用范围**: #199 对 #72 的前置 Core API、道路机动车车辆特化证据，以及目标
+Traffic Runtime 的多执行域身份（Identity）、批处理（Batch）、命令（Command）、
+确定性调度（Deterministic Scheduling）与事件合并（Event Merge）审计<br>
 **关联文档**:
 
 - `../roadmap.md`
@@ -32,10 +34,11 @@ ADR 0021 已把“面向中国特色城市模拟游戏的交通基础”冻结�
 是非目标。多世界吞吐不能替代一个大型城市世界的扩展证据。
 
 > #215 已在 [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md)
-> 冻结 10k/100k 产品目标、1M 研究包络、workload、hardware、tick/frame budget、
-> fidelity、benchmark protocol 与升级触发。本文继续保存 #199/#204/#207/#210/#212
-> 的历史研究证据、no-regret constraints 和架构候选；其中的历史阈值、产品未决描述
-> 与单机数字不能替代新基线要求的 integrated certification。
+> 冻结当前道路机动车执行域的一万/十万产品目标、一百万研究包络，以及通用交通参与
+> 单元的逐执行域计数、workload、hardware、tick/frame budget、fidelity、benchmark
+> protocol 与升级触发。本文继续保存 #199/#204/#207/#210/#212 的历史研究证据、
+> no-regret constraints 和架构候选；其中的历史阈值、产品未决描述与单机数字不能
+> 替代新基线要求的 integrated certification。
 
 当前设计没有要求推倒重来。以下基础可以继续作为 v0.8/v0.9 的实现输入：
 
@@ -52,7 +55,8 @@ ADR 0021 已把“面向中国特色城市模拟游戏的交通基础”冻结�
 
 1. `CoreWorld::vehicles()` / `vehicle()` 返回 borrowed `VehicleState` 对内部 AoS/slot representation 的长期约束；
 2. world-scoped handle 在物理 partition 迁移、多 Session 或多 World 下的 provenance 与 logical identity；
-3. 面向 100k/1M、可见区域和 fidelity tier 的 selective batch snapshot/query；
+3. 面向多交通执行域、十万/一百万、可见区域和 fidelity tier 的 selective batch
+   snapshot/query，且不能把 `VehicleState` 固化为所有参与单元的公共基类；
 4. lifecycle/batch commands 的 canonical order、冲突规则和 whole-batch atomicity；
 5. 不依赖 worker completion、partition ID 或容器迭代的 deterministic phase/event merge。
 
@@ -63,7 +67,7 @@ ADR 0021 已把“面向中国特色城市模拟游戏的交通基础”冻结�
 - #215 已冻结产品目标和代表性 workload；#220 的 parallel phase/partition G1
   仍等待 #216/#217，并且只在
   [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md)
-  第 10 节的 100k Core p95 或同步 tick frame 条件触发后启动；完整多层级或
+  第 10 节的十万 Core p95 或同步 tick frame 条件触发后启动；完整多层级或
   分布式 Milestone 仍需相应产品硬件、integrated certification evidence 与独立
   G1/ADR；
 - 在 Stable Runtime API G1 前，不能只依赖当前 public shape 自动推断未来兼容性。
@@ -76,7 +80,7 @@ ADR 0021 已把“面向中国特色城市模拟游戏的交通基础”冻结�
 - Vehicle/Route/Edge handle、external ID、stale semantics 与迁移；
 - Core snapshot/query、Spatial batch、Adapter Session 和 lifecycle transaction；
 - fixed-step、多频率候选、command boundary 与 deterministic event order；
-- 当前 10k/100k/历史 1M 证据对 API 的约束；
+- 当前道路机动车执行域的一万/十万/历史一百万证据对 API 的约束；
 - 后续 prototype 与生产实施的启动触发。
 
 本审计不覆盖：
@@ -85,42 +89,60 @@ ADR 0021 已把“面向中国特色城市模拟游戏的交通基础”冻结�
 - 实现线程池、work stealing、多 World/shard、分布式协议或 GPU controller；
 - 把 partition ID 或物理 slot 编进 public handle；
 - 全面迁移 AoS/SoA；
-- 承诺 100k/1M 实时 SLA、跨平台 bit-level determinism 或城市交通工程精度；
-- 把登记机动车总量直接解释为同时在途 active agents。
+- 承诺十万/一百万实时 SLA、跨平台 bit-level determinism 或城市交通工程精度；
+- 把登记机动车总量直接解释为同时活动的交通参与单元数，或把当前车辆证据外推到
+  非机动车、行人和轨道交通。
 
 ## 3. 证据边界
 
-现有数值来自不同 fixture、measurement scope 和版本，不能直接相加，也不能外推成跨平台 SLA。
+现有数值全部来自 current `execution_domain=road_motor_vehicle`。它们来自不同
+fixture、measurement scope 和版本，不能直接相加、外推成跨平台 SLA，或代表未来
+非机动车、行人和轨道执行域。
 
-| 规模 | 当前证据                                                                                                                                                                        | 可以支持的判断                                                                                          | 不能支持的判断                                                                                           |
-| ---: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-|  10k | v0.3 Vehicle Following 常规 workload 约 `0.630–0.929 ms/tick`，transition-heavy 为 `1.247 ms/tick`；v0.5 100% Reserved 为 `1.263 ms/tick`；v0.7 Adapter batch p95 为 `3.067 ms` | 10k 高精度局部仿真和完整 Adapter 路径已有分阶段 Gate/研究证据，可支持优化归因和产品目标定义             | 不能把不同 benchmark 相加后声明完整帧 SLA、P10 Product Pass 或产品认证，也不覆盖 renderer 与所有未来规则 |
-| 100k | v0.3 dense platoon 为 `10.660 ms/tick`；v0.4 mixed Signals 为 `12.651 ms/tick`；Spatial batch p95 为 `5.189 ms`；Adapter batch p95 为 `35.852 ms`                               | 多条 production path 接近线性扩展，未出现已知全局 `O(V²)` 证据；100k 足以作为复杂度和 API 压力观测      | 不是 60 Hz 高精度完整运行时承诺，不证明 Core + Adapter + renderer 的组合预算                             |
-|   1M | v0.2 临时 steady-state 约 `16.39–16.97 ms/tick`、峰值工作集约 `379 MiB`，但不含 occupancy、IIDM、edge transition 或事件                                                         | 单线程逐车微观完整 Core 不能依赖该 optimistic 结果直接扩容；需要单独研究 fidelity、memory 和 scheduling | 不能证明 1M Vehicle Following、Signals、Parking、Adapter 或城市级实时能力                                |
+|   规模 | 当前证据                                                                                                                                                                        | 可以支持的判断                                                                                          | 不能支持的判断                                                                                           |
+| -----: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+|   一万 | v0.3 Vehicle Following 常规 workload 约 `0.630–0.929 ms/tick`，transition-heavy 为 `1.247 ms/tick`；v0.5 100% Reserved 为 `1.263 ms/tick`；v0.7 Adapter batch p95 为 `3.067 ms` | 一万高精度局部仿真和完整 Adapter 路径已有分阶段 Gate/研究证据，可支持优化归因和产品目标定义             | 不能把不同 benchmark 相加后声明完整帧 SLA、P10 Product Pass 或产品认证，也不覆盖 renderer 与所有未来规则 |
+|   十万 | v0.3 dense platoon 为 `10.660 ms/tick`；v0.4 mixed Signals 为 `12.651 ms/tick`；Spatial batch p95 为 `5.189 ms`；Adapter batch p95 为 `35.852 ms`                               | 多条 production path 接近线性扩展，未出现已知全局 `O(V²)` 证据；十万足以作为复杂度和 API 压力观测       | 不是 60 Hz 高精度完整运行时承诺，不证明 Core + Adapter + renderer 的组合预算                             |
+| 一百万 | v0.2 临时 steady-state 约 `16.39–16.97 ms/tick`、峰值工作集约 `379 MiB`，但不含 occupancy、IIDM、edge transition 或事件                                                         | 单线程逐车微观完整 Core 不能依赖该 optimistic 结果直接扩容；需要单独研究 fidelity、memory 和 scheduling | 不能证明一百万 Vehicle Following、Signals、Parking、Adapter 或城市级实时能力                             |
 
 下表保留 #215 之前用于研究候选比较的 fidelity 问题矩阵。当前产品
 target/measurement contract 以
 [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md) 为事实源；
 该基线没有选择 production fidelity architecture，也没有把研究候选升级为产品 tier：
 
-| 候选层级                 | 当前可引用的语义                                                                                                                                  | 仍待产品/G1 决策                                                    |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Local exact              | 当前完整 fixed-step、Vehicle Following、Signals、Parking 与确定性安全不变量；10k 具备历史 Gate/研究证据，产品状态仍为 `Product TBD / Uncertified` | 精确上限、目标硬件、tick rate、最坏交通密度                         |
-| Reduced-rate microscopic | 仍保留 per-vehicle identity/state，但并非每个 controller 每个 base tick 都更新                                                                    | stale interval 内的 occupancy/safety 语义、更新频率、插值和事件时间 |
-| Mesoscopic/aggregate     | 只作为 #72 候选，不属于当前 Core 已接受能力                                                                                                       | agent 聚合/拆分、守恒、route/signal 语义和与 exact region 的迁移    |
+| 候选层级                             | 当前可引用的语义                                                                                                           | 仍待产品/G1 决策                                                               |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 局部精确（Local Exact）              | 当前完整固定步进、跟车、信号、停车与确定性安全不变量；一万具备历史 Gate/研究证据，产品状态仍为 `Product TBD / Uncertified` | 精确上限、目标硬件、固定步进频率、最坏交通密度                                 |
+| 降频微观（Reduced-rate Microscopic） | 保留逐参与单元身份/状态，但并非每个控制器在每个基础固定步进都更新；当前原型及证据只覆盖道路机动车                          | 陈旧区间（Stale Interval）内的占用/安全语义、更新频率、插值和事件时间          |
+| 中观/聚合（Mesoscopic/Aggregate）    | 只作为 #72 候选，不属于当前 Core 已接受能力                                                                                | 交通参与单元聚合/拆分、守恒、通行/信号语义以及与精确区域（Exact Region）的迁移 |
 
-### 3.1 候选方案 A：Individual-first 分层扩展
+### 3.1 候选方案 A：个体优先分层扩展（Individual-first Layered Scaling）
 
 **状态**：研究候选；具有明确产品价值，但不是 G1 决策、默认生产架构或城市级能力承诺。
 
-该方案把较强的个体语义视为需要主动评估的产品价值，而不只视为性能成本。其核心假设是：在可接受的硬件、内存和 tick budget 内，live vehicle 应尽量跨 partition、fidelity tier 和 lifecycle transition 保持连续的 logical identity、route/progress、Vehicle Profile、Parking binding、committed state 与事件因果。这样才能支持可解释的车辆行为、稳定的 Adapter 映射、逐车调试和后续可能出现的业务车辆差异，而不是把所有远处交通默认降为无身份流量。
+该方案把较强的个体语义视为需要主动评估的产品价值，而不只视为性能成本。其核心
+假设是：在可接受的硬件、内存和固定步进预算内，存续交通参与单元（Live Traffic
+Participant Unit）应尽量跨分区（Partition）、保真度层级（Fidelity Tier）和生命
+周期迁移保持连续的逻辑身份、通行定义/进度、执行域参数、停驻绑定、已提交状态与
+事件因果。这样才能支持可解释的参与者行为、稳定的 Adapter 映射、逐单元调试和
+后续参与者差异，而不是把所有远处交通默认降为无身份流量。当前 Core 对这些概念的
+具体投影仍是车辆、`Route`、`VehicleProfile` 与 Parking，不能据此把目标模型重新
+收窄为车辆。
 
 候选形态为：
 
-- `Local exact` 继续使用完整 per-vehicle fixed-step 语义，优先通过私有 data-oriented storage、batch、phase scheduling 和并行计算扩展；ECS、worker 或 partition 不成为 public Core API。
-- `Reduced-rate microscopic` 仍保留每辆车的 identity、route intent 和 committed state，只研究降低部分 controller 或昂贵派生计算的刷新频率；未刷新 tick 的 occupancy、安全约束、Signal/Parking authority、插值与事件时间仍必须满足 C7。
-- `Mesoscopic/aggregate` 保留为可选的远域或超大规模方案，不作为默认前提。进入或离开该层级必须定义 identity 保留/恢复、数量守恒、route/signal 语义和 deterministic migration boundary；若无法保持逐车连续性，必须把语义损失作为产品能力差异显式暴露。
-- 共享 route/cost field、聚合 occupancy 或其他 SC5-like 技术可以作为内部优化候选，但不得仅为了吞吐量隐式替换已经承诺的逐车 route、parking 或 lifecycle authority。
+- 局部精确继续使用完整的逐参与单元固定步进语义，优先通过私有数据导向存储
+  （Data-oriented Storage）、批处理、阶段调度和并行计算扩展；ECS、工作线程或
+  分区不成为公共 Core API。
+- 降频微观仍保留每个参与单元的身份、通行意图和已提交状态，只研究降低部分控制器
+  或昂贵派生计算的刷新频率；未刷新固定步进的占用、安全约束、信号/停驻权威、插值
+  与事件时间仍必须满足 C7。
+- 中观/聚合保留为可选的远域或超大规模方案，不作为默认前提。进入或离开该层级必须
+  定义身份保留/恢复、数量守恒、通行/信号语义和确定性迁移边界
+  （Deterministic Migration Boundary）；若无法保持逐参与单元连续性，必须把语义
+  损失作为产品能力差异显式暴露。
+- 共享通行/成本场、聚合占用或其他 SC5-like 技术可以作为内部优化候选，但不得仅为
+  吞吐量隐式替换已经承诺的逐参与单元通行、停驻或生命周期权威。
 
 外部参考只用于校准，不构成规范性依赖：Cities: Skylines II 的公开资料展示了 persistent citizen/agent 语义与 ECS、Burst、多核批处理方向，但没有公开足以复制的 partition、multi-rate 或 deterministic merge contract；SimCity 2013 GlassBox 展示了低频 Unit/Map rules、轻量 resource-carrying agents 和共享距离场，但其聚合语义不能自动满足 LaneFlow 的逐车身份与路线需求。
 
@@ -128,29 +150,38 @@ target/measurement contract 以
 - [Cities: Skylines II Code Modding](https://www.paradoxinteractive.com/games/cities-skylines-ii/modding/dev-diary-3-code-modding)
 - [Inside GlassBox developer talk](https://www.andrewwillmott.com/talks/inside-glassbox)
 
-该方案进入 G1 前，必须与 exact-only 和 aggregate-first 候选使用相同 representative workload 比较，至少记录：可保留的个体语义、状态迁移复杂度、worker 数变化下的确定性、CPU/内存成本、Adapter 读取成本和失败恢复边界。在这些证据形成前，#72 只把 individual-first 作为一等候选，不预选最终架构；任何主动丢弃 live vehicle identity 的方案都应说明收益及不可逆语义损失。
+该方案进入 G1 前，必须与仅精确（Exact-only）和聚合优先（Aggregate-first）候选
+使用相同代表性工作负载（Representative Workload）比较，至少记录：可保留的个体
+语义、状态迁移复杂度、工作线程数变化下的确定性、CPU/内存成本、Adapter 读取成本
+和失败恢复边界。在这些证据形成前，#72 只把个体优先作为一等候选，不预选最终
+架构；任何主动丢弃存续交通参与单元身份的方案都应说明收益及不可逆语义损失。
 
 ### 3.2 候选方案决策矩阵
 
-以下三种方案都是 #72 的研究输入，不是已经接受的 architecture。它们共享第 5 节 no-regret constraints；差异只在于如何分配个体语义、计算成本和规模上限。
+以下三种方案都是 #72 的研究输入，不是已经接受的架构。它们共享第 5 节的无悔约束
+（No-regret Constraints）；差异只在于如何分配个体语义、计算成本和规模上限。
 
-| 维度                  | A. Individual-first 分层扩展                                                                   | B. Exact-only 数据导向扩展                                                    | C. Aggregate-first 资源流扩展                                                  |
-| --------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| 基本形态              | exact 为主，reduced-rate microscopic 保留身份，aggregate 只作可选远域                          | 所有 live vehicle 始终执行完整 exact 语义，只优化 layout、batch、phase 和并行 | 大部分远域交通使用 flow/packet，局部重要区域才展开为 exact vehicle             |
-| 个体语义              | 优先保持 logical identity、route/progress、Parking/lifecycle 和事件连续性                      | 最强，所有 live vehicle 都保持当前完整语义                                    | 只在 exact island 内完整；aggregate tier 可能只有数量、目的地类别和流量守恒    |
-| safety authority      | base tick 仍需定义 occupancy、Signals、Parking 和 stale interval 安全语义                      | 直接复用当前 fixed-step safety pipeline                                       | aggregate/exact 边界必须另定义容量、队列、冲突和展开后的安全初始条件           |
-| partition / migration | 内部 ownership 可迁移，public identity 不随 partition 改变；tier transition 需显式 transaction | 只需 physical ownership migration，不存在 fidelity tier migration             | 同时需要 partition handoff 与 aggregate/exact 聚合、拆分、identity translation |
-| Core/Adapter 连续性   | 可保留一个 logical `CoreWorld` facade 和 committed selective snapshot                          | 与当前 API 心智最接近，但仍需解除 borrowed AoS/full scan 约束                 | 最可能要求新的 snapshot capability 和明确的 tier-specific record               |
-| 预期收益              | 在保留大部分产品语义的同时降低昂贵 controller 和远域计算成本                                   | 语义最简单、oracle 最强；若硬件目标可满足，则迁移成本最低                     | 理论规模上限最高，适合 active population 远大于可见 exact fleet 的目标         |
-| 主要风险              | stale interval safety、tier scheduler、内存占用和 identity-preserving migration 复杂           | CPU/内存上限可能不足，parallel dependency 和 halo 成本仍可能很高              | 语义损失最大，聚合/拆分、路线和信号守恒容易形成新的复杂系统                    |
-| 当前角色              | 一等研究候选；个体语义具有明确产品价值，但尚未被 G1 选中                                       | production oracle 与最低复杂度基线；必须先证明它是否已经足够                  | 扩展上限对照；只有目标和证据证明 identity-preserving 路径不足时才提升优先级    |
+| 维度                   | A. 个体优先分层扩展（Individual-first）                    | B. 仅精确数据导向扩展（Exact-only）                                  | C. 聚合优先资源流扩展（Aggregate-first）                                   |
+| ---------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| 基本形态               | 以精确为主，降频微观保留身份，聚合只作可选远域             | 所有存续个体单元始终执行完整精确语义，只优化布局、批处理、阶段和并行 | 大部分远域交通使用流/包，局部重要区域才展开为精确交通参与单元              |
+| 个体语义               | 优先保持逻辑身份、通行/进度、停驻/生命周期和事件连续性     | 最强，所有存续个体单元都保持当前完整语义                             | 只在精确岛（Exact Island）内完整；聚合层可能只有数量、目的地类别和流量守恒 |
+| 安全权威               | 基础固定步进仍需定义占用、信号、停驻和陈旧区间安全语义     | 直接复用当前固定步进安全管线                                         | 聚合/精确边界必须另定义容量、队列、冲突和展开后的安全初始条件              |
+| 分区/迁移              | 内部所有权可迁移，公共身份不随分区改变；层级迁移需显式事务 | 只需物理所有权迁移，不存在保真度层级迁移                             | 同时需要分区交接与聚合/精确的聚合、拆分、身份翻译                          |
+| Runtime/Adapter 连续性 | 可保留一个逻辑 `TrafficWorld` 门面和已提交选择性快照       | 与当前车辆 API 心智最接近，但仍需解除借用式 AoS/全扫描约束           | 最可能要求新的快照能力和明确的层级专用记录                                 |
+| 预期收益               | 在保留大部分产品语义的同时降低昂贵控制器和远域计算成本     | 语义最简单、判定基准（Oracle）最强；若硬件目标可满足，迁移成本最低   | 理论规模上限最高，适合活动参与单元远多于可见精确参与单元的目标             |
+| 主要风险               | 陈旧区间安全、层级调度、内存占用和保身份迁移复杂           | CPU/内存上限可能不足，并行依赖和边界邻域（Halo）成本仍可能很高       | 语义损失最大，聚合/拆分、通行和信号守恒容易形成新的复杂系统                |
+| 当前角色               | 一等研究候选；个体语义有明确产品价值，但尚未被 G1 选中     | 生产判定基准与最低复杂度基线；必须先证明是否已经足够                 | 扩展上限对照；只有目标和证据证明保身份路径不足时才提升优先级               |
 
 候选收敛顺序：
 
-1. 先以 B 作为单线程 production oracle，完成 P1–P3 的 storage-independent order、partition halo 和 selective snapshot 证据；
-2. 在产品允许的 fidelity delta 明确后，用 P4 和相同 workload 验证 A 是否能在不破坏 C2、C6、C7、C9 的前提下降低 CPU/Adapter 成本；
-3. 只有产品 active-agent 目标、内存或 frame budget 证明 A/B 无法满足时，才启动 C 的 aggregate/exact migration 设计；
-4. 最终选择必须在独立 G1 中记录适用场景、语义损失、兼容性、测试 oracle 和 ADR 判断，不由本审计自动决定。
+1. 先以 B 作为单线程生产判定基准（Production Oracle），完成 P1–P3 的存储无关顺序、
+   分区边界邻域与选择性快照证据；
+2. 在产品允许的保真度差异（Fidelity Delta）明确后，用 P4 和相同工作负载验证 A
+   是否能在不破坏 C2、C6、C7、C9 的前提下降低 CPU/Adapter 成本；
+3. 只有产品按执行域分解的活动交通参与单元目标、内存或 frame budget 证明 A/B 无法
+   满足时，才启动 C 的聚合/精确迁移设计；
+4. 最终选择必须在独立 G1 中记录适用场景、语义损失、兼容性、测试判定基准和 ADR
+   判断，不由本审计自动决定。
 
 ## 4. 当前实现事实与压力点
 
@@ -207,7 +238,7 @@ Spatial/Adapter 路径已经具备几个重要性质：
 - Adapter 只从 committed Core state 构造 batch；
 - placement token 和两阶段 Transform commit 防止旧 frame/部分写入。
 
-当前 Bevy specialization 仍从 `CoreWorld::vehicles()` 全量遍历 borrowed `&VehicleState`，并在单活动 Session/单 canonical frame 下重建 pose inputs。该形态对 10k/100k Reference Adapter 可接受，但不能作为未来稳定 API 的唯一读取方式：
+当前 Bevy specialization 仍从 `CoreWorld::vehicles()` 全量遍历 borrowed `&VehicleState`，并在单活动 Session/单 canonical frame 下重建 pose inputs。该形态对一万/十万 Reference Adapter 可接受，但不能作为未来稳定 API 的唯一读取方式：
 
 - borrowed `&VehicleState` 使 authoritative AoS/slot state 容易被调用方假定；
 - 全量 scan 不能表达 view region、fidelity tier、dirty set 或 partition-local snapshot；
@@ -280,7 +311,7 @@ vehicle update、command、snapshot 和 event order 必须由显式 logical sequ
 
 ### C4. Stable API 必须有 batch/selective read path
 
-单记录 debug query 可以保留，但 10k/100k/1M 默认路径必须支持预留、复用和选择范围，且不能要求每车 resolver/string lookup。
+单记录 debug query 可以保留，但一万/十万/一百万默认路径必须支持预留、复用和选择范围，且不能要求每车 resolver/string lookup。
 
 ### C5. Commands 只在明确 lifecycle boundary 生效
 
@@ -367,7 +398,7 @@ Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime 的自有随机�
 
 - current event order 可以脱离 physical storage/worker completion canonicalize，没有发现必须公开 slot、handle bits、partition 或修改 public API 的隐式依赖；因此该路径可以继续作为 #72 后续 scheduler/partition 研究输入。
 - 当前 harness 为每个事件附加私有 key、建立模拟 bucket 并执行 `O(E log E)` sort；它只证明语义可表达和 exact equivalence，不是 production 性能或内存方案，也不应把测试分配和 sort 直接复制进 runtime。
-- 原型没有并行计算 occupancy、longitudinal、vehicle candidate state 或 Signal state，不证明 worker speedup、partition halo、跨 CPU bit-level determinism、production buffer reuse 或 100k/1M SLA。
+- 原型没有并行计算 occupancy、longitudinal、vehicle candidate state 或 Signal state，不证明 worker speedup、partition halo、跨 CPU bit-level determinism、production buffer reuse 或十万/一百万 SLA。
 - 若未来 production phase graph 接受该方向，应独立 Issue/G1 比较 k-way merge、预排序 worker buffer、caller-owned scratch 与无额外分配方案，并重新判断 ADR；在此之前不新增 ADR。
 
 ### P2. Partitioned occupancy/leader halo
@@ -412,13 +443,13 @@ Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime 的自有随机�
 2. 按需 halo 避免无条件复制 whole world，但同一 remote vehicle 仍可能被多个 partition 复制；corridor 4-partition fixture 为 `4 unique / 7 copies`。未来 production 候选必须测量 representative density、route overlap 与 full-world degeneration，不能把本 fixture 外推为固定上界。
 3. tiny fixture 中每 partition 的空 vector/capacity 已使 retained scratch 从 oracle 的 `640 B` 增至最多 `3616 B`。这不是拒绝 partition 的性能结论，但说明 production 研究必须比较 pooled/caller-owned scratch、稀疏 active partition 和 buffer reuse，不能按 partition 永久复制 current full scratch shape。
 
-研究未运行真实线程、scheduler、work stealing、large-scale benchmark、P3 snapshot、P4 multi-rate 或 aggregate/exact migration，也没有证明 speedup、100k/1M SLA、跨 CPU bit-level determinism 或 production buffer layout。集中式 component merge 只作为 exact reference oracle；若进入 production，应独立 G1 比较 SCC/component ownership、预排序/k-way merge、错误归并和原子 commit protocol。
+研究未运行真实线程、scheduler、work stealing、large-scale benchmark、P3 snapshot、P4 multi-rate 或 aggregate/exact migration，也没有证明 speedup、十万/一百万 SLA、跨 CPU bit-level determinism 或 production buffer layout。集中式 component merge 只作为 exact reference oracle；若进入 production，应独立 G1 比较 SCC/component ownership、预排序/k-way merge、错误归并和原子 commit protocol。
 
 因此 P2 建议是：继续 P3 selective snapshot/batch，以同一 strong-individual oracle 验证 partition-local/caller-owned read path；在产品 workload 与硬件目标形成前，不创建 production Partition API/trait，不新增 ADR。只有选择 production ownership、scheduler、identity provenance 或跨 World/shard contract 时，才重新进入独立 G1/ADR 判断。
 
 ### P3. Selective snapshot/batch
 
-目标：比较 current full `vehicles()` scan 与 caller-owned filtered/dirty/cursor prototype，在 10k/100k 下验证稳定顺序、零分配和 Adapter 等价 Transform；1M 只在有代表性数据布局后运行。
+目标：比较 current full `vehicles()` scan 与 caller-owned filtered/dirty/cursor prototype，在一万/十万下验证稳定顺序、零分配和 Adapter 等价 Transform；一百万只在有代表性数据布局后运行。
 
 #210 已在 `cfg(test)` 私有模块中完成该研究，不修改 production `CoreWorld`、Spatial 或 Bevy API。研究以 `vehicle_update_order` 驱动的 current `vehicles()` 为唯一 Core 顺序 oracle，并把现有 Spatial canonical pose batch 与 Bevy local Transform 原子提交作为 Adapter oracle。研究 record、selection bitmap、dirty index、epoch 和 cursor 都没有进入 public type、Data format 或持久化边界。
 
@@ -436,12 +467,12 @@ Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime 的自有随机�
 
 三个 Core candidate 和 selected Adapter path 的结果为：
 
-| Candidate                   | Exact / order                                                                                                                 | Warm allocation                             | 主要成本与限制                                                                                                                |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| stable filtered scan        | 与 full oracle 精确一致；selection 构造/遍历顺序不影响输出                                                                    | 10k/100k 均为 `0`                           | 无论选择率都扫描 `V`；它是语义基线，不解决全量读取成本                                                                        |
-| committed dirty delta       | no-change、selection churn、Parking、spawn/despawn、edge transition 与 atomic replace 均可重建 exact cache                    | 10k/100k 均为 `0`                           | 需要 retained cache、slot-generation-aware index、remove/tombstone 和 selection-change delta；高水位内存不能忽略              |
-| single-epoch cursor/page    | `1/64/1024/K/all` 拼接与 full oracle 一致，mutation 后稳定拒绝 stale cursor                                                   | 10k/100k 均为 `0`                           | current borrowed iterator 不提供 seek；page 越多越会重复 traversal。跨 epoch resume 仍需要正式 snapshot retention，本轮不承担 |
-| selected Spatial/Bevy frame | selected `PoseInputRecord`、canonical pose bits、mapped/unbound/applied counts 与 local Transform 均等于 filtered full oracle | 10k/100k materialize/extract/apply 均为 `0` | downstream extract/apply 近似随 `K` 增长，但从 Core 生成 selection 仍扫描 `V`                                                 |
+| Candidate                   | Exact / order                                                                                                                 | Warm allocation                              | 主要成本与限制                                                                                                                |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| stable filtered scan        | 与 full oracle 精确一致；selection 构造/遍历顺序不影响输出                                                                    | 一万/十万均为 `0`                            | 无论选择率都扫描 `V`；它是语义基线，不解决全量读取成本                                                                        |
+| committed dirty delta       | no-change、selection churn、Parking、spawn/despawn、edge transition 与 atomic replace 均可重建 exact cache                    | 一万/十万均为 `0`                            | 需要 retained cache、slot-generation-aware index、remove/tombstone 和 selection-change delta；高水位内存不能忽略              |
+| single-epoch cursor/page    | `1/64/1024/K/all` 拼接与 full oracle 一致，mutation 后稳定拒绝 stale cursor                                                   | 一万/十万均为 `0`                            | current borrowed iterator 不提供 seek；page 越多越会重复 traversal。跨 epoch resume 仍需要正式 snapshot retention，本轮不承担 |
+| selected Spatial/Bevy frame | selected `PoseInputRecord`、canonical pose bits、mapped/unbound/applied counts 与 local Transform 均等于 filtered full oracle | 一万/十万 materialize/extract/apply 均为 `0` | downstream extract/apply 近似随 `K` 增长，但从 Core 生成 selection 仍扫描 `V`                                                 |
 
 语义矩阵覆盖：
 
@@ -451,11 +482,11 @@ Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime 的自有随机�
 - 同 epoch 重读、不同 page size、selection handle forward/reverse construction，以及 mutation 后 stale cursor；
 - injected replace failure 保持 committed world，清除 injection 后 retry 与 fresh replay 相同；
 - malformed dirty remove、Spatial invalid progress 与 stale mapped Entity 均保持旧 retained cache、canonical pose batch 和已预验证 Transform；失败帧 `applied=0`；
-- 10k/100k 的 contiguous、alternating、stable-hash selection，比例为 `0% / 0.1% / 1% / 10% / 50% / 100%`；scale selected canonical pose 与 local Transform 逐条对照 full oracle。
+- 一万/十万的 contiguous、alternating、stable-hash selection，比例为 `0% / 0.1% / 1% / 10% / 50% / 100%`；scale selected canonical pose 与 local Transform 逐条对照 full oracle。
 
 2026-07-23 在 AMD Ryzen 9 9955HX、Windows、Rust 1.96 `--release` 的单次 observation 如下。它只描述本机 fixture 的 cost shape，不是稳定 benchmark、SLA 或 speedup Gate：
 
-| Path                                 |  10k observation |   100k observation |
+| Path                                 | 一万 observation |   十万 observation |
 | ------------------------------------ | ---------------: | -----------------: |
 | filtered，`0%`                       | `0.024–0.041 ms` |   `0.321–0.384 ms` |
 | filtered，`100%`                     | `0.249–0.365 ms` |   `2.520–3.631 ms` |
@@ -467,7 +498,7 @@ Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime 的自有随机�
 
 容量高水位按测试 type 的 `size_of` 计量，不含 allocator 元数据，也不表示 production 必须同时保留所有 buffer：
 
-| Caller-owned research buffer                                        |        10k |        100k |
+| Caller-owned research buffer                                        |       一万 |        十万 |
 | ------------------------------------------------------------------- | ---------: | ----------: |
 | selection bitmap                                                    | `10,000 B` | `100,000 B` |
 | value-record output 或 retained cache，各自                         |  `1.20 MB` |  `12.00 MB` |
@@ -479,9 +510,9 @@ Manifest 绑定；只有后续 G1 显式授予 Traffic Runtime 的自有随机�
 结果支持以下判断：
 
 1. 强个体 vehicle identity、status、route occurrence、Parking source、canonical pose 和 local Transform 可以在 caller-owned selective read 中精确保留；没有发现必须暴露 slot、partition、ECS Entity 或改变 opaque handle 的语义障碍。
-2. 只增加 filtered batch 不会消除 `O(V)` Core scan。它能减少后续 Spatial/Transform 的 `K` 成本，但不应被宣传为解决 100k/1M read scaling。
-3. current borrowed iterator 上的 cursor 只提供 bounded page output，不提供 bounded traversal；100k/full/page-1024 observation 明显慢于一次 filtered scan。因此本候选不应进入 production G1，除非未来已有 storage-independent seek/index 或正式 immutable snapshot。
-4. dirty 是本轮唯一能表达 no-change/稀疏变化而不要求每次发送完整 selected snapshot 的候选，但 100k full high-water 下 cache + delta + two-generation index 已约 `40.8 MB`，还未包含所有 Adapter/session buffer。其 generation、selection churn、tombstone 和跨层事务成本需要 representative product profiling 才能证明值得。
+2. 只增加 filtered batch 不会消除 `O(V)` Core scan。它能减少后续 Spatial/Transform 的 `K` 成本，但不应被宣传为解决十万/一百万 read scaling。
+3. current borrowed iterator 上的 cursor 只提供 bounded page output，不提供 bounded traversal；十万/full/page-1024 observation 明显慢于一次 filtered scan。因此本候选不应进入 production G1，除非未来已有 storage-independent seek/index 或正式 immutable snapshot。
+4. dirty 是本轮唯一能表达 no-change/稀疏变化而不要求每次发送完整 selected snapshot 的候选，但十万 full high-water 下 cache + delta + two-generation index 已约 `40.8 MB`，还未包含所有 Adapter/session buffer。其 generation、selection churn、tombstone 和跨层事务成本需要 representative product profiling 才能证明值得。
 5. 预热后零分配在三类 Core candidate 与 selected Adapter materialize/extract/apply 上均已证明；这只说明 caller-owned capacity reuse 可行，不代表 retained memory 或 wall-clock 可接受。
 
 因此 P3 的建议是：**不冻结 production selective snapshot、dirty 或 cursor API，不新增 ADR；#72 可继续进入 P4 individual-first reduced-rate semantics。** 如果未来实际 Adapter profiling 证明 full `vehicles()` read 是主要瓶颈，应新建独立 G1，优先比较更紧凑的 value record、Adapter-local selection/dirty ownership 和真正 storage-independent traversal；不得直接把本研究的 120-byte record、bitmap、epoch width 或 cursor encoding提升为 Stable Runtime API。
@@ -526,16 +557,16 @@ distance_budget = desired_speed * tau + 0.5 * acceleration_span * tau^2
 
 没有 candidate 超出 speed/progress/gap budget，H→2H→4H 也没有持续增长。完整 correctness matrix 同时运行两个相同 candidate replay；state、motion、cache 和全部 events 均保持 deterministic。
 
-性能 primary workload 在测量前声明为：单 route/edge 上的 16-vehicle cohorts，cohort 内 `15 m` spacing、cohort 间 `120 m` gap，初速循环 `7–13 m/s`，约 `15/16` vehicles 处于 following 视野、其余为 free-flow 边界；scale 为 10k/100k，fixed step 为 `16 ms`。本机为 AMD Ryzen 9 9955HX、Windows、Rust 1.96 release；每个 tail case 先 warm 32 tick，再观测 1024 tick（N=8 的 128 个完整 cadence cycle），串行运行三轮。UE Editor 与一个孤儿 filesystem scan 存在时的中断样本全部作废，以下只采用两者退出后的重跑。
+性能 primary workload 在测量前声明为：单 route/edge 上的 16-vehicle cohorts，cohort 内 `15 m` spacing、cohort 间 `120 m` gap，初速循环 `7–13 m/s`，约 `15/16` vehicles 处于 following 视野、其余为 free-flow 边界；scale 为一万/十万，fixed step 为 `16 ms`。本机为 AMD Ryzen 9 9955HX、Windows、Rust 1.96 release；每个 tail case 先 warm 32 tick，再观测 1024 tick（N=8 的 128 个完整 cadence cycle），串行运行三轮。UE Editor 与一个孤儿 filesystem scan 存在时的中断样本全部作废，以下只采用两者退出后的重跑。
 
 H1 对 P0 的 whole-step p50 paired delta 为：
 
 | scale |   round 1 |    round 2 |   round 3 | 三轮中位数 |       Gate |
 | ----: | --------: | ---------: | --------: | ---------: | ---------: |
-|   10k | `-4.797%` |  `+1.944%` | `+2.852%` |  `+1.944%` | `≤5%` Pass |
-|  100k | `-0.127%` | `-13.640%` | `+2.132%` |  `-0.127%` | `≤5%` Pass |
+|  一万 | `-4.797%` |  `+1.944%` | `+2.852%` |  `+1.944%` | `≤5%` Pass |
+|  十万 | `-0.127%` | `-13.640%` | `+2.132%` |  `-0.127%` | `≤5%` Pass |
 
-100k tail raw observations 如下；单位均为 ms。`long` 是整个 longitudinal rebuild，不是只计 IIDM 函数。
+十万 tail raw observations 如下；单位均为 ms。`long` 是整个 longitudinal rebuild，不是只计 IIDM 函数。
 
 | round | case            |            whole p50 / p95 / p99 / max |          long p50 / p95 / p99 / max |
 | ----: | --------------- | -------------------------------------: | ----------------------------------: |
@@ -557,12 +588,12 @@ H1 对 P0 的 whole-step p50 paired delta 为：
 
 tail Gate 的直接结果：
 
-- stable N4 的 100k longitudinal gain 为 `+0.356% / -0.890% / -0.018%`，whole-step gain 为 `-1.518% / -2.392% / -2.409%`；未达到 `15% / 5%`。
-- stable N8 的 100k longitudinal gain 为 `+1.878% / -0.197% / +1.527%`，whole-step gain 为 `-0.460% / -2.411% / -1.217%`；第三轮 p99 相对 H1 回归超过 5%，也未达到 median Gate。
+- stable N4 的十万 longitudinal gain 为 `+0.356% / -0.890% / -0.018%`，whole-step gain 为 `-1.518% / -2.392% / -2.409%`；未达到 `15% / 5%`。
+- stable N8 的十万 longitudinal gain 为 `+1.878% / -0.197% / +1.527%`，whole-step gain 为 `-0.460% / -2.411% / -1.217%`；第三轮 p99 相对 H1 回归超过 5%，也未达到 median Gate。
 - synchronized N8 的第一轮 p95/p99/max spike 显著，支持“只作 spike stress、不作为交付候选”的冻结结论。
-- 10k stable N4/N8 的 whole-step p50 均未超过 H1 5% guard，但这不能替代 100k gain Gate。
+- 一万 stable N4/N8 的 whole-step p50 均未超过 H1 5% guard，但这不能替代十万 gain Gate。
 
-Criterion 使用相同 100k primary workload、每组 10 samples、1 s warm-up、3 s measurement，并保留 `target/criterion/reduced-rate_100k_round-*/.../new/estimates.json`。`median.point_estimate` raw 值如下：
+Criterion 使用相同十万 primary workload、每组 10 samples、1 s warm-up、3 s measurement，并保留 `target/criterion/reduced-rate_100k_round-*/.../new/estimates.json`。`median.point_estimate` raw 值如下：
 
 | round | stage        |          P0 (ns) |       H1 N1 (ns) |   stable N8 (ns) | N8 vs H1 gain |
 | ----: | ------------ | ---------------: | ---------------: | ---------------: | ------------: |
@@ -575,16 +606,16 @@ Criterion 使用相同 100k primary workload、每组 10 samples、1 s warm-up�
 
 Criterion 中 longitudinal 三轮方向一致但远低于 15%；whole-step 方向不一致且远低于 5%。因此 tail 与 Criterion 独立支持相同 no-go 结论：当前 step 的主要成本不在可跳过的 IIDM controller-intent，缓存访问与事务复制也抵消了大部分局部节省。
 
-为把“缓存成本”和“降频收益”从上述组合结果中拆开，另补一轮 ablation。冻结的 workload、release profile、100k scale、10 samples、`1 s` warm-up、`3 s` measurement、三轮串行执行与原 Gate 均不变：
+为把“缓存成本”和“降频收益”从上述组合结果中拆开，另补一轮 ablation。冻结的 workload、release profile、十万 scale、10 samples、`1 s` warm-up、`3 s` measurement、三轮串行执行与原 Gate 均不变：
 
 - P0：production；
 - H1：`N=1` test seam，不创建 cache，用于扣除 harness 本身；
 - C1：`N=1` 且每 tick 强制刷新，但仍执行 committed/candidate cache 写入、整表事务复制与 sweep；相对 H1 是“纯缓存事务 bookkeeping”；
 - C2：当前 stable-staggered semantic-reactive `N=8` 事务候选；
 - C3：与 C2 成功步骤逐 tick、逐 bit 相同的 `N=8` 原地 cache，只移除 candidate 双缓冲/整表复制。C3 在注入 failed step 后会改变 cache，测试明确证明其**不满足失败原子性**，因此只作为性能上界，不能参与 production Pass 判定；
-- controller-only：对相同 100k cohort 输入单独执行 IIDM comfort-acceleration intent，量出可跳过函数本身的成本。
+- controller-only：对相同十万 cohort 输入单独执行 IIDM comfort-acceleration intent，量出可跳过函数本身的成本。
 
-ablation 的 Criterion `median.point_estimate` 如下，单位为 ms；`whole / long` 表示 whole-step / 整个 longitudinal rebuild，IIDM-only 为单独的 100k controller-intent batch：
+ablation 的 Criterion `median.point_estimate` 如下，单位为 ms；`whole / long` 表示 whole-step / 整个 longitudinal rebuild，IIDM-only 为单独的十万 controller-intent batch：
 
 | round | P0 whole |   H1 whole / long |   C1 whole / long |   C2 whole / long |   C3 whole / long | IIDM-only |
 | ----: | -------: | ----------------: | ----------------: | ----------------: | ----------------: | --------: |
@@ -612,7 +643,7 @@ controller-only 占 H1 longitudinal 的三轮比例中位数为 `16.757%`。即�
 - C4 与 C2 在 512 个成功 tick 的 `StepResult`、authority、13 个 longitudinal float bit pattern、cache entries 和 metrics 全部相同；注入失败后 committed cache/metrics 不变，retry 与 fresh replay 相同；
 - C4 仍使用相同 `128 B` cache entry，以便这一轮只隔离事务形态，不混入 compact layout。
 
-C4 使用相同 100k workload 与 Criterion 参数重新配对 P0/H1/C2/C3，`median.point_estimate` 单位为 ms：
+C4 使用相同十万 workload 与 Criterion 参数重新配对 P0/H1/C2/C3，`median.point_estimate` 单位为 ms：
 
 | round | P0 whole |   H1 whole / long |   C2 whole / long |   C4 whole / long |   C3 whole / long |
 | ----: | -------: | ----------------: | ----------------: | ----------------: | ----------------: |
@@ -634,22 +665,22 @@ C4 使用相同 100k workload 与 Criterion 参数重新配对 P0/H1/C2/C3，`me
 
 内存和 allocation 证据：
 
-- `Option<ResearchIntentCacheEntry>` 为 `128 B`。10k authoritative cache 为 `1.28 MB`，100k 为 `12.80 MB`；failed-step 原子性需要等大的 candidate transaction scratch，因此 prototype 总高水位分别为 `2.56 MB / 25.60 MB`，不含 allocator metadata。
+- `Option<ResearchIntentCacheEntry>` 为 `128 B`。一万 authoritative cache 为 `1.28 MB`，十万为 `12.80 MB`；failed-step 原子性需要等大的 candidate transaction scratch，因此 prototype 总高水位分别为 `2.56 MB / 25.60 MB`，不含 allocator metadata。
 - N=1 harness 不分配 cache；C1/C2 使用 cache 加等大的 transaction scratch；C3 只保留 cache、transaction scratch 为 `0 B`，但不满足失败原子性。
-- C4 为了让任意首轮刷新/失效都不分配，预留 `128 B × V` refresh journal 和 `8 B × V` invalidation journal；因此 10k/100k retained high-water 为 `2.64 MB / 26.40 MB`。它减少的是每 tick 实际触达与复制的数据量，当前版本尚未降低 retained high-water。
-- H1、C1、C2、C3、C4 在 10k/100k 预热后连续 16 step 均为 `0 allocation / 0 reallocation / 0 allocated bytes / 0 reallocated bytes`。
+- C4 为了让任意首轮刷新/失效都不分配，预留 `128 B × V` refresh journal 和 `8 B × V` invalidation journal；因此一万/十万 retained high-water 为 `2.64 MB / 26.40 MB`。它减少的是每 tick 实际触达与复制的数据量，当前版本尚未降低 retained high-water。
+- H1、C1、C2、C3、C4 在一万/十万预热后连续 16 step 均为 `0 allocation / 0 reallocation / 0 allocated bytes / 0 reallocated bytes`。
 - 既有 `selected_inputs_canonical_pose_counts_and_local_transforms_match_full_oracle` 重跑通过，确认 Adapter 仍只消费 committed snapshot；P4 没有新增 Core interpolation、cache exposure 或 presentation authority。
 
-##### D5. 100k 单线程阶段归因与 longitudinal 内核诊断
+##### D5. 十万单线程阶段归因与 longitudinal 内核诊断
 
 为回答“除了 IIDM intent 和降频之外，longitudinal 及整个 step 的下一性能靶点在哪里”，补充了两类只在 `#[cfg(test)]` 下启用的诊断：
 
 1. coarse stage timing（粗粒度阶段计时）：每个 tick、每个阶段只取一次 `Instant`，把 whole-step 拆为 occupancy/leader rebuild、longitudinal proposal/store、global projection、advance/events/authority commit 和 research cache commit；这组数据按同一 tick 采样，可以用于阶段占比和近似加和。
-2. independent Criterion kernels（独立内核基准）：对 IIDM intent、post-intent safe motion、scratch begin、motion store 和 global projection 分别测 100k batch；它们用于解释机制，但因输入布局、cache 状态和循环边界不同，**不得把独立数字简单相加当成 whole-step 分解**。
+2. independent Criterion kernels（独立内核基准）：对 IIDM intent、post-intent safe motion、scratch begin、motion store 和 global projection 分别测十万 batch；它们用于解释机制，但因输入布局、cache 状态和循环边界不同，**不得把独立数字简单相加当成 whole-step 分解**。
 
-外部 sampled profile 使用 Windows Performance Recorder（WPR）采集 CPU sampling ETL。非提权进程首次执行 `wpr -start CPU` 返回 `0xc5585011: Failed to enable the policy to profile system performance`；随后通过 UAC 启动一次性 elevated helper，确认令牌包含 `SeSystemProfilePrivilege` 后，WPR start、100k H1 workload 和 WPR stop 的退出码均为 0，不需要修改本地安全策略。第一次 coarse run 还暴露了 instrumentation lifecycle 问题：`begin_step` 会清零刚记录的 occupancy duration；该轮已判无效、不计入结果，修正后从干净 workload 重跑。
+外部 sampled profile 使用 Windows Performance Recorder（WPR）采集 CPU sampling ETL。非提权进程首次执行 `wpr -start CPU` 返回 `0xc5585011: Failed to enable the policy to profile system performance`；随后通过 UAC 启动一次性 elevated helper，确认令牌包含 `SeSystemProfilePrivilege` 后，WPR start、十万 H1 workload 和 WPR stop 的退出码均为 0，不需要修改本地安全策略。第一次 coarse run 还暴露了 instrumentation lifecycle 问题：`begin_step` 会清零刚记录的 occupancy duration；该轮已判无效、不计入结果，修正后从干净 workload 重跑。
 
-修正后的 coarse timing 使用 release profile、100k mixed cohort、H1/C4 各 512 observed ticks、三轮串行执行。下表为各分布的 p50，单位为 ms；各列分别取 p50，因此一行中的 p50 不要求严格相加：
+修正后的 coarse timing 使用 release profile、十万 mixed cohort、H1/C4 各 512 observed ticks、三轮串行执行。下表为各分布的 p50，单位为 ms；各列分别取 p50，因此一行中的 p50 不要求严格相加：
 
 | case | round | whole-step | occupancy / leader | proposal / store | global projection | longitudinal total | advance / events / authority commit | research cache commit |
 | ---- | ----: | ---------: | -----------------: | ---------------: | ----------------: | -----------------: | ----------------------------------: | --------------------: |
@@ -670,7 +701,7 @@ H1 各轮 share 的三轮中位数表明：
 
 C4 的 savings 也由阶段数据得到机制解释：三轮 p50 中位数相对 H1，proposal/store 从 `18.348 ms` 降到 `16.707 ms`，约节省 `1.641 ms`；global projection、occupancy/leader 和 post stage 基本不变，同时 sparse journal commit 新增约 `0.532 ms`。因此 C4 的净收益主要来自跳过 IIDM intent 后的 proposal path，而不是 projection；compact journal 最多先回收约半毫秒，仍小于 occupancy/leader 和 proposal path 的可优化份额。
 
-独立 Criterion kernels 使用相同 100k scale、每组 10 samples、`1 s` warm-up、`3 s` measurement、三轮串行执行。`median.point_estimate` 单位为 ms：
+独立 Criterion kernels 使用相同十万 scale、每组 10 samples、`1 s` warm-up、`3 s` measurement、三轮串行执行。`median.point_estimate` 单位为 ms：
 
 | kernel                  | round 1 | round 2 | round 3 | three-round median | 相对 H1 proposal p50 |
 | ----------------------- | ------: | ------: | ------: | -----------------: | -------------------: |
@@ -687,7 +718,7 @@ C4 的 savings 也由阶段数据得到机制解释：三轮 p50 中位数相对
 - 四个 proposal kernels 的独立中位数合计约为 H1 proposal p50 的 `65.08%`。剩余部分不能由独立数字直接相减定罪，但结合生产 loop 可将下一诊断范围放在 per-vehicle handle/state/profile/edge/leader lookup、constraint identity/key 构造、cache branch/journal bookkeeping 和 loop/data locality；
 - 独立 projection `1.648 ms` 与 coarse projection `1.767 ms` 同量级，进一步支持 projection 不是当前第一优化靶点。即使把 projection 变成零成本，whole-step 上界也只有约 5%，且不能牺牲跨区 leader chain/cycle 的全局求解语义。
 
-WPR 证据使用 `CPU` profile 覆盖 100k H1 external workload 的 1,024 ticks；workload 本身耗时 `54.98 s`，生成 `1,221,591,040 B` ETL。`xperf -symbols -a profile -detail` 使用同一 release binary 的本地 PDB 解码，以下占比均以目标 `laneflow_core` 进程的 exclusive sampled CPU weight 为分母；LaneFlow binary 自身占该进程 `92.681%`，其余主要是 CRT/kernel runtime：
+WPR 证据使用 `CPU` profile 覆盖十万 H1 external workload 的 1,024 ticks；workload 本身耗时 `54.98 s`，生成 `1,221,591,040 B` ETL。`xperf -symbols -a profile -detail` 使用同一 release binary 的本地 PDB 解码，以下占比均以目标 `laneflow_core` 进程的 exclusive sampled CPU weight 为分母；LaneFlow binary 自身占该进程 `92.681%`，其余主要是 CRT/kernel runtime：
 
 | exclusive sampled function                           | target process share | LaneFlow module share |
 | ---------------------------------------------------- | -------------------: | --------------------: |
@@ -748,7 +779,8 @@ WPR CPU profile 需要从包含 `SeSystemProfilePrivilege` 的 elevated PowerShe
 
 上述 prototype 不自动进入生产。生产实施至少需要同时满足：
 
-- 已明确产品 active-agent、fidelity、tick-rate、hardware/platform 和 frame-budget 目标；
+- 已按交通执行域明确产品个体/活动/意图更新/表现/聚合记录/聚合等价参与单元数，
+  以及 fidelity、tick-rate、hardware/platform 和 frame-budget 目标；
 - representative workload 同时覆盖 Core 交通求解与实际 Adapter 读取边界；
 - single-thread oracle、determinism、不变量和失败原子性都有自动对照；
 - 性能收益显著且没有以扩大 public API、内存或迁移风险换取；
@@ -796,7 +828,7 @@ Stable Runtime API G1 前的待决项：
 - 是否暴露或依赖 physical slot、partition、thread、container 或 ECS iteration order？
 - handle 是否仍 opaque，是否错误地承担 external/persistent identity？
 - update、snapshot、command 和 event 是否有 storage-independent stable order？
-- 10k/100k 默认路径是否存在 batch/capacity reuse，还是只能逐实体调用？
+- 一万/十万默认路径是否存在 batch/capacity reuse，还是只能逐交通参与单元调用？
 - command 在哪个 committed boundary 校验和生效，失败是否原子？
 - worker/partition 数变化是否会改变 state、first error 或 event order？
 - 所有 partition 是否读取同一 committed state，是否错误增加跨边界一 tick 延迟？

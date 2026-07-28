@@ -314,6 +314,9 @@ participantClasses[]
 - 所有 class 引用必须解析到声明（closed per package，extensible across packages），
   拼写错误即 load error，不会静默匹配空集。
 - 层级匹配是 Core 的通用机制；Core 行为不依赖任何具体类名。
+- `ParticipantClass` 只回答准入规则中的“谁”，不定义交通参与单元的计数原子、
+  交通执行域、通行网络、运动/安全求解器或生命周期。声明 `nonMotor`、
+  `pedestrian` 或未来 rail class 不会激活对应运行时行为，也不能作为能力支持证据。
 
 文档级 seed 分类法（示例与 fixture 的推荐声明，非 Core 常量）：
 

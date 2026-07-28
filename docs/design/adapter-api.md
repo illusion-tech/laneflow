@@ -116,13 +116,14 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 - `SpatialRegistry::extract_pose_batch` 接收调用方拥有的 input slice、committed `CanonicalPoseBatchF32` 与 `CanonicalPoseBatchScratch`。
 - output frame 与 registry frame 不同会在读取 records 前失败；任一无效 edge、space、progress、朝向基或 canonical 范围记录都会使整个批次失败，并报告稳定输入序号、车辆句柄和结构化 source。
 - 全部 records 先写 scratch；只有全部成功后才 swap 到 output 并更新 placement token。失败时旧 output 的 frame、token 和 records 逐项不变，scratch 清空但保留容量。
-- 调用方可以同时预留并跨 tick 复用 output/scratch；稳定容量下不要求 per-batch allocation。#137 已验证精确零 allocation 与 10k/100k 性能，固定机结果和适用边界见 `../reference/v0.6-spatial-validation.md`。
+- 调用方可以同时预留并跨 tick 复用 output/scratch；稳定容量下不要求 per-batch allocation。#137 已验证精确零 allocation 与一万/十万性能，固定机结果和适用边界见 `../reference/v0.6-spatial-validation.md`。
 - canonical frame 与宿主坐标之间的转换不得修改 `CoreWorld`、Spatial 注册表或快照。
-- 单记录查询可以用于调试，但不能作为 1 万或 10 万车辆的默认同步路径。
+- 单记录查询可以用于调试，但不能作为一万或十万当前道路机动车参与单元的默认同步
+  路径。
 
 ## 7. v0.7 Bevy specialization
 
-#121 已在 `bevy-reference-adapter.md` 冻结 v0.7 的 Bevy 0.19 支持线、最小 modular dependency graph、专用 fixed schedule、单活动 Session、Vehicle/Entity 部分双射、frame-root/child Transform、placement token 复核、两阶段原子批量提交、可选 Gizmos、最小 native example 与 10k/100k 验证 Gate。
+#121 已在 `bevy-reference-adapter.md` 冻结 v0.7 的 Bevy 0.19 支持线、最小 modular dependency graph、专用 fixed schedule、单活动 Session、Vehicle/Entity 部分双射、frame-root/child Transform、placement token 复核、两阶段原子批量提交、可选 Gizmos、最小 native example 与一万/十万验证 Gate。
 
 该 specialization 不改变本文的跨引擎权威职责、`f32` canonical 精度边界、稳定批量顺序、失败原子性和宿主类型隔离。v0.7 仍不冻结 presentation interpolation、LOD/pooling、glTF/prefab/scene asset API、WASM、外语绑定的二进制接口、C 外部函数接口（FFI）或第二个 Engine Adapter。
 

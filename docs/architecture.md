@@ -32,7 +32,9 @@ LaneFlow 是一个引擎无关、可嵌入的交通 runtime；第一长期产品
 
 出行需求决定谁在何时为何出发；交通运行时导出已提交交通观测快照；路径规划/
 出行编排层再结合静态网络、观测、收费、游戏政策和偏好构造动态成本快照并生成候选
-路径；交通运行时只验证/注册候选 Route 并负责车辆如何安全推进。完整产品边界见
+路径；交通运行时只验证/注册由候选路径构成的动态通行定义，并负责交通参与单元如何
+在所属执行域安全推进。当前 Core 只实现道路机动车车辆特化；长期通用抽象不把
+非机动车、行人或轨道交通排除在目标 Traffic Runtime 之外。完整产品边界见
 ADR 0021。
 
 ## 2. 分层
@@ -74,7 +76,7 @@ laneflow-data -> laneflow-spatial  (只在空间包加载与绑定路径)
 laneflow-core -X-> laneflow-spatial
 ```
 
-Core 继续拥有拓扑、长度、进度与交通行为的权威职责；Spatial 拥有有界 local canonical frame、中心线、弧长、绑定与位姿采样；Adapter 只把 LaneFlow 位姿映射为宿主变换（Transform）。当前 `laneflow-spatial` 已实现 LaneFlow-owned canonical `f32` 基础类型、每轴 `±16_384 m` 点范围、稳定 frame ID、结构化错误、按 `LaneGraph::edges()` 排序的 immutable registry、量化后折线绑定/采样，以及带 batch-level placement token、Parking pose 和失败原子性的批量提取。#134 的空间包/清单 loader 可直接构造该 registry；#137 继续负责误差、分配、内存和 10k/100k 性能基线。
+Core 继续拥有拓扑、长度、进度与交通行为的权威职责；Spatial 拥有有界 local canonical frame、中心线、弧长、绑定与位姿采样；Adapter 只把 LaneFlow 位姿映射为宿主变换（Transform）。当前 `laneflow-spatial` 已实现 LaneFlow-owned canonical `f32` 基础类型、每轴 `±16_384 m` 点范围、稳定 frame ID、结构化错误、按 `LaneGraph::edges()` 排序的 immutable registry、量化后折线绑定/采样，以及带 batch-level placement token、Parking pose 和失败原子性的批量提取。#134 的空间包/清单 loader 可直接构造该 registry；#137 继续负责误差、分配、内存和一万/十万性能基线。
 
 ### 2.1 #291 目标静态编译分层
 
@@ -100,8 +102,10 @@ StaticNetworkImage
 
 compiler 拥有静态 identity、topology、geometry、owner/member、coverage、length、
 initial/static occurrence 与 dense layout；target `LaneFlow Traffic Runtime`
-（`laneflow-runtime`）继续拥有 tick、vehicle、dynamic Route 和其他可变 traffic
-authority，Spatial 继续拥有 pose sampling。Production startup 只从外部 trusted
+（`laneflow-runtime`）继续拥有 tick、已实现执行域的交通参与单元、动态通行定义
+（Dynamic Traversal Definition）和其他可变交通权威（Mutable Traffic
+Authority），Spatial 继续拥有位姿采样（Pose Sampling）。
+Production startup 只从外部 trusted
 descriptor/validation receipt 绑定并结构验证 static image，不解析 JSON、按 external
 ID rebind、重建 registry 或重复 Traffic/Spatial join。Traffic section 与冷
 稳定身份索引（Static Identity Index，`StaticIdentityIndex`）必选；Spatial section
@@ -229,10 +233,12 @@ Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTraff
 `LaneFlow Traffic Runtime` / `laneflow-runtime`，target public world 为
 `TrafficWorld`。Static/shared contract 移入 `laneflow-static-contract` 与
 `laneflow-static-image`；Runtime 不再从 `InitialTrafficData` 构建静态 registries，
-而是共享 `StaticTrafficView`。每个 `TrafficWorld` 只拥有 vehicle、dynamic Route、
-controller/reservation/parking 等可变 arrays，以及世界 identity、输入命令游标、
-运行时执行计划和当前路网修订绑定。人口、Routing 和游戏规则 seed 仍由 caller/
-出行编排层拥有；Runtime 只有在后续 G1 显式授予随机权威时才拥有相应随机流。
+而是共享 `StaticTrafficView`。每个 `TrafficWorld` 只拥有已实现执行域的交通参与
+单元、动态通行定义、控制器/预约/停驻状态（Stationary State）等可变数组，
+以及世界 identity、输入命令游标、运行时执行计划和当前路网修订绑定。当前
+投影仍是车辆/动态路线/控制器/预约/停车特化；人口、
+Routing 和游戏规则 seed 仍由 caller/出行编排层拥有；Runtime 只有在后续 G1 显式
+授予随机权威时才拥有相应随机流。
 Initial/static occurrence 由 compiler
 预编译，dynamic Route occurrence 仍由 Runtime 按 image index 编译，steady tick
 继续只使用 typed dense handle。
@@ -243,7 +249,8 @@ identity、tick、输入命令游标和全部每世界可变状态；同一修�
 `StaticIdentityIndex` 能完整重建引用时恢复到另一个可信 target/profile image，
 原始镜像摘要只作为审计绑定与同镜像快速路径。dense ordinal 不能跨路网修订直接复用。
 回放使用显式输入命令流、checkpoint 与确定性状态摘要，调试构建可通过冷诊断和源映射
-生成失同步诊断制品。路径规划读取已提交动态成本快照，不进入车辆 fixed-tick 热路径。
+生成失同步诊断制品。路径规划读取已提交动态成本快照，不进入交通参与单元的
+fixed-tick 热路径。
 
 `InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane
 graph、Junction registry、compiled routes、Vehicle Profiles 与 immutable

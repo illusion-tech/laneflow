@@ -104,7 +104,8 @@ Occupancy、controller 和 projection 只读取 tick snapshot，结果一次性�
 - data format 需要新增 0.3 schema 和显式迁移路径。
 - ballistic integration、safe-speed 和 functional-graph projection 比单一 IDM 公式更复杂。
 - `f64` 仍不提供跨平台 bit-level determinism。
-- 百万级城市运行时仍需要后续 partition、parallel 和多层级模型，不能由本 ADR 自动获得。
+- 城市级多执行域交通运行时仍需要后续分区、并行和多层级模型；当前道路机动车的
+  一百万研究包络不能由本 ADR 自动推广到其他执行域。
 
 ## 替代方案
 
@@ -134,7 +135,8 @@ Occupancy、controller 和 projection 只读取 tick snapshot，结果一次性�
 - #74：VehicleState、spawn input 和 profile handle 迁移。
 - #75：Occupancy index、leader detection 和 overlap validation。
 - #76：IIDM、safe-speed、ballistic integration 和 no-overlap projection。
-- #77：确定性、不变量、10k 性能和 100k 扩展性验证。
-- #72：百万级城市运行时 partition/parallel/multi-rate/mesoscopic 研究，不阻塞 v0.3。
+- #77：确定性、不变量、一万性能和十万扩展性验证。
+- #72：城市级多执行域交通运行时的分区/并行/多频率/中观研究；当前证据只覆盖道路
+  机动车执行域，不阻塞 v0.3。
 
 若未来公开 controller 扩展、引入跨平台 bit-level deterministic math，或改变 Core 安全所有权，应新增 ADR，不得静默改写本决策。

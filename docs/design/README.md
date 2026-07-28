@@ -9,16 +9,20 @@
 初始阶段建议逐步补齐：
 
 - `core-runtime.md`：Core runtime、tick、vehicle state 和系统边界。
-- `core-runtime-performance-baseline.md`：#215 Accepted 的 10k/100k 产品目标与 1M 研究包络；冻结 `LF-SYNTH-v1` 确定性拓扑、规模计数、W1–W4 workload、R0/P10/P100/O1 硬件角色、tick/frame budget、fidelity、benchmark protocol、TBD 与架构升级触发；目标契约不等于 P10/P100 产品认证。
-- `real-road-workloads.md`：#224 Accepted 的 LuST v2.0 真实路网契约；冻结 source/provenance、共享静态转换、精确 10k selection、`LF-REAL-LUST-TOPO-v1` 与 `LF-REAL-LUST-DEMAND-v1`、oracle/digest、Release 制品与 fail-closed 边界。它只补充 `LF-SYNTH-v1`，不等于真实路网 Product Pass。
-- `lust-bevy-population-control.md`：#256 Accepted 的 LuST/Bevy 示例层 1–10k 个体人口调节契约；冻结 H1/H2/手动 H3、连续 `target_N`、seeded 无放回抽样、缩编分层与 100% presentation 默认；由 #257 实现，不改写 TOPO/DEMAND workload ID。
-- `core-runtime-scalability-audit.md`：#72/#199 的城市级可扩展性前置审计；记录 CoreWorld、handle、batch、commands、deterministic phase/event merge 的 no-regret constraints、individual-first/exact-only/aggregate-first 候选矩阵与 Stable Runtime API G1 待决项，不实现生产 partition。
+- `core-runtime-performance-baseline.md`：#215 Accepted 的当前道路机动车一万/十万产品目标与一百万研究包络；冻结交通参与单元、交通执行域、六类分域计数、`LF-SYNTH-v1` 确定性拓扑、W1–W4 workload、R0/P10/P100/O1 硬件角色、tick/frame budget、fidelity、benchmark protocol、TBD 与架构升级触发；车辆目标契约不等于 P10/P100 产品认证或其他执行域能力。
+- `real-road-workloads.md`：#224 Accepted 的 LuST v2.0 真实路网契约；冻结 source/provenance、共享静态转换、精确一万 selection、`LF-REAL-LUST-TOPO-v1` 与 `LF-REAL-LUST-DEMAND-v1`、oracle/digest、Release 制品与 fail-closed 边界。它只补充 `LF-SYNTH-v1`，不等于真实路网 Product Pass。
+- `lust-bevy-population-control.md`：#256 Accepted 的 LuST/Bevy 示例层 1–一万个体人口调节契约；冻结 H1/H2/手动 H3、连续 `target_N`、seeded 无放回抽样、缩编分层与 100% presentation 默认；由 #257 实现，不改写 TOPO/DEMAND workload ID。
+- `core-runtime-scalability-audit.md`：#72/#199 的城市级可扩展性前置审计；区分当前
+  道路机动车特化证据与目标 Traffic Runtime 多执行域抽象，记录 CoreWorld、句柄、
+  批处理、命令、确定性阶段/事件合并的无悔约束（No-regret Constraints）、个体优先/
+  仅精确/聚合优先（Individual-first/Exact-only/Aggregate-first）候选矩阵与 Stable
+  Runtime API G1 待决项，不实现生产分区。
 - `core-id-handles.md`：Core external ID、typed handle、registry / resolver、动态 lifecycle 和事件 payload 边界。
 - `numeric-representation.md`：v0.6 数值表示、精度分层、误差预算、确定性与 Core/Data/Spatial/Adapter 转换边界。
 - `spatial-geometry.md`：v0.6 引擎无关的坐标框架、折线中心线、长度绑定、采样、制品配对与批量位姿提取。
 - `lane-graph.md`：车道图、连接关系、拓扑约束。
 - `road-junction-model.md`：#228 Accepted 的长期 Road/Junction/Maneuver 分层与 v0.9 最小静态产品 profile；冻结 Junction/Movement/ManeuverPath owner、一等 ManeuverGate、Route occurrence、历史 Traffic v0.8 clean-break target（current v0.10 继承）、确定性与性能边界。
-- `waiting-zone-conflict-right-of-way.md`：#235 Accepted 的多阶段复杂路口 G1；基于 current Traffic v0.10 AccessRegistry 冻结 multiple ManeuverGate occurrence、WaitingZone 容量/队列、ConflictZone/ParticipantStream、versioned jurisdiction/right-of-way policy、Core ConflictArbiter、top-two directed-bound approach frontier、mandatory downstream-clearance、single-writer resource claims、grant/reservation、post-v0.9 原子格式迁移、事件与 10k/100k 边界；#281 已交付 multi-Gate/WaitingZone static 与 Data 0.10，#282–#285 继续 runtime/Conflict/policy/closure。
+- `waiting-zone-conflict-right-of-way.md`：#235 Accepted 的多阶段复杂路口 G1；基于 current Traffic v0.10 AccessRegistry 冻结 multiple ManeuverGate occurrence、WaitingZone 容量/队列、ConflictZone/ParticipantStream、versioned jurisdiction/right-of-way policy、Core ConflictArbiter、top-two directed-bound approach frontier、mandatory downstream-clearance、single-writer resource claims、grant/reservation、post-v0.9 原子格式迁移、事件与一万/十万边界；#281 已交付 multi-Gate/WaitingZone static 与 Data 0.10，#282–#285 继续 runtime/Conflict/policy/closure。
 - `cross-section-access.md`：#234 Accepted、#262 已生产化的多模式横断面与准入分层；RoadCorridor/RoadSection/LaneGroup/FacilityBand、ParticipantClass/AccessRule 的 Traffic v0.9 来源契约由 current v0.10 继承，静态 `(class, Route)` 准入已落地，时变规则与 FacilityBand target 仍由 capability guard 拒绝。
 - `signalized-corridor-protected-turning.md`：#196 Accepted 的 v0.9 双路口受保护转向 profile；冻结 lane assignment、32 条 ManeuverPath、28 条 Route、catalog 0.2、四组 12-phase signal program、安全矩阵与验收边界；#190 当前交付 profile artifacts、scenario policy 与 native 最小集成。
 - `route-system.md`：路线选择、路径跟随、目标点。

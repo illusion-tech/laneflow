@@ -48,7 +48,7 @@ struct ResolvedParticipantClass {
 /// `[enter, exit)`：层级为无环单继承森林，`descendant ∈ subtree(ancestor)`
 /// 当且仅当 `enter[ancestor] ≤ enter[descendant] < exit[ancestor]`），层级匹配
 /// 在绑定期为 O(1) 区间包含查询，不进入字符串比较。存储 O(classes)——此前的
-/// descendants bitset 是 O(classes²/64)，不可信输入下 10 万个 class 就要
+/// descendants bitset 是 O(classes²/64)，不可信输入下十万个 class 就要
 /// 分配 ~1.25 GB 并付出平方级初始化时间（容量校验只约束 class 数量本身）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParticipantClassRegistry {

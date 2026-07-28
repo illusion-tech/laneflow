@@ -15,9 +15,10 @@
 - `skills/laneflow-governance/SKILL.md`：GitHub Issue、PR、commit、Project、Milestone、Release 与 G0–G4 工作流（PR 默认 Rebase and merge）。
 - `skills/laneflow-development/SKILL.md`：LaneFlow 通用实现工作流。
 - `skills/laneflow-core-design/SKILL.md`：当前态 LaneFlow Core、目标态 LaneFlow
-  交通运行时（Traffic Runtime）、车道图（Lane Graph）、路线（Route）、信号
-  （Signal）、停车（Parking）、确定性并行、路网修订、快照/回放、路径规划接入与
-  城市模拟游戏上层边界。
+  交通运行时（Traffic Runtime）、当前道路机动车的车道图（Lane Graph）/路线
+  （Route）/信号（Signal）/停车（Parking），目标交通参与单元（Traffic
+  Participant Unit）与交通执行域（Traffic Execution Domain）、确定性并行、路网
+  修订、快照/回放、路径规划接入与城市模拟游戏上层边界。
 - `skills/laneflow-adapter/SKILL.md`：Unity、Unreal、Godot、O3DE、Web 等引擎适配器
   （Engine Adapter）开发及当前态核心（Current Core）→目标态交通运行时（Target
   Traffic Runtime）迁移边界。

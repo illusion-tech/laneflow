@@ -91,10 +91,12 @@ dense layout 的 canonical LIR。以下工作只发生在编译期：
 - Traffic length 与 Spatial arc length 的共同派生及绑定验证；
 - target static image 的 dense handle 分配与 hot/cold layout。
 
-Target `LaneFlow Traffic Runtime` 继续拥有运行时交通规则、车辆和动态 Route
-lifecycle、tick、安全约束与 runtime state authority；Spatial 继续拥有 canonical
-geometry sampling 和 pose 语义；二者不再各自重新解释或重建静态网络。Current
-production 的 `LaneFlow Core` 命名与 API 在 cutover 前继续有效。
+Target `LaneFlow Traffic Runtime` 继续拥有运行时交通规则、已实现执行域的交通参与
+单元、动态通行定义（Dynamic Traversal Definition）生命周期、固定步进（Tick）、
+安全约束与运行时状态权威（Runtime State Authority）；Spatial
+继续拥有 canonical geometry sampling 和 pose 语义；二者不再各自重新解释或重建
+静态网络。Current production 的 `LaneFlow Core` 命名、车辆特化和 API 在 cutover
+前继续有效。
 
 ### 2. 权威来源模块图（Authoritative Source Module Graph）组合平级前端（Frontend），不采用 L1/L2
 
@@ -216,9 +218,10 @@ descriptor/validation receipt 绑定，再执行有界结构验证并建立只�
 
 ### 6. 静态镜像与可变运行时状态物理分离
 
-静态镜像不得内嵌 vehicle、controller clock、reservation、occupancy、runtime
-Route generation、world/session nonce 或其他每世界可变状态。运行时状态使用
-独立 dense arrays，并以 image ordinal/typed `u32` handle 关联静态表。
+静态镜像不得内嵌交通参与单元、controller clock、reservation、occupancy、runtime
+traversal generation、world/session nonce 或其他每世界可变状态。当前兼容
+projection 中的 vehicle 与 runtime Route 同样属于该禁止范围。运行时状态使用独立
+dense arrays，并以 image ordinal/typed `u32` handle 关联静态表。
 
 静态镜像表示一个不可变路网修订，不表示城市道路永不变化。玩家或工具修改来源
 模块后必须生成并验证新修订；运行世界只能在 fixed-tick 安全边界通过失败关闭的
@@ -334,11 +337,12 @@ version/digest/profile primitives，不依赖 Serde、filesystem、Runtime 或 S
 borrowed views，不依赖 compiler/validator/Runtime/Spatial。
 
 Target `laneflow-runtime` 是 current `laneflow-core` 的 clean-break 名称，只拥有
-tick、vehicle、dynamic Route 和每 world 可变交通状态。Static/shared contract 不得
-留在 Runtime；否则 compiler/validator 会反向依赖动态运行时。Spatial 继续不依赖
-compiler/validator/引擎，Runtime 继续不依赖 Spatial。`laneflow-data` 在迁移期间
-作为 current JSON compatibility façade 存在，终态不再拥有静态 normalization
-authority。
+tick、已实现执行域的交通参与单元、动态通行定义和每 world 可变交通状态。当前首个
+projection 仍是 vehicle/dynamic Route 特化，但不得反向冻结终态 Runtime。
+Static/shared contract 不得留在 Runtime；否则 compiler/validator 会反向依赖动态
+运行时。Spatial 继续不依赖 compiler/validator/引擎，Runtime 继续不依赖 Spatial。
+`laneflow-data` 在迁移期间作为 current JSON compatibility façade 存在，终态不再
+拥有静态 normalization authority。
 
 ### 10. 迁移必须保持当前态（Current）与目标态（Target）语义可区分
 
@@ -357,7 +361,7 @@ cutover 完成 G4 前：
   bridge crate 可以依赖 compiler + current Core/Spatial，compiler 不依赖 bridge；
   bridge 不公开为 production backend，并由 cutover owner 删除；
 - 切换必须有同一场景的 behavior/determinism/pose equivalence、启动成本、retained
-  memory 和 10k/100k runtime 性能证据；
+  memory 和一万/十万 runtime 性能证据；
 - production cutover 后才可把旧 JSON runtime path 和重复 registry construction
   标记 Deprecated/移除，并以独立 breaking implementation Issue 完成
   `laneflow-core/CoreWorld` → `laneflow-runtime/TrafficWorld` clean break。
@@ -405,8 +409,9 @@ Traffic Runtime 隐藏状态。
 路网修订、identity/constraint versions，并通过 `StaticIdentityIndex` 完整重建稳定
 静态引用；`originStaticImageDigest` 只承担来源审计和同镜像快速恢复。跨修订恢复
 必须通过稳定标识与受信任语义差异执行显式迁移；旧 dense ordinal 不得直接解释为新
-修订实体。动态 Route、车辆和其他运行时实体以快照局部标识保存引用关系，原进程
-runtime handle/slot/generation 不得成为恢复后身份。
+修订实体。动态通行定义、交通参与单元和其他运行时实体以快照局部标识保存引用关系；
+当前 vehicle/dynamic Route 只是首个特化。原进程 runtime handle/slot/generation
+不得成为恢复后身份。
 
 运行时若用 semantic diff 驱动迁移，外部可信
 `NetworkRevisionCutoverDescriptor` 必须绑定 base/target canonical artifact 和
@@ -421,10 +426,11 @@ phase、实体和资源组件。
 
 交通运行时从已提交状态导出交通观测快照，不拥有全局成本政策。路径规划/出行编排
 层结合静态网络、观测、收费、游戏政策和偏好构造动态成本快照并产生候选路径。
-出行需求和路线选择策略由上层出行与交通编排拥有；车辆 fixed-tick 热路径不执行
-全图寻路。成本快照和候选 Route 绑定路网修订、观测 tick 与成本模型版本；Runtime
-对修订不匹配失败关闭。具体过期容忍、快照线格式、摘要算法、routing crate/API 与
-跨修订迁移算法由后续独立 G1 冻结。
+出行需求和路线选择策略由上层出行与交通编排拥有；交通参与单元 fixed-tick 热路径
+不执行全图寻路。成本快照和候选通行定义绑定路网修订、观测 tick 与成本模型版本；
+当前车辆执行域使用 Route，未来执行域由其 G1 冻结等价通行定义。Runtime 对修订
+不匹配失败关闭。具体过期容忍、快照线格式、摘要算法、routing crate/API 与跨修订
+迁移算法由后续独立 G1 冻结。
 
 ## 性能与确定性契约
 
@@ -441,9 +447,8 @@ phase、实体和资源组件。
   基准；
 - static image 加载时间、峰值分配和 retained memory 相对 current JSON +
   normalization 基线具有量化 Gate；
-- 10k/100k 交通运行时固定步进（Traffic Runtime Tick）与空间位姿（Spatial Pose）
-  闸口不得回退；城市级 1M 实体编译和镜像
-  构建作为 #72 的离线扩展基准；
+- 一万/十万交通运行时固定步进（Traffic Runtime Tick）与空间位姿（Spatial Pose）
+  闸口不得回退；
 - `traffic-headless-v1` 不携带 Spatial bytes；2/8/32 worlds 共享 Traffic section；
 - load limits 在任何 per-world allocation 前验证，恶意 cardinality/size 不得触发
   无界分配；
@@ -568,8 +573,9 @@ Spatial section 由 closed profile 控制；拒绝 mandatory combined payload。
 3. #292 不再承诺 L1 或 Core-shaped 输出，而是 compiler foundation + Synthetic DSL
    frontend 的首个纵向实现；
 4. 受影响 ADR 的继续有效与取代范围逐项登记；
-5. 性能 Gate 包含 headless profile、启动/load limits、内存共享、10k/100k runtime
-   和城市级离线编译基线；
+5. 性能 Gate 包含 headless profile、启动/load limits、内存共享和一万/十万
+   runtime；编译器 workload、规模与预算由后继实现 G1 依据产品证据独立冻结，不从
+   运行时参与单元规模反推；
 6. untrusted image rejection、标识 registry known vectors、全 production profile
    `StaticIdentityIndex` 与 external descriptor/cutover descriptor trust path 已进入
    implementation acceptance；

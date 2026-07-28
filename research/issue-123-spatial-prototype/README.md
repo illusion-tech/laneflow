@@ -22,7 +22,8 @@ cargo +stable test -p laneflow-spatial-research --locked
 
 ## #137 生产依赖审计结论
 
-#137 已使用真实 production 类型完成性质、误差、零分配、retained memory 与 10k/100k 性能验证。Euclid 和 Glam 继续只作为本研究包的 dev-dependencies：
+#137 已使用真实 production 类型完成性质、误差、零分配、retained memory 与
+一万/十万性能验证。Euclid 和 Glam 继续只作为本研究包的 dev-dependencies：
 
 - Euclid 的 typed units 不能替代 LaneFlow 的 frame ID、范围、结构化错误、数据格式和批量原子性；
 - Glam 不区分 point/vector/frame，会把特定游戏引擎生态选择扩散到其它 Adapter；

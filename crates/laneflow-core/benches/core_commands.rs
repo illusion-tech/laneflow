@@ -1,8 +1,8 @@
 //! Core lifecycle command 性能基线。
 //!
 //! 运行：`cargo +1.96.0 bench -p laneflow-core --bench core_commands --locked`。
-//! 设置 `LANEFLOW_BENCH_100K=1` 额外运行全部 100k workload；只验证 Parking 时可用
-//! `LANEFLOW_BENCH_PARKING_100K=1`，避免构造无关 100k 场景。
+//! 设置 `LANEFLOW_BENCH_100K=1` 额外运行全部十万规模 workload；只验证 Parking 时可用
+//! `LANEFLOW_BENCH_PARKING_100K=1`，避免构造无关十万规模场景。
 
 use std::{hint::black_box, time::Duration};
 

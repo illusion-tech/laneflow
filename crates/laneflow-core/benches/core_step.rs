@@ -1,8 +1,8 @@
 //! Core step 性能基线。
 //!
 //! 运行：`cargo +1.96.0 bench -p laneflow-core --bench core_step --locked`。
-//! 设置 `LANEFLOW_BENCH_100K=1` 可额外运行全部 100k 扩展性观察；只验证 Parking 时可用
-//! `LANEFLOW_BENCH_PARKING_100K=1`，避免构造无关 100k 场景。
+//! 设置 `LANEFLOW_BENCH_100K=1` 可额外运行全部十万规模扩展性观察；只验证 Parking 时可用
+//! `LANEFLOW_BENCH_PARKING_100K=1`，避免构造无关十万规模场景。
 //! 本 benchmark 不进入常规 CI；结果仅与同一基准机上的历史基线比较。
 
 use std::{hint::black_box, time::Duration};

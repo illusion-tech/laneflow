@@ -153,7 +153,7 @@ Vehicle command、despawn、route completion 和 O(1) hot-path lookup 会被迫�
 - #107：static Parking domain 与 current 0.5 schema/loader/fixtures/current docs 原子切换。
 - #108：Parking runtime、snapshot、commands 与 lifecycle integration，并使用过渡 guard。
 - #109：ParkingStop、arrival、parking-aware traversal、route completion cleanup 与完整 activation。
-- #110：端到端示例、property/replay/failure tests、10k/100k、allocation/memory 与验证基线。
+- #110：端到端示例、property/replay/failure tests、一万/十万、allocation/memory 与验证基线。
 - #19：全部子切片 G4 后进行独立 milestone closure。
 
 本 ADR 不冻结 route-prefix representation、spatial index、tombstone/compaction、scratch container、allocation instrumentation 或单次 benchmark 数字；这些属于 `parking-system.md` 的复杂度约束、实施 Issue 和 validation artifact。若未来改变 Parking authority owner、允许 Adapter 决定 lifecycle、支持共享行车道停车，或引入自动调度/隐式占用推断，应新增或 supersede 本 ADR，不得静默修改。

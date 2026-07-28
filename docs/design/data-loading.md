@@ -304,7 +304,7 @@ Contract tests要求：
 
 v0.10 不设置固定 edge/route/profile/topology/signal/parking count limit。调用方负责在进入 loader 前限制 input byte size；不可信网络/mod 输入需要后续 `LoadLimits`、隔离 validator 或流式 ingestion 设计。
 
-JSON parsing、external ID lookup、Core normalization 和 handle allocation只发生在 load/world initialization。Static registries 使用 dense/indexed resolver，为 runtime 提供 O(1) lookup；10k all-vacant Parking 与 empty registry 的 warm step 均为 0 allocation，Parking registry 不进入 #107 的 per-tick/per-vehicle hot path。
+JSON parsing、external ID lookup、Core normalization 和 handle allocation只发生在 load/world initialization。Static registries 使用 dense/indexed resolver，为 runtime 提供 O(1) lookup；一万 all-vacant Parking 与 empty registry 的 warm step 均为 0 allocation，Parking registry 不进入 #107 的 per-tick/per-vehicle hot path。
 
 ## 10. v0.5 Parking loader 历史边界
 
