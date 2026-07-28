@@ -6,7 +6,8 @@
 （Typed IR）、静态网络编译权威、标识派生、可移植规范制品（Portable Canonical
 Artifact）、目标静态镜像（Target Static Image）、源映射（Source Map）、语义差异
 （Semantic Diff）、独立验证器（Independent Validator）、交通运行时（Traffic
-Runtime）命名和当前态（Current）→目标态（Target）迁移<br>
+Runtime）命名、静态执行约束（Static Execution Constraints）、不可变路网修订
+（Immutable Network Revision）和当前态（Current）→目标态（Target）迁移<br>
 **实现状态**: 未实现；当前态生产路径仍使用 Traffic v0.10 / SpatialPackage v0.1 /
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已重划为编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
@@ -23,6 +24,7 @@ ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial 
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../adr/0021-city-simulation-game-traffic-foundation.md`
 - `core-id-handles.md`
 - `data-format.md`
 - `data-loading.md`
@@ -72,6 +74,7 @@ Editor-authored modules ┘                 v
                                                           └─> semantic diff
 
 StaticNetworkImage ─┬─> Traffic Runtime: StaticTrafficView + per-world mutable state
+                    │                    + RuntimeExecutionPlan
                     └─> Spatial: optional StaticSpatialView + batch scratch/output
 ```
 
@@ -96,8 +99,14 @@ StaticNetworkImage ─┬─> Traffic Runtime: StaticTrafficView + per-world mut
   规范摘要/provenance 当成可信证据；
 - `StaticTrafficImage` 是必选节，`StaticSpatialImage` 是配置档控制的可选节，无图形
   交通运行时不携带几何。
+- 编译器保存 worker 数无关的静态执行约束，运行时按世界建立实际执行计划；最终
+  partition/worker assignment 不进入稳定标识、可移植制品语义或共享镜像。
+- 静态镜像是一个不可变路网修订，而非城市永久不变；道路编辑通过新修订与失败关闭
+  镜像切换事务进入运行世界。
+- LaneFlow 第一长期产品目标是服务中国特色城市模拟游戏交通基础，但城市经济、
+  出行需求、路线选择策略和游戏规则继续由上层拥有。
 
-本文描述目标态。ADR 0020 Accepted 且迁移 G4 完成前，现有
+本文描述目标态。ADR 0020/0021 Accepted 且迁移 G4 完成前，现有
 JSON/Data/Core/Spatial 路径仍是当前态生产契约。
 
 ## 2. 为什么不能继续 L1/L2
@@ -129,6 +138,8 @@ Geometry、OSM 或 Editor frontend 不依赖 #292 的 DSL 语法或 Core-shaped 
 | 静态出现项（Static Occurrence）  | 初始/动态 Route 注册时由 Core 编译                            | 初始/静态出现项在镜像中预编译；动态 Route 由 Runtime 编译 |
 | 治理制品（Governance Artifact）  | 精确当前版本 JSON Schema/fixture                              | 可移植规范制品 + 源映射 + 语义差异                        |
 | 性能制品（Performance Artifact） | JSON object graph 规范化后的登记表                            | 目标/布局/配置档专用的不可变静态镜像                      |
+| 执行规划（Execution Planning）   | 单世界、单一 current tick pipeline                            | 静态约束 + 可重建提示 + 每世界运行时执行计划              |
+| 道路修改（Road Modification）    | 重新加载 current package                                      | 新路网修订 + 验证 + 安全边界镜像切换事务                  |
 | 验证（Validation）               | schema + loader + Core/Spatial constructors                   | 编译器 + 独立验证器/收据 + 有界结构校验器                 |
 
 迁移不得把目标态写成现状，也不得为了复用当前态 DTO/constructor 而冻结错误的
@@ -175,15 +186,30 @@ compiler 唯一负责静态网络的：
 - dense logical ordinal、owner/member/reverse indexes；
 - Traffic/Spatial 长度共同派生；
 - initial/static Route/Maneuver/Gate/Waiting occurrence；
+- worker 数无关的静态执行约束、资源依赖组件、规范合并键与可切分边界；
+- 可丢弃、可重建且不拥有行为权威的分区规划提示；
 - portable artifact 和 static image emission。
 
 ### 4.3 运行时权威（Runtime Authority）
 
 - Traffic Runtime：fixed tick、vehicle、dynamic Route lifecycle、controller clock、grant/
-  reservation、parking occupancy 和所有可变交通状态；
+  reservation、parking occupancy、每世界运行时执行计划和所有可变交通状态；
 - Spatial：canonical geometry sampling 与 pose batch；
 - Adapter：宿主 entity、Transform、frame placement、presentation lifecycle；
 - static image：只读静态事实，不持有可变 authority。
+
+### 4.4 城市游戏、出行编排与路径规划权威
+
+- 城市模拟游戏层拥有人口、经济、土地利用、建筑、任务与游戏规则；
+- 出行与交通编排层拥有出行需求、出发时刻、车辆生成、目的地、人口生命周期和
+  路线选择策略；
+- Traffic Runtime 从已提交状态导出交通观测快照，不拥有全局路径成本政策；
+- 路径规划/出行编排层结合静态路网、已提交交通观测、收费、游戏政策与偏好构造
+  动态成本快照并生成候选路径，不在车辆 fixed-tick 热路径执行全图寻路；
+- Traffic Runtime 只裁决车辆如何按静态规则和已提交动态状态安全推进。
+
+具体 routing crate/API 不属于 #291 的 closed contract，但这些权威边界不得被
+compiler、Adapter 或 scenario policy 绕过。
 
 ## 5. 前端架构（Frontend Architecture）
 
@@ -261,6 +287,7 @@ HIR 仍能追溯全部 source span。跨 module 重名、引用 cycle、unit/typ
 - 规范标识元组构造与标识闭包（Identity Closure）；
 - Traffic length / Spatial arc length 共同派生；
 - route/path occurrence 和 reverse indexes；
+- 静态资源依赖、连接资源组件、可切分边界和规范合并键；
 - global ownership、coverage、coherence 与 policy-independent safety checks。
 
 MIR 可以使用 compiler arena 和临时 cache，但不得产生 target layout 或把 hash
@@ -277,6 +304,7 @@ LIR 是 emitter 唯一输入：
 - 数值已规范化到 canonical units/representation；
 - 所有 relation 以 deterministic flat sequence/range 表达；
 - 静态 occurrence、sampling tables 和 layout-independent precompute 已完成；
+- 静态执行约束图与 v1 分区规划提示已规范化，且提示与行为语义分离；
 - source map key 与 semantic diff key 已冻结；
 - 未解决引用、隐式默认或需要后端判断的语义均为零。
 
@@ -295,7 +323,7 @@ parse/type
   -> derive canonical identity
   -> validate global semantics
   -> normalize deterministic LIR order
-  -> precompute occurrence/index/sampling data
+  -> precompute occurrence/index/sampling/execution-constraint data
   -> freeze validated canonical LIR
   -> emit all artifacts atomically
 ```
@@ -521,6 +549,9 @@ StaticNetworkImage
     hot SoA tables
     CSR adjacency / flat ranges
     precompiled route/path/gate/waiting occurrences
+    static execution constraint graph
+  Required: PartitionPlanningHints
+    rebuildable cost / boundary / recommended-cut hints
   Optional: StaticSpatialImage
     frame/edge-aligned geometry tables
     flat points / cumulative arc / sampling ranges
@@ -530,11 +561,11 @@ StaticNetworkImage
 
 v1 profile 是版本化 closed set，不允许调用方任意拼 feature bits：
 
-| `staticImageProfileId` | 必需节（Required Sections）                                                                 | 用途                                              |
-| ---------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `traffic-headless-v1`  | `StaticTrafficImage`                                                                        | 服务器（Server）、测试、无图形宿主                |
-| `traffic-spatial-v1`   | `StaticTrafficImage`, `StaticSpatialImage`                                                  | 引擎适配器（Adapter）、规范位姿（Canonical Pose） |
-| `traffic-debug-v1`     | `StaticTrafficImage`, `StaticSpatialImage`, `WarmQueryTables`, `ColdIdentityAndDiagnostics` | 编辑器（Editor）、诊断、调试绘制（Debug Draw）    |
+| `staticImageProfileId` | 必需节（Required Sections）                                                                                           | 用途                                              |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `traffic-headless-v1`  | `StaticTrafficImage`, `PartitionPlanningHints`                                                                        | 服务器（Server）、测试、无图形宿主                |
+| `traffic-spatial-v1`   | `StaticTrafficImage`, `PartitionPlanningHints`, `StaticSpatialImage`                                                  | 引擎适配器（Adapter）、规范位姿（Canonical Pose） |
+| `traffic-debug-v1`     | `StaticTrafficImage`, `PartitionPlanningHints`, `StaticSpatialImage`, `WarmQueryTables`, `ColdIdentityAndDiagnostics` | 编辑器（Editor）、诊断、调试绘制（Debug Draw）    |
 
 设计约束：
 
@@ -544,6 +575,8 @@ v1 profile 是版本化 closed set，不允许调用方任意拼 feature bits：
 - Spatial section 存在时必须完整覆盖 v1 所需 edge，并与 Traffic 共享 canonical edge
   ordinal；v1 不引入 sparse Spatial mapping；
 - shared immutable bytes，多 `TrafficWorld`/Spatial session 复用；
+- 静态执行约束对工作线程数中立；v1 配置档保留提示节以让镜像字节闭合确定，
+  运行时可以忽略或重新派生提示，但不得保存最终分配；
 - hot/warm/cold 分段，profile 可裁剪 Spatial/cold/debug data；
 - 顶层 section byte offset/length 使用 checked `u64`；table row ordinal、count 和
   hot relation range 使用 checked `u32`，不保存原生指针；
@@ -570,6 +603,8 @@ staticImageProfileId
 sectionMask
 targetTriple
 constraintSetVersion
+executionConstraintVersion
+partitionHintVersion
 identityEncodingVersion
 identityRegistryRevision
 compilerBuildId
@@ -640,7 +675,13 @@ format、image layout 和 compiler type 必须移出 runtime crate。当前 prod
 - controller clocks/indications；
 - grant/reservation/waiting/parking occupancy；
 - command/event/snapshot buffers；
-- dynamic Route occurrence metadata。
+- dynamic Route occurrence metadata；
+- world identity、输入命令游标、当前路网修订绑定；
+- 每世界运行时执行计划、边界交换缓冲与调度统计。
+
+人口、Routing 和游戏规则的 seed/随机流属于 caller/出行编排层，不进入
+`TrafficWorld` 隐藏状态。只有后续 G1 显式授予的 Runtime 自有随机流才成为每世界
+状态与运行时快照内容。
 
 compiler 预编译 authoring/static initial routes；runtime 新注册的 dynamic Route
 继续由 Traffic Runtime 按 image candidate indexes 编译 occurrences，保持
@@ -695,6 +736,89 @@ geometry tessellation，但必须检查 runtime 直接依赖的全部 preconditi
 closed。签名或宿主 asset authenticity 属于 external descriptor 的来源认证，不是
 image header 的可选自证字段。
 
+### 9.5 并行就绪执行规划（Parallel-ready Execution Planning）
+
+静态执行约束图表达冲突、等待、下游存储、控制器等共享资源的依赖组件、安全切分
+（Safe Cut）、规范提案/资源声明/事件合并键和提交顺序。它是 LIR 派生的行为约束，
+对工作线程数量和具体分区计划中立。
+
+分区规划提示只保存预估成本、边界权重或推荐 cut 等性能信息；运行时可以忽略或重建。
+每个 `TrafficWorld` 依据静态约束、硬件与动态负载构造自己的运行时执行计划，实际
+分区/工作线程/边界缓冲与迁移状态永不回写 image。
+
+精确路径按以下状态流执行：
+
+```text
+已提交状态（Committed State）T
+  -> parallel read/evaluate
+  -> 提案（Proposals）与资源声明（Resource Claims）
+  -> canonical component-local reduction
+  -> 原子提交（Atomic Commit）T + delta
+```
+
+所有分区读取同一 `T`。跨边界不能增加一 tick 延迟；每个连接资源组件只有一个规范
+归约权威，但互不相交组件可以并行归约。工作线程数、任务完成顺序和分区计划不得
+改变已提交状态、事件或安全结果。本设计不冻结固定边界邻域、分区算法、任务运行库、
+固定点或精确累加器；这些选择必须由热点、误差和基准证据裁决。
+
+### 9.6 不可变路网修订与镜像切换
+
+目标静态镜像代表一个路网修订。结构性道路编辑重新进入权威来源模块图、增量编译、
+独立验证和外部信任绑定，生成新修订；共享镜像不得原地 mutation。
+
+运行世界只在显式 fixed-tick 安全边界执行失败关闭的镜像切换事务。未变化实体按
+StableId128 与语义差异重建映射；删除、重接或语义改变的路段必须迁移或终止其
+vehicle、dynamic Route、parking、reservation 和 controller 状态。任一完整性条件
+无法证明时，旧修订继续生效。临时封闭等不改变静态身份/拓扑的状态由后续 G1 冻结的
+runtime overlay/command 承担。
+
+切换采用准备（Prepare）→提交（Commit）→回收（Retire）：
+
+- 在 tick 外完成新 image trust/structure 检查、容量检查、状态迁移与候选世界构造；
+- 在 fixed-tick 安全边界只原子切换 image/state binding；
+- 旧 image 在全部借用快照、Pose batch、Adapter token/epoch 退出后回收；
+- 任一准备或提交失败都保持旧 image/state，不暴露半迁移结果。
+
+### 9.7 运行时快照、存档与回放
+
+运行时快照与共享 image 分离，并至少绑定：
+
+```text
+canonicalArtifactDigest
+staticImageDigest
+runtimeSnapshotVersion
+runtimeVersion
+constraintSetVersion
+networkRevision
+worldIdentity
+tick / time
+input-command cursor
+runtime-owned random-stream state (future explicit G1 only)
+```
+
+快照包含全部每世界可变交通状态。动态 Route、车辆和其他运行时实体以快照局部标识
+保存引用关系，动态 Route 还保存可重建的稳定静态实体引用/规范定义；原进程的
+runtime handle、slot、generation、partition 或 worker assignment 不能成为恢复后
+身份或跨硬件行为权威。跨路网修订恢复必须显式迁移，不能把旧 dense ordinal 直接
+解释为新镜像实体。
+
+运行时执行计划在恢复后依据当前硬件与负载重建；快照可以保留诊断性调度统计，但
+不得要求复现原分区/工作线程布局才能得到相同精确结果。
+
+回放使用显式输入命令序列（Input Command Sequence）、周期 checkpoint 和确定性
+状态摘要。调试构建可借助冷标识和源映射产生失同步诊断制品，定位首个分歧 tick、
+phase、实体与资源组件。快照线格式、摘要算法和诊断裁剪由后续 Runtime G1 冻结。
+
+### 9.8 路径规划和出行需求接入
+
+Traffic Runtime 从已提交状态导出已提交交通观测快照，不泄漏 tick 中间提案，也不
+拥有全局成本政策。路径规划/出行编排层结合静态网络、观测、收费、游戏政策与偏好
+构造版本化动态成本快照，返回可由 Runtime 注册/验证的候选路线；不得在每车辆
+fixed-tick 内全图寻路。成本快照和候选路线必须绑定路网修订、观测 tick 与成本模型
+版本；Runtime 对 revision mismatch 失败关闭，允许多旧的观测由 Routing G1 冻结。
+出行需求和路线选择策略属于城市游戏或出行编排层。#291 只冻结该职责边界，不提前
+冻结 `laneflow-routing` crate、算法或公共 API。
+
 ## 10. 独立验证（Independent Validation）
 
 ```text
@@ -728,6 +852,12 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
 - source map completeness 与 diagnostic stability；
 - semantic diff golden tests；
 - current JSON path 与 target image path behavior/determinism/pose equivalence；
+- worker 数/partition plan 置换下 committed state、event 与确定性状态摘要等价；
+- 分区边界不引入额外一 tick 延迟，连接资源组件保持唯一规范归约权威；
+- 新路网修订验证、镜像切换失败原子性和稳定标识迁移；
+- 镜像切换准备阶段双修订峰值内存、提交停顿、失败回滚和旧 token 延迟回收；
+- snapshot save/load、same-revision replay、cross-revision rejection/migration 与
+  desynchronization diagnostics；
 - startup wall time、peak allocation、retained static memory；
 - multi-world shared-static memory；
 - 10k/100k Traffic Runtime tick 与 Spatial pose；
@@ -745,6 +875,9 @@ identityRegistryRevision
 staticImageLayoutVersion
 staticImageProfileId
 staticImageDescriptorVersion
+executionConstraintVersion
+partitionHintVersion
+runtimeSnapshotVersion
 constraintSetVersion
 compilerBuildId
 validatorBuildId
@@ -789,6 +922,10 @@ authority。
 - precompiled candidate/occurrence/reverse indexes；
 - Traffic mandatory、Spatial/cold/debug profile-controlled；
 - immutable image 共享、mutable arrays per world；
+- static execution constraints worker-count-neutral，最终执行计划 per world；
+- 执行计划公开聚合诊断指标：阶段耗时（Phase Cost）、分区负载（Partition Load）、
+  边界交换量（Boundary Exchange Volume）、屏障等待（Barrier Wait）、负载偏斜、
+  迁移次数/成本；不公开内部可变容器或调度权威；
 - tick 不做 string/hash/path matching；
 - pose 不做 Traffic/Spatial join；
 - production load 不做 JSON parse/registry rebuild。
@@ -799,9 +936,13 @@ authority。
 
 - load latency、peak allocation、retained bytes；
 - 2/8/32 worlds 的 shared-static scaling；
+- 单个大型 world 的 worker/partition scaling、barrier、边界交换和负载偏斜；
+- 镜像切换的准备/提交/回收耗时、双修订峰值内存与借用 token 退休延迟；
 - 10k/100k Traffic Runtime 与 Spatial 既有上限不得回退；
 - dynamic Route compilation 不进入 vehicle tick；
 - 1M entity offline compile、incremental rebuild 和 image emission；
+- 中国特色城市工作负载（Chinese-style City Workload）的拓扑/需求/运行时指标由
+  后继 G1 建立，不能用 `LF-SYNTH-v1`、LuST 或多世界集合静默代替；
 - target-specific SIMD/alignment 候选相对 portable/common layout 的收益。
 
 不能用“BLAKE3/StableId128 可能变大”推导 tick 回退：ID 位于 cold/compiler boundary，
@@ -857,7 +998,7 @@ normalization authority。
 
 ```text
 阶段 0  current JSON/Data/Core/Spatial 路径继续生产服役
-阶段 1  #291：ADR 0020 + 本设计完成 G1
+阶段 1  #291：ADR 0020/0021 + 本设计完成 G1
 阶段 2  #292：static-contract + compiler foundation + Synthetic DSL frontend 纵向闭环
 阶段 3  integration-only LIR→current projection 支撑 #282–#285 等价验证
 阶段 4  Geometry document frontend + topology/geometry MIR（可与阶段 3 并行）
@@ -887,8 +1028,10 @@ Cutover 前必须证明：
 3. independent validator、validation receipt、external descriptor 与 bounded
    structural verifier 安全；
 4. startup、memory、10k/100k 和 multi-world Gate；
-5. publication/migration/source map/semantic diff 可用；
-6. fallback/rollback 只切换 current/target asset path，不存在两套可变 authority。
+5. worker/partition 置换等价、无额外 tick 延迟和单大型 world scaling；
+6. publication/migration/source map/semantic diff 可用；
+7. snapshot/replay 与 network revision cutover 有失败关闭的后继 G1/实现入口；
+8. fallback/rollback 只切换 current/target asset path，不存在两套可变 authority。
 
 ## 15. 风险登记
 
@@ -904,10 +1047,13 @@ Cutover 前必须证明：
 | 当前态 / 目标态双路径长期化（Current / Target Dual-path Permanence） | 测试矩阵和语义漂移                   | 集成专用桥、明确移除责任人 / 切换闸口                        |
 | 来源 / 生成物双重事实源（Source / Generated Dual SSOT）              | 手工修改与漂移                       | 来源模块图权威、生成摘要 / 收据闸口                          |
 | 过早选择归档库（Premature Archive-library Choice）                   | ABI、安全或 MSRV 锁定                | 先冻结契约，再做基准 / 审计                                  |
+| 最终分区进入共享镜像（Final Partition in Shared Image）              | 地图与硬件/世界耦合，存档不可移植    | 静态约束 + 可重建提示 + 每世界执行计划                       |
+| 分区诱发行为延迟（Partition-induced Behavioral Delay）               | 结果随 cut 改变                      | 同 tick committed-state barrier 与置换等价测试               |
+| 原地修改静态镜像（In-place Static-image Mutation）                   | 摘要、共享、信任和确定性失效         | 不可变路网修订 + 失败关闭镜像切换事务                        |
 
 ## 16. #291 G1 完成条件
 
-- ADR 0020 明确历史 ADR 的继续有效与取代范围；
+- ADR 0020/0021 明确历史 ADR 的继续有效、扩展与取代范围；
 - 本文不再存在 L1/L2 或 Core-shaped compiler IR；
 - source module graph、标识 registry/encoding、trust/load path、static-image
   profile 与 crate DAG 均为 closed contract；
@@ -916,6 +1062,9 @@ Cutover 前必须证明：
 - #292 已重划为 compiler foundation + Synthetic DSL frontend，并继续保持
   `Blocked by #291`；
 - 标识 v1、artifact/image/profile/version/validation/performance contract 一致；
+- 静态执行约束、分区规划提示和每世界运行时执行计划职责分离，且 exact path 无
+  partition-induced extra tick delay；
+- 城市游戏/出行编排/routing、不可变路网修订、快照/回放和每世界唯一性边界一致；
 - `traffic-headless-v1`、untrusted-image rejection 和全部 identity kinds 的验收测试已
   写入后续 implementation Gate；
 - 本地 docs links/format/contract checks 通过；

@@ -1,13 +1,14 @@
 # LaneFlow
 
-LaneFlow 是一个面向主流游戏引擎的轻量 NPC 车流运行时系统，用于在园区、厂区、校园、景区、停车场、道路片区和数字孪生场景中生成可信的车辆流动效果。
+LaneFlow 当前是一个面向主流游戏引擎、可嵌入的轻量 NPC 交通运行时，用于在城市模拟游戏、园区、厂区、校园、景区、停车场、道路片区和数字孪生场景中生成可信的车辆流动效果。#291 目标态将补充编译器拥有的静态路网与目标静态镜像；在其完成迁移 G4 前，当前 JSON/Data/Core/Spatial 路径仍是生产契约。
 
-它不是完整交通工程仿真器，也不是城市经济模拟系统，而是一个引擎无关的交通 runtime。LaneFlow Core 负责车辆逻辑、车道图、路线、红绿灯、前车避让和停车系统；不同游戏引擎通过 Engine Adapter 接入，并负责车辆模型、道路表现、动画、LOD、UI 和调试可视化。
+LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟游戏提供交通基础。它不是完整交通工程仿真器，也不拥有城市经济、市民出行需求或游戏规则，而是让这些上层系统通过显式命令、快照、事件和路径规划边界驱动一个引擎无关的交通 runtime。当前 LaneFlow Core 负责车辆逻辑、车道图、路线、红绿灯、前车避让和停车系统；不同游戏引擎通过 Engine Adapter 接入，并负责车辆模型、道路表现、动画、LOD、UI 和调试可视化。
 
 ## 项目定位
 
 LaneFlow 的核心目标是：
 
+- 面向中国特色城市模拟游戏，提供可嵌入、确定性、可扩展的交通基础；
 - 支持局部路网中的 NPC 车辆流；
 - 支持园区、厂区、校园、景区、停车场等中小型场景；
 - 支持车辆生成、路线行驶、前车避让、红绿灯、路口规则和停车；
@@ -16,12 +17,13 @@ LaneFlow 的核心目标是：
 - 可用于桌面端、Web、移动端和数字孪生项目；
 - 商用可控，不把 SUMO / CARLA / libsumo 作为客户端核心依赖。
 
-一句话概括：
+目标态一句话概括：
 
-> LaneFlow = Engine-Agnostic Traffic Core + Game Engine Adapter + NPC Vehicle Runtime
+> LaneFlow = Static Network Compiler + Engine-Agnostic Traffic Runtime + Game Engine Adapter
 
 ## 适用场景
 
+- 中国特色城市模拟游戏中的交通基础
 - 园区内部道路车流
 - 厂区物流车 / 巡检车 / 服务车
 - 校园车辆和摆渡车
@@ -33,7 +35,7 @@ LaneFlow 的核心目标是：
 
 ## 非目标
 
-LaneFlow 暂不追求以下能力：
+下列能力不由 LaneFlow 交通基础自身拥有；未来城市模拟游戏、出行编排服务或独立专业产品可以在 LaneFlow 之上实现：
 
 - 城市经济模拟
 - 市民出行需求模拟
@@ -107,6 +109,7 @@ LaneFlow 采用 GitHub-first 治理：
 - `docs/README.md`
 - `docs/architecture.md`
 - `docs/roadmap.md`
+- `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 - `docs/governance/documentation-policy.md`
 - `docs/governance/github-workflow.md`
 - `docs/governance/development-gates.md`

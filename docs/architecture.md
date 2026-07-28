@@ -2,11 +2,12 @@
 
 **文档状态**: Accepted（current）＋ Draft（#291 compiler target）<br>
 **最后更新**: 2026-07-28<br>
-**适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界，以及 #291/ADR 0020 的目标静态编译架构
+**适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界，以及 #291/ADR 0020/0021 的城市模拟游戏交通基础与目标静态编译架构
 
 ## 1. 架构目标
 
-LaneFlow 是一个引擎无关的轻量 NPC 车流 runtime。
+LaneFlow 是一个引擎无关、可嵌入的交通 runtime；第一长期产品目标是为未来的
+中国特色城市模拟游戏提供交通基础。
 
 核心架构目标：
 
@@ -14,6 +15,25 @@ LaneFlow 是一个引擎无关的轻量 NPC 车流 runtime。
 - 数据格式可以被工具、示例和多个 Adapter 共享。
 - Adapter 负责引擎集成和表现层，不复制 Core 交通规则。
 - 示例场景用于验证最小可用闭环。
+- 城市经济、市民出行需求、土地利用和游戏规则由上层拥有，LaneFlow 通过显式
+  命令、快照、事件和路径接入边界提供交通能力。
+- 城市级目标必须同时保持确定性、可诊断、可存档、可修改路网和可扩展性，不能用
+  多世界吞吐或表现层细节层次替代单个大型交通世界的正确性。
+
+长期权威分层固定为：
+
+```text
+城市模拟游戏层
+  -> 出行与交通编排层
+  -> 路径规划服务
+  -> LaneFlow 编译器 / 静态镜像 + LaneFlow 交通运行时
+  -> 引擎适配器 / 表现层
+```
+
+出行需求决定谁在何时为何出发；交通运行时导出已提交交通观测快照；路径规划/
+出行编排层再结合静态网络、观测、收费、游戏政策和偏好构造动态成本快照并生成候选
+路径；交通运行时只验证/注册候选 Route 并负责车辆如何安全推进。完整产品边界见
+ADR 0021。
 
 ## 2. 分层
 
@@ -72,6 +92,7 @@ Geometry / Synthetic DSL / imported / editor-authored source modules
 
 StaticNetworkImage
   -> laneflow-runtime: required StaticTrafficView + per-world mutable state
+     + per-world RuntimeExecutionPlan
   -> laneflow-spatial: optional StaticSpatialView + pose scratch/output
   -> Adapter: trusted image descriptor + committed snapshot + pose batch
 ```
@@ -83,8 +104,20 @@ authority，Spatial 继续拥有 pose sampling。Production startup 只从外部
 descriptor/validation receipt 绑定并结构验证 static image，不解析 JSON、按 external
 ID rebind、重建 registry 或重复 Traffic/Spatial join。Traffic section 必选，Spatial
 section 由 closed profile 控制，headless Runtime 不携带 geometry。目标职责和历史
-ADR 的取代范围见 ADR 0020；在其 Accepted 且迁移 G4 前，本文其余 current 章节继续
-有效。
+ADR 的取代范围见 ADR 0020。
+
+目标静态镜像必须保存编译器派生的静态执行约束图（Static Execution Constraint
+Graph）；v1 `PartitionPlanningHints` 节保存运行时可忽略或重建的分区规划提示
+（Partition Planning Hints），但不得保存最终分区/工作线程分配
+（Partition/Worker Assignment）。每个世界依据这些约束、硬件与动态负载建立自己的
+运行时执行计划（Runtime Execution Plan）。精确执行的所有分区只读取已提交状态
+`T`，在同一逻辑边界原子提交 `T + Δ`；不能因跨分区而额外延迟一 tick。互不相交的
+资源依赖组件可以并行归约，但每个连接资源组件必须有唯一、规范的归约权威。
+
+静态也不等于城市永不变化：编译器每次产生不可变路网修订（Network Revision），
+运行世界只能在显式安全边界通过失败关闭的镜像切换事务（Image Cutover
+Transaction）原子迁移。目标职责、上层边界与历史 ADR 的关系见 ADR 0020/0021；
+在二者 Accepted 且迁移 G4 前，本文其余 current 章节继续有效。
 
 ## 3. Authoring Layer
 
@@ -191,9 +224,18 @@ Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTraff
 `TrafficWorld`。Static/shared contract 移入 `laneflow-static-contract` 与
 `laneflow-static-image`；Runtime 不再从 `InitialTrafficData` 构建静态 registries，
 而是共享 `StaticTrafficView`。每个 `TrafficWorld` 只拥有 vehicle、dynamic Route、
-controller/reservation/parking 等可变 arrays。Initial/static occurrence 由 compiler
+controller/reservation/parking 等可变 arrays，以及世界 identity、输入命令游标、
+运行时执行计划和当前路网修订绑定。人口、Routing 和游戏规则 seed 仍由 caller/
+出行编排层拥有；Runtime 只有在后续 G1 显式授予随机权威时才拥有相应随机流。
+Initial/static occurrence 由 compiler
 预编译，dynamic Route occurrence 仍由 Runtime 按 image index 编译，steady tick
 继续只使用 typed dense handle。
+
+运行时快照（Runtime Snapshot）是与 image bytes 分离的版本化制品，必须绑定
+static image/canonical artifact digest、运行时/约束版本、world identity、tick、
+输入命令游标和全部每世界可变状态；dense ordinal 不能跨路网修订直接复用。回放使用显式
+输入命令流、checkpoint 与确定性状态摘要，调试构建可通过冷标识和源映射生成
+失同步诊断制品。路径规划读取已提交动态成本快照，不进入车辆 fixed-tick 热路径。
 
 `InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane
 graph、Junction registry、compiled routes、Vehicle Profiles 与 immutable
@@ -256,6 +298,9 @@ ADR 0020 target 中，Adapter/宿主 asset pipeline 提供 static image bytes �
 外部的 trusted descriptor/validation receipt，经 bounded verifier 后把 Traffic
 view 交给 Runtime，并在 profile 含 Spatial 时把对齐 Spatial view 交给 Spatial。
 Adapter 不读取 compiler IR、portable artifact 语义，也不拥有 image 内静态规则。
+它也不得把细节层次、可见性或帧预算转换为交通 fidelity：宿主可以暂停、慢放或
+统一改变模拟时间推进速度，但不能静默丢 fixed tick、丢事件或让不同分区读取不同
+逻辑时点。任何多频率或 aggregate 降级必须由独立 fidelity contract 和 G1 冻结。
 
 ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样权威；它们从已提交的 Core 快照构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
 

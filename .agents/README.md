@@ -16,7 +16,8 @@
 - `skills/laneflow-development/SKILL.md`：LaneFlow 通用实现工作流。
 - `skills/laneflow-core-design/SKILL.md`：当前态 LaneFlow Core、目标态 LaneFlow
   交通运行时（Traffic Runtime）、车道图（Lane Graph）、路线（Route）、信号
-  （Signal）、停车（Parking）与确定性行为。
+  （Signal）、停车（Parking）、确定性并行、路网修订、快照/回放、路径规划接入与
+  城市模拟游戏上层边界。
 - `skills/laneflow-adapter/SKILL.md`：Unity、Unreal、Godot、O3DE、Web 等引擎适配器
   （Engine Adapter）开发及当前态核心（Current Core）→目标态交通运行时（Target
   Traffic Runtime）迁移边界。
@@ -33,3 +34,8 @@ Traffic Runtime）。生产切换时再与 `laneflow-core/CoreWorld` 一起原�
 语言约定：长期设计和 Agent 工作流以中文术语、中文定义为权威事实，英文只作辅助
 理解；双语映射遵循 `docs/reference/glossary.md`。技术标识符（切片类型、闸口
 （Gate）、提交字段名、包（crate）、类型与协议常量）保留精确原文。
+
+LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟游戏提供交通基础。涉及
+城市级范围、出行编排、Routing、路网修订、存档/回放、并行或 fidelity 的任务必须
+读取 ADR 0021；不得把城市经济/出行需求塞入 Traffic Runtime，也不得用 Adapter LOD
+或多世界（Multi-world）吞吐替代单个大型交通世界的正确性与性能。

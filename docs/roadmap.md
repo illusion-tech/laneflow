@@ -2,9 +2,13 @@
 
 **文档状态**: Draft  
 **最后更新**: 2026-07-28
-**适用范围**: LaneFlow 初始版本路线图
+**适用范围**: LaneFlow 版本路线图与中国特色城市模拟游戏交通基础的长期演进
 
 本文记录 LaneFlow 的稳定路线图。GitHub Project 负责当前执行状态，本文负责长期版本边界。
+
+LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟游戏提供交通基础。当前
+局部走廊、园区和背景车流版本是验证该目标的渐进路径，不反向把长期目标缩小为
+中小型场景；城市经济、出行需求、土地利用与游戏规则继续属于上层。
 
 ## v0.1 Core Prototype
 
@@ -259,14 +263,25 @@ image 外部 trusted descriptor/validation receipt 与 bounded verifier 建立 v
 不再解析 JSON、按字符串 rebind、重建 registry、重复 Traffic/Spatial join 或重编译
 static occurrences。
 
-ADR 0020 与 [`design/network-compiler.md`](design/network-compiler.md) 是本次 G1
-修订输入。Identity v1 区分 StableId128 declaration/addressable-derived、
+ADR 0020、ADR 0021 与 [`design/network-compiler.md`](design/network-compiler.md)
+是本次 G1 再修订输入。Identity v1 区分 StableId128 declaration/addressable-derived、
 owner-local occurrence 与全部 table row 的 typed `u32` ordinal，冻结完整
 kind/tag registry、严格 field order、known vectors、BLAKE3-128 持久 identity 和
 XXH3 compiler-only 加速。Static image 采用 Traffic-mandatory、
 Spatial-profile-optional section，target 把 current `laneflow-core/CoreWorld`
 clean-break 为 `laneflow-runtime/TrafficWorld`，并通过中立
 `laneflow-static-contract`/`laneflow-static-image` 保持无环依赖。
+
+编译器从 LIR 派生 worker 数无关的静态执行约束图，并可发射可丢弃的分区规划提示；
+每个 `TrafficWorld` 再依据硬件、容量和动态负载建立自己的运行时执行计划。最终
+partition/worker assignment 不进入共享镜像。精确路径的所有 partition 读取同一
+committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延迟；连接资源
+组件各有唯一规范归约权威，互不相交组件可并行归约。
+
+静态镜像表示不可变路网修订，不表示城市永不变化。玩家道路编辑通过新修订、独立
+验证和失败关闭镜像切换事务进入运行世界。每世界 identity、seed/随机流、动态路线、
+执行计划与运行时快照不进入共享 image。路径规划读取静态网络和已提交动态成本
+快照；出行需求与路线选择策略仍由城市游戏/出行编排层拥有。
 
 当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
 `InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target
@@ -285,9 +300,23 @@ entity 离线编译、镜像布局与城市级性能证据；#236/#237 仍是独
 
 ## 城市级扩展研究（Milestone N/A）
 
-#72 保持独立 Backlog 研究入口，不属于 v0.6–v0.9 的完成边界。v0.6 的 geometry 与 #72 的 active-agent spatial partition 是不同层次；v0.7 的 presentation LOD 与 #72 的 Core simulation fidelity 也不得混同。
+#72 保持独立 Backlog 研究入口，不属于 v0.6–v0.9 的完成边界。v0.6 的 geometry 与 #72 的 active-agent spatial partition 是不同层次；v0.7 的 presentation LOD 与 #72 的 Core simulation fidelity 也不得混同。多世界共享静态镜像可以验证内存复用、回放和参数探索，但不能代替单个大型城市世界的 barrier、边界交换、负载偏斜与迁移性能。
 
 #72 何时进入版本范围仍留待对应 Milestone 规划时决策；但在未来 Stable Runtime API Milestone 的 G1 前，必须完成 #199 对 Core API、partition、multi-rate、batch access、commands 和 deterministic event merge 的可扩展性审计，并关闭或显式接受其待决项。该审计不阻塞 v0.8/v0.9，也不代表已选择生产架构；完整并行、多层级或分布式实施只有在证据和产品目标明确后才建立 Milestone。
+
+后继城市级工作至少拆分为四个独立 G1：
+
+1. 保持个体身份的单世界确定性并行执行；
+2. 不可变路网修订、运行时快照、存档/回放与镜像切换；
+3. 路径规划服务、动态成本快照和出行编排接入；
+4. 中国特色城市拓扑/需求/运行时工作负载（Chinese-style City Workload），覆盖
+   多阶段信号、左转待转区、干支路与小区出口、方向性高峰、公交/出租/路侧摩擦，
+   并为非机动车/步行保留正式后继输入。
+
+这些工作负载与 `LF-SYNTH-v1` 和 LuST 基线并列，不能静默替换既有 ID，也不能用
+尚未支持的参与者伪装机动车。城市人口、持久个体、道路活动车辆、昂贵意图、表现
+车辆和聚合流量必须分别报告；“城市规模”不等于每个居民始终以完整微观车辆参与每
+tick。
 
 ## v1.0 Scope TBD
 

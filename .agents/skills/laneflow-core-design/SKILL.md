@@ -1,6 +1,6 @@
 ---
 name: laneflow-core-design
-description: 处理 LaneFlow 当前态核心运行时（Current Core Runtime）与目标态交通运行时（Target Traffic Runtime）设计。适用于确定性固定步进（Tick）、车辆状态（Vehicle State）、车道图（Lane Graph）、路线（Route）、跟车（Vehicle Following）、信号（Signal）、路口规则（Intersection Rules）、停车（Parking），以及 Core/Runtime API 变更。
+description: 处理 LaneFlow 当前态核心运行时（Current Core Runtime）与目标态交通运行时（Target Traffic Runtime）设计。适用于确定性固定步进（Tick）、车辆状态（Vehicle State）、车道图（Lane Graph）、路线（Route）、跟车（Vehicle Following）、信号（Signal）、路口规则（Intersection Rules）、停车（Parking）、确定性并行、路网修订、快照/回放、路径规划接入，以及 Core/Runtime API 变更。
 ---
 
 # LaneFlow 交通运行时设计（Traffic Runtime Design）
@@ -20,6 +20,8 @@ Skill 标识符（Skill ID）`laneflow-core-design` 在 #291 生产切换 G4 前
 7. 涉及 #291 静态路网编译、静态镜像（Static Image）或 core→runtime 切换时，读取
    `docs/adr/0020-compiler-owned-static-network-and-static-image.md` 与
    `docs/design/network-compiler.md`
+8. 涉及城市模拟游戏范围、出行编排、Routing、路网修订、存档/回放、并行或
+   fidelity 时，读取 `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
 若所需 design 文档尚不存在，在对当前 Core 或目标 Traffic Runtime 做高影响变更
 前，应先创建或提出最小设计基线。
@@ -46,6 +48,7 @@ Skill 标识符（Skill ID）`laneflow-core-design` 在 #291 生产切换 G4 前
 - 路口规则
 - 停车行为
 - 引擎无关的固定步进（Fixed Tick）行为
+- 每世界可变状态、运行时执行计划、路网修订绑定和动态 Route validation
 
 当前 Core / 目标 Traffic Runtime 不得依赖：
 
@@ -67,6 +70,12 @@ Skill 标识符（Skill ID）`laneflow-core-design` 在 #291 生产切换 G4 前
 - 是否需要 ADR？
 - 是否错误地让静态 / 共享契约留在动态运行时包（crate），或让编译器 / 验证器
   （Compiler / Validator）依赖当前核心对象图（Current Core Object Graph）？
+- 是否把城市经济、出行需求、路线选择策略或游戏规则错误放进 Traffic Runtime？
+- 是否把最终分区/工作线程（Partition/Worker）写入共享镜像，或让分区切分
+  （Partition Cut）增加一 tick 延迟、改变已提交状态/事件？
+- 是否区分不可变路网修订、每世界 runtime snapshot 与可重建执行计划？
+- 是否把 multi-world 吞吐、Presentation LOD 或未冻结 aggregate 当成单城市世界
+  fidelity/性能证据？
 
 ## 实现偏好
 
