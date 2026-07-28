@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（current）＋ Draft（#291 target 导航）<br>
 **最后更新**: 2026-07-28（#281 current；#291/ADR 0020 target）
-**适用范围**: Traffic v0.10、SpatialPackage/ScenarioManifest v0.1 production loader、保留的 Data v0.6 数值迁移边界，以及 target runtime image verifier
+**适用范围**: Traffic v0.10、SpatialPackage/ScenarioManifest v0.1 production loader、保留的 Data v0.6 数值迁移边界，以及 target static-image trust/verifier
 
 **关联文档**:
 
@@ -16,7 +16,8 @@
 - `../adr/0011-schema-identifier-and-publication-contract.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0018-multimodal-cross-section-and-access-overlay.md`
-- `../adr/0020-compiler-owned-static-network-and-runtime-image.md`
+- `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../reference/glossary.md`
 - `data-format.md`
 - `cross-section-access.md`
 - `spatial-geometry.md`
@@ -46,16 +47,21 @@
 ### 1.1 #291 target loader（未实现）
 
 ADR 0020 target 把完整静态 semantic normalization 前移到 compiler。Production
-startup 只通过 runtime image verifier 检查 magic/version/target/digest、offset、
-alignment、section bounds、cardinality 与 cross-index，然后建立
-`StaticTrafficImage` / `StaticSpatialImage` 只读 view。它不解析 JSON、不按
-external string rebind、不重建 static registry、不重新 join Traffic/Spatial，也
-不重跑 authoring topology/coverage/geometry validation。
+startup 把 `StaticNetworkImage` 与 image 外部 trusted descriptor/validation receipt
+绑定，再由 `laneflow-static-image` bounded verifier 检查
+magic/version/target/profile、offset/alignment、section bounds、cardinality、
+numeric/runtime precondition、cross-index 与 load limits。Traffic section 必选；
+Spatial section 只在 profile 要求时存在。Verifier 随后建立
+`StaticTrafficView` / optional `StaticSpatialView`，不解析 JSON、不按 external
+string rebind、不重建 static registry、不重新 join Traffic/Spatial，也不重跑
+authoring topology/coverage/geometry derivation。
 
 完整语义由 compiler 与不复用 compiler semantic implementation 的 independent
-validator 双重裁决。本文其余 `LoadedPackage` / `InitialTrafficData` 路径仍是
-current production contract，直到 shared-image cutover 完成 G4；target 不复用
-private current DTO 作为 IR。
+validator 双重裁决并通过 validation receipt 绑定到 static-image descriptor。
+Image header 的 canonical artifact digest/provenance 声明不能独立建立信任，image
+也不把自己的 `staticImageDigest` 嵌回自身 bytes。本文其余 `LoadedPackage` /
+`InitialTrafficData` 路径仍是 current production contract，直到 shared-image
+cutover 完成 G4；target `laneflow-runtime` 不复用 private current DTO 作为 IR。
 
 ## 2. Crate 与 API 边界
 

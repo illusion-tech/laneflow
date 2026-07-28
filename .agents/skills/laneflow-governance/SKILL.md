@@ -1,6 +1,6 @@
 ---
 name: laneflow-governance
-description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project、Milestone、Release、文档边界、G0-G4）。适用于 governance、issue、PR、commit、workflow、milestone、project board、release、development gates 等任务。
+description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project、Milestone、Release、双语术语、文档边界、G0-G4）。适用于 governance、issue、PR、commit、workflow、terminology、milestone、project board、release、development gates 等任务。
 ---
 
 # LaneFlow 治理
@@ -11,9 +11,10 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 2. `docs/governance/github-workflow.md`
 3. `docs/governance/development-gates.md`
 4. `docs/reference/commit-convention.md`
-5. `.github/pull_request_template.md`
-6. 涉及安全设置、扫描或公开发布时，额外阅读 `docs/governance/security-scanning.md`
-7. 涉及许可证、Cargo 依赖、RustSec、cargo-deny 或 Dependabot 时，额外阅读 `docs/governance/dependency-security.md`
+5. `docs/reference/glossary.md`
+6. `.github/pull_request_template.md`
+7. 涉及安全设置、扫描或公开发布时，额外阅读 `docs/governance/security-scanning.md`
+8. 涉及许可证、Cargo 依赖、RustSec、cargo-deny 或 Dependabot 时，额外阅读 `docs/governance/dependency-security.md`
 
 ## 工作流
 
@@ -36,6 +37,9 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
    - GitHub 记录当前状态与评审证据。
    - 仓库文档保存长期事实与决策。
 4. 若 Issue、PR、Discussion 或对话中形成稳定结论，应回写到 `docs/adr/`、`docs/design/` 或 `docs/governance/`。
+5. 审阅 ADR、design、architecture、Issue 设计说明和 Agent Skill 时，检查领域术语
+   是否已有中文规范名与英文辅助名；中文定义以 `docs/reference/glossary.md` 为
+   权威，精确代码/协议标识符保留原文。
 
 ## Gate Ledger 硬性规则
 

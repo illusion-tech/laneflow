@@ -1,9 +1,9 @@
 ---
 name: laneflow-adapter
-description: 处理 LaneFlow Engine Adapter 工作。适用于 Unity、Unreal、Godot、O3DE、Web、transform 同步、引擎生命周期集成、车辆表现、调试可视化、LOD 与 Adapter API 变更。
+description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用于 Unity、Unreal、Godot、O3DE、Web、当前 Core/目标 Traffic Runtime 集成、变换（Transform）同步、引擎生命周期、车辆表现、调试可视化、细节层次（LOD）与 Adapter API 变更。
 ---
 
-# LaneFlow Adapter
+# LaneFlow 引擎适配器（Engine Adapter）
 
 ## 先读这些
 
@@ -12,15 +12,28 @@ description: 处理 LaneFlow Engine Adapter 工作。适用于 Unity、Unreal、
 3. `docs/governance/development-gates.md`
 4. `docs/governance/agent-development-guide.md`
 5. `docs/design/adapter-api.md`（若已存在）
+6. `docs/reference/glossary.md`
+7. 涉及 #291 目标静态镜像或交通运行时（Traffic Runtime）时，读取
+   `docs/adr/0020-compiler-owned-static-network-and-static-image.md` 与
+   `docs/design/network-compiler.md`
 
-若 Adapter API 设计尚不存在，且任务会改变 Core 与 Adapter 的契约，应先提出 G1 设计缺口或创建最小设计基线。
+若 Adapter API 设计尚不存在，且任务会改变当前 Core / 目标 Traffic Runtime 与
+Adapter 的契约，应先提出 G1 设计缺口或创建最小设计基线。
+
+## 命名与术语
+
+- 当前态动态执行层使用 `LaneFlow Core` / `laneflow-core` / `CoreWorld`。
+- #291 目标态使用中文规范名“LaneFlow 交通运行时（LaneFlow Traffic Runtime）”及
+  精确标识符 `laneflow-runtime` / `TrafficWorld`。
+- 中文术语和中文定义以 `docs/reference/glossary.md` 为权威；英文只作辅助理解，
+  类型、crate、字段和引擎 API 保留精确原文。
 
 ## Adapter 边界
 
 Adapter 负责：
 
 - 引擎生命周期集成
-- 调用 Core tick
+- 调用当前 Core / 目标 Traffic Runtime 的固定步进（Fixed Tick）
 - actor、entity、prefab 或 scene object 绑定
 - transform 同步
 - 车辆模型与动画绑定
@@ -30,8 +43,8 @@ Adapter 负责：
 
 Adapter 不得：
 
-- 把 Core 交通规则搬进引擎专用代码。
-- 把引擎依赖引入 Core。
+- 把 Core / Traffic Runtime 交通规则搬进引擎专用代码。
+- 把引擎依赖引入 Core / Traffic Runtime。
 - 定义未文档化的数据格式语义。
 - 在不更新 design 文档的情况下改变 Adapter API。
 
@@ -44,7 +57,7 @@ Adapter 变更应记录：
 - 手工场景或示例验证
 - transform 同步验证
 - 调试可视化验证（若相关）
-- Core API 与 Adapter API 影响
+- Core / Traffic Runtime API 与 Adapter API 影响
 
 ## 交付说明
 
@@ -52,6 +65,6 @@ Adapter 相关工作应汇报：
 
 - 影响的引擎
 - Adapter 行为变更
-- Core API 或 Adapter API 影响
+- Core / Traffic Runtime API 或 Adapter API 影响
 - 已运行的验证
 - 文档是否更新或后续待办

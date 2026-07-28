@@ -14,7 +14,8 @@
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
-- `../adr/0020-compiler-owned-static-network-and-runtime-image.md`
+- `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../reference/glossary.md`
 - `core-runtime.md`
 - `spatial-geometry.md`
 - `bevy-reference-adapter.md`
@@ -39,12 +40,15 @@
 
 适配器不得把宿主变换（Transform）反写为 Core 进度，也不得用引擎样条曲线长度覆盖 Core/Spatial 的长度绑定。
 
-ADR 0020 target 不改变表内 authority，只改变静态初始化输入：宿主 asset pipeline
-提供 target runtime image bytes/verified view，Core 与 Spatial 分别消费同一 image
-中的 `StaticTrafficImage` / `StaticSpatialImage`。Adapter 不解析 compiler IR 或
-portable artifact 语义，不重建 Traffic/Spatial binding，也不读取 image 中的静态
-交通规则来自行裁决行为。本文后续 JSON/registry 生命周期仍描述 current，直到
-shared-image cutover G4。
+ADR 0020 target 不改变表内 authority，只改变命名与静态初始化输入：current
+`LaneFlow Core` clean-break 为 `LaneFlow Traffic Runtime` / `laneflow-runtime`。
+宿主 asset pipeline 提供 target `StaticNetworkImage` bytes 与 image 外部 trusted
+descriptor/validation receipt，经 `laneflow-static-image` bounded verifier 后把
+required `StaticTrafficView` 交给 Runtime；profile 含 Spatial 时才把对齐
+`StaticSpatialView` 交给 Spatial。Adapter 不解析 compiler IR 或 portable artifact
+语义，不重建 Traffic/Spatial binding，也不读取 image 中的静态交通规则来自行裁决
+行为。本文后续 JSON/registry 生命周期仍描述 current，直到 shared-image cutover
+G4。
 
 ## 3. 生命周期顺序
 

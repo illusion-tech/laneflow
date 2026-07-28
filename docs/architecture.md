@@ -61,23 +61,30 @@ Core 继续拥有拓扑、长度、进度与交通行为的权威职责；Spatia
 ADR 0020 Proposed 的 target 不在上述 current 链条旁增加 L1/L2，而是把全部静态
 网络编译前移：
 
-```text
-Synthetic DSL / Geometry / Import / Editor frontends
-  -> typed AST -> HIR -> MIR -> validated canonical LIR
-  -> portable canonical artifact + target runtime image + source map + semantic diff
+本节术语以 [`reference/glossary.md`](reference/glossary.md) 的中文定义为权威，
+英文只作辅助理解；代码和制品标识符保留精确拼写。
 
-target runtime image
-  -> laneflow-core: shared StaticTrafficImage + per-world mutable state
-  -> laneflow-spatial: shared StaticSpatialImage + pose scratch/output
-  -> Adapter: committed snapshot + pose batch
+```text
+Geometry / Synthetic DSL / imported / editor-authored source modules
+  -> authoritative source module graph
+  -> typed AST -> HIR -> MIR -> validated canonical LIR
+  -> portable canonical artifact + target StaticNetworkImage + source map + semantic diff
+
+StaticNetworkImage
+  -> laneflow-runtime: required StaticTrafficView + per-world mutable state
+  -> laneflow-spatial: optional StaticSpatialView + pose scratch/output
+  -> Adapter: trusted image descriptor + committed snapshot + pose batch
 ```
 
 compiler 拥有静态 identity、topology、geometry、owner/member、coverage、length、
-initial/static occurrence 与 dense layout；Core 继续拥有 tick、vehicle、dynamic
-Route 和其他可变交通 authority，Spatial 继续拥有 pose sampling。Production
-startup 只验证并挂载 runtime image，不解析 JSON、按 external ID rebind、重建
-registry 或重复 Traffic/Spatial join。目标职责和历史 ADR 的取代范围见 ADR 0020；
-在其 Accepted 且迁移 G4 前，本文其余 current 章节继续有效。
+initial/static occurrence 与 dense layout；target `LaneFlow Traffic Runtime`
+（`laneflow-runtime`）继续拥有 tick、vehicle、dynamic Route 和其他可变 traffic
+authority，Spatial 继续拥有 pose sampling。Production startup 只从外部 trusted
+descriptor/validation receipt 绑定并结构验证 static image，不解析 JSON、按 external
+ID rebind、重建 registry 或重复 Traffic/Spatial join。Traffic section 必选，Spatial
+section 由 closed profile 控制，headless Runtime 不携带 geometry。目标职责和历史
+ADR 的取代范围见 ADR 0020；在其 Accepted 且迁移 G4 前，本文其余 current 章节继续
+有效。
 
 ## 3. Authoring Layer
 
@@ -92,9 +99,11 @@ Authoring Layer 负责生成或编辑交通数据：
 
 它可以是独立工具、引擎编辑器插件或离线转换脚本。
 
-#291 target 中，上述工具是平级 compiler frontend。它们输出 typed AST 和 source
-span，不直接构造 Core/Spatial runtime 对象；Geometry document 是长期唯一
-authoring SSOT。
+#291 target 中，唯一 authoring authority 是显式、可重放的 source module graph。
+Geometry 是主要 production language，Synthetic DSL source 是测试/benchmark 的
+权威 module；importer 保存原始 source digest、tool/options/provenance，Editor 默认
+持久化 Geometry module。它们输出带 owning module/source span 的 typed AST，不直接
+构造 current Core、target Runtime 或 Spatial 对象。
 
 ## 4. Traffic Data Layer
 
@@ -122,9 +131,9 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 ADR 0020 target 中，`laneflow-data` 只作为 current JSON compatibility façade；
 portable canonical artifact 由 `laneflow-format`/compiler contract 描述，生产
-runtime 由 `laneflow-runtime-image` verifier/view 挂载。静态 semantic normalization
-从 Data/Core constructors 前移到 compiler，runtime image 不取代 public
-publication/provenance 契约。
+Runtime 由 `laneflow-static-image` 的 trusted descriptor + bounded verifier/view
+挂载。静态 semantic normalization 从 Data/Core constructors 前移到 compiler，
+static image 不取代 public publication/provenance/validation-receipt 契约。
 
 current v0.10 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、
 Junction/Movement/ManeuverPath、StopLine、一等 ManeuverGate、SignalGroup、
@@ -177,11 +186,14 @@ Core 不依赖具体游戏引擎 API。
 
 Rust workspace 中，Core 由 `laneflow-core` 表达。Core 拥有 `InitialTrafficData`、lane graph、route、Vehicle Profile、typed handle、registry/resolver 和全部 domain/runtime invariant。
 
-这句话描述 current。ADR 0020 target 中，Core 不再从 `InitialTrafficData` 构建
-静态 registries，而是共享 `StaticTrafficImage`；每个 `CoreWorld` 只拥有 vehicle、
-dynamic Route、controller/reservation/parking 等可变 arrays。Initial/static
-occurrence 由 compiler 预编译，dynamic Route occurrence 仍由 Core 按 image index
-编译，steady tick 继续只使用 typed dense handle。
+这句话描述 current。ADR 0020 target 把动态执行层 clean-break 重命名为
+`LaneFlow Traffic Runtime` / `laneflow-runtime`，target public world 为
+`TrafficWorld`。Static/shared contract 移入 `laneflow-static-contract` 与
+`laneflow-static-image`；Runtime 不再从 `InitialTrafficData` 构建静态 registries，
+而是共享 `StaticTrafficView`。每个 `TrafficWorld` 只拥有 vehicle、dynamic Route、
+controller/reservation/parking 等可变 arrays。Initial/static occurrence 由 compiler
+预编译，dynamic Route occurrence 仍由 Runtime 按 image index 编译，steady tick
+继续只使用 typed dense handle。
 
 `InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane
 graph、Junction registry、compiled routes、Vehicle Profiles 与 immutable
@@ -240,9 +252,10 @@ Adapter 不应把引擎依赖引入 Core。
 
 Adapter 可以按需调用 `laneflow-data` 解析自身 asset pipeline 已读取的内存数据，但不得要求 Core 理解引擎路径、asset handle 或异步加载协议。
 
-ADR 0020 target 中，Adapter/宿主 asset pipeline 提供 runtime image bytes 或已验证
-view，并把同一 image 的 Traffic/Spatial 视图交给 Core/Spatial。Adapter 不读取
-compiler IR、portable artifact 语义，也不拥有 image 内静态规则。
+ADR 0020 target 中，Adapter/宿主 asset pipeline 提供 static image bytes 与 image
+外部的 trusted descriptor/validation receipt，经 bounded verifier 后把 Traffic
+view 交给 Runtime，并在 profile 含 Spatial 时把对齐 Spatial view 交给 Spatial。
+Adapter 不读取 compiler IR、portable artifact 语义，也不拥有 image 内静态规则。
 
 ADR 0013/0015 与 #136 已冻结适配器边界。各 Adapter 不再自行定义中心线和长度采样权威；它们从已提交的 Core 快照构造稳定的 Lane/Parking 输入，消费带 frame identity 和 placement token 的 `f32` canonical 批量位姿，并只在末端处理 frame 放置、坐标轴、坐标系手性、宿主变换、插值和细节层次（LOD）。详细设计见 ADR 0013、ADR 0015、`design/spatial-geometry.md` 与 `design/adapter-api.md`。
 

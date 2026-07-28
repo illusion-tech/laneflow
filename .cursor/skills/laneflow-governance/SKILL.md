@@ -1,6 +1,6 @@
 ---
 name: laneflow-governance
-description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project、Milestone、Release、文档边界、G0-G4）。适用于 governance、issue、PR、commit、workflow、milestone、project board、release、development gates 等任务。
+description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project、Milestone、Release、双语术语、文档边界、G0-G4）。适用于 governance、issue、PR、commit、workflow、terminology、milestone、project board、release、development gates 等任务。
 ---
 
 # LaneFlow 治理

@@ -31,7 +31,15 @@
 - `data-loading.md`：当前 v0.10 Rust loader、严格版本闸口、Junction/Movement/ManeuverPath、multi-Gate/WaitingZone、per-edge speed limit、横断面/准入（RoadCorridor/RoadSection/LaneGroup/FacilityBand/ParticipantClass/AccessRule）、Core Signals/Parking normalization、错误与测试边界。
 - `example-scenarios.md`：v0.8 直行走廊基线与 current v0.10 protected-turning 增量；记录 1.4 km 几何、28 Route、限速、固定时制、50–200 车辆人口、native 入口与分层验收路径。
 - `signalized-corridor-population.md`：current v0.10 caller-owned reference policy；冻结 `laneflow-scenario` crate 边界、catalog 0.2 PortalLane/weighted RouteChoice normalization、三 draw-site completion、blocked retry、replay 与零分配基线。
-- `network-compiler.md`：#291 G1 M2 终态修订；取消 L1/L2 层级，采用 Synthetic DSL / Geometry / Import / Editor 平级 frontend、typed AST → HIR → MIR → validated canonical LIR、compiler-owned static network、portable canonical artifact + target runtime image + source map/semantic diff、Core/Spatial 共享 immutable image、独立校验器，以及 canonical tuple + BLAKE3-128 `StableId128` / XXH3 瞬态加速 / dense-handle 热路径。#292 已重划为 compiler foundation + Synthetic DSL frontend，并继续 Blocked by #291 G1；current JSON/Data/Core/Spatial 路径在迁移 G4 前继续服役。
+- `network-compiler.md`：#291 G1 综合架构修订；采用权威来源模块图
+  （Authoritative Source Module Graph）、有类型抽象语法树（Typed AST）→高层中间
+  表示（HIR）→中层中间表示（MIR）→已验证规范低层中间表示（Canonical LIR）、
+  完整 Identity registry、可移植规范制品（Portable Canonical Artifact）、外部信任
+  收据绑定的目标静态镜像（Target Static Image）、源映射（Source Map）、语义差异
+  （Semantic Diff）与独立验证器。目标态把当前 `laneflow-core/CoreWorld` 一次性
+  不兼容切换为 `laneflow-runtime/TrafficWorld`；Traffic section 必选、Spatial
+  section 可选，无图形配置不携带 geometry。双语术语以
+  `../reference/glossary.md` 的中文定义为权威。#292 继续 Blocked by #291 G1。
 
 ## 文档状态
 

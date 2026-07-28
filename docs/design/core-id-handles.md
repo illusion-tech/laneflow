@@ -13,7 +13,8 @@
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
-- `../adr/0020-compiler-owned-static-network-and-runtime-image.md`
+- `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../reference/glossary.md`
 - `core-runtime.md`
 - `parking-system.md`
 - `road-junction-model.md`
@@ -33,11 +34,15 @@
 
 ADR 0020 target 保留 external stable identity / typed dense handle / hot-path 无字符串
 原则，但把静态网络的 handle 分配和 registry/index 构建从 `CoreWorld` 初始化前移到
-compiler/runtime image。Static entity 使用 image-scoped typed `u32` ordinal；
-每 world 的 Vehicle、dynamic Route 与 generation handle 继续由 Core 管理。
-StableId128、external ID 和 reverse resolver 位于 cold boundary，steady tick 只
-使用 dense handle。本文后续“Core 初始化阶段 normalization”继续描述 current，
-直到 image cutover G4。
+compiler/static image。Target 动态执行层 clean-break 命名为
+`laneflow-runtime`/`TrafficWorld`；static/shared identity contract 移到
+`laneflow-static-contract`，不能继续由 Runtime 拥有。所有 image table row 使用
+image-scoped typed `u32` ordinal，只有稳定 declaration/addressable-derived 另有
+StableId128；owner-local occurrence 使用仅对当前 owning sequence snapshot 有效的
+typed `(ownerOrdinal, role, localIndex)` key。每 world 的 Vehicle、dynamic Route 与
+generation handle 继续由 Runtime 管理。StableId128、external ID 和 reverse
+resolver 位于 cold boundary，steady tick 只使用 dense handle。本文后续“Core
+初始化阶段 normalization”继续描述 current，直到 image cutover G4。
 
 ## 2. 背景
 

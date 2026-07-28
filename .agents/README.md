@@ -14,11 +14,22 @@
 
 - `skills/laneflow-governance/SKILL.md`：GitHub Issue、PR、commit、Project、Milestone、Release 与 G0–G4 工作流（PR 默认 Rebase and merge）。
 - `skills/laneflow-development/SKILL.md`：LaneFlow 通用实现工作流。
-- `skills/laneflow-core-design/SKILL.md`：Core 运行时、lane graph、route、signal、parking 与确定性行为。
-- `skills/laneflow-adapter/SKILL.md`：Unity、Unreal、Godot、O3DE、Web 等 Engine Adapter 开发。
+- `skills/laneflow-core-design/SKILL.md`：当前态 LaneFlow Core、目标态 LaneFlow
+  交通运行时（Traffic Runtime）、车道图（Lane Graph）、路线（Route）、信号
+  （Signal）、停车（Parking）与确定性行为。
+- `skills/laneflow-adapter/SKILL.md`：Unity、Unreal、Godot、O3DE、Web 等引擎适配器
+  （Engine Adapter）开发及当前态核心（Current Core）→目标态交通运行时（Target
+  Traffic Runtime）迁移边界。
 
 ## 使用方式
 
 Agent 应选择与当前任务最相关、范围最小的 Skill。若任务跨多个领域，先读 governance，再读领域 Skill。
 
-语言约定：模板与治理规范中文优先；技术标识符（切片类型、Gate、commit 字段名）可保留英文。
+`laneflow-core-design` Skill 标识符（Skill ID）在 #291 生产切换 G4 前保留，用于
+发现当前态核心（Current Core）任务；其内容已经同时覆盖目标态交通运行时（Target
+Traffic Runtime）。生产切换时再与 `laneflow-core/CoreWorld` 一起原子改名，避免
+工具发现、当前 API 和目标文档提前分叉。
+
+语言约定：长期设计和 Agent 工作流以中文术语、中文定义为权威事实，英文只作辅助
+理解；双语映射遵循 `docs/reference/glossary.md`。技术标识符（切片类型、闸口
+（Gate）、提交字段名、包（crate）、类型与协议常量）保留精确原文。

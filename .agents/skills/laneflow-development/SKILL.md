@@ -1,6 +1,6 @@
 ---
 name: laneflow-development
-description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现、缺陷修复、测试更新、运行时代码变更、数据格式修改或准备实现 PR。
+description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现、缺陷修复、测试更新、当前 Core/目标 Traffic Runtime 代码变更、数据格式修改或准备实现 PR。
 ---
 
 # LaneFlow 开发
@@ -11,10 +11,12 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 2. `docs/governance/agent-development-guide.md`
 3. `docs/governance/development-gates.md`
 4. `docs/reference/commit-convention.md`
-5. 修改 Rust 时读取 `docs/reference/rust-code-style.md`
-6. 相关的 `docs/design/` 与 `docs/adr/` 文档
+5. `docs/reference/glossary.md`
+6. 修改 Rust 时读取 `docs/reference/rust-code-style.md`
+7. 相关的 `docs/design/` 与 `docs/adr/` 文档
 
-若任务涉及 Core API、数据格式或 Adapter API，但缺少相关设计输入，应先停止实现并提出 G1 设计缺口。
+若任务涉及当前态 Core API、目标态 Traffic Runtime API、数据格式或 Adapter API，
+但缺少相关设计输入，应先停止实现并提出 G1 设计缺口。
 
 ## 工作流
 
@@ -28,8 +30,13 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 
 ## 规则
 
-- 不要把引擎相关依赖引入 Core。
+- 不要把引擎相关依赖引入当前 Core 或目标 Traffic Runtime。
+- 当前态使用 `LaneFlow Core` / `laneflow-core` / `CoreWorld`；#291 目标态使用中文
+  规范名“LaneFlow 交通运行时”及精确标识符 `laneflow-runtime` / `TrafficWorld`。
+  在 ADR 0020 完成 Accepted 与生产切换 G4 前，不得把目标态写成当前 API。
 - 不要在不更新 design 文档的情况下改变数据格式语义。
+- 长期文档中的领域术语必须中文权威、英文辅助；新术语先补
+  `docs/reference/glossary.md`，代码和协议标识符保留精确原文。
 - 不要把无关重构与功能开发混在同一 PR。
 - Rust 数字字面量等仓库级可读性规则只应用于本次触及范围；历史格式问题应单独跟踪。
 - 不要在只完成子切片时声称父任务已完成。
@@ -41,7 +48,7 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 完成实现工作后，应汇报：
 
 - 变更摘要
-- 对 Core API、数据格式、Adapter API 的影响
+- 对当前态 Core API、目标态 Traffic Runtime API、数据格式、Adapter API 的影响
 - 已运行的验证
 - 文档是否更新或为何无需更新
 - 剩余风险或后续 Issue

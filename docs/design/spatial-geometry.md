@@ -12,7 +12,8 @@
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
-- `../adr/0020-compiler-owned-static-network-and-runtime-image.md`
+- `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../reference/glossary.md`
 - `numeric-representation.md`
 - `data-format.md`
 - `adapter-api.md`
@@ -50,16 +51,20 @@ ADR 0020 保留本章的 Spatial authority、bounded canonical f32、length/pose
 batch ordering、placement token 与失败原子性，但改变静态数据形成位置：
 
 - compiler 在同一 MIR/LIR 中联合生成 Traffic length、canonical geometry 和绑定；
-- target runtime image 的 `StaticSpatialImage` 与 `StaticTrafficImage` 共享 logical
-  edge ordinal/cross-table index；
+- target `StaticNetworkImage` 的 Traffic section 必选、Spatial section
+  profile-controlled；`traffic-headless-v1` 不携带 geometry；
+- Spatial section 存在时，`StaticSpatialView` 与 `StaticTrafficView` 共享 logical
+  edge ordinal/cross-table index，v1 保持完整 edge coverage；
 - Spatial 直接读取 immutable geometry/sampling tables，不再按 external edge ID
   join 两个 JSON package，也不重建 `HashMap<EdgeHandle, slot>`；
 - 多个 world/Adapter session 可共享静态 image，只保留各自 pose scratch/output 和
   placement lifecycle。
 
 本章 §3 的 Traffic/Spatial/Manifest 三制品与 §3.2 加载顺序继续描述 current，
-直到 target image 路径完成 G4。Target runtime image 不改变 Core/Spatial/Adapter
-的语义 authority。
+直到 target image 路径完成 G4。Target `laneflow-runtime` 是 current
+`laneflow-core` 的 clean-break 名称；static image 的可选 Spatial section 不改变
+Traffic Runtime/Spatial/Adapter 的语义 authority，也不取代 current
+Core-without-Spatial / target Traffic-Runtime-without-Spatial 边界。
 
 ## 2. 坐标框架
 

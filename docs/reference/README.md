@@ -16,13 +16,15 @@
 
 ## 建议后续补充
 
-- `glossary.md`
 - `data-versioning.md`
 - `adapter-compatibility-matrix.md`
 - `example-scenario-checklist.md`
 
 ## 当前文档
 
+- `glossary.md`：LaneFlow 双语术语 SSOT；中文术语和中文定义是权威事实，英文只作
+  辅助理解，当前完整覆盖 #291 编译器时代静态路网、Identity、制品/镜像、信任、
+  Traffic Runtime、Spatial 与 Adapter 术语。
 - `commit-convention.md`：提交信息规范，以 Conventional Commits 标题为基础，用 `Gate`、`Slice`、`Impact`、`Validation` 等字段记录 LaneFlow 治理状态；并说明 PR 默认使用 Rebase and merge。
 - `rust-code-style.md`：补充 `rustfmt` 无法表达的 Rust 仓库级可读性约定，当前重点规定数字字面量分组边界与例外。
 - `validation-matrix.md`：切片类型到最小验证要求的矩阵，用于 `G3` 合并闸口判断。

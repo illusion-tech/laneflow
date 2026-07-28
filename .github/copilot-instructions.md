@@ -17,13 +17,16 @@
 7. `docs/governance/github-workflow.md`
 8. `docs/reference/commit-convention.md`
 9. `docs/reference/rust-code-style.md`
-10. `.github/pull_request_template.md`
+10. `docs/reference/glossary.md`
+11. `.github/pull_request_template.md`
 
 任务涉及 Core、数据格式或 Adapter 时，还应参考对应 `.agents/skills/*/SKILL.md`、`docs/design/` 和 `docs/adr/`。
 
 ## Review 语言与优先级
 
-- 默认使用中文反馈，技术标识符、命令、文件路径和 API 名称保留原文。
+- 默认使用中文反馈。长期设计中的中文术语和中文定义是权威事实，英文只作辅助
+  理解；双语映射以 `docs/reference/glossary.md` 为准。技术标识符、命令、文件路径
+  和 API 名称保留精确原文。
 - 优先指出会阻断 G3/G4 的问题：行为错误、治理字段缺失、测试缺口、设计依据缺失、Core / Adapter 边界错误、数据格式与 schema 不一致。
 - 避免只给风格偏好；若建议调整，说明它影响哪条治理规则、验证矩阵或长期设计事实。
 
@@ -34,7 +37,8 @@
 Review 时关注：
 
 - 风格问题优先依据 `rustfmt`、Clippy、`docs/reference/rust-code-style.md`、仓库既有命名、模块组织和中文优先注释约定；数字字面量评论应区分 Rust token 与字符串/外部格式，并限制在当前变更范围。
-- 架构问题必须对照 LaneFlow 分层、design / ADR 和切片范围，尤其检查 Core / data-format / Adapter 职责是否混杂。
+- 架构问题必须对照 LaneFlow 分层、design / ADR 和切片范围，尤其检查当前 Core /
+  目标 Traffic Runtime / data-format / Adapter 职责是否混杂。
 - 抽象建议必须说明它减少了什么重复、隔离了什么变化，或避免了什么长期耦合；不要建议无 Issue / design 依据的过早泛化。
 - Rust pattern 建议必须说明具体收益或风险，例如 ownership 语义、newtype / typed handle、trait 边界、`Result` / error 类型、模块可见性、失败原子性、API 可预测性或测试可验证性。
 - 设计原则可作为 review 判断框架：SRP、DRY、KISS、YAGNI、composition over inheritance、Design by Contract、encapsulation、CQS、POLA、Single Choice。
@@ -78,14 +82,18 @@ Review 时重点检查：
 
 ### `core-runtime`
 
-- 检查 Rust 实现是否保持 Core engine-agnostic，不依赖 Unity、Unreal、Godot、O3DE、WebGL、DOM 或具体引擎 API。
+- 检查当前 Core / 目标 Traffic Runtime 的 Rust 实现是否保持 engine-agnostic，不
+  依赖 Unity、Unreal、Godot、O3DE、WebGL、DOM 或具体引擎 API；#291 生产切换前
+  不得把目标 `laneflow-runtime/TrafficWorld` 写成 current API，也不得把 Core 写成
+  目标态名称。
 - 关注 deterministic tick、失败原子性、稳定事件顺序、typed handle / external ID 边界和中文优先错误信息。
 - 默认要求 `cargo +1.96.0 fmt --all -- --check` 与 `cargo +1.96.0 test --workspace --locked`，未运行必须说明原因。
 
 ### `adapter`
 
 - 检查 Adapter 是否只负责引擎集成、表现、模型、动画、LOD、调试可视化和生命周期接入。
-- Adapter 不应复制 Core 交通规则，也不应把引擎依赖引入 Core。
+- Adapter 不应复制 Core / Traffic Runtime 交通规则，也不应把引擎依赖引入当前
+  Core 或目标 Traffic Runtime。
 
 ## 限制
 

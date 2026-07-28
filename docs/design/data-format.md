@@ -19,7 +19,8 @@
 - `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../adr/0018-multimodal-cross-section-and-access-overlay.md`
-- `../adr/0020-compiler-owned-static-network-and-runtime-image.md`
+- `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../reference/glossary.md`
 - `../../schemas/laneflow-data-v0.10.schema.json`
 - `../../schemas/laneflow-spatial-v0.1.schema.json`
 - `../../schemas/laneflow-scenario-manifest-v0.1.schema.json`
@@ -60,13 +61,19 @@ production loader、canonical fixtures、validator 和 Adapter/authoring tool �
 
 ADR 0020 不把 current Traffic JSON 直接改名为 compiler IR。Target 把版本与职责拆为：
 
-- authoring source format：frontend/Geometry document；
+- authoring source：authoritative source module graph；Geometry 是主要 production
+  language，Synthetic DSL/imported/editor-authored module 可以共同组成 compilation
+  unit；
 - portable canonical artifact：平台无关、可发布、可独立校验；
-- target runtime image：按 target/layout/feature 生成、可重建；
+- target static image：按 target/layout/closed profile 生成、可重建；Traffic section
+  必选，Spatial/cold/debug section 可选；
 - source map / semantic diff：治理与诊断制品。
 
-编译器从 validated canonical LIR 同时生成这些产物；Core/Spatial 直接消费 runtime
-image 的对齐视图。`formatVersion: "0.10"`、本章 Package Model 和 §7–§8 的
+编译器从 validated canonical LIR 同时生成这些产物；target Runtime/Spatial 直接
+消费 static image 的对齐视图。Target dynamic layer clean-break 命名为
+`laneflow-runtime`/`TrafficWorld`，并通过 `laneflow-static-image` 的 external
+descriptor + bounded verifier 挂载 view。`formatVersion: "0.10"`、本章 Package
+Model 和 §7–§8 的
 JSON→Core normalization 在 cutover G4 前继续是 current contract，但不再约束
 target IR 或 image layout。Target 版本轴、publication 与迁移规则见 ADR 0020 和
 `network-compiler.md`。
