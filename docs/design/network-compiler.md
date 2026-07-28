@@ -771,7 +771,25 @@ target/layout/profile 下产生相同 exact bytes digest + length。Validation r
 
 ### 8.4 源映射与诊断（Source Map and Diagnostics）
 
-源映射按标识类别选择 key：
+源映射不是一组可以脱离编译批次复用的裸记录。每份源映射都必须使用版本化的
+源映射封套（Source Map Envelope）`SourceMapEnvelope`：
+
+```text
+sourceMapFormatVersion
+networkRevisionDerivationVersion
+networkRevision
+canonicalArtifactDigest
+compilerBuildId
+records
+```
+
+`canonicalArtifactDigest` 绑定本次编译产生的 portable artifact exact bytes，
+`networkRevisionDerivationVersion + networkRevision` 绑定其规范语义，
+envelope 内的 records 绑定权威来源模块图、frontend/import 工具与显式编译选项的
+来源沿袭。即使实体 `StableId128` 与 typed ordinal 都未变化，source span、来源模块
+或编译输入变化也必须生成新的 `SourceMapEnvelope` exact bytes。
+
+源映射记录在上述 envelope 内按标识类别选择 key：
 
 - owning declaration 和 contributing spans；
 - declaration/addressable-derived 使用
@@ -784,6 +802,40 @@ target/layout/profile 下产生相同 exact bytes digest + length。Validation r
 - frontend/module/import provenance；
 - compiler pass/constraint version；
 - generated relation 的推导链。
+
+源映射自己的摘要不得嵌回自身 bytes。规范发布描述符（Canonical Publication
+Descriptor）`CanonicalPublicationDescriptor` 必须位于 artifact/source-map bytes
+之外并至少绑定：
+
+```text
+canonicalPublicationDescriptorVersion
+networkRevisionDerivationVersion
+networkRevision
+canonicalArtifactDigest
+sourceMapFormatVersion
+sourceMapDigest
+sourceMapByteLength
+compilerBuildId
+validatorBuildId
+validationReceiptDigest
+```
+
+`sourceMapDigest` 是完整 `SourceMapEnvelope` exact bytes 的 SHA-256，
+`sourceMapByteLength` 是同一字节序列的精确 `u64` 长度。签发者必须从最终 exact
+bytes 记录 digest + length；canonical publication 不允许用空摘要、空记录或缺失字段
+伪装已绑定 source map。Independent validator 必须检查 envelope 版本、所有 row /
+ordinal / owner-local key 对已验证 artifact 闭合，并让 validation receipt 同时绑定
+artifact/revision 与 source-map digest + length。
+Descriptor 的真实性必须来自签名 publication manifest、受信任 CI provenance 或
+应用内 pinned digest，不能由 source-map envelope 自报。
+消费者必须先认证有固定小上限的 descriptor，再按与 8.3 相同的 O(1) 已知长度或
+checked length+1 bounded-reader 规则核对源映射长度和摘要，解析 exact-current
+envelope，并要求 descriptor、envelope 与已验证 portable artifact 的
+`networkRevisionDerivationVersion + networkRevision + canonicalArtifactDigest +
+compilerBuildId` 全部精确相等；来源沿袭记录作为 envelope exact bytes 的一部分由
+`sourceMapDigest` 认证。任何版本、长度、摘要、artifact、revision 或 provenance
+不匹配都以 `SourceMapArtifactMismatch` 失败关闭；记录级三元组 key 只能在完成该
+配对后定位行，不能单独证明 source map 属于某份 artifact。
 
 诊断对标 rustc：稳定 code、severity、primary/secondary span、原因和可执行建议。
 authoring error 指向 source/画布；artifact corruption/version mismatch 面向运维，不
@@ -1050,6 +1102,7 @@ Routing G1 冻结。
 ```text
 source module graph ─> compiler ─> canonical artifact ─> independent validator
                               │      (identity preimages)   └> validation receipt
+                              ├> source map ───────────────────────────────┘
                               └> target static image ─────────> structural verifier
 
 canonical artifact + validation receipt
@@ -1099,6 +1152,8 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
 - 所有 production profile 的 typed ordinal ↔ StableId128 round-trip、snapshot
   restore 与 dynamic Route rebuild；
 - source map completeness 与 diagnostic stability；
+- source map descriptor/envelope 的 exact artifact、revision、provenance、digest、
+  length 绑定，以及旧 span、替换 source map、truncated/appended bytes 的拒绝测试；
 - semantic diff golden tests，以及 forged/tampered diff、错误 base/target digest、
   未受信任 cutover descriptor 的拒绝测试；
 - current JSON path 与 target image path behavior/determinism/pose equivalence；
@@ -1119,12 +1174,14 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
 ```text
 authoringFormatVersion
 canonicalFormatVersion
+canonicalPublicationDescriptorVersion
 identityEncodingVersion
 identityRegistryRevision
 networkRevisionDerivationVersion
 staticImageLayoutVersion
 staticImageProfileId
 staticImageDescriptorVersion
+sourceMapFormatVersion
 semanticDiffFormatVersion
 networkRevisionCutoverDescriptorVersion
 migrationPolicyVersion
@@ -1138,6 +1195,8 @@ targetTriple
 networkRevision
 canonicalArtifactDigest
 staticImageDigest
+sourceMapDigest
+sourceMapByteLength
 semanticDiffDigest
 validationReceiptDigest
 ```
@@ -1146,17 +1205,17 @@ validationReceiptDigest
 - runtime exact-current/fail-closed，不在 production startup 迁移；
 - portable artifact immutable publication 继承 ADR 0011；
 - static image 可按同一 canonical digest 产生多个 target/profile variant；
-- `canonicalArtifactDigest`、`staticImageDigest`、`semanticDiffDigest` 与
-  `validationReceiptDigest` 均为 exact bytes 的 SHA-256，不使用 entity identity
-  digest 代替；
+- `canonicalArtifactDigest`、`staticImageDigest`、`sourceMapDigest`、
+  `semanticDiffDigest` 与 `validationReceiptDigest` 均为 exact bytes 的 SHA-256，
+  不使用 entity identity digest 代替；
 - `networkRevision` 是带 `networkRevisionDerivationVersion` 与 domain separator
   的规范语义载荷 SHA-256，不是 artifact/image exact-bytes digest，也不进入
   steady tick hash 计算；
-- digest 只存放在其目标对象之外：artifact/image/receipt 均不把自己的 digest
-  嵌回自身 bytes；publication manifest/external descriptor 完成外部绑定；
+- digest 只存放在其目标对象之外：artifact/image/source-map/receipt 均不把自己的
+  digest 嵌回自身 bytes；publication manifest/external descriptor 完成外部绑定；
 - compiler、validator、image builder 的 provenance 必须可审计；
 - external descriptor/receipt 必须绑定路网修订标识、exact artifact、image、
-  target、profile、constraint 和 tool builds；
+  source map、相应 exact byte length、target、profile、constraint 和 tool builds；
 - runtime 不联网解析 schema、artifact 或 toolchain。
 
 authoritative source module graph 是 authoring SSOT。Generated artifact 可以作为
@@ -1311,6 +1370,7 @@ Cutover 前必须证明：
 | 未认证路网修订（Unauthenticated Network Revision）                           | 快照/路由绕过修订检查或兼容恢复误拒绝            | 语义载荷派生标识；descriptor/receipt/cutover 三重绑定        |
 | 中间表示泄漏运行时类型（IR Leaks Runtime Types）                             | 后端 / 目标被当前核心对象图锁死                  | 静态契约、目标中立 LIR、无环包依赖图                         |
 | 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效                   | 制品内规范身份表、独立重算、已知向量、变形测试               |
+| 源映射错配（Source Map Mispairing）                                          | 审阅或诊断静默指向旧来源文件 / 位置              | 版本化封套；发布描述符绑定 exact artifact、revision、digest  |
 | 边身份耦合可选角色（Edge Identity Coupled to Optional Role）                 | 未覆盖边无身份，或调整 overlay 造成伪删除 / 新增 | `LaneEdge` 独立稳定键；RoadSection/Junction 只保存关系       |
 | 增量 / 并行非确定性（Incremental / Parallel Nondeterminism）                 | CI / 发布字节漂移                                | 干净单线程预言机、稳定合并                                   |
 | 配置档边界错误（Profile Boundary Error）                                     | 无图形配置档携带几何，或交叉索引漂移             | 交通必需 / 空间可选矩阵、配置档测试                          |
