@@ -18,7 +18,10 @@
 
 v0.1 Core runtime 使用 `String` 表示 `vehicle_id`、`route_id` 和 `edge_id`。这让原型容易阅读和测试，但会在 runtime 热路径中引入字符串 clone、字符串排序和事件 payload 分配。
 
-LaneFlow 需要支持 10k vehicles / 60 tick/s 这类目标规模。若车辆 ID 是 UUID 字符串，继续在每个 tick 中复制和排序外部字符串，会把 identity 表达方式变成性能热点。
+当前 LaneFlow Core 需要支持道路机动车执行域的一万车辆运行单元、每秒六十次固定
+步进这类目标规模。若车辆 ID 是 UUID 字符串，继续在每个固定步进中复制和排序外部
+字符串，会把身份表达方式变成性能热点。该车辆特化证据不定义目标 Traffic Runtime
+其他执行域的参与单元类型或规模。
 
 同时，LaneFlow 仍需要外部数据、Adapter、debug UI 和日志保留稳定、可读的 external ID。Core 不能只暴露裸整数而丢失可诊断性。
 
@@ -97,7 +100,7 @@ Core 不引入 `uuid` crate。UUID 可以作为 external ID 字符串存在，�
 
 优点是最简单，debug 直接可读。
 
-缺点是保留当前 clone、sort 和 event allocation 热点，不适合 10k vehicles / 60 tick/s 目标。
+缺点是保留当前 clone、sort 和 event allocation 热点，不适合一万 vehicles / 60 tick/s 目标。
 
 ### 把 UUID / u128 作为 Core ID
 

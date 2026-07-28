@@ -41,7 +41,8 @@
 - 专业交通工程标定或 SUMO 行为兼容。
 - public controller trait、插件 ABI 或 Adapter constraint injection。
 - 跨 CPU bit-level determinism。
-- 百万级城市运行时的 partition/parallel/mesoscopic 实现；该范围由 #72 跟踪。
+- 城市级多执行域交通运行时的分区/并行/中观实现；当前道路机动车一百万研究包络
+  只是其中一个输入，该范围由 #72 跟踪。
 
 ## 2. 术语
 
@@ -658,20 +659,20 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 
 ### 16.1 分级
 
-- 10k：每 tick 高精度 Vehicle Following，G3 验收规模。
-- 100k：复杂度和扩展性观察，不设置跨机器绝对时间门槛。
-- 1M：城市级容量探索，不承诺当前单线程实时。
-- 1M+：由 #72 设计 partition、parallel、multi-rate 和 mesoscopic/aggregate 模型。
+- 一万：每 tick 高精度 Vehicle Following，G3 验收规模。
+- 十万：复杂度和扩展性观察，不设置跨机器绝对时间门槛。
+- 一百万：城市级容量探索，不承诺当前单线程实时。
+- 一百万+：由 #72 设计 partition、parallel、multi-rate 和 mesoscopic/aggregate 模型。
 
-### 16.2 10k 协议
+### 16.2 一万协议
 
-- 10,000 Active vehicles，连续 60 个 16 ms fixed ticks。
+- 一万辆道路活动车辆，连续 60 个 16 ms fixed ticks。
 - 场景：free-flow、dense platoon、stop-and-go；projection-heavy 单独报告。
 - 指定 reference desktop 常规场景目标 median `<= 1 ms/tick`。
 - G3 硬上限 median `<= 4 ms/tick`，即 60 ticks `<= 240 ms`。
 - Benchmark 排除 world/schema 构建和样本重置，固定输入并消费状态/事件。
 - 记录 CPU、OS、rustc、release profile 和电源模式。
-- CI 运行 10k 功能 smoke 与 benchmark compile，不使用共享 CI wall-clock assertion。
+- CI 运行一万功能 smoke 与 benchmark compile，不使用共享 CI wall-clock assertion。
 - 基线建立后，同机受控三轮 median 回退超过 20% 必须分析，超过 30% 默认阻断，除非记录显式例外。
 
 ### 16.3 Scaling constraints
@@ -680,8 +681,8 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 - 禁止 per-vehicle heap object 和 dynamic controller dispatch。
 - Scratch buffers 必须复用，event 分配只与实际离散事件量相关。
 - speed-limit transition metadata 按 route 共享；无 transition 时 fast reject，steady tick 不做 per-vehicle heap allocation。
-- 10k 到 100k 不得呈现 `O(V^2)` 趋势。
-- v0.2 临时 1M steady-state 结果只作为乐观研究输入，不构成 v0.3 全市实时声明。
+- 一万到十万不得呈现 `O(V^2)` 趋势。
+- v0.2 临时一百万 steady-state 结果只作为乐观研究输入，不构成 v0.3 全市实时声明。
 
 ## 17. v0.2 -> v0.3 迁移
 
@@ -706,7 +707,7 @@ LaneFlow 处于 pre-1.0 阶段，采用直接迁移，不叠加双字段 alias�
 - #74：VehicleState、spawn input 和 profile handle 迁移。
 - #75：Occupancy index、leader detection 和 overlap validation。
 - #76：IIDM、safe-speed、ballistic integration 和 no-overlap projection。
-- #77：确定性、不变量、10k 性能和 100k 扩展性验证。
+- #77：确定性、不变量、一万性能和十万扩展性验证。
 - #86：全面审阅发现的 candidate state scratch 复用与最终性能复核。
 - #72：城市级性能架构研究，不阻塞 v0.3。
 

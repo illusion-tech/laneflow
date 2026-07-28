@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（#224 G1）<br>
 **最后更新**: 2026-07-27<br>
-**适用范围**: LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、10k
+**适用范围**: LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、一万
 真实路网性能补充 workload 与需求代表性 observation
 
 **关联文档**:
@@ -20,9 +20,14 @@
 Scenario v2.0，并拆成两个不能互相冒充的稳定 workload：
 
 - `LF-REAL-LUST-TOPO-v1`：真实静态拓扑、Signals、lane/connection 密度和
-  demand-derived 长路线条件分布下的 10k active 性能补充。
+  demand-derived 长路线条件分布下的一万 active 性能补充。
 - `LF-REAL-LUST-DEMAND-v1`：固定 DUE 样本的 departure schedule、route 和自然
   lifecycle observation。
+
+两个 workload 都是 current `CoreWorld` 的道路机动车特化，统一声明
+`execution_domain=road_motor_vehicle`。本文无下标的 `N_individual`、`N_active`、
+`N_intent` 与 `N_presented` 都是该单域 shorthand；不能将结果解释为非机动车、
+行人或轨道交通能力。
 
 旧的 `LF-REAL-LUST-v1` 在任何 artifact 或 benchmark result 产生前退役。不得用
 旧 ID 生成新结果，也不得把两个新 workload 的结果合并回旧 ID。
@@ -30,7 +35,7 @@ Scenario v2.0，并拆成两个不能互相冒充的稳定 workload：
 本文当前只冻结设计契约。converter、Release assets、TOPO/DEMAND plan、benchmark
 harness 和运行结果均由 #224 G4 后的下游 Issue 交付。在这些实现和证据完成前：
 
-- `LF-SYNTH-v1` 继续是 10k/100k 唯一 canonical product Gate baseline；
+- `LF-SYNTH-v1` 继续是一万/十万唯一 canonical product Gate baseline；
 - TOPO 只能形成真实拓扑压力的补充结果，不能单独形成 Product Pass；
 - DEMAND 全部结果都是 observation，不适用 #215 的 performance budget；
 - 不得宣称真实城市 workload SLA、LuST travel-time fidelity、真实停车代表性或中国
@@ -39,22 +44,22 @@ harness 和运行结果均由 #224 G4 后的下游 Issue 交付。在这些实�
 v0.8 Signalized Corridor 的 50–200 车辆 native reference 场景仍由
 [`example-scenarios.md`](example-scenarios.md) 和
 [`signalized-corridor-population.md`](signalized-corridor-population.md) 管理。它
-验证 production loader、Signals、人口与回流闭环，不承担本文 10k 真实路网
+验证 production loader、Signals、人口与回流闭环，不承担本文一万真实路网
 workload 的规模或代表性职责。
 
 ## 2. 来源选择
 
 ### 2.1 候选结论
 
-候选评估以可公开再获取、许可和署名可执行、lane-level 数据、10k/100k 规模适配、
+候选评估以可公开再获取、许可和署名可执行、lane-level 数据、一万/十万规模适配、
 Signals/route 完整度及长期可复现性为主要条件：
 
 | 候选                                       | G1 记录的许可/数据边界                  | 结论                                                              |
 | ------------------------------------------ | --------------------------------------- | ----------------------------------------------------------------- |
-| LuST Scenario v2.0                         | LuST MIT；底层 OSM 派生数据 ODbL 1.0    | 选择为首个 10k 来源；使用固定 commit 和消费子集                   |
-| BeST Berlin                                | CC BY 4.0；约 800 km²、71,651 edges     | 100k 首选候选，由下游 G 独立 G1，不在当前 ID 中预留               |
+| LuST Scenario v2.0                         | LuST MIT；底层 OSM 派生数据 ODbL 1.0    | 选择为首个一万来源；使用固定 commit 和消费子集                    |
+| BeST Berlin                                | CC BY 4.0；约 800 km²、71,651 edges     | 十万首选候选，由下游 G 独立 G1，不在当前 ID 中预留                |
 | Alicante–Murcia                            | MIT；高速 corridor                      | 可作吞吐专项，但缺少当前需要的信号和停车语义                      |
-| InTAS / MoST / TuST                        | GPLv3 场景数据叠加 OSM 派生义务         | 当前工程分发边界不采用；MoST 规模也不匹配 10k 目标                |
+| InTAS / MoST / TuST                        | GPLv3 场景数据叠加 OSM 派生义务         | 当前工程分发边界不采用；MoST 规模也不匹配一万目标                 |
 | TAPAS Cologne / Bologna                    | 分别为 CC-NC / 未找到可执行的明确许可   | 排除                                                              |
 | nuScenes、nuPlan、Argoverse 2 等 HD 地图集 | NC 或 research-gated                    | 排除                                                              |
 | MATSim open scenarios                      | link-level，且来源/标注不能闭合 lane 级 | 排除                                                              |
@@ -255,7 +260,7 @@ self-digest cycle。build provenance record 同样位于 bundle 外，作为逐�
 schedule、runtime handles、Parking binding、lifecycle call log 和 presentation
 selection 不写入 Traffic/Spatial/ScenarioManifest。
 
-## 4. 共享精确 10k source population
+## 4. 共享精确一万 source population
 
 候选记录只来自 `.0`、`.1`、`.2` 三个 DUE static 文件，并按该文件顺序解析：
 
@@ -271,13 +276,13 @@ selection 不写入 Traffic/Spatial/ScenarioManifest。
 source-file ordinal 与 XML vehicle ordinal 进入转换报告，但不参与唯一 vehicle ID 的
 排序。不得扩窗、换 seed、跳过无法转换的已选 record 或用第 10,001 个候选补位。
 
-完整 10k record table、selection config 和各自 digest 是 TOPO/DEMAND 的共享输入。
+完整一万 record table、selection config 和各自 digest 是 TOPO/DEMAND 的共享输入。
 
 ## 5. `LF-REAL-LUST-TOPO-v1`
 
 ### 5.1 用途与时间协议
 
-TOPO 是真实拓扑压力的 10k active supplement。它不忠实回放 LuST departure
+TOPO 是真实拓扑压力的一万 active supplement。它不忠实回放 LuST departure
 timing，也不代表 LuST 出行需求或旅行时间。
 
 fixed delta 固定为 `16 ms`。从转换后的最长 discrete static-signal cycle 得到
@@ -298,7 +303,7 @@ T_case_s           = T_case_us / 1_000_000
 
 ### 5.2 Template 与 physical slots
 
-对共享 10k records 的每条 converted lane route，任一候选 progress 的最快剩余自由流
+对共享一万 records 的每条 converted lane route，任一候选 progress 的最快剩余自由流
 时间为：
 
 ```text
@@ -341,18 +346,19 @@ physical capacity slot。
 slot 至多一次”的约束下，对 ordered assignment tuple 求
 **lexicographically smallest perfect matching**；plan 必须保存
 `route_edge_index` 作为唯一 Core spawn cursor。无 template、重复 physical
-capacity、非唯一 occurrence、无 10k perfect matching 或 Core tick-0 batch
+capacity、非唯一 occurrence、无一万 perfect matching 或 Core tick-0 batch
 validation 失败均使 workload 构造失败；不能修改 pitch、时间窗、人口或匹配规则后
 沿用本 ID。
 
 ### 5.3 Runtime population 与 Gate
 
-- 10,000 辆车在 tick 0 均以 `VehicleStatus::Active`、`initialSpeed=0` 建立；
+- 一万辆车在 tick 0 均以 `VehicleStatus::Active`、`initialSpeed=0` 建立；
 - Parking registry 为空；
 - warm-up 和 observation 内不执行 spawn、despawn、replace 或 Parking command；
 - remaining-time 条件必须保证完整 protocol 内不产生 Completed；
 - 每个 successful pre/post-step 精确满足
-  `N_individual=10000`、`N_traffic_active=10000`、`N_aggregate=0`；
+  `N_individual=10000`、`N_active=10000`、`N_aggregate_records=0`、
+  `N_aggregate_equivalent=0`；
 - 任一 Completed、人口变化、caller mutation、overlap 或 unexpected status change
   都使 round 无效。
 
@@ -430,7 +436,7 @@ recycle、不 despawn、不补位。
 
 release phase 固定为 112,500 ticks（1,800 s）。随后 drain phase 最多运行
 112,500 ticks，或在
-`N_demand_pending=0 && N_spawn_blocked=0 && N_traffic_active=0`
+`N_demand_pending=0 && N_spawn_blocked=0 && N_active=0`
 时提前结束。到达 drain 上限时仍 blocked 的 records 继续保留在
 `DemandPending`，其完整 caller state 必须进入 final replay digest；不得把它们当作
 已回放或静默丢弃。每 tick 必须报告：
@@ -439,15 +445,16 @@ release phase 固定为 112,500 ticks（1,800 s）。随后 drain phase 最多�
 - `N_demand_pending`；
 - `N_spawn_blocked`；
 - `N_individual`；
-- `N_traffic_active`；
+- `N_active`；
 - `N_completed`；
 - `N_presented`；
-- `N_aggregate=0`。
+- `N_aggregate_records=0`；
+- `N_aggregate_equivalent=0`。
 
 每个 pre/post-step boundary 还必须满足
 `N_source_total = N_demand_pending + N_individual = 10000`、
 `N_spawn_blocked <= N_demand_pending` 和
-`N_individual = N_traffic_active + N_completed`；任何 record 无 owner、重复 owner
+`N_individual = N_active + N_completed`；任何 record 无 owner、重复 owner
 或跨 owner 重复计数都是 fatal。
 
 DEMAND 不设置 active lower bound。1%/10%/50%/100% presentation rows 全部只是
@@ -473,7 +480,7 @@ process 中从 pinned source 重建两次，并得到相同的：
 - initial/state digest；
 - fixed-input-sequence digest。
 
-TOPO 还要以 exact-only Core 验证完整 protocol 每个 pre/post-step 的 10k active
+TOPO 还要以 exact-only Core 验证完整 protocol 每个 pre/post-step 的一万 active
 invariant。DEMAND 比较 ordered command outcomes、ordered events、per-tick count
 digest 和 final state。exact-only Core 是 oracle；本文不新增候选 runtime 语义。
 
@@ -541,12 +548,12 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
   internal lane 的 Traffic/Spatial geometry 被丢弃；
 - source junction owner 不能由 edge endpoint、`junction@intLanes` 和 connection
   chain 唯一闭合，或 emitted Junction / Movement 为空；
-- selected candidate 数不等于 10,592 或精确 10k table digest 不匹配；
+- selected candidate 数不等于 10,592 或精确一万 table digest 不匹配；
 - selected record 无法转换，或 profile/route/source reference 非法；
 - repeated conversion 不是 byte-identical；
-- TOPO 秒/微秒 exact-unit comparison 不成立，或没有 template、10k perfect
+- TOPO 秒/微秒 exact-unit comparison 不成立，或没有 template、一万 perfect
   matching、重复 edge 的 occurrence/capacity identity 不唯一、tick-0 Core
-  validation、`logical_rank=0..9999` 唯一性或完整 10k-active oracle；
+  validation、`logical_rank=0..9999` 唯一性或完整一万-active oracle；
 - DEMAND departure/departPos、ordered outcomes/events/counts 或 final replay
   digest 不一致；
 - license/NOTICE、Release URL、size 或 SHA-256 preflight 不完整。
@@ -567,13 +574,13 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 | D    | DUA rerouting                                                            | 独立 G1/ADR 判断               |
 | E    | bus/stop semantics                                                       | 独立 G1                        |
 | F    | 中国特色手工 authoring 样本和独立 workload ID                            | 独立排期                       |
-| G    | BeST 100k 来源、裁剪和 workload                                          | 10k 获取/转换链路稳定后独立 G1 |
+| G    | BeST 十万来源、裁剪和 workload                                           | 一万获取/转换链路稳定后独立 G1 |
 
 产品路径上另有示例层切片（Parent #252），**不**改变上表 A–G 的 workload 语义：
 
 | 切片     | 交付                             | 依赖/边界                                                                                |
 | -------- | -------------------------------- | ---------------------------------------------------------------------------------------- |
-| H (#256) | LuST/Bevy 1–10k 个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`](lust-bevy-population-control.md) |
+| H (#256) | LuST/Bevy 1–一万个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`](lust-bevy-population-control.md) |
 | I (#257) | Bevy LuST native 示例与调节 UI   | 依赖 A 的 static、B 的 TOPO plan（placement 权威）与 H 的契约；C/DEMAND 仍可选           |
 
 本文不改变 Core API、Data format、Spatial API、Adapter API、production runtime

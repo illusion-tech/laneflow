@@ -70,7 +70,7 @@ borrowed reference 重复统计目标对象。拥有 `Vec`、`String`、`IndexMa
 
 每个新增 heap owner 至少需要一个使对应 component 非零的 smoke fixture；无该
 owner 的场景应在可稳定判断时断言为零。常规 PR 运行 complete retained-memory
-smoke，10k/100k matrix 继续作为对应 Delivery/G3 的显式验证。
+smoke，一万/十万 matrix 继续作为对应 Delivery/G3 的显式验证。
 
 ## 6. 工具与执行
 

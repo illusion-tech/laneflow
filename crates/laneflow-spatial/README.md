@@ -21,4 +21,9 @@ LaneFlow 引擎无关的标准空间类型、折线绑定、确定性采样与�
 
 依赖方向固定为 `laneflow-spatial -> laneflow-core`。本 crate 不向公共 API 泄漏第三方数学类型或宿主引擎类型，也不要求 Core 提供 Spatial 注册表；Core 可以继续独立用于无图形宿主运行。
 
-量化后规则固定为：线段长度严格大于 `0.1 m`，projected-up 长度大于等于 `sin(0.5°)`，连接端点距离小于等于 `0.005 m`；长度差必须小于等于 `max(0.01 m, 1e-6 × max(Core 长度, 几何弧长))`，current-f64 Core 量化余量为零。空间包与场景清单由 #134 交付，其 `LoadedSpatialPackage` 可直接映射为借用输入；#136 的 placement token 只标识宿主放置版本，不包含或授权修改宿主 Transform。10k/100k 吞吐、稳态分配和 retained-memory Gate 仍由 #137 交付。
+量化后规则固定为：线段长度严格大于 `0.1 m`，projected-up 长度大于等于
+`sin(0.5°)`，连接端点距离小于等于 `0.005 m`；长度差必须小于等于
+`max(0.01 m, 1e-6 × max(Core 长度, 几何弧长))`，current-f64 Core 量化余量为零。
+空间包与场景清单由 #134 交付，其 `LoadedSpatialPackage` 可直接映射为借用输入；
+#136 的 placement token 只标识宿主放置版本，不包含或授权修改宿主 Transform。
+一万/十万吞吐、稳态分配和 retained-memory Gate 仍由 #137 交付。

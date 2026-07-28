@@ -1,8 +1,10 @@
 # Core Runtime 产品性能基线
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-07-28<br>
-**适用范围**: LaneFlow Core、Spatial、Engine Adapter 的 10k/100k 产品目标，1M 研究包络，以及性能、保真度、硬件和证据协议<br>
+**最后更新**: 2026-07-29<br>
+**适用范围**: 当前 LaneFlow Core 车辆特化、目标 Traffic Runtime 多执行域、
+Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、
+硬件和证据协议<br>
 **关联文档**:
 
 - [`core-runtime-scalability-audit.md`](core-runtime-scalability-audit.md)
@@ -23,8 +25,9 @@ contract），用于让单线程优化、多频率候选、单机并行和未来
 workload、fidelity、hardware 与 frame-budget 口径。
 
 ADR 0021 把中国特色城市模拟游戏交通基础定义为第一长期产品目标，但不改变本文
-当前 10k/100k/1M 证据等级：城市目标不是既有硬件认证，也不能用 multi-world
-ensemble 吞吐代替单个大型城市世界的 tick、barrier、边界交换和负载偏斜测量。
+当前道路机动车 workload 的一万/十万/一百万证据等级：城市目标不是既有硬件认证，
+也不能用 multi-world ensemble 吞吐代替单个大型城市世界的 tick、barrier、边界
+交换和负载偏斜测量，更不能把车辆证据解释为非机动车、行人或轨道交通认证。
 
 本文不是硬件认证报告，也不把历史开发机数据升级为产品服务等级协议（product
 SLA）。必须区分：
@@ -36,16 +39,16 @@ SLA）。必须区分：
 - **Product TBD / Uncertified**：真实产品硬件或必要容差尚未确定，不能宣称通过或
   失败。
 
-因此，本文合入只表示产品基线契约可供下游依赖，不表示 10k/100k 已完成产品
-certification，也不表示 1M microscopic realtime 已成为产品目标。
+因此，本文合入只表示产品基线契约可供下游依赖，不表示一万/十万已完成产品
+certification，也不表示一百万 microscopic realtime 已成为产品目标。
 
 ## 2. 范围与非目标
 
 本文覆盖：
 
-- 10k、100k、1M 的规模计数语义；
+- 一万、十万、一百万的规模计数语义、交通执行域分解与当前车辆特化；
 - canonical synthetic workload 与 presentation selection；
-- 研究机、最低产品机、扩展参考机和 1M 观察机的角色；
+- 研究机、最低产品机、扩展参考机和一百万观察机的角色；
 - Core fixed tick、outer frame、Spatial+Adapter 与宿主剩余预算；
 - hard invariant、individual、presentation、aggregate fidelity；
 - latency、tail、allocation、retained memory、catch-up、失败重试和 profiler 证据；
@@ -60,87 +63,125 @@ certification，也不表示 1M microscopic realtime 已成为产品目标。
 - renderer、asset、animation 或宿主 gameplay 的实现与性能承诺；
 - 专业交通工程精度、城市经济模拟、出行需求生成或完整 SUMO-like 能力；这些是
   上层/独立产品边界，不表示城市级交通执行是 LaneFlow 非目标；
-- 1M 个体车辆的实时产品承诺。
+- 一百万个体交通参与单元的实时产品承诺，或任何尚未建立 workload 的非车辆执行域
+  产品承诺。
 
 ## 3. 规模计数语义
 
-以后不得裸写“10k/100k/1M agents”。每个结果必须同时记录以下五个正交计数：
+以后不得只写一个未分解规模或使用 `Agent` 作为交通规模单位。本文使用两个正交层次：
 
-- `N_individual`：仍存在且保留完整 logical identity、route/progress、Vehicle
-  Profile、Parking/lifecycle 与 committed state 的个体车辆。行驶中与停车中的车辆
-  均计入，并按 status/lifecycle 分解。
-- `N_traffic_active`：当前处于道路交通系统、每个 Core base tick 参与 travel-lane
-  occupancy/leader、constraint、global projection、advance/events 与 atomic motion
-  commit 的车辆。因红灯或前车停止但仍在道路上的车辆继续计入；Parked vehicle
-  不计入。
-- `N_intent`：该 tick 实际重新计算昂贵 controller intent 的车辆数。exact-only
-  通常等于 `N_traffic_active`；reduced-rate candidate 可以更小，但不能借此跳过
-  `N_traffic_active` 的逐 tick safety authority。
-- `N_presented`：该 outer frame 被 Adapter/Presentation materialize、extract 或
-  commit 的车辆数。它可以包含需展示的 parked vehicle，但不能反向定义 Core
-  fidelity。
-- `N_aggregate`：只以 flow、packet 或 count 存在、没有完整逐车 identity 的人口。
-  必须单独报告，不能混入 `N_individual` 或用来宣称 active individual agents。
+- 交通参与单元（Traffic Participant Unit）是可独立保留身份的运行时计数原子；
+- 交通执行域（Traffic Execution Domain）把共享网络、运动/安全求解与生命周期契约的
+  一类参与单元分组。
 
-基本关系为：
+一辆当前 Core 机动车是一个车辆运行单元；未来骑行者与非机动车的组合、一个行人或
+一个轨道运营编组的计数原子由对应执行域 G1 冻结。城市居民、乘客、出行需求和游戏
+Entity 不自动成为 LaneFlow 交通参与单元。`ParticipantClass` 是准入分类，不是执行
+域或行为能力声明。
+
+每个结果必须按执行域 `d` 同时记录以下六个正交计数：
+
+- 个体交通参与单元数（Individual Traffic Participant Count，
+  `N_individual[d]`）：仍存在并保留完整 logical identity 与生命周期状态的个体
+  参与单元。
+- 活动交通参与单元数（Active Traffic Participant Count，`N_active[d]`）：当前
+  参与执行域 `d` 的运动、安全或占用求解的个体参与单元。
+- 意图更新参与单元数（Intent-update Participant Count，`N_intent[d]`）：该 tick
+  实际重新计算昂贵行为或控制意图的个体参与单元。
+- 表现交通参与单元数（Presented Traffic Participant Count，
+  `N_presented[d]`）：该 outer frame 由 Adapter/Presentation 按个体身份
+  materialize、extract 或 commit 的参与单元。
+- 聚合交通记录数（Aggregate Traffic Record Count，`N_aggregate_records[d]`）：
+  运行时实际存储、调度或更新的 flow、packet、cell 等聚合记录数，用于衡量计算与
+  内存成本。
+- 聚合等价参与单元数（Aggregate-equivalent Participant Count，
+  `N_aggregate_equivalent[d]`）：上述聚合记录代表的参与单元数，用于衡量保真度
+  覆盖，不能替代聚合记录数。
+
+对每个执行域分别满足：
 
 ```text
-N_traffic_active <= N_individual
-N_intent <= N_traffic_active
+N_active[d] <= N_individual[d]
+N_intent[d] <= N_active[d]
 ```
 
-`N_traffic_active = N_individual` 只表示 100% road-active 的特定 workload，不是
-架构恒等式。Parked vehicle 保留 Core 权威的 identity、Parking binding、occupied
-state 与确定性 lifecycle transition，但不因此进入每个 tick 的道路运动求解。
+不同执行域的参与单元不是同质性能工作量。没有逐域分解的总数不得用于 Product
+Pass、容量比较或计算复杂度归因；跨域汇总只能作为已说明计数原子的展示性统计。
+`N_aggregate_records` 与 `N_aggregate_equivalent` 也不能互相冒充。
 
-推荐使用显式标签记录一个 case，例如：
+### 3.1 当前道路机动车特化
+
+当前 `CoreWorld`、`VehicleState`、`LF-SYNTH-v1`、LuST workload 与既有一万/十万/
+一百万证据只覆盖道路机动车执行域。本文使用 reporting token
+`road_motor_vehicle` 表示该 current specialization；它不是 production schema enum，
+也不预先冻结非机动车、步行或轨道交通 API。
+
+在该执行域中：
+
+- `N_individual[road_motor_vehicle]` 同时计入行驶中与停车中的 live vehicle；
+- `N_active[road_motor_vehicle]` 计入每个 Core base tick 参与 travel-lane
+  occupancy/leader、constraint、global projection、advance/events 与 atomic
+  motion commit 的 vehicle；Parked vehicle 不计入；
+- exact-only 通常满足
+  `N_intent[road_motor_vehicle] = N_active[road_motor_vehicle]`，reduced-rate
+  candidate 可以更小，但不能跳过逐 tick safety authority；
+- `N_presented[road_motor_vehicle]` 可以包含需要展示的 Parked vehicle，但不能
+  反向定义 Core fidelity。
+
+推荐使用显式执行域记录一个 current case：
 
 ```text
-N_individual=100000; N_traffic_active=75000;
-N_intent=<observed mean/distribution>; N_presented=10000; N_aggregate=0
+execution_domain=road_motor_vehicle;
+N_individual=100000; N_active=75000;
+N_intent=<observed mean/distribution>; N_presented=10000;
+N_aggregate_records=0; N_aggregate_equivalent=0
 ```
 
-### 3.1 标称规模角色
+从第 4 节起，`LF-SYNTH-v1` 表格中无下标的 `N_individual`、`N_active`、
+`N_intent` 与 `N_presented` 均是上述单域 shorthand；不能把 shorthand 复制到
+多执行域工作负载。
 
-| 标称规模 | 角色                          | 强制解释                                                    | 当前产品状态                           |
-| -------: | ----------------------------- | ----------------------------------------------------------- | -------------------------------------- |
-|      10k | 产品基线（product baseline）  | 同时报告五个计数与 status/lifecycle mix                     | `Product TBD / Uncertified`，等待 P10  |
-|     100k | 扩展目标（scale target）      | 优先保留 100k `N_individual` 的 strong-individual semantics | `Product TBD / Uncertified`，等待 P100 |
-|       1M | 研究包络（research envelope） | 分开报告 identity-preserving candidate 与 `N_aggregate`     | Observation only，无 realtime SLA      |
+### 3.2 当前道路机动车标称规模角色
+
+| 标称规模 | 角色                          | 强制解释                                                                     | 当前产品状态                           |
+| -------: | ----------------------------- | ---------------------------------------------------------------------------- | -------------------------------------- |
+|     一万 | 产品基线（product baseline）  | 报告六个计数、`road_motor_vehicle` 执行域与 status/lifecycle mix             | `Product TBD / Uncertified`，等待 P10  |
+|     十万 | 扩展目标（scale target）      | 优先保留十万 `N_individual` 的 strong-individual semantics                   | `Product TBD / Uncertified`，等待 P100 |
+|   一百万 | 研究包络（research envelope） | 分开报告 identity-preserving、聚合记录与聚合等价计数；不代表其他执行域的目标 | Observation only，无 realtime SLA      |
 
 ## 4. Canonical workload
 
-不使用单一平均场景承担全部判断。10k/100k 冻结四类互补的 canonical synthetic
+不使用单一平均场景承担全部判断。一万/十万冻结四类互补的 canonical synthetic
 workload：
 
-| Workload                 | 个体构成                                                                        | 场景要求                                                                                | 主要验证目标                                         |
-| ------------------------ | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| W1 Mixed product         | 75% `N_traffic_active` / 25% parked                                             | 确定性多 edge/route；混合 following/free-flow、Signals 与 occupied Parking steady state | 主要产品预算、综合吞吐与常规 tail                    |
-| W2 Dense following       | 100% `N_traffic_active`；24/25 vehicles 在 leader horizon 内                    | 延续 dense cohort 压力形态并保留 free-flow 边界                                         | occupancy/leader 与 longitudinal 持续最坏负载        |
-| W3 Parking/lifecycle     | 初始 25% `N_traffic_active` / 75% parked；Parking commit 后一 tick 为 24% / 76% | Parking reserve/arrival/commit/leave、Completed、spawn/despawn/atomic replace           | 个体内存、Parking authority 与 lifecycle transaction |
-| W4 Synchronized boundary | 使用 W1 initial population；`B0` 后 76% active / 24% parked                     | 将 Signal/Parking/lifecycle 对齐为确定性 `B0/B1` causal burst                           | B0/B1 raw、burst median/worst 与 failed-step/retry   |
+| Workload                 | 个体构成                                                                | 场景要求                                                                                | 主要验证目标                                         |
+| ------------------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| W1 Mixed product         | 75% `N_active` / 25% parked                                             | 确定性多 edge/route；混合 following/free-flow、Signals 与 occupied Parking steady state | 主要产品预算、综合吞吐与常规 tail                    |
+| W2 Dense following       | 100% `N_active`；24/25 vehicles 在 leader horizon 内                    | 延续 dense cohort 压力形态并保留 free-flow 边界                                         | occupancy/leader 与 longitudinal 持续最坏负载        |
+| W3 Parking/lifecycle     | 初始 25% `N_active` / 75% parked；Parking commit 后一 tick 为 24% / 76% | Parking reserve/arrival/commit/leave、Completed、spawn/despawn/atomic replace           | 个体内存、Parking authority 与 lifecycle transaction |
+| W4 Synchronized boundary | 使用 W1 initial population；`B0` 后 76% active / 24% parked             | 将 Signal/Parking/lifecycle 对齐为确定性 `B0/B1` causal burst                           | B0/B1 raw、burst median/worst 与 failed-step/retry   |
 
 适用规则：
 
 - W1 是主要性能 go/no-go workload。
 - W2–W4 是热点、tail、安全和恢复 guardrail；不能只因绝对耗时高于 W1 就判定
   产品失败。
-- 10k/100k 运行完整 W1–W4 矩阵。
+- 一万/十万运行完整 W1–W4 矩阵。
 - W4 是固定两 tick 的 causal-burst case，不把 `B1` 后的 steady state 冒充同一次
   burst observation；长窗口 fidelity、Signal-cycle 与 sustained-load guardrail
   由 W1–W3 承担。
-- 1M 默认只运行 identity、retained-memory 与有限 observation；不运行完整实时
+- 一百万默认只运行 identity、retained-memory 与有限 observation；不运行完整实时
   Gate。
 - 中国特色城市工作负载（Chinese-style City Workload）将作为新的并列工作负载族
   建立，不能把
   `LF-SYNTH-v1` 或 LuST 静默改名，也不能在正式 topology/demand/runtime
   contract 前据此声明中国特色城市 Product Pass。
 - W1/W3 至少运行 `N_presented = 1% / 10% / 50% / 100%`；其中只有
-  10k W1 的 100% 行和 100k W1 的 10% 行是 presentation Gate 主行，其余行是
+  一万 W1 的 100% 行和十万 W1 的 10% 行是 presentation Gate 主行，其余行是
   强制 observation/sensitivity，不单独产生 Product Pass/Fail。
 - W2 固定为 Core-only，`N_presented = 0`，不得调用 Spatial/Adapter 或报告
   integrated-frame percentile。W4 只运行与同规模 W1 Gate 主行一致的固定
-  presentation ratio：10k 为 100%，100k 为 10%。
+  presentation ratio：一万为 100%，十万为 10%。
 - `N_intent` 不预设；exact-only 与 reduced-rate candidate 分别报告实际
   mean/distribution。
 - 每个适用场景覆盖完整 Signal cycle 和足够的 route、Parking、lifecycle
@@ -156,12 +197,12 @@ presentation matrix 的判定角色固定如下：
 
 | 规模 / workload | Gate 主行                  | 其余强制行                                    |
 | --------------- | -------------------------- | --------------------------------------------- |
-| 10k W1          | `N_presented=100%`         | `1% / 10% / 50%` observation/sensitivity      |
-| 100k W1         | `N_presented=10%`          | `1% / 50% / 100%` observation/sensitivity     |
-| 10k/100k W2     | Core-only；`N_presented=0` | 无 presentation row                           |
-| 10k/100k W3     | 无 W1 presentation budget  | `1% / 10% / 50% / 100%` guardrail/observation |
-| 10k W4          | 固定 `N_presented=100%`    | 无其他 presentation row                       |
-| 100k W4         | 固定 `N_presented=10%`     | 无其他 presentation row                       |
+| 一万 W1         | `N_presented=100%`         | `1% / 10% / 50%` observation/sensitivity      |
+| 十万 W1         | `N_presented=10%`          | `1% / 50% / 100%` observation/sensitivity     |
+| 一万/十万 W2    | Core-only；`N_presented=0` | 无 presentation row                           |
+| 一万/十万 W3    | 无 W1 presentation budget  | `1% / 10% / 50% / 100%` guardrail/observation |
+| 一万 W4         | 固定 `N_presented=100%`    | 无其他 presentation row                       |
+| 十万 W4         | 固定 `N_presented=10%`     | 无其他 presentation row                       |
 
 ### 4.1 `LF-SYNTH-v1` 确定性生成契约
 
@@ -174,12 +215,12 @@ harness 和结果仍待下游交付；两个 real-road workload 只承担 supple
 observation 角色，不替换 `LF-SYNTH-v1`，也不能把 synthetic baseline 结果解释为
 real-road representativeness。
 
-`LF-SYNTH-v1` 以 100 个 individual 为一个 cell。10k 生成 100 cells，100k
+`LF-SYNTH-v1` 以 100 个 individual 为一个 cell。一万生成 100 cells，十万
 生成 1000 cells；每个 cell 固定包含 4 条互不相交的有向 route、8 条 edge、
 1 个 fixed-time signal controller、4 个 signal group/gate/stop line、
 1 个 ParkingArea 和 100 个 ParkingSpace。
 
-| 项目                        | 每 cell 冻结值       | 10k / 100k 归一化总数 |
+| 项目                        | 每 cell 冻结值       | 一万 / 十万归一化总数 |
 | --------------------------- | -------------------- | --------------------- |
 | individual logical slots    | 4 routes × 25 slots  | 10,000 / 100,000      |
 | route                       | 4                    | 400 / 4,000           |
@@ -395,8 +436,8 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
 ### 4.4 选择、manifest 与防投机约束
 
 - 每个 logical slot 的整数 rank 固定为
-  `logical_rank = cell_index × 100 + route_index × 25 + slot_index`，因此 10k
-  与 100k 分别覆盖闭开区间 `[0, 10000)` 与 `[0, 100000)`。rank 由 logical
+  `logical_rank = cell_index × 100 + route_index × 25 + slot_index`，因此一万
+  与十万分别覆盖闭开区间 `[0, 10000)` 与 `[0, 100000)`。rank 由 logical
   slot 拥有，不受 active/parked/Completed status、VehicleHandle generation 或
   lifecycle replacement 影响；replacement 继承同一 slot/rank。
 - canonical seed 固定为 0。需要选取精确 `N_presented` 比例时，从全部
@@ -412,16 +453,16 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
 - production runtime 不得识别 workload ID、seed、cell/route/vehicle ID 或
   选择结果来走专用路径。
 - 本文只冻结生成契约，不实现 benchmark harness。后续 harness 尚未输出并校验
-  manifest/digest 前，10k/100k 继续保持 `Product TBD / Uncertified`。
+  manifest/digest 前，一万/十万继续保持 `Product TBD / Uncertified`。
 
 ## 5. 硬件与平台角色
 
 | 角色                  | 当前基线                                                                                                                                                                | 用途与认证状态                                                       |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | R0 Research reference | MECHREVO JIAOLONG；AMD Ryzen 9 9955HX 16C/32T；61.68 GiB；Windows 11 Pro Insider Preview build 29617；平衡电源计划；`x86_64-pc-windows-msvc`；Rust 1.96.0 / LLVM 22.1.2 | 延续 #212 paired optimization 与 profiling；只产生 research evidence |
-| P10 Product minimum   | 具体设备/SKU、release OS、内存容量与数值内存上限均为 TBD                                                                                                                | 10k 产品 SLA 的最终认证平台；填入前保持 Uncertified                  |
-| P100 Scale reference  | 具体设备/SKU、release OS、内存容量与数值内存上限均为 TBD                                                                                                                | 100k 扩展目标的最终认证平台；填入前保持 Uncertified                  |
-| O1 1M observation     | 暂用 R0                                                                                                                                                                 | 只记录 observation，不形成产品 SLA                                   |
+| P10 Product minimum   | 具体设备/SKU、release OS、内存容量与数值内存上限均为 TBD                                                                                                                | 一万产品 SLA 的最终认证平台；填入前保持 Uncertified                  |
+| P100 Scale reference  | 具体设备/SKU、release OS、内存容量与数值内存上限均为 TBD                                                                                                                | 十万扩展目标的最终认证平台；填入前保持 Uncertified                   |
+| O1 一百万 observation | 暂用 R0                                                                                                                                                                 | 只记录 observation，不形成产品 SLA                                   |
 
 硬件和环境规则：
 
@@ -435,16 +476,16 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
 - 产品认证必须记录 AC/电池、厂商性能模式、Windows 电源计划、OS build、
   BIOS/firmware、CPU、内存配置和工具链。
 - 所有规模均报告 retained memory、working set、private bytes 与 commit peak。
-- P10/P100 未落实真实设备前，可以继续优化研究，但不得发布 10k/100k 产品 SLA。
+- P10/P100 未落实真实设备前，可以继续优化研究，但不得发布一万/十万产品 SLA。
 
 ## 6. Tick、frame budget 与责任边界
 
-| 层级           |         Core fixed step | Outer frame |    主 presentation | p95 budget                                                                                                          |
-| -------------- | ----------------------: | ----------: | -----------------: | ------------------------------------------------------------------------------------------------------------------- |
-| 10k baseline   |                   16 ms |       60 Hz | 100% `N_presented` | Core ≤ 2 ms/tick；Spatial+Adapter ≤ 4 ms/frame；普通单 tick integrated frame ≤ 6 ms                                 |
-| 100k scale     |                   33 ms |       60 Hz |  10% `N_presented` | Core ≤ 16 ms/tick；Spatial+Adapter ≤ 4 ms/frame；same-frame integrated p95 只 observation，> 16.667 ms 触发 #220 G1 |
-| 100k stretch   |                   16 ms |       60 Hz |  10% `N_presented` | Observation only，不作为当前产品 Gate                                                                               |
-| 1M observation | 不冻结 realtime cadence |      不冻结 |         按实验声明 | 无 realtime budget                                                                                                  |
+| 层级               |         Core fixed step | Outer frame |    主 presentation | p95 budget                                                                                                          |
+| ------------------ | ----------------------: | ----------: | -----------------: | ------------------------------------------------------------------------------------------------------------------- |
+| 一万 baseline      |                   16 ms |       60 Hz | 100% `N_presented` | Core ≤ 2 ms/tick；Spatial+Adapter ≤ 4 ms/frame；普通单 tick integrated frame ≤ 6 ms                                 |
+| 十万 scale         |                   33 ms |       60 Hz |  10% `N_presented` | Core ≤ 16 ms/tick；Spatial+Adapter ≤ 4 ms/frame；same-frame integrated p95 只 observation，> 16.667 ms 触发 #220 G1 |
+| 十万 stretch       |                   16 ms |       60 Hz |  10% `N_presented` | Observation only，不作为当前产品 Gate                                                                               |
+| 一百万 observation | 不冻结 realtime cadence |      不冻结 |         按实验声明 | 无 realtime budget                                                                                                  |
 
 16 ms 是 62.5 Hz，33 ms 约为 30.3 Hz；它们不是精确的 60/30 Hz。当前 Core 使用
 session-fixed integer-millisecond quantum，因此 60 Hz outer-frame accumulator 的
@@ -457,15 +498,15 @@ session-fixed integer-millisecond quantum，因此 60 Hz outer-frame accumulator
 - **Spatial+Adapter**：committed snapshot/materialization、pose extraction、mapping
   validation、Transform staging/apply。
 - **Renderer/host**：renderer、asset、animation 与 gameplay 不属于 LaneFlow
-  budget；10k 普通帧约保留 10.7 ms 给宿主。
+  budget；一万普通帧约保留 10.7 ms 给宿主。
 
 Core、Spatial 与 Adapter 必须在同一次 integrated run 中计时。不同版本、fixture
 或进程的历史 percentile 不得相加后冒充 integrated result。
 
-100k scale 的 Core 平均负载按 33 ms quantum/约 30 Hz cadence 折算约为
+十万 scale 的 Core 平均负载按 33 ms quantum/约 30 Hz cadence 折算约为
 8 ms/60 Hz outer frame；加 4 ms presentation 后平均约 12 ms。同步 tick frame 仍可
 接近 20 ms，因此当前单线程预算只证明 component compute target，不构成完整无卡顿
-60 FPS frame SLA。100k W1 same-frame integrated p95 明确为 observation-only：
+60 FPS frame SLA。十万 W1 same-frame integrated p95 明确为 observation-only：
 `1000 / 60` 按本契约取 16.667 ms，超过它不判 Product Fail，但在 #216/#217
 完成后释放第 10 节的 #220 G1 trigger；不得由 harness 自行选择把约 20 ms 解释为
 通过或忽略。
@@ -529,7 +570,7 @@ normalized_error = absolute_error / physical_budget
   exact，且整批提交失败原子。
 - selection、LOD、visibility 与 outer-frame batching 不改变 Core
   state/events/identity。
-- 100k/33 ms Core 可以在 60 Hz presentation 重复最新 committed snapshot。
+- 十万/33 ms Core 可以在 60 Hz presentation 重复最新 committed snapshot。
 - interpolation/extrapolation algorithm 与 visual smoothness tolerance 保持 TBD。
   独立 G1 前不得反写 authority，也不得读取未提交 candidate state。
 
@@ -551,8 +592,8 @@ Aggregate 不是当前 production candidate。若第 10 节触发独立 G1，必
 
 ### 8.1 运行矩阵与观察长度
 
-- 10k/100k：运行 W1–W4 全矩阵。
-- 1M：只运行明确声明的有限 observation。
+- 一万/十万：运行 W1–W4 全矩阵。
+- 一百万：只运行明确声明的有限 observation。
 - `H = 1024 ticks`；W1–W3 的 H/2H/4H 是正式 observation 内的强制 fidelity
   checkpoint。W4 使用冻结的两 tick event window，不适用 H/2H/4H。
 - 每个 case 先按实际 fixed step 和离散 phase 推进语义，计算其中最长完整 Signal
@@ -590,10 +631,10 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 - W1 p95：使用第 6 节预算。
 - 对具有 numeric Product p95 budget 的 W1 层级，p99 不得超过
   `1.5 × p95 budget`，max 不得超过 `2 × p95 budget`，且 Core max 不得超过
-  fixed quantum。100k same-frame integrated 没有 Product p99/max budget；它必须
+  fixed quantum。十万 same-frame integrated 没有 Product p99/max budget；它必须
   报告 p50/p95/p99/max，但只按 16.667 ms p95 判断 #220 G1 trigger。
-- 上述 W1 budget 只应用于各规模的 presentation Gate 主行：10k 为
-  `N_presented=100%`，100k 为 `N_presented=10%`。W1 的其他 presentation 行
+- 上述 W1 budget 只应用于各规模的 presentation Gate 主行：一万为
+  `N_presented=100%`，十万为 `N_presented=10%`。W1 的其他 presentation 行
   必须运行并报告，但只用于 observation/sensitivity，不能独立产生 Product
   Pass/Fail。
 - W2–W4 不直接套用 W1 绝对预算，但必须满足 hard invariants、无持续 backlog、
@@ -645,7 +686,7 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 | `Product TBD`     | 真实硬件或必要 tolerance 尚未定义                                        | 不得伪装为 Pass 或 No-go               |
 
 产品报告必须同时写明：规模五计数、workload、硬件角色、cadence、presentation
-比例、classification 与未决项。只给一个“支持 100k”的数字不符合本文契约。
+比例、classification 与未决项。只给一个“支持十万”的数字不符合本文契约。
 
 ## 10. 优化与架构升级触发
 
@@ -658,12 +699,12 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
    scaling、tail 或 correctness risk。
 4. exact-only 仍超预算，multi-rate candidate 通过 fidelity，且 integrated W1
    whole-step gain `≥ 5%`：新建 production multi-rate G1。
-5. #216/#217 完成后，100k Core p95 `> 17.600 ms`
-   （16 ms budget 的 10% 超幅），或 100k W1 same-frame integrated p95
+5. #216/#217 完成后，十万 Core p95 `> 17.600 ms`
+   （16 ms budget 的 10% 超幅），或十万 W1 same-frame integrated p95
    `> 16.667 ms`：进入 #220 parallel phase/partition G1。后者是架构研究触发，
    不是当前 Product Fail 或 60 FPS SLA 声明。
 6. identity-preserving single-thread、multi-rate、parallel 路径完成后，仍超过
-   P100 CPU/memory budget `≥ 25%`，或未来正式提出 1M realtime 产品要求：才允许
+   P100 CPU/memory budget `≥ 25%`，或未来正式提出一百万 realtime 产品要求：才允许
    aggregate/exact migration 独立 G1/ADR。
 7. hard invariant 或 failed-step atomicity 失败、只有 kernel 收益而 W1 integrated
    无收益，或收益依赖放宽 fidelity/safety、隐藏 catch-up、不可接受 retained
@@ -687,15 +728,15 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 TBD 是显式停止条件，不是可以用开发机推测值填补的空白。每项必须记录未决原因、
 禁止声明、解除触发和 owner。
 
-| TBD                                                          | 未决原因                              | 当前禁止的声明                                       | 解除触发                                         | Owner / 后续承载                      |
-| ------------------------------------------------------------ | ------------------------------------- | ---------------------------------------------------- | ------------------------------------------------ | ------------------------------------- |
-| P10 具体设备/SKU、release OS、内存与数值内存上限             | 尚未选定最低产品设备                  | 10k Product Pass / SLA                               | 设备确定并完成第 4–8 节 integrated certification | `wangzishi`；后续 certification Issue |
-| P100 具体设备/SKU、release OS、内存与数值内存上限            | 尚未选定 scale reference              | 100k Product Pass / SLA                              | 设备确定并完成第 4–8 节 integrated certification | `wangzishi`；后续 certification Issue |
-| Presentation interpolation/extrapolation 与 visual tolerance | 当前只冻结 committed sample exact     | 视觉平滑度 SLA、插值误差承诺                         | 独立 G1 冻结算法、authority 与容差               | `wangzishi`；独立 design Issue        |
-| Aggregate model 与非守恒数值 tolerance                       | Aggregate 尚未触发，也未选择模型      | aggregate fidelity、1M realtime 或无损 identity 声明 | 第 10 节 trigger 满足并完成独立 G1/ADR           | `wangzishi`；未来 aggregate Issue     |
-| Linux/macOS/Web/mobile 平台基线                              | 当前只有 Windows x86-64 R0            | 对这些平台外推 10k/100k SLA                          | 每个平台分别确定硬件/runtime 并运行完整适用协议  | `wangzishi`；平台专用 Issue           |
-| 真实路网 converter、Release 制品、harness 与结果             | #224 已冻结设计，但尚未交付可执行链路 | real-road Product Pass、真实城市 workload SLA        | #224 G4 后的 A–C 完成制品、harness 与对应证据    | `wangzishi`；#224 与下游 A–C          |
-| 中国特色城市拓扑/需求/运行时工作负载                         | 尚未完成独立 G1 与工作负载 ID         | 中国特色城市代表性或 Product Pass                    | 冻结场景、来源、规模、摘要、harness 与硬件证据   | `wangzishi`；后继城市工作负载 Issue   |
+| TBD                                                          | 未决原因                              | 当前禁止的声明                                           | 解除触发                                         | Owner / 后续承载                      |
+| ------------------------------------------------------------ | ------------------------------------- | -------------------------------------------------------- | ------------------------------------------------ | ------------------------------------- |
+| P10 具体设备/SKU、release OS、内存与数值内存上限             | 尚未选定最低产品设备                  | 一万 Product Pass / SLA                                  | 设备确定并完成第 4–8 节 integrated certification | `wangzishi`；后续 certification Issue |
+| P100 具体设备/SKU、release OS、内存与数值内存上限            | 尚未选定 scale reference              | 十万 Product Pass / SLA                                  | 设备确定并完成第 4–8 节 integrated certification | `wangzishi`；后续 certification Issue |
+| Presentation interpolation/extrapolation 与 visual tolerance | 当前只冻结 committed sample exact     | 视觉平滑度 SLA、插值误差承诺                             | 独立 G1 冻结算法、authority 与容差               | `wangzishi`；独立 design Issue        |
+| Aggregate model 与非守恒数值 tolerance                       | Aggregate 尚未触发，也未选择模型      | aggregate fidelity、一百万 realtime 或无损 identity 声明 | 第 10 节 trigger 满足并完成独立 G1/ADR           | `wangzishi`；未来 aggregate Issue     |
+| Linux/macOS/Web/mobile 平台基线                              | 当前只有 Windows x86-64 R0            | 对这些平台外推一万/十万 SLA                              | 每个平台分别确定硬件/runtime 并运行完整适用协议  | `wangzishi`；平台专用 Issue           |
+| 真实路网 converter、Release 制品、harness 与结果             | #224 已冻结设计，但尚未交付可执行链路 | real-road Product Pass、真实城市 workload SLA            | #224 G4 后的 A–C 完成制品、harness 与对应证据    | `wangzishi`；#224 与下游 A–C          |
+| 中国特色城市拓扑/需求/运行时工作负载                         | 尚未完成独立 G1 与工作负载 ID         | 中国特色城市代表性或 Product Pass                        | 冻结场景、来源、规模、摘要、harness 与硬件证据   | `wangzishi`；后继城市工作负载 Issue   |
 
 后续 Issue 可以接管某个 TBD，但在长期文档更新前，原 claim restriction 继续有效。
 
@@ -708,7 +749,7 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
   使用本文 workload、budget 与 classification 作为研究输入，但不能自行宣称产品
   certification。
 - 本文交付后，#220 不再把 #215 视为未完成 blocker；它仍等待 #216/#217，且只有
-  第 10 节的 100k Core/host-frame trigger 满足后才允许进入 G1。
+  第 10 节的十万 Core/host-frame trigger 满足后才允许进入 G1。
 - #220 必须继续保持 strong-individual identity、route/horizon-driven read-only
   halo，以及把跨区 leader chain/cycle 合并为 logical dependency graph 后全局求解
   的约束；不得用固定宽度 halo 或 partition-local projection 改写 safety semantics。

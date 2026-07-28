@@ -1,6 +1,6 @@
 ---
 name: laneflow-adapter
-description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用于 Unity、Unreal、Godot、O3DE、Web、当前 Core/目标 Traffic Runtime 集成、变换（Transform）同步、引擎生命周期、车辆表现、调试可视化、细节层次（LOD）与 Adapter API 变更。
+description: 处理 LaneFlow 引擎适配器（Engine Adapter）工作。适用于 Unity、Unreal、Godot、O3DE、Web、当前 Core/目标 Traffic Runtime 集成、变换（Transform）同步、引擎生命周期、当前车辆/目标交通参与单元表现、调试可视化、细节层次（LOD）与 Adapter API 变更。
 ---
 
 # LaneFlow 引擎适配器（Engine Adapter）
@@ -27,6 +27,9 @@ Adapter 的契约，应先提出 G1 设计缺口或创建最小设计基线。
 - 当前态动态执行层使用 `LaneFlow Core` / `laneflow-core` / `CoreWorld`。
 - #291 目标态使用中文规范名“LaneFlow 交通运行时（LaneFlow Traffic Runtime）”及
   精确标识符 `laneflow-runtime` / `TrafficWorld`。
+- 当前 Adapter API 是 `VehicleHandle`/Entity 车辆特化；目标通用表现使用交通参与
+  单元并按交通执行域区分。不得把当前车辆映射写成终态唯一 Adapter 模型，也不得用
+  通用术语声称尚未实现的非机动车、行人或轨道表现能力。
 - 中文术语和中文定义以 `docs/reference/glossary.md` 为权威；英文只作辅助理解，
   类型、crate、字段和引擎 API 保留精确原文。
 
@@ -38,7 +41,7 @@ Adapter 负责：
 - 调用当前 Core / 目标 Traffic Runtime 的固定步进（Fixed Tick）
 - actor、entity、prefab 或 scene object 绑定
 - transform 同步
-- 车辆模型与动画绑定
+- 当前车辆模型与动画绑定，以及未来已实现执行域的参与单元表现绑定
 - 调试可视化
 - LOD 与渲染集成
 - 示例场景集成

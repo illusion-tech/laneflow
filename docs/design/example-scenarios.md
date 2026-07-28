@@ -16,7 +16,7 @@ protected-turning 制品、启动配置、人口和车辆回流入口
 - [`signalized-corridor-population.md`](signalized-corridor-population.md)：走廊
   `50..=200` caller-owned reference policy。
 - [`lust-bevy-population-control.md`](lust-bevy-population-control.md)：LuST/Bevy
-  示例层 1–10k 调节契约（#256）；**不**扩展本走廊人口上限，也不把 LuST 滑杆语义
+  示例层 1–一万调节契约（#256）；**不**扩展本走廊人口上限，也不把 LuST 滑杆语义
   写回本文件。
 - [`real-road-workloads.md`](real-road-workloads.md)：LuST static / TOPO / DEMAND
   权威。

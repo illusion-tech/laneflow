@@ -47,7 +47,7 @@ Waiting runtime、Conflict/Spatial、policy/arbiter 与组合验证尚未生产�
 - jurisdiction/compliance policy 的版本、有效区间、证据输入与可审计来源；
 - signal、regulatory、conflict、leader/safe-speed/no-overlap 的约束组合顺序；
 - validation first-error、event total order、失败原子性、replay determinism 与
-  10k/100k 性能门槛；
+  一万/十万性能门槛；
 - Core/Data/Spatial/Adapter/API/schema/fixtures 影响矩阵与后续实施切片。
 
 ### 1.2 当前 production 基线
@@ -73,8 +73,8 @@ Waiting runtime、Conflict/Spatial、policy/arbiter 与组合验证尚未生产�
 - initial/dynamic Route 注册时已编译 `ManeuverOccurrence`、`GateOccurrence`、
   `WaitingZoneOccurrence`、next Gate/exit boundary 与 empty-storage route-distance
   operands，steady tick 不匹配 path，也不缓存未经证明的累计 `f64`；
-- #281 G3 retained-memory 测量对 10k/100k repeated maneuver occurrences 分别
-  编译 30k/300k Gate occurrences 与 20k/200k Waiting occurrences；三类 route
+- #281 G3 retained-memory 测量对一万/十万 repeated maneuver occurrences 分别
+  编译三万/三十万 Gate occurrences 与两万/二十万 Waiting occurrences；三类 route
   metadata retained bytes 为 `4,849,664` / `55,574,528`，比例 `11.4595x`，
   通过 `<= 12x` 线性门槛；WaitingRegistry retained bytes 在两档均为 `516`；
 - profile-route-cursor 绑定先执行现有 Access validation，再对 release Gate 尚未越过
@@ -722,7 +722,7 @@ yellow 的 committed 解释不反向改变 steady-phase authoring 结论。
 ### 7.2 Gate evaluation frontier 与 arbitration candidate
 
 `Gate evaluation frontier` 包含 next Gate occurrence 已进入本 tick lookahead 的全部
-Active vehicles，不能因 Waiting full、downstream storage 不足或 request 无法构造就
+道路活动车辆，不能因 Waiting full、downstream storage 不足或 request 无法构造就
 从 latest-decision observation 中消失：
 
 - regulatory decision 为 `DenyAndStop` 时记录 `NotEvaluated`，并保留 GateStop；
@@ -1478,7 +1478,7 @@ Route registration 对每个 occurrence 一次性编译：
 - scratch 可随 high-water mark 扩容，但同一容量 steady tick 零 allocation；
 - 禁止 HashMap iteration 决定 winner/event order。
 
-### 11.4 10k/100k guard
+### 11.4 一万/十万 guard
 
 后续 production 必须新增 deterministic benchmark topology，至少包含：
 
@@ -1497,14 +1497,15 @@ Route registration 对每个 occurrence 一次性编译：
 - WaitingZone 同 tick capacity/storage contention、unused admission expiry 与
   staged leave 不返还 capacity；
 - repeated Route/Maneuver occurrence；
-- 10k active vehicles 与 100k research scale。
+- 当前道路机动车执行域 `N_active=10000` 与 `N_active=100000` 的 research
+  observation；不外推为其他执行域能力。
 
 门槛：
 
-- 10k conflict/waiting 增量 phase：p95 目标 `<= 1 ms/tick`，硬门槛
+- 一万 conflict/waiting 增量 phase：p95 目标 `<= 1 ms/tick`，硬门槛
   `<= 4 ms/tick`（项目 baseline hardware/protocol 下）；
-- 10k steady state：hot-path allocation count = 0；
-- 100k/10k elapsed scaling ratio `<= 20x`，并报告 retained bytes/vehicle、
+- 一万 steady state：hot-path allocation count = 0；
+- 十万/一万 elapsed scaling ratio `<= 20x`，并报告 retained bytes/vehicle、
   bytes/zone、candidate count、static passage cell count、frontier contribution
   count、visited forward passages/active vehicle、top-two frontier bytes、Waiting/
   downstream claim count/collision count、downstream-clearance query count/visited
@@ -1845,8 +1846,8 @@ Adapter 不得移动 authoritative progress、修改 queue order、授予 reserv
 - dynamic Route/occurrence 数增长只增加 occurrence metadata/contribution visits，
   不增加 static frontier cell count；
 - no hot string lookup/hash iteration；
-- 10k p95/hard budget、zero allocation；
-- 100k scaling/retained memory、forward-passage visits 与 clearance-boundary visits；
+- 一万 p95/hard budget、zero allocation；
+- 十万 scaling/retained memory、forward-passage visits 与 clearance-boundary visits；
 - debug/release profile and benchmark hardware evidence。
 
 ## 17. 后续实施切片
@@ -1867,7 +1868,7 @@ G0-G4 与元数据审计：
    rules、gap profile、top-two forward approach frontier、downstream-clearance
    guard、single-writer claim ledger、candidate/grant/reservation、失败原子性。
 5. **#285 cross-layer validation/performance**：canonical fixtures、Data
-   round-trip、Adapter observation、10k/100k、独立 closure review。
+   round-trip、Adapter observation、一万/十万、独立 closure review。
 
 切片顺序建议：
 
@@ -1922,6 +1923,6 @@ Data/Spatial/Core/Adapter 契约、确定性与性能。
 13. steady tick 不做 external-ID/path/geometry catalog scan 或 per-vehicle allocation；
 14. current Traffic v0.10 `AccessRegistry`/`AccessCell` 是静态准入唯一 SSOT；
     route binding 已拒绝 static deny，#281 不复制求值器或修改已发布 v0.9；
-15. implementation 必须以独立切片和 10k/100k 证据推进，#235 本身不生产化。
+15. implementation 必须以独立切片和一万/十万证据推进，#235 本身不生产化。
 
 #235 G1 已接受本文设计输入；本文仍不授权 production 实现，后续各实现切片必须独立完成 G0-G4。

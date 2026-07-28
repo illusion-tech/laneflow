@@ -30,11 +30,11 @@ LaneFlow 在首个 Engine Adapter 前需要冻结交通状态、道路几何和�
 
 把 Core 全量改成 `f32` 可能缩小 hot state，但也会改变当前接近“全部有限 `f64`”的公共输入范围、错误 payload、JSON normalization、edge boundary、route total、控制器与累计语义。把 `f16` 用于 authority 会进一步引入明显量化误差。另一方面，永远把大世界绝对坐标直接 cast 到宿主 `f32` 也会在 Adapter 端丢失可见精度。因此数值选择必须按 authority、累计、局部表示和 presentation 分层，而不是按“整个项目只用一种 float”处理。
 
-#122 在 commit `a001b5b2d567a172fcaa462e44ed70863fb6f774` 建立了不进入 production Core 的 f64/raw-f32/compensated-f32/mixed 候选模型。f64 模型先在 legacy/locality 两种布局、free-flow/dense/stop-and-go 三类场景与 production Core 逐 tick 对齐，再用于 10k/100k 差分、Criterion、长时累计、layout memory 和量化研究。详细限制与原始结果由 validation 文档保存。
+#122 在 commit `a001b5b2d567a172fcaa462e44ed70863fb6f774` 建立了不进入 production Core 的 f64/raw-f32/compensated-f32/mixed 候选模型。f64 模型先在 legacy/locality 两种布局、free-flow/dense/stop-and-go 三类场景与 production Core 逐 tick 对齐，再用于一万/十万差分、Criterion、长时累计、layout memory 和量化研究。详细限制与原始结果由 validation 文档保存。
 
 ## 2026-07-18 后续复核状态
 
-#140 发现本 ADR 使用的旧 compensated f32 候选只在累加时保存 residual（补偿残差），但 leader gap、edge remaining、boundary 和 snapshot 仍只读取 high component。补全 residual-aware 读语义后，研究模型在 5 种 edge 布局、3 种 10k 场景和 100k dense observation 中通过原严格预算且无离散分歧；同轮 Criterion 中相对 f64 快约 2.4%–7.1%，候选 retained hot layout 为 `88 B/vehicle`，相对 f64 的 `128 B/vehicle` 低 31.25%。
+#140 发现本 ADR 使用的旧 compensated f32 候选只在累加时保存 residual（补偿残差），但 leader gap、edge remaining、boundary 和 snapshot 仍只读取 high component。补全 residual-aware 读语义后，研究模型在 5 种 edge 布局、3 种一万场景和十万 dense observation 中通过原严格预算且无离散分歧；同轮 Criterion 中相对 f64 快约 2.4%–7.1%，候选 retained hot layout 为 `88 B/vehicle`，相对 f64 的 `128 B/vehicle` 低 31.25%。
 
 因此，本 ADR 的以下证据前提已被 #140 推翻：
 
@@ -111,11 +111,11 @@ Spatial heading/basis canonicalization 继续由 #123 拥有。target-f32 的九
 
 ## 证据摘要
 
-- f64 研究模型在 10k、两种布局和三类 Vehicle Following 场景中与 production Core 的离散事件及连续状态通过逐 tick 对齐。
-- #122 的旧 raw/compensated f32 在 10k 的密集或启停场景超过 speed/acceleration budget；legacy free-flow 的 progress drift 分别达到约 `4.951 m` / `0.125 m`。这些数字是历史候选结果，不代表完整 residual-aware 语义。
-- #122 的 mixed `f32 compute + f64 progress` 在全部 10k 组合及 100k dense observation 中满足当前 ceiling；历史 Criterion median 相对同布局 f64 慢约 `3.79%..38.65%`。
-- #140 的 residual-aware f32 在 5 种 edge 布局、3 种 10k 场景和 100k dense observation 中通过相同严格 ceiling，且无离散分歧；100k dense 最大 progress/speed/acceleration 绝对误差分别约为 `0.000000249 m`、`0.000000608 m/s`、`0.000007241 m/s²`。
-- #140 同轮 Criterion 中，10 km cap 的 residual-aware f32 相对 f64 在 10k free/dense/stop 分别快约 2.4%/5.8%/5.0%，100k dense 快约 7.1%。这是 research-only scalar model 证据，不是完整 production 收益承诺。
+- f64 研究模型在一万、两种布局和三类 Vehicle Following 场景中与 production Core 的离散事件及连续状态通过逐 tick 对齐。
+- #122 的旧 raw/compensated f32 在一万的密集或启停场景超过 speed/acceleration budget；legacy free-flow 的 progress drift 分别达到约 `4.951 m` / `0.125 m`。这些数字是历史候选结果，不代表完整 residual-aware 语义。
+- #122 的 mixed `f32 compute + f64 progress` 在全部一万组合及十万 dense observation 中满足当前 ceiling；历史 Criterion median 相对同布局 f64 慢约 `3.79%..38.65%`。
+- #140 的 residual-aware f32 在 5 种 edge 布局、3 种一万场景和十万 dense observation 中通过相同严格 ceiling，且无离散分歧；十万 dense 最大 progress/speed/acceleration 绝对误差分别约为 `0.000000249 m`、`0.000000608 m/s`、`0.000007241 m/s²`。
+- #140 同轮 Criterion 中，10 km cap 的 residual-aware f32 相对 f64 在一万 free/dense/stop 分别快约 2.4%/5.8%/5.0%，十万 dense 快约 7.1%。这是 research-only scalar model 证据，不是完整 production 收益承诺。
 - 36,000 tick constant-addition 中 raw f32 在 `30 m/s` 下误差约 `8.566 m`；mixed 的误差约 `0.000386 m`。
 - 研究模型 retained layout 为 f64 `128 B/vehicle`、raw f32 `80 B`、compensated/mixed `88 B`。这是 scalar candidate vectors 的布局差，不是完整 Core 的已实现内存收益；production 扩展 accountant 仍为 `789.21 B/live vehicle`。
 - binary16 最大 round-trip error：progress `4 m`、speed `0.03125 m/s`、extent/offset `0.03125 m`、heading `0.0009765625 rad`，均超过相应 ceiling。
@@ -134,7 +134,9 @@ Spatial heading/basis canonicalization 继续由 #123 拥有。target-f32 的九
 - 当前 Core hot vectors 不获得候选模型中约 31%–38% 的局部 layout 缩减；整体内存优化仍需从容器、scratch 生命周期、分区和 workload locality 寻找证据。
 - f64-to-local-f32 conversion 需要显式 batch API、origin 生命周期、range diagnostics 和全批次失败语义。
 - #123 仍需冻结 canonical/local frame、geometry representation、length consistency 和 sampling API；本 ADR 只冻结数值角色，不替代空间设计。
-- 保持 `f64` 不解决 #72 的 active-agent partition、多频率或 mesoscopic 扩展问题；presentation LOD 也不能替代 Core fidelity 分层。
+- 保持 `f64` 不解决 #72 的交通参与单元按执行域分区、多频率或中观
+  （Mesoscopic）扩展问题；当前证据仍只覆盖道路机动车执行域；
+  presentation LOD 也不能替代 Core fidelity 分层。
 
 ## 替代方案
 
@@ -160,7 +162,7 @@ binary16 在多数关键域直接超过误差 ceiling；整数格式需要领域
 
 ## 实施与复核
 
-- #122：交付 inventory、误差预算、10k/100k runtime/memory、f64 oracle、f16/quantization、ADR 与跨层迁移判断。
+- #122：交付 inventory、误差预算、一万/十万 runtime/memory、f64 oracle、f16/quantization、ADR 与跨层迁移判断。
 - #140：复核 edge 上界、修复 compensated candidate 的 residual-aware 读语义、保存 argmax provenance，并证明旧的唯一候选/无性能收益前提失效。
 - #123：在本 ADR 上冻结 Spatial canonical/local frame、f64 geometry authority、length consistency、sampling 与 checked presentation 输入。
 - G1 后拆分独立 Issue：领域 epsilon/validation、Data/API migration audit、长期 numeric validation/performance 和 #122 closure review。

@@ -104,7 +104,13 @@ cargo +1.96.0 run -p laneflow-bevy --example native_reference --features native-
 cargo +1.96.0 check --locked -p laneflow-bevy --example signalized_corridor --example native_reference --features native-example
 ```
 
-校园 headless E2E 与 10k/100k 专项验证由 #171 交付；固定机验证协议、逐轮数据与适用边界见 `../../docs/reference/v0.7-bevy-validation.md` 和 `../../docs/reference/v0.7-bevy-performance-evidence.json`。#172 的静态 smoke 只验证 debug Gizmos；#173 的 native example 才覆盖真实制品加载、Core 驱动移动、frame-root、映射和完整 window/render 演示。#173 的本机证据见 `../../docs/reference/v0.7-bevy-native-example-validation.md`，v0.7 的最终收口基线见 `../../docs/reference/v0.7-bevy-closure-review.md`。
+校园 headless E2E 与一万/十万专项验证由 #171 交付；固定机验证协议、逐轮数据与适用
+边界见 `../../docs/reference/v0.7-bevy-validation.md` 和
+`../../docs/reference/v0.7-bevy-performance-evidence.json`。#172 的静态 smoke 只验证
+debug Gizmos；#173 的 native example 才覆盖真实制品加载、Core 驱动移动、
+frame-root、映射和完整 window/render 演示。#173 的本机证据见
+`../../docs/reference/v0.7-bevy-native-example-validation.md`，v0.7 的最终收口基线见
+`../../docs/reference/v0.7-bevy-closure-review.md`。
 
 ## Signalized corridor native example
 

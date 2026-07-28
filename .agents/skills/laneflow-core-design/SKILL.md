@@ -1,6 +1,6 @@
 ---
 name: laneflow-core-design
-description: 处理 LaneFlow 当前态核心运行时（Current Core Runtime）与目标态交通运行时（Target Traffic Runtime）设计。适用于确定性固定步进（Tick）、车辆状态（Vehicle State）、车道图（Lane Graph）、路线（Route）、跟车（Vehicle Following）、信号（Signal）、路口规则（Intersection Rules）、停车（Parking）、确定性并行、路网修订、快照/回放、路径规划接入，以及 Core/Runtime API 变更。
+description: 处理 LaneFlow 当前态核心运行时（Current Core Runtime）与目标态交通运行时（Target Traffic Runtime）设计。适用于当前道路机动车的车辆状态（Vehicle State）、车道图（Lane Graph）、路线（Route）、跟车（Vehicle Following）、信号（Signal）、路口规则（Intersection Rules）与停车（Parking），以及目标交通参与单元（Traffic Participant Unit）、交通执行域（Traffic Execution Domain）、确定性固定步进（Tick）/并行、路网修订、快照/回放、路径规划接入和 Core/Runtime API 变更。
 ---
 
 # LaneFlow 交通运行时设计（Traffic Runtime Design）
@@ -38,17 +38,17 @@ Skill 标识符（Skill ID）`laneflow-core-design` 在 #291 生产切换 G4 前
 
 ## 动态执行层边界
 
-当前 Core / 目标 Traffic Runtime 负责：
+当前 Core 只实现道路机动车车辆特化，负责：
 
-- 车辆运行时状态
-- 车道图遍历
-- 路线跟随
-- 前车避让
-- 信号遵守
-- 路口规则
-- 停车行为
+- `VehicleState`、车道图遍历、Route 跟随与前车避让
+- 信号遵守、路口规则和停车行为
 - 引擎无关的固定步进（Fixed Tick）行为
-- 每世界可变状态、运行时执行计划、路网修订绑定和动态 Route validation
+
+目标 Traffic Runtime 使用交通参与单元（Traffic Participant Unit）作为长期通用
+抽象，并按交通执行域（Traffic Execution Domain）分离网络、运动/安全求解和生命
+周期。它负责已实现执行域的参与单元、动态通行定义、每世界可变状态、运行时执行
+计划和路网修订绑定。当前车辆能力不能被写成终态唯一参与者模型，通用术语也不能
+反向声称非机动车、行人或轨道执行域已经实现。
 
 当前 Core / 目标 Traffic Runtime 不得依赖：
 
@@ -71,6 +71,8 @@ Skill 标识符（Skill ID）`laneflow-core-design` 在 #291 生产切换 G4 前
 - 是否错误地让静态 / 共享契约留在动态运行时包（crate），或让编译器 / 验证器
   （Compiler / Validator）依赖当前核心对象图（Current Core Object Graph）？
 - 是否把城市经济、出行需求、路线选择策略或游戏规则错误放进 Traffic Runtime？
+- 是否把当前 `VehicleState`、Route、道路 occupancy 或 Parking 特化错误提升为
+  所有交通参与单元的终态公共基类，或把 `ParticipantClass` 当成执行域/行为能力？
 - 是否把最终分区/工作线程（Partition/Worker）写入共享镜像，或让分区切分
   （Partition Cut）增加一 tick 延迟、改变已提交状态/事件？
 - 是否区分不可变路网修订、每世界 runtime snapshot 与可重建执行计划？

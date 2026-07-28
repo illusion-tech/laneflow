@@ -784,8 +784,8 @@ Input arrays 是 normalization order。Permutation 后：
 
 #229 至少提供：
 
-- 10k fixed-tick functional/performance smoke；
-- 100k scaling observation；
+- 一万 fixed-tick functional/performance smoke；
+- 十万 scaling observation；
 - empty topology、无 occurrence、dense protected occurrences 的对照；
 - allocation instrumentation，证明 steady tick 无新增 per-vehicle 临时分配；
 - catalog 扩大但车辆 Route 不变时，steady tick 不随 catalog 线性增长；
@@ -947,7 +947,7 @@ PR + final Delivery PR 的两阶段流程，但 Issue/PR 必须显式记录，�
 - flat storage/member/path iterator 零分配；
 - route compiler candidate index 无全 catalog scan；
 - empty/no-occurrence fast path；
-- 10k/100k scaling；
+- 一万/十万 scaling；
 - steady tick allocation；
 - catalog-scale independence；
 - input/command replay determinism。

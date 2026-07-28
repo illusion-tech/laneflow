@@ -193,8 +193,10 @@ compiler 唯一负责静态网络的：
 
 ### 4.3 运行时权威（Runtime Authority）
 
-- Traffic Runtime：fixed tick、vehicle、dynamic Route lifecycle、controller clock、grant/
-  reservation、parking occupancy、每世界运行时执行计划和所有可变交通状态；
+- Traffic Runtime：固定步进（Fixed Tick）、已实现执行域的交通参与单元、动态通行
+  定义（Dynamic Traversal Definition）生命周期、控制器时钟（Controller Clock）、
+  授权/预约（Grant/Reservation）、停驻占用（Stationary Occupancy）、每世界
+  运行时执行计划和所有可变交通状态；
 - Spatial：canonical geometry sampling 与 pose batch；
 - Adapter：宿主 entity、Transform、frame placement、presentation lifecycle；
 - static image：只读静态事实，不持有可变 authority。
@@ -202,12 +204,13 @@ compiler 唯一负责静态网络的：
 ### 4.4 城市游戏、出行编排与路径规划权威
 
 - 城市模拟游戏层拥有人口、经济、土地利用、建筑、任务与游戏规则；
-- 出行与交通编排层拥有出行需求、出发时刻、车辆生成、目的地、人口生命周期和
+- 出行与交通编排层拥有出行需求、出发时刻、参与单元生成、目的地、人口生命周期和
   路线选择策略；
 - Traffic Runtime 从已提交状态导出交通观测快照，不拥有全局路径成本政策；
 - 路径规划/出行编排层结合静态路网、已提交交通观测、收费、游戏政策与偏好构造
-  动态成本快照并生成候选路径，不在车辆 fixed-tick 热路径执行全图寻路；
-- Traffic Runtime 只裁决车辆如何按静态规则和已提交动态状态安全推进。
+  动态成本快照并生成候选路径，不在交通参与单元 fixed-tick 热路径执行全图寻路；
+- Traffic Runtime 只裁决交通参与单元如何按所属执行域的静态规则和已提交动态状态
+  安全推进。
 
 具体 routing crate/API 不属于 #291 的 closed contract，但这些权威边界不得被
 compiler、Adapter 或 scenario policy 绕过。
@@ -416,6 +419,13 @@ required tags 必须按数值严格递增编码：
 |           21 | `VehicleProfile`       | 声明（Declaration）                   | `vehicle-profile`   | `1,31`                    |
 |           22 | `StaticRoute`          | 声明（Declaration）                   | `static-route`      | `1,32`                    |
 |           23 | `CanonicalFrame`       | 声明（Declaration）                   | `canonical-frame`   | `1,33`                    |
+
+本表冻结的是 identity v1 已进入当前车辆 projection 的实体集合，不是目标 Traffic
+Runtime 永久封闭的参与单元种类表。`VehicleProfile` 与 `StaticRoute` 只服务当前
+道路机动车执行域；未来非机动车、步行或轨道执行域若需要不同的运行参数配置
+（Runtime Parameter Profile）或通行定义，必须由其 G1 登记新的实体种类/标签
+（Entity Kind/Tag）和约束，不得把非车辆参数塞进
+`VehicleProfile`，也不得复用 `ParticipantClass` 冒充执行域或行为能力。
 
 所有真实父子关系都使用父实体 `StableId128`，不得把父实体仅在其来源模块内稳定的
 裸局部键复制进子实体 tuple。这样跨模块引用、同名父实体和重新归属都由父实体完整
@@ -736,13 +746,17 @@ format、image layout 和 compiler type 必须移出 runtime crate。当前 prod
 
 `TrafficWorld` 借用或共享 `StaticTrafficView`，只分配：
 
-- vehicles 与 route generations；
+- 已实现执行域的交通参与单元与动态通行定义代际（Dynamic Traversal
+  Generations）；
 - controller clocks/indications；
 - grant/reservation/waiting/parking occupancy；
 - command/event/snapshot buffers；
 - dynamic Route occurrence metadata；
 - world identity、输入命令游标、当前路网修订绑定；
 - 每世界运行时执行计划、边界交换缓冲与调度统计。
+
+当前首个 projection 仍使用 vehicles、dynamic Route 与 parking occupancy；这些
+current specialization 不得反向冻结终态 Traffic Runtime 的参与单元或执行域模型。
 
 人口、Routing 和游戏规则的 seed/随机流属于 caller/出行编排层，不进入
 `TrafficWorld` 隐藏状态。只有后续 G1 显式授予的 Runtime 自有随机流才成为每世界
@@ -833,9 +847,10 @@ image header 的可选自证字段。
 
 运行世界只在显式 fixed-tick 安全边界执行失败关闭的镜像切换事务。未变化实体通过
 旧/新可信镜像的 `StaticIdentityIndex` 重建 StableId128 ↔ typed ordinal 映射；
-删除、重接或语义改变的路段必须按受信任语义差异迁移或终止其 vehicle、dynamic
-Route、parking、reservation 和 controller 状态。任一完整性条件无法证明时，旧
-修订继续生效。临时封闭等不改变静态身份/拓扑的状态由后续 G1 冻结的 runtime
+删除、重接或语义改变的网络元素必须按受信任语义差异迁移或终止其交通参与单元、
+动态通行定义、停驻/预约和控制器状态。当前道路机动车执行域仍具体表现为车辆、
+动态路线和停车。任一完整性条件无法证明时，旧修订
+继续生效。临时封闭等不改变静态身份/拓扑的状态由后续 G1 冻结的 runtime
 overlay/command 承担。
 
 运行时若消费语义差异，image 外部的版本化
@@ -882,11 +897,11 @@ input-command cursor
 runtime-owned random-stream state (future explicit G1 only)
 ```
 
-快照包含全部每世界可变交通状态。动态 Route、车辆和其他运行时实体以快照局部标识
-保存引用关系，动态 Route 还保存可重建的稳定静态实体引用/规范定义；原进程的
-runtime handle、slot、generation、partition 或 worker assignment 不能成为恢复后
-身份或跨硬件行为权威。跨路网修订恢复必须显式迁移，不能把旧 dense ordinal 直接
-解释为新镜像实体。
+快照包含全部每世界可变交通状态。动态通行定义、交通参与单元和其他运行时实体以
+快照局部标识保存引用关系；当前 dynamic Route 或未来执行域的等价通行定义还保存
+可重建的稳定静态实体引用/规范定义。原进程的 runtime handle、slot、generation、
+partition 或 worker assignment 不能成为恢复后身份或跨硬件行为权威。跨路网修订
+恢复必须显式迁移，不能把旧 dense ordinal 直接解释为新镜像实体。
 
 `canonicalArtifactDigest` 与 `networkRevision` 是同修订恢复的静态语义权威；
 `originStaticImageDigest` 记录创建快照时的精确 target/profile image，供审计和
@@ -906,8 +921,9 @@ phase、实体与资源组件。快照线格式、摘要算法和诊断裁剪由
 
 Traffic Runtime 从已提交状态导出已提交交通观测快照，不泄漏 tick 中间提案，也不
 拥有全局成本政策。路径规划/出行编排层结合静态网络、观测、收费、游戏政策与偏好
-构造版本化动态成本快照，返回可由 Runtime 注册/验证的候选路线；不得在每车辆
-fixed-tick 内全图寻路。成本快照和候选路线必须绑定路网修订、观测 tick 与成本模型
+构造版本化动态成本快照，返回可由 Runtime 注册/验证的候选通行定义；不得在每个
+交通参与单元的 fixed-tick 内全图寻路。当前车辆域使用 Route，未来执行域由其 G1
+冻结等价通行定义。成本快照和候选通行定义必须绑定路网修订、观测 tick 与成本模型
 版本；Runtime 对 revision mismatch 失败关闭，允许多旧的观测由 Routing G1 冻结。
 出行需求和路线选择策略属于城市游戏或出行编排层。#291 只冻结该职责边界，不提前
 冻结 `laneflow-routing` crate、算法或公共 API。
@@ -957,11 +973,7 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
   desynchronization diagnostics；
 - startup wall time、peak allocation、retained static memory；
 - multi-world shared-static memory；
-- 10k/100k Traffic Runtime tick 与 Spatial pose；
-- 城市级 1M 实体离线编译 / 镜像构建基线（1M Entity Offline Compile /
-  Image-build Baseline）；该证据由编译器路线的后继实现切片建立，作为 #72 运行时
-  扩展研究（Runtime Scalability Research）的静态 / 离线输入（Static / Offline
-  Input），不归入 #72 的活动代理运行时（Active-agent Runtime）交付范围。
+- 一万/十万 Traffic Runtime tick 与 Spatial pose；
 
 ## 11. 版本、发布与供应链
 
@@ -1045,9 +1057,8 @@ authority。
 - 2/8/32 worlds 的 shared-static scaling；
 - 单个大型 world 的 worker/partition scaling、barrier、边界交换和负载偏斜；
 - 镜像切换的准备/提交/回收耗时、双修订峰值内存与借用 token 退休延迟；
-- 10k/100k Traffic Runtime 与 Spatial 既有上限不得回退；
-- dynamic Route compilation 不进入 vehicle tick；
-- 1M entity offline compile、incremental rebuild 和 image emission；
+- 一万/十万 Traffic Runtime 与 Spatial 既有上限不得回退；
+- 动态通行定义编译（Dynamic Traversal Compilation）不进入交通参与单元固定步进；
 - 中国特色城市工作负载（Chinese-style City Workload）的拓扑/需求/运行时指标由
   后继 G1 建立，不能用 `LF-SYNTH-v1`、LuST 或多世界集合静默代替；
 - target-specific SIMD/alignment 候选相对 portable/common layout 的收益。
@@ -1093,7 +1104,7 @@ laneflow-adapter-* ------> laneflow-static-image
 | `laneflow-static-image`    | 镜像 ABI、节 / 配置档、有界结构校验器（Bounded Verifier）、借用视图（Borrowed Views）               | 编译器、验证器、运行时（Runtime）、空间层（Spatial）                |
 | `laneflow-compiler`        | 前端、中间表示、编译遍、主发射器、源映射 / 语义差异                                                 | 当前态数据 / 核心对象图（Current Data / Core Object Graph）         |
 | `laneflow-validator`       | 独立制品语义（Independent Artifact Semantics）与镜像重建 / 预言机（Image Rebuild / Oracle）         | 编译器验证实现（Compiler Validation Implementation）                |
-| `laneflow-runtime`         | 固定步进、车辆、动态路线、可变交通状态                                                              | 编译器、验证器、Serde、文件系统、空间层（Spatial）                  |
+| `laneflow-runtime`         | 固定步进、已实现执行域的交通参与单元、动态通行定义、可变交通状态                                    | 编译器、验证器、Serde、文件系统、空间层（Spatial）                  |
 | `laneflow-spatial`         | 规范几何采样（Canonical Geometry Sampling）、位姿批次（Pose Batch）                                 | 编译器、验证器、引擎                                                |
 
 `laneflow-runtime` 是 current `laneflow-core` 的 target 名称；
@@ -1139,7 +1150,7 @@ Cutover 前必须证明：
 2. deterministic artifact/image；
 3. independent validator、validation receipt、external descriptor 与 bounded
    structural verifier 安全；
-4. startup、memory、10k/100k 和 multi-world Gate；
+4. startup、memory、一万/十万和 multi-world Gate；
 5. worker/partition 置换等价、无额外 tick 延迟和单大型 world scaling；
 6. publication/migration/source map/semantic diff 可用；
 7. snapshot/replay 与 network revision cutover 有失败关闭的后继 G1/实现入口；

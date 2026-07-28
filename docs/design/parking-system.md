@@ -57,7 +57,7 @@ v0.5 的目标是在 v0.4 Accepted fixed tick、typed handles、lane graph、rou
 
 ### 1.2 #107 已交付边界
 
-#107 已交付 `ParkingArea` / `ParkingSpace`、opaque dense handles、immutable `ParkingRegistry`/resolvers、entry/exit anchors、edge-relative geometry、`InitialTrafficData` foreign-graph rebind、`CoreWorld::parking()`，以及 current 0.5 schema/loader/fixtures。Static normalization 使用固定输入顺序；10k all-vacant registry 不进入 step hot path。
+#107 已交付 `ParkingArea` / `ParkingSpace`、opaque dense handles、immutable `ParkingRegistry`/resolvers、entry/exit anchors、edge-relative geometry、`InitialTrafficData` foreign-graph rebind、`CoreWorld::parking()`，以及 current 0.5 schema/loader/fixtures。Static normalization 使用固定输入顺序；一万 all-vacant registry 不进入 step hot path。
 
 #107 不包含 reservation、occupancy、commands、ParkingSnapshot、`VehicleStatus::Parked`、ParkingStop、arrival/leave/release events 或 Adapter API。
 
@@ -86,8 +86,8 @@ v0.5 明确不实现：
 - permissive intersection/conflict/reservation、lane changing 或 alternate incoming branch merge gap；
 - dynamic ParkingArea/ParkingSpace definition lifecycle；
 - Engine Adapter ABI、mesh/prefab、动画、调试 UI 或 authoring UI；
-- runtime schema `$id` 网络解析、100k realtime SLA、跨 CPU bit-level determinism；
-- million-scale partition/parallel/mesoscopic Parking runtime。
+- runtime schema `$id` 网络解析、十万 realtime SLA、跨 CPU bit-level determinism；
+- 百万级分区/并行/中观 Parking runtime。
 
 ## 3. 术语与产品边界
 
@@ -1058,10 +1058,10 @@ Public loader surface不变，仍只接收in-memory bytes/string并返回单一c
 
 Parking没有独立宽松预算：
 
-- 10k common方向目标 median `<= 1 ms/tick`。
-- 10k G3 hard limit median `<= 4 ms/tick`，60 ticks `<= 240 ms`。
+- 一万 common方向目标 median `<= 1 ms/tick`。
+- 一万 G3 hard limit median `<= 4 ms/tick`，60 ticks `<= 240 ms`。
 - 既有非Parking场景同机回退 `>20%`必须分析，`>30%`默认阻断；若Parking门禁更严格，取更严格者。
-- 100k只用于scaling observation，不是realtime SLA。
+- 十万只用于scaling observation，不是realtime SLA。
 
 ### 13.2 Matched step gates
 
@@ -1070,7 +1070,7 @@ Parking没有独立宽松预算：
 | 比较                                           |     目标 | 必须 profile |         默认阻断 |
 | ---------------------------------------------- | -------: | -----------: | ---------------: |
 | pre-Parking base -> candidate + empty registry |  `<= 5%` |       `> 5%` |          `> 10%` |
-| empty registry -> 10k spaces all Vacant        |  `<= 5%` |       `> 5%` |          `> 10%` |
+| empty registry -> 一万 spaces all Vacant       |  `<= 5%` |       `> 5%` |          `> 10%` |
 | all Vacant -> 1% Reserved reachable            | `<= 10%` |      `> 10%` |          `> 15%` |
 | all Vacant -> 10% Reserved reachable           | `<= 15%` |      `> 15%` |          `> 20%` |
 | all Vacant -> 100% Reserved pressure           | `<= 25%` |      `> 25%` | `> 35%` 或 >4 ms |
@@ -1079,12 +1079,12 @@ Delta使用每轮 `median.point_estimate`配对后再取三轮delta中位数；�
 
 ### 13.3 Workloads 与 scaling
 
-- 10k：10,000 vehicles、10,000 spaces、100 areas、400 routes；100k同步放大10x。
+- 一万：10,000 vehicles、10,000 spaces、100 areas、400 routes；十万同步放大10x。
 - Route length覆盖8/64 occurrences与repeated edge；command覆盖8/64/512。
 - Reserved ratios：0%、1%、10%、100%，entry targets在route horizon分布。
 - 场景覆盖far/near/arrived waiting、Signal-before-Parking、Parking-before-Signal、leader-before-Parking、spatial+Following dual projection、route completion release。
 - 与free-flow、dense、stop-and-go、projection、transition和Signals场景同轮回归。
-- 10k -> 100k matched目标 `<=20x`；超过即阻断并profile。
+- 一万 -> 十万 matched目标 `<=20x`；超过即阻断并profile。
 
 ### 13.4 Complexity ownership
 
@@ -1094,7 +1094,7 @@ Delta使用每轮 `median.point_estimate`配对后再取三轮delta中位数；�
 - Cancel/commit O(1)；parked spawn除slot/hash扩容外amortized O(1)。
 - Leave只查询local overlap/direct followers，不扫描全部vehicles。
 - Resolver removal O(1)；stable update order保序且不能每次 `retain` 全表，可采用tombstone/reverse slot/deterministic amortized compaction等private方案，但compaction不进入normal tick。
-- Fixed100-command batch从10k到100k vehicles目标 `<=2x`、`>4x`阻断；world+command count同时10x目标 `<=20x`、`>30x`阻断。
+- Fixed100-command batch从一万到十万 vehicles目标 `<=2x`、`>4x`阻断；world+command count同时10x目标 `<=20x`、`>30x`阻断。
 
 ### 13.5 Allocation 与 retained memory
 
@@ -1102,7 +1102,7 @@ Delta使用每轮 `median.point_estimate`配对后再取三轮delta中位数；�
 - Event allocation只与实际离散E成正比，需单独报告。
 - Borrowed snapshot、single/count query、iterator creation不全量allocate；稳定capacity下reserve/cancel/commit目标0allocation。
 - 报告fixed bytes、bytes/space、bytes/bound vehicle、bytes/route occurrence，不能只报RSS。
-- 10k ->100k扣除fixed overhead后Parking retained bytes目标 `<=12x`、`>15x`阻断。
+- 一万 ->十万扣除fixed overhead后Parking retained bytes目标 `<=12x`、`>15x`阻断。
 - V×S、route×S或per-vehicle full-route/spaces副本直接阻断。
 
 Exact private containers、compaction threshold和allocation crate不由本文指定。若新增dev dependency，适用Issue/PR必须审计来源、license、RustSec/cargo-deny与分发影响。
@@ -1178,7 +1178,7 @@ Exact private containers、compaction threshold和allocation crate不由本文�
 - Runtime dependency：不预期新增；testing/performance dependency出现时独立审计。
 - ADR：只新增ADR0010；data version、loader、handles、determinism、safety和Signals分层继续分别由ADR0008/0007/0005/0003/0006/0009负责。
 
-明确延后 exact private containers/cache/compaction/allocation instrumentation、free-space maneuver、自动选位/queue/fee/charging、具体 Parking Adapter/authoring、network schema hosting、100k realtime 和 cross-platform bit determinism。#136 只交付引擎无关的 Parking pose，不实现停车机动轨迹、地形贴合、泊位碰撞或宿主对象。真实需求出现时新建 Issue/ADR，不得暗中扩张 #106-#110/#136。
+明确延后 exact private containers/cache/compaction/allocation instrumentation、free-space maneuver、自动选位/queue/fee/charging、具体 Parking Adapter/authoring、network schema hosting、十万 realtime 和 cross-platform bit determinism。#136 只交付引擎无关的 Parking pose，不实现停车机动轨迹、地形贴合、泊位碰撞或宿主对象。真实需求出现时新建 Issue/ADR，不得暗中扩张 #106-#110/#136。
 
 ## 17. G1 审阅结论
 
@@ -1189,7 +1189,7 @@ Exact private containers、compaction threshold和allocation crate不由本文�
 - 分配P2：command-created Arrived event、stable remove_route error、legacy guard unreachable、areaId omitted/null、staged current docs、三轮性能统计和Windows cache noise；
 - 对齐 ADR 0003/0005/0006/0007/0008/0009/0017 与 #229 当时的 Traffic v0.8 static
   data 实现边界；current Traffic v0.10 继续继承相同 Parking shape/behavior；
-- 明确Core/data/Adapter影响、determinism、error/event order、tests、10k/100k、allocation/memory与activation chain；
+- 明确Core/data/Adapter影响、determinism、error/event order、tests、一万/十万、allocation/memory与activation chain；
 - 已由 #107 交付 v0.5 Parking、#108 交付 runtime authority/commands、#109 交付
   activation，并由 #110 完成端到端、性能、allocation/memory 与 pathological
   profile 验证；#185 的 v0.7、#229 当时的 Traffic v0.8、#262 当时的 Traffic

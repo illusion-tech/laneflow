@@ -333,7 +333,7 @@ right-of-way priority、首次到达 tick、带显式 presence rank 的 Waiting 
 sequence、唯一 vehicle update sequence 组成的规范键排序；pure Waiting 的 absent
 numeric slot 规范为 `0` 且不参与有/无 priority 的相对顺序，不能冒充 policy default。
 raw vehicle handle 不参与 tie-break。同输入、同 fixed delta、同命令序列必须得到
-逐位一致的 state/event order。生产实施必须维持现有 10k product budget 与 100k
+逐位一致的 state/event order。生产实施必须维持现有一万 product budget 与十万
 research scaling guard，并报告 top-two frontier bytes、claim count/collision 与
 physical-span visits；具体协议见详细设计。
 
@@ -372,7 +372,7 @@ physical-span visits；具体协议见详细设计。
   constraint/event 面；Traffic 必须从届时 current version（当前为已发布 v0.9）
   原子升级，Spatial schema 是否升级由 geometry implementation G1 决定。
 - gap acceptance 与多 zone grant 会扩大 tick 热路径，必须通过 active frontier、
-  稠密索引与 10k/100k 证据约束。
+  稠密索引与一万/十万证据约束。
 - mandatory downstream-clearance guard 会增加每 candidate 的 route-local
   storage/boundary/claim query，并在出口拥堵或同 tick claim 冲突时更早拒绝进入；
   v1 不在未落位 claim 后做 convoy packing，吞吐偏保守，但避免车辆持有
@@ -452,7 +452,7 @@ AccessRule 的 allow/deny 是准入 overlay，不表达同时到达车辆之间�
 
 这会把 driver distribution、场景校准、trajectory prediction、额外状态和更大的
 hot-path 矩阵一次引入 #235，超出“非完整专业交通工程 solver”的范围，也无法在当前
-证据下证明 10k/100k 成本。保留为 #72 或后续独立 G1；v1 使用规范的保守确定性
+证据下证明一万/十万成本。保留为 #72 或后续独立 G1；v1 使用规范的保守确定性
 critical-gap filter。
 
 ## 后续
@@ -465,7 +465,7 @@ critical-gap filter。
   2. WaitingZone runtime state/queue/constraints；
   3. ConflictZone/ParticipantStream static + Spatial binding；
   4. right-of-way policy normalization + ConflictArbiter/grant/reservation；
-  5. cross-layer fixtures、10k/100k 与 Adapter observation。
+  5. cross-layer fixtures、一万/十万与 Adapter observation。
 - #264：消费本 ADR 与 #237 的冻结结论，拆分 JunctionGroup、环岛、停车连接与互通
   组合设施 G1。
 
