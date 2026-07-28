@@ -586,7 +586,9 @@ entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest �
 
 平台无关、确定性、closed shape，并包含：
 
-- canonical format、identity encoding/registry 与 constraint versions；
+- canonical format、identity encoding/registry、network revision derivation 与
+  constraint versions；
+- 路网修订标识（Network Revision ID）`NetworkRevisionId`；
 - logical entities、typed ordinals、normalized numeric values；
 - topology/geometry/static rule relations；
 - canonical payload envelope 与 compiler provenance；自身 digest 不嵌入 artifact
@@ -595,6 +597,31 @@ entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest �
 它用于 publication、长期审计、migration、跨实现 validator 和 static image
 regeneration。它不是 mmap hot layout，不承诺与 Rust struct ABI 相同，也不因某个
 target profile 缺少 Spatial/diagnostic section 而丢失 canonical semantics。
+
+`NetworkRevisionId` v1 是版本化、目标无关且只支持相等性比较的不透明值：
+
+```text
+networkRevision =
+  SHA-256(
+    "laneflow.network-revision.v1\0"
+    || canonicalNetworkSemanticPayload
+  )
+```
+
+规范路网语义载荷（Canonical Network Semantic Payload）
+`canonicalNetworkSemanticPayload` 是冻结编码的目标无关规范字节，包含 identity
+encoding/registry、constraint/execution-constraint versions，以及全部目标无关的
+拓扑、几何、静态规则、规范 relation 和静态执行约束；不包含该摘要自身、artifact
+envelope、compiler/validator provenance、source map/diagnostics、publication
+metadata、target、profile 或 image layout。这样相同规范语义在不同 compiler
+provenance 与 target/profile image 中保持同一修订，而任何运行时可观察静态语义或
+参与派生的契约版本变化都会产生新修订。Compiler 在 LIR freeze 后计算该字段；
+independent validator 必须从 artifact semantic payload 独立重算并逐字节比较，
+不能信任 artifact 内自报的值。`canonicalArtifactDigest` 仍认证完整 artifact exact
+bytes，二者不得互相替代。
+若 publication 或 cutover 同时观察到相同 `NetworkRevisionId` 对应不同
+`canonicalNetworkSemanticPayload` exact bytes，必须以
+`NetworkRevisionDigestCollision` 失败关闭；不得追加 ordinal、随机 salt 或 suffix。
 
 ### 8.2 目标静态镜像（Target Static Image）
 
@@ -654,7 +681,10 @@ v1 profile 是版本化 closed set，不允许调用方任意拼 feature bits：
 - 具体 archive/zero-copy library 由安全审计和 benchmark 决定。
 
 相同 portable artifact 的不同 target/profile variant 共享
-`canonicalArtifactDigest`，但各自拥有不同 `staticImageDigest`。Traffic Runtime 的
+`canonicalArtifactDigest` 与 `NetworkRevisionId`，但各自拥有不同
+`staticImageDigest`。Image header 必须声明 `networkRevisionDerivationVersion` 与
+`networkRevision`，但这些字段和 header 中的其他 provenance 一样只供外部描述符
+核对，不能自证可信。Traffic Runtime 的
 构造入口只接收从 `TrustedStaticImage` 拆出的 `StaticTrafficView`，不能要求调用方
 同时提供 Spatial section，也不能接受仅结构验证所得的 view。
 
@@ -665,6 +695,8 @@ v1 profile 是版本化 closed set，不允许调用方任意拼 feature bits：
 
 ```text
 staticImageDescriptorVersion
+networkRevisionDerivationVersion
+networkRevision
 canonicalArtifactDigest
 staticImageDigest
 staticImageLayoutVersion
@@ -683,14 +715,17 @@ validationReceiptDigest
 
 descriptor 可以由签名 publication manifest、宿主已认证 asset/package manifest 或
 应用内 pinned digest 提供。Image header 内的
-`canonicalArtifactDigest`/target/provenance 只是待核对声明；攻击者可以伪造它们并
-对任意 image bytes 计算新的 `staticImageDigest`，因此不能独立建立 semantic
-trust。
+`networkRevision`/`canonicalArtifactDigest`/target/provenance 只是待核对声明；
+攻击者可以伪造它们并对任意 image bytes 计算新的 `staticImageDigest`，因此不能
+独立建立 semantic trust。
 
 Trusted descriptor 的签发前置条件是：portable artifact 已通过 independent
 semantic validator，且不复用 compiler emitter 的 independent image rebuild 在相同
 target/layout/profile 下产生相同 exact bytes digest。Validation receipt 必须记录
-这两项成功证据。
+这两项成功证据，并绑定 independent validator 重算所得的
+`networkRevisionDerivationVersion + networkRevision + canonicalArtifactDigest`。
+`TrustedStaticImage` 只从已认证 descriptor 获得修订标识；调用方参数、image header
+或未验证 artifact 均不能另行指定运行时当前修订。
 
 ### 8.4 源映射与诊断（Source Map and Diagnostics）
 
@@ -722,8 +757,11 @@ sequence diff，报告 before/after `localIndex`，但不把位置当成跨编�
 - 标识闭包变化及原因；
 - target/profile image layout-only change（不得伪装成 semantic change）。
 
-Semantic diff 必须绑定 `baseCanonicalArtifactDigest` 与
-`targetCanonicalArtifactDigest`。Base 必须是已通过 independent validator 的
+Semantic diff 必须绑定
+`baseNetworkRevisionDerivationVersion + baseNetworkRevision +
+baseCanonicalArtifactDigest` 与
+`targetNetworkRevisionDerivationVersion + targetNetworkRevision +
+targetCanonicalArtifactDigest`。Base 必须是已通过 independent validator 的
 portable artifact；无 baseline 时使用显式 genesis marker，并把全部 stable entity
 和 owner-local sequence 报告为新增。重复 relation value 的序列对齐按最低
 before/after `localIndex` 确定性破同值，diff 本身不获得 authoring authority。
@@ -752,7 +790,7 @@ format、image layout 和 compiler type 必须移出 runtime crate。当前 prod
 - grant/reservation/waiting/parking occupancy；
 - command/event/snapshot buffers；
 - dynamic Route occurrence metadata；
-- world identity、输入命令游标、当前路网修订绑定；
+- world identity、输入命令游标、从 `TrustedStaticImage` 派生的当前路网修订绑定；
 - 每世界运行时执行计划、边界交换缓冲与调度统计。
 
 当前首个 projection 仍使用 vehicles、dynamic Route 与 parking occupancy；这些
@@ -858,8 +896,12 @@ overlay/command 承担。
 
 ```text
 networkRevisionCutoverDescriptorVersion
+baseNetworkRevisionDerivationVersion
+baseNetworkRevision
 baseCanonicalArtifactDigest
 baseStaticImageDigest
+targetNetworkRevisionDerivationVersion
+targetNetworkRevision
 targetCanonicalArtifactDigest
 targetStaticImageDigest
 semanticDiffDigest
@@ -870,8 +912,10 @@ validationReceiptDigest
 
 该描述符必须来自签名 publication manifest、宿主认证资产清单或 pinned digest；
 validation receipt 必须证明 independent validator 已针对两个 portable artifact
-验证或重算语义差异。Runtime 仍须用两个 `StaticIdentityIndex` 核验每个稳定实体
-映射，不能让 diff 中的 ordinal、数组位置或 compiler 私有顺序成为迁移权威。
+重算并验证各自路网修订标识，且已验证或重算语义差异。描述符中的 base/target
+修订、制品摘要和镜像摘要必须分别与两个可信静态镜像的 descriptor 精确相等。
+Runtime 仍须用两个 `StaticIdentityIndex` 核验每个稳定实体映射，不能让 diff 中的
+ordinal、数组位置或 compiler 私有顺序成为迁移权威。
 
 切换采用准备（Prepare）→提交（Commit）→回收（Retire）：
 
@@ -890,6 +934,7 @@ originStaticImageDigest
 runtimeSnapshotVersion
 runtimeVersion
 constraintSetVersion
+networkRevisionDerivationVersion
 networkRevision
 worldIdentity
 tick / time
@@ -903,12 +948,16 @@ runtime-owned random-stream state (future explicit G1 only)
 partition 或 worker assignment 不能成为恢复后身份或跨硬件行为权威。跨路网修订
 恢复必须显式迁移，不能把旧 dense ordinal 直接解释为新镜像实体。
 
-`canonicalArtifactDigest` 与 `networkRevision` 是同修订恢复的静态语义权威；
+`canonicalArtifactDigest` 与版本化 `networkRevision` 是同修订恢复的静态语义权威；
 `originStaticImageDigest` 记录创建快照时的精确 target/profile image，供审计和
 同镜像快速恢复。恢复可以改用另一个已认证 target/profile image，但仅当它绑定相同
 canonical artifact、network revision、identity/constraint versions，且
 `StaticIdentityIndex` 能完整重建全部稳定静态引用时；否则失败关闭。该规则使快照
 不依赖 target-specific dense ordinal，同时仍保留原镜像的可审计来源。
+保存快照时，Runtime 必须从当前 `TrustedStaticImage` binding 复制
+`networkRevisionDerivationVersion + networkRevision`；恢复时只与候选可信镜像
+descriptor 的同名字段比较，不接受 save manifest、调用方参数或 image header
+覆盖。跨修订恢复只能进入 §9.6 的显式迁移事务。
 
 运行时执行计划在恢复后依据当前硬件与负载重建；快照可以保留诊断性调度统计，但
 不得要求复现原分区/工作线程布局才能得到相同精确结果。
@@ -924,7 +973,11 @@ Traffic Runtime 从已提交状态导出已提交交通观测快照，不泄漏 
 构造版本化动态成本快照，返回可由 Runtime 注册/验证的候选通行定义；不得在每个
 交通参与单元的 fixed-tick 内全图寻路。当前车辆域使用 Route，未来执行域由其 G1
 冻结等价通行定义。成本快照和候选通行定义必须绑定路网修订、观测 tick 与成本模型
-版本；Runtime 对 revision mismatch 失败关闭，允许多旧的观测由 Routing G1 冻结。
+版本；路网修订标识必须来自 `TrustedStaticImage` 派生的 Runtime 静态视图或已
+提交交通观测快照，不能由 Routing 调用方自报。Runtime 将其与当前可信 image binding
+做精确相等比较，并继续逐项验证候选稳定引用/拓扑；修订标识相等只证明缓存一致性，
+不替代候选内容验证。Runtime 对 revision mismatch 失败关闭，允许多旧的观测由
+Routing G1 冻结。
 出行需求和路线选择策略属于城市游戏或出行编排层。#291 只冻结该职责边界，不提前
 冻结 `laneflow-routing` crate、算法或公共 API。
 
@@ -955,7 +1008,10 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
 - compiler vs independent validator differential/fuzz；
 - canonical artifact corruption 和 static image offset/range/limit fuzz；
 - forged header canonical digest/provenance、attacker-recomputed image digest、
-  tampered descriptor/receipt 和 wrong-profile rejection；
+  forged `networkRevision`、tampered descriptor/receipt 和 wrong-profile
+  rejection；
+- independent validator 重算路网修订标识、同一 artifact 的跨 target/profile
+  修订标识相等，以及任一静态语义/派生版本变化的修订标识不等；
 - `traffic-headless-v1` 无 Spatial bytes、但包含完整 `StaticIdentityIndex` 的
   TrafficWorld smoke/equivalence；
 - `traffic-spatial-v1` Traffic/Spatial edge ordinal 与 full-coverage property tests；
@@ -984,6 +1040,7 @@ authoringFormatVersion
 canonicalFormatVersion
 identityEncodingVersion
 identityRegistryRevision
+networkRevisionDerivationVersion
 staticImageLayoutVersion
 staticImageProfileId
 staticImageDescriptorVersion
@@ -997,6 +1054,7 @@ constraintSetVersion
 compilerBuildId
 validatorBuildId
 targetTriple
+networkRevision
 canonicalArtifactDigest
 staticImageDigest
 semanticDiffDigest
@@ -1010,11 +1068,14 @@ validationReceiptDigest
 - `canonicalArtifactDigest`、`staticImageDigest`、`semanticDiffDigest` 与
   `validationReceiptDigest` 均为 exact bytes 的 SHA-256，不使用 entity identity
   digest 代替；
+- `networkRevision` 是带 `networkRevisionDerivationVersion` 与 domain separator
+  的规范语义载荷 SHA-256，不是 artifact/image exact-bytes digest，也不进入
+  steady tick hash 计算；
 - digest 只存放在其目标对象之外：artifact/image/receipt 均不把自己的 digest
   嵌回自身 bytes；publication manifest/external descriptor 完成外部绑定；
 - compiler、validator、image builder 的 provenance 必须可审计；
-- external descriptor/receipt 必须绑定 exact artifact、image、target、profile、
-  constraint 和 tool builds；
+- external descriptor/receipt 必须绑定路网修订标识、exact artifact、image、
+  target、profile、constraint 和 tool builds；
 - runtime 不联网解析 schema、artifact 或 toolchain。
 
 authoritative source module graph 是 authoring SSOT。Generated artifact 可以作为
@@ -1045,6 +1106,8 @@ authority。
   边界交换量（Boundary Exchange Volume）、屏障等待（Barrier Wait）、负载偏斜、
   迁移次数/成本；不公开内部可变容器或调度权威；
 - tick 不做 string/hash/path matching；
+- `NetworkRevisionId` 只在加载、注册动态通行定义、快照恢复和修订切换等冷边界比较，
+  不进入逐交通参与单元 fixed-tick 状态或每 tick hash；
 - pose 不做 Traffic/Spatial join；
 - production load 不做 JSON parse/registry rebuild。
 
@@ -1099,7 +1162,7 @@ laneflow-adapter-* ------> laneflow-static-image
 
 | 包（Crate）                | 拥有职责（Owns）                                                                                    | 禁止依赖（Must Not Depend On）                                      |
 | -------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `laneflow-static-contract` | 稳定标识、种类 / 标签登记表、有类型序号、版本 / 摘要 / 配置档 / 描述符值                            | Serde、文件系统、核心 / 运行时（Core / Runtime）、空间层（Spatial） |
+| `laneflow-static-contract` | 稳定标识、路网修订标识、种类 / 标签登记表、有类型序号、版本 / 摘要 / 配置档 / 描述符值              | Serde、文件系统、核心 / 运行时（Core / Runtime）、空间层（Spatial） |
 | `laneflow-format`          | 可移植制品（Portable Artifact）与发布 / 描述符线格式 / 视图（Publication / Descriptor Wire / View） | 编译器语义遍、运行时（Runtime）、空间层（Spatial）                  |
 | `laneflow-static-image`    | 镜像 ABI、节 / 配置档、有界结构校验器（Bounded Verifier）、借用视图（Borrowed Views）               | 编译器、验证器、运行时（Runtime）、空间层（Spatial）                |
 | `laneflow-compiler`        | 前端、中间表示、编译遍、主发射器、源映射 / 语义差异                                                 | 当前态数据 / 核心对象图（Current Data / Core Object Graph）         |
@@ -1158,24 +1221,25 @@ Cutover 前必须证明：
 
 ## 15. 风险登记
 
-| 风险                                                                         | 结果                                 | 控制                                                         |
-| ---------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------ |
-| 编译器系统性缺陷（Compiler Systemic Bug）                                    | 批量污染全部资产                     | 独立验证器、差分 / 模糊测试（Differential / Fuzz）、语义差异 |
-| 二进制校验器漏洞（Binary Verifier Vulnerability）                            | 不可信字节破坏内存安全               | 基于偏移量的格式、加载限制、模糊测试 / `unsafe` 审计         |
-| 镜像头声明被误当作信任（Header-as-Trust）                                    | 恶意但结构合法的镜像绕过语义闸口     | 外部描述符、验证收据、不可信重建                             |
-| 中间表示泄漏运行时类型（IR Leaks Runtime Types）                             | 后端 / 目标被当前核心对象图锁死      | 静态契约、目标中立 LIR、无环包依赖图                         |
-| 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效       | 精确种类 / 标签登记表、已知向量、变形测试                    |
-| 增量 / 并行非确定性（Incremental / Parallel Nondeterminism）                 | CI / 发布字节漂移                    | 干净单线程预言机、稳定合并                                   |
-| 配置档边界错误（Profile Boundary Error）                                     | 无图形配置档携带几何，或交叉索引漂移 | 交通必需 / 空间可选矩阵、配置档测试                          |
-| 当前态 / 目标态双路径长期化（Current / Target Dual-path Permanence）         | 测试矩阵和语义漂移                   | 集成专用桥、明确移除责任人 / 切换闸口                        |
-| 来源 / 生成物双重事实源（Source / Generated Dual SSOT）                      | 手工修改与漂移                       | 来源模块图权威、生成摘要 / 收据闸口                          |
-| 过早选择归档库（Premature Archive-library Choice）                           | ABI、安全或 MSRV 锁定                | 先冻结契约，再做基准 / 审计                                  |
-| 最终分区进入共享镜像（Final Partition in Shared Image）                      | 地图与硬件/世界耦合，存档不可移植    | 静态约束 + 可重建提示 + 每世界执行计划                       |
-| 分区诱发行为延迟（Partition-induced Behavioral Delay）                       | 结果随 cut 改变                      | 同 tick committed-state barrier 与置换等价测试               |
-| 原地修改静态镜像（In-place Static-image Mutation）                           | 摘要、共享、信任和确定性失效         | 不可变路网修订 + 失败关闭镜像切换事务                        |
-| 生产配置档裁掉稳定身份索引（Production Profile Drops Stable Identity Index） | 快照、动态路线与跨修订映射无法恢复   | 全配置档必需冷索引；双向 round-trip；按需映射                |
-| 未受信任语义差异驱动迁移（Untrusted Semantic Diff Drives Migration）         | 篡改迁移、错误终止或状态错配         | 外部切换描述符、双制品独立验证、身份索引复核                 |
-| 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）               | 静态契约与运行时执行能力长期不对称   | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环    |
+| 风险                                                                         | 结果                                  | 控制                                                         |
+| ---------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------ |
+| 编译器系统性缺陷（Compiler Systemic Bug）                                    | 批量污染全部资产                      | 独立验证器、差分 / 模糊测试（Differential / Fuzz）、语义差异 |
+| 二进制校验器漏洞（Binary Verifier Vulnerability）                            | 不可信字节破坏内存安全                | 基于偏移量的格式、加载限制、模糊测试 / `unsafe` 审计         |
+| 镜像头声明被误当作信任（Header-as-Trust）                                    | 恶意但结构合法的镜像绕过语义闸口      | 外部描述符、验证收据、不可信重建                             |
+| 未认证路网修订（Unauthenticated Network Revision）                           | 快照/路由绕过修订检查或兼容恢复误拒绝 | 语义载荷派生标识；descriptor/receipt/cutover 三重绑定        |
+| 中间表示泄漏运行时类型（IR Leaks Runtime Types）                             | 后端 / 目标被当前核心对象图锁死       | 静态契约、目标中立 LIR、无环包依赖图                         |
+| 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效        | 精确种类 / 标签登记表、已知向量、变形测试                    |
+| 增量 / 并行非确定性（Incremental / Parallel Nondeterminism）                 | CI / 发布字节漂移                     | 干净单线程预言机、稳定合并                                   |
+| 配置档边界错误（Profile Boundary Error）                                     | 无图形配置档携带几何，或交叉索引漂移  | 交通必需 / 空间可选矩阵、配置档测试                          |
+| 当前态 / 目标态双路径长期化（Current / Target Dual-path Permanence）         | 测试矩阵和语义漂移                    | 集成专用桥、明确移除责任人 / 切换闸口                        |
+| 来源 / 生成物双重事实源（Source / Generated Dual SSOT）                      | 手工修改与漂移                        | 来源模块图权威、生成摘要 / 收据闸口                          |
+| 过早选择归档库（Premature Archive-library Choice）                           | ABI、安全或 MSRV 锁定                 | 先冻结契约，再做基准 / 审计                                  |
+| 最终分区进入共享镜像（Final Partition in Shared Image）                      | 地图与硬件/世界耦合，存档不可移植     | 静态约束 + 可重建提示 + 每世界执行计划                       |
+| 分区诱发行为延迟（Partition-induced Behavioral Delay）                       | 结果随 cut 改变                       | 同 tick committed-state barrier 与置换等价测试               |
+| 原地修改静态镜像（In-place Static-image Mutation）                           | 摘要、共享、信任和确定性失效          | 不可变路网修订 + 失败关闭镜像切换事务                        |
+| 生产配置档裁掉稳定身份索引（Production Profile Drops Stable Identity Index） | 快照、动态路线与跨修订映射无法恢复    | 全配置档必需冷索引；双向 round-trip；按需映射                |
+| 未受信任语义差异驱动迁移（Untrusted Semantic Diff Drives Migration）         | 篡改迁移、错误终止或状态错配          | 外部切换描述符、双制品独立验证、身份索引复核                 |
+| 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）               | 静态契约与运行时执行能力长期不对称    | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环    |
 
 ## 16. #291 G1 完成条件
 
