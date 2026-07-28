@@ -172,14 +172,19 @@ frame declaration。新增 kind 只 append registry revision；修改既有 kind
    生成，可重建、面向 mmap/顺序读取和直接索引；
 3. **源映射 / 诊断制品（Source Map / Diagnostics Artifact）**：从
    `(entityKind, StableId128, typed ordinal)` 到 source span 和 pass provenance 的
-   映射；可以冗余 tuple 用于显示，但不是身份验证的唯一前像来源；
+   映射；使用绑定 `networkRevision`、`canonicalArtifactDigest`、compiler build 与
+   compilation provenance 的版本化 `SourceMapEnvelope`，可以冗余 tuple 用于显示，
+   但不是身份验证的唯一前像来源；
 4. **语义差异（Semantic Diff）**：以稳定标识和字段语义描述新增、删除、重接、
    geometry/behavior 变化，供 PR/Gate 审阅。
 
-Publication manifest 对完整 portable artifact bytes 计算
-`canonicalArtifactDigest`，其余三类输出引用该 digest 与 compilation provenance。
-Static image 另外由外部 descriptor 绑定 target/profile-specific
-`staticImageDigest`。任何输出失败，本次 compilation unit 都不得发布部分结果。
+规范发布描述符（Canonical Publication Descriptor）
+`CanonicalPublicationDescriptor` 对完整 portable artifact bytes 绑定
+`canonicalArtifactDigest`，并以 `sourceMapDigest + sourceMapByteLength` 绑定完整
+`SourceMapEnvelope` exact bytes；source map envelope、semantic diff 与 static
+image 同时引用该 artifact digest 与 compilation provenance。Static image 另外由
+外部 descriptor 绑定 target/profile-specific `staticImageDigest`。任何输出失败，
+本次 compilation unit 都不得发布部分结果。
 
 Portable canonical artifact 是发行与治理契约，不是运行时热布局。Target static
 image 是可丢弃、可按目标重新生成的派生制品，不获得独立 authoring authority。
@@ -269,12 +274,14 @@ image 中剥离，但 `StaticIdentityIndex` 不能被裁掉；可通过共享只
 
 - `authoringFormatVersion`
 - `canonicalFormatVersion`
+- `canonicalPublicationDescriptorVersion`
 - `identityEncodingVersion`
 - `identityRegistryRevision`
 - `networkRevisionDerivationVersion`
 - `staticImageLayoutVersion`
 - `staticImageProfileId`
 - `staticImageDescriptorVersion`
+- `sourceMapFormatVersion`
 - `semanticDiffFormatVersion`
 - `networkRevisionCutoverDescriptorVersion`
 - `migrationPolicyVersion`
@@ -289,10 +296,12 @@ image 中剥离，但 `StaticIdentityIndex` 不能被裁掉；可通过共享只
 - `canonicalArtifactDigest`
 - `staticImageDigest`
 - `staticImageByteLength`
+- `sourceMapDigest`
+- `sourceMapByteLength`
 - `semanticDiffDigest`
 - `validationReceiptDigest`
 
-四个 digest 均为各自目标对象完整 exact bytes 的 SHA-256，因此任何对象都不得把
+五个 digest 均为各自目标对象完整 exact bytes 的 SHA-256，因此任何对象都不得把
 自己的 digest 嵌回自身 byte sequence。Publication manifest / external descriptor
 负责保存目标对象的 digest；image header 可以保存另一个对象的
 `canonicalArtifactDigest`，但不保存自己的 `staticImageDigest`。
@@ -306,6 +315,16 @@ receipt 与 independent rebuild comparison 绑定 digest + length。Loader 先�
 checked `staticImageByteLength + 1` bytes 的 bounded reader，并拒绝
 truncated/appended 输入。压缩传输同时限制压缩输入与解压输出；结构校验器的内部
 count/range limits 作为后续第二道防线，不能替代 pre-hash byte bound。
+
+`SourceMapEnvelope` 必须内含 `sourceMapFormatVersion`、
+`networkRevisionDerivationVersion + networkRevision`、`canonicalArtifactDigest`、
+`compilerBuildId` 与来源沿袭记录。它不内嵌自己的摘要；外部
+`CanonicalPublicationDescriptor` 认证上述配对及
+`sourceMapDigest + sourceMapByteLength`。消费者先认证小型 descriptor，再执行与
+static image 相同的 pre-hash 长度预检，并要求 descriptor、source-map envelope 与
+已验证 portable artifact 的 artifact/revision/provenance 字段全部精确相等。记录级
+StableId/ordinal key 只能在该配对成功后查找；任何错配以
+`SourceMapArtifactMismatch` 失败关闭。
 
 路网修订标识（Network Revision ID）`NetworkRevisionId` 不复用上述 exact-bytes
 digest。v1 以带域分离（Domain Separation）的 SHA-256 对冻结的目标无关规范路网
@@ -334,10 +353,11 @@ canonical artifact 不变时因布局或 CPU target 变化而重建。
    前像独立编码并重算每个 BLAKE3-128 `StableId128`，验证 parent anchor、duplicate
    tuple 与 digest collision；不得调用 compiler semantic validation，也不得依赖
    source map 补齐身份字段；
-3. **Validation receipt / external descriptor**：绑定路网修订标识、artifact/image
-   digest、image exact byte length、target、profile、constraint、compiler/validator
-   build；其 authenticity 由签名 publication manifest、宿主认证 asset chain 或
-   pinned digest 提供；
+3. **Validation receipt / external descriptor**：绑定路网修订标识、
+   artifact/image/source-map digest、image/source-map exact byte length、target、
+   profile、constraint、compiler/validator build 与 compilation provenance；其
+   authenticity 由签名 publication manifest、宿主认证 asset chain 或 pinned digest
+   提供；
 4. **Static image structural verifier**：对不可信 bytes 有界检查 header、版本、
    offset/alignment、table/range/cross-index、numeric/runtime precondition 和 load
    limits，不重跑全量 authoring 语义。
