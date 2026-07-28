@@ -1,4 +1,3 @@
-mod doc_quantity_style;
 mod external_review;
 mod markdown_tables;
 
@@ -93,7 +92,6 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 .ok_or("缺少 commit message 文件路径，例如: cargo +1.96.0 run --locked -p xtask -- check-commit-message-file .git/COMMIT_EDITMSG")?;
             check_commit_message_file(path)
         }
-        Some("check-doc-quantity-style") => doc_quantity_style::run(&args[1..]),
         Some("check-gate-evidence") => check_gate_evidence(&args[1..]),
         Some("check-external-review") => external_review::run(&args[1..]),
         Some("publish-external-review-check") => {
@@ -110,7 +108,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         },
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-doc-quantity-style, check-gate-evidence, check-external-review, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-external-review, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
                 .to_string(),
         ),
     }
