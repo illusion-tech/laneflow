@@ -87,7 +87,7 @@ ScenarioManifest（场景清单）
   formatVersion: "0.1"
   traffic/spatial: artifactRef + mediaType + raw byte size + SHA-256 digest
 
-TrafficPackage v0.10（当前 source/loader；provenance 已登记，live verification pending）
+TrafficPackage v0.10（当前 source/loader；已按固定 provenance 发布并通过 live byte-equality 验证）
   laneGraph.edges[].id / length / connections
   junctions / movements / maneuverPaths
   routes / profiles / signals / parking

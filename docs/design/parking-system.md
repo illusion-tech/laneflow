@@ -982,7 +982,7 @@ Schema identifier：
 
 该字符串按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval
 URL。v0.10 已登记固定 `main` provenance 并加入 publication catalog，canonical URL
-的 live availability 与 byte-equality 待部署后验证；v0.9 及更早已发布版本继续作为
+已通过 live availability 与 byte-equality 验证；v0.9 及更早已发布版本继续作为
 immutable 历史 artifacts 保留。
 Publication CI/CD 持续保证 catalog 中已发布版本的 immutable source 与可取回性；
 Runtime、loader、Adapter 与 hermetic tests 永不联网解析 `$id`/`$schema`，公共
