@@ -369,7 +369,7 @@ fn binding_checks_static_capacity_before_runtime_capability_guards() {
 fn binding_rejects_unprovable_waiting_storage_distance() {
     let graph = LaneGraph::try_new([
         edge("entry", 10.0, &["internal-a"]),
-        edge("internal-a", f64::MAX, &["internal-b"]),
+        edge("internal-a", 1.0, &["internal-b"]),
         edge("internal-b", f64::MAX, &["exit"]),
         edge("exit", 10.0, &["entry"]),
     ])

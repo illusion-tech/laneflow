@@ -38,6 +38,9 @@ impl BoundedDistance {
             sum = next;
         }
 
+        if compensation > 0.0 && compensation > f64::MAX - sum {
+            return Self::BeyondFinite;
+        }
         let total = sum + compensation;
         if total.is_finite() {
             Self::Finite(total.max(0.0))
@@ -353,6 +356,16 @@ mod tests {
     #[test]
     fn finite_distance_reports_unrepresentable_sum() {
         let index = RouteDistanceIndex::build(&[f64::MAX, f64::MAX]);
+
+        assert_eq!(
+            index.finite_distance(0, 0.0, 1, f64::MAX),
+            Some(BoundedDistance::BeyondFinite)
+        );
+    }
+
+    #[test]
+    fn finite_distance_rejects_positive_compensation_beyond_finite_headroom() {
+        let index = RouteDistanceIndex::build(&[1.0, f64::MAX]);
 
         assert_eq!(
             index.finite_distance(0, 0.0, 1, f64::MAX),
