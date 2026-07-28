@@ -1,7 +1,7 @@
 # Core Runtime 产品性能基线
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-07-25<br>
+**最后更新**: 2026-07-28<br>
 **适用范围**: LaneFlow Core、Spatial、Engine Adapter 的 10k/100k 产品目标，1M 研究包络，以及性能、保真度、硬件和证据协议<br>
 **关联文档**:
 
@@ -12,6 +12,7 @@
 - [`bevy-reference-adapter.md`](bevy-reference-adapter.md)
 - [`../adr/0001-project-scope.md`](../adr/0001-project-scope.md)
 - [`../adr/0003-runtime-tick-and-determinism.md`](../adr/0003-runtime-tick-and-determinism.md)
+- [`../adr/0021-city-simulation-game-traffic-foundation.md`](../adr/0021-city-simulation-game-traffic-foundation.md)
 - [`../reference/validation-matrix.md`](../reference/validation-matrix.md)
 - [#215 G1 冻结判断](https://github.com/illusion-tech/laneflow/issues/215#issuecomment-5060652396)
 
@@ -20,6 +21,10 @@
 本文冻结 LaneFlow 的产品性能**目标与测量契约**（target and measurement
 contract），用于让单线程优化、多频率候选、单机并行和未来聚合研究使用相同
 workload、fidelity、hardware 与 frame-budget 口径。
+
+ADR 0021 把中国特色城市模拟游戏交通基础定义为第一长期产品目标，但不改变本文
+当前 10k/100k/1M 证据等级：城市目标不是既有硬件认证，也不能用 multi-world
+ensemble 吞吐代替单个大型城市世界的 tick、barrier、边界交换和负载偏斜测量。
 
 本文不是硬件认证报告，也不把历史开发机数据升级为产品服务等级协议（product
 SLA）。必须区分：
@@ -53,7 +58,8 @@ certification，也不表示 1M microscopic realtime 已成为产品目标。
 - production multi-rate、interpolation/extrapolation 或 aggregate model 的实现；
 - 新 Core/Data/Spatial/Adapter API 或数据格式；
 - renderer、asset、animation 或宿主 gameplay 的实现与性能承诺；
-- 专业交通工程精度、城市经济模拟或完整 SUMO-like 能力；
+- 专业交通工程精度、城市经济模拟、出行需求生成或完整 SUMO-like 能力；这些是
+  上层/独立产品边界，不表示城市级交通执行是 LaneFlow 非目标；
 - 1M 个体车辆的实时产品承诺。
 
 ## 3. 规模计数语义
@@ -125,6 +131,10 @@ workload：
   由 W1–W3 承担。
 - 1M 默认只运行 identity、retained-memory 与有限 observation；不运行完整实时
   Gate。
+- 中国特色城市工作负载（Chinese-style City Workload）将作为新的并列工作负载族
+  建立，不能把
+  `LF-SYNTH-v1` 或 LuST 静默改名，也不能在正式 topology/demand/runtime
+  contract 前据此声明中国特色城市 Product Pass。
 - W1/W3 至少运行 `N_presented = 1% / 10% / 50% / 100%`；其中只有
   10k W1 的 100% 行和 100k W1 的 10% 行是 presentation Gate 主行，其余行是
   强制 observation/sensitivity，不单独产生 Product Pass/Fail。
@@ -685,6 +695,7 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
 | Aggregate model 与非守恒数值 tolerance                       | Aggregate 尚未触发，也未选择模型      | aggregate fidelity、1M realtime 或无损 identity 声明 | 第 10 节 trigger 满足并完成独立 G1/ADR           | `wangzishi`；未来 aggregate Issue     |
 | Linux/macOS/Web/mobile 平台基线                              | 当前只有 Windows x86-64 R0            | 对这些平台外推 10k/100k SLA                          | 每个平台分别确定硬件/runtime 并运行完整适用协议  | `wangzishi`；平台专用 Issue           |
 | 真实路网 converter、Release 制品、harness 与结果             | #224 已冻结设计，但尚未交付可执行链路 | real-road Product Pass、真实城市 workload SLA        | #224 G4 后的 A–C 完成制品、harness 与对应证据    | `wangzishi`；#224 与下游 A–C          |
+| 中国特色城市拓扑/需求/运行时工作负载                         | 尚未完成独立 G1 与工作负载 ID         | 中国特色城市代表性或 Product Pass                    | 冻结场景、来源、规模、摘要、harness 与硬件证据   | `wangzishi`；后继城市工作负载 Issue   |
 
 后续 Issue 可以接管某个 TBD，但在长期文档更新前，原 claim restriction 继续有效。
 
@@ -711,6 +722,9 @@ TBD 是显式停止条件，不是可以用开发机推测值填补的空白。�
 - `LF-REAL-LUST-TOPO-v1` 只补充真实拓扑压力，不能单独形成 Product Pass；
   `LF-REAL-LUST-DEMAND-v1` 只形成 demand/lifecycle observation。二者都不得替换
   canonical synthetic baseline，也不得把 synthetic 结果表述为真实路网代表性证据。
+- multi-world shared-static 测量只证明静态内存复用和 ensemble 吞吐；单大型城市
+  world 的并行执行必须单独报告 worker/partition 置换、barrier、边界交换、动态负载
+  与 committed-state 等价。
 
 ## 13. API、兼容性与 ADR
 

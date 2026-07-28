@@ -1,7 +1,7 @@
 # Core Runtime 可扩展性前置审计
 
 **文档状态**: Review<br>
-**最后更新**: 2026-07-24<br>
+**最后更新**: 2026-07-28<br>
 **适用范围**: #199 对 #72 的前置 Core API、identity、batch、command、deterministic scheduling 与 event merge 审计<br>
 **关联文档**:
 
@@ -10,6 +10,8 @@
 - `../adr/0003-runtime-tick-and-determinism.md`
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
+- `../adr/0020-compiler-owned-static-network-and-static-image.md`
+- `../adr/0021-city-simulation-game-traffic-foundation.md`
 - `core-runtime.md`
 - `core-runtime-performance-baseline.md`
 - `core-id-handles.md`
@@ -25,6 +27,10 @@
 
 LaneFlow 现在应冻结一组不依赖具体 partition、线程池或内存布局的可扩展性约束，但不应立即实现城市级生产架构。
 
+ADR 0021 已把“面向中国特色城市模拟游戏的交通基础”冻结为第一长期产品目标输入；
+因此“不立即实现城市级生产架构”只描述当前交付时序，不表示城市级单世界交通执行
+是非目标。多世界吞吐不能替代一个大型城市世界的扩展证据。
+
 > #215 已在 [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md)
 > 冻结 10k/100k 产品目标、1M 研究包络、workload、hardware、tick/frame budget、
 > fidelity、benchmark protocol 与升级触发。本文继续保存 #199/#204/#207/#210/#212
@@ -39,6 +45,8 @@ LaneFlow 现在应冻结一组不依赖具体 partition、线程池或内存布�
 - Adapter 不公开 `&mut CoreWorld`，只消费 committed state；
 - Spatial pose 使用稳定、调用方拥有的 batch input/output 与 placement token；
 - Traffic Data 不持久化 runtime handle、partition、Entity 或 runtime snapshot。
+- #291 target 的编译器静态执行约束、可重建分区提示和每世界运行时执行计划必须
+  分层，最终 partition/worker assignment 不进入共享 image。
 
 但在未来 Stable Runtime API 的 G1 前，以下五个边界必须完成正式设计或明确迁移策略：
 
@@ -297,6 +305,25 @@ Adapter 不读取 candidate state，不把宿主 Transform 反写 Core，不选�
 ### C10. 私有 prototype 先于 production abstraction
 
 partition、SoA、event merge 或 multi-rate 的实验优先放在 research/benchmark 边界，以单线程 production oracle 做状态、事件、不变量和性能对照；证据不足时不得把通用 trait/调度框架提前带入 Core API。
+
+### C11. 静态执行约束与每世界执行计划分离
+
+编译器可以保存 worker 数无关的资源依赖、可切分边界和规范合并键，也可以提供
+可丢弃的性能提示；实际 partition/worker/边界缓冲、迁移和动态负载状态属于每世界
+运行时执行计划，不得进入稳定标识、共享镜像或 public handle。
+
+### C12. 精确分区不得增加逻辑延迟
+
+所有 partition 在 tick 内读取同一 committed state `T`，经 proposal/claim 和
+连接资源组件的唯一规范归约权威后原子提交 `T + Δ`。partition cut 不得增加一 tick
+halo delay；互不相交资源组件可以并行归约，不能把“single reducer”误写成永久全局
+单线程 reducer。
+
+### C13. 路网修订、快照和执行布局各自版本化
+
+共享静态网络按不可变修订发布；运行时世界通过失败关闭的镜像切换事务迁移。运行时
+快照绑定 image/revision/runtime/constraint/world/seed/tick 与全部可变状态，但不把
+worker/partition assignment 当作跨硬件恢复权威。dense ordinal 不得跨修订直接复用。
 
 ## 6. Prototype 顺序与通过条件
 
@@ -745,7 +772,10 @@ Stable Runtime API G1 前的待决项：
 
 ## 8. ADR 判断
 
-本审计暂不新增 ADR。原因是当前结论主要保护既有 ADR 0003/0005/0016 的可扩展性，没有选择新的 production partition、scheduler、identity encoding 或 multi-rate model。
+本审计最初未新增 ADR，因为当时只保护既有 ADR 0003/0005/0016 的可扩展性，没有
+选择 production partition、scheduler、identity encoding 或 multi-rate model。
+#291 后续通过 ADR 0020/0021 补充了静态执行约束/每世界执行计划、产品北极星、
+不可变路网修订和快照边界；它们仍未选择具体 partition 算法或任务运行库。
 
 以下任一决策进入 production 前必须重新判断 ADR：
 
@@ -766,13 +796,17 @@ Stable Runtime API G1 前的待决项：
 - 10k/100k 默认路径是否存在 batch/capacity reuse，还是只能逐实体调用？
 - command 在哪个 committed boundary 校验和生效，失败是否原子？
 - worker/partition 数变化是否会改变 state、first error 或 event order？
+- 所有 partition 是否读取同一 committed state，是否错误增加跨边界一 tick 延迟？
+- 静态执行约束、可重建提示与每世界执行计划是否保持权威分离？
+- 单资源连接组件是否有唯一规范归约权威，互不相交组件是否仍可并行？
 - multi-rate/LOD 是否改变 Core safety/fidelity，还是只改变 Presentation？
 - Data/Manifest 是否仍不包含 runtime handle、partition 或 Adapter entity？
+- 路网修订、运行时快照和跨修订 dense-handle 迁移是否失败关闭？
 - 是否有 single-thread production oracle 和 representative benchmark？
 - 该结论是否需要 ADR、prototype 或新的实施 Issue？
 
 ## 10. 与 #72 和路线图的关系
 
-#199 只完成 #72 验收中的 API 可扩展性前置切片。#72 继续保持 Backlog、Milestone N/A、G0 Pass；fidelity/target、partition/identity、deterministic scheduling、memory layout 和 Adapter/Core boundary 的完整研究仍由 #72 后续规划。
+#199 只完成 #72 验收中的 API 可扩展性前置切片。#72 继续保持 Backlog、Milestone N/A、G0 Pass；fidelity/target、partition/identity、deterministic scheduling、memory layout 和 Adapter/Core boundary 的完整研究仍由 #72 后续规划。#291 提供的静态约束与修订边界是该研究的输入，不构成 parallel runtime G2。
 
 本审计不阻塞 v0.8/v0.9，也不把 v1.0 Scope TBD 自动变成城市级实现 Milestone。它只冻结一个最迟门槛：未来 Stable Runtime API 的 G1 必须引用本审计，并关闭或显式接受第 7 节待决项；完整并行、多层级或分布式实施仍需产品目标和性能证据后另立 Milestone。

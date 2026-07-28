@@ -1,5 +1,9 @@
 # 0001 Project Scope
 
+> 后继扩展：ADR 0021 Proposed 将“面向中国特色城市模拟游戏的交通基础”定义为
+> LaneFlow 第一长期产品目标，同时保留本文对城市经济、市民出行需求和专业交通
+> 工程仿真的职责排除；在 ADR 0021 Accepted 前，该扩展仍是 #291 G1 输入。
+
 **状态**: Accepted  
 **日期**: 2026-06-17  
 **适用范围**: LaneFlow 项目定位、非目标和核心边界
@@ -56,4 +60,3 @@ LaneFlow 暂不追求：
 - Adapter 不应反向污染 Core 的抽象。
 - 与 SUMO、CARLA、libsumo 等系统的集成可以作为工具链或离线数据来源讨论，但不作为客户端 Core 依赖。
 - GitHub Issue 和 PR 应围绕这个范围判断是否属于 LaneFlow 当前目标。
-

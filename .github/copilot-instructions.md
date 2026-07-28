@@ -21,6 +21,9 @@
 11. `.github/pull_request_template.md`
 
 任务涉及 Core、数据格式或 Adapter 时，还应参考对应 `.agents/skills/*/SKILL.md`、`docs/design/` 和 `docs/adr/`。
+任务涉及产品定位、城市级范围、出行编排、Routing、路网修订、存档/回放、并行或
+fidelity 时，还必须读取
+`docs/adr/0021-city-simulation-game-traffic-foundation.md`。
 
 ## Review 语言与优先级
 
@@ -39,6 +42,9 @@ Review 时关注：
 - 风格问题优先依据 `rustfmt`、Clippy、`docs/reference/rust-code-style.md`、仓库既有命名、模块组织和中文优先注释约定；数字字面量评论应区分 Rust token 与字符串/外部格式，并限制在当前变更范围。
 - 架构问题必须对照 LaneFlow 分层、design / ADR 和切片范围，尤其检查当前 Core /
   目标 Traffic Runtime / data-format / Adapter 职责是否混杂。
+- 城市游戏相关变更必须保持城市游戏/出行编排/Routing/Traffic Runtime 权威分离；
+  不得把最终分区、世界 seed 或运行时快照烘焙进共享镜像，也不得用跨分区额外一
+  tick 延迟、Adapter LOD 或多世界吞吐改写精确交通语义。
 - 抽象建议必须说明它减少了什么重复、隔离了什么变化，或避免了什么长期耦合；不要建议无 Issue / design 依据的过早泛化。
 - Rust pattern 建议必须说明具体收益或风险，例如 ownership 语义、newtype / typed handle、trait 边界、`Result` / error 类型、模块可见性、失败原子性、API 可预测性或测试可验证性。
 - 设计原则可作为 review 判断框架：SRP、DRY、KISS、YAGNI、composition over inheritance、Design by Contract、encapsulation、CQS、POLA、Single Choice。

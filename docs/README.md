@@ -4,6 +4,10 @@
 
 GitHub 用于管理当前任务、协作状态和合并证据；仓库文档用于保存可版本化、可审查、可被 AI Agent 稳定读取的长期事实。
 
+LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟游戏提供交通基础；城市
+经济、市民出行需求和游戏规则继续由上层拥有。权威边界见
+`docs/adr/0021-city-simulation-game-traffic-foundation.md`。
+
 ## 目录结构
 
 ```text
@@ -38,13 +42,14 @@ docs/
 1. `README.md`
 2. `docs/architecture.md`
 3. `docs/roadmap.md`
-4. `AGENTS.md`
-5. `.agents/README.md`
-6. `docs/governance/documentation-policy.md`
-7. `docs/governance/github-workflow.md`
-8. `docs/governance/development-gates.md`
-9. `docs/governance/agent-development-guide.md`
-10. `docs/governance/security-scanning.md`
-11. `docs/governance/dependency-security.md`
-12. `docs/adr/README.md`
-13. `docs/design/README.md`
+4. `docs/adr/0021-city-simulation-game-traffic-foundation.md`
+5. `AGENTS.md`
+6. `.agents/README.md`
+7. `docs/governance/documentation-policy.md`
+8. `docs/governance/github-workflow.md`
+9. `docs/governance/development-gates.md`
+10. `docs/governance/agent-development-guide.md`
+11. `docs/governance/security-scanning.md`
+12. `docs/governance/dependency-security.md`
+13. `docs/adr/README.md`
+14. `docs/design/README.md`

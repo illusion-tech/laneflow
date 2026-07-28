@@ -15,6 +15,8 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 6. `.github/pull_request_template.md`
 7. 涉及安全设置、扫描或公开发布时，额外阅读 `docs/governance/security-scanning.md`
 8. 涉及许可证、Cargo 依赖、RustSec、cargo-deny 或 Dependabot 时，额外阅读 `docs/governance/dependency-security.md`
+9. 涉及产品定位、城市级范围、出行编排、Routing、路网修订、存档/回放、并行或
+   fidelity 时，额外阅读 `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
 ## 工作流
 
@@ -40,6 +42,9 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 5. 审阅 ADR、design、architecture、Issue 设计说明和 Agent Skill 时，检查领域术语
    是否已有中文规范名与英文辅助名；中文定义以 `docs/reference/glossary.md` 为
    权威，精确代码/协议标识符保留原文。
+6. 产品北极星或城市游戏/交通职责边界发生实质变化时，必须回写 ADR、architecture、
+   roadmap、glossary 和相关 Skills，并对当前 exact head 重新取得 G1 clean review；
+   不得沿用旧 head 的 G1/G3 结论。
 
 ## Gate Ledger 硬性规则
 

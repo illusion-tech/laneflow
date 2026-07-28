@@ -21,6 +21,8 @@
   - `0013-engine-neutral-spatial-geometry-and-length-authority.md`
   - `0015-bounded-f32-canonical-spatial-frames.md`
   - `0017-static-road-junction-maneuver-and-gate-identity.md`
+- 配套决策:
+  - `0021-city-simulation-game-traffic-foundation.md`
 - 详细设计:
   - `../design/network-compiler.md`
   - `../design/data-format.md`
@@ -65,6 +67,11 @@ LaneFlow 当前以 Traffic JSON、Spatial JSON 和 Scenario Manifest 为运行�
 #291 的目标不是在现有路径旁增加一个生成工具，而是把全部静态网络语义前移到
 离线编译期，并让 target Traffic Runtime 只从具有外部信任锚的派生静态镜像建立
 只读 view。
+
+ADR 0021 进一步明确：LaneFlow 的第一长期产品目标是为未来的中国特色城市模拟
+游戏提供交通基础。#291 因此不仅要优化加载，还必须保留单个大型城市世界的并行
+扩展、玩家修改道路、存档/回放、路径规划接入与每世界唯一性演进空间，同时不把
+城市经济和出行需求塞入交通运行时。
 
 ## 决策
 
@@ -176,13 +183,15 @@ StaticNetworkImage
   Header / provenance / profile
   SectionDirectory
   Required: StaticTrafficImage
+  Required: PartitionPlanningHints
   Optional: StaticSpatialImage
   Optional: WarmQueryTables
   Optional: ColdIdentityAndDiagnostics
 ```
 
-- `traffic-headless-v1` 只要求 Traffic；`traffic-spatial-v1` 要求
-  Traffic + Spatial；`traffic-debug-v1` 再加入 warm/cold/debug section；
+- `traffic-headless-v1` 要求 Traffic + PartitionPlanningHints；
+  `traffic-spatial-v1` 再要求 Spatial；`traffic-debug-v1` 再加入
+  warm/cold/debug section；
 - target `laneflow-runtime`/`TrafficWorld` 只借用或共享 `StaticTrafficView`，不要求
   Spatial bytes；
 - Spatial section 存在时完整覆盖 v1 所需 edge，并与 Traffic 使用同一 logical edge
@@ -190,6 +199,9 @@ StaticNetworkImage
 - Adapter 继续只消费 Traffic committed snapshot 与 Spatial pose batch，不读取
   compiler IR，也不获得静态规则 authority；
 - 多个 `TrafficWorld`/Spatial session 可以共享同一 immutable image。
+- image 必须保存工作线程数无关的静态执行约束图；v1
+  `PartitionPlanningHints` 节保存可被运行时忽略或重建的分区规划提示，但不得
+  保存最终分区、工作线程、边界邻域所有权（Halo Ownership）或动态负载状态。
 
 生产启动不得执行 JSON parse、external string rebind、static hash registry rebuild、
 topology reconstruction、Traffic/Spatial package join 或 initial Route occurrence
@@ -201,6 +213,19 @@ descriptor/validation receipt 绑定，再执行有界结构验证并建立只�
 静态镜像不得内嵌 vehicle、controller clock、reservation、occupancy、runtime
 Route generation、world/session nonce 或其他每世界可变状态。运行时状态使用
 独立 dense arrays，并以 image ordinal/typed `u32` handle 关联静态表。
+
+静态镜像表示一个不可变路网修订，不表示城市道路永不变化。玩家或工具修改来源
+模块后必须生成并验证新修订；运行世界只能在 fixed-tick 安全边界通过失败关闭的
+镜像切换事务原子迁移，不能原地修改共享 image。每世界 seed/随机流、执行计划、
+快照和宿主 identity 也不能进入共享 image。
+
+人口、Routing 与游戏规则的 seed/随机流由 caller/出行编排层拥有；Traffic Runtime
+不得为了存档或共享镜像而新增隐藏随机权威。若后续 G1 显式引入 Runtime 自有随机流，
+它只能属于每世界可变状态。
+
+切换的昂贵验证、分配和迁移在 tick 外准备完整候选状态，安全边界只原子切换
+image/state binding；旧 image 在全部借用视图/token 退出后回收。任一准备/提交
+失败都继续使用旧修订。
 
 静态镜像按访问频率拆分：
 
@@ -226,6 +251,9 @@ steady tick。Spatial/cold section 可以按 closed profile 从 headless/server 
 - `staticImageLayoutVersion`
 - `staticImageProfileId`
 - `staticImageDescriptorVersion`
+- `executionConstraintVersion`
+- `partitionHintVersion`
+- `runtimeSnapshotVersion`
 - `compilerBuildId`
 - `validatorBuildId`
 - `constraintSetVersion`
@@ -321,6 +349,58 @@ cutover 完成 G4 前：
   标记 Deprecated/移除，并以独立 breaking implementation Issue 完成
   `laneflow-core/CoreWorld` → `laneflow-runtime/TrafficWorld` clean break。
 
+### 11. 静态执行约束、分区提示与运行时执行计划分层
+
+编译器从规范 LIR 派生静态执行约束图（Static Execution Constraint Graph），表达：
+
+- 冲突、等待、下游存储、控制器和其他共享资源的依赖组件；
+- 可以安全并行求值或切分的边界；
+- 提案（Proposal）、资源声明（Resource Claim）、事件（Event）和变更（Mutation）
+  的规范合并键与提交顺序；
+- 无法局部化时必须归入同一归约权威的连接资源组件。
+
+该图是静态交通语义的派生事实，必须对工作线程数和实际分区计划（Partition Plan）
+中立。编译器
+还可以发射分区规划提示（Partition Planning Hints），例如预估成本、边界权重和推荐
+切分（Cut）；提示只影响性能，必须可丢弃、可重建，并且不能改变已提交状态
+（Committed State）。
+
+每个 `TrafficWorld` 依据静态约束、硬件拓扑、世界容量和动态负载建立可变的
+运行时执行计划（Runtime Execution Plan），拥有实际分区/工作线程分配、
+边界交换缓冲、迁移状态和调度统计。它不得回写共享 image，也不得成为存档跨硬件
+恢复的行为权威。
+
+精确执行路径（Exact Execution Path）统一遵循已提交状态 `T` →
+提案/资源声明/归约（Reduction）→ 原子提交 `T + Δ`。所有分区只读取 `T` 和同一
+tick 的规范输入；跨分区依赖不能通过额外一 tick 边界邻域延迟（Halo Delay）获得
+性能。每个连接资源组件只有一个规范归约权威，但互不相交的组件可以由不同工作线程
+并行归约；“单归约器（Single Reducer）”不等于全世界永久只有一个归约线程。
+
+本 ADR 不冻结分区算法、任务运行库、固定边界邻域宽度或数值归约算法。工作线程数、
+分区计划和任务完成顺序不得改变精确执行路径的已提交状态、事件或安全结果。未来
+保真度（Fidelity）降级必须进入独立 ADR/G1，不能伪装成调度优化。
+
+### 12. 运行时快照、回放和路径规划不进入共享静态权威
+
+运行时快照（Runtime Snapshot）是独立版本化制品，至少绑定规范制品摘要、静态镜像
+摘要、运行时/约束/快照版本、路网修订、world identity、tick、输入命令游标和全部
+每世界可变交通状态；只有后续 G1 显式授予的 Runtime 自有随机流才进入该快照。跨
+修订恢复必须通过稳定标识与语义差异执行显式迁移；旧 dense ordinal
+不得直接解释为新修订实体。动态 Route、车辆和其他运行时实体以快照局部标识保存
+引用关系，原进程 runtime handle/slot/generation 不得成为恢复后身份。
+运行时执行计划在恢复时按当前硬件重建，快照不得要求复现原分区/工作线程布局。
+
+回放使用显式输入命令序列（Input Command Sequence）、checkpoint 和确定性状态
+摘要。调试构建可以借助冷标识与源映射产生失同步诊断制品，定位首个分歧 tick、
+phase、实体和资源组件。
+
+交通运行时从已提交状态导出交通观测快照，不拥有全局成本政策。路径规划/出行编排
+层结合静态网络、观测、收费、游戏政策和偏好构造动态成本快照并产生候选路径。
+出行需求和路线选择策略由上层出行与交通编排拥有；车辆 fixed-tick 热路径不执行
+全图寻路。成本快照和候选 Route 绑定路网修订、观测 tick 与成本模型版本；Runtime
+对修订不匹配失败关闭。具体过期容忍、快照线格式、摘要算法、routing crate/API 与
+跨修订迁移算法由后续独立 G1 冻结。
+
 ## 性能与确定性契约
 
 实现进入 G2 前必须冻结并验证：
@@ -332,6 +412,8 @@ cutover 完成 G4 前：
   graph walk；必要安全检查在 image verifier 或 batch boundary 聚合；
 - steady tick 与稳定容量 pose batch 零分配；
 - 多 world 共享 image 时静态内存不按 world 复制；
+- 多世界共享不能替代单个大型城市世界的 partition/barrier/边界交换与动态负载
+  基准；
 - static image 加载时间、峰值分配和 retained memory 相对 current JSON +
   normalization 基线具有量化 Gate；
 - 10k/100k 交通运行时固定步进（Traffic Runtime Tick）与空间位姿（Spatial Pose）
@@ -341,6 +423,8 @@ cutover 完成 G4 前：
 - load limits 在任何 per-world allocation 前验证，恶意 cardinality/size 不得触发
   无界分配；
 - 单线程/并行、clean/incremental、受支持平台的 portable artifact 逐字节一致；
+- 同一冻结场景在支持的 worker 数与 partition plan 矩阵中产生相同 committed
+  state、事件和确定性状态摘要，且不引入 partition-induced extra tick delay；
 - target-specific image 只要求相同 target/layout/profile 下逐字节一致，不要求不同
   target 的 bytes 相同，但它们必须引用同一 canonical digest。
 
@@ -431,12 +515,29 @@ fast path 必须有认证的 image 外部 trust anchor；拒绝 header self-atte
 这会违反 ADR 0013/0015 的 Core-without-Spatial/headless 边界。Traffic section 必选、
 Spatial section 由 closed profile 控制；拒绝 mandatory combined payload。
 
+### 把最终分区和 worker 分配烘焙进静态镜像
+
+这会把可共享静态事实与硬件、世界容量和动态负载绑定，导致同一地图在不同设备或
+存档恢复时产生错误耦合；镜像只保存静态执行约束与可重建提示。
+
+### 用额外一 tick 的跨分区延迟换取简单 halo
+
+这会让结果依赖 partition cut 并改变跟车、信号、冲突和停车时序，不属于精确路径；
+拒绝。任何近似路径必须拥有独立 fidelity contract。
+
+### 把固定点或精确累加器预先规定为全部并行归约方案
+
+当前热资源主要是 occupancy、leader、proposal、claim 和 store，而非大规模无序
+浮点求和。数值表示和归约算法必须由实际 hotspot、误差与平台基准选择；本 ADR 只
+冻结确定性结果契约。
+
 ## G1 接受条件
 
 #291 只有在以下内容同时完成本地审阅与外部 re-review 后才能勾选 G1：
 
-1. `network-compiler.md` 与本 ADR 对 source module graph、IR、标识、
-   artifact/image、trust/profile、crate DAG 和 migration 的描述一致；
+1. `network-compiler.md`、ADR 0021 与本 ADR 对 source module graph、IR、标识、
+   artifact/image、trust/profile、execution planning、crate DAG 和 migration 的
+   描述一致；
 2. architecture、Data、current Core/target Traffic Runtime、Spatial、Adapter 文档
    清楚区分 current production 与 target；
 3. #292 不再承诺 L1 或 Core-shaped 输出，而是 compiler foundation + Synthetic DSL
@@ -447,3 +548,5 @@ Spatial section 由 closed profile 控制；拒绝 mandatory combined payload。
 6. untrusted image rejection、标识 registry known vectors 和 external descriptor
    trust path 已进入 implementation acceptance；
 7. 未把具体 archive library、并行框架或增量数据库当作未经基准的既定事实。
+8. 城市模拟游戏上层、路径规划、不可变路网修订、运行时快照和每世界唯一性边界
+   已同步到 architecture、roadmap、glossary 与 Agent Skills。

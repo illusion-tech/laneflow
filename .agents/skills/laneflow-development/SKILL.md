@@ -14,6 +14,8 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 5. `docs/reference/glossary.md`
 6. 修改 Rust 时读取 `docs/reference/rust-code-style.md`
 7. 相关的 `docs/design/` 与 `docs/adr/` 文档
+8. 涉及城市模拟游戏范围、Routing、路网修订、存档/回放、并行或 fidelity 时读取
+   `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
 若任务涉及当前态 Core API、目标态 Traffic Runtime API、数据格式或 Adapter API，
 但缺少相关设计输入，应先停止实现并提出 G1 设计缺口。
@@ -38,6 +40,11 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
 - 长期文档中的领域术语必须中文权威、英文辅助；新术语先补
   `docs/reference/glossary.md`，代码和协议标识符保留精确原文。
 - 不要把无关重构与功能开发混在同一 PR。
+- 不要把城市经济、出行需求或路线选择策略隐藏进 Traffic Runtime；不要把最终
+  partition/worker、world seed 或 runtime snapshot 写入共享静态镜像。
+- 精确并行路径不得用分区导致的额外一 tick 延迟（Partition-induced Extra-tick
+  Delay）换吞吐；Adapter LOD 和多世界吞吐也不能冒充 Traffic Runtime 保真度或
+  单世界扩展。
 - Rust 数字字面量等仓库级可读性规则只应用于本次触及范围；历史格式问题应单独跟踪。
 - 不要在只完成子切片时声称父任务已完成。
 - 不要隐瞒未运行的检查；说明未运行项及原因。
