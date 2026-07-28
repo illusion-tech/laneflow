@@ -388,37 +388,49 @@ StableId128。显示名称、坐标、浮点几何、采样点、数组下标、
 - authored relation target 的变化通常属于同一 declaration 的 semantic change；
   只有本节明确列入 tuple 的 topology closure 才改变 StableId128。
 
+车道图边（Lane Graph Edge）`LaneEdge` 是基础拓扑中可独立寻址的实体，不以可选的
+道路区段覆盖（Road-section Coverage）或派生的路口内部边角色
+（Junction-internal Edge Role）作为身份所有者。每条边必须在来源模块中拥有显式稳定
+边键（Explicit Stable Edge Key）`laneEdgeKey`；道路车道成员关系和路口内部边归属只
+进入规范关系与语义差异，不进入边的规范标识元组。这样同一条边在加入、移除或调整
+横断面 / 路口角色时保持身份，只有显式替换、拆分或合并边并分配新 key 才产生实体级
+add/remove。
+
 ### 7.3 标识 v1 登记表（Identity v1 Registry）
 
 `identityEncodingVersion = 1` 冻结公共字节 envelope；
 `identityRegistryRevision = 1` 冻结本表的 kind、slug 和 required tag sequence。
 required tags 必须按数值严格递增编码：
 
-| 代码（Code） | `entityKind`           | 类别（Category）                      | 英文短名（Slug）    | 必需标签（Required Tags） |
-| -----------: | ---------------------- | ------------------------------------- | ------------------- | ------------------------- |
-|            1 | `RoadCorridor`         | 声明（Declaration）                   | `corridor`          | `1,2`                     |
-|            2 | `RoadSection`          | 声明（Declaration）                   | `section`           | `1,3,35`                  |
-|            3 | `AuthoringLane`        | 声明（Declaration）                   | `lane`              | `1,4,34`                  |
-|            4 | `RoadLaneEdge`         | 可寻址派生实体（Addressable Derived） | `road-edge`         | `1,5,6,36`                |
-|            5 | `JunctionInternalEdge` | 可寻址派生实体（Addressable Derived） | `internal-edge`     | `1,5,6,15,37`             |
-|            6 | `Junction`             | 声明（Declaration）                   | `junction`          | `1,7`                     |
-|            7 | `Movement`             | 声明（Declaration）                   | `movement`          | `1,9,10,11,37`            |
-|            8 | `ManeuverPath`         | 声明（Declaration）                   | `path`              | `1,8,12,13,14`            |
-|            9 | `ManeuverGate`         | 声明（Declaration）                   | `gate`              | `1,16,17`                 |
-|           10 | `WaitingZone`          | 声明（Declaration）                   | `waiting-zone`      | `1,16,18`                 |
-|           11 | `StopLine`             | 声明（Declaration）                   | `stop-line`         | `1,19`                    |
-|           12 | `SignalGroup`          | 声明（Declaration）                   | `signal-group`      | `1,20`                    |
-|           13 | `SignalController`     | 声明（Declaration）                   | `signal-controller` | `1,21`                    |
-|           14 | `SignalPhase`          | 声明（Declaration）                   | `signal-phase`      | `1,22,23`                 |
-|           15 | `ParkingArea`          | 声明（Declaration）                   | `parking-area`      | `1,24`                    |
-|           16 | `ParkingSpace`         | 声明（Declaration）                   | `parking-space`     | `1,25,26`                 |
-|           17 | `LaneGroup`            | 声明（Declaration）                   | `lane-group`        | `1,27,34`                 |
-|           18 | `FacilityBand`         | 声明（Declaration）                   | `facility-band`     | `1,28,35`                 |
-|           19 | `ParticipantClass`     | 声明（Declaration）                   | `participant-class` | `1,29`                    |
-|           20 | `AccessRule`           | 声明（Declaration）                   | `access-rule`       | `1,30`                    |
-|           21 | `VehicleProfile`       | 声明（Declaration）                   | `vehicle-profile`   | `1,31`                    |
-|           22 | `StaticRoute`          | 声明（Declaration）                   | `static-route`      | `1,32`                    |
-|           23 | `CanonicalFrame`       | 声明（Declaration）                   | `canonical-frame`   | `1,33`                    |
+本表仍是 #291 G1 前的 Proposed v1，尚无已接受 known vector、规范制品或生产 reader；
+因此本次统一 `LaneEdge` 身份并重排代码 / 标签是在首次冻结前修正 v1 定义，不是对已
+发布 v1 的原地兼容修改。G1 接受并发布首批 known vectors 后，新增 kind 才只能提升
+registry revision，修改既有 kind 的字段、标签含义或编码必须提升 encoding version。
+
+| 代码（Code） | `entityKind`       | 类别（Category）                              | 英文短名（Slug）    | 必需标签（Required Tags） |
+| -----------: | ------------------ | --------------------------------------------- | ------------------- | ------------------------- |
+|            1 | `RoadCorridor`     | 声明（Declaration）                           | `corridor`          | `1,2`                     |
+|            2 | `RoadSection`      | 声明（Declaration）                           | `section`           | `1,3,33`                  |
+|            3 | `AuthoringLane`    | 声明（Declaration）                           | `lane`              | `1,4,32`                  |
+|            4 | `LaneEdge`         | 可寻址拓扑实体（Addressable Topology Entity） | `lane-edge`         | `1,5`                     |
+|            5 | `Junction`         | 声明（Declaration）                           | `junction`          | `1,6`                     |
+|            6 | `Movement`         | 声明（Declaration）                           | `movement`          | `1,8,9,10,34`             |
+|            7 | `ManeuverPath`     | 声明（Declaration）                           | `path`              | `1,7,11,12,13`            |
+|            8 | `ManeuverGate`     | 声明（Declaration）                           | `gate`              | `1,14,15`                 |
+|            9 | `WaitingZone`      | 声明（Declaration）                           | `waiting-zone`      | `1,14,16`                 |
+|           10 | `StopLine`         | 声明（Declaration）                           | `stop-line`         | `1,17`                    |
+|           11 | `SignalGroup`      | 声明（Declaration）                           | `signal-group`      | `1,18`                    |
+|           12 | `SignalController` | 声明（Declaration）                           | `signal-controller` | `1,19`                    |
+|           13 | `SignalPhase`      | 声明（Declaration）                           | `signal-phase`      | `1,20,21`                 |
+|           14 | `ParkingArea`      | 声明（Declaration）                           | `parking-area`      | `1,22`                    |
+|           15 | `ParkingSpace`     | 声明（Declaration）                           | `parking-space`     | `1,23,24`                 |
+|           16 | `LaneGroup`        | 声明（Declaration）                           | `lane-group`        | `1,25,32`                 |
+|           17 | `FacilityBand`     | 声明（Declaration）                           | `facility-band`     | `1,26,33`                 |
+|           18 | `ParticipantClass` | 声明（Declaration）                           | `participant-class` | `1,27`                    |
+|           19 | `AccessRule`       | 声明（Declaration）                           | `access-rule`       | `1,28`                    |
+|           20 | `VehicleProfile`   | 声明（Declaration）                           | `vehicle-profile`   | `1,29`                    |
+|           21 | `StaticRoute`      | 声明（Declaration）                           | `static-route`      | `1,30`                    |
+|           22 | `CanonicalFrame`   | 声明（Declaration）                           | `canonical-frame`   | `1,31`                    |
 
 本表冻结的是 identity v1 已进入当前车辆 projection 的实体集合，不是目标 Traffic
 Runtime 永久封闭的参与单元种类表。`VehicleProfile` 与 `StaticRoute` 只服务当前
@@ -431,11 +443,11 @@ Runtime 永久封闭的参与单元种类表。`VehicleProfile` 与 `StaticRoute
 裸局部键复制进子实体 tuple。这样跨模块引用、同名父实体和重新归属都由父实体完整
 命名空间裁决：
 
-- `RoadSection` 使用 tag 35 `roadCorridorStableId`；
-- `AuthoringLane` 使用 tag 34 `roadSectionStableId`；
-- `RoadLaneEdge` 使用 tag 36 `authoringLaneStableId`，稳定 boundary key 区分同一
-  lane chain 中的 segment；
-- `JunctionInternalEdge` 与 `Movement` 使用 tag 37 `junctionStableId`；
+- `RoadSection` 使用 tag 33 `roadCorridorStableId`；
+- `AuthoringLane` 使用 tag 32 `roadSectionStableId`；
+- `LaneEdge` 不使用 parent anchor，只使用来源模块内显式持久化且唯一的 tag 5
+  `laneEdgeKey`；
+- `Movement` 使用 tag 34 `junctionStableId`；
 - `ManeuverPath`、Signal phase、ParkingSpace、LaneGroup 和 FacilityBand 继续使用
   各自登记的 parent StableId。
 
@@ -447,25 +459,39 @@ generation-aware handle，不获得持久 StableId128。
 （Unique Owner Relation）：恰好一个 `RoadCorridor.elements[]` 分别通过
 `sectionId` 或 `bandId` 引用该成员。该关系已经由 `cross-section-access.md` 冻结为
 完备所有者树（Complete Owner Tree）；当前态（Current）的 `RoadSectionData` /
-`FacilityBandData` 有意不重复保存父实体（Parent）字段。编译器先根据道路走廊声明
-派生 `RoadCorridor` StableId，再解析 `RoadCorridor.elements[]`，拒绝未知引用、
-重复引用、多所有者和零所有者；随后：
+`FacilityBandData` 有意不重复保存父实体（Parent）字段。编译器先对全部 `LaneEdge`
+建立独立身份，再根据道路走廊声明派生 `RoadCorridor` StableId，并解析
+`RoadCorridor.elements[]`，拒绝未知引用、重复引用、多所有者和零所有者；随后：
 
 1. 以已证明唯一的 `roadCorridorStableId` 与 `sectionKey` 派生 `RoadSection`
    StableId；
 2. 按 parent-before-child 顺序，以 `roadSectionStableId` 与显式持久化的 `laneKey`
    派生 `AuthoringLane` StableId；
-3. 以 `authoringLaneStableId` 与稳定起止 boundary key 派生 `RoadLaneEdge`
-   StableId；
-4. 以 `roadCorridorStableId` 与 `facilityBandKey` 派生 `FacilityBand` StableId。
+3. 将 `AuthoringLane` 的有序边链解析为对既有 `LaneEdge` StableId / typed ordinal
+   的覆盖关系，不重新派生边身份；
+4. 以 `roadCorridorStableId` 与 `facilityBandKey` 派生 `FacilityBand` StableId；
+5. 从已验证机动路径派生 `Junction -> LaneEdge` 的唯一内部边角色；该角色不创建
+   第二个边实体，也不改变既有 `LaneEdge` StableId。
 
-前端可以用嵌套或显式引用表达这些关系，但进入 HIR/MIR 后必须归一为同一所有者
-语义；validated canonical LIR 必须保存有类型（Typed）的
+前端可以用嵌套或显式引用表达这些关系，但进入 HIR/MIR 后必须归一为同一关系语义；
+validated canonical LIR 必须保存有类型（Typed）的
 `RoadSection -> RoadCorridor`、`AuthoringLane -> RoadSection`、
-`RoadLaneEdge -> AuthoringLane` 与 `FacilityBand -> RoadCorridor` 所有者关系，
-不能让发射器（Emitter）、投影器（Projection）或交通运行时（Traffic Runtime）从
-输入顺序重新猜测。当前 JSON 导入前端必须把缺失的 lane/boundary key 作为待确认
-建议写入新的权威来源模块；未持久化确认前不得发布匿名或由数组下标派生的标识。
+`AuthoringLane -> LaneEdge` 有序覆盖、`Junction -> LaneEdge` 派生内部角色与
+`FacilityBand -> RoadCorridor` 关系，不能让发射器（Emitter）、投影器
+（Projection）或交通运行时（Traffic Runtime）从输入顺序重新猜测。
+
+每个 frontend 都必须在进入身份闭包前为全部边提供 `laneEdgeKey`：
+
+- Geometry/Synthetic/Editor 来源若展开出逻辑边，必须从显式稳定 authoring key
+  产生并持久化边键；几何坐标、曲线离散片段、数组下标和遍历顺序均不得成为边键；
+- 当前 Traffic v0.10 导入前端对**全部** `laneGraph.edges[].id`（不是只对未覆盖边）
+  原样使用其符合 External ID 约束的文本作为 `laneEdgeKey`，并置于导入模块的稳定
+  namespace；因此道路区段覆盖、路口内部角色、`loop`、`isolated` 和被静态路线引用
+  的未覆盖边都进入同一身份规则；
+- current `RoadSectionData.lanes[].edgeIds` 和派生 internal-edge ownership 只建立
+  关系；importer 不得因角色存在与否把同一 current edge 分派到不同 identity kind；
+- 缺失边键只能产生待确认建议，未持久化确认前不得发布匿名、按几何或按序号派生的
+  边身份。
 
 `ConflictZone`、`ParticipantStream`、`JunctionGroup` 等未来 domain 只有在各自 G1
 冻结后才 append 新 kind code。新增 kind 提升 `identityRegistryRevision`，但不改变
@@ -480,39 +506,36 @@ generation-aware handle，不获得持久 StableId128。
 |           2 | `corridorKey`              | ASCII 字节（Bytes）        |
 |           3 | `sectionKey`               | ASCII 字节（Bytes）        |
 |           4 | `laneKey`                  | ASCII 字节（Bytes）        |
-|           5 | `startBoundaryKey`         | ASCII 字节（Bytes）        |
-|           6 | `endBoundaryKey`           | ASCII 字节（Bytes）        |
-|           7 | `junctionKey`              | ASCII 字节（Bytes）        |
-|           8 | `pathKey`                  | ASCII 字节（Bytes）        |
-|           9 | `movementKey`              | ASCII 字节（Bytes）        |
-|          10 | `directedEntryApproachKey` | ASCII 字节（Bytes）        |
-|          11 | `directedExitApproachKey`  | ASCII 字节（Bytes）        |
-|          12 | `movementStableId`         | 16 个原始字节（Raw Bytes） |
-|          13 | `entryEdgeStableId`        | 16 个原始字节（Raw Bytes） |
-|          14 | `exitEdgeStableId`         | 16 个原始字节（Raw Bytes） |
-|          15 | `internalEdgeKey`          | ASCII 字节（Bytes）        |
-|          16 | `maneuverPathStableId`     | 16 个原始字节（Raw Bytes） |
-|          17 | `gateKey`                  | ASCII 字节（Bytes）        |
-|          18 | `waitingZoneKey`           | ASCII 字节（Bytes）        |
-|          19 | `stopLineKey`              | ASCII 字节（Bytes）        |
-|          20 | `signalGroupKey`           | ASCII 字节（Bytes）        |
-|          21 | `signalControllerKey`      | ASCII 字节（Bytes）        |
-|          22 | `signalControllerStableId` | 16 个原始字节（Raw Bytes） |
-|          23 | `phaseKey`                 | ASCII 字节（Bytes）        |
-|          24 | `parkingAreaKey`           | ASCII 字节（Bytes）        |
-|          25 | `parkingAreaStableId`      | 16 个原始字节（Raw Bytes） |
-|          26 | `parkingSpaceKey`          | ASCII 字节（Bytes）        |
-|          27 | `laneGroupKey`             | ASCII 字节（Bytes）        |
-|          28 | `facilityBandKey`          | ASCII 字节（Bytes）        |
-|          29 | `participantClassKey`      | ASCII 字节（Bytes）        |
-|          30 | `accessRuleKey`            | ASCII 字节（Bytes）        |
-|          31 | `vehicleProfileKey`        | ASCII 字节（Bytes）        |
-|          32 | `routeKey`                 | ASCII 字节（Bytes）        |
-|          33 | `canonicalFrameKey`        | ASCII 字节（Bytes）        |
-|          34 | `roadSectionStableId`      | 16 个原始字节（Raw Bytes） |
-|          35 | `roadCorridorStableId`     | 16 个原始字节（Raw Bytes） |
-|          36 | `authoringLaneStableId`    | 16 个原始字节（Raw Bytes） |
-|          37 | `junctionStableId`         | 16 个原始字节（Raw Bytes） |
+|           5 | `laneEdgeKey`              | ASCII 字节（Bytes）        |
+|           6 | `junctionKey`              | ASCII 字节（Bytes）        |
+|           7 | `pathKey`                  | ASCII 字节（Bytes）        |
+|           8 | `movementKey`              | ASCII 字节（Bytes）        |
+|           9 | `directedEntryApproachKey` | ASCII 字节（Bytes）        |
+|          10 | `directedExitApproachKey`  | ASCII 字节（Bytes）        |
+|          11 | `movementStableId`         | 16 个原始字节（Raw Bytes） |
+|          12 | `entryEdgeStableId`        | 16 个原始字节（Raw Bytes） |
+|          13 | `exitEdgeStableId`         | 16 个原始字节（Raw Bytes） |
+|          14 | `maneuverPathStableId`     | 16 个原始字节（Raw Bytes） |
+|          15 | `gateKey`                  | ASCII 字节（Bytes）        |
+|          16 | `waitingZoneKey`           | ASCII 字节（Bytes）        |
+|          17 | `stopLineKey`              | ASCII 字节（Bytes）        |
+|          18 | `signalGroupKey`           | ASCII 字节（Bytes）        |
+|          19 | `signalControllerKey`      | ASCII 字节（Bytes）        |
+|          20 | `signalControllerStableId` | 16 个原始字节（Raw Bytes） |
+|          21 | `phaseKey`                 | ASCII 字节（Bytes）        |
+|          22 | `parkingAreaKey`           | ASCII 字节（Bytes）        |
+|          23 | `parkingAreaStableId`      | 16 个原始字节（Raw Bytes） |
+|          24 | `parkingSpaceKey`          | ASCII 字节（Bytes）        |
+|          25 | `laneGroupKey`             | ASCII 字节（Bytes）        |
+|          26 | `facilityBandKey`          | ASCII 字节（Bytes）        |
+|          27 | `participantClassKey`      | ASCII 字节（Bytes）        |
+|          28 | `accessRuleKey`            | ASCII 字节（Bytes）        |
+|          29 | `vehicleProfileKey`        | ASCII 字节（Bytes）        |
+|          30 | `routeKey`                 | ASCII 字节（Bytes）        |
+|          31 | `canonicalFrameKey`        | ASCII 字节（Bytes）        |
+|          32 | `roadSectionStableId`      | 16 个原始字节（Raw Bytes） |
+|          33 | `roadCorridorStableId`     | 16 个原始字节（Raw Bytes） |
+|          34 | `junctionStableId`         | 16 个原始字节（Raw Bytes） |
 
 Boundary/Approach/curve segment 若成为独立 LIR table、可被引用或需要独立 semantic
 diff，必须通过后续 registry revision 获得 kind；否则只能作为所属 declaration 的
@@ -572,6 +595,12 @@ entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest �
 - missing/duplicate/unknown/out-of-order tag 负向向量；
 - sibling reorder、无关 insertion 和 geometry-only edit metamorphic tests；
 - section split、boundary/key 和显式 topology closure 变化测试；
+- 全部 `LaneEdge`（道路区段已覆盖、路口内部、无所属、自环、孤立）都获得唯一
+  `StableId128`；`v0.10-empty-signals-and-parking` 中 `loop`/`isolated` 与引用
+  `loop` 的静态路线可以完整进入 `StaticIdentityIndex`；
+- 同一 `LaneEdge` 加入 / 移除 RoadSection 覆盖或 Junction internal role 时 ID
+  不变；显式替换 / 拆分边并使用新 `laneEdgeKey` 时形成 add/remove；同一 namespace
+  重复 `laneEdgeKey` 失败；
 - RoadSection/FacilityBand 多所有者 / 零所有者失败、`RoadCorridor.elements[]`
   重排 ID 不变、跨 corridor 移动 ID 改变，以及相同 local key 在不同 corridor 下
   ID 不同；
@@ -1221,25 +1250,26 @@ Cutover 前必须证明：
 
 ## 15. 风险登记
 
-| 风险                                                                         | 结果                                  | 控制                                                         |
-| ---------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------ |
-| 编译器系统性缺陷（Compiler Systemic Bug）                                    | 批量污染全部资产                      | 独立验证器、差分 / 模糊测试（Differential / Fuzz）、语义差异 |
-| 二进制校验器漏洞（Binary Verifier Vulnerability）                            | 不可信字节破坏内存安全                | 基于偏移量的格式、加载限制、模糊测试 / `unsafe` 审计         |
-| 镜像头声明被误当作信任（Header-as-Trust）                                    | 恶意但结构合法的镜像绕过语义闸口      | 外部描述符、验证收据、不可信重建                             |
-| 未认证路网修订（Unauthenticated Network Revision）                           | 快照/路由绕过修订检查或兼容恢复误拒绝 | 语义载荷派生标识；descriptor/receipt/cutover 三重绑定        |
-| 中间表示泄漏运行时类型（IR Leaks Runtime Types）                             | 后端 / 目标被当前核心对象图锁死       | 静态契约、目标中立 LIR、无环包依赖图                         |
-| 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效        | 精确种类 / 标签登记表、已知向量、变形测试                    |
-| 增量 / 并行非确定性（Incremental / Parallel Nondeterminism）                 | CI / 发布字节漂移                     | 干净单线程预言机、稳定合并                                   |
-| 配置档边界错误（Profile Boundary Error）                                     | 无图形配置档携带几何，或交叉索引漂移  | 交通必需 / 空间可选矩阵、配置档测试                          |
-| 当前态 / 目标态双路径长期化（Current / Target Dual-path Permanence）         | 测试矩阵和语义漂移                    | 集成专用桥、明确移除责任人 / 切换闸口                        |
-| 来源 / 生成物双重事实源（Source / Generated Dual SSOT）                      | 手工修改与漂移                        | 来源模块图权威、生成摘要 / 收据闸口                          |
-| 过早选择归档库（Premature Archive-library Choice）                           | ABI、安全或 MSRV 锁定                 | 先冻结契约，再做基准 / 审计                                  |
-| 最终分区进入共享镜像（Final Partition in Shared Image）                      | 地图与硬件/世界耦合，存档不可移植     | 静态约束 + 可重建提示 + 每世界执行计划                       |
-| 分区诱发行为延迟（Partition-induced Behavioral Delay）                       | 结果随 cut 改变                       | 同 tick committed-state barrier 与置换等价测试               |
-| 原地修改静态镜像（In-place Static-image Mutation）                           | 摘要、共享、信任和确定性失效          | 不可变路网修订 + 失败关闭镜像切换事务                        |
-| 生产配置档裁掉稳定身份索引（Production Profile Drops Stable Identity Index） | 快照、动态路线与跨修订映射无法恢复    | 全配置档必需冷索引；双向 round-trip；按需映射                |
-| 未受信任语义差异驱动迁移（Untrusted Semantic Diff Drives Migration）         | 篡改迁移、错误终止或状态错配          | 外部切换描述符、双制品独立验证、身份索引复核                 |
-| 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）               | 静态契约与运行时执行能力长期不对称    | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环    |
+| 风险                                                                         | 结果                                             | 控制                                                         |
+| ---------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------ |
+| 编译器系统性缺陷（Compiler Systemic Bug）                                    | 批量污染全部资产                                 | 独立验证器、差分 / 模糊测试（Differential / Fuzz）、语义差异 |
+| 二进制校验器漏洞（Binary Verifier Vulnerability）                            | 不可信字节破坏内存安全                           | 基于偏移量的格式、加载限制、模糊测试 / `unsafe` 审计         |
+| 镜像头声明被误当作信任（Header-as-Trust）                                    | 恶意但结构合法的镜像绕过语义闸口                 | 外部描述符、验证收据、不可信重建                             |
+| 未认证路网修订（Unauthenticated Network Revision）                           | 快照/路由绕过修订检查或兼容恢复误拒绝            | 语义载荷派生标识；descriptor/receipt/cutover 三重绑定        |
+| 中间表示泄漏运行时类型（IR Leaks Runtime Types）                             | 后端 / 目标被当前核心对象图锁死                  | 静态契约、目标中立 LIR、无环包依赖图                         |
+| 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效                   | 精确种类 / 标签登记表、已知向量、变形测试                    |
+| 边身份耦合可选角色（Edge Identity Coupled to Optional Role）                 | 未覆盖边无身份，或调整 overlay 造成伪删除 / 新增 | `LaneEdge` 独立稳定键；RoadSection/Junction 只保存关系       |
+| 增量 / 并行非确定性（Incremental / Parallel Nondeterminism）                 | CI / 发布字节漂移                                | 干净单线程预言机、稳定合并                                   |
+| 配置档边界错误（Profile Boundary Error）                                     | 无图形配置档携带几何，或交叉索引漂移             | 交通必需 / 空间可选矩阵、配置档测试                          |
+| 当前态 / 目标态双路径长期化（Current / Target Dual-path Permanence）         | 测试矩阵和语义漂移                               | 集成专用桥、明确移除责任人 / 切换闸口                        |
+| 来源 / 生成物双重事实源（Source / Generated Dual SSOT）                      | 手工修改与漂移                                   | 来源模块图权威、生成摘要 / 收据闸口                          |
+| 过早选择归档库（Premature Archive-library Choice）                           | ABI、安全或 MSRV 锁定                            | 先冻结契约，再做基准 / 审计                                  |
+| 最终分区进入共享镜像（Final Partition in Shared Image）                      | 地图与硬件/世界耦合，存档不可移植                | 静态约束 + 可重建提示 + 每世界执行计划                       |
+| 分区诱发行为延迟（Partition-induced Behavioral Delay）                       | 结果随 cut 改变                                  | 同 tick committed-state barrier 与置换等价测试               |
+| 原地修改静态镜像（In-place Static-image Mutation）                           | 摘要、共享、信任和确定性失效                     | 不可变路网修订 + 失败关闭镜像切换事务                        |
+| 生产配置档裁掉稳定身份索引（Production Profile Drops Stable Identity Index） | 快照、动态路线与跨修订映射无法恢复               | 全配置档必需冷索引；双向 round-trip；按需映射                |
+| 未受信任语义差异驱动迁移（Untrusted Semantic Diff Drives Migration）         | 篡改迁移、错误终止或状态错配                     | 外部切换描述符、双制品独立验证、身份索引复核                 |
+| 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）               | 静态契约与运行时执行能力长期不对称               | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环    |
 
 ## 16. #291 G1 完成条件
 
@@ -1255,6 +1285,8 @@ Cutover 前必须证明：
   误绑到 #291 的设计交付 G4；
 - 标识 v1、artifact/image/profile/version/validation/performance contract 一致，所有
   生产配置档保留 snapshot/cutover 必需的 `StaticIdentityIndex`；
+- 全部 `LaneEdge`（包括合法未覆盖边）以独立稳定边键进入 identity closure，且
+  RoadSection/Junction 角色变化不造成边身份漂移；
 - 静态执行约束、分区规划提示和每世界运行时执行计划职责分离，且 exact path 无
   partition-induced extra tick delay；
 - 城市游戏/出行编排/routing、不可变路网修订、快照/回放和每世界唯一性边界一致；

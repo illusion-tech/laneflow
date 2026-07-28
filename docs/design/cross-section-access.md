@@ -175,6 +175,11 @@ lane
   （Junction internal edge、未分段路段等）。同一条 lane 链内 edge 也不得重复
   （如 `[A, B, A]`）——重复 edge 会让同一物理 edge 占据同一 lane 的两个纵向
   位置，占用/锚定语义自相矛盾。
+- #291 Proposed 目标标识进一步把车道图边（Lane Graph Edge）`LaneEdge` 作为独立
+  可寻址拓扑实体：道路区段覆盖（Road-section Coverage）与路口内部边角色
+  （Junction-internal Edge Role）均不参与边的 `StableId128`。因此添加 / 移除本
+  overlay 不改变同一边身份，合法未覆盖边也不需要伪造 RoadSection/Junction
+  所有者；完整编码与 current v0.10 导入规则见 `network-compiler.md` §7。
 - RoadSection 的方向由其 lane edge 链的方向派生，不存储方向字段。**同向不变
   量**：同一 section 的所有 lane 链必须同向行驶——反向链会让 section 方向
   派生自相矛盾（同一 section 两个行驶方向），lane index 的 reference 系语义

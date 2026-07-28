@@ -248,6 +248,13 @@ Lane graph 与 Vehicle Profile 的 domain 语义沿用 v0.3：
 - route 至少一个 edge；引用必须存在，相邻 pair 必须连通；允许 repeated edge/self loop。
 - Vehicle Profile 全字段必填、immutable，当前 `model` 仅为 `iidm`；`participantClassId` 必填并引用已声明的 ParticipantClass；数值和 deceleration cross-field 规则由 Core 校验。
 
+#291 Proposed 目标的 current v0.10 导入前端对每个 `laneGraph.edges[].id` 原样建立
+显式稳定边键（Explicit Stable Edge Key）`laneEdgeKey`，而不是根据 RoadSection
+覆盖或派生 Junction internal ownership 选择不同身份种类。External ID 已满足相同
+ASCII / 长度约束，因此 `loop`、`isolated`、未分段道路边及被静态路线引用的未覆盖边
+都能获得统一 `LaneEdge` StableId128；该规则只描述离线导入 / 迁移，不改变 current
+wire schema、loader 或 Core handle。
+
 route 不得终止在声明 StopLine 的 edge 上；不能从/在 Junction internal edge
 开始/结束。initial routes 与 runtime `register_route` 复用同一 Maneuver occurrence
 compiler，不能借 route completion 或不完整 path 绕过 Gate。
