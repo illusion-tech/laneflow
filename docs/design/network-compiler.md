@@ -1,6 +1,6 @@
 # 路网编译器与数据供应链范式
 
-**文档状态**: Draft（#291 G1 的设计输入，冻结前为草案）<br>
+**文档状态**: Accepted（#291 G1 冻结核心范式与四个决策点；L2 细节为方向性，待 L2 G1）<br>
 **最后更新**: 2026-07-28<br>
 **适用范围**: #291 冻结的编译器时代数据供应链范式、L1/L2 编译器架构、身份派生契约、source map 与诊断、双产物与独立校验器、双 SSOT 过渡期纪律、canonical 产物退役条件与路线图<br>
 **实现状态**: 未实现；L1 拓扑生成器由 #292 跟踪，L2 几何编译器待 #291 G1 后拆分
@@ -158,9 +158,9 @@ runtime    Core 规范化结构（零改动）
 - **junction 半显式**：centerline 端点在容差内交汇推断为节点候选，**连接与否显式确认**；ADR 0017 的"立体交叉不因俯视几何相交自动成 Junction"落实为文档的表达能力——两条 centerline 三维相交时必须区分"互通"与"跨越"，默认不连接；
 - **设施与规则附着**：信号挂载点、停车位、限速、AccessRule 时间/地区 overlay、WaitingZone/ConflictZone 声明（ADR 0019），全部作为 centerline/横断面/junction 上的附着属性，不产生第二份手绘数据。
 
-### 6.2 曲线表示（G1 待决）
+### 6.2 曲线表示（#291 G1 已冻结边界）
 
-候选：直线-圆曲线-回旋线（clothoid，真实道路设计标准单元，交叉口过渡曲线的天然数学形式）vs 贝塞尔（CS2 式游戏惯例）。回旋线的数值计算必须通过 LaneFlow 数值确定性纪律（numeric-representation 容差体系），成本在 G1 算账。
+G1 冻结：L1 直线 + 规则几何；L2 采用 curve segment 弧长采样抽象，具体段类型集合待 L2 G1 以 numeric-representation 纪律下的确定性/性能验证决策。候选：直线-圆-回旋线三单元（clothoid，道路工程标准缓和曲线，曲率随弧长线性变化、真实路网保真最高；Fresnel 积分无解析式，需固定阶数级数 + 误差预算）vs 贝塞尔（控制点多项式，计算廉价、交互直观，游戏行业惯例；曲率非线性且不能精确表圆）vs 混合段类型模型（道路设计软件实际形态）。产物恒为折线（SpatialPackage `centerline.points`），曲线表示只存在于文档与编译器内部，runtime 数值成本为零。
 
 ### 6.3 authority
 
@@ -190,9 +190,16 @@ emit       canonical JSON ＋ 二进制镜像 ＋ source map ＋ provenance
 
 ## 8. 身份派生契约（identity stability）
 
-### 8.1 原则
+### 8.1 原则（#291 G1 已冻结）
 
-身份从输入文档的稳定锚点派生：centerline UUID + 方向 + 车道序号 + 节点 UUID + movement 类别等。编译过程**不得**引入自增序号、哈希随机性、迭代顺序依赖。
+身份 = 纯函数（稳定锚点），#291 G1 冻结的锚点组合：
+
+- **LaneEdge**：corridor UUID + 方向 + 车道序号；
+- **Junction**：几何文档显式 UUID；
+- **Movement**：junction UUID + 进/出 corridor UUID + movement 类别；
+- **ManeuverPath**：movement 身份 + 出/入 edge 身份 + occurrence 序号。
+
+编译过程**不得**引入自增序号、哈希随机性、迭代顺序依赖；验证 = golden test（逐字节）+ "无关改动不变性"契约测试。
 
 ### 8.2 契约要求
 
@@ -229,7 +236,7 @@ loader 从"防御任意恶意输入"降级为 verifier：版本配对（产物 p
 - 产物完全 CI 生成不入库（干净，失去产物 diff 评审可见性）；
 - 产物入库 + CI 强制"重编译 hash 一致"门禁（lock 文件模式，保留评审可见性）。
 
-本文推荐后者：治理评审需要看见下游变化。
+本文推荐后者：治理评审需要看见下游变化。#291 G1 已按推荐冻结——产物入库 + CI 强制重编译 hash 一致门禁；CI 机制细节在 L2 G1 细化。
 
 ### 10.4 canonical 产物退役条件
 
