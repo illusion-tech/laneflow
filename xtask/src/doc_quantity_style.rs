@@ -6,7 +6,7 @@ use proc_macro2::LineColumn;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use syn::{Attribute, Expr, ExprLit, Lit, Meta};
+use syn::{Attribute, Expr, ExprLit, ExprMacro, Lit, LitStr, Meta};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Violation {
@@ -32,7 +32,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         let content = fs::read_to_string(file)
             .map_err(|error| format!("无法读取文档源文件 `{}`: {error}", file.display()))?;
         let violations = if is_rust_file(file) {
-            find_rustdoc_violations(&content).map_err(|error| {
+            find_rustdoc_violations(&content, Some(file)).map_err(|error| {
                 format!(
                     "无法解析 Rustdoc 源文件 `{}`；数量书写门禁失败关闭: {error}",
                     file.display()
@@ -135,10 +135,16 @@ fn find_markdown_violations(content: &str, first_source_line: usize) -> Vec<Viol
     violations
 }
 
-fn find_rustdoc_violations(content: &str) -> Result<Vec<Violation>, syn::Error> {
-    let syntax = syn::parse_file(content)?;
-    let mut visitor = RustdocVisitor::default();
+fn find_rustdoc_violations(
+    content: &str,
+    source_path: Option<&Path>,
+) -> Result<Vec<Violation>, String> {
+    let syntax = syn::parse_file(content).map_err(|error| error.to_string())?;
+    let mut visitor = RustdocVisitor::new(source_path);
     visitor.visit_file(&syntax);
+    if !visitor.errors.is_empty() {
+        return Err(visitor.errors.join("; "));
+    }
     visitor
         .fragments
         .sort_by_key(|fragment| fragment.start_line);
@@ -153,20 +159,99 @@ fn find_rustdoc_violations(content: &str) -> Result<Vec<Violation>, syn::Error> 
         }
     }
 
-    Ok(groups
+    let mut violations = groups
         .into_iter()
         .flat_map(|group| find_markdown_violations(&group.markdown, group.first_source_line))
-        .collect())
+        .collect::<Vec<_>>();
+    for included in visitor.included_documents {
+        violations.extend(find_markdown_violations(
+            &included.markdown,
+            included.attribute_line,
+        ));
+    }
+    Ok(violations)
 }
 
-#[derive(Default)]
-struct RustdocVisitor {
+struct RustdocVisitor<'path> {
+    source_path: Option<&'path Path>,
     fragments: Vec<RustdocFragment>,
+    included_documents: Vec<IncludedRustdoc>,
+    errors: Vec<String>,
+}
+
+impl<'path> RustdocVisitor<'path> {
+    fn new(source_path: Option<&'path Path>) -> Self {
+        Self {
+            source_path,
+            fragments: Vec::new(),
+            included_documents: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    fn include_document(&mut self, attribute: &Attribute, expression: &ExprMacro) {
+        let attribute_line = source_line(attribute.span().start());
+        let included_path = match syn::parse2::<LitStr>(expression.mac.tokens.clone()) {
+            Ok(path) => path.value(),
+            Err(error) => {
+                self.errors.push(format!(
+                    "第 {attribute_line} 行 `#[doc = include_str!(...)]` 必须使用单个字符串字面量路径: {error}"
+                ));
+                return;
+            }
+        };
+        let Some(source_path) = self.source_path else {
+            self.errors.push(format!(
+                "第 {attribute_line} 行 `#[doc = include_str!(...)]` 缺少源文件路径上下文"
+            ));
+            return;
+        };
+        let Some(parent) = source_path.parent() else {
+            self.errors.push(format!(
+                "第 {attribute_line} 行无法解析 Rustdoc include：源文件 `{}` 没有父目录",
+                source_path.display()
+            ));
+            return;
+        };
+        let target = parent.join(included_path);
+        let metadata = match fs::symlink_metadata(&target) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                self.errors.push(format!(
+                    "第 {attribute_line} 行无法读取 Rustdoc include `{}`: {error}",
+                    target.display()
+                ));
+                return;
+            }
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            self.errors.push(format!(
+                "第 {attribute_line} 行 Rustdoc include 必须是非符号链接的普通文件：`{}`",
+                target.display()
+            ));
+            return;
+        }
+        match fs::read_to_string(&target) {
+            Ok(markdown) => self.included_documents.push(IncludedRustdoc {
+                attribute_line,
+                markdown,
+            }),
+            Err(error) => self.errors.push(format!(
+                "第 {attribute_line} 行无法读取 Rustdoc include `{}`: {error}",
+                target.display()
+            )),
+        }
+    }
 }
 
 struct RustdocFragment {
     start_line: usize,
     end_line: usize,
+    markdown: String,
+}
+
+struct IncludedRustdoc {
+    attribute_line: usize,
     markdown: String,
 }
 
@@ -196,21 +281,30 @@ impl RustdocGroup {
     }
 }
 
-impl<'ast> Visit<'ast> for RustdocVisitor {
+impl<'ast> Visit<'ast> for RustdocVisitor<'_> {
     fn visit_attribute(&mut self, attribute: &'ast Attribute) {
         if attribute.path().is_ident("doc") {
-            if let Meta::NameValue(meta) = &attribute.meta
-                && let Expr::Lit(ExprLit {
-                    lit: Lit::Str(documentation),
-                    ..
-                }) = &meta.value
-            {
-                let span = attribute.span();
-                self.fragments.push(RustdocFragment {
-                    start_line: source_line(span.start()),
-                    end_line: source_line(span.end()),
-                    markdown: documentation.value(),
-                });
+            if let Meta::NameValue(meta) = &attribute.meta {
+                match &meta.value {
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Str(documentation),
+                        ..
+                    }) => {
+                        let span = attribute.span();
+                        self.fragments.push(RustdocFragment {
+                            start_line: source_line(span.start()),
+                            end_line: source_line(span.end()),
+                            markdown: documentation.value(),
+                        });
+                    }
+                    Expr::Macro(expression) if expression.mac.path.is_ident("include_str") => {
+                        self.include_document(attribute, expression);
+                    }
+                    _ => self.errors.push(format!(
+                        "第 {} 行 `#[doc = ...]` 必须使用字符串字面量或 `include_str!`，避免动态文档绕过数量书写门禁",
+                        source_line(attribute.span().start())
+                    )),
+                }
             }
             return;
         }
@@ -443,7 +537,7 @@ mod tests {
             "const LABEL: &str = \"100k runtime identifier\";\n",
         );
         assert_eq!(
-            find_rustdoc_violations(content).expect("valid Rust"),
+            find_rustdoc_violations(content, None).expect("valid Rust"),
             vec![
                 Violation {
                     line: 2,
@@ -468,7 +562,7 @@ mod tests {
             "const LABEL: &str = \"100k runtime identifier\";\n",
         );
         assert_eq!(
-            find_rustdoc_violations(content).expect("valid Rust"),
+            find_rustdoc_violations(content, None).expect("valid Rust"),
             vec![Violation {
                 line: 1,
                 token: "100k".to_string()
@@ -489,7 +583,7 @@ mod tests {
             "pub struct Documented;\n",
         );
         assert!(
-            find_rustdoc_violations(content)
+            find_rustdoc_violations(content, None)
                 .expect("valid Rust")
                 .is_empty()
         );
@@ -497,6 +591,16 @@ mod tests {
 
     #[test]
     fn invalid_rust_fails_closed() {
-        assert!(find_rustdoc_violations("pub struct Broken {").is_err());
+        assert!(find_rustdoc_violations("pub struct Broken {", None).is_err());
+    }
+
+    #[test]
+    fn dynamic_doc_attributes_fail_closed() {
+        let content = "#![doc = concat!(\"100\", \"k prose\")]\n";
+        assert!(
+            find_rustdoc_violations(content, None)
+                .expect_err("dynamic Rustdoc must fail closed")
+                .contains("避免动态文档绕过数量书写门禁")
+        );
     }
 }
