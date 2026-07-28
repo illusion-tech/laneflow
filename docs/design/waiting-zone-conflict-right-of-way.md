@@ -55,7 +55,8 @@ Waiting runtime、Conflict/Spatial、policy/arbiter 与组合验证尚未生产�
 本文建立在以下已验证事实上：
 
 - current Traffic loader 只接受 exact `formatVersion: "0.10"`；v0.10 schema
-  当前是 source-only，v0.9 已公开发布并按 immutable publication contract 固定；
+  provenance 已登记到 publication catalog，live verification pending；v0.9 已公开
+  发布并按 immutable publication contract 固定；
 - current `VehicleProfile` 必填 `participantClassId`，Core 已拥有
   `ParticipantClassRegistry`、`CrossSectionRegistry` 与 `AccessRegistry`；
   AccessRule 在 normalization 期消解为 `(edge, class)` / `(path, class)` 的
@@ -1723,7 +1724,7 @@ Adapter 不得移动 authoritative progress、修改 queue order、授予 reserv
 | Traffic Data     | Traffic 0.10 WaitingZone wire/loader/constructors                               | #281 已交付                |
 | Spatial          | Waiting/Conflict canonical 3D region、pairing/validation                        | 否                         |
 | Adapter API      | readonly snapshots、batch query、debug attribution                              | 否                         |
-| Schema           | v0.10 source shape 已交付；immutable publication 待 Delivery PR                 | #281 source 已交付         |
+| Schema           | v0.10 source shape 与 immutable provenance 已登记；live verification pending    | #281 publication 进行中    |
 | Fixtures         | multi-Gate/WaitingZone static fixture 已交付；Conflict/runtime 组合待后续       | #281 部分交付              |
 | Scenario/example | 中国多阶段/无保护转向示例与 deterministic policy pin                            | 否                         |
 | Authoring        | geometry-assisted candidate generation、显式确认、policy provenance             | 否                         |

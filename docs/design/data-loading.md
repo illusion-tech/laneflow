@@ -249,8 +249,8 @@ schemas/laneflow-data-v0.10.schema.json
 
 该文件是 current active source schema。`$id` 按 ADR 0011 也是 public retrieval
 URL；v0.9 已以固定 `main` revision/blob 登记 immutable provenance，并通过 live
-availability 与 byte-equality 验证；v0.10 当前为 source-only，后续 publication
-PR 才固定 `main` provenance 并发布。
+availability 与 byte-equality 验证；v0.10 已固定 `main` provenance 并加入
+publication catalog，canonical URL 的 live availability 与 byte-equality 待部署后验证。
 production loader 不执行网络 I/O。
 v0.2-v0.5、v0.7 与 v0.8 schema 作为 immutable publication artifacts 保留，但
 current loader、fixture 与 normalization tests 只消费 v0.10。
