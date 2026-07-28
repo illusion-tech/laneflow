@@ -1,7 +1,7 @@
 # Data Loading 设计
 
 **文档状态**: Accepted（current）＋ Draft（#291 target 导航）<br>
-**最后更新**: 2026-07-28（#281 current；#291/ADR 0020 target）
+**最后更新**: 2026-07-29（#281 current；#291/ADR 0020 target）
 **适用范围**: Traffic v0.10、SpatialPackage/ScenarioManifest v0.1 production loader、保留的 Data v0.6 数值迁移边界，以及 target static-image trust/verifier
 
 **关联文档**:
@@ -50,14 +50,19 @@ ADR 0020 target 把完整静态 semantic normalization 前移到 compiler。Prod
 startup 把 `StaticNetworkImage` 与 image 外部 trusted descriptor/validation receipt
 绑定，再由 `laneflow-static-image` bounded verifier 检查
 magic/version/target/profile、offset/alignment、section bounds、cardinality、
-numeric/runtime precondition、cross-index 与 load limits。Traffic section 必选；
-Spatial section 只在 profile 要求时存在。Verifier 随后建立
+numeric/runtime precondition、cross-index、`StaticIdentityIndex` 双向完整性与 load
+limits。Traffic section 和冷 `StaticIdentityIndex` 必选；Spatial section 只在
+profile 要求时存在。Verifier 随后建立
 `StaticTrafficView` / optional `StaticSpatialView`，不解析 JSON、不按 external
 string rebind、不重建 static registry、不重新 join Traffic/Spatial，也不重跑
 authoring topology/coverage/geometry derivation。
 
 完整语义由 compiler 与不复用 compiler semantic implementation 的 independent
 validator 双重裁决并通过 validation receipt 绑定到 static-image descriptor。
+路网修订切换（Network Revision Cutover）还必须验证外部可信的路网修订切换描述符
+（Network Revision Cutover Descriptor，`NetworkRevisionCutoverDescriptor`）对
+旧/新制品与镜像、语义差异（Semantic Diff）摘要、迁移策略及验证收据的绑定；语义
+差异不能独立成为迁移权威。
 Image header 的 canonical artifact digest/provenance 声明不能独立建立信任，image
 也不把自己的 `staticImageDigest` 嵌回自身 bytes。本文其余 `LoadedPackage` /
 `InitialTrafficData` 路径仍是 current production contract，直到 shared-image

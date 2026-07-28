@@ -1,7 +1,7 @@
 # 架构
 
 **文档状态**: Accepted（current）＋ Draft（#291 compiler target）<br>
-**最后更新**: 2026-07-28<br>
+**最后更新**: 2026-07-29<br>
 **适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界，以及 #291/ADR 0020/0021 的城市模拟游戏交通基础与目标静态编译架构
 
 ## 1. 架构目标
@@ -91,6 +91,7 @@ Geometry / Synthetic DSL / imported / editor-authored source modules
   -> portable canonical artifact + target StaticNetworkImage + source map + semantic diff
 
 StaticNetworkImage
+  -> required cold StaticIdentityIndex for Runtime Snapshot / Image Cutover identity translation
   -> laneflow-runtime: required StaticTrafficView + per-world mutable state
      + per-world RuntimeExecutionPlan
   -> laneflow-spatial: optional StaticSpatialView + pose scratch/output
@@ -102,9 +103,12 @@ initial/static occurrence 与 dense layout；target `LaneFlow Traffic Runtime`
 （`laneflow-runtime`）继续拥有 tick、vehicle、dynamic Route 和其他可变 traffic
 authority，Spatial 继续拥有 pose sampling。Production startup 只从外部 trusted
 descriptor/validation receipt 绑定并结构验证 static image，不解析 JSON、按 external
-ID rebind、重建 registry 或重复 Traffic/Spatial join。Traffic section 必选，Spatial
-section 由 closed profile 控制，headless Runtime 不携带 geometry。目标职责和历史
-ADR 的取代范围见 ADR 0020。
+ID rebind、重建 registry 或重复 Traffic/Spatial join。Traffic section 与冷
+稳定身份索引（Static Identity Index，`StaticIdentityIndex`）必选；Spatial section
+由 closed profile 控制，headless
+Runtime 不携带 geometry。稳定身份索引不进入 steady tick，可由共享映射、压缩或按需
+分页控制内存成本，但任何 production profile 都不得删除它。目标职责和历史 ADR 的
+取代范围见 ADR 0020。
 
 目标静态镜像必须保存编译器派生的静态执行约束图（Static Execution Constraint
 Graph）；v1 `PartitionPlanningHints` 节保存运行时可忽略或重建的分区规划提示
@@ -116,7 +120,9 @@ Graph）；v1 `PartitionPlanningHints` 节保存运行时可忽略或重建的�
 
 静态也不等于城市永不变化：编译器每次产生不可变路网修订（Network Revision），
 运行世界只能在显式安全边界通过失败关闭的镜像切换事务（Image Cutover
-Transaction）原子迁移。目标职责、上层边界与历史 ADR 的关系见 ADR 0020/0021；
+Transaction）原子迁移。语义差异不能自行授予迁移权限，必须由独立验证或外部可信的
+路网修订切换描述符（Network Revision Cutover Descriptor）绑定，并用切换前后的
+稳定身份索引完成引用翻译。目标职责、上层边界与历史 ADR 的关系见 ADR 0020/0021；
 在二者 Accepted 且迁移 G4 前，本文其余 current 章节继续有效。
 
 ## 3. Authoring Layer
@@ -232,10 +238,12 @@ Initial/static occurrence 由 compiler
 继续只使用 typed dense handle。
 
 运行时快照（Runtime Snapshot）是与 image bytes 分离的版本化制品，必须绑定
-static image/canonical artifact digest、运行时/约束版本、world identity、tick、
-输入命令游标和全部每世界可变状态；dense ordinal 不能跨路网修订直接复用。回放使用显式
-输入命令流、checkpoint 与确定性状态摘要，调试构建可通过冷标识和源映射生成
-失同步诊断制品。路径规划读取已提交动态成本快照，不进入车辆 fixed-tick 热路径。
+canonical artifact digest、路网修订、原始静态镜像摘要、运行时/约束版本、world
+identity、tick、输入命令游标和全部每世界可变状态；同一修订可以在契约版本兼容且
+`StaticIdentityIndex` 能完整重建引用时恢复到另一个可信 target/profile image，
+原始镜像摘要只作为审计绑定与同镜像快速路径。dense ordinal 不能跨路网修订直接复用。
+回放使用显式输入命令流、checkpoint 与确定性状态摘要，调试构建可通过冷诊断和源映射
+生成失同步诊断制品。路径规划读取已提交动态成本快照，不进入车辆 fixed-tick 热路径。
 
 `InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane
 graph、Junction registry、compiled routes、Vehicle Profiles 与 immutable

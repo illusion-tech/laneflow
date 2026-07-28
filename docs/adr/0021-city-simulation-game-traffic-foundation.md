@@ -1,7 +1,7 @@
 # ADR 0021：城市模拟游戏交通基础的产品北极星
 
 **状态**: Proposed（#291 G1 再修订输入）<br>
-**日期**: 2026-07-28<br>
+**日期**: 2026-07-29<br>
 **适用范围**: LaneFlow 长期产品定位、城市模拟游戏上层边界、交通编排、路径规划、
 路网修订、存档/回放、确定性降级与中国特色城市工作负载（Chinese-style City
 Workload）<br>
@@ -149,7 +149,8 @@ ADR 0018/0019 已冻结的法规来源沿袭、WaitingZone、ConflictZone 和车
 1. 增量编译器生成新的可移植规范制品、目标静态镜像、源映射和语义差异；
 2. 新修订独立完成验证与信任绑定；
 3. 运行中的世界只在显式安全边界执行镜像切换事务（Image Cutover Transaction）；
-4. 未变化实体通过稳定标识和语义差异重建映射；
+4. 未变化实体通过旧/新可信镜像的稳定身份索引（Static Identity Index）重建映射；
+   语义差异只有在外部切换描述符绑定并经独立验证后才能驱动迁移；
 5. 被删除、重接或语义改变的路段上的车辆、路线、停车、预约和控制器状态按版本化
    迁移策略处理；无法证明完整迁移时切换失败关闭。
 
@@ -176,15 +177,24 @@ token 退出后再回收。准备或提交失败时世界继续绑定旧修订�
 运行时快照（Runtime Snapshot）是独立版本化制品。精确恢复至少绑定：
 
 - `canonicalArtifactDigest`
-- `staticImageDigest`
+- `originStaticImageDigest`
 - `runtimeSnapshotVersion`
 - 交通运行时版本和约束版本
 - world identity、tick/time、输入命令序列游标
 - 仅在后续 G1 显式授予 Traffic Runtime 随机权威时，才包含运行时自有随机流状态
 - 全部每世界可变交通状态
 
-跨路网修订恢复必须显式执行快照迁移，并使用稳定标识和语义差异；不能把旧 dense
-ordinal 直接解释为新镜像实体。
+`canonicalArtifactDigest` 与路网修订是同修订恢复的静态语义权威；
+`originStaticImageDigest` 记录创建快照时的精确 target/profile image，供审计和
+同镜像快速恢复。恢复可以改用绑定相同规范制品、路网修订和 identity/constraint
+versions 的另一可信 image，但必须通过其生产必需的 `StaticIdentityIndex` 重建全部
+稳定静态引用；否则失败关闭。
+
+跨路网修订恢复必须显式执行快照迁移，并使用旧/新 `StaticIdentityIndex` 与受信任
+语义差异；不能把旧 dense ordinal 直接解释为新镜像实体。参与迁移的语义差异必须
+由外部 `NetworkRevisionCutoverDescriptor` 绑定 base/target 制品与镜像摘要、
+`semanticDiffDigest`、migration policy version 和独立 validation receipt；裸
+compiler diff 只能用于诊断。
 
 动态 Route、车辆和其他运行时实体必须使用快照局部标识（Snapshot-local Identity）
 保存引用关系；动态 Route 同时保存可重建的稳定静态实体引用/规范定义。原进程的
@@ -245,6 +255,8 @@ Runtime 不为方便存档而新增隐藏随机数。
 - 镜像切换准备期同时保留旧/新 image 与候选世界状态，会产生可量化的峰值内存；
   后继 Gate 必须冻结准备、提交停顿和延迟回收预算；
 - 稳定标识与语义差异将参与运行时迁移，错误边界必须比只做离线治理更严格；
+- 全部支持存档或玩家改路的生产镜像都要保留共享冷身份索引；后继 Gate 必须量化其
+  retained memory、按需映射和双向 lookup 成本；
 - 城市游戏上层和交通编排层若缺少正式接口，仍可能通过 Adapter 或 scenario policy
   形成隐藏耦合；
 - 不能再只用背景车流示例或多世界吞吐量证明城市游戏产品目标。

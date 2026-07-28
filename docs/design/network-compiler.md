@@ -1,7 +1,7 @@
 # 路网编译器与目标静态镜像
 
 **文档状态**: Draft（#291 G1 综合架构修订）<br>
-**最后更新**: 2026-07-28<br>
+**最后更新**: 2026-07-29<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、有类型中间表示
 （Typed IR）、静态网络编译权威、标识派生、可移植规范制品（Portable Canonical
 Artifact）、目标静态镜像（Target Static Image）、源映射（Source Map）、语义差异
@@ -378,7 +378,7 @@ ordinal。稳定 key 在首次创建时写入 authoritative source module；复�
 StableId128。显示名称、坐标、浮点几何、采样点、数组下标、横向/纵向序号、容器
 迭代顺序、自动分类结果、import traversal ordinal 和全局自增值都不得成为 anchor。
 
-- helper 只能从稳定 parent/local key 和 semantic role 组合 child key；
+- helper 只能从 parent StableId、稳定 local key 和 semantic role 组合 child key；
 - sibling 重排与无关实体插入不改变既有 ID；
 - compiler 推断出尚无稳定 key 的 junction/boundary/connection 时，只能产生待确认
   suggestion/diagnostic，不能发布匿名标识；
@@ -394,12 +394,12 @@ required tags 必须按数值严格递增编码：
 | 代码（Code） | `entityKind`           | 类别（Category）                      | 英文短名（Slug）    | 必需标签（Required Tags） |
 | -----------: | ---------------------- | ------------------------------------- | ------------------- | ------------------------- |
 |            1 | `RoadCorridor`         | 声明（Declaration）                   | `corridor`          | `1,2`                     |
-|            2 | `RoadSection`          | 声明（Declaration）                   | `section`           | `1,2,3`                   |
-|            3 | `AuthoringLane`        | 声明（Declaration）                   | `lane`              | `1,2,3,4`                 |
-|            4 | `RoadLaneEdge`         | 可寻址派生实体（Addressable Derived） | `road-edge`         | `1,2,3,4,5,6`             |
-|            5 | `JunctionInternalEdge` | 可寻址派生实体（Addressable Derived） | `internal-edge`     | `1,5,6,7,15`              |
+|            2 | `RoadSection`          | 声明（Declaration）                   | `section`           | `1,3,35`                  |
+|            3 | `AuthoringLane`        | 声明（Declaration）                   | `lane`              | `1,4,34`                  |
+|            4 | `RoadLaneEdge`         | 可寻址派生实体（Addressable Derived） | `road-edge`         | `1,5,6,36`                |
+|            5 | `JunctionInternalEdge` | 可寻址派生实体（Addressable Derived） | `internal-edge`     | `1,5,6,15,37`             |
 |            6 | `Junction`             | 声明（Declaration）                   | `junction`          | `1,7`                     |
-|            7 | `Movement`             | 声明（Declaration）                   | `movement`          | `1,7,9,10,11`             |
+|            7 | `Movement`             | 声明（Declaration）                   | `movement`          | `1,9,10,11,37`            |
 |            8 | `ManeuverPath`         | 声明（Declaration）                   | `path`              | `1,8,12,13,14`            |
 |            9 | `ManeuverGate`         | 声明（Declaration）                   | `gate`              | `1,16,17`                 |
 |           10 | `WaitingZone`          | 声明（Declaration）                   | `waiting-zone`      | `1,16,18`                 |
@@ -417,26 +417,45 @@ required tags 必须按数值严格递增编码：
 |           22 | `StaticRoute`          | 声明（Declaration）                   | `static-route`      | `1,32`                    |
 |           23 | `CanonicalFrame`       | 声明（Declaration）                   | `canonical-frame`   | `1,33`                    |
 
-RoadSection lane 可展开为多条 `RoadLaneEdge`，稳定 boundary key 区分同一 lane chain
-中的 segment。Junction internal edge 使用 junction-scoped `internalEdgeKey`。
-Movement 的 left/straight/right/u-turn 分类是可重算元数据，不参与标识。
-Signal phase、ParkingSpace、LaneGroup 和 FacilityBand 使用 parent StableId，而不是
-当前 parent ordinal。StaticRoute 只表示编译期 authoring route；runtime 注册的
-dynamic Route 继续使用 generation-aware handle，不获得持久 StableId128。
+所有真实父子关系都使用父实体 `StableId128`，不得把父实体仅在其来源模块内稳定的
+裸局部键复制进子实体 tuple。这样跨模块引用、同名父实体和重新归属都由父实体完整
+命名空间裁决：
 
-`FacilityBand` 的 tag 35 `roadCorridorStableId` 来自已验证的唯一所有者关系
-（Unique Owner Relation）：
-恰好一个 `RoadCorridor.elements[].bandId` 引用该 band。该关系已经由
-`cross-section-access.md` 冻结为完备所有者树（Complete Owner Tree）；当前态
-（Current）的 `FacilityBandData` 有意不重复保存父实体（Parent）字段。编译器先
-根据道路走廊声明派生 `RoadCorridor` StableId，再解析 `RoadCorridor.elements[]`、
-拒绝未知引用、重复引用、多所有者和零所有者，随后以已证明唯一的
-`roadCorridorStableId` 与
-`facilityBandKey` 派生 `FacilityBand` StableId。前端可以用嵌套或显式引用表达该
-关系，但进入 HIR/MIR 后必须归一为同一所有者语义；validated canonical LIR 必须保存
-有类型（Typed）的 `FacilityBand -> RoadCorridor` 所有者关系，不能让发射器
-（Emitter）、投影器（Projection）或交通运行时（Traffic Runtime）从输入顺序重新
-猜测。
+- `RoadSection` 使用 tag 35 `roadCorridorStableId`；
+- `AuthoringLane` 使用 tag 34 `roadSectionStableId`；
+- `RoadLaneEdge` 使用 tag 36 `authoringLaneStableId`，稳定 boundary key 区分同一
+  lane chain 中的 segment；
+- `JunctionInternalEdge` 与 `Movement` 使用 tag 37 `junctionStableId`；
+- `ManeuverPath`、Signal phase、ParkingSpace、LaneGroup 和 FacilityBand 继续使用
+  各自登记的 parent StableId。
+
+Movement 的 left/straight/right/u-turn 分类是可重算元数据，不参与标识。
+StaticRoute 只表示编译期 authoring route；runtime 注册的 dynamic Route 继续使用
+generation-aware handle，不获得持久 StableId128。
+
+`RoadSection` 和 `FacilityBand` 的父锚点来自已验证的唯一所有者关系
+（Unique Owner Relation）：恰好一个 `RoadCorridor.elements[]` 分别通过
+`sectionId` 或 `bandId` 引用该成员。该关系已经由 `cross-section-access.md` 冻结为
+完备所有者树（Complete Owner Tree）；当前态（Current）的 `RoadSectionData` /
+`FacilityBandData` 有意不重复保存父实体（Parent）字段。编译器先根据道路走廊声明
+派生 `RoadCorridor` StableId，再解析 `RoadCorridor.elements[]`，拒绝未知引用、
+重复引用、多所有者和零所有者；随后：
+
+1. 以已证明唯一的 `roadCorridorStableId` 与 `sectionKey` 派生 `RoadSection`
+   StableId；
+2. 按 parent-before-child 顺序，以 `roadSectionStableId` 与显式持久化的 `laneKey`
+   派生 `AuthoringLane` StableId；
+3. 以 `authoringLaneStableId` 与稳定起止 boundary key 派生 `RoadLaneEdge`
+   StableId；
+4. 以 `roadCorridorStableId` 与 `facilityBandKey` 派生 `FacilityBand` StableId。
+
+前端可以用嵌套或显式引用表达这些关系，但进入 HIR/MIR 后必须归一为同一所有者
+语义；validated canonical LIR 必须保存有类型（Typed）的
+`RoadSection -> RoadCorridor`、`AuthoringLane -> RoadSection`、
+`RoadLaneEdge -> AuthoringLane` 与 `FacilityBand -> RoadCorridor` 所有者关系，
+不能让发射器（Emitter）、投影器（Projection）或交通运行时（Traffic Runtime）从
+输入顺序重新猜测。当前 JSON 导入前端必须把缺失的 lane/boundary key 作为待确认
+建议写入新的权威来源模块；未持久化确认前不得发布匿名或由数组下标派生的标识。
 
 `ConflictZone`、`ParticipantStream`、`JunctionGroup` 等未来 domain 只有在各自 G1
 冻结后才 append 新 kind code。新增 kind 提升 `identityRegistryRevision`，但不改变
@@ -482,6 +501,8 @@ dynamic Route 继续使用 generation-aware handle，不获得持久 StableId128
 |          33 | `canonicalFrameKey`        | ASCII 字节（Bytes）        |
 |          34 | `roadSectionStableId`      | 16 个原始字节（Raw Bytes） |
 |          35 | `roadCorridorStableId`     | 16 个原始字节（Raw Bytes） |
+|          36 | `authoringLaneStableId`    | 16 个原始字节（Raw Bytes） |
+|          37 | `junctionStableId`         | 16 个原始字节（Raw Bytes） |
 
 Boundary/Approach/curve segment 若成为独立 LIR table、可被引用或需要独立 semantic
 diff，必须通过后续 registry revision 获得 kind；否则只能作为所属 declaration 的
@@ -541,9 +562,11 @@ entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest �
 - missing/duplicate/unknown/out-of-order tag 负向向量；
 - sibling reorder、无关 insertion 和 geometry-only edit metamorphic tests；
 - section split、boundary/key 和显式 topology closure 变化测试；
-- FacilityBand 多所有者 / 零所有者失败、`RoadCorridor.elements[]` 重排 ID 不变、
-  跨 corridor 移动 ID 改变，以及相同 `facilityBandKey` 在不同 corridor 下 ID
-  不同；
+- RoadSection/FacilityBand 多所有者 / 零所有者失败、`RoadCorridor.elements[]`
+  重排 ID 不变、跨 corridor 移动 ID 改变，以及相同 local key 在不同 corridor 下
+  ID 不同；
+- 跨 module 的同名 corridor/junction 不产生子实体碰撞，子实体重新归属到另一
+  parent StableId 时 ID 改变，而 parent 的 geometry-only edit 不改变子实体 ID；
 - compiler、independent validator 和至少一个独立语言/脚本 oracle 的 bytes/ID
   一致性。
 
@@ -561,7 +584,7 @@ entity 产生同一 tuple 返回 `DuplicateCanonicalIdentity`；相同 digest �
 
 它用于 publication、长期审计、migration、跨实现 validator 和 static image
 regeneration。它不是 mmap hot layout，不承诺与 Rust struct ABI 相同，也不因某个
-target profile 缺少 Spatial/cold section 而丢失 canonical semantics。
+target profile 缺少 Spatial/diagnostic section 而丢失 canonical semantics。
 
 ### 8.2 目标静态镜像（Target Static Image）
 
@@ -576,26 +599,35 @@ StaticNetworkImage
     CSR adjacency / flat ranges
     precompiled route/path/gate/waiting occurrences
     static execution constraint graph
+  Required: StaticIdentityIndex
+    stable-entity ordinal -> StableId128
+    sorted (entity kind, StableId128) -> typed ordinal
   Required: PartitionPlanningHints
     rebuildable cost / boundary / recommended-cut hints
   Optional: StaticSpatialImage
     frame/edge-aligned geometry tables
     flat points / cumulative arc / sampling ranges
   Optional: WarmQueryTables
-  Optional: ColdIdentityAndDiagnostics
+  Optional: ColdDiagnostics
 ```
 
 v1 profile 是版本化 closed set，不允许调用方任意拼 feature bits：
 
-| `staticImageProfileId` | 必需节（Required Sections）                                                                                           | 用途                                              |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `traffic-headless-v1`  | `StaticTrafficImage`, `PartitionPlanningHints`                                                                        | 服务器（Server）、测试、无图形宿主                |
-| `traffic-spatial-v1`   | `StaticTrafficImage`, `PartitionPlanningHints`, `StaticSpatialImage`                                                  | 引擎适配器（Adapter）、规范位姿（Canonical Pose） |
-| `traffic-debug-v1`     | `StaticTrafficImage`, `PartitionPlanningHints`, `StaticSpatialImage`, `WarmQueryTables`, `ColdIdentityAndDiagnostics` | 编辑器（Editor）、诊断、调试绘制（Debug Draw）    |
+| `staticImageProfileId` | 必需节（Required Sections）                                                                                                       | 用途                                              |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `traffic-headless-v1`  | `StaticTrafficImage`, `StaticIdentityIndex`, `PartitionPlanningHints`                                                             | 服务器（Server）、测试、无图形宿主                |
+| `traffic-spatial-v1`   | `StaticTrafficImage`, `StaticIdentityIndex`, `PartitionPlanningHints`, `StaticSpatialImage`                                       | 引擎适配器（Adapter）、规范位姿（Canonical Pose） |
+| `traffic-debug-v1`     | `StaticTrafficImage`, `StaticIdentityIndex`, `PartitionPlanningHints`, `StaticSpatialImage`, `WarmQueryTables`, `ColdDiagnostics` | 编辑器（Editor）、诊断、调试绘制（Debug Draw）    |
 
 设计约束：
 
 - `StaticTrafficImage` 可独立验证和挂载；headless profile 不携带 geometry；
+- `StaticIdentityIndex` 是所有生产配置档必需、但不进入 tick 的共享冷索引：对每个稳定
+  declaration/addressable-derived 提供 typed ordinal → StableId128 的正向表，以及按
+  `(entityKind, StableId128)` 排序的 StableId128 → typed ordinal 反向表；它服务
+  snapshot save/load、dynamic Route 重建和 network-revision cutover；
+- 身份索引可以独立分页、按需映射或在 steady tick 期间不驻留 CPU cache，但不得与
+  `ColdDiagnostics` 一起从 production profile 裁掉；
 - `sectionMask` 必须与 profile 的 closed section set 精确匹配；缺失、额外或未知
   section 均 fail closed，调用方不能通过 feature bits 组合新 profile；
 - Spatial section 存在时必须完整覆盖 v1 所需 edge，并与 Traffic 共享 canonical edge
@@ -603,7 +635,8 @@ v1 profile 是版本化 closed set，不允许调用方任意拼 feature bits：
 - shared immutable bytes，多 `TrafficWorld`/Spatial session 复用；
 - 静态执行约束对工作线程数中立；v1 配置档保留提示节以让镜像字节闭合确定，
   运行时可以忽略或重新派生提示，但不得保存最终分配；
-- hot/warm/cold 分段，profile 可裁剪 Spatial/cold/debug data；
+- hot/warm/cold 分段，profile 可裁剪 Spatial/diagnostic/debug data，但不能裁剪
+  恢复和切换所需的 `StaticIdentityIndex`；
 - 顶层 section byte offset/length 使用 checked `u64`；table row ordinal、count 和
   hot relation range 使用 checked `u32`，不保存原生指针；
 - verifier 完成后 view 的高频索引是 O(1) 或连续 range traversal；
@@ -684,6 +717,12 @@ Semantic diff 必须绑定 `baseCanonicalArtifactDigest` 与
 portable artifact；无 baseline 时使用显式 genesis marker，并把全部 stable entity
 和 owner-local sequence 报告为新增。重复 relation value 的序列对齐按最低
 before/after `localIndex` 确定性破同值，diff 本身不获得 authoring authority。
+
+PR/治理消费可以直接展示经过验证的 semantic diff；运行时镜像切换不得把 compiler
+输出的裸 diff 当作迁移权威。若 diff 参与状态迁移，independent validator 必须对
+base/target portable artifact 独立重算或验证其完整语义，并由 §9.6 的外部可信切换
+描述符绑定 exact diff bytes digest。缺少该绑定时，diff 只能作为诊断提示，运行时
+必须从两个可信 `StaticIdentityIndex` 和已冻结迁移策略重新证明映射。
 
 ## 9. 静态/可变状态和运行时消费
 
@@ -792,11 +831,32 @@ image header 的可选自证字段。
 目标静态镜像代表一个路网修订。结构性道路编辑重新进入权威来源模块图、增量编译、
 独立验证和外部信任绑定，生成新修订；共享镜像不得原地 mutation。
 
-运行世界只在显式 fixed-tick 安全边界执行失败关闭的镜像切换事务。未变化实体按
-StableId128 与语义差异重建映射；删除、重接或语义改变的路段必须迁移或终止其
-vehicle、dynamic Route、parking、reservation 和 controller 状态。任一完整性条件
-无法证明时，旧修订继续生效。临时封闭等不改变静态身份/拓扑的状态由后续 G1 冻结的
-runtime overlay/command 承担。
+运行世界只在显式 fixed-tick 安全边界执行失败关闭的镜像切换事务。未变化实体通过
+旧/新可信镜像的 `StaticIdentityIndex` 重建 StableId128 ↔ typed ordinal 映射；
+删除、重接或语义改变的路段必须按受信任语义差异迁移或终止其 vehicle、dynamic
+Route、parking、reservation 和 controller 状态。任一完整性条件无法证明时，旧
+修订继续生效。临时封闭等不改变静态身份/拓扑的状态由后续 G1 冻结的 runtime
+overlay/command 承担。
+
+运行时若消费语义差异，image 外部的版本化
+`NetworkRevisionCutoverDescriptor` 至少绑定：
+
+```text
+networkRevisionCutoverDescriptorVersion
+baseCanonicalArtifactDigest
+baseStaticImageDigest
+targetCanonicalArtifactDigest
+targetStaticImageDigest
+semanticDiffDigest
+migrationPolicyVersion
+validatorBuildId
+validationReceiptDigest
+```
+
+该描述符必须来自签名 publication manifest、宿主认证资产清单或 pinned digest；
+validation receipt 必须证明 independent validator 已针对两个 portable artifact
+验证或重算语义差异。Runtime 仍须用两个 `StaticIdentityIndex` 核验每个稳定实体
+映射，不能让 diff 中的 ordinal、数组位置或 compiler 私有顺序成为迁移权威。
 
 切换采用准备（Prepare）→提交（Commit）→回收（Retire）：
 
@@ -811,7 +871,7 @@ runtime overlay/command 承担。
 
 ```text
 canonicalArtifactDigest
-staticImageDigest
+originStaticImageDigest
 runtimeSnapshotVersion
 runtimeVersion
 constraintSetVersion
@@ -827,6 +887,13 @@ runtime-owned random-stream state (future explicit G1 only)
 runtime handle、slot、generation、partition 或 worker assignment 不能成为恢复后
 身份或跨硬件行为权威。跨路网修订恢复必须显式迁移，不能把旧 dense ordinal 直接
 解释为新镜像实体。
+
+`canonicalArtifactDigest` 与 `networkRevision` 是同修订恢复的静态语义权威；
+`originStaticImageDigest` 记录创建快照时的精确 target/profile image，供审计和
+同镜像快速恢复。恢复可以改用另一个已认证 target/profile image，但仅当它绑定相同
+canonical artifact、network revision、identity/constraint versions，且
+`StaticIdentityIndex` 能完整重建全部稳定静态引用时；否则失败关闭。该规则使快照
+不依赖 target-specific dense ordinal，同时仍保留原镜像的可审计来源。
 
 运行时执行计划在恢复后依据当前硬件与负载重建；快照可以保留诊断性调度统计，但
 不得要求复现原分区/工作线程布局才能得到相同精确结果。
@@ -873,10 +940,14 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
 - canonical artifact corruption 和 static image offset/range/limit fuzz；
 - forged header canonical digest/provenance、attacker-recomputed image digest、
   tampered descriptor/receipt 和 wrong-profile rejection；
-- `traffic-headless-v1` 无 Spatial bytes 的 TrafficWorld smoke/equivalence；
+- `traffic-headless-v1` 无 Spatial bytes、但包含完整 `StaticIdentityIndex` 的
+  TrafficWorld smoke/equivalence；
 - `traffic-spatial-v1` Traffic/Spatial edge ordinal 与 full-coverage property tests；
+- 所有 production profile 的 typed ordinal ↔ StableId128 round-trip、snapshot
+  restore 与 dynamic Route rebuild；
 - source map completeness 与 diagnostic stability；
-- semantic diff golden tests；
+- semantic diff golden tests，以及 forged/tampered diff、错误 base/target digest、
+  未受信任 cutover descriptor 的拒绝测试；
 - current JSON path 与 target image path behavior/determinism/pose equivalence；
 - worker 数/partition plan 置换下 committed state、event 与确定性状态摘要等价；
 - 分区边界不引入额外一 tick 延迟，连接资源组件保持唯一规范归约权威；
@@ -904,6 +975,9 @@ identityRegistryRevision
 staticImageLayoutVersion
 staticImageProfileId
 staticImageDescriptorVersion
+semanticDiffFormatVersion
+networkRevisionCutoverDescriptorVersion
+migrationPolicyVersion
 executionConstraintVersion
 partitionHintVersion
 runtimeSnapshotVersion
@@ -913,6 +987,7 @@ validatorBuildId
 targetTriple
 canonicalArtifactDigest
 staticImageDigest
+semanticDiffDigest
 validationReceiptDigest
 ```
 
@@ -920,8 +995,9 @@ validationReceiptDigest
 - runtime exact-current/fail-closed，不在 production startup 迁移；
 - portable artifact immutable publication 继承 ADR 0011；
 - static image 可按同一 canonical digest 产生多个 target/profile variant；
-- `canonicalArtifactDigest`、`staticImageDigest` 与 `validationReceiptDigest` 均为
-  exact bytes 的 SHA-256，不使用 entity identity digest 代替；
+- `canonicalArtifactDigest`、`staticImageDigest`、`semanticDiffDigest` 与
+  `validationReceiptDigest` 均为 exact bytes 的 SHA-256，不使用 entity identity
+  digest 代替；
 - digest 只存放在其目标对象之外：artifact/image/receipt 均不把自己的 digest
   嵌回自身 bytes；publication manifest/external descriptor 完成外部绑定；
 - compiler、validator、image builder 的 provenance 必须可审计；
@@ -949,7 +1025,8 @@ authority。
 - SoA/CSR/flat ranges；
 - typed dense `u32` handles/ranges，顶层 section byte offset/length 使用 `u64`；
 - precompiled candidate/occurrence/reverse indexes；
-- Traffic mandatory、Spatial/cold/debug profile-controlled；
+- Traffic 与 `StaticIdentityIndex` mandatory，Spatial/diagnostic/debug
+  profile-controlled；
 - immutable image 共享、mutable arrays per world；
 - static execution constraints worker-count-neutral，最终执行计划 per world；
 - 执行计划公开聚合诊断指标：阶段耗时（Phase Cost）、分区负载（Partition Load）、
@@ -963,7 +1040,8 @@ authority。
 
 具体数字由实现 G1 在固定性能机上用 current baseline 冻结，但 Gate 至少覆盖：
 
-- load latency、peak allocation、retained bytes；
+- load latency、peak allocation、retained bytes，以及 `StaticIdentityIndex` 的共享
+  retained bytes、按需映射延迟和双向 lookup latency；
 - 2/8/32 worlds 的 shared-static scaling；
 - 单个大型 world 的 worker/partition scaling、barrier、边界交换和负载偏斜；
 - 镜像切换的准备/提交/回收耗时、双修订峰值内存与借用 token 退休延迟；
@@ -975,8 +1053,9 @@ authority。
 - target-specific SIMD/alignment 候选相对 portable/common layout 的收益。
 
 不能用“BLAKE3/StableId128 可能变大”推导 tick 回退：ID 位于 cold/compiler boundary，
-tick 只使用 32-bit dense handle。若 cold mapping retained memory 成为问题，使用
-closed profile、压缩或外置 source map 解决，不缩短持久 identity。
+tick 只使用 32-bit dense handle。若身份索引 retained memory 成为问题，使用共享
+只读映射、分块/压缩、按需分页或更紧凑的双向索引解决；不得裁掉 snapshot/cutover
+所需映射或缩短持久 identity。Source map、canonical tuple 与显示诊断仍可外置。
 
 ## 13. 包（Crate）与依赖目标
 
@@ -1068,22 +1147,24 @@ Cutover 前必须证明：
 
 ## 15. 风险登记
 
-| 风险                                                                 | 结果                                 | 控制                                                         |
-| -------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------ |
-| 编译器系统性缺陷（Compiler Systemic Bug）                            | 批量污染全部资产                     | 独立验证器、差分 / 模糊测试（Differential / Fuzz）、语义差异 |
-| 二进制校验器漏洞（Binary Verifier Vulnerability）                    | 不可信字节破坏内存安全               | 基于偏移量的格式、加载限制、模糊测试 / `unsafe` 审计         |
-| 镜像头声明被误当作信任（Header-as-Trust）                            | 恶意但结构合法的镜像绕过语义闸口     | 外部描述符、验证收据、不可信重建                             |
-| 中间表示泄漏运行时类型（IR Leaks Runtime Types）                     | 后端 / 目标被当前核心对象图锁死      | 静态契约、目标中立 LIR、无环包依赖图                         |
-| 标识漂移（Identity Drift）                                           | 引用、语义差异、缓存和存档失效       | 精确种类 / 标签登记表、已知向量、变形测试                    |
-| 增量 / 并行非确定性（Incremental / Parallel Nondeterminism）         | CI / 发布字节漂移                    | 干净单线程预言机、稳定合并                                   |
-| 配置档边界错误（Profile Boundary Error）                             | 无图形配置档携带几何，或交叉索引漂移 | 交通必需 / 空间可选矩阵、配置档测试                          |
-| 当前态 / 目标态双路径长期化（Current / Target Dual-path Permanence） | 测试矩阵和语义漂移                   | 集成专用桥、明确移除责任人 / 切换闸口                        |
-| 来源 / 生成物双重事实源（Source / Generated Dual SSOT）              | 手工修改与漂移                       | 来源模块图权威、生成摘要 / 收据闸口                          |
-| 过早选择归档库（Premature Archive-library Choice）                   | ABI、安全或 MSRV 锁定                | 先冻结契约，再做基准 / 审计                                  |
-| 最终分区进入共享镜像（Final Partition in Shared Image）              | 地图与硬件/世界耦合，存档不可移植    | 静态约束 + 可重建提示 + 每世界执行计划                       |
-| 分区诱发行为延迟（Partition-induced Behavioral Delay）               | 结果随 cut 改变                      | 同 tick committed-state barrier 与置换等价测试               |
-| 原地修改静态镜像（In-place Static-image Mutation）                   | 摘要、共享、信任和确定性失效         | 不可变路网修订 + 失败关闭镜像切换事务                        |
-| 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）       | 静态契约与运行时执行能力长期不对称   | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环    |
+| 风险                                                                         | 结果                                 | 控制                                                         |
+| ---------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------ |
+| 编译器系统性缺陷（Compiler Systemic Bug）                                    | 批量污染全部资产                     | 独立验证器、差分 / 模糊测试（Differential / Fuzz）、语义差异 |
+| 二进制校验器漏洞（Binary Verifier Vulnerability）                            | 不可信字节破坏内存安全               | 基于偏移量的格式、加载限制、模糊测试 / `unsafe` 审计         |
+| 镜像头声明被误当作信任（Header-as-Trust）                                    | 恶意但结构合法的镜像绕过语义闸口     | 外部描述符、验证收据、不可信重建                             |
+| 中间表示泄漏运行时类型（IR Leaks Runtime Types）                             | 后端 / 目标被当前核心对象图锁死      | 静态契约、目标中立 LIR、无环包依赖图                         |
+| 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效       | 精确种类 / 标签登记表、已知向量、变形测试                    |
+| 增量 / 并行非确定性（Incremental / Parallel Nondeterminism）                 | CI / 发布字节漂移                    | 干净单线程预言机、稳定合并                                   |
+| 配置档边界错误（Profile Boundary Error）                                     | 无图形配置档携带几何，或交叉索引漂移 | 交通必需 / 空间可选矩阵、配置档测试                          |
+| 当前态 / 目标态双路径长期化（Current / Target Dual-path Permanence）         | 测试矩阵和语义漂移                   | 集成专用桥、明确移除责任人 / 切换闸口                        |
+| 来源 / 生成物双重事实源（Source / Generated Dual SSOT）                      | 手工修改与漂移                       | 来源模块图权威、生成摘要 / 收据闸口                          |
+| 过早选择归档库（Premature Archive-library Choice）                           | ABI、安全或 MSRV 锁定                | 先冻结契约，再做基准 / 审计                                  |
+| 最终分区进入共享镜像（Final Partition in Shared Image）                      | 地图与硬件/世界耦合，存档不可移植    | 静态约束 + 可重建提示 + 每世界执行计划                       |
+| 分区诱发行为延迟（Partition-induced Behavioral Delay）                       | 结果随 cut 改变                      | 同 tick committed-state barrier 与置换等价测试               |
+| 原地修改静态镜像（In-place Static-image Mutation）                           | 摘要、共享、信任和确定性失效         | 不可变路网修订 + 失败关闭镜像切换事务                        |
+| 生产配置档裁掉稳定身份索引（Production Profile Drops Stable Identity Index） | 快照、动态路线与跨修订映射无法恢复   | 全配置档必需冷索引；双向 round-trip；按需映射                |
+| 未受信任语义差异驱动迁移（Untrusted Semantic Diff Drives Migration）         | 篡改迁移、错误终止或状态错配         | 外部切换描述符、双制品独立验证、身份索引复核                 |
+| 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）               | 静态契约与运行时执行能力长期不对称   | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环    |
 
 ## 16. #291 G1 完成条件
 
@@ -1095,7 +1176,8 @@ Cutover 前必须证明：
   target；
 - #292 已重划为 compiler foundation + Synthetic DSL frontend，并继续保持
   `Blocked by #291`；
-- 标识 v1、artifact/image/profile/version/validation/performance contract 一致；
+- 标识 v1、artifact/image/profile/version/validation/performance contract 一致，所有
+  生产配置档保留 snapshot/cutover 必需的 `StaticIdentityIndex`；
 - 静态执行约束、分区规划提示和每世界运行时执行计划职责分离，且 exact path 无
   partition-induced extra tick delay；
 - 城市游戏/出行编排/routing、不可变路网修订、快照/回放和每世界唯一性边界一致；
