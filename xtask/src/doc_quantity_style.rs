@@ -1,12 +1,13 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use proc_macro2::LineColumn;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use syn::{Attribute, Expr, ExprLit, ExprMacro, Lit, LitStr, Meta};
+use syn::{Attribute, Expr, ExprLit, ExprMacro, Lit, LitStr, Meta, Token};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Violation {
@@ -114,7 +115,7 @@ fn is_rust_file(path: &Path) -> bool {
 }
 
 fn find_markdown_violations(content: &str, first_source_line: usize) -> Vec<Violation> {
-    let mut violations = Vec::new();
+    let mut prose_by_line = BTreeMap::<usize, String>::new();
     let mut code_block_depth = 0_usize;
 
     for (event, source_range) in Parser::new_ext(content, Options::all()).into_offset_iter() {
@@ -123,16 +124,305 @@ fn find_markdown_violations(content: &str, first_source_line: usize) -> Vec<Viol
             Event::End(TagEnd::CodeBlock) => {
                 code_block_depth = code_block_depth.saturating_sub(1);
             }
-            Event::Text(_) if code_block_depth == 0 => {
-                let source = &content[source_range.clone()];
-                let line = first_source_line + count_line_breaks(&content[..source_range.start]);
-                scan_lines(source, line, &mut violations);
+            Event::Text(text) if code_block_depth == 0 => {
+                let source_line =
+                    first_source_line + count_line_breaks(&content[..source_range.start]);
+                append_prose_projection(&mut prose_by_line, &text, source_line);
+            }
+            Event::Code(_) if code_block_depth == 0 => {
+                let source_line =
+                    first_source_line + count_line_breaks(&content[..source_range.start]);
+                append_prose_projection(&mut prose_by_line, " ", source_line);
+            }
+            Event::Html(html) if code_block_depth == 0 => {
+                let source_line =
+                    first_source_line + count_line_breaks(&content[..source_range.start]);
+                let visible_text = html_visible_text(&html);
+                append_prose_projection(&mut prose_by_line, &visible_text, source_line);
             }
             _ => {}
         }
     }
 
+    let mut violations = Vec::new();
+    for (line, prose) in prose_by_line {
+        for token in quantity_abbreviations(&prose) {
+            violations.push(Violation { line, token });
+        }
+    }
     violations
+}
+
+fn append_prose_projection(
+    prose_by_line: &mut BTreeMap<usize, String>,
+    prose: &str,
+    first_source_line: usize,
+) {
+    for (line_offset, line) in prose.split('\n').enumerate() {
+        prose_by_line
+            .entry(first_source_line + line_offset)
+            .or_default()
+            .push_str(line.trim_end_matches('\r'));
+    }
+}
+
+fn html_visible_text(html: &str) -> String {
+    let mut visible = String::new();
+    let mut cursor = 0_usize;
+    let mut suppressed_elements = Vec::<String>::new();
+
+    while cursor < html.len() {
+        if html.as_bytes()[cursor] != b'<' {
+            let next_tag = html[cursor..]
+                .find('<')
+                .map_or(html.len(), |offset| cursor + offset);
+            let text = &html[cursor..next_tag];
+            if suppressed_elements.is_empty() {
+                append_html_text(&mut visible, text);
+            } else {
+                preserve_line_breaks(&mut visible, text);
+            }
+            cursor = next_tag;
+            continue;
+        }
+
+        let Some(tag) = parse_html_tag(html, cursor) else {
+            if suppressed_elements.is_empty() {
+                visible.push('<');
+            }
+            cursor += 1;
+            continue;
+        };
+
+        let was_suppressed = !suppressed_elements.is_empty();
+        preserve_line_breaks(&mut visible, &html[cursor..tag.end]);
+        if suppressed_elements.last().is_some_and(|element| {
+            is_html_raw_text_element(element) && !(tag.is_closing && element == &tag.name)
+        }) {
+            cursor = tag.end;
+            continue;
+        }
+
+        let separates_visible_prose = is_exact_identifier_html_element(&tag.name);
+        if tag.is_closing {
+            if suppressed_elements
+                .last()
+                .is_some_and(|element| element == &tag.name)
+            {
+                suppressed_elements.pop();
+            }
+        } else if !tag.is_self_closing && suppresses_reader_prose(&tag.name) {
+            suppressed_elements.push(tag.name.clone());
+        }
+
+        if (is_html_text_boundary(&tag.name) || separates_visible_prose)
+            && (!was_suppressed || suppressed_elements.is_empty())
+            && !visible.ends_with(char::is_whitespace)
+        {
+            visible.push(' ');
+        }
+        cursor = tag.end;
+    }
+
+    visible
+}
+
+struct HtmlTag {
+    end: usize,
+    name: String,
+    is_closing: bool,
+    is_self_closing: bool,
+}
+
+fn parse_html_tag(html: &str, start: usize) -> Option<HtmlTag> {
+    let bytes = html.as_bytes();
+    if bytes.get(start) != Some(&b'<') {
+        return None;
+    }
+
+    if html[start..].starts_with("<!--") {
+        let end = html[start + 4..]
+            .find("-->")
+            .map_or(html.len(), |offset| start + 4 + offset + 3);
+        return Some(HtmlTag {
+            end,
+            name: String::new(),
+            is_closing: false,
+            is_self_closing: true,
+        });
+    }
+
+    let mut cursor = start + 1;
+    let is_closing = bytes.get(cursor) == Some(&b'/');
+    if is_closing {
+        cursor += 1;
+    }
+    while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+        cursor += 1;
+    }
+
+    if matches!(bytes.get(cursor), Some(b'!') | Some(b'?')) {
+        return find_html_tag_end(html, cursor + 1).map(|end| HtmlTag {
+            end,
+            name: String::new(),
+            is_closing,
+            is_self_closing: true,
+        });
+    }
+
+    let name_start = cursor;
+    while bytes
+        .get(cursor)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b':' | b'_'))
+    {
+        cursor += 1;
+    }
+    if cursor == name_start {
+        return None;
+    }
+
+    let end = find_html_tag_end(html, cursor)?;
+    let before_close = html[..end.saturating_sub(1)].trim_end();
+    Some(HtmlTag {
+        end,
+        name: html[name_start..cursor].to_ascii_lowercase(),
+        is_closing,
+        is_self_closing: before_close.ends_with('/'),
+    })
+}
+
+fn find_html_tag_end(html: &str, mut cursor: usize) -> Option<usize> {
+    let bytes = html.as_bytes();
+    let mut quote = None::<u8>;
+
+    while let Some(byte) = bytes.get(cursor).copied() {
+        match (quote, byte) {
+            (Some(active), current) if active == current => quote = None,
+            (None, b'\'' | b'"') => quote = Some(byte),
+            (None, b'>') => return Some(cursor + 1),
+            _ => {}
+        }
+        cursor += 1;
+    }
+    None
+}
+
+fn append_html_text(visible: &mut String, text: &str) {
+    let bytes = text.as_bytes();
+    let mut cursor = 0_usize;
+
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'&'
+            && let Some((decoded, end)) = decode_numeric_html_reference(text, cursor)
+        {
+            if decoded.is_whitespace() {
+                visible.push(' ');
+            } else {
+                visible.push(decoded);
+            }
+            cursor = end;
+            continue;
+        }
+
+        let character = text[cursor..]
+            .chars()
+            .next()
+            .expect("cursor is inside a UTF-8 string");
+        visible.push(character);
+        cursor += character.len_utf8();
+    }
+}
+
+fn decode_numeric_html_reference(text: &str, start: usize) -> Option<(char, usize)> {
+    let bytes = text.as_bytes();
+    if bytes.get(start..start + 2)? != b"&#" {
+        return None;
+    }
+
+    let mut cursor = start + 2;
+    let radix = if matches!(bytes.get(cursor), Some(b'x') | Some(b'X')) {
+        cursor += 1;
+        16
+    } else {
+        10
+    };
+    let digits_start = cursor;
+    while bytes.get(cursor).is_some_and(|byte| match radix {
+        16 => byte.is_ascii_hexdigit(),
+        _ => byte.is_ascii_digit(),
+    }) {
+        cursor += 1;
+    }
+    if cursor == digits_start {
+        return None;
+    }
+
+    let value = u32::from_str_radix(&text[digits_start..cursor], radix).ok()?;
+    if bytes.get(cursor) == Some(&b';') {
+        cursor += 1;
+    }
+    char::from_u32(value).map(|decoded| (decoded, cursor))
+}
+
+fn preserve_line_breaks(output: &mut String, source: &str) {
+    output.extend(source.chars().filter(|character| *character == '\n'));
+}
+
+fn suppresses_reader_prose(name: &str) -> bool {
+    matches!(name, "code" | "script" | "style")
+}
+
+fn is_exact_identifier_html_element(name: &str) -> bool {
+    name == "code"
+}
+
+fn is_html_raw_text_element(name: &str) -> bool {
+    matches!(name, "script" | "style")
+}
+
+fn is_html_text_boundary(name: &str) -> bool {
+    matches!(
+        name,
+        "address"
+            | "article"
+            | "aside"
+            | "blockquote"
+            | "br"
+            | "dd"
+            | "details"
+            | "div"
+            | "dl"
+            | "dt"
+            | "fieldset"
+            | "figcaption"
+            | "figure"
+            | "footer"
+            | "form"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "header"
+            | "hr"
+            | "li"
+            | "main"
+            | "nav"
+            | "ol"
+            | "p"
+            | "pre"
+            | "section"
+            | "summary"
+            | "table"
+            | "tbody"
+            | "td"
+            | "tfoot"
+            | "th"
+            | "thead"
+            | "tr"
+            | "ul"
+    )
 }
 
 fn find_rustdoc_violations(
@@ -189,8 +479,8 @@ impl<'path> RustdocVisitor<'path> {
         }
     }
 
-    fn include_document(&mut self, attribute: &Attribute, expression: &ExprMacro) {
-        let attribute_line = source_line(attribute.span().start());
+    fn include_document(&mut self, meta: &Meta, expression: &ExprMacro) {
+        let attribute_line = source_line(meta.span().start());
         let included_path = match syn::parse2::<LitStr>(expression.mac.tokens.clone()) {
             Ok(path) => path.value(),
             Err(error) => {
@@ -242,6 +532,102 @@ impl<'path> RustdocVisitor<'path> {
             )),
         }
     }
+
+    fn process_doc_meta(&mut self, meta: &Meta) {
+        let Meta::NameValue(name_value) = meta else {
+            return;
+        };
+
+        match &name_value.value {
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(documentation),
+                ..
+            }) => {
+                let span = meta.span();
+                self.fragments.push(RustdocFragment {
+                    start_line: source_line(span.start()),
+                    end_line: source_line(span.end()),
+                    markdown: documentation.value(),
+                });
+            }
+            Expr::Macro(expression) if expression.mac.path.is_ident("include_str") => {
+                self.include_document(meta, expression);
+            }
+            _ => self.errors.push(format!(
+                "第 {} 行 `#[doc = ...]` 必须使用字符串字面量或 `include_str!`，避免动态文档绕过数量书写门禁",
+                source_line(meta.span().start())
+            )),
+        }
+    }
+
+    fn process_cfg_attr(&mut self, attribute: &Attribute) {
+        let Meta::List(list) = &attribute.meta else {
+            self.errors.push(format!(
+                "第 {} 行 `cfg_attr` 必须使用列表语法",
+                source_line(attribute.span().start())
+            ));
+            return;
+        };
+        let nested = match list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated) {
+            Ok(nested) => nested,
+            Err(error) => {
+                self.errors.push(format!(
+                    "第 {} 行无法解析 `cfg_attr` 嵌套属性；数量书写门禁失败关闭: {error}",
+                    source_line(attribute.span().start())
+                ));
+                return;
+            }
+        };
+        let mut nested = nested.iter();
+        if nested.next().is_none() {
+            self.errors.push(format!(
+                "第 {} 行 `cfg_attr` 缺少条件表达式",
+                source_line(attribute.span().start())
+            ));
+            return;
+        }
+        for meta in nested {
+            self.process_conditional_meta(meta);
+        }
+    }
+
+    fn process_conditional_meta(&mut self, meta: &Meta) {
+        if meta.path().is_ident("doc") {
+            self.process_doc_meta(meta);
+            return;
+        }
+        if meta.path().is_ident("cfg_attr") {
+            let Meta::List(list) = meta else {
+                self.errors.push(format!(
+                    "第 {} 行嵌套 `cfg_attr` 必须使用列表语法",
+                    source_line(meta.span().start())
+                ));
+                return;
+            };
+            let nested = match list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+            {
+                Ok(nested) => nested,
+                Err(error) => {
+                    self.errors.push(format!(
+                        "第 {} 行无法解析嵌套 `cfg_attr`；数量书写门禁失败关闭: {error}",
+                        source_line(meta.span().start())
+                    ));
+                    return;
+                }
+            };
+            let mut nested = nested.iter();
+            if nested.next().is_none() {
+                self.errors.push(format!(
+                    "第 {} 行嵌套 `cfg_attr` 缺少条件表达式",
+                    source_line(meta.span().start())
+                ));
+                return;
+            }
+            for nested_meta in nested {
+                self.process_conditional_meta(nested_meta);
+            }
+        }
+    }
 }
 
 struct RustdocFragment {
@@ -284,28 +670,11 @@ impl RustdocGroup {
 impl<'ast> Visit<'ast> for RustdocVisitor<'_> {
     fn visit_attribute(&mut self, attribute: &'ast Attribute) {
         if attribute.path().is_ident("doc") {
-            if let Meta::NameValue(meta) = &attribute.meta {
-                match &meta.value {
-                    Expr::Lit(ExprLit {
-                        lit: Lit::Str(documentation),
-                        ..
-                    }) => {
-                        let span = attribute.span();
-                        self.fragments.push(RustdocFragment {
-                            start_line: source_line(span.start()),
-                            end_line: source_line(span.end()),
-                            markdown: documentation.value(),
-                        });
-                    }
-                    Expr::Macro(expression) if expression.mac.path.is_ident("include_str") => {
-                        self.include_document(attribute, expression);
-                    }
-                    _ => self.errors.push(format!(
-                        "第 {} 行 `#[doc = ...]` 必须使用字符串字面量或 `include_str!`，避免动态文档绕过数量书写门禁",
-                        source_line(attribute.span().start())
-                    )),
-                }
-            }
+            self.process_doc_meta(&attribute.meta);
+            return;
+        }
+        if attribute.path().is_ident("cfg_attr") {
+            self.process_cfg_attr(attribute);
             return;
         }
 
@@ -319,17 +688,6 @@ fn source_line(location: LineColumn) -> usize {
 
 fn count_line_breaks(content: &str) -> usize {
     content.bytes().filter(|byte| *byte == b'\n').count()
-}
-
-fn scan_lines(content: &str, first_source_line: usize, violations: &mut Vec<Violation>) {
-    for (line_offset, line) in content.lines().enumerate() {
-        for token in quantity_abbreviations(line) {
-            violations.push(Violation {
-                line: first_source_line + line_offset,
-                token,
-            });
-        }
-    }
 }
 
 fn quantity_abbreviations(segment: &str) -> Vec<String> {
@@ -449,6 +807,15 @@ mod tests {
     }
 
     #[test]
+    fn exact_identifier_regions_do_not_join_surrounding_prose() {
+        let content = concat!(
+            "正文 100`run-id`k 不构成缩写。\n",
+            "<div>正文 100<code>run-id</code>k 不构成缩写。</div>\n",
+        );
+        assert!(find_markdown_violations(content, 1).is_empty());
+    }
+
+    #[test]
     fn allows_indented_and_container_nested_code_blocks() {
         let content = concat!(
             "命令：\n\n",
@@ -476,6 +843,87 @@ mod tests {
             find_markdown_violations(content, 1),
             vec![Violation {
                 line: 5,
+                token: "100k".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn checks_visible_text_in_raw_html_blocks() {
+        let content = concat!(
+            "<table data-scale=\"100k\">\n",
+            "<tr><td>支持 100k</td></tr>\n",
+            "<tr><td><code>run-100k-r1</code></td></tr>\n",
+            "</table>\n\n",
+            "<details>\n",
+            "<summary>研究边界为 1M</summary>\n",
+            "<p>完整十进制为 1000000。</p>\n",
+            "</details>\n\n",
+            "<pre>预格式化正文仍禁止 10k。</pre>\n",
+            "<pre><code>run --scale 10k</code></pre>\n",
+        );
+        assert_eq!(
+            find_markdown_violations(content, 1),
+            vec![
+                Violation {
+                    line: 2,
+                    token: "100k".to_string()
+                },
+                Violation {
+                    line: 7,
+                    token: "1M".to_string()
+                },
+                Violation {
+                    line: 11,
+                    token: "10k".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn html_markup_does_not_split_visible_quantity_tokens() {
+        let content = concat!(
+            "<div>支持 100<span></span>k</div>\n\n",
+            "正文也禁止 100<strong>k</strong>。\n",
+        );
+        assert_eq!(
+            find_markdown_violations(content, 1),
+            vec![
+                Violation {
+                    line: 1,
+                    token: "100k".to_string()
+                },
+                Violation {
+                    line: 3,
+                    token: "100k".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn raw_html_numeric_references_do_not_bypass_quantity_gate() {
+        assert_eq!(
+            find_markdown_violations("<div>支持 100&#107;</div>\n", 1),
+            vec![Violation {
+                line: 1,
+                token: "100k".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn raw_text_elements_do_not_hide_following_html_prose() {
+        let content = concat!(
+            "<script>const marker = \"<style>\";</script>\n",
+            "<style>.marker::before { content: \"<script>\"; }</style>\n",
+            "<p>后续正文仍禁止 100k。</p>\n",
+        );
+        assert_eq!(
+            find_markdown_violations(content, 1),
+            vec![Violation {
+                line: 3,
                 token: "100k".to_string()
             }]
         );
@@ -600,6 +1048,41 @@ mod tests {
         assert!(
             find_rustdoc_violations(content, None)
                 .expect_err("dynamic Rustdoc must fail closed")
+                .contains("避免动态文档绕过数量书写门禁")
+        );
+    }
+
+    #[test]
+    fn checks_conditional_and_nested_conditional_rustdoc() {
+        let content = concat!(
+            "#[cfg_attr(feature = \"docs\", doc = \"条件文档仍禁止 100k prose。\")]\n",
+            "#[cfg_attr(\n",
+            "    feature = \"zh-docs\",\n",
+            "    cfg_attr(target_os = \"linux\", doc = \"嵌套条件文档仍禁止 1M prose。\")\n",
+            ")]\n",
+            "pub struct ConditionallyDocumented;\n",
+        );
+        assert_eq!(
+            find_rustdoc_violations(content, None).expect("valid conditional Rustdoc"),
+            vec![
+                Violation {
+                    line: 1,
+                    token: "100k".to_string()
+                },
+                Violation {
+                    line: 4,
+                    token: "1M".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn dynamic_conditional_doc_attributes_fail_closed() {
+        let content = "#![cfg_attr(feature = \"docs\", doc = concat!(\"100\", \"k prose\"))]\n";
+        assert!(
+            find_rustdoc_violations(content, None)
+                .expect_err("dynamic conditional Rustdoc must fail closed")
                 .contains("避免动态文档绕过数量书写门禁")
         );
     }
