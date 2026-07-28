@@ -117,6 +117,7 @@ fn is_rust_file(path: &Path) -> bool {
 fn find_markdown_violations(content: &str, first_source_line: usize) -> Vec<Violation> {
     let mut prose_by_line = BTreeMap::<usize, String>::new();
     let mut code_block_depth = 0_usize;
+    let mut html_projection = HtmlProjection::default();
 
     for (event, source_range) in Parser::new_ext(content, Options::all()).into_offset_iter() {
         match event {
@@ -124,20 +125,24 @@ fn find_markdown_violations(content: &str, first_source_line: usize) -> Vec<Viol
             Event::End(TagEnd::CodeBlock) => {
                 code_block_depth = code_block_depth.saturating_sub(1);
             }
-            Event::Text(text) if code_block_depth == 0 => {
+            Event::Text(text)
+                if code_block_depth == 0 && !html_projection.suppresses_reader_prose() =>
+            {
                 let source_line =
                     first_source_line + count_line_breaks(&content[..source_range.start]);
                 append_prose_projection(&mut prose_by_line, &text, source_line);
             }
-            Event::Code(_) if code_block_depth == 0 => {
+            Event::Code(_)
+                if code_block_depth == 0 && !html_projection.suppresses_reader_prose() =>
+            {
                 let source_line =
                     first_source_line + count_line_breaks(&content[..source_range.start]);
                 append_prose_projection(&mut prose_by_line, " ", source_line);
             }
-            Event::Html(html) if code_block_depth == 0 => {
+            Event::Html(html) | Event::InlineHtml(html) if code_block_depth == 0 => {
                 let source_line =
                     first_source_line + count_line_breaks(&content[..source_range.start]);
-                let visible_text = html_visible_text(&html);
+                let visible_text = html_projection.project(&html);
                 append_prose_projection(&mut prose_by_line, &visible_text, source_line);
             }
             _ => {}
@@ -166,65 +171,76 @@ fn append_prose_projection(
     }
 }
 
-fn html_visible_text(html: &str) -> String {
-    let mut visible = String::new();
-    let mut cursor = 0_usize;
-    let mut suppressed_elements = Vec::<String>::new();
+#[derive(Default)]
+struct HtmlProjection {
+    suppressed_elements: Vec<String>,
+}
 
-    while cursor < html.len() {
-        if html.as_bytes()[cursor] != b'<' {
-            let next_tag = html[cursor..]
-                .find('<')
-                .map_or(html.len(), |offset| cursor + offset);
-            let text = &html[cursor..next_tag];
-            if suppressed_elements.is_empty() {
-                append_html_text(&mut visible, text);
-            } else {
-                preserve_line_breaks(&mut visible, text);
-            }
-            cursor = next_tag;
-            continue;
-        }
-
-        let Some(tag) = parse_html_tag(html, cursor) else {
-            if suppressed_elements.is_empty() {
-                visible.push('<');
-            }
-            cursor += 1;
-            continue;
-        };
-
-        let was_suppressed = !suppressed_elements.is_empty();
-        preserve_line_breaks(&mut visible, &html[cursor..tag.end]);
-        if suppressed_elements.last().is_some_and(|element| {
-            is_html_raw_text_element(element) && !(tag.is_closing && element == &tag.name)
-        }) {
-            cursor = tag.end;
-            continue;
-        }
-
-        let separates_visible_prose = is_exact_identifier_html_element(&tag.name);
-        if tag.is_closing {
-            if suppressed_elements
-                .last()
-                .is_some_and(|element| element == &tag.name)
-            {
-                suppressed_elements.pop();
-            }
-        } else if !tag.is_self_closing && suppresses_reader_prose(&tag.name) {
-            suppressed_elements.push(tag.name.clone());
-        }
-
-        if (is_html_text_boundary(&tag.name) || separates_visible_prose)
-            && (!was_suppressed || suppressed_elements.is_empty())
-            && !visible.ends_with(char::is_whitespace)
-        {
-            visible.push(' ');
-        }
-        cursor = tag.end;
+impl HtmlProjection {
+    fn suppresses_reader_prose(&self) -> bool {
+        !self.suppressed_elements.is_empty()
     }
 
-    visible
+    fn project(&mut self, html: &str) -> String {
+        let mut visible = String::new();
+        let mut cursor = 0_usize;
+
+        while cursor < html.len() {
+            if html.as_bytes()[cursor] != b'<' {
+                let next_tag = html[cursor..]
+                    .find('<')
+                    .map_or(html.len(), |offset| cursor + offset);
+                let text = &html[cursor..next_tag];
+                if self.suppressed_elements.is_empty() {
+                    append_html_text(&mut visible, text);
+                } else {
+                    preserve_line_breaks(&mut visible, text);
+                }
+                cursor = next_tag;
+                continue;
+            }
+
+            let Some(tag) = parse_html_tag(html, cursor) else {
+                if self.suppressed_elements.is_empty() {
+                    visible.push('<');
+                }
+                cursor += 1;
+                continue;
+            };
+
+            let was_suppressed = !self.suppressed_elements.is_empty();
+            preserve_line_breaks(&mut visible, &html[cursor..tag.end]);
+            if self.suppressed_elements.last().is_some_and(|element| {
+                is_html_raw_text_element(element) && !(tag.is_closing && element == &tag.name)
+            }) {
+                cursor = tag.end;
+                continue;
+            }
+
+            let separates_visible_prose = is_exact_identifier_html_element(&tag.name);
+            if tag.is_closing {
+                if self
+                    .suppressed_elements
+                    .last()
+                    .is_some_and(|element| element == &tag.name)
+                {
+                    self.suppressed_elements.pop();
+                }
+            } else if !tag.is_self_closing && suppresses_reader_prose(&tag.name) {
+                self.suppressed_elements.push(tag.name.clone());
+            }
+
+            if (is_html_text_boundary(&tag.name) || separates_visible_prose)
+                && (!was_suppressed || self.suppressed_elements.is_empty())
+                && !visible.ends_with(char::is_whitespace)
+            {
+                visible.push(' ');
+            }
+            cursor = tag.end;
+        }
+
+        visible
+    }
 }
 
 struct HtmlTag {
@@ -811,8 +827,24 @@ mod tests {
         let content = concat!(
             "正文 100`run-id`k 不构成缩写。\n",
             "<div>正文 100<code>run-id</code>k 不构成缩写。</div>\n",
+            "正文 100<code>run-id</code>k 仍不构成缩写。\n",
         );
         assert!(find_markdown_violations(content, 1).is_empty());
+    }
+
+    #[test]
+    fn inline_html_code_suppresses_only_its_own_text() {
+        let content = concat!(
+            "baseline <code>run-100k-r1</code> 合法。\n",
+            "嵌套 <code><span>run-100k-r1</span></code> 也合法，但正文 1M 非法。\n",
+        );
+        assert_eq!(
+            find_markdown_violations(content, 1),
+            vec![Violation {
+                line: 2,
+                token: "1M".to_string()
+            }]
+        );
     }
 
     #[test]
