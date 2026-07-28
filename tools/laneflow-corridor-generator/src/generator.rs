@@ -25,7 +25,7 @@ use crate::model::{
     SpatialEdge, SpatialPackage, StopLine, TrafficPackage, Units, VehicleProfile,
 };
 
-const TRAFFIC_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.9.schema.json");
+const TRAFFIC_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.10.schema.json");
 const SPATIAL_SCHEMA: &str = include_str!("../../../schemas/laneflow-spatial-v0.1.schema.json");
 const MANIFEST_SCHEMA: &str =
     include_str!("../../../schemas/laneflow-scenario-manifest-v0.1.schema.json");
@@ -393,7 +393,7 @@ fn build_documents(
     };
 
     let traffic = TrafficPackage {
-        format_version: "0.9",
+        format_version: "0.10",
         units: Units {
             distance: "meter",
             time: "second",
@@ -465,6 +465,7 @@ fn build_documents(
         lane_groups: cross_section.lane_groups,
         road_corridors: cross_section.road_corridors,
         access_rules: cross_section.access_rules,
+        waiting_zones: Vec::new(),
         signals,
         parking: Parking {
             areas: Vec::new(),

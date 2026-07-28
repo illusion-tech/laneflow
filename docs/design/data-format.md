@@ -1,8 +1,8 @@
 # Data Format 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-27<br>
-**适用范围**: 当前 Traffic v0.9、SpatialPackage v0.1、ScenarioManifest v0.1 与保留的 Data v0.6 数值研究输入
+**最后更新**: 2026-07-28（#281 Traffic v0.10 multi-Gate/WaitingZone static）<br>
+**适用范围**: 当前 Traffic v0.10、SpatialPackage v0.1、ScenarioManifest v0.1 与保留的 Data v0.6 数值研究输入
 
 **关联文档**:
 
@@ -19,7 +19,7 @@
 - `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
 - `../adr/0018-multimodal-cross-section-and-access-overlay.md`
-- `../../schemas/laneflow-data-v0.9.schema.json`
+- `../../schemas/laneflow-data-v0.10.schema.json`
 - `../../schemas/laneflow-spatial-v0.1.schema.json`
 - `../../schemas/laneflow-scenario-manifest-v0.1.schema.json`
 - `../../schemas/README.md`
@@ -36,7 +36,7 @@
 
 ## 1. 目标与非目标
 
-本文定义 LaneFlow 当前唯一 active 的 v0.9 external package。它是 checked-in schema、
+本文定义 LaneFlow 当前唯一 active 的 v0.10 external package。它是 checked-in schema、
 production loader、canonical fixtures、validator 和 Adapter/authoring tool 的数据契约。
 
 目标：
@@ -59,7 +59,7 @@ production loader、canonical fixtures、validator 和 Adapter/authoring tool �
 
 ```text
 LaneFlowDataPackage
-  formatVersion: "0.9"
+  formatVersion: "0.10"
   units: UnitSpec
   laneGraph: LaneGraphData
   junctions: JunctionData[]
@@ -73,6 +73,7 @@ LaneFlowDataPackage
   laneGroups: LaneGroupData[]
   roadCorridors: RoadCorridorData[]
   accessRules: AccessRuleData[]
+  waitingZones: WaitingZoneData[]
   signals: SignalsData
   parking: ParkingData
   extensions?: object
@@ -132,6 +133,13 @@ AccessRuleData
   effect: allow | deny
   participantClassIds[]
 
+WaitingZoneData
+  id
+  maneuverPathId
+  entryGateId
+  releaseGateId
+  maxOccupancy  // u32，> 0
+
 SignalsData
   stopLines[]
     id
@@ -168,17 +176,21 @@ ParkingData
     geometry { lateralOffset, headingOffsetRadians, length, width }
 ```
 
-三类 topology arrays、六个横断面/准入 arrays、`signals`、`parking` 及其全部子数组均必填，可以为空。
+三类 topology arrays、六个横断面/准入 arrays、`waitingZones`、`signals`、
+`parking` 及其全部子数组均必填，可以为空。
 当前 canonical fixtures：
 
-- `examples/data/v0.9-parking-signals-baseline.laneflow.json`：完整 topology/Signals、
+- `examples/data/v0.10-parking-signals-baseline.laneflow.json`：完整 topology/Signals、
   area-owned 与 standalone spaces。
-- `examples/data/v0.9-empty-signals-and-parking.laneflow.json`：显式空 static arrays，
+- `examples/data/v0.10-empty-signals-and-parking.laneflow.json`：显式空 static arrays，
   承接 route/profile/repeated-edge 行为回归。
-- `examples/data/v0.9-signalized-corridor.laneflow.json`：2 Junction、24 Movement、
+- `examples/data/v0.10-signalized-corridor.laneflow.json`：2 Junction、24 Movement、
   32 ManeuverPath/Gate 与横断面/准入 overlay 的 generator artifact。
+- `examples/data/v0.10-multi-gate-waiting-zone.laneflow.json`：同一路径三个
+  ordered Gate、两个共享边界 WaitingZone 与 route occurrence 编译基线。
 
-v0.8 fixtures 作为历史 artifact 保留在 `examples/data/`，不再驱动 current contract tests。
+v0.9 及更早 fixtures 作为历史 artifact 保留在 `examples/data/`，不再驱动
+current contract tests。
 
 ## 3. 通用字段规则
 
@@ -207,7 +219,7 @@ current 格式继续使用 `connections[].toEdgeId` 与 `routes[].edgeIds`；旧
 
 Lane graph 与 Vehicle Profile 的 domain 语义沿用 v0.3：
 
-- edge length 必须 finite 且严格大于 current v0.9 继承的 `1.0e-9 m` exclusive minimum；Data 不导入 Core 私有数值策略。
+- edge length 必须 finite 且严格大于 current v0.10 继承的 `1.0e-9 m` exclusive minimum；Data 不导入 Core 私有数值策略。
 - edge `speedLimit` 必填，单位为 m/s；schema 要求 JSON number 且 `exclusiveMinimum: 0`，Core `SpeedLimit` 最终裁决 finite 且严格大于 0。
 - connection target 必须存在；同一 source 不得重复 target。
 - route 至少一个 edge；引用必须存在，相邻 pair 必须连通；允许 repeated edge/self loop。
@@ -245,11 +257,11 @@ compiler，不能借 route completion 或不完整 path 绕过 Gate。
 
 - `ParkingArea.id` 与 `ParkingSpace.id` 分别 domain-local unique；area 只做 optional 逻辑分组，不保存 capacity 或 `spaceIds`。
 - `areaId` 省略表示 standalone space；explicit `null` 非法。已声明 area 必须至少拥有一个 member space，reverse member order 使用 space input order。
-- entry/exit anchor edge 必须存在；progress 必须 finite，并严格满足 `1.0e-9 m < progress < edgeLength - 1.0e-9 m`。该值是 current v0.9 继承的 anchor 数值事实。
-- geometry 以 entry edge 的正向切线为局部基准；`abs(lateralOffset) > 1.0e-9 m`，heading 位于 `[-PI, PI)`，length/width 严格大于 current v0.9 继承的 `1.0e-9 m` exclusive minimum。lateral offset 与 extent 在测试中分别拥有语义，不从 Core 公共常量导入。
+- entry/exit anchor edge 必须存在；progress 必须 finite，并严格满足 `1.0e-9 m < progress < edgeLength - 1.0e-9 m`。该值是 current v0.10 继承的 anchor 数值事实。
+- geometry 以 entry edge 的正向切线为局部基准；`abs(lateralOffset) > 1.0e-9 m`，heading 位于 `[-PI, PI)`，length/width 严格大于 current v0.10 继承的 `1.0e-9 m` exclusive minimum。lateral offset 与 extent 在测试中分别拥有语义，不从 Core 公共常量导入。
 - External package 不持久化 reservation、occupancy、initial parked vehicles、runtime handles、maneuver path 或 world transform。
 
-停车场、专用路边停车区和 standalone 路边泊位复用同一 `ParkingSpace` 模型；current v0.9 static data 不加入影响 Core 行为的 lot/curbside kind。完整 runtime/lifecycle 契约见 [`parking-system.md`](parking-system.md)，已由 #108/#109 交付并由 #110 完成端到端验证。
+停车场、专用路边停车区和 standalone 路边泊位复用同一 `ParkingSpace` 模型；current v0.10 static data 不加入影响 Core 行为的 lot/curbside kind。完整 runtime/lifecycle 契约见 [`parking-system.md`](parking-system.md)，已由 #108/#109 交付并由 #110 完成端到端验证。
 
 ## 7. Validation 分层与顺序
 
@@ -297,10 +309,10 @@ laneflow-data -> laneflow-core
 laneflow-core -X-> laneflow-data
 ```
 
-- `laneflow-data`：version header、private v0.9 DTO、JSON/units/path 和 external-to-Core 转换。
+- `laneflow-data`：version header、private v0.10 DTO、JSON/units/path 和 external-to-Core 转换。
 - `laneflow-core`：domain types、typed handles、registry/resolver、全局 invariant 与 world compatibility。
 - loader 接收内存 bytes/string，不读取路径、不创建 `CoreWorld`、不公开 raw DTO。
-- `LoadedPackage` 只表示 current v0.9，并持有已验证的 `InitialTrafficData`。
+- `LoadedPackage` 只表示 current v0.10，并持有已验证的 `InitialTrafficData`。
 - normalization 预解析 topology/edge/StopLine/Group/Controller/Phase/Gate/Parking
   handles、parent/member ranges 与 reverse indexes；runtime hot path 不读取 JSON
   或 external ID。
@@ -344,13 +356,19 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 直接以 v0.4 
 | v0.5 canonical fixtures         | v0.7 fixtures 与 Scenario traffic digest 原子切换     |
 | production compatibility        | 不提供；v0.5/v0.6 返回 `UnsupportedFormatVersion`     |
 
-Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval URL；catalog 中 published version 必须通过 HTTPS 返回与固定 source revision 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析 `$id`/`$schema`。v0.2-v0.5、v0.7 与 v0.8 均作为 immutable publication artifacts 保留；v0.8 已登记固定 `main` revision/blob，并通过 canonical URL 的 live availability 与 byte-equality 验证。current v0.9 已登记固定 `main` revision/blob，并通过 canonical URL 的 live availability 与 byte-equality 验证。消费者入口见 [`schemas/README.md`](../../schemas/README.md)。
+Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public retrieval
+URL；catalog 中 published version 必须通过 HTTPS 返回与固定 source revision
+逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析
+`$id`/`$schema`。v0.2-v0.5、v0.7-v0.9 作为 immutable publication artifacts
+保留；current v0.10 当前是 source-only，由后续 publication PR 固定 `main`
+revision/blob 并完成 live availability 与 byte-equality 验证。消费者入口见
+[`schemas/README.md`](../../schemas/README.md)。
 
 ## 11. v0.6 空间层配套制品设计
 
 #123 G1 不把中心线或世界几何加入 Traffic `LaneFlowDataPackage`。#134 交付独立的 SpatialPackage v0.1 与 ScenarioManifest v0.1 source contract，由清单通过不透明制品引用、原始 byte size 和 SHA-256 摘要与 current Traffic package 精确配对。
 
-- 当前 v0.9 继续拥有交通边外部 ID、Core 边长、基础限速、拓扑、路线、信号、横断面/准入与停车边相对数据。
+- 当前 v0.10 继续拥有交通边外部 ID、Core 边长、基础限速、拓扑、路线、信号、横断面/准入与停车边相对数据。
 - SpatialPackage v0.1 是 closed JSON object：`formatVersion`、`frameId`、`edges[]`；每条 edge 使用 `trafficEdgeId` 和 `centerline.points`，点固定编码为 `[x, y, z]` 三元数组，不建立全局 vertex pool/index。
 - 每条中心线至少两个点。wire number 先以 `f64` 暂存，执行有限性和每轴 `[-16_384, 16_384] m` 检查，再受检转换为唯一 runtime `f32` canonical 点；坐标为米、右手、`+Y` 向上。
 - Spatial JSON edge 顺序不具权威性；成功规范化结果按 `LaneGraph::edges()` 稳定顺序排列，并要求对 Traffic graph 的 edge 完整、唯一覆盖。
@@ -364,16 +382,16 @@ Schema `$id` 按 ADR 0011 同时作为 absolute versioned identifier 与 public 
 
 ADR 0014 接受了目标 Core/Data 数值契约；#126 曾把该研究候选分配给
 `formatVersion: "0.6"`。#144 的首次生产迁移因性能门槛失败而形成不迁移
-（no-go）结论，v0.6 从未成为 current/published production format。当前 v0.9
+（no-go）结论，v0.6 从未成为 current/published production format。当前 v0.10
 继续使用既有 `f64` 数值域；以下内容仍是未来数值迁移输入：
 
-- 当前 v0.9 的线格式 DTO、模式范围、加载器诊断和 `f64` Core 规范化在未来数值迁移前保持当前实现行为；不增加逐字节、旧范围或旧诊断兼容证明；
+- 当前 v0.10 的线格式 DTO、模式范围、加载器诊断和 `f64` Core 规范化在未来数值迁移前保持当前实现行为；不增加逐字节、旧范围或旧诊断兼容证明；
 - 下一目标格式把单 edge `<=10_000 m`、速度 `<=100 m/s`、Profile 加速度/减速度 `<=50 m/s²`、期望车头时距 `<=60 s`、尺寸/最小间距/偏移 `<=128 m` 等硬范围写入模式与 Core 构造器；最小 edge 长度目标值由 #127 离线标定，但 #144 回退后没有进入当前格式；
 - JSON 词法类型继续是 `number`。Data 可以先以 `f64` 或等价高保真值解析，以便报告原始越界输入；随后必须通过显式受检转换进入单一 `f32` 数值域或补偿残差感知的 `EdgeProgress`；
 - Parking 入口/出口锚点的线格式继续是单个 `progress` JSON 数值，但 Core 规范化结果直接使用 `EdgeProgress`；不保留裸 `f64` 静态位置或新增第三种边内位置类型；
 - 原始 `f64` 转换错误可保留输入值；规范化单值域错误使用 `f32`，有效进度与实际采用 `f64` 的路线（route）派生值使用 `f64`。错误显示（Display）使用领域化中文范围，不引用已删除的数值常量名；
 - 模式（schema）文件名/`$id`、发布目录的当前指针、私有线格式 DTO、加载器版本闸口与路径诊断、标准固定样例、Core 构造器、测试和当前文档必须由未来原子迁移在同一交付 PR（Delivery PR）中更新；
-- 有效代码树仍只维护一个当前加载器。未来切换后不叠加 v0.9 运行时兼容分支，不自动拆 edge、不静默截断；仓库内资产随迁移直接更新，不实现离线迁移工具；
+- 有效代码树仍只维护一个当前加载器。未来切换后不叠加 v0.10 运行时兼容分支，不自动拆 edge、不静默截断；仓库内资产随迁移直接更新，不实现离线迁移工具；
 - 规范化和批量命令继续执行“先计算、后提交”，任一范围、转换或引用错误不得留下部分 `InitialTrafficData` 或 world 状态。
 
 #127 拥有九个目标 `f32` 固定绝对阈值、`EdgeProgress` 运算链和路线距离（route-distance）布局证据；#144 已消费这些结果实施生产候选，但因性能 no-go 而完整回退。未来重启不得重新发明阈值；已公开且受 ADR 0011 约束的历史模式（schema）可以作为不可变静态制品保留，但不进入有效加载器、固定样例或规范化测试。
@@ -418,7 +436,7 @@ connectivity、Gate/StopLine、Route coverage、first-error 与 foreign-graph re
 
 完整字段语义、原子迁移和影响矩阵见
 [`road-junction-model.md`](road-junction-model.md)。
-current Traffic v0.9 完整继承这些 Junction/Movement/ManeuverPath/ManeuverGate
+current Traffic v0.10 完整继承这些 Junction/Movement/ManeuverPath/ManeuverGate
 shape 与 route-occurrence 语义，并在下节增加横断面与准入静态模型；本节不再声称
 v0.8 是 active loader contract。
 
@@ -453,3 +471,27 @@ Current `formatVersion: "0.9"` 原子增加：
 静态规则在 (ParticipantClass, Route) 绑定期 fail-fast；时变规则与 FacilityBand
 target 规则在 v1 由 capability guard 结构化拒绝。完整字段语义、横断面/准入分层、
 组合裁决与绑定期校验见 [`cross-section-access.md`](cross-section-access.md)。
+
+## 16. Traffic 0.10 multi-Gate 与 WaitingZone static contract
+
+#281 按 #235/ADR 0019 从已发布且 immutable 的 Traffic 0.9 原子迁移当前
+source contract：
+
+- 同一 `ManeuverPath` 可以在不同 `transitionIndex` 声明多个 Gate；每个
+  path-transition 仍至多一个 Gate，StopLine 必须属于该 transition 的 from edge；
+- top-level required `waitingZones[]` 声明 `id`、`maneuverPathId`、
+  `entryGateId`、`releaseGateId` 与 positive `maxOccupancy`；
+- entry/release Gate 必须属于同一声明 path，entry transition 严格早于 release；
+  同一路径 WaitingZone interior 不得重叠或嵌套，共享 boundary 合法；
+- Route 注册期编译 ordered Gate/Waiting occurrences、next Gate/exit boundary 与
+  empty-zone storage length；steady tick 不扫描 external IDs；
+- `(VehicleProfile, Route, cursor)` 绑定在 Access 之后校验 pending zone 的整车长度
+  可行性。stateful occurrence interior bootstrap 和 Waiting runtime 尚未实现，
+  分别由显式 capability error 拒绝，禁止车辆静默穿越；
+- loader 只接受 exact `0.10`，不并行接受 `0.9`，也不提供 alias 或 migration
+  shim；SpatialPackage/ScenarioManifest 保持 `0.1`；
+- v0.10 schema 当前为 source-only。后续唯一 publication PR 将固定 `main`
+  revision/blob、加入 published catalog 并验证 live bytes；已发布 v0.9 不修改。
+
+队列、admission、capacity runtime state、constraint/events 属 #282；Conflict 与
+Spatial 属 #283，不在本 static contract 中提前激活。

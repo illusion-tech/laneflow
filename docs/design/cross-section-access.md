@@ -46,7 +46,7 @@
 
 | 范围           | Current production                                                                      |
 | -------------- | --------------------------------------------------------------------------------------- |
-| Traffic        | exact-current `0.9`（含横断面/准入片段，#262）                                          |
+| Traffic        | exact-current `0.10`（继承 0.9 横断面/准入片段，并含 #281 WaitingZone static）          |
 | Lane topology  | LaneEdge 无类型；RoadSection/LaneGroup 已生产化为 LaneGraph 之上的结构 overlay          |
 | 参与者分类     | ParticipantClass 已存在（数据声明、单继承）；VehicleProfile 必填 `participantClassId`   |
 | 准入规则       | AccessRule 静态模型已存在；(class, Route) 绑定期校验；时变/FacilityBand target 规则拒绝 |

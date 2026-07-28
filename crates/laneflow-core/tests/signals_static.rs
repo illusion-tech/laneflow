@@ -422,7 +422,7 @@ fn maneuver_gate_validation_uses_path_identity_and_profile_order() {
 }
 
 #[test]
-fn duplicate_non_entry_gate_transition_precedes_profile_restriction() {
+fn duplicate_non_entry_gate_transition_is_rejected_and_unique_gate_is_supported() {
     let graph = LaneGraph::try_new([
         LaneEdge::new(
             "entry",
@@ -490,7 +490,7 @@ fn duplicate_non_entry_gate_transition_precedes_profile_restriction() {
             ),
         ],
     )
-    .expect_err("duplicate transition must precede the entry-only profile restriction");
+    .expect_err("duplicate transition must be rejected");
     std::assert_matches!(
         duplicate,
         CoreError::DuplicateManeuverGatePathTransition {
@@ -503,7 +503,7 @@ fn duplicate_non_entry_gate_transition_precedes_profile_restriction() {
             && duplicate_maneuver_gate_id == "duplicate"
     );
 
-    let unsupported = SignalRegistry::try_new(
+    let registry = SignalRegistry::try_new(
         &graph,
         &junctions,
         [stop_line("stop", "internal")],
@@ -517,13 +517,14 @@ fn duplicate_non_entry_gate_transition_precedes_profile_restriction() {
             SignalControlInput::Group("main".to_owned()),
         )],
     )
-    .expect_err("a unique non-entry transition remains unsupported");
-    std::assert_matches!(
-        unsupported,
-        CoreError::UnsupportedManeuverGateTransition {
-            maneuver_gate_id,
-            transition_index: 1,
-        } if maneuver_gate_id == "gate"
+    .expect("a unique non-entry transition is supported");
+    let gate = registry.maneuver_gate_handle("gate").expect("gate handle");
+    assert_eq!(
+        registry
+            .maneuver_gate(gate)
+            .expect("gate definition")
+            .transition_index(),
+        1
     );
 }
 

@@ -15,7 +15,7 @@ use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 const TRAFFIC: &[u8] =
-    include_bytes!("../../../examples/data/v0.9-signalized-corridor.laneflow.json");
+    include_bytes!("../../../examples/data/v0.10-signalized-corridor.laneflow.json");
 const CATALOG: &str = include_str!("../../../examples/data/v0.2-signalized-corridor.catalog.toml");
 
 fn traffic() -> InitialTrafficData {

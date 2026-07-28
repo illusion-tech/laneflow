@@ -17,9 +17,9 @@
 - `numeric-representation.md`：v0.6 数值表示、精度分层、误差预算、确定性与 Core/Data/Spatial/Adapter 转换边界。
 - `spatial-geometry.md`：v0.6 引擎无关的坐标框架、折线中心线、长度绑定、采样、制品配对与批量位姿提取。
 - `lane-graph.md`：车道图、连接关系、拓扑约束。
-- `road-junction-model.md`：#228 Accepted 的长期 Road/Junction/Maneuver 分层与 v0.9 最小静态产品 profile；冻结 Junction/Movement/ManeuverPath owner、一等 ManeuverGate、Route occurrence、历史 Traffic v0.8 clean-break target（current v0.9 继承）、确定性与性能边界。
-- `waiting-zone-conflict-right-of-way.md`：#235 Accepted 的多阶段复杂路口 G1；基于 current Traffic v0.9 AccessRegistry 冻结 multiple ManeuverGate occurrence、WaitingZone 容量/队列、ConflictZone/ParticipantStream、versioned jurisdiction/right-of-way policy、Core ConflictArbiter、top-two directed-bound approach frontier、mandatory downstream-clearance、single-writer resource claims、grant/reservation、post-v0.9 原子格式迁移、事件与 10k/100k 边界；生产化已拆为 #281–#285，当前仍未实现。
-- `cross-section-access.md`：#234 Accepted、#262 已生产化的多模式横断面与准入分层；RoadCorridor/RoadSection/LaneGroup/FacilityBand、ParticipantClass/AccessRule、Traffic v0.9 schema 与静态 `(class, Route)` 准入已落地，时变规则与 FacilityBand target 仍由 capability guard 拒绝。
+- `road-junction-model.md`：#228 Accepted 的长期 Road/Junction/Maneuver 分层与 v0.9 最小静态产品 profile；冻结 Junction/Movement/ManeuverPath owner、一等 ManeuverGate、Route occurrence、历史 Traffic v0.8 clean-break target（current v0.10 继承）、确定性与性能边界。
+- `waiting-zone-conflict-right-of-way.md`：#235 Accepted 的多阶段复杂路口 G1；基于 current Traffic v0.10 AccessRegistry 冻结 multiple ManeuverGate occurrence、WaitingZone 容量/队列、ConflictZone/ParticipantStream、versioned jurisdiction/right-of-way policy、Core ConflictArbiter、top-two directed-bound approach frontier、mandatory downstream-clearance、single-writer resource claims、grant/reservation、post-v0.9 原子格式迁移、事件与 10k/100k 边界；#281 已交付 multi-Gate/WaitingZone static 与 Data 0.10，#282–#285 继续 runtime/Conflict/policy/closure。
+- `cross-section-access.md`：#234 Accepted、#262 已生产化的多模式横断面与准入分层；RoadCorridor/RoadSection/LaneGroup/FacilityBand、ParticipantClass/AccessRule 的 Traffic v0.9 来源契约由 current v0.10 继承，静态 `(class, Route)` 准入已落地，时变规则与 FacilityBand target 仍由 capability guard 拒绝。
 - `signalized-corridor-protected-turning.md`：#196 Accepted 的 v0.9 双路口受保护转向 profile；冻结 lane assignment、32 条 ManeuverPath、28 条 Route、catalog 0.2、四组 12-phase signal program、安全矩阵与验收边界；#190 当前交付 profile artifacts、scenario policy 与 native 最小集成。
 - `route-system.md`：路线选择、路径跟随、目标点。
 - `vehicle-following.md`：前车避让、速度控制和安全距离。
@@ -28,9 +28,9 @@
 - `adapter-api.md`：Core/Spatial 与引擎适配器之间的只读快照、批量位姿、宿主转换和权威职责边界。
 - `bevy-reference-adapter.md`：v0.7 Bevy 0.19 Reference Adapter 的依赖、schedule、Entity/Transform、debug、example 与验证边界。
 - `data-format.md`：lane graph、route 等外部数据格式、validation 和 loader 边界；Rust crate 所有权见 ADR 0007。
-- `data-loading.md`：当前 v0.9 Rust loader、严格版本闸口、Junction/Movement/ManeuverPath、ManeuverGate、per-edge speed limit、横断面/准入（RoadCorridor/RoadSection/LaneGroup/FacilityBand/ParticipantClass/AccessRule）、Core Signals/Parking normalization、错误与测试边界。
-- `example-scenarios.md`：v0.8 直行走廊基线与 current v0.9 protected-turning 增量；记录 1.4 km 几何、28 Route、限速、固定时制、50–200 车辆人口、native 入口与分层验收路径。
-- `signalized-corridor-population.md`：current v0.9 caller-owned reference policy；冻结 `laneflow-scenario` crate 边界、catalog 0.2 PortalLane/weighted RouteChoice normalization、三 draw-site completion、blocked retry、replay 与零分配基线。
+- `data-loading.md`：当前 v0.10 Rust loader、严格版本闸口、Junction/Movement/ManeuverPath、multi-Gate/WaitingZone、per-edge speed limit、横断面/准入（RoadCorridor/RoadSection/LaneGroup/FacilityBand/ParticipantClass/AccessRule）、Core Signals/Parking normalization、错误与测试边界。
+- `example-scenarios.md`：v0.8 直行走廊基线与 current v0.10 protected-turning 增量；记录 1.4 km 几何、28 Route、限速、固定时制、50–200 车辆人口、native 入口与分层验收路径。
+- `signalized-corridor-population.md`：current v0.10 caller-owned reference policy；冻结 `laneflow-scenario` crate 边界、catalog 0.2 PortalLane/weighted RouteChoice normalization、三 draw-site completion、blocked retry、replay 与零分配基线。
 
 ## 文档状态
 

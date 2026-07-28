@@ -2,16 +2,18 @@ use jsonschema::draft202012;
 use laneflow_core::MAX_PORTABLE_SIGNAL_TIME_MS;
 use serde_json::Value;
 
-const CURRENT_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.9.schema.json");
+const CURRENT_SCHEMA: &str = include_str!("../../../schemas/laneflow-data-v0.10.schema.json");
 const SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.9-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.10-parking-signals-baseline.laneflow.json");
 const EMPTY_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.9-empty-signals-and-parking.laneflow.json");
-const CURRENT_V0_9_MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_9_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_9_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_9_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f64 = 1.0e-9;
-const CURRENT_V0_9_MIN_PARKING_EXTENT_EXCLUSIVE_METERS: f64 = 1.0e-9;
+    include_str!("../../../examples/data/v0.10-empty-signals-and-parking.laneflow.json");
+const WAITING_ZONE_FIXTURE: &str =
+    include_str!("../../../examples/data/v0.10-multi-gate-waiting-zone.laneflow.json");
+const CURRENT_V0_10_MIN_EDGE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_10_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_10_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_10_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f64 = 1.0e-9;
+const CURRENT_V0_10_MIN_PARKING_EXTENT_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
 fn schema(source: &str) -> Value {
     serde_json::from_str(source).expect("data format schema must be valid JSON")
@@ -24,14 +26,30 @@ fn schema_satisfies_draft_2020_12_meta_schema() {
 }
 
 #[test]
+fn schema_accepts_canonical_multi_gate_waiting_zone_fixture() {
+    let schema = schema(CURRENT_SCHEMA);
+    let instance: Value = serde_json::from_str(WAITING_ZONE_FIXTURE).expect("fixture JSON");
+    draft202012::validate(&schema, &instance)
+        .expect("canonical multi-Gate WaitingZone fixture must satisfy v0.10");
+
+    let mut zero_occupancy = instance.clone();
+    zero_occupancy["waitingZones"][0]["maxOccupancy"] = serde_json::json!(0);
+    assert!(draft202012::validate(&schema, &zero_occupancy).is_err());
+
+    let mut unknown_field = instance;
+    unknown_field["waitingZones"][0]["capacity"] = serde_json::json!(1);
+    assert!(draft202012::validate(&schema, &unknown_field).is_err());
+}
+
+#[test]
 fn schema_locks_current_version_units_and_required_static_shape() {
     let schema = schema(CURRENT_SCHEMA);
 
     assert_eq!(
         schema["$id"],
-        "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.9.schema.json"
+        "https://illusion-tech.github.io/laneflow/schema/laneflow-data-v0.10.schema.json"
     );
-    assert_eq!(schema["title"], "LaneFlow Data Package v0.9");
+    assert_eq!(schema["title"], "LaneFlow Data Package v0.10");
 
     let mut required = string_array(&schema["required"]);
     required.sort_unstable();
@@ -53,11 +71,12 @@ fn schema_locks_current_version_units_and_required_static_shape() {
             "routes",
             "signals",
             "units",
-            "vehicleProfiles"
+            "vehicleProfiles",
+            "waitingZones"
         ]
     );
     assert_eq!(schema["additionalProperties"], false);
-    assert_eq!(schema["properties"]["formatVersion"]["const"], "0.9");
+    assert_eq!(schema["properties"]["formatVersion"]["const"], "0.10");
     assert_eq!(
         schema["$defs"]["laneEdge"]["required"],
         serde_json::json!(["id", "length", "speedLimit", "connections"])
@@ -75,6 +94,20 @@ fn schema_locks_current_version_units_and_required_static_shape() {
         serde_json::json!(["stopLines", "maneuverGates", "groups", "controllers"])
     );
     assert_eq!(schema["$defs"]["signals"]["additionalProperties"], false);
+    assert_eq!(
+        schema["$defs"]["waitingZone"]["required"],
+        serde_json::json!([
+            "id",
+            "maneuverPathId",
+            "entryGateId",
+            "releaseGateId",
+            "maxOccupancy"
+        ])
+    );
+    assert_eq!(
+        schema["$defs"]["waitingZone"]["additionalProperties"],
+        false
+    );
     assert_eq!(
         schema["$defs"]["parking"]["required"],
         serde_json::json!(["areas", "spaces"])
@@ -107,7 +140,7 @@ fn schema_locks_current_version_units_and_required_static_shape() {
 }
 
 #[test]
-fn schema_locks_v0_9_topology_gate_ids_tagged_union_and_timing_bounds() {
+fn schema_locks_v0_10_topology_gate_ids_tagged_union_and_timing_bounds() {
     let schema = schema(CURRENT_SCHEMA);
     assert_eq!(
         schema["$defs"]["laneConnection"]["required"],
@@ -238,11 +271,11 @@ fn schema_enforces_parking_closed_shapes_and_numeric_field_bounds() {
     for (path, invalid) in [
         (
             "progress",
-            serde_json::json!(CURRENT_V0_9_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS),
+            serde_json::json!(CURRENT_V0_10_PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS),
         ),
         (
             "lateralOffset",
-            serde_json::json!(CURRENT_V0_9_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS),
+            serde_json::json!(CURRENT_V0_10_MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS),
         ),
         (
             "headingOffsetRadians",
@@ -250,7 +283,7 @@ fn schema_enforces_parking_closed_shapes_and_numeric_field_bounds() {
         ),
         (
             "length",
-            serde_json::json!(CURRENT_V0_9_MIN_PARKING_EXTENT_EXCLUSIVE_METERS),
+            serde_json::json!(CURRENT_V0_10_MIN_PARKING_EXTENT_EXCLUSIVE_METERS),
         ),
         ("width", serde_json::json!(0.0)),
     ] {
@@ -347,7 +380,7 @@ fn schema_enforces_signal_enums_and_portable_integer_field_bounds() {
 }
 
 #[test]
-fn schema_locks_v0_9_cross_section_and_access_shapes() {
+fn schema_locks_v0_10_cross_section_and_access_shapes() {
     let schema = schema(CURRENT_SCHEMA);
 
     assert_eq!(
@@ -460,7 +493,7 @@ fn schema_locks_v0_9_cross_section_and_access_shapes() {
 }
 
 #[test]
-fn schema_enforces_v0_9_participant_class_and_access_ranges() {
+fn schema_enforces_v0_10_participant_class_and_access_ranges() {
     let schema = schema(CURRENT_SCHEMA);
 
     let mut missing_class_id: Value = serde_json::from_str(SIGNALS_FIXTURE).expect("fixture JSON");
@@ -601,13 +634,13 @@ fn assert_external_id_and_numeric_bounds(schema: &Value) {
         schema["$defs"]["laneEdge"]["properties"]["length"]["exclusiveMinimum"]
             .as_f64()
             .expect("edge length minimum must be numeric"),
-        CURRENT_V0_9_MIN_EDGE_LENGTH_EXCLUSIVE_METERS
+        CURRENT_V0_10_MIN_EDGE_LENGTH_EXCLUSIVE_METERS
     );
     assert_eq!(
         schema["$defs"]["vehicleProfile"]["properties"]["length"]["exclusiveMinimum"]
             .as_f64()
             .expect("profile length minimum must be numeric"),
-        CURRENT_V0_9_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS
+        CURRENT_V0_10_MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS
     );
 }
 

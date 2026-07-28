@@ -84,21 +84,23 @@ Traffic Data Layer 保存 Core 可消费的数据：
 
 当前 Rust workspace 中，Traffic Data Layer 已由 `laneflow-data` 表达。它负责：
 
-- 当前 v0.9 external package（横断面/准入静态模型、profile 必填 `participantClassId`）、required per-edge `speedLimit`、必填版本闸口与旧版/未来版拒绝；
+- 当前 v0.10 external package（横断面/准入静态模型、profile 必填 `participantClassId`）、required per-edge `speedLimit`、必填版本闸口与旧版/未来版拒绝；
 - JSON syntax、wire shape、units 和字段路径诊断；
 - external ID 到 Core domain input 的转换；
 - 调用 Core constructors 完成 lane graph、Junction/Movement/ManeuverPath、route、
   Vehicle Profile、ParticipantClass、RoadCorridor/RoadSection/LaneGroup/FacilityBand、
-  AccessRule、static Signals 与 static Parking normalization。
+  AccessRule、multi-Gate/WaitingZone、static Signals 与 static Parking normalization。
 
 `laneflow-data` 不拥有 fixed tick、runtime entity、world lifecycle 或 Engine asset I/O。初始 loader 接收内存 bytes/string，不直接读取文件或创建 `CoreWorld`。
 
-current v0.9 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、
+current v0.10 在保持相同依赖方向的前提下包含 per-edge 基础道路限速、
 Junction/Movement/ManeuverPath、StopLine、一等 ManeuverGate、SignalGroup、
 fixed-time Controller/Phase、immutable ParkingArea/ParkingSpace、entry/exit
 anchors 和 edge-relative geometry，以及 #262 生产化的 ParticipantClass、
 RoadCorridor/RoadSection/LaneGroup/FacilityBand 横断面与 AccessRule 准入静态模型
-（profile 必填 `participantClassId`），并由 canonical fixtures 锁定。详细契约见
+（profile 必填 `participantClassId`），以及 #281 的 multi-Gate、
+WaitingZone static registry/route occurrence/绑定期 capability guards，并由
+canonical fixtures 锁定。详细契约见
 `design/data-format.md` 与 `design/data-loading.md`。
 
 Traffic Data 只承载 immutable ParkingArea/ParkingSpace、entry/exit anchors 与 edge-relative geometry，不持久化 reservation、occupancy、initial parked vehicles 或 runtime handles。#107 已原子切换 schema、private DTO、loader、fixtures 与 current docs；#108 的 runtime authority 完全保留在 CoreWorld，不回写 production data。
@@ -121,10 +123,10 @@ SSOT 见 `design/cross-section-access.md`。
 #235/ADR 0019 已接受多阶段复杂路口 G1：沿用 ManeuverPath/Route authority，把
 multiple Gate、WaitingZone 与 ConflictZone occurrence 在 Route 注册期编译；
 Traffic/Core 中显式声明的 ParticipantStream/ConflictZone 关系拥有行为 authority，
-并复用 current Traffic v0.9 的 ParticipantClass/AccessRegistry 静态准入结果；
+并复用 current Traffic v0.10 的 ParticipantClass/AccessRegistry 静态准入结果；
 Spatial 只拥有 canonical 3D geometry/validation。SSOT 见
-`design/waiting-zone-conflict-right-of-way.md`；该 Accepted 设计尚未生产化，不构成
-current API 或 schema 已实现的声称。
+`design/waiting-zone-conflict-right-of-way.md`；其中 #281 static/Data 已生产化，
+#282–#285 的 runtime/Conflict/policy/组合验证仍不构成 current API 声称。
 
 ## 5. LaneFlow Core
 

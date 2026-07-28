@@ -208,7 +208,7 @@ jobs:
       - name: Check signalized corridor artifacts
         if: steps.filter.outputs.rust == 'true'
         shell: bash
-        run: cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.9-signalized-corridor.toml
+        run: cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.10-signalized-corridor.toml
 
       - name: Compile Bevy native examples
         if: steps.filter.outputs.bevy == 'true'

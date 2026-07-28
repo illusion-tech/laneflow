@@ -1,8 +1,8 @@
 # LaneFlow Signalized Corridor Generator
 
-本工具提供 v0.9 受保护左转、直行和右转走廊的可复现 authoring 路径。它读取仓库内部 TOML 配置，生成并校验：
+本工具提供 Traffic v0.10 受保护左转、直行和右转走廊的可复现 authoring 路径。它读取仓库内部 TOML 配置，生成并校验：
 
-- Traffic package v0.9 JSON；
+- Traffic package v0.10 JSON；
 - SpatialPackage v0.1 JSON；
 - ScenarioManifest v0.1 JSON；
 - scenario-local catalog 0.2 TOML。
@@ -15,13 +15,13 @@ Traffic、Spatial 和 Manifest 是 production interchange 制品；catalog 只�
 从仓库根目录生成 checked-in 默认制品：
 
 ```powershell
-cargo +1.96.0 run --locked -p laneflow-corridor-generator -- generate --config examples/config/v0.9-signalized-corridor.toml
+cargo +1.96.0 run --locked -p laneflow-corridor-generator -- generate --config examples/config/v0.10-signalized-corridor.toml
 ```
 
 只检查当前制品是否与配置逐字节一致：
 
 ```powershell
-cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.9-signalized-corridor.toml
+cargo +1.96.0 run --locked -p laneflow-corridor-generator -- check --config examples/config/v0.10-signalized-corridor.toml
 ```
 
 `check` 不写文件。两个命令都会执行 JSON Schema、production loader、Manifest size/SHA-256、Spatial length/join 和 catalog cross-reference 校验。

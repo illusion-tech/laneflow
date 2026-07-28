@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use laneflow_corridor_generator::{CorridorConfig, generate};
 use serde_json::{Value, json};
 
-const CONFIG: &str = include_str!("../../../examples/config/v0.9-signalized-corridor.toml");
+const CONFIG: &str = include_str!("../../../examples/config/v0.10-signalized-corridor.toml");
 
 fn repository_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -49,7 +49,7 @@ fn checked_in_artifacts_are_exact_generator_outputs() {
     let generated = default_generated();
     for (relative, expected) in [
         (
-            "examples/data/v0.9-signalized-corridor.laneflow.json",
+            "examples/data/v0.10-signalized-corridor.laneflow.json",
             generated.traffic_bytes(),
         ),
         (
@@ -133,6 +133,7 @@ fn default_corridor_locks_protected_turning_geometry_routes_and_signals() {
     assert_eq!(stop_lines.len(), 20);
     assert_eq!(gates.len(), 32);
     assert!(gates.iter().all(|gate| gate["transitionIndex"] == 0));
+    assert_eq!(traffic["waitingZones"], json!([]));
     assert!(gates.iter().all(|gate| {
         stop_lines
             .iter()
@@ -510,7 +511,7 @@ fn config_rejects_unknown_fields_length_geometry_offsets_and_output_conflicts() 
 
     let conflict = CONFIG.replace(
         "spatial_artifact_ref = \"v0.1-signalized-corridor.spatial.json\"",
-        "spatial_artifact_ref = \"v0.9-signalized-corridor.laneflow.json\"",
+        "spatial_artifact_ref = \"v0.10-signalized-corridor.laneflow.json\"",
     );
     assert!(CorridorConfig::parse(&conflict).is_err());
 }

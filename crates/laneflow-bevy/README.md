@@ -109,7 +109,7 @@ cargo +1.96.0 check --locked -p laneflow-bevy --example signalized_corridor --ex
 ## Signalized corridor native example
 
 `signalized_corridor` 保留 campus 最小示例不变，并在独立 target 中读取
-`examples/config/v0.9-signalized-corridor.toml`。启动过程根据 config 定位
+`examples/config/v0.10-signalized-corridor.toml`。启动过程根据 config 定位
 ScenarioManifest、Traffic、Spatial 与 scenario-local catalog，先通过 production loader
 校验制品 size/digest/reference，再使用 `laneflow-scenario` 完成两阶段人口
 `prepare -> Core batch -> bind`。
@@ -117,7 +117,7 @@ ScenarioManifest、Traffic、Spatial 与 scenario-local catalog，先通过 prod
 从仓库根目录运行默认 100 车、seed 0：
 
 ```powershell
-cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example -- --vehicles 100 --seed 0 --config examples/config/v0.9-signalized-corridor.toml
+cargo +1.96.0 run --locked -p laneflow-bevy --example signalized_corridor --features native-example -- --vehicles 100 --seed 0 --config examples/config/v0.10-signalized-corridor.toml
 ```
 
 CLI 只接受：

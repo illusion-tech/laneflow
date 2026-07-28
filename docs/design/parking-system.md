@@ -898,7 +898,7 @@ package。
 
 ```text
 formatVersion: "0.9"
-active schema: schemas/laneflow-data-v0.9.schema.json
+active schema: schemas/laneflow-data-v0.10.schema.json
 ```
 
 Root新增必填 closed object：
@@ -1182,7 +1182,7 @@ Exact private containers、compaction threshold和allocation crate不由本文�
 - 吸收全面审阅P1-1至P1-4：overflow-safe route prefix、local lookup correctness oracle、sparse atomic step、exact transitional guard；
 - 分配P2：command-created Arrived event、stable remove_route error、legacy guard unreachable、areaId omitted/null、staged current docs、三轮性能统计和Windows cache noise；
 - 对齐 ADR 0003/0005/0006/0007/0008/0009/0017 与 #229 当时的 Traffic v0.8 static
-  data 实现边界；current Traffic v0.9 继续继承相同 Parking shape/behavior；
+  data 实现边界；current Traffic v0.10 继续继承相同 Parking shape/behavior；
 - 明确Core/data/Adapter影响、determinism、error/event order、tests、10k/100k、allocation/memory与activation chain；
 - 已由 #107 交付 v0.5 Parking、#108 交付 runtime authority/commands、#109 交付
   activation，并由 #110 完成端到端、性能、allocation/memory 与 pathological

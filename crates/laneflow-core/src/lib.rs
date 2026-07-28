@@ -23,6 +23,7 @@ mod test_support;
 pub mod time;
 pub mod traffic;
 pub mod vehicle;
+pub mod waiting;
 pub mod world;
 
 pub use access::{
@@ -32,7 +33,7 @@ pub use cross_section::{
     CorridorElement, CorridorElementId, CrossSectionRegistry, FacilityBand, FacilityKind,
     FacilityKindCategory, LaneGroup, RoadCorridor, RoadSection, SeamNeighbor, SectionLane,
 };
-pub use error::CoreError;
+pub use error::{CoreError, WaitingZoneError};
 pub use event::{
     CoreEvent, ParkingReservationReleasedEvent, SignalGroupAspectChangedEvent,
     SignalPhaseChangedEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
@@ -46,7 +47,7 @@ pub use handle::{
     ManeuverGateHandle, ManeuverPathHandle, MovementHandle, ParkingAreaHandle, ParkingSpaceHandle,
     ParticipantClassHandle, RoadCorridorHandle, RoadSectionHandle, RouteHandle,
     SignalControllerHandle, SignalGroupHandle, SignalPhaseRef, StopLineHandle, VehicleHandle,
-    VehicleProfileHandle,
+    VehicleProfileHandle, WaitingZoneHandle,
 };
 pub use junction::{Junction, JunctionRegistry, ManeuverPath, Movement};
 pub use parking::{
@@ -68,12 +69,13 @@ pub use signal::{
     SignalLayerPermission, SignalPhase, SignalRegistry, StopLine, StopLineLocation,
 };
 pub use time::{StepResult, TickInput};
-pub use traffic::{InitialTrafficData, ManeuverOccurrence};
+pub use traffic::{GateOccurrence, InitialTrafficData, ManeuverOccurrence, WaitingZoneOccurrence};
 pub use vehicle::{
     Acceleration, EdgeProgress, Speed, VehicleDespawnRecord, VehicleReplaceBlock,
     VehicleReplaceBlockerPosition, VehicleReplaceExternalId, VehicleReplaceInput,
     VehicleReplaceOutcome, VehicleReplaceRecord, VehicleSpawnInput, VehicleState, VehicleStatus,
 };
+pub use waiting::{WaitingRegistry, WaitingZone};
 pub use world::CoreWorld;
 
 #[cfg(test)]

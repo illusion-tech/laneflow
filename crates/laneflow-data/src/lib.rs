@@ -14,6 +14,7 @@ use laneflow_core::{
     ParticipantClass, ParticipantClassRegistry, RoadCorridor, RoadSection, Route, SectionLane,
     SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
     SignalRegistry, SpeedLimit, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
+    WaitingRegistry, WaitingZone, WaitingZoneError,
 };
 use serde::de::DeserializeOwned;
 use serde_json::error::Category;
@@ -32,7 +33,7 @@ use wire::{
 };
 
 /// 当前 production loader 接受的唯一 data format 版本。
-pub const CURRENT_FORMAT_VERSION: &str = "0.9";
+pub const CURRENT_FORMAT_VERSION: &str = "0.10";
 
 /// 已解析并完成 Core normalization 的当前 data package。
 #[derive(Clone, Debug, PartialEq)]
@@ -114,9 +115,10 @@ fn normalize(wire: &WirePackage) -> Result<LoadedPackage, DataError> {
         &participant_classes,
         wire,
     )?;
+    let waiting = normalize_waiting(&junctions, &signals, wire)?;
     let routes = normalize_routes(wire)?;
 
-    let initial_traffic_data = InitialTrafficData::try_new(
+    let initial_traffic_data = InitialTrafficData::try_new_with_waiting(
         lane_graph,
         routes,
         profile_registry,
@@ -126,6 +128,7 @@ fn normalize(wire: &WirePackage) -> Result<LoadedPackage, DataError> {
         participant_classes,
         cross_section,
         access,
+        waiting,
     )
     .map_err(|source| DataError::core(initial_traffic_error_path(wire, &source), source))?;
     Ok(LoadedPackage {
@@ -483,6 +486,118 @@ fn normalize_routes(wire: &WirePackage) -> Result<Vec<Route>, DataError> {
         );
     }
     Ok(routes)
+}
+
+fn normalize_waiting(
+    junctions: &JunctionRegistry,
+    signals: &SignalRegistry,
+    wire: &WirePackage,
+) -> Result<WaitingRegistry, DataError> {
+    let waiting_zones = wire
+        .waiting_zones
+        .iter()
+        .map(|zone| {
+            WaitingZone::new(
+                zone.id.clone(),
+                zone.maneuver_path_id.clone(),
+                zone.entry_gate_id.clone(),
+                zone.release_gate_id.clone(),
+                zone.max_occupancy,
+            )
+        })
+        .collect::<Vec<_>>();
+    WaitingRegistry::try_new(junctions, signals, waiting_zones)
+        .map_err(|source| DataError::core(waiting_error_path(wire, &source), source))
+}
+
+fn waiting_error_path(wire: &WirePackage, source: &CoreError) -> String {
+    let zone_index = |zone_id: &str| {
+        wire.waiting_zones
+            .iter()
+            .position(|zone| zone.id == zone_id)
+    };
+    let zone_path = |zone_id: &str, suffix: &str| {
+        zone_index(zone_id).map_or_else(
+            || "waitingZones".to_owned(),
+            |index| format!("waitingZones[{index}]{suffix}"),
+        )
+    };
+    match source {
+        CoreError::InvalidExternalId {
+            field, external_id, ..
+        } => match *field {
+            "waitingZones[].id" => wire
+                .waiting_zones
+                .iter()
+                .position(|zone| zone.id == *external_id)
+                .map_or_else(
+                    || "waitingZones".to_owned(),
+                    |index| format!("waitingZones[{index}].id"),
+                ),
+            "waitingZones[].maneuverPathId" => wire
+                .waiting_zones
+                .iter()
+                .position(|zone| zone.maneuver_path_id == *external_id)
+                .map_or_else(
+                    || "waitingZones".to_owned(),
+                    |index| format!("waitingZones[{index}].maneuverPathId"),
+                ),
+            "waitingZones[].entryGateId" => wire
+                .waiting_zones
+                .iter()
+                .position(|zone| zone.entry_gate_id == *external_id)
+                .map_or_else(
+                    || "waitingZones".to_owned(),
+                    |index| format!("waitingZones[{index}].entryGateId"),
+                ),
+            "waitingZones[].releaseGateId" => wire
+                .waiting_zones
+                .iter()
+                .position(|zone| zone.release_gate_id == *external_id)
+                .map_or_else(
+                    || "waitingZones".to_owned(),
+                    |index| format!("waitingZones[{index}].releaseGateId"),
+                ),
+            _ => "waitingZones".to_owned(),
+        },
+        CoreError::WaitingZone(source) => match source {
+            WaitingZoneError::DuplicateId { waiting_zone_id } => {
+                second_matching_index(&wire.waiting_zones, |zone| zone.id == *waiting_zone_id)
+                    .map_or_else(
+                        || "waitingZones".to_owned(),
+                        |index| format!("waitingZones[{index}].id"),
+                    )
+            }
+            WaitingZoneError::UnknownPath {
+                waiting_zone_id, ..
+            } => zone_path(waiting_zone_id, ".maneuverPathId"),
+            WaitingZoneError::UnknownGate {
+                waiting_zone_id,
+                gate_role,
+                ..
+            }
+            | WaitingZoneError::GatePathMismatch {
+                waiting_zone_id,
+                gate_role,
+                ..
+            } => zone_path(waiting_zone_id, &format!(".{gate_role}GateId")),
+            WaitingZoneError::InvalidGateOrder {
+                waiting_zone_id, ..
+            }
+            | WaitingZoneError::Overlap {
+                second_waiting_zone_id: waiting_zone_id,
+                ..
+            } => zone_path(waiting_zone_id, ""),
+            WaitingZoneError::InvalidMaxOccupancy { waiting_zone_id } => {
+                zone_path(waiting_zone_id, ".maxOccupancy")
+            }
+            _ => "waitingZones".to_owned(),
+        },
+        CoreError::StaticDomainCapacityExceeded { domain, .. } if *domain == "waitingZones" => {
+            "waitingZones".to_owned()
+        }
+        _ => "waitingZones".to_owned(),
+    }
 }
 
 fn parking_error_path(wire: &WireParking, source: &CoreError) -> String {
@@ -1553,9 +1668,6 @@ fn signal_error_path(wire: &WireSignals, source: &CoreError) -> String {
             maneuver_gate_id, ..
         } => gate_id_path(wire, maneuver_gate_id, ".maneuverPathId"),
         CoreError::ManeuverGateTransitionOutOfRange {
-            maneuver_gate_id, ..
-        }
-        | CoreError::UnsupportedManeuverGateTransition {
             maneuver_gate_id, ..
         } => gate_id_path(wire, maneuver_gate_id, ".transitionIndex"),
         CoreError::DuplicateManeuverGatePathTransition {

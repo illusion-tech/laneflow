@@ -25,6 +25,9 @@ pub(crate) const EDGE_BOUNDARY_TOLERANCE_METERS: f64 = 1.0e-9;
 /// RouteEnd、SignalStop、ParkingStop 等纵向约束判定的绝对阈值，单位为米。
 pub(crate) const LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS: f64 = 1.0e-9;
 
+/// WaitingZone 空区间容量与 Vehicle Profile length 比较的绝对阈值，单位为米。
+pub(crate) const WAITING_ZONE_STORAGE_TOLERANCE_METERS: f64 = 1.0e-9;
+
 /// 物理 bumper gap、接触与重叠判定的绝对阈值，单位为米。
 pub(crate) const PHYSICAL_GAP_TOLERANCE_METERS: f64 = 1.0e-9;
 
