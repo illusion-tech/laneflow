@@ -236,10 +236,15 @@ compiler，不能借 route completion 或不完整 path 绕过 Gate。
 - StopLine 是独立 ID domain；v0.4 只支持 `location: "edgeEnd"`。
 - 每个 edge 最多一个 StopLine。
 - ManeuverGate 是一等 ID domain，引用 ManeuverPath 与 path-local transition index。
-- current protected profile 只允许 `transitionIndex: 0`；Gate StopLine 必须属于
+- v0.4–v0.9 的 canonical protected-entry profile 只声明
+  `transitionIndex: 0`；这是历史/canonical profile shape，不是 current v0.10
+  的全局限制。v0.10 允许同一 ManeuverPath 在不同 path-local transition 声明
+  多个 Gate，每个 path-transition 至多一个 Gate；Gate StopLine 必须属于
   `pathEdges[transitionIndex]`。
-- 声明 StopLine 的 outgoing traversal 必须有 ManeuverPath coverage，每条 entry
-  ManeuverPath 必须恰好有一个 Gate。
+- 被 entry Gate（`transitionIndex: 0`）引用的 StopLine，其 outgoing traversal
+  必须有 ManeuverPath coverage，每条 entry ManeuverPath 在 transition 0 必须
+  恰好有一个 Gate；仅被非 entry Gate 引用的 StopLine 不产生 entry coverage
+  义务。
 - `signalControl` 是 closed tagged union；`none` 只表示 signal layer 不施加约束，不表示永久自由通行。
 
 ### 5.2 Group、Controller 与 Phase
