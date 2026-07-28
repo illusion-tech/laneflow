@@ -986,16 +986,7 @@ impl SignalRegistry {
             });
         }
 
-        for gate in &gate_definitions {
-            if gate.transition_index() != 0 {
-                return Err(CoreError::UnsupportedManeuverGateTransition {
-                    maneuver_gate_id: gate.id().to_owned(),
-                    transition_index: gate.transition_index(),
-                });
-            }
-        }
-
-        for resolved in &resolved_stop_lines {
+        for (stop_line_index, resolved) in resolved_stop_lines.iter().enumerate() {
             let next_edges = lane_graph
                 .next_edges(resolved.edge)
                 .expect("resolved StopLine edge must exist");
@@ -1004,6 +995,25 @@ impl SignalRegistry {
                     stop_line_id: resolved.definition.id().to_owned(),
                     edge_id: resolved.definition.edge_id().to_owned(),
                 });
+            }
+            let stop_line = StopLineHandle::new(stop_line_index);
+            let mut gate_transitions =
+                gate_definitions
+                    .iter()
+                    .zip(&gate_stop_lines)
+                    .filter_map(|(gate, candidate)| {
+                        (*candidate == stop_line).then_some(gate.transition_index())
+                    });
+            let Some(first_transition) = gate_transitions.next() else {
+                return Err(CoreError::OrphanStopLine {
+                    stop_line_id: resolved.definition.id().to_owned(),
+                    edge_id: resolved.definition.edge_id().to_owned(),
+                });
+            };
+            let has_entry_gate =
+                first_transition == 0 || gate_transitions.any(|transition| transition == 0);
+            if !has_entry_gate {
+                continue;
             }
             for to_edge in next_edges {
                 let candidates = junctions.entry_transition_candidates(resolved.edge, *to_edge);
@@ -1032,14 +1042,12 @@ impl SignalRegistry {
         }
 
         let mut normalized_gates = Vec::with_capacity(gate_definitions.len());
-        let mut gate_counts_by_path = vec![0_usize; junctions.maneuver_paths().len()];
         for (((gate, maneuver_path), stop_line), control) in gate_definitions
             .into_iter()
             .zip(gate_paths)
             .zip(gate_stop_lines)
             .zip(gate_controls)
         {
-            gate_counts_by_path[maneuver_path.index()] += 1;
             normalized_gates.push(ResolvedManeuverGate {
                 definition: gate,
                 maneuver_path,
@@ -1048,28 +1056,28 @@ impl SignalRegistry {
             });
         }
 
-        let mut gate_starts = Vec::with_capacity(gate_counts_by_path.len());
-        let mut gate_total = 0_usize;
-        for count in &gate_counts_by_path {
-            gate_starts.push(gate_total);
-            gate_total += count;
-        }
-        let maneuver_gate_ranges = gate_starts
-            .iter()
-            .zip(&gate_counts_by_path)
-            .map(|(start, count)| *start..*start + *count)
+        let mut maneuver_gates_by_path = (0..normalized_gates.len())
+            .map(ManeuverGateHandle::new)
             .collect::<Vec<_>>();
-        let mut gate_next = gate_starts;
-        let mut maneuver_gates_by_path = vec![None; normalized_gates.len()];
-        for (index, gate) in normalized_gates.iter().enumerate() {
-            let slot = gate_next[gate.maneuver_path.index()];
-            maneuver_gates_by_path[slot] = Some(ManeuverGateHandle::new(index));
-            gate_next[gate.maneuver_path.index()] += 1;
+        maneuver_gates_by_path.sort_by_key(|handle| {
+            let gate = &normalized_gates[handle.index()];
+            (
+                gate.maneuver_path.index(),
+                gate.definition.transition_index(),
+                handle.index(),
+            )
+        });
+        let mut maneuver_gate_ranges = vec![0..0; junctions.maneuver_paths().len()];
+        let mut cursor = 0;
+        for path in junctions.maneuver_paths() {
+            let start = cursor;
+            while cursor < maneuver_gates_by_path.len()
+                && normalized_gates[maneuver_gates_by_path[cursor].index()].maneuver_path == path
+            {
+                cursor += 1;
+            }
+            maneuver_gate_ranges[path.index()] = start..cursor;
         }
-        let maneuver_gates_by_path = maneuver_gates_by_path
-            .into_iter()
-            .map(|gate| gate.expect("gate counts must match normalized paths"))
-            .collect();
 
         Ok(Self {
             stop_lines: resolved_stop_lines,
@@ -1285,7 +1293,8 @@ impl SignalRegistry {
         Some(self.maneuver_gates_by_path[range].iter().copied())
     }
 
-    pub(crate) fn maneuver_gate_for_path_transition(
+    /// 返回某 ManeuverPath transition 上的 optional Gate。
+    pub fn maneuver_gate_for_path_transition(
         &self,
         path: ManeuverPathHandle,
         transition_index: u32,

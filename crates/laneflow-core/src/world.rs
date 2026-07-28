@@ -10,7 +10,7 @@ use crate::{
     access::{AccessCell, AccessEffect, AccessRegistry},
     command_spatial::{CommandOccupant, CommandSpatialIndex},
     cross_section::CrossSectionRegistry,
-    error::CoreError,
+    error::{CoreError, WaitingZoneError},
     event::{
         CoreEvent, ParkingReservationReleasedEvent, SignalGroupAspectChangedEvent,
         SignalPhaseChangedEvent, VehicleChangedEdgeEvent, VehicleCompletedRouteEvent,
@@ -32,9 +32,9 @@ use crate::{
     numeric_policy::{
         EDGE_BOUNDARY_TOLERANCE_METERS, LONGITUDINAL_CONSTRAINT_TOLERANCE_METERS,
         MINIMUM_GAP_TOLERANCE_METERS, PHYSICAL_GAP_TOLERANCE_METERS,
-        computed_speed_is_above_near_zero, is_edge_boundary_remainder_zero,
-        longitudinal_constraint_reached, longitudinal_positions_match, normalize_physical_gap,
-        physical_gap_is_overlap,
+        WAITING_ZONE_STORAGE_TOLERANCE_METERS, computed_speed_is_above_near_zero,
+        is_edge_boundary_remainder_zero, longitudinal_constraint_reached,
+        longitudinal_positions_match, normalize_physical_gap, physical_gap_is_overlap,
     },
     occupancy::{LeaderObservation, OccupancyScratch, Occupant},
     parking::{
@@ -56,13 +56,17 @@ use crate::{
         SignalStopConstraint,
     },
     time::{StepResult, TickInput},
-    traffic::{CompiledRoute, InitialTrafficData, ManeuverOccurrence, compile_route},
+    traffic::{
+        CompiledRoute, GateOccurrence, InitialTrafficData, ManeuverOccurrence,
+        WaitingZoneOccurrence, compile_route,
+    },
     vehicle::{
         Acceleration, EdgeProgress, Speed, VehicleDespawnRecord, VehicleReplaceBlock,
         VehicleReplaceBlockerPosition, VehicleReplaceExternalId, VehicleReplaceInput,
         VehicleReplaceOutcome, VehicleReplaceRecord, VehicleSpawnInput, VehicleState,
         VehicleStatus,
     },
+    waiting::WaitingRegistry,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -156,6 +160,8 @@ struct RouteSlot {
     edge_handles: Vec<EdgeHandle>,
     transitions: Vec<RouteTransition>,
     maneuver_occurrences: Vec<ManeuverOccurrence>,
+    gate_occurrences: Vec<GateOccurrence>,
+    waiting_zone_occurrences: Vec<WaitingZoneOccurrence>,
     next_controlled_transition: Vec<Option<NextControlledRouteTransition>>,
     speed_limit_transitions: Vec<SpeedLimitRouteTransition>,
     active: bool,
@@ -166,6 +172,8 @@ struct RouteSlot {
 struct RouteSlotRetainedStats {
     total_bytes: usize,
     maneuver_occurrence_bytes: usize,
+    gate_occurrence_bytes: usize,
+    waiting_zone_occurrence_bytes: usize,
 }
 
 #[cfg(test)]
@@ -177,22 +185,32 @@ impl RouteSlot {
             edge_handles,
             transitions,
             maneuver_occurrences,
+            gate_occurrences,
+            waiting_zone_occurrences,
             next_controlled_transition,
             speed_limit_transitions,
             active: _,
         } = self;
         let maneuver_occurrence_bytes =
             maneuver_occurrences.capacity() * std::mem::size_of::<ManeuverOccurrence>();
+        let gate_occurrence_bytes =
+            gate_occurrences.capacity() * std::mem::size_of::<GateOccurrence>();
+        let waiting_zone_occurrence_bytes =
+            waiting_zone_occurrences.capacity() * std::mem::size_of::<WaitingZoneOccurrence>();
         let total_bytes = external_id.capacity()
             + edge_handles.capacity() * std::mem::size_of::<EdgeHandle>()
             + transitions.capacity() * std::mem::size_of::<RouteTransition>()
             + maneuver_occurrence_bytes
+            + gate_occurrence_bytes
+            + waiting_zone_occurrence_bytes
             + next_controlled_transition.capacity()
                 * std::mem::size_of::<Option<NextControlledRouteTransition>>()
             + speed_limit_transitions.capacity() * std::mem::size_of::<SpeedLimitRouteTransition>();
         RouteSlotRetainedStats {
             total_bytes,
             maneuver_occurrence_bytes,
+            gate_occurrence_bytes,
+            waiting_zone_occurrence_bytes,
         }
     }
 }
@@ -358,6 +376,7 @@ struct CompleteRetainedComponents {
     participant_class_registry_bytes: usize,
     cross_section_registry_bytes: usize,
     access_registry_bytes: usize,
+    waiting_registry_bytes: usize,
     route_bytes: usize,
     vehicle_bytes: usize,
     resolver_bytes: usize,
@@ -383,6 +402,7 @@ impl CompleteRetainedComponents {
             participant_class_registry_bytes,
             cross_section_registry_bytes,
             access_registry_bytes,
+            waiting_registry_bytes,
             route_bytes,
             vehicle_bytes,
             resolver_bytes,
@@ -403,6 +423,7 @@ impl CompleteRetainedComponents {
             + participant_class_registry_bytes
             + cross_section_registry_bytes
             + access_registry_bytes
+            + waiting_registry_bytes
             + route_bytes
             + vehicle_bytes
             + resolver_bytes
@@ -433,8 +454,11 @@ struct LifecycleRetainedStats {
     participant_class_registry_bytes: usize,
     cross_section_registry_bytes: usize,
     access_registry_bytes: usize,
+    waiting_registry_bytes: usize,
     route_bytes: usize,
     route_maneuver_occurrence_bytes: usize,
+    route_gate_occurrence_bytes: usize,
+    route_waiting_zone_occurrence_bytes: usize,
     route_distance_bytes: usize,
     route_reference_bytes: usize,
     vehicle_bytes: usize,
@@ -476,6 +500,7 @@ impl LifecycleRetainedStats {
             participant_class_registry_bytes: self.participant_class_registry_bytes,
             cross_section_registry_bytes: self.cross_section_registry_bytes,
             access_registry_bytes: self.access_registry_bytes,
+            waiting_registry_bytes: self.waiting_registry_bytes,
             route_bytes: self.route_bytes,
             vehicle_bytes: self.vehicle_bytes,
             resolver_bytes: self.resolver_bytes,
@@ -576,6 +601,7 @@ pub struct CoreWorld {
     participant_classes: ParticipantClassRegistry,
     cross_section: CrossSectionRegistry,
     access: AccessRegistry,
+    waiting: WaitingRegistry,
     pub(crate) parking_runtime: ParkingRuntimeState,
     signal_state: SignalRuntimeState,
     signal_candidate_scratch: SignalRuntimeScratch,
@@ -628,6 +654,7 @@ impl CoreWorld {
             participant_classes,
             cross_section,
             access,
+            waiting,
         ) = traffic_data.into_parts();
         signals.validate_fixed_delta_time(fixed_delta_time_ms)?;
         let mut signal_state = SignalRuntimeState::default();
@@ -646,6 +673,7 @@ impl CoreWorld {
             participant_classes,
             cross_section,
             access,
+            waiting,
             parking_runtime,
             signal_state,
             signal_candidate_scratch: SignalRuntimeScratch::default(),
@@ -736,6 +764,11 @@ impl CoreWorld {
     /// 返回 immutable Signals registry。
     pub const fn signals(&self) -> &SignalRegistry {
         &self.signals
+    }
+
+    /// 返回 immutable WaitingZone registry。
+    pub const fn waiting(&self) -> &WaitingRegistry {
+        &self.waiting
     }
 
     /// 返回 immutable Parking registry。
@@ -1102,7 +1135,7 @@ impl CoreWorld {
                 actual_edge,
             });
         }
-        self.validate_route_access(input.profile, route, input.route_edge_index)?;
+        self.validate_route_assignment(input.profile, route, input.route_edge_index)?;
 
         self.vehicle_handles.reserve(1);
         self.vehicle_update_order.reserve_for_append();
@@ -1258,7 +1291,7 @@ impl CoreWorld {
             current_speed: state.current_speed,
             status: VehicleStatus::Active,
         };
-        self.validate_route_access(profile, input.route, input.route_edge_index)?;
+        self.validate_route_assignment(profile, input.route, input.route_edge_index)?;
         self.validate_candidate_overlap_excluding(input.vehicle, input.route, &candidate)?;
 
         let update_order_position = self.vehicles[input.vehicle.index()]
@@ -1388,7 +1421,7 @@ impl CoreWorld {
             current_speed: Speed::ZERO,
             status: VehicleStatus::Active,
         };
-        self.validate_route_access(profile, input.route, input.route_edge_index)?;
+        self.validate_route_assignment(profile, input.route, input.route_edge_index)?;
         self.validate_candidate_overlap_excluding(input.vehicle, input.route, &candidate)?;
         self.validate_parking_leave_followers(
             input.vehicle,
@@ -1611,6 +1644,21 @@ impl CoreWorld {
             .map(|route| route.maneuver_occurrences.as_slice())
     }
 
+    /// 返回 Route registration-time 编译的 Gate occurrences。
+    pub fn route_gate_occurrences(&self, handle: RouteHandle) -> Option<&[GateOccurrence]> {
+        self.route_slot(handle)
+            .map(|route| route.gate_occurrences.as_slice())
+    }
+
+    /// 返回 Route registration-time 编译的 WaitingZone occurrences。
+    pub fn route_waiting_zone_occurrences(
+        &self,
+        handle: RouteHandle,
+    ) -> Option<&[WaitingZoneOccurrence]> {
+        self.route_slot(handle)
+            .map(|route| route.waiting_zone_occurrences.as_slice())
+    }
+
     /// 返回指定 Route transition 编译得到的 optional ManeuverGate。
     pub fn route_transition_gate(
         &self,
@@ -1639,7 +1687,13 @@ impl CoreWorld {
             });
         }
 
-        let route = compile_route(&self.lane_graph, &self.junctions, &self.signals, route)?;
+        let route = compile_route(
+            &self.lane_graph,
+            &self.junctions,
+            &self.signals,
+            &self.waiting,
+            route,
+        )?;
         self.register_compiled_route(route)
     }
 
@@ -1655,6 +1709,8 @@ impl CoreWorld {
             edge_handles,
             transition_gates,
             maneuver_occurrences,
+            gate_occurrences,
+            waiting_zone_occurrences,
         } = route;
         let edge_lengths = edge_handles
             .iter()
@@ -1678,6 +1734,8 @@ impl CoreWorld {
                 edge_handles,
                 transitions,
                 maneuver_occurrences,
+                gate_occurrences,
+                waiting_zone_occurrences,
                 next_controlled_transition,
                 speed_limit_transitions,
                 active: true,
@@ -1693,6 +1751,8 @@ impl CoreWorld {
                 edge_handles,
                 transitions,
                 maneuver_occurrences,
+                gate_occurrences,
+                waiting_zone_occurrences,
                 next_controlled_transition,
                 speed_limit_transitions,
                 active: true,
@@ -1799,6 +1859,8 @@ impl CoreWorld {
         route.edge_handles.clear();
         route.transitions.clear();
         route.maneuver_occurrences.clear();
+        route.gate_occurrences.clear();
+        route.waiting_zone_occurrences.clear();
         route.next_controlled_transition.clear();
         route.speed_limit_transitions.clear();
         self.route_distance_indices[handle.index()].clear();
@@ -1909,6 +1971,115 @@ impl CoreWorld {
         Ok(())
     }
 
+    fn validate_route_assignment(
+        &self,
+        profile: VehicleProfileHandle,
+        route: RouteHandle,
+        cursor: usize,
+    ) -> Result<(), CoreError> {
+        // Binding validation order is contractual: Access first, profile-specific
+        // static feasibility second, then stateful bootstrap/runtime capability.
+        self.validate_route_access(profile, route, cursor)?;
+        self.validate_waiting_zone_static_feasibility(profile, route, cursor)?;
+        self.validate_waiting_zone_bootstrap(route, cursor)?;
+        self.validate_waiting_zone_runtime_capability(route, cursor)
+    }
+
+    fn validate_waiting_zone_static_feasibility(
+        &self,
+        profile: VehicleProfileHandle,
+        route: RouteHandle,
+        cursor: usize,
+    ) -> Result<(), CoreError> {
+        let route_slot = self
+            .route_slot(route)
+            .expect("validated route handle must remain active");
+        let vehicle_profile = self
+            .vehicle_profile(profile)
+            .expect("validated profile must exist");
+        let required_meters = vehicle_profile.iidm().length;
+        for occurrence in &route_slot.waiting_zone_occurrences {
+            let maneuver = route_slot.maneuver_occurrences[occurrence.maneuver_occurrence_index()];
+            if maneuver.exit_route_edge_index() <= cursor {
+                continue;
+            }
+            let available_meters = occurrence.empty_storage_meters();
+            if available_meters + WAITING_ZONE_STORAGE_TOLERANCE_METERS < required_meters {
+                return Err(WaitingZoneError::InsufficientStorage {
+                    profile_id: vehicle_profile.external_id().to_owned(),
+                    route_id: route_slot.external_id.clone(),
+                    waiting_zone_id: self
+                        .waiting
+                        .waiting_zone_external_id(occurrence.waiting_zone())
+                        .expect("compiled WaitingZone occurrence must exist")
+                        .to_owned(),
+                    available_meters,
+                    required_meters,
+                }
+                .into());
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_waiting_zone_bootstrap(
+        &self,
+        route: RouteHandle,
+        cursor: usize,
+    ) -> Result<(), CoreError> {
+        let route_slot = self
+            .route_slot(route)
+            .expect("validated route handle must remain active");
+        for occurrence in &route_slot.waiting_zone_occurrences {
+            let maneuver = route_slot.maneuver_occurrences[occurrence.maneuver_occurrence_index()];
+            if cursor > occurrence.entry_route_edge_index()
+                && cursor < maneuver.exit_route_edge_index()
+            {
+                return Err(WaitingZoneError::BootstrapUnavailable {
+                    route_id: route_slot.external_id.clone(),
+                    waiting_zone_id: self
+                        .waiting
+                        .waiting_zone_external_id(occurrence.waiting_zone())
+                        .expect("compiled WaitingZone occurrence must exist")
+                        .to_owned(),
+                    cursor,
+                }
+                .into());
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_waiting_zone_runtime_capability(
+        &self,
+        route: RouteHandle,
+        cursor: usize,
+    ) -> Result<(), CoreError> {
+        let route_slot = self
+            .route_slot(route)
+            .expect("validated route handle must remain active");
+        if let Some(occurrence) = route_slot
+            .waiting_zone_occurrences
+            .iter()
+            .find(|occurrence| {
+                route_slot.maneuver_occurrences[occurrence.maneuver_occurrence_index()]
+                    .exit_route_edge_index()
+                    > cursor
+            })
+        {
+            return Err(WaitingZoneError::RuntimeUnavailable {
+                route_id: route_slot.external_id.clone(),
+                waiting_zone_id: self
+                    .waiting
+                    .waiting_zone_external_id(occurrence.waiting_zone())
+                    .expect("compiled WaitingZone occurrence must exist")
+                    .to_owned(),
+            }
+            .into());
+        }
+        Ok(())
+    }
+
     /// 创建新的 vehicle runtime entity。
     pub fn spawn_vehicle(&mut self, input: VehicleSpawnInput) -> Result<VehicleHandle, CoreError> {
         self.spawn_vehicle_with_overlap_validation(input, true)
@@ -1971,7 +2142,7 @@ impl CoreWorld {
         self.route_slot(input.route)
             .ok_or(CoreError::UnknownRouteHandle { route: input.route })?;
         let normalized = self.normalize_vehicle_replace_input(old, input)?;
-        self.validate_route_access(input.profile, input.route, normalized.route_edge_index)?;
+        self.validate_route_assignment(input.profile, input.route, normalized.route_edge_index)?;
         let old_generation = old_slot.generation;
         let old_route = old_state.route;
         let update_order_position = old_slot
@@ -2185,7 +2356,7 @@ impl CoreWorld {
             });
         }
         let normalized = self.normalize_vehicle_input(route, &input)?;
-        self.validate_route_access(input.profile, route, normalized.route_edge_index)?;
+        self.validate_route_assignment(input.profile, route, normalized.route_edge_index)?;
         if validate_overlap {
             self.validate_candidate_overlap(route, &input.id, &normalized)?;
         }
@@ -2570,6 +2741,7 @@ impl CoreWorld {
             participant_classes,
             cross_section,
             access,
+            waiting,
             parking_runtime,
             signal_state,
             signal_candidate_scratch,
@@ -2613,15 +2785,22 @@ impl CoreWorld {
                 .iter()
                 .map(RouteReferenceIndex::retained_bytes)
                 .sum::<usize>();
-        let (route_slot_bytes, route_maneuver_occurrence_bytes) = routes
-            .iter()
-            .map(RouteSlot::retained_stats)
-            .fold((0_usize, 0_usize), |(total, maneuver), stats| {
+        let (
+            route_slot_bytes,
+            route_maneuver_occurrence_bytes,
+            route_gate_occurrence_bytes,
+            route_waiting_zone_occurrence_bytes,
+        ) = routes.iter().map(RouteSlot::retained_stats).fold(
+            (0_usize, 0_usize, 0_usize, 0_usize),
+            |(total, maneuver, gate, waiting), stats| {
                 (
                     total + stats.total_bytes,
                     maneuver + stats.maneuver_occurrence_bytes,
+                    gate + stats.gate_occurrence_bytes,
+                    waiting + stats.waiting_zone_occurrence_bytes,
                 )
-            });
+            },
+        );
         let route_bytes = routes.capacity() * std::mem::size_of::<RouteSlot>()
             + route_slot_bytes
             + route_distance_bytes
@@ -2656,6 +2835,7 @@ impl CoreWorld {
             participant_class_registry_bytes: participant_classes.retained_bytes(),
             cross_section_registry_bytes: cross_section.retained_bytes(),
             access_registry_bytes: access.retained_bytes(),
+            waiting_registry_bytes: waiting.retained_bytes(),
             route_bytes,
             vehicle_bytes,
             resolver_bytes,
@@ -2700,8 +2880,11 @@ impl CoreWorld {
             participant_class_registry_bytes: complete_components.participant_class_registry_bytes,
             cross_section_registry_bytes: complete_components.cross_section_registry_bytes,
             access_registry_bytes: complete_components.access_registry_bytes,
+            waiting_registry_bytes: complete_components.waiting_registry_bytes,
             route_bytes,
             route_maneuver_occurrence_bytes,
+            route_gate_occurrence_bytes,
+            route_waiting_zone_occurrence_bytes,
             route_distance_bytes,
             route_reference_bytes,
             vehicle_bytes,
@@ -6936,7 +7119,7 @@ mod tests {
         assert!(stats.expanded_accounted_bytes >= stats.accounted_bytes);
         assert!(stats.complete_accounted_bytes >= stats.expanded_accounted_bytes);
         eprintln!(
-            "numeric_component_memory live={} accounted_bytes={} expanded_accounted_bytes={} complete_accounted_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} vehicle_profile_registry_bytes={} junction_registry_bytes={} signal_registry_bytes={} signal_runtime_state_bytes={} signal_runtime_scratch_bytes={} participant_class_registry_bytes={} cross_section_registry_bytes={} access_registry_bytes={} route_bytes={} route_maneuver_occurrence_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} parking_registry_runtime_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={} lane_graph_inline_size={} vehicle_profile_registry_inline_size={} junction_registry_inline_size={} signal_registry_inline_size={} signal_runtime_state_inline_size={} signal_runtime_scratch_inline_size={} vehicle_state_size={} vehicle_slot_size={}",
+            "numeric_component_memory live={} accounted_bytes={} expanded_accounted_bytes={} complete_accounted_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} vehicle_profile_registry_bytes={} junction_registry_bytes={} signal_registry_bytes={} signal_runtime_state_bytes={} signal_runtime_scratch_bytes={} participant_class_registry_bytes={} cross_section_registry_bytes={} access_registry_bytes={} waiting_registry_bytes={} route_bytes={} route_maneuver_occurrence_bytes={} route_gate_occurrence_bytes={} route_waiting_zone_occurrence_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} parking_registry_runtime_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={} lane_graph_inline_size={} vehicle_profile_registry_inline_size={} junction_registry_inline_size={} signal_registry_inline_size={} signal_runtime_state_inline_size={} signal_runtime_scratch_inline_size={} vehicle_state_size={} vehicle_slot_size={}",
             stats.live_vehicles,
             stats.accounted_bytes,
             stats.expanded_accounted_bytes,
@@ -6952,8 +7135,11 @@ mod tests {
             stats.participant_class_registry_bytes,
             stats.cross_section_registry_bytes,
             stats.access_registry_bytes,
+            stats.waiting_registry_bytes,
             stats.route_bytes,
             stats.route_maneuver_occurrence_bytes,
+            stats.route_gate_occurrence_bytes,
+            stats.route_waiting_zone_occurrence_bytes,
             stats.route_distance_bytes,
             stats.route_reference_bytes,
             stats.vehicle_bytes,

@@ -3,7 +3,7 @@
 **文档状态**: Accepted  
 **最后更新**: 2026-07-27
 
-**适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、current Traffic v0.9 继承的 per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
+**适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、current Traffic v0.10 继承的 per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
 **关联文档**:
 
@@ -53,7 +53,7 @@
 - **Comfort controller**：正常驾驶时产生期望加速度的 IIDM 层。
 - **Safe-speed**：把 next speed 限制在 emergency braking 可处理范围内的确定性上界。
 - **Base speed limit**：Traffic/LaneGraph immutable per-edge 基础道路限速。
-- **Effective speed ceiling**：纵向管线当前实际采用的速度上限；current v0.9 没有超车或驾驶风格放宽，因此等于 base speed limit。
+- **Effective speed ceiling**：纵向管线当前实际采用的速度上限；current v0.10 没有超车或驾驶风格放宽，因此等于 base speed limit。
 - **Safety projection**：emergency braking 仍不能避免本 tick 重叠时的最终 travel 修正。
 - **Occupancy snapshot**：单个 tick 内不可变的车辆物理占用视图。
 
@@ -112,12 +112,12 @@ Validation：
 ### 4.2 Package 版本
 
 Vehicle Profile shape 由 current
-`schemas/laneflow-data-v0.9.schema.json` 承载。以下概念 package 同步列出 v0.9
+`schemas/laneflow-data-v0.10.schema.json` 承载。以下概念 package 同步列出 v0.9
 必填的 ParticipantClass 与横断面/准入顶层 arrays：
 
 ```json
 {
-  "formatVersion": "0.9",
+  "formatVersion": "0.10",
   "units": {
     "distance": "meter",
     "time": "second"
@@ -167,7 +167,7 @@ Vehicle Profile shape 由 current
 
 规则：
 
-- 当前 v0.9 沿用已接受的 Vehicle Profile/IIDM 数值语义，并要求每条 edge 显式
+- 当前 v0.10 沿用已接受的 Vehicle Profile/IIDM 数值语义，并要求每条 edge 显式
   `speedLimit`、顶层 Junction/Movement/ManeuverPath、ParticipantClass、
   FacilityBand/RoadSection/LaneGroup/RoadCorridor/AccessRule arrays，以及
   Signals/Parking objects。
@@ -189,7 +189,7 @@ v0.3 profile registry 在 world 生命周期内不可变，不公开 runtime reg
 
 ### 4.4 Crate 与 loader 边界
 
-依据 ADR 0007/0008，current v0.9 production loader 位于 `laneflow-data`，依赖方向为
+依据 ADR 0007/0008，current v0.10 production loader 位于 `laneflow-data`，依赖方向为
 `laneflow-data -> laneflow-core`。Core 不依赖 Serde、JSON、JSON Schema 或文件系统；
 pre-1.0 的 production loader 只维护当前格式。
 
@@ -355,7 +355,7 @@ follower，并复用本设计的 follower-owned minimum-gap tolerance；candidat
 
 ### 8.1 Per-edge 道路限速
 
-- `LaneEdge.speed_limit` 是 immutable 基础道路事实；v0.8 引入且 current v0.9 继承
+- `LaneEdge.speed_limit` 是 immutable 基础道路事实；v0.8 引入且 current v0.10 继承
   `effective_speed_ceiling = base_speed_limit`。
 - 当前 edge 先令 IIDM free-flow target 为 `min(profile.desiredSpeed, effective_speed_ceiling)`；candidate speed 若仍会因离散 tick 越限，则先收紧 speed 并重新计算 ballistic motion，成功 step 后不得高于 committed current edge limit。
 - route 注册时按 occurrence 预计算全部相邻降限速 transition；hot path 只遍历当前 occurrence 之后、comfortable braking horizon 内的 compact metadata，不查 external ID、不构造临时集合。
@@ -727,6 +727,6 @@ LaneFlow 处于 pre-1.0 阶段，采用直接迁移，不叠加双字段 alias�
 
 #184 将 per-edge road speed limit 纳入同一 `LongitudinalConstraintSet`，不建立第二套车辆控制器。当前 edge 提供 speed ceiling；route 下游更低限速边界提供 advance-braking spatial target，使车辆在 crossing 边界时已不超过新限速。它与 leader/no-overlap、SignalStop 和 route completion 同步求解，不能以 `VehicleProfile.desiredSpeed` 或最后一步 clamp 代替。
 
-spawn/atomic replace 的初始速度不得超过当前 edge 限速；v0.8 引入且 current v0.9
+spawn/atomic replace 的初始速度不得超过当前 edge 限速；v0.8 引入且 current v0.10
 继承默认初始/回流速度为零的行为。限速值、14 条 routes 与测试矩阵见
 `example-scenarios.md`；Core API、行为和性能验证由 #185 实施。

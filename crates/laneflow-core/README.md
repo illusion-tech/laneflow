@@ -30,7 +30,7 @@
 
 ## 当前 data-format 边界
 
-当前唯一 active 外部格式是 v0.9，正式契约见 [data-format 设计](../../docs/design/data-format.md) 与 [JSON Schema](../../schemas/laneflow-data-v0.9.schema.json)。Core 的 `LaneGraph`、`JunctionRegistry`、`Route`、Vehicle Profile、Signals、Parking 和 external ID / typed handle 边界与当前格式对齐；production JSON loader 位于同一 workspace 的 `laneflow-data`，Core 不依赖 Serde、JSON 或 schema validator。
+当前唯一 active 外部格式是 v0.10，正式契约见 [data-format 设计](../../docs/design/data-format.md) 与 [JSON Schema](../../schemas/laneflow-data-v0.10.schema.json)。Core 的 `LaneGraph`、`JunctionRegistry`、`Route`、Vehicle Profile、Signals、WaitingZone、Parking 和 external ID / typed handle 边界与当前格式对齐；production JSON loader 位于同一 workspace 的 `laneflow-data`，Core 不依赖 Serde、JSON 或 schema validator。
 
 LaneFlow 在 1.0 前只维护一个 active data format，旧版由 loader 明确拒绝；历史能力来源和迁移证据通过 Git 与 milestone 收口报告审计，不在 production 代码中保留并行兼容实现。该政策不构成 v1.0 长期兼容承诺，详见 ADR 0008。
 

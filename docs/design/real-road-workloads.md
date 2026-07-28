@@ -116,7 +116,7 @@ fail closed 回到 #224 G1。
   `speed`，单位保持 m 和 m/s。不得丢弃 internal lane 或把路口两侧 external lane
   直接连接。
 - 只有拥有至少一条 normalized external-entry → external-exit traversal 的 SUMO
-  road junction 才映射为 current Traffic v0.9 `Junction`。该 identity/owner shape
+  road junction 才映射为 current Traffic v0.10 `Junction`。该 identity/owner shape
   由 v0.8 引入并被 v0.9 继承；owner 由 external from-edge 的 `to`、external
   to-edge 的 `from`、`junction@intLanes` 显式 membership 与完整 connection chain
   共同确定；四者不能唯一闭合时 fail closed。
@@ -201,12 +201,12 @@ v1 只接受已复核的 201 个 static controllers：
 
 ### 3.4 Vehicle Profile
 
-只允许六个 passenger vtypes。Traffic v0.9 输出固定声明
+只允许六个 passenger vtypes。Traffic v0.10 输出固定声明
 `motorVehicle -> car` 两级 ParticipantClass，全部六个 profile 必填
-`participantClassId: "car"`；bus class/profile 不生成。Traffic v0.9 wire
+`participantClassId: "car"`；bus class/profile 不生成。Traffic v0.10 wire
 normalization 使用：
 
-| SUMO vtype 输入 | Traffic v0.9 wire field   |
+| SUMO vtype 输入 | Traffic v0.10 wire field  |
 | --------------- | ------------------------- |
 | `accel`         | `maxAcceleration`         |
 | `decel`         | `comfortableDeceleration` |
@@ -229,7 +229,7 @@ artifact digest，必须使用新 workload ID。
 
 converter 分别生成：
 
-- Traffic v0.9 package，包含 `junctions[]`、`movements[]`、
+- Traffic v0.10 package，包含 `junctions[]`、`movements[]`、
   `maneuverPaths[]`、`signals.maneuverGates[]`、上述 ParticipantClass/profile
   binding，以及显式空 `facilityBands[]`、`roadSections[]`、`laneGroups[]`、
   `roadCorridors[]`、`accessRules[]`；LuST v1 不伪造尚未设计的横断面或准入语义；
@@ -533,7 +533,7 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 以下任一条件失败都停止转换或运行，并回到 #224 G1：
 
 - 固定 source URL/commit/file bytes、对象计数或 201-controller closure 不匹配；
-- XML shape、current Traffic v0.9 schema/full-reference、ParticipantClass/profile
+- XML shape、current Traffic v0.10 schema/full-reference、ParticipantClass/profile
   binding、显式 CrossSection/Access arrays、Junction/Movement/ManeuverPath
   ownership/path connectivity、ManeuverGate binding 或 Traffic/Spatial
   length/endpoint binding 失败；

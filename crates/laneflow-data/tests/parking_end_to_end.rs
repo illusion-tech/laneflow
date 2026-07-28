@@ -7,9 +7,9 @@ use laneflow_data::{DataError, from_json_str};
 use serde_json::{Value, json};
 
 const PARKING_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.9-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.10-parking-signals-baseline.laneflow.json");
 const EMPTY_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.9-empty-signals-and-parking.laneflow.json");
+    include_str!("../../../examples/data/v0.10-empty-signals-and-parking.laneflow.json");
 
 fn run_area_space_lifecycle() -> Vec<String> {
     let traffic = from_json_str(PARKING_SIGNALS_FIXTURE)

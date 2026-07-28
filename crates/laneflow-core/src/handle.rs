@@ -90,6 +90,24 @@ impl ManeuverGateHandle {
     }
 }
 
+/// immutable WaitingZone definition 的不透明 handle。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct WaitingZoneHandle {
+    index: u32,
+}
+
+impl WaitingZoneHandle {
+    pub(crate) fn new(index: usize) -> Self {
+        Self {
+            index: u32::try_from(index).expect("waiting zone handle index must fit in u32"),
+        }
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
 /// immutable ParkingArea definition 的不透明 handle。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ParkingAreaHandle {

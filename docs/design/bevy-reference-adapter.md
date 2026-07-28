@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted
 
-**最后更新**: 2026-07-27（#262 current Traffic v0.9 artifact 迁移）
+**最后更新**: 2026-07-27（#262 current Traffic v0.10 artifact 迁移）
 
 **适用范围**: v0.7 的 Bevy 0.19 Reference Adapter、headless 集成验证、可选调试可视化与最小 native example
 
@@ -330,7 +330,7 @@ wall-clock 样本不进入 Core input/state、PRNG 或 replay，不包含 render
 ## 15. v0.9 protected-turning native specialization
 
 #190 将 `signalized_corridor` 的 authoring/startup config clean-break 到 `0.2`，入口为
-`examples/config/v0.9-signalized-corridor.toml`；Traffic/Spatial/Manifest 继续使用
+`examples/config/v0.10-signalized-corridor.toml`；Traffic/Spatial/Manifest 继续使用
 `0.8/0.1/0.1`，scenario-local catalog 切换为 `0.2`。该切片只消费 #229 已有的
 Junction/Movement/ManeuverPath/ManeuverGate handles 和 Route occurrences，不改变
 production Adapter public API。

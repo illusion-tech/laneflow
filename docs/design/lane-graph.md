@@ -3,7 +3,7 @@
 **文档状态**: Accepted  
 **最后更新**: 2026-07-24
 
-**适用范围**: Lane Graph + Route 的 Core 模型、edge / connection / topology、Traffic v0.9 per-edge 基础道路限速和 data-format 输入边界
+**适用范围**: Lane Graph + Route 的 Core 模型、edge / connection / topology、Traffic v0.10 per-edge 基础道路限速和 data-format 输入边界
 
 **关联文档**:
 
@@ -249,6 +249,6 @@ Adapter 不应：
 - Core 不从 geometry、connector 名称或 edge pair 推导 Junction/Movement identity；
 - RoadSection、LaneGroup 与 JunctionGroup 在 v0.9 只设计，不进入 LaneGraph runtime。
 
-current Traffic v0.9 不把 Junction owner 写回 LaneGraph；完整 owner、validation、
+current Traffic v0.10 不把 Junction owner 写回 LaneGraph；完整 owner、validation、
 Route occurrence 与性能契约见
 [`road-junction-model.md`](road-junction-model.md)。

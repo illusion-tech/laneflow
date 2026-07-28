@@ -2,10 +2,11 @@
 
 **文档状态**: Accepted<br>
 **最后更新**: 2026-07-27<br>
-**适用范围**: Signals 静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界，以及 current Traffic v0.9 package embedding<br>
+**适用范围**: Signals 静态领域、fixed-time runtime、车辆合规、Core API、数据契约、验证与性能边界，以及 current Traffic v0.10 package embedding<br>
 **实现状态**: #94-#97 已完成 v0.4 Signals 全链路与收口；#107 加入 Parking，
 #185 迁移到 v0.7；#229 以一等 ManeuverGate clean-break 替换 pair-based Gate 并迁移到
-Traffic v0.8；#262 将 current Traffic 迁移到 v0.9，Signals shape/behavior 保持不变
+Traffic v0.8；#262 迁移到 v0.9；#281 将 current Traffic 迁移到 v0.10 并支持
+同一 ManeuverPath 多 Gate，既有 indication/SignalStop behavior 保持不变
 
 **关联文档**:
 
@@ -158,9 +159,9 @@ ADR 0008 要求 active tree 只维护一个 current format。#94 曾原子交付
 - 当时的 production loader 明确拒绝 v0.5、v0.6 及更早版本、未来版、旧字段与 JSON-LD；
 - static Signals、fixed-time runtime 与完整车辆合规仍是 production 行为；v0.4 收口证据继续作为历史行为/性能基线。
 
-#229 随后把当时的 current package clean-break 到 v0.8；#262 又迁移到 current
-Traffic v0.9，并保持 Gate/Signals shape 与 behavior 不变。当前 Gate/data facts 见
-第 18 节。
+#229 随后把当时的 current package clean-break 到 v0.8；#262 迁移到 v0.9，
+#281 又迁移到 current Traffic v0.10 并解除 multi-Gate static guard。既有
+Gate signal behavior 保持不变。当前 Gate/data facts 见第 18 节。
 
 ### 4.2 ID 与引用命名
 
@@ -508,17 +509,17 @@ Reference desktop 使用 optimized Criterion step benchmark；setup/parse/reset 
 - property：1-8 groups/phases、boundary/wrap/long-time/near-overflow，对照独立 `u128` reference resolver；
 - performance：10k common/stress、matched all-green/none/no-signals、legacy regression 与 100k scaling。
 
-#107 建立的两个 fixture 角色已随格式迁移到 current v0.9；Signals 端到端测试直接
+#107 建立的两个 fixture 角色已随格式迁移到 current v0.10；Signals 端到端测试直接
 消费，不复制：
 
-1. `v0.9-parking-signals-baseline.laneflow.json`：完整
+1. `v0.10-parking-signals-baseline.laneflow.json`：完整
    StopLine/ManeuverGates、group/none、green/yellow/red program、static Parking 与
    current ParticipantClass/CrossSection/Access 顶层 shape；route 在无 StopLine
    downstream edge 终止。其 `none` Gate 只验证 signal-layer 无约束语义，不表达
    红灯右转法规。
-2. `v0.9-empty-signals-and-parking.laneflow.json`：Signals 四数组和 Parking 两数组
-   显式为空，并提供 v0.9 必填的 ParticipantClass/CrossSection/Access arrays，证明
-   无信号/无停车数据仍是 current v0.9 的合法输入。
+2. `v0.10-empty-signals-and-parking.laneflow.json`：Signals 四数组和 Parking 两数组
+   显式为空，并提供 v0.10 必填的 ParticipantClass/CrossSection/Access/Waiting arrays，证明
+   无信号/无停车数据仍是 current v0.10 的合法输入。
 
 ## 15. 实施切片与退出边界
 
@@ -566,7 +567,7 @@ Gate coverage；runtime reservation 不是错误 signal authoring 的降级机�
 
 generator 负责为每个交叉口完整枚举 10 条 lane movement gates（走廊合计 20 条）与全部 phase group state，并证明主/次冲突 movement 不同时开放；Core 继续只执行已规范化 program，不推导 conflict matrix。默认值、ID 和验证矩阵见 `example-scenarios.md`，production authoring 与制品集成由 #188 交付。
 
-## 18. v0.9 ManeuverGate clean-break
+## 18. v0.9 ManeuverGate clean-break 与 v0.10 multi-Gate extension
 
 #229 已按 #228/ADR 0017 保留本文 indication、StopLine、compliance、future
 conflict 与 Core safety 分层，并实现：
@@ -584,9 +585,10 @@ conflict 与 Core safety 分层，并实现：
 - old pair key、deprecated alias、dual query 与 Traffic v0.7 runtime compatibility
   均不保留。
 
-未来 multi-stage Gate 可在同一 ManeuverPath 的不同 transition 上拥有独立
-ManeuverGate identity；WaitingZone/conflict/policy behavior 已由 #235 的独立 G1
-Accepted 设计冻结，但尚未由后续切片生产化。本文前述 pair-based 内容只描述历史
+#281/Traffic v0.10 已允许 multi-stage Gate 在同一 ManeuverPath 的不同 transition
+上拥有独立 ManeuverGate identity，并在 Route 注册期按 transition 编译 occurrences。
+WaitingZone static identity/occurrence 已交付；其 capacity/queue runtime 以及
+Conflict/policy behavior 仍由 #282–#284 交付。本文前述 pair-based 内容只描述历史
 v0.4-v0.8 contract，不再是 current public API。
 
 #196 已在

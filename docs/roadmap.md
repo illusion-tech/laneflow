@@ -99,7 +99,7 @@
 
 完成状态：2026-07-21 已完成。数值切片和 Spatial 切片均已完成独立 G4，整体设计、生产实现、数据制品、正确性、性能、安全与治理结论见 [v0.6 收口审阅基线](reference/v0.6-closure-review.md)。
 
-当前生产边界为 Core/Data current-f64 交通权威、Traffic Data v0.9（含 static Junction/Movement/ManeuverPath、ManeuverGate、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退；Spatial `f32` 通过误差、零分配、内存和 10k/100k 性能 Gate。未来重启 Core/Data 数值迁移必须新建议题并重新进入 G1。
+当前生产边界为 Core/Data current-f64 交通权威、Traffic Data v0.10（含 static Junction/Movement/ManeuverPath、multi-Gate/WaitingZone、per-edge 基础道路限速与 #262 横断面/准入静态模型），以及每轴 `±16_384 m` 的 Spatial canonical `f32` 几何/位姿权威。Core/Data target-f32 完整候选因稳态收益 `4.257%` 未达到 `5%` 门槛而回退；Spatial `f32` 通过误差、零分配、内存和 10k/100k 性能 Gate。未来重启 Core/Data 数值迁移必须新建议题并重新进入 G1。
 
 范围：
 
@@ -215,10 +215,11 @@ mandatory downstream-clearance guard；每个 static zone-stream passage 的 top
 owner frontier 支持 subject self-exclusion，不随 dynamic Route 数复制 cell；stable
 single-writer claim ledger 防止 Waiting/Conflict/downstream 同 tick 重复分配。不能
 证明车尾可清空 coverage zone 时不放行。
-该设计属于 #227 的跨版本复杂路口演进，Milestone N/A，当前不改变 Traffic v0.9
-中 protected-only 的路口 runtime。Traffic v0.9 已发布且 immutable；后续
-multi-Gate/Waiting static 实施必须从届时 current version 原子升级，#235 不预占
-具体版本号。
+该设计属于 #227 的跨版本复杂路口演进，Milestone N/A。#281 已把 current
+Traffic source 从已发布且 immutable 的 v0.9 原子升级到 v0.10，交付 multi-Gate、
+WaitingZone static registry/Data/route occurrence 与绑定期 capability guards；
+protected-only runtime 仍未改变，Waiting runtime 由 #282 接续。v0.10 schema
+当前为 source-only，后续 publication PR 负责固定 provenance 与 live 验证。
 
 生产化规划由 #280 回写，实施 DAG 已拆为：
 
@@ -230,8 +231,8 @@ multi-Gate/Waiting static 实施必须从届时 current version 原子升级，#
 ```
 
 #281–#285 都是 #227 的独立后续切片，不是 #235 的子任务；每个切片必须自行完成
-G0-G4 与元数据审计。#281 在 #235 G4 前保持 Blocked，#235 完成路线图回写和清场后
-转 Ready；#282 与 #283 可在 #281 完成后并行，#284 必须等待二者，#285 负责最终
+G0-G4 与元数据审计。#281 正在交付 static/Data 0.10；其 G4 完成后 #282 与 #283
+可以并行，#284 必须等待二者，#285 负责最终
 跨层验证与独立收口。
 
 #264 对 #235 的设计输入已经满足；#235 G4 后移除该原生 blocker，但 #264 仍必须

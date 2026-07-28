@@ -1,11 +1,15 @@
-use laneflow_core::{CoreError, MAX_PORTABLE_SIGNAL_TIME_MS, SignalAspect, SignalControl};
+use laneflow_core::{
+    CoreError, MAX_PORTABLE_SIGNAL_TIME_MS, SignalAspect, SignalControl, WaitingZoneError,
+};
 use laneflow_data::{CURRENT_FORMAT_VERSION, DataError, LoadedPackage, from_json_str};
 use serde_json::{Value, json};
 
 const SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.9-parking-signals-baseline.laneflow.json");
+    include_str!("../../../examples/data/v0.10-parking-signals-baseline.laneflow.json");
 const EMPTY_SIGNALS_FIXTURE: &str =
-    include_str!("../../../examples/data/v0.9-empty-signals-and-parking.laneflow.json");
+    include_str!("../../../examples/data/v0.10-empty-signals-and-parking.laneflow.json");
+const WAITING_ZONE_FIXTURE: &str =
+    include_str!("../../../examples/data/v0.10-multi-gate-waiting-zone.laneflow.json");
 
 fn into_core_domain(error: DataError) -> (String, CoreError) {
     match error {
@@ -16,8 +20,8 @@ fn into_core_domain(error: DataError) -> (String, CoreError) {
 
 #[test]
 fn current_loader_normalizes_static_signals_parking_and_resolvers() {
-    assert_eq!(CURRENT_FORMAT_VERSION, "0.9");
-    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.9 fixture must load");
+    assert_eq!(CURRENT_FORMAT_VERSION, "0.10");
+    let loaded = from_json_str(SIGNALS_FIXTURE).expect("v0.10 fixture must load");
     let traffic = loaded.initial_traffic_data();
     let signals = traffic.signals();
     let topology = traffic.junctions();
@@ -143,7 +147,132 @@ fn current_loader_normalizes_static_signals_parking_and_resolvers() {
 }
 
 #[test]
-fn explicit_empty_static_domains_are_valid_current_v0_9() {
+fn current_loader_normalizes_multi_gate_waiting_zone_occurrences() {
+    let loaded = from_json_str(WAITING_ZONE_FIXTURE).expect("v0.10 WaitingZone fixture");
+    let traffic = loaded.initial_traffic_data();
+    let path = traffic
+        .junctions()
+        .maneuver_path_handle("path")
+        .expect("path");
+    let zone_ids = traffic
+        .waiting()
+        .maneuver_path_waiting_zones(path)
+        .expect("path WaitingZones")
+        .map(|zone| {
+            traffic
+                .waiting()
+                .waiting_zone_external_id(zone)
+                .expect("zone id")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(zone_ids, ["zone-a", "zone-b"]);
+
+    let world = laneflow_core::CoreWorld::with_traffic_data(
+        20,
+        loaded.into_initial_traffic_data(),
+        Vec::new(),
+    )
+    .expect("world without traversal");
+    let route = world.route_handle("route").expect("route");
+    assert_eq!(
+        world
+            .route_gate_occurrences(route)
+            .expect("gate occurrences")
+            .iter()
+            .map(|occurrence| occurrence.from_route_edge_index())
+            .collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    assert_eq!(
+        world
+            .route_waiting_zone_occurrences(route)
+            .expect("waiting occurrences")
+            .iter()
+            .map(|occurrence| occurrence.empty_storage_meters())
+            .collect::<Vec<_>>(),
+        [6.0, 7.0]
+    );
+}
+
+#[test]
+fn waiting_zone_domain_errors_use_narrowest_paths() {
+    let mut invalid: Value = serde_json::from_str(WAITING_ZONE_FIXTURE).expect("fixture JSON");
+    invalid["waitingZones"][0]["maxOccupancy"] = json!(0);
+    std::assert_matches!(
+        into_core_domain(load_value(invalid).expect_err("zero occupancy")),
+        (
+            path,
+            CoreError::WaitingZone(WaitingZoneError::InvalidMaxOccupancy { waiting_zone_id }),
+        )
+            if path == "waitingZones[0].maxOccupancy" && waiting_zone_id == "zone-b"
+    );
+
+    let mut duplicate: Value = serde_json::from_str(WAITING_ZONE_FIXTURE).expect("fixture JSON");
+    duplicate["waitingZones"][1]["id"] = json!("zone-b");
+    std::assert_matches!(
+        into_core_domain(load_value(duplicate).expect_err("duplicate WaitingZone id")),
+        (
+            path,
+            CoreError::WaitingZone(WaitingZoneError::DuplicateId { waiting_zone_id }),
+        ) if path == "waitingZones[1].id" && waiting_zone_id == "zone-b"
+    );
+
+    let mut unknown_path: Value = serde_json::from_str(WAITING_ZONE_FIXTURE).expect("fixture JSON");
+    unknown_path["waitingZones"][0]["maneuverPathId"] = json!("missing-path");
+    std::assert_matches!(
+        into_core_domain(load_value(unknown_path).expect_err("unknown WaitingZone path")),
+        (
+            path,
+            CoreError::WaitingZone(WaitingZoneError::UnknownPath { waiting_zone_id, .. }),
+        ) if path == "waitingZones[0].maneuverPathId" && waiting_zone_id == "zone-b"
+    );
+
+    let mut unknown_gate: Value = serde_json::from_str(WAITING_ZONE_FIXTURE).expect("fixture JSON");
+    unknown_gate["waitingZones"][0]["entryGateId"] = json!("missing-gate");
+    std::assert_matches!(
+        into_core_domain(load_value(unknown_gate).expect_err("unknown WaitingZone gate")),
+        (
+            path,
+            CoreError::WaitingZone(WaitingZoneError::UnknownGate {
+                waiting_zone_id,
+                gate_role: "entry",
+                ..
+            }),
+        ) if path == "waitingZones[0].entryGateId" && waiting_zone_id == "zone-b"
+    );
+
+    let mut reversed: Value = serde_json::from_str(WAITING_ZONE_FIXTURE).expect("fixture JSON");
+    reversed["waitingZones"][0]["entryGateId"] = json!("gate-release");
+    reversed["waitingZones"][0]["releaseGateId"] = json!("gate-middle");
+    std::assert_matches!(
+        into_core_domain(load_value(reversed).expect_err("reversed WaitingZone gates")),
+        (
+            path,
+            CoreError::WaitingZone(WaitingZoneError::InvalidGateOrder {
+                waiting_zone_id,
+                entry_transition_index: 2,
+                release_transition_index: 1,
+            }),
+        ) if path == "waitingZones[0]" && waiting_zone_id == "zone-b"
+    );
+
+    let mut overlap: Value = serde_json::from_str(WAITING_ZONE_FIXTURE).expect("fixture JSON");
+    overlap["waitingZones"][1]["releaseGateId"] = json!("gate-release");
+    std::assert_matches!(
+        into_core_domain(load_value(overlap).expect_err("overlap")),
+        (
+            path,
+            CoreError::WaitingZone(WaitingZoneError::Overlap {
+                second_waiting_zone_id,
+                ..
+            }),
+        )
+            if path == "waitingZones[0]" && second_waiting_zone_id == "zone-b"
+    );
+}
+
+#[test]
+fn explicit_empty_static_domains_are_valid_current_v0_10() {
     let loaded = from_json_str(EMPTY_SIGNALS_FIXTURE).expect("empty Signals fixture must load");
     assert!(loaded.initial_traffic_data().junctions().is_empty());
     assert!(loaded.initial_traffic_data().signals().is_empty());
@@ -154,7 +283,7 @@ fn explicit_empty_static_domains_are_valid_current_v0_9() {
 
 #[test]
 fn unsupported_versions_are_rejected_before_current_shape_and_units() {
-    for version in ["0.4", "0.5", "0.6", "0.7", "0.8", "1.0"] {
+    for version in ["0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0"] {
         let mut value = empty_value();
         value["formatVersion"] = json!(version);
         value["units"]["distance"] = json!("kilometer");
@@ -167,7 +296,7 @@ fn unsupported_versions_are_rejected_before_current_shape_and_units() {
         let error = load_value(value).expect_err("unsupported version must fail first");
         std::assert_matches!(
             error,
-            DataError::UnsupportedFormatVersion { expected: "0.9", actual }
+            DataError::UnsupportedFormatVersion { expected: "0.10", actual }
                 if actual == version
         );
     }
@@ -217,7 +346,7 @@ fn malformed_or_trailing_json_fails_before_version_dispatch() {
 }
 
 #[test]
-fn current_v0_9_requires_all_static_domains_and_nested_arrays() {
+fn current_v0_10_requires_all_static_domains_and_nested_arrays() {
     for field in [
         "junctions",
         "movements",
@@ -228,6 +357,7 @@ fn current_v0_9_requires_all_static_domains_and_nested_arrays() {
         "laneGroups",
         "roadCorridors",
         "accessRules",
+        "waitingZones",
     ] {
         let mut value = empty_value();
         value.as_object_mut().expect("root object").remove(field);
@@ -1577,7 +1707,7 @@ fn maneuver_path_target_rule_resolves_on_path_plane_end_to_end() {
 }
 
 #[test]
-fn current_v0_9_profile_and_new_domain_shapes_are_closed() {
+fn current_v0_10_profile_and_new_domain_shapes_are_closed() {
     let mut missing_class_id = empty_value();
     missing_class_id["vehicleProfiles"][0]
         .as_object_mut()

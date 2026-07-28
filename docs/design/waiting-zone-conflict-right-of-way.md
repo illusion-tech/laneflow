@@ -3,7 +3,9 @@
 **文档状态**: Accepted（#235 G1）<br>
 **最后更新**: 2026-07-28<br>
 **适用范围**: #235 的多阶段 ManeuverGate、WaitingZone、ConflictZone、versioned jurisdiction/right-of-way policy、车辆级 grant/reservation、确定性与 Core constraint 集成<br>
-**实现状态**: 尚未生产化；current production 仍是每条 ManeuverPath 仅 entry Gate、protected-only signal compliance，不得把本文概念当作已存在 API
+**实现状态**: #281 已交付 multi-Gate、WaitingZone static registry/Data 0.10、
+Route occurrence compilation 与绑定期 capability guards；#282–#285 的
+Waiting runtime、Conflict/Spatial、policy/arbiter 与组合验证尚未生产化
 
 **关联文档**:
 
@@ -52,8 +54,8 @@
 
 本文建立在以下已验证事实上：
 
-- current Traffic loader 只接受 exact `formatVersion: "0.9"`；v0.9 schema 已公开
-  发布并按 immutable publication contract 固定，不能再原地增加 #235 字段；
+- current Traffic loader 只接受 exact `formatVersion: "0.10"`；v0.10 schema
+  当前是 source-only，v0.9 已公开发布并按 immutable publication contract 固定；
 - current `VehicleProfile` 必填 `participantClassId`，Core 已拥有
   `ParticipantClassRegistry`、`CrossSectionRegistry` 与 `AccessRegistry`；
   AccessRule 在 normalization 期消解为 `(edge, class)` / `(path, class)` 的
@@ -63,11 +65,20 @@
   原子拒绝绑定；
 - current `ManeuverGate` 已包含
   `(externalId, maneuverPathId, transitionIndex, stopLineId, signalControl)`；
-- current normalization 主动拒绝 `transitionIndex != 0`，这是 v0.9
-  protected-turning **产品 profile** 的限制，不是 Traffic format v0.9 或长期
-  identity 的限制；两个 `v0.9` 属于不同版本轴；
-- initial/dynamic Route 注册时已编译 `ManeuverOccurrence` 与每个 route transition
-  的 optional Gate，steady tick 不匹配 path；
+- current normalization 接受同一 path 上多个不同 `transitionIndex` Gate，并按
+  transition 顺序提供 path range；每个 path-transition 仍至多一个 Gate；
+- current `WaitingRegistry` 已验证同 path、Gate order、positive capacity、
+  interior non-overlap，并允许相邻 WaitingZone 共享 boundary；
+- initial/dynamic Route 注册时已编译 `ManeuverOccurrence`、`GateOccurrence`、
+  `WaitingZoneOccurrence`、next Gate/exit boundary 与 empty storage，steady tick
+  不匹配 path；
+- #281 G3 retained-memory 测量对 10k/100k repeated maneuver occurrences 分别
+  编译 30k/300k Gate occurrences 与 20k/200k Waiting occurrences；三类 route
+  metadata retained bytes 为 `4,849,664` / `55,574,528`，比例 `11.4595x`，
+  通过 `<= 12x` 线性门槛；WaitingRegistry retained bytes 在两档均为 `516`；
+- profile-route-cursor 绑定先执行现有 Access validation，再执行 pending Waiting
+  empty-storage feasibility，最后由 bootstrap/runtime capability guard 拒绝尚未
+  实现的 stateful traversal；`register_route` 保持 profile-agnostic；
 - current signal tick 先计算 next-time indication candidate，但当前 interval 的
   vehicle/compliance 仍读取 tick-start committed snapshot(T)，随后再构建
   occupancy/leader 与 longitudinal motion；
@@ -585,7 +596,7 @@ GapAcceptanceProfile
 - gap 数值必须是 `0..=2^53-1` 的整数毫秒；Core/Data 分别使用同一数值定义的
   `MAX_PORTABLE_GAP_TIME_MS`，不复用 Signal domain error/type 形成隐式耦合。
 
-current Traffic v0.9 的静态
+current Traffic v0.10 的静态
 `conflictEligible(stream, profile)` 只消费 `AccessRegistry` 已发布的 resolved
 cells，不能读取 raw rule、重复层级匹配或在 tick 重新组合：
 
@@ -603,7 +614,7 @@ conflictEligible =
 ```
 
 `AccessCell::Unconstrained` 与 `Decided { effect: Allow, .. }` 都属于 eligible；
-只有 `Decided { effect: Deny, .. }` 排除该组合。current v0.9 public vehicle/route
+只有 `Decided { effect: Deny, .. }` 排除该组合。current v0.10 public vehicle/route
 绑定入口已经拒绝 route suffix 上的静态 deny，因此运行时 active vehicle 不应再次
 遇到该 deny；这里的静态 eligibility 用于编译 policy totality、排除不可能出现的
 stream/profile 组合和验证 authoring coherence，不是第二套 route-access enforcement。
@@ -1587,12 +1598,9 @@ Route registration 对每个 occurrence 一次性编译：
 
 版本规则：
 
-- current Traffic version 是已发布且 immutable 的 `0.9`；#262 已完成 ADR 0018
-  静态模型、loader、fixtures 与 `(class, Route)` 准入生产化；
-- #235 不预占下一个具体版本号；实施时按 ADR 0008 从届时 current Traffic version
-  原子 clean-break，若实施直接承接当前主线，其迁移起点就是 `0.9`；
-- current v0.9 loader 在完整 production 切片合入前必须继续拒绝这些 unknown
-  fields；
+- current Traffic source version 是 `0.10`；#281 已从已发布且 immutable 的
+  `0.9` 按 ADR 0008 原子 clean-break，并保留 #262 的 ADR 0018 静态准入；
+- current v0.10 loader 必须继续拒绝 Conflict/policy 等尚未交付的 unknown fields；
 - 不允许先接受 schema 再静默忽略 runtime 语义；
 - SpatialPackage 是否 bump 由 geometry implementation G1 根据实际 shape 决定，
   Traffic behavior 不依赖该 bump；
@@ -1607,7 +1615,7 @@ capability guard 拒绝或由独立 feature/version 隔离；不能让 WaitingZo
 
 ## 13. Validation 与 first-error
 
-未来 Traffic/Data + Core normalization 必须扩展、而不是重排 current v0.9 的
+后续 Traffic/Data + Core normalization 必须扩展、而不是重排 current v0.10 的
 canonical prefix。单一 Traffic load API 的 phase 顺序为：
 
 1. JSON syntax 与 minimal version header；
@@ -1648,7 +1656,7 @@ Spatial/Scenario 与 World/runtime 不是 Traffic loader 内可任意穿插的 p
    `everConflictEligible`、stream/profile totality、target-profile priority，并验证
    signal protected-conflict coherence；
 3. initial/spawn/replacement/runtime route assignment：先完成各 command 既有的
-   handle/cursor shape 与 range normalization，再执行 current v0.9
+   handle/cursor shape 与 range normalization，再执行 current v0.10
    `(ParticipantClass, Route)` static access validation，再按实际 VehicleProfile
    执行 pending Waiting/conflict occurrence static feasibility validation，最后执行
    新增的 stateful occurrence-interior bootstrap 与其他 runtime capability guards。
@@ -1706,13 +1714,13 @@ Adapter 不得移动 authoritative progress、修改 queue order、授予 reserv
 
 | 层               | 后续影响                                                                        | #235 是否实现              |
 | ---------------- | ------------------------------------------------------------------------------- | -------------------------- |
-| Core static API  | Waiting/Conflict/Policy handles、registries、resolvers、route compiled metadata | 否                         |
+| Core static API  | Waiting handles/registry/route metadata 已交付；Conflict/Policy 待后续          | #281 部分交付              |
 | Core runtime     | state、capacity constraint、arbiter、top-two frontier、claim、grant/reservation | 否                         |
-| Traffic Data     | 从届时 current（当前为 v0.9）原子 bump wire/loader/constructors                 | 否                         |
+| Traffic Data     | Traffic 0.10 WaitingZone wire/loader/constructors                               | #281 已交付                |
 | Spatial          | Waiting/Conflict canonical 3D region、pairing/validation                        | 否                         |
 | Adapter API      | readonly snapshots、batch query、debug attribution                              | 否                         |
-| Schema           | closed JSON shape、IDs/refs/ranges、published immutable artifact                | 否                         |
-| Fixtures         | multi-Gate、待行区、protected/permissive、重复 occurrence、错误矩阵             | 否                         |
+| Schema           | v0.10 source shape 已交付；immutable publication 待 Delivery PR                 | #281 source 已交付         |
+| Fixtures         | multi-Gate/WaitingZone static fixture 已交付；Conflict/runtime 组合待后续       | #281 部分交付              |
 | Scenario/example | 中国多阶段/无保护转向示例与 deterministic policy pin                            | 否                         |
 | Authoring        | geometry-assisted candidate generation、显式确认、policy provenance             | 否                         |
 | Docs/reference   | ADR/design、验证报告、性能证据、closure review                                  | 本 Issue 只交付 ADR/design |
@@ -1841,9 +1849,9 @@ Adapter 不得移动 authoritative progress、修改 queue order、授予 reserv
 G1 已接受；#280 已将后续生产化范围拆为以下独立 Issue。每个 Issue 自行完成
 G0-G4 与元数据审计：
 
-1. **#281 multi-Gate + WaitingZone static/Data**：解除 entry-only guard，新增
-   WaitingZone registry，并从届时 current Traffic（当前为 v0.9）原子升级
-   schema/loader/fixtures、Route occurrence compilation 与
+1. **#281 multi-Gate + WaitingZone static/Data**：已解除 entry-only guard，新增
+   WaitingZone registry，并从 Traffic 0.9 原子升级到 0.10 source contract，
+   完成 schema/loader/fixtures、Route occurrence compilation 与
    profile-route-cursor static feasibility binding，不激活 tick runtime。
 2. **#282 WaitingZone runtime**：vehicle state、capacity/physical storage、
    queue、admission claim、constraint/hard guard/events。
@@ -1907,8 +1915,8 @@ Data/Spatial/Core/Adapter 契约、确定性与性能。
     static permutation tie 使用预编译 canonical rank，raw handle 不决定业务或事件
     顺序；
 13. steady tick 不做 external-ID/path/geometry catalog scan 或 per-vehicle allocation；
-14. current Traffic v0.9 `AccessRegistry`/`AccessCell` 是静态准入唯一 SSOT；
-    route binding 已拒绝 static deny，#235 不复制求值器或修改已发布 v0.9；
+14. current Traffic v0.10 `AccessRegistry`/`AccessCell` 是静态准入唯一 SSOT；
+    route binding 已拒绝 static deny，#281 不复制求值器或修改已发布 v0.9；
 15. implementation 必须以独立切片和 10k/100k 证据推进，#235 本身不生产化。
 
 #235 G1 已接受本文设计输入；本文仍不授权 production 实现，后续各实现切片必须独立完成 G0-G4。

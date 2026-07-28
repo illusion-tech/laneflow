@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（#203 G1）<br>
 **最后更新**: 2026-07-25<br>
-**适用范围**: current v0.9 signalized-corridor catalog 0.2 人口/回流 policy；
+**适用范围**: current v0.10 signalized-corridor catalog 0.2 人口/回流 policy；
 caller-owned authority 继续继承 v0.8/#203
 
 **关联文档**:

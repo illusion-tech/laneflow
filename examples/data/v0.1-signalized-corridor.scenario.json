@@ -1,10 +1,10 @@
 {
   "formatVersion": "0.1",
   "traffic": {
-    "artifactRef": "v0.9-signalized-corridor.laneflow.json",
+    "artifactRef": "v0.10-signalized-corridor.laneflow.json",
     "mediaType": "application/vnd.laneflow.traffic+json",
-    "digest": "sha256:68b617d360ad54d651cbb405e8d4ed895c59525fa332fca1b6fe9a335087d9b4",
-    "size": 85316
+    "digest": "sha256:f701b08cbb96b9ef4ef799fab47edd272b8c38a4c7df23128d7ab85ff0cf7586",
+    "size": 85339
   },
   "spatial": {
     "artifactRef": "v0.1-signalized-corridor.spatial.json",

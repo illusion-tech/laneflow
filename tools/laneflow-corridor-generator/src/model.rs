@@ -17,6 +17,7 @@ pub(crate) struct TrafficPackage {
     pub lane_groups: Vec<LaneGroup>,
     pub road_corridors: Vec<RoadCorridor>,
     pub access_rules: Vec<AccessRule>,
+    pub waiting_zones: Vec<WaitingZone>,
     pub signals: Signals,
     pub parking: Parking,
 }
@@ -95,6 +96,16 @@ pub(crate) struct AccessRule {
 pub(crate) struct AccessTarget {
     pub kind: &'static str,
     pub id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WaitingZone {
+    pub id: String,
+    pub maneuver_path_id: String,
+    pub entry_gate_id: String,
+    pub release_gate_id: String,
+    pub max_occupancy: u32,
 }
 
 #[derive(Debug, Serialize)]

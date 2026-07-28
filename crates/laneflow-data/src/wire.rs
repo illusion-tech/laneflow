@@ -1,4 +1,4 @@
-//! 当前 v0.9 JSON 格式的私有 wire DTO。
+//! 当前 v0.10 JSON 格式的私有 wire DTO。
 
 use serde::Deserialize;
 
@@ -91,6 +91,7 @@ pub(crate) struct WirePackage {
     pub(crate) lane_groups: Vec<WireLaneGroup>,
     pub(crate) road_corridors: Vec<WireRoadCorridor>,
     pub(crate) access_rules: Vec<WireAccessRule>,
+    pub(crate) waiting_zones: Vec<WireWaitingZone>,
     pub(crate) signals: WireSignals,
     pub(crate) parking: WireParking,
     #[serde(default, rename = "extensions")]
@@ -257,6 +258,16 @@ pub(crate) struct WireAccessRule {
 pub(crate) struct WireAccessTarget {
     pub(crate) kind: WireAccessTargetKind,
     pub(crate) id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WireWaitingZone {
+    pub(crate) id: String,
+    pub(crate) maneuver_path_id: String,
+    pub(crate) entry_gate_id: String,
+    pub(crate) release_gate_id: String,
+    pub(crate) max_occupancy: u32,
 }
 
 #[derive(Clone, Copy, Deserialize)]

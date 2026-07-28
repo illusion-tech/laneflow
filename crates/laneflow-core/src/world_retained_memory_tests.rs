@@ -3,7 +3,7 @@ use crate::{
     EdgeLength, IidmProfileSpec, Junction, JunctionRegistry, LaneEdge, ManeuverGate, ManeuverPath,
     Movement, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, SignalAspect,
     SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase, StopLine,
-    StopLineLocation, VehicleProfile,
+    StopLineLocation, VehicleProfile, WaitingRegistry, WaitingZone,
 };
 
 const EDGE_LENGTH_METERS: f64 = 10_000.0;
@@ -94,6 +94,129 @@ fn capped_chain_graph(edge_count: usize) -> (LaneGraph, Vec<String>) {
     }))
     .expect("retained chain graph must be valid");
     (graph, edge_ids)
+}
+
+fn waiting_metadata_world(maneuver_occurrence_count: usize) -> CoreWorld {
+    let edge = |id: &str, next: &str| {
+        LaneEdge::new(
+            id,
+            EdgeLength::try_new(10.0).expect("Waiting metadata edge length"),
+            crate::graph::SpeedLimit::try_new(10.0).expect("Waiting metadata speed limit"),
+            [next],
+        )
+    };
+    let graph = LaneGraph::try_new([
+        edge("waiting-entry", "waiting-internal-a"),
+        edge("waiting-internal-a", "waiting-internal-b"),
+        edge("waiting-internal-b", "waiting-exit"),
+        edge("waiting-exit", "waiting-entry"),
+    ])
+    .expect("Waiting metadata graph");
+    let junctions = JunctionRegistry::try_new(
+        &graph,
+        [Junction::new("waiting-junction")],
+        [Movement::new("waiting-movement", "waiting-junction")],
+        [ManeuverPath::new(
+            "waiting-path",
+            "waiting-movement",
+            "waiting-entry",
+            ["waiting-internal-a", "waiting-internal-b"],
+            "waiting-exit",
+        )],
+    )
+    .expect("Waiting metadata junctions");
+    let signals = SignalRegistry::try_new(
+        &graph,
+        &junctions,
+        [
+            StopLine::new(
+                "waiting-stop-entry",
+                "waiting-entry",
+                StopLineLocation::EdgeEnd,
+            ),
+            StopLine::new(
+                "waiting-stop-middle",
+                "waiting-internal-a",
+                StopLineLocation::EdgeEnd,
+            ),
+            StopLine::new(
+                "waiting-stop-release",
+                "waiting-internal-b",
+                StopLineLocation::EdgeEnd,
+            ),
+        ],
+        std::iter::empty(),
+        std::iter::empty(),
+        [
+            ManeuverGate::new(
+                "waiting-gate-entry",
+                "waiting-path",
+                0,
+                "waiting-stop-entry",
+                SignalControlInput::None,
+            ),
+            ManeuverGate::new(
+                "waiting-gate-middle",
+                "waiting-path",
+                1,
+                "waiting-stop-middle",
+                SignalControlInput::None,
+            ),
+            ManeuverGate::new(
+                "waiting-gate-release",
+                "waiting-path",
+                2,
+                "waiting-stop-release",
+                SignalControlInput::None,
+            ),
+        ],
+    )
+    .expect("Waiting metadata signals");
+    let waiting = WaitingRegistry::try_new(
+        &junctions,
+        &signals,
+        [
+            WaitingZone::new(
+                "waiting-zone-a",
+                "waiting-path",
+                "waiting-gate-entry",
+                "waiting-gate-middle",
+                2,
+            ),
+            WaitingZone::new(
+                "waiting-zone-b",
+                "waiting-path",
+                "waiting-gate-middle",
+                "waiting-gate-release",
+                2,
+            ),
+        ],
+    )
+    .expect("Waiting metadata registry");
+    let mut route_edges = Vec::with_capacity(maneuver_occurrence_count * 4);
+    for _ in 0..maneuver_occurrence_count {
+        route_edges.extend([
+            "waiting-entry",
+            "waiting-internal-a",
+            "waiting-internal-b",
+            "waiting-exit",
+        ]);
+    }
+    let (profiles, _) = profile_registry();
+    let traffic = InitialTrafficData::try_new_with_waiting(
+        graph,
+        [Route::try_new("waiting-scale-route", route_edges).expect("Waiting metadata route")],
+        profiles,
+        junctions,
+        signals,
+        ParkingRegistry::empty(),
+        crate::test_support::test_participant_class_registry(),
+        crate::CrossSectionRegistry::empty(),
+        crate::AccessRegistry::empty(),
+        waiting,
+    )
+    .expect("Waiting metadata traffic");
+    CoreWorld::with_traffic_data(16, traffic, Vec::new()).expect("Waiting metadata world")
 }
 
 fn vehicle_heavy_world(vehicle_count: usize) -> CoreWorld {
@@ -420,7 +543,7 @@ fn print_snapshot(
     stats: LifecycleRetainedStats,
 ) {
     eprintln!(
-        "retained_matrix scenario={} scale={} phase={} live={} route_occurrences={} complete_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} profile_registry_bytes={} junction_registry_bytes={} signal_registry_bytes={} signal_state_bytes={} signal_scratch_bytes={} participant_class_registry_bytes={} cross_section_registry_bytes={} access_registry_bytes={} route_bytes={} route_maneuver_occurrence_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={}",
+        "retained_matrix scenario={} scale={} phase={} live={} route_occurrences={} complete_bytes={} owned_heap_bytes={} world_inline_bytes={} lane_graph_bytes={} profile_registry_bytes={} junction_registry_bytes={} signal_registry_bytes={} signal_state_bytes={} signal_scratch_bytes={} participant_class_registry_bytes={} cross_section_registry_bytes={} access_registry_bytes={} waiting_registry_bytes={} route_bytes={} route_maneuver_occurrence_bytes={} route_gate_occurrence_bytes={} route_waiting_zone_occurrence_bytes={} route_distance_bytes={} route_reference_bytes={} vehicle_bytes={} resolver_bytes={} free_list_bytes={} vehicle_order_bytes={} candidate_state_bytes={} parking_bytes={} occupancy_scratch_bytes={} longitudinal_scratch_bytes={} command_spatial_bytes={}",
         scenario.name(),
         scale,
         phase,
@@ -438,8 +561,11 @@ fn print_snapshot(
         stats.participant_class_registry_bytes,
         stats.cross_section_registry_bytes,
         stats.access_registry_bytes,
+        stats.waiting_registry_bytes,
         stats.route_bytes,
         stats.route_maneuver_occurrence_bytes,
+        stats.route_gate_occurrence_bytes,
+        stats.route_waiting_zone_occurrence_bytes,
         stats.route_distance_bytes,
         stats.route_reference_bytes,
         stats.vehicle_bytes,
@@ -576,4 +702,62 @@ fn complete_retained_memory_matrix_10k() {
 #[ignore = "100k complete retained-memory matrix is an explicit #127 G3 measurement"]
 fn complete_retained_memory_matrix_100k() {
     run_matrix(100_000);
+}
+
+#[test]
+#[ignore = "10k/100k multi-Gate Waiting metadata is an explicit #281 G3 measurement"]
+fn waiting_metadata_retained_memory_10k_to_100k_is_linear() {
+    let mut measurements = Vec::new();
+    for occurrence_count in [10_000, 100_000] {
+        let world = waiting_metadata_world(occurrence_count);
+        let route = world
+            .route_handle("waiting-scale-route")
+            .expect("Waiting scale route handle");
+        assert_eq!(
+            world
+                .route_maneuver_occurrences(route)
+                .expect("Waiting scale maneuver occurrences")
+                .len(),
+            occurrence_count
+        );
+        assert_eq!(
+            world
+                .route_gate_occurrences(route)
+                .expect("Waiting scale gate occurrences")
+                .len(),
+            occurrence_count * 3
+        );
+        assert_eq!(
+            world
+                .route_waiting_zone_occurrences(route)
+                .expect("Waiting scale zone occurrences")
+                .len(),
+            occurrence_count * 2
+        );
+
+        let stats = world.lifecycle_retained_stats();
+        let metadata_bytes = stats.route_maneuver_occurrence_bytes
+            + stats.route_gate_occurrence_bytes
+            + stats.route_waiting_zone_occurrence_bytes;
+        assert!(stats.waiting_registry_bytes > 0);
+        assert!(stats.route_maneuver_occurrence_bytes > 0);
+        assert!(stats.route_gate_occurrence_bytes > 0);
+        assert!(stats.route_waiting_zone_occurrence_bytes > 0);
+        eprintln!(
+            "waiting_metadata scale={} waiting_registry_bytes={} maneuver_bytes={} gate_bytes={} zone_bytes={} metadata_bytes={} route_bytes={}",
+            occurrence_count,
+            stats.waiting_registry_bytes,
+            stats.route_maneuver_occurrence_bytes,
+            stats.route_gate_occurrence_bytes,
+            stats.route_waiting_zone_occurrence_bytes,
+            metadata_bytes,
+            stats.route_bytes,
+        );
+        measurements.push(metadata_bytes);
+    }
+
+    assert!(
+        measurements[1] <= measurements[0] * 12,
+        "10k/100k Waiting metadata retained bytes must scale <=12x: measurements={measurements:?}"
+    );
 }

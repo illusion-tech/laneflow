@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted<br>
 **最后更新**: 2026-07-27<br>
-**适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态产品 profile、ManeuverGate、Route occurrence、历史 Traffic v0.8 clean-break（current v0.9 继承）、确定性与性能边界<br>
+**适用范围**: #228 冻结的长期 Road/Junction/Maneuver 分层、v0.9 最小静态产品 profile、ManeuverGate、Route occurrence、历史 Traffic v0.8 clean-break（current v0.10 继承）、确定性与性能边界<br>
 **实现状态**: #229 已实现 Traffic v0.8、Junction/Movement/ManeuverPath registry、
 Route occurrence compiler 与一等 ManeuverGate；#262 的 Traffic v0.9 迁移保留上述
 identity/behavior，新增横断面与准入静态模型；#196 protected-turning profile 继续是后续消费边界
@@ -493,7 +493,7 @@ toEdge = pathEdges[transitionIndex + 1]
 
 StopLine 必须绑定 `fromEdge`。Current StopLine 的 `edgeEnd` 语义继续成立。
 
-### 7.2 v0.9 protected-entry profile
+### 7.2 历史 v0.9 protected-entry profile 与 current v0.10 extension
 
 #196/#229 的最小 profile 额外要求：
 
@@ -507,6 +507,11 @@ StopLine 必须绑定 `fromEdge`。Current StopLine 的 `edgeEnd` 语义继续�
 - Restrictive yellow/red 在 entry StopLine 形成 SignalStop；
 - 已原子跨越 Gate 的车辆继续清空，不倒退回 StopLine。
 
+#281/Traffic v0.10 保留上述 canonical protected corridor profile，但解除全局
+`transitionIndex == 0` guard：同一路径可在不同 transition 声明多个 Gate，
+path query 与 Route occurrence 按 transition 顺序编译。internal Gate 的 StopLine
+由 Gate usage 建立 coverage，不被误当作新的 Junction entry。
+
 ### 7.3 Gate identity 与 coverage
 
 - Gate external ID 在 Gate domain 内唯一。
@@ -516,7 +521,7 @@ StopLine 必须绑定 `fromEdge`。Current StopLine 的 `edgeEnd` 语义继续�
 - 每个 StopLine 控制且可被 Route 采用的 Junction entry traversal 必须属于至少一条
   ManeuverPath。
 - 每个被 Route 选择的受控 path occurrence 必须解析到唯一 Gate。
-- v0.9 corridor Route 如果绕过显式 path/Gate，在加载或 runtime route registration
+- current v0.10 corridor Route 如果绕过显式 path/Gate，在加载或 runtime route registration
   阶段拒绝。
 
 ### 7.4 Public observation
@@ -558,7 +563,7 @@ Adapter 不得：
 ## 9. Traffic v0.8 历史 clean-break target
 
 本节记录 #229 当时从 v0.7 到 v0.8 的原子迁移事实，不把 v0.8 声称为 current。
-current Traffic v0.9 完整继承本节的 Junction/Movement/ManeuverPath/ManeuverGate
+current Traffic v0.10 完整继承本节的 Junction/Movement/ManeuverPath/ManeuverGate
 shape 与 Core identity/route occurrence 语义，并在其上增加 #262 的横断面与准入
 静态模型；#235 未来实施必须从届时 current version 再做新的原子迁移。
 
@@ -973,8 +978,10 @@ Gate/Waiting/Conflict occurrences；WaitingZone 由同一路径 entry/release Ga
 内的 upcoming/repeated occurrence，把 Route-specific contributions 归约到每个
 static `(ConflictZone, ParticipantStream)` 的 distinct-owner frontier 并排除 exact
 subject；grant 前还必须证明车尾可清空 coverage，并原子取得
-Waiting/Conflict/physical downstream claim。该 Accepted 设计尚未生产化，不解除
-current `transitionIndex = 0` production guard。
+Waiting/Conflict/physical downstream claim。#281 已生产化 multi-Gate identity、
+WaitingZone static registry、Route Gate/Waiting occurrence 与绑定期 capability
+guards；Waiting capacity/queue/traversal runtime 仍由 #282 交付，Conflict/policy
+部分仍由 #283/#284 交付。
 
 ### 17.3 Conflict/priority
 

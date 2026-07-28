@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（Accepted）
 
-**最后更新**: 2026-07-27（current Traffic v0.9 与 #235 Accepted Waiting/Conflict 边界同步）
+**最后更新**: 2026-07-27（current Traffic v0.10 与 #235 Accepted Waiting/Conflict 边界同步）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -80,7 +80,7 @@ frame 放置、tile 或相机相对原点不写入 Core 车辆状态，也不改
 
 ### 3.1 三类制品
 
-三类制品采用独立版本系列；它们不会把空间字段塞入当前 Traffic v0.9：
+三类制品采用独立版本系列；它们不会把空间字段塞入当前 Traffic v0.10：
 
 ```text
 ScenarioManifest（场景清单）
@@ -105,7 +105,7 @@ SpatialPackage v0.1
 - 空间边使用交通数据中的外部边 ID 绑定，加载后转换为紧凑的不透明绑定。
 - 如果提供空间包，它必须完整覆盖交通车道图。缺失、重复或未知交通边全部返回阻断错误；只使用 Core 的调用方可以完全不提供空间包。
 - 空间点固定为三个 JSON number 的 `[x, y, z]` 数组，避免重复字段名且不引入首版全局 vertex pool/index。每条中心线至少两个点。
-- 当前 Traffic Data v0.9 的模式、加载范围和诊断继续独立于 Spatial。Spatial/Manifest schema source、严格 loader、规范样例和双阶段发布目录由 #134 交付。
+- 当前 Traffic Data v0.10 的模式、加载范围和诊断继续独立于 Spatial。Spatial/Manifest schema source、严格 loader、规范样例和双阶段发布目录由 #134 交付。
 - 加载器接收调用方已经读取的字节或字符串，不读取引擎路径，不解析远端 `$id`，也不创建引擎资源。
 
 ### 3.2 配对与加载顺序

@@ -1,4 +1,4 @@
-//! #190 使用 production artifacts 的 v0.9 protected-turning corridor native example。
+//! #190 使用 production artifacts 的 v0.10 protected-turning corridor native example。
 
 use std::{
     collections::{HashMap, HashSet},
@@ -237,7 +237,7 @@ where
 
 fn default_config_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/config/v0.9-signalized-corridor.toml")
+        .join("../../examples/config/v0.10-signalized-corridor.toml")
 }
 
 fn print_help() {
