@@ -118,7 +118,39 @@ fn is_rust_file(path: &Path) -> bool {
 }
 
 fn find_markdown_violations(content: &str, first_source_line: usize) -> Vec<Violation> {
-    let mut prose_by_line = BTreeMap::<usize, String>::new();
+    find_markdown_violations_with_mapping(content, &SourceLineMapping::Linear { first_source_line })
+}
+
+fn find_markdown_violations_with_source_lines(
+    content: &str,
+    source_lines: &[usize],
+) -> Vec<Violation> {
+    find_markdown_violations_with_mapping(content, &SourceLineMapping::Explicit { source_lines })
+}
+
+enum SourceLineMapping<'lines> {
+    Linear { first_source_line: usize },
+    Explicit { source_lines: &'lines [usize] },
+}
+
+impl SourceLineMapping<'_> {
+    fn source_line(&self, logical_line_offset: usize) -> usize {
+        match self {
+            Self::Linear { first_source_line } => first_source_line + logical_line_offset,
+            Self::Explicit { source_lines } => source_lines
+                .get(logical_line_offset)
+                .copied()
+                .or_else(|| source_lines.last().copied())
+                .unwrap_or(1),
+        }
+    }
+}
+
+fn find_markdown_violations_with_mapping(
+    content: &str,
+    source_lines: &SourceLineMapping<'_>,
+) -> Vec<Violation> {
+    let mut prose_by_line = BTreeMap::<usize, ProseLine>::new();
     let mut rendered_breaks = Vec::<(usize, usize)>::new();
     let mut code_block_depth = 0_usize;
     let mut html_projection = HtmlProjection::default();
@@ -132,72 +164,106 @@ fn find_markdown_violations(content: &str, first_source_line: usize) -> Vec<Viol
             Event::Text(text)
                 if code_block_depth == 0 && !html_projection.suppresses_reader_prose() =>
             {
-                let source_line =
-                    first_source_line + count_line_breaks(&content[..source_range.start]);
-                append_prose_projection(&mut prose_by_line, &text, source_line);
+                let logical_line_offset = count_line_breaks(&content[..source_range.start]);
+                append_prose_projection(
+                    &mut prose_by_line,
+                    &text,
+                    logical_line_offset,
+                    source_lines,
+                );
             }
             Event::Code(_)
                 if code_block_depth == 0 && !html_projection.suppresses_reader_prose() =>
             {
-                let source_line =
-                    first_source_line + count_line_breaks(&content[..source_range.start]);
+                let logical_line_offset = count_line_breaks(&content[..source_range.start]);
                 let boundary = PROSE_BOUNDARY.to_string();
-                append_prose_projection(&mut prose_by_line, &boundary, source_line);
+                append_prose_projection(
+                    &mut prose_by_line,
+                    &boundary,
+                    logical_line_offset,
+                    source_lines,
+                );
             }
             Event::Html(html) | Event::InlineHtml(html) if code_block_depth == 0 => {
-                let source_line =
-                    first_source_line + count_line_breaks(&content[..source_range.start]);
-                let visible_text = html_projection.project(&html);
-                append_prose_projection(&mut prose_by_line, &visible_text, source_line);
+                let logical_line_offset = count_line_breaks(&content[..source_range.start]);
+                let projection = html_projection.project(&html);
+                append_prose_projection(
+                    &mut prose_by_line,
+                    &projection.visible_text,
+                    logical_line_offset,
+                    source_lines,
+                );
+                rendered_breaks.extend(projection.rendered_breaks.into_iter().filter_map(
+                    |(before, after)| {
+                        let before = logical_line_offset + before;
+                        let after = logical_line_offset + after;
+                        (before != after).then_some((before, after))
+                    },
+                ));
             }
             Event::SoftBreak | Event::HardBreak
                 if code_block_depth == 0 && !html_projection.suppresses_reader_prose() =>
             {
-                let source_line =
-                    first_source_line + count_line_breaks(&content[..source_range.start]);
-                let next_source_line =
-                    source_line + count_line_breaks(&content[source_range]).max(1);
-                rendered_breaks.push((source_line, next_source_line));
+                let logical_line_offset = count_line_breaks(&content[..source_range.start]);
+                let next_logical_line_offset =
+                    logical_line_offset + count_line_breaks(&content[source_range]).max(1);
+                rendered_breaks.push((logical_line_offset, next_logical_line_offset));
             }
             _ => {}
         }
     }
 
     let mut cross_break_tokens = BTreeMap::<usize, Vec<String>>::new();
-    for (source_line, next_source_line) in rendered_breaks {
+    for (logical_line, next_logical_line) in rendered_breaks {
         let (Some(before), Some(after)) = (
-            prose_by_line.get(&source_line),
-            prose_by_line.get(&next_source_line),
+            prose_by_line.get(&logical_line),
+            prose_by_line.get(&next_logical_line),
         ) else {
             continue;
         };
-        cross_break_tokens
-            .entry(source_line)
-            .or_default()
-            .extend(quantity_abbreviations_across_break(before, after));
+        cross_break_tokens.entry(logical_line).or_default().extend(
+            quantity_abbreviations_across_break(&before.text, &after.text),
+        );
     }
 
     let mut violations = Vec::new();
-    for (line, prose) in prose_by_line {
-        for token in quantity_abbreviations(&prose) {
-            violations.push(Violation { line, token });
+    for (logical_line, prose) in prose_by_line {
+        for token in quantity_abbreviations(&prose.text) {
+            violations.push(Violation {
+                line: prose.source_line,
+                token,
+            });
         }
-        for token in cross_break_tokens.remove(&line).unwrap_or_default() {
-            violations.push(Violation { line, token });
+        for token in cross_break_tokens.remove(&logical_line).unwrap_or_default() {
+            violations.push(Violation {
+                line: prose.source_line,
+                token,
+            });
         }
     }
     violations
 }
 
+struct ProseLine {
+    source_line: usize,
+    text: String,
+}
+
 fn append_prose_projection(
-    prose_by_line: &mut BTreeMap<usize, String>,
+    prose_by_line: &mut BTreeMap<usize, ProseLine>,
     prose: &str,
-    first_source_line: usize,
+    first_logical_line_offset: usize,
+    source_lines: &SourceLineMapping<'_>,
 ) {
     for (line_offset, line) in prose.split('\n').enumerate() {
+        let logical_line = first_logical_line_offset + line_offset;
         prose_by_line
-            .entry(first_source_line + line_offset)
-            .or_default()
+            .entry(logical_line)
+            .or_insert_with(|| ProseLine {
+                source_line: source_lines.source_line(logical_line),
+                text: String::new(),
+            })
+            .text
             .push_str(line.trim_end_matches('\r'));
     }
 }
@@ -207,13 +273,20 @@ struct HtmlProjection {
     suppressed_elements: Vec<String>,
 }
 
+struct HtmlProjectionResult {
+    visible_text: String,
+    rendered_breaks: Vec<(usize, usize)>,
+}
+
 impl HtmlProjection {
     fn suppresses_reader_prose(&self) -> bool {
         !self.suppressed_elements.is_empty()
     }
 
-    fn project(&mut self, html: &str) -> String {
+    fn project(&mut self, html: &str) -> HtmlProjectionResult {
         let mut visible = String::new();
+        let mut rendered_breaks = Vec::new();
+        let mut source_line_offset = 0_usize;
         let mut cursor = 0_usize;
 
         while cursor < html.len() {
@@ -223,9 +296,14 @@ impl HtmlProjection {
                     .map_or(html.len(), |offset| cursor + offset);
                 let text = &html[cursor..next_tag];
                 if self.suppressed_elements.is_empty() {
-                    append_html_text(&mut visible, text);
+                    append_html_text(
+                        &mut visible,
+                        text,
+                        &mut source_line_offset,
+                        &mut rendered_breaks,
+                    );
                 } else {
-                    preserve_line_breaks(&mut visible, text);
+                    source_line_offset += preserve_line_breaks(&mut visible, text);
                 }
                 cursor = next_tag;
                 continue;
@@ -240,7 +318,7 @@ impl HtmlProjection {
             };
 
             let was_suppressed = !self.suppressed_elements.is_empty();
-            preserve_line_breaks(&mut visible, &html[cursor..tag.end]);
+            source_line_offset += preserve_line_breaks(&mut visible, &html[cursor..tag.end]);
             if self.suppressed_elements.last().is_some_and(|element| {
                 is_html_raw_text_element(element) && !(tag.is_closing && element == &tag.name)
             }) {
@@ -275,7 +353,10 @@ impl HtmlProjection {
             cursor = tag.end;
         }
 
-        visible
+        HtmlProjectionResult {
+            visible_text: visible,
+            rendered_breaks,
+        }
     }
 }
 
@@ -359,7 +440,12 @@ fn find_html_tag_end(html: &str, mut cursor: usize) -> Option<usize> {
     None
 }
 
-fn append_html_text(visible: &mut String, text: &str) {
+fn append_html_text(
+    visible: &mut String,
+    text: &str,
+    source_line_offset: &mut usize,
+    rendered_breaks: &mut Vec<(usize, usize)>,
+) {
     let bytes = text.as_bytes();
     let mut cursor = 0_usize;
 
@@ -381,6 +467,10 @@ fn append_html_text(visible: &mut String, text: &str) {
             .next()
             .expect("cursor is inside a UTF-8 string");
         visible.push(character);
+        if character == '\n' {
+            rendered_breaks.push((*source_line_offset, *source_line_offset + 1));
+            *source_line_offset += 1;
+        }
         cursor += character.len_utf8();
     }
 }
@@ -431,8 +521,11 @@ fn decode_html_reference(text: &str, start: usize) -> Option<(char, usize)> {
     char::from_u32(value).map(|decoded| (decoded, cursor))
 }
 
-fn preserve_line_breaks(output: &mut String, source: &str) {
-    output.extend(source.chars().filter(|character| *character == '\n'));
+fn preserve_line_breaks(output: &mut String, source: &str) -> usize {
+    let line_breaks = source.chars().filter(|character| *character == '\n');
+    let count = line_breaks.clone().count();
+    output.extend(line_breaks);
+    count
 }
 
 fn suppresses_reader_prose(name: &str) -> bool {
@@ -496,56 +589,141 @@ fn find_rustdoc_violations(
     source_path: Option<&Path>,
 ) -> Result<Vec<Violation>, String> {
     let syntax = syn::parse_file(content).map_err(|error| error.to_string())?;
-    let mut visitor = RustdocVisitor::new(source_path);
+    let mut visitor = RustdocVisitor::new(source_path, content);
     visitor.visit_file(&syntax);
     if !visitor.errors.is_empty() {
         return Err(visitor.errors.join("; "));
     }
     visitor
         .fragments
-        .sort_by_key(|fragment| fragment.start_line);
+        .sort_by_key(|fragment| (fragment.group_id, fragment.first_source_line()));
 
-    let mut groups = Vec::<RustdocGroup>::new();
+    let mut groups = BTreeMap::<usize, RustdocGroup>::new();
     for fragment in visitor.fragments {
-        match groups.last_mut() {
-            Some(group) if fragment.start_line <= group.last_source_line.saturating_add(1) => {
-                group.push(fragment);
-            }
-            _ => groups.push(RustdocGroup::new(fragment)),
+        if let Some(group) = groups.get_mut(&fragment.group_id) {
+            group.push(fragment);
+        } else {
+            groups.insert(fragment.group_id, RustdocGroup::new(fragment));
         }
     }
 
-    let mut violations = groups
-        .into_iter()
-        .flat_map(|group| find_markdown_violations(&group.markdown, group.first_source_line))
-        .collect::<Vec<_>>();
-    for included in visitor.included_documents {
-        violations.extend(find_markdown_violations(
-            &included.markdown,
-            included.attribute_line,
-        ));
-    }
-    Ok(violations)
+    Ok(groups
+        .into_values()
+        .flat_map(|group| {
+            find_markdown_violations_with_source_lines(&group.markdown, &group.source_lines)
+        })
+        .collect())
 }
 
-struct RustdocVisitor<'path> {
+struct RustdocVisitor<'path, 'source> {
     source_path: Option<&'path Path>,
+    source_content: &'source str,
+    source_index: SourceIndex,
+    current_ast_attribute_group: Option<AttributeRun>,
+    next_group_id: usize,
     fragments: Vec<RustdocFragment>,
-    included_documents: Vec<IncludedRustdoc>,
     errors: Vec<String>,
 }
 
-impl<'path> RustdocVisitor<'path> {
-    fn new(source_path: Option<&'path Path>) -> Self {
+struct AttributeRun {
+    group_id: usize,
+    end_offset: usize,
+}
+
+struct SourceIndex {
+    line_starts: Vec<usize>,
+}
+
+impl SourceIndex {
+    fn new(content: &str) -> Self {
+        let mut line_starts = vec![0];
+        line_starts.extend(
+            content
+                .bytes()
+                .enumerate()
+                .filter_map(|(offset, byte)| (byte == b'\n').then_some(offset + 1)),
+        );
+        Self { line_starts }
+    }
+
+    fn byte_offset(&self, location: LineColumn, content: &str) -> Option<usize> {
+        let line_start = *self.line_starts.get(location.line.checked_sub(1)?)?;
+        let line_end = self
+            .line_starts
+            .get(location.line)
+            .copied()
+            .unwrap_or(content.len());
+        let line = content.get(line_start..line_end)?;
+        let relative_offset = line
+            .char_indices()
+            .map(|(offset, _)| offset)
+            .nth(location.column)
+            .or_else(|| (line.chars().count() == location.column).then_some(line.len()))?;
+        line_start.checked_add(relative_offset)
+    }
+}
+
+impl<'path, 'source> RustdocVisitor<'path, 'source> {
+    fn new(source_path: Option<&'path Path>, source_content: &'source str) -> Self {
         Self {
             source_path,
+            source_content,
+            source_index: SourceIndex::new(source_content),
+            current_ast_attribute_group: None,
+            next_group_id: 0,
             fragments: Vec::new(),
-            included_documents: Vec::new(),
             errors: Vec::new(),
         }
     }
 
-    fn include_document(&mut self, meta: &Meta, expression: &ExprMacro) {
+    fn next_group_id(&mut self) -> usize {
+        let group_id = self.next_group_id;
+        self.next_group_id += 1;
+        group_id
+    }
+
+    fn ast_attribute_group(&mut self, attribute: &Attribute) -> usize {
+        let span = attribute.span();
+        let start_offset = self
+            .source_index
+            .byte_offset(span.start(), self.source_content);
+        let end_offset = self
+            .source_index
+            .byte_offset(span.end(), self.source_content);
+        let existing_group = self.current_ast_attribute_group.as_ref().and_then(|run| {
+            let start_offset = start_offset?;
+            (start_offset >= run.end_offset
+                && self.source_content[run.end_offset..start_offset]
+                    .parse::<TokenStream>()
+                    .is_ok_and(|tokens| tokens.is_empty()))
+            .then_some(run.group_id)
+        });
+        let group_id = existing_group.unwrap_or_else(|| self.next_group_id());
+        self.current_ast_attribute_group = end_offset.map(|end_offset| AttributeRun {
+            group_id,
+            end_offset,
+        });
+        group_id
+    }
+
+    fn push_fragment(&mut self, group_id: usize, markdown: String, source_lines: Vec<usize>) {
+        self.fragments.push(RustdocFragment {
+            group_id,
+            markdown,
+            source_lines,
+        });
+    }
+
+    fn literal_source_lines(meta: &Meta, markdown: &str) -> Vec<usize> {
+        let span = meta.span();
+        let start_line = source_line(span.start());
+        let end_line = source_line(span.end()).max(start_line);
+        (0..=count_line_breaks(markdown))
+            .map(|offset| (start_line + offset).min(end_line))
+            .collect()
+    }
+
+    fn include_document(&mut self, meta: &Meta, expression: &ExprMacro, group_id: usize) {
         let attribute_line = source_line(meta.span().start());
         let included_path = match syn::parse2::<LitStr>(expression.mac.tokens.clone()) {
             Ok(path) => path.value(),
@@ -588,10 +766,10 @@ impl<'path> RustdocVisitor<'path> {
             return;
         }
         match fs::read_to_string(&target) {
-            Ok(markdown) => self.included_documents.push(IncludedRustdoc {
-                attribute_line,
-                markdown,
-            }),
+            Ok(markdown) => {
+                let source_lines = vec![attribute_line; count_line_breaks(&markdown) + 1];
+                self.push_fragment(group_id, markdown, source_lines);
+            }
             Err(error) => self.errors.push(format!(
                 "第 {attribute_line} 行无法读取 Rustdoc include `{}`: {error}",
                 target.display()
@@ -599,7 +777,7 @@ impl<'path> RustdocVisitor<'path> {
         }
     }
 
-    fn process_doc_meta(&mut self, meta: &Meta, allow_include: bool) {
+    fn process_doc_meta(&mut self, meta: &Meta, allow_include: bool, group_id: usize) {
         let Meta::NameValue(name_value) = meta else {
             return;
         };
@@ -609,16 +787,13 @@ impl<'path> RustdocVisitor<'path> {
                 lit: Lit::Str(documentation),
                 ..
             }) => {
-                let span = meta.span();
-                self.fragments.push(RustdocFragment {
-                    start_line: source_line(span.start()),
-                    end_line: source_line(span.end()),
-                    markdown: documentation.value(),
-                });
+                let markdown = documentation.value();
+                let source_lines = Self::literal_source_lines(meta, &markdown);
+                self.push_fragment(group_id, markdown, source_lines);
             }
             Expr::Macro(expression) if expression.mac.path.is_ident("include_str") => {
                 if allow_include {
-                    self.include_document(meta, expression);
+                    self.include_document(meta, expression, group_id);
                 } else {
                     self.errors.push(format!(
                         "第 {} 行宏 token 中的 `doc = include_str!(...)` 无法静态确定展开文件上下文；数量书写门禁失败关闭",
@@ -633,7 +808,7 @@ impl<'path> RustdocVisitor<'path> {
         }
     }
 
-    fn process_cfg_attr(&mut self, attribute: &Attribute) {
+    fn process_cfg_attr(&mut self, attribute: &Attribute, group_id: usize) {
         let Meta::List(list) = &attribute.meta else {
             self.errors.push(format!(
                 "第 {} 行 `cfg_attr` 必须使用列表语法",
@@ -660,13 +835,13 @@ impl<'path> RustdocVisitor<'path> {
             return;
         }
         for meta in nested {
-            self.process_conditional_meta(meta, true);
+            self.process_conditional_meta(meta, true, group_id);
         }
     }
 
-    fn process_conditional_meta(&mut self, meta: &Meta, allow_include: bool) {
+    fn process_conditional_meta(&mut self, meta: &Meta, allow_include: bool, group_id: usize) {
         if meta.path().is_ident("doc") {
-            self.process_doc_meta(meta, allow_include);
+            self.process_doc_meta(meta, allow_include, group_id);
             return;
         }
         if meta.path().is_ident("cfg_attr") {
@@ -697,7 +872,7 @@ impl<'path> RustdocVisitor<'path> {
                 return;
             }
             for nested_meta in nested {
-                self.process_conditional_meta(nested_meta, allow_include);
+                self.process_conditional_meta(nested_meta, allow_include, group_id);
             }
         }
     }
@@ -705,6 +880,7 @@ impl<'path> RustdocVisitor<'path> {
     fn process_macro_tokens(&mut self, tokens: TokenStream) {
         let tokens = tokens.into_iter().collect::<Vec<_>>();
         let mut cursor = 0_usize;
+        let mut attribute_group = None::<usize>;
 
         while cursor < tokens.len() {
             if let TokenTree::Punct(pound) = &tokens[cursor]
@@ -719,12 +895,13 @@ impl<'path> RustdocVisitor<'path> {
                 if let Some(TokenTree::Group(group)) = tokens.get(group_index)
                     && group.delimiter() == Delimiter::Bracket
                 {
+                    let group_id = *attribute_group.get_or_insert_with(|| self.next_group_id());
                     let attribute_tokens = group.stream();
                     match syn::parse2::<Meta>(attribute_tokens.clone()) {
                         Ok(meta)
                             if meta.path().is_ident("doc") || meta.path().is_ident("cfg_attr") =>
                         {
-                            self.process_conditional_meta(&meta, false);
+                            self.process_conditional_meta(&meta, false, group_id);
                         }
                         Ok(_) => {}
                         Err(error) if starts_with_document_meta(&attribute_tokens) => {
@@ -740,6 +917,7 @@ impl<'path> RustdocVisitor<'path> {
                 }
             }
 
+            attribute_group = None;
             if let TokenTree::Group(group) = &tokens[cursor] {
                 self.process_macro_tokens(group.stream());
             }
@@ -757,50 +935,46 @@ fn starts_with_document_meta(tokens: &TokenStream) -> bool {
 }
 
 struct RustdocFragment {
-    start_line: usize,
-    end_line: usize,
+    group_id: usize,
     markdown: String,
+    source_lines: Vec<usize>,
 }
 
-struct IncludedRustdoc {
-    attribute_line: usize,
-    markdown: String,
+impl RustdocFragment {
+    fn first_source_line(&self) -> usize {
+        self.source_lines.first().copied().unwrap_or(1)
+    }
 }
 
 struct RustdocGroup {
-    first_source_line: usize,
-    last_source_line: usize,
     markdown: String,
+    source_lines: Vec<usize>,
 }
 
 impl RustdocGroup {
     fn new(fragment: RustdocFragment) -> Self {
         Self {
-            first_source_line: fragment.start_line,
-            last_source_line: fragment.end_line,
             markdown: fragment.markdown,
+            source_lines: fragment.source_lines,
         }
     }
 
     fn push(&mut self, fragment: RustdocFragment) {
-        let represented_source_line = self.first_source_line + count_line_breaks(&self.markdown);
-        let line_gap = fragment.start_line.saturating_sub(represented_source_line);
-        for _ in 0..line_gap.max(1) {
-            self.markdown.push('\n');
-        }
+        self.markdown.push('\n');
         self.markdown.push_str(&fragment.markdown);
-        self.last_source_line = fragment.end_line;
+        self.source_lines.extend(fragment.source_lines);
     }
 }
 
-impl<'ast> Visit<'ast> for RustdocVisitor<'_> {
+impl<'ast> Visit<'ast> for RustdocVisitor<'_, '_> {
     fn visit_attribute(&mut self, attribute: &'ast Attribute) {
+        let group_id = self.ast_attribute_group(attribute);
         if attribute.path().is_ident("doc") {
-            self.process_doc_meta(&attribute.meta, true);
+            self.process_doc_meta(&attribute.meta, true, group_id);
             return;
         }
         if attribute.path().is_ident("cfg_attr") {
-            self.process_cfg_attr(attribute);
+            self.process_cfg_attr(attribute, group_id);
             return;
         }
 
@@ -1115,6 +1289,24 @@ mod tests {
     }
 
     #[test]
+    fn raw_html_text_newlines_preserve_rendered_quantity_continuity() {
+        let content = concat!(
+            "<table>\n",
+            "<tr><td>目标为 100\n",
+            "k 个参与单元</td></tr>\n",
+            "<tr><td>不同单元为 100</td><td>k 不跨单元</td></tr>\n",
+            "</table>\n",
+        );
+        assert_eq!(
+            find_markdown_violations(content, 1),
+            vec![Violation {
+                line: 2,
+                token: "100 k".to_string()
+            }]
+        );
+    }
+
+    #[test]
     fn html_markup_does_not_split_visible_quantity_tokens() {
         let content = concat!(
             "<div>支持 100<span></span>k</div>\n\n",
@@ -1253,6 +1445,30 @@ mod tests {
                     token: "10k".to_string()
                 }
             ]
+        );
+    }
+
+    #[test]
+    fn groups_rustdoc_by_attribute_owner_instead_of_source_adjacency() {
+        let content = concat!(
+            "/// 目标为 100\n",
+            "#[allow(dead_code)]\n",
+            "/// k 个参与单元。\n",
+            "pub struct SameOwner;\n",
+            "\n",
+            "/// 前一条目末尾为 100\n",
+            "pub struct PreviousOwner;\n",
+            "/// k 是下一条目的普通开头。\n",
+            "pub struct NextOwner;\n",
+            "#[doc = \"100\\n```text\\nrun-id\\n```\\nk 由代码块分隔。\"]\n",
+            "pub struct EscapedMultilineOwner;\n",
+        );
+        assert_eq!(
+            find_rustdoc_violations(content, None).expect("valid owner-grouped Rustdoc"),
+            vec![Violation {
+                line: 1,
+                token: "100 k".to_string()
+            }]
         );
     }
 
