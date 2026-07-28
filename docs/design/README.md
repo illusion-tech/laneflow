@@ -31,6 +31,7 @@
 - `data-loading.md`：当前 v0.10 Rust loader、严格版本闸口、Junction/Movement/ManeuverPath、multi-Gate/WaitingZone、per-edge speed limit、横断面/准入（RoadCorridor/RoadSection/LaneGroup/FacilityBand/ParticipantClass/AccessRule）、Core Signals/Parking normalization、错误与测试边界。
 - `example-scenarios.md`：v0.8 直行走廊基线与 current v0.10 protected-turning 增量；记录 1.4 km 几何、28 Route、限速、固定时制、50–200 车辆人口、native 入口与分层验收路径。
 - `signalized-corridor-population.md`：current v0.10 caller-owned reference policy；冻结 `laneflow-scenario` crate 边界、catalog 0.2 PortalLane/weighted RouteChoice normalization、三 draw-site completion、blocked retry、replay 与零分配基线。
+- `network-compiler.md`：#291 的编译器时代数据供应链范式（Draft，#291 G1 设计输入）；几何文档 authoring SSOT、L1/L2 编译器能力边界、identity 派生契约、source map 与诊断、双产物与独立校验器、双 SSOT 过渡期纪律、canonical 产物退役条件与路线图；L1 拓扑生成器由 #292 跟踪，canonical JSON 管线在退役条件触发前继续服役。
 
 ## 文档状态
 
