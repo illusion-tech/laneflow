@@ -69,7 +69,56 @@ certification，也不表示一百万 microscopic realtime 已成为产品目标
 
 ## 3. 规模计数语义
 
-以后不得只写一个未分解规模或使用 `Agent` 作为交通规模单位。本文使用两个正交层次：
+当前已接受契约与 #291 目标提案必须分开解释：在 #291 G1 接受并与本文状态原子化
+更新前，下文 3.1 与第 4–12 节的五项道路机动车计数继续具有规范约束力；3.2 的六项
+分执行域计数只是 Proposed 目标，不能提前成为 Product Pass、benchmark 或合并门禁。
+
+### 3.1 当前 Accepted 道路机动车计数契约
+
+当前结果不得只写一个未分解规模或使用 `Agent` 作为交通规模单位。每个结果必须同时
+记录以下五个正交计数：
+
+- 个体车辆数（Individual Vehicle Count，`N_individual`）：仍存在且保留完整
+  logical identity、route/progress、Vehicle Profile、Parking/lifecycle 与
+  committed state 的个体车辆。行驶中与停车中的车辆均计入，并按
+  status/lifecycle 分解。
+- 道路交通活动车辆数（Road-traffic Active Vehicle Count，
+  `N_traffic_active`）：当前处于道路交通系统、每个 Core base tick 参与
+  travel-lane occupancy/leader、constraint、global projection、advance/events
+  与 atomic motion commit 的车辆。因红灯或前车停止但仍在道路上的车辆继续计入；
+  Parked vehicle 不计入。
+- 意图更新车辆数（Intent-update Vehicle Count，`N_intent`）：该 tick 实际重新
+  计算昂贵 controller intent 的车辆数。exact-only 通常等于
+  `N_traffic_active`；reduced-rate candidate 可以更小，但不能借此跳过
+  `N_traffic_active` 的逐 tick safety authority。
+- 表现车辆数（Presented Vehicle Count，`N_presented`）：该 outer frame 被
+  Adapter/Presentation materialize、extract 或 commit 的车辆数。它可以包含需要
+  展示的 parked vehicle，但不能反向定义 Core fidelity。
+- 聚合交通量（Aggregate Traffic Population，`N_aggregate`）：只以 flow、packet
+  或 count 存在、没有完整逐车 identity 的人口。必须单独报告，不能混入
+  `N_individual`，也不能用来宣称 active individual vehicles。
+
+基本关系为：
+
+```text
+N_traffic_active <= N_individual
+N_intent <= N_traffic_active
+```
+
+`N_traffic_active = N_individual` 只表示 100% road-active 的特定 workload，不是
+架构恒等式。Parked vehicle 保留 Core 权威的 identity、Parking binding、occupied
+state 与确定性 lifecycle transition，但不因此进入每个 tick 的道路运动求解。
+
+推荐使用显式标签记录一个 current case：
+
+```text
+N_individual=100000; N_traffic_active=75000;
+N_intent=<observed mean/distribution>; N_presented=10000; N_aggregate=0
+```
+
+### 3.2 #291 Proposed 目标分执行域计数契约
+
+#291 提议让长期通用规模使用两个正交层次：
 
 - 交通参与单元（Traffic Participant Unit）是可独立保留身份的运行时计数原子；
 - 交通执行域（Traffic Execution Domain）把共享网络、运动/安全求解与生命周期契约的
@@ -80,7 +129,7 @@ certification，也不表示一百万 microscopic realtime 已成为产品目标
 Entity 不自动成为 LaneFlow 交通参与单元。`ParticipantClass` 是准入分类，不是执行
 域或行为能力声明。
 
-每个结果必须按执行域 `d` 同时记录以下六个正交计数：
+若 #291 G1 接受该目标，目标态结果必须按执行域 `d` 同时记录以下六个正交计数：
 
 - 个体交通参与单元数（Individual Traffic Participant Count，
   `N_individual[d]`）：仍存在并保留完整 logical identity 与生命周期状态的个体
@@ -110,14 +159,15 @@ N_intent[d] <= N_active[d]
 Pass、容量比较或计算复杂度归因；跨域汇总只能作为已说明计数原子的展示性统计。
 `N_aggregate_records` 与 `N_aggregate_equivalent` 也不能互相冒充。
 
-### 3.1 当前道路机动车特化
+### 3.3 Proposed 目标对当前道路机动车的映射
 
 当前 `CoreWorld`、`VehicleState`、`LF-SYNTH-v1`、LuST workload 与既有一万/十万/
 一百万证据只覆盖道路机动车执行域。本文使用 reporting token
 `road_motor_vehicle` 表示该 current specialization；它不是 production schema enum，
 也不预先冻结非机动车、步行或轨道交通 API。
 
-在该执行域中：
+若 #291 G1 接受六项分执行域计数，当前五项道路机动车计数按下列规则迁移；G1 前不得
+用这组 Proposed 名称改写第 4–12 节的 Accepted workload 或历史证据：
 
 - `N_individual[road_motor_vehicle]` 同时计入行驶中与停车中的 live vehicle；
 - `N_active[road_motor_vehicle]` 计入每个 Core base tick 参与 travel-lane
@@ -129,7 +179,7 @@ Pass、容量比较或计算复杂度归因；跨域汇总只能作为已说明�
 - `N_presented[road_motor_vehicle]` 可以包含需要展示的 Parked vehicle，但不能
   反向定义 Core fidelity。
 
-推荐使用显式执行域记录一个 current case：
+目标态推荐使用显式执行域记录同一个 case：
 
 ```text
 execution_domain=road_motor_vehicle;
@@ -138,29 +188,29 @@ N_intent=<observed mean/distribution>; N_presented=10000;
 N_aggregate_records=0; N_aggregate_equivalent=0
 ```
 
-从第 4 节起，`LF-SYNTH-v1` 表格中无下标的 `N_individual`、`N_active`、
-`N_intent` 与 `N_presented` 均是上述单域 shorthand；不能把 shorthand 复制到
-多执行域工作负载。
+若 #291 G1 接受，从第 4 节起的 current `N_traffic_active` 与 `N_aggregate` 将分别
+迁移为道路机动车执行域下的 `N_active`，以及明确分开的 `N_aggregate_records` /
+`N_aggregate_equivalent`；在状态原子化更新前，第 4–12 节继续使用 current 名称。
 
-### 3.2 当前道路机动车标称规模角色
+### 3.4 当前道路机动车标称规模角色
 
-| 标称规模 | 角色                          | 强制解释                                                                     | 当前产品状态                           |
-| -------: | ----------------------------- | ---------------------------------------------------------------------------- | -------------------------------------- |
-|     一万 | 产品基线（product baseline）  | 报告六个计数、`road_motor_vehicle` 执行域与 status/lifecycle mix             | `Product TBD / Uncertified`，等待 P10  |
-|     十万 | 扩展目标（scale target）      | 优先保留十万 `N_individual` 的 strong-individual semantics                   | `Product TBD / Uncertified`，等待 P100 |
-|   一百万 | 研究包络（research envelope） | 分开报告 identity-preserving、聚合记录与聚合等价计数；不代表其他执行域的目标 | Observation only，无 realtime SLA      |
+| 标称规模 | 角色                          | 强制解释                                                                  | 当前产品状态                           |
+| -------: | ----------------------------- | ------------------------------------------------------------------------- | -------------------------------------- |
+|     一万 | 产品基线（product baseline）  | 报告 current 五个计数与 status/lifecycle mix                              | `Product TBD / Uncertified`，等待 P10  |
+|     十万 | 扩展目标（scale target）      | 优先保留十万 `N_individual` 的 strong-individual semantics                | `Product TBD / Uncertified`，等待 P100 |
+|   一百万 | 研究包络（research envelope） | 分开报告 identity-preserving candidate 与 `N_aggregate`；不代表其他执行域 | Observation only，无 realtime SLA      |
 
 ## 4. Canonical workload
 
 不使用单一平均场景承担全部判断。一万/十万冻结四类互补的 canonical synthetic
 workload：
 
-| Workload                 | 个体构成                                                                | 场景要求                                                                                | 主要验证目标                                         |
-| ------------------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| W1 Mixed product         | 75% `N_active` / 25% parked                                             | 确定性多 edge/route；混合 following/free-flow、Signals 与 occupied Parking steady state | 主要产品预算、综合吞吐与常规 tail                    |
-| W2 Dense following       | 100% `N_active`；24/25 vehicles 在 leader horizon 内                    | 延续 dense cohort 压力形态并保留 free-flow 边界                                         | occupancy/leader 与 longitudinal 持续最坏负载        |
-| W3 Parking/lifecycle     | 初始 25% `N_active` / 75% parked；Parking commit 后一 tick 为 24% / 76% | Parking reserve/arrival/commit/leave、Completed、spawn/despawn/atomic replace           | 个体内存、Parking authority 与 lifecycle transaction |
-| W4 Synchronized boundary | 使用 W1 initial population；`B0` 后 76% active / 24% parked             | 将 Signal/Parking/lifecycle 对齐为确定性 `B0/B1` causal burst                           | B0/B1 raw、burst median/worst 与 failed-step/retry   |
+| Workload                 | 个体构成                                                                        | 场景要求                                                                                | 主要验证目标                                         |
+| ------------------------ | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| W1 Mixed product         | 75% `N_traffic_active` / 25% parked                                             | 确定性多 edge/route；混合 following/free-flow、Signals 与 occupied Parking steady state | 主要产品预算、综合吞吐与常规 tail                    |
+| W2 Dense following       | 100% `N_traffic_active`；24/25 vehicles 在 leader horizon 内                    | 延续 dense cohort 压力形态并保留 free-flow 边界                                         | occupancy/leader 与 longitudinal 持续最坏负载        |
+| W3 Parking/lifecycle     | 初始 25% `N_traffic_active` / 75% parked；Parking commit 后一 tick 为 24% / 76% | Parking reserve/arrival/commit/leave、Completed、spawn/despawn/atomic replace           | 个体内存、Parking authority 与 lifecycle transaction |
+| W4 Synchronized boundary | 使用 W1 initial population；`B0` 后 76% `N_traffic_active` / 24% parked         | 将 Signal/Parking/lifecycle 对齐为确定性 `B0/B1` causal burst                           | B0/B1 raw、burst median/worst 与 failed-step/retry   |
 
 适用规则：
 

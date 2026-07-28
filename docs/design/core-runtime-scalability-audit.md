@@ -34,11 +34,13 @@ Proposed ADR 0021 把“面向中国特色城市模拟游戏的交通基础”�
 城市级单世界交通执行是非目标。多世界吞吐不能替代一个大型城市世界的扩展证据。
 
 > #215 已在 [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md)
-> 冻结当前道路机动车执行域的一万/十万产品目标、一百万研究包络，以及通用交通参与
-> 单元的逐执行域计数、workload、hardware、tick/frame budget、fidelity、benchmark
-> protocol 与升级触发。本文继续保存 #199/#204/#207/#210/#212 的历史研究证据、
-> no-regret constraints 和架构候选；其中的历史阈值、产品未决描述与单机数字不能
-> 替代新基线要求的 integrated certification。
+> 冻结当前道路机动车的一万/十万产品目标、一百万研究包络、五项计数、workload、
+> hardware、tick/frame budget、fidelity、benchmark protocol 与升级触发。#291
+> Proposed 目标另行定义交通参与单元的六项逐执行域计数；在 #291 G1 接受并与基线
+> 状态原子化更新前，该提案不能改写 #215 Accepted 契约。本文继续保存
+> #199/#204/#207/#210/#212 的历史研究证据、no-regret constraints 和架构候选；
+> 其中的历史阈值、产品未决描述与单机数字不能替代新基线要求的 integrated
+> certification。
 
 当前设计没有要求推倒重来。以下基础可以继续作为 v0.8/v0.9 的实现输入：
 

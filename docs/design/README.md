@@ -9,7 +9,7 @@
 初始阶段建议逐步补齐：
 
 - `core-runtime.md`：Core runtime、tick、vehicle state 和系统边界。
-- `core-runtime-performance-baseline.md`：#215 Accepted 的当前道路机动车一万/十万产品目标与一百万研究包络；冻结交通参与单元、交通执行域、六类分域计数、`LF-SYNTH-v1` 确定性拓扑、W1–W4 workload、R0/P10/P100/O1 硬件角色、tick/frame budget、fidelity、benchmark protocol、TBD 与架构升级触发；车辆目标契约不等于 P10/P100 产品认证或其他执行域能力。
+- `core-runtime-performance-baseline.md`：#215 Accepted 的当前道路机动车一万/十万产品目标与一百万研究包络；冻结 current 五项车辆计数、`LF-SYNTH-v1` 确定性拓扑、W1–W4 workload、R0/P10/P100/O1 硬件角色、tick/frame budget、fidelity、benchmark protocol、TBD 与架构升级触发；#291 Proposed 的交通参与单元、交通执行域与六类分域计数只作为目标态迁移提案，在其 G1 接受并与基线状态原子化更新前不构成 Product Pass 或合并门禁。
 - `real-road-workloads.md`：#224 Accepted 的 LuST v2.0 真实路网契约；冻结 source/provenance、共享静态转换、精确一万 selection、`LF-REAL-LUST-TOPO-v1` 与 `LF-REAL-LUST-DEMAND-v1`、oracle/digest、Release 制品与 fail-closed 边界。它只补充 `LF-SYNTH-v1`，不等于真实路网 Product Pass。
 - `lust-bevy-population-control.md`：#256 Accepted 的 LuST/Bevy 示例层 1–一万个体人口调节契约；冻结 H1/H2/手动 H3、连续 `target_N`、seeded 无放回抽样、缩编分层与 100% presentation 默认；由 #257 实现，不改写 TOPO/DEMAND workload ID。
 - `core-runtime-scalability-audit.md`：#72/#199 的城市级可扩展性前置审计；区分当前
