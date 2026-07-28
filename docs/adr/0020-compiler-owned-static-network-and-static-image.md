@@ -140,6 +140,10 @@ publishable programmatic generator 必须保留 build ID、参数、seed、names
 - stable declaration/addressable-derived 才有 StableId128；owner-local relation /
   occurrence 使用只在 owning sequence snapshot 内有效的 typed
   `(ownerOrdinal, role, localIndex)` key，不获得全局持久标识；
+- 基础车道图边（Lane Graph Edge）`LaneEdge` 以来源模块的显式稳定
+  `laneEdgeKey` 获得统一 StableId128；RoadSection 覆盖与派生 Junction internal
+  ownership 是关系 / 角色，不是边身份所有者，未被任一关系覆盖的合法边同样进入
+  `StaticIdentityIndex`；
 - iteration order 与输出不依赖 hash table iteration；
 - 增量 cache key 只影响重用，不影响完整编译结果；
 - 并行 pass 必须以稳定 merge order 产生与单线程逐字节相同的输出。
@@ -602,6 +606,8 @@ Spatial section 由 closed profile 控制；拒绝 mandatory combined payload。
 6. untrusted image rejection、标识 registry known vectors、全 production profile
    `StaticIdentityIndex` 与 external descriptor/cutover descriptor trust path 已进入
    implementation acceptance；
-7. 未把具体 archive library、并行框架或增量数据库当作未经基准的既定事实。
-8. 城市模拟游戏上层、路径规划、不可变路网修订、运行时快照和每世界唯一性边界
+7. 所有 `LaneEdge` 均以独立稳定边键进入身份闭包；道路区段 / 路口角色变化不改写
+   既有边身份，current 合法未覆盖边无需伪造所有者即可迁移；
+8. 未把具体 archive library、并行框架或增量数据库当作未经基准的既定事实。
+9. 城市模拟游戏上层、路径规划、不可变路网修订、运行时快照和每世界唯一性边界
    已同步到 architecture、roadmap、glossary 与 Agent Skills。
