@@ -219,8 +219,8 @@ single-writer claim ledger 防止 Waiting/Conflict/downstream 同 tick 重复分
 Traffic source 从已发布且 immutable 的 v0.9 原子升级到 v0.10，交付 multi-Gate、
 WaitingZone static registry/Data/route occurrence 与绑定期 capability guards；
 protected-only runtime 仍未改变，Waiting runtime 由 #282 接续。v0.10 schema
-provenance 已登记到 publication catalog，live availability 与 byte-equality
-待部署后验证。
+已按固定 `main` provenance 公开发布，并通过 live availability 与 byte-equality
+验证。
 
 生产化规划由 #280 回写，实施 DAG 已拆为：
 

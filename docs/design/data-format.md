@@ -366,7 +366,7 @@ URL；catalog 中 published version 必须通过 HTTPS 返回与固定 source re
 逐字节一致的 schema。Loader、Core、Adapter 与 hermetic tests 仍不联网解析
 `$id`/`$schema`。v0.2-v0.5、v0.7-v0.9 作为 immutable publication artifacts
 保留；current v0.10 已固定 `main` revision/blob 并加入 publication catalog，
-canonical URL 的 live availability 与 byte-equality 待部署后验证。消费者入口见
+canonical URL 已通过 live availability 与 byte-equality 验证。消费者入口见
 [`schemas/README.md`](../../schemas/README.md)。
 
 ## 11. v0.6 空间层配套制品设计
@@ -495,8 +495,8 @@ source contract：
   分别由显式 capability error 拒绝，禁止车辆静默穿越；
 - loader 只接受 exact `0.10`，不并行接受 `0.9`，也不提供 alias 或 migration
   shim；SpatialPackage/ScenarioManifest 保持 `0.1`；
-- v0.10 schema 已固定 `main` revision/blob 并加入 publication catalog；canonical
-  URL 的 live availability 与 byte-equality 待部署后验证；已发布 v0.9 不修改。
+- v0.10 schema 已按固定 `main` revision/blob 公开发布，canonical URL 已通过 live
+  availability 与 byte-equality 验证；已发布 v0.9 不修改。
 
 队列、admission、capacity runtime state、constraint/events 属 #282；Conflict 与
 Spatial 属 #283，不在本 static contract 中提前激活。
