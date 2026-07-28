@@ -1,8 +1,8 @@
 # 适配器应用程序接口（API）
 
-**文档状态**: 已接受（Accepted）
+**文档状态**: 已接受（current）＋ Draft（#291 target 导航）
 
-**最后更新**: 2026-07-23（#187 Bevy lifecycle bridge）
+**最后更新**: 2026-07-28（#187 current；#291/ADR 0020 target）
 
 **适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与 typed lifecycle 契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
 
@@ -14,6 +14,7 @@
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `../adr/0016-scenario-population-and-recycle-lifecycle-authority.md`
+- `../adr/0020-compiler-owned-static-network-and-runtime-image.md`
 - `core-runtime.md`
 - `spatial-geometry.md`
 - `bevy-reference-adapter.md`
@@ -37,6 +38,13 @@
 | 实体、预制体、变换、动画和细节层次   | Adapter/Presentation | 作为唯一的宿主表现事实源                 |
 
 适配器不得把宿主变换（Transform）反写为 Core 进度，也不得用引擎样条曲线长度覆盖 Core/Spatial 的长度绑定。
+
+ADR 0020 target 不改变表内 authority，只改变静态初始化输入：宿主 asset pipeline
+提供 target runtime image bytes/verified view，Core 与 Spatial 分别消费同一 image
+中的 `StaticTrafficImage` / `StaticSpatialImage`。Adapter 不解析 compiler IR 或
+portable artifact 语义，不重建 Traffic/Spatial binding，也不读取 image 中的静态
+交通规则来自行裁决行为。本文后续 JSON/registry 生命周期仍描述 current，直到
+shared-image cutover G4。
 
 ## 3. 生命周期顺序
 

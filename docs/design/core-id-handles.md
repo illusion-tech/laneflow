@@ -1,8 +1,8 @@
 # Core ID 与 Handle 模型
 
-**文档状态**: Accepted  
-**最后更新**: 2026-07-24<br>
-**适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界  
+**文档状态**: Accepted（current）＋ Draft（#291 target 导航）<br>
+**最后更新**: 2026-07-28<br>
+**适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界，以及 compiler target 的静态 image handle 边界
 **关联文档**:
 
 - `../architecture.md`
@@ -13,6 +13,7 @@
 - `../adr/0005-core-identity-and-handle-model.md`
 - `../adr/0010-parking-binding-and-vehicle-lifecycle-authority.md`
 - `../adr/0017-static-road-junction-maneuver-and-gate-identity.md`
+- `../adr/0020-compiler-owned-static-network-and-runtime-image.md`
 - `core-runtime.md`
 - `parking-system.md`
 - `road-junction-model.md`
@@ -29,6 +30,14 @@
 - 允许 Core runtime 以确定性方式动态 spawn / despawn vehicle，并支持注册 / 移除 route definition 的最小生命周期边界。
 - 通过 registry / resolver 让 Adapter 和调试工具在需要时从 handle 解析回 external ID。
 - 为 #29、#30、#32 提供 v0.2 lane graph / route 设计、data format 和 Core 对齐输入。
+
+ADR 0020 target 保留 external stable identity / typed dense handle / hot-path 无字符串
+原则，但把静态网络的 handle 分配和 registry/index 构建从 `CoreWorld` 初始化前移到
+compiler/runtime image。Static entity 使用 image-scoped typed `u32` ordinal；
+每 world 的 Vehicle、dynamic Route 与 generation handle 继续由 Core 管理。
+StableId128、external ID 和 reverse resolver 位于 cold boundary，steady tick 只
+使用 dense handle。本文后续“Core 初始化阶段 normalization”继续描述 current，
+直到 image cutover G4。
 
 ## 2. 背景
 
