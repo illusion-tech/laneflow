@@ -80,6 +80,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 规范发布描述符         | canonical publication descriptor                          | `CanonicalPublicationDescriptor` | 位于制品字节外，可信绑定规范制品、源映射、验证收据各自摘要与精确长度，以及路网修订和编译来源沿袭的发布值。           |
 | 语义差异               | semantic diff                                             | —                                | 以稳定标识和所有者局部键比较两个规范制品语义变化的结构化结果；跨修订状态迁移时必须经独立验证并由可信切换描述符绑定。 |
 | 语义差异封套           | semantic diff envelope                                    | `SemanticDiffEnvelope`           | 版本化绑定旧/新路网修订与规范制品精确字节，并承载规范排序差异记录的派生制品封套。                                    |
+| 验证收据封套           | validation receipt envelope                               | `ValidationReceiptEnvelope`      | 以独立格式版本和封闭收据种类绑定受检对象、验证器构建及必需成功证据的可审计制品封套。                                 |
 | 确定性合并顺序         | deterministic merge order                                 | —                                | 并行或分片结果按固定规则合并，使输出不依赖线程调度。                                                                 |
 
 ## 4. 标识、引用与数据布局
@@ -181,7 +182,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 切换事件批次         | cutover event batch                    | —                                  | 迁移函数生成、在准备期保持不可见，并只与新镜像/状态绑定原子提交一次的规范排序事件集合；切换放弃时零发布。                        |
 | 静默提交窗口         | quiescent commit window                | —                                  | 固定步进安全边界上短暂冻结旧世界输入、排空日志尾并原子切换绑定的有界时间窗口。                                                   |
 | 维护暂停模式         | paused maintenance mode                | —                                  | 由宿主显式声明世界已暂停、允许一次性完成迁移且单独预算完整停顿的切换模式。                                                       |
-| 路网修订切换描述符   | network revision cutover descriptor    | `NetworkRevisionCutoverDescriptor` | 在镜像字节外可信绑定旧/新路网修订标识、制品摘要/长度、语义差异格式版本/摘要/长度、验证收据、镜像摘要和迁移策略的切换输入。       |
+| 路网修订切换描述符   | network revision cutover descriptor    | `NetworkRevisionCutoverDescriptor` | 在镜像外可信绑定两侧修订、制品、镜像、语义差异、验证收据与迁移策略的切换输入。                                                   |
 | 运行时快照           | runtime snapshot                       | —                                  | 绑定规范制品与路网修订、记录规范制品及原始静态镜像摘要与精确长度，并可借助稳定身份索引在兼容镜像上恢复的每世界可变状态存档制品。 |
 | 快照局部标识         | snapshot-local identity                | —                                  | 只在一个运行时快照内稳定、用于重建动态实体引用且不复用原进程句柄的持久键。                                                       |
 | 输入命令序列         | input command sequence                 | —                                  | 按规范顺序驱动世界、可与检查点共同重放的显式外部命令流。                                                                         |
@@ -209,6 +210,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 布局                 | layout                                 | —                                  | 表、字段、偏移量、对齐和节的确定性字节组织方式。                                                                                 |
 | 版本轴               | version axis                           | —                                  | 只描述一个独立兼容维度、不能与其他维度混用的版本字段。                                                                           |
 | 构建与目标选择器     | build and target selector              | —                                  | 选择构建工具、目标平台或封闭配置档的字段；不是协议版本。                                                                         |
+| 封闭种类选择器       | closed kind selector                   | —                                  | 选择版本化封套的封闭种类及必需字段集合；不是协议版本。                                                                           |
 | 内容身份与长度绑定   | content identity and length binding    | —                                  | 以摘要和精确字节长度共同认证目标对象、或以语义修订标识认证规范内容的外部绑定字段。                                               |
 | 镜像头               | image header                           | header                             | 声明魔数、布局、目标、配置档和来源沿袭的镜像起始结构。                                                                           |
 | 魔数                 | magic                                  | `"LFID"` 等                        | 用固定字节区分协议或制品类型的标记。                                                                                             |
@@ -267,7 +269,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 镜像节掩码         | image section mask              | `sectionMask`                  | 必须与所选封闭配置档的节集合精确一致的位集合。                                                                    |
 | 静态镜像描述符     | static image descriptor         | `StaticImageDescriptor`        | 位于镜像字节外、绑定路网修订标识、规范制品/镜像/完整性清单/收据各自摘要与精确长度、版本、目标、配置档和工具的值。 |
 | 可信描述符         | trusted descriptor              | —                              | 经认证且与路网修订标识、每个目标对象的摘要和精确长度、版本、目标平台、配置档及验证收据绑定的外部描述符。          |
-| 验证收据           | validation receipt              | —                              | 记录独立制品验证、路网修订标识重算和独立镜像摘要/长度重建比对成功结果的可审计制品。                               |
+| 验证收据           | validation receipt              | `ValidationReceiptEnvelope`    | 以独立格式版本和封闭种类绑定受检对象与必需成功证据的可审计制品。                                                  |
 | 发布清单           | publication manifest            | —                              | 对制品集合、外部描述符、摘要和真实性进行发布级绑定的清单。                                                        |
 | 信任锚             | trust anchor                    | —                              | 位于待验证对象之外、由签名、认证资产链或固定摘要提供的可信依据。                                                  |
 | 未验证镜像字节     | unverified image bytes          | `UnverifiedImageBytes`         | 尚未完成结构与外部信任绑定的任意输入字节。                                                                        |

@@ -185,7 +185,10 @@ frame declaration。新增 kind 只 append registry revision；修改既有 kind
 规范发布描述符（Canonical Publication Descriptor）
 `CanonicalPublicationDescriptor` 对完整 portable artifact bytes 绑定
 `canonicalArtifactDigest + canonicalArtifactByteLength`，并以
-`sourceMapDigest + sourceMapByteLength` 绑定完整 `SourceMapEnvelope` exact bytes。
+`sourceMapDigest + sourceMapByteLength` 绑定完整 `SourceMapEnvelope` exact bytes，
+同时认证 `canonical-publication-v1` 收据的
+`validationReceiptFormatVersion + validationReceiptKind + validationReceiptDigest +
+validationReceiptByteLength`。
 源映射封套绑定单份制品摘要与编译来源沿袭；语义差异封套绑定旧/新制品摘要、精确
 长度和路网修订；静态镜像引用其来源制品摘要，并另外由外部 descriptor 绑定
 target/profile-specific `staticImageDigest + staticImageByteLength`。任何输出失败，
@@ -321,6 +324,7 @@ steady tick。Spatial section 可以按 closed profile 从 headless/server image
 - `staticImageIntegritySchemeVersion`
 - `sourceMapFormatVersion`
 - `semanticDiffFormatVersion`
+- `validationReceiptFormatVersion`
 - `networkRevisionCutoverDescriptorVersion`
 - `migrationPolicyVersion`
 - `executionConstraintVersion`
@@ -334,6 +338,10 @@ steady tick。Spatial section 可以按 closed profile 从 headless/server image
 - `compilerBuildId`
 - `validatorBuildId`
 - `targetTriple`
+
+封闭种类选择器（Closed Kind Selectors）：
+
+- `validationReceiptKind`
 
 内容身份与长度绑定（Content Identity and Length Bindings）：
 
@@ -378,7 +386,8 @@ count/range limits 作为后续第二道防线，不能替代 pre-hash byte boun
 `canonicalArtifactDigest + canonicalArtifactByteLength`、
 `staticImageIntegritySchemeVersion +
 staticImageIntegrityManifestDigest + staticImageIntegrityManifestByteLength` 与
-`validationReceiptDigest + validationReceiptByteLength`；Runtime 不读取 artifact /
+`validationReceiptFormatVersion + validationReceiptKind +
+validationReceiptDigest + validationReceiptByteLength`；Runtime 不读取 artifact /
 receipt 时只比较已认证绑定，validator、publisher 或审计消费者读取时仍必须执行统一
 的 pre-hash 长度上限和 bounded-reader 规则。
 
@@ -394,7 +403,8 @@ receipt 时只比较已认证绑定，validator、publisher 或审计消费者�
 `CanonicalPublicationDescriptor` 认证上述配对及
 `canonicalArtifactDigest + canonicalArtifactByteLength`、
 `sourceMapDigest + sourceMapByteLength` 与
-`validationReceiptDigest + validationReceiptByteLength`。消费者先认证小型
+`validationReceiptFormatVersion + validationReceiptKind +
+validationReceiptDigest + validationReceiptByteLength`。消费者先认证小型
 descriptor，再执行统一的 pre-hash 长度预检，并要求 descriptor、source-map
 envelope 与已验证 portable artifact 的 artifact/revision/provenance 字段全部精确
 相等。记录级 StableId/ordinal key 只能在该配对成功后查找；任何错配以
@@ -436,7 +446,9 @@ canonical artifact 不变时因布局或 CPU target 变化而重建。
    前像独立编码并重算每个 BLAKE3-128 `StableId128`，验证 parent anchor、duplicate
    tuple 与 digest collision；不得调用 compiler semantic validation，也不得依赖
    source map 补齐身份字段；
-3. **Validation receipt / external descriptor**：绑定路网修订标识、
+3. **验证收据封套（Validation Receipt Envelope）/外部描述符（External
+   Descriptor）**：以独立 `validationReceiptFormatVersion` 和封闭
+   `validationReceiptKind` 绑定路网修订标识、
    artifact/image/完整性清单/source-map digest 与各自 exact byte length、完整性
    scheme、target、profile、constraint、compiler/validator build 与 compilation
    provenance；其 authenticity 由签名 publication manifest、宿主认证 asset chain
@@ -457,7 +469,16 @@ Published trusted image 必须匹配外部 descriptor；local build 必须绑定
 independent validation receipt；untrusted external input 必须提供 portable artifact
 并在本地验证/重建，只有 image bytes 时拒绝。
 
-Validation receipt 必须记录 artifact semantic validation（包括全部稳定身份独立
+每份验证收据必须使用 `ValidationReceiptEnvelope`，内含
+`validationReceiptFormatVersion + validationReceiptKind + validatorBuildId +
+subjectBindings + checkResults`，且不得内嵌自己的摘要。外部描述符在读取收据前必须
+认证同一版本、种类、摘要和精确长度；未知或错配版本/种类失败关闭，不能用
+`validatorBuildId` 推断 wire format。v1 收据种类封闭为
+`canonical-publication-v1`、`static-image-v1` 与 `revision-cutover-v1`，分别要求
+source-map 闭合、独立镜像重建或完整语义差异验证的对应受检对象绑定和成功证据，不得
+互相替代。
+
+`static-image-v1` 收据必须记录 artifact semantic validation（包括全部稳定身份独立
 重算）、路网修订标识独立重算与 independent image rebuild comparison 的成功结果。
 缺失 / 篡改身份前像或声明 ID 不匹配时必须失败，未完成三者时不得签发可进入
 production fast path 的 descriptor。运行时当前修订只来自已认证
@@ -588,7 +609,9 @@ static image digest/length、base/target 路网修订标识、
 `baseCanonicalArtifactByteLength` / `targetCanonicalArtifactByteLength`、
 `semanticDiffFormatVersion + semanticDiffDigest + semanticDiffByteLength`、
 migration policy version 与
-`validationReceiptDigest + validationReceiptByteLength`。Runtime 先认证该小型
+`validationReceiptFormatVersion + validationReceiptKind +
+validationReceiptDigest + validationReceiptByteLength`，其中种类必须是
+`revision-cutover-v1`。Runtime 先认证该小型
 descriptor，再按调用方上限和统一 pre-hash 规则有界读取 semantic diff；随后核对其
 base/target revision/artifact/image 三元组与两个可信 image descriptor 精确一致，
 再以旧/新 `StaticIdentityIndex` 复核全部映射。未绑定或验证的 diff 只能用于诊断，
