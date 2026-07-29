@@ -25,9 +25,11 @@ Scenario v2.0，并拆成两个不能互相冒充的稳定 workload：
   lifecycle observation。
 
 两个 workload 都是 current `CoreWorld` 的道路机动车特化，统一声明
-`execution_domain=road_motor_vehicle`。本文无下标的 `N_individual`、`N_active`、
-`N_intent` 与 `N_presented` 都是该单域 shorthand；不能将结果解释为非机动车、
-行人或轨道交通能力。
+`execution_domain=road_motor_vehicle`。#291 G1 与性能基线状态原子化更新前，本文
+继续使用 #215 Accepted 的 current 五项计数字段；无下标的 `N_individual`、
+`N_traffic_active`、`N_intent`、`N_presented` 与 `N_aggregate` 都是道路机动车
+计数，不能将结果解释为非机动车、行人或轨道交通能力。六项分执行域字段只属于
+#291 Proposed 目标，不能提前改写本 Accepted workload。
 
 旧的 `LF-REAL-LUST-v1` 在任何 artifact 或 benchmark result 产生前退役。不得用
 旧 ID 生成新结果，也不得把两个新 workload 的结果合并回旧 ID。
@@ -357,8 +359,7 @@ validation 失败均使 workload 构造失败；不能修改 pitch、时间窗�
 - warm-up 和 observation 内不执行 spawn、despawn、replace 或 Parking command；
 - remaining-time 条件必须保证完整 protocol 内不产生 Completed；
 - 每个 successful pre/post-step 精确满足
-  `N_individual=10000`、`N_active=10000`、`N_aggregate_records=0`、
-  `N_aggregate_equivalent=0`；
+  `N_individual=10000`、`N_traffic_active=10000`、`N_aggregate=0`；
 - 任一 Completed、人口变化、caller mutation、overlap 或 unexpected status change
   都使 round 无效。
 
@@ -436,7 +437,7 @@ recycle、不 despawn、不补位。
 
 release phase 固定为 112,500 ticks（1,800 s）。随后 drain phase 最多运行
 112,500 ticks，或在
-`N_demand_pending=0 && N_spawn_blocked=0 && N_active=0`
+`N_demand_pending=0 && N_spawn_blocked=0 && N_traffic_active=0`
 时提前结束。到达 drain 上限时仍 blocked 的 records 继续保留在
 `DemandPending`，其完整 caller state 必须进入 final replay digest；不得把它们当作
 已回放或静默丢弃。每 tick 必须报告：
@@ -445,16 +446,15 @@ release phase 固定为 112,500 ticks（1,800 s）。随后 drain phase 最多�
 - `N_demand_pending`；
 - `N_spawn_blocked`；
 - `N_individual`；
-- `N_active`；
+- `N_traffic_active`；
 - `N_completed`；
 - `N_presented`；
-- `N_aggregate_records=0`；
-- `N_aggregate_equivalent=0`。
+- `N_aggregate=0`。
 
 每个 pre/post-step boundary 还必须满足
 `N_source_total = N_demand_pending + N_individual = 10000`、
 `N_spawn_blocked <= N_demand_pending` 和
-`N_individual = N_active + N_completed`；任何 record 无 owner、重复 owner
+`N_individual = N_traffic_active + N_completed`；任何 record 无 owner、重复 owner
 或跨 owner 重复计数都是 fatal。
 
 DEMAND 不设置 active lower bound。1%/10%/50%/100% presentation rows 全部只是

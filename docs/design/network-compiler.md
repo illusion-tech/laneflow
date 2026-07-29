@@ -650,7 +650,9 @@ map/diagnostics、publication metadata、target、profile 或 image layout。这
 运行时可观察静态语义或参与派生的契约版本变化都会产生新修订。Compiler 在 LIR
 freeze 后计算该字段；independent validator 必须从 artifact semantic payload 独立
 重算并逐字节比较，不能信任 artifact 内自报的值。`canonicalArtifactDigest` 仍认证
-完整 artifact exact bytes，二者不得互相替代。
+完整 artifact exact bytes，外部 descriptor 以 `canonicalArtifactByteLength` 认证
+同一字节序列的精确长度；二者不得互相替代，也不得在长度上限预检前读取或 hash
+不可信 artifact。
 若 publication 或 cutover 同时观察到相同 `NetworkRevisionId` 对应不同
 `canonicalNetworkSemanticPayload` exact bytes，必须以
 `NetworkRevisionDigestCollision` 失败关闭；不得追加 ordinal、随机 salt 或 suffix。
@@ -676,17 +678,14 @@ StaticNetworkImage
   Optional: StaticSpatialImage
     frame/edge-aligned geometry tables
     flat points / cumulative arc / sampling ranges
-  Optional: WarmQueryTables
-  Optional: ColdDiagnostics
 ```
 
 v1 profile 是版本化 closed set，不允许调用方任意拼 feature bits：
 
-| `staticImageProfileId` | 必需节（Required Sections）                                                                                                       | 用途                                              |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `traffic-headless-v1`  | `StaticTrafficImage`, `StaticIdentityIndex`, `PartitionPlanningHints`                                                             | 服务器（Server）、测试、无图形宿主                |
-| `traffic-spatial-v1`   | `StaticTrafficImage`, `StaticIdentityIndex`, `PartitionPlanningHints`, `StaticSpatialImage`                                       | 引擎适配器（Adapter）、规范位姿（Canonical Pose） |
-| `traffic-debug-v1`     | `StaticTrafficImage`, `StaticIdentityIndex`, `PartitionPlanningHints`, `StaticSpatialImage`, `WarmQueryTables`, `ColdDiagnostics` | 编辑器（Editor）、诊断、调试绘制（Debug Draw）    |
+| `staticImageProfileId` | 必需节（Required Sections）                                                                 | 用途                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `traffic-headless-v1`  | `StaticTrafficImage`, `StaticIdentityIndex`, `PartitionPlanningHints`                       | 服务器（Server）、测试、无图形宿主                |
+| `traffic-spatial-v1`   | `StaticTrafficImage`, `StaticIdentityIndex`, `PartitionPlanningHints`, `StaticSpatialImage` | 引擎适配器（Adapter）、规范位姿（Canonical Pose） |
 
 设计约束：
 
@@ -699,7 +698,7 @@ v1 profile 是版本化 closed set，不允许调用方任意拼 feature bits：
   static image 只保留上述 `StaticIdentityIndex`，不复制 field-tag/value 前像，生产
   Runtime 因而不为验证元数据承担 retained memory 或 cache 成本；
 - 身份索引可以独立分页、按需映射或在 steady tick 期间不驻留 CPU cache，但不得与
-  `ColdDiagnostics` 一起从 production profile 裁掉；
+  其他冷数据一起从 production profile 裁掉；
 - `sectionMask` 必须与 profile 的 closed section set 精确匹配；缺失、额外或未知
   section 均 fail closed，调用方不能通过 feature bits 组合新 profile；
 - Spatial section 存在时必须完整覆盖 v1 所需 edge，并与 Traffic 共享 canonical edge
@@ -707,13 +706,60 @@ v1 profile 是版本化 closed set，不允许调用方任意拼 feature bits：
 - shared immutable bytes，多 `TrafficWorld`/Spatial session 复用；
 - 静态执行约束对工作线程数中立；v1 配置档保留提示节以让镜像字节闭合确定，
   运行时可以忽略或重新派生提示，但不得保存最终分配；
-- hot/warm/cold 分段，profile 可裁剪 Spatial/diagnostic/debug data，但不能裁剪
-  恢复和切换所需的 `StaticIdentityIndex`；
+- hot/warm/cold 分段，profile 可以裁剪 Spatial，但不能裁剪恢复和切换所需的
+  `StaticIdentityIndex`；v1 不定义泛型 `WarmQueryTables`、`ColdDiagnostics` 或
+  `traffic-debug-v1`，低频查询若是运行时必需能力必须进入对应 required typed section，
+  显示名、规范身份前像、来源位置和诊断文本继续由 portable artifact、source map 与
+  diagnostics artifact 外置提供；
 - 顶层 section byte offset/length 使用 checked `u64`；table row ordinal、count 和
   hot relation range 使用 checked `u32`，不保存原生指针；
 - verifier 完成后 view 的高频索引是 O(1) 或连续 range traversal；
 - schema/Serde/object graph 不是 static image ABI；
 - 具体 archive/zero-copy library 由安全审计和 benchmark 决定。
+
+生产完整性验证不要求每次启动串行读取完整镜像。镜像外的静态镜像完整性清单
+（Static Image Integrity Manifest）`StaticImageIntegrityManifest` 采用版本化、
+确定性的平面分块表（Flat Chunk Table）：
+
+```text
+staticImageIntegritySchemeVersion
+staticImageDigest
+staticImageByteLength
+integrityChunkSize
+integrityChunkCount
+chunks[] = (chunkOrdinal, byteOffset, byteLength, sha256)
+sectionChunkRanges[]
+```
+
+v1 以 SHA-256 认证每个分块（Chunk）；分块按镜像精确字节的连续偏移量顺序完整
+覆盖，不存在缺口、重叠或零长度。镜像头、节目录与每个必需节的分块覆盖必须闭合。
+`integrityChunkSize` 不是发布者可任意选择的性能旋钮：v1 由已认证的
+`constraintSetVersion + staticImageProfileId + staticImageIntegritySchemeVersion`
+唯一确定，并由独立镜像重建器复核；具体大小由实现 G1 在最低产品硬件上基准后写入
+对应约束集，不改变镜像布局版本。清单自身继续受固定调用方上限约束，不能用极小分块
+制造无界清单。
+清单不嵌入自己的摘要；`StaticImageDescriptor` 绑定
+`staticImageIntegrityManifestDigest + staticImageIntegrityManifestByteLength`。
+发布者（Publisher）与独立镜像重建器（Independent Image Builder）必须证明清单的
+有序分块、全镜像 `staticImageDigest + staticImageByteLength` 与同一最终镜像精确
+字节一致。
+
+v1 选择平面分块表而不是默克尔树（Merkle Tree）：外部信任锚会在打开大镜像前认证
+整份有固定上限的小型清单，当前产品路径不需要从不可信远端逐页取得证明；平面表已经
+支持节级随机验证与分块并行摘要，同时减少树节点、证明路径和校验器攻击面。若未来
+产品要求不下载完整清单的远端认证分页，应提升
+`staticImageIntegritySchemeVersion` 并定义新方案，不能原地改变 v1 摘要构造。
+
+生产加载先认证描述符与清单，再验证镜像头/节目录及构造目标有类型视图所需的全部
+分块，随后执行这些节的有界结构/交叉索引验证。`TrafficWorld` 构造前必须完成
+Traffic、identity 与 partition-hint 必需节；Spatial session 构造前再完成
+`StaticSpatialImage` 的分块与 Traffic shared-edge 验证。未验证分块不得暴露给有
+类型视图；分块验证不进入 fixed-tick 或 pose 热路径。宿主可以并行预先验证
+（Eager Verification）全部分块，也可以让未请求的 Spatial/冷页采用后台验证
+（Background Verification）
+或延迟验证（Lazy Verification），但不能把“描述符已认证”
+误写成“任意镜像字节已可信”。完整镜像 SHA-256 继续服务发布身份、独立重建和显式
+完整审计（Full Audit），不再是每次生产启动建立 Traffic view 的强制串行步骤。
 
 相同 portable artifact 的不同 target/profile variant 共享
 `canonicalArtifactDigest` 与 `NetworkRevisionId`，但各自拥有不同
@@ -733,8 +779,12 @@ staticImageDescriptorVersion
 networkRevisionDerivationVersion
 networkRevision
 canonicalArtifactDigest
+canonicalArtifactByteLength
 staticImageDigest
 staticImageByteLength
+staticImageIntegritySchemeVersion
+staticImageIntegrityManifestDigest
+staticImageIntegrityManifestByteLength
 staticImageLayoutVersion
 staticImageProfileId
 sectionMask
@@ -747,6 +797,7 @@ identityRegistryRevision
 compilerBuildId
 validatorBuildId
 validationReceiptDigest
+validationReceiptByteLength
 ```
 
 `staticImageByteLength` 是 descriptor 所认证、参与 `staticImageDigest` 的原始未压缩
@@ -754,6 +805,16 @@ image bytes 的精确 `u64` 长度，不是 transport/container 的压缩长度�
 签发者必须从最终 exact bytes 记录 digest + length；validation receipt 和 independent
 image rebuild comparison 同时绑定二者。若分发层使用压缩，压缩输入另受宿主上限，
 解压器的输出上限必须预设为 `staticImageByteLength`，不得先无界解压再核对。
+`canonicalArtifactByteLength` 与 `validationReceiptByteLength` 分别认证该
+descriptor 所引用的 portable artifact 和 validation receipt exact bytes；需要读取
+这些对象的 validator、publisher 或审计消费者必须在任何线性工作前执行同一套调用方
+上限、地址空间、O(1) 已知长度 / checked length+1 unknown-stream 预检。Runtime 若
+不读取它们，可以只比较已认证绑定，不得据此省略发布和验证路径的长度契约。
+`staticImageIntegrityManifestDigest + staticImageIntegrityManifestByteLength`
+认证 §8.2 的完整性清单 exact bytes；加载器必须先认证 descriptor，再以调用方
+`maxStaticImageIntegrityManifestBytes` 对清单执行同样的 pre-hash 长度预检。清单
+中的 image digest、长度、scheme version 与 section coverage 必须与 descriptor 和
+image header 的待核对声明精确相等，任何不一致都不能建立 section trust。
 
 descriptor 可以由签名 publication manifest、宿主已认证 asset/package manifest 或
 应用内 pinned digest 提供。Image header 内的
@@ -765,7 +826,12 @@ Trusted descriptor 的签发前置条件是：portable artifact 已通过 indepe
 semantic validator，且不复用 compiler emitter 的 independent image rebuild 在相同
 target/layout/profile 下产生相同 exact bytes digest + length。Validation receipt
 必须记录这两项成功证据，并绑定 independent validator 重算所得的
-`networkRevisionDerivationVersion + networkRevision + canonicalArtifactDigest`。
+`networkRevisionDerivationVersion + networkRevision`、
+`canonicalArtifactDigest + canonicalArtifactByteLength` 与
+`staticImageDigest + staticImageByteLength`，并记录
+`staticImageIntegritySchemeVersion +
+staticImageIntegrityManifestDigest + staticImageIntegrityManifestByteLength` 已与
+同一 independent rebuild exact bytes 闭合。
 `TrustedStaticImage` 只从已认证 descriptor 获得修订标识；调用方参数、image header
 或未验证 artifact 均不能另行指定运行时当前修订。
 
@@ -812,12 +878,14 @@ canonicalPublicationDescriptorVersion
 networkRevisionDerivationVersion
 networkRevision
 canonicalArtifactDigest
+canonicalArtifactByteLength
 sourceMapFormatVersion
 sourceMapDigest
 sourceMapByteLength
 compilerBuildId
 validatorBuildId
 validationReceiptDigest
+validationReceiptByteLength
 ```
 
 `sourceMapDigest` 是完整 `SourceMapEnvelope` exact bytes 的 SHA-256，
@@ -825,7 +893,9 @@ validationReceiptDigest
 bytes 记录 digest + length；canonical publication 不允许用空摘要、空记录或缺失字段
 伪装已绑定 source map。Independent validator 必须检查 envelope 版本、所有 row /
 ordinal / owner-local key 对已验证 artifact 闭合，并让 validation receipt 同时绑定
-artifact/revision 与 source-map digest + length。
+artifact/revision 与 artifact/source-map digest + length。Descriptor 也必须从最终
+validation receipt exact bytes 记录其 digest + length，不能先读取无界 receipt 再
+核对摘要。
 Descriptor 的真实性必须来自签名 publication manifest、受信任 CI provenance 或
 应用内 pinned digest，不能由 source-map envelope 自报。
 消费者必须先认证有固定小上限的 descriptor，再按与 8.3 相同的 O(1) 已知长度或
@@ -912,19 +982,21 @@ external ID join。Pose batch 仍遵守 ADR 0015 的 canonical f32、frame token
 
 加载 API 区分三种状态，不能把 structural verification 命名为 trusted：
 
-1. `UnverifiedImageBytes`：任意调用方提供的 bytes；
-2. `StructurallyVerifiedImage`：通过 bounded structural verifier，只证明 view 可安全
-   构造和全部 runtime precondition 成立；
-3. `TrustedStaticImage`：结构验证之外，`staticImageDigest`、`canonicalArtifactDigest`、
-   target/profile/constraint 与 image 外部的受信任 descriptor/validation receipt
-   匹配。
+1. `UnverifiedImageBytes`：任意调用方提供的字节；
+2. `StructurallyVerifiedImage`：目标节已通过有界结构校验器，只证明对应视图可安全构造
+   且全部运行时前置条件成立；它不证明字节属于受信任发布；
+3. `TrustedStaticImage`：在目标节的结构验证之外，已认证描述符与完整性清单、逐分块
+   核对目标节摘要，并匹配
+   `canonicalArtifactDigest + canonicalArtifactByteLength`、目标/配置档/约束与验证
+   收据；它只能暴露已经完成分块与结构验证的有类型节视图，不能把未验证节提升为可信。
 
 Production `TrafficWorld`/Spatial 只从 `TrustedStaticImage` 拆出 view。允许三条
 显式路径：
 
-- **published trusted**：认证 descriptor + image bytes -> digest/profile/target
-  比对 -> structural verifier -> trusted view；实际固定顺序是先认证小型 descriptor，
-  再执行下述 byte-length preflight，之后才读取 / 解压 / 分配 / hash image；
+- **published trusted**：认证 descriptor 与完整性清单 -> image/profile/target
+  比对 -> 目标节分块验证 -> 结构校验器 -> 节范围可信
+  view；实际固定顺序是先认证两个有界小对象，再执行下述 byte-length preflight，
+  之后才读取 / 解压 / 分配或 hash 对应 image bytes；
 - **local validated build**：portable artifact 先通过 independent validator，再由
   compiler builder 与 independent image builder 生成同 target/layout/profile
   image；digest + exact length 相等后生成与本次构建绑定的 receipt，或直接采用 independent
@@ -935,7 +1007,9 @@ Production `TrafficWorld`/Spatial 只从 `TrustedStaticImage` 拆出 view。允�
 所有 image 路径在任何与输入长度成正比的工作前都执行失败关闭的镜像长度预检
 （Image-length Preflight）：
 
-1. 先认证并解析有固定小上限的 `StaticImageDescriptor`，检查
+1. 先认证并解析有固定小上限的 `StaticImageDescriptor`，再按 descriptor 绑定的
+   exact length 和 `maxStaticImageIntegrityManifestBytes` 有界读取并认证完整性清单；
+   检查
    `staticImageByteLength` 非零、可转换为当前地址空间长度，且不超过 caller /
    process 的 `maxStaticImageBytes`；任一失败时不得打开大对象、分配、解压或 hash；
 2. 对 buffer、mmap 或已打开 asset blob，使用 O(1) 长度与 descriptor exact length
@@ -943,12 +1017,24 @@ Production `TrafficWorld`/Spatial 只从 `TrustedStaticImage` 拆出 view。允�
    预检后再重新打开另一个对象；
 3. 对无法 O(1) 获得长度的 stream，只允许 bounded reader 最多消费
    checked `staticImageByteLength + 1` bytes；必须恰好读到声明长度并确认无追加
-   byte，hash 只覆盖该 exact sequence，不能先收完整 stream 再判断；
+   字节；分块校验器只覆盖清单声明的精确区间，不能先收完整流再判断；
 4. transport compression 同时受压缩输入上限和解压输出 exact-length 上限；truncated、
    appended、oversized 或 decompression-overrun 均在构造 image view 前拒绝；
-5. preflight 后才比较 `staticImageDigest`、核对 header/profile/target 并执行 bounded
-   structural verifier。Verifier 内的 section/entity/point limits 仍保留为第二道
-   防线，不能替代 pre-hash byte bound。
+5. 预检后才核对镜像头/配置档/目标，验证构造目标视图所需的全部分块，
+   并执行有界结构校验器；全镜像 `staticImageDigest` 可以在
+   发布、独立重建、显式完整审计或宿主预先验证（Eager Verification）策略中复核，但
+   production section view 不要求每次启动先串行 hash 未消费 section。Verifier 内的
+   section/entity/point limits 仍保留为后续防线，不能替代 pre-hash byte bound。
+
+`TrustedStaticImage` 是绑定整份 descriptor 的能力对象，不代表其所有 section 已被
+读取。实现必须维护不可伪造的 section verification state；请求新的 Spatial view 时
+先完成该节的分块与交叉索引验证。尚未认证的页不能通过内存映射、裸切片、
+调试接口或后台任务泄漏给 Runtime/Spatial。完整性清单查找与分块摘要只出现在
+加载/首次挂载边界，不进入 fixed-tick、位姿采样或逐参与单元访问路径。
+分块验证与有类型视图还必须绑定同一个不可变字节背板（Immutable Byte Backing）。
+若文件系统、Mod 包或资产 API 不能保证已打开对象在视图生命周期内不可替换且不可
+原地改写，加载器必须把已验证分块复制并封存到只读拥有存储，或拒绝建立可信视图；
+验证路径元数据后重新打开、验证后映射另一对象或允许可写别名均不构成信任。
 
 ### 9.4 有界结构校验器（Bounded Structural Verifier）
 
@@ -994,6 +1080,38 @@ image header 的可选自证字段。
 改变已提交状态、事件或安全结果。本设计不冻结固定边界邻域、分区算法、任务运行库、
 固定点或精确累加器；这些选择必须由热点、误差和基准证据裁决。
 
+“唯一规范归约权威（Canonical Reduction Authority）”定义唯一结果与规范顺序，
+不等同于“一个组件只能由一个物理线程串行执行”。实现可以依据资源依赖图的强连通
+分量（Strongly Connected Component，SCC）、凝聚有向无环图（Condensation Directed Acyclic Graph，Condensation DAG）、
+资源分段和无依赖波次，把同一连接组件拆成确定性并行任务；各段按稳定键局部归约，
+再以固定合并树或等价的规范算法合成同一结果。不可进一步分解的 SCC 可以采用内部
+并行算法，但必须继续满足 worker/partition 置换等价，不得通过额外 tick 延迟或改变
+冲突语义换取吞吐。当前集中式组件合并只保留为精确参考预言机（Exact
+Reference Oracle），不能未经工作量/跨度证据直接成为 production 架构。
+
+运行时必须区分归约工作量（Reduction Work）与归约跨度（Reduction Span），至少
+报告提案/声明数、连接组件数、SCC 数、最大组件与最大 SCC 的提案占比、凝聚 DAG
+临界路径深度、稳定合并层数、归约工作量/跨度比和各阶段屏障等待。令当前 tick 的提案
+数为 `P_T`、资源声明数为 `C_T`、被触及资源/SCC 数为 `A_T`、被访问依赖弧数为
+`E_T`；production fast path 的目标工作量是
+`O(P_T + C_T + A_T + E_T)`，临时内存是 `O(P_T + C_T + A_T)`，不得每 tick 扫描
+完整世界、完整静态组件或全部未激活资源。实现应以有类型资源序号预分桶、固定宽度
+稳定键的确定性基数/桶排序和复用工作线程缓冲，只遍历当前固定步进的活跃依赖前沿；
+静态依赖部分可以预编译结构上界，前车链等动态依赖则必须按活跃有类型序号增量组装，
+不能错误套用静态 SCC。全局比较排序可以保留在精确参考预言机，不是生产默认。若某一
+行为域确实需要完整组件状态，必须单独记录该项工作量和跨度，不能隐入常数。
+
+信号协调、冲突区链、排队溢流与长前车链能否形成城市核心区巨型组件必须由中国特色
+城市工作负载实证，而不是预设一定可分或一定不可分。#220 负责生产分区/归约设计与
+基准，#72 保留研究证据根；若单大型世界的有效并行度受上述跨度限制，必须回到 G1
+修订执行约束，不能只增加工作线程数。
+
+提案、声明、归约与提交是逻辑阶段，不要求在单 worker 路径物化通用队列、任务图或
+真实 barrier。允许提供融合单工作线程执行器（Fused Single-worker Executor）：
+它在同一遍历中生成并立即消费可规范确定的局部记录，但必须产生与显式参考路径完全
+相同的提交状态、事件、错误和规范顺序。确定性契约约束可观察语义，不强制为没有并发
+竞争的执行器支付无意义的调度脚手架。
+
 ### 9.6 不可变路网修订与镜像切换
 
 目标静态镜像代表一个路网修订。结构性道路编辑重新进入权威来源模块图、增量编译、
@@ -1015,30 +1133,71 @@ networkRevisionCutoverDescriptorVersion
 baseNetworkRevisionDerivationVersion
 baseNetworkRevision
 baseCanonicalArtifactDigest
+baseCanonicalArtifactByteLength
 baseStaticImageDigest
+baseStaticImageByteLength
 targetNetworkRevisionDerivationVersion
 targetNetworkRevision
 targetCanonicalArtifactDigest
+targetCanonicalArtifactByteLength
 targetStaticImageDigest
+targetStaticImageByteLength
 semanticDiffDigest
+semanticDiffByteLength
 migrationPolicyVersion
 validatorBuildId
 validationReceiptDigest
+validationReceiptByteLength
 ```
 
 该描述符必须来自签名 publication manifest、宿主认证资产清单或 pinned digest；
 validation receipt 必须证明 independent validator 已针对两个 portable artifact
 重算并验证各自路网修订标识，且已验证或重算语义差异。描述符中的 base/target
-修订、制品摘要和镜像摘要必须分别与两个可信静态镜像的 descriptor 精确相等。
+修订、制品摘要/长度和镜像摘要/长度必须分别与两个可信静态镜像的 descriptor 精确
+相等。
 Runtime 仍须用两个 `StaticIdentityIndex` 核验每个稳定实体映射，不能让 diff 中的
 ordinal、数组位置或 compiler 私有顺序成为迁移权威。
 
-切换采用准备（Prepare）→提交（Commit）→回收（Retire）：
+准备切换时，Runtime/宿主先认证 cutover descriptor，再以
+`semanticDiffByteLength` 和调用方 `maxSemanticDiffBytes` 在解析、分配或 hash 前
+执行 O(1) exact-length / checked length+1 bounded-reader 预检；压缩传输同时限制
+压缩输入和解压输出。Base/target artifact 与 validation receipt 的审计/验证读取同样
+使用描述符绑定的 exact byte length 和相应调用方上限。任何 truncated、appended、
+oversized、length mismatch 或 digest mismatch 都在开始迁移事务前失败关闭。
 
-- 在 tick 外完成新 image trust/structure 检查、容量检查、状态迁移与候选世界构造；
-- 在 fixed-tick 安全边界只原子切换 image/state binding；
-- 旧 image 在全部借用快照、Pose batch、Adapter token/epoch 退出后回收；
-- 任一准备或提交失败都保持旧 image/state，不暴露半迁移结果。
+默认在线切换采用准备（Prepare）→增量追赶（Delta Catch-up）→静默提交
+（Quiescent Commit）→回收（Retire）：
+
+1. **准备**：旧世界继续固定步进。Runtime 在基准提交边界 `B` 捕获只读已提交状态，
+   并在后台完成新镜像信任/结构、容量、稳定身份映射和结构性迁移；候选世界只是从
+   `T[B]` 派生的迁移副本，不得独立模拟目标修订上的未来固定步进、发出事件或接收
+   新的游戏命令；迁移策略要求的终止/重映射等切换事件只能形成未提交候选批次；
+2. **增量追赶**：从 `B` 起，旧世界每次原子提交同时向有界迁移增量日志（Migration
+   Delta Journal）追加规范的已提交动态状态变更、生命周期变化以及命令/事件游标；
+   控制器、预约、占用、动态通行定义与参与单元引用都必须闭合。候选只按受信任迁移
+   策略重解释这条已提交变更流（Committed Mutation Stream），不重新执行输入命令，
+   也不发布第二份行为结果或重复旧世界事件。后台按规范顺序追赶，直到落后量进入
+   提交预算。
+   日志容量、最大追赶轮次、后台 CPU/内存预算和对正常固定步进的干扰必须由调用方
+   策略限制；无法追上、日志溢出、迁移规则失败或目标失效时放弃候选，旧世界不受
+   影响；
+3. **静默提交**：在 `C` 的固定步进安全边界、下一固定步进读取输入之前短暂静默旧
+   世界，冻结命令游标并排空到最新 `T[C]` 的日志尾；Runtime 必须证明
+   `(candidateState[C], cutoverEvents[C]) = M(targetRevision, T_old[C], migrationPolicy)`
+   成立，其中 `M` 是受切换描述符绑定的
+   确定性迁移函数，`cutoverEvents[C]` 是按规范键排序且尚未对外可见的切换事件批次。
+   随后复核修订、身份、全部动态引用、输入/事件游标和候选状态摘要，再把镜像/状态
+   绑定与该事件批次作为同一原子提交只发布一次；新修订从 `C` 后的下一固定步进才开始
+   解释新输入。提交窗口不得重做全量迁移，停顿只包含有界尾部追赶、最终验证和原子
+   发布；
+4. **回收**：旧镜像/状态在全部借用快照、姿态批次、适配器 token/epoch 退出后回收。
+   提交前任一失败保持旧绑定且不得发布任何切换事件；原子发布后不得回滚到会重复
+   输入或事件的旧时间线。
+
+宿主可以显式选择维护暂停模式（Paused Maintenance Mode），在世界已经由上层暂停且
+玩家可感知该状态时一次性完成迁移；它不是生产在线编辑的隐式默认值。临时封闭等
+运行时覆盖层不应为避免该协议而伪装成静态修订。后继实现 G1 必须冻结日志
+记录模型、迁移策略和提交预算，但不得重新开放“准备期时间是否推进”这一时钟语义。
 
 ### 9.7 运行时快照、存档与回放
 
@@ -1046,7 +1205,9 @@ ordinal、数组位置或 compiler 私有顺序成为迁移权威。
 
 ```text
 canonicalArtifactDigest
+canonicalArtifactByteLength
 originStaticImageDigest
+originStaticImageByteLength
 runtimeSnapshotVersion
 runtimeVersion
 constraintSetVersion
@@ -1064,10 +1225,12 @@ runtime-owned random-stream state (future explicit G1 only)
 partition 或 worker assignment 不能成为恢复后身份或跨硬件行为权威。跨路网修订
 恢复必须显式迁移，不能把旧 dense ordinal 直接解释为新镜像实体。
 
-`canonicalArtifactDigest` 与版本化 `networkRevision` 是同修订恢复的静态语义权威；
-`originStaticImageDigest` 记录创建快照时的精确 target/profile image，供审计和
-同镜像快速恢复。恢复可以改用另一个已认证 target/profile image，但仅当它绑定相同
-canonical artifact、network revision、identity/constraint versions，且
+`canonicalArtifactDigest + canonicalArtifactByteLength` 与版本化
+`networkRevision` 是同修订恢复的静态语义权威；
+`originStaticImageDigest + originStaticImageByteLength` 记录创建快照时的精确
+target/profile image，供审计和同镜像快速恢复。恢复可以改用另一个已认证
+target/profile image，但仅当它绑定相同 canonical artifact、network revision、
+identity/constraint versions，且
 `StaticIdentityIndex` 能完整重建全部稳定静态引用时；否则失败关闭。该规则使快照
 不依赖 target-specific dense ordinal，同时仍保留原镜像的可审计来源。
 保存快照时，Runtime 必须从当前 `TrustedStaticImage` binding 复制
@@ -1094,6 +1257,11 @@ Traffic Runtime 从已提交状态导出已提交交通观测快照，不泄漏 
 做精确相等比较，并继续逐项验证候选稳定引用/拓扑；修订标识相等只证明缓存一致性，
 不替代候选内容验证。Runtime 对 revision mismatch 失败关闭，允许多旧的观测由
 Routing G1 冻结。
+观测导出必须同时支持按观测导出节奏（Observation Export Cadence）构造的完整基线和
+版本化增量/分区选择路径；
+“已提交快照”描述一致性时点，不等同于“每 tick 复制全网全部边状态”。Runtime 不得
+把上层成本模型吸入 fixed-tick，但必须为导出与候选注册边界提供可测量的条目数、字节、
+分配和耗时；Routing 也不能绕过 revision/tick 绑定直接读取 tick 中间数组。
 出行需求和路线选择策略属于城市游戏或出行编排层。#291 只冻结该职责边界，不提前
 冻结 `laneflow-routing` crate、算法或公共 API。
 
@@ -1144,6 +1312,14 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
 - oversized/truncated/appended image、descriptor length mismatch、unknown-length
   stream 与 decompression overrun 在 hash / 大分配前拒绝，并用读取 / hash byte
   counter 证明工作量不超过已认证 exact length 与 caller limit；
+- 伪造/截断/追加/超大完整性清单、重复/缺失/重叠分块、错误节
+  覆盖、篡改必需/延迟分块和清单/镜像/描述符摘要-长度错配
+  均失败关闭；未验证 Spatial 分块在并发后台验证完成前不能取得有类型视图；
+- 文件在长度预检后被替换、分块验证后被原地改写、只读视图存在可写别名或验证/映射
+  使用不同对象时均不能建立/维持可信视图；不可变背板与复制封存路径必须分别测试；
+- 对 canonical artifact、semantic diff 与 validation receipt 重复上述
+  oversized/truncated/appended、unknown-length stream、压缩输入/输出和 pre-hash
+  byte-counter 矩阵，不能只验证 static image/source map；
 - independent validator 重算路网修订标识、同一 artifact 的跨 target/profile
   修订标识相等，以及任一静态语义/派生版本变化的修订标识不等；
 - `traffic-headless-v1` 无 Spatial bytes、但包含完整 `StaticIdentityIndex` 的
@@ -1158,18 +1334,26 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
   未受信任 cutover descriptor 的拒绝测试；
 - current JSON path 与 target image path behavior/determinism/pose equivalence；
 - worker 数/partition plan 置换下 committed state、event 与确定性状态摘要等价；
-- 分区边界不引入额外一 tick 延迟，连接资源组件保持唯一规范归约权威；
+- 分区边界不引入额外一 tick 延迟，连接资源组件保持唯一规范归约权威，并比较
+  reference、融合单 worker 与多 worker 路径的状态/事件/错误逐位等价；
+- 在信号协调、冲突区链、排队溢流和长 leader 链 workload 下记录连接组件/SCC
+  分布、最大 SCC 提案占比、归约工作量/跨度、临界路径和实际 scaling；
 - 新路网修订验证、镜像切换失败原子性和稳定标识迁移；
-- 镜像切换准备阶段双修订峰值内存、提交停顿、失败回滚和旧 token 延迟回收；
+- 在线镜像切换的准备期 tick 干扰、迁移日志增长/溢出、追赶落后量、静默提交停顿、
+  双修订峰值内存、失败放弃、切换事件批次“放弃零发布/提交恰一次”及旧 token
+  延迟回收；维护暂停模式单独报告全停顿；
 - snapshot save/load、same-revision replay、cross-revision rejection/migration 与
   desynchronization diagnostics；
+- 完整性清单构建/认证、必需节预先验证（Eager Verification）、Spatial
+  延迟验证/后台验证（Lazy/Background Verification）和显式全镜像审计各自的墙钟耗时
+  （Wall Time）、读取字节、并行度与峰值分配；
 - startup wall time、peak allocation、retained static memory；
 - multi-world shared-static memory；
 - 一万/十万 Traffic Runtime tick 与 Spatial pose；
 
 ## 11. 版本、发布与供应链
 
-独立版本轴：
+契约版本轴（Contract Version Axes）：
 
 ```text
 authoringFormatVersion
@@ -1179,8 +1363,8 @@ identityEncodingVersion
 identityRegistryRevision
 networkRevisionDerivationVersion
 staticImageLayoutVersion
-staticImageProfileId
 staticImageDescriptorVersion
+staticImageIntegritySchemeVersion
 sourceMapFormatVersion
 semanticDiffFormatVersion
 networkRevisionCutoverDescriptorVersion
@@ -1189,25 +1373,47 @@ executionConstraintVersion
 partitionHintVersion
 runtimeSnapshotVersion
 constraintSetVersion
+```
+
+构建与目标选择器（Build and Target Selectors）：
+
+```text
+staticImageProfileId
 compilerBuildId
 validatorBuildId
 targetTriple
+```
+
+内容身份与长度绑定（Content Identity and Length Bindings）：
+
+```text
 networkRevision
 canonicalArtifactDigest
+canonicalArtifactByteLength
 staticImageDigest
+staticImageByteLength
+staticImageIntegrityManifestDigest
+staticImageIntegrityManifestByteLength
 sourceMapDigest
 sourceMapByteLength
 semanticDiffDigest
+semanticDiffByteLength
 validationReceiptDigest
+validationReceiptByteLength
 ```
 
 - authoring/canonical 历史迁移离线完成；
 - runtime exact-current/fail-closed，不在 production startup 迁移；
 - portable artifact immutable publication 继承 ADR 0011；
 - static image 可按同一 canonical digest 产生多个 target/profile variant；
-- `canonicalArtifactDigest`、`staticImageDigest`、`sourceMapDigest`、
-  `semanticDiffDigest` 与 `validationReceiptDigest` 均为 exact bytes 的 SHA-256，
-  不使用 entity identity digest 代替；
+- `canonicalArtifactDigest`、`staticImageDigest`、
+  `staticImageIntegrityManifestDigest`、`sourceMapDigest`、`semanticDiffDigest`
+  与 `validationReceiptDigest` 均为各自 exact bytes 的 SHA-256，不使用 entity
+  identity digest 代替；
+- 每个上述 digest 必须由受认证 external descriptor/manifest 同时绑定同一对象的
+  exact `u64` byte length；消费者在任何与输入大小成正比的读取、解压、分配、解析
+  或 hash 前，先检查调用方上限、地址空间与 exact length，未知长度 stream 只允许
+  checked length+1 bounded reader，不能用后验 digest mismatch 代替输入边界；
 - `networkRevision` 是带 `networkRevisionDerivationVersion` 与 domain separator
   的规范语义载荷 SHA-256，不是 artifact/image exact-bytes digest，也不进入
   steady tick hash 计算；
@@ -1217,6 +1423,18 @@ validationReceiptDigest
 - external descriptor/receipt 必须绑定路网修订标识、exact artifact、image、
   source map、相应 exact byte length、target、profile、constraint 和 tool builds；
 - runtime 不联网解析 schema、artifact 或 toolchain。
+
+上述调用方上限不是不可信对象中的自报字段。约束集或宿主策略必须分别提供并在
+任何线性工作前应用：
+
+| 目标对象           | 长度字段                                 | 调用方上限                             |
+| ------------------ | ---------------------------------------- | -------------------------------------- |
+| 规范制品           | `canonicalArtifactByteLength`            | `maxCanonicalArtifactBytes`            |
+| 静态镜像           | `staticImageByteLength`                  | `maxStaticImageBytes`                  |
+| 静态镜像完整性清单 | `staticImageIntegrityManifestByteLength` | `maxStaticImageIntegrityManifestBytes` |
+| 源映射             | `sourceMapByteLength`                    | `maxSourceMapBytes`                    |
+| 语义差异           | `semanticDiffByteLength`                 | `maxSemanticDiffBytes`                 |
+| 验证收据           | `validationReceiptByteLength`            | `maxValidationReceiptBytes`            |
 
 authoritative source module graph 是 authoring SSOT。Generated artifact 可以作为
 release/CI artifact 或为特定治理阶段 checked in，但只能由 compiler 生成并由
@@ -1238,13 +1456,15 @@ authority。
 - SoA/CSR/flat ranges；
 - typed dense `u32` handles/ranges，顶层 section byte offset/length 使用 `u64`；
 - precompiled candidate/occurrence/reverse indexes；
-- Traffic 与 `StaticIdentityIndex` mandatory，Spatial/diagnostic/debug
-  profile-controlled；
+- Traffic 与 `StaticIdentityIndex` mandatory，Spatial 由 closed profile 控制，
+  diagnostics 外置；
 - immutable image 共享、mutable arrays per world；
 - static execution constraints worker-count-neutral，最终执行计划 per world；
 - 执行计划公开聚合诊断指标：阶段耗时（Phase Cost）、分区负载（Partition Load）、
   边界交换量（Boundary Exchange Volume）、屏障等待（Barrier Wait）、负载偏斜、
-  迁移次数/成本；不公开内部可变容器或调度权威；
+  迁移次数/成本、连接组件/SCC 分布、最大 SCC 提案占比、归约工作量
+  （Reduction Work）、归约跨度（Reduction Span）与临界路径深度；不公开内部可变
+  容器或调度权威；
 - tick 不做 string/hash/path matching；
 - `NetworkRevisionId` 只在加载、注册动态通行定义、快照恢复和修订切换等冷边界比较，
   不进入逐交通参与单元 fixed-tick 状态或每 tick hash；
@@ -1257,10 +1477,26 @@ authority。
 
 - load latency、peak allocation、retained bytes，以及 `StaticIdentityIndex` 的共享
   retained bytes、按需映射延迟和双向 lookup latency；
+- 描述符/完整性清单认证、必需节预先验证（Eager Verification）、
+  Spatial 延迟验证/后台验证（Lazy/Background Verification）和显式全镜像审计的
+  读取量、墙钟耗时、
+  CPU 并行度与峰值分配；最低产品硬件必须分别 sizing，不能只报告高端 SHA-NI 主机；
 - 2/8/32 worlds 的 shared-static scaling；
-- 单个大型 world 的 worker/partition scaling、barrier、边界交换和负载偏斜；
-- 镜像切换的准备/提交/回收耗时、双修订峰值内存与借用 token 退休延迟；
-- 一万/十万 Traffic Runtime 与 Spatial 既有上限不得回退；
+- 单个大型 world 的 worker/partition scaling、barrier、边界交换、负载偏斜、
+  连接组件/SCC 分布、最大 SCC 提案占比、归约工作量/跨度和临界路径；生产候选必须
+  与集中式参考预言机（Reference Oracle）比较，并说明巨型组件下的有效并行度；
+- 当前直接路径、显式参考精确路径（Reference Exact Path）、融合单 worker 与多 worker
+  exact path 的阶段成本与端到端成本；融合优化必须通过状态/事件/错误等价证明，
+  不能以省略逻辑阶段破坏确定性；
+- 在线镜像切换的准备期 tick 干扰、迁移日志字节/记录/落后量、追赶轮次、静默提交
+  停顿、双修订峰值内存、放弃率和借用 token 退休延迟；维护暂停模式的完整停顿单列；
+- 运行时快照保存/加载（Save/Load）的制品大小、墙钟耗时、主线程停顿、后台 tick 干扰、峰值
+  内存、同修订回放与跨修订迁移；城市游戏存档场景不得只做功能等价；
+- 已提交交通观测快照的完整/增量（Full/Delta）导出条目数、字节、频率、墙钟耗时、分配和 tick
+  干扰，以及 Runtime 接收/验证动态成本快照和注册候选通行定义的成本；上层成本模型
+  构造算法不归 LaneFlow 所有，但边界成本必须测量，不能默认每 tick 全量导出全网；
+- 一万/十万 Traffic Runtime 与 Spatial 既有能力基线不得无解释回退；精确执行纪律
+  的成本与 SoA/CSR、融合执行器等收益分别报告，不以 baseline 数字单独否决终态契约；
 - 动态通行定义编译（Dynamic Traversal Compilation）不进入交通参与单元固定步进；
 - 中国特色城市工作负载（Chinese-style City Workload）的拓扑/需求/运行时指标由
   后继 G1 建立，不能用 `LF-SYNTH-v1`、LuST 或多世界集合静默代替；
@@ -1361,28 +1597,33 @@ Cutover 前必须证明：
 
 ## 15. 风险登记
 
-| 风险                                                                         | 结果                                             | 控制                                                         |
-| ---------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------ |
-| 编译器系统性缺陷（Compiler Systemic Bug）                                    | 批量污染全部资产                                 | 独立验证器、差分 / 模糊测试（Differential / Fuzz）、语义差异 |
-| 二进制校验器漏洞（Binary Verifier Vulnerability）                            | 不可信字节破坏内存安全                           | 基于偏移量的格式、加载限制、模糊测试 / `unsafe` 审计         |
-| 镜像头声明被误当作信任（Header-as-Trust）                                    | 恶意但结构合法的镜像绕过语义闸口                 | 外部描述符、验证收据、不可信重建                             |
-| 哈希前输入无界（Unbounded Input Before Hash）                                | 超大替换资产制造无界读取、解压、分配或摘要工作   | descriptor 绑定 exact length；O(1) / bounded-reader 预检     |
-| 未认证路网修订（Unauthenticated Network Revision）                           | 快照/路由绕过修订检查或兼容恢复误拒绝            | 语义载荷派生标识；descriptor/receipt/cutover 三重绑定        |
-| 中间表示泄漏运行时类型（IR Leaks Runtime Types）                             | 后端 / 目标被当前核心对象图锁死                  | 静态契约、目标中立 LIR、无环包依赖图                         |
-| 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效                   | 制品内规范身份表、独立重算、已知向量、变形测试               |
-| 源映射错配（Source Map Mispairing）                                          | 审阅或诊断静默指向旧来源文件 / 位置              | 版本化封套；发布描述符绑定 exact artifact、revision、digest  |
-| 边身份耦合可选角色（Edge Identity Coupled to Optional Role）                 | 未覆盖边无身份，或调整 overlay 造成伪删除 / 新增 | `LaneEdge` 独立稳定键；RoadSection/Junction 只保存关系       |
-| 增量 / 并行非确定性（Incremental / Parallel Nondeterminism）                 | CI / 发布字节漂移                                | 干净单线程预言机、稳定合并                                   |
-| 配置档边界错误（Profile Boundary Error）                                     | 无图形配置档携带几何，或交叉索引漂移             | 交通必需 / 空间可选矩阵、配置档测试                          |
-| 当前态 / 目标态双路径长期化（Current / Target Dual-path Permanence）         | 测试矩阵和语义漂移                               | 集成专用桥、明确移除责任人 / 切换闸口                        |
-| 来源 / 生成物双重事实源（Source / Generated Dual SSOT）                      | 手工修改与漂移                                   | 来源模块图权威、生成摘要 / 收据闸口                          |
-| 过早选择归档库（Premature Archive-library Choice）                           | ABI、安全或 MSRV 锁定                            | 先冻结契约，再做基准 / 审计                                  |
-| 最终分区进入共享镜像（Final Partition in Shared Image）                      | 地图与硬件/世界耦合，存档不可移植                | 静态约束 + 可重建提示 + 每世界执行计划                       |
-| 分区诱发行为延迟（Partition-induced Behavioral Delay）                       | 结果随 cut 改变                                  | 同 tick committed-state barrier 与置换等价测试               |
-| 原地修改静态镜像（In-place Static-image Mutation）                           | 摘要、共享、信任和确定性失效                     | 不可变路网修订 + 失败关闭镜像切换事务                        |
-| 生产配置档裁掉稳定身份索引（Production Profile Drops Stable Identity Index） | 快照、动态路线与跨修订映射无法恢复               | 全配置档必需冷索引；双向 round-trip；按需映射                |
-| 未受信任语义差异驱动迁移（Untrusted Semantic Diff Drives Migration）         | 篡改迁移、错误终止或状态错配                     | 外部切换描述符、双制品独立验证、身份索引复核                 |
-| 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）               | 静态契约与运行时执行能力长期不对称               | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环    |
+| 风险                                                                         | 结果                                                                       | 控制                                                         |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| 编译器系统性缺陷（Compiler Systemic Bug）                                    | 批量污染全部资产                                                           | 独立验证器、差分 / 模糊测试（Differential / Fuzz）、语义差异 |
+| 二进制校验器漏洞（Binary Verifier Vulnerability）                            | 不可信字节破坏内存安全                                                     | 基于偏移量的格式、加载限制、模糊测试 / `unsafe` 审计         |
+| 镜像头声明被误当作信任（Header-as-Trust）                                    | 恶意但结构合法的镜像绕过语义闸口                                           | 外部描述符、验证收据、不可信重建                             |
+| 哈希前输入无界（Unbounded Input Before Hash）                                | 超大替换资产制造无界读取、解压、分配或摘要工作                             | 所有 exact-byte 对象绑定 digest + length；有界 reader 预检   |
+| 未认证路网修订（Unauthenticated Network Revision）                           | 快照/路由绕过修订检查或兼容恢复误拒绝                                      | 语义载荷派生标识；descriptor/receipt/cutover 三重绑定        |
+| 中间表示泄漏运行时类型（IR Leaks Runtime Types）                             | 后端 / 目标被当前核心对象图锁死                                            | 静态契约、目标中立 LIR、无环包依赖图                         |
+| 标识漂移（Identity Drift）                                                   | 引用、语义差异、缓存和存档失效                                             | 制品内规范身份表、独立重算、已知向量、变形测试               |
+| 源映射错配（Source Map Mispairing）                                          | 审阅或诊断静默指向旧来源文件 / 位置                                        | 版本化封套；发布描述符绑定 exact artifact、revision、digest  |
+| 边身份耦合可选角色（Edge Identity Coupled to Optional Role）                 | 未覆盖边无身份，或调整 overlay 造成伪删除 / 新增                           | `LaneEdge` 独立稳定键；RoadSection/Junction 只保存关系       |
+| 增量 / 并行非确定性（Incremental / Parallel Nondeterminism）                 | CI / 发布字节漂移                                                          | 干净单线程预言机、稳定合并                                   |
+| 配置档边界错误（Profile Boundary Error）                                     | 无图形配置档携带几何，或交叉索引漂移                                       | 交通必需 / 空间可选矩阵、配置档测试                          |
+| 当前态 / 目标态双路径长期化（Current / Target Dual-path Permanence）         | 测试矩阵和语义漂移                                                         | 集成专用桥、明确移除责任人 / 切换闸口                        |
+| 来源 / 生成物双重事实源（Source / Generated Dual SSOT）                      | 手工修改与漂移                                                             | 来源模块图权威、生成摘要 / 收据闸口                          |
+| 过早选择归档库（Premature Archive-library Choice）                           | ABI、安全或 MSRV 锁定                                                      | 先冻结契约，再做基准 / 审计                                  |
+| 最终分区进入共享镜像（Final Partition in Shared Image）                      | 地图与硬件/世界耦合，存档不可移植                                          | 静态约束 + 可重建提示 + 每世界执行计划                       |
+| 分区诱发行为延迟（Partition-induced Behavioral Delay）                       | 结果随 cut 改变                                                            | 同 tick committed-state barrier 与置换等价测试               |
+| 依赖连通导致归约跨度膨胀（Dependency Connectivity Expands Reduction Span）   | 巨型 SCC 或长凝聚 DAG 成为单大型 world 的阿姆达尔瓶颈（Amdahl Bottleneck） | SCC/DAG 分解；归约工作量/跨度指标；#220 production 研究      |
+| 精确路径脚手架成本（Exact-path Scaffolding Cost）                            | 单 worker 相对当前直接路径显著回退                                         | 融合精确执行器；四路径分项基准；语义等价 Gate                |
+| 原地修改静态镜像（In-place Static-image Mutation）                           | 摘要、共享、信任和确定性失效                                               | 不可变路网修订 + 失败关闭镜像切换事务                        |
+| 在线迁移候选过期（Online Migration Candidate Staleness）                     | 切换遗漏准备期间的 tick/命令或重复事件                                     | 有界增量日志、追赶、静默提交、切换事件批次恰一次             |
+| 迁移准备干扰正常步进（Migration Prepare Interferes with Tick）               | 玩家改路导致持续抖动或延迟尖峰                                             | 后台预算、落后量/干扰 Gate、显式维护暂停模式                 |
+| 每次启动全镜像串行摘要（Whole-image Serial Hash on Every Startup）           | 城市级镜像加载受固定串行读取限制                                           | 认证分块清单；必需节预先验证；冷/Spatial 延迟验证            |
+| 生产配置档裁掉稳定身份索引（Production Profile Drops Stable Identity Index） | 快照、动态路线与跨修订映射无法恢复                                         | 全配置档必需冷索引；双向 round-trip；按需映射                |
+| 未受信任语义差异驱动迁移（Untrusted Semantic Diff Drives Migration）         | 篡改迁移、错误终止或状态错配                                               | 外部切换描述符、双制品独立验证、身份索引复核                 |
+| 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）               | 静态契约与运行时执行能力长期不对称                                         | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环    |
 
 ## 16. #291 G1 完成条件
 

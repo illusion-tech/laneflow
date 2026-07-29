@@ -106,14 +106,18 @@ initial/static occurrence 与 dense layout；target `LaneFlow Traffic Runtime`
 （`laneflow-runtime`）继续拥有 tick、已实现执行域的交通参与单元、动态通行定义
 （Dynamic Traversal Definition）和其他可变交通权威（Mutable Traffic
 Authority），Spatial 继续拥有位姿采样（Pose Sampling）。
-Production startup 只从外部 trusted
-descriptor/validation receipt 绑定并结构验证 static image，不解析 JSON、按 external
-ID rebind、重建 registry 或重复 Traffic/Spatial join。Traffic section 与冷
+生产启动只从外部可信描述符（Trusted Descriptor）/验证收据（Validation Receipt）
+认证版本化静态镜像完整性清单（Static Image Integrity Manifest），再对目标节完成
+分块（Chunk）完整性和有界结构验证；不解析 JSON、不按外部标识（External ID）重绑定、
+重建登记表或重复 Traffic/Spatial 联结。全镜像 SHA-256 保留为发布身份、独立重建与
+显式完整审计（Full Audit），不强制每次启动先串行读取未消费节。交通节与冷
 稳定身份索引（Static Identity Index，`StaticIdentityIndex`）必选；Spatial section
 由 closed profile 控制，headless
 Runtime 不携带 geometry。稳定身份索引不进入 steady tick，可由共享映射、压缩或按需
 分页控制内存成本，但任何 production profile 都不得删除它。目标职责和历史 ADR 的
 取代范围见 ADR 0020。
+分块验证和有类型视图必须共享不可变字节背板（Immutable Byte Backing）；宿主不能
+保证资产在视图生命周期内不可替换/改写时，必须复制封存已验证分块或拒绝建立可信视图。
 
 目标静态镜像必须保存编译器派生的静态执行约束图（Static Execution Constraint
 Graph）；v1 `PartitionPlanningHints` 节保存运行时可忽略或重建的分区规划提示
@@ -121,11 +125,20 @@ Graph）；v1 `PartitionPlanningHints` 节保存运行时可忽略或重建的�
 （Partition/Worker Assignment）。每个世界依据这些约束、硬件与动态负载建立自己的
 运行时执行计划（Runtime Execution Plan）。精确执行的所有分区只读取已提交状态
 `T`，在同一逻辑边界原子提交 `T + Δ`；不能因跨分区而额外延迟一 tick。互不相交的
-资源依赖组件可以并行归约，但每个连接资源组件必须有唯一、规范的归约权威。
+资源依赖组件可以并行归约，但每个连接资源组件必须有唯一、规范的归约权威。该权威
+定义唯一结果而非单一物理线程；生产方案必须用资源分段、强连通分量（Strongly
+Connected Component，SCC）、凝聚有向无环图（Condensation Directed Acyclic
+Graph，Condensation DAG）与稳定合并证明归约工作量/跨度（Reduction Work/Span），
+并以集中式组件归约作为精确参考预言机。
 
 静态也不等于城市永不变化：编译器每次产生不可变路网修订（Network Revision），
-运行世界只能在显式安全边界通过失败关闭的镜像切换事务（Image Cutover
-Transaction）原子迁移。语义差异不能自行授予迁移权限，必须由独立验证或外部可信的
+运行世界通过失败关闭的镜像切换事务（Image Cutover Transaction）迁移。默认在线
+流程在旧世界继续固定步进时准备候选，以有界迁移增量日志（Migration Delta
+Journal）记录已提交动态状态/生命周期变化及命令/事件游标，并让候选重解释这条
+已提交变更流；最后在安全边界的静默提交窗口（Quiescent Commit Window）排空日志尾
+并把新镜像/状态绑定与规范排序的切换事件批次原子地只发布一次。候选不得重新执行
+输入、独立推进未来时间线或产生第二份已提交事件；失败时不发布切换事件并继续旧修订。
+语义差异不能自行授予迁移权限，必须由独立验证或外部可信的
 路网修订切换描述符（Network Revision Cutover Descriptor）绑定，并用切换前后的
 稳定身份索引完成引用翻译。每个修订由 independent validator 从目标无关规范路网
 语义载荷（Canonical Network Semantic Payload）重算的路网修订标识（Network
@@ -249,15 +262,16 @@ Initial/static occurrence 由 compiler
 预编译，dynamic Route occurrence 仍由 Runtime 按 image index 编译，steady tick
 继续只使用 typed dense handle。
 
-运行时快照（Runtime Snapshot）是与 image bytes 分离的版本化制品，必须绑定
-canonical artifact digest、版本化路网修订标识、原始静态镜像摘要、运行时/约束
+运行时快照（Runtime Snapshot）是与镜像字节分离的版本化制品，必须绑定
+规范制品摘要与精确长度、版本化路网修订标识、原始静态镜像摘要与精确长度、运行时/约束
 版本、world identity、tick、输入命令游标和全部每世界可变状态；同一修订可以在
 契约版本兼容且
 `StaticIdentityIndex` 能完整重建引用时恢复到另一个可信 target/profile image，
 原始镜像摘要只作为审计绑定与同镜像快速路径。dense ordinal 不能跨路网修订直接复用。
 回放使用显式输入命令流、checkpoint 与确定性状态摘要，调试构建可通过冷诊断和源映射
-生成失同步诊断制品。路径规划读取已提交动态成本快照，不进入交通参与单元的
-fixed-tick 热路径。
+生成失同步诊断制品。交通运行时按观测导出节奏（Observation Export Cadence）导出
+完整基线或版本化增量/分区选择的已提交交通观测；路径规划据此构造动态成本快照，
+不进入交通参与单元 fixed-tick 热路径，也不要求每 tick 全量复制全网。
 
 `InitialTrafficData` 只表示可用于初始化 world 的已验证静态输入，当前包含 lane
 graph、Junction registry、compiled routes、Vehicle Profiles 与 immutable

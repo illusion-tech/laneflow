@@ -97,6 +97,11 @@ LaneFlow 的第一长期产品目标定义为：
 成本模型版本；Runtime 对修订不匹配的候选失败关闭，并继续验证候选稳定引用和拓扑，
 不能以修订标识相等替代内容验证。过期容忍策略由 Routing G1 显式冻结。
 
+“已提交交通观测快照”定义的是一致性时点，不要求每个固定步进复制全网。生产接入
+必须允许按观测导出节奏（Observation Export Cadence）导出完整基线，并支持版本化
+增量或分区选择；验证门禁必须分别量化观测导出、动态成本快照接收和候选通行定义
+注册的条目数、字节、分配、墙钟耗时与对固定步进的干扰。
+
 本 ADR 不冻结路径规划服务的 crate、算法或公共 API。后续 G1 可以选择独立
 `laneflow-routing` 或宿主自有实现，但交通运行时的参与单元热路径不得执行全图
 寻路。
@@ -183,11 +188,26 @@ Runtime 当前修订只来自 `TrustedStaticImage`。相同语义的不同 targe
 5. 被删除、重接或语义改变的网络元素上的交通参与单元、动态通行定义、停驻、预约
    和控制器状态按版本化迁移策略处理；无法证明完整迁移时切换失败关闭。
 
-镜像不得原地修改。切换按准备（Prepare）→提交（Commit）→回收（Retire）分阶段：
-昂贵验证、分配和状态迁移在 fixed tick 外构造完整候选世界状态；提交阶段只在安全
-边界原子切换 image/state binding；旧 image 在全部借用快照、Pose batch 和 Adapter
-token 退出后再回收。准备或提交失败时世界继续绑定旧修订，不暴露半迁移状态。运行时
-世界在任一 fixed tick 内只绑定一个可信路网修订。
+镜像不得原地修改。默认在线切换按准备（Prepare）→增量追赶（Delta Catch-up）→
+静默提交（Quiescent Commit）→回收（Retire）分阶段：
+
+1. 旧世界在准备期间继续固定步进；Runtime 在基准提交边界捕获只读状态，在后台完成
+   新镜像验证、分配、稳定身份映射和结构性迁移。候选不得独立模拟未来固定步进、
+   接收新游戏命令或发出事件；迁移策略要求的终止/重映射等切换事件只能形成未提交
+   候选批次；
+2. 旧世界的每次原子提交把规范的已提交动态状态变化、生命周期变化和命令/事件游标
+   写入有界迁移增量日志。候选只按受信任迁移策略重解释这条已提交变更流，不重新
+   执行输入命令，也不发布第二份行为结果或重复旧世界事件；
+3. 候选落后量进入提交预算后，Runtime 在下一固定步进读取输入之前短暂静默旧世界，
+   排空日志尾，并证明候选状态与切换事件批次等价于“把确定性迁移函数应用到旧世界
+   最新已提交状态”的结果；复核修订、稳定身份、全部动态引用、命令/事件游标和状态
+   摘要后，把镜像/状态绑定与规范排序的切换事件批次作为同一原子提交只发布一次；
+4. 旧镜像在全部借用快照、姿态批次和适配器 token 退出后回收。
+
+无法追上、日志溢出、迁移失败或预算超限时放弃候选，不发布任何切换事件，世界继续
+绑定旧修订且不暴露半迁移状态。运行时世界在任一固定步进内只绑定一个可信路网修订。
+宿主只有在显式维护暂停模式（Paused Maintenance Mode）中才可暂停整个准备期；该
+模式的完整停顿必须独立预算，不能算作在线静默提交停顿。
 
 短期施工、事故封闭、动态车道用途或法规时窗若不改变静态身份/拓扑，应由显式
 运行时覆盖层（Runtime Overlay）或命令承担；结构性道路编辑进入新路网修订。
@@ -206,7 +226,9 @@ token 退出后再回收。准备或提交失败时世界继续绑定旧修订�
 运行时快照（Runtime Snapshot）是独立版本化制品。精确恢复至少绑定：
 
 - `canonicalArtifactDigest`
+- `canonicalArtifactByteLength`
 - `originStaticImageDigest`
+- `originStaticImageByteLength`
 - `runtimeSnapshotVersion`
 - 交通运行时版本和约束版本
 - `networkRevisionDerivationVersion + networkRevision`
@@ -214,19 +236,20 @@ token 退出后再回收。准备或提交失败时世界继续绑定旧修订�
 - 仅在后续 G1 显式授予 Traffic Runtime 随机权威时，才包含运行时自有随机流状态
 - 全部每世界可变交通状态
 
-`canonicalArtifactDigest` 与路网修订是同修订恢复的静态语义权威；
-`originStaticImageDigest` 记录创建快照时的精确 target/profile image，供审计和
-同镜像快速恢复。恢复可以改用绑定相同规范制品、路网修订和 identity/constraint
-versions 的另一可信 image，但必须通过其生产必需的 `StaticIdentityIndex` 重建全部
-稳定静态引用；否则失败关闭。
+`canonicalArtifactDigest + canonicalArtifactByteLength` 与路网修订是同修订恢复
+的静态语义权威；`originStaticImageDigest + originStaticImageByteLength` 记录创建
+快照时的精确 target/profile image，供审计和同镜像快速恢复。恢复可以改用绑定相同
+规范制品、路网修订和 identity/constraint versions 的另一可信 image，但必须通过其
+生产必需的 `StaticIdentityIndex` 重建全部稳定静态引用；否则失败关闭。
 快照中的修订 token 只能从当前 `TrustedStaticImage` descriptor 复制，恢复时也只与
 候选可信 descriptor 比较；Save Manifest、调用方参数或 image header 不能覆盖它。
 
 跨路网修订恢复必须显式执行快照迁移，并使用旧/新 `StaticIdentityIndex` 与受信任
 语义差异；不能把旧 dense ordinal 直接解释为新镜像实体。参与迁移的语义差异必须
 由外部 `NetworkRevisionCutoverDescriptor` 绑定 base/target 路网修订标识、制品与
-镜像摘要、`semanticDiffDigest`、migration policy version 和独立 validation
-receipt；裸 compiler diff 只能用于诊断。
+镜像各自摘要/精确长度、`semanticDiffDigest + semanticDiffByteLength`、migration
+policy version 和 `validationReceiptDigest + validationReceiptByteLength`；裸
+compiler diff 只能用于诊断。
 
 动态通行定义、交通参与单元和其他运行时实体必须使用快照局部标识
 （Snapshot-local Identity）保存引用关系；当前动态 Route 或未来各执行域的等价
@@ -285,8 +308,14 @@ Runtime 不为方便存档而新增隐藏随机数。
 
 - 路网修订切换、运行时快照、路径规划、并行执行和中国特色城市工作负载都需要后续
   独立 G1 与实现 Issue；
-- 镜像切换准备期同时保留旧/新 image 与候选世界状态，会产生可量化的峰值内存；
-  后继 Gate 必须冻结准备、提交停顿和延迟回收预算；
+- 镜像切换准备期同时保留旧/新镜像与候选世界状态，会产生可量化的峰值内存；迁移
+  日志可能增长、后台追赶可能干扰正常固定步进，密集改路时也可能持续无法追上；
+  后继门禁必须冻结后台预算、日志上限、最大追赶落后量、在线静默提交停顿、失败
+  放弃、切换事件批次“放弃零发布/提交恰一次”、延迟回收与显式维护暂停的完整停顿
+  预算；
+- 城市游戏存档必须量化运行时快照保存/加载的制品大小、墙钟耗时、主线程停顿、后台
+  固定步进干扰和峰值内存，不能只验证功能等价；交通观测完整/增量导出和动态成本
+  快照接收/候选注册也必须量化边界成本；
 - 稳定标识与语义差异将参与运行时迁移，错误边界必须比只做离线治理更严格；
 - 全部支持存档或玩家改路的生产镜像都要保留共享冷身份索引；后继 Gate 必须量化其
   retained memory、按需映射和双向 lookup 成本；
@@ -326,8 +355,8 @@ Runtime 不为方便存档而新增隐藏随机数。
    交通基础的第一长期产品目标；
 2. ADR 0020 与 `network-compiler.md` 冻结静态执行约束、分区规划提示和每世界
    运行时执行计划的职责分离；
-3. 不可变路网修订、镜像切换事务、运行时快照、每世界唯一性和路径规划边界进入
-   长期设计；
+3. 不可变路网修订、在线准备/增量追赶/静默提交的镜像切换事务、运行时快照、
+   每世界唯一性和路径规划边界进入长期设计；
 4. 固定边界邻域（Halo）、额外一 tick 边界延迟、全局单线程归约器（Reducer）、
    最终分区（Partition）烘焙和过早数值方案均未被写成生产既定事实；
 5. 后继并行、路网修订/存档、路径规划和中国特色城市工作负载由独立 G1/Issue
