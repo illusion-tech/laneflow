@@ -289,7 +289,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "44bcbce89bf6b1b31f02a56a58aa3ba1bbf3d32df5930049be5cc65ce0ec2562"
+          "const": "2f6da04edc7568f105212161533b3eedbdc576cb3dc845971bde1f82efbcbd3a"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1188,7 +1188,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "44bcbce89bf6b1b31f02a56a58aa3ba1bbf3d32df5930049be5cc65ce0ec2562"
+          "const": "2f6da04edc7568f105212161533b3eedbdc576cb3dc845971bde1f82efbcbd3a"
         },
         "counts": {
           "type": "object"
@@ -2308,6 +2308,86 @@
                   },
                   "reason": {
                     "const": "platform-status-without-exit-code"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "exitKind": {
+                "enum": [
+                  "success",
+                  "guarded-in-child"
+                ]
+              }
+            },
+            "required": [
+              "exitKind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "exitCode": {
+                "properties": {
+                  "value": {
+                    "const": 0
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "exitKind": {
+                    "enum": [
+                      "invalid-abnormal-exit",
+                      "invalid-monitor-termination"
+                    ]
+                  }
+                },
+                "required": [
+                  "exitKind"
+                ]
+              },
+              {
+                "properties": {
+                  "termination": {
+                    "properties": {
+                      "kind": {
+                        "const": "exit-code"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  }
+                },
+                "required": [
+                  "termination"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "exitCode": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reason": {
+                    "type": "null"
                   }
                 }
               }
@@ -4539,6 +4619,92 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "process": {
+                "properties": {
+                  "exitKind": {
+                    "const": "success"
+                  }
+                },
+                "required": [
+                  "exitKind"
+                ]
+              }
+            },
+            "required": [
+              "process"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "valid"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "process": {
+                "properties": {
+                  "exitKind": {
+                    "const": "guarded-in-child"
+                  }
+                },
+                "required": [
+                  "exitKind"
+                ]
+              }
+            },
+            "required": [
+              "process"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "guarded"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "process": {
+                "properties": {
+                  "exitKind": {
+                    "enum": [
+                      "invalid-abnormal-exit",
+                      "invalid-monitor-termination"
+                    ]
+                  }
+                },
+                "required": [
+                  "exitKind"
+                ]
+              }
+            },
+            "required": [
+              "process"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "invalid"
+              },
+              "invalidationReasons": {
+                "contains": {
+                  "const": "child-abnormal-exit"
                 }
               }
             }

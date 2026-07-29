@@ -286,12 +286,17 @@ Fisher-Yates；
 第 `i` 步交换位置
 `i` 与 `next_u64 mod (i + 1)`。SplitMix64 使用公开算法的固定
 `0x9e3779b97f4a7c15`、`0xbf58476d1ce4e5b9`、`0x94d049bb133111eb`
-常量和 `64` 位回绕运算。序列种子固定为
-`base_seed XOR (sequence_kind_u64 << 56) XOR unit_index_u64`；`sequence_kind`
-的 `1/2/3/4/5` 分别表示根模块导入（root imports）、声明（declarations）、引用
-（references）、关系（relations）和几何（geometry）。根模块导入的 `unit_index`
-使用 `0`。各序列独立置换。G2 必须为每种模块图配置档的 `N = 1` 和 `N = 2`
-发布完整已知向量。三种图分别测量宽扇出、深闭包和共享扇入，不把任意一种合成结构
+常量和 `64` 位回绕运算。每个展开模块的 import/declaration/reference/relation/
+geometry 列表分别独立置换，序列种子固定为
+`base_seed XOR (sequence_kind_u64 << 56) XOR module_seed_ordinal_u64`；
+`sequence_kind` 的 `1/2/3/4/5` 分别表示导入（imports）、声明（declarations）、引用
+（references）、关系（relations）和几何（geometry）。模块种子序号固定为：
+`root = 0`、`shared/common = 1`、`group/g = (1_u64 << 40) | g_u64`、
+`unit/i = (2_u64 << 40) | i_u64`；`g/i` 必须是精确 `u32`，第 `40..47` 位只标识
+模块种类，第 `56..63` 位留给 `sequence_kind`，两域不得重叠。空/单项列表仍绑定
+同一序列种子但不执行交换。因此 root 引用、group imports 和 unit imports 都不再由
+实现自行选择顺序。G2 必须为每种模块图配置档的 `N = 1` 和 `N = 2` 发布全部展开
+模块的完整已知向量。三种图分别测量宽扇出、深闭包和共享扇入，不把任意一种合成结构
 写成现实城市模块结构。
 
 ### 3.3 研究语义摘要
@@ -379,8 +384,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `66982` exact bytes，SHA-256 为
-`44bcbce89bf6b1b31f02a56a58aa3ba1bbf3d32df5930049be5cc65ce0ec2562`；G2 只能发布
+取得 G1。G1 候选冻结清单 `67566` exact bytes，SHA-256 为
+`2f6da04edc7568f105212161533b3eedbdc576cb3dc845971bde1f82efbcbd3a`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -749,6 +754,10 @@ Schema 必须允许记录这些无效实验，但 G2 独立验证器不得把它
 - `posix-signal` 与 `platform-status` 只能形成 `invalid-abnormal-exit` 或
   `invalid-monitor-termination`，不能冒充成功或子进程内受检护栏退出。除
   `trigger = monitoring-gap` 的无效样本外，`lastPrivateBytes` 仍必须是实测非负整数；
+- `success` 与 `guarded-in-child` 都必须正常返回 `exitCode = 0`；前者的运行状态为
+  `valid`，后者为 `guarded`。以数值退出码结束的 `invalid-abnormal-exit` 或
+  `invalid-monitor-termination` 必须使用非零退出码，并把运行状态标为 `invalid`、
+  `invalidationReasons` 包含 `child-abnormal-exit`；
 - 监控缺样允许保存 `lastPrivateBytes = null + reason`，但该运行必须保持无效，
   不得用它形成停止护栏或候选比较证据。
 
@@ -1059,8 +1068,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `136635` exact bytes，SHA-256 为
-`99e4db5441cf472bf239507786c5948a97acea911d729f17e58568a080f9a175`。
+G1 候选冻结 schema `140562` exact bytes，SHA-256 为
+`f4bc282289febe4a389af615a15bdd4f10165513814286ac9c98a0882d0a0425`。
 顶层格式标识：
 
 ```text
