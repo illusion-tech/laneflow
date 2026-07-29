@@ -1,7 +1,7 @@
 # 编译器资源与性能预算校准
 
 **文档状态**: Draft（#308 G1；未取得 G2）<br>
-**最后更新**: 2026-07-29<br>
+**最后更新**: 2026-07-30<br>
 **适用范围**: 编译器工作负载、编译器校准规模（Compiler Calibration Scale）、
 编译器压力规模（Compiler Stress Scale）、编译资源上限（Compile Limits）、冷实例
 与稳定容量复用测量、研究停止护栏（Research Stop Guardrail）、私有容器候选和
@@ -379,8 +379,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `64629` exact bytes，SHA-256 为
-`d6079015e1f96b0b017b4652b6925584023befc491cfe31617edc7053e0e2f06`；G2 只能发布
+取得 G1。G1 候选冻结清单 `66982` exact bytes，SHA-256 为
+`44bcbce89bf6b1b31f02a56a58aa3ba1bbf3d32df5930049be5cc65ce0ec2562`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -688,19 +688,27 @@ suggested_R0_budget = observed_upper * E_m
 父进程在启动每个级别/样本前：
 
 1. 根据研究工作负载清单计算下一级全部精确记录数、逻辑字节、字符串字节、输出字节
-   和最大有类型序号；
-2. 分别预测编译器控制峰值存续字节、进程私有字节和完整管线墙钟：有上一完整级别时，
-   三者都按主记录数比例线性外推并乘以 `1.25` 安全因子；编译器控制字节还必须取该
-   结果与“逻辑字节下界 + 当前候选已知固定开销”的最大值；
-3. 首级没有历史观测时，编译器控制字节只使用逻辑下界与固定开销，私有字节和墙钟
-   使用结构化 `null + first-level-monitor-only`，由父进程硬监控兜底；不得用零冒充
-   预测，也不得把监控强杀写成有效停止；
+   和最大有类型序号，并按清单 `guardPredictionContract` 重算清单单缓冲区下界
+   （manifest single-buffer lower bound）：对 source input 的 `logicalBytes`、Typed
+   AST/HIR/MIR/canonical LIR 的 `recordAllocationBytes`、diagnostics/scratch/output
+   construction 的 `logicalBytes` 取最大值；
+2. 分别预测编译器控制峰值存续字节、进程私有字节和完整管线墙钟。有上一完整级别时，
+   后两者按主记录数比例线性外推并乘以 `1.25` 安全因子；编译器控制字节的历史外推项
+   精确为
+   `ceil(previousPeakLiveRequestedBytes * nextPrimaryRecordCount * 5 /
+   (previousPrimaryRecordCount * 4))`，最终预测取该项与清单单缓冲区下界的最大值；
+3. 首级没有历史观测时，编译器控制字节预测精确等于清单单缓冲区下界，三个历史字段
+   使用 `null + first-level-no-completed-level`；私有字节和墙钟使用结构化
+   `null + first-level-monitor-only`，由父进程硬监控兜底。协议 v1 不存在独立“候选
+   已知固定开销”输入，执行器或候选不得自行测量、填写或调节该自由量；
 4. 把本机精确阈值、三项预测依据、前一级原始墙钟/私有字节/存续字节、输入清单摘要
    和预期计数写入父进程证据；
 5. 任一非空预测值达到对应阈值、系统可用物理内存低于总物理内存的 `25%`、计数/字节
    `checked_add` 或 `u32::try_from` 失败时，拒绝启动子进程。
 
-若预测本身发生受检算术失败，证据使用 `checked-arithmetic-failed + null + reason`
+所有乘法使用受检 `u128`；上取整除法从商与非零余数求值，不使用可能溢出的“分子加
+分母减一”，最终结果以 `u64::try_from` 收窄。若预测本身发生受检算术失败，证据使用
+`checked-arithmetic-failed + null + reason`
 保存负面事实并以 `trigger = checked-arithmetic` 拒绝启动；若历史监控缺样，则私有
 字节/墙钟依据使用 `unavailable-invalid-sample`，该级别无权形成正式阶梯证据。
 Schema 必须允许记录这些无效实验，但 G2 独立验证器不得把它们计为有效停止。
@@ -1044,8 +1052,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `127624` exact bytes，SHA-256 为
-`c6f2668f898734ff0c202e5b0c3c605b5d6cc2886228c3e32f37cda9fc9495c1`。
+G1 候选冻结 schema `128818` exact bytes，SHA-256 为
+`7702cca7c690b8991765c8122c34ea3c1d48c30bb3f0b456af2cdcdc45fdd372`。
 顶层格式标识：
 
 ```text
@@ -1089,8 +1097,9 @@ schemaVersion = 1
   以及作废原因；
 - 相邻级别五轮规范化比值、候选/确认拐点、复测证据、重复性包络和分批
   泰尔－森增长斜率；
-- 停止护栏精确阈值、三项预测依据、前一级/下一级记录数、前一级墙钟/私有字节/
-  存续字节、三项预测值、受控分配预占、是否触发、父进程监控快照和子进程退出状态；
+- 停止护栏精确阈值、清单单缓冲区下界、三项预测依据、前一级/下一级主记录数、前一级
+  墙钟/私有字节/存续字节、三项预测值、受控分配预占、是否触发、父进程监控快照和
+  子进程退出状态；
 - 性能分析制品的命令、字节长度、SHA-256 和保存位置。
 
 所有字节字段使用完整十进制整数；GiB、秒或百分比只作为派生显示。未采集字段必须
@@ -1112,6 +1121,12 @@ G2 证据生成器与独立验证器必须分别从绑定摘要的工作负载�
 研究输入变体、`caseId` 中的维度片段和独立 `dimensionId` 逐字节一致。只通过
 Schema、没有通过该公式与交叉字段验证的
 JSON 不是有效研究证据。
+
+停止护栏同样不能只通过单条 Schema：独立验证器必须按
+`guardPredictionContract.primaryRecordCountByWorkload` 重算前后级主记录数，从八个
+具名阶段操作数重算清单单缓冲区下界，并分别按首级恒等式或后续级别受检上取整公式
+重算 `predictedCompilerControlledBytes`。证据中出现自由固定开销、下界操作数缺失、
+跨工作负载主记录公式或不同整数舍入结果时，整条运行无效。
 
 独立验证器还必须按清理实验标识符分组，要求每组恰好包含序号 `0`、`1..=32`、
 `33`、`34`，且工作负载、候选、规模和失败用例在组内一致；缺项、重号或跨条件
