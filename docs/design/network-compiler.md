@@ -801,6 +801,8 @@ identityEncodingVersion
 identityRegistryRevision
 compilerBuildId
 validatorBuildId
+validationReceiptFormatVersion
+validationReceiptKind
 validationReceiptDigest
 validationReceiptByteLength
 ```
@@ -827,7 +829,33 @@ descriptor 可以由签名 publication manifest、宿主已认证 asset/package 
 攻击者可以伪造它们并对任意 image bytes 计算新的 `staticImageDigest`，因此不能
 独立建立 semantic trust。
 
-Trusted descriptor 的签发前置条件是三项独立成功证据：
+验证收据不是由 `validatorBuildId` 隐式选择布局的裸记录。每份收据必须使用版本化的
+验证收据封套（Validation Receipt Envelope）`ValidationReceiptEnvelope`：
+
+```text
+validationReceiptFormatVersion
+validationReceiptKind
+validatorBuildId
+subjectBindings
+checkResults
+```
+
+外部描述符必须在读取收据前认证同一
+`validationReceiptFormatVersion + validationReceiptKind +
+validationReceiptDigest + validationReceiptByteLength`；封套不得内嵌自己的摘要。
+`validationReceiptKind` 是封闭枚举，v1 只允许：
+
+- `canonical-publication-v1`：绑定 artifact、路网修订和 source map，要求独立语义
+  验证、修订重算与 source-map 闭合检查；
+- `static-image-v1`：绑定 artifact、路网修订、image 与完整性清单，要求下述三项
+  独立成功证据；
+- `revision-cutover-v1`：绑定 base/target artifact、路网修订、可信静态镜像描述符
+  subject、语义差异和迁移策略，要求两侧制品/修订验证及完整语义差异重算或验证。
+
+未知格式版本、未知种类、描述符与封套版本/种类不一致，或使用其他种类收据替代当前
+描述符要求的种类时，一律在解析 subject bindings 前失败关闭。
+
+`static-image-v1` 可信描述符的签发前置条件是三项独立成功证据：
 
 1. portable artifact 通过独立语义验证，包括全部稳定身份重算；
 2. `networkRevisionDerivationVersion + networkRevision` 从规范语义载荷独立重算并
@@ -836,7 +864,7 @@ Trusted descriptor 的签发前置条件是三项独立成功证据：
    target/layout/profile/partition-hint variant 下产生相同 exact bytes digest +
    length。
 
-Validation receipt 必须逐项记录三者，并绑定
+`static-image-v1` 收据必须逐项记录三者，并绑定
 `canonicalArtifactDigest + canonicalArtifactByteLength`、
 `networkRevisionDerivationVersion + networkRevision` 与
 `staticImageDigest + staticImageByteLength`，同时记录
@@ -895,10 +923,13 @@ sourceMapDigest
 sourceMapByteLength
 compilerBuildId
 validatorBuildId
+validationReceiptFormatVersion
+validationReceiptKind
 validationReceiptDigest
 validationReceiptByteLength
 ```
 
+该描述符的 `validationReceiptKind` 必须是 `canonical-publication-v1`。
 `sourceMapDigest` 是完整 `SourceMapEnvelope` exact bytes 的 SHA-256，
 `sourceMapByteLength` 是同一字节序列的精确 `u64` 长度。签发者必须从最终 exact
 bytes 记录 digest + length；canonical publication 不允许用空摘要、空记录或缺失字段
@@ -1185,12 +1216,15 @@ semanticDiffDigest
 semanticDiffByteLength
 migrationPolicyVersion
 validatorBuildId
+validationReceiptFormatVersion
+validationReceiptKind
 validationReceiptDigest
 validationReceiptByteLength
 ```
 
 该描述符必须来自签名 publication manifest、宿主认证资产清单或 pinned digest；
-validation receipt 必须证明 independent validator 已针对两个 portable artifact
+`validationReceiptKind` 必须是 `revision-cutover-v1`。Validation receipt 必须证明
+independent validator 已针对两个 portable artifact
 重算并验证各自路网修订标识，且已按 `semanticDiffFormatVersion` 解析、验证或重算
 完整 `SemanticDiffEnvelope`。描述符中的 diff format version/digest/length 必须与
 封套 exact bytes 精确一致；base/target 修订、制品摘要/长度和镜像摘要/长度必须分别
@@ -1354,6 +1388,8 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
   rejection；
 - 缺失、未知或与封套不一致的 `semanticDiffFormatVersion`，以及 diff
   base/target artifact/revision/digest/length 任一错配时的 cutover 拒绝；
+- 缺失、未知或与封套不一致的 `validationReceiptFormatVersion` /
+  `validationReceiptKind`，以及三种 receipt kind 互相替代时的 descriptor 拒绝；
 - oversized/truncated/appended image、descriptor length mismatch、unknown-length
   stream 与 decompression overrun 在 hash / 大分配前拒绝，并用读取 / hash byte
   counter 证明工作量不超过已认证 exact length 与 caller limit；
@@ -1415,6 +1451,7 @@ staticImageDescriptorVersion
 staticImageIntegritySchemeVersion
 sourceMapFormatVersion
 semanticDiffFormatVersion
+validationReceiptFormatVersion
 networkRevisionCutoverDescriptorVersion
 migrationPolicyVersion
 executionConstraintVersion
@@ -1430,6 +1467,12 @@ staticImageProfileId
 compilerBuildId
 validatorBuildId
 targetTriple
+```
+
+封闭种类选择器（Closed Kind Selectors）：
+
+```text
+validationReceiptKind
 ```
 
 内容身份与长度绑定（Content Identity and Length Bindings）：
