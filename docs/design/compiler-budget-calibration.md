@@ -1028,11 +1028,29 @@ XXH3/XXH64 候选使用固定 seed `0x4c46_434f_4d50_0001`；FNV-1a 64 使用标
 - 每条候选比较必须保存候选比较分层（candidate comparison stratum）：键域、工作
   负载标识符/修订、模块图/字符串配置档、生成器版本、`N`、`B`、规模角色、当前
   样例用例、样本种类和二进制模式；不得跨任一字段聚合；
-- `batch0` 和 `batch1` 分别保存参与计算的基线 `runId` 集合、候选 `runId` 集合和
-  该批中位比值。中位比值方向固定为 `candidate metric / baseline metric`；独立
-  验证器必须把每个 `runId` 唯一解析回原始运行，核对 batch、候选、完整分层、有效
-  状态和指标，再重算比值。性能比值只消费有效运行；正确性/安全拒绝必须引用造成
-  拒绝的原始运行并把不可计算比值保存为 `null + reason`；
+- `batch0` 和 `batch1` 分别固定
+  `pairingMethod = same-batch-same-round-v1` 与
+  `aggregationMethod = median-of-exact-round-ratios-v1`，并按 `round` 递增保存
+  候选比较轮次对（candidate comparison round pair）。每个轮次对必须把同一批、同一
+  `round`、同一完整分层中恰好一个基线 `runId` 与恰好一个候选 `runId` 配对；二者
+  都必须为有效运行，且不能复用到该批的另一个轮次对。形成性能结论的每批必须覆盖
+  `r = 0..2C-1` 的全部 `2C` 个平衡轮次，作废轮次及其保留样本不得进入配对；
+- 每个轮次对的比值方向固定为 `candidate metric / baseline metric`。`metric` 只允许
+  映射到 `metrics.wallTimeNs`、`allocationCount`、`reallocationCount`、
+  `allocatedBytes`、`peakLiveRequestedBytes`、`retainedCapacityBytes`、
+  `workingSetBytes`、`privateBytes` 或 `commitPeakBytes` 的整数 `value`；分子、
+  分母都必须严格大于零。比值以互素正整数 `numerator / denominator` 保存，不得先
+  转换为浮点数或小数；
+- 精确中位比值（exact median ratio）的算法固定如下：把该批 `2C` 个精确轮次比值用
+  数学整数交叉乘法按数值非降序排列为 `x[0..2C-1]`，取
+  `(x[C-1] + x[C]) / 2`，再以最大公约数约分为唯一互素正整数比值。排序、求和、
+  除以二和约分使用无溢出的数学整数语义；证据生产者不能完成精确算术时必须失败
+  关闭。该算法没有舍入步骤，候选决策与重复性包络比较也必须用精确交叉乘法；
+- 独立验证器必须把每个轮次对的两个 `runId` 唯一解析回原始运行，核对 batch、
+  `round`、候选、完整分层、有效状态和指标，重算并约分每个比值，再独立重算
+  `medianRatio`。正确性/安全拒绝必须引用造成拒绝的原始轮次对，并把不可计算比值
+  保存为 `null + reason`；任何包含空比值、缺轮、重轮或非一一配对的批次只能形成
+  拒绝或证据不足，不能形成性能赢家；
 - 基线候选运行完整规模阶梯；其他候选至少运行 `B`、校准规模和压力规模；
 - 单项内核（kernel）可作机制归因，但候选选择以完整研究管线结果为主；
 - 候选的分层改善若未超过第 5.6 节同指标重复性包络，只能判为“噪声内无差异”；
@@ -1072,8 +1090,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `142608` exact bytes，SHA-256 为
-`91ffedd1e8d4af1155748c979eb2340ab17f902fe6efa5ea619aab0243f3b381`。
+G1 候选冻结 schema `144520` exact bytes，SHA-256 为
+`979930975b00edfa73b0c4f794b9e26687f9b894201c127c9ac5b37fe78dd93d`。
 顶层格式标识：
 
 ```text
