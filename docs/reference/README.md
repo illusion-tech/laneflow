@@ -28,9 +28,12 @@
   Spatial 与 Adapter 术语。
 - `compiler-calibration-workloads-v1.json`：#308 Draft 的机器可读研究工作负载清单；
   冻结模块图、字符串/来源位置、identity 字段绑定、研究记录布局、精确计数、夹具
-  摘要与失败变体，不是生产编译器 API 或产品容量声明。
+  摘要、失败变体与候选注册表，不是生产编译器 API 或产品容量声明。
 - `compiler-calibration-evidence-v1.schema.json`：#308 Draft 的研究证据 JSON Schema；
   冻结来源、环境、进程隔离、候选顺序、测量、停止护栏、派生结论与制品绑定字段。
+- `compiler-calibration-contract-v1.json`：#308 Draft 的非自指研究契约描述符；从
+  Evidence v1 Schema 外部绑定证据 Schema 与工作负载清单的路径、版本、长度和
+  SHA-256，正式验证必须先校验该描述符。
 - `commit-convention.md`：提交信息规范，以 Conventional Commits 标题为基础，用 `Gate`、`Slice`、`Impact`、`Validation` 等字段记录 LaneFlow 治理状态；并说明 PR 默认使用 Rebase and merge。
 - `rust-code-style.md`：补充 `rustfmt` 无法表达的 Rust 仓库级可读性约定，当前重点规定数字字面量分组边界与例外。
 - `validation-matrix.md`：切片类型到最小验证要求的矩阵，用于 `G3` 合并闸口判断。

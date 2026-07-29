@@ -271,6 +271,9 @@
         "harnessCommit",
         "dirty",
         "cargoLockSha256",
+        "contractDescriptorId",
+        "contractDescriptorVersion",
+        "contractDescriptorSha256",
         "workloadManifestSha256",
         "evidenceSchemaSha256"
       ],
@@ -288,8 +291,17 @@
         "cargoLockSha256": {
           "$ref": "#/$defs/sha256"
         },
+        "contractDescriptorId": {
+          "const": "laneflow.compiler-calibration-contract"
+        },
+        "contractDescriptorVersion": {
+          "const": 1
+        },
+        "contractDescriptorSha256": {
+          "$ref": "#/$defs/sha256"
+        },
         "workloadManifestSha256": {
-          "const": "2f6da04edc7568f105212161533b3eedbdc576cb3dc845971bde1f82efbcbd3a"
+          "const": "5a9b6b0464241020fbe4d2b9d0ee0e9e34e5fe703f65c6b45ef142cc75528aba"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1188,7 +1200,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "2f6da04edc7568f105212161533b3eedbdc576cb3dc845971bde1f82efbcbd3a"
+          "const": "5a9b6b0464241020fbe4d2b9d0ee0e9e34e5fe703f65c6b45ef142cc75528aba"
         },
         "counts": {
           "type": "object"
@@ -1806,22 +1818,28 @@
         }
       }
     },
-    "candidate": {
+    "candidateComponentBinding": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "id",
-        "version",
-        "features",
-        "keyDomain",
+        "role",
+        "implementationId",
         "dependencyKind",
         "dependencySource",
-        "dependencyAudit",
-        "hasherSeedPolicy",
-        "hasherSeed"
+        "version",
+        "features",
+        "dependencyAudit"
       ],
       "properties": {
-        "id": {
+        "role": {
+          "enum": [
+            "container",
+            "hasher",
+            "hasher-adapter",
+            "orderer"
+          ]
+        },
+        "implementationId": {
           "type": "string",
           "minLength": 1
         },
@@ -1837,14 +1855,6 @@
             "minLength": 1
           }
         },
-        "keyDomain": {
-          "enum": [
-            "external-string",
-            "validated-fixed-key",
-            "canonical-output-order",
-            "full-pipeline-baseline"
-          ]
-        },
         "dependencyKind": {
           "enum": [
             "standard-library",
@@ -1859,61 +1869,9 @@
         },
         "dependencyAudit": {
           "$ref": "#/$defs/dependencyAudit"
-        },
-        "hasherSeedPolicy": {
-          "enum": [
-            "random-state-process-random",
-            "fixed-u64",
-            "not-applicable"
-          ]
-        },
-        "hasherSeed": {
-          "$ref": "#/$defs/nullableIntegerObservation"
         }
       },
       "allOf": [
-        {
-          "if": {
-            "properties": {
-              "hasherSeedPolicy": {
-                "const": "fixed-u64"
-              }
-            },
-            "required": [
-              "hasherSeedPolicy"
-            ]
-          },
-          "then": {
-            "properties": {
-              "hasherSeed": {
-                "properties": {
-                  "value": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "reason": {
-                    "type": "null"
-                  }
-                }
-              }
-            }
-          },
-          "else": {
-            "properties": {
-              "hasherSeed": {
-                "properties": {
-                  "value": {
-                    "type": "null"
-                  },
-                  "reason": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                }
-              }
-            }
-          }
-        },
         {
           "if": {
             "properties": {
@@ -1940,6 +1898,315 @@
                         }
                       }
                     }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registryRevision",
+        "id",
+        "keyDomain",
+        "components",
+        "hasherSeedPolicy",
+        "hasherSeedHexU64"
+      ],
+      "properties": {
+        "registryRevision": {
+          "const": 1
+        },
+        "id": {
+          "enum": [
+            "baseline-std-randomstate-stable-vec-v1",
+            "std-hashmap-randomstate-v1",
+            "hashbrown-randomstate-v1",
+            "sorted-vec-binary-search-v1",
+            "hashbrown-xxh3-fixed-v1",
+            "hashbrown-xxh64-fixed-v1",
+            "hashbrown-fnv1a64-v1",
+            "indexmap-randomstate-v1",
+            "stable-vec-sort-v1",
+            "deterministic-radix-sort-v1",
+            "deterministic-bucket-sort-v1"
+          ]
+        },
+        "keyDomain": {
+          "enum": [
+            "external-string",
+            "validated-fixed-key",
+            "canonical-output-order",
+            "full-pipeline-baseline"
+          ]
+        },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/candidateComponentBinding"
+          }
+        },
+        "hasherSeedPolicy": {
+          "enum": [
+            "random-state-process-random",
+            "fixed-u64",
+            "not-applicable"
+          ]
+        },
+        "hasherSeedHexU64": {
+          "$ref": "#/$defs/nullableStringObservation"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "hasherSeedPolicy": {
+                "const": "fixed-u64"
+              }
+            },
+            "required": [
+              "hasherSeedPolicy"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hasherSeedHexU64": {
+                "properties": {
+                  "value": {
+                    "const": "4c46434f4d500001"
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "hasherSeedHexU64": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "baseline-std-randomstate-stable-vec-v1"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "keyDomain": {
+                "const": "full-pipeline-baseline"
+              },
+              "hasherSeedPolicy": {
+                "const": "random-state-process-random"
+              },
+              "hasherSeedHexU64": {
+                "properties": {
+                  "reason": {
+                    "const": "process-random-not-recorded"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "enum": [
+                  "std-hashmap-randomstate-v1",
+                  "hashbrown-randomstate-v1"
+                ]
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "keyDomain": {
+                "enum": [
+                  "external-string",
+                  "validated-fixed-key"
+                ]
+              },
+              "hasherSeedPolicy": {
+                "const": "random-state-process-random"
+              },
+              "hasherSeedHexU64": {
+                "properties": {
+                  "reason": {
+                    "const": "process-random-not-recorded"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "sorted-vec-binary-search-v1"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "keyDomain": {
+                "enum": [
+                  "external-string",
+                  "validated-fixed-key"
+                ]
+              },
+              "hasherSeedPolicy": {
+                "const": "not-applicable"
+              },
+              "hasherSeedHexU64": {
+                "properties": {
+                  "reason": {
+                    "const": "not-applicable"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "enum": [
+                  "hashbrown-xxh3-fixed-v1",
+                  "hashbrown-xxh64-fixed-v1"
+                ]
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "keyDomain": {
+                "const": "validated-fixed-key"
+              },
+              "hasherSeedPolicy": {
+                "const": "fixed-u64"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "hashbrown-fnv1a64-v1"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "keyDomain": {
+                "const": "validated-fixed-key"
+              },
+              "hasherSeedPolicy": {
+                "const": "not-applicable"
+              },
+              "hasherSeedHexU64": {
+                "properties": {
+                  "reason": {
+                    "const": "not-applicable"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "indexmap-randomstate-v1"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "keyDomain": {
+                "const": "validated-fixed-key"
+              },
+              "hasherSeedPolicy": {
+                "const": "random-state-process-random"
+              },
+              "hasherSeedHexU64": {
+                "properties": {
+                  "reason": {
+                    "const": "process-random-not-recorded"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "enum": [
+                  "stable-vec-sort-v1",
+                  "deterministic-radix-sort-v1",
+                  "deterministic-bucket-sort-v1"
+                ]
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "keyDomain": {
+                "const": "canonical-output-order"
+              },
+              "hasherSeedPolicy": {
+                "const": "not-applicable"
+              },
+              "hasherSeedHexU64": {
+                "properties": {
+                  "reason": {
+                    "const": "not-applicable"
                   }
                 }
               }
@@ -3970,6 +4237,7 @@
         "batch",
         "round",
         "position",
+        "sampleOrdinal",
         "sampleKind",
         "status",
         "invalidationReasons",
@@ -3995,6 +4263,9 @@
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "position": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sampleOrdinal": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "sampleKind": {
@@ -4060,6 +4331,32 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "sampleKind": {
+                "const": "stable-capacity-reuse"
+              }
+            },
+            "required": [
+              "sampleKind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sampleOrdinal": {
+                "maximum": 6
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "sampleOrdinal": {
+                "const": 0
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": {
@@ -5007,7 +5304,20 @@
         }
       ]
     },
-    "candidateComparisonStratum": {
+    "candidateMetric": {
+      "enum": [
+        "wall-time-ns",
+        "allocation-count",
+        "reallocation-count",
+        "allocated-bytes",
+        "peak-live-requested-bytes",
+        "retained-capacity-bytes",
+        "working-set-bytes",
+        "private-bytes",
+        "commit-peak-bytes"
+      ]
+    },
+    "measurementStratum": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -5029,7 +5339,8 @@
           "enum": [
             "external-string",
             "validated-fixed-key",
-            "canonical-output-order"
+            "canonical-output-order",
+            "full-pipeline-baseline"
           ]
         },
         "workloadId": {
@@ -5073,24 +5384,160 @@
         }
       }
     },
+    "candidateComparisonStratum": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/measurementStratum"
+        },
+        {
+          "properties": {
+            "keyDomain": {
+              "enum": [
+                "external-string",
+                "validated-fixed-key",
+                "canonical-output-order"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "roundMetricSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summaryId",
+        "purpose",
+        "candidateId",
+        "stratum",
+        "metric",
+        "batch",
+        "round",
+        "aggregationMethod",
+        "contributingRunIds",
+        "median",
+        "medianAbsoluteDeviation"
+      ],
+      "properties": {
+        "summaryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "enum": [
+            "formal-ladder",
+            "candidate-comparison"
+          ]
+        },
+        "candidateId": {
+          "$ref": "#/$defs/candidate/properties/id"
+        },
+        "stratum": {
+          "$ref": "#/$defs/measurementStratum"
+        },
+        "metric": {
+          "$ref": "#/$defs/candidateMetric"
+        },
+        "batch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "round": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "aggregationMethod": {
+          "const": "median-and-mad-of-exact-integers-v1"
+        },
+        "contributingRunIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "median": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "medianAbsoluteDeviation": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "ladderBatchSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summaryId",
+        "candidateId",
+        "stratum",
+        "metric",
+        "batch",
+        "aggregationMethod",
+        "roundSummaryIds",
+        "median",
+        "medianAbsoluteDeviation"
+      ],
+      "properties": {
+        "summaryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidateId": {
+          "$ref": "#/$defs/candidate/properties/id"
+        },
+        "stratum": {
+          "$ref": "#/$defs/measurementStratum"
+        },
+        "metric": {
+          "$ref": "#/$defs/candidateMetric"
+        },
+        "batch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "aggregationMethod": {
+          "const": "median-and-mad-of-exact-integers-v1"
+        },
+        "roundSummaryIds": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "median": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "medianAbsoluteDeviation": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
     "candidateComparisonRoundPair": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "round",
-        "baselineRunId",
-        "candidateRunId",
+        "baselineRoundSummaryId",
+        "candidateRoundSummaryId",
         "ratio"
       ],
       "properties": {
         "round": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
-        "baselineRunId": {
+        "baselineRoundSummaryId": {
           "type": "string",
           "minLength": 1
         },
-        "candidateRunId": {
+        "candidateRoundSummaryId": {
           "type": "string",
           "minLength": 1
         },
@@ -5133,6 +5580,8 @@
       "additionalProperties": false,
       "required": [
         "baseScales",
+        "roundMetricSummaries",
+        "ladderBatchSummaries",
         "adjacentLevelRatios",
         "knees",
         "reproducibilityEnvelopes",
@@ -5164,6 +5613,22 @@
                 "$ref": "#/$defs/nullableIntegerObservation"
               }
             }
+          }
+        },
+        "roundMetricSummaries": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/roundMetricSummary"
+          }
+        },
+        "ladderBatchSummaries": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/ladderBatchSummary"
           }
         },
         "adjacentLevelRatios": {
@@ -5341,28 +5806,16 @@
             ],
             "properties": {
               "candidateId": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/candidate/properties/id"
               },
               "baselineId": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/candidate/properties/id"
               },
               "stratum": {
                 "$ref": "#/$defs/candidateComparisonStratum"
               },
               "metric": {
-                "enum": [
-                  "wall-time-ns",
-                  "allocation-count",
-                  "reallocation-count",
-                  "allocated-bytes",
-                  "peak-live-requested-bytes",
-                  "retained-capacity-bytes",
-                  "working-set-bytes",
-                  "private-bytes",
-                  "commit-peak-bytes"
-                ]
+                "$ref": "#/$defs/candidateMetric"
               },
               "batch0": {
                 "$ref": "#/$defs/candidateComparisonBatch"

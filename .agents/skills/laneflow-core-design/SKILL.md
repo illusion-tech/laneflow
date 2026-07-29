@@ -24,7 +24,8 @@ Runtime）的兼容发现入口；它不表示目标态继续命名为 Core。
 8. 涉及 #308 编译器工作负载、资源/性能预算校准、研究停止护栏或私有容器候选时，
    读取 `docs/design/compiler-budget-calibration.md`、
    `docs/reference/compiler-calibration-workloads-v1.json` 与
-   `docs/reference/compiler-calibration-evidence-v1.schema.json`
+   `docs/reference/compiler-calibration-evidence-v1.schema.json`、
+   `docs/reference/compiler-calibration-contract-v1.json`
 9. 涉及城市模拟游戏范围、出行编排、Routing、路网修订、存档/回放、并行或
    fidelity 时，读取 `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 

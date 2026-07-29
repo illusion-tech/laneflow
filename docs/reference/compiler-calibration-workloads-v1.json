@@ -233,6 +233,272 @@
       "encoding": "ascii"
     }
   ],
+  "candidateRegistry": {
+    "revision": 1,
+    "selectionRule": "evidence candidate IDs, key domains, seed policies and component bindings must match exactly one registry entry; unregistered or partially matched configurations are invalid",
+    "componentVersionRule": "standard-library components bind environment.rustc, local-workspace components bind sourceCommit, and crates-io components bind Cargo.lock package ID, version, features and checksum",
+    "candidates": [
+      {
+        "id": "baseline-std-randomstate-stable-vec-v1",
+        "allowedKeyDomains": [
+          "full-pipeline-baseline"
+        ],
+        "hasherSeedPolicy": "random-state-process-random",
+        "fixedHasherSeedHexU64": null,
+        "algorithmConstants": [],
+        "components": [
+          {
+            "role": "container",
+            "implementationId": "rust-std-hashmap",
+            "dependencyKind": "standard-library",
+            "dependencySource": "rust-std::collections::HashMap"
+          },
+          {
+            "role": "hasher",
+            "implementationId": "rust-std-random-state",
+            "dependencyKind": "standard-library",
+            "dependencySource": "rust-std::hash::RandomState"
+          },
+          {
+            "role": "orderer",
+            "implementationId": "rust-std-stable-vec-sort",
+            "dependencyKind": "standard-library",
+            "dependencySource": "rust-std::vec::Vec::sort_by"
+          }
+        ]
+      },
+      {
+        "id": "std-hashmap-randomstate-v1",
+        "allowedKeyDomains": [
+          "external-string",
+          "validated-fixed-key"
+        ],
+        "hasherSeedPolicy": "random-state-process-random",
+        "fixedHasherSeedHexU64": null,
+        "algorithmConstants": [],
+        "components": [
+          {
+            "role": "container",
+            "implementationId": "rust-std-hashmap",
+            "dependencyKind": "standard-library",
+            "dependencySource": "rust-std::collections::HashMap"
+          },
+          {
+            "role": "hasher",
+            "implementationId": "rust-std-random-state",
+            "dependencyKind": "standard-library",
+            "dependencySource": "rust-std::hash::RandomState"
+          }
+        ]
+      },
+      {
+        "id": "hashbrown-randomstate-v1",
+        "allowedKeyDomains": [
+          "external-string",
+          "validated-fixed-key"
+        ],
+        "hasherSeedPolicy": "random-state-process-random",
+        "fixedHasherSeedHexU64": null,
+        "algorithmConstants": [],
+        "components": [
+          {
+            "role": "container",
+            "implementationId": "hashbrown-hash-map",
+            "dependencyKind": "crates-io",
+            "dependencySource": "crates.io/crates/hashbrown"
+          },
+          {
+            "role": "hasher",
+            "implementationId": "rust-std-random-state",
+            "dependencyKind": "standard-library",
+            "dependencySource": "rust-std::hash::RandomState"
+          }
+        ]
+      },
+      {
+        "id": "sorted-vec-binary-search-v1",
+        "allowedKeyDomains": [
+          "external-string",
+          "validated-fixed-key"
+        ],
+        "hasherSeedPolicy": "not-applicable",
+        "fixedHasherSeedHexU64": null,
+        "algorithmConstants": [],
+        "components": [
+          {
+            "role": "container",
+            "implementationId": "rust-std-sorted-vec-binary-search",
+            "dependencyKind": "standard-library",
+            "dependencySource": "rust-std::vec::Vec::binary_search_by"
+          }
+        ]
+      },
+      {
+        "id": "hashbrown-xxh3-fixed-v1",
+        "allowedKeyDomains": [
+          "validated-fixed-key"
+        ],
+        "hasherSeedPolicy": "fixed-u64",
+        "fixedHasherSeedHexU64": "4c46434f4d500001",
+        "algorithmConstants": [],
+        "components": [
+          {
+            "role": "container",
+            "implementationId": "hashbrown-hash-map",
+            "dependencyKind": "crates-io",
+            "dependencySource": "crates.io/crates/hashbrown"
+          },
+          {
+            "role": "hasher",
+            "implementationId": "xxhash-rust-xxh3",
+            "dependencyKind": "crates-io",
+            "dependencySource": "crates.io/crates/xxhash-rust"
+          },
+          {
+            "role": "hasher-adapter",
+            "implementationId": "issue-308-xxh3-build-hasher-v1",
+            "dependencyKind": "local-workspace",
+            "dependencySource": "research/issue-308-compiler-budget-calibration-research"
+          }
+        ]
+      },
+      {
+        "id": "hashbrown-xxh64-fixed-v1",
+        "allowedKeyDomains": [
+          "validated-fixed-key"
+        ],
+        "hasherSeedPolicy": "fixed-u64",
+        "fixedHasherSeedHexU64": "4c46434f4d500001",
+        "algorithmConstants": [],
+        "components": [
+          {
+            "role": "container",
+            "implementationId": "hashbrown-hash-map",
+            "dependencyKind": "crates-io",
+            "dependencySource": "crates.io/crates/hashbrown"
+          },
+          {
+            "role": "hasher",
+            "implementationId": "xxhash-rust-xxh64",
+            "dependencyKind": "crates-io",
+            "dependencySource": "crates.io/crates/xxhash-rust"
+          },
+          {
+            "role": "hasher-adapter",
+            "implementationId": "issue-308-xxh64-build-hasher-v1",
+            "dependencyKind": "local-workspace",
+            "dependencySource": "research/issue-308-compiler-budget-calibration-research"
+          }
+        ]
+      },
+      {
+        "id": "hashbrown-fnv1a64-v1",
+        "allowedKeyDomains": [
+          "validated-fixed-key"
+        ],
+        "hasherSeedPolicy": "not-applicable",
+        "fixedHasherSeedHexU64": null,
+        "algorithmConstants": [
+          {
+            "name": "offset-basis-u64",
+            "decimalValue": "14695981039346656037"
+          },
+          {
+            "name": "prime-u64",
+            "decimalValue": "1099511628211"
+          }
+        ],
+        "components": [
+          {
+            "role": "container",
+            "implementationId": "hashbrown-hash-map",
+            "dependencyKind": "crates-io",
+            "dependencySource": "crates.io/crates/hashbrown"
+          },
+          {
+            "role": "hasher",
+            "implementationId": "issue-308-fnv1a64-build-hasher-v1",
+            "dependencyKind": "local-workspace",
+            "dependencySource": "research/issue-308-compiler-budget-calibration-research"
+          }
+        ]
+      },
+      {
+        "id": "indexmap-randomstate-v1",
+        "allowedKeyDomains": [
+          "validated-fixed-key"
+        ],
+        "hasherSeedPolicy": "random-state-process-random",
+        "fixedHasherSeedHexU64": null,
+        "algorithmConstants": [],
+        "components": [
+          {
+            "role": "container",
+            "implementationId": "indexmap-index-map",
+            "dependencyKind": "crates-io",
+            "dependencySource": "crates.io/crates/indexmap"
+          },
+          {
+            "role": "hasher",
+            "implementationId": "rust-std-random-state",
+            "dependencyKind": "standard-library",
+            "dependencySource": "rust-std::hash::RandomState"
+          }
+        ]
+      },
+      {
+        "id": "stable-vec-sort-v1",
+        "allowedKeyDomains": [
+          "canonical-output-order"
+        ],
+        "hasherSeedPolicy": "not-applicable",
+        "fixedHasherSeedHexU64": null,
+        "algorithmConstants": [],
+        "components": [
+          {
+            "role": "orderer",
+            "implementationId": "rust-std-stable-vec-sort",
+            "dependencyKind": "standard-library",
+            "dependencySource": "rust-std::vec::Vec::sort_by"
+          }
+        ]
+      },
+      {
+        "id": "deterministic-radix-sort-v1",
+        "allowedKeyDomains": [
+          "canonical-output-order"
+        ],
+        "hasherSeedPolicy": "not-applicable",
+        "fixedHasherSeedHexU64": null,
+        "algorithmConstants": [],
+        "components": [
+          {
+            "role": "orderer",
+            "implementationId": "issue-308-deterministic-radix-sort-v1",
+            "dependencyKind": "local-workspace",
+            "dependencySource": "research/issue-308-compiler-budget-calibration-research"
+          }
+        ]
+      },
+      {
+        "id": "deterministic-bucket-sort-v1",
+        "allowedKeyDomains": [
+          "canonical-output-order"
+        ],
+        "hasherSeedPolicy": "not-applicable",
+        "fixedHasherSeedHexU64": null,
+        "algorithmConstants": [],
+        "components": [
+          {
+            "role": "orderer",
+            "implementationId": "issue-308-deterministic-bucket-sort-v1",
+            "dependencyKind": "local-workspace",
+            "dependencySource": "research/issue-308-compiler-budget-calibration-research"
+          }
+        ]
+      }
+    ]
+  },
   "sourceSpanRule": {
     "documentKeyFormula": "source/{graphProfileId}/{moduleName}.lfsynthetic",
     "canonicalSequenceOrder": [

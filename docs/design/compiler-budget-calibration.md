@@ -21,6 +21,7 @@
 - `../reference/glossary.md`
 - `../reference/compiler-calibration-workloads-v1.json`
 - `../reference/compiler-calibration-evidence-v1.schema.json`
+- `../reference/compiler-calibration-contract-v1.json`
 - [#292 编译器基础设施草案文件（PR #307，head `3b430e3`，待合入）](https://github.com/illusion-tech/laneflow/blob/3b430e37343949ea8511a6da0596d1795dadcf0d/docs/design/compiler-foundation.md)
 - [#308](https://github.com/illusion-tech/laneflow/issues/308)
 - [#292](https://github.com/illusion-tech/laneflow/issues/292)
@@ -380,12 +381,14 @@ Workload Manifest）的机器可读 SSOT，冻结：
 - 三个可扩展工作负载的每单元实体、关系、出现项和几何计数；
 - 当前夹具的文件路径、格式、精确字节长度、SHA-256、确定性研究投影、领域/阶段常量；
 - 限制维度到唯一研究工作负载的绑定、失败变体、清理实验选择，以及每种结果必须满足
-  的计数公式。
+  的计数公式；
+- 候选注册表修订、闭合候选标识符、允许键域、哈希器种子策略、算法常量，以及容器/
+  哈希器/适配器/排序器的依赖组件身份。
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `67566` exact bytes，SHA-256 为
-`2f6da04edc7568f105212161533b3eedbdc576cb3dc845971bde1f82efbcbd3a`；G2 只能发布
+取得 G1。G1 候选冻结清单 `76488` exact bytes，SHA-256 为
+`5a9b6b0464241020fbe4d2b9d0ee0e9e34e5fe703f65c6b45ef142cc75528aba`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -623,6 +626,20 @@ release 编译优化、输入清单和语义检查，但：
 `process.exitKind = success`，不自动令样本有效；作废轮次中的正常退出样本必须保留
 为 `status = invalid` 并携带至少一项具名 `invalidationReasons`，不得进入中位数、
 候选比较或其他派生结论。
+
+每个冷实例原始值保存为 `sampleOrdinal = 0`；同一进程的七个稳定容量复用原始值按
+执行顺序保存为 `sampleOrdinal = 0..6`。权威 JSON 必须为每个候选、完整测量分层、
+指标、批次和轮次建立轮次指标汇总（round metric summary）：冷实例汇总恰好引用一个
+有效原始 `runId`，稳定容量复用汇总恰好引用同一子进程的七个有效原始 `runId`，且
+序号集合完整、无重号。轮次中位数是排序后中间项；轮次中位绝对偏差先对每项计算其与
+中位数的整数绝对差，再取这些绝对差的中位数。
+
+正式阶梯批次汇总（ladder batch summary）必须按 `round = 0..4` 引用恰好五个轮次
+汇总，并对五个轮次中位数再次计算跨轮中位数和中位绝对偏差。上述样本数均为奇数，
+所以全部结果保持精确整数；算法标识符固定为
+`median-and-mad-of-exact-integers-v1`，没有浮点转换或舍入步骤。独立验证器必须从
+原始运行重算两层结果；全部 `summaryId` 在整份证据中必须唯一。缺少原始引用、跨进程
+拼接、错序、重号、作废样本或自报汇总不一致都使对应汇总无效。
 
 ### 5.4 确认成本拐点
 
@@ -998,6 +1015,19 @@ XXH3、XXH64 和 FNV-1a 64 只作为非加密内部候选。完整键相等比�
 单独防止外部攻击者制造哈希洪泛；未通过资源上限、碰撞输入和模糊测试的快速哈希不得
 用于外部可控字符串表。
 
+机器清单中的 `candidateRegistry.revision = 1` 是候选身份的唯一注册表。每个候选
+标识符精确绑定允许键域、哈希器种子策略、固定 seed 或算法常量，以及有序依赖组件
+元组 `(role, implementationId, dependencyKind, dependencySource)`。证据中的
+`candidate.components` 必须与注册表一一相等，不得缺失、追加或替换组件：
+
+- 标准库组件的 `version` 必须等于证据环境中的 `rustc`，特性集合为空；
+- 本地研究组件的 `version` 必须等于 `sourceCommit`，并由干净工作树保证完整复现；
+- crates.io / git 组件必须把精确 package ID、版本、启用特性和 checksum 绑定到同一
+  `Cargo.lock`，同时完成许可证、MSRV 与安全公告审计。
+
+未注册候选、候选 ID 与键域错配、快速非加密哈希进入 `external-string`、种子策略
+错配或依赖组件集合不一致必须在候选排名前失败，不能通过自由字符串 ID 获得性能结论。
+
 XXH3/XXH64 候选使用固定 seed `0x4c46_434f_4d50_0001`；FNV-1a 64 使用标准
 偏移基数（offset basis）`14695981039346656037` 和质数（prime）
 `1099511628211`。这些值只保证研究
@@ -1032,10 +1062,12 @@ XXH3/XXH64 候选使用固定 seed `0x4c46_434f_4d50_0001`；FNV-1a 64 使用标
   `pairingMethod = same-batch-same-round-v1` 与
   `aggregationMethod = median-of-exact-round-ratios-v1`，并按 `round` 递增保存
   候选比较轮次对（candidate comparison round pair）。每个轮次对必须把同一批、同一
-  `round`、同一完整分层中恰好一个基线 `runId` 与恰好一个候选 `runId` 配对；二者
-  都必须为有效运行，且不能复用到该批的另一个轮次对。形成性能结论的每批必须覆盖
-  `r = 0..2C-1` 的全部 `2C` 个平衡轮次，作废轮次及其保留样本不得进入配对；
-- 每个轮次对的比值方向固定为 `candidate metric / baseline metric`。`metric` 只允许
+  `round`、同一完整分层中恰好一个基线轮次指标汇总与恰好一个候选轮次指标汇总配对；
+  两个汇总必须由第 5.3 节的原始运行完整重算，且不能复用到该批的另一个轮次对。
+  形成性能结论的每批必须覆盖 `r = 0..2C-1` 的全部 `2C` 个平衡轮次，作废轮次及其
+  保留样本不得进入配对；
+- 每个轮次对的比值方向固定为 `candidate round median / baseline round median`。
+  `metric` 只允许
   映射到 `metrics.wallTimeNs`、`allocationCount`、`reallocationCount`、
   `allocatedBytes`、`peakLiveRequestedBytes`、`retainedCapacityBytes`、
   `workingSetBytes`、`privateBytes` 或 `commitPeakBytes` 的整数 `value`；分子、
@@ -1046,8 +1078,9 @@ XXH3/XXH64 候选使用固定 seed `0x4c46_434f_4d50_0001`；FNV-1a 64 使用标
   `(x[C-1] + x[C]) / 2`，再以最大公约数约分为唯一互素正整数比值。排序、求和、
   除以二和约分使用无溢出的数学整数语义；证据生产者不能完成精确算术时必须失败
   关闭。该算法没有舍入步骤，候选决策与重复性包络比较也必须用精确交叉乘法；
-- 独立验证器必须把每个轮次对的两个 `runId` 唯一解析回原始运行，核对 batch、
-  `round`、候选、完整分层、有效状态和指标，重算并约分每个比值，再独立重算
+- 独立验证器必须把每个轮次对的两个 `roundSummaryId` 唯一解析回轮次汇总及其原始
+  运行，核对 batch、`round`、候选、完整分层、有效状态和指标，重算并约分每个比值，
+  再独立重算
   `medianRatio`。正确性/安全拒绝必须引用造成拒绝的原始轮次对，并把不可计算比值
   保存为 `null + reason`；任何包含空比值、缺轮、重轮或非一一配对的批次只能形成
   拒绝或证据不足，不能形成性能赢家；
@@ -1074,6 +1107,25 @@ MSRV、锁文件中缺少 package/checksum 或安全公告数据库不可用使�
 
 ### 10.1 制品
 
+G1 先发布非自指契约描述符：
+
+```text
+docs/reference/compiler-calibration-contract-v1.json
+```
+
+描述符从外部绑定证据 Schema 与工作负载清单的 `$id`/格式版本、路径、exact-byte
+长度和 SHA-256；它不保存自身摘要，也不被证据 Schema 以 `const` 反向引用，因而
+不存在自摘要循环。正式 runner 与独立验证器必须先从受信任 `sourceCommit` 加载该
+描述符并计算其实际 SHA-256，再按描述符校验证据 Schema 和工作负载清单的精确字节，
+最后才允许用该 Schema 解析证据。证据中的 `contractDescriptorSha256` 与
+`evidenceSchemaSha256` 只记录实际计算结果；JSON Schema 只能检查其形状，独立
+验证器必须在解析前把它们分别与外部描述符实际摘要和描述符登记值精确比较。任何
+不一致都必须在读取派生结论前失败。
+
+G1 候选冻结契约描述符 `1321` exact bytes，SHA-256 为
+`608141c7d7b369f4bb23b72ee800022d649e391496502d664cf0324fb55dcd34`。该摘要是 PR/Gate
+与独立验证器的外部启动输入，不写回描述符或证据 Schema。
+
 G2/G3 研究交付拟生成：
 
 ```text
@@ -1090,8 +1142,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `144520` exact bytes，SHA-256 为
-`979930975b00edfa73b0c4f794b9e26687f9b894201c127c9ac5b37fe78dd93d`。
+G1 候选冻结 schema `155659` exact bytes，SHA-256 为
+`d3b04535ac85ea1041746414761d259dc36e9f47d2adf20e3d819dbc4d86ee97`。
 顶层格式标识：
 
 ```text
@@ -1102,7 +1154,8 @@ schemaVersion = 1
 必需包含：
 
 - `sourceCommit`、`harnessCommit`、必须为 `false` 的工作树脏状态（dirty-state）、
-  `Cargo.lock` SHA-256、研究工作负载清单 SHA-256、证据 schema SHA-256；
+  `Cargo.lock` SHA-256、契约描述符标识符/版本/实际 SHA-256、研究工作负载清单
+  SHA-256、证据 schema SHA-256；
 - OS、CPU、物理内存、target triple、rustc、LLVM、AC/电池、厂商/电源模式、
   BIOS/firmware 和后台进程审计；
 - 工作负载标识符/修订、模块图配置档、字符串配置、生成器版本、workload seed、
@@ -1112,18 +1165,22 @@ schemaVersion = 1
 - 输入文件摘要/长度（仅当前等价用例）、生成清单摘要和全部精确领域计数；工作负载
   标识符必须条件约束其合法配置档、规模角色、`N`、用例和输入文件，不能只分别满足
   若干互不关联的枚举；
-- 候选标识符、版本、特性（features）、键域、依赖来源、哈希器种子策略及可观测
-  固定 seed，以及许可证 SPDX 表达式、MSRV、安全公告审计和锁文件中的 package
-  identity/checksum；标准库或本地候选使用结构化不可用原因，不能省略审计对象；
-- 每条派生候选比较的完整候选比较分层、按两个独立批次拆分的基线/候选原始
-  `runId` 集合、中位比值和决策；运行引用必须能由独立验证器回算，不得只保存
-  汇总数；
+- 候选注册表修订、闭合候选标识符、键域、哈希器种子策略及可观测固定 seed，以及
+  每个依赖组件的角色、实现身份、版本、特性（features）、依赖来源、许可证 SPDX
+  表达式、MSRV、安全公告审计和锁文件 package identity/checksum；标准库或本地
+  组件使用结构化不可用原因，不能省略审计对象；
+- 每个原始运行的 `sampleOrdinal`，以及按候选、完整分层、指标、批次和轮次组织的
+  轮次指标汇总；正式阶梯另须保存引用五个轮次汇总的批次汇总。两层都保存贡献
+  `runId`/`roundSummaryId`、精确整数中位数和中位绝对偏差；
+- 每条派生候选比较的完整候选比较分层、按两个独立批次拆分的同轮
+  `roundSummaryId` 配对、精确轮次比值、中位比值和决策；汇总与运行引用必须能由
+  独立验证器回算，不得只保存最终数；
 - 每条限制配对的 `exactDimensionValue`、`selectedLimitValue`、值来源和来源
   `runId`；存续字节基准预扫描还必须保存基准测量标识符、副本序号和“仅运维硬上限”
   私有限制模式；
 - 二进制 SHA-256 与模式（`timing` / `memory` / `attribution` / `profiler` /
   `oracle`）；
-- batch/平衡轮次/执行位置、父子进程 ID、结构化终止类别、条件化退出码、信号号与
+- batch/平衡轮次/执行位置/样本序号、父子进程 ID、结构化终止类别、条件化退出码、信号号与
   原始平台状态，以及每个样本的冷实例/稳定容量复用/失败时延、分配、存续/峰值/
   保留字节；
 - 工作集、私有字节、提交峰值，以及来源输入、各 IR、诊断、暂存区和输出构造的
@@ -1161,6 +1218,24 @@ G2 证据生成器与独立验证器必须分别从绑定摘要的工作负载�
 Schema、没有通过该公式与交叉字段验证的
 JSON 不是有效研究证据。
 
+独立验证器的启动根不是证据自报字段。它必须先取得 Gate 接受的契约描述符 exact-byte
+身份，从 `sourceCommit` 读取描述符并核对实际摘要，再依次核对描述符登记的 Evidence
+v1 Schema 与工作负载清单；此后才解析 evidence。解析后还要要求
+`source.contractDescriptorSha256`、`source.evidenceSchemaSha256` 和
+`source.workloadManifestSha256` 分别等于已验证的实际制品。任何字段只满足六十四位
+十六进制形状、但不等于外部实物的证据都必须失败。
+
+候选验证必须从已绑定清单加载 `candidateRegistry`，要求证据候选的 registry revision、
+ID、键域、种子策略/固定值和有序组件身份与唯一注册项精确一致；再按组件种类核对
+rustc、`sourceCommit` 或 `Cargo.lock` package/version/features/checksum。不能从
+自由 ID 推测算法，也不能把同名候选的不同依赖实现合并比较。
+
+轮次指标汇总验证必须按贡献 `runId` 重算。`cold-instance` 要求唯一
+`sampleOrdinal = 0`；`stable-capacity-reuse` 要求同一子进程的
+`sampleOrdinal = 0..6` 完整集合。正式阶梯批次汇总必须引用同一候选、分层、指标与
+批次的 `round = 0..4` 五个轮次汇总，并重算跨轮中位数和中位绝对偏差。候选比较
+轮次对则必须解析到同批同轮的基线/候选轮次汇总，不能绕过原始运行直接信任中位数。
+
 停止护栏同样不能只通过单条 Schema：独立验证器必须按
 `guardPredictionContract.primaryRecordCountByWorkload` 重算前后级主记录数，从八个
 具名阶段操作数重算清单单缓冲区下界，并分别按首级恒等式或后续级别受检上取整公式
@@ -1196,7 +1271,7 @@ cargo +1.96.0 run --release --locked `
 精确参数在实现 G1 不再重开本文语义的前提下由 G2 落地。正式结果不得来自 IDE
 测试入口、debug 二进制或未锁定依赖。正式入口必须在启动任何测量前核验干净研究
 工作树（clean research working tree）：`sourceCommit` 与 `harnessCommit` 所指向
-的受测源码、runner、清单、Schema 和锁文件均不得有未提交修改；Schema 以
+的受测源码、runner、契约描述符、清单、Schema 和锁文件均不得有未提交修改；Schema 以
 `dirty = false` 失败关闭。脏工作树只允许产生不使用 evidence v1、不能进入
 `derived` 或报告的本地探索输出，不能通过绑定任意补丁摘要升级为权威证据。
 
@@ -1261,11 +1336,13 @@ cargo +1.96.0 run --release --locked `
 - [ ] 外部审阅未发现未回应的主要/阻断发现（Major/Blocking finding）；
 - [ ] 研究工作负载清单 exact bytes 摘要已冻结，三个合成工作负载 × 三种模块图、
   字符串/来源位置类别、记录布局、计数对象、证据角色和禁止外推边界闭合；
+- [ ] 候选注册表的闭合 ID、允许键域、种子策略、算法常量与依赖组件身份闭合；
 - [ ] `B`、至少五级规模阶梯、拐点确认、校准/压力规模和停止护栏规则闭合；
-- [ ] 冷实例、稳定容量复用、失败清理和内存记账协议闭合；
+- [ ] 冷实例、稳定容量复用、轮次/批次精确汇总、失败清理和内存记账协议闭合；
 - [ ] 外部可控键与内部定长键的安全域、候选矩阵、进程隔离、平衡顺序和整轮作废
   纪律闭合；
-- [ ] 证据格式 v1 schema、研究/生产 workload ID 所有权与 #292 rebase 回写边界闭合；
+- [ ] 非自指契约描述符、证据格式 v1 schema、研究/生产 workload ID 所有权与 #292
+  rebase 回写边界闭合；
 - [ ] 术语 SSOT、设计索引和相关 Agent Skill 阅读入口同步；
 - [ ] Issue #308 留下可永久引用的 G1 判断评论。
 
