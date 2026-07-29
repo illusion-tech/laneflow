@@ -81,6 +81,17 @@
         "importEdgeCount": "N",
         "crossModuleReferenceCount": "N",
         "maximumImportDepth": "1"
+      },
+      "expectedStringStructure": {
+        "canonicalModuleNameByteCount": "4 + 13 * N",
+        "maximumCanonicalModuleNameBytes": "13",
+        "sourceDocumentKeyByteCount": "45 * N + 36",
+        "maximumSourceDocumentKeyBytes": "45",
+        "importTargetModuleNameByteCount": "13 * N",
+        "maximumImportTargetModuleNameBytes": "13",
+        "sharedConstantStringItemCount": "0",
+        "sharedConstantStringByteCount": "0",
+        "maximumSharedConstantStringBytes": "0"
       }
     },
     {
@@ -114,6 +125,17 @@
         "importEdgeCount": "N",
         "crossModuleReferenceCount": "max(N - 1, 0)",
         "maximumImportDepth": "N"
+      },
+      "expectedStringStructure": {
+        "canonicalModuleNameByteCount": "4 + 13 * N",
+        "maximumCanonicalModuleNameBytes": "13",
+        "sourceDocumentKeyByteCount": "46 * N + 37",
+        "maximumSourceDocumentKeyBytes": "46",
+        "importTargetModuleNameByteCount": "13 * N",
+        "maximumImportTargetModuleNameBytes": "13",
+        "sharedConstantStringItemCount": "0",
+        "sharedConstantStringByteCount": "0",
+        "maximumSharedConstantStringBytes": "0"
       }
     },
     {
@@ -164,6 +186,17 @@
         "importEdgeCount": "2 * N + ceil(N / 64)",
         "crossModuleReferenceCount": "N",
         "maximumImportDepth": "3"
+      },
+      "expectedStringStructure": {
+        "canonicalModuleNameByteCount": "17 + 13 * N + 14 * ceil(N / 64)",
+        "maximumCanonicalModuleNameBytes": "14",
+        "sourceDocumentKeyByteCount": "52 * N + 53 * ceil(N / 64) + 95",
+        "maximumSourceDocumentKeyBytes": "53",
+        "importTargetModuleNameByteCount": "26 * N + 14 * ceil(N / 64)",
+        "maximumImportTargetModuleNameBytes": "14",
+        "sharedConstantStringItemCount": "2",
+        "sharedConstantStringByteCount": "57",
+        "maximumSharedConstantStringBytes": "32"
       }
     }
   ],
@@ -208,6 +241,13 @@
     },
     "sourceTokenFormula": "sourceTokenKindUtf8 || '/' || kindLocalOrdinalHex8",
     "sourceDocumentBytesFormula": "concatenate(sourceTokenUtf8 || LF in canonicalSequenceOrder)",
+    "sourceTokenByteLengthIncludingLf": {
+      "declarations": 21,
+      "references": 19,
+      "relations": 18,
+      "geometry": 18
+    },
+    "sourceByteCountFormula": "21 * sourceDeclarationCount + 19 * sourceReferenceCount + 18 * sourceRelationCount + 18 * sourceGeometryCount",
     "startLineFormula": "canonicalSequenceOrdinal + 1",
     "startColumn": 1,
     "endLineFormula": "startLine",
@@ -286,17 +326,62 @@
       "logicalFieldBytes": 44,
       "reprCSizeBytes": 48
     },
+    "stringAggregateModel": {
+      "scope": "all UTF-8 strings materialized in sourceInput, typedAst, or hir payload buffers; manifest metadata and sourceToken bytes are excluded",
+      "itemOrder": [
+        "canonical module names in expanded module order",
+        "source document keys in expanded module order",
+        "import target canonical module names in expanded edge order",
+        "one namespace field string per identity declaration in declaration order",
+        "profiled identity key strings in declaration and identity-field tag order",
+        "source reference spellings in source reference order",
+        "shared constant name then shared constant value when present"
+      ],
+      "canonicalModuleOrder": "root, shared/common when present, group/{g:08x} by g, unit/{i:08x} by i",
+      "sourceDocumentKeyFormula": "source/{graphProfileId}/{canonicalModuleName}.lfsynthetic",
+      "namespaceString": {
+        "encoding": "lowercase-ascii-hex",
+        "byteLength": 32
+      },
+      "profiledIdentityKey": {
+        "encoding": "selected stringProfile encoding",
+        "byteLength": "stringProfile.profiledKeyLengthBytes"
+      },
+      "sourceReferenceSpelling": {
+        "formula": "reference/{targetKindCodeHex2}/{targetModuleOrdinalHex8}/{targetLocalOrdinalHex8}",
+        "encoding": "ascii",
+        "byteLength": 30,
+        "sharedConstantTargetKindCodeHex2": "ff"
+      },
+      "sharedConstantStrings": {
+        "nameUtf8": "shared-calibration-anchor",
+        "nameByteLength": 25,
+        "valueUtf8": "laneflow-compiler-calibration-v1",
+        "valueByteLength": 32
+      },
+      "stringItemCountFormula": "moduleCount + sourceDocumentCount + importEdgeCount + identityDeclarationCount + profiledKeyOccurrenceCount + sourceReferenceCount + graphProfile.expectedStringStructure.sharedConstantStringItemCount",
+      "totalStringBytesFormula": "graphProfile.expectedStringStructure.canonicalModuleNameByteCount + graphProfile.expectedStringStructure.sourceDocumentKeyByteCount + graphProfile.expectedStringStructure.importTargetModuleNameByteCount + 32 * identityDeclarationCount + stringProfile.profiledKeyLengthBytes * profiledKeyOccurrenceCount + 30 * sourceReferenceCount + graphProfile.expectedStringStructure.sharedConstantStringByteCount",
+      "maximumStringBytesFormula": "max(graphProfile.expectedStringStructure.maximumCanonicalModuleNameBytes, graphProfile.expectedStringStructure.maximumSourceDocumentKeyBytes, graphProfile.expectedStringStructure.maximumImportTargetModuleNameBytes, 32 when identityDeclarationCount > 0, stringProfile.profiledKeyLengthBytes when profiledKeyOccurrenceCount > 0, 30 when sourceReferenceCount > 0, graphProfile.expectedStringStructure.maximumSharedConstantStringBytes)"
+    },
     "aggregateInputFormulas": {
       "sourceDocumentCount": "moduleCount",
+      "identityDeclarationCount": "N * perUnitStageInputs.sourceDeclarationCount",
       "sourceDeclarationCount": "N * perUnitStageInputs.sourceDeclarationCount + graphProfile.sharedSourceConstantRecordCount",
       "identityFieldOccurrenceCount": "N * perUnitStageInputs.identityFieldOccurrenceCount",
+      "profiledKeyOccurrenceCount": "N * perUnitStageInputs.profiledKeyOccurrenceCount",
       "sourceReferenceCount": "N * perUnitStageInputs.sourceReferenceCount + crossModuleReferenceCount",
       "sourceRelationCount": "N * perUnitStageInputs.sourceRelationCount",
       "sourceGeometryCount": "N * perUnitStageInputs.sourceGeometryCount",
       "symbolCount": "sourceDeclarationCount",
       "sourceSpanCount": "sourceDeclarationCount + sourceReferenceCount + sourceRelationCount + sourceGeometryCount",
+      "sourceByteCount": "21 * sourceDeclarationCount + 19 * sourceReferenceCount + 18 * sourceRelationCount + 18 * sourceGeometryCount",
+      "stringItemCount": "evaluate stringAggregateModel.stringItemCountFormula",
+      "maximumStringBytes": "evaluate stringAggregateModel.maximumStringBytesFormula",
+      "totalStringBytes": "evaluate stringAggregateModel.totalStringBytesFormula",
       "semanticOutputRecord": "N * perUnitCounts.semanticOutputRecord",
-      "semanticPayloadByteCount": "sum exact payload byte lengths obtained from recordKinds, identityBindings, stringProfile, and the canonical records for this level)"
+      "semanticPayloadByteCount": "sum exact payload byte lengths obtained from recordKinds, identityBindings, stringProfile, and the canonical records for this level",
+      "logicalByteCount": "researchStageModel.stageFormulas.canonicalLir.logicalBytes",
+      "outputByteCount": "researchStageModel.stageFormulas.outputConstruction.logicalBytes"
     },
     "stageFormulas": {
       "sourceInput": {
@@ -731,6 +816,7 @@
       "perUnitStageInputs": {
         "sourceDeclarationCount": 22,
         "identityFieldOccurrenceCount": 58,
+        "profiledKeyOccurrenceCount": 24,
         "sourceReferenceCount": 22,
         "sourceRelationCount": 10,
         "sourceGeometryCount": 0
@@ -810,6 +896,7 @@
       "perUnitStageInputs": {
         "sourceDeclarationCount": 357,
         "identityFieldOccurrenceCount": 1021,
+        "profiledKeyOccurrenceCount": 409,
         "sourceReferenceCount": 2373,
         "sourceRelationCount": 628,
         "sourceGeometryCount": 1398
@@ -897,6 +984,7 @@
       "perUnitStageInputs": {
         "sourceDeclarationCount": 166,
         "identityFieldOccurrenceCount": 464,
+        "profiledKeyOccurrenceCount": 190,
         "sourceReferenceCount": 544,
         "sourceRelationCount": 252,
         "sourceGeometryCount": 64
@@ -924,6 +1012,71 @@
     {
       "id": "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1",
       "scalable": false,
+      "projectionContract": {
+        "scope": "non-production research projection only; it does not define LF-COMP-CURRENT-EQUIV-v1 or a production frontend",
+        "moduleOrder": [
+          "traffic",
+          "spatial when the selected case contains a SpatialPackage"
+        ],
+        "moduleImports": "spatial imports traffic exactly once when present; otherwise no imports",
+        "namespaceDerivationGraphProfileId": "not-applicable",
+        "trafficEntitySources": {
+          "RoadCorridor": "roadCorridors array order",
+          "RoadSection": "roadSections array order",
+          "AuthoringLane": "roadSections array order then lanes array order",
+          "LaneEdge": "laneGraph.edges array order",
+          "Junction": "junctions array order",
+          "Movement": "movements array order",
+          "ManeuverPath": "maneuverPaths array order",
+          "ManeuverGate": "signals.maneuverGates array order",
+          "WaitingZone": "waitingZones array order",
+          "StopLine": "signals.stopLines array order",
+          "SignalGroup": "signals.groups array order",
+          "SignalController": "signals.controllers array order",
+          "SignalPhase": "signals.controllers array order then phases array order",
+          "ParkingArea": "parking.areas array order",
+          "ParkingSpace": "parking.spaces array order",
+          "LaneGroup": "laneGroups array order",
+          "FacilityBand": "facilityBands array order",
+          "ParticipantClass": "participantClasses array order",
+          "AccessRule": "accessRules array order",
+          "VehicleProfile": "vehicleProfiles array order",
+          "StaticRoute": "routes array order"
+        },
+        "spatialEntitySources": {
+          "CanonicalFrame": "one declaration from frameId",
+          "canonicalGeometryPoint": "join edges by trafficEdgeId to the traffic LaneEdge declaration, then enumerate centerline.points in traffic LaneEdge declaration order and point array order",
+          "crossModuleReference": "one spatial-to-traffic LaneEdge binding per joined spatial edge"
+        },
+        "relationSources": {
+          "owner-relation": "AuthoringLane nesting; Movement.junctionId; ManeuverPath.movementId; ManeuverGate.maneuverPathId; WaitingZone.maneuverPathId; SignalPhase controller nesting; ParkingSpace.areaId; LaneGroup.roadSectionId; RoadCorridor.elements ownership of RoadSection or FacilityBand",
+          "edge-connection": "laneGraph.edges array order then connections array order",
+          "route-occurrence": "routes array order then edgeIds array order",
+          "access-relation": "accessRules array order then participantClassIds array order",
+          "signal-group-relation": "signals.maneuverGates array order where signalControl.kind is group",
+          "signal-phase-state": "signals.controllers, phases, then states array order",
+          "gate-occurrence": "signals.maneuverGates array order",
+          "waiting-zone-occurrence": "waitingZones array order",
+          "parking-space-anchors": "parking.spaces array order",
+          "lane-coverage-occurrence": "roadSections, lanes, then edgeIds array order",
+          "junction-internal-edge-role": "maneuverPaths array order then internalEdgeIds array order"
+        },
+        "identityRule": {
+          "originalIdUse": "resolve current fixture references outside the measured region, then discard original strings",
+          "profiledKeyFormula": "fixture/{entityKindCodeHex2}/{sourceArrayOrdinalHex8}",
+          "profiledKeyLengthBytes": 19,
+          "identityFields": "apply identityBindings in ascending field tag order"
+        },
+        "sourceReferenceRule": {
+          "spellingFormula": "reference/{targetKindCodeHex2}/{targetModuleOrdinalHex8}/{targetLocalOrdinalHex8}",
+          "byteLength": 30,
+          "countRule": "identity stable-id fields plus every StableId payload field of the projected relation and geometry records plus spatial-to-traffic cross-module bindings"
+        },
+        "sourceDocumentKeyFormula": "fixture/{caseId}/{canonicalModuleName}.lfsynthetic",
+        "sourceRule": "apply sourceSpanRule token ordering and byte lengths, substitute projectionContract.sourceDocumentKeyFormula, and apply researchStageModel to the exact case projection without N scaling",
+        "scenarioManifestRule": "bind file identity and source lineage only; emit no module, declaration, reference, relation, geometry, semantic, or stage record",
+        "unlistedProductionSemantics": "not-compared and forbidden from implicit projection"
+      },
       "cases": [
         {
           "id": "signalized-corridor",
@@ -946,7 +1099,124 @@
               "byteLength": 522,
               "sha256": "7d8d1f0b0448426c6d2cb79144bbac891bb39c710f4f22de12a204a6ff7a152c"
             }
-          ]
+          ],
+          "projection": {
+            "canonicalModules": [
+              "traffic",
+              "spatial"
+            ],
+            "importEdges": [
+              {
+                "from": "spatial",
+                "to": "traffic"
+              }
+            ],
+            "entityCounts": {
+              "RoadCorridor": 7,
+              "RoadSection": 14,
+              "AuthoringLane": 34,
+              "LaneEdge": 66,
+              "Junction": 2,
+              "Movement": 24,
+              "ManeuverPath": 32,
+              "ManeuverGate": 32,
+              "WaitingZone": 0,
+              "StopLine": 20,
+              "SignalGroup": 8,
+              "SignalController": 2,
+              "SignalPhase": 24,
+              "ParkingArea": 0,
+              "ParkingSpace": 0,
+              "LaneGroup": 6,
+              "FacilityBand": 7,
+              "ParticipantClass": 3,
+              "AccessRule": 18,
+              "VehicleProfile": 2,
+              "StaticRoute": 28,
+              "CanonicalFrame": 1
+            },
+            "relationRecordCounts": {
+              "ownerRelation": 173,
+              "edgeConnection": 64,
+              "routeOccurrence": 116,
+              "canonicalGeometryPoint": 1392,
+              "accessRelation": 18,
+              "signalGroupRelation": 32,
+              "signalPhaseStateOccurrence": 96,
+              "gateOccurrence": 32,
+              "waitingZoneOccurrence": 0,
+              "parkingSpaceAnchors": 0,
+              "laneCoverageOccurrence": 34,
+              "junctionInternalEdgeRole": 32
+            },
+            "exactAggregateInputs": {
+              "moduleCount": 2,
+              "importEdgeCount": 1,
+              "crossModuleReferenceCount": 66,
+              "maximumImportDepth": 1,
+              "sourceDocumentCount": 2,
+              "sourceByteCount": 87838,
+              "identityDeclarationCount": 330,
+              "sourceDeclarationCount": 330,
+              "sourceSpanCount": 4693,
+              "identityFieldOccurrenceCount": 945,
+              "profiledKeyOccurrenceCount": 378,
+              "sourceReferenceCount": 2374,
+              "sourceRelationCount": 597,
+              "sourceGeometryCount": 1392,
+              "symbolCount": 330,
+              "stringItemCount": 3087,
+              "maximumStringBytes": 47,
+              "totalStringBytes": 89077,
+              "diagnosticCount": 0,
+              "semanticOutputRecord": 2319,
+              "semanticPayloadByteCount": 84624,
+              "logicalByteCount": 186660,
+              "outputByteCount": 168162
+            },
+            "exactStageExpectations": {
+              "sourceInput": {
+                "recordCount": 4696,
+                "logicalBytes": 327187
+              },
+              "typedAst": {
+                "recordCount": 5641,
+                "payloadLogicalBytes": 270775,
+                "logicalBytes": 451287,
+                "recordAllocationBytes": 451287
+              },
+              "hir": {
+                "recordCount": 5641,
+                "payloadLogicalBytes": 123837,
+                "logicalBytes": 304349,
+                "recordAllocationBytes": 304349
+              },
+              "mir": {
+                "recordCount": 2319,
+                "payloadLogicalBytes": 84624,
+                "logicalBytes": 186660,
+                "recordAllocationBytes": 195936
+              },
+              "canonicalLir": {
+                "recordCount": 2319,
+                "payloadLogicalBytes": 84624,
+                "logicalBytes": 186660,
+                "recordAllocationBytes": 195936
+              },
+              "diagnostics": {
+                "recordCount": 0,
+                "logicalBytes": 0
+              },
+              "scratch": {
+                "recordCount": 0,
+                "logicalBytes": 18552
+              },
+              "outputConstruction": {
+                "recordCount": 2319,
+                "logicalBytes": 168162
+              }
+            }
+          }
         },
         {
           "id": "parking-signals-baseline",
@@ -957,7 +1227,118 @@
               "byteLength": 5038,
               "sha256": "bf48627f36969ed9553be63ba85a49a2dac7d78a6906fc637ca284ad79d8b599"
             }
-          ]
+          ],
+          "projection": {
+            "canonicalModules": [
+              "traffic"
+            ],
+            "importEdges": [],
+            "entityCounts": {
+              "RoadCorridor": 1,
+              "RoadSection": 1,
+              "AuthoringLane": 1,
+              "LaneEdge": 3,
+              "Junction": 1,
+              "Movement": 2,
+              "ManeuverPath": 2,
+              "ManeuverGate": 2,
+              "WaitingZone": 0,
+              "StopLine": 1,
+              "SignalGroup": 1,
+              "SignalController": 1,
+              "SignalPhase": 3,
+              "ParkingArea": 1,
+              "ParkingSpace": 3,
+              "LaneGroup": 0,
+              "FacilityBand": 0,
+              "ParticipantClass": 1,
+              "AccessRule": 0,
+              "VehicleProfile": 1,
+              "StaticRoute": 2,
+              "CanonicalFrame": 0
+            },
+            "relationRecordCounts": {
+              "ownerRelation": 14,
+              "edgeConnection": 2,
+              "routeOccurrence": 4,
+              "canonicalGeometryPoint": 0,
+              "accessRelation": 0,
+              "signalGroupRelation": 1,
+              "signalPhaseStateOccurrence": 3,
+              "gateOccurrence": 2,
+              "waitingZoneOccurrence": 0,
+              "parkingSpaceAnchors": 3,
+              "laneCoverageOccurrence": 2,
+              "junctionInternalEdgeRole": 0
+            },
+            "exactAggregateInputs": {
+              "moduleCount": 1,
+              "importEdgeCount": 0,
+              "crossModuleReferenceCount": 0,
+              "maximumImportDepth": 0,
+              "sourceDocumentCount": 1,
+              "sourceByteCount": 2246,
+              "identityDeclarationCount": 27,
+              "sourceDeclarationCount": 27,
+              "sourceSpanCount": 117,
+              "identityFieldOccurrenceCount": 76,
+              "profiledKeyOccurrenceCount": 31,
+              "sourceReferenceCount": 59,
+              "sourceRelationCount": 31,
+              "sourceGeometryCount": 0,
+              "symbolCount": 27,
+              "stringItemCount": 119,
+              "maximumStringBytes": 52,
+              "totalStringBytes": 3282,
+              "diagnosticCount": 0,
+              "semanticOutputRecord": 58,
+              "semanticPayloadByteCount": 3026,
+              "logicalByteCount": 5578,
+              "outputByteCount": 5168
+            },
+            "exactStageExpectations": {
+              "sourceInput": {
+                "recordCount": 118,
+                "logicalBytes": 9304
+              },
+              "typedAst": {
+                "recordCount": 194,
+                "payloadLogicalBytes": 7868,
+                "logicalBytes": 14076,
+                "recordAllocationBytes": 14076
+              },
+              "hir": {
+                "recordCount": 194,
+                "payloadLogicalBytes": 4070,
+                "logicalBytes": 10278,
+                "recordAllocationBytes": 10278
+              },
+              "mir": {
+                "recordCount": 58,
+                "payloadLogicalBytes": 3026,
+                "logicalBytes": 5578,
+                "recordAllocationBytes": 5810
+              },
+              "canonicalLir": {
+                "recordCount": 58,
+                "payloadLogicalBytes": 3026,
+                "logicalBytes": 5578,
+                "recordAllocationBytes": 5810
+              },
+              "diagnostics": {
+                "recordCount": 0,
+                "logicalBytes": 0
+              },
+              "scratch": {
+                "recordCount": 0,
+                "logicalBytes": 464
+              },
+              "outputConstruction": {
+                "recordCount": 58,
+                "logicalBytes": 5168
+              }
+            }
+          }
         },
         {
           "id": "multi-gate-waiting-zone",
@@ -968,10 +1349,121 @@
               "byteLength": 3006,
               "sha256": "d87ff96165cabb90155f2318839297b70fc1e007f7b35c06c5271017c84f06ae"
             }
-          ]
+          ],
+          "projection": {
+            "canonicalModules": [
+              "traffic"
+            ],
+            "importEdges": [],
+            "entityCounts": {
+              "RoadCorridor": 0,
+              "RoadSection": 0,
+              "AuthoringLane": 0,
+              "LaneEdge": 4,
+              "Junction": 1,
+              "Movement": 1,
+              "ManeuverPath": 1,
+              "ManeuverGate": 3,
+              "WaitingZone": 2,
+              "StopLine": 3,
+              "SignalGroup": 0,
+              "SignalController": 0,
+              "SignalPhase": 0,
+              "ParkingArea": 0,
+              "ParkingSpace": 0,
+              "LaneGroup": 0,
+              "FacilityBand": 0,
+              "ParticipantClass": 1,
+              "AccessRule": 0,
+              "VehicleProfile": 1,
+              "StaticRoute": 1,
+              "CanonicalFrame": 0
+            },
+            "relationRecordCounts": {
+              "ownerRelation": 7,
+              "edgeConnection": 3,
+              "routeOccurrence": 4,
+              "canonicalGeometryPoint": 0,
+              "accessRelation": 0,
+              "signalGroupRelation": 0,
+              "signalPhaseStateOccurrence": 0,
+              "gateOccurrence": 3,
+              "waitingZoneOccurrence": 2,
+              "parkingSpaceAnchors": 0,
+              "laneCoverageOccurrence": 0,
+              "junctionInternalEdgeRole": 2
+            },
+            "exactAggregateInputs": {
+              "moduleCount": 1,
+              "importEdgeCount": 0,
+              "crossModuleReferenceCount": 0,
+              "maximumImportDepth": 0,
+              "sourceDocumentCount": 1,
+              "sourceByteCount": 1516,
+              "identityDeclarationCount": 18,
+              "sourceDeclarationCount": 18,
+              "sourceSpanCount": 79,
+              "identityFieldOccurrenceCount": 47,
+              "profiledKeyOccurrenceCount": 20,
+              "sourceReferenceCount": 40,
+              "sourceRelationCount": 21,
+              "sourceGeometryCount": 0,
+              "symbolCount": 18,
+              "stringItemCount": 80,
+              "maximumStringBytes": 51,
+              "totalStringBytes": 2214,
+              "diagnosticCount": 0,
+              "semanticOutputRecord": 39,
+              "semanticPayloadByteCount": 1984,
+              "logicalByteCount": 3700,
+              "outputByteCount": 3442
+            },
+            "exactStageExpectations": {
+              "sourceInput": {
+                "recordCount": 80,
+                "logicalBytes": 6290
+              },
+              "typedAst": {
+                "recordCount": 127,
+                "payloadLogicalBytes": 5310,
+                "logicalBytes": 9374,
+                "recordAllocationBytes": 9374
+              },
+              "hir": {
+                "recordCount": 127,
+                "payloadLogicalBytes": 2730,
+                "logicalBytes": 6794,
+                "recordAllocationBytes": 6794
+              },
+              "mir": {
+                "recordCount": 39,
+                "payloadLogicalBytes": 1984,
+                "logicalBytes": 3700,
+                "recordAllocationBytes": 3856
+              },
+              "canonicalLir": {
+                "recordCount": 39,
+                "payloadLogicalBytes": 1984,
+                "logicalBytes": 3700,
+                "recordAllocationBytes": 3856
+              },
+              "diagnostics": {
+                "recordCount": 0,
+                "logicalBytes": 0
+              },
+              "scratch": {
+                "recordCount": 0,
+                "logicalBytes": 312
+              },
+              "outputConstruction": {
+                "recordCount": 39,
+                "logicalBytes": 3442
+              }
+            }
+          }
         }
       ],
-      "stageInputRule": "enumerate the exact isomorphic research records for the selected case and apply researchStageModel without N scaling; current fixtures never enter budget or candidate ranking",
+      "stageInputRule": "apply projectionContract and the selected case projection exactly; compare every aggregate input, domain count, semantic payload byte count, and exactStageExpectation; current fixtures never enter budget or candidate ranking",
       "reservedProductionWorkloadId": "LF-COMP-CURRENT-EQUIV-v1",
       "reservedProductionOwnerIssue": 292
     }
@@ -1000,6 +1492,51 @@
     "stage-scratch-byte-count",
     "output-byte-count",
     "compiler-controlled-live-byte-count"
+  ],
+  "inputVariants": [
+    {
+      "id": "canonical-valid-v1",
+      "scope": "all limit dimensions except diagnostic-count",
+      "construction": "the selected canonical scalable workload level without semantic mutation",
+      "expectedDiagnosticCount": 0
+    },
+    {
+      "id": "corridor-missing-reference-per-unit-v1",
+      "scope": "diagnostic-count at-bound and plus-one",
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleRoles": [
+        "calibration",
+        "stress"
+      ],
+      "construction": "replace the first canonical route occurrence in every unit with an unknown LaneEdge; retain every record count and source position",
+      "expectedDiagnosticCount": "N",
+      "expectedPrimaryCompilerErrorCode": "LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE"
+    },
+    {
+      "id": "corridor-duplicate-owner-per-unit-v1",
+      "scope": "semantic/duplicate-owner-per-unit",
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleRoles": [
+        "calibration",
+        "stress"
+      ],
+      "construction": "attach the first canonical FacilityBand in every unit to the second RoadCorridor while retaining its first owner",
+      "expectedDiagnosticCount": "N",
+      "expectedPrimaryCompilerErrorCode": "LF-COMP-RESEARCH-E-DUPLICATE-OWNER"
+    },
+    {
+      "id": "corridor-diagnostic-cap-plus-one-v1",
+      "scope": "diagnostic/cap-plus-one",
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleRoles": [
+        "calibration",
+        "stress"
+      ],
+      "construction": "replace the first N + 1 canonical route occurrences with independent unknown LaneEdges, set maxDiagnostics=N, and retain all other records",
+      "expectedRetainedDiagnosticCount": "N",
+      "expectedDiagnosticsTruncated": true,
+      "expectedPrimaryCompilerErrorCode": "LF-COMP-RESEARCH-E-DIAGNOSTIC-LIMIT"
+    }
   ],
   "limitDimensionBindings": [
     {
@@ -1064,7 +1601,9 @@
     },
     {
       "dimensionId": "diagnostic-count",
-      "workloadId": "LF-COMP-CORRIDOR-v1"
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "inputVariantId": "corridor-missing-reference-per-unit-v1",
+      "pairMode": "diagnostic-cap-on-semantic-failure"
     },
     {
       "dimensionId": "typed-ast-record-count",
@@ -1096,17 +1635,33 @@
     }
   ],
   "limitPairConstruction": {
-    "precondition": "selected dimension exact value is at least one at calibration and stress scales",
+    "defaultInputVariantId": "canonical-valid-v1",
+    "defaultPairMode": "success-at-bound",
+    "precondition": "selected dimension exact value is at least one at calibration and stress scales; diagnostic-count uses the bound diagnostic-producing variant whose exact value is N",
     "scaleRoles": [
       "calibration",
       "stress"
     ],
     "atBound": "use the canonical workload level and set the selected limit equal to its exact selected dimension value",
     "plusOne": "reuse the same canonical workload level and set only the selected limit to exact selected dimension value minus one",
+    "expectedByPairMode": {
+      "success-at-bound": {
+        "atBound": "success",
+        "plusOne": "fail before allocation, copy, sort, hash, or stage work prohibited by that limit"
+      },
+      "diagnostic-cap-on-semantic-failure": {
+        "atBound": "compiler-error LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE with exactly N diagnostics and diagnosticsTruncated=false",
+        "plusOne": "compiler-error LF-COMP-RESEARCH-E-DIAGNOSTIC-LIMIT when emitting the Nth diagnostic against maxDiagnostics=N-1; retain exactly N-1 diagnostics, set diagnosticsTruncated=true, and start no later compiler stage"
+      }
+    },
+    "inputDigestAlgorithm": "SHA-256",
+    "inputDigestDomainUtf8NulTerminated": "LANEFLOW-COMPILER-CALIBRATION-INPUT-V1",
     "inputDigestIncludes": [
       "workload manifest digest",
       "workload/profile/scale identity",
+      "input variant ID",
       "canonical level counts",
+      "canonical ordered source value records and payload bytes after applying the input variant",
       "complete private limit values"
     ]
   },
@@ -1114,16 +1669,17 @@
     {
       "idPattern": "limit/{dimension}/at-bound",
       "workloadBindingSource": "limitDimensionBindings",
-      "expected": "success"
+      "expectedSource": "limitPairConstruction.expectedByPairMode"
     },
     {
       "idPattern": "limit/{dimension}/plus-one",
       "workloadBindingSource": "limitDimensionBindings",
-      "expected": "fail-before-proportional-work"
+      "expectedSource": "limitPairConstruction.expectedByPairMode"
     },
     {
       "id": "semantic/missing-reference-per-unit",
       "workloadId": "LF-COMP-CORRIDOR-v1",
+      "inputVariantId": "corridor-missing-reference-per-unit-v1",
       "scaleRoles": [
         "calibration",
         "stress"
@@ -1133,6 +1689,7 @@
     {
       "id": "semantic/duplicate-owner-per-unit",
       "workloadId": "LF-COMP-CORRIDOR-v1",
+      "inputVariantId": "corridor-duplicate-owner-per-unit-v1",
       "scaleRoles": [
         "calibration",
         "stress"
@@ -1142,6 +1699,7 @@
     {
       "id": "diagnostic/cap-plus-one",
       "workloadId": "LF-COMP-CORRIDOR-v1",
+      "inputVariantId": "corridor-diagnostic-cap-plus-one-v1",
       "scaleRoles": [
         "calibration",
         "stress"
@@ -1153,6 +1711,7 @@
     {
       "caseId": "limit/source-byte-count/plus-one",
       "workloadId": "LF-COMP-ID-v1",
+      "inputVariantId": "canonical-valid-v1",
       "scaleRoles": [
         "calibration",
         "stress"
@@ -1161,6 +1720,7 @@
     {
       "caseId": "semantic/missing-reference-per-unit",
       "workloadId": "LF-COMP-CORRIDOR-v1",
+      "inputVariantId": "corridor-missing-reference-per-unit-v1",
       "scaleRoles": [
         "calibration",
         "stress"
@@ -1169,6 +1729,7 @@
     {
       "caseId": "diagnostic/cap-plus-one",
       "workloadId": "LF-COMP-CORRIDOR-v1",
+      "inputVariantId": "corridor-diagnostic-cap-plus-one-v1",
       "scaleRoles": [
         "calibration",
         "stress"
