@@ -2402,7 +2402,7 @@
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "lastPrivateBytes": {
-          "$ref": "#/$defs/nonNegativeInteger"
+          "$ref": "#/$defs/nullableIntegerObservation"
         }
       },
       "allOf": [
@@ -3736,6 +3736,225 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "process": {
+                "properties": {
+                  "exitKind": {
+                    "const": "guarded-before-start"
+                  }
+                },
+                "required": [
+                  "exitKind"
+                ]
+              }
+            },
+            "required": [
+              "process"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sampleKind": {
+                "const": "guard-preflight"
+              },
+              "status": {
+                "const": "guarded"
+              },
+              "process": {
+                "properties": {
+                  "childPid": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "const": "child-not-started"
+                      }
+                    }
+                  },
+                  "exitCode": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "const": "child-not-started"
+                      }
+                    }
+                  }
+                }
+              },
+              "guard": {
+                "properties": {
+                  "lastPrivateBytes": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "const": "child-not-started"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "process": {
+                "properties": {
+                  "exitKind": {
+                    "not": {
+                      "const": "guarded-before-start"
+                    }
+                  }
+                },
+                "required": [
+                  "exitKind"
+                ]
+              }
+            },
+            "required": [
+              "process"
+            ]
+          },
+          "then": {
+            "properties": {
+              "process": {
+                "properties": {
+                  "childPid": {
+                    "properties": {
+                      "value": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "exitCode": {
+                    "properties": {
+                      "value": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "process": {
+                    "properties": {
+                      "exitKind": {
+                        "not": {
+                          "const": "guarded-before-start"
+                        }
+                      }
+                    },
+                    "required": [
+                      "exitKind"
+                    ]
+                  }
+                },
+                "required": [
+                  "process"
+                ]
+              },
+              {
+                "properties": {
+                  "guard": {
+                    "properties": {
+                      "trigger": {
+                        "not": {
+                          "const": "monitoring-gap"
+                        }
+                      }
+                    },
+                    "required": [
+                      "trigger"
+                    ]
+                  }
+                },
+                "required": [
+                  "guard"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "guard": {
+                "properties": {
+                  "lastPrivateBytes": {
+                    "properties": {
+                      "value": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "guard": {
+                "properties": {
+                  "trigger": {
+                    "const": "monitoring-gap"
+                  }
+                },
+                "required": [
+                  "trigger"
+                ]
+              }
+            },
+            "required": [
+              "guard"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "invalid"
+              },
+              "invalidationReasons": {
+                "contains": {
+                  "const": "monitoring-gap"
+                }
+              },
+              "process": {
+                "properties": {
+                  "exitKind": {
+                    "const": "invalid-monitor-termination"
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -3752,6 +3971,100 @@
         },
         "denominator": {
           "$ref": "#/$defs/positiveInteger"
+        }
+      }
+    },
+    "candidateComparisonStratum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keyDomain",
+        "workloadId",
+        "workloadRevision",
+        "graphProfile",
+        "stringProfile",
+        "generatorVersion",
+        "n",
+        "b",
+        "scaleRole",
+        "caseId",
+        "sampleKind",
+        "binaryMode"
+      ],
+      "properties": {
+        "keyDomain": {
+          "$ref": "#/$defs/candidate/properties/keyDomain"
+        },
+        "workloadId": {
+          "$ref": "#/$defs/workload/properties/id"
+        },
+        "workloadRevision": {
+          "$ref": "#/$defs/workload/properties/revision"
+        },
+        "graphProfile": {
+          "$ref": "#/$defs/workload/properties/graphProfile"
+        },
+        "stringProfile": {
+          "$ref": "#/$defs/workload/properties/stringProfile"
+        },
+        "generatorVersion": {
+          "$ref": "#/$defs/workload/properties/generatorVersion"
+        },
+        "n": {
+          "$ref": "#/$defs/workload/properties/n"
+        },
+        "b": {
+          "$ref": "#/$defs/workload/properties/b"
+        },
+        "scaleRole": {
+          "$ref": "#/$defs/workload/properties/scaleRole"
+        },
+        "caseId": {
+          "$ref": "#/$defs/workload/properties/caseId"
+        },
+        "sampleKind": {
+          "enum": [
+            "cold-instance",
+            "stable-capacity-reuse"
+          ]
+        },
+        "binaryMode": {
+          "enum": [
+            "timing",
+            "memory"
+          ]
+        }
+      }
+    },
+    "candidateComparisonBatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baselineRunIds",
+        "candidateRunIds",
+        "medianRatio"
+      ],
+      "properties": {
+        "baselineRunIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "candidateRunIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "medianRatio": {
+          "$ref": "#/$defs/nullableNumberObservation"
         }
       }
     },
@@ -3953,15 +4266,17 @@
         },
         "candidateComparisons": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": [
               "candidateId",
               "baselineId",
+              "stratum",
               "metric",
-              "batch0MedianRatio",
-              "batch1MedianRatio",
+              "batch0",
+              "batch1",
               "decision"
             ],
             "properties": {
@@ -3973,15 +4288,18 @@
                 "type": "string",
                 "minLength": 1
               },
+              "stratum": {
+                "$ref": "#/$defs/candidateComparisonStratum"
+              },
               "metric": {
                 "type": "string",
                 "minLength": 1
               },
-              "batch0MedianRatio": {
-                "$ref": "#/$defs/nullableNumberObservation"
+              "batch0": {
+                "$ref": "#/$defs/candidateComparisonBatch"
               },
-              "batch1MedianRatio": {
-                "$ref": "#/$defs/nullableNumberObservation"
+              "batch1": {
+                "$ref": "#/$defs/candidateComparisonBatch"
               },
               "decision": {
                 "enum": [

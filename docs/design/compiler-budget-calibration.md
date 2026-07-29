@@ -715,6 +715,18 @@ Schema 必须允许记录这些无效实验，但 G2 独立验证器不得把它
 非零异常退出一律是无效实验；父进程必须保存预检、最后监控快照和退出码，修复后从
 上一完整级别重跑，不能声称护栏成功。
 
+最后私有内存快照（last private-memory snapshot）是可空观察值，而不是用 `0`
+代替未采集数据：
+
+- `exitKind = guarded-before-start` 时，`childPid`、`exitCode` 和
+  `lastPrivateBytes` 必须统一记录 `value = null`、
+  `reason = "child-not-started"`；
+- 子进程已经启动时，`childPid` 和 `exitCode` 必须是实测整数；除
+  `trigger = monitoring-gap` 的无效样本外，`lastPrivateBytes` 也必须是实测
+  非负整数；
+- 监控缺样允许保存 `lastPrivateBytes = null + reason`，但该运行必须保持无效，
+  不得用它形成停止护栏或候选比较证据。
+
 `16 GiB`、`24 GiB` 和 `60 s` 是 #308 R0 的运维安全上限；它们不进入
 `CompileLimits` 建议，也不表示生产可接受成本。换机执行必须保存同一比例公式和
 本机算出的精确字节阈值；改变公式需要提升研究协议版本。
@@ -955,6 +967,14 @@ XXH3/XXH64 候选使用固定 seed `0x4c46_434f_4d50_0001`；FNV-1a 64 使用标
   `hasherSeedPolicy = "random-state-process-random"`，不得把同轮结果称为同哈希种子
   的配对实验。XXH3/XXH64 等内部候选记录精确固定 seed，只有这些候选可以报告
   “相同哈希种子”；候选结论统一使用平衡轮次分层比值和跨轮分布；
+- 每条候选比较必须保存候选比较分层（candidate comparison stratum）：键域、工作
+  负载标识符/修订、模块图/字符串配置档、生成器版本、`N`、`B`、规模角色、当前
+  样例用例、样本种类和二进制模式；不得跨任一字段聚合；
+- `batch0` 和 `batch1` 分别保存参与计算的基线 `runId` 集合、候选 `runId` 集合和
+  该批中位比值。中位比值方向固定为 `candidate metric / baseline metric`；独立
+  验证器必须把每个 `runId` 唯一解析回原始运行，核对 batch、候选、完整分层、有效
+  状态和指标，再重算比值。性能比值只消费有效运行；正确性/安全拒绝必须引用造成
+  拒绝的原始运行并把不可计算比值保存为 `null + reason`；
 - 基线候选运行完整规模阶梯；其他候选至少运行 `B`、校准规模和压力规模；
 - 单项内核（kernel）可作机制归因，但候选选择以完整研究管线结果为主；
 - 候选的分层改善若未超过第 5.6 节同指标重复性包络，只能判为“噪声内无差异”；
@@ -994,8 +1014,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `109625` exact bytes，SHA-256 为
-`b6e95585c05fb04b8db4444885be7b1d92d9f2c9965dc531ec3254ff7438c15a`。
+G1 候选冻结 schema `117830` exact bytes，SHA-256 为
+`af94b688f4deff8e0fdea61a1b23a3c9db3328bd08170754af203919db0e4927`。
 顶层格式标识：
 
 ```text
@@ -1019,6 +1039,9 @@ schemaVersion = 1
 - 候选标识符、版本、特性（features）、键域、依赖来源、哈希器种子策略及可观测
   固定 seed，以及许可证 SPDX 表达式、MSRV、安全公告审计和锁文件中的 package
   identity/checksum；标准库或本地候选使用结构化不可用原因，不能省略审计对象；
+- 每条派生候选比较的完整候选比较分层、按两个独立批次拆分的基线/候选原始
+  `runId` 集合、中位比值和决策；运行引用必须能由独立验证器回算，不得只保存
+  汇总数；
 - 二进制 SHA-256 与模式（`timing` / `memory` / `attribution` / `profiler` /
   `oracle`）；
 - batch/平衡轮次/执行位置、父子进程 ID 与退出状态，以及每个样本的冷实例/稳定
