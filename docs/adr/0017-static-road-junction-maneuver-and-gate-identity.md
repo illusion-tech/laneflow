@@ -3,6 +3,10 @@
 **状态**: Accepted<br>
 **日期**: 2026-07-24<br>
 **适用范围**: LaneFlow 的 Junction、Movement、ManeuverPath、RoadSection、JunctionGroup、ManeuverGate、Route occurrence 与 v0.9 最小静态生产化边界<br>
+**目标态取代登记**: Accepted ADR 0020 将取代核心规范化/路线注册期首次编译静态
+路线出现项的位置，目标态改由编译器镜像预编译初始出现项；路口、通行流向、机动
+路径、机动门、路线出现项语义、共享内部边和热路径无字符串继续有效。#294 完成 G4
+前，本文 current 契约继续生效。<br>
 **关联文档**:
 
 - 上游决策:

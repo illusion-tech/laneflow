@@ -1,6 +1,6 @@
 # 适配器应用程序接口（API）
 
-**文档状态**: 已接受（current）＋ Draft（#291 target 导航）
+**文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）
 
 **最后更新**: 2026-07-29（#187 current；#291/ADR 0020 target）
 

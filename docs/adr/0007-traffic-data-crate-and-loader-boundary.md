@@ -4,6 +4,10 @@
 **日期**: 2026-07-13  
 **适用范围**: LaneFlow 外部数据格式、Rust crate 依赖方向、production loader 与 Core domain normalization 边界  
 **后续修订**: ADR 0008 已替代本文的 v0.2/v0.3 双版本 loader/result 决策；crate 依赖、private DTO、normalization、I/O 与 validation 分层继续有效  
+**目标态取代登记**: Accepted ADR 0020 将取代私有 DTO → `InitialTrafficData` 作为
+终态唯一输入以及核心构造器拥有全部静态规范化权威的条款；运行时不依赖 Serde/
+文件系统/引擎、内存中字节边界和分层继续有效。#294 完成 G4 前，本文 current 契约
+继续生效。<br>
 **关联文档**:
 
 - 上游决策:

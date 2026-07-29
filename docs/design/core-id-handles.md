@@ -1,6 +1,6 @@
 # Core ID 与 Handle 模型
 
-**文档状态**: Accepted（current）＋ Draft（#291 target 导航）<br>
+**文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）<br>
 **最后更新**: 2026-07-29<br>
 **适用范围**: v0.2 Lane Graph + Route 的 Core identity、typed handle、registry / resolver、动态 vehicle / route 生命周期和事件 payload 边界，以及 compiler target 的静态 image handle 边界<br>
 **关联文档**:

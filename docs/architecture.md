@@ -1,16 +1,16 @@
 # 架构
 
-**文档状态**: Accepted（current）＋ Draft（#291 compiler target）<br>
+**文档状态**: Accepted（current + #291 target design；目标实现尚未交付）<br>
 **最后更新**: 2026-07-29<br>
 **适用范围**: LaneFlow 当前分层、Rust crate 依赖方向、Traffic Data、Road/Junction/Maneuver、Signals、Parking、场景人口与 Core/Adapter 边界，以及 #291/ADR 0020/0021 的城市模拟游戏交通基础与目标静态编译架构
 
 ## 1. 架构目标
 
-LaneFlow 当前是一个引擎无关、可嵌入的交通 runtime。Proposed ADR 0021 提议把
-“为未来的中国特色城市模拟游戏提供交通基础”定义为第一长期产品目标；#291 G1
-接受前，该目标和下述 target 分层不是已接受架构。
+LaneFlow 当前是一个引擎无关、可嵌入的交通运行时。Accepted ADR 0021 把“为未来的
+中国特色城市模拟游戏提供交通基础”定义为第一长期产品目标；#291 G1 已接受该目标
+和下述目标态分层，但对应实现尚未交付。
 
-当前架构与 #291 Proposed target 共同关注：
+当前架构与 #291 已接受目标态设计共同关注：
 
 - Core 与具体游戏引擎解耦。
 - 数据格式可以被工具、示例和多个 Adapter 共享。
@@ -21,7 +21,7 @@ LaneFlow 当前是一个引擎无关、可嵌入的交通 runtime。Proposed ADR
 - 城市级目标必须同时保持确定性、可诊断、可存档、可修改路网和可扩展性，不能用
   多世界吞吐或表现层细节层次替代单个大型交通世界的正确性。
 
-#291 Proposed 目标分层为（G1 接受后才成为长期权威分层）：
+#291 已接受的长期权威目标分层为：
 
 ```text
 城市模拟游戏层
@@ -35,8 +35,8 @@ LaneFlow 当前是一个引擎无关、可嵌入的交通 runtime。Proposed ADR
 出行编排层再结合静态路网、观测、收费、游戏政策和偏好构造动态成本快照并生成候选
 路径；交通运行时只验证/注册由候选路径构成的动态通行定义，并负责交通参与单元如何
 在所属执行域安全推进。当前 Core 只实现道路机动车车辆特化；长期通用抽象不把
-非机动车、行人或轨道交通排除在目标 Traffic Runtime 之外。#291 G1 接受前的目标
-产品边界提案见 Proposed ADR 0021，不表示对应 Traffic Runtime 已实现。
+非机动车、行人或轨道交通排除在目标交通运行时（Target Traffic Runtime）之外。
+目标产品边界见 Accepted ADR 0021；Accepted 状态不表示对应交通运行时已经实现。
 
 ## 2. 分层
 
@@ -81,8 +81,8 @@ Core 继续拥有拓扑、长度、进度与交通行为的权威职责；Spatia
 
 ### 2.1 #291 目标静态编译分层
 
-ADR 0020 Proposed 的 target 不在上述 current 链条旁增加 L1/L2，而是把全部静态
-网络编译前移：
+Accepted ADR 0020 的目标态不在上述 current 链条旁增加 L1/L2，而是把全部静态
+路网编译前移：
 
 本节术语以 [`reference/glossary.md`](reference/glossary.md) 的中文定义为权威，
 英文只作辅助理解；代码和制品标识符保留精确拼写。

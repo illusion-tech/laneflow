@@ -24,11 +24,11 @@ Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，
 contract），用于让单线程优化、多频率候选、单机并行和未来聚合研究使用相同
 workload、fidelity、hardware 与 frame-budget 口径。
 
-Proposed ADR 0021 把中国特色城市模拟游戏交通基础定义为 #291 G1 的第一长期产品
-目标输入，但不改变本文当前道路机动车 workload 的一万/十万/一百万证据等级：城市
-目标不是既有硬件认证，也不能用 multi-world ensemble 吞吐代替单个大型城市世界的
-tick、barrier、边界交换和负载偏斜测量，更不能把车辆证据解释为非机动车、行人或
-轨道交通认证。
+Accepted ADR 0021 把中国特色城市模拟游戏交通基础定义为 LaneFlow 的第一长期产品
+目标，但不改变本文当前道路机动车工作负载（Workload）的一万/十万/一百万证据
+等级：目标被接受不是既有硬件认证，也不能用多世界集合（Multi-world Ensemble）
+吞吐代替单个大型城市世界的固定步进、屏障、边界交换和负载偏斜测量，更不能把车辆
+证据解释为非机动车、行人或轨道交通认证。
 
 本文不是硬件认证报告，也不把历史开发机数据升级为产品服务等级协议（product
 SLA）。必须区分：
@@ -69,9 +69,10 @@ certification，也不表示一百万 microscopic realtime 已成为产品目标
 
 ## 3. 规模计数语义
 
-当前已接受契约与 #291 目标提案必须分开解释：在 #291 G1 接受并与本文状态原子化
-更新前，下文 3.1 与第 4–12 节的五项道路机动车计数继续具有规范约束力；3.2 的六项
-分执行域计数只是 Proposed 目标，不能提前成为 Product Pass、benchmark 或合并门禁。
+当前已接受实现契约与 #291 已接受目标契约必须分开解释：下文 3.1 与第 4–12 节的
+五项道路机动车计数继续约束 current 性能结果；3.2 的六项分执行域计数约束目标态
+运行时与后继通用规模报告。接受目标计数不表示目标态实现已存在，也不会自动改写
+当前产品通过条件（Product Pass）、性能基准或合并门禁。
 
 ### 3.1 当前 Accepted 道路机动车计数契约
 
@@ -116,9 +117,9 @@ N_individual=100000; N_traffic_active=75000;
 N_intent=<observed mean/distribution>; N_presented=10000; N_aggregate=0
 ```
 
-### 3.2 #291 Proposed 目标分执行域计数契约
+### 3.2 #291 已接受目标分执行域计数契约
 
-#291 提议让长期通用规模使用两个正交层次：
+#291 已接受长期通用规模使用两个正交层次：
 
 - 交通参与单元（Traffic Participant Unit）是可独立保留身份的运行时计数原子；
 - 交通执行域（Traffic Execution Domain）把共享网络、运动/安全求解与生命周期契约的
@@ -129,7 +130,7 @@ N_intent=<observed mean/distribution>; N_presented=10000; N_aggregate=0
 Entity 不自动成为 LaneFlow 交通参与单元。`ParticipantClass` 是准入分类，不是执行
 域或行为能力声明。
 
-若 #291 G1 接受该目标，目标态结果必须按执行域 `d` 同时记录以下六个正交计数：
+目标态结果必须按执行域 `d` 同时记录以下六个正交计数：
 
 - 个体交通参与单元数（Individual Traffic Participant Count，
   `N_individual[d]`）：仍存在并保留完整 logical identity 与生命周期状态的个体
@@ -159,15 +160,16 @@ N_intent[d] <= N_active[d]
 Pass、容量比较或计算复杂度归因；跨域汇总只能作为已说明计数原子的展示性统计。
 `N_aggregate_records` 与 `N_aggregate_equivalent` 也不能互相冒充。
 
-### 3.3 Proposed 目标对当前道路机动车的映射
+### 3.3 已接受目标对当前道路机动车的映射
 
 当前 `CoreWorld`、`VehicleState`、`LF-SYNTH-v1`、LuST workload 与既有一万/十万/
 一百万证据只覆盖道路机动车执行域。本文使用 reporting token
 `road_motor_vehicle` 表示该 current specialization；它不是 production schema enum，
 也不预先冻结非机动车、步行或轨道交通 API。
 
-若 #291 G1 接受六项分执行域计数，当前五项道路机动车计数按下列规则迁移；G1 前不得
-用这组 Proposed 名称改写第 4–12 节的 Accepted workload 或历史证据：
+六项分执行域计数与当前五项道路机动车计数按下列规则对应。目标态运行时实现、
+性能基准与生产契约完成显式迁移前，不得用目标态名称改写第 4–12 节的 current
+Accepted 工作负载或历史证据：
 
 - `N_individual[road_motor_vehicle]` 同时计入行驶中与停车中的 live vehicle；
 - `N_active[road_motor_vehicle]` 计入每个 Core base tick 参与 travel-lane
@@ -188,9 +190,9 @@ N_intent=<observed mean/distribution>; N_presented=10000;
 N_aggregate_records=0; N_aggregate_equivalent=0
 ```
 
-若 #291 G1 接受，从第 4 节起的 current `N_traffic_active` 与 `N_aggregate` 将分别
-迁移为道路机动车执行域下的 `N_active`，以及明确分开的 `N_aggregate_records` /
-`N_aggregate_equivalent`；在状态原子化更新前，第 4–12 节继续使用 current 名称。
+目标态实现和性能基准迁移时，current `N_traffic_active` 与 `N_aggregate` 分别映射
+为道路机动车执行域下的 `N_active`，以及明确分开的 `N_aggregate_records` /
+`N_aggregate_equivalent`。在该实施迁移完成前，第 4–12 节继续使用 current 名称。
 
 ### 3.4 当前道路机动车标称规模角色
 

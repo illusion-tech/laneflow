@@ -1,6 +1,6 @@
 # 路网编译器与目标静态镜像
 
-**文档状态**: Draft（#291 G1 综合架构修订）<br>
+**文档状态**: Accepted（#291 target design；未实现）<br>
 **最后更新**: 2026-07-29<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网编译权威、标识派生、可移植规范制品（Portable Canonical
@@ -11,7 +11,8 @@ Runtime）命名、静态执行约束（Static Execution Constraints）、不可
 **实现状态**: 未实现；当前态生产路径仍使用 Traffic v0.10 / SpatialPackage v0.1 /
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已重划为编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
-（Synthetic DSL Frontend），并继续被 #291 G1 阻断
+（Synthetic DSL Frontend）；#291 G1 前置条件已经满足，#292 仍须按自身 Gate
+完成实现设计与交付
 
 **关联决策与设计**:
 
@@ -57,7 +58,7 @@ ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial 
 
 ## 1. 结论与状态
 
-#291 G1 候选目标不是“生成另一份 JSON 的工具”，而是新的静态数据体系：
+#291 G1 已接受的目标不是“生成另一份 JSON 的工具”，而是新的静态数据体系：
 
 下图为了对应精确类型名和代码搜索保留英文辅助别名；中文规范链路以上一节为准。
 图中英文不能独立改变架构语义。
@@ -105,8 +106,8 @@ StaticNetworkImage ─┬─> Traffic Runtime: StaticTrafficView + per-world mut
   partition/worker assignment 不进入稳定标识、可移植制品语义或共享镜像。
 - 静态镜像是一个不可变路网修订，而非城市永久不变；道路编辑通过新修订与失败关闭
   镜像切换事务进入运行世界。
-- Proposed ADR 0021 提议把服务中国特色城市模拟游戏交通基础定义为 LaneFlow 第一
-  长期产品目标，并让城市经济、出行需求、路线选择策略和游戏规则继续由上层拥有。
+- Accepted ADR 0021 把服务中国特色城市模拟游戏交通基础定义为 LaneFlow 第一长期
+  产品目标，并让城市经济、出行需求、路线选择策略和游戏规则继续由上层拥有。
 
 本文描述目标态。ADR 0020/0021 Accepted 且阶段 8 生产切换 Issue #294 完成 G4 前，
 现有 JSON/Data/Core/Spatial 路径仍是当前态生产契约。
@@ -403,10 +404,11 @@ add/remove。
 `identityRegistryRevision = 1` 冻结本表的 kind、slug 和 required tag sequence。
 required tags 必须按数值严格递增编码：
 
-本表仍是 #291 G1 前的 Proposed v1，尚无已接受 known vector、规范制品或生产 reader；
-因此本次统一 `LaneEdge` 身份并重排代码 / 标签是在首次冻结前修正 v1 定义，不是对已
-发布 v1 的原地兼容修改。G1 接受并发布首批 known vectors 后，新增 kind 才只能提升
-registry revision，修改既有 kind 的字段、标签含义或编码必须提升 encoding version。
+本表是 #291 G1 已接受的 v1 设计，但尚无已发布的 known vector、规范制品或生产
+reader；因此本次统一 `LaneEdge` 身份并重排代码 / 标签是在首次实现冻结前修正 v1
+定义，不是对已发布 v1 的原地兼容修改。首次 implementation G1 必须发布 known
+vectors；一旦发布，新增 kind 只能提升 registry revision，修改既有 kind 的字段、
+标签含义或编码必须提升 encoding version。
 
 | 代码（Code） | `entityKind`       | 类别（Category）                              | 英文短名（Slug）    | 必需标签（Required Tags） |
 | -----------: | ------------------ | --------------------------------------------- | ------------------- | ------------------------- |
@@ -1743,7 +1745,10 @@ Cutover 前必须证明：
 | 未受信任语义差异驱动迁移（Untrusted Semantic Diff Drives Migration）         | 篡改迁移、错误终止或状态错配                                               | 外部切换描述符、双制品独立验证、身份索引复核                 |
 | 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）               | 静态契约与运行时执行能力长期不对称                                         | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环    |
 
-## 16. #291 G1 完成条件
+## 16. 已接受边界与后继实施条件
+
+#291 G1 已确认以下边界。后继 Issue 可以选择具体实现，但不得在没有重新进入架构 G1
+的情况下改变这些 closed contract：
 
 - ADR 0020/0021 明确历史 ADR 的继续有效、扩展与取代范围；
 - 本文不再存在 L1/L2 或 Core-shaped compiler IR；
@@ -1751,8 +1756,9 @@ Cutover 前必须证明：
   profile 与 crate DAG 均为 closed contract；
 - Data/current Core/target Traffic Runtime/Spatial/Adapter 文档清楚标注 current 与
   target；
-- #292 已重划为 compiler foundation + Synthetic DSL frontend，且实现开工前置条件
-  明确为 #291 G1；当前 Project 状态和原生依赖关系不在长期设计中镜像；
+- #292 已重划为 compiler foundation + Synthetic DSL frontend；#291 G1 前置条件
+  已经满足，#292 仍须按自身 Gate 推进；当前 Project 状态和原生依赖关系不在长期
+  设计中镜像；
 - 阶段 8 生产切换、core→runtime 原子改名与旧路径移除由 #294 的 G4 独占，不再
   误绑到 #291 的设计交付 G4；
 - 标识 v1、artifact/image/profile/version/validation/performance contract 一致，所有
@@ -1765,4 +1771,4 @@ Cutover 前必须证明：
 - `traffic-headless-v1`、untrusted-image rejection 和全部 identity kinds 的验收测试已
   写入后续 implementation Gate；
 - 本地 docs links/format/contract checks 通过；
-- 外部 clean re-review 无未解决 Major，G1 才可推进。
+- 本设计的状态、实现证据与后继 Gate 必须继续保持可独立核验。
