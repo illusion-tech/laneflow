@@ -9,7 +9,7 @@
 初始阶段建议逐步补齐：
 
 - `core-runtime.md`：Core runtime、tick、vehicle state 和系统边界。
-- `core-runtime-performance-baseline.md`：#215 Accepted 的当前道路机动车一万/十万产品目标与一百万研究包络；冻结 current 五项车辆计数、`LF-SYNTH-v1` 确定性拓扑、W1–W4 workload、R0/P10/P100/O1 硬件角色、tick/frame budget、fidelity、benchmark protocol、TBD 与架构升级触发；#291 Proposed 的交通参与单元、交通执行域与六类分域计数只作为目标态迁移提案，在其 G1 接受并与基线状态原子化更新前不构成 Product Pass 或合并门禁。
+- `core-runtime-performance-baseline.md`：#215 Accepted 的当前道路机动车一万/十万产品目标与一百万研究包络；冻结 current 五项车辆计数、`LF-SYNTH-v1` 确定性拓扑、W1–W4 workload、R0/P10/P100/O1 硬件角色、tick/frame budget、fidelity、benchmark protocol、TBD 与架构升级触发；#291 已接受交通参与单元、交通执行域与六类分域目标计数，但在目标态实现与性能基准完成显式迁移前，它们不改写 current Product Pass、工作负载或历史证据。
 - `real-road-workloads.md`：#224 Accepted 的 LuST v2.0 真实路网契约；冻结 source/provenance、共享静态转换、精确一万 selection、`LF-REAL-LUST-TOPO-v1` 与 `LF-REAL-LUST-DEMAND-v1`、oracle/digest、Release 制品与 fail-closed 边界。它只补充 `LF-SYNTH-v1`，不等于真实路网 Product Pass。
 - `lust-bevy-population-control.md`：#256 Accepted 的 LuST/Bevy 示例层一至一万个体人口调节契约；冻结 H1/H2/手动 H3、连续 `target_N`、seeded 无放回抽样、缩编分层与 100% presentation 默认；由 #257 实现，不改写 TOPO/DEMAND workload ID。
 - `core-runtime-scalability-audit.md`：#72/#199 的城市级可扩展性前置审计；区分当前
@@ -46,10 +46,10 @@
   无图形配置不携带 geometry；编译器拥有 worker 数无关的静态执行
   约束，最终分区属于每世界运行时执行计划；不可变路网修订通过失败关闭镜像切换事务
   进入运行世界，并保留 runtime snapshot/replay 与 routing 接入边界。该架构服务
-  Proposed ADR 0021 的中国特色城市模拟游戏交通基础目标提案；#291 G1 接受前不把它
-  声明为 Accepted 长期事实，也不把城市经济或出行需求放入 Traffic Runtime。双语
-  术语以 `../reference/glossary.md` 的中文定义为权威。#292 的实现开工前置条件是
-  #291 G1；当前 Project 状态与原生依赖关系以 GitHub 为准。
+  Accepted ADR 0021 的中国特色城市模拟游戏交通基础长期目标；目标设计被接受不表示
+  已经实现，也不把城市经济或出行需求放入 Traffic Runtime。双语术语以
+  `../reference/glossary.md` 的中文定义为权威。#291 G1 前置条件已经满足；#292 仍须
+  按自身 Gate 推进，当前 Project 状态与原生依赖关系以 GitHub 为准。
 
 ## 文档状态
 

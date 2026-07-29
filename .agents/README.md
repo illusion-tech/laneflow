@@ -37,9 +37,9 @@ Traffic Runtime）。生产切换时再与 `laneflow-core/CoreWorld` 一起原�
 理解；双语映射遵循 `docs/reference/glossary.md`。技术标识符（切片类型、闸口
 （Gate）、提交字段名、包（crate）、类型与协议常量）保留精确原文。
 
-Proposed ADR 0021 提议把“为未来的中国特色城市模拟游戏提供交通基础”定义为
-LaneFlow 的第一长期产品目标。涉及城市级范围、出行编排、Routing、路网修订、
-存档/回放、并行或 fidelity 的任务必须读取该 ADR；在 #291 G1 接受前，它只提供
-目标提案，不得写成当前已实现或已接受事实。提案边界不得把城市经济/出行需求塞入
-Traffic Runtime，也不得用 Adapter LOD 或多世界（Multi-world）吞吐替代单个大型
-交通世界的正确性与性能。
+Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通基础”定义为 LaneFlow
+的第一长期产品目标。涉及城市级范围、出行编排、路径规划（Routing）、路网修订、
+存档/回放、并行或保真度（Fidelity）的任务必须读取该 ADR。#291 G1 已接受目标
+边界，但不得把它写成当前已实现能力；该边界不得把城市经济/出行需求塞入交通运行时
+（Traffic Runtime），也不得用引擎适配器细节层次（Adapter LOD）或多世界
+（Multi-world）吞吐替代单个大型交通世界的正确性与性能。

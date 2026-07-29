@@ -1,6 +1,6 @@
 # 多模式横断面与准入分层
 
-**文档状态**: Accepted（current）＋ Draft（#291 target identity 导航）<br>
+**文档状态**: Accepted（current + #291 target identity 导航；目标实现尚未交付）<br>
 **最后更新**: 2026-07-29<br>
 **适用范围**: #234 冻结的多模式道路横断面 owner、RoadSection/LaneGroup/LaneEdge/设施带关系、FacilityKind/ParticipantClass/AccessRule 分层、时间/地区 overlay、identity/authority/validation 与后续最小 production 边界<br>
 **实现状态**: 静态模型已由 #262 生产化（Core registries、Data/schema 与 Traffic `0.9`，schema 已发布并经 live 验证；含 (class, Route) 绑定期静态准入校验）；时变规则与 FacilityBand target 规则仍由 capability guard 结构化拒绝
@@ -175,7 +175,7 @@ lane
   （Junction internal edge、未分段路段等）。同一条 lane 链内 edge 也不得重复
   （如 `[A, B, A]`）——重复 edge 会让同一物理 edge 占据同一 lane 的两个纵向
   位置，占用/锚定语义自相矛盾。
-- #291 Proposed 目标标识进一步把车道图边（Lane Graph Edge）`LaneEdge` 作为独立
+- #291 已接受目标标识进一步把车道图边（Lane Graph Edge）`LaneEdge` 作为独立
   可寻址拓扑实体：道路区段覆盖（Road-section Coverage）与路口内部边角色
   （Junction-internal Edge Role）均不参与边的 `StableId128`。因此添加 / 移除本
   overlay 不改变同一边身份，合法未覆盖边也不需要伪造 RoadSection/Junction

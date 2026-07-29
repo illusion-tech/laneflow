@@ -29,7 +29,8 @@ Scenario v2.0，并拆成两个不能互相冒充的稳定 workload：
 继续使用 #215 Accepted 的 current 五项计数字段；无下标的 `N_individual`、
 `N_traffic_active`、`N_intent`、`N_presented` 与 `N_aggregate` 都是道路机动车
 计数，不能将结果解释为非机动车、行人或轨道交通能力。六项分执行域字段只属于
-#291 Proposed 目标，不能提前改写本 Accepted workload。
+#291 已接受目标态契约；在目标态实现与性能基准迁移完成前，不能改写本 current
+Accepted 工作负载。
 
 旧的 `LF-REAL-LUST-v1` 在任何 artifact 或 benchmark result 产生前退役。不得用
 旧 ID 生成新结果，也不得把两个新 workload 的结果合并回旧 ID。

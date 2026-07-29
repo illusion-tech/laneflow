@@ -29,15 +29,15 @@ Traffic Runtime 的多执行域身份（Identity）、批处理（Batch）、命
 
 LaneFlow 现在应冻结一组不依赖具体 partition、线程池或内存布局的可扩展性约束，但不应立即实现城市级生产架构。
 
-Proposed ADR 0021 把“面向中国特色城市模拟游戏的交通基础”定义为 #291 G1 的第一
-长期产品目标输入；因此“不立即实现城市级生产架构”只描述当前交付时序，不表示
+Accepted ADR 0021 把“面向中国特色城市模拟游戏的交通基础”定义为第一长期产品
+目标；因此“不立即实现城市级生产架构”只描述当前交付时序，不表示
 城市级单世界交通执行是非目标。多世界吞吐不能替代一个大型城市世界的扩展证据。
 
 > #215 已在 [`core-runtime-performance-baseline.md`](core-runtime-performance-baseline.md)
 > 冻结当前道路机动车的一万/十万产品目标、一百万研究包络、五项计数、workload、
 > hardware、tick/frame budget、fidelity、benchmark protocol 与升级触发。#291
-> Proposed 目标另行定义交通参与单元的六项逐执行域计数；在 #291 G1 接受并与基线
-> 状态原子化更新前，该提案不能改写 #215 Accepted 契约。本文继续保存
+> 已接受目标另行定义交通参与单元的六项逐执行域计数；该目标契约不能改写 #215
+> Accepted 的 current 契约、工作负载或历史证据。本文继续保存
 > #199/#204/#207/#210/#212 的历史研究证据、no-regret constraints 和架构候选；
 > 其中的历史阈值、产品未决描述与单机数字不能替代新基线要求的 integrated
 > certification。

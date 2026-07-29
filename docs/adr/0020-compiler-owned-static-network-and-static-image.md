@@ -1,6 +1,6 @@
 # ADR 0020：编译器拥有的静态路网与目标静态镜像
 
-**状态**: Proposed（#291 G1 修订输入）<br>
+**状态**: Accepted（#291 G1）<br>
 **日期**: 2026-07-29<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网权威、可移植规范制品（Portable Canonical Artifact）、
@@ -71,10 +71,10 @@ LaneFlow 当前以 Traffic JSON、Spatial JSON 和 Scenario Manifest 为运行�
 离线编译期，并让 target Traffic Runtime 只从具有外部信任锚的派生静态镜像建立
 只读 view。
 
-Proposed ADR 0021 进一步提议：LaneFlow 的第一长期产品目标是为未来的中国特色城市
-模拟游戏提供交通基础。#291 的 G1 输入因此不仅要优化加载，还必须保留单个大型城市
-世界的并行扩展、玩家修改道路、存档/回放、路径规划接入与每世界唯一性演进空间，
-同时不把城市经济和出行需求塞入交通运行时。
+Accepted ADR 0021 进一步确认：LaneFlow 的第一长期产品目标是为未来的中国特色城市
+模拟游戏提供交通基础。#291 的已接受设计因此不仅要优化加载，还必须保留单个大型
+城市世界的并行扩展、玩家修改道路、存档/回放、路径规划接入与每世界唯一性演进
+空间，同时不把城市经济和出行需求塞入交通运行时。
 
 ## 决策
 
@@ -705,9 +705,9 @@ Target image 的具体零拷贝/归档实现（自有 offset tables、经过审�
 | 0017 | 路口、通行流向、机动路径、机动门、路线出现项语义，共享内部边，热路径无字符串                                  | 核心规范化 / 路线注册期首次编译静态出现项；静态初始出现项改由编译器镜像预编译             |
 
 本矩阵只取代“工作发生在哪一层、何时发生、如何存储”的条款，不重新定义上述 ADR
-已经冻结的交通、空间和 runtime 行为语义。ADR 0020 Accepted 时，应在各历史 ADR
-页头增加精确的 Superseded/Partially Superseded 链接；Proposed 阶段不提前改写其
-状态。
+已经冻结的交通、空间和运行时行为语义。ADR 0020 Accepted 状态提交在各历史 ADR
+页头登记精确的目标态取代范围；在阶段 8 生产切换 Issue #294 完成 G4 前，它们的
+current 状态继续有效，届时再原子更新实际 Superseded/Partially Superseded 状态。
 
 ## 后果
 
@@ -800,9 +800,10 @@ fast path 必须有认证的 image 外部 trust anchor；拒绝 header self-atte
 浮点求和。数值表示和归约算法必须由实际 hotspot、误差与平台基准选择；本 ADR 只
 冻结确定性结果契约。
 
-## G1 接受条件
+## G1 接受结果
 
-#291 只有在以下内容同时完成本地审阅与外部 re-review 后才能勾选 G1：
+#291 G1 已确认以下条件；后继实现必须保持这些边界。若修改其 closed contract 或
+职责分层，必须重新进入相应架构 G1：
 
 1. `network-compiler.md`、ADR 0021 与本 ADR 对 source module graph、IR、标识、
    artifact/image、trust/profile、execution planning、crate DAG 和 migration 的

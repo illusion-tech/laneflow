@@ -1,6 +1,6 @@
 # Data Loading 设计
 
-**文档状态**: Accepted（current）＋ Draft（#291 target 导航）<br>
+**文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）<br>
 **最后更新**: 2026-07-29（#281 current；#291/ADR 0020 target）
 **适用范围**: Traffic v0.10、SpatialPackage/ScenarioManifest v0.1 production loader、保留的 Data v0.6 数值迁移边界，以及 target static-image trust/verifier
 

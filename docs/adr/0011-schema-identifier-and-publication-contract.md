@@ -3,6 +3,9 @@
 **状态**: Accepted
 **日期**: 2026-07-17
 **适用范围**: LaneFlow 多 family JSON Schema `$id`、source/publication 分层、immutable version、历史保留、网络与 CI/CD 边界
+**目标态取代登记**: Accepted ADR 0020 将把发布目录从仅描述 JSON Schema 系列扩展
+为同时描述可移植规范制品、静态镜像变体与验证收据；不可变发布、规范 URL、来源
+沿袭和运行时不联网继续有效。#294 完成 G4 前，本文 current 契约继续生效。
 
 **关联文档**:
 

@@ -1,17 +1,16 @@
 # 路线图
 
-**文档状态**: Draft  
+**文档状态**: Accepted（长期路线；当前执行状态以 GitHub 为准）<br>
 **最后更新**: 2026-07-29
 **适用范围**: LaneFlow 版本路线图与中国特色城市模拟游戏交通基础的长期演进
 
-本文记录 LaneFlow 的稳定路线图和显式标注的 Proposed 长期目标。GitHub Project
-负责当前执行状态，本文负责已接受版本边界与待 G1 接受的候选边界。
+本文记录 LaneFlow 的稳定路线图和已接受长期目标。GitHub Project 负责当前执行
+状态，本文负责已接受版本边界与仍需各后继 Issue 独立完成的实施 Gate。
 
-#291 的 Proposed ADR 0021 提议把“为未来的中国特色城市模拟游戏提供交通基础”
-定义为 LaneFlow 的第一长期产品目标。#291 G1 接受前，该北极星及其城市游戏/
-出行编排/路径规划/交通运行时分层只是候选长期边界，不是已冻结路线图事实。若 G1
-接受，当前局部走廊、园区和背景车流版本是验证该目标的渐进路径，不反向把长期目标
-缩小为中小型场景；城市经济、出行需求、土地利用与游戏规则继续属于上层。
+Accepted ADR 0021 把“为未来的中国特色城市模拟游戏提供交通基础”定义为 LaneFlow
+的第一长期产品目标。#291 G1 已接受该北极星及其城市游戏/出行编排/路径规划/交通
+运行时分层。当前局部走廊、园区和背景车流版本是验证该目标的渐进路径，不反向把
+长期目标缩小为中小型场景；城市经济、出行需求、土地利用与游戏规则继续属于上层。
 
 ## v0.1 Core Prototype
 
@@ -272,7 +271,8 @@ image 外部 trusted descriptor/validation receipt 与 bounded verifier 建立 v
 static occurrences。
 
 ADR 0020、ADR 0021 与 [`design/network-compiler.md`](design/network-compiler.md)
-是本次 G1 再修订输入。Identity v1 区分 StableId128 declaration/addressable-derived、
+是 #291 G1 已接受的长期设计。Identity v1 区分 StableId128
+declaration/addressable-derived、
 owner-local occurrence 与全部 table row 的 typed `u32` ordinal，冻结完整
 kind/tag registry、严格 field order、known vectors、BLAKE3-128 持久 identity 和
 XXH3 compiler-only 加速。基础 `LaneEdge` 使用独立稳定边键；RoadSection 覆盖与
@@ -306,11 +306,11 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
 `InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target
 迁移由阶段 8 生产切换 Issue #294 完成 G4；target 文档不得误写成现状。#292 已
-重划为 compiler foundation + Synthetic DSL frontend 的首个纵向闭环；其实现开工
-前置条件是 #291 G1，不得在此之前冻结实现 API。当前 Project 状态和原生依赖关系以
-GitHub 为准。
+重划为 compiler foundation + Synthetic DSL frontend 的首个纵向闭环；#291 G1
+前置条件已经满足，但 #292 仍须按自身 G1/G2 冻结并审查实现 API。当前 Project 状态
+和原生依赖关系以 GitHub 为准。
 
-迁移顺序为 `#291 架构 G1 → #292 static-contract/compiler foundation/Synthetic
+迁移顺序为 `#291 架构 G1（已完成）→ #292 static-contract/compiler foundation/Synthetic
 DSL + integration-only LIR→current projection 完成 G4 → 恢复 #282–#285`；之后 Geometry
 frontend/MIR 可以与恢复的 runtime slices 并行推进，再依次交付 portable
 artifact/独立 validator/source map/semantic diff、target static-image +
