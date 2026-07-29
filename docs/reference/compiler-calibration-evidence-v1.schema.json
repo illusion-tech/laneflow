@@ -282,7 +282,8 @@
           "$ref": "#/$defs/gitCommit"
         },
         "dirty": {
-          "type": "boolean"
+          "type": "boolean",
+          "const": false
         },
         "cargoLockSha256": {
           "$ref": "#/$defs/sha256"

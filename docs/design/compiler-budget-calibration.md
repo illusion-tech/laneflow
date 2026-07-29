@@ -122,9 +122,15 @@ research/issue-308-compiler-budget-calibration-research/
 - 包名固定为 `issue-308-compiler-budget-calibration-research`，README 必须明确标记
   “非生产研究”，`Cargo.toml` 必须设置 `publish = false`；
 - 生产 crate 不得依赖该研究包；
-- 第三方候选只允许作为该研究包的开发依赖；
-- `laneflow-data` / `laneflow-spatial` 只允许作为研究夹具对照预言机的开发依赖，
-  不得被合成研究管线调用；
+- 研究 runner 的普通二进制必须能够看见其运行时依赖；第三方候选以及
+  `laneflow-data` / `laneflow-spatial` 必须登记为该私有研究包的**可选普通依赖**，
+  不得错误放入只对测试、示例和基准可见的 `[dev-dependencies]`；
+- `default = []`；每个第三方候选使用独立私有 feature，当前夹具对照预言机使用
+  `fixture-oracle`，`research-runner-full` 作为正式单入口的封闭总 feature。G2
+  依赖审计冻结具体 package/version 后同步冻结该总 feature 的精确成员；
+- `laneflow-data` / `laneflow-spatial` 只允许由 `fixture-oracle` 在计时区外读取当前
+  夹具和运行对照预言机，不得被合成研究管线调用；
+- `[dev-dependencies]` 只保存不会被普通 runner 二进制链接的测试辅助依赖；
 - 研究类型、候选标识和证据封套不进入生产公共 API；
 - 研究代码不得通过路径依赖复用尚未实现的 #292 生产 crate。
 
@@ -1014,8 +1020,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `117830` exact bytes，SHA-256 为
-`af94b688f4deff8e0fdea61a1b23a3c9db3328bd08170754af203919db0e4927`。
+G1 候选冻结 schema `117856` exact bytes，SHA-256 为
+`2e4b3e1a1e3222db1df8b4e084ebe4e1819bf823e53e17ed260c108d234b8118`。
 顶层格式标识：
 
 ```text
@@ -1025,7 +1031,7 @@ schemaVersion = 1
 
 必需包含：
 
-- `sourceCommit`、`harnessCommit`、工作树脏状态（dirty-state）、
+- `sourceCommit`、`harnessCommit`、必须为 `false` 的工作树脏状态（dirty-state）、
   `Cargo.lock` SHA-256、研究工作负载清单 SHA-256、证据 schema SHA-256；
 - OS、CPU、物理内存、target triple、rustc、LLVM、AC/电池、厂商/电源模式、
   BIOS/firmware 和后台进程审计；
@@ -1094,12 +1100,18 @@ G2 必须提供锁定工具链和锁文件的单入口，形状为：
 
 ```powershell
 cargo +1.96.0 run --release --locked `
-  -p issue-308-compiler-budget-calibration-research -- `
+  -p issue-308-compiler-budget-calibration-research `
+  --no-default-features --features research-runner-full `
+  --bin issue-308-compiler-budget-calibration-research -- `
   run --protocol compiler-calibration-v1 --output <evidence-path>
 ```
 
 精确参数在实现 G1 不再重开本文语义的前提下由 G2 落地。正式结果不得来自 IDE
-测试入口、debug 二进制或未锁定依赖。
+测试入口、debug 二进制或未锁定依赖。正式入口必须在启动任何测量前核验干净研究
+工作树（clean research working tree）：`sourceCommit` 与 `harnessCommit` 所指向
+的受测源码、runner、清单、Schema 和锁文件均不得有未提交修改；Schema 以
+`dirty = false` 失败关闭。脏工作树只允许产生不使用 evidence v1、不能进入
+`derived` 或报告的本地探索输出，不能通过绑定任意补丁摘要升级为权威证据。
 
 ## 11. 从研究证据到 #292
 
