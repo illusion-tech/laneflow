@@ -110,9 +110,10 @@ Authority），Spatial 继续拥有位姿采样（Pose Sampling）。
 认证版本化静态镜像完整性清单（Static Image Integrity Manifest），再对目标节完成
 分块（Chunk）完整性和有界结构验证；不解析 JSON、不按外部标识（External ID）重绑定、
 重建登记表或重复 Traffic/Spatial 联结。全镜像 SHA-256 保留为发布身份、独立重建与
-显式完整审计（Full Audit），不强制每次启动先串行读取未消费节。交通节与冷
-稳定身份索引（Static Identity Index，`StaticIdentityIndex`）必选；Spatial section
-由 closed profile 控制，headless
+显式完整审计（Full Audit），不强制每次启动先串行读取未消费节。交通节、冷稳定
+身份索引（Static Identity Index，`StaticIdentityIndex`）与分区规划提示
+（Partition Planning Hints，`PartitionPlanningHints`）必选；Spatial section 由
+closed profile 控制，headless
 Runtime 不携带 geometry。稳定身份索引不进入 steady tick，可由共享映射、压缩或按需
 分页控制内存成本，但任何 production profile 都不得删除它。目标职责和历史 ADR 的
 取代范围见 ADR 0020。

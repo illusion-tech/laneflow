@@ -1,7 +1,7 @@
 # Data Format 设计
 
 **文档状态**: Accepted（current）＋ Draft（#291 target 导航）<br>
-**最后更新**: 2026-07-28（#281 current；#291/ADR 0020 target）<br>
+**最后更新**: 2026-07-29（#281 current；#291/ADR 0020 target）<br>
 **适用范围**: 当前 Traffic v0.10、SpatialPackage v0.1、ScenarioManifest v0.1、保留的 Data v0.6 数值研究输入，以及 compiler target 的格式边界
 
 **关联文档**:
@@ -65,8 +65,12 @@ ADR 0020 不把 current Traffic JSON 直接改名为 compiler IR。Target 把版
   language，Synthetic DSL/imported/editor-authored module 可以共同组成 compilation
   unit；
 - portable canonical artifact：平台无关、可发布、可独立校验；
-- target static image：按 target/layout/closed profile 生成、可重建；Traffic section
-  必选，Spatial/cold/debug section 可选；
+- target static image：按 target/layout/closed profile 生成、可重建；v1 所有生产
+  配置档都必须包含 `StaticTrafficImage`、冷稳定身份索引（Static Identity Index，
+  `StaticIdentityIndex`）和分区规划提示（Partition Planning Hints，
+  `PartitionPlanningHints`），只有 `StaticSpatialImage` 由 closed profile 控制；
+  “冷”只表示不进入 steady tick，不表示可从生产配置档裁剪；v1 不定义泛型
+  cold/debug section，诊断内容由独立制品外置；
 - source map / semantic diff：治理与诊断制品。
 
 编译器从 validated canonical LIR 同时生成这些产物；target Runtime/Spatial 直接

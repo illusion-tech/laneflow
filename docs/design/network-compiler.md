@@ -98,7 +98,8 @@ StaticNetworkImage ─┬─> Traffic Runtime: StaticTrafficView + per-world mut
   热路径分层；
 - 可信生产快速路径必须有镜像外部的验证/发布信任锚，不能把 header 中可伪造的
   规范摘要/provenance 当成可信证据；
-- `StaticTrafficImage` 是必选节，`StaticSpatialImage` 是配置档控制的可选节，无图形
+- `StaticTrafficImage`、`StaticIdentityIndex` 与 `PartitionPlanningHints`
+  是所有 v1 生产配置档的必选节；只有 `StaticSpatialImage` 由配置档控制，无图形
   交通运行时不携带几何。
 - 编译器保存 worker 数无关的静态执行约束，运行时按世界建立实际执行计划；最终
   partition/worker assignment 不进入稳定标识、可移植制品语义或共享镜像。
@@ -1055,7 +1056,8 @@ geometry tessellation，但必须检查 runtime 直接依赖的全部 preconditi
 - table cardinality、CSR monotonicity、range、owner/member 与 cross-index bounds；
 - finite/positive numeric values、speed/length domain；
 - cumulative arc monotonicity、point/frame range 和 sampling bounds；
-- Traffic mandatory、Spatial v1 complete coverage 和 shared edge ordinal；
+- Traffic、identity 与 partition-hint 必需节，profile 含 Spatial 时的 v1 complete
+  coverage 和 shared edge ordinal；
 - caller policy 限制的 image bytes、section/entity/point count；
 - per-world mutable allocation plan、capacity multiplication 和地址空间上限。
 
@@ -1471,8 +1473,8 @@ authority。
 - SoA/CSR/flat ranges；
 - typed dense `u32` handles/ranges，顶层 section byte offset/length 使用 `u64`；
 - precompiled candidate/occurrence/reverse indexes；
-- Traffic 与 `StaticIdentityIndex` mandatory，Spatial 由 closed profile 控制，
-  diagnostics 外置；
+- Traffic、`StaticIdentityIndex` 与 `PartitionPlanningHints` mandatory，Spatial
+  由 closed profile 控制，diagnostics 外置；
 - immutable image 共享、mutable arrays per world；
 - static execution constraints worker-count-neutral，最终执行计划 per world；
 - 执行计划公开聚合诊断指标：阶段耗时（Phase Cost）、分区负载（Partition Load）、

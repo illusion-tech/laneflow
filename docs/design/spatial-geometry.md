@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（current）＋ Draft（#291 target 导航）
 
-**最后更新**: 2026-07-28（current Traffic v0.10；#291/ADR 0020 target）
+**最后更新**: 2026-07-29（current Traffic v0.10；#291/ADR 0020 target）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -51,8 +51,9 @@ ADR 0020 保留本章的 Spatial authority、bounded canonical f32、length/pose
 batch ordering、placement token 与失败原子性，但改变静态数据形成位置：
 
 - compiler 在同一 MIR/LIR 中联合生成 Traffic length、canonical geometry 和绑定；
-- target `StaticNetworkImage` 的 Traffic section 必选、Spatial section
-  profile-controlled；`traffic-headless-v1` 不携带 geometry；
+- target `StaticNetworkImage` 的 Traffic、`StaticIdentityIndex` 与
+  `PartitionPlanningHints` section 必选，Spatial section profile-controlled；
+  `traffic-headless-v1` 不携带 geometry；
 - Spatial section 存在时，`StaticSpatialView` 与 `StaticTrafficView` 共享 logical
   edge ordinal/cross-table index，v1 保持完整 edge coverage；
 - Spatial 直接读取 immutable geometry/sampling tables，不再按 external edge ID

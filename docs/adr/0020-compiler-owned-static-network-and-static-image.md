@@ -732,8 +732,9 @@ fast path 必须有认证的 image 外部 trust anchor；拒绝 header self-atte
 
 ### 强制交通节（Traffic）与空间节（Spatial）同时存在
 
-这会违反 ADR 0013/0015 的 Core-without-Spatial/headless 边界。Traffic section 必选、
-Spatial section 由 closed profile 控制；拒绝 mandatory combined payload。
+这会违反 ADR 0013/0015 的 Core-without-Spatial/headless 边界。Traffic、
+`StaticIdentityIndex` 与 `PartitionPlanningHints` section 必选，Spatial section
+由 closed profile 控制；拒绝 mandatory Traffic/Spatial combined payload。
 
 ### 把最终分区和 worker 分配烘焙进静态镜像
 
