@@ -27,6 +27,7 @@ ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial 
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
 - `../adr/0021-city-simulation-game-traffic-foundation.md`
 - `core-id-handles.md`
+- `compiler-foundation.md`
 - `cross-section-access.md`
 - `data-format.md`
 - `data-loading.md`
@@ -88,8 +89,10 @@ StaticNetworkImage ─┬─> Traffic Runtime: StaticTrafficView + per-world mut
   主要来源语言；
 - 编译器是全部静态路网的唯一编译权威；
 - `InitialTrafficData` 和 Core 登记表不是中间表示；
-- AST/HIR/MIR/LIR 逐级降阶，只有已验证规范 LIR 可以进入编译发射器；
-- 可移植规范制品与目标静态镜像是同一 LIR 的不同后端；
+- AST/HIR/MIR/LIR 逐级降阶，只有以已验证规范 LIR 为静态语义核心的成功编译结果
+  可以进入编译发射器；
+- 可移植规范制品与目标静态镜像是同一 LIR 的不同后端；源映射另外消费同次成功编译
+  冻结、但不能补充静态语义的已验证来源伴随数据；
 - 目标态 `laneflow-runtime` / 空间层直接消费同一不可变镜像中的对齐视图；
 - 静态只读数据与每世界可变状态物理分离；
 - 生产启动不再解析 JSON、按字符串重绑定、重建登记表或重新编译初始路线出现项；
@@ -165,6 +168,11 @@ frontendOptionsDigest
 origin / provenance
 imports
 ```
+
+`sourceContentDigest` 是各官方前端对其版本化规范来源记录精确字节计算的 SHA-256，
+只服务重放与来源沿袭，不参与实体稳定标识；任何会改变规范来源记录字节的编码变化
+必须提升对应 `frontendVersion`。#292 合成领域专用语言前端的首版记录与摘要规则由
+`compiler-foundation.md` 冻结，后继前端必须在各自 G1 冻结精确来源字节。
 
 - Geometry document 是生产场景的主要 source language，但不是唯一 SSOT；
 - Synthetic DSL source 是测试、fixture、benchmark 和示例 module 的权威输入；
@@ -301,7 +309,9 @@ fingerprint 当持久标识。
 
 ### 6.4 已验证规范低层中间表示（Validated Canonical LIR）
 
-LIR 是 emitter 唯一输入：
+LIR 是规范制品、目标静态镜像和语义差异发射器的唯一静态语义输入。源映射发射器
+另外消费与同次成功编译原子冻结的已验证来源伴随数据；该数据只能关联来源模块、
+来源位置、来源沿袭和下列已冻结键，不能补充静态默认、身份前像、所有者或关系：
 
 - 所有 table row 都有 typed `u32` logical ordinal；
 - 稳定 declaration 和可独立寻址的 derived entity 另有 StableId128；
@@ -905,7 +915,7 @@ envelope 内的 records 绑定权威来源模块图、frontend/import 工具与�
 
 源映射记录在上述 envelope 内按标识类别选择 key：
 
-- owning declaration 和 contributing spans；
+- 拥有声明（owning declaration）和贡献来源位置（contributing spans）；
 - declaration/addressable-derived 使用
   `(entityKind, StableId128, typed ordinal)` 引用 portable artifact 中的
   `CanonicalIdentityTable` row，并附加 source span / provenance；可以为诊断展示
@@ -1683,8 +1693,9 @@ normalization authority。
 阶段 2  #292：static-contract + compiler foundation + Synthetic DSL frontend 纵向闭环
 阶段 3  #292 验收：integration-only LIR→current projection 支撑 #282–#285 等价验证
 阶段 4  Geometry document frontend + topology/geometry MIR（可与阶段 3 并行）
-阶段 5  portable artifact + independent validator + source map/semantic diff
-阶段 6  target static image + Traffic Runtime/Spatial shared image path
+阶段 5  #298 可移植规范制品/源映射/语义差异 + #299 独立验证器
+阶段 6  #300 目标静态镜像 + #301 交通运行时/空间层共享镜像路径
+        + #302 不可变路网修订/运行时快照/在线切换
 阶段 7  behavior/perf/security cutover Gate
 阶段 8  #294：production cutover，完成 core→runtime rename 并移除 projection/重复构建
 ```

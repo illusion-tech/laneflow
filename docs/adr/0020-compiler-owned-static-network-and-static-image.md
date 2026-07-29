@@ -25,6 +25,7 @@
   - `0021-city-simulation-game-traffic-foundation.md`
 - 详细设计:
   - `../design/network-compiler.md`
+  - `../design/compiler-foundation.md`
   - `../design/data-format.md`
   - `../design/data-loading.md`
   - `../design/spatial-geometry.md`
@@ -132,8 +133,10 @@ publishable programmatic generator 必须保留 build ID、参数、seed、names
 | 中层中间表示（MIR）               | 展开道路走廊 / 区段 / 车道，生成路口 / 路径，完成曲线离散和全局静态语义 | 目标 ABI、平台指针                                        |
 | 规范低层中间表示（Canonical LIR） | 稳定实体标识、全部表行的有类型逻辑序号、完整静态关系和确定性顺序        | JSON 对象图（Object Graph）、宿主类型                     |
 
-每一阶段只由前一阶段构造；公共 pass 以显式输入/输出和结构化诊断运行。LIR 是
-所有后端的唯一输入。后端不得补充语义默认、重新推断 topology 或修复缺失关系。
+每一阶段只由前一阶段构造；公共 pass 以显式输入/输出和结构化诊断运行。LIR 是所有
+静态语义后端的唯一语义输入；源映射后端可以另外消费与同次成功编译原子冻结、但无权
+补充静态语义的已验证来源伴随数据。任何后端都不得补充语义默认、重新推断 topology
+或修复缺失关系。
 
 具体 Rust collection、arena library 或序列化库不在本 ADR 冻结；必须通过独立
 实现基准选择。但 IR 要求：

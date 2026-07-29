@@ -26,7 +26,9 @@ Runtime）的兼容发现入口；它不表示目标态继续命名为 Core。
    `docs/reference/compiler-calibration-workloads-v1.json` 与
    `docs/reference/compiler-calibration-evidence-v1.schema.json`、
    `docs/reference/compiler-calibration-contract-v1.json`
-9. 涉及城市模拟游戏范围、出行编排、Routing、路网修订、存档/回放、并行或
+9. 涉及 #292 编译器基础设施、已验证规范 LIR 或集成专用 LIR→当前态投影时，额外
+   读取 `docs/design/compiler-foundation.md`
+10. 涉及城市模拟游戏范围、出行编排、Routing、路网修订、存档/回放、并行或
    fidelity 时，读取 `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
 若所需 design 文档尚不存在，在对当前 Core 或目标 Traffic Runtime 做高影响变更
