@@ -4957,6 +4957,56 @@
         }
       }
     },
+    "nullablePositiveRatioObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "reason"
+      ],
+      "properties": {
+        "value": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/positiveRatio"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "value": {
+              "$ref": "#/$defs/positiveRatio"
+            },
+            "reason": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "value": {
+              "type": "null"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
     "candidateComparisonStratum": {
       "type": "object",
       "additionalProperties": false,
@@ -5023,35 +5073,58 @@
         }
       }
     },
+    "candidateComparisonRoundPair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "baselineRunId",
+        "candidateRunId",
+        "ratio"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "baselineRunId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidateRunId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ratio": {
+          "$ref": "#/$defs/nullablePositiveRatioObservation"
+        }
+      }
+    },
     "candidateComparisonBatch": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "baselineRunIds",
-        "candidateRunIds",
+        "pairingMethod",
+        "aggregationMethod",
+        "roundPairs",
         "medianRatio"
       ],
       "properties": {
-        "baselineRunIds": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+        "pairingMethod": {
+          "const": "same-batch-same-round-v1"
         },
-        "candidateRunIds": {
+        "aggregationMethod": {
+          "const": "median-of-exact-round-ratios-v1"
+        },
+        "roundPairs": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
           "items": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/candidateComparisonRoundPair"
           }
         },
         "medianRatio": {
-          "$ref": "#/$defs/nullableNumberObservation"
+          "$ref": "#/$defs/nullablePositiveRatioObservation"
         }
       }
     },
@@ -5279,8 +5352,17 @@
                 "$ref": "#/$defs/candidateComparisonStratum"
               },
               "metric": {
-                "type": "string",
-                "minLength": 1
+                "enum": [
+                  "wall-time-ns",
+                  "allocation-count",
+                  "reallocation-count",
+                  "allocated-bytes",
+                  "peak-live-requested-bytes",
+                  "retained-capacity-bytes",
+                  "working-set-bytes",
+                  "private-bytes",
+                  "commit-peak-bytes"
+                ]
               },
               "batch0": {
                 "$ref": "#/$defs/candidateComparisonBatch"
