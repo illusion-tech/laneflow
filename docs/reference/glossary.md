@@ -114,6 +114,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 候选依赖审计           | candidate dependency audit                                | `dependencyAudit`                | 提案中（Proposed；#308），为每个容器或哈希候选记录许可证、最低支持 Rust 版本、安全公告和锁文件绑定的机器可读审计。                                                  |
 | 候选比较分层           | candidate comparison stratum                              | `stratum`                        | 提案中（Proposed；#308），由键域、工作负载配置、规模、样本种类和二进制模式共同标识的一次候选比较范围；不同分层不得聚合。                                            |
 | 最后私有内存快照       | last private-memory snapshot                              | `lastPrivateBytes`               | 提案中（Proposed；#308），父进程最近一次实际采集的子进程私有字节观察；子进程未启动或监控缺样时必须使用 `null + reason`，不得伪造为零。                              |
+| 干净研究工作树         | clean research working tree                               | `dirty = false`                  | 提案中（Proposed；#308），受测源码、研究执行器、清单、Schema 和锁文件均无未提交修改、可由来源提交完整复现的正式测量工作树。                                         |
 
 ## 4. 标识、引用与数据布局
 
