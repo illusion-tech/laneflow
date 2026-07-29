@@ -1,12 +1,24 @@
 # Rust 代码风格
 
-**文档状态**: Active  
-**最后更新**: 2026-07-14  
+**文档状态**: Active<br>
+**最后更新**: 2026-07-29<br>
 **适用范围**: LaneFlow workspace 中的 Rust 源码、测试、基准和治理工具
 
 ## 1. 目标
 
 本文记录 `rustfmt` 无法表达、但需要在 LaneFlow 中保持一致的 Rust 可读性约定。通用格式仍以 `rustfmt` 和 Clippy 为基础；本文件只补充仓库级规则，不替代 Rust 语言或工具链规范。
+
+### 1.1 外部审阅参考
+
+下列资料可以辅助 Rust API、常见模式与设计原则审阅，但不是 LaneFlow 的权威事实源，
+也不得机械覆盖仓库 ADR、design、MSRV、性能证据或具体分层边界：
+
+- [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/)
+- [Rust Design Patterns](https://rust-unofficial.github.io/patterns/intro.html)
+- [Rust Design Patterns：Design principles](https://rust-unofficial.github.io/patterns/additional_resources/design-principles.html)
+
+审阅引用这些资料时仍须指出具体收益或风险，例如所有权、newtype/typed handle、
+错误边界、API 可预测性、失败原子性或测试可验证性；不得只以通用原则名称要求抽象。
 
 ## 2. 十进制数字字面量
 

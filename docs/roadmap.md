@@ -243,22 +243,24 @@ protected-only runtime 仍未改变，Waiting runtime 由 #282 接续。v0.10 sc
 
 #281–#285 都是 #227 的独立后续切片，不是 #235 的子任务；每个切片必须自行完成
 G0-G4 与元数据审计。#281 已交付 static/Data 0.10 并合入主干。#282–#285 的实现开工
-前置条件是 #292（compiler foundation + Synthetic DSL frontend）完成 G4，届时拓扑
-密集验证场景改由编译器生成承担；这是交付顺序调整而非取消，DAG 依赖关系与已完成
-Gate 记录继续有效。当前 Project 列、Milestone 和原生依赖关系以 GitHub 为准，不在
-路线图镜像。通行权 runtime 能力
+前置条件是 #292（compiler foundation + Synthetic DSL frontend）完成 G4；其验收
+必须包含用于等价验证的 integration-only LIR→current projection，就绪后拓扑密集
+验证场景才改由编译器生成承担。这是交付顺序调整而非取消，DAG 依赖关系与已完成 Gate
+记录继续有效。当前 Project 列、Milestone 和原生依赖关系以 GitHub 为准，不在路线图
+镜像。通行权 runtime 能力
 在本阶段停留 static 层，该代价登记于
 [`design/network-compiler.md` §15](design/network-compiler.md#15-风险登记) 风险表。
 
 #264 对 #235 的设计输入已经满足；#235 G4 后移除该原生 blocker，但 #264 仍必须
 等待 #237 冻结后再拆 JunctionGroup、环岛、停车连接与互通组合。
 
-## 编译器时代静态网络（#291 候选长期路线）
+## 编译器时代静态路网（#291 候选长期路线）
 
 本节双语术语遵循 [`reference/glossary.md`](reference/glossary.md)，中文定义为
 权威事实，英文只作辅助理解。
 
-#291 已把目标从“L1/L2 生成器 + JSON 管线”修订为 compiler-owned static network：
+#291 已把目标从“L1/L2 生成器 + JSON 管线”修订为编译器拥有的静态路网
+（Compiler-owned Static Network）：
 Geometry、Synthetic DSL、imported 与 editor-authored module 共同组成唯一
 authoritative source module graph，再进入
 `typed AST → HIR → MIR → validated canonical LIR`。同一 LIR 原子生成 portable
@@ -279,7 +281,7 @@ Junction internal role 不参与边身份，合法未覆盖边同样进入身份
 `CanonicalIdentityTable` 进入 portable artifact，供 independent validator 从前像
 独立重算身份。Static image 采用 Traffic、冷稳定身份索引（Static Identity Index，
 `StaticIdentityIndex`）与分区规划提示（Partition Planning Hints，
-`PartitionPlanningHints`）mandatory、Spatial profile optional；稳定
+`PartitionPlanningHints`）必选，Spatial 由封闭配置档控制；稳定
 身份索引服务快照恢复（Snapshot Restore）、dynamic Route 重建与修订切换
 （Revision Cutover），不进入 steady tick，也不能被 headless/production profile
 删除。target 把 current
@@ -298,7 +300,7 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 `NetworkRevisionCutoverDescriptor`）绑定，不能自行授予迁移权限；稳定身份索引只
 复核身份映射，不能替代语义兼容证据。每世界 identity、
 调用方拥有的 seed/随机流（Caller-owned Seed / Random Stream）、动态路线、执行计划
-与运行时快照不进入共享 image。路径规划读取静态网络和已提交动态成本快照；出行需求
+与运行时快照不进入共享 image。路径规划读取静态路网和已提交动态成本快照；出行需求
 与路线选择策略仍由城市游戏/出行编排层拥有。
 
 当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
@@ -309,7 +311,7 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 GitHub 为准。
 
 迁移顺序为 `#291 架构 G1 → #292 static-contract/compiler foundation/Synthetic
-DSL → integration-only LIR→current projection → 恢复 #282–#285`；之后 Geometry
+DSL + integration-only LIR→current projection 完成 G4 → 恢复 #282–#285`；之后 Geometry
 frontend/MIR 可以与恢复的 runtime slices 并行推进，再依次交付 portable
 artifact/独立 validator/source map/semantic diff、target static-image +
 Traffic Runtime/Spatial shared-image path 和 behavior/performance/security cutover。

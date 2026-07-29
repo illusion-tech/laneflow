@@ -1,7 +1,7 @@
 # 示例场景设计
 
 **文档状态**: Accepted（#184 G1；#196 v0.9 增量）<br>
-**最后更新**: 2026-07-27<br>
+**最后更新**: 2026-07-29<br>
 **适用范围**: v0.8 Signalized Corridor 基线，以及 current v0.10
 protected-turning 制品、启动配置、人口和车辆回流入口
 
@@ -16,7 +16,7 @@ protected-turning 制品、启动配置、人口和车辆回流入口
 - [`signalized-corridor-population.md`](signalized-corridor-population.md)：走廊
   `50..=200` caller-owned reference policy。
 - [`lust-bevy-population-control.md`](lust-bevy-population-control.md)：LuST/Bevy
-  示例层 1–一万调节契约（#256）；**不**扩展本走廊人口上限，也不把 LuST 滑杆语义
+  示例层一至一万调节契约（#256）；**不**扩展本走廊人口上限，也不把 LuST 滑杆语义
   写回本文件。
 - [`real-road-workloads.md`](real-road-workloads.md)：LuST static / TOPO / DEMAND
   权威。

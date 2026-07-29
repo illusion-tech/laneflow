@@ -57,29 +57,31 @@ production loader、canonical fixtures、validator 和 Adapter/authoring tool �
 - 不接受 JSON-LD；未来如有需要，只能通过独立离线 importer 转换为 canonical JSON。
 - 不承诺 v1.0 的长期稳定格式。
 
-### 1.1 #291 compiler target（未实现）
+### 1.1 #291 编译器目标态（未实现）
 
-ADR 0020 不把 current Traffic JSON 直接改名为 compiler IR。Target 把版本与职责拆为：
+ADR 0020 不把当前 Traffic JSON 直接改名为编译器中间表示（Compiler IR）。目标态把
+版本与职责拆为：
 
-- authoring source：authoritative source module graph；Geometry 是主要 production
-  language，Synthetic DSL/imported/editor-authored module 可以共同组成 compilation
-  unit；
-- portable canonical artifact：平台无关、可发布、可独立校验；
-- target static image：按 target/layout/closed profile 生成、可重建；v1 所有生产
-  配置档都必须包含 `StaticTrafficImage`、冷稳定身份索引（Static Identity Index，
+- 编制来源：权威来源模块图（Authoritative Source Module Graph）；几何文档是主要
+  生产来源语言，合成领域专用语言（Synthetic DSL）、导入模块和编辑器编制模块可以
+  共同组成编译单元（Compilation Unit）；
+- 可移植规范制品（Portable Canonical Artifact）：平台无关、可发布、可独立校验；
+- 目标静态镜像（Target Static Image）：按目标、布局、封闭配置档（Closed
+  Profile）和分区提示版本生成且可重建；v1 所有生产配置档都必须包含
+  `StaticTrafficImage`、冷稳定身份索引（Static Identity Index，
   `StaticIdentityIndex`）和分区规划提示（Partition Planning Hints，
-  `PartitionPlanningHints`），只有 `StaticSpatialImage` 由 closed profile 控制；
-  “冷”只表示不进入 steady tick，不表示可从生产配置档裁剪；v1 不定义泛型
-  cold/debug section，诊断内容由独立制品外置；
-- source map / semantic diff：治理与诊断制品。
+  `PartitionPlanningHints`），只有 `StaticSpatialImage` 由封闭配置档控制；“冷”
+  只表示不进入稳态步进（Steady-state Tick），不表示可从生产配置档裁剪；v1 不定义
+  泛型冷数据/调试节，诊断内容由独立制品外置；
+- 源映射（Source Map）与语义差异（Semantic Diff）：治理与诊断制品。
 
-编译器从 validated canonical LIR 同时生成这些产物；target Runtime/Spatial 直接
-消费 static image 的对齐视图。Target dynamic layer clean-break 命名为
-`laneflow-runtime`/`TrafficWorld`，并通过 `laneflow-static-image` 的 external
-descriptor + bounded verifier 挂载 view。`formatVersion: "0.10"`、本章 Package
-Model 和 §7–§8 的
-JSON→Core normalization 在阶段 8 生产切换 Issue #294 完成 cutover G4 前继续是
-current contract，但不再约束 target IR 或 image layout。Target 版本轴、publication
+编译器从已验证规范低层中间表示（Validated Canonical LIR）同时生成这些产物；目标态
+交通运行时（Traffic Runtime）与空间层（Spatial）直接消费静态镜像的对齐视图。目标
+动态层一次性不兼容命名为 `laneflow-runtime`/`TrafficWorld`，并通过
+`laneflow-static-image` 的静态镜像描述符（Static Image Descriptor）与有界结构校验器
+（Bounded Structural Verifier）挂载视图。`formatVersion: "0.10"`、本章数据包模型
+（Package Model）和 §7–§8 的 JSON→Core 规范化在阶段 8 生产切换 Issue #294 完成
+G4 前继续是当前契约，但不再约束目标编译器中间表示或镜像布局。目标版本轴、发布
 与迁移规则见 ADR 0020 和 `network-compiler.md`。
 
 ## 2. 当前 Package Model

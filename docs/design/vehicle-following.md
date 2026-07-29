@@ -1,7 +1,7 @@
 # Vehicle Following 设计
 
 **文档状态**: Accepted  
-**最后更新**: 2026-07-27
+**最后更新**: 2026-07-29
 
 **适用范围**: Vehicle Following 的 Vehicle Profile、纵向状态、leader/occupancy、IIDM、safe-speed、current Traffic v0.10 继承的 per-edge 道路限速、minimum-gap-preserving geometry projection、事件、确定性与性能验收
 
@@ -666,7 +666,7 @@ v0.3 不公开 controller trait、callback、registry 或 arbitrary Adapter inje
 
 ### 16.2 一万协议
 
-- 一万辆道路活动车辆，连续 60 个 16 ms fixed ticks。
+- 一万辆道路交通活动车辆，连续 60 个 16 ms fixed ticks。
 - 场景：free-flow、dense platoon、stop-and-go；projection-heavy 单独报告。
 - 指定 reference desktop 常规场景目标 median `<= 1 ms/tick`。
 - G3 硬上限 median `<= 4 ms/tick`，即 60 ticks `<= 240 ms`。

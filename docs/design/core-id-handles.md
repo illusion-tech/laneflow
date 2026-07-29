@@ -33,7 +33,7 @@
 - 为 #29、#30、#32 提供 v0.2 lane graph / route 设计、data format 和 Core 对齐输入。
 
 ADR 0020 target 保留 external stable identity / typed dense handle / hot-path 无字符串
-原则，但把静态网络的 handle 分配和 registry/index 构建从 `CoreWorld` 初始化前移到
+原则，但把静态路网的 handle 分配和 registry/index 构建从 `CoreWorld` 初始化前移到
 compiler/static image。Target 动态执行层 clean-break 命名为
 `laneflow-runtime`/`TrafficWorld`；static/shared identity contract 移到
 `laneflow-static-contract`，不能继续由 Runtime 拥有。所有 image table row 使用
@@ -60,7 +60,8 @@ v0.1 Core runtime 中，`VehicleState`、`Route`、`LaneEdge` 和 `CoreEvent` �
 - 每 tick 重新按 `vehicle_id` 字符串排序，以稳定 event order。
 - route transition events 拥有多个 `String` payload，大量车辆同 tick 跨 edge 时会放大分配与拷贝。
 
-如果车辆 external ID 高概率是 UUID 字符串，并且目标规模包含一万 vehicles / 60 tick/s，那么这些字符串操作不应留在 runtime 热路径中。
+如果车辆 external ID 高概率是 UUID 字符串，并且目标规模包含道路机动车执行域的
+一万车辆运行单元、每秒六十次固定步进，那么这些字符串操作不应留在 runtime 热路径中。
 
 ## 3. 术语
 
@@ -488,7 +489,9 @@ v0.2 的最低性能目标：
 - `CoreWorld::step` 不处理 hidden spawn / despawn side effect；动态生命周期必须通过显式 command 进入 Core。
 - 为失败原子性保留的临时 state clone 只能克隆 compact runtime state，不得克隆 external strings。
 
-v0.2 可以暂时接受每 tick 克隆 compact `VehicleRuntimeState` 来保持 step 原子性。若一万 vehicles / 60 tick/s 下 compact state clone 仍成为热点，应单独拆性能 issue 评估 patch / compute-then-apply 策略。
+v0.2 可以暂时接受每 tick 克隆 compact `VehicleRuntimeState` 来保持 step 原子性。若
+道路机动车执行域的一万车辆运行单元、每秒六十次固定步进下 compact state clone
+仍成为热点，应单独拆性能 issue 评估 patch / compute-then-apply 策略。
 
 ### 6.1 #106 lifecycle substrate 实现事实
 

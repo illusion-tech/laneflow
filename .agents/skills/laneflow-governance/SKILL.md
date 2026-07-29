@@ -50,7 +50,9 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
    六项分执行域计数只能标注为 Proposed 目标；G1 接受并完成状态原子化更新后，长期
    通用规模才使用交通参与单元并按交通执行域报告六类计数。当前车辆 workload 应明确
    标注车辆特化，不得代表非机动车、行人或轨道交通；不可改标识符按原文保留。
-7. 产品北极星或城市游戏/交通职责边界发生实质变化时，必须回写 ADR、architecture、
+7. 审阅历史 closure、验证与基准记录时，按 `documentation-policy.md` 保留当时的
+   证据语义、研究归因和能力边界；术语等价更新不得用后续 Proposed 架构重写历史。
+8. 产品北极星或城市游戏/交通职责边界发生实质变化时，必须回写 ADR、architecture、
    roadmap、glossary 和相关 Skills，并对当前 exact head 重新取得 G1 clean review；
    不得沿用旧 head 的 G1/G3 结论。
 
