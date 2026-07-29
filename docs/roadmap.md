@@ -292,7 +292,8 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 静态镜像表示不可变路网修订，不表示城市永不变化。玩家道路编辑通过新修订、独立
 验证和失败关闭镜像切换事务进入运行世界；语义差异（Semantic Diff）必须由独立验证
 或外部可信的路网修订切换描述符（Network Revision Cutover Descriptor，
-`NetworkRevisionCutoverDescriptor`）绑定，不能自行授予迁移权限。每世界 identity、
+`NetworkRevisionCutoverDescriptor`）绑定，不能自行授予迁移权限；稳定身份索引只
+复核身份映射，不能替代语义兼容证据。每世界 identity、
 调用方拥有的 seed/随机流（Caller-owned Seed / Random Stream）、动态路线、执行计划
 与运行时快照不进入共享 image。路径规划读取静态网络和已提交动态成本快照；出行需求
 与路线选择策略仍由城市游戏/出行编排层拥有。

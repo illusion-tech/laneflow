@@ -268,6 +268,9 @@ Initial/static occurrence 由 compiler
 契约版本兼容且
 `StaticIdentityIndex` 能完整重建引用时恢复到另一个可信 target/profile image，
 原始镜像摘要只作为审计绑定与同镜像快速路径。dense ordinal 不能跨路网修订直接复用。
+任何保留旧状态的跨修订切换/恢复都必须消费经独立验证、由可信切换描述符绑定的语义
+差异；`StaticIdentityIndex` 只复核 StableId128 ↔ typed ordinal 映射，不能证明
+语义兼容，缺失该证据时迁移失败关闭。
 回放使用显式输入命令流、checkpoint 与确定性状态摘要，调试构建可通过冷诊断和源映射
 生成失同步诊断制品。交通运行时按观测导出节奏（Observation Export Cadence）导出
 完整基线或版本化增量/分区选择的已提交交通观测；路径规划据此构造动态成本快照，

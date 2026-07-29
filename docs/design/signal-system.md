@@ -503,10 +503,10 @@ Signals 服从完整 Core step 总预算，不叠加专项预算：
 - 发现 vehicle × all-Gates/Controllers/Groups、全表扫描、per-vehicle allocation 或接近二次增长时直接阻断。
 
 当前道路机动车执行域（`execution_domain=road_motor_vehicle`）的一万 common
-workload 固定为 `N_active=10000`、100 Controllers、每 Controller 4 Groups/Gates
+workload 固定为 `N_traffic_active=10000`、100 Controllers、每 Controller 4 Groups/Gates
 和 4 Phases、400 controlled routes、16 ms fixed tick、60 ticks；至少覆盖
 all-green、all-none、red queue、stop/release、mixed offsets 与现有 legacy
-scenarios。十万 observation 同时放大到 `N_active=100000`、1,000 Controllers、
+scenarios。十万 observation 同时放大到 `N_traffic_active=100000`、1,000 Controllers、
 4,000 Groups/Gates 和 matched route horizon。该车辆特化 workload 不代表其他
 执行域的规模或能力。
 
