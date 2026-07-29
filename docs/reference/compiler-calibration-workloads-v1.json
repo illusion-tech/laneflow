@@ -57,6 +57,7 @@
   "moduleGraphProfiles": [
     {
       "id": "wide-star-v1",
+      "sharedSourceConstantRecordCount": 0,
       "modules": {
         "root": 1,
         "unit": "N"
@@ -84,6 +85,7 @@
     },
     {
       "id": "deep-chain-v1",
+      "sharedSourceConstantRecordCount": 0,
       "modules": {
         "root": 1,
         "unit": "N"
@@ -117,6 +119,7 @@
     {
       "id": "shared-fanin-dag-v1",
       "groupWidth": 64,
+      "sharedSourceConstantRecordCount": 1,
       "modules": {
         "root": 1,
         "shared/common": 1,
@@ -209,7 +212,165 @@
     "startColumn": 1,
     "endLineFormula": "startLine",
     "endColumnFormula": "sourceTokenUtf8Length + 1",
-    "minimumSpanCountFormula": "sourceDeclarationCount + sourceReferenceCount + sourceRelationCount + sourceGeometryCount"
+    "spanCountFormula": "sourceDeclarationCount + sourceReferenceCount + sourceRelationCount + sourceGeometryCount"
+  },
+  "researchStageModel": {
+    "version": 1,
+    "scope": "non-production-research-shape-only",
+    "storageRule": "one contiguous value buffer plus one contiguous payload byte buffer per stage; no per-record heap allocation",
+    "absentOrdinalU32": 4294967295,
+    "stageRecordKindCodes": {
+      "module": 1,
+      "import": 2,
+      "declaration": 3,
+      "identityField": 4,
+      "referenceOrResolvedReference": 5,
+      "relation": 6,
+      "geometry": 7,
+      "symbol": 8
+    },
+    "recordOrder": "moduleOrdinal, recordKindCode, sourceSpanOrdinal with absentOrdinalU32 first, entityKind, ownerLocalIndex, payloadBytes",
+    "payloadPartitionOrder": [
+      "record values in recordOrder",
+      "source bytes",
+      "profiled string bytes",
+      "source spans or typed u32 operands as selected by the stage formula"
+    ],
+    "sourceSpanLayout": {
+      "fields": [
+        "sourceDocumentOrdinalU32",
+        "startLineU32",
+        "startColumnU32",
+        "endLineU32",
+        "endColumnU32"
+      ],
+      "logicalFieldBytes": 20,
+      "reprCSizeBytes": 20
+    },
+    "typedAstRecordLayout": {
+      "fields": [
+        "recordKindU16",
+        "entityKindU16",
+        "moduleOrdinalU32",
+        "sourceSpanOrdinalU32",
+        "ownerLocalIndexU32",
+        "payloadOffsetU64",
+        "payloadLengthU64"
+      ],
+      "logicalFieldBytes": 32,
+      "reprCSizeBytes": 32
+    },
+    "hirRecordLayout": {
+      "fields": [
+        "recordKindU16",
+        "entityKindU16",
+        "moduleOrdinalU32",
+        "symbolOrdinalU32",
+        "resolvedTargetOrdinalU32",
+        "payloadOffsetU64",
+        "payloadLengthU64"
+      ],
+      "logicalFieldBytes": 32,
+      "reprCSizeBytes": 32
+    },
+    "mirAndLirRecordLayout": {
+      "fields": [
+        "recordKindU16",
+        "entityKindU16",
+        "stableIdBytes16",
+        "ownerOrdinalU32",
+        "localIndexU32",
+        "payloadOffsetU64",
+        "payloadLengthU64"
+      ],
+      "logicalFieldBytes": 44,
+      "reprCSizeBytes": 48
+    },
+    "aggregateInputFormulas": {
+      "sourceDocumentCount": "moduleCount",
+      "sourceDeclarationCount": "N * perUnitStageInputs.sourceDeclarationCount + graphProfile.sharedSourceConstantRecordCount",
+      "identityFieldOccurrenceCount": "N * perUnitStageInputs.identityFieldOccurrenceCount",
+      "sourceReferenceCount": "N * perUnitStageInputs.sourceReferenceCount + crossModuleReferenceCount",
+      "sourceRelationCount": "N * perUnitStageInputs.sourceRelationCount",
+      "sourceGeometryCount": "N * perUnitStageInputs.sourceGeometryCount",
+      "symbolCount": "sourceDeclarationCount",
+      "sourceSpanCount": "sourceDeclarationCount + sourceReferenceCount + sourceRelationCount + sourceGeometryCount",
+      "semanticOutputRecord": "N * perUnitCounts.semanticOutputRecord",
+      "semanticPayloadByteCount": "sum exact payload byte lengths obtained from recordKinds, identityBindings, stringProfile, and the canonical records for this level)"
+    },
+    "stageFormulas": {
+      "sourceInput": {
+        "recordLayout": "typedAstRecordLayout",
+        "recordCount": "moduleCount + importEdgeCount + sourceSpanCount",
+        "logicalBytes": "32 * recordCount + sourceByteCount + totalStringBytes"
+      },
+      "typedAst": {
+        "recordLayout": "typedAstRecordLayout",
+        "recordGranularity": [
+          "one record per module",
+          "one record per import edge",
+          "one record per source declaration",
+          "one record per identity field occurrence",
+          "one record per source reference",
+          "one record per source relation",
+          "one record per source geometry point"
+        ],
+        "recordCount": "moduleCount + importEdgeCount + sourceDeclarationCount + identityFieldOccurrenceCount + sourceReferenceCount + sourceRelationCount + sourceGeometryCount",
+        "payloadLogicalBytes": "sourceByteCount + totalStringBytes + 20 * sourceSpanCount",
+        "logicalBytes": "32 * recordCount + payloadLogicalBytes",
+        "recordAllocationBytes": "32 * recordCount + payloadLogicalBytes"
+      },
+      "hir": {
+        "recordLayout": "hirRecordLayout",
+        "recordGranularity": [
+          "one record per module",
+          "one record per import edge",
+          "one record per symbol",
+          "one record per identity field occurrence",
+          "one record per resolved source reference",
+          "one record per typed source relation",
+          "one record per unit-checked source geometry point"
+        ],
+        "recordCount": "moduleCount + importEdgeCount + symbolCount + identityFieldOccurrenceCount + sourceReferenceCount + sourceRelationCount + sourceGeometryCount",
+        "payloadLogicalBytes": "totalStringBytes + 4 * (identityFieldOccurrenceCount + importEdgeCount + sourceReferenceCount + 2 * sourceRelationCount + 3 * sourceGeometryCount)",
+        "logicalBytes": "32 * recordCount + payloadLogicalBytes",
+        "recordAllocationBytes": "32 * recordCount + payloadLogicalBytes"
+      },
+      "mir": {
+        "recordLayout": "mirAndLirRecordLayout",
+        "recordGranularity": "one record per canonical semantic record before canonical sort and final owner-local ordinal assignment",
+        "recordCount": "semanticOutputRecord",
+        "payloadLogicalBytes": "semanticPayloadByteCount",
+        "logicalBytes": "44 * recordCount + payloadLogicalBytes",
+        "recordAllocationBytes": "48 * recordCount + payloadLogicalBytes"
+      },
+      "canonicalLir": {
+        "recordLayout": "mirAndLirRecordLayout",
+        "recordGranularity": "one record per canonical semantic record after canonical sort and final owner-local ordinal assignment",
+        "recordCount": "semanticOutputRecord",
+        "payloadLogicalBytes": "semanticPayloadByteCount",
+        "logicalBytes": "44 * recordCount + payloadLogicalBytes",
+        "recordAllocationBytes": "48 * recordCount + payloadLogicalBytes"
+      },
+      "diagnostics": {
+        "recordCount": "diagnosticCount",
+        "logicalBytes": "exact diagnostic stream record bytes excluding the diagnostic stream header"
+      },
+      "scratch": {
+        "recordCount": "0",
+        "logicalBytes": "8 * max(moduleCount, symbolCount, semanticOutputRecord)"
+      },
+      "outputConstruction": {
+        "recordCount": "semanticOutputRecord",
+        "logicalBytes": "54 + 36 * semanticOutputRecord + semanticPayloadByteCount"
+      }
+    },
+    "verificationRules": [
+      "G2 must assert Rust repr(C) size_of for every research record layout before measurement",
+      "G2 generator and independent validator must separately enumerate aggregate inputs and evaluate every stage formula",
+      "stage record values and payload buffers must be materialized inside the measured pipeline",
+      "Rust padding, container capacity, allocator metadata, and process memory are measured separately and never added to logicalBytes"
+    ]
   },
   "semanticRecordEnvelope": [
     "recordKindU16Le",
@@ -567,6 +728,13 @@
         "shared-prefix-256-v1",
         "long-4096-v1"
       ],
+      "perUnitStageInputs": {
+        "sourceDeclarationCount": 22,
+        "identityFieldOccurrenceCount": 58,
+        "sourceReferenceCount": 22,
+        "sourceRelationCount": 10,
+        "sourceGeometryCount": 0
+      },
       "perUnitCounts": {
         "identityDeclaration": 22,
         "requiredIdentityFieldOccurrence": 58,
@@ -639,6 +807,13 @@
           "sha256": "bf48627f36969ed9553be63ba85a49a2dac7d78a6906fc637ca284ad79d8b599"
         }
       ],
+      "perUnitStageInputs": {
+        "sourceDeclarationCount": 357,
+        "identityFieldOccurrenceCount": 1021,
+        "sourceReferenceCount": 2373,
+        "sourceRelationCount": 628,
+        "sourceGeometryCount": 1398
+      },
       "perUnitCounts": {
         "LaneEdge": 69,
         "edgeConnection": 66,
@@ -719,6 +894,13 @@
           ]
         }
       },
+      "perUnitStageInputs": {
+        "sourceDeclarationCount": 166,
+        "identityFieldOccurrenceCount": 464,
+        "sourceReferenceCount": 544,
+        "sourceRelationCount": 252,
+        "sourceGeometryCount": 64
+      },
       "perUnitCounts": {
         "LaneEdge": 32,
         "edgeConnection": 36,
@@ -789,6 +971,7 @@
           ]
         }
       ],
+      "stageInputRule": "enumerate the exact isomorphic research records for the selected case and apply researchStageModel without N scaling; current fixtures never enter budget or candidate ranking",
       "reservedProductionWorkloadId": "LF-COMP-CURRENT-EQUIV-v1",
       "reservedProductionOwnerIssue": 292
     }
@@ -818,26 +1001,178 @@
     "output-byte-count",
     "compiler-controlled-live-byte-count"
   ],
+  "limitDimensionBindings": [
+    {
+      "dimensionId": "module-count",
+      "workloadId": "LF-COMP-ID-v1"
+    },
+    {
+      "dimensionId": "import-edge-count",
+      "workloadId": "LF-COMP-ID-v1"
+    },
+    {
+      "dimensionId": "source-byte-count",
+      "workloadId": "LF-COMP-ID-v1"
+    },
+    {
+      "dimensionId": "declaration-count",
+      "workloadId": "LF-COMP-ID-v1"
+    },
+    {
+      "dimensionId": "identity-field-occurrence-count",
+      "workloadId": "LF-COMP-ID-v1"
+    },
+    {
+      "dimensionId": "symbol-count",
+      "workloadId": "LF-COMP-ID-v1"
+    },
+    {
+      "dimensionId": "reference-count",
+      "workloadId": "LF-COMP-CORRIDOR-v1"
+    },
+    {
+      "dimensionId": "relation-occurrence-count",
+      "workloadId": "LF-COMP-CORRIDOR-v1"
+    },
+    {
+      "dimensionId": "string-item-count",
+      "workloadId": "LF-COMP-ID-v1"
+    },
+    {
+      "dimensionId": "single-string-byte-count",
+      "workloadId": "LF-COMP-ID-v1"
+    },
+    {
+      "dimensionId": "total-string-byte-count",
+      "workloadId": "LF-COMP-ID-v1"
+    },
+    {
+      "dimensionId": "geometry-point-count",
+      "workloadId": "LF-COMP-CORRIDOR-v1"
+    },
+    {
+      "dimensionId": "route-occurrence-count",
+      "workloadId": "LF-COMP-CORRIDOR-v1"
+    },
+    {
+      "dimensionId": "maneuver-gate-count",
+      "workloadId": "LF-COMP-JUNCTION-GRID-v1"
+    },
+    {
+      "dimensionId": "waiting-zone-count",
+      "workloadId": "LF-COMP-JUNCTION-GRID-v1"
+    },
+    {
+      "dimensionId": "diagnostic-count",
+      "workloadId": "LF-COMP-CORRIDOR-v1"
+    },
+    {
+      "dimensionId": "typed-ast-record-count",
+      "workloadId": "LF-COMP-ID-v1"
+    },
+    {
+      "dimensionId": "hir-record-count",
+      "workloadId": "LF-COMP-ID-v1"
+    },
+    {
+      "dimensionId": "mir-record-count",
+      "workloadId": "LF-COMP-CORRIDOR-v1"
+    },
+    {
+      "dimensionId": "lir-record-count",
+      "workloadId": "LF-COMP-CORRIDOR-v1"
+    },
+    {
+      "dimensionId": "stage-scratch-byte-count",
+      "workloadId": "LF-COMP-CORRIDOR-v1"
+    },
+    {
+      "dimensionId": "output-byte-count",
+      "workloadId": "LF-COMP-CORRIDOR-v1"
+    },
+    {
+      "dimensionId": "compiler-controlled-live-byte-count",
+      "workloadId": "LF-COMP-ID-v1"
+    }
+  ],
+  "limitPairConstruction": {
+    "precondition": "selected dimension exact value is at least one at calibration and stress scales",
+    "scaleRoles": [
+      "calibration",
+      "stress"
+    ],
+    "atBound": "use the canonical workload level and set the selected limit equal to its exact selected dimension value",
+    "plusOne": "reuse the same canonical workload level and set only the selected limit to exact selected dimension value minus one",
+    "inputDigestIncludes": [
+      "workload manifest digest",
+      "workload/profile/scale identity",
+      "canonical level counts",
+      "complete private limit values"
+    ]
+  },
   "failureCases": [
     {
       "idPattern": "limit/{dimension}/at-bound",
+      "workloadBindingSource": "limitDimensionBindings",
       "expected": "success"
     },
     {
       "idPattern": "limit/{dimension}/plus-one",
+      "workloadBindingSource": "limitDimensionBindings",
       "expected": "fail-before-proportional-work"
     },
     {
       "id": "semantic/missing-reference-per-unit",
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleRoles": [
+        "calibration",
+        "stress"
+      ],
       "mutation": "replace the first canonical route occurrence in every unit with an unknown LaneEdge"
     },
     {
       "id": "semantic/duplicate-owner-per-unit",
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleRoles": [
+        "calibration",
+        "stress"
+      ],
       "mutation": "attach the first canonical FacilityBand in every unit to a second RoadCorridor"
     },
     {
       "id": "diagnostic/cap-plus-one",
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleRoles": [
+        "calibration",
+        "stress"
+      ],
       "mutation": "set maxDiagnostics=N and create N+1 independent unknown references"
+    }
+  ],
+  "cleanupExperimentBindings": [
+    {
+      "caseId": "limit/source-byte-count/plus-one",
+      "workloadId": "LF-COMP-ID-v1",
+      "scaleRoles": [
+        "calibration",
+        "stress"
+      ]
+    },
+    {
+      "caseId": "semantic/missing-reference-per-unit",
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleRoles": [
+        "calibration",
+        "stress"
+      ]
+    },
+    {
+      "caseId": "diagnostic/cap-plus-one",
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleRoles": [
+        "calibration",
+        "stress"
+      ]
     }
   ]
 }

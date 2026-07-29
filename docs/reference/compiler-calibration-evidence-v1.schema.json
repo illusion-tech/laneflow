@@ -288,7 +288,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "808d7c02ac196cca81362e2cf13ea45f6b57eb8a64f5e7893df44b5666ab0a02"
+          "const": "300ee2d881ebba24f13a770684bbf3e6fb5e7258c616f90f3b26d277a41ae648"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -507,8 +507,11 @@
         "importEdgeCount",
         "crossModuleReferenceCount",
         "maximumImportDepth",
+        "sourceDocumentCount",
         "sourceByteCount",
         "sourceDeclarationCount",
+        "sourceSpanCount",
+        "identityFieldOccurrenceCount",
         "sourceReferenceCount",
         "sourceRelationCount",
         "sourceGeometryCount",
@@ -518,6 +521,7 @@
         "totalStringBytes",
         "diagnosticCount",
         "semanticOutputRecord",
+        "semanticPayloadByteCount",
         "logicalByteCount",
         "outputByteCount"
       ],
@@ -534,10 +538,19 @@
         "maximumImportDepth": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
+        "sourceDocumentCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
         "sourceByteCount": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "sourceDeclarationCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sourceSpanCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "identityFieldOccurrenceCount": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "sourceReferenceCount": {
@@ -565,6 +578,9 @@
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "semanticOutputRecord": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "semanticPayloadByteCount": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "logicalByteCount": {
@@ -932,7 +948,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "808d7c02ac196cca81362e2cf13ea45f6b57eb8a64f5e7893df44b5666ab0a02"
+          "const": "300ee2d881ebba24f13a770684bbf3e6fb5e7258c616f90f3b26d277a41ae648"
         },
         "counts": {
           "type": "object"
@@ -2583,6 +2599,264 @@
             "properties": {
               "sampleKind": {
                 "const": "failure"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sampleKind": {
+                "const": "failure"
+              }
+            },
+            "required": [
+              "sampleKind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "workload": {
+                "properties": {
+                  "id": {
+                    "enum": [
+                      "LF-COMP-ID-v1",
+                      "LF-COMP-CORRIDOR-v1",
+                      "LF-COMP-JUNCTION-GRID-v1"
+                    ]
+                  },
+                  "scaleRole": {
+                    "enum": [
+                      "calibration",
+                      "stress"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "failure": {
+                "properties": {
+                  "dimensionId": {
+                    "enum": [
+                      "module-count",
+                      "import-edge-count",
+                      "source-byte-count",
+                      "declaration-count",
+                      "identity-field-occurrence-count",
+                      "symbol-count",
+                      "string-item-count",
+                      "single-string-byte-count",
+                      "total-string-byte-count",
+                      "typed-ast-record-count",
+                      "hir-record-count",
+                      "compiler-controlled-live-byte-count"
+                    ]
+                  }
+                },
+                "required": [
+                  "dimensionId"
+                ]
+              }
+            },
+            "required": [
+              "failure"
+            ]
+          },
+          "then": {
+            "properties": {
+              "workload": {
+                "properties": {
+                  "id": {
+                    "const": "LF-COMP-ID-v1"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "failure": {
+                "properties": {
+                  "dimensionId": {
+                    "enum": [
+                      "reference-count",
+                      "relation-occurrence-count",
+                      "geometry-point-count",
+                      "route-occurrence-count",
+                      "diagnostic-count",
+                      "mir-record-count",
+                      "lir-record-count",
+                      "stage-scratch-byte-count",
+                      "output-byte-count"
+                    ]
+                  }
+                },
+                "required": [
+                  "dimensionId"
+                ]
+              }
+            },
+            "required": [
+              "failure"
+            ]
+          },
+          "then": {
+            "properties": {
+              "workload": {
+                "properties": {
+                  "id": {
+                    "const": "LF-COMP-CORRIDOR-v1"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "failure": {
+                "properties": {
+                  "dimensionId": {
+                    "enum": [
+                      "maneuver-gate-count",
+                      "waiting-zone-count"
+                    ]
+                  }
+                },
+                "required": [
+                  "dimensionId"
+                ]
+              }
+            },
+            "required": [
+              "failure"
+            ]
+          },
+          "then": {
+            "properties": {
+              "workload": {
+                "properties": {
+                  "id": {
+                    "const": "LF-COMP-JUNCTION-GRID-v1"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "failure": {
+                "properties": {
+                  "caseId": {
+                    "enum": [
+                      "semantic/missing-reference-per-unit",
+                      "semantic/duplicate-owner-per-unit",
+                      "diagnostic/cap-plus-one"
+                    ]
+                  }
+                },
+                "required": [
+                  "caseId"
+                ]
+              }
+            },
+            "required": [
+              "failure"
+            ]
+          },
+          "then": {
+            "properties": {
+              "workload": {
+                "properties": {
+                  "id": {
+                    "const": "LF-COMP-CORRIDOR-v1"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "cleanup": {
+                "properties": {
+                  "phase": {
+                    "not": {
+                      "const": "not-applicable"
+                    }
+                  }
+                },
+                "required": [
+                  "phase"
+                ]
+              }
+            },
+            "required": [
+              "cleanup"
+            ]
+          },
+          "then": {
+            "properties": {
+              "workload": {
+                "properties": {
+                  "id": {
+                    "enum": [
+                      "LF-COMP-ID-v1",
+                      "LF-COMP-CORRIDOR-v1"
+                    ]
+                  },
+                  "scaleRole": {
+                    "enum": [
+                      "calibration",
+                      "stress"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "cleanup": {
+                "properties": {
+                  "phase": {
+                    "const": "failure-iteration"
+                  }
+                },
+                "required": [
+                  "phase"
+                ]
+              }
+            },
+            "required": [
+              "cleanup"
+            ]
+          },
+          "then": {
+            "properties": {
+              "failure": {
+                "properties": {
+                  "caseId": {
+                    "enum": [
+                      "limit/source-byte-count/plus-one",
+                      "semantic/missing-reference-per-unit",
+                      "diagnostic/cap-plus-one"
+                    ]
+                  }
+                }
               }
             }
           }
