@@ -51,8 +51,9 @@ startup 把 `StaticNetworkImage` 与 image 外部 trusted descriptor/validation 
 绑定，再由 `laneflow-static-image` bounded verifier 检查
 magic/version/target/profile、offset/alignment、section bounds、cardinality、
 numeric/runtime precondition、cross-index、`StaticIdentityIndex` 双向完整性与 load
-limits。Traffic section 和冷 `StaticIdentityIndex` 必选；Spatial section 只在
-profile 要求时存在。Verifier 随后建立
+limits。Traffic section、冷 `StaticIdentityIndex` 和 `PartitionPlanningHints`
+必选；Spatial section 只在 profile 要求时存在。Runtime 可以忽略或重建分区规划
+提示，但 verifier 仍须验证该必选节的 closed shape。Verifier 随后建立
 `StaticTrafficView` / optional `StaticSpatialView`，不解析 JSON、不按 external
 string rebind、不重建 static registry、不重新 join Traffic/Spatial，也不重跑
 authoring topology/coverage/geometry derivation。

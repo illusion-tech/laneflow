@@ -41,8 +41,9 @@
   完整 Identity registry、可移植规范制品（Portable Canonical Artifact）、外部信任
   收据绑定的目标静态镜像（Target Static Image）、源映射（Source Map）、语义差异
   （Semantic Diff）与独立验证器。目标态把当前 `laneflow-core/CoreWorld` 一次性
-  不兼容切换为 `laneflow-runtime/TrafficWorld`；Traffic section 必选、Spatial
-  section 可选，无图形配置不携带 geometry；编译器拥有 worker 数无关的静态执行
+  不兼容切换为 `laneflow-runtime/TrafficWorld`；Traffic、`StaticIdentityIndex` 与
+  `PartitionPlanningHints` section 必选，Spatial section 由 closed profile 控制，
+  无图形配置不携带 geometry；编译器拥有 worker 数无关的静态执行
   约束，最终分区属于每世界运行时执行计划；不可变路网修订通过失败关闭镜像切换事务
   进入运行世界，并保留 runtime snapshot/replay 与 routing 接入边界。该架构服务
   Proposed ADR 0021 的中国特色城市模拟游戏交通基础目标提案；#291 G1 接受前不把它
