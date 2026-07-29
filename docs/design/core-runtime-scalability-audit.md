@@ -861,6 +861,10 @@ Stable Runtime API G1 前的待决项：
 
 ## 10. 与 #72 和路线图的关系
 
-#199 只完成 #72 验收中的 API 可扩展性前置切片。#72 继续保持 Backlog、Milestone N/A、G0 Pass；fidelity/target、partition/identity、deterministic scheduling、memory layout 和 Adapter/Core boundary 的完整研究仍由 #72 后续规划。#291 提供的静态约束与修订边界是该研究的输入，不构成 parallel runtime G2。
+#199 只完成 #72 验收中的 API 可扩展性前置切片；fidelity/target、
+partition/identity、deterministic scheduling、memory layout 和 Adapter/Core
+boundary 的完整研究仍由 #72 后续规划。#291 提供的静态约束与修订边界是该研究的
+输入，不构成 parallel runtime G2。#72 的当前 Project、Milestone 与 Gate 状态以
+GitHub 为准，不在本长期审计中镜像。
 
 本审计不阻塞 v0.8/v0.9，也不把 v1.0 Scope TBD 自动变成城市级实现 Milestone。它只冻结一个最迟门槛：未来 Stable Runtime API 的 G1 必须引用本审计，并关闭或显式接受第 7 节待决项；完整并行、多层级或分布式实施仍需产品目标和性能证据后另立 Milestone。
