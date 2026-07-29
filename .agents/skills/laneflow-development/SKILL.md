@@ -26,7 +26,10 @@ description: 指导 LaneFlow 的 AI Agent 实现工作。适用于功能实现�
    `docs/reference/compiler-calibration-evidence-v1.schema.json`、
    `docs/reference/compiler-calibration-contract-v1.json`；该研究代码只允许
    在 #308 自身 G2 后进入 `research/` 非生产边界
-10. 涉及城市模拟游戏范围、Routing、路网修订、存档/回放、并行或 fidelity 时读取
+10. 涉及 #292、`laneflow-static-contract`、`laneflow-compiler`、合成领域专用语言
+   前端（Synthetic DSL Frontend）或集成专用 LIR→当前态投影时，额外读取
+   `docs/design/compiler-foundation.md`
+11. 涉及城市模拟游戏范围、Routing、路网修订、存档/回放、并行或 fidelity 时读取
    `docs/adr/0021-city-simulation-game-traffic-foundation.md`
 
 若任务涉及当前态 Core API、目标态 Traffic Runtime API、数据格式或 Adapter API，

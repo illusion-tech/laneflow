@@ -262,10 +262,13 @@ G0-G4 与元数据审计。#281 已交付 static/Data 0.10 并合入主干。#28
 （Compiler-owned Static Network）：
 Geometry、Synthetic DSL、imported 与 editor-authored module 共同组成唯一
 authoritative source module graph，再进入
-`typed AST → HIR → MIR → validated canonical LIR`。同一 LIR 原子生成 portable
-canonical artifact、target-specific `StaticNetworkImage`、source map/diagnostics
-与 semantic diff；target `laneflow-runtime`/Spatial 消费同一 immutable image 中的
-Traffic/optional Spatial view，静态数据与每 world 可变状态物理分离。生产启动通过
+`typed AST → HIR → MIR → validated canonical LIR`。同一次成功编译以 LIR 作为唯一
+静态语义输入，原子生成 portable canonical artifact、target-specific
+`StaticNetworkImage` 与语义差异（Semantic Diff）；源映射（Source Map）另外消费
+同次冻结、但不能补充静态语义的已验证来源伴随数据。目标
+`laneflow-runtime`/Spatial 消费同一不可变镜像（Immutable Image）中的交通 /
+可选空间视图（Traffic / Optional Spatial View），静态数据与每个世界可变状态
+物理分离。生产启动通过
 image 外部 trusted descriptor/validation receipt 与 bounded verifier 建立 view，
 不再解析 JSON、按字符串 rebind、重建 registry、重复 Traffic/Spatial join 或重编译
 static occurrences。
@@ -312,12 +315,13 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 完成 G4、#292 rebase 并回写 exact evidence commit 后，#292 才能冻结自身 G1 的
 精确预算。当前 Project 状态和原生依赖关系以 GitHub 为准。
 
-迁移顺序为 `#291 架构 G1（已完成）→ #308 非生产预算校准完成 G4 → #292
+迁移顺序为 `#291 架构 G1（已完成）→ #308 非生产预算校准完成 G4（已完成）→ #292
 static-contract/compiler foundation/Synthetic DSL + integration-only LIR→current
 projection 完成 G4 → 恢复 #282–#285`；之后 Geometry
-frontend/MIR 可以与恢复的 runtime slices 并行推进，再依次交付 portable
-artifact/独立 validator/source map/semantic diff、target static-image +
-Traffic Runtime/Spatial shared-image path 和 behavior/performance/security cutover。
+frontend/MIR 可以与恢复的 runtime slices 并行推进，再由 #298 交付可移植规范制品 /
+源映射 / 语义差异、#299 交付独立验证器、#300 交付目标静态镜像、#301 交付交通
+运行时 / 空间层共享镜像路径、#302 交付不可变路网修订 / 运行时快照（Runtime
+Snapshot）/ 在线镜像切换，随后进入行为 / 性能 / 安全生产切换闸口。
 最后由 #294 独占阶段 8 production cutover、core→runtime 原子改名与 projection/
 旧路径移除；#294 G4 前不得提前满足切换条件。Projection 不进入 compiler production
 dependency。编译器性能工作负载及其规模计数必须在后继实现 G1 中依据产品证据独立
