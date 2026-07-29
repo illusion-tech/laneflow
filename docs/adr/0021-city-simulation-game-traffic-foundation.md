@@ -226,22 +226,24 @@ Runtime 当前修订只来自 `TrustedStaticImage`。相同语义的不同 targe
 
 运行时快照（Runtime Snapshot）是独立版本化制品。精确恢复至少绑定：
 
-- `canonicalArtifactDigest`
-- `canonicalArtifactByteLength`
+- `originCanonicalArtifactDigest`
+- `originCanonicalArtifactByteLength`
 - `originStaticImageDigest`
 - `originStaticImageByteLength`
 - `runtimeSnapshotVersion`
-- 交通运行时版本和约束版本
+- 交通运行时、identity、constraint 与 execution-constraint 版本
 - `networkRevisionDerivationVersion + networkRevision`
 - world identity、tick/time、输入命令序列游标
 - 仅在后续 G1 显式授予 Traffic Runtime 随机权威时，才包含运行时自有随机流状态
 - 全部每世界可变交通状态
 
-`canonicalArtifactDigest + canonicalArtifactByteLength` 与路网修订是同修订恢复
-的静态语义权威；`originStaticImageDigest + originStaticImageByteLength` 记录创建
-快照时的精确 target/profile image，供审计和同镜像快速恢复。恢复可以改用绑定相同
-规范制品、路网修订和 identity/constraint versions 的另一可信 image，但必须通过其
-生产必需的 `StaticIdentityIndex` 重建全部稳定静态引用；否则失败关闭。
+版本化路网修订、兼容的 runtime/snapshot 契约，以及精确相等的
+identity/constraint/execution-constraint versions 是同修订恢复的静态语义权威。
+快照中的原规范制品与原静态镜像 digest/length 供
+来源审计和同制品/同镜像快速恢复。恢复可以改用由独立验证收据证明具有同一路网修订、
+但因 compiler provenance 或 artifact envelope 重发布而规范制品摘要不同的另一可信
+image；仍必须通过其生产必需的 `StaticIdentityIndex` 重建全部稳定静态引用，否则
+失败关闭。
 快照中的修订 token 只能从当前 `TrustedStaticImage` descriptor 复制，恢复时也只与
 候选可信 descriptor 比较；Save Manifest、调用方参数或 image header 不能覆盖它。
 
