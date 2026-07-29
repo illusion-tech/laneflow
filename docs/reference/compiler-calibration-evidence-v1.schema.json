@@ -4645,7 +4645,10 @@
           "then": {
             "properties": {
               "status": {
-                "const": "valid"
+                "enum": [
+                  "valid",
+                  "invalid"
+                ]
               }
             }
           }
@@ -4705,6 +4708,91 @@
               "invalidationReasons": {
                 "contains": {
                   "const": "child-abnormal-exit"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "valid"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "invalidationReasons": {
+                "maxItems": 0
+              },
+              "process": {
+                "properties": {
+                  "exitKind": {
+                    "const": "success"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "invalid"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "invalidationReasons": {
+                "minItems": 1
+              },
+              "process": {
+                "properties": {
+                  "exitKind": {
+                    "enum": [
+                      "success",
+                      "invalid-abnormal-exit",
+                      "invalid-monitor-termination"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "guarded"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "invalidationReasons": {
+                "maxItems": 0
+              },
+              "process": {
+                "properties": {
+                  "exitKind": {
+                    "enum": [
+                      "guarded-before-start",
+                      "guarded-in-child"
+                    ]
+                  }
                 }
               }
             }
