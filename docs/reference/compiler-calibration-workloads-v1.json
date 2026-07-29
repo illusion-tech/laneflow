@@ -44,14 +44,22 @@
       "bf58476d1ce4e5b9",
       "94d049bb133111eb"
     ],
-    "seedFormula": "baseSeed XOR (sequenceKindU64 << 56) XOR unitIndexU64",
+    "seedFormula": "baseSeed XOR (sequenceKindU64 << 56) XOR moduleSeedOrdinalU64",
+    "moduleSeedOrdinalFormula": {
+      "root": "0",
+      "shared/common": "1",
+      "group/{g:08x}": "(1_u64 << 40) | g_u64",
+      "unit/{i:08x}": "(2_u64 << 40) | i_u64",
+      "indexRange": "g and i are exact u32 values; bits 40..47 identify the module category and bits 56..63 remain reserved for sequenceKindU64"
+    },
     "sequenceKinds": {
-      "rootImports": 1,
+      "imports": 1,
       "declarations": 2,
       "references": 3,
       "relations": 4,
       "geometry": 5
     },
+    "sequenceScope": "independently permute each expanded module's imports, declarations, references, relations, and geometry list with that module's moduleSeedOrdinalU64; empty and singleton lists still use the same defined seed but perform no swap",
     "swapFormula": "swap(i, nextU64 mod (i + 1))"
   },
   "moduleGraphProfiles": [
