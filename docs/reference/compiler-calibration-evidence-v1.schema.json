@@ -1948,6 +1948,180 @@
         }
       ]
     },
+    "terminationObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "signalNumber",
+        "rawPlatformStatus"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "not-started",
+            "exit-code",
+            "posix-signal",
+            "platform-status"
+          ]
+        },
+        "signalNumber": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "rawPlatformStatus": {
+          "$ref": "#/$defs/nullableStringObservation"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "not-started"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "signalNumber": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "const": "child-not-started"
+                  }
+                }
+              },
+              "rawPlatformStatus": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "const": "child-not-started"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "exit-code"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "signalNumber": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "const": "not-signal-termination"
+                  }
+                }
+              },
+              "rawPlatformStatus": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "const": "exit-code-is-authoritative"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "posix-signal"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "signalNumber": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              },
+              "rawPlatformStatus": {
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "pattern": "^posix-wait-status-hex-u32:[0-9a-f]{8}$"
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "platform-status"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "signalNumber": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "const": "not-posix-signal"
+                  }
+                }
+              },
+              "rawPlatformStatus": {
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "pattern": "^native-status-hex-u64:[0-9a-f]{16}$"
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
     "process": {
       "type": "object",
       "additionalProperties": false,
@@ -1956,7 +2130,8 @@
         "childPid",
         "binaryId",
         "exitKind",
-        "exitCode"
+        "exitCode",
+        "termination"
       ],
       "properties": {
         "coordinatorPid": {
@@ -1980,8 +2155,166 @@
         },
         "exitCode": {
           "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "termination": {
+          "$ref": "#/$defs/terminationObservation"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "termination": {
+                "properties": {
+                  "kind": {
+                    "const": "not-started"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            "required": [
+              "termination"
+            ]
+          },
+          "then": {
+            "properties": {
+              "exitKind": {
+                "const": "guarded-before-start"
+              },
+              "exitCode": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "const": "child-not-started"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "termination": {
+                "properties": {
+                  "kind": {
+                    "const": "exit-code"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            "required": [
+              "termination"
+            ]
+          },
+          "then": {
+            "properties": {
+              "exitKind": {
+                "not": {
+                  "const": "guarded-before-start"
+                }
+              },
+              "exitCode": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "termination": {
+                "properties": {
+                  "kind": {
+                    "const": "posix-signal"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            "required": [
+              "termination"
+            ]
+          },
+          "then": {
+            "properties": {
+              "exitKind": {
+                "enum": [
+                  "invalid-abnormal-exit",
+                  "invalid-monitor-termination"
+                ]
+              },
+              "exitCode": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "const": "signal-termination"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "termination": {
+                "properties": {
+                  "kind": {
+                    "const": "platform-status"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            "required": [
+              "termination"
+            ]
+          },
+          "then": {
+            "properties": {
+              "exitKind": {
+                "enum": [
+                  "invalid-abnormal-exit",
+                  "invalid-monitor-termination"
+                ]
+              },
+              "exitCode": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "const": "platform-status-without-exit-code"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "stageObservation": {
       "type": "object",
@@ -4240,17 +4573,6 @@
                       "value": {
                         "type": "integer",
                         "minimum": 1
-                      },
-                      "reason": {
-                        "type": "null"
-                      }
-                    }
-                  },
-                  "exitCode": {
-                    "properties": {
-                      "value": {
-                        "type": "integer",
-                        "minimum": 0
                       },
                       "reason": {
                         "type": "null"
