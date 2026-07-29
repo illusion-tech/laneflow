@@ -1490,6 +1490,76 @@
       "reservedProductionOwnerIssue": 292
     }
   ],
+  "guardPredictionContract": {
+    "id": "research-stop-guard-prediction-v1",
+    "primaryRecordCountByWorkload": {
+      "LF-COMP-ID-v1": {
+        "aggregate": "sum",
+        "operands": [
+          "identityFieldOccurrenceCount"
+        ]
+      },
+      "LF-COMP-CORRIDOR-v1": {
+        "aggregate": "sum",
+        "operands": [
+          "sourceRelationCount",
+          "sourceGeometryCount"
+        ]
+      },
+      "LF-COMP-JUNCTION-GRID-v1": {
+        "aggregate": "sum",
+        "operands": [
+          "gateOccurrence",
+          "waitingZoneOccurrence",
+          "routeOccurrence"
+        ]
+      }
+    },
+    "compilerControlledLowerBound": {
+      "basis": "manifest-single-buffer-lower-bound-v1",
+      "aggregate": "maximum",
+      "singleBufferOperands": [
+        {
+          "stage": "sourceInput",
+          "field": "logicalBytes"
+        },
+        {
+          "stage": "typedAst",
+          "field": "recordAllocationBytes"
+        },
+        {
+          "stage": "hir",
+          "field": "recordAllocationBytes"
+        },
+        {
+          "stage": "mir",
+          "field": "recordAllocationBytes"
+        },
+        {
+          "stage": "canonicalLir",
+          "field": "recordAllocationBytes"
+        },
+        {
+          "stage": "diagnostics",
+          "field": "logicalBytes"
+        },
+        {
+          "stage": "scratch",
+          "field": "logicalBytes"
+        },
+        {
+          "stage": "outputConstruction",
+          "field": "logicalBytes"
+        }
+      ],
+      "fixedOverheadRule": "no separate fixed-overhead term exists in protocol v1"
+    },
+    "firstLevelPrediction": "predictedCompilerControlledBytes = logicalBytesLowerBound",
+    "laterLevelLinearTerm": "ceil(previousPeakLiveRequestedBytes * nextPrimaryRecordCount * 5 / (previousPrimaryRecordCount * 4))",
+    "laterLevelPrediction": "predictedCompilerControlledBytes = max(logicalBytesLowerBound, laterLevelLinearTerm)",
+    "integerArithmetic": "evaluate checked u128 products; compute ceiling division from quotient and nonzero remainder without numerator-plus-denominator-minus-one; convert the final result with u64::try_from",
+    "candidateIndependenceRule": "the lower bound is derived only from the bound manifest and selected workload level; candidates cannot add, subtract, or measure a private fixed-overhead value"
+  },
   "liveByteLimitBaseline": {
     "id": "compiler-controlled-live-byte-baseline-v1",
     "dimensionId": "compiler-controlled-live-byte-count",

@@ -289,7 +289,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "d6079015e1f96b0b017b4652b6925584023befc491cfe31617edc7053e0e2f06"
+          "const": "44bcbce89bf6b1b31f02a56a58aa3ba1bbf3d32df5930049be5cc65ce0ec2562"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1188,7 +1188,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "d6079015e1f96b0b017b4652b6925584023befc491cfe31617edc7053e0e2f06"
+          "const": "44bcbce89bf6b1b31f02a56a58aa3ba1bbf3d32df5930049be5cc65ce0ec2562"
         },
         "counts": {
           "type": "object"
@@ -2405,7 +2405,6 @@
         "previousWallTimeNs",
         "predictedWallTimeNs",
         "logicalBytesLowerBound",
-        "fixedOverheadBytes",
         "reservedBytesBeforeFailure",
         "trigger",
         "lastAvailablePhysicalMemoryBytes",
@@ -2414,7 +2413,7 @@
       "properties": {
         "compilerControlledPredictionBasis": {
           "enum": [
-            "logical-lower-bound-plus-fixed-overhead",
+            "manifest-single-buffer-lower-bound-v1",
             "previous-level-linear-times-five-fourths",
             "checked-arithmetic-failed",
             "not-applicable"
@@ -2466,9 +2465,6 @@
         "logicalBytesLowerBound": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
-        "fixedOverheadBytes": {
-          "$ref": "#/$defs/nonNegativeInteger"
-        },
         "reservedBytesBeforeFailure": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
@@ -2501,7 +2497,7 @@
             "properties": {
               "compilerControlledPredictionBasis": {
                 "enum": [
-                  "logical-lower-bound-plus-fixed-overhead",
+                  "manifest-single-buffer-lower-bound-v1",
                   "previous-level-linear-times-five-fourths"
                 ]
               }
@@ -2535,6 +2531,52 @@
                   "reason": {
                     "type": "string",
                     "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "compilerControlledPredictionBasis": {
+                "const": "manifest-single-buffer-lower-bound-v1"
+              }
+            },
+            "required": [
+              "compilerControlledPredictionBasis"
+            ]
+          },
+          "then": {
+            "properties": {
+              "previousCompletedN": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "const": "first-level-no-completed-level"
+                  }
+                }
+              },
+              "previousPrimaryRecordCount": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "const": "first-level-no-completed-level"
+                  }
+                }
+              },
+              "previousPeakLiveRequestedBytes": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "const": "first-level-no-completed-level"
                   }
                 }
               }
