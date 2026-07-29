@@ -1649,8 +1649,8 @@ Cutover 前必须证明：
   profile 与 crate DAG 均为 closed contract；
 - Data/current Core/target Traffic Runtime/Spatial/Adapter 文档清楚标注 current 与
   target；
-- #292 已重划为 compiler foundation + Synthetic DSL frontend，并继续保持
-  `Blocked by #291`；
+- #292 已重划为 compiler foundation + Synthetic DSL frontend，且实现开工前置条件
+  明确为 #291 G1；当前 Project 状态和原生依赖关系不在长期设计中镜像；
 - 阶段 8 生产切换、core→runtime 原子改名与旧路径移除由 #294 的 G4 独占，不再
   误绑到 #291 的设计交付 G4；
 - 标识 v1、artifact/image/profile/version/validation/performance contract 一致，所有

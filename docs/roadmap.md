@@ -198,13 +198,14 @@ signalized-corridor 产品里程碑收口时，RoadSection、LaneGroup 与 Junct
 ConflictZone/right-of-way solver、RoadSection/JunctionGroup runtime，以及 #72 的
 城市级扩展。
 
-## 多模式横断面与准入（静态模型已生产化，Milestone N/A）
+## 多模式横断面与准入（静态模型已生产化）
 
 #234/ADR 0018 冻结多模式道路横断面与准入分层：`RoadCorridor` 横断面 owner、
 方向性 `RoadSection`/可选 `LaneGroup` 生产语义、非遍历 `FacilityBand`、
 `FacilityKind`/`ParticipantClass`/`AccessRule` 显式分离与时间/地区 overlay；
 SSOT 见 [`cross-section-access.md`](design/cross-section-access.md)。该设计属于
-#227 复杂道路设施演进路线，Milestone N/A（尚未进入已冻结产品 Milestone）。
+#227 复杂道路设施演进路线，不自动进入任何已冻结产品 Milestone；当前 Milestone
+归属以 GitHub 为准。
 
 #234 拆出的最小 production Issue #262 已交付静态模型、Traffic v0.9 原子迁移
 （v0.9 schema 已发布并经 live 验证）与 (class, Route) 绑定期
@@ -212,7 +213,7 @@ SSOT 见 [`cross-section-access.md`](design/cross-section-access.md)。该设计
 SSOT）→ #236 非机动车/步行产品范围。时变准入 runtime、横向几何与多法规版本
 共存各自独立 G1，不属于当前完成边界。
 
-## WaitingZone、ConflictZone 与通行权（G1 已接受，尚未生产化，Milestone N/A）
+## WaitingZone、ConflictZone 与通行权（G1 已接受，尚未生产化）
 
 #235/ADR 0019 已冻结 multiple ManeuverGate occurrence、WaitingZone
 容量/队列、ConflictZone/ParticipantStream、versioned jurisdiction/right-of-way
@@ -223,7 +224,8 @@ mandatory downstream-clearance guard；每个 static zone-stream passage 的 top
 owner frontier 支持 subject self-exclusion，不随 dynamic Route 数复制 cell；stable
 single-writer claim ledger 防止 Waiting/Conflict/downstream 同 tick 重复分配。不能
 证明车尾可清空 coverage zone 时不放行。
-该设计属于 #227 的跨版本复杂路口演进，Milestone N/A。#281 已把 current
+该设计属于 #227 的跨版本复杂路口演进，不自动进入任何产品 Milestone；当前
+Milestone 归属以 GitHub 为准。#281 已把 current
 Traffic source 从已发布且 immutable 的 v0.9 原子升级到 v0.10，交付 multi-Gate、
 WaitingZone static registry/Data/route occurrence 与绑定期 capability guards；
 protected-only runtime 仍未改变，Waiting runtime 由 #282 接续。v0.10 schema
@@ -240,18 +242,18 @@ protected-only runtime 仍未改变，Waiting runtime 由 #282 接续。v0.10 sc
 ```
 
 #281–#285 都是 #227 的独立后续切片，不是 #235 的子任务；每个切片必须自行完成
-G0-G4 与元数据审计。#281 已交付 static/Data 0.10 并合入主干。按 #291 的路线
-暂停声明：#282/#283 自 Ready 退回 Backlog，#284/#285 自 Blocked 退回
-Backlog，新功能开发暂停、工作焦点转入编译器路线。恢复条件：#292（compiler
-foundation + Synthetic DSL frontend）G4 完成后恢复，届时拓扑密集验证场景改由编译器生成承担——暂停是
-换序而非取消；DAG 依赖关系与已完成 Gate 记录继续有效。通行权 runtime 能力
+G0-G4 与元数据审计。#281 已交付 static/Data 0.10 并合入主干。#282–#285 的实现开工
+前置条件是 #292（compiler foundation + Synthetic DSL frontend）完成 G4，届时拓扑
+密集验证场景改由编译器生成承担；这是交付顺序调整而非取消，DAG 依赖关系与已完成
+Gate 记录继续有效。当前 Project 列、Milestone 和原生依赖关系以 GitHub 为准，不在
+路线图镜像。通行权 runtime 能力
 在本阶段停留 static 层，该代价登记于
 [`design/network-compiler.md` §15](design/network-compiler.md#15-风险登记) 风险表。
 
 #264 对 #235 的设计输入已经满足；#235 G4 后移除该原生 blocker，但 #264 仍必须
 等待 #237 冻结后再拆 JunctionGroup、环岛、停车连接与互通组合。
 
-## 编译器时代静态网络（#291 G1 综合架构修订中，Milestone N/A）
+## 编译器时代静态网络（#291 候选长期路线）
 
 本节双语术语遵循 [`reference/glossary.md`](reference/glossary.md)，中文定义为
 权威事实，英文只作辅助理解。
@@ -301,8 +303,9 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
 `InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target
 迁移由阶段 8 生产切换 Issue #294 完成 G4；target 文档不得误写成现状。#292 已
-重划为 compiler foundation + Synthetic DSL frontend 的首个纵向闭环，继续保持
-Project `Backlog` 与 native `Blocked by #291`，不得在 #291 G1 前冻结实现 API。
+重划为 compiler foundation + Synthetic DSL frontend 的首个纵向闭环；其实现开工
+前置条件是 #291 G1，不得在此之前冻结实现 API。当前 Project 状态和原生依赖关系以
+GitHub 为准。
 
 迁移顺序为 `#291 架构 G1 → #292 static-contract/compiler foundation/Synthetic
 DSL → integration-only LIR→current projection → 恢复 #282–#285`；之后 Geometry
@@ -317,9 +320,9 @@ dependency。编译器性能工作负载及其规模计数必须在后继实现 
 覆盖当前道路机动车车辆特化。#236/#237 仍是独立产品 / 研究输入，不自动并入首个
 前端（Frontend）。
 
-## 城市级扩展研究（Milestone N/A）
+## 城市级扩展研究
 
-#72 保持独立 Backlog 研究入口，不属于 v0.6–v0.9 的完成边界。v0.6 的 geometry 与
+#72 是独立研究入口，不属于 v0.6–v0.9 的完成边界。v0.6 的 geometry 与
 #72 的交通参与单元空间分区是不同层次；v0.7 的 presentation LOD 与 #72 的
 Traffic Runtime fidelity 也不得混同。多世界共享静态镜像可以验证内存复用、回放
 和参数探索，但不能代替单个大型城市世界的 barrier、边界交换、负载偏斜与迁移性能。

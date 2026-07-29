@@ -61,6 +61,9 @@ GitHub Projects 用于承载：
 - Milestone 视图
 
 Project 管当前优先级和进度，不承载详细架构。
+长期仓库文档可以保存稳定依赖顺序、实现开工前置条件和有日期的历史完成事实，但不得
+镜像当前 Project 列、当前 Milestone 归属或原生 `Blocked by` / `Blocking` 状态；
+这些实时元数据必须在使用时从 GitHub 读取。
 
 ### Milestones
 

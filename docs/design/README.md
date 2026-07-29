@@ -47,7 +47,8 @@
   进入运行世界，并保留 runtime snapshot/replay 与 routing 接入边界。该架构服务
   Proposed ADR 0021 的中国特色城市模拟游戏交通基础目标提案；#291 G1 接受前不把它
   声明为 Accepted 长期事实，也不把城市经济或出行需求放入 Traffic Runtime。双语
-  术语以 `../reference/glossary.md` 的中文定义为权威。#292 继续 Blocked by #291 G1。
+  术语以 `../reference/glossary.md` 的中文定义为权威。#292 的实现开工前置条件是
+  #291 G1；当前 Project 状态与原生依赖关系以 GitHub 为准。
 
 ## 文档状态
 
