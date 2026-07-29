@@ -414,7 +414,7 @@
         },
         "workloadSeedHexU64": {
           "type": "string",
-          "pattern": "^[0-9a-f]{16}$"
+          "const": "4c46434f4d500001"
         },
         "clockQuantumNs": {
           "$ref": "#/$defs/positiveInteger"
