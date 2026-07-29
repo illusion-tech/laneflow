@@ -288,7 +288,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "300ee2d881ebba24f13a770684bbf3e6fb5e7258c616f90f3b26d277a41ae648"
+          "const": "50d390aa442f7cba2ac953e5cc217221702410942626779c8e031d8699e2b2e9"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -509,9 +509,11 @@
         "maximumImportDepth",
         "sourceDocumentCount",
         "sourceByteCount",
+        "identityDeclarationCount",
         "sourceDeclarationCount",
         "sourceSpanCount",
         "identityFieldOccurrenceCount",
+        "profiledKeyOccurrenceCount",
         "sourceReferenceCount",
         "sourceRelationCount",
         "sourceGeometryCount",
@@ -544,6 +546,9 @@
         "sourceByteCount": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
+        "identityDeclarationCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
         "sourceDeclarationCount": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
@@ -551,6 +556,9 @@
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "identityFieldOccurrenceCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "profiledKeyOccurrenceCount": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
         "sourceReferenceCount": {
@@ -844,6 +852,149 @@
       "allOf": [
         {
           "$ref": "#/$defs/workloadCountBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "RoadCorridor",
+            "RoadSection",
+            "AuthoringLane",
+            "LaneEdge",
+            "Junction",
+            "Movement",
+            "ManeuverPath",
+            "ManeuverGate",
+            "WaitingZone",
+            "StopLine",
+            "SignalGroup",
+            "SignalController",
+            "SignalPhase",
+            "ParkingArea",
+            "ParkingSpace",
+            "LaneGroup",
+            "FacilityBand",
+            "ParticipantClass",
+            "AccessRule",
+            "VehicleProfile",
+            "StaticRoute",
+            "CanonicalFrame",
+            "ownerRelation",
+            "edgeConnection",
+            "routeOccurrence",
+            "canonicalGeometryPoint",
+            "accessRelation",
+            "signalGroupRelation",
+            "signalPhaseStateOccurrence",
+            "gateOccurrence",
+            "waitingZoneOccurrence",
+            "parkingSpaceAnchors",
+            "laneCoverageOccurrence",
+            "junctionInternalEdgeRole"
+          ],
+          "properties": {
+            "RoadCorridor": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "RoadSection": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "AuthoringLane": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "LaneEdge": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "Junction": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "Movement": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ManeuverPath": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ManeuverGate": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "WaitingZone": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "StopLine": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "SignalGroup": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "SignalController": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "SignalPhase": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ParkingArea": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ParkingSpace": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "LaneGroup": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "FacilityBand": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ParticipantClass": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "AccessRule": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "VehicleProfile": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "StaticRoute": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "CanonicalFrame": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ownerRelation": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "edgeConnection": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "routeOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "canonicalGeometryPoint": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "accessRelation": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "signalGroupRelation": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "signalPhaseStateOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "gateOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "waitingZoneOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "parkingSpaceAnchors": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "laneCoverageOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "junctionInternalEdgeRole": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            }
+          }
         }
       ],
       "unevaluatedProperties": false
@@ -948,7 +1099,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "300ee2d881ebba24f13a770684bbf3e6fb5e7258c616f90f3b26d277a41ae648"
+          "const": "50d390aa442f7cba2ac953e5cc217221702410942626779c8e031d8699e2b2e9"
         },
         "counts": {
           "type": "object"
@@ -1215,6 +1366,67 @@
                         }
                       ],
                       "items": false
+                    },
+                    "counts": {
+                      "const": {
+                        "moduleCount": 2,
+                        "importEdgeCount": 1,
+                        "crossModuleReferenceCount": 66,
+                        "maximumImportDepth": 1,
+                        "sourceDocumentCount": 2,
+                        "sourceByteCount": 87838,
+                        "identityDeclarationCount": 330,
+                        "sourceDeclarationCount": 330,
+                        "sourceSpanCount": 4693,
+                        "identityFieldOccurrenceCount": 945,
+                        "profiledKeyOccurrenceCount": 378,
+                        "sourceReferenceCount": 2374,
+                        "sourceRelationCount": 597,
+                        "sourceGeometryCount": 1392,
+                        "symbolCount": 330,
+                        "stringItemCount": 3087,
+                        "maximumStringBytes": 47,
+                        "totalStringBytes": 89077,
+                        "diagnosticCount": 0,
+                        "semanticOutputRecord": 2319,
+                        "semanticPayloadByteCount": 84624,
+                        "logicalByteCount": 186660,
+                        "outputByteCount": 168162,
+                        "RoadCorridor": 7,
+                        "RoadSection": 14,
+                        "AuthoringLane": 34,
+                        "LaneEdge": 66,
+                        "Junction": 2,
+                        "Movement": 24,
+                        "ManeuverPath": 32,
+                        "ManeuverGate": 32,
+                        "WaitingZone": 0,
+                        "StopLine": 20,
+                        "SignalGroup": 8,
+                        "SignalController": 2,
+                        "SignalPhase": 24,
+                        "ParkingArea": 0,
+                        "ParkingSpace": 0,
+                        "LaneGroup": 6,
+                        "FacilityBand": 7,
+                        "ParticipantClass": 3,
+                        "AccessRule": 18,
+                        "VehicleProfile": 2,
+                        "StaticRoute": 28,
+                        "CanonicalFrame": 1,
+                        "ownerRelation": 173,
+                        "edgeConnection": 64,
+                        "routeOccurrence": 116,
+                        "canonicalGeometryPoint": 1392,
+                        "accessRelation": 18,
+                        "signalGroupRelation": 32,
+                        "signalPhaseStateOccurrence": 96,
+                        "gateOccurrence": 32,
+                        "waitingZoneOccurrence": 0,
+                        "parkingSpaceAnchors": 0,
+                        "laneCoverageOccurrence": 34,
+                        "junctionInternalEdgeRole": 32
+                      }
                     }
                   }
                 }
@@ -1247,6 +1459,67 @@
                         }
                       ],
                       "items": false
+                    },
+                    "counts": {
+                      "const": {
+                        "moduleCount": 1,
+                        "importEdgeCount": 0,
+                        "crossModuleReferenceCount": 0,
+                        "maximumImportDepth": 0,
+                        "sourceDocumentCount": 1,
+                        "sourceByteCount": 2246,
+                        "identityDeclarationCount": 27,
+                        "sourceDeclarationCount": 27,
+                        "sourceSpanCount": 117,
+                        "identityFieldOccurrenceCount": 76,
+                        "profiledKeyOccurrenceCount": 31,
+                        "sourceReferenceCount": 59,
+                        "sourceRelationCount": 31,
+                        "sourceGeometryCount": 0,
+                        "symbolCount": 27,
+                        "stringItemCount": 119,
+                        "maximumStringBytes": 52,
+                        "totalStringBytes": 3282,
+                        "diagnosticCount": 0,
+                        "semanticOutputRecord": 58,
+                        "semanticPayloadByteCount": 3026,
+                        "logicalByteCount": 5578,
+                        "outputByteCount": 5168,
+                        "RoadCorridor": 1,
+                        "RoadSection": 1,
+                        "AuthoringLane": 1,
+                        "LaneEdge": 3,
+                        "Junction": 1,
+                        "Movement": 2,
+                        "ManeuverPath": 2,
+                        "ManeuverGate": 2,
+                        "WaitingZone": 0,
+                        "StopLine": 1,
+                        "SignalGroup": 1,
+                        "SignalController": 1,
+                        "SignalPhase": 3,
+                        "ParkingArea": 1,
+                        "ParkingSpace": 3,
+                        "LaneGroup": 0,
+                        "FacilityBand": 0,
+                        "ParticipantClass": 1,
+                        "AccessRule": 0,
+                        "VehicleProfile": 1,
+                        "StaticRoute": 2,
+                        "CanonicalFrame": 0,
+                        "ownerRelation": 14,
+                        "edgeConnection": 2,
+                        "routeOccurrence": 4,
+                        "canonicalGeometryPoint": 0,
+                        "accessRelation": 0,
+                        "signalGroupRelation": 1,
+                        "signalPhaseStateOccurrence": 3,
+                        "gateOccurrence": 2,
+                        "waitingZoneOccurrence": 0,
+                        "parkingSpaceAnchors": 3,
+                        "laneCoverageOccurrence": 2,
+                        "junctionInternalEdgeRole": 0
+                      }
                     }
                   }
                 }
@@ -1279,6 +1552,67 @@
                         }
                       ],
                       "items": false
+                    },
+                    "counts": {
+                      "const": {
+                        "moduleCount": 1,
+                        "importEdgeCount": 0,
+                        "crossModuleReferenceCount": 0,
+                        "maximumImportDepth": 0,
+                        "sourceDocumentCount": 1,
+                        "sourceByteCount": 1516,
+                        "identityDeclarationCount": 18,
+                        "sourceDeclarationCount": 18,
+                        "sourceSpanCount": 79,
+                        "identityFieldOccurrenceCount": 47,
+                        "profiledKeyOccurrenceCount": 20,
+                        "sourceReferenceCount": 40,
+                        "sourceRelationCount": 21,
+                        "sourceGeometryCount": 0,
+                        "symbolCount": 18,
+                        "stringItemCount": 80,
+                        "maximumStringBytes": 51,
+                        "totalStringBytes": 2214,
+                        "diagnosticCount": 0,
+                        "semanticOutputRecord": 39,
+                        "semanticPayloadByteCount": 1984,
+                        "logicalByteCount": 3700,
+                        "outputByteCount": 3442,
+                        "RoadCorridor": 0,
+                        "RoadSection": 0,
+                        "AuthoringLane": 0,
+                        "LaneEdge": 4,
+                        "Junction": 1,
+                        "Movement": 1,
+                        "ManeuverPath": 1,
+                        "ManeuverGate": 3,
+                        "WaitingZone": 2,
+                        "StopLine": 3,
+                        "SignalGroup": 0,
+                        "SignalController": 0,
+                        "SignalPhase": 0,
+                        "ParkingArea": 0,
+                        "ParkingSpace": 0,
+                        "LaneGroup": 0,
+                        "FacilityBand": 0,
+                        "ParticipantClass": 1,
+                        "AccessRule": 0,
+                        "VehicleProfile": 1,
+                        "StaticRoute": 1,
+                        "CanonicalFrame": 0,
+                        "ownerRelation": 7,
+                        "edgeConnection": 3,
+                        "routeOccurrence": 4,
+                        "canonicalGeometryPoint": 0,
+                        "accessRelation": 0,
+                        "signalGroupRelation": 0,
+                        "signalPhaseStateOccurrence": 0,
+                        "gateOccurrence": 3,
+                        "waitingZoneOccurrence": 2,
+                        "parkingSpaceAnchors": 0,
+                        "laneCoverageOccurrence": 0,
+                        "junctionInternalEdgeRole": 2
+                      }
                     }
                   }
                 }
@@ -1626,6 +1960,279 @@
           "$ref": "#/$defs/stageObservation"
         }
       }
+    },
+    "signalizedCorridorFixtureStageBreakdown": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stageBreakdown"
+        },
+        {
+          "properties": {
+            "sourceInput": {
+              "properties": {
+                "recordCount": {
+                  "const": 4696
+                },
+                "logicalBytes": {
+                  "const": 327187
+                }
+              }
+            },
+            "typedAst": {
+              "properties": {
+                "recordCount": {
+                  "const": 5641
+                },
+                "logicalBytes": {
+                  "const": 451287
+                }
+              }
+            },
+            "hir": {
+              "properties": {
+                "recordCount": {
+                  "const": 5641
+                },
+                "logicalBytes": {
+                  "const": 304349
+                }
+              }
+            },
+            "mir": {
+              "properties": {
+                "recordCount": {
+                  "const": 2319
+                },
+                "logicalBytes": {
+                  "const": 186660
+                }
+              }
+            },
+            "canonicalLir": {
+              "properties": {
+                "recordCount": {
+                  "const": 2319
+                },
+                "logicalBytes": {
+                  "const": 186660
+                }
+              }
+            },
+            "diagnostics": {
+              "properties": {
+                "recordCount": {
+                  "const": 0
+                },
+                "logicalBytes": {
+                  "const": 0
+                }
+              }
+            },
+            "scratch": {
+              "properties": {
+                "recordCount": {
+                  "const": 0
+                },
+                "logicalBytes": {
+                  "const": 18552
+                }
+              }
+            },
+            "outputConstruction": {
+              "properties": {
+                "recordCount": {
+                  "const": 2319
+                },
+                "logicalBytes": {
+                  "const": 168162
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "parkingSignalsBaselineFixtureStageBreakdown": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stageBreakdown"
+        },
+        {
+          "properties": {
+            "sourceInput": {
+              "properties": {
+                "recordCount": {
+                  "const": 118
+                },
+                "logicalBytes": {
+                  "const": 9304
+                }
+              }
+            },
+            "typedAst": {
+              "properties": {
+                "recordCount": {
+                  "const": 194
+                },
+                "logicalBytes": {
+                  "const": 14076
+                }
+              }
+            },
+            "hir": {
+              "properties": {
+                "recordCount": {
+                  "const": 194
+                },
+                "logicalBytes": {
+                  "const": 10278
+                }
+              }
+            },
+            "mir": {
+              "properties": {
+                "recordCount": {
+                  "const": 58
+                },
+                "logicalBytes": {
+                  "const": 5578
+                }
+              }
+            },
+            "canonicalLir": {
+              "properties": {
+                "recordCount": {
+                  "const": 58
+                },
+                "logicalBytes": {
+                  "const": 5578
+                }
+              }
+            },
+            "diagnostics": {
+              "properties": {
+                "recordCount": {
+                  "const": 0
+                },
+                "logicalBytes": {
+                  "const": 0
+                }
+              }
+            },
+            "scratch": {
+              "properties": {
+                "recordCount": {
+                  "const": 0
+                },
+                "logicalBytes": {
+                  "const": 464
+                }
+              }
+            },
+            "outputConstruction": {
+              "properties": {
+                "recordCount": {
+                  "const": 58
+                },
+                "logicalBytes": {
+                  "const": 5168
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "multiGateWaitingZoneFixtureStageBreakdown": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/stageBreakdown"
+        },
+        {
+          "properties": {
+            "sourceInput": {
+              "properties": {
+                "recordCount": {
+                  "const": 80
+                },
+                "logicalBytes": {
+                  "const": 6290
+                }
+              }
+            },
+            "typedAst": {
+              "properties": {
+                "recordCount": {
+                  "const": 127
+                },
+                "logicalBytes": {
+                  "const": 9374
+                }
+              }
+            },
+            "hir": {
+              "properties": {
+                "recordCount": {
+                  "const": 127
+                },
+                "logicalBytes": {
+                  "const": 6794
+                }
+              }
+            },
+            "mir": {
+              "properties": {
+                "recordCount": {
+                  "const": 39
+                },
+                "logicalBytes": {
+                  "const": 3700
+                }
+              }
+            },
+            "canonicalLir": {
+              "properties": {
+                "recordCount": {
+                  "const": 39
+                },
+                "logicalBytes": {
+                  "const": 3700
+                }
+              }
+            },
+            "diagnostics": {
+              "properties": {
+                "recordCount": {
+                  "const": 0
+                },
+                "logicalBytes": {
+                  "const": 0
+                }
+              }
+            },
+            "scratch": {
+              "properties": {
+                "recordCount": {
+                  "const": 0
+                },
+                "logicalBytes": {
+                  "const": 312
+                }
+              }
+            },
+            "outputConstruction": {
+              "properties": {
+                "recordCount": {
+                  "const": 39
+                },
+                "logicalBytes": {
+                  "const": 3442
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "metrics": {
       "type": "object",
@@ -2007,6 +2614,7 @@
       "required": [
         "caseId",
         "dimensionId",
+        "inputVariantId",
         "inputDigest",
         "expectedOutcome",
         "actualOutcome",
@@ -2059,6 +2667,14 @@
             "not-applicable"
           ]
         },
+        "inputVariantId": {
+          "enum": [
+            "canonical-valid-v1",
+            "corridor-missing-reference-per-unit-v1",
+            "corridor-duplicate-owner-per-unit-v1",
+            "corridor-diagnostic-cap-plus-one-v1"
+          ]
+        },
         "inputDigest": {
           "$ref": "#/$defs/sha256"
         },
@@ -2091,13 +2707,29 @@
       "allOf": [
         {
           "if": {
-            "properties": {
-              "caseId": {
-                "pattern": "/at-bound$"
+            "allOf": [
+              {
+                "properties": {
+                  "caseId": {
+                    "pattern": "/at-bound$"
+                  }
+                },
+                "required": [
+                  "caseId"
+                ]
+              },
+              {
+                "not": {
+                  "properties": {
+                    "caseId": {
+                      "const": "limit/diagnostic-count/at-bound"
+                    }
+                  },
+                  "required": [
+                    "caseId"
+                  ]
+                }
               }
-            },
-            "required": [
-              "caseId"
             ]
           },
           "then": {
@@ -2123,6 +2755,148 @@
             "properties": {
               "expectedOutcome": {
                 "const": "compiler-error"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "caseId": {
+                    "pattern": "^limit/"
+                  }
+                },
+                "required": [
+                  "caseId"
+                ]
+              },
+              {
+                "properties": {
+                  "dimensionId": {
+                    "not": {
+                      "const": "diagnostic-count"
+                    }
+                  }
+                },
+                "required": [
+                  "dimensionId"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputVariantId": {
+                "const": "canonical-valid-v1"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "caseId": {
+                "const": "limit/diagnostic-count/at-bound"
+              }
+            },
+            "required": [
+              "caseId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "dimensionId": {
+                "const": "diagnostic-count"
+              },
+              "inputVariantId": {
+                "const": "corridor-missing-reference-per-unit-v1"
+              },
+              "expectedOutcome": {
+                "const": "compiler-error"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "caseId": {
+                "const": "limit/diagnostic-count/plus-one"
+              }
+            },
+            "required": [
+              "caseId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "dimensionId": {
+                "const": "diagnostic-count"
+              },
+              "inputVariantId": {
+                "const": "corridor-missing-reference-per-unit-v1"
+              },
+              "expectedOutcome": {
+                "const": "compiler-error"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "caseId": {
+                "const": "semantic/missing-reference-per-unit"
+              }
+            },
+            "required": [
+              "caseId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputVariantId": {
+                "const": "corridor-missing-reference-per-unit-v1"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "caseId": {
+                "const": "semantic/duplicate-owner-per-unit"
+              }
+            },
+            "required": [
+              "caseId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputVariantId": {
+                "const": "corridor-duplicate-owner-per-unit-v1"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "caseId": {
+                "const": "diagnostic/cap-plus-one"
+              }
+            },
+            "required": [
+              "caseId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputVariantId": {
+                "const": "corridor-diagnostic-cap-plus-one-v1"
               }
             }
           }
@@ -2553,6 +3327,108 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "workload": {
+                "properties": {
+                  "id": {
+                    "const": "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1"
+                  },
+                  "caseId": {
+                    "const": "signalized-corridor"
+                  }
+                },
+                "required": [
+                  "id",
+                  "caseId"
+                ]
+              }
+            },
+            "required": [
+              "workload"
+            ]
+          },
+          "then": {
+            "properties": {
+              "metrics": {
+                "properties": {
+                  "stageBreakdown": {
+                    "$ref": "#/$defs/signalizedCorridorFixtureStageBreakdown"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "workload": {
+                "properties": {
+                  "id": {
+                    "const": "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1"
+                  },
+                  "caseId": {
+                    "const": "parking-signals-baseline"
+                  }
+                },
+                "required": [
+                  "id",
+                  "caseId"
+                ]
+              }
+            },
+            "required": [
+              "workload"
+            ]
+          },
+          "then": {
+            "properties": {
+              "metrics": {
+                "properties": {
+                  "stageBreakdown": {
+                    "$ref": "#/$defs/parkingSignalsBaselineFixtureStageBreakdown"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "workload": {
+                "properties": {
+                  "id": {
+                    "const": "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1"
+                  },
+                  "caseId": {
+                    "const": "multi-gate-waiting-zone"
+                  }
+                },
+                "required": [
+                  "id",
+                  "caseId"
+                ]
+              }
+            },
+            "required": [
+              "workload"
+            ]
+          },
+          "then": {
+            "properties": {
+              "metrics": {
+                "properties": {
+                  "stageBreakdown": {
+                    "$ref": "#/$defs/multiGateWaitingZoneFixtureStageBreakdown"
+                  }
+                }
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": {
