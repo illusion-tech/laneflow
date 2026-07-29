@@ -738,10 +738,17 @@ Schema 必须允许记录这些无效实验，但 G2 独立验证器不得把它
 
 - `exitKind = guarded-before-start` 时，`childPid`、`exitCode` 和
   `lastPrivateBytes` 必须统一记录 `value = null`、
-  `reason = "child-not-started"`；
-- 子进程已经启动时，`childPid` 和 `exitCode` 必须是实测整数；除
-  `trigger = monitoring-gap` 的无效样本外，`lastPrivateBytes` 也必须是实测
-  非负整数；
+  `reason = "child-not-started"`，终止观察使用 `kind = not-started`；
+- 子进程已经启动时，`childPid` 必须是实测整数；正常退出使用
+  `termination.kind = exit-code` 和整数 `exitCode`。POSIX 信号终止使用
+  `kind = posix-signal`、`exitCode = null + signal-termination`，并保存正整数信号号
+  与 `posix-wait-status-hex-u32:<八位小写十六进制>` 原始 wait status；不能映射为
+  退出码的平台终止使用 `kind = platform-status`、
+  `exitCode = null + platform-status-without-exit-code` 和
+  `native-status-hex-u64:<十六位小写十六进制>` 原始平台状态；
+- `posix-signal` 与 `platform-status` 只能形成 `invalid-abnormal-exit` 或
+  `invalid-monitor-termination`，不能冒充成功或子进程内受检护栏退出。除
+  `trigger = monitoring-gap` 的无效样本外，`lastPrivateBytes` 仍必须是实测非负整数；
 - 监控缺样允许保存 `lastPrivateBytes = null + reason`，但该运行必须保持无效，
   不得用它形成停止护栏或候选比较证据。
 
@@ -1052,8 +1059,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `128818` exact bytes，SHA-256 为
-`7702cca7c690b8991765c8122c34ea3c1d48c30bb3f0b456af2cdcdc45fdd372`。
+G1 候选冻结 schema `136635` exact bytes，SHA-256 为
+`99e4db5441cf472bf239507786c5948a97acea911d729f17e58568a080f9a175`。
 顶层格式标识：
 
 ```text
@@ -1085,8 +1092,9 @@ schemaVersion = 1
   私有限制模式；
 - 二进制 SHA-256 与模式（`timing` / `memory` / `attribution` / `profiler` /
   `oracle`）；
-- batch/平衡轮次/执行位置、父子进程 ID 与退出状态，以及每个样本的冷实例/稳定
-  容量复用/失败时延、分配、存续/峰值/保留字节；
+- batch/平衡轮次/执行位置、父子进程 ID、结构化终止类别、条件化退出码、信号号与
+  原始平台状态，以及每个样本的冷实例/稳定容量复用/失败时延、分配、存续/峰值/
+  保留字节；
 - 工作集、私有字节、提交峰值，以及来源输入、各 IR、诊断、暂存区和输出构造的
   逐阶段记录数、逻辑字节、归因时延与存续/峰值；
 - 计时区外输出语义摘要、失败诊断摘要、时钟量子 `q` 和试运行稳定性；

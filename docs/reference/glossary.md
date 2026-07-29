@@ -117,6 +117,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 干净研究工作树         | clean research working tree                               | `dirty = false`                         | 提案中（Proposed；#308），受测源码、研究执行器、清单、Schema 和锁文件均无未提交修改、可由来源提交完整复现的正式测量工作树。                                         |
 | 存续字节基准预扫描     | live-byte baseline prescan                                | `limit-baseline`                        | 提案中（Proposed；#308），以冻结基线配置和两个独立全新进程测得一致峰值，为编译器控制存续字节限制配对提供候选无关精确值的归因测量。                                  |
 | 清单单缓冲区下界       | manifest single-buffer lower bound                        | `manifest-single-buffer-lower-bound-v1` | 提案中（Proposed；#308），从绑定清单重算各研究阶段单个受控缓冲区的精确字节并取最大值，作为首级编译器控制存续字节的候选无关停止护栏下界；不叠加候选自报固定开销。    |
+| 子进程终止观察         | child termination observation                             | `termination`                           | 提案中（Proposed；#308），分别记录未启动、正常退出码、POSIX 信号或其他平台状态；信号终止不得伪造数值退出码，并须保留信号号或原始平台状态。                          |
 
 ## 4. 标识、引用与数据布局
 
