@@ -995,7 +995,7 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
 G1 候选冻结 schema `109625` exact bytes，SHA-256 为
-`a28e55b95f0d93ed0849191521f848f242f6354868787b7db6589b9a562618f2`。
+`b6e95585c05fb04b8db4444885be7b1d92d9f2c9965dc531ec3254ff7438c15a`。
 顶层格式标识：
 
 ```text
@@ -1011,6 +1011,8 @@ schemaVersion = 1
   BIOS/firmware 和后台进程审计；
 - 工作负载标识符/修订、模块图配置档、字符串配置、生成器版本、workload seed、
   `N`、`B`、规模角色（scale role）和当前夹具用例标识符；
+- `workloadSeedHexU64` 必须精确等于工作负载清单的 `baseSeedHexU64`；证据 Schema
+  以 `const` 绑定该值，禁止在保持清单摘要不变时替换置换和命名空间派生种子；
 - 输入文件摘要/长度（仅当前等价用例）、生成清单摘要和全部精确领域计数；工作负载
   标识符必须条件约束其合法配置档、规模角色、`N`、用例和输入文件，不能只分别满足
   若干互不关联的枚举；
