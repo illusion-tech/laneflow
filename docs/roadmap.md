@@ -307,11 +307,14 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 `InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target
 迁移由阶段 8 生产切换 Issue #294 完成 G4；target 文档不得误写成现状。#292 已
 重划为 compiler foundation + Synthetic DSL frontend 的首个纵向闭环；#291 G1
-前置条件已经满足，但 #292 仍须按自身 G1/G2 冻结并审查实现 API。当前 Project 状态
-和原生依赖关系以 GitHub 为准。
+前置条件已经满足，但 #292 仍须按自身 G1/G2 冻结并审查实现 API。#308 先以非生产
+研究冻结机器可读工作负载、实测校准/压力规模、资源预算建议和私有容器证据；#308
+完成 G4、#292 rebase 并回写 exact evidence commit 后，#292 才能冻结自身 G1 的
+精确预算。当前 Project 状态和原生依赖关系以 GitHub 为准。
 
-迁移顺序为 `#291 架构 G1（已完成）→ #292 static-contract/compiler foundation/Synthetic
-DSL + integration-only LIR→current projection 完成 G4 → 恢复 #282–#285`；之后 Geometry
+迁移顺序为 `#291 架构 G1（已完成）→ #308 非生产预算校准完成 G4 → #292
+static-contract/compiler foundation/Synthetic DSL + integration-only LIR→current
+projection 完成 G4 → 恢复 #282–#285`；之后 Geometry
 frontend/MIR 可以与恢复的 runtime slices 并行推进，再依次交付 portable
 artifact/独立 validator/source map/semantic diff、target static-image +
 Traffic Runtime/Spatial shared-image path 和 behavior/performance/security cutover。

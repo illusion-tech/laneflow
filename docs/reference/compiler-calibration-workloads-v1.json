@@ -1,0 +1,843 @@
+{
+  "schema": "laneflow.compiler-calibration-workload-manifest",
+  "schemaVersion": 1,
+  "generatorVersion": 1,
+  "semanticRecordStreamVersion": 1,
+  "diagnosticStreamVersion": 1,
+  "semanticRecordDomainUtf8NulTerminated": "LANEFLOW-COMPILER-CALIBRATION-SEMANTIC-V1",
+  "identityEncodingVersion": 1,
+  "identityRegistryRevision": 1,
+  "baseSeedHexU64": "4c46434f4d500001",
+  "namespaceDerivation": {
+    "domainUtf8NulTerminated": "LF-COMP-NAMESPACE-v1",
+    "inputOrder": [
+      "domainUtf8NulTerminated",
+      "generatorVersionU32Le",
+      "baseSeedU64Le",
+      "workloadIdByteLengthU32Le",
+      "workloadIdUtf8",
+      "graphProfileIdByteLengthU32Le",
+      "graphProfileIdUtf8",
+      "canonicalModuleNameByteLengthU32Le",
+      "canonicalModuleNameUtf8"
+    ],
+    "moduleNameCoverage": "every-expanded-module-graph-node",
+    "canonicalModuleNamePatterns": [
+      "root",
+      "shared/common",
+      "group/{g:08x}",
+      "unit/{i:08x}"
+    ],
+    "hash": "BLAKE3",
+    "selectedDigestBytes": {
+      "offset": 0,
+      "length": 16
+    },
+    "fieldEncoding": "lowercase-ascii-hex",
+    "fieldLengthBytes": 32
+  },
+  "permutation": {
+    "algorithm": "fisher-yates-descending",
+    "prng": "splitmix64",
+    "splitmix64ConstantsHexU64": [
+      "9e3779b97f4a7c15",
+      "bf58476d1ce4e5b9",
+      "94d049bb133111eb"
+    ],
+    "seedFormula": "baseSeed XOR (sequenceKindU64 << 56) XOR unitIndexU64",
+    "sequenceKinds": {
+      "rootImports": 1,
+      "declarations": 2,
+      "references": 3,
+      "relations": 4,
+      "geometry": 5
+    },
+    "swapFormula": "swap(i, nextU64 mod (i + 1))"
+  },
+  "moduleGraphProfiles": [
+    {
+      "id": "wide-star-v1",
+      "modules": {
+        "root": 1,
+        "unit": "N"
+      },
+      "edges": [
+        {
+          "from": "root",
+          "to": "unit/{i:08x}",
+          "for": "i in [0,N)"
+        }
+      ],
+      "crossModuleReferences": [
+        {
+          "from": "root",
+          "to": "canonical-first-declaration(unit/{i:08x})",
+          "for": "i in [0,N)"
+        }
+      ],
+      "expectedCounts": {
+        "moduleCount": "N + 1",
+        "importEdgeCount": "N",
+        "crossModuleReferenceCount": "N",
+        "maximumImportDepth": "1"
+      }
+    },
+    {
+      "id": "deep-chain-v1",
+      "modules": {
+        "root": 1,
+        "unit": "N"
+      },
+      "edges": [
+        {
+          "from": "root",
+          "to": "unit/00000000",
+          "for": "N >= 1"
+        },
+        {
+          "from": "unit/{i:08x}",
+          "to": "unit/{i+1:08x}",
+          "for": "i in [0,N-1)"
+        }
+      ],
+      "crossModuleReferences": [
+        {
+          "from": "unit/{i:08x}",
+          "to": "canonical-first-declaration(unit/{i+1:08x})",
+          "for": "i in [0,N-1)"
+        }
+      ],
+      "expectedCounts": {
+        "moduleCount": "N + 1",
+        "importEdgeCount": "N",
+        "crossModuleReferenceCount": "max(N - 1, 0)",
+        "maximumImportDepth": "N"
+      }
+    },
+    {
+      "id": "shared-fanin-dag-v1",
+      "groupWidth": 64,
+      "modules": {
+        "root": 1,
+        "shared/common": 1,
+        "group": "ceil(N / 64)",
+        "unit": "N"
+      },
+      "edges": [
+        {
+          "from": "root",
+          "to": "group/{g:08x}",
+          "for": "g in [0,ceil(N/64))"
+        },
+        {
+          "from": "group/{floor(i/64):08x}",
+          "to": "unit/{i:08x}",
+          "for": "i in [0,N)"
+        },
+        {
+          "from": "unit/{i:08x}",
+          "to": "shared/common",
+          "for": "i in [0,N)"
+        }
+      ],
+      "sharedSourceConstant": {
+        "module": "shared/common",
+        "nameUtf8": "shared-calibration-anchor",
+        "valueUtf8": "laneflow-compiler-calibration-v1",
+        "typedAstRecordCount": 1,
+        "hirRecordCount": 1,
+        "mirRecordCount": 0,
+        "lirRecordCount": 0
+      },
+      "crossModuleReferences": [
+        {
+          "from": "unit/{i:08x}",
+          "to": "shared/common::shared-calibration-anchor",
+          "for": "i in [0,N)"
+        }
+      ],
+      "expectedCounts": {
+        "moduleCount": "N + ceil(N / 64) + 2",
+        "importEdgeCount": "2 * N + ceil(N / 64)",
+        "crossModuleReferenceCount": "N",
+        "maximumImportDepth": "3"
+      }
+    }
+  ],
+  "stringProfiles": [
+    {
+      "id": "short-unique-v1",
+      "scope": "full-ladder",
+      "profiledKeyFormula": "kindCodeHex2 || '/' || unitIndexHex8 || '/' || localIndexHex8",
+      "profiledKeyLengthBytes": 20,
+      "encoding": "ascii"
+    },
+    {
+      "id": "shared-prefix-256-v1",
+      "scope": "LF-COMP-ID-v1 at B, calibration scale, stress scale",
+      "profiledKeyFormula": "repeat('p',238) || kindCodeHex2 || unitIndexHex8 || localIndexHex8",
+      "profiledKeyLengthBytes": 256,
+      "sharedPrefixLengthBytes": 238,
+      "encoding": "ascii"
+    },
+    {
+      "id": "long-4096-v1",
+      "scope": "LF-COMP-ID-v1 at B, calibration scale, stress scale",
+      "profiledKeyFormula": "repeat('q',4078) || kindCodeHex2 || unitIndexHex8 || localIndexHex8",
+      "profiledKeyLengthBytes": 4096,
+      "sharedPrefixLengthBytes": 4078,
+      "encoding": "ascii"
+    }
+  ],
+  "sourceSpanRule": {
+    "documentKeyFormula": "source/{graphProfileId}/{moduleName}.lfsynthetic",
+    "canonicalSequenceOrder": [
+      "declarations",
+      "references",
+      "relations",
+      "geometry"
+    ],
+    "sourceTokenKindUtf8": {
+      "declarations": "declaration",
+      "references": "reference",
+      "relations": "relation",
+      "geometry": "geometry"
+    },
+    "sourceTokenFormula": "sourceTokenKindUtf8 || '/' || kindLocalOrdinalHex8",
+    "sourceDocumentBytesFormula": "concatenate(sourceTokenUtf8 || LF in canonicalSequenceOrder)",
+    "startLineFormula": "canonicalSequenceOrdinal + 1",
+    "startColumn": 1,
+    "endLineFormula": "startLine",
+    "endColumnFormula": "sourceTokenUtf8Length + 1",
+    "minimumSpanCountFormula": "sourceDeclarationCount + sourceReferenceCount + sourceRelationCount + sourceGeometryCount"
+  },
+  "semanticRecordEnvelope": [
+    "recordKindU16Le",
+    "entityKindU16Le",
+    "stableIdBytes16",
+    "ownerOrdinalU32Le",
+    "localIndexU32Le",
+    "payloadLengthU64Le",
+    "payloadBytes"
+  ],
+  "recordKinds": [
+    {
+      "code": 1,
+      "name": "identity-declaration",
+      "payloadFields": [
+        "requiredFieldCountU16Le",
+        "repeated(requiredFieldCount):fieldTagU16Le",
+        "repeated(requiredFieldCount):fieldByteLengthU32Le",
+        "repeated(requiredFieldCount):exactFieldBytes"
+      ]
+    },
+    {
+      "code": 2,
+      "name": "owner-relation",
+      "payloadFields": [
+        "parentEntityKindU16Le",
+        "parentStableIdBytes16"
+      ]
+    },
+    {
+      "code": 3,
+      "name": "edge-connection",
+      "payloadFields": [
+        "toLaneEdgeStableIdBytes16"
+      ]
+    },
+    {
+      "code": 4,
+      "name": "route-occurrence",
+      "payloadFields": [
+        "occurrenceIndexU32Le",
+        "laneEdgeStableIdBytes16"
+      ]
+    },
+    {
+      "code": 5,
+      "name": "canonical-geometry-point",
+      "payloadFields": [
+        "canonicalFrameStableIdBytes16",
+        "pointIndexU32Le",
+        "xCanonicalF32BitsU32Le",
+        "yCanonicalF32BitsU32Le",
+        "zCanonicalF32BitsU32Le"
+      ]
+    },
+    {
+      "code": 6,
+      "name": "access-relation",
+      "payloadFields": [
+        "participantClassStableIdBytes16",
+        "targetEntityKindU16Le",
+        "targetStableIdBytes16",
+        "decisionU8"
+      ]
+    },
+    {
+      "code": 7,
+      "name": "signal-group-relation",
+      "payloadFields": [
+        "maneuverGateStableIdBytes16"
+      ]
+    },
+    {
+      "code": 8,
+      "name": "signal-phase-state",
+      "payloadFields": [
+        "signalGroupStableIdBytes16",
+        "stateCodeU8"
+      ]
+    },
+    {
+      "code": 9,
+      "name": "gate-occurrence",
+      "payloadFields": [
+        "occurrenceIndexU32Le",
+        "maneuverGateStableIdBytes16",
+        "stopLineStableIdBytes16",
+        "laneEdgeStableIdBytes16",
+        "edgePositionCanonicalF32BitsU32Le"
+      ]
+    },
+    {
+      "code": 10,
+      "name": "waiting-zone-occurrence",
+      "payloadFields": [
+        "occurrenceIndexU32Le",
+        "waitingZoneStableIdBytes16",
+        "beforeGateStableIdBytes16",
+        "afterGateStableIdBytes16",
+        "capacityU32Le"
+      ]
+    },
+    {
+      "code": 11,
+      "name": "parking-space-anchors",
+      "payloadFields": [
+        "parkingSpaceStableIdBytes16",
+        "entryLaneEdgeStableIdBytes16",
+        "entryProgressHighCanonicalF32BitsU32Le",
+        "entryProgressResidualCanonicalF32BitsU32Le",
+        "exitLaneEdgeStableIdBytes16",
+        "exitProgressHighCanonicalF32BitsU32Le",
+        "exitProgressResidualCanonicalF32BitsU32Le"
+      ]
+    },
+    {
+      "code": 12,
+      "name": "lane-coverage-occurrence",
+      "payloadFields": [
+        "occurrenceIndexU32Le",
+        "laneEdgeStableIdBytes16"
+      ]
+    },
+    {
+      "code": 13,
+      "name": "junction-internal-edge-role",
+      "payloadFields": [
+        "laneEdgeStableIdBytes16"
+      ]
+    }
+  ],
+  "diagnosticStream": {
+    "domainUtf8NulTerminated": "LANEFLOW-COMPILER-CALIBRATION-DIAGNOSTIC-V1",
+    "headerFields": [
+      "diagnosticStreamVersionU32Le",
+      "diagnosticCountU64Le"
+    ],
+    "recordFields": [
+      "diagnosticCodeLengthU32Le",
+      "diagnosticCodeUtf8",
+      "severityU8",
+      "sourceDocumentKeyLengthU32Le",
+      "sourceDocumentKeyUtf8",
+      "startLineU32Le",
+      "startColumnU32Le",
+      "endLineU32Le",
+      "endColumnU32Le",
+      "typedPayloadLengthU32Le",
+      "typedPayloadBytes"
+    ]
+  },
+  "identityBindings": [
+    {
+      "entityKindCode": 1,
+      "entityKind": "RoadCorridor",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 2, "value": "profiled-key(kind=1,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 2,
+      "entityKind": "RoadSection",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 3, "value": "profiled-key(kind=2,local=0)"},
+        {"tag": 33, "value": "stable-id(kind=1,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 3,
+      "entityKind": "AuthoringLane",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 4, "value": "profiled-key(kind=3,local=0)"},
+        {"tag": 32, "value": "stable-id(kind=2,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 4,
+      "entityKind": "LaneEdge",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 5, "value": "profiled-key(kind=4,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 5,
+      "entityKind": "Junction",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 6, "value": "profiled-key(kind=5,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 6,
+      "entityKind": "Movement",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 8, "value": "profiled-key(kind=6,local=0)"},
+        {"tag": 9, "value": "profiled-key(kind=6,local=1)"},
+        {"tag": 10, "value": "profiled-key(kind=6,local=2)"},
+        {"tag": 34, "value": "stable-id(kind=5,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 7,
+      "entityKind": "ManeuverPath",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 7, "value": "profiled-key(kind=7,local=0)"},
+        {"tag": 11, "value": "stable-id(kind=6,local=0)"},
+        {"tag": 12, "value": "stable-id(kind=4,local=0)"},
+        {"tag": 13, "value": "stable-id(kind=4,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 8,
+      "entityKind": "ManeuverGate",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 14, "value": "stable-id(kind=7,local=0)"},
+        {"tag": 15, "value": "profiled-key(kind=8,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 9,
+      "entityKind": "WaitingZone",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 14, "value": "stable-id(kind=7,local=0)"},
+        {"tag": 16, "value": "profiled-key(kind=9,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 10,
+      "entityKind": "StopLine",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 17, "value": "profiled-key(kind=10,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 11,
+      "entityKind": "SignalGroup",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 18, "value": "profiled-key(kind=11,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 12,
+      "entityKind": "SignalController",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 19, "value": "profiled-key(kind=12,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 13,
+      "entityKind": "SignalPhase",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 20, "value": "stable-id(kind=12,local=0)"},
+        {"tag": 21, "value": "profiled-key(kind=13,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 14,
+      "entityKind": "ParkingArea",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 22, "value": "profiled-key(kind=14,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 15,
+      "entityKind": "ParkingSpace",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 23, "value": "stable-id(kind=14,local=0)"},
+        {"tag": 24, "value": "profiled-key(kind=15,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 16,
+      "entityKind": "LaneGroup",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 25, "value": "profiled-key(kind=16,local=0)"},
+        {"tag": 32, "value": "stable-id(kind=2,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 17,
+      "entityKind": "FacilityBand",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 26, "value": "profiled-key(kind=17,local=0)"},
+        {"tag": 33, "value": "stable-id(kind=1,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 18,
+      "entityKind": "ParticipantClass",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 27, "value": "profiled-key(kind=18,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 19,
+      "entityKind": "AccessRule",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 28, "value": "profiled-key(kind=19,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 20,
+      "entityKind": "VehicleProfile",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 29, "value": "profiled-key(kind=20,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 21,
+      "entityKind": "StaticRoute",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 30, "value": "profiled-key(kind=21,local=0)"}
+      ]
+    },
+    {
+      "entityKindCode": 22,
+      "entityKind": "CanonicalFrame",
+      "fields": [
+        {"tag": 1, "value": "namespace"},
+        {"tag": 31, "value": "profiled-key(kind=22,local=0)"}
+      ]
+    }
+  ],
+  "workloads": [
+    {
+      "id": "LF-COMP-ID-v1",
+      "scalable": true,
+      "graphProfiles": [
+        "wide-star-v1",
+        "deep-chain-v1",
+        "shared-fanin-dag-v1"
+      ],
+      "stringProfiles": [
+        "short-unique-v1",
+        "shared-prefix-256-v1",
+        "long-4096-v1"
+      ],
+      "perUnitCounts": {
+        "identityDeclaration": 22,
+        "requiredIdentityFieldOccurrence": 58,
+        "ownerRelation": 10,
+        "semanticOutputRecord": 32
+      },
+      "ownerRelations": [
+        "RoadSection->RoadCorridor",
+        "AuthoringLane->RoadSection",
+        "Movement->Junction",
+        "ManeuverPath->Movement",
+        "ManeuverGate->ManeuverPath",
+        "WaitingZone->ManeuverPath",
+        "SignalPhase->SignalController",
+        "ParkingSpace->ParkingArea",
+        "LaneGroup->RoadSection",
+        "FacilityBand->RoadCorridor"
+      ]
+    },
+    {
+      "id": "LF-COMP-CORRIDOR-v1",
+      "scalable": true,
+      "graphProfiles": [
+        "wide-star-v1",
+        "deep-chain-v1",
+        "shared-fanin-dag-v1"
+      ],
+      "stringProfiles": [
+        "short-unique-v1"
+      ],
+      "fixtureTemplateRules": {
+        "entityLocalKeyFormula": "entityKindCodeHex2 || '/' || sourceArrayOrdinalHex8",
+        "nestedAuthoringLaneOrder": "roadSections array order, then lanes array order",
+        "referenceRemap": "source ID resolves to entity kind and source array ordinal before timed execution",
+        "originalIdOrPathInGeneratedKey": false,
+        "parkingSyntheticGeometry": {
+          "pointsPerLaneEdge": 2,
+          "point0": ["edgeOrdinalF32", "0.0", "0.0"],
+          "point1": ["edgeOrdinalF32 + 1.0", "0.0", "0.0"]
+        },
+        "parkingAnchorProgressEncoding": {
+          "input": "validatedFiniteJsonF64",
+          "highFormula": "canonicalF32(inputF64)",
+          "residualFormula": "canonicalF32(f64(high) - inputF64)",
+          "effectiveFormula": "f64(high) - f64(residual)",
+          "canonicalZero": "+0.0"
+        },
+        "canonicalFrameCount": 1
+      },
+      "templateFiles": [
+        {
+          "role": "traffic-signalized-corridor",
+          "path": "examples/data/v0.10-signalized-corridor.laneflow.json",
+          "formatVersion": "0.10",
+          "byteLength": 85339,
+          "sha256": "f701b08cbb96b9ef4ef799fab47edd272b8c38a4c7df23128d7ab85ff0cf7586"
+        },
+        {
+          "role": "spatial-signalized-corridor",
+          "path": "examples/data/v0.1-signalized-corridor.spatial.json",
+          "formatVersion": "0.1",
+          "byteLength": 151268,
+          "sha256": "5f9b657cd2001219c561d15ab37722017bf1a38179951253721f3efb1e5682e8"
+        },
+        {
+          "role": "traffic-parking-signals-baseline",
+          "path": "examples/data/v0.10-parking-signals-baseline.laneflow.json",
+          "formatVersion": "0.10",
+          "byteLength": 5038,
+          "sha256": "bf48627f36969ed9553be63ba85a49a2dac7d78a6906fc637ca284ad79d8b599"
+        }
+      ],
+      "perUnitCounts": {
+        "LaneEdge": 69,
+        "edgeConnection": 66,
+        "Junction": 3,
+        "Movement": 26,
+        "ManeuverPath": 34,
+        "StaticRoute": 30,
+        "routeOccurrence": 120,
+        "VehicleProfile": 3,
+        "ParticipantClass": 4,
+        "RoadCorridor": 8,
+        "RoadSection": 15,
+        "AuthoringLane": 35,
+        "laneCoverageOccurrence": 36,
+        "LaneGroup": 6,
+        "FacilityBand": 7,
+        "AccessRule": 18,
+        "accessRelation": 18,
+        "StopLine": 21,
+        "ManeuverGate": 34,
+        "SignalGroup": 9,
+        "SignalController": 3,
+        "SignalPhase": 27,
+        "signalPhaseStateOccurrence": 99,
+        "ParkingArea": 1,
+        "ParkingSpace": 3,
+        "CanonicalFrame": 1,
+        "canonicalGeometryPoint": 1398,
+        "ownerRelation": 187,
+        "signalGroupRelation": 33,
+        "gateOccurrence": 34,
+        "parkingSpaceAnchors": 3,
+        "junctionInternalEdgeRole": 32,
+        "semanticOutputRecord": 2383
+      }
+    },
+    {
+      "id": "LF-COMP-JUNCTION-GRID-v1",
+      "scalable": true,
+      "graphProfiles": [
+        "wide-star-v1",
+        "deep-chain-v1",
+        "shared-fanin-dag-v1"
+      ],
+      "stringProfiles": [
+        "short-unique-v1"
+      ],
+      "unitConstruction": {
+        "directionCodes": [0, 1, 2, 3],
+        "movementOrder": "entryDirection ascending, then exitDirection ascending excluding exitDirection == entryDirection",
+        "movementIndexFormula": "entryDirection * 3 + rank(exitDirection among allowed ascending exits)",
+        "approachLaneEdgeLocalIndexFormula": "entryDirection",
+        "exitLaneEdgeLocalIndexFormula": "4 + exitDirection",
+        "firstInternalLaneEdgeLocalIndexFormula": "8 + 2 * movementIndex",
+        "secondInternalLaneEdgeLocalIndexFormula": "9 + 2 * movementIndex",
+        "pathLaneEdgeOrder": [
+          "approach",
+          "firstInternal",
+          "secondInternal",
+          "exit"
+        ],
+        "gateTransitionIndices": [0, 1, 2],
+        "stopLineRule": "one distinct StopLine per gate",
+        "waitingZoneGatePairs": [[0, 1], [1, 2]],
+        "gridWidthUnits": 4096,
+        "unitXFormula": "unitIndex mod 4096",
+        "unitYFormula": "floor(unitIndex / 4096)",
+        "geometryPointFormula": {
+          "point0": [
+            "canonicalF32(unitX * 128 + laneEdgeLocalIndex * 2)",
+            "canonicalF32(unitY * 128)",
+            "0.0"
+          ],
+          "point1": [
+            "canonicalF32(unitX * 128 + laneEdgeLocalIndex * 2 + 1)",
+            "canonicalF32(unitY * 128)",
+            "0.0"
+          ]
+        }
+      },
+      "perUnitCounts": {
+        "LaneEdge": 32,
+        "edgeConnection": 36,
+        "Junction": 1,
+        "Movement": 12,
+        "ManeuverPath": 12,
+        "StaticRoute": 12,
+        "routeOccurrence": 48,
+        "StopLine": 36,
+        "ManeuverGate": 36,
+        "WaitingZone": 24,
+        "CanonicalFrame": 1,
+        "canonicalGeometryPoint": 64,
+        "ownerRelation": 84,
+        "gateOccurrence": 36,
+        "waitingZoneOccurrence": 24,
+        "junctionInternalEdgeRole": 24,
+        "semanticOutputRecord": 482
+      }
+    },
+    {
+      "id": "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1",
+      "scalable": false,
+      "cases": [
+        {
+          "id": "signalized-corridor",
+          "files": [
+            {
+              "path": "examples/data/v0.10-signalized-corridor.laneflow.json",
+              "formatVersion": "0.10",
+              "byteLength": 85339,
+              "sha256": "f701b08cbb96b9ef4ef799fab47edd272b8c38a4c7df23128d7ab85ff0cf7586"
+            },
+            {
+              "path": "examples/data/v0.1-signalized-corridor.spatial.json",
+              "formatVersion": "0.1",
+              "byteLength": 151268,
+              "sha256": "5f9b657cd2001219c561d15ab37722017bf1a38179951253721f3efb1e5682e8"
+            },
+            {
+              "path": "examples/data/v0.1-signalized-corridor.scenario.json",
+              "formatVersion": "0.1",
+              "byteLength": 522,
+              "sha256": "7d8d1f0b0448426c6d2cb79144bbac891bb39c710f4f22de12a204a6ff7a152c"
+            }
+          ]
+        },
+        {
+          "id": "parking-signals-baseline",
+          "files": [
+            {
+              "path": "examples/data/v0.10-parking-signals-baseline.laneflow.json",
+              "formatVersion": "0.10",
+              "byteLength": 5038,
+              "sha256": "bf48627f36969ed9553be63ba85a49a2dac7d78a6906fc637ca284ad79d8b599"
+            }
+          ]
+        },
+        {
+          "id": "multi-gate-waiting-zone",
+          "files": [
+            {
+              "path": "examples/data/v0.10-multi-gate-waiting-zone.laneflow.json",
+              "formatVersion": "0.10",
+              "byteLength": 3006,
+              "sha256": "d87ff96165cabb90155f2318839297b70fc1e007f7b35c06c5271017c84f06ae"
+            }
+          ]
+        }
+      ],
+      "reservedProductionWorkloadId": "LF-COMP-CURRENT-EQUIV-v1",
+      "reservedProductionOwnerIssue": 292
+    }
+  ],
+  "limitDimensions": [
+    "module-count",
+    "import-edge-count",
+    "source-byte-count",
+    "declaration-count",
+    "identity-field-occurrence-count",
+    "symbol-count",
+    "reference-count",
+    "relation-occurrence-count",
+    "string-item-count",
+    "single-string-byte-count",
+    "total-string-byte-count",
+    "geometry-point-count",
+    "route-occurrence-count",
+    "maneuver-gate-count",
+    "waiting-zone-count",
+    "diagnostic-count",
+    "typed-ast-record-count",
+    "hir-record-count",
+    "mir-record-count",
+    "lir-record-count",
+    "stage-scratch-byte-count",
+    "output-byte-count",
+    "compiler-controlled-live-byte-count"
+  ],
+  "failureCases": [
+    {
+      "idPattern": "limit/{dimension}/at-bound",
+      "expected": "success"
+    },
+    {
+      "idPattern": "limit/{dimension}/plus-one",
+      "expected": "fail-before-proportional-work"
+    },
+    {
+      "id": "semantic/missing-reference-per-unit",
+      "mutation": "replace the first canonical route occurrence in every unit with an unknown LaneEdge"
+    },
+    {
+      "id": "semantic/duplicate-owner-per-unit",
+      "mutation": "attach the first canonical FacilityBand in every unit to a second RoadCorridor"
+    },
+    {
+      "id": "diagnostic/cap-plus-one",
+      "mutation": "set maxDiagnostics=N and create N+1 independent unknown references"
+    }
+  ]
+}
