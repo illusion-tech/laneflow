@@ -569,7 +569,7 @@ Runtime 隐藏状态。保存和恢复只能从 `TrustedStaticImage` descriptor 
 当前 vehicle/dynamic Route 只是首个特化。原进程 runtime handle/slot/generation
 不得成为恢复后身份。
 
-运行时若用 semantic diff 驱动迁移，外部可信
+任何保留旧世界状态的跨修订切换/恢复都必须由受信任 semantic diff 驱动。外部可信
 `NetworkRevisionCutoverDescriptor` 必须绑定 base/target canonical artifact 和
 static image digest/length、base/target 路网修订标识、
 `baseCanonicalArtifactByteLength` / `targetCanonicalArtifactByteLength`、
@@ -578,7 +578,11 @@ static image digest/length、base/target 路网修订标识、
 descriptor，再按调用方上限和统一 pre-hash 规则有界读取 semantic diff；随后核对其
 base/target revision/artifact/image 三元组与两个可信 image descriptor 精确一致，
 再以旧/新 `StaticIdentityIndex` 复核全部映射。未绑定或验证的 diff 只能用于诊断，
-不得成为状态迁移权威。
+不得成为状态迁移权威；缺失 diff 时也不得用两个索引和迁移策略执行 index-only
+回退，因为稳定身份相同不能证明 topology、geometry、access 或 control 语义相容。
+本地玩家改路必须先由独立验证器比较两份已验证 portable artifact、重算或验证完整
+diff 并签发 receipt，再由宿主认证 asset chain 或 pinned digest 认证切换描述符；
+否则旧世界继续运行。显式放弃旧状态并在新修订上创建空世界不属于状态迁移。
 运行时执行计划在恢复时按当前硬件重建，快照不得要求复现原分区/工作线程布局。
 
 回放使用显式输入命令序列（Input Command Sequence）、checkpoint 和确定性状态
@@ -712,6 +716,14 @@ semantic diff；拒绝。
 external descriptor/receipt 继承已完成的 semantic trust；完整语义由 compiler +
 independent validator 在发布前完成；拒绝。
 
+### 仅凭稳定身份索引执行跨修订状态迁移
+
+`StaticIdentityIndex` 只能证明 StableId128 与 target-specific dense ordinal 的
+双向对应，不能证明保持同一稳定身份的实体没有发生拓扑、几何、访问规则或控制语义
+变化。仅凭旧/新索引和迁移策略可能把旧占用、动态路线、预约或控制器状态附着到错误
+语义；拒绝。跨修订迁移必须消费由独立验证器覆盖完整 base/target 语义比较、并由可信
+切换描述符绑定的 semantic diff。
+
 ### 仅凭镜像头（Image Header）的规范摘要 / 来源沿袭（Canonical Digest / Provenance）接受不可信字节
 
 攻击者可以伪造这些 header 声明、对恶意 image bytes 计算新的
@@ -762,3 +774,5 @@ Spatial section 由 closed profile 控制；拒绝 mandatory combined payload。
 8. 未把具体 archive library、并行框架或增量数据库当作未经基准的既定事实。
 9. 城市模拟游戏上层、路径规划、不可变路网修订、运行时快照和每世界唯一性边界
    已同步到 architecture、roadmap、glossary 与 Agent Skills。
+10. 跨修订状态迁移必须有受信任 semantic diff 与独立验证证据；稳定身份索引只复核
+    映射，缺失证据时 index-only 路径失败关闭。

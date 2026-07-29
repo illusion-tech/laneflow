@@ -51,34 +51,34 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 
 ## 3. 编制来源与编译管线
 
-| 中文规范术语           | 英文辅助名（English Alias）                               | 精确标识符 / 缩写                | 中文规范含义                                                                                               |
-| ---------------------- | --------------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| 数据编制               | authoring                                                 | —                                | 创建、导入、编辑或生成静态路网来源的活动。                                                                 |
-| 权威来源模块图         | authoritative source module graph                         | —                                | 一个编译单元内唯一可重放的编制事实源；节点是来源模块，边是显式导入关系。                                   |
-| 来源模块               | source module                                             | —                                | 绑定稳定命名空间、内容摘要、来源语言、工具版本、选项和来源沿袭的可重放输入。                               |
-| 来源语言               | source language                                           | —                                | 定义来源模块语法和来源保真的输入语言。                                                                     |
-| 编制命名空间标识       | authoring namespace ID                                    | `authoringNamespaceId`           | 隔离稳定标识域、且不依赖文件路径或遍历顺序的持久标识。                                                     |
-| 编译单元               | compilation unit                                          | —                                | 由一个权威来源模块图及其显式选项共同构成的原子编译输入。                                                   |
-| 编译器基础设施         | compiler foundation                                       | —                                | 承载表示类型、编译遍驱动器、诊断、区块分配、确定性和编译发射器边界的公共基础。                             |
-| 前端                   | frontend                                                  | —                                | 只负责特定来源语言的解析、类型化与来源位置，不拥有后续全局静态语义。                                       |
-| 合成领域专用语言前端   | Synthetic DSL frontend                                    | —                                | 面向测试、基准、示例和程序化场景的可重放来源前端。                                                         |
-| 几何文档前端           | Geometry document frontend                                | —                                | 生产路网的主要编制前端，表达参考线、横断面、连接和静态规则。                                               |
-| 导入前端               | import frontend                                           | —                                | 把外部来源及其工具、选项和来源沿袭显式转换为来源模块的前端。                                               |
-| 编辑器编制界面         | editor authoring surface                                  | —                                | 编辑并持久化来源模块、显示来源诊断的交互界面；它不私有化编译语义。                                         |
-| 来源位置               | source span                                               | —                                | 诊断和源映射使用的来源文件、区间或画布选区。                                                               |
-| 来源沿袭               | provenance                                                | —                                | 输入、工具、参数、构建、转换与发布的可审计来源链。                                                         |
-| 降阶                   | lowering                                                  | —                                | 把较高层表示确定性转换为较低层表示、且不补入后端私有语义的过程。                                           |
-| 有类型抽象语法树       | typed abstract syntax tree                                | typed AST                        | 保留前端语法、显式键、类型、单位和来源位置的第一层表示。                                                   |
-| 高层中间表示           | high-level intermediate representation                    | HIR                              | 已完成模块、命名空间、符号、引用、单位和编制语义解析的表示。                                               |
-| 中层中间表示           | mid-level intermediate representation                     | MIR                              | 已完成拓扑、几何展开和全局静态语义推导、但尚未绑定目标布局的表示。                                         |
-| 已验证规范低层中间表示 | validated canonical low-level intermediate representation | canonical LIR                    | 后端唯一输入；包含稳定标识、有类型序号、规范数值、确定性关系和布局无关预计算。                             |
-| 编译遍                 | compiler pass                                             | pass                             | 具有显式输入、输出、诊断和确定性要求的一次编译转换或验证步骤。                                             |
-| 后端                   | backend                                                   | —                                | 只消费已验证规范低层中间表示，并生成特定种类制品或镜像的编译器末端。                                       |
-| 源映射                 | source map                                                | —                                | 把规范实体、关系或诊断反向关联到来源模块和来源位置的派生制品。                                             |
-| 源映射封套             | source map envelope                                       | `SourceMapEnvelope`              | 版本化绑定精确规范制品、路网修订与编译来源沿袭，并承载源映射记录的派生制品封套。                           |
-| 规范发布描述符         | canonical publication descriptor                          | `CanonicalPublicationDescriptor` | 位于制品字节外，可信绑定规范制品、源映射、验证收据各自摘要与精确长度，以及路网修订和编译来源沿袭的发布值。 |
-| 语义差异               | semantic diff                                             | —                                | 以稳定标识和所有者局部键比较两个规范制品语义变化的结构化结果。                                             |
-| 确定性合并顺序         | deterministic merge order                                 | —                                | 并行或分片结果按固定规则合并，使输出不依赖线程调度。                                                       |
+| 中文规范术语           | 英文辅助名（English Alias）                               | 精确标识符 / 缩写                | 中文规范含义                                                                                                         |
+| ---------------------- | --------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 数据编制               | authoring                                                 | —                                | 创建、导入、编辑或生成静态路网来源的活动。                                                                           |
+| 权威来源模块图         | authoritative source module graph                         | —                                | 一个编译单元内唯一可重放的编制事实源；节点是来源模块，边是显式导入关系。                                             |
+| 来源模块               | source module                                             | —                                | 绑定稳定命名空间、内容摘要、来源语言、工具版本、选项和来源沿袭的可重放输入。                                         |
+| 来源语言               | source language                                           | —                                | 定义来源模块语法和来源保真的输入语言。                                                                               |
+| 编制命名空间标识       | authoring namespace ID                                    | `authoringNamespaceId`           | 隔离稳定标识域、且不依赖文件路径或遍历顺序的持久标识。                                                               |
+| 编译单元               | compilation unit                                          | —                                | 由一个权威来源模块图及其显式选项共同构成的原子编译输入。                                                             |
+| 编译器基础设施         | compiler foundation                                       | —                                | 承载表示类型、编译遍驱动器、诊断、区块分配、确定性和编译发射器边界的公共基础。                                       |
+| 前端                   | frontend                                                  | —                                | 只负责特定来源语言的解析、类型化与来源位置，不拥有后续全局静态语义。                                                 |
+| 合成领域专用语言前端   | Synthetic DSL frontend                                    | —                                | 面向测试、基准、示例和程序化场景的可重放来源前端。                                                                   |
+| 几何文档前端           | Geometry document frontend                                | —                                | 生产路网的主要编制前端，表达参考线、横断面、连接和静态规则。                                                         |
+| 导入前端               | import frontend                                           | —                                | 把外部来源及其工具、选项和来源沿袭显式转换为来源模块的前端。                                                         |
+| 编辑器编制界面         | editor authoring surface                                  | —                                | 编辑并持久化来源模块、显示来源诊断的交互界面；它不私有化编译语义。                                                   |
+| 来源位置               | source span                                               | —                                | 诊断和源映射使用的来源文件、区间或画布选区。                                                                         |
+| 来源沿袭               | provenance                                                | —                                | 输入、工具、参数、构建、转换与发布的可审计来源链。                                                                   |
+| 降阶                   | lowering                                                  | —                                | 把较高层表示确定性转换为较低层表示、且不补入后端私有语义的过程。                                                     |
+| 有类型抽象语法树       | typed abstract syntax tree                                | typed AST                        | 保留前端语法、显式键、类型、单位和来源位置的第一层表示。                                                             |
+| 高层中间表示           | high-level intermediate representation                    | HIR                              | 已完成模块、命名空间、符号、引用、单位和编制语义解析的表示。                                                         |
+| 中层中间表示           | mid-level intermediate representation                     | MIR                              | 已完成拓扑、几何展开和全局静态语义推导、但尚未绑定目标布局的表示。                                                   |
+| 已验证规范低层中间表示 | validated canonical low-level intermediate representation | canonical LIR                    | 后端唯一输入；包含稳定标识、有类型序号、规范数值、确定性关系和布局无关预计算。                                       |
+| 编译遍                 | compiler pass                                             | pass                             | 具有显式输入、输出、诊断和确定性要求的一次编译转换或验证步骤。                                                       |
+| 后端                   | backend                                                   | —                                | 只消费已验证规范低层中间表示，并生成特定种类制品或镜像的编译器末端。                                                 |
+| 源映射                 | source map                                                | —                                | 把规范实体、关系或诊断反向关联到来源模块和来源位置的派生制品。                                                       |
+| 源映射封套             | source map envelope                                       | `SourceMapEnvelope`              | 版本化绑定精确规范制品、路网修订与编译来源沿袭，并承载源映射记录的派生制品封套。                                     |
+| 规范发布描述符         | canonical publication descriptor                          | `CanonicalPublicationDescriptor` | 位于制品字节外，可信绑定规范制品、源映射、验证收据各自摘要与精确长度，以及路网修订和编译来源沿袭的发布值。           |
+| 语义差异               | semantic diff                                             | —                                | 以稳定标识和所有者局部键比较两个规范制品语义变化的结构化结果；跨修订状态迁移时必须经独立验证并由可信切换描述符绑定。 |
+| 确定性合并顺序         | deterministic merge order                                 | —                                | 并行或分片结果按固定规则合并，使输出不依赖线程调度。                                                                 |
 
 ## 4. 标识、引用与数据布局
 
@@ -240,7 +240,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 分节容器           | sectioned container             | —                              | 通过头部和节目录组织多个有界数据节的镜像容器。                                                                    |
 | 静态交通镜像节     | static traffic image section    | `StaticTrafficImage`           | 所有配置档都必须包含的交通静态表。                                                                                |
 | 静态空间镜像节     | static spatial image section    | `StaticSpatialImage`           | 仅空间配置档包含的几何和采样静态表。                                                                              |
-| 稳定身份索引       | static identity index           | `StaticIdentityIndex`          | 所有生产配置档都必须包含、在稳定标识与镜像局部 ordinal 之间双向映射的冷数据索引。                                 |
+| 稳定身份索引       | static identity index           | `StaticIdentityIndex`          | 所有生产配置档都必须包含、在稳定标识与镜像局部 ordinal 之间双向映射的冷数据索引；它不证明跨修订语义兼容。         |
 | 镜像字节长度       | static image byte length        | `staticImageByteLength`        | 外部可信描述符认证的原始未压缩镜像 exact bytes 长度；必须在读取、解压、分配和摘要前用于有界预检。                 |
 | 完整性分块         | integrity chunk                 | chunk                          | 按认证方案从镜像精确字节切出的连续区间；其摘要只在加载或首次挂载边界验证。                                        |
 | 平面分块表         | flat chunk table                | —                              | 由外部描述符认证、按偏移量顺序列出全部完整性分块及摘要，不依赖递归树节点的版本化结构。                            |

@@ -934,10 +934,18 @@ portable artifact；无 baseline 时使用显式 genesis marker，并把全部 s
 before/after `localIndex` 确定性破同值，diff 本身不获得 authoring authority。
 
 PR/治理消费可以直接展示经过验证的 semantic diff；运行时镜像切换不得把 compiler
-输出的裸 diff 当作迁移权威。若 diff 参与状态迁移，independent validator 必须对
+输出的裸 diff 当作迁移权威。所有跨修订状态迁移都要求 independent validator 对
 base/target portable artifact 独立重算或验证其完整语义，并由 §9.6 的外部可信切换
-描述符绑定 exact diff bytes digest。缺少该绑定时，diff 只能作为诊断提示，运行时
-必须从两个可信 `StaticIdentityIndex` 和已冻结迁移策略重新证明映射。
+描述符绑定 exact diff bytes digest。缺少该绑定时，diff 只能作为诊断提示，任何
+跨修订状态迁移都必须失败关闭；两个可信 `StaticIdentityIndex` 只能复核稳定身份与
+密集序号的对应关系，不能证明相同 StableId128 的拓扑、几何、访问规则或其他静态
+语义仍与旧状态兼容。新修订可以作为无旧状态的新世界启动，但不得把它伪装成迁移。
+
+本地玩家改路也不构成例外：独立验证器必须比较两份已验证 portable artifact，重算或
+验证完整 semantic diff 并签发 validation receipt；宿主随后把 exact diff bytes、
+base/target artifact/image/revision、迁移策略和 receipt 绑定为
+`NetworkRevisionCutoverDescriptor`，并通过宿主认证 asset chain 或 pinned digest
+建立 Runtime 外部的信任锚。没有该证据链时，旧世界继续运行。
 
 ## 9. 静态/可变状态和运行时消费
 
@@ -1121,11 +1129,12 @@ Reference Oracle），不能未经工作量/跨度证据直接成为 production 
 旧/新可信镜像的 `StaticIdentityIndex` 重建 StableId128 ↔ typed ordinal 映射；
 删除、重接或语义改变的网络元素必须按受信任语义差异迁移或终止其交通参与单元、
 动态通行定义、停驻/预约和控制器状态。当前道路机动车执行域仍具体表现为车辆、
-动态路线和停车。任一完整性条件无法证明时，旧修订
-继续生效。临时封闭等不改变静态身份/拓扑的状态由后续 G1 冻结的 runtime
-overlay/command 承担。
+动态路线和停车。稳定 ID 保持不变不表示语义未变化；任一完整性或语义兼容条件无法
+证明时，旧修订继续生效。临时封闭等不改变静态身份/拓扑的状态由后续 G1 冻结的
+runtime overlay/command 承担。
 
-运行时若消费语义差异，image 外部的版本化
+任何保留旧世界状态的跨修订切换都必须消费受信任语义差异（Trusted Semantic
+Diff）。v1 的证据链要求 image 外部的版本化
 `NetworkRevisionCutoverDescriptor` 至少绑定：
 
 ```text
@@ -1156,7 +1165,10 @@ validation receipt 必须证明 independent validator 已针对两个 portable a
 修订、制品摘要/长度和镜像摘要/长度必须分别与两个可信静态镜像的 descriptor 精确
 相等。
 Runtime 仍须用两个 `StaticIdentityIndex` 核验每个稳定实体映射，不能让 diff 中的
-ordinal、数组位置或 compiler 私有顺序成为迁移权威。
+ordinal、数组位置或 compiler 私有顺序成为迁移权威；该索引检查是语义差异验证后的
+身份完整性防线，不能证明语义兼容。缺失、未认证、base/target
+不匹配或未由独立验证器完整比较的 semantic diff 一律中止迁移。调用方可以显式放弃
+旧状态并创建目标修订上的新世界，但这属于新建而非 cutover/migration。
 
 准备切换时，Runtime/宿主先认证 cutover descriptor，再以
 `semanticDiffByteLength` 和调用方 `maxSemanticDiffBytes` 在解析、分配或 hash 前
@@ -1331,7 +1343,10 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
 - source map descriptor/envelope 的 exact artifact、revision、provenance、digest、
   length 绑定，以及旧 span、替换 source map、truncated/appended bytes 的拒绝测试；
 - semantic diff golden tests，以及 forged/tampered diff、错误 base/target digest、
-  未受信任 cutover descriptor 的拒绝测试；
+  未受信任 cutover descriptor、缺失 diff 和 index-only cutover 的拒绝测试；
+- 对保持同一 StableId128 但改变 topology relation、geometry、access/signal policy
+  的实体，证明 `StaticIdentityIndex` round-trip 仍成功而语义迁移必须依赖已验证
+  diff；缺少相容迁移动作时失败关闭；
 - current JSON path 与 target image path behavior/determinism/pose equivalence；
 - worker 数/partition plan 置换下 committed state、event 与确定性状态摘要等价；
 - 分区边界不引入额外一 tick 延迟，连接资源组件保持唯一规范归约权威，并比较
@@ -1622,6 +1637,7 @@ Cutover 前必须证明：
 | 迁移准备干扰正常步进（Migration Prepare Interferes with Tick）               | 玩家改路导致持续抖动或延迟尖峰                                             | 后台预算、落后量/干扰 Gate、显式维护暂停模式                 |
 | 每次启动全镜像串行摘要（Whole-image Serial Hash on Every Startup）           | 城市级镜像加载受固定串行读取限制                                           | 认证分块清单；必需节预先验证；冷/Spatial 延迟验证            |
 | 生产配置档裁掉稳定身份索引（Production Profile Drops Stable Identity Index） | 快照、动态路线与跨修订映射无法恢复                                         | 全配置档必需冷索引；双向 round-trip；按需映射                |
+| 稳定身份索引替代语义证据（Identity Index Replaces Semantic Evidence）        | 同 StableId128 的新语义错误继承旧占用、路线、预约或控制器状态              | 受信任 semantic diff；索引只复核映射；index-only 失败关闭    |
 | 未受信任语义差异驱动迁移（Untrusted Semantic Diff Drives Migration）         | 篡改迁移、错误终止或状态错配                                               | 外部切换描述符、双制品独立验证、身份索引复核                 |
 | 通行权运行时交付延期（Right-of-way Runtime Delivery Deferral）               | 静态契约与运行时执行能力长期不对称                                         | 明示当前能力边界；#292 G4 后恢复 #282–#285；#285 跨层闭环    |
 

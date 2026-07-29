@@ -1497,7 +1497,8 @@ Route registration 对每个 occurrence 一次性编译：
 - WaitingZone 同 tick capacity/storage contention、unused admission expiry 与
   staged leave 不返还 capacity；
 - repeated Route/Maneuver occurrence；
-- 当前道路机动车执行域 `N_active=10000` 与 `N_active=100000` 的 research
+- 当前道路机动车执行域 `N_traffic_active=10000` 与
+  `N_traffic_active=100000` 的 research
   observation；不外推为其他执行域能力。
 
 门槛：

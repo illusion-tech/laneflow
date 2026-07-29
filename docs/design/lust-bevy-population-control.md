@@ -44,12 +44,12 @@ TOPO/DEMAND workload ID
 
 HUD 与 headless 证据必须同时可读：
 
-| 符号           | 含义                                                     |
-| -------------- | -------------------------------------------------------- |
-| `target_N`     | 示例 policy 当前目标 logical population，`[1, 10000]`    |
-| `N_individual` | Core 中仍保留完整 identity 的道路机动车参与单元数        |
-| `N_active`     | 参与道路机动车执行域交通权威的个体参与单元数             |
-| `N_presented`  | 本 outer frame 被 materialize / 提交展示的个体参与单元数 |
+| 符号               | 含义                                                     |
+| ------------------ | -------------------------------------------------------- |
+| `target_N`         | 示例 policy 当前目标 logical population，`[1, 10000]`    |
+| `N_individual`     | Core 中仍保留完整 identity 的道路机动车参与单元数        |
+| `N_traffic_active` | 参与道路机动车执行域交通权威的个体参与单元数             |
+| `N_presented`      | 本 outer frame 被 materialize / 提交展示的个体参与单元数 |
 
 本文是 current `CoreWorld`/LuST 车辆特化，所有无下标计数均绑定
 `execution_domain=road_motor_vehicle`；它不定义目标 Traffic Runtime 的非机动车、
