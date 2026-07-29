@@ -159,6 +159,37 @@ seed、固定比例、工作负载清单摘要和预期计数，不得预先分�
 验证收据或静态镜像。规范记录构造和所有权落定属于受测成本；完整输出比较与摘要计算
 只用于计时区外证明候选等价，不宣称逐字节等于未来生产制品。
 
+#### 2.3.1 研究阶段记录模型
+
+研究阶段记录模型（Research Stage Record Model）只冻结 #308 非生产替身的可比数据
+形状，不冻结未来生产编译器的 Rust 类型、IR 公共 API 或静态制品布局。每个阶段使用
+一段连续值记录和一段连续载荷字节；禁止每条记录单独堆分配。机器清单固定字段顺序、
+字段宽度、`repr(C)` 大小、记录粒度和每级公式：
+
+| 阶段          | 值记录字段宽度 / `repr(C)` 大小 | 记录粒度与逻辑字节公式                                                                                                                        |
+| ------------- | ------------------------------: | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Typed AST     |                 `32 / 32` bytes | module/import/declaration/identity field/reference/relation/geometry 各一条；`32 * records + source bytes + string bytes + 20 * source spans` |
+| HIR           |                 `32 / 32` bytes | module/import/symbol/identity field/resolved reference/typed relation/checked geometry 各一条；载荷只用字符串字节和规范 `u32` 操作数          |
+| MIR           |                 `44 / 48` bytes | 每条最终研究语义记录一条、尚未规范排序；`44 * semantic records + exact semantic payload bytes`                                                |
+| canonical LIR |                 `44 / 48` bytes | 每条最终研究语义记录一条、已排序并落定 owner-local ordinal；公式与 MIR 相同                                                                   |
+
+来源位置固定为五个 `u32`、二十个逻辑字节。MIR/LIR 的四个填充字节属于真实分配，
+不属于按字段宽度求和的逻辑字节；`size_of`、容器容量、分配器元数据和进程指标分别进入
+内存证据。G2 在任何测量前必须断言全部 `repr(C)` 大小，不能用字段相同但布局不同的
+私有结构替代。
+
+每级聚合输入也由清单冻结：来源文档数等于模块数；来源声明、身份字段、引用、关系和
+几何分别由工作负载每单元阶段输入乘 `N`，再叠加模块图明确登记的共享来源常量和跨
+模块引用；符号数等于来源声明数；来源位置数等于声明、引用、关系和几何之和。精确
+语义载荷字节由 `recordKinds`、`identityBindings`、字符串配置和该级规范记录逐条
+求和。当前夹具只对所选 case 的等形研究记录直接枚举一次，不参与 `N` 放大、预算或
+候选排名。
+
+`metrics.stageBreakdown` 的八个阶段必须逐项使用清单公式。生成器与独立验证器分别
+枚举聚合输入、阶段记录数、载荷字节、逻辑字节和输出构造字节；只报告任意阶段计数、
+却没有物化清单要求的值记录与载荷缓冲区，属于无效证据。该约束保证不同 G2 实现测量
+同一研究替身，同时不把研究替身冒充生产 IR。
+
 ### 2.4 精确研究预言机
 
 研究执行器必须包含一个精确研究预言机（Exact Research Oracle）。它只使用标准库
@@ -320,14 +351,17 @@ Workload Manifest）的机器可读 SSOT，冻结：
 - 三种字符串配置、来源文档键和虚拟来源位置规则；
 - identity v1 二十二种实体的字段绑定与父项拓扑；
 - 研究记录 envelope、每种 `record_kind` 的有序载荷字段和诊断流；
+- 非生产研究阶段记录模型的字段宽度、`repr(C)` 大小、记录粒度、逐阶段记录/载荷/
+  逻辑字节公式和工作负载每单元阶段输入；
 - 三个可扩展工作负载的每单元实体、关系、出现项和几何计数；
 - 当前夹具的文件路径、格式、精确字节长度和 SHA-256；
-- 失败变体以及每种结果必须满足的计数公式。
+- 限制维度到唯一研究工作负载的绑定、失败变体、清理实验选择，以及每种结果必须满足
+  的计数公式。
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `24385` exact bytes，SHA-256 为
-`808d7c02ac196cca81362e2cf13ea45f6b57eb8a64f5e7893df44b5666ab0a02`；G2 只能发布
+取得 G1。G1 候选冻结清单 `36234` exact bytes，SHA-256 为
+`300ee2d881ebba24f13a770684bbf3e6fb5e7258c616f90f3b26d277a41ae648`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -766,16 +800,34 @@ profile）和特性集合（features）；证据记录各自二进制 SHA-256 �
 必须使用经检查算术（checked arithmetic），并在与请求大小成正比的分配、复制、
 排序或哈希前尽早失败。
 
+清单为每个限制维度选择恰好一个能够自然产生非零目标计数的研究工作负载，禁止执行器
+对所有工作负载做笛卡尔积或为不兼容工作负载虚构记录：
+
+- `LF-COMP-ID-v1`：模块、导入、来源字节、声明、身份字段、符号、三项字符串、
+  Typed AST、HIR 和编译器控制存续字节；
+- `LF-COMP-CORRIDOR-v1`：引用、关系、几何点、路线出现项、诊断、MIR、LIR、
+  阶段暂存字节和输出字节；
+- `LF-COMP-JUNCTION-GRID-v1`：ManeuverGate 与 WaitingZone。
+
+配对使用同一个规范工作负载级别：`at-bound` 把选中限制设为该级精确值；
+`plus-one` 只把该限制设为精确值减一，使同一输入恰好超限一。完整私有限制集合进入
+变体输入摘要，因此两项仍有不同摘要；这种做法隔离限制行为，不为“加一”另造不属于
+工作负载的实体或阶段记录。
+
 失败用例标识符（failure case ID）冻结为：
 
 - `limit/<dimension>/at-bound`：对应维度恰好等于限制，必须成功；
-- `limit/<dimension>/plus-one`：只把对应维度增加一，必须在禁止的线性工作前失败；
-- `semantic/missing-reference-per-unit`：每个工作单元把规范顺序第一条路线出现项
-  （route occurrence）改为未知 `LaneEdge`，必须产生按来源排序的有界诊断；
-- `semantic/duplicate-owner-per-unit`：每个工作单元把规范顺序第一个
-  `FacilityBand` 同时挂到第二个 `RoadCorridor`，必须拒绝多所有者；
-- `diagnostic/cap-plus-one`：设置 `maxDiagnostics = N`，构造 `N + 1` 个独立未知
-  引用，必须只保存 `N` 个规范诊断和一个稳定的“诊断已截断”标记。
+- `limit/<dimension>/plus-one`：对应输入值恰好比所设限制多一，必须在禁止的线性
+  工作前失败；
+- `semantic/missing-reference-per-unit`：只绑定 `LF-COMP-CORRIDOR-v1`，每个工作
+  单元把规范顺序第一条路线出现项（route occurrence）改为未知 `LaneEdge`，必须产生
+  按来源排序的有界诊断；
+- `semantic/duplicate-owner-per-unit`：只绑定 `LF-COMP-CORRIDOR-v1`，每个工作
+  单元把规范顺序第一个 `FacilityBand` 同时挂到第二个 `RoadCorridor`，必须拒绝
+  多所有者；
+- `diagnostic/cap-plus-one`：只绑定 `LF-COMP-CORRIDOR-v1`，设置
+  `maxDiagnostics = N` 并构造 `N + 1` 个独立未知引用，必须只保存 `N` 个规范诊断和
+  一个稳定的“诊断已截断”标记。
 
 语义失败变体只改变列出的关系，其余生成清单字段保持相同，并保存独立输入摘要。
 错误码、主诊断、截断标记和来源顺序属于候选等价比较；错误消息的非规范显示文本不
@@ -792,8 +844,10 @@ profile）和特性集合（features）；证据记录各自二进制 SHA-256 �
 在校准规模和压力规模分别执行：
 
 1. 一次合法编译，保存摘要和保留容量；
-2. 分别选择最早资源预检、`semantic/missing-reference-per-unit` 和
-   `diagnostic/cap-plus-one` 三类失败，各执行三十二次相同输入；
+2. 分别选择 `LF-COMP-ID-v1` 的 `limit/source-byte-count/plus-one` 作为最早资源
+   预检，以及 `LF-COMP-CORRIDOR-v1` 的
+   `semantic/missing-reference-per-unit`、`diagnostic/cap-plus-one`，三类失败各
+   执行三十二次相同输入；
 3. 每次验证稳定错误码、受限诊断数、无部分输出（partial output）；
 4. 随后再次执行合法编译；
 5. 验证摘要、记录数和错误状态与新实例（fresh instance）完全相同。
@@ -891,8 +945,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `75705` exact bytes，SHA-256 为
-`4620b423fe61e24f96bd414bad28df523202c931086360c068c9a5e7c1a24911`。
+G1 候选冻结 schema `82911` exact bytes，SHA-256 为
+`7c2b6d9bc023aa78ccac812f9b29b30a28c6c8a844a3310b3812765c625cc6d1`。
 顶层格式标识：
 
 ```text
@@ -936,21 +990,24 @@ schemaVersion = 1
 观测值。未知字段由 schema 的 `additionalProperties: false` 拒绝；改变字段含义或
 层级必须提升 `schemaVersion`。
 
-`counts` 按工作负载使用不同的 closed schema，并要求共同模块/导入/来源/字符串/
-诊断/输出/逻辑字节计数及对应领域计数。逐阶段记录数和逻辑字节由必需的
+`counts` 按工作负载使用不同的 closed schema，并要求共同模块/导入、来源文档/
+来源位置、身份字段、来源/字符串、诊断、语义载荷/输出/逻辑字节计数及对应领域
+计数。逐阶段记录数和逻辑字节由必需的
 `metrics.stageBreakdown` closed 对象承载，不在 `counts` 重复保存。JSON Schema
 负责字段集合、类型、条件分支和基数，不能执行 `N × perUnitCounts` 之类跨字段算术；
 G2 证据生成器与独立验证器必须分别从绑定摘要的工作负载清单重算公式，逐字段要求
-精确相等，并检查限制维度枚举、`caseId` 中的维度片段和独立 `dimensionId`
-逐字节一致。只通过 Schema、没有通过该公式与交叉字段验证的 JSON 不是有效研究
-证据。
+精确相等，包括阶段聚合输入、记录数、载荷字节、逻辑字节、`repr(C)` 大小和输出
+构造字节；并检查限制维度枚举、该维度绑定的唯一 workload、`caseId` 中的维度片段和
+独立 `dimensionId` 逐字节一致。只通过 Schema、没有通过该公式与交叉字段验证的
+JSON 不是有效研究证据。
 
 独立验证器还必须按清理实验标识符分组，要求每组恰好包含序号 `0`、`1..=32`、
 `33`、`34`，且工作负载、候选、规模和失败用例在组内一致；缺项、重号或跨条件
-拼组都必须失败。它同时检查运行状态与护栏事实相容：受检算术失败、监控缺样、
-异常退出或不可用预测可以留在原始证据中，但不能被计入有效阶梯、重复性包络或候选
-改善结论。Schema 对单条记录的 closed 约束与独立验证器对整份证据的关系约束缺一
-不可。
+拼组都必须失败。清理组只允许机器清单登记的三个 case/workload/scale 组合，不能用
+另一个工作负载“等价替代”。它同时检查运行状态与护栏事实相容：受检算术失败、监控
+缺样、异常退出或不可用预测可以留在原始证据中，但不能被计入有效阶梯、重复性包络
+或候选改善结论。Schema 对单条记录的 closed 约束与独立验证器对整份证据的关系约束
+缺一不可。
 
 ### 10.3 可复现命令
 
