@@ -100,7 +100,8 @@ Core 不引入 `uuid` crate。UUID 可以作为 external ID 字符串存在，�
 
 优点是最简单，debug 直接可读。
 
-缺点是保留当前 clone、sort 和 event allocation 热点，不适合一万 vehicles / 60 tick/s 目标。
+缺点是保留当前 clone、sort 和 event allocation 热点，不适合上述道路机动车执行域的
+一万车辆运行单元、每秒六十次固定步进目标。
 
 ### 把 UUID / u128 作为 Core ID
 

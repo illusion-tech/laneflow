@@ -1,7 +1,7 @@
 # 真实路网 Workload
 
 **文档状态**: Accepted（#224 G1）<br>
-**最后更新**: 2026-07-27<br>
+**最后更新**: 2026-07-29<br>
 **适用范围**: LuST Scenario v2.0 的可复现获取、LaneFlow 静态转换、一万
 真实路网性能补充 workload 与需求代表性 observation
 
@@ -578,10 +578,10 @@ asset SHA-256 为 key，不以 tag、latest、文件名或 URL basename 作为 a
 
 产品路径上另有示例层切片（Parent #252），**不**改变上表 A–G 的 workload 语义：
 
-| 切片     | 交付                             | 依赖/边界                                                                                |
-| -------- | -------------------------------- | ---------------------------------------------------------------------------------------- |
-| H (#256) | LuST/Bevy 1–一万个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`](lust-bevy-population-control.md) |
-| I (#257) | Bevy LuST native 示例与调节 UI   | 依赖 A 的 static、B 的 TOPO plan（placement 权威）与 H 的契约；C/DEMAND 仍可选           |
+| 切片     | 交付                               | 依赖/边界                                                                                |
+| -------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| H (#256) | LuST/Bevy 一至一万个体人口调节契约 | 设计已 Accepted；见 [`lust-bevy-population-control.md`](lust-bevy-population-control.md) |
+| I (#257) | Bevy LuST native 示例与调节 UI     | 依赖 A 的 static、B 的 TOPO plan（placement 权威）与 H 的契约；C/DEMAND 仍可选           |
 
 本文不改变 Core API、Data format、Spatial API、Adapter API、production runtime
 behavior 或 crate dependency direction，也不新增 ADR。

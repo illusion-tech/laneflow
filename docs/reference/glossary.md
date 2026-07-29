@@ -59,6 +59,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 来源语言               | source language                                           | —                                | 定义来源模块语法和来源保真的输入语言。                                                                               |
 | 编制命名空间标识       | authoring namespace ID                                    | `authoringNamespaceId`           | 隔离稳定标识域、且不依赖文件路径或遍历顺序的持久标识。                                                               |
 | 编译单元               | compilation unit                                          | —                                | 由一个权威来源模块图及其显式选项共同构成的原子编译输入。                                                             |
+| 编译器中间表示         | compiler intermediate representation                      | compiler IR                      | 编译器内部从有类型抽象语法树经 HIR、MIR 到 canonical LIR 的有类型阶段表示总称；各阶段的精确职责由专门词条定义。      |
 | 编译器基础设施         | compiler foundation                                       | —                                | 承载表示类型、编译遍驱动器、诊断、区块分配、确定性和编译发射器边界的公共基础。                                       |
 | 前端                   | frontend                                                  | —                                | 只负责特定来源语言的解析、类型化与来源位置，不拥有后续全局静态语义。                                                 |
 | 合成领域专用语言前端   | Synthetic DSL frontend                                    | —                                | 面向测试、基准、示例和程序化场景的可重放来源前端。                                                                   |
@@ -78,35 +79,38 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 源映射封套             | source map envelope                                       | `SourceMapEnvelope`              | 版本化绑定精确规范制品、路网修订与编译来源沿袭，并承载源映射记录的派生制品封套。                                     |
 | 规范发布描述符         | canonical publication descriptor                          | `CanonicalPublicationDescriptor` | 位于制品字节外，可信绑定规范制品、源映射、验证收据各自摘要与精确长度，以及路网修订和编译来源沿袭的发布值。           |
 | 语义差异               | semantic diff                                             | —                                | 以稳定标识和所有者局部键比较两个规范制品语义变化的结构化结果；跨修订状态迁移时必须经独立验证并由可信切换描述符绑定。 |
+| 语义差异封套           | semantic diff envelope                                    | `SemanticDiffEnvelope`           | 版本化绑定旧/新路网修订与规范制品精确字节，并承载规范排序差异记录的派生制品封套。                                    |
 | 确定性合并顺序         | deterministic merge order                                 | —                                | 并行或分片结果按固定规则合并，使输出不依赖线程调度。                                                                 |
 
 ## 4. 标识、引用与数据布局
 
-| 中文规范术语           | 英文辅助名（English Alias） | 精确标识符 / 缩写        | 中文规范含义                                                                                                       |
-| ---------------------- | --------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| 规范标识元组           | canonical identity tuple    | `CanonicalIdentity`      | 由编制命名空间、实体种类及稳定父/局部锚点组成的标识权威。                                                          |
-| 规范身份表             | canonical identity table    | `CanonicalIdentityTable` | 可移植规范制品中保存每个稳定实体完整字段前像、声明稳定标识与有类型逻辑序号，供独立验证器重算身份的不可裁剪语义表。 |
-| 标识编码封装           | identity encoding envelope  | —                        | 冻结魔数、编码版本、实体种类、字段数量和标签/长度/值序列的公共字节外壳。                                           |
-| 稳定标识               | stable identifier           | `StableId128`            | 对规范标识元组执行冻结编码和 BLAKE3-128 后得到的 128 位持久标识。                                                  |
-| 实体种类               | entity kind                 | `entityKind`             | 标识登记表中具有固定代码、英文短名（slug）和必需字段序列的实体类别。                                               |
-| 字段标签               | field tag                   | `field_tag`              | 标识编码中用于标明规范字段语义的冻结数字标签。                                                                     |
-| 稳定锚点               | stable anchor               | —                        | 显式持久键或父实体稳定标识；坐标、数组位置和遍历顺序不得作为锚点。                                                 |
-| 有类型逻辑序号         | typed logical ordinal       | —                        | 在单次 LIR/镜像内按表类型区分的 `u32` 行序号。                                                                     |
-| 密集句柄               | dense handle                | —                        | 运行时使用的紧凑有类型引用；热路径不携带字符串或稳定标识。                                                         |
-| 所有者局部关系         | owner-local relation        | —                        | 只在所属实体的当前序列快照内有意义、没有全局稳定标识的关系记录。                                                   |
-| 所有者局部出现项       | owner-local occurrence      | —                        | 由 `(ownerOrdinal, role, localIndex)` 定位的当前快照记录；`localIndex` 不是跨编译标识。                            |
-| 唯一所有者关系         | unique owner relation       | —                        | 一个成员必须解析到恰好一个有效所有者；零所有者或多所有者均为结构化错误。                                           |
-| 完备所有者树           | complete owner tree         | —                        | 所有要求归属的成员都具有唯一所有者、且不存在重复归属或孤儿成员的所有者 / 成员结构。                                |
-| 反向索引               | reverse index               | —                        | 从目标或成员回到所有者、关系或候选集合的预计算索引。                                                               |
-| 交叉索引               | cross-index                 | —                        | 在两个有类型表或镜像节之间预计算的定向引用索引。                                                                   |
-| 数组分列结构           | structure of arrays         | SoA                      | 按字段分列保存同类记录，以提高连续访问和向量化效率的数据布局。                                                     |
-| 压缩稀疏行             | compressed sparse row       | CSR                      | 用偏移量/区间表示变长邻接或成员序列的紧凑布局。                                                                    |
-| 扁平区间               | flat range                  | —                        | 以起点和长度引用连续表片段、避免逐项指针的数据表示。                                                               |
-| 零拷贝                 | zero-copy                   | —                        | 在验证后直接借用底层镜像字节建立视图，不复制静态表内容的访问方式。                                                 |
-| 热路径                 | hot path                    | —                        | 高频固定步进/位姿执行路径；禁止字符串、哈希查找和持久标识计算。                                                    |
-| 热数据、温数据、冷数据 | hot, warm, and cold data    | hot/warm/cold            | 按访问频率和是否可裁剪划分的静态数据。                                                                             |
-| 保留内存               | retained memory             | —                        | 初始化完成后仍由组件持有的内存。                                                                                   |
-| 峰值分配               | peak allocation             | —                        | 某操作期间同时存在的最大动态分配量。                                                                               |
+| 中文规范术语     | 英文辅助名（English Alias） | 精确标识符 / 缩写        | 中文规范含义                                                                                                       |
+| ---------------- | --------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| 规范标识元组     | canonical identity tuple    | `CanonicalIdentity`      | 由编制命名空间、实体种类及稳定父/局部锚点组成的标识权威。                                                          |
+| 规范身份表       | canonical identity table    | `CanonicalIdentityTable` | 可移植规范制品中保存每个稳定实体完整字段前像、声明稳定标识与有类型逻辑序号，供独立验证器重算身份的不可裁剪语义表。 |
+| 标识编码封装     | identity encoding envelope  | —                        | 冻结魔数、编码版本、实体种类、字段数量和标签/长度/值序列的公共字节外壳。                                           |
+| 稳定标识         | stable identifier           | `StableId128`            | 对规范标识元组执行冻结编码和 BLAKE3-128 后得到的 128 位持久标识。                                                  |
+| 实体种类         | entity kind                 | `entityKind`             | 标识登记表中具有固定代码、英文短名（slug）和必需字段序列的实体类别。                                               |
+| 字段标签         | field tag                   | `field_tag`              | 标识编码中用于标明规范字段语义的冻结数字标签。                                                                     |
+| 稳定锚点         | stable anchor               | —                        | 显式持久键或父实体稳定标识；坐标、数组位置和遍历顺序不得作为锚点。                                                 |
+| 有类型逻辑序号   | typed logical ordinal       | —                        | 在单次 LIR/镜像内按表类型区分的 `u32` 行序号。                                                                     |
+| 密集句柄         | dense handle                | —                        | 运行时使用的紧凑有类型引用；热路径不携带字符串或稳定标识。                                                         |
+| 所有者局部关系   | owner-local relation        | —                        | 只在所属实体的当前序列快照内有意义、没有全局稳定标识的关系记录。                                                   |
+| 所有者局部出现项 | owner-local occurrence      | —                        | 由 `(ownerOrdinal, role, localIndex)` 定位的当前快照记录；`localIndex` 不是跨编译标识。                            |
+| 唯一所有者关系   | unique owner relation       | —                        | 一个成员必须解析到恰好一个有效所有者；零所有者或多所有者均为结构化错误。                                           |
+| 完备所有者树     | complete owner tree         | —                        | 所有要求归属的成员都具有唯一所有者、且不存在重复归属或孤儿成员的所有者 / 成员结构。                                |
+| 反向索引         | reverse index               | —                        | 从目标或成员回到所有者、关系或候选集合的预计算索引。                                                               |
+| 交叉索引         | cross-index                 | —                        | 在两个有类型表或镜像节之间预计算的定向引用索引。                                                                   |
+| 数组分列结构     | structure of arrays         | SoA                      | 按字段分列保存同类记录，以提高连续访问和向量化效率的数据布局。                                                     |
+| 压缩稀疏行       | compressed sparse row       | CSR                      | 用偏移量/区间表示变长邻接或成员序列的紧凑布局。                                                                    |
+| 扁平区间         | flat range                  | —                        | 以起点和长度引用连续表片段、避免逐项指针的数据表示。                                                               |
+| 零拷贝           | zero-copy                   | —                        | 在验证后直接借用底层镜像字节建立视图，不复制静态表内容的访问方式。                                                 |
+| 热路径           | hot path                    | —                        | 高频固定步进/位姿执行路径；禁止字符串、哈希查找和持久标识计算。                                                    |
+| 热数据           | hot data                    | hot                      | 固定步进或位姿批次高频读取、必须按连续布局和缓存局部性优化的数据；热度不单独决定配置档必选性。                     |
+| 温数据           | warm data                   | warm                     | 低于稳态热路径频率、但仍可能由运行时查询或边界操作读取的数据；是否必选由有类型节与封闭配置档裁决。                 |
+| 冷数据           | cold data                   | cold                     | 主要在加载、恢复、修订切换或诊断边界读取的数据；“冷”不表示可以从生产配置档裁剪。                                   |
+| 保留内存         | retained memory             | —                        | 初始化完成后仍由组件持有的内存。                                                                                   |
+| 峰值分配         | peak allocation             | —                        | 某操作期间同时存在的最大动态分配量。                                                                               |
 
 ## 5. 通用编译、数据与运行术语
 
@@ -130,7 +134,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 联结                 | join                                   | —                                  | 按共同键把两个独立制品或表的记录关联起来。                                                                                       |
 | 编译发射器           | compiler emitter                       | emitter                            | 从已验证 LIR 生成制品或镜像的后端。                                                                                              |
 | 静态执行约束图       | static execution constraint graph      | —                                  | 编译器从静态资源依赖派生的工作线程数无关约束、可切分边界与规范合并顺序。                                                         |
-| 分区规划提示         | partition planning hints               | —                                  | 可由编译器随镜像发布、但可安全丢弃或重建且不拥有行为语义的性能提示。                                                             |
+| 分区规划提示         | partition planning hints               | `PartitionPlanningHints`           | 可由编译器随镜像发布、但可安全忽略或重建且不拥有行为语义的性能提示；v1 封闭配置档仍要求该有类型节存在。                          |
 | 分区                 | partition                              | —                                  | 运行时执行计划中的私有物理所有权/调度单元；不构成公共身份或静态语义。                                                            |
 | 工作线程             | worker                                 | —                                  | 执行一个或多个运行时任务的计算资源；数量和完成顺序不得改变精确结果。                                                             |
 | 提案                 | proposal                               | —                                  | 并行求值阶段生成、尚未取得提交权威的候选状态变化。                                                                               |
@@ -150,6 +154,8 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 屏障                 | barrier                                | —                                  | 一个逻辑阶段等待全部必需分区输入就绪后才允许进入规范归约或提交的同步边界。                                                       |
 | 保真度契约           | fidelity contract                      | —                                  | 明确允许的个体、时间、空间与行为语义损失及其验证边界的版本化契约。                                                               |
 | 交通保真度           | traffic fidelity                       | —                                  | 交通个体、时间、空间、规则与事件语义相对精确路径的保留程度。                                                                     |
+| 过载优雅降级         | graceful overload degradation          | —                                  | 宿主在过载时通过暂停、慢放或统一调整时间推进保持全部逻辑步进、事件和交通语义的显式处置；不等同于保真度降级。                     |
+| 保真度降级           | fidelity degradation                   | —                                  | 显式减少个体、时间、空间或行为语义的目标能力变化；必须由独立保真度契约和 G1/ADR 授权，不能伪装成调度或表现优化。                 |
 | 工作负载             | workload                               | —                                  | 冻结输入、规模、拓扑、行为组合和测量协议的可复现实验场景。                                                                       |
 | 中国特色城市工作负载 | Chinese-style city workload            | —                                  | 用版本化拓扑、需求与运行时指标表达中国特色交通压力的代表性工作负载族。                                                           |
 | 多世界集合           | multi-world ensemble                   | ensemble                           | 共享静态数据、但各自持有独立可变状态的一组世界，用于回放、探索或吞吐测量。                                                       |
@@ -175,7 +181,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 切换事件批次         | cutover event batch                    | —                                  | 迁移函数生成、在准备期保持不可见，并只与新镜像/状态绑定原子提交一次的规范排序事件集合；切换放弃时零发布。                        |
 | 静默提交窗口         | quiescent commit window                | —                                  | 固定步进安全边界上短暂冻结旧世界输入、排空日志尾并原子切换绑定的有界时间窗口。                                                   |
 | 维护暂停模式         | paused maintenance mode                | —                                  | 由宿主显式声明世界已暂停、允许一次性完成迁移且单独预算完整停顿的切换模式。                                                       |
-| 路网修订切换描述符   | network revision cutover descriptor    | `NetworkRevisionCutoverDescriptor` | 在镜像字节外可信绑定旧/新路网修订标识、制品/语义差异/验证收据的摘要与精确长度、镜像摘要和迁移策略的切换输入。                    |
+| 路网修订切换描述符   | network revision cutover descriptor    | `NetworkRevisionCutoverDescriptor` | 在镜像字节外可信绑定旧/新路网修订标识、制品摘要/长度、语义差异格式版本/摘要/长度、验证收据、镜像摘要和迁移策略的切换输入。       |
 | 运行时快照           | runtime snapshot                       | —                                  | 绑定规范制品与路网修订、记录规范制品及原始静态镜像摘要与精确长度，并可借助稳定身份索引在兼容镜像上恢复的每世界可变状态存档制品。 |
 | 快照局部标识         | snapshot-local identity                | —                                  | 只在一个运行时快照内稳定、用于重建动态实体引用且不复用原进程句柄的持久键。                                                       |
 | 输入命令序列         | input command sequence                 | —                                  | 按规范顺序驱动世界、可与检查点共同重放的显式外部命令流。                                                                         |
@@ -184,8 +190,9 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 已提交交通观测快照   | committed traffic observation snapshot | —                                  | 从交通运行时已提交状态提取、且不泄漏固定步进中间状态的密度、速度、封闭等观测视图。                                               |
 | 观测导出节奏         | observation export cadence             | —                                  | 上层或宿主明确选择的观测完整基线/增量导出频率；不等同于每个固定步进全网复制。                                                    |
 | 完整/增量导出        | full/delta export                      | —                                  | 以周期完整基线和其后的版本化变化集共同表达已提交交通观测的边界协议。                                                             |
-| 动态成本快照         | dynamic cost snapshot                  | —                                  | 路径规划层从静态网络、已提交交通观测与上层政策派生的版本化路由成本视图。                                                         |
+| 动态成本快照         | dynamic cost snapshot                  | —                                  | 路径规划层从静态路网、已提交交通观测与上层政策派生的版本化路由成本视图。                                                         |
 | 路径规划服务         | routing service                        | —                                  | 从静态路网和已提交动态成本快照生成候选路径、但不拥有交通参与单元固定步进的服务。                                                 |
+| 出行编排层           | trip orchestration layer               | —                                  | 拥有出行需求、候选路线选择、收费/政策偏好和调用方随机流，并以显式边界驱动 LaneFlow 的上层系统。                                  |
 | 出行需求             | travel demand                          | —                                  | 描述谁在何时为何出发的上层输入；不由交通运行时隐藏生成。                                                                         |
 | 运行时覆盖层         | runtime overlay                        | —                                  | 不改变静态身份或拓扑、按显式命令暂时修改运行时约束的版本化动态状态。                                                             |
 | 会话                 | session                                | —                                  | 宿主或空间层中具有明确生命周期和资源所有权的一次活动上下文。                                                                     |
@@ -235,8 +242,9 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 
 | 中文规范术语       | 英文辅助名（English Alias）     | 精确标识符 / 缩写              | 中文规范含义                                                                                                      |
 | ------------------ | ------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| 可移植规范制品     | portable canonical artifact     | —                              | 平台无关、确定性、可发布、可长期审计并可供独立验证器读取的静态网络制品。                                          |
-| 目标静态镜像       | target static image             | `StaticNetworkImage`           | 按目标、布局和封闭配置档生成的可重建运行时性能制品。                                                              |
+| 可移植规范制品     | portable canonical artifact     | —                              | 平台无关、确定性、可发布、可长期审计并可供独立验证器读取的静态路网制品。                                          |
+| 目标静态镜像       | target static image             | `StaticNetworkImage`           | 按目标、布局、封闭配置档与分区提示版本生成的可重建运行时性能制品。                                                |
+| 静态镜像           | static image                    | —                              | 上下文已明确时对目标静态镜像的允许简称；不表示另一种制品或可原地修改的运行时对象。                                |
 | 分节容器           | sectioned container             | —                              | 通过头部和节目录组织多个有界数据节的镜像容器。                                                                    |
 | 静态交通镜像节     | static traffic image section    | `StaticTrafficImage`           | 所有配置档都必须包含的交通静态表。                                                                                |
 | 静态空间镜像节     | static spatial image section    | `StaticSpatialImage`           | 仅空间配置档包含的几何和采样静态表。                                                                              |
@@ -266,7 +274,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 已结构验证镜像     | structurally verified image     | `StructurallyVerifiedImage`    | 目标节的有界结构检查通过，只证明内存安全和运行时前置条件成立、尚未证明发布来源或内容绑定可信的镜像。              |
 | 可信静态镜像       | trusted static image            | `TrustedStaticImage`           | 与认证外部描述符、完整性清单及验证收据匹配，且只暴露已完成分块/结构验证目标节的能力对象。                         |
 | 编译器语义验证     | compiler semantic validation    | —                              | 编译器对来源和 IR 执行的主语义检查。                                                                              |
-| 独立制品验证器     | independent artifact validator  | `laneflow-validator`           | 不复用编译器语义实现、独立检查可移植规范制品的验证器。                                                            |
+| 独立验证器         | independent validator           | `laneflow-validator`           | 不复用编译器语义实现，独立检查可移植规范制品、路网修订标识和语义差异的验证器。                                    |
 | 独立镜像重建器     | independent image builder       | —                              | 不复用编译发射器的布局填充实现，从已验证制品重建镜像的独立实现。                                                  |
 | 有界结构校验器     | bounded structural verifier     | —                              | 对不可信镜像字节执行偏移量、区间、数值、基数和资源上限检查的校验器。                                              |
 | 精确字节摘要       | exact-bytes digest              | —                              | 对目标对象完整字节序列计算的 SHA-256；目标对象不得嵌入自身摘要。                                                  |
@@ -276,42 +284,61 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 
 ## 7. 运行时、空间层与适配器
 
-| 中文规范术语        | 英文辅助名（English Alias）            | 精确标识符 / 缩写           | 中文规范含义                                                                                                           |
-| ------------------- | -------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| LaneFlow 交通运行时 | LaneFlow Traffic Runtime               | `laneflow-runtime`          | 目标态动态执行层；拥有固定步进、已实现执行域的交通参与单元、动态通行定义和每世界可变交通状态。                         |
-| LaneFlow 核心       | LaneFlow Core                          | `laneflow-core`             | 生产切换前当前态动态执行层；目标态由交通运行时一次性不兼容替代。                                                       |
-| 交通世界            | traffic world                          | `TrafficWorld`              | 目标态共享静态交通视图并持有每世界可变状态的运行时实例。                                                               |
-| 核心世界            | core world                             | `CoreWorld`                 | 当前态 `laneflow-core` 的世界类型。                                                                                    |
-| 固定步进            | fixed tick                             | tick                        | 以确定输入和顺序推进交通状态的一次运行时更新。                                                                         |
-| 稳态步进            | steady-state tick                      | —                           | 初始化和容量稳定后的高频固定步进路径。                                                                                 |
-| 交通参与者          | traffic participant                    | —                           | 直接使用交通网络或占用交通空间的动态参与者；不等同于城市居民、乘客、出行需求或 AI Agent。                              |
-| 交通参与单元        | traffic participant unit               | —                           | 交通运行时中可独立保留身份的计数原子；机动车、骑行者组合、行人或轨道运营编组的具体原子由对应执行域 G1 冻结。           |
-| 交通执行域          | traffic execution domain               | —                           | 共享网络、运动/安全求解和生命周期契约的一类交通参与单元；与准入用 `ParticipantClass` 正交。                            |
-| 道路机动车执行域    | road motor vehicle execution domain    | `road_motor_vehicle`        | 当前 Core 与既有车辆工作负载的报告域；该标记不是生产数据枚举，也不冻结其他执行域的类型体系。                           |
-| 动态通行定义        | dynamic traversal definition           | —                           | 目标交通运行时中描述参与单元运行时通行路径及进度语义的通用概念；当前道路机动车执行域的具体投影是 `Route`。             |
-| 停驻状态            | stationary state                       | —                           | 参与单元暂不沿通行路径运动、但仍保留身份和领域占用语义的运行时状态；当前道路机动车投影包括停车状态。                   |
-| 个体交通参与单元数  | individual traffic participant count   | `N_individual[d]`           | 执行域 `d` 中仍存在并保留完整身份与生命周期状态的交通参与单元数。                                                      |
-| 活动交通参与单元数  | active traffic participant count       | `N_active[d]`               | 执行域 `d` 中当前参与该域运动、安全或占用求解的个体交通参与单元数。                                                    |
-| 意图更新参与单元数  | intent-update participant count        | `N_intent[d]`               | 当前固定步进在执行域 `d` 中实际重新计算昂贵行为或控制意图的个体交通参与单元数。                                        |
-| 表现交通参与单元数  | presented traffic participant count    | `N_presented[d]`            | 当前外层帧在执行域 `d` 中由适配器或表现层按个体身份实例化、提取或提交的交通参与单元数。                                |
-| 聚合交通记录数      | aggregate traffic record count         | `N_aggregate_records[d]`    | 执行域 `d` 中由运行时实际存储、调度或更新的聚合流、包、单元格等记录数，用于衡量计算与内存成本。                        |
-| 聚合等价参与单元数  | aggregate-equivalent participant count | `N_aggregate_equivalent[d]` | 执行域 `d` 中聚合表示所代表的交通参与单元数，用于描述保真度与覆盖规模；不能替代聚合记录数。                            |
-| 车辆运行单元        | vehicle runtime unit                   | `VehicleState`              | 当前 Core 的车辆特化交通参与单元；不表示目标交通运行时只允许车辆。                                                     |
-| 车辆状态            | vehicle state                          | —                           | 当前车辆运行单元在某一固定步进边界上的运动、路线与行为状态。                                                           |
-| 车道图              | lane graph                             | —                           | 供运行时遍历和路线跟随使用的有向车道拓扑。                                                                             |
-| 路线                | route                                  | `Route`                     | 当前道路机动车执行域中由有序遍历边和相关出现项组成的车辆行驶计划。                                                     |
-| 动态路线            | dynamic route                          | `Route`                     | 当前道路机动车执行域中运行时注册、具有代际感知句柄的路线；不获得持久 `StableId128`。                                   |
-| 跟车                | vehicle following                      | —                           | 根据同一路径上的前车状态施加安全间距和速度约束的运行时行为。                                                           |
-| 信号                | signal                                 | —                           | 由信号控制器和信号组产生、供车辆解释通行约束的运行时指示。                                                             |
-| 路口规则            | intersection rules                     | —                           | 对冲突流、准入、授权、预约和通行顺序进行运行时裁决的规则集合。                                                         |
-| 停车                | parking                                | —                           | 对停车区域、停车位、预约、进入、占用和离开进行管理的领域行为。                                                         |
-| 每世界可变状态      | per-world mutable state                | —                           | 交通参与单元、动态通行定义、控制器时钟、预约、占用和缓冲区等不能进入共享镜像的状态；当前投影包括车辆、动态路线和停车。 |
-| 空间层              | Spatial layer                          | `laneflow-spatial`          | 拥有规范几何采样和位姿语义、但不拥有交通规则的引擎无关组件。                                                           |
-| 引擎适配器          | engine adapter                         | Adapter                     | 把运行时快照和空间位姿映射到宿主引擎生命周期与表现对象的组件。                                                         |
-| 宿主变换            | host transform                         | Transform                   | 宿主引擎中的位置、旋转和缩放表示；不得反写为交通进度权威。                                                             |
-| 细节层次            | level of detail                        | LOD                         | 按距离、预算或表现需求选择渲染/调试细节的适配器策略。                                                                  |
-| 位姿批次            | pose batch                             | —                           | 空间层按稳定顺序批量产生的位置和朝向结果。                                                                             |
-| 放置令牌            | placement token                        | —                           | 绑定规范坐标框架与宿主放置状态、防止过期位姿写入的令牌。                                                               |
+| 中文规范术语        | 英文辅助名（English Alias）         | 精确标识符 / 缩写    | 中文规范含义                                                                                                           |
+| ------------------- | ----------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| LaneFlow 交通运行时 | LaneFlow Traffic Runtime            | `laneflow-runtime`   | 目标态动态执行层；拥有固定步进、已实现执行域的交通参与单元、动态通行定义和每世界可变交通状态。                         |
+| LaneFlow 核心       | LaneFlow Core                       | `laneflow-core`      | 生产切换前当前态动态执行层；目标态由交通运行时一次性不兼容替代。                                                       |
+| 交通世界            | traffic world                       | `TrafficWorld`       | 目标态共享静态交通视图并持有每世界可变状态的运行时实例。                                                               |
+| 核心世界            | core world                          | `CoreWorld`          | 当前态 `laneflow-core` 的世界类型。                                                                                    |
+| 固定步进            | fixed tick                          | tick                 | 以确定输入和顺序推进交通状态的一次运行时更新。                                                                         |
+| 稳态步进            | steady-state tick                   | —                    | 初始化和容量稳定后的高频固定步进路径。                                                                                 |
+| 交通参与者          | traffic participant                 | —                    | 直接使用交通网络或占用交通空间的动态参与者；不等同于城市居民、乘客、出行需求或 AI Agent。                              |
+| 交通参与单元        | traffic participant unit            | —                    | 交通运行时中可独立保留身份的计数原子；机动车、骑行者组合、行人或轨道运营编组的具体原子由对应执行域 G1 冻结。           |
+| 交通执行域          | traffic execution domain            | —                    | 共享网络、运动/安全求解和生命周期契约的一类交通参与单元；与准入用 `ParticipantClass` 正交。                            |
+| 道路机动车执行域    | road motor vehicle execution domain | `road_motor_vehicle` | 当前 Core 与既有车辆工作负载的报告域；该标记不是生产数据枚举，也不冻结其他执行域的类型体系。                           |
+| 动态通行定义        | dynamic traversal definition        | —                    | 目标交通运行时中描述参与单元运行时通行路径及进度语义的通用概念；当前道路机动车执行域的具体投影是 `Route`。             |
+| 停驻状态            | stationary state                    | —                    | 参与单元暂不沿通行路径运动、但仍保留身份和领域占用语义的运行时状态；当前道路机动车投影包括停车状态。                   |
+| 车辆运行单元        | vehicle runtime unit                | `VehicleState`       | 当前 Core 的车辆特化交通参与单元；不表示目标交通运行时只允许车辆。                                                     |
+| 车辆状态            | vehicle state                       | —                    | 当前车辆运行单元在某一固定步进边界上的运动、路线与行为状态。                                                           |
+| 车道图              | lane graph                          | —                    | 供运行时遍历和路线跟随使用的有向车道拓扑。                                                                             |
+| 路线                | route                               | `Route`              | 当前道路机动车执行域中由有序遍历边和相关出现项组成的车辆行驶计划；运行时注册形态见“动态路线”。                         |
+| 动态路线            | dynamic route                       | `Route`              | “路线”的运行时注册特化，具有代际感知句柄且不获得持久 `StableId128`；两词共享当前代码标识符。                           |
+| 跟车                | vehicle following                   | —                    | 根据同一路径上的前车状态施加安全间距和速度约束的运行时行为。                                                           |
+| 信号                | signal                              | —                    | 由信号控制器和信号组产生、供车辆解释通行约束的运行时指示。                                                             |
+| 路口规则            | intersection rules                  | —                    | 对冲突流、准入、授权、预约和通行顺序进行运行时裁决的规则集合。                                                         |
+| 停车                | parking                             | —                    | 对停车区域、停车位、预约、进入、占用和离开进行管理的领域行为。                                                         |
+| 每世界可变状态      | per-world mutable state             | —                    | 交通参与单元、动态通行定义、控制器时钟、预约、占用和缓冲区等不能进入共享镜像的状态；当前投影包括车辆、动态路线和停车。 |
+| 空间层              | Spatial layer                       | `laneflow-spatial`   | 拥有规范几何采样和位姿语义、但不拥有交通规则的引擎无关组件。                                                           |
+| 引擎适配器          | engine adapter                      | Adapter              | 把运行时快照和空间位姿映射到宿主引擎生命周期与表现对象的组件。                                                         |
+| 宿主变换            | host transform                      | Transform            | 宿主引擎中的位置、旋转和缩放表示；不得反写为交通进度权威。                                                             |
+| 细节层次            | level of detail                     | LOD                  | 按距离、预算或表现需求选择渲染/调试细节的适配器策略。                                                                  |
+| 位姿批次            | pose batch                          | —                    | 空间层按稳定顺序批量产生的位置和朝向结果。                                                                             |
+| 放置令牌            | placement token                     | —                    | 绑定规范坐标框架与宿主放置状态、防止过期位姿写入的令牌。                                                               |
+
+### 7.1 规模计数状态边界
+
+当前已接受的道路机动车车辆特化计数如下；在 #291 G1 接受并完成状态原子化更新前，
+这些计数继续是性能结果与工作负载的规范用语：
+
+| 中文规范术语       | 英文辅助名（English Alias）       | 精确标识符 / 缩写  | 状态       | 中文规范含义                                                                   |
+| ------------------ | --------------------------------- | ------------------ | ---------- | ------------------------------------------------------------------------------ |
+| 个体车辆数         | individual vehicle count          | `N_individual`     | 当前已接受 | 当前 Core 中仍存在并保留完整身份、路线/进度、停车与生命周期状态的车辆数。      |
+| 道路交通活动车辆数 | road-traffic active vehicle count | `N_traffic_active` | 当前已接受 | 当前处于道路交通系统、每个 Core 基础固定步进参与运动、安全或占用求解的车辆数。 |
+| 意图更新车辆数     | intent-update vehicle count       | `N_intent`         | 当前已接受 | 当前固定步进实际重新计算昂贵控制意图的车辆数。                                 |
+| 表现车辆数         | presented vehicle count           | `N_presented`      | 当前已接受 | 当前外层帧由适配器或表现层实例化、提取或提交的车辆数。                         |
+| 聚合交通量         | aggregate traffic population      | `N_aggregate`      | 当前已接受 | 只以流、包或计数存在、没有完整逐车身份的交通量。                               |
+
+以下六项是 **#291 Proposed 目标计数**；G1 接受并完成状态原子化更新前，不得把它们
+写成当前已接受契约、产品通过条件、性能基准或合并门禁：
+
+| 中文规范术语       | 英文辅助名（English Alias）            | 精确标识符 / 缩写           | 状态          | 中文规范含义                                                                                    |
+| ------------------ | -------------------------------------- | --------------------------- | ------------- | ----------------------------------------------------------------------------------------------- |
+| 个体交通参与单元数 | individual traffic participant count   | `N_individual[d]`           | #291 Proposed | 执行域 `d` 中仍存在并保留完整身份与生命周期状态的交通参与单元数。                               |
+| 活动交通参与单元数 | active traffic participant count       | `N_active[d]`               | #291 Proposed | 执行域 `d` 中当前参与该域运动、安全或占用求解的个体交通参与单元数。                             |
+| 意图更新参与单元数 | intent-update participant count        | `N_intent[d]`               | #291 Proposed | 当前固定步进在执行域 `d` 中实际重新计算昂贵行为或控制意图的个体交通参与单元数。                 |
+| 表现交通参与单元数 | presented traffic participant count    | `N_presented[d]`            | #291 Proposed | 当前外层帧在执行域 `d` 中由适配器或表现层按个体身份实例化、提取或提交的交通参与单元数。         |
+| 聚合交通记录数     | aggregate traffic record count         | `N_aggregate_records[d]`    | #291 Proposed | 执行域 `d` 中由运行时实际存储、调度或更新的聚合流、包、单元格等记录数，用于衡量计算与内存成本。 |
+| 聚合等价参与单元数 | aggregate-equivalent participant count | `N_aggregate_equivalent[d]` | #291 Proposed | 执行域 `d` 中聚合表示所代表的交通参与单元数，用于描述保真度与覆盖规模；不能替代聚合交通记录数。 |
 
 ## 8. 静态路网领域标识符
 

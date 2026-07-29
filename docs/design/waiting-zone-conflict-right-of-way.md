@@ -1,7 +1,7 @@
 # WaitingZone、ConflictZone 与通行权分层
 
 **文档状态**: Accepted（#235 G1）<br>
-**最后更新**: 2026-07-28<br>
+**最后更新**: 2026-07-29<br>
 **适用范围**: #235 的多阶段 ManeuverGate、WaitingZone、ConflictZone、versioned jurisdiction/right-of-way policy、车辆级 grant/reservation、确定性与 Core constraint 集成<br>
 **实现状态**: #281 已交付 multi-Gate、WaitingZone static registry/Data 0.10、
 Route occurrence compilation 与绑定期 capability guards；#282–#285 的
@@ -722,7 +722,7 @@ yellow 的 committed 解释不反向改变 steady-phase authoring 结论。
 ### 7.2 Gate evaluation frontier 与 arbitration candidate
 
 `Gate evaluation frontier` 包含 next Gate occurrence 已进入本 tick lookahead 的全部
-道路活动车辆，不能因 Waiting full、downstream storage 不足或 request 无法构造就
+道路交通活动车辆，不能因 Waiting full、downstream storage 不足或 request 无法构造就
 从 latest-decision observation 中消失：
 
 - regulatory decision 为 `DenyAndStop` 时记录 `NotEvaluated`，并保留 GateStop；

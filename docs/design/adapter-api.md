@@ -2,7 +2,7 @@
 
 **文档状态**: 已接受（current）＋ Draft（#291 target 导航）
 
-**最后更新**: 2026-07-28（#187 current；#291/ADR 0020 target）
+**最后更新**: 2026-07-29（#187 current；#291/ADR 0020 target）
 
 **适用范围**: Core、Spatial 与引擎适配器（Engine Adapter）之间的只读位姿与 typed lifecycle 契约；具体 Bevy 0.19 specialization 见 `bevy-reference-adapter.md`
 
@@ -118,8 +118,8 @@ Bevy/glam、Unity `Vector3`、Unreal `FVector`、Godot `Vector3` 以及 JavaScri
 - 全部 records 先写 scratch；只有全部成功后才 swap 到 output 并更新 placement token。失败时旧 output 的 frame、token 和 records 逐项不变，scratch 清空但保留容量。
 - 调用方可以同时预留并跨 tick 复用 output/scratch；稳定容量下不要求 per-batch allocation。#137 已验证精确零 allocation 与一万/十万性能，固定机结果和适用边界见 `../reference/v0.6-spatial-validation.md`。
 - canonical frame 与宿主坐标之间的转换不得修改 `CoreWorld`、Spatial 注册表或快照。
-- 单记录查询可以用于调试，但不能作为一万或十万当前道路机动车参与单元的默认同步
-  路径。
+- 单记录查询可以用于调试，但不能作为当前道路机动车执行域一万或十万车辆运行单元的
+  默认同步路径。
 
 ## 7. v0.7 Bevy specialization
 

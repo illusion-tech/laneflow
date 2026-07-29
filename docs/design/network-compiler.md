@@ -2,8 +2,8 @@
 
 **文档状态**: Draft（#291 G1 综合架构修订）<br>
 **最后更新**: 2026-07-29<br>
-**适用范围**: 权威来源模块图（Authoritative Source Module Graph）、有类型中间表示
-（Typed IR）、静态网络编译权威、标识派生、可移植规范制品（Portable Canonical
+**适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
+（Compiler IR）、静态路网编译权威、标识派生、可移植规范制品（Portable Canonical
 Artifact）、目标静态镜像（Target Static Image）、源映射（Source Map）、语义差异
 （Semantic Diff）、独立验证器（Independent Validator）、交通运行时（Traffic
 Runtime）命名、静态执行约束（Static Execution Constraints）、不可变路网修订
@@ -85,7 +85,7 @@ StaticNetworkImage ─┬─> Traffic Runtime: StaticTrafficView + per-world mut
   输入；
 - 编译单元的唯一数据编制权威是可重放的权威来源模块图，几何文档只是生产场景的
   主要来源语言；
-- 编译器是全部静态网络的唯一编译权威；
+- 编译器是全部静态路网的唯一编译权威；
 - `InitialTrafficData` 和 Core 登记表不是中间表示；
 - AST/HIR/MIR/LIR 逐级降阶，只有已验证规范 LIR 可以进入编译发射器；
 - 可移植规范制品与目标静态镜像是同一 LIR 的不同后端；
@@ -180,7 +180,7 @@ canonical publication contract，target static image 是可重建性能制品；
 
 ### 4.2 编译器权威（Compiler Authority）
 
-compiler 唯一负责静态网络的：
+compiler 唯一负责静态路网的：
 
 - symbol/reference/unit resolution；
 - topology/geometry 展开与全局语义；
@@ -255,7 +255,7 @@ authoring curve evaluator。具体 curve segment 集合由独立 numeric/authori
 - publishable compile 不接收没有 owning module、source span/provenance 或稳定
   namespace 的匿名 AST。
 
-## 6. 有类型中间表示与编译遍边界（Typed IR and Pass Boundaries）
+## 6. 编译器中间表示与编译遍边界（Compiler IR and Pass Boundaries）
 
 ### 6.1 有类型抽象语法树（Typed AST）
 
@@ -660,7 +660,9 @@ freeze 后计算该字段；independent validator 必须从 artifact semantic pa
 
 ### 8.2 目标静态镜像（Target Static Image）
 
-按 `targetTriple + staticImageLayoutVersion + staticImageProfileId` 生成：
+按 `targetTriple + staticImageLayoutVersion + staticImageProfileId + partitionHintVersion`
+生成。`partitionHintVersion` 是第四根镜像变体选择轴，因为
+提示节属于必选字节、但不进入目标无关的路网修订语义：
 
 ```text
 StaticNetworkImage
@@ -762,9 +764,11 @@ Traffic、identity 与 partition-hint 必需节；Spatial session 构造前再�
 误写成“任意镜像字节已可信”。完整镜像 SHA-256 继续服务发布身份、独立重建和显式
 完整审计（Full Audit），不再是每次生产启动建立 Traffic view 的强制串行步骤。
 
-相同 portable artifact 的不同 target/profile variant 共享
-`canonicalArtifactDigest` 与 `NetworkRevisionId`，但各自拥有不同
-`staticImageDigest`。Image header 必须声明 `networkRevisionDerivationVersion` 与
+相同 portable artifact 的不同 target/profile/partition-hint variant 共享
+`canonicalArtifactDigest` 与 `NetworkRevisionId`，但各自拥有独立的
+`staticImageDigest + staticImageByteLength` 绑定；若两个变体的 exact bytes
+偶然相同，其摘要也可以相同，不能把“变体不同”错误提升为“摘要必然不同”。
+Image header 必须声明 `networkRevisionDerivationVersion` 与
 `networkRevision`，但这些字段和 header 中的其他 provenance 一样只供外部描述符
 核对，不能自证可信。Traffic Runtime 的
 构造入口只接收从 `TrustedStaticImage` 拆出的 `StaticTrafficView`，不能要求调用方
@@ -823,13 +827,19 @@ descriptor 可以由签名 publication manifest、宿主已认证 asset/package 
 攻击者可以伪造它们并对任意 image bytes 计算新的 `staticImageDigest`，因此不能
 独立建立 semantic trust。
 
-Trusted descriptor 的签发前置条件是：portable artifact 已通过 independent
-semantic validator，且不复用 compiler emitter 的 independent image rebuild 在相同
-target/layout/profile 下产生相同 exact bytes digest + length。Validation receipt
-必须记录这两项成功证据，并绑定 independent validator 重算所得的
-`networkRevisionDerivationVersion + networkRevision`、
-`canonicalArtifactDigest + canonicalArtifactByteLength` 与
-`staticImageDigest + staticImageByteLength`，并记录
+Trusted descriptor 的签发前置条件是三项独立成功证据：
+
+1. portable artifact 通过独立语义验证，包括全部稳定身份重算；
+2. `networkRevisionDerivationVersion + networkRevision` 从规范语义载荷独立重算并
+   与制品声明相等；
+3. 不复用 compiler emitter 的独立镜像重建器在相同
+   target/layout/profile/partition-hint variant 下产生相同 exact bytes digest +
+   length。
+
+Validation receipt 必须逐项记录三者，并绑定
+`canonicalArtifactDigest + canonicalArtifactByteLength`、
+`networkRevisionDerivationVersion + networkRevision` 与
+`staticImageDigest + staticImageByteLength`，同时记录
 `staticImageIntegritySchemeVersion +
 staticImageIntegrityManifestDigest + staticImageIntegrityManifestByteLength` 已与
 同一 independent rebuild exact bytes 闭合。
@@ -914,7 +924,23 @@ authoring error 指向 source/画布；artifact corruption/version mismatch 面�
 
 ### 8.5 语义差异（Semantic Diff）
 
-PR 审阅不依赖二进制 diff。Stable entity 按 StableId128 报告；owner-local derived
+语义差异不是可以脱离旧/新规范制品解释的裸记录。每份语义差异必须使用版本化的
+语义差异封套（Semantic Diff Envelope）`SemanticDiffEnvelope`：
+
+```text
+semanticDiffFormatVersion
+baseNetworkRevisionDerivationVersion
+baseNetworkRevision
+baseCanonicalArtifactDigest
+baseCanonicalArtifactByteLength
+targetNetworkRevisionDerivationVersion
+targetNetworkRevision
+targetCanonicalArtifactDigest
+targetCanonicalArtifactByteLength
+records
+```
+
+PR 审阅不依赖二进制 diff。封套内 Stable entity 按 StableId128 报告；owner-local derived
 record 在 owning StableId128 + typed role 内按 canonical relation value 做确定性
 sequence diff，报告 before/after `localIndex`，但不把位置当成跨编译标识：
 
@@ -925,12 +951,13 @@ sequence diff，报告 before/after `localIndex`，但不把位置当成跨编�
 - 标识闭包变化及原因；
 - target/profile image layout-only change（不得伪装成 semantic change）。
 
-Semantic diff 必须绑定
+封套必须绑定
 `baseNetworkRevisionDerivationVersion + baseNetworkRevision +
-baseCanonicalArtifactDigest` 与
+baseCanonicalArtifactDigest + baseCanonicalArtifactByteLength` 与
 `targetNetworkRevisionDerivationVersion + targetNetworkRevision +
-targetCanonicalArtifactDigest`。Base 必须是已通过 independent validator 的
-portable artifact；无 baseline 时使用显式 genesis marker，并把全部 stable entity
+targetCanonicalArtifactDigest + targetCanonicalArtifactByteLength`。Base 必须是已
+通过 independent validator 的 portable artifact；无 baseline 时使用显式 genesis
+marker，并把全部 stable entity
 和 owner-local sequence 报告为新增。重复 relation value 的序列对齐按最低
 before/after `localIndex` 确定性破同值，diff 本身不获得 authoring authority。
 
@@ -1153,6 +1180,7 @@ targetCanonicalArtifactDigest
 targetCanonicalArtifactByteLength
 targetStaticImageDigest
 targetStaticImageByteLength
+semanticDiffFormatVersion
 semanticDiffDigest
 semanticDiffByteLength
 migrationPolicyVersion
@@ -1163,9 +1191,10 @@ validationReceiptByteLength
 
 该描述符必须来自签名 publication manifest、宿主认证资产清单或 pinned digest；
 validation receipt 必须证明 independent validator 已针对两个 portable artifact
-重算并验证各自路网修订标识，且已验证或重算语义差异。描述符中的 base/target
-修订、制品摘要/长度和镜像摘要/长度必须分别与两个可信静态镜像的 descriptor 精确
-相等。
+重算并验证各自路网修订标识，且已按 `semanticDiffFormatVersion` 解析、验证或重算
+完整 `SemanticDiffEnvelope`。描述符中的 diff format version/digest/length 必须与
+封套 exact bytes 精确一致；base/target 修订、制品摘要/长度和镜像摘要/长度必须分别
+与封套及两个可信静态镜像的 descriptor 精确相等。
 Runtime 仍须用两个 `StaticIdentityIndex` 核验每个稳定实体映射，不能让 diff 中的
 ordinal、数组位置或 compiler 私有顺序成为迁移权威；该索引检查是语义差异验证后的
 身份完整性防线，不能证明语义兼容。缺失、未认证、base/target
@@ -1262,7 +1291,7 @@ phase、实体与资源组件。快照线格式、摘要算法和诊断裁剪由
 ### 9.8 路径规划和出行需求接入
 
 Traffic Runtime 从已提交状态导出已提交交通观测快照，不泄漏 tick 中间提案，也不
-拥有全局成本政策。路径规划/出行编排层结合静态网络、观测、收费、游戏政策与偏好
+拥有全局成本政策。路径规划/出行编排层结合静态路网、观测、收费、游戏政策与偏好
 构造版本化动态成本快照，返回可由 Runtime 注册/验证的候选通行定义；不得在每个
 交通参与单元的 fixed-tick 内全图寻路。当前车辆域使用 Route，未来执行域由其 G1
 冻结等价通行定义。成本快照和候选通行定义必须绑定路网修订、观测 tick 与成本模型
@@ -1323,6 +1352,8 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
 - forged header canonical digest/provenance、attacker-recomputed image digest、
   forged `networkRevision`、tampered descriptor/receipt 和 wrong-profile
   rejection；
+- 缺失、未知或与封套不一致的 `semanticDiffFormatVersion`，以及 diff
+  base/target artifact/revision/digest/length 任一错配时的 cutover 拒绝；
 - oversized/truncated/appended image、descriptor length mismatch、unknown-length
   stream 与 decompression overrun 在 hash / 大分配前拒绝，并用读取 / hash byte
   counter 证明工作量不超过已认证 exact length 与 caller limit；
@@ -1575,7 +1606,7 @@ normalization authority。
 阶段 0  current JSON/Data/Core/Spatial 路径继续生产服役
 阶段 1  #291：ADR 0020/0021 + 本设计完成 G1
 阶段 2  #292：static-contract + compiler foundation + Synthetic DSL frontend 纵向闭环
-阶段 3  integration-only LIR→current projection 支撑 #282–#285 等价验证
+阶段 3  #292 验收：integration-only LIR→current projection 支撑 #282–#285 等价验证
 阶段 4  Geometry document frontend + topology/geometry MIR（可与阶段 3 并行）
 阶段 5  portable artifact + independent validator + source map/semantic diff
 阶段 6  target static image + Traffic Runtime/Spatial shared image path
@@ -1583,7 +1614,9 @@ normalization authority。
 阶段 8  #294：production cutover，完成 core→runtime rename 并移除 projection/重复构建
 ```
 
-阶段是架构迁移顺序，不是把终态降级为最小方案。每个阶段都必须沿同一个
+阶段是架构迁移顺序，不是把终态降级为最小方案。#292 只有在阶段 2 与阶段 3 均完成
+后才能达到 G4，因此“#292 G4”与“projection 就绪后恢复 #282–#285”是同一前置条件，
+不是两个互相竞争的恢复点。每个阶段都必须沿同一个
 AST/HIR/MIR/LIR 与 artifact/image contract 前进，不允许先建一个注定废弃的 Core
 builder API。阶段 3 的 bridge 固定为 `laneflow-compiler-test-support` 或等价
 integration-only crate：它可以依赖 compiler + current Core/Spatial，将 validated
