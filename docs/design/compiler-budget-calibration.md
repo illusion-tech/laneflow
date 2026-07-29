@@ -619,7 +619,10 @@ release 编译优化、输入清单和语义检查，但：
 
 每种进程模式、每级分别报告五个冷实例原始值、三十五个稳定容量复用原始值、每轮
 中位数、跨轮中位数和中位绝对偏差。不得删除离群值；外部干扰导致整轮作废时，
-必须保存作废原因并重跑该模式的完整轮次。
+必须保存作废原因并重跑该模式的完整轮次。进程正常退出只记录
+`process.exitKind = success`，不自动令样本有效；作废轮次中的正常退出样本必须保留
+为 `status = invalid` 并携带至少一项具名 `invalidationReasons`，不得进入中位数、
+候选比较或其他派生结论。
 
 ### 5.4 确认成本拐点
 
@@ -754,8 +757,9 @@ Schema 必须允许记录这些无效实验，但 G2 独立验证器不得把它
 - `posix-signal` 与 `platform-status` 只能形成 `invalid-abnormal-exit` 或
   `invalid-monitor-termination`，不能冒充成功或子进程内受检护栏退出。除
   `trigger = monitoring-gap` 的无效样本外，`lastPrivateBytes` 仍必须是实测非负整数；
-- `success` 与 `guarded-in-child` 都必须正常返回 `exitCode = 0`；前者的运行状态为
-  `valid`，后者为 `guarded`。以数值退出码结束的 `invalid-abnormal-exit` 或
+- `success` 与 `guarded-in-child` 都必须正常返回 `exitCode = 0`；前者只表示进程
+  正常结束，运行状态可因轮次质量为 `valid` 或 `invalid`，后者为 `guarded`。以数值
+  退出码结束的 `invalid-abnormal-exit` 或
   `invalid-monitor-termination` 必须使用非零退出码，并把运行状态标为 `invalid`、
   `invalidationReasons` 包含 `child-abnormal-exit`；
 - 监控缺样允许保存 `lastPrivateBytes = null + reason`，但该运行必须保持无效，
@@ -1068,8 +1072,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `140562` exact bytes，SHA-256 为
-`f4bc282289febe4a389af615a15bdd4f10165513814286ac9c98a0882d0a0425`。
+G1 候选冻结 schema `142608` exact bytes，SHA-256 为
+`91ffedd1e8d4af1155748c979eb2340ab17f902fe6efa5ea619aab0243f3b381`。
 顶层格式标识：
 
 ```text
