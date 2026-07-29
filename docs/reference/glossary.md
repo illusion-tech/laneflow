@@ -112,6 +112,8 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 失败用例标识符         | failure case ID                                           | `caseId`                         | 提案中（Proposed；#308），稳定区分限制边界、语义错误和诊断截断实验的机器可读标识符；运行标识符不能替代它。                                                          |
 | 清理实验               | cleanup experiment                                        | —                                | 提案中（Proposed；#308），以同一实验标识符和固定序号关联合法基线、重复失败、恢复成功与新实例判定基准的失败恢复验证序列。                                            |
 | 候选依赖审计           | candidate dependency audit                                | `dependencyAudit`                | 提案中（Proposed；#308），为每个容器或哈希候选记录许可证、最低支持 Rust 版本、安全公告和锁文件绑定的机器可读审计。                                                  |
+| 候选比较分层           | candidate comparison stratum                              | `stratum`                        | 提案中（Proposed；#308），由键域、工作负载配置、规模、样本种类和二进制模式共同标识的一次候选比较范围；不同分层不得聚合。                                            |
+| 最后私有内存快照       | last private-memory snapshot                              | `lastPrivateBytes`               | 提案中（Proposed；#308），父进程最近一次实际采集的子进程私有字节观察；子进程未启动或监控缺样时必须使用 `null + reason`，不得伪造为零。                              |
 
 ## 4. 标识、引用与数据布局
 
