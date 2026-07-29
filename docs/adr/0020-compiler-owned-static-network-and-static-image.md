@@ -484,6 +484,13 @@ source-map 闭合、独立镜像重建或完整语义差异验证的对应受检
 production fast path 的 descriptor。运行时当前修订只来自已认证
 `StaticImageDescriptor`，不接受调用方或 image header 自报。
 
+独立镜像重建器只能消费独立验证器刚建立的已验证规范制品视图（Validated Artifact
+View）；跨进程时可以消费由已认证 `canonical-publication-v1` descriptor/receipt
+重新建立的等价能力。
+包含重建比较结果的 `static-image-v1` 最终收据必须在比较成功后才签发，绝不能作为
+自身独立重建或比较的输入。`revision-cutover-v1` 同理只能在两侧可信描述符和完整
+语义差异验证完成后签发。
+
 ### 9. 包（Crate）目标边界
 
 终态依赖箭头统一表示“左侧依赖右侧”：
@@ -586,22 +593,26 @@ Oracle）。运行时至少报告组件/SCC 分布、最大 SCC 提案占比、�
 
 ### 12. 运行时快照、回放和路径规划不进入共享静态权威
 
-运行时快照（Runtime Snapshot）是独立版本化制品，至少绑定规范制品摘要与精确
-长度、创建快照时的
-`originStaticImageDigest + originStaticImageByteLength`、运行时/约束/快照版本、
+运行时快照（Runtime Snapshot）是独立版本化制品，至少绑定创建快照时的
+`originCanonicalArtifactDigest + originCanonicalArtifactByteLength`、
+`originStaticImageDigest + originStaticImageByteLength`、运行时/快照版本、
+identity/constraint/execution-constraint versions、
 `networkRevisionDerivationVersion + networkRevision`、world identity、tick、
 输入命令游标和全部每世界可变交通状态；只有后续 G1 显式授予的 Runtime 自有随机流
 才进入该快照。Caller-owned seed/随机流由上层 Save Manifest 绑定，不进入 Traffic
 Runtime 隐藏状态。保存和恢复只能从 `TrustedStaticImage` descriptor 复制/比较
 修订 token，不能由调用方或镜像头覆盖。
 
-同修订恢复可以使用另一个已认证 target/profile image，但必须绑定相同规范制品、
-路网修订、identity/constraint versions，并通过 `StaticIdentityIndex` 完整重建稳定
-静态引用；`originStaticImageDigest` 只承担来源审计和同镜像快速恢复。跨修订恢复
-必须通过稳定标识与受信任语义差异执行显式迁移；旧 dense ordinal 不得直接解释为新
-修订实体。动态通行定义、交通参与单元和其他运行时实体以快照局部标识保存引用关系；
-当前 vehicle/dynamic Route 只是首个特化。原进程 runtime handle/slot/generation
-不得成为恢复后身份。
+同修订恢复可以使用另一个已认证 target/profile image，即使 compiler provenance 或
+artifact envelope 重发布导致其 canonical artifact digest/length 不同；候选可信镜像
+必须由独立验证收据证明从自身 artifact 重算得到与快照相同的版本化路网修订，
+identity/constraint/execution-constraint versions 必须精确相等，并通过
+`StaticIdentityIndex` 完整重建稳定静态引用。快照中的原规范制品与原镜像
+digest/length 只承担来源审计及同制品/同镜像快速恢复，不是同修订兼容条件。跨修订
+恢复必须通过稳定标识与受信任语义差异执行显式迁移；旧 dense ordinal 不得直接解释
+为新修订实体。动态通行定义、交通参与单元和其他运行时实体以快照局部标识保存引用
+关系；当前 vehicle/dynamic Route 只是首个特化。原进程 runtime
+handle/slot/generation 不得成为恢复后身份。
 
 任何保留旧世界状态的跨修订切换/恢复都必须由受信任 semantic diff 驱动。外部可信
 `NetworkRevisionCutoverDescriptor` 必须绑定 base/target canonical artifact 和

@@ -183,7 +183,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 静默提交窗口         | quiescent commit window                | —                                  | 固定步进安全边界上短暂冻结旧世界输入、排空日志尾并原子切换绑定的有界时间窗口。                                                   |
 | 维护暂停模式         | paused maintenance mode                | —                                  | 由宿主显式声明世界已暂停、允许一次性完成迁移且单独预算完整停顿的切换模式。                                                       |
 | 路网修订切换描述符   | network revision cutover descriptor    | `NetworkRevisionCutoverDescriptor` | 在镜像外可信绑定两侧修订、制品、镜像、语义差异、验证收据与迁移策略的切换输入。                                                   |
-| 运行时快照           | runtime snapshot                       | —                                  | 绑定规范制品与路网修订、记录规范制品及原始静态镜像摘要与精确长度，并可借助稳定身份索引在兼容镜像上恢复的每世界可变状态存档制品。 |
+| 运行时快照           | runtime snapshot                       | —                                  | 绑定版本化路网修订、记录原规范制品及原静态镜像摘要与精确长度，并可借助稳定身份索引在可信镜像上精确恢复的每世界可变状态存档制品。 |
 | 快照局部标识         | snapshot-local identity                | —                                  | 只在一个运行时快照内稳定、用于重建动态实体引用且不复用原进程句柄的持久键。                                                       |
 | 输入命令序列         | input command sequence                 | —                                  | 按规范顺序驱动世界、可与检查点共同重放的显式外部命令流。                                                                         |
 | 检查点               | checkpoint                             | —                                  | 在回放序列中周期保存、用于缩短恢复和失同步定位区间的版本化状态锚点。                                                             |
@@ -275,6 +275,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 未验证镜像字节     | unverified image bytes          | `UnverifiedImageBytes`         | 尚未完成结构与外部信任绑定的任意输入字节。                                                                        |
 | 已结构验证镜像     | structurally verified image     | `StructurallyVerifiedImage`    | 目标节的有界结构检查通过，只证明内存安全和运行时前置条件成立、尚未证明发布来源或内容绑定可信的镜像。              |
 | 可信静态镜像       | trusted static image            | `TrustedStaticImage`           | 与认证外部描述符、完整性清单及验证收据匹配，且只暴露已完成分块/结构验证目标节的能力对象。                         |
+| 已验证规范制品视图 | validated artifact view         | —                              | 独立验证器完成语义和标识重算后建立、供后续独立重建消费的只读能力；不是最终收据。                                  |
 | 编译器语义验证     | compiler semantic validation    | —                              | 编译器对来源和 IR 执行的主语义检查。                                                                              |
 | 独立验证器         | independent validator           | `laneflow-validator`           | 不复用编译器语义实现，独立检查可移植规范制品、路网修订标识和语义差异的验证器。                                    |
 | 独立镜像重建器     | independent image builder       | —                              | 不复用编译发射器的布局填充实现，从已验证制品重建镜像的独立实现。                                                  |

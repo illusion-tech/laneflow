@@ -855,7 +855,8 @@ validationReceiptDigest + validationReceiptByteLength`；封套不得内嵌自�
 未知格式版本、未知种类、描述符与封套版本/种类不一致，或使用其他种类收据替代当前
 描述符要求的种类时，一律在解析 subject bindings 前失败关闭。
 
-`static-image-v1` 可信描述符的签发前置条件是三项独立成功证据：
+`StaticImageDescriptor` 的 `validationReceiptKind` 必须是 `static-image-v1`；
+该可信描述符的签发前置条件是三项独立成功证据：
 
 1. portable artifact 通过独立语义验证，包括全部稳定身份重算；
 2. `networkRevisionDerivationVersion + networkRevision` 从规范语义载荷独立重算并
@@ -1281,13 +1282,16 @@ oversized、length mismatch 或 digest mismatch 都在开始迁移事务前失�
 运行时快照与共享 image 分离，并至少绑定：
 
 ```text
-canonicalArtifactDigest
-canonicalArtifactByteLength
+originCanonicalArtifactDigest
+originCanonicalArtifactByteLength
 originStaticImageDigest
 originStaticImageByteLength
 runtimeSnapshotVersion
 runtimeVersion
+identityEncodingVersion
+identityRegistryRevision
 constraintSetVersion
+executionConstraintVersion
 networkRevisionDerivationVersion
 networkRevision
 worldIdentity
@@ -1302,14 +1306,21 @@ runtime-owned random-stream state (future explicit G1 only)
 partition 或 worker assignment 不能成为恢复后身份或跨硬件行为权威。跨路网修订
 恢复必须显式迁移，不能把旧 dense ordinal 直接解释为新镜像实体。
 
-`canonicalArtifactDigest + canonicalArtifactByteLength` 与版本化
-`networkRevision` 是同修订恢复的静态语义权威；
-`originStaticImageDigest + originStaticImageByteLength` 记录创建快照时的精确
-target/profile image，供审计和同镜像快速恢复。恢复可以改用另一个已认证
-target/profile image，但仅当它绑定相同 canonical artifact、network revision、
-identity/constraint versions，且
-`StaticIdentityIndex` 能完整重建全部稳定静态引用时；否则失败关闭。该规则使快照
-不依赖 target-specific dense ordinal，同时仍保留原镜像的可审计来源。
+版本化 `networkRevision` 与兼容的 runtime/snapshot 契约、精确相等的
+identity/constraint/execution-constraint versions 是同修订恢复的静态语义权威。
+`originCanonicalArtifactDigest + originCanonicalArtifactByteLength` 与
+`originStaticImageDigest + originStaticImageByteLength` 记录创建快照时的精确发布
+制品和 target/profile image，只承担来源审计与同制品/同镜像快速路径。
+
+恢复可以改用另一个已认证 target/profile image，即使它因 compiler provenance 或
+artifact envelope 重发布而绑定不同的 canonical artifact digest/length；但候选
+`TrustedStaticImage` 的独立验证收据必须证明其从自身 artifact 语义载荷重算得到与
+快照精确相等的 `networkRevisionDerivationVersion + networkRevision`，上述
+identity/constraint/execution-constraint versions 必须精确相等，且
+`StaticIdentityIndex` 必须完整重建快照中的全部稳定静态引用和有类型关系。任一条件
+不满足即失败关闭。不同 artifact digest 本身不触发跨修订迁移；revision 不同才必须
+进入 §9.6。该规则使快照不依赖发布 provenance 或 target-specific dense ordinal，
+同时保留原制品/镜像的可审计来源。
 保存快照时，Runtime 必须从当前 `TrustedStaticImage` binding 复制
 `networkRevisionDerivationVersion + networkRevision`；恢复时只与候选可信镜像
 descriptor 的同名字段比较，不接受 save manifest、调用方参数或 image header
@@ -1346,22 +1357,29 @@ Routing G1 冻结。
 
 ```text
 source module graph ─> compiler ─> canonical artifact ─> independent validator
-                              │      (identity preimages)   └> validation receipt
-                              ├> source map ───────────────────────────────┘
+                              │      (identity preimages)   └> validated artifact view
+                              ├> source map ─> closure check ─> canonical-publication-v1 receipt
                               └> target static image ─────────> structural verifier
 
-canonical artifact + validation receipt
-  ─> independent image rebuild ─> byte/digest comparison
+validated artifact view + target/layout/profile/partition-hint
+  ─> independent image rebuild ─> exact-byte digest/length comparison
+  ─> static-image-v1 receipt ─> trusted static-image descriptor
 
-trusted publication/asset manifest
-  ─> external descriptor ─> digest/profile/target binding ─> trusted runtime view
+base/target trusted descriptors + semantic diff
+  ─> independent diff validation ─> revision-cutover-v1 receipt
+  ─> trusted cutover descriptor
 ```
 
 independent validator 不调用 compiler semantic validation。两者可以共享机器可读
 枚举、field tags 和约束常量，但 topology/ownership/coverage/geometry/occurrence
 算法必须有独立实现或独立 oracle；independent image builder 也不得复用 compiler
-emitter 的 layout population 实现。只有 artifact validation 与 image rebuild
-comparison 都成功，publication 才能签发 trusted descriptor/receipt。
+emitter 的 layout population 实现。独立镜像重建器直接消费本次独立验证产生的
+已验证规范制品视图（Validated Artifact View）；若跨进程传递，必须先用已认证
+`canonical-publication-v1` descriptor/receipt 对 artifact 重新建立同等能力。
+`static-image-v1` 最终收据只能在独立重建和 exact-byte digest/length comparison
+成功后签发，绝不能作为该重建或比较的输入。只有 artifact validation 与 image
+rebuild comparison 都成功，publication 才能签发 trusted static-image
+descriptor/receipt。
 
 对 `CanonicalIdentityTable`，independent validator 必须：
 
@@ -1390,6 +1408,9 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
   base/target artifact/revision/digest/length 任一错配时的 cutover 拒绝；
 - 缺失、未知或与封套不一致的 `validationReceiptFormatVersion` /
   `validationReceiptKind`，以及三种 receipt kind 互相替代时的 descriptor 拒绝；
+- 独立镜像重建只消费已验证规范制品视图或另行认证的
+  `canonical-publication-v1` 输入，证明 `static-image-v1` 最终收据不参与自身重建/
+  比较，且只在 comparison 成功后签发；
 - oversized/truncated/appended image、descriptor length mismatch、unknown-length
   stream 与 decompression overrun 在 hash / 大分配前拒绝，并用读取 / hash byte
   counter 证明工作量不超过已认证 exact length 与 caller limit；
@@ -1428,6 +1449,9 @@ comparison 都成功，publication 才能签发 trusted descriptor/receipt。
   延迟回收；维护暂停模式单独报告全停顿；
 - snapshot save/load、same-revision replay、cross-revision rejection/migration 与
   desynchronization diagnostics；
+- 同一 revision 但 artifact provenance/envelope/digest 不同的重发布镜像可恢复，
+  而 revision、identity/constraint/execution-constraint version 或稳定引用闭合任一
+  不一致时失败关闭；原 artifact/image digest 只命中审计与快速路径；
 - 完整性清单构建/认证、必需节预先验证（Eager Verification）、Spatial
   延迟验证/后台验证（Lazy/Background Verification）和显式全镜像审计各自的墙钟耗时
   （Wall Time）、读取字节、并行度与峰值分配；

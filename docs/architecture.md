@@ -263,12 +263,14 @@ Initial/static occurrence 由 compiler
 预编译，dynamic Route occurrence 仍由 Runtime 按 image index 编译，steady tick
 继续只使用 typed dense handle。
 
-运行时快照（Runtime Snapshot）是与镜像字节分离的版本化制品，必须绑定
-规范制品摘要与精确长度、版本化路网修订标识、原始静态镜像摘要与精确长度、运行时/约束
+运行时快照（Runtime Snapshot）是与镜像字节分离的版本化制品，必须绑定原规范制品
+摘要与精确长度、版本化路网修订标识、原始静态镜像摘要与精确长度、运行时/约束
 版本、world identity、tick、输入命令游标和全部每世界可变状态；同一修订可以在
-契约版本兼容且
-`StaticIdentityIndex` 能完整重建引用时恢复到另一个可信 target/profile image，
-原始镜像摘要只作为审计绑定与同镜像快速路径。dense ordinal 不能跨路网修订直接复用。
+runtime/snapshot 契约兼容、identity/constraint/execution-constraint versions
+精确相等且 `StaticIdentityIndex` 能完整重建引用时恢复到另一个可信
+target/profile image，即使后者因 compiler provenance 或 artifact envelope 重发布而
+规范制品摘要不同。原规范制品/镜像摘要只作为审计绑定与同字节快速路径。dense
+ordinal 不能跨路网修订直接复用。
 任何保留旧状态的跨修订切换/恢复都必须消费经独立验证、由可信切换描述符绑定的语义
 差异；`StaticIdentityIndex` 只复核 StableId128 ↔ typed ordinal 映射，不能证明
 语义兼容，缺失该证据时迁移失败关闭。
