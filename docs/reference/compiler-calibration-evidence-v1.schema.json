@@ -289,7 +289,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "50d390aa442f7cba2ac953e5cc217221702410942626779c8e031d8699e2b2e9"
+          "const": "d6079015e1f96b0b017b4652b6925584023befc491cfe31617edc7053e0e2f06"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -608,11 +608,99 @@
         {
           "type": "object",
           "required": [
+            "RoadCorridor",
+            "RoadSection",
+            "AuthoringLane",
+            "LaneEdge",
+            "Junction",
+            "Movement",
+            "ManeuverPath",
+            "ManeuverGate",
+            "WaitingZone",
+            "StopLine",
+            "SignalGroup",
+            "SignalController",
+            "SignalPhase",
+            "ParkingArea",
+            "ParkingSpace",
+            "LaneGroup",
+            "FacilityBand",
+            "ParticipantClass",
+            "AccessRule",
+            "VehicleProfile",
+            "StaticRoute",
+            "CanonicalFrame",
             "identityDeclaration",
             "requiredIdentityFieldOccurrence",
             "ownerRelation"
           ],
           "properties": {
+            "RoadCorridor": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "RoadSection": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "AuthoringLane": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "LaneEdge": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "Junction": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "Movement": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ManeuverPath": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ManeuverGate": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "WaitingZone": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "StopLine": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "SignalGroup": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "SignalController": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "SignalPhase": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ParkingArea": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ParkingSpace": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "LaneGroup": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "FacilityBand": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ParticipantClass": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "AccessRule": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "VehicleProfile": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "StaticRoute": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "CanonicalFrame": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
             "identityDeclaration": {
               "$ref": "#/$defs/nonNegativeInteger"
             },
@@ -1100,7 +1188,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "50d390aa442f7cba2ac953e5cc217221702410942626779c8e031d8699e2b2e9"
+          "const": "d6079015e1f96b0b017b4652b6925584023befc491cfe31617edc7053e0e2f06"
         },
         "counts": {
           "type": "object"
@@ -1753,7 +1841,8 @@
           "enum": [
             "external-string",
             "validated-fixed-key",
-            "canonical-output-order"
+            "canonical-output-order",
+            "full-pipeline-baseline"
           ]
         },
         "dependencyKind": {
@@ -2609,6 +2698,65 @@
         }
       ]
     },
+    "limitBaselineObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurementId",
+        "dimensionId",
+        "replicaIndex",
+        "privateLimitMode"
+      ],
+      "properties": {
+        "measurementId": {
+          "const": "compiler-controlled-live-byte-baseline-v1"
+        },
+        "dimensionId": {
+          "const": "compiler-controlled-live-byte-count"
+        },
+        "replicaIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "privateLimitMode": {
+          "const": "operational-hard-ceiling-only"
+        }
+      }
+    },
+    "limitSelectionObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exactDimensionValue",
+        "selectedLimitValue",
+        "valueBasis",
+        "basisRunIds"
+      ],
+      "properties": {
+        "exactDimensionValue": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "selectedLimitValue": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "valueBasis": {
+          "enum": [
+            "canonical-level-exact-value",
+            "diagnostic-input-count",
+            "baseline-live-byte-prescan-v1"
+          ]
+        },
+        "basisRunIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "failureObservation": {
       "type": "object",
       "additionalProperties": false,
@@ -2679,6 +2827,9 @@
         "inputDigest": {
           "$ref": "#/$defs/sha256"
         },
+        "limitSelection": {
+          "$ref": "#/$defs/limitSelectionObservation"
+        },
         "expectedOutcome": {
           "enum": [
             "success",
@@ -2706,6 +2857,128 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "caseId": {
+                "pattern": "^limit/"
+              }
+            },
+            "required": [
+              "caseId"
+            ]
+          },
+          "then": {
+            "required": [
+              "limitSelection"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "limitSelection"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "dimensionId": {
+                "const": "compiler-controlled-live-byte-count"
+              }
+            },
+            "required": [
+              "dimensionId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "limitSelection": {
+                "properties": {
+                  "valueBasis": {
+                    "const": "baseline-live-byte-prescan-v1"
+                  },
+                  "basisRunIds": {
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "dimensionId": {
+                "const": "diagnostic-count"
+              }
+            },
+            "required": [
+              "dimensionId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "limitSelection": {
+                "properties": {
+                  "valueBasis": {
+                    "const": "diagnostic-input-count"
+                  },
+                  "basisRunIds": {
+                    "maxItems": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "caseId": {
+                    "pattern": "^limit/"
+                  }
+                },
+                "required": [
+                  "caseId"
+                ]
+              },
+              {
+                "properties": {
+                  "dimensionId": {
+                    "not": {
+                      "enum": [
+                        "compiler-controlled-live-byte-count",
+                        "diagnostic-count"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "dimensionId"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "limitSelection": {
+                "properties": {
+                  "valueBasis": {
+                    "const": "canonical-level-exact-value"
+                  },
+                  "basisRunIds": {
+                    "maxItems": 0
+                  }
+                }
+              }
+            }
+          }
+        },
         {
           "if": {
             "allOf": [
@@ -3275,6 +3548,7 @@
             "stable-capacity-reuse",
             "failure",
             "oracle",
+            "limit-baseline",
             "guard-preflight"
           ]
         },
@@ -3316,6 +3590,9 @@
         },
         "guard": {
           "$ref": "#/$defs/guard"
+        },
+        "limitBaseline": {
+          "$ref": "#/$defs/limitBaselineObservation"
         },
         "failure": {
           "$ref": "#/$defs/failureObservation"
@@ -3427,6 +3704,93 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sampleKind": {
+                "const": "limit-baseline"
+              }
+            },
+            "required": [
+              "sampleKind"
+            ]
+          },
+          "then": {
+            "required": [
+              "limitBaseline"
+            ],
+            "properties": {
+              "status": {
+                "const": "valid"
+              },
+              "workload": {
+                "properties": {
+                  "id": {
+                    "const": "LF-COMP-ID-v1"
+                  },
+                  "stringProfile": {
+                    "const": "short-unique-v1"
+                  },
+                  "scaleRole": {
+                    "enum": [
+                      "calibration",
+                      "stress"
+                    ]
+                  },
+                  "caseId": {
+                    "const": "not-applicable"
+                  }
+                }
+              },
+              "candidate": {
+                "properties": {
+                  "id": {
+                    "const": "baseline-std-randomstate-stable-vec-v1"
+                  },
+                  "keyDomain": {
+                    "const": "full-pipeline-baseline"
+                  }
+                }
+              },
+              "metrics": {
+                "properties": {
+                  "peakLiveRequestedBytes": {
+                    "properties": {
+                      "value": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              },
+              "guard": {
+                "properties": {
+                  "trigger": {
+                    "const": "none"
+                  }
+                }
+              },
+              "cleanup": {
+                "properties": {
+                  "phase": {
+                    "const": "not-applicable"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "limitBaseline"
+              ]
             }
           }
         },
@@ -3994,7 +4358,11 @@
       ],
       "properties": {
         "keyDomain": {
-          "$ref": "#/$defs/candidate/properties/keyDomain"
+          "enum": [
+            "external-string",
+            "validated-fixed-key",
+            "canonical-output-order"
+          ]
         },
         "workloadId": {
           "$ref": "#/$defs/workload/properties/id"

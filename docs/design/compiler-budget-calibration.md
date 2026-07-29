@@ -379,8 +379,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `61292` exact bytes，SHA-256 为
-`50d390aa442f7cba2ac953e5cc217221702410942626779c8e031d8699e2b2e9`；G2 只能发布
+取得 G1。G1 候选冻结清单 `64629` exact bytes，SHA-256 为
+`d6079015e1f96b0b017b4652b6925584023befc491cfe31617edc7053e0e2f06`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -394,6 +394,10 @@ Workload Manifest）的机器可读 SSOT，冻结：
 五十八个必需标签出现。父子实体按 `network-compiler.md` 的唯一所有者关系闭合；
 所有字段值、父项求值拓扑和局部键字节由研究工作负载清单的 `identityBindings`
 冻结，不允许 G2 自行挑选等价字符串。
+
+机器清单的 `perUnitCounts` 必须逐项列出二十二种实体且每种值为 `1`；证据中的对应
+逐实体计数必须全部等于 `N`，其和必须等于 `identityDeclaration = 22 * N`。只报告
+聚合声明数不能证明各实体种类都被保留，也不构成有效 `LF-COMP-ID-v1` 证据。
 
 冻结要求：
 
@@ -879,6 +883,26 @@ profile）和特性集合（features）；证据记录各自二进制 SHA-256 �
 限制集合进入变体输入摘要，因此两项仍有不同摘要；这种做法隔离限制行为，不为“加一”
 另造不属于工作负载的实体或阶段记录。
 
+编译器控制存续字节数不能由受测候选自己的首次结果决定。该维度使用存续字节基准
+预扫描（live-byte baseline prescan）：
+
+1. 对每个 `LF-COMP-ID-v1` 的模块图配置档 × 校准/压力规模分层，固定
+   `short-unique-v1`、全新进程和
+   `baseline-std-randomstate-stable-vec-v1`；外部字符串表与已验证定长键表都使用
+   标准 `HashMap + RandomState`，规范输出使用稳定 `Vec` 排序；
+2. 以 `attribution` 二进制执行两个独立 `sampleKind = limit-baseline` 副本，只关闭
+   `compiler-controlled-live-byte-count` 私有限制，继续执行运维受控分配硬上限和
+   其余私有限制；
+3. 两个有效副本的 `peakLiveRequestedBytes` 必须逐字节整数相等；不相等时该分层
+   证据无效，必须先修复容量/生命周期非确定性，不能取最大值、均值或候选值；
+4. 这个公共值是该分层唯一允许的 `exactDimensionValue`。`at-bound` 与 `plus-one`
+   都复用同一基线配置，并分别设置
+   `selectedLimitValue = exactDimensionValue` 与
+   `selectedLimitValue = exactDimensionValue - 1`；
+5. 两项限制证据必须保存两个预扫描 `runId`。独立验证器核对 workload/profile/
+   `N`/`B`/scale、候选配置、二进制模式、全新进程、有效状态和峰值后才能接受配对；
+   被评估候选不得提供自己的限制值。
+
 失败用例标识符（failure case ID）冻结为：
 
 - `limit/<dimension>/at-bound`：普通维度恰好等于限制时必须成功；`diagnostic-count`
@@ -1020,8 +1044,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `117856` exact bytes，SHA-256 为
-`2e4b3e1a1e3222db1df8b4e084ebe4e1819bf823e53e17ed260c108d234b8118`。
+G1 候选冻结 schema `127624` exact bytes，SHA-256 为
+`c6f2668f898734ff0c202e5b0c3c605b5d6cc2886228c3e32f37cda9fc9495c1`。
 顶层格式标识：
 
 ```text
@@ -1048,6 +1072,9 @@ schemaVersion = 1
 - 每条派生候选比较的完整候选比较分层、按两个独立批次拆分的基线/候选原始
   `runId` 集合、中位比值和决策；运行引用必须能由独立验证器回算，不得只保存
   汇总数；
+- 每条限制配对的 `exactDimensionValue`、`selectedLimitValue`、值来源和来源
+  `runId`；存续字节基准预扫描还必须保存基准测量标识符、副本序号和“仅运维硬上限”
+  私有限制模式；
 - 二进制 SHA-256 与模式（`timing` / `memory` / `attribution` / `profiler` /
   `oracle`）；
 - batch/平衡轮次/执行位置、父子进程 ID 与退出状态，以及每个样本的冷实例/稳定
@@ -1093,6 +1120,12 @@ JSON 不是有效研究证据。
 缺样、异常退出或不可用预测可以留在原始证据中，但不能被计入有效阶梯、重复性包络
 或候选改善结论。Schema 对单条记录的 closed 约束与独立验证器对整份证据的关系约束
 缺一不可。
+
+对 `LF-COMP-ID-v1`，独立验证器必须重算二十二项逐实体计数并验证每项等于 `N`；
+对 `compiler-controlled-live-byte-count`，它必须把两个 `basisRunIds` 唯一解析为
+同一分层的两个有效 `limit-baseline` 运行，验证两者
+`peakLiveRequestedBytes` 精确相等，并检查 at-bound/plus-one 的限制值分别为该值和
+该值减一。任一来源运行缺失、重复、来自被评估候选或跨分层时，配对必须失败。
 
 ### 10.3 可复现命令
 

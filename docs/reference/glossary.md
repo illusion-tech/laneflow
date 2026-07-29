@@ -115,6 +115,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 候选比较分层           | candidate comparison stratum                              | `stratum`                        | 提案中（Proposed；#308），由键域、工作负载配置、规模、样本种类和二进制模式共同标识的一次候选比较范围；不同分层不得聚合。                                            |
 | 最后私有内存快照       | last private-memory snapshot                              | `lastPrivateBytes`               | 提案中（Proposed；#308），父进程最近一次实际采集的子进程私有字节观察；子进程未启动或监控缺样时必须使用 `null + reason`，不得伪造为零。                              |
 | 干净研究工作树         | clean research working tree                               | `dirty = false`                  | 提案中（Proposed；#308），受测源码、研究执行器、清单、Schema 和锁文件均无未提交修改、可由来源提交完整复现的正式测量工作树。                                         |
+| 存续字节基准预扫描     | live-byte baseline prescan                                | `limit-baseline`                 | 提案中（Proposed；#308），以冻结基线配置和两个独立全新进程测得一致峰值，为编译器控制存续字节限制配对提供候选无关精确值的归因测量。                                  |
 
 ## 4. 标识、引用与数据布局
 

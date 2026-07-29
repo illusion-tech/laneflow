@@ -822,6 +822,28 @@
         "sourceGeometryCount": 0
       },
       "perUnitCounts": {
+        "RoadCorridor": 1,
+        "RoadSection": 1,
+        "AuthoringLane": 1,
+        "LaneEdge": 1,
+        "Junction": 1,
+        "Movement": 1,
+        "ManeuverPath": 1,
+        "ManeuverGate": 1,
+        "WaitingZone": 1,
+        "StopLine": 1,
+        "SignalGroup": 1,
+        "SignalController": 1,
+        "SignalPhase": 1,
+        "ParkingArea": 1,
+        "ParkingSpace": 1,
+        "LaneGroup": 1,
+        "FacilityBand": 1,
+        "ParticipantClass": 1,
+        "AccessRule": 1,
+        "VehicleProfile": 1,
+        "StaticRoute": 1,
+        "CanonicalFrame": 1,
         "identityDeclaration": 22,
         "requiredIdentityFieldOccurrence": 58,
         "ownerRelation": 10,
@@ -1468,6 +1490,38 @@
       "reservedProductionOwnerIssue": 292
     }
   ],
+  "liveByteLimitBaseline": {
+    "id": "compiler-controlled-live-byte-baseline-v1",
+    "dimensionId": "compiler-controlled-live-byte-count",
+    "workloadId": "LF-COMP-ID-v1",
+    "graphProfiles": [
+      "wide-star-v1",
+      "deep-chain-v1",
+      "shared-fanin-dag-v1"
+    ],
+    "stringProfile": "short-unique-v1",
+    "scaleRoles": [
+      "calibration",
+      "stress"
+    ],
+    "candidateConfiguration": {
+      "id": "baseline-std-randomstate-stable-vec-v1",
+      "keyDomain": "full-pipeline-baseline",
+      "externalStringTable": "std::collections::HashMap with RandomState",
+      "validatedFixedKeyTable": "std::collections::HashMap with RandomState",
+      "canonicalOutputOrder": "stable Vec sort",
+      "capacityPolicy": "fresh process; checked exact lower-bound reserve request before each buffer/table; no stable-capacity reuse"
+    },
+    "binaryMode": "attribution",
+    "sampleKind": "limit-baseline",
+    "replicaCount": 2,
+    "freshProcessPerReplica": true,
+    "selectedPrivateLimitMode": "disable only compiler-controlled-live-byte-count; retain the operational controlled-allocation hard ceiling and every other private limit",
+    "requiredMetric": "metrics.peakLiveRequestedBytes",
+    "agreementRule": "the two valid replicas for the same workload/profile/N/B/scale stratum must report exactly equal peakLiveRequestedBytes",
+    "exactSelectedValueRule": "the common peakLiveRequestedBytes value is the only exact selected value allowed for both paired limit runs in that stratum",
+    "candidateIsolationRule": "the at-bound and plus-one pair reuses this same baseline candidate configuration; no evaluated candidate may supply its own limit value"
+  },
   "limitDimensions": [
     "module-count",
     "import-edge-count",
@@ -1631,7 +1685,9 @@
     },
     {
       "dimensionId": "compiler-controlled-live-byte-count",
-      "workloadId": "LF-COMP-ID-v1"
+      "workloadId": "LF-COMP-ID-v1",
+      "pairMode": "baseline-live-byte-prescan-v1",
+      "baselineMeasurementId": "compiler-controlled-live-byte-baseline-v1"
     }
   ],
   "limitPairConstruction": {
@@ -1644,10 +1700,19 @@
     ],
     "atBound": "use the canonical workload level and set the selected limit equal to its exact selected dimension value",
     "plusOne": "reuse the same canonical workload level and set only the selected limit to exact selected dimension value minus one",
+    "selectedValueBasisRules": {
+      "canonical-level-exact-value": "all ordinary count/byte dimensions use the exact formula-derived value from the selected workload level",
+      "diagnostic-input-count": "diagnostic-count uses the exact N diagnostics produced by corridor-missing-reference-per-unit-v1",
+      "baseline-live-byte-prescan-v1": "compiler-controlled-live-byte-count uses only the common value from the two valid compiler-controlled-live-byte-baseline-v1 replicas for the same stratum"
+    },
     "expectedByPairMode": {
       "success-at-bound": {
         "atBound": "success",
         "plusOne": "fail before allocation, copy, sort, hash, or stage work prohibited by that limit"
+      },
+      "baseline-live-byte-prescan-v1": {
+        "atBound": "the frozen baseline candidate succeeds with maxCompilerControlledLiveBytes equal to the prescan common peakLiveRequestedBytes",
+        "plusOne": "the same baseline candidate fails at the first reservation that would make simultaneous requested bytes exceed common peakLiveRequestedBytes - 1"
       },
       "diagnostic-cap-on-semantic-failure": {
         "atBound": "compiler-error LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE with exactly N diagnostics and diagnosticsTruncated=false",
@@ -1662,6 +1727,7 @@
       "input variant ID",
       "canonical level counts",
       "canonical ordered source value records and payload bytes after applying the input variant",
+      "selected value basis and any baseline measurement run IDs",
       "complete private limit values"
     ]
   },
