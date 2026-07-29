@@ -27,6 +27,9 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 8. 交通仿真规模不使用 `Agent` 或“代理”计数；`Agent` 默认指 AI Agent 工作流。
    长期通用规模使用交通参与单元及其分执行域计数，当前车辆实现和历史车辆证据必须
    显式标注为车辆特化，不能反向定义目标交通运行时。
+9. 尚未接受的词条统一使用“提案中（Proposed；#议题号）”标记；“目标态”只描述
+   已经由对应 G1/ADR 接受、但尚未完成生产切换的设计，不得用“目标态提案中”混合
+   两种状态。词条进入本表只统一命名和定义，不自动表示其实现或数值已经被接受。
 
 “中文为权威”不改变代码标识符的精确拼写，也不翻译第三方商标、算法专名或必须按
 协议匹配的字面量。
@@ -51,37 +54,60 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 
 ## 3. 编制来源与编译管线
 
-| 中文规范术语           | 英文辅助名（English Alias）                               | 精确标识符 / 缩写                | 中文规范含义                                                                                                         |
-| ---------------------- | --------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 数据编制               | authoring                                                 | —                                | 创建、导入、编辑或生成静态路网来源的活动。                                                                           |
-| 权威来源模块图         | authoritative source module graph                         | —                                | 一个编译单元内唯一可重放的编制事实源；节点是来源模块，边是显式导入关系。                                             |
-| 来源模块               | source module                                             | —                                | 绑定稳定命名空间、内容摘要、来源语言、工具版本、选项和来源沿袭的可重放输入。                                         |
-| 来源语言               | source language                                           | —                                | 定义来源模块语法和来源保真的输入语言。                                                                               |
-| 编制命名空间标识       | authoring namespace ID                                    | `authoringNamespaceId`           | 隔离稳定标识域、且不依赖文件路径或遍历顺序的持久标识。                                                               |
-| 编译单元               | compilation unit                                          | —                                | 由一个权威来源模块图及其显式选项共同构成的原子编译输入。                                                             |
-| 编译器中间表示         | compiler intermediate representation                      | compiler IR                      | 编译器内部从有类型抽象语法树经 HIR、MIR 到 canonical LIR 的有类型阶段表示总称；各阶段的精确职责由专门词条定义。      |
-| 编译器基础设施         | compiler foundation                                       | —                                | 承载表示类型、编译遍驱动器、诊断、区块分配、确定性和编译发射器边界的公共基础。                                       |
-| 前端                   | frontend                                                  | —                                | 只负责特定来源语言的解析、类型化与来源位置，不拥有后续全局静态语义。                                                 |
-| 合成领域专用语言前端   | Synthetic DSL frontend                                    | —                                | 面向测试、基准、示例和程序化场景的可重放来源前端。                                                                   |
-| 几何文档前端           | Geometry document frontend                                | —                                | 生产路网的主要编制前端，表达参考线、横断面、连接和静态规则。                                                         |
-| 导入前端               | import frontend                                           | —                                | 把外部来源及其工具、选项和来源沿袭显式转换为来源模块的前端。                                                         |
-| 编辑器编制界面         | editor authoring surface                                  | —                                | 编辑并持久化来源模块、显示来源诊断的交互界面；它不私有化编译语义。                                                   |
-| 来源位置               | source span                                               | —                                | 诊断和源映射使用的来源文件、区间或画布选区。                                                                         |
-| 来源沿袭               | provenance                                                | —                                | 输入、工具、参数、构建、转换与发布的可审计来源链。                                                                   |
-| 降阶                   | lowering                                                  | —                                | 把较高层表示确定性转换为较低层表示、且不补入后端私有语义的过程。                                                     |
-| 有类型抽象语法树       | typed abstract syntax tree                                | typed AST                        | 保留前端语法、显式键、类型、单位和来源位置的第一层表示。                                                             |
-| 高层中间表示           | high-level intermediate representation                    | HIR                              | 已完成模块、命名空间、符号、引用、单位和编制语义解析的表示。                                                         |
-| 中层中间表示           | mid-level intermediate representation                     | MIR                              | 已完成拓扑、几何展开和全局静态语义推导、但尚未绑定目标布局的表示。                                                   |
-| 已验证规范低层中间表示 | validated canonical low-level intermediate representation | canonical LIR                    | 后端唯一输入；包含稳定标识、有类型序号、规范数值、确定性关系和布局无关预计算。                                       |
-| 编译遍                 | compiler pass                                             | pass                             | 具有显式输入、输出、诊断和确定性要求的一次编译转换或验证步骤。                                                       |
-| 后端                   | backend                                                   | —                                | 只消费已验证规范低层中间表示，并生成特定种类制品或镜像的编译器末端。                                                 |
-| 源映射                 | source map                                                | —                                | 把规范实体、关系或诊断反向关联到来源模块和来源位置的派生制品。                                                       |
-| 源映射封套             | source map envelope                                       | `SourceMapEnvelope`              | 版本化绑定精确规范制品、路网修订与编译来源沿袭，并承载源映射记录的派生制品封套。                                     |
-| 规范发布描述符         | canonical publication descriptor                          | `CanonicalPublicationDescriptor` | 位于制品字节外，可信绑定规范制品、源映射、验证收据各自摘要与精确长度，以及路网修订和编译来源沿袭的发布值。           |
-| 语义差异               | semantic diff                                             | —                                | 以稳定标识和所有者局部键比较两个规范制品语义变化的结构化结果；跨修订状态迁移时必须经独立验证并由可信切换描述符绑定。 |
-| 语义差异封套           | semantic diff envelope                                    | `SemanticDiffEnvelope`           | 版本化绑定旧/新路网修订与规范制品精确字节，并承载规范排序差异记录的派生制品封套。                                    |
-| 验证收据封套           | validation receipt envelope                               | `ValidationReceiptEnvelope`      | 以独立格式版本和封闭收据种类绑定受检对象、验证器构建及必需成功证据的可审计制品封套。                                 |
-| 确定性合并顺序         | deterministic merge order                                 | —                                | 并行或分片结果按固定规则合并，使输出不依赖线程调度。                                                                 |
+| 中文规范术语           | 英文辅助名（English Alias）                               | 精确标识符 / 缩写                | 中文规范含义                                                                                                                                                        |
+| ---------------------- | --------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 数据编制               | authoring                                                 | —                                | 创建、导入、编辑或生成静态路网来源的活动。                                                                                                                          |
+| 权威来源模块图         | authoritative source module graph                         | —                                | 一个编译单元内唯一可重放的编制事实源；节点是来源模块，边是显式导入关系。                                                                                            |
+| 来源模块               | source module                                             | —                                | 绑定稳定命名空间、内容摘要、来源语言、工具版本、选项和来源沿袭的可重放输入。                                                                                        |
+| 来源语言               | source language                                           | —                                | 定义来源模块语法和来源保真的输入语言。                                                                                                                              |
+| 编制命名空间标识       | authoring namespace ID                                    | `authoringNamespaceId`           | 隔离稳定标识域、且不依赖文件路径或遍历顺序的持久标识。                                                                                                              |
+| 编译单元               | compilation unit                                          | —                                | 由一个权威来源模块图及其显式选项共同构成的原子编译输入。                                                                                                            |
+| 编译器中间表示         | compiler intermediate representation                      | compiler IR                      | 编译器内部从有类型抽象语法树经 HIR、MIR 到 canonical LIR 的有类型阶段表示总称；各阶段的精确职责由专门词条定义。                                                     |
+| 编译器基础设施         | compiler foundation                                       | —                                | 承载表示类型、编译遍驱动器、诊断、区块分配、确定性和编译发射器边界的公共基础。                                                                                      |
+| 前端                   | frontend                                                  | —                                | 只负责特定来源语言的解析、类型化与来源位置，不拥有后续全局静态语义。                                                                                                |
+| 合成领域专用语言前端   | Synthetic DSL frontend                                    | —                                | 面向测试、基准、示例和程序化场景的可重放来源前端。                                                                                                                  |
+| 几何文档前端           | Geometry document frontend                                | —                                | 生产路网的主要编制前端，表达参考线、横断面、连接和静态规则。                                                                                                        |
+| 导入前端               | import frontend                                           | —                                | 把外部来源及其工具、选项和来源沿袭显式转换为来源模块的前端。                                                                                                        |
+| 编辑器编制界面         | editor authoring surface                                  | —                                | 编辑并持久化来源模块、显示来源诊断的交互界面；它不私有化编译语义。                                                                                                  |
+| 来源位置               | source span                                               | —                                | 诊断和源映射使用的来源文件、区间或画布选区。                                                                                                                        |
+| 来源沿袭               | provenance                                                | —                                | 输入、工具、参数、构建、转换与发布的可审计来源链。                                                                                                                  |
+| 降阶                   | lowering                                                  | —                                | 把较高层表示确定性转换为较低层表示、且不补入后端私有语义的过程。                                                                                                    |
+| 有类型抽象语法树       | typed abstract syntax tree                                | typed AST                        | 保留前端语法、显式键、类型、单位和来源位置的第一层表示。                                                                                                            |
+| 高层中间表示           | high-level intermediate representation                    | HIR                              | 已完成模块、命名空间、符号、引用、单位和编制语义解析的表示。                                                                                                        |
+| 中层中间表示           | mid-level intermediate representation                     | MIR                              | 已完成拓扑、几何展开和全局静态语义推导、但尚未绑定目标布局的表示。                                                                                                  |
+| 已验证规范低层中间表示 | validated canonical low-level intermediate representation | canonical LIR                    | 后端唯一输入；包含稳定标识、有类型序号、规范数值、确定性关系和布局无关预计算。                                                                                      |
+| 编译遍                 | compiler pass                                             | pass                             | 具有显式输入、输出、诊断和确定性要求的一次编译转换或验证步骤。                                                                                                      |
+| 后端                   | backend                                                   | —                                | 只消费已验证规范低层中间表示，并生成特定种类制品或镜像的编译器末端。                                                                                                |
+| 源映射                 | source map                                                | —                                | 把规范实体、关系或诊断反向关联到来源模块和来源位置的派生制品。                                                                                                      |
+| 源映射封套             | source map envelope                                       | `SourceMapEnvelope`              | 版本化绑定精确规范制品、路网修订与编译来源沿袭，并承载源映射记录的派生制品封套。                                                                                    |
+| 规范发布描述符         | canonical publication descriptor                          | `CanonicalPublicationDescriptor` | 位于制品字节外，可信绑定规范制品、源映射、验证收据各自摘要与精确长度，以及路网修订和编译来源沿袭的发布值。                                                          |
+| 语义差异               | semantic diff                                             | —                                | 以稳定标识和所有者局部键比较两个规范制品语义变化的结构化结果；跨修订状态迁移时必须经独立验证并由可信切换描述符绑定。                                                |
+| 语义差异封套           | semantic diff envelope                                    | `SemanticDiffEnvelope`           | 版本化绑定旧/新路网修订与规范制品精确字节，并承载规范排序差异记录的派生制品封套。                                                                                   |
+| 验证收据封套           | validation receipt envelope                               | `ValidationReceiptEnvelope`      | 以独立格式版本和封闭收据种类绑定受检对象、验证器构建及必需成功证据的可审计制品封套。                                                                                |
+| 确定性合并顺序         | deterministic merge order                                 | —                                | 并行或分片结果按固定规则合并，使输出不依赖线程调度。                                                                                                                |
+| 编译资源上限           | compile limits                                            | `CompileLimits`                  | 提案中（Proposed；#292），在后继阶段分配前限制来源、记录、关系、字符串、诊断、暂存区和编译器控制总存续内存的失败关闭边界；精确数值等待 #308 研究证据。              |
+| 干净单工作线程编译     | clean single-thread compile                               | —                                | 提案中（Proposed；#292），不使用增量缓存、只由一个工作线程从完整来源执行全部生产编译遍的确定性参考路径；内存 LIR 保持规范语义一致，后继制品存在时保持精确字节一致。 |
+| 研究干净单工作线程编译 | clean single-thread research compile                      | —                                | 提案中（Proposed；#308），由一个工作线程从完整研究来源执行全部代表性研究编译遍的非生产测量路径；不得冒充完整生产编译器。                                            |
+| 冷实例编译             | cold-instance compile                                     | —                                | 提案中（Proposed；#292/#308），以新建编译器或研究管线实例和空暂存容量执行的干净编译；规模相关来源物化是否计时由具名基准协议冻结，进程启动与磁盘读取不计时。         |
+| 稳定容量复用编译       | stable-capacity reuse compile                             | —                                | 提案中（Proposed；#292/#308），复用编译器或研究管线的无语义暂存容量、但不复用语义结果的干净编译；它不是增量编译，结果和诊断必须与冷实例编译一致。                   |
+| 编译器校准规模         | compiler calibration scale                                | —                                | 提案中（Proposed；#292/#308），用于观察固定成本、复杂度及缓存/内存拐点的合成编制/中间表示规模；不表示真实城市或产品容量。                                           |
+| 编译器压力规模         | compiler stress scale                                     | —                                | 提案中（Proposed；#292/#308），在研究停止护栏内放大编制/中间表示对象、用于暴露资源增长和失败边界的合成规模；不构成产品 SLA。                                        |
+| 研究工作负载清单       | research workload manifest                                | —                                | 提案中（Proposed；#308），机器可读地冻结工作负载修订、模块图、生成规则、字符串/来源位置类别、记录布局、计数和夹具绑定的非生产契约。                                 |
+| 研究停止护栏           | research stop guardrail                                   | —                                | 提案中（Proposed；#308），为保护研究机器和限制实验成本而阻止启动或继续放大实验的条件；不得直接改写成生产性能预算。                                                  |
+| 受控分配硬上限         | controlled allocation hard ceiling                        | —                                | 提案中（Proposed；#308），研究子进程在每次规模相关容量请求前执行、并通过可失败分配保证不会越过的请求字节上限。                                                      |
+| 研究基准执行器         | research benchmark harness                                | —                                | 提案中（Proposed；#308），生成固定工作负载、执行测量并输出机器可读证据的非生产程序；不得进入生产编译器公共 API 或依赖图。                                           |
+| 精确研究预言机         | exact research oracle                                     | —                                | 提案中（Proposed；#308），不复用受测符号解析、关系展开或容器候选，以直观确定性算法独立核对研究输出的非生产参考实现。                                                |
+| 研究语义摘要           | research semantic digest                                  | `semanticDigest`                 | 提案中（Proposed；#308），在主计时区外对研究专用规范记录流计算的 SHA-256；只证明研究候选等价，不是生产制品、路网修订摘要或受测编译成本。                            |
+| 编译器测量基准规模     | compiler measurement base scale                           | `B`                              | 提案中（Proposed；#308），首个同时满足时钟量化、样本稳定和护栏要求的二次幂工作单元规模；不表示产品基线。                                                            |
+| 成本拐点               | cost knee                                                 | —                                | 提案中（Proposed；#308），单位记录时延或存续内存按预声明阈值持续上升、并在独立执行批次重现的规模级别。                                                              |
+| 重复性包络             | reproducibility envelope                                  | `E_m`                            | 提案中（Proposed；#308），由两批同环境正式结果的最坏双向比值实测得到、用于区分候选改善与环境噪声的指标。                                                            |
+| 平衡候选顺序           | balanced candidate order                                  | —                                | 提案中（Proposed；#308），让每个候选等次数出现在每个执行位置并同时覆盖正向/反向相邻关系的预先冻结执行序列。                                                         |
+| 编译器控制总存续内存   | compiler-controlled total live memory                     | —                                | 提案中（Proposed；#292/#308），编译请求同时拥有的来源、各阶段记录、字符串、诊断、暂存区和输出构造的存续请求字节总量；不等于进程工作集。                             |
+| 停车锚点记录           | parking anchor record                                     | record kind `11`                 | 提案中（Proposed；#308），以一条研究语义记录原子保存一个停车位入口与出口各自的车道边和规范进度；不依靠两条相邻记录配对。                                            |
+| 限制维度               | limit dimension                                           | `dimensionId`                    | 提案中（Proposed；#308），失败关闭研究中可独立设置恰好等于上限与上限加一配对输入的具名资源或记录维度。                                                              |
+| 失败用例标识符         | failure case ID                                           | `caseId`                         | 提案中（Proposed；#308），稳定区分限制边界、语义错误和诊断截断实验的机器可读标识符；运行标识符不能替代它。                                                          |
+| 清理实验               | cleanup experiment                                        | —                                | 提案中（Proposed；#308），以同一实验标识符和固定序号关联合法基线、重复失败、恢复成功与新实例判定基准的失败恢复验证序列。                                            |
+| 候选依赖审计           | candidate dependency audit                                | `dependencyAudit`                | 提案中（Proposed；#308），为每个容器或哈希候选记录许可证、最低支持 Rust 版本、安全公告和锁文件绑定的机器可读审计。                                                  |
 
 ## 4. 标识、引用与数据布局
 

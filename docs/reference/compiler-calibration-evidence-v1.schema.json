@@ -1,0 +1,2926 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/illusion-tech/laneflow/blob/main/docs/reference/compiler-calibration-evidence-v1.schema.json",
+  "title": "LaneFlow compiler calibration evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "source",
+    "environment",
+    "protocol",
+    "binaries",
+    "runs",
+    "derived",
+    "artifacts"
+  ],
+  "properties": {
+    "schema": {
+      "const": "laneflow.compiler-calibration-evidence"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "environment": {
+      "$ref": "#/$defs/environment"
+    },
+    "protocol": {
+      "$ref": "#/$defs/protocol"
+    },
+    "binaries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/binary"
+      }
+    },
+    "runs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/run"
+      }
+    },
+    "derived": {
+      "$ref": "#/$defs/derived"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "nonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "nullableIntegerObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "reason"
+      ],
+      "properties": {
+        "value": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "value": {
+              "type": "integer"
+            },
+            "reason": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "value": {
+              "type": "null"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "nullableNumberObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "reason"
+      ],
+      "properties": {
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "value": {
+              "type": "number"
+            },
+            "reason": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "value": {
+              "type": "null"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "nullableSha256Observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "reason"
+      ],
+      "properties": {
+        "value": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "value": {
+              "$ref": "#/$defs/sha256"
+            },
+            "reason": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "value": {
+              "type": "null"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "nullableStringObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "reason"
+      ],
+      "properties": {
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "value": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reason": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "value": {
+              "type": "null"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceCommit",
+        "harnessCommit",
+        "dirty",
+        "cargoLockSha256",
+        "workloadManifestSha256",
+        "evidenceSchemaSha256"
+      ],
+      "properties": {
+        "sourceCommit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "harnessCommit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "cargoLockSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "workloadManifestSha256": {
+          "const": "808d7c02ac196cca81362e2cf13ea45f6b57eb8a64f5e7893df44b5666ab0a02"
+        },
+        "evidenceSchemaSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "osBuild",
+        "cpu",
+        "logicalProcessorCount",
+        "physicalMemoryBytes",
+        "targetTriple",
+        "rustc",
+        "llvm",
+        "powerSource",
+        "vendorPerformanceMode",
+        "powerPlan",
+        "biosFirmware",
+        "monitoringProvider",
+        "backgroundProcessAudit"
+      ],
+      "properties": {
+        "os": {
+          "type": "string",
+          "minLength": 1
+        },
+        "osBuild": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cpu": {
+          "type": "string",
+          "minLength": 1
+        },
+        "logicalProcessorCount": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "physicalMemoryBytes": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "targetTriple": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rustc": {
+          "type": "string",
+          "minLength": 1
+        },
+        "llvm": {
+          "type": "string",
+          "minLength": 1
+        },
+        "powerSource": {
+          "enum": [
+            "ac",
+            "battery"
+          ]
+        },
+        "vendorPerformanceMode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "powerPlan": {
+          "type": "string",
+          "minLength": 1
+        },
+        "biosFirmware": {
+          "type": "string",
+          "minLength": 1
+        },
+        "monitoringProvider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backgroundProcessAudit": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "pid",
+              "cpuTimeNs",
+              "writeBytes"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "pid": {
+                "$ref": "#/$defs/nonNegativeInteger"
+              },
+              "cpuTimeNs": {
+                "$ref": "#/$defs/nonNegativeInteger"
+              },
+              "writeBytes": {
+                "$ref": "#/$defs/nonNegativeInteger"
+              }
+            }
+          }
+        }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "workloadSeedHexU64",
+        "clockQuantumNs",
+        "batchCount",
+        "candidateOrderDesign",
+        "guardThresholds"
+      ],
+      "properties": {
+        "id": {
+          "const": "compiler-calibration-v1"
+        },
+        "workloadSeedHexU64": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "clockQuantumNs": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "batchCount": {
+          "const": 2
+        },
+        "candidateOrderDesign": {
+          "const": "forward-reverse-cyclic-2c-v1"
+        },
+        "guardThresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "compilerControlledBytes",
+            "privateBytes",
+            "minimumAvailablePhysicalMemoryBytes",
+            "wallTimeNs",
+            "predictionSafetyFactorNumerator",
+            "predictionSafetyFactorDenominator"
+          ],
+          "properties": {
+            "compilerControlledBytes": {
+              "$ref": "#/$defs/positiveInteger"
+            },
+            "privateBytes": {
+              "$ref": "#/$defs/positiveInteger"
+            },
+            "minimumAvailablePhysicalMemoryBytes": {
+              "$ref": "#/$defs/positiveInteger"
+            },
+            "wallTimeNs": {
+              "const": 60000000000
+            },
+            "predictionSafetyFactorNumerator": {
+              "const": 5
+            },
+            "predictionSafetyFactorDenominator": {
+              "const": 4
+            }
+          }
+        }
+      }
+    },
+    "binary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "mode",
+        "sha256",
+        "cargoProfile",
+        "features"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "enum": [
+            "timing",
+            "memory",
+            "attribution",
+            "profiler",
+            "oracle"
+          ]
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "cargoProfile": {
+          "type": "string",
+          "minLength": 1
+        },
+        "features": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "workloadCountBase": {
+      "type": "object",
+      "required": [
+        "moduleCount",
+        "importEdgeCount",
+        "crossModuleReferenceCount",
+        "maximumImportDepth",
+        "sourceByteCount",
+        "sourceDeclarationCount",
+        "sourceReferenceCount",
+        "sourceRelationCount",
+        "sourceGeometryCount",
+        "symbolCount",
+        "stringItemCount",
+        "maximumStringBytes",
+        "totalStringBytes",
+        "diagnosticCount",
+        "semanticOutputRecord",
+        "logicalByteCount",
+        "outputByteCount"
+      ],
+      "properties": {
+        "moduleCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "importEdgeCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "crossModuleReferenceCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "maximumImportDepth": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sourceByteCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sourceDeclarationCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sourceReferenceCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sourceRelationCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sourceGeometryCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "symbolCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "stringItemCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "maximumStringBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "totalStringBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "diagnosticCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "semanticOutputRecord": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "logicalByteCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "outputByteCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      }
+    },
+    "identityWorkloadCounts": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/workloadCountBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "identityDeclaration",
+            "requiredIdentityFieldOccurrence",
+            "ownerRelation"
+          ],
+          "properties": {
+            "identityDeclaration": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "requiredIdentityFieldOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ownerRelation": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "corridorWorkloadCounts": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/workloadCountBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "LaneEdge",
+            "edgeConnection",
+            "Junction",
+            "Movement",
+            "ManeuverPath",
+            "StaticRoute",
+            "routeOccurrence",
+            "VehicleProfile",
+            "ParticipantClass",
+            "RoadCorridor",
+            "RoadSection",
+            "AuthoringLane",
+            "laneCoverageOccurrence",
+            "LaneGroup",
+            "FacilityBand",
+            "AccessRule",
+            "accessRelation",
+            "StopLine",
+            "ManeuverGate",
+            "SignalGroup",
+            "SignalController",
+            "SignalPhase",
+            "signalPhaseStateOccurrence",
+            "ParkingArea",
+            "ParkingSpace",
+            "CanonicalFrame",
+            "canonicalGeometryPoint",
+            "ownerRelation",
+            "signalGroupRelation",
+            "gateOccurrence",
+            "parkingSpaceAnchors",
+            "junctionInternalEdgeRole"
+          ],
+          "properties": {
+            "LaneEdge": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "edgeConnection": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "Junction": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "Movement": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ManeuverPath": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "StaticRoute": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "routeOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "VehicleProfile": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ParticipantClass": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "RoadCorridor": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "RoadSection": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "AuthoringLane": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "laneCoverageOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "LaneGroup": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "FacilityBand": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "AccessRule": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "accessRelation": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "StopLine": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ManeuverGate": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "SignalGroup": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "SignalController": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "SignalPhase": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "signalPhaseStateOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ParkingArea": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ParkingSpace": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "CanonicalFrame": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "canonicalGeometryPoint": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ownerRelation": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "signalGroupRelation": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "gateOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "parkingSpaceAnchors": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "junctionInternalEdgeRole": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "junctionGridWorkloadCounts": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/workloadCountBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "LaneEdge",
+            "edgeConnection",
+            "Junction",
+            "Movement",
+            "ManeuverPath",
+            "StaticRoute",
+            "routeOccurrence",
+            "StopLine",
+            "ManeuverGate",
+            "WaitingZone",
+            "CanonicalFrame",
+            "canonicalGeometryPoint",
+            "ownerRelation",
+            "gateOccurrence",
+            "waitingZoneOccurrence",
+            "junctionInternalEdgeRole"
+          ],
+          "properties": {
+            "LaneEdge": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "edgeConnection": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "Junction": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "Movement": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ManeuverPath": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "StaticRoute": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "routeOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "StopLine": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ManeuverGate": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "WaitingZone": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "CanonicalFrame": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "canonicalGeometryPoint": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "ownerRelation": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "gateOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "waitingZoneOccurrence": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            },
+            "junctionInternalEdgeRole": {
+              "$ref": "#/$defs/nonNegativeInteger"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "currentFixtureWorkloadCounts": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/workloadCountBase"
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "fixtureInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "formatVersion",
+        "byteLength",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "formatVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "byteLength": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "revision",
+        "graphProfile",
+        "stringProfile",
+        "generatorVersion",
+        "n",
+        "b",
+        "scaleRole",
+        "caseId",
+        "manifestDigest",
+        "counts",
+        "fixtureInputs"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "LF-COMP-ID-v1",
+            "LF-COMP-CORRIDOR-v1",
+            "LF-COMP-JUNCTION-GRID-v1",
+            "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1"
+          ]
+        },
+        "revision": {
+          "const": 1
+        },
+        "graphProfile": {
+          "enum": [
+            "wide-star-v1",
+            "deep-chain-v1",
+            "shared-fanin-dag-v1",
+            "not-applicable"
+          ]
+        },
+        "stringProfile": {
+          "enum": [
+            "short-unique-v1",
+            "shared-prefix-256-v1",
+            "long-4096-v1",
+            "not-applicable"
+          ]
+        },
+        "generatorVersion": {
+          "const": 1
+        },
+        "n": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "b": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "scaleRole": {
+          "enum": [
+            "known-vector",
+            "pilot",
+            "base",
+            "ladder",
+            "calibration",
+            "stress",
+            "current-fixture"
+          ]
+        },
+        "caseId": {
+          "enum": [
+            "not-applicable",
+            "signalized-corridor",
+            "parking-signals-baseline",
+            "multi-gate-waiting-zone"
+          ]
+        },
+        "manifestDigest": {
+          "const": "808d7c02ac196cca81362e2cf13ea45f6b57eb8a64f5e7893df44b5666ab0a02"
+        },
+        "counts": {
+          "type": "object"
+        },
+        "fixtureInputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fixtureInput"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "LF-COMP-ID-v1"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "graphProfile": {
+                "enum": [
+                  "wide-star-v1",
+                  "deep-chain-v1",
+                  "shared-fanin-dag-v1"
+                ]
+              },
+              "stringProfile": {
+                "enum": [
+                  "short-unique-v1",
+                  "shared-prefix-256-v1",
+                  "long-4096-v1"
+                ]
+              },
+              "scaleRole": {
+                "enum": [
+                  "known-vector",
+                  "pilot",
+                  "base",
+                  "ladder",
+                  "calibration",
+                  "stress"
+                ]
+              },
+              "caseId": {
+                "const": "not-applicable"
+              },
+              "counts": {
+                "$ref": "#/$defs/identityWorkloadCounts"
+              },
+              "fixtureInputs": {
+                "maxItems": 0
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "stringProfile": {
+                      "enum": [
+                        "shared-prefix-256-v1",
+                        "long-4096-v1"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "stringProfile"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "scaleRole": {
+                      "enum": [
+                        "base",
+                        "calibration",
+                        "stress"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "LF-COMP-CORRIDOR-v1"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "graphProfile": {
+                "enum": [
+                  "wide-star-v1",
+                  "deep-chain-v1",
+                  "shared-fanin-dag-v1"
+                ]
+              },
+              "stringProfile": {
+                "const": "short-unique-v1"
+              },
+              "scaleRole": {
+                "enum": [
+                  "known-vector",
+                  "pilot",
+                  "base",
+                  "ladder",
+                  "calibration",
+                  "stress"
+                ]
+              },
+              "caseId": {
+                "const": "not-applicable"
+              },
+              "counts": {
+                "$ref": "#/$defs/corridorWorkloadCounts"
+              },
+              "fixtureInputs": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "LF-COMP-JUNCTION-GRID-v1"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "graphProfile": {
+                "enum": [
+                  "wide-star-v1",
+                  "deep-chain-v1",
+                  "shared-fanin-dag-v1"
+                ]
+              },
+              "stringProfile": {
+                "const": "short-unique-v1"
+              },
+              "scaleRole": {
+                "enum": [
+                  "known-vector",
+                  "pilot",
+                  "base",
+                  "ladder",
+                  "calibration",
+                  "stress"
+                ]
+              },
+              "caseId": {
+                "const": "not-applicable"
+              },
+              "counts": {
+                "$ref": "#/$defs/junctionGridWorkloadCounts"
+              },
+              "fixtureInputs": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "graphProfile": {
+                "const": "not-applicable"
+              },
+              "stringProfile": {
+                "const": "not-applicable"
+              },
+              "n": {
+                "const": 1
+              },
+              "b": {
+                "const": {
+                  "value": null,
+                  "reason": "not-applicable-current-fixture"
+                }
+              },
+              "scaleRole": {
+                "const": "current-fixture"
+              },
+              "caseId": {
+                "enum": [
+                  "signalized-corridor",
+                  "parking-signals-baseline",
+                  "multi-gate-waiting-zone"
+                ]
+              },
+              "counts": {
+                "$ref": "#/$defs/currentFixtureWorkloadCounts"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "caseId": {
+                      "const": "signalized-corridor"
+                    }
+                  },
+                  "required": [
+                    "caseId"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "fixtureInputs": {
+                      "type": "array",
+                      "minItems": 3,
+                      "maxItems": 3,
+                      "prefixItems": [
+                        {
+                          "const": {
+                            "path": "examples/data/v0.10-signalized-corridor.laneflow.json",
+                            "formatVersion": "0.10",
+                            "byteLength": 85339,
+                            "sha256": "f701b08cbb96b9ef4ef799fab47edd272b8c38a4c7df23128d7ab85ff0cf7586"
+                          }
+                        },
+                        {
+                          "const": {
+                            "path": "examples/data/v0.1-signalized-corridor.spatial.json",
+                            "formatVersion": "0.1",
+                            "byteLength": 151268,
+                            "sha256": "5f9b657cd2001219c561d15ab37722017bf1a38179951253721f3efb1e5682e8"
+                          }
+                        },
+                        {
+                          "const": {
+                            "path": "examples/data/v0.1-signalized-corridor.scenario.json",
+                            "formatVersion": "0.1",
+                            "byteLength": 522,
+                            "sha256": "7d8d1f0b0448426c6d2cb79144bbac891bb39c710f4f22de12a204a6ff7a152c"
+                          }
+                        }
+                      ],
+                      "items": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "caseId": {
+                      "const": "parking-signals-baseline"
+                    }
+                  },
+                  "required": [
+                    "caseId"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "fixtureInputs": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "prefixItems": [
+                        {
+                          "const": {
+                            "path": "examples/data/v0.10-parking-signals-baseline.laneflow.json",
+                            "formatVersion": "0.10",
+                            "byteLength": 5038,
+                            "sha256": "bf48627f36969ed9553be63ba85a49a2dac7d78a6906fc637ca284ad79d8b599"
+                          }
+                        }
+                      ],
+                      "items": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "caseId": {
+                      "const": "multi-gate-waiting-zone"
+                    }
+                  },
+                  "required": [
+                    "caseId"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "fixtureInputs": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "prefixItems": [
+                        {
+                          "const": {
+                            "path": "examples/data/v0.10-multi-gate-waiting-zone.laneflow.json",
+                            "formatVersion": "0.10",
+                            "byteLength": 3006,
+                            "sha256": "d87ff96165cabb90155f2318839297b70fc1e007f7b35c06c5271017c84f06ae"
+                          }
+                        }
+                      ],
+                      "items": false
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "dependencyAudit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "licenseSpdxExpression",
+        "msrvRustVersion",
+        "securityAudit",
+        "cargoPackageId",
+        "cargoPackageChecksumSha256",
+        "cargoLockSha256"
+      ],
+      "properties": {
+        "licenseSpdxExpression": {
+          "$ref": "#/$defs/nullableStringObservation"
+        },
+        "msrvRustVersion": {
+          "$ref": "#/$defs/nullableStringObservation"
+        },
+        "securityAudit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool",
+            "databaseSnapshot",
+            "observedAtUtc",
+            "status",
+            "advisoryIds"
+          ],
+          "properties": {
+            "tool": {
+              "$ref": "#/$defs/nullableStringObservation"
+            },
+            "databaseSnapshot": {
+              "$ref": "#/$defs/nullableStringObservation"
+            },
+            "observedAtUtc": {
+              "$ref": "#/$defs/nullableStringObservation"
+            },
+            "status": {
+              "enum": [
+                "no-known-advisories",
+                "advisories-present",
+                "audit-unavailable",
+                "not-applicable"
+              ]
+            },
+            "advisoryIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "advisories-present"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "advisoryIds": {
+                    "minItems": 1
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "advisoryIds": {
+                    "maxItems": 0
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "cargoPackageId": {
+          "$ref": "#/$defs/nullableStringObservation"
+        },
+        "cargoPackageChecksumSha256": {
+          "$ref": "#/$defs/nullableSha256Observation"
+        },
+        "cargoLockSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "features",
+        "keyDomain",
+        "dependencyKind",
+        "dependencySource",
+        "dependencyAudit",
+        "hasherSeedPolicy",
+        "hasherSeed"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "features": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "keyDomain": {
+          "enum": [
+            "external-string",
+            "validated-fixed-key",
+            "canonical-output-order"
+          ]
+        },
+        "dependencyKind": {
+          "enum": [
+            "standard-library",
+            "local-workspace",
+            "crates-io",
+            "git"
+          ]
+        },
+        "dependencySource": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dependencyAudit": {
+          "$ref": "#/$defs/dependencyAudit"
+        },
+        "hasherSeedPolicy": {
+          "enum": [
+            "random-state-process-random",
+            "fixed-u64",
+            "not-applicable"
+          ]
+        },
+        "hasherSeed": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "hasherSeedPolicy": {
+                "const": "fixed-u64"
+              }
+            },
+            "required": [
+              "hasherSeedPolicy"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hasherSeed": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "hasherSeed": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "dependencyKind": {
+                "enum": [
+                  "crates-io",
+                  "git"
+                ]
+              }
+            },
+            "required": [
+              "dependencyKind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "dependencyAudit": {
+                "properties": {
+                  "securityAudit": {
+                    "properties": {
+                      "status": {
+                        "not": {
+                          "const": "not-applicable"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinatorPid",
+        "childPid",
+        "binaryId",
+        "exitKind",
+        "exitCode"
+      ],
+      "properties": {
+        "coordinatorPid": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "childPid": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "binaryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exitKind": {
+          "enum": [
+            "success",
+            "guarded-before-start",
+            "guarded-in-child",
+            "invalid-abnormal-exit",
+            "invalid-monitor-termination"
+          ]
+        },
+        "exitCode": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        }
+      }
+    },
+    "stageObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recordCount",
+        "logicalBytes",
+        "attributionTimeNs",
+        "liveRequestedBytes",
+        "peakLiveRequestedBytes"
+      ],
+      "properties": {
+        "recordCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "logicalBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "attributionTimeNs": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "liveRequestedBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "peakLiveRequestedBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        }
+      }
+    },
+    "stageBreakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceInput",
+        "typedAst",
+        "hir",
+        "mir",
+        "canonicalLir",
+        "diagnostics",
+        "scratch",
+        "outputConstruction"
+      ],
+      "properties": {
+        "sourceInput": {
+          "$ref": "#/$defs/stageObservation"
+        },
+        "typedAst": {
+          "$ref": "#/$defs/stageObservation"
+        },
+        "hir": {
+          "$ref": "#/$defs/stageObservation"
+        },
+        "mir": {
+          "$ref": "#/$defs/stageObservation"
+        },
+        "canonicalLir": {
+          "$ref": "#/$defs/stageObservation"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/stageObservation"
+        },
+        "scratch": {
+          "$ref": "#/$defs/stageObservation"
+        },
+        "outputConstruction": {
+          "$ref": "#/$defs/stageObservation"
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wallTimeNs",
+        "allocationCount",
+        "reallocationCount",
+        "allocatedBytes",
+        "freedBytes",
+        "liveRequestedBytes",
+        "peakLiveRequestedBytes",
+        "retainedCapacityBytes",
+        "workingSetBytes",
+        "privateBytes",
+        "commitPeakBytes",
+        "semanticDigest",
+        "diagnosticDigest",
+        "stageBreakdown"
+      ],
+      "properties": {
+        "wallTimeNs": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "allocationCount": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "reallocationCount": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "allocatedBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "freedBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "liveRequestedBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "peakLiveRequestedBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "retainedCapacityBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "workingSetBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "privateBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "commitPeakBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "semanticDigest": {
+          "$ref": "#/$defs/nullableSha256Observation"
+        },
+        "diagnosticDigest": {
+          "$ref": "#/$defs/nullableSha256Observation"
+        },
+        "stageBreakdown": {
+          "$ref": "#/$defs/stageBreakdown"
+        }
+      }
+    },
+    "guard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "compilerControlledPredictionBasis",
+        "privateBytesPredictionBasis",
+        "wallTimePredictionBasis",
+        "previousCompletedN",
+        "previousPrimaryRecordCount",
+        "nextPrimaryRecordCount",
+        "previousPeakLiveRequestedBytes",
+        "predictedCompilerControlledBytes",
+        "previousPrivateBytes",
+        "predictedPrivateBytes",
+        "previousWallTimeNs",
+        "predictedWallTimeNs",
+        "logicalBytesLowerBound",
+        "fixedOverheadBytes",
+        "reservedBytesBeforeFailure",
+        "trigger",
+        "lastAvailablePhysicalMemoryBytes",
+        "lastPrivateBytes"
+      ],
+      "properties": {
+        "compilerControlledPredictionBasis": {
+          "enum": [
+            "logical-lower-bound-plus-fixed-overhead",
+            "previous-level-linear-times-five-fourths",
+            "checked-arithmetic-failed",
+            "not-applicable"
+          ]
+        },
+        "privateBytesPredictionBasis": {
+          "enum": [
+            "first-level-monitor-only",
+            "previous-level-linear-times-five-fourths",
+            "unavailable-invalid-sample",
+            "not-applicable"
+          ]
+        },
+        "wallTimePredictionBasis": {
+          "enum": [
+            "first-level-monitor-only",
+            "previous-level-linear-times-five-fourths",
+            "unavailable-invalid-sample",
+            "not-applicable"
+          ]
+        },
+        "previousCompletedN": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "previousPrimaryRecordCount": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "nextPrimaryRecordCount": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "previousPeakLiveRequestedBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "predictedCompilerControlledBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "previousPrivateBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "predictedPrivateBytes": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "previousWallTimeNs": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "predictedWallTimeNs": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        },
+        "logicalBytesLowerBound": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "fixedOverheadBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "reservedBytesBeforeFailure": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "trigger": {
+          "enum": [
+            "none",
+            "predicted-compiler-controlled-bytes",
+            "predicted-private-bytes",
+            "predicted-wall-time",
+            "available-physical-memory",
+            "checked-arithmetic",
+            "typed-ordinal",
+            "allocation-hard-ceiling",
+            "private-bytes-monitor",
+            "wall-time-monitor",
+            "abnormal-exit",
+            "monitoring-gap"
+          ]
+        },
+        "lastAvailablePhysicalMemoryBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "lastPrivateBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "compilerControlledPredictionBasis": {
+                "enum": [
+                  "logical-lower-bound-plus-fixed-overhead",
+                  "previous-level-linear-times-five-fourths"
+                ]
+              }
+            },
+            "required": [
+              "compilerControlledPredictionBasis"
+            ]
+          },
+          "then": {
+            "properties": {
+              "predictedCompilerControlledBytes": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "predictedCompilerControlledBytes": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "compilerControlledPredictionBasis": {
+                "const": "previous-level-linear-times-five-fourths"
+              }
+            },
+            "required": [
+              "compilerControlledPredictionBasis"
+            ]
+          },
+          "then": {
+            "properties": {
+              "previousCompletedN": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              },
+              "previousPrimaryRecordCount": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              },
+              "previousPeakLiveRequestedBytes": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "privateBytesPredictionBasis": {
+                "const": "previous-level-linear-times-five-fourths"
+              }
+            },
+            "required": [
+              "privateBytesPredictionBasis"
+            ]
+          },
+          "then": {
+            "properties": {
+              "previousPrivateBytes": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              },
+              "predictedPrivateBytes": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "predictedPrivateBytes": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "wallTimePredictionBasis": {
+                "const": "previous-level-linear-times-five-fourths"
+              }
+            },
+            "required": [
+              "wallTimePredictionBasis"
+            ]
+          },
+          "then": {
+            "properties": {
+              "previousWallTimeNs": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              },
+              "predictedWallTimeNs": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "predictedWallTimeNs": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "failureObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "caseId",
+        "dimensionId",
+        "inputDigest",
+        "expectedOutcome",
+        "actualOutcome",
+        "stableCompilerErrorCode",
+        "diagnosticCount",
+        "diagnosticsTruncated",
+        "partialOutputRecordCount"
+      ],
+      "properties": {
+        "caseId": {
+          "oneOf": [
+            {
+              "pattern": "^limit/(module-count|import-edge-count|source-byte-count|declaration-count|identity-field-occurrence-count|symbol-count|reference-count|relation-occurrence-count|string-item-count|single-string-byte-count|total-string-byte-count|geometry-point-count|route-occurrence-count|maneuver-gate-count|waiting-zone-count|diagnostic-count|typed-ast-record-count|hir-record-count|mir-record-count|lir-record-count|stage-scratch-byte-count|output-byte-count|compiler-controlled-live-byte-count)/(at-bound|plus-one)$",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "semantic/missing-reference-per-unit",
+                "semantic/duplicate-owner-per-unit",
+                "diagnostic/cap-plus-one"
+              ]
+            }
+          ]
+        },
+        "dimensionId": {
+          "enum": [
+            "module-count",
+            "import-edge-count",
+            "source-byte-count",
+            "declaration-count",
+            "identity-field-occurrence-count",
+            "symbol-count",
+            "reference-count",
+            "relation-occurrence-count",
+            "string-item-count",
+            "single-string-byte-count",
+            "total-string-byte-count",
+            "geometry-point-count",
+            "route-occurrence-count",
+            "maneuver-gate-count",
+            "waiting-zone-count",
+            "diagnostic-count",
+            "typed-ast-record-count",
+            "hir-record-count",
+            "mir-record-count",
+            "lir-record-count",
+            "stage-scratch-byte-count",
+            "output-byte-count",
+            "compiler-controlled-live-byte-count",
+            "not-applicable"
+          ]
+        },
+        "inputDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expectedOutcome": {
+          "enum": [
+            "success",
+            "compiler-error"
+          ]
+        },
+        "actualOutcome": {
+          "enum": [
+            "success",
+            "compiler-error",
+            "abnormal-termination"
+          ]
+        },
+        "stableCompilerErrorCode": {
+          "$ref": "#/$defs/nullableStringObservation"
+        },
+        "diagnosticCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "diagnosticsTruncated": {
+          "type": "boolean"
+        },
+        "partialOutputRecordCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "caseId": {
+                "pattern": "/at-bound$"
+              }
+            },
+            "required": [
+              "caseId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "expectedOutcome": {
+                "const": "success"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "caseId": {
+                "pattern": "/plus-one$|^semantic/|^diagnostic/"
+              }
+            },
+            "required": [
+              "caseId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "expectedOutcome": {
+                "const": "compiler-error"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "caseId": {
+                "pattern": "^semantic/|^diagnostic/"
+              }
+            },
+            "required": [
+              "caseId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "dimensionId": {
+                "const": "not-applicable"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "dimensionId": {
+                "not": {
+                  "const": "not-applicable"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actualOutcome": {
+                "const": "compiler-error"
+              }
+            },
+            "required": [
+              "actualOutcome"
+            ]
+          },
+          "then": {
+            "properties": {
+              "stableCompilerErrorCode": {
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "stableCompilerErrorCode": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "cleanupObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "experimentId",
+        "phase",
+        "sequenceIndex"
+      ],
+      "properties": {
+        "experimentId": {
+          "$ref": "#/$defs/nullableStringObservation"
+        },
+        "phase": {
+          "enum": [
+            "not-applicable",
+            "baseline-success",
+            "failure-iteration",
+            "post-recovery-success",
+            "fresh-instance-oracle"
+          ]
+        },
+        "sequenceIndex": {
+          "$ref": "#/$defs/nullableIntegerObservation"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "failure-iteration"
+              }
+            },
+            "required": [
+              "phase"
+            ]
+          },
+          "then": {
+            "properties": {
+              "experimentId": {
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              },
+              "sequenceIndex": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 32
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "not-applicable"
+              }
+            },
+            "required": [
+              "phase"
+            ]
+          },
+          "then": {
+            "properties": {
+              "experimentId": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "sequenceIndex": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "experimentId": {
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "baseline-success"
+              }
+            },
+            "required": [
+              "phase"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sequenceIndex": {
+                "const": {
+                  "value": 0,
+                  "reason": null
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "post-recovery-success"
+              }
+            },
+            "required": [
+              "phase"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sequenceIndex": {
+                "const": {
+                  "value": 33,
+                  "reason": null
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "phase": {
+                "const": "fresh-instance-oracle"
+              }
+            },
+            "required": [
+              "phase"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sequenceIndex": {
+                "const": {
+                  "value": 34,
+                  "reason": null
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "externalState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "powerSource",
+        "vendorPerformanceMode",
+        "powerPlan",
+        "sleepOrSessionLock",
+        "thermalOrPowerThrottling",
+        "backgroundCpuTimeNs",
+        "backgroundWriteBytes",
+        "monitoringGap",
+        "backgroundProcessDeltas"
+      ],
+      "properties": {
+        "powerSource": {
+          "enum": [
+            "ac",
+            "battery"
+          ]
+        },
+        "vendorPerformanceMode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "powerPlan": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sleepOrSessionLock": {
+          "type": "boolean"
+        },
+        "thermalOrPowerThrottling": {
+          "type": "boolean"
+        },
+        "backgroundCpuTimeNs": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "backgroundWriteBytes": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "monitoringGap": {
+          "type": "boolean"
+        },
+        "backgroundProcessDeltas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "pid",
+              "cpuTimeDeltaNs",
+              "writeBytesDelta"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "pid": {
+                "$ref": "#/$defs/nonNegativeInteger"
+              },
+              "cpuTimeDeltaNs": {
+                "$ref": "#/$defs/nonNegativeInteger"
+              },
+              "writeBytesDelta": {
+                "$ref": "#/$defs/nonNegativeInteger"
+              }
+            }
+          }
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "batch",
+        "round",
+        "position",
+        "sampleKind",
+        "status",
+        "invalidationReasons",
+        "workload",
+        "candidate",
+        "process",
+        "metrics",
+        "guard",
+        "cleanup",
+        "externalState"
+      ],
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "batch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "round": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "position": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sampleKind": {
+          "enum": [
+            "cold-instance",
+            "stable-capacity-reuse",
+            "failure",
+            "oracle",
+            "guard-preflight"
+          ]
+        },
+        "status": {
+          "enum": [
+            "valid",
+            "invalid",
+            "guarded"
+          ]
+        },
+        "invalidationReasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "power-source-change",
+              "power-plan-change",
+              "vendor-mode-change",
+              "sleep-or-session-lock",
+              "thermal-or-power-throttling",
+              "background-cpu-over-one-second",
+              "background-write-over-100-mib",
+              "monitoring-gap",
+              "child-abnormal-exit"
+            ]
+          }
+        },
+        "workload": {
+          "$ref": "#/$defs/workload"
+        },
+        "candidate": {
+          "$ref": "#/$defs/candidate"
+        },
+        "process": {
+          "$ref": "#/$defs/process"
+        },
+        "metrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "guard": {
+          "$ref": "#/$defs/guard"
+        },
+        "failure": {
+          "$ref": "#/$defs/failureObservation"
+        },
+        "cleanup": {
+          "$ref": "#/$defs/cleanupObservation"
+        },
+        "externalState": {
+          "$ref": "#/$defs/externalState"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "sampleKind": {
+                "const": "failure"
+              }
+            },
+            "required": [
+              "sampleKind"
+            ]
+          },
+          "then": {
+            "required": [
+              "failure"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "failure"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "cleanup": {
+                "properties": {
+                  "phase": {
+                    "const": "failure-iteration"
+                  }
+                },
+                "required": [
+                  "phase"
+                ]
+              }
+            },
+            "required": [
+              "cleanup"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sampleKind": {
+                "const": "failure"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "positiveRatio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "properties": {
+        "numerator": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "denominator": {
+          "$ref": "#/$defs/positiveInteger"
+        }
+      }
+    },
+    "derived": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseScales",
+        "adjacentLevelRatios",
+        "knees",
+        "reproducibilityEnvelopes",
+        "growthSlopes",
+        "candidateComparisons",
+        "recommendations"
+      ],
+      "properties": {
+        "baseScales": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "workloadId",
+              "graphProfile",
+              "b"
+            ],
+            "properties": {
+              "workloadId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "graphProfile": {
+                "type": "string",
+                "minLength": 1
+              },
+              "b": {
+                "$ref": "#/$defs/nullableIntegerObservation"
+              }
+            }
+          }
+        },
+        "adjacentLevelRatios": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "workloadId",
+              "graphProfile",
+              "metric",
+              "batch",
+              "lowerN",
+              "upperN",
+              "roundRatios",
+              "medianRatio",
+              "candidateKnee"
+            ],
+            "properties": {
+              "workloadId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "graphProfile": {
+                "type": "string",
+                "minLength": 1
+              },
+              "metric": {
+                "type": "string",
+                "minLength": 1
+              },
+              "batch": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "lowerN": {
+                "$ref": "#/$defs/positiveInteger"
+              },
+              "upperN": {
+                "$ref": "#/$defs/positiveInteger"
+              },
+              "roundRatios": {
+                "type": "array",
+                "minItems": 5,
+                "maxItems": 5,
+                "items": {
+                  "$ref": "#/$defs/positiveRatio"
+                }
+              },
+              "medianRatio": {
+                "$ref": "#/$defs/positiveRatio"
+              },
+              "candidateKnee": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "knees": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "workloadId",
+              "graphProfile",
+              "candidateN",
+              "confirmedN",
+              "profilerArtifactSha256"
+            ],
+            "properties": {
+              "workloadId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "graphProfile": {
+                "type": "string",
+                "minLength": 1
+              },
+              "candidateN": {
+                "$ref": "#/$defs/nullableIntegerObservation"
+              },
+              "confirmedN": {
+                "$ref": "#/$defs/nullableIntegerObservation"
+              },
+              "profilerArtifactSha256": {
+                "$ref": "#/$defs/nullableSha256Observation"
+              }
+            }
+          }
+        },
+        "reproducibilityEnvelopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "metric",
+              "ratioNumerator",
+              "ratioDenominator"
+            ],
+            "properties": {
+              "metric": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ratioNumerator": {
+                "$ref": "#/$defs/positiveInteger"
+              },
+              "ratioDenominator": {
+                "$ref": "#/$defs/positiveInteger"
+              }
+            }
+          }
+        },
+        "growthSlopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "workloadId",
+              "graphProfile",
+              "metric",
+              "batch",
+              "levelNs",
+              "theilSenSlope"
+            ],
+            "properties": {
+              "workloadId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "graphProfile": {
+                "type": "string",
+                "minLength": 1
+              },
+              "metric": {
+                "type": "string",
+                "minLength": 1
+              },
+              "batch": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "levelNs": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/positiveInteger"
+                }
+              },
+              "theilSenSlope": {
+                "$ref": "#/$defs/nullableNumberObservation"
+              }
+            }
+          }
+        },
+        "candidateComparisons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "candidateId",
+              "baselineId",
+              "metric",
+              "batch0MedianRatio",
+              "batch1MedianRatio",
+              "decision"
+            ],
+            "properties": {
+              "candidateId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "baselineId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "metric": {
+                "type": "string",
+                "minLength": 1
+              },
+              "batch0MedianRatio": {
+                "$ref": "#/$defs/nullableNumberObservation"
+              },
+              "batch1MedianRatio": {
+                "$ref": "#/$defs/nullableNumberObservation"
+              },
+              "decision": {
+                "enum": [
+                  "noise-no-difference",
+                  "repeatable-improvement",
+                  "repeatable-regression",
+                  "rejected-correctness",
+                  "rejected-safety",
+                  "insufficient-evidence"
+                ]
+              }
+            }
+          }
+        },
+        "recommendations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "value",
+              "unit",
+              "evidenceRunIds",
+              "scope"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "$ref": "#/$defs/nullableIntegerObservation"
+              },
+              "unit": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidenceRunIds": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "scope": {
+                "const": "R0 research input for #292; not product SLA"
+              }
+            }
+          }
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "byteLength",
+        "sha256",
+        "command"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "profiler",
+            "raw-monitoring",
+            "known-vector",
+            "other"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "byteLength": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
