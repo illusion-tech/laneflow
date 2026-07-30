@@ -5,7 +5,7 @@
 
 use crate::corridor::{
     CORRIDOR_WORKLOAD_ID, CorridorContract, CorridorError, CorridorTemplate, EntityRef,
-    TemplateRelation, build_corridor_stage_case,
+    TemplateGeometryRule, TemplateRelation, build_corridor_stage_case,
 };
 use crate::identity::SemanticRecord;
 use crate::{GraphProfileId, TrustedContract};
@@ -46,8 +46,9 @@ pub fn verify_corridor_oracle_matrix(
                 graph_profile,
                 n,
             )?;
-            let oracle = build_corridor_oracle_records(
+            let oracle = build_template_oracle_records(
                 &trusted.workload_manifest,
+                CORRIDOR_WORKLOAD_ID,
                 &template,
                 graph_profile,
                 n,
@@ -73,9 +74,9 @@ pub fn verify_corridor_oracle_matrix(
     })
 }
 
-struct OracleOutput {
-    records: Vec<SemanticRecord>,
-    stream: Vec<u8>,
+pub(crate) struct OracleOutput {
+    pub(crate) records: Vec<SemanticRecord>,
+    pub(crate) stream: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -126,8 +127,9 @@ struct OraclePending {
     payload: Vec<u8>,
 }
 
-fn build_corridor_oracle_records(
+pub(crate) fn build_template_oracle_records(
     manifest: &Value,
+    workload_id: &str,
     template: &CorridorTemplate,
     graph_profile: GraphProfileId,
     n: u32,
@@ -161,6 +163,7 @@ fn build_corridor_oracle_records(
             namespace_domain,
             generator_version,
             base_seed,
+            workload_id,
             graph_profile.as_str(),
             &format!("unit/{unit:08x}"),
         );
@@ -261,12 +264,13 @@ fn build_corridor_oracle_records(
             pending.push(oracle_relation(unit, relation, &stable_ids)?);
         }
         for point in &template.geometry {
+            let (x_bits, y_bits, z_bits) = oracle_geometry_coordinate_bits(point, unit)?;
             let mut payload = Vec::with_capacity(32);
             payload.extend_from_slice(&oracle_stable_id(&stable_ids, unit, point.frame)?);
             put_u32(&mut payload, point.point_index);
-            put_u32(&mut payload, point.x_bits);
-            put_u32(&mut payload, point.y_bits);
-            put_u32(&mut payload, point.z_bits);
+            put_u32(&mut payload, x_bits);
+            put_u32(&mut payload, y_bits);
+            put_u32(&mut payload, z_bits);
             pending.push(OraclePending {
                 record_kind: 5,
                 owner: OracleOwner {
@@ -574,6 +578,7 @@ fn oracle_namespace(
     domain: &str,
     generator_version: u32,
     base_seed: u64,
+    workload_id: &str,
     graph_profile: &str,
     module_name: &str,
 ) -> String {
@@ -582,10 +587,43 @@ fn oracle_namespace(
     bytes.push(0);
     put_u32(&mut bytes, generator_version);
     put_u64(&mut bytes, base_seed);
-    put_string(&mut bytes, CORRIDOR_WORKLOAD_ID);
+    put_string(&mut bytes, workload_id);
     put_string(&mut bytes, graph_profile);
     put_string(&mut bytes, module_name);
     hex(&blake3::hash(&bytes).as_bytes()[..16])
+}
+
+fn oracle_geometry_coordinate_bits(
+    point: &crate::corridor::TemplateGeometry,
+    unit: u32,
+) -> Result<(u32, u32, u32), CorridorOracleError> {
+    match point.coordinate_rule {
+        TemplateGeometryRule::Fixed => {
+            return Ok((point.x_bits, point.y_bits, point.z_bits));
+        }
+        TemplateGeometryRule::JunctionGridV1 => {}
+    }
+    let unit_x = unit % 4_096;
+    let unit_y = unit / 4_096;
+    let x = unit_x
+        .checked_mul(128)
+        .and_then(|base| {
+            point
+                .edge
+                .local
+                .checked_mul(2)
+                .and_then(|edge| base.checked_add(edge))
+        })
+        .and_then(|base| base.checked_add(point.point_index))
+        .ok_or_else(|| CorridorOracleError::Contract("junction grid x overflow".to_owned()))?;
+    let y = unit_y
+        .checked_mul(128)
+        .ok_or_else(|| CorridorOracleError::Contract("junction grid y overflow".to_owned()))?;
+    Ok((
+        (x as f32).to_bits(),
+        (y as f32).to_bits(),
+        0.0_f32.to_bits(),
+    ))
 }
 
 fn oracle_identity_bytes(version: u16, kind: u16, fields: &[OracleField]) -> Vec<u8> {

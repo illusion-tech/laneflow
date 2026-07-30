@@ -1,7 +1,8 @@
 //! 由当前 production loader 规范化结果独立重建走廊研究模板。
 
 use crate::corridor::{
-    CorridorTemplate, EntityRef, TemplateEntity, TemplateGeometry, TemplateRelation,
+    CorridorTemplate, EntityRef, TemplateEntity, TemplateGeometry, TemplateGeometryRule,
+    TemplateRelation,
 };
 use laneflow_core::{
     AccessEffect, AccessTargetId, CorridorElementId, InitialTrafficData, SignalAspect,
@@ -741,6 +742,7 @@ fn typed_geometry(
                 x_bits: point.x().to_bits(),
                 y_bits: point.y().to_bits(),
                 z_bits: point.z().to_bits(),
+                coordinate_rule: TemplateGeometryRule::Fixed,
             });
         }
     }
@@ -756,6 +758,7 @@ fn typed_geometry(
                 x_bits: x.to_bits(),
                 y_bits: 0.0_f32.to_bits(),
                 z_bits: 0.0_f32.to_bits(),
+                coordinate_rule: TemplateGeometryRule::Fixed,
             });
         }
     }
