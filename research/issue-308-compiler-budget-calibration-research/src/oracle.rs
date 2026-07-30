@@ -6,9 +6,11 @@
 //! 顶层验证入口再分别调用生产者与该独立构造路径，并比较完整结果。
 
 use crate::identity::{
-    IdentityCaseOutput, IdentityDeclarationVector, IdentityFieldVector, SemanticRecordVector,
-    build_identity_case,
+    IdentityCaseOutput, IdentityDeclarationVector, IdentityFieldVector, SemanticRecord,
+    SemanticRecordVector, build_identity_case,
 };
+use crate::pipeline::build_identity_stage_case;
+use crate::stage_oracle::verify_identity_stage_exact;
 use crate::{GraphProfileId, TrustedContract};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -22,6 +24,7 @@ pub struct OracleVerificationReport {
     pub checked_cases: u32,
     pub checked_n1_cases: u32,
     pub checked_n2_cases: u32,
+    pub checked_stage_cases: u32,
 }
 
 pub fn verify_identity_oracle_matrix(
@@ -29,6 +32,7 @@ pub fn verify_identity_oracle_matrix(
 ) -> Result<OracleVerificationReport, OracleVerificationError> {
     let generator = trusted.generator_contract()?;
     let identity = trusted.identity_contract()?;
+    let stage = trusted.stage_contract()?;
     let mut checked_cases = 0_u32;
     for graph_profile in GraphProfileId::ALL {
         for n in [1, 2] {
@@ -37,6 +41,14 @@ pub fn verify_identity_oracle_matrix(
             if produced != oracle {
                 return Err(OracleVerificationError::Mismatch { graph_profile, n });
             }
+            let produced_stage =
+                build_identity_stage_case(&generator, &identity, &stage, graph_profile, n)?;
+            verify_identity_stage_exact(
+                &trusted.workload_manifest,
+                graph_profile,
+                n,
+                &produced_stage,
+            )?;
             checked_cases += 1;
         }
     }
@@ -47,10 +59,11 @@ pub fn verify_identity_oracle_matrix(
             .expect("graph profile count must fit u32"),
         checked_n2_cases: u32::try_from(GraphProfileId::ALL.len())
             .expect("graph profile count must fit u32"),
+        checked_stage_cases: checked_cases,
     })
 }
 
-fn build_identity_oracle_case(
+pub(crate) fn build_identity_oracle_case(
     manifest: &serde_json::Value,
     graph_profile: GraphProfileId,
     n: u32,
@@ -228,6 +241,10 @@ fn build_identity_oracle_case(
         semantic_record_stream_version,
         ordered_records.values(),
     );
+    let raw_records = ordered_records
+        .values()
+        .map(OracleRecord::to_shared_record)
+        .collect();
     Ok(IdentityCaseOutput {
         graph_profile,
         n,
@@ -240,6 +257,7 @@ fn build_identity_oracle_case(
             .values()
             .map(OracleRecord::to_vector)
             .collect(),
+        raw_records,
         semantic_digest_sha256: oracle_hex(&Sha256::digest(&semantic_record_stream)),
         semantic_record_stream,
     })
@@ -339,6 +357,18 @@ impl OracleRecord {
             owner_ordinal: self.owner_ordinal,
             local_index: self.local_index,
             payload_hex: oracle_hex(&self.payload),
+        }
+    }
+
+    fn to_shared_record(&self) -> SemanticRecord {
+        SemanticRecord {
+            record_kind: self.record_kind,
+            entity_kind_code: self.entity_kind_code,
+            entity_kind: self.entity_kind.clone(),
+            stable_id: self.stable_id,
+            owner_ordinal: self.owner_ordinal,
+            local_index: self.local_index,
+            payload: self.payload.clone(),
         }
     }
 }
@@ -843,9 +873,15 @@ pub enum OracleVerificationError {
     #[error(transparent)]
     IdentityContract(#[from] crate::IdentityContractError),
     #[error(transparent)]
+    StageContract(#[from] crate::StageContractError),
+    #[error(transparent)]
     Producer(#[from] crate::IdentityGenerationError),
     #[error(transparent)]
     Oracle(#[from] ExactOracleError),
+    #[error(transparent)]
+    StageProducer(#[from] crate::StageGenerationError),
+    #[error(transparent)]
+    StageOracle(#[from] crate::StageOracleError),
     #[error("生产者与独立预言机结果不一致：graphProfile={graph_profile:?}, N={n}")]
     Mismatch {
         graph_profile: GraphProfileId,
@@ -908,6 +944,7 @@ mod tests {
         assert_eq!(report.checked_cases, 6);
         assert_eq!(report.checked_n1_cases, 3);
         assert_eq!(report.checked_n2_cases, 3);
+        assert_eq!(report.checked_stage_cases, 6);
     }
 
     #[test]
