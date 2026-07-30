@@ -36,6 +36,7 @@ pub struct IdentityStableCapacitySequence {
 
 #[derive(Debug)]
 pub struct IdentityCompilerInstance {
+    compiler_instance_id: Option<String>,
     workload_manifest: serde_json::Value,
     generator: GeneratorContract,
     identity: IdentityContract,
@@ -46,7 +47,25 @@ pub struct IdentityCompilerInstance {
 
 impl IdentityCompilerInstance {
     pub fn from_trusted_contract(trusted: &TrustedContract) -> Result<Self, TimingError> {
+        Self::from_trusted_contract_with_optional_id(trusted, None)
+    }
+
+    pub fn from_trusted_contract_with_id(
+        trusted: &TrustedContract,
+        compiler_instance_id: String,
+    ) -> Result<Self, TimingError> {
+        if compiler_instance_id.is_empty() {
+            return Err(TimingError::EmptyCompilerInstanceId);
+        }
+        Self::from_trusted_contract_with_optional_id(trusted, Some(compiler_instance_id))
+    }
+
+    fn from_trusted_contract_with_optional_id(
+        trusted: &TrustedContract,
+        compiler_instance_id: Option<String>,
+    ) -> Result<Self, TimingError> {
         Ok(Self {
+            compiler_instance_id,
             workload_manifest: trusted.workload_manifest.clone(),
             generator: trusted.generator_contract()?,
             identity: trusted.identity_contract()?,
@@ -54,6 +73,10 @@ impl IdentityCompilerInstance {
             buffers: IdentityStageBufferPool::default(),
             completed_compilations: 0,
         })
+    }
+
+    pub fn compiler_instance_id(&self) -> Option<&str> {
+        self.compiler_instance_id.as_deref()
     }
 
     pub fn run_stable_capacity_sequence(
@@ -209,6 +232,8 @@ pub enum TimingError {
     RetainedSemanticState,
     #[error("稳定容量序列必须从未使用过的新编译器实例开始")]
     CompilerInstanceAlreadyUsed,
+    #[error("编译器实例身份不能为空")]
+    EmptyCompilerInstanceId,
     #[error("编译器实例的完成编译次数溢出")]
     CompilerInstanceCompilationOverflow,
     #[error("稳定容量复用期间阶段摘要发生变化")]
@@ -239,6 +264,25 @@ mod tests {
             assert_eq!(sample.stage_summary.n, 1);
             assert_eq!(sample.stage_summary.counts.semantic_output_record, 32);
         }
+    }
+
+    #[test]
+    fn evidence_instance_identity_must_be_explicit_and_nonempty() {
+        let trusted = load_repository_contract().expect("frozen contract");
+        assert!(matches!(
+            IdentityCompilerInstance::from_trusted_contract_with_id(&trusted, String::new()),
+            Err(TimingError::EmptyCompilerInstanceId)
+        ));
+
+        let instance = IdentityCompilerInstance::from_trusted_contract_with_id(
+            &trusted,
+            "pilot/compiler-instance-0".to_owned(),
+        )
+        .expect("identified instance");
+        assert_eq!(
+            instance.compiler_instance_id(),
+            Some("pilot/compiler-instance-0")
+        );
     }
 
     #[test]

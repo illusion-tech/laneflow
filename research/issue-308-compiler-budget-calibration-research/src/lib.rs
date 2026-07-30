@@ -11,6 +11,7 @@ mod generator;
 mod identity;
 mod manifest;
 mod oracle;
+mod pilot;
 mod pipeline;
 mod stage;
 mod stage_oracle;
@@ -30,6 +31,12 @@ pub use manifest::{GeneratorContract, ManifestContractError};
 pub use oracle::{
     ExactOracleError, OracleVerificationError, OracleVerificationReport,
     verify_identity_oracle_matrix,
+};
+pub use pilot::{
+    CLOCK_QUANTUM_MULTIPLIER, FRESH_PROCESS_PILOT_SAMPLE_COUNT, IDENTITY_TIMING_CHILD_SCHEMA,
+    IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityChildTimingReport, IdentityFreshProcessPilot,
+    MAXIMUM_RELATIVE_MAD_PERCENT, PilotError, measure_identity_timing_child,
+    run_identity_fresh_process_pilot,
 };
 pub use stage::{
     IdentityAggregateCounts, IdentityStageSummary, StageBreakdown, StageContract,
