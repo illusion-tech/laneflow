@@ -438,12 +438,14 @@ Workload Manifest）的机器可读 SSOT，冻结：
 - 候选注册表修订、闭合候选标识符、允许键域、哈希器种子策略、算法常量，以及容器/
   哈希器/适配器/排序器的依赖组件身份；
 - 恒定哈希资格协议、受检候选闭集、候选/预言机构建器、固定正确性输入、重复次数和
-  必须重算的逐项检查。
+  必须重算的逐项检查；
+- 校准/压力规模的纯函数选择契约，以及候选结论相对同指标重复性包络的精确有理数
+  分类契约。
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `102149` exact bytes，SHA-256 为
-`c202592f74f66771f18ca27ba4a1af72bcb3a9126ef39ced3e0b2b925823e330`；G2 只能发布
+取得 G1。G1 候选冻结清单 `104654` exact bytes，SHA-256 为
+`3ae5d4a8e1dab24f780ec5b68dc32bfbb9a69369363adcc6c3357bb366efcb00`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -815,14 +817,32 @@ batch 0 是候选发现批次，batch 1 是独立确认批次。某上级是**�
 
 ### 5.5 校准规模与压力规模
 
-- 编译器校准规模：首个确认成本拐点之前最大的已完成正式级别。
-- 编译器压力规模：首个确认成本拐点级别；若护栏前没有确认拐点，则为护栏之前最大
-  的完整级别，并明确标记“未观察到拐点”。
+规模选择不是执行器可以自报的第二份结论。工作负载清单
+`scaleSelectionContract` 冻结纯函数
+`first-confirmed-knee-or-max-complete-v1`；独立验证器对由 `workloadId`、
+`workloadRevision`、`graphProfile`、`stringProfile`、`generatorVersion`、`B` 和
+`caseId` 组成的自然身份，从正式阶梯与拐点评估直接重算：
+
+- 完整正式级别必须同时具备 batch 0/1，各批五个有效轮次，并闭合
+  `wall-time-ns` 与 `peak-live-requested-bytes` 的冷实例/稳定容量复用四项必需
+  分层；
+- 首个确认成本拐点是该自然身份下所有已确认 `wall-time-ns` 或
+  `peak-live-requested-bytes`、冷实例或稳定容量复用拐点的最小
+  `upperStratum.n`；
+- 编译器校准规模：首个确认成本拐点之前最大的完整正式级别；
+- 编译器压力规模：首个确认成本拐点级别；若没有确认拐点，则为最大完整正式级别，
+  并在报告中明确标记“未观察到拐点”。
 
 若首个可比较级别 `2B` 已确认拐点，则校准规模为 `B`、压力规模为 `2B`。若护栏使
 正式五级无法完成，研究必须报告“不足以冻结规模”，而不是把未完成级别降格为证据。
 若护栏前完成至少五级但始终没有确认拐点，压力规模取最大完整级别，校准规模取其
 前一完整级别；两者都必须标记“未观察到拐点”，不得伪造线性区间以外的结论。
+
+Evidence v1 不新增一份可能与原始阶梯漂移的 `scaleSelections` 对象。所有运行、
+测量分层和候选比较中出现的 `scaleRole = calibration | stress` 都是上述纯函数结果的
+引用标签；独立验证器必须按同一自然身份要求其 `N` 精确等于派生规模。少于五个完整
+正式级别时不得出现这两种角色；漏标、错标或把另一个自然身份的规模复用过来都使证据
+无效。
 
 ### 5.6 重复性包络与研究预算建议
 
@@ -1309,17 +1329,32 @@ XXH3/XXH64 候选使用固定 seed `0x4c46_434f_4d50_0001`；FNV-1a 64 使用标
   形成性能结论的每批必须覆盖 `r = 0..2C-1` 的全部 `2C` 个平衡轮次，作废轮次及其
   保留样本不得进入配对；
 - 每个轮次对的比值方向固定为 `candidate round median / baseline round median`。
-  `metric` 只允许
-  映射到 `metrics.wallTimeNs`、`allocationCount`、`reallocationCount`、
-  `allocatedBytes`、`peakLiveRequestedBytes`、`retainedCapacityBytes`、
-  `workingSetBytes`、`privateBytes` 或 `commitPeakBytes` 的整数 `value`；分子、
-  分母都必须严格大于零。比值以互素正整数 `numerator / denominator` 保存，不得先
-  转换为浮点数或小数；
+  `metric` 只允许映射到 `metrics.wallTimeNs`、`allocatedBytes`、
+  `peakLiveRequestedBytes`、`retainedCapacityBytes`、`workingSetBytes`、
+  `privateBytes` 或 `commitPeakBytes` 的整数 `value`；分子、分母都必须严格大于零。
+  `allocationCount` 与 `reallocationCount` 仍保存并报告精确原始值，但因为可能为零且
+  没有重复性包络，只作机制诊断，不得生成 `candidateComparisons[]` 或决定赢家。比值
+  以互素正整数 `numerator / denominator` 保存，不得先转换为浮点数或小数；
 - 精确中位比值（exact median ratio）的算法固定如下：把该批 `2C` 个精确轮次比值用
   数学整数交叉乘法按数值非降序排列为 `x[0..2C-1]`，取
   `(x[C-1] + x[C]) / 2`，再以最大公约数约分为唯一互素正整数比值。排序、求和、
   除以二和约分使用无溢出的数学整数语义；证据生产者不能完成精确算术时必须失败
   关闭。该算法没有舍入步骤，候选决策与重复性包络比较也必须用精确交叉乘法；
+- 候选结论算法固定为 `two-batch-envelope-classification-v1`。令同指标唯一重复性
+  包络 `E = P / Q`，其中 `P >= Q > 0` 且已约分；每批中位比值
+  `R_i = A_i / B_i`，其中 `i ∈ {0, 1}`、`A_i > 0`、`B_i > 0` 且已约分。先处理
+  正确性与安全拒绝；任一批缺失、不可比较或轮次不完整时结论为
+  `insufficient-evidence`。其余情形只按下表分类，不使用浮点数、容差或舍入：
+
+| 结论                     | batch 0 与 batch 1 必须同时满足的精确条件                            |
+| ------------------------ | -------------------------------------------------------------------- |
+| `repeatable-improvement` | `A_i × P < B_i × Q`，即 `R_i < 1 / E`                                |
+| `repeatable-regression`  | `A_i × Q > B_i × P`，即 `R_i > E`                                    |
+| `noise-no-difference`    | `A_i × P >= B_i × Q` 且 `A_i × Q <= B_i × P`，即 `1 / E <= R_i <= E` |
+| `insufficient-evidence`  | 其余混合结果，例如一批改善而另一批落在包络内                         |
+
+  等于任一包络边界属于 `noise-no-difference`。乘法使用无溢出的数学整数语义；不能
+  完成精确比较时只能失败关闭，不能降级成浮点近似；
 - 独立验证器必须把每个轮次对的两个 `roundSummaryId` 唯一解析回轮次汇总及其原始
   运行，核对 batch、`round`、候选、完整分层、有效状态和指标，重算并约分每个比值，
   再独立重算
@@ -1393,7 +1428,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1322` exact bytes，SHA-256 为
-`3dcb82f1a31e6288df787fff35c6e96605f2d7902d93ac776b2a62c6208505fb`。该摘要是 PR/Gate
+`ad486a00fbf0217eb88392fcda6e8eebcd9728e4922dedf1dcf65081b2fb9554`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1412,8 +1447,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `211353` exact bytes，SHA-256 为
-`2dd9554381bfe46222cedb487ccd8f485c6541148b389d4deebf147ce8244479`。
+G1 候选冻结 schema `211295` exact bytes，SHA-256 为
+`f62e5d1521c455c802225ac85a3b8d3547e0a4d566b116242922d9d36502f696`。
 顶层格式标识：
 
 ```text
@@ -1447,7 +1482,8 @@ schemaVersion = 1
   `runId`/`roundSummaryId`、精确整数中位数和中位绝对偏差；
 - 每条派生候选比较的完整候选比较分层、按两个独立批次拆分的同轮
   `roundSummaryId` 配对、精确轮次比值、中位比值和决策；汇总与运行引用必须能由
-  独立验证器回算，不得只保存最终数；
+  独立验证器按清单中的精确分类契约回算，不得只保存最终数；分配次数与重新分配次数
+  只保留在原始指标中，不进入候选比较；
 - 每条限制配对的 `exactDimensionValue`、`selectedLimitValue`、值来源和来源
   `runId`；存续字节基准预扫描还必须保存基准测量标识符、副本序号和“仅运维硬上限”
   私有限制模式；
@@ -1558,6 +1594,12 @@ package/version/features/checksum。不能从自由 ID 推测算法，也不能�
 一个 `B` 但正式阶梯不足时不能形成候选排名或预算；只有确有可解析轮次与阶梯汇总时
 才允许 `formal-analysis-available`。处置名、`B` 和派生数组三者不一致必须失败。
 
+验证器还必须加载清单的 `scaleSelectionContract`，按其自然身份从两批完整正式级别和
+已确认拐点重算校准/压力规模，再扫描运行、轮次/阶梯汇总、相邻级别比值、拐点评估与
+候选比较中的全部 `scaleRole`。每个 `calibration` 或 `stress` 标签的 `N` 必须等于
+同一自然身份的唯一派生规模；正式级别不足时两种标签都不得出现。不得因为 Evidence v1
+没有重复保存 `scaleSelections` 对象而跳过这项整份证据关系验证。
+
 轮次指标汇总验证必须先按轮次尝试身份分组，再按贡献 `runId` 重算。一个整轮尝试中
 任一样本作废时，组内全部已取得样本必须是 `invalid` 并携带相同原因集合；重试使用
 不同 ID 和递增序号。汇总引用的全部运行必须来自同一个有效尝试，且
@@ -1573,6 +1615,12 @@ package/version/features/checksum。不能从自由 ID 推测算法，也不能�
 闭合。每条拐点评估的 batch 0/1 引用必须分别唯一解析到相同候选、指标和上下级分层的
 相邻比值；候选/确认值、上级规模和 profiler 制品引用都必须重算。候选比较轮次对则
 必须解析到同批同轮的基线/候选轮次汇总。三者都不能绕过原始运行直接信任中位数。
+
+候选比较验证必须加载清单的 `candidateDecisionContract`，先核对指标属于七项有
+重复性包络的正值指标，并按指标解析唯一 `reproducibilityEnvelopes[]` 记录；分配次数
+和重新分配次数只能保留为原始诊断值。验证器重算两个批次的精确中位比值后，必须按
+第 9.2 节的交叉乘法与正确性/安全优先级重算 `decision`。边界被写成改善/回退、两批
+混合结果被写成可重复结论、指标错配或使用浮点容差都必须失败。
 
 增长斜率验证必须把每批 `levelBatchSummaryIds` 解析为同一基线候选、指标和除
 `N`/规模角色外相同的完整测量分层，且分别来自 batch 0/1；按主记录数排序后枚举全部
@@ -1690,10 +1738,11 @@ cargo +1.96.0 run --release --locked `
 - [ ] 研究工作负载清单 exact bytes 摘要已冻结，三个合成工作负载 × 三种模块图、
   字符串/来源位置类别、记录布局、计数对象、证据角色和禁止外推边界闭合；
 - [ ] 候选注册表的闭合 ID、允许键域、种子策略、算法常量与依赖组件身份闭合；
-- [ ] `B`、至少五级规模阶梯、拐点确认、校准/压力规模和停止护栏规则闭合；
+- [ ] `B`、至少五级规模阶梯、拐点确认、校准/压力规模纯函数选择和停止护栏规则
+  闭合；
 - [ ] 冷实例、稳定容量复用、轮次/批次精确汇总、失败清理和内存记账协议闭合；
 - [ ] 外部可控键与内部定长键的安全域、候选矩阵、进程隔离、平衡顺序和整轮作废
-  纪律闭合；
+  纪律，以及同指标重复性包络的精确候选结论闭合；
 - [ ] 非自指契约描述符、证据格式 v1 schema、研究/生产 workload ID 所有权与 #292
   rebase 回写边界闭合；
 - [ ] 术语 SSOT、设计索引和相关 Agent Skill 阅读入口同步；
