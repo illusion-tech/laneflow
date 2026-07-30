@@ -4068,12 +4068,17 @@
       "additionalProperties": false,
       "required": [
         "experimentId",
+        "compilerInstanceId",
         "phase",
         "sequenceIndex"
       ],
       "properties": {
         "experimentId": {
           "$ref": "#/$defs/nullableStringObservation"
+        },
+        "compilerInstanceId": {
+          "$ref": "#/$defs/nullableStringObservation",
+          "description": "清理实验中由研究执行器在编译器实例构造时一次性签发、随实例存续且销毁后不得复用的身份；不能由 childPid、指针地址或 runId 推断。"
         },
         "phase": {
           "enum": [
@@ -4152,6 +4157,17 @@
                   }
                 }
               },
+              "compilerInstanceId": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
               "sequenceIndex": {
                 "properties": {
                   "value": {
@@ -4168,6 +4184,17 @@
           "else": {
             "properties": {
               "experimentId": {
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              },
+              "compilerInstanceId": {
                 "properties": {
                   "value": {
                     "type": "string",
