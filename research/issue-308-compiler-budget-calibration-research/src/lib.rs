@@ -8,14 +8,25 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 mod generator;
+mod identity;
 mod manifest;
+mod oracle;
 
 pub use generator::{
     ExpandedModule, ExpandedModuleGraph, GeneratorError, GraphProfileId,
     ModuleGraphKnownVectorDocument, SequenceKind, build_module_graph_known_vectors,
     expand_module_graph, permute_in_place,
 };
+pub use identity::{
+    IdentityContract, IdentityContractError, IdentityDeclarationVector, IdentityFieldVector,
+    IdentityGenerationError, IdentityKnownVector, IdentityKnownVectorDocument,
+    SemanticRecordVector, build_identity_known_vectors,
+};
 pub use manifest::{GeneratorContract, ManifestContractError};
+pub use oracle::{
+    ExactOracleError, OracleVerificationError, OracleVerificationReport,
+    verify_identity_oracle_matrix,
+};
 
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";
 pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_322;
@@ -58,6 +69,10 @@ pub struct TrustedContract {
 impl TrustedContract {
     pub fn generator_contract(&self) -> Result<GeneratorContract, ManifestContractError> {
         GeneratorContract::from_manifest(&self.workload_manifest)
+    }
+
+    pub fn identity_contract(&self) -> Result<IdentityContract, IdentityContractError> {
+        IdentityContract::from_manifest(&self.workload_manifest)
     }
 }
 

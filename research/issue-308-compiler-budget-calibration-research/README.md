@@ -44,17 +44,23 @@ G2 冻结的候选依赖如下；“特性”只列本研究包直接启用的�
 - 由清单驱动的 SplitMix64、从末项到首项的 Fisher–Yates 置换、模块种子序号和
   BLAKE3-128 命名空间派生；
 - 三种模块图配置档在 `N = 1`、`N = 2` 时的全部展开模块、置换后导入、跨模块引用、
-  模块种子序号与命名空间已知向量。
+  模块种子序号与命名空间已知向量；
+- `LF-COMP-ID-v1` 在三种模块图、`short-unique-v1` 和 `N = 1` 下的二十二种身份
+  声明、十条所有者关系、完整规范记录流与 SHA-256 语义摘要已知向量。
 
 代码中的 v1 常量只用于证明清单字段与已接受契约精确一致并在漂移时失败，不构成第二
 事实源；研究语义仍以已验证的工作负载清单为权威。
 
-已知向量位于 `known-vectors/module-graphs-v1.json`，精确长度为 `6545` 字节，
-SHA-256 为
-`abe175a0982c6483619fb65738011c97e7871faf247531f4a46cffb136da41f5`。它绑定工作负载
-清单摘要，不是生产制品或正式性能证据。
+已知向量均绑定工作负载清单摘要，不是生产制品或正式性能证据：
 
-二十二种身份声明的受检物化、精确研究预言机、阶段记录、测量隔离、证据写出器和正式
+- `known-vectors/module-graphs-v1.json`：精确长度 `6545` 字节，SHA-256
+  `abe175a0982c6483619fb65738011c97e7871faf247531f4a46cffb136da41f5`；
+- `known-vectors/identity-records-v1.json`：精确长度 `109533` 字节，SHA-256
+  `b78d429e586a231ba20e9710b198834e9df7e3d5b12976635fc7da30149f27f1`。
+
+`LF-COMP-ID-v1` 的独立精确研究预言机已经覆盖三种模块图在 `N = 1`、`N = 2`
+下的六个用例，并逐项核对身份声明、所有者关系、规范记录流和语义摘要。其余工作
+负载的完整记录流、当前固定样例研究投影、阶段记录、测量隔离、证据写出器和正式
 `run --protocol compiler-calibration-v1` 入口仍须按设计文档继续实现；在完整正确性
 与 pilot 证据落盘前，不得宣称任何正式预算数字。
 
@@ -66,12 +72,28 @@ cargo +1.96.0 run --locked `
   verify-contract
 ```
 
-重新生成模块图已知向量到标准输出：
+重新生成两份仓库内已知向量：
 
 ```powershell
 cargo +1.96.0 run --locked `
   -p issue-308-compiler-budget-calibration-research `
   --no-default-features --features research-runner-full `
   --bin issue-308-compiler-budget-calibration-research -- `
-  print-module-graph-known-vectors
+  write-known-vectors
+```
+
+写入身份向量前，命令会先要求生产者与独立预言机的六个用例完全一致；任一用例不一致
+时不会写入。
+
+只需检查标准输出时，可分别使用 `print-module-graph-known-vectors` 与
+`print-identity-known-vectors`。
+
+执行 `LF-COMP-ID-v1` 的生产者/独立预言机六用例交叉验证：
+
+```powershell
+cargo +1.96.0 run --locked `
+  -p issue-308-compiler-budget-calibration-research `
+  --no-default-features --features research-runner-full `
+  --bin issue-308-compiler-budget-calibration-research -- `
+  verify-identity-oracle
 ```
