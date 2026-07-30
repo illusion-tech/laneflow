@@ -274,7 +274,9 @@ token）连同行尾分别固定为 `21/19/18/18` 字节求和，不再允许执
   可读清单冻结，不得由实现自行编造；
 - 主阶梯使用 `short-unique-v1` 字符串配置；`LF-COMP-ID-v1` 还必须在 `B`、校准规模
   和压力规模执行 `shared-prefix-256-v1` 与 `long-4096-v1`，分别隔离共享前缀和长
-  字符串成本。这些长度是研究输入，不是生产 `CompileLimits`；
+  字符串成本。后二者不建立自己的正式阶梯，而是继承相同工作负载、模块图配置档和
+  生成器版本下 `short-unique-v1` 主阶梯派生的三个规模；这些长度是研究输入，不是
+  生产 `CompileLimits`；
 - 导入、声明、引用、关系和几何输入顺序使用固定置换后再解析，输出必须恢复规范
   顺序；置换算法、字符串配置或来源位置规则改变时必须提升对应工作负载修订。
 
@@ -444,8 +446,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `105891` exact bytes，SHA-256 为
-`940c595d3a7ac86058d2260587f3f666bbf299187661ab502c4c1c116b7993d7`；G2 只能发布
+取得 G1。G1 候选冻结清单 `106543` exact bytes，SHA-256 为
+`d74fb7ac2d74fc3d49c73381c1d04f9919839b2de47c5405656d9ea7ceaad455`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -654,6 +656,11 @@ generatorVersion)`，其中候选固定为完整管线基线、字符串配置�
 `first-power-of-two-qualifying-seven-pilot-runs-v1`；`pilotLevels[]` 若非空，必须从
 `N = 1` 开始按严格二倍递增，直到首次合格或下一候选受停止护栏阻止。
 
+`shared-prefix-256-v1` 与 `long-4096-v1` 不得建立 `baseScales[]` 记录；这些测量中
+`workload.b.value` 必须等于相同工作负载、修订、模块图配置档和生成器版本下
+`short-unique-v1` 的唯一 `B`。来源配置没有取得 `B` 时，继承配置也不得开始正式
+测量。
+
 每个已完成候选级别保存一条基准规模试运行摘要（base-scale pilot summary）：精确七个
 有效冷实例 `runId`、`median-and-mad-of-seven-exact-integers-v1`、墙钟中位数、墙钟
 中位绝对偏差、`10000 * protocol.clockQuantumNs` 阈值、共同语义摘要、摘要一致布尔值、
@@ -821,8 +828,10 @@ batch 0 是候选发现批次，batch 1 是独立确认批次。某上级是**�
 规模选择不是执行器可以自报的第二份结论。工作负载清单
 `scaleSelectionContract` 冻结纯函数
 `first-confirmed-knee-or-max-complete-v1`；独立验证器对由 `workloadId`、
-`workloadRevision`、`graphProfile`、`stringProfile`、`generatorVersion`、`B` 和
-`caseId` 组成的自然身份，从正式阶梯与拐点评估直接重算：
+`workloadRevision`、`graphProfile`、`generatorVersion`、`B` 和 `caseId` 组成的
+规模来源自然身份，从正式阶梯与拐点评估直接重算。清单
+`scaleSourceStringProfileByWorkload` 把三个合成工作负载的规模来源字符串配置固定为
+`short-unique-v1`；字符串配置仍属于测量分层，但不属于规模来源自然身份：
 
 - 完整正式级别必须同时具备 batch 0/1，各批五个有效轮次，并闭合
   `wall-time-ns` 与 `peak-live-requested-bytes` 的冷实例/稳定容量复用四项必需
@@ -841,9 +850,11 @@ batch 0 是候选发现批次，batch 1 是独立确认批次。某上级是**�
 
 Evidence v1 不新增一份可能与原始阶梯漂移的 `scaleSelections` 对象。所有运行、
 测量分层和候选比较中出现的 `scaleRole = calibration | stress` 都是上述纯函数结果的
-引用标签；独立验证器必须按同一自然身份要求其 `N` 精确等于派生规模。少于五个完整
-正式级别时不得出现这两种角色；漏标、错标或把另一个自然身份的规模复用过来都使证据
-无效。
+引用标签；独立验证器必须先把当前测量字符串配置映射到对应
+`short-unique-v1` 规模来源身份，再要求其 `N` 精确等于派生规模。
+`shared-prefix-256-v1` 与 `long-4096-v1` 不得反向要求自身具有五个正式级别，也不得
+改变 `short-unique-v1` 的规模选择。来源身份少于五个完整正式级别时，任何继承配置都
+不得出现这两种角色；漏标、错标或跨来源身份复用规模都使证据无效。
 
 ### 5.6 重复性包络与研究预算建议
 
@@ -1359,6 +1370,13 @@ XXH3/XXH64 候选使用固定 seed `0x4c46_434f_4d50_0001`；FNV-1a 64 使用标
   两批都为空并分别使用稳定空值原因；`insufficient-evidence` 可以保存零项、未完成
   的有效前缀或完整但两批分类不一致的配对，未完成批次的中位比值必须为空。原始作废
   轮次仍保存在 `runs[]`，不能为填满 batch 而制造 `roundSummaryId`；
+- 每条候选比较必须保存按“受测候选、精确研究预言机”排序的通用正确性证据运行对
+  `correctnessEvidenceRunIds`。三类比值结论必须引用一对结果一致的运行；
+  `rejected-correctness` 必须引用一对可重算的不一致或候选异常运行；
+  `rejected-safety` 因执行前拒绝而使用空数组；`insufficient-evidence` 可为空或保留
+  已完成的整对，但不得只保存一个运行。两项必须使用相同工作负载、输入、规模和生成
+  配方，第一项候选等于 `candidateId`，第二项来自精确研究预言机；因此非快速哈希容器
+  或排序候选也能保留正确性拒绝前像，而不依赖恒定哈希专用资格；
 - 每个轮次对的比值方向固定为 `candidate round median / baseline round median`。
   `metric` 只允许映射到 `metrics.wallTimeNs`、`allocatedBytes`、
   `peakLiveRequestedBytes`、`retainedCapacityBytes`、`workingSetBytes`、
@@ -1466,7 +1484,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1322` exact bytes，SHA-256 为
-`b6fcfba8f8b9b0a07369a413b0425f6b426f9c8be2d6c2a50c1e274f01279203`。该摘要是 PR/Gate
+`362c2bb5dcceb2c60aacf113d2fd645b100a0e8643c1eecaca8888ed52ea692f`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1485,8 +1503,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `215104` exact bytes，SHA-256 为
-`1bf27e8ccb91359c38b673aa0fbffe61bddc4ca75f13faab47d3c2c704dcfec8`。
+G1 候选冻结 schema `217013` exact bytes，SHA-256 为
+`ebda5974edb48fba1b6cdbbd6b82a3f43d0fbae64ed3446c35b9462e14e89da8`。
 顶层格式标识：
 
 ```text
@@ -1522,7 +1540,8 @@ schemaVersion = 1
 - 每条派生候选比较的完整候选比较分层、按两个独立批次拆分的同轮
   `roundSummaryId` 配对、精确轮次比值、中位比值和决策；汇总与运行引用必须能由
   独立验证器按清单中的精确分类契约回算，不得只保存最终数；分配次数与重新分配次数
-  只保留在原始指标中，不进入候选比较；
+  只保留在原始指标中，不进入候选比较；每条比较还须保存受测候选与精确研究预言机的
+  通用正确性证据运行对，执行前安全拒绝时明确为空；
 - 每条限制配对的 `exactDimensionValue`、`selectedLimitValue`、值来源和来源
   `runId`；存续字节基准预扫描还必须保存基准测量标识符、副本序号和“仅运维硬上限”
   私有限制模式；
@@ -1650,9 +1669,13 @@ ID、同一汇总混入不同模式或模式与指标错配都必须失败。
 
 验证器还必须加载清单的 `scaleSelectionContract`，按其自然身份从两批完整正式级别和
 已确认拐点重算校准/压力规模，再扫描运行、轮次/阶梯汇总、相邻级别比值、拐点评估与
-候选比较中的全部 `scaleRole`。每个 `calibration` 或 `stress` 标签的 `N` 必须等于
-同一自然身份的唯一派生规模；正式级别不足时两种标签都不得出现。不得因为 Evidence v1
-没有重复保存 `scaleSelections` 对象而跳过这项整份证据关系验证。
+候选比较中的全部 `scaleRole`。自然身份不包含测量字符串配置；验证器必须按
+`scaleSourceStringProfileByWorkload` 只从 `short-unique-v1` 正式阶梯派生规模，并将
+其他字符串配置的 `B` 和派生角色映射到同一来源身份。每个继承配置的
+`workload.b.value` 必须等于来源身份的唯一 `B`；每个 `calibration` 或 `stress`
+标签的 `N` 必须等于该来源身份的唯一派生规模；来源正式级别不足时任何字符串配置都
+不得出现两种标签。
+不得因为 Evidence v1 没有重复保存 `scaleSelections` 对象而跳过这项整份证据关系验证。
 
 轮次指标汇总验证必须先按轮次尝试身份分组，再按贡献 `runId` 重算。一个整轮尝试中
 任一样本作废时，组内全部已取得样本必须是 `invalid` 并携带相同原因集合；重试使用
@@ -1679,6 +1702,15 @@ ID、同一汇总混入不同模式或模式与指标错配都必须失败。
 安全预先拒绝的两批为空；证据不足允许空、未完成或完整但不可分类的批次，空批和未
 完成批次分别使用清单登记的唯一空值原因。无有效轮次却制造引用、未完成批次自报
 中位数或性能结论缺完整配对都必须失败。
+
+在性能分类前，验证器还必须按
+`candidateDecisionContract.correctnessEvidenceRules` 解析每条比较的通用正确性证据
+运行对：第一项必须是同 `candidateId` 的受测运行，第二项必须是相同工作负载、输入、
+规模、生成器和期望结果的精确研究预言机运行。三类比值结论要求两项有效且阶段计数、
+结果、语义/诊断摘要一致；`rejected-correctness` 要求可重算的不一致或候选异常终止；
+`rejected-safety` 要求空数组；`insufficient-evidence` 只能为空或完整两项。非快速哈希
+候选不得用 `constantHashQualificationId = not-applicable` 逃过这项通用证据；三个快速
+哈希候选除通用证据外仍须通过第 9.1 节的恒定哈希专用资格。
 
 增长斜率验证必须把每批 `levelBatchSummaryIds` 解析为同一基线候选、指标和除
 `N`/规模角色外相同的完整测量分层，且分别来自 batch 0/1；按主记录数排序后枚举全部

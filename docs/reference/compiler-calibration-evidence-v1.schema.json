@@ -6652,6 +6652,24 @@
         }
       }
     },
+    "correctnessEvidenceRunIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "oneOf": [
+        {
+          "maxItems": 0
+        },
+        {
+          "minItems": 2,
+          "maxItems": 2
+        }
+      ],
+      "description": "按 candidate-under-test、exact-research-oracle 顺序保存的通用正确性证据运行对；未执行时为空数组。"
+    },
     "baseScalePilotLevel": {
       "type": "object",
       "additionalProperties": false,
@@ -7361,6 +7379,7 @@
               "metric",
               "batch0",
               "batch1",
+              "correctnessEvidenceRunIds",
               "constantHashQualificationId",
               "decision"
             ],
@@ -7382,6 +7401,9 @@
               },
               "batch1": {
                 "$ref": "#/$defs/candidateComparisonBatch"
+              },
+              "correctnessEvidenceRunIds": {
+                "$ref": "#/$defs/correctnessEvidenceRunIds"
               },
               "constantHashQualificationId": {
                 "$ref": "#/$defs/nullableStringObservation"
@@ -7448,6 +7470,50 @@
                           }
                         }
                       }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "decision": {
+                      "enum": [
+                        "noise-no-difference",
+                        "repeatable-improvement",
+                        "repeatable-regression",
+                        "rejected-correctness"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "decision"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "correctnessEvidenceRunIds": {
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "decision": {
+                      "const": "rejected-safety"
+                    }
+                  },
+                  "required": [
+                    "decision"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "correctnessEvidenceRunIds": {
+                      "maxItems": 0
                     }
                   }
                 }
