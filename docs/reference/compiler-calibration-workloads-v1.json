@@ -2440,11 +2440,16 @@
       "workloadId",
       "workloadRevision",
       "graphProfile",
-      "stringProfile",
       "generatorVersion",
       "b.value",
       "caseId"
     ],
+    "scaleSourceStringProfileByWorkload": {
+      "LF-COMP-ID-v1": "short-unique-v1",
+      "LF-COMP-CORRIDOR-v1": "short-unique-v1",
+      "LF-COMP-JUNCTION-GRID-v1": "short-unique-v1"
+    },
+    "nonSourceStringProfileScaleRule": "inherit-corresponding-source-profile-b-and-derived-scales-v1",
     "minimumCompleteFormalLevels": 5,
     "completeFormalLevelRequires": [
       "batch-0-and-batch-1",
@@ -2508,6 +2513,16 @@
       "insufficient-evidence": "empty-partial-or-complete-non-classifiable-batches-v1",
       "incompleteBatchMedianRule": "null-incomplete-balanced-round-set-v1",
       "emptyBatchMedianRule": "null-no-usable-round-pairs-v1"
+    },
+    "correctnessEvidenceRules": {
+      "runOrder": [
+        "candidate-under-test",
+        "exact-research-oracle"
+      ],
+      "ratioBasedDecision": "required-matching-run-pair-v1",
+      "rejected-correctness": "required-reproducible-mismatch-run-pair-v1",
+      "rejected-safety": "empty-not-run-v1",
+      "insufficient-evidence": "empty-or-complete-run-pair-v1"
     }
   },
   "limitDimensionBindings": [
