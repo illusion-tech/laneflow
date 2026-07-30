@@ -672,10 +672,12 @@ release 编译优化、输入清单和语义检查，但：
   分层使用同一 canonical LIR 分母，但只作诊断，不直接触发拐点。
 
 权威 JSON 的每条 `adjacentLevelRatios[]` 必须保存基线候选 ID、下级/上级各自完整
-`measurementStratum`、指标、批次、规范化基准、五个相邻级别轮次对
-（adjacent-level round pair）、精确中位比值和 `candidateKnee`。上下级分层除 `N`
-与对应规模角色外必须逐字段相等；工作负载、修订、模块图/字符串配置档、生成器版本、
-`B`、用例、样本种类、二进制模式或键域不同都不得配对。
+`measurementStratum`、指标、批次、下级/上级正式阶梯批次汇总 ID、规范化基准、五个
+相邻级别轮次对（adjacent-level round pair）、精确中位比值和 `candidateKnee`。上下级
+分层除 `N` 与对应规模角色外必须逐字段相等；工作负载、修订、模块图/字符串配置档、
+生成器版本、`B`、用例、样本种类、二进制模式或键域不同都不得配对。两项正式阶梯
+批次汇总 ID 必须分别解析为同一记录已引用五轮的下级/上级汇总，不能只让轮次引用
+看似相符。
 
 五个轮次对按 `round = 0..4`，把同一批次、同一轮、同一指标和上述上下级分层的两个
 `purpose = formal-ladder` 轮次指标汇总一一绑定。比值方向固定为上级归一化中位数 /
@@ -686,23 +688,34 @@ release 编译优化、输入清单和语义检查，但：
 `same-batch-same-round-adjacent-level-v1`，`aggregationMethod` 固定为
 `median-of-five-exact-round-ratios-v1`。
 
-某上级是**候选拐点**，需要至少一条分层满足：
+batch 0 是候选发现批次，batch 1 是独立确认批次。某上级是**候选拐点**，需要 batch 0
+至少一条分层满足：
 
 - `wall-time-ns` 的五轮归一化比值中，至少四个大于等于 `1.10`，且比值中位数
   大于等于 `1.20`；
 - `peak-live-requested-bytes` 的五轮归一化比值全部大于等于 `1.05`，且比值中位数
   大于等于 `1.10`。
 
-`private-bytes` 与 `commit-peak-bytes` 的 `candidateKnee` 必须为 `false`。候选拐点
-必须在不同新进程执行批次中，由相同指标、样本种类、二进制模式和其余分层字段再次满足
-同一条件，才成为**确认成本拐点**。独立验证器必须解析每个上下级
-`roundSummaryId`，核对完整分层与 `round = 0..4` 集合，重算规范化分母、五个精确比值、
-中位数和布尔判断；缺失引用、跨分层/跨轮拼接、分母错用或自报布尔不一致均使该拐点
-证据无效。
+`private-bytes` 与 `commit-peak-bytes` 的 `candidateKnee` 必须为 `false`，也不进入
+`knees[]`。每条可触发指标的相邻级别对必须生成一条拐点评估（knee assessment）：
+保存基线候选、指标、下级/上级完整分层，以及分别由下级/上级正式阶梯批次汇总 ID
+组成的 batch 0 候选比值引用与 batch 1 确认比值引用。其规范身份是
+`(candidateId, metric, lowerStratum, upperStratum)`，不得再使用自由 ID。
 
-每个候选拐点还必须保存性能分析器（profiler）证据，说明主导分配、排序、
-哈希碰撞、缓存未命中或尚未解释的机制；无法归因不取消已重复的拐点事实，但不得
-据此选择私有容器。这些百分比只定义研究信号和复测触发，不是生产回归 Gate。
+`candidateKnee` 必须等于所引用 batch 0 比值的判断；`confirmedKnee` 当且仅当 batch 0
+与 batch 1 在相同指标、样本种类、二进制模式和其余分层字段上都满足同一条件。候选/
+确认规模都由 `upperStratum.n` 唯一派生，不再重复保存可漂移的 `candidateN` 或
+`confirmedN`。候选为 `false` 时，确认必须为 `false`，性能分析制品使用
+`null + not-a-candidate-knee`；候选为 `true` 时必须保存一项能解析到
+`artifacts[].kind = profiler` 的 SHA-256，说明主导分配、排序、哈希碰撞、缓存未命中或
+尚未解释的机制。
+
+独立验证器必须解析每个上下级 `roundSummaryId` 与正式阶梯批次汇总 ID，核对完整分层、
+`round = 0..4` 集合和 batch 0/1 引用，重算规范化分母、五个精确比值、中位数、候选/
+确认布尔值和上级规模；缺失引用、跨分层/跨轮拼接、分母错用、批次倒置、重复自然身份、
+分析制品摘要无对应实物或自报布尔不一致均使该拐点证据无效。无法归因不取消已重复的
+拐点事实，但不得据此选择私有容器。这些百分比只定义研究信号和复测触发，不是生产
+回归 Gate。
 
 ### 5.5 校准规模与压力规模
 
@@ -731,10 +744,37 @@ observed_upper = max(all ten round medians from batch A and B)
 suggested_R0_budget = observed_upper * E_m
 ```
 
-时延结果先以整数纳秒计算，最终建议值向上取整到本次观测时钟量子 `q`；字节结果向
-上取整到整数值。`E_m` 是同环境实测重复性包络，不预设固定百分比。若某项
-`repeat_ratio` 不能由后台干扰、热/功耗状态或测量错误解释，并大到改变候选/拐点
-结论，则该研究无权冻结预算，必须先稳定协议并重跑两批。
+`reproducibilityEnvelopes[]` 以指标作为自然身份，每个适用指标恰好一条记录。记录
+必须绑定基线候选、固定聚合范围
+`all-completed-non-guard-baseline-ladder-strata-v1`、产生全局最大双向比值的 batch 0/1
+正式阶梯批次汇总 ID，以及约分后的精确正整数 `repeatRatio`。独立验证器必须扫描该
+指标全部已完成、未受护栏影响的基线正式阶梯分层，重算每个双向比值和全局最大值；
+自由指标名、只保存最终小数或把非最大分层登记为来源都必须失败。
+
+`recommendations[]` 不再接受自由 `id`、单位文本或任意运行 ID 集合。v1 唯一允许的
+闭合种类是 `recommendationKind = r0-budget-v1`；规范身份是
+`(recommendationKind, candidateId, stratum, metric)`。每条记录必须保存完整测量分层、
+指标、公式标识符、同一分层的 batch 0/1 正式阶梯批次汇总 ID、按指标自然身份引用的
+重复性包络、从两项汇总所引用十个轮次中位数重算的 `observedUpper`、舍入规则/量子、
+精确正整数建议值、闭合单位和非产品 SLA scope。
+
+公式标识符固定为 `ceil-div-observed-upper-times-envelope-to-quantum-v1`。若
+`E_m = E_num / E_den`，则：
+
+```text
+quantum = protocol.clockQuantumNs  when metric = wall-time-ns
+          1                        for byte metrics
+suggested_R0_budget =
+  ceil((observed_upper * E_num) / (E_den * quantum)) * quantum
+```
+
+时延单位固定为 `nanosecond`，舍入规则固定为
+`ceil-to-protocol-clock-quantum-v1`；字节单位固定为 `byte`，舍入规则固定为
+`ceil-to-whole-byte-v1`。全部乘法和上取整使用无溢出的数学整数语义。证据不足时省略
+该自然身份的建议并在报告中说明稳定原因，不得用 `null`、零、自由单位或无推导来源的
+整数占位。`E_m` 是同环境实测重复性包络，不预设固定百分比。若某项 `repeat_ratio`
+不能由后台干扰、热/功耗状态或测量错误解释，并大到改变候选/拐点结论，则该研究无权
+冻结预算，必须先稳定协议并重跑两批。
 
 线性区间增长斜率使用泰尔－森估计（Theil-Sen Estimator），但权威证据不得保存平台
 `log2` 的 JSON 浮点结果。每个指标的 `growthSlopes[]` 必须引用两批各自在确认拐点
@@ -1207,7 +1247,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1321` exact bytes，SHA-256 为
-`05f84cdf96b9ba5628414058611c2a8231cde7e7b6c3b1d086df5324c08fba12`。该摘要是 PR/Gate
+`424de0507352ad317c046a76bb92ae8f838b6e6e236c2d220d02c7709df7a2f9`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1226,8 +1266,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `165677` exact bytes，SHA-256 为
-`29cabca1174614f67b8d18282673fb324403c51d3257c28d67a1c209e5110fc4`。
+G1 候选冻结 schema `175865` exact bytes，SHA-256 为
+`94d6536949b084fe5b5e15d5b104e82dde8adebddaec367bedef6817336f6446`。
 顶层格式标识：
 
 ```text
@@ -1275,8 +1315,12 @@ schemaVersion = 1
   三十二序号；
 - 每轮电源/厂商模式、会话、热/功耗节流、后台 CPU/写入增量与监控缺样原始值，
   以及作废原因；
-- 相邻级别的上下级完整测量分层、五个同批同轮 `roundSummaryId` 配对、规范化基准、
-  精确比值/中位数、候选/确认拐点、复测证据、重复性包络和分批泰尔－森增长斜率；
+- 相邻级别的上下级完整测量分层、上下级正式阶梯批次汇总 ID、五个同批同轮
+  `roundSummaryId` 配对、规范化基准、精确比值/中位数；每项可触发指标的 batch 0/1
+  比值引用、候选/确认布尔值、自然身份与性能分析制品摘要；
+- 每个适用指标唯一的重复性包络、产生最大双向比值的两批正式阶梯汇总、精确比值；
+  每条 R0 预算建议的完整分层、闭合种类/单位/公式/舍入规则、两批汇总引用、包络引用、
+  `observedUpper` 与精确建议值；
 - 每项泰尔－森增长斜率的两批 `ladderBatchSummaryId` 全集、全部两两 Q16.16 斜率、
   批内精确有理中位数、上界公式标识符与精确有理建议上界；
 - 停止护栏精确阈值、清单单缓冲区下界、三项预测依据、前一级/下一级主记录数、前一级
@@ -1338,14 +1382,23 @@ package/version/features/checksum。不能从自由 ID 推测算法，也不能�
 `sampleOrdinal = 0..6` 完整集合。正式阶梯批次汇总必须引用同一候选、分层、指标与
 批次的 `round = 0..4` 五个轮次汇总，并重算跨轮中位数和中位绝对偏差。相邻级别
 轮次对必须解析到除 `N`/规模角色外相同完整测量分层的上下级正式阶梯汇总，并重算
-规范化比值和拐点阈值；候选比较轮次对则必须解析到同批同轮的基线/候选轮次汇总。
-两者都不能绕过原始运行直接信任中位数。
+规范化比值和拐点阈值；相邻级别记录的上下级正式阶梯批次汇总 ID 必须与五个轮次对
+闭合。每条拐点评估的 batch 0/1 引用必须分别唯一解析到相同候选、指标和上下级分层的
+相邻比值；候选/确认值、上级规模和 profiler 制品引用都必须重算。候选比较轮次对则
+必须解析到同批同轮的基线/候选轮次汇总。三者都不能绕过原始运行直接信任中位数。
 
 增长斜率验证必须把每批 `levelBatchSummaryIds` 解析为同一基线候选、指标和除
 `N`/规模角色外相同的完整测量分层，且分别来自 batch 0/1；按主记录数排序后枚举全部
 级别对，使用第 5.6 节大整数幂比较算法重算每项 `slopeQ16_16`、批内精确有理中位数
 和两批建议上界。缺少任一组合、引用拐点后级别、浮点数、未约分值或上界公式不一致
 必须失败。
+
+重复性包络验证必须按指标扫描全部已完成、未受护栏影响的基线正式阶梯分层，要求
+batch 0/1 汇总分层相同，重算双向比值、约分结果和全局最大值。R0 预算建议必须把两项
+`ladderBatchSummaryId` 解析为同一完整分层、指标和 batch 0/1，从其十个轮次汇总重算
+`observedUpper`，再按自然身份解析同指标唯一包络，使用第 5.6 节公式和
+`protocol.clockQuantumNs` 或字节量子 `1` 重算建议值。自由建议 ID、重复自然身份、
+包络指标错配、跨分层汇总、错误单位/舍入规则或无来源整数必须失败。
 
 停止护栏同样不能只通过单条 Schema：独立验证器必须按
 `guardPredictionContract.primaryRecordCountByWorkload` 重算前后级主记录数，从八个
