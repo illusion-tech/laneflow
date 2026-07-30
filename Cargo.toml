@@ -6,6 +6,7 @@ members = [
     "crates/laneflow-scenario",
     "crates/laneflow-spatial",
     "research/issue-123-spatial-prototype",
+    "research/issue-308-compiler-budget-calibration-research",
     "tools/laneflow-corridor-generator",
     "xtask",
 ]
