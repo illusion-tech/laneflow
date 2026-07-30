@@ -52,8 +52,61 @@ pub(crate) fn build_production_loader_template() -> Result<CorridorTemplate, Str
         signalized.traffic().initial_traffic_data(),
         parking.initial_traffic_data(),
     ];
+    build_typed_template(&traffic_documents, Some((signalized.spatial(), 0)), Some(1))
+}
 
-    let mut references = [TypedDocumentRefs::default(), TypedDocumentRefs::default()];
+pub(crate) fn build_production_loader_fixture_case(
+    case_id: &str,
+) -> Result<CorridorTemplate, String> {
+    let root = crate::repository_root();
+    match case_id {
+        "signalized-corridor" => {
+            let manifest =
+                std::fs::read(root.join("examples/data/v0.1-signalized-corridor.scenario.json"))
+                    .map_err(|error| error.to_string())?;
+            let traffic =
+                std::fs::read(root.join("examples/data/v0.10-signalized-corridor.laneflow.json"))
+                    .map_err(|error| error.to_string())?;
+            let spatial =
+                std::fs::read(root.join("examples/data/v0.1-signalized-corridor.spatial.json"))
+                    .map_err(|error| error.to_string())?;
+            let loaded = from_scenario_json_slice(
+                &manifest,
+                &[
+                    NamedArtifact::new("v0.10-signalized-corridor.laneflow.json", &traffic),
+                    NamedArtifact::new("v0.1-signalized-corridor.spatial.json", &spatial),
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+            build_typed_template(
+                &[loaded.traffic().initial_traffic_data()],
+                Some((loaded.spatial(), 0)),
+                None,
+            )
+        }
+        "parking-signals-baseline" | "multi-gate-waiting-zone" => {
+            let file_name = match case_id {
+                "parking-signals-baseline" => "v0.10-parking-signals-baseline.laneflow.json",
+                "multi-gate-waiting-zone" => "v0.10-multi-gate-waiting-zone.laneflow.json",
+                _ => unreachable!("matched fixed fixture case"),
+            };
+            let bytes = std::fs::read(root.join("examples/data").join(file_name))
+                .map_err(|error| error.to_string())?;
+            let loaded = from_json_slice(&bytes).map_err(|error| error.to_string())?;
+            build_typed_template(&[loaded.initial_traffic_data()], None, None)
+        }
+        other => Err(format!("unknown current fixture case {other}")),
+    }
+}
+
+fn build_typed_template(
+    traffic_documents: &[&InitialTrafficData],
+    spatial_source: Option<(&laneflow_data::LoadedSpatialPackage, usize)>,
+    synthetic_geometry_document: Option<usize>,
+) -> Result<CorridorTemplate, String> {
+    let mut references = (0..traffic_documents.len())
+        .map(|_| TypedDocumentRefs::default())
+        .collect::<Vec<_>>();
     let mut entities = Vec::new();
     let mut next_local = [0_u32; 23];
     for kind in 1_u16..=21 {
@@ -68,11 +121,16 @@ pub(crate) fn build_production_loader_template() -> Result<CorridorTemplate, Str
             )?;
         }
     }
-    let frame = EntityRef { kind: 22, local: 0 };
-    entities.push(TemplateEntity {
-        reference: frame,
-        identity_references: BTreeMap::new(),
-    });
+    let frame = if spatial_source.is_some() || synthetic_geometry_document.is_some() {
+        let frame = EntityRef { kind: 22, local: 0 };
+        entities.push(TemplateEntity {
+            reference: frame,
+            identity_references: BTreeMap::new(),
+        });
+        Some(frame)
+    } else {
+        None
+    };
     let positions = entities
         .iter()
         .enumerate()
@@ -228,7 +286,9 @@ pub(crate) fn build_production_loader_template() -> Result<CorridorTemplate, Str
         relations.push(TemplateRelation::Owner { child, parent });
     }
 
-    let mut per_document_relations = [Vec::new(), Vec::new()];
+    let mut per_document_relations = (0..traffic_documents.len())
+        .map(|_| Vec::new())
+        .collect::<Vec<_>>();
     for (document_index, data) in traffic_documents.iter().enumerate() {
         append_typed_relations(
             data,
@@ -246,7 +306,13 @@ pub(crate) fn build_production_loader_template() -> Result<CorridorTemplate, Str
             );
         }
     }
-    let geometry = typed_geometry(&traffic_documents, &references, signalized.spatial(), frame)?;
+    let geometry = typed_geometry(
+        traffic_documents,
+        &references,
+        spatial_source,
+        synthetic_geometry_document,
+        frame,
+    )?;
     Ok(CorridorTemplate {
         entities,
         relations,
@@ -273,7 +339,7 @@ fn register_entities(
     document_index: usize,
     kind: u16,
     next_local: &mut [u32; 23],
-    references: &mut [TypedDocumentRefs; 2],
+    references: &mut [TypedDocumentRefs],
     entities: &mut Vec<TemplateEntity>,
 ) -> Result<(), String> {
     if kind == 3 {
@@ -721,45 +787,64 @@ fn progress_bits(value: f64) -> Result<(u32, u32), String> {
 }
 
 fn typed_geometry(
-    documents: &[&InitialTrafficData; 2],
-    refs: &[TypedDocumentRefs; 2],
-    spatial: &laneflow_data::LoadedSpatialPackage,
-    frame: EntityRef,
+    documents: &[&InitialTrafficData],
+    refs: &[TypedDocumentRefs],
+    spatial_source: Option<(&laneflow_data::LoadedSpatialPackage, usize)>,
+    synthetic_geometry_document: Option<usize>,
+    frame: Option<EntityRef>,
 ) -> Result<Vec<TemplateGeometry>, String> {
     let mut geometry = Vec::new();
-    let signal_graph = documents[0].lane_graph();
-    for edge in spatial.edges() {
-        let edge_id = signal_graph
-            .edge_external_id(edge.edge())
-            .ok_or("spatial edge handle not in traffic graph")?;
-        let edge_ref = refs[0].named(4, edge_id)?;
-        for (point_index, point) in edge.points().iter().enumerate() {
-            geometry.push(TemplateGeometry {
-                edge: edge_ref,
-                frame,
-                point_index: u32::try_from(point_index)
-                    .map_err(|_| "geometry point index overflow")?,
-                x_bits: point.x().to_bits(),
-                y_bits: point.y().to_bits(),
-                z_bits: point.z().to_bits(),
-                coordinate_rule: TemplateGeometryRule::Fixed,
-            });
+    if let Some((spatial, document_index)) = spatial_source {
+        let frame = frame.ok_or("spatial geometry requires canonical frame")?;
+        let traffic_graph = documents
+            .get(document_index)
+            .ok_or("spatial traffic document index out of range")?
+            .lane_graph();
+        let document_refs = refs
+            .get(document_index)
+            .ok_or("spatial reference document index out of range")?;
+        for edge in spatial.edges() {
+            let edge_id = traffic_graph
+                .edge_external_id(edge.edge())
+                .ok_or("spatial edge handle not in traffic graph")?;
+            let edge_ref = document_refs.named(4, edge_id)?;
+            for (point_index, point) in edge.points().iter().enumerate() {
+                geometry.push(TemplateGeometry {
+                    edge: edge_ref,
+                    frame,
+                    point_index: u32::try_from(point_index)
+                        .map_err(|_| "geometry point index overflow")?,
+                    x_bits: point.x().to_bits(),
+                    y_bits: point.y().to_bits(),
+                    z_bits: point.z().to_bits(),
+                    coordinate_rule: TemplateGeometryRule::Fixed,
+                });
+            }
         }
     }
-    for edge in documents[1].lane_graph().edges() {
-        let edge_ref = refs[1].named(4, edge.id())?;
-        let x = edge_ref.local as f32;
-        for (point_index, x) in [x, x + 1.0].into_iter().enumerate() {
-            geometry.push(TemplateGeometry {
-                edge: edge_ref,
-                frame,
-                point_index: u32::try_from(point_index)
-                    .map_err(|_| "synthetic point index overflow")?,
-                x_bits: x.to_bits(),
-                y_bits: 0.0_f32.to_bits(),
-                z_bits: 0.0_f32.to_bits(),
-                coordinate_rule: TemplateGeometryRule::Fixed,
-            });
+    if let Some(document_index) = synthetic_geometry_document {
+        let frame = frame.ok_or("synthetic geometry requires canonical frame")?;
+        let document = documents
+            .get(document_index)
+            .ok_or("synthetic geometry document index out of range")?;
+        let document_refs = refs
+            .get(document_index)
+            .ok_or("synthetic reference document index out of range")?;
+        for edge in document.lane_graph().edges() {
+            let edge_ref = document_refs.named(4, edge.id())?;
+            let x = edge_ref.local as f32;
+            for (point_index, x) in [x, x + 1.0].into_iter().enumerate() {
+                geometry.push(TemplateGeometry {
+                    edge: edge_ref,
+                    frame,
+                    point_index: u32::try_from(point_index)
+                        .map_err(|_| "synthetic point index overflow")?,
+                    x_bits: x.to_bits(),
+                    y_bits: 0.0_f32.to_bits(),
+                    z_bits: 0.0_f32.to_bits(),
+                    coordinate_rule: TemplateGeometryRule::Fixed,
+                });
+            }
         }
     }
     Ok(geometry)

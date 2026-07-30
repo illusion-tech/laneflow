@@ -270,7 +270,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "9d670341238da29c428fa8a082723cd6d26d271c1269fc8dc1768068b4004575"
+          "const": "9c01aa95e1fadb38adeb6a828a3aa642896df4727a8dc3f9431522b3b4cbb964"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1169,7 +1169,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "9d670341238da29c428fa8a082723cd6d26d271c1269fc8dc1768068b4004575"
+          "const": "9c01aa95e1fadb38adeb6a828a3aa642896df4727a8dc3f9431522b3b4cbb964"
         },
         "counts": {
           "type": "object"
@@ -1537,10 +1537,10 @@
                         "crossModuleReferenceCount": 0,
                         "maximumImportDepth": 0,
                         "sourceDocumentCount": 1,
-                        "sourceByteCount": 2228,
+                        "sourceByteCount": 2152,
                         "identityDeclarationCount": 27,
                         "sourceDeclarationCount": 27,
-                        "sourceSpanCount": 116,
+                        "sourceSpanCount": 112,
                         "identityFieldOccurrenceCount": 73,
                         "profiledKeyOccurrenceCount": 31,
                         "sourceReferenceCount": 55,
@@ -2937,10 +2937,10 @@
             "sourceInput": {
               "properties": {
                 "recordCount": {
-                  "const": 117
+                  "const": 113
                 },
                 "logicalBytes": {
-                  "const": 9134
+                  "const": 8930
                 }
               }
             },
@@ -2950,7 +2950,7 @@
                   "const": 186
                 },
                 "logicalBytes": {
-                  "const": 13662
+                  "const": 13506
                 }
               }
             },

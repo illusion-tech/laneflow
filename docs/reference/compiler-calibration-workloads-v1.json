@@ -1979,10 +1979,10 @@
               "crossModuleReferenceCount": 0,
               "maximumImportDepth": 0,
               "sourceDocumentCount": 1,
-              "sourceByteCount": 2228,
+              "sourceByteCount": 2152,
               "identityDeclarationCount": 27,
               "sourceDeclarationCount": 27,
-              "sourceSpanCount": 116,
+              "sourceSpanCount": 112,
               "identityFieldOccurrenceCount": 73,
               "profiledKeyOccurrenceCount": 31,
               "sourceReferenceCount": 55,
@@ -2000,14 +2000,14 @@
             },
             "exactStageExpectations": {
               "sourceInput": {
-                "recordCount": 117,
-                "logicalBytes": 9134
+                "recordCount": 113,
+                "logicalBytes": 8930
               },
               "typedAst": {
                 "recordCount": 186,
-                "payloadLogicalBytes": 7710,
-                "logicalBytes": 13662,
-                "recordAllocationBytes": 13662
+                "payloadLogicalBytes": 7554,
+                "logicalBytes": 13506,
+                "recordAllocationBytes": 13506
               },
               "hir": {
                 "recordCount": 186,

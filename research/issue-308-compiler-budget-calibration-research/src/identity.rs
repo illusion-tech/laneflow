@@ -15,7 +15,7 @@ pub(crate) const ABSENT_LOCAL_INDEX: u32 = u32::MAX;
 const IDENTITY_KNOWN_VECTOR_BYTE_LENGTH: usize = 108_777;
 #[cfg(test)]
 const IDENTITY_KNOWN_VECTOR_SHA256: &str =
-    "93526846510660d1fe4a9251997d64ca7a3e7ab38d34eddb77efe539074d93fc";
+    "a57099507ee19cddf8e85953fd8fb6ced1c418bec6567838f55b66dca4c0b740";
 
 const EXPECTED_ENTITY_KINDS: [&str; 22] = [
     "RoadCorridor",

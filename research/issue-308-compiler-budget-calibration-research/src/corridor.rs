@@ -29,7 +29,7 @@ pub const CORRIDOR_KNOWN_VECTOR_SCHEMA: &str =
 const CORRIDOR_KNOWN_VECTOR_BYTE_LENGTH: usize = 9_101;
 #[cfg(test)]
 const CORRIDOR_KNOWN_VECTOR_SHA256: &str =
-    "96e4894bdcc252a86185fb716a0684dfa9c41e5ccd4961226bcd6e30e6a0b30e";
+    "b32b42230f5f8c3894336b8666da4bb77f425f1daf0875b227928c2dc315d0d3";
 
 const ENTITY_KIND_ABSENT: u16 = 0;
 const SHARED_CONSTANT_ENTITY_KIND: u16 = 0x00ff;
@@ -432,7 +432,7 @@ impl CorridorTemplate {
 }
 
 impl TemplateRelation {
-    fn count_name(&self) -> &'static str {
+    pub(crate) fn count_name(&self) -> &'static str {
         match self {
             Self::Owner { .. } => "ownerRelation",
             Self::EdgeConnection { .. } => "edgeConnection",
@@ -448,7 +448,7 @@ impl TemplateRelation {
         }
     }
 
-    fn stable_reference_count(&self) -> u64 {
+    pub(crate) fn stable_reference_count(&self) -> u64 {
         match self {
             Self::Owner { .. }
             | Self::EdgeConnection { .. }
@@ -463,7 +463,7 @@ impl TemplateRelation {
         }
     }
 
-    fn append_stable_references(&self, references: &mut Vec<EntityRef>) {
+    pub(crate) fn append_stable_references(&self, references: &mut Vec<EntityRef>) {
         match self {
             Self::Owner { parent, .. } => references.push(*parent),
             Self::EdgeConnection { target, .. } => references.push(*target),
@@ -526,7 +526,7 @@ const ENTITY_KIND_NAMES: [&str; 23] = [
     "CanonicalFrame",
 ];
 
-fn identity_field_count(kind: u16) -> u64 {
+pub(crate) fn identity_field_count(kind: u16) -> u64 {
     match kind {
         2 | 3 | 8 | 9 | 13 | 16 | 17 => 3,
         6 | 7 => 5,
@@ -535,7 +535,7 @@ fn identity_field_count(kind: u16) -> u64 {
     }
 }
 
-fn profiled_key_field_count(kind: u16) -> u64 {
+pub(crate) fn profiled_key_field_count(kind: u16) -> u64 {
     match kind {
         6 => 3,
         1..=22 => 1,
@@ -643,8 +643,24 @@ fn build_raw_template(
     spatial: &Value,
     parking: &Value,
 ) -> Result<CorridorTemplate, CorridorError> {
-    let traffic_documents = [signalized, parking];
-    let mut document_refs = [DocumentRefs::default(), DocumentRefs::default()];
+    build_projected_template(&[signalized, parking], Some((0, spatial)), Some(1))
+}
+
+pub(crate) fn build_current_fixture_raw_template(
+    traffic: &Value,
+    spatial: Option<&Value>,
+) -> Result<CorridorTemplate, CorridorError> {
+    build_projected_template(&[traffic], spatial.map(|document| (0, document)), None)
+}
+
+fn build_projected_template(
+    traffic_documents: &[&Value],
+    spatial_binding: Option<(usize, &Value)>,
+    synthetic_parking_document: Option<usize>,
+) -> Result<CorridorTemplate, CorridorError> {
+    let mut document_refs = (0..traffic_documents.len())
+        .map(|_| DocumentRefs::default())
+        .collect::<Vec<_>>();
     let mut entities = Vec::new();
     let mut next_local = [0_u32; 23];
 
@@ -660,12 +676,17 @@ fn build_raw_template(
             )?;
         }
     }
-    let canonical_frame = EntityRef { kind: 22, local: 0 };
-    entities.push(TemplateEntity {
-        reference: canonical_frame,
-        identity_references: BTreeMap::new(),
-    });
-    next_local[22] = 1;
+    let canonical_frame = if spatial_binding.is_some() || synthetic_parking_document.is_some() {
+        let frame = EntityRef { kind: 22, local: 0 };
+        entities.push(TemplateEntity {
+            reference: frame,
+            identity_references: BTreeMap::new(),
+        });
+        next_local[22] = 1;
+        Some(frame)
+    } else {
+        None
+    };
 
     let mut entity_positions = entities
         .iter()
@@ -877,19 +898,19 @@ fn build_raw_template(
     validate_identity_reference_completeness(&entities)?;
 
     let mut relations = owner_relations;
-    append_edge_connections(&traffic_documents, &document_refs, &mut relations)?;
-    append_route_occurrences(&traffic_documents, &document_refs, &mut relations)?;
-    append_access_relations(&traffic_documents, &document_refs, &mut relations)?;
-    append_signal_relations(&traffic_documents, &document_refs, &mut relations)?;
-    append_gate_and_waiting_occurrences(&traffic_documents, &document_refs, &mut relations)?;
-    append_parking_anchors(&traffic_documents, &document_refs, &mut relations)?;
-    append_lane_coverage(&traffic_documents, &document_refs, &mut relations)?;
-    append_junction_internal_edges(&traffic_documents, &document_refs, &mut relations)?;
+    append_edge_connections(traffic_documents, &document_refs, &mut relations)?;
+    append_route_occurrences(traffic_documents, &document_refs, &mut relations)?;
+    append_access_relations(traffic_documents, &document_refs, &mut relations)?;
+    append_signal_relations(traffic_documents, &document_refs, &mut relations)?;
+    append_gate_and_waiting_occurrences(traffic_documents, &document_refs, &mut relations)?;
+    append_parking_anchors(traffic_documents, &document_refs, &mut relations)?;
+    append_lane_coverage(traffic_documents, &document_refs, &mut relations)?;
+    append_junction_internal_edges(traffic_documents, &document_refs, &mut relations)?;
 
-    let geometry = build_geometry(
-        signalized,
-        spatial,
-        parking,
+    let geometry = build_projected_geometry(
+        traffic_documents,
+        spatial_binding,
+        synthetic_parking_document,
         &document_refs,
         canonical_frame,
     )?;
@@ -906,7 +927,7 @@ fn register_document_entities(
     document_index: usize,
     kind: u16,
     next_local: &mut [u32; 23],
-    document_refs: &mut [DocumentRefs; 2],
+    document_refs: &mut [DocumentRefs],
     entities: &mut Vec<TemplateEntity>,
 ) -> Result<(), CorridorError> {
     if kind == 3 {
@@ -1078,8 +1099,8 @@ fn validate_identity_reference_completeness(
 }
 
 fn append_edge_connections(
-    documents: &[&Value; 2],
-    document_refs: &[DocumentRefs; 2],
+    documents: &[&Value],
+    document_refs: &[DocumentRefs],
     relations: &mut Vec<TemplateRelation>,
 ) -> Result<(), CorridorError> {
     for (document_index, document) in documents.iter().enumerate() {
@@ -1100,8 +1121,8 @@ fn append_edge_connections(
 }
 
 fn append_route_occurrences(
-    documents: &[&Value; 2],
-    document_refs: &[DocumentRefs; 2],
+    documents: &[&Value],
+    document_refs: &[DocumentRefs],
     relations: &mut Vec<TemplateRelation>,
 ) -> Result<(), CorridorError> {
     for (document_index, document) in documents.iter().enumerate() {
@@ -1128,8 +1149,8 @@ fn append_route_occurrences(
 }
 
 fn append_access_relations(
-    documents: &[&Value; 2],
-    document_refs: &[DocumentRefs; 2],
+    documents: &[&Value],
+    document_refs: &[DocumentRefs],
     relations: &mut Vec<TemplateRelation>,
 ) -> Result<(), CorridorError> {
     for (document_index, document) in documents.iter().enumerate() {
@@ -1190,8 +1211,8 @@ fn append_access_relations(
 }
 
 fn append_signal_relations(
-    documents: &[&Value; 2],
-    document_refs: &[DocumentRefs; 2],
+    documents: &[&Value],
+    document_refs: &[DocumentRefs],
     relations: &mut Vec<TemplateRelation>,
 ) -> Result<(), CorridorError> {
     for (document_index, document) in documents.iter().enumerate() {
@@ -1268,8 +1289,8 @@ fn append_signal_relations(
 }
 
 fn append_gate_and_waiting_occurrences(
-    documents: &[&Value; 2],
-    document_refs: &[DocumentRefs; 2],
+    documents: &[&Value],
+    document_refs: &[DocumentRefs],
     relations: &mut Vec<TemplateRelation>,
 ) -> Result<(), CorridorError> {
     for (document_index, document) in documents.iter().enumerate() {
@@ -1328,8 +1349,8 @@ fn append_gate_and_waiting_occurrences(
 }
 
 fn append_parking_anchors(
-    documents: &[&Value; 2],
-    document_refs: &[DocumentRefs; 2],
+    documents: &[&Value],
+    document_refs: &[DocumentRefs],
     relations: &mut Vec<TemplateRelation>,
 ) -> Result<(), CorridorError> {
     for (document_index, document) in documents.iter().enumerate() {
@@ -1364,8 +1385,8 @@ fn append_parking_anchors(
 }
 
 fn append_lane_coverage(
-    documents: &[&Value; 2],
-    document_refs: &[DocumentRefs; 2],
+    documents: &[&Value],
+    document_refs: &[DocumentRefs],
     relations: &mut Vec<TemplateRelation>,
 ) -> Result<(), CorridorError> {
     for (document_index, document) in documents.iter().enumerate() {
@@ -1399,8 +1420,8 @@ fn append_lane_coverage(
 }
 
 fn append_junction_internal_edges(
-    documents: &[&Value; 2],
-    document_refs: &[DocumentRefs; 2],
+    documents: &[&Value],
+    document_refs: &[DocumentRefs],
     relations: &mut Vec<TemplateRelation>,
 ) -> Result<(), CorridorError> {
     for (document_index, document) in documents.iter().enumerate() {
@@ -1431,13 +1452,49 @@ fn append_junction_internal_edges(
     Ok(())
 }
 
-fn build_geometry(
-    signalized: &Value,
-    spatial: &Value,
-    parking: &Value,
-    document_refs: &[DocumentRefs; 2],
-    frame: EntityRef,
+fn build_projected_geometry(
+    traffic_documents: &[&Value],
+    spatial_binding: Option<(usize, &Value)>,
+    synthetic_parking_document: Option<usize>,
+    document_refs: &[DocumentRefs],
+    frame: Option<EntityRef>,
 ) -> Result<Vec<TemplateGeometry>, CorridorError> {
+    let mut geometry = Vec::new();
+    if let Some((traffic_index, spatial)) = spatial_binding {
+        let frame =
+            frame.ok_or_else(|| CorridorError::Missing("spatial canonical frame".to_owned()))?;
+        let traffic = traffic_documents
+            .get(traffic_index)
+            .copied()
+            .ok_or_else(|| CorridorError::Missing("spatial traffic document".to_owned()))?;
+        let traffic_refs = document_refs
+            .get(traffic_index)
+            .ok_or_else(|| CorridorError::Missing("spatial traffic references".to_owned()))?;
+        append_spatial_geometry(&mut geometry, traffic, spatial, traffic_refs, frame)?;
+    }
+    if let Some(parking_index) = synthetic_parking_document {
+        let frame = frame.ok_or_else(|| {
+            CorridorError::Missing("synthetic parking canonical frame".to_owned())
+        })?;
+        let parking = traffic_documents
+            .get(parking_index)
+            .copied()
+            .ok_or_else(|| CorridorError::Missing("synthetic parking document".to_owned()))?;
+        let parking_refs = document_refs
+            .get(parking_index)
+            .ok_or_else(|| CorridorError::Missing("synthetic parking references".to_owned()))?;
+        append_synthetic_parking_geometry(&mut geometry, parking, parking_refs, frame)?;
+    }
+    Ok(geometry)
+}
+
+fn append_spatial_geometry(
+    geometry: &mut Vec<TemplateGeometry>,
+    traffic: &Value,
+    spatial: &Value,
+    traffic_refs: &DocumentRefs,
+    frame: EntityRef,
+) -> Result<(), CorridorError> {
     let mut spatial_points = BTreeMap::<String, Vec<[u32; 3]>>::new();
     for edge in array_at(spatial, &["edges"])? {
         let id = required_string(edge, "trafficEdgeId")?;
@@ -1481,11 +1538,9 @@ fn build_geometry(
         }
     }
 
-    let mut geometry = Vec::new();
-    let signal_refs = &document_refs[0];
-    for edge in array_at(signalized, &["laneGraph", "edges"])? {
+    for edge in array_at(traffic, &["laneGraph", "edges"])? {
         let id = required_string(edge, "id")?;
-        let edge_ref = signal_refs.named(4, id, "laneGraph.edges[].id")?;
+        let edge_ref = traffic_refs.named(4, id, "laneGraph.edges[].id")?;
         let points = spatial_points
             .remove(id)
             .ok_or_else(|| CorridorError::UnknownReference(format!("spatial edge {id}")))?;
@@ -1508,8 +1563,15 @@ fn build_geometry(
             actual: spatial_points.len().to_string(),
         });
     }
+    Ok(())
+}
 
-    let parking_refs = &document_refs[1];
+fn append_synthetic_parking_geometry(
+    geometry: &mut Vec<TemplateGeometry>,
+    parking: &Value,
+    parking_refs: &DocumentRefs,
+    frame: EntityRef,
+) -> Result<(), CorridorError> {
     for edge in array_at(parking, &["laneGraph", "edges"])? {
         let edge_ref = parking_refs.named(
             4,
@@ -1530,7 +1592,7 @@ fn build_geometry(
             });
         }
     }
-    Ok(geometry)
+    Ok(())
 }
 
 fn ordered_path_edge_id(path: &Value, transition_index: u32) -> Result<&str, CorridorError> {
@@ -1574,16 +1636,16 @@ fn canonical_f32_bits(value: f64, path: &str) -> Result<u32, CorridorError> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct UnitEntityRef {
-    unit: u32,
-    entity: EntityRef,
+pub(crate) struct UnitEntityRef {
+    pub(crate) unit: u32,
+    pub(crate) entity: EntityRef,
 }
 
 #[derive(Clone, Debug)]
-struct CompiledDeclaration {
-    owner: UnitEntityRef,
-    stable_id: [u8; 16],
-    fields: Vec<IdentityField>,
+pub(crate) struct CompiledDeclaration {
+    pub(crate) owner: UnitEntityRef,
+    pub(crate) stable_id: [u8; 16],
+    pub(crate) fields: Vec<IdentityField>,
 }
 
 #[derive(Clone, Debug)]
@@ -1935,7 +1997,7 @@ fn compile_declarations(
     Ok(compiled)
 }
 
-fn compile_semantic_records(
+pub(crate) fn compile_semantic_records(
     _identity: &IdentityContract,
     template: &CorridorTemplate,
     declarations: &[CompiledDeclaration],
