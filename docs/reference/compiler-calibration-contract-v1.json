@@ -6,14 +6,14 @@
     "schemaVersion": 1,
     "path": "docs/reference/compiler-calibration-evidence-v1.schema.json",
     "byteLength": 184794,
-    "sha256": "19723610659af78f934f498ade1f6caa6231c97fd8350c41785e29f5afcfa070"
+    "sha256": "cee361c324599e7f08f061cde9ea2a722da1fb2afc853fd75137a72687db87ee"
   },
   "workloadManifest": {
     "schema": "laneflow.compiler-calibration-workload-manifest",
     "schemaVersion": 1,
     "path": "docs/reference/compiler-calibration-workloads-v1.json",
-    "byteLength": 84389,
-    "sha256": "07ff1f5becae5bfb79586f5f7b35aca5c58a20042cd7b8586f7e63261062506b"
+    "byteLength": 99570,
+    "sha256": "bd5a80b3f13d0c8b73a15b56932fdf631c7e38cbf34ca273c99b2c137ed1eb78"
   },
   "candidateRegistryRevision": 1,
   "validationBootstrap": [
