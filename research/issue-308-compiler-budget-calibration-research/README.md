@@ -35,12 +35,28 @@ G2 冻结的候选依赖如下；“特性”只列本研究包直接启用的�
 | `indexmap`    | 2.14.0   | `std`           | `d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9` | Apache-2.0 OR MIT   |
 | `xxhash-rust` | 0.8.18   | `xxh3`、`xxh64` | `aee1b19627c7c60102ab80d3a9cbe18de90bfe03bfa6c3715447681f0e8c8af6` | BSL-1.0（精确例外） |
 
-## 当前实现切片
+## 已实现切片
 
-当前切片只建立受信任契约引导（trusted contract bootstrap）和命令行
-`verify-contract` 冒烟入口。代表性编译管线、精确研究预言机、测量隔离、证据写出器
-和正式 `run --protocol compiler-calibration-v1` 入口仍须按设计文档继续实现；在完整
-正确性与 pilot 证据落盘前，不得宣称任何正式预算数字。
+当前已建立：
+
+- 受信任契约引导（trusted contract bootstrap）和命令行 `verify-contract` 冒烟入口；
+- 对 `LF-COMP-ID-v1` 所需生成器清单子契约的类型化读取与逐字段拒绝；
+- 由清单驱动的 SplitMix64、从末项到首项的 Fisher–Yates 置换、模块种子序号和
+  BLAKE3-128 命名空间派生；
+- 三种模块图配置档在 `N = 1`、`N = 2` 时的全部展开模块、置换后导入、跨模块引用、
+  模块种子序号与命名空间已知向量。
+
+代码中的 v1 常量只用于证明清单字段与已接受契约精确一致并在漂移时失败，不构成第二
+事实源；研究语义仍以已验证的工作负载清单为权威。
+
+已知向量位于 `known-vectors/module-graphs-v1.json`，精确长度为 `6545` 字节，
+SHA-256 为
+`abe175a0982c6483619fb65738011c97e7871faf247531f4a46cffb136da41f5`。它绑定工作负载
+清单摘要，不是生产制品或正式性能证据。
+
+二十二种身份声明的受检物化、精确研究预言机、阶段记录、测量隔离、证据写出器和正式
+`run --protocol compiler-calibration-v1` 入口仍须按设计文档继续实现；在完整正确性
+与 pilot 证据落盘前，不得宣称任何正式预算数字。
 
 ```powershell
 cargo +1.96.0 run --locked `
@@ -48,4 +64,14 @@ cargo +1.96.0 run --locked `
   --no-default-features --features research-runner-full `
   --bin issue-308-compiler-budget-calibration-research -- `
   verify-contract
+```
+
+重新生成模块图已知向量到标准输出：
+
+```powershell
+cargo +1.96.0 run --locked `
+  -p issue-308-compiler-budget-calibration-research `
+  --no-default-features --features research-runner-full `
+  --bin issue-308-compiler-budget-calibration-research -- `
+  print-module-graph-known-vectors
 ```

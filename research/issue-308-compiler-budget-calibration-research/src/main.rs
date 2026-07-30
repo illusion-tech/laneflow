@@ -1,5 +1,5 @@
 use issue_308_compiler_budget_calibration_research::{
-    CONTRACT_DESCRIPTOR_BYTE_LENGTH, load_repository_contract,
+    CONTRACT_DESCRIPTOR_BYTE_LENGTH, build_module_graph_known_vectors, load_repository_contract,
 };
 
 fn main() {
@@ -48,10 +48,25 @@ fn run() -> Result<(), String> {
             );
             Ok(())
         }
+        "print-module-graph-known-vectors" => {
+            let trusted = load_repository_contract().map_err(|error| error.to_string())?;
+            let generator_contract = trusted
+                .generator_contract()
+                .map_err(|error| error.to_string())?;
+            let vectors = build_module_graph_known_vectors(
+                &generator_contract,
+                &trusted.descriptor.workload_manifest.sha256,
+            )
+            .map_err(|error| error.to_string())?;
+            let json = serde_json::to_string_pretty(&vectors)
+                .map_err(|error| format!("无法序列化模块图已知向量：{error}"))?;
+            println!("{json}");
+            Ok(())
+        }
         _ => Err(usage()),
     }
 }
 
 fn usage() -> String {
-    "用法：issue-308-compiler-budget-calibration-research verify-contract".to_owned()
+    "用法：issue-308-compiler-budget-calibration-research <verify-contract|print-module-graph-known-vectors>".to_owned()
 }
