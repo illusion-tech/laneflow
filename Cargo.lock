@@ -2974,6 +2974,7 @@ dependencies = [
  "blake3",
  "hashbrown 0.17.1",
  "indexmap",
+ "laneflow-core",
  "laneflow-data",
  "laneflow-spatial",
  "serde",

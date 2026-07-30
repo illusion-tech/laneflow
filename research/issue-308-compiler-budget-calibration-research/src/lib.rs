@@ -7,6 +7,10 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+mod corridor;
+#[cfg(feature = "fixture-oracle")]
+mod corridor_fixture_oracle;
+mod corridor_oracle;
 mod generator;
 mod guard;
 mod identity;
@@ -20,6 +24,14 @@ mod stage;
 mod stage_oracle;
 mod timing;
 
+pub use corridor::{
+    CORRIDOR_KNOWN_VECTOR_SCHEMA, CORRIDOR_WORKLOAD_ID, CorridorContract, CorridorError,
+    CorridorKnownVectorDocument, CorridorStageSummary, build_corridor_known_vectors,
+    build_corridor_stage_summary,
+};
+pub use corridor_oracle::{
+    CorridorOracleError, CorridorOracleVerificationReport, verify_corridor_oracle_matrix,
+};
 pub use generator::{
     ExpandedModule, ExpandedModuleGraph, GeneratorError, GraphProfileId,
     ModuleGraphKnownVectorDocument, SequenceKind, build_module_graph_known_vectors,
