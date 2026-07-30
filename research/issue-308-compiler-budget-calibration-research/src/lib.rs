@@ -24,7 +24,8 @@ pub use generator::{
     expand_module_graph, permute_in_place,
 };
 pub use guard::{
-    COMPILER_CONTROLLED_HARD_CEILING_BYTES, GuardCompletedLevelObservation, GuardError,
+    COMPILER_CONTROLLED_HARD_CEILING_BYTES, ChildProcessMemoryMonitor,
+    ChildProcessMemoryObservation, GuardCompletedLevelObservation, GuardError,
     GuardPredictionBasis, GuardPreflightReport, GuardThresholds, GuardTrigger,
     PRIVATE_MEMORY_HARD_CEILING_BYTES, SystemMemoryMonitor, SystemMemoryObservation,
     WALL_TIME_HARD_CEILING_NS, evaluate_identity_guard_preflight,
@@ -40,10 +41,12 @@ pub use oracle::{
     verify_identity_oracle_matrix,
 };
 pub use pilot::{
-    CLOCK_QUANTUM_MULTIPLIER, FRESH_PROCESS_PILOT_SAMPLE_COUNT, IDENTITY_TIMING_CHILD_SCHEMA,
-    IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityChildTimingReport, IdentityFreshProcessPilot,
+    CLOCK_QUANTUM_MULTIPLIER, ChildMonitorTrigger, ChildProcessMonitorReport,
+    ControlledAllocationGuardReport, FRESH_PROCESS_PILOT_SAMPLE_COUNT,
+    IDENTITY_TIMING_CHILD_SCHEMA, IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityChildOutcome,
+    IdentityChildTimingReport, IdentityFreshProcessPilot, IdentityMonitoredChildSample,
     MAXIMUM_RELATIVE_MAD_PERCENT, PilotError, measure_identity_timing_child,
-    run_identity_fresh_process_pilot,
+    run_identity_fresh_process_pilot, wait_for_parent_start_signal,
 };
 pub use stage::{
     IdentityAggregateCounts, IdentityStagePlanSummary, IdentityStageSummary, StageBreakdown,

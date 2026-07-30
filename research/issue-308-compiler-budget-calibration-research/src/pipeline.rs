@@ -1,7 +1,8 @@
 //! `LF-COMP-ID-v1` 的受测八阶段因果管线。
 //!
 //! 本模块只在计时边界内物化与规模成比例的来源、阶段值和载荷。摘要、十六进制展示、
-//! 独立预言机比较与证据 JSON 均由调用方在管线返回后完成。
+//! 独立预言机比较与证据 JSON 均由调用方在管线返回后完成。所有具名阶段缓冲区容量
+//! 增长都先经过受控分配请求字节账本。
 
 use crate::identity::{
     ABSENT_LOCAL_INDEX, IDENTITY_MAGIC, IdentityBinding, IdentityContract, IdentityFieldValue,
@@ -15,6 +16,7 @@ use crate::stage::{
 use crate::{GeneratorContract, GraphProfileId, SequenceKind, permute_in_place};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 const ENTITY_KIND_ABSENT: u16 = 0;
 const SHARED_CONSTANT_ENTITY_KIND: u16 = 0x00ff;
@@ -68,8 +70,115 @@ struct LirStage {
     owner_ordinal_scratch: Vec<u32>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug)]
+enum ControlledBufferSlot {
+    SourceSpans,
+    SourceRecords,
+    SourcePayload,
+    SourceScratch,
+    NamespacePreimageScratch,
+    TypedAstRecords,
+    TypedAstPayload,
+    HirRecords,
+    HirPayload,
+    MirRecords,
+    MirPayload,
+    MirStableIdScratch,
+    MirCanonicalIdentityScratch,
+    MirIdentityPayloadScratch,
+    CanonicalLirRecords,
+    CanonicalLirPayload,
+    LirSortScratch,
+    LirOwnerOrdinalScratch,
+    OutputConstruction,
+}
+
+impl ControlledBufferSlot {
+    const COUNT: usize = 19;
+
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+#[derive(Debug)]
+struct ControlledAllocationTracker {
+    hard_ceiling_bytes: u64,
+    live_requested_bytes: AtomicU64,
+    peak_live_requested_bytes: AtomicU64,
+    requested_bytes_by_slot: [u64; ControlledBufferSlot::COUNT],
+}
+
+impl ControlledAllocationTracker {
+    fn new(hard_ceiling_bytes: u64) -> Self {
+        Self {
+            hard_ceiling_bytes,
+            live_requested_bytes: AtomicU64::new(0),
+            peak_live_requested_bytes: AtomicU64::new(0),
+            requested_bytes_by_slot: [0; ControlledBufferSlot::COUNT],
+        }
+    }
+
+    fn preoccupy(
+        &self,
+        field: &'static str,
+        requested_bytes: u64,
+    ) -> Result<u64, StageGenerationError> {
+        self.live_requested_bytes
+            .fetch_update(
+                AtomicOrdering::SeqCst,
+                AtomicOrdering::SeqCst,
+                |live_requested_bytes| {
+                    live_requested_bytes
+                        .checked_add(requested_bytes)
+                        .filter(|next| *next <= self.hard_ceiling_bytes)
+                },
+            )
+            .map(|previous| previous + requested_bytes)
+            .map_err(
+                |live_requested_bytes| StageGenerationError::ControlledAllocationHardCeiling {
+                    field,
+                    hard_ceiling_bytes: self.hard_ceiling_bytes,
+                    live_requested_bytes,
+                    requested_bytes,
+                },
+            )
+    }
+
+    fn cancel_preoccupation(&self, requested_bytes: u64) {
+        let previous = self
+            .live_requested_bytes
+            .fetch_sub(requested_bytes, AtomicOrdering::SeqCst);
+        debug_assert!(previous >= requested_bytes);
+    }
+
+    fn commit_replacement(
+        &mut self,
+        slot: ControlledBufferSlot,
+        requested_bytes: u64,
+        preoccupied_live_bytes: u64,
+    ) {
+        self.peak_live_requested_bytes
+            .fetch_max(preoccupied_live_bytes, AtomicOrdering::SeqCst);
+        let previous_requested_bytes = std::mem::replace(
+            &mut self.requested_bytes_by_slot[slot.index()],
+            requested_bytes,
+        );
+        self.cancel_preoccupation(previous_requested_bytes);
+    }
+
+    fn peak_live_requested_bytes(&self) -> u64 {
+        self.peak_live_requested_bytes.load(AtomicOrdering::SeqCst)
+    }
+
+    fn hard_ceiling_bytes(&self) -> u64 {
+        self.hard_ceiling_bytes
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct IdentityStageBufferPool {
+    allocations: ControlledAllocationTracker,
     source_spans: Vec<SourceSpanRecord>,
     source_records: Vec<TypedAstStageRecord>,
     source_payload: Vec<u8>,
@@ -92,7 +201,47 @@ pub(crate) struct IdentityStageBufferPool {
     output_construction: Vec<u8>,
 }
 
+impl Default for IdentityStageBufferPool {
+    fn default() -> Self {
+        Self::with_controlled_allocation_hard_ceiling(u64::MAX)
+    }
+}
+
 impl IdentityStageBufferPool {
+    pub(crate) fn with_controlled_allocation_hard_ceiling(hard_ceiling_bytes: u64) -> Self {
+        Self {
+            allocations: ControlledAllocationTracker::new(hard_ceiling_bytes),
+            source_spans: Vec::new(),
+            source_records: Vec::new(),
+            source_payload: Vec::new(),
+            source_scratch: Vec::new(),
+            namespace_preimage_scratch: Vec::new(),
+            typed_ast_records: Vec::new(),
+            typed_ast_payload: Vec::new(),
+            hir_records: Vec::new(),
+            hir_payload: Vec::new(),
+            mir_records: Vec::new(),
+            mir_payload: Vec::new(),
+            mir_stable_id_scratch: Vec::new(),
+            mir_canonical_identity_scratch: Vec::new(),
+            mir_identity_payload_scratch: Vec::new(),
+            canonical_lir_records: Vec::new(),
+            canonical_lir_payload: Vec::new(),
+            lir_sort_scratch: Vec::new(),
+            lir_owner_ordinal_scratch: Vec::new(),
+            diagnostics: Vec::new(),
+            output_construction: Vec::new(),
+        }
+    }
+
+    pub(crate) fn controlled_allocation_hard_ceiling_bytes(&self) -> u64 {
+        self.allocations.hard_ceiling_bytes()
+    }
+
+    pub(crate) fn peak_live_requested_bytes(&self) -> u64 {
+        self.allocations.peak_live_requested_bytes()
+    }
+
     pub(crate) fn retained_capacity_bytes(
         &self,
     ) -> Result<StageRetainedCapacityBytes, StageGenerationError> {
@@ -389,8 +538,16 @@ fn materialize_source_input(
         &mut buffers.source_payload,
         source_payload_capacity,
         "source input payload",
+        &mut buffers.allocations,
+        ControlledBufferSlot::SourcePayload,
     )?;
-    let mut spans = take_reusable(&mut buffers.source_spans, span_capacity, "source spans")?;
+    let mut spans = take_reusable(
+        &mut buffers.source_spans,
+        span_capacity,
+        "source spans",
+        &mut buffers.allocations,
+        ControlledBufferSlot::SourceSpans,
+    )?;
     append_source_documents(&mut payload, &mut spans, identity, stage, plan)?;
     if as_u64(payload.len(), "source bytes")? != plan.counts.source_byte_count {
         return Err(StageGenerationError::MaterializedMismatch("source bytes"));
@@ -401,6 +558,8 @@ fn materialize_source_input(
         &mut buffers.source_records,
         source_record_capacity,
         "source input records",
+        &mut buffers.allocations,
+        ControlledBufferSlot::SourceRecords,
     )?;
     append_module_name_strings(&mut payload, &mut records, stage, plan)?;
     append_source_document_key_strings(&mut payload, plan)?;
@@ -408,6 +567,8 @@ fn materialize_source_input(
         &mut buffers.source_scratch,
         scratch_capacity,
         "source scratch",
+        &mut buffers.allocations,
+        ControlledBufferSlot::SourceScratch,
     )?;
     append_import_strings_and_records(
         &mut payload,
@@ -423,6 +584,8 @@ fn materialize_source_input(
         &mut buffers.namespace_preimage_scratch,
         128,
         "namespace preimage scratch",
+        &mut buffers.allocations,
+        ControlledBufferSlot::NamespacePreimageScratch,
     )?;
     append_namespace_strings(
         &mut payload,
@@ -859,6 +1022,8 @@ fn lower_source_to_typed_ast(
         &mut buffers.typed_ast_records,
         to_usize(plan.stages.typed_ast.record_count, "typed AST records")?,
         "typed AST records",
+        &mut buffers.allocations,
+        ControlledBufferSlot::TypedAstRecords,
     )?;
     for record in &source.records {
         records.push(*record);
@@ -978,6 +1143,8 @@ fn lower_source_to_typed_ast(
             "typed AST payload",
         )?,
         "typed AST payload",
+        &mut buffers.allocations,
+        ControlledBufferSlot::TypedAstPayload,
     )?;
     payload.extend_from_slice(&source.payload);
     encode_source_spans(&mut payload, &source.spans);
@@ -998,6 +1165,8 @@ fn lower_typed_ast_to_hir(
         &mut buffers.hir_payload,
         to_usize(plan.stages.hir.payload_logical_bytes, "HIR payload")?,
         "HIR payload",
+        &mut buffers.allocations,
+        ControlledBufferSlot::HirPayload,
     )?;
     payload
         .extend_from_slice(&typed.payload[source_strings.string_start..source_strings.string_end]);
@@ -1005,6 +1174,8 @@ fn lower_typed_ast_to_hir(
         &mut buffers.hir_records,
         to_usize(plan.stages.hir.record_count, "HIR records")?,
         "HIR records",
+        &mut buffers.allocations,
+        ControlledBufferSlot::HirRecords,
     )?;
 
     for record in &typed.records {
@@ -1099,27 +1270,37 @@ fn lower_hir_to_mir(
         &mut buffers.mir_records,
         to_usize(plan.stages.mir.record_count, "MIR records")?,
         "MIR records",
+        &mut buffers.allocations,
+        ControlledBufferSlot::MirRecords,
     )?;
     let mut payload = take_reusable(
         &mut buffers.mir_payload,
         to_usize(plan.stages.mir.payload_logical_bytes, "MIR payload")?,
         "MIR payload",
+        &mut buffers.allocations,
+        ControlledBufferSlot::MirPayload,
     )?;
     let mut stable_ids = take_reusable(
         &mut buffers.mir_stable_id_scratch,
         usize::try_from(plan.binding_count)
             .map_err(|_| StageGenerationError::Overflow("binding count"))?,
         "MIR stable ID scratch",
+        &mut buffers.allocations,
+        ControlledBufferSlot::MirStableIdScratch,
     )?;
     let mut canonical_identity = take_reusable(
         &mut buffers.mir_canonical_identity_scratch,
         256,
         "MIR canonical identity scratch",
+        &mut buffers.allocations,
+        ControlledBufferSlot::MirCanonicalIdentityScratch,
     )?;
     let mut identity_payload = take_reusable(
         &mut buffers.mir_identity_payload_scratch,
         256,
         "MIR identity payload scratch",
+        &mut buffers.allocations,
+        ControlledBufferSlot::MirIdentityPayloadScratch,
     )?;
 
     for unit_index in 0..plan.n {
@@ -1280,11 +1461,15 @@ fn canonicalize_mir(
         &mut buffers.lir_sort_scratch,
         record_count,
         "canonical LIR sort scratch",
+        &mut buffers.allocations,
+        ControlledBufferSlot::LirSortScratch,
     )?;
     let mut owner_ordinals = take_reusable(
         &mut buffers.lir_owner_ordinal_scratch,
         record_count,
         "canonical LIR owner ordinal scratch",
+        &mut buffers.allocations,
+        ControlledBufferSlot::LirOwnerOrdinalScratch,
     )?;
     owner_ordinals.resize(record_count, stage.absent_ordinal);
 
@@ -1337,6 +1522,8 @@ fn canonicalize_mir(
         &mut buffers.canonical_lir_records,
         record_count,
         "canonical LIR records",
+        &mut buffers.allocations,
+        ControlledBufferSlot::CanonicalLirRecords,
     )?;
     let mut payload = take_reusable(
         &mut buffers.canonical_lir_payload,
@@ -1345,6 +1532,8 @@ fn canonicalize_mir(
             "LIR payload",
         )?,
         "canonical LIR payload",
+        &mut buffers.allocations,
+        ControlledBufferSlot::CanonicalLirPayload,
     )?;
     for source_index in scratch.iter().copied() {
         let source = mir.records[source_index];
@@ -1382,6 +1571,8 @@ fn construct_output(
             "output construction",
         )?,
         "output construction",
+        &mut buffers.allocations,
+        ControlledBufferSlot::OutputConstruction,
     )?;
     output.extend_from_slice(identity.semantic_record_domain().as_bytes());
     output.push(0);
@@ -2345,13 +2536,28 @@ fn take_reusable<T>(
     slot: &mut Vec<T>,
     required_capacity: usize,
     field: &'static str,
+    allocations: &mut ControlledAllocationTracker,
+    controlled_slot: ControlledBufferSlot,
 ) -> Result<Vec<T>, StageGenerationError> {
     let mut values = std::mem::take(slot);
     values.clear();
     if values.capacity() < required_capacity {
-        values
-            .try_reserve_exact(required_capacity)
-            .map_err(|source| StageGenerationError::AllocationFailed { field, source })?;
+        let requested_bytes = u64::try_from(required_capacity)
+            .ok()
+            .and_then(|capacity| {
+                capacity.checked_mul(
+                    u64::try_from(std::mem::size_of::<T>()).expect("type size must fit u64"),
+                )
+            })
+            .ok_or(StageGenerationError::Overflow(
+                "controlled allocation request bytes",
+            ))?;
+        let preoccupied_live_bytes = allocations.preoccupy(field, requested_bytes)?;
+        if let Err(source) = values.try_reserve_exact(required_capacity) {
+            allocations.cancel_preoccupation(requested_bytes);
+            return Err(StageGenerationError::AllocationFailed { field, source });
+        }
+        allocations.commit_replacement(controlled_slot, requested_bytes, preoccupied_live_bytes);
     }
     Ok(values)
 }
@@ -2524,8 +2730,15 @@ mod tests {
     #[test]
     fn reusable_capacity_overflow_is_reported_without_panicking() {
         let mut values = Vec::<u8>::new();
-        let error = take_reusable(&mut values, usize::MAX, "test buffer")
-            .expect_err("an impossible capacity must fail");
+        let mut allocations = ControlledAllocationTracker::new(u64::MAX);
+        let error = take_reusable(
+            &mut values,
+            usize::MAX,
+            "test buffer",
+            &mut allocations,
+            ControlledBufferSlot::SourcePayload,
+        )
+        .expect_err("an impossible capacity must fail");
         assert!(matches!(
             error,
             StageGenerationError::AllocationFailed {

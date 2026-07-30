@@ -1,8 +1,8 @@
 //! 正式外层计时区的最小测量原语。
 //!
 //! 本模块建立 #308 协议要求的 prepare -> timed execute -> finalize/verify 边界，并由
-//! 同一个编译器实例只保留已清空的阶段容器容量。新进程编排、停止护栏和证据写出仍由
-//! 后续 runner 切片负责。
+//! 同一个编译器实例只保留已清空的阶段容器容量；计时区内的具名阶段容量请求同时受
+//! 实例硬上限约束。正式轮次和证据写出仍由后续 runner 切片负责。
 
 use crate::pipeline::{
     IdentityStageBufferPool, execute_identity_stage_case_with_buffers,
@@ -47,7 +47,7 @@ pub struct IdentityCompilerInstance {
 
 impl IdentityCompilerInstance {
     pub fn from_trusted_contract(trusted: &TrustedContract) -> Result<Self, TimingError> {
-        Self::from_trusted_contract_with_optional_id(trusted, None)
+        Self::from_trusted_contract_with_optional_id_and_allocation_ceiling(trusted, None, u64::MAX)
     }
 
     pub fn from_trusted_contract_with_id(
@@ -57,12 +57,32 @@ impl IdentityCompilerInstance {
         if compiler_instance_id.is_empty() {
             return Err(TimingError::EmptyCompilerInstanceId);
         }
-        Self::from_trusted_contract_with_optional_id(trusted, Some(compiler_instance_id))
+        Self::from_trusted_contract_with_optional_id_and_allocation_ceiling(
+            trusted,
+            Some(compiler_instance_id),
+            u64::MAX,
+        )
     }
 
-    fn from_trusted_contract_with_optional_id(
+    pub fn from_trusted_contract_with_id_and_allocation_ceiling(
+        trusted: &TrustedContract,
+        compiler_instance_id: String,
+        controlled_allocation_hard_ceiling_bytes: u64,
+    ) -> Result<Self, TimingError> {
+        if compiler_instance_id.is_empty() {
+            return Err(TimingError::EmptyCompilerInstanceId);
+        }
+        Self::from_trusted_contract_with_optional_id_and_allocation_ceiling(
+            trusted,
+            Some(compiler_instance_id),
+            controlled_allocation_hard_ceiling_bytes,
+        )
+    }
+
+    fn from_trusted_contract_with_optional_id_and_allocation_ceiling(
         trusted: &TrustedContract,
         compiler_instance_id: Option<String>,
+        controlled_allocation_hard_ceiling_bytes: u64,
     ) -> Result<Self, TimingError> {
         Ok(Self {
             compiler_instance_id,
@@ -70,13 +90,23 @@ impl IdentityCompilerInstance {
             generator: trusted.generator_contract()?,
             identity: trusted.identity_contract()?,
             stage: trusted.stage_contract()?,
-            buffers: IdentityStageBufferPool::default(),
+            buffers: IdentityStageBufferPool::with_controlled_allocation_hard_ceiling(
+                controlled_allocation_hard_ceiling_bytes,
+            ),
             completed_compilations: 0,
         })
     }
 
     pub fn compiler_instance_id(&self) -> Option<&str> {
         self.compiler_instance_id.as_deref()
+    }
+
+    pub fn controlled_allocation_hard_ceiling_bytes(&self) -> u64 {
+        self.buffers.controlled_allocation_hard_ceiling_bytes()
+    }
+
+    pub fn peak_live_requested_bytes(&self) -> u64 {
+        self.buffers.peak_live_requested_bytes()
     }
 
     pub fn run_stable_capacity_sequence(
@@ -283,6 +313,50 @@ mod tests {
             instance.compiler_instance_id(),
             Some("pilot/compiler-instance-0")
         );
+    }
+
+    #[test]
+    fn controlled_allocation_at_bound_succeeds_and_plus_one_fails_before_reserve() {
+        let trusted = load_repository_contract().expect("frozen contract");
+        let mut baseline = IdentityCompilerInstance::from_trusted_contract_with_id(
+            &trusted,
+            "allocation-baseline".to_owned(),
+        )
+        .expect("baseline instance");
+        baseline
+            .measure(GraphProfileId::WideStar, 1)
+            .expect("baseline measurement");
+        let exact_peak = baseline.peak_live_requested_bytes();
+        assert!(exact_peak > 1);
+
+        let mut at_bound =
+            IdentityCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+                &trusted,
+                "allocation-at-bound".to_owned(),
+                exact_peak,
+            )
+            .expect("at-bound instance");
+        at_bound
+            .measure(GraphProfileId::WideStar, 1)
+            .expect("exact peak must remain allowed");
+        assert_eq!(at_bound.peak_live_requested_bytes(), exact_peak);
+
+        let mut plus_one =
+            IdentityCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+                &trusted,
+                "allocation-plus-one".to_owned(),
+                exact_peak - 1,
+            )
+            .expect("plus-one instance");
+        assert!(matches!(
+            plus_one.measure(GraphProfileId::WideStar, 1),
+            Err(TimingError::StageGeneration(
+                crate::StageGenerationError::ControlledAllocationHardCeiling {
+                    hard_ceiling_bytes,
+                    ..
+                }
+            )) if hard_ceiling_bytes == exact_peak - 1
+        ));
     }
 
     #[test]
