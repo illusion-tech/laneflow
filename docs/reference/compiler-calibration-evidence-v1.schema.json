@@ -11,6 +11,7 @@
     "environment",
     "protocol",
     "binaries",
+    "candidateBindings",
     "runs",
     "derived",
     "artifacts"
@@ -34,8 +35,18 @@
     "binaries": {
       "type": "array",
       "minItems": 1,
+      "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/binary"
+      }
+    },
+    "candidateBindings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "证据级候选绑定与依赖审计目录；包括在执行前因安全或证据原因被拒绝、因而没有原始运行的候选。独立验证器按 id 检查全局唯一性、清单一致性以及运行快照/候选比较引用闭合。",
+      "items": {
+        "$ref": "#/$defs/candidate"
       }
     },
     "runs": {
