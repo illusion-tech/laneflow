@@ -5525,6 +5525,34 @@
         }
       }
     },
+    "adjacentLevelRoundPair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "lowerRoundSummaryId",
+        "upperRoundSummaryId",
+        "ratio"
+      ],
+      "properties": {
+        "round": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "lowerRoundSummaryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "upperRoundSummaryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ratio": {
+          "$ref": "#/$defs/positiveRatio"
+        }
+      }
+    },
     "candidateComparisonRoundPair": {
       "type": "object",
       "additionalProperties": false,
@@ -5642,47 +5670,61 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "workloadId",
-              "graphProfile",
+              "candidateId",
+              "lowerStratum",
+              "upperStratum",
               "metric",
               "batch",
-              "lowerN",
-              "upperN",
-              "roundRatios",
+              "pairingMethod",
+              "normalizationBasis",
+              "roundPairs",
+              "aggregationMethod",
               "medianRatio",
               "candidateKnee"
             ],
             "properties": {
-              "workloadId": {
-                "type": "string",
-                "minLength": 1
+              "candidateId": {
+                "const": "baseline-std-randomstate-stable-vec-v1"
               },
-              "graphProfile": {
-                "type": "string",
-                "minLength": 1
+              "lowerStratum": {
+                "$ref": "#/$defs/measurementStratum"
+              },
+              "upperStratum": {
+                "$ref": "#/$defs/measurementStratum"
               },
               "metric": {
-                "type": "string",
-                "minLength": 1
+                "enum": [
+                  "wall-time-ns",
+                  "peak-live-requested-bytes",
+                  "private-bytes",
+                  "commit-peak-bytes"
+                ]
               },
               "batch": {
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 1
               },
-              "lowerN": {
-                "$ref": "#/$defs/positiveInteger"
+              "pairingMethod": {
+                "const": "same-batch-same-round-adjacent-level-v1"
               },
-              "upperN": {
-                "$ref": "#/$defs/positiveInteger"
+              "normalizationBasis": {
+                "enum": [
+                  "primary-record-count",
+                  "canonical-lir-shape-output-record-count"
+                ]
               },
-              "roundRatios": {
+              "roundPairs": {
                 "type": "array",
                 "minItems": 5,
                 "maxItems": 5,
+                "uniqueItems": true,
                 "items": {
-                  "$ref": "#/$defs/positiveRatio"
+                  "$ref": "#/$defs/adjacentLevelRoundPair"
                 }
+              },
+              "aggregationMethod": {
+                "const": "median-of-five-exact-round-ratios-v1"
               },
               "medianRatio": {
                 "$ref": "#/$defs/positiveRatio"
@@ -5690,7 +5732,125 @@
               "candidateKnee": {
                 "type": "boolean"
               }
-            }
+            },
+            "allOf": [
+              {
+                "properties": {
+                  "lowerStratum": {
+                    "properties": {
+                      "keyDomain": {
+                        "const": "full-pipeline-baseline"
+                      },
+                      "caseId": {
+                        "const": "not-applicable"
+                      }
+                    }
+                  },
+                  "upperStratum": {
+                    "properties": {
+                      "keyDomain": {
+                        "const": "full-pipeline-baseline"
+                      },
+                      "caseId": {
+                        "const": "not-applicable"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "metric": {
+                      "const": "wall-time-ns"
+                    }
+                  },
+                  "required": [
+                    "metric"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "normalizationBasis": {
+                      "const": "primary-record-count"
+                    },
+                    "lowerStratum": {
+                      "properties": {
+                        "binaryMode": {
+                          "const": "timing"
+                        }
+                      }
+                    },
+                    "upperStratum": {
+                      "properties": {
+                        "binaryMode": {
+                          "const": "timing"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "metric": {
+                      "enum": [
+                        "peak-live-requested-bytes",
+                        "private-bytes",
+                        "commit-peak-bytes"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "metric"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "normalizationBasis": {
+                      "const": "canonical-lir-shape-output-record-count"
+                    },
+                    "lowerStratum": {
+                      "properties": {
+                        "binaryMode": {
+                          "const": "memory"
+                        }
+                      }
+                    },
+                    "upperStratum": {
+                      "properties": {
+                        "binaryMode": {
+                          "const": "memory"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "metric": {
+                      "enum": [
+                        "private-bytes",
+                        "commit-peak-bytes"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "metric"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "candidateKnee": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            ]
           }
         },
         "knees": {
