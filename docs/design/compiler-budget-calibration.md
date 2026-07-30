@@ -444,8 +444,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `105349` exact bytes，SHA-256 为
-`eca25d6f903a5ca69b9e576a67f199e15ab49ba039e952a62e23db2eb7a38cee`；G2 只能发布
+取得 G1。G1 候选冻结清单 `105891` exact bytes，SHA-256 为
+`940c595d3a7ac86058d2260587f3f666bbf299187661ab502c4c1c116b7993d7`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -1176,6 +1176,11 @@ profile）和特性集合（features）；证据记录各自二进制 SHA-256 �
    `N`/`B`/scale、候选配置、二进制模式、全新进程、有效状态和峰值后才能接受配对；
    被评估候选不得提供自己的限制值。
 
+监控缺样、外部状态作废或子进程异常退出的预扫描尝试仍以
+`sampleKind = limit-baseline + status = invalid` 保留在原始证据中，并使用新运行重试；
+只有两个有效且精确相等的副本可以进入 `basisRunIds`。Schema 允许保留无效尝试，
+独立验证器负责禁止派生限制引用它们。
+
 失败用例标识符（failure case ID）冻结为：
 
 - `limit/<dimension>/at-bound`：普通维度恰好等于限制时必须成功；`diagnostic-count`
@@ -1340,6 +1345,12 @@ XXH3/XXH64 候选使用固定 seed `0x4c46_434f_4d50_0001`；FNV-1a 64 使用标
   两个汇总必须由第 5.3 节的原始运行完整重算，且不能复用到该批的另一个轮次对。
   形成性能结论的每批必须覆盖 `r = 0..2C-1` 的全部 `2C` 个平衡轮次，作废轮次及其
   保留样本不得进入配对；
+- `batch0` 与 `batch1` 对象始终存在，但其证据内容由清单
+  `candidateDecisionContract.batchEvidenceRules` 冻结：三类比值结论要求两批各自
+  完整覆盖 `2C` 轮且 `medianRatio` 非空；正确性/安全预先拒绝不得运行性能轮次，
+  两批都为空并分别使用稳定空值原因；`insufficient-evidence` 可以保存零项、未完成
+  的有效前缀或完整但两批分类不一致的配对，未完成批次的中位比值必须为空。原始作废
+  轮次仍保存在 `runs[]`，不能为填满 batch 而制造 `roundSummaryId`；
 - 每个轮次对的比值方向固定为 `candidate round median / baseline round median`。
   `metric` 只允许映射到 `metrics.wallTimeNs`、`allocatedBytes`、
   `peakLiveRequestedBytes`、`retainedCapacityBytes`、`workingSetBytes`、
@@ -1440,7 +1451,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1322` exact bytes，SHA-256 为
-`967a16d3078502c8b92aa91fd92d35946aa3b57b79029dc4d074c81f363d05fd`。该摘要是 PR/Gate
+`5c32d782cdf28f0fc4784ec7aa09ed181fc8aa4a8578ecee04910d1a97b16313`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1459,8 +1470,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `212936` exact bytes，SHA-256 为
-`8718e454952043712cb117095099a0325c8d7fb8310872d516dd16f26a3fabbd`。
+G1 候选冻结 schema `214619` exact bytes，SHA-256 为
+`bfb344cd6eaae19be7c0473543532fb6d1d3fad3911ec218432ae0eec6b9d730`。
 顶层格式标识：
 
 ```text
@@ -1636,7 +1647,11 @@ package/version/features/checksum。不能从自由 ID 推测算法，也不能�
 重复性包络的正值指标，并按指标解析唯一 `reproducibilityEnvelopes[]` 记录；分配次数
 和重新分配次数只能保留为原始诊断值。验证器重算两个批次的精确中位比值后，必须按
 第 9.2 节的交叉乘法与正确性/安全优先级重算 `decision`。边界被写成改善/回退、两批
-混合结果被写成可重复结论、指标错配或使用浮点容差都必须失败。
+混合结果被写成可重复结论、指标错配或使用浮点容差都必须失败。它还必须按
+`batchEvidenceRules` 验证两批：比值结论各有完整 `2C` 轮和非空中位比值；正确性/
+安全预先拒绝的两批为空；证据不足允许空、未完成或完整但不可分类的批次，空批和未
+完成批次分别使用清单登记的唯一空值原因。无有效轮次却制造引用、未完成批次自报
+中位数或性能结论缺完整配对都必须失败。
 
 增长斜率验证必须把每批 `levelBatchSummaryIds` 解析为同一基线候选、指标和除
 `N`/规模角色外相同的完整测量分层，且分别来自 batch 0/1；按主记录数排序后枚举全部
@@ -1671,7 +1686,8 @@ closed 约束与独立验证器对整份证据的关系约束缺一不可。
 对 `compiler-controlled-live-byte-count`，它必须把两个 `basisRunIds` 唯一解析为
 同一分层的两个有效 `limit-baseline` 运行，验证两者
 `peakLiveRequestedBytes` 精确相等，并检查 at-bound/plus-one 的限制值分别为该值和
-该值减一。任一来源运行缺失、重复、来自被评估候选或跨分层时，配对必须失败。
+该值减一。无效预扫描尝试允许保留在 `runs[]`，但不得进入 `basisRunIds`。任一来源
+运行无效、缺失、重复、来自被评估候选或跨分层时，配对必须失败。
 
 ### 10.3 可复现命令
 
