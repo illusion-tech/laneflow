@@ -406,8 +406,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `83977` exact bytes，SHA-256 为
-`a728a0308eb9451b389bb3aa9285ea738d42c3bdd9827e6526a41518f844ba23`；G2 只能发布
+取得 G1。G1 候选冻结清单 `84389` exact bytes，SHA-256 为
+`07ff1f5becae5bfb79586f5f7b35aca5c58a20042cd7b8586f7e63261062506b`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -736,12 +736,41 @@ suggested_R0_budget = observed_upper * E_m
 `repeat_ratio` 不能由后台干扰、热/功耗状态或测量错误解释，并大到改变候选/拐点
 结论，则该研究无权冻结预算，必须先稳定协议并重跑两批。
 
-线性区间增长斜率使用泰尔－森估计（Theil-Sen Estimator）：在确认拐点之前，对全部
-级别的
-`(log2(primary_record_count), log2(metric_batch_value))`
-两两求斜率并取中位数。两批分别报告，不合并原始样本；建议斜率上界为
-`max(slope_A, slope_B) + abs(slope_A - slope_B)`。低于两个可比较区间时只报告
-“证据不足”，不得填写斜率。
+线性区间增长斜率使用泰尔－森估计（Theil-Sen Estimator），但权威证据不得保存平台
+`log2` 的 JSON 浮点结果。每个指标的 `growthSlopes[]` 必须引用两批各自在确认拐点
+之前、按主记录数递增排列的全部正式阶梯批次汇总；每批至少三个级别，也就是至少两个
+可比较相邻区间。每个点是
+`(primary_record_count, metric_batch_median)`，两项均为严格正整数。
+
+两点 `(x_l, y_l)`、`(x_u, y_u)` 满足 `x_l < x_u` 时，数学斜率仍定义为
+`log(y_u / y_l) / log(x_u / x_l)`，但使用
+`theil-sen-q16.16-nearest-ties-even-v1` 的纯整数算法编码。令 `D = 65536`：
+
+1. 若 `y_u = y_l`，`slopeQ16_16 = 0`；
+2. 否则令 `a = max(y_u, y_l)`、`b = min(y_u, y_l)`，符号
+   `sign = +1`（`y_u > y_l`）或 `-1`；
+3. 以任意精度整数找出最大的非负整数 `k`，使
+   `a^D * x_l^k >= b^D * x_u^k`；这等价于正斜率幅值不小于 `k / D`；
+4. 用
+   `a^(2D) * x_l^(2k+1)` 与 `b^(2D) * x_u^(2k+1)` 比较精确中点：
+   左侧较小则取 `k`，较大则取 `k + 1`，相等时取两者中的偶数；
+5. 最终 `slopeQ16_16 = sign * rounded_magnitude`，必须落在有符号三十二位整数范围，
+   否则该研究分层失败关闭。
+
+该算法不调用宿主浮点、对数库或容差。每批必须保存所有无序级别对的 lower/upper
+`ladderBatchSummaryId` 与 `slopeQ16_16`；独立验证器重算组合数
+`L * (L - 1) / 2`、每一对和排序结果。泰尔－森中位数以有符号 Q16.16
+有理斜率（signed Q16.16 rational slope）保存：奇数项取中间整数，偶数项取两个
+中间整数的精确平均，约分后的 denominator 只能是 `1` 或 `2`，
+`fractionalBits = 16`，其真实值是
+`(numerator / denominator) / 65536`。
+
+两批分别计算，不合并原始样本；建议斜率上界使用精确有理运算
+`max(slope_A, slope_B) + abs(slope_A - slope_B)`，以同一
+`signed Q16.16 rational` 表示。权威 JSON 同时保存两批完整 summary 引用、两两斜率、
+批内中位数、上界公式标识符和上界值。低于两个可比较区间时不生成该
+`growthSlopes[]` 记录，只在建议中报告稳定原因码 `fewer-than-two-comparable-intervals`，
+不得填写零或浮点近似斜率。
 
 上述公式只生成 #292 可审阅的 R0 研究预算建议。#292 可以接受、收紧或因生产语义
 重新测量，但任何修改都必须记录证据和理由，不能把停止护栏或未解释整数替代该来源。
@@ -1080,9 +1109,21 @@ XXH3/XXH64 候选使用固定 seed `0x4c46_434f_4d50_0001`；FNV-1a 64 使用标
 
 ### 9.2 比较纪律
 
-- 标准随机化 `HashMap` 是功能与安全基线，不是假定性能赢家；
-- 基线配置在外部可控键和内部定长键都使用标准随机化 `HashMap`，规范输出使用稳定
-  `Vec` 排序；`B`、规模阶梯和拐点只由该配置发现；
+候选比较基线不是证据可选择字段。机器清单
+`candidateRegistry.baselineByKeyDomain` 冻结：
+
+| 键域（Key Domain）       | 唯一基线候选 ID              |
+| ------------------------ | ---------------------------- |
+| `external-string`        | `std-hashmap-randomstate-v1` |
+| `validated-fixed-key`    | `std-hashmap-randomstate-v1` |
+| `canonical-output-order` | `stable-vec-sort-v1`         |
+
+- 标准随机化 `HashMap` 是前两个键域的功能与安全基线，不是假定性能赢家；稳定 `Vec`
+  排序是规范输出顺序键域的基线；
+- `baselineId` 必须等于所选键域的唯一登记值，`candidateId` 必须与它不同且在同一
+  键域获准；把受测候选自身或其他优化实现当作基线必须在形成比值前失败；
+- 完整管线基线配置在外部可控键和内部定长键都使用标准随机化 `HashMap`，规范输出
+  使用稳定 `Vec` 排序；`B`、规模阶梯和拐点只由该配置发现；
 - 候选比较每次只替换一个键域或排序组件，其他组件保持基线配置；组合赢家只有在各
   单项结果完成后才能另行复测，不能把多个同时变化的结果归因给一个候选；
 - 工作负载生成种子（workload seed）与哈希器种子策略（hasher seed policy）是两个
@@ -1166,7 +1207,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1321` exact bytes，SHA-256 为
-`fd00943f84de85390ad9b5c344b72195c88262064f341f6eeb55b07f99816600`。该摘要是 PR/Gate
+`05f84cdf96b9ba5628414058611c2a8231cde7e7b6c3b1d086df5324c08fba12`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1185,8 +1226,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `161272` exact bytes，SHA-256 为
-`dcdd463b97e280c3af7ff6c08e4361dc26784fd8baf5b8bba76df8ed1d463990`。
+G1 候选冻结 schema `165677` exact bytes，SHA-256 为
+`29cabca1174614f67b8d18282673fb324403c51d3257c28d67a1c209e5110fc4`。
 顶层格式标识：
 
 ```text
@@ -1236,6 +1277,8 @@ schemaVersion = 1
   以及作废原因；
 - 相邻级别的上下级完整测量分层、五个同批同轮 `roundSummaryId` 配对、规范化基准、
   精确比值/中位数、候选/确认拐点、复测证据、重复性包络和分批泰尔－森增长斜率；
+- 每项泰尔－森增长斜率的两批 `ladderBatchSummaryId` 全集、全部两两 Q16.16 斜率、
+  批内精确有理中位数、上界公式标识符与精确有理建议上界；
 - 停止护栏精确阈值、清单单缓冲区下界、三项预测依据、前一级/下一级主记录数、前一级
   墙钟/私有字节/存续字节、三项预测值、受控分配预占、是否触发、父进程监控快照和
   子进程退出状态；
@@ -1287,7 +1330,8 @@ Schema 与被测来源；研究执行器提交（research harness commit；`harn
 ID、键域、种子策略/固定值和有序组件身份与唯一注册项精确一致；再按组件种类核对
 rustc、`harnessCommit` 或 harness `Cargo.lock`
 package/version/features/checksum。不能从自由 ID 推测算法，也不能把同名候选的不同
-依赖实现合并比较。
+依赖实现合并比较。每条候选比较还必须按 `baselineByKeyDomain` 重算唯一
+`baselineId`，要求候选与基线不同且两者都获准进入该键域。
 
 轮次指标汇总验证必须按贡献 `runId` 重算。`cold-instance` 要求唯一
 `sampleOrdinal = 0`；`stable-capacity-reuse` 要求同一子进程的
@@ -1296,6 +1340,12 @@ package/version/features/checksum。不能从自由 ID 推测算法，也不能�
 轮次对必须解析到除 `N`/规模角色外相同完整测量分层的上下级正式阶梯汇总，并重算
 规范化比值和拐点阈值；候选比较轮次对则必须解析到同批同轮的基线/候选轮次汇总。
 两者都不能绕过原始运行直接信任中位数。
+
+增长斜率验证必须把每批 `levelBatchSummaryIds` 解析为同一基线候选、指标和除
+`N`/规模角色外相同的完整测量分层，且分别来自 batch 0/1；按主记录数排序后枚举全部
+级别对，使用第 5.6 节大整数幂比较算法重算每项 `slopeQ16_16`、批内精确有理中位数
+和两批建议上界。缺少任一组合、引用拐点后级别、浮点数、未约分值或上界公式不一致
+必须失败。
 
 停止护栏同样不能只通过单条 Schema：独立验证器必须按
 `guardPredictionContract.primaryRecordCountByWorkload` 重算前后级主记录数，从八个
