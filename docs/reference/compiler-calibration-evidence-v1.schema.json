@@ -4312,10 +4312,10 @@
           "type": "boolean"
         },
         "backgroundCpuTimeNs": {
-          "$ref": "#/$defs/nonNegativeInteger"
+          "$ref": "#/$defs/nullableIntegerObservation"
         },
         "backgroundWriteBytes": {
-          "$ref": "#/$defs/nonNegativeInteger"
+          "$ref": "#/$defs/nullableIntegerObservation"
         },
         "monitoringGap": {
           "type": "boolean"
@@ -4348,7 +4348,79 @@
             }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "monitoringGap": {
+                "const": false
+              }
+            },
+            "required": [
+              "monitoringGap"
+            ]
+          },
+          "then": {
+            "properties": {
+              "backgroundCpuTimeNs": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              },
+              "backgroundWriteBytes": {
+                "properties": {
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "anyOf": [
+              {
+                "properties": {
+                  "backgroundCpuTimeNs": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "const": "monitoring-gap"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "backgroundWriteBytes": {
+                    "properties": {
+                      "value": {
+                        "type": "null"
+                      },
+                      "reason": {
+                        "const": "monitoring-gap"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
     },
     "run": {
       "type": "object",
@@ -5351,6 +5423,48 @@
                 "properties": {
                   "exitKind": {
                     "const": "invalid-monitor-termination"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "externalState": {
+                "properties": {
+                  "monitoringGap": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "monitoringGap"
+                ]
+              }
+            },
+            "required": [
+              "externalState"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "invalid"
+              },
+              "invalidationReasons": {
+                "contains": {
+                  "const": "monitoring-gap"
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "invalidationReasons": {
+                "not": {
+                  "contains": {
+                    "const": "monitoring-gap"
                   }
                 }
               }
