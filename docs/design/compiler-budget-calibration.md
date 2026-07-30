@@ -446,8 +446,10 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `112190` exact bytes，SHA-256 为
-`9d670341238da29c428fa8a082723cd6d26d271c1269fc8dc1768068b4004575`；G2 只能发布
+取得 G1。唯一例外是正式证据尚未发布前，派生常量与同一清单冻结公式发生可机械证明的
+纯算术矛盾：可以保持未改变的工作负载语义修订，但必须登记勘误、刷新全部精确字节
+绑定并重新取得 G1，不得只在实现中绕过。G1 候选冻结清单 `112190` exact bytes，SHA-256 为
+`9c01aa95e1fadb38adeb6a828a3aa642896df4727a8dc3f9431522b3b4cbb964`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -609,6 +611,14 @@ ScenarioManifest v0.1 只承担当前制品配对和来源沿袭对照，不进�
 `outputConstruction` 的记录数/逻辑字节。证据 Schema 通过精确常量约束
 （exact-constant constraints）固定这些领域计数与阶段结果；独立验证器仍必须从文件
 与投影规则重新枚举，不能只回抄常量。
+
+G2 公式重算纠正了 `parking-signals-baseline` 的一组派生常量：早期清单在
+`sourceSpanCount` 与 `sourceByteCount` 中重复计入了四条并不存在的来源引用，同时
+Typed AST、HIR 和来源引用总数仍按五十五条计算。纠正后严格应用
+`sourceSpanRule`，得到一百一十二个来源位置和 2152 个来源字节，并同步修正受影响的
+`sourceInput` 与 Typed AST 逻辑字节。该修订不改变夹具集合、投影语义或工作负载内容，
+因此不提升工作负载修订；契约描述符及其绑定摘要必须刷新，并在恢复 G2 前重新取得
+G1。
 
 固定夹具文件摘要、字节长度、格式版本和来源提交必须进入证据。文件内容改变
 时，即使文件名不变，也必须形成新的输入摘要；不得覆盖历史结果。
@@ -1538,7 +1548,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1322` exact bytes，SHA-256 为
-`77532904df2b2c7e9157fe3154fa61fc7d507bf8abb28859c3ba872cec83c2e9`。该摘要是 PR/Gate
+`2a4cef84db89525492e12ad2773cd88afe64b60800048d6333f031a16259f3f7`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1558,7 +1568,7 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
 G1 候选冻结 schema `223167` exact bytes，SHA-256 为
-`f236f29523c9b07cd360f910304de7c604d336f51bc34179ec26e0fd45f101c3`。
+`c5b33d78d16bb14dca0b4bbf53b0b6be11473b4b5483cff84484ae63d9ac85f3`。
 顶层格式标识：
 
 ```text

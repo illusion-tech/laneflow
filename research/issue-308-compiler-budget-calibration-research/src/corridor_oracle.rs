@@ -134,6 +134,44 @@ pub(crate) fn build_template_oracle_records(
     graph_profile: GraphProfileId,
     n: u32,
 ) -> Result<OracleOutput, CorridorOracleError> {
+    build_oracle_records(
+        manifest,
+        workload_id,
+        template,
+        OracleProjection::Scalable(graph_profile),
+        n,
+    )
+}
+
+#[cfg(feature = "fixture-oracle")]
+pub(crate) fn build_fixed_fixture_oracle_records(
+    manifest: &Value,
+    workload_id: &str,
+    template: &CorridorTemplate,
+) -> Result<OracleOutput, CorridorOracleError> {
+    build_oracle_records(
+        manifest,
+        workload_id,
+        template,
+        OracleProjection::FixedFixture,
+        1,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum OracleProjection {
+    Scalable(GraphProfileId),
+    #[cfg(feature = "fixture-oracle")]
+    FixedFixture,
+}
+
+fn build_oracle_records(
+    manifest: &Value,
+    workload_id: &str,
+    template: &CorridorTemplate,
+    projection: OracleProjection,
+    n: u32,
+) -> Result<OracleOutput, CorridorOracleError> {
     if n == 0 {
         return Err(CorridorOracleError::Contract(
             "N must be positive".to_owned(),
@@ -159,15 +197,29 @@ pub(crate) fn build_template_oracle_records(
     );
     let mut stable_ids = BTreeMap::<OracleOwner, [u8; 16]>::new();
     for unit in 0..n {
-        let namespace = oracle_namespace(
-            namespace_domain,
-            generator_version,
-            base_seed,
-            workload_id,
-            graph_profile.as_str(),
-            &format!("unit/{unit:08x}"),
-        );
         for entity in &template.entities {
+            let (graph_profile_id, canonical_module_name) = match projection {
+                OracleProjection::Scalable(graph_profile) => {
+                    (graph_profile.as_str(), format!("unit/{unit:08x}"))
+                }
+                #[cfg(feature = "fixture-oracle")]
+                OracleProjection::FixedFixture => (
+                    "not-applicable",
+                    if entity.reference.kind == 22 {
+                        "spatial".to_owned()
+                    } else {
+                        "traffic".to_owned()
+                    },
+                ),
+            };
+            let namespace = oracle_namespace(
+                namespace_domain,
+                generator_version,
+                base_seed,
+                workload_id,
+                graph_profile_id,
+                &canonical_module_name,
+            );
             let binding = bindings.get(&entity.reference.kind).ok_or_else(|| {
                 CorridorOracleError::Contract(format!(
                     "missing identity binding {}",
@@ -197,7 +249,15 @@ pub(crate) fn build_template_oracle_records(
                                     "profiled local index overflow".to_owned(),
                                 )
                             })?;
-                        format!("{kind:02x}/{unit:08x}/{expanded:08x}").into_bytes()
+                        match projection {
+                            OracleProjection::Scalable(_) => {
+                                format!("{kind:02x}/{unit:08x}/{expanded:08x}").into_bytes()
+                            }
+                            #[cfg(feature = "fixture-oracle")]
+                            OracleProjection::FixedFixture => {
+                                format!("fixture/{kind:02x}/{expanded:08x}").into_bytes()
+                            }
+                        }
                     }
                     OracleFieldSource::StableId { kind } => {
                         let target = entity.identity_references.get(tag).ok_or_else(|| {

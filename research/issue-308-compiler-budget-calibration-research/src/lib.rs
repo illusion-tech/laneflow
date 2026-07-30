@@ -11,6 +11,7 @@ mod corridor;
 #[cfg(feature = "fixture-oracle")]
 mod corridor_fixture_oracle;
 mod corridor_oracle;
+mod current_fixtures;
 mod generator;
 mod guard;
 mod identity;
@@ -33,6 +34,13 @@ pub use corridor::{
 };
 pub use corridor_oracle::{
     CorridorOracleError, CorridorOracleVerificationReport, verify_corridor_oracle_matrix,
+};
+pub use current_fixtures::{
+    CURRENT_FIXTURES_KNOWN_VECTOR_SCHEMA, CURRENT_FIXTURES_WORKLOAD_ID, CurrentFixtureCaseSummary,
+    CurrentFixturesContract, CurrentFixturesError, CurrentFixturesKnownVectorDocument,
+    CurrentFixturesOracleError, CurrentFixturesOracleVerificationReport,
+    build_current_fixture_summaries, build_current_fixtures_known_vectors,
+    verify_current_fixtures_oracle,
 };
 pub use generator::{
     ExpandedModule, ExpandedModuleGraph, GeneratorError, GraphProfileId,
@@ -103,7 +111,7 @@ pub use timing::{
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";
 pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_322;
 pub const CONTRACT_DESCRIPTOR_SHA256: &str =
-    "77532904df2b2c7e9157fe3154fa61fc7d507bf8abb28859c3ba872cec83c2e9";
+    "2a4cef84db89525492e12ad2773cd88afe64b60800048d6333f031a16259f3f7";
 
 const CONTRACT_SCHEMA: &str = "laneflow.compiler-calibration-contract";
 const WORKLOAD_MANIFEST_SCHEMA: &str = "laneflow.compiler-calibration-workload-manifest";

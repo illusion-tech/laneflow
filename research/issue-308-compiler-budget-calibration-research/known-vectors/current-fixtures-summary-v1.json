@@ -1,0 +1,393 @@
+{
+  "schema": "laneflow.compiler-calibration-current-fixtures-summary-known-vectors",
+  "schemaVersion": 1,
+  "sourceWorkloadManifestSha256": "9c01aa95e1fadb38adeb6a828a3aa642896df4727a8dc3f9431522b3b4cbb964",
+  "workloadId": "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1",
+  "scalable": false,
+  "cases": [
+    {
+      "caseId": "signalized-corridor",
+      "counts": {
+        "moduleCount": 2,
+        "importEdgeCount": 1,
+        "crossModuleReferenceCount": 66,
+        "maximumImportDepth": 1,
+        "sourceDocumentCount": 2,
+        "sourceByteCount": 87838,
+        "identityDeclarationCount": 330,
+        "sourceDeclarationCount": 330,
+        "sourceSpanCount": 4693,
+        "identityFieldOccurrenceCount": 945,
+        "profiledKeyOccurrenceCount": 378,
+        "sourceReferenceCount": 2374,
+        "sourceRelationCount": 597,
+        "sourceGeometryCount": 1392,
+        "symbolCount": 330,
+        "stringItemCount": 3087,
+        "maximumStringBytes": 47,
+        "totalStringBytes": 89077,
+        "diagnosticCount": 0,
+        "semanticOutputRecord": 2319,
+        "semanticPayloadByteCount": 84624,
+        "logicalByteCount": 186660,
+        "outputByteCount": 168162
+      },
+      "stages": {
+        "sourceInput": {
+          "recordCount": 4696,
+          "payloadLogicalBytes": 176915,
+          "logicalBytes": 327187,
+          "recordAllocationBytes": 327187
+        },
+        "typedAst": {
+          "recordCount": 5641,
+          "payloadLogicalBytes": 270775,
+          "logicalBytes": 451287,
+          "recordAllocationBytes": 451287
+        },
+        "hir": {
+          "recordCount": 5641,
+          "payloadLogicalBytes": 123837,
+          "logicalBytes": 304349,
+          "recordAllocationBytes": 304349
+        },
+        "mir": {
+          "recordCount": 2319,
+          "payloadLogicalBytes": 84624,
+          "logicalBytes": 186660,
+          "recordAllocationBytes": 195936
+        },
+        "canonicalLir": {
+          "recordCount": 2319,
+          "payloadLogicalBytes": 84624,
+          "logicalBytes": 186660,
+          "recordAllocationBytes": 195936
+        },
+        "diagnostics": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 0,
+          "logicalBytes": 0,
+          "recordAllocationBytes": 0
+        },
+        "scratch": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 18552,
+          "logicalBytes": 18552,
+          "recordAllocationBytes": 18552
+        },
+        "outputConstruction": {
+          "recordCount": 2319,
+          "payloadLogicalBytes": 84624,
+          "logicalBytes": 168162,
+          "recordAllocationBytes": 168162
+        }
+      },
+      "entityCounts": {
+        "AccessRule": 18,
+        "AuthoringLane": 34,
+        "CanonicalFrame": 1,
+        "FacilityBand": 7,
+        "Junction": 2,
+        "LaneEdge": 66,
+        "LaneGroup": 6,
+        "ManeuverGate": 32,
+        "ManeuverPath": 32,
+        "Movement": 24,
+        "ParkingArea": 0,
+        "ParkingSpace": 0,
+        "ParticipantClass": 3,
+        "RoadCorridor": 7,
+        "RoadSection": 14,
+        "SignalController": 2,
+        "SignalGroup": 8,
+        "SignalPhase": 24,
+        "StaticRoute": 28,
+        "StopLine": 20,
+        "VehicleProfile": 2,
+        "WaitingZone": 0
+      },
+      "relationRecordCounts": {
+        "accessRelation": 18,
+        "canonicalGeometryPoint": 1392,
+        "edgeConnection": 64,
+        "gateOccurrence": 32,
+        "junctionInternalEdgeRole": 32,
+        "laneCoverageOccurrence": 34,
+        "ownerRelation": 173,
+        "parkingSpaceAnchors": 0,
+        "routeOccurrence": 116,
+        "signalGroupRelation": 32,
+        "signalPhaseStateOccurrence": 96,
+        "waitingZoneOccurrence": 0
+      },
+      "recordKindCounts": {
+        "access-relation": 18,
+        "canonical-geometry-point": 1392,
+        "edge-connection": 64,
+        "gate-occurrence": 32,
+        "identity-declaration": 330,
+        "junction-internal-edge-role": 32,
+        "lane-coverage-occurrence": 34,
+        "owner-relation": 173,
+        "route-occurrence": 116,
+        "signal-group-relation": 32,
+        "signal-phase-state": 96
+      },
+      "semanticDigestSha256": "614b247f3cce2690a422433cd61cc64bc26e618fdd0887178af6a7752b06ca98"
+    },
+    {
+      "caseId": "parking-signals-baseline",
+      "counts": {
+        "moduleCount": 1,
+        "importEdgeCount": 0,
+        "crossModuleReferenceCount": 0,
+        "maximumImportDepth": 0,
+        "sourceDocumentCount": 1,
+        "sourceByteCount": 2152,
+        "identityDeclarationCount": 27,
+        "sourceDeclarationCount": 27,
+        "sourceSpanCount": 112,
+        "identityFieldOccurrenceCount": 73,
+        "profiledKeyOccurrenceCount": 31,
+        "sourceReferenceCount": 55,
+        "sourceRelationCount": 30,
+        "sourceGeometryCount": 0,
+        "symbolCount": 27,
+        "stringItemCount": 115,
+        "maximumStringBytes": 52,
+        "totalStringBytes": 3162,
+        "diagnosticCount": 0,
+        "semanticOutputRecord": 57,
+        "semanticPayloadByteCount": 2942,
+        "logicalByteCount": 5450,
+        "outputByteCount": 5048
+      },
+      "stages": {
+        "sourceInput": {
+          "recordCount": 113,
+          "payloadLogicalBytes": 5314,
+          "logicalBytes": 8930,
+          "recordAllocationBytes": 8930
+        },
+        "typedAst": {
+          "recordCount": 186,
+          "payloadLogicalBytes": 7554,
+          "logicalBytes": 13506,
+          "recordAllocationBytes": 13506
+        },
+        "hir": {
+          "recordCount": 186,
+          "payloadLogicalBytes": 3914,
+          "logicalBytes": 9866,
+          "recordAllocationBytes": 9866
+        },
+        "mir": {
+          "recordCount": 57,
+          "payloadLogicalBytes": 2942,
+          "logicalBytes": 5450,
+          "recordAllocationBytes": 5678
+        },
+        "canonicalLir": {
+          "recordCount": 57,
+          "payloadLogicalBytes": 2942,
+          "logicalBytes": 5450,
+          "recordAllocationBytes": 5678
+        },
+        "diagnostics": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 0,
+          "logicalBytes": 0,
+          "recordAllocationBytes": 0
+        },
+        "scratch": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 456,
+          "logicalBytes": 456,
+          "recordAllocationBytes": 456
+        },
+        "outputConstruction": {
+          "recordCount": 57,
+          "payloadLogicalBytes": 2942,
+          "logicalBytes": 5048,
+          "recordAllocationBytes": 5048
+        }
+      },
+      "entityCounts": {
+        "AccessRule": 0,
+        "AuthoringLane": 1,
+        "CanonicalFrame": 0,
+        "FacilityBand": 0,
+        "Junction": 1,
+        "LaneEdge": 3,
+        "LaneGroup": 0,
+        "ManeuverGate": 2,
+        "ManeuverPath": 2,
+        "Movement": 2,
+        "ParkingArea": 1,
+        "ParkingSpace": 3,
+        "ParticipantClass": 1,
+        "RoadCorridor": 1,
+        "RoadSection": 1,
+        "SignalController": 1,
+        "SignalGroup": 1,
+        "SignalPhase": 3,
+        "StaticRoute": 2,
+        "StopLine": 1,
+        "VehicleProfile": 1,
+        "WaitingZone": 0
+      },
+      "relationRecordCounts": {
+        "accessRelation": 0,
+        "canonicalGeometryPoint": 0,
+        "edgeConnection": 2,
+        "gateOccurrence": 2,
+        "junctionInternalEdgeRole": 0,
+        "laneCoverageOccurrence": 2,
+        "ownerRelation": 13,
+        "parkingSpaceAnchors": 3,
+        "routeOccurrence": 4,
+        "signalGroupRelation": 1,
+        "signalPhaseStateOccurrence": 3,
+        "waitingZoneOccurrence": 0
+      },
+      "recordKindCounts": {
+        "edge-connection": 2,
+        "gate-occurrence": 2,
+        "identity-declaration": 27,
+        "lane-coverage-occurrence": 2,
+        "owner-relation": 13,
+        "parking-space-anchors": 3,
+        "route-occurrence": 4,
+        "signal-group-relation": 1,
+        "signal-phase-state": 3
+      },
+      "semanticDigestSha256": "554d1673307d718490a73b23538c3b4bc15635fc5a64b925ca1eef18819fac22"
+    },
+    {
+      "caseId": "multi-gate-waiting-zone",
+      "counts": {
+        "moduleCount": 1,
+        "importEdgeCount": 0,
+        "crossModuleReferenceCount": 0,
+        "maximumImportDepth": 0,
+        "sourceDocumentCount": 1,
+        "sourceByteCount": 1516,
+        "identityDeclarationCount": 18,
+        "sourceDeclarationCount": 18,
+        "sourceSpanCount": 79,
+        "identityFieldOccurrenceCount": 47,
+        "profiledKeyOccurrenceCount": 20,
+        "sourceReferenceCount": 40,
+        "sourceRelationCount": 21,
+        "sourceGeometryCount": 0,
+        "symbolCount": 18,
+        "stringItemCount": 80,
+        "maximumStringBytes": 51,
+        "totalStringBytes": 2214,
+        "diagnosticCount": 0,
+        "semanticOutputRecord": 39,
+        "semanticPayloadByteCount": 1984,
+        "logicalByteCount": 3700,
+        "outputByteCount": 3442
+      },
+      "stages": {
+        "sourceInput": {
+          "recordCount": 80,
+          "payloadLogicalBytes": 3730,
+          "logicalBytes": 6290,
+          "recordAllocationBytes": 6290
+        },
+        "typedAst": {
+          "recordCount": 127,
+          "payloadLogicalBytes": 5310,
+          "logicalBytes": 9374,
+          "recordAllocationBytes": 9374
+        },
+        "hir": {
+          "recordCount": 127,
+          "payloadLogicalBytes": 2730,
+          "logicalBytes": 6794,
+          "recordAllocationBytes": 6794
+        },
+        "mir": {
+          "recordCount": 39,
+          "payloadLogicalBytes": 1984,
+          "logicalBytes": 3700,
+          "recordAllocationBytes": 3856
+        },
+        "canonicalLir": {
+          "recordCount": 39,
+          "payloadLogicalBytes": 1984,
+          "logicalBytes": 3700,
+          "recordAllocationBytes": 3856
+        },
+        "diagnostics": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 0,
+          "logicalBytes": 0,
+          "recordAllocationBytes": 0
+        },
+        "scratch": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 312,
+          "logicalBytes": 312,
+          "recordAllocationBytes": 312
+        },
+        "outputConstruction": {
+          "recordCount": 39,
+          "payloadLogicalBytes": 1984,
+          "logicalBytes": 3442,
+          "recordAllocationBytes": 3442
+        }
+      },
+      "entityCounts": {
+        "AccessRule": 0,
+        "AuthoringLane": 0,
+        "CanonicalFrame": 0,
+        "FacilityBand": 0,
+        "Junction": 1,
+        "LaneEdge": 4,
+        "LaneGroup": 0,
+        "ManeuverGate": 3,
+        "ManeuverPath": 1,
+        "Movement": 1,
+        "ParkingArea": 0,
+        "ParkingSpace": 0,
+        "ParticipantClass": 1,
+        "RoadCorridor": 0,
+        "RoadSection": 0,
+        "SignalController": 0,
+        "SignalGroup": 0,
+        "SignalPhase": 0,
+        "StaticRoute": 1,
+        "StopLine": 3,
+        "VehicleProfile": 1,
+        "WaitingZone": 2
+      },
+      "relationRecordCounts": {
+        "accessRelation": 0,
+        "canonicalGeometryPoint": 0,
+        "edgeConnection": 3,
+        "gateOccurrence": 3,
+        "junctionInternalEdgeRole": 2,
+        "laneCoverageOccurrence": 0,
+        "ownerRelation": 7,
+        "parkingSpaceAnchors": 0,
+        "routeOccurrence": 4,
+        "signalGroupRelation": 0,
+        "signalPhaseStateOccurrence": 0,
+        "waitingZoneOccurrence": 2
+      },
+      "recordKindCounts": {
+        "edge-connection": 3,
+        "gate-occurrence": 3,
+        "identity-declaration": 18,
+        "junction-internal-edge-role": 2,
+        "owner-relation": 7,
+        "route-occurrence": 4,
+        "waiting-zone-occurrence": 2
+      },
+      "semanticDigestSha256": "a2236c810af3bbe4325aee1c6ed350156500edc369a4d63e97131e4db319a9c0"
+    }
+  ]
+}
