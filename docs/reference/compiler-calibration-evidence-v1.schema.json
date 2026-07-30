@@ -270,7 +270,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "844abde80234c7e147df528f237fa8e249c75be7ea9cc6fcf5c704f9d2976bd6"
+          "const": "46a91202e92d14802e565846b420efc1799341bf94d129121dff8a3d42c4ed24"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1169,7 +1169,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "844abde80234c7e147df528f237fa8e249c75be7ea9cc6fcf5c704f9d2976bd6"
+          "const": "46a91202e92d14802e565846b420efc1799341bf94d129121dff8a3d42c4ed24"
         },
         "counts": {
           "type": "object"
@@ -5702,6 +5702,18 @@
                       "LF-COMP-ID-v1",
                       "LF-COMP-CORRIDOR-v1"
                     ]
+                  },
+                  "revision": {
+                    "const": 1
+                  },
+                  "graphProfile": {
+                    "const": "shared-fanin-dag-v1"
+                  },
+                  "stringProfile": {
+                    "const": "short-unique-v1"
+                  },
+                  "generatorVersion": {
+                    "const": 1
                   },
                   "scaleRole": {
                     "enum": [
