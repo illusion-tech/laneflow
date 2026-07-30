@@ -607,6 +607,30 @@ ScenarioManifest v0.1 只承担当前制品配对和来源沿袭对照，不进�
 `B` 只由第 9.2 节的基线配置发现；其他候选必须复用同一组 `N`，不得为自己另选更
 有利的基准规模。
 
+`baseScales[]` 不是自由 `(workloadId, graphProfile, b)` 断言。每条记录的自然身份是
+`(candidateId, workloadId, workloadRevision, graphProfile, stringProfile,
+generatorVersion)`，其中候选固定为完整管线基线、字符串配置固定为
+`short-unique-v1`。`selectionRule` 固定为
+`first-power-of-two-qualifying-seven-pilot-runs-v1`；`pilotLevels[]` 若非空，必须从
+`N = 1` 开始按严格二倍递增，直到首次合格或下一候选受停止护栏阻止。
+
+每个已完成候选级别保存一条基准规模试运行摘要（base-scale pilot summary）：精确七个
+有效冷实例 `runId`、`median-and-mad-of-seven-exact-integers-v1`、墙钟中位数、墙钟
+中位绝对偏差、`10000 * protocol.clockQuantumNs` 阈值、共同语义摘要、摘要一致布尔值、
+护栏全清布尔值和 `qualifies`。七个运行必须是 `scaleRole = pilot`、基线候选、相同
+工作负载键和 `N`、`sampleOrdinal = 0` 的全新进程；其 `workload.b` 使用
+`null + base-scale-not-yet-selected`，不能提前写入最终选择。作废/重试运行保留在
+`runs[]`，但不得进入七项贡献集合。
+
+若已选择 `B`，`b.value` 必须等于最后一条、也是第一条 `qualifies = true` 的
+`pilotLevels[].n`，之前所有级别必须为 false，`terminalGuardRunId` 固定为
+`null + base-scale-selected`。若护栏前没有合格级别，`b` 固定为
+`null + no-reliable-base-scale-before-guard`，全部已完成摘要必须为 false，并以
+`terminalGuardRunId` 引用下一二倍级别的实际 `guard-preflight` 运行。独立验证器必须
+扫描同一自然身份的全部 pilot 运行，核对 `N = 1, 2, 4, ...` 无跳级，重算七样本
+中位数/MAD、摘要一致性、护栏事实和首次合格选择；漏掉较早合格级别、混入作废样本、
+自由改写 `B` 或用无来源终止原因代替 guard 运行都必须失败。
+
 如果在研究停止护栏前没有找到 `B`，该工作负载结果为“环境无法建立可靠基准”，
 不得自行降低要求或填写预算。
 
@@ -1227,6 +1251,25 @@ MSRV、锁文件中缺少 package/checksum 或安全公告数据库不可用使�
 `insufficient-evidence`，但 Schema 不能为了只接受赢家而拒绝保存负面事实。只有
 第三方候选才禁止把安全公告状态写成 `not-applicable`。
 
+安全公告审计（security advisory audit）是闭合状态机：
+
+- `no-known-advisories` 与 `advisories-present` 都是已完成状态，必须同时保存非空
+  工具/版本、数据库快照身份和 UTC 观察时间；前者的 `advisoryIds` 必须为空，后者
+  至少一项；
+- 任一工具、数据库快照或观察时间不可用时，状态必须为 `audit-unavailable`，且至少
+  一个对应观察使用 `null + reason`，不得保留已完成状态；
+- `not-applicable` 只允许非第三方组件，三个来源观察都必须精确为
+  `null + not-applicable`；
+- 第三方组件只有许可证、MSRV、锁文件 package/checksum 均可验证且安全状态为
+  `no-known-advisories` 时，才有资格形成 `noise-no-difference`、
+  `repeatable-improvement` 或 `repeatable-regression`。`advisories-present` 必须
+  `rejected-safety`；`audit-unavailable` 只能 `rejected-safety` 或
+  `insufficient-evidence`。
+
+独立验证器必须从绑定的 harness `Cargo.lock` 和审计制品重建上述来源，不得只信任
+状态字符串。审计工具、数据库快照或观察时间全为空却自报成功，或者负面审计仍形成
+性能赢家，都必须失败。
+
 ## 10. 机器可读证据
 
 ### 10.1 制品
@@ -1247,7 +1290,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1321` exact bytes，SHA-256 为
-`424de0507352ad317c046a76bb92ae8f838b6e6e236c2d220d02c7709df7a2f9`。该摘要是 PR/Gate
+`8830814a415adef237863da037a73e863185717f9dd4f81b5d1175e6942cee51`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1266,8 +1309,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `175865` exact bytes，SHA-256 为
-`94d6536949b084fe5b5e15d5b104e82dde8adebddaec367bedef6817336f6446`。
+G1 候选冻结 schema `183831` exact bytes，SHA-256 为
+`be8d9c9567cc52ec33ee069789ee2cf83ba0ba7a8293f416f50cec4e3d2af643`。
 顶层格式标识：
 
 ```text
@@ -1284,6 +1327,9 @@ schemaVersion = 1
   BIOS/firmware 和后台进程审计；
 - 工作负载标识符/修订、模块图配置档、字符串配置、生成器版本、workload seed、
   `N`、`B`、规模角色（scale role）和当前夹具用例标识符；
+- 每个合成工作负载/模块图的基准规模自然身份、冻结选择规则、从 `N = 1` 严格二倍
+  递增的 pilot 摘要；每级精确七个有效运行 ID、墙钟中位数/MAD、时钟阈值、共同
+  语义摘要、摘要/护栏布尔值、合格判断，以及选择 `B` 或终止 guard 运行；
 - `workloadSeedHexU64` 必须精确等于工作负载清单的 `baseSeedHexU64`；证据 Schema
   以 `const` 绑定该值，禁止在保持清单摘要不变时替换置换和命名空间派生种子；
 - 输入文件摘要/长度（仅当前等价用例）、生成清单摘要和全部精确领域计数；工作负载
@@ -1291,8 +1337,8 @@ schemaVersion = 1
   若干互不关联的枚举；
 - 候选注册表修订、闭合候选标识符、键域、哈希器种子策略及可观测固定 seed，以及
   每个依赖组件的角色、实现身份、版本、特性（features）、依赖来源、许可证 SPDX
-  表达式、MSRV、安全公告审计和锁文件 package identity/checksum；标准库或本地
-  组件使用结构化不可用原因，不能省略审计对象；
+  表达式、MSRV、安全公告审计状态、工具/数据库快照/观察时间和锁文件 package
+  identity/checksum；标准库或本地组件使用结构化不可用原因，不能省略审计对象；
 - 每个原始运行的 `sampleOrdinal`，以及按候选、完整分层、指标、批次和轮次组织的
   轮次指标汇总；正式阶梯另须保存引用五个轮次汇总的批次汇总。两层都保存贡献
   `runId`/`roundSummaryId`、精确整数中位数和中位绝对偏差；
@@ -1375,7 +1421,17 @@ ID、键域、种子策略/固定值和有序组件身份与唯一注册项精�
 rustc、`harnessCommit` 或 harness `Cargo.lock`
 package/version/features/checksum。不能从自由 ID 推测算法，也不能把同名候选的不同
 依赖实现合并比较。每条候选比较还必须按 `baselineByKeyDomain` 重算唯一
-`baselineId`，要求候选与基线不同且两者都获准进入该键域。
+`baselineId`，要求候选与基线不同且两者都获准进入该键域。第三方组件的已完成安全
+审计还必须有非空工具、数据库快照和观察时间；任一来源不可用时状态必须降为
+`audit-unavailable`。验证器按许可证/MSRV/锁文件/公告结果约束候选决策，负面或不可用
+审计不能形成性能赢家。
+
+基准规模验证必须按 `baseScales[]` 自然身份扫描全部 pilot 运行，要求每条
+`pilotLevels[]` 恰好引用同一基线候选、工作负载键和 `N` 的七个有效全新进程样本，
+重算墙钟中位数/MAD、`10000 * clockQuantumNs`、语义摘要一致性、护栏清除和
+`qualifies`。级别必须从一开始严格二倍递增；选中路径的 `B` 必须是第一条合格级别，
+未选中路径必须引用下一候选级别的实际 guard preflight。漏记较早 pilot、混入作废/
+重试运行或直接自报 `B` 必须失败。
 
 轮次指标汇总验证必须按贡献 `runId` 重算。`cold-instance` 要求唯一
 `sampleOrdinal = 0`；`stable-capacity-reuse` 要求同一子进程的

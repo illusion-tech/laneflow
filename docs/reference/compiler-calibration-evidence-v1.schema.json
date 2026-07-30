@@ -1762,6 +1762,141 @@
                   }
                 }
               }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "no-known-advisories",
+                      "advisories-present"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "tool": {
+                    "properties": {
+                      "value": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "databaseSnapshot": {
+                    "properties": {
+                      "value": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "observedAtUtc": {
+                    "properties": {
+                      "value": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "audit-unavailable"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              },
+              "then": {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "tool": {
+                        "properties": {
+                          "value": {
+                            "type": "null"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "databaseSnapshot": {
+                        "properties": {
+                          "value": {
+                            "type": "null"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "observedAtUtc": {
+                        "properties": {
+                          "value": {
+                            "type": "null"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "not-applicable"
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "tool": {
+                    "const": {
+                      "value": null,
+                      "reason": "not-applicable"
+                    }
+                  },
+                  "databaseSnapshot": {
+                    "const": {
+                      "value": null,
+                      "reason": "not-applicable"
+                    }
+                  },
+                  "observedAtUtc": {
+                    "const": {
+                      "value": null,
+                      "reason": "not-applicable"
+                    }
+                  }
+                }
+              }
             }
           ]
         },
@@ -5677,6 +5812,61 @@
         }
       }
     },
+    "baseScalePilotLevel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "n",
+        "contributingRunIds",
+        "aggregationMethod",
+        "wallTimeMedianNs",
+        "wallTimeMedianAbsoluteDeviationNs",
+        "minimumReliableWallTimeNs",
+        "semanticDigest",
+        "allSemanticDigestsEqual",
+        "allGuardsClear",
+        "qualifies"
+      ],
+      "properties": {
+        "n": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "contributingRunIds": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "aggregationMethod": {
+          "const": "median-and-mad-of-seven-exact-integers-v1"
+        },
+        "wallTimeMedianNs": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "wallTimeMedianAbsoluteDeviationNs": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "minimumReliableWallTimeNs": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "semanticDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "allSemanticDigestsEqual": {
+          "type": "boolean"
+        },
+        "allGuardsClear": {
+          "type": "boolean"
+        },
+        "qualifies": {
+          "type": "boolean"
+        }
+      }
+    },
     "derived": {
       "type": "object",
       "additionalProperties": false,
@@ -5694,27 +5884,113 @@
       "properties": {
         "baseScales": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": [
+              "candidateId",
               "workloadId",
+              "workloadRevision",
               "graphProfile",
-              "b"
+              "stringProfile",
+              "generatorVersion",
+              "selectionRule",
+              "pilotLevels",
+              "b",
+              "terminalGuardRunId"
             ],
             "properties": {
+              "candidateId": {
+                "const": "baseline-std-randomstate-stable-vec-v1"
+              },
               "workloadId": {
-                "type": "string",
-                "minLength": 1
+                "enum": [
+                  "LF-COMP-ID-v1",
+                  "LF-COMP-CORRIDOR-v1",
+                  "LF-COMP-JUNCTION-GRID-v1"
+                ]
+              },
+              "workloadRevision": {
+                "const": 1
               },
               "graphProfile": {
-                "type": "string",
-                "minLength": 1
+                "enum": [
+                  "wide-star-v1",
+                  "deep-chain-v1",
+                  "shared-fanin-dag-v1"
+                ]
+              },
+              "stringProfile": {
+                "const": "short-unique-v1"
+              },
+              "generatorVersion": {
+                "const": 1
+              },
+              "selectionRule": {
+                "const": "first-power-of-two-qualifying-seven-pilot-runs-v1"
+              },
+              "pilotLevels": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/baseScalePilotLevel"
+                }
               },
               "b": {
                 "$ref": "#/$defs/nullableIntegerObservation"
+              },
+              "terminalGuardRunId": {
+                "$ref": "#/$defs/nullableStringObservation"
               }
-            }
+            },
+            "oneOf": [
+              {
+                "properties": {
+                  "b": {
+                    "properties": {
+                      "value": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "pilotLevels": {
+                    "minItems": 1
+                  },
+                  "terminalGuardRunId": {
+                    "const": {
+                      "value": null,
+                      "reason": "base-scale-selected"
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "b": {
+                    "const": {
+                      "value": null,
+                      "reason": "no-reliable-base-scale-before-guard"
+                    }
+                  },
+                  "terminalGuardRunId": {
+                    "properties": {
+                      "value": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "reason": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
           }
         },
         "roundMetricSummaries": {
