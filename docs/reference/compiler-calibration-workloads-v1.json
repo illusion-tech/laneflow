@@ -2749,10 +2749,19 @@
     "candidateId": "baseline-std-randomstate-stable-vec-v1",
     "experimentOrder": "cleanupExperimentBindings array order, then each binding scaleRoles array order",
     "expectedExperimentCount": 6,
+    "scaleSourceIdentityFields": [
+      "workloadId",
+      "workloadRevision",
+      "graphProfile",
+      "stringProfile",
+      "generatorVersion",
+      "caseId"
+    ],
+    "scaleSourceBResolutionRule": "resolve exactly one baseScales entry matching scaleSourceIdentityFields, require a non-null selected b.value, then derive calibration/stress N from scaleSelectionContract for that same entry",
     "groupSize": 35,
     "sequenceRule": "exactly sequenceIndex 0, 1..32, 33 and 34 with no omission or duplicate",
     "instanceRule": "sequence 0..33 uses one compilerInstanceId; sequence 34 uses a different newly issued compilerInstanceId",
-    "groupIdentityRule": "experimentId is unique and every run has the same candidate, workload, scale and failure case required by its cleanupExperimentBinding",
+    "groupIdentityRule": "experimentId is unique and every run has the same candidate, workload, graph/string profile, generator, selected B, derived scale N and failure case required by its cleanupExperimentBinding",
     "failureIterationPassRules": [
       "actual outcome, stable compiler error, diagnostic count, truncation and partial output match the bound failure case",
       "metrics.liveRequestedBytes.value equals zero after every failure iteration",
@@ -2766,6 +2775,14 @@
     {
       "caseId": "limit/source-byte-count/plus-one",
       "workloadId": "LF-COMP-ID-v1",
+      "scaleSource": {
+        "workloadId": "LF-COMP-ID-v1",
+        "workloadRevision": 1,
+        "graphProfile": "shared-fanin-dag-v1",
+        "stringProfile": "short-unique-v1",
+        "generatorVersion": 1,
+        "caseId": "not-applicable"
+      },
       "inputVariantId": "canonical-valid-v1",
       "scaleRoles": [
         "calibration",
@@ -2775,6 +2792,14 @@
     {
       "caseId": "semantic/missing-reference-per-unit",
       "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleSource": {
+        "workloadId": "LF-COMP-CORRIDOR-v1",
+        "workloadRevision": 1,
+        "graphProfile": "shared-fanin-dag-v1",
+        "stringProfile": "short-unique-v1",
+        "generatorVersion": 1,
+        "caseId": "not-applicable"
+      },
       "inputVariantId": "corridor-missing-reference-per-unit-v1",
       "scaleRoles": [
         "calibration",
@@ -2784,6 +2809,14 @@
     {
       "caseId": "diagnostic/cap-plus-one",
       "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleSource": {
+        "workloadId": "LF-COMP-CORRIDOR-v1",
+        "workloadRevision": 1,
+        "graphProfile": "shared-fanin-dag-v1",
+        "stringProfile": "short-unique-v1",
+        "generatorVersion": 1,
+        "caseId": "not-applicable"
+      },
       "inputVariantId": "corridor-diagnostic-cap-plus-one-v1",
       "scaleRoles": [
         "calibration",
