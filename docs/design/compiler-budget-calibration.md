@@ -1095,6 +1095,14 @@ tick/frame
 profile）和特性集合（features）；证据记录各自二进制 SHA-256 与模式。插桩墙钟
 不得与非插桩墙钟相加、比较或用于性能预算。
 
+顶层二进制目录 `binaries[]` 的 `id` 在整份证据中必须全局唯一。每个原始运行的
+`process.binaryId` 必须唯一解析到一个目录项；该目录项的 `mode` 是该运行的权威
+二进制模式，不再在运行对象中复制第二份模式字段。轮次汇总及其派生分层中的
+`binaryMode` 必须与全部来源运行解析出的模式一致；墙钟指标只能来自 `timing`，
+内存指标只能来自 `memory`，`limit-baseline` 必须来自 `attribution`，
+`sampleKind = oracle` 以及资格角色为 `oracle` 的运行必须来自 `oracle`。缺失引用、
+同一 ID 对应多个目录项，或者模式不匹配都使证据无效。
+
 编译完成后允许保留明确的稳定容量，但必须区分：
 
 - 必须随请求释放的语义结果；
@@ -1412,6 +1420,13 @@ MSRV、锁文件中缺少 package/checksum 或安全公告数据库不可用使�
 `insufficient-evidence`，但 Schema 不能为了只接受赢家而拒绝保存负面事实。只有
 第三方候选才禁止把安全公告状态写成 `not-applicable`。
 
+完整候选绑定与依赖审计保存在证据级候选绑定目录 `candidateBindings[]`，不能只依附
+于 `runs[].candidate`。目录必须包含 `runs[]` 中出现的每个候选，以及每条候选比较的
+候选和基线；因此执行前即被安全或证据检查拒绝、没有任何正确性或性能运行的候选仍有
+真实审计前像，无需制造运行。目录内 `id` 全局唯一；`runs[].candidate` 作为原始运行
+快照保留，但必须与同 ID 的唯一目录项逐字段相等。候选比较继续只保存 ID，由独立
+验证器解析目录并重算拒绝或性能结论。
+
 安全公告审计（security advisory audit）是闭合状态机：
 
 - `no-known-advisories` 与 `advisories-present` 都是已完成状态，必须同时保存非空
@@ -1451,7 +1466,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1322` exact bytes，SHA-256 为
-`5c32d782cdf28f0fc4784ec7aa09ed181fc8aa4a8578ecee04910d1a97b16313`。该摘要是 PR/Gate
+`b6fcfba8f8b9b0a07369a413b0425f6b426f9c8be2d6c2a50c1e274f01279203`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1470,8 +1485,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `214619` exact bytes，SHA-256 为
-`bfb344cd6eaae19be7c0473543532fb6d1d3fad3911ec218432ae0eec6b9d730`。
+G1 候选冻结 schema `215104` exact bytes，SHA-256 为
+`1bf27e8ccb91359c38b673aa0fbffe61bddc4ca75f13faab47d3c2c704dcfec8`。
 顶层格式标识：
 
 ```text
@@ -1499,7 +1514,8 @@ schemaVersion = 1
 - 候选注册表修订、闭合候选标识符、键域、哈希器种子策略及可观测固定 seed，以及
   每个依赖组件的角色、实现身份、版本、特性（features）、依赖来源、许可证 SPDX
   表达式、MSRV、安全公告审计状态、工具/数据库快照/观察时间和锁文件 package
-  identity/checksum；标准库或本地组件使用结构化不可用原因，不能省略审计对象；
+  identity/checksum；这些事实进入 ID 唯一的 `candidateBindings[]`，包括执行前被
+  拒绝且没有运行的候选；标准库或本地组件使用结构化不可用原因，不能省略审计对象；
 - 每个原始运行的 `sampleOrdinal`，以及按候选、完整分层、指标、批次和轮次组织的
   轮次指标汇总；正式阶梯另须保存引用五个轮次汇总的批次汇总。两层都保存贡献
   `runId`/`roundSummaryId`、精确整数中位数和中位绝对偏差；
@@ -1511,7 +1527,8 @@ schemaVersion = 1
   `runId`；存续字节基准预扫描还必须保存基准测量标识符、副本序号和“仅运维硬上限”
   私有限制模式；
 - 二进制 SHA-256 与模式（`timing` / `memory` / `attribution` / `profiler` /
-  `oracle`）；
+  `oracle`）；二进制 ID 必须全局唯一，每个 `process.binaryId` 必须唯一解析，且解析
+  模式必须与来源运行所形成的测量分层一致；
 - batch/平衡轮次/执行位置、轮次尝试身份/重试序号/范围、运行级编译器实例身份、
   样本序号、父子进程 ID、结构化终止类别、条件化退出码、信号号与原始平台状态，
   以及每个样本的冷实例/稳定容量复用/失败时延、分配、存续/峰值/保留字节；
@@ -1587,11 +1604,21 @@ Schema 与被测来源；研究执行器提交（research harness commit；`harn
 检出工作树（checkout）都必须干净，且 `cargoLockSha256` 必须来自构建
 `harnessCommit` 研究执行器的锁文件，不能拿 `sourceCommit` 冒充本地组件版本。
 
-候选验证必须从已绑定清单加载 `candidateRegistry`，要求证据候选的 registry revision、
-ID、键域、种子策略/固定值和有序组件身份与唯一注册项精确一致；再按组件种类核对
-rustc、`harnessCommit` 或 harness `Cargo.lock`
-package/version/features/checksum。不能从自由 ID 推测算法，也不能把同名候选的不同
-依赖实现合并比较。每条候选比较还必须按 `baselineByKeyDomain` 重算唯一
+二进制验证必须先要求 `binaries[].id` 全局唯一，再把每个
+`runs[].process.binaryId` 唯一解析到目录项并取得该运行的权威模式。验证器必须把轮次
+汇总引用还原到全部原始运行，要求解析模式与汇总/候选比较/预算建议的
+`measurementStratum.binaryMode` 逐项一致，并按指标核对 `timing` 或 `memory`；
+`limit-baseline` 和预言机运行还要分别核对 `attribution` 与 `oracle`。未解析、重复
+ID、同一汇总混入不同模式或模式与指标错配都必须失败。
+
+候选验证必须从已绑定清单加载 `candidateRegistry`，要求
+`candidateBindings[].id` 全局唯一，且每项的 registry revision、ID、键域、种子策略/
+固定值和有序组件身份与唯一注册项精确一致；再按组件种类核对 rustc、
+`harnessCommit` 或 harness `Cargo.lock` package/version/features/checksum。每个
+`runs[].candidate` 必须唯一解析到同 ID 目录项并逐字段相等；每条候选比较的候选与
+基线也必须各自解析到唯一目录项，即使该候选在安全预淘汰后没有运行。不能从自由 ID
+推测算法、用运行承载唯一审计前像，或把同名候选的不同依赖实现合并比较。每条候选
+比较还必须按 `baselineByKeyDomain` 重算唯一
 `baselineId`，要求候选与基线不同且两者都获准进入该键域。第三方组件的已完成安全
 审计还必须有非空工具、数据库快照和观察时间；任一来源不可用时状态必须降为
 `audit-unavailable`。验证器按许可证/MSRV/锁文件/公告结果约束候选决策，负面或不可用
