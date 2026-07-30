@@ -259,7 +259,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "3ae5d4a8e1dab24f780ec5b68dc32bfbb9a69369363adcc6c3357bb366efcb00"
+          "const": "eca25d6f903a5ca69b9e576a67f199e15ab49ba039e952a62e23db2eb7a38cee"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1158,7 +1158,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "3ae5d4a8e1dab24f780ec5b68dc32bfbb9a69369363adcc6c3357bb366efcb00"
+          "const": "eca25d6f903a5ca69b9e576a67f199e15ab49ba039e952a62e23db2eb7a38cee"
         },
         "counts": {
           "type": "object"
@@ -5087,12 +5087,6 @@
               "correctnessQualification"
             ],
             "properties": {
-              "status": {
-                "const": "valid"
-              },
-              "invalidationReasons": {
-                "maxItems": 0
-              },
               "workload": {
                 "properties": {
                   "id": {
@@ -5188,6 +5182,64 @@
                         },
                         "keyDomain": {
                           "const": "full-pipeline-baseline"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "correctnessQualification": {
+                      "properties": {
+                        "actualOutcome": {
+                          "const": "abnormal-termination"
+                        }
+                      },
+                      "required": [
+                        "actualOutcome"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "correctnessQualification"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "status": {
+                      "const": "invalid"
+                    },
+                    "invalidationReasons": {
+                      "contains": {
+                        "const": "child-abnormal-exit"
+                      }
+                    },
+                    "process": {
+                      "properties": {
+                        "exitKind": {
+                          "enum": [
+                            "invalid-abnormal-exit",
+                            "invalid-monitor-termination"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "valid",
+                        "invalid"
+                      ]
+                    },
+                    "process": {
+                      "properties": {
+                        "exitKind": {
+                          "const": "success"
                         }
                       }
                     }
@@ -6786,7 +6838,6 @@
         },
         "constantHashQualifications": {
           "type": "array",
-          "minItems": 3,
           "maxItems": 3,
           "uniqueItems": true,
           "items": {

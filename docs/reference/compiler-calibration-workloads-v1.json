@@ -2413,6 +2413,23 @@
       "partial-output-record-count-matches-oracle"
     ],
     "performanceDecisionRequiresPassedQualification": true,
+    "qualificationRequiredForDecisions": [
+      "noise-no-difference",
+      "repeatable-improvement",
+      "repeatable-regression",
+      "rejected-correctness"
+    ],
+    "qualificationMayBeOmittedForDecisions": [
+      "rejected-safety",
+      "insufficient-evidence"
+    ],
+    "omissionReasonsByDecision": {
+      "rejected-safety": "qualification-not-run-safety-pre-rejection",
+      "insufficient-evidence": "qualification-not-run-insufficient-evidence"
+    },
+    "unexecutedCandidateSummaryRule": "omit-summary-no-fabricated-runs-v1",
+    "executedNegativeQualificationRule": "retain-summary-and-linked-runs-v1",
+    "abnormalTerminationRunRule": "invalid-linked-correctness-run-v1",
     "qualificationBuilderExcludedFromPerformanceRanking": true
   },
   "scaleSelectionContract": {
