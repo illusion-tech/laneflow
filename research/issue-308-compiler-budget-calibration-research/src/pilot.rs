@@ -1,14 +1,16 @@
 //! 编译器测量基准规模发现所需的新进程冷实例试运行基础。
 //!
 //! 本模块执行启动前停止护栏、七个受监控的独立子进程、冷实例结果核对和墙钟中位数/
-//! 中位绝对偏差计算。基准规模选择、完整跨平台终止编码、Evidence v1 写出与正式轮次
+//! 中位绝对偏差计算。基准规模选择、正式二进制角色分离、Evidence v1 写出与正式轮次
 //! 仍由后续切片负责。
 
 use crate::{
     ChildProcessMemoryMonitor, ChildProcessMemoryObservation, GraphProfileId,
     GuardCompletedLevelObservation, GuardError, GuardPreflightReport, GuardThresholds,
-    IdentityCompilerInstance, StageGenerationError, SystemMemoryMonitor, SystemMemoryObservation,
-    TimingError, TrustedContract, evaluate_identity_guard_preflight, observe_clock_quantum_ns,
+    IDENTITY_PILOT_COMBINED_BINARY_ID, IdentityCompilerInstance, InvalidationReason,
+    NullableObservation, ProcessObservation, ProcessProtocolError, RunStatus, StageGenerationError,
+    SystemMemoryMonitor, SystemMemoryObservation, TimingError, TrustedContract,
+    evaluate_identity_guard_preflight, observe_clock_quantum_ns,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -73,18 +75,19 @@ pub enum ChildMonitorTrigger {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChildProcessMonitorReport {
-    pub child_pid: u32,
     pub observation_count: u64,
-    pub last_private_bytes: Option<u64>,
-    pub peak_private_bytes: Option<u64>,
+    pub last_private_bytes: NullableObservation<u64>,
+    pub peak_private_bytes: NullableObservation<u64>,
     pub elapsed_wall_time_ns: u64,
-    pub exit_code: Option<i32>,
     pub trigger: Option<ChildMonitorTrigger>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityMonitoredChildSample {
+    pub status: RunStatus,
+    pub invalidation_reasons: Vec<InvalidationReason>,
+    pub process: ProcessObservation,
     pub child: IdentityChildTimingReport,
     pub monitor: ChildProcessMonitorReport,
 }
@@ -106,6 +109,44 @@ pub struct IdentityFreshProcessPilot {
     pub guard_preflight_evaluated: bool,
     pub guard_preflights: Vec<GuardPreflightReport>,
     pub samples: Vec<IdentityMonitoredChildSample>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentityFreshProcessPilotStop {
+    pub pilot_id: String,
+    pub graph_profile: String,
+    pub n: u32,
+    pub sample_ordinal: usize,
+    pub status: RunStatus,
+    pub invalidation_reasons: Vec<InvalidationReason>,
+    pub process: ProcessObservation,
+    pub guard_preflight: GuardPreflightReport,
+    pub child: Option<IdentityChildTimingReport>,
+    pub monitor: Option<ChildProcessMonitorReport>,
+    pub kill_error: Option<String>,
+    pub monitor_error: Option<String>,
+    pub stderr: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "disposition", rename_all = "kebab-case")]
+pub enum IdentityFreshProcessPilotOutcome {
+    Completed {
+        pilot: IdentityFreshProcessPilot,
+    },
+    Stopped {
+        stop: Box<IdentityFreshProcessPilotStop>,
+    },
+}
+
+struct IdentityFreshProcessPilotRequest<'a> {
+    executable: &'a Path,
+    pilot_id: &'a str,
+    graph_profile: GraphProfileId,
+    n: u32,
+    previous: Option<GuardCompletedLevelObservation>,
+    controlled_allocation_hard_ceiling_cap_bytes: Option<u64>,
 }
 
 pub fn measure_identity_timing_child(
@@ -182,28 +223,64 @@ pub fn run_identity_fresh_process_pilot(
     graph_profile: GraphProfileId,
     n: u32,
     previous: Option<GuardCompletedLevelObservation>,
-) -> Result<IdentityFreshProcessPilot, PilotError> {
+) -> Result<IdentityFreshProcessPilotOutcome, PilotError> {
     let mut memory_monitor = SystemMemoryMonitor::new()?;
     run_identity_fresh_process_pilot_with_memory_observer(
         trusted,
-        executable,
-        pilot_id,
-        graph_profile,
-        n,
-        previous,
+        IdentityFreshProcessPilotRequest {
+            executable,
+            pilot_id,
+            graph_profile,
+            n,
+            previous,
+            controlled_allocation_hard_ceiling_cap_bytes: None,
+        },
         || memory_monitor.observe(),
     )
 }
 
-fn run_identity_fresh_process_pilot_with_memory_observer(
+pub fn run_identity_fresh_process_pilot_with_allocation_ceiling_cap(
     trusted: &TrustedContract,
     executable: &Path,
     pilot_id: &str,
     graph_profile: GraphProfileId,
     n: u32,
     previous: Option<GuardCompletedLevelObservation>,
+    controlled_allocation_hard_ceiling_cap_bytes: u64,
+) -> Result<IdentityFreshProcessPilotOutcome, PilotError> {
+    if controlled_allocation_hard_ceiling_cap_bytes == 0 {
+        return Err(PilotError::ZeroControlledAllocationCeilingCap);
+    }
+    let mut memory_monitor = SystemMemoryMonitor::new()?;
+    run_identity_fresh_process_pilot_with_memory_observer(
+        trusted,
+        IdentityFreshProcessPilotRequest {
+            executable,
+            pilot_id,
+            graph_profile,
+            n,
+            previous,
+            controlled_allocation_hard_ceiling_cap_bytes: Some(
+                controlled_allocation_hard_ceiling_cap_bytes,
+            ),
+        },
+        || memory_monitor.observe(),
+    )
+}
+
+fn run_identity_fresh_process_pilot_with_memory_observer(
+    trusted: &TrustedContract,
+    request: IdentityFreshProcessPilotRequest<'_>,
     mut observe_memory: impl FnMut() -> Result<SystemMemoryObservation, GuardError>,
-) -> Result<IdentityFreshProcessPilot, PilotError> {
+) -> Result<IdentityFreshProcessPilotOutcome, PilotError> {
+    let IdentityFreshProcessPilotRequest {
+        executable,
+        pilot_id,
+        graph_profile,
+        n,
+        previous,
+        controlled_allocation_hard_ceiling_cap_bytes,
+    } = request;
     if pilot_id.is_empty() {
         return Err(PilotError::EmptyPilotId);
     }
@@ -235,29 +312,109 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
             previous,
         )?;
         if !guard.allows_child_start {
-            return Err(PilotError::GuardRejected {
-                ordinal,
-                report: Box::new(guard),
+            return Ok(IdentityFreshProcessPilotOutcome::Stopped {
+                stop: Box::new(IdentityFreshProcessPilotStop {
+                    pilot_id: pilot_id.to_owned(),
+                    graph_profile: graph_profile.as_str().to_owned(),
+                    n,
+                    sample_ordinal: ordinal,
+                    status: RunStatus::Guarded,
+                    invalidation_reasons: Vec::new(),
+                    process: ProcessObservation::guarded_before_start(
+                        std::process::id(),
+                        IDENTITY_PILOT_COMBINED_BINARY_ID,
+                    ),
+                    guard_preflight: guard,
+                    child: None,
+                    monitor: None,
+                    kill_error: None,
+                    monitor_error: None,
+                    stderr: String::new(),
+                }),
             });
         }
         let thresholds = guard.thresholds;
-        let controlled_allocation_hard_ceiling_bytes = thresholds.compiler_controlled_bytes;
-        guard_preflights.push(guard);
+        let controlled_allocation_hard_ceiling_bytes = controlled_allocation_hard_ceiling_cap_bytes
+            .map_or(thresholds.compiler_controlled_bytes, |cap| {
+                cap.min(thresholds.compiler_controlled_bytes)
+            });
 
         let compiler_instance_id = format!("{pilot_id}/compiler-instance-{ordinal}");
-        let (output, monitor) = run_monitored_identity_child(
+        let execution = run_monitored_identity_child(
             executable,
             ordinal,
             &compiler_instance_id,
             graph_profile,
             n,
             thresholds,
+            controlled_allocation_hard_ceiling_bytes,
         )?;
+        let (child_pid, output, monitor, monitor_invalidation, kill_error, monitor_error) =
+            match execution {
+                MonitoredChildExecution::Exited {
+                    child_pid,
+                    output,
+                    monitor,
+                } => (child_pid, output, monitor, false, None, None),
+                MonitoredChildExecution::InvalidatedByMonitor {
+                    child_pid,
+                    output,
+                    monitor,
+                    kill_error,
+                    monitor_error,
+                } => (child_pid, output, monitor, true, kill_error, monitor_error),
+            };
+
+        if monitor_invalidation {
+            let mut invalidation_reasons = vec![InvalidationReason::ChildAbnormalExit];
+            if monitor.trigger == Some(ChildMonitorTrigger::MonitoringGap) {
+                invalidation_reasons.push(InvalidationReason::MonitoringGap);
+            }
+            return Ok(IdentityFreshProcessPilotOutcome::Stopped {
+                stop: Box::new(IdentityFreshProcessPilotStop {
+                    pilot_id: pilot_id.to_owned(),
+                    graph_profile: graph_profile.as_str().to_owned(),
+                    n,
+                    sample_ordinal: ordinal,
+                    status: RunStatus::Invalid,
+                    invalidation_reasons,
+                    process: ProcessObservation::invalid_monitor_termination(
+                        std::process::id(),
+                        child_pid,
+                        IDENTITY_PILOT_COMBINED_BINARY_ID,
+                        output.status,
+                    )?,
+                    guard_preflight: guard,
+                    child: None,
+                    monitor: Some(monitor),
+                    kill_error,
+                    monitor_error,
+                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                }),
+            });
+        }
         if !output.status.success() {
-            return Err(PilotError::ChildFailed {
-                ordinal,
-                exit_code: output.status.code(),
-                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            return Ok(IdentityFreshProcessPilotOutcome::Stopped {
+                stop: Box::new(IdentityFreshProcessPilotStop {
+                    pilot_id: pilot_id.to_owned(),
+                    graph_profile: graph_profile.as_str().to_owned(),
+                    n,
+                    sample_ordinal: ordinal,
+                    status: RunStatus::Invalid,
+                    invalidation_reasons: vec![InvalidationReason::ChildAbnormalExit],
+                    process: ProcessObservation::invalid_abnormal_exit(
+                        std::process::id(),
+                        child_pid,
+                        IDENTITY_PILOT_COMBINED_BINARY_ID,
+                        output.status,
+                    )?,
+                    guard_preflight: guard,
+                    child: None,
+                    monitor: Some(monitor),
+                    kill_error: None,
+                    monitor_error: None,
+                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                }),
             });
         }
         let report = serde_json::from_slice::<IdentityChildTimingReport>(&output.stdout)
@@ -266,28 +423,49 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
             &report,
             ordinal,
             &compiler_instance_id,
-            monitor.child_pid,
+            child_pid,
             graph_profile,
             n,
             controlled_allocation_hard_ceiling_bytes,
         )?;
-        if monitor.exit_code != output.status.code() {
-            return Err(PilotError::ChildReportMismatch {
-                ordinal,
-                field: "monitor.exitCode",
+        if report.outcome == IdentityChildOutcome::GuardedInChild {
+            return Ok(IdentityFreshProcessPilotOutcome::Stopped {
+                stop: Box::new(IdentityFreshProcessPilotStop {
+                    pilot_id: pilot_id.to_owned(),
+                    graph_profile: graph_profile.as_str().to_owned(),
+                    n,
+                    sample_ordinal: ordinal,
+                    status: RunStatus::Guarded,
+                    invalidation_reasons: Vec::new(),
+                    process: ProcessObservation::guarded_in_child(
+                        std::process::id(),
+                        child_pid,
+                        IDENTITY_PILOT_COMBINED_BINARY_ID,
+                        output.status,
+                    )?,
+                    guard_preflight: guard,
+                    child: Some(report),
+                    monitor: Some(monitor),
+                    kill_error: None,
+                    monitor_error: None,
+                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                }),
             });
         }
-        let monitored_sample = IdentityMonitoredChildSample {
+        let process = ProcessObservation::success(
+            std::process::id(),
+            child_pid,
+            IDENTITY_PILOT_COMBINED_BINARY_ID,
+            output.status,
+        )?;
+        guard_preflights.push(guard);
+        samples.push(IdentityMonitoredChildSample {
+            status: RunStatus::Valid,
+            invalidation_reasons: Vec::new(),
+            process,
             child: report,
             monitor,
-        };
-        if monitored_sample.child.outcome == IdentityChildOutcome::GuardedInChild {
-            return Err(PilotError::ChildGuarded {
-                ordinal,
-                sample: Box::new(monitored_sample),
-            });
-        }
-        samples.push(monitored_sample);
+        });
     }
 
     let instance_ids = samples
@@ -311,22 +489,40 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
     let measurement_quality_met =
         clock_quantum_requirement_met && relative_mad_requirement_met && semantic_digest_consistent;
 
-    Ok(IdentityFreshProcessPilot {
-        pilot_id: pilot_id.to_owned(),
-        graph_profile: graph_profile.as_str().to_owned(),
-        n,
-        clock_quantum_ns,
-        required_median_wall_time_ns,
-        median_wall_time_ns,
-        median_absolute_deviation_ns,
-        clock_quantum_requirement_met,
-        relative_mad_requirement_met,
-        semantic_digest_consistent,
-        measurement_quality_met,
-        guard_preflight_evaluated: true,
-        guard_preflights,
-        samples,
+    Ok(IdentityFreshProcessPilotOutcome::Completed {
+        pilot: IdentityFreshProcessPilot {
+            pilot_id: pilot_id.to_owned(),
+            graph_profile: graph_profile.as_str().to_owned(),
+            n,
+            clock_quantum_ns,
+            required_median_wall_time_ns,
+            median_wall_time_ns,
+            median_absolute_deviation_ns,
+            clock_quantum_requirement_met,
+            relative_mad_requirement_met,
+            semantic_digest_consistent,
+            measurement_quality_met,
+            guard_preflight_evaluated: true,
+            guard_preflights,
+            samples,
+        },
     })
+}
+
+#[derive(Debug)]
+enum MonitoredChildExecution {
+    Exited {
+        child_pid: u32,
+        output: std::process::Output,
+        monitor: ChildProcessMonitorReport,
+    },
+    InvalidatedByMonitor {
+        child_pid: u32,
+        output: std::process::Output,
+        monitor: ChildProcessMonitorReport,
+        kill_error: Option<String>,
+        monitor_error: Option<String>,
+    },
 }
 
 fn run_monitored_identity_child(
@@ -336,14 +532,15 @@ fn run_monitored_identity_child(
     graph_profile: GraphProfileId,
     n: u32,
     thresholds: GuardThresholds,
-) -> Result<(std::process::Output, ChildProcessMonitorReport), PilotError> {
+    controlled_allocation_hard_ceiling_bytes: u64,
+) -> Result<MonitoredChildExecution, PilotError> {
     let mut memory_monitor = ChildProcessMemoryMonitor::new()?;
     let child = Command::new(executable)
         .arg("identity-timing-child")
         .arg(compiler_instance_id)
         .arg(graph_profile.as_str())
         .arg(n.to_string())
-        .arg(thresholds.compiler_controlled_bytes.to_string())
+        .arg(controlled_allocation_hard_ceiling_bytes.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -359,7 +556,7 @@ fn run_monitored_child_with_observer(
     ordinal: usize,
     thresholds: GuardThresholds,
     mut observe_child: impl FnMut(u32) -> Result<Option<ChildProcessMemoryObservation>, GuardError>,
-) -> Result<(std::process::Output, ChildProcessMonitorReport), PilotError> {
+) -> Result<MonitoredChildExecution, PilotError> {
     let child_pid = child.id();
 
     let handshake_started = Instant::now();
@@ -368,31 +565,56 @@ fn run_monitored_child_with_observer(
             Ok(Some(observation)) => break observation,
             Ok(None) => {}
             Err(error) => {
-                terminate_child_best_effort(&mut child);
-                return Err(error.into());
+                let report = ChildProcessMonitorReport {
+                    observation_count: 0,
+                    last_private_bytes: NullableObservation::unavailable("monitoring-gap"),
+                    peak_private_bytes: NullableObservation::unavailable("monitoring-gap"),
+                    elapsed_wall_time_ns: duration_ns(handshake_started.elapsed())?,
+                    trigger: Some(ChildMonitorTrigger::MonitoringGap),
+                };
+                return terminate_monitored_child(
+                    child,
+                    ordinal,
+                    child_pid,
+                    report,
+                    Some(error.to_string()),
+                );
             }
         }
         if let Some(status) = try_wait_child(&mut child, ordinal)? {
             let output = child
                 .wait_with_output()
                 .map_err(|source| PilotError::ChildWait { ordinal, source })?;
-            return Err(PilotError::ChildExitedBeforeStart {
-                ordinal,
-                exit_code: status.code(),
-                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            debug_assert_eq!(status.code(), output.status.code());
+            return Ok(MonitoredChildExecution::InvalidatedByMonitor {
+                child_pid,
+                output,
+                monitor: ChildProcessMonitorReport {
+                    observation_count: 0,
+                    last_private_bytes: NullableObservation::unavailable("monitoring-gap"),
+                    peak_private_bytes: NullableObservation::unavailable("monitoring-gap"),
+                    elapsed_wall_time_ns: duration_ns(handshake_started.elapsed())?,
+                    trigger: Some(ChildMonitorTrigger::MonitoringGap),
+                },
+                kill_error: None,
+                monitor_error: Some("child-exited-before-initial-monitor-observation".to_owned()),
             });
         }
         if handshake_started.elapsed() >= CHILD_MONITOR_HANDSHAKE_TIMEOUT {
             let report = ChildProcessMonitorReport {
-                child_pid,
                 observation_count: 0,
-                last_private_bytes: None,
-                peak_private_bytes: None,
+                last_private_bytes: NullableObservation::unavailable("monitoring-gap"),
+                peak_private_bytes: NullableObservation::unavailable("monitoring-gap"),
                 elapsed_wall_time_ns: duration_ns(handshake_started.elapsed())?,
-                exit_code: None,
                 trigger: Some(ChildMonitorTrigger::MonitoringGap),
             };
-            return terminate_monitored_child(child, ordinal, report);
+            return terminate_monitored_child(
+                child,
+                ordinal,
+                child_pid,
+                report,
+                Some("initial-monitor-observation-timeout".to_owned()),
+            );
         }
         thread::sleep(CHILD_MONITOR_POLL_INTERVAL);
     };
@@ -404,25 +626,47 @@ fn run_monitored_child_with_observer(
         evaluate_child_monitor_trigger(thresholds, initial_observation, Duration::ZERO)?
     {
         let report = ChildProcessMonitorReport {
-            child_pid,
             observation_count,
-            last_private_bytes: Some(last_private_bytes),
-            peak_private_bytes: Some(peak_private_bytes),
+            last_private_bytes: NullableObservation::observed(last_private_bytes),
+            peak_private_bytes: NullableObservation::observed(peak_private_bytes),
             elapsed_wall_time_ns: 0,
-            exit_code: None,
             trigger: Some(trigger),
         };
-        return terminate_monitored_child(child, ordinal, report);
+        return terminate_monitored_child(child, ordinal, child_pid, report, None);
     }
 
     let started = Instant::now();
     let Some(mut child_stdin) = child.stdin.take() else {
-        terminate_child_best_effort(&mut child);
-        return Err(PilotError::MissingChildStdin { ordinal });
+        let report = ChildProcessMonitorReport {
+            observation_count,
+            last_private_bytes: NullableObservation::observed(last_private_bytes),
+            peak_private_bytes: NullableObservation::observed(peak_private_bytes),
+            elapsed_wall_time_ns: duration_ns(started.elapsed())?,
+            trigger: Some(ChildMonitorTrigger::MonitoringGap),
+        };
+        return terminate_monitored_child(
+            child,
+            ordinal,
+            child_pid,
+            report,
+            Some("missing-child-stdin".to_owned()),
+        );
     };
     if let Err(source) = child_stdin.write_all(&[CHILD_START_SIGNAL]) {
-        terminate_child_best_effort(&mut child);
-        return Err(PilotError::ChildStartSignalWrite { ordinal, source });
+        let report = ChildProcessMonitorReport {
+            observation_count,
+            last_private_bytes: NullableObservation::observed(last_private_bytes),
+            peak_private_bytes: NullableObservation::observed(peak_private_bytes),
+            elapsed_wall_time_ns: duration_ns(started.elapsed())?,
+            trigger: Some(ChildMonitorTrigger::MonitoringGap),
+        };
+        return terminate_monitored_child(
+            child,
+            ordinal,
+            child_pid,
+            report,
+            Some(format!("child-start-signal-write:{source}")),
+        );
     }
     drop(child_stdin);
 
@@ -432,18 +676,18 @@ fn run_monitored_child_with_observer(
             let output = child
                 .wait_with_output()
                 .map_err(|source| PilotError::ChildWait { ordinal, source })?;
-            return Ok((
+            debug_assert_eq!(status.code(), output.status.code());
+            return Ok(MonitoredChildExecution::Exited {
+                child_pid,
                 output,
-                ChildProcessMonitorReport {
-                    child_pid,
+                monitor: ChildProcessMonitorReport {
                     observation_count,
-                    last_private_bytes: Some(last_private_bytes),
-                    peak_private_bytes: Some(peak_private_bytes),
+                    last_private_bytes: NullableObservation::observed(last_private_bytes),
+                    peak_private_bytes: NullableObservation::observed(peak_private_bytes),
                     elapsed_wall_time_ns,
-                    exit_code: status.code(),
                     trigger: None,
                 },
-            ));
+            });
         }
 
         let elapsed = started.elapsed();
@@ -454,19 +698,35 @@ fn run_monitored_child_with_observer(
                     continue;
                 }
                 let report = ChildProcessMonitorReport {
-                    child_pid,
                     observation_count,
-                    last_private_bytes: Some(last_private_bytes),
-                    peak_private_bytes: Some(peak_private_bytes),
+                    last_private_bytes: NullableObservation::observed(last_private_bytes),
+                    peak_private_bytes: NullableObservation::observed(peak_private_bytes),
                     elapsed_wall_time_ns: duration_ns(elapsed)?,
-                    exit_code: None,
                     trigger: Some(ChildMonitorTrigger::MonitoringGap),
                 };
-                return terminate_monitored_child(child, ordinal, report);
+                return terminate_monitored_child(
+                    child,
+                    ordinal,
+                    child_pid,
+                    report,
+                    Some("child-process-disappeared-before-exit-status".to_owned()),
+                );
             }
             Err(error) => {
-                terminate_child_best_effort(&mut child);
-                return Err(error.into());
+                let report = ChildProcessMonitorReport {
+                    observation_count,
+                    last_private_bytes: NullableObservation::observed(last_private_bytes),
+                    peak_private_bytes: NullableObservation::observed(peak_private_bytes),
+                    elapsed_wall_time_ns: duration_ns(elapsed)?,
+                    trigger: Some(ChildMonitorTrigger::MonitoringGap),
+                };
+                return terminate_monitored_child(
+                    child,
+                    ordinal,
+                    child_pid,
+                    report,
+                    Some(error.to_string()),
+                );
             }
         };
         observation_count =
@@ -479,15 +739,13 @@ fn run_monitored_child_with_observer(
         peak_private_bytes = peak_private_bytes.max(observation.private_bytes);
         if let Some(trigger) = evaluate_child_monitor_trigger(thresholds, observation, elapsed)? {
             let report = ChildProcessMonitorReport {
-                child_pid,
                 observation_count,
-                last_private_bytes: Some(last_private_bytes),
-                peak_private_bytes: Some(peak_private_bytes),
+                last_private_bytes: NullableObservation::observed(last_private_bytes),
+                peak_private_bytes: NullableObservation::observed(peak_private_bytes),
                 elapsed_wall_time_ns: duration_ns(elapsed)?,
-                exit_code: None,
                 trigger: Some(trigger),
             };
-            return terminate_monitored_child(child, ordinal, report);
+            return terminate_monitored_child(child, ordinal, child_pid, report, None);
         }
         thread::sleep(CHILD_MONITOR_POLL_INTERVAL);
     }
@@ -515,18 +773,20 @@ fn evaluate_child_monitor_trigger(
 fn terminate_monitored_child(
     mut child: std::process::Child,
     ordinal: usize,
-    mut report: ChildProcessMonitorReport,
-) -> Result<(std::process::Output, ChildProcessMonitorReport), PilotError> {
+    child_pid: u32,
+    report: ChildProcessMonitorReport,
+    monitor_error: Option<String>,
+) -> Result<MonitoredChildExecution, PilotError> {
     let kill_error = child.kill().err().map(|error| error.to_string());
     let output = child
         .wait_with_output()
         .map_err(|source| PilotError::ChildWait { ordinal, source })?;
-    report.exit_code = output.status.code();
-    Err(PilotError::ChildMonitorTerminated {
-        ordinal,
-        report: Box::new(report),
+    Ok(MonitoredChildExecution::InvalidatedByMonitor {
+        child_pid,
+        output,
+        monitor: report,
         kill_error,
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        monitor_error,
     })
 }
 
@@ -708,8 +968,12 @@ pub enum PilotError {
     Timing(#[from] TimingError),
     #[error(transparent)]
     Guard(#[from] GuardError),
+    #[error(transparent)]
+    ProcessProtocol(#[from] ProcessProtocolError),
     #[error("新进程试运行标识符不能为空")]
     EmptyPilotId,
+    #[error("受控分配硬上限测试上限必须大于零")]
+    ZeroControlledAllocationCeilingCap,
     #[error("新进程试运行容量预留失败：{field}")]
     AllocationFailed {
         field: &'static str,
@@ -722,37 +986,15 @@ pub enum PilotError {
         #[source]
         source: std::io::Error,
     },
-    #[error("新进程试运行样本 {ordinal} 缺少父子进程启动握手输入管道")]
-    MissingChildStdin { ordinal: usize },
     #[error("冷实例子进程读取父进程启动信号失败")]
     ChildStartSignalRead(#[source] std::io::Error),
     #[error("冷实例子进程收到无效启动信号：0x{actual:02x}")]
     InvalidChildStartSignal { actual: u8 },
-    #[error("无法向新进程试运行样本 {ordinal} 写入启动信号")]
-    ChildStartSignalWrite {
-        ordinal: usize,
-        #[source]
-        source: std::io::Error,
-    },
     #[error("等待新进程试运行样本 {ordinal} 失败")]
     ChildWait {
         ordinal: usize,
         #[source]
         source: std::io::Error,
-    },
-    #[error(
-        "新进程试运行样本 {ordinal} 在监控握手完成前退出：exitCode={exit_code:?}, stderr={stderr}"
-    )]
-    ChildExitedBeforeStart {
-        ordinal: usize,
-        exit_code: Option<i32>,
-        stderr: String,
-    },
-    #[error("新进程试运行样本 {ordinal} 异常退出：exitCode={exit_code:?}, stderr={stderr}")]
-    ChildFailed {
-        ordinal: usize,
-        exit_code: Option<i32>,
-        stderr: String,
     },
     #[error("无法解析新进程试运行样本 {ordinal}")]
     InvalidChildReport {
@@ -764,25 +1006,6 @@ pub enum PilotError {
     ChildReportMismatch { ordinal: usize, field: &'static str },
     #[error("新进程试运行重复使用编译器实例身份")]
     DuplicateCompilerInstanceId,
-    #[error("新进程试运行样本 {ordinal} 在启动前触发研究停止护栏：{report:?}")]
-    GuardRejected {
-        ordinal: usize,
-        report: Box<GuardPreflightReport>,
-    },
-    #[error("新进程试运行样本 {ordinal} 在子进程内正常触发受控分配硬上限：{sample:?}")]
-    ChildGuarded {
-        ordinal: usize,
-        sample: Box<IdentityMonitoredChildSample>,
-    },
-    #[error(
-        "新进程试运行样本 {ordinal} 被父进程监控终止：{report:?}, killError={kill_error:?}, stderr={stderr}"
-    )]
-    ChildMonitorTerminated {
-        ordinal: usize,
-        report: Box<ChildProcessMonitorReport>,
-        kill_error: Option<String>,
-        stderr: String,
-    },
     #[error("新进程试运行需要恰好七个样本，实际为 {actual}")]
     WrongSampleCount { actual: usize },
     #[error("新进程试运行算术溢出：{0}")]
@@ -820,13 +1043,16 @@ mod tests {
     #[test]
     fn rejected_preflight_never_attempts_to_spawn_the_child() {
         let trusted = crate::load_repository_contract().expect("frozen contract");
-        let error = run_identity_fresh_process_pilot_with_memory_observer(
+        let outcome = run_identity_fresh_process_pilot_with_memory_observer(
             &trusted,
-            Path::new("this-child-must-never-be-spawned"),
-            "guard-rejection",
-            GraphProfileId::WideStar,
-            1,
-            None,
+            IdentityFreshProcessPilotRequest {
+                executable: Path::new("this-child-must-never-be-spawned"),
+                pilot_id: "guard-rejection",
+                graph_profile: GraphProfileId::WideStar,
+                n: 1,
+                previous: None,
+                controlled_allocation_hard_ceiling_cap_bytes: None,
+            },
             || {
                 Ok(SystemMemoryObservation {
                     physical_memory_bytes: 64 * 1_073_741_824,
@@ -834,11 +1060,29 @@ mod tests {
                 })
             },
         )
-        .expect_err("guard must reject");
-        assert!(matches!(
-            error,
-            PilotError::GuardRejected { ordinal: 0, .. }
-        ));
+        .expect("guard rejection is a structured pilot outcome");
+        let IdentityFreshProcessPilotOutcome::Stopped { stop } = outcome else {
+            panic!("guard rejection must stop the pilot");
+        };
+        assert_eq!(stop.sample_ordinal, 0);
+        assert_eq!(stop.status, RunStatus::Guarded);
+        assert!(stop.invalidation_reasons.is_empty());
+        assert_eq!(
+            stop.process.exit_kind,
+            crate::ProcessExitKind::GuardedBeforeStart
+        );
+        assert_eq!(stop.process.child_pid.value, None);
+        assert_eq!(
+            stop.process.child_pid.reason.as_deref(),
+            Some("child-not-started")
+        );
+        assert_eq!(stop.process.exit_code.value, None);
+        assert_eq!(
+            stop.process.termination.kind,
+            crate::TerminationKind::NotStarted
+        );
+        assert!(stop.child.is_none());
+        assert!(stop.monitor.is_none());
     }
 
     #[test]
@@ -909,17 +1153,7 @@ mod tests {
 
     #[test]
     fn parent_monitor_terminates_and_reaps_a_child_at_the_private_byte_limit() {
-        let executable = std::env::current_exe().expect("current test executable");
-        let child = Command::new(executable)
-            .arg("pilot::tests::parent_monitor_termination_helper")
-            .arg("--exact")
-            .arg("--nocapture")
-            .env(MONITOR_TERMINATION_HELPER_ENV, "1")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("spawn monitor termination helper");
+        let child = spawn_monitor_termination_helper("wait");
         let thresholds =
             GuardThresholds::from_physical_memory_bytes(64 * 1_073_741_824).expect("thresholds");
         let observation = ChildProcessMemoryObservation {
@@ -927,31 +1161,144 @@ mod tests {
             available_physical_memory_bytes: thresholds.minimum_available_physical_memory_bytes,
         };
 
-        let error =
+        let execution =
             run_monitored_child_with_observer(child, 0, thresholds, |_| Ok(Some(observation)))
-                .expect_err("private-byte threshold must terminate the child");
-        let PilotError::ChildMonitorTerminated {
-            report, kill_error, ..
-        } = error
+                .expect("private-byte threshold must form a structured invalidation");
+        let MonitoredChildExecution::InvalidatedByMonitor {
+            child_pid,
+            output,
+            monitor,
+            kill_error,
+            monitor_error,
+        } = execution
         else {
-            panic!("unexpected monitor result: {error}");
+            panic!("private-byte threshold must invalidate through the monitor");
         };
-        assert_eq!(report.trigger, Some(ChildMonitorTrigger::PrivateBytes));
-        assert_eq!(report.observation_count, 1);
-        assert_eq!(report.last_private_bytes, Some(thresholds.private_bytes));
-        assert_eq!(report.peak_private_bytes, Some(thresholds.private_bytes));
+        assert_eq!(monitor.trigger, Some(ChildMonitorTrigger::PrivateBytes));
+        assert_eq!(monitor.observation_count, 1);
+        assert_eq!(
+            monitor.last_private_bytes.value,
+            Some(thresholds.private_bytes)
+        );
+        assert_eq!(
+            monitor.peak_private_bytes.value,
+            Some(thresholds.private_bytes)
+        );
         assert_eq!(kill_error, None);
+        assert_eq!(monitor_error, None);
+        let process = ProcessObservation::invalid_monitor_termination(
+            std::process::id(),
+            child_pid,
+            IDENTITY_PILOT_COMBINED_BINARY_ID,
+            output.status,
+        )
+        .expect("monitor kill must have an abnormal platform status");
+        assert_eq!(
+            process.exit_kind,
+            crate::ProcessExitKind::InvalidMonitorTermination
+        );
+    }
+
+    #[test]
+    fn monitor_provider_failure_is_a_structured_monitoring_gap() {
+        let child = spawn_monitor_termination_helper("wait");
+        let thresholds =
+            GuardThresholds::from_physical_memory_bytes(64 * 1_073_741_824).expect("thresholds");
+        let execution = run_monitored_child_with_observer(child, 0, thresholds, |_| {
+            Err(GuardError::UnsupportedPrivateMemoryProvider)
+        })
+        .expect("monitor provider failure must form a structured invalidation");
+        let MonitoredChildExecution::InvalidatedByMonitor {
+            child_pid,
+            output,
+            monitor,
+            monitor_error,
+            ..
+        } = execution
+        else {
+            panic!("monitor provider failure must invalidate through the monitor");
+        };
+        assert_eq!(monitor.trigger, Some(ChildMonitorTrigger::MonitoringGap));
+        assert_eq!(monitor.last_private_bytes.value, None);
+        assert_eq!(
+            monitor.last_private_bytes.reason.as_deref(),
+            Some("monitoring-gap")
+        );
+        assert!(monitor_error.is_some());
+        let process = ProcessObservation::invalid_monitor_termination(
+            std::process::id(),
+            child_pid,
+            IDENTITY_PILOT_COMBINED_BINARY_ID,
+            output.status,
+        )
+        .expect("monitor kill must have an abnormal platform status");
+        assert_eq!(
+            process.exit_kind,
+            crate::ProcessExitKind::InvalidMonitorTermination
+        );
+    }
+
+    #[test]
+    fn nonzero_child_exit_is_distinct_from_monitor_termination() {
+        let child = spawn_monitor_termination_helper("exit-7");
+        let thresholds =
+            GuardThresholds::from_physical_memory_bytes(64 * 1_073_741_824).expect("thresholds");
+        let safe_observation = ChildProcessMemoryObservation {
+            private_bytes: thresholds.private_bytes - 1,
+            available_physical_memory_bytes: thresholds.minimum_available_physical_memory_bytes,
+        };
+        let execution =
+            run_monitored_child_with_observer(child, 0, thresholds, |_| Ok(Some(safe_observation)))
+                .expect("nonzero exit must remain observable");
+        let MonitoredChildExecution::Exited {
+            child_pid,
+            output,
+            monitor,
+        } = execution
+        else {
+            panic!("nonzero child exit must not be classified as a monitor termination");
+        };
+        assert_eq!(monitor.trigger, None);
+        let process = ProcessObservation::invalid_abnormal_exit(
+            std::process::id(),
+            child_pid,
+            IDENTITY_PILOT_COMBINED_BINARY_ID,
+            output.status,
+        )
+        .expect("nonzero exit code must form an abnormal-exit observation");
+        assert_eq!(
+            process.exit_kind,
+            crate::ProcessExitKind::InvalidAbnormalExit
+        );
+        assert_eq!(process.exit_code.value, Some(7));
+    }
+
+    fn spawn_monitor_termination_helper(mode: &str) -> std::process::Child {
+        let executable = std::env::current_exe().expect("current test executable");
+        Command::new(executable)
+            .arg("pilot::tests::parent_monitor_termination_helper")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env(MONITOR_TERMINATION_HELPER_ENV, mode)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn monitor termination helper")
     }
 
     #[test]
     fn parent_monitor_termination_helper() {
-        if std::env::var_os(MONITOR_TERMINATION_HELPER_ENV).is_none() {
+        let Some(mode) = std::env::var_os(MONITOR_TERMINATION_HELPER_ENV) else {
             return;
-        }
+        };
         let mut signal = [0_u8; 1];
         std::io::stdin()
             .read_exact(&mut signal)
             .expect("helper waits for a parent start signal or process termination");
+        if mode == "exit-7" {
+            std::process::exit(7);
+        }
         thread::sleep(Duration::from_secs(60));
     }
 }
