@@ -80,7 +80,7 @@ pub use timing::{
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";
 pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_322;
 pub const CONTRACT_DESCRIPTOR_SHA256: &str =
-    "4f96a525d5019d4032c15ceced1c4263f93c21c8fc893b1cb96230d6c28238e4";
+    "77532904df2b2c7e9157fe3154fa61fc7d507bf8abb28859c3ba872cec83c2e9";
 
 const CONTRACT_SCHEMA: &str = "laneflow.compiler-calibration-contract";
 const WORKLOAD_MANIFEST_SCHEMA: &str = "laneflow.compiler-calibration-workload-manifest";

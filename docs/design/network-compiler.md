@@ -405,10 +405,11 @@ add/remove。
 required tags 必须按数值严格递增编码：
 
 本表是 #291 G1 已接受的 v1 设计，但尚无已发布的 known vector、规范制品或生产
-reader；因此本次统一 `LaneEdge` 身份并重排代码 / 标签是在首次实现冻结前修正 v1
-定义，不是对已发布 v1 的原地兼容修改。首次 implementation G1 必须发布 known
-vectors；一旦发布，新增 kind 只能提升 registry revision，修改既有 kind 的字段、
-标签含义或编码必须提升 encoding version。
+reader；因此本次统一 `LaneEdge` 身份、移除 `ParkingSpace` 对可选停车区域归属的
+身份依赖并重排代码 / 标签，是在首次实现冻结前修正 v1 定义，不是对已发布 v1 的
+原地兼容修改。首次 implementation G1 必须发布 known vectors；一旦发布，新增 kind
+只能提升 registry revision，修改既有 kind 的字段、标签含义或编码必须提升
+encoding version。
 
 | 代码（Code） | `entityKind`       | 类别（Category）                              | 英文短名（Slug）    | 必需标签（Required Tags） |
 | -----------: | ------------------ | --------------------------------------------- | ------------------- | ------------------------- |
@@ -426,7 +427,7 @@ vectors；一旦发布，新增 kind 只能提升 registry revision，修改既�
 |           12 | `SignalController` | 声明（Declaration）                           | `signal-controller` | `1,19`                    |
 |           13 | `SignalPhase`      | 声明（Declaration）                           | `signal-phase`      | `1,20,21`                 |
 |           14 | `ParkingArea`      | 声明（Declaration）                           | `parking-area`      | `1,22`                    |
-|           15 | `ParkingSpace`     | 声明（Declaration）                           | `parking-space`     | `1,23,24`                 |
+|           15 | `ParkingSpace`     | 声明（Declaration）                           | `parking-space`     | `1,24`                    |
 |           16 | `LaneGroup`        | 声明（Declaration）                           | `lane-group`        | `1,25,32`                 |
 |           17 | `FacilityBand`     | 声明（Declaration）                           | `facility-band`     | `1,26,33`                 |
 |           18 | `ParticipantClass` | 声明（Declaration）                           | `participant-class` | `1,27`                    |
@@ -442,17 +443,23 @@ Runtime 永久封闭的参与单元种类表。`VehicleProfile` 与 `StaticRoute
 （Entity Kind/Tag）和约束，不得把非车辆参数塞进
 `VehicleProfile`，也不得复用 `ParticipantClass` 冒充执行域或行为能力。
 
-所有真实父子关系都使用父实体 `StableId128`，不得把父实体仅在其来源模块内稳定的
-裸局部键复制进子实体 tuple。这样跨模块引用、同名父实体和重新归属都由父实体完整
-命名空间裁决：
+所有定义子实体身份的父子关系都使用父实体 `StableId128`，不得把父实体仅在其来源
+模块内稳定的裸局部键复制进子实体 tuple。这样跨模块引用、同名父实体和重新归属都由
+父实体完整命名空间裁决：
 
 - `RoadSection` 使用 tag 33 `roadCorridorStableId`；
 - `AuthoringLane` 使用 tag 32 `roadSectionStableId`；
 - `LaneEdge` 不使用 parent anchor，只使用来源模块内显式持久化且唯一的 tag 5
   `laneEdgeKey`；
 - `Movement` 使用 tag 34 `junctionStableId`；
-- `ManeuverPath`、Signal phase、ParkingSpace、LaneGroup 和 FacilityBand 继续使用
-  各自登记的 parent StableId。
+- `ManeuverPath`、Signal phase、LaneGroup 和 FacilityBand 继续使用各自登记的
+  parent StableId。
+
+`ParkingSpace.areaId` 是可选组织关系，不是停车位身份所有者：字段显式存在时，
+canonical LIR 保存有类型的 `ParkingSpace -> ParkingArea` 关系；字段缺省时不生成
+该关系。两种情况下 `ParkingSpace` 都只以 authoring namespace 与 tag 24
+`parkingSpaceKey` 派生 StableId128，区域归属变化不得造成停车位身份漂移，也不得由
+编译器臆造缺失的停车区域。
 
 Movement 的 left/straight/right/u-turn 分类是可重算元数据，不参与标识。
 StaticRoute 只表示编译期 authoring route；runtime 注册的 dynamic Route 继续使用
@@ -527,7 +534,6 @@ validated canonical LIR 必须保存有类型（Typed）的
 |          20 | `signalControllerStableId` | 16 个原始字节（Raw Bytes） |
 |          21 | `phaseKey`                 | ASCII 字节（Bytes）        |
 |          22 | `parkingAreaKey`           | ASCII 字节（Bytes）        |
-|          23 | `parkingAreaStableId`      | 16 个原始字节（Raw Bytes） |
 |          24 | `parkingSpaceKey`          | ASCII 字节（Bytes）        |
 |          25 | `laneGroupKey`             | ASCII 字节（Bytes）        |
 |          26 | `facilityBandKey`          | ASCII 字节（Bytes）        |

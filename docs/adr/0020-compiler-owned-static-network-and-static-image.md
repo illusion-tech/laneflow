@@ -157,9 +157,11 @@ publishable programmatic generator 必须保留 build ID、参数、seed、names
 Signals/Phase、Parking、cross-section/access/profile、static Route 与 canonical
 frame declaration。新增 kind 只 append registry revision；修改既有 kind 的字段
 集合、tag 含义或编码必须提升 encoding version。完整 kind/tag/required-sequence
-表以 `network-compiler.md` 为规范。所有真实父子关系必须以父实体 StableId 作为
-父锚点，不能只复制父实体在其来源模块内稳定的裸局部 key；这样跨模块同名父实体与
-重新归属仍由完整命名空间裁决。
+表以 `network-compiler.md` 为规范。所有**定义子实体身份**的父子关系必须以父实体
+StableId 作为父锚点，不能只复制父实体在其来源模块内稳定的裸局部 key；这样跨模块
+同名父实体与重新归属仍由完整命名空间裁决。可选组织关系不因此自动成为身份前像；
+例如 `ParkingSpace.areaId` 仅在显式存在时形成 `ParkingSpace -> ParkingArea` 关系，
+不参与 `ParkingSpace` 的 StableId128 派生。
 
 ### 4. 一个规范低层中间表示（Canonical LIR）产生四类配套输出
 

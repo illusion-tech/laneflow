@@ -447,9 +447,9 @@ fn validate_id_workload(workloads: &[Workload]) -> Result<(), ManifestContractEr
 
     let expected_stage_inputs = [
         ("sourceDeclarationCount", 22),
-        ("identityFieldOccurrenceCount", 58),
+        ("identityFieldOccurrenceCount", 57),
         ("profiledKeyOccurrenceCount", 24),
-        ("sourceReferenceCount", 22),
+        ("sourceReferenceCount", 21),
         ("sourceRelationCount", 10),
         ("sourceGeometryCount", 0),
     ];
@@ -465,7 +465,7 @@ fn validate_id_workload(workloads: &[Workload]) -> Result<(), ManifestContractEr
         .collect::<Vec<_>>();
     expected_counts.extend([
         ("identityDeclaration", 22),
-        ("requiredIdentityFieldOccurrence", 58),
+        ("requiredIdentityFieldOccurrence", 57),
         ("ownerRelation", 10),
         ("semanticOutputRecord", 32),
     ]);
