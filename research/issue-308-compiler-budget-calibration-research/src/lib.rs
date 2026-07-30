@@ -11,6 +11,9 @@ mod generator;
 mod identity;
 mod manifest;
 mod oracle;
+mod pipeline;
+mod stage;
+mod stage_oracle;
 
 pub use generator::{
     ExpandedModule, ExpandedModuleGraph, GeneratorError, GraphProfileId,
@@ -27,6 +30,11 @@ pub use oracle::{
     ExactOracleError, OracleVerificationError, OracleVerificationReport,
     verify_identity_oracle_matrix,
 };
+pub use stage::{
+    IdentityAggregateCounts, IdentityStageSummary, StageBreakdown, StageContract,
+    StageContractError, StageGenerationError, StageShape, build_identity_stage_summary,
+};
+pub use stage_oracle::StageOracleError;
 
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";
 pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_322;
@@ -73,6 +81,10 @@ impl TrustedContract {
 
     pub fn identity_contract(&self) -> Result<IdentityContract, IdentityContractError> {
         IdentityContract::from_manifest(&self.workload_manifest)
+    }
+
+    pub fn stage_contract(&self) -> Result<StageContract, StageContractError> {
+        StageContract::from_manifest(&self.workload_manifest)
     }
 }
 

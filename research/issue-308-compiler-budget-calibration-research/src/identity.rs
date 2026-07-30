@@ -8,9 +8,9 @@ pub const IDENTITY_KNOWN_VECTOR_SCHEMA: &str =
 pub const IDENTITY_WORKLOAD_ID: &str = "LF-COMP-ID-v1";
 pub const SHORT_UNIQUE_STRING_PROFILE_ID: &str = "short-unique-v1";
 
-const STABLE_ID_DOMAIN: &[u8] = b"laneflow.stable-id.v1\0";
-const IDENTITY_MAGIC: &[u8; 4] = b"LFID";
-const ABSENT_LOCAL_INDEX: u32 = u32::MAX;
+pub(crate) const STABLE_ID_DOMAIN: &[u8] = b"laneflow.stable-id.v1\0";
+pub(crate) const IDENTITY_MAGIC: &[u8; 4] = b"LFID";
+pub(crate) const ABSENT_LOCAL_INDEX: u32 = u32::MAX;
 #[cfg(test)]
 const IDENTITY_KNOWN_VECTOR_BYTE_LENGTH: usize = 109_533;
 #[cfg(test)]
@@ -129,8 +129,8 @@ pub struct IdentityContract {
     identity_encoding_version: u16,
     semantic_record_stream_version: u32,
     semantic_record_domain: String,
-    bindings: Vec<IdentityBinding>,
-    owner_relations: Vec<OwnerRelation>,
+    pub(crate) bindings: Vec<IdentityBinding>,
+    pub(crate) owner_relations: Vec<OwnerRelation>,
 }
 
 impl IdentityContract {
@@ -177,32 +177,44 @@ impl IdentityContract {
             owner_relations,
         })
     }
+
+    pub(crate) const fn identity_encoding_version(&self) -> u16 {
+        self.identity_encoding_version
+    }
+
+    pub(crate) const fn semantic_record_stream_version(&self) -> u32 {
+        self.semantic_record_stream_version
+    }
+
+    pub(crate) fn semantic_record_domain(&self) -> &str {
+        &self.semantic_record_domain
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct IdentityBinding {
-    entity_kind_code: u16,
-    entity_kind: String,
-    fields: Vec<IdentityFieldBinding>,
+pub(crate) struct IdentityBinding {
+    pub(crate) entity_kind_code: u16,
+    pub(crate) entity_kind: String,
+    pub(crate) fields: Vec<IdentityFieldBinding>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct IdentityFieldBinding {
-    tag: u16,
-    value: IdentityFieldValue,
+pub(crate) struct IdentityFieldBinding {
+    pub(crate) tag: u16,
+    pub(crate) value: IdentityFieldValue,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum IdentityFieldValue {
+pub(crate) enum IdentityFieldValue {
     Namespace,
     ProfiledKey { kind: u16, local: u32 },
     StableId { kind: u16, local: u32 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct OwnerRelation {
-    child_kind: u16,
-    parent_kind: u16,
+pub(crate) struct OwnerRelation {
+    pub(crate) child_kind: u16,
+    pub(crate) parent_kind: u16,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -266,6 +278,7 @@ pub(crate) struct IdentityCaseOutput {
     pub(crate) unit_namespaces: Vec<String>,
     pub(crate) declarations: Vec<IdentityDeclarationVector>,
     pub(crate) records: Vec<SemanticRecordVector>,
+    pub(crate) raw_records: Vec<SemanticRecord>,
     pub(crate) semantic_record_stream: Vec<u8>,
     pub(crate) semantic_digest_sha256: String,
 }
@@ -361,6 +374,7 @@ pub(crate) fn build_identity_case(
             .map(IdentityDeclaration::to_vector)
             .collect(),
         records: records.iter().map(SemanticRecord::to_vector).collect(),
+        raw_records: records,
         semantic_record_stream,
         semantic_digest_sha256,
     })
@@ -600,14 +614,14 @@ impl IdentityDeclaration {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct SemanticRecord {
-    record_kind: u16,
-    entity_kind_code: u16,
-    entity_kind: String,
-    stable_id: [u8; 16],
-    owner_ordinal: u32,
-    local_index: u32,
-    payload: Vec<u8>,
+pub(crate) struct SemanticRecord {
+    pub(crate) record_kind: u16,
+    pub(crate) entity_kind_code: u16,
+    pub(crate) entity_kind: String,
+    pub(crate) stable_id: [u8; 16],
+    pub(crate) owner_ordinal: u32,
+    pub(crate) local_index: u32,
+    pub(crate) payload: Vec<u8>,
 }
 
 impl SemanticRecord {

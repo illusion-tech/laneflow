@@ -132,6 +132,7 @@ fn run() -> Result<(), String> {
             println!("checkedCases={}", report.checked_cases);
             println!("checkedN1Cases={}", report.checked_n1_cases);
             println!("checkedN2Cases={}", report.checked_n2_cases);
+            println!("checkedStageCases={}", report.checked_stage_cases);
             Ok(())
         }
         _ => Err(usage()),
