@@ -446,8 +446,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `111580` exact bytes，SHA-256 为
-`46a91202e92d14802e565846b420efc1799341bf94d129121dff8a3d42c4ed24`；G2 只能发布
+取得 G1。G1 候选冻结清单 `112077` exact bytes，SHA-256 为
+`06fd30212ae92750ea65a9eccd1e2386d77ea07897cbe9d24f229f8c91421310`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -1244,11 +1244,13 @@ profile）和特性集合（features）；证据记录各自二进制 SHA-256 �
 六组实验不得从同名规模角色任意挑选模块图或字符串配置。每个
 `cleanupExperimentBindings[]` 项都保存完整 `scaleSource`：工作负载/修订、
 `shared-fanin-dag-v1`、`short-unique-v1`、生成器修订和合法基线
-`caseId = not-applicable`。独立验证器必须以该静态身份唯一解析一条
-`baseScales[]`，取得其已选择的 `B`，再按 `scaleSelectionContract` 派生同一身份的
-校准/压力 `N`。选择共享扇入有向无环图是为了在固定六组成本内观察共享关系和较密集
-导入边下的失败恢复；它不表示已覆盖深链或宽星形的全部生命周期行为，也不得把六组
-扩写成三个模块图的十八组实验而不提升协议版本。
+`caseId = not-applicable`。其中 `caseId` 是固定前置条件，不属于 `baseScales[]` 的
+字段；独立验证器只把工作负载/修订、模块图、字符串配置和生成器修订投影为匹配键，
+唯一解析一条 `baseScales[]`，取得其已选择的 `B`，再按
+`scaleSelectionContract` 派生同一身份的校准/压力 `N`。选择共享扇入有向无环图是
+为了在固定六组成本内观察共享关系和较密集导入边下的失败恢复；它不表示已覆盖深链或
+宽星形的全部生命周期行为，也不得把六组扩写成三个模块图的十八组实验而不提升协议
+版本。
 
 每组执行：
 
@@ -1282,6 +1284,9 @@ profile）和特性集合（features）；证据记录各自二进制 SHA-256 �
 
 非清理样本仍显式记录 `phase = not-applicable`，但其
 运行级实例身份按实际编译实例记录；只有实例尚未构造的运行才能使用结构化不可用原因。
+所有清理序列运行固定使用 `roundAttempt.scope = single-experiment`；即使序号 `0`、
+`33`、`34` 是合法成功编译并使用冷实例或稳定容量复用样本种类，也不得进入正式阶梯
+轮次、候选比较轮次或相应汇总。
 
 三十二次是清理回归的固定观察窗口，不是生产工作量或性能预算。
 
@@ -1529,7 +1534,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1322` exact bytes，SHA-256 为
-`490ece516fca416c0914ff8492f47286f9c11831169d262192a7065f54e81df4`。该摘要是 PR/Gate
+`4f96a525d5019d4032c15ceced1c4263f93c21c8fc893b1cb96230d6c28238e4`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1548,8 +1553,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `222208` exact bytes，SHA-256 为
-`0307cbfb65c90a52fc1c6abbd846fa147538a8072d805d428c3a7ddb9497b06a`。
+G1 候选冻结 schema `223168` exact bytes，SHA-256 为
+`40afe5dcb1556abe76c89b645cb80c78a7cfa1130b4c47b8979db5fd916f57e1`。
 顶层格式标识：
 
 ```text
@@ -1788,8 +1793,11 @@ batch 0/1 汇总分层相同，重算双向比值、约分结果和全局最大�
 `childPid` 代替实例身份，也不得接受同一实例身份被不同构造事件复用；缺项、重号、
 跨条件拼组、重复构造身份或 fresh oracle 身份未变化都必须失败。清理组只允许机器
 清单登记的三个 case/workload/scale 组合，并必须按每项 `scaleSource` 唯一解析
-`shared-fanin-dag-v1 + short-unique-v1` 的 `B` 与校准/压力 `N`；不能用另一个
-工作负载、模块图、字符串配置或同名规模角色“等价替代”。它同时
+`shared-fanin-dag-v1 + short-unique-v1` 的 `B` 与校准/压力 `N`；`caseId` 只验证为
+固定 `not-applicable`，不参与不存在该字段的 `baseScales[]` 匹配。不能用另一个
+工作负载、模块图、字符串配置或同名规模角色“等价替代”。每条清理运行还必须保持
+`roundAttempt.scope = single-experiment`，并从轮次/阶梯汇总、拐点、重复性包络、
+增长斜率、候选比较和预算建议的来源集合中排除。它同时
 要求失败轮次结束后的 `liveRequestedBytes = 0`，序号 `2..=32` 的
 `retainedCapacityBytes` 不得超过序号 `1`，并重算恢复成功与新实例判定基准的结果、
 逐阶段记录数、语义/诊断摘要、稳定错误状态和部分输出等价性。任一观察缺失都使该组

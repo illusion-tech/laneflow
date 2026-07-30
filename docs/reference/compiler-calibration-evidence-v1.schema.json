@@ -270,7 +270,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "46a91202e92d14802e565846b420efc1799341bf94d129121dff8a3d42c4ed24"
+          "const": "06fd30212ae92750ea65a9eccd1e2386d77ea07897cbe9d24f229f8c91421310"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1169,7 +1169,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "46a91202e92d14802e565846b420efc1799341bf94d129121dff8a3d42c4ed24"
+          "const": "06fd30212ae92750ea65a9eccd1e2386d77ea07897cbe9d24f229f8c91421310"
         },
         "counts": {
           "type": "object"
@@ -4915,6 +4915,23 @@
                   "candidate",
                   "workload"
                 ]
+              },
+              {
+                "properties": {
+                  "cleanup": {
+                    "properties": {
+                      "phase": {
+                        "const": "not-applicable"
+                      }
+                    },
+                    "required": [
+                      "phase"
+                    ]
+                  }
+                },
+                "required": [
+                  "cleanup"
+                ]
               }
             ]
           },
@@ -4964,6 +4981,23 @@
                   },
                   "required": [
                     "candidate"
+                  ]
+                },
+                {
+                  "properties": {
+                    "cleanup": {
+                      "properties": {
+                        "phase": {
+                          "const": "not-applicable"
+                        }
+                      },
+                      "required": [
+                        "phase"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "cleanup"
                   ]
                 }
               ]

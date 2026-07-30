@@ -2754,10 +2754,10 @@
       "workloadRevision",
       "graphProfile",
       "stringProfile",
-      "generatorVersion",
-      "caseId"
+      "generatorVersion"
     ],
-    "scaleSourceBResolutionRule": "resolve exactly one baseScales entry matching scaleSourceIdentityFields, require a non-null selected b.value, then derive calibration/stress N from scaleSelectionContract for that same entry",
+    "scaleSourceFixedCaseIdRule": "scaleSource.caseId must equal not-applicable; caseId is a fixed source precondition and is excluded from the baseScales projection because baseScales entries do not carry a caseId field",
+    "scaleSourceBResolutionRule": "project scaleSource to scaleSourceIdentityFields, resolve exactly one baseScales entry matching that projection, require a non-null selected b.value, then derive calibration/stress N from scaleSelectionContract for that same entry",
     "groupSize": 35,
     "sequenceRule": "exactly sequenceIndex 0, 1..32, 33 and 34 with no omission or duplicate",
     "instanceRule": "sequence 0..33 uses one compilerInstanceId; sequence 34 uses a different newly issued compilerInstanceId",
@@ -2769,7 +2769,8 @@
     ],
     "recoveryPassRule": "sequence 33 and 34 match in outcome, stage record counts, semantic digest, diagnostic digest, stable compiler error state and partial output record count",
     "groupPassRule": "all sequence, identity, failure-iteration and recovery rules pass; missing or invalid observations fail the group",
-    "scopeRule": "all six groups are baseline lifecycle observations; they do not qualify, reject or recommend a private candidate and do not alter candidateDecisionContract performance classifications"
+    "scopeRule": "all six groups are baseline lifecycle observations; they do not qualify, reject or recommend a private candidate and do not alter candidateDecisionContract performance classifications",
+    "formalLadderExclusionRule": "every cleanup run uses roundAttempt.scope=single-experiment and is excluded from round summaries, ladder summaries, knees, reproducibility envelopes, growth slopes, candidate comparisons and budget recommendations"
   },
   "cleanupExperimentBindings": [
     {
