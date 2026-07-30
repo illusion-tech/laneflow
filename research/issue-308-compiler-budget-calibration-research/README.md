@@ -54,7 +54,11 @@ G2 冻结的候选依赖如下；“特性”只列本研究包直接启用的�
   预言机”的最小测量原语；
 - 同一编译器实例内的冷实例、三次不计时预热和七次稳定容量复用基础能力：样本间释放
   全部语义值，只保留已清空的阶段容器容量，以可失败精确预留拒绝不可满足的容量请求，
-  并逐阶段报告实际保留容量字节。
+  并逐阶段报告实际保留容量字节；
+- `LF-COMP-ID-v1` 七个独立新进程的冷实例试运行基础：父进程签发与进程号、地址和
+  运行标识符无关的编译器实例标识符，子进程只回传实例标识、墙钟时间和语义摘要等最小
+  结果，父进程核对七个身份互异、语义摘要一致，并以精确整数计算中位数与绝对中位差
+  （MAD）。
 
 代码中的 v1 常量只用于证明清单字段与已接受契约精确一致并在漂移时失败，不构成第二
 事实源；研究语义仍以已验证的工作负载清单为权威。
@@ -72,13 +76,16 @@ MIR 语义记录、canonical LIR、最终规范记录流、语义摘要和八项
 生产路径物化逐模块来源位置、记录种类、符号序号、解析目标和连续载荷缓冲区；MIR
 由 HIR 解析结果构造，canonical LIR 再独立完成所有者序号分配与规范排序。同长度错误
 引用和同长度字符串替换均有拒绝测试。其余工作负载的完整记录流、当前固定样例研究
-投影、新进程轮次编排、停止护栏、证据写出器和正式
+投影、正式新进程轮次编排、停止护栏、证据写出器和正式
 `run --protocol compiler-calibration-v1` 入口仍须按设计文档继续实现；在完整正确性
 与 pilot 证据落盘前，不得宣称任何正式预算数字。
 
 现有单次测量原语只证明外层计时边界能够隔离 SHA-256、完整输出比较和独立预言机；
-稳定容量实例也尚未建立 fresh-process pilot、正式轮次或机器可读证据；这些原语单独
-输出的墙钟值和保留容量没有预算资格。
+稳定容量实例尚未建立正式轮次或机器可读证据。七进程试运行没有执行停止护栏，也不
+写入编译器校准证据 v1（Compiler Calibration Evidence v1）；其内部子进程 JSON 只
+用于父子进程通信，不是正式证据封套。上述原语单独输出的墙钟值和保留容量没有预算
+资格，试运行中即使满足时钟分辨率、离散程度与摘要一致性条件，也不得据此选择参考规模
+`B`。
 
 ```powershell
 cargo +1.96.0 run --locked `
@@ -113,4 +120,15 @@ cargo +1.96.0 run --locked `
   --no-default-features --features research-runner-full `
   --bin issue-308-compiler-budget-calibration-research -- `
   verify-identity-oracle
+```
+
+执行七个独立新进程的冷实例试运行（示例只使用 `N = 1` 验证编排，不产生正式预算
+证据）：
+
+```powershell
+cargo +1.96.0 run --release --locked `
+  -p issue-308-compiler-budget-calibration-research `
+  --no-default-features --features research-runner-full `
+  --bin issue-308-compiler-budget-calibration-research -- `
+  smoke-identity-fresh-process-pilot local-smoke wide-star-v1 1
 ```
