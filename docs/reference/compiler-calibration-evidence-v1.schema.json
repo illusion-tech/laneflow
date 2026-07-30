@@ -5343,6 +5343,41 @@
         }
       }
     },
+    "budgetMetric": {
+      "enum": [
+        "wall-time-ns",
+        "allocated-bytes",
+        "peak-live-requested-bytes",
+        "retained-capacity-bytes",
+        "working-set-bytes",
+        "private-bytes",
+        "commit-peak-bytes"
+      ]
+    },
+    "adjacentLevelRatioReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "batch",
+        "lowerLadderBatchSummaryId",
+        "upperLadderBatchSummaryId"
+      ],
+      "properties": {
+        "batch": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lowerLadderBatchSummaryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "upperLadderBatchSummaryId": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "candidateMetric": {
       "enum": [
         "wall-time-ns",
@@ -5700,6 +5735,7 @@
         },
         "adjacentLevelRatios": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -5709,6 +5745,8 @@
               "upperStratum",
               "metric",
               "batch",
+              "lowerLadderBatchSummaryId",
+              "upperLadderBatchSummaryId",
               "pairingMethod",
               "normalizationBasis",
               "roundPairs",
@@ -5738,6 +5776,14 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 1
+              },
+              "lowerLadderBatchSummaryId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "upperLadderBatchSummaryId": {
+                "type": "string",
+                "minLength": 1
               },
               "pairingMethod": {
                 "const": "same-batch-same-round-adjacent-level-v1"
@@ -5889,57 +5935,236 @@
         },
         "knees": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "workloadId",
-              "graphProfile",
-              "candidateN",
-              "confirmedN",
+              "candidateId",
+              "metric",
+              "lowerStratum",
+              "upperStratum",
+              "candidateBatch0Ratio",
+              "confirmationBatch1Ratio",
+              "candidateKnee",
+              "confirmedKnee",
               "profilerArtifactSha256"
             ],
             "properties": {
-              "workloadId": {
-                "type": "string",
-                "minLength": 1
+              "candidateId": {
+                "const": "baseline-std-randomstate-stable-vec-v1"
               },
-              "graphProfile": {
-                "type": "string",
-                "minLength": 1
+              "metric": {
+                "enum": [
+                  "wall-time-ns",
+                  "peak-live-requested-bytes"
+                ]
               },
-              "candidateN": {
-                "$ref": "#/$defs/nullableIntegerObservation"
+              "lowerStratum": {
+                "$ref": "#/$defs/measurementStratum"
               },
-              "confirmedN": {
-                "$ref": "#/$defs/nullableIntegerObservation"
+              "upperStratum": {
+                "$ref": "#/$defs/measurementStratum"
+              },
+              "candidateBatch0Ratio": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/adjacentLevelRatioReference"
+                  },
+                  {
+                    "properties": {
+                      "batch": {
+                        "const": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              "confirmationBatch1Ratio": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/adjacentLevelRatioReference"
+                  },
+                  {
+                    "properties": {
+                      "batch": {
+                        "const": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "candidateKnee": {
+                "type": "boolean"
+              },
+              "confirmedKnee": {
+                "type": "boolean"
               },
               "profilerArtifactSha256": {
                 "$ref": "#/$defs/nullableSha256Observation"
               }
-            }
+            },
+            "allOf": [
+              {
+                "properties": {
+                  "lowerStratum": {
+                    "properties": {
+                      "keyDomain": {
+                        "const": "full-pipeline-baseline"
+                      },
+                      "caseId": {
+                        "const": "not-applicable"
+                      }
+                    }
+                  },
+                  "upperStratum": {
+                    "properties": {
+                      "keyDomain": {
+                        "const": "full-pipeline-baseline"
+                      },
+                      "caseId": {
+                        "const": "not-applicable"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "metric": {
+                      "const": "wall-time-ns"
+                    }
+                  },
+                  "required": [
+                    "metric"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "lowerStratum": {
+                      "properties": {
+                        "binaryMode": {
+                          "const": "timing"
+                        }
+                      }
+                    },
+                    "upperStratum": {
+                      "properties": {
+                        "binaryMode": {
+                          "const": "timing"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "metric": {
+                      "const": "peak-live-requested-bytes"
+                    }
+                  },
+                  "required": [
+                    "metric"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "lowerStratum": {
+                      "properties": {
+                        "binaryMode": {
+                          "const": "memory"
+                        }
+                      }
+                    },
+                    "upperStratum": {
+                      "properties": {
+                        "binaryMode": {
+                          "const": "memory"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "candidateKnee": {
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "candidateKnee"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "confirmedKnee": {
+                      "const": false
+                    },
+                    "profilerArtifactSha256": {
+                      "const": {
+                        "value": null,
+                        "reason": "not-a-candidate-knee"
+                      }
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "profilerArtifactSha256": {
+                      "properties": {
+                        "value": {
+                          "$ref": "#/$defs/sha256"
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
           }
         },
         "reproducibilityEnvelopes": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": [
+              "candidateId",
               "metric",
-              "ratioNumerator",
-              "ratioDenominator"
+              "aggregationScope",
+              "maximizingBatch0LadderBatchSummaryId",
+              "maximizingBatch1LadderBatchSummaryId",
+              "repeatRatio"
             ],
             "properties": {
+              "candidateId": {
+                "const": "baseline-std-randomstate-stable-vec-v1"
+              },
               "metric": {
+                "$ref": "#/$defs/budgetMetric"
+              },
+              "aggregationScope": {
+                "const": "all-completed-non-guard-baseline-ladder-strata-v1"
+              },
+              "maximizingBatch0LadderBatchSummaryId": {
                 "type": "string",
                 "minLength": 1
               },
-              "ratioNumerator": {
-                "$ref": "#/$defs/positiveInteger"
+              "maximizingBatch1LadderBatchSummaryId": {
+                "type": "string",
+                "minLength": 1
               },
-              "ratioDenominator": {
-                "$ref": "#/$defs/positiveInteger"
+              "repeatRatio": {
+                "$ref": "#/$defs/positiveRatio"
               }
             }
           }
@@ -6142,41 +6367,151 @@
         },
         "recommendations": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "id",
+              "recommendationKind",
+              "candidateId",
+              "stratum",
+              "metric",
+              "formula",
+              "batch0LadderBatchSummaryId",
+              "batch1LadderBatchSummaryId",
+              "reproducibilityEnvelopeMetric",
+              "observedUpper",
+              "roundingRule",
+              "roundingQuantum",
               "value",
               "unit",
-              "evidenceRunIds",
               "scope"
             ],
             "properties": {
-              "id": {
+              "recommendationKind": {
+                "const": "r0-budget-v1"
+              },
+              "candidateId": {
+                "const": "baseline-std-randomstate-stable-vec-v1"
+              },
+              "stratum": {
+                "$ref": "#/$defs/measurementStratum"
+              },
+              "metric": {
+                "$ref": "#/$defs/budgetMetric"
+              },
+              "formula": {
+                "const": "ceil-div-observed-upper-times-envelope-to-quantum-v1"
+              },
+              "batch0LadderBatchSummaryId": {
                 "type": "string",
                 "minLength": 1
+              },
+              "batch1LadderBatchSummaryId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reproducibilityEnvelopeMetric": {
+                "$ref": "#/$defs/budgetMetric"
+              },
+              "observedUpper": {
+                "$ref": "#/$defs/positiveInteger"
+              },
+              "roundingRule": {
+                "enum": [
+                  "ceil-to-protocol-clock-quantum-v1",
+                  "ceil-to-whole-byte-v1"
+                ]
+              },
+              "roundingQuantum": {
+                "$ref": "#/$defs/positiveInteger"
               },
               "value": {
-                "$ref": "#/$defs/nullableIntegerObservation"
+                "$ref": "#/$defs/positiveInteger"
               },
               "unit": {
-                "type": "string",
-                "minLength": 1
-              },
-              "evidenceRunIds": {
-                "type": "array",
-                "minItems": 1,
-                "uniqueItems": true,
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
+                "enum": [
+                  "nanosecond",
+                  "byte"
+                ]
               },
               "scope": {
                 "const": "R0 research input for #292; not product SLA"
               }
-            }
+            },
+            "allOf": [
+              {
+                "properties": {
+                  "stratum": {
+                    "properties": {
+                      "keyDomain": {
+                        "const": "full-pipeline-baseline"
+                      },
+                      "caseId": {
+                        "const": "not-applicable"
+                      },
+                      "scaleRole": {
+                        "enum": [
+                          "base",
+                          "ladder",
+                          "calibration",
+                          "stress"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "metric": {
+                      "const": "wall-time-ns"
+                    }
+                  },
+                  "required": [
+                    "metric"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "stratum": {
+                      "properties": {
+                        "binaryMode": {
+                          "const": "timing"
+                        }
+                      }
+                    },
+                    "roundingRule": {
+                      "const": "ceil-to-protocol-clock-quantum-v1"
+                    },
+                    "unit": {
+                      "const": "nanosecond"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "stratum": {
+                      "properties": {
+                        "binaryMode": {
+                          "const": "memory"
+                        }
+                      }
+                    },
+                    "roundingRule": {
+                      "const": "ceil-to-whole-byte-v1"
+                    },
+                    "roundingQuantum": {
+                      "const": 1
+                    },
+                    "unit": {
+                      "const": "byte"
+                    }
+                  }
+                }
+              }
+            ]
           }
         }
       }
