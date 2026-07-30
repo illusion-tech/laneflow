@@ -279,17 +279,21 @@
       ],
       "properties": {
         "sourceCommit": {
-          "$ref": "#/$defs/gitCommit"
+          "$ref": "#/$defs/gitCommit",
+          "description": "受信任研究契约、工作负载清单、证据 Schema 与被测来源所在的精确 Git commit；不自动代表研究执行器内本地组件版本。"
         },
         "harnessCommit": {
-          "$ref": "#/$defs/gitCommit"
+          "$ref": "#/$defs/gitCommit",
+          "description": "构建研究执行器、独立预言机与 local-workspace 候选组件的精确 Git commit；独立验证器要求本地组件 version 与本字段相等。"
         },
         "dirty": {
           "type": "boolean",
-          "const": false
+          "const": false,
+          "description": "sourceCommit 与 harnessCommit 对应的受测来源和研究执行器检出工作树都必须无未提交修改。"
         },
         "cargoLockSha256": {
-          "$ref": "#/$defs/sha256"
+          "$ref": "#/$defs/sha256",
+          "description": "构建 harnessCommit 研究执行器所用 Cargo.lock 的实际 SHA-256。"
         },
         "contractDescriptorId": {
           "const": "laneflow.compiler-calibration-contract"
@@ -301,7 +305,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "5a9b6b0464241020fbe4d2b9d0ee0e9e34e5fe703f65c6b45ef142cc75528aba"
+          "const": "a728a0308eb9451b389bb3aa9285ea738d42c3bdd9827e6526a41518f844ba23"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1200,7 +1204,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "5a9b6b0464241020fbe4d2b9d0ee0e9e34e5fe703f65c6b45ef142cc75528aba"
+          "const": "a728a0308eb9451b389bb3aa9285ea738d42c3bdd9827e6526a41518f844ba23"
         },
         "counts": {
           "type": "object"
@@ -1845,7 +1849,8 @@
         },
         "version": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "standard-library 组件等于 environment.rustc；local-workspace 组件等于 source.harnessCommit；crates-io/git 组件等于 harness Cargo.lock 中的精确版本。"
         },
         "features": {
           "type": "array",

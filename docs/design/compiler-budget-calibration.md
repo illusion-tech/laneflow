@@ -319,24 +319,42 @@ repeated record_count times:
   payload_bytes
 ```
 
-无对应值的 `entity_kind` 使用 `0`，无 owner/local index 使用 `u32::MAX`。记录种类
-码冻结为：
+保留的缺失值是 `entity_kind = 0` 与 `owner/local index = u32::MAX`，但 v1 的
+十三种现行记录都必须拥有恰好一个记录所有者（record owner）：`entity_kind`、
+`stable_id` 和 `owner_ordinal` 均不得缺失，只有下表标为“无”的 `local_index`
+使用 `u32::MAX`。`stable_id` 的十六字节没有缺失哨兵。
 
-| 代码 | 研究记录（Research Record）                   |
-| ---: | --------------------------------------------- |
-|    1 | 身份/声明（identity/declaration）             |
-|    2 | 所有者关系（owner relation）                  |
-|    3 | 边连接（edge connection）                     |
-|    4 | 路线出现项（route occurrence）                |
-|    5 | 规范几何点（canonical geometry point）        |
-|    6 | 准入关系（access relation）                   |
-|    7 | 信号组关系（signal group relation）           |
-|    8 | 信号阶段状态（signal phase state）            |
-|    9 | Gate 出现项（gate occurrence）                |
-|   10 | 等待区出现项（waiting-zone occurrence）       |
-|   11 | 停车锚点记录（parking anchor record）         |
-|   12 | 车道覆盖出现项（lane coverage occurrence）    |
-|   13 | 路口内部边角色（junction internal-edge role） |
+`owner_ordinal` 不是执行器自由分配的序号。对每个 `entity_kind`，先把该种类的全部
+身份/声明记录按 `stable_id` 无符号逐字节升序排列，再取记录所有者的零起始同类序号；
+每条记录的 `(entity_kind, stable_id)` 必须唯一解析到对应身份/声明，重算序号必须与
+`owner_ordinal` 相等。这样 StableId128 与稠密序号同时受到摘要约束，而不会把被引用
+实体误写成记录所有者。
+
+记录种类码及 envelope 绑定冻结为：
+
+| 代码 | 研究记录（Research Record）                   | `entity_kind + stable_id` 的记录所有者         | `local_index` 来源                      |
+| ---: | --------------------------------------------- | ---------------------------------------------- | --------------------------------------- |
+|    1 | 身份/声明（identity/declaration）             | 被声明实体                                     | 无                                      |
+|    2 | 所有者关系（owner relation）                  | 子实体                                         | 无                                      |
+|    3 | 边连接（edge connection）                     | 来源 `LaneEdge`                                | 来源边 `outgoingConnections` 的规范索引 |
+|    4 | 路线出现项（route occurrence）                | 所属 `StaticRoute`                             | 载荷 `occurrenceIndex`                  |
+|    5 | 规范几何点（canonical geometry point）        | 所属 `LaneEdge`                                | 载荷 `pointIndex`                       |
+|    6 | 准入关系（access relation）                   | 所属 `AccessRule`                              | 规则内关系的规范索引                    |
+|    7 | 信号组关系（signal group relation）           | 所属 `SignalGroup`                             | 信号组内 `ManeuverGate` 的规范索引      |
+|    8 | 信号阶段状态（signal phase state）            | 所属 `SignalPhase`                             | 阶段内状态的规范索引                    |
+|    9 | Gate 出现项（gate occurrence）                | 所属 `ManeuverPath`                            | 载荷 `occurrenceIndex`                  |
+|   10 | 等待区出现项（waiting-zone occurrence）       | 所属 `ManeuverPath`                            | 载荷 `occurrenceIndex`                  |
+|   11 | 停车锚点记录（parking anchor record）         | `ParkingSpace`；载荷同名 StableId 必须与其相等 | 无                                      |
+|   12 | 车道覆盖出现项（lane coverage occurrence）    | 所属 `AuthoringLane`                           | 载荷 `occurrenceIndex`                  |
+|   13 | 路口内部边角色（junction internal-edge role） | 所属 `Junction`                                | 路口内部边角色列表的规范索引            |
+
+“规范索引”均在有类型引用解析完成后按记录所有者分组，把该集合的最终
+`payload_bytes` 按无符号逐字节升序排列，再连续分配零起始索引；相同载荷的副本占据
+连续索引，不使用来源顺序作破坏确定性的平局规则。载荷字段型索引则必须与 envelope
+的 `local_index` 精确相等。被引用的 LaneEdge、Gate、SignalGroup 等只进入载荷，
+不得替代上表的记录所有者。机器清单
+`semanticRecordEnvelopeRules + recordKinds[].envelopeBinding` 是同一规则的可执行
+登记；生产者与独立预言机必须各自按该登记生成并交叉验证。
 
 载荷（payload）只使用显式小端定宽整数、规范浮点位、十六字节 `StableId128`，以及
 `u32` 字节长度 + UTF-8 字节的字符串；序列使用 `u32` 计数后紧跟元素。输入
@@ -373,7 +391,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 - 三种模块图配置档及其精确模块/导入/跨模块引用公式；
 - 三种字符串配置、来源文档键和虚拟来源位置规则；
 - identity v1 二十二种实体的字段绑定与父项拓扑；
-- 研究记录 envelope、每种 `record_kind` 的有序载荷字段和诊断流；
+- 研究记录 envelope、每种 `record_kind` 的记录所有者/同类序号/本地索引绑定、
+  有序载荷字段和诊断流；
 - 非生产研究阶段记录模型的字段宽度、`repr(C)` 大小、记录粒度、逐阶段记录/载荷/
   逻辑字节公式和工作负载每单元阶段输入；
 - 来源令牌（source token）、模块/文档/导入/命名空间/配置键/引用/共享常量的字符串
@@ -387,8 +406,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `76488` exact bytes，SHA-256 为
-`5a9b6b0464241020fbe4d2b9d0ee0e9e34e5fe703f65c6b45ef142cc75528aba`；G2 只能发布
+取得 G1。G1 候选冻结清单 `83977` exact bytes，SHA-256 为
+`a728a0308eb9451b389bb3aa9285ea738d42c3bdd9827e6526a41518f844ba23`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -1021,7 +1040,8 @@ XXH3、XXH64 和 FNV-1a 64 只作为非加密内部候选。完整键相等比�
 `candidate.components` 必须与注册表一一相等，不得缺失、追加或替换组件：
 
 - 标准库组件的 `version` 必须等于证据环境中的 `rustc`，特性集合为空；
-- 本地研究组件的 `version` 必须等于 `sourceCommit`，并由干净工作树保证完整复现；
+- 本地研究组件的 `version` 必须等于 `harnessCommit`，并由研究执行器工作树干净状态
+  保证完整复现；
 - crates.io / git 组件必须把精确 package ID、版本、启用特性和 checksum 绑定到同一
   `Cargo.lock`，同时完成许可证、MSRV 与安全公告审计。
 
@@ -1123,7 +1143,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1321` exact bytes，SHA-256 为
-`608141c7d7b369f4bb23b72ee800022d649e391496502d664cf0324fb55dcd34`。该摘要是 PR/Gate
+`48b9a49c23b2a3bcf59ac1046b8835a1ad2ac75ffac7ffba755c214ad5612989`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1142,8 +1162,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `155659` exact bytes，SHA-256 为
-`d3b04535ac85ea1041746414761d259dc36e9f47d2adf20e3d819dbc4d86ee97`。
+G1 候选冻结 schema `156476` exact bytes，SHA-256 为
+`177f6f24f435464fa6fd6c415cf31a911a7dec6483aa6e9b637dece79763a357`。
 顶层格式标识：
 
 ```text
@@ -1218,6 +1238,15 @@ G2 证据生成器与独立验证器必须分别从绑定摘要的工作负载�
 Schema、没有通过该公式与交叉字段验证的
 JSON 不是有效研究证据。
 
+对研究语义记录流，独立验证器必须按
+`semanticRecordEnvelopeRules + recordKinds[].envelopeBinding` 逐条重建 envelope：
+先从身份/声明流重算每种实体的 StableId 排序与同类 `owner_ordinal`，再按记录种类
+核对记录所有者、固定/动态 `entity_kind`、所有者 StableId 与 `local_index` 来源。
+路线出现项不得以被引用 LaneEdge 代替所属 StaticRoute，其他关系/出现项同理；载荷
+索引与 `local_index` 不等、停车位载荷 StableId 与 envelope 不等、哨兵使用越界或
+所有者不能唯一解析时，完整输出与 `semanticDigest` 都必须判为无效。生产者与独立
+预言机必须各自实现该映射，不能共享被测映射表后只比较同源结果。
+
 独立验证器的启动根不是证据自报字段。它必须先取得 Gate 接受的契约描述符 exact-byte
 身份，从 `sourceCommit` 读取描述符并核对实际摘要，再依次核对描述符登记的 Evidence
 v1 Schema 与工作负载清单；此后才解析 evidence。解析后还要要求
@@ -1225,10 +1254,17 @@ v1 Schema 与工作负载清单；此后才解析 evidence。解析后还要要�
 `source.workloadManifestSha256` 分别等于已验证的实际制品。任何字段只满足六十四位
 十六进制形状、但不等于外部实物的证据都必须失败。
 
+研究来源提交（research source commit；`sourceCommit`）绑定受信任契约描述符、清单、
+Schema 与被测来源；研究执行器提交（research harness commit；`harnessCommit`）
+绑定研究执行器、独立预言机以及研究包内的本地 adapter/sorter。两者可以不同，但两份
+检出工作树（checkout）都必须干净，且 `cargoLockSha256` 必须来自构建
+`harnessCommit` 研究执行器的锁文件，不能拿 `sourceCommit` 冒充本地组件版本。
+
 候选验证必须从已绑定清单加载 `candidateRegistry`，要求证据候选的 registry revision、
 ID、键域、种子策略/固定值和有序组件身份与唯一注册项精确一致；再按组件种类核对
-rustc、`sourceCommit` 或 `Cargo.lock` package/version/features/checksum。不能从
-自由 ID 推测算法，也不能把同名候选的不同依赖实现合并比较。
+rustc、`harnessCommit` 或 harness `Cargo.lock`
+package/version/features/checksum。不能从自由 ID 推测算法，也不能把同名候选的不同
+依赖实现合并比较。
 
 轮次指标汇总验证必须按贡献 `runId` 重算。`cold-instance` 要求唯一
 `sampleOrdinal = 0`；`stable-capacity-reuse` 要求同一子进程的
