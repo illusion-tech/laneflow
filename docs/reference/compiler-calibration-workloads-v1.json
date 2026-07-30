@@ -2347,8 +2347,74 @@
       "expectedRetainedDiagnosticCount": "N",
       "expectedDiagnosticsTruncated": true,
       "expectedPrimaryCompilerErrorCode": "LF-COMP-RESEARCH-E-DIAGNOSTIC-LIMIT"
+    },
+    {
+      "id": "constant-hash-canonical-valid-v1",
+      "scope": "constant-hash qualification canonical success",
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleRoles": [
+        "known-vector"
+      ],
+      "construction": "use the canonical N=1 corridor workload without semantic mutation and replace only the candidate hash builder with the qualification builder",
+      "expectedDiagnosticCount": 0,
+      "expectedOutcome": "success"
+    },
+    {
+      "id": "constant-hash-missing-reference-v1",
+      "scope": "constant-hash qualification deterministic diagnostic",
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "scaleRoles": [
+        "known-vector"
+      ],
+      "construction": "at N=1 replace the first canonical route occurrence with the diagnosticStream unknown LaneEdge and replace only the candidate hash builder with the qualification builder",
+      "unknownLaneEdgeKeySource": "diagnosticStream.unknownLaneEdgeKeyEncoding",
+      "diagnosticCandidateSource": "diagnosticStream.inputVariantCandidateRules.corridor-missing-reference-per-unit-v1",
+      "expectedDiagnosticCount": 1,
+      "expectedPrimaryCompilerErrorCode": "LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE",
+      "expectedOutcome": "compiler-error"
     }
   ],
+  "constantHashQualificationContract": {
+    "revision": 1,
+    "protocolId": "constant-hash-full-key-equality-v1",
+    "candidateBuilderId": "all-keys-u64-zero-v1",
+    "oracleBuilderId": "exact-research-oracle-v1",
+    "candidateIds": [
+      "hashbrown-xxh3-fixed-v1",
+      "hashbrown-xxh64-fixed-v1",
+      "hashbrown-fnv1a64-v1"
+    ],
+    "workload": {
+      "id": "LF-COMP-CORRIDOR-v1",
+      "revision": 1,
+      "graphProfile": "wide-star-v1",
+      "stringProfile": "short-unique-v1",
+      "generatorVersion": 1,
+      "n": 1,
+      "b": {
+        "value": null,
+        "reason": "not-applicable-correctness-qualification"
+      },
+      "scaleRole": "known-vector",
+      "caseId": "not-applicable"
+    },
+    "inputVariantIds": [
+      "constant-hash-canonical-valid-v1",
+      "constant-hash-missing-reference-v1"
+    ],
+    "candidateRepeatsPerVariant": 2,
+    "oracleRepeatsPerVariant": 1,
+    "requiredChecks": [
+      "all-stage-counts-match-oracle",
+      "semantic-digest-matches-oracle",
+      "diagnostic-digest-matches-oracle",
+      "candidate-repeats-are-deterministic",
+      "stable-compiler-outcome-matches-oracle",
+      "partial-output-record-count-matches-oracle"
+    ],
+    "performanceDecisionRequiresPassedQualification": true,
+    "qualificationBuilderExcludedFromPerformanceRanking": true
+  },
   "limitDimensionBindings": [
     {
       "dimensionId": "module-count",
