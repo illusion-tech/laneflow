@@ -61,23 +61,61 @@ struct LirStage {
     scratch_capacity_bytes: u64,
 }
 
-pub(crate) fn build_identity_stage_case(
-    generator: &GeneratorContract,
+#[derive(Debug)]
+pub(crate) struct IdentityStageMaterialization {
+    source: SourceStage,
+    typed: TypedStage,
+    hir: HirStage,
+    mir: MirStage,
+    lir: LirStage,
+    pub(crate) output_construction: Vec<u8>,
+}
+
+pub(crate) fn prepare_identity_stage_case(
     identity: &IdentityContract,
     stage: &StageContract,
     graph_profile: GraphProfileId,
     n: u32,
+) -> Result<IdentityStagePlan, StageGenerationError> {
+    IdentityStagePlan::prepare(identity, stage, graph_profile, n)
+}
+
+pub(crate) fn execute_identity_stage_case(
+    generator: &GeneratorContract,
+    identity: &IdentityContract,
+    stage: &StageContract,
+    plan: &IdentityStagePlan,
+) -> Result<IdentityStageMaterialization, StageGenerationError> {
+    let source = materialize_source_input(generator, identity, stage, plan)?;
+    let typed = lower_source_to_typed_ast(identity, stage, plan, &source)?;
+    let hir = lower_typed_ast_to_hir(identity, stage, plan, &typed, &source.strings)?;
+    let mir = lower_hir_to_mir(identity, stage, plan, &hir, &source.strings)?;
+    let lir = canonicalize_mir(stage, plan, &mir)?;
+    let output_construction = construct_output(identity, plan, &lir)?;
+
+    Ok(IdentityStageMaterialization {
+        source,
+        typed,
+        hir,
+        mir,
+        lir,
+        output_construction,
+    })
+}
+
+pub(crate) fn finalize_identity_stage_case(
+    plan: &IdentityStagePlan,
+    materialized: IdentityStageMaterialization,
 ) -> Result<IdentityStageCaseOutput, StageGenerationError> {
-    let plan = IdentityStagePlan::prepare(identity, stage, graph_profile, n)?;
-
-    let source = materialize_source_input(generator, identity, stage, &plan)?;
-    let typed = lower_source_to_typed_ast(identity, stage, &plan, &source)?;
-    let hir = lower_typed_ast_to_hir(identity, stage, &plan, &typed, &source.strings)?;
-    let mir = lower_hir_to_mir(identity, stage, &plan, &hir, &source.strings)?;
-    let lir = canonicalize_mir(stage, &plan, &mir)?;
-    let output_construction = construct_output(identity, &plan, &lir)?;
-
-    // 以下展示/验证派生值不属于未来正式外层计时区。
+    let IdentityStageMaterialization {
+        source,
+        typed,
+        hir,
+        mir,
+        lir,
+        output_construction,
+    } = materialized;
+    // 以下摘要与验证工作必须位于未来正式外层计时区之外。
     let semantic_digest_sha256 = encode_lower_hex(&Sha256::digest(&output_construction));
     let summary = plan.summary(semantic_digest_sha256);
     verify_materialized_shapes(
@@ -91,6 +129,9 @@ pub(crate) fn build_identity_stage_case(
     )?;
     let string_bytes =
         source.payload[source.strings.string_start..source.strings.string_end].to_vec();
+    let scratch_capacity_bytes = lir
+        .scratch_capacity_bytes
+        .max(as_u64(source.scratch.capacity(), "source scratch capacity")? * 8);
 
     Ok(IdentityStageCaseOutput {
         summary,
@@ -107,11 +148,21 @@ pub(crate) fn build_identity_stage_case(
         canonical_lir_records: lir.records,
         canonical_lir_payload: lir.payload,
         diagnostics: Vec::new(),
-        scratch_capacity_bytes: lir
-            .scratch_capacity_bytes
-            .max(as_u64(source.scratch.capacity(), "source scratch capacity")? * 8),
+        scratch_capacity_bytes,
         output_construction,
     })
+}
+
+pub(crate) fn build_identity_stage_case(
+    generator: &GeneratorContract,
+    identity: &IdentityContract,
+    stage: &StageContract,
+    graph_profile: GraphProfileId,
+    n: u32,
+) -> Result<IdentityStageCaseOutput, StageGenerationError> {
+    let plan = prepare_identity_stage_case(identity, stage, graph_profile, n)?;
+    let materialized = execute_identity_stage_case(generator, identity, stage, &plan)?;
+    finalize_identity_stage_case(&plan, materialized)
 }
 
 fn materialize_source_input(

@@ -14,6 +14,7 @@ mod oracle;
 mod pipeline;
 mod stage;
 mod stage_oracle;
+mod timing;
 
 pub use generator::{
     ExpandedModule, ExpandedModuleGraph, GeneratorError, GraphProfileId,
@@ -35,6 +36,10 @@ pub use stage::{
     StageContractError, StageGenerationError, StageShape, build_identity_stage_summary,
 };
 pub use stage_oracle::StageOracleError;
+pub use timing::{
+    CLOCK_QUANTUM_OBSERVATION_COUNT, IdentityTimingSample, TimingError,
+    measure_identity_stage_once, observe_clock_quantum_ns,
+};
 
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";
 pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_322;
