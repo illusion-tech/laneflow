@@ -237,6 +237,12 @@
     "revision": 1,
     "selectionRule": "evidence candidate IDs, key domains, seed policies and component bindings must match exactly one registry entry; unregistered or partially matched configurations are invalid",
     "componentVersionRule": "standard-library components bind environment.rustc, local-workspace components bind harnessCommit, and crates-io or git components bind the harness Cargo.lock package ID, version, features and checksum",
+    "baselineByKeyDomain": {
+      "external-string": "std-hashmap-randomstate-v1",
+      "validated-fixed-key": "std-hashmap-randomstate-v1",
+      "canonical-output-order": "stable-vec-sort-v1"
+    },
+    "baselineSelectionRule": "candidate comparisons must use the exact baselineByKeyDomain entry, the candidate ID must differ from that baseline, and both IDs must be registered for the selected key domain",
     "candidates": [
       {
         "id": "baseline-std-randomstate-stable-vec-v1",

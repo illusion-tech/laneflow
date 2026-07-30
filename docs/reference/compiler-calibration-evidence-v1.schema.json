@@ -119,52 +119,6 @@
         }
       ]
     },
-    "nullableNumberObservation": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "value",
-        "reason"
-      ],
-      "properties": {
-        "value": {
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "reason": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1
-        }
-      },
-      "oneOf": [
-        {
-          "properties": {
-            "value": {
-              "type": "number"
-            },
-            "reason": {
-              "type": "null"
-            }
-          }
-        },
-        {
-          "properties": {
-            "value": {
-              "type": "null"
-            },
-            "reason": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        }
-      ]
-    },
     "nullableSha256Observation": {
       "type": "object",
       "additionalProperties": false,
@@ -305,7 +259,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "a728a0308eb9451b389bb3aa9285ea738d42c3bdd9827e6526a41518f844ba23"
+          "const": "07ff1f5becae5bfb79586f5f7b35aca5c58a20042cd7b8586f7e63261062506b"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1204,7 +1158,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "a728a0308eb9451b389bb3aa9285ea738d42c3bdd9827e6526a41518f844ba23"
+          "const": "07ff1f5becae5bfb79586f5f7b35aca5c58a20042cd7b8586f7e63261062506b"
         },
         "counts": {
           "type": "object"
@@ -5309,6 +5263,86 @@
         }
       ]
     },
+    "signedQ16_16Rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator",
+        "fractionalBits"
+      ],
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": -9223372036854775808,
+          "maximum": 9223372036854775807
+        },
+        "denominator": {
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "fractionalBits": {
+          "const": 16
+        }
+      }
+    },
+    "pairwiseGrowthSlope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lowerBatchSummaryId",
+        "upperBatchSummaryId",
+        "slopeQ16_16"
+      ],
+      "properties": {
+        "lowerBatchSummaryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "upperBatchSummaryId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "slopeQ16_16": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "growthSlopeBatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "levelBatchSummaryIds",
+        "pairwiseSlopes",
+        "theilSenSlope"
+      ],
+      "properties": {
+        "levelBatchSummaryIds": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "pairwiseSlopes": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/pairwiseGrowthSlope"
+          }
+        },
+        "theilSenSlope": {
+          "$ref": "#/$defs/signedQ16_16Rational"
+        }
+      }
+    },
     "candidateMetric": {
       "enum": [
         "wall-time-ns",
@@ -5916,40 +5950,43 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "workloadId",
-              "graphProfile",
+              "candidateId",
               "metric",
-              "batch",
-              "levelNs",
-              "theilSenSlope"
+              "encoding",
+              "batch0",
+              "batch1",
+              "upperBoundFormula",
+              "suggestedUpperSlope"
             ],
             "properties": {
-              "workloadId": {
-                "type": "string",
-                "minLength": 1
-              },
-              "graphProfile": {
-                "type": "string",
-                "minLength": 1
+              "candidateId": {
+                "const": "baseline-std-randomstate-stable-vec-v1"
               },
               "metric": {
-                "type": "string",
-                "minLength": 1
+                "enum": [
+                  "wall-time-ns",
+                  "allocated-bytes",
+                  "peak-live-requested-bytes",
+                  "retained-capacity-bytes",
+                  "working-set-bytes",
+                  "private-bytes",
+                  "commit-peak-bytes"
+                ]
               },
-              "batch": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 1
+              "encoding": {
+                "const": "theil-sen-q16.16-nearest-ties-even-v1"
               },
-              "levelNs": {
-                "type": "array",
-                "uniqueItems": true,
-                "items": {
-                  "$ref": "#/$defs/positiveInteger"
-                }
+              "batch0": {
+                "$ref": "#/$defs/growthSlopeBatch"
               },
-              "theilSenSlope": {
-                "$ref": "#/$defs/nullableNumberObservation"
+              "batch1": {
+                "$ref": "#/$defs/growthSlopeBatch"
+              },
+              "upperBoundFormula": {
+                "const": "max-plus-absolute-difference-v1"
+              },
+              "suggestedUpperSlope": {
+                "$ref": "#/$defs/signedQ16_16Rational"
               }
             }
           }
@@ -5998,7 +6035,109 @@
                   "insufficient-evidence"
                 ]
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "stratum": {
+                      "properties": {
+                        "keyDomain": {
+                          "const": "external-string"
+                        }
+                      },
+                      "required": [
+                        "keyDomain"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "stratum"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "baselineId": {
+                      "const": "std-hashmap-randomstate-v1"
+                    },
+                    "candidateId": {
+                      "enum": [
+                        "hashbrown-randomstate-v1",
+                        "sorted-vec-binary-search-v1"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "stratum": {
+                      "properties": {
+                        "keyDomain": {
+                          "const": "validated-fixed-key"
+                        }
+                      },
+                      "required": [
+                        "keyDomain"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "stratum"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "baselineId": {
+                      "const": "std-hashmap-randomstate-v1"
+                    },
+                    "candidateId": {
+                      "enum": [
+                        "hashbrown-randomstate-v1",
+                        "sorted-vec-binary-search-v1",
+                        "hashbrown-xxh3-fixed-v1",
+                        "hashbrown-xxh64-fixed-v1",
+                        "hashbrown-fnv1a64-v1",
+                        "indexmap-randomstate-v1"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "stratum": {
+                      "properties": {
+                        "keyDomain": {
+                          "const": "canonical-output-order"
+                        }
+                      },
+                      "required": [
+                        "keyDomain"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "stratum"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "baselineId": {
+                      "const": "stable-vec-sort-v1"
+                    },
+                    "candidateId": {
+                      "enum": [
+                        "deterministic-radix-sort-v1",
+                        "deterministic-bucket-sort-v1"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
           }
         },
         "recommendations": {
