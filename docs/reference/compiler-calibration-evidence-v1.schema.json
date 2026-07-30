@@ -270,7 +270,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "06fd30212ae92750ea65a9eccd1e2386d77ea07897cbe9d24f229f8c91421310"
+          "const": "9d670341238da29c428fa8a082723cd6d26d271c1269fc8dc1768068b4004575"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1169,7 +1169,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "06fd30212ae92750ea65a9eccd1e2386d77ea07897cbe9d24f229f8c91421310"
+          "const": "9d670341238da29c428fa8a082723cd6d26d271c1269fc8dc1768068b4004575"
         },
         "counts": {
           "type": "object"
@@ -1537,24 +1537,24 @@
                         "crossModuleReferenceCount": 0,
                         "maximumImportDepth": 0,
                         "sourceDocumentCount": 1,
-                        "sourceByteCount": 2246,
+                        "sourceByteCount": 2228,
                         "identityDeclarationCount": 27,
                         "sourceDeclarationCount": 27,
-                        "sourceSpanCount": 117,
-                        "identityFieldOccurrenceCount": 76,
+                        "sourceSpanCount": 116,
+                        "identityFieldOccurrenceCount": 73,
                         "profiledKeyOccurrenceCount": 31,
-                        "sourceReferenceCount": 59,
-                        "sourceRelationCount": 31,
+                        "sourceReferenceCount": 55,
+                        "sourceRelationCount": 30,
                         "sourceGeometryCount": 0,
                         "symbolCount": 27,
-                        "stringItemCount": 119,
+                        "stringItemCount": 115,
                         "maximumStringBytes": 52,
-                        "totalStringBytes": 3282,
+                        "totalStringBytes": 3162,
                         "diagnosticCount": 0,
-                        "semanticOutputRecord": 58,
-                        "semanticPayloadByteCount": 3026,
-                        "logicalByteCount": 5578,
-                        "outputByteCount": 5168,
+                        "semanticOutputRecord": 57,
+                        "semanticPayloadByteCount": 2942,
+                        "logicalByteCount": 5450,
+                        "outputByteCount": 5048,
                         "RoadCorridor": 1,
                         "RoadSection": 1,
                         "AuthoringLane": 1,
@@ -1577,7 +1577,7 @@
                         "VehicleProfile": 1,
                         "StaticRoute": 2,
                         "CanonicalFrame": 0,
-                        "ownerRelation": 14,
+                        "ownerRelation": 13,
                         "edgeConnection": 2,
                         "routeOccurrence": 4,
                         "canonicalGeometryPoint": 0,
@@ -2937,50 +2937,50 @@
             "sourceInput": {
               "properties": {
                 "recordCount": {
-                  "const": 118
+                  "const": 117
                 },
                 "logicalBytes": {
-                  "const": 9304
+                  "const": 9134
                 }
               }
             },
             "typedAst": {
               "properties": {
                 "recordCount": {
-                  "const": 194
+                  "const": 186
                 },
                 "logicalBytes": {
-                  "const": 14076
+                  "const": 13662
                 }
               }
             },
             "hir": {
               "properties": {
                 "recordCount": {
-                  "const": 194
+                  "const": 186
                 },
                 "logicalBytes": {
-                  "const": 10278
+                  "const": 9866
                 }
               }
             },
             "mir": {
               "properties": {
                 "recordCount": {
-                  "const": 58
+                  "const": 57
                 },
                 "logicalBytes": {
-                  "const": 5578
+                  "const": 5450
                 }
               }
             },
             "canonicalLir": {
               "properties": {
                 "recordCount": {
-                  "const": 58
+                  "const": 57
                 },
                 "logicalBytes": {
-                  "const": 5578
+                  "const": 5450
                 }
               }
             },
@@ -3000,17 +3000,17 @@
                   "const": 0
                 },
                 "logicalBytes": {
-                  "const": 464
+                  "const": 456
                 }
               }
             },
             "outputConstruction": {
               "properties": {
                 "recordCount": {
-                  "const": 58
+                  "const": 57
                 },
                 "logicalBytes": {
-                  "const": 5168
+                  "const": 5048
                 }
               }
             }

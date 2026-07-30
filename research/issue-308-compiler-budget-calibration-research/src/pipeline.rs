@@ -2688,7 +2688,7 @@ mod tests {
                 .expect("N=2 stage output");
             assert_eq!(output.summary.counts.identity_declaration_count, 44);
             assert_eq!(output.summary.counts.semantic_output_record, 64);
-            assert_eq!(output.summary.counts.semantic_payload_byte_count, 3_896);
+            assert_eq!(output.summary.counts.semantic_payload_byte_count, 3_852);
             assert!(
                 output
                     .mir_records

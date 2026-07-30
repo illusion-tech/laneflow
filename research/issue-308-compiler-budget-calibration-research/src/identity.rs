@@ -12,10 +12,10 @@ pub(crate) const STABLE_ID_DOMAIN: &[u8] = b"laneflow.stable-id.v1\0";
 pub(crate) const IDENTITY_MAGIC: &[u8; 4] = b"LFID";
 pub(crate) const ABSENT_LOCAL_INDEX: u32 = u32::MAX;
 #[cfg(test)]
-const IDENTITY_KNOWN_VECTOR_BYTE_LENGTH: usize = 109_533;
+const IDENTITY_KNOWN_VECTOR_BYTE_LENGTH: usize = 108_777;
 #[cfg(test)]
 const IDENTITY_KNOWN_VECTOR_SHA256: &str =
-    "b78d429e586a231ba20e9710b198834e9df7e3d5b12976635fc7da30149f27f1";
+    "93526846510660d1fe4a9251997d64ca7a3e7ab38d34eddb77efe539074d93fc";
 
 const EXPECTED_ENTITY_KINDS: [&str; 22] = [
     "RoadCorridor",
@@ -89,11 +89,7 @@ const EXPECTED_IDENTITY_FIELDS: [&[(u16, &str)]; 22] = [
         (21, "profiled-key(kind=13,local=0)"),
     ],
     &[(1, "namespace"), (22, "profiled-key(kind=14,local=0)")],
-    &[
-        (1, "namespace"),
-        (23, "stable-id(kind=14,local=0)"),
-        (24, "profiled-key(kind=15,local=0)"),
-    ],
+    &[(1, "namespace"), (24, "profiled-key(kind=15,local=0)")],
     &[
         (1, "namespace"),
         (25, "profiled-key(kind=16,local=0)"),
@@ -1149,22 +1145,22 @@ mod tests {
                     GraphProfileId::WideStar,
                     "77ee06c1fe5111a1e002ff604266896e",
                     "1f0b404546606bbdb629ebd69c1a4bf6",
-                    3_154,
-                    "64f74fb105e977e6ac09a1a19745d49b87f40e8cd3a82b4eb95ce8952f7359fc",
+                    3_132,
+                    "897447f2192acf03a42bfb46cb75a6e0f9de5409adbb752136902fcc5560e31e",
                 ),
                 (
                     GraphProfileId::DeepChain,
                     "7bf928ee48d1e32409db6608f97e38fd",
                     "0a625360baf39fa79252816b734287ba",
-                    3_154,
-                    "e384b035b1a0ecdc57a9e31819e3fb632245cc1af4c4584346a23eabb3c289e0",
+                    3_132,
+                    "012499aefcc4598a0b42df79aeabf2b114ce2622bb05b8d85090e6fbeae3e75b",
                 ),
                 (
                     GraphProfileId::SharedFaninDag,
                     "fc33897a7819b3e53f1c47ef5c199f4d",
                     "9c5b27fcc7b6d2bb367d0eb223abcc2d",
-                    3_154,
-                    "fd04ac3da5009f8b9af8afd9c0a9ca44fcb82644069bd39f18438b490b78e181",
+                    3_132,
+                    "4394a7aa0d2a72e71f8c39354df7165a2e230f6402a604c40f84b698065e79f6",
                 ),
             ]
         );

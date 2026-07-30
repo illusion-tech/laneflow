@@ -446,8 +446,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `112077` exact bytes，SHA-256 为
-`06fd30212ae92750ea65a9eccd1e2386d77ea07897cbe9d24f229f8c91421310`；G2 只能发布
+取得 G1。G1 候选冻结清单 `112190` exact bytes，SHA-256 为
+`9d670341238da29c428fa8a082723cd6d26d271c1269fc8dc1768068b4004575`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -458,7 +458,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 目的：隔离身份编码、字符串驻留、符号登记、稳定排序和有类型序号分配。
 
 一个工作单元恰好包含 identity v1 登记表的二十二种实体各一项，并包含登记表要求的
-五十八个必需标签出现。父子实体按 `network-compiler.md` 的唯一所有者关系闭合；
+五十七个必需标签出现。身份定义型父子实体按 `network-compiler.md` 的唯一所有者
+关系闭合；
 所有字段值、父项求值拓扑和局部键字节由研究工作负载清单的 `identityBindings`
 冻结，不允许 G2 自行挑选等价字符串。
 
@@ -470,6 +471,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 - 每个种类恰好一项，不通过大量复制某一种类歪曲 identity registry 成本；
 - `LaneEdge` 使用独立 `laneEdgeKey`，不把可选 road/junction 角色写入身份；
+- `ParkingSpace` 使用独立 `parkingSpaceKey`；研究单元仍显式生成一条
+  `ParkingSpace -> ParkingArea` 关系，但该可选组织关系不进入身份前像；
 - `RoadSection` 与 `FacilityBand` 分别拥有恰好一个 `RoadCorridor` 所有者；
 - 所有父锚点先以完整 `StableId128` 解析，再编码子身份；
 - 输入声明顺序按固定置换打乱，输出按 `(entityKind, StableId128, owner-local key)`
@@ -492,7 +495,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 计时区外从固定文件构造一个常量大小单元配方，但每次规模运行不得解析 JSON，也不得
 把原始 ID 或路径复制进领域键。停车基线没有配对 SpatialPackage；其三条 LaneEdge
 在研究生成器中各使用两个清单冻结的规范点，并与信号化走廊共同绑定到每工作单元
-唯一的 CanonicalFrame。合并后的基线计数冻结如下：
+唯一的 CanonicalFrame。`ParkingSpace.areaId` 仅在夹具显式提供时生成组织关系，
+不参与停车位身份派生；缺省值不得由研究生成器补造。合并后的基线计数冻结如下：
 
 | 计数对象                                                                                    |     每工作单元 |
 | ------------------------------------------------------------------------------------------- | -------------: |
@@ -597,7 +601,7 @@ ScenarioManifest v0.1 只承担当前制品配对和来源沿袭对照，不进�
 | 用例                       | 模块/导入/跨模块引用 | 身份声明/身份字段/配置键 |  来源引用/关系/几何 | 语义输出记录 | 语义载荷字节 |
 | -------------------------- | -------------------: | -----------------------: | ------------------: | -----------: | -----------: |
 | `signalized-corridor`      |         `2 / 1 / 66` |        `330 / 945 / 378` | `2374 / 597 / 1392` |         2319 |        84624 |
-| `parking-signals-baseline` |          `1 / 0 / 0` |           `27 / 76 / 31` |       `59 / 31 / 0` |           58 |         3026 |
+| `parking-signals-baseline` |          `1 / 0 / 0` |           `27 / 73 / 31` |       `55 / 30 / 0` |           57 |         2942 |
 | `multi-gate-waiting-zone`  |          `1 / 0 / 0` |           `18 / 47 / 20` |       `40 / 21 / 0` |           39 |         1984 |
 
 机器清单还逐 case 冻结来源字节、字符串项数/最大项/总字节、来源位置，以及
@@ -1534,7 +1538,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1322` exact bytes，SHA-256 为
-`4f96a525d5019d4032c15ceced1c4263f93c21c8fc893b1cb96230d6c28238e4`。该摘要是 PR/Gate
+`77532904df2b2c7e9157fe3154fa61fc7d507bf8abb28859c3ba872cec83c2e9`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1553,8 +1557,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `223168` exact bytes，SHA-256 为
-`40afe5dcb1556abe76c89b645cb80c78a7cfa1130b4c47b8979db5fd916f57e1`。
+G1 候选冻结 schema `223167` exact bytes，SHA-256 为
+`f236f29523c9b07cd360f910304de7c604d336f51bc34179ec26e0fd45f101c3`。
 顶层格式标识：
 
 ```text

@@ -1,7 +1,7 @@
 {
   "schema": "laneflow.compiler-calibration-module-graph-known-vectors",
   "schemaVersion": 1,
-  "sourceWorkloadManifestSha256": "06fd30212ae92750ea65a9eccd1e2386d77ea07897cbe9d24f229f8c91421310",
+  "sourceWorkloadManifestSha256": "9d670341238da29c428fa8a082723cd6d26d271c1269fc8dc1768068b4004575",
   "workloadId": "LF-COMP-ID-v1",
   "generatorVersion": 1,
   "baseSeedHexU64": "4c46434f4d500001",

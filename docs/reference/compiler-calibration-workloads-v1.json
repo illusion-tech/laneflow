@@ -608,13 +608,12 @@
         {"sourceEntityKind": "ManeuverGate", "targetEntityKindCode": 7, "slot": 0, "role": "owning-maneuver-path"},
         {"sourceEntityKind": "WaitingZone", "targetEntityKindCode": 7, "slot": 0, "role": "owning-maneuver-path"},
         {"sourceEntityKind": "SignalPhase", "targetEntityKindCode": 12, "slot": 0, "role": "owning-signal-controller"},
-        {"sourceEntityKind": "ParkingSpace", "targetEntityKindCode": 14, "slot": 0, "role": "owning-parking-area"},
         {"sourceEntityKind": "LaneGroup", "targetEntityKindCode": 2, "slot": 0, "role": "owning-road-section"},
         {"sourceEntityKind": "FacilityBand", "targetEntityKindCode": 1, "slot": 0, "role": "owning-road-corridor"}
       ],
       "referenceResolutionByWorkload": {
-        "LF-COMP-ID-v1": "resolve the ten ownerRelations plus the sole LaneEdge as both ManeuverPath entry and exit target",
-        "LF-COMP-CORRIDOR-v1": "resolve source IDs and the validated unique owner tree from each bound fixture template before unit replication",
+        "LF-COMP-ID-v1": "resolve the nine identity-defining ownerRelations plus the sole LaneEdge as both ManeuverPath entry and exit target; preserve the explicit ParkingSpace-to-ParkingArea relation without using it as an identity field",
+        "LF-COMP-CORRIDOR-v1": "resolve source IDs and the validated unique owner tree from each bound fixture template before unit replication; preserve optional ParkingSpace.areaId relations without using them as identity fields",
         "LF-COMP-JUNCTION-GRID-v1": {
           "Movement.owning-junction": "Junction ordinal 0",
           "ManeuverPath.owning-movement": "Movement ordinal movementIndex",
@@ -623,7 +622,7 @@
           "ManeuverGate.owning-maneuver-path": "ManeuverPath ordinal movementIndex",
           "WaitingZone.owning-maneuver-path": "ManeuverPath ordinal movementIndex"
         },
-        "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1": "resolve source IDs and the validated unique owner tree independently inside each exact fixture case"
+        "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1": "resolve source IDs and the validated unique owner tree independently inside each exact fixture case; preserve optional ParkingSpace.areaId relations without using them as identity fields"
       }
     },
     "sourceReferenceExpansion": {
@@ -1413,7 +1412,6 @@
       "entityKind": "ParkingSpace",
       "fields": [
         {"tag": 1, "value": "namespace"},
-        {"tag": 23, "value": "stable-id(kind=14,local=0)"},
         {"tag": 24, "value": "profiled-key(kind=15,local=0)"}
       ]
     },
@@ -1492,9 +1490,9 @@
       ],
       "perUnitStageInputs": {
         "sourceDeclarationCount": 22,
-        "identityFieldOccurrenceCount": 58,
+        "identityFieldOccurrenceCount": 57,
         "profiledKeyOccurrenceCount": 24,
-        "sourceReferenceCount": 22,
+        "sourceReferenceCount": 21,
         "sourceRelationCount": 10,
         "sourceGeometryCount": 0
       },
@@ -1522,7 +1520,7 @@
         "StaticRoute": 1,
         "CanonicalFrame": 1,
         "identityDeclaration": 22,
-        "requiredIdentityFieldOccurrence": 58,
+        "requiredIdentityFieldOccurrence": 57,
         "ownerRelation": 10,
         "semanticOutputRecord": 32
       },
@@ -1594,10 +1592,10 @@
       ],
       "perUnitStageInputs": {
         "sourceDeclarationCount": 357,
-        "identityFieldOccurrenceCount": 1021,
+        "identityFieldOccurrenceCount": 1018,
         "profiledKeyOccurrenceCount": 409,
-        "sourceReferenceCount": 2373,
-        "sourceRelationCount": 628,
+        "sourceReferenceCount": 2369,
+        "sourceRelationCount": 627,
         "sourceGeometryCount": 1398
       },
       "perUnitCounts": {
@@ -1628,12 +1626,12 @@
         "ParkingSpace": 3,
         "CanonicalFrame": 1,
         "canonicalGeometryPoint": 1398,
-        "ownerRelation": 187,
+        "ownerRelation": 186,
         "signalGroupRelation": 33,
         "gateOccurrence": 34,
         "parkingSpaceAnchors": 3,
         "junctionInternalEdgeRole": 32,
-        "semanticOutputRecord": 2383
+        "semanticOutputRecord": 2382
       }
     },
     {
@@ -1962,7 +1960,7 @@
               "CanonicalFrame": 0
             },
             "relationRecordCounts": {
-              "ownerRelation": 14,
+              "ownerRelation": 13,
               "edgeConnection": 2,
               "routeOccurrence": 4,
               "canonicalGeometryPoint": 0,
@@ -1981,53 +1979,53 @@
               "crossModuleReferenceCount": 0,
               "maximumImportDepth": 0,
               "sourceDocumentCount": 1,
-              "sourceByteCount": 2246,
+              "sourceByteCount": 2228,
               "identityDeclarationCount": 27,
               "sourceDeclarationCount": 27,
-              "sourceSpanCount": 117,
-              "identityFieldOccurrenceCount": 76,
+              "sourceSpanCount": 116,
+              "identityFieldOccurrenceCount": 73,
               "profiledKeyOccurrenceCount": 31,
-              "sourceReferenceCount": 59,
-              "sourceRelationCount": 31,
+              "sourceReferenceCount": 55,
+              "sourceRelationCount": 30,
               "sourceGeometryCount": 0,
               "symbolCount": 27,
-              "stringItemCount": 119,
+              "stringItemCount": 115,
               "maximumStringBytes": 52,
-              "totalStringBytes": 3282,
+              "totalStringBytes": 3162,
               "diagnosticCount": 0,
-              "semanticOutputRecord": 58,
-              "semanticPayloadByteCount": 3026,
-              "logicalByteCount": 5578,
-              "outputByteCount": 5168
+              "semanticOutputRecord": 57,
+              "semanticPayloadByteCount": 2942,
+              "logicalByteCount": 5450,
+              "outputByteCount": 5048
             },
             "exactStageExpectations": {
               "sourceInput": {
-                "recordCount": 118,
-                "logicalBytes": 9304
+                "recordCount": 117,
+                "logicalBytes": 9134
               },
               "typedAst": {
-                "recordCount": 194,
-                "payloadLogicalBytes": 7868,
-                "logicalBytes": 14076,
-                "recordAllocationBytes": 14076
+                "recordCount": 186,
+                "payloadLogicalBytes": 7710,
+                "logicalBytes": 13662,
+                "recordAllocationBytes": 13662
               },
               "hir": {
-                "recordCount": 194,
-                "payloadLogicalBytes": 4070,
-                "logicalBytes": 10278,
-                "recordAllocationBytes": 10278
+                "recordCount": 186,
+                "payloadLogicalBytes": 3914,
+                "logicalBytes": 9866,
+                "recordAllocationBytes": 9866
               },
               "mir": {
-                "recordCount": 58,
-                "payloadLogicalBytes": 3026,
-                "logicalBytes": 5578,
-                "recordAllocationBytes": 5810
+                "recordCount": 57,
+                "payloadLogicalBytes": 2942,
+                "logicalBytes": 5450,
+                "recordAllocationBytes": 5678
               },
               "canonicalLir": {
-                "recordCount": 58,
-                "payloadLogicalBytes": 3026,
-                "logicalBytes": 5578,
-                "recordAllocationBytes": 5810
+                "recordCount": 57,
+                "payloadLogicalBytes": 2942,
+                "logicalBytes": 5450,
+                "recordAllocationBytes": 5678
               },
               "diagnostics": {
                 "recordCount": 0,
@@ -2035,11 +2033,11 @@
               },
               "scratch": {
                 "recordCount": 0,
-                "logicalBytes": 464
+                "logicalBytes": 456
               },
               "outputConstruction": {
-                "recordCount": 58,
-                "logicalBytes": 5168
+                "recordCount": 57,
+                "logicalBytes": 5048
               }
             }
           }

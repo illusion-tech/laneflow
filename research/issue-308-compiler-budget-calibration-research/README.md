@@ -102,9 +102,9 @@ G2 冻结的候选依赖如下；“特性”只列本研究包直接启用的�
 已知向量均绑定工作负载清单摘要，不是生产制品或正式性能证据：
 
 - `known-vectors/module-graphs-v1.json`：精确长度 `6545` 字节，SHA-256
-  `abe175a0982c6483619fb65738011c97e7871faf247531f4a46cffb136da41f5`；
-- `known-vectors/identity-records-v1.json`：精确长度 `109533` 字节，SHA-256
-  `b78d429e586a231ba20e9710b198834e9df7e3d5b12976635fc7da30149f27f1`。
+  `5fd24bbb029e324ae2479b9b71e918e9a2654af730152757a0f7f2ea5321e9cc`；
+- `known-vectors/identity-records-v1.json`：精确长度 `108777` 字节，SHA-256
+  `93526846510660d1fe4a9251997d64ca7a3e7ab38d34eddb77efe539074d93fc`。
 
 `LF-COMP-ID-v1` 的独立精确研究预言机已经覆盖三种模块图在 `N = 1`、`N = 2`
 下的六个用例，并逐项核对身份声明、所有者关系、来源字节、字符串字节、来源位置、

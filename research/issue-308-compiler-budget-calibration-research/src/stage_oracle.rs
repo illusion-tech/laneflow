@@ -1361,9 +1361,9 @@ mod tests {
     fn independently_recomputed_n1_shapes_match_frozen_values() {
         let trusted = load_repository_contract().expect("frozen contract");
         let expected = [
-            (GraphProfileId::WideStar, 4_920, 7_876, 6_105),
-            (GraphProfileId::DeepChain, 4_841, 7_777, 6_041),
-            (GraphProfileId::SharedFaninDag, 5_331, 8_307, 6_503),
+            (GraphProfileId::WideStar, 4_839, 7_743, 6_003),
+            (GraphProfileId::DeepChain, 4_760, 7_644, 5_939),
+            (GraphProfileId::SharedFaninDag, 5_250, 8_174, 6_401),
         ];
         for (profile, source_input, typed_ast, hir) in expected {
             let summary = build_identity_stage_oracle(&trusted.workload_manifest, profile, 1)
@@ -1371,8 +1371,8 @@ mod tests {
             assert_eq!(summary.stages.source_input.logical_bytes, source_input);
             assert_eq!(summary.stages.typed_ast.logical_bytes, typed_ast);
             assert_eq!(summary.stages.hir.logical_bytes, hir);
-            assert_eq!(summary.stages.canonical_lir.logical_bytes, 3_356);
-            assert_eq!(summary.stages.output_construction.logical_bytes, 3_154);
+            assert_eq!(summary.stages.canonical_lir.logical_bytes, 3_334);
+            assert_eq!(summary.stages.output_construction.logical_bytes, 3_132);
         }
     }
 

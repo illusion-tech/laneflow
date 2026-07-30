@@ -807,9 +807,9 @@ fn validate_identity_stage_inputs(manifest: &serde_json::Value) -> Result<(), St
     let inputs = object(workload, "perUnitStageInputs")?;
     for (field, expected) in [
         ("sourceDeclarationCount", 22),
-        ("identityFieldOccurrenceCount", 58),
+        ("identityFieldOccurrenceCount", 57),
         ("profiledKeyOccurrenceCount", 24),
-        ("sourceReferenceCount", 22),
+        ("sourceReferenceCount", 21),
         ("sourceRelationCount", 10),
         ("sourceGeometryCount", 0),
     ] {
@@ -1024,16 +1024,16 @@ mod tests {
     fn identity_stage_summaries_match_the_frozen_n1_shapes() {
         let trusted = load_repository_contract().expect("frozen contract");
         let expected = [
-            (GraphProfileId::WideStar, 58, 4_920, 116, 7_876, 116, 6_105),
-            (GraphProfileId::DeepChain, 57, 4_841, 115, 7_777, 115, 6_041),
+            (GraphProfileId::WideStar, 57, 4_839, 114, 7_743, 114, 6_003),
+            (GraphProfileId::DeepChain, 56, 4_760, 113, 7_644, 113, 5_939),
             (
                 GraphProfileId::SharedFaninDag,
-                63,
-                5_331,
-                121,
-                8_307,
-                121,
-                6_503,
+                62,
+                5_250,
+                119,
+                8_174,
+                119,
+                6_401,
             ),
         ];
         for (
@@ -1054,10 +1054,10 @@ mod tests {
             assert_eq!(summary.stages.typed_ast.logical_bytes, typed_bytes);
             assert_eq!(summary.stages.hir.record_count, hir_records);
             assert_eq!(summary.stages.hir.logical_bytes, hir_bytes);
-            assert_eq!(summary.stages.mir.logical_bytes, 3_356);
-            assert_eq!(summary.stages.canonical_lir.logical_bytes, 3_356);
+            assert_eq!(summary.stages.mir.logical_bytes, 3_334);
+            assert_eq!(summary.stages.canonical_lir.logical_bytes, 3_334);
             assert_eq!(summary.stages.scratch.logical_bytes, 256);
-            assert_eq!(summary.stages.output_construction.logical_bytes, 3_154);
+            assert_eq!(summary.stages.output_construction.logical_bytes, 3_132);
         }
     }
 }

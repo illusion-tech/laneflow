@@ -570,8 +570,8 @@ mod tests {
         )
         .expect("first-level preflight");
 
-        assert_eq!(report.primary_record_count, 58);
-        assert_eq!(report.logical_bytes_lower_bound, 7_876);
+        assert_eq!(report.primary_record_count, 57);
+        assert_eq!(report.logical_bytes_lower_bound, 7_743);
         assert_eq!(
             report.predicted_compiler_controlled_bytes,
             report.logical_bytes_lower_bound
@@ -623,7 +623,7 @@ mod tests {
             },
             Some(GuardCompletedLevelObservation {
                 n: 1,
-                primary_record_count: 58,
+                primary_record_count: 57,
                 peak_live_requested_bytes: 10_001,
                 private_bytes: 201,
                 wall_time_ns: 301,
@@ -631,7 +631,7 @@ mod tests {
         )
         .expect("later-level preflight");
 
-        assert_eq!(report.primary_record_count, 116);
+        assert_eq!(report.primary_record_count, 114);
         assert_eq!(report.predicted_compiler_controlled_bytes, 25_003);
         assert_eq!(report.predicted_private_bytes, Some(503));
         assert_eq!(report.predicted_wall_time_ns, Some(753));
@@ -652,7 +652,7 @@ mod tests {
                 },
                 Some(GuardCompletedLevelObservation {
                     n: 1,
-                    primary_record_count: 58,
+                    primary_record_count: 57,
                     peak_live_requested_bytes: u64::MAX,
                     private_bytes: u64::MAX,
                     wall_time_ns: u64::MAX,
@@ -676,7 +676,7 @@ mod tests {
                 },
                 Some(GuardCompletedLevelObservation {
                     n: 1,
-                    primary_record_count: 57,
+                    primary_record_count: 58,
                     peak_live_requested_bytes: 1,
                     private_bytes: 1,
                     wall_time_ns: 1,
@@ -700,7 +700,7 @@ mod tests {
             },
             Some(GuardCompletedLevelObservation {
                 n: previous_n,
-                primary_record_count: 58 * u64::from(previous_n),
+                primary_record_count: 57 * u64::from(previous_n),
                 peak_live_requested_bytes: 1,
                 private_bytes: 1,
                 wall_time_ns: 1,
