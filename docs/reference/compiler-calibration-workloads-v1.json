@@ -2415,6 +2415,76 @@
     "performanceDecisionRequiresPassedQualification": true,
     "qualificationBuilderExcludedFromPerformanceRanking": true
   },
+  "scaleSelectionContract": {
+    "revision": 1,
+    "algorithmId": "first-confirmed-knee-or-max-complete-v1",
+    "baselineCandidateId": "baseline-std-randomstate-stable-vec-v1",
+    "naturalIdentityFields": [
+      "workloadId",
+      "workloadRevision",
+      "graphProfile",
+      "stringProfile",
+      "generatorVersion",
+      "b.value",
+      "caseId"
+    ],
+    "minimumCompleteFormalLevels": 5,
+    "completeFormalLevelRequires": [
+      "batch-0-and-batch-1",
+      "five-valid-rounds-per-batch",
+      "wall-time-ns/timing/cold-instance",
+      "wall-time-ns/timing/stable-capacity-reuse",
+      "peak-live-requested-bytes/memory/cold-instance",
+      "peak-live-requested-bytes/memory/stable-capacity-reuse"
+    ],
+    "firstConfirmedKneeRule": "minimum-confirmed-upper-stratum-n-v1",
+    "withConfirmedKnee": {
+      "calibrationScaleRule": "largest-complete-level-strictly-below-first-knee-v1",
+      "stressScaleRule": "first-confirmed-knee-v1"
+    },
+    "withoutConfirmedKnee": {
+      "calibrationScaleRule": "complete-level-before-maximum-complete-level-v1",
+      "stressScaleRule": "maximum-complete-level-v1",
+      "reportReason": "no-confirmed-knee-observed"
+    },
+    "insufficientRule": "fewer-than-five-complete-levels-no-selection-v1",
+    "roleBindingRule": "all-scale-role-labels-equal-derived-natural-identity-scale-v1"
+  },
+  "candidateDecisionContract": {
+    "revision": 1,
+    "algorithmId": "two-batch-envelope-classification-v1",
+    "ratioDirection": "candidate-median-over-baseline-median",
+    "eligibleMetrics": [
+      "wall-time-ns",
+      "allocated-bytes",
+      "peak-live-requested-bytes",
+      "retained-capacity-bytes",
+      "working-set-bytes",
+      "private-bytes",
+      "commit-peak-bytes"
+    ],
+    "diagnosticOnlyMetrics": [
+      "allocation-count",
+      "reallocation-count"
+    ],
+    "envelopeSource": "unique-same-metric-reproducibility-envelope-v1",
+    "decisionPrecedence": [
+      "rejected-correctness",
+      "rejected-safety",
+      "insufficient-evidence",
+      "exact-performance-classification"
+    ],
+    "exactSymbols": {
+      "envelope": "E=P/Q;P>=Q>0",
+      "batchRatio": "R_i=A_i/B_i;i={0,1};A_i>0;B_i>0"
+    },
+    "exactPerformanceClassification": {
+      "repeatable-improvement": "forall-i:A_i*P<B_i*Q",
+      "repeatable-regression": "forall-i:A_i*Q>B_i*P",
+      "noise-no-difference": "forall-i:A_i*P>=B_i*Q&&A_i*Q<=B_i*P",
+      "insufficient-evidence": "otherwise-mixed-missing-or-non-comparable-v1"
+    }
+  },
   "limitDimensionBindings": [
     {
       "dimensionId": "module-count",

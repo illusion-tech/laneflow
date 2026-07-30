@@ -259,7 +259,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "c202592f74f66771f18ca27ba4a1af72bcb3a9126ef39ced3e0b2b925823e330"
+          "const": "3ae5d4a8e1dab24f780ec5b68dc32bfbb9a69369363adcc6c3357bb366efcb00"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1158,7 +1158,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "c202592f74f66771f18ca27ba4a1af72bcb3a9126ef39ced3e0b2b925823e330"
+          "const": "3ae5d4a8e1dab24f780ec5b68dc32bfbb9a69369363adcc6c3357bb366efcb00"
         },
         "counts": {
           "type": "object"
@@ -6294,8 +6294,6 @@
     "candidateMetric": {
       "enum": [
         "wall-time-ns",
-        "allocation-count",
-        "reallocation-count",
         "allocated-bytes",
         "peak-live-requested-bytes",
         "retained-capacity-bytes",
