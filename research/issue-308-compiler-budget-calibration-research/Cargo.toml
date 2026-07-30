@@ -1,0 +1,41 @@
+[package]
+name = "issue-308-compiler-budget-calibration-research"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "#308 编译器资源上限与性能预算的非生产校准研究。"
+publish = false
+
+[features]
+default = []
+candidate-hashbrown-randomstate = ["dep:hashbrown"]
+candidate-hashbrown-xxh3 = ["dep:hashbrown", "dep:xxhash-rust", "xxhash-rust/xxh3"]
+candidate-hashbrown-xxh64 = ["dep:hashbrown", "dep:xxhash-rust", "xxhash-rust/xxh64"]
+candidate-hashbrown-fnv1a64 = ["dep:hashbrown"]
+candidate-indexmap-randomstate = ["dep:indexmap"]
+fixture-oracle = ["dep:laneflow-data", "dep:laneflow-spatial"]
+research-runner-full = [
+    "candidate-hashbrown-randomstate",
+    "candidate-hashbrown-xxh3",
+    "candidate-hashbrown-xxh64",
+    "candidate-hashbrown-fnv1a64",
+    "candidate-indexmap-randomstate",
+    "fixture-oracle",
+]
+
+[dependencies]
+blake3 = "1.8"
+hashbrown = { version = "0.17.1", optional = true, default-features = false, features = ["inline-more"] }
+indexmap = { version = "2.14", optional = true, default-features = false, features = ["std"] }
+laneflow-data = { version = "0.0.0", path = "../../crates/laneflow-data", optional = true }
+laneflow-spatial = { version = "0.0.0", path = "../../crates/laneflow-spatial", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = { version = "0.11", default-features = false }
+thiserror = "2.0"
+xxhash-rust = { version = "0.8.18", optional = true, default-features = false }
+
+[lints]
+workspace = true

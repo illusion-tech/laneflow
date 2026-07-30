@@ -2968,6 +2968,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "issue-308-compiler-budget-calibration-research"
+version = "0.0.0"
+dependencies = [
+ "blake3",
+ "hashbrown 0.17.1",
+ "indexmap",
+ "laneflow-data",
+ "laneflow-spatial",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.19",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5774,6 +5790,12 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aee1b19627c7c60102ab80d3a9cbe18de90bfe03bfa6c3715447681f0e8c8af6"
 
 [[package]]
 name = "yazi"
