@@ -7,6 +7,16 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+mod generator;
+mod manifest;
+
+pub use generator::{
+    ExpandedModule, ExpandedModuleGraph, GeneratorError, GraphProfileId,
+    ModuleGraphKnownVectorDocument, SequenceKind, build_module_graph_known_vectors,
+    expand_module_graph, permute_in_place,
+};
+pub use manifest::{GeneratorContract, ManifestContractError};
+
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";
 pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_322;
 pub const CONTRACT_DESCRIPTOR_SHA256: &str =
@@ -43,6 +53,12 @@ pub struct TrustedContract {
     pub descriptor_sha256: String,
     pub workload_manifest: serde_json::Value,
     pub evidence_schema: serde_json::Value,
+}
+
+impl TrustedContract {
+    pub fn generator_contract(&self) -> Result<GeneratorContract, ManifestContractError> {
+        GeneratorContract::from_manifest(&self.workload_manifest)
+    }
 }
 
 pub fn repository_root() -> PathBuf {
