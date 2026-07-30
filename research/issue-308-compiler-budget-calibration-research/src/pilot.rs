@@ -4,8 +4,9 @@
 //! 停止护栏、基准规模选择、Evidence v1 写出与正式轮次仍由后续切片负责。
 
 use crate::{
-    GraphProfileId, IdentityCompilerInstance, TimingError, TrustedContract,
-    observe_clock_quantum_ns,
+    GraphProfileId, GuardCompletedLevelObservation, GuardError, GuardPreflightReport,
+    IdentityCompilerInstance, SystemMemoryMonitor, SystemMemoryObservation, TimingError,
+    TrustedContract, evaluate_identity_guard_preflight, observe_clock_quantum_ns,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -46,7 +47,8 @@ pub struct IdentityFreshProcessPilot {
     pub relative_mad_requirement_met: bool,
     pub semantic_digest_consistent: bool,
     pub measurement_quality_met: bool,
-    pub guard_evaluated: bool,
+    pub guard_preflight_evaluated: bool,
+    pub guard_preflights: Vec<GuardPreflightReport>,
     pub samples: Vec<IdentityChildTimingReport>,
 }
 
@@ -74,10 +76,33 @@ pub fn measure_identity_timing_child(
 }
 
 pub fn run_identity_fresh_process_pilot(
+    trusted: &TrustedContract,
     executable: &Path,
     pilot_id: &str,
     graph_profile: GraphProfileId,
     n: u32,
+    previous: Option<GuardCompletedLevelObservation>,
+) -> Result<IdentityFreshProcessPilot, PilotError> {
+    let mut memory_monitor = SystemMemoryMonitor::new()?;
+    run_identity_fresh_process_pilot_with_memory_observer(
+        trusted,
+        executable,
+        pilot_id,
+        graph_profile,
+        n,
+        previous,
+        || memory_monitor.observe(),
+    )
+}
+
+fn run_identity_fresh_process_pilot_with_memory_observer(
+    trusted: &TrustedContract,
+    executable: &Path,
+    pilot_id: &str,
+    graph_profile: GraphProfileId,
+    n: u32,
+    previous: Option<GuardCompletedLevelObservation>,
+    mut observe_memory: impl FnMut() -> Result<SystemMemoryObservation, GuardError>,
 ) -> Result<IdentityFreshProcessPilot, PilotError> {
     if pilot_id.is_empty() {
         return Err(PilotError::EmptyPilotId);
@@ -93,8 +118,30 @@ pub fn run_identity_fresh_process_pilot(
             field: "fresh-process pilot samples",
             source,
         })?;
+    let mut guard_preflights = Vec::new();
+    guard_preflights
+        .try_reserve_exact(FRESH_PROCESS_PILOT_SAMPLE_COUNT)
+        .map_err(|source| PilotError::AllocationFailed {
+            field: "fresh-process pilot guard preflights",
+            source,
+        })?;
 
     for ordinal in 0..FRESH_PROCESS_PILOT_SAMPLE_COUNT {
+        let guard = evaluate_identity_guard_preflight(
+            trusted,
+            graph_profile,
+            n,
+            observe_memory()?,
+            previous,
+        )?;
+        if !guard.allows_child_start {
+            return Err(PilotError::GuardRejected {
+                ordinal,
+                report: Box::new(guard),
+            });
+        }
+        guard_preflights.push(guard);
+
         let compiler_instance_id = format!("{pilot_id}/compiler-instance-{ordinal}");
         let output = Command::new(executable)
             .arg("identity-timing-child")
@@ -146,7 +193,8 @@ pub fn run_identity_fresh_process_pilot(
         relative_mad_requirement_met,
         semantic_digest_consistent,
         measurement_quality_met,
-        guard_evaluated: false,
+        guard_preflight_evaluated: true,
+        guard_preflights,
         samples,
     })
 }
@@ -240,6 +288,8 @@ fn relative_mad_within_limit(median: u64, mad: u64) -> bool {
 pub enum PilotError {
     #[error(transparent)]
     Timing(#[from] TimingError),
+    #[error(transparent)]
+    Guard(#[from] GuardError),
     #[error("新进程试运行标识符不能为空")]
     EmptyPilotId,
     #[error("新进程试运行容量预留失败：{field}")]
@@ -270,6 +320,11 @@ pub enum PilotError {
     ChildReportMismatch { ordinal: usize, field: &'static str },
     #[error("新进程试运行重复使用编译器实例身份")]
     DuplicateCompilerInstanceId,
+    #[error("新进程试运行样本 {ordinal} 在启动前触发研究停止护栏：{report:?}")]
+    GuardRejected {
+        ordinal: usize,
+        report: Box<GuardPreflightReport>,
+    },
     #[error("新进程试运行需要恰好七个样本，实际为 {actual}")]
     WrongSampleCount { actual: usize },
     #[error("新进程试运行算术溢出：{0}")]
@@ -279,6 +334,7 @@ pub enum PilotError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn exact_median_and_mad_use_all_seven_integer_samples() {
@@ -296,6 +352,30 @@ mod tests {
         assert!(matches!(
             median_and_mad([1, 2, 3]),
             Err(PilotError::WrongSampleCount { actual: 3 })
+        ));
+    }
+
+    #[test]
+    fn rejected_preflight_never_attempts_to_spawn_the_child() {
+        let trusted = crate::load_repository_contract().expect("frozen contract");
+        let error = run_identity_fresh_process_pilot_with_memory_observer(
+            &trusted,
+            Path::new("this-child-must-never-be-spawned"),
+            "guard-rejection",
+            GraphProfileId::WideStar,
+            1,
+            None,
+            || {
+                Ok(SystemMemoryObservation {
+                    physical_memory_bytes: 64 * 1_073_741_824,
+                    available_physical_memory_bytes: 1,
+                })
+            },
+        )
+        .expect_err("guard must reject");
+        assert!(matches!(
+            error,
+            PilotError::GuardRejected { ordinal: 0, .. }
         ));
     }
 }

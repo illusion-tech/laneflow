@@ -162,10 +162,18 @@ fn run() -> Result<(), String> {
             let n = parse_positive_n(&next_utf8_argument(&mut arguments, "N")?)?;
             require_no_more_arguments(&mut arguments)?;
 
+            let trusted = load_repository_contract().map_err(|error| error.to_string())?;
             let executable = std::env::current_exe()
                 .map_err(|error| format!("无法定位当前研究执行器：{error}"))?;
-            let report = run_identity_fresh_process_pilot(&executable, &pilot_id, graph_profile, n)
-                .map_err(|error| error.to_string())?;
+            let report = run_identity_fresh_process_pilot(
+                &trusted,
+                &executable,
+                &pilot_id,
+                graph_profile,
+                n,
+                None,
+            )
+            .map_err(|error| error.to_string())?;
             let json = serde_json::to_string_pretty(&report)
                 .map_err(|error| format!("无法序列化冷实例试运行结果：{error}"))?;
             println!("{json}");

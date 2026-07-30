@@ -8,6 +8,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 mod generator;
+mod guard;
 mod identity;
 mod manifest;
 mod oracle;
@@ -21,6 +22,12 @@ pub use generator::{
     ExpandedModule, ExpandedModuleGraph, GeneratorError, GraphProfileId,
     ModuleGraphKnownVectorDocument, SequenceKind, build_module_graph_known_vectors,
     expand_module_graph, permute_in_place,
+};
+pub use guard::{
+    COMPILER_CONTROLLED_HARD_CEILING_BYTES, GuardCompletedLevelObservation, GuardError,
+    GuardPredictionBasis, GuardPreflightReport, GuardThresholds, GuardTrigger,
+    PRIVATE_MEMORY_HARD_CEILING_BYTES, SystemMemoryMonitor, SystemMemoryObservation,
+    WALL_TIME_HARD_CEILING_NS, evaluate_identity_guard_preflight,
 };
 pub use identity::{
     IdentityContract, IdentityContractError, IdentityDeclarationVector, IdentityFieldVector,
@@ -39,9 +46,9 @@ pub use pilot::{
     run_identity_fresh_process_pilot,
 };
 pub use stage::{
-    IdentityAggregateCounts, IdentityStageSummary, StageBreakdown, StageContract,
-    StageContractError, StageGenerationError, StageRetainedCapacityBytes, StageShape,
-    build_identity_stage_summary,
+    IdentityAggregateCounts, IdentityStagePlanSummary, IdentityStageSummary, StageBreakdown,
+    StageContract, StageContractError, StageGenerationError, StageRetainedCapacityBytes,
+    StageShape, build_identity_stage_plan_summary, build_identity_stage_summary,
 };
 pub use stage_oracle::StageOracleError;
 pub use timing::{
