@@ -8,8 +8,9 @@ use crate::identity::{
     STABLE_ID_DOMAIN,
 };
 use crate::stage::{
-    HirStageRecord, IdentityStageCaseOutput, IdentityStagePlan, MirLirStageRecord,
-    SourceSpanRecord, StageContract, StageGenerationError, TypedAstStageRecord, as_u64, to_usize,
+    HirStageRecord, IdentityStageCaseOutput, IdentityStagePlan, IdentityStageSummary,
+    MirLirStageRecord, SourceSpanRecord, StageContract, StageGenerationError,
+    StageRetainedCapacityBytes, TypedAstStageRecord, as_u64, to_usize,
 };
 use crate::{GeneratorContract, GraphProfileId, SequenceKind, permute_in_place};
 use sha2::{Digest, Sha256};
@@ -34,6 +35,7 @@ struct SourceStage {
     payload: Vec<u8>,
     strings: StringLayout,
     scratch: Vec<u64>,
+    namespace_preimage_scratch: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -52,6 +54,9 @@ struct HirStage {
 struct MirStage {
     records: Vec<MirLirStageRecord>,
     payload: Vec<u8>,
+    stable_id_scratch: Vec<[u8; 16]>,
+    canonical_identity_scratch: Vec<u8>,
+    identity_payload_scratch: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -59,6 +64,115 @@ struct LirStage {
     records: Vec<MirLirStageRecord>,
     payload: Vec<u8>,
     scratch_capacity_bytes: u64,
+    sort_scratch: Vec<usize>,
+    owner_ordinal_scratch: Vec<u32>,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct IdentityStageBufferPool {
+    source_spans: Vec<SourceSpanRecord>,
+    source_records: Vec<TypedAstStageRecord>,
+    source_payload: Vec<u8>,
+    source_scratch: Vec<u64>,
+    namespace_preimage_scratch: Vec<u8>,
+    typed_ast_records: Vec<TypedAstStageRecord>,
+    typed_ast_payload: Vec<u8>,
+    hir_records: Vec<HirStageRecord>,
+    hir_payload: Vec<u8>,
+    mir_records: Vec<MirLirStageRecord>,
+    mir_payload: Vec<u8>,
+    mir_stable_id_scratch: Vec<[u8; 16]>,
+    mir_canonical_identity_scratch: Vec<u8>,
+    mir_identity_payload_scratch: Vec<u8>,
+    canonical_lir_records: Vec<MirLirStageRecord>,
+    canonical_lir_payload: Vec<u8>,
+    lir_sort_scratch: Vec<usize>,
+    lir_owner_ordinal_scratch: Vec<u32>,
+    diagnostics: Vec<u8>,
+    output_construction: Vec<u8>,
+}
+
+impl IdentityStageBufferPool {
+    pub(crate) fn retained_capacity_bytes(
+        &self,
+    ) -> Result<StageRetainedCapacityBytes, StageGenerationError> {
+        let source_input = capacity_sum(&[
+            capacity_bytes(&self.source_spans)?,
+            capacity_bytes(&self.source_records)?,
+            capacity_bytes(&self.source_payload)?,
+        ])?;
+        let typed_ast = capacity_sum(&[
+            capacity_bytes(&self.typed_ast_records)?,
+            capacity_bytes(&self.typed_ast_payload)?,
+        ])?;
+        let hir = capacity_sum(&[
+            capacity_bytes(&self.hir_records)?,
+            capacity_bytes(&self.hir_payload)?,
+        ])?;
+        let mir = capacity_sum(&[
+            capacity_bytes(&self.mir_records)?,
+            capacity_bytes(&self.mir_payload)?,
+        ])?;
+        let canonical_lir = capacity_sum(&[
+            capacity_bytes(&self.canonical_lir_records)?,
+            capacity_bytes(&self.canonical_lir_payload)?,
+        ])?;
+        let diagnostics = capacity_bytes(&self.diagnostics)?;
+        let scratch = capacity_sum(&[
+            capacity_bytes(&self.source_scratch)?,
+            capacity_bytes(&self.namespace_preimage_scratch)?,
+            capacity_bytes(&self.mir_stable_id_scratch)?,
+            capacity_bytes(&self.mir_canonical_identity_scratch)?,
+            capacity_bytes(&self.mir_identity_payload_scratch)?,
+            capacity_bytes(&self.lir_sort_scratch)?,
+            capacity_bytes(&self.lir_owner_ordinal_scratch)?,
+        ])?;
+        let output_construction = capacity_bytes(&self.output_construction)?;
+        let total = capacity_sum(&[
+            source_input,
+            typed_ast,
+            hir,
+            mir,
+            canonical_lir,
+            diagnostics,
+            scratch,
+            output_construction,
+        ])?;
+        Ok(StageRetainedCapacityBytes {
+            source_input,
+            typed_ast,
+            hir,
+            mir,
+            canonical_lir,
+            diagnostics,
+            scratch,
+            output_construction,
+            total,
+        })
+    }
+
+    pub(crate) fn all_lengths_are_zero(&self) -> bool {
+        self.source_spans.is_empty()
+            && self.source_records.is_empty()
+            && self.source_payload.is_empty()
+            && self.source_scratch.is_empty()
+            && self.namespace_preimage_scratch.is_empty()
+            && self.typed_ast_records.is_empty()
+            && self.typed_ast_payload.is_empty()
+            && self.hir_records.is_empty()
+            && self.hir_payload.is_empty()
+            && self.mir_records.is_empty()
+            && self.mir_payload.is_empty()
+            && self.mir_stable_id_scratch.is_empty()
+            && self.mir_canonical_identity_scratch.is_empty()
+            && self.mir_identity_payload_scratch.is_empty()
+            && self.canonical_lir_records.is_empty()
+            && self.canonical_lir_payload.is_empty()
+            && self.lir_sort_scratch.is_empty()
+            && self.lir_owner_ordinal_scratch.is_empty()
+            && self.diagnostics.is_empty()
+            && self.output_construction.is_empty()
+    }
 }
 
 #[derive(Debug)]
@@ -86,12 +200,23 @@ pub(crate) fn execute_identity_stage_case(
     stage: &StageContract,
     plan: &IdentityStagePlan,
 ) -> Result<IdentityStageMaterialization, StageGenerationError> {
-    let source = materialize_source_input(generator, identity, stage, plan)?;
-    let typed = lower_source_to_typed_ast(identity, stage, plan, &source)?;
-    let hir = lower_typed_ast_to_hir(identity, stage, plan, &typed, &source.strings)?;
-    let mir = lower_hir_to_mir(identity, stage, plan, &hir, &source.strings)?;
-    let lir = canonicalize_mir(stage, plan, &mir)?;
-    let output_construction = construct_output(identity, plan, &lir)?;
+    let mut buffers = IdentityStageBufferPool::default();
+    execute_identity_stage_case_with_buffers(generator, identity, stage, plan, &mut buffers)
+}
+
+pub(crate) fn execute_identity_stage_case_with_buffers(
+    generator: &GeneratorContract,
+    identity: &IdentityContract,
+    stage: &StageContract,
+    plan: &IdentityStagePlan,
+    buffers: &mut IdentityStageBufferPool,
+) -> Result<IdentityStageMaterialization, StageGenerationError> {
+    let source = materialize_source_input(generator, identity, stage, plan, buffers)?;
+    let typed = lower_source_to_typed_ast(identity, stage, plan, &source, buffers)?;
+    let hir = lower_typed_ast_to_hir(identity, stage, plan, &typed, &source.strings, buffers)?;
+    let mir = lower_hir_to_mir(identity, stage, plan, &hir, &source.strings, buffers)?;
+    let lir = canonicalize_mir(stage, plan, &mir, buffers)?;
+    let output_construction = construct_output(identity, plan, &lir, buffers)?;
 
     Ok(IdentityStageMaterialization {
         source,
@@ -101,6 +226,70 @@ pub(crate) fn execute_identity_stage_case(
         lir,
         output_construction,
     })
+}
+
+pub(crate) fn recycle_identity_stage_case(
+    buffers: &mut IdentityStageBufferPool,
+    output: IdentityStageCaseOutput,
+) -> IdentityStageSummary {
+    let IdentityStageCaseOutput {
+        summary,
+        string_bytes: _,
+        source_spans,
+        source_input_records,
+        source_input_payload,
+        typed_ast_records,
+        typed_ast_payload,
+        hir_records,
+        hir_payload,
+        mir_records,
+        mir_payload,
+        canonical_lir_records,
+        canonical_lir_payload,
+        diagnostics,
+        scratch_capacity_bytes: _,
+        output_construction,
+        source_scratch,
+        namespace_preimage_scratch,
+        mir_stable_id_scratch,
+        mir_canonical_identity_scratch,
+        mir_identity_payload_scratch,
+        lir_sort_scratch,
+        lir_owner_ordinal_scratch,
+    } = output;
+    store_cleared(&mut buffers.source_spans, source_spans);
+    store_cleared(&mut buffers.source_records, source_input_records);
+    store_cleared(&mut buffers.source_payload, source_input_payload);
+    store_cleared(&mut buffers.source_scratch, source_scratch);
+    store_cleared(
+        &mut buffers.namespace_preimage_scratch,
+        namespace_preimage_scratch,
+    );
+    store_cleared(&mut buffers.typed_ast_records, typed_ast_records);
+    store_cleared(&mut buffers.typed_ast_payload, typed_ast_payload);
+    store_cleared(&mut buffers.hir_records, hir_records);
+    store_cleared(&mut buffers.hir_payload, hir_payload);
+    store_cleared(&mut buffers.mir_records, mir_records);
+    store_cleared(&mut buffers.mir_payload, mir_payload);
+    store_cleared(&mut buffers.mir_stable_id_scratch, mir_stable_id_scratch);
+    store_cleared(
+        &mut buffers.mir_canonical_identity_scratch,
+        mir_canonical_identity_scratch,
+    );
+    store_cleared(
+        &mut buffers.mir_identity_payload_scratch,
+        mir_identity_payload_scratch,
+    );
+    store_cleared(&mut buffers.canonical_lir_records, canonical_lir_records);
+    store_cleared(&mut buffers.canonical_lir_payload, canonical_lir_payload);
+    store_cleared(&mut buffers.lir_sort_scratch, lir_sort_scratch);
+    store_cleared(
+        &mut buffers.lir_owner_ordinal_scratch,
+        lir_owner_ordinal_scratch,
+    );
+    store_cleared(&mut buffers.diagnostics, diagnostics);
+    store_cleared(&mut buffers.output_construction, output_construction);
+    summary
 }
 
 pub(crate) fn finalize_identity_stage_case(
@@ -150,6 +339,13 @@ pub(crate) fn finalize_identity_stage_case(
         diagnostics: Vec::new(),
         scratch_capacity_bytes,
         output_construction,
+        source_scratch: source.scratch,
+        namespace_preimage_scratch: source.namespace_preimage_scratch,
+        mir_stable_id_scratch: mir.stable_id_scratch,
+        mir_canonical_identity_scratch: mir.canonical_identity_scratch,
+        mir_identity_payload_scratch: mir.identity_payload_scratch,
+        lir_sort_scratch: lir.sort_scratch,
+        lir_owner_ordinal_scratch: lir.owner_ordinal_scratch,
     })
 }
 
@@ -170,6 +366,7 @@ fn materialize_source_input(
     identity: &IdentityContract,
     stage: &StageContract,
     plan: &IdentityStagePlan,
+    buffers: &mut IdentityStageBufferPool,
 ) -> Result<SourceStage, StageGenerationError> {
     let source_payload_capacity = to_usize(
         plan.stages.source_input.payload_logical_bytes,
@@ -188,18 +385,30 @@ fn materialize_source_input(
         "source scratch",
     )?;
 
-    let mut payload = Vec::with_capacity(source_payload_capacity);
-    let mut spans = Vec::with_capacity(span_capacity);
+    let mut payload = take_reusable(
+        &mut buffers.source_payload,
+        source_payload_capacity,
+        "source input payload",
+    )?;
+    let mut spans = take_reusable(&mut buffers.source_spans, span_capacity, "source spans")?;
     append_source_documents(&mut payload, &mut spans, identity, stage, plan)?;
     if as_u64(payload.len(), "source bytes")? != plan.counts.source_byte_count {
         return Err(StageGenerationError::MaterializedMismatch("source bytes"));
     }
     let string_start = payload.len();
 
-    let mut records = Vec::with_capacity(source_record_capacity);
+    let mut records = take_reusable(
+        &mut buffers.source_records,
+        source_record_capacity,
+        "source input records",
+    )?;
     append_module_name_strings(&mut payload, &mut records, stage, plan)?;
     append_source_document_key_strings(&mut payload, plan)?;
-    let mut scratch = Vec::with_capacity(scratch_capacity);
+    let mut scratch = take_reusable(
+        &mut buffers.source_scratch,
+        scratch_capacity,
+        "source scratch",
+    )?;
     append_import_strings_and_records(
         &mut payload,
         &mut records,
@@ -210,7 +419,18 @@ fn materialize_source_input(
     )?;
 
     let namespace_base = payload.len();
-    append_namespace_strings(&mut payload, generator, identity, plan)?;
+    let mut namespace_preimage_scratch = take_reusable(
+        &mut buffers.namespace_preimage_scratch,
+        128,
+        "namespace preimage scratch",
+    )?;
+    append_namespace_strings(
+        &mut payload,
+        &mut namespace_preimage_scratch,
+        generator,
+        identity,
+        plan,
+    )?;
     let profiled_key_base = payload.len();
     append_profiled_key_strings(&mut payload, identity, plan)?;
     let reference_base = payload.len();
@@ -245,6 +465,8 @@ fn materialize_source_input(
             "source input record count",
         ));
     }
+    scratch.clear();
+    namespace_preimage_scratch.clear();
 
     Ok(SourceStage {
         spans,
@@ -252,6 +474,7 @@ fn materialize_source_input(
         payload,
         strings,
         scratch,
+        namespace_preimage_scratch,
     })
 }
 
@@ -406,11 +629,11 @@ fn append_import_strings_and_records(
 
 fn append_namespace_strings(
     payload: &mut Vec<u8>,
+    preimage: &mut Vec<u8>,
     generator: &GeneratorContract,
     identity: &IdentityContract,
     plan: &IdentityStagePlan,
 ) -> Result<(), StageGenerationError> {
-    let mut preimage = Vec::with_capacity(128);
     for unit_index in 0..plan.n {
         let module_ordinal = plan
             .unit_module_base
@@ -421,7 +644,7 @@ fn append_namespace_strings(
             generator,
             plan.graph_profile,
             module_name.as_slice(),
-            &mut preimage,
+            preimage,
         );
         for _ in &identity.bindings {
             payload.extend_from_slice(&namespace);
@@ -630,11 +853,13 @@ fn lower_source_to_typed_ast(
     stage: &StageContract,
     plan: &IdentityStagePlan,
     source: &SourceStage,
+    buffers: &mut IdentityStageBufferPool,
 ) -> Result<TypedStage, StageGenerationError> {
-    let mut records = Vec::with_capacity(to_usize(
-        plan.stages.typed_ast.record_count,
+    let mut records = take_reusable(
+        &mut buffers.typed_ast_records,
+        to_usize(plan.stages.typed_ast.record_count, "typed AST records")?,
         "typed AST records",
-    )?);
+    )?;
     for record in &source.records {
         records.push(*record);
         if record.record_kind != stage.record_kind_declaration
@@ -746,10 +971,14 @@ fn lower_source_to_typed_ast(
         }
     }
 
-    let mut payload = Vec::with_capacity(to_usize(
-        plan.stages.typed_ast.payload_logical_bytes,
+    let mut payload = take_reusable(
+        &mut buffers.typed_ast_payload,
+        to_usize(
+            plan.stages.typed_ast.payload_logical_bytes,
+            "typed AST payload",
+        )?,
         "typed AST payload",
-    )?);
+    )?;
     payload.extend_from_slice(&source.payload);
     encode_source_spans(&mut payload, &source.spans);
     records.sort_by(|left, right| typed_record_order(left, right, &payload, stage.absent_ordinal));
@@ -762,15 +991,21 @@ fn lower_typed_ast_to_hir(
     plan: &IdentityStagePlan,
     typed: &TypedStage,
     source_strings: &StringLayout,
+    buffers: &mut IdentityStageBufferPool,
 ) -> Result<HirStage, StageGenerationError> {
     let string_bytes = source_strings.string_end - source_strings.string_start;
-    let mut payload = Vec::with_capacity(to_usize(
-        plan.stages.hir.payload_logical_bytes,
+    let mut payload = take_reusable(
+        &mut buffers.hir_payload,
+        to_usize(plan.stages.hir.payload_logical_bytes, "HIR payload")?,
         "HIR payload",
-    )?);
+    )?;
     payload
         .extend_from_slice(&typed.payload[source_strings.string_start..source_strings.string_end]);
-    let mut records = Vec::with_capacity(to_usize(plan.stages.hir.record_count, "HIR records")?);
+    let mut records = take_reusable(
+        &mut buffers.hir_records,
+        to_usize(plan.stages.hir.record_count, "HIR records")?,
+        "HIR records",
+    )?;
 
     for record in &typed.records {
         let mut hir_record = HirStageRecord {
@@ -858,18 +1093,34 @@ fn lower_hir_to_mir(
     plan: &IdentityStagePlan,
     hir: &HirStage,
     source_strings: &StringLayout,
+    buffers: &mut IdentityStageBufferPool,
 ) -> Result<MirStage, StageGenerationError> {
-    let mut records = Vec::with_capacity(to_usize(plan.stages.mir.record_count, "MIR records")?);
-    let mut payload = Vec::with_capacity(to_usize(
-        plan.stages.mir.payload_logical_bytes,
+    let mut records = take_reusable(
+        &mut buffers.mir_records,
+        to_usize(plan.stages.mir.record_count, "MIR records")?,
+        "MIR records",
+    )?;
+    let mut payload = take_reusable(
+        &mut buffers.mir_payload,
+        to_usize(plan.stages.mir.payload_logical_bytes, "MIR payload")?,
         "MIR payload",
-    )?);
-    let mut stable_ids = Vec::<[u8; 16]>::with_capacity(
+    )?;
+    let mut stable_ids = take_reusable(
+        &mut buffers.mir_stable_id_scratch,
         usize::try_from(plan.binding_count)
             .map_err(|_| StageGenerationError::Overflow("binding count"))?,
-    );
-    let mut canonical_identity = Vec::<u8>::with_capacity(256);
-    let mut identity_payload = Vec::<u8>::with_capacity(256);
+        "MIR stable ID scratch",
+    )?;
+    let mut canonical_identity = take_reusable(
+        &mut buffers.mir_canonical_identity_scratch,
+        256,
+        "MIR canonical identity scratch",
+    )?;
+    let mut identity_payload = take_reusable(
+        &mut buffers.mir_identity_payload_scratch,
+        256,
+        "MIR identity payload scratch",
+    )?;
 
     for unit_index in 0..plan.n {
         stable_ids.clear();
@@ -1006,17 +1257,35 @@ fn lower_hir_to_mir(
             });
         }
     }
-    Ok(MirStage { records, payload })
+    stable_ids.clear();
+    canonical_identity.clear();
+    identity_payload.clear();
+    Ok(MirStage {
+        records,
+        payload,
+        stable_id_scratch: stable_ids,
+        canonical_identity_scratch: canonical_identity,
+        identity_payload_scratch: identity_payload,
+    })
 }
 
 fn canonicalize_mir(
     stage: &StageContract,
     plan: &IdentityStagePlan,
     mir: &MirStage,
+    buffers: &mut IdentityStageBufferPool,
 ) -> Result<LirStage, StageGenerationError> {
     let record_count = to_usize(plan.stages.canonical_lir.record_count, "LIR records")?;
-    let mut scratch = Vec::<usize>::with_capacity(record_count);
-    let mut owner_ordinals = Vec::<u32>::with_capacity(record_count);
+    let mut scratch = take_reusable(
+        &mut buffers.lir_sort_scratch,
+        record_count,
+        "canonical LIR sort scratch",
+    )?;
+    let mut owner_ordinals = take_reusable(
+        &mut buffers.lir_owner_ordinal_scratch,
+        record_count,
+        "canonical LIR owner ordinal scratch",
+    )?;
     owner_ordinals.resize(record_count, stage.absent_ordinal);
 
     for entity_kind in 1..=plan.binding_count {
@@ -1064,12 +1333,20 @@ fn canonicalize_mir(
         ));
     }
 
-    let mut records = Vec::with_capacity(record_count);
-    let mut payload = Vec::with_capacity(to_usize(
-        plan.stages.canonical_lir.payload_logical_bytes,
-        "LIR payload",
-    )?);
-    for source_index in scratch {
+    let mut records = take_reusable(
+        &mut buffers.canonical_lir_records,
+        record_count,
+        "canonical LIR records",
+    )?;
+    let mut payload = take_reusable(
+        &mut buffers.canonical_lir_payload,
+        to_usize(
+            plan.stages.canonical_lir.payload_logical_bytes,
+            "LIR payload",
+        )?,
+        "canonical LIR payload",
+    )?;
+    for source_index in scratch.iter().copied() {
         let source = mir.records[source_index];
         let source_payload =
             payload_slice(&mir.payload, source.payload_offset, source.payload_length)?;
@@ -1081,10 +1358,14 @@ fn canonicalize_mir(
             ..source
         });
     }
+    scratch.clear();
+    owner_ordinals.clear();
     Ok(LirStage {
         records,
         payload,
         scratch_capacity_bytes,
+        sort_scratch: scratch,
+        owner_ordinal_scratch: owner_ordinals,
     })
 }
 
@@ -1092,11 +1373,16 @@ fn construct_output(
     identity: &IdentityContract,
     plan: &IdentityStagePlan,
     lir: &LirStage,
+    buffers: &mut IdentityStageBufferPool,
 ) -> Result<Vec<u8>, StageGenerationError> {
-    let mut output = Vec::with_capacity(to_usize(
-        plan.stages.output_construction.logical_bytes,
+    let mut output = take_reusable(
+        &mut buffers.output_construction,
+        to_usize(
+            plan.stages.output_construction.logical_bytes,
+            "output construction",
+        )?,
         "output construction",
-    )?);
+    )?;
     output.extend_from_slice(identity.semantic_record_domain().as_bytes());
     output.push(0);
     output.extend_from_slice(&identity.semantic_record_stream_version().to_le_bytes());
@@ -2055,6 +2341,45 @@ fn u64_from_usize(value: usize, field: &'static str) -> Result<u64, StageGenerat
     u64::try_from(value).map_err(|_| StageGenerationError::Overflow(field))
 }
 
+fn take_reusable<T>(
+    slot: &mut Vec<T>,
+    required_capacity: usize,
+    field: &'static str,
+) -> Result<Vec<T>, StageGenerationError> {
+    let mut values = std::mem::take(slot);
+    values.clear();
+    if values.capacity() < required_capacity {
+        values
+            .try_reserve_exact(required_capacity)
+            .map_err(|source| StageGenerationError::AllocationFailed { field, source })?;
+    }
+    Ok(values)
+}
+
+fn store_cleared<T>(slot: &mut Vec<T>, mut values: Vec<T>) {
+    values.clear();
+    *slot = values;
+}
+
+fn capacity_bytes<T>(values: &Vec<T>) -> Result<u64, StageGenerationError> {
+    u64::try_from(values.capacity())
+        .ok()
+        .and_then(|capacity| {
+            capacity.checked_mul(
+                u64::try_from(std::mem::size_of::<T>()).expect("type size must fit u64"),
+            )
+        })
+        .ok_or(StageGenerationError::Overflow("retained capacity bytes"))
+}
+
+fn capacity_sum(values: &[u64]) -> Result<u64, StageGenerationError> {
+    values.iter().try_fold(0_u64, |total, value| {
+        total
+            .checked_add(*value)
+            .ok_or(StageGenerationError::Overflow("retained capacity bytes"))
+    })
+}
+
 fn encode_lower_hex(bytes: &[u8]) -> String {
     let mut encoded = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -2136,10 +2461,11 @@ mod tests {
         let stage = trusted.stage_contract().expect("stage");
         let plan = IdentityStagePlan::prepare(&identity, &stage, GraphProfileId::WideStar, 2)
             .expect("N=2 plan");
-        let source =
-            materialize_source_input(&generator, &identity, &stage, &plan).expect("source");
-        let mut typed =
-            lower_source_to_typed_ast(&identity, &stage, &plan, &source).expect("typed AST");
+        let mut buffers = IdentityStageBufferPool::default();
+        let source = materialize_source_input(&generator, &identity, &stage, &plan, &mut buffers)
+            .expect("source");
+        let mut typed = lower_source_to_typed_ast(&identity, &stage, &plan, &source, &mut buffers)
+            .expect("typed AST");
         let stable_reference = typed
             .records
             .iter()
@@ -2154,10 +2480,24 @@ mod tests {
         assert_eq!(typed.payload[module_last_hex], b'1');
         typed.payload[module_last_hex] = b'2';
 
-        let hir = lower_typed_ast_to_hir(&identity, &stage, &plan, &typed, &source.strings)
-            .expect("the same-length spelling still parses and resolves");
+        let hir = lower_typed_ast_to_hir(
+            &identity,
+            &stage,
+            &plan,
+            &typed,
+            &source.strings,
+            &mut buffers,
+        )
+        .expect("the same-length spelling still parses and resolves");
         assert!(matches!(
-            lower_hir_to_mir(&identity, &stage, &plan, &hir, &source.strings),
+            lower_hir_to_mir(
+                &identity,
+                &stage,
+                &plan,
+                &hir,
+                &source.strings,
+                &mut buffers,
+            ),
             Err(StageGenerationError::InvalidSymbol {
                 module_ordinal,
                 ..
@@ -2179,5 +2519,20 @@ mod tests {
             assert!(large.counts.source_span_count <= small.counts.source_span_count * 3);
             assert!(large.stages.scratch.logical_bytes <= small.stages.scratch.logical_bytes * 2);
         }
+    }
+
+    #[test]
+    fn reusable_capacity_overflow_is_reported_without_panicking() {
+        let mut values = Vec::<u8>::new();
+        let error = take_reusable(&mut values, usize::MAX, "test buffer")
+            .expect_err("an impossible capacity must fail");
+        assert!(matches!(
+            error,
+            StageGenerationError::AllocationFailed {
+                field: "test buffer",
+                ..
+            }
+        ));
+        assert!(values.is_empty());
     }
 }
