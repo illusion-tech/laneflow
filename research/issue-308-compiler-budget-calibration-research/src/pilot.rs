@@ -1,18 +1,18 @@
 //! 编译器测量基准规模发现所需的新进程冷实例试运行基础。
 //!
 //! 本模块执行启动前停止护栏、七个受监控的独立子进程、冷实例结果核对和墙钟中位数/
-//! 中位绝对偏差计算。基准规模选择、正式二进制角色分离、Evidence v1 写出与正式轮次
-//! 仍由后续切片负责。
+//! 中位绝对偏差计算。受测子进程固定为不执行逐分配记账的 timing 角色；基准规模选择、
+//! Evidence v1 写出与正式轮次仍由后续切片负责。
 
 use crate::{
     ChildProcessMemoryMonitor, ChildProcessMemoryObservation, GraphProfileId,
     GuardCompletedLevelObservation, GuardError, GuardPreflightReport, GuardThresholds,
-    IDENTITY_PILOT_COMBINED_BINARY_ID, IdentityCompilerInstance, InvalidationReason,
-    NullableObservation, ProcessObservation, ProcessProtocolError, RunStatus, StageGenerationError,
-    SystemMemoryMonitor, SystemMemoryObservation, TimingError, TrustedContract,
+    IDENTITY_TIMING_CHILD_SCHEMA, IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityTimingChildReport,
+    InvalidationReason, NullableObservation, ProcessObservation, ProcessProtocolError, RunStatus,
+    SystemMemoryMonitor, SystemMemoryObservation, TIMING_BINARY_ID, TimingError, TrustedContract,
     evaluate_identity_guard_preflight, observe_clock_quantum_ns,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -20,48 +20,12 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-pub const IDENTITY_TIMING_CHILD_SCHEMA: &str =
-    "laneflow.compiler-calibration-identity-timing-child";
-pub const IDENTITY_TIMING_CHILD_SCHEMA_VERSION: u32 = 2;
 pub const FRESH_PROCESS_PILOT_SAMPLE_COUNT: usize = 7;
 pub const CLOCK_QUANTUM_MULTIPLIER: u64 = 10_000;
 pub const MAXIMUM_RELATIVE_MAD_PERCENT: u64 = 2;
 const CHILD_MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const CHILD_MONITOR_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const CHILD_START_SIGNAL: u8 = b'G';
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum IdentityChildOutcome {
-    Success,
-    GuardedInChild,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ControlledAllocationGuardReport {
-    pub field: String,
-    pub hard_ceiling_bytes: u64,
-    pub live_requested_bytes: u64,
-    pub requested_bytes: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IdentityChildTimingReport {
-    pub schema: String,
-    pub schema_version: u32,
-    pub compiler_instance_id: String,
-    pub child_pid: u32,
-    pub graph_profile: String,
-    pub n: u32,
-    pub outcome: IdentityChildOutcome,
-    pub controlled_allocation_hard_ceiling_bytes: u64,
-    pub peak_live_requested_bytes: u64,
-    pub wall_time_ns: Option<u64>,
-    pub semantic_digest_sha256: Option<String>,
-    pub controlled_allocation_guard: Option<ControlledAllocationGuardReport>,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -88,7 +52,7 @@ pub struct IdentityMonitoredChildSample {
     pub status: RunStatus,
     pub invalidation_reasons: Vec<InvalidationReason>,
     pub process: ProcessObservation,
-    pub child: IdentityChildTimingReport,
+    pub child: IdentityTimingChildReport,
     pub monitor: ChildProcessMonitorReport,
 }
 
@@ -122,7 +86,7 @@ pub struct IdentityFreshProcessPilotStop {
     pub invalidation_reasons: Vec<InvalidationReason>,
     pub process: ProcessObservation,
     pub guard_preflight: GuardPreflightReport,
-    pub child: Option<IdentityChildTimingReport>,
+    pub child: Option<IdentityTimingChildReport>,
     pub monitor: Option<ChildProcessMonitorReport>,
     pub kill_error: Option<String>,
     pub monitor_error: Option<String>,
@@ -141,68 +105,11 @@ pub enum IdentityFreshProcessPilotOutcome {
 }
 
 struct IdentityFreshProcessPilotRequest<'a> {
-    executable: &'a Path,
+    timing_executable: &'a Path,
     pilot_id: &'a str,
     graph_profile: GraphProfileId,
     n: u32,
     previous: Option<GuardCompletedLevelObservation>,
-    controlled_allocation_hard_ceiling_cap_bytes: Option<u64>,
-}
-
-pub fn measure_identity_timing_child(
-    trusted: &TrustedContract,
-    compiler_instance_id: String,
-    graph_profile: GraphProfileId,
-    n: u32,
-    controlled_allocation_hard_ceiling_bytes: u64,
-) -> Result<IdentityChildTimingReport, PilotError> {
-    let mut instance =
-        IdentityCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
-            trusted,
-            compiler_instance_id.clone(),
-            controlled_allocation_hard_ceiling_bytes,
-        )?;
-    let result = instance.measure(graph_profile, n);
-    let peak_live_requested_bytes = instance.peak_live_requested_bytes();
-    let base = || IdentityChildTimingReport {
-        schema: IDENTITY_TIMING_CHILD_SCHEMA.to_owned(),
-        schema_version: IDENTITY_TIMING_CHILD_SCHEMA_VERSION,
-        compiler_instance_id: compiler_instance_id.clone(),
-        child_pid: std::process::id(),
-        graph_profile: graph_profile.as_str().to_owned(),
-        n,
-        outcome: IdentityChildOutcome::Success,
-        controlled_allocation_hard_ceiling_bytes,
-        peak_live_requested_bytes,
-        wall_time_ns: None,
-        semantic_digest_sha256: None,
-        controlled_allocation_guard: None,
-    };
-    match result {
-        Ok(sample) => Ok(IdentityChildTimingReport {
-            wall_time_ns: Some(sample.wall_time_ns),
-            semantic_digest_sha256: Some(sample.stage_summary.semantic_digest_sha256),
-            ..base()
-        }),
-        Err(TimingError::StageGeneration(
-            StageGenerationError::ControlledAllocationHardCeiling {
-                field,
-                hard_ceiling_bytes,
-                live_requested_bytes,
-                requested_bytes,
-            },
-        )) => Ok(IdentityChildTimingReport {
-            outcome: IdentityChildOutcome::GuardedInChild,
-            controlled_allocation_guard: Some(ControlledAllocationGuardReport {
-                field: field.to_owned(),
-                hard_ceiling_bytes,
-                live_requested_bytes,
-                requested_bytes,
-            }),
-            ..base()
-        }),
-        Err(error) => Err(error.into()),
-    }
 }
 
 pub fn wait_for_parent_start_signal() -> Result<(), PilotError> {
@@ -218,7 +125,7 @@ pub fn wait_for_parent_start_signal() -> Result<(), PilotError> {
 
 pub fn run_identity_fresh_process_pilot(
     trusted: &TrustedContract,
-    executable: &Path,
+    timing_executable: &Path,
     pilot_id: &str,
     graph_profile: GraphProfileId,
     n: u32,
@@ -228,41 +135,11 @@ pub fn run_identity_fresh_process_pilot(
     run_identity_fresh_process_pilot_with_memory_observer(
         trusted,
         IdentityFreshProcessPilotRequest {
-            executable,
+            timing_executable,
             pilot_id,
             graph_profile,
             n,
             previous,
-            controlled_allocation_hard_ceiling_cap_bytes: None,
-        },
-        || memory_monitor.observe(),
-    )
-}
-
-pub fn run_identity_fresh_process_pilot_with_allocation_ceiling_cap(
-    trusted: &TrustedContract,
-    executable: &Path,
-    pilot_id: &str,
-    graph_profile: GraphProfileId,
-    n: u32,
-    previous: Option<GuardCompletedLevelObservation>,
-    controlled_allocation_hard_ceiling_cap_bytes: u64,
-) -> Result<IdentityFreshProcessPilotOutcome, PilotError> {
-    if controlled_allocation_hard_ceiling_cap_bytes == 0 {
-        return Err(PilotError::ZeroControlledAllocationCeilingCap);
-    }
-    let mut memory_monitor = SystemMemoryMonitor::new()?;
-    run_identity_fresh_process_pilot_with_memory_observer(
-        trusted,
-        IdentityFreshProcessPilotRequest {
-            executable,
-            pilot_id,
-            graph_profile,
-            n,
-            previous,
-            controlled_allocation_hard_ceiling_cap_bytes: Some(
-                controlled_allocation_hard_ceiling_cap_bytes,
-            ),
         },
         || memory_monitor.observe(),
     )
@@ -274,12 +151,11 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
     mut observe_memory: impl FnMut() -> Result<SystemMemoryObservation, GuardError>,
 ) -> Result<IdentityFreshProcessPilotOutcome, PilotError> {
     let IdentityFreshProcessPilotRequest {
-        executable,
+        timing_executable,
         pilot_id,
         graph_profile,
         n,
         previous,
-        controlled_allocation_hard_ceiling_cap_bytes,
     } = request;
     if pilot_id.is_empty() {
         return Err(PilotError::EmptyPilotId);
@@ -322,7 +198,7 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
                     invalidation_reasons: Vec::new(),
                     process: ProcessObservation::guarded_before_start(
                         std::process::id(),
-                        IDENTITY_PILOT_COMBINED_BINARY_ID,
+                        TIMING_BINARY_ID,
                     ),
                     guard_preflight: guard,
                     child: None,
@@ -334,20 +210,15 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
             });
         }
         let thresholds = guard.thresholds;
-        let controlled_allocation_hard_ceiling_bytes = controlled_allocation_hard_ceiling_cap_bytes
-            .map_or(thresholds.compiler_controlled_bytes, |cap| {
-                cap.min(thresholds.compiler_controlled_bytes)
-            });
 
         let compiler_instance_id = format!("{pilot_id}/compiler-instance-{ordinal}");
         let execution = run_monitored_identity_child(
-            executable,
+            timing_executable,
             ordinal,
             &compiler_instance_id,
             graph_profile,
             n,
             thresholds,
-            controlled_allocation_hard_ceiling_bytes,
         )?;
         let (child_pid, output, monitor, monitor_invalidation, kill_error, monitor_error) =
             match execution {
@@ -381,7 +252,7 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
                     process: ProcessObservation::invalid_monitor_termination(
                         std::process::id(),
                         child_pid,
-                        IDENTITY_PILOT_COMBINED_BINARY_ID,
+                        TIMING_BINARY_ID,
                         output.status,
                     )?,
                     guard_preflight: guard,
@@ -405,7 +276,7 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
                     process: ProcessObservation::invalid_abnormal_exit(
                         std::process::id(),
                         child_pid,
-                        IDENTITY_PILOT_COMBINED_BINARY_ID,
+                        TIMING_BINARY_ID,
                         output.status,
                     )?,
                     guard_preflight: guard,
@@ -417,7 +288,7 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
                 }),
             });
         }
-        let report = serde_json::from_slice::<IdentityChildTimingReport>(&output.stdout)
+        let report = serde_json::from_slice::<IdentityTimingChildReport>(&output.stdout)
             .map_err(|source| PilotError::InvalidChildReport { ordinal, source })?;
         verify_child_report(
             &report,
@@ -426,36 +297,11 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
             child_pid,
             graph_profile,
             n,
-            controlled_allocation_hard_ceiling_bytes,
         )?;
-        if report.outcome == IdentityChildOutcome::GuardedInChild {
-            return Ok(IdentityFreshProcessPilotOutcome::Stopped {
-                stop: Box::new(IdentityFreshProcessPilotStop {
-                    pilot_id: pilot_id.to_owned(),
-                    graph_profile: graph_profile.as_str().to_owned(),
-                    n,
-                    sample_ordinal: ordinal,
-                    status: RunStatus::Guarded,
-                    invalidation_reasons: Vec::new(),
-                    process: ProcessObservation::guarded_in_child(
-                        std::process::id(),
-                        child_pid,
-                        IDENTITY_PILOT_COMBINED_BINARY_ID,
-                        output.status,
-                    )?,
-                    guard_preflight: guard,
-                    child: Some(report),
-                    monitor: Some(monitor),
-                    kill_error: None,
-                    monitor_error: None,
-                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-                }),
-            });
-        }
         let process = ProcessObservation::success(
             std::process::id(),
             child_pid,
-            IDENTITY_PILOT_COMBINED_BINARY_ID,
+            TIMING_BINARY_ID,
             output.status,
         )?;
         guard_preflights.push(guard);
@@ -478,11 +324,8 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
     let semantic_digest_consistent = samples
         .windows(2)
         .all(|pair| pair[0].child.semantic_digest_sha256 == pair[1].child.semantic_digest_sha256);
-    let (median_wall_time_ns, median_absolute_deviation_ns) = median_and_mad(
-        samples
-            .iter()
-            .filter_map(|sample| sample.child.wall_time_ns),
-    )?;
+    let (median_wall_time_ns, median_absolute_deviation_ns) =
+        median_and_mad(samples.iter().map(|sample| sample.child.wall_time_ns))?;
     let clock_quantum_requirement_met = median_wall_time_ns >= required_median_wall_time_ns;
     let relative_mad_requirement_met =
         relative_mad_within_limit(median_wall_time_ns, median_absolute_deviation_ns);
@@ -526,21 +369,19 @@ enum MonitoredChildExecution {
 }
 
 fn run_monitored_identity_child(
-    executable: &Path,
+    timing_executable: &Path,
     ordinal: usize,
     compiler_instance_id: &str,
     graph_profile: GraphProfileId,
     n: u32,
     thresholds: GuardThresholds,
-    controlled_allocation_hard_ceiling_bytes: u64,
 ) -> Result<MonitoredChildExecution, PilotError> {
     let mut memory_monitor = ChildProcessMemoryMonitor::new()?;
-    let child = Command::new(executable)
-        .arg("identity-timing-child")
+    let child = Command::new(timing_executable)
+        .arg("run")
         .arg(compiler_instance_id)
         .arg(graph_profile.as_str())
         .arg(n.to_string())
-        .arg(controlled_allocation_hard_ceiling_bytes.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -814,13 +655,12 @@ fn duration_ns(duration: Duration) -> Result<u64, PilotError> {
 }
 
 fn verify_child_report(
-    report: &IdentityChildTimingReport,
+    report: &IdentityTimingChildReport,
     ordinal: usize,
     expected_instance_id: &str,
     expected_child_pid: u32,
     graph_profile: GraphProfileId,
     n: u32,
-    controlled_allocation_hard_ceiling_bytes: u64,
 ) -> Result<(), PilotError> {
     if report.schema != IDENTITY_TIMING_CHILD_SCHEMA {
         return Err(PilotError::ChildReportMismatch {
@@ -832,6 +672,18 @@ fn verify_child_report(
         return Err(PilotError::ChildReportMismatch {
             ordinal,
             field: "schemaVersion",
+        });
+    }
+    if report.binary_id != TIMING_BINARY_ID {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "binaryId",
+        });
+    }
+    if report.allocation_instrumentation_enabled {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "allocationInstrumentationEnabled",
         });
     }
     if report.compiler_instance_id != expected_instance_id {
@@ -858,84 +710,22 @@ fn verify_child_report(
             field: "n",
         });
     }
-    if report.controlled_allocation_hard_ceiling_bytes != controlled_allocation_hard_ceiling_bytes {
+    if report.wall_time_ns == 0 {
         return Err(PilotError::ChildReportMismatch {
             ordinal,
-            field: "controlledAllocationHardCeilingBytes",
+            field: "wallTimeNs",
         });
     }
-    match report.outcome {
-        IdentityChildOutcome::Success => {
-            if report.peak_live_requested_bytes == 0
-                || report.peak_live_requested_bytes
-                    > report.controlled_allocation_hard_ceiling_bytes
-            {
-                return Err(PilotError::ChildReportMismatch {
-                    ordinal,
-                    field: "peakLiveRequestedBytes",
-                });
-            }
-            if report
-                .wall_time_ns
-                .is_none_or(|wall_time_ns| wall_time_ns == 0)
-            {
-                return Err(PilotError::ChildReportMismatch {
-                    ordinal,
-                    field: "wallTimeNs",
-                });
-            }
-            let Some(semantic_digest_sha256) = report.semantic_digest_sha256.as_deref() else {
-                return Err(PilotError::ChildReportMismatch {
-                    ordinal,
-                    field: "semanticDigestSha256",
-                });
-            };
-            if semantic_digest_sha256.len() != 64
-                || !semantic_digest_sha256
-                    .bytes()
-                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-            {
-                return Err(PilotError::ChildReportMismatch {
-                    ordinal,
-                    field: "semanticDigestSha256",
-                });
-            }
-            if report.controlled_allocation_guard.is_some() {
-                return Err(PilotError::ChildReportMismatch {
-                    ordinal,
-                    field: "controlledAllocationGuard",
-                });
-            }
-        }
-        IdentityChildOutcome::GuardedInChild => {
-            if report.wall_time_ns.is_some()
-                || report.semantic_digest_sha256.is_some()
-                || report.controlled_allocation_guard.is_none()
-            {
-                return Err(PilotError::ChildReportMismatch {
-                    ordinal,
-                    field: "guardedInChild",
-                });
-            }
-            let Some(guard) = report.controlled_allocation_guard.as_ref() else {
-                return Err(PilotError::ChildReportMismatch {
-                    ordinal,
-                    field: "controlledAllocationGuard",
-                });
-            };
-            if guard.hard_ceiling_bytes != report.controlled_allocation_hard_ceiling_bytes
-                || guard
-                    .live_requested_bytes
-                    .checked_add(guard.requested_bytes)
-                    .is_none_or(|would_be| would_be <= guard.hard_ceiling_bytes)
-                || report.peak_live_requested_bytes > guard.live_requested_bytes
-            {
-                return Err(PilotError::ChildReportMismatch {
-                    ordinal,
-                    field: "controlledAllocationGuard",
-                });
-            }
-        }
+    if report.semantic_digest_sha256.len() != 64
+        || !report
+            .semantic_digest_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "semanticDigestSha256",
+        });
     }
     Ok(())
 }
@@ -972,8 +762,6 @@ pub enum PilotError {
     ProcessProtocol(#[from] ProcessProtocolError),
     #[error("新进程试运行标识符不能为空")]
     EmptyPilotId,
-    #[error("受控分配硬上限测试上限必须大于零")]
-    ZeroControlledAllocationCeilingCap,
     #[error("新进程试运行容量预留失败：{field}")]
     AllocationFailed {
         field: &'static str,
@@ -1046,12 +834,11 @@ mod tests {
         let outcome = run_identity_fresh_process_pilot_with_memory_observer(
             &trusted,
             IdentityFreshProcessPilotRequest {
-                executable: Path::new("this-child-must-never-be-spawned"),
+                timing_executable: Path::new("this-child-must-never-be-spawned"),
                 pilot_id: "guard-rejection",
                 graph_profile: GraphProfileId::WideStar,
                 n: 1,
                 previous: None,
-                controlled_allocation_hard_ceiling_cap_bytes: None,
             },
             || {
                 Ok(SystemMemoryObservation {
@@ -1083,26 +870,6 @@ mod tests {
         );
         assert!(stop.child.is_none());
         assert!(stop.monitor.is_none());
-    }
-
-    #[test]
-    fn child_controlled_allocation_guard_returns_a_normal_structured_report() {
-        let trusted = crate::load_repository_contract().expect("frozen contract");
-        let report = measure_identity_timing_child(
-            &trusted,
-            "guarded-child".to_owned(),
-            GraphProfileId::WideStar,
-            1,
-            1,
-        )
-        .expect("controlled guard is a normal child report");
-        assert_eq!(report.outcome, IdentityChildOutcome::GuardedInChild);
-        assert_eq!(report.controlled_allocation_hard_ceiling_bytes, 1);
-        assert_eq!(report.wall_time_ns, None);
-        assert_eq!(report.semantic_digest_sha256, None);
-        let guard = report.controlled_allocation_guard.expect("guard details");
-        assert_eq!(guard.hard_ceiling_bytes, 1);
-        assert!(guard.live_requested_bytes + guard.requested_bytes > guard.hard_ceiling_bytes);
     }
 
     #[test]
@@ -1189,7 +956,7 @@ mod tests {
         let process = ProcessObservation::invalid_monitor_termination(
             std::process::id(),
             child_pid,
-            IDENTITY_PILOT_COMBINED_BINARY_ID,
+            TIMING_BINARY_ID,
             output.status,
         )
         .expect("monitor kill must have an abnormal platform status");
@@ -1228,7 +995,7 @@ mod tests {
         let process = ProcessObservation::invalid_monitor_termination(
             std::process::id(),
             child_pid,
-            IDENTITY_PILOT_COMBINED_BINARY_ID,
+            TIMING_BINARY_ID,
             output.status,
         )
         .expect("monitor kill must have an abnormal platform status");
@@ -1262,7 +1029,7 @@ mod tests {
         let process = ProcessObservation::invalid_abnormal_exit(
             std::process::id(),
             child_pid,
-            IDENTITY_PILOT_COMBINED_BINARY_ID,
+            TIMING_BINARY_ID,
             output.status,
         )
         .expect("nonzero exit code must form an abnormal-exit observation");

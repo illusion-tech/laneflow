@@ -54,24 +54,32 @@ G2 冻结的候选依赖如下；“特性”只列本研究包直接启用的�
 - `LF-COMP-ID-v1` 从来源输入到有类型抽象语法树（typed AST）、高层中间表示
   （HIR）、中层中间表示（MIR）、已验证规范低层中间表示（canonical LIR）和输出
   构造的因果管线；空诊断与实际暂存容量按同一八项阶段分解记账；
-- 单调时钟十万次差值观测，以及“计时前规模计划—单一外层计时区—停表后摘要与精确
-  预言机”的最小测量原语；
+- 单调时钟十万次差值观测，以及“计时前规模计划—单一外层计时区—停表后摘要与形状
+  检查”的最小测量原语；独立精确预言机只由单独的 `oracle` 角色执行；
 - 同一编译器实例内的冷实例、三次不计时预热和七次稳定容量复用基础能力：样本间释放
   全部语义值，只保留已清空的阶段容器容量，以可失败精确预留拒绝不可满足的容量请求，
   并逐阶段报告实际保留容量字节；
+- 四个闭合二进制角色：`compiler-calibration-runner-v1` 只执行契约引导、编排、监控
+  和结果汇总；`compiler-calibration-timing-v1` 只执行单一外层墙钟且以编译期常量
+  消除逐容量请求记账；`compiler-calibration-attribution-v1` 独占受控分配、分配/
+  重分配次数与字节、当前/峰值存续请求字节及保留容量归因；
+  `compiler-calibration-oracle-v1` 只从受信任原始清单走独立精确构造路径。四个入口
+  分别由四个可执行文件
+  承载，角色描述测试会拒绝职责或记账模式混淆；
 - `LF-COMP-ID-v1` 七个独立新进程的冷实例试运行基础：父进程签发与进程号、地址和
   运行标识符无关的编译器实例标识符，子进程只回传实例标识、墙钟时间和语义摘要等最小
-  结果，父进程核对七个身份互异、语义摘要一致，并以精确整数计算中位数与绝对中位差
-  （MAD）；
+  结果。七个子进程现在都必须解析为 `timing` 角色且显式报告未启用逐分配记账；父进程
+  核对七个身份互异、语义摘要一致，并以精确整数计算中位数与绝对中位差（MAD）；
 - 父进程启动前停止护栏预检：每个样本启动前刷新系统物理内存，从受信任清单重算主
   记录数、有类型序号上界和单缓冲区下界；首级只使用清单下界，后继严格二倍级别使用
   `5/4` 安全因子的受检 `u128` 精确上取整预测。预测达到本机阈值、可用物理内存低于
   四分之一或有类型序号越界时，不启动子进程；
-- 子进程受控分配硬上限：十九个具名阶段缓冲区的每次容量增长都在
+- 归因子进程受控分配硬上限：十九个具名阶段缓冲区的每次容量增长都在
   `try_reserve_exact` 前以原子账本预占请求字节；越界时不执行该容量请求，正常返回
   `guard/allocation-hard-ceiling` 结构化结果。研究测试先从同一基线取得公共
   `peakLiveRequestedBytes`，再证明 at-bound 成功且 plus-one 在越界前失败。这里只
   验证机制，不替代第 8.4 节要求的两个独立 `attribution` 副本和正式限制资格证据；
+  timing 路径不执行该原子账本，只保留受检容量规划与可失败精确预留；
 - 父子进程启动握手与父进程持续监控：父进程在放行管线前取得子进程私有字节初始快照，
   随后在两次轮询之间休眠一毫秒，并检查私有字节、完整子进程墙钟和系统可用物理内存。
   达到阈值或监控缺样时终止子进程，并返回内存中的结构化无效停止结果；正式 Evidence
@@ -104,20 +112,21 @@ MIR 语义记录、canonical LIR、最终规范记录流、语义摘要和八项
 生产路径物化逐模块来源位置、记录种类、符号序号、解析目标和连续载荷缓冲区；MIR
 由 HIR 解析结果构造，canonical LIR 再独立完成所有者序号分配与规范排序。同长度错误
 引用和同长度字符串替换均有拒绝测试。其余工作负载的完整记录流、当前固定样例研究
-投影、正式新进程轮次编排、正式二进制角色分离、证据写出器和正式
+投影、正式新进程轮次编排、证据写出器和正式
 `run --protocol compiler-calibration-v1` 入口仍须按设计文档继续实现；在完整正确性
 与 pilot 证据落盘前，不得宣称任何正式预算数字。
 
-现有单次测量原语只证明外层计时边界能够隔离 SHA-256、完整输出比较和独立预言机；
+现有单次测量辅助函数只证明外层计时边界能够隔离 SHA-256 和摘要核对，并能在计时
+实例返回后另行调用独立预言机；逐记录完整输出比较由单独的 oracle 矩阵命令执行；
 稳定容量实例尚未建立正式轮次或机器可读证据。七进程试运行尚未执行完整协议停止护栏，
 也不写入编译器校准证据 v1（Compiler Calibration Evidence v1）；其内部子进程 JSON
-只用于父子进程通信，不是正式证据封套。父进程预检、子进程受控分配硬上限和 Windows
-父进程运行中监控及终止状态编码已经执行，但 `timing`/`attribution` 二进制分离、
-正式轮次封套和 Evidence v1 独立验证尚未建立，所以 `guardPreflightEvaluated` 仍只
-表示完成启动前预检，不等于协议 v1 护栏闭合。当前试运行中的原子额度记账是护栏机制
-验证，不能把其墙钟冒充第 7.2 节禁止逐分配插桩的正式 `timing` 结果。上述原语单独
-输出的墙钟值、保留容量和内存观察没有预算资格，试运行中即使满足时钟分辨率、离散
-程度与摘要一致性条件，也不得据此选择参考规模 `B`。
+只用于父子进程通信，不是正式证据封套。父进程预检、归因子进程受控分配硬上限、
+Windows 父进程运行中监控、终止状态编码和四角色分离已经执行，但正式轮次封套和
+Evidence v1 独立验证尚未建立，所以 `guardPreflightEvaluated` 仍只表示完成启动前
+预检，不等于协议 v1 护栏闭合。当前试运行墙钟已经来自无逐分配记账的 timing
+二进制，计时角色资格不再缺失；但它尚未具备正式尝试身份、无效轮次重试和 Evidence
+引用，因此仍不得据此选择参考规模 `B` 或宣称预算。attribution 的诊断墙钟也不得
+进入任何时延结论。
 
 ```powershell
 cargo +1.96.0 run --locked `
@@ -133,15 +142,12 @@ cargo +1.96.0 run --locked `
 cargo +1.96.0 run --locked `
   -p issue-308-compiler-budget-calibration-research `
   --no-default-features --features research-runner-full `
-  --bin issue-308-compiler-budget-calibration-research -- `
+  --bin issue-308-compiler-budget-calibration-oracle -- `
   write-known-vectors
 ```
 
 写入身份向量前，命令会先要求生产者与独立预言机的六个用例完全一致；任一用例不一致
 时不会写入。
-
-只需检查标准输出时，可分别使用 `print-module-graph-known-vectors` 与
-`print-identity-known-vectors`。
 
 执行 `LF-COMP-ID-v1` 的生产者/独立预言机六用例交叉验证（同时核对阶段精确内容与
 公式结果）：
@@ -150,17 +156,20 @@ cargo +1.96.0 run --locked `
 cargo +1.96.0 run --locked `
   -p issue-308-compiler-budget-calibration-research `
   --no-default-features --features research-runner-full `
-  --bin issue-308-compiler-budget-calibration-research -- `
-  verify-identity-oracle
+  --bin issue-308-compiler-budget-calibration-oracle -- `
+  verify-matrix
 ```
 
 执行七个独立新进程的冷实例试运行（示例只使用 `N = 1` 验证编排，不产生正式预算
-证据）：
+证据）。runner 会从同一目录解析 timing 二进制，所以先以同一 profile 和特性集合构建
+全部四个角色：
 
 ```powershell
-cargo +1.96.0 run --release --locked `
+cargo +1.96.0 build --release --locked `
   -p issue-308-compiler-budget-calibration-research `
   --no-default-features --features research-runner-full `
-  --bin issue-308-compiler-budget-calibration-research -- `
+  --bins
+
+.\target\release\issue-308-compiler-budget-calibration-research.exe `
   smoke-identity-fresh-process-pilot local-smoke wide-star-v1 1
 ```

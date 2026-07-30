@@ -1,15 +1,17 @@
 //! 正式外层计时区的最小测量原语。
 //!
-//! 本模块建立 #308 协议要求的 prepare -> timed execute -> finalize/verify 边界，并由
-//! 同一个编译器实例只保留已清空的阶段容器容量；计时区内的具名阶段容量请求同时受
-//! 实例硬上限约束。正式轮次和证据写出仍由后续 runner 切片负责。
+//! 本模块建立 #308 协议要求的 prepare -> timed execute -> finalize 边界，并由
+//! 同一个编译器实例只保留已清空的阶段容器容量。计时与归因实例通过编译期常量分别
+//! 单态化：正式计时路径不执行逐容量请求记账，归因路径才执行原子硬上限预占与存续
+//! 峰值记账。独立正确性验证不进入这两个实例；正式轮次和证据写出仍由后续 runner
+//! 切片负责。
 
 use crate::pipeline::{
-    IdentityStageBufferPool, execute_identity_stage_case_with_buffers,
+    IdentityAllocationSnapshot, IdentityStageBufferPool, execute_identity_stage_case_with_buffers,
     finalize_identity_stage_case, prepare_identity_stage_case, recycle_identity_stage_case,
 };
 use crate::stage::{IdentityStageSummary, StageRetainedCapacityBytes};
-use crate::stage_oracle::verify_identity_stage_exact;
+use crate::stage_oracle::build_identity_stage_oracle;
 use crate::{GeneratorContract, GraphProfileId, IdentityContract, StageContract, TrustedContract};
 use serde::Serialize;
 use std::hint::black_box;
@@ -35,17 +37,19 @@ pub struct IdentityStableCapacitySequence {
 }
 
 #[derive(Debug)]
-pub struct IdentityCompilerInstance {
+pub struct IdentityCompilerInstance<const TRACK_ALLOCATIONS: bool> {
     compiler_instance_id: Option<String>,
-    workload_manifest: serde_json::Value,
     generator: GeneratorContract,
     identity: IdentityContract,
     stage: StageContract,
-    buffers: IdentityStageBufferPool,
+    buffers: IdentityStageBufferPool<TRACK_ALLOCATIONS>,
     completed_compilations: u32,
 }
 
-impl IdentityCompilerInstance {
+pub type IdentityTimingCompilerInstance = IdentityCompilerInstance<false>;
+pub type IdentityAttributionCompilerInstance = IdentityCompilerInstance<true>;
+
+impl IdentityCompilerInstance<false> {
     pub fn from_trusted_contract(trusted: &TrustedContract) -> Result<Self, TimingError> {
         Self::from_trusted_contract_with_optional_id_and_allocation_ceiling(trusted, None, u64::MAX)
     }
@@ -63,7 +67,9 @@ impl IdentityCompilerInstance {
             u64::MAX,
         )
     }
+}
 
+impl IdentityCompilerInstance<true> {
     pub fn from_trusted_contract_with_id_and_allocation_ceiling(
         trusted: &TrustedContract,
         compiler_instance_id: String,
@@ -79,6 +85,22 @@ impl IdentityCompilerInstance {
         )
     }
 
+    pub fn controlled_allocation_hard_ceiling_bytes(&self) -> u64 {
+        self.buffers.controlled_allocation_hard_ceiling_bytes()
+    }
+
+    pub fn peak_live_requested_bytes(&self) -> u64 {
+        self.buffers.peak_live_requested_bytes()
+    }
+
+    pub fn allocation_snapshot(&self) -> IdentityAllocationSnapshot {
+        self.buffers.allocation_snapshot()
+    }
+}
+
+impl<const TRACK_ALLOCATIONS: bool> IdentityCompilerInstance<TRACK_ALLOCATIONS> {
+    pub const ALLOCATION_INSTRUMENTATION_ENABLED: bool = TRACK_ALLOCATIONS;
+
     fn from_trusted_contract_with_optional_id_and_allocation_ceiling(
         trusted: &TrustedContract,
         compiler_instance_id: Option<String>,
@@ -86,11 +108,10 @@ impl IdentityCompilerInstance {
     ) -> Result<Self, TimingError> {
         Ok(Self {
             compiler_instance_id,
-            workload_manifest: trusted.workload_manifest.clone(),
             generator: trusted.generator_contract()?,
             identity: trusted.identity_contract()?,
             stage: trusted.stage_contract()?,
-            buffers: IdentityStageBufferPool::with_controlled_allocation_hard_ceiling(
+            buffers: IdentityStageBufferPool::new_for_mode(
                 controlled_allocation_hard_ceiling_bytes,
             ),
             completed_compilations: 0,
@@ -99,14 +120,6 @@ impl IdentityCompilerInstance {
 
     pub fn compiler_instance_id(&self) -> Option<&str> {
         self.compiler_instance_id.as_deref()
-    }
-
-    pub fn controlled_allocation_hard_ceiling_bytes(&self) -> u64 {
-        self.buffers.controlled_allocation_hard_ceiling_bytes()
-    }
-
-    pub fn peak_live_requested_bytes(&self) -> u64 {
-        self.buffers.peak_live_requested_bytes()
     }
 
     pub fn run_stable_capacity_sequence(
@@ -165,8 +178,7 @@ impl IdentityCompilerInstance {
         black_box(materialized.output_construction.as_slice());
         let elapsed = started.elapsed();
 
-        let stage_summary =
-            self.finalize_verify_and_recycle(graph_profile, n, &plan, materialized)?;
+        let stage_summary = self.finalize_and_recycle(&plan, materialized)?;
         Ok(IdentityTimingSample {
             wall_time_ns: u64::try_from(elapsed.as_nanos())
                 .map_err(|_| TimingError::ClockDurationOverflow)?,
@@ -187,23 +199,20 @@ impl IdentityCompilerInstance {
             &plan,
             &mut self.buffers,
         )?;
-        self.finalize_verify_and_recycle(graph_profile, n, &plan, materialized)
+        self.finalize_and_recycle(&plan, materialized)
     }
 
     pub fn retained_capacity_bytes(&self) -> Result<StageRetainedCapacityBytes, TimingError> {
         Ok(self.buffers.retained_capacity_bytes()?)
     }
 
-    fn finalize_verify_and_recycle(
+    fn finalize_and_recycle(
         &mut self,
-        graph_profile: GraphProfileId,
-        n: u32,
         plan: &crate::stage::IdentityStagePlan,
         materialized: crate::pipeline::IdentityStageMaterialization,
     ) -> Result<IdentityStageSummary, TimingError> {
-        // 摘要、完整形状检查、独立精确预言机和容量回收均在停表后执行。
+        // 摘要、完整形状检查和容量回收均在停表后执行；独立预言机属于 oracle 角色。
         let produced = finalize_identity_stage_case(plan, materialized)?;
-        verify_identity_stage_exact(&self.workload_manifest, graph_profile, n, &produced)?;
         let summary = recycle_identity_stage_case(&mut self.buffers, produced);
         if !self.buffers.all_lengths_are_zero() {
             return Err(TimingError::RetainedSemanticState);
@@ -239,7 +248,12 @@ pub fn measure_identity_stage_once(
     n: u32,
 ) -> Result<IdentityTimingSample, TimingError> {
     let mut instance = IdentityCompilerInstance::from_trusted_contract(trusted)?;
-    instance.measure(graph_profile, n)
+    let sample = instance.measure(graph_profile, n)?;
+    let oracle = build_identity_stage_oracle(&trusted.workload_manifest, graph_profile, n)?;
+    if sample.stage_summary != oracle {
+        return Err(TimingError::IndependentOracleSummaryMismatch);
+    }
+    Ok(sample)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -270,6 +284,8 @@ pub enum TimingError {
     StableCapacitySummaryChanged,
     #[error("稳定容量复用期间保留容量发生变化")]
     StableCapacityChanged,
+    #[error("计时生产者阶段摘要与独立预言机摘要不一致")]
+    IndependentOracleSummaryMismatch,
 }
 
 #[cfg(test)]
@@ -318,11 +334,13 @@ mod tests {
     #[test]
     fn controlled_allocation_at_bound_succeeds_and_plus_one_fails_before_reserve() {
         let trusted = load_repository_contract().expect("frozen contract");
-        let mut baseline = IdentityCompilerInstance::from_trusted_contract_with_id(
-            &trusted,
-            "allocation-baseline".to_owned(),
-        )
-        .expect("baseline instance");
+        let mut baseline =
+            IdentityCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+                &trusted,
+                "allocation-baseline".to_owned(),
+                u64::MAX,
+            )
+            .expect("baseline instance");
         baseline
             .measure(GraphProfileId::WideStar, 1)
             .expect("baseline measurement");

@@ -6,8 +6,6 @@
 use serde::{Deserialize, Serialize};
 use std::process::ExitStatus;
 
-pub const IDENTITY_PILOT_COMBINED_BINARY_ID: &str = "identity-pilot-combined-v1";
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NullableObservation<T> {
@@ -331,11 +329,11 @@ pub enum ProcessProtocolError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TIMING_BINARY_ID;
 
     #[test]
     fn guarded_before_start_uses_only_child_not_started_observations() {
-        let process =
-            ProcessObservation::guarded_before_start(42, IDENTITY_PILOT_COMBINED_BINARY_ID);
+        let process = ProcessObservation::guarded_before_start(42, TIMING_BINARY_ID);
         assert_eq!(process.exit_kind, ProcessExitKind::GuardedBeforeStart);
         assert_eq!(process.child_pid.value, None);
         assert_eq!(
@@ -381,20 +379,15 @@ mod tests {
     fn windows_exit_codes_and_native_statuses_remain_distinct() {
         use std::os::windows::process::ExitStatusExt;
 
-        let success = ProcessObservation::success(
-            1,
-            2,
-            IDENTITY_PILOT_COMBINED_BINARY_ID,
-            ExitStatus::from_raw(0),
-        )
-        .expect("zero exit");
+        let success = ProcessObservation::success(1, 2, TIMING_BINARY_ID, ExitStatus::from_raw(0))
+            .expect("zero exit");
         assert_eq!(success.exit_code.value, Some(0));
         assert_eq!(success.termination.kind, TerminationKind::ExitCode);
 
         let abnormal = ProcessObservation::invalid_abnormal_exit(
             1,
             2,
-            IDENTITY_PILOT_COMBINED_BINARY_ID,
+            TIMING_BINARY_ID,
             ExitStatus::from_raw(5),
         )
         .expect("nonzero exit");
@@ -404,7 +397,7 @@ mod tests {
         let native = ProcessObservation::invalid_monitor_termination(
             1,
             2,
-            IDENTITY_PILOT_COMBINED_BINARY_ID,
+            TIMING_BINARY_ID,
             ExitStatus::from_raw(0xc000_0005),
         )
         .expect("Windows native status");
@@ -428,7 +421,7 @@ mod tests {
         let process = ProcessObservation::invalid_monitor_termination(
             1,
             2,
-            IDENTITY_PILOT_COMBINED_BINARY_ID,
+            TIMING_BINARY_ID,
             ExitStatus::from_raw(9),
         )
         .expect("POSIX signal");
@@ -451,19 +444,14 @@ mod tests {
         use std::os::unix::process::ExitStatusExt;
 
         assert!(matches!(
-            ProcessObservation::success(
-                1,
-                2,
-                IDENTITY_PILOT_COMBINED_BINARY_ID,
-                ExitStatus::from_raw(1 << 8),
-            ),
+            ProcessObservation::success(1, 2, TIMING_BINARY_ID, ExitStatus::from_raw(1 << 8),),
             Err(ProcessProtocolError::SuccessfulKindRequiresZeroExitCode { .. })
         ));
         assert!(matches!(
             ProcessObservation::invalid_abnormal_exit(
                 1,
                 2,
-                IDENTITY_PILOT_COMBINED_BINARY_ID,
+                TIMING_BINARY_ID,
                 ExitStatus::from_raw(0),
             ),
             Err(ProcessProtocolError::InvalidKindRequiresAbnormalTermination { .. })
@@ -476,19 +464,14 @@ mod tests {
         use std::os::windows::process::ExitStatusExt;
 
         assert!(matches!(
-            ProcessObservation::success(
-                1,
-                2,
-                IDENTITY_PILOT_COMBINED_BINARY_ID,
-                ExitStatus::from_raw(1),
-            ),
+            ProcessObservation::success(1, 2, TIMING_BINARY_ID, ExitStatus::from_raw(1),),
             Err(ProcessProtocolError::SuccessfulKindRequiresZeroExitCode { .. })
         ));
         assert!(matches!(
             ProcessObservation::invalid_abnormal_exit(
                 1,
                 2,
-                IDENTITY_PILOT_COMBINED_BINARY_ID,
+                TIMING_BINARY_ID,
                 ExitStatus::from_raw(0),
             ),
             Err(ProcessProtocolError::InvalidKindRequiresAbnormalTermination { .. })
