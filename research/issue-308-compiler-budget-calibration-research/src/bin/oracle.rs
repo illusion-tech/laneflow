@@ -1,8 +1,9 @@
 mod support;
 
 use issue_308_compiler_budget_calibration_research::{
-    build_identity_known_vectors, build_identity_oracle_child, build_module_graph_known_vectors,
-    load_repository_contract, oracle_binary_descriptor, verify_identity_oracle_matrix,
+    build_corridor_known_vectors, build_identity_known_vectors, build_identity_oracle_child,
+    build_module_graph_known_vectors, load_repository_contract, oracle_binary_descriptor,
+    verify_corridor_oracle_matrix, verify_identity_oracle_matrix,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -42,8 +43,11 @@ fn run() -> Result<(), String> {
         "verify-matrix" => {
             support::require_no_more_arguments(&mut arguments, USAGE)?;
             let trusted = load_repository_contract().map_err(|error| error.to_string())?;
-            let report =
+            let identity =
                 verify_identity_oracle_matrix(&trusted).map_err(|error| error.to_string())?;
+            let corridor =
+                verify_corridor_oracle_matrix(&trusted).map_err(|error| error.to_string())?;
+            let report = OracleMatrixReport { identity, corridor };
             support::print_json(&report, "预言机矩阵验证结果")
         }
         "write-known-vectors" => {
@@ -58,6 +62,8 @@ fn write_known_vectors() -> Result<(), String> {
     let trusted = load_repository_contract().map_err(|error| error.to_string())?;
     let oracle_report =
         verify_identity_oracle_matrix(&trusted).map_err(|error| error.to_string())?;
+    let corridor_oracle_report =
+        verify_corridor_oracle_matrix(&trusted).map_err(|error| error.to_string())?;
     let generator_contract = trusted
         .generator_contract()
         .map_err(|error| error.to_string())?;
@@ -75,6 +81,8 @@ fn write_known_vectors() -> Result<(), String> {
         &trusted.descriptor.workload_manifest.sha256,
     )
     .map_err(|error| error.to_string())?;
+    let corridor_vectors =
+        build_corridor_known_vectors(&trusted).map_err(|error| error.to_string())?;
     let output_directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("known-vectors");
     std::fs::create_dir_all(&output_directory).map_err(|error| {
         format!(
@@ -90,9 +98,24 @@ fn write_known_vectors() -> Result<(), String> {
         &output_directory.join("identity-records-v1.json"),
         &identity_vectors,
     )?;
+    write_known_vector(
+        &output_directory.join("corridor-summary-v1.json"),
+        &corridor_vectors,
+    )?;
     println!("written={}", output_directory.display());
     println!("oracleCheckedCases={}", oracle_report.checked_cases);
+    println!(
+        "corridorOracleCheckedCases={}",
+        corridor_oracle_report.checked_cases
+    );
     Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OracleMatrixReport {
+    identity: issue_308_compiler_budget_calibration_research::OracleVerificationReport,
+    corridor: issue_308_compiler_budget_calibration_research::CorridorOracleVerificationReport,
 }
 
 fn write_known_vector(path: &Path, value: &impl Serialize) -> Result<(), String> {

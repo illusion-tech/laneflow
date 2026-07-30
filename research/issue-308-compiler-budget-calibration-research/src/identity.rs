@@ -516,7 +516,7 @@ fn materialize_records(
     Ok(records)
 }
 
-fn encode_canonical_identity(
+pub(crate) fn encode_canonical_identity(
     identity_encoding_version: u16,
     entity_kind_code: u16,
     fields: &[IdentityField],
@@ -529,7 +529,7 @@ fn encode_canonical_identity(
     encoded
 }
 
-fn encode_identity_payload(fields: &[IdentityField]) -> Vec<u8> {
+pub(crate) fn encode_identity_payload(fields: &[IdentityField]) -> Vec<u8> {
     let mut payload = Vec::new();
     append_u16(
         &mut payload,
@@ -546,7 +546,7 @@ fn encode_identity_payload(fields: &[IdentityField]) -> Vec<u8> {
     payload
 }
 
-fn encode_semantic_record_stream(
+pub(crate) fn encode_semantic_record_stream(
     contract: &IdentityContract,
     records: &[SemanticRecord],
 ) -> Vec<u8> {
@@ -574,9 +574,9 @@ fn encode_semantic_record_stream(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct IdentityField {
-    tag: u16,
-    bytes: Vec<u8>,
+pub(crate) struct IdentityField {
+    pub(crate) tag: u16,
+    pub(crate) bytes: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -621,7 +621,7 @@ pub(crate) struct SemanticRecord {
 }
 
 impl SemanticRecord {
-    fn canonical_key(&self) -> (u16, u16, [u8; 16], u32, u32, &[u8]) {
+    pub(crate) fn canonical_key(&self) -> (u16, u16, [u8; 16], u32, u32, &[u8]) {
         (
             self.record_kind,
             self.entity_kind_code,
@@ -632,7 +632,7 @@ impl SemanticRecord {
         )
     }
 
-    fn to_vector(&self) -> SemanticRecordVector {
+    pub(crate) fn to_vector(&self) -> SemanticRecordVector {
         SemanticRecordVector {
             record_kind: self.record_kind,
             entity_kind_code: self.entity_kind_code,
