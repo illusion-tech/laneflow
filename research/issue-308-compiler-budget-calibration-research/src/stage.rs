@@ -140,6 +140,15 @@ pub struct IdentityStageSummary {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct IdentityStagePlanSummary {
+    pub graph_profile: GraphProfileId,
+    pub n: u32,
+    pub counts: IdentityAggregateCounts,
+    pub stages: StageBreakdown,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct IdentityAggregateCounts {
     pub module_count: u64,
     pub import_edge_count: u64,
@@ -679,6 +688,25 @@ impl IdentityStagePlan {
             semantic_digest_sha256,
         }
     }
+
+    pub(crate) fn plan_summary(&self) -> IdentityStagePlanSummary {
+        IdentityStagePlanSummary {
+            graph_profile: self.graph_profile,
+            n: self.n,
+            counts: self.counts.clone(),
+            stages: self.stages.clone(),
+        }
+    }
+}
+
+pub fn build_identity_stage_plan_summary(
+    trusted: &TrustedContract,
+    graph_profile: GraphProfileId,
+    n: u32,
+) -> Result<IdentityStagePlanSummary, StageGenerationError> {
+    let identity = trusted.identity_contract()?;
+    let stage = StageContract::from_manifest(&trusted.workload_manifest)?;
+    Ok(IdentityStagePlan::prepare(&identity, &stage, graph_profile, n)?.plan_summary())
 }
 
 pub fn build_identity_stage_summary(

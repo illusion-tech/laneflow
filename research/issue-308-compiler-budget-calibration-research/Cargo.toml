@@ -34,6 +34,7 @@ laneflow-spatial = { version = "0.0.0", path = "../../crates/laneflow-spatial", 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = { version = "0.11", default-features = false }
+sysinfo = { version = "=0.39.6", default-features = false, features = ["system"] }
 thiserror = "2.0"
 xxhash-rust = { version = "0.8.18", optional = true, default-features = false }
 
