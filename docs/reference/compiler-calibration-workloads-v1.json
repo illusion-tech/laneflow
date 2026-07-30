@@ -534,6 +534,108 @@
     "endColumnFormula": "sourceTokenUtf8Length + 1",
     "spanCountFormula": "sourceDeclarationCount + sourceReferenceCount + sourceRelationCount + sourceGeometryCount"
   },
+  "identityBindingExpansion": {
+    "expressionVersion": 1,
+    "declarationLocalOrdinalDefinition": "zero-based ordinal among declarations of the same entity kind inside one workload unit, assigned in canonical declaration construction order before any per-module declaration permutation",
+    "fixedFixtureUnitIndex": 0,
+    "assignmentTiming": "assign and retain declarationLocalOrdinalWithinKind before applying permutation.sequenceKinds.declarations; source traversal order and hash-table iteration never change it",
+    "multiFileCollectionRule": "when one workload unit binds multiple source files, traverse workload.templateFiles or case.files in listed order, skip files without the named collection, and concatenate each matching sourceCollectionOrderByEntityKind traversal",
+    "sourceCollectionOrderByEntityKind": {
+      "RoadCorridor": "roadCorridors array order",
+      "RoadSection": "roadSections array order",
+      "AuthoringLane": "roadSections array order, then each road section lanes array order",
+      "LaneEdge": "laneGraph.edges array order",
+      "Junction": "junctions array order",
+      "Movement": "movements array order",
+      "ManeuverPath": "maneuverPaths array order",
+      "ManeuverGate": "signals.maneuverGates array order",
+      "WaitingZone": "waitingZones array order",
+      "StopLine": "signals.stopLines array order",
+      "SignalGroup": "signals.groups array order",
+      "SignalController": "signals.controllers array order",
+      "SignalPhase": "signals.controllers array order, then each controller phases array order",
+      "ParkingArea": "parking.areas array order",
+      "ParkingSpace": "parking.spaces array order",
+      "LaneGroup": "laneGroups array order",
+      "FacilityBand": "facilityBands array order",
+      "ParticipantClass": "participantClasses array order",
+      "AccessRule": "accessRules array order",
+      "VehicleProfile": "vehicleProfiles array order",
+      "StaticRoute": "routes array order",
+      "CanonicalFrame": "the single synthetic canonical frame has ordinal 0"
+    },
+    "declarationOrdinalByWorkload": {
+      "LF-COMP-ID-v1": "every entity kind occurs exactly once per unit, so every declarationLocalOrdinalWithinKind is 0",
+      "LF-COMP-CORRIDOR-v1": "use sourceCollectionOrderByEntityKind for the bound fixture template before unit replication; every replicated unit retains the same per-kind source ordinal",
+      "LF-COMP-JUNCTION-GRID-v1": {
+        "LaneEdge": "unitConstruction lane-edge local index 0..31",
+        "Junction": "0",
+        "Movement": "movementIndex",
+        "ManeuverPath": "movementIndex",
+        "ManeuverGate": "movementIndex * 3 + gateTransitionIndex",
+        "WaitingZone": "movementIndex * 2 + waitingZonePairIndex",
+        "StopLine": "movementIndex * 3 + gateTransitionIndex",
+        "StaticRoute": "movementIndex",
+        "CanonicalFrame": "0"
+      },
+      "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1": "use sourceCollectionOrderByEntityKind independently for each case, with fixedFixtureUnitIndex=0"
+    },
+    "profiledKeyExpression": {
+      "syntax": "profiled-key(kind=K,local=S)",
+      "kindRule": "K must equal the current identityBindings entityKindCode",
+      "localMeaning": "S is the zero-based profiled-key field slot among the current identity binding fields in field order; it is not a declaration ordinal",
+      "profiledKeyFieldCountFormula": "count fields whose value uses profiled-key in the current identity binding",
+      "expandedLocalIndexFormula": "declarationLocalOrdinalWithinKind * profiledKeyFieldCount + S",
+      "expandedKeyFormulaByWorkload": {
+        "LF-COMP-ID-v1": "selected stringProfiles[].profiledKeyFormula with kindCode=current entity kind, unitIndex=current workload unit index, localIndex=expandedLocalIndex",
+        "LF-COMP-CORRIDOR-v1": "short-unique-v1 profiledKeyFormula with kindCode=current entity kind, unitIndex=current workload unit index, localIndex=expandedLocalIndex",
+        "LF-COMP-JUNCTION-GRID-v1": "short-unique-v1 profiledKeyFormula with kindCode=current entity kind, unitIndex=current workload unit index, localIndex=expandedLocalIndex",
+        "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1": "projectionContract.identityRule.profiledKeyFormula with entityKindCode=current entity kind and sourceArrayOrdinal=expandedLocalIndex"
+      },
+      "rangeRule": "expandedLocalIndex must fit u32 and every (entityKindCode, unitIndex, expandedLocalIndex) tuple must be unique"
+    },
+    "stableIdExpression": {
+      "syntax": "stable-id(kind=K,local=R)",
+      "localMeaning": "R is the zero-based reference slot among references from the current declaration to target entity kind K; it is not the target declaration ordinal",
+      "targetRule": "resolve the named reference slot below to exactly one target declaration, then use that declaration's fully computed StableId128",
+      "referenceSlots": [
+        {"sourceEntityKind": "RoadSection", "targetEntityKindCode": 1, "slot": 0, "role": "owning-road-corridor"},
+        {"sourceEntityKind": "AuthoringLane", "targetEntityKindCode": 2, "slot": 0, "role": "owning-road-section"},
+        {"sourceEntityKind": "Movement", "targetEntityKindCode": 5, "slot": 0, "role": "owning-junction"},
+        {"sourceEntityKind": "ManeuverPath", "targetEntityKindCode": 6, "slot": 0, "role": "owning-movement"},
+        {"sourceEntityKind": "ManeuverPath", "targetEntityKindCode": 4, "slot": 0, "role": "entry-lane-edge"},
+        {"sourceEntityKind": "ManeuverPath", "targetEntityKindCode": 4, "slot": 1, "role": "exit-lane-edge"},
+        {"sourceEntityKind": "ManeuverGate", "targetEntityKindCode": 7, "slot": 0, "role": "owning-maneuver-path"},
+        {"sourceEntityKind": "WaitingZone", "targetEntityKindCode": 7, "slot": 0, "role": "owning-maneuver-path"},
+        {"sourceEntityKind": "SignalPhase", "targetEntityKindCode": 12, "slot": 0, "role": "owning-signal-controller"},
+        {"sourceEntityKind": "ParkingSpace", "targetEntityKindCode": 14, "slot": 0, "role": "owning-parking-area"},
+        {"sourceEntityKind": "LaneGroup", "targetEntityKindCode": 2, "slot": 0, "role": "owning-road-section"},
+        {"sourceEntityKind": "FacilityBand", "targetEntityKindCode": 1, "slot": 0, "role": "owning-road-corridor"}
+      ],
+      "referenceResolutionByWorkload": {
+        "LF-COMP-ID-v1": "resolve the ten ownerRelations plus the sole LaneEdge as both ManeuverPath entry and exit target",
+        "LF-COMP-CORRIDOR-v1": "resolve source IDs and the validated unique owner tree from each bound fixture template before unit replication",
+        "LF-COMP-JUNCTION-GRID-v1": {
+          "Movement.owning-junction": "Junction ordinal 0",
+          "ManeuverPath.owning-movement": "Movement ordinal movementIndex",
+          "ManeuverPath.entry-lane-edge": "LaneEdge ordinal entryDirection",
+          "ManeuverPath.exit-lane-edge": "LaneEdge ordinal 4 + exitDirection",
+          "ManeuverGate.owning-maneuver-path": "ManeuverPath ordinal movementIndex",
+          "WaitingZone.owning-maneuver-path": "ManeuverPath ordinal movementIndex"
+        },
+        "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1": "resolve source IDs and the validated unique owner tree independently inside each exact fixture case"
+      }
+    },
+    "sourceReferenceExpansion": {
+      "scope": "every identity stable-id field, every StableId payload field, every moduleGraphProfiles cross-module reference, and every fixed-fixture spatial-to-traffic binding",
+      "targetModuleOrdinalRule": "zero-based ordinal in researchStageModel.stringAggregateModel.canonicalModuleOrder or projectionContract.moduleOrder for fixed fixtures",
+      "targetLocalOrdinalRule": "resolved target declarationLocalOrdinalWithinKind; shared/common::shared-calibration-anchor uses 0",
+      "targetKindRule": "resolved entityKindCodeHex2; shared/common::shared-calibration-anchor uses ff",
+      "spellingFormulaSource": "researchStageModel.stringAggregateModel.sourceReferenceSpelling for scalable workloads and projectionContract.sourceReferenceRule for fixed fixtures",
+      "orderingRule": "enumerate identity fields by canonical module order, entityKindCode, declarationLocalOrdinalWithinKind, then field tag; enumerate relation and geometry payload references by sourceSpanRule canonicalSequenceOrdinal then recordKinds.payloadFields order; enumerate cross-module bindings by moduleGraphProfiles listed order; assign source spans before reference permutation",
+      "validationRule": "each spelling must resolve back to exactly the same target declaration or shared constant used to build the typed StableId/reference payload"
+    }
+  },
   "researchStageModel": {
     "version": 1,
     "scope": "non-production-research-shape-only",
@@ -1052,6 +1154,36 @@
       ]
     }
   ],
+  "semanticScalarEncodings": {
+    "version": 1,
+    "u8CodeTables": {
+      "accessDecision": {
+        "deny": 0,
+        "allow": 1
+      },
+      "signalAspect": {
+        "red": 0,
+        "yellow": 1,
+        "green": 2
+      }
+    },
+    "gateOccurrenceConstruction": {
+      "occurrenceOrder": "ascending transitionIndex, then maneuverGateStableIdBytes16 unsigned lexicographic",
+      "occurrenceIndexFormula": "zero-based position in occurrenceOrder for the owning ManeuverPath",
+      "laneEdgeFormula": "orderedManeuverPathLaneEdgeStableIds[transitionIndex]",
+      "edgePositionFormula": "canonicalF32(+1.0)",
+      "edgePositionCanonicalF32BitsU32Le": 1065353216,
+      "stopLineConstraint": "the referenced StopLine belongs to orderedManeuverPathLaneEdgeStableIds[transitionIndex] and current v0.10 location edgeEnd"
+    },
+    "waitingZoneOccurrenceConstruction": {
+      "occurrenceOrder": "ascending entry gate transitionIndex, then release gate transitionIndex, then waitingZoneStableIdBytes16 unsigned lexicographic",
+      "occurrenceIndexFormula": "zero-based position in occurrenceOrder for the owning ManeuverPath",
+      "beforeGateFormula": "entryGateId resolved to ManeuverGate StableId128",
+      "afterGateFormula": "releaseGateId resolved to ManeuverGate StableId128",
+      "fixtureCapacityFormula": "exact positive source maxOccupancy converted to u32",
+      "junctionGridCapacityFormula": "waitingZonePairIndex + 1"
+    }
+  },
   "diagnosticStream": {
     "domainUtf8NulTerminated": "LANEFLOW-COMPILER-CALIBRATION-DIAGNOSTIC-V1",
     "headerFields": [
@@ -1070,7 +1202,87 @@
       "endColumnU32Le",
       "typedPayloadLengthU32Le",
       "typedPayloadBytes"
-    ]
+    ],
+    "severityCodeU8": {
+      "error": 1
+    },
+    "sourceAbsenceSentinel": {
+      "sourceDocumentKeyUtf8": "",
+      "startLineU32Le": 0,
+      "startColumnU32Le": 0,
+      "endLineU32Le": 0,
+      "endColumnU32Le": 0
+    },
+    "diagnosticCodes": [
+      {
+        "code": "LF-COMP-RESEARCH-E-LIMIT-EXCEEDED",
+        "severity": "error",
+        "source": "sourceAbsenceSentinel",
+        "typedPayloadFields": [
+          "dimensionCodeU8",
+          "limitU64Le",
+          "observedU64Le"
+        ]
+      },
+      {
+        "code": "LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE",
+        "severity": "error",
+        "source": "mutated reference source span",
+        "typedPayloadFields": [
+          "targetEntityKindU16Le",
+          "referenceOrdinalU64Le",
+          "unknownKeyLengthU32Le",
+          "unknownKeyUtf8"
+        ]
+      },
+      {
+        "code": "LF-COMP-RESEARCH-E-DUPLICATE-OWNER",
+        "severity": "error",
+        "source": "mutated second owner relation source span",
+        "typedPayloadFields": [
+          "childEntityKindU16Le",
+          "childStableIdBytes16",
+          "firstOwnerStableIdBytes16",
+          "secondOwnerStableIdBytes16"
+        ]
+      }
+    ],
+    "limitDimensionCodeU8Source": "limitDimensions array one-based position",
+    "canonicalRouteOccurrenceOrder": "the canonical valid semantic record order restricted to record kind 4, before applying any failure input mutation",
+    "referenceOrdinalU64LeRule": "zero-based global position in canonicalRouteOccurrenceOrder",
+    "unknownLaneEdgeKeyEncoding": {
+      "targetEntityKindCode": 4,
+      "localIndexBaseU32": 2147483648,
+      "localIndexFormula": "localIndexBaseU32 + mutatedRouteOccurrenceOrdinalWithinUnit",
+      "format": "targetEntityKindCode lowercase hex width 2 || '/' || unitIndex lowercase hex width 8 || '/' || localIndex lowercase hex width 8",
+      "byteLength": 20
+    },
+    "unknownLaneEdgeKeyRangeRule": "mutatedRouteOccurrenceOrdinalWithinUnit is zero-based in canonical route-occurrence order, is less than 0x80000000, and every generated key is absent from the declaration table",
+    "canonicalOrderKey": [
+      "sourceDocumentKeyUtf8 unsigned bytes",
+      "startLineU32",
+      "startColumnU32",
+      "endLineU32",
+      "endColumnU32",
+      "diagnosticCodeUtf8 unsigned bytes",
+      "severityU8",
+      "typedPayloadBytes unsigned bytes"
+    ],
+    "canonicalOrderRule": "sort all full diagnostic candidates lexicographically by canonicalOrderKey before applying maxDiagnostics; byte-identical ties need no source-order tie break",
+    "truncationRule": "retain the first min(fullCandidateCount,maxDiagnostics) canonical diagnostics; diagnosticsTruncated is fullCandidateCount > maxDiagnostics",
+    "diagnosticLimitOutcomeRule": "when truncationRule drops any candidate, stableCompilerErrorCode is LF-COMP-RESEARCH-E-DIAGNOSTIC-LIMIT; that outcome code is not an emitted diagnostic and therefore has no typed payload record",
+    "stableCompilerErrorCodeRules": {
+      "ordinary-limit-plus-one": "LF-COMP-RESEARCH-E-LIMIT-EXCEEDED",
+      "compiler-controlled-live-byte-plus-one": "LF-COMP-RESEARCH-E-LIMIT-EXCEEDED",
+      "untruncated-unknown-reference": "LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE",
+      "duplicate-owner": "LF-COMP-RESEARCH-E-DUPLICATE-OWNER",
+      "any-truncated-diagnostic-prefix": "LF-COMP-RESEARCH-E-DIAGNOSTIC-LIMIT"
+    },
+    "inputVariantCandidateRules": {
+      "corridor-missing-reference-per-unit-v1": "one LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE candidate for the first canonical route occurrence in each unit",
+      "corridor-duplicate-owner-per-unit-v1": "one LF-COMP-RESEARCH-E-DUPLICATE-OWNER candidate for the first canonical FacilityBand in each unit after adding the second RoadCorridor owner",
+      "corridor-diagnostic-cap-plus-one-v1": "N + 1 LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE candidates from the first N + 1 canonical route occurrences globally; apply maxDiagnostics=N"
+    }
   },
   "identityBindings": [
     {
@@ -1134,7 +1346,7 @@
         {"tag": 7, "value": "profiled-key(kind=7,local=0)"},
         {"tag": 11, "value": "stable-id(kind=6,local=0)"},
         {"tag": 12, "value": "stable-id(kind=4,local=0)"},
-        {"tag": 13, "value": "stable-id(kind=4,local=0)"}
+        {"tag": 13, "value": "stable-id(kind=4,local=1)"}
       ]
     },
     {
@@ -1450,8 +1662,13 @@
           "exit"
         ],
         "gateTransitionIndices": [0, 1, 2],
+        "gateOccurrenceLaneEdgeFormula": "pathLaneEdgeOrder[gateTransitionIndex]",
+        "gateOccurrenceEdgePositionCanonicalF32BitsU32Le": 1065353216,
         "stopLineRule": "one distinct StopLine per gate",
+        "stopLineLaneEdgeFormula": "pathLaneEdgeOrder[gateTransitionIndex]",
+        "stopLineLocation": "edgeEnd",
         "waitingZoneGatePairs": [[0, 1], [1, 2]],
+        "waitingZoneCapacityFormula": "waitingZonePairIndex + 1",
         "gridWidthUnits": 4096,
         "unitXFormula": "unitIndex mod 4096",
         "unitYFormula": "floor(unitIndex / 4096)",
@@ -2098,6 +2315,8 @@
         "stress"
       ],
       "construction": "replace the first canonical route occurrence in every unit with an unknown LaneEdge; retain every record count and source position",
+      "unknownLaneEdgeKeySource": "diagnosticStream.unknownLaneEdgeKeyEncoding",
+      "diagnosticCandidateSource": "diagnosticStream.inputVariantCandidateRules.corridor-missing-reference-per-unit-v1",
       "expectedDiagnosticCount": "N",
       "expectedPrimaryCompilerErrorCode": "LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE"
     },
@@ -2110,6 +2329,7 @@
         "stress"
       ],
       "construction": "attach the first canonical FacilityBand in every unit to the second RoadCorridor while retaining its first owner",
+      "diagnosticCandidateSource": "diagnosticStream.inputVariantCandidateRules.corridor-duplicate-owner-per-unit-v1",
       "expectedDiagnosticCount": "N",
       "expectedPrimaryCompilerErrorCode": "LF-COMP-RESEARCH-E-DUPLICATE-OWNER"
     },
@@ -2122,6 +2342,8 @@
         "stress"
       ],
       "construction": "replace the first N + 1 canonical route occurrences with independent unknown LaneEdges, set maxDiagnostics=N, and retain all other records",
+      "unknownLaneEdgeKeySource": "diagnosticStream.unknownLaneEdgeKeyEncoding",
+      "diagnosticCandidateSource": "diagnosticStream.inputVariantCandidateRules.corridor-diagnostic-cap-plus-one-v1",
       "expectedRetainedDiagnosticCount": "N",
       "expectedDiagnosticsTruncated": true,
       "expectedPrimaryCompilerErrorCode": "LF-COMP-RESEARCH-E-DIAGNOSTIC-LIMIT"
@@ -2243,11 +2465,11 @@
     "expectedByPairMode": {
       "success-at-bound": {
         "atBound": "success",
-        "plusOne": "fail before allocation, copy, sort, hash, or stage work prohibited by that limit"
+        "plusOne": "fail with stable compiler error LF-COMP-RESEARCH-E-LIMIT-EXCEEDED and one diagnostic using the selected limitDimensions one-based dimensionCodeU8 before allocation, copy, sort, hash, or stage work prohibited by that limit"
       },
       "baseline-live-byte-prescan-v1": {
         "atBound": "the frozen baseline candidate succeeds with maxCompilerControlledLiveBytes equal to the prescan common peakLiveRequestedBytes",
-        "plusOne": "the same baseline candidate fails at the first reservation that would make simultaneous requested bytes exceed common peakLiveRequestedBytes - 1"
+        "plusOne": "the same baseline candidate fails with stable compiler error LF-COMP-RESEARCH-E-LIMIT-EXCEEDED and one compiler-controlled-live-byte-count diagnostic at the first reservation that would make simultaneous requested bytes exceed common peakLiveRequestedBytes - 1"
       },
       "diagnostic-cap-on-semantic-failure": {
         "atBound": "compiler-error LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE with exactly N diagnostics and diagnosticsTruncated=false",

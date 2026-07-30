@@ -259,7 +259,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "07ff1f5becae5bfb79586f5f7b35aca5c58a20042cd7b8586f7e63261062506b"
+          "const": "bd5a80b3f13d0c8b73a15b56932fdf631c7e38cbf34ca273c99b2c137ed1eb78"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1158,7 +1158,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "07ff1f5becae5bfb79586f5f7b35aca5c58a20042cd7b8586f7e63261062506b"
+          "const": "bd5a80b3f13d0c8b73a15b56932fdf631c7e38cbf34ca273c99b2c137ed1eb78"
         },
         "counts": {
           "type": "object"

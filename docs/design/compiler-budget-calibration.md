@@ -197,7 +197,12 @@ token）连同行尾分别固定为 `21/19/18/18` 字节求和，不再允许执
 最大项；字符串配置只控制配置键长度。字符串项数、单字符串最大字节数和总字符串字节
 数必须从该同一枚举计算，禁止只把 `profiledKeyLengthBytes` 冒充完整字符串聚合。
 精确语义载荷字节由 `recordKinds`、`identityBindings`、字符串配置和该级规范记录逐条
-求和。
+求和。清单中的声明局部序号（declaration-local ordinal）在每个工作负载单元内、按
+实体种类分别从零分配，并且必须在声明置换前固定。配置键表达式的 `local` 是同一
+身份绑定内的字段槽，不是声明序号；真实键索引按
+`同类声明局部序号 × 该实体种类的配置键字段数 + 字段槽` 展开。StableId 引用表达式
+的 `local` 则是对同一目标种类的引用槽，必须按清单登记的具名关系角色解析到真实目标
+声明，不能把字段槽、来源数组序号或身份字段出现序号直接冒充目标声明。
 
 当前夹具不套用 `N` 公式，而是对每个 case 使用清单冻结的文件到研究记录投影，并登记
 全部领域计数、聚合输入、语义载荷和八阶段记录/逻辑字节常量；它仍不参与预算或候选
@@ -324,6 +329,17 @@ repeated record_count times:
 `stable_id` 和 `owner_ordinal` 均不得缺失，只有下表标为“无”的 `local_index`
 使用 `u32::MAX`。`stable_id` 的十六字节没有缺失哨兵。
 
+身份绑定的展开由清单 `identityBindingExpansion` 唯一裁决。`LF-COMP-ID-v1` 每种
+实体只有一个声明；走廊与当前固定夹具按每种实体的具名来源集合顺序分配同类声明局部
+序号；路口网格则按 `movementIndex`、Gate transition 和 WaitingZone pair 的冻结公式
+分配。每个 `profiled-key(kind=K,local=S)` 必须先验证 `K` 等于当前实体种类，再按
+上述乘加公式产生 `stringProfiles[].profiledKeyFormula` 的 `localIndex`。每个
+`stable-id(kind=K,local=R)` 必须通过清单的 `(source kind, K, R, role)` 闭合表解析；
+例如 `ManeuverPath` 的两个 `LaneEdge` 槽分别是 entry 与 exit，而不是两个
+`local=0`。每条来源引用再用已解析目标的模块序号、实体种类和同类声明局部序号生成
+三十字节规范拼写，并必须反向解析到同一目标；声明置换、哈希表迭代和来源引用遍历都
+不得改变这些前像。
+
 `owner_ordinal` 不是执行器自由分配的序号。对每个 `entity_kind`，先把该种类的全部
 身份/声明记录按 `stable_id` 无符号逐字节升序排列，再取记录所有者的零起始同类序号；
 每条记录的 `(entity_kind, stable_id)` 必须唯一解析到对应身份/声明，重算序号必须与
@@ -363,6 +379,15 @@ repeated record_count times:
 逐字节升序。G2 必须发布各工作负载 `N = 1` 的完整记录流和摘要已知向量；编码或
 记录码改变时必须提升记录流/工作负载修订（stream/workload revision）。
 
+研究语义标量代码（research semantic scalar code）同样属于记录流契约：
+`decisionU8` 固定为 `deny = 0 / allow = 1`，`stateCodeU8` 固定为
+`red = 0 / yellow = 1 / green = 2`。Gate 出现项按 transition 升序排列，
+`laneEdge = pathEdges[transitionIndex]`，边位置固定为规范 `+1.0f32`
+（位模式 `0x3f800000`）；WaitingZone 按 entry transition、release transition 和
+StableId 排序，夹具容量取来源 `maxOccupancy`，路口网格容量为
+`waitingZonePairIndex + 1`。这些代码和公式影响 `payload_bytes`、规范排序与
+`semanticDigest`，不能由 Rust 枚举判别值或容器遍历顺序隐式决定。
+
 停车锚点记录每个 `ParkingSpace` 恰好一条，载荷依次编码停车位
 `StableId128`、入口边 `StableId128`、入口 `EdgeProgress` 的规范 high/residual
 两项 `f32` 位、出口边 `StableId128` 和出口 `EdgeProgress` 的规范 high/residual
@@ -378,10 +403,18 @@ repeated record_count times:
 失败结果在主计时区外另计算 SHA-256 `diagnosticDigest`：先编码
 `"LANEFLOW-COMPILER-CALIBRATION-DIAGNOSTIC-V1\0"`、
 `diagnostic_stream_version_u32_le = 1` 和记录数，再按规范诊断顺序编码每项稳定
-诊断代码、严重程度、`sourceDocumentKey`、起止行列和有类型载荷；每项仍使用小端
-定宽值及长度前缀。
-自然语言渲染文本、宿主绝对路径和哈希表迭代顺序不进入诊断摘要。G2 必须同时发布
-一个未知引用和一个诊断截断已知向量。
+诊断代码、严重程度、`sourceDocumentKey`、起止行列和有类型诊断载荷（typed
+diagnostic payload）；每项仍使用小端定宽值及长度前缀。v1 的严重度闭集只有
+`error = 1`。清单分别冻结资源上限、未知引用和重复所有者三种诊断的有类型载荷；
+诊断上限错误是截断后的稳定编译器结果码，不额外占用诊断记录。
+
+规范诊断顺序（canonical diagnostic order）按来源文档 UTF-8 字节、起止行列、诊断
+代码、严重度和有类型载荷逐项升序；无来源的预检诊断使用空文档键和全零位置哨兵。
+执行器先构造完整诊断候选并按该键排序，再保留前
+`min(candidateCount, maxDiagnostics)` 项；只有候选数超过上限时
+`diagnosticsTruncated = true`。未知 LaneEdge 键、限制维度代码和各失败变体候选集合
+均由清单公式生成。自然语言渲染文本、宿主绝对路径和哈希表迭代顺序不进入诊断摘要。
+G2 必须同时发布未知引用、重复所有者、资源上限和诊断截断已知向量。
 
 ### 3.4 机器可读工作负载清单
 
@@ -390,9 +423,10 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 - 三种模块图配置档及其精确模块/导入/跨模块引用公式；
 - 三种字符串配置、来源文档键和虚拟来源位置规则；
-- identity v1 二十二种实体的字段绑定与父项拓扑；
+- identity v1 二十二种实体的字段绑定、声明局部键展开、引用槽与父项拓扑；
 - 研究记录 envelope、每种 `record_kind` 的记录所有者/同类序号/本地索引绑定、
-  有序载荷字段和诊断流；
+  有序载荷字段、标量代码/构造公式和诊断流；
+- 诊断严重度、代码、有类型载荷、规范顺序与截断规则；
 - 非生产研究阶段记录模型的字段宽度、`repr(C)` 大小、记录粒度、逐阶段记录/载荷/
   逻辑字节公式和工作负载每单元阶段输入；
 - 来源令牌（source token）、模块/文档/导入/命名空间/配置键/引用/共享常量的字符串
@@ -406,8 +440,8 @@ Workload Manifest）的机器可读 SSOT，冻结：
 
 设计正文解释语义，JSON 清单负责消除实现选择。两者冲突时视为 G1 缺陷，不允许 G2
 自行选择；必须同步修订、提升受影响的 manifest/workload/stream revision，并重新
-取得 G1。G1 候选冻结清单 `84389` exact bytes，SHA-256 为
-`07ff1f5becae5bfb79586f5f7b35aca5c58a20042cd7b8586f7e63261062506b`；G2 只能发布
+取得 G1。G1 候选冻结清单 `99570` exact bytes，SHA-256 为
+`bd5a80b3f13d0c8b73a15b56932fdf631c7e38cbf34ca273c99b2c137ed1eb78`；G2 只能发布
 由该摘要输入产生的已知向量和研究证据。任何格式化或内容修改都必须同步更新长度、
 摘要和 G1 审阅证据。
 
@@ -493,7 +527,9 @@ Workload Manifest）的机器可读 SSOT，冻结：
 每个工作单元是一个四进口方向、禁止掉头的路口单元。四个进口方向分别连接其余三个
 出口方向，因此固定形成十二个有向 Movement。每个 Movement 只有一条四 edge
 ManeuverPath，并沿路径放置三个 ManeuverGate 和两个相邻门之间的 WaitingZone；
-每个 ManeuverGate 恰好关联一条独立 StopLine，因此可推导三十六条 StopLine。
+每个 ManeuverGate 恰好关联一条独立 StopLine，因此可推导三十六条 StopLine。Gate
+转移 `t` 的载荷边是 `pathEdges[t]`，位置是规范 `+1.0f32`；两个 WaitingZone 按
+`[(0,1),(1,2)]` 顺序分别使用容量 `1`、`2`。
 
 | 计数对象                                                        |   每工作单元 |
 | --------------------------------------------------------------- | -----------: |
@@ -1295,7 +1331,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1321` exact bytes，SHA-256 为
-`a5899acace30e4e99bae09c070262054a73c7897f02debec24d0a73ccb9ea3f0`。该摘要是 PR/Gate
+`c6868ae3de161ce293eae8dd339cc7580642c98948705080b38ae5ef85153d1b`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1315,7 +1351,7 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
 G1 候选冻结 schema `184794` exact bytes，SHA-256 为
-`19723610659af78f934f498ade1f6caa6231c97fd8350c41785e29f5afcfa070`。
+`cee361c324599e7f08f061cde9ea2a722da1fb2afc853fd75137a72687db87ee`。
 顶层格式标识：
 
 ```text
@@ -1407,6 +1443,13 @@ JSON 不是有效研究证据。
 索引与 `local_index` 不等、停车位载荷 StableId 与 envelope 不等、哨兵使用越界或
 所有者不能唯一解析时，完整输出与 `semanticDigest` 都必须判为无效。生产者与独立
 预言机必须各自实现该映射，不能共享被测映射表后只比较同源结果。
+
+验证器还必须从 `identityBindingExpansion` 独立枚举每种实体的声明局部序号、配置键
+字段槽和 StableId 引用角色，拒绝把 `local` 字面当成所有声明的零、把来源数组序号
+直接当引用槽，或在置换后重新分配序号。随后按 `semanticScalarEncodings` 重建
+准入/信号代码、Gate 边位置和 WaitingZone 容量，并按 `diagnosticStream` 重建完整
+诊断候选、类型化载荷、规范排序和截断前缀。任一实现即使计数相同，只要 StableId
+向量、语义载荷字节或诊断流字节不同，也必须在比较派生性能结论前失败。
 
 独立验证器的启动根不是证据自报字段。它必须先取得 Gate 接受的契约描述符 exact-byte
 身份，从 `sourceCommit` 读取描述符并核对实际摘要，再依次核对描述符登记的 Evidence
