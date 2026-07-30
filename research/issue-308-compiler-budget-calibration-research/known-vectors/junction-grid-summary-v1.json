@@ -1,0 +1,280 @@
+{
+  "schema": "laneflow.compiler-calibration-junction-grid-summary-known-vectors",
+  "schemaVersion": 1,
+  "sourceWorkloadManifestSha256": "9d670341238da29c428fa8a082723cd6d26d271c1269fc8dc1768068b4004575",
+  "workloadId": "LF-COMP-JUNCTION-GRID-v1",
+  "n": 1,
+  "stringProfile": "short-unique-v1",
+  "vectors": [
+    {
+      "graphProfile": "wide-star-v1",
+      "n": 1,
+      "counts": {
+        "moduleCount": 2,
+        "importEdgeCount": 1,
+        "crossModuleReferenceCount": 1,
+        "maximumImportDepth": 1,
+        "sourceDocumentCount": 2,
+        "sourceByteCount": 19529,
+        "identityDeclarationCount": 166,
+        "sourceDeclarationCount": 166,
+        "sourceSpanCount": 1027,
+        "identityFieldOccurrenceCount": 464,
+        "profiledKeyOccurrenceCount": 190,
+        "sourceReferenceCount": 545,
+        "sourceRelationCount": 252,
+        "sourceGeometryCount": 64,
+        "symbolCount": 166,
+        "stringItemCount": 906,
+        "maximumStringBytes": 45,
+        "totalStringBytes": 25573,
+        "diagnosticCount": 0,
+        "semanticOutputRecord": 482,
+        "semanticPayloadByteCount": 22796,
+        "logicalByteCount": 44004,
+        "outputByteCount": 40202
+      },
+      "stages": {
+        "sourceInput": {
+          "recordCount": 1030,
+          "payloadLogicalBytes": 45102,
+          "logicalBytes": 78062,
+          "recordAllocationBytes": 78062
+        },
+        "typedAst": {
+          "recordCount": 1494,
+          "payloadLogicalBytes": 65642,
+          "logicalBytes": 113450,
+          "recordAllocationBytes": 113450
+        },
+        "hir": {
+          "recordCount": 1494,
+          "payloadLogicalBytes": 32397,
+          "logicalBytes": 80205,
+          "recordAllocationBytes": 80205
+        },
+        "mir": {
+          "recordCount": 482,
+          "payloadLogicalBytes": 22796,
+          "logicalBytes": 44004,
+          "recordAllocationBytes": 45932
+        },
+        "canonicalLir": {
+          "recordCount": 482,
+          "payloadLogicalBytes": 22796,
+          "logicalBytes": 44004,
+          "recordAllocationBytes": 45932
+        },
+        "diagnostics": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 0,
+          "logicalBytes": 0,
+          "recordAllocationBytes": 0
+        },
+        "scratch": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 3856,
+          "logicalBytes": 3856,
+          "recordAllocationBytes": 3856
+        },
+        "outputConstruction": {
+          "recordCount": 482,
+          "payloadLogicalBytes": 22796,
+          "logicalBytes": 40202,
+          "recordAllocationBytes": 40202
+        }
+      },
+      "recordKindCounts": {
+        "canonical-geometry-point": 64,
+        "edge-connection": 36,
+        "gate-occurrence": 36,
+        "identity-declaration": 166,
+        "junction-internal-edge-role": 24,
+        "owner-relation": 84,
+        "route-occurrence": 48,
+        "waiting-zone-occurrence": 24
+      },
+      "semanticDigestSha256": "4bbec1435ab5dce0fb5e164baeac843252dcedda2e4a706eeb2363fb50defba1"
+    },
+    {
+      "graphProfile": "deep-chain-v1",
+      "n": 1,
+      "counts": {
+        "moduleCount": 2,
+        "importEdgeCount": 1,
+        "crossModuleReferenceCount": 0,
+        "maximumImportDepth": 1,
+        "sourceDocumentCount": 2,
+        "sourceByteCount": 19510,
+        "identityDeclarationCount": 166,
+        "sourceDeclarationCount": 166,
+        "sourceSpanCount": 1026,
+        "identityFieldOccurrenceCount": 464,
+        "profiledKeyOccurrenceCount": 190,
+        "sourceReferenceCount": 544,
+        "sourceRelationCount": 252,
+        "sourceGeometryCount": 64,
+        "symbolCount": 166,
+        "stringItemCount": 905,
+        "maximumStringBytes": 46,
+        "totalStringBytes": 25545,
+        "diagnosticCount": 0,
+        "semanticOutputRecord": 482,
+        "semanticPayloadByteCount": 22796,
+        "logicalByteCount": 44004,
+        "outputByteCount": 40202
+      },
+      "stages": {
+        "sourceInput": {
+          "recordCount": 1029,
+          "payloadLogicalBytes": 45055,
+          "logicalBytes": 77983,
+          "recordAllocationBytes": 77983
+        },
+        "typedAst": {
+          "recordCount": 1493,
+          "payloadLogicalBytes": 65575,
+          "logicalBytes": 113351,
+          "recordAllocationBytes": 113351
+        },
+        "hir": {
+          "recordCount": 1493,
+          "payloadLogicalBytes": 32365,
+          "logicalBytes": 80141,
+          "recordAllocationBytes": 80141
+        },
+        "mir": {
+          "recordCount": 482,
+          "payloadLogicalBytes": 22796,
+          "logicalBytes": 44004,
+          "recordAllocationBytes": 45932
+        },
+        "canonicalLir": {
+          "recordCount": 482,
+          "payloadLogicalBytes": 22796,
+          "logicalBytes": 44004,
+          "recordAllocationBytes": 45932
+        },
+        "diagnostics": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 0,
+          "logicalBytes": 0,
+          "recordAllocationBytes": 0
+        },
+        "scratch": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 3856,
+          "logicalBytes": 3856,
+          "recordAllocationBytes": 3856
+        },
+        "outputConstruction": {
+          "recordCount": 482,
+          "payloadLogicalBytes": 22796,
+          "logicalBytes": 40202,
+          "recordAllocationBytes": 40202
+        }
+      },
+      "recordKindCounts": {
+        "canonical-geometry-point": 64,
+        "edge-connection": 36,
+        "gate-occurrence": 36,
+        "identity-declaration": 166,
+        "junction-internal-edge-role": 24,
+        "owner-relation": 84,
+        "route-occurrence": 48,
+        "waiting-zone-occurrence": 24
+      },
+      "semanticDigestSha256": "ee6d8416a92f08f2ff877e57af54542074a732d74a4136b490c314fd7838cc74"
+    },
+    {
+      "graphProfile": "shared-fanin-dag-v1",
+      "n": 1,
+      "counts": {
+        "moduleCount": 4,
+        "importEdgeCount": 3,
+        "crossModuleReferenceCount": 1,
+        "maximumImportDepth": 3,
+        "sourceDocumentCount": 4,
+        "sourceByteCount": 19550,
+        "identityDeclarationCount": 166,
+        "sourceDeclarationCount": 167,
+        "sourceSpanCount": 1028,
+        "identityFieldOccurrenceCount": 464,
+        "profiledKeyOccurrenceCount": 190,
+        "sourceReferenceCount": 545,
+        "sourceRelationCount": 252,
+        "sourceGeometryCount": 64,
+        "symbolCount": 167,
+        "stringItemCount": 914,
+        "maximumStringBytes": 53,
+        "totalStringBytes": 25803,
+        "diagnosticCount": 0,
+        "semanticOutputRecord": 482,
+        "semanticPayloadByteCount": 22796,
+        "logicalByteCount": 44004,
+        "outputByteCount": 40202
+      },
+      "stages": {
+        "sourceInput": {
+          "recordCount": 1035,
+          "payloadLogicalBytes": 45353,
+          "logicalBytes": 78473,
+          "recordAllocationBytes": 78473
+        },
+        "typedAst": {
+          "recordCount": 1499,
+          "payloadLogicalBytes": 65913,
+          "logicalBytes": 113881,
+          "recordAllocationBytes": 113881
+        },
+        "hir": {
+          "recordCount": 1499,
+          "payloadLogicalBytes": 32635,
+          "logicalBytes": 80603,
+          "recordAllocationBytes": 80603
+        },
+        "mir": {
+          "recordCount": 482,
+          "payloadLogicalBytes": 22796,
+          "logicalBytes": 44004,
+          "recordAllocationBytes": 45932
+        },
+        "canonicalLir": {
+          "recordCount": 482,
+          "payloadLogicalBytes": 22796,
+          "logicalBytes": 44004,
+          "recordAllocationBytes": 45932
+        },
+        "diagnostics": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 0,
+          "logicalBytes": 0,
+          "recordAllocationBytes": 0
+        },
+        "scratch": {
+          "recordCount": 0,
+          "payloadLogicalBytes": 3856,
+          "logicalBytes": 3856,
+          "recordAllocationBytes": 3856
+        },
+        "outputConstruction": {
+          "recordCount": 482,
+          "payloadLogicalBytes": 22796,
+          "logicalBytes": 40202,
+          "recordAllocationBytes": 40202
+        }
+      },
+      "recordKindCounts": {
+        "canonical-geometry-point": 64,
+        "edge-connection": 36,
+        "gate-occurrence": 36,
+        "identity-declaration": 166,
+        "junction-internal-edge-role": 24,
+        "owner-relation": 84,
+        "route-occurrence": 48,
+        "waiting-zone-occurrence": 24
+      },
+      "semanticDigestSha256": "a43fef18742f882fcd394fa350f6dda44683f9bf6beb4280179d868c79a6a592"
+    }
+  ]
+}

@@ -14,6 +14,8 @@ mod corridor_oracle;
 mod generator;
 mod guard;
 mod identity;
+mod junction_grid;
+mod junction_grid_oracle;
 mod manifest;
 mod oracle;
 mod pilot;
@@ -48,6 +50,15 @@ pub use identity::{
     IdentityContract, IdentityContractError, IdentityDeclarationVector, IdentityFieldVector,
     IdentityGenerationError, IdentityKnownVector, IdentityKnownVectorDocument,
     SemanticRecordVector, build_identity_known_vectors,
+};
+pub use junction_grid::{
+    JUNCTION_GRID_KNOWN_VECTOR_SCHEMA, JUNCTION_GRID_WORKLOAD_ID, JunctionGridContract,
+    JunctionGridError, JunctionGridKnownVectorDocument, build_junction_grid_known_vectors,
+    build_junction_grid_stage_summary,
+};
+pub use junction_grid_oracle::{
+    JunctionGridOracleError, JunctionGridOracleVerificationReport,
+    verify_junction_grid_oracle_matrix,
 };
 pub use manifest::{GeneratorContract, ManifestContractError};
 pub use oracle::{

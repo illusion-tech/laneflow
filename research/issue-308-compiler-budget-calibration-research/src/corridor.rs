@@ -317,6 +317,12 @@ pub(crate) enum TemplateRelation {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TemplateGeometryRule {
+    Fixed,
+    JunctionGridV1,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TemplateGeometry {
     pub(crate) edge: EntityRef,
@@ -325,6 +331,7 @@ pub(crate) struct TemplateGeometry {
     pub(crate) x_bits: u32,
     pub(crate) y_bits: u32,
     pub(crate) z_bits: u32,
+    pub(crate) coordinate_rule: TemplateGeometryRule,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -343,7 +350,7 @@ impl CorridorTemplate {
         counts
     }
 
-    fn stage_input_counts(&self) -> BTreeMap<String, u64> {
+    pub(crate) fn stage_input_counts(&self) -> BTreeMap<String, u64> {
         let identity_field_occurrences = self
             .entities
             .iter()
@@ -396,7 +403,7 @@ impl CorridorTemplate {
         ])
     }
 
-    fn domain_counts(&self) -> BTreeMap<String, u64> {
+    pub(crate) fn domain_counts(&self) -> BTreeMap<String, u64> {
         let entity_counts = self.entity_counts();
         let mut counts = BTreeMap::new();
         for (kind, name) in ENTITY_KIND_NAMES.iter().enumerate().skip(1) {
@@ -1490,6 +1497,7 @@ fn build_geometry(
                 x_bits: bits[0],
                 y_bits: bits[1],
                 z_bits: bits[2],
+                coordinate_rule: TemplateGeometryRule::Fixed,
             });
         }
     }
@@ -1518,6 +1526,7 @@ fn build_geometry(
                 x_bits: canonical_f32_bits(x, "parking synthetic x")?,
                 y_bits: 0.0_f32.to_bits(),
                 z_bits: 0.0_f32.to_bits(),
+                coordinate_rule: TemplateGeometryRule::Fixed,
             });
         }
     }
@@ -1720,6 +1729,27 @@ pub(crate) fn build_corridor_stage_case(
     graph_profile: GraphProfileId,
     n: u32,
 ) -> Result<CorridorCaseOutput, CorridorError> {
+    contract.validate_template(template)?;
+    build_template_stage_case(
+        generator,
+        identity,
+        stage,
+        CORRIDOR_WORKLOAD_ID,
+        template,
+        graph_profile,
+        n,
+    )
+}
+
+pub(crate) fn build_template_stage_case(
+    generator: &GeneratorContract,
+    identity: &IdentityContract,
+    stage: &StageContract,
+    workload_id: &str,
+    template: &CorridorTemplate,
+    graph_profile: GraphProfileId,
+    n: u32,
+) -> Result<CorridorCaseOutput, CorridorError> {
     if n == 0 {
         return Err(CorridorError::Mismatch {
             path: "N".to_owned(),
@@ -1727,8 +1757,7 @@ pub(crate) fn build_corridor_stage_case(
             actual: "0".to_owned(),
         });
     }
-    contract.validate_template(template)?;
-    let graph = expand_module_graph(generator, CORRIDOR_WORKLOAD_ID, graph_profile, n)?;
+    let graph = expand_module_graph(generator, workload_id, graph_profile, n)?;
     let declarations = compile_declarations(identity, template, &graph, n)?;
     let (mut records, unsorted_records) =
         compile_semantic_records(identity, template, &declarations, n)?;
@@ -1938,12 +1967,13 @@ fn compile_semantic_records(
             pending.push(compile_relation(unit, relation, &stable_ids)?);
         }
         for point in &template.geometry {
+            let (x_bits, y_bits, z_bits) = geometry_coordinate_bits(point, unit)?;
             let mut payload = Vec::with_capacity(32);
             payload.extend_from_slice(&stable_id(&stable_ids, unit, point.frame)?);
             append_u32(&mut payload, point.point_index);
-            append_u32(&mut payload, point.x_bits);
-            append_u32(&mut payload, point.y_bits);
-            append_u32(&mut payload, point.z_bits);
+            append_u32(&mut payload, x_bits);
+            append_u32(&mut payload, y_bits);
+            append_u32(&mut payload, z_bits);
             pending.push(PendingRecord {
                 record_kind: 5,
                 owner: UnitEntityRef {
@@ -1994,6 +2024,39 @@ fn compile_semantic_records(
         });
     }
     Ok((records.clone(), records))
+}
+
+fn geometry_coordinate_bits(
+    point: &TemplateGeometry,
+    unit: u32,
+) -> Result<(u32, u32, u32), CorridorError> {
+    match point.coordinate_rule {
+        TemplateGeometryRule::Fixed => {
+            return Ok((point.x_bits, point.y_bits, point.z_bits));
+        }
+        TemplateGeometryRule::JunctionGridV1 => {}
+    }
+    let unit_x = unit % 4_096;
+    let unit_y = unit / 4_096;
+    let x = unit_x
+        .checked_mul(128)
+        .and_then(|base| {
+            point
+                .edge
+                .local
+                .checked_mul(2)
+                .and_then(|edge| base.checked_add(edge))
+        })
+        .and_then(|base| base.checked_add(point.point_index))
+        .ok_or_else(|| contract_error("junction grid x coordinate overflow"))?;
+    let y = unit_y
+        .checked_mul(128)
+        .ok_or_else(|| contract_error("junction grid y coordinate overflow"))?;
+    Ok((
+        (x as f32).to_bits(),
+        (y as f32).to_bits(),
+        0.0_f32.to_bits(),
+    ))
 }
 
 fn compile_relation(
