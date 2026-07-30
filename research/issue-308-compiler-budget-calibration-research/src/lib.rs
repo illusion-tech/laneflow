@@ -14,6 +14,7 @@ mod manifest;
 mod oracle;
 mod pilot;
 mod pipeline;
+mod process_protocol;
 mod stage;
 mod stage_oracle;
 mod timing;
@@ -44,9 +45,14 @@ pub use pilot::{
     CLOCK_QUANTUM_MULTIPLIER, ChildMonitorTrigger, ChildProcessMonitorReport,
     ControlledAllocationGuardReport, FRESH_PROCESS_PILOT_SAMPLE_COUNT,
     IDENTITY_TIMING_CHILD_SCHEMA, IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityChildOutcome,
-    IdentityChildTimingReport, IdentityFreshProcessPilot, IdentityMonitoredChildSample,
-    MAXIMUM_RELATIVE_MAD_PERCENT, PilotError, measure_identity_timing_child,
-    run_identity_fresh_process_pilot, wait_for_parent_start_signal,
+    IdentityChildTimingReport, IdentityFreshProcessPilot, IdentityFreshProcessPilotOutcome,
+    IdentityFreshProcessPilotStop, IdentityMonitoredChildSample, MAXIMUM_RELATIVE_MAD_PERCENT,
+    PilotError, measure_identity_timing_child, run_identity_fresh_process_pilot,
+    run_identity_fresh_process_pilot_with_allocation_ceiling_cap, wait_for_parent_start_signal,
+};
+pub use process_protocol::{
+    IDENTITY_PILOT_COMBINED_BINARY_ID, InvalidationReason, NullableObservation, ProcessExitKind,
+    ProcessObservation, ProcessProtocolError, RunStatus, TerminationKind, TerminationObservation,
 };
 pub use stage::{
     IdentityAggregateCounts, IdentityStagePlanSummary, IdentityStageSummary, StageBreakdown,
