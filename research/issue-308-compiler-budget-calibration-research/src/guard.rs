@@ -1,15 +1,17 @@
 //! #308 研究停止护栏的父进程预检。
 //!
-//! 本模块只负责从受信任工作负载清单重算规模形状、预测值和本机阈值，并在启动子进程
-//! 前作出允许或拒绝判断。子进程受控分配硬上限、私有内存/墙钟监控、终止分类和
-//! Evidence v1 写出仍由后续切片负责。
+//! 本模块负责从受信任工作负载清单重算规模形状、预测值和本机阈值，并提供系统物理
+//! 内存与 Windows 进程私有字节观察。子进程受控分配和父进程监控执行位于 pipeline /
+//! pilot；完整跨平台终止状态分类与 Evidence v1 写出仍由后续切片负责。
 
 use crate::{
     GraphProfileId, IdentityStagePlanSummary, StageBreakdown, TrustedContract,
     build_identity_stage_plan_summary,
 };
 use serde::Serialize;
-use sysinfo::{IS_SUPPORTED_SYSTEM, MemoryRefreshKind, System};
+use sysinfo::{
+    IS_SUPPORTED_SYSTEM, MemoryRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate, System,
+};
 
 const GIBIBYTE: u64 = 1_073_741_824;
 const PREDICTION_SAFETY_FACTOR_NUMERATOR: u64 = 5;
@@ -29,6 +31,61 @@ pub struct SystemMemoryObservation {
 #[derive(Debug)]
 pub struct SystemMemoryMonitor {
     system: System,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChildProcessMemoryObservation {
+    pub private_bytes: u64,
+    pub available_physical_memory_bytes: u64,
+}
+
+#[derive(Debug)]
+pub struct ChildProcessMemoryMonitor {
+    system: System,
+}
+
+impl ChildProcessMemoryMonitor {
+    pub fn new() -> Result<Self, GuardError> {
+        if !IS_SUPPORTED_SYSTEM {
+            return Err(GuardError::UnsupportedSystemMemoryProvider);
+        }
+        if !cfg!(windows) {
+            return Err(GuardError::UnsupportedPrivateMemoryProvider);
+        }
+        Ok(Self {
+            system: System::new(),
+        })
+    }
+
+    pub fn observe(
+        &mut self,
+        child_pid: u32,
+    ) -> Result<Option<ChildProcessMemoryObservation>, GuardError> {
+        let pid = Pid::from_u32(child_pid);
+        self.system
+            .refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+        self.system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[pid]),
+            true,
+            ProcessRefreshKind::nothing().with_memory().without_tasks(),
+        );
+        let available_physical_memory_bytes = self.system.available_memory();
+        let Some(process) = self.system.process(pid) else {
+            return Ok(None);
+        };
+        // sysinfo 0.39.6 在 Windows 后端把 virtual_memory() 绑定到
+        // PROCESS_MEMORY_COUNTERS_EX.PrivateUsage。本研究精确绑定该依赖版本，其他平台
+        // 不得把通用虚拟内存值冒充进程私有字节。
+        #[cfg(windows)]
+        let private_bytes = process.virtual_memory();
+        #[cfg(not(windows))]
+        let private_bytes = 0;
+        Ok(Some(ChildProcessMemoryObservation {
+            private_bytes,
+            available_physical_memory_bytes,
+        }))
+    }
 }
 
 impl SystemMemoryMonitor {
@@ -465,6 +522,8 @@ pub enum GuardError {
     Stage(#[from] crate::StageGenerationError),
     #[error("系统信息提供程序不支持当前操作系统")]
     UnsupportedSystemMemoryProvider,
+    #[error("当前平台没有经 #308 绑定的进程私有字节监控提供程序")]
+    UnsupportedPrivateMemoryProvider,
     #[error("物理内存字节数无法形成正护栏阈值：{physical_memory_bytes}")]
     InvalidPhysicalMemory { physical_memory_bytes: u64 },
     #[error(

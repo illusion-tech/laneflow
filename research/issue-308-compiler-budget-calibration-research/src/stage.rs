@@ -983,6 +983,15 @@ pub enum StageGenerationError {
         #[source]
         source: std::collections::TryReserveError,
     },
+    #[error(
+        "guard/allocation-hard-ceiling：字段 {field} 的容量请求将越过受控分配硬上限；hardCeilingBytes={hard_ceiling_bytes}, liveRequestedBytes={live_requested_bytes}, requestedBytes={requested_bytes}"
+    )]
+    ControlledAllocationHardCeiling {
+        field: &'static str,
+        hard_ceiling_bytes: u64,
+        live_requested_bytes: u64,
+        requested_bytes: u64,
+    },
     #[error("阶段模型缺少实体种类 {0}")]
     MissingEntityKind(u16),
     #[error("阶段模型无法解析模块序号 {0}")]

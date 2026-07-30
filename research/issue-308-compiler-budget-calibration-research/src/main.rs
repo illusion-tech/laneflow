@@ -1,7 +1,7 @@
 use issue_308_compiler_budget_calibration_research::{
     CONTRACT_DESCRIPTOR_BYTE_LENGTH, GraphProfileId, build_identity_known_vectors,
     build_module_graph_known_vectors, load_repository_contract, measure_identity_timing_child,
-    run_identity_fresh_process_pilot, verify_identity_oracle_matrix,
+    run_identity_fresh_process_pilot, verify_identity_oracle_matrix, wait_for_parent_start_signal,
 };
 use serde::Serialize;
 use std::ffi::OsString;
@@ -144,12 +144,22 @@ fn run() -> Result<(), String> {
             let graph_profile =
                 parse_graph_profile(&next_utf8_argument(&mut arguments, "graph-profile")?)?;
             let n = parse_positive_n(&next_utf8_argument(&mut arguments, "N")?)?;
+            let controlled_allocation_hard_ceiling_bytes = parse_positive_u64(
+                &next_utf8_argument(&mut arguments, "controlled-allocation-hard-ceiling-bytes")?,
+                "controlled-allocation-hard-ceiling-bytes",
+            )?;
             require_no_more_arguments(&mut arguments)?;
 
+            wait_for_parent_start_signal().map_err(|error| error.to_string())?;
             let trusted = load_repository_contract().map_err(|error| error.to_string())?;
-            let report =
-                measure_identity_timing_child(&trusted, compiler_instance_id, graph_profile, n)
-                    .map_err(|error| error.to_string())?;
+            let report = measure_identity_timing_child(
+                &trusted,
+                compiler_instance_id,
+                graph_profile,
+                n,
+                controlled_allocation_hard_ceiling_bytes,
+            )
+            .map_err(|error| error.to_string())?;
             let json = serde_json::to_string(&report)
                 .map_err(|error| format!("无法序列化冷实例子进程计时结果：{error}"))?;
             println!("{json}");
@@ -222,6 +232,16 @@ fn parse_positive_n(value: &str) -> Result<u32, String> {
     Ok(n)
 }
 
+fn parse_positive_u64(value: &str, name: &str) -> Result<u64, String> {
+    let number = value
+        .parse::<u64>()
+        .map_err(|error| format!("{name} 必须是正 u64 整数：{error}"))?;
+    if number == 0 {
+        return Err(format!("{name} 必须大于零"));
+    }
+    Ok(number)
+}
+
 fn write_known_vector(path: &Path, value: &impl Serialize) -> Result<(), String> {
     let json = serde_json::to_string_pretty(value)
         .map_err(|error| format!("无法序列化已知向量 {}：{error}", path.display()))?;
@@ -237,7 +257,7 @@ fn usage() -> String {
         "  print-identity-known-vectors",
         "  write-known-vectors",
         "  verify-identity-oracle",
-        "  identity-timing-child <compiler-instance-id> <graph-profile> <N>",
+        "  identity-timing-child <compiler-instance-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>",
         "  smoke-identity-fresh-process-pilot <pilot-id> <graph-profile> <N>",
     ]
     .join("\n")
