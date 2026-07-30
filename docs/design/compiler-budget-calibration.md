@@ -662,21 +662,44 @@ release 编译优化、输入清单和语义检查，但：
 
 ### 5.4 确认成本拐点
 
-对每个相邻级别，分别计算：
+对基线候选每对相邻正式级别，必须分别建立以下完整测量分层（measurement stratum）：
 
-- 冷实例时延 / 主归一化记录；
-- 稳定容量复用时延 / 主归一化记录；
-- 编译器控制峰值存续字节 / canonical LIR 形状输出记录；
-- 进程私有字节和提交峰值 / canonical LIR 形状输出记录。
+- `wall-time-ns + timing + cold-instance` 与
+  `wall-time-ns + timing + stable-capacity-reuse`，都除以该级主归一化记录数；
+- `peak-live-requested-bytes + memory` 的冷实例与稳定容量复用分层，都除以
+  canonical LIR 形状输出记录数；
+- `private-bytes + memory` 与 `commit-peak-bytes + memory` 的冷实例与稳定容量复用
+  分层使用同一 canonical LIR 分母，但只作诊断，不直接触发拐点。
 
-某级别是**候选拐点**，需要满足前两项中的至少一项：
+权威 JSON 的每条 `adjacentLevelRatios[]` 必须保存基线候选 ID、下级/上级各自完整
+`measurementStratum`、指标、批次、规范化基准、五个相邻级别轮次对
+（adjacent-level round pair）、精确中位比值和 `candidateKnee`。上下级分层除 `N`
+与对应规模角色外必须逐字段相等；工作负载、修订、模块图/字符串配置档、生成器版本、
+`B`、用例、样本种类、二进制模式或键域不同都不得配对。
 
-- 五轮的归一化时延比值中，至少四个大于等于 `1.10`，且比值中位数大于
-  等于 `1.20`；
-- 五轮的归一化编译器控制峰值存续字节比值全部大于等于 `1.05`，且比值中位数
+五个轮次对按 `round = 0..4`，把同一批次、同一轮、同一指标和上述上下级分层的两个
+`purpose = formal-ladder` 轮次指标汇总一一绑定。比值方向固定为上级归一化中位数 /
+下级归一化中位数，并以
+`(upper_median * lower_normalizer) / (lower_median * upper_normalizer)` 的互素正整数
+比值保存；四项乘数都必须严格大于零，算法使用无溢出的数学整数语义。五项精确比值按
+交叉乘法排序后取第三项作为中位数，不经过浮点数或舍入。`pairingMethod` 固定为
+`same-batch-same-round-adjacent-level-v1`，`aggregationMethod` 固定为
+`median-of-five-exact-round-ratios-v1`。
+
+某上级是**候选拐点**，需要至少一条分层满足：
+
+- `wall-time-ns` 的五轮归一化比值中，至少四个大于等于 `1.10`，且比值中位数
+  大于等于 `1.20`；
+- `peak-live-requested-bytes` 的五轮归一化比值全部大于等于 `1.05`，且比值中位数
   大于等于 `1.10`。
 
-候选拐点必须在不同新进程执行批次中再次满足同一条件，才成为**确认成本拐点**。
+`private-bytes` 与 `commit-peak-bytes` 的 `candidateKnee` 必须为 `false`。候选拐点
+必须在不同新进程执行批次中，由相同指标、样本种类、二进制模式和其余分层字段再次满足
+同一条件，才成为**确认成本拐点**。独立验证器必须解析每个上下级
+`roundSummaryId`，核对完整分层与 `round = 0..4` 集合，重算规范化分母、五个精确比值、
+中位数和布尔判断；缺失引用、跨分层/跨轮拼接、分母错用或自报布尔不一致均使该拐点
+证据无效。
+
 每个候选拐点还必须保存性能分析器（profiler）证据，说明主导分配、排序、
 哈希碰撞、缓存未命中或尚未解释的机制；无法归因不取消已重复的拐点事实，但不得
 据此选择私有容器。这些百分比只定义研究信号和复测触发，不是生产回归 Gate。
@@ -1143,7 +1166,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1321` exact bytes，SHA-256 为
-`48b9a49c23b2a3bcf59ac1046b8835a1ad2ac75ffac7ffba755c214ad5612989`。该摘要是 PR/Gate
+`fd00943f84de85390ad9b5c344b72195c88262064f341f6eeb55b07f99816600`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1162,8 +1185,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `156476` exact bytes，SHA-256 为
-`177f6f24f435464fa6fd6c415cf31a911a7dec6483aa6e9b637dece79763a357`。
+G1 候选冻结 schema `161272` exact bytes，SHA-256 为
+`dcdd463b97e280c3af7ff6c08e4361dc26784fd8baf5b8bba76df8ed1d463990`。
 顶层格式标识：
 
 ```text
@@ -1211,8 +1234,8 @@ schemaVersion = 1
   三十二序号；
 - 每轮电源/厂商模式、会话、热/功耗节流、后台 CPU/写入增量与监控缺样原始值，
   以及作废原因；
-- 相邻级别五轮规范化比值、候选/确认拐点、复测证据、重复性包络和分批
-  泰尔－森增长斜率；
+- 相邻级别的上下级完整测量分层、五个同批同轮 `roundSummaryId` 配对、规范化基准、
+  精确比值/中位数、候选/确认拐点、复测证据、重复性包络和分批泰尔－森增长斜率；
 - 停止护栏精确阈值、清单单缓冲区下界、三项预测依据、前一级/下一级主记录数、前一级
   墙钟/私有字节/存续字节、三项预测值、受控分配预占、是否触发、父进程监控快照和
   子进程退出状态；
@@ -1269,8 +1292,10 @@ package/version/features/checksum。不能从自由 ID 推测算法，也不能�
 轮次指标汇总验证必须按贡献 `runId` 重算。`cold-instance` 要求唯一
 `sampleOrdinal = 0`；`stable-capacity-reuse` 要求同一子进程的
 `sampleOrdinal = 0..6` 完整集合。正式阶梯批次汇总必须引用同一候选、分层、指标与
-批次的 `round = 0..4` 五个轮次汇总，并重算跨轮中位数和中位绝对偏差。候选比较
-轮次对则必须解析到同批同轮的基线/候选轮次汇总，不能绕过原始运行直接信任中位数。
+批次的 `round = 0..4` 五个轮次汇总，并重算跨轮中位数和中位绝对偏差。相邻级别
+轮次对必须解析到除 `N`/规模角色外相同完整测量分层的上下级正式阶梯汇总，并重算
+规范化比值和拐点阈值；候选比较轮次对则必须解析到同批同轮的基线/候选轮次汇总。
+两者都不能绕过原始运行直接信任中位数。
 
 停止护栏同样不能只通过单条 Schema：独立验证器必须按
 `guardPredictionContract.primaryRecordCountByWorkload` 重算前后级主记录数，从八个
