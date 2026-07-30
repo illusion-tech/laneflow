@@ -1,11 +1,9 @@
 use issue_308_compiler_budget_calibration_research::{
-    CONTRACT_DESCRIPTOR_BYTE_LENGTH, GraphProfileId, build_identity_known_vectors,
-    build_module_graph_known_vectors, load_repository_contract, measure_identity_timing_child,
-    run_identity_fresh_process_pilot, verify_identity_oracle_matrix, wait_for_parent_start_signal,
+    CONTRACT_DESCRIPTOR_BYTE_LENGTH, GraphProfileId, load_repository_contract,
+    run_identity_fresh_process_pilot, runner_binary_descriptor,
 };
-use serde::Serialize;
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::PathBuf;
 
 fn main() {
     if let Err(error) = run() {
@@ -23,6 +21,13 @@ fn run() -> Result<(), String> {
         .ok_or_else(usage)?;
 
     match command.as_str() {
+        "describe-role" => {
+            require_no_more_arguments(&mut arguments)?;
+            let json = serde_json::to_string(&runner_binary_descriptor())
+                .map_err(|error| format!("无法序列化执行器角色描述：{error}"))?;
+            println!("{json}");
+            Ok(())
+        }
         "verify-contract" => {
             require_no_more_arguments(&mut arguments)?;
             let contract = load_repository_contract().map_err(|error| error.to_string())?;
@@ -51,133 +56,21 @@ fn run() -> Result<(), String> {
             );
             Ok(())
         }
-        "print-module-graph-known-vectors" => {
-            require_no_more_arguments(&mut arguments)?;
-            let trusted = load_repository_contract().map_err(|error| error.to_string())?;
-            let generator_contract = trusted
-                .generator_contract()
-                .map_err(|error| error.to_string())?;
-            let vectors = build_module_graph_known_vectors(
-                &generator_contract,
-                &trusted.descriptor.workload_manifest.sha256,
-            )
-            .map_err(|error| error.to_string())?;
-            let json = serde_json::to_string_pretty(&vectors)
-                .map_err(|error| format!("无法序列化模块图已知向量：{error}"))?;
-            println!("{json}");
-            Ok(())
-        }
-        "print-identity-known-vectors" => {
-            require_no_more_arguments(&mut arguments)?;
-            let trusted = load_repository_contract().map_err(|error| error.to_string())?;
-            let generator_contract = trusted
-                .generator_contract()
-                .map_err(|error| error.to_string())?;
-            let identity_contract = trusted
-                .identity_contract()
-                .map_err(|error| error.to_string())?;
-            let vectors = build_identity_known_vectors(
-                &generator_contract,
-                &identity_contract,
-                &trusted.descriptor.workload_manifest.sha256,
-            )
-            .map_err(|error| error.to_string())?;
-            let json = serde_json::to_string_pretty(&vectors)
-                .map_err(|error| format!("无法序列化身份已知向量：{error}"))?;
-            println!("{json}");
-            Ok(())
-        }
-        "write-known-vectors" => {
-            require_no_more_arguments(&mut arguments)?;
-            let trusted = load_repository_contract().map_err(|error| error.to_string())?;
-            let oracle_report =
-                verify_identity_oracle_matrix(&trusted).map_err(|error| error.to_string())?;
-            let generator_contract = trusted
-                .generator_contract()
-                .map_err(|error| error.to_string())?;
-            let identity_contract = trusted
-                .identity_contract()
-                .map_err(|error| error.to_string())?;
-            let module_vectors = build_module_graph_known_vectors(
-                &generator_contract,
-                &trusted.descriptor.workload_manifest.sha256,
-            )
-            .map_err(|error| error.to_string())?;
-            let identity_vectors = build_identity_known_vectors(
-                &generator_contract,
-                &identity_contract,
-                &trusted.descriptor.workload_manifest.sha256,
-            )
-            .map_err(|error| error.to_string())?;
-            let output_directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("known-vectors");
-            std::fs::create_dir_all(&output_directory).map_err(|error| {
-                format!(
-                    "无法创建已知向量目录 {}：{error}",
-                    output_directory.display()
-                )
-            })?;
-            write_known_vector(
-                &output_directory.join("module-graphs-v1.json"),
-                &module_vectors,
-            )?;
-            write_known_vector(
-                &output_directory.join("identity-records-v1.json"),
-                &identity_vectors,
-            )?;
-            println!("written={}", output_directory.display());
-            println!("oracleCheckedCases={}", oracle_report.checked_cases);
-            Ok(())
-        }
-        "verify-identity-oracle" => {
-            require_no_more_arguments(&mut arguments)?;
-            let trusted = load_repository_contract().map_err(|error| error.to_string())?;
-            let report =
-                verify_identity_oracle_matrix(&trusted).map_err(|error| error.to_string())?;
-            println!("checkedCases={}", report.checked_cases);
-            println!("checkedN1Cases={}", report.checked_n1_cases);
-            println!("checkedN2Cases={}", report.checked_n2_cases);
-            println!("checkedStageCases={}", report.checked_stage_cases);
-            Ok(())
-        }
-        "identity-timing-child" => {
-            let compiler_instance_id = next_utf8_argument(&mut arguments, "compiler-instance-id")?;
-            let graph_profile =
-                parse_graph_profile(&next_utf8_argument(&mut arguments, "graph-profile")?)?;
-            let n = parse_positive_n(&next_utf8_argument(&mut arguments, "N")?)?;
-            let controlled_allocation_hard_ceiling_bytes = parse_positive_u64(
-                &next_utf8_argument(&mut arguments, "controlled-allocation-hard-ceiling-bytes")?,
-                "controlled-allocation-hard-ceiling-bytes",
-            )?;
-            require_no_more_arguments(&mut arguments)?;
-
-            wait_for_parent_start_signal().map_err(|error| error.to_string())?;
-            let trusted = load_repository_contract().map_err(|error| error.to_string())?;
-            let report = measure_identity_timing_child(
-                &trusted,
-                compiler_instance_id,
-                graph_profile,
-                n,
-                controlled_allocation_hard_ceiling_bytes,
-            )
-            .map_err(|error| error.to_string())?;
-            let json = serde_json::to_string(&report)
-                .map_err(|error| format!("无法序列化冷实例子进程计时结果：{error}"))?;
-            println!("{json}");
-            Ok(())
-        }
         "smoke-identity-fresh-process-pilot" => {
             let pilot_id = next_utf8_argument(&mut arguments, "pilot-id")?;
             let graph_profile =
                 parse_graph_profile(&next_utf8_argument(&mut arguments, "graph-profile")?)?;
             let n = parse_positive_n(&next_utf8_argument(&mut arguments, "N")?)?;
+            let explicit_timing_binary = arguments.next().map(PathBuf::from);
             require_no_more_arguments(&mut arguments)?;
 
             let trusted = load_repository_contract().map_err(|error| error.to_string())?;
-            let executable = std::env::current_exe()
-                .map_err(|error| format!("无法定位当前研究执行器：{error}"))?;
+            let timing_binary = explicit_timing_binary
+                .map(Ok)
+                .unwrap_or_else(resolve_sibling_timing_binary)?;
             let report = run_identity_fresh_process_pilot(
                 &trusted,
-                &executable,
+                &timing_binary,
                 &pilot_id,
                 graph_profile,
                 n,
@@ -191,6 +84,25 @@ fn run() -> Result<(), String> {
         }
         _ => Err(usage()),
     }
+}
+
+fn resolve_sibling_timing_binary() -> Result<PathBuf, String> {
+    let runner =
+        std::env::current_exe().map_err(|error| format!("无法定位当前研究执行器：{error}"))?;
+    let directory = runner
+        .parent()
+        .ok_or_else(|| format!("研究执行器没有父目录：{}", runner.display()))?;
+    let timing = directory.join(format!(
+        "issue-308-compiler-budget-calibration-timing{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    if !timing.is_file() {
+        return Err(format!(
+            "未找到同目录计时角色二进制 {}；请先使用 cargo build --bins 构建全部角色，或把精确路径作为最后一个参数传入",
+            timing.display()
+        ));
+    }
+    Ok(timing)
 }
 
 fn next_utf8_argument(
@@ -232,33 +144,12 @@ fn parse_positive_n(value: &str) -> Result<u32, String> {
     Ok(n)
 }
 
-fn parse_positive_u64(value: &str, name: &str) -> Result<u64, String> {
-    let number = value
-        .parse::<u64>()
-        .map_err(|error| format!("{name} 必须是正 u64 整数：{error}"))?;
-    if number == 0 {
-        return Err(format!("{name} 必须大于零"));
-    }
-    Ok(number)
-}
-
-fn write_known_vector(path: &Path, value: &impl Serialize) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("无法序列化已知向量 {}：{error}", path.display()))?;
-    std::fs::write(path, format!("{json}\n"))
-        .map_err(|error| format!("无法写入已知向量 {}：{error}", path.display()))
-}
-
 fn usage() -> String {
     [
         "用法：issue-308-compiler-budget-calibration-research <命令>",
+        "  describe-role",
         "  verify-contract",
-        "  print-module-graph-known-vectors",
-        "  print-identity-known-vectors",
-        "  write-known-vectors",
-        "  verify-identity-oracle",
-        "  identity-timing-child <compiler-instance-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>",
-        "  smoke-identity-fresh-process-pilot <pilot-id> <graph-profile> <N>",
+        "  smoke-identity-fresh-process-pilot <pilot-id> <graph-profile> <N> [timing-binary-path]",
     ]
     .join("\n")
 }

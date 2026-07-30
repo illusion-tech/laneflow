@@ -15,6 +15,7 @@ mod oracle;
 mod pilot;
 mod pipeline;
 mod process_protocol;
+mod roles;
 mod stage;
 mod stage_oracle;
 mod timing;
@@ -43,16 +44,25 @@ pub use oracle::{
 };
 pub use pilot::{
     CLOCK_QUANTUM_MULTIPLIER, ChildMonitorTrigger, ChildProcessMonitorReport,
-    ControlledAllocationGuardReport, FRESH_PROCESS_PILOT_SAMPLE_COUNT,
-    IDENTITY_TIMING_CHILD_SCHEMA, IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityChildOutcome,
-    IdentityChildTimingReport, IdentityFreshProcessPilot, IdentityFreshProcessPilotOutcome,
+    FRESH_PROCESS_PILOT_SAMPLE_COUNT, IdentityFreshProcessPilot, IdentityFreshProcessPilotOutcome,
     IdentityFreshProcessPilotStop, IdentityMonitoredChildSample, MAXIMUM_RELATIVE_MAD_PERCENT,
-    PilotError, measure_identity_timing_child, run_identity_fresh_process_pilot,
-    run_identity_fresh_process_pilot_with_allocation_ceiling_cap, wait_for_parent_start_signal,
+    PilotError, run_identity_fresh_process_pilot, wait_for_parent_start_signal,
 };
+pub use pipeline::IdentityAllocationSnapshot;
 pub use process_protocol::{
-    IDENTITY_PILOT_COMBINED_BINARY_ID, InvalidationReason, NullableObservation, ProcessExitKind,
-    ProcessObservation, ProcessProtocolError, RunStatus, TerminationKind, TerminationObservation,
+    InvalidationReason, NullableObservation, ProcessExitKind, ProcessObservation,
+    ProcessProtocolError, RunStatus, TerminationKind, TerminationObservation,
+};
+pub use roles::{
+    ATTRIBUTION_BINARY_ID, ControlledAllocationGuardReport, IDENTITY_ATTRIBUTION_CHILD_SCHEMA,
+    IDENTITY_ATTRIBUTION_CHILD_SCHEMA_VERSION, IDENTITY_ORACLE_CHILD_SCHEMA,
+    IDENTITY_ORACLE_CHILD_SCHEMA_VERSION, IDENTITY_TIMING_CHILD_SCHEMA,
+    IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityAttributionChildReport,
+    IdentityAttributionOutcome, IdentityOracleChildReport, IdentityTimingChildReport,
+    ORACLE_BINARY_ID, RUNNER_BINARY_ID, ResearchBinaryDescriptor, ResearchBinaryRole,
+    RoleExecutionError, TIMING_BINARY_ID, attribution_binary_descriptor,
+    build_identity_oracle_child, measure_identity_attribution_child, measure_identity_timing_child,
+    oracle_binary_descriptor, runner_binary_descriptor, timing_binary_descriptor,
 };
 pub use stage::{
     IdentityAggregateCounts, IdentityStagePlanSummary, IdentityStageSummary, StageBreakdown,
@@ -61,8 +71,9 @@ pub use stage::{
 };
 pub use stage_oracle::StageOracleError;
 pub use timing::{
-    CLOCK_QUANTUM_OBSERVATION_COUNT, IdentityCompilerInstance, IdentityStableCapacitySequence,
-    IdentityTimingSample, STABLE_CAPACITY_SAMPLE_COUNT, STABLE_CAPACITY_WARMUP_COUNT, TimingError,
+    CLOCK_QUANTUM_OBSERVATION_COUNT, IdentityAttributionCompilerInstance, IdentityCompilerInstance,
+    IdentityStableCapacitySequence, IdentityTimingCompilerInstance, IdentityTimingSample,
+    STABLE_CAPACITY_SAMPLE_COUNT, STABLE_CAPACITY_WARMUP_COUNT, TimingError,
     measure_identity_stage_once, observe_clock_quantum_ns,
 };
 

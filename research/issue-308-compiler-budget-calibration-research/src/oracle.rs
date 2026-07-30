@@ -12,6 +12,7 @@ use crate::identity::{
 use crate::pipeline::build_identity_stage_case;
 use crate::stage_oracle::verify_identity_stage_exact;
 use crate::{GraphProfileId, TrustedContract};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -19,7 +20,8 @@ const ABSENT_LOCAL_INDEX: u32 = u32::MAX;
 const STABLE_ID_DOMAIN: &[u8] = b"laneflow.stable-id.v1\0";
 const ORACLE_IDENTITY_WORKLOAD_ID: &str = "LF-COMP-ID-v1";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OracleVerificationReport {
     pub checked_cases: u32,
     pub checked_n1_cases: u32,

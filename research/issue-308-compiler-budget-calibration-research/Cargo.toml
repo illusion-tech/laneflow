@@ -7,6 +7,23 @@ repository.workspace = true
 license.workspace = true
 description = "#308 编译器资源上限与性能预算的非生产校准研究。"
 publish = false
+autobins = false
+
+[[bin]]
+name = "issue-308-compiler-budget-calibration-research"
+path = "src/main.rs"
+
+[[bin]]
+name = "issue-308-compiler-budget-calibration-timing"
+path = "src/bin/timing.rs"
+
+[[bin]]
+name = "issue-308-compiler-budget-calibration-attribution"
+path = "src/bin/attribution.rs"
+
+[[bin]]
+name = "issue-308-compiler-budget-calibration-oracle"
+path = "src/bin/oracle.rs"
 
 [features]
 default = []

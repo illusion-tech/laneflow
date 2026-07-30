@@ -1,8 +1,9 @@
 //! `LF-COMP-ID-v1` 的受测八阶段因果管线。
 //!
 //! 本模块只在计时边界内物化与规模成比例的来源、阶段值和载荷。摘要、十六进制展示、
-//! 独立预言机比较与证据 JSON 均由调用方在管线返回后完成。所有具名阶段缓冲区容量
-//! 增长都先经过受控分配请求字节账本。
+//! 独立预言机比较与证据 JSON 均由调用方在管线返回后完成。计时角色与归因角色通过
+//! 编译期常量生成两条单态化容量路径：计时路径只执行受检容量规划和
+//! `try_reserve_exact`，归因路径才执行逐容量请求记账与硬上限预占。
 
 use crate::identity::{
     ABSENT_LOCAL_INDEX, IDENTITY_MAGIC, IdentityBinding, IdentityContract, IdentityFieldValue,
@@ -14,6 +15,7 @@ use crate::stage::{
     StageRetainedCapacityBytes, TypedAstStageRecord, as_u64, to_usize,
 };
 use crate::{GeneratorContract, GraphProfileId, SequenceKind, permute_in_place};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
@@ -102,20 +104,30 @@ impl ControlledBufferSlot {
 }
 
 #[derive(Debug)]
-struct ControlledAllocationTracker {
+struct ControlledAllocationTracker<const TRACK_ALLOCATIONS: bool> {
     hard_ceiling_bytes: u64,
     live_requested_bytes: AtomicU64,
     peak_live_requested_bytes: AtomicU64,
     requested_bytes_by_slot: [u64; ControlledBufferSlot::COUNT],
+    allocation_count: u64,
+    reallocation_count: u64,
+    allocated_bytes: u64,
+    reallocated_bytes: u64,
+    freed_bytes: u64,
 }
 
-impl ControlledAllocationTracker {
+impl<const TRACK_ALLOCATIONS: bool> ControlledAllocationTracker<TRACK_ALLOCATIONS> {
     fn new(hard_ceiling_bytes: u64) -> Self {
         Self {
             hard_ceiling_bytes,
             live_requested_bytes: AtomicU64::new(0),
             peak_live_requested_bytes: AtomicU64::new(0),
             requested_bytes_by_slot: [0; ControlledBufferSlot::COUNT],
+            allocation_count: 0,
+            reallocation_count: 0,
+            allocated_bytes: 0,
+            reallocated_bytes: 0,
+            freed_bytes: 0,
         }
     }
 
@@ -157,14 +169,41 @@ impl ControlledAllocationTracker {
         slot: ControlledBufferSlot,
         requested_bytes: u64,
         preoccupied_live_bytes: u64,
-    ) {
+    ) -> Result<(), StageGenerationError> {
         self.peak_live_requested_bytes
             .fetch_max(preoccupied_live_bytes, AtomicOrdering::SeqCst);
         let previous_requested_bytes = std::mem::replace(
             &mut self.requested_bytes_by_slot[slot.index()],
             requested_bytes,
         );
+        if previous_requested_bytes == 0 {
+            self.allocation_count =
+                self.allocation_count
+                    .checked_add(1)
+                    .ok_or(StageGenerationError::Overflow(
+                        "controlled allocation count",
+                    ))?;
+            self.allocated_bytes = self
+                .allocated_bytes
+                .checked_add(requested_bytes)
+                .ok_or(StageGenerationError::Overflow("controlled allocated bytes"))?;
+        } else {
+            self.reallocation_count =
+                self.reallocation_count
+                    .checked_add(1)
+                    .ok_or(StageGenerationError::Overflow(
+                        "controlled reallocation count",
+                    ))?;
+            self.reallocated_bytes = self.reallocated_bytes.checked_add(requested_bytes).ok_or(
+                StageGenerationError::Overflow("controlled reallocated bytes"),
+            )?;
+            self.freed_bytes = self
+                .freed_bytes
+                .checked_add(previous_requested_bytes)
+                .ok_or(StageGenerationError::Overflow("controlled freed bytes"))?;
+        }
         self.cancel_preoccupation(previous_requested_bytes);
+        Ok(())
     }
 
     fn peak_live_requested_bytes(&self) -> u64 {
@@ -174,11 +213,35 @@ impl ControlledAllocationTracker {
     fn hard_ceiling_bytes(&self) -> u64 {
         self.hard_ceiling_bytes
     }
+
+    fn snapshot(&self) -> IdentityAllocationSnapshot {
+        IdentityAllocationSnapshot {
+            allocation_count: self.allocation_count,
+            reallocation_count: self.reallocation_count,
+            allocated_bytes: self.allocated_bytes,
+            reallocated_bytes: self.reallocated_bytes,
+            freed_bytes: self.freed_bytes,
+            live_requested_bytes: self.live_requested_bytes.load(AtomicOrdering::SeqCst),
+            peak_live_requested_bytes: self.peak_live_requested_bytes(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentityAllocationSnapshot {
+    pub allocation_count: u64,
+    pub reallocation_count: u64,
+    pub allocated_bytes: u64,
+    pub reallocated_bytes: u64,
+    pub freed_bytes: u64,
+    pub live_requested_bytes: u64,
+    pub peak_live_requested_bytes: u64,
 }
 
 #[derive(Debug)]
-pub(crate) struct IdentityStageBufferPool {
-    allocations: ControlledAllocationTracker,
+pub(crate) struct IdentityStageBufferPool<const TRACK_ALLOCATIONS: bool> {
+    allocations: ControlledAllocationTracker<TRACK_ALLOCATIONS>,
     source_spans: Vec<SourceSpanRecord>,
     source_records: Vec<TypedAstStageRecord>,
     source_payload: Vec<u8>,
@@ -201,14 +264,28 @@ pub(crate) struct IdentityStageBufferPool {
     output_construction: Vec<u8>,
 }
 
-impl Default for IdentityStageBufferPool {
+impl Default for IdentityStageBufferPool<false> {
     fn default() -> Self {
-        Self::with_controlled_allocation_hard_ceiling(u64::MAX)
+        Self::new_for_mode(u64::MAX)
     }
 }
 
-impl IdentityStageBufferPool {
-    pub(crate) fn with_controlled_allocation_hard_ceiling(hard_ceiling_bytes: u64) -> Self {
+impl IdentityStageBufferPool<true> {
+    pub(crate) fn controlled_allocation_hard_ceiling_bytes(&self) -> u64 {
+        self.allocations.hard_ceiling_bytes()
+    }
+
+    pub(crate) fn peak_live_requested_bytes(&self) -> u64 {
+        self.allocations.peak_live_requested_bytes()
+    }
+
+    pub(crate) fn allocation_snapshot(&self) -> IdentityAllocationSnapshot {
+        self.allocations.snapshot()
+    }
+}
+
+impl<const TRACK_ALLOCATIONS: bool> IdentityStageBufferPool<TRACK_ALLOCATIONS> {
+    pub(crate) fn new_for_mode(hard_ceiling_bytes: u64) -> Self {
         Self {
             allocations: ControlledAllocationTracker::new(hard_ceiling_bytes),
             source_spans: Vec::new(),
@@ -232,14 +309,6 @@ impl IdentityStageBufferPool {
             diagnostics: Vec::new(),
             output_construction: Vec::new(),
         }
-    }
-
-    pub(crate) fn controlled_allocation_hard_ceiling_bytes(&self) -> u64 {
-        self.allocations.hard_ceiling_bytes()
-    }
-
-    pub(crate) fn peak_live_requested_bytes(&self) -> u64 {
-        self.allocations.peak_live_requested_bytes()
     }
 
     pub(crate) fn retained_capacity_bytes(
@@ -353,12 +422,12 @@ pub(crate) fn execute_identity_stage_case(
     execute_identity_stage_case_with_buffers(generator, identity, stage, plan, &mut buffers)
 }
 
-pub(crate) fn execute_identity_stage_case_with_buffers(
+pub(crate) fn execute_identity_stage_case_with_buffers<const TRACK_ALLOCATIONS: bool>(
     generator: &GeneratorContract,
     identity: &IdentityContract,
     stage: &StageContract,
     plan: &IdentityStagePlan,
-    buffers: &mut IdentityStageBufferPool,
+    buffers: &mut IdentityStageBufferPool<TRACK_ALLOCATIONS>,
 ) -> Result<IdentityStageMaterialization, StageGenerationError> {
     let source = materialize_source_input(generator, identity, stage, plan, buffers)?;
     let typed = lower_source_to_typed_ast(identity, stage, plan, &source, buffers)?;
@@ -377,8 +446,8 @@ pub(crate) fn execute_identity_stage_case_with_buffers(
     })
 }
 
-pub(crate) fn recycle_identity_stage_case(
-    buffers: &mut IdentityStageBufferPool,
+pub(crate) fn recycle_identity_stage_case<const TRACK_ALLOCATIONS: bool>(
+    buffers: &mut IdentityStageBufferPool<TRACK_ALLOCATIONS>,
     output: IdentityStageCaseOutput,
 ) -> IdentityStageSummary {
     let IdentityStageCaseOutput {
@@ -510,12 +579,12 @@ pub(crate) fn build_identity_stage_case(
     finalize_identity_stage_case(&plan, materialized)
 }
 
-fn materialize_source_input(
+fn materialize_source_input<const TRACK_ALLOCATIONS: bool>(
     generator: &GeneratorContract,
     identity: &IdentityContract,
     stage: &StageContract,
     plan: &IdentityStagePlan,
-    buffers: &mut IdentityStageBufferPool,
+    buffers: &mut IdentityStageBufferPool<TRACK_ALLOCATIONS>,
 ) -> Result<SourceStage, StageGenerationError> {
     let source_payload_capacity = to_usize(
         plan.stages.source_input.payload_logical_bytes,
@@ -1011,12 +1080,12 @@ fn append_permuted_source_records(
     Ok(())
 }
 
-fn lower_source_to_typed_ast(
+fn lower_source_to_typed_ast<const TRACK_ALLOCATIONS: bool>(
     identity: &IdentityContract,
     stage: &StageContract,
     plan: &IdentityStagePlan,
     source: &SourceStage,
-    buffers: &mut IdentityStageBufferPool,
+    buffers: &mut IdentityStageBufferPool<TRACK_ALLOCATIONS>,
 ) -> Result<TypedStage, StageGenerationError> {
     let mut records = take_reusable(
         &mut buffers.typed_ast_records,
@@ -1152,13 +1221,13 @@ fn lower_source_to_typed_ast(
     Ok(TypedStage { records, payload })
 }
 
-fn lower_typed_ast_to_hir(
+fn lower_typed_ast_to_hir<const TRACK_ALLOCATIONS: bool>(
     identity: &IdentityContract,
     stage: &StageContract,
     plan: &IdentityStagePlan,
     typed: &TypedStage,
     source_strings: &StringLayout,
-    buffers: &mut IdentityStageBufferPool,
+    buffers: &mut IdentityStageBufferPool<TRACK_ALLOCATIONS>,
 ) -> Result<HirStage, StageGenerationError> {
     let string_bytes = source_strings.string_end - source_strings.string_start;
     let mut payload = take_reusable(
@@ -1258,13 +1327,13 @@ fn lower_typed_ast_to_hir(
     Ok(HirStage { records, payload })
 }
 
-fn lower_hir_to_mir(
+fn lower_hir_to_mir<const TRACK_ALLOCATIONS: bool>(
     identity: &IdentityContract,
     stage: &StageContract,
     plan: &IdentityStagePlan,
     hir: &HirStage,
     source_strings: &StringLayout,
-    buffers: &mut IdentityStageBufferPool,
+    buffers: &mut IdentityStageBufferPool<TRACK_ALLOCATIONS>,
 ) -> Result<MirStage, StageGenerationError> {
     let mut records = take_reusable(
         &mut buffers.mir_records,
@@ -1450,11 +1519,11 @@ fn lower_hir_to_mir(
     })
 }
 
-fn canonicalize_mir(
+fn canonicalize_mir<const TRACK_ALLOCATIONS: bool>(
     stage: &StageContract,
     plan: &IdentityStagePlan,
     mir: &MirStage,
-    buffers: &mut IdentityStageBufferPool,
+    buffers: &mut IdentityStageBufferPool<TRACK_ALLOCATIONS>,
 ) -> Result<LirStage, StageGenerationError> {
     let record_count = to_usize(plan.stages.canonical_lir.record_count, "LIR records")?;
     let mut scratch = take_reusable(
@@ -1558,11 +1627,11 @@ fn canonicalize_mir(
     })
 }
 
-fn construct_output(
+fn construct_output<const TRACK_ALLOCATIONS: bool>(
     identity: &IdentityContract,
     plan: &IdentityStagePlan,
     lir: &LirStage,
-    buffers: &mut IdentityStageBufferPool,
+    buffers: &mut IdentityStageBufferPool<TRACK_ALLOCATIONS>,
 ) -> Result<Vec<u8>, StageGenerationError> {
     let mut output = take_reusable(
         &mut buffers.output_construction,
@@ -2532,32 +2601,40 @@ fn u64_from_usize(value: usize, field: &'static str) -> Result<u64, StageGenerat
     u64::try_from(value).map_err(|_| StageGenerationError::Overflow(field))
 }
 
-fn take_reusable<T>(
+fn take_reusable<T, const TRACK_ALLOCATIONS: bool>(
     slot: &mut Vec<T>,
     required_capacity: usize,
     field: &'static str,
-    allocations: &mut ControlledAllocationTracker,
+    allocations: &mut ControlledAllocationTracker<TRACK_ALLOCATIONS>,
     controlled_slot: ControlledBufferSlot,
 ) -> Result<Vec<T>, StageGenerationError> {
     let mut values = std::mem::take(slot);
     values.clear();
     if values.capacity() < required_capacity {
-        let requested_bytes = u64::try_from(required_capacity)
-            .ok()
-            .and_then(|capacity| {
-                capacity.checked_mul(
-                    u64::try_from(std::mem::size_of::<T>()).expect("type size must fit u64"),
-                )
-            })
-            .ok_or(StageGenerationError::Overflow(
-                "controlled allocation request bytes",
-            ))?;
-        let preoccupied_live_bytes = allocations.preoccupy(field, requested_bytes)?;
-        if let Err(source) = values.try_reserve_exact(required_capacity) {
-            allocations.cancel_preoccupation(requested_bytes);
+        if TRACK_ALLOCATIONS {
+            let requested_bytes = u64::try_from(required_capacity)
+                .ok()
+                .and_then(|capacity| {
+                    capacity.checked_mul(
+                        u64::try_from(std::mem::size_of::<T>()).expect("type size must fit u64"),
+                    )
+                })
+                .ok_or(StageGenerationError::Overflow(
+                    "controlled allocation request bytes",
+                ))?;
+            let preoccupied_live_bytes = allocations.preoccupy(field, requested_bytes)?;
+            if let Err(source) = values.try_reserve_exact(required_capacity) {
+                allocations.cancel_preoccupation(requested_bytes);
+                return Err(StageGenerationError::AllocationFailed { field, source });
+            }
+            allocations.commit_replacement(
+                controlled_slot,
+                requested_bytes,
+                preoccupied_live_bytes,
+            )?;
+        } else if let Err(source) = values.try_reserve_exact(required_capacity) {
             return Err(StageGenerationError::AllocationFailed { field, source });
         }
-        allocations.commit_replacement(controlled_slot, requested_bytes, preoccupied_live_bytes);
     }
     Ok(values)
 }
@@ -2730,7 +2807,7 @@ mod tests {
     #[test]
     fn reusable_capacity_overflow_is_reported_without_panicking() {
         let mut values = Vec::<u8>::new();
-        let mut allocations = ControlledAllocationTracker::new(u64::MAX);
+        let mut allocations = ControlledAllocationTracker::<true>::new(u64::MAX);
         let error = take_reusable(
             &mut values,
             usize::MAX,

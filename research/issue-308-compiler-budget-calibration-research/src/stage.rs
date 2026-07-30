@@ -1,7 +1,7 @@
 use crate::identity::{IDENTITY_WORKLOAD_ID, IdentityContract, IdentityFieldValue};
 use crate::pipeline::build_identity_stage_case;
 use crate::{GraphProfileId, TrustedContract};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 const SHORT_UNIQUE_PROFILE_ID: &str = "short-unique-v1";
 
@@ -197,7 +197,7 @@ pub struct StageShape {
     pub record_allocation_bytes: u64,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StageRetainedCapacityBytes {
     pub source_input: u64,
