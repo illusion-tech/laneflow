@@ -236,7 +236,7 @@
   "candidateRegistry": {
     "revision": 1,
     "selectionRule": "evidence candidate IDs, key domains, seed policies and component bindings must match exactly one registry entry; unregistered or partially matched configurations are invalid",
-    "componentVersionRule": "standard-library components bind environment.rustc, local-workspace components bind sourceCommit, and crates-io components bind Cargo.lock package ID, version, features and checksum",
+    "componentVersionRule": "standard-library components bind environment.rustc, local-workspace components bind harnessCommit, and crates-io or git components bind the harness Cargo.lock package ID, version, features and checksum",
     "candidates": [
       {
         "id": "baseline-std-randomstate-stable-vec-v1",
@@ -740,10 +740,30 @@
     "payloadLengthU64Le",
     "payloadBytes"
   ],
+  "semanticRecordEnvelopeRules": {
+    "ownerEntityRule": "every v1 record kind has exactly one record-owning entity; entityKindU16Le and stableIdBytes16 identify that entity, never a referenced payload entity",
+    "entityKindAbsenceCodeU16": 0,
+    "ownerOrLocalIndexAbsenceCodeU32": 4294967295,
+    "currentKindAbsenceRule": "record kinds 1 through 13 require a nonzero entity kind, an exact owner stable ID and a present owner ordinal; only recordKinds[].envelopeBinding.localIndexSource may select absent-u32-max",
+    "ownerOrdinalScope": "within-owner-entity-kind",
+    "ownerOrdinalDerivation": "sort all identity-declaration records with the same entityKindU16Le by stableIdBytes16 in unsigned lexicographic byte order; ownerOrdinalU32Le is the zero-based position of the record-owning entity",
+    "ownerOrdinalCrossCheck": "the tuple (entityKindU16Le, stableIdBytes16) must resolve to exactly one identity-declaration record and its recomputed same-kind ordinal must equal ownerOrdinalU32Le",
+    "stableIdAbsenceRule": "v1 has no absent stable-id sentinel; all sixteen bytes belong to the exact record-owning StableId128",
+    "localIndexRule": "payload-field means exact equality with that payload field; owner-collection-index means group records by the exact record owner after typed reference resolution, sort each named owner collection by final payloadBytes in unsigned lexicographic byte order, and assign zero-based consecutive indexes (equal payload copies remain consecutive and need no source-order tie break); absent-u32-max means exactly 4294967295"
+  },
   "recordKinds": [
     {
       "code": 1,
       "name": "identity-declaration",
+      "envelopeBinding": {
+        "ownerEntitySource": "declared-entity",
+        "entityKindSource": "declaredEntityKindCodeU16",
+        "stableIdSource": "declaredEntityStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "absent-u32-max"
+        }
+      },
       "payloadFields": [
         "requiredFieldCountU16Le",
         "repeated(requiredFieldCount):fieldTagU16Le",
@@ -754,6 +774,15 @@
     {
       "code": 2,
       "name": "owner-relation",
+      "envelopeBinding": {
+        "ownerEntitySource": "child-entity",
+        "entityKindSource": "childEntityKindCodeU16",
+        "stableIdSource": "childEntityStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "absent-u32-max"
+        }
+      },
       "payloadFields": [
         "parentEntityKindU16Le",
         "parentStableIdBytes16"
@@ -762,6 +791,20 @@
     {
       "code": 3,
       "name": "edge-connection",
+      "envelopeBinding": {
+        "ownerEntitySource": "source-lane-edge",
+        "entityKindSource": {
+          "kind": "constant",
+          "code": 4,
+          "name": "LaneEdge"
+        },
+        "stableIdSource": "sourceLaneEdgeStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "owner-collection-index",
+          "collection": "sourceLaneEdge.outgoingConnections"
+        }
+      },
       "payloadFields": [
         "toLaneEdgeStableIdBytes16"
       ]
@@ -769,6 +812,20 @@
     {
       "code": 4,
       "name": "route-occurrence",
+      "envelopeBinding": {
+        "ownerEntitySource": "owning-static-route",
+        "entityKindSource": {
+          "kind": "constant",
+          "code": 21,
+          "name": "StaticRoute"
+        },
+        "stableIdSource": "owningStaticRouteStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "payload-field",
+          "field": "occurrenceIndexU32Le"
+        }
+      },
       "payloadFields": [
         "occurrenceIndexU32Le",
         "laneEdgeStableIdBytes16"
@@ -777,6 +834,20 @@
     {
       "code": 5,
       "name": "canonical-geometry-point",
+      "envelopeBinding": {
+        "ownerEntitySource": "owning-lane-edge",
+        "entityKindSource": {
+          "kind": "constant",
+          "code": 4,
+          "name": "LaneEdge"
+        },
+        "stableIdSource": "owningLaneEdgeStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "payload-field",
+          "field": "pointIndexU32Le"
+        }
+      },
       "payloadFields": [
         "canonicalFrameStableIdBytes16",
         "pointIndexU32Le",
@@ -788,6 +859,20 @@
     {
       "code": 6,
       "name": "access-relation",
+      "envelopeBinding": {
+        "ownerEntitySource": "owning-access-rule",
+        "entityKindSource": {
+          "kind": "constant",
+          "code": 19,
+          "name": "AccessRule"
+        },
+        "stableIdSource": "owningAccessRuleStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "owner-collection-index",
+          "collection": "owningAccessRule.relations"
+        }
+      },
       "payloadFields": [
         "participantClassStableIdBytes16",
         "targetEntityKindU16Le",
@@ -798,6 +883,20 @@
     {
       "code": 7,
       "name": "signal-group-relation",
+      "envelopeBinding": {
+        "ownerEntitySource": "owning-signal-group",
+        "entityKindSource": {
+          "kind": "constant",
+          "code": 11,
+          "name": "SignalGroup"
+        },
+        "stableIdSource": "owningSignalGroupStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "owner-collection-index",
+          "collection": "owningSignalGroup.maneuverGates"
+        }
+      },
       "payloadFields": [
         "maneuverGateStableIdBytes16"
       ]
@@ -805,6 +904,20 @@
     {
       "code": 8,
       "name": "signal-phase-state",
+      "envelopeBinding": {
+        "ownerEntitySource": "owning-signal-phase",
+        "entityKindSource": {
+          "kind": "constant",
+          "code": 13,
+          "name": "SignalPhase"
+        },
+        "stableIdSource": "owningSignalPhaseStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "owner-collection-index",
+          "collection": "owningSignalPhase.states"
+        }
+      },
       "payloadFields": [
         "signalGroupStableIdBytes16",
         "stateCodeU8"
@@ -813,6 +926,20 @@
     {
       "code": 9,
       "name": "gate-occurrence",
+      "envelopeBinding": {
+        "ownerEntitySource": "owning-maneuver-path",
+        "entityKindSource": {
+          "kind": "constant",
+          "code": 7,
+          "name": "ManeuverPath"
+        },
+        "stableIdSource": "owningManeuverPathStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "payload-field",
+          "field": "occurrenceIndexU32Le"
+        }
+      },
       "payloadFields": [
         "occurrenceIndexU32Le",
         "maneuverGateStableIdBytes16",
@@ -824,6 +951,20 @@
     {
       "code": 10,
       "name": "waiting-zone-occurrence",
+      "envelopeBinding": {
+        "ownerEntitySource": "owning-maneuver-path",
+        "entityKindSource": {
+          "kind": "constant",
+          "code": 7,
+          "name": "ManeuverPath"
+        },
+        "stableIdSource": "owningManeuverPathStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "payload-field",
+          "field": "occurrenceIndexU32Le"
+        }
+      },
       "payloadFields": [
         "occurrenceIndexU32Le",
         "waitingZoneStableIdBytes16",
@@ -835,6 +976,22 @@
     {
       "code": 11,
       "name": "parking-space-anchors",
+      "envelopeBinding": {
+        "ownerEntitySource": "parking-space",
+        "entityKindSource": {
+          "kind": "constant",
+          "code": 15,
+          "name": "ParkingSpace"
+        },
+        "stableIdSource": "parkingSpaceStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "absent-u32-max"
+        },
+        "payloadEnvelopeEqualities": [
+          "payload.parkingSpaceStableIdBytes16 == envelope.stableIdBytes16"
+        ]
+      },
       "payloadFields": [
         "parkingSpaceStableIdBytes16",
         "entryLaneEdgeStableIdBytes16",
@@ -848,6 +1005,20 @@
     {
       "code": 12,
       "name": "lane-coverage-occurrence",
+      "envelopeBinding": {
+        "ownerEntitySource": "owning-authoring-lane",
+        "entityKindSource": {
+          "kind": "constant",
+          "code": 3,
+          "name": "AuthoringLane"
+        },
+        "stableIdSource": "owningAuthoringLaneStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "payload-field",
+          "field": "occurrenceIndexU32Le"
+        }
+      },
       "payloadFields": [
         "occurrenceIndexU32Le",
         "laneEdgeStableIdBytes16"
@@ -856,6 +1027,20 @@
     {
       "code": 13,
       "name": "junction-internal-edge-role",
+      "envelopeBinding": {
+        "ownerEntitySource": "owning-junction",
+        "entityKindSource": {
+          "kind": "constant",
+          "code": 5,
+          "name": "Junction"
+        },
+        "stableIdSource": "owningJunctionStableIdBytes16",
+        "ownerOrdinalSource": "same-kind-canonical-owner-ordinal",
+        "localIndexSource": {
+          "kind": "owner-collection-index",
+          "collection": "owningJunction.internalLaneEdgeRoles"
+        }
+      },
       "payloadFields": [
         "laneEdgeStableIdBytes16"
       ]
