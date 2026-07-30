@@ -44,7 +44,7 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "description": "证据级候选绑定与依赖审计目录；包括在执行前因安全或证据原因被拒绝、因而没有原始运行的候选。独立验证器按 id 检查全局唯一性、清单一致性以及运行快照/候选比较引用闭合。",
+      "description": "证据级候选绑定与依赖审计目录；包括在执行前因安全或证据原因被拒绝、因而没有原始运行的候选。独立验证器按 id 检查全局唯一性、清单一致性以及运行快照/候选参赛名单/候选比较引用闭合。",
       "items": {
         "$ref": "#/$defs/candidate"
       }
@@ -270,7 +270,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "940c595d3a7ac86058d2260587f3f666bbf299187661ab502c4c1c116b7993d7"
+          "const": "844abde80234c7e147df528f237fa8e249c75be7ea9cc6fcf5c704f9d2976bd6"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1169,7 +1169,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "940c595d3a7ac86058d2260587f3f666bbf299187661ab502c4c1c116b7993d7"
+          "const": "844abde80234c7e147df528f237fa8e249c75be7ea9cc6fcf5c704f9d2976bd6"
         },
         "counts": {
           "type": "object"
@@ -5674,6 +5674,16 @@
           },
           "then": {
             "properties": {
+              "candidate": {
+                "properties": {
+                  "id": {
+                    "const": "baseline-std-randomstate-stable-vec-v1"
+                  },
+                  "keyDomain": {
+                    "const": "full-pipeline-baseline"
+                  }
+                }
+              },
               "compilerInstanceId": {
                 "properties": {
                   "value": {
@@ -6447,6 +6457,58 @@
         }
       ]
     },
+    "candidateQualificationStratum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keyDomain",
+        "workloadId",
+        "workloadRevision",
+        "graphProfile",
+        "stringProfile",
+        "generatorVersion",
+        "n",
+        "b",
+        "scaleRole",
+        "caseId"
+      ],
+      "properties": {
+        "keyDomain": {
+          "enum": [
+            "external-string",
+            "validated-fixed-key",
+            "canonical-output-order"
+          ]
+        },
+        "workloadId": {
+          "$ref": "#/$defs/workload/properties/id"
+        },
+        "workloadRevision": {
+          "$ref": "#/$defs/workload/properties/revision"
+        },
+        "graphProfile": {
+          "$ref": "#/$defs/workload/properties/graphProfile"
+        },
+        "stringProfile": {
+          "$ref": "#/$defs/workload/properties/stringProfile"
+        },
+        "generatorVersion": {
+          "$ref": "#/$defs/workload/properties/generatorVersion"
+        },
+        "n": {
+          "$ref": "#/$defs/workload/properties/n"
+        },
+        "b": {
+          "$ref": "#/$defs/workload/properties/b"
+        },
+        "scaleRole": {
+          "$ref": "#/$defs/workload/properties/scaleRole"
+        },
+        "caseId": {
+          "$ref": "#/$defs/workload/properties/caseId"
+        }
+      }
+    },
     "roundMetricSummary": {
       "type": "object",
       "additionalProperties": false,
@@ -6670,6 +6732,250 @@
       ],
       "description": "按 candidate-under-test、exact-research-oracle 顺序保存的通用正确性证据运行对；未执行时为空数组。"
     },
+    "candidateRosterEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateId",
+        "disposition",
+        "correctnessEvidenceRunIds",
+        "constantHashQualificationId"
+      ],
+      "properties": {
+        "candidateId": {
+          "$ref": "#/$defs/candidate/properties/id"
+        },
+        "disposition": {
+          "enum": [
+            "baseline-participant",
+            "performance-participant",
+            "rejected-safety",
+            "rejected-correctness",
+            "insufficient-qualification-evidence"
+          ]
+        },
+        "correctnessEvidenceRunIds": {
+          "$ref": "#/$defs/correctnessEvidenceRunIds"
+        },
+        "constantHashQualificationId": {
+          "$ref": "#/$defs/nullableStringObservation"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "enum": [
+                  "baseline-participant",
+                  "performance-participant",
+                  "rejected-correctness"
+                ]
+              }
+            },
+            "required": [
+              "disposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "correctnessEvidenceRunIds": {
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "rejected-safety"
+              }
+            },
+            "required": [
+              "disposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "correctnessEvidenceRunIds": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "candidateId": {
+                "enum": [
+                  "hashbrown-xxh3-fixed-v1",
+                  "hashbrown-xxh64-fixed-v1",
+                  "hashbrown-fnv1a64-v1"
+                ]
+              }
+            },
+            "required": [
+              "candidateId"
+            ]
+          },
+          "then": {
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "disposition": {
+                      "enum": [
+                        "performance-participant",
+                        "rejected-correctness"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "disposition"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "constantHashQualificationId": {
+                      "properties": {
+                        "value": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "disposition": {
+                      "const": "rejected-safety"
+                    }
+                  },
+                  "required": [
+                    "disposition"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "constantHashQualificationId": {
+                      "const": {
+                        "value": null,
+                        "reason": "qualification-not-run-safety-pre-rejection"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "else": {
+            "properties": {
+              "constantHashQualificationId": {
+                "const": {
+                  "value": null,
+                  "reason": "not-applicable-non-fast-hash-candidate"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "candidateRoster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rosterId",
+        "stratum",
+        "baselineId",
+        "entries"
+      ],
+      "properties": {
+        "rosterId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stratum": {
+          "$ref": "#/$defs/candidateQualificationStratum"
+        },
+        "baselineId": {
+          "$ref": "#/$defs/candidate/properties/id"
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/candidateRosterEntry"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stratum": {
+                "properties": {
+                  "keyDomain": {
+                    "enum": [
+                      "external-string",
+                      "validated-fixed-key"
+                    ]
+                  }
+                },
+                "required": [
+                  "keyDomain"
+                ]
+              }
+            },
+            "required": [
+              "stratum"
+            ]
+          },
+          "then": {
+            "properties": {
+              "baselineId": {
+                "const": "std-hashmap-randomstate-v1"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "stratum": {
+                "properties": {
+                  "keyDomain": {
+                    "const": "canonical-output-order"
+                  }
+                },
+                "required": [
+                  "keyDomain"
+                ]
+              }
+            },
+            "required": [
+              "stratum"
+            ]
+          },
+          "then": {
+            "properties": {
+              "baselineId": {
+                "const": "stable-vec-sort-v1"
+              }
+            }
+          }
+        }
+      ]
+    },
     "baseScalePilotLevel": {
       "type": "object",
       "additionalProperties": false,
@@ -6738,6 +7044,7 @@
         "knees",
         "reproducibilityEnvelopes",
         "growthSlopes",
+        "candidateRosters",
         "candidateComparisons",
         "recommendations"
       ],
@@ -7366,6 +7673,13 @@
             }
           }
         },
+        "candidateRosters": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/candidateRoster"
+          }
+        },
         "candidateComparisons": {
           "type": "array",
           "uniqueItems": true,
@@ -7375,12 +7689,11 @@
             "required": [
               "candidateId",
               "baselineId",
+              "rosterId",
               "stratum",
               "metric",
               "batch0",
               "batch1",
-              "correctnessEvidenceRunIds",
-              "constantHashQualificationId",
               "decision"
             ],
             "properties": {
@@ -7389,6 +7702,10 @@
               },
               "baselineId": {
                 "$ref": "#/$defs/candidate/properties/id"
+              },
+              "rosterId": {
+                "type": "string",
+                "minLength": 1
               },
               "stratum": {
                 "$ref": "#/$defs/candidateComparisonStratum"
@@ -7402,19 +7719,11 @@
               "batch1": {
                 "$ref": "#/$defs/candidateComparisonBatch"
               },
-              "correctnessEvidenceRunIds": {
-                "$ref": "#/$defs/correctnessEvidenceRunIds"
-              },
-              "constantHashQualificationId": {
-                "$ref": "#/$defs/nullableStringObservation"
-              },
               "decision": {
                 "enum": [
                   "noise-no-difference",
                   "repeatable-improvement",
                   "repeatable-regression",
-                  "rejected-correctness",
-                  "rejected-safety",
                   "insufficient-evidence"
                 ]
               }
@@ -7470,50 +7779,6 @@
                           }
                         }
                       }
-                    }
-                  }
-                }
-              },
-              {
-                "if": {
-                  "properties": {
-                    "decision": {
-                      "enum": [
-                        "noise-no-difference",
-                        "repeatable-improvement",
-                        "repeatable-regression",
-                        "rejected-correctness"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "decision"
-                  ]
-                },
-                "then": {
-                  "properties": {
-                    "correctnessEvidenceRunIds": {
-                      "minItems": 2,
-                      "maxItems": 2
-                    }
-                  }
-                }
-              },
-              {
-                "if": {
-                  "properties": {
-                    "decision": {
-                      "const": "rejected-safety"
-                    }
-                  },
-                  "required": [
-                    "decision"
-                  ]
-                },
-                "then": {
-                  "properties": {
-                    "correctnessEvidenceRunIds": {
-                      "maxItems": 0
                     }
                   }
                 }
@@ -7614,64 +7879,6 @@
                         "deterministic-radix-sort-v1",
                         "deterministic-bucket-sort-v1"
                       ]
-                    }
-                  }
-                }
-              },
-              {
-                "if": {
-                  "properties": {
-                    "candidateId": {
-                      "enum": [
-                        "hashbrown-xxh3-fixed-v1",
-                        "hashbrown-xxh64-fixed-v1",
-                        "hashbrown-fnv1a64-v1"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "candidateId"
-                  ]
-                },
-                "then": {
-                  "if": {
-                    "properties": {
-                      "decision": {
-                        "enum": [
-                          "noise-no-difference",
-                          "repeatable-improvement",
-                          "repeatable-regression",
-                          "rejected-correctness"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "decision"
-                    ]
-                  },
-                  "then": {
-                    "properties": {
-                      "constantHashQualificationId": {
-                        "properties": {
-                          "value": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "reason": {
-                            "type": "null"
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "else": {
-                  "properties": {
-                    "constantHashQualificationId": {
-                      "const": {
-                        "value": null,
-                        "reason": "not-applicable-non-fast-hash-candidate"
-                      }
                     }
                   }
                 }
@@ -7873,6 +8080,9 @@
               "growthSlopes": {
                 "maxItems": 0
               },
+              "candidateRosters": {
+                "maxItems": 0
+              },
               "candidateComparisons": {
                 "maxItems": 0
               },
@@ -7919,6 +8129,9 @@
                 "maxItems": 0
               },
               "growthSlopes": {
+                "maxItems": 0
+              },
+              "candidateRosters": {
                 "maxItems": 0
               },
               "candidateComparisons": {
