@@ -2237,8 +2237,10 @@
       "fixedOverheadRule": "no separate fixed-overhead term exists in protocol v1"
     },
     "firstLevelPrediction": "predictedCompilerControlledBytes = logicalBytesLowerBound",
-    "laterLevelLinearTerm": "ceil(previousPeakLiveRequestedBytes * nextPrimaryRecordCount * 5 / (previousPrimaryRecordCount * 4))",
-    "laterLevelPrediction": "predictedCompilerControlledBytes = max(logicalBytesLowerBound, laterLevelLinearTerm)",
+    "laterLevelCompilerControlledLinearTerm": "ceil(previousPeakLiveRequestedBytes * nextPrimaryRecordCount * 5 / (previousPrimaryRecordCount * 4))",
+    "laterLevelCompilerControlledPrediction": "predictedCompilerControlledBytes = max(logicalBytesLowerBound, laterLevelCompilerControlledLinearTerm)",
+    "laterLevelPrivateBytesPrediction": "predictedPrivateBytes = ceil(previousPrivateBytes * nextPrimaryRecordCount * 5 / (previousPrimaryRecordCount * 4))",
+    "laterLevelWallTimePrediction": "predictedWallTimeNs = ceil(previousWallTimeNs * nextPrimaryRecordCount * 5 / (previousPrimaryRecordCount * 4))",
     "integerArithmetic": "evaluate checked u128 products; compute ceiling division from quotient and nonzero remainder without numerator-plus-denominator-minus-one; convert the final result with u64::try_from",
     "candidateIndependenceRule": "the lower bound is derived only from the bound manifest and selected workload level; candidates cannot add, subtract, or measure a private fixed-overhead value"
   },
@@ -2412,20 +2414,18 @@
       "stable-compiler-outcome-matches-oracle",
       "partial-output-record-count-matches-oracle"
     ],
-    "performanceDecisionRequiresPassedQualification": true,
-    "qualificationRequiredForDecisions": [
-      "noise-no-difference",
-      "repeatable-improvement",
-      "repeatable-regression",
+    "performanceRosterParticipationRequiresPassedQualification": true,
+    "qualificationRequiredForRosterDispositions": [
+      "performance-participant",
       "rejected-correctness"
     ],
-    "qualificationMayBeOmittedForDecisions": [
+    "qualificationMayBeOmittedForRosterDispositions": [
       "rejected-safety",
-      "insufficient-evidence"
+      "insufficient-qualification-evidence"
     ],
-    "omissionReasonsByDecision": {
+    "omissionReasonsByRosterDisposition": {
       "rejected-safety": "qualification-not-run-safety-pre-rejection",
-      "insufficient-evidence": "qualification-not-run-insufficient-evidence"
+      "insufficient-qualification-evidence": "qualification-not-run-insufficient-evidence"
     },
     "unexecutedCandidateSummaryRule": "omit-summary-no-fabricated-runs-v1",
     "executedNegativeQualificationRule": "retain-summary-and-linked-runs-v1",
@@ -2472,9 +2472,65 @@
     "insufficientRule": "fewer-than-five-complete-levels-no-selection-v1",
     "roleBindingRule": "all-scale-role-labels-equal-derived-natural-identity-scale-v1"
   },
-  "candidateDecisionContract": {
+  "candidateRosterContract": {
     "revision": 1,
+    "naturalIdentityFields": [
+      "keyDomain",
+      "workloadId",
+      "workloadRevision",
+      "graphProfile",
+      "stringProfile",
+      "generatorVersion",
+      "n",
+      "b",
+      "scaleRole",
+      "caseId"
+    ],
+    "entryOrderRule": "candidateRegistry.candidates filtered by allowedKeyDomains containing stratum.keyDomain, preserving registry order",
+    "rosterCompletenessRule": "every filtered registry candidate appears exactly once; unregistered, omitted, duplicated or reordered entries are invalid",
+    "baselineRule": "baselineId equals candidateRegistry.baselineByKeyDomain[stratum.keyDomain]; exactly one entry has candidateId=baselineId; only that entry may use baseline-participant",
+    "dispositions": [
+      "baseline-participant",
+      "performance-participant",
+      "rejected-safety",
+      "rejected-correctness",
+      "insufficient-qualification-evidence"
+    ],
+    "qualificationPrecedence": [
+      "rejected-safety",
+      "rejected-correctness",
+      "insufficient-qualification-evidence",
+      "participant"
+    ],
+    "participantDispositions": [
+      "baseline-participant",
+      "performance-participant"
+    ],
+    "candidateCountSymbol": "C",
+    "candidateCountRule": "count entries whose disposition is baseline-participant or performance-participant",
+    "minimumParticipantRule": "a performance schedule requires C>=2 and exactly one baseline-participant; otherwise no candidate comparison may reference the roster",
+    "balancedScheduleRule": {
+      "roundCountPerBatch": "2*C",
+      "participantOrder": "ordered subsequence of entries whose disposition is a participant disposition",
+      "forwardHalf": "position j of round r is participant[(j+r) mod C] for r,j=0..C-1",
+      "reverseHalf": "position j of round C+r is participant[(r-j) mod C] for r,j=0..C-1"
+    },
+    "correctnessEvidenceRules": {
+      "runOrder": [
+        "candidate-under-test",
+        "exact-research-oracle"
+      ],
+      "participant": "required-matching-run-pair-v1",
+      "rejected-correctness": "required-reproducible-mismatch-run-pair-v1",
+      "rejected-safety": "empty-not-run-v1",
+      "insufficient-qualification-evidence": "empty-or-complete-run-pair-v1"
+    },
+    "candidateComparisonReferenceRule": "candidate comparison rosterId resolves uniquely; candidateId is a performance-participant, baselineId is the roster baseline-participant, and the comparison stratum projects to the roster stratum"
+  },
+  "candidateDecisionContract": {
+    "revision": 2,
     "algorithmId": "two-batch-envelope-classification-v1",
+    "classificationScope": "performance-only-not-a-selection-recommendation",
     "ratioDirection": "candidate-median-over-baseline-median",
     "eligibleMetrics": [
       "wall-time-ns",
@@ -2490,12 +2546,6 @@
       "reallocation-count"
     ],
     "envelopeSource": "unique-same-metric-reproducibility-envelope-v1",
-    "decisionPrecedence": [
-      "rejected-correctness",
-      "rejected-safety",
-      "insufficient-evidence",
-      "exact-performance-classification"
-    ],
     "exactSymbols": {
       "envelope": "E=P/Q;P>=Q>0",
       "batchRatio": "R_i=A_i/B_i;i={0,1};A_i>0;B_i>0"
@@ -2508,21 +2558,9 @@
     },
     "batchEvidenceRules": {
       "ratioBasedDecision": "both-batches-complete-2c-round-set-and-non-null-median-v1",
-      "rejected-correctness": "both-batches-empty-null-performance-not-run-rejected-correctness-v1",
-      "rejected-safety": "both-batches-empty-null-performance-not-run-rejected-safety-v1",
       "insufficient-evidence": "empty-partial-or-complete-non-classifiable-batches-v1",
       "incompleteBatchMedianRule": "null-incomplete-balanced-round-set-v1",
       "emptyBatchMedianRule": "null-no-usable-round-pairs-v1"
-    },
-    "correctnessEvidenceRules": {
-      "runOrder": [
-        "candidate-under-test",
-        "exact-research-oracle"
-      ],
-      "ratioBasedDecision": "required-matching-run-pair-v1",
-      "rejected-correctness": "required-reproducible-mismatch-run-pair-v1",
-      "rejected-safety": "empty-not-run-v1",
-      "insufficient-evidence": "empty-or-complete-run-pair-v1"
     }
   },
   "limitDimensionBindings": [
@@ -2706,6 +2744,24 @@
       "mutation": "set maxDiagnostics=N and create N+1 independent unknown references"
     }
   ],
+  "baselineCleanupObservationContract": {
+    "revision": 1,
+    "candidateId": "baseline-std-randomstate-stable-vec-v1",
+    "experimentOrder": "cleanupExperimentBindings array order, then each binding scaleRoles array order",
+    "expectedExperimentCount": 6,
+    "groupSize": 35,
+    "sequenceRule": "exactly sequenceIndex 0, 1..32, 33 and 34 with no omission or duplicate",
+    "instanceRule": "sequence 0..33 uses one compilerInstanceId; sequence 34 uses a different newly issued compilerInstanceId",
+    "groupIdentityRule": "experimentId is unique and every run has the same candidate, workload, scale and failure case required by its cleanupExperimentBinding",
+    "failureIterationPassRules": [
+      "actual outcome, stable compiler error, diagnostic count, truncation and partial output match the bound failure case",
+      "metrics.liveRequestedBytes.value equals zero after every failure iteration",
+      "metrics.retainedCapacityBytes.value for sequence 2..32 is less than or equal to the value at sequence 1"
+    ],
+    "recoveryPassRule": "sequence 33 and 34 match in outcome, stage record counts, semantic digest, diagnostic digest, stable compiler error state and partial output record count",
+    "groupPassRule": "all sequence, identity, failure-iteration and recovery rules pass; missing or invalid observations fail the group",
+    "scopeRule": "all six groups are baseline lifecycle observations; they do not qualify, reject or recommend a private candidate and do not alter candidateDecisionContract performance classifications"
+  },
   "cleanupExperimentBindings": [
     {
       "caseId": "limit/source-byte-count/plus-one",
