@@ -33,11 +33,13 @@ pub use oracle::{
 };
 pub use stage::{
     IdentityAggregateCounts, IdentityStageSummary, StageBreakdown, StageContract,
-    StageContractError, StageGenerationError, StageShape, build_identity_stage_summary,
+    StageContractError, StageGenerationError, StageRetainedCapacityBytes, StageShape,
+    build_identity_stage_summary,
 };
 pub use stage_oracle::StageOracleError;
 pub use timing::{
-    CLOCK_QUANTUM_OBSERVATION_COUNT, IdentityTimingSample, TimingError,
+    CLOCK_QUANTUM_OBSERVATION_COUNT, IdentityCompilerInstance, IdentityStableCapacitySequence,
+    IdentityTimingSample, STABLE_CAPACITY_SAMPLE_COUNT, STABLE_CAPACITY_WARMUP_COUNT, TimingError,
     measure_identity_stage_once, observe_clock_quantum_ns,
 };
 

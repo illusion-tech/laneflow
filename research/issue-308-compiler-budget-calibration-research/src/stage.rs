@@ -188,6 +188,20 @@ pub struct StageShape {
     pub record_allocation_bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StageRetainedCapacityBytes {
+    pub source_input: u64,
+    pub typed_ast: u64,
+    pub hir: u64,
+    pub mir: u64,
+    pub canonical_lir: u64,
+    pub diagnostics: u64,
+    pub scratch: u64,
+    pub output_construction: u64,
+    pub total: u64,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct SourceSpanRecord {
@@ -252,6 +266,13 @@ pub(crate) struct IdentityStageCaseOutput {
     pub(crate) diagnostics: Vec<u8>,
     pub(crate) scratch_capacity_bytes: u64,
     pub(crate) output_construction: Vec<u8>,
+    pub(crate) source_scratch: Vec<u64>,
+    pub(crate) namespace_preimage_scratch: Vec<u8>,
+    pub(crate) mir_stable_id_scratch: Vec<[u8; 16]>,
+    pub(crate) mir_canonical_identity_scratch: Vec<u8>,
+    pub(crate) mir_identity_payload_scratch: Vec<u8>,
+    pub(crate) lir_sort_scratch: Vec<usize>,
+    pub(crate) lir_owner_ordinal_scratch: Vec<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -928,6 +949,12 @@ pub enum StageGenerationError {
     ScaleMustBePositive,
     #[error("阶段模型算术溢出：{0}")]
     Overflow(&'static str),
+    #[error("研究阶段容量预留失败：{field}")]
+    AllocationFailed {
+        field: &'static str,
+        #[source]
+        source: std::collections::TryReserveError,
+    },
     #[error("阶段模型缺少实体种类 {0}")]
     MissingEntityKind(u16),
     #[error("阶段模型无法解析模块序号 {0}")]
