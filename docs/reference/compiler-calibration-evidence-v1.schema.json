@@ -259,7 +259,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "bd5a80b3f13d0c8b73a15b56932fdf631c7e38cbf34ca273c99b2c137ed1eb78"
+          "const": "c202592f74f66771f18ca27ba4a1af72bcb3a9126ef39ced3e0b2b925823e330"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1158,7 +1158,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "bd5a80b3f13d0c8b73a15b56932fdf631c7e38cbf34ca273c99b2c137ed1eb78"
+          "const": "c202592f74f66771f18ca27ba4a1af72bcb3a9126ef39ced3e0b2b925823e330"
         },
         "counts": {
           "type": "object"
@@ -4276,6 +4276,352 @@
         }
       ]
     },
+    "roundAttemptIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "ordinal",
+        "scope"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ordinal": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "scope": {
+          "enum": [
+            "single-experiment",
+            "formal-ladder-round",
+            "candidate-comparison-round"
+          ]
+        }
+      }
+    },
+    "constantHashRunObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qualificationId",
+        "protocol",
+        "role",
+        "builder",
+        "candidateUnderTestId",
+        "inputVariantId",
+        "repeatIndex",
+        "expectedOutcome",
+        "actualOutcome",
+        "expectedStableCompilerErrorCode",
+        "actualStableCompilerErrorCode",
+        "expectedDiagnosticCount",
+        "actualDiagnosticCount",
+        "expectedDiagnosticsTruncated",
+        "actualDiagnosticsTruncated",
+        "expectedPartialOutputRecordCount",
+        "actualPartialOutputRecordCount"
+      ],
+      "properties": {
+        "qualificationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "protocol": {
+          "const": "constant-hash-full-key-equality-v1"
+        },
+        "role": {
+          "enum": [
+            "candidate-collision-builder",
+            "exact-oracle"
+          ]
+        },
+        "builder": {
+          "enum": [
+            "all-keys-u64-zero-v1",
+            "exact-research-oracle-v1"
+          ]
+        },
+        "candidateUnderTestId": {
+          "enum": [
+            "hashbrown-xxh3-fixed-v1",
+            "hashbrown-xxh64-fixed-v1",
+            "hashbrown-fnv1a64-v1"
+          ]
+        },
+        "inputVariantId": {
+          "enum": [
+            "constant-hash-canonical-valid-v1",
+            "constant-hash-missing-reference-v1"
+          ]
+        },
+        "repeatIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "expectedOutcome": {
+          "enum": [
+            "success",
+            "compiler-error"
+          ]
+        },
+        "actualOutcome": {
+          "enum": [
+            "success",
+            "compiler-error",
+            "abnormal-termination"
+          ]
+        },
+        "expectedStableCompilerErrorCode": {
+          "$ref": "#/$defs/nullableStringObservation"
+        },
+        "actualStableCompilerErrorCode": {
+          "$ref": "#/$defs/nullableStringObservation"
+        },
+        "expectedDiagnosticCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "actualDiagnosticCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "expectedDiagnosticsTruncated": {
+          "type": "boolean"
+        },
+        "actualDiagnosticsTruncated": {
+          "type": "boolean"
+        },
+        "expectedPartialOutputRecordCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "actualPartialOutputRecordCount": {
+          "$ref": "#/$defs/nonNegativeInteger"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "role": {
+                "const": "candidate-collision-builder"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "properties": {
+              "builder": {
+                "const": "all-keys-u64-zero-v1"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "builder": {
+                "const": "exact-research-oracle-v1"
+              },
+              "repeatIndex": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "inputVariantId": {
+                "const": "constant-hash-canonical-valid-v1"
+              }
+            },
+            "required": [
+              "inputVariantId"
+            ]
+          },
+          "then": {
+            "properties": {
+              "expectedOutcome": {
+                "const": "success"
+              },
+              "expectedStableCompilerErrorCode": {
+                "const": {
+                  "value": null,
+                  "reason": "no-compiler-error-expected"
+                }
+              },
+              "expectedDiagnosticCount": {
+                "const": 0
+              },
+              "expectedDiagnosticsTruncated": {
+                "const": false
+              },
+              "expectedPartialOutputRecordCount": {
+                "const": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "expectedOutcome": {
+                "const": "compiler-error"
+              },
+              "expectedStableCompilerErrorCode": {
+                "const": {
+                  "value": "LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE",
+                  "reason": null
+                }
+              },
+              "expectedDiagnosticCount": {
+                "const": 1
+              },
+              "expectedDiagnosticsTruncated": {
+                "const": false
+              },
+              "expectedPartialOutputRecordCount": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actualOutcome": {
+                "const": "compiler-error"
+              }
+            },
+            "required": [
+              "actualOutcome"
+            ]
+          },
+          "then": {
+            "properties": {
+              "actualStableCompilerErrorCode": {
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "reason": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "actualStableCompilerErrorCode": {
+                "properties": {
+                  "value": {
+                    "type": "null"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "constantHashQualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qualificationId",
+        "candidateId",
+        "protocol",
+        "candidateBuilder",
+        "oracleBuilder",
+        "canonicalValidCandidateRunIds",
+        "canonicalValidOracleRunId",
+        "missingReferenceCandidateRunIds",
+        "missingReferenceOracleRunId",
+        "allStageCountsMatchOracle",
+        "semanticDigestsMatchOracle",
+        "diagnosticDigestsMatchOracle",
+        "candidateRepeatsDeterministic",
+        "stableOutcomesMatchOracle",
+        "partialOutputCountsMatchOracle",
+        "passed"
+      ],
+      "properties": {
+        "qualificationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidateId": {
+          "enum": [
+            "hashbrown-xxh3-fixed-v1",
+            "hashbrown-xxh64-fixed-v1",
+            "hashbrown-fnv1a64-v1"
+          ]
+        },
+        "protocol": {
+          "const": "constant-hash-full-key-equality-v1"
+        },
+        "candidateBuilder": {
+          "const": "all-keys-u64-zero-v1"
+        },
+        "oracleBuilder": {
+          "const": "exact-research-oracle-v1"
+        },
+        "canonicalValidCandidateRunIds": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "canonicalValidOracleRunId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "missingReferenceCandidateRunIds": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "missingReferenceOracleRunId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "allStageCountsMatchOracle": {
+          "type": "boolean"
+        },
+        "semanticDigestsMatchOracle": {
+          "type": "boolean"
+        },
+        "diagnosticDigestsMatchOracle": {
+          "type": "boolean"
+        },
+        "candidateRepeatsDeterministic": {
+          "type": "boolean"
+        },
+        "stableOutcomesMatchOracle": {
+          "type": "boolean"
+        },
+        "partialOutputCountsMatchOracle": {
+          "type": "boolean"
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      }
+    },
     "externalState": {
       "type": "object",
       "additionalProperties": false,
@@ -4430,6 +4776,7 @@
         "batch",
         "round",
         "position",
+        "roundAttempt",
         "sampleOrdinal",
         "sampleKind",
         "status",
@@ -4458,6 +4805,9 @@
         "position": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
+        "roundAttempt": {
+          "$ref": "#/$defs/roundAttemptIdentity"
+        },
         "sampleOrdinal": {
           "$ref": "#/$defs/nonNegativeInteger"
         },
@@ -4468,7 +4818,8 @@
             "failure",
             "oracle",
             "limit-baseline",
-            "guard-preflight"
+            "guard-preflight",
+            "correctness"
           ]
         },
         "status": {
@@ -4516,6 +4867,9 @@
         "failure": {
           "$ref": "#/$defs/failureObservation"
         },
+        "correctnessQualification": {
+          "$ref": "#/$defs/constantHashRunObservation"
+        },
         "cleanup": {
           "$ref": "#/$defs/cleanupObservation"
         },
@@ -4524,6 +4878,131 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "sampleKind": {
+                    "enum": [
+                      "cold-instance",
+                      "stable-capacity-reuse"
+                    ]
+                  }
+                },
+                "required": [
+                  "sampleKind"
+                ]
+              },
+              {
+                "properties": {
+                  "candidate": {
+                    "properties": {
+                      "keyDomain": {
+                        "const": "full-pipeline-baseline"
+                      }
+                    },
+                    "required": [
+                      "keyDomain"
+                    ]
+                  },
+                  "workload": {
+                    "properties": {
+                      "scaleRole": {
+                        "enum": [
+                          "base",
+                          "ladder",
+                          "calibration",
+                          "stress"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "scaleRole"
+                    ]
+                  }
+                },
+                "required": [
+                  "candidate",
+                  "workload"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "roundAttempt": {
+                "properties": {
+                  "scope": {
+                    "const": "formal-ladder-round"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "if": {
+              "allOf": [
+                {
+                  "properties": {
+                    "sampleKind": {
+                      "enum": [
+                        "cold-instance",
+                        "stable-capacity-reuse"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "sampleKind"
+                  ]
+                },
+                {
+                  "properties": {
+                    "candidate": {
+                      "properties": {
+                        "keyDomain": {
+                          "enum": [
+                            "external-string",
+                            "validated-fixed-key",
+                            "canonical-output-order"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "keyDomain"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "candidate"
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "properties": {
+                "roundAttempt": {
+                  "properties": {
+                    "scope": {
+                      "const": "candidate-comparison-round"
+                    }
+                  }
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "roundAttempt": {
+                  "properties": {
+                    "scope": {
+                      "const": "single-experiment"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": {
@@ -4581,6 +5060,139 @@
                   }
                 }
               }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sampleKind": {
+                "const": "correctness"
+              }
+            },
+            "required": [
+              "sampleKind"
+            ]
+          },
+          "then": {
+            "required": [
+              "correctnessQualification"
+            ],
+            "properties": {
+              "status": {
+                "const": "valid"
+              },
+              "invalidationReasons": {
+                "maxItems": 0
+              },
+              "workload": {
+                "properties": {
+                  "id": {
+                    "const": "LF-COMP-CORRIDOR-v1"
+                  },
+                  "revision": {
+                    "const": 1
+                  },
+                  "graphProfile": {
+                    "const": "wide-star-v1"
+                  },
+                  "stringProfile": {
+                    "const": "short-unique-v1"
+                  },
+                  "generatorVersion": {
+                    "const": 1
+                  },
+                  "n": {
+                    "const": 1
+                  },
+                  "b": {
+                    "const": {
+                      "value": null,
+                      "reason": "not-applicable-correctness-qualification"
+                    }
+                  },
+                  "scaleRole": {
+                    "const": "known-vector"
+                  },
+                  "caseId": {
+                    "const": "not-applicable"
+                  }
+                }
+              },
+              "guard": {
+                "properties": {
+                  "trigger": {
+                    "const": "none"
+                  }
+                }
+              },
+              "cleanup": {
+                "properties": {
+                  "phase": {
+                    "const": "not-applicable"
+                  }
+                }
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "correctnessQualification": {
+                      "properties": {
+                        "role": {
+                          "const": "candidate-collision-builder"
+                        }
+                      },
+                      "required": [
+                        "role"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "correctnessQualification"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "candidate": {
+                      "properties": {
+                        "id": {
+                          "enum": [
+                            "hashbrown-xxh3-fixed-v1",
+                            "hashbrown-xxh64-fixed-v1",
+                            "hashbrown-fnv1a64-v1"
+                          ]
+                        },
+                        "keyDomain": {
+                          "const": "validated-fixed-key"
+                        }
+                      }
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "candidate": {
+                      "properties": {
+                        "id": {
+                          "const": "baseline-std-randomstate-stable-vec-v1"
+                        },
+                        "keyDomain": {
+                          "const": "full-pipeline-baseline"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "correctnessQualification"
+              ]
             }
           }
         },
@@ -5763,6 +6375,7 @@
         "metric",
         "batch",
         "round",
+        "roundAttemptId",
         "aggregationMethod",
         "contributingRunIds",
         "median",
@@ -5795,6 +6408,10 @@
         },
         "round": {
           "$ref": "#/$defs/nonNegativeInteger"
+        },
+        "roundAttemptId": {
+          "type": "string",
+          "minLength": 1
         },
         "aggregationMethod": {
           "const": "median-and-mad-of-exact-integers-v1"
@@ -6012,7 +6629,9 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "formalStudyDisposition",
         "baseScales",
+        "constantHashQualifications",
         "roundMetricSummaries",
         "ladderBatchSummaries",
         "adjacentLevelRatios",
@@ -6023,8 +6642,16 @@
         "recommendations"
       ],
       "properties": {
+        "formalStudyDisposition": {
+          "enum": [
+            "no-reliable-base-scale",
+            "insufficient-formal-ladder",
+            "formal-analysis-available"
+          ]
+        },
         "baseScales": {
           "type": "array",
+          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "type": "object",
@@ -6134,9 +6761,17 @@
             ]
           }
         },
+        "constantHashQualifications": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/constantHashQualification"
+          }
+        },
         "roundMetricSummaries": {
           "type": "array",
-          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/roundMetricSummary"
@@ -6144,7 +6779,6 @@
         },
         "ladderBatchSummaries": {
           "type": "array",
-          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/ladderBatchSummary"
@@ -6646,6 +7280,7 @@
               "metric",
               "batch0",
               "batch1",
+              "constantHashQualificationId",
               "decision"
             ],
             "properties": {
@@ -6666,6 +7301,9 @@
               },
               "batch1": {
                 "$ref": "#/$defs/candidateComparisonBatch"
+              },
+              "constantHashQualificationId": {
+                "$ref": "#/$defs/nullableStringObservation"
               },
               "decision": {
                 "enum": [
@@ -6775,6 +7413,64 @@
                         "deterministic-radix-sort-v1",
                         "deterministic-bucket-sort-v1"
                       ]
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "candidateId": {
+                      "enum": [
+                        "hashbrown-xxh3-fixed-v1",
+                        "hashbrown-xxh64-fixed-v1",
+                        "hashbrown-fnv1a64-v1"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "candidateId"
+                  ]
+                },
+                "then": {
+                  "if": {
+                    "properties": {
+                      "decision": {
+                        "enum": [
+                          "noise-no-difference",
+                          "repeatable-improvement",
+                          "repeatable-regression",
+                          "rejected-correctness"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "decision"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "constantHashQualificationId": {
+                        "properties": {
+                          "value": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "reason": {
+                            "type": "null"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "constantHashQualificationId": {
+                      "const": {
+                        "value": null,
+                        "reason": "not-applicable-non-fast-hash-candidate"
+                      }
                     }
                   }
                 }
@@ -6931,7 +7627,151 @@
             ]
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "formalStudyDisposition": {
+                "const": "no-reliable-base-scale"
+              }
+            },
+            "required": [
+              "formalStudyDisposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "baseScales": {
+                "items": {
+                  "properties": {
+                    "b": {
+                      "const": {
+                        "value": null,
+                        "reason": "no-reliable-base-scale-before-guard"
+                      }
+                    }
+                  }
+                }
+              },
+              "roundMetricSummaries": {
+                "maxItems": 0
+              },
+              "ladderBatchSummaries": {
+                "maxItems": 0
+              },
+              "adjacentLevelRatios": {
+                "maxItems": 0
+              },
+              "knees": {
+                "maxItems": 0
+              },
+              "reproducibilityEnvelopes": {
+                "maxItems": 0
+              },
+              "growthSlopes": {
+                "maxItems": 0
+              },
+              "candidateComparisons": {
+                "maxItems": 0
+              },
+              "recommendations": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "formalStudyDisposition": {
+                "const": "insufficient-formal-ladder"
+              }
+            },
+            "required": [
+              "formalStudyDisposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "baseScales": {
+                "contains": {
+                  "properties": {
+                    "b": {
+                      "properties": {
+                        "value": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "b"
+                  ]
+                }
+              },
+              "reproducibilityEnvelopes": {
+                "maxItems": 0
+              },
+              "growthSlopes": {
+                "maxItems": 0
+              },
+              "candidateComparisons": {
+                "maxItems": 0
+              },
+              "recommendations": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "formalStudyDisposition": {
+                "const": "formal-analysis-available"
+              }
+            },
+            "required": [
+              "formalStudyDisposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "baseScales": {
+                "contains": {
+                  "properties": {
+                    "b": {
+                      "properties": {
+                        "value": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "b"
+                  ]
+                }
+              },
+              "roundMetricSummaries": {
+                "minItems": 1
+              },
+              "ladderBatchSummaries": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
     },
     "artifact": {
       "type": "object",
