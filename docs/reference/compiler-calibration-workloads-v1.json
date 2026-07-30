@@ -2500,6 +2500,14 @@
       "repeatable-regression": "forall-i:A_i*Q>B_i*P",
       "noise-no-difference": "forall-i:A_i*P>=B_i*Q&&A_i*Q<=B_i*P",
       "insufficient-evidence": "otherwise-mixed-missing-or-non-comparable-v1"
+    },
+    "batchEvidenceRules": {
+      "ratioBasedDecision": "both-batches-complete-2c-round-set-and-non-null-median-v1",
+      "rejected-correctness": "both-batches-empty-null-performance-not-run-rejected-correctness-v1",
+      "rejected-safety": "both-batches-empty-null-performance-not-run-rejected-safety-v1",
+      "insufficient-evidence": "empty-partial-or-complete-non-classifiable-batches-v1",
+      "incompleteBatchMedianRule": "null-incomplete-balanced-round-set-v1",
+      "emptyBatchMedianRule": "null-no-usable-round-pairs-v1"
     }
   },
   "limitDimensionBindings": [

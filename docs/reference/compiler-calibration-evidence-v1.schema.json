@@ -259,7 +259,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "eca25d6f903a5ca69b9e576a67f199e15ab49ba039e952a62e23db2eb7a38cee"
+          "const": "940c595d3a7ac86058d2260587f3f666bbf299187661ab502c4c1c116b7993d7"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1158,7 +1158,7 @@
           ]
         },
         "manifestDigest": {
-          "const": "eca25d6f903a5ca69b9e576a67f199e15ab49ba039e952a62e23db2eb7a38cee"
+          "const": "940c595d3a7ac86058d2260587f3f666bbf299187661ab502c4c1c116b7993d7"
         },
         "counts": {
           "type": "object"
@@ -5340,9 +5340,6 @@
               "limitBaseline"
             ],
             "properties": {
-              "status": {
-                "const": "valid"
-              },
               "workload": {
                 "properties": {
                   "id": {
@@ -6634,7 +6631,6 @@
         },
         "roundPairs": {
           "type": "array",
-          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/candidateComparisonRoundPair"
@@ -7391,6 +7387,60 @@
               }
             },
             "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "decision": {
+                      "enum": [
+                        "noise-no-difference",
+                        "repeatable-improvement",
+                        "repeatable-regression"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "decision"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "batch0": {
+                      "properties": {
+                        "roundPairs": {
+                          "minItems": 1
+                        },
+                        "medianRatio": {
+                          "properties": {
+                            "value": {
+                              "$ref": "#/$defs/positiveRatio"
+                            },
+                            "reason": {
+                              "type": "null"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "batch1": {
+                      "properties": {
+                        "roundPairs": {
+                          "minItems": 1
+                        },
+                        "medianRatio": {
+                          "properties": {
+                            "value": {
+                              "$ref": "#/$defs/positiveRatio"
+                            },
+                            "reason": {
+                              "type": "null"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
               {
                 "if": {
                   "properties": {

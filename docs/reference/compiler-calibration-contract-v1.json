@@ -5,15 +5,15 @@
     "id": "https://github.com/illusion-tech/laneflow/blob/main/docs/reference/compiler-calibration-evidence-v1.schema.json",
     "schemaVersion": 1,
     "path": "docs/reference/compiler-calibration-evidence-v1.schema.json",
-    "byteLength": 212936,
-    "sha256": "8718e454952043712cb117095099a0325c8d7fb8310872d516dd16f26a3fabbd"
+    "byteLength": 214619,
+    "sha256": "bfb344cd6eaae19be7c0473543532fb6d1d3fad3911ec218432ae0eec6b9d730"
   },
   "workloadManifest": {
     "schema": "laneflow.compiler-calibration-workload-manifest",
     "schemaVersion": 1,
     "path": "docs/reference/compiler-calibration-workloads-v1.json",
-    "byteLength": 105349,
-    "sha256": "eca25d6f903a5ca69b9e576a67f199e15ab49ba039e952a62e23db2eb7a38cee"
+    "byteLength": 105891,
+    "sha256": "940c595d3a7ac86058d2260587f3f666bbf299187661ab502c4c1c116b7993d7"
   },
   "candidateRegistryRevision": 1,
   "validationBootstrap": [
