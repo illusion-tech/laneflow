@@ -344,7 +344,8 @@ pub(crate) fn verify_identity_stage_exact(
         n,
     )?;
     let expected_string_bytes = strings.concat();
-    if produced.string_bytes != expected_string_bytes {
+    if produced.source_input_payload[produced.source_string_range.clone()] != expected_string_bytes
+    {
         return Err(StageOracleError::Mismatch("source string bytes"));
     }
 
@@ -1385,7 +1386,8 @@ mod tests {
         let mut produced =
             build_identity_stage_case(&generator, &identity, &stage, GraphProfileId::WideStar, 2)
                 .expect("stage case");
-        produced.string_bytes[0] ^= 1;
+        let first_string_byte = produced.source_string_range.start;
+        produced.source_input_payload[first_string_byte] ^= 1;
 
         assert!(matches!(
             verify_identity_stage_exact(

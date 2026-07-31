@@ -260,7 +260,7 @@ pub(crate) struct MirLirStageRecord {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct IdentityStageCaseOutput {
     pub(crate) summary: IdentityStageSummary,
-    pub(crate) string_bytes: Vec<u8>,
+    pub(crate) source_string_range: std::ops::Range<usize>,
     pub(crate) source_spans: Vec<SourceSpanRecord>,
     pub(crate) source_input_records: Vec<TypedAstStageRecord>,
     pub(crate) source_input_payload: Vec<u8>,
