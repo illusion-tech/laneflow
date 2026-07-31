@@ -853,10 +853,9 @@ mod tests {
         writer.finish(&checkpoint).expect("publish final output");
 
         assert!(output.is_file());
-        let published: serde_json::Value = serde_json::from_slice(
-            &fs::read(&output).expect("read published formal checkpoint"),
-        )
-        .expect("parse published formal checkpoint");
+        let published: serde_json::Value =
+            serde_json::from_slice(&fs::read(&output).expect("read published formal checkpoint"))
+                .expect("parse published formal checkpoint");
         assert_eq!(
             published["schema"],
             serde_json::json!(FORMAL_PROTOCOL_CHECKPOINT_SCHEMA)

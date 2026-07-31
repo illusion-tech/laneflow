@@ -1091,4 +1091,46 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn every_scalable_workload_recovers_after_a_larger_scale_hits_the_allocation_ceiling() {
+        let trusted = load_repository_contract().expect("frozen contract");
+        for workload_id in ScalableWorkloadId::ALL {
+            let mut probe = ScalableAttributionCompilerInstance::from_trusted_contract_with_id(
+                &trusted,
+                format!("{}/recovery-peak-probe", workload_id.as_str()),
+                workload_id,
+            )
+            .expect("probe instance");
+            let exact_n1_peak = probe
+                .measure(GraphProfileId::WideStar, 1)
+                .expect("N=1 peak probe")
+                .guard_peak_live_requested_bytes;
+
+            let mut instance =
+                ScalableAttributionCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+                    &trusted,
+                    format!("{}/recovery-instance", workload_id.as_str()),
+                    workload_id,
+                    exact_n1_peak,
+                )
+                .expect("bounded recovery instance");
+            let before_failure = instance
+                .measure(GraphProfileId::WideStar, 1)
+                .expect("legal baseline measurement");
+            assert!(matches!(
+                instance.measure(GraphProfileId::WideStar, 2),
+                Err(TimingError::StageGeneration(
+                    crate::StageGenerationError::ControlledAllocationHardCeiling { .. }
+                ))
+            ));
+            let after_failure = instance
+                .measure(GraphProfileId::WideStar, 1)
+                .expect("legal measurement after rejected larger scale");
+            assert_eq!(
+                after_failure.semantic_digest_sha256,
+                before_failure.semantic_digest_sha256
+            );
+        }
+    }
 }
