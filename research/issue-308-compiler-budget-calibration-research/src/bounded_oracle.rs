@@ -21,10 +21,10 @@ use crate::junction_grid::{JunctionGridContract, build_junction_grid_template};
 use crate::junction_grid_oracle::build_independent_template;
 use crate::pipeline::{
     IdentityStageBufferPool, execute_identity_stage_case_with_buffers,
-    finalize_identity_stage_case, prepare_identity_stage_case,
+    finalize_identity_stage_case, prepare_identity_stage_case, recycle_identity_stage_case,
 };
 use crate::stage::{IdentityStageCaseOutput, StageGenerationError};
-use crate::stage_oracle::verify_identity_stage_exact;
+use crate::stage_oracle::{StageOracleError, verify_identity_stage_exact_bounded};
 use crate::{
     GeneratorContract, GraphProfileId, ScalableStagePlanFactory, ScalableStagePlanSummary,
     ScalableWorkloadId, TrustedContract,
@@ -166,6 +166,7 @@ fn verify_bounded_identity_stage_oracle(
     let stage = trusted.stage_contract()?;
     let plan = prepare_identity_stage_case(&identity, &stage, graph_profile, n)?;
     let mut buffers = IdentityStageBufferPool::<false>::new_for_mode(hard_ceiling_bytes);
+    let allocator = buffers.controlled_allocator();
     let materialized = execute_identity_stage_case_with_buffers(
         &generator,
         &identity,
@@ -174,22 +175,20 @@ fn verify_bounded_identity_stage_oracle(
         &mut buffers,
     )?;
     let produced = finalize_identity_stage_case(&plan, materialized)?;
-    let peak_live_requested_bytes = buffers.guard_peak_live_requested_bytes();
 
-    verify_identity_produced_stage(trusted, graph_profile, n, &produced)?;
+    verify_identity_produced_stage(trusted, graph_profile, n, &produced, allocator.clone())?;
     let primary_record_count = produced.summary.counts.identity_field_occurrence_count;
     let semantic_digest_sha256 = produced.summary.semantic_digest_sha256.clone();
-    drop(produced);
+    recycle_identity_stage_case(&mut buffers, produced);
+    drop(buffers);
+    let allocation = allocator.observation();
 
     Ok(BoundedOracleVerification {
         primary_record_count,
         semantic_digest_sha256,
         complete_counts_equal: true,
         complete_typed_output_equal: true,
-        allocation: ControlledAllocationObservation {
-            live_requested_bytes: 0,
-            peak_live_requested_bytes,
-        },
+        allocation,
     })
 }
 
@@ -198,9 +197,19 @@ fn verify_identity_produced_stage(
     graph_profile: GraphProfileId,
     n: u32,
     produced: &IdentityStageCaseOutput,
+    allocator: ControlledAllocator,
 ) -> Result<(), BoundedOracleError> {
-    verify_identity_stage_exact(&trusted.workload_manifest, graph_profile, n, produced)?;
-    Ok(())
+    match verify_identity_stage_exact_bounded(
+        &trusted.workload_manifest,
+        graph_profile,
+        n,
+        produced,
+        allocator,
+    ) {
+        Ok(()) => Ok(()),
+        Err(StageOracleError::Controlled(error)) => Err(BoundedOracleError::Generation(error)),
+        Err(error) => Err(BoundedOracleError::StageOracle(error)),
+    }
 }
 
 fn templates_and_plan(
@@ -1318,10 +1327,176 @@ mod tests {
         *mutated ^= 1;
 
         assert!(matches!(
-            verify_identity_produced_stage(&trusted, graph_profile, n, &produced),
+            verify_identity_produced_stage(
+                &trusted,
+                graph_profile,
+                n,
+                &produced,
+                buffers.controlled_allocator(),
+            ),
             Err(BoundedOracleError::StageOracle(
-                crate::stage_oracle::StageOracleError::Mismatch("source string bytes")
+                crate::stage_oracle::StageOracleError::Mismatch("source input payload")
             ))
+        ));
+    }
+
+    #[test]
+    fn identity_formal_oracle_charges_verifier_storage_above_the_producer_peak() {
+        let trusted = load_repository_contract().expect("frozen contract");
+        let generator = trusted.generator_contract().expect("generator contract");
+        let identity = trusted.identity_contract().expect("identity contract");
+        let stage = trusted.stage_contract().expect("stage contract");
+        let graph_profile = GraphProfileId::WideStar;
+        let n = 2;
+        let plan =
+            prepare_identity_stage_case(&identity, &stage, graph_profile, n).expect("stage plan");
+        let mut buffers = IdentityStageBufferPool::<false>::new_for_mode(u64::MAX);
+        let materialized = execute_identity_stage_case_with_buffers(
+            &generator,
+            &identity,
+            &stage,
+            &plan,
+            &mut buffers,
+        )
+        .expect("actual timed pipeline");
+        let produced =
+            finalize_identity_stage_case(&plan, materialized).expect("finalized stage output");
+        let producer_peak = buffers.guard_peak_live_requested_bytes();
+        recycle_identity_stage_case(&mut buffers, produced);
+        drop(buffers);
+
+        assert!(matches!(
+            verify_bounded_scalable_oracle(
+                &trusted,
+                ScalableWorkloadId::Identity,
+                graph_profile,
+                n,
+                producer_peak,
+            ),
+            Err(BoundedOracleError::Generation(
+                StageGenerationError::ControlledAllocationHardCeiling { .. }
+            ))
+        ));
+        let complete = verify_bounded_scalable_oracle(
+            &trusted,
+            ScalableWorkloadId::Identity,
+            graph_profile,
+            n,
+            u64::MAX,
+        )
+        .expect("complete bounded oracle");
+        assert!(complete.allocation.peak_live_requested_bytes > producer_peak);
+        assert_eq!(complete.allocation.live_requested_bytes, 0);
+    }
+
+    #[test]
+    fn identity_formal_oracle_compares_every_retained_intermediate_stage() {
+        let trusted = load_repository_contract().expect("frozen contract");
+        let graph_profile = GraphProfileId::WideStar;
+        let n = 2;
+
+        let (buffers, mut produced) = identity_stage_output(&trusted, graph_profile, n);
+        produced.source_input_records[0].owner_local_index ^= 1;
+        assert_identity_stage_mismatch(
+            &trusted,
+            graph_profile,
+            n,
+            &buffers,
+            &produced,
+            "source input records",
+        );
+
+        let (buffers, mut produced) = identity_stage_output(&trusted, graph_profile, n);
+        produced.typed_ast_records[0].owner_local_index ^= 1;
+        assert_identity_stage_mismatch(
+            &trusted,
+            graph_profile,
+            n,
+            &buffers,
+            &produced,
+            "typed AST stage",
+        );
+
+        let (buffers, mut produced) = identity_stage_output(&trusted, graph_profile, n);
+        *produced
+            .typed_ast_payload
+            .last_mut()
+            .expect("typed AST payload") ^= 1;
+        assert_identity_stage_mismatch(
+            &trusted,
+            graph_profile,
+            n,
+            &buffers,
+            &produced,
+            "typed AST stage",
+        );
+
+        let (buffers, mut produced) = identity_stage_output(&trusted, graph_profile, n);
+        produced.hir_records[0].symbol_ordinal ^= 1;
+        assert_identity_stage_mismatch(
+            &trusted,
+            graph_profile,
+            n,
+            &buffers,
+            &produced,
+            "HIR records",
+        );
+
+        let (buffers, mut produced) = identity_stage_output(&trusted, graph_profile, n);
+        *produced.hir_payload.last_mut().expect("HIR payload") ^= 1;
+        assert_identity_stage_mismatch(
+            &trusted,
+            graph_profile,
+            n,
+            &buffers,
+            &produced,
+            "HIR payload",
+        );
+    }
+
+    fn identity_stage_output(
+        trusted: &TrustedContract,
+        graph_profile: GraphProfileId,
+        n: u32,
+    ) -> (IdentityStageBufferPool<false>, IdentityStageCaseOutput) {
+        let generator = trusted.generator_contract().expect("generator contract");
+        let identity = trusted.identity_contract().expect("identity contract");
+        let stage = trusted.stage_contract().expect("stage contract");
+        let plan =
+            prepare_identity_stage_case(&identity, &stage, graph_profile, n).expect("stage plan");
+        let mut buffers = IdentityStageBufferPool::<false>::new_for_mode(u64::MAX);
+        let materialized = execute_identity_stage_case_with_buffers(
+            &generator,
+            &identity,
+            &stage,
+            &plan,
+            &mut buffers,
+        )
+        .expect("actual timed pipeline");
+        let produced =
+            finalize_identity_stage_case(&plan, materialized).expect("finalized stage output");
+        (buffers, produced)
+    }
+
+    fn assert_identity_stage_mismatch(
+        trusted: &TrustedContract,
+        graph_profile: GraphProfileId,
+        n: u32,
+        buffers: &IdentityStageBufferPool<false>,
+        produced: &IdentityStageCaseOutput,
+        expected: &'static str,
+    ) {
+        assert!(matches!(
+            verify_identity_produced_stage(
+                trusted,
+                graph_profile,
+                n,
+                produced,
+                buffers.controlled_allocator(),
+            ),
+            Err(BoundedOracleError::StageOracle(
+                crate::stage_oracle::StageOracleError::Mismatch(actual)
+            )) if actual == expected
         ));
     }
 
