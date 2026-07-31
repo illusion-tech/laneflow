@@ -31,7 +31,7 @@ use std::path::Path;
 
 pub const FORMAL_LADDER_EXECUTION_SCHEMA: &str =
     "laneflow.compiler-calibration-formal-ladder-execution";
-pub const FORMAL_LADDER_EXECUTION_SCHEMA_VERSION: u32 = 1;
+pub const FORMAL_LADDER_EXECUTION_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -51,6 +51,21 @@ pub struct FormalAttributionPreflightRun {
     pub invalidation_reasons: Vec<InvalidationReason>,
     pub process: ProcessObservation,
     pub child: Option<ScalableAttributionChildReport>,
+    pub monitor: ChildProcessMonitorReport,
+    pub kill_error: Option<String>,
+    pub monitor_error: Option<String>,
+    pub stderr: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormalTimingGuardRun {
+    pub run_id: String,
+    pub compiler_instance_id: String,
+    pub status: RunStatus,
+    pub invalidation_reasons: Vec<InvalidationReason>,
+    pub process: ProcessObservation,
+    pub child: Option<ScalableLadderChildReport>,
     pub monitor: ChildProcessMonitorReport,
     pub kill_error: Option<String>,
     pub monitor_error: Option<String>,
@@ -100,6 +115,7 @@ pub struct FormalLadderLevelExecution {
     pub canonical_lir_record_count: u64,
     pub guard_preflight: GuardPreflightReport,
     pub attribution_preflight: Option<FormalAttributionPreflightRun>,
+    pub timing_guard_run: Option<FormalTimingGuardRun>,
     pub oracle: Option<FormalOracleRun>,
     pub formal_runs: Vec<FormalLadderProcessRun>,
     pub completed_guard_observation: Option<GuardCompletedLevelObservation>,
@@ -201,6 +217,7 @@ fn run_one_formal_ladder(
     let mut next_n = b;
     while execution.levels.len() < crate::FORMAL_LADDER_MINIMUM_LEVEL_COUNT {
         let level = match prepare_level(
+            timing_executable,
             attribution_executable,
             oracle_executable,
             &guard_planner,
@@ -234,10 +251,11 @@ fn run_one_formal_ladder(
             .ok_or(FormalLadderRunnerError::ScaleOverflow)?;
     }
 
-    if !run_initial_rotated_rounds(
+    if !run_balanced_rounds(
         timing_executable,
         attribution_executable,
         &mut execution,
+        0,
         &mut persist,
     )? {
         execution.disposition = FormalLadderExecutionDisposition::InvalidRun;
@@ -260,7 +278,8 @@ fn run_one_formal_ladder(
             .levels
             .last()
             .and_then(|level| level.completed_guard_observation);
-        let mut level = match prepare_level(
+        let level = match prepare_level(
+            timing_executable,
             attribution_executable,
             oracle_executable,
             &guard_planner,
@@ -285,24 +304,20 @@ fn run_one_formal_ladder(
                 return Ok(execution);
             }
         };
+        execution.levels.push(level);
         let experiment_ordinal = u32::try_from(execution.levels.len())
             .map_err(|_| FormalLadderRunnerError::ExecutionPositionOverflow)?;
-        if !run_level_rounds(
+        if !run_balanced_rounds(
             timing_executable,
             attribution_executable,
-            &execution,
-            &mut level,
+            &mut execution,
             experiment_ordinal,
-            0,
+            &mut persist,
         )? {
-            execution.levels.push(level);
             execution.disposition = FormalLadderExecutionDisposition::InvalidRun;
             persist(&execution)?;
             return Ok(execution);
         }
-        level.completed_guard_observation = Some(completed_level_observation(&level)?);
-        level.complete = true;
-        execution.levels.push(level);
         execution.analysis = analyze_execution(&execution)?;
         persist(&execution)?;
         next_n = next_n
@@ -313,6 +328,7 @@ fn run_one_formal_ladder(
 
 #[allow(clippy::too_many_arguments)]
 fn prepare_level(
+    timing_executable: &Path,
     attribution_executable: &Path,
     oracle_executable: &Path,
     guard_planner: &ScalableGuardPlanner,
@@ -384,6 +400,7 @@ fn prepare_level(
             canonical_lir_record_count: plan.stages.canonical_lir.record_count,
             guard_preflight,
             attribution_preflight: Some(attribution_preflight),
+            timing_guard_run: None,
             oracle: None,
             formal_runs: Vec::new(),
             completed_guard_observation: None,
@@ -395,6 +412,66 @@ fn prepare_level(
         .as_ref()
         .and_then(|child| child.semantic_digest_sha256.as_deref())
         .ok_or(FormalLadderRunnerError::InvalidPreflight { n })?;
+
+    let timing_run_id = format!(
+        "formal/{}/{}/n-{n}/timing-guard-observation",
+        execution.workload_id.as_str(),
+        execution.graph_profile
+    );
+    let timing_instance_id = format!("{timing_run_id}/compiler-instance");
+    let timing_execution = run_monitored_scalable_role_child(
+        timing_executable,
+        1,
+        "run-ladder",
+        &timing_instance_id,
+        execution.workload_id,
+        graph_profile,
+        n,
+        guard_preflight.thresholds,
+    )?;
+    let timing = decode_child_execution(
+        timing_execution,
+        TIMING_BINARY_ID,
+        |report: &ScalableLadderChildReport| {
+            validate_ladder_report(
+                report,
+                &timing_instance_id,
+                execution.workload_id,
+                &execution.graph_profile,
+                n,
+                guard_preflight.thresholds.compiler_controlled_bytes,
+                ScalableLadderBinaryMode::Timing,
+                expected_digest,
+            )
+        },
+        |report| report.outcome == ScalableLadderOutcome::GuardedInChild,
+    )?;
+    let timing_guard_run = FormalTimingGuardRun {
+        run_id: timing_run_id,
+        compiler_instance_id: timing_instance_id,
+        status: timing.status,
+        invalidation_reasons: timing.invalidation_reasons,
+        process: timing.process,
+        child: timing.child,
+        monitor: timing.monitor,
+        kill_error: timing.kill_error,
+        monitor_error: timing.monitor_error,
+        stderr: timing.stderr,
+    };
+    if timing_guard_run.status != RunStatus::Valid {
+        return Ok(LevelPreparation::Invalid(FormalLadderLevelExecution {
+            n,
+            primary_record_count: plan.primary_record_count,
+            canonical_lir_record_count: plan.stages.canonical_lir.record_count,
+            guard_preflight,
+            attribution_preflight: Some(attribution_preflight),
+            timing_guard_run: Some(timing_guard_run),
+            oracle: None,
+            formal_runs: Vec::new(),
+            completed_guard_observation: None,
+            complete: false,
+        }));
+    }
 
     let oracle_run_id = format!(
         "formal/{}/{}/n-{n}/oracle",
@@ -445,6 +522,7 @@ fn prepare_level(
             canonical_lir_record_count: plan.stages.canonical_lir.record_count,
             guard_preflight,
             attribution_preflight: Some(attribution_preflight),
+            timing_guard_run: Some(timing_guard_run),
             oracle: Some(oracle),
             formal_runs: Vec::new(),
             completed_guard_observation: None,
@@ -456,6 +534,23 @@ fn prepare_level(
         .child
         .as_ref()
         .ok_or(FormalLadderRunnerError::InvalidPreflight { n })?;
+    let timing_wall_time_ns = timing_guard_run
+        .child
+        .as_ref()
+        .ok_or(FormalLadderRunnerError::InvalidPreflight { n })?
+        .cold_instance
+        .iter()
+        .chain(
+            timing_guard_run
+                .child
+                .as_ref()
+                .expect("validated timing guard child")
+                .stable_capacity_reuse
+                .iter(),
+        )
+        .filter_map(|sample| sample.wall_time_ns)
+        .max()
+        .ok_or(FormalLadderRunnerError::InvalidPreflight { n })?;
     let completed_guard_observation = GuardCompletedLevelObservation {
         n,
         primary_record_count: plan.primary_record_count,
@@ -464,11 +559,10 @@ fn prepare_level(
             .ok_or(FormalLadderRunnerError::InvalidPreflight { n })?,
         private_bytes: maximum_observed_private_bytes([
             &attribution_preflight.monitor,
+            &timing_guard_run.monitor,
             &oracle.monitor,
         ])?,
-        wall_time_ns: preflight_child
-            .attribution_wall_time_ns_diagnostic
-            .ok_or(FormalLadderRunnerError::InvalidPreflight { n })?,
+        wall_time_ns: timing_wall_time_ns,
     };
     Ok(LevelPreparation::Ready(FormalLadderLevelExecution {
         n,
@@ -476,6 +570,7 @@ fn prepare_level(
         canonical_lir_record_count: plan.stages.canonical_lir.record_count,
         guard_preflight,
         attribution_preflight: Some(attribution_preflight),
+        timing_guard_run: Some(timing_guard_run),
         oracle: Some(oracle),
         formal_runs: Vec::new(),
         completed_guard_observation: Some(completed_guard_observation),
@@ -483,17 +578,25 @@ fn prepare_level(
     }))
 }
 
-fn run_initial_rotated_rounds(
+fn run_balanced_rounds(
     timing_executable: &Path,
     attribution_executable: &Path,
     execution: &mut FormalLadderExecution,
+    experiment_ordinal: u32,
     persist: &mut impl FnMut(&FormalLadderExecution) -> Result<(), FormalLadderRunnerError>,
 ) -> Result<bool, FormalLadderRunnerError> {
+    execution.analysis = None;
+    for level in &mut execution.levels {
+        level.formal_runs.clear();
+        level.completed_guard_observation = None;
+        level.complete = false;
+    }
+    persist(execution)?;
     let level_count = execution.levels.len();
     for batch in 0..crate::FORMAL_LADDER_BATCH_COUNT {
         for round in 0..crate::FORMAL_LADDER_ROUND_COUNT {
             for position in 0..level_count {
-                let level_index = (position + round as usize) % level_count;
+                let level_index = rotated_level_index(level_count, round, position);
                 let mut level = execution.levels.remove(level_index);
                 let valid = run_level_modes(
                     timing_executable,
@@ -502,7 +605,7 @@ fn run_initial_rotated_rounds(
                     &mut level,
                     batch,
                     round,
-                    0,
+                    experiment_ordinal,
                     u32::try_from(position)
                         .map_err(|_| FormalLadderRunnerError::ExecutionPositionOverflow)?,
                 )?;
@@ -536,31 +639,8 @@ fn run_initial_rotated_rounds(
     Ok(true)
 }
 
-fn run_level_rounds(
-    timing_executable: &Path,
-    attribution_executable: &Path,
-    execution: &FormalLadderExecution,
-    level: &mut FormalLadderLevelExecution,
-    experiment_ordinal: u32,
-    execution_position: u32,
-) -> Result<bool, FormalLadderRunnerError> {
-    for batch in 0..crate::FORMAL_LADDER_BATCH_COUNT {
-        for round in 0..crate::FORMAL_LADDER_ROUND_COUNT {
-            if !run_level_modes(
-                timing_executable,
-                attribution_executable,
-                execution,
-                level,
-                batch,
-                round,
-                experiment_ordinal,
-                execution_position,
-            )? {
-                return Ok(false);
-            }
-        }
-    }
-    Ok(true)
+fn rotated_level_index(level_count: usize, round: u32, position: usize) -> usize {
+    (position + round as usize) % level_count
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1134,15 +1214,16 @@ mod tests {
 
     #[test]
     fn initial_rotation_covers_each_level_once_per_round() {
-        let level_count = 5_usize;
-        for round in 0..crate::FORMAL_LADDER_ROUND_COUNT as usize {
-            let order = (0..level_count)
-                .map(|position| (position + round) % level_count)
-                .collect::<Vec<_>>();
-            let mut sorted = order.clone();
-            sorted.sort_unstable();
-            assert_eq!(sorted, vec![0, 1, 2, 3, 4]);
-            assert_eq!(order[0], round);
+        for level_count in 5_usize..=8 {
+            for round in 0..crate::FORMAL_LADDER_ROUND_COUNT {
+                let order = (0..level_count)
+                    .map(|position| rotated_level_index(level_count, round, position))
+                    .collect::<Vec<_>>();
+                let mut sorted = order.clone();
+                sorted.sort_unstable();
+                assert_eq!(sorted, (0..level_count).collect::<Vec<_>>());
+                assert_eq!(order[0], round as usize % level_count);
+            }
         }
     }
 

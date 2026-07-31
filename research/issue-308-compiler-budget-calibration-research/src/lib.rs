@@ -91,7 +91,7 @@ pub use ladder_runner::{
     FORMAL_LADDER_EXECUTION_SCHEMA, FORMAL_LADDER_EXECUTION_SCHEMA_VERSION,
     FormalAttributionPreflightRun, FormalLadderExecution, FormalLadderExecutionDisposition,
     FormalLadderLevelExecution, FormalLadderProcessRun, FormalLadderRunnerError, FormalOracleRun,
-    run_formal_ladders,
+    FormalTimingGuardRun, run_formal_ladders,
 };
 pub use manifest::{GeneratorContract, ManifestContractError};
 pub use oracle::{
