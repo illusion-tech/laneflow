@@ -32,25 +32,10 @@ pub struct OracleVerificationReport {
 pub fn verify_identity_oracle_matrix(
     trusted: &TrustedContract,
 ) -> Result<OracleVerificationReport, OracleVerificationError> {
-    let generator = trusted.generator_contract()?;
-    let identity = trusted.identity_contract()?;
-    let stage = trusted.stage_contract()?;
     let mut checked_cases = 0_u32;
     for graph_profile in GraphProfileId::ALL {
         for n in [1, 2] {
-            let produced = build_identity_case(&generator, &identity, graph_profile, n)?;
-            let oracle = build_identity_oracle_case(&trusted.workload_manifest, graph_profile, n)?;
-            if produced != oracle {
-                return Err(OracleVerificationError::Mismatch { graph_profile, n });
-            }
-            let produced_stage =
-                build_identity_stage_case(&generator, &identity, &stage, graph_profile, n)?;
-            verify_identity_stage_exact(
-                &trusted.workload_manifest,
-                graph_profile,
-                n,
-                &produced_stage,
-            )?;
+            verify_identity_oracle_case(trusted, graph_profile, n)?;
             checked_cases += 1;
         }
     }
@@ -63,6 +48,30 @@ pub fn verify_identity_oracle_matrix(
             .expect("graph profile count must fit u32"),
         checked_stage_cases: checked_cases,
     })
+}
+
+pub(crate) fn verify_identity_oracle_case(
+    trusted: &TrustedContract,
+    graph_profile: GraphProfileId,
+    n: u32,
+) -> Result<crate::IdentityStageSummary, OracleVerificationError> {
+    let generator = trusted.generator_contract()?;
+    let identity = trusted.identity_contract()?;
+    let stage = trusted.stage_contract()?;
+    let produced = build_identity_case(&generator, &identity, graph_profile, n)?;
+    let oracle = build_identity_oracle_case(&trusted.workload_manifest, graph_profile, n)?;
+    if produced != oracle {
+        return Err(OracleVerificationError::Mismatch { graph_profile, n });
+    }
+    let produced_stage =
+        build_identity_stage_case(&generator, &identity, &stage, graph_profile, n)?;
+    verify_identity_stage_exact(
+        &trusted.workload_manifest,
+        graph_profile,
+        n,
+        &produced_stage,
+    )?;
+    Ok(produced_stage.summary)
 }
 
 pub(crate) fn build_identity_oracle_case(

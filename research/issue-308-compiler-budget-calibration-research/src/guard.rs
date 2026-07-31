@@ -143,7 +143,8 @@ impl GuardThresholds {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GuardCompletedLevelObservation {
     pub n: u32,
     pub primary_record_count: u64,
@@ -217,7 +218,7 @@ impl ScalableGuardPlanner {
             memory_observation.available_physical_memory_bytes,
         )?;
         let plan = self.plans.plan(workload_id, graph_profile, n)?;
-        evaluate_scalable_guard_preflight(&self.plans, plan, memory_observation, previous, false)
+        evaluate_scalable_guard_preflight(&self.plans, plan, memory_observation, previous)
     }
 
     pub fn evaluate_pilot(
@@ -226,13 +227,9 @@ impl ScalableGuardPlanner {
         graph_profile: GraphProfileId,
         n: u32,
         memory_observation: SystemMemoryObservation,
+        previous: Option<GuardCompletedLevelObservation>,
     ) -> Result<GuardPreflightReport, GuardError> {
-        validate_memory_observation(
-            memory_observation.physical_memory_bytes,
-            memory_observation.available_physical_memory_bytes,
-        )?;
-        let plan = self.plans.plan(workload_id, graph_profile, n)?;
-        evaluate_scalable_guard_preflight(&self.plans, plan, memory_observation, None, true)
+        self.evaluate(workload_id, graph_profile, n, memory_observation, previous)
     }
 }
 
@@ -257,7 +254,6 @@ fn evaluate_scalable_guard_preflight(
     plan: ScalableStagePlanSummary,
     memory_observation: SystemMemoryObservation,
     previous: Option<GuardCompletedLevelObservation>,
-    pilot_without_completed_level: bool,
 ) -> Result<GuardPreflightReport, GuardError> {
     let thresholds =
         GuardThresholds::from_physical_memory_bytes(memory_observation.physical_memory_bytes)?;
@@ -303,7 +299,7 @@ fn evaluate_scalable_guard_preflight(
             )?),
         )
     } else {
-        if plan.n != 1 && !pilot_without_completed_level {
+        if plan.n != 1 {
             return Err(GuardError::MissingPreviousObservation { n: plan.n });
         }
         (
@@ -705,6 +701,25 @@ mod tests {
         assert_eq!(report.predicted_private_bytes, Some(503));
         assert_eq!(report.predicted_wall_time_ns, Some(753));
         assert!(report.allows_child_start);
+    }
+
+    #[test]
+    fn pilot_later_level_cannot_fall_back_to_first_level_prediction() {
+        let trusted = load_repository_contract().expect("frozen contract");
+        let planner = ScalableGuardPlanner::from_trusted_contract(&trusted).expect("guard planner");
+        assert!(matches!(
+            planner.evaluate_pilot(
+                ScalableWorkloadId::Identity,
+                GraphProfileId::WideStar,
+                2,
+                SystemMemoryObservation {
+                    physical_memory_bytes: TEST_PHYSICAL_MEMORY_BYTES,
+                    available_physical_memory_bytes: 32 * GIBIBYTE,
+                },
+                None,
+            ),
+            Err(GuardError::MissingPreviousObservation { n: 2 })
+        ));
     }
 
     #[test]

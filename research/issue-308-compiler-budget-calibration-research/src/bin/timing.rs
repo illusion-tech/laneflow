@@ -6,7 +6,7 @@ use issue_308_compiler_budget_calibration_research::{
 };
 use std::str::FromStr;
 
-const USAGE: &str = "用法：issue-308-compiler-budget-calibration-timing <describe-role|run|run-identity-smoke>\n  run <compiler-instance-id> <workload-id> <graph-profile> <N>\n  run-identity-smoke <compiler-instance-id> <graph-profile> <N>";
+const USAGE: &str = "用法：issue-308-compiler-budget-calibration-timing <describe-role|run|run-identity-smoke>\n  run <compiler-instance-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-identity-smoke <compiler-instance-id> <graph-profile> <N>";
 
 fn main() {
     support::main_with(run);
@@ -39,6 +39,14 @@ fn run() -> Result<(), String> {
                 &support::next_utf8_argument(&mut arguments, "N", USAGE)?,
                 "N",
             )?;
+            let controlled_allocation_hard_ceiling_bytes = support::parse_positive_u64(
+                &support::next_utf8_argument(
+                    &mut arguments,
+                    "controlled-allocation-hard-ceiling-bytes",
+                    USAGE,
+                )?,
+                "controlled-allocation-hard-ceiling-bytes",
+            )?;
             support::require_no_more_arguments(&mut arguments, USAGE)?;
 
             wait_for_parent_start_signal().map_err(|error| error.to_string())?;
@@ -49,6 +57,7 @@ fn run() -> Result<(), String> {
                 workload_id,
                 graph_profile,
                 n,
+                controlled_allocation_hard_ceiling_bytes,
             )
             .map_err(|error| error.to_string())?;
             support::print_json(&report, "计时角色结果")

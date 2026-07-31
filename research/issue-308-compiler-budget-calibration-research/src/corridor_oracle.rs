@@ -29,36 +29,18 @@ pub struct CorridorOracleVerificationReport {
 pub fn verify_corridor_oracle_matrix(
     trusted: &TrustedContract,
 ) -> Result<CorridorOracleVerificationReport, CorridorOracleError> {
-    let generator = trusted.generator_contract()?;
-    let identity = trusted.identity_contract()?;
-    let stage = trusted.stage_contract()?;
     let contract = CorridorContract::from_manifest(&trusted.workload_manifest)?;
     let template = contract.load_template(&crate::repository_root())?;
     let mut checked_cases = 0_u32;
     for graph_profile in GraphProfileId::ALL {
         for n in [1, 2] {
-            let produced = build_corridor_stage_case(
-                &generator,
-                &identity,
-                &stage,
+            verify_corridor_oracle_case_with_template(
+                trusted,
                 &contract,
                 &template,
                 graph_profile,
                 n,
             )?;
-            let oracle = build_template_oracle_records(
-                &trusted.workload_manifest,
-                CORRIDOR_WORKLOAD_ID,
-                &template,
-                graph_profile,
-                n,
-            )?;
-            if produced.records != oracle.records
-                || produced.semantic_record_stream != oracle.stream
-                || produced.materialization.output != produced.semantic_record_stream
-            {
-                return Err(CorridorOracleError::Mismatch { graph_profile, n });
-            }
             checked_cases = checked_cases
                 .checked_add(1)
                 .ok_or_else(|| CorridorOracleError::Contract("checkedCases overflow".to_owned()))?;
@@ -72,6 +54,51 @@ pub fn verify_corridor_oracle_matrix(
         production_loader_fixture_sets,
         independent_template_projection_checked: true,
     })
+}
+
+pub(crate) fn verify_corridor_oracle_case(
+    trusted: &TrustedContract,
+    graph_profile: GraphProfileId,
+    n: u32,
+) -> Result<crate::CorridorStageSummary, CorridorOracleError> {
+    let contract = CorridorContract::from_manifest(&trusted.workload_manifest)?;
+    let template = contract.load_template(&crate::repository_root())?;
+    verify_corridor_oracle_case_with_template(trusted, &contract, &template, graph_profile, n)
+}
+
+fn verify_corridor_oracle_case_with_template(
+    trusted: &TrustedContract,
+    contract: &CorridorContract,
+    template: &CorridorTemplate,
+    graph_profile: GraphProfileId,
+    n: u32,
+) -> Result<crate::CorridorStageSummary, CorridorOracleError> {
+    let generator = trusted.generator_contract()?;
+    let identity = trusted.identity_contract()?;
+    let stage = trusted.stage_contract()?;
+    let produced = build_corridor_stage_case(
+        &generator,
+        &identity,
+        &stage,
+        contract,
+        template,
+        graph_profile,
+        n,
+    )?;
+    let oracle = build_template_oracle_records(
+        &trusted.workload_manifest,
+        CORRIDOR_WORKLOAD_ID,
+        template,
+        graph_profile,
+        n,
+    )?;
+    if produced.records != oracle.records
+        || produced.semantic_record_stream != oracle.stream
+        || produced.materialization.output != produced.semantic_record_stream
+    {
+        return Err(CorridorOracleError::Mismatch { graph_profile, n });
+    }
+    Ok(produced.summary)
 }
 
 pub(crate) struct OracleOutput {

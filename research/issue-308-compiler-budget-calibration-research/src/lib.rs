@@ -80,11 +80,12 @@ pub use oracle::{
 pub use pilot::{
     BASE_SCALE_AGGREGATION_METHOD, BASE_SCALE_PILOT_CHECKPOINT_SCHEMA,
     BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION, BASE_SCALE_SELECTION_RULE,
-    BaseScalePilotCheckpoint, BaseScalePilotLevel, BaseScalePilotRun, BaseScalePilotRunKind,
-    BaseScaleSelection, CLOCK_QUANTUM_MULTIPLIER, ChildMonitorTrigger, ChildProcessMonitorReport,
-    FORMAL_PROTOCOL_ID, FRESH_PROCESS_PILOT_SAMPLE_COUNT, IdentityFreshProcessPilot,
-    IdentityFreshProcessPilotOutcome, IdentityFreshProcessPilotStop, IdentityMonitoredChildSample,
-    MAXIMUM_RELATIVE_MAD_PERCENT, PilotError, run_base_scale_pilot_discovery,
+    BaseScaleOracleInvalidationReason, BaseScaleOracleRun, BaseScalePilotCheckpoint,
+    BaseScalePilotLevel, BaseScalePilotRun, BaseScalePilotRunKind, BaseScaleSelection,
+    CLOCK_QUANTUM_MULTIPLIER, ChildMonitorTrigger, ChildProcessMonitorReport, FORMAL_PROTOCOL_ID,
+    FRESH_PROCESS_PILOT_SAMPLE_COUNT, IdentityFreshProcessPilot, IdentityFreshProcessPilotOutcome,
+    IdentityFreshProcessPilotStop, IdentityMonitoredChildSample, MAXIMUM_RELATIVE_MAD_PERCENT,
+    PilotError, run_base_scale_pilot_discovery,
     run_base_scale_pilot_discovery_with_checkpoint_sink, run_identity_fresh_process_pilot,
     wait_for_parent_start_signal,
 };
@@ -104,11 +105,12 @@ pub use roles::{
     IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityAttributionChildReport,
     IdentityAttributionOutcome, IdentityOracleChildReport, IdentityTimingChildReport,
     ORACLE_BINARY_ID, RUNNER_BINARY_ID, ResearchBinaryDescriptor, ResearchBinaryRole,
-    RoleExecutionError, SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION,
-    ScalableTimingChildReport, TIMING_BINARY_ID, attribution_binary_descriptor,
-    build_identity_oracle_child, measure_identity_attribution_child, measure_identity_timing_child,
-    measure_scalable_timing_child, oracle_binary_descriptor, runner_binary_descriptor,
-    timing_binary_descriptor,
+    RoleExecutionError, SCALABLE_ORACLE_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
+    SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableOracleChildReport,
+    ScalableOracleOutcome, ScalableTimingChildReport, ScalableTimingOutcome, TIMING_BINARY_ID,
+    attribution_binary_descriptor, build_identity_oracle_child, measure_identity_attribution_child,
+    measure_identity_timing_child, measure_scalable_timing_child, oracle_binary_descriptor,
+    runner_binary_descriptor, timing_binary_descriptor, verify_scalable_oracle_child,
 };
 pub use scale_plan::{ScalableStagePlanFactory, ScalableStagePlanSummary, ScalePlanError};
 pub use stage::{

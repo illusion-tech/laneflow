@@ -2,8 +2,8 @@
 //!
 //! 本模块只在计时边界内物化与规模成比例的来源、阶段值和载荷。摘要、十六进制展示、
 //! 独立预言机比较与证据 JSON 均由调用方在管线返回后完成。计时角色与归因角色通过
-//! 编译期常量生成两条单态化容量路径：计时路径只执行受检容量规划和
-//! `try_reserve_exact`，归因路径才执行逐容量请求记账与硬上限预占。
+//! 编译期常量生成两条单态化容量路径：两条路径都执行研究停止护栏要求的原子硬上限
+//! 预占和 `try_reserve_exact`；只有归因路径才累计分配次数、重分配、释放与逐槽指标。
 
 use crate::identity::{
     ABSENT_LOCAL_INDEX, IDENTITY_MAGIC, IdentityBinding, IdentityContract, IdentityFieldValue,
@@ -176,31 +176,31 @@ impl<const TRACK_ALLOCATIONS: bool> ControlledAllocationTracker<TRACK_ALLOCATION
             &mut self.requested_bytes_by_slot[slot.index()],
             requested_bytes,
         );
-        if previous_requested_bytes == 0 {
-            self.allocation_count =
-                self.allocation_count
-                    .checked_add(1)
-                    .ok_or(StageGenerationError::Overflow(
-                        "controlled allocation count",
-                    ))?;
-            self.allocated_bytes = self
-                .allocated_bytes
-                .checked_add(requested_bytes)
-                .ok_or(StageGenerationError::Overflow("controlled allocated bytes"))?;
-        } else {
-            self.reallocation_count =
-                self.reallocation_count
-                    .checked_add(1)
-                    .ok_or(StageGenerationError::Overflow(
-                        "controlled reallocation count",
-                    ))?;
-            self.reallocated_bytes = self.reallocated_bytes.checked_add(requested_bytes).ok_or(
-                StageGenerationError::Overflow("controlled reallocated bytes"),
-            )?;
-            self.freed_bytes = self
-                .freed_bytes
-                .checked_add(previous_requested_bytes)
-                .ok_or(StageGenerationError::Overflow("controlled freed bytes"))?;
+        if TRACK_ALLOCATIONS {
+            if previous_requested_bytes == 0 {
+                self.allocation_count =
+                    self.allocation_count
+                        .checked_add(1)
+                        .ok_or(StageGenerationError::Overflow(
+                            "controlled allocation count",
+                        ))?;
+                self.allocated_bytes = self
+                    .allocated_bytes
+                    .checked_add(requested_bytes)
+                    .ok_or(StageGenerationError::Overflow("controlled allocated bytes"))?;
+            } else {
+                self.reallocation_count = self.reallocation_count.checked_add(1).ok_or(
+                    StageGenerationError::Overflow("controlled reallocation count"),
+                )?;
+                self.reallocated_bytes =
+                    self.reallocated_bytes.checked_add(requested_bytes).ok_or(
+                        StageGenerationError::Overflow("controlled reallocated bytes"),
+                    )?;
+                self.freed_bytes = self
+                    .freed_bytes
+                    .checked_add(previous_requested_bytes)
+                    .ok_or(StageGenerationError::Overflow("controlled freed bytes"))?;
+            }
         }
         self.cancel_preoccupation(previous_requested_bytes);
         Ok(())
@@ -239,12 +239,11 @@ impl<const TRACK_ALLOCATIONS: bool> ControlledAllocationTracker<TRACK_ALLOCATION
             return Ok(());
         }
         self.cancel_preoccupation(requested_bytes);
-        self.freed_bytes =
-            self.freed_bytes
-                .checked_add(requested_bytes)
-                .ok_or(StageGenerationError::Overflow(
-                    "controlled freed bytes during failure recovery",
-                ))?;
+        if TRACK_ALLOCATIONS {
+            self.freed_bytes = self.freed_bytes.checked_add(requested_bytes).ok_or(
+                StageGenerationError::Overflow("controlled freed bytes during failure recovery"),
+            )?;
+        }
         Ok(())
     }
 }
@@ -289,6 +288,16 @@ pub(crate) struct IdentityStageBufferPool<const TRACK_ALLOCATIONS: bool> {
 impl Default for IdentityStageBufferPool<false> {
     fn default() -> Self {
         Self::new_for_mode(u64::MAX)
+    }
+}
+
+impl IdentityStageBufferPool<false> {
+    pub(crate) fn controlled_allocation_hard_ceiling_bytes(&self) -> u64 {
+        self.allocations.hard_ceiling_bytes()
+    }
+
+    pub(crate) fn guard_peak_live_requested_bytes(&self) -> u64 {
+        self.allocations.peak_live_requested_bytes()
     }
 }
 
@@ -2721,30 +2730,22 @@ fn take_reusable<T, const TRACK_ALLOCATIONS: bool>(
     let mut values = std::mem::take(slot);
     values.clear();
     if values.capacity() < required_capacity {
-        if TRACK_ALLOCATIONS {
-            let requested_bytes = u64::try_from(required_capacity)
-                .ok()
-                .and_then(|capacity| {
-                    capacity.checked_mul(
-                        u64::try_from(std::mem::size_of::<T>()).expect("type size must fit u64"),
-                    )
-                })
-                .ok_or(StageGenerationError::Overflow(
-                    "controlled allocation request bytes",
-                ))?;
-            let preoccupied_live_bytes = allocations.preoccupy(field, requested_bytes)?;
-            if let Err(source) = values.try_reserve_exact(required_capacity) {
-                allocations.cancel_preoccupation(requested_bytes);
-                return Err(StageGenerationError::AllocationFailed { field, source });
-            }
-            allocations.commit_replacement(
-                controlled_slot,
-                requested_bytes,
-                preoccupied_live_bytes,
-            )?;
-        } else if let Err(source) = values.try_reserve_exact(required_capacity) {
+        let requested_bytes = u64::try_from(required_capacity)
+            .ok()
+            .and_then(|capacity| {
+                capacity.checked_mul(
+                    u64::try_from(std::mem::size_of::<T>()).expect("type size must fit u64"),
+                )
+            })
+            .ok_or(StageGenerationError::Overflow(
+                "controlled allocation request bytes",
+            ))?;
+        let preoccupied_live_bytes = allocations.preoccupy(field, requested_bytes)?;
+        if let Err(source) = values.try_reserve_exact(required_capacity) {
+            allocations.cancel_preoccupation(requested_bytes);
             return Err(StageGenerationError::AllocationFailed { field, source });
         }
+        allocations.commit_replacement(controlled_slot, requested_bytes, preoccupied_live_bytes)?;
     }
     Ok(values)
 }

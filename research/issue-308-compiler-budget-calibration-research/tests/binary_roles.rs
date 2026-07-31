@@ -1,6 +1,8 @@
 use issue_308_compiler_budget_calibration_research::{
-    ATTRIBUTION_BINARY_ID, IdentityAttributionChildReport, IdentityAttributionOutcome,
-    IdentityTimingChildReport, ORACLE_BINARY_ID, RUNNER_BINARY_ID, TIMING_BINARY_ID,
+    ATTRIBUTION_BINARY_ID, GraphProfileId, IdentityAttributionChildReport,
+    IdentityAttributionOutcome, IdentityTimingChildReport, ORACLE_BINARY_ID, RUNNER_BINARY_ID,
+    SCALABLE_ORACLE_CHILD_SCHEMA, ScalableOracleChildReport, ScalableOracleOutcome,
+    ScalableTimingChildReport, ScalableTimingOutcome, ScalableWorkloadId, TIMING_BINARY_ID,
 };
 use serde_json::Value;
 use std::io::Write;
@@ -202,6 +204,89 @@ fn attribution_guard_is_structured_and_exits_zero() {
         .expect("controlled allocation guard");
     assert_eq!(guard.hard_ceiling_bytes, 1);
     assert!(guard.live_requested_bytes + guard.requested_bytes > guard.hard_ceiling_bytes);
+}
+
+#[test]
+fn scalable_oracle_independently_validates_every_workload_and_matches_the_timing_digest() {
+    let timing_executable = Path::new(env!(
+        "CARGO_BIN_EXE_issue-308-compiler-budget-calibration-timing"
+    ));
+    let oracle_executable = Path::new(env!(
+        "CARGO_BIN_EXE_issue-308-compiler-budget-calibration-oracle"
+    ));
+    let ceiling = u64::MAX.to_string();
+
+    for workload_id in ScalableWorkloadId::ALL {
+        let compiler_instance_id = format!("role-matrix/{}/timing", workload_id.as_str());
+        let timing = run_handshaken(
+            timing_executable,
+            &[
+                "run",
+                &compiler_instance_id,
+                workload_id.as_str(),
+                GraphProfileId::WideStar.as_str(),
+                "1",
+                &ceiling,
+            ],
+        );
+        let timing_report = serde_json::from_slice::<ScalableTimingChildReport>(&timing.stdout)
+            .expect("scalable timing report");
+        assert_eq!(timing_report.outcome, ScalableTimingOutcome::Success);
+
+        let oracle_run_id = format!("role-matrix/{}/oracle", workload_id.as_str());
+        let oracle = run_handshaken(
+            oracle_executable,
+            &[
+                "run-scalable",
+                &oracle_run_id,
+                workload_id.as_str(),
+                GraphProfileId::WideStar.as_str(),
+                "1",
+                &ceiling,
+            ],
+        );
+        let oracle_report = serde_json::from_slice::<ScalableOracleChildReport>(&oracle.stdout)
+            .expect("scalable oracle report");
+        assert_eq!(oracle_report.schema, SCALABLE_ORACLE_CHILD_SCHEMA);
+        assert_eq!(oracle_report.binary_id, ORACLE_BINARY_ID);
+        assert_eq!(oracle_report.oracle_run_id, oracle_run_id);
+        assert_eq!(oracle_report.outcome, ScalableOracleOutcome::Success);
+        assert!(oracle_report.complete_counts_equal);
+        assert!(oracle_report.complete_typed_output_equal);
+        assert_eq!(
+            oracle_report.semantic_digest_sha256,
+            timing_report.semantic_digest_sha256
+        );
+    }
+}
+
+#[test]
+fn scalable_oracle_guard_is_structured_before_any_full_output_is_built() {
+    let output = run_handshaken(
+        Path::new(env!(
+            "CARGO_BIN_EXE_issue-308-compiler-budget-calibration-oracle"
+        )),
+        &[
+            "run-scalable",
+            "role-matrix/oracle-guarded",
+            ScalableWorkloadId::JunctionGrid.as_str(),
+            GraphProfileId::WideStar.as_str(),
+            "1",
+            "1",
+        ],
+    );
+    let report = serde_json::from_slice::<ScalableOracleChildReport>(&output.stdout)
+        .expect("guarded scalable oracle report");
+    assert_eq!(report.outcome, ScalableOracleOutcome::GuardedInChild);
+    assert_eq!(report.primary_record_count, None);
+    assert_eq!(report.semantic_digest_sha256, None);
+    assert!(!report.complete_counts_equal);
+    assert!(!report.complete_typed_output_equal);
+    let guard = report
+        .controlled_allocation_guard
+        .expect("structured oracle guard");
+    assert_eq!(guard.hard_ceiling_bytes, 1);
+    assert!(guard.requested_bytes > 1);
 }
 
 fn run_handshaken(executable: &Path, arguments: &[&str]) -> Output {
