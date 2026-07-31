@@ -34,6 +34,10 @@
 - `compiler-calibration-contract-v1.json`：#308 Draft 的非自指研究契约描述符；从
   Evidence v1 Schema 外部绑定证据 Schema 与工作负载清单的路径、版本、长度和
   SHA-256，正式验证必须先校验该描述符。
+- `v0.10-compiler-pilot-budget.md`：#308 在 R0 研究机上得到的九个基础规模冷实例临时
+  性能预算、来源、计算规则、正确性核对与禁止外推边界；供 #292 G1 冻结首轮实现预算。
+- `v0.10-compiler-pilot-budget.json`：上述临时预算的机器可读精确整数、七样本原始值、
+  运行/预言机引用、语义摘要与来源检查点绑定；不是 Compiler Calibration Evidence v1。
 - `commit-convention.md`：提交信息规范，以 Conventional Commits 标题为基础，用 `Gate`、`Slice`、`Impact`、`Validation` 等字段记录 LaneFlow 治理状态；并说明 PR 默认使用 Rebase and merge。
 - `rust-code-style.md`：补充 `rustfmt` 无法表达的 Rust 仓库级可读性约定，当前重点规定数字字面量分组边界与例外。
 - `validation-matrix.md`：切片类型到最小验证要求的矩阵，用于 `G3` 合并闸口判断。

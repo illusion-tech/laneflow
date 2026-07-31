@@ -176,7 +176,11 @@ oracle 新进程；只有完整计数、完整有类型输出和语义摘要全�
 原始数据选择校准规模与压力规模。重复性包络、增长斜率、失败清理、候选矩阵和完整
 Evidence v1 仍未建立；因此执行检查点本身不得作为正式 R0 预算、候选排名或正式
 Evidence 引用。Rust 重算子命令可以从已完成的基础规模原始样本形成明确标注的冷实例
-临时性能预算；attribution 的诊断墙钟仍不得进入任何时延结论。
+临时性能预算；首轮结果见
+[`v0.10-compiler-pilot-budget.md`](../../docs/reference/v0.10-compiler-pilot-budget.md)
+及
+[`v0.10-compiler-pilot-budget.json`](../../docs/reference/v0.10-compiler-pilot-budget.json)。
+attribution 的诊断墙钟仍不得进入任何时延结论。
 
 ```powershell
 cargo +1.96.0 run --locked `
