@@ -7,10 +7,12 @@ use crate::{
     BASE_SCALE_AGGREGATION_METHOD, BASE_SCALE_PILOT_CHECKPOINT_SCHEMA,
     BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION, BASE_SCALE_SELECTION_RULE,
     BASE_SCALE_STRING_PROFILE, BASELINE_CANDIDATE_ID, BaseScaleOracleRun, BaseScalePilotCheckpoint,
-    BaseScalePilotRun, BaseScalePilotRunKind, BaseScaleSelection,
+    BaseScalePilotRun, BaseScalePilotRunKind, BaseScaleSelection, CLOCK_QUANTUM_MULTIPLIER,
     FORMAL_PROTOCOL_CHECKPOINT_SCHEMA, FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION,
-    FORMAL_PROTOCOL_ID, GENERATOR_VERSION_V1, GraphProfileId, RunStatus, ScalableOracleOutcome,
-    ScalableTimingOutcome, ScalableWorkloadId, WORKLOAD_REVISION_V1,
+    FORMAL_PROTOCOL_ID, GENERATOR_VERSION_V1, GraphProfileId, ORACLE_BINARY_ID, ProcessExitKind,
+    RunStatus, SCALABLE_ORACLE_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
+    SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableOracleOutcome,
+    ScalableTimingOutcome, ScalableWorkloadId, TIMING_BINARY_ID, WORKLOAD_REVISION_V1,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -166,6 +168,14 @@ fn build_report(
     )?;
     ensure(pilot.active_selection.is_none(), "基础规模发现尚未完成")?;
     ensure(pilot.clock_quantum_ns > 0, "时钟量子必须是正整数")?;
+    let required_median_wall_time_ns = pilot
+        .clock_quantum_ns
+        .checked_mul(CLOCK_QUANTUM_MULTIPLIER)
+        .ok_or_else(|| invalid("时钟可靠阈值溢出"))?;
+    ensure(
+        pilot.required_median_wall_time_ns == required_median_wall_time_ns,
+        "基础规模时钟可靠阈值没有由时钟量子精确派生",
+    )?;
 
     let mut runs = BTreeMap::new();
     for run in &pilot.runs {
@@ -189,7 +199,12 @@ fn build_report(
             identities.insert((selection.workload_id, selection.graph_profile.clone())),
             "基础规模自然身份重复",
         )?;
-        analyses.push(analyze(selection, &runs, &oracle_runs)?);
+        analyses.push(analyze(
+            selection,
+            &runs,
+            &oracle_runs,
+            required_median_wall_time_ns,
+        )?);
     }
     ensure(
         identities == expected_identities(),
@@ -252,6 +267,7 @@ fn analyze(
     selection: &BaseScaleSelection,
     runs: &BTreeMap<&str, &BaseScalePilotRun>,
     oracle_runs: &BTreeMap<&str, &BaseScaleOracleRun>,
+    required_median_wall_time_ns: u64,
 ) -> Result<Analysis, PilotBudgetError> {
     ensure(
         selection.candidate_id == BASELINE_CANDIDATE_ID
@@ -288,7 +304,8 @@ fn analyze(
         "B 未满足测量质量、护栏或语义正确性要求",
     )?;
     ensure(
-        level.wall_time_median_ns >= level.minimum_reliable_wall_time_ns
+        level.minimum_reliable_wall_time_ns == required_median_wall_time_ns
+            && level.wall_time_median_ns >= required_median_wall_time_ns
             && level.wall_time_median_ns > 0
             && level.wall_time_median_absolute_deviation_ns <= level.wall_time_median_ns / 50,
         "B 未达到时钟阈值或墙钟 MAD 超过 2%",
@@ -306,6 +323,7 @@ fn analyze(
 
     let mut wall_values = Vec::with_capacity(7);
     let mut peak_values = Vec::with_capacity(7);
+    let mut compiler_instance_ids = BTreeSet::new();
     for (position, run_id) in level.contributing_run_ids.iter().enumerate() {
         let run = runs
             .get(run_id.as_str())
@@ -327,8 +345,22 @@ fn analyze(
             .child
             .as_ref()
             .ok_or_else(|| invalid(format!("基础规模运行 {run_id} 缺少子进程报告")))?;
+        let compiler_instance_is_unique = !child.compiler_instance_id.is_empty()
+            && compiler_instance_ids.insert(child.compiler_instance_id.as_str());
         ensure(
-            child.outcome == ScalableTimingOutcome::Success
+            run.process.binary_id == TIMING_BINARY_ID
+                && run.process.exit_kind == ProcessExitKind::Success
+                && run.process.exit_code.value == Some(0)
+                && run.process.exit_code.reason.is_none()
+                && run.process.child_pid.value == Some(u64::from(child.child_pid))
+                && run.process.child_pid.reason.is_none()
+                && run.guard_preflight.allows_child_start
+                && child.schema == SCALABLE_TIMING_CHILD_SCHEMA
+                && child.schema_version == SCALABLE_TIMING_CHILD_SCHEMA_VERSION
+                && child.binary_id == TIMING_BINARY_ID
+                && child.child_pid > 0
+                && compiler_instance_is_unique
+                && child.outcome == ScalableTimingOutcome::Success
                 && !child.allocation_instrumentation_enabled
                 && child.workload_id == selection.workload_id
                 && child.workload_revision == WORKLOAD_REVISION_V1
@@ -336,6 +368,10 @@ fn analyze(
                 && child.string_profile == BASE_SCALE_STRING_PROFILE
                 && child.generator_version == GENERATOR_VERSION_V1
                 && child.n == b
+                && child.controlled_allocation_hard_ceiling_bytes > 0
+                && child.guard_peak_live_requested_bytes.is_some_and(|peak| {
+                    peak > 0 && peak <= child.controlled_allocation_hard_ceiling_bytes
+                })
                 && child.controlled_allocation_guard.is_none()
                 && child.semantic_digest_sha256.as_deref() == Some(&level.semantic_digest),
             format!("基础规模运行 {run_id} 的子进程报告错误"),
@@ -363,7 +399,14 @@ fn analyze(
         .as_ref()
         .ok_or_else(|| invalid("基础规模预言机缺少子进程报告"))?;
     ensure(
-        oracle_run.status == RunStatus::Valid
+        oracle_run.process.binary_id == ORACLE_BINARY_ID
+            && oracle_run.process.exit_kind == ProcessExitKind::Success
+            && oracle_run.process.exit_code.value == Some(0)
+            && oracle_run.process.exit_code.reason.is_none()
+            && oracle_run.process.child_pid.value == Some(u64::from(oracle.child_pid))
+            && oracle_run.process.child_pid.reason.is_none()
+            && oracle_run.guard_preflight.allows_child_start
+            && oracle_run.status == RunStatus::Valid
             && oracle_run.invalidation_reasons.is_empty()
             && oracle_run.workload_id == selection.workload_id
             && oracle_run.workload_revision == WORKLOAD_REVISION_V1
@@ -371,6 +414,11 @@ fn analyze(
             && oracle_run.string_profile == BASE_SCALE_STRING_PROFILE
             && oracle_run.generator_version == GENERATOR_VERSION_V1
             && oracle_run.n == b
+            && oracle.schema == SCALABLE_ORACLE_CHILD_SCHEMA
+            && oracle.schema_version == SCALABLE_ORACLE_CHILD_SCHEMA_VERSION
+            && oracle.binary_id == ORACLE_BINARY_ID
+            && oracle.oracle_run_id == level.oracle_run_id
+            && oracle.child_pid > 0
             && oracle.outcome == ScalableOracleOutcome::Success
             && oracle.workload_id == selection.workload_id
             && oracle.workload_revision == WORKLOAD_REVISION_V1
@@ -378,6 +426,12 @@ fn analyze(
             && oracle.string_profile == BASE_SCALE_STRING_PROFILE
             && oracle.generator_version == GENERATOR_VERSION_V1
             && oracle.n == b
+            && oracle.controlled_allocation_hard_ceiling_bytes > 0
+            && oracle.guard_peak_live_requested_bytes.is_some_and(|peak| {
+                peak > 0 && peak <= oracle.controlled_allocation_hard_ceiling_bytes
+            })
+            && oracle.primary_record_count
+                == Some(level.completed_level_guard_observation.primary_record_count)
             && oracle.semantic_digest_sha256.as_deref() == Some(&level.semantic_digest)
             && oracle.complete_counts_equal
             && oracle.complete_typed_output_equal
