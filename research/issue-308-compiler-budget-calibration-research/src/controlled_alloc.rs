@@ -69,7 +69,7 @@ impl ControlledAllocator {
         Ok(())
     }
 
-    fn preoccupy(
+    pub(crate) fn preoccupy(
         &self,
         field: &'static str,
         requested_bytes: u64,
@@ -94,12 +94,16 @@ impl ControlledAllocator {
         Ok(())
     }
 
-    fn cancel_preoccupation(&self, requested_bytes: u64) {
+    pub(crate) fn cancel_preoccupation(&self, requested_bytes: u64) {
         let previous = self.state.live_requested_bytes.get();
         debug_assert!(previous >= requested_bytes);
         self.state
             .live_requested_bytes
             .set(previous - requested_bytes);
+    }
+
+    pub(crate) fn hard_ceiling_bytes(&self) -> u64 {
+        self.state.hard_ceiling_bytes
     }
 }
 

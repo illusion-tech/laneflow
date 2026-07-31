@@ -5,6 +5,7 @@
 //! 编译期常量生成两条单态化容量路径：两条路径都执行研究停止护栏要求的原子硬上限
 //! 预占和 `try_reserve_exact`；只有归因路径才累计分配次数、重分配、释放与逐槽指标。
 
+use crate::controlled_alloc::ControlledAllocator;
 use crate::identity::{
     ABSENT_LOCAL_INDEX, IDENTITY_MAGIC, IdentityBinding, IdentityContract, IdentityFieldValue,
     STABLE_ID_DOMAIN,
@@ -18,7 +19,6 @@ use crate::{GeneratorContract, GraphProfileId, SequenceKind, permute_in_place};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
-use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 const ENTITY_KIND_ABSENT: u16 = 0;
 const SHARED_CONSTANT_ENTITY_KIND: u16 = 0x00ff;
@@ -105,9 +105,7 @@ impl ControlledBufferSlot {
 
 #[derive(Debug)]
 struct ControlledAllocationTracker<const TRACK_ALLOCATIONS: bool> {
-    hard_ceiling_bytes: u64,
-    live_requested_bytes: AtomicU64,
-    peak_live_requested_bytes: AtomicU64,
+    allocator: ControlledAllocator,
     requested_bytes_by_slot: [u64; ControlledBufferSlot::COUNT],
     allocation_count: u64,
     reallocation_count: u64,
@@ -119,9 +117,7 @@ struct ControlledAllocationTracker<const TRACK_ALLOCATIONS: bool> {
 impl<const TRACK_ALLOCATIONS: bool> ControlledAllocationTracker<TRACK_ALLOCATIONS> {
     fn new(hard_ceiling_bytes: u64) -> Self {
         Self {
-            hard_ceiling_bytes,
-            live_requested_bytes: AtomicU64::new(0),
-            peak_live_requested_bytes: AtomicU64::new(0),
+            allocator: ControlledAllocator::new(hard_ceiling_bytes),
             requested_bytes_by_slot: [0; ControlledBufferSlot::COUNT],
             allocation_count: 0,
             reallocation_count: 0,
@@ -136,32 +132,12 @@ impl<const TRACK_ALLOCATIONS: bool> ControlledAllocationTracker<TRACK_ALLOCATION
         field: &'static str,
         requested_bytes: u64,
     ) -> Result<u64, StageGenerationError> {
-        self.live_requested_bytes
-            .fetch_update(
-                AtomicOrdering::SeqCst,
-                AtomicOrdering::SeqCst,
-                |live_requested_bytes| {
-                    live_requested_bytes
-                        .checked_add(requested_bytes)
-                        .filter(|next| *next <= self.hard_ceiling_bytes)
-                },
-            )
-            .map(|previous| previous + requested_bytes)
-            .map_err(
-                |live_requested_bytes| StageGenerationError::ControlledAllocationHardCeiling {
-                    field,
-                    hard_ceiling_bytes: self.hard_ceiling_bytes,
-                    live_requested_bytes,
-                    requested_bytes,
-                },
-            )
+        self.allocator.preoccupy(field, requested_bytes)?;
+        Ok(self.allocator.observation().live_requested_bytes)
     }
 
     fn cancel_preoccupation(&self, requested_bytes: u64) {
-        let previous = self
-            .live_requested_bytes
-            .fetch_sub(requested_bytes, AtomicOrdering::SeqCst);
-        debug_assert!(previous >= requested_bytes);
+        self.allocator.cancel_preoccupation(requested_bytes);
     }
 
     fn commit_replacement(
@@ -170,8 +146,10 @@ impl<const TRACK_ALLOCATIONS: bool> ControlledAllocationTracker<TRACK_ALLOCATION
         requested_bytes: u64,
         preoccupied_live_bytes: u64,
     ) -> Result<(), StageGenerationError> {
-        self.peak_live_requested_bytes
-            .fetch_max(preoccupied_live_bytes, AtomicOrdering::SeqCst);
+        debug_assert_eq!(
+            self.allocator.observation().live_requested_bytes,
+            preoccupied_live_bytes
+        );
         let previous_requested_bytes = std::mem::replace(
             &mut self.requested_bytes_by_slot[slot.index()],
             requested_bytes,
@@ -207,11 +185,11 @@ impl<const TRACK_ALLOCATIONS: bool> ControlledAllocationTracker<TRACK_ALLOCATION
     }
 
     fn peak_live_requested_bytes(&self) -> u64 {
-        self.peak_live_requested_bytes.load(AtomicOrdering::SeqCst)
+        self.allocator.observation().peak_live_requested_bytes
     }
 
     fn hard_ceiling_bytes(&self) -> u64 {
-        self.hard_ceiling_bytes
+        self.allocator.hard_ceiling_bytes()
     }
 
     fn snapshot(&self) -> IdentityAllocationSnapshot {
@@ -221,7 +199,7 @@ impl<const TRACK_ALLOCATIONS: bool> ControlledAllocationTracker<TRACK_ALLOCATION
             allocated_bytes: self.allocated_bytes,
             reallocated_bytes: self.reallocated_bytes,
             freed_bytes: self.freed_bytes,
-            live_requested_bytes: self.live_requested_bytes.load(AtomicOrdering::SeqCst),
+            live_requested_bytes: self.allocator.observation().live_requested_bytes,
             peak_live_requested_bytes: self.peak_live_requested_bytes(),
         }
     }
@@ -245,6 +223,14 @@ impl<const TRACK_ALLOCATIONS: bool> ControlledAllocationTracker<TRACK_ALLOCATION
             )?;
         }
         Ok(())
+    }
+}
+
+impl<const TRACK_ALLOCATIONS: bool> Drop for ControlledAllocationTracker<TRACK_ALLOCATIONS> {
+    fn drop(&mut self) {
+        for requested_bytes in self.requested_bytes_by_slot {
+            self.allocator.cancel_preoccupation(requested_bytes);
+        }
     }
 }
 
@@ -298,6 +284,10 @@ impl IdentityStageBufferPool<false> {
 
     pub(crate) fn guard_peak_live_requested_bytes(&self) -> u64 {
         self.allocations.peak_live_requested_bytes()
+    }
+
+    pub(crate) fn controlled_allocator(&self) -> ControlledAllocator {
+        self.allocations.allocator.clone()
     }
 }
 

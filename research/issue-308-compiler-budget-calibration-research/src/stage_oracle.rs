@@ -5,6 +5,7 @@
 //! 只共享图配置档枚举、身份预言机的不可变结果以及阶段摘要值类型。
 
 use crate::GraphProfileId;
+use crate::controlled_alloc::{ControlledAllocator, ControlledVec, ControlledVecError};
 use crate::identity::IdentityCaseOutput;
 use crate::oracle::{ExactOracleError, build_identity_oracle_case};
 use crate::stage::{
@@ -16,6 +17,9 @@ use std::collections::{BTreeMap, BTreeSet};
 const IDENTITY_WORKLOAD_ID: &str = "LF-COMP-ID-v1";
 const SHORT_UNIQUE_PROFILE_ID: &str = "short-unique-v1";
 const SHARED_CONSTANT_KIND: u16 = 0x00ff;
+
+mod bounded;
+pub(crate) use bounded::verify_identity_stage_exact_bounded;
 
 pub(crate) fn build_identity_stage_oracle(
     manifest: &serde_json::Value,
@@ -803,13 +807,14 @@ struct OracleBinding {
 
 #[derive(Clone, Copy, Debug)]
 enum OracleIdentityField {
-    Namespace,
-    ProfiledKey { kind: u16, local: u32 },
-    StableId { kind: u16 },
+    Namespace { tag: u16 },
+    ProfiledKey { tag: u16, kind: u16, local: u32 },
+    StableId { tag: u16, kind: u16 },
 }
 
 #[derive(Clone, Copy, Debug)]
 struct OracleRelation {
+    child_kind: u16,
     parent_kind: u16,
 }
 
@@ -865,7 +870,7 @@ fn enumerate_strings(
     for unit_index in 0..n {
         for binding in bindings {
             for field in &binding.fields {
-                if let OracleIdentityField::ProfiledKey { kind, local } = field {
+                if let OracleIdentityField::ProfiledKey { kind, local, .. } = field {
                     strings.push(format!("{kind:02x}/{unit_index:08x}/{local:08x}").into_bytes());
                 }
             }
@@ -878,7 +883,7 @@ fn enumerate_strings(
             .ok_or_else(|| StageOracleError::Missing(module.clone()))?;
         for binding in bindings {
             for field in &binding.fields {
-                if let OracleIdentityField::StableId { kind } = field {
+                if let OracleIdentityField::StableId { kind, .. } = field {
                     strings.push(reference_spelling(*kind, module_ordinal, 0));
                 }
             }
@@ -915,9 +920,10 @@ fn parse_identity_bindings(
             let fields = required_array(binding, "fields")?
                 .iter()
                 .map(|field| {
+                    let tag = required_u16(field, "tag")?;
                     let value = required_string(field, "value")?;
                     if value == "namespace" {
-                        return Ok(OracleIdentityField::Namespace);
+                        return Ok(OracleIdentityField::Namespace { tag });
                     }
                     if let Some((kind, local)) = parse_kind_local(value, "profiled-key")? {
                         if kind != entity_kind_code {
@@ -926,10 +932,10 @@ fn parse_identity_bindings(
                                 expected: "profiled key kind equal to owner entity kind".to_owned(),
                             });
                         }
-                        return Ok(OracleIdentityField::ProfiledKey { kind, local });
+                        return Ok(OracleIdentityField::ProfiledKey { tag, kind, local });
                     }
                     if let Some((kind, _local)) = parse_kind_local(value, "stable-id")? {
-                        return Ok(OracleIdentityField::StableId { kind });
+                        return Ok(OracleIdentityField::StableId { tag, kind });
                     }
                     Err(StageOracleError::Invalid {
                         path: format!("identityBindings[{entity_kind}].fields[].value"),
@@ -967,12 +973,14 @@ fn parse_owner_relations(
                         path: "ownerRelations[]".to_owned(),
                         expected: "Child->Parent".to_owned(),
                     })?;
-            if !kinds.contains_key(child) {
-                return Err(StageOracleError::Invalid {
-                    path: "ownerRelations[]".to_owned(),
-                    expected: format!("known child entity kind, got {child}"),
-                });
-            }
+            let child_kind =
+                kinds
+                    .get(child)
+                    .copied()
+                    .ok_or_else(|| StageOracleError::Invalid {
+                        path: "ownerRelations[]".to_owned(),
+                        expected: format!("known child entity kind, got {child}"),
+                    })?;
             let parent_kind =
                 kinds
                     .get(parent)
@@ -981,7 +989,10 @@ fn parse_owner_relations(
                         path: "ownerRelations[]".to_owned(),
                         expected: format!("known parent entity kind, got {parent}"),
                     })?;
-            Ok(OracleRelation { parent_kind })
+            Ok(OracleRelation {
+                child_kind,
+                parent_kind,
+            })
         })
         .collect()
 }
@@ -1087,6 +1098,9 @@ fn validate_short_unique_profile(manifest: &serde_json::Value) -> Result<(), Sta
 struct OraclePermutation {
     base_seed: u64,
     imports_sequence_kind: u8,
+    declarations_sequence_kind: u8,
+    references_sequence_kind: u8,
+    relations_sequence_kind: u8,
     increment: u64,
     multiplier_1: u64,
     multiplier_2: u64,
@@ -1107,6 +1121,16 @@ impl OraclePermutation {
             base_seed: parse_hex_u64(required_string(manifest, "baseSeedHexU64")?)?,
             imports_sequence_kind: u8::try_from(required_u64(sequence_kinds, "imports")?)
                 .map_err(|_| StageOracleError::InvalidType("sequenceKinds.imports".to_owned()))?,
+            declarations_sequence_kind: u8::try_from(required_u64(sequence_kinds, "declarations")?)
+                .map_err(|_| {
+                    StageOracleError::InvalidType("sequenceKinds.declarations".to_owned())
+                })?,
+            references_sequence_kind: u8::try_from(required_u64(sequence_kinds, "references")?)
+                .map_err(|_| {
+                    StageOracleError::InvalidType("sequenceKinds.references".to_owned())
+                })?,
+            relations_sequence_kind: u8::try_from(required_u64(sequence_kinds, "relations")?)
+                .map_err(|_| StageOracleError::InvalidType("sequenceKinds.relations".to_owned()))?,
             increment: parse_hex_u64(constants[0].as_str().ok_or_else(|| {
                 StageOracleError::InvalidType("permutation.splitmix64ConstantsHexU64[0]".to_owned())
             })?)?,
@@ -1120,8 +1144,11 @@ impl OraclePermutation {
     }
 
     fn permute_imports<T>(&self, values: &mut [T], module_seed_ordinal: u64) {
-        let mut state =
-            self.base_seed ^ (u64::from(self.imports_sequence_kind) << 56) ^ module_seed_ordinal;
+        self.permute(values, self.imports_sequence_kind, module_seed_ordinal);
+    }
+
+    fn permute<T>(&self, values: &mut [T], sequence_kind: u8, module_seed_ordinal: u64) {
+        let mut state = self.base_seed ^ (u64::from(sequence_kind) << 56) ^ module_seed_ordinal;
         for index in (1..values.len()).rev() {
             state = state.wrapping_add(self.increment);
             let mut value = state;
@@ -1351,6 +1378,14 @@ pub enum StageOracleError {
     Overflow(&'static str),
     #[error("生产者与阶段独立预言机的精确内容不一致：{0}")]
     Mismatch(&'static str),
+    #[error(transparent)]
+    Controlled(crate::stage::StageGenerationError),
+}
+
+impl From<ControlledVecError> for StageOracleError {
+    fn from(error: ControlledVecError) -> Self {
+        Self::Controlled(error.into())
+    }
 }
 
 #[cfg(test)]
