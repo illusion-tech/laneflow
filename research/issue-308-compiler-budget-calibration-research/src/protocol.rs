@@ -36,6 +36,7 @@ pub struct FormalProtocolOutcome {
     pub recorded_formal_process_runs: usize,
     pub recorded_formal_oracle_runs: usize,
     pub recorded_attribution_preflight_runs: usize,
+    pub recorded_timing_guard_runs: usize,
 }
 
 pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA: &str =
@@ -175,6 +176,11 @@ pub fn run_formal_protocol(
             .iter()
             .flat_map(|ladder| &ladder.levels)
             .filter(|level| level.attribution_preflight.is_some())
+            .count(),
+        recorded_timing_guard_runs: formal_ladders
+            .iter()
+            .flat_map(|ladder| &ladder.levels)
+            .filter(|level| level.timing_guard_run.is_some())
             .count(),
     })
 }

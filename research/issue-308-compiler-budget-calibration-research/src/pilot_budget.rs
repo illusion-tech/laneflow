@@ -10,12 +10,13 @@ use crate::{
     BaseScalePilotLevel, BaseScalePilotRun, BaseScalePilotRunKind, BaseScaleSelection,
     CLOCK_QUANTUM_MULTIPLIER, ChildProcessMonitorReport, FORMAL_PROTOCOL_CHECKPOINT_SCHEMA,
     FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION, FORMAL_PROTOCOL_ID,
-    FRESH_PROCESS_PILOT_SAMPLE_COUNT, GENERATOR_VERSION_V1, GraphProfileId, GuardPreflightReport,
-    GuardThresholds, MAXIMUM_RELATIVE_MAD_PERCENT, ORACLE_BINARY_ID, ProcessExitKind,
-    ProcessObservation, RunStatus, SCALABLE_ORACLE_CHILD_SCHEMA,
-    SCALABLE_ORACLE_CHILD_SCHEMA_VERSION, SCALABLE_TIMING_CHILD_SCHEMA,
-    SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableOracleOutcome, ScalableTimingOutcome,
-    ScalableWorkloadId, TIMING_BINARY_ID, TerminationKind, WORKLOAD_REVISION_V1,
+    FRESH_PROCESS_PILOT_SAMPLE_COUNT, GENERATOR_VERSION_V1, GraphProfileId,
+    GuardCompletedLevelObservation, GuardPredictionBasis, GuardPreflightReport, GuardThresholds,
+    MAXIMUM_RELATIVE_MAD_PERCENT, ORACLE_BINARY_ID, ProcessExitKind, ProcessObservation, RunStatus,
+    SCALABLE_ORACLE_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
+    SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableOracleOutcome,
+    ScalableTimingOutcome, ScalableWorkloadId, TIMING_BINARY_ID, TerminationKind,
+    WORKLOAD_REVISION_V1,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -63,6 +64,7 @@ struct Analysis {
     peak_values: Vec<u64>,
     peak_median: u64,
     peak_mad: u64,
+    completed_guard_observation: GuardCompletedLevelObservation,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -287,6 +289,7 @@ fn analyze(
     ensure(selection.b.reason.is_none(), "已观察到 B 仍携带不可用原因")?;
 
     let mut analyzed_levels = Vec::with_capacity(selection.pilot_levels.len());
+    let mut previous_observation = None;
     for level in &selection.pilot_levels {
         let analysis = analyze_level(
             selection,
@@ -294,6 +297,7 @@ fn analyze(
             runs,
             oracle_runs,
             required_median_wall_time_ns,
+            previous_observation,
         )?;
         let qualifies = analysis.wall_median >= required_median_wall_time_ns
             && relative_mad_within_limit(analysis.wall_median, analysis.wall_mad);
@@ -301,6 +305,7 @@ fn analyze(
             level.qualifies == qualifies,
             format!("N={} 的缓存资格与原始样本重算结果不一致", level.n),
         )?;
+        previous_observation = Some(analysis.completed_guard_observation);
         analyzed_levels.push((level.n, qualifies, analysis));
     }
     validate_scale_path(
@@ -323,6 +328,7 @@ fn analyze_level(
     runs: &BTreeMap<&str, &BaseScalePilotRun>,
     oracle_runs: &BTreeMap<&str, &BaseScaleOracleRun>,
     required_median_wall_time_ns: u64,
+    previous_observation: Option<GuardCompletedLevelObservation>,
 ) -> Result<Analysis, PilotBudgetError> {
     let n = level.n;
     ensure(
@@ -356,10 +362,18 @@ fn analyze_level(
     let mut private_peak_values = Vec::with_capacity(FRESH_PROCESS_PILOT_SAMPLE_COUNT);
     let mut primary_record_counts = BTreeSet::new();
     let mut compiler_instance_ids = BTreeSet::new();
+    let mut attempt_identity = None;
     for (position, run_id) in level.contributing_run_ids.iter().enumerate() {
         let run = runs
             .get(run_id.as_str())
             .ok_or_else(|| invalid(format!("缺少基础规模运行 {run_id}")))?;
+        let expected_attempt_id = format!(
+            "pilot/{}/{}/n-{n}/attempt-{}",
+            selection.workload_id.as_str(),
+            selection.graph_profile,
+            run.retry_ordinal
+        );
+        let expected_run_id = format!("{expected_attempt_id}/pilot-sample-{position}");
         ensure(
             run.status == RunStatus::Valid
                 && run.invalidation_reasons.is_empty()
@@ -371,14 +385,23 @@ fn analyze_level(
                 && run.string_profile == BASE_SCALE_STRING_PROFILE
                 && run.generator_version == GENERATOR_VERSION_V1
                 && run.n == n
-                && !run.attempt_id.is_empty(),
+                && run.attempt_id == expected_attempt_id
+                && run.run_id == expected_run_id,
             format!("基础规模运行 {run_id} 的身份或状态错误"),
         )?;
+        match &attempt_identity {
+            Some((attempt_id, retry_ordinal)) => ensure(
+                attempt_id == &run.attempt_id && *retry_ordinal == run.retry_ordinal,
+                format!("N={n} 的七个 timing 样本不属于同一次重试尝试"),
+            )?,
+            None => attempt_identity = Some((run.attempt_id.clone(), run.retry_ordinal)),
+        }
         primary_record_counts.insert(validate_clear_preflight(
             &run.guard_preflight,
             selection,
             n,
             run_id,
+            previous_observation,
         )?);
         let child = run
             .child
@@ -450,11 +473,19 @@ fn analyze_level(
         .child
         .as_ref()
         .ok_or_else(|| invalid("基础规模预言机缺少子进程报告"))?;
+    let (attempt_id, _) = attempt_identity
+        .as_ref()
+        .ok_or_else(|| invalid(format!("N={n} 缺少 timing 尝试身份")))?;
+    ensure(
+        level.oracle_run_id == format!("{attempt_id}/oracle"),
+        format!("N={n} 的预言机不属于七样本重试尝试"),
+    )?;
     let oracle_primary_record_count = validate_clear_preflight(
         &oracle_run.guard_preflight,
         selection,
         n,
         &level.oracle_run_id,
+        previous_observation,
     )?;
     let oracle_peak_live_requested_bytes =
         positive(oracle.guard_peak_live_requested_bytes, "预言机峰值请求字节")?;
@@ -515,16 +546,15 @@ fn analyze_level(
         .iter()
         .max()
         .ok_or_else(|| invalid("缺少私有字节峰值"))?;
+    let completed_guard_observation = GuardCompletedLevelObservation {
+        n,
+        primary_record_count: timing_primary_record_count,
+        peak_live_requested_bytes: observed_peak,
+        private_bytes: observed_private_bytes,
+        wall_time_ns: observed_wall,
+    };
     ensure(
-        level.completed_level_guard_observation.n == n
-            && level.completed_level_guard_observation.primary_record_count
-                == timing_primary_record_count
-            && level
-                .completed_level_guard_observation
-                .peak_live_requested_bytes
-                == observed_peak
-            && level.completed_level_guard_observation.private_bytes == observed_private_bytes
-            && level.completed_level_guard_observation.wall_time_ns == observed_wall,
+        level.completed_level_guard_observation == completed_guard_observation,
         format!("N={n} 完整护栏观察与原始样本不一致"),
     )?;
     let (peak_median, peak_mad) = median_and_mad(&peak_values)?;
@@ -541,6 +571,7 @@ fn analyze_level(
         peak_values,
         peak_median,
         peak_mad,
+        completed_guard_observation,
     })
 }
 
@@ -549,11 +580,63 @@ fn validate_clear_preflight(
     selection: &BaseScaleSelection,
     n: u32,
     run_id: &str,
+    previous_observation: Option<GuardCompletedLevelObservation>,
 ) -> Result<u64, PilotBudgetError> {
     let expected_thresholds = GuardThresholds::from_physical_memory_bytes(
         preflight.memory_observation.physical_memory_bytes,
     )
     .map_err(|_| invalid(format!("运行 {run_id} 的物理内存观察无法派生护栏阈值")))?;
+    let prediction_shape_is_valid = match previous_observation {
+        Some(previous) => {
+            let predicted_compiler_controlled_bytes = checked_guard_prediction(
+                previous.peak_live_requested_bytes,
+                preflight.primary_record_count,
+                previous.primary_record_count,
+                expected_thresholds.prediction_safety_factor_numerator,
+                expected_thresholds.prediction_safety_factor_denominator,
+            )?;
+            let predicted_private_bytes = checked_guard_prediction(
+                previous.private_bytes,
+                preflight.primary_record_count,
+                previous.primary_record_count,
+                expected_thresholds.prediction_safety_factor_numerator,
+                expected_thresholds.prediction_safety_factor_denominator,
+            )?;
+            let predicted_wall_time_ns = checked_guard_prediction(
+                previous.wall_time_ns,
+                preflight.primary_record_count,
+                previous.primary_record_count,
+                expected_thresholds.prediction_safety_factor_numerator,
+                expected_thresholds.prediction_safety_factor_denominator,
+            )?;
+            previous.n.checked_mul(2) == Some(n)
+                && preflight.compiler_controlled_prediction_basis
+                    == GuardPredictionBasis::PreviousLevelLinearTimesFiveFourths
+                && preflight.private_bytes_prediction_basis
+                    == GuardPredictionBasis::PreviousLevelLinearTimesFiveFourths
+                && preflight.wall_time_prediction_basis
+                    == GuardPredictionBasis::PreviousLevelLinearTimesFiveFourths
+                && preflight.predicted_compiler_controlled_bytes
+                    == preflight
+                        .logical_bytes_lower_bound
+                        .max(predicted_compiler_controlled_bytes)
+                && preflight.predicted_private_bytes == Some(predicted_private_bytes)
+                && preflight.predicted_wall_time_ns == Some(predicted_wall_time_ns)
+        }
+        None => {
+            n == 1
+                && preflight.compiler_controlled_prediction_basis
+                    == GuardPredictionBasis::ManifestSingleBufferLowerBoundV1
+                && preflight.private_bytes_prediction_basis
+                    == GuardPredictionBasis::FirstLevelMonitorOnly
+                && preflight.wall_time_prediction_basis
+                    == GuardPredictionBasis::FirstLevelMonitorOnly
+                && preflight.predicted_compiler_controlled_bytes
+                    == preflight.logical_bytes_lower_bound
+                && preflight.predicted_private_bytes.is_none()
+                && preflight.predicted_wall_time_ns.is_none()
+        }
+    };
     ensure(
         preflight.workload_id == selection.workload_id.as_str()
             && preflight.graph_profile == selection.graph_profile
@@ -562,6 +645,8 @@ fn validate_clear_preflight(
             && preflight.memory_observation.available_physical_memory_bytes
                 <= preflight.memory_observation.physical_memory_bytes
             && preflight.thresholds == expected_thresholds
+            && preflight.logical_bytes_lower_bound > 0
+            && prediction_shape_is_valid
             && preflight.maximum_typed_ordinal <= u64::from(u32::MAX)
             && preflight.predicted_compiler_controlled_bytes
                 < preflight.thresholds.compiler_controlled_bytes
@@ -578,6 +663,35 @@ fn validate_clear_preflight(
         format!("运行 {run_id} 的启动前护栏证据不清洁"),
     )?;
     Ok(preflight.primary_record_count)
+}
+
+fn checked_guard_prediction(
+    previous_value: u64,
+    current_primary_record_count: u64,
+    previous_primary_record_count: u64,
+    safety_factor_numerator: u64,
+    safety_factor_denominator: u64,
+) -> Result<u64, PilotBudgetError> {
+    ensure(
+        previous_value > 0
+            && current_primary_record_count > 0
+            && previous_primary_record_count > 0
+            && safety_factor_numerator > 0
+            && safety_factor_denominator > 0,
+        "护栏预测输入必须为正整数",
+    )?;
+    let numerator = u128::from(previous_value)
+        .checked_mul(u128::from(current_primary_record_count))
+        .and_then(|value| value.checked_mul(u128::from(safety_factor_numerator)))
+        .ok_or_else(|| invalid("护栏预测分子溢出"))?;
+    let denominator = u128::from(previous_primary_record_count)
+        .checked_mul(u128::from(safety_factor_denominator))
+        .ok_or_else(|| invalid("护栏预测分母溢出"))?;
+    let quotient = numerator / denominator;
+    let rounded = quotient
+        .checked_add(u128::from(numerator % denominator != 0))
+        .ok_or_else(|| invalid("护栏预测上取整溢出"))?;
+    u64::try_from(rounded).map_err(|_| invalid("护栏预测无法表示为 u64"))
 }
 
 fn validate_clear_monitor(
@@ -885,5 +999,12 @@ mod tests {
         assert!(relative_mad_within_limit(50, 1));
         assert!(!relative_mad_within_limit(49, 1));
         assert!(!relative_mad_within_limit(0, 0));
+    }
+
+    #[test]
+    fn guard_prediction_uses_exact_five_fourths_ceiling_arithmetic() {
+        assert_eq!(checked_guard_prediction(3, 2, 1, 5, 4).unwrap(), 8);
+        assert_eq!(checked_guard_prediction(4, 2, 1, 5, 4).unwrap(), 10);
+        assert!(checked_guard_prediction(1, 1, 0, 5, 4).is_err());
     }
 }
