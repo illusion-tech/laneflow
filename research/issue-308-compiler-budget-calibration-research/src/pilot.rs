@@ -774,13 +774,9 @@ fn discover_base_scale(
                         &mut runs[attempt_start..],
                         &[InvalidationReason::ResearchStopGuardrailTriggered],
                     );
+                    complete_selection_after_runtime_guard(&mut selection);
                     persist_progress(runs, oracle_runs, &selection)?;
-                    return Err(PilotError::RuntimeGuardDuringBaseScale {
-                        run_id,
-                        workload_id,
-                        graph_profile,
-                        n,
-                    });
+                    return Ok(selection);
                 }
                 if !retry_reasons.is_empty() {
                     break;
@@ -850,22 +846,22 @@ fn discover_base_scale(
             oracle_execution,
         )?;
         let oracle_status = oracle_run.status;
+        let oracle_runtime_guard_triggered = oracle_status == RunStatus::Guarded
+            || oracle_run
+                .invalidation_reasons
+                .contains(&BaseScaleOracleInvalidationReason::ResearchStopGuardrailTriggered);
         oracle_runs.push(oracle_run);
         persist_progress(runs, oracle_runs, &selection)?;
         if oracle_status != RunStatus::Valid {
-            if oracle_status == RunStatus::Guarded {
+            if oracle_runtime_guard_triggered {
                 invalidate_contributing_runs(
                     runs,
                     &contributing_runs,
                     &[InvalidationReason::ResearchStopGuardrailTriggered],
                 )?;
+                complete_selection_after_runtime_guard(&mut selection);
                 persist_progress(runs, oracle_runs, &selection)?;
-                return Err(PilotError::RuntimeGuardDuringBaseScale {
-                    run_id: oracle_run_id,
-                    workload_id,
-                    graph_profile,
-                    n,
-                });
+                return Ok(selection);
             }
             return Err(PilotError::OracleVerificationFailed {
                 run_id: oracle_run_id,
@@ -903,6 +899,12 @@ fn discover_base_scale(
 fn next_base_scale_n(n: u32) -> Result<u32, PilotError> {
     n.checked_mul(2)
         .ok_or(PilotError::ArithmeticOverflow("base-scale strict doubling"))
+}
+
+fn complete_selection_after_runtime_guard(selection: &mut BaseScaleSelection) {
+    selection.b = NullableObservation::unavailable("no-reliable-base-scale-runtime-guard");
+    selection.terminal_guard_run_id =
+        NullableObservation::unavailable("runtime-guard-is-not-preflight");
 }
 
 fn base_scale_attempt_id(
@@ -2547,15 +2549,6 @@ pub enum PilotError {
     #[error("同一完整基础规模级别的七个受控分配安全峰值不一致")]
     InconsistentGuardPeakObservation,
     #[error(
-        "基础规模试运行 {run_id} 在 {workload_id:?}/{graph_profile:?}/N={n} 的受测子进程内触发研究停止护栏；已持久化无效尝试，但该事实不能冒充下一二倍级别的 guard-preflight 终止运行"
-    )]
-    RuntimeGuardDuringBaseScale {
-        run_id: String,
-        workload_id: ScalableWorkloadId,
-        graph_profile: GraphProfileId,
-        n: u32,
-    },
-    #[error(
         "基础规模独立预言机 {run_id} 未能验证 {workload_id:?}/{graph_profile:?}/N={n}；已持久化运行并禁止该级别形成候选 B"
     )]
     OracleVerificationFailed {
@@ -2597,6 +2590,33 @@ mod tests {
             median_and_mad([1, 2, 3]),
             Err(PilotError::WrongSampleCount { actual: 3 })
         ));
+    }
+
+    #[test]
+    fn runtime_guard_completes_only_the_current_identity_without_fabricating_a_preflight() {
+        let mut selection = BaseScaleSelection {
+            candidate_id: BASELINE_CANDIDATE_ID.to_owned(),
+            workload_id: ScalableWorkloadId::Identity,
+            workload_revision: WORKLOAD_REVISION_V1,
+            graph_profile: GraphProfileId::SharedFaninDag.as_str().to_owned(),
+            string_profile: BASE_SCALE_STRING_PROFILE.to_owned(),
+            generator_version: GENERATOR_VERSION_V1,
+            selection_rule: BASE_SCALE_SELECTION_RULE.to_owned(),
+            pilot_levels: Vec::new(),
+            b: NullableObservation::unavailable("base-scale-not-yet-selected"),
+            terminal_guard_run_id: NullableObservation::unavailable("base-scale-not-yet-selected"),
+        };
+        complete_selection_after_runtime_guard(&mut selection);
+        assert_eq!(selection.b.value, None);
+        assert_eq!(
+            selection.b.reason.as_deref(),
+            Some("no-reliable-base-scale-runtime-guard")
+        );
+        assert_eq!(selection.terminal_guard_run_id.value, None);
+        assert_eq!(
+            selection.terminal_guard_run_id.reason.as_deref(),
+            Some("runtime-guard-is-not-preflight")
+        );
     }
 
     #[test]
