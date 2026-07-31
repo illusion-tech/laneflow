@@ -15,6 +15,7 @@ mod corridor;
 mod corridor_fixture_oracle;
 mod corridor_oracle;
 mod current_fixtures;
+mod failure_recovery;
 mod generator;
 mod guard;
 mod identity;
@@ -52,6 +53,11 @@ pub use current_fixtures::{
     CurrentFixturesOracleError, CurrentFixturesOracleVerificationReport,
     build_current_fixture_summaries, build_current_fixtures_known_vectors,
     verify_current_fixtures_oracle,
+};
+pub use failure_recovery::{
+    CLEANUP_FAILURE_ITERATION_COUNT, CLEANUP_GROUP_RUN_COUNT, CleanupError, CleanupExperiment,
+    CleanupFailureCase, CleanupPhase, CleanupRunObservation, CleanupScaleRole,
+    run_cleanup_experiment, validate_cleanup_experiment,
 };
 pub use generator::{
     ExpandedModule, ExpandedModuleGraph, GeneratorError, GraphProfileId,
