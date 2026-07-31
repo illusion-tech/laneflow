@@ -1,13 +1,13 @@
 mod support;
 
 use issue_308_compiler_budget_calibration_research::{
-    ScalableWorkloadId, load_repository_contract, measure_identity_timing_child,
-    measure_scalable_timing_child, measure_scalable_timing_ladder_child, timing_binary_descriptor,
-    wait_for_parent_start_signal,
+    CandidateKeyDomain, CandidateRegistry, ScalableWorkloadId, load_repository_contract,
+    measure_candidate_kernel_child, measure_identity_timing_child, measure_scalable_timing_child,
+    measure_scalable_timing_ladder_child, timing_binary_descriptor, wait_for_parent_start_signal,
 };
 use std::str::FromStr;
 
-const USAGE: &str = "用法：issue-308-compiler-budget-calibration-timing <describe-role|run|run-ladder|run-identity-smoke>\n  run <compiler-instance-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-ladder <compiler-instance-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-identity-smoke <compiler-instance-id> <graph-profile> <N>";
+const USAGE: &str = "用法：issue-308-compiler-budget-calibration-timing <describe-role|run|run-ladder|run-identity-smoke|run-candidate-kernel>\n  run <compiler-instance-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-ladder <compiler-instance-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-identity-smoke <compiler-instance-id> <graph-profile> <N>\n  run-candidate-kernel <candidate-id> <key-domain> <item-count>";
 
 fn main() {
     support::main_with(run);
@@ -97,6 +97,37 @@ fn run() -> Result<(), String> {
                 measure_identity_timing_child(&trusted, compiler_instance_id, graph_profile, n)
                     .map_err(|error| error.to_string())?;
             support::print_json(&report, "标识工作负载计时冒烟结果")
+        }
+        "run-candidate-kernel" => {
+            let candidate_id = support::next_utf8_argument(&mut arguments, "candidate-id", USAGE)?;
+            let key_domain = CandidateKeyDomain::from_str(&support::next_utf8_argument(
+                &mut arguments,
+                "key-domain",
+                USAGE,
+            )?)
+            .map_err(|error| error.to_string())?;
+            let item_count = support::parse_positive_u32(
+                &support::next_utf8_argument(&mut arguments, "item-count", USAGE)?,
+                "item-count",
+            )?;
+            support::require_no_more_arguments(&mut arguments, USAGE)?;
+
+            wait_for_parent_start_signal().map_err(|error| error.to_string())?;
+            let trusted = load_repository_contract().map_err(|error| error.to_string())?;
+            let registry = CandidateRegistry::from_trusted_contract(&trusted)
+                .map_err(|error| error.to_string())?;
+            if !registry
+                .candidates_for(key_domain)
+                .any(|candidate| candidate.id == candidate_id)
+            {
+                return Err(format!(
+                    "候选 {candidate_id} 未注册到键域 {}",
+                    key_domain.as_str()
+                ));
+            }
+            let report = measure_candidate_kernel_child(&candidate_id, key_domain, item_count)
+                .map_err(|error| error.to_string())?;
+            support::print_json(&report, "候选机制计时结果")
         }
         _ => Err(USAGE.to_owned()),
     }

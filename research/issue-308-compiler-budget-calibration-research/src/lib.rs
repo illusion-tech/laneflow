@@ -9,6 +9,7 @@ use std::path::{Component, Path, PathBuf};
 
 mod bounded_oracle;
 mod bounded_template;
+mod candidate_matrix;
 mod controlled_alloc;
 mod corridor;
 #[cfg(feature = "fixture-oracle")]
@@ -40,6 +41,20 @@ mod stage_oracle;
 mod timing;
 mod workload;
 
+pub use candidate_matrix::{
+    CANDIDATE_KERNEL_CHILD_SCHEMA, CANDIDATE_KERNEL_CHILD_SCHEMA_VERSION, CANDIDATE_MATRIX_SCOPE,
+    CandidateAlgorithmConstant, CandidateComponent, CandidateDecision, CandidateDisposition,
+    CandidateExecutionMode, CandidateKernelChildReport, CandidateKernelMeasurement,
+    CandidateKeyDomain, CandidateMatrixError, CandidateMechanismComparison,
+    CandidateMechanismExecution, CandidateMechanismRoster, CandidateMechanismRosterEntry,
+    CandidatePerformanceSample, CandidateRegistration, CandidateRegistry,
+    CandidateSafetyAssessment, CandidateSafetyStatus, ConstantHashObservation, ConstantHashOutcome,
+    ConstantHashQualification, ConstantHashRole, ExactRatio, MechanismBalancedRound,
+    build_mechanism_candidate_roster, build_two_batch_balanced_schedule,
+    measure_candidate_kernel_child, qualify_constant_hash_candidate,
+    run_candidate_mechanism_kernel, run_mechanism_candidate_matrix,
+    run_mechanism_candidate_matrix_fresh_process,
+};
 pub use corridor::{
     CORRIDOR_KNOWN_VECTOR_SCHEMA, CORRIDOR_WORKLOAD_ID, CorridorContract, CorridorError,
     CorridorKnownVectorDocument, CorridorStageSummary, build_corridor_known_vectors,
