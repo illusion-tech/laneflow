@@ -1100,18 +1100,18 @@ fn valid_sample_shape(
     }
 }
 
-struct DecodedChild<T> {
-    status: RunStatus,
-    invalidation_reasons: Vec<InvalidationReason>,
-    process: ProcessObservation,
-    child: Option<T>,
-    monitor: ChildProcessMonitorReport,
-    kill_error: Option<String>,
-    monitor_error: Option<String>,
-    stderr: String,
+pub(crate) struct DecodedChild<T> {
+    pub(crate) status: RunStatus,
+    pub(crate) invalidation_reasons: Vec<InvalidationReason>,
+    pub(crate) process: ProcessObservation,
+    pub(crate) child: Option<T>,
+    pub(crate) monitor: ChildProcessMonitorReport,
+    pub(crate) kill_error: Option<String>,
+    pub(crate) monitor_error: Option<String>,
+    pub(crate) stderr: String,
 }
 
-fn decode_child_execution<T: DeserializeOwned>(
+pub(crate) fn decode_child_execution<T: DeserializeOwned>(
     execution: MonitoredChildExecution,
     binary_id: &str,
     validate: impl FnOnce(&T) -> Result<(), String>,

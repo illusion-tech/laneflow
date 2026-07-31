@@ -19,7 +19,7 @@ use thiserror::Error;
 pub const CLEANUP_FAILURE_ITERATION_COUNT: u32 = 32;
 pub const CLEANUP_GROUP_RUN_COUNT: usize = 35;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CleanupScaleRole {
     Calibration,
