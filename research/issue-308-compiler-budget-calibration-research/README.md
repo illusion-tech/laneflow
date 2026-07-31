@@ -112,14 +112,19 @@ G2 冻结的候选依赖如下；“特性”只列本研究包直接启用的�
   码。监控缺样、非零退出和父进程强制终止返回带状态、失效原因、值/原因观察、最后
   监控快照与诊断的结构化停止记录；受检护栏返回 `guarded`，其他异常只返回
   `invalid`，不再只抛出丢失上下文的字符串错误。
-- `run --protocol compiler-calibration-v1 --output <path>` 正式研究入口的基础规模发现
-  切片：入口在任何测量前拒绝 debug 二进制、未启用 `research-runner-full` 的构建和
+- `run --protocol compiler-calibration-v1 --output <path>` 正式研究入口：入口在任何
+  测量前拒绝 debug 二进制、未启用 `research-runner-full` 的构建和
   脏工作树；三个可扩展工作负载与三种模块图配置档分别从 `N = 1` 开始严格二倍探测。
   每个候选级别使用七个独立的新进程冷实例样本，精确重算中位数/MAD、时钟量子阈值、
   语义摘要一致性和护栏状态；无效尝试完整保留并以新尝试身份重试，不能进入贡献集合。
-  每次状态变化写入不可覆盖的分代检查点，成功结束时再原子发布最终基础规模试运行
-  检查点。该制品不是编译器校准证据 v1，不包含正式五级阶梯、预算建议或产品服务等级
-  协议（SLA）。若受测子进程先于下一二倍级别预检触发运行中停止护栏，执行器会先
+  找到 `B` 后执行至少五级正式阶梯；每个新级别先取得一次插桩预检和一次独立预言机
+  结果，再按两批、每批五轮运行非插桩时延与插桩归因子进程。每个子进程取得一次冷实例、
+  三次不计时预热和七次稳定容量复用，随后从完整有效原始值重算中位数、MAD、相邻级别
+  比值、成本拐点和校准/压力规模。检查点保留已完成状态，成功结束时发布正式执行
+  检查点；该制品仍不是编译器校准证据 v1，也不包含预算建议或产品服务等级协议
+  （SLA）。正式阶梯遇到无效轮次时保存事实并停止，不在单次研究运行内自动重试；排除
+  环境干扰后使用新输出路径重跑完整协议。若受测子进程先于下一二倍级别预检触发运行中
+  停止护栏，执行器会先
   持久化统一作废后的尝试，再失败闭合；它不会把冷实例运行伪装成
   `terminalGuardRunId` 所要求的实际 `guard-preflight` 运行。
 
@@ -144,10 +149,11 @@ G2 冻结的候选依赖如下；“特性”只列本研究包直接启用的�
 MIR 语义记录、canonical LIR、最终规范记录流、语义摘要和八项阶段公式结果。阶段
 生产路径物化逐模块来源位置、记录种类、符号序号、解析目标和连续载荷缓冲区；MIR
 由 HIR 解析结果构造，canonical LIR 再独立完成所有者序号分配与规范排序。同长度错误
-引用和同长度字符串替换均有拒绝测试。正式基础规模新进程编排与
-`run --protocol compiler-calibration-v1` 入口已经落地；正式五级阶梯、Evidence v1
-写出器与独立验证器仍须按设计文档继续实现。在这些后续证据闭合前不得宣称任何正式
-预算数字。
+引用和同长度字符串替换均有拒绝测试。正式基础规模新进程编排、两批五轮正式阶梯、
+精确拐点分析和
+`run --protocol compiler-calibration-v1` 入口已经落地；失败清理、候选比较、
+Evidence v1 写出器与独立验证器仍须按设计文档继续实现。在这些后续证据闭合前不得
+宣称任何正式预算数字。
 
 `LF-COMP-CORRIDOR-v1` 的独立预言机另行实现身份字段展开、StableId128 派生、十三类
 语义记录、所有者局部序号、规范排序和记录流编码，并在三种模块图的 `N = 1`、
@@ -166,10 +172,10 @@ MIR 语义记录、canonical LIR、最终规范记录流、语义摘要和八项
 oracle 新进程；只有完整计数、完整有类型输出和语义摘要全部相等，该级别才可能形成
 候选 `B`。基础规模发现已经具备正式尝试身份、无效尝试重试、九个自然身份的严格二倍
 选择和持久检查点，其墙钟只来自无逐分配记账的 timing 二进制，预言机时延不进入性能
-结论。稳定容量实例仍未进入正式五级轮次，完整
-资源预测、两个归因副本、Evidence v1 封套和独立 Evidence 验证器也尚未建立。因此本
-切片可以在冻结研究机上得到后续阶梯使用的候选 `B`，但检查点本身不得作为预算、
-候选排名或正式 Evidence 引用；attribution 的诊断墙钟仍不得进入任何时延结论。
+结论。正式阶梯已经分离冷实例与稳定容量复用、时延与归因指标，并从两批五轮的有效
+原始数据选择校准规模与压力规模。重复性包络、增长斜率、失败清理、候选矩阵、
+Evidence v1 封套和独立 Evidence 验证器仍未建立；因此执行检查点本身不得作为预算、
+候选排名或正式 Evidence 引用，attribution 的诊断墙钟仍不得进入任何时延结论。
 
 ```powershell
 cargo +1.96.0 run --locked `
@@ -220,22 +226,21 @@ cargo +1.96.0 build --release --locked `
   smoke-identity-fresh-process-pilot local-smoke wide-star-v1 1
 ```
 
-执行九个自然身份的基础规模正式试运行。输出路径建议位于仓库外的已存在目录；正式
+执行九个自然身份的基础规模试运行与正式规模阶梯。输出路径建议位于仓库外的已存在目录；正式
 入口会拒绝覆盖既有输出或既有 `.checkpoints` 分代目录。运行中断后，已完成状态仍保留
 在 `<output-file>.checkpoints/`，应以新输出路径重新执行，不能把两次运行拼接。单入口
-会先以相同锁定工具链、release 配置和封闭总特性构建同目录 timing 与 oracle 二进制，
-再分别核对角色、模式、职责和记账状态，因而不依赖预先存在的角色制品：
+会先以相同锁定工具链、release 配置和封闭总特性构建同目录 timing、attribution 与
+oracle 二进制，再分别核对角色、模式、职责和记账状态，因而不依赖预先存在的角色制品：
 
 ```powershell
 cargo +1.96.0 run --release --locked `
   -p issue-308-compiler-budget-calibration-research `
   --no-default-features --features research-runner-full `
   --bin issue-308-compiler-budget-calibration-research -- `
-  run --protocol compiler-calibration-v1 --output C:\tmp\compiler-base-scale-pilot.json
+  run --protocol compiler-calibration-v1 --output C:\tmp\compiler-formal-execution.json
 ```
 
-命令要求调用前工作树干净；本切片的输出是
-`laneflow.compiler-calibration-base-scale-pilot-checkpoint` v2，包含 timing 与
-oracle 的分离运行记录；它不是
-Compiler Calibration Evidence v1。第 8 切片将在同一 `B` 上增加至少五级正式阶梯、
-三次预热、七次稳定容量复用以及完整的前一级资源预测和停止规则。
+命令要求调用前工作树干净；输出是
+`laneflow.compiler-calibration-formal-execution-checkpoint` v1，包含基础规模、
+timing、attribution、oracle、正式阶梯及其纯函数分析结果；它不是
+Compiler Calibration Evidence v1。

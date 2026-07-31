@@ -2,12 +2,12 @@ mod support;
 
 use issue_308_compiler_budget_calibration_research::{
     ScalableWorkloadId, attribution_binary_descriptor, load_repository_contract,
-    measure_identity_attribution_child, measure_scalable_attribution_ladder_child,
-    wait_for_parent_start_signal,
+    measure_identity_attribution_child, measure_scalable_attribution_child,
+    measure_scalable_attribution_ladder_child, wait_for_parent_start_signal,
 };
 use std::str::FromStr;
 
-const USAGE: &str = "用法：issue-308-compiler-budget-calibration-attribution <describe-role|run|run-ladder>\n  run <compiler-instance-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-ladder <compiler-instance-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>";
+const USAGE: &str = "用法：issue-308-compiler-budget-calibration-attribution <describe-role|run|run-preflight|run-ladder>\n  run <compiler-instance-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-preflight <compiler-instance-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-ladder <compiler-instance-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>";
 
 fn main() {
     support::main_with(run);
@@ -56,7 +56,8 @@ fn run() -> Result<(), String> {
             .map_err(|error| error.to_string())?;
             support::print_json(&report, "归因角色结果")
         }
-        "run-ladder" => {
+        "run-preflight" | "run-ladder" => {
+            let ladder = command == "run-ladder";
             let compiler_instance_id =
                 support::next_utf8_argument(&mut arguments, "compiler-instance-id", USAGE)?;
             let workload_id = ScalableWorkloadId::from_str(&support::next_utf8_argument(
@@ -86,16 +87,29 @@ fn run() -> Result<(), String> {
 
             wait_for_parent_start_signal().map_err(|error| error.to_string())?;
             let trusted = load_repository_contract().map_err(|error| error.to_string())?;
-            let report = measure_scalable_attribution_ladder_child(
-                &trusted,
-                compiler_instance_id,
-                workload_id,
-                graph_profile,
-                n,
-                hard_ceiling_bytes,
-            )
-            .map_err(|error| error.to_string())?;
-            support::print_json(&report, "归因角色正式阶梯结果")
+            if ladder {
+                let report = measure_scalable_attribution_ladder_child(
+                    &trusted,
+                    compiler_instance_id,
+                    workload_id,
+                    graph_profile,
+                    n,
+                    hard_ceiling_bytes,
+                )
+                .map_err(|error| error.to_string())?;
+                support::print_json(&report, "归因角色正式阶梯结果")
+            } else {
+                let report = measure_scalable_attribution_child(
+                    &trusted,
+                    compiler_instance_id,
+                    workload_id,
+                    graph_profile,
+                    n,
+                    hard_ceiling_bytes,
+                )
+                .map_err(|error| error.to_string())?;
+                support::print_json(&report, "归因角色护栏预检结果")
+            }
         }
         _ => Err(USAGE.to_owned()),
     }
