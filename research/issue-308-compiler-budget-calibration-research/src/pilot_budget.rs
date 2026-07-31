@@ -13,6 +13,7 @@ use crate::{
     ScalableTimingOutcome, ScalableWorkloadId, WORKLOAD_REVISION_V1,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,6 +49,9 @@ struct Analysis {
     workload_id: ScalableWorkloadId,
     graph_profile: String,
     b: u32,
+    source_run_ids: Vec<String>,
+    source_oracle_run_id: String,
+    semantic_digest_sha256: String,
     wall_values: Vec<u64>,
     wall_median: u64,
     wall_mad: u64,
@@ -64,9 +68,17 @@ struct Report {
     budget_basis: String,
     scope: String,
     coverage: Coverage,
+    source_checkpoint: SourceCheckpoint,
     verified_pilot_identity_count: usize,
     clock_quantum_ns: u64,
     pilot_budget_estimates: Vec<Estimate>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceCheckpoint {
+    byte_length: u64,
+    sha256: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -88,6 +100,10 @@ struct Estimate {
     sample_kind: String,
     binary_mode: String,
     sample_count: usize,
+    source_run_ids: Vec<String>,
+    source_oracle_run_id: String,
+    semantic_digest_sha256: String,
+    raw_values: Vec<u64>,
     median: u64,
     median_absolute_deviation: u64,
     observed_upper: u64,
@@ -111,8 +127,13 @@ pub fn recompute_pilot_budget(
         path: request.input_path.clone(),
         source,
     })?;
+    let source_checkpoint = SourceCheckpoint {
+        byte_length: u64::try_from(bytes.len())
+            .map_err(|_| invalid("来源检查点长度无法表示为 u64"))?,
+        sha256: lower_hex(&Sha256::digest(&bytes)),
+    };
     let checkpoint = serde_json::from_slice(&bytes).map_err(PilotBudgetError::Parse)?;
-    let report = build_report(checkpoint)?;
+    let report = build_report(checkpoint, source_checkpoint)?;
     let json = serde_json::to_string_pretty(&report).map_err(PilotBudgetError::Serialize)? + "\n";
     write(&request.json_output_path, json.as_bytes())?;
     write(
@@ -127,7 +148,10 @@ pub fn recompute_pilot_budget(
     })
 }
 
-fn build_report(checkpoint: CheckpointInput) -> Result<Report, PilotBudgetError> {
+fn build_report(
+    checkpoint: CheckpointInput,
+    source_checkpoint: SourceCheckpoint,
+) -> Result<Report, PilotBudgetError> {
     ensure(
         checkpoint.schema == FORMAL_PROTOCOL_CHECKPOINT_SCHEMA
             && checkpoint.schema_version == FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION,
@@ -217,6 +241,7 @@ fn build_report(checkpoint: CheckpointInput) -> Result<Report, PilotBudgetError>
             .map(str::to_owned)
             .collect(),
         },
+        source_checkpoint,
         verified_pilot_identity_count: identities.len(),
         clock_quantum_ns: pilot.clock_quantum_ns,
         pilot_budget_estimates: estimates,
@@ -241,13 +266,17 @@ fn analyze(
         .value
         .ok_or_else(|| invalid("自然身份没有可靠基础规模 B"))?;
     ensure(selection.b.reason.is_none(), "已观察到 B 仍携带不可用原因")?;
-    let matches = selection
+    validate_scale_path(
+        selection
+            .pilot_levels
+            .iter()
+            .map(|level| (level.n, level.qualifies)),
+        b,
+    )?;
+    let level = selection
         .pilot_levels
-        .iter()
-        .filter(|level| level.n == b)
-        .collect::<Vec<_>>();
-    ensure(matches.len() == 1, "基础规模选择必须恰好包含一个 B 级别")?;
-    let level = matches[0];
+        .last()
+        .expect("validated non-empty pilot levels");
     ensure(
         level.qualifies
             && level.aggregation_method == BASE_SCALE_AGGREGATION_METHOD
@@ -379,6 +408,9 @@ fn analyze(
         workload_id: selection.workload_id,
         graph_profile: selection.graph_profile.clone(),
         b,
+        source_run_ids: level.contributing_run_ids.clone(),
+        source_oracle_run_id: level.oracle_run_id.clone(),
+        semantic_digest_sha256: level.semantic_digest.clone(),
         wall_values,
         wall_median: level.wall_time_median_ns,
         wall_mad: level.wall_time_median_absolute_deviation_ns,
@@ -409,6 +441,10 @@ fn estimate(
         sample_kind: "cold-instance".to_owned(),
         binary_mode: "timing".to_owned(),
         sample_count: values.len(),
+        source_run_ids: analysis.source_run_ids.clone(),
+        source_oracle_run_id: analysis.source_oracle_run_id.clone(),
+        semantic_digest_sha256: analysis.semantic_digest_sha256.clone(),
+        raw_values: values.to_vec(),
         median,
         median_absolute_deviation: mad,
         observed_upper,
@@ -455,6 +491,31 @@ fn median_and_mad(values: &[u64]) -> Result<(u64, u64), PilotBudgetError> {
     Ok((median, deviations[deviations.len() / 2]))
 }
 
+fn validate_scale_path(
+    levels: impl IntoIterator<Item = (u32, bool)>,
+    b: u32,
+) -> Result<(), PilotBudgetError> {
+    let mut levels = levels.into_iter().peekable();
+    ensure(levels.peek().is_some(), "基础规模选择缺少试运行级别")?;
+    let mut expected_n = 1_u32;
+    let mut last_n = None;
+    while let Some((n, qualifies)) = levels.next() {
+        ensure(n == expected_n, "基础规模试运行没有从一开始严格二倍递增")?;
+        let is_last = levels.peek().is_none();
+        ensure(
+            qualifies == is_last,
+            "B 必须是逐级试运行中的首个且最后一个合格级别",
+        )?;
+        last_n = Some(n);
+        if !is_last {
+            expected_n = expected_n
+                .checked_mul(2)
+                .ok_or_else(|| invalid("基础规模试运行级别溢出"))?;
+        }
+    }
+    ensure(last_n == Some(b), "B 与逐级试运行的首个合格级别不一致")
+}
+
 fn expected_identities() -> BTreeSet<(ScalableWorkloadId, String)> {
     ScalableWorkloadId::ALL
         .into_iter()
@@ -470,23 +531,35 @@ fn render_markdown(report: &Report) -> String {
     let mut output = format!(
         "# #308 冷实例临时性能预算\n\n\
          > 这是供 #292 审阅的临时研究估算，不是正式 R0 研究预算，也不是产品 SLA。\n\n\
-         - 已独立重算基础规模自然身份：{} 个\n\
+         - 已从原始样本重新计算基础规模自然身份：{} 个\n\
          - 每个自然身份使用七个独立冷实例样本，并核对语义摘要与独立预言机\n\
          - 预算按观测上界乘以同组样本的最大值/中位数离散比后向上取整\n\
+         - 来源检查点：{} 字节，SHA-256 `{}`\n\
          - 时钟量子：{} ns\n\n\
-         | 工作负载 | 模块图 | 测量规模 | N | 指标 | 样本 | 观测上界 | 预算放大比 | 建议预算 | 单位 |\n\
-         | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | --- |\n",
-        report.verified_pilot_identity_count, report.clock_quantum_ns
+         | 工作负载 | 模块图 | 测量规模 | N | 指标 | 原始值 | 中位数 | MAD | 观测上界 | 预算放大比 | 建议预算 | 单位 |\n\
+         | --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |\n",
+        report.verified_pilot_identity_count,
+        report.source_checkpoint.byte_length,
+        report.source_checkpoint.sha256,
+        report.clock_quantum_ns
     );
     for item in &report.pilot_budget_estimates {
+        let raw_values = item
+            .raw_values
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
         output.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} | {} | {}/{} | {} | {} |\n",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {}/{} | {} | {} |\n",
             item.workload_id.as_str(),
             item.graph_profile,
             item.measurement_scale,
             item.n,
             item.metric,
-            item.sample_kind,
+            raw_values,
+            item.median,
+            item.median_absolute_deviation,
             item.observed_upper,
             item.within_run_spread_ratio.numerator,
             item.within_run_spread_ratio.denominator,
@@ -495,6 +568,18 @@ fn render_markdown(report: &Report) -> String {
         ));
     }
     output
+}
+
+fn lower_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+
+    bytes.iter().fold(
+        String::with_capacity(bytes.len() * 2),
+        |mut output, byte| {
+            write!(output, "{byte:02x}").expect("writing to a String cannot fail");
+            output
+        },
+    )
 }
 
 fn write(path: &Path, bytes: &[u8]) -> Result<(), PilotBudgetError> {
@@ -572,5 +657,15 @@ mod tests {
     #[test]
     fn expected_identity_matrix_is_three_by_three() {
         assert_eq!(expected_identities().len(), 9);
+    }
+
+    #[test]
+    fn base_scale_path_requires_strict_doubling_and_first_qualifying_last_level() {
+        assert!(validate_scale_path([(1, false), (2, false), (4, true)], 4).is_ok());
+        assert!(validate_scale_path([], 1).is_err());
+        assert!(validate_scale_path([(2, true)], 2).is_err());
+        assert!(validate_scale_path([(1, false), (4, true)], 4).is_err());
+        assert!(validate_scale_path([(1, true), (2, true)], 2).is_err());
+        assert!(validate_scale_path([(1, false), (2, true)], 4).is_err());
     }
 }

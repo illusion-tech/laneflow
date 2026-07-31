@@ -1,0 +1,752 @@
+{
+  "schema": "laneflow.compiler-calibration-pilot-budget-report",
+  "schemaVersion": 1,
+  "budgetBasis": "base-scale-pilot",
+  "scope": "供 #292 使用的冷实例临时研究估算；不是正式 R0 研究预算或产品 SLA",
+  "coverage": {
+    "metrics": [
+      "wall-time-ns",
+      "peak-live-requested-bytes"
+    ],
+    "sampleKinds": [
+      "cold-instance"
+    ],
+    "omitted": [
+      "stable-capacity-reuse",
+      "retained-capacity-bytes",
+      "private-bytes",
+      "commit-peak-bytes",
+      "candidate-comparison",
+      "growth-slope",
+      "formal-knee-selection"
+    ]
+  },
+  "sourceCheckpoint": {
+    "byteLength": 4877244,
+    "sha256": "6d075076f810b3ecc6bd86d608215c1415286fc64941f53e9bda7611c918f1d4"
+  },
+  "verifiedPilotIdentityCount": 9,
+  "clockQuantumNs": 100,
+  "pilotBudgetEstimates": [
+    {
+      "workloadId": "LF-COMP-ID-v1",
+      "graphProfile": "wide-star-v1",
+      "measurementScale": "base-scale",
+      "n": 8192,
+      "metric": "wall-time-ns",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/oracle",
+      "semanticDigestSha256": "5fd4ae2fa6066fc300af50030a38dc5346c9bfd06281ef5a2ed0abcee5a90032",
+      "rawValues": [
+        4482362600,
+        4844740800,
+        4535314000,
+        4504544600,
+        4565522100,
+        4575909100,
+        4623841000
+      ],
+      "median": 4565522100,
+      "medianAbsoluteDeviation": 58318900,
+      "observedUpper": 4844740800,
+      "withinRunSpreadRatio": {
+        "numerator": 16149136,
+        "denominator": 15218407
+      },
+      "roundingQuantum": 100,
+      "suggestedPilotBudget": 5141036000,
+      "unit": "nanosecond"
+    },
+    {
+      "workloadId": "LF-COMP-ID-v1",
+      "graphProfile": "wide-star-v1",
+      "measurementScale": "base-scale",
+      "n": 8192,
+      "metric": "peak-live-requested-bytes",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-ID-v1/wide-star-v1/n-8192/attempt-0/oracle",
+      "semanticDigestSha256": "5fd4ae2fa6066fc300af50030a38dc5346c9bfd06281ef5a2ed0abcee5a90032",
+      "rawValues": [
+        246506734,
+        246506734,
+        246506734,
+        246506734,
+        246506734,
+        246506734,
+        246506734
+      ],
+      "median": 246506734,
+      "medianAbsoluteDeviation": 0,
+      "observedUpper": 246506734,
+      "withinRunSpreadRatio": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "roundingQuantum": 1,
+      "suggestedPilotBudget": 246506734,
+      "unit": "byte"
+    },
+    {
+      "workloadId": "LF-COMP-ID-v1",
+      "graphProfile": "deep-chain-v1",
+      "measurementScale": "base-scale",
+      "n": 4096,
+      "metric": "wall-time-ns",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/oracle",
+      "semanticDigestSha256": "8244c85f5a9098e3096b8c8c0e4a4ee7eae7ae65ff88743fe91e1c849517675f",
+      "rawValues": [
+        1278989300,
+        1240485900,
+        1302245200,
+        1289879100,
+        1246531100,
+        1354910600,
+        1256189500
+      ],
+      "median": 1278989300,
+      "medianAbsoluteDeviation": 23255900,
+      "observedUpper": 1354910600,
+      "withinRunSpreadRatio": {
+        "numerator": 13549106,
+        "denominator": 12789893
+      },
+      "roundingQuantum": 100,
+      "suggestedPilotBudget": 1435338700,
+      "unit": "nanosecond"
+    },
+    {
+      "workloadId": "LF-COMP-ID-v1",
+      "graphProfile": "deep-chain-v1",
+      "measurementScale": "base-scale",
+      "n": 4096,
+      "metric": "peak-live-requested-bytes",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-ID-v1/deep-chain-v1/n-4096/attempt-0/oracle",
+      "semanticDigestSha256": "8244c85f5a9098e3096b8c8c0e4a4ee7eae7ae65ff88743fe91e1c849517675f",
+      "rawValues": [
+        123266021,
+        123266021,
+        123266021,
+        123266021,
+        123266021,
+        123266021,
+        123266021
+      ],
+      "median": 123266021,
+      "medianAbsoluteDeviation": 0,
+      "observedUpper": 123266021,
+      "withinRunSpreadRatio": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "roundingQuantum": 1,
+      "suggestedPilotBudget": 123266021,
+      "unit": "byte"
+    },
+    {
+      "workloadId": "LF-COMP-ID-v1",
+      "graphProfile": "shared-fanin-dag-v1",
+      "measurementScale": "base-scale",
+      "n": 256,
+      "metric": "wall-time-ns",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/oracle",
+      "semanticDigestSha256": "53ea8161a492174d642a636a56938c0d9eb779d5c7921a8d430ff52f3de7fdbf",
+      "rawValues": [
+        12062600,
+        11910000,
+        12298800,
+        11910500,
+        11960800,
+        13141500,
+        13991800
+      ],
+      "median": 12062600,
+      "medianAbsoluteDeviation": 152600,
+      "observedUpper": 13991800,
+      "withinRunSpreadRatio": {
+        "numerator": 69959,
+        "denominator": 60313
+      },
+      "roundingQuantum": 100,
+      "suggestedPilotBudget": 16229600,
+      "unit": "nanosecond"
+    },
+    {
+      "workloadId": "LF-COMP-ID-v1",
+      "graphProfile": "shared-fanin-dag-v1",
+      "measurementScale": "base-scale",
+      "n": 256,
+      "metric": "peak-live-requested-bytes",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-ID-v1/shared-fanin-dag-v1/n-256/attempt-0/oracle",
+      "semanticDigestSha256": "53ea8161a492174d642a636a56938c0d9eb779d5c7921a8d430ff52f3de7fdbf",
+      "rawValues": [
+        7747935,
+        7747935,
+        7747935,
+        7747935,
+        7747935,
+        7747935,
+        7747935
+      ],
+      "median": 7747935,
+      "medianAbsoluteDeviation": 0,
+      "observedUpper": 7747935,
+      "withinRunSpreadRatio": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "roundingQuantum": 1,
+      "suggestedPilotBudget": 7747935,
+      "unit": "byte"
+    },
+    {
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "graphProfile": "wide-star-v1",
+      "measurementScale": "base-scale",
+      "n": 8,
+      "metric": "wall-time-ns",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/oracle",
+      "semanticDigestSha256": "04b1ebd179e549b5d47e6d3ed45c86c29ccdf901069f7d70bc2f530372c58a65",
+      "rawValues": [
+        21867100,
+        19122200,
+        22172800,
+        21117900,
+        21534700,
+        21623100,
+        21852700
+      ],
+      "median": 21623100,
+      "medianAbsoluteDeviation": 244000,
+      "observedUpper": 22172800,
+      "withinRunSpreadRatio": {
+        "numerator": 221728,
+        "denominator": 216231
+      },
+      "roundingQuantum": 100,
+      "suggestedPilotBudget": 22736500,
+      "unit": "nanosecond"
+    },
+    {
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "graphProfile": "wide-star-v1",
+      "measurementScale": "base-scale",
+      "n": 8,
+      "metric": "peak-live-requested-bytes",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-CORRIDOR-v1/wide-star-v1/n-8/attempt-0/oracle",
+      "semanticDigestSha256": "04b1ebd179e549b5d47e6d3ed45c86c29ccdf901069f7d70bc2f530372c58a65",
+      "rawValues": [
+        18475516,
+        18475516,
+        18475516,
+        18475516,
+        18475516,
+        18475516,
+        18475516
+      ],
+      "median": 18475516,
+      "medianAbsoluteDeviation": 0,
+      "observedUpper": 18475516,
+      "withinRunSpreadRatio": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "roundingQuantum": 1,
+      "suggestedPilotBudget": 18475516,
+      "unit": "byte"
+    },
+    {
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "graphProfile": "deep-chain-v1",
+      "measurementScale": "base-scale",
+      "n": 8,
+      "metric": "wall-time-ns",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/oracle",
+      "semanticDigestSha256": "149e493ebafdab011ca5eb71b2d2095643483f615f6d6af836a099acce5a0617",
+      "rawValues": [
+        24657800,
+        21155700,
+        19468600,
+        21066600,
+        22426600,
+        21547000,
+        21228100
+      ],
+      "median": 21228100,
+      "medianAbsoluteDeviation": 318900,
+      "observedUpper": 24657800,
+      "withinRunSpreadRatio": {
+        "numerator": 246578,
+        "denominator": 212281
+      },
+      "roundingQuantum": 100,
+      "suggestedPilotBudget": 28641700,
+      "unit": "nanosecond"
+    },
+    {
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "graphProfile": "deep-chain-v1",
+      "measurementScale": "base-scale",
+      "n": 8,
+      "metric": "peak-live-requested-bytes",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-CORRIDOR-v1/deep-chain-v1/n-8/attempt-0/oracle",
+      "semanticDigestSha256": "149e493ebafdab011ca5eb71b2d2095643483f615f6d6af836a099acce5a0617",
+      "rawValues": [
+        18475275,
+        18475275,
+        18475275,
+        18475275,
+        18475275,
+        18475275,
+        18475275
+      ],
+      "median": 18475275,
+      "medianAbsoluteDeviation": 0,
+      "observedUpper": 18475275,
+      "withinRunSpreadRatio": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "roundingQuantum": 1,
+      "suggestedPilotBudget": 18475275,
+      "unit": "byte"
+    },
+    {
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "graphProfile": "shared-fanin-dag-v1",
+      "measurementScale": "base-scale",
+      "n": 4096,
+      "metric": "wall-time-ns",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/oracle",
+      "semanticDigestSha256": "9b7b4b3a03b440b708832350281f3dc8d30456a0dbd921f5403e8343cecedb5c",
+      "rawValues": [
+        12391997500,
+        11430284800,
+        10587343300,
+        10464745300,
+        10661301300,
+        10535646400,
+        10491973400
+      ],
+      "median": 10587343300,
+      "medianAbsoluteDeviation": 95369900,
+      "observedUpper": 12391997500,
+      "withinRunSpreadRatio": {
+        "numerator": 123919975,
+        "denominator": 105873433
+      },
+      "roundingQuantum": 100,
+      "suggestedPilotBudget": 14504262100,
+      "unit": "nanosecond"
+    },
+    {
+      "workloadId": "LF-COMP-CORRIDOR-v1",
+      "graphProfile": "shared-fanin-dag-v1",
+      "measurementScale": "base-scale",
+      "n": 4096,
+      "metric": "peak-live-requested-bytes",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-CORRIDOR-v1/shared-fanin-dag-v1/n-4096/attempt-0/oracle",
+      "semanticDigestSha256": "9b7b4b3a03b440b708832350281f3dc8d30456a0dbd921f5403e8343cecedb5c",
+      "rawValues": [
+        9445327265,
+        9445327265,
+        9445327265,
+        9445327265,
+        9445327265,
+        9445327265,
+        9445327265
+      ],
+      "median": 9445327265,
+      "medianAbsoluteDeviation": 0,
+      "observedUpper": 9445327265,
+      "withinRunSpreadRatio": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "roundingQuantum": 1,
+      "suggestedPilotBudget": 9445327265,
+      "unit": "byte"
+    },
+    {
+      "workloadId": "LF-COMP-JUNCTION-GRID-v1",
+      "graphProfile": "wide-star-v1",
+      "measurementScale": "base-scale",
+      "n": 16,
+      "metric": "wall-time-ns",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/oracle",
+      "semanticDigestSha256": "8461270b95988dd2143fdb54fcc95c25081c932bb8d7fec37d9cb2469e9d330e",
+      "rawValues": [
+        4599300,
+        4849800,
+        4923900,
+        4872100,
+        4773000,
+        5150500,
+        4695400
+      ],
+      "median": 4849800,
+      "medianAbsoluteDeviation": 76800,
+      "observedUpper": 5150500,
+      "withinRunSpreadRatio": {
+        "numerator": 51505,
+        "denominator": 48498
+      },
+      "roundingQuantum": 100,
+      "suggestedPilotBudget": 5469900,
+      "unit": "nanosecond"
+    },
+    {
+      "workloadId": "LF-COMP-JUNCTION-GRID-v1",
+      "graphProfile": "wide-star-v1",
+      "measurementScale": "base-scale",
+      "n": 16,
+      "metric": "peak-live-requested-bytes",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-JUNCTION-GRID-v1/wide-star-v1/n-16/attempt-0/oracle",
+      "semanticDigestSha256": "8461270b95988dd2143fdb54fcc95c25081c932bb8d7fec37d9cb2469e9d330e",
+      "rawValues": [
+        8979896,
+        8979896,
+        8979896,
+        8979896,
+        8979896,
+        8979896,
+        8979896
+      ],
+      "median": 8979896,
+      "medianAbsoluteDeviation": 0,
+      "observedUpper": 8979896,
+      "withinRunSpreadRatio": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "roundingQuantum": 1,
+      "suggestedPilotBudget": 8979896,
+      "unit": "byte"
+    },
+    {
+      "workloadId": "LF-COMP-JUNCTION-GRID-v1",
+      "graphProfile": "deep-chain-v1",
+      "measurementScale": "base-scale",
+      "n": 16,
+      "metric": "wall-time-ns",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/oracle",
+      "semanticDigestSha256": "41d2345d7faf10bdabe86876d33db7e22f99d794e4e9562f851e583c12aeff6e",
+      "rawValues": [
+        4550000,
+        4534200,
+        4627600,
+        4624500,
+        4737900,
+        4548100,
+        4902100
+      ],
+      "median": 4624500,
+      "medianAbsoluteDeviation": 76400,
+      "observedUpper": 4902100,
+      "withinRunSpreadRatio": {
+        "numerator": 49021,
+        "denominator": 46245
+      },
+      "roundingQuantum": 100,
+      "suggestedPilotBudget": 5196400,
+      "unit": "nanosecond"
+    },
+    {
+      "workloadId": "LF-COMP-JUNCTION-GRID-v1",
+      "graphProfile": "deep-chain-v1",
+      "measurementScale": "base-scale",
+      "n": 16,
+      "metric": "peak-live-requested-bytes",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-JUNCTION-GRID-v1/deep-chain-v1/n-16/attempt-0/oracle",
+      "semanticDigestSha256": "41d2345d7faf10bdabe86876d33db7e22f99d794e4e9562f851e583c12aeff6e",
+      "rawValues": [
+        8979679,
+        8979679,
+        8979679,
+        8979679,
+        8979679,
+        8979679,
+        8979679
+      ],
+      "median": 8979679,
+      "medianAbsoluteDeviation": 0,
+      "observedUpper": 8979679,
+      "withinRunSpreadRatio": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "roundingQuantum": 1,
+      "suggestedPilotBudget": 8979679,
+      "unit": "byte"
+    },
+    {
+      "workloadId": "LF-COMP-JUNCTION-GRID-v1",
+      "graphProfile": "shared-fanin-dag-v1",
+      "measurementScale": "base-scale",
+      "n": 16,
+      "metric": "wall-time-ns",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/oracle",
+      "semanticDigestSha256": "02f39b0170bc6160b2cd6e9000553d4dd8a4eecd21b9a30909074cbe2e78cf71",
+      "rawValues": [
+        4678000,
+        4663500,
+        4799700,
+        4719200,
+        4688400,
+        4798000,
+        4620400
+      ],
+      "median": 4688400,
+      "medianAbsoluteDeviation": 30800,
+      "observedUpper": 4799700,
+      "withinRunSpreadRatio": {
+        "numerator": 15999,
+        "denominator": 15628
+      },
+      "roundingQuantum": 100,
+      "suggestedPilotBudget": 4913700,
+      "unit": "nanosecond"
+    },
+    {
+      "workloadId": "LF-COMP-JUNCTION-GRID-v1",
+      "graphProfile": "shared-fanin-dag-v1",
+      "measurementScale": "base-scale",
+      "n": 16,
+      "metric": "peak-live-requested-bytes",
+      "sampleKind": "cold-instance",
+      "binaryMode": "timing",
+      "sampleCount": 7,
+      "sourceRunIds": [
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-0",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-1",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-2",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-3",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-4",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-5",
+        "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/pilot-sample-6"
+      ],
+      "sourceOracleRunId": "pilot/LF-COMP-JUNCTION-GRID-v1/shared-fanin-dag-v1/n-16/attempt-0/oracle",
+      "semanticDigestSha256": "02f39b0170bc6160b2cd6e9000553d4dd8a4eecd21b9a30909074cbe2e78cf71",
+      "rawValues": [
+        8983556,
+        8983556,
+        8983556,
+        8983556,
+        8983556,
+        8983556,
+        8983556
+      ],
+      "median": 8983556,
+      "medianAbsoluteDeviation": 0,
+      "observedUpper": 8983556,
+      "withinRunSpreadRatio": {
+        "numerator": 1,
+        "denominator": 1
+      },
+      "roundingQuantum": 1,
+      "suggestedPilotBudget": 8983556,
+      "unit": "byte"
+    }
+  ]
+}

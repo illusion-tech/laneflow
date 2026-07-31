@@ -19,6 +19,8 @@
 - `../adr/0021-city-simulation-game-traffic-foundation.md`
 - `network-compiler.md`
 - `core-runtime-performance-baseline.md`
+- `../reference/v0.10-compiler-pilot-budget.md`
+- `../reference/v0.10-compiler-pilot-budget.json`
 - `data-format.md`
 - `spatial-geometry.md`
 - `../reference/glossary.md`
@@ -1935,10 +1937,12 @@ cargo +1.96.0 run --release --locked `
 
 1. #308 G1 通过并合入本设计；
 2. 用户明确授权 #308 G2；
-3. 创建非生产研究包、正确性测试和证据写入器；
-4. 先完成冒烟/试运行（smoke/pilot），再在 R0 执行正式阶梯；
-5. 发布原始 JSON、报告、复现命令和审阅结论；
-6. #308 按 G3/G4 收口；
-7. #292 引用 exact evidence commit，冻结最终数值并继续自身 G1。
+3. 创建非生产研究包与正确性测试；
+4. 完成冒烟/试运行（smoke/pilot），从实测选择九个自然身份的可靠基础规模；
+5. 发布带七样本原始值、来源与边界声明的冷实例临时性能预算；
+6. #292 可以引用该 exact report commit 冻结首轮实现预算，但必须保留其分层与临时性质；
+7. 只有未覆盖指标会改变 #292 决策时，才继续正式阶梯、候选矩阵或完整 Evidence v1；
+8. 完成本地/外部审阅后，#308 按 G3/G4 收口。
 
-在第 2 步前不得实现研究代码；在第 6 步前不得用试跑数字解除 #292 的阻塞关系。
+在第 2 步前不得实现研究代码。临时预算不能改写成正式 R0 研究预算、生产
+`CompileLimits`、产品服务等级协议或真实城市容量结论。
