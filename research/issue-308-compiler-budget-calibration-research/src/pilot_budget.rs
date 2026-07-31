@@ -7,12 +7,15 @@ use crate::{
     BASE_SCALE_AGGREGATION_METHOD, BASE_SCALE_PILOT_CHECKPOINT_SCHEMA,
     BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION, BASE_SCALE_SELECTION_RULE,
     BASE_SCALE_STRING_PROFILE, BASELINE_CANDIDATE_ID, BaseScaleOracleRun, BaseScalePilotCheckpoint,
-    BaseScalePilotRun, BaseScalePilotRunKind, BaseScaleSelection, CLOCK_QUANTUM_MULTIPLIER,
-    FORMAL_PROTOCOL_CHECKPOINT_SCHEMA, FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION,
-    FORMAL_PROTOCOL_ID, GENERATOR_VERSION_V1, GraphProfileId, ORACLE_BINARY_ID, ProcessExitKind,
-    RunStatus, SCALABLE_ORACLE_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
-    SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableOracleOutcome,
-    ScalableTimingOutcome, ScalableWorkloadId, TIMING_BINARY_ID, WORKLOAD_REVISION_V1,
+    BaseScalePilotLevel, BaseScalePilotRun, BaseScalePilotRunKind, BaseScaleSelection,
+    CLOCK_QUANTUM_MULTIPLIER, ChildProcessMonitorReport, FORMAL_PROTOCOL_CHECKPOINT_SCHEMA,
+    FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION, FORMAL_PROTOCOL_ID,
+    FRESH_PROCESS_PILOT_SAMPLE_COUNT, GENERATOR_VERSION_V1, GraphProfileId, GuardPreflightReport,
+    GuardThresholds, MAXIMUM_RELATIVE_MAD_PERCENT, ORACLE_BINARY_ID, ProcessExitKind,
+    ProcessObservation, RunStatus, SCALABLE_ORACLE_CHILD_SCHEMA,
+    SCALABLE_ORACLE_CHILD_SCHEMA_VERSION, SCALABLE_TIMING_CHILD_SCHEMA,
+    SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableOracleOutcome, ScalableTimingOutcome,
+    ScalableWorkloadId, TIMING_BINARY_ID, TerminationKind, WORKLOAD_REVISION_V1,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -282,47 +285,76 @@ fn analyze(
         .value
         .ok_or_else(|| invalid("自然身份没有可靠基础规模 B"))?;
     ensure(selection.b.reason.is_none(), "已观察到 B 仍携带不可用原因")?;
+
+    let mut analyzed_levels = Vec::with_capacity(selection.pilot_levels.len());
+    for level in &selection.pilot_levels {
+        let analysis = analyze_level(
+            selection,
+            level,
+            runs,
+            oracle_runs,
+            required_median_wall_time_ns,
+        )?;
+        let qualifies = analysis.wall_median >= required_median_wall_time_ns
+            && relative_mad_within_limit(analysis.wall_median, analysis.wall_mad);
+        ensure(
+            level.qualifies == qualifies,
+            format!("N={} 的缓存资格与原始样本重算结果不一致", level.n),
+        )?;
+        analyzed_levels.push((level.n, qualifies, analysis));
+    }
     validate_scale_path(
-        selection
-            .pilot_levels
+        analyzed_levels
             .iter()
-            .map(|level| (level.n, level.qualifies)),
+            .map(|(n, qualifies, _)| (*n, *qualifies)),
         b,
     )?;
-    let level = selection
-        .pilot_levels
-        .last()
+
+    let (_, _, analysis) = analyzed_levels
+        .pop()
         .expect("validated non-empty pilot levels");
+    ensure(analysis.b == b, "B 与最终重算级别不一致")?;
+    Ok(analysis)
+}
+
+fn analyze_level(
+    selection: &BaseScaleSelection,
+    level: &BaseScalePilotLevel,
+    runs: &BTreeMap<&str, &BaseScalePilotRun>,
+    oracle_runs: &BTreeMap<&str, &BaseScaleOracleRun>,
+    required_median_wall_time_ns: u64,
+) -> Result<Analysis, PilotBudgetError> {
+    let n = level.n;
     ensure(
-        level.qualifies
-            && level.aggregation_method == BASE_SCALE_AGGREGATION_METHOD
+        level.aggregation_method == BASE_SCALE_AGGREGATION_METHOD
             && level.all_semantic_digests_equal
             && level.all_guards_clear
             && level.complete_counts_equal
             && level.complete_typed_output_equal
+            && !level.semantic_digest.is_empty()
             && level.semantic_digest == level.oracle_semantic_digest,
-        "B 未满足测量质量、护栏或语义正确性要求",
+        format!("N={n} 未满足护栏或语义正确性要求"),
     )?;
     ensure(
         level.minimum_reliable_wall_time_ns == required_median_wall_time_ns
-            && level.wall_time_median_ns >= required_median_wall_time_ns
-            && level.wall_time_median_ns > 0
-            && level.wall_time_median_absolute_deviation_ns <= level.wall_time_median_ns / 50,
-        "B 未达到时钟阈值或墙钟 MAD 超过 2%",
+            && level.wall_time_median_ns > 0,
+        format!("N={n} 的时钟可靠阈值或墙钟中位数无效"),
     )?;
     ensure(
-        level.contributing_run_ids.len() == 7
+        level.contributing_run_ids.len() == FRESH_PROCESS_PILOT_SAMPLE_COUNT
             && level
                 .contributing_run_ids
                 .iter()
                 .collect::<BTreeSet<_>>()
                 .len()
-                == 7,
-        "B 必须引用七个不同冷实例运行",
+                == FRESH_PROCESS_PILOT_SAMPLE_COUNT,
+        format!("N={n} 必须引用七个不同冷实例运行"),
     )?;
 
-    let mut wall_values = Vec::with_capacity(7);
-    let mut peak_values = Vec::with_capacity(7);
+    let mut wall_values = Vec::with_capacity(FRESH_PROCESS_PILOT_SAMPLE_COUNT);
+    let mut peak_values = Vec::with_capacity(FRESH_PROCESS_PILOT_SAMPLE_COUNT);
+    let mut private_peak_values = Vec::with_capacity(FRESH_PROCESS_PILOT_SAMPLE_COUNT);
+    let mut primary_record_counts = BTreeSet::new();
     let mut compiler_instance_ids = BTreeSet::new();
     for (position, run_id) in level.contributing_run_ids.iter().enumerate() {
         let run = runs
@@ -338,23 +370,27 @@ fn analyze(
                 && run.graph_profile == selection.graph_profile
                 && run.string_profile == BASE_SCALE_STRING_PROFILE
                 && run.generator_version == GENERATOR_VERSION_V1
-                && run.n == b,
+                && run.n == n
+                && !run.attempt_id.is_empty(),
             format!("基础规模运行 {run_id} 的身份或状态错误"),
         )?;
+        primary_record_counts.insert(validate_clear_preflight(
+            &run.guard_preflight,
+            selection,
+            n,
+            run_id,
+        )?);
         let child = run
             .child
             .as_ref()
             .ok_or_else(|| invalid(format!("基础规模运行 {run_id} 缺少子进程报告")))?;
         let compiler_instance_is_unique = !child.compiler_instance_id.is_empty()
             && compiler_instance_ids.insert(child.compiler_instance_id.as_str());
+        let child_wall_time_ns = positive(child.wall_time_ns, "冷实例墙钟")?;
+        let child_peak_live_requested_bytes =
+            positive(child.guard_peak_live_requested_bytes, "冷实例峰值请求字节")?;
         ensure(
-            run.process.binary_id == TIMING_BINARY_ID
-                && run.process.exit_kind == ProcessExitKind::Success
-                && run.process.exit_code.value == Some(0)
-                && run.process.exit_code.reason.is_none()
-                && run.process.child_pid.value == Some(u64::from(child.child_pid))
-                && run.process.child_pid.reason.is_none()
-                && run.guard_preflight.allows_child_start
+            successful_process(&run.process, TIMING_BINARY_ID, child.child_pid)
                 && child.schema == SCALABLE_TIMING_CHILD_SCHEMA
                 && child.schema_version == SCALABLE_TIMING_CHILD_SCHEMA_VERSION
                 && child.binary_id == TIMING_BINARY_ID
@@ -367,28 +403,44 @@ fn analyze(
                 && child.graph_profile == selection.graph_profile
                 && child.string_profile == BASE_SCALE_STRING_PROFILE
                 && child.generator_version == GENERATOR_VERSION_V1
-                && child.n == b
-                && child.controlled_allocation_hard_ceiling_bytes > 0
-                && child.guard_peak_live_requested_bytes.is_some_and(|peak| {
-                    peak > 0 && peak <= child.controlled_allocation_hard_ceiling_bytes
-                })
+                && child.n == n
+                && child.controlled_allocation_hard_ceiling_bytes
+                    == run.guard_preflight.thresholds.compiler_controlled_bytes
+                && child_peak_live_requested_bytes
+                    <= child.controlled_allocation_hard_ceiling_bytes
                 && child.controlled_allocation_guard.is_none()
                 && child.semantic_digest_sha256.as_deref() == Some(&level.semantic_digest),
             format!("基础规模运行 {run_id} 的子进程报告错误"),
         )?;
-        wall_values.push(positive(child.wall_time_ns, "冷实例墙钟")?);
-        peak_values.push(positive(
-            child.guard_peak_live_requested_bytes,
-            "冷实例峰值请求字节",
+        private_peak_values.push(validate_clear_monitor(
+            run.monitor.as_ref(),
+            &run.guard_preflight,
+            Some(child_wall_time_ns),
+            run.kill_error.as_deref(),
+            run.monitor_error.as_deref(),
+            run_id,
         )?);
+        wall_values.push(child_wall_time_ns);
+        peak_values.push(child_peak_live_requested_bytes);
     }
+    ensure(
+        primary_record_counts.len() == 1,
+        format!("N={n} 的七个 timing 预检主记录计数不一致"),
+    )?;
+    ensure(
+        peak_values.iter().copied().collect::<BTreeSet<_>>().len() == 1,
+        format!("N={n} 的七个受控分配峰值不一致"),
+    )?;
+    let timing_primary_record_count = *primary_record_counts
+        .first()
+        .expect("validated timing preflight count");
     ensure(
         median_and_mad(&wall_values)?
             == (
                 level.wall_time_median_ns,
                 level.wall_time_median_absolute_deviation_ns,
             ),
-        "B 墙钟汇总与七个原始样本不一致",
+        format!("N={n} 墙钟汇总与七个原始样本不一致"),
     )?;
 
     let oracle_run = oracle_runs
@@ -398,14 +450,16 @@ fn analyze(
         .child
         .as_ref()
         .ok_or_else(|| invalid("基础规模预言机缺少子进程报告"))?;
+    let oracle_primary_record_count = validate_clear_preflight(
+        &oracle_run.guard_preflight,
+        selection,
+        n,
+        &level.oracle_run_id,
+    )?;
+    let oracle_peak_live_requested_bytes =
+        positive(oracle.guard_peak_live_requested_bytes, "预言机峰值请求字节")?;
     ensure(
-        oracle_run.process.binary_id == ORACLE_BINARY_ID
-            && oracle_run.process.exit_kind == ProcessExitKind::Success
-            && oracle_run.process.exit_code.value == Some(0)
-            && oracle_run.process.exit_code.reason.is_none()
-            && oracle_run.process.child_pid.value == Some(u64::from(oracle.child_pid))
-            && oracle_run.process.child_pid.reason.is_none()
-            && oracle_run.guard_preflight.allows_child_start
+        successful_process(&oracle_run.process, ORACLE_BINARY_ID, oracle.child_pid)
             && oracle_run.status == RunStatus::Valid
             && oracle_run.invalidation_reasons.is_empty()
             && oracle_run.workload_id == selection.workload_id
@@ -413,7 +467,7 @@ fn analyze(
             && oracle_run.graph_profile == selection.graph_profile
             && oracle_run.string_profile == BASE_SCALE_STRING_PROFILE
             && oracle_run.generator_version == GENERATOR_VERSION_V1
-            && oracle_run.n == b
+            && oracle_run.n == n
             && oracle.schema == SCALABLE_ORACLE_CHILD_SCHEMA
             && oracle.schema_version == SCALABLE_ORACLE_CHILD_SCHEMA_VERSION
             && oracle.binary_id == ORACLE_BINARY_ID
@@ -425,18 +479,28 @@ fn analyze(
             && oracle.graph_profile == selection.graph_profile
             && oracle.string_profile == BASE_SCALE_STRING_PROFILE
             && oracle.generator_version == GENERATOR_VERSION_V1
-            && oracle.n == b
-            && oracle.controlled_allocation_hard_ceiling_bytes > 0
-            && oracle.guard_peak_live_requested_bytes.is_some_and(|peak| {
-                peak > 0 && peak <= oracle.controlled_allocation_hard_ceiling_bytes
-            })
-            && oracle.primary_record_count
-                == Some(level.completed_level_guard_observation.primary_record_count)
+            && oracle.n == n
+            && oracle.controlled_allocation_hard_ceiling_bytes
+                == oracle_run
+                    .guard_preflight
+                    .thresholds
+                    .compiler_controlled_bytes
+            && oracle_peak_live_requested_bytes <= oracle.controlled_allocation_hard_ceiling_bytes
+            && oracle.primary_record_count == Some(timing_primary_record_count)
+            && oracle_primary_record_count == timing_primary_record_count
             && oracle.semantic_digest_sha256.as_deref() == Some(&level.semantic_digest)
             && oracle.complete_counts_equal
             && oracle.complete_typed_output_equal
             && oracle.controlled_allocation_guard.is_none(),
-        "B 未通过独立预言机",
+        format!("N={n} 未通过独立预言机"),
+    )?;
+    validate_clear_monitor(
+        oracle_run.monitor.as_ref(),
+        &oracle_run.guard_preflight,
+        None,
+        oracle_run.kill_error.as_deref(),
+        oracle_run.monitor_error.as_deref(),
+        &level.oracle_run_id,
     )?;
 
     let observed_wall = *wall_values
@@ -447,21 +511,27 @@ fn analyze(
         .iter()
         .max()
         .ok_or_else(|| invalid("缺少峰值请求字节"))?;
+    let observed_private_bytes = *private_peak_values
+        .iter()
+        .max()
+        .ok_or_else(|| invalid("缺少私有字节峰值"))?;
     ensure(
-        level.completed_level_guard_observation.n == b
-            && level.completed_level_guard_observation.primary_record_count > 0
+        level.completed_level_guard_observation.n == n
+            && level.completed_level_guard_observation.primary_record_count
+                == timing_primary_record_count
             && level
                 .completed_level_guard_observation
                 .peak_live_requested_bytes
                 == observed_peak
-            && level.completed_level_guard_observation.wall_time_ns >= observed_wall,
-        "B 完整护栏观察与原始样本不一致",
+            && level.completed_level_guard_observation.private_bytes == observed_private_bytes
+            && level.completed_level_guard_observation.wall_time_ns == observed_wall,
+        format!("N={n} 完整护栏观察与原始样本不一致"),
     )?;
     let (peak_median, peak_mad) = median_and_mad(&peak_values)?;
     Ok(Analysis {
         workload_id: selection.workload_id,
         graph_profile: selection.graph_profile.clone(),
-        b,
+        b: n,
         source_run_ids: level.contributing_run_ids.clone(),
         source_oracle_run_id: level.oracle_run_id.clone(),
         semantic_digest_sha256: level.semantic_digest.clone(),
@@ -472,6 +542,91 @@ fn analyze(
         peak_median,
         peak_mad,
     })
+}
+
+fn validate_clear_preflight(
+    preflight: &GuardPreflightReport,
+    selection: &BaseScaleSelection,
+    n: u32,
+    run_id: &str,
+) -> Result<u64, PilotBudgetError> {
+    let expected_thresholds = GuardThresholds::from_physical_memory_bytes(
+        preflight.memory_observation.physical_memory_bytes,
+    )
+    .map_err(|_| invalid(format!("运行 {run_id} 的物理内存观察无法派生护栏阈值")))?;
+    ensure(
+        preflight.workload_id == selection.workload_id.as_str()
+            && preflight.graph_profile == selection.graph_profile
+            && preflight.n == n
+            && preflight.primary_record_count > 0
+            && preflight.memory_observation.available_physical_memory_bytes
+                <= preflight.memory_observation.physical_memory_bytes
+            && preflight.thresholds == expected_thresholds
+            && preflight.maximum_typed_ordinal <= u64::from(u32::MAX)
+            && preflight.predicted_compiler_controlled_bytes
+                < preflight.thresholds.compiler_controlled_bytes
+            && preflight
+                .predicted_private_bytes
+                .is_none_or(|bytes| bytes < preflight.thresholds.private_bytes)
+            && preflight
+                .predicted_wall_time_ns
+                .is_none_or(|wall_time_ns| wall_time_ns < preflight.thresholds.wall_time_ns)
+            && preflight.memory_observation.available_physical_memory_bytes
+                >= preflight.thresholds.minimum_available_physical_memory_bytes
+            && preflight.triggers.is_empty()
+            && preflight.allows_child_start,
+        format!("运行 {run_id} 的启动前护栏证据不清洁"),
+    )?;
+    Ok(preflight.primary_record_count)
+}
+
+fn validate_clear_monitor(
+    monitor: Option<&ChildProcessMonitorReport>,
+    preflight: &GuardPreflightReport,
+    child_wall_time_ns: Option<u64>,
+    kill_error: Option<&str>,
+    monitor_error: Option<&str>,
+    run_id: &str,
+) -> Result<u64, PilotBudgetError> {
+    let monitor = monitor.ok_or_else(|| invalid(format!("运行 {run_id} 缺少父进程监控报告")))?;
+    let last_private_bytes = positive(monitor.last_private_bytes.value, "最后私有字节观察")?;
+    let peak_private_bytes = positive(monitor.peak_private_bytes.value, "私有字节峰值")?;
+    ensure(
+        monitor.observation_count > 0
+            && monitor.last_private_bytes.reason.is_none()
+            && monitor.peak_private_bytes.reason.is_none()
+            && peak_private_bytes >= last_private_bytes
+            && peak_private_bytes < preflight.thresholds.private_bytes
+            && monitor.elapsed_wall_time_ns > 0
+            && monitor.elapsed_wall_time_ns < preflight.thresholds.wall_time_ns
+            && child_wall_time_ns
+                .is_none_or(|wall_time_ns| monitor.elapsed_wall_time_ns >= wall_time_ns)
+            && monitor.trigger.is_none()
+            && kill_error.is_none()
+            && monitor_error.is_none(),
+        format!("运行 {run_id} 的父进程监控或终止诊断不清洁"),
+    )?;
+    Ok(peak_private_bytes)
+}
+
+fn successful_process(process: &ProcessObservation, binary_id: &str, child_pid: u32) -> bool {
+    process.coordinator_pid > 0
+        && process.binary_id == binary_id
+        && process.exit_kind == ProcessExitKind::Success
+        && process.exit_code.value == Some(0)
+        && process.exit_code.reason.is_none()
+        && process.child_pid.value == Some(u64::from(child_pid))
+        && process.child_pid.reason.is_none()
+        && process.termination.kind == TerminationKind::ExitCode
+        && process.termination.signal_number.value.is_none()
+        && process.termination.signal_number.reason.is_some()
+        && process.termination.raw_platform_status.value.is_none()
+        && process.termination.raw_platform_status.reason.is_some()
+}
+
+fn relative_mad_within_limit(median: u64, mad: u64) -> bool {
+    median > 0
+        && u128::from(mad) * 100 <= u128::from(median) * u128::from(MAXIMUM_RELATIVE_MAD_PERCENT)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -721,5 +876,14 @@ mod tests {
         assert!(validate_scale_path([(1, false), (4, true)], 4).is_err());
         assert!(validate_scale_path([(1, true), (2, true)], 2).is_err());
         assert!(validate_scale_path([(1, false), (2, true)], 4).is_err());
+    }
+
+    #[test]
+    fn relative_mad_limit_uses_the_frozen_exact_ratio() {
+        assert!(relative_mad_within_limit(100, 2));
+        assert!(!relative_mad_within_limit(100, 3));
+        assert!(relative_mad_within_limit(50, 1));
+        assert!(!relative_mad_within_limit(49, 1));
+        assert!(!relative_mad_within_limit(0, 0));
     }
 }
