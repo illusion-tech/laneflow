@@ -3,17 +3,16 @@
 //! 该实现只验证冻结的完整研究管线基线。资源预检和语义诊断在进入后续阶段前失败；失败
 //! 诊断使用可失败保留的实例私有缓冲区，运行结束后清空语义值，仅保留稳定容量。
 
-use crate::corridor::{CorridorContract, TemplateRelation};
+use crate::timing::ScalableFailureInput;
 use crate::{
     DIAGNOSTIC_LIMIT_ERROR_CODE, GraphProfileId, LIMIT_EXCEEDED_ERROR_CODE, LimitDimensionId,
     LimitQualificationError, LimitQualificationPlanner, ScalableAttributionCompilerInstance,
     ScalableStagePlanFactory, ScalableStagePlanSummary, ScalableWorkloadId, TimingError,
-    TrustedContract, UNKNOWN_REFERENCE_ERROR_CODE, enforce_selected_limit,
+    TrustedContract, UNKNOWN_REFERENCE_ERROR_CODE,
 };
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::mem::size_of;
 use thiserror::Error;
 
 pub const CLEANUP_FAILURE_ITERATION_COUNT: u32 = 32;
@@ -115,12 +114,6 @@ pub struct CleanupExperiment {
     pub runs: Vec<CleanupRunObservation>,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct FailureDiagnostic {
-    source_ordinal: u64,
-    error_code: &'static str,
-}
-
 #[derive(Debug)]
 struct BaselineCleanupCompilerInstance {
     compiler_instance_id: String,
@@ -129,8 +122,6 @@ struct BaselineCleanupCompilerInstance {
     n: u32,
     plan: ScalableStagePlanSummary,
     compiler: ScalableAttributionCompilerInstance,
-    diagnostics: Vec<FailureDiagnostic>,
-    corridor_route_occurrences_per_unit: Option<u64>,
 }
 
 impl BaselineCleanupCompilerInstance {
@@ -151,24 +142,6 @@ impl BaselineCleanupCompilerInstance {
             compiler_instance_id.clone(),
             workload_id,
         )?;
-        let corridor_route_occurrences_per_unit = if workload_id == ScalableWorkloadId::Corridor {
-            let contract = CorridorContract::from_manifest(&trusted.workload_manifest)?;
-            let template = contract.load_template(&crate::repository_root())?;
-            let count = u64::try_from(
-                template
-                    .relations
-                    .iter()
-                    .filter(|relation| matches!(relation, TemplateRelation::RouteOccurrence { .. }))
-                    .count(),
-            )
-            .map_err(|_| CleanupError::RouteOccurrenceCountOverflow)?;
-            if count == 0 {
-                return Err(CleanupError::MissingRouteOccurrenceBasis);
-            }
-            Some(count)
-        } else {
-            None
-        };
         Ok(Self {
             compiler_instance_id,
             workload_id,
@@ -176,8 +149,6 @@ impl BaselineCleanupCompilerInstance {
             n,
             plan,
             compiler,
-            diagnostics: Vec::new(),
-            corridor_route_occurrences_per_unit,
         })
     }
 
@@ -221,8 +192,7 @@ impl BaselineCleanupCompilerInstance {
         sequence_index: u32,
         case_id: CleanupFailureCase,
     ) -> Result<CleanupRunObservation, CleanupError> {
-        self.diagnostics.clear();
-        let (candidate_count, retained_count, error_code, diagnostics_truncated) = match case_id {
+        let failure_input = match case_id {
             CleanupFailureCase::SourceByteLimitPlusOne => {
                 let pair = planner.plan_pair(
                     LimitDimensionId::SourceByteCount,
@@ -230,58 +200,22 @@ impl BaselineCleanupCompilerInstance {
                     self.n,
                     None,
                 )?;
-                let violation = enforce_selected_limit(&pair, pair.plus_one_limit_value)
-                    .expect_err("plus-one plan must exceed the selected limit");
-                if violation.error_code != LIMIT_EXCEEDED_ERROR_CODE {
-                    return Err(CleanupError::UnexpectedLimitErrorCode);
+                ScalableFailureInput::SourceByteLimitPlusOne {
+                    selected_limit_value: pair.plus_one_limit_value,
                 }
-                (1, 1, LIMIT_EXCEEDED_ERROR_CODE, false)
             }
             CleanupFailureCase::MissingReferencePerUnit => {
-                self.require_route_occurrence_candidates(u64::from(self.n))?;
-                (
-                    u64::from(self.n),
-                    u64::from(self.n),
-                    UNKNOWN_REFERENCE_ERROR_CODE,
-                    false,
-                )
+                ScalableFailureInput::MissingReferencePerUnit
             }
             CleanupFailureCase::DiagnosticCapPlusOne => {
-                let retained = u64::from(self.n);
-                let candidates = retained
-                    .checked_add(1)
-                    .ok_or(CleanupError::DiagnosticCountOverflow)?;
-                self.require_route_occurrence_candidates(candidates)?;
-                (candidates, retained, DIAGNOSTIC_LIMIT_ERROR_CODE, true)
+                ScalableFailureInput::DiagnosticCapPlusOne {
+                    maximum_diagnostics: u64::from(self.n),
+                }
             }
         };
-        let retained_count_usize = usize::try_from(retained_count)
-            .map_err(|_| CleanupError::DiagnosticCountTooLarge(retained_count))?;
-        if self.diagnostics.capacity() < retained_count_usize {
-            self.diagnostics
-                .try_reserve_exact(retained_count_usize - self.diagnostics.len())
-                .map_err(|source| CleanupError::DiagnosticReserve {
-                    requested: retained_count,
-                    source,
-                })?;
-        }
-        for source_ordinal in 0..candidate_count {
-            if self.diagnostics.len() == retained_count_usize {
-                break;
-            }
-            self.diagnostics.push(FailureDiagnostic {
-                source_ordinal,
-                error_code,
-            });
-        }
-        if self.diagnostics.len() != retained_count_usize {
-            return Err(CleanupError::DiagnosticShapeMismatch);
-        }
-        let diagnostic_digest_sha256 = diagnostic_digest(&self.diagnostics);
-        let diagnostic_count = u64::try_from(self.diagnostics.len())
-            .map_err(|_| CleanupError::DiagnosticCountTooLarge(retained_count))?;
-        self.diagnostics.clear();
-        let live_requested_bytes = self.failure_live_requested_bytes()?;
+        let report = self
+            .compiler
+            .run_failure(self.graph_profile, self.n, failure_input)?;
         let retained_capacity_bytes = self.retained_capacity_bytes()?;
         Ok(CleanupRunObservation {
             experiment_id: experiment_id.to_owned(),
@@ -294,53 +228,21 @@ impl BaselineCleanupCompilerInstance {
             case_id,
             input_variant_id: case_id.input_variant_id().to_owned(),
             success: false,
-            stable_compiler_error_code: Some(error_code.to_owned()),
-            diagnostic_count,
-            diagnostics_truncated,
-            partial_output_record_count: 0,
-            output_record_count: 0,
+            stable_compiler_error_code: Some(report.stable_compiler_error_code.to_owned()),
+            diagnostic_count: report.diagnostic_count,
+            diagnostics_truncated: report.diagnostics_truncated,
+            partial_output_record_count: report.partial_output_record_count,
+            output_record_count: report.output_record_count,
             stage_plan: self.plan.clone(),
             semantic_digest_sha256: None,
-            diagnostic_digest_sha256,
-            live_requested_bytes,
+            diagnostic_digest_sha256: report.diagnostic_digest_sha256,
+            live_requested_bytes: report.live_requested_bytes_after_run,
             retained_capacity_bytes,
         })
     }
 
-    fn require_route_occurrence_candidates(&self, required: u64) -> Result<(), CleanupError> {
-        let per_unit = self
-            .corridor_route_occurrences_per_unit
-            .ok_or(CleanupError::MissingRouteOccurrenceBasis)?;
-        let available = per_unit
-            .checked_mul(u64::from(self.n))
-            .ok_or(CleanupError::RouteOccurrenceCountOverflow)?;
-        if required > available {
-            return Err(CleanupError::InsufficientRouteOccurrenceBasis {
-                required,
-                available,
-            });
-        }
-        Ok(())
-    }
-
-    fn failure_live_requested_bytes(&self) -> Result<u64, CleanupError> {
-        u64::try_from(self.diagnostics.len())
-            .ok()
-            .and_then(|len| len.checked_mul(u64::try_from(size_of::<FailureDiagnostic>()).ok()?))
-            .ok_or(CleanupError::RetainedCapacityOverflow)
-    }
-
     fn retained_capacity_bytes(&self) -> Result<u64, CleanupError> {
-        let pipeline = self.compiler.retained_capacity_bytes()?.total;
-        let diagnostics = u64::try_from(self.diagnostics.capacity())
-            .ok()
-            .and_then(|capacity| {
-                capacity.checked_mul(u64::try_from(size_of::<FailureDiagnostic>()).ok()?)
-            })
-            .ok_or(CleanupError::RetainedCapacityOverflow)?;
-        pipeline
-            .checked_add(diagnostics)
-            .ok_or(CleanupError::RetainedCapacityOverflow)
+        Ok(self.compiler.retained_capacity_bytes()?.total)
     }
 }
 
@@ -585,23 +487,10 @@ pub fn validate_cleanup_experiment(experiment: &CleanupExperiment) -> Result<(),
     Ok(())
 }
 
-fn diagnostic_digest(diagnostics: &[FailureDiagnostic]) -> String {
+fn empty_diagnostic_digest() -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"LANEFLOW-COMPILER-CALIBRATION-DIAGNOSTIC-V1\0");
-    for diagnostic in diagnostics {
-        hasher.update(diagnostic.source_ordinal.to_le_bytes());
-        hasher.update(
-            u32::try_from(diagnostic.error_code.len())
-                .expect("closed diagnostic code length fits u32")
-                .to_le_bytes(),
-        );
-        hasher.update(diagnostic.error_code.as_bytes());
-    }
     lower_hex(&hasher.finalize())
-}
-
-fn empty_diagnostic_digest() -> String {
-    diagnostic_digest(&[])
 }
 
 fn lower_hex(bytes: &[u8]) -> String {
@@ -735,6 +624,49 @@ mod tests {
             groups.iter().map(|group| group.runs.len()).sum::<usize>(),
             6 * CLEANUP_GROUP_RUN_COUNT
         );
+    }
+
+    #[test]
+    fn semantic_failures_execute_the_real_reusable_pipeline_before_recovery() {
+        let trusted = load_repository_contract().expect("trusted contract");
+        let planner = LimitQualificationPlanner::from_trusted_contract(&trusted).expect("planner");
+        let mut instance = BaselineCleanupCompilerInstance::new(
+            &trusted,
+            "cleanup/real-pipeline/instance".to_owned(),
+            ScalableWorkloadId::Corridor,
+            GraphProfileId::SharedFaninDag,
+            1,
+        )
+        .expect("cleanup compiler instance");
+        assert_eq!(instance.retained_capacity_bytes().unwrap(), 0);
+
+        let failure = instance
+            .run_failure(
+                &planner,
+                "cleanup/real-pipeline",
+                1,
+                CleanupFailureCase::MissingReferencePerUnit,
+            )
+            .expect("real semantic failure");
+        assert_eq!(
+            failure.stable_compiler_error_code.as_deref(),
+            Some(UNKNOWN_REFERENCE_ERROR_CODE)
+        );
+        assert_eq!(failure.diagnostic_count, 1);
+        assert_eq!(failure.partial_output_record_count, 0);
+        assert_eq!(failure.live_requested_bytes, 0);
+        assert!(failure.retained_capacity_bytes > 0);
+
+        let recovery = instance
+            .run_valid(
+                "cleanup/real-pipeline",
+                2,
+                CleanupPhase::RecoverySuccess,
+                CleanupFailureCase::MissingReferencePerUnit,
+            )
+            .expect("same-instance recovery");
+        assert!(recovery.success);
+        assert!(recovery.semantic_digest_sha256.is_some());
     }
 
     #[test]

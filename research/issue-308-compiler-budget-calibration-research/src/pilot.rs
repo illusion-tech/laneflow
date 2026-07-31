@@ -1408,7 +1408,7 @@ fn summarize_base_scale_level(
         .all(|run| run.guard_preflight.allows_child_start)
         && oracle_run.guard_preflight.allows_child_start;
     let completed_level_guard_observation =
-        completed_level_guard_observation(n, &contributing_runs)?;
+        completed_level_guard_observation(n, &contributing_runs, oracle_run)?;
     let qualifies = wall_time_median_ns >= minimum_reliable_wall_time_ns
         && relative_mad_within_limit(wall_time_median_ns, wall_time_median_absolute_deviation_ns)
         && all_semantic_digests_equal
@@ -1440,6 +1440,7 @@ fn summarize_base_scale_level(
 fn completed_level_guard_observation(
     n: u32,
     contributing_runs: &[&BaseScalePilotRun],
+    oracle_run: &BaseScaleOracleRun,
 ) -> Result<GuardCompletedLevelObservation, PilotError> {
     let primary_record_count = contributing_runs
         .first()
@@ -1465,10 +1466,17 @@ fn completed_level_guard_observation(
     if guard_peaks.len() != 1 {
         return Err(PilotError::InconsistentGuardPeakObservation);
     }
-    let peak_live_requested_bytes = *guard_peaks
+    let timing_peak_live_requested_bytes = *guard_peaks
         .first()
         .ok_or(PilotError::InvalidContributingRunSet)?;
-    let private_bytes = contributing_runs
+    let oracle_peak_live_requested_bytes = oracle_run
+        .child
+        .as_ref()
+        .and_then(|child| child.guard_peak_live_requested_bytes)
+        .ok_or(PilotError::InvalidOracleRunSet)?;
+    let peak_live_requested_bytes =
+        timing_peak_live_requested_bytes.max(oracle_peak_live_requested_bytes);
+    let timing_private_bytes = contributing_runs
         .iter()
         .map(|run| {
             run.monitor
@@ -1480,6 +1488,12 @@ fn completed_level_guard_observation(
         .into_iter()
         .max()
         .ok_or(PilotError::InvalidContributingRunSet)?;
+    let oracle_private_bytes = oracle_run
+        .monitor
+        .as_ref()
+        .and_then(|monitor| monitor.peak_private_bytes.value)
+        .ok_or(PilotError::InvalidOracleRunSet)?;
+    let private_bytes = timing_private_bytes.max(oracle_private_bytes);
     let wall_time_ns = contributing_runs
         .iter()
         .map(|run| {
@@ -2690,6 +2704,37 @@ mod tests {
             summarize_base_scale_level(1, &contributing, &runs, &oracle, 10_000),
             Err(PilotError::InconsistentGuardPeakObservation)
         ));
+    }
+
+    #[test]
+    fn completed_level_includes_higher_oracle_memory_peaks() {
+        let guard = clear_pilot_guard();
+        let runs = (0..FRESH_PROCESS_PILOT_SAMPLE_COUNT)
+            .map(|ordinal| synthetic_pilot_run(ordinal, 10_000, &guard, RunStatus::Valid))
+            .collect::<Vec<_>>();
+        let contributing = (0..FRESH_PROCESS_PILOT_SAMPLE_COUNT).collect::<Vec<_>>();
+        let mut oracle = synthetic_oracle_run(&guard, RunStatus::Valid);
+        oracle
+            .child
+            .as_mut()
+            .expect("synthetic oracle child")
+            .guard_peak_live_requested_bytes = Some(3);
+        oracle
+            .monitor
+            .as_mut()
+            .expect("synthetic oracle monitor")
+            .peak_private_bytes = NullableObservation::observed(4);
+
+        let level = summarize_base_scale_level(1, &contributing, &runs, &oracle, 10_000)
+            .expect("pilot level");
+        assert_eq!(
+            level
+                .completed_level_guard_observation
+                .peak_live_requested_bytes,
+            3
+        );
+        assert_eq!(level.completed_level_guard_observation.private_bytes, 4);
+        assert_eq!(level.completed_level_guard_observation.wall_time_ns, 10_000);
     }
 
     #[test]

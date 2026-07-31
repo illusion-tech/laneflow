@@ -242,6 +242,10 @@ impl<T> ControlledVec<T> {
         self.values.clear();
     }
 
+    pub(crate) fn truncate(&mut self, len: usize) {
+        self.values.truncate(len);
+    }
+
     pub(crate) fn try_push(&mut self, value: T) -> Result<(), ControlledVecError> {
         self.try_reserve(1)?;
         self.values.push(value);
