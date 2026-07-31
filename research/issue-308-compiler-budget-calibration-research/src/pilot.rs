@@ -527,8 +527,33 @@ fn run_monitored_child_with_observer(
     drop(child_stdin);
 
     loop {
-        if let Some(status) = try_wait_child(&mut child, ordinal)? {
-            let elapsed_wall_time_ns = duration_ns(started.elapsed())?;
+        let exit_status = try_wait_child(&mut child, ordinal)?;
+        let elapsed = started.elapsed();
+        if wall_time_limit_reached(thresholds, elapsed)? {
+            let report = ChildProcessMonitorReport {
+                observation_count,
+                last_private_bytes: NullableObservation::observed(last_private_bytes),
+                peak_private_bytes: NullableObservation::observed(peak_private_bytes),
+                elapsed_wall_time_ns: duration_ns(elapsed)?,
+                trigger: Some(ChildMonitorTrigger::WallTime),
+            };
+            if let Some(status) = exit_status {
+                let output = child
+                    .wait_with_output()
+                    .map_err(|source| PilotError::ChildWait { ordinal, source })?;
+                debug_assert_eq!(status.code(), output.status.code());
+                return Ok(MonitoredChildExecution::InvalidatedByMonitor {
+                    child_pid,
+                    output,
+                    monitor: report,
+                    kill_error: None,
+                    monitor_error: None,
+                });
+            }
+            return terminate_monitored_child(child, ordinal, child_pid, report, None);
+        }
+        if let Some(status) = exit_status {
+            let elapsed_wall_time_ns = duration_ns(elapsed)?;
             let output = child
                 .wait_with_output()
                 .map_err(|source| PilotError::ChildWait { ordinal, source })?;
@@ -546,7 +571,6 @@ fn run_monitored_child_with_observer(
             });
         }
 
-        let elapsed = started.elapsed();
         let observation = match observe_child(child_pid) {
             Ok(Some(observation)) => observation,
             Ok(None) => {
@@ -557,7 +581,7 @@ fn run_monitored_child_with_observer(
                     observation_count,
                     last_private_bytes: NullableObservation::observed(last_private_bytes),
                     peak_private_bytes: NullableObservation::observed(peak_private_bytes),
-                    elapsed_wall_time_ns: duration_ns(elapsed)?,
+                    elapsed_wall_time_ns: duration_ns(started.elapsed())?,
                     trigger: Some(ChildMonitorTrigger::MonitoringGap),
                 };
                 return terminate_monitored_child(
@@ -573,7 +597,7 @@ fn run_monitored_child_with_observer(
                     observation_count,
                     last_private_bytes: NullableObservation::observed(last_private_bytes),
                     peak_private_bytes: NullableObservation::observed(peak_private_bytes),
-                    elapsed_wall_time_ns: duration_ns(elapsed)?,
+                    elapsed_wall_time_ns: duration_ns(started.elapsed())?,
                     trigger: Some(ChildMonitorTrigger::MonitoringGap),
                 };
                 return terminate_monitored_child(
@@ -593,6 +617,7 @@ fn run_monitored_child_with_observer(
                 ))?;
         last_private_bytes = observation.private_bytes;
         peak_private_bytes = peak_private_bytes.max(observation.private_bytes);
+        let elapsed = started.elapsed();
         if let Some(trigger) = evaluate_child_monitor_trigger(thresholds, observation, elapsed)? {
             let report = ChildProcessMonitorReport {
                 observation_count,
@@ -615,7 +640,7 @@ fn evaluate_child_monitor_trigger(
     if observation.private_bytes >= thresholds.private_bytes {
         return Ok(Some(ChildMonitorTrigger::PrivateBytes));
     }
-    if duration_ns(elapsed)? >= thresholds.wall_time_ns {
+    if wall_time_limit_reached(thresholds, elapsed)? {
         return Ok(Some(ChildMonitorTrigger::WallTime));
     }
     if observation.available_physical_memory_bytes
@@ -624,6 +649,13 @@ fn evaluate_child_monitor_trigger(
         return Ok(Some(ChildMonitorTrigger::AvailablePhysicalMemory));
     }
     Ok(None)
+}
+
+fn wall_time_limit_reached(
+    thresholds: GuardThresholds,
+    elapsed: Duration,
+) -> Result<bool, PilotError> {
+    Ok(duration_ns(elapsed)? >= thresholds.wall_time_ns)
 }
 
 fn monitor_invalidation_reasons(
@@ -1090,6 +1122,17 @@ mod tests {
             evaluate_child_monitor_trigger(thresholds, safe, Duration::from_secs(60))
                 .expect("wall trigger"),
             Some(ChildMonitorTrigger::WallTime)
+        );
+        assert!(
+            !wall_time_limit_reached(
+                thresholds,
+                Duration::from_nanos(thresholds.wall_time_ns - 1)
+            )
+            .expect("below wall-time limit")
+        );
+        assert!(
+            wall_time_limit_reached(thresholds, Duration::from_nanos(thresholds.wall_time_ns))
+                .expect("exact wall-time limit")
         );
         assert_eq!(
             evaluate_child_monitor_trigger(
