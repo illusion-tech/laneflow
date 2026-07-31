@@ -19,9 +19,15 @@ use crate::corridor::{
 use crate::identity::{IdentityContract, IdentityFieldValue};
 use crate::junction_grid::{JunctionGridContract, build_junction_grid_template};
 use crate::junction_grid_oracle::build_independent_template;
+use crate::pipeline::{
+    IdentityStageBufferPool, execute_identity_stage_case_with_buffers,
+    finalize_identity_stage_case, prepare_identity_stage_case,
+};
+use crate::stage::{IdentityStageCaseOutput, StageGenerationError};
+use crate::stage_oracle::verify_identity_stage_exact;
 use crate::{
     GeneratorContract, GraphProfileId, ScalableStagePlanFactory, ScalableStagePlanSummary,
-    ScalableWorkloadId, StageGenerationError, TrustedContract,
+    ScalableWorkloadId, TrustedContract,
 };
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
@@ -89,6 +95,10 @@ pub(crate) fn verify_bounded_scalable_oracle(
     n: u32,
     hard_ceiling_bytes: u64,
 ) -> Result<BoundedOracleVerification, BoundedOracleError> {
+    if workload_id == ScalableWorkloadId::Identity {
+        return verify_bounded_identity_stage_oracle(trusted, graph_profile, n, hard_ceiling_bytes);
+    }
+
     let generator = trusted.generator_contract()?;
     let identity = trusted.identity_contract()?;
     let stage = trusted.stage_contract()?;
@@ -143,6 +153,54 @@ pub(crate) fn verify_bounded_scalable_oracle(
         complete_typed_output_equal,
         allocation,
     })
+}
+
+fn verify_bounded_identity_stage_oracle(
+    trusted: &TrustedContract,
+    graph_profile: GraphProfileId,
+    n: u32,
+    hard_ceiling_bytes: u64,
+) -> Result<BoundedOracleVerification, BoundedOracleError> {
+    let generator = trusted.generator_contract()?;
+    let identity = trusted.identity_contract()?;
+    let stage = trusted.stage_contract()?;
+    let plan = prepare_identity_stage_case(&identity, &stage, graph_profile, n)?;
+    let mut buffers = IdentityStageBufferPool::<false>::new_for_mode(hard_ceiling_bytes);
+    let materialized = execute_identity_stage_case_with_buffers(
+        &generator,
+        &identity,
+        &stage,
+        &plan,
+        &mut buffers,
+    )?;
+    let produced = finalize_identity_stage_case(&plan, materialized)?;
+    let peak_live_requested_bytes = buffers.guard_peak_live_requested_bytes();
+
+    verify_identity_produced_stage(trusted, graph_profile, n, &produced)?;
+    let primary_record_count = produced.summary.counts.identity_field_occurrence_count;
+    let semantic_digest_sha256 = produced.summary.semantic_digest_sha256.clone();
+    drop(produced);
+
+    Ok(BoundedOracleVerification {
+        primary_record_count,
+        semantic_digest_sha256,
+        complete_counts_equal: true,
+        complete_typed_output_equal: true,
+        allocation: ControlledAllocationObservation {
+            live_requested_bytes: 0,
+            peak_live_requested_bytes,
+        },
+    })
+}
+
+fn verify_identity_produced_stage(
+    trusted: &TrustedContract,
+    graph_profile: GraphProfileId,
+    n: u32,
+    produced: &IdentityStageCaseOutput,
+) -> Result<(), BoundedOracleError> {
+    verify_identity_stage_exact(&trusted.workload_manifest, graph_profile, n, produced)?;
+    Ok(())
 }
 
 fn templates_and_plan(
@@ -1135,6 +1193,8 @@ pub(crate) enum BoundedOracleError {
     #[error(transparent)]
     JunctionGrid(#[from] crate::JunctionGridError),
     #[error(transparent)]
+    StageOracle(#[from] crate::stage_oracle::StageOracleError),
+    #[error(transparent)]
     Generation(#[from] StageGenerationError),
     #[error(
         "受控生产者与独立预言机完整输出不一致：workload={workload_id:?}, graphProfile={graph_profile:?}, N={n}"
@@ -1228,5 +1288,54 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn identity_formal_oracle_rejects_same_length_source_string_mutation() {
+        let trusted = load_repository_contract().expect("frozen contract");
+        let generator = trusted.generator_contract().expect("generator contract");
+        let identity = trusted.identity_contract().expect("identity contract");
+        let stage = trusted.stage_contract().expect("stage contract");
+        let graph_profile = GraphProfileId::WideStar;
+        let n = 2;
+        let plan =
+            prepare_identity_stage_case(&identity, &stage, graph_profile, n).expect("stage plan");
+        let mut buffers = IdentityStageBufferPool::<false>::new_for_mode(u64::MAX);
+        let materialized = execute_identity_stage_case_with_buffers(
+            &generator,
+            &identity,
+            &stage,
+            &plan,
+            &mut buffers,
+        )
+        .expect("actual timed pipeline");
+        let mut produced =
+            finalize_identity_stage_case(&plan, materialized).expect("finalized stage output");
+        let mutated = produced
+            .source_input_payload
+            .get_mut(produced.source_string_range.start)
+            .expect("non-empty source string range");
+        *mutated ^= 1;
+
+        assert!(matches!(
+            verify_identity_produced_stage(&trusted, graph_profile, n, &produced),
+            Err(BoundedOracleError::StageOracle(
+                crate::stage_oracle::StageOracleError::Mismatch("source string bytes")
+            ))
+        ));
+    }
+
+    #[test]
+    fn identity_formal_oracle_reports_the_frozen_primary_record_count() {
+        let trusted = load_repository_contract().expect("frozen contract");
+        let result = verify_bounded_scalable_oracle(
+            &trusted,
+            ScalableWorkloadId::Identity,
+            GraphProfileId::WideStar,
+            1,
+            u64::MAX,
+        )
+        .expect("identity formal oracle");
+        assert_eq!(result.primary_record_count, 57);
     }
 }
