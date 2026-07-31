@@ -25,6 +25,9 @@ pub const CLOCK_QUANTUM_MULTIPLIER: u64 = 10_000;
 pub const MAXIMUM_RELATIVE_MAD_PERCENT: u64 = 2;
 const CHILD_MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const CHILD_MONITOR_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+const CHILD_TERMINATION_TIMEOUT_MS: u64 = 5_000;
+const CHILD_TERMINATION_TIMEOUT: Duration = Duration::from_millis(CHILD_TERMINATION_TIMEOUT_MS);
+const CHILD_TERMINATION_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const CHILD_START_SIGNAL: u8 = b'G';
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -237,10 +240,32 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
             };
 
         if monitor_invalidation {
-            let mut invalidation_reasons = vec![InvalidationReason::ChildAbnormalExit];
-            if monitor.trigger == Some(ChildMonitorTrigger::MonitoringGap) {
+            let mut invalidation_reasons = Vec::new();
+            if output.status.success() {
+                invalidation_reasons.push(InvalidationReason::MonitoringGap);
+            } else {
+                invalidation_reasons.push(InvalidationReason::ChildAbnormalExit);
+            }
+            if (monitor.trigger == Some(ChildMonitorTrigger::MonitoringGap) || kill_error.is_some())
+                && !invalidation_reasons.contains(&InvalidationReason::MonitoringGap)
+            {
                 invalidation_reasons.push(InvalidationReason::MonitoringGap);
             }
+            let process = if output.status.success() {
+                ProcessObservation::success(
+                    std::process::id(),
+                    child_pid,
+                    TIMING_BINARY_ID,
+                    output.status,
+                )?
+            } else {
+                ProcessObservation::invalid_monitor_termination(
+                    std::process::id(),
+                    child_pid,
+                    TIMING_BINARY_ID,
+                    output.status,
+                )?
+            };
             return Ok(IdentityFreshProcessPilotOutcome::Stopped {
                 stop: Box::new(IdentityFreshProcessPilotStop {
                     pilot_id: pilot_id.to_owned(),
@@ -249,12 +274,7 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
                     sample_ordinal: ordinal,
                     status: RunStatus::Invalid,
                     invalidation_reasons,
-                    process: ProcessObservation::invalid_monitor_termination(
-                        std::process::id(),
-                        child_pid,
-                        TIMING_BINARY_ID,
-                        output.status,
-                    )?,
+                    process,
                     guard_preflight: guard,
                     child: None,
                     monitor: Some(monitor),
@@ -618,7 +638,26 @@ fn terminate_monitored_child(
     report: ChildProcessMonitorReport,
     monitor_error: Option<String>,
 ) -> Result<MonitoredChildExecution, PilotError> {
-    let kill_error = child.kill().err().map(|error| error.to_string());
+    let termination = terminate_child_with_deadline(
+        &mut child,
+        CHILD_TERMINATION_TIMEOUT,
+        CHILD_TERMINATION_RETRY_INTERVAL,
+    )
+    .map_err(|failure| match failure {
+        ChildTerminationFailure::StatusPoll(source) => PilotError::ChildTerminationStatusPoll {
+            ordinal,
+            child_pid,
+            source,
+        },
+        ChildTerminationFailure::DeadlineExceeded {
+            last_termination_error,
+        } => PilotError::ChildTerminationDeadlineExceeded {
+            ordinal,
+            child_pid,
+            timeout_ms: CHILD_TERMINATION_TIMEOUT_MS,
+            last_termination_error,
+        },
+    })?;
     let output = child
         .wait_with_output()
         .map_err(|source| PilotError::ChildWait { ordinal, source })?;
@@ -626,14 +665,81 @@ fn terminate_monitored_child(
         child_pid,
         output,
         monitor: report,
-        kill_error,
+        kill_error: termination.prior_termination_error,
         monitor_error,
     })
 }
 
+trait ChildTerminationControl {
+    fn request_termination(&mut self) -> std::io::Result<()>;
+    fn has_exited(&mut self) -> std::io::Result<bool>;
+}
+
+impl ChildTerminationControl for std::process::Child {
+    fn request_termination(&mut self) -> std::io::Result<()> {
+        self.kill()
+    }
+
+    fn has_exited(&mut self) -> std::io::Result<bool> {
+        self.try_wait().map(|status| status.is_some())
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ChildTerminationCompletion {
+    prior_termination_error: Option<String>,
+}
+
+#[derive(Debug)]
+enum ChildTerminationFailure {
+    StatusPoll(std::io::Error),
+    DeadlineExceeded {
+        last_termination_error: Option<String>,
+    },
+}
+
+fn terminate_child_with_deadline(
+    child: &mut impl ChildTerminationControl,
+    timeout: Duration,
+    retry_interval: Duration,
+) -> Result<ChildTerminationCompletion, ChildTerminationFailure> {
+    let started = Instant::now();
+    let mut termination_requested = false;
+    let mut prior_termination_error = None;
+
+    loop {
+        if !termination_requested {
+            match child.request_termination() {
+                Ok(()) => termination_requested = true,
+                Err(source) => prior_termination_error = Some(source.to_string()),
+            }
+        }
+
+        if child
+            .has_exited()
+            .map_err(ChildTerminationFailure::StatusPoll)?
+        {
+            return Ok(ChildTerminationCompletion {
+                prior_termination_error,
+            });
+        }
+
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            return Err(ChildTerminationFailure::DeadlineExceeded {
+                last_termination_error: prior_termination_error,
+            });
+        }
+        thread::sleep(retry_interval.min(timeout.saturating_sub(elapsed)));
+    }
+}
+
 fn terminate_child_best_effort(child: &mut std::process::Child) {
-    let _ = child.kill();
-    let _ = child.wait();
+    let _ = terminate_child_with_deadline(
+        child,
+        CHILD_TERMINATION_TIMEOUT,
+        CHILD_TERMINATION_RETRY_INTERVAL,
+    );
 }
 
 fn try_wait_child(
@@ -784,6 +890,22 @@ pub enum PilotError {
         #[source]
         source: std::io::Error,
     },
+    #[error("终止新进程试运行样本 {ordinal}（PID {child_pid}）后无法轮询退出状态")]
+    ChildTerminationStatusPoll {
+        ordinal: usize,
+        child_pid: u32,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error(
+        "新进程试运行样本 {ordinal}（PID {child_pid}）未在 {timeout_ms} ms 的终止截止时间内退出；最后终止错误：{last_termination_error:?}"
+    )]
+    ChildTerminationDeadlineExceeded {
+        ordinal: usize,
+        child_pid: u32,
+        timeout_ms: u64,
+        last_termination_error: Option<String>,
+    },
     #[error("无法解析新进程试运行样本 {ordinal}")]
     InvalidChildReport {
         ordinal: usize,
@@ -803,6 +925,7 @@ pub enum PilotError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
     use std::io::Read;
     use std::path::Path;
     use std::process::{Command, Stdio};
@@ -916,6 +1039,87 @@ mod tests {
             .expect("available-memory trigger"),
             Some(ChildMonitorTrigger::AvailablePhysicalMemory)
         );
+    }
+
+    #[derive(Debug)]
+    struct ScriptedTerminationControl {
+        termination_failures: usize,
+        exit_observations: VecDeque<bool>,
+        termination_attempts: usize,
+        status_polls: usize,
+    }
+
+    impl ScriptedTerminationControl {
+        fn new(termination_failures: usize, exit_observations: impl Into<VecDeque<bool>>) -> Self {
+            Self {
+                termination_failures,
+                exit_observations: exit_observations.into(),
+                termination_attempts: 0,
+                status_polls: 0,
+            }
+        }
+    }
+
+    impl ChildTerminationControl for ScriptedTerminationControl {
+        fn request_termination(&mut self) -> std::io::Result<()> {
+            self.termination_attempts += 1;
+            if self.termination_attempts <= self.termination_failures {
+                return Err(std::io::Error::other("scripted-termination-refusal"));
+            }
+            Ok(())
+        }
+
+        fn has_exited(&mut self) -> std::io::Result<bool> {
+            self.status_polls += 1;
+            Ok(self.exit_observations.pop_front().unwrap_or(false))
+        }
+    }
+
+    #[test]
+    fn failed_termination_never_enters_an_unbounded_wait() {
+        let mut child = ScriptedTerminationControl::new(usize::MAX, [false]);
+        let failure = terminate_child_with_deadline(&mut child, Duration::ZERO, Duration::ZERO)
+            .expect_err("a permanently running child must hit the bounded deadline");
+        let ChildTerminationFailure::DeadlineExceeded {
+            last_termination_error,
+        } = failure
+        else {
+            panic!("persistent termination refusal must reach the bounded deadline");
+        };
+        assert_eq!(
+            last_termination_error.as_deref(),
+            Some("scripted-termination-refusal")
+        );
+        assert_eq!(child.termination_attempts, 1);
+        assert_eq!(child.status_polls, 1);
+    }
+
+    #[test]
+    fn termination_is_retried_until_exit_is_confirmed() {
+        let mut child = ScriptedTerminationControl::new(2, [false, false, false, true]);
+        let completion =
+            terminate_child_with_deadline(&mut child, Duration::from_secs(1), Duration::ZERO)
+                .expect("a later successful termination must be observed");
+        assert_eq!(
+            completion.prior_termination_error.as_deref(),
+            Some("scripted-termination-refusal")
+        );
+        assert_eq!(child.termination_attempts, 3);
+        assert_eq!(child.status_polls, 4);
+    }
+
+    #[test]
+    fn a_naturally_observed_exit_preserves_prior_termination_failure() {
+        let mut child = ScriptedTerminationControl::new(usize::MAX, [true]);
+        let completion =
+            terminate_child_with_deadline(&mut child, Duration::from_secs(1), Duration::ZERO)
+                .expect("an observed exit is bounded even when termination was refused");
+        assert_eq!(
+            completion.prior_termination_error.as_deref(),
+            Some("scripted-termination-refusal")
+        );
+        assert_eq!(child.termination_attempts, 1);
+        assert_eq!(child.status_polls, 1);
     }
 
     #[test]
