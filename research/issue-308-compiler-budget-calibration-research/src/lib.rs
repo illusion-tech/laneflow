@@ -22,6 +22,7 @@ mod junction_grid;
 mod junction_grid_oracle;
 mod ladder;
 mod ladder_runner;
+mod limits;
 mod manifest;
 mod oracle;
 mod pilot;
@@ -92,6 +93,12 @@ pub use ladder_runner::{
     FormalAttributionPreflightRun, FormalLadderExecution, FormalLadderExecutionDisposition,
     FormalLadderLevelExecution, FormalLadderProcessRun, FormalLadderRunnerError, FormalOracleRun,
     FormalTimingGuardRun, run_formal_ladders,
+};
+pub use limits::{
+    DIAGNOSTIC_LIMIT_ERROR_CODE, LIMIT_EXCEEDED_ERROR_CODE, LimitDimensionBinding,
+    LimitDimensionId, LimitExceeded, LimitPairMode, LimitPairPlan, LimitQualificationError,
+    LimitQualificationPlanner, LiveByteBaseline, LiveByteBaselineReplica,
+    UNKNOWN_REFERENCE_ERROR_CODE, enforce_selected_limit,
 };
 pub use manifest::{GeneratorContract, ManifestContractError};
 pub use oracle::{
