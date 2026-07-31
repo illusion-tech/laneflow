@@ -4,6 +4,7 @@
 //! 中位绝对偏差计算。受测子进程固定为不执行逐分配记账的 timing 角色；基准规模选择、
 //! Evidence v1 写出与正式轮次仍由后续切片负责。
 
+use crate::process_containment::ContainedChild;
 use crate::{
     ChildProcessMemoryMonitor, ChildProcessMemoryObservation, GraphProfileId,
     GuardCompletedLevelObservation, GuardError, GuardPreflightReport, GuardThresholds,
@@ -26,6 +27,7 @@ pub const MAXIMUM_RELATIVE_MAD_PERCENT: u64 = 2;
 const CHILD_MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const CHILD_MONITOR_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const CHILD_TERMINATION_TIMEOUT_MS: u64 = 5_000;
+const CHILD_TERMINATION_TOTAL_TIMEOUT_MS: u64 = CHILD_TERMINATION_TIMEOUT_MS * 2;
 const CHILD_TERMINATION_TIMEOUT: Duration = Duration::from_millis(CHILD_TERMINATION_TIMEOUT_MS);
 const CHILD_TERMINATION_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const CHILD_START_SIGNAL: u8 = b'G';
@@ -397,15 +399,16 @@ fn run_monitored_identity_child(
     thresholds: GuardThresholds,
 ) -> Result<MonitoredChildExecution, PilotError> {
     let mut memory_monitor = ChildProcessMemoryMonitor::new()?;
-    let child = Command::new(timing_executable)
+    let mut command = Command::new(timing_executable);
+    command
         .arg("run")
         .arg(compiler_instance_id)
         .arg(graph_profile.as_str())
         .arg(n.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+    let child = ContainedChild::spawn(&mut command)
         .map_err(|source| PilotError::ChildSpawn { ordinal, source })?;
     run_monitored_child_with_observer(child, ordinal, thresholds, |child_pid| {
         memory_monitor.observe(child_pid)
@@ -413,7 +416,7 @@ fn run_monitored_identity_child(
 }
 
 fn run_monitored_child_with_observer(
-    mut child: std::process::Child,
+    mut child: ContainedChild,
     ordinal: usize,
     thresholds: GuardThresholds,
     mut observe_child: impl FnMut(u32) -> Result<Option<ChildProcessMemoryObservation>, GuardError>,
@@ -497,7 +500,7 @@ fn run_monitored_child_with_observer(
     }
 
     let started = Instant::now();
-    let Some(mut child_stdin) = child.stdin.take() else {
+    let Some(mut child_stdin) = child.take_stdin() else {
         let report = ChildProcessMonitorReport {
             observation_count,
             last_private_bytes: NullableObservation::observed(last_private_bytes),
@@ -632,7 +635,7 @@ fn evaluate_child_monitor_trigger(
 }
 
 fn terminate_monitored_child(
-    mut child: std::process::Child,
+    mut child: ContainedChild,
     ordinal: usize,
     child_pid: u32,
     report: ChildProcessMonitorReport,
@@ -649,18 +652,33 @@ fn terminate_monitored_child(
             child_pid,
             source,
         },
+        ChildTerminationFailure::ContainmentEscalation(source) => {
+            PilotError::ChildContainmentEscalation {
+                ordinal,
+                child_pid,
+                source,
+            }
+        }
         ChildTerminationFailure::DeadlineExceeded {
             last_termination_error,
         } => PilotError::ChildTerminationDeadlineExceeded {
             ordinal,
             child_pid,
-            timeout_ms: CHILD_TERMINATION_TIMEOUT_MS,
+            total_timeout_ms: CHILD_TERMINATION_TOTAL_TIMEOUT_MS,
             last_termination_error,
         },
     })?;
     let output = child
         .wait_with_output()
         .map_err(|source| PilotError::ChildWait { ordinal, source })?;
+    let monitor_error = if termination.containment_escalated {
+        Some(match monitor_error {
+            Some(error) => format!("{error};os-containment-escalated"),
+            None => "os-containment-escalated".to_owned(),
+        })
+    } else {
+        monitor_error
+    };
     Ok(MonitoredChildExecution::InvalidatedByMonitor {
         child_pid,
         output,
@@ -673,26 +691,33 @@ fn terminate_monitored_child(
 trait ChildTerminationControl {
     fn request_termination(&mut self) -> std::io::Result<()>;
     fn has_exited(&mut self) -> std::io::Result<bool>;
+    fn escalate_containment(&mut self) -> std::io::Result<()>;
 }
 
-impl ChildTerminationControl for std::process::Child {
+impl ChildTerminationControl for ContainedChild {
     fn request_termination(&mut self) -> std::io::Result<()> {
-        self.kill()
+        ContainedChild::request_termination(self)
     }
 
     fn has_exited(&mut self) -> std::io::Result<bool> {
         self.try_wait().map(|status| status.is_some())
+    }
+
+    fn escalate_containment(&mut self) -> std::io::Result<()> {
+        ContainedChild::escalate_containment(self).map(|_| ())
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct ChildTerminationCompletion {
     prior_termination_error: Option<String>,
+    containment_escalated: bool,
 }
 
 #[derive(Debug)]
 enum ChildTerminationFailure {
     StatusPoll(std::io::Error),
+    ContainmentEscalation(std::io::Error),
     DeadlineExceeded {
         last_termination_error: Option<String>,
     },
@@ -721,10 +746,32 @@ fn terminate_child_with_deadline(
         {
             return Ok(ChildTerminationCompletion {
                 prior_termination_error,
+                containment_escalated: false,
             });
         }
 
         let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            break;
+        }
+        thread::sleep(retry_interval.min(timeout.saturating_sub(elapsed)));
+    }
+
+    child
+        .escalate_containment()
+        .map_err(ChildTerminationFailure::ContainmentEscalation)?;
+    let containment_started = Instant::now();
+    loop {
+        if child
+            .has_exited()
+            .map_err(ChildTerminationFailure::StatusPoll)?
+        {
+            return Ok(ChildTerminationCompletion {
+                prior_termination_error,
+                containment_escalated: true,
+            });
+        }
+        let elapsed = containment_started.elapsed();
         if elapsed >= timeout {
             return Err(ChildTerminationFailure::DeadlineExceeded {
                 last_termination_error: prior_termination_error,
@@ -734,7 +781,7 @@ fn terminate_child_with_deadline(
     }
 }
 
-fn terminate_child_best_effort(child: &mut std::process::Child) {
+fn terminate_child_best_effort(child: &mut ContainedChild) {
     let _ = terminate_child_with_deadline(
         child,
         CHILD_TERMINATION_TIMEOUT,
@@ -743,7 +790,7 @@ fn terminate_child_best_effort(child: &mut std::process::Child) {
 }
 
 fn try_wait_child(
-    child: &mut std::process::Child,
+    child: &mut ContainedChild,
     ordinal: usize,
 ) -> Result<Option<std::process::ExitStatus>, PilotError> {
     match child.try_wait() {
@@ -897,13 +944,20 @@ pub enum PilotError {
         #[source]
         source: std::io::Error,
     },
+    #[error("无法升级新进程试运行样本 {ordinal}（PID {child_pid}）的操作系统级存续边界")]
+    ChildContainmentEscalation {
+        ordinal: usize,
+        child_pid: u32,
+        #[source]
+        source: std::io::Error,
+    },
     #[error(
-        "新进程试运行样本 {ordinal}（PID {child_pid}）未在 {timeout_ms} ms 的终止截止时间内退出；最后终止错误：{last_termination_error:?}"
+        "新进程试运行样本 {ordinal}（PID {child_pid}）在普通终止与操作系统级存续边界升级合计 {total_timeout_ms} ms 的截止时间内仍未退出；最后终止错误：{last_termination_error:?}"
     )]
     ChildTerminationDeadlineExceeded {
         ordinal: usize,
         child_pid: u32,
-        timeout_ms: u64,
+        total_timeout_ms: u64,
         last_termination_error: Option<String>,
     },
     #[error("无法解析新进程试运行样本 {ordinal}")]
@@ -926,7 +980,7 @@ pub enum PilotError {
 mod tests {
     use super::*;
     use std::collections::VecDeque;
-    use std::io::Read;
+    use std::io::{Read, Write};
     use std::path::Path;
     use std::process::{Command, Stdio};
 
@@ -1045,8 +1099,10 @@ mod tests {
     struct ScriptedTerminationControl {
         termination_failures: usize,
         exit_observations: VecDeque<bool>,
+        exit_after_containment: bool,
         termination_attempts: usize,
         status_polls: usize,
+        containment_escalations: usize,
     }
 
     impl ScriptedTerminationControl {
@@ -1054,9 +1110,16 @@ mod tests {
             Self {
                 termination_failures,
                 exit_observations: exit_observations.into(),
+                exit_after_containment: false,
                 termination_attempts: 0,
                 status_polls: 0,
+                containment_escalations: 0,
             }
+        }
+
+        fn with_exit_after_containment(mut self) -> Self {
+            self.exit_after_containment = true;
+            self
         }
     }
 
@@ -1071,7 +1134,15 @@ mod tests {
 
         fn has_exited(&mut self) -> std::io::Result<bool> {
             self.status_polls += 1;
-            Ok(self.exit_observations.pop_front().unwrap_or(false))
+            Ok(self
+                .exit_observations
+                .pop_front()
+                .unwrap_or(self.exit_after_containment && self.containment_escalations > 0))
+        }
+
+        fn escalate_containment(&mut self) -> std::io::Result<()> {
+            self.containment_escalations += 1;
+            Ok(())
         }
     }
 
@@ -1091,7 +1162,24 @@ mod tests {
             Some("scripted-termination-refusal")
         );
         assert_eq!(child.termination_attempts, 1);
-        assert_eq!(child.status_polls, 1);
+        assert_eq!(child.status_polls, 2);
+        assert_eq!(child.containment_escalations, 1);
+    }
+
+    #[test]
+    fn persistent_termination_refusal_escalates_containment_before_returning() {
+        let mut child =
+            ScriptedTerminationControl::new(usize::MAX, [false]).with_exit_after_containment();
+        let completion = terminate_child_with_deadline(&mut child, Duration::ZERO, Duration::ZERO)
+            .expect("containment escalation must make the child exit observable");
+        assert_eq!(
+            completion.prior_termination_error.as_deref(),
+            Some("scripted-termination-refusal")
+        );
+        assert!(completion.containment_escalated);
+        assert_eq!(child.termination_attempts, 1);
+        assert_eq!(child.status_polls, 2);
+        assert_eq!(child.containment_escalations, 1);
     }
 
     #[test]
@@ -1106,6 +1194,8 @@ mod tests {
         );
         assert_eq!(child.termination_attempts, 3);
         assert_eq!(child.status_polls, 4);
+        assert_eq!(child.containment_escalations, 0);
+        assert!(!completion.containment_escalated);
     }
 
     #[test]
@@ -1120,6 +1210,8 @@ mod tests {
         );
         assert_eq!(child.termination_attempts, 1);
         assert_eq!(child.status_polls, 1);
+        assert_eq!(child.containment_escalations, 0);
+        assert!(!completion.containment_escalated);
     }
 
     #[test]
@@ -1244,18 +1336,51 @@ mod tests {
         assert_eq!(process.exit_code.value, Some(7));
     }
 
-    fn spawn_monitor_termination_helper(mode: &str) -> std::process::Child {
+    #[cfg(windows)]
+    #[test]
+    fn windows_job_close_terminates_and_reaps_the_contained_child() {
+        let mut child = spawn_monitor_termination_helper("wait");
+        let child_pid = child.id();
+        let mut stdin = child.take_stdin().expect("contained child stdin");
+        stdin
+            .write_all(&[CHILD_START_SIGNAL])
+            .expect("release contained helper");
+        drop(stdin);
+
+        assert!(
+            child
+                .escalate_containment()
+                .expect("close kill-on-close Job Object")
+        );
+        let started = Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait().expect("poll contained helper") {
+                break status;
+            }
+            assert!(
+                started.elapsed() < CHILD_TERMINATION_TIMEOUT,
+                "contained child {child_pid} outlived the Job close deadline"
+            );
+            thread::sleep(CHILD_TERMINATION_RETRY_INTERVAL);
+        };
+        let output = child
+            .wait_with_output()
+            .expect("reap Job-terminated contained helper");
+        assert_eq!(output.status.code(), status.code());
+    }
+
+    fn spawn_monitor_termination_helper(mode: &str) -> ContainedChild {
         let executable = std::env::current_exe().expect("current test executable");
-        Command::new(executable)
+        let mut command = Command::new(executable);
+        command
             .arg("pilot::tests::parent_monitor_termination_helper")
             .arg("--exact")
             .arg("--nocapture")
             .env(MONITOR_TERMINATION_HELPER_ENV, mode)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("spawn monitor termination helper")
+            .stderr(Stdio::piped());
+        ContainedChild::spawn(&mut command).expect("spawn contained monitor termination helper")
     }
 
     #[test]

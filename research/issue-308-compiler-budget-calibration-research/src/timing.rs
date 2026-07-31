@@ -168,13 +168,7 @@ impl<const TRACK_ALLOCATIONS: bool> IdentityCompilerInstance<TRACK_ALLOCATIONS> 
 
         // 正式墙钟样本只允许这一对外层时钟读取。
         let started = Instant::now();
-        let materialized = execute_identity_stage_case_with_buffers(
-            &self.generator,
-            &self.identity,
-            &self.stage,
-            &plan,
-            &mut self.buffers,
-        )?;
+        let materialized = self.execute_with_failure_recovery(&plan)?;
         black_box(materialized.output_construction.as_slice());
         let elapsed = started.elapsed();
 
@@ -192,13 +186,7 @@ impl<const TRACK_ALLOCATIONS: bool> IdentityCompilerInstance<TRACK_ALLOCATIONS> 
         n: u32,
     ) -> Result<IdentityStageSummary, TimingError> {
         let plan = prepare_identity_stage_case(&self.identity, &self.stage, graph_profile, n)?;
-        let materialized = execute_identity_stage_case_with_buffers(
-            &self.generator,
-            &self.identity,
-            &self.stage,
-            &plan,
-            &mut self.buffers,
-        )?;
+        let materialized = self.execute_with_failure_recovery(&plan)?;
         self.finalize_and_recycle(&plan, materialized)
     }
 
@@ -212,7 +200,13 @@ impl<const TRACK_ALLOCATIONS: bool> IdentityCompilerInstance<TRACK_ALLOCATIONS> 
         materialized: crate::pipeline::IdentityStageMaterialization,
     ) -> Result<IdentityStageSummary, TimingError> {
         // 摘要、完整形状检查和容量回收均在停表后执行；独立预言机属于 oracle 角色。
-        let produced = finalize_identity_stage_case(plan, materialized)?;
+        let produced = match finalize_identity_stage_case(plan, materialized) {
+            Ok(produced) => produced,
+            Err(source) => {
+                self.buffers.reconcile_dropped_allocations_after_failure()?;
+                return Err(source.into());
+            }
+        };
         let summary = recycle_identity_stage_case(&mut self.buffers, produced);
         if !self.buffers.all_lengths_are_zero() {
             return Err(TimingError::RetainedSemanticState);
@@ -222,6 +216,25 @@ impl<const TRACK_ALLOCATIONS: bool> IdentityCompilerInstance<TRACK_ALLOCATIONS> 
             .checked_add(1)
             .ok_or(TimingError::CompilerInstanceCompilationOverflow)?;
         Ok(summary)
+    }
+
+    fn execute_with_failure_recovery(
+        &mut self,
+        plan: &crate::stage::IdentityStagePlan,
+    ) -> Result<crate::pipeline::IdentityStageMaterialization, TimingError> {
+        match execute_identity_stage_case_with_buffers(
+            &self.generator,
+            &self.identity,
+            &self.stage,
+            plan,
+            &mut self.buffers,
+        ) {
+            Ok(materialized) => Ok(materialized),
+            Err(source) => {
+                self.buffers.reconcile_dropped_allocations_after_failure()?;
+                Err(source.into())
+            }
+        }
     }
 }
 
@@ -375,6 +388,22 @@ mod tests {
                 }
             )) if hard_ceiling_bytes == exact_peak - 1
         ));
+        let first_failure = plus_one.allocation_snapshot();
+        assert_eq!(first_failure.live_requested_bytes, 0);
+        assert!(first_failure.freed_bytes > 0);
+
+        assert!(matches!(
+            plus_one.measure(GraphProfileId::WideStar, 1),
+            Err(TimingError::StageGeneration(
+                crate::StageGenerationError::ControlledAllocationHardCeiling {
+                    hard_ceiling_bytes,
+                    ..
+                }
+            )) if hard_ceiling_bytes == exact_peak - 1
+        ));
+        let repeated_failure = plus_one.allocation_snapshot();
+        assert_eq!(repeated_failure.live_requested_bytes, 0);
+        assert!(repeated_failure.freed_bytes > first_failure.freed_bytes);
     }
 
     #[test]
