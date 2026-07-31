@@ -4,15 +4,14 @@
 //! 记录、规范记录、阶段值/载荷、排序暂存和最终输出都使用 `ControlledVec`；任何新增
 //! 容量路径若未获得硬上限额度，就无法通过可失败增长接口继续执行。
 
-use crate::controlled_alloc::{
-    ControlledAllocationObservation, ControlledAllocator, ControlledVec,
-};
+use crate::controlled_alloc::{ControlledAllocationSnapshot, ControlledAllocator, ControlledVec};
 use crate::corridor::{
     CorridorTemplate, EntityRef, TemplateGeometryRule, TemplateRelation, UnitEntityRef,
 };
 use crate::identity::{IdentityContract, IdentityFieldValue};
 use crate::stage::{
-    HirStageRecord, MirLirStageRecord, SourceSpanRecord, StageContract, TypedAstStageRecord,
+    HirStageRecord, MirLirStageRecord, SourceSpanRecord, StageContract, StageRetainedCapacityBytes,
+    TypedAstStageRecord,
 };
 use crate::{
     GeneratorContract, GraphProfileId, ScalableStagePlanSummary, ScalableWorkloadId, SequenceKind,
@@ -77,15 +76,28 @@ pub(crate) struct BoundedTemplateExecution {
     pub(crate) workload_id: ScalableWorkloadId,
     pub(crate) graph_profile: GraphProfileId,
     pub(crate) n: u32,
-    pub(crate) records: ControlledVec<BoundedSemanticRecord>,
-    pub(crate) record_payload: ControlledVec<u8>,
-    pub(crate) semantic_record_stream: ControlledVec<u8>,
-    materialization: BoundedTemplateMaterialization,
+    buffers: BoundedTemplateBufferPool,
     plan: ScalableStagePlanSummary,
 }
 
 #[derive(Debug)]
-struct BoundedTemplateMaterialization {
+pub(crate) struct BoundedTemplateExecutionFailure {
+    source: StageGenerationError,
+    buffers: BoundedTemplateBufferPool,
+}
+
+#[derive(Debug)]
+pub(crate) struct BoundedTemplateBufferPool {
+    allocator: ControlledAllocator,
+    fields: ControlledVec<BoundedField>,
+    field_payload: ControlledVec<u8>,
+    declarations: ControlledVec<BoundedDeclaration>,
+    canonical_identity_scratch: ControlledVec<u8>,
+    owner_ordinal_scratch: ControlledVec<usize>,
+    records: ControlledVec<BoundedSemanticRecord>,
+    record_payload: ControlledVec<u8>,
+    local_index_scratch: ControlledVec<usize>,
+    source_permutation_scratch: ControlledVec<u32>,
     source_spans: ControlledVec<SourceSpanRecord>,
     source_records: ControlledVec<TypedAstStageRecord>,
     source_payload: ControlledVec<u8>,
@@ -99,32 +111,212 @@ struct BoundedTemplateMaterialization {
     lir_payload: ControlledVec<u8>,
     diagnostics: ControlledVec<u8>,
     scratch: ControlledVec<u64>,
+    semantic_record_stream: ControlledVec<u8>,
     output: ControlledVec<u8>,
-}
-
-#[derive(Debug)]
-struct BoundedTemplateMaterializationPrefix {
-    source_spans: ControlledVec<SourceSpanRecord>,
-    source_records: ControlledVec<TypedAstStageRecord>,
-    source_payload: ControlledVec<u8>,
-    typed_records: ControlledVec<TypedAstStageRecord>,
-    typed_payload: ControlledVec<u8>,
-    hir_records: ControlledVec<HirStageRecord>,
-    hir_payload: ControlledVec<u8>,
-    mir_records: ControlledVec<MirLirStageRecord>,
-    mir_payload: ControlledVec<u8>,
-    diagnostics: ControlledVec<u8>,
-    scratch: ControlledVec<u64>,
 }
 
 impl BoundedTemplateExecution {
     pub(crate) fn output_construction(&self) -> &[u8] {
-        self.materialization.output.as_slice()
+        self.buffers.output.as_slice()
     }
 
     pub(crate) fn record_payload(&self, record: &BoundedSemanticRecord) -> &[u8] {
-        &self.record_payload.as_slice()
+        &self.buffers.record_payload.as_slice()
             [record.payload.offset..record.payload.offset + record.payload.length]
+    }
+
+    pub(crate) fn records(&self) -> &[BoundedSemanticRecord] {
+        self.buffers.records.as_slice()
+    }
+
+    pub(crate) fn semantic_record_stream(&self) -> &[u8] {
+        self.buffers.semantic_record_stream.as_slice()
+    }
+
+    pub(crate) fn peak_live_requested_bytes(&self) -> u64 {
+        self.buffers.peak_live_requested_bytes()
+    }
+}
+
+impl BoundedTemplateBufferPool {
+    pub(crate) fn new(allocator: ControlledAllocator) -> Self {
+        Self {
+            fields: ControlledVec::new("template identity fields", allocator.clone()),
+            field_payload: ControlledVec::new("template identity field payload", allocator.clone()),
+            declarations: ControlledVec::new("template declarations", allocator.clone()),
+            canonical_identity_scratch: ControlledVec::new(
+                "template canonical identity scratch",
+                allocator.clone(),
+            ),
+            owner_ordinal_scratch: ControlledVec::new(
+                "template owner-ordinal scratch",
+                allocator.clone(),
+            ),
+            records: ControlledVec::new("template semantic records", allocator.clone()),
+            record_payload: ControlledVec::new("template semantic payload", allocator.clone()),
+            local_index_scratch: ControlledVec::new(
+                "template local-index scratch",
+                allocator.clone(),
+            ),
+            source_permutation_scratch: ControlledVec::new(
+                "template source permutation scratch",
+                allocator.clone(),
+            ),
+            source_spans: ControlledVec::new("template source spans", allocator.clone()),
+            source_records: ControlledVec::new("template source records", allocator.clone()),
+            source_payload: ControlledVec::new("template source payload", allocator.clone()),
+            typed_records: ControlledVec::new("template typed AST records", allocator.clone()),
+            typed_payload: ControlledVec::new("template typed AST payload", allocator.clone()),
+            hir_records: ControlledVec::new("template HIR records", allocator.clone()),
+            hir_payload: ControlledVec::new("template HIR payload", allocator.clone()),
+            mir_records: ControlledVec::new("template MIR records", allocator.clone()),
+            mir_payload: ControlledVec::new("template MIR payload", allocator.clone()),
+            lir_records: ControlledVec::new("template canonical LIR records", allocator.clone()),
+            lir_payload: ControlledVec::new("template canonical LIR payload", allocator.clone()),
+            diagnostics: ControlledVec::new("template diagnostics", allocator.clone()),
+            scratch: ControlledVec::new("template scratch", allocator.clone()),
+            semantic_record_stream: ControlledVec::new(
+                "template semantic record stream",
+                allocator.clone(),
+            ),
+            output: ControlledVec::new("template output construction", allocator.clone()),
+            allocator,
+        }
+    }
+
+    pub(crate) fn begin_request(&self) -> Result<(), StageGenerationError> {
+        if !self.all_lengths_are_zero() {
+            return Err(StageGenerationError::MaterializedMismatch(
+                "template retained semantic state",
+            ));
+        }
+        self.allocator.begin_request()
+    }
+
+    pub(crate) fn peak_live_requested_bytes(&self) -> u64 {
+        self.allocator.observation().peak_live_requested_bytes
+    }
+
+    pub(crate) fn allocation_snapshot(&self) -> ControlledAllocationSnapshot {
+        self.allocator.snapshot()
+    }
+
+    pub(crate) fn retained_capacity_bytes(
+        &self,
+    ) -> Result<StageRetainedCapacityBytes, StageGenerationError> {
+        let source_input = capacity_sum(&[
+            self.source_spans.accounted_capacity_bytes(),
+            self.source_records.accounted_capacity_bytes(),
+            self.source_payload.accounted_capacity_bytes(),
+        ])?;
+        let typed_ast = capacity_sum(&[
+            self.typed_records.accounted_capacity_bytes(),
+            self.typed_payload.accounted_capacity_bytes(),
+        ])?;
+        let hir = capacity_sum(&[
+            self.hir_records.accounted_capacity_bytes(),
+            self.hir_payload.accounted_capacity_bytes(),
+        ])?;
+        let mir = capacity_sum(&[
+            self.records.accounted_capacity_bytes(),
+            self.record_payload.accounted_capacity_bytes(),
+            self.mir_records.accounted_capacity_bytes(),
+            self.mir_payload.accounted_capacity_bytes(),
+        ])?;
+        let canonical_lir = capacity_sum(&[
+            self.lir_records.accounted_capacity_bytes(),
+            self.lir_payload.accounted_capacity_bytes(),
+        ])?;
+        let diagnostics = self.diagnostics.accounted_capacity_bytes();
+        let scratch = capacity_sum(&[
+            self.fields.accounted_capacity_bytes(),
+            self.field_payload.accounted_capacity_bytes(),
+            self.declarations.accounted_capacity_bytes(),
+            self.canonical_identity_scratch.accounted_capacity_bytes(),
+            self.owner_ordinal_scratch.accounted_capacity_bytes(),
+            self.local_index_scratch.accounted_capacity_bytes(),
+            self.source_permutation_scratch.accounted_capacity_bytes(),
+            self.scratch.accounted_capacity_bytes(),
+        ])?;
+        let output_construction = capacity_sum(&[
+            self.semantic_record_stream.accounted_capacity_bytes(),
+            self.output.accounted_capacity_bytes(),
+        ])?;
+        let total = capacity_sum(&[
+            source_input,
+            typed_ast,
+            hir,
+            mir,
+            canonical_lir,
+            diagnostics,
+            scratch,
+            output_construction,
+        ])?;
+        Ok(StageRetainedCapacityBytes {
+            source_input,
+            typed_ast,
+            hir,
+            mir,
+            canonical_lir,
+            diagnostics,
+            scratch,
+            output_construction,
+            total,
+        })
+    }
+
+    fn clear_all(&mut self) {
+        self.fields.clear();
+        self.field_payload.clear();
+        self.declarations.clear();
+        self.canonical_identity_scratch.clear();
+        self.owner_ordinal_scratch.clear();
+        self.records.clear();
+        self.record_payload.clear();
+        self.local_index_scratch.clear();
+        self.source_permutation_scratch.clear();
+        self.source_spans.clear();
+        self.source_records.clear();
+        self.source_payload.clear();
+        self.typed_records.clear();
+        self.typed_payload.clear();
+        self.hir_records.clear();
+        self.hir_payload.clear();
+        self.mir_records.clear();
+        self.mir_payload.clear();
+        self.lir_records.clear();
+        self.lir_payload.clear();
+        self.diagnostics.clear();
+        self.scratch.clear();
+        self.semantic_record_stream.clear();
+        self.output.clear();
+    }
+
+    fn all_lengths_are_zero(&self) -> bool {
+        self.fields.len() == 0
+            && self.field_payload.len() == 0
+            && self.declarations.len() == 0
+            && self.canonical_identity_scratch.len() == 0
+            && self.owner_ordinal_scratch.len() == 0
+            && self.records.len() == 0
+            && self.record_payload.len() == 0
+            && self.local_index_scratch.len() == 0
+            && self.source_permutation_scratch.len() == 0
+            && self.source_spans.len() == 0
+            && self.source_records.len() == 0
+            && self.source_payload.len() == 0
+            && self.typed_records.len() == 0
+            && self.typed_payload.len() == 0
+            && self.hir_records.len() == 0
+            && self.hir_payload.len() == 0
+            && self.mir_records.len() == 0
+            && self.mir_payload.len() == 0
+            && self.lir_records.len() == 0
+            && self.lir_payload.len() == 0
+            && self.diagnostics.len() == 0
+            && self.scratch.len() == 0
+            && self.semantic_record_stream.len() == 0
+            && self.output.len() == 0
     }
 }
 
@@ -140,6 +332,82 @@ pub(crate) fn execute_bounded_template_stage_case(
     plan: &ScalableStagePlanSummary,
     allocator: ControlledAllocator,
 ) -> Result<BoundedTemplateExecution, StageGenerationError> {
+    execute_bounded_template_stage_case_with_pool(
+        generator,
+        identity,
+        stage,
+        workload_id,
+        template,
+        graph_profile,
+        n,
+        plan,
+        BoundedTemplateBufferPool::new(allocator),
+    )
+    .map_err(|failure| failure.into_source())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn execute_bounded_template_stage_case_with_pool(
+    generator: &GeneratorContract,
+    identity: &IdentityContract,
+    stage: &StageContract,
+    workload_id: ScalableWorkloadId,
+    template: &CorridorTemplate,
+    graph_profile: GraphProfileId,
+    n: u32,
+    plan: &ScalableStagePlanSummary,
+    mut buffers: BoundedTemplateBufferPool,
+) -> Result<BoundedTemplateExecution, Box<BoundedTemplateExecutionFailure>> {
+    match populate_bounded_template_stage_case(
+        generator,
+        identity,
+        stage,
+        workload_id,
+        template,
+        graph_profile,
+        n,
+        plan,
+        &mut buffers,
+    ) {
+        Ok(()) => Ok(BoundedTemplateExecution {
+            workload_id,
+            graph_profile,
+            n,
+            buffers,
+            plan: plan.clone(),
+        }),
+        Err(source) => {
+            buffers.clear_all();
+            Err(Box::new(BoundedTemplateExecutionFailure {
+                source,
+                buffers,
+            }))
+        }
+    }
+}
+
+impl BoundedTemplateExecutionFailure {
+    pub(crate) fn into_parts(self) -> (StageGenerationError, BoundedTemplateBufferPool) {
+        (self.source, self.buffers)
+    }
+
+    fn into_source(self) -> StageGenerationError {
+        self.source
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn populate_bounded_template_stage_case(
+    generator: &GeneratorContract,
+    identity: &IdentityContract,
+    stage: &StageContract,
+    workload_id: ScalableWorkloadId,
+    template: &CorridorTemplate,
+    graph_profile: GraphProfileId,
+    n: u32,
+    plan: &ScalableStagePlanSummary,
+    buffers: &mut BoundedTemplateBufferPool,
+) -> Result<(), StageGenerationError> {
     if n == 0 {
         return Err(StageGenerationError::ScaleMustBePositive);
     }
@@ -158,27 +426,18 @@ pub(crate) fn execute_bounded_template_stage_case(
         .map_err(|_| StageGenerationError::Overflow("bounded semantic record count"))?;
     let semantic_payload_bytes = usize::try_from(plan.counts.semantic_payload_byte_count)
         .map_err(|_| StageGenerationError::Overflow("bounded semantic payload bytes"))?;
+    buffers.clear_all();
 
-    let mut fields = ControlledVec::try_with_capacity(
-        "template identity fields",
+    buffers.fields.try_reserve(field_count)?;
+    buffers.field_payload.try_reserve(checked_mul_usize(
         field_count,
-        allocator.clone(),
-    )?;
-    let mut field_payload = ControlledVec::try_with_capacity(
-        "template identity field payload",
-        checked_mul_usize(field_count, 32, "bounded identity field payload upper")?,
-        allocator.clone(),
-    )?;
-    let mut declarations: ControlledVec<BoundedDeclaration> = ControlledVec::try_with_capacity(
-        "template declarations",
-        declaration_count,
-        allocator.clone(),
-    )?;
-    let mut canonical_identity_scratch = ControlledVec::try_with_capacity(
-        "template canonical identity scratch",
-        maximum_canonical_identity_bytes(identity, template)?,
-        allocator.clone(),
-    )?;
+        32,
+        "bounded identity field payload upper",
+    )?)?;
+    buffers.declarations.try_reserve(declaration_count)?;
+    buffers
+        .canonical_identity_scratch
+        .try_reserve(maximum_canonical_identity_bytes(identity, template)?)?;
 
     for unit in 0..n {
         let namespace =
@@ -191,7 +450,7 @@ pub(crate) fn execute_bounded_template_stage_case(
                 .ok_or(StageGenerationError::MissingEntityKind(
                     entity.reference.kind,
                 ))?;
-            let field_start = fields.len();
+            let field_start = buffers.fields.len();
             let profiled_count = u32::try_from(
                 binding
                     .fields
@@ -201,10 +460,10 @@ pub(crate) fn execute_bounded_template_stage_case(
             )
             .map_err(|_| StageGenerationError::Overflow("profiled identity field count"))?;
             for field in &binding.fields {
-                let payload_start = field_payload.len();
+                let payload_start = buffers.field_payload.len();
                 match field.value {
                     IdentityFieldValue::Namespace => {
-                        field_payload.try_extend_from_slice(&namespace)?;
+                        buffers.field_payload.try_extend_from_slice(&namespace)?;
                     }
                     IdentityFieldValue::ProfiledKey { kind, local } => {
                         let expanded_local = entity
@@ -221,7 +480,7 @@ pub(crate) fn execute_bounded_template_stage_case(
                         write_hex_u32(unit, &mut bytes[3..11]);
                         bytes[11] = b'/';
                         write_hex_u32(expanded_local, &mut bytes[12..20]);
-                        field_payload.try_extend_from_slice(&bytes)?;
+                        buffers.field_payload.try_extend_from_slice(&bytes)?;
                     }
                     IdentityFieldValue::StableId { kind, .. } => {
                         let target = entity.identity_references.get(&field.tag).copied().ok_or(
@@ -235,54 +494,62 @@ pub(crate) fn execute_bounded_template_stage_case(
                             ));
                         }
                         let target_index = declaration_index(template, unit, target, entity_count)?;
-                        let target_declaration = declarations.as_slice().get(target_index).ok_or(
-                            StageGenerationError::MaterializedMismatch(
-                                "template identity dependency order",
-                            ),
-                        )?;
-                        field_payload.try_extend_from_slice(&target_declaration.stable_id)?;
+                        let target_declaration =
+                            buffers.declarations.as_slice().get(target_index).ok_or(
+                                StageGenerationError::MaterializedMismatch(
+                                    "template identity dependency order",
+                                ),
+                            )?;
+                        buffers
+                            .field_payload
+                            .try_extend_from_slice(&target_declaration.stable_id)?;
                     }
                 }
-                fields.try_push(BoundedField {
+                buffers.fields.try_push(BoundedField {
                     tag: field.tag,
                     bytes: PayloadRange {
                         offset: payload_start,
-                        length: field_payload.len() - payload_start,
+                        length: buffers.field_payload.len() - payload_start,
                     },
                 })?;
             }
 
-            canonical_identity_scratch.clear();
-            canonical_identity_scratch.try_extend_from_slice(IDENTITY_MAGIC)?;
+            buffers.canonical_identity_scratch.clear();
+            buffers
+                .canonical_identity_scratch
+                .try_extend_from_slice(IDENTITY_MAGIC)?;
             append_u16(
-                &mut canonical_identity_scratch,
+                &mut buffers.canonical_identity_scratch,
                 identity.identity_encoding_version(),
             )?;
-            append_u16(&mut canonical_identity_scratch, entity.reference.kind)?;
-            let entity_fields = &fields.as_slice()[field_start..fields.len()];
             append_u16(
-                &mut canonical_identity_scratch,
+                &mut buffers.canonical_identity_scratch,
+                entity.reference.kind,
+            )?;
+            let entity_fields = &buffers.fields.as_slice()[field_start..buffers.fields.len()];
+            append_u16(
+                &mut buffers.canonical_identity_scratch,
                 u16::try_from(entity_fields.len())
                     .map_err(|_| StageGenerationError::Overflow("identity field count"))?,
             )?;
             for field in entity_fields {
-                append_u16(&mut canonical_identity_scratch, field.tag)?;
+                append_u16(&mut buffers.canonical_identity_scratch, field.tag)?;
                 append_u32(
-                    &mut canonical_identity_scratch,
+                    &mut buffers.canonical_identity_scratch,
                     u32::try_from(field.bytes.length)
                         .map_err(|_| StageGenerationError::Overflow("identity field length"))?,
                 )?;
-                canonical_identity_scratch.try_extend_from_slice(
-                    &field_payload.as_slice()
+                buffers.canonical_identity_scratch.try_extend_from_slice(
+                    &buffers.field_payload.as_slice()
                         [field.bytes.offset..field.bytes.offset + field.bytes.length],
                 )?;
             }
             let mut hasher = blake3::Hasher::new();
             hasher.update(STABLE_ID_DOMAIN);
-            hasher.update(canonical_identity_scratch.as_slice());
+            hasher.update(buffers.canonical_identity_scratch.as_slice());
             let mut stable_id = [0_u8; 16];
             stable_id.copy_from_slice(&hasher.finalize().as_bytes()[..16]);
-            declarations.try_push(BoundedDeclaration {
+            buffers.declarations.try_push(BoundedDeclaration {
                 owner: UnitEntityRef {
                     unit,
                     entity: entity.reference,
@@ -296,38 +563,32 @@ pub(crate) fn execute_bounded_template_stage_case(
             })?;
         }
     }
-    if declarations.len() != declaration_count || fields.len() != field_count {
+    if buffers.declarations.len() != declaration_count || buffers.fields.len() != field_count {
         return Err(StageGenerationError::MaterializedMismatch(
             "bounded template declarations",
         ));
     }
 
-    assign_owner_ordinals(template, &mut declarations, allocator.clone())?;
+    assign_owner_ordinals(
+        template,
+        &mut buffers.declarations,
+        &mut buffers.owner_ordinal_scratch,
+    )?;
 
-    let mut records = ControlledVec::try_with_capacity(
-        "template semantic records",
-        semantic_record_count,
-        allocator.clone(),
-    )?;
-    let mut record_payload = ControlledVec::try_with_capacity(
-        "template semantic payload",
-        semantic_payload_bytes,
-        allocator.clone(),
-    )?;
+    buffers.records.try_reserve(semantic_record_count)?;
+    buffers.record_payload.try_reserve(semantic_payload_bytes)?;
     let per_unit_record_count = entity_count
         .checked_add(template.relations.len())
         .and_then(|value| value.checked_add(template.geometry.len()))
         .ok_or(StageGenerationError::Overflow(
             "template per-unit semantic record count",
         ))?;
-    let mut local_index_scratch = ControlledVec::try_with_capacity(
-        "template local-index scratch",
-        per_unit_record_count,
-        allocator.clone(),
-    )?;
+    buffers
+        .local_index_scratch
+        .try_reserve(per_unit_record_count)?;
 
     for unit in 0..n {
-        let unit_record_start = records.len();
+        let unit_record_start = buffers.records.len();
         let declaration_start = usize::try_from(unit)
             .ok()
             .and_then(|unit| unit.checked_mul(entity_count))
@@ -335,29 +596,29 @@ pub(crate) fn execute_bounded_template_stage_case(
                 "template declaration unit offset",
             ))?;
         for declaration in
-            &declarations.as_slice()[declaration_start..declaration_start + entity_count]
+            &buffers.declarations.as_slice()[declaration_start..declaration_start + entity_count]
         {
-            let payload_start = record_payload.len();
-            let declaration_fields = &fields.as_slice()
+            let payload_start = buffers.record_payload.len();
+            let declaration_fields = &buffers.fields.as_slice()
                 [declaration.fields.offset..declaration.fields.offset + declaration.fields.length];
             append_u16(
-                &mut record_payload,
+                &mut buffers.record_payload,
                 u16::try_from(declaration_fields.len())
                     .map_err(|_| StageGenerationError::Overflow("identity payload field count"))?,
             )?;
             for field in declaration_fields {
-                append_u16(&mut record_payload, field.tag)?;
+                append_u16(&mut buffers.record_payload, field.tag)?;
                 append_u32(
-                    &mut record_payload,
+                    &mut buffers.record_payload,
                     u32::try_from(field.bytes.length)
                         .map_err(|_| StageGenerationError::Overflow("identity payload field"))?,
                 )?;
-                record_payload.try_extend_from_slice(
-                    &field_payload.as_slice()
+                buffers.record_payload.try_extend_from_slice(
+                    &buffers.field_payload.as_slice()
                         [field.bytes.offset..field.bytes.offset + field.bytes.length],
                 )?;
             }
-            records.try_push(BoundedSemanticRecord {
+            buffers.records.try_push(BoundedSemanticRecord {
                 record_kind: 1,
                 entity_kind_code: declaration.owner.entity.kind,
                 stable_id: declaration.stable_id,
@@ -365,7 +626,7 @@ pub(crate) fn execute_bounded_template_stage_case(
                 local_index: ABSENT_LOCAL_INDEX,
                 payload: PayloadRange {
                     offset: payload_start,
-                    length: record_payload.len() - payload_start,
+                    length: buffers.record_payload.len() - payload_start,
                 },
                 pending_order: PendingOrder::Absent,
             })?;
@@ -373,24 +634,24 @@ pub(crate) fn execute_bounded_template_stage_case(
         for relation in &template.relations {
             let compiled = compile_relation(
                 template,
-                declarations.as_slice(),
+                buffers.declarations.as_slice(),
                 unit,
                 relation,
-                &mut record_payload,
+                &mut buffers.record_payload,
             )?;
-            records.try_push(compiled)?;
+            buffers.records.try_push(compiled)?;
         }
         for point in &template.geometry {
-            let payload_start = record_payload.len();
-            let frame = stable_id(template, declarations.as_slice(), unit, point.frame)?;
-            record_payload.try_extend_from_slice(&frame)?;
-            append_u32(&mut record_payload, point.point_index)?;
+            let payload_start = buffers.record_payload.len();
+            let frame = stable_id(template, buffers.declarations.as_slice(), unit, point.frame)?;
+            buffers.record_payload.try_extend_from_slice(&frame)?;
+            append_u32(&mut buffers.record_payload, point.point_index)?;
             let (x_bits, y_bits, z_bits) = geometry_coordinate_bits(point, unit)?;
-            append_u32(&mut record_payload, x_bits)?;
-            append_u32(&mut record_payload, y_bits)?;
-            append_u32(&mut record_payload, z_bits)?;
-            let owner = declaration(template, declarations.as_slice(), unit, point.edge)?;
-            records.try_push(BoundedSemanticRecord {
+            append_u32(&mut buffers.record_payload, x_bits)?;
+            append_u32(&mut buffers.record_payload, y_bits)?;
+            append_u32(&mut buffers.record_payload, z_bits)?;
+            let owner = declaration(template, buffers.declarations.as_slice(), unit, point.edge)?;
+            buffers.records.try_push(BoundedSemanticRecord {
                 record_kind: 5,
                 entity_kind_code: point.edge.kind,
                 stable_id: owner.stable_id,
@@ -398,150 +659,136 @@ pub(crate) fn execute_bounded_template_stage_case(
                 local_index: point.point_index,
                 payload: PayloadRange {
                     offset: payload_start,
-                    length: record_payload.len() - payload_start,
+                    length: buffers.record_payload.len() - payload_start,
                 },
                 pending_order: PendingOrder::Explicit(point.point_index),
             })?;
         }
-        let unit_record_end = records.len();
+        let unit_record_end = buffers.records.len();
         assign_local_indexes(
-            records.as_mut_slice(),
-            record_payload.as_mut_slice(),
+            buffers.records.as_mut_slice(),
+            buffers.record_payload.as_mut_slice(),
             unit_record_start,
             unit_record_end,
-            &mut local_index_scratch,
+            &mut buffers.local_index_scratch,
         )?;
     }
-    if records.len() != semantic_record_count || record_payload.len() != semantic_payload_bytes {
+    if buffers.records.len() != semantic_record_count
+        || buffers.record_payload.len() != semantic_payload_bytes
+    {
         return Err(StageGenerationError::MaterializedMismatch(
             "bounded template semantic shape",
         ));
     }
 
-    let prefix = materialize_bounded_stage_prefix(
+    materialize_bounded_stage_prefix(
         generator,
         stage,
         template,
         graph_profile,
         n,
         plan,
-        records.as_slice(),
-        record_payload.as_slice(),
-        allocator.clone(),
+        buffers.records.as_slice(),
+        buffers.record_payload.as_slice(),
+        &mut buffers.source_permutation_scratch,
+        &mut buffers.source_spans,
+        &mut buffers.source_records,
+        &mut buffers.source_payload,
+        &mut buffers.typed_records,
+        &mut buffers.typed_payload,
+        &mut buffers.hir_records,
+        &mut buffers.hir_payload,
+        &mut buffers.mir_records,
+        &mut buffers.mir_payload,
+        &mut buffers.diagnostics,
+        &mut buffers.scratch,
     )?;
-    records.sort_unstable_by(|left, right| {
-        canonical_record_compare(left, right, record_payload.as_slice())
+    buffers.records.sort_unstable_by(|left, right| {
+        canonical_record_compare(left, right, buffers.record_payload.as_slice())
     });
-    let (lir_records, lir_payload) = materialize_bounded_semantic_stage(
-        records.as_slice(),
-        record_payload.as_slice(),
-        "template canonical LIR records",
-        "template canonical LIR payload",
-        allocator.clone(),
+    materialize_bounded_semantic_stage(
+        buffers.records.as_slice(),
+        buffers.record_payload.as_slice(),
+        &mut buffers.lir_records,
+        &mut buffers.lir_payload,
     )?;
     let output_bytes = usize::try_from(plan.counts.output_byte_count)
         .map_err(|_| StageGenerationError::Overflow("bounded output bytes"))?;
-    let mut semantic_record_stream = ControlledVec::try_with_capacity(
-        "template semantic record stream",
-        output_bytes,
-        allocator.clone(),
-    )?;
-    semantic_record_stream.try_extend_from_slice(identity.semantic_record_domain().as_bytes())?;
-    semantic_record_stream.try_push(0)?;
+    buffers.semantic_record_stream.try_reserve(output_bytes)?;
+    buffers
+        .semantic_record_stream
+        .try_extend_from_slice(identity.semantic_record_domain().as_bytes())?;
+    buffers.semantic_record_stream.try_push(0)?;
     append_u32(
-        &mut semantic_record_stream,
+        &mut buffers.semantic_record_stream,
         identity.semantic_record_stream_version(),
     )?;
     append_u64(
-        &mut semantic_record_stream,
-        u64::try_from(records.len())
+        &mut buffers.semantic_record_stream,
+        u64::try_from(buffers.records.len())
             .map_err(|_| StageGenerationError::Overflow("semantic record count"))?,
     )?;
-    for record in &records {
-        append_u16(&mut semantic_record_stream, record.record_kind)?;
-        append_u16(&mut semantic_record_stream, record.entity_kind_code)?;
-        semantic_record_stream.try_extend_from_slice(&record.stable_id)?;
-        append_u32(&mut semantic_record_stream, record.owner_ordinal)?;
-        append_u32(&mut semantic_record_stream, record.local_index)?;
+    for record in &buffers.records {
+        append_u16(&mut buffers.semantic_record_stream, record.record_kind)?;
+        append_u16(&mut buffers.semantic_record_stream, record.entity_kind_code)?;
+        buffers
+            .semantic_record_stream
+            .try_extend_from_slice(&record.stable_id)?;
+        append_u32(&mut buffers.semantic_record_stream, record.owner_ordinal)?;
+        append_u32(&mut buffers.semantic_record_stream, record.local_index)?;
         append_u64(
-            &mut semantic_record_stream,
+            &mut buffers.semantic_record_stream,
             u64::try_from(record.payload.length)
                 .map_err(|_| StageGenerationError::Overflow("semantic payload length"))?,
         )?;
-        semantic_record_stream.try_extend_from_slice(
-            &record_payload.as_slice()
+        buffers.semantic_record_stream.try_extend_from_slice(
+            &buffers.record_payload.as_slice()
                 [record.payload.offset..record.payload.offset + record.payload.length],
         )?;
     }
-    if semantic_record_stream.len() != output_bytes {
+    if buffers.semantic_record_stream.len() != output_bytes {
         return Err(StageGenerationError::MaterializedMismatch(
             "bounded semantic stream bytes",
         ));
     }
-    let output = semantic_record_stream.try_clone("template output construction")?;
-    let BoundedTemplateMaterializationPrefix {
-        source_spans,
-        source_records,
-        source_payload,
-        typed_records,
-        typed_payload,
-        hir_records,
-        hir_payload,
-        mir_records,
-        mir_payload,
-        diagnostics,
-        scratch,
-    } = prefix;
-    let materialization = BoundedTemplateMaterialization {
-        source_spans,
-        source_records,
-        source_payload,
-        typed_records,
-        typed_payload,
-        hir_records,
-        hir_payload,
-        mir_records,
-        mir_payload,
-        lir_records,
-        lir_payload,
-        diagnostics,
-        scratch,
-        output,
-    };
-    Ok(BoundedTemplateExecution {
-        workload_id,
-        graph_profile,
-        n,
-        records,
-        record_payload,
-        semantic_record_stream,
-        materialization,
-        plan: plan.clone(),
-    })
+    buffers
+        .output
+        .try_reserve(buffers.semantic_record_stream.len())?;
+    buffers
+        .output
+        .try_extend_from_slice(buffers.semantic_record_stream.as_slice())?;
+    Ok(())
 }
 
 pub(crate) fn finalize_bounded_template_stage_case(
     execution: BoundedTemplateExecution,
 ) -> Result<String, StageGenerationError> {
-    verify_bounded_materialization(&execution.materialization, &execution.plan)?;
+    finalize_bounded_template_stage_case_with_pool(execution).map(|(digest, _)| digest)
+}
+
+pub(crate) fn finalize_bounded_template_stage_case_with_pool(
+    mut execution: BoundedTemplateExecution,
+) -> Result<(String, BoundedTemplateBufferPool), StageGenerationError> {
+    verify_bounded_materialization(&execution.buffers, &execution.plan)?;
     if execution.workload_id != execution.plan.workload_id
         || execution.graph_profile != execution.plan.graph_profile
         || execution.n != execution.plan.n
-        || execution.semantic_record_stream.as_slice()
-            != execution.materialization.output.as_slice()
+        || execution.buffers.semantic_record_stream.as_slice()
+            != execution.buffers.output.as_slice()
     {
         return Err(StageGenerationError::MaterializedMismatch(
             "bounded template finalized identity",
         ));
     }
-    let digest = Sha256::digest(execution.semantic_record_stream.as_slice());
+    let digest = Sha256::digest(execution.buffers.semantic_record_stream.as_slice());
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
         use std::fmt::Write as _;
         write!(&mut hex, "{byte:02x}")
             .map_err(|_| StageGenerationError::MaterializedMismatch("semantic digest"))?;
     }
-    Ok(hex)
+    execution.buffers.clear_all();
+    Ok((hex, execution.buffers))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -554,18 +801,25 @@ fn materialize_bounded_stage_prefix(
     plan: &ScalableStagePlanSummary,
     unsorted_records: &[BoundedSemanticRecord],
     semantic_payload: &[u8],
-    allocator: ControlledAllocator,
-) -> Result<BoundedTemplateMaterializationPrefix, StageGenerationError> {
-    exercise_source_permutations(generator, template, n, allocator.clone())?;
+    source_permutation_scratch: &mut ControlledVec<u32>,
+    source_spans: &mut ControlledVec<SourceSpanRecord>,
+    source_records: &mut ControlledVec<TypedAstStageRecord>,
+    source_payload: &mut ControlledVec<u8>,
+    typed_records: &mut ControlledVec<TypedAstStageRecord>,
+    typed_payload: &mut ControlledVec<u8>,
+    hir_records: &mut ControlledVec<HirStageRecord>,
+    hir_payload: &mut ControlledVec<u8>,
+    mir_records: &mut ControlledVec<MirLirStageRecord>,
+    mir_payload: &mut ControlledVec<u8>,
+    diagnostics: &mut ControlledVec<u8>,
+    scratch: &mut ControlledVec<u64>,
+) -> Result<(), StageGenerationError> {
+    exercise_source_permutations(generator, template, n, source_permutation_scratch)?;
 
     let source_span_count = to_usize(plan.counts.source_span_count, "bounded source span count")?;
     let module_count = u32::try_from(plan.counts.module_count)
         .map_err(|_| StageGenerationError::Overflow("bounded module count"))?;
-    let mut source_spans = ControlledVec::try_with_capacity(
-        "template source spans",
-        source_span_count,
-        allocator.clone(),
-    )?;
+    source_spans.try_reserve(source_span_count)?;
     for ordinal in 0..source_span_count {
         let ordinal = u32::try_from(ordinal)
             .map_err(|_| StageGenerationError::Overflow("bounded source span ordinal"))?;
@@ -588,11 +842,7 @@ fn materialize_bounded_stage_prefix(
         plan.stages.source_input.record_count,
         "bounded source record count",
     )?;
-    let mut source_records = ControlledVec::try_with_capacity(
-        "template source records",
-        source_record_count,
-        allocator.clone(),
-    )?;
+    source_records.try_reserve(source_record_count)?;
     let module_records = to_usize(plan.counts.module_count, "bounded module records")?;
     let import_records = to_usize(plan.counts.import_edge_count, "bounded import records")?;
     for ordinal in 0..source_record_count {
@@ -635,22 +885,14 @@ fn materialize_bounded_stage_prefix(
         plan.stages.source_input.payload_logical_bytes,
         "bounded source payload bytes",
     )?;
-    let mut source_payload = ControlledVec::try_with_capacity(
-        "template source payload",
-        source_payload_bytes,
-        allocator.clone(),
-    )?;
+    source_payload.try_reserve(source_payload_bytes)?;
     source_payload.try_resize(source_payload_bytes, 0)?;
 
     let typed_record_count = to_usize(
         plan.stages.typed_ast.record_count,
         "bounded typed AST record count",
     )?;
-    let mut typed_records = ControlledVec::try_with_capacity(
-        "template typed AST records",
-        typed_record_count,
-        allocator.clone(),
-    )?;
+    typed_records.try_reserve(typed_record_count)?;
     for ordinal in 0..typed_record_count {
         let mut record = source_records
             .as_slice()
@@ -669,18 +911,14 @@ fn materialize_bounded_stage_prefix(
         plan.stages.typed_ast.payload_logical_bytes,
         "bounded typed AST payload bytes",
     )?;
-    let mut typed_payload = ControlledVec::try_with_capacity(
-        "template typed AST payload",
-        typed_payload_bytes,
-        allocator.clone(),
-    )?;
+    typed_payload.try_reserve(typed_payload_bytes)?;
     typed_payload.try_extend_from_slice(source_payload.as_slice())?;
-    for span in &source_spans {
-        append_u32(&mut typed_payload, span.source_document_ordinal)?;
-        append_u32(&mut typed_payload, span.start_line)?;
-        append_u32(&mut typed_payload, span.start_column)?;
-        append_u32(&mut typed_payload, span.end_line)?;
-        append_u32(&mut typed_payload, span.end_column)?;
+    for span in source_spans.iter() {
+        append_u32(typed_payload, span.source_document_ordinal)?;
+        append_u32(typed_payload, span.start_line)?;
+        append_u32(typed_payload, span.start_column)?;
+        append_u32(typed_payload, span.end_line)?;
+        append_u32(typed_payload, span.end_column)?;
     }
     if typed_payload.len() != typed_payload_bytes {
         return Err(StageGenerationError::MaterializedMismatch(
@@ -689,11 +927,7 @@ fn materialize_bounded_stage_prefix(
     }
 
     let hir_record_count = to_usize(plan.stages.hir.record_count, "bounded HIR record count")?;
-    let mut hir_records = ControlledVec::try_with_capacity(
-        "template HIR records",
-        hir_record_count,
-        allocator.clone(),
-    )?;
+    hir_records.try_reserve(hir_record_count)?;
     for ordinal in 0..hir_record_count {
         let typed = typed_records
             .as_slice()
@@ -724,32 +958,23 @@ fn materialize_bounded_stage_prefix(
             "bounded HIR string source",
         ));
     }
-    let mut hir_payload = ControlledVec::try_with_capacity(
-        "template HIR payload",
-        hir_payload_bytes,
-        allocator.clone(),
-    )?;
+    hir_payload.try_reserve(hir_payload_bytes)?;
     let string_bytes = &source_payload.as_slice()[source_byte_count..];
     hir_payload
         .try_extend_from_slice(&string_bytes[..string_bytes.len().min(hir_payload_bytes)])?;
     hir_payload.try_resize(hir_payload_bytes, 0)?;
 
-    let (mir_records, mir_payload) = materialize_bounded_semantic_stage(
+    materialize_bounded_semantic_stage(
         unsorted_records,
         semantic_payload,
-        "template MIR records",
-        "template MIR payload",
-        allocator.clone(),
+        mir_records,
+        mir_payload,
     )?;
     let diagnostic_bytes = to_usize(
         plan.stages.diagnostics.logical_bytes,
         "bounded diagnostic bytes",
     )?;
-    let mut diagnostics = ControlledVec::try_with_capacity(
-        "template diagnostics",
-        diagnostic_bytes,
-        allocator.clone(),
-    )?;
+    diagnostics.try_reserve(diagnostic_bytes)?;
     diagnostics.try_resize(diagnostic_bytes, 0)?;
     let scratch_bytes = to_usize(plan.stages.scratch.logical_bytes, "bounded scratch bytes")?;
     if scratch_bytes % std::mem::size_of::<u64>() != 0 {
@@ -758,31 +983,18 @@ fn materialize_bounded_stage_prefix(
         ));
     }
     let scratch_words = scratch_bytes / std::mem::size_of::<u64>();
-    let mut scratch =
-        ControlledVec::try_with_capacity("template scratch", scratch_words, allocator)?;
+    scratch.try_reserve(scratch_words)?;
     scratch.try_resize(scratch_words, 0)?;
 
     let _ = graph_profile;
-    Ok(BoundedTemplateMaterializationPrefix {
-        source_spans,
-        source_records,
-        source_payload,
-        typed_records,
-        typed_payload,
-        hir_records,
-        hir_payload,
-        mir_records,
-        mir_payload,
-        diagnostics,
-        scratch,
-    })
+    Ok(())
 }
 
 fn exercise_source_permutations(
     generator: &GeneratorContract,
     template: &CorridorTemplate,
     n: u32,
-    allocator: ControlledAllocator,
+    scratch: &mut ControlledVec<u32>,
 ) -> Result<(), StageGenerationError> {
     let counts = template.stage_input_counts();
     let sequence_counts = [
@@ -809,11 +1021,7 @@ fn exercise_source_permutations(
         .max()
         .unwrap_or(0);
     let maximum = to_usize(maximum, "bounded source permutation maximum")?;
-    let mut scratch = ControlledVec::try_with_capacity(
-        "template source permutation scratch",
-        maximum,
-        allocator,
-    )?;
+    scratch.try_reserve(maximum)?;
     for unit in 0..n {
         for (sequence_kind, count) in sequence_counts {
             scratch.clear();
@@ -848,14 +1056,11 @@ fn required_template_count(
 fn materialize_bounded_semantic_stage(
     records: &[BoundedSemanticRecord],
     semantic_payload: &[u8],
-    record_field: &'static str,
-    payload_field: &'static str,
-    allocator: ControlledAllocator,
-) -> Result<(ControlledVec<MirLirStageRecord>, ControlledVec<u8>), StageGenerationError> {
-    let mut stage_records =
-        ControlledVec::try_with_capacity(record_field, records.len(), allocator.clone())?;
-    let mut payload =
-        ControlledVec::try_with_capacity(payload_field, semantic_payload.len(), allocator)?;
+    stage_records: &mut ControlledVec<MirLirStageRecord>,
+    payload: &mut ControlledVec<u8>,
+) -> Result<(), StageGenerationError> {
+    stage_records.try_reserve(records.len())?;
+    payload.try_reserve(semantic_payload.len())?;
     for record in records {
         let offset = payload.len();
         let source = record_payload_slice(record, semantic_payload);
@@ -872,11 +1077,11 @@ fn materialize_bounded_semantic_stage(
                 .map_err(|_| StageGenerationError::Overflow("semantic payload length"))?,
         })?;
     }
-    Ok((stage_records, payload))
+    Ok(())
 }
 
 fn verify_bounded_materialization(
-    materialization: &BoundedTemplateMaterialization,
+    materialization: &BoundedTemplateBufferPool,
     plan: &ScalableStagePlanSummary,
 ) -> Result<(), StageGenerationError> {
     let checks = [
@@ -939,12 +1144,6 @@ fn verify_bounded_materialization(
     Ok(())
 }
 
-pub(crate) fn allocation_observation(
-    allocator: &ControlledAllocator,
-) -> ControlledAllocationObservation {
-    allocator.observation()
-}
-
 fn maximum_canonical_identity_bytes(
     identity: &IdentityContract,
     template: &CorridorTemplate,
@@ -978,13 +1177,9 @@ fn maximum_canonical_identity_bytes(
 fn assign_owner_ordinals(
     template: &CorridorTemplate,
     declarations: &mut ControlledVec<BoundedDeclaration>,
-    allocator: ControlledAllocator,
+    indexes: &mut ControlledVec<usize>,
 ) -> Result<(), StageGenerationError> {
-    let mut indexes = ControlledVec::try_with_capacity(
-        "template owner-ordinal scratch",
-        declarations.len(),
-        allocator,
-    )?;
+    indexes.try_reserve(declarations.len())?;
     for entity in &template.entities {
         let kind = entity.reference.kind;
         if template
@@ -1451,6 +1646,16 @@ fn checked_mul_usize(
         .ok_or(StageGenerationError::Overflow(field))
 }
 
+fn capacity_sum(values: &[u64]) -> Result<u64, StageGenerationError> {
+    values.iter().try_fold(0_u64, |total, value| {
+        total
+            .checked_add(*value)
+            .ok_or(StageGenerationError::Overflow(
+                "template retained capacity bytes",
+            ))
+    })
+}
+
 fn to_usize(value: u64, field: &'static str) -> Result<usize, StageGenerationError> {
     usize::try_from(value).map_err(|_| StageGenerationError::Overflow(field))
 }
@@ -1532,14 +1737,14 @@ mod tests {
                         ScalableWorkloadId::Identity => unreachable!(),
                     };
                     assert_eq!(
-                        bounded.semantic_record_stream.as_slice(),
+                        bounded.semantic_record_stream(),
                         existing.semantic_record_stream,
                         "{}/{graph_profile:?}/{n}",
                         workload_id.as_str()
                     );
-                    assert_eq!(bounded.records.len(), existing.records.len());
+                    assert_eq!(bounded.records().len(), existing.records.len());
                     for (bounded_record, existing_record) in
-                        bounded.records.iter().zip(&existing.records)
+                        bounded.records().iter().zip(&existing.records)
                     {
                         assert_eq!(bounded_record.record_kind, existing_record.record_kind);
                         assert_eq!(

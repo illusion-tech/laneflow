@@ -7,8 +7,8 @@
 //! 和证据写出仍由后续 runner 切片负责。
 
 use crate::bounded_template::{
-    BoundedTemplateExecution, allocation_observation, execute_bounded_template_stage_case,
-    finalize_bounded_template_stage_case,
+    BoundedTemplateBufferPool, BoundedTemplateExecution,
+    execute_bounded_template_stage_case_with_pool, finalize_bounded_template_stage_case_with_pool,
 };
 use crate::controlled_alloc::ControlledAllocator;
 use crate::corridor::{CorridorContract, CorridorTemplate};
@@ -57,14 +57,25 @@ pub struct ScalableTimingSample {
     pub wall_time_ns: u64,
     pub semantic_digest_sha256: String,
     pub guard_peak_live_requested_bytes: u64,
+    pub allocation: IdentityAllocationSnapshot,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScalableStableCapacitySequence {
+    pub cold_instance: ScalableTimingSample,
+    pub stable_capacity_reuse: Vec<ScalableTimingSample>,
+    pub retained_capacity_bytes: StageRetainedCapacityBytes,
+    pub post_warmup_allocation: IdentityAllocationSnapshot,
 }
 
 #[derive(Debug)]
-pub struct ScalableTimingCompilerInstance {
+pub struct ScalableCompilerInstance<const TRACK_ALLOCATIONS: bool> {
     compiler_instance_id: String,
     controlled_allocation_hard_ceiling_bytes: u64,
     plans: ScalableStagePlanFactory,
-    inner: ScalableTimingCompilerInner,
+    inner: ScalableCompilerInner<TRACK_ALLOCATIONS>,
+    completed_compilations: u32,
 }
 
 #[derive(Debug)]
@@ -103,8 +114,8 @@ enum ScalableExecutedMeasurementInner {
 }
 
 #[derive(Debug)]
-enum ScalableTimingCompilerInner {
-    Identity(Box<IdentityTimingCompilerInstance>),
+enum ScalableCompilerInner<const TRACK_ALLOCATIONS: bool> {
+    Identity(Box<IdentityCompilerInstance<TRACK_ALLOCATIONS>>),
     Corridor(TemplateTimingCompilerInstance<CorridorContract>),
     JunctionGrid(TemplateTimingCompilerInstance<JunctionGridContract>),
 }
@@ -116,7 +127,7 @@ struct TemplateTimingCompilerInstance<C> {
     stage: StageContract,
     contract: C,
     template: CorridorTemplate,
-    allocator: ControlledAllocator,
+    buffers: Option<BoundedTemplateBufferPool>,
 }
 
 #[derive(Debug)]
@@ -131,6 +142,8 @@ pub struct IdentityCompilerInstance<const TRACK_ALLOCATIONS: bool> {
 
 pub type IdentityTimingCompilerInstance = IdentityCompilerInstance<false>;
 pub type IdentityAttributionCompilerInstance = IdentityCompilerInstance<true>;
+pub type ScalableTimingCompilerInstance = ScalableCompilerInstance<false>;
+pub type ScalableAttributionCompilerInstance = ScalableCompilerInstance<true>;
 
 impl IdentityCompilerInstance<false> {
     pub fn from_trusted_contract(trusted: &TrustedContract) -> Result<Self, TimingError> {
@@ -171,7 +184,7 @@ impl IdentityCompilerInstance<false> {
     }
 
     pub fn guard_peak_live_requested_bytes(&self) -> u64 {
-        self.buffers.guard_peak_live_requested_bytes()
+        self.buffers.peak_live_requested_bytes()
     }
 }
 
@@ -198,10 +211,6 @@ impl IdentityCompilerInstance<true> {
     pub fn peak_live_requested_bytes(&self) -> u64 {
         self.buffers.peak_live_requested_bytes()
     }
-
-    pub fn allocation_snapshot(&self) -> IdentityAllocationSnapshot {
-        self.buffers.allocation_snapshot()
-    }
 }
 
 impl<const TRACK_ALLOCATIONS: bool> IdentityCompilerInstance<TRACK_ALLOCATIONS> {
@@ -226,6 +235,10 @@ impl<const TRACK_ALLOCATIONS: bool> IdentityCompilerInstance<TRACK_ALLOCATIONS> 
 
     pub fn compiler_instance_id(&self) -> Option<&str> {
         self.compiler_instance_id.as_deref()
+    }
+
+    pub fn allocation_snapshot(&self) -> IdentityAllocationSnapshot {
+        self.buffers.allocation_snapshot()
     }
 
     pub fn run_stable_capacity_sequence(
@@ -270,6 +283,7 @@ impl<const TRACK_ALLOCATIONS: bool> IdentityCompilerInstance<TRACK_ALLOCATIONS> 
         graph_profile: GraphProfileId,
         n: u32,
     ) -> Result<IdentityTimingSample, TimingError> {
+        self.buffers.begin_request()?;
         let plan = prepare_identity_stage_case(&self.identity, &self.stage, graph_profile, n)?;
 
         // 正式墙钟样本只允许这一对外层时钟读取。
@@ -291,6 +305,7 @@ impl<const TRACK_ALLOCATIONS: bool> IdentityCompilerInstance<TRACK_ALLOCATIONS> 
         graph_profile: GraphProfileId,
         n: u32,
     ) -> Result<IdentityStageSummary, TimingError> {
+        self.buffers.begin_request()?;
         let plan = prepare_identity_stage_case(&self.identity, &self.stage, graph_profile, n)?;
         let materialized = self.execute_with_failure_recovery(&plan)?;
         self.finalize_and_recycle(&plan, materialized)
@@ -344,7 +359,7 @@ impl<const TRACK_ALLOCATIONS: bool> IdentityCompilerInstance<TRACK_ALLOCATIONS> 
     }
 }
 
-impl ScalableTimingCompilerInstance {
+impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> {
     pub fn from_trusted_contract_with_id(
         trusted: &TrustedContract,
         compiler_instance_id: String,
@@ -369,10 +384,10 @@ impl ScalableTimingCompilerInstance {
         }
         let (inner, plans) = match workload_id {
             ScalableWorkloadId::Identity => (
-                ScalableTimingCompilerInner::Identity(Box::new(
-                    IdentityTimingCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+                ScalableCompilerInner::Identity(Box::new(
+                    IdentityCompilerInstance::from_trusted_contract_with_optional_id_and_allocation_ceiling(
                         trusted,
-                        compiler_instance_id.clone(),
+                        Some(compiler_instance_id.clone()),
                         controlled_allocation_hard_ceiling_bytes,
                     )?,
                 )),
@@ -387,15 +402,18 @@ impl ScalableTimingCompilerInstance {
                     &template,
                 )?;
                 (
-                    ScalableTimingCompilerInner::Corridor(TemplateTimingCompilerInstance {
+                    ScalableCompilerInner::Corridor(TemplateTimingCompilerInstance {
                         generator: trusted.generator_contract()?,
                         identity: trusted.identity_contract()?,
                         stage: trusted.stage_contract()?,
                         contract,
                         template,
-                        allocator: ControlledAllocator::new(
-                            controlled_allocation_hard_ceiling_bytes,
-                        ),
+                        buffers: Some(BoundedTemplateBufferPool::new(
+                            ControlledAllocator::new_for_mode(
+                                controlled_allocation_hard_ceiling_bytes,
+                                TRACK_ALLOCATIONS,
+                            ),
+                        )),
                     }),
                     plans,
                 )
@@ -410,15 +428,18 @@ impl ScalableTimingCompilerInstance {
                     &template,
                 )?;
                 (
-                    ScalableTimingCompilerInner::JunctionGrid(TemplateTimingCompilerInstance {
+                    ScalableCompilerInner::JunctionGrid(TemplateTimingCompilerInstance {
                         generator: trusted.generator_contract()?,
                         identity: trusted.identity_contract()?,
                         stage: trusted.stage_contract()?,
                         contract,
                         template,
-                        allocator: ControlledAllocator::new(
-                            controlled_allocation_hard_ceiling_bytes,
-                        ),
+                        buffers: Some(BoundedTemplateBufferPool::new(
+                            ControlledAllocator::new_for_mode(
+                                controlled_allocation_hard_ceiling_bytes,
+                                TRACK_ALLOCATIONS,
+                            ),
+                        )),
                     }),
                     plans,
                 )
@@ -429,6 +450,7 @@ impl ScalableTimingCompilerInstance {
             controlled_allocation_hard_ceiling_bytes,
             plans,
             inner,
+            completed_compilations: 0,
         })
     }
 
@@ -438,6 +460,45 @@ impl ScalableTimingCompilerInstance {
 
     pub fn controlled_allocation_hard_ceiling_bytes(&self) -> u64 {
         self.controlled_allocation_hard_ceiling_bytes
+    }
+
+    pub fn run_stable_capacity_sequence(
+        &mut self,
+        graph_profile: GraphProfileId,
+        n: u32,
+    ) -> Result<ScalableStableCapacitySequence, TimingError> {
+        if self.completed_compilations != 0 {
+            return Err(TimingError::CompilerInstanceAlreadyUsed);
+        }
+        let cold_instance = self.measure(graph_profile, n)?;
+        let retained_capacity_bytes = self.retained_capacity_bytes()?;
+        for _ in 0..STABLE_CAPACITY_WARMUP_COUNT {
+            let warmup_digest = self.run_unmeasured(graph_profile, n)?;
+            if warmup_digest != cold_instance.semantic_digest_sha256 {
+                return Err(TimingError::StableCapacitySummaryChanged);
+            }
+            if self.retained_capacity_bytes()? != retained_capacity_bytes {
+                return Err(TimingError::StableCapacityChanged);
+            }
+        }
+        let post_warmup_allocation = self.allocation_snapshot()?;
+        let mut stable_capacity_reuse = Vec::with_capacity(STABLE_CAPACITY_SAMPLE_COUNT as usize);
+        for _ in 0..STABLE_CAPACITY_SAMPLE_COUNT {
+            let sample = self.measure(graph_profile, n)?;
+            if sample.semantic_digest_sha256 != cold_instance.semantic_digest_sha256 {
+                return Err(TimingError::StableCapacitySummaryChanged);
+            }
+            if self.retained_capacity_bytes()? != retained_capacity_bytes {
+                return Err(TimingError::StableCapacityChanged);
+            }
+            stable_capacity_reuse.push(sample);
+        }
+        Ok(ScalableStableCapacitySequence {
+            cold_instance,
+            stable_capacity_reuse,
+            retained_capacity_bytes,
+            post_warmup_allocation,
+        })
     }
 
     pub fn measure(
@@ -450,13 +511,57 @@ impl ScalableTimingCompilerInstance {
         self.finalize_executed(executed)
     }
 
+    pub fn run_unmeasured(
+        &mut self,
+        graph_profile: GraphProfileId,
+        n: u32,
+    ) -> Result<String, TimingError> {
+        let prepared = self.prepare(graph_profile, n)?;
+        let executed = self.execute_prepared_internal(prepared, false)?;
+        Ok(self.finalize_executed(executed)?.semantic_digest_sha256)
+    }
+
+    pub fn retained_capacity_bytes(&self) -> Result<StageRetainedCapacityBytes, TimingError> {
+        match &self.inner {
+            ScalableCompilerInner::Identity(instance) => instance.retained_capacity_bytes(),
+            ScalableCompilerInner::Corridor(instance) => instance
+                .buffers
+                .as_ref()
+                .ok_or(TimingError::MissingTemplateBufferPool)?
+                .retained_capacity_bytes()
+                .map_err(Into::into),
+            ScalableCompilerInner::JunctionGrid(instance) => instance
+                .buffers
+                .as_ref()
+                .ok_or(TimingError::MissingTemplateBufferPool)?
+                .retained_capacity_bytes()
+                .map_err(Into::into),
+        }
+    }
+
+    pub fn allocation_snapshot(&self) -> Result<IdentityAllocationSnapshot, TimingError> {
+        match &self.inner {
+            ScalableCompilerInner::Identity(instance) => Ok(instance.allocation_snapshot()),
+            ScalableCompilerInner::Corridor(instance) => Ok(instance
+                .buffers
+                .as_ref()
+                .ok_or(TimingError::MissingTemplateBufferPool)?
+                .allocation_snapshot()),
+            ScalableCompilerInner::JunctionGrid(instance) => Ok(instance
+                .buffers
+                .as_ref()
+                .ok_or(TimingError::MissingTemplateBufferPool)?
+                .allocation_snapshot()),
+        }
+    }
+
     pub fn prepare(
         &self,
         graph_profile: GraphProfileId,
         n: u32,
     ) -> Result<ScalablePreparedMeasurement, TimingError> {
         let (workload_id, inner) = match &self.inner {
-            ScalableTimingCompilerInner::Identity(instance) => (
+            ScalableCompilerInner::Identity(instance) => (
                 ScalableWorkloadId::Identity,
                 ScalablePreparedMeasurementInner::Identity(Box::new(prepare_identity_stage_case(
                     &instance.identity,
@@ -465,7 +570,7 @@ impl ScalableTimingCompilerInstance {
                     n,
                 )?)),
             ),
-            ScalableTimingCompilerInner::Corridor(instance) => {
+            ScalableCompilerInner::Corridor(instance) => {
                 if n == 0 {
                     return Err(TimingError::ScaleMustBePositive);
                 }
@@ -479,7 +584,7 @@ impl ScalableTimingCompilerInstance {
                     )?)),
                 )
             }
-            ScalableTimingCompilerInner::JunctionGrid(instance) => {
+            ScalableCompilerInner::JunctionGrid(instance) => {
                 if n == 0 {
                     return Err(TimingError::ScaleMustBePositive);
                 }
@@ -506,6 +611,14 @@ impl ScalableTimingCompilerInstance {
         &mut self,
         prepared: ScalablePreparedMeasurement,
     ) -> Result<ScalableExecutedMeasurement, TimingError> {
+        self.execute_prepared_internal(prepared, true)
+    }
+
+    fn execute_prepared_internal(
+        &mut self,
+        prepared: ScalablePreparedMeasurement,
+        measure_wall_clock: bool,
+    ) -> Result<ScalableExecutedMeasurement, TimingError> {
         let ScalablePreparedMeasurement {
             workload_id,
             graph_profile,
@@ -513,18 +626,28 @@ impl ScalableTimingCompilerInstance {
             inner,
         } = prepared;
         match &self.inner {
-            ScalableTimingCompilerInner::Identity(_) => {}
-            ScalableTimingCompilerInner::Corridor(instance) => {
-                instance.allocator.begin_request()?;
+            ScalableCompilerInner::Identity(instance) => {
+                instance.buffers.begin_request()?;
             }
-            ScalableTimingCompilerInner::JunctionGrid(instance) => {
-                instance.allocator.begin_request()?;
+            ScalableCompilerInner::Corridor(instance) => {
+                instance
+                    .buffers
+                    .as_ref()
+                    .ok_or(TimingError::MissingTemplateBufferPool)?
+                    .begin_request()?;
+            }
+            ScalableCompilerInner::JunctionGrid(instance) => {
+                instance
+                    .buffers
+                    .as_ref()
+                    .ok_or(TimingError::MissingTemplateBufferPool)?
+                    .begin_request()?;
             }
         }
-        let started = Instant::now();
+        let started = measure_wall_clock.then(Instant::now);
         let executed_inner = match (&mut self.inner, inner) {
             (
-                ScalableTimingCompilerInner::Identity(instance),
+                ScalableCompilerInner::Identity(instance),
                 ScalablePreparedMeasurementInner::Identity(plan),
             ) => {
                 let materialized = instance.execute_with_failure_recovery(&plan)?;
@@ -532,10 +655,14 @@ impl ScalableTimingCompilerInstance {
                 ScalableExecutedMeasurementInner::Identity { plan, materialized }
             }
             (
-                ScalableTimingCompilerInner::Corridor(instance),
+                ScalableCompilerInner::Corridor(instance),
                 ScalablePreparedMeasurementInner::Corridor(plan),
             ) => {
-                let execution = execute_bounded_template_stage_case(
+                let buffers = instance
+                    .buffers
+                    .take()
+                    .ok_or(TimingError::MissingTemplateBufferPool)?;
+                let execution = match execute_bounded_template_stage_case_with_pool(
                     &instance.generator,
                     &instance.identity,
                     &instance.stage,
@@ -544,16 +671,27 @@ impl ScalableTimingCompilerInstance {
                     graph_profile,
                     n,
                     &plan,
-                    instance.allocator.clone(),
-                )?;
+                    buffers,
+                ) {
+                    Ok(execution) => execution,
+                    Err(failure) => {
+                        let (source, buffers) = failure.into_parts();
+                        instance.buffers = Some(buffers);
+                        return Err(source.into());
+                    }
+                };
                 black_box(execution.output_construction());
                 ScalableExecutedMeasurementInner::Corridor(execution)
             }
             (
-                ScalableTimingCompilerInner::JunctionGrid(instance),
+                ScalableCompilerInner::JunctionGrid(instance),
                 ScalablePreparedMeasurementInner::JunctionGrid(plan),
             ) => {
-                let execution = execute_bounded_template_stage_case(
+                let buffers = instance
+                    .buffers
+                    .take()
+                    .ok_or(TimingError::MissingTemplateBufferPool)?;
+                let execution = match execute_bounded_template_stage_case_with_pool(
                     &instance.generator,
                     &instance.identity,
                     &instance.stage,
@@ -562,25 +700,39 @@ impl ScalableTimingCompilerInstance {
                     graph_profile,
                     n,
                     &plan,
-                    instance.allocator.clone(),
-                )?;
+                    buffers,
+                ) {
+                    Ok(execution) => execution,
+                    Err(failure) => {
+                        let (source, buffers) = failure.into_parts();
+                        instance.buffers = Some(buffers);
+                        return Err(source.into());
+                    }
+                };
                 black_box(execution.output_construction());
                 ScalableExecutedMeasurementInner::JunctionGrid(execution)
             }
             _ => return Err(TimingError::ScalableMeasurementInstanceMismatch),
         };
-        let wall_time_ns = u64::try_from(started.elapsed().as_nanos())
-            .map_err(|_| TimingError::ClockDurationOverflow)?;
-        let guard_peak_live_requested_bytes = match &self.inner {
-            ScalableTimingCompilerInner::Identity(instance) => {
-                instance.guard_peak_live_requested_bytes()
-            }
-            ScalableTimingCompilerInner::Corridor(instance) => {
-                allocation_observation(&instance.allocator).peak_live_requested_bytes
-            }
-            ScalableTimingCompilerInner::JunctionGrid(instance) => {
-                allocation_observation(&instance.allocator).peak_live_requested_bytes
-            }
+        let wall_time_ns = match started {
+            Some(started) => u64::try_from(started.elapsed().as_nanos())
+                .map_err(|_| TimingError::ClockDurationOverflow)?,
+            None => 0,
+        };
+        let guard_peak_live_requested_bytes = match (&self.inner, &executed_inner) {
+            (
+                ScalableCompilerInner::Identity(instance),
+                ScalableExecutedMeasurementInner::Identity { .. },
+            ) => instance.allocation_snapshot().peak_live_requested_bytes,
+            (
+                ScalableCompilerInner::Corridor(_),
+                ScalableExecutedMeasurementInner::Corridor(execution),
+            ) => execution.peak_live_requested_bytes(),
+            (
+                ScalableCompilerInner::JunctionGrid(_),
+                ScalableExecutedMeasurementInner::JunctionGrid(execution),
+            ) => execution.peak_live_requested_bytes(),
+            _ => return Err(TimingError::ScalableMeasurementInstanceMismatch),
         };
         Ok(ScalableExecutedMeasurement {
             workload_id,
@@ -606,7 +758,7 @@ impl ScalableTimingCompilerInstance {
         } = executed;
         let semantic_digest_sha256 = match (&mut self.inner, inner) {
             (
-                ScalableTimingCompilerInner::Identity(instance),
+                ScalableCompilerInner::Identity(instance),
                 ScalableExecutedMeasurementInner::Identity { plan, materialized },
             ) => {
                 instance
@@ -614,15 +766,28 @@ impl ScalableTimingCompilerInstance {
                     .semantic_digest_sha256
             }
             (
-                ScalableTimingCompilerInner::Corridor(_),
+                ScalableCompilerInner::Corridor(instance),
                 ScalableExecutedMeasurementInner::Corridor(execution),
-            ) => finalize_bounded_template_stage_case(execution)?,
+            ) => {
+                let (digest, buffers) = finalize_bounded_template_stage_case_with_pool(execution)?;
+                instance.buffers = Some(buffers);
+                digest
+            }
             (
-                ScalableTimingCompilerInner::JunctionGrid(_),
+                ScalableCompilerInner::JunctionGrid(instance),
                 ScalableExecutedMeasurementInner::JunctionGrid(execution),
-            ) => finalize_bounded_template_stage_case(execution)?,
+            ) => {
+                let (digest, buffers) = finalize_bounded_template_stage_case_with_pool(execution)?;
+                instance.buffers = Some(buffers);
+                digest
+            }
             _ => return Err(TimingError::ScalableMeasurementInstanceMismatch),
         };
+        self.completed_compilations = self
+            .completed_compilations
+            .checked_add(1)
+            .ok_or(TimingError::CompilerInstanceCompilationOverflow)?;
+        let allocation = self.allocation_snapshot()?;
         Ok(ScalableTimingSample {
             workload_id,
             graph_profile,
@@ -630,6 +795,7 @@ impl ScalableTimingCompilerInstance {
             wall_time_ns,
             semantic_digest_sha256,
             guard_peak_live_requested_bytes,
+            allocation,
         })
     }
 }
@@ -705,6 +871,8 @@ pub enum TimingError {
     ScaleMustBePositive,
     #[error("计时区外准备、受测执行与编译器实例的工作负载身份不一致")]
     ScalableMeasurementInstanceMismatch,
+    #[error("模板工作负载编译器实例缺少可回收的阶段缓冲池")]
+    MissingTemplateBufferPool,
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@
 //! 编译期常量生成两条单态化容量路径：两条路径都执行研究停止护栏要求的原子硬上限
 //! 预占和 `try_reserve_exact`；只有归因路径才累计分配次数、重分配、释放与逐槽指标。
 
-use crate::controlled_alloc::ControlledAllocator;
+use crate::controlled_alloc::{ControlledAllocationSnapshot, ControlledAllocator};
 use crate::identity::{
     ABSENT_LOCAL_INDEX, IDENTITY_MAGIC, IdentityBinding, IdentityContract, IdentityFieldValue,
     STABLE_ID_DOMAIN,
@@ -16,7 +16,6 @@ use crate::stage::{
     StageRetainedCapacityBytes, TypedAstStageRecord, as_u64, to_usize,
 };
 use crate::{GeneratorContract, GraphProfileId, SequenceKind, permute_in_place};
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 
@@ -140,6 +139,10 @@ impl<const TRACK_ALLOCATIONS: bool> ControlledAllocationTracker<TRACK_ALLOCATION
         self.allocator.cancel_preoccupation(requested_bytes);
     }
 
+    fn begin_request(&self) -> Result<(), StageGenerationError> {
+        self.allocator.begin_request()
+    }
+
     fn commit_replacement(
         &mut self,
         slot: ControlledBufferSlot,
@@ -234,17 +237,7 @@ impl<const TRACK_ALLOCATIONS: bool> Drop for ControlledAllocationTracker<TRACK_A
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IdentityAllocationSnapshot {
-    pub allocation_count: u64,
-    pub reallocation_count: u64,
-    pub allocated_bytes: u64,
-    pub reallocated_bytes: u64,
-    pub freed_bytes: u64,
-    pub live_requested_bytes: u64,
-    pub peak_live_requested_bytes: u64,
-}
+pub type IdentityAllocationSnapshot = ControlledAllocationSnapshot;
 
 #[derive(Debug)]
 pub(crate) struct IdentityStageBufferPool<const TRACK_ALLOCATIONS: bool> {
@@ -282,10 +275,6 @@ impl IdentityStageBufferPool<false> {
         self.allocations.hard_ceiling_bytes()
     }
 
-    pub(crate) fn guard_peak_live_requested_bytes(&self) -> u64 {
-        self.allocations.peak_live_requested_bytes()
-    }
-
     pub(crate) fn controlled_allocator(&self) -> ControlledAllocator {
         self.allocations.allocator.clone()
     }
@@ -294,14 +283,6 @@ impl IdentityStageBufferPool<false> {
 impl IdentityStageBufferPool<true> {
     pub(crate) fn controlled_allocation_hard_ceiling_bytes(&self) -> u64 {
         self.allocations.hard_ceiling_bytes()
-    }
-
-    pub(crate) fn peak_live_requested_bytes(&self) -> u64 {
-        self.allocations.peak_live_requested_bytes()
-    }
-
-    pub(crate) fn allocation_snapshot(&self) -> IdentityAllocationSnapshot {
-        self.allocations.snapshot()
     }
 }
 
@@ -330,6 +311,18 @@ impl<const TRACK_ALLOCATIONS: bool> IdentityStageBufferPool<TRACK_ALLOCATIONS> {
             diagnostics: Vec::new(),
             output_construction: Vec::new(),
         }
+    }
+
+    pub(crate) fn begin_request(&self) -> Result<(), StageGenerationError> {
+        self.allocations.begin_request()
+    }
+
+    pub(crate) fn peak_live_requested_bytes(&self) -> u64 {
+        self.allocations.peak_live_requested_bytes()
+    }
+
+    pub(crate) fn allocation_snapshot(&self) -> IdentityAllocationSnapshot {
+        self.allocations.snapshot()
     }
 
     pub(crate) fn retained_capacity_bytes(

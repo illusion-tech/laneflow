@@ -2,11 +2,12 @@ mod support;
 
 use issue_308_compiler_budget_calibration_research::{
     ScalableWorkloadId, load_repository_contract, measure_identity_timing_child,
-    measure_scalable_timing_child, timing_binary_descriptor, wait_for_parent_start_signal,
+    measure_scalable_timing_child, measure_scalable_timing_ladder_child, timing_binary_descriptor,
+    wait_for_parent_start_signal,
 };
 use std::str::FromStr;
 
-const USAGE: &str = "用法：issue-308-compiler-budget-calibration-timing <describe-role|run|run-identity-smoke>\n  run <compiler-instance-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-identity-smoke <compiler-instance-id> <graph-profile> <N>";
+const USAGE: &str = "用法：issue-308-compiler-budget-calibration-timing <describe-role|run|run-ladder|run-identity-smoke>\n  run <compiler-instance-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-ladder <compiler-instance-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>\n  run-identity-smoke <compiler-instance-id> <graph-profile> <N>";
 
 fn main() {
     support::main_with(run);
@@ -21,7 +22,8 @@ fn run() -> Result<(), String> {
             support::require_no_more_arguments(&mut arguments, USAGE)?;
             support::print_json(&timing_binary_descriptor(), "计时角色描述")
         }
-        "run" => {
+        "run" | "run-ladder" => {
+            let ladder = command == "run-ladder";
             let compiler_instance_id =
                 support::next_utf8_argument(&mut arguments, "compiler-instance-id", USAGE)?;
             let workload_id = ScalableWorkloadId::from_str(&support::next_utf8_argument(
@@ -51,16 +53,29 @@ fn run() -> Result<(), String> {
 
             wait_for_parent_start_signal().map_err(|error| error.to_string())?;
             let trusted = load_repository_contract().map_err(|error| error.to_string())?;
-            let report = measure_scalable_timing_child(
-                &trusted,
-                compiler_instance_id,
-                workload_id,
-                graph_profile,
-                n,
-                controlled_allocation_hard_ceiling_bytes,
-            )
-            .map_err(|error| error.to_string())?;
-            support::print_json(&report, "计时角色结果")
+            if ladder {
+                let report = measure_scalable_timing_ladder_child(
+                    &trusted,
+                    compiler_instance_id,
+                    workload_id,
+                    graph_profile,
+                    n,
+                    controlled_allocation_hard_ceiling_bytes,
+                )
+                .map_err(|error| error.to_string())?;
+                support::print_json(&report, "计时角色正式阶梯结果")
+            } else {
+                let report = measure_scalable_timing_child(
+                    &trusted,
+                    compiler_instance_id,
+                    workload_id,
+                    graph_profile,
+                    n,
+                    controlled_allocation_hard_ceiling_bytes,
+                )
+                .map_err(|error| error.to_string())?;
+                support::print_json(&report, "计时角色结果")
+            }
         }
         "run-identity-smoke" => {
             let compiler_instance_id =

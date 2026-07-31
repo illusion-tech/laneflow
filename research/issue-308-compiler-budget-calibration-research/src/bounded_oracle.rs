@@ -1120,10 +1120,10 @@ fn complete_output_equal(
     producer: &BoundedTemplateExecution,
     oracle: &BoundedOracleOutput,
 ) -> bool {
-    producer.semantic_record_stream.as_slice() == oracle.stream.as_slice()
-        && producer.records.len() == oracle.records.len()
+    producer.semantic_record_stream() == oracle.stream.as_slice()
+        && producer.records().len() == oracle.records.len()
         && producer
-            .records
+            .records()
             .iter()
             .zip(&oracle.records)
             .all(|(produced, expected)| {
@@ -1361,7 +1361,7 @@ mod tests {
         .expect("actual timed pipeline");
         let produced =
             finalize_identity_stage_case(&plan, materialized).expect("finalized stage output");
-        let producer_peak = buffers.guard_peak_live_requested_bytes();
+        let producer_peak = buffers.peak_live_requested_bytes();
         recycle_identity_stage_case(&mut buffers, produced);
         drop(buffers);
 
