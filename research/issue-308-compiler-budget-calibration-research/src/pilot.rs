@@ -242,17 +242,9 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
             };
 
         if monitor_invalidation {
-            let mut invalidation_reasons = Vec::new();
-            if output.status.success() {
-                invalidation_reasons.push(InvalidationReason::MonitoringGap);
-            } else {
-                invalidation_reasons.push(InvalidationReason::ChildAbnormalExit);
-            }
-            if (monitor.trigger == Some(ChildMonitorTrigger::MonitoringGap) || kill_error.is_some())
-                && !invalidation_reasons.contains(&InvalidationReason::MonitoringGap)
-            {
-                invalidation_reasons.push(InvalidationReason::MonitoringGap);
-            }
+            let invalidation_reasons =
+                monitor_invalidation_reasons(monitor.trigger, output.status.success())
+                    .ok_or(PilotError::MissingMonitorInvalidationTrigger { ordinal })?;
             let process = if output.status.success() {
                 ProcessObservation::success(
                     std::process::id(),
@@ -634,6 +626,24 @@ fn evaluate_child_monitor_trigger(
     Ok(None)
 }
 
+fn monitor_invalidation_reasons(
+    trigger: Option<ChildMonitorTrigger>,
+    child_exit_succeeded: bool,
+) -> Option<Vec<InvalidationReason>> {
+    let mut reasons = match trigger? {
+        ChildMonitorTrigger::PrivateBytes
+        | ChildMonitorTrigger::WallTime
+        | ChildMonitorTrigger::AvailablePhysicalMemory => {
+            vec![InvalidationReason::ResearchStopGuardrailTriggered]
+        }
+        ChildMonitorTrigger::MonitoringGap => vec![InvalidationReason::MonitoringGap],
+    };
+    if !child_exit_succeeded {
+        reasons.push(InvalidationReason::ChildAbnormalExit);
+    }
+    Some(reasons)
+}
+
 fn terminate_monitored_child(
     mut child: ContainedChild,
     ordinal: usize,
@@ -966,6 +976,8 @@ pub enum PilotError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("新进程试运行样本 {ordinal} 由父进程监控判为无效，但缺少具名监控触发条件")]
+    MissingMonitorInvalidationTrigger { ordinal: usize },
     #[error("新进程试运行样本 {ordinal} 字段不匹配：{field}")]
     ChildReportMismatch { ordinal: usize, field: &'static str },
     #[error("新进程试运行重复使用编译器实例身份")]
@@ -1093,6 +1105,32 @@ mod tests {
             .expect("available-memory trigger"),
             Some(ChildMonitorTrigger::AvailablePhysicalMemory)
         );
+    }
+
+    #[test]
+    fn clean_exit_after_a_resource_trigger_never_claims_a_monitoring_gap() {
+        for trigger in [
+            ChildMonitorTrigger::PrivateBytes,
+            ChildMonitorTrigger::WallTime,
+            ChildMonitorTrigger::AvailablePhysicalMemory,
+        ] {
+            assert_eq!(
+                monitor_invalidation_reasons(Some(trigger), true),
+                Some(vec![InvalidationReason::ResearchStopGuardrailTriggered])
+            );
+        }
+        assert_eq!(
+            monitor_invalidation_reasons(Some(ChildMonitorTrigger::MonitoringGap), true),
+            Some(vec![InvalidationReason::MonitoringGap])
+        );
+        assert_eq!(
+            monitor_invalidation_reasons(Some(ChildMonitorTrigger::PrivateBytes), false),
+            Some(vec![
+                InvalidationReason::ResearchStopGuardrailTriggered,
+                InvalidationReason::ChildAbnormalExit
+            ])
+        );
+        assert_eq!(monitor_invalidation_reasons(None, true), None);
     }
 
     #[derive(Debug)]

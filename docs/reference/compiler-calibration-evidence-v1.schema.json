@@ -4830,6 +4830,7 @@
               "thermal-or-power-throttling",
               "background-cpu-over-one-second",
               "background-write-over-100-mib",
+              "research-stop-guardrail-triggered",
               "monitoring-gap",
               "child-abnormal-exit"
             ]
@@ -5022,6 +5023,99 @@
                     }
                   }
                 }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "allOf": [
+              {
+                "properties": {
+                  "guard": {
+                    "properties": {
+                      "trigger": {
+                        "enum": [
+                          "private-bytes-monitor",
+                          "wall-time-monitor",
+                          "available-physical-memory"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "trigger"
+                    ]
+                  }
+                },
+                "required": [
+                  "guard"
+                ]
+              },
+              {
+                "properties": {
+                  "process": {
+                    "properties": {
+                      "exitKind": {
+                        "not": {
+                          "const": "guarded-before-start"
+                        }
+                      }
+                    },
+                    "required": [
+                      "exitKind"
+                    ]
+                  }
+                },
+                "required": [
+                  "process"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "invalid"
+              },
+              "invalidationReasons": {
+                "contains": {
+                  "const": "research-stop-guardrail-triggered"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "invalidationReasons": {
+                "contains": {
+                  "const": "research-stop-guardrail-triggered"
+                }
+              }
+            },
+            "required": [
+              "invalidationReasons"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "invalid"
+              },
+              "guard": {
+                "properties": {
+                  "trigger": {
+                    "enum": [
+                      "private-bytes-monitor",
+                      "wall-time-monitor",
+                      "available-physical-memory"
+                    ]
+                  }
+                },
+                "required": [
+                  "trigger"
+                ]
               }
             }
           }
