@@ -8,7 +8,9 @@ use crate::bounded_oracle::{BoundedOracleError, verify_bounded_scalable_oracle};
 use crate::stage_oracle::build_identity_stage_oracle;
 use crate::{
     GraphProfileId, IdentityAllocationSnapshot, IdentityAttributionCompilerInstance,
-    IdentityStageSummary, IdentityTimingCompilerInstance, ScalableTimingCompilerInstance,
+    IdentityStageSummary, IdentityTimingCompilerInstance, STABLE_CAPACITY_SAMPLE_COUNT,
+    STABLE_CAPACITY_WARMUP_COUNT, ScalableAttributionCompilerInstance,
+    ScalableStableCapacitySequence, ScalableTimingCompilerInstance, ScalableTimingSample,
     ScalableWorkloadId, StageGenerationError, StageRetainedCapacityBytes, TimingError,
     TrustedContract,
 };
@@ -34,6 +36,9 @@ pub const IDENTITY_ORACLE_CHILD_SCHEMA_VERSION: u32 = 1;
 pub const SCALABLE_ORACLE_CHILD_SCHEMA: &str =
     "laneflow.compiler-calibration-scalable-oracle-child";
 pub const SCALABLE_ORACLE_CHILD_SCHEMA_VERSION: u32 = 2;
+pub const SCALABLE_LADDER_CHILD_SCHEMA: &str =
+    "laneflow.compiler-calibration-scalable-ladder-child";
+pub const SCALABLE_LADDER_CHILD_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -144,6 +149,56 @@ pub struct ScalableTimingChildReport {
 pub enum ScalableTimingOutcome {
     Success,
     GuardedInChild,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScalableLadderBinaryMode {
+    Timing,
+    Attribution,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScalableLadderOutcome {
+    Success,
+    GuardedInChild,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScalableLadderSample {
+    pub sample_ordinal: u32,
+    pub wall_time_ns: Option<u64>,
+    pub attribution_wall_time_ns_diagnostic: Option<u64>,
+    pub semantic_digest_sha256: String,
+    pub guard_peak_live_requested_bytes: u64,
+    pub allocation: Option<IdentityAllocationSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScalableLadderChildReport {
+    pub schema: String,
+    pub schema_version: u32,
+    pub binary_id: String,
+    pub binary_mode: ScalableLadderBinaryMode,
+    pub allocation_instrumentation_enabled: bool,
+    pub compiler_instance_id: String,
+    pub child_pid: u32,
+    pub workload_id: ScalableWorkloadId,
+    pub workload_revision: u32,
+    pub graph_profile: String,
+    pub string_profile: String,
+    pub generator_version: u32,
+    pub n: u32,
+    pub outcome: ScalableLadderOutcome,
+    pub controlled_allocation_hard_ceiling_bytes: u64,
+    pub warmup_count: u32,
+    pub cold_instance: Option<ScalableLadderSample>,
+    pub stable_capacity_reuse: Vec<ScalableLadderSample>,
+    pub retained_capacity_bytes: Option<StageRetainedCapacityBytes>,
+    pub controlled_allocation_guard: Option<ControlledAllocationGuardReport>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -318,6 +373,225 @@ pub fn measure_scalable_timing_child(
     }
 }
 
+pub fn measure_scalable_timing_ladder_child(
+    trusted: &TrustedContract,
+    compiler_instance_id: String,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    controlled_allocation_hard_ceiling_bytes: u64,
+) -> Result<ScalableLadderChildReport, RoleExecutionError> {
+    let mut instance =
+        ScalableTimingCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+            trusted,
+            compiler_instance_id.clone(),
+            workload_id,
+            controlled_allocation_hard_ceiling_bytes,
+        )?;
+    let result = instance.run_stable_capacity_sequence(graph_profile, n);
+    build_scalable_ladder_child_report(
+        compiler_instance_id,
+        workload_id,
+        graph_profile,
+        n,
+        controlled_allocation_hard_ceiling_bytes,
+        ScalableLadderBinaryMode::Timing,
+        TIMING_BINARY_ID,
+        false,
+        result,
+    )
+}
+
+pub fn measure_scalable_attribution_ladder_child(
+    trusted: &TrustedContract,
+    compiler_instance_id: String,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    controlled_allocation_hard_ceiling_bytes: u64,
+) -> Result<ScalableLadderChildReport, RoleExecutionError> {
+    let mut instance =
+        ScalableAttributionCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+            trusted,
+            compiler_instance_id.clone(),
+            workload_id,
+            controlled_allocation_hard_ceiling_bytes,
+        )?;
+    let result = instance.run_stable_capacity_sequence(graph_profile, n);
+    build_scalable_ladder_child_report(
+        compiler_instance_id,
+        workload_id,
+        graph_profile,
+        n,
+        controlled_allocation_hard_ceiling_bytes,
+        ScalableLadderBinaryMode::Attribution,
+        ATTRIBUTION_BINARY_ID,
+        true,
+        result,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_scalable_ladder_child_report(
+    compiler_instance_id: String,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    controlled_allocation_hard_ceiling_bytes: u64,
+    binary_mode: ScalableLadderBinaryMode,
+    binary_id: &str,
+    allocation_instrumentation_enabled: bool,
+    result: Result<ScalableStableCapacitySequence, TimingError>,
+) -> Result<ScalableLadderChildReport, RoleExecutionError> {
+    let base = || ScalableLadderChildReport {
+        schema: SCALABLE_LADDER_CHILD_SCHEMA.to_owned(),
+        schema_version: SCALABLE_LADDER_CHILD_SCHEMA_VERSION,
+        binary_id: binary_id.to_owned(),
+        binary_mode,
+        allocation_instrumentation_enabled,
+        compiler_instance_id: compiler_instance_id.clone(),
+        child_pid: std::process::id(),
+        workload_id,
+        workload_revision: crate::WORKLOAD_REVISION_V1,
+        graph_profile: graph_profile.as_str().to_owned(),
+        string_profile: crate::BASE_SCALE_STRING_PROFILE.to_owned(),
+        generator_version: crate::GENERATOR_VERSION_V1,
+        n,
+        outcome: ScalableLadderOutcome::Success,
+        controlled_allocation_hard_ceiling_bytes,
+        warmup_count: STABLE_CAPACITY_WARMUP_COUNT,
+        cold_instance: None,
+        stable_capacity_reuse: Vec::new(),
+        retained_capacity_bytes: None,
+        controlled_allocation_guard: None,
+    };
+    match result {
+        Ok(sequence) => {
+            if sequence.stable_capacity_reuse.len() != STABLE_CAPACITY_SAMPLE_COUNT as usize {
+                return Err(RoleExecutionError::InvalidStableCapacitySampleCount {
+                    actual: sequence.stable_capacity_reuse.len(),
+                });
+            }
+            let (cold_instance, stable_capacity_reuse) = ladder_samples(binary_mode, &sequence)?;
+            Ok(ScalableLadderChildReport {
+                cold_instance: Some(cold_instance),
+                stable_capacity_reuse,
+                retained_capacity_bytes: Some(sequence.retained_capacity_bytes),
+                ..base()
+            })
+        }
+        Err(TimingError::StageGeneration(
+            StageGenerationError::ControlledAllocationHardCeiling {
+                field,
+                hard_ceiling_bytes,
+                live_requested_bytes,
+                requested_bytes,
+            },
+        )) => Ok(ScalableLadderChildReport {
+            outcome: ScalableLadderOutcome::GuardedInChild,
+            controlled_allocation_guard: Some(ControlledAllocationGuardReport {
+                field: field.to_owned(),
+                hard_ceiling_bytes,
+                live_requested_bytes,
+                requested_bytes,
+            }),
+            ..base()
+        }),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn ladder_samples(
+    binary_mode: ScalableLadderBinaryMode,
+    sequence: &ScalableStableCapacitySequence,
+) -> Result<(ScalableLadderSample, Vec<ScalableLadderSample>), RoleExecutionError> {
+    let mut previous = IdentityAllocationSnapshot::default();
+    let cold = ladder_sample(binary_mode, 0, &sequence.cold_instance, previous)?;
+    previous = sequence.post_warmup_allocation;
+    let mut reuse = Vec::with_capacity(sequence.stable_capacity_reuse.len());
+    for (sample_ordinal, sample) in sequence.stable_capacity_reuse.iter().enumerate() {
+        let sample_ordinal = u32::try_from(sample_ordinal)
+            .map_err(|_| RoleExecutionError::StableCapacitySampleOrdinalOverflow)?;
+        reuse.push(ladder_sample(
+            binary_mode,
+            sample_ordinal,
+            sample,
+            previous,
+        )?);
+        previous = sample.allocation;
+    }
+    Ok((cold, reuse))
+}
+
+fn ladder_sample(
+    binary_mode: ScalableLadderBinaryMode,
+    sample_ordinal: u32,
+    sample: &ScalableTimingSample,
+    previous: IdentityAllocationSnapshot,
+) -> Result<ScalableLadderSample, RoleExecutionError> {
+    let allocation = match binary_mode {
+        ScalableLadderBinaryMode::Timing => None,
+        ScalableLadderBinaryMode::Attribution => {
+            Some(allocation_delta(sample.allocation, previous)?)
+        }
+    };
+    Ok(ScalableLadderSample {
+        sample_ordinal,
+        wall_time_ns: (binary_mode == ScalableLadderBinaryMode::Timing)
+            .then_some(sample.wall_time_ns),
+        attribution_wall_time_ns_diagnostic: (binary_mode == ScalableLadderBinaryMode::Attribution)
+            .then_some(sample.wall_time_ns),
+        semantic_digest_sha256: sample.semantic_digest_sha256.clone(),
+        guard_peak_live_requested_bytes: sample.guard_peak_live_requested_bytes,
+        allocation,
+    })
+}
+
+fn allocation_delta(
+    current: IdentityAllocationSnapshot,
+    previous: IdentityAllocationSnapshot,
+) -> Result<IdentityAllocationSnapshot, RoleExecutionError> {
+    Ok(IdentityAllocationSnapshot {
+        allocation_count: checked_counter_delta(
+            "allocationCount",
+            current.allocation_count,
+            previous.allocation_count,
+        )?,
+        reallocation_count: checked_counter_delta(
+            "reallocationCount",
+            current.reallocation_count,
+            previous.reallocation_count,
+        )?,
+        allocated_bytes: checked_counter_delta(
+            "allocatedBytes",
+            current.allocated_bytes,
+            previous.allocated_bytes,
+        )?,
+        reallocated_bytes: checked_counter_delta(
+            "reallocatedBytes",
+            current.reallocated_bytes,
+            previous.reallocated_bytes,
+        )?,
+        freed_bytes: checked_counter_delta(
+            "freedBytes",
+            current.freed_bytes,
+            previous.freed_bytes,
+        )?,
+        live_requested_bytes: current.live_requested_bytes,
+        peak_live_requested_bytes: current.peak_live_requested_bytes,
+    })
+}
+
+fn checked_counter_delta(
+    field: &'static str,
+    current: u64,
+    previous: u64,
+) -> Result<u64, RoleExecutionError> {
+    current
+        .checked_sub(previous)
+        .ok_or(RoleExecutionError::AllocationSnapshotRegressed { field })
+}
+
 pub fn measure_identity_attribution_child(
     trusted: &TrustedContract,
     compiler_instance_id: String,
@@ -479,4 +753,117 @@ pub enum RoleExecutionError {
     JunctionGridOracle(#[from] crate::JunctionGridOracleError),
     #[error("受控独立预言机失败：{0}")]
     BoundedOracle(String),
+    #[error("稳定容量序列必须恰好包含七个复用样本，实际为 {actual}")]
+    InvalidStableCapacitySampleCount { actual: usize },
+    #[error("稳定容量样本序号无法表示为 u32")]
+    StableCapacitySampleOrdinalOverflow,
+    #[error("归因累计快照字段 {field} 相对上一采样点发生回退")]
+    AllocationSnapshotRegressed { field: &'static str },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::load_repository_contract;
+
+    #[test]
+    fn all_scalable_workloads_publish_complete_timing_and_attribution_sequences() {
+        let trusted = load_repository_contract().expect("frozen contract");
+        for workload_id in ScalableWorkloadId::ALL {
+            let timing = measure_scalable_timing_ladder_child(
+                &trusted,
+                format!("{}/timing-sequence", workload_id.as_str()),
+                workload_id,
+                GraphProfileId::WideStar,
+                1,
+                u64::MAX,
+            )
+            .expect("timing sequence");
+            assert_eq!(timing.outcome, ScalableLadderOutcome::Success);
+            assert_eq!(timing.binary_mode, ScalableLadderBinaryMode::Timing);
+            assert!(!timing.allocation_instrumentation_enabled);
+            assert_eq!(timing.warmup_count, STABLE_CAPACITY_WARMUP_COUNT);
+            assert_eq!(
+                timing.stable_capacity_reuse.len(),
+                STABLE_CAPACITY_SAMPLE_COUNT as usize
+            );
+            let cold = timing.cold_instance.as_ref().expect("cold timing sample");
+            assert!(cold.wall_time_ns.is_some_and(|value| value > 0));
+            assert!(cold.attribution_wall_time_ns_diagnostic.is_none());
+            assert!(cold.allocation.is_none());
+            assert!(
+                timing
+                    .stable_capacity_reuse
+                    .iter()
+                    .all(|sample| sample.semantic_digest_sha256 == cold.semantic_digest_sha256)
+            );
+
+            let attribution = measure_scalable_attribution_ladder_child(
+                &trusted,
+                format!("{}/attribution-sequence", workload_id.as_str()),
+                workload_id,
+                GraphProfileId::WideStar,
+                1,
+                u64::MAX,
+            )
+            .expect("attribution sequence");
+            assert_eq!(attribution.outcome, ScalableLadderOutcome::Success);
+            assert_eq!(
+                attribution.binary_mode,
+                ScalableLadderBinaryMode::Attribution
+            );
+            assert!(attribution.allocation_instrumentation_enabled);
+            assert_eq!(
+                attribution.stable_capacity_reuse.len(),
+                STABLE_CAPACITY_SAMPLE_COUNT as usize
+            );
+            let retained = attribution
+                .retained_capacity_bytes
+                .as_ref()
+                .expect("retained capacity")
+                .total;
+            let cold = attribution
+                .cold_instance
+                .as_ref()
+                .expect("cold attribution sample");
+            let cold_allocation = cold.allocation.expect("cold allocation");
+            assert!(cold.wall_time_ns.is_none());
+            assert!(
+                cold.attribution_wall_time_ns_diagnostic
+                    .is_some_and(|value| value > 0)
+            );
+            assert!(cold_allocation.allocation_count > 0);
+            assert_eq!(cold_allocation.live_requested_bytes, retained);
+            assert!(cold_allocation.peak_live_requested_bytes >= retained);
+            for sample in &attribution.stable_capacity_reuse {
+                let allocation = sample.allocation.expect("reuse allocation");
+                assert_eq!(allocation.allocation_count, 0);
+                assert_eq!(allocation.reallocation_count, 0);
+                assert_eq!(allocation.allocated_bytes, 0);
+                assert_eq!(allocation.reallocated_bytes, 0);
+                assert_eq!(allocation.freed_bytes, 0);
+                assert_eq!(allocation.live_requested_bytes, retained);
+                assert_eq!(allocation.peak_live_requested_bytes, retained);
+                assert_eq!(sample.semantic_digest_sha256, cold.semantic_digest_sha256);
+            }
+        }
+    }
+
+    #[test]
+    fn allocation_delta_rejects_regressed_cumulative_counters() {
+        let current = IdentityAllocationSnapshot {
+            allocation_count: 1,
+            ..IdentityAllocationSnapshot::default()
+        };
+        let previous = IdentityAllocationSnapshot {
+            allocation_count: 2,
+            ..IdentityAllocationSnapshot::default()
+        };
+        assert!(matches!(
+            allocation_delta(current, previous),
+            Err(RoleExecutionError::AllocationSnapshotRegressed {
+                field: "allocationCount"
+            })
+        ));
+    }
 }

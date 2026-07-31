@@ -1,7 +1,9 @@
 use issue_308_compiler_budget_calibration_research::{
     ATTRIBUTION_BINARY_ID, GraphProfileId, IdentityAttributionChildReport,
     IdentityAttributionOutcome, IdentityTimingChildReport, ORACLE_BINARY_ID, RUNNER_BINARY_ID,
-    SCALABLE_ORACLE_CHILD_SCHEMA, ScalableOracleChildReport, ScalableOracleOutcome,
+    SCALABLE_LADDER_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA, STABLE_CAPACITY_SAMPLE_COUNT,
+    STABLE_CAPACITY_WARMUP_COUNT, ScalableLadderBinaryMode, ScalableLadderChildReport,
+    ScalableLadderOutcome, ScalableOracleChildReport, ScalableOracleOutcome,
     ScalableTimingChildReport, ScalableTimingOutcome, ScalableWorkloadId, TIMING_BINARY_ID,
 };
 use serde_json::Value;
@@ -293,6 +295,134 @@ fn scalable_oracle_guard_is_structured_before_any_full_output_is_built() {
         .expect("structured oracle guard");
     assert_eq!(guard.hard_ceiling_bytes, 1);
     assert!(guard.requested_bytes > 1);
+}
+
+#[test]
+fn ladder_role_binaries_publish_complete_separated_stable_capacity_sequences() {
+    let timing_executable = Path::new(env!(
+        "CARGO_BIN_EXE_issue-308-compiler-budget-calibration-timing"
+    ));
+    let attribution_executable = Path::new(env!(
+        "CARGO_BIN_EXE_issue-308-compiler-budget-calibration-attribution"
+    ));
+    let ceiling = u64::MAX.to_string();
+
+    for workload_id in ScalableWorkloadId::ALL {
+        let timing_instance_id = format!("ladder-role/{}/timing", workload_id.as_str());
+        let timing = run_handshaken(
+            timing_executable,
+            &[
+                "run-ladder",
+                &timing_instance_id,
+                workload_id.as_str(),
+                GraphProfileId::WideStar.as_str(),
+                "1",
+                &ceiling,
+            ],
+        );
+        let timing_report = serde_json::from_slice::<ScalableLadderChildReport>(&timing.stdout)
+            .expect("timing ladder report");
+        assert_eq!(timing_report.schema, SCALABLE_LADDER_CHILD_SCHEMA);
+        assert_eq!(timing_report.binary_id, TIMING_BINARY_ID);
+        assert_eq!(timing_report.binary_mode, ScalableLadderBinaryMode::Timing);
+        assert!(!timing_report.allocation_instrumentation_enabled);
+        assert_eq!(timing_report.outcome, ScalableLadderOutcome::Success);
+        assert_eq!(timing_report.warmup_count, STABLE_CAPACITY_WARMUP_COUNT);
+        assert_eq!(
+            timing_report.stable_capacity_reuse.len(),
+            STABLE_CAPACITY_SAMPLE_COUNT as usize
+        );
+        let timing_cold = timing_report
+            .cold_instance
+            .as_ref()
+            .expect("timing cold-instance sample");
+        assert!(timing_cold.wall_time_ns.is_some_and(|value| value > 0));
+        assert!(timing_cold.attribution_wall_time_ns_diagnostic.is_none());
+        assert!(timing_cold.allocation.is_none());
+        assert!(timing_report.stable_capacity_reuse.iter().all(|sample| {
+            sample.wall_time_ns.is_some_and(|value| value > 0)
+                && sample.attribution_wall_time_ns_diagnostic.is_none()
+                && sample.allocation.is_none()
+                && sample.semantic_digest_sha256 == timing_cold.semantic_digest_sha256
+        }));
+
+        let attribution_instance_id = format!("ladder-role/{}/attribution", workload_id.as_str());
+        let attribution = run_handshaken(
+            attribution_executable,
+            &[
+                "run-ladder",
+                &attribution_instance_id,
+                workload_id.as_str(),
+                GraphProfileId::WideStar.as_str(),
+                "1",
+                &ceiling,
+            ],
+        );
+        let attribution_report =
+            serde_json::from_slice::<ScalableLadderChildReport>(&attribution.stdout)
+                .expect("attribution ladder report");
+        assert_eq!(attribution_report.schema, SCALABLE_LADDER_CHILD_SCHEMA);
+        assert_eq!(attribution_report.binary_id, ATTRIBUTION_BINARY_ID);
+        assert_eq!(
+            attribution_report.binary_mode,
+            ScalableLadderBinaryMode::Attribution
+        );
+        assert!(attribution_report.allocation_instrumentation_enabled);
+        assert_eq!(attribution_report.outcome, ScalableLadderOutcome::Success);
+        assert_eq!(
+            attribution_report.warmup_count,
+            STABLE_CAPACITY_WARMUP_COUNT
+        );
+        assert_eq!(
+            attribution_report.stable_capacity_reuse.len(),
+            STABLE_CAPACITY_SAMPLE_COUNT as usize
+        );
+        let retained = attribution_report
+            .retained_capacity_bytes
+            .as_ref()
+            .expect("attribution retained capacity")
+            .total;
+        let attribution_cold = attribution_report
+            .cold_instance
+            .as_ref()
+            .expect("attribution cold-instance sample");
+        let cold_allocation = attribution_cold
+            .allocation
+            .expect("attribution cold allocation");
+        assert!(attribution_cold.wall_time_ns.is_none());
+        assert!(
+            attribution_cold
+                .attribution_wall_time_ns_diagnostic
+                .is_some_and(|value| value > 0)
+        );
+        assert!(cold_allocation.allocation_count > 0);
+        assert!(cold_allocation.allocated_bytes > 0);
+        assert_eq!(cold_allocation.live_requested_bytes, retained);
+        for sample in &attribution_report.stable_capacity_reuse {
+            let allocation = sample.allocation.expect("reuse allocation");
+            assert!(sample.wall_time_ns.is_none());
+            assert!(
+                sample
+                    .attribution_wall_time_ns_diagnostic
+                    .is_some_and(|value| value > 0)
+            );
+            assert_eq!(allocation.allocation_count, 0);
+            assert_eq!(allocation.reallocation_count, 0);
+            assert_eq!(allocation.allocated_bytes, 0);
+            assert_eq!(allocation.reallocated_bytes, 0);
+            assert_eq!(allocation.freed_bytes, 0);
+            assert_eq!(allocation.live_requested_bytes, retained);
+            assert_eq!(allocation.peak_live_requested_bytes, retained);
+            assert_eq!(
+                sample.semantic_digest_sha256,
+                attribution_cold.semantic_digest_sha256
+            );
+        }
+        assert_eq!(
+            timing_cold.semantic_digest_sha256,
+            attribution_cold.semantic_digest_sha256
+        );
+    }
 }
 
 fn run_handshaken(executable: &Path, arguments: &[&str]) -> Output {

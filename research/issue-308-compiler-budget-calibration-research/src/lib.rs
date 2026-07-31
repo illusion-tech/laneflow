@@ -108,12 +108,16 @@ pub use roles::{
     IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityAttributionChildReport,
     IdentityAttributionOutcome, IdentityOracleChildReport, IdentityTimingChildReport,
     ORACLE_BINARY_ID, RUNNER_BINARY_ID, ResearchBinaryDescriptor, ResearchBinaryRole,
-    RoleExecutionError, SCALABLE_ORACLE_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
-    SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableOracleChildReport,
-    ScalableOracleOutcome, ScalableTimingChildReport, ScalableTimingOutcome, TIMING_BINARY_ID,
-    attribution_binary_descriptor, build_identity_oracle_child, measure_identity_attribution_child,
-    measure_identity_timing_child, measure_scalable_timing_child, oracle_binary_descriptor,
-    runner_binary_descriptor, timing_binary_descriptor, verify_scalable_oracle_child,
+    RoleExecutionError, SCALABLE_LADDER_CHILD_SCHEMA, SCALABLE_LADDER_CHILD_SCHEMA_VERSION,
+    SCALABLE_ORACLE_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
+    SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableLadderBinaryMode,
+    ScalableLadderChildReport, ScalableLadderOutcome, ScalableLadderSample,
+    ScalableOracleChildReport, ScalableOracleOutcome, ScalableTimingChildReport,
+    ScalableTimingOutcome, TIMING_BINARY_ID, attribution_binary_descriptor,
+    build_identity_oracle_child, measure_identity_attribution_child, measure_identity_timing_child,
+    measure_scalable_attribution_ladder_child, measure_scalable_timing_child,
+    measure_scalable_timing_ladder_child, oracle_binary_descriptor, runner_binary_descriptor,
+    timing_binary_descriptor, verify_scalable_oracle_child,
 };
 pub use scale_plan::{ScalableStagePlanFactory, ScalableStagePlanSummary, ScalePlanError};
 pub use stage::{
@@ -125,9 +129,10 @@ pub use stage_oracle::StageOracleError;
 pub use timing::{
     CLOCK_QUANTUM_OBSERVATION_COUNT, IdentityAttributionCompilerInstance, IdentityCompilerInstance,
     IdentityStableCapacitySequence, IdentityTimingCompilerInstance, IdentityTimingSample,
-    STABLE_CAPACITY_SAMPLE_COUNT, STABLE_CAPACITY_WARMUP_COUNT, ScalableExecutedMeasurement,
-    ScalablePreparedMeasurement, ScalableTimingCompilerInstance, ScalableTimingSample, TimingError,
-    measure_identity_stage_once, observe_clock_quantum_ns,
+    STABLE_CAPACITY_SAMPLE_COUNT, STABLE_CAPACITY_WARMUP_COUNT,
+    ScalableAttributionCompilerInstance, ScalableCompilerInstance, ScalableExecutedMeasurement,
+    ScalablePreparedMeasurement, ScalableStableCapacitySequence, ScalableTimingCompilerInstance,
+    ScalableTimingSample, TimingError, measure_identity_stage_once, observe_clock_quantum_ns,
 };
 pub use workload::{
     BASE_SCALE_STRING_PROFILE, BASELINE_CANDIDATE_ID, GENERATOR_VERSION_V1,

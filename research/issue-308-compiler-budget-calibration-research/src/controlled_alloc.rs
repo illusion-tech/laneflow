@@ -11,6 +11,18 @@ use std::fmt;
 use std::mem::size_of;
 use std::rc::Rc;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ControlledAllocationSnapshot {
+    pub allocation_count: u64,
+    pub reallocation_count: u64,
+    pub allocated_bytes: u64,
+    pub reallocated_bytes: u64,
+    pub freed_bytes: u64,
+    pub live_requested_bytes: u64,
+    pub peak_live_requested_bytes: u64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ControlledAllocationRejection {
     pub(crate) field: &'static str,
@@ -28,8 +40,14 @@ pub(crate) struct ControlledAllocationObservation {
 #[derive(Debug)]
 struct ControlledAllocatorState {
     hard_ceiling_bytes: u64,
+    track_allocations: bool,
     live_requested_bytes: Cell<u64>,
     peak_live_requested_bytes: Cell<u64>,
+    allocation_count: Cell<u64>,
+    reallocation_count: Cell<u64>,
+    allocated_bytes: Cell<u64>,
+    reallocated_bytes: Cell<u64>,
+    freed_bytes: Cell<u64>,
 }
 
 /// 只在当前研究子进程单线程内克隆和使用的受控分配状态。
@@ -43,11 +61,21 @@ pub(crate) struct ControlledAllocator {
 
 impl ControlledAllocator {
     pub(crate) fn new(hard_ceiling_bytes: u64) -> Self {
+        Self::new_for_mode(hard_ceiling_bytes, false)
+    }
+
+    pub(crate) fn new_for_mode(hard_ceiling_bytes: u64, track_allocations: bool) -> Self {
         Self {
             state: Rc::new(ControlledAllocatorState {
                 hard_ceiling_bytes,
+                track_allocations,
                 live_requested_bytes: Cell::new(0),
                 peak_live_requested_bytes: Cell::new(0),
+                allocation_count: Cell::new(0),
+                reallocation_count: Cell::new(0),
+                allocated_bytes: Cell::new(0),
+                reallocated_bytes: Cell::new(0),
+                freed_bytes: Cell::new(0),
             }),
         }
     }
@@ -59,13 +87,22 @@ impl ControlledAllocator {
         }
     }
 
-    pub(crate) fn begin_request(&self) -> Result<(), crate::StageGenerationError> {
-        if self.state.live_requested_bytes.get() != 0 {
-            return Err(crate::StageGenerationError::MaterializedMismatch(
-                "controlled allocation request boundary",
-            ));
+    pub(crate) fn snapshot(&self) -> ControlledAllocationSnapshot {
+        ControlledAllocationSnapshot {
+            allocation_count: self.state.allocation_count.get(),
+            reallocation_count: self.state.reallocation_count.get(),
+            allocated_bytes: self.state.allocated_bytes.get(),
+            reallocated_bytes: self.state.reallocated_bytes.get(),
+            freed_bytes: self.state.freed_bytes.get(),
+            live_requested_bytes: self.state.live_requested_bytes.get(),
+            peak_live_requested_bytes: self.state.peak_live_requested_bytes.get(),
         }
-        self.state.peak_live_requested_bytes.set(0);
+    }
+
+    pub(crate) fn begin_request(&self) -> Result<(), crate::StageGenerationError> {
+        self.state
+            .peak_live_requested_bytes
+            .set(self.state.live_requested_bytes.get());
         Ok(())
     }
 
@@ -100,6 +137,40 @@ impl ControlledAllocator {
         self.state
             .live_requested_bytes
             .set(previous - requested_bytes);
+    }
+
+    pub(crate) fn commit_replacement(&self, previous_requested_bytes: u64, requested_bytes: u64) {
+        self.cancel_preoccupation(previous_requested_bytes);
+        if !self.state.track_allocations {
+            return;
+        }
+        if previous_requested_bytes == 0 {
+            self.state
+                .allocation_count
+                .set(self.state.allocation_count.get() + 1);
+            self.state
+                .allocated_bytes
+                .set(self.state.allocated_bytes.get() + requested_bytes);
+        } else {
+            self.state
+                .reallocation_count
+                .set(self.state.reallocation_count.get() + 1);
+            self.state
+                .reallocated_bytes
+                .set(self.state.reallocated_bytes.get() + requested_bytes);
+            self.state
+                .freed_bytes
+                .set(self.state.freed_bytes.get() + previous_requested_bytes);
+        }
+    }
+
+    pub(crate) fn release_allocation(&self, requested_bytes: u64) {
+        self.cancel_preoccupation(requested_bytes);
+        if self.state.track_allocations && requested_bytes != 0 {
+            self.state
+                .freed_bytes
+                .set(self.state.freed_bytes.get() + requested_bytes);
+        }
     }
 
     pub(crate) fn hard_ceiling_bytes(&self) -> u64 {
@@ -137,6 +208,7 @@ impl<T> ControlledVec<T> {
         Ok(values)
     }
 
+    #[cfg(test)]
     pub(crate) fn allocator(&self) -> ControlledAllocator {
         self.allocator.clone()
     }
@@ -148,6 +220,10 @@ impl<T> ControlledVec<T> {
     #[cfg(test)]
     pub(crate) fn capacity(&self) -> usize {
         self.requested_capacity
+    }
+
+    pub(crate) fn accounted_capacity_bytes(&self) -> u64 {
+        self.accounted_capacity_bytes
     }
 
     pub(crate) fn as_slice(&self) -> &[T] {
@@ -216,7 +292,7 @@ impl<T> ControlledVec<T> {
         }
 
         self.allocator
-            .cancel_preoccupation(self.accounted_capacity_bytes);
+            .commit_replacement(self.accounted_capacity_bytes, requested_bytes);
         self.requested_capacity = required_capacity;
         self.accounted_capacity_bytes = requested_bytes;
         Ok(())
@@ -242,6 +318,7 @@ impl<T: Clone> ControlledVec<T> {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn try_clone(
         &self,
         field: &'static str,
@@ -255,7 +332,7 @@ impl<T: Clone> ControlledVec<T> {
 impl<T> Drop for ControlledVec<T> {
     fn drop(&mut self) {
         self.allocator
-            .cancel_preoccupation(self.accounted_capacity_bytes);
+            .release_allocation(self.accounted_capacity_bytes);
     }
 }
 
