@@ -327,14 +327,8 @@ fn execute_independent_oracle(
                                 "oracle identity reference kind",
                             ));
                         }
-                        let target = declarations
-                            .iter()
-                            .find(|declaration| {
-                                declaration.owner.unit == unit && declaration.owner.entity == target
-                            })
-                            .ok_or(StageGenerationError::MaterializedMismatch(
-                                "oracle stable-id dependency",
-                            ))?;
+                        let target =
+                            oracle_declaration(template, declarations.as_slice(), unit, target)?;
                         identity_payload.try_extend_from_slice(&target.stable_id)?;
                     }
                 }
@@ -406,7 +400,24 @@ fn execute_independent_oracle(
 
     for unit in 0..n {
         let unit_start = records.len();
-        for declaration in declarations.iter().filter(|value| value.owner.unit == unit) {
+        let declaration_start = usize::try_from(unit)
+            .ok()
+            .and_then(|unit| unit.checked_mul(template.entities.len()))
+            .ok_or(StageGenerationError::Overflow(
+                "oracle unit declaration start",
+            ))?;
+        let declaration_end = declaration_start
+            .checked_add(template.entities.len())
+            .ok_or(StageGenerationError::Overflow(
+                "oracle unit declaration end",
+            ))?;
+        let unit_declarations = declarations
+            .as_slice()
+            .get(declaration_start..declaration_end)
+            .ok_or(StageGenerationError::MaterializedMismatch(
+                "oracle unit declarations",
+            ))?;
+        for declaration in unit_declarations {
             let start = payload.len();
             let source = &identity_payload.as_slice()[declaration.identity_payload.offset
                 ..declaration.identity_payload.offset + declaration.identity_payload.length];
@@ -436,6 +447,7 @@ fn execute_independent_oracle(
         for point in &template.geometry {
             let start = payload.len();
             payload.try_extend_from_slice(&oracle_stable_id(
+                template,
                 declarations.as_slice(),
                 unit,
                 point.frame,
@@ -445,7 +457,7 @@ fn execute_independent_oracle(
             append_u32(&mut payload, x)?;
             append_u32(&mut payload, y)?;
             append_u32(&mut payload, z)?;
-            let owner = oracle_declaration(declarations.as_slice(), unit, point.edge)?;
+            let owner = oracle_declaration(template, declarations.as_slice(), unit, point.edge)?;
             records.try_push(OracleRecord {
                 record_kind: 5,
                 entity_kind_code: point.edge.kind,
@@ -599,7 +611,7 @@ fn assign_oracle_owner_ordinals(
 }
 
 fn oracle_relation(
-    _template: &CorridorTemplate,
+    template: &CorridorTemplate,
     declarations: &[OracleDeclaration],
     unit: u32,
     relation: &TemplateRelation,
@@ -609,16 +621,31 @@ fn oracle_relation(
     let (record_kind, owner, local_order) = match relation {
         TemplateRelation::Owner { child, parent } => {
             append_u16(payload, parent.kind)?;
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *parent)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *parent,
+            )?)?;
             (2, *child, OracleLocalOrder::Absent)
         }
         TemplateRelation::EdgeConnection { source, target } => {
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *target)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *target,
+            )?)?;
             (3, *source, OracleLocalOrder::Payload)
         }
         TemplateRelation::RouteOccurrence { route, index, edge } => {
             append_u32(payload, *index)?;
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *edge)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *edge,
+            )?)?;
             (4, *route, OracleLocalOrder::Explicit(*index))
         }
         TemplateRelation::Access {
@@ -627,14 +654,29 @@ fn oracle_relation(
             target,
             decision,
         } => {
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *participant)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *participant,
+            )?)?;
             append_u16(payload, target.kind)?;
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *target)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *target,
+            )?)?;
             payload.try_push(*decision)?;
             (6, *rule, OracleLocalOrder::Payload)
         }
         TemplateRelation::SignalGroup { group, gate } => {
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *gate)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *gate,
+            )?)?;
             (7, *group, OracleLocalOrder::Payload)
         }
         TemplateRelation::PhaseState {
@@ -642,7 +684,12 @@ fn oracle_relation(
             group,
             state,
         } => {
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *group)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *group,
+            )?)?;
             payload.try_push(*state)?;
             (8, *phase, OracleLocalOrder::Payload)
         }
@@ -654,11 +701,21 @@ fn oracle_relation(
             edge,
             edge_position_bits,
         } => {
-            let gate_id = oracle_stable_id(declarations, unit, *gate)?;
+            let gate_id = oracle_stable_id(template, declarations, unit, *gate)?;
             append_u32(payload, 0)?;
             payload.try_extend_from_slice(&gate_id)?;
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *stop_line)?)?;
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *edge)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *stop_line,
+            )?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *edge,
+            )?)?;
             append_u32(payload, *edge_position_bits)?;
             (
                 9,
@@ -678,11 +735,21 @@ fn oracle_relation(
             after_gate,
             capacity,
         } => {
-            let zone_id = oracle_stable_id(declarations, unit, *zone)?;
+            let zone_id = oracle_stable_id(template, declarations, unit, *zone)?;
             append_u32(payload, 0)?;
             payload.try_extend_from_slice(&zone_id)?;
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *before_gate)?)?;
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *after_gate)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *before_gate,
+            )?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *after_gate,
+            )?)?;
             append_u32(payload, *capacity)?;
             (
                 10,
@@ -703,26 +770,51 @@ fn oracle_relation(
             exit_high_bits,
             exit_residual_bits,
         } => {
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *space)?)?;
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *entry_edge)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *space,
+            )?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *entry_edge,
+            )?)?;
             append_u32(payload, *entry_high_bits)?;
             append_u32(payload, *entry_residual_bits)?;
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *exit_edge)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *exit_edge,
+            )?)?;
             append_u32(payload, *exit_high_bits)?;
             append_u32(payload, *exit_residual_bits)?;
             (11, *space, OracleLocalOrder::Absent)
         }
         TemplateRelation::LaneCoverage { lane, index, edge } => {
             append_u32(payload, *index)?;
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *edge)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *edge,
+            )?)?;
             (12, *lane, OracleLocalOrder::Explicit(*index))
         }
         TemplateRelation::JunctionInternalEdge { junction, edge } => {
-            payload.try_extend_from_slice(&oracle_stable_id(declarations, unit, *edge)?)?;
+            payload.try_extend_from_slice(&oracle_stable_id(
+                template,
+                declarations,
+                unit,
+                *edge,
+            )?)?;
             (13, *junction, OracleLocalOrder::Payload)
         }
     };
-    let declaration = oracle_declaration(declarations, unit, owner)?;
+    let declaration = oracle_declaration(template, declarations, unit, owner)?;
     Ok(OracleRecord {
         record_kind,
         entity_kind_code: owner.kind,
@@ -849,25 +941,45 @@ fn oracle_payload<'a>(record: &OracleRecord, payload: &'a [u8]) -> &'a [u8] {
     &payload[record.payload.offset..record.payload.offset + record.payload.length]
 }
 
-fn oracle_declaration(
-    declarations: &[OracleDeclaration],
+fn oracle_declaration<'a>(
+    template: &CorridorTemplate,
+    declarations: &'a [OracleDeclaration],
     unit: u32,
     entity: EntityRef,
-) -> Result<&OracleDeclaration, StageGenerationError> {
-    declarations
+) -> Result<&'a OracleDeclaration, StageGenerationError> {
+    let entity_index = template
+        .entities
         .iter()
-        .find(|declaration| declaration.owner.unit == unit && declaration.owner.entity == entity)
+        .position(|candidate| candidate.reference == entity)
         .ok_or(StageGenerationError::MaterializedMismatch(
-            "oracle declaration lookup",
-        ))
+            "oracle template entity lookup",
+        ))?;
+    let declaration_index = usize::try_from(unit)
+        .ok()
+        .and_then(|unit| unit.checked_mul(template.entities.len()))
+        .and_then(|base| base.checked_add(entity_index))
+        .ok_or(StageGenerationError::Overflow("oracle declaration lookup"))?;
+    let declaration =
+        declarations
+            .get(declaration_index)
+            .ok_or(StageGenerationError::MaterializedMismatch(
+                "oracle declaration lookup",
+            ))?;
+    if declaration.owner.unit != unit || declaration.owner.entity != entity {
+        return Err(StageGenerationError::MaterializedMismatch(
+            "oracle declaration lookup identity",
+        ));
+    }
+    Ok(declaration)
 }
 
 fn oracle_stable_id(
+    template: &CorridorTemplate,
     declarations: &[OracleDeclaration],
     unit: u32,
     entity: EntityRef,
 ) -> Result<[u8; 16], StageGenerationError> {
-    Ok(oracle_declaration(declarations, unit, entity)?.stable_id)
+    Ok(oracle_declaration(template, declarations, unit, entity)?.stable_id)
 }
 
 fn oracle_geometry(
