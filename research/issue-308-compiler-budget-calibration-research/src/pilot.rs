@@ -1503,7 +1503,7 @@ fn completed_level_guard_observation(
 }
 
 #[derive(Debug)]
-enum MonitoredChildExecution {
+pub(crate) enum MonitoredChildExecution {
     Exited {
         child_pid: u32,
         output: std::process::Output,
@@ -1579,7 +1579,37 @@ fn run_monitored_scalable_child(
     })
 }
 
-fn run_monitored_scalable_oracle(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_monitored_scalable_role_child(
+    executable: &Path,
+    ordinal: usize,
+    command_name: &str,
+    compiler_instance_id: &str,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    thresholds: GuardThresholds,
+) -> Result<MonitoredChildExecution, PilotError> {
+    let mut memory_monitor = ChildProcessMemoryMonitor::new()?;
+    let mut command = Command::new(executable);
+    command
+        .arg(command_name)
+        .arg(compiler_instance_id)
+        .arg(workload_id.as_str())
+        .arg(graph_profile.as_str())
+        .arg(n.to_string())
+        .arg(thresholds.compiler_controlled_bytes.to_string())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = ContainedChild::spawn(&mut command)
+        .map_err(|source| PilotError::ChildSpawn { ordinal, source })?;
+    run_monitored_child_with_observer(child, ordinal, thresholds, |child_pid| {
+        memory_monitor.observe(child_pid)
+    })
+}
+
+pub(crate) fn run_monitored_scalable_oracle(
     oracle_executable: &Path,
     ordinal: usize,
     oracle_run_id: &str,
@@ -1894,7 +1924,7 @@ fn wall_time_limit_reached(
     Ok(duration_ns(elapsed)? >= thresholds.wall_time_ns)
 }
 
-fn monitor_invalidation_reasons(
+pub(crate) fn monitor_invalidation_reasons(
     trigger: Option<ChildMonitorTrigger>,
     child_exit_succeeded: bool,
 ) -> Option<Vec<InvalidationReason>> {

@@ -160,7 +160,7 @@ fn usage() -> String {
         "  describe-role",
         "  verify-contract",
         "  smoke-identity-fresh-process-pilot <pilot-id> <graph-profile> <N> [timing-binary-path]",
-        "  run --protocol compiler-calibration-v1 --output <base-scale-pilot-checkpoint-path>",
+        "  run --protocol compiler-calibration-v1 --output <formal-execution-checkpoint-path>",
     ]
     .join("\n")
 }

@@ -1,8 +1,9 @@
 use issue_308_compiler_budget_calibration_research::{
     ATTRIBUTION_BINARY_ID, GraphProfileId, IdentityAttributionChildReport,
     IdentityAttributionOutcome, IdentityTimingChildReport, ORACLE_BINARY_ID, RUNNER_BINARY_ID,
-    SCALABLE_LADDER_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA, STABLE_CAPACITY_SAMPLE_COUNT,
-    STABLE_CAPACITY_WARMUP_COUNT, ScalableLadderBinaryMode, ScalableLadderChildReport,
+    SCALABLE_ATTRIBUTION_CHILD_SCHEMA, SCALABLE_LADDER_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA,
+    STABLE_CAPACITY_SAMPLE_COUNT, STABLE_CAPACITY_WARMUP_COUNT, ScalableAttributionChildReport,
+    ScalableAttributionOutcome, ScalableLadderBinaryMode, ScalableLadderChildReport,
     ScalableLadderOutcome, ScalableOracleChildReport, ScalableOracleOutcome,
     ScalableTimingChildReport, ScalableTimingOutcome, ScalableWorkloadId, TIMING_BINARY_ID,
 };
@@ -295,6 +296,42 @@ fn scalable_oracle_guard_is_structured_before_any_full_output_is_built() {
         .expect("structured oracle guard");
     assert_eq!(guard.hard_ceiling_bytes, 1);
     assert!(guard.requested_bytes > 1);
+}
+
+#[test]
+fn attribution_preflight_reports_one_scalable_measurement_per_workload() {
+    let attribution_executable = Path::new(env!(
+        "CARGO_BIN_EXE_issue-308-compiler-budget-calibration-attribution"
+    ));
+    let ceiling = u64::MAX.to_string();
+    for workload_id in ScalableWorkloadId::ALL {
+        let instance_id = format!("attribution-preflight/{}", workload_id.as_str());
+        let output = run_handshaken(
+            attribution_executable,
+            &[
+                "run-preflight",
+                &instance_id,
+                workload_id.as_str(),
+                GraphProfileId::WideStar.as_str(),
+                "1",
+                &ceiling,
+            ],
+        );
+        let report = serde_json::from_slice::<ScalableAttributionChildReport>(&output.stdout)
+            .expect("attribution preflight report");
+        assert_eq!(report.schema, SCALABLE_ATTRIBUTION_CHILD_SCHEMA);
+        assert_eq!(report.binary_id, ATTRIBUTION_BINARY_ID);
+        assert_eq!(report.outcome, ScalableAttributionOutcome::Success);
+        assert_eq!(report.compiler_instance_id, instance_id);
+        assert!(report.allocation.is_some());
+        assert!(
+            report
+                .attribution_wall_time_ns_diagnostic
+                .is_some_and(|value| value > 0)
+        );
+        assert!(report.semantic_digest_sha256.is_some());
+        assert!(report.controlled_allocation_guard.is_none());
+    }
 }
 
 #[test]

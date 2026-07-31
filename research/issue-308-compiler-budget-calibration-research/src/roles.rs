@@ -27,6 +27,9 @@ pub const IDENTITY_TIMING_CHILD_SCHEMA_VERSION: u32 = 3;
 pub const SCALABLE_TIMING_CHILD_SCHEMA: &str =
     "laneflow.compiler-calibration-scalable-timing-child";
 pub const SCALABLE_TIMING_CHILD_SCHEMA_VERSION: u32 = 2;
+pub const SCALABLE_ATTRIBUTION_CHILD_SCHEMA: &str =
+    "laneflow.compiler-calibration-scalable-attribution-child";
+pub const SCALABLE_ATTRIBUTION_CHILD_SCHEMA_VERSION: u32 = 1;
 pub const IDENTITY_ATTRIBUTION_CHILD_SCHEMA: &str =
     "laneflow.compiler-calibration-identity-attribution-child";
 pub const IDENTITY_ATTRIBUTION_CHILD_SCHEMA_VERSION: u32 = 1;
@@ -149,6 +152,38 @@ pub struct ScalableTimingChildReport {
 pub enum ScalableTimingOutcome {
     Success,
     GuardedInChild,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScalableAttributionOutcome {
+    Success,
+    GuardedInChild,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScalableAttributionChildReport {
+    pub schema: String,
+    pub schema_version: u32,
+    pub binary_id: String,
+    pub allocation_instrumentation_enabled: bool,
+    pub compiler_instance_id: String,
+    pub child_pid: u32,
+    pub workload_id: ScalableWorkloadId,
+    pub workload_revision: u32,
+    pub graph_profile: String,
+    pub string_profile: String,
+    pub generator_version: u32,
+    pub n: u32,
+    pub outcome: ScalableAttributionOutcome,
+    pub controlled_allocation_hard_ceiling_bytes: u64,
+    pub guard_peak_live_requested_bytes: Option<u64>,
+    pub allocation: Option<IdentityAllocationSnapshot>,
+    pub attribution_wall_time_ns_diagnostic: Option<u64>,
+    pub retained_capacity_bytes: Option<StageRetainedCapacityBytes>,
+    pub semantic_digest_sha256: Option<String>,
+    pub controlled_allocation_guard: Option<ControlledAllocationGuardReport>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -400,6 +435,73 @@ pub fn measure_scalable_timing_ladder_child(
         false,
         result,
     )
+}
+
+pub fn measure_scalable_attribution_child(
+    trusted: &TrustedContract,
+    compiler_instance_id: String,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    controlled_allocation_hard_ceiling_bytes: u64,
+) -> Result<ScalableAttributionChildReport, RoleExecutionError> {
+    let mut instance =
+        ScalableAttributionCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+            trusted,
+            compiler_instance_id.clone(),
+            workload_id,
+            controlled_allocation_hard_ceiling_bytes,
+        )?;
+    let base = || ScalableAttributionChildReport {
+        schema: SCALABLE_ATTRIBUTION_CHILD_SCHEMA.to_owned(),
+        schema_version: SCALABLE_ATTRIBUTION_CHILD_SCHEMA_VERSION,
+        binary_id: ATTRIBUTION_BINARY_ID.to_owned(),
+        allocation_instrumentation_enabled: true,
+        compiler_instance_id: compiler_instance_id.clone(),
+        child_pid: std::process::id(),
+        workload_id,
+        workload_revision: crate::WORKLOAD_REVISION_V1,
+        graph_profile: graph_profile.as_str().to_owned(),
+        string_profile: crate::BASE_SCALE_STRING_PROFILE.to_owned(),
+        generator_version: crate::GENERATOR_VERSION_V1,
+        n,
+        outcome: ScalableAttributionOutcome::Success,
+        controlled_allocation_hard_ceiling_bytes,
+        guard_peak_live_requested_bytes: None,
+        allocation: None,
+        attribution_wall_time_ns_diagnostic: None,
+        retained_capacity_bytes: None,
+        semantic_digest_sha256: None,
+        controlled_allocation_guard: None,
+    };
+    match instance.measure(graph_profile, n) {
+        Ok(sample) => Ok(ScalableAttributionChildReport {
+            guard_peak_live_requested_bytes: Some(sample.guard_peak_live_requested_bytes),
+            allocation: Some(sample.allocation),
+            attribution_wall_time_ns_diagnostic: Some(sample.wall_time_ns),
+            retained_capacity_bytes: Some(instance.retained_capacity_bytes()?),
+            semantic_digest_sha256: Some(sample.semantic_digest_sha256),
+            ..base()
+        }),
+        Err(TimingError::StageGeneration(
+            StageGenerationError::ControlledAllocationHardCeiling {
+                field,
+                hard_ceiling_bytes,
+                live_requested_bytes,
+                requested_bytes,
+            },
+        )) => Ok(ScalableAttributionChildReport {
+            outcome: ScalableAttributionOutcome::GuardedInChild,
+            controlled_allocation_guard: Some(ControlledAllocationGuardReport {
+                field: field.to_owned(),
+                hard_ceiling_bytes,
+                live_requested_bytes,
+                requested_bytes,
+            }),
+            ..base()
+        }),
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub fn measure_scalable_attribution_ladder_child(

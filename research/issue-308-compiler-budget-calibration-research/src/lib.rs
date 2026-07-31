@@ -20,6 +20,8 @@ mod guard;
 mod identity;
 mod junction_grid;
 mod junction_grid_oracle;
+mod ladder;
+mod ladder_runner;
 mod manifest;
 mod oracle;
 mod pilot;
@@ -75,6 +77,21 @@ pub use junction_grid_oracle::{
     JunctionGridOracleError, JunctionGridOracleVerificationReport,
     verify_junction_grid_oracle_matrix,
 };
+pub use ladder::{
+    ExactPositiveRatio, FORMAL_LADDER_AGGREGATION_METHOD, FORMAL_LADDER_BATCH_COUNT,
+    FORMAL_LADDER_MINIMUM_LEVEL_COUNT, FORMAL_LADDER_ROUND_COUNT,
+    FORMAL_LADDER_SCALE_SELECTION_RULE, FormalAdjacentLevelRatio, FormalKneeAssessment,
+    FormalLadderAnalysis, FormalLadderBatchSummary, FormalLadderCompletedLevel, FormalLadderError,
+    FormalLadderMetric, FormalLadderRoundMetricSummary, FormalLadderRoundRun,
+    FormalLadderSampleKind, FormalScaleSelection, FormalScaleSelectionDisposition,
+    analyze_formal_ladder,
+};
+pub use ladder_runner::{
+    FORMAL_LADDER_EXECUTION_SCHEMA, FORMAL_LADDER_EXECUTION_SCHEMA_VERSION,
+    FormalAttributionPreflightRun, FormalLadderExecution, FormalLadderExecutionDisposition,
+    FormalLadderLevelExecution, FormalLadderProcessRun, FormalLadderRunnerError, FormalOracleRun,
+    run_formal_ladders,
+};
 pub use manifest::{GeneratorContract, ManifestContractError};
 pub use oracle::{
     ExactOracleError, OracleVerificationError, OracleVerificationReport,
@@ -98,7 +115,8 @@ pub use process_protocol::{
     ProcessProtocolError, RunStatus, TerminationKind, TerminationObservation,
 };
 pub use protocol::{
-    FormalProtocolError, FormalProtocolOutcome, FormalProtocolRequest,
+    FORMAL_PROTOCOL_CHECKPOINT_SCHEMA, FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION,
+    FormalProtocolCheckpoint, FormalProtocolError, FormalProtocolOutcome, FormalProtocolRequest,
     parse_formal_protocol_arguments, run_formal_protocol,
 };
 pub use roles::{
@@ -108,13 +126,16 @@ pub use roles::{
     IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityAttributionChildReport,
     IdentityAttributionOutcome, IdentityOracleChildReport, IdentityTimingChildReport,
     ORACLE_BINARY_ID, RUNNER_BINARY_ID, ResearchBinaryDescriptor, ResearchBinaryRole,
-    RoleExecutionError, SCALABLE_LADDER_CHILD_SCHEMA, SCALABLE_LADDER_CHILD_SCHEMA_VERSION,
-    SCALABLE_ORACLE_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
-    SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableLadderBinaryMode,
-    ScalableLadderChildReport, ScalableLadderOutcome, ScalableLadderSample,
-    ScalableOracleChildReport, ScalableOracleOutcome, ScalableTimingChildReport,
-    ScalableTimingOutcome, TIMING_BINARY_ID, attribution_binary_descriptor,
-    build_identity_oracle_child, measure_identity_attribution_child, measure_identity_timing_child,
+    RoleExecutionError, SCALABLE_ATTRIBUTION_CHILD_SCHEMA,
+    SCALABLE_ATTRIBUTION_CHILD_SCHEMA_VERSION, SCALABLE_LADDER_CHILD_SCHEMA,
+    SCALABLE_LADDER_CHILD_SCHEMA_VERSION, SCALABLE_ORACLE_CHILD_SCHEMA,
+    SCALABLE_ORACLE_CHILD_SCHEMA_VERSION, SCALABLE_TIMING_CHILD_SCHEMA,
+    SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableAttributionChildReport,
+    ScalableAttributionOutcome, ScalableLadderBinaryMode, ScalableLadderChildReport,
+    ScalableLadderOutcome, ScalableLadderSample, ScalableOracleChildReport, ScalableOracleOutcome,
+    ScalableTimingChildReport, ScalableTimingOutcome, TIMING_BINARY_ID,
+    attribution_binary_descriptor, build_identity_oracle_child, measure_identity_attribution_child,
+    measure_identity_timing_child, measure_scalable_attribution_child,
     measure_scalable_attribution_ladder_child, measure_scalable_timing_child,
     measure_scalable_timing_ladder_child, oracle_binary_descriptor, runner_binary_descriptor,
     timing_binary_descriptor, verify_scalable_oracle_child,
