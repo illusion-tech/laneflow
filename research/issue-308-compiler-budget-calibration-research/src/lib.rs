@@ -7,6 +7,9 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+mod bounded_oracle;
+mod bounded_template;
+mod controlled_alloc;
 mod corridor;
 #[cfg(feature = "fixture-oracle")]
 mod corridor_fixture_oracle;

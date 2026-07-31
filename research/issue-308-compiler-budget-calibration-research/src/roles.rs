@@ -4,16 +4,13 @@
 //! timing 只产生无逐分配记账的端到端墙钟，attribution 只产生受控分配与存续内存
 //! 归因，oracle 只从受信任清单独立重建正确性结果。
 
+use crate::bounded_oracle::{BoundedOracleError, verify_bounded_scalable_oracle};
 use crate::stage_oracle::build_identity_stage_oracle;
 use crate::{
     GraphProfileId, IdentityAllocationSnapshot, IdentityAttributionCompilerInstance,
-    IdentityStageSummary, IdentityTimingCompilerInstance, ScalableStagePlanFactory,
-    ScalableTimingCompilerInstance, ScalableWorkloadId, StageGenerationError,
-    StageRetainedCapacityBytes, TimingError, TrustedContract,
-};
-use crate::{
-    corridor_oracle::verify_corridor_oracle_case,
-    junction_grid_oracle::verify_junction_grid_oracle_case, oracle::verify_identity_oracle_case,
+    IdentityStageSummary, IdentityTimingCompilerInstance, ScalableTimingCompilerInstance,
+    ScalableWorkloadId, StageGenerationError, StageRetainedCapacityBytes, TimingError,
+    TrustedContract,
 };
 use serde::{Deserialize, Serialize};
 
@@ -36,7 +33,7 @@ pub const IDENTITY_ORACLE_CHILD_SCHEMA: &str =
 pub const IDENTITY_ORACLE_CHILD_SCHEMA_VERSION: u32 = 1;
 pub const SCALABLE_ORACLE_CHILD_SCHEMA: &str =
     "laneflow.compiler-calibration-scalable-oracle-child";
-pub const SCALABLE_ORACLE_CHILD_SCHEMA_VERSION: u32 = 1;
+pub const SCALABLE_ORACLE_CHILD_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -213,6 +210,7 @@ pub struct ScalableOracleChildReport {
     pub n: u32,
     pub outcome: ScalableOracleOutcome,
     pub controlled_allocation_hard_ceiling_bytes: u64,
+    pub guard_peak_live_requested_bytes: Option<u64>,
     pub primary_record_count: Option<u64>,
     pub semantic_digest_sha256: Option<String>,
     pub complete_counts_equal: bool,
@@ -406,12 +404,6 @@ pub fn verify_scalable_oracle_child(
     n: u32,
     controlled_allocation_hard_ceiling_bytes: u64,
 ) -> Result<ScalableOracleChildReport, RoleExecutionError> {
-    let plan = ScalableStagePlanFactory::from_trusted_contract(trusted)?.plan(
-        workload_id,
-        graph_profile,
-        n,
-    )?;
-    let reservation_bytes = plan.controlled_allocation_oracle_guard_reservation_bytes()?;
     let base = || ScalableOracleChildReport {
         schema: SCALABLE_ORACLE_CHILD_SCHEMA.to_owned(),
         schema_version: SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
@@ -426,62 +418,49 @@ pub fn verify_scalable_oracle_child(
         n,
         outcome: ScalableOracleOutcome::Success,
         controlled_allocation_hard_ceiling_bytes,
+        guard_peak_live_requested_bytes: None,
         primary_record_count: None,
         semantic_digest_sha256: None,
         complete_counts_equal: false,
         complete_typed_output_equal: false,
         controlled_allocation_guard: None,
     };
-    if reservation_bytes > controlled_allocation_hard_ceiling_bytes {
-        return Ok(ScalableOracleChildReport {
+    match verify_bounded_scalable_oracle(
+        trusted,
+        workload_id,
+        graph_profile,
+        n,
+        controlled_allocation_hard_ceiling_bytes,
+    ) {
+        Ok(verification) => Ok(ScalableOracleChildReport {
+            guard_peak_live_requested_bytes: Some(
+                verification.allocation.peak_live_requested_bytes,
+            ),
+            primary_record_count: Some(verification.primary_record_count),
+            semantic_digest_sha256: Some(verification.semantic_digest_sha256),
+            complete_counts_equal: verification.complete_counts_equal,
+            complete_typed_output_equal: verification.complete_typed_output_equal,
+            ..base()
+        }),
+        Err(BoundedOracleError::Generation(
+            StageGenerationError::ControlledAllocationHardCeiling {
+                field,
+                hard_ceiling_bytes,
+                live_requested_bytes,
+                requested_bytes,
+            },
+        )) => Ok(ScalableOracleChildReport {
             outcome: ScalableOracleOutcome::GuardedInChild,
             controlled_allocation_guard: Some(ControlledAllocationGuardReport {
-                field: "scalable oracle logical arena".to_owned(),
-                hard_ceiling_bytes: controlled_allocation_hard_ceiling_bytes,
-                live_requested_bytes: 0,
-                requested_bytes: reservation_bytes,
+                field: field.to_owned(),
+                hard_ceiling_bytes,
+                live_requested_bytes,
+                requested_bytes,
             }),
             ..base()
-        });
+        }),
+        Err(error) => Err(RoleExecutionError::BoundedOracle(error.to_string())),
     }
-
-    let (counts_equal, semantic_digest_sha256) = match workload_id {
-        ScalableWorkloadId::Identity => {
-            let summary = verify_identity_oracle_case(trusted, graph_profile, n)?;
-            (
-                summary.counts == plan.counts && summary.stages == plan.stages,
-                summary.semantic_digest_sha256,
-            )
-        }
-        ScalableWorkloadId::Corridor => {
-            let summary = verify_corridor_oracle_case(trusted, graph_profile, n)?;
-            (
-                summary.counts == plan.counts && summary.stages == plan.stages,
-                summary.semantic_digest_sha256,
-            )
-        }
-        ScalableWorkloadId::JunctionGrid => {
-            let summary = verify_junction_grid_oracle_case(trusted, graph_profile, n)?;
-            (
-                summary.counts == plan.counts && summary.stages == plan.stages,
-                summary.semantic_digest_sha256,
-            )
-        }
-    };
-    if !counts_equal {
-        return Err(RoleExecutionError::ScalableOraclePlanMismatch {
-            workload_id,
-            graph_profile,
-            n,
-        });
-    }
-    Ok(ScalableOracleChildReport {
-        primary_record_count: Some(plan.primary_record_count),
-        semantic_digest_sha256: Some(semantic_digest_sha256),
-        complete_counts_equal: true,
-        complete_typed_output_equal: true,
-        ..base()
-    })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -498,12 +477,6 @@ pub enum RoleExecutionError {
     CorridorOracle(#[from] crate::CorridorOracleError),
     #[error(transparent)]
     JunctionGridOracle(#[from] crate::JunctionGridOracleError),
-    #[error(
-        "独立预言机与计时规模计划不一致：workload={workload_id:?}, graphProfile={graph_profile:?}, N={n}"
-    )]
-    ScalableOraclePlanMismatch {
-        workload_id: ScalableWorkloadId,
-        graph_profile: GraphProfileId,
-        n: u32,
-    },
+    #[error("受控独立预言机失败：{0}")]
+    BoundedOracle(String),
 }

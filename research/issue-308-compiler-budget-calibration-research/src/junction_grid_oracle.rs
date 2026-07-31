@@ -63,27 +63,6 @@ pub fn verify_junction_grid_oracle_matrix(
     })
 }
 
-pub(crate) fn verify_junction_grid_oracle_case(
-    trusted: &TrustedContract,
-    graph_profile: GraphProfileId,
-    n: u32,
-) -> Result<crate::CorridorStageSummary, JunctionGridOracleError> {
-    let contract = JunctionGridContract::from_manifest(&trusted.workload_manifest)?;
-    let producer_template = build_junction_grid_template();
-    let independent_template = build_independent_template();
-    contract.validate_template(&producer_template)?;
-    contract.validate_template(&independent_template)?;
-    verify_template_projection(&producer_template, &independent_template)?;
-    verify_junction_grid_oracle_case_with_templates(
-        trusted,
-        &contract,
-        &producer_template,
-        &independent_template,
-        graph_profile,
-        n,
-    )
-}
-
 fn verify_junction_grid_oracle_case_with_templates(
     trusted: &TrustedContract,
     contract: &JunctionGridContract,
@@ -126,7 +105,7 @@ fn verify_junction_grid_oracle_case_with_templates(
     Ok(produced.summary)
 }
 
-fn build_independent_template() -> CorridorTemplate {
+pub(crate) fn build_independent_template() -> CorridorTemplate {
     let mut entities = Vec::with_capacity(166);
     for local in 0..32 {
         entities.push(independent_entity(4, local, &[]));

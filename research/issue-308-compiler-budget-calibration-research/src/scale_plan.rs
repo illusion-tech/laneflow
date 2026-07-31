@@ -24,79 +24,6 @@ pub struct ScalableStagePlanSummary {
     pub primary_record_count: u64,
 }
 
-impl ScalableStagePlanSummary {
-    /// 为非归因角色预占的编译器受控存续字节。
-    ///
-    /// 八个阶段的精确容量来自冻结清单；额外项覆盖当前研究生产者在阶段值之外同时
-    /// 保留的模块图、符号/关系索引、声明字段、规范记录和字符串/记录流所有权。
-    /// 这是安全护栏的保守预占，不是候选内存归因指标。
-    pub fn controlled_allocation_guard_reservation_bytes(&self) -> Result<u64, ScalePlanError> {
-        const MODULE_GRAPH_ENTRY_UPPER_BYTES: u64 = 512;
-        const COMPILER_RECORD_ENTRY_UPPER_BYTES: u64 = 128;
-
-        let stage_capacity_bytes = sum(&[
-            self.stages.source_input.record_allocation_bytes,
-            self.stages.typed_ast.record_allocation_bytes,
-            self.stages.hir.record_allocation_bytes,
-            self.stages.mir.record_allocation_bytes,
-            self.stages.canonical_lir.record_allocation_bytes,
-            self.stages.diagnostics.record_allocation_bytes,
-            self.stages.scratch.record_allocation_bytes,
-            self.stages.output_construction.record_allocation_bytes,
-        ])?;
-        let module_graph_bytes = checked_mul(
-            self.counts
-                .module_count
-                .checked_add(self.counts.import_edge_count)
-                .ok_or(ScalePlanError::Overflow(
-                    "controlled allocation module graph entries",
-                ))?,
-            MODULE_GRAPH_ENTRY_UPPER_BYTES,
-            "controlled allocation module graph bytes",
-        )?;
-        let compiler_record_entries = sum(&[
-            self.counts.identity_declaration_count,
-            self.counts.identity_field_occurrence_count,
-            self.counts.source_reference_count,
-            self.counts.source_relation_count,
-            self.counts.source_geometry_count,
-            self.counts.symbol_count,
-            self.counts.semantic_output_record,
-        ])?;
-        let compiler_record_bytes = checked_mul(
-            compiler_record_entries,
-            COMPILER_RECORD_ENTRY_UPPER_BYTES,
-            "controlled allocation compiler record bytes",
-        )?;
-        let duplicate_owned_payload_bytes = sum(&[
-            self.counts.total_string_bytes,
-            self.counts.semantic_payload_byte_count,
-            self.counts.output_byte_count,
-        ])?;
-        sum(&[
-            stage_capacity_bytes,
-            module_graph_bytes,
-            compiler_record_bytes,
-            duplicate_owned_payload_bytes,
-        ])
-    }
-
-    /// 独立预言机进程的保守逻辑 arena 预占。
-    ///
-    /// 预言机需要同时保留生产者完整输出、独立构造的完整类型化输出、逐项比较暂存以及
-    /// 阶段验证结果；因此在任何规模相关物化开始前，按单生产者上界的四倍一次性预占。
-    /// 四份是本研究实现允许的最大同时存续副本数，不是性能归因指标。
-    pub fn controlled_allocation_oracle_guard_reservation_bytes(
-        &self,
-    ) -> Result<u64, ScalePlanError> {
-        checked_mul(
-            self.controlled_allocation_guard_reservation_bytes()?,
-            4,
-            "controlled allocation oracle replicas",
-        )
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct ScalableStagePlanFactory {
     identity: IdentityContract,
@@ -907,32 +834,6 @@ mod tests {
                     .primary_record_count,
                 108
             );
-        }
-    }
-
-    #[test]
-    fn guard_reservations_are_positive_monotonic_and_oracle_bounded() {
-        let trusted = crate::load_repository_contract().expect("frozen contract");
-        let plans =
-            ScalableStagePlanFactory::from_trusted_contract(&trusted).expect("plan factory");
-        for workload_id in ScalableWorkloadId::ALL {
-            for graph_profile in GraphProfileId::ALL {
-                let n1 = plans.plan(workload_id, graph_profile, 1).expect("N=1 plan");
-                let n2 = plans.plan(workload_id, graph_profile, 2).expect("N=2 plan");
-                let n1_timing = n1
-                    .controlled_allocation_guard_reservation_bytes()
-                    .expect("N=1 timing reservation");
-                let n2_timing = n2
-                    .controlled_allocation_guard_reservation_bytes()
-                    .expect("N=2 timing reservation");
-                assert!(n1_timing > 0);
-                assert!(n2_timing > n1_timing);
-                assert_eq!(
-                    n1.controlled_allocation_oracle_guard_reservation_bytes()
-                        .expect("N=1 oracle reservation"),
-                    n1_timing * 4
-                );
-            }
         }
     }
 

@@ -56,16 +56,6 @@ pub fn verify_corridor_oracle_matrix(
     })
 }
 
-pub(crate) fn verify_corridor_oracle_case(
-    trusted: &TrustedContract,
-    graph_profile: GraphProfileId,
-    n: u32,
-) -> Result<crate::CorridorStageSummary, CorridorOracleError> {
-    let contract = CorridorContract::from_manifest(&trusted.workload_manifest)?;
-    let template = contract.load_template(&crate::repository_root())?;
-    verify_corridor_oracle_case_with_template(trusted, &contract, &template, graph_profile, n)
-}
-
 fn verify_corridor_oracle_case_with_template(
     trusted: &TrustedContract,
     contract: &CorridorContract,
