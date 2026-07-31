@@ -9,7 +9,7 @@ use crate::{
     GraphProfileId, ScalableStagePlanFactory, ScalableStagePlanSummary, ScalableWorkloadId,
     StageBreakdown, TrustedContract,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sysinfo::{
     IS_SUPPORTED_SYSTEM, MemoryRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate, System,
 };
@@ -22,7 +22,7 @@ pub const COMPILER_CONTROLLED_HARD_CEILING_BYTES: u64 = 16 * GIBIBYTE;
 pub const PRIVATE_MEMORY_HARD_CEILING_BYTES: u64 = 24 * GIBIBYTE;
 pub const WALL_TIME_HARD_CEILING_NS: u64 = 60_000_000_000;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemMemoryObservation {
     pub physical_memory_bytes: u64,
@@ -34,7 +34,7 @@ pub struct SystemMemoryMonitor {
     system: System,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChildProcessMemoryObservation {
     pub private_bytes: u64,
@@ -107,7 +107,7 @@ impl SystemMemoryMonitor {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GuardThresholds {
     pub compiler_controlled_bytes: u64,
@@ -143,7 +143,7 @@ impl GuardThresholds {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GuardCompletedLevelObservation {
     pub n: u32,
@@ -153,7 +153,7 @@ pub struct GuardCompletedLevelObservation {
     pub wall_time_ns: u64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum GuardPredictionBasis {
     ManifestSingleBufferLowerBoundV1,
@@ -161,7 +161,7 @@ pub enum GuardPredictionBasis {
     FirstLevelMonitorOnly,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum GuardTrigger {
     PredictedCompilerControlledBytes,
@@ -171,7 +171,7 @@ pub enum GuardTrigger {
     TypedOrdinal,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GuardPreflightReport {
     pub workload_id: String,

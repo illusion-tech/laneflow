@@ -19,7 +19,7 @@ use crate::{
     SystemMemoryMonitor, SystemMemoryObservation, TIMING_BINARY_ID, TimingError, TrustedContract,
     WORKLOAD_REVISION_V1, observe_clock_quantum_ns, validate_base_scale_contract,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -38,7 +38,7 @@ const CHILD_TERMINATION_TIMEOUT: Duration = Duration::from_millis(CHILD_TERMINAT
 const CHILD_TERMINATION_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const CHILD_START_SIGNAL: u8 = b'G';
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ChildMonitorTrigger {
     PrivateBytes,
@@ -47,7 +47,7 @@ pub enum ChildMonitorTrigger {
     MonitoringGap,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChildProcessMonitorReport {
     pub observation_count: u64,
@@ -122,14 +122,14 @@ pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION: u32 = 2;
 pub const BASE_SCALE_SELECTION_RULE: &str = "first-power-of-two-qualifying-seven-pilot-runs-v1";
 pub const BASE_SCALE_AGGREGATION_METHOD: &str = "median-and-mad-of-seven-exact-integers-v1";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BaseScalePilotRunKind {
     ColdInstance,
     GuardPreflight,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BaseScalePilotRun {
     pub run_id: String,
@@ -154,7 +154,7 @@ pub struct BaseScalePilotRun {
     pub stderr: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BaseScaleOracleRun {
     pub run_id: String,
@@ -175,7 +175,7 @@ pub struct BaseScaleOracleRun {
     pub stderr: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BaseScaleOracleInvalidationReason {
     ResearchStopGuardrailTriggered,
@@ -184,7 +184,7 @@ pub enum BaseScaleOracleInvalidationReason {
     IndependentOracleMismatch,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BaseScalePilotLevel {
     pub n: u32,
@@ -204,7 +204,7 @@ pub struct BaseScalePilotLevel {
     pub qualifies: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BaseScaleSelection {
     pub candidate_id: String,
@@ -219,7 +219,7 @@ pub struct BaseScaleSelection {
     pub terminal_guard_run_id: NullableObservation<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BaseScalePilotCheckpoint {
     pub schema: String,
