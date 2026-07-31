@@ -112,6 +112,16 @@ G2 冻结的候选依赖如下；“特性”只列本研究包直接启用的�
   码。监控缺样、非零退出和父进程强制终止返回带状态、失效原因、值/原因观察、最后
   监控快照与诊断的结构化停止记录；受检护栏返回 `guarded`，其他异常只返回
   `invalid`，不再只抛出丢失上下文的字符串错误。
+- `run --protocol compiler-calibration-v1 --output <path>` 正式研究入口的基础规模发现
+  切片：入口在任何测量前拒绝 debug 二进制、未启用 `research-runner-full` 的构建和
+  脏工作树；三个可扩展工作负载与三种模块图配置档分别从 `N = 1` 开始严格二倍探测。
+  每个候选级别使用七个独立的新进程冷实例样本，精确重算中位数/MAD、时钟量子阈值、
+  语义摘要一致性和护栏状态；无效尝试完整保留并以新尝试身份重试，不能进入贡献集合。
+  每次状态变化写入不可覆盖的分代检查点，成功结束时再原子发布最终基础规模试运行
+  检查点。该制品不是编译器校准证据 v1，不包含正式五级阶梯、预算建议或产品服务等级
+  协议（SLA）。若受测子进程先于下一二倍级别预检触发运行中停止护栏，执行器会先
+  持久化统一作废后的尝试，再失败闭合；它不会把冷实例运行伪装成
+  `terminalGuardRunId` 所要求的实际 `guard-preflight` 运行。
 
 代码中的 v1 常量只用于证明清单字段与已接受契约精确一致并在漂移时失败，不构成第二
 事实源；研究语义仍以已验证的工作负载清单为权威。
@@ -134,9 +144,10 @@ G2 冻结的候选依赖如下；“特性”只列本研究包直接启用的�
 MIR 语义记录、canonical LIR、最终规范记录流、语义摘要和八项阶段公式结果。阶段
 生产路径物化逐模块来源位置、记录种类、符号序号、解析目标和连续载荷缓冲区；MIR
 由 HIR 解析结果构造，canonical LIR 再独立完成所有者序号分配与规范排序。同长度错误
-引用和同长度字符串替换均有拒绝测试。正式新进程轮次编排、证据写出器和正式
-`run --protocol compiler-calibration-v1` 入口仍须按设计文档继续实现；在完整正确性
-与 pilot 证据落盘前，不得宣称任何正式预算数字。
+引用和同长度字符串替换均有拒绝测试。正式基础规模新进程编排与
+`run --protocol compiler-calibration-v1` 入口已经落地；正式五级阶梯、Evidence v1
+写出器与独立验证器仍须按设计文档继续实现。在这些后续证据闭合前不得宣称任何正式
+预算数字。
 
 `LF-COMP-CORRIDOR-v1` 的独立预言机另行实现身份字段展开、StableId128 派生、十三类
 语义记录、所有者局部序号、规范排序和记录流编码，并在三种模块图的 `N = 1`、
@@ -150,17 +161,13 @@ MIR 语义记录、canonical LIR、最终规范记录流、语义摘要和八项
 `N = 2` 六个用例仍须与生产者得到逐条、逐字节相同的完整规范记录流。因此规范排序
 不会依赖生成器关系遍历顺序，第二工作单元的几何也实际覆盖网格坐标公式。
 
-现有单次测量辅助函数只证明外层计时边界能够隔离 SHA-256 和摘要核对，并能在计时
-实例返回后另行调用独立预言机；逐记录完整输出比较由单独的 oracle 矩阵命令执行；
-稳定容量实例尚未建立正式轮次或机器可读证据。七进程试运行尚未执行完整协议停止护栏，
-也不写入编译器校准证据 v1（Compiler Calibration Evidence v1）；其内部子进程 JSON
-只用于父子进程通信，不是正式证据封套。父进程预检、归因子进程受控分配硬上限、
-Windows 父进程运行中监控、终止状态编码和四角色分离已经执行，但正式轮次封套和
-Evidence v1 独立验证尚未建立，所以 `guardPreflightEvaluated` 仍只表示完成启动前
-预检，不等于协议 v1 护栏闭合。当前试运行墙钟已经来自无逐分配记账的 timing
-二进制，计时角色资格不再缺失；但它尚未具备正式尝试身份、无效轮次重试和 Evidence
-引用，因此仍不得据此选择参考规模 `B` 或宣称预算。attribution 的诊断墙钟也不得
-进入任何时延结论。
+现有单次测量辅助函数证明外层计时边界能够隔离 SHA-256 和摘要核对，并能在计时实例
+返回后另行调用独立预言机；逐记录完整输出比较由单独的 oracle 矩阵命令执行。基础规模
+发现已经具备正式尝试身份、无效尝试重试、九个自然身份的严格二倍选择和持久检查点，
+其墙钟来自无逐分配记账的 timing 二进制。稳定容量实例仍未进入正式五级轮次，完整
+资源预测、两个归因副本、Evidence v1 封套和独立 Evidence 验证器也尚未建立。因此本
+切片可以在冻结研究机上得到后续阶梯使用的候选 `B`，但检查点本身不得作为预算、
+候选排名或正式 Evidence 引用；attribution 的诊断墙钟仍不得进入任何时延结论。
 
 ```powershell
 cargo +1.96.0 run --locked `
@@ -210,3 +217,22 @@ cargo +1.96.0 build --release --locked `
 .\target\release\issue-308-compiler-budget-calibration-research.exe `
   smoke-identity-fresh-process-pilot local-smoke wide-star-v1 1
 ```
+
+执行九个自然身份的基础规模正式试运行。输出路径建议位于仓库外的已存在目录；正式
+入口会拒绝覆盖既有输出或既有 `.checkpoints` 分代目录。运行中断后，已完成状态仍保留
+在 `<output-file>.checkpoints/`，应以新输出路径重新执行，不能把两次运行拼接。单入口
+会先以相同锁定工具链、release 配置和封闭总特性构建同目录 timing 二进制，再核对其
+角色、模式、职责和未启用逐分配记账，因而不依赖预先存在的角色制品：
+
+```powershell
+cargo +1.96.0 run --release --locked `
+  -p issue-308-compiler-budget-calibration-research `
+  --no-default-features --features research-runner-full `
+  --bin issue-308-compiler-budget-calibration-research -- `
+  run --protocol compiler-calibration-v1 --output C:\tmp\compiler-base-scale-pilot.json
+```
+
+命令要求调用前工作树干净；本切片的输出是
+`laneflow.compiler-calibration-base-scale-pilot-checkpoint`，不是
+Compiler Calibration Evidence v1。第 8 切片将在同一 `B` 上增加至少五级正式阶梯、
+三次预热、七次稳定容量复用以及完整的前一级资源预测和停止规则。

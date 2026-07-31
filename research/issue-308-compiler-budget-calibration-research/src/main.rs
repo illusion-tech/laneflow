@@ -1,6 +1,7 @@
 use issue_308_compiler_budget_calibration_research::{
     CONTRACT_DESCRIPTOR_BYTE_LENGTH, GraphProfileId, load_repository_contract,
-    run_identity_fresh_process_pilot, runner_binary_descriptor,
+    parse_formal_protocol_arguments, run_formal_protocol, run_identity_fresh_process_pilot,
+    runner_binary_descriptor,
 };
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -82,6 +83,15 @@ fn run() -> Result<(), String> {
             println!("{json}");
             Ok(())
         }
+        "run" => {
+            let request =
+                parse_formal_protocol_arguments(arguments).map_err(|error| error.to_string())?;
+            let outcome = run_formal_protocol(&request).map_err(|error| error.to_string())?;
+            let json = serde_json::to_string_pretty(&outcome)
+                .map_err(|error| format!("无法序列化正式协议执行结果：{error}"))?;
+            println!("{json}");
+            Ok(())
+        }
         _ => Err(usage()),
     }
 }
@@ -150,6 +160,7 @@ fn usage() -> String {
         "  describe-role",
         "  verify-contract",
         "  smoke-identity-fresh-process-pilot <pilot-id> <graph-profile> <N> [timing-binary-path]",
+        "  run --protocol compiler-calibration-v1 --output <base-scale-pilot-checkpoint-path>",
     ]
     .join("\n")
 }

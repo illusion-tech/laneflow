@@ -7,8 +7,9 @@
 use crate::stage_oracle::build_identity_stage_oracle;
 use crate::{
     GraphProfileId, IdentityAllocationSnapshot, IdentityAttributionCompilerInstance,
-    IdentityStageSummary, IdentityTimingCompilerInstance, StageGenerationError,
-    StageRetainedCapacityBytes, TimingError, TrustedContract,
+    IdentityStageSummary, IdentityTimingCompilerInstance, ScalableTimingCompilerInstance,
+    ScalableWorkloadId, StageGenerationError, StageRetainedCapacityBytes, TimingError,
+    TrustedContract,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +21,9 @@ pub const ORACLE_BINARY_ID: &str = "compiler-calibration-oracle-v1";
 pub const IDENTITY_TIMING_CHILD_SCHEMA: &str =
     "laneflow.compiler-calibration-identity-timing-child";
 pub const IDENTITY_TIMING_CHILD_SCHEMA_VERSION: u32 = 3;
+pub const SCALABLE_TIMING_CHILD_SCHEMA: &str =
+    "laneflow.compiler-calibration-scalable-timing-child";
+pub const SCALABLE_TIMING_CHILD_SCHEMA_VERSION: u32 = 1;
 pub const IDENTITY_ATTRIBUTION_CHILD_SCHEMA: &str =
     "laneflow.compiler-calibration-identity-attribution-child";
 pub const IDENTITY_ATTRIBUTION_CHILD_SCHEMA_VERSION: u32 = 1;
@@ -108,6 +112,25 @@ pub struct IdentityTimingChildReport {
     pub semantic_digest_sha256: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScalableTimingChildReport {
+    pub schema: String,
+    pub schema_version: u32,
+    pub binary_id: String,
+    pub allocation_instrumentation_enabled: bool,
+    pub compiler_instance_id: String,
+    pub child_pid: u32,
+    pub workload_id: ScalableWorkloadId,
+    pub workload_revision: u32,
+    pub graph_profile: String,
+    pub string_profile: String,
+    pub generator_version: u32,
+    pub n: u32,
+    pub wall_time_ns: u64,
+    pub semantic_digest_sha256: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum IdentityAttributionOutcome {
@@ -179,6 +202,38 @@ pub fn measure_identity_timing_child(
         n,
         wall_time_ns: sample.wall_time_ns,
         semantic_digest_sha256: sample.stage_summary.semantic_digest_sha256,
+    })
+}
+
+pub fn measure_scalable_timing_child(
+    trusted: &TrustedContract,
+    compiler_instance_id: String,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+) -> Result<ScalableTimingChildReport, RoleExecutionError> {
+    let mut instance = ScalableTimingCompilerInstance::from_trusted_contract_with_id(
+        trusted,
+        compiler_instance_id.clone(),
+        workload_id,
+    )?;
+    let sample = instance.measure(graph_profile, n)?;
+    Ok(ScalableTimingChildReport {
+        schema: SCALABLE_TIMING_CHILD_SCHEMA.to_owned(),
+        schema_version: SCALABLE_TIMING_CHILD_SCHEMA_VERSION,
+        binary_id: TIMING_BINARY_ID.to_owned(),
+        allocation_instrumentation_enabled:
+            IdentityTimingCompilerInstance::ALLOCATION_INSTRUMENTATION_ENABLED,
+        compiler_instance_id,
+        child_pid: std::process::id(),
+        workload_id: sample.workload_id,
+        workload_revision: crate::WORKLOAD_REVISION_V1,
+        graph_profile: sample.graph_profile.as_str().to_owned(),
+        string_profile: crate::BASE_SCALE_STRING_PROFILE.to_owned(),
+        generator_version: crate::GENERATOR_VERSION_V1,
+        n: sample.n,
+        wall_time_ns: sample.wall_time_ns,
+        semantic_digest_sha256: sample.semantic_digest_sha256,
     })
 }
 

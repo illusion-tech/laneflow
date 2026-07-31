@@ -23,10 +23,13 @@ mod pilot;
 mod pipeline;
 mod process_containment;
 mod process_protocol;
+mod protocol;
 mod roles;
+mod scale_plan;
 mod stage;
 mod stage_oracle;
 mod timing;
+mod workload;
 
 pub use corridor::{
     CORRIDOR_KNOWN_VECTOR_SCHEMA, CORRIDOR_WORKLOAD_ID, CorridorContract, CorridorError,
@@ -52,8 +55,8 @@ pub use guard::{
     COMPILER_CONTROLLED_HARD_CEILING_BYTES, ChildProcessMemoryMonitor,
     ChildProcessMemoryObservation, GuardCompletedLevelObservation, GuardError,
     GuardPredictionBasis, GuardPreflightReport, GuardThresholds, GuardTrigger,
-    PRIVATE_MEMORY_HARD_CEILING_BYTES, SystemMemoryMonitor, SystemMemoryObservation,
-    WALL_TIME_HARD_CEILING_NS, evaluate_identity_guard_preflight,
+    PRIVATE_MEMORY_HARD_CEILING_BYTES, ScalableGuardPlanner, SystemMemoryMonitor,
+    SystemMemoryObservation, WALL_TIME_HARD_CEILING_NS, evaluate_identity_guard_preflight,
 };
 pub use identity::{
     IdentityContract, IdentityContractError, IdentityDeclarationVector, IdentityFieldVector,
@@ -75,15 +78,24 @@ pub use oracle::{
     verify_identity_oracle_matrix,
 };
 pub use pilot::{
-    CLOCK_QUANTUM_MULTIPLIER, ChildMonitorTrigger, ChildProcessMonitorReport,
-    FRESH_PROCESS_PILOT_SAMPLE_COUNT, IdentityFreshProcessPilot, IdentityFreshProcessPilotOutcome,
-    IdentityFreshProcessPilotStop, IdentityMonitoredChildSample, MAXIMUM_RELATIVE_MAD_PERCENT,
-    PilotError, run_identity_fresh_process_pilot, wait_for_parent_start_signal,
+    BASE_SCALE_AGGREGATION_METHOD, BASE_SCALE_PILOT_CHECKPOINT_SCHEMA,
+    BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION, BASE_SCALE_SELECTION_RULE,
+    BaseScalePilotCheckpoint, BaseScalePilotLevel, BaseScalePilotRun, BaseScalePilotRunKind,
+    BaseScaleSelection, CLOCK_QUANTUM_MULTIPLIER, ChildMonitorTrigger, ChildProcessMonitorReport,
+    FORMAL_PROTOCOL_ID, FRESH_PROCESS_PILOT_SAMPLE_COUNT, IdentityFreshProcessPilot,
+    IdentityFreshProcessPilotOutcome, IdentityFreshProcessPilotStop, IdentityMonitoredChildSample,
+    MAXIMUM_RELATIVE_MAD_PERCENT, PilotError, run_base_scale_pilot_discovery,
+    run_base_scale_pilot_discovery_with_checkpoint_sink, run_identity_fresh_process_pilot,
+    wait_for_parent_start_signal,
 };
 pub use pipeline::IdentityAllocationSnapshot;
 pub use process_protocol::{
     InvalidationReason, NullableObservation, ProcessExitKind, ProcessObservation,
     ProcessProtocolError, RunStatus, TerminationKind, TerminationObservation,
+};
+pub use protocol::{
+    FormalProtocolError, FormalProtocolOutcome, FormalProtocolRequest,
+    parse_formal_protocol_arguments, run_formal_protocol,
 };
 pub use roles::{
     ATTRIBUTION_BINARY_ID, ControlledAllocationGuardReport, IDENTITY_ATTRIBUTION_CHILD_SCHEMA,
@@ -92,10 +104,13 @@ pub use roles::{
     IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityAttributionChildReport,
     IdentityAttributionOutcome, IdentityOracleChildReport, IdentityTimingChildReport,
     ORACLE_BINARY_ID, RUNNER_BINARY_ID, ResearchBinaryDescriptor, ResearchBinaryRole,
-    RoleExecutionError, TIMING_BINARY_ID, attribution_binary_descriptor,
+    RoleExecutionError, SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION,
+    ScalableTimingChildReport, TIMING_BINARY_ID, attribution_binary_descriptor,
     build_identity_oracle_child, measure_identity_attribution_child, measure_identity_timing_child,
-    oracle_binary_descriptor, runner_binary_descriptor, timing_binary_descriptor,
+    measure_scalable_timing_child, oracle_binary_descriptor, runner_binary_descriptor,
+    timing_binary_descriptor,
 };
+pub use scale_plan::{ScalableStagePlanFactory, ScalableStagePlanSummary, ScalePlanError};
 pub use stage::{
     IdentityAggregateCounts, IdentityStagePlanSummary, IdentityStageSummary, StageBreakdown,
     StageContract, StageContractError, StageGenerationError, StageRetainedCapacityBytes,
@@ -105,8 +120,14 @@ pub use stage_oracle::StageOracleError;
 pub use timing::{
     CLOCK_QUANTUM_OBSERVATION_COUNT, IdentityAttributionCompilerInstance, IdentityCompilerInstance,
     IdentityStableCapacitySequence, IdentityTimingCompilerInstance, IdentityTimingSample,
-    STABLE_CAPACITY_SAMPLE_COUNT, STABLE_CAPACITY_WARMUP_COUNT, TimingError,
+    STABLE_CAPACITY_SAMPLE_COUNT, STABLE_CAPACITY_WARMUP_COUNT, ScalableExecutedMeasurement,
+    ScalablePreparedMeasurement, ScalableTimingCompilerInstance, ScalableTimingSample, TimingError,
     measure_identity_stage_once, observe_clock_quantum_ns,
+};
+pub use workload::{
+    BASE_SCALE_STRING_PROFILE, BASELINE_CANDIDATE_ID, GENERATOR_VERSION_V1,
+    ScalableWorkloadContractError, ScalableWorkloadId, ScalableWorkloadParseError,
+    WORKLOAD_REVISION_V1, validate_base_scale_contract,
 };
 
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";

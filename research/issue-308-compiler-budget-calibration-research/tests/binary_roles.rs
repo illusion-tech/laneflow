@@ -98,7 +98,12 @@ fn timing_attribution_and_oracle_roles_agree_without_mixing_metrics() {
         Path::new(env!(
             "CARGO_BIN_EXE_issue-308-compiler-budget-calibration-timing"
         )),
-        &["run", "role-matrix/timing", "wide-star-v1", "1"],
+        &[
+            "run-identity-smoke",
+            "role-matrix/timing",
+            "wide-star-v1",
+            "1",
+        ],
     );
     let timing_report =
         serde_json::from_slice::<IdentityTimingChildReport>(&timing.stdout).expect("timing report");

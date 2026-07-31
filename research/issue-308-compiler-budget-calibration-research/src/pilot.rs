@@ -1,17 +1,20 @@
 //! 编译器测量基准规模发现所需的新进程冷实例试运行基础。
 //!
-//! 本模块执行启动前停止护栏、七个受监控的独立子进程、冷实例结果核对和墙钟中位数/
-//! 中位绝对偏差计算。受测子进程固定为不执行逐分配记账的 timing 角色；基准规模选择、
-//! Evidence v1 写出与正式轮次仍由后续切片负责。
+//! 本模块执行启动前停止护栏、七个受监控的独立子进程、冷实例结果核对、墙钟中位数/
+//! 中位绝对偏差计算和基础规模严格二倍发现。受测子进程固定为不执行逐分配记账的
+//! timing 角色；Evidence v1 写出与正式轮次仍由后续切片负责。
 
 use crate::process_containment::ContainedChild;
 use crate::{
-    ChildProcessMemoryMonitor, ChildProcessMemoryObservation, GraphProfileId,
+    BASE_SCALE_STRING_PROFILE, BASELINE_CANDIDATE_ID, ChildProcessMemoryMonitor,
+    ChildProcessMemoryObservation, GENERATOR_VERSION_V1, GraphProfileId,
     GuardCompletedLevelObservation, GuardError, GuardPreflightReport, GuardThresholds,
     IDENTITY_TIMING_CHILD_SCHEMA, IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityTimingChildReport,
     InvalidationReason, NullableObservation, ProcessObservation, ProcessProtocolError, RunStatus,
-    SystemMemoryMonitor, SystemMemoryObservation, TIMING_BINARY_ID, TimingError, TrustedContract,
-    evaluate_identity_guard_preflight, observe_clock_quantum_ns,
+    SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableGuardPlanner,
+    ScalableTimingChildReport, ScalableWorkloadId, SystemMemoryMonitor, SystemMemoryObservation,
+    TIMING_BINARY_ID, TimingError, TrustedContract, WORKLOAD_REVISION_V1, observe_clock_quantum_ns,
+    validate_base_scale_contract,
 };
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -109,6 +112,105 @@ pub enum IdentityFreshProcessPilotOutcome {
     },
 }
 
+pub const FORMAL_PROTOCOL_ID: &str = "compiler-calibration-v1";
+pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA: &str =
+    "laneflow.compiler-calibration-base-scale-pilot-checkpoint";
+pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION: u32 = 1;
+pub const BASE_SCALE_SELECTION_RULE: &str = "first-power-of-two-qualifying-seven-pilot-runs-v1";
+pub const BASE_SCALE_AGGREGATION_METHOD: &str = "median-and-mad-of-seven-exact-integers-v1";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BaseScalePilotRunKind {
+    ColdInstance,
+    GuardPreflight,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaseScalePilotRun {
+    pub run_id: String,
+    pub attempt_id: String,
+    pub retry_ordinal: u32,
+    pub pilot_sample_position: u32,
+    pub run_kind: BaseScalePilotRunKind,
+    pub workload_id: ScalableWorkloadId,
+    pub workload_revision: u32,
+    pub graph_profile: String,
+    pub string_profile: String,
+    pub generator_version: u32,
+    pub n: u32,
+    pub status: RunStatus,
+    pub invalidation_reasons: Vec<InvalidationReason>,
+    pub process: ProcessObservation,
+    pub guard_preflight: GuardPreflightReport,
+    pub child: Option<ScalableTimingChildReport>,
+    pub monitor: Option<ChildProcessMonitorReport>,
+    pub kill_error: Option<String>,
+    pub monitor_error: Option<String>,
+    pub stderr: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaseScalePilotLevel {
+    pub n: u32,
+    pub contributing_run_ids: Vec<String>,
+    pub aggregation_method: String,
+    pub wall_time_median_ns: u64,
+    pub wall_time_median_absolute_deviation_ns: u64,
+    pub minimum_reliable_wall_time_ns: u64,
+    pub semantic_digest: String,
+    pub all_semantic_digests_equal: bool,
+    pub all_guards_clear: bool,
+    pub qualifies: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaseScaleSelection {
+    pub candidate_id: String,
+    pub workload_id: ScalableWorkloadId,
+    pub workload_revision: u32,
+    pub graph_profile: String,
+    pub string_profile: String,
+    pub generator_version: u32,
+    pub selection_rule: String,
+    pub pilot_levels: Vec<BaseScalePilotLevel>,
+    pub b: NullableObservation<u32>,
+    pub terminal_guard_run_id: NullableObservation<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaseScalePilotCheckpoint {
+    pub schema: String,
+    pub schema_version: u32,
+    pub protocol_id: String,
+    pub clock_quantum_ns: u64,
+    pub required_median_wall_time_ns: u64,
+    pub selections: Vec<BaseScaleSelection>,
+    pub active_selection: Option<BaseScaleSelection>,
+    pub runs: Vec<BaseScalePilotRun>,
+}
+
+struct BaseScaleDiscoveryRequest<'a> {
+    timing_executable: &'a Path,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    required_median_wall_time_ns: u64,
+}
+
+struct BaseScaleRunDescriptor {
+    run_id: String,
+    attempt_id: String,
+    retry_ordinal: u32,
+    pilot_sample_position: usize,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+}
+
 struct IdentityFreshProcessPilotRequest<'a> {
     timing_executable: &'a Path,
     pilot_id: &'a str,
@@ -169,6 +271,7 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
     let required_median_wall_time_ns = clock_quantum_ns
         .checked_mul(CLOCK_QUANTUM_MULTIPLIER)
         .ok_or(PilotError::ArithmeticOverflow("required median wall time"))?;
+    let guard_planner = ScalableGuardPlanner::from_trusted_contract(trusted)?;
     let mut samples = Vec::new();
     samples
         .try_reserve_exact(FRESH_PROCESS_PILOT_SAMPLE_COUNT)
@@ -185,8 +288,8 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
         })?;
 
     for ordinal in 0..FRESH_PROCESS_PILOT_SAMPLE_COUNT {
-        let guard = evaluate_identity_guard_preflight(
-            trusted,
+        let guard = guard_planner.evaluate(
+            ScalableWorkloadId::Identity,
             graph_profile,
             n,
             observe_memory()?,
@@ -366,6 +469,525 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
     })
 }
 
+pub fn run_base_scale_pilot_discovery(
+    trusted: &TrustedContract,
+    timing_executable: &Path,
+) -> Result<BaseScalePilotCheckpoint, PilotError> {
+    run_base_scale_pilot_discovery_with_checkpoint_sink(trusted, timing_executable, |_| Ok(()))
+}
+
+pub fn run_base_scale_pilot_discovery_with_checkpoint_sink(
+    trusted: &TrustedContract,
+    timing_executable: &Path,
+    mut persist_checkpoint: impl FnMut(&BaseScalePilotCheckpoint) -> Result<(), PilotError>,
+) -> Result<BaseScalePilotCheckpoint, PilotError> {
+    validate_base_scale_contract(&trusted.workload_manifest)?;
+    let clock_quantum_ns = observe_clock_quantum_ns()?;
+    let required_median_wall_time_ns = clock_quantum_ns
+        .checked_mul(CLOCK_QUANTUM_MULTIPLIER)
+        .ok_or(PilotError::ArithmeticOverflow("required median wall time"))?;
+    let guard_planner = ScalableGuardPlanner::from_trusted_contract(trusted)?;
+    let mut memory_monitor = SystemMemoryMonitor::new()?;
+    let mut selections = Vec::new();
+    selections
+        .try_reserve_exact(ScalableWorkloadId::ALL.len() * GraphProfileId::ALL.len())
+        .map_err(|source| PilotError::AllocationFailed {
+            field: "base-scale selections",
+            source,
+        })?;
+    let mut runs = Vec::new();
+
+    persist_base_scale_checkpoint(
+        clock_quantum_ns,
+        required_median_wall_time_ns,
+        &selections,
+        None,
+        &runs,
+        &mut persist_checkpoint,
+    )?;
+
+    for workload_id in ScalableWorkloadId::ALL {
+        for graph_profile in GraphProfileId::ALL {
+            let selection = {
+                let mut persist_progress =
+                    |runs: &[BaseScalePilotRun], active_selection: &BaseScaleSelection| {
+                        persist_base_scale_checkpoint(
+                            clock_quantum_ns,
+                            required_median_wall_time_ns,
+                            &selections,
+                            Some(active_selection),
+                            runs,
+                            &mut persist_checkpoint,
+                        )
+                    };
+                discover_base_scale(
+                    BaseScaleDiscoveryRequest {
+                        timing_executable,
+                        workload_id,
+                        graph_profile,
+                        required_median_wall_time_ns,
+                    },
+                    &guard_planner,
+                    &mut memory_monitor,
+                    &mut runs,
+                    &mut persist_progress,
+                )?
+            };
+            selections.push(selection);
+            persist_base_scale_checkpoint(
+                clock_quantum_ns,
+                required_median_wall_time_ns,
+                &selections,
+                None,
+                &runs,
+                &mut persist_checkpoint,
+            )?;
+        }
+    }
+
+    Ok(build_base_scale_pilot_checkpoint(
+        clock_quantum_ns,
+        required_median_wall_time_ns,
+        &selections,
+        None,
+        &runs,
+    ))
+}
+
+fn build_base_scale_pilot_checkpoint(
+    clock_quantum_ns: u64,
+    required_median_wall_time_ns: u64,
+    selections: &[BaseScaleSelection],
+    active_selection: Option<&BaseScaleSelection>,
+    runs: &[BaseScalePilotRun],
+) -> BaseScalePilotCheckpoint {
+    BaseScalePilotCheckpoint {
+        schema: BASE_SCALE_PILOT_CHECKPOINT_SCHEMA.to_owned(),
+        schema_version: BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION,
+        protocol_id: FORMAL_PROTOCOL_ID.to_owned(),
+        clock_quantum_ns,
+        required_median_wall_time_ns,
+        selections: selections.to_vec(),
+        active_selection: active_selection.cloned(),
+        runs: runs.to_vec(),
+    }
+}
+
+fn persist_base_scale_checkpoint(
+    clock_quantum_ns: u64,
+    required_median_wall_time_ns: u64,
+    selections: &[BaseScaleSelection],
+    active_selection: Option<&BaseScaleSelection>,
+    runs: &[BaseScalePilotRun],
+    persist_checkpoint: &mut impl FnMut(&BaseScalePilotCheckpoint) -> Result<(), PilotError>,
+) -> Result<(), PilotError> {
+    persist_checkpoint(&build_base_scale_pilot_checkpoint(
+        clock_quantum_ns,
+        required_median_wall_time_ns,
+        selections,
+        active_selection,
+        runs,
+    ))
+}
+
+fn discover_base_scale(
+    request: BaseScaleDiscoveryRequest<'_>,
+    guard_planner: &ScalableGuardPlanner,
+    memory_monitor: &mut SystemMemoryMonitor,
+    runs: &mut Vec<BaseScalePilotRun>,
+    persist_progress: &mut impl FnMut(
+        &[BaseScalePilotRun],
+        &BaseScaleSelection,
+    ) -> Result<(), PilotError>,
+) -> Result<BaseScaleSelection, PilotError> {
+    let BaseScaleDiscoveryRequest {
+        timing_executable,
+        workload_id,
+        graph_profile,
+        required_median_wall_time_ns,
+    } = request;
+    let mut selection = BaseScaleSelection {
+        candidate_id: BASELINE_CANDIDATE_ID.to_owned(),
+        workload_id,
+        workload_revision: WORKLOAD_REVISION_V1,
+        graph_profile: graph_profile.as_str().to_owned(),
+        string_profile: BASE_SCALE_STRING_PROFILE.to_owned(),
+        generator_version: GENERATOR_VERSION_V1,
+        selection_rule: BASE_SCALE_SELECTION_RULE.to_owned(),
+        pilot_levels: Vec::new(),
+        b: NullableObservation::unavailable("base-scale-not-yet-selected"),
+        terminal_guard_run_id: NullableObservation::unavailable("base-scale-not-yet-selected"),
+    };
+    persist_progress(runs, &selection)?;
+    let mut n = 1_u32;
+
+    loop {
+        let mut retry_ordinal = 0_u32;
+        let contributing_runs = loop {
+            let attempt_id = base_scale_attempt_id(workload_id, graph_profile, n, retry_ordinal);
+            let attempt_start = runs.len();
+            let mut contributing_run_indexes = Vec::with_capacity(FRESH_PROCESS_PILOT_SAMPLE_COUNT);
+            let mut retry_reasons = BTreeSet::new();
+
+            for pilot_sample_position in 0..FRESH_PROCESS_PILOT_SAMPLE_COUNT {
+                let run_id = format!("{attempt_id}/pilot-sample-{pilot_sample_position}");
+                let descriptor = BaseScaleRunDescriptor {
+                    run_id: run_id.clone(),
+                    attempt_id: attempt_id.clone(),
+                    retry_ordinal,
+                    pilot_sample_position,
+                    workload_id,
+                    graph_profile,
+                    n,
+                };
+                let guard = guard_planner.evaluate_pilot(
+                    workload_id,
+                    graph_profile,
+                    n,
+                    memory_monitor.observe()?,
+                )?;
+                if !guard.allows_child_start {
+                    invalidate_attempt_runs(
+                        &mut runs[attempt_start..],
+                        &[InvalidationReason::ResearchStopGuardrailTriggered],
+                    );
+                    runs.push(guarded_base_scale_run(descriptor, guard));
+                    selection.b =
+                        NullableObservation::unavailable("no-reliable-base-scale-before-guard");
+                    selection.terminal_guard_run_id = NullableObservation::observed(run_id);
+                    persist_progress(runs, &selection)?;
+                    return Ok(selection);
+                }
+
+                let compiler_instance_id = format!("{run_id}/compiler-instance");
+                let execution = run_monitored_scalable_child(
+                    timing_executable,
+                    pilot_sample_position,
+                    &compiler_instance_id,
+                    workload_id,
+                    graph_profile,
+                    n,
+                    guard.thresholds,
+                )?;
+                let run = scalable_execution_to_pilot_run(
+                    descriptor,
+                    compiler_instance_id,
+                    guard,
+                    execution,
+                )?;
+                let runtime_guard_triggered = run
+                    .invalidation_reasons
+                    .contains(&InvalidationReason::ResearchStopGuardrailTriggered);
+                if run.status == RunStatus::Valid {
+                    contributing_run_indexes.push(runs.len());
+                } else {
+                    retry_reasons.extend(run.invalidation_reasons.iter().copied());
+                }
+                runs.push(run);
+                if runtime_guard_triggered {
+                    invalidate_attempt_runs(
+                        &mut runs[attempt_start..],
+                        &[InvalidationReason::ResearchStopGuardrailTriggered],
+                    );
+                    persist_progress(runs, &selection)?;
+                    return Err(PilotError::RuntimeGuardDuringBaseScale {
+                        run_id,
+                        workload_id,
+                        graph_profile,
+                        n,
+                    });
+                }
+                if !retry_reasons.is_empty() {
+                    break;
+                }
+                persist_progress(runs, &selection)?;
+            }
+
+            if retry_reasons.is_empty()
+                && contributing_run_indexes.len() == FRESH_PROCESS_PILOT_SAMPLE_COUNT
+            {
+                break contributing_run_indexes;
+            }
+            let reasons = retry_reasons.into_iter().collect::<Vec<_>>();
+            invalidate_attempt_runs(&mut runs[attempt_start..], &reasons);
+            persist_progress(runs, &selection)?;
+            retry_ordinal = retry_ordinal
+                .checked_add(1)
+                .ok_or(PilotError::ArithmeticOverflow("base-scale retry ordinal"))?;
+        };
+
+        let level =
+            summarize_base_scale_level(n, &contributing_runs, runs, required_median_wall_time_ns)?;
+        let qualifies = level.qualifies;
+        selection.pilot_levels.push(level);
+        persist_progress(runs, &selection)?;
+        if qualifies {
+            selection.b = NullableObservation::observed(n);
+            selection.terminal_guard_run_id =
+                NullableObservation::unavailable("base-scale-selected");
+            persist_progress(runs, &selection)?;
+            return Ok(selection);
+        }
+        n = next_base_scale_n(n)?;
+    }
+}
+
+fn next_base_scale_n(n: u32) -> Result<u32, PilotError> {
+    n.checked_mul(2)
+        .ok_or(PilotError::ArithmeticOverflow("base-scale strict doubling"))
+}
+
+fn base_scale_attempt_id(
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    retry_ordinal: u32,
+) -> String {
+    format!(
+        "pilot/{}/{}/n-{n}/attempt-{retry_ordinal}",
+        workload_id.as_str(),
+        graph_profile.as_str()
+    )
+}
+
+fn guarded_base_scale_run(
+    descriptor: BaseScaleRunDescriptor,
+    guard_preflight: GuardPreflightReport,
+) -> BaseScalePilotRun {
+    let BaseScaleRunDescriptor {
+        run_id,
+        attempt_id,
+        retry_ordinal,
+        pilot_sample_position,
+        workload_id,
+        graph_profile,
+        n,
+    } = descriptor;
+    BaseScalePilotRun {
+        run_id,
+        attempt_id,
+        retry_ordinal,
+        pilot_sample_position: u32::try_from(pilot_sample_position)
+            .expect("seven pilot positions fit in u32"),
+        run_kind: BaseScalePilotRunKind::GuardPreflight,
+        workload_id,
+        workload_revision: WORKLOAD_REVISION_V1,
+        graph_profile: graph_profile.as_str().to_owned(),
+        string_profile: BASE_SCALE_STRING_PROFILE.to_owned(),
+        generator_version: GENERATOR_VERSION_V1,
+        n,
+        status: RunStatus::Guarded,
+        invalidation_reasons: Vec::new(),
+        process: ProcessObservation::guarded_before_start(std::process::id(), TIMING_BINARY_ID),
+        guard_preflight,
+        child: None,
+        monitor: None,
+        kill_error: None,
+        monitor_error: None,
+        stderr: String::new(),
+    }
+}
+
+fn scalable_execution_to_pilot_run(
+    descriptor: BaseScaleRunDescriptor,
+    compiler_instance_id: String,
+    guard_preflight: GuardPreflightReport,
+    execution: MonitoredChildExecution,
+) -> Result<BaseScalePilotRun, PilotError> {
+    let BaseScaleRunDescriptor {
+        run_id,
+        attempt_id,
+        retry_ordinal,
+        pilot_sample_position,
+        workload_id,
+        graph_profile,
+        n,
+    } = descriptor;
+    let (child_pid, output, monitor, monitor_invalid, kill_error, mut monitor_error) =
+        match execution {
+            MonitoredChildExecution::Exited {
+                child_pid,
+                output,
+                monitor,
+            } => (child_pid, output, monitor, false, None, None),
+            MonitoredChildExecution::InvalidatedByMonitor {
+                child_pid,
+                output,
+                monitor,
+                kill_error,
+                monitor_error,
+            } => (child_pid, output, monitor, true, kill_error, monitor_error),
+        };
+    let mut invalidation_reasons = Vec::new();
+    if monitor_invalid {
+        invalidation_reasons =
+            monitor_invalidation_reasons(monitor.trigger, output.status.success()).ok_or(
+                PilotError::MissingMonitorInvalidationTrigger {
+                    ordinal: pilot_sample_position,
+                },
+            )?;
+    } else if !output.status.success() {
+        invalidation_reasons.push(InvalidationReason::ChildAbnormalExit);
+    }
+
+    let mut report = None;
+    if !monitor_invalid && output.status.success() {
+        match serde_json::from_slice::<ScalableTimingChildReport>(&output.stdout) {
+            Ok(parsed) => match verify_scalable_child_report(
+                &parsed,
+                pilot_sample_position,
+                &compiler_instance_id,
+                child_pid,
+                workload_id,
+                graph_profile,
+                n,
+            ) {
+                Ok(()) => report = Some(parsed),
+                Err(error) => {
+                    invalidation_reasons.push(InvalidationReason::ChildAbnormalExit);
+                    monitor_error = Some(format!("invalid-child-report:{error}"));
+                }
+            },
+            Err(error) => {
+                invalidation_reasons.push(InvalidationReason::ChildAbnormalExit);
+                monitor_error = Some(format!("invalid-child-report-json:{error}"));
+            }
+        }
+    }
+
+    invalidation_reasons.sort_unstable();
+    invalidation_reasons.dedup();
+    let status = if invalidation_reasons.is_empty() {
+        RunStatus::Valid
+    } else {
+        RunStatus::Invalid
+    };
+    let process = if output.status.success() {
+        ProcessObservation::success(
+            std::process::id(),
+            child_pid,
+            TIMING_BINARY_ID,
+            output.status,
+        )?
+    } else if monitor_invalid {
+        ProcessObservation::invalid_monitor_termination(
+            std::process::id(),
+            child_pid,
+            TIMING_BINARY_ID,
+            output.status,
+        )?
+    } else {
+        ProcessObservation::invalid_abnormal_exit(
+            std::process::id(),
+            child_pid,
+            TIMING_BINARY_ID,
+            output.status,
+        )?
+    };
+
+    Ok(BaseScalePilotRun {
+        run_id,
+        attempt_id,
+        retry_ordinal,
+        pilot_sample_position: u32::try_from(pilot_sample_position)
+            .expect("seven pilot positions fit in u32"),
+        run_kind: BaseScalePilotRunKind::ColdInstance,
+        workload_id,
+        workload_revision: WORKLOAD_REVISION_V1,
+        graph_profile: graph_profile.as_str().to_owned(),
+        string_profile: BASE_SCALE_STRING_PROFILE.to_owned(),
+        generator_version: GENERATOR_VERSION_V1,
+        n,
+        status,
+        invalidation_reasons,
+        process,
+        guard_preflight,
+        child: report,
+        monitor: Some(monitor),
+        kill_error,
+        monitor_error,
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+fn invalidate_attempt_runs(runs: &mut [BaseScalePilotRun], reasons: &[InvalidationReason]) {
+    for run in runs {
+        if run.status != RunStatus::Valid {
+            continue;
+        }
+        run.status = RunStatus::Invalid;
+        run.invalidation_reasons.extend_from_slice(reasons);
+        run.invalidation_reasons.sort_unstable();
+        run.invalidation_reasons.dedup();
+    }
+}
+
+fn summarize_base_scale_level(
+    n: u32,
+    contributing_run_indexes: &[usize],
+    runs: &[BaseScalePilotRun],
+    minimum_reliable_wall_time_ns: u64,
+) -> Result<BaseScalePilotLevel, PilotError> {
+    if contributing_run_indexes.len() != FRESH_PROCESS_PILOT_SAMPLE_COUNT {
+        return Err(PilotError::WrongSampleCount {
+            actual: contributing_run_indexes.len(),
+        });
+    }
+    let contributing_runs = contributing_run_indexes
+        .iter()
+        .map(|index| {
+            runs.get(*index)
+                .ok_or(PilotError::InvalidContributingRunIndex { index: *index })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if contributing_runs.iter().any(|run| {
+        run.status != RunStatus::Valid
+            || run.run_kind != BaseScalePilotRunKind::ColdInstance
+            || run.n != n
+            || run.child.is_none()
+    }) {
+        return Err(PilotError::InvalidContributingRunSet);
+    }
+    let (wall_time_median_ns, wall_time_median_absolute_deviation_ns) = median_and_mad(
+        contributing_runs
+            .iter()
+            .map(|run| run.child.as_ref().expect("validated child").wall_time_ns),
+    )?;
+    let semantic_digest = contributing_runs[0]
+        .child
+        .as_ref()
+        .expect("validated child")
+        .semantic_digest_sha256
+        .clone();
+    let all_semantic_digests_equal = contributing_runs.iter().all(|run| {
+        run.child
+            .as_ref()
+            .is_some_and(|child| child.semantic_digest_sha256 == semantic_digest)
+    });
+    let all_guards_clear = contributing_runs
+        .iter()
+        .all(|run| run.guard_preflight.allows_child_start);
+    let qualifies = wall_time_median_ns >= minimum_reliable_wall_time_ns
+        && relative_mad_within_limit(wall_time_median_ns, wall_time_median_absolute_deviation_ns)
+        && all_semantic_digests_equal
+        && all_guards_clear;
+    Ok(BaseScalePilotLevel {
+        n,
+        contributing_run_ids: contributing_runs
+            .iter()
+            .map(|run| run.run_id.clone())
+            .collect(),
+        aggregation_method: BASE_SCALE_AGGREGATION_METHOD.to_owned(),
+        wall_time_median_ns,
+        wall_time_median_absolute_deviation_ns,
+        minimum_reliable_wall_time_ns,
+        semantic_digest,
+        all_semantic_digests_equal,
+        all_guards_clear,
+        qualifies,
+    })
+}
+
 #[derive(Debug)]
 enum MonitoredChildExecution {
     Exited {
@@ -401,8 +1023,35 @@ fn run_monitored_identity_child(
     let mut memory_monitor = ChildProcessMemoryMonitor::new()?;
     let mut command = Command::new(timing_executable);
     command
+        .arg("run-identity-smoke")
+        .arg(compiler_instance_id)
+        .arg(graph_profile.as_str())
+        .arg(n.to_string())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = ContainedChild::spawn(&mut command)
+        .map_err(|source| PilotError::ChildSpawn { ordinal, source })?;
+    run_monitored_child_with_observer(child, ordinal, thresholds, |child_pid| {
+        memory_monitor.observe(child_pid)
+    })
+}
+
+fn run_monitored_scalable_child(
+    timing_executable: &Path,
+    ordinal: usize,
+    compiler_instance_id: &str,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    thresholds: GuardThresholds,
+) -> Result<MonitoredChildExecution, PilotError> {
+    let mut memory_monitor = ChildProcessMemoryMonitor::new()?;
+    let mut command = Command::new(timing_executable);
+    command
         .arg("run")
         .arg(compiler_instance_id)
+        .arg(workload_id.as_str())
         .arg(graph_profile.as_str())
         .arg(n.to_string())
         .stdin(Stdio::piped())
@@ -969,6 +1618,109 @@ fn verify_child_report(
     Ok(())
 }
 
+fn verify_scalable_child_report(
+    report: &ScalableTimingChildReport,
+    ordinal: usize,
+    expected_instance_id: &str,
+    expected_child_pid: u32,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+) -> Result<(), PilotError> {
+    if report.schema != SCALABLE_TIMING_CHILD_SCHEMA {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "schema",
+        });
+    }
+    if report.schema_version != SCALABLE_TIMING_CHILD_SCHEMA_VERSION {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "schemaVersion",
+        });
+    }
+    if report.binary_id != TIMING_BINARY_ID {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "binaryId",
+        });
+    }
+    if report.allocation_instrumentation_enabled {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "allocationInstrumentationEnabled",
+        });
+    }
+    if report.compiler_instance_id != expected_instance_id {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "compilerInstanceId",
+        });
+    }
+    if report.child_pid == 0 || report.child_pid != expected_child_pid {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "childPid",
+        });
+    }
+    if report.workload_id != workload_id {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "workloadId",
+        });
+    }
+    if report.workload_revision != WORKLOAD_REVISION_V1 {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "workloadRevision",
+        });
+    }
+    if report.graph_profile != graph_profile.as_str() {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "graphProfile",
+        });
+    }
+    if report.string_profile != BASE_SCALE_STRING_PROFILE {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "stringProfile",
+        });
+    }
+    if report.generator_version != GENERATOR_VERSION_V1 {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "generatorVersion",
+        });
+    }
+    if report.n != n {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "n",
+        });
+    }
+    if report.wall_time_ns == 0 {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "wallTimeNs",
+        });
+    }
+    if !valid_sha256(&report.semantic_digest_sha256) {
+        return Err(PilotError::ChildReportMismatch {
+            ordinal,
+            field: "semanticDigestSha256",
+        });
+    }
+    Ok(())
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
 fn median_and_mad(values: impl IntoIterator<Item = u64>) -> Result<(u64, u64), PilotError> {
     let mut ordered = values.into_iter().collect::<Vec<_>>();
     if ordered.len() != FRESH_PROCESS_PILOT_SAMPLE_COUNT {
@@ -999,6 +1751,8 @@ pub enum PilotError {
     Guard(#[from] GuardError),
     #[error(transparent)]
     ProcessProtocol(#[from] ProcessProtocolError),
+    #[error(transparent)]
+    WorkloadContract(#[from] crate::ScalableWorkloadContractError),
     #[error("新进程试运行标识符不能为空")]
     EmptyPilotId,
     #[error("新进程试运行容量预留失败：{field}")]
@@ -1060,6 +1814,21 @@ pub enum PilotError {
     DuplicateCompilerInstanceId,
     #[error("新进程试运行需要恰好七个样本，实际为 {actual}")]
     WrongSampleCount { actual: usize },
+    #[error("基础规模试运行贡献索引不存在：{index}")]
+    InvalidContributingRunIndex { index: usize },
+    #[error("基础规模试运行贡献集合包含无效、非冷实例、跨规模或缺少子报告的运行")]
+    InvalidContributingRunSet,
+    #[error(
+        "基础规模试运行 {run_id} 在 {workload_id:?}/{graph_profile:?}/N={n} 的受测子进程内触发研究停止护栏；已持久化无效尝试，但该事实不能冒充下一二倍级别的 guard-preflight 终止运行"
+    )]
+    RuntimeGuardDuringBaseScale {
+        run_id: String,
+        workload_id: ScalableWorkloadId,
+        graph_profile: GraphProfileId,
+        n: u32,
+    },
+    #[error("无法持久化基础规模试运行检查点：{detail}")]
+    CheckpointPersistence { detail: String },
     #[error("新进程试运行算术溢出：{0}")]
     ArithmeticOverflow(&'static str),
 }
@@ -1090,6 +1859,95 @@ mod tests {
         assert!(matches!(
             median_and_mad([1, 2, 3]),
             Err(PilotError::WrongSampleCount { actual: 3 })
+        ));
+    }
+
+    #[test]
+    fn base_scale_level_uses_only_seven_valid_cold_runs() {
+        let guard = clear_pilot_guard();
+        let wall_times = [9_800, 9_900, 9_950, 10_000, 10_050, 10_100, 10_200];
+        let mut runs = wall_times
+            .into_iter()
+            .enumerate()
+            .map(|(ordinal, wall_time_ns)| {
+                synthetic_pilot_run(ordinal, wall_time_ns, &guard, RunStatus::Valid)
+            })
+            .collect::<Vec<_>>();
+        let contributing = (0..FRESH_PROCESS_PILOT_SAMPLE_COUNT).collect::<Vec<_>>();
+
+        let level =
+            summarize_base_scale_level(1, &contributing, &runs, 10_000).expect("pilot level");
+        assert_eq!(level.wall_time_median_ns, 10_000);
+        assert_eq!(level.wall_time_median_absolute_deviation_ns, 100);
+        assert!(level.all_semantic_digests_equal);
+        assert!(level.all_guards_clear);
+        assert!(level.qualifies);
+
+        runs[0].status = RunStatus::Invalid;
+        runs[0]
+            .invalidation_reasons
+            .push(InvalidationReason::MonitoringGap);
+        assert!(matches!(
+            summarize_base_scale_level(1, &contributing, &runs, 10_000),
+            Err(PilotError::InvalidContributingRunSet)
+        ));
+    }
+
+    #[test]
+    fn invalid_attempts_are_retained_but_excluded_from_retry_summary() {
+        let guard = clear_pilot_guard();
+        let mut runs = vec![synthetic_pilot_run(0, 10_000, &guard, RunStatus::Invalid)];
+        runs[0]
+            .invalidation_reasons
+            .push(InvalidationReason::ChildAbnormalExit);
+        for ordinal in 0..FRESH_PROCESS_PILOT_SAMPLE_COUNT {
+            let mut run = synthetic_pilot_run(ordinal, 10_000, &guard, RunStatus::Valid);
+            run.retry_ordinal = 1;
+            run.attempt_id = "retry-attempt".to_owned();
+            run.run_id = format!("retry-attempt/pilot-sample-{ordinal}");
+            runs.push(run);
+        }
+        let contributing = (1..=FRESH_PROCESS_PILOT_SAMPLE_COUNT).collect::<Vec<_>>();
+        let level =
+            summarize_base_scale_level(1, &contributing, &runs, 10_000).expect("retry summary");
+
+        assert_eq!(runs.len(), FRESH_PROCESS_PILOT_SAMPLE_COUNT + 1);
+        assert_eq!(
+            level.contributing_run_ids.len(),
+            FRESH_PROCESS_PILOT_SAMPLE_COUNT
+        );
+        assert!(
+            level
+                .contributing_run_ids
+                .iter()
+                .all(|run_id| run_id.starts_with("retry-attempt/"))
+        );
+    }
+
+    #[test]
+    fn invalidating_an_attempt_propagates_the_same_reason_to_prior_valid_runs() {
+        let guard = clear_pilot_guard();
+        let mut runs = (0..3)
+            .map(|ordinal| synthetic_pilot_run(ordinal, 10_000, &guard, RunStatus::Valid))
+            .collect::<Vec<_>>();
+        invalidate_attempt_runs(&mut runs, &[InvalidationReason::MonitoringGap]);
+
+        assert!(runs.iter().all(|run| {
+            run.status == RunStatus::Invalid
+                && run.invalidation_reasons == vec![InvalidationReason::MonitoringGap]
+        }));
+    }
+
+    #[test]
+    fn base_scale_candidates_use_strict_checked_doubling() {
+        let mut n = 1;
+        for expected in [2, 4, 8, 16] {
+            n = next_base_scale_n(n).expect("next base-scale candidate");
+            assert_eq!(n, expected);
+        }
+        assert!(matches!(
+            next_base_scale_n(1_u32 << 31),
+            Err(PilotError::ArithmeticOverflow("base-scale strict doubling"))
         ));
     }
 
@@ -1521,5 +2379,73 @@ mod tests {
             std::process::exit(7);
         }
         thread::sleep(Duration::from_secs(60));
+    }
+
+    fn clear_pilot_guard() -> GuardPreflightReport {
+        let trusted = crate::load_repository_contract().expect("frozen contract");
+        ScalableGuardPlanner::from_trusted_contract(&trusted)
+            .expect("guard planner")
+            .evaluate_pilot(
+                ScalableWorkloadId::Identity,
+                GraphProfileId::WideStar,
+                1,
+                SystemMemoryObservation {
+                    physical_memory_bytes: 64 * 1_073_741_824,
+                    available_physical_memory_bytes: 48 * 1_073_741_824,
+                },
+            )
+            .expect("clear pilot guard")
+    }
+
+    fn synthetic_pilot_run(
+        ordinal: usize,
+        wall_time_ns: u64,
+        guard_preflight: &GuardPreflightReport,
+        status: RunStatus,
+    ) -> BaseScalePilotRun {
+        let run_id = format!("attempt/pilot-sample-{ordinal}");
+        BaseScalePilotRun {
+            run_id: run_id.clone(),
+            attempt_id: "attempt".to_owned(),
+            retry_ordinal: 0,
+            pilot_sample_position: u32::try_from(ordinal).expect("test ordinal"),
+            run_kind: BaseScalePilotRunKind::ColdInstance,
+            workload_id: ScalableWorkloadId::Identity,
+            workload_revision: WORKLOAD_REVISION_V1,
+            graph_profile: GraphProfileId::WideStar.as_str().to_owned(),
+            string_profile: BASE_SCALE_STRING_PROFILE.to_owned(),
+            generator_version: GENERATOR_VERSION_V1,
+            n: 1,
+            status,
+            invalidation_reasons: Vec::new(),
+            process: ProcessObservation::guarded_before_start(std::process::id(), TIMING_BINARY_ID),
+            guard_preflight: guard_preflight.clone(),
+            child: Some(ScalableTimingChildReport {
+                schema: SCALABLE_TIMING_CHILD_SCHEMA.to_owned(),
+                schema_version: SCALABLE_TIMING_CHILD_SCHEMA_VERSION,
+                binary_id: TIMING_BINARY_ID.to_owned(),
+                allocation_instrumentation_enabled: false,
+                compiler_instance_id: format!("{run_id}/compiler-instance"),
+                child_pid: 1,
+                workload_id: ScalableWorkloadId::Identity,
+                workload_revision: WORKLOAD_REVISION_V1,
+                graph_profile: GraphProfileId::WideStar.as_str().to_owned(),
+                string_profile: BASE_SCALE_STRING_PROFILE.to_owned(),
+                generator_version: GENERATOR_VERSION_V1,
+                n: 1,
+                wall_time_ns,
+                semantic_digest_sha256: "0".repeat(64),
+            }),
+            monitor: Some(ChildProcessMonitorReport {
+                observation_count: 1,
+                last_private_bytes: NullableObservation::observed(1),
+                peak_private_bytes: NullableObservation::observed(1),
+                elapsed_wall_time_ns: wall_time_ns,
+                trigger: None,
+            }),
+            kill_error: None,
+            monitor_error: None,
+            stderr: String::new(),
+        }
     }
 }

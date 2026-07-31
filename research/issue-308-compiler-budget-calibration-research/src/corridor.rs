@@ -1673,6 +1673,23 @@ pub(crate) struct CorridorCaseOutput {
     pub(crate) materialization: CorridorMaterialization,
 }
 
+#[derive(Debug)]
+pub(crate) struct CorridorStageExecution {
+    graph_profile: GraphProfileId,
+    n: u32,
+    counts: IdentityAggregateCounts,
+    stages: StageBreakdown,
+    records: Vec<SemanticRecord>,
+    semantic_record_stream: Vec<u8>,
+    materialization: CorridorMaterialization,
+}
+
+impl CorridorStageExecution {
+    pub(crate) fn output_construction(&self) -> &[u8] {
+        &self.materialization.output
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CorridorStageSummary {
@@ -1792,7 +1809,7 @@ pub(crate) fn build_corridor_stage_case(
     n: u32,
 ) -> Result<CorridorCaseOutput, CorridorError> {
     contract.validate_template(template)?;
-    build_template_stage_case(
+    let execution = execute_template_stage_case(
         generator,
         identity,
         stage,
@@ -1800,10 +1817,11 @@ pub(crate) fn build_corridor_stage_case(
         template,
         graph_profile,
         n,
-    )
+    )?;
+    finalize_template_stage_case(execution)
 }
 
-pub(crate) fn build_template_stage_case(
+pub(crate) fn execute_template_stage_case(
     generator: &GeneratorContract,
     identity: &IdentityContract,
     stage: &StageContract,
@@ -1811,7 +1829,53 @@ pub(crate) fn build_template_stage_case(
     template: &CorridorTemplate,
     graph_profile: GraphProfileId,
     n: u32,
-) -> Result<CorridorCaseOutput, CorridorError> {
+) -> Result<CorridorStageExecution, CorridorError> {
+    execute_template_stage_case_with_optional_plan(
+        generator,
+        identity,
+        stage,
+        workload_id,
+        template,
+        graph_profile,
+        n,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn execute_template_stage_case_with_plan(
+    generator: &GeneratorContract,
+    identity: &IdentityContract,
+    stage: &StageContract,
+    workload_id: &str,
+    template: &CorridorTemplate,
+    graph_profile: GraphProfileId,
+    n: u32,
+    plan: &crate::ScalableStagePlanSummary,
+) -> Result<CorridorStageExecution, CorridorError> {
+    execute_template_stage_case_with_optional_plan(
+        generator,
+        identity,
+        stage,
+        workload_id,
+        template,
+        graph_profile,
+        n,
+        Some(plan),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_template_stage_case_with_optional_plan(
+    generator: &GeneratorContract,
+    identity: &IdentityContract,
+    stage: &StageContract,
+    workload_id: &str,
+    template: &CorridorTemplate,
+    graph_profile: GraphProfileId,
+    n: u32,
+    plan: Option<&crate::ScalableStagePlanSummary>,
+) -> Result<CorridorStageExecution, CorridorError> {
     if n == 0 {
         return Err(CorridorError::Mismatch {
             path: "N".to_owned(),
@@ -1825,11 +1889,29 @@ pub(crate) fn build_template_stage_case(
         compile_semantic_records(identity, template, &declarations, n)?;
     records.sort_by(|left, right| left.canonical_key().cmp(&right.canonical_key()));
     let semantic_record_stream = encode_semantic_record_stream(identity, &records);
-    let semantic_digest_sha256 = lower_hex(&Sha256::digest(&semantic_record_stream));
-    let record_kind_counts = count_record_kinds(&records);
-    let counts =
-        build_aggregate_counts(stage, template, &graph, &records, &semantic_record_stream)?;
-    let stages = build_stage_breakdown(&counts)?;
+    let (counts, stages) = if let Some(plan) = plan {
+        if plan.workload_id.as_str() != workload_id
+            || plan.graph_profile != graph_profile
+            || plan.n != n
+        {
+            return Err(CorridorError::Mismatch {
+                path: "timingStagePlan".to_owned(),
+                expected: format!("{workload_id}/{}/{n}", graph_profile.as_str()),
+                actual: format!(
+                    "{}/{}/{}",
+                    plan.workload_id.as_str(),
+                    plan.graph_profile.as_str(),
+                    plan.n
+                ),
+            });
+        }
+        (plan.counts.clone(), plan.stages.clone())
+    } else {
+        let counts =
+            build_aggregate_counts(stage, template, &graph, &records, &semantic_record_stream)?;
+        let stages = build_stage_breakdown(&counts)?;
+        (counts, stages)
+    };
     let materialization = materialize_corridor_stages(
         generator,
         identity,
@@ -1843,6 +1925,31 @@ pub(crate) fn build_template_stage_case(
         &counts,
         &stages,
     )?;
+    Ok(CorridorStageExecution {
+        graph_profile,
+        n,
+        counts,
+        stages,
+        records,
+        semantic_record_stream,
+        materialization,
+    })
+}
+
+pub(crate) fn finalize_template_stage_case(
+    execution: CorridorStageExecution,
+) -> Result<CorridorCaseOutput, CorridorError> {
+    let CorridorStageExecution {
+        graph_profile,
+        n,
+        counts,
+        stages,
+        records,
+        semantic_record_stream,
+        materialization,
+    } = execution;
+    let semantic_digest_sha256 = lower_hex(&Sha256::digest(&semantic_record_stream));
+    let record_kind_counts = count_record_kinds(&records);
     verify_materialization(&materialization, &counts, &stages)?;
     Ok(CorridorCaseOutput {
         summary: CorridorStageSummary {
@@ -1856,6 +1963,24 @@ pub(crate) fn build_template_stage_case(
         records,
         semantic_record_stream,
         materialization,
+    })
+}
+
+pub(crate) fn template_semantic_payload_bytes_per_unit(
+    generator: &GeneratorContract,
+    identity: &IdentityContract,
+    workload_id: &str,
+    template: &CorridorTemplate,
+) -> Result<u64, CorridorError> {
+    let graph = crate::expand_module_graph(generator, workload_id, GraphProfileId::WideStar, 1)?;
+    let declarations = compile_declarations(identity, template, &graph, 1)?;
+    let (_, records) = compile_semantic_records(identity, template, &declarations, 1)?;
+    records.iter().try_fold(0_u64, |total, record| {
+        add_u64(
+            total,
+            usize_u64(record.payload.len(), "semanticPayloadByteCount"),
+            "semanticPayloadByteCount",
+        )
     })
 }
 
