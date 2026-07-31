@@ -382,6 +382,14 @@ enum MonitoredChildExecution {
     },
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ChildMonitorSnapshot {
+    observation_count: u64,
+    last_private_bytes: u64,
+    peak_private_bytes: u64,
+    elapsed: Duration,
+}
+
 fn run_monitored_identity_child(
     timing_executable: &Path,
     ordinal: usize,
@@ -529,6 +537,21 @@ fn run_monitored_child_with_observer(
     loop {
         let exit_status = try_wait_child(&mut child, ordinal)?;
         let elapsed = started.elapsed();
+        if let Some(status) = exit_status {
+            return finish_observed_child_exit(
+                child,
+                ordinal,
+                child_pid,
+                status,
+                thresholds,
+                ChildMonitorSnapshot {
+                    observation_count,
+                    last_private_bytes,
+                    peak_private_bytes,
+                    elapsed,
+                },
+            );
+        }
         if wall_time_limit_reached(thresholds, elapsed)? {
             let report = ChildProcessMonitorReport {
                 observation_count,
@@ -537,45 +560,27 @@ fn run_monitored_child_with_observer(
                 elapsed_wall_time_ns: duration_ns(elapsed)?,
                 trigger: Some(ChildMonitorTrigger::WallTime),
             };
-            if let Some(status) = exit_status {
-                let output = child
-                    .wait_with_output()
-                    .map_err(|source| PilotError::ChildWait { ordinal, source })?;
-                debug_assert_eq!(status.code(), output.status.code());
-                return Ok(MonitoredChildExecution::InvalidatedByMonitor {
-                    child_pid,
-                    output,
-                    monitor: report,
-                    kill_error: None,
-                    monitor_error: None,
-                });
-            }
             return terminate_monitored_child(child, ordinal, child_pid, report, None);
-        }
-        if let Some(status) = exit_status {
-            let elapsed_wall_time_ns = duration_ns(elapsed)?;
-            let output = child
-                .wait_with_output()
-                .map_err(|source| PilotError::ChildWait { ordinal, source })?;
-            debug_assert_eq!(status.code(), output.status.code());
-            return Ok(MonitoredChildExecution::Exited {
-                child_pid,
-                output,
-                monitor: ChildProcessMonitorReport {
-                    observation_count,
-                    last_private_bytes: NullableObservation::observed(last_private_bytes),
-                    peak_private_bytes: NullableObservation::observed(peak_private_bytes),
-                    elapsed_wall_time_ns,
-                    trigger: None,
-                },
-            });
         }
 
         let observation = match observe_child(child_pid) {
             Ok(Some(observation)) => observation,
             Ok(None) => {
-                if try_wait_child(&mut child, ordinal)?.is_some() {
-                    continue;
+                if let Some(status) = try_wait_child(&mut child, ordinal)? {
+                    let exit_poll_elapsed = started.elapsed();
+                    return finish_observed_child_exit(
+                        child,
+                        ordinal,
+                        child_pid,
+                        status,
+                        thresholds,
+                        ChildMonitorSnapshot {
+                            observation_count,
+                            last_private_bytes,
+                            peak_private_bytes,
+                            elapsed: exit_poll_elapsed,
+                        },
+                    );
                 }
                 let report = ChildProcessMonitorReport {
                     observation_count,
@@ -629,6 +634,45 @@ fn run_monitored_child_with_observer(
             return terminate_monitored_child(child, ordinal, child_pid, report, None);
         }
         thread::sleep(CHILD_MONITOR_POLL_INTERVAL);
+    }
+}
+
+fn finish_observed_child_exit(
+    child: ContainedChild,
+    ordinal: usize,
+    child_pid: u32,
+    status: std::process::ExitStatus,
+    thresholds: GuardThresholds,
+    snapshot: ChildMonitorSnapshot,
+) -> Result<MonitoredChildExecution, PilotError> {
+    let elapsed_wall_time_ns = duration_ns(snapshot.elapsed)?;
+    let trigger = wall_time_limit_reached(thresholds, snapshot.elapsed)?
+        .then_some(ChildMonitorTrigger::WallTime);
+    let output = child
+        .wait_with_output()
+        .map_err(|source| PilotError::ChildWait { ordinal, source })?;
+    debug_assert_eq!(status.code(), output.status.code());
+    let monitor = ChildProcessMonitorReport {
+        observation_count: snapshot.observation_count,
+        last_private_bytes: NullableObservation::observed(snapshot.last_private_bytes),
+        peak_private_bytes: NullableObservation::observed(snapshot.peak_private_bytes),
+        elapsed_wall_time_ns,
+        trigger,
+    };
+    if trigger.is_some() {
+        Ok(MonitoredChildExecution::InvalidatedByMonitor {
+            child_pid,
+            output,
+            monitor,
+            kill_error: None,
+            monitor_error: None,
+        })
+    } else {
+        Ok(MonitoredChildExecution::Exited {
+            child_pid,
+            output,
+            monitor,
+        })
     }
 }
 
