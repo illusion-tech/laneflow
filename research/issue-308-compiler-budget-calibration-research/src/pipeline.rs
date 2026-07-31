@@ -571,7 +571,7 @@ pub(crate) fn recycle_identity_stage_case<const TRACK_ALLOCATIONS: bool>(
 ) -> IdentityStageSummary {
     let IdentityStageCaseOutput {
         summary,
-        string_bytes: _,
+        source_string_range: _,
         source_spans,
         source_input_records,
         source_input_payload,
@@ -653,15 +653,14 @@ pub(crate) fn finalize_identity_stage_case(
         &lir,
         &output_construction,
     )?;
-    let string_bytes =
-        source.payload[source.strings.string_start..source.strings.string_end].to_vec();
+    let source_string_range = source.strings.string_start..source.strings.string_end;
     let scratch_capacity_bytes = lir
         .scratch_capacity_bytes
         .max(as_u64(source.scratch.capacity(), "source scratch capacity")? * 8);
 
     Ok(IdentityStageCaseOutput {
         summary,
-        string_bytes,
+        source_string_range,
         source_spans: source.spans,
         source_input_records: source.records,
         source_input_payload: source.payload,
