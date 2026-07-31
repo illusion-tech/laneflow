@@ -1,11 +1,12 @@
 mod support;
 
 use issue_308_compiler_budget_calibration_research::{
-    load_repository_contract, measure_identity_timing_child, timing_binary_descriptor,
-    wait_for_parent_start_signal,
+    ScalableWorkloadId, load_repository_contract, measure_identity_timing_child,
+    measure_scalable_timing_child, timing_binary_descriptor, wait_for_parent_start_signal,
 };
+use std::str::FromStr;
 
-const USAGE: &str = "用法：issue-308-compiler-budget-calibration-timing <describe-role|run>\n  run <compiler-instance-id> <graph-profile> <N>";
+const USAGE: &str = "用法：issue-308-compiler-budget-calibration-timing <describe-role|run|run-identity-smoke>\n  run <compiler-instance-id> <workload-id> <graph-profile> <N>\n  run-identity-smoke <compiler-instance-id> <graph-profile> <N>";
 
 fn main() {
     support::main_with(run);
@@ -21,6 +22,38 @@ fn run() -> Result<(), String> {
             support::print_json(&timing_binary_descriptor(), "计时角色描述")
         }
         "run" => {
+            let compiler_instance_id =
+                support::next_utf8_argument(&mut arguments, "compiler-instance-id", USAGE)?;
+            let workload_id = ScalableWorkloadId::from_str(&support::next_utf8_argument(
+                &mut arguments,
+                "workload-id",
+                USAGE,
+            )?)
+            .map_err(|error| error.to_string())?;
+            let graph_profile = support::parse_graph_profile(&support::next_utf8_argument(
+                &mut arguments,
+                "graph-profile",
+                USAGE,
+            )?)?;
+            let n = support::parse_positive_u32(
+                &support::next_utf8_argument(&mut arguments, "N", USAGE)?,
+                "N",
+            )?;
+            support::require_no_more_arguments(&mut arguments, USAGE)?;
+
+            wait_for_parent_start_signal().map_err(|error| error.to_string())?;
+            let trusted = load_repository_contract().map_err(|error| error.to_string())?;
+            let report = measure_scalable_timing_child(
+                &trusted,
+                compiler_instance_id,
+                workload_id,
+                graph_profile,
+                n,
+            )
+            .map_err(|error| error.to_string())?;
+            support::print_json(&report, "计时角色结果")
+        }
+        "run-identity-smoke" => {
             let compiler_instance_id =
                 support::next_utf8_argument(&mut arguments, "compiler-instance-id", USAGE)?;
             let graph_profile = support::parse_graph_profile(&support::next_utf8_argument(
@@ -39,7 +72,7 @@ fn run() -> Result<(), String> {
             let report =
                 measure_identity_timing_child(&trusted, compiler_instance_id, graph_profile, n)
                     .map_err(|error| error.to_string())?;
-            support::print_json(&report, "计时角色结果")
+            support::print_json(&report, "标识工作负载计时冒烟结果")
         }
         _ => Err(USAGE.to_owned()),
     }

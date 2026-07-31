@@ -6,8 +6,8 @@
 //! 负责。
 
 use crate::{
-    GraphProfileId, IdentityStagePlanSummary, StageBreakdown, TrustedContract,
-    build_identity_stage_plan_summary,
+    GraphProfileId, ScalableStagePlanFactory, ScalableStagePlanSummary, ScalableWorkloadId,
+    StageBreakdown, TrustedContract,
 };
 use serde::Serialize;
 use sysinfo::{
@@ -191,6 +191,51 @@ pub struct GuardPreflightReport {
     pub allows_child_start: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct ScalableGuardPlanner {
+    plans: ScalableStagePlanFactory,
+}
+
+impl ScalableGuardPlanner {
+    pub fn from_trusted_contract(trusted: &TrustedContract) -> Result<Self, GuardError> {
+        validate_guard_prediction_contract(&trusted.workload_manifest)?;
+        Ok(Self {
+            plans: ScalableStagePlanFactory::from_trusted_contract(trusted)?,
+        })
+    }
+
+    pub fn evaluate(
+        &self,
+        workload_id: ScalableWorkloadId,
+        graph_profile: GraphProfileId,
+        n: u32,
+        memory_observation: SystemMemoryObservation,
+        previous: Option<GuardCompletedLevelObservation>,
+    ) -> Result<GuardPreflightReport, GuardError> {
+        validate_memory_observation(
+            memory_observation.physical_memory_bytes,
+            memory_observation.available_physical_memory_bytes,
+        )?;
+        let plan = self.plans.plan(workload_id, graph_profile, n)?;
+        evaluate_scalable_guard_preflight(&self.plans, plan, memory_observation, previous, false)
+    }
+
+    pub fn evaluate_pilot(
+        &self,
+        workload_id: ScalableWorkloadId,
+        graph_profile: GraphProfileId,
+        n: u32,
+        memory_observation: SystemMemoryObservation,
+    ) -> Result<GuardPreflightReport, GuardError> {
+        validate_memory_observation(
+            memory_observation.physical_memory_bytes,
+            memory_observation.available_physical_memory_bytes,
+        )?;
+        let plan = self.plans.plan(workload_id, graph_profile, n)?;
+        evaluate_scalable_guard_preflight(&self.plans, plan, memory_observation, None, true)
+    }
+}
+
 pub fn evaluate_identity_guard_preflight(
     trusted: &TrustedContract,
     graph_profile: GraphProfileId,
@@ -198,15 +243,25 @@ pub fn evaluate_identity_guard_preflight(
     memory_observation: SystemMemoryObservation,
     previous: Option<GuardCompletedLevelObservation>,
 ) -> Result<GuardPreflightReport, GuardError> {
-    validate_guard_prediction_contract(&trusted.workload_manifest)?;
-    validate_memory_observation(
-        memory_observation.physical_memory_bytes,
-        memory_observation.available_physical_memory_bytes,
-    )?;
-    let plan = build_identity_stage_plan_summary(trusted, graph_profile, n)?;
+    ScalableGuardPlanner::from_trusted_contract(trusted)?.evaluate(
+        ScalableWorkloadId::Identity,
+        graph_profile,
+        n,
+        memory_observation,
+        previous,
+    )
+}
+
+fn evaluate_scalable_guard_preflight(
+    plans: &ScalableStagePlanFactory,
+    plan: ScalableStagePlanSummary,
+    memory_observation: SystemMemoryObservation,
+    previous: Option<GuardCompletedLevelObservation>,
+    pilot_without_completed_level: bool,
+) -> Result<GuardPreflightReport, GuardError> {
     let thresholds =
         GuardThresholds::from_physical_memory_bytes(memory_observation.physical_memory_bytes)?;
-    let primary_record_count = plan.counts.identity_field_occurrence_count;
+    let primary_record_count = plan.primary_record_count;
     if primary_record_count == 0 {
         return Err(GuardError::InvalidPrimaryRecordCount);
     }
@@ -221,9 +276,9 @@ pub fn evaluate_identity_guard_preflight(
         predicted_private_bytes,
         predicted_wall_time_ns,
     ) = if let Some(previous) = previous {
-        validate_previous_observation(previous, n)?;
-        let previous_plan = build_identity_stage_plan_summary(trusted, graph_profile, previous.n)?;
-        if previous_plan.counts.identity_field_occurrence_count != previous.primary_record_count {
+        validate_previous_observation(previous, plan.n)?;
+        let previous_plan = plans.plan(plan.workload_id, plan.graph_profile, previous.n)?;
+        if previous_plan.primary_record_count != previous.primary_record_count {
             return Err(GuardError::InvalidPreviousObservation);
         }
         let compiler_linear = checked_linear_prediction(
@@ -248,8 +303,8 @@ pub fn evaluate_identity_guard_preflight(
             )?),
         )
     } else {
-        if n != 1 {
-            return Err(GuardError::MissingPreviousObservation { n });
+        if plan.n != 1 && !pilot_without_completed_level {
+            return Err(GuardError::MissingPreviousObservation { n: plan.n });
         }
         (
             GuardPredictionBasis::ManifestSingleBufferLowerBoundV1,
@@ -284,9 +339,9 @@ pub fn evaluate_identity_guard_preflight(
     }
 
     Ok(GuardPreflightReport {
-        workload_id: "LF-COMP-ID-v1".to_owned(),
-        graph_profile: graph_profile.as_str().to_owned(),
-        n,
+        workload_id: plan.workload_id.as_str().to_owned(),
+        graph_profile: plan.graph_profile.as_str().to_owned(),
+        n: plan.n,
         primary_record_count,
         maximum_typed_ordinal,
         logical_bytes_lower_bound,
@@ -336,7 +391,7 @@ fn validate_previous_observation(
     Ok(())
 }
 
-fn maximum_typed_ordinal(plan: &IdentityStagePlanSummary) -> u64 {
+fn maximum_typed_ordinal(plan: &ScalableStagePlanSummary) -> u64 {
     [
         plan.counts.module_count,
         plan.counts.source_span_count,
@@ -396,12 +451,24 @@ fn checked_linear_prediction(
 fn validate_guard_prediction_contract(manifest: &serde_json::Value) -> Result<(), GuardError> {
     let guard = required_object(manifest, "guardPredictionContract")?;
     require_string(guard, "id", "research-stop-guard-prediction-v1")?;
-    let primary = required_object(
-        required_object(guard, "primaryRecordCountByWorkload")?,
-        "LF-COMP-ID-v1",
-    )?;
+    let primary_by_workload = required_object(guard, "primaryRecordCountByWorkload")?;
+    let primary = required_object(primary_by_workload, "LF-COMP-ID-v1")?;
     require_string(primary, "aggregate", "sum")?;
     require_string_array(primary, "operands", &["identityFieldOccurrenceCount"])?;
+    let primary = required_object(primary_by_workload, "LF-COMP-CORRIDOR-v1")?;
+    require_string(primary, "aggregate", "sum")?;
+    require_string_array(
+        primary,
+        "operands",
+        &["sourceRelationCount", "sourceGeometryCount"],
+    )?;
+    let primary = required_object(primary_by_workload, "LF-COMP-JUNCTION-GRID-v1")?;
+    require_string(primary, "aggregate", "sum")?;
+    require_string_array(
+        primary,
+        "operands",
+        &["gateOccurrence", "waitingZoneOccurrence", "routeOccurrence"],
+    )?;
 
     let lower = required_object(guard, "compilerControlledLowerBound")?;
     require_string(lower, "basis", "manifest-single-buffer-lower-bound-v1")?;
@@ -521,6 +588,8 @@ fn require_string_array(
 pub enum GuardError {
     #[error(transparent)]
     Stage(#[from] crate::StageGenerationError),
+    #[error(transparent)]
+    ScalePlan(#[from] crate::ScalePlanError),
     #[error("系统信息提供程序不支持当前操作系统")]
     UnsupportedSystemMemoryProvider,
     #[error("当前平台没有经 #308 绑定的进程私有字节监控提供程序")]

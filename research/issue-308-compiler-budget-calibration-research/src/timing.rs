@@ -6,13 +6,26 @@
 //! 峰值记账。独立正确性验证不进入这两个实例；正式轮次和证据写出仍由后续 runner
 //! 切片负责。
 
-use crate::pipeline::{
-    IdentityAllocationSnapshot, IdentityStageBufferPool, execute_identity_stage_case_with_buffers,
-    finalize_identity_stage_case, prepare_identity_stage_case, recycle_identity_stage_case,
+use crate::corridor::{
+    CORRIDOR_WORKLOAD_ID, CorridorContract, CorridorStageSummary, CorridorTemplate,
+    execute_template_stage_case_with_plan, finalize_template_stage_case,
 };
-use crate::stage::{IdentityStageSummary, StageRetainedCapacityBytes};
+use crate::junction_grid::{
+    JUNCTION_GRID_WORKLOAD_ID, JunctionGridContract, build_junction_grid_template,
+    finalize_junction_grid_stage_case,
+};
+use crate::pipeline::{
+    IdentityAllocationSnapshot, IdentityStageBufferPool, IdentityStageMaterialization,
+    execute_identity_stage_case_with_buffers, finalize_identity_stage_case,
+    prepare_identity_stage_case, recycle_identity_stage_case,
+};
+use crate::stage::{IdentityStagePlan, IdentityStageSummary, StageRetainedCapacityBytes};
 use crate::stage_oracle::build_identity_stage_oracle;
-use crate::{GeneratorContract, GraphProfileId, IdentityContract, StageContract, TrustedContract};
+use crate::{
+    GeneratorContract, GraphProfileId, IdentityContract, ScalableWorkloadId, StageContract,
+    TrustedContract,
+};
+use crate::{ScalableStagePlanFactory, ScalableStagePlanSummary};
 use serde::Serialize;
 use std::hint::black_box;
 use std::time::Instant;
@@ -34,6 +47,73 @@ pub struct IdentityStableCapacitySequence {
     pub cold_instance: IdentityTimingSample,
     pub stable_capacity_reuse: Vec<IdentityTimingSample>,
     pub retained_capacity_bytes: StageRetainedCapacityBytes,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScalableTimingSample {
+    pub workload_id: ScalableWorkloadId,
+    pub graph_profile: GraphProfileId,
+    pub n: u32,
+    pub wall_time_ns: u64,
+    pub semantic_digest_sha256: String,
+}
+
+#[derive(Debug)]
+pub struct ScalableTimingCompilerInstance {
+    compiler_instance_id: String,
+    plans: ScalableStagePlanFactory,
+    inner: ScalableTimingCompilerInner,
+}
+
+#[derive(Debug)]
+pub struct ScalablePreparedMeasurement {
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    inner: ScalablePreparedMeasurementInner,
+}
+
+#[derive(Debug)]
+enum ScalablePreparedMeasurementInner {
+    Identity(Box<IdentityStagePlan>),
+    Corridor(Box<ScalableStagePlanSummary>),
+    JunctionGrid(Box<ScalableStagePlanSummary>),
+}
+
+#[derive(Debug)]
+pub struct ScalableExecutedMeasurement {
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    wall_time_ns: u64,
+    inner: ScalableExecutedMeasurementInner,
+}
+
+#[derive(Debug)]
+enum ScalableExecutedMeasurementInner {
+    Identity {
+        plan: Box<IdentityStagePlan>,
+        materialized: IdentityStageMaterialization,
+    },
+    Corridor(crate::corridor::CorridorStageExecution),
+    JunctionGrid(crate::corridor::CorridorStageExecution),
+}
+
+#[derive(Debug)]
+enum ScalableTimingCompilerInner {
+    Identity(Box<IdentityTimingCompilerInstance>),
+    Corridor(TemplateTimingCompilerInstance<CorridorContract>),
+    JunctionGrid(TemplateTimingCompilerInstance<JunctionGridContract>),
+}
+
+#[derive(Debug)]
+struct TemplateTimingCompilerInstance<C> {
+    generator: GeneratorContract,
+    identity: IdentityContract,
+    stage: StageContract,
+    contract: C,
+    template: CorridorTemplate,
 }
 
 #[derive(Debug)]
@@ -238,6 +318,264 @@ impl<const TRACK_ALLOCATIONS: bool> IdentityCompilerInstance<TRACK_ALLOCATIONS> 
     }
 }
 
+impl ScalableTimingCompilerInstance {
+    pub fn from_trusted_contract_with_id(
+        trusted: &TrustedContract,
+        compiler_instance_id: String,
+        workload_id: ScalableWorkloadId,
+    ) -> Result<Self, TimingError> {
+        if compiler_instance_id.is_empty() {
+            return Err(TimingError::EmptyCompilerInstanceId);
+        }
+        let (inner, plans) = match workload_id {
+            ScalableWorkloadId::Identity => (
+                ScalableTimingCompilerInner::Identity(Box::new(
+                    IdentityTimingCompilerInstance::from_trusted_contract_with_id(
+                        trusted,
+                        compiler_instance_id.clone(),
+                    )?,
+                )),
+                ScalableStagePlanFactory::from_trusted_contract_for_workload(trusted, workload_id)?,
+            ),
+            ScalableWorkloadId::Corridor => {
+                let contract = CorridorContract::from_manifest(&trusted.workload_manifest)?;
+                let template = contract.load_template(&crate::repository_root())?;
+                let plans = ScalableStagePlanFactory::from_trusted_contract_for_template_workload(
+                    trusted,
+                    workload_id,
+                    &template,
+                )?;
+                (
+                    ScalableTimingCompilerInner::Corridor(TemplateTimingCompilerInstance {
+                        generator: trusted.generator_contract()?,
+                        identity: trusted.identity_contract()?,
+                        stage: trusted.stage_contract()?,
+                        contract,
+                        template,
+                    }),
+                    plans,
+                )
+            }
+            ScalableWorkloadId::JunctionGrid => {
+                let contract = JunctionGridContract::from_manifest(&trusted.workload_manifest)?;
+                let template = build_junction_grid_template();
+                contract.validate_template(&template)?;
+                let plans = ScalableStagePlanFactory::from_trusted_contract_for_template_workload(
+                    trusted,
+                    workload_id,
+                    &template,
+                )?;
+                (
+                    ScalableTimingCompilerInner::JunctionGrid(TemplateTimingCompilerInstance {
+                        generator: trusted.generator_contract()?,
+                        identity: trusted.identity_contract()?,
+                        stage: trusted.stage_contract()?,
+                        contract,
+                        template,
+                    }),
+                    plans,
+                )
+            }
+        };
+        Ok(Self {
+            compiler_instance_id,
+            plans,
+            inner,
+        })
+    }
+
+    pub fn compiler_instance_id(&self) -> &str {
+        &self.compiler_instance_id
+    }
+
+    pub fn measure(
+        &mut self,
+        graph_profile: GraphProfileId,
+        n: u32,
+    ) -> Result<ScalableTimingSample, TimingError> {
+        let prepared = self.prepare(graph_profile, n)?;
+        let executed = self.execute_prepared(prepared)?;
+        self.finalize_executed(executed)
+    }
+
+    pub fn prepare(
+        &self,
+        graph_profile: GraphProfileId,
+        n: u32,
+    ) -> Result<ScalablePreparedMeasurement, TimingError> {
+        let (workload_id, inner) = match &self.inner {
+            ScalableTimingCompilerInner::Identity(instance) => (
+                ScalableWorkloadId::Identity,
+                ScalablePreparedMeasurementInner::Identity(Box::new(prepare_identity_stage_case(
+                    &instance.identity,
+                    &instance.stage,
+                    graph_profile,
+                    n,
+                )?)),
+            ),
+            ScalableTimingCompilerInner::Corridor(instance) => {
+                if n == 0 {
+                    return Err(TimingError::ScaleMustBePositive);
+                }
+                instance.contract.validate_template(&instance.template)?;
+                (
+                    ScalableWorkloadId::Corridor,
+                    ScalablePreparedMeasurementInner::Corridor(Box::new(self.plans.plan(
+                        ScalableWorkloadId::Corridor,
+                        graph_profile,
+                        n,
+                    )?)),
+                )
+            }
+            ScalableTimingCompilerInner::JunctionGrid(instance) => {
+                if n == 0 {
+                    return Err(TimingError::ScaleMustBePositive);
+                }
+                instance.contract.validate_template(&instance.template)?;
+                (
+                    ScalableWorkloadId::JunctionGrid,
+                    ScalablePreparedMeasurementInner::JunctionGrid(Box::new(self.plans.plan(
+                        ScalableWorkloadId::JunctionGrid,
+                        graph_profile,
+                        n,
+                    )?)),
+                )
+            }
+        };
+        Ok(ScalablePreparedMeasurement {
+            workload_id,
+            graph_profile,
+            n,
+            inner,
+        })
+    }
+
+    pub fn execute_prepared(
+        &mut self,
+        prepared: ScalablePreparedMeasurement,
+    ) -> Result<ScalableExecutedMeasurement, TimingError> {
+        let ScalablePreparedMeasurement {
+            workload_id,
+            graph_profile,
+            n,
+            inner,
+        } = prepared;
+        let started = Instant::now();
+        let executed_inner = match (&mut self.inner, inner) {
+            (
+                ScalableTimingCompilerInner::Identity(instance),
+                ScalablePreparedMeasurementInner::Identity(plan),
+            ) => {
+                let materialized = instance.execute_with_failure_recovery(&plan)?;
+                black_box(materialized.output_construction.as_slice());
+                ScalableExecutedMeasurementInner::Identity { plan, materialized }
+            }
+            (
+                ScalableTimingCompilerInner::Corridor(instance),
+                ScalablePreparedMeasurementInner::Corridor(plan),
+            ) => {
+                let execution = execute_template_stage_case_with_plan(
+                    &instance.generator,
+                    &instance.identity,
+                    &instance.stage,
+                    CORRIDOR_WORKLOAD_ID,
+                    &instance.template,
+                    graph_profile,
+                    n,
+                    &plan,
+                )?;
+                black_box(execution.output_construction());
+                ScalableExecutedMeasurementInner::Corridor(execution)
+            }
+            (
+                ScalableTimingCompilerInner::JunctionGrid(instance),
+                ScalablePreparedMeasurementInner::JunctionGrid(plan),
+            ) => {
+                let execution = execute_template_stage_case_with_plan(
+                    &instance.generator,
+                    &instance.identity,
+                    &instance.stage,
+                    JUNCTION_GRID_WORKLOAD_ID,
+                    &instance.template,
+                    graph_profile,
+                    n,
+                    &plan,
+                )?;
+                black_box(execution.output_construction());
+                ScalableExecutedMeasurementInner::JunctionGrid(execution)
+            }
+            _ => return Err(TimingError::ScalableMeasurementInstanceMismatch),
+        };
+        let wall_time_ns = u64::try_from(started.elapsed().as_nanos())
+            .map_err(|_| TimingError::ClockDurationOverflow)?;
+        Ok(ScalableExecutedMeasurement {
+            workload_id,
+            graph_profile,
+            n,
+            wall_time_ns,
+            inner: executed_inner,
+        })
+    }
+
+    pub fn finalize_executed(
+        &mut self,
+        executed: ScalableExecutedMeasurement,
+    ) -> Result<ScalableTimingSample, TimingError> {
+        let ScalableExecutedMeasurement {
+            workload_id,
+            graph_profile,
+            n,
+            wall_time_ns,
+            inner,
+        } = executed;
+        let semantic_digest_sha256 = match (&mut self.inner, inner) {
+            (
+                ScalableTimingCompilerInner::Identity(instance),
+                ScalableExecutedMeasurementInner::Identity { plan, materialized },
+            ) => {
+                instance
+                    .finalize_and_recycle(&plan, materialized)?
+                    .semantic_digest_sha256
+            }
+            (
+                ScalableTimingCompilerInner::Corridor(_),
+                ScalableExecutedMeasurementInner::Corridor(execution),
+            ) => {
+                let output = finalize_template_stage_case(execution)?;
+                validate_template_summary(&output.summary, graph_profile, n)?;
+                output.summary.semantic_digest_sha256
+            }
+            (
+                ScalableTimingCompilerInner::JunctionGrid(_),
+                ScalableExecutedMeasurementInner::JunctionGrid(execution),
+            ) => {
+                let output = finalize_junction_grid_stage_case(execution)?;
+                validate_template_summary(&output.summary, graph_profile, n)?;
+                output.summary.semantic_digest_sha256
+            }
+            _ => return Err(TimingError::ScalableMeasurementInstanceMismatch),
+        };
+        Ok(ScalableTimingSample {
+            workload_id,
+            graph_profile,
+            n,
+            wall_time_ns,
+            semantic_digest_sha256,
+        })
+    }
+}
+
+fn validate_template_summary(
+    summary: &CorridorStageSummary,
+    graph_profile: GraphProfileId,
+    n: u32,
+) -> Result<(), TimingError> {
+    if summary.graph_profile != graph_profile || summary.n != n {
+        return Err(TimingError::ScalableWorkloadSummaryMismatch);
+    }
+    Ok(())
+}
+
 pub fn observe_clock_quantum_ns() -> Result<u64, TimingError> {
     let mut previous = Instant::now();
     let mut minimum_positive = None::<u64>;
@@ -281,6 +619,12 @@ pub enum TimingError {
     StageGeneration(#[from] crate::StageGenerationError),
     #[error(transparent)]
     StageOracle(#[from] crate::StageOracleError),
+    #[error(transparent)]
+    Corridor(#[from] crate::CorridorError),
+    #[error(transparent)]
+    JunctionGrid(#[from] crate::JunctionGridError),
+    #[error(transparent)]
+    ScalePlan(#[from] crate::ScalePlanError),
     #[error("单调时钟观测未取得任何正差值")]
     NoPositiveClockDelta,
     #[error("单调时钟时长无法表示为 u64 纳秒")]
@@ -299,6 +643,12 @@ pub enum TimingError {
     StableCapacityChanged,
     #[error("计时生产者阶段摘要与独立预言机摘要不一致")]
     IndependentOracleSummaryMismatch,
+    #[error("可扩展工作负载计时结果与请求身份不一致")]
+    ScalableWorkloadSummaryMismatch,
+    #[error("可扩展工作负载规模 N 必须大于零")]
+    ScaleMustBePositive,
+    #[error("计时区外准备、受测执行与编译器实例的工作负载身份不一致")]
+    ScalableMeasurementInstanceMismatch,
 }
 
 #[cfg(test)]
