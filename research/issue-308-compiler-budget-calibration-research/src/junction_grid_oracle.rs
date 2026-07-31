@@ -31,15 +31,6 @@ pub struct JunctionGridOracleVerificationReport {
 pub fn verify_junction_grid_oracle_matrix(
     trusted: &TrustedContract,
 ) -> Result<JunctionGridOracleVerificationReport, JunctionGridOracleError> {
-    let generator = trusted
-        .generator_contract()
-        .map_err(|error| JunctionGridOracleError::Contract(error.to_string()))?;
-    let identity = trusted
-        .identity_contract()
-        .map_err(|error| JunctionGridOracleError::Contract(error.to_string()))?;
-    let stage = trusted
-        .stage_contract()
-        .map_err(|error| JunctionGridOracleError::Contract(error.to_string()))?;
     let contract = JunctionGridContract::from_manifest(&trusted.workload_manifest)?;
     let producer_template = build_junction_grid_template();
     let independent_template = build_independent_template();
@@ -50,28 +41,14 @@ pub fn verify_junction_grid_oracle_matrix(
     let mut checked_cases = 0_u32;
     for graph_profile in GraphProfileId::ALL {
         for n in [1, 2] {
-            let produced = build_junction_grid_stage_case(
-                &generator,
-                &identity,
-                &stage,
+            verify_junction_grid_oracle_case_with_templates(
+                trusted,
                 &contract,
                 &producer_template,
-                graph_profile,
-                n,
-            )?;
-            let oracle = build_template_oracle_records(
-                &trusted.workload_manifest,
-                JUNCTION_GRID_WORKLOAD_ID,
                 &independent_template,
                 graph_profile,
                 n,
             )?;
-            if produced.records != oracle.records
-                || produced.semantic_record_stream != oracle.stream
-                || produced.materialization.output != produced.semantic_record_stream
-            {
-                return Err(JunctionGridOracleError::Mismatch { graph_profile, n });
-            }
             checked_cases = checked_cases
                 .checked_add(1)
                 .ok_or_else(|| JunctionGridOracleError::Contract("checkedCases overflow".into()))?;
@@ -84,6 +61,69 @@ pub fn verify_junction_grid_oracle_matrix(
         independent_formula_projection_checked: true,
         reversed_relation_input_checked: true,
     })
+}
+
+pub(crate) fn verify_junction_grid_oracle_case(
+    trusted: &TrustedContract,
+    graph_profile: GraphProfileId,
+    n: u32,
+) -> Result<crate::CorridorStageSummary, JunctionGridOracleError> {
+    let contract = JunctionGridContract::from_manifest(&trusted.workload_manifest)?;
+    let producer_template = build_junction_grid_template();
+    let independent_template = build_independent_template();
+    contract.validate_template(&producer_template)?;
+    contract.validate_template(&independent_template)?;
+    verify_template_projection(&producer_template, &independent_template)?;
+    verify_junction_grid_oracle_case_with_templates(
+        trusted,
+        &contract,
+        &producer_template,
+        &independent_template,
+        graph_profile,
+        n,
+    )
+}
+
+fn verify_junction_grid_oracle_case_with_templates(
+    trusted: &TrustedContract,
+    contract: &JunctionGridContract,
+    producer_template: &CorridorTemplate,
+    independent_template: &CorridorTemplate,
+    graph_profile: GraphProfileId,
+    n: u32,
+) -> Result<crate::CorridorStageSummary, JunctionGridOracleError> {
+    let generator = trusted
+        .generator_contract()
+        .map_err(|error| JunctionGridOracleError::Contract(error.to_string()))?;
+    let identity = trusted
+        .identity_contract()
+        .map_err(|error| JunctionGridOracleError::Contract(error.to_string()))?;
+    let stage = trusted
+        .stage_contract()
+        .map_err(|error| JunctionGridOracleError::Contract(error.to_string()))?;
+    let produced = build_junction_grid_stage_case(
+        &generator,
+        &identity,
+        &stage,
+        contract,
+        producer_template,
+        graph_profile,
+        n,
+    )?;
+    let oracle = build_template_oracle_records(
+        &trusted.workload_manifest,
+        JUNCTION_GRID_WORKLOAD_ID,
+        independent_template,
+        graph_profile,
+        n,
+    )?;
+    if produced.records != oracle.records
+        || produced.semantic_record_stream != oracle.stream
+        || produced.materialization.output != produced.semantic_record_stream
+    {
+        return Err(JunctionGridOracleError::Mismatch { graph_profile, n });
+    }
+    Ok(produced.summary)
 }
 
 fn build_independent_template() -> CorridorTemplate {

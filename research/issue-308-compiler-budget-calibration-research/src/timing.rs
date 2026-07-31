@@ -2,9 +2,9 @@
 //!
 //! 本模块建立 #308 协议要求的 prepare -> timed execute -> finalize 边界，并由
 //! 同一个编译器实例只保留已清空的阶段容器容量。计时与归因实例通过编译期常量分别
-//! 单态化：正式计时路径不执行逐容量请求记账，归因路径才执行原子硬上限预占与存续
-//! 峰值记账。独立正确性验证不进入这两个实例；正式轮次和证据写出仍由后续 runner
-//! 切片负责。
+//! 单态化：正式计时路径只执行停止护栏所必需的受控分配预占，不累计分配归因指标；
+//! 归因路径额外记录分配、释放与存续峰值。独立正确性验证不进入这两个实例；正式轮次
+//! 和证据写出仍由后续 runner 切片负责。
 
 use crate::corridor::{
     CORRIDOR_WORKLOAD_ID, CorridorContract, CorridorStageSummary, CorridorTemplate,
@@ -57,11 +57,13 @@ pub struct ScalableTimingSample {
     pub n: u32,
     pub wall_time_ns: u64,
     pub semantic_digest_sha256: String,
+    pub guard_peak_live_requested_bytes: u64,
 }
 
 #[derive(Debug)]
 pub struct ScalableTimingCompilerInstance {
     compiler_instance_id: String,
+    controlled_allocation_hard_ceiling_bytes: u64,
     plans: ScalableStagePlanFactory,
     inner: ScalableTimingCompilerInner,
 }
@@ -71,6 +73,7 @@ pub struct ScalablePreparedMeasurement {
     workload_id: ScalableWorkloadId,
     graph_profile: GraphProfileId,
     n: u32,
+    controlled_allocation_guard_reservation_bytes: u64,
     inner: ScalablePreparedMeasurementInner,
 }
 
@@ -87,6 +90,7 @@ pub struct ScalableExecutedMeasurement {
     graph_profile: GraphProfileId,
     n: u32,
     wall_time_ns: u64,
+    controlled_allocation_guard_reservation_bytes: u64,
     inner: ScalableExecutedMeasurementInner,
 }
 
@@ -146,6 +150,29 @@ impl IdentityCompilerInstance<false> {
             Some(compiler_instance_id),
             u64::MAX,
         )
+    }
+
+    pub fn from_trusted_contract_with_id_and_allocation_ceiling(
+        trusted: &TrustedContract,
+        compiler_instance_id: String,
+        controlled_allocation_hard_ceiling_bytes: u64,
+    ) -> Result<Self, TimingError> {
+        if compiler_instance_id.is_empty() {
+            return Err(TimingError::EmptyCompilerInstanceId);
+        }
+        Self::from_trusted_contract_with_optional_id_and_allocation_ceiling(
+            trusted,
+            Some(compiler_instance_id),
+            controlled_allocation_hard_ceiling_bytes,
+        )
+    }
+
+    pub fn controlled_allocation_hard_ceiling_bytes(&self) -> u64 {
+        self.buffers.controlled_allocation_hard_ceiling_bytes()
+    }
+
+    pub fn guard_peak_live_requested_bytes(&self) -> u64 {
+        self.buffers.guard_peak_live_requested_bytes()
     }
 }
 
@@ -324,15 +351,30 @@ impl ScalableTimingCompilerInstance {
         compiler_instance_id: String,
         workload_id: ScalableWorkloadId,
     ) -> Result<Self, TimingError> {
+        Self::from_trusted_contract_with_id_and_allocation_ceiling(
+            trusted,
+            compiler_instance_id,
+            workload_id,
+            u64::MAX,
+        )
+    }
+
+    pub fn from_trusted_contract_with_id_and_allocation_ceiling(
+        trusted: &TrustedContract,
+        compiler_instance_id: String,
+        workload_id: ScalableWorkloadId,
+        controlled_allocation_hard_ceiling_bytes: u64,
+    ) -> Result<Self, TimingError> {
         if compiler_instance_id.is_empty() {
             return Err(TimingError::EmptyCompilerInstanceId);
         }
         let (inner, plans) = match workload_id {
             ScalableWorkloadId::Identity => (
                 ScalableTimingCompilerInner::Identity(Box::new(
-                    IdentityTimingCompilerInstance::from_trusted_contract_with_id(
+                    IdentityTimingCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
                         trusted,
                         compiler_instance_id.clone(),
+                        controlled_allocation_hard_ceiling_bytes,
                     )?,
                 )),
                 ScalableStagePlanFactory::from_trusted_contract_for_workload(trusted, workload_id)?,
@@ -379,6 +421,7 @@ impl ScalableTimingCompilerInstance {
         };
         Ok(Self {
             compiler_instance_id,
+            controlled_allocation_hard_ceiling_bytes,
             plans,
             inner,
         })
@@ -386,6 +429,10 @@ impl ScalableTimingCompilerInstance {
 
     pub fn compiler_instance_id(&self) -> &str {
         &self.compiler_instance_id
+    }
+
+    pub fn controlled_allocation_hard_ceiling_bytes(&self) -> u64 {
+        self.controlled_allocation_hard_ceiling_bytes
     }
 
     pub fn measure(
@@ -403,6 +450,17 @@ impl ScalableTimingCompilerInstance {
         graph_profile: GraphProfileId,
         n: u32,
     ) -> Result<ScalablePreparedMeasurement, TimingError> {
+        let guard_plan = self.plans.plan(
+            match &self.inner {
+                ScalableTimingCompilerInner::Identity(_) => ScalableWorkloadId::Identity,
+                ScalableTimingCompilerInner::Corridor(_) => ScalableWorkloadId::Corridor,
+                ScalableTimingCompilerInner::JunctionGrid(_) => ScalableWorkloadId::JunctionGrid,
+            },
+            graph_profile,
+            n,
+        )?;
+        let controlled_allocation_guard_reservation_bytes =
+            guard_plan.controlled_allocation_guard_reservation_bytes()?;
         let (workload_id, inner) = match &self.inner {
             ScalableTimingCompilerInner::Identity(instance) => (
                 ScalableWorkloadId::Identity,
@@ -446,6 +504,7 @@ impl ScalableTimingCompilerInstance {
             workload_id,
             graph_profile,
             n,
+            controlled_allocation_guard_reservation_bytes,
             inner,
         })
     }
@@ -458,8 +517,22 @@ impl ScalableTimingCompilerInstance {
             workload_id,
             graph_profile,
             n,
+            controlled_allocation_guard_reservation_bytes,
             inner,
         } = prepared;
+        if controlled_allocation_guard_reservation_bytes
+            > self.controlled_allocation_hard_ceiling_bytes
+        {
+            return Err(
+                crate::StageGenerationError::ControlledAllocationHardCeiling {
+                    field: "scalable workload controlled allocation reservation",
+                    hard_ceiling_bytes: self.controlled_allocation_hard_ceiling_bytes,
+                    live_requested_bytes: 0,
+                    requested_bytes: controlled_allocation_guard_reservation_bytes,
+                }
+                .into(),
+            );
+        }
         let started = Instant::now();
         let executed_inner = match (&mut self.inner, inner) {
             (
@@ -513,6 +586,7 @@ impl ScalableTimingCompilerInstance {
             graph_profile,
             n,
             wall_time_ns,
+            controlled_allocation_guard_reservation_bytes,
             inner: executed_inner,
         })
     }
@@ -526,6 +600,7 @@ impl ScalableTimingCompilerInstance {
             graph_profile,
             n,
             wall_time_ns,
+            controlled_allocation_guard_reservation_bytes,
             inner,
         } = executed;
         let semantic_digest_sha256 = match (&mut self.inner, inner) {
@@ -555,12 +630,22 @@ impl ScalableTimingCompilerInstance {
             }
             _ => return Err(TimingError::ScalableMeasurementInstanceMismatch),
         };
+        let guard_peak_live_requested_bytes = match &self.inner {
+            ScalableTimingCompilerInner::Identity(instance) => {
+                instance.guard_peak_live_requested_bytes()
+            }
+            ScalableTimingCompilerInner::Corridor(_)
+            | ScalableTimingCompilerInner::JunctionGrid(_) => {
+                controlled_allocation_guard_reservation_bytes
+            }
+        };
         Ok(ScalableTimingSample {
             workload_id,
             graph_profile,
             n,
             wall_time_ns,
             semantic_digest_sha256,
+            guard_peak_live_requested_bytes,
         })
     }
 }
@@ -698,7 +783,7 @@ mod tests {
     fn controlled_allocation_at_bound_succeeds_and_plus_one_fails_before_reserve() {
         let trusted = load_repository_contract().expect("frozen contract");
         let mut baseline =
-            IdentityCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+            IdentityCompilerInstance::<true>::from_trusted_contract_with_id_and_allocation_ceiling(
                 &trusted,
                 "allocation-baseline".to_owned(),
                 u64::MAX,
@@ -711,7 +796,7 @@ mod tests {
         assert!(exact_peak > 1);
 
         let mut at_bound =
-            IdentityCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+            IdentityCompilerInstance::<true>::from_trusted_contract_with_id_and_allocation_ceiling(
                 &trusted,
                 "allocation-at-bound".to_owned(),
                 exact_peak,
@@ -723,7 +808,7 @@ mod tests {
         assert_eq!(at_bound.peak_live_requested_bytes(), exact_peak);
 
         let mut plus_one =
-            IdentityCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+            IdentityCompilerInstance::<true>::from_trusted_contract_with_id_and_allocation_ceiling(
                 &trusted,
                 "allocation-plus-one".to_owned(),
                 exact_peak - 1,
@@ -806,6 +891,50 @@ mod tests {
                     Err(TimingError::CompilerInstanceAlreadyUsed)
                 ));
             }
+        }
+    }
+
+    #[test]
+    fn template_timing_rejects_the_logical_arena_before_the_timed_pipeline() {
+        let trusted = load_repository_contract().expect("frozen contract");
+        for workload_id in [
+            ScalableWorkloadId::Corridor,
+            ScalableWorkloadId::JunctionGrid,
+        ] {
+            let probe = ScalableTimingCompilerInstance::from_trusted_contract_with_id(
+                &trusted,
+                format!("{}/reservation-probe", workload_id.as_str()),
+                workload_id,
+            )
+            .expect("probe instance");
+            let prepared = probe
+                .prepare(GraphProfileId::WideStar, 1)
+                .expect("prepared template measurement");
+            let reservation = prepared.controlled_allocation_guard_reservation_bytes;
+            assert!(reservation > 1);
+
+            let mut guarded =
+                ScalableTimingCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+                    &trusted,
+                    format!("{}/guarded", workload_id.as_str()),
+                    workload_id,
+                    reservation - 1,
+                )
+                .expect("guarded instance");
+            let prepared = guarded
+                .prepare(GraphProfileId::WideStar, 1)
+                .expect("prepare remains outside the timed pipeline");
+            assert!(matches!(
+                guarded.execute_prepared(prepared),
+                Err(TimingError::StageGeneration(
+                    crate::StageGenerationError::ControlledAllocationHardCeiling {
+                        hard_ceiling_bytes,
+                        live_requested_bytes: 0,
+                        requested_bytes,
+                        ..
+                    }
+                )) if hard_ceiling_bytes == reservation - 1 && requested_bytes == reservation
+            ));
         }
     }
 }

@@ -1,11 +1,13 @@
 //! `compiler-calibration-v1` 正式研究入口与基础规模检查点写出。
 //!
-//! 第 7 切片只写出基础规模试运行检查点，不冒充编译器校准证据 v1。完整证据封套、
-//! 来源摘要和独立验证器由后续切片建立。
+//! 第 7 切片只写出基础规模试运行检查点，并为每级保存 timing 与独立 oracle 运行，
+//! 不冒充编译器校准证据 v1。完整证据封套、来源摘要和独立 Evidence 验证器由后续
+//! 切片建立。
 
 use crate::{
-    BaseScalePilotCheckpoint, ContractError, FORMAL_PROTOCOL_ID, PilotError, TIMING_BINARY_ID,
-    load_repository_contract, repository_root, run_base_scale_pilot_discovery_with_checkpoint_sink,
+    BaseScalePilotCheckpoint, ContractError, FORMAL_PROTOCOL_ID, ORACLE_BINARY_ID, PilotError,
+    TIMING_BINARY_ID, load_repository_contract, repository_root,
+    run_base_scale_pilot_discovery_with_checkpoint_sink,
 };
 use serde::Serialize;
 use std::ffi::OsString;
@@ -28,6 +30,7 @@ pub struct FormalProtocolOutcome {
     pub checkpoint_directory: PathBuf,
     pub completed_base_scale_selections: usize,
     pub recorded_runs: usize,
+    pub recorded_oracle_runs: usize,
 }
 
 pub fn parse_formal_protocol_arguments(
@@ -90,15 +93,18 @@ pub fn run_formal_protocol(
 
     let repository_root = repository_root();
     verify_clean_worktree(&repository_root)?;
-    build_formal_timing_binary(&repository_root)?;
+    build_formal_child_binaries(&repository_root)?;
     verify_clean_worktree(&repository_root)?;
     let trusted = load_repository_contract()?;
     let timing_executable = resolve_sibling_timing_binary()?;
+    let oracle_executable = resolve_sibling_oracle_binary()?;
     verify_timing_binary_role(&timing_executable)?;
+    verify_oracle_binary_role(&oracle_executable)?;
     let mut writer = BaseScaleCheckpointWriter::prepare(&request.output_path)?;
     let checkpoint = run_base_scale_pilot_discovery_with_checkpoint_sink(
         &trusted,
         &timing_executable,
+        &oracle_executable,
         |checkpoint| {
             writer
                 .persist(checkpoint)
@@ -116,6 +122,7 @@ pub fn run_formal_protocol(
         checkpoint_directory: writer.checkpoint_directory.clone(),
         completed_base_scale_selections: checkpoint.selections.len(),
         recorded_runs: checkpoint.runs.len(),
+        recorded_oracle_runs: checkpoint.oracle_runs.len(),
     })
 }
 
@@ -178,7 +185,26 @@ fn resolve_sibling_timing_binary() -> Result<PathBuf, FormalProtocolError> {
     Ok(timing)
 }
 
-fn build_formal_timing_binary(repository_root: &Path) -> Result<(), FormalProtocolError> {
+fn resolve_sibling_oracle_binary() -> Result<PathBuf, FormalProtocolError> {
+    let runner = std::env::current_exe()
+        .map_err(|source| FormalProtocolError::CurrentExecutable { source })?;
+    let directory =
+        runner
+            .parent()
+            .ok_or_else(|| FormalProtocolError::MissingExecutableParent {
+                executable: runner.clone(),
+            })?;
+    let oracle = directory.join(format!(
+        "issue-308-compiler-budget-calibration-oracle{}",
+        std::env::consts::EXE_SUFFIX
+    ));
+    if !oracle.is_file() {
+        return Err(FormalProtocolError::MissingOracleBinary { path: oracle });
+    }
+    Ok(oracle)
+}
+
+fn build_formal_child_binaries(repository_root: &Path) -> Result<(), FormalProtocolError> {
     let output = Command::new("cargo")
         .args([
             "+1.96.0",
@@ -192,12 +218,14 @@ fn build_formal_timing_binary(repository_root: &Path) -> Result<(), FormalProtoc
             "research-runner-full",
             "--bin",
             "issue-308-compiler-budget-calibration-timing",
+            "--bin",
+            "issue-308-compiler-budget-calibration-oracle",
         ])
         .current_dir(repository_root)
         .output()
-        .map_err(|source| FormalProtocolError::TimingBuildLaunch { source })?;
+        .map_err(|source| FormalProtocolError::ChildRoleBuildLaunch { source })?;
     if !output.status.success() {
-        return Err(FormalProtocolError::TimingBuildFailed {
+        return Err(FormalProtocolError::ChildRoleBuildFailed {
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
         });
     }
@@ -248,6 +276,55 @@ fn verify_timing_binary_role(timing_executable: &Path) -> Result<(), FormalProto
     {
         return Err(FormalProtocolError::UnexpectedTimingDescriptor {
             path: timing_executable.to_path_buf(),
+        });
+    }
+    Ok(())
+}
+
+fn verify_oracle_binary_role(oracle_executable: &Path) -> Result<(), FormalProtocolError> {
+    let output = Command::new(oracle_executable)
+        .arg("describe-role")
+        .output()
+        .map_err(|source| FormalProtocolError::OracleDescriptorLaunch {
+            path: oracle_executable.to_path_buf(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(FormalProtocolError::OracleDescriptorFailed {
+            path: oracle_executable.to_path_buf(),
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        });
+    }
+    let descriptor: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|source| {
+            FormalProtocolError::InvalidOracleDescriptor {
+                path: oracle_executable.to_path_buf(),
+                source,
+            }
+        })?;
+    let responsibilities_match = descriptor
+        .get("responsibilities")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|responsibilities| {
+            responsibilities.as_slice() == [serde_json::json!("independent-exact-correctness")]
+        });
+    if descriptor
+        .get("binaryId")
+        .and_then(serde_json::Value::as_str)
+        != Some(ORACLE_BINARY_ID)
+        || descriptor.get("role").and_then(serde_json::Value::as_str) != Some("oracle")
+        || descriptor
+            .get("evidenceMode")
+            .and_then(serde_json::Value::as_str)
+            != Some("oracle")
+        || descriptor
+            .get("allocationInstrumentationEnabled")
+            .and_then(serde_json::Value::as_bool)
+            != Some(false)
+        || !responsibilities_match
+    {
+        return Err(FormalProtocolError::UnexpectedOracleDescriptor {
+            path: oracle_executable.to_path_buf(),
         });
     }
     Ok(())
@@ -421,13 +498,15 @@ pub enum FormalProtocolError {
     MissingExecutableParent { executable: PathBuf },
     #[error("未找到同目录的非插桩计时角色二进制：{path}")]
     MissingTimingBinary { path: PathBuf },
-    #[error("正式研究入口无法启动锁定的 release 计时角色构建")]
-    TimingBuildLaunch {
+    #[error("未找到同目录的独立预言机角色二进制：{path}")]
+    MissingOracleBinary { path: PathBuf },
+    #[error("正式研究入口无法启动锁定的 release timing/oracle 子角色构建")]
+    ChildRoleBuildLaunch {
         #[source]
         source: std::io::Error,
     },
-    #[error("锁定的 release 计时角色构建失败：{stderr}")]
-    TimingBuildFailed { stderr: String },
+    #[error("锁定的 release timing/oracle 子角色构建失败：{stderr}")]
+    ChildRoleBuildFailed { stderr: String },
     #[error("无法执行计时角色二进制 {path} 的角色描述")]
     TimingDescriptorLaunch {
         path: PathBuf,
@@ -444,6 +523,22 @@ pub enum FormalProtocolError {
     },
     #[error("计时角色二进制 {path} 的角色、模式、记账状态或职责不符合正式协议")]
     UnexpectedTimingDescriptor { path: PathBuf },
+    #[error("无法执行预言机角色二进制 {path} 的角色描述")]
+    OracleDescriptorLaunch {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("预言机角色二进制 {path} 无法返回角色描述：{stderr}")]
+    OracleDescriptorFailed { path: PathBuf, stderr: String },
+    #[error("预言机角色二进制 {path} 返回无效 JSON 角色描述")]
+    InvalidOracleDescriptor {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("预言机角色二进制 {path} 的角色、模式、记账状态或职责不符合正式协议")]
+    UnexpectedOracleDescriptor { path: PathBuf },
     #[error("正式研究入口无法取得当前目录")]
     CurrentDirectory {
         #[source]
@@ -616,6 +711,7 @@ mod tests {
             selections: Vec::new(),
             active_selection: None,
             runs: Vec::new(),
+            oracle_runs: Vec::new(),
         }
     }
 

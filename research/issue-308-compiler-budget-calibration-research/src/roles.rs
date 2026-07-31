@@ -7,9 +7,13 @@
 use crate::stage_oracle::build_identity_stage_oracle;
 use crate::{
     GraphProfileId, IdentityAllocationSnapshot, IdentityAttributionCompilerInstance,
-    IdentityStageSummary, IdentityTimingCompilerInstance, ScalableTimingCompilerInstance,
-    ScalableWorkloadId, StageGenerationError, StageRetainedCapacityBytes, TimingError,
-    TrustedContract,
+    IdentityStageSummary, IdentityTimingCompilerInstance, ScalableStagePlanFactory,
+    ScalableTimingCompilerInstance, ScalableWorkloadId, StageGenerationError,
+    StageRetainedCapacityBytes, TimingError, TrustedContract,
+};
+use crate::{
+    corridor_oracle::verify_corridor_oracle_case,
+    junction_grid_oracle::verify_junction_grid_oracle_case, oracle::verify_identity_oracle_case,
 };
 use serde::{Deserialize, Serialize};
 
@@ -23,13 +27,16 @@ pub const IDENTITY_TIMING_CHILD_SCHEMA: &str =
 pub const IDENTITY_TIMING_CHILD_SCHEMA_VERSION: u32 = 3;
 pub const SCALABLE_TIMING_CHILD_SCHEMA: &str =
     "laneflow.compiler-calibration-scalable-timing-child";
-pub const SCALABLE_TIMING_CHILD_SCHEMA_VERSION: u32 = 1;
+pub const SCALABLE_TIMING_CHILD_SCHEMA_VERSION: u32 = 2;
 pub const IDENTITY_ATTRIBUTION_CHILD_SCHEMA: &str =
     "laneflow.compiler-calibration-identity-attribution-child";
 pub const IDENTITY_ATTRIBUTION_CHILD_SCHEMA_VERSION: u32 = 1;
 pub const IDENTITY_ORACLE_CHILD_SCHEMA: &str =
     "laneflow.compiler-calibration-identity-oracle-child";
 pub const IDENTITY_ORACLE_CHILD_SCHEMA_VERSION: u32 = 1;
+pub const SCALABLE_ORACLE_CHILD_SCHEMA: &str =
+    "laneflow.compiler-calibration-scalable-oracle-child";
+pub const SCALABLE_ORACLE_CHILD_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -127,8 +134,19 @@ pub struct ScalableTimingChildReport {
     pub string_profile: String,
     pub generator_version: u32,
     pub n: u32,
-    pub wall_time_ns: u64,
-    pub semantic_digest_sha256: String,
+    pub outcome: ScalableTimingOutcome,
+    pub controlled_allocation_hard_ceiling_bytes: u64,
+    pub guard_peak_live_requested_bytes: Option<u64>,
+    pub wall_time_ns: Option<u64>,
+    pub semantic_digest_sha256: Option<String>,
+    pub controlled_allocation_guard: Option<ControlledAllocationGuardReport>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScalableTimingOutcome {
+    Success,
+    GuardedInChild,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,6 +197,36 @@ pub struct IdentityOracleChildReport {
     pub stage_summary: IdentityStageSummary,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScalableOracleChildReport {
+    pub schema: String,
+    pub schema_version: u32,
+    pub binary_id: String,
+    pub oracle_run_id: String,
+    pub child_pid: u32,
+    pub workload_id: ScalableWorkloadId,
+    pub workload_revision: u32,
+    pub graph_profile: String,
+    pub string_profile: String,
+    pub generator_version: u32,
+    pub n: u32,
+    pub outcome: ScalableOracleOutcome,
+    pub controlled_allocation_hard_ceiling_bytes: u64,
+    pub primary_record_count: Option<u64>,
+    pub semantic_digest_sha256: Option<String>,
+    pub complete_counts_equal: bool,
+    pub complete_typed_output_equal: bool,
+    pub controlled_allocation_guard: Option<ControlledAllocationGuardReport>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScalableOracleOutcome {
+    Success,
+    GuardedInChild,
+}
+
 pub fn measure_identity_timing_child(
     trusted: &TrustedContract,
     compiler_instance_id: String,
@@ -211,30 +259,65 @@ pub fn measure_scalable_timing_child(
     workload_id: ScalableWorkloadId,
     graph_profile: GraphProfileId,
     n: u32,
+    controlled_allocation_hard_ceiling_bytes: u64,
 ) -> Result<ScalableTimingChildReport, RoleExecutionError> {
-    let mut instance = ScalableTimingCompilerInstance::from_trusted_contract_with_id(
-        trusted,
-        compiler_instance_id.clone(),
-        workload_id,
-    )?;
-    let sample = instance.measure(graph_profile, n)?;
-    Ok(ScalableTimingChildReport {
+    let mut instance =
+        ScalableTimingCompilerInstance::from_trusted_contract_with_id_and_allocation_ceiling(
+            trusted,
+            compiler_instance_id.clone(),
+            workload_id,
+            controlled_allocation_hard_ceiling_bytes,
+        )?;
+    let base = || ScalableTimingChildReport {
         schema: SCALABLE_TIMING_CHILD_SCHEMA.to_owned(),
         schema_version: SCALABLE_TIMING_CHILD_SCHEMA_VERSION,
         binary_id: TIMING_BINARY_ID.to_owned(),
         allocation_instrumentation_enabled:
             IdentityTimingCompilerInstance::ALLOCATION_INSTRUMENTATION_ENABLED,
-        compiler_instance_id,
+        compiler_instance_id: compiler_instance_id.clone(),
         child_pid: std::process::id(),
-        workload_id: sample.workload_id,
+        workload_id,
         workload_revision: crate::WORKLOAD_REVISION_V1,
-        graph_profile: sample.graph_profile.as_str().to_owned(),
+        graph_profile: graph_profile.as_str().to_owned(),
         string_profile: crate::BASE_SCALE_STRING_PROFILE.to_owned(),
         generator_version: crate::GENERATOR_VERSION_V1,
-        n: sample.n,
-        wall_time_ns: sample.wall_time_ns,
-        semantic_digest_sha256: sample.semantic_digest_sha256,
-    })
+        n,
+        outcome: ScalableTimingOutcome::Success,
+        controlled_allocation_hard_ceiling_bytes,
+        guard_peak_live_requested_bytes: None,
+        wall_time_ns: None,
+        semantic_digest_sha256: None,
+        controlled_allocation_guard: None,
+    };
+    match instance.measure(graph_profile, n) {
+        Ok(sample) => Ok(ScalableTimingChildReport {
+            workload_id: sample.workload_id,
+            graph_profile: sample.graph_profile.as_str().to_owned(),
+            n: sample.n,
+            guard_peak_live_requested_bytes: Some(sample.guard_peak_live_requested_bytes),
+            wall_time_ns: Some(sample.wall_time_ns),
+            semantic_digest_sha256: Some(sample.semantic_digest_sha256),
+            ..base()
+        }),
+        Err(TimingError::StageGeneration(
+            StageGenerationError::ControlledAllocationHardCeiling {
+                field,
+                hard_ceiling_bytes,
+                live_requested_bytes,
+                requested_bytes,
+            },
+        )) => Ok(ScalableTimingChildReport {
+            outcome: ScalableTimingOutcome::GuardedInChild,
+            controlled_allocation_guard: Some(ControlledAllocationGuardReport {
+                field: field.to_owned(),
+                hard_ceiling_bytes,
+                live_requested_bytes,
+                requested_bytes,
+            }),
+            ..base()
+        }),
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub fn measure_identity_attribution_child(
@@ -315,10 +398,112 @@ pub fn build_identity_oracle_child(
     })
 }
 
+pub fn verify_scalable_oracle_child(
+    trusted: &TrustedContract,
+    oracle_run_id: String,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    controlled_allocation_hard_ceiling_bytes: u64,
+) -> Result<ScalableOracleChildReport, RoleExecutionError> {
+    let plan = ScalableStagePlanFactory::from_trusted_contract(trusted)?.plan(
+        workload_id,
+        graph_profile,
+        n,
+    )?;
+    let reservation_bytes = plan.controlled_allocation_oracle_guard_reservation_bytes()?;
+    let base = || ScalableOracleChildReport {
+        schema: SCALABLE_ORACLE_CHILD_SCHEMA.to_owned(),
+        schema_version: SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
+        binary_id: ORACLE_BINARY_ID.to_owned(),
+        oracle_run_id: oracle_run_id.clone(),
+        child_pid: std::process::id(),
+        workload_id,
+        workload_revision: crate::WORKLOAD_REVISION_V1,
+        graph_profile: graph_profile.as_str().to_owned(),
+        string_profile: crate::BASE_SCALE_STRING_PROFILE.to_owned(),
+        generator_version: crate::GENERATOR_VERSION_V1,
+        n,
+        outcome: ScalableOracleOutcome::Success,
+        controlled_allocation_hard_ceiling_bytes,
+        primary_record_count: None,
+        semantic_digest_sha256: None,
+        complete_counts_equal: false,
+        complete_typed_output_equal: false,
+        controlled_allocation_guard: None,
+    };
+    if reservation_bytes > controlled_allocation_hard_ceiling_bytes {
+        return Ok(ScalableOracleChildReport {
+            outcome: ScalableOracleOutcome::GuardedInChild,
+            controlled_allocation_guard: Some(ControlledAllocationGuardReport {
+                field: "scalable oracle logical arena".to_owned(),
+                hard_ceiling_bytes: controlled_allocation_hard_ceiling_bytes,
+                live_requested_bytes: 0,
+                requested_bytes: reservation_bytes,
+            }),
+            ..base()
+        });
+    }
+
+    let (counts_equal, semantic_digest_sha256) = match workload_id {
+        ScalableWorkloadId::Identity => {
+            let summary = verify_identity_oracle_case(trusted, graph_profile, n)?;
+            (
+                summary.counts == plan.counts && summary.stages == plan.stages,
+                summary.semantic_digest_sha256,
+            )
+        }
+        ScalableWorkloadId::Corridor => {
+            let summary = verify_corridor_oracle_case(trusted, graph_profile, n)?;
+            (
+                summary.counts == plan.counts && summary.stages == plan.stages,
+                summary.semantic_digest_sha256,
+            )
+        }
+        ScalableWorkloadId::JunctionGrid => {
+            let summary = verify_junction_grid_oracle_case(trusted, graph_profile, n)?;
+            (
+                summary.counts == plan.counts && summary.stages == plan.stages,
+                summary.semantic_digest_sha256,
+            )
+        }
+    };
+    if !counts_equal {
+        return Err(RoleExecutionError::ScalableOraclePlanMismatch {
+            workload_id,
+            graph_profile,
+            n,
+        });
+    }
+    Ok(ScalableOracleChildReport {
+        primary_record_count: Some(plan.primary_record_count),
+        semantic_digest_sha256: Some(semantic_digest_sha256),
+        complete_counts_equal: true,
+        complete_typed_output_equal: true,
+        ..base()
+    })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RoleExecutionError {
     #[error(transparent)]
     Timing(#[from] TimingError),
     #[error(transparent)]
     Oracle(#[from] crate::StageOracleError),
+    #[error(transparent)]
+    ScalePlan(#[from] crate::ScalePlanError),
+    #[error(transparent)]
+    IdentityOracle(#[from] crate::OracleVerificationError),
+    #[error(transparent)]
+    CorridorOracle(#[from] crate::CorridorOracleError),
+    #[error(transparent)]
+    JunctionGridOracle(#[from] crate::JunctionGridOracleError),
+    #[error(
+        "独立预言机与计时规模计划不一致：workload={workload_id:?}, graphProfile={graph_profile:?}, N={n}"
+    )]
+    ScalableOraclePlanMismatch {
+        workload_id: ScalableWorkloadId,
+        graph_profile: GraphProfileId,
+        n: u32,
+    },
 }

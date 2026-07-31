@@ -1,16 +1,17 @@
 mod support;
 
 use issue_308_compiler_budget_calibration_research::{
-    build_corridor_known_vectors, build_current_fixtures_known_vectors,
+    ScalableWorkloadId, build_corridor_known_vectors, build_current_fixtures_known_vectors,
     build_identity_known_vectors, build_identity_oracle_child, build_junction_grid_known_vectors,
     build_module_graph_known_vectors, load_repository_contract, oracle_binary_descriptor,
     verify_corridor_oracle_matrix, verify_current_fixtures_oracle, verify_identity_oracle_matrix,
-    verify_junction_grid_oracle_matrix,
+    verify_junction_grid_oracle_matrix, verify_scalable_oracle_child, wait_for_parent_start_signal,
 };
 use serde::Serialize;
 use std::path::Path;
+use std::str::FromStr;
 
-const USAGE: &str = "用法：issue-308-compiler-budget-calibration-oracle <describe-role|run|verify-matrix|write-known-vectors>\n  run <graph-profile> <N>";
+const USAGE: &str = "用法：issue-308-compiler-budget-calibration-oracle <describe-role|run|run-scalable|verify-matrix|write-known-vectors>\n  run <graph-profile> <N>\n  run-scalable <oracle-run-id> <workload-id> <graph-profile> <N> <controlled-allocation-hard-ceiling-bytes>";
 
 fn main() {
     support::main_with(run);
@@ -41,6 +42,47 @@ fn run() -> Result<(), String> {
             let report = build_identity_oracle_child(&trusted, graph_profile, n)
                 .map_err(|error| error.to_string())?;
             support::print_json(&report, "独立预言机结果")
+        }
+        "run-scalable" => {
+            let oracle_run_id =
+                support::next_utf8_argument(&mut arguments, "oracle-run-id", USAGE)?;
+            let workload_id = ScalableWorkloadId::from_str(&support::next_utf8_argument(
+                &mut arguments,
+                "workload-id",
+                USAGE,
+            )?)
+            .map_err(|error| error.to_string())?;
+            let graph_profile = support::parse_graph_profile(&support::next_utf8_argument(
+                &mut arguments,
+                "graph-profile",
+                USAGE,
+            )?)?;
+            let n = support::parse_positive_u32(
+                &support::next_utf8_argument(&mut arguments, "N", USAGE)?,
+                "N",
+            )?;
+            let controlled_allocation_hard_ceiling_bytes = support::parse_positive_u64(
+                &support::next_utf8_argument(
+                    &mut arguments,
+                    "controlled-allocation-hard-ceiling-bytes",
+                    USAGE,
+                )?,
+                "controlled-allocation-hard-ceiling-bytes",
+            )?;
+            support::require_no_more_arguments(&mut arguments, USAGE)?;
+
+            wait_for_parent_start_signal().map_err(|error| error.to_string())?;
+            let trusted = load_repository_contract().map_err(|error| error.to_string())?;
+            let report = verify_scalable_oracle_child(
+                &trusted,
+                oracle_run_id,
+                workload_id,
+                graph_profile,
+                n,
+                controlled_allocation_hard_ceiling_bytes,
+            )
+            .map_err(|error| error.to_string())?;
+            support::print_json(&report, "可扩展工作负载独立预言机结果")
         }
         "verify-matrix" => {
             support::require_no_more_arguments(&mut arguments, USAGE)?;

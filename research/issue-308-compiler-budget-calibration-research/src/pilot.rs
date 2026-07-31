@@ -1,8 +1,9 @@
 //! 编译器测量基准规模发现所需的新进程冷实例试运行基础。
 //!
-//! 本模块执行启动前停止护栏、七个受监控的独立子进程、冷实例结果核对、墙钟中位数/
-//! 中位绝对偏差计算和基础规模严格二倍发现。受测子进程固定为不执行逐分配记账的
-//! timing 角色；Evidence v1 写出与正式轮次仍由后续切片负责。
+//! 本模块执行启动前停止护栏、七个受监控的独立 timing 子进程、同级独立 oracle
+//! 子进程、冷实例结果核对、墙钟中位数/中位绝对偏差计算和基础规模严格二倍发现。
+//! 只有 timing 摘要与预言机完整计数及完整有类型输出全部一致，级别才可能形成 `B`；
+//! Evidence v1 写出与正式轮次仍由后续切片负责。
 
 use crate::process_containment::ContainedChild;
 use crate::{
@@ -10,11 +11,13 @@ use crate::{
     ChildProcessMemoryObservation, GENERATOR_VERSION_V1, GraphProfileId,
     GuardCompletedLevelObservation, GuardError, GuardPreflightReport, GuardThresholds,
     IDENTITY_TIMING_CHILD_SCHEMA, IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityTimingChildReport,
-    InvalidationReason, NullableObservation, ProcessObservation, ProcessProtocolError, RunStatus,
-    SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableGuardPlanner,
-    ScalableTimingChildReport, ScalableWorkloadId, SystemMemoryMonitor, SystemMemoryObservation,
-    TIMING_BINARY_ID, TimingError, TrustedContract, WORKLOAD_REVISION_V1, observe_clock_quantum_ns,
-    validate_base_scale_contract,
+    InvalidationReason, NullableObservation, ORACLE_BINARY_ID, ProcessObservation,
+    ProcessProtocolError, RunStatus, SCALABLE_ORACLE_CHILD_SCHEMA,
+    SCALABLE_ORACLE_CHILD_SCHEMA_VERSION, SCALABLE_TIMING_CHILD_SCHEMA,
+    SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableGuardPlanner, ScalableOracleChildReport,
+    ScalableOracleOutcome, ScalableTimingChildReport, ScalableTimingOutcome, ScalableWorkloadId,
+    SystemMemoryMonitor, SystemMemoryObservation, TIMING_BINARY_ID, TimingError, TrustedContract,
+    WORKLOAD_REVISION_V1, observe_clock_quantum_ns, validate_base_scale_contract,
 };
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -115,7 +118,7 @@ pub enum IdentityFreshProcessPilotOutcome {
 pub const FORMAL_PROTOCOL_ID: &str = "compiler-calibration-v1";
 pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA: &str =
     "laneflow.compiler-calibration-base-scale-pilot-checkpoint";
-pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION: u32 = 1;
+pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION: u32 = 2;
 pub const BASE_SCALE_SELECTION_RULE: &str = "first-power-of-two-qualifying-seven-pilot-runs-v1";
 pub const BASE_SCALE_AGGREGATION_METHOD: &str = "median-and-mad-of-seven-exact-integers-v1";
 
@@ -153,6 +156,36 @@ pub struct BaseScalePilotRun {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BaseScaleOracleRun {
+    pub run_id: String,
+    pub workload_id: ScalableWorkloadId,
+    pub workload_revision: u32,
+    pub graph_profile: String,
+    pub string_profile: String,
+    pub generator_version: u32,
+    pub n: u32,
+    pub status: RunStatus,
+    pub invalidation_reasons: Vec<BaseScaleOracleInvalidationReason>,
+    pub process: ProcessObservation,
+    pub guard_preflight: GuardPreflightReport,
+    pub child: Option<ScalableOracleChildReport>,
+    pub monitor: Option<ChildProcessMonitorReport>,
+    pub kill_error: Option<String>,
+    pub monitor_error: Option<String>,
+    pub stderr: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BaseScaleOracleInvalidationReason {
+    ResearchStopGuardrailTriggered,
+    MonitoringGap,
+    ChildAbnormalExit,
+    IndependentOracleMismatch,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BaseScalePilotLevel {
     pub n: u32,
     pub contributing_run_ids: Vec<String>,
@@ -162,7 +195,12 @@ pub struct BaseScalePilotLevel {
     pub minimum_reliable_wall_time_ns: u64,
     pub semantic_digest: String,
     pub all_semantic_digests_equal: bool,
+    pub oracle_run_id: String,
+    pub oracle_semantic_digest: String,
+    pub complete_counts_equal: bool,
+    pub complete_typed_output_equal: bool,
     pub all_guards_clear: bool,
+    pub completed_level_guard_observation: GuardCompletedLevelObservation,
     pub qualifies: bool,
 }
 
@@ -192,10 +230,12 @@ pub struct BaseScalePilotCheckpoint {
     pub selections: Vec<BaseScaleSelection>,
     pub active_selection: Option<BaseScaleSelection>,
     pub runs: Vec<BaseScalePilotRun>,
+    pub oracle_runs: Vec<BaseScaleOracleRun>,
 }
 
 struct BaseScaleDiscoveryRequest<'a> {
     timing_executable: &'a Path,
+    oracle_executable: &'a Path,
     workload_id: ScalableWorkloadId,
     graph_profile: GraphProfileId,
     required_median_wall_time_ns: u64,
@@ -209,6 +249,25 @@ struct BaseScaleRunDescriptor {
     workload_id: ScalableWorkloadId,
     graph_profile: GraphProfileId,
     n: u32,
+}
+
+struct ScalableChildExpectation<'a> {
+    compiler_instance_id: &'a str,
+    child_pid: u32,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    controlled_allocation_hard_ceiling_bytes: u64,
+}
+
+struct ScalableOracleExpectation<'a> {
+    run_id: &'a str,
+    child_pid: u32,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    primary_record_count: u64,
+    controlled_allocation_hard_ceiling_bytes: u64,
 }
 
 struct IdentityFreshProcessPilotRequest<'a> {
@@ -472,13 +531,20 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
 pub fn run_base_scale_pilot_discovery(
     trusted: &TrustedContract,
     timing_executable: &Path,
+    oracle_executable: &Path,
 ) -> Result<BaseScalePilotCheckpoint, PilotError> {
-    run_base_scale_pilot_discovery_with_checkpoint_sink(trusted, timing_executable, |_| Ok(()))
+    run_base_scale_pilot_discovery_with_checkpoint_sink(
+        trusted,
+        timing_executable,
+        oracle_executable,
+        |_| Ok(()),
+    )
 }
 
 pub fn run_base_scale_pilot_discovery_with_checkpoint_sink(
     trusted: &TrustedContract,
     timing_executable: &Path,
+    oracle_executable: &Path,
     mut persist_checkpoint: impl FnMut(&BaseScalePilotCheckpoint) -> Result<(), PilotError>,
 ) -> Result<BaseScalePilotCheckpoint, PilotError> {
     validate_base_scale_contract(&trusted.workload_manifest)?;
@@ -496,6 +562,7 @@ pub fn run_base_scale_pilot_discovery_with_checkpoint_sink(
             source,
         })?;
     let mut runs = Vec::new();
+    let mut oracle_runs = Vec::new();
 
     persist_base_scale_checkpoint(
         clock_quantum_ns,
@@ -503,6 +570,7 @@ pub fn run_base_scale_pilot_discovery_with_checkpoint_sink(
         &selections,
         None,
         &runs,
+        &oracle_runs,
         &mut persist_checkpoint,
     )?;
 
@@ -510,19 +578,23 @@ pub fn run_base_scale_pilot_discovery_with_checkpoint_sink(
         for graph_profile in GraphProfileId::ALL {
             let selection = {
                 let mut persist_progress =
-                    |runs: &[BaseScalePilotRun], active_selection: &BaseScaleSelection| {
+                    |runs: &[BaseScalePilotRun],
+                     oracle_runs: &[BaseScaleOracleRun],
+                     active_selection: &BaseScaleSelection| {
                         persist_base_scale_checkpoint(
                             clock_quantum_ns,
                             required_median_wall_time_ns,
                             &selections,
                             Some(active_selection),
                             runs,
+                            oracle_runs,
                             &mut persist_checkpoint,
                         )
                     };
                 discover_base_scale(
                     BaseScaleDiscoveryRequest {
                         timing_executable,
+                        oracle_executable,
                         workload_id,
                         graph_profile,
                         required_median_wall_time_ns,
@@ -530,6 +602,7 @@ pub fn run_base_scale_pilot_discovery_with_checkpoint_sink(
                     &guard_planner,
                     &mut memory_monitor,
                     &mut runs,
+                    &mut oracle_runs,
                     &mut persist_progress,
                 )?
             };
@@ -540,6 +613,7 @@ pub fn run_base_scale_pilot_discovery_with_checkpoint_sink(
                 &selections,
                 None,
                 &runs,
+                &oracle_runs,
                 &mut persist_checkpoint,
             )?;
         }
@@ -551,6 +625,7 @@ pub fn run_base_scale_pilot_discovery_with_checkpoint_sink(
         &selections,
         None,
         &runs,
+        &oracle_runs,
     ))
 }
 
@@ -560,6 +635,7 @@ fn build_base_scale_pilot_checkpoint(
     selections: &[BaseScaleSelection],
     active_selection: Option<&BaseScaleSelection>,
     runs: &[BaseScalePilotRun],
+    oracle_runs: &[BaseScaleOracleRun],
 ) -> BaseScalePilotCheckpoint {
     BaseScalePilotCheckpoint {
         schema: BASE_SCALE_PILOT_CHECKPOINT_SCHEMA.to_owned(),
@@ -570,6 +646,7 @@ fn build_base_scale_pilot_checkpoint(
         selections: selections.to_vec(),
         active_selection: active_selection.cloned(),
         runs: runs.to_vec(),
+        oracle_runs: oracle_runs.to_vec(),
     }
 }
 
@@ -579,6 +656,7 @@ fn persist_base_scale_checkpoint(
     selections: &[BaseScaleSelection],
     active_selection: Option<&BaseScaleSelection>,
     runs: &[BaseScalePilotRun],
+    oracle_runs: &[BaseScaleOracleRun],
     persist_checkpoint: &mut impl FnMut(&BaseScalePilotCheckpoint) -> Result<(), PilotError>,
 ) -> Result<(), PilotError> {
     persist_checkpoint(&build_base_scale_pilot_checkpoint(
@@ -587,6 +665,7 @@ fn persist_base_scale_checkpoint(
         selections,
         active_selection,
         runs,
+        oracle_runs,
     ))
 }
 
@@ -595,13 +674,16 @@ fn discover_base_scale(
     guard_planner: &ScalableGuardPlanner,
     memory_monitor: &mut SystemMemoryMonitor,
     runs: &mut Vec<BaseScalePilotRun>,
+    oracle_runs: &mut Vec<BaseScaleOracleRun>,
     persist_progress: &mut impl FnMut(
         &[BaseScalePilotRun],
+        &[BaseScaleOracleRun],
         &BaseScaleSelection,
     ) -> Result<(), PilotError>,
 ) -> Result<BaseScaleSelection, PilotError> {
     let BaseScaleDiscoveryRequest {
         timing_executable,
+        oracle_executable,
         workload_id,
         graph_profile,
         required_median_wall_time_ns,
@@ -618,8 +700,9 @@ fn discover_base_scale(
         b: NullableObservation::unavailable("base-scale-not-yet-selected"),
         terminal_guard_run_id: NullableObservation::unavailable("base-scale-not-yet-selected"),
     };
-    persist_progress(runs, &selection)?;
+    persist_progress(runs, oracle_runs, &selection)?;
     let mut n = 1_u32;
+    let mut previous_completed_level = None;
 
     loop {
         let mut retry_ordinal = 0_u32;
@@ -645,6 +728,7 @@ fn discover_base_scale(
                     graph_profile,
                     n,
                     memory_monitor.observe()?,
+                    previous_completed_level,
                 )?;
                 if !guard.allows_child_start {
                     invalidate_attempt_runs(
@@ -655,7 +739,7 @@ fn discover_base_scale(
                     selection.b =
                         NullableObservation::unavailable("no-reliable-base-scale-before-guard");
                     selection.terminal_guard_run_id = NullableObservation::observed(run_id);
-                    persist_progress(runs, &selection)?;
+                    persist_progress(runs, oracle_runs, &selection)?;
                     return Ok(selection);
                 }
 
@@ -677,7 +761,8 @@ fn discover_base_scale(
                 )?;
                 let runtime_guard_triggered = run
                     .invalidation_reasons
-                    .contains(&InvalidationReason::ResearchStopGuardrailTriggered);
+                    .contains(&InvalidationReason::ResearchStopGuardrailTriggered)
+                    || run.status == RunStatus::Guarded;
                 if run.status == RunStatus::Valid {
                     contributing_run_indexes.push(runs.len());
                 } else {
@@ -689,7 +774,7 @@ fn discover_base_scale(
                         &mut runs[attempt_start..],
                         &[InvalidationReason::ResearchStopGuardrailTriggered],
                     );
-                    persist_progress(runs, &selection)?;
+                    persist_progress(runs, oracle_runs, &selection)?;
                     return Err(PilotError::RuntimeGuardDuringBaseScale {
                         run_id,
                         workload_id,
@@ -700,7 +785,7 @@ fn discover_base_scale(
                 if !retry_reasons.is_empty() {
                     break;
                 }
-                persist_progress(runs, &selection)?;
+                persist_progress(runs, oracle_runs, &selection)?;
             }
 
             if retry_reasons.is_empty()
@@ -710,22 +795,105 @@ fn discover_base_scale(
             }
             let reasons = retry_reasons.into_iter().collect::<Vec<_>>();
             invalidate_attempt_runs(&mut runs[attempt_start..], &reasons);
-            persist_progress(runs, &selection)?;
+            persist_progress(runs, oracle_runs, &selection)?;
             retry_ordinal = retry_ordinal
                 .checked_add(1)
                 .ok_or(PilotError::ArithmeticOverflow("base-scale retry ordinal"))?;
         };
 
-        let level =
-            summarize_base_scale_level(n, &contributing_runs, runs, required_median_wall_time_ns)?;
+        let oracle_run_id = format!(
+            "{}/oracle",
+            base_scale_attempt_id(workload_id, graph_profile, n, retry_ordinal)
+        );
+        let oracle_guard = guard_planner.evaluate_pilot(
+            workload_id,
+            graph_profile,
+            n,
+            memory_monitor.observe()?,
+            previous_completed_level,
+        )?;
+        if !oracle_guard.allows_child_start {
+            invalidate_contributing_runs(
+                runs,
+                &contributing_runs,
+                &[InvalidationReason::ResearchStopGuardrailTriggered],
+            )?;
+            oracle_runs.push(guarded_base_scale_oracle_run(
+                oracle_run_id.clone(),
+                workload_id,
+                graph_profile,
+                n,
+                oracle_guard,
+            ));
+            selection.b = NullableObservation::unavailable("no-reliable-base-scale-before-guard");
+            selection.terminal_guard_run_id = NullableObservation::observed(oracle_run_id);
+            persist_progress(runs, oracle_runs, &selection)?;
+            return Ok(selection);
+        }
+        let expected_semantic_digest = contributing_run_semantic_digest(&contributing_runs, runs)?;
+        let oracle_execution = run_monitored_scalable_oracle(
+            oracle_executable,
+            FRESH_PROCESS_PILOT_SAMPLE_COUNT,
+            &oracle_run_id,
+            workload_id,
+            graph_profile,
+            n,
+            oracle_guard.thresholds,
+        )?;
+        let oracle_run = scalable_oracle_execution_to_run(
+            oracle_run_id.clone(),
+            workload_id,
+            graph_profile,
+            n,
+            expected_semantic_digest,
+            oracle_guard,
+            oracle_execution,
+        )?;
+        let oracle_status = oracle_run.status;
+        oracle_runs.push(oracle_run);
+        persist_progress(runs, oracle_runs, &selection)?;
+        if oracle_status != RunStatus::Valid {
+            if oracle_status == RunStatus::Guarded {
+                invalidate_contributing_runs(
+                    runs,
+                    &contributing_runs,
+                    &[InvalidationReason::ResearchStopGuardrailTriggered],
+                )?;
+                persist_progress(runs, oracle_runs, &selection)?;
+                return Err(PilotError::RuntimeGuardDuringBaseScale {
+                    run_id: oracle_run_id,
+                    workload_id,
+                    graph_profile,
+                    n,
+                });
+            }
+            return Err(PilotError::OracleVerificationFailed {
+                run_id: oracle_run_id,
+                workload_id,
+                graph_profile,
+                n,
+            });
+        }
+
+        let oracle_run = oracle_runs
+            .last()
+            .expect("the successful oracle run was just appended");
+        let level = summarize_base_scale_level(
+            n,
+            &contributing_runs,
+            runs,
+            oracle_run,
+            required_median_wall_time_ns,
+        )?;
         let qualifies = level.qualifies;
+        previous_completed_level = Some(level.completed_level_guard_observation);
         selection.pilot_levels.push(level);
-        persist_progress(runs, &selection)?;
+        persist_progress(runs, oracle_runs, &selection)?;
         if qualifies {
             selection.b = NullableObservation::observed(n);
             selection.terminal_guard_run_id =
                 NullableObservation::unavailable("base-scale-selected");
-            persist_progress(runs, &selection)?;
+            persist_progress(runs, oracle_runs, &selection)?;
             return Ok(selection);
         }
         n = next_base_scale_n(n)?;
@@ -788,6 +956,33 @@ fn guarded_base_scale_run(
     }
 }
 
+fn guarded_base_scale_oracle_run(
+    run_id: String,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    guard_preflight: GuardPreflightReport,
+) -> BaseScaleOracleRun {
+    BaseScaleOracleRun {
+        run_id,
+        workload_id,
+        workload_revision: WORKLOAD_REVISION_V1,
+        graph_profile: graph_profile.as_str().to_owned(),
+        string_profile: BASE_SCALE_STRING_PROFILE.to_owned(),
+        generator_version: GENERATOR_VERSION_V1,
+        n,
+        status: RunStatus::Guarded,
+        invalidation_reasons: Vec::new(),
+        process: ProcessObservation::guarded_before_start(std::process::id(), ORACLE_BINARY_ID),
+        guard_preflight,
+        child: None,
+        monitor: None,
+        kill_error: None,
+        monitor_error: None,
+        stderr: String::new(),
+    }
+}
+
 fn scalable_execution_to_pilot_run(
     descriptor: BaseScaleRunDescriptor,
     compiler_instance_id: String,
@@ -831,18 +1026,27 @@ fn scalable_execution_to_pilot_run(
     }
 
     let mut report = None;
+    let mut child_guarded = false;
     if !monitor_invalid && output.status.success() {
         match serde_json::from_slice::<ScalableTimingChildReport>(&output.stdout) {
             Ok(parsed) => match verify_scalable_child_report(
                 &parsed,
                 pilot_sample_position,
-                &compiler_instance_id,
-                child_pid,
-                workload_id,
-                graph_profile,
-                n,
+                &ScalableChildExpectation {
+                    compiler_instance_id: &compiler_instance_id,
+                    child_pid,
+                    workload_id,
+                    graph_profile,
+                    n,
+                    controlled_allocation_hard_ceiling_bytes: guard_preflight
+                        .thresholds
+                        .compiler_controlled_bytes,
+                },
             ) {
-                Ok(()) => report = Some(parsed),
+                Ok(()) => {
+                    child_guarded = parsed.outcome == ScalableTimingOutcome::GuardedInChild;
+                    report = Some(parsed);
+                }
                 Err(error) => {
                     invalidation_reasons.push(InvalidationReason::ChildAbnormalExit);
                     monitor_error = Some(format!("invalid-child-report:{error}"));
@@ -854,15 +1058,27 @@ fn scalable_execution_to_pilot_run(
             }
         }
     }
+    if child_guarded {
+        invalidation_reasons.push(InvalidationReason::ResearchStopGuardrailTriggered);
+    }
 
     invalidation_reasons.sort_unstable();
     invalidation_reasons.dedup();
-    let status = if invalidation_reasons.is_empty() {
+    let status = if child_guarded {
+        RunStatus::Guarded
+    } else if invalidation_reasons.is_empty() {
         RunStatus::Valid
     } else {
         RunStatus::Invalid
     };
-    let process = if output.status.success() {
+    let process = if child_guarded {
+        ProcessObservation::guarded_in_child(
+            std::process::id(),
+            child_pid,
+            TIMING_BINARY_ID,
+            output.status,
+        )?
+    } else if output.status.success() {
         ProcessObservation::success(
             std::process::id(),
             child_pid,
@@ -910,6 +1126,171 @@ fn scalable_execution_to_pilot_run(
     })
 }
 
+fn scalable_oracle_execution_to_run(
+    run_id: String,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    expected_semantic_digest: &str,
+    guard_preflight: GuardPreflightReport,
+    execution: MonitoredChildExecution,
+) -> Result<BaseScaleOracleRun, PilotError> {
+    let (child_pid, output, monitor, monitor_invalid, kill_error, mut monitor_error) =
+        match execution {
+            MonitoredChildExecution::Exited {
+                child_pid,
+                output,
+                monitor,
+            } => (child_pid, output, monitor, false, None, None),
+            MonitoredChildExecution::InvalidatedByMonitor {
+                child_pid,
+                output,
+                monitor,
+                kill_error,
+                monitor_error,
+            } => (child_pid, output, monitor, true, kill_error, monitor_error),
+        };
+    let mut invalidation_reasons = Vec::new();
+    if monitor_invalid {
+        invalidation_reasons =
+            monitor_invalidation_reasons(monitor.trigger, output.status.success())
+                .ok_or(PilotError::MissingMonitorInvalidationTrigger {
+                    ordinal: FRESH_PROCESS_PILOT_SAMPLE_COUNT,
+                })?
+                .into_iter()
+                .map(base_scale_oracle_invalidation_reason)
+                .collect();
+    } else if !output.status.success() {
+        invalidation_reasons.push(BaseScaleOracleInvalidationReason::ChildAbnormalExit);
+    }
+
+    let mut report = None;
+    let mut child_guarded = false;
+    if !monitor_invalid && output.status.success() {
+        match serde_json::from_slice::<ScalableOracleChildReport>(&output.stdout) {
+            Ok(parsed) => match verify_scalable_oracle_report(
+                &parsed,
+                &ScalableOracleExpectation {
+                    run_id: &run_id,
+                    child_pid,
+                    workload_id,
+                    graph_profile,
+                    n,
+                    primary_record_count: guard_preflight.primary_record_count,
+                    controlled_allocation_hard_ceiling_bytes: guard_preflight
+                        .thresholds
+                        .compiler_controlled_bytes,
+                },
+            ) {
+                Ok(()) => {
+                    child_guarded = parsed.outcome == ScalableOracleOutcome::GuardedInChild;
+                    if parsed.outcome == ScalableOracleOutcome::Success
+                        && parsed.semantic_digest_sha256.as_deref()
+                            != Some(expected_semantic_digest)
+                    {
+                        invalidation_reasons
+                            .push(BaseScaleOracleInvalidationReason::IndependentOracleMismatch);
+                    }
+                    report = Some(parsed);
+                }
+                Err(error) => {
+                    invalidation_reasons.push(BaseScaleOracleInvalidationReason::ChildAbnormalExit);
+                    monitor_error = Some(format!("invalid-oracle-report:{error}"));
+                }
+            },
+            Err(error) => {
+                invalidation_reasons.push(BaseScaleOracleInvalidationReason::ChildAbnormalExit);
+                monitor_error = Some(format!("invalid-oracle-report-json:{error}"));
+            }
+        }
+    }
+    if child_guarded {
+        invalidation_reasons
+            .push(BaseScaleOracleInvalidationReason::ResearchStopGuardrailTriggered);
+    }
+
+    invalidation_reasons.sort_unstable();
+    invalidation_reasons.dedup();
+    let status = if child_guarded {
+        RunStatus::Guarded
+    } else if invalidation_reasons.is_empty() {
+        RunStatus::Valid
+    } else {
+        RunStatus::Invalid
+    };
+    let process = if child_guarded {
+        ProcessObservation::guarded_in_child(
+            std::process::id(),
+            child_pid,
+            ORACLE_BINARY_ID,
+            output.status,
+        )?
+    } else if output.status.success() {
+        ProcessObservation::success(
+            std::process::id(),
+            child_pid,
+            ORACLE_BINARY_ID,
+            output.status,
+        )?
+    } else if monitor_invalid {
+        ProcessObservation::invalid_monitor_termination(
+            std::process::id(),
+            child_pid,
+            ORACLE_BINARY_ID,
+            output.status,
+        )?
+    } else {
+        ProcessObservation::invalid_abnormal_exit(
+            std::process::id(),
+            child_pid,
+            ORACLE_BINARY_ID,
+            output.status,
+        )?
+    };
+
+    Ok(BaseScaleOracleRun {
+        run_id,
+        workload_id,
+        workload_revision: WORKLOAD_REVISION_V1,
+        graph_profile: graph_profile.as_str().to_owned(),
+        string_profile: BASE_SCALE_STRING_PROFILE.to_owned(),
+        generator_version: GENERATOR_VERSION_V1,
+        n,
+        status,
+        invalidation_reasons,
+        process,
+        guard_preflight,
+        child: report,
+        monitor: Some(monitor),
+        kill_error,
+        monitor_error,
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+fn base_scale_oracle_invalidation_reason(
+    reason: InvalidationReason,
+) -> BaseScaleOracleInvalidationReason {
+    match reason {
+        InvalidationReason::ResearchStopGuardrailTriggered => {
+            BaseScaleOracleInvalidationReason::ResearchStopGuardrailTriggered
+        }
+        InvalidationReason::MonitoringGap => BaseScaleOracleInvalidationReason::MonitoringGap,
+        InvalidationReason::ChildAbnormalExit => {
+            BaseScaleOracleInvalidationReason::ChildAbnormalExit
+        }
+        InvalidationReason::PowerSourceChange
+        | InvalidationReason::PowerPlanChange
+        | InvalidationReason::VendorModeChange
+        | InvalidationReason::SleepOrSessionLock
+        | InvalidationReason::ThermalOrPowerThrottling
+        | InvalidationReason::BackgroundCpuOverOneSecond
+        | InvalidationReason::BackgroundWriteOver100Mib => {
+            unreachable!("the child monitor cannot produce environment invalidation reasons")
+        }
+    }
+}
+
 fn invalidate_attempt_runs(runs: &mut [BaseScalePilotRun], reasons: &[InvalidationReason]) {
     for run in runs {
         if run.status != RunStatus::Valid {
@@ -922,10 +1303,43 @@ fn invalidate_attempt_runs(runs: &mut [BaseScalePilotRun], reasons: &[Invalidati
     }
 }
 
+fn invalidate_contributing_runs(
+    runs: &mut [BaseScalePilotRun],
+    indexes: &[usize],
+    reasons: &[InvalidationReason],
+) -> Result<(), PilotError> {
+    for index in indexes {
+        let run = runs
+            .get_mut(*index)
+            .ok_or(PilotError::InvalidContributingRunIndex { index: *index })?;
+        if run.status == RunStatus::Valid {
+            run.status = RunStatus::Invalid;
+            run.invalidation_reasons.extend_from_slice(reasons);
+            run.invalidation_reasons.sort_unstable();
+            run.invalidation_reasons.dedup();
+        }
+    }
+    Ok(())
+}
+
+fn contributing_run_semantic_digest<'a>(
+    contributing_run_indexes: &[usize],
+    runs: &'a [BaseScalePilotRun],
+) -> Result<&'a str, PilotError> {
+    let first_index = *contributing_run_indexes
+        .first()
+        .ok_or(PilotError::InvalidContributingRunSet)?;
+    runs.get(first_index)
+        .and_then(|run| run.child.as_ref())
+        .and_then(|child| child.semantic_digest_sha256.as_deref())
+        .ok_or(PilotError::InvalidContributingRunSet)
+}
+
 fn summarize_base_scale_level(
     n: u32,
     contributing_run_indexes: &[usize],
     runs: &[BaseScalePilotRun],
+    oracle_run: &BaseScaleOracleRun,
     minimum_reliable_wall_time_ns: u64,
 ) -> Result<BaseScalePilotLevel, PilotError> {
     if contributing_run_indexes.len() != FRESH_PROCESS_PILOT_SAMPLE_COUNT {
@@ -948,28 +1362,56 @@ fn summarize_base_scale_level(
     }) {
         return Err(PilotError::InvalidContributingRunSet);
     }
-    let (wall_time_median_ns, wall_time_median_absolute_deviation_ns) = median_and_mad(
-        contributing_runs
-            .iter()
-            .map(|run| run.child.as_ref().expect("validated child").wall_time_ns),
-    )?;
+    let (wall_time_median_ns, wall_time_median_absolute_deviation_ns) =
+        median_and_mad(contributing_runs.iter().map(|run| {
+            run.child
+                .as_ref()
+                .expect("validated child")
+                .wall_time_ns
+                .expect("validated success child")
+        }))?;
     let semantic_digest = contributing_runs[0]
         .child
         .as_ref()
         .expect("validated child")
         .semantic_digest_sha256
+        .as_ref()
+        .expect("validated success child")
         .clone();
     let all_semantic_digests_equal = contributing_runs.iter().all(|run| {
         run.child
             .as_ref()
-            .is_some_and(|child| child.semantic_digest_sha256 == semantic_digest)
+            .and_then(|child| child.semantic_digest_sha256.as_ref())
+            .is_some_and(|digest| digest == &semantic_digest)
     });
+    if oracle_run.status != RunStatus::Valid
+        || oracle_run.n != n
+        || oracle_run.child.as_ref().is_none_or(|child| {
+            child.outcome != ScalableOracleOutcome::Success
+                || child.semantic_digest_sha256.as_deref() != Some(semantic_digest.as_str())
+                || !child.complete_counts_equal
+                || !child.complete_typed_output_equal
+        })
+    {
+        return Err(PilotError::InvalidOracleRunSet);
+    }
+    let oracle_child = oracle_run.child.as_ref().expect("validated oracle child");
+    let oracle_semantic_digest = oracle_child
+        .semantic_digest_sha256
+        .as_ref()
+        .expect("validated oracle digest")
+        .clone();
     let all_guards_clear = contributing_runs
         .iter()
-        .all(|run| run.guard_preflight.allows_child_start);
+        .all(|run| run.guard_preflight.allows_child_start)
+        && oracle_run.guard_preflight.allows_child_start;
+    let completed_level_guard_observation =
+        completed_level_guard_observation(n, &contributing_runs)?;
     let qualifies = wall_time_median_ns >= minimum_reliable_wall_time_ns
         && relative_mad_within_limit(wall_time_median_ns, wall_time_median_absolute_deviation_ns)
         && all_semantic_digests_equal
+        && oracle_child.complete_counts_equal
+        && oracle_child.complete_typed_output_equal
         && all_guards_clear;
     Ok(BaseScalePilotLevel {
         n,
@@ -983,8 +1425,80 @@ fn summarize_base_scale_level(
         minimum_reliable_wall_time_ns,
         semantic_digest,
         all_semantic_digests_equal,
+        oracle_run_id: oracle_run.run_id.clone(),
+        oracle_semantic_digest,
+        complete_counts_equal: oracle_child.complete_counts_equal,
+        complete_typed_output_equal: oracle_child.complete_typed_output_equal,
         all_guards_clear,
+        completed_level_guard_observation,
         qualifies,
+    })
+}
+
+fn completed_level_guard_observation(
+    n: u32,
+    contributing_runs: &[&BaseScalePilotRun],
+) -> Result<GuardCompletedLevelObservation, PilotError> {
+    let primary_record_count = contributing_runs
+        .first()
+        .ok_or(PilotError::InvalidContributingRunSet)?
+        .guard_preflight
+        .primary_record_count;
+    if contributing_runs
+        .iter()
+        .any(|run| run.guard_preflight.primary_record_count != primary_record_count)
+    {
+        return Err(PilotError::InvalidContributingRunSet);
+    }
+
+    let guard_peaks = contributing_runs
+        .iter()
+        .map(|run| {
+            run.child
+                .as_ref()
+                .and_then(|child| child.guard_peak_live_requested_bytes)
+                .ok_or(PilotError::InvalidContributingRunSet)
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    if guard_peaks.len() != 1 {
+        return Err(PilotError::InconsistentGuardPeakObservation);
+    }
+    let peak_live_requested_bytes = *guard_peaks
+        .first()
+        .ok_or(PilotError::InvalidContributingRunSet)?;
+    let private_bytes = contributing_runs
+        .iter()
+        .map(|run| {
+            run.monitor
+                .as_ref()
+                .and_then(|monitor| monitor.peak_private_bytes.value)
+                .ok_or(PilotError::InvalidContributingRunSet)
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .max()
+        .ok_or(PilotError::InvalidContributingRunSet)?;
+    let wall_time_ns = contributing_runs
+        .iter()
+        .map(|run| {
+            run.child
+                .as_ref()
+                .and_then(|child| child.wall_time_ns)
+                .ok_or(PilotError::InvalidContributingRunSet)
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .max()
+        .ok_or(PilotError::InvalidContributingRunSet)?;
+    if peak_live_requested_bytes == 0 || private_bytes == 0 || wall_time_ns == 0 {
+        return Err(PilotError::InvalidContributingRunSet);
+    }
+    Ok(GuardCompletedLevelObservation {
+        n,
+        primary_record_count,
+        peak_live_requested_bytes,
+        private_bytes,
+        wall_time_ns,
     })
 }
 
@@ -1054,6 +1568,35 @@ fn run_monitored_scalable_child(
         .arg(workload_id.as_str())
         .arg(graph_profile.as_str())
         .arg(n.to_string())
+        .arg(thresholds.compiler_controlled_bytes.to_string())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = ContainedChild::spawn(&mut command)
+        .map_err(|source| PilotError::ChildSpawn { ordinal, source })?;
+    run_monitored_child_with_observer(child, ordinal, thresholds, |child_pid| {
+        memory_monitor.observe(child_pid)
+    })
+}
+
+fn run_monitored_scalable_oracle(
+    oracle_executable: &Path,
+    ordinal: usize,
+    oracle_run_id: &str,
+    workload_id: ScalableWorkloadId,
+    graph_profile: GraphProfileId,
+    n: u32,
+    thresholds: GuardThresholds,
+) -> Result<MonitoredChildExecution, PilotError> {
+    let mut memory_monitor = ChildProcessMemoryMonitor::new()?;
+    let mut command = Command::new(oracle_executable);
+    command
+        .arg("run-scalable")
+        .arg(oracle_run_id)
+        .arg(workload_id.as_str())
+        .arg(graph_profile.as_str())
+        .arg(n.to_string())
+        .arg(thresholds.compiler_controlled_bytes.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -1621,11 +2164,7 @@ fn verify_child_report(
 fn verify_scalable_child_report(
     report: &ScalableTimingChildReport,
     ordinal: usize,
-    expected_instance_id: &str,
-    expected_child_pid: u32,
-    workload_id: ScalableWorkloadId,
-    graph_profile: GraphProfileId,
-    n: u32,
+    expected: &ScalableChildExpectation<'_>,
 ) -> Result<(), PilotError> {
     if report.schema != SCALABLE_TIMING_CHILD_SCHEMA {
         return Err(PilotError::ChildReportMismatch {
@@ -1651,19 +2190,19 @@ fn verify_scalable_child_report(
             field: "allocationInstrumentationEnabled",
         });
     }
-    if report.compiler_instance_id != expected_instance_id {
+    if report.compiler_instance_id != expected.compiler_instance_id {
         return Err(PilotError::ChildReportMismatch {
             ordinal,
             field: "compilerInstanceId",
         });
     }
-    if report.child_pid == 0 || report.child_pid != expected_child_pid {
+    if report.child_pid == 0 || report.child_pid != expected.child_pid {
         return Err(PilotError::ChildReportMismatch {
             ordinal,
             field: "childPid",
         });
     }
-    if report.workload_id != workload_id {
+    if report.workload_id != expected.workload_id {
         return Err(PilotError::ChildReportMismatch {
             ordinal,
             field: "workloadId",
@@ -1675,7 +2214,7 @@ fn verify_scalable_child_report(
             field: "workloadRevision",
         });
     }
-    if report.graph_profile != graph_profile.as_str() {
+    if report.graph_profile != expected.graph_profile.as_str() {
         return Err(PilotError::ChildReportMismatch {
             ordinal,
             field: "graphProfile",
@@ -1693,25 +2232,172 @@ fn verify_scalable_child_report(
             field: "generatorVersion",
         });
     }
-    if report.n != n {
+    if report.n != expected.n {
         return Err(PilotError::ChildReportMismatch {
             ordinal,
             field: "n",
         });
     }
-    if report.wall_time_ns == 0 {
+    if report.controlled_allocation_hard_ceiling_bytes
+        != expected.controlled_allocation_hard_ceiling_bytes
+    {
         return Err(PilotError::ChildReportMismatch {
             ordinal,
-            field: "wallTimeNs",
+            field: "controlledAllocationHardCeilingBytes",
         });
     }
-    if !valid_sha256(&report.semantic_digest_sha256) {
-        return Err(PilotError::ChildReportMismatch {
-            ordinal,
-            field: "semanticDigestSha256",
-        });
+    match report.outcome {
+        ScalableTimingOutcome::Success => {
+            if report.guard_peak_live_requested_bytes.is_none_or(|value| {
+                value == 0 || value > expected.controlled_allocation_hard_ceiling_bytes
+            }) {
+                return Err(PilotError::ChildReportMismatch {
+                    ordinal,
+                    field: "guardPeakLiveRequestedBytes",
+                });
+            }
+            if report.wall_time_ns.is_none_or(|value| value == 0) {
+                return Err(PilotError::ChildReportMismatch {
+                    ordinal,
+                    field: "wallTimeNs",
+                });
+            }
+            if report
+                .semantic_digest_sha256
+                .as_deref()
+                .is_none_or(|digest| !valid_sha256(digest))
+            {
+                return Err(PilotError::ChildReportMismatch {
+                    ordinal,
+                    field: "semanticDigestSha256",
+                });
+            }
+            if report.controlled_allocation_guard.is_some() {
+                return Err(PilotError::ChildReportMismatch {
+                    ordinal,
+                    field: "controlledAllocationGuard",
+                });
+            }
+        }
+        ScalableTimingOutcome::GuardedInChild => {
+            if report.guard_peak_live_requested_bytes.is_some()
+                || report.wall_time_ns.is_some()
+                || report.semantic_digest_sha256.is_some()
+                || report
+                    .controlled_allocation_guard
+                    .as_ref()
+                    .is_none_or(|guard| {
+                        !valid_controlled_allocation_guard(
+                            guard,
+                            expected.controlled_allocation_hard_ceiling_bytes,
+                        )
+                    })
+            {
+                return Err(PilotError::ChildReportMismatch {
+                    ordinal,
+                    field: "guardedInChild",
+                });
+            }
+        }
     }
     Ok(())
+}
+
+fn verify_scalable_oracle_report(
+    report: &ScalableOracleChildReport,
+    expected: &ScalableOracleExpectation<'_>,
+) -> Result<(), PilotError> {
+    let mismatch = |field| PilotError::OracleReportMismatch { field };
+    if report.schema != SCALABLE_ORACLE_CHILD_SCHEMA {
+        return Err(mismatch("schema"));
+    }
+    if report.schema_version != SCALABLE_ORACLE_CHILD_SCHEMA_VERSION {
+        return Err(mismatch("schemaVersion"));
+    }
+    if report.binary_id != ORACLE_BINARY_ID {
+        return Err(mismatch("binaryId"));
+    }
+    if report.oracle_run_id != expected.run_id {
+        return Err(mismatch("oracleRunId"));
+    }
+    if report.child_pid == 0 || report.child_pid != expected.child_pid {
+        return Err(mismatch("childPid"));
+    }
+    if report.workload_id != expected.workload_id {
+        return Err(mismatch("workloadId"));
+    }
+    if report.workload_revision != WORKLOAD_REVISION_V1 {
+        return Err(mismatch("workloadRevision"));
+    }
+    if report.graph_profile != expected.graph_profile.as_str() {
+        return Err(mismatch("graphProfile"));
+    }
+    if report.string_profile != BASE_SCALE_STRING_PROFILE {
+        return Err(mismatch("stringProfile"));
+    }
+    if report.generator_version != GENERATOR_VERSION_V1 {
+        return Err(mismatch("generatorVersion"));
+    }
+    if report.n != expected.n {
+        return Err(mismatch("n"));
+    }
+    if report.controlled_allocation_hard_ceiling_bytes
+        != expected.controlled_allocation_hard_ceiling_bytes
+    {
+        return Err(mismatch("controlledAllocationHardCeilingBytes"));
+    }
+    match report.outcome {
+        ScalableOracleOutcome::Success => {
+            if report.primary_record_count != Some(expected.primary_record_count) {
+                return Err(mismatch("primaryRecordCount"));
+            }
+            if report
+                .semantic_digest_sha256
+                .as_deref()
+                .is_none_or(|digest| !valid_sha256(digest))
+            {
+                return Err(mismatch("semanticDigestSha256"));
+            }
+            if !report.complete_counts_equal || !report.complete_typed_output_equal {
+                return Err(mismatch("completeOracleEquality"));
+            }
+            if report.controlled_allocation_guard.is_some() {
+                return Err(mismatch("controlledAllocationGuard"));
+            }
+        }
+        ScalableOracleOutcome::GuardedInChild => {
+            if report.primary_record_count.is_some()
+                || report.semantic_digest_sha256.is_some()
+                || report.complete_counts_equal
+                || report.complete_typed_output_equal
+                || report
+                    .controlled_allocation_guard
+                    .as_ref()
+                    .is_none_or(|guard| {
+                        !valid_controlled_allocation_guard(
+                            guard,
+                            expected.controlled_allocation_hard_ceiling_bytes,
+                        )
+                    })
+            {
+                return Err(mismatch("guardedInChild"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn valid_controlled_allocation_guard(
+    guard: &crate::ControlledAllocationGuardReport,
+    expected_hard_ceiling_bytes: u64,
+) -> bool {
+    guard.hard_ceiling_bytes == expected_hard_ceiling_bytes
+        && !guard.field.is_empty()
+        && guard.requested_bytes > 0
+        && guard
+            .live_requested_bytes
+            .checked_add(guard.requested_bytes)
+            .is_none_or(|total| total > guard.hard_ceiling_bytes)
 }
 
 fn valid_sha256(value: &str) -> bool {
@@ -1818,10 +2504,25 @@ pub enum PilotError {
     InvalidContributingRunIndex { index: usize },
     #[error("基础规模试运行贡献集合包含无效、非冷实例、跨规模或缺少子报告的运行")]
     InvalidContributingRunSet,
+    #[error("基础规模试运行缺少同级有效独立预言机运行，或其完整计数/完整有类型输出不相等")]
+    InvalidOracleRunSet,
+    #[error("基础规模独立预言机报告字段不匹配：{field}")]
+    OracleReportMismatch { field: &'static str },
+    #[error("同一完整基础规模级别的七个受控分配安全峰值不一致")]
+    InconsistentGuardPeakObservation,
     #[error(
         "基础规模试运行 {run_id} 在 {workload_id:?}/{graph_profile:?}/N={n} 的受测子进程内触发研究停止护栏；已持久化无效尝试，但该事实不能冒充下一二倍级别的 guard-preflight 终止运行"
     )]
     RuntimeGuardDuringBaseScale {
+        run_id: String,
+        workload_id: ScalableWorkloadId,
+        graph_profile: GraphProfileId,
+        n: u32,
+    },
+    #[error(
+        "基础规模独立预言机 {run_id} 未能验证 {workload_id:?}/{graph_profile:?}/N={n}；已持久化运行并禁止该级别形成候选 B"
+    )]
+    OracleVerificationFailed {
         run_id: String,
         workload_id: ScalableWorkloadId,
         graph_profile: GraphProfileId,
@@ -1874,9 +2575,10 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let contributing = (0..FRESH_PROCESS_PILOT_SAMPLE_COUNT).collect::<Vec<_>>();
+        let oracle = synthetic_oracle_run(&guard, RunStatus::Valid);
 
-        let level =
-            summarize_base_scale_level(1, &contributing, &runs, 10_000).expect("pilot level");
+        let level = summarize_base_scale_level(1, &contributing, &runs, &oracle, 10_000)
+            .expect("pilot level");
         assert_eq!(level.wall_time_median_ns, 10_000);
         assert_eq!(level.wall_time_median_absolute_deviation_ns, 100);
         assert!(level.all_semantic_digests_equal);
@@ -1888,8 +2590,96 @@ mod tests {
             .invalidation_reasons
             .push(InvalidationReason::MonitoringGap);
         assert!(matches!(
-            summarize_base_scale_level(1, &contributing, &runs, 10_000),
+            summarize_base_scale_level(1, &contributing, &runs, &oracle, 10_000),
             Err(PilotError::InvalidContributingRunSet)
+        ));
+    }
+
+    #[test]
+    fn seven_identical_wrong_digests_cannot_qualify_without_the_independent_oracle() {
+        let guard = clear_pilot_guard();
+        let mut runs = (0..FRESH_PROCESS_PILOT_SAMPLE_COUNT)
+            .map(|ordinal| synthetic_pilot_run(ordinal, 10_000, &guard, RunStatus::Valid))
+            .collect::<Vec<_>>();
+        for run in &mut runs {
+            run.child
+                .as_mut()
+                .expect("synthetic child")
+                .semantic_digest_sha256 = Some("1".repeat(64));
+        }
+        let contributing = (0..FRESH_PROCESS_PILOT_SAMPLE_COUNT).collect::<Vec<_>>();
+        let oracle = synthetic_oracle_run(&guard, RunStatus::Valid);
+
+        assert!(matches!(
+            summarize_base_scale_level(1, &contributing, &runs, &oracle, 10_000),
+            Err(PilotError::InvalidOracleRunSet)
+        ));
+    }
+
+    #[test]
+    fn completed_level_requires_one_deterministic_guard_peak_across_all_seven_samples() {
+        let guard = clear_pilot_guard();
+        let mut runs = (0..FRESH_PROCESS_PILOT_SAMPLE_COUNT)
+            .map(|ordinal| synthetic_pilot_run(ordinal, 10_000, &guard, RunStatus::Valid))
+            .collect::<Vec<_>>();
+        runs[3]
+            .child
+            .as_mut()
+            .expect("synthetic child")
+            .guard_peak_live_requested_bytes = Some(2);
+        let contributing = (0..FRESH_PROCESS_PILOT_SAMPLE_COUNT).collect::<Vec<_>>();
+        let oracle = synthetic_oracle_run(&guard, RunStatus::Valid);
+
+        assert!(matches!(
+            summarize_base_scale_level(1, &contributing, &runs, &oracle, 10_000),
+            Err(PilotError::InconsistentGuardPeakObservation)
+        ));
+    }
+
+    #[test]
+    fn timing_success_report_cannot_claim_a_peak_above_its_hard_ceiling() {
+        let guard = clear_pilot_guard();
+        let run = synthetic_pilot_run(0, 10_000, &guard, RunStatus::Valid);
+        let mut report = run.child.expect("synthetic child");
+        report.controlled_allocation_hard_ceiling_bytes = 1;
+        report.guard_peak_live_requested_bytes = Some(2);
+        let expected = ScalableChildExpectation {
+            compiler_instance_id: &report.compiler_instance_id,
+            child_pid: report.child_pid,
+            workload_id: report.workload_id,
+            graph_profile: GraphProfileId::WideStar,
+            n: 1,
+            controlled_allocation_hard_ceiling_bytes: 1,
+        };
+        assert!(matches!(
+            verify_scalable_child_report(&report, 0, &expected),
+            Err(PilotError::ChildReportMismatch {
+                field: "guardPeakLiveRequestedBytes",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn oracle_report_primary_count_is_bound_to_the_parent_preflight() {
+        let guard = clear_pilot_guard();
+        let run = synthetic_oracle_run(&guard, RunStatus::Valid);
+        let mut report = run.child.expect("synthetic oracle child");
+        report.primary_record_count = Some(guard.primary_record_count + 1);
+        let expected = ScalableOracleExpectation {
+            run_id: &report.oracle_run_id,
+            child_pid: report.child_pid,
+            workload_id: report.workload_id,
+            graph_profile: GraphProfileId::WideStar,
+            n: 1,
+            primary_record_count: guard.primary_record_count,
+            controlled_allocation_hard_ceiling_bytes: guard.thresholds.compiler_controlled_bytes,
+        };
+        assert!(matches!(
+            verify_scalable_oracle_report(&report, &expected),
+            Err(PilotError::OracleReportMismatch {
+                field: "primaryRecordCount"
+            })
         ));
     }
 
@@ -1908,8 +2698,9 @@ mod tests {
             runs.push(run);
         }
         let contributing = (1..=FRESH_PROCESS_PILOT_SAMPLE_COUNT).collect::<Vec<_>>();
-        let level =
-            summarize_base_scale_level(1, &contributing, &runs, 10_000).expect("retry summary");
+        let oracle = synthetic_oracle_run(&guard, RunStatus::Valid);
+        let level = summarize_base_scale_level(1, &contributing, &runs, &oracle, 10_000)
+            .expect("retry summary");
 
         assert_eq!(runs.len(), FRESH_PROCESS_PILOT_SAMPLE_COUNT + 1);
         assert_eq!(
@@ -2393,6 +3184,7 @@ mod tests {
                     physical_memory_bytes: 64 * 1_073_741_824,
                     available_physical_memory_bytes: 48 * 1_073_741_824,
                 },
+                None,
             )
             .expect("clear pilot guard")
     }
@@ -2433,14 +3225,71 @@ mod tests {
                 string_profile: BASE_SCALE_STRING_PROFILE.to_owned(),
                 generator_version: GENERATOR_VERSION_V1,
                 n: 1,
-                wall_time_ns,
-                semantic_digest_sha256: "0".repeat(64),
+                outcome: ScalableTimingOutcome::Success,
+                controlled_allocation_hard_ceiling_bytes: guard_preflight
+                    .thresholds
+                    .compiler_controlled_bytes,
+                guard_peak_live_requested_bytes: Some(1),
+                wall_time_ns: Some(wall_time_ns),
+                semantic_digest_sha256: Some("0".repeat(64)),
+                controlled_allocation_guard: None,
             }),
             monitor: Some(ChildProcessMonitorReport {
                 observation_count: 1,
                 last_private_bytes: NullableObservation::observed(1),
                 peak_private_bytes: NullableObservation::observed(1),
                 elapsed_wall_time_ns: wall_time_ns,
+                trigger: None,
+            }),
+            kill_error: None,
+            monitor_error: None,
+            stderr: String::new(),
+        }
+    }
+
+    fn synthetic_oracle_run(
+        guard_preflight: &GuardPreflightReport,
+        status: RunStatus,
+    ) -> BaseScaleOracleRun {
+        BaseScaleOracleRun {
+            run_id: "attempt/oracle".to_owned(),
+            workload_id: ScalableWorkloadId::Identity,
+            workload_revision: WORKLOAD_REVISION_V1,
+            graph_profile: GraphProfileId::WideStar.as_str().to_owned(),
+            string_profile: BASE_SCALE_STRING_PROFILE.to_owned(),
+            generator_version: GENERATOR_VERSION_V1,
+            n: 1,
+            status,
+            invalidation_reasons: Vec::new(),
+            process: ProcessObservation::guarded_before_start(std::process::id(), ORACLE_BINARY_ID),
+            guard_preflight: guard_preflight.clone(),
+            child: Some(ScalableOracleChildReport {
+                schema: SCALABLE_ORACLE_CHILD_SCHEMA.to_owned(),
+                schema_version: SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
+                binary_id: ORACLE_BINARY_ID.to_owned(),
+                oracle_run_id: "attempt/oracle".to_owned(),
+                child_pid: 1,
+                workload_id: ScalableWorkloadId::Identity,
+                workload_revision: WORKLOAD_REVISION_V1,
+                graph_profile: GraphProfileId::WideStar.as_str().to_owned(),
+                string_profile: BASE_SCALE_STRING_PROFILE.to_owned(),
+                generator_version: GENERATOR_VERSION_V1,
+                n: 1,
+                outcome: ScalableOracleOutcome::Success,
+                controlled_allocation_hard_ceiling_bytes: guard_preflight
+                    .thresholds
+                    .compiler_controlled_bytes,
+                primary_record_count: Some(1),
+                semantic_digest_sha256: Some("0".repeat(64)),
+                complete_counts_equal: true,
+                complete_typed_output_equal: true,
+                controlled_allocation_guard: None,
+            }),
+            monitor: Some(ChildProcessMonitorReport {
+                observation_count: 1,
+                last_private_bytes: NullableObservation::observed(1),
+                peak_private_bytes: NullableObservation::observed(1),
+                elapsed_wall_time_ns: 1,
                 trigger: None,
             }),
             kill_error: None,
