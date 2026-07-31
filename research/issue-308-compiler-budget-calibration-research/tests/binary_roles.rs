@@ -210,6 +210,48 @@ fn attribution_guard_is_structured_and_exits_zero() {
 }
 
 #[test]
+fn live_byte_limit_baseline_uses_two_independent_attribution_processes() {
+    let executable = Path::new(env!(
+        "CARGO_BIN_EXE_issue-308-compiler-budget-calibration-attribution"
+    ));
+    let ceiling = u64::MAX.to_string();
+    let mut reports = Vec::new();
+    for replica in 0..2 {
+        let instance_id = format!("limit-baseline/replica-{replica}/compiler-instance");
+        let output = run_handshaken(
+            executable,
+            &[
+                "run-preflight",
+                &instance_id,
+                ScalableWorkloadId::Identity.as_str(),
+                GraphProfileId::WideStar.as_str(),
+                "1",
+                &ceiling,
+            ],
+        );
+        let report = serde_json::from_slice::<ScalableAttributionChildReport>(&output.stdout)
+            .expect("limit baseline attribution report");
+        assert_eq!(report.compiler_instance_id, instance_id);
+        assert_eq!(report.outcome, ScalableAttributionOutcome::Success);
+        reports.push(report);
+    }
+    assert_ne!(reports[0].child_pid, reports[1].child_pid);
+    assert_ne!(
+        reports[0].compiler_instance_id,
+        reports[1].compiler_instance_id
+    );
+    assert_eq!(
+        reports[0].guard_peak_live_requested_bytes,
+        reports[1].guard_peak_live_requested_bytes
+    );
+    assert!(
+        reports[0]
+            .guard_peak_live_requested_bytes
+            .is_some_and(|peak| peak > 0)
+    );
+}
+
+#[test]
 fn scalable_oracle_independently_validates_every_workload_and_matches_the_timing_digest() {
     let timing_executable = Path::new(env!(
         "CARGO_BIN_EXE_issue-308-compiler-budget-calibration-timing"
