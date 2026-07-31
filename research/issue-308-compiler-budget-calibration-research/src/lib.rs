@@ -25,6 +25,7 @@ mod ladder_runner;
 mod manifest;
 mod oracle;
 mod pilot;
+mod pilot_budget;
 mod pipeline;
 mod process_containment;
 mod process_protocol;
@@ -108,6 +109,10 @@ pub use pilot::{
     PilotError, run_base_scale_pilot_discovery,
     run_base_scale_pilot_discovery_with_checkpoint_sink, run_identity_fresh_process_pilot,
     wait_for_parent_start_signal,
+};
+pub use pilot_budget::{
+    PILOT_BUDGET_REPORT_SCHEMA, PilotBudgetError, PilotBudgetOutcome, PilotBudgetRequest,
+    recompute_pilot_budget,
 };
 pub use pipeline::IdentityAllocationSnapshot;
 pub use process_protocol::{

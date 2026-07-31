@@ -151,9 +151,9 @@ MIR 语义记录、canonical LIR、最终规范记录流、语义摘要和八项
 由 HIR 解析结果构造，canonical LIR 再独立完成所有者序号分配与规范排序。同长度错误
 引用和同长度字符串替换均有拒绝测试。正式基础规模新进程编排、两批五轮正式阶梯、
 精确拐点分析和
-`run --protocol compiler-calibration-v1` 入口已经落地；失败清理、候选比较、
-Evidence v1 写出器与独立验证器仍须按设计文档继续实现。在这些后续证据闭合前不得
-宣称任何正式预算数字。
+`run --protocol compiler-calibration-v1` 入口已经落地。失败清理、候选比较和
+Evidence v1 不再阻塞冷实例临时性能预算；这些内容若后续确有决策价值再实现。在正式
+阶梯与重复性证据闭合前，不得把临时性能预算称为正式 R0 研究预算。
 
 `LF-COMP-CORRIDOR-v1` 的独立预言机另行实现身份字段展开、StableId128 派生、十三类
 语义记录、所有者局部序号、规范排序和记录流编码，并在三种模块图的 `N = 1`、
@@ -173,9 +173,10 @@ oracle 新进程；只有完整计数、完整有类型输出和语义摘要全�
 候选 `B`。基础规模发现已经具备正式尝试身份、无效尝试重试、九个自然身份的严格二倍
 选择和持久检查点，其墙钟只来自无逐分配记账的 timing 二进制，预言机时延不进入性能
 结论。正式阶梯已经分离冷实例与稳定容量复用、时延与归因指标，并从两批五轮的有效
-原始数据选择校准规模与压力规模。重复性包络、增长斜率、失败清理、候选矩阵、
-Evidence v1 封套和独立 Evidence 验证器仍未建立；因此执行检查点本身不得作为预算、
-候选排名或正式 Evidence 引用，attribution 的诊断墙钟仍不得进入任何时延结论。
+原始数据选择校准规模与压力规模。重复性包络、增长斜率、失败清理、候选矩阵和完整
+Evidence v1 仍未建立；因此执行检查点本身不得作为正式 R0 预算、候选排名或正式
+Evidence 引用。Rust 重算子命令可以从已完成的基础规模原始样本形成明确标注的冷实例
+临时性能预算；attribution 的诊断墙钟仍不得进入任何时延结论。
 
 ```powershell
 cargo +1.96.0 run --locked `
@@ -245,16 +246,22 @@ cargo +1.96.0 run --release --locked `
 timing、attribution、oracle、正式阶梯及其纯函数分析结果；它不是
 Compiler Calibration Evidence v1。
 
-正式执行结束后，使用只依赖 Python 标准库的独立脚本直接从原始样本重算两批五轮、
-中位数/MAD、相邻级别拐点、规模选择、重复性包络和首轮 R0 预算：
+基础规模的全部自然身份完成后，可以直接从最新检查点先形成冷实例临时性能预算；每个
+自然身份必须有七个有效冷实例样本、统一语义摘要和成功的独立预言机。该路径按同组样本
+的观测上界与最大值/中位数离散比形成透明的保守建议，不等待正式阶梯追踪拐点：
 
 ```powershell
-python research/issue-308-compiler-budget-calibration-research/scripts/recompute_budget.py `
-  C:\tmp\compiler-formal-execution.json `
-  --json C:\tmp\compiler-r0-budget.json `
-  --markdown C:\tmp\compiler-r0-budget.md
+cargo +1.96.0 run --release --locked `
+  -p issue-308-compiler-budget-calibration-research `
+  --bin issue-308-compiler-budget-calibration-research -- `
+  recompute-pilot-budget `
+  C:\tmp\compiler-formal-execution.json.checkpoints\checkpoint-XXXXXXXX.json `
+  C:\tmp\compiler-pilot-budget.json `
+  C:\tmp\compiler-pilot-budget.md
 ```
 
-该脚本只验证会影响预算的数据关系，不做提交摘要、二进制签名、制品防篡改或完整
-Compiler Calibration Evidence v1 封套。容器/哈希候选矩阵与详尽失败恢复也不阻塞
-首轮基线预算。
+这份临时预算只覆盖冷实例；稳定容量复用、正式拐点和候选比较保持未覆盖，不能由冷实例
+数据冒充。需要精化这些指标时，再等待正式阶梯完成并增加相应 Rust 重算路径；当前不为
+尚未使用的数据预建复杂框架。该子命令只验证会影响临时预算的数据关系，不做提交摘要、
+二进制签名、制品防篡改或完整 Compiler Calibration Evidence v1 封套。容器/哈希候选
+矩阵、详尽失败恢复和完整正式阶梯都不阻塞冷实例临时性能预算。

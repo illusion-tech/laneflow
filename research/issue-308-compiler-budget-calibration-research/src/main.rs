@@ -1,7 +1,7 @@
 use issue_308_compiler_budget_calibration_research::{
-    CONTRACT_DESCRIPTOR_BYTE_LENGTH, GraphProfileId, load_repository_contract,
-    parse_formal_protocol_arguments, run_formal_protocol, run_identity_fresh_process_pilot,
-    runner_binary_descriptor,
+    CONTRACT_DESCRIPTOR_BYTE_LENGTH, GraphProfileId, PilotBudgetRequest, load_repository_contract,
+    parse_formal_protocol_arguments, recompute_pilot_budget, run_formal_protocol,
+    run_identity_fresh_process_pilot, runner_binary_descriptor,
 };
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -92,6 +92,24 @@ fn run() -> Result<(), String> {
             println!("{json}");
             Ok(())
         }
+        "recompute-pilot-budget" => {
+            let input_path = PathBuf::from(next_utf8_argument(&mut arguments, "input")?);
+            let json_output_path =
+                PathBuf::from(next_utf8_argument(&mut arguments, "json-output")?);
+            let markdown_output_path =
+                PathBuf::from(next_utf8_argument(&mut arguments, "markdown-output")?);
+            require_no_more_arguments(&mut arguments)?;
+            let outcome = recompute_pilot_budget(&PilotBudgetRequest {
+                input_path,
+                json_output_path,
+                markdown_output_path,
+            })
+            .map_err(|error| error.to_string())?;
+            let json = serde_json::to_string_pretty(&outcome)
+                .map_err(|error| format!("无法序列化预算重算结果：{error}"))?;
+            println!("{json}");
+            Ok(())
+        }
         _ => Err(usage()),
     }
 }
@@ -161,6 +179,7 @@ fn usage() -> String {
         "  verify-contract",
         "  smoke-identity-fresh-process-pilot <pilot-id> <graph-profile> <N> [timing-binary-path]",
         "  run --protocol compiler-calibration-v1 --output <formal-execution-checkpoint-path>",
+        "  recompute-pilot-budget <checkpoint-path> <json-output-path> <markdown-output-path>",
     ]
     .join("\n")
 }
