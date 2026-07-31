@@ -225,6 +225,28 @@ impl<const TRACK_ALLOCATIONS: bool> ControlledAllocationTracker<TRACK_ALLOCATION
             peak_live_requested_bytes: self.peak_live_requested_bytes(),
         }
     }
+
+    fn release_dropped_slot(
+        &mut self,
+        slot: ControlledBufferSlot,
+        retained_by_pool: bool,
+    ) -> Result<(), StageGenerationError> {
+        if retained_by_pool {
+            return Ok(());
+        }
+        let requested_bytes = std::mem::replace(&mut self.requested_bytes_by_slot[slot.index()], 0);
+        if requested_bytes == 0 {
+            return Ok(());
+        }
+        self.cancel_preoccupation(requested_bytes);
+        self.freed_bytes =
+            self.freed_bytes
+                .checked_add(requested_bytes)
+                .ok_or(StageGenerationError::Overflow(
+                    "controlled freed bytes during failure recovery",
+                ))?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -390,6 +412,94 @@ impl<const TRACK_ALLOCATIONS: bool> IdentityStageBufferPool<TRACK_ALLOCATIONS> {
             && self.lir_owner_ordinal_scratch.is_empty()
             && self.diagnostics.is_empty()
             && self.output_construction.is_empty()
+    }
+
+    pub(crate) fn reconcile_dropped_allocations_after_failure(
+        &mut self,
+    ) -> Result<(), StageGenerationError> {
+        let retained_slots: [(ControlledBufferSlot, bool); ControlledBufferSlot::COUNT] = [
+            (
+                ControlledBufferSlot::SourceSpans,
+                self.source_spans.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::SourceRecords,
+                self.source_records.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::SourcePayload,
+                self.source_payload.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::SourceScratch,
+                self.source_scratch.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::NamespacePreimageScratch,
+                self.namespace_preimage_scratch.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::TypedAstRecords,
+                self.typed_ast_records.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::TypedAstPayload,
+                self.typed_ast_payload.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::HirRecords,
+                self.hir_records.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::HirPayload,
+                self.hir_payload.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::MirRecords,
+                self.mir_records.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::MirPayload,
+                self.mir_payload.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::MirStableIdScratch,
+                self.mir_stable_id_scratch.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::MirCanonicalIdentityScratch,
+                self.mir_canonical_identity_scratch.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::MirIdentityPayloadScratch,
+                self.mir_identity_payload_scratch.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::CanonicalLirRecords,
+                self.canonical_lir_records.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::CanonicalLirPayload,
+                self.canonical_lir_payload.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::LirSortScratch,
+                self.lir_sort_scratch.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::LirOwnerOrdinalScratch,
+                self.lir_owner_ordinal_scratch.capacity() != 0,
+            ),
+            (
+                ControlledBufferSlot::OutputConstruction,
+                self.output_construction.capacity() != 0,
+            ),
+        ];
+        for (slot, retained_by_pool) in retained_slots {
+            self.allocations
+                .release_dropped_slot(slot, retained_by_pool)?;
+        }
+        Ok(())
     }
 }
 

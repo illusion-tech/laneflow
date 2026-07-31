@@ -21,6 +21,7 @@ mod manifest;
 mod oracle;
 mod pilot;
 mod pipeline;
+mod process_containment;
 mod process_protocol;
 mod roles;
 mod stage;
