@@ -544,7 +544,7 @@ fn analyze_level(
             && oracle.controlled_allocation_guard.is_none(),
         format!("N={n} 未通过独立预言机"),
     )?;
-    validate_clear_monitor(
+    let oracle_private_bytes = validate_clear_monitor(
         oracle_run.monitor.as_ref(),
         &oracle_run.guard_preflight,
         None,
@@ -557,14 +557,16 @@ fn analyze_level(
         .iter()
         .max()
         .ok_or_else(|| invalid("缺少墙钟"))?;
-    let observed_peak = *peak_values
+    let observed_peak = (*peak_values
         .iter()
         .max()
-        .ok_or_else(|| invalid("缺少峰值请求字节"))?;
-    let observed_private_bytes = *private_peak_values
+        .ok_or_else(|| invalid("缺少峰值请求字节"))?)
+    .max(oracle_peak_live_requested_bytes);
+    let observed_private_bytes = (*private_peak_values
         .iter()
         .max()
-        .ok_or_else(|| invalid("缺少私有字节峰值"))?;
+        .ok_or_else(|| invalid("缺少私有字节峰值"))?)
+    .max(oracle_private_bytes);
     let completed_guard_observation = GuardCompletedLevelObservation {
         n,
         primary_record_count: timing_primary_record_count,

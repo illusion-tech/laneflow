@@ -15,7 +15,7 @@ use crate::stage::{
 };
 use crate::{
     GeneratorContract, GraphProfileId, ScalableStagePlanSummary, ScalableWorkloadId, SequenceKind,
-    StageGenerationError, permute_in_place,
+    StageGenerationError, UNKNOWN_REFERENCE_ERROR_CODE, permute_in_place,
 };
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
@@ -84,6 +84,25 @@ pub(crate) struct BoundedTemplateExecution {
 pub(crate) struct BoundedTemplateExecutionFailure {
     source: StageGenerationError,
     buffers: BoundedTemplateBufferPool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BoundedTemplateFailureMode {
+    MissingReferencePerUnit,
+    DiagnosticCapPlusOne { maximum_diagnostics: u64 },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BoundedTemplateFailureObservation {
+    pub(crate) diagnostic_count: u64,
+    pub(crate) diagnostics_truncated: bool,
+    pub(crate) diagnostic_digest_sha256: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum BoundedTemplatePopulationOutcome {
+    Success,
+    ExpectedFailure(BoundedTemplateFailureObservation),
 }
 
 #[derive(Debug)]
@@ -368,14 +387,24 @@ pub(crate) fn execute_bounded_template_stage_case_with_pool(
         n,
         plan,
         &mut buffers,
+        None,
     ) {
-        Ok(()) => Ok(BoundedTemplateExecution {
+        Ok(BoundedTemplatePopulationOutcome::Success) => Ok(BoundedTemplateExecution {
             workload_id,
             graph_profile,
             n,
             buffers,
             plan: plan.clone(),
         }),
+        Ok(BoundedTemplatePopulationOutcome::ExpectedFailure(_)) => {
+            buffers.clear_all();
+            Err(Box::new(BoundedTemplateExecutionFailure {
+                source: StageGenerationError::MaterializedMismatch(
+                    "unexpected bounded template failure outcome",
+                ),
+                buffers,
+            }))
+        }
         Err(source) => {
             buffers.clear_all();
             Err(Box::new(BoundedTemplateExecutionFailure {
@@ -384,6 +413,65 @@ pub(crate) fn execute_bounded_template_stage_case_with_pool(
             }))
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn execute_bounded_template_failure_case_with_pool(
+    generator: &GeneratorContract,
+    identity: &IdentityContract,
+    stage: &StageContract,
+    workload_id: ScalableWorkloadId,
+    template: &CorridorTemplate,
+    graph_profile: GraphProfileId,
+    n: u32,
+    plan: &ScalableStagePlanSummary,
+    failure_mode: BoundedTemplateFailureMode,
+    mut buffers: BoundedTemplateBufferPool,
+) -> Result<
+    (BoundedTemplateFailureObservation, BoundedTemplateBufferPool),
+    Box<BoundedTemplateExecutionFailure>,
+> {
+    let outcome = populate_bounded_template_stage_case(
+        generator,
+        identity,
+        stage,
+        workload_id,
+        template,
+        graph_profile,
+        n,
+        plan,
+        &mut buffers,
+        Some(failure_mode),
+    );
+    let observation = match outcome {
+        Ok(BoundedTemplatePopulationOutcome::ExpectedFailure(observation)) => observation,
+        Ok(BoundedTemplatePopulationOutcome::Success) => {
+            buffers.clear_all();
+            return Err(Box::new(BoundedTemplateExecutionFailure {
+                source: StageGenerationError::MaterializedMismatch(
+                    "bounded template failure input unexpectedly succeeded",
+                ),
+                buffers,
+            }));
+        }
+        Err(source) => {
+            buffers.clear_all();
+            return Err(Box::new(BoundedTemplateExecutionFailure {
+                source,
+                buffers,
+            }));
+        }
+    };
+    buffers.clear_all();
+    if !buffers.all_lengths_are_zero() {
+        return Err(Box::new(BoundedTemplateExecutionFailure {
+            source: StageGenerationError::MaterializedMismatch(
+                "bounded template failure retained semantic state",
+            ),
+            buffers,
+        }));
+    }
+    Ok((observation, buffers))
 }
 
 impl BoundedTemplateExecutionFailure {
@@ -407,7 +495,8 @@ fn populate_bounded_template_stage_case(
     n: u32,
     plan: &ScalableStagePlanSummary,
     buffers: &mut BoundedTemplateBufferPool,
-) -> Result<(), StageGenerationError> {
+    failure_mode: Option<BoundedTemplateFailureMode>,
+) -> Result<BoundedTemplatePopulationOutcome, StageGenerationError> {
     if n == 0 {
         return Err(StageGenerationError::ScaleMustBePositive);
     }
@@ -587,7 +676,10 @@ fn populate_bounded_template_stage_case(
         .local_index_scratch
         .try_reserve(per_unit_record_count)?;
 
-    for unit in 0..n {
+    let mut failure_diagnostic_count = 0_u64;
+    let mut failure_candidate_ordinal = 0_u64;
+    let mut diagnostics_truncated = false;
+    'units: for unit in 0..n {
         let unit_record_start = buffers.records.len();
         let declaration_start = usize::try_from(unit)
             .ok()
@@ -631,7 +723,66 @@ fn populate_bounded_template_stage_case(
                 pending_order: PendingOrder::Absent,
             })?;
         }
+        let mut missing_reference_emitted_for_unit = false;
         for relation in &template.relations {
+            let inject_unknown_reference = match (failure_mode, relation) {
+                (
+                    Some(BoundedTemplateFailureMode::MissingReferencePerUnit),
+                    TemplateRelation::RouteOccurrence { .. },
+                ) => !missing_reference_emitted_for_unit,
+                (
+                    Some(BoundedTemplateFailureMode::DiagnosticCapPlusOne { .. }),
+                    TemplateRelation::RouteOccurrence { .. },
+                ) => failure_candidate_ordinal <= u64::from(n),
+                _ => false,
+            };
+            if inject_unknown_reference {
+                let invalid_relation = route_occurrence_with_unknown_edge(relation)?;
+                let payload_start = buffers.record_payload.len();
+                let resolution = compile_relation(
+                    template,
+                    buffers.declarations.as_slice(),
+                    unit,
+                    &invalid_relation,
+                    &mut buffers.record_payload,
+                );
+                buffers.record_payload.truncate(payload_start);
+                if !matches!(
+                    resolution,
+                    Err(StageGenerationError::MaterializedMismatch(
+                        "template entity lookup"
+                    ))
+                ) {
+                    return Err(StageGenerationError::MaterializedMismatch(
+                        "failure variant did not reach reference resolution",
+                    ));
+                }
+
+                let maximum_diagnostics = match failure_mode {
+                    Some(BoundedTemplateFailureMode::MissingReferencePerUnit) => u64::from(n),
+                    Some(BoundedTemplateFailureMode::DiagnosticCapPlusOne {
+                        maximum_diagnostics,
+                    }) => maximum_diagnostics,
+                    None => unreachable!("failure injection requires a failure mode"),
+                };
+                if failure_diagnostic_count == maximum_diagnostics {
+                    diagnostics_truncated = true;
+                    break 'units;
+                }
+                append_failure_diagnostic(
+                    &mut buffers.diagnostics,
+                    failure_candidate_ordinal,
+                    UNKNOWN_REFERENCE_ERROR_CODE,
+                )?;
+                failure_diagnostic_count = failure_diagnostic_count
+                    .checked_add(1)
+                    .ok_or(StageGenerationError::Overflow("failure diagnostic count"))?;
+                failure_candidate_ordinal = failure_candidate_ordinal.checked_add(1).ok_or(
+                    StageGenerationError::Overflow("failure diagnostic candidate ordinal"),
+                )?;
+                missing_reference_emitted_for_unit = true;
+                continue;
+            }
             let compiled = compile_relation(
                 template,
                 buffers.declarations.as_slice(),
@@ -640,6 +791,13 @@ fn populate_bounded_template_stage_case(
                 &mut buffers.record_payload,
             )?;
             buffers.records.try_push(compiled)?;
+        }
+        if failure_mode == Some(BoundedTemplateFailureMode::MissingReferencePerUnit)
+            && !missing_reference_emitted_for_unit
+        {
+            return Err(StageGenerationError::MaterializedMismatch(
+                "missing-reference failure variant lacks a route occurrence",
+            ));
         }
         for point in &template.geometry {
             let payload_start = buffers.record_payload.len();
@@ -672,6 +830,29 @@ fn populate_bounded_template_stage_case(
             unit_record_end,
             &mut buffers.local_index_scratch,
         )?;
+    }
+    if let Some(failure_mode) = failure_mode {
+        let expected_diagnostic_count = u64::from(n);
+        let expected_truncated = matches!(
+            failure_mode,
+            BoundedTemplateFailureMode::DiagnosticCapPlusOne { .. }
+        );
+        if failure_diagnostic_count != expected_diagnostic_count
+            || diagnostics_truncated != expected_truncated
+            || !buffers.semantic_record_stream.as_slice().is_empty()
+            || !buffers.output.as_slice().is_empty()
+        {
+            return Err(StageGenerationError::MaterializedMismatch(
+                "bounded template failure observation",
+            ));
+        }
+        return Ok(BoundedTemplatePopulationOutcome::ExpectedFailure(
+            BoundedTemplateFailureObservation {
+                diagnostic_count: failure_diagnostic_count,
+                diagnostics_truncated,
+                diagnostic_digest_sha256: failure_diagnostic_digest(buffers.diagnostics.as_slice()),
+            },
+        ));
     }
     if buffers.records.len() != semantic_record_count
         || buffers.record_payload.len() != semantic_payload_bytes
@@ -757,7 +938,53 @@ fn populate_bounded_template_stage_case(
     buffers
         .output
         .try_extend_from_slice(buffers.semantic_record_stream.as_slice())?;
+    Ok(BoundedTemplatePopulationOutcome::Success)
+}
+
+fn route_occurrence_with_unknown_edge(
+    relation: &TemplateRelation,
+) -> Result<TemplateRelation, StageGenerationError> {
+    let TemplateRelation::RouteOccurrence { route, index, edge } = relation else {
+        return Err(StageGenerationError::MaterializedMismatch(
+            "failure variant route occurrence",
+        ));
+    };
+    Ok(TemplateRelation::RouteOccurrence {
+        route: *route,
+        index: *index,
+        edge: EntityRef {
+            kind: edge.kind,
+            local: u32::MAX,
+        },
+    })
+}
+
+fn append_failure_diagnostic(
+    diagnostics: &mut ControlledVec<u8>,
+    source_ordinal: u64,
+    error_code: &'static str,
+) -> Result<(), StageGenerationError> {
+    append_u64(diagnostics, source_ordinal)?;
+    append_u32(
+        diagnostics,
+        u32::try_from(error_code.len())
+            .map_err(|_| StageGenerationError::Overflow("failure diagnostic error code"))?,
+    )?;
+    diagnostics.try_extend_from_slice(error_code.as_bytes())?;
     Ok(())
+}
+
+fn failure_diagnostic_digest(diagnostics: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"LANEFLOW-COMPILER-CALIBRATION-DIAGNOSTIC-V1\0");
+    hasher.update(diagnostics);
+    let digest = hasher.finalize();
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut output, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    output
 }
 
 pub(crate) fn finalize_bounded_template_stage_case(

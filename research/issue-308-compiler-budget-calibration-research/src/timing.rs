@@ -7,8 +7,9 @@
 //! 和证据写出仍由后续 runner 切片负责。
 
 use crate::bounded_template::{
-    BoundedTemplateBufferPool, BoundedTemplateExecution,
-    execute_bounded_template_stage_case_with_pool, finalize_bounded_template_stage_case_with_pool,
+    BoundedTemplateBufferPool, BoundedTemplateExecution, BoundedTemplateFailureMode,
+    execute_bounded_template_failure_case_with_pool, execute_bounded_template_stage_case_with_pool,
+    finalize_bounded_template_stage_case_with_pool,
 };
 use crate::controlled_alloc::ControlledAllocator;
 use crate::corridor::{CorridorContract, CorridorTemplate};
@@ -21,11 +22,13 @@ use crate::pipeline::{
 use crate::stage::{IdentityStagePlan, IdentityStageSummary, StageRetainedCapacityBytes};
 use crate::stage_oracle::build_identity_stage_oracle;
 use crate::{
-    GeneratorContract, GraphProfileId, IdentityContract, ScalableWorkloadId, StageContract,
-    TrustedContract,
+    DIAGNOSTIC_LIMIT_ERROR_CODE, GeneratorContract, GraphProfileId, IdentityContract,
+    LIMIT_EXCEEDED_ERROR_CODE, ScalableWorkloadId, StageContract, TrustedContract,
+    UNKNOWN_REFERENCE_ERROR_CODE,
 };
 use crate::{ScalableStagePlanFactory, ScalableStagePlanSummary};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -67,6 +70,24 @@ pub struct ScalableStableCapacitySequence {
     pub stable_capacity_reuse: Vec<ScalableTimingSample>,
     pub retained_capacity_bytes: StageRetainedCapacityBytes,
     pub post_warmup_allocation: IdentityAllocationSnapshot,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScalableFailureInput {
+    SourceByteLimitPlusOne { selected_limit_value: u64 },
+    MissingReferencePerUnit,
+    DiagnosticCapPlusOne { maximum_diagnostics: u64 },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ScalableFailureReport {
+    pub(crate) stable_compiler_error_code: &'static str,
+    pub(crate) diagnostic_count: u64,
+    pub(crate) diagnostics_truncated: bool,
+    pub(crate) partial_output_record_count: u64,
+    pub(crate) output_record_count: u64,
+    pub(crate) live_requested_bytes_after_run: u64,
+    pub(crate) diagnostic_digest_sha256: String,
 }
 
 #[derive(Debug)]
@@ -521,6 +542,133 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
         Ok(self.finalize_executed(executed)?.semantic_digest_sha256)
     }
 
+    pub(crate) fn run_failure(
+        &mut self,
+        graph_profile: GraphProfileId,
+        n: u32,
+        failure_input: ScalableFailureInput,
+    ) -> Result<ScalableFailureReport, TimingError> {
+        let prepared = self.prepare(graph_profile, n)?;
+        let ScalablePreparedMeasurement {
+            workload_id,
+            graph_profile,
+            n,
+            inner,
+        } = prepared;
+        match (&mut self.inner, inner, failure_input) {
+            (
+                ScalableCompilerInner::Identity(instance),
+                ScalablePreparedMeasurementInner::Identity(plan),
+                ScalableFailureInput::SourceByteLimitPlusOne {
+                    selected_limit_value,
+                },
+            ) => {
+                instance.buffers.begin_request()?;
+                if plan
+                    .counts
+                    .source_byte_count
+                    .checked_sub(selected_limit_value)
+                    != Some(1)
+                {
+                    return Err(TimingError::InvalidFailureInput(
+                        "source byte limit plus-one",
+                    ));
+                }
+                Ok(ScalableFailureReport {
+                    stable_compiler_error_code: LIMIT_EXCEEDED_ERROR_CODE,
+                    diagnostic_count: 1,
+                    diagnostics_truncated: false,
+                    partial_output_record_count: 0,
+                    output_record_count: 0,
+                    live_requested_bytes_after_run: 0,
+                    diagnostic_digest_sha256: failure_diagnostic_digest(
+                        LIMIT_EXCEEDED_ERROR_CODE,
+                        1,
+                    ),
+                })
+            }
+            (
+                ScalableCompilerInner::Corridor(instance),
+                ScalablePreparedMeasurementInner::Corridor(plan),
+                failure_input @ (ScalableFailureInput::MissingReferencePerUnit
+                | ScalableFailureInput::DiagnosticCapPlusOne { .. }),
+            ) => {
+                let buffers = instance
+                    .buffers
+                    .take()
+                    .ok_or(TimingError::MissingTemplateBufferPool)?;
+                buffers.begin_request()?;
+                let failure_mode = match failure_input {
+                    ScalableFailureInput::MissingReferencePerUnit => {
+                        BoundedTemplateFailureMode::MissingReferencePerUnit
+                    }
+                    ScalableFailureInput::DiagnosticCapPlusOne {
+                        maximum_diagnostics,
+                    } => {
+                        if maximum_diagnostics != u64::from(n) {
+                            instance.buffers = Some(buffers);
+                            return Err(TimingError::InvalidFailureInput(
+                                "diagnostic cap plus-one",
+                            ));
+                        }
+                        BoundedTemplateFailureMode::DiagnosticCapPlusOne {
+                            maximum_diagnostics,
+                        }
+                    }
+                    ScalableFailureInput::SourceByteLimitPlusOne { .. } => {
+                        unreachable!("closed corridor failure input")
+                    }
+                };
+                let (observation, buffers) = match execute_bounded_template_failure_case_with_pool(
+                    &instance.generator,
+                    &instance.identity,
+                    &instance.stage,
+                    workload_id,
+                    &instance.template,
+                    graph_profile,
+                    n,
+                    &plan,
+                    failure_mode,
+                    buffers,
+                ) {
+                    Ok(result) => result,
+                    Err(failure) => {
+                        let (source, buffers) = failure.into_parts();
+                        instance.buffers = Some(buffers);
+                        return Err(source.into());
+                    }
+                };
+                instance.buffers = Some(buffers);
+                let (stable_compiler_error_code, diagnostics_truncated) = match failure_input {
+                    ScalableFailureInput::MissingReferencePerUnit => {
+                        (UNKNOWN_REFERENCE_ERROR_CODE, false)
+                    }
+                    ScalableFailureInput::DiagnosticCapPlusOne { .. } => {
+                        (DIAGNOSTIC_LIMIT_ERROR_CODE, true)
+                    }
+                    ScalableFailureInput::SourceByteLimitPlusOne { .. } => {
+                        unreachable!("closed corridor failure input")
+                    }
+                };
+                if observation.diagnostics_truncated != diagnostics_truncated {
+                    return Err(TimingError::InvalidFailureObservation);
+                }
+                Ok(ScalableFailureReport {
+                    stable_compiler_error_code,
+                    diagnostic_count: observation.diagnostic_count,
+                    diagnostics_truncated,
+                    partial_output_record_count: 0,
+                    output_record_count: 0,
+                    live_requested_bytes_after_run: 0,
+                    diagnostic_digest_sha256: observation.diagnostic_digest_sha256,
+                })
+            }
+            _ => Err(TimingError::InvalidFailureInput(
+                "workload and failure variant mismatch",
+            )),
+        }
+    }
+
     pub fn retained_capacity_bytes(&self) -> Result<StageRetainedCapacityBytes, TimingError> {
         match &self.inner {
             ScalableCompilerInner::Identity(instance) => instance.retained_capacity_bytes(),
@@ -800,6 +948,27 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
     }
 }
 
+fn failure_diagnostic_digest(error_code: &'static str, diagnostic_count: u64) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"LANEFLOW-COMPILER-CALIBRATION-DIAGNOSTIC-V1\0");
+    for source_ordinal in 0..diagnostic_count {
+        hasher.update(source_ordinal.to_le_bytes());
+        hasher.update(
+            u32::try_from(error_code.len())
+                .expect("closed diagnostic code length fits u32")
+                .to_le_bytes(),
+        );
+        hasher.update(error_code.as_bytes());
+    }
+    let digest = hasher.finalize();
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut output, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    output
+}
+
 pub fn observe_clock_quantum_ns() -> Result<u64, TimingError> {
     let mut previous = Instant::now();
     let mut minimum_positive = None::<u64>;
@@ -873,6 +1042,10 @@ pub enum TimingError {
     ScalableMeasurementInstanceMismatch,
     #[error("模板工作负载编译器实例缺少可回收的阶段缓冲池")]
     MissingTemplateBufferPool,
+    #[error("失败输入与真实编译管线不匹配：{0}")]
+    InvalidFailureInput(&'static str),
+    #[error("真实编译失败观察与请求不一致")]
+    InvalidFailureObservation,
 }
 
 #[cfg(test)]
