@@ -1,7 +1,7 @@
 # LaneFlow 双语术语表
 
 **文档状态**: Active<br>
-**最后更新**: 2026-07-29<br>
+**最后更新**: 2026-07-31<br>
 **适用范围**: LaneFlow 架构、ADR、设计文档、Agent Skill、Issue/PR 设计说明、
 #291 编译器时代静态路网方案与城市模拟游戏交通基础
 
@@ -94,6 +94,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 编译器压力规模         | compiler stress scale                                     | —                                       | 提案中（Proposed；#292/#308），在研究停止护栏内放大编制/中间表示对象、用于暴露资源增长和失败边界的合成规模；不构成产品 SLA。                                        |
 | 研究工作负载清单       | research workload manifest                                | —                                       | 提案中（Proposed；#308），机器可读地冻结工作负载修订、模块图、生成规则、字符串/来源位置类别、记录布局、计数和夹具绑定的非生产契约。                                 |
 | 研究停止护栏           | research stop guardrail                                   | —                                       | 提案中（Proposed；#308），为保护研究机器和限制实验成本而阻止启动或继续放大实验的条件；不得直接改写成生产性能预算。                                                  |
+| 研究停止护栏触发       | research stop guardrail trigger                           | `research-stop-guardrail-triggered`     | 提案中（Proposed；#308），父进程资源监控达到研究停止边界的具名无效原因；精确维度由 `guard.trigger` 保存，正常退出竞态也不得改写成 `monitoring-gap`。                |
 | 受控分配硬上限         | controlled allocation hard ceiling                        | —                                       | 提案中（Proposed；#308），研究子进程在每次规模相关容量请求前执行、并通过可失败分配保证不会越过的请求字节上限。                                                      |
 | 研究基准执行器         | research benchmark harness                                | —                                       | 提案中（Proposed；#308），生成固定工作负载、执行测量并输出机器可读证据的非生产程序；不得进入生产编译器公共 API 或依赖图。                                           |
 | 精确研究预言机         | exact research oracle                                     | —                                       | 提案中（Proposed；#308），不复用受测符号解析、关系展开或容器候选，以直观确定性算法独立核对研究输出的非生产参考实现。                                                |

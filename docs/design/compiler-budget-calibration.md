@@ -1,7 +1,6 @@
 # 编译器资源与性能预算校准
 
-**文档状态**: Draft（#308 原 G1 已通过且 G2 已授权；固定样例派生常量勘误待 G1
-再审，扩展实现暂停）<br>
+**文档状态**: Draft（#308 G1 已通过且 G2 已授权；非生产研究实现进行中）<br>
 **最后更新**: 2026-07-31<br>
 **适用范围**: 编译器工作负载、编译器校准规模（Compiler Calibration Scale）、
 编译器压力规模（Compiler Stress Scale）、编译资源上限（Compile Limits）、冷实例
@@ -1010,7 +1009,9 @@ Schema 必须允许记录这些无效实验，但 G2 独立验证器不得把它
 - 子进程在每次容量请求前先原子预占请求字节额度；预占将越过硬上限时返回稳定的
   `guard/allocation-hard-ceiling`，释放已经取得的额度并正常退出；
 - 父进程独立监控墙钟、系统可用内存、子进程私有字节和退出状态；到达监控上限时终止
-  子进程并把该样本标为无效，不能把被强杀的部分数据写成有效护栏证据。
+  子进程并把该样本标为无效，`invalidationReasons` 必须包含
+  `research-stop-guardrail-triggered`，精确维度继续由 `guard.trigger` 保存；不能把
+  被强杀的部分数据写成有效护栏证据。
 
 “受护栏终止”只允许两种有效状态：父进程在启动前拒绝，或子进程通过受检容量请求
 正常返回稳定护栏错误。操作系统 OOM、分配器 abort、panic、超时强杀、监控失联或
@@ -1038,6 +1039,11 @@ Schema 必须允许记录这些无效实验，但 G2 独立验证器不得把它
   退出码结束的 `invalid-abnormal-exit` 或
   `invalid-monitor-termination` 必须使用非零退出码，并把运行状态标为 `invalid`、
   `invalidationReasons` 包含 `child-abnormal-exit`；
+- 父进程监控已触发私有字节、墙钟或可用物理内存停止边界，而子进程在终止生效前竞态
+  正常退出时，`process.exitKind` 仍按事实保存为 `success`，运行保持 `invalid`，
+  `invalidationReasons` 包含 `research-stop-guardrail-triggered`。该竞态没有监控
+  缺样，不得登记 `monitoring-gap`；终止请求失败或操作系统级存续边界升级只进入诊断，
+  也不能凭空制造监控缺样原因；
 - 监控缺样允许保存 `lastPrivateBytes = null + reason`，但该运行必须保持无效，
   不得用它形成停止护栏或候选比较证据。
 
@@ -1550,7 +1556,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1322` exact bytes，SHA-256 为
-`2a4cef84db89525492e12ad2773cd88afe64b60800048d6333f031a16259f3f7`。该摘要是 PR/Gate
+`5df3d5029f16de863af1a2fce04b736cf42595ffae1bcf8ce2b0a6edd90991d0`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
