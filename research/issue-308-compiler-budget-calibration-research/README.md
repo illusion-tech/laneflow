@@ -244,3 +244,17 @@ cargo +1.96.0 run --release --locked `
 `laneflow.compiler-calibration-formal-execution-checkpoint` v1，包含基础规模、
 timing、attribution、oracle、正式阶梯及其纯函数分析结果；它不是
 Compiler Calibration Evidence v1。
+
+正式执行结束后，使用只依赖 Python 标准库的独立脚本直接从原始样本重算两批五轮、
+中位数/MAD、相邻级别拐点、规模选择、重复性包络和首轮 R0 预算：
+
+```powershell
+python research/issue-308-compiler-budget-calibration-research/scripts/recompute_budget.py `
+  C:\tmp\compiler-formal-execution.json `
+  --json C:\tmp\compiler-r0-budget.json `
+  --markdown C:\tmp\compiler-r0-budget.md
+```
+
+该脚本只验证会影响预算的数据关系，不做提交摘要、二进制签名、制品防篡改或完整
+Compiler Calibration Evidence v1 封套。容器/哈希候选矩阵与详尽失败恢复也不阻塞
+首轮基线预算。
