@@ -838,6 +838,7 @@ fn completed_level_observation(
             .iter()
             .map(|run| &run.monitor)
             .chain(level.attribution_preflight.iter().map(|run| &run.monitor))
+            .chain(level.timing_guard_run.iter().map(|run| &run.monitor))
             .chain(level.oracle.iter().map(|run| &run.monitor)),
     )?;
     Ok(GuardCompletedLevelObservation {

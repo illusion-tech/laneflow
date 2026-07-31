@@ -476,6 +476,25 @@ fn analyze_level(
     let (attempt_id, _) = attempt_identity
         .as_ref()
         .ok_or_else(|| invalid(format!("N={n} 缺少 timing 尝试身份")))?;
+    let referenced_run_ids = level
+        .contributing_run_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    ensure(
+        runs.values()
+            .filter(|run| {
+                run.status == RunStatus::Valid
+                    && run.run_kind == BaseScalePilotRunKind::ColdInstance
+                    && run.workload_id == selection.workload_id
+                    && run.graph_profile == selection.graph_profile
+                    && run.n == n
+            })
+            .all(|run| {
+                run.attempt_id == *attempt_id && referenced_run_ids.contains(run.run_id.as_str())
+            }),
+        format!("N={n} 存在未被唯一七样本尝试引用的有效冷运行"),
+    )?;
     ensure(
         level.oracle_run_id == format!("{attempt_id}/oracle"),
         format!("N={n} 的预言机不属于七样本重试尝试"),
