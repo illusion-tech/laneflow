@@ -1,3 +1,5 @@
+#![cfg(debug_assertions)]
+
 use std::process::Command;
 
 #[test]

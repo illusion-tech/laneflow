@@ -983,6 +983,10 @@ pub enum StageGenerationError {
         #[source]
         source: std::collections::TryReserveError,
     },
+    #[error("受控分配容量算术溢出：{0}")]
+    ControlledAllocationCapacityOverflow(&'static str),
+    #[error("受控分配系统容量预留失败：{0}")]
+    ControlledAllocationFailed(&'static str),
     #[error(
         "guard/allocation-hard-ceiling：字段 {field} 的容量请求将越过受控分配硬上限；hardCeilingBytes={hard_ceiling_bytes}, liveRequestedBytes={live_requested_bytes}, requestedBytes={requested_bytes}"
     )]

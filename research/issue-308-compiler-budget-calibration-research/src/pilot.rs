@@ -2348,6 +2348,11 @@ fn verify_scalable_oracle_report(
     }
     match report.outcome {
         ScalableOracleOutcome::Success => {
+            if report.guard_peak_live_requested_bytes.is_none_or(|peak| {
+                peak == 0 || peak > expected.controlled_allocation_hard_ceiling_bytes
+            }) {
+                return Err(mismatch("guardPeakLiveRequestedBytes"));
+            }
             if report.primary_record_count != Some(expected.primary_record_count) {
                 return Err(mismatch("primaryRecordCount"));
             }
@@ -2366,7 +2371,8 @@ fn verify_scalable_oracle_report(
             }
         }
         ScalableOracleOutcome::GuardedInChild => {
-            if report.primary_record_count.is_some()
+            if report.guard_peak_live_requested_bytes.is_some()
+                || report.primary_record_count.is_some()
                 || report.semantic_digest_sha256.is_some()
                 || report.complete_counts_equal
                 || report.complete_typed_output_equal
@@ -3279,6 +3285,7 @@ mod tests {
                 controlled_allocation_hard_ceiling_bytes: guard_preflight
                     .thresholds
                     .compiler_controlled_bytes,
+                guard_peak_live_requested_bytes: Some(1),
                 primary_record_count: Some(1),
                 semantic_digest_sha256: Some("0".repeat(64)),
                 complete_counts_equal: true,

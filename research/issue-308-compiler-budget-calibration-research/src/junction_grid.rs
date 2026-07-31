@@ -4,9 +4,9 @@
 //! 排队溢流或现实城市代表性。
 
 use crate::corridor::{
-    CorridorCaseOutput, CorridorError, CorridorStageExecution, CorridorStageSummary,
-    CorridorTemplate, EntityRef, TemplateEntity, TemplateGeometry, TemplateGeometryRule,
-    TemplateRelation, execute_template_stage_case, finalize_template_stage_case,
+    CorridorCaseOutput, CorridorError, CorridorStageSummary, CorridorTemplate, EntityRef,
+    TemplateEntity, TemplateGeometry, TemplateGeometryRule, TemplateRelation,
+    execute_template_stage_case, finalize_template_stage_case,
 };
 use crate::{GraphProfileId, TrustedContract};
 use serde::Serialize;
@@ -218,12 +218,6 @@ pub(crate) fn build_junction_grid_stage_case(
         graph_profile,
         n,
     )?;
-    Ok(finalize_template_stage_case(execution)?)
-}
-
-pub(crate) fn finalize_junction_grid_stage_case(
-    execution: CorridorStageExecution,
-) -> Result<CorridorCaseOutput, JunctionGridError> {
     Ok(finalize_template_stage_case(execution)?)
 }
 

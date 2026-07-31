@@ -1684,12 +1684,6 @@ pub(crate) struct CorridorStageExecution {
     materialization: CorridorMaterialization,
 }
 
-impl CorridorStageExecution {
-    pub(crate) fn output_construction(&self) -> &[u8] {
-        &self.materialization.output
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CorridorStageSummary {
@@ -1830,7 +1824,7 @@ pub(crate) fn execute_template_stage_case(
     graph_profile: GraphProfileId,
     n: u32,
 ) -> Result<CorridorStageExecution, CorridorError> {
-    execute_template_stage_case_with_optional_plan(
+    execute_template_stage_case_inner(
         generator,
         identity,
         stage,
@@ -1838,12 +1832,11 @@ pub(crate) fn execute_template_stage_case(
         template,
         graph_profile,
         n,
-        None,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn execute_template_stage_case_with_plan(
+fn execute_template_stage_case_inner(
     generator: &GeneratorContract,
     identity: &IdentityContract,
     stage: &StageContract,
@@ -1851,30 +1844,6 @@ pub(crate) fn execute_template_stage_case_with_plan(
     template: &CorridorTemplate,
     graph_profile: GraphProfileId,
     n: u32,
-    plan: &crate::ScalableStagePlanSummary,
-) -> Result<CorridorStageExecution, CorridorError> {
-    execute_template_stage_case_with_optional_plan(
-        generator,
-        identity,
-        stage,
-        workload_id,
-        template,
-        graph_profile,
-        n,
-        Some(plan),
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn execute_template_stage_case_with_optional_plan(
-    generator: &GeneratorContract,
-    identity: &IdentityContract,
-    stage: &StageContract,
-    workload_id: &str,
-    template: &CorridorTemplate,
-    graph_profile: GraphProfileId,
-    n: u32,
-    plan: Option<&crate::ScalableStagePlanSummary>,
 ) -> Result<CorridorStageExecution, CorridorError> {
     if n == 0 {
         return Err(CorridorError::Mismatch {
@@ -1889,29 +1858,9 @@ fn execute_template_stage_case_with_optional_plan(
         compile_semantic_records(identity, template, &declarations, n)?;
     records.sort_by(|left, right| left.canonical_key().cmp(&right.canonical_key()));
     let semantic_record_stream = encode_semantic_record_stream(identity, &records);
-    let (counts, stages) = if let Some(plan) = plan {
-        if plan.workload_id.as_str() != workload_id
-            || plan.graph_profile != graph_profile
-            || plan.n != n
-        {
-            return Err(CorridorError::Mismatch {
-                path: "timingStagePlan".to_owned(),
-                expected: format!("{workload_id}/{}/{n}", graph_profile.as_str()),
-                actual: format!(
-                    "{}/{}/{}",
-                    plan.workload_id.as_str(),
-                    plan.graph_profile.as_str(),
-                    plan.n
-                ),
-            });
-        }
-        (plan.counts.clone(), plan.stages.clone())
-    } else {
-        let counts =
-            build_aggregate_counts(stage, template, &graph, &records, &semantic_record_stream)?;
-        let stages = build_stage_breakdown(&counts)?;
-        (counts, stages)
-    };
+    let counts =
+        build_aggregate_counts(stage, template, &graph, &records, &semantic_record_stream)?;
+    let stages = build_stage_breakdown(&counts)?;
     let materialization = materialize_corridor_stages(
         generator,
         identity,

@@ -251,6 +251,11 @@ fn scalable_oracle_independently_validates_every_workload_and_matches_the_timing
         assert_eq!(oracle_report.binary_id, ORACLE_BINARY_ID);
         assert_eq!(oracle_report.oracle_run_id, oracle_run_id);
         assert_eq!(oracle_report.outcome, ScalableOracleOutcome::Success);
+        assert!(
+            oracle_report
+                .guard_peak_live_requested_bytes
+                .is_some_and(|peak| peak > 0 && peak <= ceiling.parse::<u64>().unwrap())
+        );
         assert!(oracle_report.complete_counts_equal);
         assert!(oracle_report.complete_typed_output_equal);
         assert_eq!(
@@ -280,6 +285,7 @@ fn scalable_oracle_guard_is_structured_before_any_full_output_is_built() {
     assert_eq!(report.outcome, ScalableOracleOutcome::GuardedInChild);
     assert_eq!(report.primary_record_count, None);
     assert_eq!(report.semantic_digest_sha256, None);
+    assert_eq!(report.guard_peak_live_requested_bytes, None);
     assert!(!report.complete_counts_equal);
     assert!(!report.complete_typed_output_equal);
     let guard = report
