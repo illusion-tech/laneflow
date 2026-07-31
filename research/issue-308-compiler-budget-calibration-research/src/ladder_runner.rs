@@ -554,9 +554,16 @@ fn prepare_level(
     let completed_guard_observation = GuardCompletedLevelObservation {
         n,
         primary_record_count: plan.primary_record_count,
-        peak_live_requested_bytes: preflight_child
-            .guard_peak_live_requested_bytes
-            .ok_or(FormalLadderRunnerError::InvalidPreflight { n })?,
+        peak_live_requested_bytes: maximum_observed_controlled_peak(
+            [
+                preflight_child.guard_peak_live_requested_bytes,
+                oracle
+                    .child
+                    .as_ref()
+                    .and_then(|child| child.guard_peak_live_requested_bytes),
+            ],
+            n,
+        )?,
         private_bytes: maximum_observed_private_bytes([
             &attribution_preflight.monitor,
             &timing_guard_run.monitor,
@@ -815,23 +822,35 @@ fn completed_level_observation(
             n: level.n,
             metric: "wall-time-ns",
         })?;
-    let peak_live_requested_bytes = level
-        .formal_runs
-        .iter()
-        .filter(|run| run.binary_mode == ScalableLadderBinaryMode::Attribution)
-        .flat_map(|run| run.child.iter())
-        .flat_map(|child| {
-            child
-                .cold_instance
-                .iter()
-                .chain(child.stable_capacity_reuse.iter())
-        })
-        .map(|sample| sample.guard_peak_live_requested_bytes)
-        .max()
-        .ok_or(FormalLadderRunnerError::MissingFormalObservation {
-            n: level.n,
-            metric: "peak-live-requested-bytes",
-        })?;
+    let peak_live_requested_bytes = maximum_observed_controlled_peak(
+        level
+            .formal_runs
+            .iter()
+            .filter(|run| run.binary_mode == ScalableLadderBinaryMode::Attribution)
+            .flat_map(|run| run.child.iter())
+            .flat_map(|child| {
+                child
+                    .cold_instance
+                    .iter()
+                    .chain(child.stable_capacity_reuse.iter())
+            })
+            .map(|sample| Some(sample.guard_peak_live_requested_bytes))
+            .chain(std::iter::once(
+                level
+                    .attribution_preflight
+                    .as_ref()
+                    .and_then(|run| run.child.as_ref())
+                    .and_then(|child| child.guard_peak_live_requested_bytes),
+            ))
+            .chain(std::iter::once(
+                level
+                    .oracle
+                    .as_ref()
+                    .and_then(|run| run.child.as_ref())
+                    .and_then(|child| child.guard_peak_live_requested_bytes),
+            )),
+        level.n,
+    )?;
     let private_bytes = maximum_observed_private_bytes(
         level
             .formal_runs
@@ -859,6 +878,21 @@ fn maximum_observed_private_bytes<'a>(
         .max()
         .filter(|value| *value > 0)
         .ok_or(FormalLadderRunnerError::MissingPrivateBytes)
+}
+
+fn maximum_observed_controlled_peak(
+    peaks: impl IntoIterator<Item = Option<u64>>,
+    n: u32,
+) -> Result<u64, FormalLadderRunnerError> {
+    peaks
+        .into_iter()
+        .flatten()
+        .filter(|peak| *peak > 0)
+        .max()
+        .ok_or(FormalLadderRunnerError::MissingFormalObservation {
+            n,
+            metric: "peak-live-requested-bytes",
+        })
 }
 
 fn expected_level_digest(
@@ -975,6 +1009,7 @@ fn validate_oracle(
     }
     if report.outcome == ScalableOracleOutcome::Success
         && (report.primary_record_count != Some(primary_record_count)
+            || report.guard_peak_live_requested_bytes.is_none()
             || report.semantic_digest_sha256.as_deref() != Some(expected_digest)
             || !report.complete_counts_equal
             || !report.complete_typed_output_equal
@@ -1285,6 +1320,25 @@ mod tests {
             &attribution,
             ScalableLadderBinaryMode::Timing,
             4
+        ));
+    }
+
+    #[test]
+    fn completed_controlled_peak_includes_higher_oracle_observation() {
+        assert_eq!(
+            maximum_observed_controlled_peak([Some(100), Some(175)], 8).unwrap(),
+            175
+        );
+    }
+
+    #[test]
+    fn completed_controlled_peak_rejects_missing_or_zero_observations() {
+        assert!(matches!(
+            maximum_observed_controlled_peak([None, Some(0)], 8),
+            Err(FormalLadderRunnerError::MissingFormalObservation {
+                n: 8,
+                metric: "peak-live-requested-bytes"
+            })
         ));
     }
 }
