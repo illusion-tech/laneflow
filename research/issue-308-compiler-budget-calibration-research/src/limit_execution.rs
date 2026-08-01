@@ -8,11 +8,12 @@ use crate::ladder_runner::{FormalLadderExecution, decode_child_execution};
 use crate::pilot::{run_monitored_command_child, run_monitored_scalable_role_child};
 use crate::timing::ScalableFailureInput;
 use crate::{
-    ATTRIBUTION_BINARY_ID, BASE_SCALE_STRING_PROFILE, ChildProcessMonitorReport, CleanupError,
-    CleanupExperiment, CleanupFailureCase, CleanupScaleRole, DIAGNOSTIC_LIMIT_ERROR_CODE,
-    DUPLICATE_OWNER_ERROR_CODE, ExternalStateObservation, FailureInputDigestBinding,
-    FormalLadderRunnerError, GENERATOR_VERSION_V1, GraphProfileId, GuardThresholds,
-    InvalidationReason, LIMIT_EXCEEDED_ERROR_CODE, LimitDimensionId, LimitPairMode, LimitPairPlan,
+    ATTRIBUTION_BINARY_ID, BASE_SCALE_STRING_PROFILE, CLEANUP_GROUP_RUN_COUNT,
+    ChildProcessMonitorReport, CleanupError, CleanupExperiment, CleanupFailureCase,
+    CleanupScaleRole, DIAGNOSTIC_LIMIT_ERROR_CODE, DUPLICATE_OWNER_ERROR_CODE,
+    ExternalStateObservation, FailureInputDigestBinding, FormalLadderRunnerError,
+    GENERATOR_VERSION_V1, GraphProfileId, GuardThresholds, InvalidationReason,
+    LIMIT_EXCEEDED_ERROR_CODE, LimitDimensionId, LimitPairMode, LimitPairPlan,
     LimitQualificationError, LimitQualificationPlanner, LiveByteBaseline, LiveByteBaselineReplica,
     ProcessObservation, RunStatus, SCALABLE_ATTRIBUTION_CHILD_SCHEMA,
     SCALABLE_ATTRIBUTION_CHILD_SCHEMA_VERSION, ScalableAttributionChildReport,
@@ -183,6 +184,7 @@ pub struct DuplicateOwnerQualification {
 pub struct CleanupQualification {
     pub scale: LimitQualificationScale,
     pub case_id: CleanupFailureCase,
+    pub monitor_thresholds: GuardThresholds,
     pub run: MonitoredQualificationRun<CleanupChildReport>,
 }
 
@@ -455,7 +457,7 @@ pub fn run_limit_qualification_bundle(
     let planner = LimitQualificationPlanner::from_trusted_contract(trusted)?;
     let mut live_byte_baseline_runs = Vec::with_capacity(EXPECTED_LIVE_BYTE_BASELINE_RUN_COUNT);
     let mut limit_pairs = Vec::with_capacity(EXPECTED_LIMIT_PAIR_COUNT);
-    for scale in &scales {
+    for (scale_index, scale) in scales.iter().enumerate() {
         let live_runs = if scale.workload_id == ScalableWorkloadId::Identity {
             let runs = run_live_byte_baseline_processes(attribution_executable, scale)?;
             live_byte_baseline_runs.extend(runs.iter().cloned());
@@ -488,6 +490,13 @@ pub fn run_limit_qualification_bundle(
                 pair,
             )?);
         }
+        eprintln!(
+            "[正式进度] 阶段=资源限制与失败恢复 子阶段=限制配对 已完成规模={}/{} 限制对={}/{}",
+            scale_index + 1,
+            scales.len(),
+            limit_pairs.len(),
+            EXPECTED_LIMIT_PAIR_COUNT
+        );
     }
 
     let mut cleanup_experiments = Vec::with_capacity(EXPECTED_CLEANUP_EXPERIMENT_COUNT);
@@ -504,18 +513,47 @@ pub fn run_limit_qualification_bundle(
                     case_id,
                     scale_role,
                 })?;
+            let monitor_thresholds = cleanup_monitor_thresholds(scale.guard_thresholds)?;
+            eprintln!(
+                "[正式进度] 阶段=资源限制与失败恢复 子阶段=清理实验 当前={}/{} 用例={} 规模角色={} N={} 聚合墙钟上限={}ns",
+                cleanup_experiments.len() + 1,
+                EXPECTED_CLEANUP_EXPERIMENT_COUNT,
+                case_id.as_str(),
+                scale_role.as_str(),
+                scale.n,
+                monitor_thresholds.wall_time_ns
+            );
+            let run =
+                run_cleanup_process(attribution_executable, scale, case_id, monitor_thresholds)?;
+            eprintln!(
+                "[正式进度] 阶段=资源限制与失败恢复 子阶段=清理实验 已完成={}/{} 记录状态={:?} 退出={:?} 实测墙钟={}ns 资格裁决=待整组验证",
+                cleanup_experiments.len() + 1,
+                EXPECTED_CLEANUP_EXPERIMENT_COUNT,
+                run.status,
+                run.process.exit_kind,
+                run.monitor.elapsed_wall_time_ns
+            );
             cleanup_experiments.push(CleanupQualification {
                 scale: scale.clone(),
                 case_id,
-                run: run_cleanup_process(attribution_executable, scale, case_id)?,
+                monitor_thresholds,
+                run,
             });
         }
     }
-    let duplicate_owner_qualifications = scales
+    let mut duplicate_owner_qualifications =
+        Vec::with_capacity(EXPECTED_DUPLICATE_OWNER_QUALIFICATION_COUNT);
+    for scale in scales
         .iter()
         .filter(|scale| scale.workload_id == ScalableWorkloadId::Corridor)
-        .map(|scale| run_duplicate_owner_process(timing_executable, scale))
-        .collect::<Result<Vec<_>, _>>()?;
+    {
+        duplicate_owner_qualifications.push(run_duplicate_owner_process(timing_executable, scale)?);
+        eprintln!(
+            "[正式进度] 阶段=资源限制与失败恢复 子阶段=重复所有者 已完成={}/{}",
+            duplicate_owner_qualifications.len(),
+            EXPECTED_DUPLICATE_OWNER_QUALIFICATION_COUNT
+        );
+    }
     Ok(LimitQualificationBundle {
         scales,
         live_byte_baseline_runs,
@@ -586,6 +624,11 @@ pub fn validate_limit_qualification_bundle(
         });
     }
     for qualification in &bundle.cleanup_experiments {
+        if qualification.monitor_thresholds
+            != cleanup_monitor_thresholds(qualification.scale.guard_thresholds)?
+        {
+            return Err(LimitQualificationExecutionError::InvalidCleanupMonitorThresholds);
+        }
         let experiment = valid_cleanup_experiment(&qualification.run)?;
         if qualification.scale.workload_id != experiment.workload_id
             || qualification.scale.graph_profile != experiment.graph_profile
@@ -813,6 +856,7 @@ fn run_cleanup_process(
     attribution_executable: &Path,
     scale: &LimitQualificationScale,
     case_id: CleanupFailureCase,
+    monitor_thresholds: GuardThresholds,
 ) -> Result<MonitoredQualificationRun<CleanupChildReport>, LimitQualificationExecutionError> {
     let experiment_id = format!(
         "cleanup/{}/{}/n-{}",
@@ -825,12 +869,8 @@ fn run_cleanup_process(
         serde_json::to_string(scale)?,
         serde_json::to_string(&case_id)?,
     ];
-    let execution = run_monitored_command_child(
-        attribution_executable,
-        0,
-        &arguments,
-        scale.guard_thresholds,
-    )?;
+    let execution =
+        run_monitored_command_child(attribution_executable, 0, &arguments, monitor_thresholds)?;
     let decoded = decode_child_execution(
         execution,
         ATTRIBUTION_BINARY_ID,
@@ -870,6 +910,21 @@ fn run_cleanup_process(
         kill_error: decoded.kill_error,
         monitor_error: decoded.monitor_error,
         stderr: decoded.stderr,
+    })
+}
+
+fn cleanup_monitor_thresholds(
+    per_pipeline_thresholds: GuardThresholds,
+) -> Result<GuardThresholds, LimitQualificationExecutionError> {
+    let group_run_count = u64::try_from(CLEANUP_GROUP_RUN_COUNT)
+        .map_err(|_| LimitQualificationExecutionError::CleanupMonitorWallTimeOverflow)?;
+    let wall_time_ns = per_pipeline_thresholds
+        .wall_time_ns
+        .checked_mul(group_run_count)
+        .ok_or(LimitQualificationExecutionError::CleanupMonitorWallTimeOverflow)?;
+    Ok(GuardThresholds {
+        wall_time_ns,
+        ..per_pipeline_thresholds
     })
 }
 
@@ -1552,6 +1607,10 @@ pub enum LimitQualificationExecutionError {
     InvalidCleanupChild,
     #[error("清理子进程报告的 pid 与父进程观察不一致")]
     CleanupChildPidMismatch,
+    #[error("清理实验聚合墙钟上限发生受检算术溢出")]
+    CleanupMonitorWallTimeOverflow,
+    #[error("清理实验记录的聚合监控阈值与冻结派生规则不一致")]
+    InvalidCleanupMonitorThresholds,
     #[error("无法序列化限制侧子进程参数：{0}")]
     SerializeChildArgument(#[from] serde_json::Error),
     #[error("缺少清理实验规模：{case_id:?}/{scale_role:?}")]
@@ -1617,6 +1676,42 @@ mod tests {
             guard_thresholds: GuardThresholds::from_physical_memory_bytes(4 * 1024 * 1024 * 1024)
                 .expect("guard thresholds"),
         }
+    }
+
+    #[test]
+    fn cleanup_monitor_scales_only_the_single_pipeline_wall_time() {
+        let per_pipeline = scale(ScalableWorkloadId::Identity).guard_thresholds;
+        let group = cleanup_monitor_thresholds(per_pipeline).expect("cleanup monitor thresholds");
+        assert_eq!(
+            group.wall_time_ns,
+            per_pipeline.wall_time_ns * u64::try_from(CLEANUP_GROUP_RUN_COUNT).unwrap()
+        );
+        assert_eq!(
+            group.compiler_controlled_bytes,
+            per_pipeline.compiler_controlled_bytes
+        );
+        assert_eq!(group.private_bytes, per_pipeline.private_bytes);
+        assert_eq!(
+            group.minimum_available_physical_memory_bytes,
+            per_pipeline.minimum_available_physical_memory_bytes
+        );
+        assert_eq!(
+            group.prediction_safety_factor_numerator,
+            per_pipeline.prediction_safety_factor_numerator
+        );
+        assert_eq!(
+            group.prediction_safety_factor_denominator,
+            per_pipeline.prediction_safety_factor_denominator
+        );
+
+        let overflowing = GuardThresholds {
+            wall_time_ns: u64::MAX,
+            ..per_pipeline
+        };
+        assert!(matches!(
+            cleanup_monitor_thresholds(overflowing),
+            Err(LimitQualificationExecutionError::CleanupMonitorWallTimeOverflow)
+        ));
     }
 
     fn formal_ladder(
