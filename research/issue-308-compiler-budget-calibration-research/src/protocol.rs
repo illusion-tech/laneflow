@@ -60,7 +60,7 @@ pub struct FormalProtocolOutcome {
 
 pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA: &str =
     "laneflow.compiler-calibration-formal-execution-checkpoint";
-pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION: u32 = 6;
+pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION: u32 = 7;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

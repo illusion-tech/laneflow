@@ -147,12 +147,10 @@ impl ExternalStateMonitor {
             |_| (environment.power_plan.clone(), true),
             |value| (value, false),
         );
-        let (background_process_deltas, process_gap) =
+        let (background_process_deltas, process_snapshot_gap) =
             match (&self.initial_processes, &final_processes) {
                 (Some(initial), Some(final_processes)) => {
-                    let (deltas, missing_process) =
-                        derive_background_deltas(initial, final_processes);
-                    (deltas, missing_process)
+                    (derive_background_deltas(initial, final_processes), false)
                 }
                 _ => (Vec::new(), true),
             };
@@ -175,7 +173,7 @@ impl ExternalStateMonitor {
                     false,
                 )
             });
-        let monitoring_gap = process_gap
+        let monitoring_gap = process_snapshot_gap
             || power_source_gap
             || power_plan_gap
             || clock_gap
@@ -330,8 +328,9 @@ fn process_counters(
 fn derive_background_deltas(
     before: &BTreeMap<u32, ProcessCounters>,
     after: &BTreeMap<u32, ProcessCounters>,
-) -> (Vec<BackgroundProcessDelta>, bool) {
-    let missing_process = before.keys().any(|pid| !after.contains_key(pid));
+) -> Vec<BackgroundProcessDelta> {
+    // 后台活动只作诊断。短生命周期进程在终点快照前退出时无法取得最终累计计数，
+    // 因而从诊断下界中省略；这不等同于进程快照提供程序整体缺样。
     let mut deltas = Vec::new();
     for (pid, final_counters) in after {
         let initial = before.get(pid);
@@ -354,7 +353,7 @@ fn derive_background_deltas(
             });
         }
     }
-    (deltas, missing_process)
+    deltas
 }
 
 fn os_str_to_non_empty(value: &OsStr, pid: u32) -> String {
@@ -513,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn background_deltas_use_accumulated_counters_and_detect_missing_processes() {
+    fn background_deltas_are_diagnostic_lower_bounds_across_process_turnover() {
         let before = BTreeMap::from([
             (10, counters("stable", 100, 200)),
             (20, counters("exited", 50, 60)),
@@ -522,11 +521,12 @@ mod tests {
             (10, counters("stable", 125, 260)),
             (30, counters("new", 7, 11)),
         ]);
-        let (deltas, missing) = derive_background_deltas(&before, &after);
-        assert!(missing);
+        let deltas = derive_background_deltas(&before, &after);
         assert_eq!(deltas.len(), 2);
+        assert_eq!(deltas[0].pid, 10);
         assert_eq!(deltas[0].cpu_time_delta_ns, 25_000_000);
         assert_eq!(deltas[0].write_bytes_delta, 60);
+        assert_eq!(deltas[1].pid, 30);
         assert_eq!(deltas[1].cpu_time_delta_ns, 7_000_000);
         assert_eq!(deltas[1].write_bytes_delta, 11);
     }
