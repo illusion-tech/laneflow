@@ -60,7 +60,7 @@ pub struct FormalProtocolOutcome {
 
 pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA: &str =
     "laneflow.compiler-calibration-formal-execution-checkpoint";
-pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION: u32 = 8;
+pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION: u32 = 9;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -285,6 +285,13 @@ pub fn run_formal_protocol(
         limit_qualification_validation_error.as_deref(),
         None,
     ))?;
+    if let Some(error) = &limit_qualification_validation_error {
+        eprintln!(
+            "[正式裁决] 阶段=资源限制与失败恢复 结果=无效 原因={error} 后续=继续保留候选矩阵诊断"
+        );
+    } else {
+        eprintln!("[正式裁决] 阶段=资源限制与失败恢复 结果=有效");
+    }
     eprintln!(
         "[正式进度] 阶段=候选矩阵 操作=执行安全、正确性、恒定哈希与平衡性能比较 限制对={} 清理实验={}",
         limit_qualification.limit_pairs.len(),
