@@ -60,7 +60,7 @@ pub struct FormalProtocolOutcome {
 
 pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA: &str =
     "laneflow.compiler-calibration-formal-execution-checkpoint";
-pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION: u32 = 7;
+pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION: u32 = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -397,11 +397,14 @@ fn ensure_formal_ladders_ready_for_downstream(
 }
 
 fn formal_ladder_ready_for_downstream(ladder: &FormalLadderExecution) -> bool {
-    ladder.disposition == FormalLadderExecutionDisposition::Complete
-        && ladder.analysis.as_ref().is_some_and(|analysis| {
-            analysis.scale_selection.calibration_n.is_some()
-                && analysis.scale_selection.stress_n.is_some()
-        })
+    matches!(
+        ladder.disposition,
+        FormalLadderExecutionDisposition::Complete
+            | FormalLadderExecutionDisposition::GuardedAfterMinimumLevels
+    ) && ladder.analysis.as_ref().is_some_and(|analysis| {
+        analysis.scale_selection.calibration_n.is_some()
+            && analysis.scale_selection.stress_n.is_some()
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1296,6 +1299,13 @@ mod tests {
             error,
             FormalProtocolError::IncompleteFormalLadders { .. }
         ));
+
+        let terminal_guard = test_formal_ladder(
+            FormalLadderExecutionDisposition::GuardedAfterMinimumLevels,
+            Some(8),
+            Some(16),
+        );
+        assert!(formal_ladder_ready_for_downstream(&terminal_guard));
 
         let complete_set = vec![ready; ScalableWorkloadId::ALL.len() * GraphProfileId::ALL.len()];
         ensure_formal_ladders_ready_for_downstream(&complete_set)
