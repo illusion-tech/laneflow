@@ -253,10 +253,14 @@ cargo +1.96.0 run --release --locked `
   -p issue-308-compiler-budget-calibration-research `
   --no-default-features --features research-runner-full `
   --bin issue-308-compiler-budget-calibration-research -- `
-  run --protocol compiler-calibration-v1 --output C:\tmp\compiler-formal-execution.json
+  run --protocol compiler-calibration-v1 `
+  --environment C:\tmp\compiler-formal-environment.json `
+  --output C:\tmp\compiler-formal-execution.json
 ```
 
-命令要求调用前工作树干净；输出是
+环境声明 JSON 必须精确包含 `vendorPerformanceMode`、`biosFirmware`、
+`sleepOrSessionLockObserved` 和 `thermalOrPowerThrottlingObserved`；前两项不能为空，后两项
+必须由操作者按本轮实际状态填写。命令要求调用前工作树干净；输出是
 `laneflow.compiler-calibration-formal-execution-checkpoint` v1，包含基础规模、
 timing、attribution、oracle、正式阶梯、限制资格、失败恢复和候选矩阵；它不是
 Compiler Calibration Evidence v1。
