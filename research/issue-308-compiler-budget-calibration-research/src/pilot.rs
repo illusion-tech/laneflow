@@ -707,170 +707,189 @@ fn discover_base_scale(
 
     loop {
         let mut retry_ordinal = 0_u32;
-        let contributing_runs = loop {
-            let attempt_id = base_scale_attempt_id(workload_id, graph_profile, n, retry_ordinal);
-            let attempt_start = runs.len();
-            let mut contributing_run_indexes = Vec::with_capacity(FRESH_PROCESS_PILOT_SAMPLE_COUNT);
-            let mut retry_reasons = BTreeSet::new();
+        let contributing_runs = 'level_attempt: loop {
+            let contributing_run_indexes = loop {
+                let attempt_id =
+                    base_scale_attempt_id(workload_id, graph_profile, n, retry_ordinal);
+                let attempt_start = runs.len();
+                let mut contributing_run_indexes =
+                    Vec::with_capacity(FRESH_PROCESS_PILOT_SAMPLE_COUNT);
+                let mut retry_reasons = BTreeSet::new();
 
-            for pilot_sample_position in 0..FRESH_PROCESS_PILOT_SAMPLE_COUNT {
-                let run_id = format!("{attempt_id}/pilot-sample-{pilot_sample_position}");
-                let descriptor = BaseScaleRunDescriptor {
-                    run_id: run_id.clone(),
-                    attempt_id: attempt_id.clone(),
-                    retry_ordinal,
-                    pilot_sample_position,
-                    workload_id,
-                    graph_profile,
-                    n,
-                };
-                let guard = guard_planner.evaluate_pilot(
-                    workload_id,
-                    graph_profile,
-                    n,
-                    memory_monitor.observe()?,
-                    previous_completed_level,
-                )?;
-                if !guard.allows_child_start {
-                    invalidate_attempt_runs(
-                        &mut runs[attempt_start..],
-                        &[InvalidationReason::ResearchStopGuardrailTriggered],
-                    );
-                    runs.push(guarded_base_scale_run(descriptor, guard));
-                    selection.b =
-                        NullableObservation::unavailable("no-reliable-base-scale-before-guard");
-                    selection.terminal_guard_run_id = NullableObservation::observed(run_id);
+                for pilot_sample_position in 0..FRESH_PROCESS_PILOT_SAMPLE_COUNT {
+                    let run_id = format!("{attempt_id}/pilot-sample-{pilot_sample_position}");
+                    let descriptor = BaseScaleRunDescriptor {
+                        run_id: run_id.clone(),
+                        attempt_id: attempt_id.clone(),
+                        retry_ordinal,
+                        pilot_sample_position,
+                        workload_id,
+                        graph_profile,
+                        n,
+                    };
+                    let guard = guard_planner.evaluate_pilot(
+                        workload_id,
+                        graph_profile,
+                        n,
+                        memory_monitor.observe()?,
+                        previous_completed_level,
+                    )?;
+                    if !guard.allows_child_start {
+                        invalidate_attempt_runs(
+                            &mut runs[attempt_start..],
+                            &[InvalidationReason::ResearchStopGuardrailTriggered],
+                        );
+                        runs.push(guarded_base_scale_run(descriptor, guard));
+                        selection.b =
+                            NullableObservation::unavailable("no-reliable-base-scale-before-guard");
+                        selection.terminal_guard_run_id = NullableObservation::observed(run_id);
+                        persist_progress(runs, oracle_runs, &selection)?;
+                        return Ok(selection);
+                    }
+
+                    let compiler_instance_id = format!("{run_id}/compiler-instance");
+                    let execution = run_monitored_scalable_child(
+                        timing_executable,
+                        pilot_sample_position,
+                        &compiler_instance_id,
+                        workload_id,
+                        graph_profile,
+                        n,
+                        guard.thresholds,
+                    )?;
+                    let run = scalable_execution_to_pilot_run(
+                        descriptor,
+                        compiler_instance_id,
+                        guard,
+                        execution,
+                    )?;
+                    let runtime_guard_triggered = run
+                        .invalidation_reasons
+                        .contains(&InvalidationReason::ResearchStopGuardrailTriggered)
+                        || run.status == RunStatus::Guarded;
+                    if run.status == RunStatus::Valid {
+                        contributing_run_indexes.push(runs.len());
+                    } else {
+                        retry_reasons.extend(run.invalidation_reasons.iter().copied());
+                    }
+                    runs.push(run);
+                    if runtime_guard_triggered {
+                        invalidate_attempt_runs(
+                            &mut runs[attempt_start..],
+                            &[InvalidationReason::ResearchStopGuardrailTriggered],
+                        );
+                        complete_selection_after_runtime_guard(&mut selection);
+                        persist_progress(runs, oracle_runs, &selection)?;
+                        return Ok(selection);
+                    }
+                    if !retry_reasons.is_empty() {
+                        break;
+                    }
                     persist_progress(runs, oracle_runs, &selection)?;
-                    return Ok(selection);
                 }
 
-                let compiler_instance_id = format!("{run_id}/compiler-instance");
-                let execution = run_monitored_scalable_child(
-                    timing_executable,
-                    pilot_sample_position,
-                    &compiler_instance_id,
-                    workload_id,
-                    graph_profile,
-                    n,
-                    guard.thresholds,
-                )?;
-                let run = scalable_execution_to_pilot_run(
-                    descriptor,
-                    compiler_instance_id,
-                    guard,
-                    execution,
-                )?;
-                let runtime_guard_triggered = run
-                    .invalidation_reasons
-                    .contains(&InvalidationReason::ResearchStopGuardrailTriggered)
-                    || run.status == RunStatus::Guarded;
-                if run.status == RunStatus::Valid {
-                    contributing_run_indexes.push(runs.len());
-                } else {
-                    retry_reasons.extend(run.invalidation_reasons.iter().copied());
+                if retry_reasons.is_empty()
+                    && contributing_run_indexes.len() == FRESH_PROCESS_PILOT_SAMPLE_COUNT
+                {
+                    break contributing_run_indexes;
                 }
-                runs.push(run);
-                if runtime_guard_triggered {
-                    invalidate_attempt_runs(
-                        &mut runs[attempt_start..],
-                        &[InvalidationReason::ResearchStopGuardrailTriggered],
-                    );
-                    complete_selection_after_runtime_guard(&mut selection);
-                    persist_progress(runs, oracle_runs, &selection)?;
-                    return Ok(selection);
-                }
-                if !retry_reasons.is_empty() {
-                    break;
-                }
+                let reasons = retry_reasons.into_iter().collect::<Vec<_>>();
+                invalidate_attempt_runs(&mut runs[attempt_start..], &reasons);
                 persist_progress(runs, oracle_runs, &selection)?;
-            }
+                retry_ordinal = retry_ordinal
+                    .checked_add(1)
+                    .ok_or(PilotError::ArithmeticOverflow("base-scale retry ordinal"))?;
+            };
 
-            if retry_reasons.is_empty()
-                && contributing_run_indexes.len() == FRESH_PROCESS_PILOT_SAMPLE_COUNT
-            {
-                break contributing_run_indexes;
-            }
-            let reasons = retry_reasons.into_iter().collect::<Vec<_>>();
-            invalidate_attempt_runs(&mut runs[attempt_start..], &reasons);
-            persist_progress(runs, oracle_runs, &selection)?;
-            retry_ordinal = retry_ordinal
-                .checked_add(1)
-                .ok_or(PilotError::ArithmeticOverflow("base-scale retry ordinal"))?;
-        };
-
-        let oracle_run_id = format!(
-            "{}/oracle",
-            base_scale_attempt_id(workload_id, graph_profile, n, retry_ordinal)
-        );
-        let oracle_guard = guard_planner.evaluate_pilot(
-            workload_id,
-            graph_profile,
-            n,
-            memory_monitor.observe()?,
-            previous_completed_level,
-        )?;
-        if !oracle_guard.allows_child_start {
-            invalidate_contributing_runs(
-                runs,
-                &contributing_runs,
-                &[InvalidationReason::ResearchStopGuardrailTriggered],
+            let oracle_run_id = format!(
+                "{}/oracle",
+                base_scale_attempt_id(workload_id, graph_profile, n, retry_ordinal)
+            );
+            let oracle_guard = guard_planner.evaluate_pilot(
+                workload_id,
+                graph_profile,
+                n,
+                memory_monitor.observe()?,
+                previous_completed_level,
             )?;
-            oracle_runs.push(guarded_base_scale_oracle_run(
+            if !oracle_guard.allows_child_start {
+                invalidate_contributing_runs(
+                    runs,
+                    &contributing_run_indexes,
+                    &[InvalidationReason::ResearchStopGuardrailTriggered],
+                )?;
+                oracle_runs.push(guarded_base_scale_oracle_run(
+                    oracle_run_id.clone(),
+                    workload_id,
+                    graph_profile,
+                    n,
+                    oracle_guard,
+                ));
+                selection.b =
+                    NullableObservation::unavailable("no-reliable-base-scale-before-guard");
+                selection.terminal_guard_run_id = NullableObservation::observed(oracle_run_id);
+                persist_progress(runs, oracle_runs, &selection)?;
+                return Ok(selection);
+            }
+            let expected_semantic_digest =
+                contributing_run_semantic_digest(&contributing_run_indexes, runs)?;
+            let oracle_execution = run_monitored_scalable_oracle(
+                oracle_executable,
+                FRESH_PROCESS_PILOT_SAMPLE_COUNT,
+                &oracle_run_id,
+                workload_id,
+                graph_profile,
+                n,
+                oracle_guard.thresholds,
+            )?;
+            let oracle_run = scalable_oracle_execution_to_run(
                 oracle_run_id.clone(),
                 workload_id,
                 graph_profile,
                 n,
+                expected_semantic_digest,
                 oracle_guard,
-            ));
-            selection.b = NullableObservation::unavailable("no-reliable-base-scale-before-guard");
-            selection.terminal_guard_run_id = NullableObservation::observed(oracle_run_id);
-            persist_progress(runs, oracle_runs, &selection)?;
-            return Ok(selection);
-        }
-        let expected_semantic_digest = contributing_run_semantic_digest(&contributing_runs, runs)?;
-        let oracle_execution = run_monitored_scalable_oracle(
-            oracle_executable,
-            FRESH_PROCESS_PILOT_SAMPLE_COUNT,
-            &oracle_run_id,
-            workload_id,
-            graph_profile,
-            n,
-            oracle_guard.thresholds,
-        )?;
-        let oracle_run = scalable_oracle_execution_to_run(
-            oracle_run_id.clone(),
-            workload_id,
-            graph_profile,
-            n,
-            expected_semantic_digest,
-            oracle_guard,
-            oracle_execution,
-        )?;
-        let oracle_status = oracle_run.status;
-        let oracle_runtime_guard_triggered = oracle_status == RunStatus::Guarded
-            || oracle_run
-                .invalidation_reasons
-                .contains(&InvalidationReason::ResearchStopGuardrailTriggered);
-        oracle_runs.push(oracle_run);
-        persist_progress(runs, oracle_runs, &selection)?;
-        if oracle_status != RunStatus::Valid {
-            if oracle_runtime_guard_triggered {
+                oracle_execution,
+            )?;
+            let oracle_status = oracle_run.status;
+            let oracle_invalidation_reasons = oracle_run.invalidation_reasons.clone();
+            let oracle_runtime_guard_triggered = oracle_status == RunStatus::Guarded
+                || oracle_invalidation_reasons
+                    .contains(&InvalidationReason::ResearchStopGuardrailTriggered);
+            oracle_runs.push(oracle_run);
+            if oracle_status != RunStatus::Valid {
+                if oracle_runtime_guard_triggered {
+                    invalidate_contributing_runs(
+                        runs,
+                        &contributing_run_indexes,
+                        &[InvalidationReason::ResearchStopGuardrailTriggered],
+                    )?;
+                    complete_selection_after_runtime_guard(&mut selection);
+                    persist_progress(runs, oracle_runs, &selection)?;
+                    return Ok(selection);
+                }
                 invalidate_contributing_runs(
                     runs,
-                    &contributing_runs,
-                    &[InvalidationReason::ResearchStopGuardrailTriggered],
+                    &contributing_run_indexes,
+                    &oracle_invalidation_reasons,
                 )?;
-                complete_selection_after_runtime_guard(&mut selection);
                 persist_progress(runs, oracle_runs, &selection)?;
-                return Ok(selection);
+                if !invalid_oracle_round_is_retryable(&oracle_invalidation_reasons) {
+                    return Err(PilotError::OracleVerificationFailed {
+                        run_id: oracle_run_id,
+                        workload_id,
+                        graph_profile,
+                        n,
+                    });
+                }
+                retry_ordinal = retry_ordinal
+                    .checked_add(1)
+                    .ok_or(PilotError::ArithmeticOverflow("base-scale retry ordinal"))?;
+                continue 'level_attempt;
             }
-            return Err(PilotError::OracleVerificationFailed {
-                run_id: oracle_run_id,
-                workload_id,
-                graph_profile,
-                n,
-            });
-        }
+            persist_progress(runs, oracle_runs, &selection)?;
+            break 'level_attempt contributing_run_indexes;
+        };
 
         let oracle_run = oracle_runs
             .last()
@@ -1342,6 +1361,11 @@ fn scalable_oracle_execution_to_run(
 
 fn base_scale_oracle_invalidation_reason(reason: InvalidationReason) -> InvalidationReason {
     reason
+}
+
+fn invalid_oracle_round_is_retryable(reasons: &[InvalidationReason]) -> bool {
+    !reasons.contains(&InvalidationReason::IndependentOracleMismatch)
+        && !reasons.contains(&InvalidationReason::ResearchStopGuardrailTriggered)
 }
 
 fn invalidate_attempt_runs(runs: &mut [BaseScalePilotRun], reasons: &[InvalidationReason]) {
@@ -2721,7 +2745,7 @@ pub enum PilotError {
     #[error("同一完整基础规模级别的七个受控分配安全峰值不一致")]
     InconsistentGuardPeakObservation,
     #[error(
-        "基础规模独立预言机 {run_id} 未能验证 {workload_id:?}/{graph_profile:?}/N={n}；已持久化运行并禁止该级别形成候选 B"
+        "基础规模独立预言机 {run_id} 对 {workload_id:?}/{graph_profile:?}/N={n} 给出正确性不一致；已持久化并禁止该级别形成候选 B"
     )]
     OracleVerificationFailed {
         run_id: String,
@@ -2986,6 +3010,22 @@ mod tests {
             run.status == RunStatus::Invalid
                 && run.invalidation_reasons == vec![InvalidationReason::MonitoringGap]
         }));
+    }
+
+    #[test]
+    fn environmental_or_abnormal_oracle_invalidation_retries_but_mismatch_does_not() {
+        assert!(invalid_oracle_round_is_retryable(&[
+            InvalidationReason::MonitoringGap,
+        ]));
+        assert!(invalid_oracle_round_is_retryable(&[
+            InvalidationReason::ChildAbnormalExit,
+        ]));
+        assert!(!invalid_oracle_round_is_retryable(&[
+            InvalidationReason::IndependentOracleMismatch,
+        ]));
+        assert!(!invalid_oracle_round_is_retryable(&[
+            InvalidationReason::ResearchStopGuardrailTriggered,
+        ]));
     }
 
     #[test]
