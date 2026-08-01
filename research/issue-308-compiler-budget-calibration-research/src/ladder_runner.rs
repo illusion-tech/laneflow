@@ -11,11 +11,11 @@ use crate::pilot::{
 };
 use crate::{
     ATTRIBUTION_BINARY_ID, BASE_SCALE_STRING_PROFILE, BASELINE_CANDIDATE_ID,
-    BaseScalePilotCheckpoint, BaseScaleSelection, ChildProcessMonitorReport,
+    BaseScalePilotCheckpoint, BaseScaleSelection, ChildMonitorTrigger, ChildProcessMonitorReport,
     ExternalStateObservation, FormalLadderAnalysis, FormalLadderCompletedLevel, FormalLadderError,
     FormalLadderRoundRun, FormalScaleSelectionDisposition, GENERATOR_VERSION_V1, GraphProfileId,
     GuardCompletedLevelObservation, GuardPreflightReport, InvalidationReason, ORACLE_BINARY_ID,
-    PilotError, ProcessObservation, ProcessProtocolError, RunStatus,
+    PilotError, ProcessExitKind, ProcessObservation, ProcessProtocolError, RunStatus,
     SCALABLE_ATTRIBUTION_CHILD_SCHEMA, SCALABLE_ATTRIBUTION_CHILD_SCHEMA_VERSION,
     SCALABLE_LADDER_CHILD_SCHEMA, SCALABLE_LADDER_CHILD_SCHEMA_VERSION,
     SCALABLE_ORACLE_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
@@ -32,7 +32,7 @@ use std::path::Path;
 
 pub const FORMAL_LADDER_EXECUTION_SCHEMA: &str =
     "laneflow.compiler-calibration-formal-ladder-execution";
-pub const FORMAL_LADDER_EXECUTION_SCHEMA_VERSION: u32 = 3;
+pub const FORMAL_LADDER_EXECUTION_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -203,7 +203,11 @@ pub fn run_formal_ladders(
 }
 
 fn formal_ladder_stops_protocol(disposition: FormalLadderExecutionDisposition) -> bool {
-    disposition != FormalLadderExecutionDisposition::Complete
+    matches!(
+        disposition,
+        FormalLadderExecutionDisposition::GuardedBeforeMinimumLevels
+            | FormalLadderExecutionDisposition::InvalidRun
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -262,8 +266,13 @@ fn run_one_formal_ladder(
                 return Ok(execution);
             }
             LevelPreparation::Invalid(level) => {
+                let terminal_resource_guard = level_is_terminal_resource_guard(&level);
                 execution.levels.push(level);
-                execution.disposition = FormalLadderExecutionDisposition::InvalidRun;
+                execution.disposition = if terminal_resource_guard {
+                    FormalLadderExecutionDisposition::GuardedBeforeMinimumLevels
+                } else {
+                    FormalLadderExecutionDisposition::InvalidRun
+                };
                 persist(&execution)?;
                 return Ok(execution);
             }
@@ -323,8 +332,13 @@ fn run_one_formal_ladder(
                 return Ok(execution);
             }
             LevelPreparation::Invalid(level) => {
+                let terminal_resource_guard = level_is_terminal_resource_guard(&level);
                 execution.levels.push(level);
-                execution.disposition = FormalLadderExecutionDisposition::InvalidRun;
+                execution.disposition = if terminal_resource_guard {
+                    FormalLadderExecutionDisposition::GuardedAfterMinimumLevels
+                } else {
+                    FormalLadderExecutionDisposition::InvalidRun
+                };
                 persist(&execution)?;
                 return Ok(execution);
             }
@@ -348,6 +362,82 @@ fn run_one_formal_ladder(
         next_n = next_n
             .checked_mul(2)
             .ok_or(FormalLadderRunnerError::ScaleOverflow)?;
+    }
+}
+
+fn level_is_terminal_resource_guard(level: &FormalLadderLevelExecution) -> bool {
+    if let Some(run) = &level.attribution_preflight
+        && run.status != RunStatus::Valid
+    {
+        return observation_is_terminal_resource_guard(
+            run.status,
+            &run.invalidation_reasons,
+            run.process.exit_kind,
+            run.monitor.trigger,
+            run.kill_error.as_deref(),
+            run.monitor_error.as_deref(),
+        );
+    }
+    if let Some(run) = &level.timing_guard_run
+        && run.status != RunStatus::Valid
+    {
+        return observation_is_terminal_resource_guard(
+            run.status,
+            &run.invalidation_reasons,
+            run.process.exit_kind,
+            run.monitor.trigger,
+            run.kill_error.as_deref(),
+            run.monitor_error.as_deref(),
+        );
+    }
+    if let Some(run) = &level.oracle
+        && run.status != RunStatus::Valid
+    {
+        return observation_is_terminal_resource_guard(
+            run.status,
+            &run.invalidation_reasons,
+            run.process.exit_kind,
+            run.monitor.trigger,
+            run.kill_error.as_deref(),
+            run.monitor_error.as_deref(),
+        );
+    }
+    false
+}
+
+fn observation_is_terminal_resource_guard(
+    status: RunStatus,
+    invalidation_reasons: &[InvalidationReason],
+    exit_kind: ProcessExitKind,
+    monitor_trigger: Option<ChildMonitorTrigger>,
+    kill_error: Option<&str>,
+    monitor_error: Option<&str>,
+) -> bool {
+    if status != RunStatus::Invalid
+        || kill_error.is_some()
+        || monitor_error.is_some()
+        || !invalidation_reasons.contains(&InvalidationReason::ResearchStopGuardrailTriggered)
+        || invalidation_reasons.iter().any(|reason| {
+            !matches!(
+                reason,
+                InvalidationReason::ResearchStopGuardrailTriggered
+                    | InvalidationReason::ChildAbnormalExit
+            )
+        })
+    {
+        return false;
+    }
+    match exit_kind {
+        ProcessExitKind::GuardedInChild => monitor_trigger.is_none(),
+        ProcessExitKind::Success | ProcessExitKind::InvalidMonitorTermination => matches!(
+            monitor_trigger,
+            Some(
+                ChildMonitorTrigger::PrivateBytes
+                    | ChildMonitorTrigger::WallTime
+                    | ChildMonitorTrigger::AvailablePhysicalMemory
+            )
+        ),
+        ProcessExitKind::GuardedBeforeStart | ProcessExitKind::InvalidAbnormalExit => false,
     }
 }
 
@@ -1421,16 +1511,58 @@ mod tests {
     }
 
     #[test]
-    fn any_incomplete_formal_ladder_stops_the_full_protocol_before_the_next_identity() {
+    fn terminal_guard_after_minimum_levels_allows_the_next_identity() {
         assert!(!formal_ladder_stops_protocol(
             FormalLadderExecutionDisposition::Complete
+        ));
+        assert!(!formal_ladder_stops_protocol(
+            FormalLadderExecutionDisposition::GuardedAfterMinimumLevels
         ));
         for disposition in [
             FormalLadderExecutionDisposition::InvalidRun,
             FormalLadderExecutionDisposition::GuardedBeforeMinimumLevels,
-            FormalLadderExecutionDisposition::GuardedAfterMinimumLevels,
         ] {
             assert!(formal_ladder_stops_protocol(disposition));
         }
+    }
+
+    #[test]
+    fn only_clean_resource_guard_termination_is_a_terminal_ladder_boundary() {
+        let resource_reasons = [
+            InvalidationReason::ResearchStopGuardrailTriggered,
+            InvalidationReason::ChildAbnormalExit,
+        ];
+        assert!(observation_is_terminal_resource_guard(
+            RunStatus::Invalid,
+            &resource_reasons,
+            ProcessExitKind::InvalidMonitorTermination,
+            Some(ChildMonitorTrigger::WallTime),
+            None,
+            None,
+        ));
+        assert!(observation_is_terminal_resource_guard(
+            RunStatus::Invalid,
+            &[InvalidationReason::ResearchStopGuardrailTriggered],
+            ProcessExitKind::GuardedInChild,
+            None,
+            None,
+            None,
+        ));
+        assert!(!observation_is_terminal_resource_guard(
+            RunStatus::Invalid,
+            &[InvalidationReason::MonitoringGap],
+            ProcessExitKind::InvalidMonitorTermination,
+            Some(ChildMonitorTrigger::MonitoringGap),
+            None,
+            None,
+        ));
+        assert!(!observation_is_terminal_resource_guard(
+            RunStatus::Invalid,
+            &resource_reasons,
+            ProcessExitKind::InvalidMonitorTermination,
+            Some(ChildMonitorTrigger::WallTime),
+            Some("failed-to-terminate"),
+            None,
+        ));
     }
 }
