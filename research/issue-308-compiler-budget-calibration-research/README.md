@@ -260,6 +260,12 @@ cargo +1.96.0 run --release --locked `
   --output C:\tmp\compiler-formal-execution.json
 ```
 
+正式入口在所有受测计时区外向标准错误流输出以 `[正式进度]` 开头的低频进度行。进度行
+报告当前阶段、自然身份、`N`、完整级别、批次/轮次以及已完成阶梯数；每条检查点进度只在
+对应不可变 JSON 成功落盘后输出。该日志只用于运行可见性，不进入性能样本、检查点或
+Evidence v1，也不能代替检查点事实。后台执行时可把标准错误流重定向到日志并使用
+`Get-Content <log> -Tail 20` 查看最新进度。
+
 环境声明 JSON 必须精确包含 `vendorPerformanceMode`、`biosFirmware`、
 `sleepOrSessionLockObserved` 和 `thermalOrPowerThrottlingObserved`；前两项不能为空，后两项
 必须由操作者按本轮实际状态填写。命令要求调用前工作树干净；输出是

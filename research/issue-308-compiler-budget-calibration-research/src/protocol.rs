@@ -184,6 +184,7 @@ pub fn run_formal_protocol(
         cfg!(debug_assertions),
         cfg!(feature = "research-runner-full"),
     )?;
+    eprintln!("[正式进度] 阶段=启动 操作=校验工作树、契约、环境与二进制角色");
 
     let repository_root = repository_root();
     verify_clean_worktree(&repository_root)?;
@@ -205,6 +206,7 @@ pub fn run_formal_protocol(
     )?;
     let current_fixtures = run_current_fixtures_process(&oracle_executable, &environment)?;
     let mut writer = FormalCheckpointWriter::prepare(&request.output_path)?;
+    eprintln!("[正式进度] 阶段=基础规模 操作=逐级探测九个自然身份的 B");
     let base_scale_pilot = run_base_scale_pilot_discovery_with_checkpoint_sink(
         &trusted,
         &timing_executable,
@@ -227,6 +229,11 @@ pub fn run_formal_protocol(
                 })
         },
     )?;
+    eprintln!(
+        "[正式进度] 阶段=正式阶梯 操作=执行九个自然身份 已完成基础规模={}/{}",
+        base_scale_pilot.selections.len(),
+        ScalableWorkloadId::ALL.len() * GraphProfileId::ALL.len()
+    );
     let formal_ladders = run_formal_ladders(
         &trusted,
         &timing_executable,
@@ -252,6 +259,11 @@ pub fn run_formal_protocol(
         },
     )?;
     ensure_formal_ladders_ready_for_downstream(&formal_ladders)?;
+    eprintln!(
+        "[正式进度] 阶段=资源限制与失败恢复 操作=执行界内/加一、清理与重复所有者资格 已完成阶梯={}/{}",
+        formal_ladders.len(),
+        ScalableWorkloadId::ALL.len() * GraphProfileId::ALL.len()
+    );
     let limit_qualification = run_limit_qualification_bundle(
         &trusted,
         &timing_executable,
@@ -273,6 +285,11 @@ pub fn run_formal_protocol(
         limit_qualification_validation_error.as_deref(),
         None,
     ))?;
+    eprintln!(
+        "[正式进度] 阶段=候选矩阵 操作=执行安全、正确性、恒定哈希与平衡性能比较 限制对={} 清理实验={}",
+        limit_qualification.limit_pairs.len(),
+        limit_qualification.cleanup_experiments.len()
+    );
     let candidate_matrix = run_candidate_matrix_bundle_with_checkpoint_sink(
         &trusted,
         &timing_executable,
@@ -306,6 +323,11 @@ pub fn run_formal_protocol(
         Some(&candidate_matrix),
     );
     writer.finish(&checkpoint)?;
+    eprintln!(
+        "[正式进度] 阶段=完成 输出={} 检查点目录={}",
+        writer.output_path.display(),
+        writer.checkpoint_directory.display()
+    );
 
     Ok(FormalProtocolOutcome {
         protocol_id: FORMAL_PROTOCOL_ID.to_owned(),
@@ -883,10 +905,12 @@ impl FormalCheckpointWriter {
         &mut self,
         checkpoint: &FormalProtocolCheckpoint,
     ) -> Result<(), FormalProtocolError> {
+        let sequence = self.next_sequence;
         let path = self
             .checkpoint_directory
-            .join(format!("checkpoint-{:08}.json", self.next_sequence));
+            .join(format!("checkpoint-{sequence:08}.json"));
         write_json_atomically(&path, checkpoint)?;
+        eprintln!("{}", formal_checkpoint_progress_line(sequence, checkpoint));
         self.next_sequence = self
             .next_sequence
             .checked_add(1)
@@ -897,6 +921,106 @@ impl FormalCheckpointWriter {
     fn finish(&self, checkpoint: &FormalProtocolCheckpoint) -> Result<(), FormalProtocolError> {
         write_json_atomically(&self.output_path, checkpoint)
     }
+}
+
+fn formal_checkpoint_progress_line(sequence: u64, checkpoint: &FormalProtocolCheckpoint) -> String {
+    let expected_identity_count = ScalableWorkloadId::ALL.len() * GraphProfileId::ALL.len();
+    if let Some(candidate_matrix) = &checkpoint.candidate_matrix {
+        if let Some(active) = &candidate_matrix.active_execution {
+            let round = active
+                .attempts
+                .last()
+                .map(|attempt| format!("{}/{}", attempt.batch + 1, attempt.round + 1))
+                .unwrap_or_else(|| "准备中".to_owned());
+            return format!(
+                "[正式进度] 检查点={sequence} 阶段=候选矩阵 已完成分层={} 当前={}/{}/{}/N={} 尺度={} 尝试={} 批次/轮次={round}",
+                candidate_matrix.executions.len(),
+                active.stratum.workload_id.as_str(),
+                active.stratum.graph_profile.as_str(),
+                active.stratum.key_domain.as_str(),
+                active.stratum.n,
+                active.stratum.scale_role.as_str(),
+                active.attempts.len()
+            );
+        }
+        return format!(
+            "[正式进度] 检查点={sequence} 阶段=候选矩阵 已完成分层={} 恒定哈希资格={} 当前=切换分层",
+            candidate_matrix.executions.len(),
+            candidate_matrix.constant_hash_qualifications.len()
+        );
+    }
+    if let Some(limit_qualification) = &checkpoint.limit_qualification {
+        return format!(
+            "[正式进度] 检查点={sequence} 阶段=资源限制与失败恢复 状态=完成 限制对={} 清理实验={} 重复所有者资格={}",
+            limit_qualification.limit_pairs.len(),
+            limit_qualification.cleanup_experiments.len(),
+            limit_qualification.duplicate_owner_qualifications.len()
+        );
+    }
+    if let Some(active) = &checkpoint.active_formal_ladder {
+        let complete_levels = active.levels.iter().filter(|level| level.complete).count();
+        let current = active.levels.last();
+        let n = current
+            .map(|level| level.n.to_string())
+            .unwrap_or_else(|| "准备中".to_owned());
+        let formal_runs = current.map_or(0, |level| level.formal_runs.len());
+        let round = current
+            .and_then(|level| level.formal_runs.last())
+            .map(|run| format!("{}/{}", run.batch + 1, run.round + 1))
+            .unwrap_or_else(|| "准备中".to_owned());
+        return format!(
+            "[正式进度] 检查点={sequence} 阶段=正式阶梯 已完成阶梯={}/{} 当前={}/{} N={n} 完整级别={complete_levels} 当前级运行={formal_runs} 批次/轮次={round} 状态={:?}",
+            checkpoint.formal_ladders.len(),
+            expected_identity_count,
+            active.workload_id.as_str(),
+            active.graph_profile,
+            active.disposition
+        );
+    }
+    if !checkpoint.formal_ladders.is_empty()
+        || checkpoint.base_scale_pilot.selections.len() == expected_identity_count
+    {
+        return format!(
+            "[正式进度] 检查点={sequence} 阶段=正式阶梯 已完成阶梯={}/{} 当前=切换自然身份",
+            checkpoint.formal_ladders.len(),
+            expected_identity_count
+        );
+    }
+    let active = checkpoint.base_scale_pilot.active_selection.as_ref();
+    let current_identity = active
+        .map(|selection| {
+            format!(
+                "{}/{}",
+                selection.workload_id.as_str(),
+                selection.graph_profile
+            )
+        })
+        .unwrap_or_else(|| "等待首个自然身份".to_owned());
+    let current_n = active
+        .and_then(|selection| selection.pilot_levels.last().map(|level| level.n))
+        .or_else(|| {
+            active.and_then(|selection| {
+                checkpoint
+                    .base_scale_pilot
+                    .runs
+                    .iter()
+                    .rev()
+                    .find(|run| {
+                        run.workload_id == selection.workload_id
+                            && run.graph_profile == selection.graph_profile
+                    })
+                    .map(|run| run.n)
+            })
+        })
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "准备中".to_owned());
+    format!(
+        "[正式进度] 检查点={sequence} 阶段=基础规模 已完成自然身份={}/{} 当前={current_identity} N={current_n} 运行记录={} 预言机记录={}",
+        checkpoint.base_scale_pilot.selections.len(),
+        expected_identity_count,
+        checkpoint.base_scale_pilot.runs.len(),
+        checkpoint.base_scale_pilot.oracle_runs.len()
+    )
 }
 
 fn absolute_output_path(path: &Path) -> Result<PathBuf, FormalProtocolError> {
@@ -1280,6 +1404,25 @@ mod tests {
         ));
 
         fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn progress_line_reports_base_scale_and_formal_ladder_counts() {
+        let mut checkpoint = empty_checkpoint();
+        assert_eq!(
+            formal_checkpoint_progress_line(7, &checkpoint),
+            "[正式进度] 检查点=7 阶段=基础规模 已完成自然身份=0/9 当前=等待首个自然身份 N=准备中 运行记录=0 预言机记录=0"
+        );
+
+        checkpoint.formal_ladders.push(test_formal_ladder(
+            FormalLadderExecutionDisposition::Complete,
+            Some(8),
+            Some(16),
+        ));
+        assert_eq!(
+            formal_checkpoint_progress_line(8, &checkpoint),
+            "[正式进度] 检查点=8 阶段=正式阶梯 已完成阶梯=1/9 当前=切换自然身份"
+        );
     }
 
     #[test]
