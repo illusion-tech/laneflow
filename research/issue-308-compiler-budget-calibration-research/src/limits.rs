@@ -8,16 +8,17 @@ use crate::{
     GraphProfileId, ScalableStagePlanFactory, ScalableStagePlanSummary, ScalableWorkloadId,
     ScalableWorkloadParseError, ScalePlanError, TrustedContract,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::str::FromStr;
 use thiserror::Error;
 
 pub const LIMIT_EXCEEDED_ERROR_CODE: &str = "LF-COMP-RESEARCH-E-LIMIT-EXCEEDED";
 pub const UNKNOWN_REFERENCE_ERROR_CODE: &str = "LF-COMP-RESEARCH-E-UNKNOWN-REFERENCE";
+pub const DUPLICATE_OWNER_ERROR_CODE: &str = "LF-COMP-RESEARCH-E-DUPLICATE-OWNER";
 pub const DIAGNOSTIC_LIMIT_ERROR_CODE: &str = "LF-COMP-RESEARCH-E-DIAGNOSTIC-LIMIT";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LimitDimensionId {
     ModuleCount,
@@ -116,7 +117,7 @@ impl LimitDimensionId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LimitPairMode {
     SuccessAtBound,
@@ -135,7 +136,7 @@ impl LimitPairMode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LimitDimensionBinding {
     pub dimension_id: LimitDimensionId,
@@ -145,7 +146,7 @@ pub struct LimitDimensionBinding {
     pub pair_mode: LimitPairMode,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LimitPairPlan {
     pub binding: LimitDimensionBinding,
@@ -394,7 +395,7 @@ fn validate_special_binding(
     }
 }
 
-fn exact_plan_value(
+pub(crate) fn exact_plan_value(
     manifest: &Value,
     dimension_id: LimitDimensionId,
     plan: &ScalableStagePlanSummary,

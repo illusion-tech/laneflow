@@ -2,8 +2,8 @@
 //!
 //! 本模块负责从受信任工作负载清单重算规模形状、预测值和本机阈值，并提供系统物理
 //! 内存与 Windows 进程私有字节观察。子进程受控分配和父进程监控执行位于 pipeline /
-//! pilot，跨平台终止状态分类位于 process_protocol；Evidence v1 写出仍由后续切片
-//! 负责。
+//! pilot，跨平台终止状态分类位于 process_protocol；Evidence v1 写出与独立重算位于
+//! evidence / evidence_assembly。
 
 use crate::{
     GraphProfileId, ScalableStagePlanFactory, ScalableStagePlanSummary, ScalableWorkloadId,

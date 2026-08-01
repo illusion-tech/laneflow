@@ -5,27 +5,36 @@
 
 use crate::timing::ScalableFailureInput;
 use crate::{
-    DIAGNOSTIC_LIMIT_ERROR_CODE, GraphProfileId, LIMIT_EXCEEDED_ERROR_CODE, LimitDimensionId,
+    BASE_SCALE_STRING_PROFILE, DIAGNOSTIC_LIMIT_ERROR_CODE, FailureInputDigestBinding,
+    GENERATOR_VERSION_V1, GraphProfileId, LIMIT_EXCEEDED_ERROR_CODE, LimitDimensionId,
     LimitQualificationError, LimitQualificationPlanner, ScalableAttributionCompilerInstance,
     ScalableStagePlanFactory, ScalableStagePlanSummary, ScalableWorkloadId, TimingError,
-    TrustedContract, UNKNOWN_REFERENCE_ERROR_CODE,
+    TrustedContract, UNKNOWN_REFERENCE_ERROR_CODE, WORKLOAD_REVISION_V1,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub const CLEANUP_FAILURE_ITERATION_COUNT: u32 = 32;
 pub const CLEANUP_GROUP_RUN_COUNT: usize = 35;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CleanupScaleRole {
     Calibration,
     Stress,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+impl CleanupScaleRole {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Calibration => "calibration",
+            Self::Stress => "stress",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CleanupFailureCase {
     #[serde(rename = "limit/source-byte-count/plus-one")]
     SourceByteLimitPlusOne,
@@ -68,7 +77,7 @@ impl CleanupFailureCase {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CleanupPhase {
     BaselineSuccess,
@@ -77,7 +86,7 @@ pub enum CleanupPhase {
     FreshInstanceOracle,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupRunObservation {
     pub experiment_id: String,
@@ -89,6 +98,7 @@ pub struct CleanupRunObservation {
     pub n: u32,
     pub case_id: CleanupFailureCase,
     pub input_variant_id: String,
+    pub input_digest_sha256: Option<String>,
     pub success: bool,
     pub stable_compiler_error_code: Option<String>,
     pub diagnostic_count: u64,
@@ -102,7 +112,7 @@ pub struct CleanupRunObservation {
     pub retained_capacity_bytes: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupExperiment {
     pub experiment_id: String,
@@ -117,8 +127,11 @@ pub struct CleanupExperiment {
 #[derive(Debug)]
 struct BaselineCleanupCompilerInstance {
     compiler_instance_id: String,
+    workload_manifest_sha256: String,
     workload_id: ScalableWorkloadId,
     graph_profile: GraphProfileId,
+    b: u32,
+    scale_role: CleanupScaleRole,
     n: u32,
     plan: ScalableStagePlanSummary,
     compiler: ScalableAttributionCompilerInstance,
@@ -130,6 +143,8 @@ impl BaselineCleanupCompilerInstance {
         compiler_instance_id: String,
         workload_id: ScalableWorkloadId,
         graph_profile: GraphProfileId,
+        b: u32,
+        scale_role: CleanupScaleRole,
         n: u32,
     ) -> Result<Self, CleanupError> {
         let plan = ScalableStagePlanFactory::from_trusted_contract(trusted)?.plan(
@@ -144,8 +159,11 @@ impl BaselineCleanupCompilerInstance {
         )?;
         Ok(Self {
             compiler_instance_id,
+            workload_manifest_sha256: trusted.descriptor.workload_manifest.sha256.clone(),
             workload_id,
             graph_profile,
+            b,
+            scale_role,
             n,
             plan,
             compiler,
@@ -171,6 +189,7 @@ impl BaselineCleanupCompilerInstance {
             n: self.n,
             case_id,
             input_variant_id: "canonical-valid-v1".to_owned(),
+            input_digest_sha256: None,
             success: true,
             stable_compiler_error_code: None,
             diagnostic_count: 0,
@@ -192,7 +211,7 @@ impl BaselineCleanupCompilerInstance {
         sequence_index: u32,
         case_id: CleanupFailureCase,
     ) -> Result<CleanupRunObservation, CleanupError> {
-        let failure_input = match case_id {
+        let (failure_input, selected_limit, digest_parameters) = match case_id {
             CleanupFailureCase::SourceByteLimitPlusOne => {
                 let pair = planner.plan_pair(
                     LimitDimensionId::SourceByteCount,
@@ -200,19 +219,56 @@ impl BaselineCleanupCompilerInstance {
                     self.n,
                     None,
                 )?;
-                ScalableFailureInput::SourceByteLimitPlusOne {
-                    selected_limit_value: pair.plus_one_limit_value,
-                }
+                (
+                    ScalableFailureInput::SourceByteLimitPlusOne {
+                        selected_limit_value: pair.plus_one_limit_value,
+                    },
+                    Some((LimitDimensionId::SourceByteCount, pair.plus_one_limit_value)),
+                    vec![
+                        ("exact-dimension-value", pair.exact_dimension_value),
+                        ("selected-limit-value", pair.plus_one_limit_value),
+                    ],
+                )
             }
-            CleanupFailureCase::MissingReferencePerUnit => {
-                ScalableFailureInput::MissingReferencePerUnit
-            }
-            CleanupFailureCase::DiagnosticCapPlusOne => {
+            CleanupFailureCase::MissingReferencePerUnit => (
+                ScalableFailureInput::MissingReferencePerUnit,
+                None,
+                Vec::new(),
+            ),
+            CleanupFailureCase::DiagnosticCapPlusOne => (
                 ScalableFailureInput::DiagnosticCapPlusOne {
                     maximum_diagnostics: u64::from(self.n),
-                }
-            }
+                },
+                Some((LimitDimensionId::DiagnosticCount, u64::from(self.n))),
+                vec![("maximum-diagnostics", u64::from(self.n))],
+            ),
         };
+        let value_basis = match case_id {
+            CleanupFailureCase::SourceByteLimitPlusOne => "canonical-level-exact-value",
+            CleanupFailureCase::MissingReferencePerUnit
+            | CleanupFailureCase::DiagnosticCapPlusOne => "not-applicable",
+        };
+        let binding = FailureInputDigestBinding {
+            workload_manifest_sha256: &self.workload_manifest_sha256,
+            workload_id: self.workload_id,
+            workload_revision: WORKLOAD_REVISION_V1,
+            graph_profile: self.graph_profile,
+            string_profile: BASE_SCALE_STRING_PROFILE,
+            generator_version: GENERATOR_VERSION_V1,
+            n: self.n,
+            b: self.b,
+            scale_role: self.scale_role.as_str(),
+            case_id: case_id.as_str(),
+            input_variant_id: case_id.input_variant_id(),
+            counts: &self.plan.counts,
+            value_basis,
+            basis_run_ids: &[],
+        };
+        let input_digest_sha256 = crate::input_digest::failure_input_digest_with_private_limits(
+            &binding,
+            selected_limit,
+            &digest_parameters,
+        );
         let report = self
             .compiler
             .run_failure(self.graph_profile, self.n, failure_input)?;
@@ -227,6 +283,7 @@ impl BaselineCleanupCompilerInstance {
             n: self.n,
             case_id,
             input_variant_id: case_id.input_variant_id().to_owned(),
+            input_digest_sha256: Some(input_digest_sha256),
             success: false,
             stable_compiler_error_code: Some(report.stable_compiler_error_code.to_owned()),
             diagnostic_count: report.diagnostic_count,
@@ -253,6 +310,7 @@ pub fn run_cleanup_experiment(
     case_id: CleanupFailureCase,
     graph_profile: GraphProfileId,
     n: u32,
+    b: u32,
 ) -> Result<CleanupExperiment, CleanupError> {
     if experiment_id.is_empty() {
         return Err(CleanupError::EmptyExperimentId);
@@ -270,6 +328,8 @@ pub fn run_cleanup_experiment(
         primary_instance_id,
         workload_id,
         graph_profile,
+        b,
+        scale_role,
         n,
     )?;
     let mut runs = Vec::with_capacity(CLEANUP_GROUP_RUN_COUNT);
@@ -283,6 +343,8 @@ pub fn run_cleanup_experiment(
         fresh_instance_id,
         workload_id,
         graph_profile,
+        b,
+        scale_role,
         n,
     )?;
     runs.push(fresh.run_valid(
@@ -488,19 +550,7 @@ pub fn validate_cleanup_experiment(experiment: &CleanupExperiment) -> Result<(),
 }
 
 fn empty_diagnostic_digest() -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(b"LANEFLOW-COMPILER-CALIBRATION-DIAGNOSTIC-V1\0");
-    lower_hex(&hasher.finalize())
-}
-
-fn lower_hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        write!(&mut output, "{byte:02x}").expect("writing to String cannot fail");
-    }
-    output
+    crate::diagnostic::empty_diagnostic_digest()
 }
 
 #[derive(Debug, Error)]
@@ -583,6 +633,7 @@ mod tests {
                 case_id,
                 GraphProfileId::SharedFaninDag,
                 1,
+                1,
             )
             .expect("cleanup experiment");
             assert_eq!(experiment.runs.len(), CLEANUP_GROUP_RUN_COUNT);
@@ -614,6 +665,7 @@ mod tests {
                         case_id,
                         GraphProfileId::SharedFaninDag,
                         n,
+                        1,
                     )
                     .expect("cleanup group"),
                 );
@@ -635,6 +687,8 @@ mod tests {
             "cleanup/real-pipeline/instance".to_owned(),
             ScalableWorkloadId::Corridor,
             GraphProfileId::SharedFaninDag,
+            1,
+            CleanupScaleRole::Calibration,
             1,
         )
         .expect("cleanup compiler instance");
@@ -679,6 +733,7 @@ mod tests {
             CleanupFailureCase::MissingReferencePerUnit,
             GraphProfileId::SharedFaninDag,
             1,
+            1,
         )
         .expect("baseline cleanup experiment");
 
@@ -719,6 +774,7 @@ mod tests {
                 CleanupScaleRole::Calibration,
                 CleanupFailureCase::SourceByteLimitPlusOne,
                 GraphProfileId::SharedFaninDag,
+                1,
                 1,
             ),
             Err(CleanupError::Manifest("groupSize"))

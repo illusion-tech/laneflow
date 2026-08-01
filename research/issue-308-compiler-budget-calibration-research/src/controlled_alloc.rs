@@ -59,6 +59,19 @@ pub(crate) struct ControlledAllocator {
     state: Rc<ControlledAllocatorState>,
 }
 
+/// 为不支持自定义分配器的候选容器预占一个保守的瞬时逻辑容量。
+///
+/// #308 的候选实现必须使用真实的 `HashMap`/`hashbrown`/`indexmap`，其中标准库容器
+/// 无法接入本研究的 `ControlledAllocator`。该守卫先把完整保守上界计入同一硬上限，
+/// 再允许候选容器分配；离开完整管线阶段时自动释放。该预占只参与当前/峰值存续请求
+/// 字节与硬上限判断，不进入分配、重分配或释放计数，因为它不是系统分配器的精确
+/// 归因。候选实际内存仍由父进程的私有字节/工作集/提交峰值监控记录。
+#[derive(Debug)]
+pub(crate) struct ControlledTransientReservation {
+    allocator: ControlledAllocator,
+    requested_bytes: u64,
+}
+
 impl ControlledAllocator {
     pub(crate) fn new(hard_ceiling_bytes: u64) -> Self {
         Self::new_for_mode(hard_ceiling_bytes, false)
@@ -176,6 +189,24 @@ impl ControlledAllocator {
     pub(crate) fn hard_ceiling_bytes(&self) -> u64 {
         self.state.hard_ceiling_bytes
     }
+
+    pub(crate) fn reserve_transient(
+        &self,
+        field: &'static str,
+        requested_bytes: u64,
+    ) -> Result<ControlledTransientReservation, ControlledVecError> {
+        self.preoccupy(field, requested_bytes)?;
+        Ok(ControlledTransientReservation {
+            allocator: self.clone(),
+            requested_bytes,
+        })
+    }
+}
+
+impl Drop for ControlledTransientReservation {
+    fn drop(&mut self) {
+        self.allocator.cancel_preoccupation(self.requested_bytes);
+    }
 }
 
 /// 只能通过可失败增长接口扩容的受控向量。
@@ -240,10 +271,6 @@ impl<T> ControlledVec<T> {
 
     pub(crate) fn clear(&mut self) {
         self.values.clear();
-    }
-
-    pub(crate) fn truncate(&mut self, len: usize) {
-        self.values.truncate(len);
     }
 
     pub(crate) fn try_push(&mut self, value: T) -> Result<(), ControlledVecError> {
@@ -499,5 +526,36 @@ mod tests {
         ));
         assert_eq!(values.capacity(), 2);
         assert_eq!(allocator.observation().live_requested_bytes, 8);
+    }
+
+    #[test]
+    fn transient_reservation_enforces_the_ceiling_without_faking_allocation_counters() {
+        let allocator = ControlledAllocator::new_for_mode(16, true);
+        let before = allocator.snapshot();
+        {
+            let _reservation = allocator
+                .reserve_transient("candidate container", 16)
+                .expect("reservation at the ceiling");
+            assert_eq!(allocator.observation().live_requested_bytes, 16);
+            assert!(matches!(
+                allocator.reserve_transient("candidate overflow", 1),
+                Err(ControlledVecError::HardCeiling(_))
+            ));
+            let during = allocator.snapshot();
+            assert_eq!(during.allocation_count, before.allocation_count);
+            assert_eq!(during.reallocation_count, before.reallocation_count);
+            assert_eq!(during.allocated_bytes, before.allocated_bytes);
+            assert_eq!(during.reallocated_bytes, before.reallocated_bytes);
+            assert_eq!(during.freed_bytes, before.freed_bytes);
+            assert_eq!(during.peak_live_requested_bytes, 16);
+        }
+        let after = allocator.snapshot();
+        assert_eq!(after.live_requested_bytes, 0);
+        assert_eq!(after.allocation_count, before.allocation_count);
+        assert_eq!(after.reallocation_count, before.reallocation_count);
+        assert_eq!(after.allocated_bytes, before.allocated_bytes);
+        assert_eq!(after.reallocated_bytes, before.reallocated_bytes);
+        assert_eq!(after.freed_bytes, before.freed_bytes);
+        assert_eq!(after.peak_live_requested_bytes, 16);
     }
 }

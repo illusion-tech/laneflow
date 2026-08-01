@@ -3,12 +3,14 @@
 //! 本模块执行启动前停止护栏、七个受监控的独立 timing 子进程、同级独立 oracle
 //! 子进程、冷实例结果核对、墙钟中位数/中位绝对偏差计算和基础规模严格二倍发现。
 //! 只有 timing 摘要与预言机完整计数及完整有类型输出全部一致，级别才可能形成 `B`；
-//! Evidence v1 写出与正式轮次仍由后续切片负责。
+//! 正式轮次由 ladder_runner 编排，Evidence v1 写出与独立重算位于 evidence /
+//! evidence_assembly。
 
+use crate::environment::ExternalStateMonitor;
 use crate::process_containment::ContainedChild;
 use crate::{
     BASE_SCALE_STRING_PROFILE, BASELINE_CANDIDATE_ID, ChildProcessMemoryMonitor,
-    ChildProcessMemoryObservation, GENERATOR_VERSION_V1, GraphProfileId,
+    ChildProcessMemoryObservation, ExternalStateObservation, GENERATOR_VERSION_V1, GraphProfileId,
     GuardCompletedLevelObservation, GuardError, GuardPreflightReport, GuardThresholds,
     IDENTITY_TIMING_CHILD_SCHEMA, IDENTITY_TIMING_CHILD_SCHEMA_VERSION, IdentityTimingChildReport,
     InvalidationReason, NullableObservation, ORACLE_BINARY_ID, ProcessObservation,
@@ -53,6 +55,7 @@ pub struct ChildProcessMonitorReport {
     pub observation_count: u64,
     pub last_private_bytes: NullableObservation<u64>,
     pub peak_private_bytes: NullableObservation<u64>,
+    pub last_available_physical_memory_bytes: NullableObservation<u64>,
     pub elapsed_wall_time_ns: u64,
     pub trigger: Option<ChildMonitorTrigger>,
 }
@@ -118,7 +121,7 @@ pub enum IdentityFreshProcessPilotOutcome {
 pub const FORMAL_PROTOCOL_ID: &str = "compiler-calibration-v1";
 pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA: &str =
     "laneflow.compiler-calibration-base-scale-pilot-checkpoint";
-pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION: u32 = 2;
+pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION: u32 = 4;
 pub const BASE_SCALE_SELECTION_RULE: &str = "first-power-of-two-qualifying-seven-pilot-runs-v1";
 pub const BASE_SCALE_AGGREGATION_METHOD: &str = "median-and-mad-of-seven-exact-integers-v1";
 
@@ -137,6 +140,7 @@ pub struct BaseScalePilotRun {
     pub retry_ordinal: u32,
     pub pilot_sample_position: u32,
     pub run_kind: BaseScalePilotRunKind,
+    pub compiler_instance_id: NullableObservation<String>,
     pub workload_id: ScalableWorkloadId,
     pub workload_revision: u32,
     pub graph_profile: String,
@@ -149,6 +153,8 @@ pub struct BaseScalePilotRun {
     pub guard_preflight: GuardPreflightReport,
     pub child: Option<ScalableTimingChildReport>,
     pub monitor: Option<ChildProcessMonitorReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_state: Option<ExternalStateObservation>,
     pub kill_error: Option<String>,
     pub monitor_error: Option<String>,
     pub stderr: String,
@@ -165,23 +171,16 @@ pub struct BaseScaleOracleRun {
     pub generator_version: u32,
     pub n: u32,
     pub status: RunStatus,
-    pub invalidation_reasons: Vec<BaseScaleOracleInvalidationReason>,
+    pub invalidation_reasons: Vec<InvalidationReason>,
     pub process: ProcessObservation,
     pub guard_preflight: GuardPreflightReport,
     pub child: Option<ScalableOracleChildReport>,
     pub monitor: Option<ChildProcessMonitorReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_state: Option<ExternalStateObservation>,
     pub kill_error: Option<String>,
     pub monitor_error: Option<String>,
     pub stderr: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum BaseScaleOracleInvalidationReason {
-    ResearchStopGuardrailTriggered,
-    MonitoringGap,
-    ChildAbnormalExit,
-    IndependentOracleMismatch,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -393,6 +392,7 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
                     child_pid,
                     output,
                     monitor,
+                    ..
                 } => (child_pid, output, monitor, false, None, None),
                 MonitoredChildExecution::InvalidatedByMonitor {
                     child_pid,
@@ -400,6 +400,7 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
                     monitor,
                     kill_error,
                     monitor_error,
+                    ..
                 } => (child_pid, output, monitor, true, kill_error, monitor_error),
             };
 
@@ -849,7 +850,7 @@ fn discover_base_scale(
         let oracle_runtime_guard_triggered = oracle_status == RunStatus::Guarded
             || oracle_run
                 .invalidation_reasons
-                .contains(&BaseScaleOracleInvalidationReason::ResearchStopGuardrailTriggered);
+                .contains(&InvalidationReason::ResearchStopGuardrailTriggered);
         oracle_runs.push(oracle_run);
         persist_progress(runs, oracle_runs, &selection)?;
         if oracle_status != RunStatus::Valid {
@@ -940,6 +941,7 @@ fn guarded_base_scale_run(
         pilot_sample_position: u32::try_from(pilot_sample_position)
             .expect("seven pilot positions fit in u32"),
         run_kind: BaseScalePilotRunKind::GuardPreflight,
+        compiler_instance_id: NullableObservation::unavailable("compiler-instance-not-created"),
         workload_id,
         workload_revision: WORKLOAD_REVISION_V1,
         graph_profile: graph_profile.as_str().to_owned(),
@@ -952,6 +954,7 @@ fn guarded_base_scale_run(
         guard_preflight,
         child: None,
         monitor: None,
+        external_state: None,
         kill_error: None,
         monitor_error: None,
         stderr: String::new(),
@@ -979,6 +982,7 @@ fn guarded_base_scale_oracle_run(
         guard_preflight,
         child: None,
         monitor: None,
+        external_state: None,
         kill_error: None,
         monitor_error: None,
         stderr: String::new(),
@@ -1000,21 +1004,46 @@ fn scalable_execution_to_pilot_run(
         graph_profile,
         n,
     } = descriptor;
-    let (child_pid, output, monitor, monitor_invalid, kill_error, mut monitor_error) =
-        match execution {
-            MonitoredChildExecution::Exited {
-                child_pid,
-                output,
-                monitor,
-            } => (child_pid, output, monitor, false, None, None),
-            MonitoredChildExecution::InvalidatedByMonitor {
-                child_pid,
-                output,
-                monitor,
-                kill_error,
-                monitor_error,
-            } => (child_pid, output, monitor, true, kill_error, monitor_error),
-        };
+    let (
+        child_pid,
+        output,
+        monitor,
+        external_state,
+        monitor_invalid,
+        kill_error,
+        mut monitor_error,
+    ) = match execution {
+        MonitoredChildExecution::Exited {
+            child_pid,
+            output,
+            monitor,
+            external_state,
+        } => (
+            child_pid,
+            output,
+            monitor,
+            external_state,
+            false,
+            None,
+            None,
+        ),
+        MonitoredChildExecution::InvalidatedByMonitor {
+            child_pid,
+            output,
+            monitor,
+            external_state,
+            kill_error,
+            monitor_error,
+        } => (
+            child_pid,
+            output,
+            monitor,
+            external_state,
+            true,
+            kill_error,
+            monitor_error,
+        ),
+    };
     let mut invalidation_reasons = Vec::new();
     if monitor_invalid {
         invalidation_reasons =
@@ -1025,6 +1054,11 @@ fn scalable_execution_to_pilot_run(
             )?;
     } else if !output.status.success() {
         invalidation_reasons.push(InvalidationReason::ChildAbnormalExit);
+    }
+    if let (Some(external_state), Some(environment)) =
+        (&external_state, crate::installed_formal_environment())
+    {
+        invalidation_reasons.extend(external_state.invalidation_reasons(environment));
     }
 
     let mut report = None;
@@ -1067,7 +1101,7 @@ fn scalable_execution_to_pilot_run(
     invalidation_reasons.sort_unstable();
     invalidation_reasons.dedup();
     let status = if child_guarded {
-        RunStatus::Guarded
+        RunStatus::Invalid
     } else if invalidation_reasons.is_empty() {
         RunStatus::Valid
     } else {
@@ -1110,6 +1144,7 @@ fn scalable_execution_to_pilot_run(
         pilot_sample_position: u32::try_from(pilot_sample_position)
             .expect("seven pilot positions fit in u32"),
         run_kind: BaseScalePilotRunKind::ColdInstance,
+        compiler_instance_id: NullableObservation::observed(compiler_instance_id),
         workload_id,
         workload_revision: WORKLOAD_REVISION_V1,
         graph_profile: graph_profile.as_str().to_owned(),
@@ -1122,6 +1157,7 @@ fn scalable_execution_to_pilot_run(
         guard_preflight,
         child: report,
         monitor: Some(monitor),
+        external_state,
         kill_error,
         monitor_error,
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
@@ -1137,21 +1173,46 @@ fn scalable_oracle_execution_to_run(
     guard_preflight: GuardPreflightReport,
     execution: MonitoredChildExecution,
 ) -> Result<BaseScaleOracleRun, PilotError> {
-    let (child_pid, output, monitor, monitor_invalid, kill_error, mut monitor_error) =
-        match execution {
-            MonitoredChildExecution::Exited {
-                child_pid,
-                output,
-                monitor,
-            } => (child_pid, output, monitor, false, None, None),
-            MonitoredChildExecution::InvalidatedByMonitor {
-                child_pid,
-                output,
-                monitor,
-                kill_error,
-                monitor_error,
-            } => (child_pid, output, monitor, true, kill_error, monitor_error),
-        };
+    let (
+        child_pid,
+        output,
+        monitor,
+        external_state,
+        monitor_invalid,
+        kill_error,
+        mut monitor_error,
+    ) = match execution {
+        MonitoredChildExecution::Exited {
+            child_pid,
+            output,
+            monitor,
+            external_state,
+        } => (
+            child_pid,
+            output,
+            monitor,
+            external_state,
+            false,
+            None,
+            None,
+        ),
+        MonitoredChildExecution::InvalidatedByMonitor {
+            child_pid,
+            output,
+            monitor,
+            external_state,
+            kill_error,
+            monitor_error,
+        } => (
+            child_pid,
+            output,
+            monitor,
+            external_state,
+            true,
+            kill_error,
+            monitor_error,
+        ),
+    };
     let mut invalidation_reasons = Vec::new();
     if monitor_invalid {
         invalidation_reasons =
@@ -1163,7 +1224,17 @@ fn scalable_oracle_execution_to_run(
                 .map(base_scale_oracle_invalidation_reason)
                 .collect();
     } else if !output.status.success() {
-        invalidation_reasons.push(BaseScaleOracleInvalidationReason::ChildAbnormalExit);
+        invalidation_reasons.push(InvalidationReason::ChildAbnormalExit);
+    }
+    if let (Some(external_state), Some(environment)) =
+        (&external_state, crate::installed_formal_environment())
+    {
+        invalidation_reasons.extend(
+            external_state
+                .invalidation_reasons(environment)
+                .into_iter()
+                .map(base_scale_oracle_invalidation_reason),
+        );
     }
 
     let mut report = None;
@@ -1190,31 +1261,29 @@ fn scalable_oracle_execution_to_run(
                         && parsed.semantic_digest_sha256.as_deref()
                             != Some(expected_semantic_digest)
                     {
-                        invalidation_reasons
-                            .push(BaseScaleOracleInvalidationReason::IndependentOracleMismatch);
+                        invalidation_reasons.push(InvalidationReason::IndependentOracleMismatch);
                     }
                     report = Some(parsed);
                 }
                 Err(error) => {
-                    invalidation_reasons.push(BaseScaleOracleInvalidationReason::ChildAbnormalExit);
+                    invalidation_reasons.push(InvalidationReason::ChildAbnormalExit);
                     monitor_error = Some(format!("invalid-oracle-report:{error}"));
                 }
             },
             Err(error) => {
-                invalidation_reasons.push(BaseScaleOracleInvalidationReason::ChildAbnormalExit);
+                invalidation_reasons.push(InvalidationReason::ChildAbnormalExit);
                 monitor_error = Some(format!("invalid-oracle-report-json:{error}"));
             }
         }
     }
     if child_guarded {
-        invalidation_reasons
-            .push(BaseScaleOracleInvalidationReason::ResearchStopGuardrailTriggered);
+        invalidation_reasons.push(InvalidationReason::ResearchStopGuardrailTriggered);
     }
 
     invalidation_reasons.sort_unstable();
     invalidation_reasons.dedup();
     let status = if child_guarded {
-        RunStatus::Guarded
+        RunStatus::Invalid
     } else if invalidation_reasons.is_empty() {
         RunStatus::Valid
     } else {
@@ -1264,33 +1333,15 @@ fn scalable_oracle_execution_to_run(
         guard_preflight,
         child: report,
         monitor: Some(monitor),
+        external_state,
         kill_error,
         monitor_error,
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
     })
 }
 
-fn base_scale_oracle_invalidation_reason(
-    reason: InvalidationReason,
-) -> BaseScaleOracleInvalidationReason {
-    match reason {
-        InvalidationReason::ResearchStopGuardrailTriggered => {
-            BaseScaleOracleInvalidationReason::ResearchStopGuardrailTriggered
-        }
-        InvalidationReason::MonitoringGap => BaseScaleOracleInvalidationReason::MonitoringGap,
-        InvalidationReason::ChildAbnormalExit => {
-            BaseScaleOracleInvalidationReason::ChildAbnormalExit
-        }
-        InvalidationReason::PowerSourceChange
-        | InvalidationReason::PowerPlanChange
-        | InvalidationReason::VendorModeChange
-        | InvalidationReason::SleepOrSessionLock
-        | InvalidationReason::ThermalOrPowerThrottling
-        | InvalidationReason::BackgroundCpuOverOneSecond
-        | InvalidationReason::BackgroundWriteOver100Mib => {
-            unreachable!("the child monitor cannot produce environment invalidation reasons")
-        }
-    }
+fn base_scale_oracle_invalidation_reason(reason: InvalidationReason) -> InvalidationReason {
+    reason
 }
 
 fn invalidate_attempt_runs(runs: &mut [BaseScalePilotRun], reasons: &[InvalidationReason]) {
@@ -1524,11 +1575,13 @@ pub(crate) enum MonitoredChildExecution {
         child_pid: u32,
         output: std::process::Output,
         monitor: ChildProcessMonitorReport,
+        external_state: Option<ExternalStateObservation>,
     },
     InvalidatedByMonitor {
         child_pid: u32,
         output: std::process::Output,
         monitor: ChildProcessMonitorReport,
+        external_state: Option<ExternalStateObservation>,
         kill_error: Option<String>,
         monitor_error: Option<String>,
     },
@@ -1539,6 +1592,7 @@ struct ChildMonitorSnapshot {
     observation_count: u64,
     last_private_bytes: u64,
     peak_private_bytes: u64,
+    last_available_physical_memory_bytes: u64,
     elapsed: Duration,
 }
 
@@ -1625,6 +1679,26 @@ pub(crate) fn run_monitored_scalable_role_child(
     })
 }
 
+pub(crate) fn run_monitored_command_child(
+    executable: &Path,
+    ordinal: usize,
+    arguments: &[String],
+    thresholds: GuardThresholds,
+) -> Result<MonitoredChildExecution, PilotError> {
+    let mut memory_monitor = ChildProcessMemoryMonitor::new()?;
+    let mut command = Command::new(executable);
+    command
+        .args(arguments)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = ContainedChild::spawn(&mut command)
+        .map_err(|source| PilotError::ChildSpawn { ordinal, source })?;
+    run_monitored_child_with_observer(child, ordinal, thresholds, |child_pid| {
+        memory_monitor.observe(child_pid)
+    })
+}
+
 pub(crate) fn run_monitored_scalable_oracle(
     oracle_executable: &Path,
     ordinal: usize,
@@ -1660,6 +1734,7 @@ fn run_monitored_child_with_observer(
     mut observe_child: impl FnMut(u32) -> Result<Option<ChildProcessMemoryObservation>, GuardError>,
 ) -> Result<MonitoredChildExecution, PilotError> {
     let child_pid = child.id();
+    let external_state_monitor = ExternalStateMonitor::start(child_pid);
 
     let handshake_started = Instant::now();
     let initial_observation = loop {
@@ -1671,6 +1746,9 @@ fn run_monitored_child_with_observer(
                     observation_count: 0,
                     last_private_bytes: NullableObservation::unavailable("monitoring-gap"),
                     peak_private_bytes: NullableObservation::unavailable("monitoring-gap"),
+                    last_available_physical_memory_bytes: NullableObservation::unavailable(
+                        "monitoring-gap",
+                    ),
                     elapsed_wall_time_ns: duration_ns(handshake_started.elapsed())?,
                     trigger: Some(ChildMonitorTrigger::MonitoringGap),
                 };
@@ -1679,6 +1757,7 @@ fn run_monitored_child_with_observer(
                     ordinal,
                     child_pid,
                     report,
+                    external_state_monitor,
                     Some(error.to_string()),
                 );
             }
@@ -1695,9 +1774,13 @@ fn run_monitored_child_with_observer(
                     observation_count: 0,
                     last_private_bytes: NullableObservation::unavailable("monitoring-gap"),
                     peak_private_bytes: NullableObservation::unavailable("monitoring-gap"),
+                    last_available_physical_memory_bytes: NullableObservation::unavailable(
+                        "monitoring-gap",
+                    ),
                     elapsed_wall_time_ns: duration_ns(handshake_started.elapsed())?,
                     trigger: Some(ChildMonitorTrigger::MonitoringGap),
                 },
+                external_state: finish_external_state(external_state_monitor),
                 kill_error: None,
                 monitor_error: Some("child-exited-before-initial-monitor-observation".to_owned()),
             });
@@ -1707,6 +1790,9 @@ fn run_monitored_child_with_observer(
                 observation_count: 0,
                 last_private_bytes: NullableObservation::unavailable("monitoring-gap"),
                 peak_private_bytes: NullableObservation::unavailable("monitoring-gap"),
+                last_available_physical_memory_bytes: NullableObservation::unavailable(
+                    "monitoring-gap",
+                ),
                 elapsed_wall_time_ns: duration_ns(handshake_started.elapsed())?,
                 trigger: Some(ChildMonitorTrigger::MonitoringGap),
             };
@@ -1715,6 +1801,7 @@ fn run_monitored_child_with_observer(
                 ordinal,
                 child_pid,
                 report,
+                external_state_monitor,
                 Some("initial-monitor-observation-timeout".to_owned()),
             );
         }
@@ -1724,6 +1811,8 @@ fn run_monitored_child_with_observer(
     let mut observation_count = 1_u64;
     let mut last_private_bytes = initial_observation.private_bytes;
     let mut peak_private_bytes = initial_observation.private_bytes;
+    let mut last_available_physical_memory_bytes =
+        initial_observation.available_physical_memory_bytes;
     if let Some(trigger) =
         evaluate_child_monitor_trigger(thresholds, initial_observation, Duration::ZERO)?
     {
@@ -1731,10 +1820,20 @@ fn run_monitored_child_with_observer(
             observation_count,
             last_private_bytes: NullableObservation::observed(last_private_bytes),
             peak_private_bytes: NullableObservation::observed(peak_private_bytes),
+            last_available_physical_memory_bytes: NullableObservation::observed(
+                last_available_physical_memory_bytes,
+            ),
             elapsed_wall_time_ns: 0,
             trigger: Some(trigger),
         };
-        return terminate_monitored_child(child, ordinal, child_pid, report, None);
+        return terminate_monitored_child(
+            child,
+            ordinal,
+            child_pid,
+            report,
+            external_state_monitor,
+            None,
+        );
     }
 
     let started = Instant::now();
@@ -1743,6 +1842,9 @@ fn run_monitored_child_with_observer(
             observation_count,
             last_private_bytes: NullableObservation::observed(last_private_bytes),
             peak_private_bytes: NullableObservation::observed(peak_private_bytes),
+            last_available_physical_memory_bytes: NullableObservation::observed(
+                last_available_physical_memory_bytes,
+            ),
             elapsed_wall_time_ns: duration_ns(started.elapsed())?,
             trigger: Some(ChildMonitorTrigger::MonitoringGap),
         };
@@ -1751,6 +1853,7 @@ fn run_monitored_child_with_observer(
             ordinal,
             child_pid,
             report,
+            external_state_monitor,
             Some("missing-child-stdin".to_owned()),
         );
     };
@@ -1759,6 +1862,9 @@ fn run_monitored_child_with_observer(
             observation_count,
             last_private_bytes: NullableObservation::observed(last_private_bytes),
             peak_private_bytes: NullableObservation::observed(peak_private_bytes),
+            last_available_physical_memory_bytes: NullableObservation::observed(
+                last_available_physical_memory_bytes,
+            ),
             elapsed_wall_time_ns: duration_ns(started.elapsed())?,
             trigger: Some(ChildMonitorTrigger::MonitoringGap),
         };
@@ -1767,6 +1873,7 @@ fn run_monitored_child_with_observer(
             ordinal,
             child_pid,
             report,
+            external_state_monitor,
             Some(format!("child-start-signal-write:{source}")),
         );
     }
@@ -1786,8 +1893,10 @@ fn run_monitored_child_with_observer(
                     observation_count,
                     last_private_bytes,
                     peak_private_bytes,
+                    last_available_physical_memory_bytes,
                     elapsed,
                 },
+                external_state_monitor,
             );
         }
         if wall_time_limit_reached(thresholds, elapsed)? {
@@ -1795,10 +1904,20 @@ fn run_monitored_child_with_observer(
                 observation_count,
                 last_private_bytes: NullableObservation::observed(last_private_bytes),
                 peak_private_bytes: NullableObservation::observed(peak_private_bytes),
+                last_available_physical_memory_bytes: NullableObservation::observed(
+                    last_available_physical_memory_bytes,
+                ),
                 elapsed_wall_time_ns: duration_ns(elapsed)?,
                 trigger: Some(ChildMonitorTrigger::WallTime),
             };
-            return terminate_monitored_child(child, ordinal, child_pid, report, None);
+            return terminate_monitored_child(
+                child,
+                ordinal,
+                child_pid,
+                report,
+                external_state_monitor,
+                None,
+            );
         }
 
         let observation = match observe_child(child_pid) {
@@ -1816,14 +1935,19 @@ fn run_monitored_child_with_observer(
                             observation_count,
                             last_private_bytes,
                             peak_private_bytes,
+                            last_available_physical_memory_bytes,
                             elapsed: exit_poll_elapsed,
                         },
+                        external_state_monitor,
                     );
                 }
                 let report = ChildProcessMonitorReport {
                     observation_count,
                     last_private_bytes: NullableObservation::observed(last_private_bytes),
                     peak_private_bytes: NullableObservation::observed(peak_private_bytes),
+                    last_available_physical_memory_bytes: NullableObservation::observed(
+                        last_available_physical_memory_bytes,
+                    ),
                     elapsed_wall_time_ns: duration_ns(started.elapsed())?,
                     trigger: Some(ChildMonitorTrigger::MonitoringGap),
                 };
@@ -1832,6 +1956,7 @@ fn run_monitored_child_with_observer(
                     ordinal,
                     child_pid,
                     report,
+                    external_state_monitor,
                     Some("child-process-disappeared-before-exit-status".to_owned()),
                 );
             }
@@ -1840,6 +1965,9 @@ fn run_monitored_child_with_observer(
                     observation_count,
                     last_private_bytes: NullableObservation::observed(last_private_bytes),
                     peak_private_bytes: NullableObservation::observed(peak_private_bytes),
+                    last_available_physical_memory_bytes: NullableObservation::observed(
+                        last_available_physical_memory_bytes,
+                    ),
                     elapsed_wall_time_ns: duration_ns(started.elapsed())?,
                     trigger: Some(ChildMonitorTrigger::MonitoringGap),
                 };
@@ -1848,6 +1976,7 @@ fn run_monitored_child_with_observer(
                     ordinal,
                     child_pid,
                     report,
+                    external_state_monitor,
                     Some(error.to_string()),
                 );
             }
@@ -1860,16 +1989,27 @@ fn run_monitored_child_with_observer(
                 ))?;
         last_private_bytes = observation.private_bytes;
         peak_private_bytes = peak_private_bytes.max(observation.private_bytes);
+        last_available_physical_memory_bytes = observation.available_physical_memory_bytes;
         let elapsed = started.elapsed();
         if let Some(trigger) = evaluate_child_monitor_trigger(thresholds, observation, elapsed)? {
             let report = ChildProcessMonitorReport {
                 observation_count,
                 last_private_bytes: NullableObservation::observed(last_private_bytes),
                 peak_private_bytes: NullableObservation::observed(peak_private_bytes),
+                last_available_physical_memory_bytes: NullableObservation::observed(
+                    last_available_physical_memory_bytes,
+                ),
                 elapsed_wall_time_ns: duration_ns(elapsed)?,
                 trigger: Some(trigger),
             };
-            return terminate_monitored_child(child, ordinal, child_pid, report, None);
+            return terminate_monitored_child(
+                child,
+                ordinal,
+                child_pid,
+                report,
+                external_state_monitor,
+                None,
+            );
         }
         thread::sleep(CHILD_MONITOR_POLL_INTERVAL);
     }
@@ -1882,6 +2022,7 @@ fn finish_observed_child_exit(
     status: std::process::ExitStatus,
     thresholds: GuardThresholds,
     snapshot: ChildMonitorSnapshot,
+    external_state_monitor: Option<ExternalStateMonitor>,
 ) -> Result<MonitoredChildExecution, PilotError> {
     let elapsed_wall_time_ns = duration_ns(snapshot.elapsed)?;
     let trigger = wall_time_limit_reached(thresholds, snapshot.elapsed)?
@@ -1894,14 +2035,19 @@ fn finish_observed_child_exit(
         observation_count: snapshot.observation_count,
         last_private_bytes: NullableObservation::observed(snapshot.last_private_bytes),
         peak_private_bytes: NullableObservation::observed(snapshot.peak_private_bytes),
+        last_available_physical_memory_bytes: NullableObservation::observed(
+            snapshot.last_available_physical_memory_bytes,
+        ),
         elapsed_wall_time_ns,
         trigger,
     };
+    let external_state = finish_external_state(external_state_monitor);
     if trigger.is_some() {
         Ok(MonitoredChildExecution::InvalidatedByMonitor {
             child_pid,
             output,
             monitor,
+            external_state,
             kill_error: None,
             monitor_error: None,
         })
@@ -1910,6 +2056,7 @@ fn finish_observed_child_exit(
             child_pid,
             output,
             monitor,
+            external_state,
         })
     }
 }
@@ -1963,6 +2110,7 @@ fn terminate_monitored_child(
     ordinal: usize,
     child_pid: u32,
     report: ChildProcessMonitorReport,
+    external_state_monitor: Option<ExternalStateMonitor>,
     monitor_error: Option<String>,
 ) -> Result<MonitoredChildExecution, PilotError> {
     let termination = terminate_child_with_deadline(
@@ -2003,13 +2151,21 @@ fn terminate_monitored_child(
     } else {
         monitor_error
     };
+    let external_state = finish_external_state(external_state_monitor);
     Ok(MonitoredChildExecution::InvalidatedByMonitor {
         child_pid,
         output,
         monitor: report,
+        external_state,
         kill_error: termination.prior_termination_error,
         monitor_error,
     })
+}
+
+fn finish_external_state(
+    monitor: Option<ExternalStateMonitor>,
+) -> Option<ExternalStateObservation> {
+    monitor.map(ExternalStateMonitor::finish)
 }
 
 trait ChildTerminationControl {
@@ -2489,6 +2645,8 @@ pub enum PilotError {
     Guard(#[from] GuardError),
     #[error(transparent)]
     ProcessProtocol(#[from] ProcessProtocolError),
+    #[error(transparent)]
+    Environment(#[from] crate::EnvironmentError),
     #[error(transparent)]
     WorkloadContract(#[from] crate::ScalableWorkloadContractError),
     #[error("新进程试运行标识符不能为空")]
@@ -3108,6 +3266,7 @@ mod tests {
             monitor,
             kill_error,
             monitor_error,
+            ..
         } = execution
         else {
             panic!("private-byte threshold must invalidate through the monitor");
@@ -3192,6 +3351,7 @@ mod tests {
             child_pid,
             output,
             monitor,
+            ..
         } = execution
         else {
             panic!("nonzero child exit must not be classified as a monitor termination");
@@ -3303,6 +3463,9 @@ mod tests {
             retry_ordinal: 0,
             pilot_sample_position: u32::try_from(ordinal).expect("test ordinal"),
             run_kind: BaseScalePilotRunKind::ColdInstance,
+            compiler_instance_id: NullableObservation::observed(format!(
+                "{run_id}/compiler-instance"
+            )),
             workload_id: ScalableWorkloadId::Identity,
             workload_revision: WORKLOAD_REVISION_V1,
             graph_profile: GraphProfileId::WideStar.as_str().to_owned(),
@@ -3339,9 +3502,13 @@ mod tests {
                 observation_count: 1,
                 last_private_bytes: NullableObservation::observed(1),
                 peak_private_bytes: NullableObservation::observed(1),
+                last_available_physical_memory_bytes: NullableObservation::observed(
+                    48 * 1_073_741_824,
+                ),
                 elapsed_wall_time_ns: wall_time_ns,
                 trigger: None,
             }),
+            external_state: None,
             kill_error: None,
             monitor_error: None,
             stderr: String::new(),
@@ -3391,9 +3558,13 @@ mod tests {
                 observation_count: 1,
                 last_private_bytes: NullableObservation::observed(1),
                 peak_private_bytes: NullableObservation::observed(1),
+                last_available_physical_memory_bytes: NullableObservation::observed(
+                    48 * 1_073_741_824,
+                ),
                 elapsed_wall_time_ns: 1,
                 trigger: None,
             }),
+            external_state: None,
             kill_error: None,
             monitor_error: None,
             stderr: String::new(),

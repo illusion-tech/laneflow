@@ -25,7 +25,7 @@ const EDGE_POSITION_BITS: u32 = 1.0_f32.to_bits();
 const JUNCTION_GRID_KNOWN_VECTOR_BYTE_LENGTH: usize = 8_601;
 #[cfg(test)]
 const JUNCTION_GRID_KNOWN_VECTOR_SHA256: &str =
-    "836a5cab7fc36b66ffba1b403eb003ce856a11465f1e9da1db5897e02b2e58fe";
+    "c9d63824f88a98a51a5e194820695f6bca9e8ad8575f90759a202ee2c8da1fe2";
 
 const EXPECTED_STAGE_INPUTS: [(&str, u64); 6] = [
     ("sourceDeclarationCount", 166),

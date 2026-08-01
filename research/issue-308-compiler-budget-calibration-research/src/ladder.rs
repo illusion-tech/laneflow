@@ -7,7 +7,7 @@
 use crate::{
     ScalableLadderBinaryMode, ScalableLadderChildReport, ScalableLadderOutcome, ScalableWorkloadId,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
 pub const FORMAL_LADDER_BATCH_COUNT: u32 = 2;
@@ -16,21 +16,21 @@ pub const FORMAL_LADDER_MINIMUM_LEVEL_COUNT: usize = 5;
 pub const FORMAL_LADDER_AGGREGATION_METHOD: &str = "median-and-mad-of-exact-integers-v1";
 pub const FORMAL_LADDER_SCALE_SELECTION_RULE: &str = "first-confirmed-knee-or-max-complete-v1";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FormalLadderMetric {
     WallTimeNs,
     PeakLiveRequestedBytes,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FormalLadderSampleKind {
     ColdInstance,
     StableCapacityReuse,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalLadderRoundRun {
     pub batch: u32,
@@ -39,7 +39,7 @@ pub struct FormalLadderRoundRun {
     pub report: ScalableLadderChildReport,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalLadderCompletedLevel {
     pub workload_id: ScalableWorkloadId,
@@ -50,7 +50,7 @@ pub struct FormalLadderCompletedLevel {
     pub runs: Vec<FormalLadderRoundRun>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalLadderRoundMetricSummary {
     pub summary_id: String,
@@ -68,7 +68,7 @@ pub struct FormalLadderRoundMetricSummary {
     pub normalizer: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalLadderBatchSummary {
     pub summary_id: String,
@@ -87,14 +87,14 @@ pub struct FormalLadderBatchSummary {
     pub aggregation_method: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExactPositiveRatio {
     pub numerator: String,
     pub denominator: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalAdjacentLevelRatio {
     pub workload_id: ScalableWorkloadId,
@@ -111,7 +111,7 @@ pub struct FormalAdjacentLevelRatio {
     pub candidate_knee: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalKneeAssessment {
     pub workload_id: ScalableWorkloadId,
@@ -125,7 +125,7 @@ pub struct FormalKneeAssessment {
     pub confirmed_knee: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FormalScaleSelectionDisposition {
     ConfirmedKnee,
@@ -133,7 +133,7 @@ pub enum FormalScaleSelectionDisposition {
     InsufficientCompleteLevels,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalScaleSelection {
     pub selection_rule: String,
@@ -143,7 +143,7 @@ pub struct FormalScaleSelection {
     pub first_confirmed_knee_n: Option<u32>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalLadderAnalysis {
     pub round_summaries: Vec<FormalLadderRoundMetricSummary>,

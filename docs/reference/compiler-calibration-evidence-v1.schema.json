@@ -270,7 +270,7 @@
           "$ref": "#/$defs/sha256"
         },
         "workloadManifestSha256": {
-          "const": "9c01aa95e1fadb38adeb6a828a3aa642896df4727a8dc3f9431522b3b4cbb964"
+          "const": "f6c3a6a950f18888159a4cd84cc6055d23fba6e8fa20bbad3a172e72d20b0a4b"
         },
         "evidenceSchemaSha256": {
           "$ref": "#/$defs/sha256"
@@ -1168,8 +1168,11 @@
             "multi-gate-waiting-zone"
           ]
         },
+        "inputVariantId": {
+          "const": "canonical-valid-v1"
+        },
         "manifestDigest": {
-          "const": "9c01aa95e1fadb38adeb6a828a3aa642896df4727a8dc3f9431522b3b4cbb964"
+          "const": "f6c3a6a950f18888159a4cd84cc6055d23fba6e8fa20bbad3a172e72d20b0a4b"
         },
         "counts": {
           "type": "object"
@@ -4808,7 +4811,8 @@
             "oracle",
             "limit-baseline",
             "guard-preflight",
-            "correctness"
+            "correctness",
+            "candidate-qualification"
           ]
         },
         "status": {
@@ -4832,7 +4836,8 @@
               "background-write-over-100-mib",
               "research-stop-guardrail-triggered",
               "monitoring-gap",
-              "child-abnormal-exit"
+              "child-abnormal-exit",
+              "independent-oracle-mismatch"
             ]
           }
         },
@@ -5508,6 +5513,40 @@
                   }
                 }
               },
+              "cleanup": {
+                "properties": {
+                  "phase": {
+                    "const": "not-applicable"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "limitBaseline"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "sampleKind": {
+                "const": "limit-baseline"
+              },
+              "status": {
+                "const": "valid"
+              }
+            },
+            "required": [
+              "sampleKind",
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
               "metrics": {
                 "properties": {
                   "peakLiveRequestedBytes": {
@@ -5529,21 +5568,7 @@
                     "const": "none"
                   }
                 }
-              },
-              "cleanup": {
-                "properties": {
-                  "phase": {
-                    "const": "not-applicable"
-                  }
-                }
               }
-            }
-          },
-          "else": {
-            "not": {
-              "required": [
-                "limitBaseline"
-              ]
             }
           }
         },
@@ -6011,7 +6036,7 @@
           "then": {
             "properties": {
               "status": {
-                "const": "guarded"
+                "const": "invalid"
               }
             }
           }
@@ -6097,6 +6122,7 @@
                   "exitKind": {
                     "enum": [
                       "success",
+                      "guarded-in-child",
                       "invalid-abnormal-exit",
                       "invalid-monitor-termination"
                     ]
@@ -6125,10 +6151,7 @@
               "process": {
                 "properties": {
                   "exitKind": {
-                    "enum": [
-                      "guarded-before-start",
-                      "guarded-in-child"
-                    ]
+                    "const": "guarded-before-start"
                   }
                 }
               }
@@ -6526,6 +6549,7 @@
         "b",
         "scaleRole",
         "caseId",
+        "inputVariantId",
         "sampleKind",
         "binaryMode"
       ],
@@ -6565,6 +6589,10 @@
         "caseId": {
           "$ref": "#/$defs/workload/properties/caseId"
         },
+        "inputVariantId": {
+          "type": "string",
+          "minLength": 1
+        },
         "sampleKind": {
           "enum": [
             "cold-instance",
@@ -6576,6 +6604,54 @@
             "timing",
             "memory"
           ]
+        }
+      }
+    },
+    "growthSeries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keyDomain",
+        "workloadId",
+        "workloadRevision",
+        "graphProfile",
+        "stringProfile",
+        "generatorVersion",
+        "b",
+        "caseId",
+        "sampleKind",
+        "binaryMode"
+      ],
+      "properties": {
+        "keyDomain": {
+          "$ref": "#/$defs/measurementStratum/properties/keyDomain"
+        },
+        "workloadId": {
+          "$ref": "#/$defs/workload/properties/id"
+        },
+        "workloadRevision": {
+          "$ref": "#/$defs/workload/properties/revision"
+        },
+        "graphProfile": {
+          "$ref": "#/$defs/workload/properties/graphProfile"
+        },
+        "stringProfile": {
+          "$ref": "#/$defs/workload/properties/stringProfile"
+        },
+        "generatorVersion": {
+          "$ref": "#/$defs/workload/properties/generatorVersion"
+        },
+        "b": {
+          "$ref": "#/$defs/workload/properties/b"
+        },
+        "caseId": {
+          "$ref": "#/$defs/workload/properties/caseId"
+        },
+        "sampleKind": {
+          "$ref": "#/$defs/measurementStratum/properties/sampleKind"
+        },
+        "binaryMode": {
+          "$ref": "#/$defs/measurementStratum/properties/binaryMode"
         }
       }
     },
@@ -6610,7 +6686,8 @@
         "n",
         "b",
         "scaleRole",
-        "caseId"
+        "caseId",
+        "inputVariantId"
       ],
       "properties": {
         "keyDomain": {
@@ -6646,6 +6723,10 @@
         },
         "caseId": {
           "$ref": "#/$defs/workload/properties/caseId"
+        },
+        "inputVariantId": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -7773,6 +7854,7 @@
             "additionalProperties": false,
             "required": [
               "candidateId",
+              "series",
               "metric",
               "encoding",
               "batch0",
@@ -7783,6 +7865,9 @@
             "properties": {
               "candidateId": {
                 "const": "baseline-std-randomstate-stable-vec-v1"
+              },
+              "series": {
+                "$ref": "#/$defs/growthSeries"
               },
               "metric": {
                 "enum": [

@@ -937,6 +937,12 @@ mod tests {
             assert!(cold_allocation.allocation_count > 0);
             assert_eq!(cold_allocation.live_requested_bytes, retained);
             assert!(cold_allocation.peak_live_requested_bytes >= retained);
+            let stable_peak_live_requested_bytes = attribution
+                .stable_capacity_reuse
+                .first()
+                .and_then(|sample| sample.allocation)
+                .expect("first reuse allocation")
+                .peak_live_requested_bytes;
             for sample in &attribution.stable_capacity_reuse {
                 let allocation = sample.allocation.expect("reuse allocation");
                 assert_eq!(allocation.allocation_count, 0);
@@ -945,7 +951,11 @@ mod tests {
                 assert_eq!(allocation.reallocated_bytes, 0);
                 assert_eq!(allocation.freed_bytes, 0);
                 assert_eq!(allocation.live_requested_bytes, retained);
-                assert_eq!(allocation.peak_live_requested_bytes, retained);
+                assert_eq!(
+                    allocation.peak_live_requested_bytes,
+                    stable_peak_live_requested_bytes
+                );
+                assert!(allocation.peak_live_requested_bytes >= retained);
                 assert_eq!(sample.semantic_digest_sha256, cold.semantic_digest_sha256);
             }
         }

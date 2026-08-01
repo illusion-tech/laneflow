@@ -94,6 +94,23 @@ fn verify_corridor_oracle_case_with_template(
 pub(crate) struct OracleOutput {
     pub(crate) records: Vec<SemanticRecord>,
     pub(crate) stream: Vec<u8>,
+    pub(crate) declarations: Vec<OracleDeclarationIdentity>,
+    pub(crate) route_occurrences: Vec<OracleRouteOccurrence>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OracleDeclarationIdentity {
+    pub(crate) unit: u32,
+    pub(crate) entity: EntityRef,
+    pub(crate) stable_id: [u8; 16],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OracleRouteOccurrence {
+    pub(crate) unit: u32,
+    pub(crate) relation_sequence_ordinal: u32,
+    pub(crate) route_ordinal_within_unit: u32,
+    pub(crate) reference_ordinal: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -327,6 +344,33 @@ fn build_oracle_records(
         }
     }
     let owner_ordinals = oracle_owner_ordinals(&declarations)?;
+    let mut route_sources = BTreeMap::new();
+    for unit in 0..n {
+        for (relation_sequence_ordinal, relation) in template.relations.iter().enumerate() {
+            let TemplateRelation::RouteOccurrence { route, index, .. } = relation else {
+                continue;
+            };
+            let stable_id = oracle_stable_id(&stable_ids, unit, *route)?;
+            if route_sources
+                .insert(
+                    (stable_id, *index),
+                    (
+                        unit,
+                        u32::try_from(relation_sequence_ordinal).map_err(|_| {
+                            CorridorOracleError::Contract(
+                                "route relation sequence ordinal overflow".to_owned(),
+                            )
+                        })?,
+                    ),
+                )
+                .is_some()
+            {
+                return Err(CorridorOracleError::Contract(
+                    "duplicate route occurrence source identity".to_owned(),
+                ));
+            }
+        }
+    }
     let mut pending = Vec::new();
     for declaration in &declarations {
         pending.push(OraclePending {
@@ -386,8 +430,54 @@ fn build_oracle_records(
         });
     }
     records.sort_by(|left, right| left.canonical_key().cmp(&right.canonical_key()));
+    let mut per_unit_route_ordinals = BTreeMap::<u32, u32>::new();
+    let mut route_occurrences = Vec::with_capacity(route_sources.len());
+    for (reference_ordinal, record) in records
+        .iter()
+        .filter(|record| record.record_kind == 4)
+        .enumerate()
+    {
+        let (unit, relation_sequence_ordinal) = route_sources
+            .get(&(record.stable_id, record.local_index))
+            .copied()
+            .ok_or_else(|| {
+                CorridorOracleError::Contract(
+                    "canonical route occurrence lacks source identity".to_owned(),
+                )
+            })?;
+        let route_ordinal_within_unit = per_unit_route_ordinals.entry(unit).or_default();
+        route_occurrences.push(OracleRouteOccurrence {
+            unit,
+            relation_sequence_ordinal,
+            route_ordinal_within_unit: *route_ordinal_within_unit,
+            reference_ordinal: u64::try_from(reference_ordinal).map_err(|_| {
+                CorridorOracleError::Contract("route reference ordinal overflow".to_owned())
+            })?,
+        });
+        *route_ordinal_within_unit = route_ordinal_within_unit.checked_add(1).ok_or_else(|| {
+            CorridorOracleError::Contract("route ordinal within unit overflow".to_owned())
+        })?;
+    }
+    if route_occurrences.len() != route_sources.len() {
+        return Err(CorridorOracleError::Contract(
+            "canonical route occurrence source coverage mismatch".to_owned(),
+        ));
+    }
+    let declaration_identities = declarations
+        .iter()
+        .map(|declaration| OracleDeclarationIdentity {
+            unit: declaration.owner.unit,
+            entity: declaration.owner.entity,
+            stable_id: declaration.stable_id,
+        })
+        .collect();
     let stream = oracle_stream(stream_domain, stream_version, &records);
-    Ok(OracleOutput { records, stream })
+    Ok(OracleOutput {
+        records,
+        stream,
+        declarations: declaration_identities,
+        route_occurrences,
+    })
 }
 
 fn oracle_relation(
