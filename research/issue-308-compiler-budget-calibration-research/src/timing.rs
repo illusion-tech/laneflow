@@ -8,9 +8,11 @@
 
 use crate::bounded_template::{
     BoundedTemplateBufferPool, BoundedTemplateExecution, BoundedTemplateFailureMode,
-    execute_bounded_template_failure_case_with_pool, execute_bounded_template_stage_case_with_pool,
+    execute_bounded_template_failure_case_with_pool,
+    execute_bounded_template_stage_case_with_pool_and_candidate,
     finalize_bounded_template_stage_case_with_pool,
 };
+use crate::candidate_matrix::{CandidatePipelineChecksums, CandidatePipelineConfiguration};
 use crate::controlled_alloc::ControlledAllocator;
 use crate::corridor::{CorridorContract, CorridorTemplate};
 use crate::junction_grid::{JunctionGridContract, build_junction_grid_template};
@@ -22,13 +24,12 @@ use crate::pipeline::{
 use crate::stage::{IdentityStagePlan, IdentityStageSummary, StageRetainedCapacityBytes};
 use crate::stage_oracle::build_identity_stage_oracle;
 use crate::{
-    DIAGNOSTIC_LIMIT_ERROR_CODE, GeneratorContract, GraphProfileId, IdentityContract,
-    LIMIT_EXCEEDED_ERROR_CODE, ScalableWorkloadId, StageContract, TrustedContract,
-    UNKNOWN_REFERENCE_ERROR_CODE,
+    DIAGNOSTIC_LIMIT_ERROR_CODE, DUPLICATE_OWNER_ERROR_CODE, GeneratorContract, GraphProfileId,
+    IdentityContract, LIMIT_EXCEEDED_ERROR_CODE, LimitDimensionId, ScalableWorkloadId,
+    StageContract, TrustedContract, UNKNOWN_REFERENCE_ERROR_CODE,
 };
 use crate::{ScalableStagePlanFactory, ScalableStagePlanSummary};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -61,6 +62,7 @@ pub struct ScalableTimingSample {
     pub semantic_digest_sha256: String,
     pub guard_peak_live_requested_bytes: u64,
     pub allocation: IdentityAllocationSnapshot,
+    pub candidate_pipeline_checksums: CandidatePipelineChecksums,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -76,6 +78,8 @@ pub struct ScalableStableCapacitySequence {
 pub(crate) enum ScalableFailureInput {
     SourceByteLimitPlusOne { selected_limit_value: u64 },
     MissingReferencePerUnit,
+    MissingReferencePerUnitWithMaximumDiagnostics { maximum_diagnostics: u64 },
+    DuplicateOwnerPerUnit,
     DiagnosticCapPlusOne { maximum_diagnostics: u64 },
 }
 
@@ -94,6 +98,7 @@ pub(crate) struct ScalableFailureReport {
 pub struct ScalableCompilerInstance<const TRACK_ALLOCATIONS: bool> {
     compiler_instance_id: String,
     controlled_allocation_hard_ceiling_bytes: u64,
+    limit_manifest: serde_json::Value,
     plans: ScalableStagePlanFactory,
     inner: ScalableCompilerInner<TRACK_ALLOCATIONS>,
     completed_compilations: u32,
@@ -149,6 +154,7 @@ struct TemplateTimingCompilerInstance<C> {
     contract: C,
     template: CorridorTemplate,
     buffers: Option<BoundedTemplateBufferPool>,
+    candidate_configuration: CandidatePipelineConfiguration,
 }
 
 #[derive(Debug)]
@@ -400,6 +406,42 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
         workload_id: ScalableWorkloadId,
         controlled_allocation_hard_ceiling_bytes: u64,
     ) -> Result<Self, TimingError> {
+        let candidate_configuration = CandidatePipelineConfiguration::baseline(trusted)?;
+        Self::from_trusted_contract_with_configuration(
+            trusted,
+            compiler_instance_id,
+            workload_id,
+            controlled_allocation_hard_ceiling_bytes,
+            candidate_configuration,
+        )
+    }
+
+    pub fn from_trusted_contract_with_candidate_and_allocation_ceiling(
+        trusted: &TrustedContract,
+        compiler_instance_id: String,
+        workload_id: ScalableWorkloadId,
+        controlled_allocation_hard_ceiling_bytes: u64,
+        candidate_configuration: CandidatePipelineConfiguration,
+    ) -> Result<Self, TimingError> {
+        if workload_id == ScalableWorkloadId::Identity {
+            return Err(TimingError::CandidatePipelineRequiresTemplateWorkload);
+        }
+        Self::from_trusted_contract_with_configuration(
+            trusted,
+            compiler_instance_id,
+            workload_id,
+            controlled_allocation_hard_ceiling_bytes,
+            candidate_configuration,
+        )
+    }
+
+    fn from_trusted_contract_with_configuration(
+        trusted: &TrustedContract,
+        compiler_instance_id: String,
+        workload_id: ScalableWorkloadId,
+        controlled_allocation_hard_ceiling_bytes: u64,
+        candidate_configuration: CandidatePipelineConfiguration,
+    ) -> Result<Self, TimingError> {
         if compiler_instance_id.is_empty() {
             return Err(TimingError::EmptyCompilerInstanceId);
         }
@@ -435,6 +477,7 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
                                 TRACK_ALLOCATIONS,
                             ),
                         )),
+                        candidate_configuration: candidate_configuration.clone(),
                     }),
                     plans,
                 )
@@ -461,6 +504,7 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
                                 TRACK_ALLOCATIONS,
                             ),
                         )),
+                        candidate_configuration: candidate_configuration.clone(),
                     }),
                     plans,
                 )
@@ -469,6 +513,7 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
         Ok(Self {
             compiler_instance_id,
             controlled_allocation_hard_ceiling_bytes,
+            limit_manifest: trusted.workload_manifest.clone(),
             plans,
             inner,
             completed_compilations: 0,
@@ -542,6 +587,31 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
         Ok(self.finalize_executed(executed)?.semantic_digest_sha256)
     }
 
+    pub(crate) fn run_unmeasured_with_selected_limit(
+        &mut self,
+        graph_profile: GraphProfileId,
+        n: u32,
+        dimension_id: LimitDimensionId,
+        selected_limit_value: u64,
+    ) -> Result<String, TimingError> {
+        let workload_id = match &self.inner {
+            ScalableCompilerInner::Identity(_) => ScalableWorkloadId::Identity,
+            ScalableCompilerInner::Corridor(_) => ScalableWorkloadId::Corridor,
+            ScalableCompilerInner::JunctionGrid(_) => ScalableWorkloadId::JunctionGrid,
+        };
+        let plan = self.plans.plan(workload_id, graph_profile, n)?;
+        let actual_value =
+            crate::limits::exact_plan_value(&self.limit_manifest, dimension_id, &plan)?;
+        if actual_value > selected_limit_value {
+            return Err(TimingError::SelectedLimitExceeded {
+                dimension_id,
+                selected_limit_value,
+                actual_value,
+            });
+        }
+        self.run_unmeasured(graph_profile, n)
+    }
+
     pub(crate) fn run_failure(
         &mut self,
         graph_profile: GraphProfileId,
@@ -583,7 +653,9 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
                     live_requested_bytes_after_run: 0,
                     diagnostic_digest_sha256: failure_diagnostic_digest(
                         LIMIT_EXCEEDED_ERROR_CODE,
-                        1,
+                        LimitDimensionId::SourceByteCount.one_based_code_u8(),
+                        selected_limit_value,
+                        plan.counts.source_byte_count,
                     ),
                 })
             }
@@ -591,6 +663,8 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
                 ScalableCompilerInner::Corridor(instance),
                 ScalablePreparedMeasurementInner::Corridor(plan),
                 failure_input @ (ScalableFailureInput::MissingReferencePerUnit
+                | ScalableFailureInput::MissingReferencePerUnitWithMaximumDiagnostics { .. }
+                | ScalableFailureInput::DuplicateOwnerPerUnit
                 | ScalableFailureInput::DiagnosticCapPlusOne { .. }),
             ) => {
                 let buffers = instance
@@ -600,7 +674,25 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
                 buffers.begin_request()?;
                 let failure_mode = match failure_input {
                     ScalableFailureInput::MissingReferencePerUnit => {
-                        BoundedTemplateFailureMode::MissingReferencePerUnit
+                        BoundedTemplateFailureMode::MissingReferencePerUnit {
+                            maximum_diagnostics: u64::from(n),
+                        }
+                    }
+                    ScalableFailureInput::MissingReferencePerUnitWithMaximumDiagnostics {
+                        maximum_diagnostics,
+                    } => {
+                        if maximum_diagnostics >= u64::from(n) {
+                            instance.buffers = Some(buffers);
+                            return Err(TimingError::InvalidFailureInput(
+                                "missing-reference selected diagnostic limit",
+                            ));
+                        }
+                        BoundedTemplateFailureMode::MissingReferencePerUnit {
+                            maximum_diagnostics,
+                        }
+                    }
+                    ScalableFailureInput::DuplicateOwnerPerUnit => {
+                        BoundedTemplateFailureMode::DuplicateOwnerPerUnit
                     }
                     ScalableFailureInput::DiagnosticCapPlusOne {
                         maximum_diagnostics,
@@ -634,7 +726,7 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
                     Ok(result) => result,
                     Err(failure) => {
                         let (source, buffers) = failure.into_parts();
-                        instance.buffers = Some(buffers);
+                        instance.buffers = Some(buffers.reset_after_unexpected_failure()?);
                         return Err(source.into());
                     }
                 };
@@ -642,6 +734,12 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
                 let (stable_compiler_error_code, diagnostics_truncated) = match failure_input {
                     ScalableFailureInput::MissingReferencePerUnit => {
                         (UNKNOWN_REFERENCE_ERROR_CODE, false)
+                    }
+                    ScalableFailureInput::MissingReferencePerUnitWithMaximumDiagnostics { .. } => {
+                        (DIAGNOSTIC_LIMIT_ERROR_CODE, true)
+                    }
+                    ScalableFailureInput::DuplicateOwnerPerUnit => {
+                        (DUPLICATE_OWNER_ERROR_CODE, false)
                     }
                     ScalableFailureInput::DiagnosticCapPlusOne { .. } => {
                         (DIAGNOSTIC_LIMIT_ERROR_CODE, true)
@@ -810,7 +908,7 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
                     .buffers
                     .take()
                     .ok_or(TimingError::MissingTemplateBufferPool)?;
-                let execution = match execute_bounded_template_stage_case_with_pool(
+                let execution = match execute_bounded_template_stage_case_with_pool_and_candidate(
                     &instance.generator,
                     &instance.identity,
                     &instance.stage,
@@ -820,11 +918,12 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
                     n,
                     &plan,
                     buffers,
+                    Some(&instance.candidate_configuration),
                 ) {
                     Ok(execution) => execution,
                     Err(failure) => {
                         let (source, buffers) = failure.into_parts();
-                        instance.buffers = Some(buffers);
+                        instance.buffers = Some(buffers.reset_after_unexpected_failure()?);
                         return Err(source.into());
                     }
                 };
@@ -839,7 +938,7 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
                     .buffers
                     .take()
                     .ok_or(TimingError::MissingTemplateBufferPool)?;
-                let execution = match execute_bounded_template_stage_case_with_pool(
+                let execution = match execute_bounded_template_stage_case_with_pool_and_candidate(
                     &instance.generator,
                     &instance.identity,
                     &instance.stage,
@@ -849,11 +948,12 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
                     n,
                     &plan,
                     buffers,
+                    Some(&instance.candidate_configuration),
                 ) {
                     Ok(execution) => execution,
                     Err(failure) => {
                         let (source, buffers) = failure.into_parts();
-                        instance.buffers = Some(buffers);
+                        instance.buffers = Some(buffers.reset_after_unexpected_failure()?);
                         return Err(source.into());
                     }
                 };
@@ -904,30 +1004,34 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
             guard_peak_live_requested_bytes,
             inner,
         } = executed;
-        let semantic_digest_sha256 = match (&mut self.inner, inner) {
+        let (semantic_digest_sha256, candidate_pipeline_checksums) = match (&mut self.inner, inner)
+        {
             (
                 ScalableCompilerInner::Identity(instance),
                 ScalableExecutedMeasurementInner::Identity { plan, materialized },
-            ) => {
+            ) => (
                 instance
                     .finalize_and_recycle(&plan, materialized)?
-                    .semantic_digest_sha256
-            }
+                    .semantic_digest_sha256,
+                CandidatePipelineChecksums::default(),
+            ),
             (
                 ScalableCompilerInner::Corridor(instance),
                 ScalableExecutedMeasurementInner::Corridor(execution),
             ) => {
+                let checksums = execution.candidate_pipeline_checksums();
                 let (digest, buffers) = finalize_bounded_template_stage_case_with_pool(execution)?;
                 instance.buffers = Some(buffers);
-                digest
+                (digest, checksums)
             }
             (
                 ScalableCompilerInner::JunctionGrid(instance),
                 ScalableExecutedMeasurementInner::JunctionGrid(execution),
             ) => {
+                let checksums = execution.candidate_pipeline_checksums();
                 let (digest, buffers) = finalize_bounded_template_stage_case_with_pool(execution)?;
                 instance.buffers = Some(buffers);
-                digest
+                (digest, checksums)
             }
             _ => return Err(TimingError::ScalableMeasurementInstanceMismatch),
         };
@@ -944,29 +1048,23 @@ impl<const TRACK_ALLOCATIONS: bool> ScalableCompilerInstance<TRACK_ALLOCATIONS> 
             semantic_digest_sha256,
             guard_peak_live_requested_bytes,
             allocation,
+            candidate_pipeline_checksums,
         })
     }
 }
 
-fn failure_diagnostic_digest(error_code: &'static str, diagnostic_count: u64) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(b"LANEFLOW-COMPILER-CALIBRATION-DIAGNOSTIC-V1\0");
-    for source_ordinal in 0..diagnostic_count {
-        hasher.update(source_ordinal.to_le_bytes());
-        hasher.update(
-            u32::try_from(error_code.len())
-                .expect("closed diagnostic code length fits u32")
-                .to_le_bytes(),
-        );
-        hasher.update(error_code.as_bytes());
-    }
-    let digest = hasher.finalize();
-    let mut output = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        use std::fmt::Write as _;
-        write!(&mut output, "{byte:02x}").expect("writing to String cannot fail");
-    }
-    output
+fn failure_diagnostic_digest(
+    error_code: &'static str,
+    dimension_code_u8: u8,
+    selected_limit_value: u64,
+    observed_value: u64,
+) -> String {
+    crate::diagnostic::limit_exceeded_diagnostic_digest(
+        error_code,
+        dimension_code_u8,
+        selected_limit_value,
+        observed_value,
+    )
 }
 
 pub fn observe_clock_quantum_ns() -> Result<u64, TimingError> {
@@ -1018,6 +1116,10 @@ pub enum TimingError {
     JunctionGrid(#[from] crate::JunctionGridError),
     #[error(transparent)]
     ScalePlan(#[from] crate::ScalePlanError),
+    #[error(transparent)]
+    LimitQualification(#[from] crate::LimitQualificationError),
+    #[error(transparent)]
+    CandidateMatrix(#[from] crate::CandidateMatrixError),
     #[error("单调时钟观测未取得任何正差值")]
     NoPositiveClockDelta,
     #[error("单调时钟时长无法表示为 u64 纳秒")]
@@ -1042,10 +1144,20 @@ pub enum TimingError {
     ScalableMeasurementInstanceMismatch,
     #[error("模板工作负载编译器实例缺少可回收的阶段缓冲池")]
     MissingTemplateBufferPool,
+    #[error("完整管线候选只适用于模板型 Corridor/Junction Grid 工作负载")]
+    CandidatePipelineRequiresTemplateWorkload,
     #[error("失败输入与真实编译管线不匹配：{0}")]
     InvalidFailureInput(&'static str),
     #[error("真实编译失败观察与请求不一致")]
     InvalidFailureObservation,
+    #[error(
+        "私有限制 {dimension_id:?} 在进入比例分配前失败：限制 {selected_limit_value}，实际 {actual_value}"
+    )]
+    SelectedLimitExceeded {
+        dimension_id: LimitDimensionId,
+        selected_limit_value: u64,
+        actual_value: u64,
+    },
 }
 
 #[cfg(test)]

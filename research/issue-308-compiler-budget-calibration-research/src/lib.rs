@@ -2,6 +2,8 @@
 //!
 //! 本 crate 不属于 LaneFlow 生产依赖图，也不定义公共编译器契约。
 
+#![recursion_limit = "256"]
+
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -16,10 +18,15 @@ mod corridor;
 mod corridor_fixture_oracle;
 mod corridor_oracle;
 mod current_fixtures;
+mod diagnostic;
+mod environment;
+mod evidence;
+mod evidence_assembly;
 mod failure_recovery;
 mod generator;
 mod guard;
 mod identity;
+mod input_digest;
 mod junction_grid;
 mod junction_grid_oracle;
 mod ladder;
@@ -42,18 +49,34 @@ mod timing;
 mod workload;
 
 pub use candidate_matrix::{
-    CANDIDATE_KERNEL_CHILD_SCHEMA, CANDIDATE_KERNEL_CHILD_SCHEMA_VERSION, CANDIDATE_MATRIX_SCOPE,
-    CandidateAlgorithmConstant, CandidateComponent, CandidateDecision, CandidateDisposition,
-    CandidateExecutionMode, CandidateKernelChildReport, CandidateKernelMeasurement,
-    CandidateKeyDomain, CandidateMatrixError, CandidateMechanismComparison,
-    CandidateMechanismExecution, CandidateMechanismRoster, CandidateMechanismRosterEntry,
-    CandidatePerformanceSample, CandidateRegistration, CandidateRegistry,
-    CandidateSafetyAssessment, CandidateSafetyStatus, ConstantHashObservation, ConstantHashOutcome,
-    ConstantHashQualification, ConstantHashRole, ExactRatio, MechanismBalancedRound,
-    build_mechanism_candidate_roster, build_two_batch_balanced_schedule,
-    measure_candidate_kernel_child, qualify_constant_hash_candidate,
-    run_candidate_mechanism_kernel, run_mechanism_candidate_matrix,
-    run_mechanism_candidate_matrix_fresh_process,
+    CANDIDATE_KERNEL_CHILD_SCHEMA, CANDIDATE_KERNEL_CHILD_SCHEMA_VERSION,
+    CANDIDATE_MATRIX_CHECKPOINT_SCHEMA, CANDIDATE_MATRIX_CHECKPOINT_SCHEMA_VERSION,
+    CANDIDATE_MATRIX_SCOPE, CANDIDATE_PIPELINE_CHILD_SCHEMA,
+    CANDIDATE_PIPELINE_CHILD_SCHEMA_VERSION, CONSTANT_HASH_CHILD_SCHEMA,
+    CONSTANT_HASH_CHILD_SCHEMA_VERSION, CandidateAlgorithmConstant, CandidateComponent,
+    CandidateDecision, CandidateDisposition, CandidateExecutionMode, CandidateKernelChildReport,
+    CandidateKernelMeasurement, CandidateKeyDomain, CandidateMatrixError,
+    CandidateMatrixExecutionBundle, CandidateMechanismComparison, CandidateMechanismExecution,
+    CandidateMechanismRoster, CandidateMechanismRosterEntry, CandidatePackageSafetyAudit,
+    CandidatePerformanceAttempt, CandidatePerformanceSample, CandidatePerformanceScalePlan,
+    CandidatePerformanceScopeContract, CandidatePipelineChecksums, CandidatePipelineChildReport,
+    CandidatePipelineConfiguration, CandidatePipelineExecution, CandidatePipelineOutcome,
+    CandidatePipelinePerformanceAttempt, CandidatePipelinePerformanceSample,
+    CandidatePipelineQualificationOracleRun, CandidatePipelineQualificationRun,
+    CandidatePipelineQualifiedRoster, CandidatePipelineQualifiedRosterEntry,
+    CandidatePipelineStratum, CandidateRegistration, CandidateRegistry, CandidateSafetyAssessment,
+    CandidateSafetyAuditSnapshot, CandidateSafetyStatus, CandidateScaleRole,
+    ConstantHashChildReport, ConstantHashObservation, ConstantHashOutcome, ConstantHashProcessRun,
+    ConstantHashQualification, ConstantHashQualificationExecution, ConstantHashRole, ExactRatio,
+    MechanismBalancedRound, audit_candidate_safety, build_mechanism_candidate_roster,
+    build_two_batch_balanced_schedule, measure_candidate_kernel_child,
+    measure_candidate_pipeline_child, measure_constant_hash_observation,
+    qualify_constant_hash_candidate, qualify_constant_hash_candidate_fresh_process,
+    qualify_pipeline_candidate_roster_fresh_process, resolve_candidate_performance_scales,
+    run_candidate_matrix_bundle_with_checkpoint_sink, run_candidate_mechanism_kernel,
+    run_mechanism_candidate_matrix, run_mechanism_candidate_matrix_fresh_process,
+    run_pipeline_candidate_matrix_fresh_process,
+    run_pipeline_candidate_matrix_with_checkpoint_sink,
 };
 pub use corridor::{
     CORRIDOR_KNOWN_VECTOR_SCHEMA, CORRIDOR_WORKLOAD_ID, CorridorContract, CorridorError,
@@ -64,11 +87,22 @@ pub use corridor_oracle::{
     CorridorOracleError, CorridorOracleVerificationReport, verify_corridor_oracle_matrix,
 };
 pub use current_fixtures::{
+    CURRENT_FIXTURES_CHILD_SCHEMA, CURRENT_FIXTURES_CHILD_SCHEMA_VERSION,
     CURRENT_FIXTURES_KNOWN_VECTOR_SCHEMA, CURRENT_FIXTURES_WORKLOAD_ID, CurrentFixtureCaseSummary,
-    CurrentFixturesContract, CurrentFixturesError, CurrentFixturesKnownVectorDocument,
-    CurrentFixturesOracleError, CurrentFixturesOracleVerificationReport,
-    build_current_fixture_summaries, build_current_fixtures_known_vectors,
+    CurrentFixturesChildReport, CurrentFixturesContract, CurrentFixturesError,
+    CurrentFixturesKnownVectorDocument, CurrentFixturesOracleError,
+    CurrentFixturesOracleVerificationReport, build_current_fixture_summaries,
+    build_current_fixtures_known_vectors, measure_current_fixtures_child,
     verify_current_fixtures_oracle,
+};
+pub use environment::{
+    BackgroundProcessAudit, BackgroundProcessDelta, EnvironmentError, ExternalStateObservation,
+    FormalEnvironmentDeclaration, FormalEnvironmentSnapshot, installed_formal_environment,
+    load_and_install_formal_environment,
+};
+pub use evidence::{
+    EVIDENCE_SCHEMA_ID, EVIDENCE_SCHEMA_VERSION, EvidenceError, EvidenceVerificationReport,
+    EvidenceWriteOutcome, EvidenceWriteRequest, verify_evidence_v1, write_evidence_v1,
 };
 pub use failure_recovery::{
     CLEANUP_FAILURE_ITERATION_COUNT, CLEANUP_GROUP_RUN_COUNT, CleanupError, CleanupExperiment,
@@ -92,6 +126,7 @@ pub use identity::{
     IdentityGenerationError, IdentityKnownVector, IdentityKnownVectorDocument,
     SemanticRecordVector, build_identity_known_vectors,
 };
+pub use input_digest::{FailureInputDigestBinding, failure_input_digest_sha256};
 pub use junction_grid::{
     JUNCTION_GRID_KNOWN_VECTOR_SCHEMA, JUNCTION_GRID_WORKLOAD_ID, JunctionGridContract,
     JunctionGridError, JunctionGridKnownVectorDocument, build_junction_grid_known_vectors,
@@ -112,22 +147,28 @@ pub use ladder::{
 };
 pub use ladder_runner::{
     FORMAL_LADDER_EXECUTION_SCHEMA, FORMAL_LADDER_EXECUTION_SCHEMA_VERSION,
-    FormalAttributionPreflightRun, FormalLadderExecution, FormalLadderExecutionDisposition,
-    FormalLadderLevelExecution, FormalLadderProcessRun, FormalLadderRunnerError, FormalOracleRun,
-    FormalTimingGuardRun, run_formal_ladders,
+    FormalAttributionPreflightRun, FormalGuardPreflightRun, FormalLadderExecution,
+    FormalLadderExecutionDisposition, FormalLadderLevelExecution, FormalLadderProcessRun,
+    FormalLadderRunnerError, FormalOracleRun, FormalTimingGuardRun, run_formal_ladders,
 };
 pub use limit_execution::{
-    EXPECTED_CLEANUP_EXPERIMENT_COUNT, EXPECTED_LIMIT_PAIR_COUNT, EXPECTED_LIMIT_SCALE_COUNT,
-    EXPECTED_LIVE_BYTE_BASELINE_RUN_COUNT, LimitBaselineProcessRun, LimitPairExecution,
-    LimitPairRunObservation, LimitQualificationBundle, LimitQualificationExecutionError,
-    LimitQualificationScale, LimitRunOutcome, derive_limit_qualification_scales,
-    run_limit_qualification_bundle, run_live_byte_baseline_processes,
+    CLEANUP_CHILD_SCHEMA, CLEANUP_CHILD_SCHEMA_VERSION, CleanupChildReport, CleanupQualification,
+    DuplicateOwnerQualification, EXPECTED_CLEANUP_EXPERIMENT_COUNT,
+    EXPECTED_DUPLICATE_OWNER_QUALIFICATION_COUNT, EXPECTED_LIMIT_PAIR_COUNT,
+    EXPECTED_LIMIT_SCALE_COUNT, EXPECTED_LIVE_BYTE_BASELINE_RUN_COUNT, LIMIT_SIDE_CHILD_SCHEMA,
+    LIMIT_SIDE_CHILD_SCHEMA_VERSION, LimitBaselineProcessRun, LimitPairExecution,
+    LimitPairRunObservation, LimitPairSide, LimitQualificationBundle,
+    LimitQualificationExecutionError, LimitQualificationScale, LimitRunOutcome,
+    LimitSideChildReport, MonitoredQualificationRun, SEMANTIC_FAILURE_CHILD_SCHEMA,
+    SEMANTIC_FAILURE_CHILD_SCHEMA_VERSION, SemanticFailureChildReport,
+    derive_limit_qualification_scales, measure_cleanup_child, measure_duplicate_owner_child,
+    measure_limit_side_child, run_limit_qualification_bundle, run_live_byte_baseline_processes,
     validate_limit_qualification_bundle,
 };
 pub use limits::{
-    DIAGNOSTIC_LIMIT_ERROR_CODE, LIMIT_EXCEEDED_ERROR_CODE, LimitDimensionBinding,
-    LimitDimensionId, LimitExceeded, LimitPairMode, LimitPairPlan, LimitQualificationError,
-    LimitQualificationPlanner, LiveByteBaseline, LiveByteBaselineReplica,
+    DIAGNOSTIC_LIMIT_ERROR_CODE, DUPLICATE_OWNER_ERROR_CODE, LIMIT_EXCEEDED_ERROR_CODE,
+    LimitDimensionBinding, LimitDimensionId, LimitExceeded, LimitPairMode, LimitPairPlan,
+    LimitQualificationError, LimitQualificationPlanner, LiveByteBaseline, LiveByteBaselineReplica,
     UNKNOWN_REFERENCE_ERROR_CODE, enforce_selected_limit,
 };
 pub use manifest::{GeneratorContract, ManifestContractError};
@@ -137,13 +178,12 @@ pub use oracle::{
 };
 pub use pilot::{
     BASE_SCALE_AGGREGATION_METHOD, BASE_SCALE_PILOT_CHECKPOINT_SCHEMA,
-    BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION, BASE_SCALE_SELECTION_RULE,
-    BaseScaleOracleInvalidationReason, BaseScaleOracleRun, BaseScalePilotCheckpoint,
-    BaseScalePilotLevel, BaseScalePilotRun, BaseScalePilotRunKind, BaseScaleSelection,
-    CLOCK_QUANTUM_MULTIPLIER, ChildMonitorTrigger, ChildProcessMonitorReport, FORMAL_PROTOCOL_ID,
-    FRESH_PROCESS_PILOT_SAMPLE_COUNT, IdentityFreshProcessPilot, IdentityFreshProcessPilotOutcome,
-    IdentityFreshProcessPilotStop, IdentityMonitoredChildSample, MAXIMUM_RELATIVE_MAD_PERCENT,
-    PilotError, run_base_scale_pilot_discovery,
+    BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION, BASE_SCALE_SELECTION_RULE, BaseScaleOracleRun,
+    BaseScalePilotCheckpoint, BaseScalePilotLevel, BaseScalePilotRun, BaseScalePilotRunKind,
+    BaseScaleSelection, CLOCK_QUANTUM_MULTIPLIER, ChildMonitorTrigger, ChildProcessMonitorReport,
+    FORMAL_PROTOCOL_ID, FRESH_PROCESS_PILOT_SAMPLE_COUNT, IdentityFreshProcessPilot,
+    IdentityFreshProcessPilotOutcome, IdentityFreshProcessPilotStop, IdentityMonitoredChildSample,
+    MAXIMUM_RELATIVE_MAD_PERCENT, PilotError, run_base_scale_pilot_discovery,
     run_base_scale_pilot_discovery_with_checkpoint_sink, run_identity_fresh_process_pilot,
     wait_for_parent_start_signal,
 };
@@ -158,7 +198,8 @@ pub use process_protocol::{
 };
 pub use protocol::{
     FORMAL_PROTOCOL_CHECKPOINT_SCHEMA, FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION,
-    FormalProtocolCheckpoint, FormalProtocolError, FormalProtocolOutcome, FormalProtocolRequest,
+    FormalBinarySourceSnapshot, FormalCurrentFixtureProjection, FormalProtocolCheckpoint,
+    FormalProtocolError, FormalProtocolOutcome, FormalProtocolRequest, FormalSourceSnapshot,
     parse_formal_protocol_arguments, run_formal_protocol,
 };
 pub use roles::{
@@ -206,7 +247,7 @@ pub use workload::{
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";
 pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_322;
 pub const CONTRACT_DESCRIPTOR_SHA256: &str =
-    "5df3d5029f16de863af1a2fce04b736cf42595ffae1bcf8ce2b0a6edd90991d0";
+    "9e3dc42b3458db912036394110228f61a2d2df6b0b9b0c403e677135332ca40d";
 
 const CONTRACT_SCHEMA: &str = "laneflow.compiler-calibration-contract";
 const WORKLOAD_MANIFEST_SCHEMA: &str = "laneflow.compiler-calibration-workload-manifest";

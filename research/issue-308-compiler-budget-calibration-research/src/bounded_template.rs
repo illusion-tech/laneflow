@@ -4,7 +4,20 @@
 //! 记录、规范记录、阶段值/载荷、排序暂存和最终输出都使用 `ControlledVec`；任何新增
 //! 容量路径若未获得硬上限额度，就无法通过可失败增长接口继续执行。
 
-use crate::controlled_alloc::{ControlledAllocationSnapshot, ControlledAllocator, ControlledVec};
+#[cfg(any(
+    feature = "candidate-hashbrown-xxh3",
+    feature = "candidate-hashbrown-xxh64"
+))]
+use crate::candidate_matrix::FIXED_HASHER_SEED;
+#[cfg(feature = "candidate-hashbrown-fnv1a64")]
+use crate::candidate_matrix::Fnv1a64BuildHasher;
+use crate::candidate_matrix::{
+    CandidateKeyDomain, CandidatePipelineChecksums, CandidatePipelineConfiguration,
+};
+use crate::controlled_alloc::{
+    ControlledAllocationSnapshot, ControlledAllocator, ControlledTransientReservation,
+    ControlledVec,
+};
 use crate::corridor::{
     CorridorTemplate, EntityRef, TemplateGeometryRule, TemplateRelation, UnitEntityRef,
 };
@@ -14,11 +27,14 @@ use crate::stage::{
     TypedAstStageRecord,
 };
 use crate::{
-    GeneratorContract, GraphProfileId, ScalableStagePlanSummary, ScalableWorkloadId, SequenceKind,
-    StageGenerationError, UNKNOWN_REFERENCE_ERROR_CODE, permute_in_place,
+    DUPLICATE_OWNER_ERROR_CODE, GeneratorContract, GraphProfileId, ScalableStagePlanSummary,
+    ScalableWorkloadId, SequenceKind, StageGenerationError, UNKNOWN_REFERENCE_ERROR_CODE,
+    permute_in_place,
 };
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::hash::RandomState;
 
 const IDENTITY_MAGIC: &[u8; 4] = b"LFID";
 const STABLE_ID_DOMAIN: &[u8] = b"laneflow.stable-id.v1\0";
@@ -42,6 +58,34 @@ struct BoundedDeclaration {
     stable_id: [u8; 16],
     owner_ordinal: u32,
     fields: PayloadRange,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BoundedFailureCandidate {
+    record_index: usize,
+    unit: u32,
+    relation_sequence_ordinal: u32,
+    route_ordinal_within_unit: u32,
+    reference_ordinal: u64,
+    selected: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct BoundedDuplicateOwnerCandidate {
+    unit: u32,
+    relation_sequence_ordinal: u32,
+    child_kind: u16,
+    child_stable_id: [u8; 16],
+    first_owner_stable_id: [u8; 16],
+    second_owner_stable_id: [u8; 16],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DuplicateOwnerSpec {
+    child: EntityRef,
+    first_owner: EntityRef,
+    second_owner: EntityRef,
+    relation_sequence_ordinal: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +122,7 @@ pub(crate) struct BoundedTemplateExecution {
     pub(crate) n: u32,
     buffers: BoundedTemplateBufferPool,
     plan: ScalableStagePlanSummary,
+    candidate_pipeline_checksums: CandidatePipelineChecksums,
 }
 
 #[derive(Debug)]
@@ -88,7 +133,8 @@ pub(crate) struct BoundedTemplateExecutionFailure {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BoundedTemplateFailureMode {
-    MissingReferencePerUnit,
+    MissingReferencePerUnit { maximum_diagnostics: u64 },
+    DuplicateOwnerPerUnit,
     DiagnosticCapPlusOne { maximum_diagnostics: u64 },
 }
 
@@ -101,8 +147,52 @@ pub(crate) struct BoundedTemplateFailureObservation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum BoundedTemplatePopulationOutcome {
-    Success,
+    Success(CandidatePipelineChecksums),
     ExpectedFailure(BoundedTemplateFailureObservation),
+}
+
+#[derive(Debug)]
+struct FixedKeyLookup {
+    _reservation: ControlledTransientReservation,
+    inner: FixedKeyLookupInner,
+}
+
+#[derive(Debug)]
+enum FixedKeyLookupInner {
+    Std(HashMap<u128, usize, RandomState>),
+    Sorted(Vec<(u128, usize)>),
+    #[cfg(feature = "candidate-hashbrown-randomstate")]
+    HashbrownRandom(hashbrown::HashMap<u128, usize, RandomState>),
+    #[cfg(feature = "candidate-hashbrown-xxh3")]
+    HashbrownXxh3(hashbrown::HashMap<u128, usize, xxhash_rust::xxh3::Xxh3Builder>),
+    #[cfg(feature = "candidate-hashbrown-xxh64")]
+    HashbrownXxh64(hashbrown::HashMap<u128, usize, xxhash_rust::xxh64::Xxh64Builder>),
+    #[cfg(feature = "candidate-hashbrown-fnv1a64")]
+    HashbrownFnv(hashbrown::HashMap<u128, usize, Fnv1a64BuildHasher>),
+    #[cfg(feature = "candidate-indexmap-randomstate")]
+    IndexMap(indexmap::IndexMap<u128, usize, RandomState>),
+}
+
+impl FixedKeyLookup {
+    fn get(&self, key: u128) -> Option<usize> {
+        match &self.inner {
+            FixedKeyLookupInner::Std(values) => values.get(&key).copied(),
+            FixedKeyLookupInner::Sorted(values) => values
+                .binary_search_by_key(&key, |(candidate, _)| *candidate)
+                .ok()
+                .map(|index| values[index].1),
+            #[cfg(feature = "candidate-hashbrown-randomstate")]
+            FixedKeyLookupInner::HashbrownRandom(values) => values.get(&key).copied(),
+            #[cfg(feature = "candidate-hashbrown-xxh3")]
+            FixedKeyLookupInner::HashbrownXxh3(values) => values.get(&key).copied(),
+            #[cfg(feature = "candidate-hashbrown-xxh64")]
+            FixedKeyLookupInner::HashbrownXxh64(values) => values.get(&key).copied(),
+            #[cfg(feature = "candidate-hashbrown-fnv1a64")]
+            FixedKeyLookupInner::HashbrownFnv(values) => values.get(&key).copied(),
+            #[cfg(feature = "candidate-indexmap-randomstate")]
+            FixedKeyLookupInner::IndexMap(values) => values.get(&key).copied(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -116,6 +206,8 @@ pub(crate) struct BoundedTemplateBufferPool {
     records: ControlledVec<BoundedSemanticRecord>,
     record_payload: ControlledVec<u8>,
     local_index_scratch: ControlledVec<usize>,
+    failure_candidates: ControlledVec<BoundedFailureCandidate>,
+    duplicate_owner_candidates: ControlledVec<BoundedDuplicateOwnerCandidate>,
     source_permutation_scratch: ControlledVec<u32>,
     source_spans: ControlledVec<SourceSpanRecord>,
     source_records: ControlledVec<TypedAstStageRecord>,
@@ -155,6 +247,10 @@ impl BoundedTemplateExecution {
     pub(crate) fn peak_live_requested_bytes(&self) -> u64 {
         self.buffers.peak_live_requested_bytes()
     }
+
+    pub(crate) fn candidate_pipeline_checksums(&self) -> CandidatePipelineChecksums {
+        self.candidate_pipeline_checksums
+    }
 }
 
 impl BoundedTemplateBufferPool {
@@ -175,6 +271,14 @@ impl BoundedTemplateBufferPool {
             record_payload: ControlledVec::new("template semantic payload", allocator.clone()),
             local_index_scratch: ControlledVec::new(
                 "template local-index scratch",
+                allocator.clone(),
+            ),
+            failure_candidates: ControlledVec::new(
+                "template failure candidates",
+                allocator.clone(),
+            ),
+            duplicate_owner_candidates: ControlledVec::new(
+                "template duplicate-owner candidates",
                 allocator.clone(),
             ),
             source_permutation_scratch: ControlledVec::new(
@@ -220,6 +324,21 @@ impl BoundedTemplateBufferPool {
         self.allocator.snapshot()
     }
 
+    /// 丢弃一次意外失败中已经增长的阶段容量，同时保留同一受控分配账本和硬上限。
+    ///
+    /// 正常成功与预期语义失败继续复用容量；只有没有形成结构化预期结果的执行错误才走
+    /// 此路径，避免较大规模的部分增长污染随后仍属合法的较小规模请求。
+    pub(crate) fn reset_after_unexpected_failure(self) -> Result<Self, StageGenerationError> {
+        let allocator = self.allocator.clone();
+        drop(self);
+        if allocator.observation().live_requested_bytes != 0 {
+            return Err(StageGenerationError::MaterializedMismatch(
+                "template failed-request live allocation residue",
+            ));
+        }
+        Ok(Self::new(allocator))
+    }
+
     pub(crate) fn retained_capacity_bytes(
         &self,
     ) -> Result<StageRetainedCapacityBytes, StageGenerationError> {
@@ -254,6 +373,8 @@ impl BoundedTemplateBufferPool {
             self.canonical_identity_scratch.accounted_capacity_bytes(),
             self.owner_ordinal_scratch.accounted_capacity_bytes(),
             self.local_index_scratch.accounted_capacity_bytes(),
+            self.failure_candidates.accounted_capacity_bytes(),
+            self.duplicate_owner_candidates.accounted_capacity_bytes(),
             self.source_permutation_scratch.accounted_capacity_bytes(),
             self.scratch.accounted_capacity_bytes(),
         ])?;
@@ -293,6 +414,8 @@ impl BoundedTemplateBufferPool {
         self.records.clear();
         self.record_payload.clear();
         self.local_index_scratch.clear();
+        self.failure_candidates.clear();
+        self.duplicate_owner_candidates.clear();
         self.source_permutation_scratch.clear();
         self.source_spans.clear();
         self.source_records.clear();
@@ -320,6 +443,8 @@ impl BoundedTemplateBufferPool {
             && self.records.len() == 0
             && self.record_payload.len() == 0
             && self.local_index_scratch.len() == 0
+            && self.failure_candidates.len() == 0
+            && self.duplicate_owner_candidates.len() == 0
             && self.source_permutation_scratch.len() == 0
             && self.source_spans.len() == 0
             && self.source_records.len() == 0
@@ -375,7 +500,34 @@ pub(crate) fn execute_bounded_template_stage_case_with_pool(
     graph_profile: GraphProfileId,
     n: u32,
     plan: &ScalableStagePlanSummary,
+    buffers: BoundedTemplateBufferPool,
+) -> Result<BoundedTemplateExecution, Box<BoundedTemplateExecutionFailure>> {
+    execute_bounded_template_stage_case_with_pool_and_candidate(
+        generator,
+        identity,
+        stage,
+        workload_id,
+        template,
+        graph_profile,
+        n,
+        plan,
+        buffers,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn execute_bounded_template_stage_case_with_pool_and_candidate(
+    generator: &GeneratorContract,
+    identity: &IdentityContract,
+    stage: &StageContract,
+    workload_id: ScalableWorkloadId,
+    template: &CorridorTemplate,
+    graph_profile: GraphProfileId,
+    n: u32,
+    plan: &ScalableStagePlanSummary,
     mut buffers: BoundedTemplateBufferPool,
+    candidate_configuration: Option<&CandidatePipelineConfiguration>,
 ) -> Result<BoundedTemplateExecution, Box<BoundedTemplateExecutionFailure>> {
     match populate_bounded_template_stage_case(
         generator,
@@ -388,14 +540,18 @@ pub(crate) fn execute_bounded_template_stage_case_with_pool(
         plan,
         &mut buffers,
         None,
+        candidate_configuration,
     ) {
-        Ok(BoundedTemplatePopulationOutcome::Success) => Ok(BoundedTemplateExecution {
-            workload_id,
-            graph_profile,
-            n,
-            buffers,
-            plan: plan.clone(),
-        }),
+        Ok(BoundedTemplatePopulationOutcome::Success(candidate_pipeline_checksums)) => {
+            Ok(BoundedTemplateExecution {
+                workload_id,
+                graph_profile,
+                n,
+                buffers,
+                plan: plan.clone(),
+                candidate_pipeline_checksums,
+            })
+        }
         Ok(BoundedTemplatePopulationOutcome::ExpectedFailure(_)) => {
             buffers.clear_all();
             Err(Box::new(BoundedTemplateExecutionFailure {
@@ -442,10 +598,11 @@ pub(crate) fn execute_bounded_template_failure_case_with_pool(
         plan,
         &mut buffers,
         Some(failure_mode),
+        None,
     );
     let observation = match outcome {
         Ok(BoundedTemplatePopulationOutcome::ExpectedFailure(observation)) => observation,
-        Ok(BoundedTemplatePopulationOutcome::Success) => {
+        Ok(BoundedTemplatePopulationOutcome::Success(_)) => {
             buffers.clear_all();
             return Err(Box::new(BoundedTemplateExecutionFailure {
                 source: StageGenerationError::MaterializedMismatch(
@@ -484,6 +641,503 @@ impl BoundedTemplateExecutionFailure {
     }
 }
 
+fn selected_candidate_id(
+    configuration: Option<&CandidatePipelineConfiguration>,
+    key_domain: CandidateKeyDomain,
+) -> &str {
+    configuration.map_or_else(
+        || match key_domain {
+            CandidateKeyDomain::ExternalString | CandidateKeyDomain::ValidatedFixedKey => {
+                "std-hashmap-randomstate-v1"
+            }
+            CandidateKeyDomain::CanonicalOutputOrder => "stable-vec-sort-v1",
+            CandidateKeyDomain::FullPipelineBaseline => "baseline-std-randomstate-stable-vec-v1",
+        },
+        |configuration| configuration.candidate_id(key_domain),
+    )
+}
+
+fn candidate_transient_bytes(
+    item_count: usize,
+    bytes_per_item: usize,
+    fixed_bytes: usize,
+    field: &'static str,
+) -> Result<u64, StageGenerationError> {
+    let bytes = item_count
+        .checked_mul(bytes_per_item)
+        .and_then(|bytes| bytes.checked_add(fixed_bytes))
+        .ok_or(StageGenerationError::Overflow(field))?;
+    u64::try_from(bytes).map_err(|_| StageGenerationError::Overflow(field))
+}
+
+fn exercise_external_string_table(
+    candidate_id: &str,
+    fields: &[BoundedField],
+    payload: &[u8],
+    allocator: &ControlledAllocator,
+) -> Result<u64, StageGenerationError> {
+    let reserved_bytes = candidate_transient_bytes(
+        fields.len(),
+        128,
+        payload.len(),
+        "candidate external-string reservation",
+    )?;
+    let _reservation =
+        allocator.reserve_transient("candidate external-string container", reserved_bytes)?;
+    let key_at = |field: &BoundedField| {
+        &payload[field.bytes.offset..field.bytes.offset + field.bytes.length]
+    };
+    let mut checksum = 0_u64;
+    match candidate_id {
+        "std-hashmap-randomstate-v1" => {
+            let mut table = HashMap::<&[u8], u32, RandomState>::with_capacity_and_hasher(
+                fields.len(),
+                RandomState::new(),
+            );
+            for (ordinal, field) in fields.iter().enumerate() {
+                let ordinal = u32::try_from(ordinal)
+                    .map_err(|_| StageGenerationError::Overflow("external string ordinal"))?;
+                table.entry(key_at(field)).or_insert(ordinal);
+            }
+            for field in fields {
+                checksum = mix_candidate_checksum(
+                    checksum,
+                    u64::from(*table.get(key_at(field)).ok_or(
+                        StageGenerationError::MaterializedMismatch("external string lookup"),
+                    )?),
+                );
+            }
+        }
+        "hashbrown-randomstate-v1" => {
+            #[cfg(feature = "candidate-hashbrown-randomstate")]
+            {
+                let mut table =
+                    hashbrown::HashMap::<&[u8], u32, RandomState>::with_capacity_and_hasher(
+                        fields.len(),
+                        RandomState::new(),
+                    );
+                for (ordinal, field) in fields.iter().enumerate() {
+                    let ordinal = u32::try_from(ordinal)
+                        .map_err(|_| StageGenerationError::Overflow("external string ordinal"))?;
+                    table.entry(key_at(field)).or_insert(ordinal);
+                }
+                for field in fields {
+                    checksum = mix_candidate_checksum(
+                        checksum,
+                        u64::from(*table.get(key_at(field)).ok_or(
+                            StageGenerationError::MaterializedMismatch("external string lookup"),
+                        )?),
+                    );
+                }
+            }
+            #[cfg(not(feature = "candidate-hashbrown-randomstate"))]
+            return Err(StageGenerationError::MaterializedMismatch(
+                "hashbrown random-state feature unavailable",
+            ));
+        }
+        "sorted-vec-binary-search-v1" => {
+            let mut table = fields
+                .iter()
+                .enumerate()
+                .map(|(ordinal, field)| {
+                    u32::try_from(ordinal)
+                        .map(|ordinal| (key_at(field), ordinal))
+                        .map_err(|_| StageGenerationError::Overflow("external string ordinal"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            table.sort_by(|left, right| left.0.cmp(right.0).then(left.1.cmp(&right.1)));
+            for field in fields {
+                let key = key_at(field);
+                let index = table.partition_point(|(candidate, _)| *candidate < key);
+                let value = table
+                    .get(index)
+                    .filter(|(candidate, _)| *candidate == key)
+                    .map(|(_, value)| *value)
+                    .ok_or(StageGenerationError::MaterializedMismatch(
+                        "external sorted-vector lookup",
+                    ))?;
+                checksum = mix_candidate_checksum(checksum, u64::from(value));
+            }
+        }
+        _ => {
+            return Err(StageGenerationError::MaterializedMismatch(
+                "unsupported external-string candidate",
+            ));
+        }
+    }
+    Ok(checksum)
+}
+
+fn fixed_key(owner: UnitEntityRef) -> u128 {
+    (u128::from(owner.unit) << 64)
+        | (u128::from(owner.entity.kind) << 32)
+        | u128::from(owner.entity.local)
+}
+
+fn build_fixed_key_lookup(
+    candidate_id: &str,
+    declarations: &[BoundedDeclaration],
+    allocator: &ControlledAllocator,
+) -> Result<(FixedKeyLookup, u64), StageGenerationError> {
+    let reserved_bytes =
+        candidate_transient_bytes(declarations.len(), 96, 0, "candidate fixed-key reservation")?;
+    let reservation =
+        allocator.reserve_transient("candidate validated-fixed-key container", reserved_bytes)?;
+    let inner = match candidate_id {
+        "std-hashmap-randomstate-v1" => {
+            let mut table =
+                HashMap::with_capacity_and_hasher(declarations.len(), RandomState::new());
+            for (index, declaration) in declarations.iter().enumerate() {
+                if table.insert(fixed_key(declaration.owner), index).is_some() {
+                    return Err(StageGenerationError::MaterializedMismatch(
+                        "duplicate validated fixed key",
+                    ));
+                }
+            }
+            FixedKeyLookupInner::Std(table)
+        }
+        "sorted-vec-binary-search-v1" => {
+            let mut values = declarations
+                .iter()
+                .enumerate()
+                .map(|(index, declaration)| (fixed_key(declaration.owner), index))
+                .collect::<Vec<_>>();
+            values.sort_unstable_by_key(|(key, _)| *key);
+            if values.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+                return Err(StageGenerationError::MaterializedMismatch(
+                    "duplicate validated fixed key",
+                ));
+            }
+            FixedKeyLookupInner::Sorted(values)
+        }
+        "hashbrown-randomstate-v1" => {
+            #[cfg(feature = "candidate-hashbrown-randomstate")]
+            {
+                let mut table = hashbrown::HashMap::with_capacity_and_hasher(
+                    declarations.len(),
+                    RandomState::new(),
+                );
+                for (index, declaration) in declarations.iter().enumerate() {
+                    if table.insert(fixed_key(declaration.owner), index).is_some() {
+                        return Err(StageGenerationError::MaterializedMismatch(
+                            "duplicate validated fixed key",
+                        ));
+                    }
+                }
+                FixedKeyLookupInner::HashbrownRandom(table)
+            }
+            #[cfg(not(feature = "candidate-hashbrown-randomstate"))]
+            return Err(StageGenerationError::MaterializedMismatch(
+                "hashbrown random-state feature unavailable",
+            ));
+        }
+        "hashbrown-xxh3-fixed-v1" => {
+            #[cfg(feature = "candidate-hashbrown-xxh3")]
+            {
+                let mut table = hashbrown::HashMap::with_capacity_and_hasher(
+                    declarations.len(),
+                    xxhash_rust::xxh3::Xxh3Builder::new().with_seed(FIXED_HASHER_SEED),
+                );
+                for (index, declaration) in declarations.iter().enumerate() {
+                    if table.insert(fixed_key(declaration.owner), index).is_some() {
+                        return Err(StageGenerationError::MaterializedMismatch(
+                            "duplicate validated fixed key",
+                        ));
+                    }
+                }
+                FixedKeyLookupInner::HashbrownXxh3(table)
+            }
+            #[cfg(not(feature = "candidate-hashbrown-xxh3"))]
+            return Err(StageGenerationError::MaterializedMismatch(
+                "xxh3 feature unavailable",
+            ));
+        }
+        "hashbrown-xxh64-fixed-v1" => {
+            #[cfg(feature = "candidate-hashbrown-xxh64")]
+            {
+                let mut table = hashbrown::HashMap::with_capacity_and_hasher(
+                    declarations.len(),
+                    xxhash_rust::xxh64::Xxh64Builder::new(FIXED_HASHER_SEED),
+                );
+                for (index, declaration) in declarations.iter().enumerate() {
+                    if table.insert(fixed_key(declaration.owner), index).is_some() {
+                        return Err(StageGenerationError::MaterializedMismatch(
+                            "duplicate validated fixed key",
+                        ));
+                    }
+                }
+                FixedKeyLookupInner::HashbrownXxh64(table)
+            }
+            #[cfg(not(feature = "candidate-hashbrown-xxh64"))]
+            return Err(StageGenerationError::MaterializedMismatch(
+                "xxh64 feature unavailable",
+            ));
+        }
+        "hashbrown-fnv1a64-v1" => {
+            #[cfg(feature = "candidate-hashbrown-fnv1a64")]
+            {
+                let mut table = hashbrown::HashMap::with_capacity_and_hasher(
+                    declarations.len(),
+                    Fnv1a64BuildHasher,
+                );
+                for (index, declaration) in declarations.iter().enumerate() {
+                    if table.insert(fixed_key(declaration.owner), index).is_some() {
+                        return Err(StageGenerationError::MaterializedMismatch(
+                            "duplicate validated fixed key",
+                        ));
+                    }
+                }
+                FixedKeyLookupInner::HashbrownFnv(table)
+            }
+            #[cfg(not(feature = "candidate-hashbrown-fnv1a64"))]
+            return Err(StageGenerationError::MaterializedMismatch(
+                "fnv1a64 feature unavailable",
+            ));
+        }
+        "indexmap-randomstate-v1" => {
+            #[cfg(feature = "candidate-indexmap-randomstate")]
+            {
+                let mut table = indexmap::IndexMap::with_capacity_and_hasher(
+                    declarations.len(),
+                    RandomState::new(),
+                );
+                for (index, declaration) in declarations.iter().enumerate() {
+                    if table.insert(fixed_key(declaration.owner), index).is_some() {
+                        return Err(StageGenerationError::MaterializedMismatch(
+                            "duplicate validated fixed key",
+                        ));
+                    }
+                }
+                FixedKeyLookupInner::IndexMap(table)
+            }
+            #[cfg(not(feature = "candidate-indexmap-randomstate"))]
+            return Err(StageGenerationError::MaterializedMismatch(
+                "indexmap feature unavailable",
+            ));
+        }
+        _ => {
+            return Err(StageGenerationError::MaterializedMismatch(
+                "unsupported validated-fixed-key candidate",
+            ));
+        }
+    };
+    let lookup = FixedKeyLookup {
+        _reservation: reservation,
+        inner,
+    };
+    let mut checksum = 0_u64;
+    for declaration in declarations {
+        let index = lookup.get(fixed_key(declaration.owner)).ok_or(
+            StageGenerationError::MaterializedMismatch("validated fixed-key lookup"),
+        )?;
+        checksum = mix_candidate_checksum(
+            checksum,
+            u64::try_from(index)
+                .map_err(|_| StageGenerationError::Overflow("fixed-key lookup index"))?,
+        );
+    }
+    Ok((lookup, checksum))
+}
+
+fn mix_candidate_checksum(state: u64, value: u64) -> u64 {
+    state
+        .rotate_left(11)
+        .wrapping_add(value ^ 0x9e37_79b9_7f4a_7c15)
+        .wrapping_mul(0xbf58_476d_1ce4_e5b9)
+}
+
+fn order_canonical_records(
+    candidate_id: &str,
+    records: &mut [BoundedSemanticRecord],
+    payload: &[u8],
+    allocator: &ControlledAllocator,
+) -> Result<u64, StageGenerationError> {
+    let reserved_bytes = candidate_transient_bytes(
+        records.len(),
+        std::mem::size_of::<BoundedSemanticRecord>() * 2 + std::mem::size_of::<usize>(),
+        257 * std::mem::size_of::<usize>(),
+        "candidate canonical-order reservation",
+    )?;
+    let _reservation =
+        allocator.reserve_transient("candidate canonical-output-order scratch", reserved_bytes)?;
+    match candidate_id {
+        "stable-vec-sort-v1" => {
+            records.sort_by(|left, right| canonical_record_compare(left, right, payload));
+        }
+        "deterministic-radix-sort-v1" => {
+            deterministic_radix_sort_records(records, payload)?;
+        }
+        "deterministic-bucket-sort-v1" => {
+            deterministic_bucket_sort_records(records, payload)?;
+        }
+        _ => {
+            return Err(StageGenerationError::MaterializedMismatch(
+                "unsupported canonical-output-order candidate",
+            ));
+        }
+    }
+    if records
+        .windows(2)
+        .any(|pair| canonical_record_compare(&pair[0], &pair[1], payload) == Ordering::Greater)
+    {
+        return Err(StageGenerationError::MaterializedMismatch(
+            "candidate canonical output order",
+        ));
+    }
+    let mut checksum = 0_u64;
+    for record in records {
+        checksum = mix_candidate_checksum(checksum, u64::from(record.record_kind));
+        checksum = mix_candidate_checksum(checksum, u64::from(record.entity_kind_code));
+        checksum = mix_candidate_checksum(
+            checksum,
+            u64::from_be_bytes(record.stable_id[..8].try_into().expect("stable id half")),
+        );
+        checksum = mix_candidate_checksum(
+            checksum,
+            u64::from_be_bytes(record.stable_id[8..].try_into().expect("stable id half")),
+        );
+        checksum = mix_candidate_checksum(checksum, u64::from(record.owner_ordinal));
+        checksum = mix_candidate_checksum(checksum, u64::from(record.local_index));
+        checksum = mix_candidate_checksum(
+            checksum,
+            u64::try_from(record.payload.length)
+                .map_err(|_| StageGenerationError::Overflow("canonical payload length"))?,
+        );
+    }
+    Ok(checksum)
+}
+
+fn deterministic_radix_sort_records(
+    records: &mut [BoundedSemanticRecord],
+    payload: &[u8],
+) -> Result<(), StageGenerationError> {
+    if records.len() < 2 {
+        return Ok(());
+    }
+    let mut scratch = vec![records[0]; records.len()];
+    radix_sort_record_range(records, &mut scratch, payload, 0, records.len(), 0)
+}
+
+fn radix_sort_record_range(
+    records: &mut [BoundedSemanticRecord],
+    scratch: &mut [BoundedSemanticRecord],
+    payload: &[u8],
+    start: usize,
+    end: usize,
+    depth: usize,
+) -> Result<(), StageGenerationError> {
+    if end.saturating_sub(start) < 2 {
+        return Ok(());
+    }
+    let mut counts = [0_usize; 257];
+    for record in &records[start..end] {
+        counts[canonical_record_symbol(record, payload, depth)] += 1;
+    }
+    let non_empty = counts.iter().filter(|count| **count != 0).count();
+    if non_empty == 1 {
+        let symbol = counts
+            .iter()
+            .position(|count| *count != 0)
+            .expect("one non-empty radix bucket");
+        if symbol != 0 {
+            radix_sort_record_range(records, scratch, payload, start, end, depth + 1)?;
+        }
+        return Ok(());
+    }
+    let mut offsets = [0_usize; 257];
+    let mut cursor = start;
+    for (offset, count) in offsets.iter_mut().zip(counts) {
+        *offset = cursor;
+        cursor = cursor
+            .checked_add(count)
+            .ok_or(StageGenerationError::Overflow("radix bucket offset"))?;
+    }
+    let starts = offsets;
+    for record in &records[start..end] {
+        let symbol = canonical_record_symbol(record, payload, depth);
+        scratch[offsets[symbol]] = *record;
+        offsets[symbol] += 1;
+    }
+    records[start..end].copy_from_slice(&scratch[start..end]);
+    for symbol in 1..257 {
+        let bucket_start = starts[symbol];
+        let bucket_end = bucket_start + counts[symbol];
+        if bucket_end.saturating_sub(bucket_start) > 1 {
+            radix_sort_record_range(
+                records,
+                scratch,
+                payload,
+                bucket_start,
+                bucket_end,
+                depth + 1,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn canonical_record_symbol(record: &BoundedSemanticRecord, payload: &[u8], depth: usize) -> usize {
+    const FIXED_BYTES: usize = 28;
+    let fixed = if depth < 2 {
+        Some(record.record_kind.to_be_bytes()[depth])
+    } else if depth < 4 {
+        Some(record.entity_kind_code.to_be_bytes()[depth - 2])
+    } else if depth < 20 {
+        Some(record.stable_id[depth - 4])
+    } else if depth < 24 {
+        Some(record.owner_ordinal.to_be_bytes()[depth - 20])
+    } else if depth < FIXED_BYTES {
+        Some(record.local_index.to_be_bytes()[depth - 24])
+    } else {
+        None
+    };
+    if let Some(byte) = fixed {
+        return usize::from(byte) + 1;
+    }
+    let payload_index = depth - FIXED_BYTES;
+    if payload_index >= record.payload.length {
+        0
+    } else {
+        usize::from(payload[record.payload.offset + payload_index]) + 1
+    }
+}
+
+fn deterministic_bucket_sort_records(
+    records: &mut [BoundedSemanticRecord],
+    payload: &[u8],
+) -> Result<(), StageGenerationError> {
+    if records.len() < 2 {
+        return Ok(());
+    }
+    let mut counts = vec![0_usize; usize::from(u16::MAX) + 1];
+    for record in records.iter() {
+        counts[usize::from(record.record_kind)] += 1;
+    }
+    let mut starts = vec![0_usize; counts.len()];
+    let mut cursor = 0_usize;
+    for (start, count) in starts.iter_mut().zip(&counts) {
+        *start = cursor;
+        cursor = cursor
+            .checked_add(*count)
+            .ok_or(StageGenerationError::Overflow("bucket sort offset"))?;
+    }
+    let mut offsets = starts.clone();
+    let mut scratch = vec![records[0]; records.len()];
+    for record in records.iter() {
+        let bucket = usize::from(record.record_kind);
+        scratch[offsets[bucket]] = *record;
+        offsets[bucket] += 1;
+    }
+    records.copy_from_slice(&scratch);
+    for (start, count) in starts.into_iter().zip(counts) {
+        if count > 1 {
+            records[start..start + count]
+                .sort_by(|left, right| canonical_record_compare(left, right, payload));
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn populate_bounded_template_stage_case(
     generator: &GeneratorContract,
@@ -496,6 +1150,7 @@ fn populate_bounded_template_stage_case(
     plan: &ScalableStagePlanSummary,
     buffers: &mut BoundedTemplateBufferPool,
     failure_mode: Option<BoundedTemplateFailureMode>,
+    candidate_configuration: Option<&CandidatePipelineConfiguration>,
 ) -> Result<BoundedTemplatePopulationOutcome, StageGenerationError> {
     if n == 0 {
         return Err(StageGenerationError::ScaleMustBePositive);
@@ -658,11 +1313,30 @@ fn populate_bounded_template_stage_case(
         ));
     }
 
+    let mut candidate_pipeline_checksums = CandidatePipelineChecksums {
+        external_string: exercise_external_string_table(
+            selected_candidate_id(candidate_configuration, CandidateKeyDomain::ExternalString),
+            buffers.fields.as_slice(),
+            buffers.field_payload.as_slice(),
+            &buffers.allocator,
+        )?,
+        ..CandidatePipelineChecksums::default()
+    };
+
     assign_owner_ordinals(
         template,
         &mut buffers.declarations,
         &mut buffers.owner_ordinal_scratch,
     )?;
+    let (fixed_key_lookup, fixed_key_checksum) = build_fixed_key_lookup(
+        selected_candidate_id(
+            candidate_configuration,
+            CandidateKeyDomain::ValidatedFixedKey,
+        ),
+        buffers.declarations.as_slice(),
+        &buffers.allocator,
+    )?;
+    candidate_pipeline_checksums.validated_fixed_key = fixed_key_checksum;
 
     buffers.records.try_reserve(semantic_record_count)?;
     buffers.record_payload.try_reserve(semantic_payload_bytes)?;
@@ -676,10 +1350,40 @@ fn populate_bounded_template_stage_case(
         .local_index_scratch
         .try_reserve(per_unit_record_count)?;
 
-    let mut failure_diagnostic_count = 0_u64;
-    let mut failure_candidate_ordinal = 0_u64;
-    let mut diagnostics_truncated = false;
-    'units: for unit in 0..n {
+    let duplicate_owner_spec = if matches!(
+        failure_mode,
+        Some(BoundedTemplateFailureMode::DuplicateOwnerPerUnit)
+    ) {
+        buffers.duplicate_owner_candidates.try_reserve(
+            usize::try_from(n)
+                .map_err(|_| StageGenerationError::Overflow("duplicate-owner unit count"))?,
+        )?;
+        Some(duplicate_owner_spec(template)?)
+    } else {
+        None
+    };
+    if matches!(
+        failure_mode,
+        Some(
+            BoundedTemplateFailureMode::MissingReferencePerUnit { .. }
+                | BoundedTemplateFailureMode::DiagnosticCapPlusOne { .. }
+        )
+    ) {
+        let route_occurrences_per_unit = template
+            .relations
+            .iter()
+            .filter(|relation| matches!(relation, TemplateRelation::RouteOccurrence { .. }))
+            .count();
+        buffers.failure_candidates.try_reserve(
+            route_occurrences_per_unit
+                .checked_mul(
+                    usize::try_from(n)
+                        .map_err(|_| StageGenerationError::Overflow("failure unit count"))?,
+                )
+                .ok_or(StageGenerationError::Overflow("failure candidate count"))?,
+        )?;
+    }
+    for unit in 0..n {
         let unit_record_start = buffers.records.len();
         let declaration_start = usize::try_from(unit)
             .ok()
@@ -723,92 +1427,92 @@ fn populate_bounded_template_stage_case(
                 pending_order: PendingOrder::Absent,
             })?;
         }
-        let mut missing_reference_emitted_for_unit = false;
-        for relation in &template.relations {
-            let inject_unknown_reference = match (failure_mode, relation) {
-                (
-                    Some(BoundedTemplateFailureMode::MissingReferencePerUnit),
-                    TemplateRelation::RouteOccurrence { .. },
-                ) => !missing_reference_emitted_for_unit,
-                (
-                    Some(BoundedTemplateFailureMode::DiagnosticCapPlusOne { .. }),
-                    TemplateRelation::RouteOccurrence { .. },
-                ) => failure_candidate_ordinal <= u64::from(n),
-                _ => false,
-            };
-            if inject_unknown_reference {
-                let invalid_relation = route_occurrence_with_unknown_edge(relation)?;
-                let payload_start = buffers.record_payload.len();
-                let resolution = compile_relation(
-                    template,
-                    buffers.declarations.as_slice(),
+        if let Some(spec) = duplicate_owner_spec {
+            buffers
+                .duplicate_owner_candidates
+                .try_push(BoundedDuplicateOwnerCandidate {
                     unit,
-                    &invalid_relation,
-                    &mut buffers.record_payload,
-                );
-                buffers.record_payload.truncate(payload_start);
-                if !matches!(
-                    resolution,
-                    Err(StageGenerationError::MaterializedMismatch(
-                        "template entity lookup"
-                    ))
-                ) {
-                    return Err(StageGenerationError::MaterializedMismatch(
-                        "failure variant did not reach reference resolution",
-                    ));
-                }
-
-                let maximum_diagnostics = match failure_mode {
-                    Some(BoundedTemplateFailureMode::MissingReferencePerUnit) => u64::from(n),
-                    Some(BoundedTemplateFailureMode::DiagnosticCapPlusOne {
-                        maximum_diagnostics,
-                    }) => maximum_diagnostics,
-                    None => unreachable!("failure injection requires a failure mode"),
-                };
-                if failure_diagnostic_count == maximum_diagnostics {
-                    diagnostics_truncated = true;
-                    break 'units;
-                }
-                append_failure_diagnostic(
-                    &mut buffers.diagnostics,
-                    failure_candidate_ordinal,
-                    UNKNOWN_REFERENCE_ERROR_CODE,
-                )?;
-                failure_diagnostic_count = failure_diagnostic_count
-                    .checked_add(1)
-                    .ok_or(StageGenerationError::Overflow("failure diagnostic count"))?;
-                failure_candidate_ordinal = failure_candidate_ordinal.checked_add(1).ok_or(
-                    StageGenerationError::Overflow("failure diagnostic candidate ordinal"),
-                )?;
-                missing_reference_emitted_for_unit = true;
-                continue;
-            }
+                    relation_sequence_ordinal: spec.relation_sequence_ordinal,
+                    child_kind: spec.child.kind,
+                    child_stable_id: stable_id(
+                        template,
+                        buffers.declarations.as_slice(),
+                        &fixed_key_lookup,
+                        unit,
+                        spec.child,
+                    )?,
+                    first_owner_stable_id: stable_id(
+                        template,
+                        buffers.declarations.as_slice(),
+                        &fixed_key_lookup,
+                        unit,
+                        spec.first_owner,
+                    )?,
+                    second_owner_stable_id: stable_id(
+                        template,
+                        buffers.declarations.as_slice(),
+                        &fixed_key_lookup,
+                        unit,
+                        spec.second_owner,
+                    )?,
+                })?;
+        }
+        for (relation_sequence_ordinal, relation) in template.relations.iter().enumerate() {
             let compiled = compile_relation(
                 template,
                 buffers.declarations.as_slice(),
+                &fixed_key_lookup,
                 unit,
                 relation,
                 &mut buffers.record_payload,
             )?;
+            let record_index = buffers.records.len();
             buffers.records.try_push(compiled)?;
-        }
-        if failure_mode == Some(BoundedTemplateFailureMode::MissingReferencePerUnit)
-            && !missing_reference_emitted_for_unit
-        {
-            return Err(StageGenerationError::MaterializedMismatch(
-                "missing-reference failure variant lacks a route occurrence",
-            ));
+            if matches!(
+                failure_mode,
+                Some(
+                    BoundedTemplateFailureMode::MissingReferencePerUnit { .. }
+                        | BoundedTemplateFailureMode::DiagnosticCapPlusOne { .. }
+                )
+            ) && matches!(relation, TemplateRelation::RouteOccurrence { .. })
+            {
+                buffers
+                    .failure_candidates
+                    .try_push(BoundedFailureCandidate {
+                        record_index,
+                        unit,
+                        relation_sequence_ordinal: u32::try_from(relation_sequence_ordinal)
+                            .map_err(|_| {
+                                StageGenerationError::Overflow("failure relation ordinal")
+                            })?,
+                        route_ordinal_within_unit: 0,
+                        reference_ordinal: 0,
+                        selected: false,
+                    })?;
+            }
         }
         for point in &template.geometry {
             let payload_start = buffers.record_payload.len();
-            let frame = stable_id(template, buffers.declarations.as_slice(), unit, point.frame)?;
+            let frame = stable_id(
+                template,
+                buffers.declarations.as_slice(),
+                &fixed_key_lookup,
+                unit,
+                point.frame,
+            )?;
             buffers.record_payload.try_extend_from_slice(&frame)?;
             append_u32(&mut buffers.record_payload, point.point_index)?;
             let (x_bits, y_bits, z_bits) = geometry_coordinate_bits(point, unit)?;
             append_u32(&mut buffers.record_payload, x_bits)?;
             append_u32(&mut buffers.record_payload, y_bits)?;
             append_u32(&mut buffers.record_payload, z_bits)?;
-            let owner = declaration(template, buffers.declarations.as_slice(), unit, point.edge)?;
+            let owner = declaration(
+                template,
+                buffers.declarations.as_slice(),
+                &fixed_key_lookup,
+                unit,
+                point.edge,
+            )?;
             buffers.records.try_push(BoundedSemanticRecord {
                 record_kind: 5,
                 entity_kind_code: point.edge.kind,
@@ -832,13 +1536,26 @@ fn populate_bounded_template_stage_case(
         )?;
     }
     if let Some(failure_mode) = failure_mode {
-        let expected_diagnostic_count = u64::from(n);
-        let expected_truncated = matches!(
-            failure_mode,
-            BoundedTemplateFailureMode::DiagnosticCapPlusOne { .. }
-        );
-        if failure_diagnostic_count != expected_diagnostic_count
-            || diagnostics_truncated != expected_truncated
+        let observation =
+            materialize_failure_diagnostics(template, graph_profile, n, failure_mode, buffers)?;
+        let (full_candidate_count, maximum_diagnostics) = match failure_mode {
+            BoundedTemplateFailureMode::MissingReferencePerUnit {
+                maximum_diagnostics,
+            } => (u64::from(n), maximum_diagnostics),
+            BoundedTemplateFailureMode::DuplicateOwnerPerUnit => (u64::from(n), u64::from(n)),
+            BoundedTemplateFailureMode::DiagnosticCapPlusOne {
+                maximum_diagnostics,
+            } => (
+                u64::from(n)
+                    .checked_add(1)
+                    .ok_or(StageGenerationError::Overflow(
+                        "diagnostic cap full candidate count",
+                    ))?,
+                maximum_diagnostics,
+            ),
+        };
+        if observation.diagnostic_count != full_candidate_count.min(maximum_diagnostics)
+            || observation.diagnostics_truncated != (full_candidate_count > maximum_diagnostics)
             || !buffers.semantic_record_stream.as_slice().is_empty()
             || !buffers.output.as_slice().is_empty()
         {
@@ -847,11 +1564,7 @@ fn populate_bounded_template_stage_case(
             ));
         }
         return Ok(BoundedTemplatePopulationOutcome::ExpectedFailure(
-            BoundedTemplateFailureObservation {
-                diagnostic_count: failure_diagnostic_count,
-                diagnostics_truncated,
-                diagnostic_digest_sha256: failure_diagnostic_digest(buffers.diagnostics.as_slice()),
-            },
+            observation,
         ));
     }
     if buffers.records.len() != semantic_record_count
@@ -884,9 +1597,15 @@ fn populate_bounded_template_stage_case(
         &mut buffers.diagnostics,
         &mut buffers.scratch,
     )?;
-    buffers.records.sort_unstable_by(|left, right| {
-        canonical_record_compare(left, right, buffers.record_payload.as_slice())
-    });
+    candidate_pipeline_checksums.canonical_output_order = order_canonical_records(
+        selected_candidate_id(
+            candidate_configuration,
+            CandidateKeyDomain::CanonicalOutputOrder,
+        ),
+        buffers.records.as_mut_slice(),
+        buffers.record_payload.as_slice(),
+        &buffers.allocator,
+    )?;
     materialize_bounded_semantic_stage(
         buffers.records.as_slice(),
         buffers.record_payload.as_slice(),
@@ -938,53 +1657,432 @@ fn populate_bounded_template_stage_case(
     buffers
         .output
         .try_extend_from_slice(buffers.semantic_record_stream.as_slice())?;
-    Ok(BoundedTemplatePopulationOutcome::Success)
+    Ok(BoundedTemplatePopulationOutcome::Success(
+        candidate_pipeline_checksums,
+    ))
 }
 
-fn route_occurrence_with_unknown_edge(
-    relation: &TemplateRelation,
-) -> Result<TemplateRelation, StageGenerationError> {
-    let TemplateRelation::RouteOccurrence { route, index, edge } = relation else {
+fn duplicate_owner_spec(
+    template: &CorridorTemplate,
+) -> Result<DuplicateOwnerSpec, StageGenerationError> {
+    let child_entity = template
+        .entities
+        .iter()
+        .find(|entity| entity.reference.kind == 17)
+        .ok_or(StageGenerationError::MaterializedMismatch(
+            "duplicate-owner FacilityBand",
+        ))?;
+    let first_owner = child_entity
+        .identity_references
+        .values()
+        .copied()
+        .find(|target| target.kind == 1)
+        .ok_or(StageGenerationError::MaterializedMismatch(
+            "duplicate-owner first RoadCorridor",
+        ))?;
+    let second_owner = template
+        .entities
+        .iter()
+        .filter(|entity| entity.reference.kind == 1)
+        .nth(1)
+        .map(|entity| entity.reference)
+        .ok_or(StageGenerationError::MaterializedMismatch(
+            "duplicate-owner second RoadCorridor",
+        ))?;
+    if first_owner == second_owner {
         return Err(StageGenerationError::MaterializedMismatch(
-            "failure variant route occurrence",
+            "duplicate-owner distinct RoadCorridors",
         ));
-    };
-    Ok(TemplateRelation::RouteOccurrence {
-        route: *route,
-        index: *index,
-        edge: EntityRef {
-            kind: edge.kind,
-            local: u32::MAX,
-        },
+    }
+    let relation_sequence_ordinal = template
+        .relations
+        .iter()
+        .position(|relation| {
+            matches!(
+                relation,
+                TemplateRelation::Owner { child, parent }
+                    if *child == child_entity.reference && *parent == first_owner
+            )
+        })
+        .and_then(|ordinal| u32::try_from(ordinal).ok())
+        .ok_or(StageGenerationError::MaterializedMismatch(
+            "duplicate-owner source relation",
+        ))?;
+    Ok(DuplicateOwnerSpec {
+        child: child_entity.reference,
+        first_owner,
+        second_owner,
+        relation_sequence_ordinal,
     })
 }
 
-fn append_failure_diagnostic(
-    diagnostics: &mut ControlledVec<u8>,
-    source_ordinal: u64,
-    error_code: &'static str,
-) -> Result<(), StageGenerationError> {
-    append_u64(diagnostics, source_ordinal)?;
-    append_u32(
-        diagnostics,
-        u32::try_from(error_code.len())
-            .map_err(|_| StageGenerationError::Overflow("failure diagnostic error code"))?,
+fn materialize_failure_diagnostics(
+    template: &CorridorTemplate,
+    graph_profile: GraphProfileId,
+    n: u32,
+    failure_mode: BoundedTemplateFailureMode,
+    buffers: &mut BoundedTemplateBufferPool,
+) -> Result<BoundedTemplateFailureObservation, StageGenerationError> {
+    if failure_mode == BoundedTemplateFailureMode::DuplicateOwnerPerUnit {
+        return materialize_duplicate_owner_diagnostics(template, graph_profile, n, buffers);
+    }
+    if buffers.failure_candidates.len() == 0 {
+        return Err(StageGenerationError::MaterializedMismatch(
+            "failure variant lacks route occurrences",
+        ));
+    }
+
+    let records = &buffers.records;
+    let record_payload = &buffers.record_payload;
+    buffers.failure_candidates.sort_unstable_by(|left, right| {
+        canonical_record_compare(
+            &records.as_slice()[left.record_index],
+            &records.as_slice()[right.record_index],
+            record_payload.as_slice(),
+        )
+    });
+    for (reference_ordinal, candidate) in buffers
+        .failure_candidates
+        .as_mut_slice()
+        .iter_mut()
+        .enumerate()
+    {
+        candidate.reference_ordinal = u64::try_from(reference_ordinal)
+            .map_err(|_| StageGenerationError::Overflow("route reference ordinal"))?;
+    }
+    let unit_count = usize::try_from(n)
+        .map_err(|_| StageGenerationError::Overflow("failure selected-unit count"))?;
+    buffers.source_permutation_scratch.try_reserve(unit_count)?;
+    buffers
+        .source_permutation_scratch
+        .try_resize(unit_count, 0)?;
+    buffers.source_permutation_scratch.as_mut_slice().fill(0);
+    for candidate in buffers.failure_candidates.as_mut_slice() {
+        let route_ordinal = buffers
+            .source_permutation_scratch
+            .as_mut_slice()
+            .get_mut(
+                usize::try_from(candidate.unit)
+                    .map_err(|_| StageGenerationError::Overflow("failure route unit index"))?,
+            )
+            .ok_or(StageGenerationError::MaterializedMismatch(
+                "failure route unit range",
+            ))?;
+        candidate.route_ordinal_within_unit = *route_ordinal;
+        *route_ordinal = route_ordinal
+            .checked_add(1)
+            .ok_or(StageGenerationError::Overflow(
+                "failure route ordinal within unit",
+            ))?;
+    }
+
+    let maximum_diagnostics = match failure_mode {
+        BoundedTemplateFailureMode::MissingReferencePerUnit {
+            maximum_diagnostics,
+        } => {
+            buffers.source_permutation_scratch.as_mut_slice().fill(0);
+            for candidate in buffers.failure_candidates.as_mut_slice() {
+                let selected = buffers
+                    .source_permutation_scratch
+                    .as_mut_slice()
+                    .get_mut(usize::try_from(candidate.unit).map_err(|_| {
+                        StageGenerationError::Overflow("failure selected unit index")
+                    })?)
+                    .ok_or(StageGenerationError::MaterializedMismatch(
+                        "failure selected unit range",
+                    ))?;
+                if *selected == 0 {
+                    candidate.selected = true;
+                    *selected = 1;
+                }
+            }
+            maximum_diagnostics
+        }
+        BoundedTemplateFailureMode::DuplicateOwnerPerUnit => {
+            unreachable!("duplicate owner dispatched before route diagnostics")
+        }
+        BoundedTemplateFailureMode::DiagnosticCapPlusOne {
+            maximum_diagnostics,
+        } => {
+            let candidate_count =
+                maximum_diagnostics
+                    .checked_add(1)
+                    .ok_or(StageGenerationError::Overflow(
+                        "diagnostic cap candidate count",
+                    ))?;
+            if u64::try_from(buffers.failure_candidates.len()).ok() < Some(candidate_count) {
+                return Err(StageGenerationError::MaterializedMismatch(
+                    "diagnostic cap failure lacks candidates",
+                ));
+            }
+            for candidate in buffers.failure_candidates.as_mut_slice().iter_mut().take(
+                usize::try_from(candidate_count).map_err(|_| {
+                    StageGenerationError::Overflow("diagnostic cap candidate count")
+                })?,
+            ) {
+                candidate.selected = true;
+            }
+            maximum_diagnostics
+        }
+    };
+
+    buffers
+        .failure_candidates
+        .sort_unstable_by_key(|candidate| {
+            (
+                candidate.unit,
+                candidate.relation_sequence_ordinal,
+                candidate.reference_ordinal,
+            )
+        });
+    let full_candidate_count = u64::try_from(
+        buffers
+            .failure_candidates
+            .iter()
+            .filter(|candidate| candidate.selected)
+            .count(),
+    )
+    .map_err(|_| StageGenerationError::Overflow("failure full candidate count"))?;
+    let retained_count = full_candidate_count.min(maximum_diagnostics);
+    let diagnostics_truncated = full_candidate_count > maximum_diagnostics;
+
+    buffers.diagnostics.try_reserve(
+        usize::try_from(retained_count)
+            .map_err(|_| StageGenerationError::Overflow("failure diagnostic count"))?
+            .checked_mul(160)
+            .and_then(|bytes| bytes.checked_add(64))
+            .ok_or(StageGenerationError::Overflow(
+                "failure diagnostic byte reserve",
+            ))?,
     )?;
-    diagnostics.try_extend_from_slice(error_code.as_bytes())?;
-    Ok(())
+    buffers
+        .diagnostics
+        .try_extend_from_slice(crate::diagnostic::DIAGNOSTIC_STREAM_DOMAIN)?;
+    append_u32(
+        &mut buffers.diagnostics,
+        crate::diagnostic::DIAGNOSTIC_STREAM_VERSION,
+    )?;
+    append_u64(&mut buffers.diagnostics, retained_count)?;
+
+    let reference_count = template_source_reference_count(template)?;
+    let source_prefix_length = "source/".len()
+        + graph_profile.as_str().len()
+        + 1
+        + "unit/".len()
+        + 8
+        + ".lfsynthetic".len();
+    let source_prefix_length = u32::try_from(source_prefix_length)
+        .map_err(|_| StageGenerationError::Overflow("diagnostic source key length"))?;
+
+    let mut emitted = 0_u64;
+    for candidate in buffers
+        .failure_candidates
+        .iter()
+        .filter(|candidate| candidate.selected)
+    {
+        if emitted == retained_count {
+            break;
+        }
+        append_u32(
+            &mut buffers.diagnostics,
+            u32::try_from(UNKNOWN_REFERENCE_ERROR_CODE.len())
+                .map_err(|_| StageGenerationError::Overflow("diagnostic code length"))?,
+        )?;
+        buffers
+            .diagnostics
+            .try_extend_from_slice(UNKNOWN_REFERENCE_ERROR_CODE.as_bytes())?;
+        buffers.diagnostics.try_push(1)?;
+        append_u32(&mut buffers.diagnostics, source_prefix_length)?;
+        buffers.diagnostics.try_extend_from_slice(b"source/")?;
+        buffers
+            .diagnostics
+            .try_extend_from_slice(graph_profile.as_str().as_bytes())?;
+        buffers.diagnostics.try_extend_from_slice(b"/unit/")?;
+        append_hex_u32(&mut buffers.diagnostics, candidate.unit)?;
+        buffers.diagnostics.try_extend_from_slice(b".lfsynthetic")?;
+        let start_line = u64::try_from(template.entities.len())
+            .ok()
+            .and_then(|value| value.checked_add(reference_count))
+            .and_then(|value| value.checked_add(u64::from(candidate.relation_sequence_ordinal)))
+            .and_then(|value| value.checked_add(1))
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or(StageGenerationError::Overflow("diagnostic source line"))?;
+        append_u32(&mut buffers.diagnostics, start_line)?;
+        append_u32(&mut buffers.diagnostics, 1)?;
+        append_u32(&mut buffers.diagnostics, start_line)?;
+        append_u32(&mut buffers.diagnostics, 18)?;
+        append_u32(&mut buffers.diagnostics, 34)?;
+        append_u16(&mut buffers.diagnostics, 4)?;
+        append_u64(&mut buffers.diagnostics, candidate.reference_ordinal)?;
+        append_u32(&mut buffers.diagnostics, 20)?;
+        buffers.diagnostics.try_extend_from_slice(b"04/")?;
+        append_hex_u32(&mut buffers.diagnostics, candidate.unit)?;
+        buffers.diagnostics.try_push(b'/')?;
+        let unknown_local = 0x8000_0000_u32
+            .checked_add(candidate.route_ordinal_within_unit)
+            .ok_or(StageGenerationError::Overflow(
+                "unknown LaneEdge local index",
+            ))?;
+        append_hex_u32(&mut buffers.diagnostics, unknown_local)?;
+        emitted = emitted
+            .checked_add(1)
+            .ok_or(StageGenerationError::Overflow("emitted diagnostic count"))?;
+    }
+    if emitted != retained_count {
+        return Err(StageGenerationError::MaterializedMismatch(
+            "retained failure diagnostic count",
+        ));
+    }
+
+    Ok(BoundedTemplateFailureObservation {
+        diagnostic_count: retained_count,
+        diagnostics_truncated,
+        diagnostic_digest_sha256: diagnostic_buffer_digest(&buffers.diagnostics),
+    })
 }
 
-fn failure_diagnostic_digest(diagnostics: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(b"LANEFLOW-COMPILER-CALIBRATION-DIAGNOSTIC-V1\0");
-    hasher.update(diagnostics);
-    let digest = hasher.finalize();
+fn materialize_duplicate_owner_diagnostics(
+    template: &CorridorTemplate,
+    graph_profile: GraphProfileId,
+    n: u32,
+    buffers: &mut BoundedTemplateBufferPool,
+) -> Result<BoundedTemplateFailureObservation, StageGenerationError> {
+    if buffers.duplicate_owner_candidates.len()
+        != usize::try_from(n)
+            .map_err(|_| StageGenerationError::Overflow("duplicate-owner unit count"))?
+    {
+        return Err(StageGenerationError::MaterializedMismatch(
+            "duplicate-owner candidate count",
+        ));
+    }
+    buffers
+        .duplicate_owner_candidates
+        .sort_unstable_by_key(|candidate| (candidate.unit, candidate.relation_sequence_ordinal));
+    let diagnostic_count = u64::from(n);
+    buffers.diagnostics.try_reserve(
+        buffers
+            .duplicate_owner_candidates
+            .len()
+            .checked_mul(192)
+            .and_then(|bytes| bytes.checked_add(64))
+            .ok_or(StageGenerationError::Overflow(
+                "duplicate-owner diagnostic byte reserve",
+            ))?,
+    )?;
+    buffers
+        .diagnostics
+        .try_extend_from_slice(crate::diagnostic::DIAGNOSTIC_STREAM_DOMAIN)?;
+    append_u32(
+        &mut buffers.diagnostics,
+        crate::diagnostic::DIAGNOSTIC_STREAM_VERSION,
+    )?;
+    append_u64(&mut buffers.diagnostics, diagnostic_count)?;
+    let reference_count = template_source_reference_count(template)?;
+    let source_key_length = u32::try_from(
+        "source/".len()
+            + graph_profile.as_str().len()
+            + 1
+            + "unit/".len()
+            + 8
+            + ".lfsynthetic".len(),
+    )
+    .map_err(|_| StageGenerationError::Overflow("duplicate-owner source key length"))?;
+    for candidate in buffers.duplicate_owner_candidates.iter() {
+        append_u32(
+            &mut buffers.diagnostics,
+            u32::try_from(DUPLICATE_OWNER_ERROR_CODE.len())
+                .map_err(|_| StageGenerationError::Overflow("duplicate-owner code length"))?,
+        )?;
+        buffers
+            .diagnostics
+            .try_extend_from_slice(DUPLICATE_OWNER_ERROR_CODE.as_bytes())?;
+        buffers.diagnostics.try_push(1)?;
+        append_u32(&mut buffers.diagnostics, source_key_length)?;
+        buffers.diagnostics.try_extend_from_slice(b"source/")?;
+        buffers
+            .diagnostics
+            .try_extend_from_slice(graph_profile.as_str().as_bytes())?;
+        buffers.diagnostics.try_extend_from_slice(b"/unit/")?;
+        append_hex_u32(&mut buffers.diagnostics, candidate.unit)?;
+        buffers.diagnostics.try_extend_from_slice(b".lfsynthetic")?;
+        let start_line = u64::try_from(template.entities.len())
+            .ok()
+            .and_then(|value| value.checked_add(reference_count))
+            .and_then(|value| value.checked_add(u64::from(candidate.relation_sequence_ordinal)))
+            .and_then(|value| value.checked_add(1))
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or(StageGenerationError::Overflow(
+                "duplicate-owner diagnostic source line",
+            ))?;
+        append_u32(&mut buffers.diagnostics, start_line)?;
+        append_u32(&mut buffers.diagnostics, 1)?;
+        append_u32(&mut buffers.diagnostics, start_line)?;
+        append_u32(&mut buffers.diagnostics, 18)?;
+        append_u32(&mut buffers.diagnostics, 50)?;
+        append_u16(&mut buffers.diagnostics, candidate.child_kind)?;
+        buffers
+            .diagnostics
+            .try_extend_from_slice(&candidate.child_stable_id)?;
+        buffers
+            .diagnostics
+            .try_extend_from_slice(&candidate.first_owner_stable_id)?;
+        buffers
+            .diagnostics
+            .try_extend_from_slice(&candidate.second_owner_stable_id)?;
+    }
+    Ok(BoundedTemplateFailureObservation {
+        diagnostic_count,
+        diagnostics_truncated: false,
+        diagnostic_digest_sha256: diagnostic_buffer_digest(&buffers.diagnostics),
+    })
+}
+
+fn template_source_reference_count(
+    template: &CorridorTemplate,
+) -> Result<u64, StageGenerationError> {
+    let identity_reference_count = template
+        .entities
+        .iter()
+        .try_fold(0_u64, |total, entity| {
+            total.checked_add(u64::try_from(entity.identity_references.len()).ok()?)
+        })
+        .ok_or(StageGenerationError::Overflow(
+            "failure identity reference count",
+        ))?;
+    let payload_reference_count = template
+        .relations
+        .iter()
+        .try_fold(0_u64, |total, relation| {
+            total.checked_add(relation.stable_reference_count())
+        })
+        .and_then(|total| total.checked_add(u64::try_from(template.geometry.len()).ok()?))
+        .ok_or(StageGenerationError::Overflow(
+            "failure payload reference count",
+        ))?;
+    identity_reference_count
+        .checked_add(payload_reference_count)
+        .ok_or(StageGenerationError::Overflow(
+            "failure source reference count",
+        ))
+}
+
+fn diagnostic_buffer_digest(bytes: &ControlledVec<u8>) -> String {
+    let digest = Sha256::digest(bytes.as_slice());
     let mut output = String::with_capacity(digest.len() * 2);
     for byte in digest {
         use std::fmt::Write as _;
         write!(&mut output, "{byte:02x}").expect("writing to String cannot fail");
     }
     output
+}
+
+fn append_hex_u32(output: &mut ControlledVec<u8>, value: u32) -> Result<(), StageGenerationError> {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for shift in (0..8).rev() {
+        let nibble = usize::try_from((value >> (shift * 4)) & 0x0f).expect("u32 nibble fits usize");
+        output.try_push(HEX[nibble])?;
+    }
+    Ok(())
 }
 
 pub(crate) fn finalize_bounded_template_stage_case(
@@ -1435,6 +2533,7 @@ fn assign_owner_ordinals(
 fn compile_relation(
     template: &CorridorTemplate,
     declarations: &[BoundedDeclaration],
+    fixed_key_lookup: &FixedKeyLookup,
     unit: u32,
     relation: &TemplateRelation,
     payload: &mut ControlledVec<u8>,
@@ -1443,16 +2542,34 @@ fn compile_relation(
     let (record_kind, owner, pending_order) = match relation {
         TemplateRelation::Owner { child, parent } => {
             append_u16(payload, parent.kind)?;
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *parent)?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
+                unit,
+                *parent,
+            )?)?;
             (2, *child, PendingOrder::Absent)
         }
         TemplateRelation::EdgeConnection { source, target } => {
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *target)?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
+                unit,
+                *target,
+            )?)?;
             (3, *source, PendingOrder::OwnerPayload)
         }
         TemplateRelation::RouteOccurrence { route, index, edge } => {
             append_u32(payload, *index)?;
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *edge)?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
+                unit,
+                *edge,
+            )?)?;
             (4, *route, PendingOrder::Explicit(*index))
         }
         TemplateRelation::Access {
@@ -1464,16 +2581,29 @@ fn compile_relation(
             payload.try_extend_from_slice(&stable_id(
                 template,
                 declarations,
+                fixed_key_lookup,
                 unit,
                 *participant,
             )?)?;
             append_u16(payload, target.kind)?;
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *target)?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
+                unit,
+                *target,
+            )?)?;
             payload.try_push(*decision)?;
             (6, *rule, PendingOrder::OwnerPayload)
         }
         TemplateRelation::SignalGroup { group, gate } => {
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *gate)?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
+                unit,
+                *gate,
+            )?)?;
             (7, *group, PendingOrder::OwnerPayload)
         }
         TemplateRelation::PhaseState {
@@ -1481,7 +2611,13 @@ fn compile_relation(
             group,
             state,
         } => {
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *group)?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
+                unit,
+                *group,
+            )?)?;
             payload.try_push(*state)?;
             (8, *phase, PendingOrder::OwnerPayload)
         }
@@ -1493,11 +2629,23 @@ fn compile_relation(
             edge,
             edge_position_bits,
         } => {
-            let gate_id = stable_id(template, declarations, unit, *gate)?;
+            let gate_id = stable_id(template, declarations, fixed_key_lookup, unit, *gate)?;
             append_u32(payload, 0)?;
             payload.try_extend_from_slice(&gate_id)?;
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *stop_line)?)?;
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *edge)?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
+                unit,
+                *stop_line,
+            )?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
+                unit,
+                *edge,
+            )?)?;
             append_u32(payload, *edge_position_bits)?;
             (
                 9,
@@ -1517,18 +2665,20 @@ fn compile_relation(
             after_gate,
             capacity,
         } => {
-            let zone_id = stable_id(template, declarations, unit, *zone)?;
+            let zone_id = stable_id(template, declarations, fixed_key_lookup, unit, *zone)?;
             append_u32(payload, 0)?;
             payload.try_extend_from_slice(&zone_id)?;
             payload.try_extend_from_slice(&stable_id(
                 template,
                 declarations,
+                fixed_key_lookup,
                 unit,
                 *before_gate,
             )?)?;
             payload.try_extend_from_slice(&stable_id(
                 template,
                 declarations,
+                fixed_key_lookup,
                 unit,
                 *after_gate,
             )?)?;
@@ -1552,31 +2702,56 @@ fn compile_relation(
             exit_high_bits,
             exit_residual_bits,
         } => {
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *space)?)?;
             payload.try_extend_from_slice(&stable_id(
                 template,
                 declarations,
+                fixed_key_lookup,
+                unit,
+                *space,
+            )?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
                 unit,
                 *entry_edge,
             )?)?;
             append_u32(payload, *entry_high_bits)?;
             append_u32(payload, *entry_residual_bits)?;
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *exit_edge)?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
+                unit,
+                *exit_edge,
+            )?)?;
             append_u32(payload, *exit_high_bits)?;
             append_u32(payload, *exit_residual_bits)?;
             (11, *space, PendingOrder::Absent)
         }
         TemplateRelation::LaneCoverage { lane, index, edge } => {
             append_u32(payload, *index)?;
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *edge)?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
+                unit,
+                *edge,
+            )?)?;
             (12, *lane, PendingOrder::Explicit(*index))
         }
         TemplateRelation::JunctionInternalEdge { junction, edge } => {
-            payload.try_extend_from_slice(&stable_id(template, declarations, unit, *edge)?)?;
+            payload.try_extend_from_slice(&stable_id(
+                template,
+                declarations,
+                fixed_key_lookup,
+                unit,
+                *edge,
+            )?)?;
             (13, *junction, PendingOrder::OwnerPayload)
         }
     };
-    let declaration = declaration(template, declarations, unit, owner)?;
+    let declaration = declaration(template, declarations, fixed_key_lookup, unit, owner)?;
     Ok(BoundedSemanticRecord {
         record_kind,
         entity_kind_code: owner.kind,
@@ -1704,12 +2879,17 @@ fn record_payload_slice<'a>(record: &BoundedSemanticRecord, payload: &'a [u8]) -
 }
 
 fn declaration<'a>(
-    template: &CorridorTemplate,
+    _template: &CorridorTemplate,
     declarations: &'a [BoundedDeclaration],
+    fixed_key_lookup: &FixedKeyLookup,
     unit: u32,
     entity: EntityRef,
 ) -> Result<&'a BoundedDeclaration, StageGenerationError> {
-    let index = declaration_index(template, unit, entity, template.entities.len())?;
+    let index = fixed_key_lookup
+        .get(fixed_key(UnitEntityRef { unit, entity }))
+        .ok_or(StageGenerationError::MaterializedMismatch(
+            "template declaration fixed-key lookup",
+        ))?;
     declarations
         .get(index)
         .ok_or(StageGenerationError::MaterializedMismatch(
@@ -1720,10 +2900,11 @@ fn declaration<'a>(
 fn stable_id(
     template: &CorridorTemplate,
     declarations: &[BoundedDeclaration],
+    fixed_key_lookup: &FixedKeyLookup,
     unit: u32,
     entity: EntityRef,
 ) -> Result<[u8; 16], StageGenerationError> {
-    Ok(declaration(template, declarations, unit, entity)?.stable_id)
+    Ok(declaration(template, declarations, fixed_key_lookup, unit, entity)?.stable_id)
 }
 
 fn declaration_index(

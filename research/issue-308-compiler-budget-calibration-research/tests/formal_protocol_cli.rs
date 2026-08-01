@@ -13,6 +13,8 @@ fn formal_cli_rejects_debug_binary_before_creating_output() {
         .arg("run")
         .arg("--protocol")
         .arg("compiler-calibration-v1")
+        .arg("--environment")
+        .arg("unused-environment.json")
         .arg("--output")
         .arg(&output_path)
         .output()

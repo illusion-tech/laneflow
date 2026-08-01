@@ -1,16 +1,25 @@
 //! `compiler-calibration-v1` 正式研究入口与执行检查点写出。
 //!
 //! runner 先完成基础规模试运行，再执行正式规模阶梯并保存原始子进程、精确汇总、
-//! 拐点和规模选择。该检查点不冒充编译器校准证据 v1；完整证据封套、来源摘要和
-//! 独立 Evidence 验证器由后续切片建立。
+//! 拐点和规模选择。该检查点不冒充编译器校准证据 v1；证据写出器只能把它作为原始
+//! 输入，并在发布前通过独立 Evidence v1 验证器。
 
+use crate::ladder_runner::decode_child_execution;
+use crate::pilot::run_monitored_command_child;
 use crate::{
-    ATTRIBUTION_BINARY_ID, BaseScalePilotCheckpoint, ContractError, FORMAL_PROTOCOL_ID,
-    FormalLadderExecution, FormalLadderRunnerError, ORACLE_BINARY_ID, PilotError, TIMING_BINARY_ID,
-    load_repository_contract, repository_root, run_base_scale_pilot_discovery_with_checkpoint_sink,
-    run_formal_ladders,
+    ATTRIBUTION_BINARY_ID, BaseScalePilotCheckpoint, CandidateMatrixError,
+    CandidateMatrixExecutionBundle, ChildProcessMonitorReport, ContractError,
+    CurrentFixturesChildReport, ExternalStateObservation, FORMAL_PROTOCOL_ID,
+    FormalEnvironmentSnapshot, FormalLadderExecution, FormalLadderRunnerError, GuardThresholds,
+    InvalidationReason, LimitQualificationBundle, LimitQualificationExecutionError,
+    ORACLE_BINARY_ID, PilotError, ProcessObservation, RunStatus, TIMING_BINARY_ID,
+    load_and_install_formal_environment, load_repository_contract, repository_root,
+    run_base_scale_pilot_discovery_with_checkpoint_sink,
+    run_candidate_matrix_bundle_with_checkpoint_sink, run_formal_ladders,
+    run_limit_qualification_bundle, validate_limit_qualification_bundle,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -20,9 +29,10 @@ use std::process::Command;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FormalProtocolRequest {
     pub output_path: PathBuf,
+    pub environment_path: PathBuf,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalProtocolOutcome {
     pub protocol_id: String,
@@ -37,21 +47,67 @@ pub struct FormalProtocolOutcome {
     pub recorded_formal_oracle_runs: usize,
     pub recorded_attribution_preflight_runs: usize,
     pub recorded_timing_guard_runs: usize,
+    pub current_fixture_case_count: usize,
+    pub limit_pair_count: usize,
+    pub cleanup_experiment_count: usize,
+    pub limit_qualification_valid: bool,
+    pub candidate_scale_count: usize,
+    pub candidate_roster_count: usize,
+    pub constant_hash_qualification_count: usize,
+    pub candidate_performance_attempt_count: usize,
 }
 
 pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA: &str =
     "laneflow.compiler-calibration-formal-execution-checkpoint";
-pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION: u32 = 1;
+pub const FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION: u32 = 5;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormalCurrentFixtureProjection {
+    pub status: RunStatus,
+    pub invalidation_reasons: Vec<InvalidationReason>,
+    pub process: ProcessObservation,
+    pub child: Option<CurrentFixturesChildReport>,
+    pub monitor: ChildProcessMonitorReport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_state: Option<ExternalStateObservation>,
+    pub kill_error: Option<String>,
+    pub monitor_error: Option<String>,
+    pub stderr: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormalBinarySourceSnapshot {
+    pub binary_id: String,
+    pub sha256: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormalSourceSnapshot {
+    pub source_commit: String,
+    pub harness_commit: String,
+    pub dirty: bool,
+    pub cargo_lock_sha256: String,
+    pub binaries: Vec<FormalBinarySourceSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalProtocolCheckpoint {
     pub schema: String,
     pub schema_version: u32,
     pub protocol_id: String,
+    pub source: FormalSourceSnapshot,
+    pub environment: FormalEnvironmentSnapshot,
+    pub current_fixtures: FormalCurrentFixtureProjection,
     pub base_scale_pilot: BaseScalePilotCheckpoint,
     pub formal_ladders: Vec<FormalLadderExecution>,
     pub active_formal_ladder: Option<FormalLadderExecution>,
+    pub limit_qualification: Option<LimitQualificationBundle>,
+    pub limit_qualification_validation_error: Option<String>,
+    pub candidate_matrix: Option<CandidateMatrixExecutionBundle>,
 }
 
 pub fn parse_formal_protocol_arguments(
@@ -59,6 +115,7 @@ pub fn parse_formal_protocol_arguments(
 ) -> Result<FormalProtocolRequest, FormalProtocolError> {
     let mut protocol = None;
     let mut output_path = None;
+    let mut environment_path = None;
     let mut arguments = arguments.into_iter();
 
     while let Some(flag) = arguments.next() {
@@ -89,6 +146,15 @@ pub fn parse_formal_protocol_arguments(
                 }
                 output_path = Some(PathBuf::from(value));
             }
+            "--environment" => {
+                if environment_path.is_some() {
+                    return Err(FormalProtocolError::DuplicateOption { option: flag });
+                }
+                if value.is_empty() {
+                    return Err(FormalProtocolError::EmptyEnvironmentPath);
+                }
+                environment_path = Some(PathBuf::from(value));
+            }
             _ => return Err(FormalProtocolError::UnknownOption { option: flag }),
         }
     }
@@ -101,7 +167,13 @@ pub fn parse_formal_protocol_arguments(
     }
     let output_path =
         output_path.ok_or(FormalProtocolError::MissingRequiredOption { option: "--output" })?;
-    Ok(FormalProtocolRequest { output_path })
+    let environment_path = environment_path.ok_or(FormalProtocolError::MissingRequiredOption {
+        option: "--environment",
+    })?;
+    Ok(FormalProtocolRequest {
+        output_path,
+        environment_path,
+    })
 }
 
 pub fn run_formal_protocol(
@@ -117,12 +189,20 @@ pub fn run_formal_protocol(
     build_formal_child_binaries(&repository_root)?;
     verify_clean_worktree(&repository_root)?;
     let trusted = load_repository_contract()?;
+    let environment = load_and_install_formal_environment(&request.environment_path)?.clone();
     let timing_executable = resolve_sibling_timing_binary()?;
     let attribution_executable = resolve_sibling_attribution_binary()?;
     let oracle_executable = resolve_sibling_oracle_binary()?;
     verify_timing_binary_role(&timing_executable)?;
     verify_attribution_binary_role(&attribution_executable)?;
     verify_oracle_binary_role(&oracle_executable)?;
+    let source = capture_formal_source(
+        &repository_root,
+        &timing_executable,
+        &attribution_executable,
+        &oracle_executable,
+    )?;
+    let current_fixtures = run_current_fixtures_process(&oracle_executable, &environment)?;
     let mut writer = FormalCheckpointWriter::prepare(&request.output_path)?;
     let base_scale_pilot = run_base_scale_pilot_discovery_with_checkpoint_sink(
         &trusted,
@@ -130,7 +210,17 @@ pub fn run_formal_protocol(
         &oracle_executable,
         |base_scale_pilot| {
             writer
-                .persist(&formal_checkpoint(base_scale_pilot, &[], None))
+                .persist(&formal_checkpoint(
+                    &source,
+                    &environment,
+                    &current_fixtures,
+                    base_scale_pilot,
+                    &[],
+                    None,
+                    None,
+                    None,
+                    None,
+                ))
                 .map_err(|error| PilotError::CheckpointPersistence {
                     detail: error.to_string(),
                 })
@@ -144,13 +234,75 @@ pub fn run_formal_protocol(
         &base_scale_pilot,
         |completed, active| {
             writer
-                .persist(&formal_checkpoint(&base_scale_pilot, completed, active))
+                .persist(&formal_checkpoint(
+                    &source,
+                    &environment,
+                    &current_fixtures,
+                    &base_scale_pilot,
+                    completed,
+                    active,
+                    None,
+                    None,
+                    None,
+                ))
                 .map_err(|error| FormalLadderRunnerError::CheckpointPersistence {
                     detail: error.to_string(),
                 })
         },
     )?;
-    let checkpoint = formal_checkpoint(&base_scale_pilot, &formal_ladders, None);
+    let limit_qualification = run_limit_qualification_bundle(
+        &trusted,
+        &timing_executable,
+        &attribution_executable,
+        &formal_ladders,
+    )?;
+    let limit_qualification_validation_error =
+        validate_limit_qualification_bundle(&limit_qualification)
+            .err()
+            .map(|error| error.to_string());
+    writer.persist(&formal_checkpoint(
+        &source,
+        &environment,
+        &current_fixtures,
+        &base_scale_pilot,
+        &formal_ladders,
+        None,
+        Some(&limit_qualification),
+        limit_qualification_validation_error.as_deref(),
+        None,
+    ))?;
+    let candidate_matrix = run_candidate_matrix_bundle_with_checkpoint_sink(
+        &trusted,
+        &timing_executable,
+        &oracle_executable,
+        &formal_ladders,
+        |candidate_matrix| {
+            writer
+                .persist(&formal_checkpoint(
+                    &source,
+                    &environment,
+                    &current_fixtures,
+                    &base_scale_pilot,
+                    &formal_ladders,
+                    None,
+                    Some(&limit_qualification),
+                    limit_qualification_validation_error.as_deref(),
+                    Some(candidate_matrix),
+                ))
+                .map_err(|error| error.to_string())
+        },
+    )?;
+    let checkpoint = formal_checkpoint(
+        &source,
+        &environment,
+        &current_fixtures,
+        &base_scale_pilot,
+        &formal_ladders,
+        None,
+        Some(&limit_qualification),
+        limit_qualification_validation_error.as_deref(),
+        Some(&candidate_matrix),
+    );
     writer.finish(&checkpoint)?;
 
     Ok(FormalProtocolOutcome {
@@ -182,22 +334,168 @@ pub fn run_formal_protocol(
             .flat_map(|ladder| &ladder.levels)
             .filter(|level| level.timing_guard_run.is_some())
             .count(),
+        current_fixture_case_count: current_fixtures
+            .child
+            .as_ref()
+            .map_or(0, |child| child.cases.len()),
+        limit_pair_count: limit_qualification.limit_pairs.len(),
+        cleanup_experiment_count: limit_qualification.cleanup_experiments.len(),
+        limit_qualification_valid: limit_qualification_validation_error.is_none(),
+        candidate_scale_count: candidate_matrix.scales.len(),
+        candidate_roster_count: candidate_matrix.executions.len(),
+        constant_hash_qualification_count: candidate_matrix.constant_hash_qualifications.len(),
+        candidate_performance_attempt_count: candidate_matrix
+            .executions
+            .iter()
+            .map(|execution| execution.attempts.len())
+            .sum(),
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn formal_checkpoint(
+    source: &FormalSourceSnapshot,
+    environment: &FormalEnvironmentSnapshot,
+    current_fixtures: &FormalCurrentFixtureProjection,
     base_scale_pilot: &BaseScalePilotCheckpoint,
     formal_ladders: &[FormalLadderExecution],
     active_formal_ladder: Option<&FormalLadderExecution>,
+    limit_qualification: Option<&LimitQualificationBundle>,
+    limit_qualification_validation_error: Option<&str>,
+    candidate_matrix: Option<&CandidateMatrixExecutionBundle>,
 ) -> FormalProtocolCheckpoint {
     FormalProtocolCheckpoint {
         schema: FORMAL_PROTOCOL_CHECKPOINT_SCHEMA.to_owned(),
         schema_version: FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION,
         protocol_id: FORMAL_PROTOCOL_ID.to_owned(),
+        source: source.clone(),
+        environment: environment.clone(),
+        current_fixtures: current_fixtures.clone(),
         base_scale_pilot: base_scale_pilot.clone(),
         formal_ladders: formal_ladders.to_vec(),
         active_formal_ladder: active_formal_ladder.cloned(),
+        limit_qualification: limit_qualification.cloned(),
+        limit_qualification_validation_error: limit_qualification_validation_error
+            .map(str::to_owned),
+        candidate_matrix: candidate_matrix.cloned(),
     }
+}
+
+fn capture_formal_source(
+    repository_root: &Path,
+    timing_executable: &Path,
+    attribution_executable: &Path,
+    oracle_executable: &Path,
+) -> Result<FormalSourceSnapshot, FormalProtocolError> {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repository_root)
+        .output()
+        .map_err(|source| FormalProtocolError::SourceCommitLaunch { source })?;
+    if !output.status.success() {
+        return Err(FormalProtocolError::SourceCommitFailed {
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        });
+    }
+    let source_commit = String::from_utf8(output.stdout)
+        .map_err(|_| FormalProtocolError::SourceCommitNotUtf8)?
+        .trim()
+        .to_owned();
+    if source_commit.len() != 40 || !source_commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(FormalProtocolError::InvalidSourceCommit(source_commit));
+    }
+    let cargo_lock_path = repository_root.join("Cargo.lock");
+    let cargo_lock_sha256 = sha256_file(&cargo_lock_path)?;
+    let binaries = [
+        (TIMING_BINARY_ID, timing_executable),
+        (ATTRIBUTION_BINARY_ID, attribution_executable),
+        (ORACLE_BINARY_ID, oracle_executable),
+    ]
+    .into_iter()
+    .map(|(binary_id, path)| {
+        Ok(FormalBinarySourceSnapshot {
+            binary_id: binary_id.to_owned(),
+            sha256: sha256_file(path)?,
+        })
+    })
+    .collect::<Result<Vec<_>, FormalProtocolError>>()?;
+    Ok(FormalSourceSnapshot {
+        source_commit: source_commit.clone(),
+        harness_commit: source_commit,
+        dirty: false,
+        cargo_lock_sha256,
+        binaries,
+    })
+}
+
+fn run_current_fixtures_process(
+    oracle_executable: &Path,
+    environment: &FormalEnvironmentSnapshot,
+) -> Result<FormalCurrentFixtureProjection, FormalProtocolError> {
+    let thresholds =
+        GuardThresholds::from_physical_memory_bytes(environment.physical_memory_bytes)?;
+    let execution = run_monitored_command_child(
+        oracle_executable,
+        0,
+        &["run-current-fixtures".to_owned()],
+        thresholds,
+    )?;
+    let decoded = decode_child_execution(
+        execution,
+        ORACLE_BINARY_ID,
+        |report: &CurrentFixturesChildReport| {
+            if report.schema == crate::CURRENT_FIXTURES_CHILD_SCHEMA
+                && report.schema_version == crate::CURRENT_FIXTURES_CHILD_SCHEMA_VERSION
+                && report.binary_id == ORACLE_BINARY_ID
+                && report.verification.checked_cases
+                    == u32::try_from(report.cases.len()).unwrap_or(u32::MAX)
+                && report.verification.production_loader_cases
+                    == u32::try_from(report.cases.len()).unwrap_or(u32::MAX)
+                && report.verification.independent_identity_and_stream_checked
+                && report.verification.scenario_manifest_emits_no_records
+                && report
+                    .verification
+                    .excluded_from_budget_and_candidate_ranking
+            {
+                Ok(())
+            } else {
+                Err("current-fixtures-child-protocol".to_owned())
+            }
+        },
+        |_| false,
+    )?;
+    if decoded
+        .child
+        .as_ref()
+        .is_some_and(|report| decoded.process.child_pid.value != Some(u64::from(report.child_pid)))
+    {
+        return Err(FormalProtocolError::CurrentFixturesChildPidMismatch);
+    }
+    Ok(FormalCurrentFixtureProjection {
+        status: decoded.status,
+        invalidation_reasons: decoded.invalidation_reasons,
+        process: decoded.process,
+        child: decoded.child,
+        monitor: decoded.monitor,
+        external_state: decoded.external_state,
+        kill_error: decoded.kill_error,
+        monitor_error: decoded.monitor_error,
+        stderr: decoded.stderr,
+    })
+}
+
+fn sha256_file(path: &Path) -> Result<String, FormalProtocolError> {
+    let bytes = fs::read(path).map_err(|source| FormalProtocolError::ReadSourceArtifact {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let digest = Sha256::digest(bytes);
+    let mut encoded = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    Ok(encoded)
 }
 
 fn verify_formal_build_mode(
@@ -750,6 +1048,25 @@ pub enum FormalProtocolError {
     },
     #[error("正式研究执行检查点序号溢出")]
     CheckpointSequenceOverflow,
+    #[error("无法取得正式执行源提交")]
+    SourceCommitLaunch {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("无法取得正式执行源提交：{stderr}")]
+    SourceCommitFailed { stderr: String },
+    #[error("正式执行源提交不是有效 UTF-8")]
+    SourceCommitNotUtf8,
+    #[error("正式执行源提交不是四十位十六进制 Git 对象名：{0}")]
+    InvalidSourceCommit(String),
+    #[error("无法读取正式执行来源制品 {path}")]
+    ReadSourceArtifact {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("当前固定样例子进程报告的 pid 与父进程观察不一致")]
+    CurrentFixturesChildPidMismatch,
     #[error("命令行选项必须为有效 UTF-8")]
     NonUtf8Option,
     #[error("--protocol 的值必须为有效 UTF-8")]
@@ -766,12 +1083,26 @@ pub enum FormalProtocolError {
     UnsupportedProtocol { actual: String },
     #[error("--output 路径不能为空")]
     EmptyOutputPath,
+    #[error("--environment 路径不能为空")]
+    EmptyEnvironmentPath,
+    #[error(transparent)]
+    Environment(#[from] crate::EnvironmentError),
     #[error(transparent)]
     Contract(#[from] ContractError),
     #[error(transparent)]
     Pilot(#[from] PilotError),
     #[error(transparent)]
     FormalLadder(#[from] FormalLadderRunnerError),
+    #[error(transparent)]
+    CurrentFixtures(#[from] crate::CurrentFixturesError),
+    #[error(transparent)]
+    CurrentFixturesOracle(#[from] crate::CurrentFixturesOracleError),
+    #[error(transparent)]
+    Guard(#[from] crate::GuardError),
+    #[error(transparent)]
+    LimitQualification(#[from] LimitQualificationExecutionError),
+    #[error(transparent)]
+    CandidateMatrix(#[from] CandidateMatrixError),
 }
 
 #[cfg(test)]
@@ -789,9 +1120,12 @@ mod tests {
             OsString::from(FORMAL_PROTOCOL_ID),
             OsString::from("--output"),
             OsString::from("pilot.json"),
+            OsString::from("--environment"),
+            OsString::from("environment.json"),
         ])
         .expect("exact formal arguments");
         assert_eq!(request.output_path, PathBuf::from("pilot.json"));
+        assert_eq!(request.environment_path, PathBuf::from("environment.json"));
 
         assert!(matches!(
             parse_formal_protocol_arguments([
@@ -799,6 +1133,8 @@ mod tests {
                 OsString::from("other"),
                 OsString::from("--output"),
                 OsString::from("pilot.json"),
+                OsString::from("--environment"),
+                OsString::from("environment.json"),
             ]),
             Err(FormalProtocolError::UnsupportedProtocol { .. })
         ));
@@ -817,6 +1153,8 @@ mod tests {
                 OsString::from("a.json"),
                 OsString::from("--output"),
                 OsString::from("b.json"),
+                OsString::from("--environment"),
+                OsString::from("environment.json"),
             ]),
             Err(FormalProtocolError::DuplicateOption { .. })
         ));
@@ -887,6 +1225,32 @@ mod tests {
 
     fn empty_checkpoint() -> FormalProtocolCheckpoint {
         formal_checkpoint(
+            &test_source(),
+            &test_environment(),
+            &FormalCurrentFixtureProjection {
+                status: RunStatus::Valid,
+                invalidation_reasons: Vec::new(),
+                process: ProcessObservation::guarded_before_start(1, ORACLE_BINARY_ID),
+                child: None,
+                monitor: ChildProcessMonitorReport {
+                    observation_count: 0,
+                    last_private_bytes: crate::NullableObservation::unavailable(
+                        "child-not-started",
+                    ),
+                    peak_private_bytes: crate::NullableObservation::unavailable(
+                        "child-not-started",
+                    ),
+                    last_available_physical_memory_bytes: crate::NullableObservation::unavailable(
+                        "child-not-started",
+                    ),
+                    elapsed_wall_time_ns: 0,
+                    trigger: None,
+                },
+                external_state: None,
+                kill_error: None,
+                monitor_error: None,
+                stderr: String::new(),
+            },
             &BaseScalePilotCheckpoint {
                 schema: BASE_SCALE_PILOT_CHECKPOINT_SCHEMA.to_owned(),
                 schema_version: BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION,
@@ -900,7 +1264,51 @@ mod tests {
             },
             &[],
             None,
+            None,
+            None,
+            None,
         )
+    }
+
+    fn test_source() -> FormalSourceSnapshot {
+        FormalSourceSnapshot {
+            source_commit: "1".repeat(40),
+            harness_commit: "1".repeat(40),
+            dirty: false,
+            cargo_lock_sha256: "2".repeat(64),
+            binaries: [TIMING_BINARY_ID, ATTRIBUTION_BINARY_ID, ORACLE_BINARY_ID]
+                .into_iter()
+                .map(|binary_id| FormalBinarySourceSnapshot {
+                    binary_id: binary_id.to_owned(),
+                    sha256: "3".repeat(64),
+                })
+                .collect(),
+        }
+    }
+
+    fn test_environment() -> FormalEnvironmentSnapshot {
+        FormalEnvironmentSnapshot {
+            os: "test-os".to_owned(),
+            os_build: "test-build".to_owned(),
+            cpu: "test-cpu".to_owned(),
+            logical_processor_count: 1,
+            physical_memory_bytes: 1,
+            target_triple: "test-target".to_owned(),
+            rustc: "test-rustc".to_owned(),
+            llvm: "test-llvm".to_owned(),
+            power_source: "ac".to_owned(),
+            vendor_performance_mode: "test-mode".to_owned(),
+            power_plan: "test-plan".to_owned(),
+            bios_firmware: "test-bios".to_owned(),
+            monitoring_provider: "test-monitor".to_owned(),
+            background_process_audit: Vec::new(),
+            operator_declaration: crate::FormalEnvironmentDeclaration {
+                vendor_performance_mode: "test-mode".to_owned(),
+                bios_firmware: "test-bios".to_owned(),
+                sleep_or_session_lock_observed: false,
+                thermal_or_power_throttling_observed: false,
+            },
+        }
     }
 
     fn temporary_directory(label: &str) -> PathBuf {

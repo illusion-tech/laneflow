@@ -1,5 +1,5 @@
 use crate::GeneratorContract;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const IDENTITY_WORKLOAD_ID: &str = "LF-COMP-ID-v1";
@@ -10,9 +10,9 @@ pub const MODULE_GRAPH_KNOWN_VECTOR_ORDER: &str = "canonical-module-name-utf8-as
 const MODULE_GRAPH_KNOWN_VECTOR_BYTE_LENGTH: usize = 6_545;
 #[cfg(test)]
 const MODULE_GRAPH_KNOWN_VECTOR_SHA256: &str =
-    "d73437d46686e13445048fc0543db9c31ce04c7c031d6af8329477cab2cc647f";
+    "246a9cccd916b30dac5d951a7db60ab6cee496d8d53934327f582e522346aae0";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum GraphProfileId {
     #[serde(rename = "wide-star-v1")]
     WideStar,

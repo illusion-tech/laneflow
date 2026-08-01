@@ -1,18 +1,19 @@
 //! 正式规模阶梯的父进程编排。
 //!
 //! runner 只负责编排已经分离的 attribution、oracle 与 timing 子进程，保存原始进程
-//! 事实，并把完整有效级别交给 `ladder` 纯函数分析。Evidence v1 的来源绑定与独立
-//! 验证由后续切片负责。
+//! 事实，并把完整有效级别交给 `ladder` 纯函数分析。Evidence v1 的来源绑定、写出与
+//! 独立验证位于 evidence / evidence_assembly。
 
+use crate::environment::installed_formal_environment;
 use crate::pilot::{
     MonitoredChildExecution, monitor_invalidation_reasons, run_monitored_scalable_oracle,
     run_monitored_scalable_role_child,
 };
 use crate::{
     ATTRIBUTION_BINARY_ID, BASE_SCALE_STRING_PROFILE, BASELINE_CANDIDATE_ID,
-    BaseScalePilotCheckpoint, BaseScaleSelection, ChildProcessMonitorReport, FormalLadderAnalysis,
-    FormalLadderCompletedLevel, FormalLadderError, FormalLadderRoundRun,
-    FormalScaleSelectionDisposition, GENERATOR_VERSION_V1, GraphProfileId,
+    BaseScalePilotCheckpoint, BaseScaleSelection, ChildProcessMonitorReport,
+    ExternalStateObservation, FormalLadderAnalysis, FormalLadderCompletedLevel, FormalLadderError,
+    FormalLadderRoundRun, FormalScaleSelectionDisposition, GENERATOR_VERSION_V1, GraphProfileId,
     GuardCompletedLevelObservation, GuardPreflightReport, InvalidationReason, ORACLE_BINARY_ID,
     PilotError, ProcessObservation, ProcessProtocolError, RunStatus,
     SCALABLE_ATTRIBUTION_CHILD_SCHEMA, SCALABLE_ATTRIBUTION_CHILD_SCHEMA_VERSION,
@@ -25,15 +26,15 @@ use crate::{
     SystemMemoryMonitor, TIMING_BINARY_ID, TrustedContract, WORKLOAD_REVISION_V1,
     analyze_formal_ladder,
 };
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub const FORMAL_LADDER_EXECUTION_SCHEMA: &str =
     "laneflow.compiler-calibration-formal-ladder-execution";
-pub const FORMAL_LADDER_EXECUTION_SCHEMA_VERSION: u32 = 2;
+pub const FORMAL_LADDER_EXECUTION_SCHEMA_VERSION: u32 = 3;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FormalLadderExecutionDisposition {
     Complete,
@@ -42,7 +43,7 @@ pub enum FormalLadderExecutionDisposition {
     InvalidRun,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalAttributionPreflightRun {
     pub run_id: String,
@@ -52,12 +53,14 @@ pub struct FormalAttributionPreflightRun {
     pub process: ProcessObservation,
     pub child: Option<ScalableAttributionChildReport>,
     pub monitor: ChildProcessMonitorReport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_state: Option<ExternalStateObservation>,
     pub kill_error: Option<String>,
     pub monitor_error: Option<String>,
     pub stderr: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalTimingGuardRun {
     pub run_id: String,
@@ -67,12 +70,14 @@ pub struct FormalTimingGuardRun {
     pub process: ProcessObservation,
     pub child: Option<ScalableLadderChildReport>,
     pub monitor: ChildProcessMonitorReport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_state: Option<ExternalStateObservation>,
     pub kill_error: Option<String>,
     pub monitor_error: Option<String>,
     pub stderr: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalOracleRun {
     pub run_id: String,
@@ -81,12 +86,14 @@ pub struct FormalOracleRun {
     pub process: ProcessObservation,
     pub child: Option<ScalableOracleChildReport>,
     pub monitor: ChildProcessMonitorReport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_state: Option<ExternalStateObservation>,
     pub kill_error: Option<String>,
     pub monitor_error: Option<String>,
     pub stderr: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalLadderProcessRun {
     pub run_id: String,
@@ -102,12 +109,22 @@ pub struct FormalLadderProcessRun {
     pub process: ProcessObservation,
     pub child: Option<ScalableLadderChildReport>,
     pub monitor: ChildProcessMonitorReport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_state: Option<ExternalStateObservation>,
     pub kill_error: Option<String>,
     pub monitor_error: Option<String>,
     pub stderr: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormalGuardPreflightRun {
+    pub run_id: String,
+    pub process: ProcessObservation,
+    pub guard_preflight: GuardPreflightReport,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalLadderLevelExecution {
     pub n: u32,
@@ -122,7 +139,7 @@ pub struct FormalLadderLevelExecution {
     pub complete: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormalLadderExecution {
     pub schema: String,
@@ -137,7 +154,7 @@ pub struct FormalLadderExecution {
     pub disposition: FormalLadderExecutionDisposition,
     pub levels: Vec<FormalLadderLevelExecution>,
     pub analysis: Option<FormalLadderAnalysis>,
-    pub terminal_guard_preflight: Option<GuardPreflightReport>,
+    pub terminal_guard_preflight: Option<FormalGuardPreflightRun>,
 }
 
 enum LevelPreparation {
@@ -230,7 +247,7 @@ fn run_one_formal_ladder(
         )? {
             LevelPreparation::Ready(level) => level,
             LevelPreparation::Guarded(guard) => {
-                execution.terminal_guard_preflight = Some(guard);
+                execution.terminal_guard_preflight = Some(terminal_guard_run(&execution, guard));
                 execution.disposition =
                     FormalLadderExecutionDisposition::GuardedBeforeMinimumLevels;
                 persist(&execution)?;
@@ -292,7 +309,7 @@ fn run_one_formal_ladder(
         )? {
             LevelPreparation::Ready(level) => level,
             LevelPreparation::Guarded(guard) => {
-                execution.terminal_guard_preflight = Some(guard);
+                execution.terminal_guard_preflight = Some(terminal_guard_run(&execution, guard));
                 execution.disposition = FormalLadderExecutionDisposition::GuardedAfterMinimumLevels;
                 persist(&execution)?;
                 return Ok(execution);
@@ -323,6 +340,23 @@ fn run_one_formal_ladder(
         next_n = next_n
             .checked_mul(2)
             .ok_or(FormalLadderRunnerError::ScaleOverflow)?;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn terminal_guard_run(
+    execution: &FormalLadderExecution,
+    guard_preflight: GuardPreflightReport,
+) -> FormalGuardPreflightRun {
+    FormalGuardPreflightRun {
+        run_id: format!(
+            "formal/{}/{}/n-{}/terminal-guard-preflight",
+            execution.workload_id.as_str(),
+            execution.graph_profile,
+            guard_preflight.n
+        ),
+        process: ProcessObservation::guarded_before_start(std::process::id(), TIMING_BINARY_ID),
+        guard_preflight,
     }
 }
 
@@ -389,6 +423,7 @@ fn prepare_level(
         process: preflight.process,
         child: preflight.child,
         monitor: preflight.monitor,
+        external_state: preflight.external_state,
         kill_error: preflight.kill_error,
         monitor_error: preflight.monitor_error,
         stderr: preflight.stderr,
@@ -454,6 +489,7 @@ fn prepare_level(
         process: timing.process,
         child: timing.child,
         monitor: timing.monitor,
+        external_state: timing.external_state,
         kill_error: timing.kill_error,
         monitor_error: timing.monitor_error,
         stderr: timing.stderr,
@@ -511,6 +547,7 @@ fn prepare_level(
         process: oracle.process,
         child: oracle.child,
         monitor: oracle.monitor,
+        external_state: oracle.external_state,
         kill_error: oracle.kill_error,
         monitor_error: oracle.monitor_error,
         stderr: oracle.stderr,
@@ -734,6 +771,7 @@ fn run_level_modes(
             process: decoded.process,
             child: decoded.child,
             monitor: decoded.monitor,
+            external_state: decoded.external_state,
             kill_error: decoded.kill_error,
             monitor_error: decoded.monitor_error,
             stderr: decoded.stderr,
@@ -1106,6 +1144,7 @@ pub(crate) struct DecodedChild<T> {
     pub(crate) process: ProcessObservation,
     pub(crate) child: Option<T>,
     pub(crate) monitor: ChildProcessMonitorReport,
+    pub(crate) external_state: Option<ExternalStateObservation>,
     pub(crate) kill_error: Option<String>,
     pub(crate) monitor_error: Option<String>,
     pub(crate) stderr: String,
@@ -1117,21 +1156,46 @@ pub(crate) fn decode_child_execution<T: DeserializeOwned>(
     validate: impl FnOnce(&T) -> Result<(), String>,
     guarded: impl FnOnce(&T) -> bool,
 ) -> Result<DecodedChild<T>, FormalLadderRunnerError> {
-    let (child_pid, output, monitor, monitor_invalid, kill_error, mut monitor_error) =
-        match execution {
-            MonitoredChildExecution::Exited {
-                child_pid,
-                output,
-                monitor,
-            } => (child_pid, output, monitor, false, None, None),
-            MonitoredChildExecution::InvalidatedByMonitor {
-                child_pid,
-                output,
-                monitor,
-                kill_error,
-                monitor_error,
-            } => (child_pid, output, monitor, true, kill_error, monitor_error),
-        };
+    let (
+        child_pid,
+        output,
+        monitor,
+        external_state,
+        monitor_invalid,
+        kill_error,
+        mut monitor_error,
+    ) = match execution {
+        MonitoredChildExecution::Exited {
+            child_pid,
+            output,
+            monitor,
+            external_state,
+        } => (
+            child_pid,
+            output,
+            monitor,
+            external_state,
+            false,
+            None,
+            None,
+        ),
+        MonitoredChildExecution::InvalidatedByMonitor {
+            child_pid,
+            output,
+            monitor,
+            kill_error,
+            monitor_error,
+            external_state,
+        } => (
+            child_pid,
+            output,
+            monitor,
+            external_state,
+            true,
+            kill_error,
+            monitor_error,
+        ),
+    };
     let mut invalidation_reasons = if monitor_invalid {
         monitor_invalidation_reasons(monitor.trigger, output.status.success())
             .ok_or(FormalLadderRunnerError::MissingMonitorTrigger)?
@@ -1163,10 +1227,15 @@ pub(crate) fn decode_child_execution<T: DeserializeOwned>(
     if child_guarded {
         invalidation_reasons.push(InvalidationReason::ResearchStopGuardrailTriggered);
     }
+    if let (Some(external_state), Some(environment)) =
+        (&external_state, installed_formal_environment())
+    {
+        invalidation_reasons.extend(external_state.invalidation_reasons(environment));
+    }
     invalidation_reasons.sort_unstable();
     invalidation_reasons.dedup();
     let status = if child_guarded {
-        RunStatus::Guarded
+        RunStatus::Invalid
     } else if invalidation_reasons.is_empty() {
         RunStatus::Valid
     } else {
@@ -1202,6 +1271,7 @@ pub(crate) fn decode_child_execution<T: DeserializeOwned>(
         process,
         child,
         monitor,
+        external_state,
         kill_error,
         monitor_error,
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),

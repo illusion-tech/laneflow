@@ -2470,6 +2470,33 @@
     "insufficientRule": "fewer-than-five-complete-levels-no-selection-v1",
     "roleBindingRule": "all-scale-role-labels-equal-derived-natural-identity-scale-v1"
   },
+  "candidatePerformanceScopeContract": {
+    "revision": 1,
+    "scopeId": "junction-grid-wide-star-full-pipeline-v1",
+    "workloadId": "LF-COMP-JUNCTION-GRID-v1",
+    "workloadRevision": 1,
+    "graphProfile": "wide-star-v1",
+    "stringProfile": "short-unique-v1",
+    "generatorVersion": 1,
+    "caseId": "not-applicable",
+    "inputVariantId": "canonical-valid-v1",
+    "scaleRoles": [
+      "base",
+      "calibration",
+      "stress"
+    ],
+    "sampleKind": "cold-instance",
+    "binaryMode": "timing",
+    "comparisonMetrics": [
+      "wall-time-ns"
+    ],
+    "metricSourceRules": {
+      "wall-time-ns": "candidate-pipeline-child.wallDurationNs"
+    },
+    "rawDiagnosticMetricRule": "parent-process-monitor.peakPrivateBytes-is-retained-in-runs-but-not-classified-because-formal-baseline-has-no-same-stratum-private-bytes-envelope-v1",
+    "controlledAllocationMetricsRule": "excluded-from-candidate-classification-because-third-party-and-standard-library-containers-are-not-exactly-attributed-v1",
+    "selectionBoundary": "representative-structurally-rich-research-scope-not-production-implementation-selection-v1"
+  },
   "candidateRosterContract": {
     "revision": 1,
     "naturalIdentityFields": [
@@ -2690,12 +2717,32 @@
     },
     "inputDigestAlgorithm": "SHA-256",
     "inputDigestDomainUtf8NulTerminated": "LANEFLOW-COMPILER-CALIBRATION-INPUT-V1",
+    "inputDigestEncoding": "domain bytes followed by fixed-order fields; UTF-8 strings use u32 little-endian byte length prefixes; scalar identities and counts use u64 little-endian; collections use u32 little-endian item counts; basis run IDs and private limit parameters are sorted by UTF-8 bytes",
+    "inputDigestCanonicalSourceBinding": "trusted-manifest+full-scale-identity+canonical-counts+input-variant-v1; the trusted manifest is the sole definition of canonical source value records and payload bytes, so the digest binds that definition without rematerializing city-scale input bytes",
+    "inputDigestFieldOrder": [
+      "workload manifest SHA-256",
+      "workload ID",
+      "workload revision",
+      "graph profile",
+      "string profile",
+      "generator version",
+      "N",
+      "B",
+      "scale role",
+      "failure case ID",
+      "input variant ID",
+      "canonical source binding rule",
+      "twenty-three named canonical aggregate counts in manifest order",
+      "selected value basis",
+      "sorted baseline measurement run IDs",
+      "sorted complete private limit parameters"
+    ],
     "inputDigestIncludes": [
       "workload manifest digest",
       "workload/profile/scale identity",
       "input variant ID",
       "canonical level counts",
-      "canonical ordered source value records and payload bytes after applying the input variant",
+      "canonical source value records and payload bytes through the trusted manifest, full scale identity, canonical counts, and input variant binding",
       "selected value basis and any baseline measurement run IDs",
       "complete private limit values"
     ]

@@ -51,6 +51,7 @@ pub enum InvalidationReason {
     ResearchStopGuardrailTriggered,
     MonitoringGap,
     ChildAbnormalExit,
+    IndependentOracleMismatch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

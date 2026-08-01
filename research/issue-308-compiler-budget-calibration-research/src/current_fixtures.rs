@@ -16,7 +16,7 @@ use crate::stage::{
     StageContract, StageShape, TypedAstStageRecord,
 };
 use crate::{GeneratorContract, TrustedContract};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -26,11 +26,14 @@ use std::path::{Component, Path};
 pub const CURRENT_FIXTURES_WORKLOAD_ID: &str = "LF-COMP-RESEARCH-CURRENT-FIXTURES-v1";
 pub const CURRENT_FIXTURES_KNOWN_VECTOR_SCHEMA: &str =
     "laneflow.compiler-calibration-current-fixtures-summary-known-vectors";
+pub const CURRENT_FIXTURES_CHILD_SCHEMA: &str =
+    "laneflow.compiler-calibration-current-fixtures-child";
+pub const CURRENT_FIXTURES_CHILD_SCHEMA_VERSION: u32 = 1;
 #[cfg(test)]
 const CURRENT_FIXTURES_KNOWN_VECTOR_BYTE_LENGTH: usize = 11_755;
 #[cfg(test)]
 const CURRENT_FIXTURES_KNOWN_VECTOR_SHA256: &str =
-    "2590498c35d154fc42a9a0662501d01dd9c9f8432c33365f3e642187a40544f9";
+    "9abc9b91027fc29c2ca292e577a29ad3501557c68bc0ad683820985556155e6f";
 
 const NOT_APPLICABLE_GRAPH_PROFILE: &str = "not-applicable";
 const FIXED_UNIT_INDEX: u32 = 0;
@@ -380,7 +383,7 @@ pub(crate) struct CurrentFixtureCaseOutput {
     materialization: FixedFixtureMaterialization,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CurrentFixtureCaseSummary {
     pub case_id: String,
@@ -392,7 +395,7 @@ pub struct CurrentFixtureCaseSummary {
     pub semantic_digest_sha256: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CurrentFixturesKnownVectorDocument {
     pub schema: &'static str,
@@ -403,7 +406,7 @@ pub struct CurrentFixturesKnownVectorDocument {
     pub cases: Vec<CurrentFixtureCaseSummary>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CurrentFixturesOracleVerificationReport {
     pub checked_cases: u32,
@@ -411,6 +414,30 @@ pub struct CurrentFixturesOracleVerificationReport {
     pub independent_identity_and_stream_checked: bool,
     pub scenario_manifest_emits_no_records: bool,
     pub excluded_from_budget_and_candidate_ranking: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentFixturesChildReport {
+    pub schema: String,
+    pub schema_version: u32,
+    pub binary_id: String,
+    pub child_pid: u32,
+    pub cases: Vec<CurrentFixtureCaseSummary>,
+    pub verification: CurrentFixturesOracleVerificationReport,
+}
+
+pub fn measure_current_fixtures_child(
+    trusted: &TrustedContract,
+) -> Result<CurrentFixturesChildReport, CurrentFixturesOracleError> {
+    Ok(CurrentFixturesChildReport {
+        schema: CURRENT_FIXTURES_CHILD_SCHEMA.to_owned(),
+        schema_version: CURRENT_FIXTURES_CHILD_SCHEMA_VERSION,
+        binary_id: crate::ORACLE_BINARY_ID.to_owned(),
+        child_pid: std::process::id(),
+        cases: build_current_fixture_summaries(trusted)?,
+        verification: verify_current_fixtures_oracle(trusted)?,
+    })
 }
 
 pub fn build_current_fixtures_known_vectors(

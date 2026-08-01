@@ -128,7 +128,7 @@ impl StageContract {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityStageSummary {
     pub graph_profile: GraphProfileId,
@@ -138,7 +138,7 @@ pub struct IdentityStageSummary {
     pub semantic_digest_sha256: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityStagePlanSummary {
     pub graph_profile: GraphProfileId,
@@ -147,7 +147,7 @@ pub struct IdentityStagePlanSummary {
     pub stages: StageBreakdown,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityAggregateCounts {
     pub module_count: u64,
@@ -175,7 +175,7 @@ pub struct IdentityAggregateCounts {
     pub output_byte_count: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StageBreakdown {
     pub source_input: StageShape,
@@ -188,7 +188,7 @@ pub struct StageBreakdown {
     pub output_construction: StageShape,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StageShape {
     pub record_count: u64,

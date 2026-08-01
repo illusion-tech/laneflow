@@ -1,7 +1,8 @@
 use issue_308_compiler_budget_calibration_research::{
-    CONTRACT_DESCRIPTOR_BYTE_LENGTH, GraphProfileId, PilotBudgetRequest, load_repository_contract,
-    parse_formal_protocol_arguments, recompute_pilot_budget, run_formal_protocol,
-    run_identity_fresh_process_pilot, runner_binary_descriptor,
+    CONTRACT_DESCRIPTOR_BYTE_LENGTH, EvidenceWriteRequest, GraphProfileId, PilotBudgetRequest,
+    load_repository_contract, parse_formal_protocol_arguments, recompute_pilot_budget,
+    run_formal_protocol, run_identity_fresh_process_pilot, runner_binary_descriptor,
+    verify_evidence_v1, write_evidence_v1,
 };
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -110,6 +111,30 @@ fn run() -> Result<(), String> {
             println!("{json}");
             Ok(())
         }
+        "write-evidence-v1" => {
+            let checkpoint_path =
+                PathBuf::from(next_utf8_argument(&mut arguments, "formal-checkpoint")?);
+            let output_path = PathBuf::from(next_utf8_argument(&mut arguments, "output")?);
+            require_no_more_arguments(&mut arguments)?;
+            let outcome = write_evidence_v1(&EvidenceWriteRequest {
+                checkpoint_path,
+                output_path,
+            })
+            .map_err(|error| error.to_string())?;
+            let json = serde_json::to_string_pretty(&outcome)
+                .map_err(|error| format!("无法序列化 Evidence v1 写出结果：{error}"))?;
+            println!("{json}");
+            Ok(())
+        }
+        "verify-evidence-v1" => {
+            let path = PathBuf::from(next_utf8_argument(&mut arguments, "evidence")?);
+            require_no_more_arguments(&mut arguments)?;
+            let report = verify_evidence_v1(&path).map_err(|error| error.to_string())?;
+            let json = serde_json::to_string_pretty(&report)
+                .map_err(|error| format!("无法序列化 Evidence v1 验证报告：{error}"))?;
+            println!("{json}");
+            Ok(())
+        }
         _ => Err(usage()),
     }
 }
@@ -178,8 +203,10 @@ fn usage() -> String {
         "  describe-role",
         "  verify-contract",
         "  smoke-identity-fresh-process-pilot <pilot-id> <graph-profile> <N> [timing-binary-path]",
-        "  run --protocol compiler-calibration-v1 --output <formal-execution-checkpoint-path>",
+        "  run --protocol compiler-calibration-v1 --environment <environment-declaration-path> --output <formal-execution-checkpoint-path>",
         "  recompute-pilot-budget <checkpoint-path> <json-output-path> <markdown-output-path>",
+        "  write-evidence-v1 <formal-checkpoint-path> <output-path>",
+        "  verify-evidence-v1 <evidence-path>",
     ]
     .join("\n")
 }

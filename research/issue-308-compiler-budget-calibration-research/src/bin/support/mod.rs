@@ -1,5 +1,5 @@
 use issue_308_compiler_budget_calibration_research::GraphProfileId;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 
 pub fn next_utf8_argument(
@@ -46,6 +46,13 @@ pub fn parse_positive_u32(value: &str, name: &str) -> Result<u32, String> {
 }
 
 #[allow(dead_code)]
+pub fn parse_u32(value: &str, name: &str) -> Result<u32, String> {
+    value
+        .parse::<u32>()
+        .map_err(|error| format!("{name} 必须是 u32 整数：{error}"))
+}
+
+#[allow(dead_code)]
 pub fn parse_positive_u64(value: &str, name: &str) -> Result<u64, String> {
     let number = value
         .parse::<u64>()
@@ -54,6 +61,11 @@ pub fn parse_positive_u64(value: &str, name: &str) -> Result<u64, String> {
         return Err(format!("{name} 必须大于零"));
     }
     Ok(number)
+}
+
+#[allow(dead_code)]
+pub fn parse_json<'de, T: Deserialize<'de>>(value: &'de str, name: &str) -> Result<T, String> {
+    serde_json::from_str(value).map_err(|error| format!("参数 {name} 不是合法 JSON：{error}"))
 }
 
 pub fn print_json(value: &impl Serialize, context: &str) -> Result<(), String> {

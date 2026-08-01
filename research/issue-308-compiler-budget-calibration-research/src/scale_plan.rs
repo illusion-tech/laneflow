@@ -13,9 +13,9 @@ use crate::{
     JunctionGridContract, ScalableWorkloadId, StageBreakdown, StageContract, StageShape,
     TrustedContract,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScalableStagePlanSummary {
     pub workload_id: ScalableWorkloadId,
