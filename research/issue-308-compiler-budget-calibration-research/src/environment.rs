@@ -139,6 +139,9 @@ impl ExternalStateMonitor {
     pub(crate) fn finish(self) -> ExternalStateObservation {
         let environment = installed_formal_environment()
             .expect("an external-state monitor is created only after environment installation");
+        // 必须先冻结后台进程测量区间，再执行较慢的平台状态查询；否则 PowerShell/
+        // powercfg 的采集器自身时延会被错误归入工作负载。
+        let final_processes = process_counters(&[std::process::id(), self.child_pid]).ok();
         let (final_power_source, power_source_gap) = current_power_source().map_or_else(
             |_| (environment.power_source.clone(), true),
             |value| (value, false),
@@ -147,7 +150,6 @@ impl ExternalStateMonitor {
             |_| (environment.power_plan.clone(), true),
             |value| (value, false),
         );
-        let final_processes = process_counters(&[std::process::id(), self.child_pid]).ok();
         let (background_process_deltas, process_gap) =
             match (&self.initial_processes, &final_processes) {
                 (Some(initial), Some(final_processes)) => {
@@ -441,11 +443,17 @@ fn current_power_source() -> Result<String, EnvironmentError> {
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "$b=Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue; if ($null -eq $b) {'ac'} elseif (($b | Where-Object BatteryStatus -in 2,6,7,8,9,11).Count -gt 0) {'ac'} else {'battery'}",
+            "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SystemInformation]::PowerStatus.PowerLineStatus.ToString().ToLowerInvariant()",
         ],
     )?;
-    match value.as_str() {
-        "ac" | "battery" => Ok(value),
+    parse_windows_power_line_status(&value)
+}
+
+#[cfg(windows)]
+fn parse_windows_power_line_status(value: &str) -> Result<String, EnvironmentError> {
+    match value {
+        "online" => Ok("ac".to_owned()),
+        "offline" => Ok("battery".to_owned()),
         _ => Err(EnvironmentError::UnknownPowerSource),
     }
 }
@@ -538,6 +546,23 @@ mod tests {
         assert_eq!(deltas[0].write_bytes_delta, 60);
         assert_eq!(deltas[1].cpu_time_delta_ns, 7_000_000);
         assert_eq!(deltas[1].write_bytes_delta, 11);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_power_line_status_maps_only_explicit_online_and_offline_values() {
+        assert_eq!(
+            parse_windows_power_line_status("online").expect("online power status"),
+            "ac"
+        );
+        assert_eq!(
+            parse_windows_power_line_status("offline").expect("offline power status"),
+            "battery"
+        );
+        assert!(matches!(
+            parse_windows_power_line_status("unknown"),
+            Err(EnvironmentError::UnknownPowerSource)
+        ));
     }
 
     #[test]

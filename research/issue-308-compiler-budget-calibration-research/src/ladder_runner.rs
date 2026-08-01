@@ -192,10 +192,18 @@ pub fn run_formal_ladders(
             |active| persist(&completed, Some(active)),
         )?;
         persist(&completed, Some(&execution))?;
+        let stop_protocol = formal_ladder_stops_protocol(execution.disposition);
         completed.push(execution);
         persist(&completed, None)?;
+        if stop_protocol {
+            return Ok(completed);
+        }
     }
     Ok(completed)
+}
+
+fn formal_ladder_stops_protocol(disposition: FormalLadderExecutionDisposition) -> bool {
+    disposition != FormalLadderExecutionDisposition::Complete
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1410,5 +1418,19 @@ mod tests {
                 metric: "peak-live-requested-bytes"
             })
         ));
+    }
+
+    #[test]
+    fn any_incomplete_formal_ladder_stops_the_full_protocol_before_the_next_identity() {
+        assert!(!formal_ladder_stops_protocol(
+            FormalLadderExecutionDisposition::Complete
+        ));
+        for disposition in [
+            FormalLadderExecutionDisposition::InvalidRun,
+            FormalLadderExecutionDisposition::GuardedBeforeMinimumLevels,
+            FormalLadderExecutionDisposition::GuardedAfterMinimumLevels,
+        ] {
+            assert!(formal_ladder_stops_protocol(disposition));
+        }
     }
 }

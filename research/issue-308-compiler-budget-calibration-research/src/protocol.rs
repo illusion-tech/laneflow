@@ -10,9 +10,10 @@ use crate::{
     ATTRIBUTION_BINARY_ID, BaseScalePilotCheckpoint, CandidateMatrixError,
     CandidateMatrixExecutionBundle, ChildProcessMonitorReport, ContractError,
     CurrentFixturesChildReport, ExternalStateObservation, FORMAL_PROTOCOL_ID,
-    FormalEnvironmentSnapshot, FormalLadderExecution, FormalLadderRunnerError, GuardThresholds,
-    InvalidationReason, LimitQualificationBundle, LimitQualificationExecutionError,
-    ORACLE_BINARY_ID, PilotError, ProcessObservation, RunStatus, TIMING_BINARY_ID,
+    FormalEnvironmentSnapshot, FormalLadderExecution, FormalLadderExecutionDisposition,
+    FormalLadderRunnerError, GraphProfileId, GuardThresholds, InvalidationReason,
+    LimitQualificationBundle, LimitQualificationExecutionError, ORACLE_BINARY_ID, PilotError,
+    ProcessObservation, RunStatus, ScalableWorkloadId, TIMING_BINARY_ID,
     load_and_install_formal_environment, load_repository_contract, repository_root,
     run_base_scale_pilot_discovery_with_checkpoint_sink,
     run_candidate_matrix_bundle_with_checkpoint_sink, run_formal_ladders,
@@ -250,6 +251,7 @@ pub fn run_formal_protocol(
                 })
         },
     )?;
+    ensure_formal_ladders_ready_for_downstream(&formal_ladders)?;
     let limit_qualification = run_limit_qualification_bundle(
         &trusted,
         &timing_executable,
@@ -350,6 +352,56 @@ pub fn run_formal_protocol(
             .map(|execution| execution.attempts.len())
             .sum(),
     })
+}
+
+fn ensure_formal_ladders_ready_for_downstream(
+    formal_ladders: &[FormalLadderExecution],
+) -> Result<(), FormalProtocolError> {
+    let expected_count = ScalableWorkloadId::ALL.len() * GraphProfileId::ALL.len();
+    let mut incomplete = formal_ladders
+        .iter()
+        .filter(|ladder| !formal_ladder_ready_for_downstream(ladder))
+        .map(|ladder| {
+            format!(
+                "{}/{}={:?}/analysis-{}/calibration-{}/stress-{}",
+                ladder.workload_id.as_str(),
+                ladder.graph_profile,
+                ladder.disposition,
+                ladder.analysis.is_some(),
+                ladder
+                    .analysis
+                    .as_ref()
+                    .and_then(|analysis| analysis.scale_selection.calibration_n)
+                    .is_some(),
+                ladder
+                    .analysis
+                    .as_ref()
+                    .and_then(|analysis| analysis.scale_selection.stress_n)
+                    .is_some()
+            )
+        })
+        .collect::<Vec<_>>();
+    if formal_ladders.len() != expected_count {
+        incomplete.push(format!(
+            "count={}/expected-{expected_count}",
+            formal_ladders.len()
+        ));
+    }
+    if incomplete.is_empty() {
+        Ok(())
+    } else {
+        Err(FormalProtocolError::IncompleteFormalLadders {
+            details: incomplete.join(", "),
+        })
+    }
+}
+
+fn formal_ladder_ready_for_downstream(ladder: &FormalLadderExecution) -> bool {
+    ladder.disposition == FormalLadderExecutionDisposition::Complete
+        && ladder.analysis.as_ref().is_some_and(|analysis| {
+            analysis.scale_selection.calibration_n.is_some()
+                && analysis.scale_selection.stress_n.is_some()
+        })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1067,6 +1119,10 @@ pub enum FormalProtocolError {
     },
     #[error("当前固定样例子进程报告的 pid 与父进程观察不一致")]
     CurrentFixturesChildPidMismatch,
+    #[error(
+        "正式阶梯没有形成完整的两批规模选择，已保留原始检查点并禁止进入限制资格与候选矩阵；请排除环境干扰后使用新输出路径重跑：{details}"
+    )]
+    IncompleteFormalLadders { details: String },
     #[error("命令行选项必须为有效 UTF-8")]
     NonUtf8Option,
     #[error("--protocol 的值必须为有效 UTF-8")]
@@ -1221,6 +1277,63 @@ mod tests {
         ));
 
         fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn downstream_phases_require_nine_complete_ladders_with_both_selected_scales() {
+        let ready = test_formal_ladder(
+            FormalLadderExecutionDisposition::Complete,
+            Some(8),
+            Some(16),
+        );
+        assert!(formal_ladder_ready_for_downstream(&ready));
+
+        let invalid = test_formal_ladder(FormalLadderExecutionDisposition::InvalidRun, None, None);
+        assert!(!formal_ladder_ready_for_downstream(&invalid));
+        let error = ensure_formal_ladders_ready_for_downstream(&[invalid])
+            .expect_err("an invalid and incomplete ladder set must stop before downstream phases");
+        assert!(matches!(
+            error,
+            FormalProtocolError::IncompleteFormalLadders { .. }
+        ));
+
+        let complete_set = vec![ready; ScalableWorkloadId::ALL.len() * GraphProfileId::ALL.len()];
+        ensure_formal_ladders_ready_for_downstream(&complete_set)
+            .expect("nine complete ladders with both scales are downstream-ready");
+    }
+
+    fn test_formal_ladder(
+        disposition: FormalLadderExecutionDisposition,
+        calibration_n: Option<u32>,
+        stress_n: Option<u32>,
+    ) -> FormalLadderExecution {
+        FormalLadderExecution {
+            schema: crate::FORMAL_LADDER_EXECUTION_SCHEMA.to_owned(),
+            schema_version: crate::FORMAL_LADDER_EXECUTION_SCHEMA_VERSION,
+            candidate_id: "test-candidate".to_owned(),
+            workload_id: ScalableWorkloadId::Identity,
+            workload_revision: 1,
+            graph_profile: GraphProfileId::WideStar.as_str().to_owned(),
+            string_profile: "test-string-profile".to_owned(),
+            generator_version: 1,
+            b: 1,
+            disposition,
+            levels: Vec::new(),
+            analysis: Some(crate::FormalLadderAnalysis {
+                round_summaries: Vec::new(),
+                batch_summaries: Vec::new(),
+                adjacent_level_ratios: Vec::new(),
+                knees: Vec::new(),
+                scale_selection: crate::FormalScaleSelection {
+                    selection_rule: crate::FORMAL_LADDER_SCALE_SELECTION_RULE.to_owned(),
+                    disposition: crate::FormalScaleSelectionDisposition::ConfirmedKnee,
+                    calibration_n,
+                    stress_n,
+                    first_confirmed_knee_n: stress_n,
+                },
+            }),
+            terminal_guard_preflight: None,
+        }
     }
 
     fn empty_checkpoint() -> FormalProtocolCheckpoint {
