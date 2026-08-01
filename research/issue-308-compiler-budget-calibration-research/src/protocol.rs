@@ -969,19 +969,23 @@ fn formal_checkpoint_progress_line(sequence: u64, checkpoint: &FormalProtocolChe
             .map(|run| format!("{}/{}", run.batch + 1, run.round + 1))
             .unwrap_or_else(|| "准备中".to_owned());
         return format!(
-            "[正式进度] 检查点={sequence} 阶段=正式阶梯 已完成阶梯={}/{} 当前={}/{} N={n} 完整级别={complete_levels} 当前级运行={formal_runs} 批次/轮次={round} 状态={:?}",
+            "[正式进度] 检查点={sequence} 阶段=正式阶梯 已完成阶梯={}/{} 当前={}/{} N={n} 完整级别={complete_levels} 当前级运行={formal_runs} 批次/轮次={round} 状态=进行中",
             checkpoint.formal_ladders.len(),
             expected_identity_count,
             active.workload_id.as_str(),
-            active.graph_profile,
-            active.disposition
+            active.graph_profile
         );
     }
     if !checkpoint.formal_ladders.is_empty()
         || checkpoint.base_scale_pilot.selections.len() == expected_identity_count
     {
+        let latest_disposition = checkpoint
+            .formal_ladders
+            .last()
+            .map(|ladder| format!("{:?}", ladder.disposition))
+            .unwrap_or_else(|| "无".to_owned());
         return format!(
-            "[正式进度] 检查点={sequence} 阶段=正式阶梯 已完成阶梯={}/{} 当前=切换自然身份",
+            "[正式进度] 检查点={sequence} 阶段=正式阶梯 已完成阶梯={}/{} 当前=切换自然身份 最近裁决={latest_disposition}",
             checkpoint.formal_ladders.len(),
             expected_identity_count
         );
@@ -1421,7 +1425,7 @@ mod tests {
         ));
         assert_eq!(
             formal_checkpoint_progress_line(8, &checkpoint),
-            "[正式进度] 检查点=8 阶段=正式阶梯 已完成阶梯=1/9 当前=切换自然身份"
+            "[正式进度] 检查点=8 阶段=正式阶梯 已完成阶梯=1/9 当前=切换自然身份 最近裁决=Complete"
         );
     }
 
