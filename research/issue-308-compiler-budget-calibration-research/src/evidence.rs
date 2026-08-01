@@ -1791,13 +1791,8 @@ fn verify_external_state(document: &Value, run_id: &str, run: &Value) -> Result<
     if required_bool(external, "/thermalOrPowerThrottling")? {
         expected.insert("thermal-or-power-throttling");
     }
-    if nullable_u64(external, "/backgroundCpuTimeNs")?.is_some_and(|value| value > 1_000_000_000) {
-        expected.insert("background-cpu-over-one-second");
-    }
-    if nullable_u64(external, "/backgroundWriteBytes")?.is_some_and(|value| value > 100 * 1_048_576)
-    {
-        expected.insert("background-write-over-100-mib");
-    }
+    let _background_cpu_time_ns = nullable_u64(external, "/backgroundCpuTimeNs")?;
+    let _background_write_bytes = nullable_u64(external, "/backgroundWriteBytes")?;
     if required_bool(external, "/monitoringGap")? {
         expected.insert("monitoring-gap");
     }
@@ -1808,8 +1803,6 @@ fn verify_external_state(document: &Value, run_id: &str, run: &Value) -> Result<
         "vendor-mode-change",
         "sleep-or-session-lock",
         "thermal-or-power-throttling",
-        "background-cpu-over-one-second",
-        "background-write-over-100-mib",
         "monitoring-gap",
     ]);
     let actual = required_array(run, "/invalidationReasons")?
@@ -7164,6 +7157,20 @@ mod tests {
             verify_evidence_document(&trusted, &document, &context),
             Err(EvidenceError::SchemaValidation { .. })
         ));
+    }
+
+    #[test]
+    fn verifier_keeps_high_background_totals_as_diagnostics() {
+        let trusted = load_repository_contract().expect("trusted contract");
+        let context = test_context();
+        let mut document = minimal_guarded_evidence(&trusted, &context);
+        document["runs"][0]["externalState"]["backgroundCpuTimeNs"]["value"] =
+            json!(9_000_000_000_u64);
+        document["runs"][0]["externalState"]["backgroundWriteBytes"]["value"] =
+            json!(900 * 1_048_576_u64);
+
+        verify_evidence_document(&trusted, &document, &context)
+            .expect("high background totals are diagnostic observations");
     }
 
     #[test]

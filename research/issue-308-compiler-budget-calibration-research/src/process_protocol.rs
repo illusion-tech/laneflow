@@ -45,9 +45,6 @@ pub enum InvalidationReason {
     VendorModeChange,
     SleepOrSessionLock,
     ThermalOrPowerThrottling,
-    BackgroundCpuOverOneSecond,
-    #[serde(rename = "background-write-over-100-mib")]
-    BackgroundWriteOver100Mib,
     ResearchStopGuardrailTriggered,
     MonitoringGap,
     ChildAbnormalExit,
@@ -354,11 +351,10 @@ mod tests {
             InvalidationReason::VendorModeChange,
             InvalidationReason::SleepOrSessionLock,
             InvalidationReason::ThermalOrPowerThrottling,
-            InvalidationReason::BackgroundCpuOverOneSecond,
-            InvalidationReason::BackgroundWriteOver100Mib,
             InvalidationReason::ResearchStopGuardrailTriggered,
             InvalidationReason::MonitoringGap,
             InvalidationReason::ChildAbnormalExit,
+            InvalidationReason::IndependentOracleMismatch,
         ])
         .expect("serialize invalidation reasons");
         assert_eq!(
@@ -369,11 +365,10 @@ mod tests {
                 "vendor-mode-change",
                 "sleep-or-session-lock",
                 "thermal-or-power-throttling",
-                "background-cpu-over-one-second",
-                "background-write-over-100-mib",
                 "research-stop-guardrail-triggered",
                 "monitoring-gap",
-                "child-abnormal-exit"
+                "child-abnormal-exit",
+                "independent-oracle-mismatch"
             ])
         );
     }

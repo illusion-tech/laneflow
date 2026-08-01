@@ -16,9 +16,6 @@ use std::time::{Instant, SystemTime};
 use sysinfo::{ProcessesToUpdate, System};
 use thiserror::Error;
 
-const CPU_INVALIDATION_THRESHOLD_NS: u64 = 1_000_000_000;
-const WRITE_INVALIDATION_THRESHOLD_BYTES: u64 = 100 * 1024 * 1024;
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FormalEnvironmentDeclaration {
@@ -235,20 +232,6 @@ impl ExternalStateObservation {
         }
         if self.thermal_or_power_throttling {
             reasons.push(crate::InvalidationReason::ThermalOrPowerThrottling);
-        }
-        if self
-            .background_cpu_time_ns
-            .value
-            .is_some_and(|value| value > CPU_INVALIDATION_THRESHOLD_NS)
-        {
-            reasons.push(crate::InvalidationReason::BackgroundCpuOverOneSecond);
-        }
-        if self
-            .background_write_bytes
-            .value
-            .is_some_and(|value| value > WRITE_INVALIDATION_THRESHOLD_BYTES)
-        {
-            reasons.push(crate::InvalidationReason::BackgroundWriteOver100Mib);
         }
         if self.monitoring_gap {
             reasons.push(crate::InvalidationReason::MonitoringGap);
@@ -566,17 +549,15 @@ mod tests {
     }
 
     #[test]
-    fn external_thresholds_are_strict_and_monitoring_gap_is_structured() {
+    fn background_totals_remain_diagnostics_while_monitoring_gap_invalidates() {
         let clear = ExternalStateObservation {
             power_source: "ac".to_owned(),
             vendor_performance_mode: "performance".to_owned(),
             power_plan: "balanced".to_owned(),
             sleep_or_session_lock: false,
             thermal_or_power_throttling: false,
-            background_cpu_time_ns: NullableObservation::observed(CPU_INVALIDATION_THRESHOLD_NS),
-            background_write_bytes: NullableObservation::observed(
-                WRITE_INVALIDATION_THRESHOLD_BYTES,
-            ),
+            background_cpu_time_ns: NullableObservation::observed(u64::MAX),
+            background_write_bytes: NullableObservation::observed(u64::MAX),
             monitoring_gap: false,
             background_process_deltas: Vec::new(),
         };
@@ -604,16 +585,10 @@ mod tests {
         };
         assert!(clear.invalidation_reasons(&environment).is_empty());
         let mut invalid = clear;
-        invalid.background_cpu_time_ns.value = Some(CPU_INVALIDATION_THRESHOLD_NS + 1);
-        invalid.background_write_bytes.value = Some(WRITE_INVALIDATION_THRESHOLD_BYTES + 1);
         invalid.monitoring_gap = true;
         assert_eq!(
             invalid.invalidation_reasons(&environment),
-            vec![
-                crate::InvalidationReason::BackgroundCpuOverOneSecond,
-                crate::InvalidationReason::BackgroundWriteOver100Mib,
-                crate::InvalidationReason::MonitoringGap,
-            ]
+            vec![crate::InvalidationReason::MonitoringGap]
         );
     }
 }

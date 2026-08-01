@@ -4832,8 +4832,6 @@
               "vendor-mode-change",
               "sleep-or-session-lock",
               "thermal-or-power-throttling",
-              "background-cpu-over-one-second",
-              "background-write-over-100-mib",
               "research-stop-guardrail-triggered",
               "monitoring-gap",
               "child-abnormal-exit",
