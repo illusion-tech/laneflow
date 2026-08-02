@@ -310,10 +310,10 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 `InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target
 迁移由阶段 8 生产切换 Issue #294 完成 G4；target 文档不得误写成现状。#292 已
 重划为 compiler foundation + Synthetic DSL frontend 的首个纵向闭环；#291 G1
-前置条件已经满足，但 #292 仍须按自身 G1/G2 冻结并审查实现 API。#308 先以非生产
-研究冻结机器可读工作负载、实测校准/压力规模、资源预算建议和私有容器证据；#308
-完成 G4、#292 rebase 并回写 exact evidence commit 后，#292 才能冻结自身 G1 的
-精确预算。当前 Project 状态和原生依赖关系以 GitHub 为准。
+前置条件已经满足，但 #292 仍须按自身 G1/G2 冻结并审查实现 API。#308 已完成 G4，
+并交付机器可读工作负载、实测校准/压力规模、资源预算建议和私有容器证据；#292 已
+重放到该 exact Evidence 之上，正在冻结 P100 首轮资源配置档与性能门槛。当前 Project
+状态和原生依赖关系以 GitHub 为准。
 
 迁移顺序为 `#291 架构 G1（已完成）→ #308 非生产预算校准完成 G4（已完成）→ #292
 static-contract/compiler foundation/Synthetic DSL + integration-only LIR→current
@@ -324,8 +324,9 @@ frontend/MIR 可以与恢复的 runtime slices 并行推进，再由 #298 交付
 Snapshot）/ 在线镜像切换，随后进入行为 / 性能 / 安全生产切换闸口。
 最后由 #294 独占阶段 8 production cutover、core→runtime 原子改名与 projection/
 旧路径移除；#294 G4 前不得提前满足切换条件。Projection 不进入 compiler production
-dependency。编译器性能工作负载及其规模计数必须在后继实现 G1 中依据产品证据独立
-冻结，不能从 #72 的运行时交通参与单元规模反推。#72 继续拥有交通参与单元按执行域
+dependency。编译器性能工作负载及其规模计数由对应实现 G1 依据编制 / 中间表示证据
+独立冻结；#292 已以 #308 研究证据完成首轮冻结，不能从 #72 的运行时
+交通参与单元规模反推。#72 继续拥有交通参与单元按执行域
 分解的保真度（Fidelity）、分区（Partition）、调度、迁移与内存证据；其既有证据只
 覆盖当前道路机动车车辆特化。#236/#237 仍是独立产品 / 研究输入，不自动并入首个
 前端（Frontend）。
