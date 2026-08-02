@@ -94,7 +94,9 @@ fn verify_corridor_oracle_case_with_template(
 pub(crate) struct OracleOutput {
     pub(crate) records: Vec<SemanticRecord>,
     pub(crate) stream: Vec<u8>,
+    #[allow(dead_code)]
     pub(crate) declarations: Vec<OracleDeclarationIdentity>,
+    #[allow(dead_code)]
     pub(crate) route_occurrences: Vec<OracleRouteOccurrence>,
 }
 

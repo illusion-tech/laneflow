@@ -2,7 +2,7 @@
 //!
 //! runner 只负责编排已经分离的 attribution、oracle 与 timing 子进程，保存原始进程
 //! 事实，并把完整有效级别交给 `ladder` 纯函数分析。Evidence v1 的来源绑定、写出与
-//! 独立验证位于 evidence / evidence_assembly。
+//! 独立验证位于 evidence。
 
 use crate::environment::installed_formal_environment;
 use crate::pilot::{

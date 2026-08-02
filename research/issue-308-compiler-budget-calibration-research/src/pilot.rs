@@ -4,7 +4,7 @@
 //! 子进程、冷实例结果核对、墙钟中位数/中位绝对偏差计算和基础规模严格二倍发现。
 //! 只有 timing 摘要与预言机完整计数及完整有类型输出全部一致，级别才可能形成 `B`；
 //! 正式轮次由 ladder_runner 编排，Evidence v1 写出与独立重算位于 evidence /
-//! evidence_assembly。
+//! Evidence 验证。
 
 use crate::environment::ExternalStateMonitor;
 use crate::process_containment::ContainedChild;
