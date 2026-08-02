@@ -14,7 +14,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -162,7 +162,7 @@ fn build_document(
             "候选矩阵未完成".to_owned(),
         ));
     }
-    let candidate_results = candidate_results(candidate_matrix, &envelopes)?;
+    let candidate_results = candidate_results(checkpoint, candidate_matrix, &envelopes)?;
     let limit = checkpoint
         .limit_qualification
         .as_ref()
@@ -309,6 +309,7 @@ fn recompute_formal_analyses(
             "正式阶梯集合尚未完整结束".to_owned(),
         ));
     }
+    validate_formal_ladder_base_scales(checkpoint)?;
     let plans = crate::ScalableStagePlanFactory::from_trusted_contract(trusted)
         .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
     checkpoint
@@ -463,6 +464,60 @@ fn recompute_formal_analyses(
             }))
         })
         .collect()
+}
+
+fn validate_formal_ladder_base_scales(
+    checkpoint: &FormalProtocolCheckpoint,
+) -> Result<(), EvidenceError> {
+    let mut selected = BTreeMap::new();
+    for selection in &checkpoint.base_scale_pilot.selections {
+        let graph_profile = parse_graph_profile(&selection.graph_profile)?;
+        let b = selection.b.value.ok_or_else(|| {
+            EvidenceError::InvalidCheckpoint(format!(
+                "基础规模 {} / {} 没有可靠 B",
+                selection.workload_id.as_str(),
+                selection.graph_profile
+            ))
+        })?;
+        if selection.b.reason.is_some()
+            || selected
+                .insert((selection.workload_id, graph_profile), b)
+                .is_some()
+        {
+            return Err(EvidenceError::InvalidCheckpoint(
+                "基础规模自然身份重复或 B 无效".to_owned(),
+            ));
+        }
+    }
+
+    let mut bound = BTreeSet::new();
+    for ladder in &checkpoint.formal_ladders {
+        let graph_profile = parse_graph_profile(&ladder.graph_profile)?;
+        let identity = (ladder.workload_id, graph_profile);
+        let expected_b = selected.get(&identity).ok_or_else(|| {
+            EvidenceError::InvalidCheckpoint(format!(
+                "正式阶梯 {} / {} 没有对应基础规模",
+                ladder.workload_id.as_str(),
+                ladder.graph_profile
+            ))
+        })?;
+        if !bound.insert(identity)
+            || ladder.b != *expected_b
+            || ladder.levels.first().map(|level| level.n) != Some(*expected_b)
+        {
+            return Err(EvidenceError::InvalidCheckpoint(format!(
+                "正式阶梯 {} / {} 未绑定选定 B 与首级",
+                ladder.workload_id.as_str(),
+                ladder.graph_profile
+            )));
+        }
+    }
+    if bound.len() != selected.len() {
+        return Err(EvidenceError::InvalidCheckpoint(
+            "正式阶梯没有一一覆盖全部基础规模自然身份".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_formal_level_preflight(
@@ -904,6 +959,7 @@ fn derive_budgets(
 }
 
 fn candidate_results(
+    checkpoint: &FormalProtocolCheckpoint,
     matrix: &crate::CandidateMatrixExecutionBundle,
     envelopes: &[Value],
 ) -> Result<Vec<Value>, EvidenceError> {
@@ -916,25 +972,15 @@ fn candidate_results(
         .executions
         .iter()
         .map(|execution| {
-            let participant_count = execution.roster.participant_ids().len();
+            let validated = validate_candidate_execution(checkpoint, execution)?;
             let comparisons = execution
                 .roster
                 .entries
                 .iter()
                 .filter(|entry| entry.disposition == CandidateDisposition::PerformanceParticipant)
                 .map(|entry| {
-                    let zero = candidate_batch_ratio(
-                        execution,
-                        &entry.candidate_id,
-                        0,
-                        participant_count,
-                    )?;
-                    let one = candidate_batch_ratio(
-                        execution,
-                        &entry.candidate_id,
-                        1,
-                        participant_count,
-                    )?;
+                    let zero = candidate_batch_ratio(&validated, &entry.candidate_id, 0)?;
+                    let one = candidate_batch_ratio(&validated, &entry.candidate_id, 1)?;
                     let decision = classify_candidate([zero, one], wall_envelope)?;
                     Ok(json!({
                         "candidateId": entry.candidate_id,
@@ -954,25 +1000,232 @@ fn candidate_results(
         .collect()
 }
 
-fn candidate_batch_ratio(
+struct ValidatedCandidateExecution<'a> {
+    execution: &'a crate::CandidatePipelineExecution,
+    samples: BTreeMap<(u32, u32, &'a str), &'a crate::CandidatePipelinePerformanceSample>,
+    participant_count: usize,
+}
+
+impl<'a> ValidatedCandidateExecution<'a> {
+    fn sample(
+        &self,
+        batch: u32,
+        round: u32,
+        candidate_id: &str,
+    ) -> Result<&'a crate::CandidatePipelinePerformanceSample, EvidenceError> {
+        self.samples
+            .get(&(batch, round, candidate_id))
+            .copied()
+            .ok_or_else(|| EvidenceError::InvalidCheckpoint("候选平衡轮次缺少样本".to_owned()))
+    }
+}
+
+fn validate_candidate_execution<'a>(
+    checkpoint: &FormalProtocolCheckpoint,
+    execution: &'a crate::CandidatePipelineExecution,
+) -> Result<ValidatedCandidateExecution<'a>, EvidenceError> {
+    if execution.roster.stratum != execution.stratum {
+        return Err(EvidenceError::InvalidCheckpoint(
+            "候选参赛名单与执行分层不一致".to_owned(),
+        ));
+    }
+    let participants = execution.roster.participant_ids();
+    let participant_count = participants.len();
+    let expected_schedule = crate::build_two_batch_balanced_schedule(&participants)
+        .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+    if execution.schedule != expected_schedule {
+        return Err(EvidenceError::InvalidCheckpoint(
+            "候选平衡顺序无法从参赛名单重算".to_owned(),
+        ));
+    }
+    let thresholds = crate::GuardThresholds::from_physical_memory_bytes(
+        checkpoint.environment.physical_memory_bytes,
+    )
+    .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+
+    let mut attempts = BTreeMap::new();
+    for attempt in &execution.attempts {
+        if attempts.insert(attempt.run_id.as_str(), attempt).is_some() {
+            return Err(EvidenceError::InvalidCheckpoint(
+                "候选原始尝试运行 ID 重复".to_owned(),
+            ));
+        }
+    }
+    let mut samples = BTreeMap::new();
+    let mut referenced_attempts = BTreeSet::new();
+    for sample in &execution.samples {
+        let key = (sample.batch, sample.round, sample.candidate_id.as_str());
+        if samples.insert(key, sample).is_some() {
+            return Err(EvidenceError::InvalidCheckpoint(
+                "候选平衡轮次样本重复".to_owned(),
+            ));
+        }
+        let attempt = attempts
+            .get(sample.run_id.as_str())
+            .copied()
+            .ok_or_else(|| EvidenceError::InvalidCheckpoint("候选样本缺少原始尝试".to_owned()))?;
+        validate_candidate_attempt(checkpoint, execution, sample, attempt, thresholds)?;
+        referenced_attempts.insert(attempt.run_id.as_str());
+    }
+
+    let expected_sample_count = execution
+        .schedule
+        .len()
+        .checked_mul(participant_count)
+        .ok_or_else(|| EvidenceError::InvalidCheckpoint("候选样本基数溢出".to_owned()))?;
+    if samples.len() != expected_sample_count
+        || execution.attempts.iter().any(|attempt| {
+            attempt.status == RunStatus::Valid
+                && !referenced_attempts.contains(attempt.run_id.as_str())
+        })
+    {
+        return Err(EvidenceError::InvalidCheckpoint(
+            "候选有效尝试与正式样本不是一一对应".to_owned(),
+        ));
+    }
+
+    for scheduled in &execution.schedule {
+        let mut round_samples = Vec::with_capacity(participant_count);
+        let mut selected_attempt = None::<(&str, u32)>;
+        for (position, candidate_id) in scheduled.participant_order.iter().enumerate() {
+            let sample = samples
+                .get(&(scheduled.batch, scheduled.round, candidate_id.as_str()))
+                .copied()
+                .ok_or_else(|| {
+                    EvidenceError::InvalidCheckpoint("候选平衡轮次缺少样本".to_owned())
+                })?;
+            if usize::try_from(sample.position).ok() != Some(position) {
+                return Err(EvidenceError::InvalidCheckpoint(
+                    "候选样本执行位置与平衡顺序不一致".to_owned(),
+                ));
+            }
+            let attempt = attempts
+                .get(sample.run_id.as_str())
+                .copied()
+                .expect("validated candidate attempt");
+            match selected_attempt {
+                None => {
+                    selected_attempt = Some((&attempt.round_attempt_id, attempt.retry_ordinal));
+                }
+                Some((round_attempt_id, retry_ordinal))
+                    if round_attempt_id == attempt.round_attempt_id
+                        && retry_ordinal == attempt.retry_ordinal => {}
+                Some(_) => {
+                    return Err(EvidenceError::InvalidCheckpoint(
+                        "候选轮次混用了不同重试尝试".to_owned(),
+                    ));
+                }
+            }
+            round_samples.push((*sample).clone());
+        }
+        crate::candidate_matrix::validate_pipeline_round_semantics(
+            &round_samples,
+            &execution.roster.baseline_id,
+        )
+        .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+    }
+
+    Ok(ValidatedCandidateExecution {
+        execution,
+        samples,
+        participant_count,
+    })
+}
+
+fn validate_candidate_attempt(
+    checkpoint: &FormalProtocolCheckpoint,
     execution: &crate::CandidatePipelineExecution,
+    sample: &crate::CandidatePipelinePerformanceSample,
+    attempt: &crate::CandidatePipelinePerformanceAttempt,
+    thresholds: crate::GuardThresholds,
+) -> Result<(), EvidenceError> {
+    let child = attempt
+        .child
+        .as_ref()
+        .ok_or_else(|| EvidenceError::InvalidCheckpoint("候选有效尝试缺少子进程报告".to_owned()))?;
+    let stratum = &execution.stratum;
+    let expected_round_attempt_id = format!(
+        "candidate-pipeline/{}/{}/{}/{}/{}/batch-{}/round-{}/attempt-{}",
+        stratum.scale_role.as_str(),
+        stratum.key_domain.as_str(),
+        stratum.workload_id.as_str(),
+        stratum.graph_profile.as_str(),
+        stratum.n,
+        attempt.batch,
+        attempt.round,
+        attempt.retry_ordinal
+    );
+    let expected_run_id = format!(
+        "{expected_round_attempt_id}/position-{}/candidate-{}",
+        attempt.position, attempt.candidate_id
+    );
+    let compiler_instance_id = format!("{expected_run_id}/compiler");
+    if attempt.status != RunStatus::Valid
+        || !attempt.invalidation_reasons.is_empty()
+        || attempt.round_attempt_id != expected_round_attempt_id
+        || attempt.run_id != expected_run_id
+        || attempt.batch != sample.batch
+        || attempt.round != sample.round
+        || attempt.position != sample.position
+        || attempt.candidate_id != sample.candidate_id
+        || attempt.child.as_ref() != Some(&sample.child)
+        || attempt.monitor != sample.monitor
+        || attempt.kill_error.is_some()
+        || attempt.monitor_error.is_some()
+        || !external_state_is_clear(attempt.external_state.as_ref(), checkpoint)
+        || child.outcome != crate::CandidatePipelineOutcome::Success
+        || !crate::pilot_budget::successful_process(
+            &attempt.process,
+            crate::TIMING_BINARY_ID,
+            child.child_pid,
+        )
+    {
+        return Err(EvidenceError::InvalidCheckpoint(format!(
+            "候选运行 {} 的有效进程封套无效",
+            attempt.run_id
+        )));
+    }
+    crate::candidate_matrix::validate_candidate_pipeline_report(
+        child,
+        &compiler_instance_id,
+        &attempt.candidate_id,
+        stratum.key_domain,
+        stratum.workload_id,
+        stratum.graph_profile,
+        stratum.n,
+        thresholds.compiler_controlled_bytes,
+    )
+    .map_err(EvidenceError::InvalidCheckpoint)?;
+    crate::pilot_budget::validate_clear_monitor_with_thresholds(
+        Some(&attempt.monitor),
+        &thresholds,
+        child.wall_time_ns,
+        attempt.kill_error.as_deref(),
+        attempt.monitor_error.as_deref(),
+        &attempt.run_id,
+    )
+    .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+    Ok(())
+}
+
+fn candidate_batch_ratio(
+    validated: &ValidatedCandidateExecution<'_>,
     candidate_id: &str,
     batch: u32,
-    participant_count: usize,
 ) -> Result<Ratio, EvidenceError> {
     let mut ratios = Vec::new();
-    for scheduled in execution
+    for scheduled in validated
+        .execution
         .schedule
         .iter()
         .filter(|round| round.batch == batch)
     {
-        let baseline = unique_sample(
-            execution,
+        let baseline = validated.sample(
             batch,
             scheduled.round,
-            &execution.roster.baseline_id,
+            &validated.execution.roster.baseline_id,
         )?;
-        let candidate = unique_sample(execution, batch, scheduled.round, candidate_id)?;
+        let candidate = validated.sample(batch, scheduled.round, candidate_id)?;
         ratios.push(Ratio::new(
             candidate
                 .child
@@ -983,52 +1236,12 @@ fn candidate_batch_ratio(
             })?,
         )?);
     }
-    if ratios.len() != participant_count * 2 {
+    if ratios.len() != validated.participant_count * 2 {
         return Err(EvidenceError::InvalidCheckpoint(
             "候选平衡轮次不完整".to_owned(),
         ));
     }
     median_ratio(&ratios)
-}
-
-fn unique_sample<'a>(
-    execution: &'a crate::CandidatePipelineExecution,
-    batch: u32,
-    round: u32,
-    candidate_id: &str,
-) -> Result<&'a crate::CandidatePipelinePerformanceSample, EvidenceError> {
-    let mut matching = execution.samples.iter().filter(|sample| {
-        sample.batch == batch && sample.round == round && sample.candidate_id == candidate_id
-    });
-    let sample = matching
-        .next()
-        .ok_or_else(|| EvidenceError::InvalidCheckpoint("候选平衡轮次缺少样本".to_owned()))?;
-    if matching.next().is_some() {
-        return Err(EvidenceError::InvalidCheckpoint(
-            "候选平衡轮次样本重复".to_owned(),
-        ));
-    }
-    let mut attempts = execution
-        .attempts
-        .iter()
-        .filter(|attempt| attempt.run_id == sample.run_id);
-    let attempt = attempts
-        .next()
-        .ok_or_else(|| EvidenceError::InvalidCheckpoint("候选样本缺少原始尝试".to_owned()))?;
-    if attempts.next().is_some()
-        || attempt.status != RunStatus::Valid
-        || attempt.batch != sample.batch
-        || attempt.round != sample.round
-        || attempt.position != sample.position
-        || attempt.candidate_id != sample.candidate_id
-        || attempt.child.as_ref() != Some(&sample.child)
-        || attempt.monitor != sample.monitor
-    {
-        return Err(EvidenceError::InvalidCheckpoint(
-            "候选样本与原始有效尝试不一致".to_owned(),
-        ));
-    }
-    Ok(sample)
 }
 
 fn classify_candidate(ratios: [Ratio; 2], envelope: Ratio) -> Result<&'static str, EvidenceError> {
@@ -1504,5 +1717,87 @@ mod tests {
         let mut uppercase = valid.clone();
         uppercase[0].sha256 = "AB".repeat(32);
         assert!(validate_binary_sources(&uppercase).is_err());
+    }
+
+    #[test]
+    fn published_raw_rejects_unbound_formal_and_candidate_sources() {
+        let raw_path =
+            repository_root().join("docs/reference/v0.10-compiler-budget-calibration-raw.json");
+        let raw = fs::read(&raw_path).expect("published raw checkpoint");
+        let mut checkpoint = parse_checkpoint(&raw_path, &raw).expect("valid raw checkpoint");
+
+        validate_formal_ladder_base_scales(&checkpoint).expect("base-scale bindings");
+        let original_b = checkpoint.formal_ladders[0].b;
+        checkpoint.formal_ladders[0].b = original_b.checked_mul(2).expect("tampered B");
+        assert!(validate_formal_ladder_base_scales(&checkpoint).is_err());
+        checkpoint.formal_ladders[0].b = original_b;
+
+        let ladder = &checkpoint.formal_ladders[0];
+        let level = &ladder.levels[0];
+        let mut invalid_run = level.formal_runs[0].clone();
+        invalid_run.status = RunStatus::Invalid;
+        invalid_run
+            .invalidation_reasons
+            .push(crate::InvalidationReason::MonitoringGap);
+        let expected_digest = level
+            .attribution_preflight
+            .as_ref()
+            .and_then(|run| run.child.as_ref())
+            .and_then(|child| child.semantic_digest_sha256.as_deref())
+            .expect("formal semantic digest");
+        assert!(
+            validate_formal_round_envelope(
+                &checkpoint,
+                ladder,
+                level,
+                &invalid_run,
+                expected_digest,
+            )
+            .is_err()
+        );
+
+        let candidate = checkpoint
+            .candidate_matrix
+            .as_ref()
+            .expect("candidate matrix")
+            .executions[0]
+            .clone();
+        validate_candidate_execution(&checkpoint, &candidate).expect("candidate execution");
+
+        let mut invalid_process = candidate.clone();
+        let process_run_id = invalid_process.samples[0].run_id.clone();
+        invalid_process
+            .attempts
+            .iter_mut()
+            .find(|attempt| attempt.run_id == process_run_id)
+            .expect("candidate attempt")
+            .process
+            .binary_id = "tampered-binary".to_owned();
+        assert!(validate_candidate_execution(&checkpoint, &invalid_process).is_err());
+
+        let mut invalid_semantics = candidate.clone();
+        let semantic_run_id = invalid_semantics.samples[0].run_id.clone();
+        let tampered_digest = "00".repeat(32);
+        invalid_semantics.samples[0].child.semantic_digest_sha256 = Some(tampered_digest.clone());
+        invalid_semantics
+            .attempts
+            .iter_mut()
+            .find(|attempt| attempt.run_id == semantic_run_id)
+            .and_then(|attempt| attempt.child.as_mut())
+            .expect("candidate child")
+            .semantic_digest_sha256 = Some(tampered_digest);
+        assert!(validate_candidate_execution(&checkpoint, &invalid_semantics).is_err());
+
+        let mut invalid_guard = candidate;
+        let run_id = invalid_guard.samples[0].run_id.clone();
+        invalid_guard
+            .attempts
+            .iter_mut()
+            .find(|attempt| attempt.run_id == run_id)
+            .expect("candidate attempt")
+            .monitor
+            .trigger = Some(crate::ChildMonitorTrigger::WallTime);
+        invalid_guard.samples[0].monitor.trigger = Some(crate::ChildMonitorTrigger::WallTime);
+        assert!(validate_candidate_execution(&checkpoint, &invalid_guard).is_err());
     }
 }

@@ -735,6 +735,24 @@ pub(crate) fn validate_clear_monitor(
     monitor_error: Option<&str>,
     run_id: &str,
 ) -> Result<u64, PilotBudgetError> {
+    validate_clear_monitor_with_thresholds(
+        monitor,
+        &preflight.thresholds,
+        child_wall_time_ns,
+        kill_error,
+        monitor_error,
+        run_id,
+    )
+}
+
+pub(crate) fn validate_clear_monitor_with_thresholds(
+    monitor: Option<&ChildProcessMonitorReport>,
+    thresholds: &crate::GuardThresholds,
+    child_wall_time_ns: Option<u64>,
+    kill_error: Option<&str>,
+    monitor_error: Option<&str>,
+    run_id: &str,
+) -> Result<u64, PilotBudgetError> {
     let monitor = monitor.ok_or_else(|| invalid(format!("运行 {run_id} 缺少父进程监控报告")))?;
     let last_private_bytes = positive(monitor.last_private_bytes.value, "最后私有字节观察")?;
     let peak_private_bytes = positive(monitor.peak_private_bytes.value, "私有字节峰值")?;
@@ -743,9 +761,9 @@ pub(crate) fn validate_clear_monitor(
             && monitor.last_private_bytes.reason.is_none()
             && monitor.peak_private_bytes.reason.is_none()
             && peak_private_bytes >= last_private_bytes
-            && peak_private_bytes < preflight.thresholds.private_bytes
+            && peak_private_bytes < thresholds.private_bytes
             && monitor.elapsed_wall_time_ns > 0
-            && monitor.elapsed_wall_time_ns < preflight.thresholds.wall_time_ns
+            && monitor.elapsed_wall_time_ns < thresholds.wall_time_ns
             && child_wall_time_ns
                 .is_none_or(|wall_time_ns| monitor.elapsed_wall_time_ns >= wall_time_ns)
             && monitor.trigger.is_none()
