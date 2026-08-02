@@ -310,10 +310,10 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 `InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target
 迁移由阶段 8 生产切换 Issue #294 完成 G4；target 文档不得误写成现状。#292 已
 重划为 compiler foundation + Synthetic DSL frontend 的首个纵向闭环；#291 G1
-前置条件已经满足，但 #292 仍须按自身 G1/G2 冻结并审查实现 API。#308 已完成 G4，
-并交付机器可读工作负载、实测校准/压力规模、资源预算建议和私有容器证据；#292 已
-重放到该 exact Evidence 之上，正在冻结 P100 首轮资源配置档与性能门槛。当前 Project
-状态和原生依赖关系以 GitHub 为准。
+前置条件已经满足，#292 G1 也已冻结实现 API、首轮资源配置档与性能门槛。#308 已
+完成 G4，并交付机器可读工作负载、实测校准 / 压力规模、资源预算建议和私有容器
+证据；#292 已在该精确证据（Exact Evidence）上完成 G1，尚须独立记录 G2 才能开始
+实现。当前 Project 状态和原生依赖关系以 GitHub 为准。
 
 迁移顺序为 `#291 架构 G1（已完成）→ #308 非生产预算校准完成 G4（已完成）→ #292
 static-contract/compiler foundation/Synthetic DSL + integration-only LIR→current
