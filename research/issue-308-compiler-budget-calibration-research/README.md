@@ -137,10 +137,11 @@ G2 冻结的候选依赖如下；“特性”只列本研究包直接启用的�
 - 私有容器与哈希候选矩阵：从冻结注册表形成依赖安全快照，先执行完整管线正确性资格和
   恒定哈希输入资格，再按三个规模角色、三个键域、两批平衡顺序执行新进程墙钟比较；
   进程私有字节只作为原始诊断，不冒充缺少同分层重复性包络的分类指标；
-- Rust 原生 Evidence v1 写出器与独立验证器：绑定干净源提交、契约描述符、工作负载清单、
-  Schema、Cargo.lock 和三个 release 研究二进制；独立重算工作负载计数、基础规模、
-  中位数/MAD、正式阶梯、拐点、增长斜率、预算建议、限制资格、失败输入摘要和候选分类。
-  写出路径保留每个无效、受护栏停止和失败运行，不从成功样本反推或补造原始观察。
+- Rust 原生紧凑 Evidence v1 写出器与独立验证器：仓库内原始正式执行 JSON 是逐次运行
+  的唯一事实源，保存每个有效、无效、受护栏停止和失败运行；Evidence 只绑定其路径、
+  精确长度和 SHA-256，并保存独立重算的基础规模、中位数/MAD、正式阶梯、拐点、重复性
+  包络、预算建议、限制资格摘要和候选分类。验证器从原始 JSON 重建整份紧凑 Evidence
+  并精确比较，不再生成第二份逐运行展开数据。
 
 代码中的 v1 常量只用于证明清单字段与已接受契约精确一致并在漂移时失败，不构成第二
 事实源；研究语义仍以已验证的工作负载清单为权威。
@@ -165,8 +166,9 @@ MIR 语义记录、canonical LIR、最终规范记录流、语义摘要和八项
 由 HIR 解析结果构造，canonical LIR 再独立完成所有者序号分配与规范排序。同长度错误
 引用和同长度字符串替换均有拒绝测试。正式基础规模新进程编排、两批五轮正式阶梯、
 精确拐点分析和 `run --protocol compiler-calibration-v1` 入口已经落地。失败清理、候选
-比较、Evidence v1 写出和独立重算路径已经实现；在一次完整协议执行内的 batch 0/1
-两批正式 R0 测量与报告完成前，仍不得把既有冷实例临时性能预算称为正式 R0 研究预算。
+比较、紧凑 Evidence v1 写出和独立重算路径已经实现；一次完整协议执行内的 batch 0/1
+两批正式 R0 测量、Evidence 与报告已经发布到 `docs/reference/`。既有冷实例临时预算
+仍只作为早期证据，正式结论以 R0 紧凑 Evidence 与报告为准。
 
 `LF-COMP-CORRIDOR-v1` 的独立预言机另行实现身份字段展开、StableId128 派生、十三类
 语义记录、所有者局部序号、规范排序和记录流编码，并在三种模块图的 `N = 1`、
@@ -274,8 +276,10 @@ Evidence v1，也不能代替检查点事实。后台执行时可把标准错误
 `schemaVersion = 10`），包含基础规模、timing、attribution、oracle、正式阶梯、限制
 资格、失败恢复和候选矩阵；它不是 Compiler Calibration Evidence v1。
 
-完整检查点完成后，以同一干净提交和同一组三个 release 二进制生成 Evidence v1，再用
-独立 Rust 路径重新验证已写出的精确文件：
+完整检查点完成后，把原始 JSON 发布到仓库，再生成紧凑 Evidence v1。测量提交和发布
+提交可以不同；原始 JSON 内的干净 `measurementCommit`、`harnessCommit`、三个 release
+二进制摘要及锁文件摘要继续绑定测量前像，Evidence 所在提交绑定派生工具和报告。随后用
+独立 Rust 路径重新读取原始 JSON、重算并验证已写出的精确文件：
 
 ```powershell
 cargo +1.96.0 run --release --locked `
@@ -283,14 +287,14 @@ cargo +1.96.0 run --release --locked `
   --no-default-features --features research-runner-full `
   --bin issue-308-compiler-budget-calibration-research -- `
   write-evidence-v1 `
-  C:\tmp\compiler-formal-execution.json `
-  C:\tmp\compiler-calibration-evidence-v1.json
+  docs/reference/v0.10-compiler-budget-calibration-raw.json `
+  docs/reference/v0.10-compiler-budget-calibration-evidence.json
 
 cargo +1.96.0 run --release --locked `
   -p issue-308-compiler-budget-calibration-research `
   --no-default-features --features research-runner-full `
   --bin issue-308-compiler-budget-calibration-research -- `
-  verify-evidence-v1 C:\tmp\compiler-calibration-evidence-v1.json
+  verify-evidence-v1 docs/reference/v0.10-compiler-budget-calibration-evidence.json
 ```
 
 基础规模的全部自然身份完成后，可以直接从最新检查点先形成冷实例临时性能预算；每个

@@ -30,7 +30,8 @@
   冻结模块图、字符串/来源位置、identity 字段绑定、研究记录布局、精确计数、夹具
   摘要、失败变体与候选注册表，不是生产编译器 API 或产品容量声明。
 - `compiler-calibration-evidence-v1.schema.json`：#308 Draft 的研究证据 JSON Schema；
-  冻结来源、环境、进程隔离、候选顺序、测量、停止护栏、派生结论与制品绑定字段。
+  冻结原始执行制品绑定、来源、环境、覆盖计数和紧凑派生结果封套；逐次运行只保存在
+  被绑定的原始 JSON，Rust 验证器从原始事实独立重算整份 Evidence。
 - `compiler-calibration-contract-v1.json`：#308 Draft 的非自指研究契约描述符；从
   Evidence v1 Schema 外部绑定证据 Schema 与工作负载清单的路径、版本、长度和
   SHA-256，正式验证必须先校验该描述符。
@@ -38,6 +39,13 @@
   性能预算、来源、计算规则、正确性核对与禁止外推边界；供 #292 G1 冻结首轮实现预算。
 - `v0.10-compiler-pilot-budget.json`：上述临时预算的机器可读精确整数、七样本原始值、
   运行/预言机引用、语义摘要与来源检查点绑定；不是 Compiler Calibration Evidence v1。
+- `v0.10-compiler-budget-calibration-raw.json`：#308 R0 两批正式执行的逐次运行权威事实，
+  包含有效、无效、失败与受护栏记录；紧凑 Evidence 通过精确长度和 SHA-256 绑定它。
+- `v0.10-compiler-budget-calibration-environment.json`：上述 R0 的操作者环境声明。
+- `v0.10-compiler-budget-calibration-evidence.json`：从绑定原始执行结果独立重算的紧凑
+  Evidence v1，包含基础规模、正式阶梯分析、重复性包络、预算与候选分类。
+- `v0.10-compiler-budget-calibration-report.md`：上述 R0 的中文权威结论、预算摘要、候选
+  判断、环境边界与精确复现命令。
 - `commit-convention.md`：提交信息规范，以 Conventional Commits 标题为基础，用 `Gate`、`Slice`、`Impact`、`Validation` 等字段记录 LaneFlow 治理状态；并说明 PR 默认使用 Rebase and merge。
 - `rust-code-style.md`：补充 `rustfmt` 无法表达的 Rust 仓库级可读性约定，当前重点规定数字字面量分组边界与例外。
 - `validation-matrix.md`：切片类型到最小验证要求的矩阵，用于 `G3` 合并闸口判断。

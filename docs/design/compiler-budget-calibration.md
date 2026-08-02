@@ -1,6 +1,6 @@
 # 编译器资源与性能预算校准
 
-**文档状态**: Draft（#308 G1 已通过且 G2 已授权；非生产研究实现进行中）<br>
+**文档状态**: Draft（#308 G1 已通过、G2 已完成，等待 G3 审阅）<br>
 **最后更新**: 2026-08-02<br>
 **适用范围**: 编译器工作负载、编译器校准规模（Compiler Calibration Scale）、
 编译器压力规模（Compiler Stress Scale）、编译资源上限（Compile Limits）、冷实例
@@ -8,8 +8,8 @@
 机器可读研究证据<br>
 **实现状态**: 非生产研究实现进行中；停止护栏、终止状态、二进制角色、三个可扩展
 工作负载、当前固定样例研究投影、基础规模发现、两批五轮正式规模阶梯、限制资格、失败
-恢复、候选矩阵以及 Evidence v1 写出/独立验证代码路径已经实现，等待冻结研究机以一次
-完整协议执行取得内含 batch 0/1 的两批正式 R0 测量并生成报告。本文不实现生产编译器、
+恢复、候选矩阵以及紧凑 Evidence v1 写出/独立验证代码路径已经实现；冻结研究机的
+batch 0/1 两批正式 R0 测量、机器可读证据与中文报告已经生成。本文不实现生产编译器、
 不冻结公共应用程序接口（API），也不形成产品服务等级协议（product SLA）
 
 **关联决策与设计**:
@@ -21,6 +21,9 @@
 - `core-runtime-performance-baseline.md`
 - `../reference/v0.10-compiler-pilot-budget.md`
 - `../reference/v0.10-compiler-pilot-budget.json`
+- `../reference/v0.10-compiler-budget-calibration-raw.json`
+- `../reference/v0.10-compiler-budget-calibration-evidence.json`
+- `../reference/v0.10-compiler-budget-calibration-report.md`
 - `data-format.md`
 - `spatial-geometry.md`
 - `../reference/glossary.md`
@@ -1629,8 +1632,8 @@ docs/reference/compiler-calibration-contract-v1.json
 验证器必须在解析前把它们分别与外部描述符实际摘要和描述符登记值精确比较。任何
 不一致都必须在读取派生结论前失败。
 
-G1 候选冻结契约描述符 `1322` exact bytes，SHA-256 为
-`3ad9f14da2d9fe6cd7c5cfeacfd98082986b1883cf79f7ccc4dd0f66ae5144c0`。该摘要是 PR/Gate
+G2 实现冻结契约描述符 `1320` exact bytes，SHA-256 为
+`e3de918e7c0d90b0d4c7fbf0c7ad6162bb209fa95b4c5af78d6538a1cbabd3e3`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1647,9 +1650,27 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 ### 10.2 证据格式 v1（Evidence v1）必需字段
 
+> **G2 架构修正（权威）**：原 G1 方案把原始检查点中的每个进程观察再次展开进
+> `runs[]`，使 23 MiB 原始数据膨胀并导致分钟级生成/验证与数 GiB 临时检查点。该方案
+> 已废止。Evidence v1 现在采用“原始执行结果（raw execution）＋紧凑派生清单
+> （compact derived manifest）”：`rawExecution` 绑定仓库内原始 JSON 的路径、精确
+> 长度和 SHA-256；所有有效、无效、失败和受护栏运行只在该原始 JSON 保存一次；紧凑
+> Evidence 只保存来源/环境绑定、覆盖计数、独立重算的 `B`、正式阶梯分析、重复性
+> 包络、预算建议、限制资格摘要和候选分类。验证器读取绑定原始 JSON，重新计算紧凑
+> Evidence 并作整份结构精确比较。测量提交与 Evidence 发布提交允许不同，前者由
+> `measurementCommit`/`harnessCommit` 绑定，后者由 Evidence 文件所在 Git 提交绑定。
+>
+> 当前 Schema 为 `5597` exact bytes，SHA-256 为
+> `4f46c27e63a455e9ec242a5445a8fdd6e949b2b35771b307f4eebb425c40407a`。Schema 负责紧凑
+> 封套与顶层类型；跨记录算术和派生结果真实性由 Rust 独立重算保证，不再用
+> `uniqueItems` 对数千个复杂对象执行二次方比较。下方“原 G1 展开格式说明”至
+> §10.3 之前的内容仅保留为被取代的历史设计记录，不再定义当前 Evidence v1。
+
+#### 原 G1 展开格式说明（已废止，非规范）
+
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `227816` exact bytes，SHA-256 为
+原 G1 候选曾冻结 schema `227816` exact bytes，SHA-256 为
 `e2cafe158bb66a55ef41fd1aedcd10e1e292bf02c426c5c0994f6f5da00e6e78`。
 顶层格式标识：
 

@@ -631,9 +631,11 @@ pub fn audit_candidate_safety(
     trusted: &TrustedContract,
 ) -> Result<CandidateSafetyAuditSnapshot, CandidateMatrixError> {
     let registry = CandidateRegistry::from_trusted_contract(trusted)?;
-    let context = crate::evidence::VerificationContext::from_repository()
-        .map_err(|error| CandidateMatrixError::CandidateSafetyContext(error.to_string()))?;
     let root = repository_root();
+    let cargo_lock_sha256 = sha256_hex(
+        &std::fs::read(root.join("Cargo.lock"))
+            .map_err(|error| CandidateMatrixError::CandidateSafetyContext(error.to_string()))?,
+    );
     let version_output = Command::new("cargo")
         .args(["deny", "--version"])
         .current_dir(&root)
@@ -700,14 +702,12 @@ pub fn audit_candidate_safety(
                 .unwrap_or(&component.dependency_source)
         })
         .collect::<BTreeSet<_>>();
+    let direct_cargo_packages = candidate_audit_packages(&root, &package_names)?;
     let mut package_audits = Vec::new();
     for package_name in package_names {
-        let package = context
-            .direct_cargo_packages
-            .get(package_name)
-            .ok_or_else(|| {
-                CandidateMatrixError::MissingCandidateAuditPackage(package_name.to_owned())
-            })?;
+        let package = direct_cargo_packages.get(package_name).ok_or_else(|| {
+            CandidateMatrixError::MissingCandidateAuditPackage(package_name.to_owned())
+        })?;
         let license = package.license.clone().ok_or_else(|| {
             CandidateMatrixError::MissingCandidatePackageLicense(package_name.to_owned())
         })?;
@@ -749,7 +749,7 @@ pub fn audit_candidate_safety(
         command: command.to_owned(),
         observed_at_utc: current_utc_string()?,
         output_sha256: sha256_hex(&audit_bytes),
-        cargo_lock_sha256: context.cargo_lock_sha256,
+        cargo_lock_sha256,
         advisory_error_count: summary.advisory_errors,
         license_error_count: summary.license_errors,
         source_error_count: summary.source_errors,
@@ -757,6 +757,130 @@ pub fn audit_candidate_safety(
         package_audits,
         assessments,
     })
+}
+
+#[derive(Debug)]
+struct CandidateAuditPackage {
+    id: String,
+    version: String,
+    checksum: String,
+    features: BTreeSet<String>,
+    license: Option<String>,
+    rust_version: Option<String>,
+}
+
+fn candidate_audit_packages(
+    root: &Path,
+    names: &BTreeSet<&str>,
+) -> Result<BTreeMap<String, CandidateAuditPackage>, CandidateMatrixError> {
+    let output = Command::new("cargo")
+        .args([
+            "+1.96.0",
+            "metadata",
+            "--locked",
+            "--format-version",
+            "1",
+            "--manifest-path",
+        ])
+        .arg(root.join("research/issue-308-compiler-budget-calibration-research/Cargo.toml"))
+        .args(["--all-features"])
+        .current_dir(root)
+        .output()
+        .map_err(|error| CandidateMatrixError::CandidateSafetyContext(error.to_string()))?;
+    if !output.status.success() {
+        return Err(CandidateMatrixError::CandidateSafetyContext(
+            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        ));
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| CandidateMatrixError::CandidateSafetyContext(error.to_string()))?;
+    let lock_text = std::fs::read_to_string(root.join("Cargo.lock"))
+        .map_err(|error| CandidateMatrixError::CandidateSafetyContext(error.to_string()))?;
+    let lock: toml::Value = toml::from_str(&lock_text)
+        .map_err(|error| CandidateMatrixError::CandidateSafetyContext(error.to_string()))?;
+    let packages = metadata["packages"].as_array().ok_or_else(|| {
+        CandidateMatrixError::CandidateSafetyContext("cargo metadata 缺少 packages".to_owned())
+    })?;
+    let nodes = metadata["resolve"]["nodes"].as_array().ok_or_else(|| {
+        CandidateMatrixError::CandidateSafetyContext("cargo metadata 缺少 resolve.nodes".to_owned())
+    })?;
+    let harness_id = packages
+        .iter()
+        .find(|package| {
+            package["name"].as_str() == Some("issue-308-compiler-budget-calibration-research")
+        })
+        .and_then(|package| package["id"].as_str())
+        .ok_or_else(|| {
+            CandidateMatrixError::CandidateSafetyContext("cargo metadata 缺少研究包".to_owned())
+        })?;
+    let direct_ids = nodes
+        .iter()
+        .find(|node| node["id"].as_str() == Some(harness_id))
+        .and_then(|node| node["deps"].as_array())
+        .ok_or_else(|| {
+            CandidateMatrixError::CandidateSafetyContext(
+                "cargo metadata 缺少研究包直接依赖".to_owned(),
+            )
+        })?
+        .iter()
+        .filter_map(|dependency| dependency["pkg"].as_str())
+        .collect::<BTreeSet<_>>();
+    let locked = lock["package"].as_array().ok_or_else(|| {
+        CandidateMatrixError::CandidateSafetyContext("Cargo.lock 缺少 package".to_owned())
+    })?;
+    let mut result = BTreeMap::new();
+    for name in names {
+        let package = packages
+            .iter()
+            .find(|package| {
+                package["name"].as_str() == Some(name)
+                    && package["id"]
+                        .as_str()
+                        .is_some_and(|id| direct_ids.contains(id))
+            })
+            .ok_or_else(|| {
+                CandidateMatrixError::MissingCandidateAuditPackage((*name).to_owned())
+            })?;
+        let id = package["id"].as_str().ok_or_else(|| {
+            CandidateMatrixError::CandidateSafetyContext(format!("包 {name} 缺少 id"))
+        })?;
+        let version = package["version"].as_str().ok_or_else(|| {
+            CandidateMatrixError::CandidateSafetyContext(format!("包 {name} 缺少 version"))
+        })?;
+        let locked = locked
+            .iter()
+            .find(|entry| {
+                entry["name"].as_str() == Some(name) && entry["version"].as_str() == Some(version)
+            })
+            .ok_or_else(|| {
+                CandidateMatrixError::MissingCandidateAuditPackage((*name).to_owned())
+            })?;
+        let checksum = locked["checksum"].as_str().ok_or_else(|| {
+            CandidateMatrixError::CandidateSafetyContext(format!("包 {name} 缺少 checksum"))
+        })?;
+        let features = nodes
+            .iter()
+            .find(|node| node["id"].as_str() == Some(id))
+            .and_then(|node| node["features"].as_array())
+            .ok_or_else(|| {
+                CandidateMatrixError::CandidateSafetyContext(format!("包 {name} 缺少 features"))
+            })?
+            .iter()
+            .filter_map(|feature| feature.as_str().map(str::to_owned))
+            .collect();
+        result.insert(
+            (*name).to_owned(),
+            CandidateAuditPackage {
+                id: id.to_owned(),
+                version: version.to_owned(),
+                checksum: checksum.to_owned(),
+                features,
+                license: package["license"].as_str().map(str::to_owned),
+                rust_version: package["rust_version"].as_str().map(str::to_owned),
+            },
+        );
+    }
+    Ok(result)
 }
 
 #[derive(Deserialize)]

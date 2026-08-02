@@ -21,7 +21,6 @@ mod current_fixtures;
 mod diagnostic;
 mod environment;
 mod evidence;
-mod evidence_assembly;
 mod failure_recovery;
 mod generator;
 mod guard;
@@ -245,9 +244,9 @@ pub use workload::{
 };
 
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";
-pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_322;
+pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_320;
 pub const CONTRACT_DESCRIPTOR_SHA256: &str =
-    "3ad9f14da2d9fe6cd7c5cfeacfd98082986b1883cf79f7ccc4dd0f66ae5144c0";
+    "e3de918e7c0d90b0d4c7fbf0c7ad6162bb209fa95b4c5af78d6538a1cbabd3e3";
 
 const CONTRACT_SCHEMA: &str = "laneflow.compiler-calibration-contract";
 const WORKLOAD_MANIFEST_SCHEMA: &str = "laneflow.compiler-calibration-workload-manifest";
