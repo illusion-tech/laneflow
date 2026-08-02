@@ -1,16 +1,23 @@
 use issue_308_compiler_budget_calibration_research::{
     CANDIDATE_KERNEL_CHILD_SCHEMA, CANDIDATE_KERNEL_CHILD_SCHEMA_VERSION, CANDIDATE_MATRIX_SCOPE,
-    CandidateDisposition, CandidateExecutionMode, CandidateKernelChildReport, CandidateKeyDomain,
-    CandidatePerformanceScalePlan, CandidatePerformanceScopeContract, CandidatePipelineOutcome,
-    CandidatePipelineStratum, CandidateSafetyAssessment, CandidateSafetyStatus, CandidateScaleRole,
-    ExactRatio, TIMING_BINARY_ID, load_repository_contract,
-    qualify_pipeline_candidate_roster_fresh_process, run_mechanism_candidate_matrix_fresh_process,
-    run_pipeline_candidate_matrix_fresh_process,
+    CandidateKernelChildReport, TIMING_BINARY_ID,
 };
 #[cfg(feature = "candidate-hashbrown-xxh3")]
 use issue_308_compiler_budget_calibration_research::{
     CANDIDATE_PIPELINE_CHILD_SCHEMA, CANDIDATE_PIPELINE_CHILD_SCHEMA_VERSION,
     CandidatePipelineChildReport, qualify_constant_hash_candidate_fresh_process,
+};
+#[cfg(windows)]
+use issue_308_compiler_budget_calibration_research::{
+    CandidateDisposition, CandidateExecutionMode, CandidateKeyDomain,
+    CandidatePerformanceScalePlan, CandidatePerformanceScopeContract, CandidatePipelineStratum,
+    CandidateSafetyAssessment, CandidateSafetyStatus, CandidateScaleRole, ExactRatio,
+    qualify_pipeline_candidate_roster_fresh_process, run_mechanism_candidate_matrix_fresh_process,
+    run_pipeline_candidate_matrix_fresh_process,
+};
+#[cfg(any(windows, feature = "candidate-hashbrown-xxh3"))]
+use issue_308_compiler_budget_calibration_research::{
+    CandidatePipelineOutcome, load_repository_contract,
 };
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -105,6 +112,7 @@ fn timing_role_runs_a_real_candidate_pipeline_in_a_fresh_process() {
     assert!(report.controlled_allocation_guard.is_none());
 }
 
+#[cfg(windows)]
 #[test]
 fn balanced_matrix_uses_a_new_timing_child_for_every_sample() {
     let trusted = load_repository_contract().expect("frozen contract");
@@ -134,6 +142,7 @@ fn balanced_matrix_uses_a_new_timing_child_for_every_sample() {
     }));
 }
 
+#[cfg(windows)]
 #[test]
 fn balanced_full_pipeline_matrix_uses_real_fresh_process_runs() {
     let trusted = load_repository_contract().expect("frozen contract");

@@ -164,6 +164,69 @@ fn build_report(
         "输入不是受支持的正式执行检查点",
     )?;
     let pilot = checkpoint.base_scale_pilot;
+    let analyses = analyze_base_scale_pilot(&pilot)?;
+    let verified_pilot_identity_count = analyses.len();
+
+    let mut estimates = Vec::with_capacity(18);
+    for analysis in analyses {
+        estimates.push(estimate(
+            &analysis,
+            "wall-time-ns",
+            &analysis.wall_values,
+            analysis.wall_median,
+            analysis.wall_mad,
+            pilot.clock_quantum_ns,
+            "nanosecond",
+        )?);
+        estimates.push(estimate(
+            &analysis,
+            "peak-live-requested-bytes",
+            &analysis.peak_values,
+            analysis.peak_median,
+            analysis.peak_mad,
+            1,
+            "byte",
+        )?);
+    }
+    Ok(Report {
+        schema: PILOT_BUDGET_REPORT_SCHEMA.to_owned(),
+        schema_version: 1,
+        budget_basis: "base-scale-pilot".to_owned(),
+        scope: "供 #292 使用的冷实例临时研究估算；不是正式 R0 研究预算或产品 SLA".to_owned(),
+        coverage: Coverage {
+            metrics: vec![
+                "wall-time-ns".to_owned(),
+                "peak-live-requested-bytes".to_owned(),
+            ],
+            sample_kinds: vec!["cold-instance".to_owned()],
+            omitted: [
+                "stable-capacity-reuse",
+                "retained-capacity-bytes",
+                "private-bytes",
+                "commit-peak-bytes",
+                "candidate-comparison",
+                "formal-knee-selection",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        },
+        source_checkpoint,
+        verified_pilot_identity_count,
+        clock_quantum_ns: pilot.clock_quantum_ns,
+        pilot_budget_estimates: estimates,
+    })
+}
+
+pub(crate) fn validate_base_scale_pilot(
+    pilot: &BaseScalePilotCheckpoint,
+) -> Result<(), PilotBudgetError> {
+    analyze_base_scale_pilot(pilot).map(|_| ())
+}
+
+fn analyze_base_scale_pilot(
+    pilot: &BaseScalePilotCheckpoint,
+) -> Result<Vec<Analysis>, PilotBudgetError> {
     ensure(
         pilot.schema == BASE_SCALE_PILOT_CHECKPOINT_SCHEMA
             && pilot.schema_version == BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION
@@ -215,56 +278,7 @@ fn build_report(
         "基础规模结果未覆盖三个工作负载与三种模块图配置档",
     )?;
 
-    let mut estimates = Vec::with_capacity(18);
-    for analysis in analyses {
-        estimates.push(estimate(
-            &analysis,
-            "wall-time-ns",
-            &analysis.wall_values,
-            analysis.wall_median,
-            analysis.wall_mad,
-            pilot.clock_quantum_ns,
-            "nanosecond",
-        )?);
-        estimates.push(estimate(
-            &analysis,
-            "peak-live-requested-bytes",
-            &analysis.peak_values,
-            analysis.peak_median,
-            analysis.peak_mad,
-            1,
-            "byte",
-        )?);
-    }
-    Ok(Report {
-        schema: PILOT_BUDGET_REPORT_SCHEMA.to_owned(),
-        schema_version: 1,
-        budget_basis: "base-scale-pilot".to_owned(),
-        scope: "供 #292 使用的冷实例临时研究估算；不是正式 R0 研究预算或产品 SLA".to_owned(),
-        coverage: Coverage {
-            metrics: vec![
-                "wall-time-ns".to_owned(),
-                "peak-live-requested-bytes".to_owned(),
-            ],
-            sample_kinds: vec!["cold-instance".to_owned()],
-            omitted: [
-                "stable-capacity-reuse",
-                "retained-capacity-bytes",
-                "private-bytes",
-                "commit-peak-bytes",
-                "candidate-comparison",
-                "growth-slope",
-                "formal-knee-selection",
-            ]
-            .into_iter()
-            .map(str::to_owned)
-            .collect(),
-        },
-        source_checkpoint,
-        verified_pilot_identity_count: identities.len(),
-        clock_quantum_ns: pilot.clock_quantum_ns,
-        pilot_budget_estimates: estimates,
-    })
+    Ok(analyses)
 }
 
 fn analyze(
@@ -713,7 +727,7 @@ fn checked_guard_prediction(
     u64::try_from(rounded).map_err(|_| invalid("护栏预测无法表示为 u64"))
 }
 
-fn validate_clear_monitor(
+pub(crate) fn validate_clear_monitor(
     monitor: Option<&ChildProcessMonitorReport>,
     preflight: &GuardPreflightReport,
     child_wall_time_ns: Option<u64>,
@@ -742,7 +756,11 @@ fn validate_clear_monitor(
     Ok(peak_private_bytes)
 }
 
-fn successful_process(process: &ProcessObservation, binary_id: &str, child_pid: u32) -> bool {
+pub(crate) fn successful_process(
+    process: &ProcessObservation,
+    binary_id: &str,
+    child_pid: u32,
+) -> bool {
     process.coordinator_pid > 0
         && process.binary_id == binary_id
         && process.exit_kind == ProcessExitKind::Success

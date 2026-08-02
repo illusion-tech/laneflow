@@ -970,7 +970,7 @@ fn parse_graph_profile(value: &str) -> Result<GraphProfileId, FormalLadderRunner
 }
 
 #[allow(clippy::too_many_arguments)]
-fn validate_attribution_preflight(
+pub(crate) fn validate_attribution_preflight(
     report: &ScalableAttributionChildReport,
     compiler_instance_id: &str,
     workload_id: ScalableWorkloadId,
@@ -1007,7 +1007,7 @@ fn validate_attribution_preflight(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn validate_oracle(
+pub(crate) fn validate_oracle(
     report: &ScalableOracleChildReport,
     oracle_run_id: &str,
     workload_id: ScalableWorkloadId,
@@ -1045,7 +1045,7 @@ fn validate_oracle(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn validate_ladder_report(
+pub(crate) fn validate_ladder_report(
     report: &ScalableLadderChildReport,
     compiler_instance_id: &str,
     workload_id: ScalableWorkloadId,
