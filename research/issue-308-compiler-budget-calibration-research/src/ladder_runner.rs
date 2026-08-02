@@ -32,14 +32,13 @@ use std::path::Path;
 
 pub const FORMAL_LADDER_EXECUTION_SCHEMA: &str =
     "laneflow.compiler-calibration-formal-ladder-execution";
-pub const FORMAL_LADDER_EXECUTION_SCHEMA_VERSION: u32 = 5;
+pub const FORMAL_LADDER_EXECUTION_SCHEMA_VERSION: u32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FormalLadderExecutionDisposition {
     Complete,
     GuardedBeforeMinimumLevels,
-    GuardedAfterMinimumLevels,
     InvalidRun,
 }
 
@@ -299,82 +298,18 @@ fn run_one_formal_ladder(
         return Ok(execution);
     }
     execution.analysis = analyze_execution(&execution)?;
-    persist(&execution)?;
-
     if execution.analysis.as_ref().is_some_and(|analysis| {
-        analysis.scale_selection.disposition == FormalScaleSelectionDisposition::ConfirmedKnee
+        matches!(
+            analysis.scale_selection.disposition,
+            FormalScaleSelectionDisposition::ConfirmedKnee
+                | FormalScaleSelectionDisposition::NoObservedKnee
+        ) && analysis.scale_selection.calibration_n.is_some()
+            && analysis.scale_selection.stress_n.is_some()
     }) {
         execution.disposition = FormalLadderExecutionDisposition::Complete;
-        persist(&execution)?;
-        return Ok(execution);
-    }
-
-    let measurement_level_count = loop {
-        let previous = execution
-            .levels
-            .last()
-            .and_then(|level| level.completed_guard_observation);
-        let level = match prepare_level(
-            timing_executable,
-            attribution_executable,
-            oracle_executable,
-            &guard_planner,
-            &plans,
-            &mut system_memory,
-            &execution,
-            graph_profile,
-            next_n,
-            previous,
-        )? {
-            LevelPreparation::Ready(level) => level,
-            LevelPreparation::Guarded(guard) => {
-                execution.terminal_guard_preflight = Some(terminal_guard_run(&execution, guard));
-                persist(&execution)?;
-                break execution.levels.len();
-            }
-            LevelPreparation::Invalid(level) => {
-                let terminal_resource_guard = level_is_terminal_resource_guard(&level);
-                execution.levels.push(level);
-                persist(&execution)?;
-                if terminal_resource_guard {
-                    break execution.levels.len() - 1;
-                }
-                execution.disposition = FormalLadderExecutionDisposition::InvalidRun;
-                persist(&execution)?;
-                return Ok(execution);
-            }
-        };
-        execution.levels.push(level);
-        persist(&execution)?;
-        next_n = next_n
-            .checked_mul(2)
-            .ok_or(FormalLadderRunnerError::ScaleOverflow)?;
-    };
-
-    if measurement_level_count > initial_level_count {
-        let experiment_ordinal = u32::try_from(measurement_level_count)
-            .map_err(|_| FormalLadderRunnerError::ExecutionPositionOverflow)?;
-        if !run_balanced_rounds(
-            timing_executable,
-            attribution_executable,
-            &mut execution,
-            measurement_level_count,
-            experiment_ordinal,
-            &mut persist,
-        )? {
-            execution.disposition = FormalLadderExecutionDisposition::InvalidRun;
-            persist(&execution)?;
-            return Ok(execution);
-        }
-    }
-    execution.analysis = analyze_execution(&execution)?;
-    execution.disposition = if execution.analysis.as_ref().is_some_and(|analysis| {
-        analysis.scale_selection.disposition == FormalScaleSelectionDisposition::ConfirmedKnee
-    }) {
-        FormalLadderExecutionDisposition::Complete
     } else {
-        FormalLadderExecutionDisposition::GuardedAfterMinimumLevels
-    };
+        execution.disposition = FormalLadderExecutionDisposition::InvalidRun;
+    }
     persist(&execution)?;
     Ok(execution)
 }
@@ -1376,29 +1311,27 @@ mod tests {
 
     #[test]
     fn initial_rotation_covers_each_level_once_per_round() {
-        for level_count in 5_usize..=8 {
-            for round in 0..crate::FORMAL_LADDER_ROUND_COUNT {
-                let order = (0..level_count)
-                    .map(|position| rotated_level_index(level_count, round, position))
-                    .collect::<Vec<_>>();
-                let mut sorted = order.clone();
-                sorted.sort_unstable();
-                assert_eq!(sorted, (0..level_count).collect::<Vec<_>>());
-                assert_eq!(order[0], round as usize % level_count);
-            }
+        let level_count = crate::FORMAL_LADDER_MINIMUM_LEVEL_COUNT;
+        for round in 0..crate::FORMAL_LADDER_ROUND_COUNT {
+            let order = (0..level_count)
+                .map(|position| rotated_level_index(level_count, round, position))
+                .collect::<Vec<_>>();
+            let mut sorted = order.clone();
+            sorted.sort_unstable();
+            assert_eq!(sorted, (0..level_count).collect::<Vec<_>>());
+            assert_eq!(order[0], round as usize % level_count);
         }
     }
 
     #[test]
-    fn final_matrix_rotation_excludes_an_appended_terminal_guard_level() {
-        let measurement_level_count = 8;
-        let available_level_count = 9;
+    fn frozen_r0_matrix_rotates_exactly_five_levels() {
+        let measurement_level_count = crate::FORMAL_LADDER_MINIMUM_LEVEL_COUNT;
         for round in 0..crate::FORMAL_LADDER_ROUND_COUNT {
             let order = (0..measurement_level_count)
                 .map(|position| rotated_level_index(measurement_level_count, round, position))
                 .collect::<Vec<_>>();
             assert!(order.iter().all(|index| *index < measurement_level_count));
-            assert!(!order.contains(&(available_level_count - 1)));
+            assert_eq!(order.len(), 5);
         }
     }
 
@@ -1508,12 +1441,9 @@ mod tests {
     }
 
     #[test]
-    fn terminal_guard_after_minimum_levels_allows_the_next_identity() {
+    fn only_complete_ladder_allows_the_next_identity() {
         assert!(!formal_ladder_stops_protocol(
             FormalLadderExecutionDisposition::Complete
-        ));
-        assert!(!formal_ladder_stops_protocol(
-            FormalLadderExecutionDisposition::GuardedAfterMinimumLevels
         ));
         for disposition in [
             FormalLadderExecutionDisposition::InvalidRun,
