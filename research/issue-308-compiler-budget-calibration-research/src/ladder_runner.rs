@@ -32,7 +32,7 @@ use std::path::Path;
 
 pub const FORMAL_LADDER_EXECUTION_SCHEMA: &str =
     "laneflow.compiler-calibration-formal-ladder-execution";
-pub const FORMAL_LADDER_EXECUTION_SCHEMA_VERSION: u32 = 4;
+pub const FORMAL_LADDER_EXECUTION_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -285,10 +285,12 @@ fn run_one_formal_ladder(
             .ok_or(FormalLadderRunnerError::ScaleOverflow)?;
     }
 
+    let initial_level_count = execution.levels.len();
     if !run_balanced_rounds(
         timing_executable,
         attribution_executable,
         &mut execution,
+        initial_level_count,
         0,
         &mut persist,
     )? {
@@ -299,15 +301,15 @@ fn run_one_formal_ladder(
     execution.analysis = analyze_execution(&execution)?;
     persist(&execution)?;
 
-    loop {
-        if execution.analysis.as_ref().is_some_and(|analysis| {
-            analysis.scale_selection.disposition == FormalScaleSelectionDisposition::ConfirmedKnee
-        }) {
-            execution.disposition = FormalLadderExecutionDisposition::Complete;
-            persist(&execution)?;
-            return Ok(execution);
-        }
+    if execution.analysis.as_ref().is_some_and(|analysis| {
+        analysis.scale_selection.disposition == FormalScaleSelectionDisposition::ConfirmedKnee
+    }) {
+        execution.disposition = FormalLadderExecutionDisposition::Complete;
+        persist(&execution)?;
+        return Ok(execution);
+    }
 
+    let measurement_level_count = loop {
         let previous = execution
             .levels
             .last()
@@ -327,29 +329,36 @@ fn run_one_formal_ladder(
             LevelPreparation::Ready(level) => level,
             LevelPreparation::Guarded(guard) => {
                 execution.terminal_guard_preflight = Some(terminal_guard_run(&execution, guard));
-                execution.disposition = FormalLadderExecutionDisposition::GuardedAfterMinimumLevels;
                 persist(&execution)?;
-                return Ok(execution);
+                break execution.levels.len();
             }
             LevelPreparation::Invalid(level) => {
                 let terminal_resource_guard = level_is_terminal_resource_guard(&level);
                 execution.levels.push(level);
-                execution.disposition = if terminal_resource_guard {
-                    FormalLadderExecutionDisposition::GuardedAfterMinimumLevels
-                } else {
-                    FormalLadderExecutionDisposition::InvalidRun
-                };
+                persist(&execution)?;
+                if terminal_resource_guard {
+                    break execution.levels.len() - 1;
+                }
+                execution.disposition = FormalLadderExecutionDisposition::InvalidRun;
                 persist(&execution)?;
                 return Ok(execution);
             }
         };
         execution.levels.push(level);
-        let experiment_ordinal = u32::try_from(execution.levels.len())
+        persist(&execution)?;
+        next_n = next_n
+            .checked_mul(2)
+            .ok_or(FormalLadderRunnerError::ScaleOverflow)?;
+    };
+
+    if measurement_level_count > initial_level_count {
+        let experiment_ordinal = u32::try_from(measurement_level_count)
             .map_err(|_| FormalLadderRunnerError::ExecutionPositionOverflow)?;
         if !run_balanced_rounds(
             timing_executable,
             attribution_executable,
             &mut execution,
+            measurement_level_count,
             experiment_ordinal,
             &mut persist,
         )? {
@@ -357,12 +366,17 @@ fn run_one_formal_ladder(
             persist(&execution)?;
             return Ok(execution);
         }
-        execution.analysis = analyze_execution(&execution)?;
-        persist(&execution)?;
-        next_n = next_n
-            .checked_mul(2)
-            .ok_or(FormalLadderRunnerError::ScaleOverflow)?;
     }
+    execution.analysis = analyze_execution(&execution)?;
+    execution.disposition = if execution.analysis.as_ref().is_some_and(|analysis| {
+        analysis.scale_selection.disposition == FormalScaleSelectionDisposition::ConfirmedKnee
+    }) {
+        FormalLadderExecutionDisposition::Complete
+    } else {
+        FormalLadderExecutionDisposition::GuardedAfterMinimumLevels
+    };
+    persist(&execution)?;
+    Ok(execution)
 }
 
 fn level_is_terminal_resource_guard(level: &FormalLadderLevelExecution) -> bool {
@@ -669,23 +683,7 @@ fn prepare_level(
         .child
         .as_ref()
         .ok_or(FormalLadderRunnerError::InvalidPreflight { n })?;
-    let timing_wall_time_ns = timing_guard_run
-        .child
-        .as_ref()
-        .ok_or(FormalLadderRunnerError::InvalidPreflight { n })?
-        .cold_instance
-        .iter()
-        .chain(
-            timing_guard_run
-                .child
-                .as_ref()
-                .expect("validated timing guard child")
-                .stable_capacity_reuse
-                .iter(),
-        )
-        .filter_map(|sample| sample.wall_time_ns)
-        .max()
-        .ok_or(FormalLadderRunnerError::InvalidPreflight { n })?;
+    let timing_wall_time_ns = timing_process_wall_time(&timing_guard_run.monitor, n)?;
     let completed_guard_observation = GuardCompletedLevelObservation {
         n,
         primary_record_count: plan.primary_record_count,
@@ -724,21 +722,26 @@ fn run_balanced_rounds(
     timing_executable: &Path,
     attribution_executable: &Path,
     execution: &mut FormalLadderExecution,
+    measurement_level_count: usize,
     experiment_ordinal: u32,
     persist: &mut impl FnMut(&FormalLadderExecution) -> Result<(), FormalLadderRunnerError>,
 ) -> Result<bool, FormalLadderRunnerError> {
+    if measurement_level_count == 0 || measurement_level_count > execution.levels.len() {
+        return Err(FormalLadderRunnerError::InvalidMeasurementLevelCount {
+            measurement_level_count,
+            available_level_count: execution.levels.len(),
+        });
+    }
     execution.analysis = None;
-    for level in &mut execution.levels {
+    for level in execution.levels.iter_mut().take(measurement_level_count) {
         level.formal_runs.clear();
-        level.completed_guard_observation = None;
         level.complete = false;
     }
     persist(execution)?;
-    let level_count = execution.levels.len();
     for batch in 0..crate::FORMAL_LADDER_BATCH_COUNT {
         for round in 0..crate::FORMAL_LADDER_ROUND_COUNT {
-            for position in 0..level_count {
-                let level_index = rotated_level_index(level_count, round, position);
+            for position in 0..measurement_level_count {
+                let level_index = rotated_level_index(measurement_level_count, round, position);
                 let mut level = execution.levels.remove(level_index);
                 let valid = run_level_modes(
                     timing_executable,
@@ -773,8 +776,13 @@ fn run_balanced_rounds(
             persist(execution)?;
         }
     }
-    for level in &mut execution.levels {
-        level.completed_guard_observation = Some(completed_level_observation(level)?);
+    for level in execution.levels.iter_mut().take(measurement_level_count) {
+        if level.completed_guard_observation.is_none() {
+            return Err(FormalLadderRunnerError::MissingFormalObservation {
+                n: level.n,
+                metric: "completed-guard-observation",
+            });
+        }
         level.complete = true;
     }
     persist(execution)?;
@@ -938,73 +946,6 @@ fn analyze_execution(
     }
 }
 
-fn completed_level_observation(
-    level: &FormalLadderLevelExecution,
-) -> Result<GuardCompletedLevelObservation, FormalLadderRunnerError> {
-    let wall_time_ns = level
-        .formal_runs
-        .iter()
-        .filter(|run| run.binary_mode == ScalableLadderBinaryMode::Timing)
-        .flat_map(|run| run.child.iter())
-        .flat_map(|child| {
-            child
-                .cold_instance
-                .iter()
-                .chain(child.stable_capacity_reuse.iter())
-        })
-        .filter_map(|sample| sample.wall_time_ns)
-        .max()
-        .ok_or(FormalLadderRunnerError::MissingFormalObservation {
-            n: level.n,
-            metric: "wall-time-ns",
-        })?;
-    let peak_live_requested_bytes = maximum_observed_controlled_peak(
-        level
-            .formal_runs
-            .iter()
-            .filter(|run| run.binary_mode == ScalableLadderBinaryMode::Attribution)
-            .flat_map(|run| run.child.iter())
-            .flat_map(|child| {
-                child
-                    .cold_instance
-                    .iter()
-                    .chain(child.stable_capacity_reuse.iter())
-            })
-            .map(|sample| Some(sample.guard_peak_live_requested_bytes))
-            .chain(std::iter::once(
-                level
-                    .attribution_preflight
-                    .as_ref()
-                    .and_then(|run| run.child.as_ref())
-                    .and_then(|child| child.guard_peak_live_requested_bytes),
-            ))
-            .chain(std::iter::once(
-                level
-                    .oracle
-                    .as_ref()
-                    .and_then(|run| run.child.as_ref())
-                    .and_then(|child| child.guard_peak_live_requested_bytes),
-            )),
-        level.n,
-    )?;
-    let private_bytes = maximum_observed_private_bytes(
-        level
-            .formal_runs
-            .iter()
-            .map(|run| &run.monitor)
-            .chain(level.attribution_preflight.iter().map(|run| &run.monitor))
-            .chain(level.timing_guard_run.iter().map(|run| &run.monitor))
-            .chain(level.oracle.iter().map(|run| &run.monitor)),
-    )?;
-    Ok(GuardCompletedLevelObservation {
-        n: level.n,
-        primary_record_count: level.primary_record_count,
-        peak_live_requested_bytes,
-        private_bytes,
-        wall_time_ns,
-    })
-}
-
 fn maximum_observed_private_bytes<'a>(
     reports: impl IntoIterator<Item = &'a ChildProcessMonitorReport>,
 ) -> Result<u64, FormalLadderRunnerError> {
@@ -1014,6 +955,18 @@ fn maximum_observed_private_bytes<'a>(
         .max()
         .filter(|value| *value > 0)
         .ok_or(FormalLadderRunnerError::MissingPrivateBytes)
+}
+
+fn timing_process_wall_time(
+    report: &ChildProcessMonitorReport,
+    n: u32,
+) -> Result<u64, FormalLadderRunnerError> {
+    (report.elapsed_wall_time_ns > 0)
+        .then_some(report.elapsed_wall_time_ns)
+        .ok_or(FormalLadderRunnerError::MissingFormalObservation {
+            n,
+            metric: "timing-process-wall-time-ns",
+        })
 }
 
 fn maximum_observed_controlled_peak(
@@ -1396,6 +1349,11 @@ pub enum FormalLadderRunnerError {
     ScaleOverflow,
     #[error("正式阶梯执行位置无法表示为 u32")]
     ExecutionPositionOverflow,
+    #[error("正式阶梯测量级别数 {measurement_level_count} 超出可用级别数 {available_level_count}")]
+    InvalidMeasurementLevelCount {
+        measurement_level_count: usize,
+        available_level_count: usize,
+    },
     #[error("正式阶梯 N={n} 的插桩预检无效")]
     InvalidPreflight { n: u32 },
     #[error("正式阶梯无效轮次缺少对应原始运行")]
@@ -1429,6 +1387,45 @@ mod tests {
                 assert_eq!(order[0], round as usize % level_count);
             }
         }
+    }
+
+    #[test]
+    fn final_matrix_rotation_excludes_an_appended_terminal_guard_level() {
+        let measurement_level_count = 8;
+        let available_level_count = 9;
+        for round in 0..crate::FORMAL_LADDER_ROUND_COUNT {
+            let order = (0..measurement_level_count)
+                .map(|position| rotated_level_index(measurement_level_count, round, position))
+                .collect::<Vec<_>>();
+            assert!(order.iter().all(|index| *index < measurement_level_count));
+            assert!(!order.contains(&(available_level_count - 1)));
+        }
+    }
+
+    #[test]
+    fn guard_wall_observation_uses_the_complete_monitored_process() {
+        let report = ChildProcessMonitorReport {
+            observation_count: 3,
+            last_private_bytes: crate::NullableObservation::observed(1),
+            peak_private_bytes: crate::NullableObservation::observed(2),
+            last_available_physical_memory_bytes: crate::NullableObservation::observed(3),
+            elapsed_wall_time_ns: 59_293_810_200,
+            trigger: None,
+        };
+        assert_eq!(
+            timing_process_wall_time(&report, 2_048).unwrap(),
+            59_293_810_200
+        );
+
+        let mut missing = report;
+        missing.elapsed_wall_time_ns = 0;
+        assert!(matches!(
+            timing_process_wall_time(&missing, 2_048),
+            Err(FormalLadderRunnerError::MissingFormalObservation {
+                n: 2_048,
+                metric: "timing-process-wall-time-ns"
+            })
+        ));
     }
 
     #[test]
