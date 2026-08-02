@@ -1148,6 +1148,7 @@ fn candidate_results(
         .find(|entry| entry["metric"] == "wall-time-ns")
         .ok_or_else(|| EvidenceError::InvalidCheckpoint("缺少墙钟复现包络".to_owned()))?;
     let wall_envelope = Ratio::from_json(&wall_envelope_value["repeatRatio"])?;
+    validate_candidate_matrix_envelope(trusted, checkpoint, matrix)?;
     let expected_safety = crate::candidate_matrix::expected_candidate_safety_assessments(trusted)
         .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
     if matrix.safety_audit.tool != "cargo-deny 0.20.2"
@@ -1198,6 +1199,52 @@ fn candidate_results(
             }))
         })
         .collect()
+}
+
+fn validate_candidate_matrix_envelope(
+    trusted: &TrustedContract,
+    checkpoint: &FormalProtocolCheckpoint,
+    matrix: &crate::CandidateMatrixExecutionBundle,
+) -> Result<(), EvidenceError> {
+    let expected_scope = crate::CandidatePerformanceScopeContract::from_trusted_contract(trusted)
+        .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+    let expected_scales =
+        crate::resolve_candidate_performance_scales(&expected_scope, &checkpoint.formal_ladders)
+            .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+    let mut expected_strata = Vec::with_capacity(expected_scales.len() * 3);
+    for scale in &expected_scales {
+        for key_domain in [
+            crate::CandidateKeyDomain::ExternalString,
+            crate::CandidateKeyDomain::ValidatedFixedKey,
+            crate::CandidateKeyDomain::CanonicalOutputOrder,
+        ] {
+            expected_strata.push(
+                crate::CandidatePipelineStratum::from_scope(&expected_scope, key_domain, *scale)
+                    .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?,
+            );
+        }
+    }
+    let actual_strata = matrix
+        .executions
+        .iter()
+        .map(|execution| execution.stratum.clone())
+        .collect::<Vec<_>>();
+    if matrix.schema != crate::CANDIDATE_MATRIX_CHECKPOINT_SCHEMA
+        || matrix.schema_version != crate::CANDIDATE_MATRIX_CHECKPOINT_SCHEMA_VERSION
+        || matrix.scope != expected_scope
+        || matrix.scales != expected_scales
+        || matrix.active_execution.is_some()
+        || matrix
+            .executions
+            .iter()
+            .any(|execution| !execution.complete)
+        || actual_strata != expected_strata
+    {
+        return Err(EvidenceError::InvalidCheckpoint(
+            "候选矩阵没有精确覆盖三个规模与三个键域".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_constant_hash_qualifications(
@@ -2310,6 +2357,13 @@ mod tests {
             .candidate_matrix
             .as_ref()
             .expect("candidate matrix");
+        validate_candidate_matrix_envelope(&trusted, &checkpoint, matrix)
+            .expect("candidate matrix envelope");
+        let mut incomplete_matrix = matrix.clone();
+        incomplete_matrix.executions.pop();
+        assert!(
+            validate_candidate_matrix_envelope(&trusted, &checkpoint, &incomplete_matrix).is_err()
+        );
         let expected_safety =
             crate::candidate_matrix::expected_candidate_safety_assessments(&trusted)
                 .expect("candidate safety");
