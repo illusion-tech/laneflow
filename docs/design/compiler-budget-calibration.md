@@ -1,12 +1,12 @@
 # 编译器资源与性能预算校准
 
 **文档状态**: Accepted（#308 G4 已完成；一次性研究已关闭）<br>
-**最后更新**: 2026-08-02<br>
+**最后更新**: 2026-08-03<br>
 **适用范围**: 编译器工作负载、编译器校准规模（Compiler Calibration Scale）、
 编译器压力规模（Compiler Stress Scale）、编译资源上限（Compile Limits）、冷实例
 与稳定容量复用测量、研究停止护栏（Research Stop Guardrail）、私有容器候选和
 机器可读研究证据<br>
-**实现状态**: 非生产研究实现进行中；停止护栏、终止状态、二进制角色、三个可扩展
+**实现状态**: 非生产研究实现已完成并关闭；停止护栏、终止状态、二进制角色、三个可扩展
 工作负载、当前固定样例研究投影、基础规模发现、两批五轮正式规模阶梯、限制资格、失败
 恢复、候选矩阵以及紧凑 Evidence v1 写出/独立验证代码路径已经实现；冻结研究机的
 batch 0/1 两批正式 R0 测量、机器可读证据与中文报告已经生成。本文不实现生产编译器、
@@ -32,14 +32,13 @@ Recommended Reference Machine，`P100`）；该硬件角色选择不改变研究
 - `../reference/compiler-calibration-workloads-v1.json`
 - `../reference/compiler-calibration-evidence-v1.schema.json`
 - `../reference/compiler-calibration-contract-v1.json`
-- [#292 编译器基础设施草案文件（PR #307，head `3b430e3`，待合入）](https://github.com/illusion-tech/laneflow/blob/3b430e37343949ea8511a6da0596d1795dadcf0d/docs/design/compiler-foundation.md)
+- `compiler-foundation.md`
 - [#308](https://github.com/illusion-tech/laneflow/issues/308)
 - [#292](https://github.com/illusion-tech/laneflow/issues/292)
 
-`compiler-foundation.md` 当前只存在于 #292 的兄弟分支，不能在本分支伪装成本地文件。
-本设计合入后，#292 必须先 rebase，再把上面的跨分支链接替换为本地
-`compiler-foundation.md` 互链并按第 11 节完成术语、工作负载和预算回写；该动作是
-#292 G1 的前置条件。
+#292 已在包含 #308 G4 证据的基线上完成 rebase，并以本地
+`compiler-foundation.md` 建立双向链接；第 11 节要求的术语、工作负载与预算回写
+已经进入 #292 G1 接受结果。本文继续保存研究证据边界，不与生产设计竞争权威。
 
 ## 术语规范
 
@@ -641,9 +640,9 @@ G1。
 规模或候选性能比较，只表示 #308 研究内核对上述三个夹具的静态结构/诊断对照。
 
 `LF-COMP-CURRENT-EQUIV-v1` 保留给 #292 的生产编译器、集成专用投影和当前态预言机
-端到端等价矩阵；#308 不定义或扩大它。#292 rebase 后必须让
-`compiler-foundation.md` 的工作负载表显式引用本设计和研究证据，并继续为生产矩阵
-冻结独立用例、投影记录、行为、事件与空间采样范围。研究夹具集合或生产投影集合任一
+端到端等价矩阵；#308 不定义或扩大它。#292 G1 已让 `compiler-foundation.md` 的
+工作负载表显式引用本设计和研究证据，并继续为生产矩阵冻结独立用例、投影记录、
+行为、事件与空间采样范围。研究夹具集合或生产投影集合任一
 发生变化，都必须提升各自的 workload revision，不得跨 ID 继承旧证据。
 
 ## 5. 规模发现与拐点规则
@@ -1955,9 +1954,9 @@ cargo +1.96.0 run --release --locked `
 - 哪些问题仍需生产真实实现、P100 正式产品测量、最低/替代硬件或中国特色城市工作
   负载证据。
 
-### 11.2 #292 可以冻结的内容
+### 11.2 #292 G1 已冻结的内容
 
-#308 已完成 G4；#292 G1 现在可以基于精确证据提交（exact evidence commit）冻结：
+#308 已完成 G4；#292 G1 已基于精确证据提交（Exact Evidence Commit）冻结：
 
 - 具名 `CompileLimits` 的精确限制与失败顺序；
 - 三个合成工作负载 × 三种模块图配置档的精确规模和回归用子集；
@@ -1966,15 +1965,15 @@ cargo +1.96.0 run --release --locked `
 - 冷实例、稳定容量复用、失败清理和拐点门槛；
 - 不泄漏到公共 API 的私有容器选择规则和拒绝服务边界。
 
-这些仍是编译器实现研究/回归输入，不自动成为产品 SLA。#292 对本证据的消费必须：
+这些仍是编译器实现研究/回归输入，不自动成为产品 SLA。#292 对本证据的消费已经：
 
-1. 保留 glossary 中通用生产术语的统一定义，不用研究定义覆盖
+1. 保留术语表中通用生产术语的统一定义，没有用研究定义覆盖
    “干净单工作线程编译”；
-2. 让 `compiler-foundation.md` 反向链接本设计和 exact evidence commit；
-3. 让三个合成 workload ID 引用本设计/清单，不复制第二套计数；
-4. 保留 `LF-COMP-CURRENT-EQUIV-v1` 的生产投影所有权，不与
+2. 让 `compiler-foundation.md` 反向链接本设计和精确证据提交；
+3. 让三个合成工作负载标识符引用本设计 / 清单，没有复制第二套计数；
+4. 保留 `LF-COMP-CURRENT-EQUIV-v1` 的生产投影所有权，没有与
    `LF-COMP-RESEARCH-CURRENT-FIXTURES-v1` 合并；
-5. 在自身 G1 验收清单登记上述回写完成。
+5. 在自身 G1 接受结果中登记上述回写完成。
 
 若 #292 的真实生产实现相对研究内核增加必要语义、验证或制品成本，必须在自身 G2/G3
 重新测量，不得直接继承研究绝对时延。
