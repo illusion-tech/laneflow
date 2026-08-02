@@ -11,8 +11,8 @@ Runtime）命名、静态执行约束（Static Execution Constraints）、不可
 **实现状态**: 未实现；当前态生产路径仍使用 Traffic v0.10 / SpatialPackage v0.1 /
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已重划为编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
-（Synthetic DSL Frontend）；#291 G1 前置条件已经满足，#292 仍须按自身 Gate
-完成实现设计与交付
+（Synthetic DSL Frontend）；#291 G1 前置条件已经满足，#292 G1 已接受实现设计，
+仍须按自身 Gate 完成 G2 开工、实现与最终交付
 
 **关联决策与设计**:
 
@@ -1774,8 +1774,8 @@ Cutover 前必须证明：
 - Data/current Core/target Traffic Runtime/Spatial/Adapter 文档清楚标注 current 与
   target；
 - #292 已重划为 compiler foundation + Synthetic DSL frontend；#291 G1 前置条件
-  已经满足，#292 仍须按自身 Gate 推进；当前 Project 状态和原生依赖关系不在长期
-  设计中镜像；
+  已经满足，#292 G1 已接受实现设计，G2、实现与最终交付仍须按自身 Gate 推进；
+  当前 Project 状态和原生依赖关系不在长期设计中镜像；
 - 阶段 8 生产切换、core→runtime 原子改名与旧路径移除由 #294 的 G4 独占，不再
   误绑到 #291 的设计交付 G4；
 - 标识 v1、artifact/image/profile/version/validation/performance contract 一致，所有

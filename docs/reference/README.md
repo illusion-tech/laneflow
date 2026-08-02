@@ -36,7 +36,7 @@
   Evidence v1 Schema 外部绑定证据 Schema 与工作负载清单的路径、版本、长度和
   SHA-256，正式验证必须先校验该描述符。
 - `v0.10-compiler-pilot-budget.md`：#308 在 R0 研究机上得到的九个基础规模冷实例临时
-  性能预算、来源、计算规则、正确性核对与禁止外推边界；供 #292 G1 冻结首轮实现预算。
+  性能预算、来源、计算规则、正确性核对与禁止外推边界；已供 #292 G1 冻结首轮实现预算。
 - `v0.10-compiler-pilot-budget.json`：上述临时预算的机器可读精确整数、七样本原始值、
   运行/预言机引用、语义摘要与来源检查点绑定；不是 Compiler Calibration Evidence v1。
 - `v0.10-compiler-budget-calibration-raw.json`：#308 R0 两批正式执行的逐次运行权威事实，

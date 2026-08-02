@@ -48,8 +48,9 @@
   进入运行世界，并保留 runtime snapshot/replay 与 routing 接入边界。该架构服务
   Accepted ADR 0021 的中国特色城市模拟游戏交通基础长期目标；目标设计被接受不表示
   已经实现，也不把城市经济或出行需求放入 Traffic Runtime。双语术语以
-  `../reference/glossary.md` 的中文定义为权威。#291 G1 前置条件已经满足；#292 仍须
-  按自身 Gate 推进，当前 Project 状态与原生依赖关系以 GitHub 为准。
+  `../reference/glossary.md` 的中文定义为权威。#291 G1 前置条件已经满足；#292 G1
+  已接受编译器基础设施实现设计，G2、实现与最终交付仍须按自身 Gate 推进，当前
+  Project 状态与原生依赖关系以 GitHub 为准。
 - `compiler-budget-calibration.md`：#308 已完成 G4 的一次性非生产编译器校准研究设计；冻结
   标识、走廊关系、密集路口和研究夹具对照工作负载，以及宽星形、深链、共享扇入
   三种模块图；用机器可读清单与证据 JSON Schema、至少五级规模阶梯、成本/内存拐点、校准/压力
