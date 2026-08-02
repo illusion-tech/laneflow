@@ -3411,6 +3411,32 @@ mod tests {
         assert_eq!(process.exit_code.value, Some(7));
     }
 
+    #[test]
+    fn parent_monitor_drains_large_child_output_before_exit() {
+        const LARGE_OUTPUT_BYTES: usize = 1024 * 1024;
+
+        let child = spawn_monitor_termination_helper("large-output");
+        let thresholds =
+            GuardThresholds::from_physical_memory_bytes(64 * 1_073_741_824).expect("thresholds");
+        let safe_observation = ChildProcessMemoryObservation {
+            private_bytes: thresholds.private_bytes - 1,
+            available_physical_memory_bytes: thresholds.minimum_available_physical_memory_bytes,
+        };
+        let execution =
+            run_monitored_child_with_observer(child, 0, thresholds, |_| Ok(Some(safe_observation)))
+                .expect("large child output must not block the parent monitor");
+        let MonitoredChildExecution::Exited {
+            output, monitor, ..
+        } = execution
+        else {
+            panic!("large child output must exit normally");
+        };
+        assert!(output.status.success());
+        assert_eq!(monitor.trigger, None);
+        assert!(output.stdout.iter().filter(|&&byte| byte == b'o').count() >= LARGE_OUTPUT_BYTES);
+        assert!(output.stderr.iter().filter(|&&byte| byte == b'e').count() >= LARGE_OUTPUT_BYTES);
+    }
+
     #[cfg(windows)]
     #[test]
     fn windows_job_close_terminates_and_reaps_the_contained_child() {
@@ -3469,6 +3495,16 @@ mod tests {
             .expect("helper waits for a parent start signal or process termination");
         if mode == "exit-7" {
             std::process::exit(7);
+        }
+        if mode == "large-output" {
+            const LARGE_OUTPUT_BYTES: usize = 1024 * 1024;
+            std::io::stdout()
+                .write_all(&vec![b'o'; LARGE_OUTPUT_BYTES])
+                .expect("write large stdout payload");
+            std::io::stderr()
+                .write_all(&vec![b'e'; LARGE_OUTPUT_BYTES])
+                .expect("write large stderr payload");
+            return;
         }
         thread::sleep(Duration::from_secs(60));
     }
