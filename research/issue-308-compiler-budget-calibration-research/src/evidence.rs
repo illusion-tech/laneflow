@@ -256,14 +256,16 @@ fn validate_binary_sources(
     binaries: &[crate::FormalBinarySourceSnapshot],
 ) -> Result<(), EvidenceError> {
     let mut binary_digests = BTreeMap::new();
+    let mut unique_digests = BTreeSet::new();
     for binary in binaries {
         if !is_sha256(&binary.sha256)
+            || !unique_digests.insert(binary.sha256.as_str())
             || binary_digests
                 .insert(binary.binary_id.as_str(), binary.sha256.as_str())
                 .is_some()
         {
             return Err(EvidenceError::InvalidCheckpoint(
-                "原始检查点二进制角色重复或摘要无效".to_owned(),
+                "原始检查点二进制角色/摘要重复或摘要无效".to_owned(),
             ));
         }
     }
@@ -1676,10 +1678,10 @@ pub enum EvidenceError {
 mod tests {
     use super::*;
 
-    fn binary_source(binary_id: &str) -> crate::FormalBinarySourceSnapshot {
+    fn binary_source(binary_id: &str, digest_byte: &str) -> crate::FormalBinarySourceSnapshot {
         crate::FormalBinarySourceSnapshot {
             binary_id: binary_id.to_owned(),
-            sha256: "01".repeat(32),
+            sha256: digest_byte.repeat(32),
         }
     }
 
@@ -1701,18 +1703,25 @@ mod tests {
     #[test]
     fn binary_sources_require_the_exact_roles_and_canonical_sha256() {
         let valid = [
-            binary_source(crate::TIMING_BINARY_ID),
-            binary_source(crate::ATTRIBUTION_BINARY_ID),
-            binary_source(crate::ORACLE_BINARY_ID),
+            binary_source(crate::TIMING_BINARY_ID, "01"),
+            binary_source(crate::ATTRIBUTION_BINARY_ID, "02"),
+            binary_source(crate::ORACLE_BINARY_ID, "03"),
         ];
         assert!(validate_binary_sources(&valid).is_ok());
 
         let duplicate = [
-            binary_source(crate::TIMING_BINARY_ID),
-            binary_source(crate::TIMING_BINARY_ID),
-            binary_source(crate::ORACLE_BINARY_ID),
+            binary_source(crate::TIMING_BINARY_ID, "01"),
+            binary_source(crate::TIMING_BINARY_ID, "02"),
+            binary_source(crate::ORACLE_BINARY_ID, "03"),
         ];
         assert!(validate_binary_sources(&duplicate).is_err());
+
+        let duplicate_digest = [
+            binary_source(crate::TIMING_BINARY_ID, "01"),
+            binary_source(crate::ATTRIBUTION_BINARY_ID, "01"),
+            binary_source(crate::ORACLE_BINARY_ID, "03"),
+        ];
+        assert!(validate_binary_sources(&duplicate_digest).is_err());
 
         let mut uppercase = valid.clone();
         uppercase[0].sha256 = "AB".repeat(32);
