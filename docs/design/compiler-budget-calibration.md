@@ -761,7 +761,8 @@ release 编译优化、输入清单和语义检查，但：
 
 - 非插桩时延进程使用正常分配器，只允许其墙钟值进入时延预算；
 - 插桩内存进程使用计数分配器，只允许其分配/存续/保留字节进入内存预算，其墙钟值
-  只作诊断；
+  只作诊断；父进程监控所得私有字节峰值只允许作为覆盖该子进程完整生命周期的
+  **完整进程样本（complete-process sample）**进入进程内存预算；
 - 性能分析器另用独立进程，时延和内存都不得混入正式预算。
 
 本次 R0 对每个自然身份固定执行 `B、2B、4B、8B、16B` 五级，并且只执行一次两批
@@ -806,6 +807,18 @@ release 编译优化、输入清单和语义检查，但：
 中位数是排序后中间项；轮次中位绝对偏差先对每项计算其与中位数的整数绝对差，再取
 这些绝对差的中位数。
 
+插桩内存进程中的每个冷实例/稳定容量复用样本还必须保存计数分配器在该次编译完成后
+的 `allocation.liveRequestedBytes`；它必须严格等于同一进程最终报告的
+`retainedCapacityBytes.total`，否则该轮无效。由此分别形成一个冷实例保留容量样本和
+七个稳定容量复用保留容量样本。父进程的 `peakPrivateBytes` 只能形成每轮一个
+`sampleKind = complete-process` 的归因模式样本，因为现有监控无法把完整进程峰值可靠
+拆给其中一次编译。不得把它复制成冷实例和复用两份数据。
+
+已发布 R0 原始检查点的 `FormalLadderExecution v6 analysis` 是测量时生成的派生缓存，
+只包含下节四项可触发拐点的分层。Evidence 写出器必须先把当前重算结果投影回这四项并
+与缓存精确比较，再从同一批原始运行中派生保留容量和完整进程私有内存预算；该兼容
+投影不改变任何原始观察，也不要求重新执行正式测量。
+
 正式阶梯批次汇总（ladder batch summary）必须按 `round = 0..4` 引用恰好五个轮次
 汇总，并对五个轮次中位数再次计算跨轮中位数和中位绝对偏差。上述样本数均为奇数，
 所以全部结果保持精确整数；算法标识符固定为
@@ -819,10 +832,13 @@ release 编译优化、输入清单和语义检查，但：
 
 - `wall-time-ns + timing + cold-instance` 与
   `wall-time-ns + timing + stable-capacity-reuse`，都除以该级主归一化记录数；
-- `peak-live-requested-bytes + memory` 的冷实例与稳定容量复用分层，都除以
+- `peak-live-requested-bytes + attribution` 的冷实例与稳定容量复用分层，都除以
   canonical LIR 形状输出记录数；
-- `private-bytes + memory` 与 `commit-peak-bytes + memory` 的冷实例与稳定容量复用
-  分层使用同一 canonical LIR 分母，但只作诊断，不直接触发拐点。
+- `retained-capacity-bytes + attribution` 的冷实例与稳定容量复用分层，以及
+  `private-bytes + attribution + complete-process` 分层，都使用同一 canonical LIR
+  分母并生成预算，但只作诊断，不直接触发拐点；
+- 当前 Windows 父进程协议没有记录提交峰值（commit peak）或工作集（working set），
+  所以 R0 不适用这些指标，不得依据 Schema 中允许的字段名补造数值。
 
 权威 JSON 的每条 `adjacentLevelRatios[]` 必须保存基线候选 ID、下级/上级各自完整
 `measurementStratum`、指标、批次、下级/上级正式阶梯批次汇总 ID、规范化基准、五个
@@ -849,8 +865,8 @@ batch 0 是候选发现批次，batch 1 是独立确认批次。某上级是**�
 - `peak-live-requested-bytes` 的五轮归一化比值全部大于等于 `1.05`，且比值中位数
   大于等于 `1.10`。
 
-`private-bytes` 与 `commit-peak-bytes` 的 `candidateKnee` 必须为 `false`，也不进入
-`knees[]`。每条可触发指标的相邻级别对必须生成一条拐点评估（knee assessment）：
+`retained-capacity-bytes` 与 `private-bytes` 的 `candidateKnee` 必须为 `false`，也不
+进入 `knees[]`。每条可触发指标的相邻级别对必须生成一条拐点评估（knee assessment）：
 保存基线候选、指标、下级/上级完整分层，以及分别由下级/上级正式阶梯批次汇总 ID
 组成的 batch 0 候选比值引用与 batch 1 确认比值引用。其规范身份是
 `(candidateId, metric, lowerStratum, upperStratum)`，不得再使用自由 ID。

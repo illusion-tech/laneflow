@@ -858,6 +858,12 @@ fn analyze_execution(
                         batch: run.batch,
                         round: run.round,
                         binary_mode: run.binary_mode,
+                        peak_private_bytes: run
+                            .monitor
+                            .peak_private_bytes
+                            .value
+                            .filter(|value| *value > 0)
+                            .ok_or(FormalLadderRunnerError::MissingPrivateBytes)?,
                         report: run.child.clone().ok_or(
                             FormalLadderRunnerError::MissingValidChildReport { n: level.n },
                         )?,
@@ -877,7 +883,9 @@ fn analyze_execution(
     if completed.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(analyze_formal_ladder(&completed)?))
+        Ok(Some(crate::ladder::formal_ladder_execution_v6_projection(
+            analyze_formal_ladder(&completed)?,
+        )))
     }
 }
 
