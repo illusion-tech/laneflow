@@ -730,20 +730,7 @@ pub fn audit_candidate_safety(
             enabled_features: package.features.iter().cloned().collect(),
         });
     }
-    let assessments = registry
-        .candidates
-        .iter()
-        .map(|candidate| CandidateSafetyAssessment {
-            candidate_id: candidate.id.clone(),
-            status: CandidateSafetyStatus::Passed,
-            evidence: if candidate.requires_third_party_safety_evidence() {
-                "cargo-deny-and-direct-package-metadata-passed-v1"
-            } else {
-                "not-applicable-no-third-party-component-v1"
-            }
-            .to_owned(),
-        })
-        .collect();
+    let assessments = expected_candidate_safety_assessments(trusted)?;
     Ok(CandidateSafetyAuditSnapshot {
         tool,
         command: command.to_owned(),
@@ -757,6 +744,25 @@ pub fn audit_candidate_safety(
         package_audits,
         assessments,
     })
+}
+
+pub(crate) fn expected_candidate_safety_assessments(
+    trusted: &TrustedContract,
+) -> Result<Vec<CandidateSafetyAssessment>, CandidateMatrixError> {
+    Ok(CandidateRegistry::from_trusted_contract(trusted)?
+        .candidates
+        .iter()
+        .map(|candidate| CandidateSafetyAssessment {
+            candidate_id: candidate.id.clone(),
+            status: CandidateSafetyStatus::Passed,
+            evidence: if candidate.requires_third_party_safety_evidence() {
+                "cargo-deny-and-direct-package-metadata-passed-v1"
+            } else {
+                "not-applicable-no-third-party-component-v1"
+            }
+            .to_owned(),
+        })
+        .collect())
 }
 
 #[derive(Debug)]
@@ -2094,7 +2100,6 @@ pub fn qualify_pipeline_candidate_roster_fresh_process(
         }
     }
     let registry = CandidateRegistry::from_trusted_contract(trusted)?;
-    let baseline_id = registry.baseline_id(key_domain)?.to_owned();
     let safety_by_candidate =
         resolved_safety_assessments(&registry, key_domain, safety_assessments)?;
     let mut system_memory_monitor = SystemMemoryMonitor::new()
@@ -2179,13 +2184,48 @@ pub fn qualify_pipeline_candidate_roster_fresh_process(
             )?);
         }
     }
+    let available_candidate_ids = registry
+        .candidates_for(key_domain)
+        .filter(|candidate| candidate_feature_available(&candidate.id))
+        .map(|candidate| candidate.id.clone())
+        .collect::<BTreeSet<_>>();
+    rebuild_pipeline_candidate_roster(
+        trusted,
+        stratum,
+        safety_assessments,
+        constant_hash_qualifications,
+        &available_candidate_ids,
+        oracle_run,
+        candidate_runs,
+    )
+}
+
+pub(crate) fn rebuild_pipeline_candidate_roster(
+    trusted: &TrustedContract,
+    stratum: CandidatePipelineStratum,
+    safety_assessments: &[CandidateSafetyAssessment],
+    constant_hash_qualifications: &[ConstantHashQualification],
+    available_candidate_ids: &BTreeSet<String>,
+    oracle_run: CandidatePipelineQualificationOracleRun,
+    candidate_runs: Vec<CandidatePipelineQualificationRun>,
+) -> Result<CandidatePipelineQualifiedRoster, CandidateMatrixError> {
+    let registry = CandidateRegistry::from_trusted_contract(trusted)?;
+    let baseline_id = registry.baseline_id(stratum.key_domain)?.to_owned();
+    let safety_by_candidate =
+        resolved_safety_assessments(&registry, stratum.key_domain, safety_assessments)?;
+    let oracle_run_id = oracle_run.run_id.clone();
+    let oracle_digest = oracle_run
+        .child
+        .as_ref()
+        .and_then(|child| child.semantic_digest_sha256.clone())
+        .filter(|_| oracle_run.status == RunStatus::Valid);
     let baseline_checksums = candidate_runs
         .iter()
         .find(|run| run.candidate_id == baseline_id && run.status == RunStatus::Valid)
         .and_then(|run| run.child.as_ref())
         .and_then(|child| child.candidate_pipeline_checksums);
     let mut entries = Vec::new();
-    for candidate in registry.candidates_for(key_domain) {
+    for candidate in registry.candidates_for(stratum.key_domain) {
         let safety = safety_by_candidate[candidate.id.as_str()];
         let run = candidate_runs
             .iter()
@@ -2206,7 +2246,7 @@ pub fn qualify_pipeline_candidate_roster_fresh_process(
                 entry.reason = Some("safety-qualification-unavailable".to_owned());
             }
             CandidateSafetyStatus::Passed => {
-                if !candidate_feature_available(&candidate.id) {
+                if !available_candidate_ids.contains(&candidate.id) {
                     entry.reason = Some("candidate-feature-unavailable".to_owned());
                 } else if oracle_digest.is_none() {
                     entry.reason = Some("exact-oracle-run-invalid".to_owned());
@@ -2390,7 +2430,7 @@ fn run_candidate_pipeline_qualification_child(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn validate_candidate_oracle_report(
+pub(crate) fn validate_candidate_oracle_report(
     report: &ScalableOracleChildReport,
     oracle_run_id: &str,
     workload_id: ScalableWorkloadId,
@@ -3249,7 +3289,7 @@ fn run_constant_hash_process(
     })
 }
 
-fn validate_constant_hash_child_report(
+pub(crate) fn validate_constant_hash_child_report(
     report: &ConstantHashChildReport,
     expected_binary: &str,
     candidate_id: &str,
@@ -3346,7 +3386,7 @@ fn validate_constant_hash_candidate(candidate_id: &str) -> Result<(), CandidateM
     Ok(())
 }
 
-fn build_constant_hash_qualification(
+pub(crate) fn build_constant_hash_qualification(
     candidate_id: &str,
     observations: Vec<ConstantHashObservation>,
 ) -> ConstantHashQualification {
