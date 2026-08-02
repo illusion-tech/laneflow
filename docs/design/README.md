@@ -50,7 +50,7 @@
   已经实现，也不把城市经济或出行需求放入 Traffic Runtime。双语术语以
   `../reference/glossary.md` 的中文定义为权威。#291 G1 前置条件已经满足；#292 仍须
   按自身 Gate 推进，当前 Project 状态与原生依赖关系以 GitHub 为准。
-- `compiler-budget-calibration.md`：#308 Draft 的非生产编译器校准研究设计；冻结
+- `compiler-budget-calibration.md`：#308 已完成 G4 的一次性非生产编译器校准研究设计；冻结
   标识、走廊关系、密集路口和研究夹具对照工作负载，以及宽星形、深链、共享扇入
   三种模块图；用机器可读清单与证据 JSON Schema、至少五级规模阶梯、成本/内存拐点、校准/压力
   规模、失败关闭停止护栏、冷实例/稳定容量复用、失败清理和平衡候选顺序形成可复现
@@ -61,8 +61,8 @@
   契约收窄为 `laneflow-static-contract`、`laneflow-compiler`、集成专用
   `laneflow-compiler-test-support`、有类型抽象语法树、HIR、MIR、已验证规范低层
   中间表示、已验证源映射输入、合成领域专用语言前端、标识 v1 首次实现、确定性
-  编译、诊断、迁移投影与编译器工作负载。该文档仍是草案（Draft），不构成 G2
-  开工授权。
+  编译、诊断、迁移投影与编译器工作负载，并以 #308 exact Evidence 冻结 P100 首轮
+  资源配置档和性能门槛。该文档仍是草案（Draft），不构成 G2 开工授权。
 
 ## 文档状态
 

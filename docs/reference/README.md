@@ -26,13 +26,13 @@
   辅助理解，当前完整覆盖 #291 编译器时代静态路网、Identity、制品/镜像、信任、
   Traffic Runtime、城市模拟游戏上层、执行规划、路网修订、快照/回放、Routing、
   Spatial 与 Adapter 术语。
-- `compiler-calibration-workloads-v1.json`：#308 Draft 的机器可读研究工作负载清单；
+- `compiler-calibration-workloads-v1.json`：#308 已完成研究的机器可读工作负载清单；
   冻结模块图、字符串/来源位置、identity 字段绑定、研究记录布局、精确计数、夹具
   摘要、失败变体与候选注册表，不是生产编译器 API 或产品容量声明。
-- `compiler-calibration-evidence-v1.schema.json`：#308 Draft 的研究证据 JSON Schema；
+- `compiler-calibration-evidence-v1.schema.json`：#308 已完成研究的证据 JSON Schema；
   冻结原始执行制品绑定、来源、环境、覆盖计数和紧凑派生结果封套；逐次运行只保存在
   被绑定的原始 JSON，Rust 验证器从原始事实独立重算整份 Evidence。
-- `compiler-calibration-contract-v1.json`：#308 Draft 的非自指研究契约描述符；从
+- `compiler-calibration-contract-v1.json`：#308 已完成研究的非自指契约描述符；从
   Evidence v1 Schema 外部绑定证据 Schema 与工作负载清单的路径、版本、长度和
   SHA-256，正式验证必须先校验该描述符。
 - `v0.10-compiler-pilot-budget.md`：#308 在 R0 研究机上得到的九个基础规模冷实例临时
