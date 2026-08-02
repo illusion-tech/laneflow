@@ -659,12 +659,16 @@ G1。
 新进程试运行样本（fresh-process pilot samples），并满足：
 
 - 七个有效样本的单次完整管线时延中位数不小于 `10000 * q`；
-- 时延中位绝对偏差除以中位数不大于 `2%`；
 - 七个输出语义摘要完全一致；
+- 独立预言机确认完整计数、完整有类型输出和语义摘要一致；
 - 未触发研究停止护栏。
 
-首个满足条件的二次幂 `N` 定义为该工作负载在该环境的 `B`。`10000 * q` 让时钟
-量化误差上界远小于 `2%` 稳定性阈值；两者是测量质量条件，不是性能预算。
+首个满足条件的二次幂 `N` 定义为该工作负载在该环境的 `B`。`10000 * q` 只保证单次
+完整管线相对本次观测时钟量子足够长，是选择规模的测量分辨率条件，不是性能预算。
+七样本的时延中位绝对偏差（MAD）仍须精确重算并保存，但只作为跨进程环境抖动诊断，
+不得参与 `B` 资格判断。跨进程抖动不是随 `N` 单调改善的工作负载属性；把 MAD 阈值
+作为资格条件会把一次环境噪声错误转换成更大的工作负载，并可能使至少五级正式阶梯在
+运维护栏内失去可行性。正式阶梯的 batch 0/1 两批五轮负责提供重复性证据。
 `B` 只由第 9.2 节的基线配置发现；其他候选必须复用同一组 `N`，不得为自己另选更
 有利的基准规模。
 
@@ -672,7 +676,7 @@ G1。
 `(candidateId, workloadId, workloadRevision, graphProfile, stringProfile,
 generatorVersion)`，其中候选固定为完整管线基线、字符串配置固定为
 `short-unique-v1`。`selectionRule` 固定为
-`first-power-of-two-qualifying-seven-pilot-runs-v1`；`pilotLevels[]` 若非空，必须从
+`first-power-of-two-clock-qualified-seven-pilot-runs-v2`；`pilotLevels[]` 若非空，必须从
 `N = 1` 开始按严格二倍递增，直到首次合格或下一候选受停止护栏阻止。
 
 `shared-prefix-256-v1` 与 `long-4096-v1` 不得建立 `baseScales[]` 记录；这些测量中
@@ -1626,7 +1630,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1322` exact bytes，SHA-256 为
-`ab873e66e4de807ea0999ca6acc04ee486f661c6462bcb3dfd22c5e2965a6d13`。该摘要是 PR/Gate
+`913c22cbeaf09535447e5c672dcae720cd6392ac72be808857ba3ad3d3fc94d0`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：
@@ -1645,8 +1649,8 @@ JSON exact-byte 长度与 SHA-256，形成从报告到权威证据的单向绑�
 
 `../reference/compiler-calibration-evidence-v1.schema.json` 冻结对象层级、字段类型、
 必需项、枚举、基数和 `null + reason` 表达；本节只解释主要语义，不替代 schema。
-G1 候选冻结 schema `227811` exact bytes，SHA-256 为
-`288d6503709cff920d5d783b16015f7dad500719a6979ccc654494661d7a0f11`。
+G1 候选冻结 schema `227816` exact bytes，SHA-256 为
+`e2cafe158bb66a55ef41fd1aedcd10e1e292bf02c426c5c0994f6f5da00e6e78`。
 顶层格式标识：
 
 ```text

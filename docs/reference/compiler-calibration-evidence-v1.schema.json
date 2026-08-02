@@ -7322,7 +7322,7 @@
                 "const": 1
               },
               "selectionRule": {
-                "const": "first-power-of-two-qualifying-seven-pilot-runs-v1"
+                "const": "first-power-of-two-clock-qualified-seven-pilot-runs-v2"
               },
               "pilotLevels": {
                 "type": "array",
