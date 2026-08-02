@@ -511,18 +511,33 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
 
 ## 5. 硬件与平台角色
 
-| 角色                      | 当前基线                                                                                                                                                                                                                                    | 用途与认证状态                                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| R0 Research reference     | 2026-07-31 历史研究环境：MECHREVO JIAOLONG；AMD Ryzen 9 9955HX 16C/32T；61.68 GiB；Windows 11 Pro Insider Preview build 29617；平衡电源计划；`x86_64-pc-windows-msvc`；Rust 1.96.0 / LLVM 22.1.2                                            | 延续 #212 与 #308 的配对优化、分析和编译器校准；只产生研究证据                  |
-| P10 Product minimum       | 具体设备/SKU、release OS、内存容量与数值内存上限均为 TBD                                                                                                                                                                                    | 一万产品 SLA 的最终认证平台；填入前保持 Uncertified                             |
-| P100 目标产品推荐参考机型 | 当前物理参考配置：MECHREVO JIAOLONG Series；AMD Ryzen 9 9955HX 16C/32T；64 GiB DDR5-5600（2 × 32 GiB，R0 时 OS 可见 61.68 GiB）；NVIDIA GeForce RTX 5070 Ti Laptop GPU 12227 MiB 与 AMD Radeon 集成显卡；产品 release OS 与数值内存上限 TBD | 目标产品推荐配置与十万扩展目标的最终认证平台；硬件已选定，Product Pass 仍待认证 |
-| O1 一百万 observation     | 暂用 P100                                                                                                                                                                                                                                   | 只记录 observation，不形成产品 SLA                                              |
+| 角色                      | 当前基线                                                                                                                                                                                                                                                                                                                                                      | 用途与认证状态                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| R0 Research reference     | 2026-07-31 历史研究环境：MECHREVO JIAOLONG；AMD Ryzen 9 9955HX 16C/32T；61.68 GiB；Windows 11 Pro Insider Preview build 29617；平衡电源计划；`x86_64-pc-windows-msvc`；Rust 1.96.0 / LLVM 22.1.2                                                                                                                                                              | 延续 #212 与 #308 的配对优化、分析和编译器校准；只产生研究证据                        |
+| P10 Product minimum       | 具体设备/SKU、release OS、内存容量与数值内存上限均为 TBD                                                                                                                                                                                                                                                                                                      | 一万产品 SLA 的最终认证平台；填入前保持 Uncertified                                   |
+| P100 目标产品推荐参考机型 | `referenceMachineId = LF-P100-REF-01`；`hardwareIdentitySha256 = a4992211b6e629e3f682e45ad9e58eca559aa4bfe452c6f7e1c2dec554afe949`；MECHREVO JIAOLONG Series；AMD Ryzen 9 9955HX 16C/32T；64 GiB DDR5-5600（2 × 32 GiB，R0 时 OS 可见 61.68 GiB）；NVIDIA GeForce RTX 5070 Ti Laptop GPU 12227 MiB 与 AMD Radeon 集成显卡；产品 release OS 与数值内存上限 TBD | 目标产品推荐配置与十万扩展目标的最终认证平台；具名物理机已选定，Product Pass 仍待认证 |
+| O1 一百万 observation     | 暂用 P100                                                                                                                                                                                                                                                                                                                                                     | 只记录 observation，不形成产品 SLA                                                    |
 
 2026-08-02，产品负责人选定当前物理机器为 P100。R0 与 P100 因而复用同一台硬件，
 但两种角色不合并：R0 保存某次研究的实际 OS、工具链、电源和固件环境；P100 保存目标产品的
 推荐硬件锚点。操作系统升级或工具链变化不会改变硬件角色，但每次正式认证仍须记录并冻结
 实际环境。独立显卡只用于完整机型识别；渲染器、资产和游戏宿主的图形预算不属于
 LaneFlow 性能门禁，不能由 #308 编译器证据或本文 Core 预算代替。
+
+P100 的具名物理机绑定规则冻结为 `laneflow-p100-hardware-identity-v1`：按下列顺序拼接
+UTF-8 文本且末尾不加换行，再计算 SHA-256；三个值均先去除首尾空白并转为大写。
+
+```text
+laneflow-p100-hardware-identity-v1
+smbiosUuid=<Win32_ComputerSystemProduct.UUID>
+biosSerial=<Win32_BIOS.SerialNumber>
+baseboardSerial=<Win32_BaseBoard.SerialNumber>
+```
+
+仓库只发布指纹，不保存或输出三个原始 SMBIOS 值。正式 P100 测量必须同时匹配
+`LF-P100-REF-01`、上述身份方案和完整 SHA-256；缺字段、指纹不符或仅配置相同均按替代
+机器处理，不能形成 P100 Product Pass。主板等维修导致指纹变化时，必须登记硬件变更并
+重新裁决资产标识，不能静默沿用。
 
 硬件和环境规则：
 

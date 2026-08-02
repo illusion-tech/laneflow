@@ -1078,7 +1078,8 @@ Schema 必须允许记录这些无效实验，但 G2 独立验证器不得把它
 2026-08-02，产品负责人又把同一物理配置选定为 P100 **目标产品推荐参考机型**：
 
 ```text
-设备: MECHREVO JIAOLONG Series 当前物理参考配置
+设备: LF-P100-REF-01；hardwareIdentitySha256=a4992211b6e629e3f682e45ad9e58eca559aa4bfe452c6f7e1c2dec554afe949
+机型: MECHREVO JIAOLONG Series 当前物理参考配置
 处理器: AMD Ryzen 9 9955HX, 16C/32T
 物理内存: 64 GiB DDR5-5600（2 × 32 GiB；R0 时 OS 可见 61.68 GiB）
 图形硬件: NVIDIA GeForce RTX 5070 Ti Laptop GPU 12227 MiB + AMD Radeon 集成显卡
