@@ -2520,7 +2520,7 @@ fn run_candidate_pipeline_process(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn validate_candidate_pipeline_report(
+pub(crate) fn validate_candidate_pipeline_report(
     report: &CandidatePipelineChildReport,
     compiler_instance_id: &str,
     candidate_id: &str,
@@ -2557,9 +2557,9 @@ fn valid_candidate_pipeline_payload(report: &CandidatePipelineChildReport) -> bo
             report.wall_time_ns.is_some_and(|value| value > 0)
                 && report.semantic_digest_sha256.is_some()
                 && report.candidate_pipeline_checksums.is_some()
-                && report
-                    .guard_peak_live_requested_bytes
-                    .is_some_and(|value| value > 0)
+                && report.guard_peak_live_requested_bytes.is_some_and(|value| {
+                    value > 0 && value <= report.controlled_allocation_hard_ceiling_bytes
+                })
                 && report.controlled_allocation_guard.is_none()
         }
         CandidatePipelineOutcome::GuardedInChild => {
@@ -2572,7 +2572,7 @@ fn valid_candidate_pipeline_payload(report: &CandidatePipelineChildReport) -> bo
     }
 }
 
-fn validate_pipeline_round_semantics(
+pub(crate) fn validate_pipeline_round_semantics(
     samples: &[CandidatePipelinePerformanceSample],
     baseline_id: &str,
 ) -> Result<(), CandidateMatrixError> {
