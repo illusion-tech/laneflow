@@ -5,8 +5,9 @@
 //! 关闭 stdin 和普通终止请求失败关闭。非 Windows 平台只用于开发测试；正式私有字节
 //! 监控会在护栏层拒绝这些平台。
 
-use std::io;
+use std::io::{self, Read};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Output};
+use std::thread::{self, JoinHandle};
 
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
@@ -18,6 +19,69 @@ pub(crate) struct ContainedChild {
     #[cfg(windows)]
     containment: Option<Job>,
     child: Child,
+    output_capture: OutputCapture,
+}
+
+#[derive(Debug)]
+struct OutputCapture {
+    stdout: Option<JoinHandle<io::Result<Vec<u8>>>>,
+    stderr: Option<JoinHandle<io::Result<Vec<u8>>>>,
+}
+
+impl OutputCapture {
+    fn start(child: &mut Child) -> io::Result<Self> {
+        let stdout = spawn_pipe_reader("laneflow-research-child-stdout", child.stdout.take())?;
+        let stderr = match spawn_pipe_reader("laneflow-research-child-stderr", child.stderr.take())
+        {
+            Ok(stderr) => stderr,
+            Err(source) => {
+                drop(child.stdin.take());
+                let _ = child.kill();
+                if let Some(stdout) = stdout {
+                    let _ = stdout.join();
+                }
+                return Err(source);
+            }
+        };
+        Ok(Self { stdout, stderr })
+    }
+
+    fn finish(self) -> io::Result<(Vec<u8>, Vec<u8>)> {
+        // 即使一路读取失败，也要确定性回收另一路读取线程；否则错误路径仍会遗留
+        // 未完成的父进程侧输出任务。
+        let stdout = join_pipe_reader("stdout", self.stdout);
+        let stderr = join_pipe_reader("stderr", self.stderr);
+        Ok((stdout?, stderr?))
+    }
+}
+
+fn spawn_pipe_reader<T>(
+    name: &'static str,
+    pipe: Option<T>,
+) -> io::Result<Option<JoinHandle<io::Result<Vec<u8>>>>>
+where
+    T: Read + Send + 'static,
+{
+    pipe.map(|mut pipe| {
+        thread::Builder::new().name(name.to_owned()).spawn(move || {
+            let mut bytes = Vec::new();
+            pipe.read_to_end(&mut bytes)?;
+            Ok(bytes)
+        })
+    })
+    .transpose()
+}
+
+fn join_pipe_reader(
+    name: &'static str,
+    reader: Option<JoinHandle<io::Result<Vec<u8>>>>,
+) -> io::Result<Vec<u8>> {
+    let Some(reader) = reader else {
+        return Ok(Vec::new());
+    };
+    reader
+        .join()
+        .map_err(|_| io::Error::other(format!("child {name} reader thread panicked")))?
 }
 
 impl ContainedChild {
@@ -35,15 +99,22 @@ impl ContainedChild {
                 let _ = child.kill();
                 return Err(io::Error::from(source));
             }
+            let output_capture = OutputCapture::start(&mut child)?;
             Ok(Self {
                 containment: Some(containment),
                 child,
+                output_capture,
             })
         }
 
         #[cfg(not(windows))]
         {
-            command.spawn().map(|child| Self { child })
+            let mut child = command.spawn()?;
+            let output_capture = OutputCapture::start(&mut child)?;
+            Ok(Self {
+                child,
+                output_capture,
+            })
         }
     }
 
@@ -84,13 +155,25 @@ impl ContainedChild {
 
     pub(crate) fn wait_with_output(self) -> io::Result<Output> {
         #[cfg(windows)]
-        let Self { containment, child } = self;
+        let Self {
+            containment,
+            mut child,
+            output_capture,
+        } = self;
         #[cfg(not(windows))]
-        let Self { child } = self;
+        let Self {
+            mut child,
+            output_capture,
+        } = self;
 
-        let output = child.wait_with_output();
+        let status = child.wait()?;
+        let (stdout, stderr) = output_capture.finish()?;
         #[cfg(windows)]
         drop(containment);
-        output
+        Ok(Output {
+            status,
+            stdout,
+            stderr,
+        })
     }
 }
