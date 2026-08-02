@@ -1,7 +1,7 @@
 # Core Runtime 产品性能基线
 
 **文档状态**: Accepted<br>
-**最后更新**: 2026-07-29<br>
+**最后更新**: 2026-08-02<br>
 **适用范围**: 当前 LaneFlow Core 车辆特化、目标 Traffic Runtime 多执行域、
 Spatial、Engine Adapter 的一万/十万产品目标、一百万研究包络，以及性能、保真度、
 硬件和证据协议<br>
@@ -30,15 +30,16 @@ Accepted ADR 0021 把中国特色城市模拟游戏交通基础定义为 LaneFlo
 吞吐代替单个大型城市世界的固定步进、屏障、边界交换和负载偏斜测量，更不能把车辆
 证据解释为非机动车、行人或轨道交通认证。
 
-本文不是硬件认证报告，也不把历史开发机数据升级为产品服务等级协议（product
-SLA）。必须区分：
+本文冻结目标产品推荐参考机型（Target Product Recommended Reference Machine，
+`P100`）的硬件选择，但不是硬件认证报告，也不把历史开发机数据升级为产品服务等级
+协议（product SLA）。必须区分：
 
 - **目标已定义**：本文已经给出规模、workload、预算、保真度和测量协议。
-- **Research evidence / Research Pass**：结果来自 R0 研究机，可以指导优化，但不能
-  代表最低或推荐产品硬件。
+- **Research evidence / Research Pass**：结果来自研究协议，可以指导优化；即使 R0
+  与 P100 使用同一台物理机器，也不能仅凭研究结果声明产品通过。
 - **Product Pass**：结果在对应 P10/P100 实机上按本文完整协议通过。
-- **Product TBD / Uncertified**：真实产品硬件或必要容差尚未确定，不能宣称通过或
-  失败。
+- **Product TBD / Uncertified**：对应产品硬件、正式运行环境、必要容差或完整协议尚
+  未全部冻结并验证，不能宣称通过或失败。
 
 因此，本文合入只表示产品基线契约可供下游依赖，不表示一万/十万已完成产品
 certification，也不表示一百万 microscopic realtime 已成为产品目标。
@@ -49,7 +50,7 @@ certification，也不表示一百万 microscopic realtime 已成为产品目标
 
 - 一万、十万、一百万的规模计数语义、交通执行域分解与当前车辆特化；
 - canonical synthetic workload 与 presentation selection；
-- 研究机、最低产品机、扩展参考机和一百万观察机的角色；
+- 研究机、最低产品机、目标产品推荐参考机型和一百万观察机的角色；
 - Core fixed tick、outer frame、Spatial+Adapter 与宿主剩余预算；
 - hard invariant、individual、presentation、aggregate fidelity；
 - latency、tail、allocation、retained memory、catch-up、失败重试和 profiler 证据；
@@ -510,26 +511,36 @@ cell/route/slot、把 transition 提前到 `B0`，或把 burst 扩散到 `B1` �
 
 ## 5. 硬件与平台角色
 
-| 角色                  | 当前基线                                                                                                                                                                | 用途与认证状态                                                       |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| R0 Research reference | MECHREVO JIAOLONG；AMD Ryzen 9 9955HX 16C/32T；61.68 GiB；Windows 11 Pro Insider Preview build 29617；平衡电源计划；`x86_64-pc-windows-msvc`；Rust 1.96.0 / LLVM 22.1.2 | 延续 #212 paired optimization 与 profiling；只产生 research evidence |
-| P10 Product minimum   | 具体设备/SKU、release OS、内存容量与数值内存上限均为 TBD                                                                                                                | 一万产品 SLA 的最终认证平台；填入前保持 Uncertified                  |
-| P100 Scale reference  | 具体设备/SKU、release OS、内存容量与数值内存上限均为 TBD                                                                                                                | 十万扩展目标的最终认证平台；填入前保持 Uncertified                   |
-| O1 一百万 observation | 暂用 R0                                                                                                                                                                 | 只记录 observation，不形成产品 SLA                                   |
+| 角色                      | 当前基线                                                                                                                                                                                                                                    | 用途与认证状态                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| R0 Research reference     | 2026-07-31 历史研究环境：MECHREVO JIAOLONG；AMD Ryzen 9 9955HX 16C/32T；61.68 GiB；Windows 11 Pro Insider Preview build 29617；平衡电源计划；`x86_64-pc-windows-msvc`；Rust 1.96.0 / LLVM 22.1.2                                            | 延续 #212 与 #308 的配对优化、分析和编译器校准；只产生研究证据                  |
+| P10 Product minimum       | 具体设备/SKU、release OS、内存容量与数值内存上限均为 TBD                                                                                                                                                                                    | 一万产品 SLA 的最终认证平台；填入前保持 Uncertified                             |
+| P100 目标产品推荐参考机型 | 当前物理参考配置：MECHREVO JIAOLONG Series；AMD Ryzen 9 9955HX 16C/32T；64 GiB DDR5-5600（2 × 32 GiB，R0 时 OS 可见 61.68 GiB）；NVIDIA GeForce RTX 5070 Ti Laptop GPU 12227 MiB 与 AMD Radeon 集成显卡；产品 release OS 与数值内存上限 TBD | 目标产品推荐配置与十万扩展目标的最终认证平台；硬件已选定，Product Pass 仍待认证 |
+| O1 一百万 observation     | 暂用 P100                                                                                                                                                                                                                                   | 只记录 observation，不形成产品 SLA                                              |
+
+2026-08-02，产品负责人选定当前物理机器为 P100。R0 与 P100 因而复用同一台硬件，
+但两种角色不合并：R0 保存某次研究的实际 OS、工具链、电源和固件环境；P100 保存目标产品的
+推荐硬件锚点。操作系统升级或工具链变化不会改变硬件角色，但每次正式认证仍须记录并冻结
+实际环境。独立显卡只用于完整机型识别；渲染器、资产和游戏宿主的图形预算不属于
+LaneFlow 性能门禁，不能由 #308 编译器证据或本文 Core 预算代替。
 
 硬件和环境规则：
 
 - 当前第一参考平台只覆盖 Windows x86-64。Linux、macOS、Web、移动端必须分别
-  建立平台基线，不能从 R0 外推。
-- R0 可以报告绝对实验室数值和 paired relative gain；Insider OS、笔记本热/功耗
-  状态与平衡电源计划使其不能代表 product minimum。
-- P10/P100 必须绑定具体设备或固定 SKU，不能只写核心数和标称 GHz。
+  建立平台基线，不能从 R0 或 P100 外推。
+- R0 可以报告绝对实验室数值和配对相对收益；历史 R0 使用 Insider OS、笔记本热/功耗
+  状态与平衡电源计划，因此不会因同机后来被选为 P100 而追溯获得 Product Pass，也
+  不能代表最低产品机。
+- P10 必须绑定具体设备或固定 SKU，不能只写核心数和标称 GHz。P100 已绑定当前物理
+  参考配置；商业同系列、同名 CPU 或宣称等效的替代机型不会自动继承该角色，必须以
+  同一产品工作负载完成对照验证。
 - 不通过人为限频或减少核心数模拟 P10/P100；这类结果只能标记为 sensitivity
   experiment。
 - 产品认证必须记录 AC/电池、厂商性能模式、Windows 电源计划、OS build、
   BIOS/firmware、CPU、内存配置和工具链。
 - 所有规模均报告 retained memory、working set、private bytes 与 commit peak。
-- P10/P100 未落实真实设备前，可以继续优化研究，但不得发布一万/十万产品 SLA。
+- P10 未落实真实设备、P100 未完成支持的 release OS 与完整产品协议认证前，可以继续
+  优化研究，但不得发布一万/十万产品 SLA。
 
 ## 6. Tick、frame budget 与责任边界
 
@@ -733,10 +744,10 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 
 | 分类              | 必要条件                                                                 | 允许的声明                             |
 | ----------------- | ------------------------------------------------------------------------ | -------------------------------------- |
-| `Research Pass`   | R0 按第 6–8 节通过，但 P10/P100 未填写                                   | 可以指导优化；不得发布产品 SLA         |
+| `Research Pass`   | 研究协议通过，但未在相应产品角色上完成第 4–8 节完整认证                  | 可以指导优化；不得发布产品 SLA         |
 | `Product Pass`    | 对应 P10/P100 实机通过 performance、fidelity 与完整 protocol             | 可以声明对应硬件和 workload 的产品结果 |
 | `Candidate No-go` | hard invariant、fidelity、determinism、atomicity 或 integrated Gate 失败 | 只否决该候选，不终止整个性能方向       |
-| `Product TBD`     | 真实硬件或必要 tolerance 尚未定义                                        | 不得伪装为 Pass 或 No-go               |
+| `Product TBD`     | 对应硬件、正式环境、必要容差或完整协议尚未全部冻结并验证                 | 不得伪装为 Pass 或 No-go               |
 
 产品报告必须同时写明：规模五计数、workload、硬件角色、cadence、presentation
 比例、classification 与未决项。只给一个“支持十万”的数字不符合本文契约。
@@ -781,15 +792,15 @@ p50/p95/p99/max；W2 只报告 Core tick p50/p95/p99/max。普通帧、catch-up 
 TBD 是显式停止条件，不是可以用开发机推测值填补的空白。每项必须记录未决原因、
 禁止声明、解除触发和 owner。
 
-| TBD                                                          | 未决原因                              | 当前禁止的声明                                           | 解除触发                                         | Owner / 后续承载                      |
-| ------------------------------------------------------------ | ------------------------------------- | -------------------------------------------------------- | ------------------------------------------------ | ------------------------------------- |
-| P10 具体设备/SKU、release OS、内存与数值内存上限             | 尚未选定最低产品设备                  | 一万 Product Pass / SLA                                  | 设备确定并完成第 4–8 节 integrated certification | `wangzishi`；后续 certification Issue |
-| P100 具体设备/SKU、release OS、内存与数值内存上限            | 尚未选定 scale reference              | 十万 Product Pass / SLA                                  | 设备确定并完成第 4–8 节 integrated certification | `wangzishi`；后续 certification Issue |
-| Presentation interpolation/extrapolation 与 visual tolerance | 当前只冻结 committed sample exact     | 视觉平滑度 SLA、插值误差承诺                             | 独立 G1 冻结算法、authority 与容差               | `wangzishi`；独立 design Issue        |
-| Aggregate model 与非守恒数值 tolerance                       | Aggregate 尚未触发，也未选择模型      | aggregate fidelity、一百万 realtime 或无损 identity 声明 | 第 10 节 trigger 满足并完成独立 G1/ADR           | `wangzishi`；未来 aggregate Issue     |
-| Linux/macOS/Web/mobile 平台基线                              | 当前只有 Windows x86-64 R0            | 对这些平台外推一万/十万 SLA                              | 每个平台分别确定硬件/runtime 并运行完整适用协议  | `wangzishi`；平台专用 Issue           |
-| 真实路网 converter、Release 制品、harness 与结果             | #224 已冻结设计，但尚未交付可执行链路 | real-road Product Pass、真实城市 workload SLA            | #224 G4 后的 A–C 完成制品、harness 与对应证据    | `wangzishi`；#224 与下游 A–C          |
-| 中国特色城市拓扑/需求/运行时工作负载                         | 尚未完成独立 G1 与工作负载 ID         | 中国特色城市代表性或 Product Pass                        | 冻结场景、来源、规模、摘要、harness 与硬件证据   | `wangzishi`；后继城市工作负载 Issue   |
+| TBD                                                          | 未决原因                                       | 当前禁止的声明                                           | 解除触发                                         | Owner / 后续承载                      |
+| ------------------------------------------------------------ | ---------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------ | ------------------------------------- |
+| P10 具体设备/SKU、release OS、内存与数值内存上限             | 尚未选定最低产品设备                           | 一万 Product Pass / SLA                                  | 设备确定并完成第 4–8 节 integrated certification | `wangzishi`；后续 certification Issue |
+| P100 支持的 release OS、固件基线与数值内存上限               | 推荐硬件已选定，认证运行环境和数值上限尚未冻结 | 十万 Product Pass / SLA                                  | 在 P100 完成第 4–8 节 integrated certification   | `wangzishi`；后续 certification Issue |
+| Presentation interpolation/extrapolation 与 visual tolerance | 当前只冻结 committed sample exact              | 视觉平滑度 SLA、插值误差承诺                             | 独立 G1 冻结算法、authority 与容差               | `wangzishi`；独立 design Issue        |
+| Aggregate model 与非守恒数值 tolerance                       | Aggregate 尚未触发，也未选择模型               | aggregate fidelity、一百万 realtime 或无损 identity 声明 | 第 10 节 trigger 满足并完成独立 G1/ADR           | `wangzishi`；未来 aggregate Issue     |
+| Linux/macOS/Web/mobile 平台基线                              | 当前只有 Windows x86-64 的 R0/P100             | 对这些平台外推一万/十万 SLA                              | 每个平台分别确定硬件/runtime 并运行完整适用协议  | `wangzishi`；平台专用 Issue           |
+| 真实路网 converter、Release 制品、harness 与结果             | #224 已冻结设计，但尚未交付可执行链路          | real-road Product Pass、真实城市 workload SLA            | #224 G4 后的 A–C 完成制品、harness 与对应证据    | `wangzishi`；#224 与下游 A–C          |
+| 中国特色城市拓扑/需求/运行时工作负载                         | 尚未完成独立 G1 与工作负载 ID                  | 中国特色城市代表性或 Product Pass                        | 冻结场景、来源、规模、摘要、harness 与硬件证据   | `wangzishi`；后继城市工作负载 Issue   |
 
 后续 Issue 可以接管某个 TBD，但在长期文档更新前，原 claim restriction 继续有效。
 

@@ -9,7 +9,7 @@
 初始阶段建议逐步补齐：
 
 - `core-runtime.md`：Core runtime、tick、vehicle state 和系统边界。
-- `core-runtime-performance-baseline.md`：#215 Accepted 的当前道路机动车一万/十万产品目标与一百万研究包络；冻结 current 五项车辆计数、`LF-SYNTH-v1` 确定性拓扑、W1–W4 workload、R0/P10/P100/O1 硬件角色、tick/frame budget、fidelity、benchmark protocol、TBD 与架构升级触发；#291 已接受交通参与单元、交通执行域与六类分域目标计数，但在目标态实现与性能基准完成显式迁移前，它们不改写 current Product Pass、工作负载或历史证据。
+- `core-runtime-performance-baseline.md`：#215 Accepted 的当前道路机动车一万/十万产品目标与一百万研究包络；冻结 current 五项车辆计数、`LF-SYNTH-v1` 确定性拓扑、W1–W4 workload、R0/P10/P100/O1 硬件角色、tick/frame budget、fidelity、benchmark protocol、TBD 与架构升级触发；2026-08-02 已把当前物理配置选定为 P100 目标产品推荐参考机型，但同机 R0 研究证据不自动成为 Product Pass；#291 已接受交通参与单元、交通执行域与六类分域目标计数，但在目标态实现与性能基准完成显式迁移前，它们不改写 current Product Pass、工作负载或历史证据。
 - `real-road-workloads.md`：#224 Accepted 的 LuST v2.0 真实路网契约；冻结 source/provenance、共享静态转换、精确一万 selection、`LF-REAL-LUST-TOPO-v1` 与 `LF-REAL-LUST-DEMAND-v1`、oracle/digest、Release 制品与 fail-closed 边界。它只补充 `LF-SYNTH-v1`，不等于真实路网 Product Pass。
 - `lust-bevy-population-control.md`：#256 Accepted 的 LuST/Bevy 示例层一至一万个体人口调节契约；冻结 H1/H2/手动 H3、连续 `target_N`、seeded 无放回抽样、缩编分层与 100% presentation 默认；由 #257 实现，不改写 TOPO/DEMAND workload ID。
 - `core-runtime-scalability-audit.md`：#72/#199 的城市级可扩展性前置审计；区分当前
@@ -54,8 +54,9 @@
   标识、走廊关系、密集路口和研究夹具对照工作负载，以及宽星形、深链、共享扇入
   三种模块图；用机器可读清单与证据 JSON Schema、至少五级规模阶梯、成本/内存拐点、校准/压力
   规模、失败关闭停止护栏、冷实例/稳定容量复用、失败清理和平衡候选顺序形成可复现
-  证据。它只为 #292 G1 提供 R0 研究输入，不实现生产编译器、不复用
-  `LF-COMP-CURRENT-EQUIV-v1`、不表示真实城市容量，也不形成产品 SLA。
+  证据。它只为 #292 G1 提供 P100 同机 R0 研究输入，不实现生产编译器、不复用
+  `LF-COMP-CURRENT-EQUIV-v1`、不表示真实城市容量，也不形成产品 SLA；P100 的
+  推荐硬件角色由产品负责人独立选定，不是本研究从结果外推的结论。
 
 ## 文档状态
 
