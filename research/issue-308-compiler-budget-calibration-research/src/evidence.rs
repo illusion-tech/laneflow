@@ -52,7 +52,6 @@ pub struct EvidenceVerificationReport {
     pub base_scale_count: usize,
     pub formal_ladder_count: usize,
     pub completed_formal_level_count: u64,
-    pub growth_slope_count: usize,
     pub budget_recommendation_count: usize,
     pub candidate_classification_count: usize,
 }
@@ -130,7 +129,8 @@ fn build_document(
     raw_sha256: &str,
 ) -> Result<Value, EvidenceError> {
     validate_source(checkpoint)?;
-    validate_base_scales(trusted, checkpoint)?;
+    crate::pilot_budget::validate_base_scale_pilot(&checkpoint.base_scale_pilot)
+        .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
     let fixture_verification = verify_current_fixtures_oracle(trusted)
         .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
     let fixture_child =
@@ -146,7 +146,6 @@ fn build_document(
     }
 
     let analyses = recompute_formal_analyses(trusted, checkpoint)?;
-    let growth_slopes = derive_growth_slopes(&analyses)?;
     let (envelopes, budgets) =
         derive_budgets(&analyses, checkpoint.base_scale_pilot.clock_quantum_ns)?;
     let candidate_matrix = checkpoint
@@ -207,7 +206,6 @@ fn build_document(
             },
             "baseScaleSelections": checkpoint.base_scale_pilot.selections,
             "formalLadders": analyses,
-            "growthSlopes": growth_slopes,
             "reproducibilityEnvelopes": envelopes,
             "budgetRecommendations": budgets,
             "limitQualification": {
@@ -232,6 +230,7 @@ fn build_document(
 fn validate_source(checkpoint: &FormalProtocolCheckpoint) -> Result<(), EvidenceError> {
     if checkpoint.schema != FORMAL_PROTOCOL_CHECKPOINT_SCHEMA
         || checkpoint.schema_version != FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION
+        || checkpoint.protocol_id != crate::FORMAL_PROTOCOL_ID
         || checkpoint.source.dirty
         || !is_git_commit(&checkpoint.source.source_commit)
         || !is_git_commit(&checkpoint.source.harness_commit)
@@ -250,7 +249,34 @@ fn validate_source(checkpoint: &FormalProtocolCheckpoint) -> Result<(), Evidence
             "原始检查点 Cargo.lock 绑定不匹配".to_owned(),
         ));
     }
-    if checkpoint.source.binaries.len() != 3 {
+    validate_binary_sources(&checkpoint.source.binaries)
+}
+
+fn validate_binary_sources(
+    binaries: &[crate::FormalBinarySourceSnapshot],
+) -> Result<(), EvidenceError> {
+    let mut binary_digests = BTreeMap::new();
+    for binary in binaries {
+        if !is_sha256(&binary.sha256)
+            || binary_digests
+                .insert(binary.binary_id.as_str(), binary.sha256.as_str())
+                .is_some()
+        {
+            return Err(EvidenceError::InvalidCheckpoint(
+                "原始检查点二进制角色重复或摘要无效".to_owned(),
+            ));
+        }
+    }
+    let expected_binary_ids = [
+        crate::TIMING_BINARY_ID,
+        crate::ATTRIBUTION_BINARY_ID,
+        crate::ORACLE_BINARY_ID,
+    ];
+    if binary_digests.len() != expected_binary_ids.len()
+        || expected_binary_ids
+            .iter()
+            .any(|binary_id| !binary_digests.contains_key(binary_id))
+    {
         return Err(EvidenceError::InvalidCheckpoint(
             "原始检查点没有精确绑定三个研究二进制".to_owned(),
         ));
@@ -265,134 +291,24 @@ fn is_git_commit(value: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
-fn validate_base_scales(
-    trusted: &TrustedContract,
-    checkpoint: &FormalProtocolCheckpoint,
-) -> Result<(), EvidenceError> {
-    for selection in &checkpoint.base_scale_pilot.selections {
-        let expected_b = selection
-            .pilot_levels
-            .iter()
-            .find(|level| level.qualifies)
-            .map(|level| level.n);
-        if selection.b.value != expected_b {
-            return Err(EvidenceError::InvalidCheckpoint(format!(
-                "基础规模 {} / {} 不是第一个合格规模",
-                selection.workload_id.as_str(),
-                selection.graph_profile
-            )));
-        }
-        for level in &selection.pilot_levels {
-            let mut walls = Vec::new();
-            let mut digests = Vec::new();
-            let mut timing_guards_clear = true;
-            for run_id in &level.contributing_run_ids {
-                let mut matching = checkpoint
-                    .base_scale_pilot
-                    .runs
-                    .iter()
-                    .filter(|run| &run.run_id == run_id);
-                let run = matching.next().ok_or_else(|| {
-                    EvidenceError::InvalidCheckpoint(format!("基础规模缺少运行 {run_id}"))
-                })?;
-                if matching.next().is_some() || run.status != RunStatus::Valid {
-                    return Err(EvidenceError::InvalidCheckpoint(format!(
-                        "基础规模运行 {run_id} 不唯一或无效"
-                    )));
-                }
-                let child = run.child.as_ref().ok_or_else(|| {
-                    EvidenceError::InvalidCheckpoint(format!("基础规模运行 {run_id} 缺少报告"))
-                })?;
-                walls.push(child.wall_time_ns.ok_or_else(|| {
-                    EvidenceError::InvalidCheckpoint(format!("基础规模运行 {run_id} 缺少墙钟"))
-                })?);
-                digests.push(child.semantic_digest_sha256.as_deref().ok_or_else(|| {
-                    EvidenceError::InvalidCheckpoint(format!("基础规模运行 {run_id} 缺少语义摘要"))
-                })?);
-                timing_guards_clear &= run.guard_preflight.allows_child_start;
-            }
-            if walls.len() != crate::FRESH_PROCESS_PILOT_SAMPLE_COUNT {
-                return Err(EvidenceError::InvalidCheckpoint(format!(
-                    "基础规模 N={} 不是精确七样本",
-                    level.n
-                )));
-            }
-            let median = median_u64(&walls)?;
-            let deviations = walls
-                .iter()
-                .map(|value| value.abs_diff(median))
-                .collect::<Vec<_>>();
-            let mut oracle_runs = checkpoint
-                .base_scale_pilot
-                .oracle_runs
-                .iter()
-                .filter(|run| run.run_id == level.oracle_run_id);
-            let oracle = oracle_runs.next().ok_or_else(|| {
-                EvidenceError::InvalidCheckpoint(format!("基础规模 N={} 缺少预言机运行", level.n))
-            })?;
-            let oracle_child = oracle.child.as_ref().ok_or_else(|| {
-                EvidenceError::InvalidCheckpoint(format!("基础规模 N={} 缺少预言机报告", level.n))
-            })?;
-            let independent_oracle = crate::verify_scalable_oracle_child(
-                trusted,
-                oracle_child.oracle_run_id.clone(),
-                selection.workload_id,
-                parse_graph_profile(&selection.graph_profile)?,
-                level.n,
-                oracle_child.controlled_allocation_hard_ceiling_bytes,
-            )
-            .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
-            let semantic_digest = digests.first().copied().ok_or_else(|| {
-                EvidenceError::InvalidCheckpoint("基础规模缺少语义摘要".to_owned())
-            })?;
-            let all_semantic_digests_equal =
-                digests.iter().all(|digest| *digest == semantic_digest);
-            let all_guards_clear = timing_guards_clear
-                && oracle.guard_preflight.allows_child_start
-                && oracle.status == RunStatus::Valid;
-            let qualifies = median >= level.minimum_reliable_wall_time_ns
-                && all_semantic_digests_equal
-                && oracle_child.complete_counts_equal
-                && oracle_child.complete_typed_output_equal
-                && all_guards_clear;
-            if oracle_runs.next().is_some()
-                || level.minimum_reliable_wall_time_ns
-                    != checkpoint.base_scale_pilot.required_median_wall_time_ns
-                || median != level.wall_time_median_ns
-                || median_u64(&deviations)? != level.wall_time_median_absolute_deviation_ns
-                || level.semantic_digest != semantic_digest
-                || level.all_semantic_digests_equal != all_semantic_digests_equal
-                || oracle_child.semantic_digest_sha256.as_deref() != Some(semantic_digest)
-                || level.oracle_semantic_digest
-                    != oracle_child
-                        .semantic_digest_sha256
-                        .as_deref()
-                        .unwrap_or_default()
-                || level.complete_counts_equal != oracle_child.complete_counts_equal
-                || level.complete_typed_output_equal != oracle_child.complete_typed_output_equal
-                || level.all_guards_clear != all_guards_clear
-                || level.qualifies != qualifies
-                || independent_oracle.outcome != oracle_child.outcome
-                || independent_oracle.primary_record_count != oracle_child.primary_record_count
-                || independent_oracle.semantic_digest_sha256 != oracle_child.semantic_digest_sha256
-                || independent_oracle.complete_counts_equal != oracle_child.complete_counts_equal
-                || independent_oracle.complete_typed_output_equal
-                    != oracle_child.complete_typed_output_equal
-            {
-                return Err(EvidenceError::InvalidCheckpoint(format!(
-                    "基础规模 N={} 的中位数或 MAD 无法复算",
-                    level.n
-                )));
-            }
-        }
-    }
-    Ok(())
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 fn recompute_formal_analyses(
     trusted: &TrustedContract,
     checkpoint: &FormalProtocolCheckpoint,
 ) -> Result<Vec<Value>, EvidenceError> {
+    if checkpoint.active_formal_ladder.is_some()
+        || checkpoint.formal_ladders.len() != checkpoint.base_scale_pilot.selections.len()
+    {
+        return Err(EvidenceError::InvalidCheckpoint(
+            "正式阶梯集合尚未完整结束".to_owned(),
+        ));
+    }
     let plans = crate::ScalableStagePlanFactory::from_trusted_contract(trusted)
         .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
     checkpoint
@@ -400,11 +316,41 @@ fn recompute_formal_analyses(
         .iter()
         .map(|ladder| {
             let graph_profile = parse_graph_profile(&ladder.graph_profile)?;
+            if ladder.schema != crate::FORMAL_LADDER_EXECUTION_SCHEMA
+                || ladder.schema_version != crate::FORMAL_LADDER_EXECUTION_SCHEMA_VERSION
+                || ladder.candidate_id != crate::BASELINE_CANDIDATE_ID
+                || ladder.workload_revision != crate::WORKLOAD_REVISION_V1
+                || ladder.string_profile != crate::BASE_SCALE_STRING_PROFILE
+                || ladder.generator_version != crate::GENERATOR_VERSION_V1
+                || ladder.b == 0
+                || ladder.disposition != crate::FormalLadderExecutionDisposition::Complete
+                || ladder.terminal_guard_preflight.is_some()
+                || ladder.levels.len() != crate::FORMAL_LADDER_MINIMUM_LEVEL_COUNT
+                || ladder.levels.iter().any(|level| !level.complete)
+            {
+                return Err(EvidenceError::InvalidCheckpoint(format!(
+                    "正式阶梯 {} / {} 的执行封套不完整",
+                    ladder.workload_id.as_str(),
+                    ladder.graph_profile
+                )));
+            }
             let completed = ladder
                 .levels
                 .iter()
-                .filter(|level| level.complete)
                 .map(|level| {
+                    let expected_formal_run_count = (crate::FORMAL_LADDER_BATCH_COUNT
+                        * crate::FORMAL_LADDER_ROUND_COUNT
+                        * 2) as usize;
+                    if !level.guard_preflight.allows_child_start
+                        || !level.guard_preflight.triggers.is_empty()
+                        || level.completed_guard_observation.is_none()
+                        || level.formal_runs.len() != expected_formal_run_count
+                    {
+                        return Err(EvidenceError::InvalidCheckpoint(format!(
+                            "正式阶梯 N={} 的级别封套不完整",
+                            level.n
+                        )));
+                    }
                     let plan = plans
                         .plan(ladder.workload_id, graph_profile, level.n)
                         .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
@@ -417,6 +363,8 @@ fn recompute_formal_analyses(
                             level.n
                         )));
                     }
+                    let expected_digest =
+                        validate_formal_level_preflight(checkpoint, ladder, level, graph_profile)?;
                     let oracle = level.oracle.as_ref().ok_or_else(|| {
                         EvidenceError::InvalidCheckpoint(format!(
                             "正式阶梯 N={} 缺少预言机运行",
@@ -429,6 +377,22 @@ fn recompute_formal_analyses(
                             level.n
                         ))
                     })?;
+                    let expected_oracle_run_id = format!(
+                        "formal/{}/{}/n-{}/oracle",
+                        ladder.workload_id.as_str(),
+                        ladder.graph_profile,
+                        level.n
+                    );
+                    validate_formal_oracle_envelope(
+                        checkpoint,
+                        ladder,
+                        level,
+                        oracle,
+                        oracle_child,
+                        graph_profile,
+                        &expected_oracle_run_id,
+                        &expected_digest,
+                    )?;
                     let independent_oracle = crate::verify_scalable_oracle_child(
                         trusted,
                         oracle_child.oracle_run_id.clone(),
@@ -438,8 +402,7 @@ fn recompute_formal_analyses(
                         oracle_child.controlled_allocation_hard_ceiling_bytes,
                     )
                     .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
-                    if oracle.status != RunStatus::Valid
-                        || independent_oracle.outcome != oracle_child.outcome
+                    if independent_oracle.outcome != oracle_child.outcome
                         || independent_oracle.primary_record_count
                             != oracle_child.primary_record_count
                         || independent_oracle.semantic_digest_sha256
@@ -452,21 +415,18 @@ fn recompute_formal_analyses(
                             level.n
                         )));
                     }
+                    validate_completed_guard_observation(level, oracle_child)?;
                     let runs = level
                         .formal_runs
                         .iter()
                         .map(|run| {
-                            Ok(FormalLadderRoundRun {
-                                batch: run.batch,
-                                round: run.round,
-                                binary_mode: run.binary_mode,
-                                report: run.child.clone().ok_or_else(|| {
-                                    EvidenceError::InvalidCheckpoint(format!(
-                                        "正式阶梯 N={} 缺少子进程报告",
-                                        level.n
-                                    ))
-                                })?,
-                            })
+                            validate_formal_round_envelope(
+                                checkpoint,
+                                ladder,
+                                level,
+                                run,
+                                &expected_digest,
+                            )
                         })
                         .collect::<Result<Vec<_>, EvidenceError>>()?;
                     Ok(FormalLadderCompletedLevel {
@@ -503,6 +463,329 @@ fn recompute_formal_analyses(
             }))
         })
         .collect()
+}
+
+fn validate_formal_level_preflight(
+    checkpoint: &FormalProtocolCheckpoint,
+    ladder: &crate::FormalLadderExecution,
+    level: &crate::FormalLadderLevelExecution,
+    graph_profile: crate::GraphProfileId,
+) -> Result<String, EvidenceError> {
+    let attribution = level.attribution_preflight.as_ref().ok_or_else(|| {
+        EvidenceError::InvalidCheckpoint(format!("正式阶梯 N={} 缺少归因预检运行", level.n))
+    })?;
+    let attribution_child = attribution.child.as_ref().ok_or_else(|| {
+        EvidenceError::InvalidCheckpoint(format!("正式阶梯 N={} 缺少归因预检报告", level.n))
+    })?;
+    let expected_attribution_id = format!(
+        "formal/{}/{}/n-{}/attribution-preflight",
+        ladder.workload_id.as_str(),
+        ladder.graph_profile,
+        level.n
+    );
+    if attribution.run_id != expected_attribution_id
+        || attribution.status != RunStatus::Valid
+        || !attribution.invalidation_reasons.is_empty()
+        || attribution.kill_error.is_some()
+        || attribution.monitor_error.is_some()
+        || attribution_child.outcome != crate::ScalableAttributionOutcome::Success
+        || !external_state_is_clear(attribution.external_state.as_ref(), checkpoint)
+        || !crate::pilot_budget::successful_process(
+            &attribution.process,
+            crate::ATTRIBUTION_BINARY_ID,
+            attribution_child.child_pid,
+        )
+    {
+        return Err(EvidenceError::InvalidCheckpoint(format!(
+            "正式阶梯 N={} 的归因预检进程封套无效",
+            level.n
+        )));
+    }
+    crate::ladder_runner::validate_attribution_preflight(
+        attribution_child,
+        &attribution.compiler_instance_id,
+        ladder.workload_id,
+        graph_profile,
+        level.n,
+        level.guard_preflight.thresholds.compiler_controlled_bytes,
+    )
+    .map_err(EvidenceError::InvalidCheckpoint)?;
+    crate::pilot_budget::validate_clear_monitor(
+        Some(&attribution.monitor),
+        &level.guard_preflight,
+        None,
+        attribution.kill_error.as_deref(),
+        attribution.monitor_error.as_deref(),
+        &attribution.run_id,
+    )
+    .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+    let expected_digest = attribution_child
+        .semantic_digest_sha256
+        .as_deref()
+        .ok_or_else(|| {
+            EvidenceError::InvalidCheckpoint(format!(
+                "正式阶梯 N={} 的归因预检缺少语义摘要",
+                level.n
+            ))
+        })?
+        .to_owned();
+
+    let timing = level.timing_guard_run.as_ref().ok_or_else(|| {
+        EvidenceError::InvalidCheckpoint(format!("正式阶梯 N={} 缺少时延护栏运行", level.n))
+    })?;
+    let timing_child = timing.child.as_ref().ok_or_else(|| {
+        EvidenceError::InvalidCheckpoint(format!("正式阶梯 N={} 缺少时延护栏报告", level.n))
+    })?;
+    let expected_timing_id = format!(
+        "formal/{}/{}/n-{}/timing-guard-observation",
+        ladder.workload_id.as_str(),
+        ladder.graph_profile,
+        level.n
+    );
+    if timing.run_id != expected_timing_id
+        || timing.status != RunStatus::Valid
+        || !timing.invalidation_reasons.is_empty()
+        || timing.kill_error.is_some()
+        || timing.monitor_error.is_some()
+        || timing_child.outcome != crate::ScalableLadderOutcome::Success
+        || !external_state_is_clear(timing.external_state.as_ref(), checkpoint)
+        || !crate::pilot_budget::successful_process(
+            &timing.process,
+            crate::TIMING_BINARY_ID,
+            timing_child.child_pid,
+        )
+    {
+        return Err(EvidenceError::InvalidCheckpoint(format!(
+            "正式阶梯 N={} 的时延护栏进程封套无效",
+            level.n
+        )));
+    }
+    crate::ladder_runner::validate_ladder_report(
+        timing_child,
+        &timing.compiler_instance_id,
+        ladder.workload_id,
+        &ladder.graph_profile,
+        level.n,
+        level.guard_preflight.thresholds.compiler_controlled_bytes,
+        crate::ScalableLadderBinaryMode::Timing,
+        &expected_digest,
+    )
+    .map_err(EvidenceError::InvalidCheckpoint)?;
+    let child_wall_time = timing_child
+        .cold_instance
+        .as_ref()
+        .and_then(|sample| sample.wall_time_ns);
+    crate::pilot_budget::validate_clear_monitor(
+        Some(&timing.monitor),
+        &level.guard_preflight,
+        child_wall_time,
+        timing.kill_error.as_deref(),
+        timing.monitor_error.as_deref(),
+        &timing.run_id,
+    )
+    .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+    Ok(expected_digest)
+}
+
+fn validate_completed_guard_observation(
+    level: &crate::FormalLadderLevelExecution,
+    oracle_child: &crate::ScalableOracleChildReport,
+) -> Result<(), EvidenceError> {
+    let attribution = level
+        .attribution_preflight
+        .as_ref()
+        .and_then(|run| run.child.as_ref())
+        .expect("validated attribution preflight");
+    let timing = level
+        .timing_guard_run
+        .as_ref()
+        .expect("validated timing guard");
+    let observation = level
+        .completed_guard_observation
+        .as_ref()
+        .expect("validated completed guard observation");
+    let expected_peak = [
+        attribution.guard_peak_live_requested_bytes,
+        oracle_child.guard_peak_live_requested_bytes,
+    ]
+    .into_iter()
+    .flatten()
+    .max();
+    let expected_private = [
+        level
+            .attribution_preflight
+            .as_ref()
+            .and_then(|run| run.monitor.peak_private_bytes.value),
+        timing.monitor.peak_private_bytes.value,
+        level
+            .oracle
+            .as_ref()
+            .and_then(|run| run.monitor.peak_private_bytes.value),
+    ]
+    .into_iter()
+    .flatten()
+    .max();
+    if observation.n != level.n
+        || observation.primary_record_count != level.primary_record_count
+        || Some(observation.peak_live_requested_bytes) != expected_peak
+        || Some(observation.private_bytes) != expected_private
+        || observation.wall_time_ns != timing.monitor.elapsed_wall_time_ns
+    {
+        return Err(EvidenceError::InvalidCheckpoint(format!(
+            "正式阶梯 N={} 的完成护栏观察无法复算",
+            level.n
+        )));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_formal_oracle_envelope(
+    checkpoint: &FormalProtocolCheckpoint,
+    ladder: &crate::FormalLadderExecution,
+    level: &crate::FormalLadderLevelExecution,
+    oracle: &crate::FormalOracleRun,
+    child: &crate::ScalableOracleChildReport,
+    graph_profile: crate::GraphProfileId,
+    expected_run_id: &str,
+    expected_digest: &str,
+) -> Result<(), EvidenceError> {
+    if oracle.run_id != expected_run_id
+        || oracle.status != RunStatus::Valid
+        || !oracle.invalidation_reasons.is_empty()
+        || oracle.kill_error.is_some()
+        || oracle.monitor_error.is_some()
+        || !external_state_is_clear(oracle.external_state.as_ref(), checkpoint)
+        || !crate::pilot_budget::successful_process(
+            &oracle.process,
+            crate::ORACLE_BINARY_ID,
+            child.child_pid,
+        )
+    {
+        return Err(EvidenceError::InvalidCheckpoint(format!(
+            "正式阶梯 N={} 的预言机进程封套无效",
+            level.n
+        )));
+    }
+    crate::ladder_runner::validate_oracle(
+        child,
+        expected_run_id,
+        ladder.workload_id,
+        graph_profile,
+        level.n,
+        level.guard_preflight.thresholds.compiler_controlled_bytes,
+        level.primary_record_count,
+        expected_digest,
+    )
+    .map_err(EvidenceError::InvalidCheckpoint)?;
+    crate::pilot_budget::validate_clear_monitor(
+        Some(&oracle.monitor),
+        &level.guard_preflight,
+        None,
+        oracle.kill_error.as_deref(),
+        oracle.monitor_error.as_deref(),
+        expected_run_id,
+    )
+    .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+    Ok(())
+}
+
+fn validate_formal_round_envelope(
+    checkpoint: &FormalProtocolCheckpoint,
+    ladder: &crate::FormalLadderExecution,
+    level: &crate::FormalLadderLevelExecution,
+    run: &crate::FormalLadderProcessRun,
+    expected_digest: &str,
+) -> Result<FormalLadderRoundRun, EvidenceError> {
+    let child = run.child.as_ref().ok_or_else(|| {
+        EvidenceError::InvalidCheckpoint(format!("正式阶梯 N={} 缺少子进程报告", level.n))
+    })?;
+    let (mode_token, expected_binary_id) = match run.binary_mode {
+        crate::ScalableLadderBinaryMode::Timing => ("timing", crate::TIMING_BINARY_ID),
+        crate::ScalableLadderBinaryMode::Attribution => {
+            ("attribution", crate::ATTRIBUTION_BINARY_ID)
+        }
+    };
+    let expected_prefix = format!(
+        "formal/{}/{}/experiment-",
+        ladder.workload_id.as_str(),
+        ladder.graph_profile
+    );
+    let expected_suffix = format!(
+        "/batch-{}/round-{}/{mode_token}/attempt-0",
+        run.batch, run.round
+    );
+    let expected_run_id = format!("{}/n-{}/run", run.attempt_id, level.n);
+    let child_wall_time = (run.binary_mode == crate::ScalableLadderBinaryMode::Timing)
+        .then(|| {
+            child
+                .cold_instance
+                .as_ref()
+                .and_then(|sample| sample.wall_time_ns)
+        })
+        .flatten();
+    if run.status != RunStatus::Valid
+        || !run.invalidation_reasons.is_empty()
+        || run.retry_ordinal != 0
+        || run.batch >= crate::FORMAL_LADDER_BATCH_COUNT
+        || run.round >= crate::FORMAL_LADDER_ROUND_COUNT
+        || usize::try_from(run.execution_position).map_or(true, |position| {
+            position >= crate::FORMAL_LADDER_MINIMUM_LEVEL_COUNT
+        })
+        || !run.attempt_id.starts_with(&expected_prefix)
+        || !run.attempt_id.ends_with(&expected_suffix)
+        || run.run_id != expected_run_id
+        || run.kill_error.is_some()
+        || run.monitor_error.is_some()
+        || !external_state_is_clear(run.external_state.as_ref(), checkpoint)
+        || !crate::pilot_budget::successful_process(
+            &run.process,
+            expected_binary_id,
+            child.child_pid,
+        )
+    {
+        return Err(EvidenceError::InvalidCheckpoint(format!(
+            "正式阶梯运行 {} 的进程封套无效",
+            run.run_id
+        )));
+    }
+    crate::ladder_runner::validate_ladder_report(
+        child,
+        &run.compiler_instance_id,
+        ladder.workload_id,
+        &ladder.graph_profile,
+        level.n,
+        level.guard_preflight.thresholds.compiler_controlled_bytes,
+        run.binary_mode,
+        expected_digest,
+    )
+    .map_err(EvidenceError::InvalidCheckpoint)?;
+    crate::pilot_budget::validate_clear_monitor(
+        Some(&run.monitor),
+        &level.guard_preflight,
+        child_wall_time,
+        run.kill_error.as_deref(),
+        run.monitor_error.as_deref(),
+        &run.run_id,
+    )
+    .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+    Ok(FormalLadderRoundRun {
+        batch: run.batch,
+        round: run.round,
+        binary_mode: run.binary_mode,
+        report: child.clone(),
+    })
+}
+
+fn external_state_is_clear(
+    observation: Option<&crate::ExternalStateObservation>,
+    checkpoint: &FormalProtocolCheckpoint,
+) -> bool {
+    observation.is_some_and(|observation| {
+        observation
+            .invalidation_reasons(&checkpoint.environment)
+            .is_empty()
+    })
 }
 
 #[derive(Clone)]
@@ -618,195 +901,6 @@ fn derive_budgets(
         })
         .collect::<Result<Vec<_>, EvidenceError>>()?;
     Ok((envelopes, budgets))
-}
-
-fn derive_growth_slopes(analyses: &[Value]) -> Result<Vec<Value>, EvidenceError> {
-    let mut output = Vec::new();
-    for ladder in analyses {
-        let analysis: FormalLadderAnalysis = serde_json::from_value(ladder["analysis"].clone())?;
-        for metric in [
-            crate::FormalLadderMetric::WallTimeNs,
-            crate::FormalLadderMetric::PeakLiveRequestedBytes,
-        ] {
-            for sample_kind in [
-                crate::FormalLadderSampleKind::ColdInstance,
-                crate::FormalLadderSampleKind::StableCapacityReuse,
-            ] {
-                let pre_knee_max_n = analysis
-                    .knees
-                    .iter()
-                    .filter(|knee| {
-                        knee.metric == metric
-                            && knee.sample_kind == sample_kind
-                            && knee.confirmed_knee
-                    })
-                    .map(|knee| knee.lower_n)
-                    .min();
-                let mut batches = [Vec::new(), Vec::new()];
-                for summary in analysis.batch_summaries.iter().filter(|summary| {
-                    summary.metric == metric
-                        && summary.sample_kind == sample_kind
-                        && pre_knee_max_n.is_none_or(|maximum| summary.n <= maximum)
-                }) {
-                    let batch = usize::try_from(summary.batch).expect("batch fits usize");
-                    if batch > 1 {
-                        return Err(EvidenceError::InvalidCheckpoint(
-                            "增长斜率批次编号超界".to_owned(),
-                        ));
-                    }
-                    batches[batch].push(summary);
-                }
-                for batch in &mut batches {
-                    batch.sort_by_key(|summary| summary.normalizer);
-                }
-                if batches.iter().any(|batch| batch.len() < 3) {
-                    continue;
-                }
-                if batches[0]
-                    .iter()
-                    .map(|summary| summary.n)
-                    .ne(batches[1].iter().map(|summary| summary.n))
-                {
-                    return Err(EvidenceError::InvalidCheckpoint(
-                        "增长斜率双批次规模集合不一致".to_owned(),
-                    ));
-                }
-                let (batch_zero, slope_zero) = growth_batch(&batches[0])?;
-                let (batch_one, slope_one) = growth_batch(&batches[1])?;
-                output.push(json!({
-                    "workloadId": ladder["workloadId"],
-                    "graphProfile": ladder["graphProfile"],
-                    "metric": token(&metric)?,
-                    "sampleKind": token(&sample_kind)?,
-                    "encoding": "theil-sen-q16.16-nearest-ties-even-f64-v1",
-                    "batch0": batch_zero,
-                    "batch1": batch_one,
-                    "upperBoundFormula": "max-plus-absolute-difference-v1",
-                    "suggestedUpperSlope": growth_ratio_json(growth_upper_bound(
-                        slope_zero,
-                        slope_one,
-                    )?)
-                }));
-            }
-        }
-    }
-    Ok(output)
-}
-
-fn growth_batch(
-    summaries: &[&FormalLadderBatchSummary],
-) -> Result<(Value, SignedRatio), EvidenceError> {
-    let mut slopes = Vec::new();
-    let mut pairs = Vec::new();
-    for lower_index in 0..summaries.len() {
-        for upper_index in (lower_index + 1)..summaries.len() {
-            let lower = summaries[lower_index];
-            let upper = summaries[upper_index];
-            let slope = growth_slope_q16_16(
-                lower.normalizer,
-                lower.median,
-                upper.normalizer,
-                upper.median,
-            )?;
-            slopes.push(slope);
-            pairs.push(json!({
-                "lowerBatchSummaryId": lower.summary_id,
-                "upperBatchSummaryId": upper.summary_id,
-                "slopeQ16_16": slope
-            }));
-        }
-    }
-    let median = median_signed(&slopes)?;
-    Ok((
-        json!({
-            "levelBatchSummaryIds": summaries.iter()
-                .map(|summary| summary.summary_id.as_str()).collect::<Vec<_>>(),
-            "pairwiseSlopes": pairs,
-            "theilSenSlope": growth_ratio_json(median)
-        }),
-        median,
-    ))
-}
-
-fn growth_slope_q16_16(
-    lower_x: u64,
-    lower_y: u64,
-    upper_x: u64,
-    upper_y: u64,
-) -> Result<i32, EvidenceError> {
-    if lower_x == 0 || lower_y == 0 || upper_x <= lower_x || upper_y == 0 {
-        return Err(EvidenceError::InvalidCheckpoint(
-            "增长斜率输入不是严格正值递增横轴".to_owned(),
-        ));
-    }
-    let x_ratio = (upper_x as f64) / (lower_x as f64);
-    let y_ratio = (upper_y as f64) / (lower_y as f64);
-    let encoded = (y_ratio.log2() / x_ratio.log2() * 65_536.0).round_ties_even();
-    if !encoded.is_finite() || encoded < f64::from(i32::MIN) || encoded > f64::from(i32::MAX) {
-        return Err(EvidenceError::InvalidCheckpoint(
-            "增长斜率超出 Q16.16".to_owned(),
-        ));
-    }
-    Ok(encoded as i32)
-}
-
-#[derive(Clone, Copy)]
-struct SignedRatio {
-    numerator: i64,
-    denominator: i64,
-}
-
-fn median_signed(values: &[i32]) -> Result<SignedRatio, EvidenceError> {
-    if values.is_empty() {
-        return Err(EvidenceError::InvalidCheckpoint(
-            "增长斜率集合为空".to_owned(),
-        ));
-    }
-    let mut sorted = values.to_vec();
-    sorted.sort_unstable();
-    if sorted.len() % 2 == 1 {
-        Ok(SignedRatio {
-            numerator: i64::from(sorted[sorted.len() / 2]),
-            denominator: 1,
-        })
-    } else {
-        reduce_signed(
-            i64::from(sorted[sorted.len() / 2 - 1]) + i64::from(sorted[sorted.len() / 2]),
-            2,
-        )
-    }
-}
-
-fn growth_upper_bound(left: SignedRatio, right: SignedRatio) -> Result<SignedRatio, EvidenceError> {
-    let left_twice = i128::from(left.numerator) * 2 / i128::from(left.denominator);
-    let right_twice = i128::from(right.numerator) * 2 / i128::from(right.denominator);
-    let upper_twice = left_twice.max(right_twice) + (left_twice - right_twice).abs();
-    reduce_signed(
-        i64::try_from(upper_twice)
-            .map_err(|_| EvidenceError::InvalidCheckpoint("增长斜率建议上界溢出".to_owned()))?,
-        2,
-    )
-}
-
-fn reduce_signed(numerator: i64, denominator: i64) -> Result<SignedRatio, EvidenceError> {
-    if denominator <= 0 {
-        return Err(EvidenceError::InvalidCheckpoint(
-            "增长斜率分母无效".to_owned(),
-        ));
-    }
-    let divisor = gcd(u128::from(numerator.unsigned_abs()), denominator as u128) as i64;
-    Ok(SignedRatio {
-        numerator: numerator / divisor,
-        denominator: denominator / divisor,
-    })
-}
-
-fn growth_ratio_json(value: SignedRatio) -> Value {
-    json!({
-        "numerator": value.numerator,
-        "denominator": value.denominator,
-        "fractionalBits": 16
-    })
 }
 
 fn candidate_results(
@@ -1131,23 +1225,6 @@ fn token(value: &impl Serialize) -> Result<String, EvidenceError> {
         .ok_or_else(|| EvidenceError::InvalidCheckpoint("枚举无法序列化为字符串".to_owned()))
 }
 
-fn median_u64(values: &[u64]) -> Result<u64, EvidenceError> {
-    if values.is_empty() {
-        return Err(EvidenceError::InvalidCheckpoint(
-            "中位数集合为空".to_owned(),
-        ));
-    }
-    let mut sorted = values.to_vec();
-    sorted.sort_unstable();
-    if sorted.len() % 2 == 1 {
-        Ok(sorted[sorted.len() / 2])
-    } else {
-        let left = sorted[sorted.len() / 2 - 1];
-        let right = sorted[sorted.len() / 2];
-        Ok(left + (right - left) / 2)
-    }
-}
-
 fn ceil_ratio_to_quantum(observed: u64, ratio: Ratio, quantum: u64) -> Result<u64, EvidenceError> {
     let numerator = u128::from(observed) * ratio.numerator;
     let scaled = numerator.div_ceil(ratio.denominator);
@@ -1190,7 +1267,6 @@ fn report(document: &Value) -> Result<EvidenceVerificationReport, EvidenceError>
             document,
             "/coverage/completedFormalLevelCount",
         )?,
-        growth_slope_count: required_array(document, "/results/growthSlopes")?.len(),
         budget_recommendation_count: required_array(document, "/results/budgetRecommendations")?
             .len(),
         candidate_classification_count: required_array(
@@ -1387,6 +1463,13 @@ pub enum EvidenceError {
 mod tests {
     use super::*;
 
+    fn binary_source(binary_id: &str) -> crate::FormalBinarySourceSnapshot {
+        crate::FormalBinarySourceSnapshot {
+            binary_id: binary_id.to_owned(),
+            sha256: "01".repeat(32),
+        }
+    }
+
     #[test]
     fn exact_ratio_median_is_reduced_without_floating_point() {
         let result = median_ratio(&[Ratio::new(1, 2).unwrap(), Ratio::new(3, 2).unwrap()]).unwrap();
@@ -1400,5 +1483,26 @@ mod tests {
             resolve_repository_path("../outside.json"),
             Err(EvidenceError::UnsafePath(_))
         ));
+    }
+
+    #[test]
+    fn binary_sources_require_the_exact_roles_and_canonical_sha256() {
+        let valid = [
+            binary_source(crate::TIMING_BINARY_ID),
+            binary_source(crate::ATTRIBUTION_BINARY_ID),
+            binary_source(crate::ORACLE_BINARY_ID),
+        ];
+        assert!(validate_binary_sources(&valid).is_ok());
+
+        let duplicate = [
+            binary_source(crate::TIMING_BINARY_ID),
+            binary_source(crate::TIMING_BINARY_ID),
+            binary_source(crate::ORACLE_BINARY_ID),
+        ];
+        assert!(validate_binary_sources(&duplicate).is_err());
+
+        let mut uppercase = valid.clone();
+        uppercase[0].sha256 = "AB".repeat(32);
+        assert!(validate_binary_sources(&uppercase).is_err());
     }
 }

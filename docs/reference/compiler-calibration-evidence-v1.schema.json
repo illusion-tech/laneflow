@@ -177,7 +177,6 @@
         "currentFixtures",
         "baseScaleSelections",
         "formalLadders",
-        "growthSlopes",
         "reproducibilityEnvelopes",
         "budgetRecommendations",
         "limitQualification",
@@ -192,10 +191,6 @@
           "minItems": 1
         },
         "formalLadders": {
-          "type": "array",
-          "minItems": 1
-        },
-        "growthSlopes": {
           "type": "array",
           "minItems": 1
         },

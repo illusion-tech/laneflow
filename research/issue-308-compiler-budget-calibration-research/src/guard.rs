@@ -81,7 +81,10 @@ impl ChildProcessMemoryMonitor {
         #[cfg(windows)]
         let private_bytes = process.virtual_memory();
         #[cfg(not(windows))]
-        let private_bytes = 0;
+        let private_bytes = {
+            let _ = process;
+            0
+        };
         Ok(Some(ChildProcessMemoryObservation {
             private_bytes,
             available_physical_memory_bytes,

@@ -246,7 +246,7 @@ pub use workload::{
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";
 pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_320;
 pub const CONTRACT_DESCRIPTOR_SHA256: &str =
-    "e3de918e7c0d90b0d4c7fbf0c7ad6162bb209fa95b4c5af78d6538a1cbabd3e3";
+    "f2e0170a80517460bd0a76b4a699e35cdd09c5a1fd1c7ae243296e741d00e809";
 
 const CONTRACT_SCHEMA: &str = "laneflow.compiler-calibration-contract";
 const WORKLOAD_MANIFEST_SCHEMA: &str = "laneflow.compiler-calibration-workload-manifest";
