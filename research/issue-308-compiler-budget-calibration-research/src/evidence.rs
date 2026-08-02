@@ -1397,6 +1397,11 @@ struct ValidatedCandidateExecution<'a> {
     participant_count: usize,
 }
 
+struct CandidateQualificationBinding {
+    semantic_digest_sha256: String,
+    baseline_checksums: crate::CandidatePipelineChecksums,
+}
+
 impl<'a> ValidatedCandidateExecution<'a> {
     fn sample(
         &self,
@@ -1423,7 +1428,7 @@ fn validate_candidate_execution<'a>(
             "候选参赛名单与执行分层不一致".to_owned(),
         ));
     }
-    validate_candidate_qualification_runs(trusted, checkpoint, execution)?;
+    let qualification = validate_candidate_qualification_runs(trusted, checkpoint, execution)?;
     let registry = crate::CandidateRegistry::from_trusted_contract(trusted)
         .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
     let available_candidate_ids = registry
@@ -1480,7 +1485,14 @@ fn validate_candidate_execution<'a>(
             .get(sample.run_id.as_str())
             .copied()
             .ok_or_else(|| EvidenceError::InvalidCheckpoint("候选样本缺少原始尝试".to_owned()))?;
-        validate_candidate_attempt(checkpoint, execution, sample, attempt, thresholds)?;
+        validate_candidate_attempt(
+            checkpoint,
+            execution,
+            sample,
+            attempt,
+            &qualification,
+            thresholds,
+        )?;
         referenced_attempts.insert(attempt.run_id.as_str());
     }
 
@@ -1552,7 +1564,7 @@ fn validate_candidate_qualification_runs(
     trusted: &TrustedContract,
     checkpoint: &FormalProtocolCheckpoint,
     execution: &crate::CandidatePipelineExecution,
-) -> Result<(), EvidenceError> {
+) -> Result<CandidateQualificationBinding, EvidenceError> {
     let stratum = execution.stratum.clone();
     let thresholds = crate::GuardThresholds::from_physical_memory_bytes(
         checkpoint.environment.physical_memory_bytes,
@@ -1566,6 +1578,9 @@ fn validate_candidate_qualification_runs(
         .candidates_for(stratum.key_domain)
         .map(|candidate| candidate.id.as_str())
         .collect::<BTreeSet<_>>();
+    let baseline_id = registry
+        .baseline_id(stratum.key_domain)
+        .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
     let plan = plans
         .plan(stratum.workload_id, stratum.graph_profile, stratum.n)
         .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
@@ -1617,6 +1632,25 @@ fn validate_candidate_qualification_runs(
         &oracle.run_id,
     )
     .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+    let independent_oracle = crate::verify_scalable_oracle_child(
+        trusted,
+        oracle_child.oracle_run_id.clone(),
+        stratum.workload_id,
+        stratum.graph_profile,
+        stratum.n,
+        thresholds.compiler_controlled_bytes,
+    )
+    .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
+    if independent_oracle.outcome != oracle_child.outcome
+        || independent_oracle.primary_record_count != oracle_child.primary_record_count
+        || independent_oracle.semantic_digest_sha256 != oracle_child.semantic_digest_sha256
+        || !oracle_child.complete_counts_equal
+        || !oracle_child.complete_typed_output_equal
+    {
+        return Err(EvidenceError::InvalidCheckpoint(
+            "候选资格精确预言机结果无法独立复算".to_owned(),
+        ));
+    }
 
     let mut candidate_ids = BTreeSet::new();
     for run in &execution.roster.candidate_runs {
@@ -1684,7 +1718,23 @@ fn validate_candidate_qualification_runs(
             "候选资格运行没有精确覆盖冻结全特性注册表".to_owned(),
         ));
     }
-    Ok(())
+    let semantic_digest_sha256 = independent_oracle
+        .semantic_digest_sha256
+        .ok_or_else(|| EvidenceError::InvalidCheckpoint("候选资格预言机缺少语义摘要".to_owned()))?;
+    let baseline_checksums = execution
+        .roster
+        .candidate_runs
+        .iter()
+        .find(|run| run.candidate_id == baseline_id)
+        .and_then(|run| run.child.as_ref())
+        .and_then(|child| child.candidate_pipeline_checksums)
+        .ok_or_else(|| {
+            EvidenceError::InvalidCheckpoint("候选基线资格运行缺少管线校验和".to_owned())
+        })?;
+    Ok(CandidateQualificationBinding {
+        semantic_digest_sha256,
+        baseline_checksums,
+    })
 }
 
 fn validate_candidate_attempt(
@@ -1692,6 +1742,7 @@ fn validate_candidate_attempt(
     execution: &crate::CandidatePipelineExecution,
     sample: &crate::CandidatePipelinePerformanceSample,
     attempt: &crate::CandidatePipelinePerformanceAttempt,
+    qualification: &CandidateQualificationBinding,
     thresholds: crate::GuardThresholds,
 ) -> Result<(), EvidenceError> {
     let child = attempt
@@ -1729,6 +1780,9 @@ fn validate_candidate_attempt(
         || attempt.monitor_error.is_some()
         || !external_state_is_clear(attempt.external_state.as_ref(), checkpoint)
         || child.outcome != crate::CandidatePipelineOutcome::Success
+        || child.semantic_digest_sha256.as_deref()
+            != Some(qualification.semantic_digest_sha256.as_str())
+        || child.candidate_pipeline_checksums != Some(qualification.baseline_checksums)
         || !crate::pilot_budget::successful_process(
             &attempt.process,
             crate::TIMING_BINARY_ID,
@@ -2389,6 +2443,82 @@ mod tests {
         )
         .expect("candidate execution");
 
+        let tampered_digest = "00".repeat(32);
+        let mut invalid_qualification_oracle = candidate.clone();
+        invalid_qualification_oracle
+            .roster
+            .oracle_run
+            .child
+            .as_mut()
+            .expect("candidate qualification oracle")
+            .semantic_digest_sha256 = Some(tampered_digest.clone());
+        for run in &mut invalid_qualification_oracle.roster.candidate_runs {
+            run.child
+                .as_mut()
+                .expect("candidate qualification child")
+                .semantic_digest_sha256 = Some(tampered_digest.clone());
+        }
+        assert!(
+            validate_candidate_execution(
+                &trusted,
+                &checkpoint,
+                &expected_safety,
+                &constant_hash_qualifications,
+                &invalid_qualification_oracle,
+            )
+            .is_err()
+        );
+
+        let mut invalid_performance_binding = candidate.clone();
+        for sample in &mut invalid_performance_binding.samples {
+            sample.child.semantic_digest_sha256 = Some(tampered_digest.clone());
+        }
+        for attempt in &mut invalid_performance_binding.attempts {
+            attempt
+                .child
+                .as_mut()
+                .expect("candidate performance child")
+                .semantic_digest_sha256 = Some(tampered_digest.clone());
+        }
+        assert!(
+            validate_candidate_execution(
+                &trusted,
+                &checkpoint,
+                &expected_safety,
+                &constant_hash_qualifications,
+                &invalid_performance_binding,
+            )
+            .is_err()
+        );
+
+        let mut invalid_performance_checksums = candidate.clone();
+        for sample in &mut invalid_performance_checksums.samples {
+            sample
+                .child
+                .candidate_pipeline_checksums
+                .as_mut()
+                .expect("candidate performance checksums")
+                .external_string ^= 1;
+        }
+        for attempt in &mut invalid_performance_checksums.attempts {
+            attempt
+                .child
+                .as_mut()
+                .and_then(|child| child.candidate_pipeline_checksums.as_mut())
+                .expect("candidate performance checksums")
+                .external_string ^= 1;
+        }
+        assert!(
+            validate_candidate_execution(
+                &trusted,
+                &checkpoint,
+                &expected_safety,
+                &constant_hash_qualifications,
+                &invalid_performance_checksums,
+            )
+            .is_err()
+        );
+
         let mut invalid_roster = candidate.clone();
         let baseline_index = invalid_roster
             .roster
@@ -2444,7 +2574,6 @@ mod tests {
 
         let mut invalid_semantics = candidate.clone();
         let semantic_run_id = invalid_semantics.samples[0].run_id.clone();
-        let tampered_digest = "00".repeat(32);
         invalid_semantics.samples[0].child.semantic_digest_sha256 = Some(tampered_digest.clone());
         invalid_semantics
             .attempts
