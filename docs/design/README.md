@@ -57,12 +57,12 @@
   证据。它只为 #292 G1 提供 P100 同机 R0 研究输入，不实现生产编译器、不复用
   `LF-COMP-CURRENT-EQUIV-v1`、不表示真实城市容量，也不形成产品 SLA；P100 的
   推荐硬件角色由产品负责人独立选定，不是本研究从结果外推的结论。
-- `compiler-foundation.md`：#292 G1 的实现级设计草案；把已接受 ADR 0020 的封闭
+- `compiler-foundation.md`：#292 G1 已接受的实现级设计；把已接受 ADR 0020 的封闭
   契约收窄为 `laneflow-static-contract`、`laneflow-compiler`、集成专用
   `laneflow-compiler-test-support`、有类型抽象语法树、HIR、MIR、已验证规范低层
   中间表示、已验证源映射输入、合成领域专用语言前端、标识 v1 首次实现、确定性
   编译、诊断、迁移投影与编译器工作负载，并以 #308 exact Evidence 冻结 P100 首轮
-  资源配置档和性能门槛。该文档仍是草案（Draft），不构成 G2 开工授权。
+  资源配置档和性能门槛。设计已接受不表示实现已经交付，也不单独构成 G2 开工授权。
 
 ## 文档状态
 

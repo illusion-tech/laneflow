@@ -1,6 +1,6 @@
 # 编译器基础设施与合成领域专用语言前端
 
-**文档状态**: 草案（Draft；#292 G1；不得作为 G2 实现输入）<br>
+**文档状态**: 已接受（Accepted；#292 G1；尚未开始 G2 实现）<br>
 **最后更新**: 2026-08-03<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
@@ -10,7 +10,7 @@ Typed AST）→高层中间表示（High-level Intermediate Representation，HIR
 合成领域专用语言前端（Synthetic Domain-specific Language Frontend，Synthetic DSL
 Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism）编译、诊断
 （Diagnostic）与当前态等价投影<br>
-**实现状态**: 未实现；#292 G1 已取得 #308 G4 非生产研究证据并冻结首轮资源 / 性能
+**实现状态**: 未实现；#292 G1 已接受 #308 G4 非生产研究证据及首轮资源 / 性能
 输入，当前生产路径仍是 `Traffic v0.10` / `SpatialPackage v0.1` /
 `ScenarioManifest v0.1` / `laneflow-data` / `laneflow-core` /
 `laneflow-spatial`
@@ -78,8 +78,9 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 5. 建立编译时延、峰值 / 保留内存（Retained Memory）和规模扩展基线，不以运行时
    交通参与单元规模替代编译器工作量。
 
-在本文状态改为“已接受（Accepted；#292 G1）”、GitHub 议题（Issue）#292 记录
-`G1 Pass` 且 GitHub 项目（Project）进入 `Ready` 前，不得开始生产实现。
+#292 G1 已接受本文并在 GitHub 议题（Issue）#292 记录 `G1 Pass`；GitHub 项目
+（Project）保持 `Ready`。开始生产实现前仍须复核元数据与原生依赖、记录 G2 开工
+判断，并把项目切换为 `In Progress`。
 
 ## 2. 包与依赖切片
 
@@ -819,9 +820,9 @@ G2/G3 在 P100 上执行生产干净单工作线程编译时必须遵循以下�
 吞吐或研究替身的进程数量换算成编译器产品容量。预算来源、计数对象、单位、P100
 硬件身份与证据提交必须保留可追溯性。
 
-## 12. G1 验收与推进
+## 12. #292 G1 接受结果与 G2 前置
 
-本文达到“已接受（Accepted；#292 G1）”前必须完成：
+#292 G1 已确认：
 
 - [x] 公共接口、第三方前端非承诺边界、阶段类型私有性和包依赖有向无环图通过本地
       架构审阅；
@@ -834,10 +835,10 @@ G2/G3 在 P100 上执行生产干净单工作线程编译时必须遵循以下�
 - [x] 集成专用投影的静态语义、行为、事件、确定性和空间层等价矩阵闭合；
 - [x] ADR 0020、`network-compiler.md`、设计索引和术语引用一致；
 - [x] 全面本地文档 / 架构审阅没有未处置发现；
-- [ ] 对 G1 当前精确提交（exact head）取得有效外部审阅者的干净完成态审阅；
-- [ ] #292 新增仅追加的 `## G1 设计判断` `Pass` 评论，并确认 GitHub 项目保持
+- [x] 对 G1 当前精确提交（exact head）取得有效外部审阅者的干净完成态审阅；
+- [x] #292 新增仅追加的 `## G1 设计判断` `Pass` 评论，并确认 GitHub 项目保持
       `Ready`。
 
 `G1 Pass` 只冻结实现输入。实现开始前仍须复核 GitHub 元数据 / 原生依赖、记录 G2，
-再把 GitHub 项目切换为 `In Progress`。不得把本文草案、本地分支或 G1 启动评论
-当作 G2 授权。
+再把 GitHub 项目切换为 `In Progress`。不得把本地分支、G1 启动评论或本文的
+Accepted 状态单独当作 G2 授权。
