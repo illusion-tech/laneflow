@@ -5056,11 +5056,26 @@ fn verify_adjacent_ratios_and_knees(
             let artifacts = required_array(document, "/artifacts")?;
             if !artifacts.iter().any(|artifact| {
                 artifact.get("sha256").and_then(Value::as_str) == Some(artifact_sha)
+                    && artifact.get("kind").and_then(Value::as_str) == Some("profiler")
             }) {
                 return Err(EvidenceError::UnknownReference {
                     owner: "knee".to_owned(),
                     field: "profilerArtifactSha256".to_owned(),
                     target: artifact_sha.to_owned(),
+                });
+            }
+        } else {
+            let actual_reason = required_string(knee, "/profilerArtifactSha256/reason")?;
+            let expected_reason = if candidate {
+                "candidate-knee-unattributed"
+            } else {
+                "not-a-candidate-knee"
+            };
+            if actual_reason != expected_reason {
+                return Err(EvidenceError::FormalRecomputation {
+                    detail: format!(
+                        "拐点评估的性能分析制品空值原因应为 {expected_reason}，实际为 {actual_reason}"
+                    ),
                 });
             }
         }

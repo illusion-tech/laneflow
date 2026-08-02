@@ -7790,18 +7790,32 @@
                   }
                 },
                 "else": {
-                  "properties": {
-                    "profilerArtifactSha256": {
+                  "oneOf": [
+                    {
                       "properties": {
-                        "value": {
-                          "$ref": "#/$defs/sha256"
-                        },
-                        "reason": {
-                          "type": "null"
+                        "profilerArtifactSha256": {
+                          "properties": {
+                            "value": {
+                              "$ref": "#/$defs/sha256"
+                            },
+                            "reason": {
+                              "type": "null"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "profilerArtifactSha256": {
+                          "const": {
+                            "value": null,
+                            "reason": "candidate-knee-unattributed"
+                          }
                         }
                       }
                     }
-                  }
+                  ]
                 }
               }
             ]
