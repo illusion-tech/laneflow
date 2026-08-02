@@ -850,16 +850,17 @@ batch 0 是候选发现批次，batch 1 是独立确认批次。某上级是**�
 与 batch 1 在相同指标、样本种类、二进制模式和其余分层字段上都满足同一条件。候选/
 确认规模都由 `upperStratum.n` 唯一派生，不再重复保存可漂移的 `candidateN` 或
 `confirmedN`。候选为 `false` 时，确认必须为 `false`，性能分析制品使用
-`null + not-a-candidate-knee`；候选为 `true` 时必须保存一项能解析到
-`artifacts[].kind = profiler` 的 SHA-256，说明主导分配、排序、哈希碰撞、缓存未命中或
-尚未解释的机制。
+`null + not-a-candidate-knee`。候选为 `true` 时，若本轮已经执行机制归因，必须保存
+一项能解析到 `artifacts[].kind = profiler` 的 SHA-256，说明主导分配、排序、哈希
+碰撞、缓存未命中或尚未解释的机制；若本轮只完成定量拐点判定，则必须使用
+`null + candidate-knee-unattributed` 明确登记未归因状态。未归因不取消候选或已确认
+拐点的定量事实，但不得据此选择私有容器。
 
 独立验证器必须解析每个上下级 `roundSummaryId` 与正式阶梯批次汇总 ID，核对完整分层、
 `round = 0..4` 集合和 batch 0/1 引用，重算规范化分母、五个精确比值、中位数、候选/
 确认布尔值和上级规模；缺失引用、跨分层/跨轮拼接、分母错用、批次倒置、重复自然身份、
-分析制品摘要无对应实物或自报布尔不一致均使该拐点证据无效。无法归因不取消已重复的
-拐点事实，但不得据此选择私有容器。这些百分比只定义研究信号和复测触发，不是生产
-回归 Gate。
+分析制品摘要无对应实物、空值原因不符合上述闭合枚举或自报布尔不一致均使该拐点证据
+无效。这些百分比只定义研究信号和复测触发，不是生产回归 Gate。
 
 ### 5.5 校准规模与压力规模
 
@@ -1629,7 +1630,7 @@ docs/reference/compiler-calibration-contract-v1.json
 不一致都必须在读取派生结论前失败。
 
 G1 候选冻结契约描述符 `1322` exact bytes，SHA-256 为
-`913c22cbeaf09535447e5c672dcae720cd6392ac72be808857ba3ad3d3fc94d0`。该摘要是 PR/Gate
+`3ad9f14da2d9fe6cd7c5cfeacfd98082986b1883cf79f7ccc4dd0f66ae5144c0`。该摘要是 PR/Gate
 与独立验证器的外部启动输入，不写回描述符或证据 Schema。
 
 G2/G3 研究交付拟生成：

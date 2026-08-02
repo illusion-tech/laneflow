@@ -3310,20 +3310,14 @@ fn formal_derived_summaries(
             }));
         }
         for knee in &analysis.knees {
-            if knee.batch_zero_candidate {
-                return Err(EvidenceError::FormalRecomputation {
-                    detail: format!(
-                        "{}/{}/{}->{} 的候选拐点尚缺 profiler 制品，不能发布正式 Evidence",
-                        ladder.workload_id.as_str(),
-                        ladder.graph_profile,
-                        knee.lower_n,
-                        knee.upper_n
-                    ),
-                });
-            }
             let batch_zero = find_adjacent_ratio(analysis, knee, 0)?;
             let batch_one = find_adjacent_ratio(analysis, knee, 1)?;
             let binary_mode = binary_mode_for_metric(knee.metric);
+            let profiler_artifact = if knee.batch_zero_candidate {
+                null_observation("candidate-knee-unattributed")
+            } else {
+                null_observation("not-a-candidate-knee")
+            };
             output.knees.push(json!({
                 "candidateId": ladder.candidate_id,
                 "metric": formal_metric(knee.metric),
@@ -3341,7 +3335,7 @@ fn formal_derived_summaries(
                 },
                 "candidateKnee": knee.batch_zero_candidate,
                 "confirmedKnee": knee.confirmed_knee,
-                "profilerArtifactSha256": null_observation("not-a-candidate-knee")
+                "profilerArtifactSha256": profiler_artifact
             }));
         }
         output
