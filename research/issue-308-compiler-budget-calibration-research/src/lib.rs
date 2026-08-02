@@ -183,7 +183,7 @@ pub use pilot::{
     BaseScaleSelection, CLOCK_QUANTUM_MULTIPLIER, ChildMonitorTrigger, ChildProcessMonitorReport,
     FORMAL_PROTOCOL_ID, FRESH_PROCESS_PILOT_SAMPLE_COUNT, IdentityFreshProcessPilot,
     IdentityFreshProcessPilotOutcome, IdentityFreshProcessPilotStop, IdentityMonitoredChildSample,
-    MAXIMUM_RELATIVE_MAD_PERCENT, PilotError, run_base_scale_pilot_discovery,
+    PilotError, run_base_scale_pilot_discovery,
     run_base_scale_pilot_discovery_with_checkpoint_sink, run_identity_fresh_process_pilot,
     wait_for_parent_start_signal,
 };
@@ -247,7 +247,7 @@ pub use workload::{
 pub const CONTRACT_DESCRIPTOR_PATH: &str = "docs/reference/compiler-calibration-contract-v1.json";
 pub const CONTRACT_DESCRIPTOR_BYTE_LENGTH: u64 = 1_322;
 pub const CONTRACT_DESCRIPTOR_SHA256: &str =
-    "ab873e66e4de807ea0999ca6acc04ee486f661c6462bcb3dfd22c5e2965a6d13";
+    "913c22cbeaf09535447e5c672dcae720cd6392ac72be808857ba3ad3d3fc94d0";
 
 const CONTRACT_SCHEMA: &str = "laneflow.compiler-calibration-contract";
 const WORKLOAD_MANIFEST_SCHEMA: &str = "laneflow.compiler-calibration-workload-manifest";

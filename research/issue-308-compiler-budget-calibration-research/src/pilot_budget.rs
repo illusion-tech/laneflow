@@ -12,11 +12,10 @@ use crate::{
     FORMAL_PROTOCOL_CHECKPOINT_SCHEMA_VERSION, FORMAL_PROTOCOL_ID,
     FRESH_PROCESS_PILOT_SAMPLE_COUNT, GENERATOR_VERSION_V1, GraphProfileId,
     GuardCompletedLevelObservation, GuardPredictionBasis, GuardPreflightReport, GuardThresholds,
-    MAXIMUM_RELATIVE_MAD_PERCENT, ORACLE_BINARY_ID, ProcessExitKind, ProcessObservation, RunStatus,
-    SCALABLE_ORACLE_CHILD_SCHEMA, SCALABLE_ORACLE_CHILD_SCHEMA_VERSION,
-    SCALABLE_TIMING_CHILD_SCHEMA, SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableOracleOutcome,
-    ScalableTimingOutcome, ScalableWorkloadId, TIMING_BINARY_ID, TerminationKind,
-    WORKLOAD_REVISION_V1,
+    ORACLE_BINARY_ID, ProcessExitKind, ProcessObservation, RunStatus, SCALABLE_ORACLE_CHILD_SCHEMA,
+    SCALABLE_ORACLE_CHILD_SCHEMA_VERSION, SCALABLE_TIMING_CHILD_SCHEMA,
+    SCALABLE_TIMING_CHILD_SCHEMA_VERSION, ScalableOracleOutcome, ScalableTimingOutcome,
+    ScalableWorkloadId, TIMING_BINARY_ID, TerminationKind, WORKLOAD_REVISION_V1,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -299,8 +298,7 @@ fn analyze(
             required_median_wall_time_ns,
             previous_observation,
         )?;
-        let qualifies = analysis.wall_median >= required_median_wall_time_ns
-            && relative_mad_within_limit(analysis.wall_median, analysis.wall_mad);
+        let qualifies = analysis.wall_median >= required_median_wall_time_ns;
         ensure(
             level.qualifies == qualifies,
             format!("N={} 的缓存资格与原始样本重算结果不一致", level.n),
@@ -759,11 +757,6 @@ fn successful_process(process: &ProcessObservation, binary_id: &str, child_pid: 
         && process.termination.raw_platform_status.reason.is_some()
 }
 
-fn relative_mad_within_limit(median: u64, mad: u64) -> bool {
-    median > 0
-        && u128::from(mad) * 100 <= u128::from(median) * u128::from(MAXIMUM_RELATIVE_MAD_PERCENT)
-}
-
 #[allow(clippy::too_many_arguments)]
 fn estimate(
     analysis: &Analysis,
@@ -1011,15 +1004,6 @@ mod tests {
         assert!(validate_scale_path([(1, false), (4, true)], 4).is_err());
         assert!(validate_scale_path([(1, true), (2, true)], 2).is_err());
         assert!(validate_scale_path([(1, false), (2, true)], 4).is_err());
-    }
-
-    #[test]
-    fn relative_mad_limit_uses_the_frozen_exact_ratio() {
-        assert!(relative_mad_within_limit(100, 2));
-        assert!(!relative_mad_within_limit(100, 3));
-        assert!(relative_mad_within_limit(50, 1));
-        assert!(!relative_mad_within_limit(49, 1));
-        assert!(!relative_mad_within_limit(0, 0));
     }
 
     #[test]

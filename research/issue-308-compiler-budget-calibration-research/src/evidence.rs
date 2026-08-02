@@ -5978,7 +5978,6 @@ fn verify_base_scales(
             }
             verify_unique_pilot_oracle(base_scale, n, pilot_level, runs, referenced_run_ids)?;
             let qualifies = median >= minimum_reliable_wall_time_ns
-                && u128::from(mad) * 100 <= u128::from(median) * 2
                 && all_semantic_digests_equal
                 && all_guards_clear;
             expect_bool(pilot_level, "/qualifies", qualifies)?;
@@ -7199,7 +7198,7 @@ mod tests {
     }
 
     #[test]
-    fn qualified_base_scale_recomputes_seven_samples_mad_and_oracle() {
+    fn qualified_base_scale_recomputes_high_mad_without_using_it_as_a_scale_gate() {
         let trusted = load_repository_contract().expect("trusted contract");
         let context = test_context();
         let document = qualified_base_evidence(&trusted, &context);
@@ -8626,7 +8625,7 @@ mod tests {
                     "graphProfile": "wide-star-v1",
                     "stringProfile": "short-unique-v1",
                     "generatorVersion": 1,
-                    "selectionRule": "first-power-of-two-qualifying-seven-pilot-runs-v1",
+                    "selectionRule": "first-power-of-two-clock-qualified-seven-pilot-runs-v2",
                     "pilotLevels": [],
                     "b": {"value": null, "reason": "no-reliable-base-scale-before-guard"},
                     "terminalGuardRunId": {"value": run_id, "reason": null}
@@ -8742,7 +8741,7 @@ mod tests {
         let mut document = minimal_guarded_evidence(trusted, context);
         let template = document["runs"][0].clone();
         let digest = "2".repeat(64);
-        let wall_times = [10_000_u64, 10_001, 10_002, 10_003, 10_004, 10_005, 10_006];
+        let wall_times = [1_000_u64, 2_000, 3_000, 10_003, 20_000, 30_000, 40_000];
         let attempt_id = "attempt/pilot/LF-COMP-ID-v1/wide-star-v1/n-1/0";
         let mut contributing = Vec::new();
         let mut runs = Vec::new();
@@ -8780,7 +8779,7 @@ mod tests {
             "contributingRunIds": contributing,
             "aggregationMethod": "median-and-mad-of-seven-exact-integers-v1",
             "wallTimeMedianNs": 10_003,
-            "wallTimeMedianAbsoluteDeviationNs": 2,
+            "wallTimeMedianAbsoluteDeviationNs": 9_003,
             "minimumReliableWallTimeNs": 10_000,
             "semanticDigest": digest,
             "allSemanticDigestsEqual": true,

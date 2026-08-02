@@ -31,7 +31,6 @@ use std::time::{Duration, Instant};
 
 pub const FRESH_PROCESS_PILOT_SAMPLE_COUNT: usize = 7;
 pub const CLOCK_QUANTUM_MULTIPLIER: u64 = 10_000;
-pub const MAXIMUM_RELATIVE_MAD_PERCENT: u64 = 2;
 const CHILD_MONITOR_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const CHILD_MONITOR_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const CHILD_TERMINATION_TIMEOUT_MS: u64 = 5_000;
@@ -81,7 +80,6 @@ pub struct IdentityFreshProcessPilot {
     pub median_wall_time_ns: u64,
     pub median_absolute_deviation_ns: u64,
     pub clock_quantum_requirement_met: bool,
-    pub relative_mad_requirement_met: bool,
     pub semantic_digest_consistent: bool,
     pub measurement_quality_met: bool,
     pub guard_preflight_evaluated: bool,
@@ -121,8 +119,9 @@ pub enum IdentityFreshProcessPilotOutcome {
 pub const FORMAL_PROTOCOL_ID: &str = "compiler-calibration-v1";
 pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA: &str =
     "laneflow.compiler-calibration-base-scale-pilot-checkpoint";
-pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION: u32 = 4;
-pub const BASE_SCALE_SELECTION_RULE: &str = "first-power-of-two-qualifying-seven-pilot-runs-v1";
+pub const BASE_SCALE_PILOT_CHECKPOINT_SCHEMA_VERSION: u32 = 5;
+pub const BASE_SCALE_SELECTION_RULE: &str =
+    "first-power-of-two-clock-qualified-seven-pilot-runs-v2";
 pub const BASE_SCALE_AGGREGATION_METHOD: &str = "median-and-mad-of-seven-exact-integers-v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -504,10 +503,7 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
     let (median_wall_time_ns, median_absolute_deviation_ns) =
         median_and_mad(samples.iter().map(|sample| sample.child.wall_time_ns))?;
     let clock_quantum_requirement_met = median_wall_time_ns >= required_median_wall_time_ns;
-    let relative_mad_requirement_met =
-        relative_mad_within_limit(median_wall_time_ns, median_absolute_deviation_ns);
-    let measurement_quality_met =
-        clock_quantum_requirement_met && relative_mad_requirement_met && semantic_digest_consistent;
+    let measurement_quality_met = clock_quantum_requirement_met && semantic_digest_consistent;
 
     Ok(IdentityFreshProcessPilotOutcome::Completed {
         pilot: IdentityFreshProcessPilot {
@@ -519,7 +515,6 @@ fn run_identity_fresh_process_pilot_with_memory_observer(
             median_wall_time_ns,
             median_absolute_deviation_ns,
             clock_quantum_requirement_met,
-            relative_mad_requirement_met,
             semantic_digest_consistent,
             measurement_quality_met,
             guard_preflight_evaluated: true,
@@ -1485,7 +1480,6 @@ fn summarize_base_scale_level(
     let completed_level_guard_observation =
         completed_level_guard_observation(n, &contributing_runs, oracle_run)?;
     let qualifies = wall_time_median_ns >= minimum_reliable_wall_time_ns
-        && relative_mad_within_limit(wall_time_median_ns, wall_time_median_absolute_deviation_ns)
         && all_semantic_digests_equal
         && oracle_child.complete_counts_equal
         && oracle_child.complete_typed_output_equal
@@ -2656,11 +2650,6 @@ fn median_and_mad(values: impl IntoIterator<Item = u64>) -> Result<(u64, u64), P
     Ok((median, deviations[FRESH_PROCESS_PILOT_SAMPLE_COUNT / 2]))
 }
 
-fn relative_mad_within_limit(median: u64, mad: u64) -> bool {
-    median > 0
-        && u128::from(mad) * 100 <= u128::from(median) * u128::from(MAXIMUM_RELATIVE_MAD_PERCENT)
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum PilotError {
     #[error(transparent)]
@@ -2775,9 +2764,6 @@ mod tests {
             median_and_mad([109, 100, 103, 101, 102, 104, 150]).expect("seven samples");
         assert_eq!(median, 103);
         assert_eq!(mad, 2);
-        assert!(relative_mad_within_limit(10_000, 200));
-        assert!(!relative_mad_within_limit(10_000, 201));
-        assert!(!relative_mad_within_limit(0, 0));
     }
 
     #[test]
@@ -2845,6 +2831,31 @@ mod tests {
             summarize_base_scale_level(1, &contributing, &runs, &oracle, 10_000),
             Err(PilotError::InvalidContributingRunSet)
         ));
+    }
+
+    #[test]
+    fn base_scale_qualification_does_not_turn_cross_process_jitter_into_a_larger_workload() {
+        let guard = clear_pilot_guard();
+        let wall_times = [1_000, 2_000, 3_000, 10_000, 20_000, 30_000, 40_000];
+        let runs = wall_times
+            .into_iter()
+            .enumerate()
+            .map(|(ordinal, wall_time_ns)| {
+                synthetic_pilot_run(ordinal, wall_time_ns, &guard, RunStatus::Valid)
+            })
+            .collect::<Vec<_>>();
+        let contributing = (0..FRESH_PROCESS_PILOT_SAMPLE_COUNT).collect::<Vec<_>>();
+        let oracle = synthetic_oracle_run(&guard, RunStatus::Valid);
+
+        let level = summarize_base_scale_level(1, &contributing, &runs, &oracle, 10_000)
+            .expect("pilot level");
+        assert_eq!(level.wall_time_median_ns, 10_000);
+        assert_eq!(level.wall_time_median_absolute_deviation_ns, 9_000);
+        assert!(
+            u128::from(level.wall_time_median_absolute_deviation_ns) * 100
+                > u128::from(level.wall_time_median_ns) * 2
+        );
+        assert!(level.qualifies);
     }
 
     #[test]
