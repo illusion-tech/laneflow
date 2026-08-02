@@ -21,6 +21,8 @@ pub const FORMAL_LADDER_SCALE_SELECTION_RULE: &str = "first-confirmed-knee-or-ma
 pub enum FormalLadderMetric {
     WallTimeNs,
     PeakLiveRequestedBytes,
+    RetainedCapacityBytes,
+    PrivateBytes,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -28,6 +30,7 @@ pub enum FormalLadderMetric {
 pub enum FormalLadderSampleKind {
     ColdInstance,
     StableCapacityReuse,
+    CompleteProcess,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +39,7 @@ pub struct FormalLadderRoundRun {
     pub batch: u32,
     pub round: u32,
     pub binary_mode: ScalableLadderBinaryMode,
+    pub peak_private_bytes: u64,
     pub report: ScalableLadderChildReport,
 }
 
@@ -174,6 +178,25 @@ pub fn analyze_formal_ladder(
     })
 }
 
+/// 把扩展后的 Evidence 分析投影回正式执行检查点 v6 已冻结的四项拐点分层。
+///
+/// v0.10 原始制品中的 `analysis` 是可重算的派生缓存，不是新增预算指标的事实源；保持
+/// 此投影可以验证既有缓存，又无需为已经采集的保留容量和进程私有内存重跑正式测量。
+pub(crate) fn formal_ladder_execution_v6_projection(
+    mut analysis: FormalLadderAnalysis,
+) -> FormalLadderAnalysis {
+    analysis
+        .round_summaries
+        .retain(|summary| metric_triggers_knee(summary.metric));
+    analysis
+        .batch_summaries
+        .retain(|summary| metric_triggers_knee(summary.metric));
+    analysis
+        .adjacent_level_ratios
+        .retain(|ratio| metric_triggers_knee(ratio.metric));
+    analysis
+}
+
 fn validate_level_sequence(levels: &[FormalLadderCompletedLevel]) -> Result<(), FormalLadderError> {
     for (index, level) in levels.iter().enumerate() {
         if level.n == 0 || level.primary_record_count == 0 || level.canonical_lir_record_count == 0
@@ -195,7 +218,7 @@ fn summarize_level_rounds(
     level: &FormalLadderCompletedLevel,
 ) -> Result<Vec<FormalLadderRoundMetricSummary>, FormalLadderError> {
     let mut summaries =
-        Vec::with_capacity((FORMAL_LADDER_BATCH_COUNT * FORMAL_LADDER_ROUND_COUNT * 4) as usize);
+        Vec::with_capacity((FORMAL_LADDER_BATCH_COUNT * FORMAL_LADDER_ROUND_COUNT * 7) as usize);
     for batch in 0..FORMAL_LADDER_BATCH_COUNT {
         for round in 0..FORMAL_LADDER_ROUND_COUNT {
             let timing = unique_run(level, batch, round, ScalableLadderBinaryMode::Timing)?;
@@ -266,6 +289,63 @@ fn summarize_level_rounds(
                     .iter()
                     .map(|sample| sample.guard_peak_live_requested_bytes)
                     .collect(),
+            )?);
+            let retained_capacity_bytes = attribution
+                .report
+                .retained_capacity_bytes
+                .as_ref()
+                .ok_or(FormalLadderError::IncompleteChildReport)?
+                .total;
+            let cold_retained_capacity_bytes = attribution_cold
+                .allocation
+                .as_ref()
+                .ok_or(FormalLadderError::MetricModeMismatch)?
+                .live_requested_bytes;
+            let stable_retained_capacity_bytes = attribution
+                .report
+                .stable_capacity_reuse
+                .iter()
+                .map(|sample| {
+                    sample
+                        .allocation
+                        .as_ref()
+                        .map(|allocation| allocation.live_requested_bytes)
+                        .ok_or(FormalLadderError::MetricModeMismatch)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if cold_retained_capacity_bytes != retained_capacity_bytes
+                || stable_retained_capacity_bytes
+                    .iter()
+                    .any(|value| *value != retained_capacity_bytes)
+            {
+                return Err(FormalLadderError::RetainedCapacityMismatch);
+            }
+            summaries.push(round_summary(
+                level,
+                batch,
+                round,
+                FormalLadderMetric::RetainedCapacityBytes,
+                FormalLadderSampleKind::ColdInstance,
+                ScalableLadderBinaryMode::Attribution,
+                vec![cold_retained_capacity_bytes],
+            )?);
+            summaries.push(round_summary(
+                level,
+                batch,
+                round,
+                FormalLadderMetric::RetainedCapacityBytes,
+                FormalLadderSampleKind::StableCapacityReuse,
+                ScalableLadderBinaryMode::Attribution,
+                stable_retained_capacity_bytes,
+            )?);
+            summaries.push(round_summary(
+                level,
+                batch,
+                round,
+                FormalLadderMetric::PrivateBytes,
+                FormalLadderSampleKind::CompleteProcess,
+                ScalableLadderBinaryMode::Attribution,
+                vec![attribution.peak_private_bytes],
             )?);
         }
     }
@@ -342,6 +422,7 @@ fn round_summary(
     let expected_count = match sample_kind {
         FormalLadderSampleKind::ColdInstance => 1,
         FormalLadderSampleKind::StableCapacityReuse => 7,
+        FormalLadderSampleKind::CompleteProcess => 1,
     };
     if values.len() != expected_count || values.contains(&0) {
         return Err(FormalLadderError::InvalidMetricValues);
@@ -349,7 +430,9 @@ fn round_summary(
     let (median, median_absolute_deviation) = median_and_mad(&values)?;
     let normalizer = match metric {
         FormalLadderMetric::WallTimeNs => level.primary_record_count,
-        FormalLadderMetric::PeakLiveRequestedBytes => level.canonical_lir_record_count,
+        FormalLadderMetric::PeakLiveRequestedBytes
+        | FormalLadderMetric::RetainedCapacityBytes
+        | FormalLadderMetric::PrivateBytes => level.canonical_lir_record_count,
     };
     Ok(FormalLadderRoundMetricSummary {
         summary_id: format!(
@@ -516,7 +599,10 @@ fn build_knee_assessments(
     ratios: &[FormalAdjacentLevelRatio],
 ) -> Result<Vec<FormalKneeAssessment>, FormalLadderError> {
     let mut output = Vec::new();
-    for candidate in ratios.iter().filter(|ratio| ratio.batch == 0) {
+    for candidate in ratios
+        .iter()
+        .filter(|ratio| ratio.batch == 0 && metric_triggers_knee(ratio.metric))
+    {
         let confirmation = ratios
             .iter()
             .find(|ratio| {
@@ -743,7 +829,15 @@ fn candidate_knee(
             Ok(ratios.iter().all(|ratio| ratio_at_least(ratio, 21, 20))
                 && ratio_at_least(median, 11, 10))
         }
+        FormalLadderMetric::RetainedCapacityBytes | FormalLadderMetric::PrivateBytes => Ok(false),
     }
+}
+
+const fn metric_triggers_knee(metric: FormalLadderMetric) -> bool {
+    matches!(
+        metric,
+        FormalLadderMetric::WallTimeNs | FormalLadderMetric::PeakLiveRequestedBytes
+    )
 }
 
 fn ratio_at_least(ratio: &ExactPositiveRatio, numerator: u128, denominator: u128) -> bool {
@@ -780,7 +874,7 @@ fn required_strata() -> [(
     FormalLadderMetric,
     FormalLadderSampleKind,
     ScalableLadderBinaryMode,
-); 4] {
+); 7] {
     [
         (
             FormalLadderMetric::WallTimeNs,
@@ -802,6 +896,21 @@ fn required_strata() -> [(
             FormalLadderSampleKind::StableCapacityReuse,
             ScalableLadderBinaryMode::Attribution,
         ),
+        (
+            FormalLadderMetric::RetainedCapacityBytes,
+            FormalLadderSampleKind::ColdInstance,
+            ScalableLadderBinaryMode::Attribution,
+        ),
+        (
+            FormalLadderMetric::RetainedCapacityBytes,
+            FormalLadderSampleKind::StableCapacityReuse,
+            ScalableLadderBinaryMode::Attribution,
+        ),
+        (
+            FormalLadderMetric::PrivateBytes,
+            FormalLadderSampleKind::CompleteProcess,
+            ScalableLadderBinaryMode::Attribution,
+        ),
     ]
 }
 
@@ -809,6 +918,8 @@ fn metric_token(metric: FormalLadderMetric) -> &'static str {
     match metric {
         FormalLadderMetric::WallTimeNs => "wall-time-ns",
         FormalLadderMetric::PeakLiveRequestedBytes => "peak-live-requested-bytes",
+        FormalLadderMetric::RetainedCapacityBytes => "retained-capacity-bytes",
+        FormalLadderMetric::PrivateBytes => "private-bytes",
     }
 }
 
@@ -816,6 +927,7 @@ fn sample_kind_token(sample_kind: FormalLadderSampleKind) -> &'static str {
     match sample_kind {
         FormalLadderSampleKind::ColdInstance => "cold-instance",
         FormalLadderSampleKind::StableCapacityReuse => "stable-capacity-reuse",
+        FormalLadderSampleKind::CompleteProcess => "complete-process",
     }
 }
 
@@ -865,6 +977,8 @@ pub enum FormalLadderError {
     IncompleteBatch { n: u32, batch: u32 },
     #[error("正式阶梯指标与二进制模式不一致")]
     MetricModeMismatch,
+    #[error("正式阶梯样本保留容量与进程最终保留容量不一致")]
+    RetainedCapacityMismatch,
     #[error("正式阶梯缺少派生汇总")]
     MissingSummary,
     #[error("正式阶梯派生汇总自然身份重复")]
@@ -884,9 +998,9 @@ mod tests {
     use super::*;
     use crate::{
         ATTRIBUTION_BINARY_ID, BASE_SCALE_STRING_PROFILE, GENERATOR_VERSION_V1,
-        SCALABLE_LADDER_CHILD_SCHEMA, SCALABLE_LADDER_CHILD_SCHEMA_VERSION,
-        STABLE_CAPACITY_WARMUP_COUNT, ScalableLadderSample, StageRetainedCapacityBytes,
-        TIMING_BINARY_ID, WORKLOAD_REVISION_V1,
+        IdentityAllocationSnapshot, SCALABLE_LADDER_CHILD_SCHEMA,
+        SCALABLE_LADDER_CHILD_SCHEMA_VERSION, STABLE_CAPACITY_WARMUP_COUNT, ScalableLadderSample,
+        StageRetainedCapacityBytes, TIMING_BINARY_ID, WORKLOAD_REVISION_V1,
     };
 
     #[test]
@@ -899,8 +1013,33 @@ mod tests {
             synthetic_level(16, 1_600, 1_600, 2_000, 1_600),
         ];
         let analysis = analyze_formal_ladder(&levels).expect("complete ladder");
-        assert_eq!(analysis.round_summaries.len(), 5 * 2 * 5 * 4);
-        assert_eq!(analysis.batch_summaries.len(), 5 * 2 * 4);
+        assert_eq!(analysis.round_summaries.len(), 5 * 2 * 5 * 7);
+        assert_eq!(analysis.batch_summaries.len(), 5 * 2 * 7);
+        assert_eq!(
+            analysis
+                .batch_summaries
+                .iter()
+                .filter(|summary| summary.metric == FormalLadderMetric::RetainedCapacityBytes)
+                .count(),
+            5 * 2 * 2
+        );
+        assert_eq!(
+            analysis
+                .batch_summaries
+                .iter()
+                .filter(|summary| summary.metric == FormalLadderMetric::PrivateBytes)
+                .count(),
+            5 * 2
+        );
+        assert!(
+            analysis
+                .knees
+                .iter()
+                .all(|knee| metric_triggers_knee(knee.metric))
+        );
+        let v6_projection = formal_ladder_execution_v6_projection(analysis.clone());
+        assert_eq!(v6_projection.round_summaries.len(), 5 * 2 * 5 * 4);
+        assert_eq!(v6_projection.batch_summaries.len(), 5 * 2 * 4);
         assert!(analysis.knees.iter().any(|knee| {
             knee.upper_n == 8
                 && knee.metric == FormalLadderMetric::WallTimeNs
@@ -932,6 +1071,30 @@ mod tests {
         );
         assert_eq!(analysis.scale_selection.calibration_n, Some(8));
         assert_eq!(analysis.scale_selection.stress_n, Some(16));
+    }
+
+    #[test]
+    fn retained_capacity_must_match_every_attribution_sample() {
+        let mut level = synthetic_level(1, 100, 100, 100, 100);
+        let attribution = level
+            .runs
+            .iter_mut()
+            .find(|run| run.binary_mode == ScalableLadderBinaryMode::Attribution)
+            .expect("attribution run");
+        attribution
+            .report
+            .cold_instance
+            .as_mut()
+            .expect("cold sample")
+            .allocation
+            .as_mut()
+            .expect("allocation snapshot")
+            .live_requested_bytes += 1;
+
+        assert!(matches!(
+            analyze_formal_ladder(&[level]),
+            Err(FormalLadderError::RetainedCapacityMismatch)
+        ));
     }
 
     #[test]
@@ -1011,6 +1174,7 @@ mod tests {
                     batch,
                     round,
                     binary_mode: ScalableLadderBinaryMode::Timing,
+                    peak_private_bytes: peak_live_requested_bytes * 2,
                     report: synthetic_report(
                         n,
                         ScalableLadderBinaryMode::Timing,
@@ -1022,6 +1186,7 @@ mod tests {
                     batch,
                     round,
                     binary_mode: ScalableLadderBinaryMode::Attribution,
+                    peak_private_bytes: peak_live_requested_bytes * 2,
                     report: synthetic_report(
                         n,
                         ScalableLadderBinaryMode::Attribution,
@@ -1054,7 +1219,13 @@ mod tests {
                 .then_some(wall_time_ns),
             semantic_digest_sha256: "00".repeat(32),
             guard_peak_live_requested_bytes: peak_live_requested_bytes,
-            allocation: None,
+            allocation: (mode == ScalableLadderBinaryMode::Attribution).then_some(
+                IdentityAllocationSnapshot {
+                    live_requested_bytes: peak_live_requested_bytes,
+                    peak_live_requested_bytes,
+                    ..IdentityAllocationSnapshot::default()
+                },
+            ),
         };
         ScalableLadderChildReport {
             schema: SCALABLE_LADDER_CHILD_SCHEMA.to_owned(),

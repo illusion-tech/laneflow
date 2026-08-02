@@ -462,7 +462,11 @@ fn recompute_formal_analyses(
                 .collect::<Result<Vec<_>, EvidenceError>>()?;
             let analysis = analyze_formal_ladder(&completed)
                 .map_err(|error| EvidenceError::InvalidCheckpoint(error.to_string()))?;
-            if ladder.analysis.as_ref() != Some(&analysis) {
+            if ladder.analysis.as_ref()
+                != Some(&crate::ladder::formal_ladder_execution_v6_projection(
+                    analysis.clone(),
+                ))
+            {
                 return Err(EvidenceError::InvalidCheckpoint(format!(
                     "正式阶梯 {} / {} 的分析结果无法独立复算",
                     ladder.workload_id.as_str(),
@@ -994,7 +998,7 @@ fn validate_formal_round_envelope(
         expected_digest,
     )
     .map_err(EvidenceError::InvalidCheckpoint)?;
-    crate::pilot_budget::validate_clear_monitor(
+    let peak_private_bytes = crate::pilot_budget::validate_clear_monitor(
         Some(&run.monitor),
         &level.guard_preflight,
         child_wall_time,
@@ -1007,6 +1011,7 @@ fn validate_formal_round_envelope(
         batch: run.batch,
         round: run.round,
         binary_mode: run.binary_mode,
+        peak_private_bytes,
         report: child.clone(),
     })
 }
