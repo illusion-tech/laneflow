@@ -11,7 +11,7 @@ use std::sync::Arc;
 use laneflow_static_contract::{EntityKind, StableId128};
 
 use crate::CompileLimitDimension;
-use crate::declaration::ScalarViolation;
+use crate::declaration::{FacilityKindCategory, FacilityKindViolation, ScalarViolation};
 use crate::identity::CanonicalIdentityViolation;
 
 /// 来源文档内受检的一基行列位置。
@@ -126,6 +126,32 @@ pub enum DiagnosticCode {
     InvalidLaneEdgeSpeedLimit,
     /// 同一车道图边重复列出相同下游目标。
     DuplicateLaneEdgeSuccessor,
+    /// 道路区段或设施带使用未知或类别不匹配的物理设施 token。
+    InvalidFacilityKind,
+    /// 道路区段没有声明任何编制车道。
+    EmptyRoadSectionLanes,
+    /// 编制车道没有声明任何车道图边覆盖。
+    EmptyAuthoringLaneEdgeChain,
+    /// 同一编制车道覆盖链重复引用同一车道图边。
+    DuplicateAuthoringLaneEdge,
+    /// 道路走廊没有声明任何横断面成员。
+    EmptyRoadCorridorElements,
+    /// 同一道路走廊的有序横断面重复引用同一成员。
+    DuplicateRoadCorridorElement,
+    /// 必须进入横断面所有者树的实体没有任何道路走廊父项。
+    MissingCrossSectionOwner,
+    /// 横断面实体被多个道路走廊拥有。
+    MultipleCrossSectionOwners,
+    /// 道路走廊的参考道路区段不属于自身有序成员。
+    InvalidCorridorReferenceSection,
+    /// 编制车道覆盖链中的相邻车道图边没有直接连接。
+    DisconnectedAuthoringLaneEdgeChain,
+    /// 同一车道图边被多个编制车道覆盖。
+    MultipleAuthoringLaneOwners,
+    /// 编制车道引用的车道组不属于同一道路区段。
+    LaneGroupParentMismatch,
+    /// 车道组没有任何编制车道成员。
+    EmptyLaneGroup,
     /// 编译器构造的规范身份字段不满足 Identity v1 登记表。
     InvalidCanonicalIdentity,
     /// 同一完整规范身份在编译单元中出现多次。
@@ -157,6 +183,21 @@ impl DiagnosticCode {
             Self::InvalidLaneEdgeLength => "LF-COMP-LANE-EDGE-LENGTH",
             Self::InvalidLaneEdgeSpeedLimit => "LF-COMP-LANE-EDGE-SPEED-LIMIT",
             Self::DuplicateLaneEdgeSuccessor => "LF-COMP-DUPLICATE-LANE-EDGE-SUCCESSOR",
+            Self::InvalidFacilityKind => "LF-COMP-FACILITY-KIND",
+            Self::EmptyRoadSectionLanes => "LF-COMP-EMPTY-ROAD-SECTION-LANES",
+            Self::EmptyAuthoringLaneEdgeChain => "LF-COMP-EMPTY-AUTHORING-LANE-EDGE-CHAIN",
+            Self::DuplicateAuthoringLaneEdge => "LF-COMP-DUPLICATE-AUTHORING-LANE-EDGE",
+            Self::EmptyRoadCorridorElements => "LF-COMP-EMPTY-ROAD-CORRIDOR-ELEMENTS",
+            Self::DuplicateRoadCorridorElement => "LF-COMP-DUPLICATE-ROAD-CORRIDOR-ELEMENT",
+            Self::MissingCrossSectionOwner => "LF-COMP-MISSING-CROSS-SECTION-OWNER",
+            Self::MultipleCrossSectionOwners => "LF-COMP-MULTIPLE-CROSS-SECTION-OWNERS",
+            Self::InvalidCorridorReferenceSection => "LF-COMP-CORRIDOR-REFERENCE-SECTION",
+            Self::DisconnectedAuthoringLaneEdgeChain => {
+                "LF-COMP-DISCONNECTED-AUTHORING-LANE-EDGE-CHAIN"
+            }
+            Self::MultipleAuthoringLaneOwners => "LF-COMP-MULTIPLE-AUTHORING-LANE-OWNERS",
+            Self::LaneGroupParentMismatch => "LF-COMP-LANE-GROUP-PARENT-MISMATCH",
+            Self::EmptyLaneGroup => "LF-COMP-EMPTY-LANE-GROUP",
             Self::InvalidCanonicalIdentity => "LF-COMP-INVALID-CANONICAL-IDENTITY",
             Self::DuplicateCanonicalIdentity => "LF-COMP-DUPLICATE-CANONICAL-IDENTITY",
             Self::IdentityDigestCollision => "LF-COMP-IDENTITY-DIGEST-COLLISION",
@@ -326,6 +367,72 @@ pub enum DiagnosticPayload {
         target_namespace: Box<str>,
         target_key: Box<str>,
     },
+    /// 未知或不能由指定横断面实体承载的物理设施类别。
+    InvalidFacilityKind {
+        entity_kind: EntityKind,
+        stable_key: Box<str>,
+        kind_id: Box<str>,
+        expected_category: FacilityKindCategory,
+        violation: FacilityKindViolation,
+    },
+    /// 没有编制车道的道路区段。
+    EmptyRoadSectionLanes { stable_key: Box<str> },
+    /// 没有车道图边覆盖的编制车道。
+    EmptyAuthoringLaneEdgeChain { stable_key: Box<str> },
+    /// 编制车道覆盖链中的重复车道图边引用。
+    DuplicateAuthoringLaneEdge {
+        stable_key: Box<str>,
+        target_namespace: Box<str>,
+        target_key: Box<str>,
+    },
+    /// 没有横断面成员的道路走廊。
+    EmptyRoadCorridorElements { stable_key: Box<str> },
+    /// 道路走廊有序横断面中的重复成员引用。
+    DuplicateRoadCorridorElement {
+        stable_key: Box<str>,
+        target_kind: EntityKind,
+        target_namespace: Box<str>,
+        target_key: Box<str>,
+    },
+    /// 需要父项才能派生身份、但没有被任何道路走廊拥有的横断面实体。
+    MissingCrossSectionOwner {
+        entity_kind: EntityKind,
+        stable_key: Box<str>,
+    },
+    /// 同一横断面实体及发生冲突的两个道路走廊稳定键。
+    MultipleCrossSectionOwners {
+        entity_kind: EntityKind,
+        stable_key: Box<str>,
+        first_owner_key: Box<str>,
+        second_owner_key: Box<str>,
+    },
+    /// 道路走廊与不在自身成员序列内的参考道路区段。
+    InvalidCorridorReferenceSection {
+        corridor_key: Box<str>,
+        target_namespace: Box<str>,
+        target_key: Box<str>,
+    },
+    /// 编制车道覆盖链中不相连的一对相邻车道图边。
+    DisconnectedAuthoringLaneEdgeChain {
+        lane_key: Box<str>,
+        predecessor_key: Box<str>,
+        successor_key: Box<str>,
+    },
+    /// 同一车道图边及发生冲突的两个编制车道稳定键。
+    MultipleAuthoringLaneOwners {
+        edge_key: Box<str>,
+        first_lane_key: Box<str>,
+        second_lane_key: Box<str>,
+    },
+    /// 编制车道、所引用车道组以及不一致的两个道路区段父项。
+    LaneGroupParentMismatch {
+        lane_key: Box<str>,
+        lane_group_key: Box<str>,
+        lane_section_key: Box<str>,
+        group_section_key: Box<str>,
+    },
+    /// 没有任何编制车道成员的车道组。
+    EmptyLaneGroup { stable_key: Box<str> },
     /// 实体种类、来源稳定键及不能形成 Identity v1 前像的精确原因。
     InvalidCanonicalIdentity {
         entity_kind: EntityKind,
@@ -647,6 +754,241 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn invalid_facility_kind(
+        entity_kind: EntityKind,
+        stable_key: &str,
+        kind_id: &str,
+        expected_category: FacilityKindCategory,
+        violation: FacilityKindViolation,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidFacilityKind,
+            DiagnosticPayload::InvalidFacilityKind {
+                entity_kind,
+                stable_key: stable_key.into(),
+                kind_id: kind_id.into(),
+                expected_category,
+                violation,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn empty_road_section_lanes(stable_key: &str, primary_span: SourceSpan) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::EmptyRoadSectionLanes,
+            DiagnosticPayload::EmptyRoadSectionLanes {
+                stable_key: stable_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn empty_authoring_lane_edge_chain(
+        stable_key: &str,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::EmptyAuthoringLaneEdgeChain,
+            DiagnosticPayload::EmptyAuthoringLaneEdgeChain {
+                stable_key: stable_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn duplicate_authoring_lane_edge(
+        stable_key: &str,
+        target_namespace: &str,
+        target_key: &str,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateAuthoringLaneEdge,
+            DiagnosticPayload::DuplicateAuthoringLaneEdge {
+                stable_key: stable_key.into(),
+                target_namespace: target_namespace.into(),
+                target_key: target_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn empty_road_corridor_elements(stable_key: &str, primary_span: SourceSpan) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::EmptyRoadCorridorElements,
+            DiagnosticPayload::EmptyRoadCorridorElements {
+                stable_key: stable_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn duplicate_road_corridor_element(
+        stable_key: &str,
+        target_kind: EntityKind,
+        target_namespace: &str,
+        target_key: &str,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateRoadCorridorElement,
+            DiagnosticPayload::DuplicateRoadCorridorElement {
+                stable_key: stable_key.into(),
+                target_kind,
+                target_namespace: target_namespace.into(),
+                target_key: target_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn missing_cross_section_owner(
+        entity_kind: EntityKind,
+        stable_key: &str,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::MissingCrossSectionOwner,
+            DiagnosticPayload::MissingCrossSectionOwner {
+                entity_kind,
+                stable_key: stable_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn multiple_cross_section_owners(
+        entity_kind: EntityKind,
+        stable_key: &str,
+        first_owner_key: &str,
+        second_owner_key: &str,
+        primary_span: SourceSpan,
+        first_owner_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::MultipleCrossSectionOwners,
+            DiagnosticPayload::MultipleCrossSectionOwners {
+                entity_kind,
+                stable_key: stable_key.into(),
+                first_owner_key: first_owner_key.into(),
+                second_owner_key: second_owner_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_owner_span]),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_corridor_reference_section(
+        corridor_key: &str,
+        target_namespace: &str,
+        target_key: &str,
+        primary_span: SourceSpan,
+        corridor_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidCorridorReferenceSection,
+            DiagnosticPayload::InvalidCorridorReferenceSection {
+                corridor_key: corridor_key.into(),
+                target_namespace: target_namespace.into(),
+                target_key: target_key.into(),
+            },
+            Some(primary_span),
+            Box::new([corridor_span]),
+            Some(corridor_key.into()),
+        )
+    }
+
+    pub(crate) fn disconnected_authoring_lane_edge_chain(
+        lane_key: &str,
+        predecessor_key: &str,
+        successor_key: &str,
+        primary_span: SourceSpan,
+        predecessor_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DisconnectedAuthoringLaneEdgeChain,
+            DiagnosticPayload::DisconnectedAuthoringLaneEdgeChain {
+                lane_key: lane_key.into(),
+                predecessor_key: predecessor_key.into(),
+                successor_key: successor_key.into(),
+            },
+            Some(primary_span),
+            Box::new([predecessor_span]),
+            Some(lane_key.into()),
+        )
+    }
+
+    pub(crate) fn multiple_authoring_lane_owners(
+        edge_key: &str,
+        first_lane_key: &str,
+        second_lane_key: &str,
+        primary_span: SourceSpan,
+        first_lane_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::MultipleAuthoringLaneOwners,
+            DiagnosticPayload::MultipleAuthoringLaneOwners {
+                edge_key: edge_key.into(),
+                first_lane_key: first_lane_key.into(),
+                second_lane_key: second_lane_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_lane_span]),
+            Some(edge_key.into()),
+        )
+    }
+
+    pub(crate) fn lane_group_parent_mismatch(
+        lane_key: &str,
+        lane_group_key: &str,
+        lane_section_key: &str,
+        group_section_key: &str,
+        primary_span: SourceSpan,
+        group_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::LaneGroupParentMismatch,
+            DiagnosticPayload::LaneGroupParentMismatch {
+                lane_key: lane_key.into(),
+                lane_group_key: lane_group_key.into(),
+                lane_section_key: lane_section_key.into(),
+                group_section_key: group_section_key.into(),
+            },
+            Some(primary_span),
+            Box::new([group_span]),
+            Some(lane_key.into()),
+        )
+    }
+
+    pub(crate) fn empty_lane_group(stable_key: &str, primary_span: SourceSpan) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::EmptyLaneGroup,
+            DiagnosticPayload::EmptyLaneGroup {
+                stable_key: stable_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
     pub(crate) fn invalid_canonical_identity(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -908,6 +1250,106 @@ impl fmt::Display for Diagnostic {
                 formatter,
                 "车道图边 {stable_key} 重复声明下游连接 {target_namespace}:{target_key}"
             ),
+            DiagnosticPayload::InvalidFacilityKind {
+                entity_kind,
+                stable_key,
+                kind_id,
+                expected_category,
+                violation,
+            } => write!(
+                formatter,
+                "{} 声明 {stable_key} 的物理设施类别 {kind_id} 不能用于 {}：{}",
+                entity_kind.slug(),
+                match expected_category {
+                    FacilityKindCategory::LaneBearing => "承载车道的道路区段",
+                    FacilityKindCategory::NonTraversable => "非遍历设施带",
+                },
+                FacilityKindViolationDisplay(*violation)
+            ),
+            DiagnosticPayload::EmptyRoadSectionLanes { stable_key } => {
+                write!(formatter, "道路区段 {stable_key} 必须至少声明一条编制车道")
+            }
+            DiagnosticPayload::EmptyAuthoringLaneEdgeChain { stable_key } => {
+                write!(formatter, "编制车道 {stable_key} 必须至少覆盖一条车道图边")
+            }
+            DiagnosticPayload::DuplicateAuthoringLaneEdge {
+                stable_key,
+                target_namespace,
+                target_key,
+            } => write!(
+                formatter,
+                "编制车道 {stable_key} 重复覆盖车道图边 {target_namespace}:{target_key}"
+            ),
+            DiagnosticPayload::EmptyRoadCorridorElements { stable_key } => {
+                write!(
+                    formatter,
+                    "道路走廊 {stable_key} 必须至少声明一个横断面成员"
+                )
+            }
+            DiagnosticPayload::DuplicateRoadCorridorElement {
+                stable_key,
+                target_kind,
+                target_namespace,
+                target_key,
+            } => write!(
+                formatter,
+                "道路走廊 {stable_key} 重复引用 {} 成员 {target_namespace}:{target_key}",
+                target_kind.slug()
+            ),
+            DiagnosticPayload::MissingCrossSectionOwner {
+                entity_kind,
+                stable_key,
+            } => write!(
+                formatter,
+                "{} 声明 {stable_key} 没有道路走廊所有者，无法派生父项锚定身份",
+                entity_kind.slug()
+            ),
+            DiagnosticPayload::MultipleCrossSectionOwners {
+                entity_kind,
+                stable_key,
+                first_owner_key,
+                second_owner_key,
+            } => write!(
+                formatter,
+                "{} 声明 {stable_key} 同时被道路走廊 {first_owner_key} 与 {second_owner_key} 拥有",
+                entity_kind.slug()
+            ),
+            DiagnosticPayload::InvalidCorridorReferenceSection {
+                corridor_key,
+                target_namespace,
+                target_key,
+            } => write!(
+                formatter,
+                "道路走廊 {corridor_key} 的参考道路区段 {target_namespace}:{target_key} 不在自身横断面成员中"
+            ),
+            DiagnosticPayload::DisconnectedAuthoringLaneEdgeChain {
+                lane_key,
+                predecessor_key,
+                successor_key,
+            } => write!(
+                formatter,
+                "编制车道 {lane_key} 的相邻覆盖边 {predecessor_key} 与 {successor_key} 没有直接连接"
+            ),
+            DiagnosticPayload::MultipleAuthoringLaneOwners {
+                edge_key,
+                first_lane_key,
+                second_lane_key,
+            } => write!(
+                formatter,
+                "车道图边 {edge_key} 同时被编制车道 {first_lane_key} 与 {second_lane_key} 覆盖"
+            ),
+            DiagnosticPayload::LaneGroupParentMismatch {
+                lane_key,
+                lane_group_key,
+                lane_section_key,
+                group_section_key,
+            } => write!(
+                formatter,
+                "编制车道 {lane_key} 属于道路区段 {lane_section_key}，但引用的车道组 {lane_group_key} 属于 {group_section_key}"
+            ),
+            DiagnosticPayload::EmptyLaneGroup { stable_key } => {
+                write!(formatter, "车道组 {stable_key} 必须至少包含一条编制车道")
+            }
             DiagnosticPayload::InvalidCanonicalIdentity {
                 entity_kind,
                 stable_key,
@@ -990,6 +1432,31 @@ impl fmt::Display for ScalarViolationDisplay {
                 formatter,
                 "必须严格大于 {}",
                 f64::from_bits(exclusive_minimum_bits)
+            ),
+        }
+    }
+}
+
+struct FacilityKindViolationDisplay(FacilityKindViolation);
+
+impl fmt::Display for FacilityKindViolationDisplay {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            FacilityKindViolation::InvalidToken(violation) => {
+                write!(
+                    formatter,
+                    "token 非法：{}",
+                    SourceTextViolationDisplay(violation)
+                )
+            }
+            FacilityKindViolation::Unknown => formatter.write_str("未登记的物理设施类别"),
+            FacilityKindViolation::CategoryMismatch { actual } => write!(
+                formatter,
+                "实际类别为 {}",
+                match actual {
+                    FacilityKindCategory::LaneBearing => "lane-bearing",
+                    FacilityKindCategory::NonTraversable => "non-traversable",
+                }
             ),
         }
     }
