@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     EntityKind, EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
-    ManeuverPathKind, MovementKind, RoadSectionKind,
+    ManeuverGateKind, ManeuverPathKind, MovementKind, RoadSectionKind, StopLineKind,
 };
 
 use crate::SourceSpan;
@@ -86,6 +86,10 @@ pub type JunctionReference<'a> = EntityReference<'a, JunctionKind>;
 pub type MovementReference<'a> = EntityReference<'a, MovementKind>;
 /// 指向机动路径声明的有类型未解析引用。
 pub type ManeuverPathReference<'a> = EntityReference<'a, ManeuverPathKind>;
+/// 指向停止线声明的有类型未解析引用。
+pub type StopLineReference<'a> = EntityReference<'a, StopLineKind>;
+/// 指向机动门声明的有类型未解析引用。
+pub type ManeuverGateReference<'a> = EntityReference<'a, ManeuverGateKind>;
 
 /// 横断面物理设施类别可承载的结构形态。
 ///
@@ -241,6 +245,53 @@ pub struct ManeuverPathInput<'a> {
     pub internal_edges: &'a [LaneEdgeReference<'a>],
     /// 离开路口后的第一条边界边。
     pub exit_edge: LaneEdgeReference<'a>,
+}
+
+/// 合成领域专用语言的停止线声明输入。
+///
+/// 停止线的位置固定为 `lane_edge` 的末端。它只有被同一转换起始边上的
+/// `ManeuverGateInput` 引用后才形成有效控制边界；孤立停止线会在 HIR 闭包时被拒绝。
+#[derive(Clone, Copy, Debug)]
+pub struct StopLineInput<'a> {
+    /// 来源模块内显式持久化且唯一的停止线稳定键，对应 Identity v1 `stopLineKey`。
+    pub stop_line_key: &'a str,
+    /// 停止线所在的车道图边；位置语义为该边末端。
+    pub lane_edge: LaneEdgeReference<'a>,
+}
+
+/// 合成领域专用语言的机动门声明输入。
+///
+/// `transition_index` 指向 `maneuver_path` 边序列中从下标 `i` 到 `i + 1` 的转换，
+/// 因而必须存在后继边。停止线必须位于该转换的起始边末端；同一路径同一转换最多声明
+/// 一个机动门。
+#[derive(Clone, Copy, Debug)]
+pub struct ManeuverGateInput<'a> {
+    /// 路径所有者局部唯一且稳定的机动门键，对应 Identity v1 `gateKey`。
+    pub maneuver_gate_key: &'a str,
+    /// 唯一拥有该机动门的机动路径。
+    pub maneuver_path: ManeuverPathReference<'a>,
+    /// 路径边序列中受控转换的起始边下标。
+    pub transition_index: u32,
+    /// 标记该转换起始边末端的停止线。
+    pub stop_line: StopLineReference<'a>,
+}
+
+/// 合成领域专用语言的等待区声明输入。
+///
+/// 等待区由同一路径上的入口门和释放门界定。入口转换必须严格早于释放转换；同一路径
+/// 的等待区内部不得重叠或嵌套，但相邻等待区可以共享边界门。
+#[derive(Clone, Copy, Debug)]
+pub struct WaitingZoneInput<'a> {
+    /// 路径所有者局部唯一且稳定的等待区键，对应 Identity v1 `waitingZoneKey`。
+    pub waiting_zone_key: &'a str,
+    /// 唯一拥有该等待区的机动路径。
+    pub maneuver_path: ManeuverPathReference<'a>,
+    /// 进入等待区的机动门。
+    pub entry_gate: ManeuverGateReference<'a>,
+    /// 释放等待区占用者的机动门。
+    pub release_gate: ManeuverGateReference<'a>,
+    /// 等待区可同时容纳的最大交通参与单元数；必须大于零。
+    pub max_occupancy: u32,
 }
 
 /// 合成领域专用语言的车道图边声明输入。
@@ -425,6 +476,29 @@ pub(crate) struct ManeuverPathDeclaration {
     pub(crate) exit_edge: OwnedEntityReference<LaneEdgeKind>,
 }
 
+/// 已通过字段级检查、等待停止线使用闭包校验的停止线 Typed AST 记录。
+pub(crate) struct StopLineDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) lane_edge: OwnedEntityReference<LaneEdgeKind>,
+}
+
+/// 已通过字段级检查、等待路径转换与停止线位置闭包校验的机动门 Typed AST 记录。
+pub(crate) struct ManeuverGateDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) maneuver_path: OwnedEntityReference<ManeuverPathKind>,
+    pub(crate) transition_index: u32,
+    pub(crate) stop_line: OwnedEntityReference<StopLineKind>,
+}
+
+/// 已通过字段级检查、等待门顺序和区间重叠闭包校验的等待区 Typed AST 记录。
+pub(crate) struct WaitingZoneDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) maneuver_path: OwnedEntityReference<ManeuverPathKind>,
+    pub(crate) entry_gate: OwnedEntityReference<ManeuverGateKind>,
+    pub(crate) release_gate: OwnedEntityReference<ManeuverGateKind>,
+    pub(crate) max_occupancy: u32,
+}
+
 /// 官方合成前端当前支持的封闭声明集合。
 pub(crate) enum SyntheticDeclaration {
     LaneEdge(LaneEdgeDeclaration),
@@ -435,4 +509,7 @@ pub(crate) enum SyntheticDeclaration {
     Junction(JunctionDeclaration),
     Movement(MovementDeclaration),
     ManeuverPath(ManeuverPathDeclaration),
+    StopLine(StopLineDeclaration),
+    ManeuverGate(ManeuverGateDeclaration),
+    WaitingZone(WaitingZoneDeclaration),
 }

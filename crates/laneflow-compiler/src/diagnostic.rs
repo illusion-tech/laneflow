@@ -166,6 +166,24 @@ pub enum DiagnosticCode {
     InternalEdgeJunctionConflict,
     /// 同一边同时被声明为路口内部边和任一路口的边界边。
     InternalBoundaryRoleConflict,
+    /// 机动门引用的转换下标不在拥有路径的合法范围内。
+    ManeuverGateTransitionOutOfRange,
+    /// 同一机动路径转换重复声明机动门。
+    DuplicateManeuverGatePathTransition,
+    /// 机动门停止线不位于转换的起始边末端。
+    ManeuverGateStopLineMismatch,
+    /// 停止线位于无法形成路径转换的终止边。
+    OrphanStopLine,
+    /// 非终止边上的停止线未被任何机动门引用。
+    UnreferencedStopLine,
+    /// 等待区容量为零。
+    InvalidWaitingZoneCapacity,
+    /// 等待区引用的入口门或释放门不属于其声明路径。
+    WaitingZoneGatePathMismatch,
+    /// 等待区入口门没有严格早于释放门。
+    InvalidWaitingZoneGateOrder,
+    /// 同一机动路径上的两个等待区内部重叠或嵌套。
+    OverlappingWaitingZones,
     /// 编译器构造的规范身份字段不满足 Identity v1 登记表。
     InvalidCanonicalIdentity,
     /// 同一完整规范身份在编译单元中出现多次。
@@ -219,6 +237,19 @@ impl DiagnosticCode {
             Self::DuplicateManeuverPathSequence => "LF-COMP-DUPLICATE-MANEUVER-PATH-SEQUENCE",
             Self::InternalEdgeJunctionConflict => "LF-COMP-INTERNAL-EDGE-JUNCTION-CONFLICT",
             Self::InternalBoundaryRoleConflict => "LF-COMP-INTERNAL-BOUNDARY-ROLE-CONFLICT",
+            Self::ManeuverGateTransitionOutOfRange => {
+                "LF-COMP-MANEUVER-GATE-TRANSITION-OUT-OF-RANGE"
+            }
+            Self::DuplicateManeuverGatePathTransition => {
+                "LF-COMP-DUPLICATE-MANEUVER-GATE-PATH-TRANSITION"
+            }
+            Self::ManeuverGateStopLineMismatch => "LF-COMP-MANEUVER-GATE-STOP-LINE-MISMATCH",
+            Self::OrphanStopLine => "LF-COMP-ORPHAN-STOP-LINE",
+            Self::UnreferencedStopLine => "LF-COMP-UNREFERENCED-STOP-LINE",
+            Self::InvalidWaitingZoneCapacity => "LF-COMP-WAITING-ZONE-CAPACITY",
+            Self::WaitingZoneGatePathMismatch => "LF-COMP-WAITING-ZONE-GATE-PATH-MISMATCH",
+            Self::InvalidWaitingZoneGateOrder => "LF-COMP-WAITING-ZONE-GATE-ORDER",
+            Self::OverlappingWaitingZones => "LF-COMP-OVERLAPPING-WAITING-ZONES",
             Self::InvalidCanonicalIdentity => "LF-COMP-INVALID-CANONICAL-IDENTITY",
             Self::DuplicateCanonicalIdentity => "LF-COMP-DUPLICATE-CANONICAL-IDENTITY",
             Self::IdentityDigestCollision => "LF-COMP-IDENTITY-DIGEST-COLLISION",
@@ -263,6 +294,25 @@ impl SourceHeaderField {
             Self::SourceDocumentKey => "sourceDocumentKey",
             Self::GeneratorBuildId => "generatorBuildId",
             Self::Provenance => "provenance",
+        }
+    }
+}
+
+/// 等待区诊断中发生约束失败的门角色。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum WaitingZoneGateRole {
+    /// 界定等待区起点的入口门。
+    Entry,
+    /// 界定等待区终点的释放门。
+    Release,
+}
+
+impl WaitingZoneGateRole {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Entry => "entryGate",
+            Self::Release => "releaseGate",
         }
     }
 }
@@ -491,6 +541,59 @@ pub enum DiagnosticPayload {
         edge_key: Box<str>,
         internal_path_key: Box<str>,
         boundary_path_key: Box<str>,
+    },
+    /// 机动门、路径、越界转换下标及该路径可用转换数。
+    ManeuverGateTransitionOutOfRange {
+        maneuver_gate_key: Box<str>,
+        maneuver_path_key: Box<str>,
+        transition_index: u32,
+        transition_count: u32,
+    },
+    /// 同一路径转换上的首个和重复机动门。
+    DuplicateManeuverGatePathTransition {
+        maneuver_path_key: Box<str>,
+        transition_index: u32,
+        first_maneuver_gate_key: Box<str>,
+        duplicate_maneuver_gate_key: Box<str>,
+    },
+    /// 机动门引用停止线的边与路径转换起始边不一致。
+    ManeuverGateStopLineMismatch {
+        maneuver_gate_key: Box<str>,
+        stop_line_key: Box<str>,
+        path_from_edge_key: Box<str>,
+        stop_line_edge_key: Box<str>,
+    },
+    /// 位于终止边、无法形成任何路径转换的停止线。
+    OrphanStopLine {
+        stop_line_key: Box<str>,
+        edge_key: Box<str>,
+    },
+    /// 位于非终止边但未被任何机动门引用的停止线。
+    UnreferencedStopLine {
+        stop_line_key: Box<str>,
+        edge_key: Box<str>,
+    },
+    /// 最大占用数为零的等待区。
+    InvalidWaitingZoneCapacity { waiting_zone_key: Box<str> },
+    /// 等待区中不属于声明路径的入口门或释放门。
+    WaitingZoneGatePathMismatch {
+        waiting_zone_key: Box<str>,
+        gate_role: WaitingZoneGateRole,
+        gate_key: Box<str>,
+        declared_path_key: Box<str>,
+        gate_path_key: Box<str>,
+    },
+    /// 等待区的入口和释放转换没有形成严格正向区间。
+    InvalidWaitingZoneGateOrder {
+        waiting_zone_key: Box<str>,
+        entry_transition_index: u32,
+        release_transition_index: u32,
+    },
+    /// 同一路径上内部区间相交的两个等待区。
+    OverlappingWaitingZones {
+        maneuver_path_key: Box<str>,
+        first_waiting_zone_key: Box<str>,
+        second_waiting_zone_key: Box<str>,
     },
     /// 实体种类、来源稳定键及不能形成 Identity v1 前像的精确原因。
     InvalidCanonicalIdentity {
@@ -1181,6 +1284,186 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn maneuver_gate_transition_out_of_range(
+        maneuver_gate_key: &str,
+        maneuver_path_key: &str,
+        transition_index: u32,
+        transition_count: u32,
+        primary_span: SourceSpan,
+        path_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::ManeuverGateTransitionOutOfRange,
+            DiagnosticPayload::ManeuverGateTransitionOutOfRange {
+                maneuver_gate_key: maneuver_gate_key.into(),
+                maneuver_path_key: maneuver_path_key.into(),
+                transition_index,
+                transition_count,
+            },
+            Some(primary_span),
+            Box::new([path_span]),
+            Some(maneuver_gate_key.into()),
+        )
+    }
+
+    pub(crate) fn duplicate_maneuver_gate_path_transition(
+        maneuver_path_key: &str,
+        transition_index: u32,
+        first_maneuver_gate_key: &str,
+        duplicate_maneuver_gate_key: &str,
+        primary_span: SourceSpan,
+        first_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateManeuverGatePathTransition,
+            DiagnosticPayload::DuplicateManeuverGatePathTransition {
+                maneuver_path_key: maneuver_path_key.into(),
+                transition_index,
+                first_maneuver_gate_key: first_maneuver_gate_key.into(),
+                duplicate_maneuver_gate_key: duplicate_maneuver_gate_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_span]),
+            Some(duplicate_maneuver_gate_key.into()),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn maneuver_gate_stop_line_mismatch(
+        maneuver_gate_key: &str,
+        stop_line_key: &str,
+        path_from_edge_key: &str,
+        stop_line_edge_key: &str,
+        primary_span: SourceSpan,
+        stop_line_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::ManeuverGateStopLineMismatch,
+            DiagnosticPayload::ManeuverGateStopLineMismatch {
+                maneuver_gate_key: maneuver_gate_key.into(),
+                stop_line_key: stop_line_key.into(),
+                path_from_edge_key: path_from_edge_key.into(),
+                stop_line_edge_key: stop_line_edge_key.into(),
+            },
+            Some(primary_span),
+            Box::new([stop_line_span]),
+            Some(maneuver_gate_key.into()),
+        )
+    }
+
+    pub(crate) fn orphan_stop_line(
+        stop_line_key: &str,
+        edge_key: &str,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::OrphanStopLine,
+            DiagnosticPayload::OrphanStopLine {
+                stop_line_key: stop_line_key.into(),
+                edge_key: edge_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stop_line_key.into()),
+        )
+    }
+
+    pub(crate) fn unreferenced_stop_line(
+        stop_line_key: &str,
+        edge_key: &str,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::UnreferencedStopLine,
+            DiagnosticPayload::UnreferencedStopLine {
+                stop_line_key: stop_line_key.into(),
+                edge_key: edge_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stop_line_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_waiting_zone_capacity(
+        waiting_zone_key: &str,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidWaitingZoneCapacity,
+            DiagnosticPayload::InvalidWaitingZoneCapacity {
+                waiting_zone_key: waiting_zone_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(waiting_zone_key.into()),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn waiting_zone_gate_path_mismatch(
+        waiting_zone_key: &str,
+        gate_role: WaitingZoneGateRole,
+        gate_key: &str,
+        declared_path_key: &str,
+        gate_path_key: &str,
+        primary_span: SourceSpan,
+        gate_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::WaitingZoneGatePathMismatch,
+            DiagnosticPayload::WaitingZoneGatePathMismatch {
+                waiting_zone_key: waiting_zone_key.into(),
+                gate_role,
+                gate_key: gate_key.into(),
+                declared_path_key: declared_path_key.into(),
+                gate_path_key: gate_path_key.into(),
+            },
+            Some(primary_span),
+            Box::new([gate_span]),
+            Some(waiting_zone_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_waiting_zone_gate_order(
+        waiting_zone_key: &str,
+        entry_transition_index: u32,
+        release_transition_index: u32,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidWaitingZoneGateOrder,
+            DiagnosticPayload::InvalidWaitingZoneGateOrder {
+                waiting_zone_key: waiting_zone_key.into(),
+                entry_transition_index,
+                release_transition_index,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(waiting_zone_key.into()),
+        )
+    }
+
+    pub(crate) fn overlapping_waiting_zones(
+        maneuver_path_key: &str,
+        first_waiting_zone_key: &str,
+        second_waiting_zone_key: &str,
+        primary_span: SourceSpan,
+        first_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::OverlappingWaitingZones,
+            DiagnosticPayload::OverlappingWaitingZones {
+                maneuver_path_key: maneuver_path_key.into(),
+                first_waiting_zone_key: first_waiting_zone_key.into(),
+                second_waiting_zone_key: second_waiting_zone_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_span]),
+            Some(second_waiting_zone_key.into()),
+        )
+    }
+
     pub(crate) fn invalid_canonical_identity(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -1597,6 +1880,78 @@ impl fmt::Display for Diagnostic {
             } => write!(
                 formatter,
                 "车道图边 {edge_key} 同时被路径 {internal_path_key} 声明为内部边、被路径 {boundary_path_key} 声明为边界边"
+            ),
+            DiagnosticPayload::ManeuverGateTransitionOutOfRange {
+                maneuver_gate_key,
+                maneuver_path_key,
+                transition_index,
+                transition_count,
+            } => write!(
+                formatter,
+                "机动门 {maneuver_gate_key} 的 transitionIndex={transition_index} 越界：机动路径 {maneuver_path_key} 只有 {transition_count} 个转换"
+            ),
+            DiagnosticPayload::DuplicateManeuverGatePathTransition {
+                maneuver_path_key,
+                transition_index,
+                first_maneuver_gate_key,
+                duplicate_maneuver_gate_key,
+            } => write!(
+                formatter,
+                "机动路径 {maneuver_path_key} 的转换 {transition_index} 重复声明机动门：首个为 {first_maneuver_gate_key}，重复项为 {duplicate_maneuver_gate_key}"
+            ),
+            DiagnosticPayload::ManeuverGateStopLineMismatch {
+                maneuver_gate_key,
+                stop_line_key,
+                path_from_edge_key,
+                stop_line_edge_key,
+            } => write!(
+                formatter,
+                "机动门 {maneuver_gate_key} 的转换起始边 {path_from_edge_key} 与停止线 {stop_line_key} 所属边 {stop_line_edge_key} 不一致"
+            ),
+            DiagnosticPayload::OrphanStopLine {
+                stop_line_key,
+                edge_key,
+            } => write!(
+                formatter,
+                "停止线 {stop_line_key} 位于终止边 {edge_key}，无法形成机动路径转换"
+            ),
+            DiagnosticPayload::UnreferencedStopLine {
+                stop_line_key,
+                edge_key,
+            } => write!(
+                formatter,
+                "停止线 {stop_line_key} 位于非终止边 {edge_key}，但未被任何机动门引用"
+            ),
+            DiagnosticPayload::InvalidWaitingZoneCapacity { waiting_zone_key } => write!(
+                formatter,
+                "等待区 {waiting_zone_key} 的 maxOccupancy 必须大于零"
+            ),
+            DiagnosticPayload::WaitingZoneGatePathMismatch {
+                waiting_zone_key,
+                gate_role,
+                gate_key,
+                declared_path_key,
+                gate_path_key,
+            } => write!(
+                formatter,
+                "等待区 {waiting_zone_key} 的 {} {gate_key} 属于机动路径 {gate_path_key}，与声明路径 {declared_path_key} 不一致",
+                gate_role.as_str()
+            ),
+            DiagnosticPayload::InvalidWaitingZoneGateOrder {
+                waiting_zone_key,
+                entry_transition_index,
+                release_transition_index,
+            } => write!(
+                formatter,
+                "等待区 {waiting_zone_key} 的入口转换 {entry_transition_index} 必须严格早于释放转换 {release_transition_index}"
+            ),
+            DiagnosticPayload::OverlappingWaitingZones {
+                maneuver_path_key,
+                first_waiting_zone_key,
+                second_waiting_zone_key,
+            } => write!(
+                formatter,
+                "机动路径 {maneuver_path_key} 上的等待区 {first_waiting_zone_key} 与 {second_waiting_zone_key} 内部重叠或嵌套"
             ),
             DiagnosticPayload::InvalidCanonicalIdentity {
                 entity_kind,

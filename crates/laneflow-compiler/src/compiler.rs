@@ -8,15 +8,16 @@
 use laneflow_static_contract::{
     AuthoringLaneId, AuthoringLaneOrdinal, FacilityBandId, FacilityBandOrdinal, FieldTag,
     JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
-    ManeuverPathId, ManeuverPathOrdinal, MovementId, MovementOrdinal, RoadCorridorId,
-    RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
+    ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId,
+    MovementOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
+    StopLineId, StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::hir::build_hir;
 use crate::lir::{
     LirAuthoringLane, LirCorridorElement, LirFacilityBand, LirIdentityField, LirJunction,
-    LirJunctionInternalEdge, LirLaneEdge, LirLaneGroup, LirManeuverPath, LirMovement,
-    LirRoadCorridor, LirRoadSection, LirUnit, freeze_lir,
+    LirJunctionInternalEdge, LirLaneEdge, LirLaneGroup, LirManeuverGate, LirManeuverPath,
+    LirMovement, LirRoadCorridor, LirRoadSection, LirStopLine, LirUnit, LirWaitingZone, freeze_lir,
 };
 use crate::mir::lower_to_mir;
 use crate::source_map::{ValidatedSourceMapInput, freeze_source_map};
@@ -255,6 +256,81 @@ impl ValidatedCanonicalLir {
             })
     }
 
+    /// 按完整 Identity v1 前像规范顺序遍历全部停止线。
+    pub fn stop_lines(&self) -> impl ExactSizeIterator<Item = CanonicalStopLineView<'_>> {
+        self.inner
+            .stop_lines
+            .iter()
+            .map(|record| CanonicalStopLineView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取停止线。
+    #[must_use]
+    pub fn stop_line(&self, ordinal: StopLineOrdinal) -> Option<CanonicalStopLineView<'_>> {
+        self.inner
+            .stop_lines
+            .get(ordinal.index())
+            .map(|record| CanonicalStopLineView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部机动门。
+    pub fn maneuver_gates(&self) -> impl ExactSizeIterator<Item = CanonicalManeuverGateView<'_>> {
+        self.inner
+            .maneuver_gates
+            .iter()
+            .map(|record| CanonicalManeuverGateView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取机动门。
+    #[must_use]
+    pub fn maneuver_gate(
+        &self,
+        ordinal: ManeuverGateOrdinal,
+    ) -> Option<CanonicalManeuverGateView<'_>> {
+        self.inner
+            .maneuver_gates
+            .get(ordinal.index())
+            .map(|record| CanonicalManeuverGateView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部等待区。
+    pub fn waiting_zones(&self) -> impl ExactSizeIterator<Item = CanonicalWaitingZoneView<'_>> {
+        self.inner
+            .waiting_zones
+            .iter()
+            .map(|record| CanonicalWaitingZoneView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取等待区。
+    #[must_use]
+    pub fn waiting_zone(
+        &self,
+        ordinal: WaitingZoneOrdinal,
+    ) -> Option<CanonicalWaitingZoneView<'_>> {
+        self.inner
+            .waiting_zones
+            .get(ordinal.index())
+            .map(|record| CanonicalWaitingZoneView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
     /// 按 `LaneEdgeOrdinal` 遍历全部派生的路口内部边所有权。
     ///
     /// 验证阶段已证明每条内部边最多属于一个路口，并且不会同时承担任一路径的入口或出口
@@ -412,6 +488,24 @@ impl_stable_entity_view!(
     LirManeuverPath,
     ManeuverPathOrdinal,
     ManeuverPathId
+);
+impl_stable_entity_view!(
+    CanonicalStopLineView,
+    LirStopLine,
+    StopLineOrdinal,
+    StopLineId
+);
+impl_stable_entity_view!(
+    CanonicalManeuverGateView,
+    LirManeuverGate,
+    ManeuverGateOrdinal,
+    ManeuverGateId
+);
+impl_stable_entity_view!(
+    CanonicalWaitingZoneView,
+    LirWaitingZone,
+    WaitingZoneOrdinal,
+    WaitingZoneId
 );
 
 /// 道路走廊有序横断面中的一项有类型成员。
@@ -580,6 +674,78 @@ impl CanonicalManeuverPathView<'_> {
         let edges = self.edges();
         edges[edges.len() - 1]
     }
+
+    /// 返回按 `transition_index` 严格递增冻结的机动门序号。
+    #[must_use]
+    pub fn maneuver_gates(&self) -> &[ManeuverGateOrdinal] {
+        &self.lir.maneuver_path_gates[self.record.maneuver_gates.as_usize_range()]
+    }
+
+    /// 返回按入口转换、释放转换和稳定身份冻结的等待区序号。
+    #[must_use]
+    pub fn waiting_zones(&self) -> &[WaitingZoneOrdinal] {
+        &self.lir.maneuver_path_waiting_zones[self.record.waiting_zones.as_usize_range()]
+    }
+}
+
+impl CanonicalStopLineView<'_> {
+    /// 返回停止线所在的车道图边；位置语义固定为该边末端。
+    #[must_use]
+    pub const fn lane_edge(&self) -> LaneEdgeOrdinal {
+        self.record.lane_edge
+    }
+
+    /// 返回引用该停止线的机动门，顺序按机动门规范身份冻结。
+    #[must_use]
+    pub fn maneuver_gates(&self) -> &[ManeuverGateOrdinal] {
+        &self.lir.stop_line_maneuver_gates[self.record.maneuver_gates.as_usize_range()]
+    }
+}
+
+impl CanonicalManeuverGateView<'_> {
+    /// 返回唯一拥有本机动门的机动路径。
+    #[must_use]
+    pub const fn maneuver_path(&self) -> ManeuverPathOrdinal {
+        self.record.maneuver_path
+    }
+
+    /// 返回路径边序列中受控转换的起始边下标。
+    #[must_use]
+    pub const fn transition_index(&self) -> u32 {
+        self.record.transition_index
+    }
+
+    /// 返回位于转换起始边末端的停止线。
+    #[must_use]
+    pub const fn stop_line(&self) -> StopLineOrdinal {
+        self.record.stop_line
+    }
+}
+
+impl CanonicalWaitingZoneView<'_> {
+    /// 返回唯一拥有本等待区的机动路径。
+    #[must_use]
+    pub const fn maneuver_path(&self) -> ManeuverPathOrdinal {
+        self.record.maneuver_path
+    }
+
+    /// 返回界定等待区起点的入口门。
+    #[must_use]
+    pub const fn entry_gate(&self) -> ManeuverGateOrdinal {
+        self.record.entry_gate
+    }
+
+    /// 返回界定等待区终点的释放门。
+    #[must_use]
+    pub const fn release_gate(&self) -> ManeuverGateOrdinal {
+        self.record.release_gate
+    }
+
+    /// 返回允许同时占用等待区的最大交通参与单元数；该值已证明大于零。
+    #[must_use]
+    pub const fn max_occupancy(&self) -> u32 {
+        self.record.max_occupancy
+    }
 }
 
 /// Canonical LIR 中一条派生路口内部边所有权的借用视图。
@@ -706,10 +872,11 @@ mod tests {
         AuthoringLaneInput, CompilationUnitBuilder, CompileLimitDimension, CompileLimits,
         CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
         FacilityBandReference, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
-        LaneGroupInput, LaneGroupReference, ManeuverPathInput, MovementInput, MovementReference,
+        LaneGroupInput, LaneGroupReference, ManeuverGateInput, ManeuverGateReference,
+        ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
         RoadCorridorInput, RoadSectionInput, RoadSectionReference, SourceModuleDescriptor,
-        SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, SyntheticModule,
-        SyntheticModuleBuilder,
+        SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, StopLineInput,
+        StopLineReference, SyntheticModule, SyntheticModuleBuilder, WaitingZoneInput,
     };
 
     fn module(
@@ -966,6 +1133,105 @@ mod tests {
             add_path(&mut builder, "path-b", "entry-b");
         }
         builder.finish().unwrap()
+    }
+
+    fn control_builder(document: &str) -> SyntheticModuleBuilder {
+        let mut builder = junction_builder(document);
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("middle")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "middle",
+                length_meters: 8.0,
+                speed_limit_meters_per_second: 8.0,
+                successors: &[LaneEdgeReference::local("exit")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_junction(JunctionInput {
+                junction_key: "junction-main",
+            })
+            .unwrap()
+            .add_movement(MovementInput {
+                movement_key: "movement-through",
+                junction: JunctionReference::local("junction-main"),
+                directed_entry_approach_key: "approach-westbound",
+                directed_exit_approach_key: "approach-eastbound",
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-main",
+                movement: MovementReference::local("movement-through"),
+                entry_edge: LaneEdgeReference::local("entry"),
+                internal_edges: &[LaneEdgeReference::local("middle")],
+                exit_edge: LaneEdgeReference::local("exit"),
+            })
+            .unwrap();
+        builder
+    }
+
+    fn add_valid_control(builder: &mut SyntheticModuleBuilder, permuted: bool) {
+        let add_stops = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_stop_line(StopLineInput {
+                    stop_line_key: "stop-entry",
+                    lane_edge: LaneEdgeReference::local("entry"),
+                })
+                .unwrap()
+                .add_stop_line(StopLineInput {
+                    stop_line_key: "stop-middle",
+                    lane_edge: LaneEdgeReference::local("middle"),
+                })
+                .unwrap();
+        };
+        let add_gates = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_maneuver_gate(ManeuverGateInput {
+                    maneuver_gate_key: "gate-entry",
+                    maneuver_path: ManeuverPathReference::local("path-main"),
+                    transition_index: 0,
+                    stop_line: StopLineReference::local("stop-entry"),
+                })
+                .unwrap()
+                .add_maneuver_gate(ManeuverGateInput {
+                    maneuver_gate_key: "gate-release",
+                    maneuver_path: ManeuverPathReference::local("path-main"),
+                    transition_index: 1,
+                    stop_line: StopLineReference::local("stop-middle"),
+                })
+                .unwrap();
+        };
+        let add_waiting = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_waiting_zone(WaitingZoneInput {
+                    waiting_zone_key: "waiting-main",
+                    maneuver_path: ManeuverPathReference::local("path-main"),
+                    entry_gate: ManeuverGateReference::local("gate-entry"),
+                    release_gate: ManeuverGateReference::local("gate-release"),
+                    max_occupancy: 3,
+                })
+                .unwrap();
+        };
+        if permuted {
+            add_waiting(builder);
+            add_gates(builder);
+            add_stops(builder);
+        } else {
+            add_stops(builder);
+            add_gates(builder);
+            add_waiting(builder);
+        }
     }
 
     fn stable_key<'a>(
@@ -2044,5 +2310,232 @@ mod tests {
             &[("edge-a", 10.0, &[])],
         )]);
         assert!(compiler.compile(recovered).is_ok());
+    }
+
+    #[test]
+    fn compiler_freezes_gate_stop_line_and_waiting_zone_closure() {
+        let mut builder = control_builder("control.document");
+        add_valid_control(&mut builder, false);
+        let output = Compiler::new()
+            .compile(unit([builder.finish().unwrap()]))
+            .unwrap();
+        let lir = output.lir();
+
+        assert_eq!(lir.stop_lines().len(), 2);
+        assert_eq!(lir.maneuver_gates().len(), 2);
+        assert_eq!(lir.waiting_zones().len(), 1);
+        let path = lir.maneuver_paths().next().unwrap();
+        let gates = path.maneuver_gates();
+        assert_eq!(gates.len(), 2);
+        assert_eq!(lir.maneuver_gate(gates[0]).unwrap().transition_index(), 0);
+        assert_eq!(lir.maneuver_gate(gates[1]).unwrap().transition_index(), 1);
+        let waiting = lir.waiting_zones().next().unwrap();
+        assert_eq!(waiting.maneuver_path(), path.ordinal());
+        assert_eq!(waiting.entry_gate(), gates[0]);
+        assert_eq!(waiting.release_gate(), gates[1]);
+        assert_eq!(waiting.max_occupancy(), 3);
+        assert_eq!(path.waiting_zones(), &[waiting.ordinal()]);
+
+        for gate in lir.maneuver_gates() {
+            let stop_line = lir.stop_line(gate.stop_line()).unwrap();
+            assert_eq!(stop_line.maneuver_gates(), &[gate.ordinal()]);
+            assert_eq!(
+                stop_line.lane_edge(),
+                path.edges()[gate.transition_index() as usize]
+            );
+        }
+
+        let source_map = output.source_map_input();
+        assert_eq!(source_map.stop_line_sources().len(), 2);
+        assert_eq!(source_map.maneuver_gate_sources().len(), 2);
+        assert_eq!(source_map.waiting_zone_sources().len(), 1);
+        let roles = source_map
+            .junction_relation_sources()
+            .map(|source| source.role())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            roles
+                .iter()
+                .filter(|role| **role == SourceRelationRole::ManeuverPathGate)
+                .count(),
+            2
+        );
+        assert_eq!(
+            roles
+                .iter()
+                .filter(|role| **role == SourceRelationRole::ManeuverPathWaitingZone)
+                .count(),
+            1
+        );
+        assert_eq!(
+            roles
+                .iter()
+                .filter(|role| **role == SourceRelationRole::StopLineManeuverGate)
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn control_semantics_are_invariant_to_declaration_permutation() {
+        let mut left = control_builder("control-left.document");
+        add_valid_control(&mut left, false);
+        let mut right = control_builder("control-right.document");
+        add_valid_control(&mut right, true);
+        let left = Compiler::new()
+            .compile(unit([left.finish().unwrap()]))
+            .unwrap();
+        let right = Compiler::new()
+            .compile(unit([right.finish().unwrap()]))
+            .unwrap();
+
+        assert_eq!(
+            left.lir.inner.semantic_digest,
+            right.lir.inner.semantic_digest
+        );
+        assert_eq!(
+            left.lir()
+                .maneuver_gates()
+                .map(|gate| (gate.stable_id(), gate.transition_index()))
+                .collect::<Vec<_>>(),
+            right
+                .lir()
+                .maneuver_gates()
+                .map(|gate| (gate.stable_id(), gate.transition_index()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn control_closure_rejects_invalid_gate_and_stop_line_topology() {
+        let mut out_of_range = control_builder("gate-range.document");
+        out_of_range
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-entry",
+                lane_edge: LaneEdgeReference::local("entry"),
+            })
+            .unwrap()
+            .add_maneuver_gate(ManeuverGateInput {
+                maneuver_gate_key: "gate-invalid",
+                maneuver_path: ManeuverPathReference::local("path-main"),
+                transition_index: 2,
+                stop_line: StopLineReference::local("stop-entry"),
+            })
+            .unwrap();
+        assert!(
+            compile_diagnostic_codes(out_of_range)
+                .contains(&DiagnosticCode::ManeuverGateTransitionOutOfRange)
+        );
+
+        let mut duplicate = control_builder("gate-duplicate.document");
+        duplicate
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-entry",
+                lane_edge: LaneEdgeReference::local("entry"),
+            })
+            .unwrap();
+        for key in ["gate-a", "gate-b"] {
+            duplicate
+                .add_maneuver_gate(ManeuverGateInput {
+                    maneuver_gate_key: key,
+                    maneuver_path: ManeuverPathReference::local("path-main"),
+                    transition_index: 0,
+                    stop_line: StopLineReference::local("stop-entry"),
+                })
+                .unwrap();
+        }
+        assert!(
+            compile_diagnostic_codes(duplicate)
+                .contains(&DiagnosticCode::DuplicateManeuverGatePathTransition)
+        );
+
+        let mut mismatch = control_builder("gate-mismatch.document");
+        mismatch
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-middle",
+                lane_edge: LaneEdgeReference::local("middle"),
+            })
+            .unwrap()
+            .add_maneuver_gate(ManeuverGateInput {
+                maneuver_gate_key: "gate-entry",
+                maneuver_path: ManeuverPathReference::local("path-main"),
+                transition_index: 0,
+                stop_line: StopLineReference::local("stop-middle"),
+            })
+            .unwrap();
+        assert!(
+            compile_diagnostic_codes(mismatch)
+                .contains(&DiagnosticCode::ManeuverGateStopLineMismatch)
+        );
+
+        let mut orphan = control_builder("stop-orphan.document");
+        orphan
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-exit",
+                lane_edge: LaneEdgeReference::local("exit"),
+            })
+            .unwrap();
+        assert!(compile_diagnostic_codes(orphan).contains(&DiagnosticCode::OrphanStopLine));
+
+        let mut unreferenced = control_builder("stop-unreferenced.document");
+        unreferenced
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-entry",
+                lane_edge: LaneEdgeReference::local("entry"),
+            })
+            .unwrap();
+        assert!(
+            compile_diagnostic_codes(unreferenced).contains(&DiagnosticCode::UnreferencedStopLine)
+        );
+    }
+
+    #[test]
+    fn waiting_zone_validation_rejects_zero_reverse_and_overlap() {
+        let mut zero = control_builder("waiting-zero.document");
+        let diagnostics = match zero.add_waiting_zone(WaitingZoneInput {
+            waiting_zone_key: "waiting-zero",
+            maneuver_path: ManeuverPathReference::local("path-main"),
+            entry_gate: ManeuverGateReference::local("gate-entry"),
+            release_gate: ManeuverGateReference::local("gate-release"),
+            max_occupancy: 0,
+        }) {
+            Ok(_) => panic!("zero waiting-zone capacity must fail"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert_eq!(
+            diagnostics.diagnostics()[0].code(),
+            DiagnosticCode::InvalidWaitingZoneCapacity
+        );
+
+        let mut reverse = control_builder("waiting-reverse.document");
+        add_valid_control(&mut reverse, false);
+        reverse
+            .add_waiting_zone(WaitingZoneInput {
+                waiting_zone_key: "waiting-reverse",
+                maneuver_path: ManeuverPathReference::local("path-main"),
+                entry_gate: ManeuverGateReference::local("gate-release"),
+                release_gate: ManeuverGateReference::local("gate-entry"),
+                max_occupancy: 1,
+            })
+            .unwrap();
+        assert!(
+            compile_diagnostic_codes(reverse)
+                .contains(&DiagnosticCode::InvalidWaitingZoneGateOrder)
+        );
+
+        let mut overlap = control_builder("waiting-overlap.document");
+        add_valid_control(&mut overlap, false);
+        overlap
+            .add_waiting_zone(WaitingZoneInput {
+                waiting_zone_key: "waiting-overlap",
+                maneuver_path: ManeuverPathReference::local("path-main"),
+                entry_gate: ManeuverGateReference::local("gate-entry"),
+                release_gate: ManeuverGateReference::local("gate-release"),
+                max_occupancy: 1,
+            })
+            .unwrap();
+        assert!(
+            compile_diagnostic_codes(overlap).contains(&DiagnosticCode::OverlappingWaitingZones)
+        );
     }
 }
