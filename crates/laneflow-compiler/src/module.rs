@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 
 use laneflow_static_contract::{EntityKind, LaneEdgeKind};
 
+use crate::arena::ArenaKey;
 use crate::declaration::{
     DeclarationHeader, EdgeLength, LaneEdgeDeclaration, LaneEdgeInput, OwnedEntityReference,
     SpeedLimit, SyntheticDeclaration,
@@ -28,6 +29,11 @@ use crate::{
 };
 
 const SOURCE_RECORD_MAGIC: [u8; 8] = *b"LFSOURCE";
+
+/// 区分编译单元来源文档登记序号的零尺寸标记。
+pub(crate) enum SourceDocumentTag {}
+/// 仅在同一次编译的来源模块描述符表内有效的致密序号。
+pub(crate) type SourceDocumentOrdinal = ArenaKey<SourceDocumentTag>;
 
 /// 首版合成领域专用语言 `LFSOURCE` 来源记录编码版本。
 pub const SYNTHETIC_FRONTEND_VERSION: u32 = 1;
@@ -157,6 +163,33 @@ impl SourceModuleDescriptor {
 
     pub(crate) fn source_document_key_arc(&self) -> Arc<str> {
         Arc::clone(&self.source_document_key)
+    }
+
+    /// 返回源映射伴随数据中此描述符的目标布局中立逻辑字节数。
+    pub(crate) fn source_map_logical_bytes(&self) -> u64 {
+        let fixed_bytes = 2_u64
+            .saturating_add(32)
+            .saturating_add(4)
+            .saturating_add(4)
+            .saturating_add(32)
+            .saturating_add(32)
+            .saturating_add(1)
+            .saturating_add(self.random_seed.map_or(0, |_| 8))
+            .saturating_add(4)
+            .saturating_add(16);
+        [
+            self.authoring_namespace_id.as_ref(),
+            self.generator_build_id.as_ref(),
+            self.provenance.as_ref(),
+            self.source_document_key.as_ref(),
+        ]
+        .into_iter()
+        .chain(self.imports.iter().map(AsRef::as_ref))
+        .fold(fixed_bytes, |total, value| {
+            total
+                .saturating_add(4)
+                .saturating_add(u64::try_from(value.len()).unwrap_or(u64::MAX))
+        })
     }
 }
 
@@ -818,6 +851,7 @@ pub struct CompilationUnitBuilder {
     limits: CompileLimits,
     modules: Vec<SyntheticModule>,
     module_index: HashMap<Arc<str>, usize>,
+    source_document_index: HashMap<Arc<str>, usize>,
     source_bytes_total: u64,
     import_edge_count: u64,
     declaration_count: u64,
@@ -839,6 +873,7 @@ impl CompilationUnitBuilder {
             limits,
             modules: Vec::new(),
             module_index: HashMap::new(),
+            source_document_index: HashMap::new(),
             source_bytes_total: 0,
             import_edge_count: 0,
             declaration_count: 0,
@@ -857,9 +892,10 @@ impl CompilationUnitBuilder {
     ///
     /// # Errors
     ///
-    /// 当 authoring namespace 与已加入模块重复，或加入后的模块、来源字节、声明、引用、
-    /// 字符串及存续内存等累计维度超过配置档时失败。失败不会改变构建器的索引与计数，
-    /// 但 `module` 按值传入并会被释放；重试时需要重新构造该模块。
+    /// 当 authoring namespace 或 `sourceDocumentKey` 与已加入模块重复，或加入后的模块、
+    /// 来源字节、声明、引用、字符串及存续内存等累计维度超过配置档时失败。失败不会
+    /// 改变构建器的索引与计数，但 `module` 按值传入并会被释放；重试时需要重新构造该
+    /// 模块。
     pub fn add_synthetic_module(
         &mut self,
         module: SyntheticModule,
@@ -869,6 +905,19 @@ impl CompilationUnitBuilder {
             return Err(DiagnosticBundle::single(
                 Diagnostic::duplicate_module_namespace(
                     namespace,
+                    module.descriptor.declaration_span.clone(),
+                    self.modules[existing_index]
+                        .descriptor
+                        .declaration_span
+                        .clone(),
+                ),
+            ));
+        }
+        let source_document_key = module.descriptor.source_document_key.as_ref();
+        if let Some(existing_index) = self.source_document_index.get(source_document_key).copied() {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::duplicate_source_document_key(
+                    source_document_key,
                     module.descriptor.declaration_span.clone(),
                     self.modules[existing_index]
                         .descriptor
@@ -949,8 +998,11 @@ impl CompilationUnitBuilder {
         }
 
         let namespace = Arc::clone(&module.descriptor.authoring_namespace_id);
+        let source_document_key = Arc::clone(&module.descriptor.source_document_key);
         self.modules.push(module);
         self.module_index.insert(namespace, self.modules.len() - 1);
+        self.source_document_index
+            .insert(source_document_key, self.modules.len() - 1);
         self.source_bytes_total = next_source_bytes;
         self.import_edge_count = next_import_edges;
         self.declaration_count = next_declaration_count;
@@ -1096,6 +1148,16 @@ impl CompilationUnit {
     /// 按冻结后的依赖优先规范顺序遍历模块描述符。
     pub fn module_descriptors(&self) -> impl ExactSizeIterator<Item = &SourceModuleDescriptor> {
         self.modules.iter().map(|module| &module.descriptor)
+    }
+
+    /// 消费完整 Typed AST 输入，只搬移源映射后续仍需要的模块描述符。
+    pub(crate) fn into_source_module_descriptors(self) -> Box<[SourceModuleDescriptor]> {
+        self.modules
+            .into_vec()
+            .into_iter()
+            .map(|module| module.descriptor)
+            .collect::<Vec<_>>()
+            .into_boxed_slice()
     }
 }
 
@@ -1578,9 +1640,13 @@ mod tests {
     }
 
     fn module(namespace: &str, imports: &[&str]) -> SyntheticModule {
+        module_with_document(namespace, namespace, imports)
+    }
+
+    fn module_with_document(namespace: &str, document: &str, imports: &[&str]) -> SyntheticModule {
         let limits = CompileLimits::p100_initial_v1();
         let mut builder =
-            SyntheticModuleBuilder::new(header(namespace, namespace), &limits).unwrap();
+            SyntheticModuleBuilder::new(header(namespace, document), &limits).unwrap();
         for import in imports {
             builder.add_import(import).unwrap();
         }
@@ -2041,6 +2107,34 @@ mod tests {
             DiagnosticCode::DuplicateModuleNamespace
         );
         assert_eq!(duplicate.diagnostics()[0].related_spans().len(), 1);
+    }
+
+    #[test]
+    fn compilation_unit_rejects_duplicate_source_document_keys_atomically() {
+        let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+        builder
+            .add_synthetic_module(module_with_document("city/a", "shared.document", &[]))
+            .unwrap();
+        let duplicate = expect_diagnostics(builder.add_synthetic_module(module_with_document(
+            "city/b",
+            "shared.document",
+            &[],
+        )));
+        assert!(matches!(
+            duplicate.diagnostics()[0].payload(),
+            DiagnosticPayload::DuplicateSourceDocumentKey {
+                source_document_key
+            } if source_document_key.as_ref() == "shared.document"
+        ));
+        assert_eq!(duplicate.diagnostics()[0].related_spans().len(), 1);
+
+        // 重复文档失败发生在任何累计计数变更之前；修正文档键后，同一 namespace 可直接
+        // 重试。这里同时防止未来把文档唯一性检查移到非原子的 build 阶段。
+        builder
+            .add_synthetic_module(module_with_document("city/b", "city-b.document", &[]))
+            .unwrap();
+        let unit = builder.build().unwrap();
+        assert_eq!(unit.module_descriptors().len(), 2);
     }
 
     #[test]

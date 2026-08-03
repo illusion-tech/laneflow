@@ -60,10 +60,34 @@ pub(crate) struct LirUnit {
     pub(crate) lane_edge_successors: Box<[LaneEdgeOrdinal]>,
     pub(crate) identity_fields: Box<[LirIdentityField]>,
     pub(crate) identity_field_bytes: Box<[u8]>,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) semantic_digest: [u8; 32],
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) lir_record_count: u64,
     pub(crate) output_bytes: u64,
     pub(crate) controlled_live_bytes: u64,
+}
+
+/// LIR 与冻结源映射所需的临时阶段映射。
+///
+/// 两个映射只在同一次 `Compiler::compile` 内跨越 LIR/source-map 阶段；源映射冻结后
+/// 立即释放，绝不能进入公共 LIR、制品或跨编译缓存。
+pub(crate) struct LirFreezeOutput {
+    pub(crate) lir: LirUnit,
+    pub(crate) canonical_mir_edge_order: Box<[MirLaneEdgeKey]>,
+    pub(crate) mir_to_lir: Box<[LaneEdgeOrdinal]>,
+}
+
+impl LirFreezeOutput {
+    /// 返回两个临时有类型映射的真实请求容量字节。
+    pub(crate) fn mapping_bytes(&self) -> u64 {
+        requested_bytes::<MirLaneEdgeKey>(
+            u64::try_from(self.canonical_mir_edge_order.len()).unwrap_or(u64::MAX),
+        )
+        .saturating_add(requested_bytes::<LaneEdgeOrdinal>(
+            u64::try_from(self.mir_to_lir.len()).unwrap_or(u64::MAX),
+        ))
+    }
 }
 
 /// 将全部 MIR 引用重映射到规范 LIR 序号，并原子冻结连续只读表。
@@ -79,7 +103,7 @@ pub(crate) struct LirUnit {
 pub(crate) fn freeze_lir(
     unit: &CompilationUnit,
     mir: &MirUnit,
-) -> Result<LirUnit, DiagnosticBundle> {
+) -> Result<LirFreezeOutput, DiagnosticBundle> {
     let lane_edge_count = u64::try_from(mir.lane_edges.len()).unwrap_or(u64::MAX);
     let successor_count = u64::try_from(mir.lane_edge_connections.len()).unwrap_or(u64::MAX);
     // Identity 字段出现项有独立资源维度；LIR record 指标计实体行和关系出现行，与 MIR
@@ -182,7 +206,7 @@ pub(crate) fn freeze_lir(
     let mut successors = Vec::with_capacity(successor_capacity);
     let mut identity_fields = Vec::with_capacity(identity_field_capacity);
     let mut identity_field_bytes = Vec::with_capacity(identity_byte_capacity);
-    for mir_key in canonical_order {
+    for mir_key in canonical_order.iter().copied() {
         let edge = &mir.lane_edges[mir_key.index()];
         let namespace = &mir.modules[edge.module.index()].authoring_namespace_id;
         let identity_start = identity_fields.len();
@@ -238,15 +262,19 @@ pub(crate) fn freeze_lir(
         &identity_fields,
         &identity_field_bytes,
     );
-    Ok(LirUnit {
-        lane_edges: lane_edges.into_boxed_slice(),
-        lane_edge_successors: successors.into_boxed_slice(),
-        identity_fields: identity_fields.into_boxed_slice(),
-        identity_field_bytes: identity_field_bytes.into_boxed_slice(),
-        semantic_digest,
-        lir_record_count,
-        output_bytes,
-        controlled_live_bytes: output_owned_bytes,
+    Ok(LirFreezeOutput {
+        lir: LirUnit {
+            lane_edges: lane_edges.into_boxed_slice(),
+            lane_edge_successors: successors.into_boxed_slice(),
+            identity_fields: identity_fields.into_boxed_slice(),
+            identity_field_bytes: identity_field_bytes.into_boxed_slice(),
+            semantic_digest,
+            lir_record_count,
+            output_bytes,
+            controlled_live_bytes: output_owned_bytes,
+        },
+        canonical_mir_edge_order: canonical_order.into_boxed_slice(),
+        mir_to_lir: mir_to_lir.into_boxed_slice(),
     })
 }
 
@@ -442,7 +470,7 @@ mod tests {
     fn lir(unit: &CompilationUnit) -> LirUnit {
         let hir = build_hir(unit).unwrap();
         let mir = lower_to_mir(unit, &hir).unwrap();
-        freeze_lir(unit, &mir).unwrap()
+        freeze_lir(unit, &mir).unwrap().lir
     }
 
     fn identity_values(lir: &LirUnit, edge: &LirLaneEdge) -> Vec<(FieldTag, Vec<u8>)> {
