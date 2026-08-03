@@ -3,18 +3,20 @@
 //! 输入 [`CompilationUnit`] 已闭合模块导入图并冻结依赖优先顺序。本阶段据此建立连续
 //! 模块表与分实体符号表，把 `(module namespace, stable key)` 引用解析为阶段私有
 //! `u32` 键，并保留来源位置供后续诊断/源映射使用。声明先全部登记、再统一解析引用，
-//! 因此前向引用和自环合法；横断面子阶段还在派生子实体身份前证明唯一所有者树。
+//! 因此前向引用和自环合法；横断面子阶段在派生子实体身份前证明唯一所有者树，路口
+//! 子阶段则闭合父子身份、完整机动路径与内部边排他角色。
 //!
 //! HIR 表顺序是规范顺序：模块沿用编译单元顺序，模块内声明按稳定键排序，导入和连接
 //! 也使用已显式规范化的序列。`HashMap` 仅作查找，绝不能通过迭代哈希表决定诊断或
 //! 后续布局。所有键、区间和类型均为 crate 私有，不能跨阶段或进入持久制品。
 
+use core::hash::{Hash, Hasher};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    AuthoringLaneId, EntityKind, FacilityBandId, FieldTag, LaneEdgeId, LaneGroupId, RoadCorridorId,
-    RoadSectionId, StableId128,
+    AuthoringLaneId, EntityKind, FacilityBandId, FieldTag, JunctionId, LaneEdgeId, LaneGroupId,
+    ManeuverPathId, MovementId, RoadCorridorId, RoadSectionId, StableId128,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
@@ -38,6 +40,9 @@ pub(crate) enum HirRoadSectionTag {}
 pub(crate) enum HirAuthoringLaneTag {}
 pub(crate) enum HirLaneGroupTag {}
 pub(crate) enum HirFacilityBandTag {}
+pub(crate) enum HirJunctionTag {}
+pub(crate) enum HirMovementTag {}
+pub(crate) enum HirManeuverPathTag {}
 
 /// 仅在当前 `HirUnit` 模块表内有效的致密键。
 pub(crate) type HirModuleKey = ArenaKey<HirModuleTag>;
@@ -48,6 +53,9 @@ pub(crate) type HirRoadSectionKey = ArenaKey<HirRoadSectionTag>;
 pub(crate) type HirAuthoringLaneKey = ArenaKey<HirAuthoringLaneTag>;
 pub(crate) type HirLaneGroupKey = ArenaKey<HirLaneGroupTag>;
 pub(crate) type HirFacilityBandKey = ArenaKey<HirFacilityBandTag>;
+pub(crate) type HirJunctionKey = ArenaKey<HirJunctionTag>;
+pub(crate) type HirMovementKey = ArenaKey<HirMovementTag>;
+pub(crate) type HirManeuverPathKey = ArenaKey<HirManeuverPathTag>;
 
 /// 已解析为 HIR 模块键的显式导入边。
 pub(crate) struct HirImport {
@@ -169,6 +177,63 @@ pub(crate) struct HirFacilityBand {
     pub(crate) source_span: SourceSpan,
 }
 
+/// 已解析出非空通行流向成员区间的路口。
+pub(crate) struct HirJunction {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: JunctionId,
+    pub(crate) movements: TableRange<HirJunctionMovement>,
+    pub(crate) source_span: SourceSpan,
+}
+
+/// 已闭合到唯一路口父项并保留 Identity v1 有向引道键的通行流向。
+pub(crate) struct HirMovement {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: MovementId,
+    pub(crate) junction: HirJunctionKey,
+    pub(crate) directed_entry_approach_key: Arc<str>,
+    pub(crate) directed_exit_approach_key: Arc<str>,
+    pub(crate) maneuver_paths: TableRange<HirMovementManeuverPath>,
+    pub(crate) source_span: SourceSpan,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct HirJunctionMovement {
+    pub(crate) movement: HirMovementKey,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct HirMovementManeuverPath {
+    pub(crate) maneuver_path: HirManeuverPathKey,
+}
+
+/// 一条机动路径完整遍历序列中的已解析车道图边。
+pub(crate) struct HirManeuverPathEdge {
+    pub(crate) target: HirLaneEdgeKey,
+    pub(crate) source_span: SourceSpan,
+}
+
+/// 已解析父项、入口/内部/出口边和全局唯一遍历序列的机动路径。
+pub(crate) struct HirManeuverPath {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: ManeuverPathId,
+    pub(crate) movement: HirMovementKey,
+    /// 完整序列 `entry + internal + exit`；首尾是边界边，中间区间是内部边。
+    pub(crate) edges: TableRange<HirManeuverPathEdge>,
+    pub(crate) source_span: SourceSpan,
+}
+
+/// 从全部路径派生的路口内部边排他所有者。
+pub(crate) struct HirJunctionInternalEdge {
+    pub(crate) edge: HirLaneEdgeKey,
+    pub(crate) junction: HirJunctionKey,
+    /// 首次建立该排他声明的路径，供来源映射和诊断回链。
+    pub(crate) source_path: HirManeuverPathKey,
+    pub(crate) source_span: SourceSpan,
+}
+
 /// HIR 阶段成功后一次性冻结的连续只读表集合。
 ///
 /// 构造完成时所有引用均已解析，所有 `TableRange` 都落在对应平坦表内。字段中的键只对
@@ -188,6 +253,13 @@ pub(crate) struct HirUnit {
     pub(crate) lane_groups: Box<[HirLaneGroup]>,
     pub(crate) lane_group_members: Box<[HirLaneGroupMember]>,
     pub(crate) facility_bands: Box<[HirFacilityBand]>,
+    pub(crate) junctions: Box<[HirJunction]>,
+    pub(crate) movements: Box<[HirMovement]>,
+    pub(crate) junction_movements: Box<[HirJunctionMovement]>,
+    pub(crate) maneuver_paths: Box<[HirManeuverPath]>,
+    pub(crate) movement_maneuver_paths: Box<[HirMovementManeuverPath]>,
+    pub(crate) maneuver_path_edges: Box<[HirManeuverPathEdge]>,
+    pub(crate) junction_internal_edges: Box<[HirJunctionInternalEdge]>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) hir_record_count: u64,
     pub(crate) controlled_live_bytes: u64,
@@ -279,6 +351,56 @@ impl CrossSectionCounts {
     }
 }
 
+#[derive(Default)]
+struct JunctionHir {
+    junctions: Box<[HirJunction]>,
+    movements: Box<[HirMovement]>,
+    junction_movements: Box<[HirJunctionMovement]>,
+    maneuver_paths: Box<[HirManeuverPath]>,
+    movement_maneuver_paths: Box<[HirMovementManeuverPath]>,
+    maneuver_path_edges: Box<[HirManeuverPathEdge]>,
+    junction_internal_edges: Box<[HirJunctionInternalEdge]>,
+}
+
+#[derive(Default)]
+struct JunctionCounts {
+    junctions: u64,
+    movements: u64,
+    maneuver_paths: u64,
+    maneuver_path_edges: u64,
+}
+
+impl JunctionCounts {
+    fn entity_count(&self) -> u64 {
+        self.junctions
+            .saturating_add(self.movements)
+            .saturating_add(self.maneuver_paths)
+    }
+}
+
+/// 只在完成路径表后借用的序列查找键；来源位置不参与遍历签名。
+struct ManeuverPathSequence<'a>(&'a [HirManeuverPathEdge]);
+
+impl PartialEq for ManeuverPathSequence<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0
+            .iter()
+            .map(|edge| edge.target)
+            .eq(other.0.iter().map(|edge| edge.target))
+    }
+}
+
+impl Eq for ManeuverPathSequence<'_> {}
+
+impl Hash for ManeuverPathSequence<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.len().hash(state);
+        for edge in self.0 {
+            edge.target.hash(state);
+        }
+    }
+}
+
 /// 建立模块/符号表，解析车道拓扑，并闭合横断面所有者树与稳定身份。
 ///
 /// # Errors
@@ -292,7 +414,13 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let lane_edge_count = lane_edge_count(unit);
     let lane_edge_reference_count = lane_edge_reference_count(unit);
     let cross_section_counts = cross_section_counts(unit);
+    let junction_counts = junction_counts(unit);
     let cross_lookup_module_count = if cross_section_counts.entity_count() == 0 {
+        0
+    } else {
+        module_count
+    };
+    let junction_lookup_module_count = if junction_counts.entity_count() == 0 {
         0
     } else {
         module_count
@@ -339,9 +467,35 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         .saturating_add(requested_bytes::<usize>(unit.declaration_count))
     };
     let import_sort_scratch = requested_bytes::<(&str, &SourceSpan)>(unit.import_edge_count);
+    let junction_scratch = if junction_counts.entity_count() == 0 {
+        0
+    } else {
+        requested_bytes::<CanonicalDeclarationSource<HirMovementKey>>(junction_counts.movements)
+            .saturating_add(requested_bytes::<
+                CanonicalDeclarationSource<HirManeuverPathKey>,
+            >(junction_counts.maneuver_paths))
+            .saturating_add(requested_bytes::<usize>(
+                junction_counts
+                    .junctions
+                    .saturating_add(junction_counts.movements)
+                    .saturating_mul(2),
+            ))
+            .saturating_add(requested_hash_table_bytes::<
+                ManeuverPathSequence<'static>,
+                HirManeuverPathKey,
+            >(junction_counts.maneuver_paths))
+            .saturating_add(requested_bytes::<Option<HirJunctionInternalEdge>>(
+                lane_edge_count,
+            ))
+            .saturating_add(requested_bytes::<Option<(HirManeuverPathKey, SourceSpan)>>(
+                lane_edge_count,
+            ))
+            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
+    };
     let (canonical_identity_bytes, largest_canonical_identity_bytes) = identity_byte_counts(unit);
     let stage_scratch_bytes = canonical_source_scratch
         .max(cross_section_scratch)
+        .max(junction_scratch)
         .max(import_sort_scratch)
         .max(largest_canonical_identity_bytes);
     let hir_persistent_bytes = requested_bytes::<HirModule>(module_count)
@@ -373,6 +527,23 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_bytes::<HirFacilityBand>(
             cross_section_counts.facility_bands,
+        ))
+        .saturating_add(requested_bytes::<HirJunction>(junction_counts.junctions))
+        .saturating_add(requested_bytes::<HirMovement>(junction_counts.movements))
+        .saturating_add(requested_bytes::<HirJunctionMovement>(
+            junction_counts.movements,
+        ))
+        .saturating_add(requested_bytes::<HirManeuverPath>(
+            junction_counts.maneuver_paths,
+        ))
+        .saturating_add(requested_bytes::<HirMovementManeuverPath>(
+            junction_counts.maneuver_paths,
+        ))
+        .saturating_add(requested_bytes::<HirManeuverPathEdge>(
+            junction_counts.maneuver_path_edges,
+        ))
+        .saturating_add(requested_bytes::<HirJunctionInternalEdge>(
+            lane_edge_count.min(junction_counts.maneuver_path_edges),
         ));
     let hir_lookup_bytes = requested_hash_table_bytes::<Arc<str>, HirModuleKey>(module_count)
         .saturating_add(requested_bytes::<HashMap<Arc<str>, HirLaneEdgeKey>>(
@@ -398,6 +569,18 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_hash_table_bytes::<Arc<str>, HirFacilityBandKey>(
             cross_section_counts.facility_bands,
+        ))
+        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirJunctionKey>>(
+            junction_lookup_module_count,
+        ))
+        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirMovementKey>>(
+            junction_lookup_module_count,
+        ))
+        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirJunctionKey>(
+            junction_counts.junctions,
+        ))
+        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirMovementKey>(
+            junction_counts.movements,
         ))
         .saturating_add(requested_hash_table_bytes::<
             StableId128,
@@ -670,6 +853,14 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &symbols,
         &mut identities,
     )?;
+    let junction = build_junction_hir(
+        unit,
+        &module_lookup,
+        &lane_edges,
+        &references,
+        &symbols,
+        &mut identities,
+    )?;
     // 完整规范前像只服务本阶段的重复/碰撞判断。此后各表仅保留 16 字节有类型 ID，
     // 避免在 HIR 与 MIR 中复制可由稳定键和父项重建的 identity envelope。
     drop(identities);
@@ -689,6 +880,13 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         lane_groups: cross_section.lane_groups,
         lane_group_members: cross_section.lane_group_members,
         facility_bands: cross_section.facility_bands,
+        junctions: junction.junctions,
+        movements: junction.movements,
+        junction_movements: junction.junction_movements,
+        maneuver_paths: junction.maneuver_paths,
+        movement_maneuver_paths: junction.movement_maneuver_paths,
+        maneuver_path_edges: junction.maneuver_path_edges,
+        junction_internal_edges: junction.junction_internal_edges,
         hir_record_count,
         controlled_live_bytes: hir_persistent_bytes,
     })
@@ -765,7 +963,14 @@ fn build_cross_section_hir(
             .iter()
             .enumerate()
             .filter_map(|(index, declaration)| {
-                (!matches!(declaration, SyntheticDeclaration::LaneEdge(_))).then_some(index)
+                matches!(
+                    declaration,
+                    SyntheticDeclaration::RoadCorridor(_)
+                        | SyntheticDeclaration::RoadSection(_)
+                        | SyntheticDeclaration::LaneGroup(_)
+                        | SyntheticDeclaration::FacilityBand(_)
+                )
+                .then_some(index)
             })
             .collect();
         declaration_indices.sort_unstable_by(|left, right| {
@@ -927,6 +1132,11 @@ fn build_cross_section_hir(
                         declaration_index,
                         hir_key: key,
                     });
+                }
+                SyntheticDeclaration::Junction(_)
+                | SyntheticDeclaration::Movement(_)
+                | SyntheticDeclaration::ManeuverPath(_) => {
+                    unreachable!("cross-section source filter admitted junction declaration")
                 }
             }
         }
@@ -1390,6 +1600,532 @@ fn build_cross_section_hir(
     })
 }
 
+#[allow(clippy::too_many_lines)]
+fn build_junction_hir(
+    unit: &CompilationUnit,
+    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    lane_edge_references: &[HirLaneEdgeReference],
+    lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
+    identities: &mut IdentityRegistry,
+) -> Result<JunctionHir, DiagnosticBundle> {
+    let counts = junction_counts(unit);
+    if counts.entity_count() == 0 {
+        return Ok(JunctionHir::default());
+    }
+
+    let junction_capacity = count_to_usize(counts.junctions, &unit.limits)?;
+    let movement_capacity = count_to_usize(counts.movements, &unit.limits)?;
+    let path_capacity = count_to_usize(counts.maneuver_paths, &unit.limits)?;
+    let mut junctions = TypedArena::<HirJunctionTag, HirJunction>::with_capacity(junction_capacity);
+    let mut movements = TypedArena::<HirMovementTag, HirMovement>::with_capacity(movement_capacity);
+    let mut paths = TypedArena::<HirManeuverPathTag, HirManeuverPath>::with_capacity(path_capacity);
+    let mut junction_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|declaration| matches!(declaration, SyntheticDeclaration::Junction(_)))
+            .count()
+    }));
+    let mut movement_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|declaration| matches!(declaration, SyntheticDeclaration::Movement(_)))
+            .count()
+    }));
+    let mut movement_sources = Vec::with_capacity(movement_capacity);
+    let mut path_sources = Vec::with_capacity(path_capacity);
+
+    // 三种声明都先按模块和稳定键分配完整符号。只有 Junction 不依赖父项，可以立即
+    // 派生身份；Movement 与 ManeuverPath 先写入占位值，随后按父项顺序闭合。
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
+        let mut declaration_indices: Vec<_> = (0..source_module.declarations.len()).collect();
+        declaration_indices.sort_unstable_by(|left, right| {
+            declaration_header(&source_module.declarations[*left])
+                .stable_key
+                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        });
+        for declaration_index in declaration_indices {
+            match &source_module.declarations[declaration_index] {
+                SyntheticDeclaration::Junction(source) => {
+                    let fields = [
+                        IdentityFieldInput::new(
+                            FieldTag::AuthoringNamespaceId,
+                            source_module
+                                .descriptor()
+                                .authoring_namespace_id()
+                                .as_bytes(),
+                        ),
+                        IdentityFieldInput::new(
+                            FieldTag::JunctionKey,
+                            source.header.stable_key.as_bytes(),
+                        ),
+                    ];
+                    let stable_id = JunctionId::from_untyped(derive_identity(
+                        unit,
+                        identities,
+                        module_index,
+                        EntityKind::Junction,
+                        &source.header.stable_key,
+                        &source.header.span,
+                        &fields,
+                    )?);
+                    let key = junctions
+                        .push(HirJunction {
+                            module: module_key,
+                            stable_key: Arc::clone(&source.header.stable_key),
+                            stable_id,
+                            movements: TableRange::empty(),
+                            source_span: source.header.span.clone(),
+                        })
+                        .map_err(|overflow| {
+                            arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                        })?;
+                    junction_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                }
+                SyntheticDeclaration::Movement(source) => {
+                    let key = movements
+                        .push(HirMovement {
+                            module: module_key,
+                            stable_key: Arc::clone(&source.header.stable_key),
+                            stable_id: MovementId::from_untyped(StableId128::ZERO),
+                            junction: HirJunctionKey::from_raw(0),
+                            directed_entry_approach_key: Arc::clone(
+                                &source.directed_entry_approach_key,
+                            ),
+                            directed_exit_approach_key: Arc::clone(
+                                &source.directed_exit_approach_key,
+                            ),
+                            maneuver_paths: TableRange::empty(),
+                            source_span: source.header.span.clone(),
+                        })
+                        .map_err(|overflow| {
+                            arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                        })?;
+                    movement_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                    movement_sources.push(CanonicalDeclarationSource {
+                        source_module_index: module_order,
+                        declaration_index: u32::try_from(declaration_index).map_err(|_| {
+                            arena_overflow(
+                                ArenaKeyOverflow,
+                                &unit.limits,
+                                Some(source.header.span.clone()),
+                            )
+                        })?,
+                        hir_key: key,
+                    });
+                }
+                SyntheticDeclaration::ManeuverPath(source) => {
+                    let key = paths
+                        .push(HirManeuverPath {
+                            module: module_key,
+                            stable_key: Arc::clone(&source.header.stable_key),
+                            stable_id: ManeuverPathId::from_untyped(StableId128::ZERO),
+                            movement: HirMovementKey::from_raw(0),
+                            edges: TableRange::empty(),
+                            source_span: source.header.span.clone(),
+                        })
+                        .map_err(|overflow| {
+                            arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                        })?;
+                    path_sources.push(CanonicalDeclarationSource {
+                        source_module_index: module_order,
+                        declaration_index: u32::try_from(declaration_index).map_err(|_| {
+                            arena_overflow(
+                                ArenaKeyOverflow,
+                                &unit.limits,
+                                Some(source.header.span.clone()),
+                            )
+                        })?,
+                        hir_key: key,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut diagnostics =
+        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut junction_member_counts = vec![0_usize; junctions.len()];
+    for location in &movement_sources {
+        let source_module = &unit.modules[location.source_module_index as usize];
+        let source =
+            movement_declaration(&source_module.declarations[location.declaration_index as usize])
+                .expect("canonical Movement source must name a Movement");
+        let Some(junction) = resolve_reference(
+            module_lookup,
+            &junction_symbols,
+            &source.junction,
+            EntityKind::Movement,
+            &source.header,
+            location.source_module_index,
+            &mut diagnostics,
+        ) else {
+            continue;
+        };
+        let junction_id = junctions.get(junction).stable_id.into_untyped();
+        let fields = [
+            IdentityFieldInput::new(
+                FieldTag::AuthoringNamespaceId,
+                source_module
+                    .descriptor()
+                    .authoring_namespace_id()
+                    .as_bytes(),
+            ),
+            IdentityFieldInput::new(FieldTag::MovementKey, source.header.stable_key.as_bytes()),
+            IdentityFieldInput::new(
+                FieldTag::DirectedEntryApproachKey,
+                source.directed_entry_approach_key.as_bytes(),
+            ),
+            IdentityFieldInput::new(
+                FieldTag::DirectedExitApproachKey,
+                source.directed_exit_approach_key.as_bytes(),
+            ),
+            IdentityFieldInput::new(FieldTag::JunctionStableId, junction_id.as_bytes()),
+        ];
+        let stable_id = MovementId::from_untyped(derive_identity(
+            unit,
+            identities,
+            location.source_module_index as usize,
+            EntityKind::Movement,
+            &source.header.stable_key,
+            &source.header.span,
+            &fields,
+        )?);
+        let movement = movements.get_mut(location.hir_key);
+        movement.stable_id = stable_id;
+        movement.junction = junction;
+        junction_member_counts[junction.index()] =
+            junction_member_counts[junction.index()].saturating_add(1);
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    let mut path_edges =
+        Vec::with_capacity(count_to_usize(counts.maneuver_path_edges, &unit.limits)?);
+    let mut movement_member_counts = vec![0_usize; movements.len()];
+    for location in &path_sources {
+        let source_module = &unit.modules[location.source_module_index as usize];
+        let source = maneuver_path_declaration(
+            &source_module.declarations[location.declaration_index as usize],
+        )
+        .expect("canonical ManeuverPath source must name a ManeuverPath");
+        let movement = resolve_reference(
+            module_lookup,
+            &movement_symbols,
+            &source.movement,
+            EntityKind::ManeuverPath,
+            &source.header,
+            location.source_module_index,
+            &mut diagnostics,
+        );
+        let start = path_edges.len();
+        let mut predecessor: Option<(HirLaneEdgeKey, SourceSpan)> = None;
+        let mut entry = None;
+        let mut exit = None;
+        for (index, reference) in core::iter::once(&source.entry_edge)
+            .chain(source.internal_edges.iter())
+            .chain(core::iter::once(&source.exit_edge))
+            .enumerate()
+        {
+            let Some(target) = resolve_reference(
+                module_lookup,
+                lane_edge_symbols,
+                reference,
+                EntityKind::ManeuverPath,
+                &source.header,
+                location.source_module_index,
+                &mut diagnostics,
+            ) else {
+                predecessor = None;
+                continue;
+            };
+            if index == 0 {
+                entry = Some(target);
+            }
+            if index == source.internal_edges.len().saturating_add(1) {
+                exit = Some(target);
+            }
+            if let Some((predecessor_key, predecessor_span)) = predecessor {
+                let predecessor_record = lane_edges.get(predecessor_key);
+                let connected = lane_edge_references
+                    [predecessor_record.successors.as_usize_range()]
+                .iter()
+                .any(|candidate| candidate.target == target);
+                if !connected {
+                    let mut diagnostic = Diagnostic::disconnected_maneuver_path(
+                        &source.header.stable_key,
+                        &predecessor_record.stable_key,
+                        &lane_edges.get(target).stable_key,
+                        reference.span.clone(),
+                        predecessor_span,
+                    );
+                    diagnostic.set_canonical_module_order(location.source_module_index);
+                    diagnostics.push(diagnostic);
+                }
+            }
+            predecessor = Some((target, reference.span.clone()));
+            path_edges.push(HirManeuverPathEdge {
+                target,
+                source_span: reference.span.clone(),
+            });
+        }
+        let (Some(movement), Some(entry), Some(exit)) = (movement, entry, exit) else {
+            continue;
+        };
+        let movement_id = movements.get(movement).stable_id.into_untyped();
+        let entry_id = lane_edges.get(entry).stable_id.into_untyped();
+        let exit_id = lane_edges.get(exit).stable_id.into_untyped();
+        let fields = [
+            IdentityFieldInput::new(
+                FieldTag::AuthoringNamespaceId,
+                source_module
+                    .descriptor()
+                    .authoring_namespace_id()
+                    .as_bytes(),
+            ),
+            IdentityFieldInput::new(FieldTag::PathKey, source.header.stable_key.as_bytes()),
+            IdentityFieldInput::new(FieldTag::MovementStableId, movement_id.as_bytes()),
+            IdentityFieldInput::new(FieldTag::EntryEdgeStableId, entry_id.as_bytes()),
+            IdentityFieldInput::new(FieldTag::ExitEdgeStableId, exit_id.as_bytes()),
+        ];
+        let stable_id = ManeuverPathId::from_untyped(derive_identity(
+            unit,
+            identities,
+            location.source_module_index as usize,
+            EntityKind::ManeuverPath,
+            &source.header.stable_key,
+            &source.header.span,
+            &fields,
+        )?);
+        let path = paths.get_mut(location.hir_key);
+        path.stable_id = stable_id;
+        path.movement = movement;
+        path.edges = TableRange::try_from_usize(start, path_edges.len().saturating_sub(start))
+            .map_err(|overflow| {
+                arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+            })?;
+        movement_member_counts[movement.index()] =
+            movement_member_counts[movement.index()].saturating_add(1);
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    // 完整路径序列的全局唯一性先于内部边角色派生，以保持 zero-internal 与普通路径的
+    // 重复错误一致。HashMap 只查找已冻结切片，完整目标键比较封堵哈希碰撞。
+    let mut sequence_index: HashMap<ManeuverPathSequence<'_>, HirManeuverPathKey> =
+        HashMap::with_capacity(paths.len());
+    for (path_key, path) in paths.iter() {
+        let sequence = ManeuverPathSequence(&path_edges[path.edges.as_usize_range()]);
+        if let Some(first_path_key) = sequence_index.get(&sequence).copied() {
+            let first = paths.get(first_path_key);
+            let first_junction = movements.get(first.movement).junction;
+            let duplicate_junction = movements.get(path.movement).junction;
+            let mut diagnostic = Diagnostic::duplicate_maneuver_path_sequence(
+                &first.stable_key,
+                &path.stable_key,
+                &junctions.get(first_junction).stable_key,
+                &junctions.get(duplicate_junction).stable_key,
+                path.source_span.clone(),
+                first.source_span.clone(),
+            );
+            diagnostic.set_canonical_module_order(path.module.raw());
+            diagnostics.push(diagnostic);
+        } else {
+            sequence_index.insert(sequence, path_key);
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+    drop(sequence_index);
+
+    let mut internal_claims: Vec<Option<HirJunctionInternalEdge>> =
+        (0..lane_edges.len()).map(|_| None).collect();
+    let mut boundary_claims: Vec<Option<(HirManeuverPathKey, SourceSpan)>> =
+        (0..lane_edges.len()).map(|_| None).collect();
+    for (path_key, path) in paths.iter() {
+        let edge_range = path.edges.as_usize_range();
+        let edges = &path_edges[edge_range];
+        let junction = movements.get(path.movement).junction;
+        for (local_index, edge) in edges.iter().enumerate() {
+            let is_boundary = local_index == 0 || local_index + 1 == edges.len();
+            if is_boundary {
+                if let Some(internal) = &internal_claims[edge.target.index()] {
+                    let internal_path = paths.get(internal.source_path);
+                    let mut diagnostic = Diagnostic::internal_boundary_role_conflict(
+                        &lane_edges.get(edge.target).stable_key,
+                        &internal_path.stable_key,
+                        &path.stable_key,
+                        edge.source_span.clone(),
+                        internal.source_span.clone(),
+                    );
+                    diagnostic.set_canonical_module_order(path.module.raw());
+                    diagnostics.push(diagnostic);
+                } else if boundary_claims[edge.target.index()].is_none() {
+                    boundary_claims[edge.target.index()] =
+                        Some((path_key, edge.source_span.clone()));
+                }
+                continue;
+            }
+            if let Some((boundary_path_key, boundary_span)) = &boundary_claims[edge.target.index()]
+            {
+                let mut diagnostic = Diagnostic::internal_boundary_role_conflict(
+                    &lane_edges.get(edge.target).stable_key,
+                    &path.stable_key,
+                    &paths.get(*boundary_path_key).stable_key,
+                    edge.source_span.clone(),
+                    boundary_span.clone(),
+                );
+                diagnostic.set_canonical_module_order(path.module.raw());
+                diagnostics.push(diagnostic);
+                continue;
+            }
+            if let Some(first) = &internal_claims[edge.target.index()] {
+                if first.junction != junction {
+                    let mut diagnostic = Diagnostic::internal_edge_junction_conflict(
+                        &lane_edges.get(edge.target).stable_key,
+                        &junctions.get(first.junction).stable_key,
+                        &junctions.get(junction).stable_key,
+                        &paths.get(first.source_path).stable_key,
+                        &path.stable_key,
+                        edge.source_span.clone(),
+                        first.source_span.clone(),
+                    );
+                    diagnostic.set_canonical_module_order(path.module.raw());
+                    diagnostics.push(diagnostic);
+                } else if path.stable_id < paths.get(first.source_path).stable_id {
+                    // 同一路口多条路径可共享内部边。来源映射选择 StableId 较小的路径作为
+                    // 规范主要来源，避免声明排列改变同一派生关系的回链位置。
+                    internal_claims[edge.target.index()] = Some(HirJunctionInternalEdge {
+                        edge: edge.target,
+                        junction,
+                        source_path: path_key,
+                        source_span: edge.source_span.clone(),
+                    });
+                }
+            } else {
+                internal_claims[edge.target.index()] = Some(HirJunctionInternalEdge {
+                    edge: edge.target,
+                    junction,
+                    source_path: path_key,
+                    source_span: edge.source_span.clone(),
+                });
+            }
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    for (junction_key, junction) in junctions.iter() {
+        if junction_member_counts[junction_key.index()] == 0 {
+            let mut diagnostic =
+                Diagnostic::empty_junction(&junction.stable_key, junction.source_span.clone());
+            diagnostic.set_canonical_module_order(junction.module.raw());
+            diagnostics.push(diagnostic);
+        }
+    }
+    for (movement_key, movement) in movements.iter() {
+        if movement_member_counts[movement_key.index()] == 0 {
+            let mut diagnostic =
+                Diagnostic::empty_movement(&movement.stable_key, movement.source_span.clone());
+            diagnostic.set_canonical_module_order(movement.module.raw());
+            diagnostics.push(diagnostic);
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    let mut next_junction_member = Vec::with_capacity(junctions.len());
+    let mut junction_member_total = 0_usize;
+    for (index, count) in junction_member_counts.iter().copied().enumerate() {
+        next_junction_member.push(junction_member_total);
+        let key = HirJunctionKey::from_raw(
+            u32::try_from(index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        junctions.get_mut(key).movements = TableRange::try_from_usize(junction_member_total, count)
+            .map_err(|overflow| arena_overflow(overflow, &unit.limits, None))?;
+        junction_member_total = junction_member_total.saturating_add(count);
+    }
+    let first_movement = movements
+        .iter()
+        .next()
+        .map(|(key, _)| key)
+        .unwrap_or(HirMovementKey::from_raw(0));
+    let mut junction_movements = vec![
+        HirJunctionMovement {
+            movement: first_movement,
+        };
+        junction_member_total
+    ];
+    for (movement_key, movement) in movements.iter() {
+        let destination = &mut next_junction_member[movement.junction.index()];
+        junction_movements[*destination] = HirJunctionMovement {
+            movement: movement_key,
+        };
+        *destination += 1;
+    }
+
+    let mut next_movement_member = Vec::with_capacity(movements.len());
+    let mut movement_member_total = 0_usize;
+    for (index, count) in movement_member_counts.iter().copied().enumerate() {
+        next_movement_member.push(movement_member_total);
+        let key = HirMovementKey::from_raw(
+            u32::try_from(index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        movements.get_mut(key).maneuver_paths =
+            TableRange::try_from_usize(movement_member_total, count)
+                .map_err(|overflow| arena_overflow(overflow, &unit.limits, None))?;
+        movement_member_total = movement_member_total.saturating_add(count);
+    }
+    let first_path = paths
+        .iter()
+        .next()
+        .map(|(key, _)| key)
+        .unwrap_or(HirManeuverPathKey::from_raw(0));
+    let mut movement_maneuver_paths = vec![
+        HirMovementManeuverPath {
+            maneuver_path: first_path,
+        };
+        movement_member_total
+    ];
+    for (path_key, path) in paths.iter() {
+        let destination = &mut next_movement_member[path.movement.index()];
+        movement_maneuver_paths[*destination] = HirMovementManeuverPath {
+            maneuver_path: path_key,
+        };
+        *destination += 1;
+    }
+
+    let junction_internal_edges = internal_claims
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    Ok(JunctionHir {
+        junctions: junctions.into_boxed_slice(),
+        movements: movements.into_boxed_slice(),
+        junction_movements: junction_movements.into_boxed_slice(),
+        maneuver_paths: paths.into_boxed_slice(),
+        movement_maneuver_paths: movement_maneuver_paths.into_boxed_slice(),
+        maneuver_path_edges: path_edges.into_boxed_slice(),
+        junction_internal_edges,
+    })
+}
+
 fn derive_identity(
     unit: &CompilationUnit,
     identities: &mut IdentityRegistry,
@@ -1506,6 +2242,24 @@ fn lane_edge_declaration(declaration: &SyntheticDeclaration) -> Option<&LaneEdge
     }
 }
 
+fn movement_declaration(
+    declaration: &SyntheticDeclaration,
+) -> Option<&crate::declaration::MovementDeclaration> {
+    match declaration {
+        SyntheticDeclaration::Movement(declaration) => Some(declaration),
+        _ => None,
+    }
+}
+
+fn maneuver_path_declaration(
+    declaration: &SyntheticDeclaration,
+) -> Option<&crate::declaration::ManeuverPathDeclaration> {
+    match declaration {
+        SyntheticDeclaration::ManeuverPath(declaration) => Some(declaration),
+        _ => None,
+    }
+}
+
 fn declaration_header(
     declaration: &SyntheticDeclaration,
 ) -> &crate::declaration::DeclarationHeader {
@@ -1515,6 +2269,9 @@ fn declaration_header(
         SyntheticDeclaration::RoadSection(declaration) => &declaration.header,
         SyntheticDeclaration::LaneGroup(declaration) => &declaration.header,
         SyntheticDeclaration::FacilityBand(declaration) => &declaration.header,
+        SyntheticDeclaration::Junction(declaration) => &declaration.header,
+        SyntheticDeclaration::Movement(declaration) => &declaration.header,
+        SyntheticDeclaration::ManeuverPath(declaration) => &declaration.header,
     }
 }
 
@@ -1573,6 +2330,37 @@ fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts {
             SyntheticDeclaration::FacilityBand(_) => {
                 counts.facility_bands = counts.facility_bands.saturating_add(1);
             }
+            SyntheticDeclaration::Junction(_)
+            | SyntheticDeclaration::Movement(_)
+            | SyntheticDeclaration::ManeuverPath(_) => {}
+        }
+    }
+    counts
+}
+
+fn junction_counts(unit: &CompilationUnit) -> JunctionCounts {
+    let mut counts = JunctionCounts::default();
+    for declaration in unit
+        .modules
+        .iter()
+        .flat_map(|module| module.declarations.iter())
+    {
+        match declaration {
+            SyntheticDeclaration::Junction(_) => {
+                counts.junctions = counts.junctions.saturating_add(1);
+            }
+            SyntheticDeclaration::Movement(_) => {
+                counts.movements = counts.movements.saturating_add(1);
+            }
+            SyntheticDeclaration::ManeuverPath(path) => {
+                counts.maneuver_paths = counts.maneuver_paths.saturating_add(1);
+                counts.maneuver_path_edges = counts.maneuver_path_edges.saturating_add(
+                    u64::try_from(path.internal_edges.len())
+                        .unwrap_or(u64::MAX)
+                        .saturating_add(2),
+                );
+            }
+            _ => {}
         }
     }
     counts
@@ -1621,16 +2409,32 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
             u64::try_from(module.descriptor().authoring_namespace_id().len()).unwrap_or(u64::MAX);
         for source_declaration in &module.declarations {
             let header = declaration_header(source_declaration);
-            let parent_bytes = match source_declaration {
-                SyntheticDeclaration::LaneEdge(_) | SyntheticDeclaration::RoadCorridor(_) => 0,
+            let bytes = match source_declaration {
+                SyntheticDeclaration::LaneEdge(_)
+                | SyntheticDeclaration::RoadCorridor(_)
+                | SyntheticDeclaration::Junction(_) => 22_u64
+                    .saturating_add(namespace_bytes)
+                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
                 SyntheticDeclaration::RoadSection(_)
                 | SyntheticDeclaration::LaneGroup(_)
-                | SyntheticDeclaration::FacilityBand(_) => 22,
+                | SyntheticDeclaration::FacilityBand(_) => 44_u64
+                    .saturating_add(namespace_bytes)
+                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
+                SyntheticDeclaration::Movement(movement) => 56_u64
+                    .saturating_add(namespace_bytes)
+                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX))
+                    .saturating_add(
+                        u64::try_from(movement.directed_entry_approach_key.len())
+                            .unwrap_or(u64::MAX),
+                    )
+                    .saturating_add(
+                        u64::try_from(movement.directed_exit_approach_key.len())
+                            .unwrap_or(u64::MAX),
+                    ),
+                SyntheticDeclaration::ManeuverPath(_) => 88_u64
+                    .saturating_add(namespace_bytes)
+                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
             };
-            let bytes = 22_u64
-                .saturating_add(namespace_bytes)
-                .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX))
-                .saturating_add(parent_bytes);
             total = total.saturating_add(bytes);
             largest = largest.max(bytes);
             if let SyntheticDeclaration::RoadSection(section) = source_declaration {

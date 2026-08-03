@@ -15,13 +15,16 @@ use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 
-use laneflow_static_contract::{EntityKind, LaneEdgeKind, LaneGroupKind, RoadSectionKind};
+use laneflow_static_contract::{
+    EntityKind, FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind, MovementKind, RoadSectionKind,
+};
 
 use crate::arena::ArenaKey;
 use crate::declaration::{
     AuthoringLaneDeclaration, CorridorElementReference, DeclarationHeader, EdgeLength,
     FacilityBandDeclaration, FacilityBandInput, FacilityKindCategory, FacilityKindViolation,
-    LaneEdgeDeclaration, LaneEdgeInput, LaneGroupDeclaration, LaneGroupInput,
+    JunctionDeclaration, JunctionInput, LaneEdgeDeclaration, LaneEdgeInput, LaneGroupDeclaration,
+    LaneGroupInput, ManeuverPathDeclaration, ManeuverPathInput, MovementDeclaration, MovementInput,
     OwnedCorridorElementReference, OwnedEntityReference, RoadCorridorDeclaration,
     RoadCorridorInput, RoadSectionDeclaration, RoadSectionInput, SpeedLimit, SyntheticDeclaration,
 };
@@ -390,6 +393,31 @@ impl SyntheticModuleBuilder {
                 violation,
                 span.clone(),
             )));
+        }
+        Ok(())
+    }
+
+    fn validate_identity_ascii_field(
+        &self,
+        entity_kind: EntityKind,
+        stable_key: &str,
+        field_tag: FieldTag,
+        value: &str,
+        span: &SourceSpan,
+    ) -> Result<(), DiagnosticBundle> {
+        if let Some(violation) = external_token_violation(
+            value,
+            self.limits.value(CompileLimitDimension::SingleStringBytes),
+        ) {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::invalid_identity_ascii_field(
+                    entity_kind,
+                    stable_key,
+                    field_tag,
+                    violation,
+                    span.clone(),
+                ),
+            ));
         }
         Ok(())
     }
@@ -932,6 +960,242 @@ impl SyntheticModuleBuilder {
         self.controlled_string_bytes = next_controlled_string_bytes;
         self.controlled_structural_bytes = next_controlled_structural_bytes;
         self.source_record_byte_len = next_source_record_byte_len;
+        Ok(self)
+    }
+
+    /// 声明一个路口；通行流向成员由 `MovementInput::junction` 反向形成。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键非法、声明重复或资源上限超限时失败。非空成员约束在完整模块图建立后
+    /// 验证；失败不会改变构建器。
+    #[track_caller]
+    pub fn add_junction(
+        &mut self,
+        input: JunctionInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::Junction, input.junction_key, &span)?;
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.junction_key.len()).unwrap_or(u64::MAX);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 3,
+                identity_fields: 2,
+                symbols: 1,
+                string_items: 2,
+                string_bytes: namespace_bytes.saturating_add(key_bytes),
+                controlled_string_bytes: key_bytes,
+                controlled_structural_bytes: size_bytes::<JunctionDeclaration>(1),
+                source_bytes: declaration_header_len(input.junction_key),
+                ..DeclarationResourceDelta::default()
+            },
+            input.junction_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.junction_key.into();
+        let declaration = SyntheticDeclaration::Junction(JunctionDeclaration {
+            header: DeclarationHeader {
+                entity_kind: EntityKind::Junction,
+                stable_key: Arc::clone(&stable_key),
+                span: span.clone(),
+            },
+        });
+        self.declaration_index
+            .entry(EntityKind::Junction)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span);
+        self.declarations.push(declaration);
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明一个通行流向及其唯一路口父项和两个稳定有向引道键。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键、有向引道键或父项引用非法，跨模块引用未显式导入，声明重复，或资源
+    /// 上限超限时失败。父项存在性与非空路径成员约束在 HIR 阶段验证。
+    #[track_caller]
+    pub fn add_movement(
+        &mut self,
+        input: MovementInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::Movement, input.movement_key, &span)?;
+        self.validate_identity_ascii_field(
+            EntityKind::Movement,
+            input.movement_key,
+            FieldTag::DirectedEntryApproachKey,
+            input.directed_entry_approach_key,
+            &span,
+        )?;
+        self.validate_identity_ascii_field(
+            EntityKind::Movement,
+            input.movement_key,
+            FieldTag::DirectedExitApproachKey,
+            input.directed_exit_approach_key,
+            &span,
+        )?;
+        let junction = self.own_reference(EntityKind::Junction, input.junction, &span)?;
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.movement_key.len()).unwrap_or(u64::MAX);
+        let entry_bytes =
+            u64::try_from(input.directed_entry_approach_key.len()).unwrap_or(u64::MAX);
+        let exit_bytes = u64::try_from(input.directed_exit_approach_key.len()).unwrap_or(u64::MAX);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 7,
+                references: 1,
+                relations: 1,
+                identity_fields: 5,
+                symbols: 1,
+                string_items: 5,
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(reference_spelling_bytes(&junction))
+                    .saturating_add(entry_bytes)
+                    .saturating_add(exit_bytes),
+                controlled_string_bytes: key_bytes
+                    .saturating_add(
+                        u64::try_from(junction.declaration_key.len()).unwrap_or(u64::MAX),
+                    )
+                    .saturating_add(entry_bytes)
+                    .saturating_add(exit_bytes),
+                controlled_structural_bytes: size_bytes::<MovementDeclaration>(1)
+                    .saturating_add(size_bytes::<OwnedEntityReference<JunctionKind>>(1)),
+                source_bytes: movement_declaration_len(
+                    input.movement_key,
+                    &junction,
+                    input.directed_entry_approach_key,
+                    input.directed_exit_approach_key,
+                ),
+            },
+            input.movement_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.movement_key.into();
+        let declaration = SyntheticDeclaration::Movement(MovementDeclaration {
+            header: DeclarationHeader {
+                entity_kind: EntityKind::Movement,
+                stable_key: Arc::clone(&stable_key),
+                span: span.clone(),
+            },
+            junction,
+            directed_entry_approach_key: input.directed_entry_approach_key.into(),
+            directed_exit_approach_key: input.directed_exit_approach_key.into(),
+        });
+        self.declaration_index
+            .entry(EntityKind::Movement)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span);
+        self.declarations.push(declaration);
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明一条机动路径及其完整入口、内部、出口边序列。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键或任一引用非法、跨模块引用未显式导入、声明重复，或资源上限超限时
+    /// 失败。目标存在性、路径连通性、遍历序列唯一性和内部边角色排他性在 HIR 阶段
+    /// 验证；内部边数组允许为空。
+    #[track_caller]
+    pub fn add_maneuver_path(
+        &mut self,
+        input: ManeuverPathInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::ManeuverPath, input.maneuver_path_key, &span)?;
+        let movement = self.own_reference(EntityKind::Movement, input.movement, &span)?;
+        let entry_edge = self.own_reference(EntityKind::LaneEdge, input.entry_edge, &span)?;
+        let mut internal_edges = Vec::with_capacity(input.internal_edges.len());
+        for reference in input.internal_edges {
+            internal_edges.push(self.own_reference(EntityKind::LaneEdge, *reference, &span)?);
+        }
+        let exit_edge = self.own_reference(EntityKind::LaneEdge, input.exit_edge, &span)?;
+        let internal_count = u64::try_from(internal_edges.len()).unwrap_or(u64::MAX);
+        let reference_count = internal_count.saturating_add(3);
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.maneuver_path_key.len()).unwrap_or(u64::MAX);
+        let references_logical_bytes = [&movement.declaration_key, &entry_edge.declaration_key]
+            .into_iter()
+            .chain(internal_edges.iter().map(|edge| &edge.declaration_key))
+            .chain([&exit_edge.declaration_key])
+            .fold(0_u64, |total, key| {
+                total.saturating_add(u64::try_from(key.len()).unwrap_or(u64::MAX))
+            });
+        let references_spelling_bytes = reference_spelling_bytes(&movement)
+            .saturating_add(reference_spelling_bytes(&entry_edge))
+            .saturating_add(internal_edges.iter().fold(0_u64, |total, edge| {
+                total.saturating_add(reference_spelling_bytes(edge))
+            }))
+            .saturating_add(reference_spelling_bytes(&exit_edge));
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 3_u64.saturating_add(reference_count.saturating_mul(2)),
+                references: reference_count,
+                relations: 1_u64.saturating_add(internal_count.saturating_add(2)),
+                identity_fields: 5,
+                symbols: 1,
+                string_items: 2_u64.saturating_add(reference_count),
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(references_spelling_bytes),
+                controlled_string_bytes: key_bytes.saturating_add(references_logical_bytes),
+                controlled_structural_bytes: size_bytes::<ManeuverPathDeclaration>(1)
+                    .saturating_add(size_bytes::<OwnedEntityReference<MovementKind>>(1))
+                    .saturating_add(size_bytes::<OwnedEntityReference<LaneEdgeKind>>(
+                        internal_count.saturating_add(2),
+                    )),
+                source_bytes: maneuver_path_declaration_len(
+                    input.maneuver_path_key,
+                    &movement,
+                    &entry_edge,
+                    &internal_edges,
+                    &exit_edge,
+                ),
+            },
+            input.maneuver_path_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.maneuver_path_key.into();
+        let declaration = SyntheticDeclaration::ManeuverPath(ManeuverPathDeclaration {
+            header: DeclarationHeader {
+                entity_kind: EntityKind::ManeuverPath,
+                stable_key: Arc::clone(&stable_key),
+                span: span.clone(),
+            },
+            movement,
+            entry_edge,
+            internal_edges: internal_edges.into_boxed_slice(),
+            exit_edge,
+        });
+        self.declaration_index
+            .entry(EntityKind::ManeuverPath)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span);
+        self.declarations.push(declaration);
+        self.commit_declaration_resources(state);
         Ok(self)
     }
 
@@ -2054,6 +2318,22 @@ fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
             &declaration.header.stable_key,
             &declaration.kind_id,
         )),
+        SyntheticDeclaration::Junction(declaration) => {
+            Some(declaration_header_len(&declaration.header.stable_key))
+        }
+        SyntheticDeclaration::Movement(declaration) => Some(movement_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.junction,
+            &declaration.directed_entry_approach_key,
+            &declaration.directed_exit_approach_key,
+        )),
+        SyntheticDeclaration::ManeuverPath(declaration) => Some(maneuver_path_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.movement,
+            &declaration.entry_edge,
+            &declaration.internal_edges,
+            &declaration.exit_edge,
+        )),
     }
 }
 
@@ -2072,6 +2352,52 @@ fn facility_band_declaration_len(stable_key: &str, kind_id: &str) -> u64 {
     declaration_header_len(stable_key)
         .saturating_add(4)
         .saturating_add(u64::try_from(kind_id.len()).unwrap_or(u64::MAX))
+}
+
+fn movement_declaration_len(
+    stable_key: &str,
+    junction: &OwnedEntityReference<JunctionKind>,
+    directed_entry_approach_key: &str,
+    directed_exit_approach_key: &str,
+) -> u64 {
+    declaration_header_len(stable_key)
+        .saturating_add(encoded_reference_len(
+            &junction.module_namespace,
+            &junction.declaration_key,
+        ))
+        .saturating_add(4)
+        .saturating_add(u64::try_from(directed_entry_approach_key.len()).unwrap_or(u64::MAX))
+        .saturating_add(4)
+        .saturating_add(u64::try_from(directed_exit_approach_key.len()).unwrap_or(u64::MAX))
+}
+
+fn maneuver_path_declaration_len(
+    stable_key: &str,
+    movement: &OwnedEntityReference<MovementKind>,
+    entry_edge: &OwnedEntityReference<LaneEdgeKind>,
+    internal_edges: &[OwnedEntityReference<LaneEdgeKind>],
+    exit_edge: &OwnedEntityReference<LaneEdgeKind>,
+) -> u64 {
+    let mut length = declaration_header_len(stable_key)
+        .saturating_add(encoded_reference_len(
+            &movement.module_namespace,
+            &movement.declaration_key,
+        ))
+        .saturating_add(encoded_reference_len(
+            &entry_edge.module_namespace,
+            &entry_edge.declaration_key,
+        ))
+        .saturating_add(4);
+    for edge in internal_edges {
+        length = length.saturating_add(encoded_reference_len(
+            &edge.module_namespace,
+            &edge.declaration_key,
+        ));
+    }
+    length.saturating_add(encoded_reference_len(
+        &exit_edge.module_namespace,
+        &exit_edge.declaration_key,
+    ))
 }
 
 fn lane_group_declaration_len(
@@ -2216,6 +2542,29 @@ fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
         SyntheticDeclaration::FacilityBand(declaration) => {
             put_declaration_header(output, &declaration.header);
             put_bytes(output, &declaration.kind_id);
+        }
+        SyntheticDeclaration::Junction(declaration) => {
+            put_declaration_header(output, &declaration.header);
+        }
+        SyntheticDeclaration::Movement(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            put_owned_reference(output, &declaration.junction);
+            put_bytes(output, &declaration.directed_entry_approach_key);
+            put_bytes(output, &declaration.directed_exit_approach_key);
+        }
+        SyntheticDeclaration::ManeuverPath(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            put_owned_reference(output, &declaration.movement);
+            put_owned_reference(output, &declaration.entry_edge);
+            output.extend_from_slice(
+                &u32::try_from(declaration.internal_edges.len())
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            );
+            for edge in &declaration.internal_edges {
+                put_owned_reference(output, edge);
+            }
+            put_owned_reference(output, &declaration.exit_edge);
         }
     }
 }

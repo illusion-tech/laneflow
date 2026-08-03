@@ -8,7 +8,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    EntityKind, EntityKindMarker, FacilityBandKind, LaneEdgeKind, LaneGroupKind, RoadSectionKind,
+    EntityKind, EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
+    ManeuverPathKind, MovementKind, RoadSectionKind,
 };
 
 use crate::SourceSpan;
@@ -79,6 +80,12 @@ pub type RoadSectionReference<'a> = EntityReference<'a, RoadSectionKind>;
 pub type LaneGroupReference<'a> = EntityReference<'a, LaneGroupKind>;
 /// 指向设施带声明的有类型未解析引用。
 pub type FacilityBandReference<'a> = EntityReference<'a, FacilityBandKind>;
+/// 指向路口声明的有类型未解析引用。
+pub type JunctionReference<'a> = EntityReference<'a, JunctionKind>;
+/// 指向通行流向声明的有类型未解析引用。
+pub type MovementReference<'a> = EntityReference<'a, MovementKind>;
+/// 指向机动路径声明的有类型未解析引用。
+pub type ManeuverPathReference<'a> = EntityReference<'a, ManeuverPathKind>;
 
 /// 横断面物理设施类别可承载的结构形态。
 ///
@@ -189,6 +196,51 @@ pub struct FacilityBandInput<'a> {
     pub facility_band_key: &'a str,
     /// 物理设施类别 token；必须属于 non-traversable 类别。
     pub kind_id: &'a str,
+}
+
+/// 合成领域专用语言的路口声明输入。
+///
+/// 路口不持久化第二份 Movement 成员数组；成员关系由 `MovementInput::junction`
+/// 反向形成，并在 HIR 中校验非空。
+#[derive(Clone, Copy, Debug)]
+pub struct JunctionInput<'a> {
+    /// 来源模块内显式持久化且唯一的路口稳定键。
+    pub junction_key: &'a str,
+}
+
+/// 合成领域专用语言的通行流向声明输入。
+///
+/// 两个有向引道键是 Identity v1 的权威 ASCII 字段，不从入口/出口边名称、几何或
+/// 转向分类推断；调用方必须在编制来源中显式维护其稳定性。
+#[derive(Clone, Copy, Debug)]
+pub struct MovementInput<'a> {
+    /// 来源模块内显式持久化且唯一的通行流向稳定键。
+    pub movement_key: &'a str,
+    /// 唯一拥有该通行流向的路口。
+    pub junction: JunctionReference<'a>,
+    /// 进入路口的有向引道稳定键。
+    pub directed_entry_approach_key: &'a str,
+    /// 离开路口的有向引道稳定键。
+    pub directed_exit_approach_key: &'a str,
+}
+
+/// 合成领域专用语言的机动路径声明输入。
+///
+/// 权威遍历序列为 `entry_edge + internal_edges + exit_edge`。内部边可以为空；所有
+/// 相邻边必须直接连通。内部边角色由拥有 Movement 的 Junction 排他声明，但同一
+/// Junction 内的多条路径可以共享内部边。
+#[derive(Clone, Copy, Debug)]
+pub struct ManeuverPathInput<'a> {
+    /// 来源模块内显式持久化且唯一的机动路径稳定键，对应 Identity v1 `pathKey`。
+    pub maneuver_path_key: &'a str,
+    /// 唯一拥有该路径的通行流向。
+    pub movement: MovementReference<'a>,
+    /// 进入路口前的边界边。
+    pub entry_edge: LaneEdgeReference<'a>,
+    /// 按遍历顺序排列的零到多条路口内部边。
+    pub internal_edges: &'a [LaneEdgeReference<'a>],
+    /// 离开路口后的第一条边界边。
+    pub exit_edge: LaneEdgeReference<'a>,
 }
 
 /// 合成领域专用语言的车道图边声明输入。
@@ -351,6 +403,28 @@ pub(crate) struct FacilityBandDeclaration {
     pub(crate) kind_id: Arc<str>,
 }
 
+/// 已通过字段级检查、等待反向形成非空 Movement 成员集的路口 Typed AST 记录。
+pub(crate) struct JunctionDeclaration {
+    pub(crate) header: DeclarationHeader,
+}
+
+/// 已通过字段级检查、等待解析唯一 Junction 父项的通行流向 Typed AST 记录。
+pub(crate) struct MovementDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) junction: OwnedEntityReference<JunctionKind>,
+    pub(crate) directed_entry_approach_key: Arc<str>,
+    pub(crate) directed_exit_approach_key: Arc<str>,
+}
+
+/// 已通过字段级检查、等待解析父项和完整边序列的机动路径 Typed AST 记录。
+pub(crate) struct ManeuverPathDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) movement: OwnedEntityReference<MovementKind>,
+    pub(crate) entry_edge: OwnedEntityReference<LaneEdgeKind>,
+    pub(crate) internal_edges: Box<[OwnedEntityReference<LaneEdgeKind>]>,
+    pub(crate) exit_edge: OwnedEntityReference<LaneEdgeKind>,
+}
+
 /// 官方合成前端当前支持的封闭声明集合。
 pub(crate) enum SyntheticDeclaration {
     LaneEdge(LaneEdgeDeclaration),
@@ -358,4 +432,7 @@ pub(crate) enum SyntheticDeclaration {
     RoadSection(RoadSectionDeclaration),
     LaneGroup(LaneGroupDeclaration),
     FacilityBand(FacilityBandDeclaration),
+    Junction(JunctionDeclaration),
+    Movement(MovementDeclaration),
+    ManeuverPath(ManeuverPathDeclaration),
 }

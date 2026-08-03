@@ -8,7 +8,7 @@
 use core::fmt;
 use std::sync::Arc;
 
-use laneflow_static_contract::{EntityKind, StableId128};
+use laneflow_static_contract::{EntityKind, FieldTag, StableId128};
 
 use crate::CompileLimitDimension;
 use crate::declaration::{FacilityKindCategory, FacilityKindViolation, ScalarViolation};
@@ -120,6 +120,8 @@ pub enum DiagnosticCode {
     UnimportedReferenceModule,
     /// 导入闭合后仍找不到引用的目标声明。
     UnknownReferenceTarget,
+    /// Identity v1 的显式 ASCII 领域字段违反来源 token 规则。
+    InvalidIdentityAsciiField,
     /// 车道图边长度不是满足当前契约的有限 `f64` 米值。
     InvalidLaneEdgeLength,
     /// 基础道路限速不是严格为正的有限 `f64` 米每秒值。
@@ -152,6 +154,18 @@ pub enum DiagnosticCode {
     LaneGroupParentMismatch,
     /// 车道组没有任何编制车道成员。
     EmptyLaneGroup,
+    /// 路口没有任何通行流向成员。
+    EmptyJunction,
+    /// 通行流向没有任何机动路径成员。
+    EmptyMovement,
+    /// 机动路径完整边序列中的相邻边没有直接连接。
+    DisconnectedManeuverPath,
+    /// 两条机动路径声明了相同的完整遍历序列。
+    DuplicateManeuverPathSequence,
+    /// 同一内部边被不同路口排他声明。
+    InternalEdgeJunctionConflict,
+    /// 同一边同时被声明为路口内部边和任一路口的边界边。
+    InternalBoundaryRoleConflict,
     /// 编译器构造的规范身份字段不满足 Identity v1 登记表。
     InvalidCanonicalIdentity,
     /// 同一完整规范身份在编译单元中出现多次。
@@ -180,6 +194,7 @@ impl DiagnosticCode {
             Self::InvalidReferenceKey => "LF-COMP-REFERENCE-KEY",
             Self::UnimportedReferenceModule => "LF-COMP-UNIMPORTED-REFERENCE-MODULE",
             Self::UnknownReferenceTarget => "LF-COMP-UNKNOWN-REFERENCE-TARGET",
+            Self::InvalidIdentityAsciiField => "LF-COMP-IDENTITY-ASCII-FIELD",
             Self::InvalidLaneEdgeLength => "LF-COMP-LANE-EDGE-LENGTH",
             Self::InvalidLaneEdgeSpeedLimit => "LF-COMP-LANE-EDGE-SPEED-LIMIT",
             Self::DuplicateLaneEdgeSuccessor => "LF-COMP-DUPLICATE-LANE-EDGE-SUCCESSOR",
@@ -198,6 +213,12 @@ impl DiagnosticCode {
             Self::MultipleAuthoringLaneOwners => "LF-COMP-MULTIPLE-AUTHORING-LANE-OWNERS",
             Self::LaneGroupParentMismatch => "LF-COMP-LANE-GROUP-PARENT-MISMATCH",
             Self::EmptyLaneGroup => "LF-COMP-EMPTY-LANE-GROUP",
+            Self::EmptyJunction => "LF-COMP-EMPTY-JUNCTION",
+            Self::EmptyMovement => "LF-COMP-EMPTY-MOVEMENT",
+            Self::DisconnectedManeuverPath => "LF-COMP-DISCONNECTED-MANEUVER-PATH",
+            Self::DuplicateManeuverPathSequence => "LF-COMP-DUPLICATE-MANEUVER-PATH-SEQUENCE",
+            Self::InternalEdgeJunctionConflict => "LF-COMP-INTERNAL-EDGE-JUNCTION-CONFLICT",
+            Self::InternalBoundaryRoleConflict => "LF-COMP-INTERNAL-BOUNDARY-ROLE-CONFLICT",
             Self::InvalidCanonicalIdentity => "LF-COMP-INVALID-CANONICAL-IDENTITY",
             Self::DuplicateCanonicalIdentity => "LF-COMP-DUPLICATE-CANONICAL-IDENTITY",
             Self::IdentityDigestCollision => "LF-COMP-IDENTITY-DIGEST-COLLISION",
@@ -347,6 +368,13 @@ pub enum DiagnosticPayload {
         target_namespace: Box<str>,
         target_key: Box<str>,
     },
+    /// 显式 Identity v1 ASCII 字段及其文本失败原因。
+    InvalidIdentityAsciiField {
+        entity_kind: EntityKind,
+        stable_key: Box<str>,
+        field_tag: FieldTag,
+        violation: SourceTextViolation,
+    },
     /// 车道图边稳定键、非法长度位模式及数值约束原因。
     InvalidLaneEdgeLength {
         stable_key: Box<str>,
@@ -433,6 +461,37 @@ pub enum DiagnosticPayload {
     },
     /// 没有任何编制车道成员的车道组。
     EmptyLaneGroup { stable_key: Box<str> },
+    /// 没有任何通行流向成员的路口。
+    EmptyJunction { junction_key: Box<str> },
+    /// 没有任何机动路径成员的通行流向。
+    EmptyMovement { movement_key: Box<str> },
+    /// 机动路径完整边序列中不相连的一对相邻边。
+    DisconnectedManeuverPath {
+        path_key: Box<str>,
+        predecessor_key: Box<str>,
+        successor_key: Box<str>,
+    },
+    /// 共享相同完整遍历序列的首个和重复机动路径及其路口。
+    DuplicateManeuverPathSequence {
+        first_path_key: Box<str>,
+        duplicate_path_key: Box<str>,
+        first_junction_key: Box<str>,
+        duplicate_junction_key: Box<str>,
+    },
+    /// 同一内部边及发生排他所有者冲突的两个路口和路径。
+    InternalEdgeJunctionConflict {
+        edge_key: Box<str>,
+        first_junction_key: Box<str>,
+        duplicate_junction_key: Box<str>,
+        first_path_key: Box<str>,
+        duplicate_path_key: Box<str>,
+    },
+    /// 同一边及分别把它声明为内部/边界角色的两条路径。
+    InternalBoundaryRoleConflict {
+        edge_key: Box<str>,
+        internal_path_key: Box<str>,
+        boundary_path_key: Box<str>,
+    },
     /// 实体种类、来源稳定键及不能形成 Identity v1 前像的精确原因。
     InvalidCanonicalIdentity {
         entity_kind: EntityKind,
@@ -694,6 +753,27 @@ impl Diagnostic {
             Some(primary_span),
             Box::new([source_declaration_span]),
             Some(source_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_identity_ascii_field(
+        entity_kind: EntityKind,
+        stable_key: &str,
+        field_tag: FieldTag,
+        violation: SourceTextViolation,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidIdentityAsciiField,
+            DiagnosticPayload::InvalidIdentityAsciiField {
+                entity_kind,
+                stable_key: stable_key.into(),
+                field_tag,
+                violation,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
         )
     }
 
@@ -989,6 +1069,118 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn empty_junction(junction_key: &str, primary_span: SourceSpan) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::EmptyJunction,
+            DiagnosticPayload::EmptyJunction {
+                junction_key: junction_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(junction_key.into()),
+        )
+    }
+
+    pub(crate) fn empty_movement(movement_key: &str, primary_span: SourceSpan) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::EmptyMovement,
+            DiagnosticPayload::EmptyMovement {
+                movement_key: movement_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(movement_key.into()),
+        )
+    }
+
+    pub(crate) fn disconnected_maneuver_path(
+        path_key: &str,
+        predecessor_key: &str,
+        successor_key: &str,
+        primary_span: SourceSpan,
+        predecessor_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DisconnectedManeuverPath,
+            DiagnosticPayload::DisconnectedManeuverPath {
+                path_key: path_key.into(),
+                predecessor_key: predecessor_key.into(),
+                successor_key: successor_key.into(),
+            },
+            Some(primary_span),
+            Box::new([predecessor_span]),
+            Some(path_key.into()),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn duplicate_maneuver_path_sequence(
+        first_path_key: &str,
+        duplicate_path_key: &str,
+        first_junction_key: &str,
+        duplicate_junction_key: &str,
+        primary_span: SourceSpan,
+        first_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateManeuverPathSequence,
+            DiagnosticPayload::DuplicateManeuverPathSequence {
+                first_path_key: first_path_key.into(),
+                duplicate_path_key: duplicate_path_key.into(),
+                first_junction_key: first_junction_key.into(),
+                duplicate_junction_key: duplicate_junction_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_span]),
+            Some(duplicate_path_key.into()),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn internal_edge_junction_conflict(
+        edge_key: &str,
+        first_junction_key: &str,
+        duplicate_junction_key: &str,
+        first_path_key: &str,
+        duplicate_path_key: &str,
+        primary_span: SourceSpan,
+        first_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InternalEdgeJunctionConflict,
+            DiagnosticPayload::InternalEdgeJunctionConflict {
+                edge_key: edge_key.into(),
+                first_junction_key: first_junction_key.into(),
+                duplicate_junction_key: duplicate_junction_key.into(),
+                first_path_key: first_path_key.into(),
+                duplicate_path_key: duplicate_path_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_span]),
+            Some(edge_key.into()),
+        )
+    }
+
+    pub(crate) fn internal_boundary_role_conflict(
+        edge_key: &str,
+        internal_path_key: &str,
+        boundary_path_key: &str,
+        primary_span: SourceSpan,
+        internal_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InternalBoundaryRoleConflict,
+            DiagnosticPayload::InternalBoundaryRoleConflict {
+                edge_key: edge_key.into(),
+                internal_path_key: internal_path_key.into(),
+                boundary_path_key: boundary_path_key.into(),
+            },
+            Some(primary_span),
+            Box::new([internal_span]),
+            Some(edge_key.into()),
+        )
+    }
+
     pub(crate) fn invalid_canonical_identity(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -1192,6 +1384,18 @@ impl fmt::Display for Diagnostic {
                 "来源模块重复声明 {} 稳定键 {stable_key}",
                 entity_kind.slug()
             ),
+            DiagnosticPayload::InvalidIdentityAsciiField {
+                entity_kind,
+                stable_key,
+                field_tag,
+                violation,
+            } => write!(
+                formatter,
+                "{} 声明 {stable_key} 的 Identity v1 字段 {} 非法：{}",
+                entity_kind.slug(),
+                field_tag.name(),
+                SourceTextViolationDisplay(*violation)
+            ),
             DiagnosticPayload::InvalidReferenceNamespace { violation } => write!(
                 formatter,
                 "引用目标模块命名空间非法：{}",
@@ -1350,6 +1554,50 @@ impl fmt::Display for Diagnostic {
             DiagnosticPayload::EmptyLaneGroup { stable_key } => {
                 write!(formatter, "车道组 {stable_key} 必须至少包含一条编制车道")
             }
+            DiagnosticPayload::EmptyJunction { junction_key } => {
+                write!(formatter, "路口 {junction_key} 必须至少包含一个通行流向")
+            }
+            DiagnosticPayload::EmptyMovement { movement_key } => {
+                write!(
+                    formatter,
+                    "通行流向 {movement_key} 必须至少包含一条机动路径"
+                )
+            }
+            DiagnosticPayload::DisconnectedManeuverPath {
+                path_key,
+                predecessor_key,
+                successor_key,
+            } => write!(
+                formatter,
+                "机动路径 {path_key} 的相邻车道图边 {predecessor_key} -> {successor_key} 未直接连通"
+            ),
+            DiagnosticPayload::DuplicateManeuverPathSequence {
+                first_path_key,
+                duplicate_path_key,
+                first_junction_key,
+                duplicate_junction_key,
+            } => write!(
+                formatter,
+                "机动路径 {duplicate_path_key}（路口 {duplicate_junction_key}）与 {first_path_key}（路口 {first_junction_key}）声明了相同完整遍历序列"
+            ),
+            DiagnosticPayload::InternalEdgeJunctionConflict {
+                edge_key,
+                first_junction_key,
+                duplicate_junction_key,
+                first_path_key,
+                duplicate_path_key,
+            } => write!(
+                formatter,
+                "车道图边 {edge_key} 被路口 {first_junction_key} 的路径 {first_path_key} 与路口 {duplicate_junction_key} 的路径 {duplicate_path_key} 同时声明为内部边"
+            ),
+            DiagnosticPayload::InternalBoundaryRoleConflict {
+                edge_key,
+                internal_path_key,
+                boundary_path_key,
+            } => write!(
+                formatter,
+                "车道图边 {edge_key} 同时被路径 {internal_path_key} 声明为内部边、被路径 {boundary_path_key} 声明为边界边"
+            ),
             DiagnosticPayload::InvalidCanonicalIdentity {
                 entity_kind,
                 stable_key,
