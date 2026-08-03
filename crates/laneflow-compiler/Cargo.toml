@@ -1,0 +1,19 @@
+[package]
+name = "laneflow-compiler"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "LaneFlow 编译器拥有的静态路网生产编译器。"
+publish = false
+
+[lib]
+name = "laneflow_compiler"
+path = "src/lib.rs"
+
+[dependencies]
+laneflow-static-contract = { path = "../laneflow-static-contract" }
+
+[lints]
+workspace = true
