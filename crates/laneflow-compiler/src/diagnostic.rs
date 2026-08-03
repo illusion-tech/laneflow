@@ -184,6 +184,24 @@ pub enum DiagnosticCode {
     InvalidWaitingZoneGateOrder,
     /// 同一机动路径上的两个等待区内部重叠或嵌套。
     OverlappingWaitingZones,
+    /// 静态路线没有任何车道图边出现项。
+    EmptyStaticRoute,
+    /// 静态路线中的一对相邻车道图边没有直接连接。
+    DisconnectedStaticRouteEdge,
+    /// 静态路线从路口内部边开始。
+    StaticRouteStartsInsideJunction,
+    /// 静态路线在路口内部边结束。
+    StaticRouteEndsInsideJunction,
+    /// 静态路线的最终边带有停止线，因而遗漏了受控后继转换。
+    StaticRouteTerminatesAtStopLine,
+    /// 静态路线进入了已知机动路径，但没有包含其完整边序列。
+    StaticRouteManeuverNoFullMatch,
+    /// 静态路线同一入口位置完整匹配多条机动路径。
+    StaticRouteManeuverMultipleFullMatches,
+    /// 静态路线中的两个机动路径出现项覆盖了同一内部边出现项。
+    StaticRouteManeuverInternalOverlap,
+    /// 静态路线中的路口内部边没有被任何完整机动路径出现项覆盖。
+    StaticRouteInternalEdgeUncovered,
     /// 编译器构造的规范身份字段不满足 Identity v1 登记表。
     InvalidCanonicalIdentity,
     /// 同一完整规范身份在编译单元中出现多次。
@@ -250,6 +268,21 @@ impl DiagnosticCode {
             Self::WaitingZoneGatePathMismatch => "LF-COMP-WAITING-ZONE-GATE-PATH-MISMATCH",
             Self::InvalidWaitingZoneGateOrder => "LF-COMP-WAITING-ZONE-GATE-ORDER",
             Self::OverlappingWaitingZones => "LF-COMP-OVERLAPPING-WAITING-ZONES",
+            Self::EmptyStaticRoute => "LF-COMP-EMPTY-STATIC-ROUTE",
+            Self::DisconnectedStaticRouteEdge => "LF-COMP-DISCONNECTED-STATIC-ROUTE-EDGE",
+            Self::StaticRouteStartsInsideJunction => "LF-COMP-STATIC-ROUTE-STARTS-INSIDE-JUNCTION",
+            Self::StaticRouteEndsInsideJunction => "LF-COMP-STATIC-ROUTE-ENDS-INSIDE-JUNCTION",
+            Self::StaticRouteTerminatesAtStopLine => "LF-COMP-STATIC-ROUTE-TERMINATES-AT-STOP-LINE",
+            Self::StaticRouteManeuverNoFullMatch => "LF-COMP-STATIC-ROUTE-MANEUVER-NO-FULL-MATCH",
+            Self::StaticRouteManeuverMultipleFullMatches => {
+                "LF-COMP-STATIC-ROUTE-MANEUVER-MULTIPLE-FULL-MATCHES"
+            }
+            Self::StaticRouteManeuverInternalOverlap => {
+                "LF-COMP-STATIC-ROUTE-MANEUVER-INTERNAL-OVERLAP"
+            }
+            Self::StaticRouteInternalEdgeUncovered => {
+                "LF-COMP-STATIC-ROUTE-INTERNAL-EDGE-UNCOVERED"
+            }
             Self::InvalidCanonicalIdentity => "LF-COMP-INVALID-CANONICAL-IDENTITY",
             Self::DuplicateCanonicalIdentity => "LF-COMP-DUPLICATE-CANONICAL-IDENTITY",
             Self::IdentityDigestCollision => "LF-COMP-IDENTITY-DIGEST-COLLISION",
@@ -594,6 +627,59 @@ pub enum DiagnosticPayload {
         maneuver_path_key: Box<str>,
         first_waiting_zone_key: Box<str>,
         second_waiting_zone_key: Box<str>,
+    },
+    /// 没有任何边出现项的静态路线。
+    EmptyStaticRoute { static_route_key: Box<str> },
+    /// 静态路线中不相连的一对相邻边及后项在路线内的下标。
+    DisconnectedStaticRouteEdge {
+        static_route_key: Box<str>,
+        predecessor_key: Box<str>,
+        successor_key: Box<str>,
+        successor_route_edge_index: u32,
+    },
+    /// 从路口内部边开始的静态路线。
+    StaticRouteStartsInsideJunction {
+        static_route_key: Box<str>,
+        edge_key: Box<str>,
+    },
+    /// 在路口内部边结束的静态路线。
+    StaticRouteEndsInsideJunction {
+        static_route_key: Box<str>,
+        edge_key: Box<str>,
+    },
+    /// 在带停止线的最终边结束的静态路线。
+    StaticRouteTerminatesAtStopLine {
+        static_route_key: Box<str>,
+        edge_key: Box<str>,
+        stop_line_key: Box<str>,
+    },
+    /// 从指定路线转换进入候选路径，但没有完整匹配。
+    StaticRouteManeuverNoFullMatch {
+        static_route_key: Box<str>,
+        entry_route_edge_index: u32,
+        entry_edge_key: Box<str>,
+        next_edge_key: Box<str>,
+    },
+    /// 从指定路线转换完整匹配的首两条路径。
+    StaticRouteManeuverMultipleFullMatches {
+        static_route_key: Box<str>,
+        entry_route_edge_index: u32,
+        first_path_key: Box<str>,
+        second_path_key: Box<str>,
+    },
+    /// 同一路线内部边出现项被两条完整机动路径重复覆盖。
+    StaticRouteManeuverInternalOverlap {
+        static_route_key: Box<str>,
+        route_edge_index: u32,
+        edge_key: Box<str>,
+        first_path_key: Box<str>,
+        second_path_key: Box<str>,
+    },
+    /// 没有落入完整机动路径出现项的路口内部边出现项。
+    StaticRouteInternalEdgeUncovered {
+        static_route_key: Box<str>,
+        route_edge_index: u32,
+        edge_key: Box<str>,
     },
     /// 实体种类、来源稳定键及不能形成 Identity v1 前像的精确原因。
     InvalidCanonicalIdentity {
@@ -1464,6 +1550,188 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn empty_static_route(static_route_key: &str, primary_span: SourceSpan) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::EmptyStaticRoute,
+            DiagnosticPayload::EmptyStaticRoute {
+                static_route_key: static_route_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(static_route_key.into()),
+        )
+    }
+
+    pub(crate) fn disconnected_static_route_edge(
+        static_route_key: &str,
+        predecessor_key: &str,
+        successor_key: &str,
+        successor_route_edge_index: u32,
+        primary_span: SourceSpan,
+        predecessor_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DisconnectedStaticRouteEdge,
+            DiagnosticPayload::DisconnectedStaticRouteEdge {
+                static_route_key: static_route_key.into(),
+                predecessor_key: predecessor_key.into(),
+                successor_key: successor_key.into(),
+                successor_route_edge_index,
+            },
+            Some(primary_span),
+            Box::new([predecessor_span]),
+            Some(static_route_key.into()),
+        )
+    }
+
+    pub(crate) fn static_route_starts_inside_junction(
+        static_route_key: &str,
+        edge_key: &str,
+        primary_span: SourceSpan,
+        path_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::StaticRouteStartsInsideJunction,
+            DiagnosticPayload::StaticRouteStartsInsideJunction {
+                static_route_key: static_route_key.into(),
+                edge_key: edge_key.into(),
+            },
+            Some(primary_span),
+            Box::new([path_span]),
+            Some(static_route_key.into()),
+        )
+    }
+
+    pub(crate) fn static_route_ends_inside_junction(
+        static_route_key: &str,
+        edge_key: &str,
+        primary_span: SourceSpan,
+        path_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::StaticRouteEndsInsideJunction,
+            DiagnosticPayload::StaticRouteEndsInsideJunction {
+                static_route_key: static_route_key.into(),
+                edge_key: edge_key.into(),
+            },
+            Some(primary_span),
+            Box::new([path_span]),
+            Some(static_route_key.into()),
+        )
+    }
+
+    pub(crate) fn static_route_terminates_at_stop_line(
+        static_route_key: &str,
+        edge_key: &str,
+        stop_line_key: &str,
+        primary_span: SourceSpan,
+        stop_line_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::StaticRouteTerminatesAtStopLine,
+            DiagnosticPayload::StaticRouteTerminatesAtStopLine {
+                static_route_key: static_route_key.into(),
+                edge_key: edge_key.into(),
+                stop_line_key: stop_line_key.into(),
+            },
+            Some(primary_span),
+            Box::new([stop_line_span]),
+            Some(static_route_key.into()),
+        )
+    }
+
+    pub(crate) fn static_route_maneuver_no_full_match(
+        static_route_key: &str,
+        entry_route_edge_index: u32,
+        entry_edge_key: &str,
+        next_edge_key: &str,
+        primary_span: SourceSpan,
+        candidate_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::StaticRouteManeuverNoFullMatch,
+            DiagnosticPayload::StaticRouteManeuverNoFullMatch {
+                static_route_key: static_route_key.into(),
+                entry_route_edge_index,
+                entry_edge_key: entry_edge_key.into(),
+                next_edge_key: next_edge_key.into(),
+            },
+            Some(primary_span),
+            Box::new([candidate_span]),
+            Some(static_route_key.into()),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn static_route_maneuver_multiple_full_matches(
+        static_route_key: &str,
+        entry_route_edge_index: u32,
+        first_path_key: &str,
+        second_path_key: &str,
+        primary_span: SourceSpan,
+        first_path_span: SourceSpan,
+        second_path_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::StaticRouteManeuverMultipleFullMatches,
+            DiagnosticPayload::StaticRouteManeuverMultipleFullMatches {
+                static_route_key: static_route_key.into(),
+                entry_route_edge_index,
+                first_path_key: first_path_key.into(),
+                second_path_key: second_path_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_path_span, second_path_span]),
+            Some(static_route_key.into()),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn static_route_maneuver_internal_overlap(
+        static_route_key: &str,
+        route_edge_index: u32,
+        edge_key: &str,
+        first_path_key: &str,
+        second_path_key: &str,
+        primary_span: SourceSpan,
+        first_path_span: SourceSpan,
+        second_path_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::StaticRouteManeuverInternalOverlap,
+            DiagnosticPayload::StaticRouteManeuverInternalOverlap {
+                static_route_key: static_route_key.into(),
+                route_edge_index,
+                edge_key: edge_key.into(),
+                first_path_key: first_path_key.into(),
+                second_path_key: second_path_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_path_span, second_path_span]),
+            Some(static_route_key.into()),
+        )
+    }
+
+    pub(crate) fn static_route_internal_edge_uncovered(
+        static_route_key: &str,
+        route_edge_index: u32,
+        edge_key: &str,
+        primary_span: SourceSpan,
+        path_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::StaticRouteInternalEdgeUncovered,
+            DiagnosticPayload::StaticRouteInternalEdgeUncovered {
+                static_route_key: static_route_key.into(),
+                route_edge_index,
+                edge_key: edge_key.into(),
+            },
+            Some(primary_span),
+            Box::new([path_span]),
+            Some(static_route_key.into()),
+        )
+    }
+
     pub(crate) fn invalid_canonical_identity(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -1952,6 +2220,79 @@ impl fmt::Display for Diagnostic {
             } => write!(
                 formatter,
                 "机动路径 {maneuver_path_key} 上的等待区 {first_waiting_zone_key} 与 {second_waiting_zone_key} 内部重叠或嵌套"
+            ),
+            DiagnosticPayload::EmptyStaticRoute { static_route_key } => {
+                write!(
+                    formatter,
+                    "静态路线 {static_route_key} 必须至少包含一条车道图边"
+                )
+            }
+            DiagnosticPayload::DisconnectedStaticRouteEdge {
+                static_route_key,
+                predecessor_key,
+                successor_key,
+                successor_route_edge_index,
+            } => write!(
+                formatter,
+                "静态路线 {static_route_key} 的边出现项 {successor_route_edge_index} 不连通：{predecessor_key} -> {successor_key}"
+            ),
+            DiagnosticPayload::StaticRouteStartsInsideJunction {
+                static_route_key,
+                edge_key,
+            } => write!(
+                formatter,
+                "静态路线 {static_route_key} 从路口内部边 {edge_key} 开始，缺少进入路口的边界转换"
+            ),
+            DiagnosticPayload::StaticRouteEndsInsideJunction {
+                static_route_key,
+                edge_key,
+            } => write!(
+                formatter,
+                "静态路线 {static_route_key} 在路口内部边 {edge_key} 结束，缺少离开路口的边界转换"
+            ),
+            DiagnosticPayload::StaticRouteTerminatesAtStopLine {
+                static_route_key,
+                edge_key,
+                stop_line_key,
+            } => write!(
+                formatter,
+                "静态路线 {static_route_key} 在带停止线 {stop_line_key} 的边 {edge_key} 结束，缺少受控后继转换"
+            ),
+            DiagnosticPayload::StaticRouteManeuverNoFullMatch {
+                static_route_key,
+                entry_route_edge_index,
+                entry_edge_key,
+                next_edge_key,
+            } => write!(
+                formatter,
+                "静态路线 {static_route_key} 从出现项 {entry_route_edge_index} 的转换 {entry_edge_key} -> {next_edge_key} 进入机动路径，但没有完整匹配任何候选路径"
+            ),
+            DiagnosticPayload::StaticRouteManeuverMultipleFullMatches {
+                static_route_key,
+                entry_route_edge_index,
+                first_path_key,
+                second_path_key,
+            } => write!(
+                formatter,
+                "静态路线 {static_route_key} 从出现项 {entry_route_edge_index} 同时完整匹配机动路径 {first_path_key} 与 {second_path_key}"
+            ),
+            DiagnosticPayload::StaticRouteManeuverInternalOverlap {
+                static_route_key,
+                route_edge_index,
+                edge_key,
+                first_path_key,
+                second_path_key,
+            } => write!(
+                formatter,
+                "静态路线 {static_route_key} 的内部边出现项 {route_edge_index}（{edge_key}）同时被机动路径 {first_path_key} 与 {second_path_key} 覆盖"
+            ),
+            DiagnosticPayload::StaticRouteInternalEdgeUncovered {
+                static_route_key,
+                route_edge_index,
+                edge_key,
+            } => write!(
+                formatter,
+                "静态路线 {static_route_key} 的路口内部边出现项 {route_edge_index}（{edge_key}）未被完整机动路径覆盖"
             ),
             DiagnosticPayload::InvalidCanonicalIdentity {
                 entity_kind,

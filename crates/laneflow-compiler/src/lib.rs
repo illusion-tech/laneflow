@@ -19,11 +19,13 @@ mod source_map;
 
 pub use compiler::{
     CanonicalAuthoringLaneView, CanonicalCorridorElement, CanonicalFacilityBandView,
-    CanonicalIdentityFieldView, CanonicalJunctionInternalEdgeView, CanonicalJunctionView,
-    CanonicalLaneEdgeView, CanonicalLaneGroupView, CanonicalManeuverGateView,
-    CanonicalManeuverPathView, CanonicalMovementView, CanonicalRoadCorridorView,
-    CanonicalRoadSectionView, CanonicalStopLineView, CanonicalWaitingZoneView, CompilationOutput,
-    Compiler, ValidatedCanonicalLir,
+    CanonicalGateOccurrenceView, CanonicalIdentityFieldView, CanonicalJunctionInternalEdgeView,
+    CanonicalJunctionView, CanonicalLaneEdgeView, CanonicalLaneGroupView,
+    CanonicalManeuverGateView, CanonicalManeuverOccurrenceView, CanonicalManeuverPathView,
+    CanonicalMovementView, CanonicalRoadCorridorView, CanonicalRoadSectionView,
+    CanonicalStaticRouteOccurrenceRef, CanonicalStaticRouteView, CanonicalStopLineView,
+    CanonicalWaitingZoneOccurrenceView, CanonicalWaitingZoneView, CompilationOutput, Compiler,
+    ValidatedCanonicalLir,
 };
 pub use declaration::{
     AuthoringLaneInput, CorridorElementReference, EntityReference, FacilityBandInput,
@@ -31,7 +33,7 @@ pub use declaration::{
     JunctionReference, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
     ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
     MovementInput, MovementReference, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
-    ScalarViolation, StopLineInput, StopLineReference, WaitingZoneInput,
+    ScalarViolation, StaticRouteInput, StopLineInput, StopLineReference, WaitingZoneInput,
 };
 pub use diagnostic::{
     Diagnostic, DiagnosticBundle, DiagnosticCode, DiagnosticPayload, DiagnosticSeverity,
@@ -49,6 +51,6 @@ pub use source_map::{
     FacilityBandSourceView, JunctionRelationOwner, JunctionRelationSourceView, JunctionSourceView,
     LaneEdgeSourceView, LaneEdgeSuccessorSourceView, LaneGroupSourceView, ManeuverGateSourceView,
     ManeuverPathSourceView, MovementSourceView, RoadCorridorSourceView, RoadSectionSourceView,
-    SourceDocumentView, SourceLocationView, SourceRelationRole, StopLineSourceView,
-    ValidatedSourceMapInput, WaitingZoneSourceView,
+    RouteRelationSourceView, SourceDocumentView, SourceLocationView, SourceRelationRole,
+    StaticRouteSourceView, StopLineSourceView, ValidatedSourceMapInput, WaitingZoneSourceView,
 };

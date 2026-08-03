@@ -10,14 +10,17 @@ use laneflow_static_contract::{
     JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
     ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId,
     MovementOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
-    StopLineId, StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
+    StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal, WaitingZoneId,
+    WaitingZoneOrdinal,
 };
 
 use crate::hir::build_hir;
 use crate::lir::{
-    LirAuthoringLane, LirCorridorElement, LirFacilityBand, LirIdentityField, LirJunction,
-    LirJunctionInternalEdge, LirLaneEdge, LirLaneGroup, LirManeuverGate, LirManeuverPath,
-    LirMovement, LirRoadCorridor, LirRoadSection, LirStopLine, LirUnit, LirWaitingZone, freeze_lir,
+    LirAuthoringLane, LirCorridorElement, LirFacilityBand, LirGateOccurrence, LirIdentityField,
+    LirJunction, LirJunctionInternalEdge, LirLaneEdge, LirLaneGroup, LirManeuverGate,
+    LirManeuverOccurrence, LirManeuverPath, LirMovement, LirRoadCorridor, LirRoadSection,
+    LirRouteOccurrenceRef, LirStaticRoute, LirStopLine, LirUnit, LirWaitingZone,
+    LirWaitingZoneOccurrence, freeze_lir,
 };
 use crate::mir::lower_to_mir;
 use crate::source_map::{ValidatedSourceMapInput, freeze_source_map};
@@ -353,6 +356,32 @@ impl ValidatedCanonicalLir {
             .ok()
             .map(|index| self.inner.junction_internal_edges[index].junction)
     }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部静态路线。
+    pub fn static_routes(&self) -> impl ExactSizeIterator<Item = CanonicalStaticRouteView<'_>> {
+        self.inner
+            .static_routes
+            .iter()
+            .map(|record| CanonicalStaticRouteView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取静态路线。
+    #[must_use]
+    pub fn static_route(
+        &self,
+        ordinal: StaticRouteOrdinal,
+    ) -> Option<CanonicalStaticRouteView<'_>> {
+        self.inner
+            .static_routes
+            .get(ordinal.index())
+            .map(|record| CanonicalStaticRouteView {
+                lir: &self.inner,
+                record,
+            })
+    }
 }
 
 /// Canonical LIR 中一条 `LaneEdge` 记录的借用视图。
@@ -401,6 +430,16 @@ impl CanonicalLaneEdgeView<'_> {
     #[must_use]
     pub fn successors(&self) -> &[LaneEdgeOrdinal] {
         &self.lir.lane_edge_successors[self.edge.successors.as_usize_range()]
+    }
+
+    /// 遍历引用此边的静态路线边出现项；重复边访问会产生多个不同路线内下标。
+    pub fn static_route_occurrences(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalStaticRouteOccurrenceRef> + '_ {
+        occurrence_refs(
+            &self.lir.lane_edge_route_occurrences
+                [self.edge.static_route_occurrences.as_usize_range()],
+        )
     }
 }
 
@@ -507,6 +546,44 @@ impl_stable_entity_view!(
     WaitingZoneOrdinal,
     WaitingZoneId
 );
+impl_stable_entity_view!(
+    CanonicalStaticRouteView,
+    LirStaticRoute,
+    StaticRouteOrdinal,
+    StaticRouteId
+);
+
+/// 一个稳定实体在静态路线中的反向出现项。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CanonicalStaticRouteOccurrenceRef {
+    static_route: StaticRouteOrdinal,
+    occurrence_index: u32,
+}
+
+impl CanonicalStaticRouteOccurrenceRef {
+    /// 返回拥有该出现项的静态路线。
+    #[must_use]
+    pub const fn static_route(self) -> StaticRouteOrdinal {
+        self.static_route
+    }
+
+    /// 返回对应关系表中、所属路线内的零基出现项下标。
+    #[must_use]
+    pub const fn occurrence_index(self) -> u32 {
+        self.occurrence_index
+    }
+}
+
+fn occurrence_refs<'a>(
+    records: &'a [LirRouteOccurrenceRef],
+) -> impl ExactSizeIterator<Item = CanonicalStaticRouteOccurrenceRef> + 'a {
+    records
+        .iter()
+        .map(|record| CanonicalStaticRouteOccurrenceRef {
+            static_route: record.static_route,
+            occurrence_index: record.occurrence_index,
+        })
+}
 
 /// 道路走廊有序横断面中的一项有类型成员。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -686,6 +763,16 @@ impl CanonicalManeuverPathView<'_> {
     pub fn waiting_zones(&self) -> &[WaitingZoneOrdinal] {
         &self.lir.maneuver_path_waiting_zones[self.record.waiting_zones.as_usize_range()]
     }
+
+    /// 遍历完整匹配此机动路径的静态路线机动出现项。
+    pub fn static_route_occurrences(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalStaticRouteOccurrenceRef> + '_ {
+        occurrence_refs(
+            &self.lir.maneuver_path_route_occurrences
+                [self.record.static_route_occurrences.as_usize_range()],
+        )
+    }
 }
 
 impl CanonicalStopLineView<'_> {
@@ -720,6 +807,16 @@ impl CanonicalManeuverGateView<'_> {
     pub const fn stop_line(&self) -> StopLineOrdinal {
         self.record.stop_line
     }
+
+    /// 遍历匹配此机动门的静态路线门出现项。
+    pub fn static_route_occurrences(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalStaticRouteOccurrenceRef> + '_ {
+        occurrence_refs(
+            &self.lir.maneuver_gate_route_occurrences
+                [self.record.static_route_occurrences.as_usize_range()],
+        )
+    }
 }
 
 impl CanonicalWaitingZoneView<'_> {
@@ -745,6 +842,204 @@ impl CanonicalWaitingZoneView<'_> {
     #[must_use]
     pub const fn max_occupancy(&self) -> u32 {
         self.record.max_occupancy
+    }
+
+    /// 遍历匹配此等待区的静态路线等待区出现项。
+    pub fn static_route_occurrences(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalStaticRouteOccurrenceRef> + '_ {
+        occurrence_refs(
+            &self.lir.waiting_zone_route_occurrences
+                [self.record.static_route_occurrences.as_usize_range()],
+        )
+    }
+}
+
+impl CanonicalStaticRouteView<'_> {
+    /// 返回编制期权威有序车道图边序列；重复序号表示同一边的不同路线出现项。
+    #[must_use]
+    pub fn edges(&self) -> &[LaneEdgeOrdinal] {
+        &self.lir.static_route_edges[self.record.edges.as_usize_range()]
+    }
+
+    /// 按相邻边转换顺序返回可选预编译机动门。
+    pub fn transition_gates(
+        &self,
+    ) -> impl ExactSizeIterator<Item = Option<ManeuverGateOrdinal>> + '_ {
+        self.lir.static_route_transitions[self.record.transitions.as_usize_range()]
+            .iter()
+            .map(|transition| transition.maneuver_gate)
+    }
+
+    /// 按入口路线边下标遍历完整机动路径出现项。
+    pub fn maneuver_occurrences(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalManeuverOccurrenceView<'_>> + '_ {
+        let gate_start = self.record.gate_occurrences.start();
+        let waiting_start = self.record.waiting_zone_occurrences.start();
+        self.lir.maneuver_occurrences[self.record.maneuver_occurrences.as_usize_range()]
+            .iter()
+            .map(move |record| CanonicalManeuverOccurrenceView {
+                record,
+                route_gate_start: gate_start,
+                route_waiting_start: waiting_start,
+            })
+    }
+
+    /// 按路线内出现顺序遍历机动门出现项。
+    pub fn gate_occurrences(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalGateOccurrenceView<'_>> + '_ {
+        self.lir.gate_occurrences[self.record.gate_occurrences.as_usize_range()]
+            .iter()
+            .map(|record| CanonicalGateOccurrenceView { record })
+    }
+
+    /// 按路线内出现顺序遍历等待区出现项。
+    pub fn waiting_zone_occurrences(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalWaitingZoneOccurrenceView<'_>> + '_ {
+        self.lir.waiting_zone_occurrences[self.record.waiting_zone_occurrences.as_usize_range()]
+            .iter()
+            .map(|record| CanonicalWaitingZoneOccurrenceView { record })
+    }
+}
+
+/// 静态路线中一次完整 `ManeuverPath` 匹配的只读视图。
+#[derive(Clone, Copy)]
+pub struct CanonicalManeuverOccurrenceView<'a> {
+    record: &'a LirManeuverOccurrence,
+    route_gate_start: u32,
+    route_waiting_start: u32,
+}
+
+impl CanonicalManeuverOccurrenceView<'_> {
+    /// 返回本次完整匹配对应的规范机动路径。
+    #[must_use]
+    pub const fn maneuver_path(self) -> ManeuverPathOrdinal {
+        self.record.maneuver_path
+    }
+
+    /// 返回机动入口边在所属静态路线边序列中的下标。
+    #[must_use]
+    pub const fn entry_route_edge_index(self) -> u32 {
+        self.record.entry_route_edge_index
+    }
+
+    /// 返回机动出口边在所属静态路线边序列中的下标。
+    #[must_use]
+    pub const fn exit_route_edge_index(self) -> u32 {
+        self.record.exit_route_edge_index
+    }
+
+    /// 返回该机动出现项在所属路线门出现项表中的半开区间。
+    #[must_use]
+    pub fn gate_occurrence_range(self) -> core::ops::Range<u32> {
+        let start = self
+            .record
+            .gate_occurrences
+            .start()
+            .saturating_sub(self.route_gate_start);
+        start..start.saturating_add(self.record.gate_occurrences.len())
+    }
+
+    /// 返回该机动出现项在所属路线等待区出现项表中的半开区间。
+    #[must_use]
+    pub fn waiting_zone_occurrence_range(self) -> core::ops::Range<u32> {
+        let start = self
+            .record
+            .waiting_zone_occurrences
+            .start()
+            .saturating_sub(self.route_waiting_start);
+        start..start.saturating_add(self.record.waiting_zone_occurrences.len())
+    }
+}
+
+/// 静态路线中一次 `ManeuverGate` 匹配的只读视图。
+#[derive(Clone, Copy)]
+pub struct CanonicalGateOccurrenceView<'a> {
+    record: &'a LirGateOccurrence,
+}
+
+impl CanonicalGateOccurrenceView<'_> {
+    /// 返回本次出现对应的规范机动门。
+    #[must_use]
+    pub const fn maneuver_gate(self) -> ManeuverGateOrdinal {
+        self.record.maneuver_gate
+    }
+
+    /// 返回所属静态路线的机动出现项下标。
+    #[must_use]
+    pub const fn maneuver_occurrence_index(self) -> u32 {
+        self.record.maneuver_occurrence_index
+    }
+
+    /// 返回门所在转换的起始边在静态路线边序列中的下标。
+    #[must_use]
+    pub const fn from_route_edge_index(self) -> u32 {
+        self.record.from_route_edge_index
+    }
+
+    /// 返回同一机动内的下一门出现项；最后一道门没有后继。
+    #[must_use]
+    pub const fn next_gate_occurrence_index(self) -> Option<u32> {
+        self.record.next_gate_occurrence_index
+    }
+
+    /// 返回当前门之后首个边界边在静态路线边序列中的下标。
+    #[must_use]
+    pub const fn next_boundary_route_edge_index(self) -> u32 {
+        self.record.next_boundary_route_edge_index
+    }
+
+    /// 返回从当前门进入的等待区出现项；不存在等待区时为 `None`。
+    #[must_use]
+    pub const fn waiting_zone_occurrence_index(self) -> Option<u32> {
+        self.record.waiting_zone_occurrence_index
+    }
+}
+
+/// 静态路线中一次 `WaitingZone` 匹配的只读视图。
+#[derive(Clone, Copy)]
+pub struct CanonicalWaitingZoneOccurrenceView<'a> {
+    record: &'a LirWaitingZoneOccurrence,
+}
+
+impl CanonicalWaitingZoneOccurrenceView<'_> {
+    /// 返回本次出现对应的规范等待区。
+    #[must_use]
+    pub const fn waiting_zone(self) -> WaitingZoneOrdinal {
+        self.record.waiting_zone
+    }
+
+    /// 返回所属静态路线的机动出现项下标。
+    #[must_use]
+    pub const fn maneuver_occurrence_index(self) -> u32 {
+        self.record.maneuver_occurrence_index
+    }
+
+    /// 返回进入等待区的门在所属静态路线门出现项表中的下标。
+    #[must_use]
+    pub const fn entry_gate_occurrence_index(self) -> u32 {
+        self.record.entry_gate_occurrence_index
+    }
+
+    /// 返回释放等待区的门在所属静态路线门出现项表中的下标。
+    #[must_use]
+    pub const fn release_gate_occurrence_index(self) -> u32 {
+        self.record.release_gate_occurrence_index
+    }
+
+    /// 返回进入等待区前的边在静态路线边序列中的下标。
+    #[must_use]
+    pub const fn entry_route_edge_index(self) -> u32 {
+        self.record.entry_route_edge_index
+    }
+
+    /// 返回通过释放门后抵达的边在静态路线边序列中的下标。
+    #[must_use]
+    pub const fn release_route_edge_index(self) -> u32 {
+        self.record.release_route_edge_index
     }
 }
 
@@ -875,8 +1170,9 @@ mod tests {
         LaneGroupInput, LaneGroupReference, ManeuverGateInput, ManeuverGateReference,
         ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
         RoadCorridorInput, RoadSectionInput, RoadSectionReference, SourceModuleDescriptor,
-        SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, StopLineInput,
-        StopLineReference, SyntheticModule, SyntheticModuleBuilder, WaitingZoneInput,
+        SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, StaticRouteInput,
+        StopLineInput, StopLineReference, SyntheticModule, SyntheticModuleBuilder,
+        WaitingZoneInput,
     };
 
     fn module(
@@ -1154,6 +1450,69 @@ mod tests {
             .unwrap()
             .add_lane_edge(LaneEdgeInput {
                 lane_edge_key: "exit",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_junction(JunctionInput {
+                junction_key: "junction-main",
+            })
+            .unwrap()
+            .add_movement(MovementInput {
+                movement_key: "movement-through",
+                junction: JunctionReference::local("junction-main"),
+                directed_entry_approach_key: "approach-westbound",
+                directed_exit_approach_key: "approach-eastbound",
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-main",
+                movement: MovementReference::local("movement-through"),
+                entry_edge: LaneEdgeReference::local("entry"),
+                internal_edges: &[LaneEdgeReference::local("middle")],
+                exit_edge: LaneEdgeReference::local("exit"),
+            })
+            .unwrap();
+        builder
+    }
+
+    fn route_validation_builder(document: &str) -> SyntheticModuleBuilder {
+        let mut builder = junction_builder(document);
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("middle")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "other",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("middle")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "middle",
+                length_meters: 8.0,
+                speed_limit_meters_per_second: 8.0,
+                successors: &[
+                    LaneEdgeReference::local("exit"),
+                    LaneEdgeReference::local("detour"),
+                ],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "detour",
                 length_meters: 12.0,
                 speed_limit_meters_per_second: 10.0,
                 successors: &[],
@@ -2374,6 +2733,376 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn compiler_precompiles_static_route_control_occurrences_and_reverse_indexes() {
+        let mut builder = control_builder("static-route.document");
+        add_valid_control(&mut builder, false);
+        builder
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-main",
+                edge_sequence: &[
+                    LaneEdgeReference::local("entry"),
+                    LaneEdgeReference::local("middle"),
+                    LaneEdgeReference::local("exit"),
+                ],
+            })
+            .unwrap();
+        let output = Compiler::new()
+            .compile(unit([builder.finish().unwrap()]))
+            .unwrap();
+        let lir = output.lir();
+        let route = lir.static_routes().next().unwrap();
+        let path = lir.maneuver_paths().next().unwrap();
+        let path_gates = path.maneuver_gates();
+        let waiting = lir.waiting_zones().next().unwrap();
+
+        assert_eq!(route.edges(), path.edges());
+        assert_eq!(
+            route.transition_gates().collect::<Vec<_>>(),
+            [Some(path_gates[0]), Some(path_gates[1])]
+        );
+        let maneuvers = route.maneuver_occurrences().collect::<Vec<_>>();
+        assert_eq!(maneuvers.len(), 1);
+        assert_eq!(maneuvers[0].maneuver_path(), path.ordinal());
+        assert_eq!(maneuvers[0].entry_route_edge_index(), 0);
+        assert_eq!(maneuvers[0].exit_route_edge_index(), 2);
+        assert_eq!(maneuvers[0].gate_occurrence_range(), 0..2);
+        assert_eq!(maneuvers[0].waiting_zone_occurrence_range(), 0..1);
+
+        let gates = route.gate_occurrences().collect::<Vec<_>>();
+        assert_eq!(gates.len(), 2);
+        assert_eq!(gates[0].maneuver_gate(), path_gates[0]);
+        assert_eq!(gates[0].next_gate_occurrence_index(), Some(1));
+        assert_eq!(gates[0].next_boundary_route_edge_index(), 1);
+        assert_eq!(gates[0].waiting_zone_occurrence_index(), Some(0));
+        assert_eq!(gates[1].maneuver_gate(), path_gates[1]);
+        assert_eq!(gates[1].next_gate_occurrence_index(), None);
+        assert_eq!(gates[1].next_boundary_route_edge_index(), 2);
+
+        let waiting_occurrences = route.waiting_zone_occurrences().collect::<Vec<_>>();
+        assert_eq!(waiting_occurrences.len(), 1);
+        assert_eq!(waiting_occurrences[0].waiting_zone(), waiting.ordinal());
+        assert_eq!(waiting_occurrences[0].entry_gate_occurrence_index(), 0);
+        assert_eq!(waiting_occurrences[0].release_gate_occurrence_index(), 1);
+        assert_eq!(waiting_occurrences[0].entry_route_edge_index(), 0);
+        assert_eq!(waiting_occurrences[0].release_route_edge_index(), 1);
+
+        for (edge_index, edge) in route.edges().iter().copied().enumerate() {
+            assert_eq!(
+                lir.lane_edge(edge)
+                    .unwrap()
+                    .static_route_occurrences()
+                    .collect::<Vec<_>>(),
+                [CanonicalStaticRouteOccurrenceRef {
+                    static_route: route.ordinal(),
+                    occurrence_index: edge_index as u32,
+                }]
+            );
+        }
+        assert_eq!(path.static_route_occurrences().len(), 1);
+        assert_eq!(
+            lir.maneuver_gate(path_gates[0])
+                .unwrap()
+                .static_route_occurrences()
+                .len(),
+            1
+        );
+        assert_eq!(waiting.static_route_occurrences().len(), 1);
+
+        let source_map = output.source_map_input();
+        assert_eq!(source_map.static_route_sources().len(), 1);
+        let route_sources = source_map.route_relation_sources().collect::<Vec<_>>();
+        assert_eq!(
+            route_sources
+                .iter()
+                .map(|source| source.role())
+                .collect::<Vec<_>>(),
+            [
+                SourceRelationRole::StaticRouteEdge,
+                SourceRelationRole::StaticRouteEdge,
+                SourceRelationRole::StaticRouteEdge,
+                SourceRelationRole::StaticRouteManeuverOccurrence,
+                SourceRelationRole::StaticRouteGateOccurrence,
+                SourceRelationRole::StaticRouteGateOccurrence,
+                SourceRelationRole::StaticRouteWaitingZoneOccurrence,
+            ]
+        );
+        assert!(
+            route_sources[..3]
+                .iter()
+                .all(|source| source.contributing_sources().len() == 0)
+        );
+        assert!(
+            route_sources[3..]
+                .iter()
+                .all(|source| source.contributing_sources().len() == 1)
+        );
+    }
+
+    #[test]
+    fn static_route_preserves_repeated_edge_occurrences() {
+        let mut builder = junction_builder("static-route-repeated-edge.document");
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "loop",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[
+                    LaneEdgeReference::local("loop"),
+                    LaneEdgeReference::local("exit"),
+                ],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-loop",
+                edge_sequence: &[
+                    LaneEdgeReference::local("loop"),
+                    LaneEdgeReference::local("loop"),
+                    LaneEdgeReference::local("exit"),
+                ],
+            })
+            .unwrap();
+
+        let output = Compiler::new()
+            .compile(unit([builder.finish().unwrap()]))
+            .unwrap();
+        let lir = output.lir();
+        let route = lir.static_routes().next().unwrap();
+        assert_eq!(route.edges()[0], route.edges()[1]);
+        assert_ne!(route.edges()[1], route.edges()[2]);
+        assert_eq!(
+            lir.lane_edge(route.edges()[0])
+                .unwrap()
+                .static_route_occurrences()
+                .collect::<Vec<_>>(),
+            [
+                CanonicalStaticRouteOccurrenceRef {
+                    static_route: route.ordinal(),
+                    occurrence_index: 0,
+                },
+                CanonicalStaticRouteOccurrenceRef {
+                    static_route: route.ordinal(),
+                    occurrence_index: 1,
+                },
+            ]
+        );
+        assert_eq!(
+            lir.lane_edge(route.edges()[2])
+                .unwrap()
+                .static_route_occurrences()
+                .collect::<Vec<_>>(),
+            [CanonicalStaticRouteOccurrenceRef {
+                static_route: route.ordinal(),
+                occurrence_index: 2,
+            }]
+        );
+    }
+
+    #[test]
+    fn static_route_limit_failure_preserves_the_builder() {
+        let mut builder = junction_builder("static-route-limit.document");
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "loop",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("loop")],
+            })
+            .unwrap();
+        let over_limit = vec![
+            LaneEdgeReference::local("loop");
+            usize::try_from(
+                CompileLimits::p100_initial_v1().value(CompileLimitDimension::RouteOccurrenceCount)
+            )
+            .unwrap()
+                + 1
+        ];
+        let diagnostics = match builder.add_static_route(StaticRouteInput {
+            static_route_key: "route-over-limit",
+            edge_sequence: &over_limit,
+        }) {
+            Ok(_) => panic!("route occurrence limit must fail before owning the input"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(matches!(
+            diagnostics.diagnostics()[0].payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::RouteOccurrenceCount,
+                limit: 1_920,
+                observed: 1_921,
+            }
+        ));
+
+        builder
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-valid-after-failure",
+                edge_sequence: &[LaneEdgeReference::local("loop")],
+            })
+            .unwrap();
+        assert!(
+            Compiler::new()
+                .compile(unit([builder.finish().unwrap()]))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn static_route_semantics_ignore_control_and_route_declaration_order() {
+        let mut left = control_builder("static-route-left.document");
+        add_valid_control(&mut left, false);
+        left.add_static_route(StaticRouteInput {
+            static_route_key: "route-main",
+            edge_sequence: &[
+                LaneEdgeReference::local("entry"),
+                LaneEdgeReference::local("middle"),
+                LaneEdgeReference::local("exit"),
+            ],
+        })
+        .unwrap();
+
+        let mut right = control_builder("static-route-right.document");
+        right
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-main",
+                edge_sequence: &[
+                    LaneEdgeReference::local("entry"),
+                    LaneEdgeReference::local("middle"),
+                    LaneEdgeReference::local("exit"),
+                ],
+            })
+            .unwrap();
+        add_valid_control(&mut right, true);
+
+        let left = Compiler::new()
+            .compile(unit([left.finish().unwrap()]))
+            .unwrap();
+        let right = Compiler::new()
+            .compile(unit([right.finish().unwrap()]))
+            .unwrap();
+        assert_eq!(
+            left.lir.inner.semantic_digest,
+            right.lir.inner.semantic_digest
+        );
+        assert_eq!(
+            left.lir()
+                .static_routes()
+                .map(|route| (route.stable_id(), route.edges().to_vec()))
+                .collect::<Vec<_>>(),
+            right
+                .lir()
+                .static_routes()
+                .map(|route| (route.stable_id(), route.edges().to_vec()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn static_route_frontend_and_hir_reject_empty_disconnected_and_terminal_control() {
+        let mut empty = junction_builder("static-route-empty.document");
+        let diagnostics = match empty.add_static_route(StaticRouteInput {
+            static_route_key: "route-empty",
+            edge_sequence: &[],
+        }) {
+            Ok(_) => panic!("empty route must fail before mutation"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert_eq!(
+            diagnostics.diagnostics()[0].code(),
+            DiagnosticCode::EmptyStaticRoute
+        );
+
+        let mut disconnected = junction_builder("static-route-disconnected.document");
+        disconnected
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "left",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "right",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-disconnected",
+                edge_sequence: &[
+                    LaneEdgeReference::local("left"),
+                    LaneEdgeReference::local("right"),
+                ],
+            })
+            .unwrap();
+        assert!(
+            compile_diagnostic_codes(disconnected)
+                .contains(&DiagnosticCode::DisconnectedStaticRouteEdge)
+        );
+
+        let mut terminal = control_builder("static-route-terminal.document");
+        add_valid_control(&mut terminal, false);
+        terminal
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-terminal",
+                edge_sequence: &[LaneEdgeReference::local("entry")],
+            })
+            .unwrap();
+        assert!(
+            compile_diagnostic_codes(terminal)
+                .contains(&DiagnosticCode::StaticRouteTerminatesAtStopLine)
+        );
+
+        let mut boundaries = route_validation_builder("static-route-boundaries.document");
+        boundaries
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-starts-inside",
+                edge_sequence: &[
+                    LaneEdgeReference::local("middle"),
+                    LaneEdgeReference::local("exit"),
+                ],
+            })
+            .unwrap()
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-ends-inside",
+                edge_sequence: &[
+                    LaneEdgeReference::local("entry"),
+                    LaneEdgeReference::local("middle"),
+                ],
+            })
+            .unwrap()
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-no-full-match",
+                edge_sequence: &[
+                    LaneEdgeReference::local("entry"),
+                    LaneEdgeReference::local("middle"),
+                    LaneEdgeReference::local("detour"),
+                ],
+            })
+            .unwrap()
+            .add_static_route(StaticRouteInput {
+                static_route_key: "route-uncovered-internal",
+                edge_sequence: &[
+                    LaneEdgeReference::local("other"),
+                    LaneEdgeReference::local("middle"),
+                    LaneEdgeReference::local("exit"),
+                ],
+            })
+            .unwrap();
+        let codes = compile_diagnostic_codes(boundaries);
+        assert!(codes.contains(&DiagnosticCode::StaticRouteStartsInsideJunction));
+        assert!(codes.contains(&DiagnosticCode::StaticRouteEndsInsideJunction));
+        assert!(codes.contains(&DiagnosticCode::StaticRouteManeuverNoFullMatch));
+        assert!(codes.contains(&DiagnosticCode::StaticRouteInternalEdgeUncovered));
     }
 
     #[test]

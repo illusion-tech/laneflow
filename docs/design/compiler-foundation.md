@@ -20,10 +20,11 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 `ManeuverPath`、`StopLine`、`ManeuverGate` 和 `WaitingZone` 已接入有类型符号解析、
 父项先于子项的身份闭包、规范 HIR/MIR/LIR 连续表及来源伴随数据；完整
 `entry + internal + exit` 路径、派生路口内部边排他角色、路径转换门、停止线使用闭包和
-等待区静态区间约束已经闭合。公共 `Compiler`
+等待区静态区间约束已经闭合。`StaticRoute` 已保留显式有序边出现项，并预编译相邻边门、
+机动路径、机动门、等待区出现项和反向索引。公共 `Compiler`
 已经原子返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`；首批支持矩阵
-中的机动门 / 等待区路线出现项、信号、停车、准入、路线和空间等其余领域及后继编译遍
-尚未实现。#292 G1 已
+中的信号、停车、准入、动态路线生命周期和空间等其余领域及后继编译遍尚未实现。
+#292 G1 已
 接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
 `laneflow-data` / `laneflow-core` / `laneflow-spatial`

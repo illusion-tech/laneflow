@@ -90,7 +90,6 @@ pub type ManeuverPathReference<'a> = EntityReference<'a, ManeuverPathKind>;
 pub type StopLineReference<'a> = EntityReference<'a, StopLineKind>;
 /// 指向机动门声明的有类型未解析引用。
 pub type ManeuverGateReference<'a> = EntityReference<'a, ManeuverGateKind>;
-
 /// 横断面物理设施类别可承载的结构形态。
 ///
 /// 该分类只约束 `FacilityKind` token 可以用于道路区段还是设施带，不授予任何交通
@@ -292,6 +291,19 @@ pub struct WaitingZoneInput<'a> {
     pub release_gate: ManeuverGateReference<'a>,
     /// 等待区可同时容纳的最大交通参与单元数；必须大于零。
     pub max_occupancy: u32,
+}
+
+/// 合成领域专用语言的静态路线声明输入。
+///
+/// `edge_sequence` 是编制期权威有序序列；相同 `LaneEdge` 可以在路线中多次出现，
+/// 每次出现由路线内下标区分。HIR 会据此预编译机动路径、机动门与等待区出现项，
+/// 运行时不再扫描全局控制表重新匹配。
+#[derive(Clone, Copy, Debug)]
+pub struct StaticRouteInput<'a> {
+    /// 来源模块内显式持久化且唯一的路线稳定键，对应 Identity v1 `routeKey`。
+    pub static_route_key: &'a str,
+    /// 非空、有序的车道图边序列；相邻边必须直接连通。
+    pub edge_sequence: &'a [LaneEdgeReference<'a>],
 }
 
 /// 合成领域专用语言的车道图边声明输入。
@@ -499,6 +511,12 @@ pub(crate) struct WaitingZoneDeclaration {
     pub(crate) max_occupancy: u32,
 }
 
+/// 已通过字段级检查、等待解析边序列并预编译控制出现项的静态路线 Typed AST 记录。
+pub(crate) struct StaticRouteDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) edge_sequence: Box<[OwnedEntityReference<LaneEdgeKind>]>,
+}
+
 /// 官方合成前端当前支持的封闭声明集合。
 pub(crate) enum SyntheticDeclaration {
     LaneEdge(LaneEdgeDeclaration),
@@ -512,4 +530,5 @@ pub(crate) enum SyntheticDeclaration {
     StopLine(StopLineDeclaration),
     ManeuverGate(ManeuverGateDeclaration),
     WaitingZone(WaitingZoneDeclaration),
+    StaticRoute(StaticRouteDeclaration),
 }
