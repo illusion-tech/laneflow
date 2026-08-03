@@ -1,4 +1,5 @@
 use core::fmt;
+use std::sync::Arc;
 
 use crate::CompileLimitDimension;
 
@@ -24,12 +25,28 @@ impl SourcePosition {
 /// 与机器路径无关的来源范围。
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SourceSpan {
-    source_document_key: Box<str>,
+    source_document_key: Arc<str>,
     start: SourcePosition,
     end: SourcePosition,
 }
 
 impl SourceSpan {
+    pub(crate) fn point(source_document_key: Arc<str>, line: u32, column: u32) -> Self {
+        let position = SourcePosition { line, column };
+        Self {
+            source_document_key,
+            start: position,
+            end: position,
+        }
+    }
+
+    pub(crate) fn at_caller(
+        source_document_key: Arc<str>,
+        caller: &'static std::panic::Location<'static>,
+    ) -> Self {
+        Self::point(source_document_key, caller.line(), caller.column())
+    }
+
     #[must_use]
     pub fn source_document_key(&self) -> &str {
         &self.source_document_key
@@ -51,6 +68,11 @@ impl SourceSpan {
 #[non_exhaustive]
 pub enum DiagnosticCode {
     InvalidSourceHeaderField,
+    InvalidImportNamespace,
+    DuplicateImport,
+    DuplicateModuleNamespace,
+    UnknownImport,
+    ImportCycle,
     CompileLimitExceeded,
 }
 
@@ -60,6 +82,11 @@ impl DiagnosticCode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidSourceHeaderField => "LF-COMP-SOURCE-HEADER-FIELD",
+            Self::InvalidImportNamespace => "LF-COMP-IMPORT-NAMESPACE",
+            Self::DuplicateImport => "LF-COMP-DUPLICATE-IMPORT",
+            Self::DuplicateModuleNamespace => "LF-COMP-DUPLICATE-MODULE-NAMESPACE",
+            Self::UnknownImport => "LF-COMP-UNKNOWN-IMPORT",
+            Self::ImportCycle => "LF-COMP-IMPORT-CYCLE",
             Self::CompileLimitExceeded => "LF-COMP-RESOURCE-LIMIT",
         }
     }
@@ -122,6 +149,21 @@ pub enum DiagnosticPayload {
         limit: u64,
         observed: u64,
     },
+    InvalidImportNamespace {
+        violation: SourceTextViolation,
+    },
+    DuplicateImport {
+        namespace: Box<str>,
+    },
+    DuplicateModuleNamespace {
+        namespace: Box<str>,
+    },
+    UnknownImport {
+        namespace: Box<str>,
+    },
+    ImportCycle {
+        namespaces: Box<[Box<str>]>,
+    },
 }
 
 /// 一条不可变结构化诊断。
@@ -169,6 +211,127 @@ impl Diagnostic {
             },
             stable_key: None,
             related_spans: Box::default(),
+        }
+    }
+
+    pub(crate) fn invalid_import_namespace(
+        violation: SourceTextViolation,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidImportNamespace,
+            DiagnosticPayload::InvalidImportNamespace { violation },
+            Some(primary_span),
+            Box::default(),
+            None,
+        )
+    }
+
+    pub(crate) fn duplicate_import(
+        namespace: &str,
+        primary_span: SourceSpan,
+        related_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateImport,
+            DiagnosticPayload::DuplicateImport {
+                namespace: namespace.into(),
+            },
+            Some(primary_span),
+            Box::new([related_span]),
+            Some(namespace.into()),
+        )
+    }
+
+    pub(crate) fn duplicate_module_namespace(
+        namespace: &str,
+        primary_span: SourceSpan,
+        related_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateModuleNamespace,
+            DiagnosticPayload::DuplicateModuleNamespace {
+                namespace: namespace.into(),
+            },
+            Some(primary_span),
+            Box::new([related_span]),
+            Some(namespace.into()),
+        )
+    }
+
+    pub(crate) fn unknown_import(namespace: &str, primary_span: SourceSpan) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::UnknownImport,
+            DiagnosticPayload::UnknownImport {
+                namespace: namespace.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(namespace.into()),
+        )
+    }
+
+    pub(crate) fn import_cycle(namespaces: &[&str], spans: Box<[SourceSpan]>) -> Self {
+        let stable_key = namespaces.first().copied().map(Into::into);
+        let mut spans = spans.into_vec();
+        let primary_span = if spans.is_empty() {
+            None
+        } else {
+            Some(spans.remove(0))
+        };
+        Self::error_with_context(
+            DiagnosticCode::ImportCycle,
+            DiagnosticPayload::ImportCycle {
+                namespaces: namespaces
+                    .iter()
+                    .map(|namespace| (*namespace).into())
+                    .collect(),
+            },
+            primary_span,
+            spans.into_boxed_slice(),
+            stable_key,
+        )
+    }
+
+    pub(crate) const fn set_canonical_module_order(&mut self, order: u32) {
+        self.canonical_module_order = order;
+    }
+
+    pub(crate) fn compile_limit_exceeded_at(
+        dimension: CompileLimitDimension,
+        limit: u64,
+        observed: u64,
+        primary_span: Option<SourceSpan>,
+        stable_key: Option<Box<str>>,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::CompileLimitExceeded,
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension,
+                limit,
+                observed,
+            },
+            primary_span,
+            Box::default(),
+            stable_key,
+        )
+    }
+
+    fn error_with_context(
+        code: DiagnosticCode,
+        payload: DiagnosticPayload,
+        primary_span: Option<SourceSpan>,
+        related_spans: Box<[SourceSpan]>,
+        stable_key: Option<Box<str>>,
+    ) -> Self {
+        Self {
+            canonical_module_order: 0,
+            primary_span,
+            code,
+            severity: DiagnosticSeverity::Error,
+            payload,
+            stable_key,
+            related_spans,
         }
     }
 
@@ -224,6 +387,29 @@ impl fmt::Display for Diagnostic {
                 "编译资源维度 {} 超过上限：允许 {limit}，实际 {observed}",
                 dimension.as_str()
             ),
+            DiagnosticPayload::InvalidImportNamespace { violation } => write!(
+                formatter,
+                "导入模块命名空间非法：{}",
+                SourceTextViolationDisplay(*violation)
+            ),
+            DiagnosticPayload::DuplicateImport { namespace } => {
+                write!(formatter, "来源模块重复导入 {namespace}")
+            }
+            DiagnosticPayload::DuplicateModuleNamespace { namespace } => {
+                write!(formatter, "编译单元包含重复模块命名空间 {namespace}")
+            }
+            DiagnosticPayload::UnknownImport { namespace } => {
+                write!(formatter, "导入目标模块 {namespace} 不存在")
+            }
+            DiagnosticPayload::ImportCycle { namespaces } => write!(
+                formatter,
+                "来源模块导入形成循环：{}",
+                namespaces
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .collect::<Vec<&str>>()
+                    .join(" -> ")
+            ),
         }
     }
 }
@@ -262,6 +448,12 @@ pub struct DiagnosticBundle {
 }
 
 impl DiagnosticBundle {
+    pub(crate) fn single(diagnostic: Diagnostic) -> Self {
+        Self {
+            diagnostics: Box::new([diagnostic]),
+            diagnostics_truncated: false,
+        }
+    }
     #[must_use]
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
@@ -422,7 +614,7 @@ mod tests {
     #[test]
     fn source_span_value_uses_one_based_u32_positions() {
         let span = SourceSpan {
-            source_document_key: "generator.main".into(),
+            source_document_key: Arc::from("generator.main"),
             start: SourcePosition { line: 7, column: 3 },
             end: SourcePosition {
                 line: 7,

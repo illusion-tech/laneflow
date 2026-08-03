@@ -2,6 +2,7 @@
 
 mod diagnostic;
 mod limits;
+mod module;
 mod source;
 
 pub use diagnostic::{
@@ -9,4 +10,8 @@ pub use diagnostic::{
     SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation,
 };
 pub use limits::{CompileLimitDimension, CompileLimits};
+pub use module::{
+    CompilationUnit, CompilationUnitBuilder, SYNTHETIC_FRONTEND_VERSION, SourceLanguage,
+    SourceModuleDescriptor, SyntheticModule, SyntheticModuleBuilder,
+};
 pub use source::{SourceModuleHeader, SourceModuleHeaderInput};
