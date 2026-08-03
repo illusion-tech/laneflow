@@ -10,7 +10,8 @@ use laneflow_static_contract::{
     JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
     ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId,
     MovementOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
-    StopLineId, StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
+    StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal, WaitingZoneId,
+    WaitingZoneOrdinal,
 };
 
 use crate::diagnostic::DiagnosticCollector;
@@ -27,6 +28,8 @@ const LANE_EDGE_SUCCESSOR_SOURCE_LOGICAL_BYTES: u64 = 16 + 4 + 2 + 4 + 4 + 16 + 
 const STABLE_ENTITY_SOURCE_LOGICAL_BYTES: u64 = LANE_EDGE_SOURCE_LOGICAL_BYTES;
 const CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES: u64 = 2 + 4 + 16 + 2 + 4 + 4 + 16 + 4;
 const JUNCTION_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
+const SOURCE_LOCATION_LOGICAL_BYTES: u64 = 4 + 8 + 8;
+const ROUTE_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES + 1;
 
 /// owner-local 来源记录中登记的有类型语义角色。
 ///
@@ -59,6 +62,14 @@ pub enum SourceRelationRole {
     ManeuverPathWaitingZone = 11,
     /// 停止线被一项机动门引用的反向关系。
     StopLineManeuverGate = 12,
+    /// 静态路线有序边序列中的一次边出现。
+    StaticRouteEdge = 13,
+    /// 静态路线中一次完整机动路径匹配。
+    StaticRouteManeuverOccurrence = 14,
+    /// 静态路线中一次机动门匹配。
+    StaticRouteGateOccurrence = 15,
+    /// 静态路线中一次等待区匹配。
+    StaticRouteWaitingZoneOccurrence = 16,
 }
 
 #[derive(Clone, Copy)]
@@ -118,6 +129,15 @@ struct LaneEdgeSuccessorSourceRecord {
     primary: SourceLocationRecord,
 }
 
+struct RouteRelationSourceRecord {
+    owner_ordinal: StaticRouteOrdinal,
+    owner_stable_id: StaticRouteId,
+    role: SourceRelationRole,
+    local_index: u32,
+    primary: SourceLocationRecord,
+    contributing: Option<SourceLocationRecord>,
+}
+
 /// 与一个 Canonical LIR 原子配对的已验证源映射输入。
 ///
 /// 本类型不能由调用方构造。来源文档与来源模块在当前官方前端中一一对应，并按编译单元
@@ -139,6 +159,8 @@ pub struct ValidatedSourceMapInput {
     maneuver_gate_sources: Box<[StableEntitySourceRecord<ManeuverGateOrdinal, ManeuverGateId>]>,
     waiting_zone_sources: Box<[StableEntitySourceRecord<WaitingZoneOrdinal, WaitingZoneId>]>,
     junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
+    static_route_sources: Box<[StableEntitySourceRecord<StaticRouteOrdinal, StaticRouteId>]>,
+    route_relation_sources: Box<[RouteRelationSourceRecord]>,
 }
 
 impl ValidatedSourceMapInput {
@@ -320,6 +342,28 @@ impl ValidatedSourceMapInput {
             })
     }
 
+    /// 按 `StaticRouteOrdinal` 递增顺序遍历静态路线来源记录。
+    pub fn static_route_sources(&self) -> impl ExactSizeIterator<Item = StaticRouteSourceView<'_>> {
+        self.static_route_sources
+            .iter()
+            .map(|record| StaticRouteSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按路线、角色和路线内下标遍历静态路线及其预编译出现项来源。
+    pub fn route_relation_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = RouteRelationSourceView<'_>> {
+        self.route_relation_sources
+            .iter()
+            .map(|record| RouteRelationSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
     fn location(&self, record: SourceLocationRecord) -> SourceLocationView<'_> {
         let descriptor = &self.source_modules[record.source_document_ordinal.index()];
         SourceLocationView {
@@ -463,6 +507,7 @@ stable_source_view!(ManeuverPathSourceView, ManeuverPathOrdinal, ManeuverPathId)
 stable_source_view!(StopLineSourceView, StopLineOrdinal, StopLineId);
 stable_source_view!(ManeuverGateSourceView, ManeuverGateOrdinal, ManeuverGateId);
 stable_source_view!(WaitingZoneSourceView, WaitingZoneOrdinal, WaitingZoneId);
+stable_source_view!(StaticRouteSourceView, StaticRouteOrdinal, StaticRouteId);
 
 /// 一条横断面 owner-local 关系来源记录的只读视图。
 #[derive(Clone, Copy)]
@@ -669,6 +714,55 @@ impl LaneEdgeSuccessorSourceView<'_> {
     }
 }
 
+/// 一条静态路线 owner-local 关系来源记录的只读视图。
+#[derive(Clone, Copy)]
+pub struct RouteRelationSourceView<'a> {
+    source_map: &'a ValidatedSourceMapInput,
+    record: &'a RouteRelationSourceRecord,
+}
+
+impl RouteRelationSourceView<'_> {
+    /// 返回拥有该出现项的静态路线序号。
+    #[must_use]
+    pub const fn owner_ordinal(&self) -> StaticRouteOrdinal {
+        self.record.owner_ordinal
+    }
+
+    /// 返回拥有该出现项的静态路线稳定标识。
+    #[must_use]
+    pub const fn owner_stable_id(&self) -> StaticRouteId {
+        self.record.owner_stable_id
+    }
+
+    /// 返回边、机动路径、机动门或等待区出现项角色。
+    #[must_use]
+    pub const fn role(&self) -> SourceRelationRole {
+        self.record.role
+    }
+
+    /// 返回同一路线和角色中的零基局部下标。
+    #[must_use]
+    pub const fn local_index(&self) -> u32 {
+        self.record.local_index
+    }
+
+    /// 返回声明边引用或派生出现项所锚定的路线边引用位置。
+    pub fn primary_source(&self) -> SourceLocationView<'_> {
+        self.source_map.location(self.record.primary)
+    }
+
+    /// 返回生成出现项所依赖的静态控制声明位置。
+    ///
+    /// 显式 `StaticRouteEdge` 没有贡献来源；机动、门和等待区出现项分别返回对应
+    /// `ManeuverPath`、`ManeuverGate` 或 `WaitingZone` 声明位置。
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+        self.record
+            .contributing
+            .into_iter()
+            .map(|record| self.source_map.location(record))
+    }
+}
+
 /// 在 AST/HIR/MIR 释放前冻结来源描述符及全部当前 LIR 键关联。
 pub(crate) fn freeze_source_map(
     unit: CompilationUnit,
@@ -724,6 +818,26 @@ pub(crate) fn freeze_source_map(
     .fold(0_u64, |total, count| {
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
+    let static_route_count = u64::try_from(mir.static_routes.len()).unwrap_or(u64::MAX);
+    let route_relation_count = [
+        mir.static_route_edges.len(),
+        mir.maneuver_occurrences.len(),
+        mir.gate_occurrences.len(),
+        mir.waiting_zone_occurrences.len(),
+    ]
+    .into_iter()
+    .fold(0_u64, |total, count| {
+        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
+    });
+    let route_contributing_source_count = [
+        mir.maneuver_occurrences.len(),
+        mir.gate_occurrences.len(),
+        mir.waiting_zone_occurrences.len(),
+    ]
+    .into_iter()
+    .fold(0_u64, |total, count| {
+        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
+    });
     let source_map_logical_bytes = unit
         .modules
         .iter()
@@ -739,6 +853,11 @@ pub(crate) fn freeze_source_map(
         .saturating_add(junction_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(
             junction_relation_count.saturating_mul(JUNCTION_RELATION_SOURCE_LOGICAL_BYTES),
+        )
+        .saturating_add(static_route_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
+        .saturating_add(route_relation_count.saturating_mul(ROUTE_RELATION_SOURCE_LOGICAL_BYTES))
+        .saturating_add(
+            route_contributing_source_count.saturating_mul(SOURCE_LOCATION_LOGICAL_BYTES),
         );
     let output_bytes = frozen_lir
         .lir
@@ -808,6 +927,12 @@ pub(crate) fn freeze_source_map(
         ))
         .saturating_add(requested_bytes::<JunctionRelationSourceRecord>(
             junction_relation_count,
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<StaticRouteOrdinal, StaticRouteId>,
+        >(static_route_count))
+        .saturating_add(requested_bytes::<RouteRelationSourceRecord>(
+            route_relation_count,
         ));
     // 派生内部边需要按 owner 生成稠密 local index；计数器只活到源映射冻结完成。
     let source_map_scratch_bytes =
@@ -908,6 +1033,11 @@ pub(crate) fn freeze_source_map(
     let mut waiting_zone_sources = Vec::with_capacity(mir.waiting_zones.len());
     let mut junction_relation_sources = Vec::with_capacity(
         usize::try_from(junction_relation_count)
+            .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
+    );
+    let mut static_route_sources = Vec::with_capacity(mir.static_routes.len());
+    let mut route_relation_sources = Vec::with_capacity(
+        usize::try_from(route_relation_count)
             .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
     );
 
@@ -1191,6 +1321,95 @@ pub(crate) fn freeze_source_map(
         });
     }
 
+    for mir_key in frozen_lir.canonical_mir_static_route_order.iter().copied() {
+        let route = &mir.static_routes[mir_key.index()];
+        let ordinal = frozen_lir.mir_static_route_to_lir[mir_key.index()];
+        let source_document_ordinal = mir.modules[route.module.index()].source_document_ordinal;
+        static_route_sources.push(StableEntitySourceRecord {
+            ordinal,
+            stable_id: route.stable_id,
+            primary: location(source_document_ordinal, &route.source_span),
+        });
+        let route_edges = &mir.static_route_edges[route.edges.as_usize_range()];
+        for (local_index, edge) in route_edges.iter().enumerate() {
+            route_relation_sources.push(RouteRelationSourceRecord {
+                owner_ordinal: ordinal,
+                owner_stable_id: route.stable_id,
+                role: SourceRelationRole::StaticRouteEdge,
+                local_index: u32::try_from(local_index)
+                    .expect("MIR route range precheck proved local index fits u32"),
+                primary: location(source_document_ordinal, &edge.source_span),
+                contributing: None,
+            });
+        }
+        for (local_index, occurrence) in mir.maneuver_occurrences
+            [route.maneuver_occurrences.as_usize_range()]
+        .iter()
+        .enumerate()
+        {
+            let source_edge = &route_edges[occurrence.entry_route_edge_index as usize];
+            route_relation_sources.push(RouteRelationSourceRecord {
+                owner_ordinal: ordinal,
+                owner_stable_id: route.stable_id,
+                role: SourceRelationRole::StaticRouteManeuverOccurrence,
+                local_index: u32::try_from(local_index)
+                    .expect("MIR route range precheck proved local index fits u32"),
+                primary: location(source_document_ordinal, &source_edge.source_span),
+                contributing: Some(location(
+                    mir.modules[mir.maneuver_paths[occurrence.maneuver_path.index()]
+                        .module
+                        .index()]
+                    .source_document_ordinal,
+                    &mir.maneuver_paths[occurrence.maneuver_path.index()].source_span,
+                )),
+            });
+        }
+        for (local_index, occurrence) in mir.gate_occurrences
+            [route.gate_occurrences.as_usize_range()]
+        .iter()
+        .enumerate()
+        {
+            let source_edge = &route_edges[occurrence.from_route_edge_index as usize];
+            route_relation_sources.push(RouteRelationSourceRecord {
+                owner_ordinal: ordinal,
+                owner_stable_id: route.stable_id,
+                role: SourceRelationRole::StaticRouteGateOccurrence,
+                local_index: u32::try_from(local_index)
+                    .expect("MIR route range precheck proved local index fits u32"),
+                primary: location(source_document_ordinal, &source_edge.source_span),
+                contributing: Some(location(
+                    mir.modules[mir.maneuver_gates[occurrence.maneuver_gate.index()]
+                        .module
+                        .index()]
+                    .source_document_ordinal,
+                    &mir.maneuver_gates[occurrence.maneuver_gate.index()].source_span,
+                )),
+            });
+        }
+        for (local_index, occurrence) in mir.waiting_zone_occurrences
+            [route.waiting_zone_occurrences.as_usize_range()]
+        .iter()
+        .enumerate()
+        {
+            let source_edge = &route_edges[occurrence.entry_route_edge_index as usize];
+            route_relation_sources.push(RouteRelationSourceRecord {
+                owner_ordinal: ordinal,
+                owner_stable_id: route.stable_id,
+                role: SourceRelationRole::StaticRouteWaitingZoneOccurrence,
+                local_index: u32::try_from(local_index)
+                    .expect("MIR route range precheck proved local index fits u32"),
+                primary: location(source_document_ordinal, &source_edge.source_span),
+                contributing: Some(location(
+                    mir.modules[mir.waiting_zones[occurrence.waiting_zone.index()]
+                        .module
+                        .index()]
+                    .source_document_ordinal,
+                    &mir.waiting_zones[occurrence.waiting_zone.index()].source_span,
+                )),
+            });
+        }
+    }
+
     let mut internal_edge_local_indexes = vec![0_u32; mir.junctions.len()];
     for relation_index in frozen_lir.canonical_mir_internal_edge_order.iter().copied() {
         let relation = &mir.junction_internal_edges[relation_index as usize];
@@ -1236,6 +1455,8 @@ pub(crate) fn freeze_source_map(
         maneuver_gate_sources: maneuver_gate_sources.into_boxed_slice(),
         waiting_zone_sources: waiting_zone_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),
+        static_route_sources: static_route_sources.into_boxed_slice(),
+        route_relation_sources: route_relation_sources.into_boxed_slice(),
     })
 }
 

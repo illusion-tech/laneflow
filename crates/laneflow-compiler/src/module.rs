@@ -28,8 +28,8 @@ use crate::declaration::{
     LaneGroupInput, ManeuverGateDeclaration, ManeuverGateInput, ManeuverPathDeclaration,
     ManeuverPathInput, MovementDeclaration, MovementInput, OwnedCorridorElementReference,
     OwnedEntityReference, RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration,
-    RoadSectionInput, SpeedLimit, StopLineDeclaration, StopLineInput, SyntheticDeclaration,
-    WaitingZoneDeclaration, WaitingZoneInput,
+    RoadSectionInput, SpeedLimit, StaticRouteDeclaration, StaticRouteInput, StopLineDeclaration,
+    StopLineInput, SyntheticDeclaration, WaitingZoneDeclaration, WaitingZoneInput,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
@@ -233,6 +233,7 @@ pub struct SyntheticModuleBuilder {
     source_record_byte_len: u64,
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
+    route_occurrence_count: u64,
 }
 
 #[derive(Default)]
@@ -250,6 +251,7 @@ struct DeclarationResourceDelta {
     source_bytes: u64,
     maneuver_gates: u64,
     waiting_zones: u64,
+    route_occurrences: u64,
 }
 
 struct DeclarationResourceState {
@@ -266,6 +268,7 @@ struct DeclarationResourceState {
     source_record_byte_len: u64,
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
+    route_occurrence_count: u64,
 }
 
 impl SyntheticModuleBuilder {
@@ -342,6 +345,7 @@ impl SyntheticModuleBuilder {
             source_record_byte_len: base_source_bytes,
             maneuver_gate_count: 0,
             waiting_zone_count: 0,
+            route_occurrence_count: 0,
         })
     }
 
@@ -511,6 +515,9 @@ impl SyntheticModuleBuilder {
                 .maneuver_gate_count
                 .saturating_add(delta.maneuver_gates),
             waiting_zone_count: self.waiting_zone_count.saturating_add(delta.waiting_zones),
+            route_occurrence_count: self
+                .route_occurrence_count
+                .saturating_add(delta.route_occurrences),
         };
         let controlled_live_bytes = state
             .controlled_string_bytes
@@ -556,6 +563,10 @@ impl SyntheticModuleBuilder {
                 CompileLimitDimension::WaitingZoneCount,
                 state.waiting_zone_count,
             ),
+            (
+                CompileLimitDimension::RouteOccurrenceCount,
+                state.route_occurrence_count,
+            ),
         ] {
             if let Some(diagnostic) = limit_diagnostic(
                 &self.limits,
@@ -584,6 +595,7 @@ impl SyntheticModuleBuilder {
         self.source_record_byte_len = state.source_record_byte_len;
         self.maneuver_gate_count = state.maneuver_gate_count;
         self.waiting_zone_count = state.waiting_zone_count;
+        self.route_occurrence_count = state.route_occurrence_count;
     }
 
     /// 声明显式模块导入；网络或文件系统发现不属于该操作。
@@ -1456,6 +1468,110 @@ impl SyntheticModuleBuilder {
         Ok(self)
     }
 
+    /// 声明一条编制期静态路线并保留其有序车道图边出现序列。
+    ///
+    /// 同一边可以重复出现；调用方和后续表必须使用路线内下标区分每次出现，不能按
+    /// `LaneEdge` 身份去重。相邻连通性、路口边界和控制出现项闭包在 HIR 阶段验证。
+    ///
+    /// # Errors
+    ///
+    /// 路线为空，稳定键或边引用非法，跨模块引用未显式导入，声明重复，或资源上限
+    /// 超限时失败。失败不会插入部分声明或改变累计计数。
+    #[track_caller]
+    pub fn add_static_route(
+        &mut self,
+        input: StaticRouteInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::StaticRoute, input.static_route_key, &span)?;
+        if input.edge_sequence.is_empty() {
+            return Err(DiagnosticBundle::single(Diagnostic::empty_static_route(
+                input.static_route_key,
+                span,
+            )));
+        }
+
+        // 先只借用调用方切片完成校验和精确资源预检；超大不可信序列不得通过
+        // Vec::with_capacity 或字符串复制抢在 max_route_occurrence_count 前分配。
+        for reference in input.edge_sequence {
+            self.validate_reference(EntityKind::LaneEdge, *reference, &span)?;
+        }
+        let occurrence_count = u64::try_from(input.edge_sequence.len()).unwrap_or(u64::MAX);
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.static_route_key.len()).unwrap_or(u64::MAX);
+        let reference_string_bytes = input.edge_sequence.iter().fold(0_u64, |total, edge| {
+            let namespace = edge
+                .module_namespace()
+                .unwrap_or(&self.header.authoring_namespace_id);
+            total.saturating_add(reference_spelling_parts_bytes(
+                namespace,
+                edge.declaration_key(),
+            ))
+        });
+        let controlled_reference_bytes = input.edge_sequence.iter().fold(0_u64, |total, edge| {
+            total.saturating_add(u64::try_from(edge.declaration_key().len()).unwrap_or(u64::MAX))
+        });
+        let source_bytes = input.edge_sequence.iter().fold(
+            declaration_header_len(input.static_route_key).saturating_add(4),
+            |total, edge| {
+                let namespace = edge
+                    .module_namespace()
+                    .unwrap_or(&self.header.authoring_namespace_id);
+                total.saturating_add(encoded_reference_len(namespace, edge.declaration_key()))
+            },
+        );
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 3_u64.saturating_add(occurrence_count.saturating_mul(2)),
+                references: occurrence_count,
+                relations: occurrence_count,
+                identity_fields: 2,
+                symbols: 1,
+                string_items: 2_u64.saturating_add(occurrence_count),
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(reference_string_bytes),
+                controlled_string_bytes: key_bytes.saturating_add(controlled_reference_bytes),
+                controlled_structural_bytes: size_bytes::<StaticRouteDeclaration>(1)
+                    .saturating_add(size_bytes::<OwnedEntityReference<LaneEdgeKind>>(
+                        occurrence_count,
+                    )),
+                source_bytes,
+                route_occurrences: occurrence_count,
+                ..DeclarationResourceDelta::default()
+            },
+            input.static_route_key,
+            &span,
+        )?;
+
+        let mut edge_sequence = Vec::with_capacity(input.edge_sequence.len());
+        for reference in input.edge_sequence {
+            edge_sequence.push(self.own_reference(EntityKind::LaneEdge, *reference, &span)?);
+        }
+
+        let stable_key: Arc<str> = input.static_route_key.into();
+        self.declaration_index
+            .entry(EntityKind::StaticRoute)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations
+            .push(SyntheticDeclaration::StaticRoute(StaticRouteDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::StaticRoute,
+                    stable_key,
+                    span,
+                },
+                edge_sequence: edge_sequence.into_boxed_slice(),
+            }));
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
     /// 声明一个非遍历设施带；唯一走廊所有者在完整模块图中解析。
     ///
     /// # Errors
@@ -2005,6 +2121,7 @@ impl SyntheticModuleBuilder {
             string_bytes: self.string_bytes,
             maneuver_gate_count: self.maneuver_gate_count,
             waiting_zone_count: self.waiting_zone_count,
+            route_occurrence_count: self.route_occurrence_count,
             controlled_live_bytes: self
                 .controlled_string_bytes
                 .saturating_add(self.controlled_structural_bytes)
@@ -2032,6 +2149,7 @@ pub struct SyntheticModule {
     string_bytes: u64,
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
+    route_occurrence_count: u64,
     controlled_live_bytes: u64,
 }
 
@@ -2074,6 +2192,7 @@ pub struct CompilationUnitBuilder {
     string_bytes: u64,
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
+    route_occurrence_count: u64,
     controlled_live_bytes: u64,
 }
 
@@ -2098,6 +2217,7 @@ impl CompilationUnitBuilder {
             string_bytes: 0,
             maneuver_gate_count: 0,
             waiting_zone_count: 0,
+            route_occurrence_count: 0,
             controlled_live_bytes: 0,
         }
     }
@@ -2174,6 +2294,9 @@ impl CompilationUnitBuilder {
         let next_waiting_zone_count = self
             .waiting_zone_count
             .saturating_add(module.waiting_zone_count);
+        let next_route_occurrence_count = self
+            .route_occurrence_count
+            .saturating_add(module.route_occurrence_count);
         let next_controlled_live_bytes = self
             .controlled_live_bytes
             .saturating_add(module.controlled_live_bytes);
@@ -2210,6 +2333,10 @@ impl CompilationUnitBuilder {
                 next_waiting_zone_count,
             ),
             (
+                CompileLimitDimension::RouteOccurrenceCount,
+                next_route_occurrence_count,
+            ),
+            (
                 CompileLimitDimension::CompilerControlledLiveBytes,
                 next_controlled_live_bytes,
             ),
@@ -2243,6 +2370,7 @@ impl CompilationUnitBuilder {
         self.string_bytes = next_string_bytes;
         self.maneuver_gate_count = next_maneuver_gate_count;
         self.waiting_zone_count = next_waiting_zone_count;
+        self.route_occurrence_count = next_route_occurrence_count;
         self.controlled_live_bytes = next_controlled_live_bytes;
         Ok(self)
     }
@@ -2349,6 +2477,7 @@ impl CompilationUnitBuilder {
             symbol_count: self.symbol_count,
             maneuver_gate_count: self.maneuver_gate_count,
             waiting_zone_count: self.waiting_zone_count,
+            route_occurrence_count: self.route_occurrence_count,
             controlled_live_bytes: self.controlled_live_bytes,
         })
     }
@@ -2369,6 +2498,7 @@ pub struct CompilationUnit {
     pub(crate) symbol_count: u64,
     pub(crate) maneuver_gate_count: u64,
     pub(crate) waiting_zone_count: u64,
+    pub(crate) route_occurrence_count: u64,
     pub(crate) controlled_live_bytes: u64,
 }
 
@@ -2638,6 +2768,10 @@ fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
             &declaration.entry_gate,
             &declaration.release_gate,
         )),
+        SyntheticDeclaration::StaticRoute(declaration) => Some(static_route_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.edge_sequence,
+        )),
     }
 }
 
@@ -2752,6 +2886,21 @@ fn waiting_zone_declaration_len(
             &release_gate.declaration_key,
         ))
         .saturating_add(4)
+}
+
+fn static_route_declaration_len(
+    stable_key: &str,
+    edge_sequence: &[OwnedEntityReference<LaneEdgeKind>],
+) -> u64 {
+    edge_sequence.iter().fold(
+        declaration_header_len(stable_key).saturating_add(4),
+        |length, edge| {
+            length.saturating_add(encoded_reference_len(
+                &edge.module_namespace,
+                &edge.declaration_key,
+            ))
+        },
+    )
 }
 
 fn lane_group_declaration_len(
@@ -2936,6 +3085,17 @@ fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
             put_owned_reference(output, &declaration.entry_gate);
             put_owned_reference(output, &declaration.release_gate);
             output.extend_from_slice(&declaration.max_occupancy.to_le_bytes());
+        }
+        SyntheticDeclaration::StaticRoute(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            output.extend_from_slice(
+                &u32::try_from(declaration.edge_sequence.len())
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            );
+            for edge in &declaration.edge_sequence {
+                put_owned_reference(output, edge);
+            }
         }
     }
 }

@@ -12,7 +12,8 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     AuthoringLaneId, FacilityBandId, JunctionId, LaneEdgeId, LaneGroupId, ManeuverGateId,
-    ManeuverPathId, MovementId, RoadCorridorId, RoadSectionId, StopLineId, WaitingZoneId,
+    ManeuverPathId, MovementId, RoadCorridorId, RoadSectionId, StaticRouteId, StopLineId,
+    WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
@@ -36,6 +37,7 @@ pub(crate) enum MirManeuverPathTag {}
 pub(crate) enum MirStopLineTag {}
 pub(crate) enum MirManeuverGateTag {}
 pub(crate) enum MirWaitingZoneTag {}
+pub(crate) enum MirStaticRouteTag {}
 
 /// 仅在当前 `MirUnit` 模块表内有效的致密键。
 pub(crate) type MirModuleKey = ArenaKey<MirModuleTag>;
@@ -52,6 +54,7 @@ pub(crate) type MirManeuverPathKey = ArenaKey<MirManeuverPathTag>;
 pub(crate) type MirStopLineKey = ArenaKey<MirStopLineTag>;
 pub(crate) type MirManeuverGateKey = ArenaKey<MirManeuverGateTag>;
 pub(crate) type MirWaitingZoneKey = ArenaKey<MirWaitingZoneTag>;
+pub(crate) type MirStaticRouteKey = ArenaKey<MirStaticRouteTag>;
 
 /// MIR 中保留的模块身份与来源上下文。
 pub(crate) struct MirModule {
@@ -245,6 +248,53 @@ pub(crate) struct MirJunctionInternalEdge {
     pub(crate) source_span: SourceSpan,
 }
 
+pub(crate) struct MirStaticRouteEdge {
+    pub(crate) target: MirLaneEdgeKey,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirStaticRouteTransition {
+    pub(crate) maneuver_gate: Option<MirManeuverGateKey>,
+}
+
+pub(crate) struct MirManeuverOccurrence {
+    pub(crate) maneuver_path: MirManeuverPathKey,
+    pub(crate) entry_route_edge_index: u32,
+    pub(crate) exit_route_edge_index: u32,
+    pub(crate) gate_occurrences: TableRange<MirGateOccurrence>,
+    pub(crate) waiting_zone_occurrences: TableRange<MirWaitingZoneOccurrence>,
+}
+
+pub(crate) struct MirGateOccurrence {
+    pub(crate) maneuver_gate: MirManeuverGateKey,
+    pub(crate) maneuver_occurrence_index: u32,
+    pub(crate) from_route_edge_index: u32,
+    pub(crate) next_gate_occurrence_index: Option<u32>,
+    pub(crate) next_boundary_route_edge_index: u32,
+    pub(crate) waiting_zone_occurrence_index: Option<u32>,
+}
+
+pub(crate) struct MirWaitingZoneOccurrence {
+    pub(crate) waiting_zone: MirWaitingZoneKey,
+    pub(crate) maneuver_occurrence_index: u32,
+    pub(crate) entry_gate_occurrence_index: u32,
+    pub(crate) release_gate_occurrence_index: u32,
+    pub(crate) entry_route_edge_index: u32,
+    pub(crate) release_route_edge_index: u32,
+}
+
+pub(crate) struct MirStaticRoute {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: StaticRouteId,
+    pub(crate) edges: TableRange<MirStaticRouteEdge>,
+    pub(crate) transitions: TableRange<MirStaticRouteTransition>,
+    pub(crate) maneuver_occurrences: TableRange<MirManeuverOccurrence>,
+    pub(crate) gate_occurrences: TableRange<MirGateOccurrence>,
+    pub(crate) waiting_zone_occurrences: TableRange<MirWaitingZoneOccurrence>,
+    pub(crate) source_span: SourceSpan,
+}
+
 /// MIR 阶段成功后一次性冻结的目标布局中立表集合。
 ///
 /// 每个连接区间都落在 `lane_edge_connections` 内，且所有目标键指向本实例的
@@ -275,6 +325,12 @@ pub(crate) struct MirUnit {
     pub(crate) maneuver_path_gates: Box<[MirManeuverPathGate]>,
     pub(crate) maneuver_path_waiting_zones: Box<[MirManeuverPathWaitingZone]>,
     pub(crate) stop_line_maneuver_gates: Box<[MirStopLineManeuverGate]>,
+    pub(crate) static_routes: Box<[MirStaticRoute]>,
+    pub(crate) static_route_edges: Box<[MirStaticRouteEdge]>,
+    pub(crate) static_route_transitions: Box<[MirStaticRouteTransition]>,
+    pub(crate) maneuver_occurrences: Box<[MirManeuverOccurrence]>,
+    pub(crate) gate_occurrences: Box<[MirGateOccurrence]>,
+    pub(crate) waiting_zone_occurrences: Box<[MirWaitingZoneOccurrence]>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) mir_record_count: u64,
     pub(crate) controlled_live_bytes: u64,
@@ -335,11 +391,24 @@ pub(crate) fn lower_to_mir(
     .fold(0_u64, |total, count| {
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
+    let route_record_count = [
+        hir.static_routes.len(),
+        hir.static_route_edges.len(),
+        hir.static_route_transitions.len(),
+        hir.maneuver_occurrences.len(),
+        hir.gate_occurrences.len(),
+        hir.waiting_zone_occurrences.len(),
+    ]
+    .into_iter()
+    .fold(0_u64, |total, count| {
+        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
+    });
     let mir_record_count = lane_edge_count
         .saturating_add(connection_count)
         .saturating_add(cross_record_count)
         .saturating_add(junction_record_count)
-        .saturating_add(control_record_count);
+        .saturating_add(control_record_count)
+        .saturating_add(route_record_count);
     let stage_scratch_bytes = requested_bytes::<MirModuleKey>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdgeKey>(lane_edge_count))
         .saturating_add(requested_bytes::<u32>(
@@ -355,6 +424,9 @@ pub(crate) fn lower_to_mir(
                 .unwrap_or(u64::MAX)
                 .saturating_add(u64::try_from(hir.maneuver_gates.len()).unwrap_or(u64::MAX))
                 .saturating_add(u64::try_from(hir.waiting_zones.len()).unwrap_or(u64::MAX)),
+        ))
+        .saturating_add(requested_bytes::<u32>(
+            u64::try_from(hir.static_routes.len()).unwrap_or(u64::MAX),
         ));
     let mir_owned_bytes = requested_bytes::<MirModule>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdge>(lane_edge_count))
@@ -433,6 +505,33 @@ pub(crate) fn lower_to_mir(
         ))
         .saturating_add(requested_bytes::<MirStopLineManeuverGate>(
             hir.stop_line_maneuver_gates
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirStaticRoute>(
+            hir.static_routes.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirStaticRouteEdge>(
+            hir.static_route_edges.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirStaticRouteTransition>(
+            hir.static_route_transitions
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirManeuverOccurrence>(
+            hir.maneuver_occurrences
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirGateOccurrence>(
+            hir.gate_occurrences.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirWaitingZoneOccurrence>(
+            hir.waiting_zone_occurrences
                 .len()
                 .try_into()
                 .unwrap_or(u64::MAX),
@@ -787,6 +886,105 @@ pub(crate) fn lower_to_mir(
         })
         .collect::<Vec<_>>();
 
+    let static_route_mapping = dense_mapping::<MirStaticRouteTag>(hir.static_routes.len())?;
+    debug_assert_eq!(static_route_mapping.len(), hir.static_routes.len());
+    let static_routes = hir
+        .static_routes
+        .iter()
+        .map(|route| {
+            Ok(MirStaticRoute {
+                module: hir_module_to_mir[route.module.index()],
+                stable_key: Arc::clone(&route.stable_key),
+                stable_id: route.stable_id,
+                edges: remap_range(route.edges, &unit.limits, &route.source_span)?,
+                transitions: remap_range(route.transitions, &unit.limits, &route.source_span)?,
+                maneuver_occurrences: remap_range(
+                    route.maneuver_occurrences,
+                    &unit.limits,
+                    &route.source_span,
+                )?,
+                gate_occurrences: remap_range(
+                    route.gate_occurrences,
+                    &unit.limits,
+                    &route.source_span,
+                )?,
+                waiting_zone_occurrences: remap_range(
+                    route.waiting_zone_occurrences,
+                    &unit.limits,
+                    &route.source_span,
+                )?,
+                source_span: route.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let static_route_edges = hir
+        .static_route_edges
+        .iter()
+        .map(|edge| MirStaticRouteEdge {
+            target: hir_to_mir[edge.target.index()],
+            source_span: edge.source_span.clone(),
+        })
+        .collect::<Vec<_>>();
+    let static_route_transitions = hir
+        .static_route_transitions
+        .iter()
+        .map(|transition| MirStaticRouteTransition {
+            maneuver_gate: transition
+                .maneuver_gate
+                .map(|key| maneuver_gate_mapping[key.index()]),
+        })
+        .collect::<Vec<_>>();
+    let occurrence_span = hir
+        .static_routes
+        .first()
+        .map(|route| &route.source_span)
+        .or_else(|| hir.modules.first().map(|module| &module.source_span));
+    let maneuver_occurrences = hir
+        .maneuver_occurrences
+        .iter()
+        .map(|occurrence| {
+            Ok(MirManeuverOccurrence {
+                maneuver_path: maneuver_path_mapping[occurrence.maneuver_path.index()],
+                entry_route_edge_index: occurrence.entry_route_edge_index,
+                exit_route_edge_index: occurrence.exit_route_edge_index,
+                gate_occurrences: remap_range_optional_span(
+                    occurrence.gate_occurrences,
+                    &unit.limits,
+                    occurrence_span,
+                )?,
+                waiting_zone_occurrences: remap_range_optional_span(
+                    occurrence.waiting_zone_occurrences,
+                    &unit.limits,
+                    occurrence_span,
+                )?,
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let gate_occurrences = hir
+        .gate_occurrences
+        .iter()
+        .map(|occurrence| MirGateOccurrence {
+            maneuver_gate: maneuver_gate_mapping[occurrence.maneuver_gate.index()],
+            maneuver_occurrence_index: occurrence.maneuver_occurrence_index,
+            from_route_edge_index: occurrence.from_route_edge_index,
+            next_gate_occurrence_index: occurrence.next_gate_occurrence_index,
+            next_boundary_route_edge_index: occurrence.next_boundary_route_edge_index,
+            waiting_zone_occurrence_index: occurrence.waiting_zone_occurrence_index,
+        })
+        .collect::<Vec<_>>();
+    let waiting_zone_occurrences = hir
+        .waiting_zone_occurrences
+        .iter()
+        .map(|occurrence| MirWaitingZoneOccurrence {
+            waiting_zone: waiting_zone_mapping[occurrence.waiting_zone.index()],
+            maneuver_occurrence_index: occurrence.maneuver_occurrence_index,
+            entry_gate_occurrence_index: occurrence.entry_gate_occurrence_index,
+            release_gate_occurrence_index: occurrence.release_gate_occurrence_index,
+            entry_route_edge_index: occurrence.entry_route_edge_index,
+            release_route_edge_index: occurrence.release_route_edge_index,
+        })
+        .collect::<Vec<_>>();
+
     debug_assert_eq!(modules.len(), hir.modules.len());
     debug_assert_eq!(lane_edges.len(), edge_capacity);
     debug_assert_eq!(connections.len(), connection_capacity);
@@ -815,6 +1013,12 @@ pub(crate) fn lower_to_mir(
         maneuver_path_gates: maneuver_path_gates.into_boxed_slice(),
         maneuver_path_waiting_zones: maneuver_path_waiting_zones.into_boxed_slice(),
         stop_line_maneuver_gates: stop_line_maneuver_gates.into_boxed_slice(),
+        static_routes: static_routes.into_boxed_slice(),
+        static_route_edges: static_route_edges.into_boxed_slice(),
+        static_route_transitions: static_route_transitions.into_boxed_slice(),
+        maneuver_occurrences: maneuver_occurrences.into_boxed_slice(),
+        gate_occurrences: gate_occurrences.into_boxed_slice(),
+        waiting_zone_occurrences: waiting_zone_occurrences.into_boxed_slice(),
         mir_record_count,
         controlled_live_bytes: mir_owned_bytes,
     })
@@ -847,6 +1051,15 @@ fn remap_range<T, U>(
 ) -> Result<TableRange<U>, DiagnosticBundle> {
     TableRange::try_from_usize(range.start() as usize, range.len() as usize)
         .map_err(|overflow| arena_overflow(overflow, limits, Some(source_span.clone())))
+}
+
+fn remap_range_optional_span<T, U>(
+    range: TableRange<T>,
+    limits: &crate::CompileLimits,
+    source_span: Option<&SourceSpan>,
+) -> Result<TableRange<U>, DiagnosticBundle> {
+    TableRange::try_from_usize(range.start() as usize, range.len() as usize)
+        .map_err(|overflow| arena_overflow(overflow, limits, source_span.cloned()))
 }
 
 fn requested_bytes<T>(count: u64) -> u64 {

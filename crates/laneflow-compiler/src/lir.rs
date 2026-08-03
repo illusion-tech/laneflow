@@ -16,7 +16,8 @@ use laneflow_static_contract::{
     FieldTag, JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId,
     LaneGroupOrdinal, ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal,
     MovementId, MovementOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
-    RoadSectionOrdinal, StopLineId, StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
+    RoadSectionOrdinal, StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal,
+    WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange};
@@ -24,14 +25,14 @@ use crate::diagnostic::DiagnosticCollector;
 use crate::mir::{
     MirAuthoringLaneKey, MirCorridorElement, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeKey,
     MirLaneGroupKey, MirManeuverGateKey, MirManeuverPathKey, MirMovementKey, MirRoadCorridorKey,
-    MirRoadSectionKey, MirStopLineKey, MirUnit, MirWaitingZoneKey,
+    MirRoadSectionKey, MirStaticRouteKey, MirStopLineKey, MirUnit, MirWaitingZoneKey,
 };
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
 /// 与公开制品版本轴无关的编译器私有摘要域。
 const LIR_SEMANTIC_DIGEST_DOMAIN: &[u8] = b"LANEFLOW-COMPILER-LIR-SEMANTIC-V1\0";
-/// `ordinal + stable_id + identity_range + length + speed + successor_range`。
-const LIR_LANE_EDGE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8 + 8 + 8;
+/// `ordinal + stable_id + identity_range + length + speed + successor_range + route_range`。
+const LIR_LANE_EDGE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8 + 8 + 8 + 8;
 /// `field_tag + value_range`；表归属已经给出实体种类，不在每项重复编码。
 const LIR_IDENTITY_FIELD_LOGICAL_BYTES: u64 = 2 + 8;
 const LIR_SUCCESSOR_LOGICAL_BYTES: u64 = 4;
@@ -42,10 +43,15 @@ const LIR_GROUP_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
 const LIR_BAND_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4;
 const LIR_JUNCTION_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8;
 const LIR_MOVEMENT_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 8;
-const LIR_MANEUVER_PATH_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 8 + 8;
+const LIR_MANEUVER_PATH_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 8 + 8 + 8;
 const LIR_STOP_LINE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
-const LIR_MANEUVER_GATE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4;
-const LIR_WAITING_ZONE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 4;
+const LIR_MANEUVER_GATE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 8;
+const LIR_WAITING_ZONE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 4 + 8;
+const LIR_STATIC_ROUTE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8 + 8 + 8 + 8 + 8;
+const LIR_MANEUVER_OCCURRENCE_LOGICAL_BYTES: u64 = 4 + 4 + 4 + 8 + 8;
+const LIR_GATE_OCCURRENCE_LOGICAL_BYTES: u64 = 4 + 4 + 4 + 1 + 4 + 4 + 1 + 4;
+const LIR_WAITING_OCCURRENCE_LOGICAL_BYTES: u64 = 4 + 4 + 4 + 4 + 4 + 4;
+const LIR_ROUTE_OCCURRENCE_REF_LOGICAL_BYTES: u64 = 4 + 4;
 const LIR_JUNCTION_INTERNAL_EDGE_LOGICAL_BYTES: u64 = 4 + 4;
 const LIR_TYPED_ORDINAL_LOGICAL_BYTES: u64 = 4;
 const LIR_CORRIDOR_ELEMENT_LOGICAL_BYTES: u64 = 2 + 4;
@@ -73,6 +79,8 @@ pub(crate) struct LirLaneEdge {
     pub(crate) speed_limit_meters_per_second: f64,
     /// 按领域顺序保存的下游边序号区间。
     pub(crate) successors: TableRange<LaneEdgeOrdinal>,
+    /// 按路线序号和路线内边下标排序的反向出现项区间。
+    pub(crate) static_route_occurrences: TableRange<LirRouteOccurrenceRef>,
 }
 
 pub(crate) enum LirCorridorElement {
@@ -148,6 +156,7 @@ pub(crate) struct LirManeuverPath {
     pub(crate) edges: TableRange<LaneEdgeOrdinal>,
     pub(crate) maneuver_gates: TableRange<ManeuverGateOrdinal>,
     pub(crate) waiting_zones: TableRange<WaitingZoneOrdinal>,
+    pub(crate) static_route_occurrences: TableRange<LirRouteOccurrenceRef>,
 }
 
 pub(crate) struct LirStopLine {
@@ -165,6 +174,7 @@ pub(crate) struct LirManeuverGate {
     pub(crate) maneuver_path: ManeuverPathOrdinal,
     pub(crate) transition_index: u32,
     pub(crate) stop_line: StopLineOrdinal,
+    pub(crate) static_route_occurrences: TableRange<LirRouteOccurrenceRef>,
 }
 
 pub(crate) struct LirWaitingZone {
@@ -175,11 +185,60 @@ pub(crate) struct LirWaitingZone {
     pub(crate) entry_gate: ManeuverGateOrdinal,
     pub(crate) release_gate: ManeuverGateOrdinal,
     pub(crate) max_occupancy: u32,
+    pub(crate) static_route_occurrences: TableRange<LirRouteOccurrenceRef>,
 }
 
 pub(crate) struct LirJunctionInternalEdge {
     pub(crate) edge: LaneEdgeOrdinal,
     pub(crate) junction: JunctionOrdinal,
+}
+
+pub(crate) struct LirStaticRouteTransition {
+    pub(crate) maneuver_gate: Option<ManeuverGateOrdinal>,
+}
+
+pub(crate) struct LirManeuverOccurrence {
+    pub(crate) maneuver_path: ManeuverPathOrdinal,
+    pub(crate) entry_route_edge_index: u32,
+    pub(crate) exit_route_edge_index: u32,
+    pub(crate) gate_occurrences: TableRange<LirGateOccurrence>,
+    pub(crate) waiting_zone_occurrences: TableRange<LirWaitingZoneOccurrence>,
+}
+
+pub(crate) struct LirGateOccurrence {
+    pub(crate) maneuver_gate: ManeuverGateOrdinal,
+    pub(crate) maneuver_occurrence_index: u32,
+    pub(crate) from_route_edge_index: u32,
+    pub(crate) next_gate_occurrence_index: Option<u32>,
+    pub(crate) next_boundary_route_edge_index: u32,
+    pub(crate) waiting_zone_occurrence_index: Option<u32>,
+}
+
+pub(crate) struct LirWaitingZoneOccurrence {
+    pub(crate) waiting_zone: WaitingZoneOrdinal,
+    pub(crate) maneuver_occurrence_index: u32,
+    pub(crate) entry_gate_occurrence_index: u32,
+    pub(crate) release_gate_occurrence_index: u32,
+    pub(crate) entry_route_edge_index: u32,
+    pub(crate) release_route_edge_index: u32,
+}
+
+pub(crate) struct LirStaticRoute {
+    pub(crate) ordinal: StaticRouteOrdinal,
+    pub(crate) stable_id: StaticRouteId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) edges: TableRange<LaneEdgeOrdinal>,
+    pub(crate) transitions: TableRange<LirStaticRouteTransition>,
+    pub(crate) maneuver_occurrences: TableRange<LirManeuverOccurrence>,
+    pub(crate) gate_occurrences: TableRange<LirGateOccurrence>,
+    pub(crate) waiting_zone_occurrences: TableRange<LirWaitingZoneOccurrence>,
+}
+
+/// 从稳定实体反查静态路线出现项；`occurrence_index` 是对应路线内的局部下标。
+#[derive(Clone, Copy)]
+pub(crate) struct LirRouteOccurrenceRef {
+    pub(crate) static_route: StaticRouteOrdinal,
+    pub(crate) occurrence_index: u32,
 }
 
 /// 当前纵向切片冻结出的连续、目标布局中立 LIR 表。
@@ -212,6 +271,16 @@ pub(crate) struct LirUnit {
     pub(crate) maneuver_path_gates: Box<[ManeuverGateOrdinal]>,
     pub(crate) maneuver_path_waiting_zones: Box<[WaitingZoneOrdinal]>,
     pub(crate) stop_line_maneuver_gates: Box<[ManeuverGateOrdinal]>,
+    pub(crate) static_routes: Box<[LirStaticRoute]>,
+    pub(crate) static_route_edges: Box<[LaneEdgeOrdinal]>,
+    pub(crate) static_route_transitions: Box<[LirStaticRouteTransition]>,
+    pub(crate) maneuver_occurrences: Box<[LirManeuverOccurrence]>,
+    pub(crate) gate_occurrences: Box<[LirGateOccurrence]>,
+    pub(crate) waiting_zone_occurrences: Box<[LirWaitingZoneOccurrence]>,
+    pub(crate) lane_edge_route_occurrences: Box<[LirRouteOccurrenceRef]>,
+    pub(crate) maneuver_path_route_occurrences: Box<[LirRouteOccurrenceRef]>,
+    pub(crate) maneuver_gate_route_occurrences: Box<[LirRouteOccurrenceRef]>,
+    pub(crate) waiting_zone_route_occurrences: Box<[LirRouteOccurrenceRef]>,
     pub(crate) identity_fields: Box<[LirIdentityField]>,
     pub(crate) identity_field_bytes: Box<[u8]>,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -253,6 +322,8 @@ pub(crate) struct LirFreezeOutput {
     pub(crate) mir_maneuver_gate_to_lir: Box<[ManeuverGateOrdinal]>,
     pub(crate) canonical_mir_waiting_zone_order: Box<[MirWaitingZoneKey]>,
     pub(crate) mir_waiting_zone_to_lir: Box<[WaitingZoneOrdinal]>,
+    pub(crate) canonical_mir_static_route_order: Box<[MirStaticRouteKey]>,
+    pub(crate) mir_static_route_to_lir: Box<[StaticRouteOrdinal]>,
 }
 
 impl LirFreezeOutput {
@@ -325,6 +396,10 @@ impl LirFreezeOutput {
             self.canonical_mir_waiting_zone_order.len(),
             self.mir_waiting_zone_to_lir.len(),
         ))
+        .saturating_add(mapping_pair_bytes::<MirStaticRouteKey, StaticRouteOrdinal>(
+            self.canonical_mir_static_route_order.len(),
+            self.mir_static_route_to_lir.len(),
+        ))
     }
 }
 
@@ -365,6 +440,19 @@ pub(crate) fn freeze_lir(
     let stop_line_count = u64::try_from(mir.stop_lines.len()).unwrap_or(u64::MAX);
     let maneuver_gate_count = u64::try_from(mir.maneuver_gates.len()).unwrap_or(u64::MAX);
     let waiting_zone_count = u64::try_from(mir.waiting_zones.len()).unwrap_or(u64::MAX);
+    let static_route_count = u64::try_from(mir.static_routes.len()).unwrap_or(u64::MAX);
+    let static_route_edge_count = u64::try_from(mir.static_route_edges.len()).unwrap_or(u64::MAX);
+    let static_route_transition_count =
+        u64::try_from(mir.static_route_transitions.len()).unwrap_or(u64::MAX);
+    let maneuver_occurrence_count =
+        u64::try_from(mir.maneuver_occurrences.len()).unwrap_or(u64::MAX);
+    let gate_occurrence_count = u64::try_from(mir.gate_occurrences.len()).unwrap_or(u64::MAX);
+    let waiting_occurrence_count =
+        u64::try_from(mir.waiting_zone_occurrences.len()).unwrap_or(u64::MAX);
+    let reverse_occurrence_count = static_route_edge_count
+        .saturating_add(maneuver_occurrence_count)
+        .saturating_add(gate_occurrence_count)
+        .saturating_add(waiting_occurrence_count);
     // Identity 字段出现项有独立资源维度；LIR record 指标计实体行和关系出现行，与 MIR
     // 当前已支持实体与关系的计数对象保持一致。
     let lir_record_count = [
@@ -388,6 +476,13 @@ pub(crate) fn freeze_lir(
         junction_internal_edge_count,
         stop_line_count,
         maneuver_gate_count,
+        static_route_count,
+        static_route_edge_count,
+        static_route_transition_count,
+        maneuver_occurrence_count,
+        gate_occurrence_count,
+        waiting_occurrence_count,
+        reverse_occurrence_count,
         waiting_zone_count,
         maneuver_gate_count,
         waiting_zone_count,
@@ -410,7 +505,8 @@ pub(crate) fn freeze_lir(
         .saturating_add(maneuver_path_count.saturating_mul(5))
         .saturating_add(stop_line_count.saturating_mul(2))
         .saturating_add(maneuver_gate_count.saturating_mul(3))
-        .saturating_add(waiting_zone_count.saturating_mul(3));
+        .saturating_add(waiting_zone_count.saturating_mul(3))
+        .saturating_add(static_route_count.saturating_mul(2));
     let identity_field_byte_count = identity_field_byte_count(mir);
     let kind_id_byte_count = mir
         .road_sections
@@ -446,9 +542,15 @@ pub(crate) fn freeze_lir(
                 .saturating_add(stop_line_count)
                 .saturating_add(maneuver_gate_count)
                 .saturating_add(waiting_zone_count)
+                .saturating_add(static_route_count)
                 .saturating_mul(2),
         ))
-        .saturating_add(requested_bytes::<u32>(junction_internal_edge_count));
+        .saturating_add(requested_bytes::<u32>(junction_internal_edge_count))
+        // 四类反向索引先以 `(targetOrdinal, occurrence)` 排序，再复制进最终连续表；
+        // 最终表已计入 output-owned bytes，这里只补临时排序对。
+        .saturating_add(requested_bytes::<(u32, LirRouteOccurrenceRef)>(
+            reverse_occurrence_count,
+        ));
     // OutputBytes 使用设计冻结的目标布局中立字段宽度，不能把 Rust struct padding 或
     // 当前平台对齐冒充规范输出量；受控存续内存则按真实堆容量请求单独计算。
     let output_bytes = lane_edge_count
@@ -479,6 +581,21 @@ pub(crate) fn freeze_lir(
         .saturating_add(maneuver_gate_count.saturating_mul(LIR_MANEUVER_GATE_LOGICAL_BYTES))
         .saturating_add(waiting_zone_count.saturating_mul(LIR_WAITING_ZONE_LOGICAL_BYTES))
         .saturating_add(maneuver_gate_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
+        .saturating_add(static_route_count.saturating_mul(LIR_STATIC_ROUTE_LOGICAL_BYTES))
+        .saturating_add(static_route_edge_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
+        .saturating_add(
+            static_route_transition_count.saturating_mul(1 + LIR_TYPED_ORDINAL_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            maneuver_occurrence_count.saturating_mul(LIR_MANEUVER_OCCURRENCE_LOGICAL_BYTES),
+        )
+        .saturating_add(gate_occurrence_count.saturating_mul(LIR_GATE_OCCURRENCE_LOGICAL_BYTES))
+        .saturating_add(
+            waiting_occurrence_count.saturating_mul(LIR_WAITING_OCCURRENCE_LOGICAL_BYTES),
+        )
+        .saturating_add(
+            reverse_occurrence_count.saturating_mul(LIR_ROUTE_OCCURRENCE_REF_LOGICAL_BYTES),
+        )
         .saturating_add(waiting_zone_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(maneuver_gate_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(kind_id_byte_count)
@@ -515,6 +632,22 @@ pub(crate) fn freeze_lir(
         .saturating_add(requested_bytes::<ManeuverGateOrdinal>(maneuver_gate_count))
         .saturating_add(requested_bytes::<WaitingZoneOrdinal>(waiting_zone_count))
         .saturating_add(requested_bytes::<ManeuverGateOrdinal>(maneuver_gate_count));
+    let output_owned_bytes = output_owned_bytes
+        .saturating_add(requested_bytes::<LirStaticRoute>(static_route_count))
+        .saturating_add(requested_bytes::<LaneEdgeOrdinal>(static_route_edge_count))
+        .saturating_add(requested_bytes::<LirStaticRouteTransition>(
+            static_route_transition_count,
+        ))
+        .saturating_add(requested_bytes::<LirManeuverOccurrence>(
+            maneuver_occurrence_count,
+        ))
+        .saturating_add(requested_bytes::<LirGateOccurrence>(gate_occurrence_count))
+        .saturating_add(requested_bytes::<LirWaitingZoneOccurrence>(
+            waiting_occurrence_count,
+        ))
+        .saturating_add(requested_bytes::<LirRouteOccurrenceRef>(
+            reverse_occurrence_count,
+        ));
     let controlled_live_bytes = unit
         .controlled_live_bytes
         .saturating_add(mir.controlled_live_bytes)
@@ -631,6 +764,7 @@ pub(crate) fn freeze_lir(
                 successors.len().saturating_sub(successor_start),
             )
             .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
+            static_route_occurrences: TableRange::empty(),
         });
     }
 
@@ -1191,6 +1325,28 @@ pub(crate) fn freeze_lir(
         primary_span.clone(),
     )?;
 
+    let mut canonical_mir_static_route_order: Vec<MirStaticRouteKey> =
+        dense_mir_keys(mir.static_routes.len());
+    canonical_mir_static_route_order.sort_unstable_by(|left, right| {
+        let left = &mir.static_routes[left.index()];
+        let right = &mir.static_routes[right.index()];
+        compare_identity_parts(
+            &mir.modules[left.module.index()].authoring_namespace_id,
+            &left.stable_key,
+            None,
+            &mir.modules[right.module.index()].authoring_namespace_id,
+            &right.stable_key,
+            None,
+        )
+    });
+    let mir_static_route_to_lir = ordinal_mapping(
+        mir.static_routes.len(),
+        &canonical_mir_static_route_order,
+        StaticRouteOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
     let mut junctions = Vec::with_capacity(mir.junctions.len());
     let mut junction_movements = Vec::with_capacity(mir.junction_movements.len());
     for mir_key in canonical_mir_junction_order.iter().copied() {
@@ -1381,6 +1537,7 @@ pub(crate) fn freeze_lir(
                 &unit.limits,
                 primary_span.clone(),
             )?,
+            static_route_occurrences: TableRange::empty(),
         });
     }
 
@@ -1476,6 +1633,7 @@ pub(crate) fn freeze_lir(
             maneuver_path: mir_maneuver_path_to_lir[gate.maneuver_path.index()],
             transition_index: gate.transition_index,
             stop_line: mir_stop_line_to_lir[gate.stop_line.index()],
+            static_route_occurrences: TableRange::empty(),
         });
     }
 
@@ -1521,8 +1679,212 @@ pub(crate) fn freeze_lir(
             entry_gate: mir_maneuver_gate_to_lir[waiting.entry_gate.index()],
             release_gate: mir_maneuver_gate_to_lir[waiting.release_gate.index()],
             max_occupancy: waiting.max_occupancy,
+            static_route_occurrences: TableRange::empty(),
         });
     }
+
+    let mut static_routes = Vec::with_capacity(mir.static_routes.len());
+    let mut static_route_edges = Vec::with_capacity(mir.static_route_edges.len());
+    let mut static_route_transitions = Vec::with_capacity(mir.static_route_transitions.len());
+    let mut maneuver_occurrences = Vec::with_capacity(mir.maneuver_occurrences.len());
+    let mut gate_occurrences = Vec::with_capacity(mir.gate_occurrences.len());
+    let mut waiting_zone_occurrences = Vec::with_capacity(mir.waiting_zone_occurrences.len());
+    let mut edge_reverse = Vec::with_capacity(mir.static_route_edges.len());
+    let mut path_reverse = Vec::with_capacity(mir.maneuver_occurrences.len());
+    let mut gate_reverse = Vec::with_capacity(mir.gate_occurrences.len());
+    let mut waiting_reverse = Vec::with_capacity(mir.waiting_zone_occurrences.len());
+
+    for mir_key in canonical_mir_static_route_order.iter().copied() {
+        let route = &mir.static_routes[mir_key.index()];
+        let route_ordinal = mir_static_route_to_lir[mir_key.index()];
+        let identity_range = push_lir_identity(
+            &mut identity_fields,
+            &mut identity_field_bytes,
+            FieldTag::RouteKey,
+            &mir.modules[route.module.index()].authoring_namespace_id,
+            &route.stable_key,
+            None,
+            &unit.limits,
+            primary_span.clone(),
+        )?;
+
+        let edge_start = static_route_edges.len();
+        for (local_index, edge) in mir.static_route_edges[route.edges.as_usize_range()]
+            .iter()
+            .enumerate()
+        {
+            let ordinal = mir_to_lir[edge.target.index()];
+            static_route_edges.push(ordinal);
+            edge_reverse.push((
+                ordinal.raw(),
+                LirRouteOccurrenceRef {
+                    static_route: route_ordinal,
+                    occurrence_index: u32::try_from(local_index).unwrap_or(u32::MAX),
+                },
+            ));
+        }
+        let transition_start = static_route_transitions.len();
+        static_route_transitions.extend(
+            mir.static_route_transitions[route.transitions.as_usize_range()]
+                .iter()
+                .map(|transition| LirStaticRouteTransition {
+                    maneuver_gate: transition
+                        .maneuver_gate
+                        .map(|key| mir_maneuver_gate_to_lir[key.index()]),
+                }),
+        );
+
+        let gate_start = gate_occurrences.len();
+        for (local_index, occurrence) in mir.gate_occurrences
+            [route.gate_occurrences.as_usize_range()]
+        .iter()
+        .enumerate()
+        {
+            let ordinal = mir_maneuver_gate_to_lir[occurrence.maneuver_gate.index()];
+            gate_occurrences.push(LirGateOccurrence {
+                maneuver_gate: ordinal,
+                maneuver_occurrence_index: occurrence.maneuver_occurrence_index,
+                from_route_edge_index: occurrence.from_route_edge_index,
+                next_gate_occurrence_index: occurrence.next_gate_occurrence_index,
+                next_boundary_route_edge_index: occurrence.next_boundary_route_edge_index,
+                waiting_zone_occurrence_index: occurrence.waiting_zone_occurrence_index,
+            });
+            gate_reverse.push((
+                ordinal.raw(),
+                LirRouteOccurrenceRef {
+                    static_route: route_ordinal,
+                    occurrence_index: u32::try_from(local_index).unwrap_or(u32::MAX),
+                },
+            ));
+        }
+        let waiting_start = waiting_zone_occurrences.len();
+        for (local_index, occurrence) in mir.waiting_zone_occurrences
+            [route.waiting_zone_occurrences.as_usize_range()]
+        .iter()
+        .enumerate()
+        {
+            let ordinal = mir_waiting_zone_to_lir[occurrence.waiting_zone.index()];
+            waiting_zone_occurrences.push(LirWaitingZoneOccurrence {
+                waiting_zone: ordinal,
+                maneuver_occurrence_index: occurrence.maneuver_occurrence_index,
+                entry_gate_occurrence_index: occurrence.entry_gate_occurrence_index,
+                release_gate_occurrence_index: occurrence.release_gate_occurrence_index,
+                entry_route_edge_index: occurrence.entry_route_edge_index,
+                release_route_edge_index: occurrence.release_route_edge_index,
+            });
+            waiting_reverse.push((
+                ordinal.raw(),
+                LirRouteOccurrenceRef {
+                    static_route: route_ordinal,
+                    occurrence_index: u32::try_from(local_index).unwrap_or(u32::MAX),
+                },
+            ));
+        }
+
+        let maneuver_start = maneuver_occurrences.len();
+        for (local_index, occurrence) in mir.maneuver_occurrences
+            [route.maneuver_occurrences.as_usize_range()]
+        .iter()
+        .enumerate()
+        {
+            let ordinal = mir_maneuver_path_to_lir[occurrence.maneuver_path.index()];
+            let gate_local_start = occurrence
+                .gate_occurrences
+                .start()
+                .saturating_sub(route.gate_occurrences.start());
+            let waiting_local_start = occurrence
+                .waiting_zone_occurrences
+                .start()
+                .saturating_sub(route.waiting_zone_occurrences.start());
+            maneuver_occurrences.push(LirManeuverOccurrence {
+                maneuver_path: ordinal,
+                entry_route_edge_index: occurrence.entry_route_edge_index,
+                exit_route_edge_index: occurrence.exit_route_edge_index,
+                gate_occurrences: TableRange::try_from_usize(
+                    gate_start + gate_local_start as usize,
+                    occurrence.gate_occurrences.len() as usize,
+                )
+                .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
+                waiting_zone_occurrences: TableRange::try_from_usize(
+                    waiting_start + waiting_local_start as usize,
+                    occurrence.waiting_zone_occurrences.len() as usize,
+                )
+                .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
+            });
+            path_reverse.push((
+                ordinal.raw(),
+                LirRouteOccurrenceRef {
+                    static_route: route_ordinal,
+                    occurrence_index: u32::try_from(local_index).unwrap_or(u32::MAX),
+                },
+            ));
+        }
+
+        static_routes.push(LirStaticRoute {
+            ordinal: route_ordinal,
+            stable_id: route.stable_id,
+            identity_fields: identity_range,
+            edges: relation_range(
+                edge_start,
+                static_route_edges.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+            transitions: relation_range(
+                transition_start,
+                static_route_transitions.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+            maneuver_occurrences: relation_range(
+                maneuver_start,
+                maneuver_occurrences.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+            gate_occurrences: relation_range(
+                gate_start,
+                gate_occurrences.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+            waiting_zone_occurrences: relation_range(
+                waiting_start,
+                waiting_zone_occurrences.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+        });
+    }
+
+    let lane_edge_route_occurrences = freeze_reverse_occurrences(
+        edge_reverse,
+        &mut lane_edges,
+        |entity, range| entity.static_route_occurrences = range,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+    let maneuver_path_route_occurrences = freeze_reverse_occurrences(
+        path_reverse,
+        &mut maneuver_paths,
+        |entity, range| entity.static_route_occurrences = range,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+    let maneuver_gate_route_occurrences = freeze_reverse_occurrences(
+        gate_reverse,
+        &mut maneuver_gates,
+        |entity, range| entity.static_route_occurrences = range,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+    let waiting_zone_route_occurrences = freeze_reverse_occurrences(
+        waiting_reverse,
+        &mut waiting_zones,
+        |entity, range| entity.static_route_occurrences = range,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
 
     debug_assert_eq!(lane_edges.len(), edge_capacity);
     debug_assert_eq!(successors.len(), successor_capacity);
@@ -1553,6 +1915,12 @@ pub(crate) fn freeze_lir(
         &maneuver_path_gates,
         &maneuver_path_waiting_zones,
         &stop_line_maneuver_gates,
+        &static_routes,
+        &static_route_edges,
+        &static_route_transitions,
+        &maneuver_occurrences,
+        &gate_occurrences,
+        &waiting_zone_occurrences,
         &identity_fields,
         &identity_field_bytes,
     );
@@ -1582,6 +1950,16 @@ pub(crate) fn freeze_lir(
             maneuver_path_gates: maneuver_path_gates.into_boxed_slice(),
             maneuver_path_waiting_zones: maneuver_path_waiting_zones.into_boxed_slice(),
             stop_line_maneuver_gates: stop_line_maneuver_gates.into_boxed_slice(),
+            static_routes: static_routes.into_boxed_slice(),
+            static_route_edges: static_route_edges.into_boxed_slice(),
+            static_route_transitions: static_route_transitions.into_boxed_slice(),
+            maneuver_occurrences: maneuver_occurrences.into_boxed_slice(),
+            gate_occurrences: gate_occurrences.into_boxed_slice(),
+            waiting_zone_occurrences: waiting_zone_occurrences.into_boxed_slice(),
+            lane_edge_route_occurrences: lane_edge_route_occurrences.into_boxed_slice(),
+            maneuver_path_route_occurrences: maneuver_path_route_occurrences.into_boxed_slice(),
+            maneuver_gate_route_occurrences: maneuver_gate_route_occurrences.into_boxed_slice(),
+            waiting_zone_route_occurrences: waiting_zone_route_occurrences.into_boxed_slice(),
             identity_fields: identity_fields.into_boxed_slice(),
             identity_field_bytes: identity_field_bytes.into_boxed_slice(),
             semantic_digest,
@@ -1614,6 +1992,8 @@ pub(crate) fn freeze_lir(
         mir_maneuver_gate_to_lir: mir_maneuver_gate_to_lir.into_boxed_slice(),
         canonical_mir_waiting_zone_order: canonical_mir_waiting_zone_order.into_boxed_slice(),
         mir_waiting_zone_to_lir: mir_waiting_zone_to_lir.into_boxed_slice(),
+        canonical_mir_static_route_order: canonical_mir_static_route_order.into_boxed_slice(),
+        mir_static_route_to_lir: mir_static_route_to_lir.into_boxed_slice(),
     })
 }
 
@@ -1829,6 +2209,9 @@ fn identity_field_byte_count(mir: &MirUnit) -> u64 {
             true,
         );
     }
+    for route in &mir.static_routes {
+        add(&mut total, route.module.index(), &route.stable_key, false);
+    }
     total
 }
 
@@ -1836,6 +2219,37 @@ fn mapping_pair_bytes<K, O>(order_len: usize, mapping_len: usize) -> u64 {
     requested_bytes::<K>(u64::try_from(order_len).unwrap_or(u64::MAX)).saturating_add(
         requested_bytes::<O>(u64::try_from(mapping_len).unwrap_or(u64::MAX)),
     )
+}
+
+fn freeze_reverse_occurrences<T>(
+    mut entries: Vec<(u32, LirRouteOccurrenceRef)>,
+    entities: &mut [T],
+    mut set_range: impl FnMut(&mut T, TableRange<LirRouteOccurrenceRef>),
+    limits: &crate::CompileLimits,
+    primary_span: Option<SourceSpan>,
+) -> Result<Vec<LirRouteOccurrenceRef>, DiagnosticBundle> {
+    entries.sort_unstable_by_key(|(target, occurrence)| {
+        (
+            *target,
+            occurrence.static_route.raw(),
+            occurrence.occurrence_index,
+        )
+    });
+    let mut output = Vec::with_capacity(entries.len());
+    let mut cursor = 0_usize;
+    for (target_index, entity) in entities.iter_mut().enumerate() {
+        let start = output.len();
+        while cursor < entries.len() && entries[cursor].0 as usize == target_index {
+            output.push(entries[cursor].1);
+            cursor += 1;
+        }
+        set_range(
+            entity,
+            relation_range(start, output.len(), limits, primary_span.clone())?,
+        );
+    }
+    debug_assert_eq!(cursor, entries.len());
+    Ok(output)
 }
 
 fn push_identity_field(
@@ -1882,6 +2296,12 @@ fn semantic_digest(
     maneuver_path_gates: &[ManeuverGateOrdinal],
     maneuver_path_waiting_zones: &[WaitingZoneOrdinal],
     stop_line_maneuver_gates: &[ManeuverGateOrdinal],
+    static_routes: &[LirStaticRoute],
+    static_route_edges: &[LaneEdgeOrdinal],
+    static_route_transitions: &[LirStaticRouteTransition],
+    maneuver_occurrences: &[LirManeuverOccurrence],
+    gate_occurrences: &[LirGateOccurrence],
+    waiting_zone_occurrences: &[LirWaitingZoneOccurrence],
     identity_fields: &[LirIdentityField],
     identity_field_bytes: &[u8],
 ) -> [u8; 32] {
@@ -2136,7 +2556,74 @@ fn semantic_digest(
         hash_u32(&mut hasher, waiting.release_gate.raw());
         hash_u32(&mut hasher, waiting.max_occupancy);
     }
+    hash_u32(&mut hasher, EntityKind::StaticRoute.code().into());
+    hash_u32(
+        &mut hasher,
+        static_routes.len().try_into().unwrap_or(u32::MAX),
+    );
+    for route in static_routes {
+        hash_u32(&mut hasher, route.ordinal.raw());
+        hasher.update(route.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            route.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_u32(&mut hasher, route.edges.len());
+        for edge in &static_route_edges[route.edges.as_usize_range()] {
+            hash_u32(&mut hasher, edge.raw());
+        }
+        hash_u32(&mut hasher, route.transitions.len());
+        for transition in &static_route_transitions[route.transitions.as_usize_range()] {
+            hash_optional_ordinal(
+                &mut hasher,
+                transition.maneuver_gate.map(ManeuverGateOrdinal::raw),
+            );
+        }
+        hash_u32(&mut hasher, route.maneuver_occurrences.len());
+        for occurrence in &maneuver_occurrences[route.maneuver_occurrences.as_usize_range()] {
+            hash_u32(&mut hasher, occurrence.maneuver_path.raw());
+            hash_u32(&mut hasher, occurrence.entry_route_edge_index);
+            hash_u32(&mut hasher, occurrence.exit_route_edge_index);
+            hash_u32(&mut hasher, occurrence.gate_occurrences.start());
+            hash_u32(&mut hasher, occurrence.gate_occurrences.len());
+            hash_u32(&mut hasher, occurrence.waiting_zone_occurrences.start());
+            hash_u32(&mut hasher, occurrence.waiting_zone_occurrences.len());
+        }
+        hash_u32(&mut hasher, route.gate_occurrences.len());
+        for occurrence in &gate_occurrences[route.gate_occurrences.as_usize_range()] {
+            hash_u32(&mut hasher, occurrence.maneuver_gate.raw());
+            hash_u32(&mut hasher, occurrence.maneuver_occurrence_index);
+            hash_u32(&mut hasher, occurrence.from_route_edge_index);
+            hash_optional_ordinal(&mut hasher, occurrence.next_gate_occurrence_index);
+            hash_u32(&mut hasher, occurrence.next_boundary_route_edge_index);
+            hash_optional_ordinal(&mut hasher, occurrence.waiting_zone_occurrence_index);
+        }
+        hash_u32(&mut hasher, route.waiting_zone_occurrences.len());
+        for occurrence in &waiting_zone_occurrences[route.waiting_zone_occurrences.as_usize_range()]
+        {
+            hash_u32(&mut hasher, occurrence.waiting_zone.raw());
+            hash_u32(&mut hasher, occurrence.maneuver_occurrence_index);
+            hash_u32(&mut hasher, occurrence.entry_gate_occurrence_index);
+            hash_u32(&mut hasher, occurrence.release_gate_occurrence_index);
+            hash_u32(&mut hasher, occurrence.entry_route_edge_index);
+            hash_u32(&mut hasher, occurrence.release_route_edge_index);
+        }
+    }
     *hasher.finalize().as_bytes()
+}
+
+fn hash_optional_ordinal(hasher: &mut blake3::Hasher, value: Option<u32>) {
+    match value {
+        Some(value) => {
+            hasher.update(&[1]);
+            hash_u32(hasher, value);
+        }
+        None => {
+            hasher.update(&[0]);
+        }
+    }
 }
 
 fn hash_identity(
@@ -2286,7 +2773,7 @@ mod tests {
         assert_eq!(lir.lane_edges.len(), 2);
         assert_eq!(lir.lane_edge_successors.len(), 1);
         assert_eq!(lir.lir_record_count, 3);
-        assert_eq!(lir.output_bytes, 194);
+        assert_eq!(lir.output_bytes, 210);
         assert!(lir.controlled_live_bytes > 0);
         assert_eq!(lir.lane_edges[0].ordinal.raw(), 0);
         assert_eq!(lir.lane_edges[1].ordinal.raw(), 1);
