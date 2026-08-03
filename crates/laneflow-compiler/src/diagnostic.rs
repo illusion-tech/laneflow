@@ -81,6 +81,7 @@ pub enum DiagnosticCode {
     InvalidReferenceNamespace,
     InvalidReferenceKey,
     UnimportedReferenceModule,
+    UnknownReferenceTarget,
     InvalidLaneEdgeLength,
     InvalidLaneEdgeSpeedLimit,
     DuplicateLaneEdgeSuccessor,
@@ -103,6 +104,7 @@ impl DiagnosticCode {
             Self::InvalidReferenceNamespace => "LF-COMP-REFERENCE-NAMESPACE",
             Self::InvalidReferenceKey => "LF-COMP-REFERENCE-KEY",
             Self::UnimportedReferenceModule => "LF-COMP-UNIMPORTED-REFERENCE-MODULE",
+            Self::UnknownReferenceTarget => "LF-COMP-UNKNOWN-REFERENCE-TARGET",
             Self::InvalidLaneEdgeLength => "LF-COMP-LANE-EDGE-LENGTH",
             Self::InvalidLaneEdgeSpeedLimit => "LF-COMP-LANE-EDGE-SPEED-LIMIT",
             Self::DuplicateLaneEdgeSuccessor => "LF-COMP-DUPLICATE-LANE-EDGE-SUCCESSOR",
@@ -200,6 +202,12 @@ pub enum DiagnosticPayload {
     },
     UnimportedReferenceModule {
         namespace: Box<str>,
+    },
+    UnknownReferenceTarget {
+        entity_kind: EntityKind,
+        source_key: Box<str>,
+        target_namespace: Box<str>,
+        target_key: Box<str>,
     },
     InvalidLaneEdgeLength {
         stable_key: Box<str>,
@@ -422,6 +430,28 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn unknown_reference_target(
+        entity_kind: EntityKind,
+        source_key: &str,
+        target_namespace: &str,
+        target_key: &str,
+        primary_span: SourceSpan,
+        source_declaration_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::UnknownReferenceTarget,
+            DiagnosticPayload::UnknownReferenceTarget {
+                entity_kind,
+                source_key: source_key.into(),
+                target_namespace: target_namespace.into(),
+                target_key: target_key.into(),
+            },
+            Some(primary_span),
+            Box::new([source_declaration_span]),
+            Some(source_key.into()),
+        )
+    }
+
     pub(crate) fn invalid_lane_edge_length(
         stable_key: &str,
         value: f64,
@@ -633,6 +663,16 @@ impl fmt::Display for Diagnostic {
                     "引用目标模块 {namespace} 未被当前来源模块显式导入"
                 )
             }
+            DiagnosticPayload::UnknownReferenceTarget {
+                entity_kind,
+                source_key,
+                target_namespace,
+                target_key,
+            } => write!(
+                formatter,
+                "{} 声明 {source_key} 引用了不存在的目标 {target_namespace}:{target_key}",
+                entity_kind.slug()
+            ),
             DiagnosticPayload::InvalidLaneEdgeLength {
                 stable_key,
                 value_bits,

@@ -184,6 +184,21 @@ impl CompileLimits {
         self.max_compiler_controlled_live_bytes = compiler_controlled_live_bytes;
         self
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_pipeline_limits(
+        mut self,
+        hir_record_count: u32,
+        mir_record_count: u32,
+        stage_scratch_bytes: u32,
+        compiler_controlled_live_bytes: u32,
+    ) -> Self {
+        self.max_hir_record_count = hir_record_count;
+        self.max_mir_record_count = mir_record_count;
+        self.max_stage_scratch_bytes = stage_scratch_bytes;
+        self.max_compiler_controlled_live_bytes = compiler_controlled_live_bytes;
+        self
+    }
 }
 
 #[cfg(test)]

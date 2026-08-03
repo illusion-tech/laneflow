@@ -114,6 +114,18 @@ impl SourceModuleDescriptor {
     pub fn imports(&self) -> impl ExactSizeIterator<Item = &str> {
         self.imports.iter().map(AsRef::as_ref)
     }
+
+    pub(crate) const fn declaration_span(&self) -> &SourceSpan {
+        &self.declaration_span
+    }
+
+    pub(crate) fn authoring_namespace_arc(&self) -> Arc<str> {
+        Arc::clone(&self.authoring_namespace_id)
+    }
+
+    pub(crate) fn source_document_key_arc(&self) -> Arc<str> {
+        Arc::clone(&self.source_document_key)
+    }
 }
 
 struct ImportRecord {
@@ -658,8 +670,6 @@ pub struct SyntheticModule {
     descriptor: SourceModuleDescriptor,
     source_record: Box<[u8]>,
     imports: Box<[ImportRecord]>,
-    // 后继有类型 AST→HIR 编译遍消费；本切片只冻结其受检来源和规范编码。
-    #[allow(dead_code)]
     pub(crate) declarations: Box<[SyntheticDeclaration]>,
     declaration_count: u64,
     typed_ast_record_count: u64,
@@ -680,6 +690,12 @@ impl SyntheticModule {
 
     fn source_record(&self) -> &[u8] {
         &self.source_record
+    }
+
+    pub(crate) fn import_records(&self) -> impl ExactSizeIterator<Item = (&str, &SourceSpan)> {
+        self.imports
+            .iter()
+            .map(|record| (record.namespace.as_ref(), &record.span))
     }
 }
 
@@ -912,16 +928,28 @@ impl CompilationUnitBuilder {
         Ok(CompilationUnit {
             limits: self.limits,
             modules,
+            import_edge_count: self.import_edge_count,
+            declaration_count: self.declaration_count,
+            reference_count: self.reference_count,
+            relation_occurrence_count: self.relation_occurrence_count,
+            identity_field_occurrence_count: self.identity_field_occurrence_count,
+            symbol_count: self.symbol_count,
+            controlled_live_bytes: self.controlled_live_bytes,
         })
     }
 }
 
 /// 规范模块顺序已冻结的原子编译输入。
 pub struct CompilationUnit {
-    // 后继编译遍使用同一份不可变配置；来源图切片建立时暂不读取该字段。
-    #[allow(dead_code)]
     pub(crate) limits: CompileLimits,
     pub(crate) modules: Box<[SyntheticModule]>,
+    pub(crate) import_edge_count: u64,
+    pub(crate) declaration_count: u64,
+    pub(crate) reference_count: u64,
+    pub(crate) relation_occurrence_count: u64,
+    pub(crate) identity_field_occurrence_count: u64,
+    pub(crate) symbol_count: u64,
+    pub(crate) controlled_live_bytes: u64,
 }
 
 impl CompilationUnit {
