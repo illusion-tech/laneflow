@@ -102,6 +102,8 @@ pub enum DiagnosticCode {
     DuplicateImport,
     /// 编译单元包含两个相同 authoring namespace 的模块。
     DuplicateModuleNamespace,
+    /// 编译单元包含两个声明相同 `sourceDocumentKey` 的模块。
+    DuplicateSourceDocumentKey,
     /// 显式导入在完整编译单元中没有目标模块。
     UnknownImport,
     /// 一个或多个显式导入边形成循环。
@@ -143,6 +145,7 @@ impl DiagnosticCode {
             Self::InvalidImportNamespace => "LF-COMP-IMPORT-NAMESPACE",
             Self::DuplicateImport => "LF-COMP-DUPLICATE-IMPORT",
             Self::DuplicateModuleNamespace => "LF-COMP-DUPLICATE-MODULE-NAMESPACE",
+            Self::DuplicateSourceDocumentKey => "LF-COMP-DUPLICATE-SOURCE-DOCUMENT-KEY",
             Self::UnknownImport => "LF-COMP-UNKNOWN-IMPORT",
             Self::ImportCycle => "LF-COMP-IMPORT-CYCLE",
             Self::InvalidDeclarationKey => "LF-COMP-DECLARATION-KEY",
@@ -255,6 +258,11 @@ pub enum DiagnosticPayload {
     DuplicateModuleNamespace {
         /// 在编译单元内发生冲突的 authoring namespace。
         namespace: Box<str>,
+    },
+    /// 在编译单元内不能唯一定位来源位置的重复文档键。
+    DuplicateSourceDocumentKey {
+        /// 两个来源模块共同声明的 `sourceDocumentKey`。
+        source_document_key: Box<str>,
     },
     /// 在编译单元中没有目标模块的导入命名空间。
     UnknownImport {
@@ -430,6 +438,22 @@ impl Diagnostic {
             Some(primary_span),
             Box::new([related_span]),
             Some(namespace.into()),
+        )
+    }
+
+    pub(crate) fn duplicate_source_document_key(
+        source_document_key: &str,
+        primary_span: SourceSpan,
+        related_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateSourceDocumentKey,
+            DiagnosticPayload::DuplicateSourceDocumentKey {
+                source_document_key: source_document_key.into(),
+            },
+            Some(primary_span),
+            Box::new([related_span]),
+            Some(source_document_key.into()),
         )
     }
 
@@ -791,6 +815,12 @@ impl fmt::Display for Diagnostic {
             DiagnosticPayload::DuplicateModuleNamespace { namespace } => {
                 write!(formatter, "编译单元包含重复模块命名空间 {namespace}")
             }
+            DiagnosticPayload::DuplicateSourceDocumentKey {
+                source_document_key,
+            } => write!(
+                formatter,
+                "编译单元包含重复来源文档键 {source_document_key}"
+            ),
             DiagnosticPayload::UnknownImport { namespace } => {
                 write!(formatter, "导入目标模块 {namespace} 不存在")
             }

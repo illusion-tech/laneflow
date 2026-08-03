@@ -21,6 +21,7 @@ use crate::identity::{
     IdentityFieldInput, IdentityRegistrationError, IdentityRegistry, RegisteredCanonicalIdentity,
     encode_canonical_identity,
 };
+use crate::module::SourceDocumentOrdinal;
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
 /// 区分 HIR 模块表键的零尺寸阶段标记。
@@ -36,8 +37,10 @@ pub(crate) type HirLaneEdgeKey = ArenaKey<HirLaneEdgeTag>;
 /// 已解析为 HIR 模块键的显式导入边。
 pub(crate) struct HirImport {
     /// 被导入模块；目标在规范模块顺序中位于当前模块之前。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) target: HirModuleKey,
     /// 原始导入声明位置。
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) source_span: SourceSpan,
 }
 
@@ -47,6 +50,8 @@ pub(crate) struct HirModule {
     pub(crate) authoring_namespace_id: Arc<str>,
     /// 与机器路径无关的来源文档键。
     pub(crate) source_document_key: Arc<str>,
+    /// 编译单元来源文档登记中的显式序号；不能从 `HirModuleKey.raw()` 推断。
+    pub(crate) source_document_ordinal: SourceDocumentOrdinal,
     /// 此模块在 `HirUnit::imports` 中的半开区间。
     pub(crate) imports: TableRange<HirImport>,
     /// 模块声明位置。
@@ -86,9 +91,11 @@ pub(crate) struct HirLaneEdge {
 /// 资源预检使用的峰值还包含输入、查找表和暂存区。
 pub(crate) struct HirUnit {
     pub(crate) modules: Box<[HirModule]>,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) imports: Box<[HirImport]>,
     pub(crate) lane_edges: Box<[HirLaneEdge]>,
     pub(crate) lane_edge_references: Box<[HirLaneEdgeReference]>,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) hir_record_count: u64,
     pub(crate) controlled_live_bytes: u64,
 }
@@ -223,11 +230,16 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     // 作为后续规范模块轴；module_lookup 只用于解析，不参与任何输出遍历。
     let mut modules = TypedArena::<HirModuleTag, HirModule>::with_capacity(module_capacity);
     let mut module_lookup = HashMap::with_capacity(module_capacity);
-    for source_module in &unit.modules {
+    for (source_document_index, source_module) in unit.modules.iter().enumerate() {
+        let source_document_ordinal =
+            SourceDocumentOrdinal::from_raw(u32::try_from(source_document_index).map_err(
+                |_| arena_overflow(ArenaKeyOverflow, &unit.limits, primary_span.clone()),
+            )?);
         let key = modules
             .push(HirModule {
                 authoring_namespace_id: source_module.descriptor().authoring_namespace_arc(),
                 source_document_key: source_module.descriptor().source_document_key_arc(),
+                source_document_ordinal,
                 imports: TableRange::empty(),
                 source_span: source_module.descriptor().declaration_span().clone(),
             })

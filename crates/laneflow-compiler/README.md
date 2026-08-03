@@ -17,9 +17,11 @@ DSL）已加入首个受检领域声明：车道图边的显式稳定键、交�
 `(authoringNamespaceId, laneEdgeKey)` 派生和传递 `LaneEdgeId`；完整身份前像只在 HIR
 临时登记表中用于重复 / 摘要碰撞判断。包内 Canonical LIR 冻结阶段再按完整 Identity
 v1 前像字节分配 `LaneEdgeOrdinal`，把连接改写为有类型序号，并以共享字段字节池保存
-后继制品所需的完整身份字段；来源位置不进入 LIR 语义摘要。该管线尚未接入公共
-`Compiler`，私有 `LirUnit` 也不冒充已经完成全部领域语义的公共
-`ValidatedCanonicalLir`。其余领域声明、后继编译遍和已验证输出仍未实现。
+后继制品所需的完整身份字段；来源位置不进入 LIR 语义摘要。公共 `Compiler` 已将该
+当前领域子集接入原子成功闭环：任一阶段失败时只返回结构化诊断，成功时同时返回只读
+`ValidatedCanonicalLir`、与其配对的 `ValidatedSourceMapInput` 和非错误级诊断。
+`sourceDocumentKey` 在整个编译单元内唯一，来源记录在 AST/HIR/MIR 释放前按 LIR
+稳定实体与 owner-local 关系冻结；其余领域声明、后继编译遍和制品发射仍未实现。
 
 公共静态值契约来自 `laneflow-static-contract`。本 crate 不依赖当前核心、空间层、
 数据加载器或引擎适配器，也不提前冻结可移植制品、静态镜像或第三方前端插件接口。

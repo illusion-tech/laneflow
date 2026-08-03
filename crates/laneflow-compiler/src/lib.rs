@@ -1,23 +1,26 @@
 #![doc = include_str!("../README.md")]
 
-// arena/HIR/MIR/LIR 会在 Compiler 公共闭环切片中接线。当前仅由包内测试验证
-// Typed AST→HIR→MIR→Canonical LIR 的阶段不变量；保持私有可防止临时键和中间表被
-// 调用方误当成已验证输出，也不能为了消除暂时的 dead_code 而提前扩大公共兼容面。
+// arena/HIR/MIR/LIR 是生产 Compiler 闭环的私有实现层。保持这些模块私有，可防止临时
+// 键、阶段表和未验证中间态被调用方误当作稳定输出；只有 compiler 模块能把完整成功
+// 管线封装为对外的 ValidatedCanonicalLir 与配对来源伴随数据。
 #[allow(dead_code)]
 mod arena;
+mod compiler;
 mod declaration;
 mod diagnostic;
-#[allow(dead_code)]
 mod hir;
 mod identity;
 mod limits;
-#[allow(dead_code)]
 mod lir;
-#[allow(dead_code)]
 mod mir;
 mod module;
 mod source;
+mod source_map;
 
+pub use compiler::{
+    CanonicalIdentityFieldView, CanonicalLaneEdgeView, CompilationOutput, Compiler,
+    ValidatedCanonicalLir,
+};
 pub use declaration::{EntityReference, LaneEdgeInput, LaneEdgeReference, ScalarViolation};
 pub use diagnostic::{
     Diagnostic, DiagnosticBundle, DiagnosticCode, DiagnosticPayload, DiagnosticSeverity,
@@ -30,3 +33,7 @@ pub use module::{
     SourceModuleDescriptor, SyntheticModule, SyntheticModuleBuilder,
 };
 pub use source::{SourceModuleHeader, SourceModuleHeaderInput};
+pub use source_map::{
+    LaneEdgeSourceView, LaneEdgeSuccessorSourceView, SourceDocumentView, SourceLocationView,
+    SourceRelationRole, ValidatedSourceMapInput,
+};
