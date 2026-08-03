@@ -3177,6 +3177,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-compiler"
+version = "0.0.0"
+dependencies = [
+ "laneflow-static-contract",
+]
+
+[[package]]
 name = "laneflow-core"
 version = "0.0.0"
 dependencies = [
