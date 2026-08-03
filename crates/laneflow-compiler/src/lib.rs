@@ -1,10 +1,12 @@
 #![doc = include_str!("../README.md")]
 
+mod declaration;
 mod diagnostic;
 mod limits;
 mod module;
 mod source;
 
+pub use declaration::{EntityReference, LaneEdgeInput, LaneEdgeReference, ScalarViolation};
 pub use diagnostic::{
     Diagnostic, DiagnosticBundle, DiagnosticCode, DiagnosticPayload, DiagnosticSeverity,
     SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation,
