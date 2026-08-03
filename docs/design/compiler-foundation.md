@@ -1,6 +1,6 @@
 # 编译器基础设施与合成领域专用语言前端
 
-**文档状态**: 已接受（Accepted；#292 G1；尚未开始 G2 实现）<br>
+**文档状态**: 已接受（Accepted；#292 G1；G2 实现进行中）<br>
 **最后更新**: 2026-08-03<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
@@ -10,10 +10,11 @@ Typed AST）→高层中间表示（High-level Intermediate Representation，HIR
 合成领域专用语言前端（Synthetic Domain-specific Language Frontend，Synthetic DSL
 Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism）编译、诊断
 （Diagnostic）与当前态等价投影<br>
-**实现状态**: 未实现；#292 G1 已接受 #308 G4 非生产研究证据及首轮资源 / 性能
-输入，当前生产路径仍是 `Traffic v0.10` / `SpatialPackage v0.1` /
-`ScenarioManifest v0.1` / `laneflow-data` / `laneflow-core` /
-`laneflow-spatial`
+**实现状态**: G2 实现进行中；`laneflow-static-contract` 已建立 `no_std` 值类型、
+标识 v1（Identity v1）登记常量、有类型稳定标识与有类型逻辑序号，其余编译器管线尚未
+实现。#292 G1 已接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
+`Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
+`laneflow-data` / `laneflow-core` / `laneflow-spatial`
 
 **关联决策与设计**:
 
