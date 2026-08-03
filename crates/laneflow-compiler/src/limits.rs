@@ -237,6 +237,21 @@ impl CompileLimits {
         self.max_compiler_controlled_live_bytes = compiler_controlled_live_bytes;
         self
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_lir_limits(
+        mut self,
+        lir_record_count: u32,
+        stage_scratch_bytes: u32,
+        output_bytes: u32,
+        compiler_controlled_live_bytes: u32,
+    ) -> Self {
+        self.max_lir_record_count = lir_record_count;
+        self.max_stage_scratch_bytes = stage_scratch_bytes;
+        self.max_output_bytes = output_bytes;
+        self.max_compiler_controlled_live_bytes = compiler_controlled_live_bytes;
+        self
+    }
 }
 
 #[cfg(test)]
