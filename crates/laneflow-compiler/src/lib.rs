@@ -19,15 +19,17 @@ mod source_map;
 
 pub use compiler::{
     CanonicalAuthoringLaneView, CanonicalCorridorElement, CanonicalFacilityBandView,
-    CanonicalIdentityFieldView, CanonicalLaneEdgeView, CanonicalLaneGroupView,
-    CanonicalRoadCorridorView, CanonicalRoadSectionView, CompilationOutput, Compiler,
-    ValidatedCanonicalLir,
+    CanonicalIdentityFieldView, CanonicalJunctionInternalEdgeView, CanonicalJunctionView,
+    CanonicalLaneEdgeView, CanonicalLaneGroupView, CanonicalManeuverPathView,
+    CanonicalMovementView, CanonicalRoadCorridorView, CanonicalRoadSectionView, CompilationOutput,
+    Compiler, ValidatedCanonicalLir,
 };
 pub use declaration::{
     AuthoringLaneInput, CorridorElementReference, EntityReference, FacilityBandInput,
-    FacilityBandReference, FacilityKindCategory, FacilityKindViolation, LaneEdgeInput,
-    LaneEdgeReference, LaneGroupInput, LaneGroupReference, RoadCorridorInput, RoadSectionInput,
-    RoadSectionReference, ScalarViolation,
+    FacilityBandReference, FacilityKindCategory, FacilityKindViolation, JunctionInput,
+    JunctionReference, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
+    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference, RoadCorridorInput,
+    RoadSectionInput, RoadSectionReference, ScalarViolation,
 };
 pub use diagnostic::{
     Diagnostic, DiagnosticBundle, DiagnosticCode, DiagnosticPayload, DiagnosticSeverity,
@@ -42,7 +44,8 @@ pub use module::{
 pub use source::{SourceModuleHeader, SourceModuleHeaderInput};
 pub use source_map::{
     AuthoringLaneSourceView, CrossSectionRelationOwner, CrossSectionRelationSourceView,
-    FacilityBandSourceView, LaneEdgeSourceView, LaneEdgeSuccessorSourceView, LaneGroupSourceView,
-    RoadCorridorSourceView, RoadSectionSourceView, SourceDocumentView, SourceLocationView,
-    SourceRelationRole, ValidatedSourceMapInput,
+    FacilityBandSourceView, JunctionRelationOwner, JunctionRelationSourceView, JunctionSourceView,
+    LaneEdgeSourceView, LaneEdgeSuccessorSourceView, LaneGroupSourceView, ManeuverPathSourceView,
+    MovementSourceView, RoadCorridorSourceView, RoadSectionSourceView, SourceDocumentView,
+    SourceLocationView, SourceRelationRole, ValidatedSourceMapInput,
 };

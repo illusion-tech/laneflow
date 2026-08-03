@@ -1,6 +1,6 @@
 //! 高层中间表示（HIR）到中层中间表示（MIR）的确定性降级阶段。
 //!
-//! HIR 已完成模块、拓扑、横断面所有者与符号解析；本阶段不再接受文本引用，而是把
+//! HIR 已完成模块、车道 / 路口拓扑、横断面所有者与符号解析；本阶段不再接受文本引用，而是把
 //! 模块、稳定实体和 owner-local 关系冻结为目标布局中立的连续表。HIR 与 MIR 使用
 //! 不同的键标记，并通过显式映射表转换，避免碰巧相同的 `u32` 被跨阶段复用。
 //!
@@ -11,7 +11,8 @@
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    AuthoringLaneId, FacilityBandId, LaneEdgeId, LaneGroupId, RoadCorridorId, RoadSectionId,
+    AuthoringLaneId, FacilityBandId, JunctionId, LaneEdgeId, LaneGroupId, ManeuverPathId,
+    MovementId, RoadCorridorId, RoadSectionId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
@@ -29,6 +30,9 @@ pub(crate) enum MirRoadSectionTag {}
 pub(crate) enum MirAuthoringLaneTag {}
 pub(crate) enum MirLaneGroupTag {}
 pub(crate) enum MirFacilityBandTag {}
+pub(crate) enum MirJunctionTag {}
+pub(crate) enum MirMovementTag {}
+pub(crate) enum MirManeuverPathTag {}
 
 /// 仅在当前 `MirUnit` 模块表内有效的致密键。
 pub(crate) type MirModuleKey = ArenaKey<MirModuleTag>;
@@ -39,6 +43,9 @@ pub(crate) type MirRoadSectionKey = ArenaKey<MirRoadSectionTag>;
 pub(crate) type MirAuthoringLaneKey = ArenaKey<MirAuthoringLaneTag>;
 pub(crate) type MirLaneGroupKey = ArenaKey<MirLaneGroupTag>;
 pub(crate) type MirFacilityBandKey = ArenaKey<MirFacilityBandTag>;
+pub(crate) type MirJunctionKey = ArenaKey<MirJunctionTag>;
+pub(crate) type MirMovementKey = ArenaKey<MirMovementTag>;
+pub(crate) type MirManeuverPathKey = ArenaKey<MirManeuverPathTag>;
 
 /// MIR 中保留的模块身份与来源上下文。
 pub(crate) struct MirModule {
@@ -140,6 +147,54 @@ pub(crate) struct MirFacilityBand {
     pub(crate) source_span: SourceSpan,
 }
 
+pub(crate) struct MirJunction {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: JunctionId,
+    pub(crate) movements: TableRange<MirJunctionMovement>,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirMovement {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: MovementId,
+    pub(crate) junction: MirJunctionKey,
+    pub(crate) directed_entry_approach_key: Arc<str>,
+    pub(crate) directed_exit_approach_key: Arc<str>,
+    pub(crate) maneuver_paths: TableRange<MirMovementManeuverPath>,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirJunctionMovement {
+    pub(crate) movement: MirMovementKey,
+}
+
+pub(crate) struct MirMovementManeuverPath {
+    pub(crate) maneuver_path: MirManeuverPathKey,
+}
+
+pub(crate) struct MirManeuverPathEdge {
+    pub(crate) target: MirLaneEdgeKey,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirManeuverPath {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: ManeuverPathId,
+    pub(crate) movement: MirMovementKey,
+    pub(crate) edges: TableRange<MirManeuverPathEdge>,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirJunctionInternalEdge {
+    pub(crate) edge: MirLaneEdgeKey,
+    pub(crate) junction: MirJunctionKey,
+    pub(crate) source_path: MirManeuverPathKey,
+    pub(crate) source_span: SourceSpan,
+}
+
 /// MIR 阶段成功后一次性冻结的目标布局中立表集合。
 ///
 /// 每个连接区间都落在 `lane_edge_connections` 内，且所有目标键指向本实例的
@@ -157,6 +212,13 @@ pub(crate) struct MirUnit {
     pub(crate) lane_groups: Box<[MirLaneGroup]>,
     pub(crate) lane_group_members: Box<[MirLaneGroupMember]>,
     pub(crate) facility_bands: Box<[MirFacilityBand]>,
+    pub(crate) junctions: Box<[MirJunction]>,
+    pub(crate) movements: Box<[MirMovement]>,
+    pub(crate) junction_movements: Box<[MirJunctionMovement]>,
+    pub(crate) maneuver_paths: Box<[MirManeuverPath]>,
+    pub(crate) movement_maneuver_paths: Box<[MirMovementManeuverPath]>,
+    pub(crate) maneuver_path_edges: Box<[MirManeuverPathEdge]>,
+    pub(crate) junction_internal_edges: Box<[MirJunctionInternalEdge]>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) mir_record_count: u64,
     pub(crate) controlled_live_bytes: u64,
@@ -192,12 +254,33 @@ pub(crate) fn lower_to_mir(
     .fold(0_u64, |total, count| {
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
+    let junction_record_count = [
+        hir.junctions.len(),
+        hir.movements.len(),
+        hir.junction_movements.len(),
+        hir.maneuver_paths.len(),
+        hir.movement_maneuver_paths.len(),
+        hir.maneuver_path_edges.len(),
+        hir.junction_internal_edges.len(),
+    ]
+    .into_iter()
+    .fold(0_u64, |total, count| {
+        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
+    });
     let mir_record_count = lane_edge_count
         .saturating_add(connection_count)
-        .saturating_add(cross_record_count);
+        .saturating_add(cross_record_count)
+        .saturating_add(junction_record_count);
     let stage_scratch_bytes = requested_bytes::<MirModuleKey>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdgeKey>(lane_edge_count))
-        .saturating_add(requested_bytes::<u32>(cross_record_count));
+        .saturating_add(requested_bytes::<u32>(
+            cross_record_count.saturating_add(
+                u64::try_from(hir.junctions.len())
+                    .unwrap_or(u64::MAX)
+                    .saturating_add(u64::try_from(hir.movements.len()).unwrap_or(u64::MAX))
+                    .saturating_add(u64::try_from(hir.maneuver_paths.len()).unwrap_or(u64::MAX)),
+            ),
+        ));
     let mir_owned_bytes = requested_bytes::<MirModule>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdge>(lane_edge_count))
         .saturating_add(requested_bytes::<MirLaneEdgeConnection>(connection_count))
@@ -227,6 +310,33 @@ pub(crate) fn lower_to_mir(
         ))
         .saturating_add(requested_bytes::<MirFacilityBand>(
             hir.facility_bands.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirJunction>(
+            hir.junctions.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirMovement>(
+            hir.movements.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirJunctionMovement>(
+            hir.junction_movements.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirManeuverPath>(
+            hir.maneuver_paths.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirMovementManeuverPath>(
+            hir.movement_maneuver_paths
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirManeuverPathEdge>(
+            hir.maneuver_path_edges.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirJunctionInternalEdge>(
+            hir.junction_internal_edges
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
         ));
     let controlled_live_bytes = unit
         .controlled_live_bytes
@@ -423,6 +533,89 @@ pub(crate) fn lower_to_mir(
         })
         .collect();
 
+    let junction_mapping = dense_mapping::<MirJunctionTag>(hir.junctions.len())?;
+    let movement_mapping = dense_mapping::<MirMovementTag>(hir.movements.len())?;
+    let maneuver_path_mapping = dense_mapping::<MirManeuverPathTag>(hir.maneuver_paths.len())?;
+    let junctions = hir
+        .junctions
+        .iter()
+        .map(|junction| {
+            Ok(MirJunction {
+                module: hir_module_to_mir[junction.module.index()],
+                stable_key: Arc::clone(&junction.stable_key),
+                stable_id: junction.stable_id,
+                movements: remap_range(junction.movements, &unit.limits, &junction.source_span)?,
+                source_span: junction.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let movements = hir
+        .movements
+        .iter()
+        .map(|movement| {
+            Ok(MirMovement {
+                module: hir_module_to_mir[movement.module.index()],
+                stable_key: Arc::clone(&movement.stable_key),
+                stable_id: movement.stable_id,
+                junction: junction_mapping[movement.junction.index()],
+                directed_entry_approach_key: Arc::clone(&movement.directed_entry_approach_key),
+                directed_exit_approach_key: Arc::clone(&movement.directed_exit_approach_key),
+                maneuver_paths: remap_range(
+                    movement.maneuver_paths,
+                    &unit.limits,
+                    &movement.source_span,
+                )?,
+                source_span: movement.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let junction_movements = hir
+        .junction_movements
+        .iter()
+        .map(|member| MirJunctionMovement {
+            movement: movement_mapping[member.movement.index()],
+        })
+        .collect::<Vec<_>>();
+    let maneuver_paths = hir
+        .maneuver_paths
+        .iter()
+        .map(|path| {
+            Ok(MirManeuverPath {
+                module: hir_module_to_mir[path.module.index()],
+                stable_key: Arc::clone(&path.stable_key),
+                stable_id: path.stable_id,
+                movement: movement_mapping[path.movement.index()],
+                edges: remap_range(path.edges, &unit.limits, &path.source_span)?,
+                source_span: path.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let movement_maneuver_paths = hir
+        .movement_maneuver_paths
+        .iter()
+        .map(|member| MirMovementManeuverPath {
+            maneuver_path: maneuver_path_mapping[member.maneuver_path.index()],
+        })
+        .collect::<Vec<_>>();
+    let maneuver_path_edges = hir
+        .maneuver_path_edges
+        .iter()
+        .map(|edge| MirManeuverPathEdge {
+            target: hir_to_mir[edge.target.index()],
+            source_span: edge.source_span.clone(),
+        })
+        .collect::<Vec<_>>();
+    let junction_internal_edges = hir
+        .junction_internal_edges
+        .iter()
+        .map(|relation| MirJunctionInternalEdge {
+            edge: hir_to_mir[relation.edge.index()],
+            junction: junction_mapping[relation.junction.index()],
+            source_path: maneuver_path_mapping[relation.source_path.index()],
+            source_span: relation.source_span.clone(),
+        })
+        .collect::<Vec<_>>();
+
     debug_assert_eq!(modules.len(), hir.modules.len());
     debug_assert_eq!(lane_edges.len(), edge_capacity);
     debug_assert_eq!(connections.len(), connection_capacity);
@@ -438,6 +631,13 @@ pub(crate) fn lower_to_mir(
         lane_groups: lane_groups.into_boxed_slice(),
         lane_group_members: lane_group_members.into_boxed_slice(),
         facility_bands: facility_bands.into_boxed_slice(),
+        junctions: junctions.into_boxed_slice(),
+        movements: movements.into_boxed_slice(),
+        junction_movements: junction_movements.into_boxed_slice(),
+        maneuver_paths: maneuver_paths.into_boxed_slice(),
+        movement_maneuver_paths: movement_maneuver_paths.into_boxed_slice(),
+        maneuver_path_edges: maneuver_path_edges.into_boxed_slice(),
+        junction_internal_edges: junction_internal_edges.into_boxed_slice(),
         mir_record_count,
         controlled_live_bytes: mir_owned_bytes,
     })

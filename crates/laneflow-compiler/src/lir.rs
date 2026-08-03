@@ -1,7 +1,8 @@
 //! 中层中间表示（MIR）到已验证规范低层中间表示（Canonical LIR）的冻结阶段。
 //!
 //! 稳定实体按各自完整 Identity v1 前像字节排序，表下标冻结为有类型逻辑序号；车道
-//! 连接、横断面成员、覆盖链和所有者关系全部改写为同一 LIR 实例内的有类型序号。身份
+//! 连接、横断面成员、覆盖链、路口路径和派生内部边所有权全部改写为同一 LIR 实例内的
+//! 有类型序号。身份
 //! 字段和值分别进入连续表与共享字节池；来源位置留给同次编译的源映射伴随数据，不进入
 //! LIR 或语义摘要。
 //!
@@ -12,15 +13,17 @@ use core::cmp::Ordering;
 
 use laneflow_static_contract::{
     AuthoringLaneId, AuthoringLaneOrdinal, EntityKind, FacilityBandId, FacilityBandOrdinal,
-    FieldTag, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal, RoadCorridorId,
-    RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
+    FieldTag, JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId,
+    LaneGroupOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId, MovementOrdinal,
+    RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange};
 use crate::diagnostic::DiagnosticCollector;
 use crate::mir::{
-    MirAuthoringLaneKey, MirCorridorElement, MirFacilityBandKey, MirLaneEdgeKey, MirLaneGroupKey,
-    MirRoadCorridorKey, MirRoadSectionKey, MirUnit,
+    MirAuthoringLaneKey, MirCorridorElement, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeKey,
+    MirLaneGroupKey, MirManeuverPathKey, MirMovementKey, MirRoadCorridorKey, MirRoadSectionKey,
+    MirUnit,
 };
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
@@ -36,6 +39,10 @@ const LIR_SECTION_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 8;
 const LIR_LANE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 1 + 4;
 const LIR_GROUP_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
 const LIR_BAND_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4;
+const LIR_JUNCTION_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8;
+const LIR_MOVEMENT_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 8;
+const LIR_MANEUVER_PATH_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
+const LIR_JUNCTION_INTERNAL_EDGE_LOGICAL_BYTES: u64 = 4 + 4;
 const LIR_TYPED_ORDINAL_LOGICAL_BYTES: u64 = 4;
 const LIR_CORRIDOR_ELEMENT_LOGICAL_BYTES: u64 = 2 + 4;
 const LIR_SEMANTIC_DIGEST_BYTES: u64 = 32;
@@ -111,6 +118,37 @@ pub(crate) struct LirFacilityBand {
     pub(crate) kind_id: Box<str>,
 }
 
+pub(crate) struct LirJunction {
+    pub(crate) ordinal: JunctionOrdinal,
+    pub(crate) stable_id: JunctionId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) movements: TableRange<MovementOrdinal>,
+}
+
+pub(crate) struct LirMovement {
+    pub(crate) ordinal: MovementOrdinal,
+    pub(crate) stable_id: MovementId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) junction: JunctionOrdinal,
+    pub(crate) directed_entry_approach_key: Box<str>,
+    pub(crate) directed_exit_approach_key: Box<str>,
+    pub(crate) maneuver_paths: TableRange<ManeuverPathOrdinal>,
+}
+
+pub(crate) struct LirManeuverPath {
+    pub(crate) ordinal: ManeuverPathOrdinal,
+    pub(crate) stable_id: ManeuverPathId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) movement: MovementOrdinal,
+    /// 完整 `entry + internal + exit` 序列。
+    pub(crate) edges: TableRange<LaneEdgeOrdinal>,
+}
+
+pub(crate) struct LirJunctionInternalEdge {
+    pub(crate) edge: LaneEdgeOrdinal,
+    pub(crate) junction: JunctionOrdinal,
+}
+
 /// 当前纵向切片冻结出的连续、目标布局中立 LIR 表。
 ///
 /// 每条边的 `ordinal` 必须等于其切片下标；全部身份字段区间和连接区间均落在本实例的
@@ -128,6 +166,13 @@ pub(crate) struct LirUnit {
     pub(crate) lane_groups: Box<[LirLaneGroup]>,
     pub(crate) lane_group_members: Box<[AuthoringLaneOrdinal]>,
     pub(crate) facility_bands: Box<[LirFacilityBand]>,
+    pub(crate) junctions: Box<[LirJunction]>,
+    pub(crate) junction_movements: Box<[MovementOrdinal]>,
+    pub(crate) movements: Box<[LirMovement]>,
+    pub(crate) movement_maneuver_paths: Box<[ManeuverPathOrdinal]>,
+    pub(crate) maneuver_paths: Box<[LirManeuverPath]>,
+    pub(crate) maneuver_path_edges: Box<[LaneEdgeOrdinal]>,
+    pub(crate) junction_internal_edges: Box<[LirJunctionInternalEdge]>,
     pub(crate) identity_fields: Box<[LirIdentityField]>,
     pub(crate) identity_field_bytes: Box<[u8]>,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -156,6 +201,13 @@ pub(crate) struct LirFreezeOutput {
     pub(crate) mir_group_to_lir: Box<[LaneGroupOrdinal]>,
     pub(crate) canonical_mir_band_order: Box<[MirFacilityBandKey]>,
     pub(crate) mir_band_to_lir: Box<[FacilityBandOrdinal]>,
+    pub(crate) canonical_mir_junction_order: Box<[MirJunctionKey]>,
+    pub(crate) mir_junction_to_lir: Box<[JunctionOrdinal]>,
+    pub(crate) canonical_mir_movement_order: Box<[MirMovementKey]>,
+    pub(crate) mir_movement_to_lir: Box<[MovementOrdinal]>,
+    pub(crate) canonical_mir_maneuver_path_order: Box<[MirManeuverPathKey]>,
+    pub(crate) mir_maneuver_path_to_lir: Box<[ManeuverPathOrdinal]>,
+    pub(crate) canonical_mir_internal_edge_order: Box<[u32]>,
 }
 
 impl LirFreezeOutput {
@@ -194,6 +246,26 @@ impl LirFreezeOutput {
                 self.mir_band_to_lir.len(),
             ),
         )
+        .saturating_add(mapping_pair_bytes::<MirJunctionKey, JunctionOrdinal>(
+            self.canonical_mir_junction_order.len(),
+            self.mir_junction_to_lir.len(),
+        ))
+        .saturating_add(mapping_pair_bytes::<MirMovementKey, MovementOrdinal>(
+            self.canonical_mir_movement_order.len(),
+            self.mir_movement_to_lir.len(),
+        ))
+        .saturating_add(
+            mapping_pair_bytes::<MirManeuverPathKey, ManeuverPathOrdinal>(
+                self.canonical_mir_maneuver_path_order.len(),
+                self.mir_maneuver_path_to_lir.len(),
+            ),
+        )
+        .saturating_add(requested_bytes::<u32>(
+            self.canonical_mir_internal_edge_order
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
     }
 }
 
@@ -223,6 +295,14 @@ pub(crate) fn freeze_lir(
     let group_count = u64::try_from(mir.lane_groups.len()).unwrap_or(u64::MAX);
     let group_member_count = u64::try_from(mir.lane_group_members.len()).unwrap_or(u64::MAX);
     let band_count = u64::try_from(mir.facility_bands.len()).unwrap_or(u64::MAX);
+    let junction_count = u64::try_from(mir.junctions.len()).unwrap_or(u64::MAX);
+    let junction_movement_count = u64::try_from(mir.junction_movements.len()).unwrap_or(u64::MAX);
+    let movement_count = u64::try_from(mir.movements.len()).unwrap_or(u64::MAX);
+    let movement_path_count = u64::try_from(mir.movement_maneuver_paths.len()).unwrap_or(u64::MAX);
+    let maneuver_path_count = u64::try_from(mir.maneuver_paths.len()).unwrap_or(u64::MAX);
+    let maneuver_path_edge_count = u64::try_from(mir.maneuver_path_edges.len()).unwrap_or(u64::MAX);
+    let junction_internal_edge_count =
+        u64::try_from(mir.junction_internal_edges.len()).unwrap_or(u64::MAX);
     // Identity 字段出现项有独立资源维度；LIR record 指标计实体行和关系出现行，与 MIR
     // 当前已支持实体与关系的计数对象保持一致。
     let lir_record_count = [
@@ -237,6 +317,13 @@ pub(crate) fn freeze_lir(
         group_count,
         group_member_count,
         band_count,
+        junction_count,
+        junction_movement_count,
+        movement_count,
+        movement_path_count,
+        maneuver_path_count,
+        maneuver_path_edge_count,
+        junction_internal_edge_count,
     ]
     .into_iter()
     .fold(0_u64, u64::saturating_add);
@@ -249,7 +336,10 @@ pub(crate) fn freeze_lir(
                 .saturating_add(group_count)
                 .saturating_add(band_count)
                 .saturating_mul(3),
-        );
+        )
+        .saturating_add(junction_count.saturating_mul(2))
+        .saturating_add(movement_count.saturating_mul(5))
+        .saturating_add(maneuver_path_count.saturating_mul(5));
     let identity_field_byte_count = identity_field_byte_count(mir);
     let kind_id_byte_count = mir
         .road_sections
@@ -259,6 +349,15 @@ pub(crate) fn freeze_lir(
         .fold(0_u64, |total, len| {
             total.saturating_add(u64::try_from(len).unwrap_or(u64::MAX))
         });
+    let movement_approach_key_byte_count = mir.movements.iter().fold(0_u64, |total, movement| {
+        total
+            .saturating_add(
+                u64::try_from(movement.directed_entry_approach_key.len()).unwrap_or(u64::MAX),
+            )
+            .saturating_add(
+                u64::try_from(movement.directed_exit_approach_key.len()).unwrap_or(u64::MAX),
+            )
+    });
 
     // 排序序列与 MIR→LIR 映射各只保存一个有类型 `u32` 值；完整身份前像通过借用 MIR
     // 字段作分段比较，避免为排序再复制一份变长编码。
@@ -270,8 +369,12 @@ pub(crate) fn freeze_lir(
                 .saturating_add(lane_count)
                 .saturating_add(group_count)
                 .saturating_add(band_count)
+                .saturating_add(junction_count)
+                .saturating_add(movement_count)
+                .saturating_add(maneuver_path_count)
                 .saturating_mul(2),
-        ));
+        ))
+        .saturating_add(requested_bytes::<u32>(junction_internal_edge_count));
     // OutputBytes 使用设计冻结的目标布局中立字段宽度，不能把 Rust struct padding 或
     // 当前平台对齐冒充规范输出量；受控存续内存则按真实堆容量请求单独计算。
     let output_bytes = lane_edge_count
@@ -288,6 +391,16 @@ pub(crate) fn freeze_lir(
         .saturating_add(group_count.saturating_mul(LIR_GROUP_LOGICAL_BYTES))
         .saturating_add(group_member_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(band_count.saturating_mul(LIR_BAND_LOGICAL_BYTES))
+        .saturating_add(junction_count.saturating_mul(LIR_JUNCTION_LOGICAL_BYTES))
+        .saturating_add(junction_movement_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
+        .saturating_add(movement_count.saturating_mul(LIR_MOVEMENT_LOGICAL_BYTES))
+        .saturating_add(movement_approach_key_byte_count)
+        .saturating_add(movement_path_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
+        .saturating_add(maneuver_path_count.saturating_mul(LIR_MANEUVER_PATH_LOGICAL_BYTES))
+        .saturating_add(maneuver_path_edge_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
+        .saturating_add(
+            junction_internal_edge_count.saturating_mul(LIR_JUNCTION_INTERNAL_EDGE_LOGICAL_BYTES),
+        )
         .saturating_add(kind_id_byte_count)
         .saturating_add(LIR_SEMANTIC_DIGEST_BYTES);
     let output_owned_bytes = requested_bytes::<LirLaneEdge>(lane_edge_count)
@@ -305,7 +418,17 @@ pub(crate) fn freeze_lir(
         .saturating_add(requested_bytes::<LirLaneGroup>(group_count))
         .saturating_add(requested_bytes::<AuthoringLaneOrdinal>(group_member_count))
         .saturating_add(requested_bytes::<LirFacilityBand>(band_count))
-        .saturating_add(kind_id_byte_count);
+        .saturating_add(kind_id_byte_count)
+        .saturating_add(requested_bytes::<LirJunction>(junction_count))
+        .saturating_add(requested_bytes::<MovementOrdinal>(junction_movement_count))
+        .saturating_add(requested_bytes::<LirMovement>(movement_count))
+        .saturating_add(movement_approach_key_byte_count)
+        .saturating_add(requested_bytes::<ManeuverPathOrdinal>(movement_path_count))
+        .saturating_add(requested_bytes::<LirManeuverPath>(maneuver_path_count))
+        .saturating_add(requested_bytes::<LaneEdgeOrdinal>(maneuver_path_edge_count))
+        .saturating_add(requested_bytes::<LirJunctionInternalEdge>(
+            junction_internal_edge_count,
+        ));
     let controlled_live_bytes = unit
         .controlled_live_bytes
         .saturating_add(mir.controlled_live_bytes)
@@ -754,6 +877,322 @@ pub(crate) fn freeze_lir(
         });
     }
 
+    let mut canonical_mir_junction_order: Vec<MirJunctionKey> = dense_mir_keys(mir.junctions.len());
+    canonical_mir_junction_order.sort_unstable_by(|left, right| {
+        let left = &mir.junctions[left.index()];
+        let right = &mir.junctions[right.index()];
+        compare_identity_parts(
+            &mir.modules[left.module.index()].authoring_namespace_id,
+            &left.stable_key,
+            None,
+            &mir.modules[right.module.index()].authoring_namespace_id,
+            &right.stable_key,
+            None,
+        )
+    });
+    let mir_junction_to_lir = ordinal_mapping(
+        mir.junctions.len(),
+        &canonical_mir_junction_order,
+        JunctionOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
+    let mut canonical_mir_movement_order: Vec<MirMovementKey> = dense_mir_keys(mir.movements.len());
+    canonical_mir_movement_order.sort_unstable_by(|left, right| {
+        let left = &mir.movements[left.index()];
+        let right = &mir.movements[right.index()];
+        compare_length_prefixed(
+            mir.modules[left.module.index()]
+                .authoring_namespace_id
+                .as_bytes(),
+            mir.modules[right.module.index()]
+                .authoring_namespace_id
+                .as_bytes(),
+        )
+        .then_with(|| {
+            compare_length_prefixed(left.stable_key.as_bytes(), right.stable_key.as_bytes())
+        })
+        .then_with(|| {
+            compare_length_prefixed(
+                left.directed_entry_approach_key.as_bytes(),
+                right.directed_entry_approach_key.as_bytes(),
+            )
+        })
+        .then_with(|| {
+            compare_length_prefixed(
+                left.directed_exit_approach_key.as_bytes(),
+                right.directed_exit_approach_key.as_bytes(),
+            )
+        })
+        .then_with(|| {
+            mir.junctions[left.junction.index()]
+                .stable_id
+                .as_untyped()
+                .as_bytes()
+                .cmp(
+                    mir.junctions[right.junction.index()]
+                        .stable_id
+                        .as_untyped()
+                        .as_bytes(),
+                )
+        })
+    });
+    let mir_movement_to_lir = ordinal_mapping(
+        mir.movements.len(),
+        &canonical_mir_movement_order,
+        MovementOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
+    let mut canonical_mir_maneuver_path_order: Vec<MirManeuverPathKey> =
+        dense_mir_keys(mir.maneuver_paths.len());
+    canonical_mir_maneuver_path_order.sort_unstable_by(|left, right| {
+        let left = &mir.maneuver_paths[left.index()];
+        let right = &mir.maneuver_paths[right.index()];
+        let left_edges = &mir.maneuver_path_edges[left.edges.as_usize_range()];
+        let right_edges = &mir.maneuver_path_edges[right.edges.as_usize_range()];
+        compare_length_prefixed(
+            mir.modules[left.module.index()]
+                .authoring_namespace_id
+                .as_bytes(),
+            mir.modules[right.module.index()]
+                .authoring_namespace_id
+                .as_bytes(),
+        )
+        .then_with(|| {
+            compare_length_prefixed(left.stable_key.as_bytes(), right.stable_key.as_bytes())
+        })
+        .then_with(|| {
+            mir.movements[left.movement.index()]
+                .stable_id
+                .as_untyped()
+                .as_bytes()
+                .cmp(
+                    mir.movements[right.movement.index()]
+                        .stable_id
+                        .as_untyped()
+                        .as_bytes(),
+                )
+        })
+        .then_with(|| {
+            mir.lane_edges[left_edges[0].target.index()]
+                .stable_id
+                .as_untyped()
+                .as_bytes()
+                .cmp(
+                    mir.lane_edges[right_edges[0].target.index()]
+                        .stable_id
+                        .as_untyped()
+                        .as_bytes(),
+                )
+        })
+        .then_with(|| {
+            mir.lane_edges[left_edges[left_edges.len() - 1].target.index()]
+                .stable_id
+                .as_untyped()
+                .as_bytes()
+                .cmp(
+                    mir.lane_edges[right_edges[right_edges.len() - 1].target.index()]
+                        .stable_id
+                        .as_untyped()
+                        .as_bytes(),
+                )
+        })
+    });
+    let mir_maneuver_path_to_lir = ordinal_mapping(
+        mir.maneuver_paths.len(),
+        &canonical_mir_maneuver_path_order,
+        ManeuverPathOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
+    let mut junctions = Vec::with_capacity(mir.junctions.len());
+    let mut junction_movements = Vec::with_capacity(mir.junction_movements.len());
+    for mir_key in canonical_mir_junction_order.iter().copied() {
+        let junction = &mir.junctions[mir_key.index()];
+        let identity_range = push_lir_identity(
+            &mut identity_fields,
+            &mut identity_field_bytes,
+            FieldTag::JunctionKey,
+            &mir.modules[junction.module.index()].authoring_namespace_id,
+            &junction.stable_key,
+            None,
+            &unit.limits,
+            primary_span.clone(),
+        )?;
+        let relation_start = junction_movements.len();
+        junction_movements.extend(
+            mir.junction_movements[junction.movements.as_usize_range()]
+                .iter()
+                .map(|member| mir_movement_to_lir[member.movement.index()]),
+        );
+        // 所有者成员关系是集合语义；按子实体规范序号冻结，避免声明先后进入语义摘要。
+        junction_movements[relation_start..].sort_unstable();
+        junctions.push(LirJunction {
+            ordinal: mir_junction_to_lir[mir_key.index()],
+            stable_id: junction.stable_id,
+            identity_fields: identity_range,
+            movements: relation_range(
+                relation_start,
+                junction_movements.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+        });
+    }
+
+    let mut movements = Vec::with_capacity(mir.movements.len());
+    let mut movement_maneuver_paths = Vec::with_capacity(mir.movement_maneuver_paths.len());
+    for mir_key in canonical_mir_movement_order.iter().copied() {
+        let movement = &mir.movements[mir_key.index()];
+        let identity_start = identity_fields.len();
+        for (tag, value) in [
+            (
+                FieldTag::AuthoringNamespaceId,
+                mir.modules[movement.module.index()]
+                    .authoring_namespace_id
+                    .as_bytes(),
+            ),
+            (FieldTag::MovementKey, movement.stable_key.as_bytes()),
+            (
+                FieldTag::DirectedEntryApproachKey,
+                movement.directed_entry_approach_key.as_bytes(),
+            ),
+            (
+                FieldTag::DirectedExitApproachKey,
+                movement.directed_exit_approach_key.as_bytes(),
+            ),
+            (
+                FieldTag::JunctionStableId,
+                mir.junctions[movement.junction.index()]
+                    .stable_id
+                    .as_untyped()
+                    .as_bytes(),
+            ),
+        ] {
+            push_identity_field(
+                &mut identity_fields,
+                &mut identity_field_bytes,
+                tag,
+                value,
+                &unit.limits,
+                primary_span.clone(),
+            )?;
+        }
+        let relation_start = movement_maneuver_paths.len();
+        movement_maneuver_paths.extend(
+            mir.movement_maneuver_paths[movement.maneuver_paths.as_usize_range()]
+                .iter()
+                .map(|member| mir_maneuver_path_to_lir[member.maneuver_path.index()]),
+        );
+        movement_maneuver_paths[relation_start..].sort_unstable();
+        movements.push(LirMovement {
+            ordinal: mir_movement_to_lir[mir_key.index()],
+            stable_id: movement.stable_id,
+            identity_fields: relation_range(
+                identity_start,
+                identity_fields.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+            junction: mir_junction_to_lir[movement.junction.index()],
+            directed_entry_approach_key: movement.directed_entry_approach_key.as_ref().into(),
+            directed_exit_approach_key: movement.directed_exit_approach_key.as_ref().into(),
+            maneuver_paths: relation_range(
+                relation_start,
+                movement_maneuver_paths.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+        });
+    }
+
+    let mut maneuver_paths = Vec::with_capacity(mir.maneuver_paths.len());
+    let mut maneuver_path_edges = Vec::with_capacity(mir.maneuver_path_edges.len());
+    for mir_key in canonical_mir_maneuver_path_order.iter().copied() {
+        let path = &mir.maneuver_paths[mir_key.index()];
+        let edges = &mir.maneuver_path_edges[path.edges.as_usize_range()];
+        let identity_start = identity_fields.len();
+        for (tag, value) in [
+            (
+                FieldTag::AuthoringNamespaceId,
+                mir.modules[path.module.index()]
+                    .authoring_namespace_id
+                    .as_bytes(),
+            ),
+            (FieldTag::PathKey, path.stable_key.as_bytes()),
+            (
+                FieldTag::MovementStableId,
+                mir.movements[path.movement.index()]
+                    .stable_id
+                    .as_untyped()
+                    .as_bytes(),
+            ),
+            (
+                FieldTag::EntryEdgeStableId,
+                mir.lane_edges[edges[0].target.index()]
+                    .stable_id
+                    .as_untyped()
+                    .as_bytes(),
+            ),
+            (
+                FieldTag::ExitEdgeStableId,
+                mir.lane_edges[edges[edges.len() - 1].target.index()]
+                    .stable_id
+                    .as_untyped()
+                    .as_bytes(),
+            ),
+        ] {
+            push_identity_field(
+                &mut identity_fields,
+                &mut identity_field_bytes,
+                tag,
+                value,
+                &unit.limits,
+                primary_span.clone(),
+            )?;
+        }
+        let edge_start = maneuver_path_edges.len();
+        maneuver_path_edges.extend(edges.iter().map(|edge| mir_to_lir[edge.target.index()]));
+        maneuver_paths.push(LirManeuverPath {
+            ordinal: mir_maneuver_path_to_lir[mir_key.index()],
+            stable_id: path.stable_id,
+            identity_fields: relation_range(
+                identity_start,
+                identity_fields.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+            movement: mir_movement_to_lir[path.movement.index()],
+            edges: relation_range(
+                edge_start,
+                maneuver_path_edges.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+        });
+    }
+
+    let mut canonical_mir_internal_edge_order: Vec<u32> = (0..mir.junction_internal_edges.len())
+        .map(|index| u32::try_from(index).expect("LIR precheck proved relation count fits u32"))
+        .collect();
+    canonical_mir_internal_edge_order.sort_unstable_by_key(|index| {
+        mir_to_lir[mir.junction_internal_edges[*index as usize].edge.index()]
+    });
+    let junction_internal_edges = canonical_mir_internal_edge_order
+        .iter()
+        .map(|index| {
+            let relation = &mir.junction_internal_edges[*index as usize];
+            LirJunctionInternalEdge {
+                edge: mir_to_lir[relation.edge.index()],
+                junction: mir_junction_to_lir[relation.junction.index()],
+            }
+        })
+        .collect::<Vec<_>>();
+
     debug_assert_eq!(lane_edges.len(), edge_capacity);
     debug_assert_eq!(successors.len(), successor_capacity);
     debug_assert_eq!(identity_fields.len(), identity_field_capacity);
@@ -770,6 +1209,13 @@ pub(crate) fn freeze_lir(
         &lane_groups,
         &lane_group_members,
         &facility_bands,
+        &junctions,
+        &junction_movements,
+        &movements,
+        &movement_maneuver_paths,
+        &maneuver_paths,
+        &maneuver_path_edges,
+        &junction_internal_edges,
         &identity_fields,
         &identity_field_bytes,
     );
@@ -786,6 +1232,13 @@ pub(crate) fn freeze_lir(
             lane_groups: lane_groups.into_boxed_slice(),
             lane_group_members: lane_group_members.into_boxed_slice(),
             facility_bands: facility_bands.into_boxed_slice(),
+            junctions: junctions.into_boxed_slice(),
+            junction_movements: junction_movements.into_boxed_slice(),
+            movements: movements.into_boxed_slice(),
+            movement_maneuver_paths: movement_maneuver_paths.into_boxed_slice(),
+            maneuver_paths: maneuver_paths.into_boxed_slice(),
+            maneuver_path_edges: maneuver_path_edges.into_boxed_slice(),
+            junction_internal_edges: junction_internal_edges.into_boxed_slice(),
             identity_fields: identity_fields.into_boxed_slice(),
             identity_field_bytes: identity_field_bytes.into_boxed_slice(),
             semantic_digest,
@@ -805,6 +1258,13 @@ pub(crate) fn freeze_lir(
         mir_group_to_lir: mir_group_to_lir.into_boxed_slice(),
         canonical_mir_band_order: canonical_mir_band_order.into_boxed_slice(),
         mir_band_to_lir: mir_band_to_lir.into_boxed_slice(),
+        canonical_mir_junction_order: canonical_mir_junction_order.into_boxed_slice(),
+        mir_junction_to_lir: mir_junction_to_lir.into_boxed_slice(),
+        canonical_mir_movement_order: canonical_mir_movement_order.into_boxed_slice(),
+        mir_movement_to_lir: mir_movement_to_lir.into_boxed_slice(),
+        canonical_mir_maneuver_path_order: canonical_mir_maneuver_path_order.into_boxed_slice(),
+        mir_maneuver_path_to_lir: mir_maneuver_path_to_lir.into_boxed_slice(),
+        canonical_mir_internal_edge_order: canonical_mir_internal_edge_order.into_boxed_slice(),
     })
 }
 
@@ -936,8 +1396,8 @@ fn push_lir_identity(
 
 fn identity_field_byte_count(mir: &MirUnit) -> u64 {
     let mut total = 0_u64;
-    let mut add = |module_index: usize, stable_key: &str, has_parent: bool| {
-        total = total
+    let add = |total: &mut u64, module_index: usize, stable_key: &str, has_parent: bool| {
+        *total = total
             .saturating_add(
                 u64::try_from(mir.modules[module_index].authoring_namespace_id.len())
                     .unwrap_or(u64::MAX),
@@ -946,22 +1406,60 @@ fn identity_field_byte_count(mir: &MirUnit) -> u64 {
             .saturating_add(if has_parent { 16 } else { 0 });
     };
     for edge in &mir.lane_edges {
-        add(edge.module.index(), &edge.stable_key, false);
+        add(&mut total, edge.module.index(), &edge.stable_key, false);
     }
     for corridor in &mir.road_corridors {
-        add(corridor.module.index(), &corridor.stable_key, false);
+        add(
+            &mut total,
+            corridor.module.index(),
+            &corridor.stable_key,
+            false,
+        );
     }
     for section in &mir.road_sections {
-        add(section.module.index(), &section.stable_key, true);
+        add(
+            &mut total,
+            section.module.index(),
+            &section.stable_key,
+            true,
+        );
     }
     for lane in &mir.authoring_lanes {
-        add(lane.module.index(), &lane.stable_key, true);
+        add(&mut total, lane.module.index(), &lane.stable_key, true);
     }
     for group in &mir.lane_groups {
-        add(group.module.index(), &group.stable_key, true);
+        add(&mut total, group.module.index(), &group.stable_key, true);
     }
     for band in &mir.facility_bands {
-        add(band.module.index(), &band.stable_key, true);
+        add(&mut total, band.module.index(), &band.stable_key, true);
+    }
+    for junction in &mir.junctions {
+        add(
+            &mut total,
+            junction.module.index(),
+            &junction.stable_key,
+            false,
+        );
+    }
+    for movement in &mir.movements {
+        add(
+            &mut total,
+            movement.module.index(),
+            &movement.stable_key,
+            true,
+        );
+        total = total
+            .saturating_add(
+                u64::try_from(movement.directed_entry_approach_key.len()).unwrap_or(u64::MAX),
+            )
+            .saturating_add(
+                u64::try_from(movement.directed_exit_approach_key.len()).unwrap_or(u64::MAX),
+            );
+    }
+    for path in &mir.maneuver_paths {
+        // ManeuverPath identity has three fixed StableId128 parents: Movement、entry 与 exit。
+        add(&mut total, path.module.index(), &path.stable_key, false);
+        total = total.saturating_add(16_u64.saturating_mul(3));
     }
     total
 }
@@ -1003,6 +1501,13 @@ fn semantic_digest(
     groups: &[LirLaneGroup],
     group_members: &[AuthoringLaneOrdinal],
     bands: &[LirFacilityBand],
+    junctions: &[LirJunction],
+    junction_movements: &[MovementOrdinal],
+    movements: &[LirMovement],
+    movement_maneuver_paths: &[ManeuverPathOrdinal],
+    maneuver_paths: &[LirManeuverPath],
+    maneuver_path_edges: &[LaneEdgeOrdinal],
+    junction_internal_edges: &[LirJunctionInternalEdge],
     identity_fields: &[LirIdentityField],
     identity_field_bytes: &[u8],
 ) -> [u8; 32] {
@@ -1129,6 +1634,71 @@ fn semantic_digest(
         );
         hash_u32(&mut hasher, band.road_corridor.raw());
         hash_bytes(&mut hasher, band.kind_id.as_bytes());
+    }
+    hash_u32(&mut hasher, EntityKind::Junction.code().into());
+    hash_u32(&mut hasher, junctions.len().try_into().unwrap_or(u32::MAX));
+    for junction in junctions {
+        hash_u32(&mut hasher, junction.ordinal.raw());
+        hasher.update(junction.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            junction.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_u32(&mut hasher, junction.movements.len());
+        for movement in &junction_movements[junction.movements.as_usize_range()] {
+            hash_u32(&mut hasher, movement.raw());
+        }
+    }
+    hash_u32(&mut hasher, EntityKind::Movement.code().into());
+    hash_u32(&mut hasher, movements.len().try_into().unwrap_or(u32::MAX));
+    for movement in movements {
+        hash_u32(&mut hasher, movement.ordinal.raw());
+        hasher.update(movement.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            movement.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_u32(&mut hasher, movement.junction.raw());
+        hash_bytes(&mut hasher, movement.directed_entry_approach_key.as_bytes());
+        hash_bytes(&mut hasher, movement.directed_exit_approach_key.as_bytes());
+        hash_u32(&mut hasher, movement.maneuver_paths.len());
+        for path in &movement_maneuver_paths[movement.maneuver_paths.as_usize_range()] {
+            hash_u32(&mut hasher, path.raw());
+        }
+    }
+    hash_u32(&mut hasher, EntityKind::ManeuverPath.code().into());
+    hash_u32(
+        &mut hasher,
+        maneuver_paths.len().try_into().unwrap_or(u32::MAX),
+    );
+    for path in maneuver_paths {
+        hash_u32(&mut hasher, path.ordinal.raw());
+        hasher.update(path.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            path.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_u32(&mut hasher, path.movement.raw());
+        hash_u32(&mut hasher, path.edges.len());
+        for edge in &maneuver_path_edges[path.edges.as_usize_range()] {
+            hash_u32(&mut hasher, edge.raw());
+        }
+    }
+    // internal-role 表是由全路径闭包验证出的规范关系，必须参与摘要；否则角色冲突或路径
+    // 内部结构变化可能被一个只观察实体身份的摘要漏掉。
+    hash_u32(
+        &mut hasher,
+        junction_internal_edges.len().try_into().unwrap_or(u32::MAX),
+    );
+    for relation in junction_internal_edges {
+        hash_u32(&mut hasher, relation.edge.raw());
+        hash_u32(&mut hasher, relation.junction.raw());
     }
     *hasher.finalize().as_bytes()
 }

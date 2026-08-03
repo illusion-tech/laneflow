@@ -7,14 +7,16 @@
 
 use laneflow_static_contract::{
     AuthoringLaneId, AuthoringLaneOrdinal, FacilityBandId, FacilityBandOrdinal, FieldTag,
-    LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal, RoadCorridorId,
+    JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
+    ManeuverPathId, ManeuverPathOrdinal, MovementId, MovementOrdinal, RoadCorridorId,
     RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
 };
 
 use crate::hir::build_hir;
 use crate::lir::{
-    LirAuthoringLane, LirCorridorElement, LirFacilityBand, LirIdentityField, LirLaneEdge,
-    LirLaneGroup, LirRoadCorridor, LirRoadSection, LirUnit, freeze_lir,
+    LirAuthoringLane, LirCorridorElement, LirFacilityBand, LirIdentityField, LirJunction,
+    LirJunctionInternalEdge, LirLaneEdge, LirLaneGroup, LirManeuverPath, LirMovement,
+    LirRoadCorridor, LirRoadSection, LirUnit, freeze_lir,
 };
 use crate::mir::lower_to_mir;
 use crate::source_map::{ValidatedSourceMapInput, freeze_source_map};
@@ -180,6 +182,101 @@ impl ValidatedCanonicalLir {
                 record,
             })
     }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部路口。
+    pub fn junctions(&self) -> impl ExactSizeIterator<Item = CanonicalJunctionView<'_>> {
+        self.inner
+            .junctions
+            .iter()
+            .map(|record| CanonicalJunctionView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取路口。
+    #[must_use]
+    pub fn junction(&self, ordinal: JunctionOrdinal) -> Option<CanonicalJunctionView<'_>> {
+        self.inner
+            .junctions
+            .get(ordinal.index())
+            .map(|record| CanonicalJunctionView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部转向动作。
+    pub fn movements(&self) -> impl ExactSizeIterator<Item = CanonicalMovementView<'_>> {
+        self.inner
+            .movements
+            .iter()
+            .map(|record| CanonicalMovementView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取转向动作。
+    #[must_use]
+    pub fn movement(&self, ordinal: MovementOrdinal) -> Option<CanonicalMovementView<'_>> {
+        self.inner
+            .movements
+            .get(ordinal.index())
+            .map(|record| CanonicalMovementView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部机动路径。
+    pub fn maneuver_paths(&self) -> impl ExactSizeIterator<Item = CanonicalManeuverPathView<'_>> {
+        self.inner
+            .maneuver_paths
+            .iter()
+            .map(|record| CanonicalManeuverPathView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取机动路径。
+    #[must_use]
+    pub fn maneuver_path(
+        &self,
+        ordinal: ManeuverPathOrdinal,
+    ) -> Option<CanonicalManeuverPathView<'_>> {
+        self.inner
+            .maneuver_paths
+            .get(ordinal.index())
+            .map(|record| CanonicalManeuverPathView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按 `LaneEdgeOrdinal` 遍历全部派生的路口内部边所有权。
+    ///
+    /// 验证阶段已证明每条内部边最多属于一个路口，并且不会同时承担任一路径的入口或出口
+    /// 边角色；同一路口的多条路径仍可合法共享同一内部边。
+    pub fn junction_internal_edges(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalJunctionInternalEdgeView<'_>> {
+        self.inner
+            .junction_internal_edges
+            .iter()
+            .map(|record| CanonicalJunctionInternalEdgeView { record })
+    }
+
+    /// 返回一条车道图边的派生路口内部所有者；边不承担内部角色时返回 `None`。
+    #[must_use]
+    pub fn junction_internal_owner(&self, edge: LaneEdgeOrdinal) -> Option<JunctionOrdinal> {
+        self.inner
+            .junction_internal_edges
+            .binary_search_by_key(&edge, |relation| relation.edge)
+            .ok()
+            .map(|index| self.inner.junction_internal_edges[index].junction)
+    }
 }
 
 /// Canonical LIR 中一条 `LaneEdge` 记录的借用视图。
@@ -298,6 +395,24 @@ impl_stable_entity_view!(
     FacilityBandOrdinal,
     FacilityBandId
 );
+impl_stable_entity_view!(
+    CanonicalJunctionView,
+    LirJunction,
+    JunctionOrdinal,
+    JunctionId
+);
+impl_stable_entity_view!(
+    CanonicalMovementView,
+    LirMovement,
+    MovementOrdinal,
+    MovementId
+);
+impl_stable_entity_view!(
+    CanonicalManeuverPathView,
+    LirManeuverPath,
+    ManeuverPathOrdinal,
+    ManeuverPathId
+);
 
 /// 道路走廊有序横断面中的一项有类型成员。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -396,6 +511,94 @@ impl CanonicalFacilityBandView<'_> {
     #[must_use]
     pub fn kind_id(&self) -> &str {
         &self.record.kind_id
+    }
+}
+
+impl CanonicalJunctionView<'_> {
+    /// 返回本路口拥有的非空转向动作集合。
+    #[must_use]
+    pub fn movements(&self) -> &[MovementOrdinal] {
+        &self.lir.junction_movements[self.record.movements.as_usize_range()]
+    }
+}
+
+impl CanonicalMovementView<'_> {
+    /// 返回唯一拥有本转向动作的路口。
+    #[must_use]
+    pub const fn junction(&self) -> JunctionOrdinal {
+        self.record.junction
+    }
+
+    /// 返回参与 Identity v1 的有向入口接近键；该键由编制端显式提供，编译器不从几何推断。
+    #[must_use]
+    pub fn directed_entry_approach_key(&self) -> &str {
+        &self.record.directed_entry_approach_key
+    }
+
+    /// 返回参与 Identity v1 的有向出口接近键；该键由编制端显式提供，编译器不从几何推断。
+    #[must_use]
+    pub fn directed_exit_approach_key(&self) -> &str {
+        &self.record.directed_exit_approach_key
+    }
+
+    /// 返回本转向动作拥有的非空机动路径集合。
+    #[must_use]
+    pub fn maneuver_paths(&self) -> &[ManeuverPathOrdinal] {
+        &self.lir.movement_maneuver_paths[self.record.maneuver_paths.as_usize_range()]
+    }
+}
+
+impl CanonicalManeuverPathView<'_> {
+    /// 返回唯一拥有本机动路径的转向动作。
+    #[must_use]
+    pub const fn movement(&self) -> MovementOrdinal {
+        self.record.movement
+    }
+
+    /// 返回完整且已验证直接连通的 `entry + internal + exit` 车道图边序列。
+    #[must_use]
+    pub fn edges(&self) -> &[LaneEdgeOrdinal] {
+        &self.lir.maneuver_path_edges[self.record.edges.as_usize_range()]
+    }
+
+    /// 返回完整路径序列的入口边。
+    #[must_use]
+    pub fn entry_edge(&self) -> LaneEdgeOrdinal {
+        self.edges()[0]
+    }
+
+    /// 返回完整路径序列中可为空的内部边切片。
+    #[must_use]
+    pub fn internal_edges(&self) -> &[LaneEdgeOrdinal] {
+        let edges = self.edges();
+        &edges[1..edges.len() - 1]
+    }
+
+    /// 返回完整路径序列的出口边。
+    #[must_use]
+    pub fn exit_edge(&self) -> LaneEdgeOrdinal {
+        let edges = self.edges();
+        edges[edges.len() - 1]
+    }
+}
+
+/// Canonical LIR 中一条派生路口内部边所有权的借用视图。
+#[derive(Clone, Copy)]
+pub struct CanonicalJunctionInternalEdgeView<'a> {
+    record: &'a LirJunctionInternalEdge,
+}
+
+impl CanonicalJunctionInternalEdgeView<'_> {
+    /// 返回承担路口内部角色的车道图边。
+    #[must_use]
+    pub const fn edge(&self) -> LaneEdgeOrdinal {
+        self.record.edge
+    }
+
+    /// 返回该内部边的唯一所有者路口。
+    #[must_use]
+    pub const fn junction(&self) -> JunctionOrdinal {
+        self.record.junction
     }
 }
 
@@ -502,10 +705,11 @@ mod tests {
     use crate::{
         AuthoringLaneInput, CompilationUnitBuilder, CompileLimitDimension, CompileLimits,
         CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
-        FacilityBandReference, LaneEdgeInput, LaneEdgeReference, LaneGroupInput,
-        LaneGroupReference, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
-        SourceModuleDescriptor, SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole,
-        SyntheticModule, SyntheticModuleBuilder,
+        FacilityBandReference, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
+        LaneGroupInput, LaneGroupReference, ManeuverPathInput, MovementInput, MovementReference,
+        RoadCorridorInput, RoadSectionInput, RoadSectionReference, SourceModuleDescriptor,
+        SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, SyntheticModule,
+        SyntheticModuleBuilder,
     };
 
     fn module(
@@ -649,6 +853,140 @@ mod tests {
             add_corridor(&mut builder);
         }
         builder.finish().unwrap()
+    }
+
+    fn junction_builder(document: &str) -> SyntheticModuleBuilder {
+        let limits = CompileLimits::p100_initial_v1();
+        let header = SourceModuleHeader::new(
+            SourceModuleHeaderInput {
+                authoring_namespace_id: "city/junction",
+                source_document_key: document,
+                generator_build_id: "git:0123456789abcdef",
+                parameters_and_inputs_digest: [0x11; 32],
+                frontend_options_digest: [0x22; 32],
+                random_seed: Some(42),
+                provenance: "repository:laneflow",
+            },
+            &limits,
+        )
+        .unwrap();
+        SyntheticModuleBuilder::new(header, &limits).unwrap()
+    }
+
+    fn junction_module(permuted: bool, selected_internal: &'static str) -> SyntheticModule {
+        let mut builder = junction_builder(if permuted {
+            "junction-permuted.document"
+        } else {
+            "junction.document"
+        });
+        let add_edges = |builder: &mut SyntheticModuleBuilder| {
+            let internal_successors = [LaneEdgeReference::local("exit")];
+            let entry_successors = [
+                LaneEdgeReference::local("internal-a"),
+                LaneEdgeReference::local("internal-b"),
+            ];
+            builder
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "entry-a",
+                    length_meters: 10.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &entry_successors,
+                })
+                .unwrap()
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "entry-b",
+                    length_meters: 10.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &entry_successors,
+                })
+                .unwrap()
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "internal-a",
+                    length_meters: 8.0,
+                    speed_limit_meters_per_second: 8.0,
+                    successors: &internal_successors,
+                })
+                .unwrap()
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "internal-b",
+                    length_meters: 8.0,
+                    speed_limit_meters_per_second: 8.0,
+                    successors: &internal_successors,
+                })
+                .unwrap()
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "exit",
+                    length_meters: 12.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &[],
+                })
+                .unwrap();
+        };
+        let add_junction = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_junction(JunctionInput {
+                    junction_key: "junction-main",
+                })
+                .unwrap();
+        };
+        let add_movement = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_movement(MovementInput {
+                    movement_key: "movement-through",
+                    junction: JunctionReference::local("junction-main"),
+                    directed_entry_approach_key: "approach-westbound",
+                    directed_exit_approach_key: "approach-eastbound",
+                })
+                .unwrap();
+        };
+        let add_path = |builder: &mut SyntheticModuleBuilder, key: &str, entry: &str| {
+            let internal = [LaneEdgeReference::local(selected_internal)];
+            builder
+                .add_maneuver_path(ManeuverPathInput {
+                    maneuver_path_key: key,
+                    movement: MovementReference::local("movement-through"),
+                    entry_edge: LaneEdgeReference::local(entry),
+                    internal_edges: &internal,
+                    exit_edge: LaneEdgeReference::local("exit"),
+                })
+                .unwrap();
+        };
+
+        if permuted {
+            add_path(&mut builder, "path-b", "entry-b");
+            add_path(&mut builder, "path-a", "entry-a");
+            add_movement(&mut builder);
+            add_junction(&mut builder);
+            add_edges(&mut builder);
+        } else {
+            add_edges(&mut builder);
+            add_junction(&mut builder);
+            add_movement(&mut builder);
+            add_path(&mut builder, "path-a", "entry-a");
+            add_path(&mut builder, "path-b", "entry-b");
+        }
+        builder.finish().unwrap()
+    }
+
+    fn stable_key<'a>(
+        mut fields: impl Iterator<Item = CanonicalIdentityFieldView<'a>>,
+        tag: FieldTag,
+    ) -> String {
+        fields
+            .find(|field| field.tag() == tag)
+            .map(|field| String::from_utf8(field.value_bytes().to_vec()).unwrap())
+            .unwrap()
+    }
+
+    fn compile_diagnostic_codes(builder: SyntheticModuleBuilder) -> Vec<DiagnosticCode> {
+        match Compiler::new().compile(unit([builder.finish().unwrap()])) {
+            Ok(_) => panic!("expected junction topology validation failure"),
+            Err(diagnostics) => diagnostics
+                .diagnostics()
+                .iter()
+                .map(Diagnostic::code)
+                .collect(),
+        }
     }
 
     fn edge_key(edge: CanonicalLaneEdgeView<'_>) -> String {
@@ -872,6 +1210,448 @@ mod tests {
                 .map(|lane| lane.stable_id())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn compiler_freezes_complete_junction_topology_and_source_relations() {
+        let output = Compiler::new()
+            .compile(unit([junction_module(false, "internal-a")]))
+            .unwrap();
+        let lir = output.lir();
+        let junction = lir.junctions().next().unwrap();
+        let movement = lir.movements().next().unwrap();
+        let paths = lir.maneuver_paths().collect::<Vec<_>>();
+        let edges = lir
+            .lane_edges()
+            .map(|edge| (edge_key(edge), edge.ordinal()))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(junction.movements(), [movement.ordinal()]);
+        assert_eq!(movement.junction(), junction.ordinal());
+        assert_eq!(movement.directed_entry_approach_key(), "approach-westbound");
+        assert_eq!(movement.directed_exit_approach_key(), "approach-eastbound");
+        assert_eq!(movement.maneuver_paths().len(), 2);
+        assert_eq!(paths.len(), 2);
+        assert_eq!(
+            stable_key(paths[0].identity_fields(), FieldTag::PathKey),
+            "path-a"
+        );
+        assert_eq!(
+            paths[0].edges(),
+            [edges["entry-a"], edges["internal-a"], edges["exit"]]
+        );
+        assert_eq!(paths[0].entry_edge(), edges["entry-a"]);
+        assert_eq!(paths[0].internal_edges(), [edges["internal-a"]]);
+        assert_eq!(paths[0].exit_edge(), edges["exit"]);
+        assert_eq!(
+            lir.junction_internal_owner(edges["internal-a"]),
+            Some(junction.ordinal())
+        );
+        assert_eq!(lir.junction_internal_owner(edges["entry-a"]), None);
+        assert_eq!(
+            lir.junction_internal_edges()
+                .map(|relation| (relation.edge(), relation.junction()))
+                .collect::<Vec<_>>(),
+            [(edges["internal-a"], junction.ordinal())]
+        );
+        assert_eq!(
+            movement
+                .identity_fields()
+                .map(|field| field.tag())
+                .collect::<Vec<_>>(),
+            [
+                FieldTag::AuthoringNamespaceId,
+                FieldTag::MovementKey,
+                FieldTag::DirectedEntryApproachKey,
+                FieldTag::DirectedExitApproachKey,
+                FieldTag::JunctionStableId,
+            ]
+        );
+        assert_eq!(
+            paths[0]
+                .identity_fields()
+                .map(|field| field.tag())
+                .collect::<Vec<_>>(),
+            [
+                FieldTag::AuthoringNamespaceId,
+                FieldTag::PathKey,
+                FieldTag::MovementStableId,
+                FieldTag::EntryEdgeStableId,
+                FieldTag::ExitEdgeStableId,
+            ]
+        );
+
+        let source_map = output.source_map_input();
+        assert_eq!(source_map.junction_sources().len(), 1);
+        assert_eq!(source_map.movement_sources().len(), 1);
+        assert_eq!(source_map.maneuver_path_sources().len(), 2);
+        assert_eq!(
+            source_map
+                .junction_relation_sources()
+                .map(|source| (
+                    source.owner().entity_kind(),
+                    source.role(),
+                    source.local_index()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    laneflow_static_contract::EntityKind::Junction,
+                    SourceRelationRole::JunctionMovement,
+                    0,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::Movement,
+                    SourceRelationRole::MovementManeuverPath,
+                    0,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::Movement,
+                    SourceRelationRole::MovementManeuverPath,
+                    1,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::ManeuverPath,
+                    SourceRelationRole::ManeuverPathEdge,
+                    0,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::ManeuverPath,
+                    SourceRelationRole::ManeuverPathEdge,
+                    1,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::ManeuverPath,
+                    SourceRelationRole::ManeuverPathEdge,
+                    2,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::ManeuverPath,
+                    SourceRelationRole::ManeuverPathEdge,
+                    0,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::ManeuverPath,
+                    SourceRelationRole::ManeuverPathEdge,
+                    1,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::ManeuverPath,
+                    SourceRelationRole::ManeuverPathEdge,
+                    2,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::Junction,
+                    SourceRelationRole::JunctionInternalEdge,
+                    0,
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn compiler_accepts_a_direct_maneuver_path_without_internal_edges() {
+        let mut builder = junction_builder("direct-path.document");
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("exit")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_junction(JunctionInput {
+                junction_key: "junction-main",
+            })
+            .unwrap()
+            .add_movement(MovementInput {
+                movement_key: "movement-main",
+                junction: JunctionReference::local("junction-main"),
+                directed_entry_approach_key: "approach-entry",
+                directed_exit_approach_key: "approach-exit",
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-direct",
+                movement: MovementReference::local("movement-main"),
+                entry_edge: LaneEdgeReference::local("entry"),
+                internal_edges: &[],
+                exit_edge: LaneEdgeReference::local("exit"),
+            })
+            .unwrap();
+
+        let output = Compiler::new()
+            .compile(unit([builder.finish().unwrap()]))
+            .unwrap();
+        let path = output.lir().maneuver_paths().next().unwrap();
+        assert_eq!(path.edges().len(), 2);
+        assert!(path.internal_edges().is_empty());
+        assert_eq!(output.lir().junction_internal_edges().len(), 0);
+    }
+
+    #[test]
+    fn junction_lir_is_deterministic_and_path_identity_excludes_internal_edges() {
+        let baseline = Compiler::new()
+            .compile(unit([junction_module(false, "internal-a")]))
+            .unwrap();
+        let permuted = Compiler::new()
+            .compile(unit([junction_module(true, "internal-a")]))
+            .unwrap();
+        let different_internal = Compiler::new()
+            .compile(unit([junction_module(false, "internal-b")]))
+            .unwrap();
+
+        assert_eq!(
+            baseline.lir.inner.semantic_digest,
+            permuted.lir.inner.semantic_digest
+        );
+        assert_eq!(
+            baseline
+                .lir()
+                .maneuver_paths()
+                .map(|path| path.stable_id())
+                .collect::<Vec<_>>(),
+            permuted
+                .lir()
+                .maneuver_paths()
+                .map(|path| path.stable_id())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            baseline
+                .lir()
+                .maneuver_paths()
+                .map(|path| path.stable_id())
+                .collect::<Vec<_>>(),
+            different_internal
+                .lir()
+                .maneuver_paths()
+                .map(|path| path.stable_id())
+                .collect::<Vec<_>>()
+        );
+        assert_ne!(
+            baseline.lir.inner.semantic_digest,
+            different_internal.lir.inner.semantic_digest
+        );
+    }
+
+    #[test]
+    fn compiler_rejects_junction_topology_semantic_failures_before_lir() {
+        let add_junction = |builder: &mut SyntheticModuleBuilder, key: &'static str| {
+            builder
+                .add_junction(JunctionInput { junction_key: key })
+                .unwrap();
+        };
+        let add_movement =
+            |builder: &mut SyntheticModuleBuilder, key: &'static str, junction: &'static str| {
+                builder
+                    .add_movement(MovementInput {
+                        movement_key: key,
+                        junction: JunctionReference::local(junction),
+                        directed_entry_approach_key: "approach-entry",
+                        directed_exit_approach_key: "approach-exit",
+                    })
+                    .unwrap();
+            };
+        let add_edge = |builder: &mut SyntheticModuleBuilder,
+                        key: &'static str,
+                        successors: &[LaneEdgeReference<'static>]| {
+            builder
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: key,
+                    length_meters: 10.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors,
+                })
+                .unwrap();
+        };
+
+        let mut empty_junction = junction_builder("empty-junction.document");
+        add_junction(&mut empty_junction, "junction-empty");
+        assert!(compile_diagnostic_codes(empty_junction).contains(&DiagnosticCode::EmptyJunction));
+
+        let mut empty_movement = junction_builder("empty-movement.document");
+        add_junction(&mut empty_movement, "junction-main");
+        add_movement(&mut empty_movement, "movement-empty", "junction-main");
+        assert!(compile_diagnostic_codes(empty_movement).contains(&DiagnosticCode::EmptyMovement));
+
+        let mut disconnected = junction_builder("disconnected-path.document");
+        add_edge(&mut disconnected, "entry", &[]);
+        add_edge(&mut disconnected, "exit", &[]);
+        add_junction(&mut disconnected, "junction-main");
+        add_movement(&mut disconnected, "movement-main", "junction-main");
+        disconnected
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-main",
+                movement: MovementReference::local("movement-main"),
+                entry_edge: LaneEdgeReference::local("entry"),
+                internal_edges: &[],
+                exit_edge: LaneEdgeReference::local("exit"),
+            })
+            .unwrap();
+        assert!(
+            compile_diagnostic_codes(disconnected)
+                .contains(&DiagnosticCode::DisconnectedManeuverPath)
+        );
+
+        let mut duplicate = junction_builder("duplicate-path.document");
+        add_edge(&mut duplicate, "entry", &[LaneEdgeReference::local("exit")]);
+        add_edge(&mut duplicate, "exit", &[]);
+        add_junction(&mut duplicate, "junction-main");
+        add_movement(&mut duplicate, "movement-main", "junction-main");
+        for path_key in ["path-a", "path-b"] {
+            duplicate
+                .add_maneuver_path(ManeuverPathInput {
+                    maneuver_path_key: path_key,
+                    movement: MovementReference::local("movement-main"),
+                    entry_edge: LaneEdgeReference::local("entry"),
+                    internal_edges: &[],
+                    exit_edge: LaneEdgeReference::local("exit"),
+                })
+                .unwrap();
+        }
+        assert!(
+            compile_diagnostic_codes(duplicate)
+                .contains(&DiagnosticCode::DuplicateManeuverPathSequence)
+        );
+
+        let mut cross_junction = junction_builder("cross-junction-internal.document");
+        add_edge(
+            &mut cross_junction,
+            "entry-a",
+            &[LaneEdgeReference::local("internal")],
+        );
+        add_edge(
+            &mut cross_junction,
+            "entry-b",
+            &[LaneEdgeReference::local("internal")],
+        );
+        add_edge(
+            &mut cross_junction,
+            "internal",
+            &[
+                LaneEdgeReference::local("exit-a"),
+                LaneEdgeReference::local("exit-b"),
+            ],
+        );
+        add_edge(&mut cross_junction, "exit-a", &[]);
+        add_edge(&mut cross_junction, "exit-b", &[]);
+        for suffix in ["a", "b"] {
+            let junction_key = if suffix == "a" {
+                "junction-a"
+            } else {
+                "junction-b"
+            };
+            let movement_key = if suffix == "a" {
+                "movement-a"
+            } else {
+                "movement-b"
+            };
+            add_junction(&mut cross_junction, junction_key);
+            add_movement(&mut cross_junction, movement_key, junction_key);
+            let internal = [LaneEdgeReference::local("internal")];
+            cross_junction
+                .add_maneuver_path(ManeuverPathInput {
+                    maneuver_path_key: if suffix == "a" { "path-a" } else { "path-b" },
+                    movement: MovementReference::local(movement_key),
+                    entry_edge: LaneEdgeReference::local(if suffix == "a" {
+                        "entry-a"
+                    } else {
+                        "entry-b"
+                    }),
+                    internal_edges: &internal,
+                    exit_edge: LaneEdgeReference::local(if suffix == "a" {
+                        "exit-a"
+                    } else {
+                        "exit-b"
+                    }),
+                })
+                .unwrap();
+        }
+        assert!(
+            compile_diagnostic_codes(cross_junction)
+                .contains(&DiagnosticCode::InternalEdgeJunctionConflict)
+        );
+
+        let mut boundary_conflict = junction_builder("internal-boundary-conflict.document");
+        add_edge(
+            &mut boundary_conflict,
+            "entry",
+            &[LaneEdgeReference::local("internal")],
+        );
+        add_edge(
+            &mut boundary_conflict,
+            "internal",
+            &[
+                LaneEdgeReference::local("exit-a"),
+                LaneEdgeReference::local("exit-b"),
+            ],
+        );
+        add_edge(&mut boundary_conflict, "exit-a", &[]);
+        add_edge(&mut boundary_conflict, "exit-b", &[]);
+        add_junction(&mut boundary_conflict, "junction-main");
+        add_movement(&mut boundary_conflict, "movement-main", "junction-main");
+        let internal = [LaneEdgeReference::local("internal")];
+        boundary_conflict
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-with-internal",
+                movement: MovementReference::local("movement-main"),
+                entry_edge: LaneEdgeReference::local("entry"),
+                internal_edges: &internal,
+                exit_edge: LaneEdgeReference::local("exit-a"),
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-with-boundary",
+                movement: MovementReference::local("movement-main"),
+                entry_edge: LaneEdgeReference::local("internal"),
+                internal_edges: &[],
+                exit_edge: LaneEdgeReference::local("exit-b"),
+            })
+            .unwrap();
+        assert!(
+            compile_diagnostic_codes(boundary_conflict)
+                .contains(&DiagnosticCode::InternalBoundaryRoleConflict)
+        );
+    }
+
+    #[test]
+    fn movement_approach_identity_fields_reject_non_ascii_input_atomically() {
+        let mut builder = junction_builder("invalid-approach.document");
+        builder
+            .add_junction(JunctionInput {
+                junction_key: "junction-main",
+            })
+            .unwrap();
+        let diagnostic = match builder.add_movement(MovementInput {
+            movement_key: "movement-main",
+            junction: JunctionReference::local("junction-main"),
+            directed_entry_approach_key: "入口",
+            directed_exit_approach_key: "approach-exit",
+        }) {
+            Ok(_) => panic!("non-ASCII identity field must reject the declaration"),
+            Err(diagnostic) => diagnostic,
+        };
+        assert_eq!(
+            diagnostic.diagnostics()[0].code(),
+            DiagnosticCode::InvalidIdentityAsciiField
+        );
+        // 同一个稳定键仍可被合法声明，证明失败路径没有预占符号或部分提交资源计数。
+        builder
+            .add_movement(MovementInput {
+                movement_key: "movement-main",
+                junction: JunctionReference::local("junction-main"),
+                directed_entry_approach_key: "approach-entry",
+                directed_exit_approach_key: "approach-exit",
+            })
+            .unwrap();
     }
 
     #[test]
