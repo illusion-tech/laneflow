@@ -8,8 +8,9 @@
 use laneflow_static_contract::{
     AuthoringLaneId, AuthoringLaneOrdinal, EntityKind, FacilityBandId, FacilityBandOrdinal,
     JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
-    ManeuverPathId, ManeuverPathOrdinal, MovementId, MovementOrdinal, RoadCorridorId,
-    RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
+    ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId,
+    MovementOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
+    StopLineId, StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::diagnostic::DiagnosticCollector;
@@ -52,6 +53,12 @@ pub enum SourceRelationRole {
     ManeuverPathEdge = 8,
     /// 从全部机动路径派生的一项路口内部边排他所有权。
     JunctionInternalEdge = 9,
+    /// 机动路径按转换顺序拥有的一项机动门。
+    ManeuverPathGate = 10,
+    /// 机动路径按入口转换顺序拥有的一项等待区。
+    ManeuverPathWaitingZone = 11,
+    /// 停止线被一项机动门引用的反向关系。
+    StopLineManeuverGate = 12,
 }
 
 #[derive(Clone, Copy)]
@@ -100,6 +107,7 @@ enum JunctionRelationOwnerRecord {
     Junction(JunctionOrdinal, JunctionId),
     Movement(MovementOrdinal, MovementId),
     ManeuverPath(ManeuverPathOrdinal, ManeuverPathId),
+    StopLine(StopLineOrdinal, StopLineId),
 }
 
 struct LaneEdgeSuccessorSourceRecord {
@@ -127,6 +135,9 @@ pub struct ValidatedSourceMapInput {
     junction_sources: Box<[StableEntitySourceRecord<JunctionOrdinal, JunctionId>]>,
     movement_sources: Box<[StableEntitySourceRecord<MovementOrdinal, MovementId>]>,
     maneuver_path_sources: Box<[StableEntitySourceRecord<ManeuverPathOrdinal, ManeuverPathId>]>,
+    stop_line_sources: Box<[StableEntitySourceRecord<StopLineOrdinal, StopLineId>]>,
+    maneuver_gate_sources: Box<[StableEntitySourceRecord<ManeuverGateOrdinal, ManeuverGateId>]>,
+    waiting_zone_sources: Box<[StableEntitySourceRecord<WaitingZoneOrdinal, WaitingZoneId>]>,
     junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
 }
 
@@ -265,7 +276,39 @@ impl ValidatedSourceMapInput {
             })
     }
 
-    /// 遍历路口所有者树、完整路径序列和派生内部边关系的规范来源记录。
+    /// 按 `StopLineOrdinal` 递增顺序遍历停止线来源记录。
+    pub fn stop_line_sources(&self) -> impl ExactSizeIterator<Item = StopLineSourceView<'_>> {
+        self.stop_line_sources
+            .iter()
+            .map(|record| StopLineSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按 `ManeuverGateOrdinal` 递增顺序遍历机动门来源记录。
+    pub fn maneuver_gate_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = ManeuverGateSourceView<'_>> {
+        self.maneuver_gate_sources
+            .iter()
+            .map(|record| ManeuverGateSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按 `WaitingZoneOrdinal` 递增顺序遍历等待区来源记录。
+    pub fn waiting_zone_sources(&self) -> impl ExactSizeIterator<Item = WaitingZoneSourceView<'_>> {
+        self.waiting_zone_sources
+            .iter()
+            .map(|record| WaitingZoneSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 遍历路口所有者树、完整路径序列、派生内部边与静态控制边界的规范来源记录。
     pub fn junction_relation_sources(
         &self,
     ) -> impl ExactSizeIterator<Item = JunctionRelationSourceView<'_>> {
@@ -417,6 +460,9 @@ stable_source_view!(FacilityBandSourceView, FacilityBandOrdinal, FacilityBandId)
 stable_source_view!(JunctionSourceView, JunctionOrdinal, JunctionId);
 stable_source_view!(MovementSourceView, MovementOrdinal, MovementId);
 stable_source_view!(ManeuverPathSourceView, ManeuverPathOrdinal, ManeuverPathId);
+stable_source_view!(StopLineSourceView, StopLineOrdinal, StopLineId);
+stable_source_view!(ManeuverGateSourceView, ManeuverGateOrdinal, ManeuverGateId);
+stable_source_view!(WaitingZoneSourceView, WaitingZoneOrdinal, WaitingZoneId);
 
 /// 一条横断面 owner-local 关系来源记录的只读视图。
 #[derive(Clone, Copy)]
@@ -496,14 +542,14 @@ impl CrossSectionRelationSourceView<'_> {
     }
 }
 
-/// 一条路口拓扑 owner-local 关系来源记录的只读视图。
+/// 一条路口拓扑或静态控制边界 owner-local 关系来源记录的只读视图。
 #[derive(Clone, Copy)]
 pub struct JunctionRelationSourceView<'a> {
     source_map: &'a ValidatedSourceMapInput,
     record: &'a JunctionRelationSourceRecord,
 }
 
-/// 路口拓扑关系 owner 的有类型 LIR 序号与稳定标识。
+/// 路口拓扑或静态控制边界关系 owner 的有类型 LIR 序号与稳定标识。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum JunctionRelationOwner {
@@ -513,6 +559,8 @@ pub enum JunctionRelationOwner {
     Movement(MovementOrdinal, MovementId),
     /// 机动路径及其有类型身份。
     ManeuverPath(ManeuverPathOrdinal, ManeuverPathId),
+    /// 停止线及其有类型身份。
+    StopLine(StopLineOrdinal, StopLineId),
 }
 
 impl JunctionRelationOwner {
@@ -523,6 +571,7 @@ impl JunctionRelationOwner {
             Self::Junction(_, _) => EntityKind::Junction,
             Self::Movement(_, _) => EntityKind::Movement,
             Self::ManeuverPath(_, _) => EntityKind::ManeuverPath,
+            Self::StopLine(_, _) => EntityKind::StopLine,
         }
     }
 }
@@ -541,6 +590,9 @@ impl JunctionRelationSourceView<'_> {
             JunctionRelationOwnerRecord::ManeuverPath(ordinal, stable_id) => {
                 JunctionRelationOwner::ManeuverPath(ordinal, stable_id)
             }
+            JunctionRelationOwnerRecord::StopLine(ordinal, stable_id) => {
+                JunctionRelationOwner::StopLine(ordinal, stable_id)
+            }
         }
     }
 
@@ -552,8 +604,10 @@ impl JunctionRelationSourceView<'_> {
 
     /// 返回同一 owner 与角色内的零基序号。
     ///
-    /// `ManeuverPathEdge` 按完整路径序列计数；`JunctionInternalEdge` 先按边的 Canonical
-    /// LIR 序号排序，再在同一路口内稠密计数，因而不会受来源声明排列影响。
+    /// `ManeuverPathEdge` 按完整路径序列计数；`ManeuverPathGate` 按转换位置计数；
+    /// `ManeuverPathWaitingZone` 按入口、释放转换位置计数；`StopLineManeuverGate` 按所引用
+    /// 机动门的 Stable ID 排序；`JunctionInternalEdge` 先按边的 Canonical LIR 序号排序，
+    /// 再在同一路口内稠密计数。所有规则都不受来源声明排列影响。
     #[must_use]
     pub const fn local_index(&self) -> u32 {
         self.record.local_index
@@ -649,6 +703,9 @@ pub(crate) fn freeze_source_map(
         mir.junctions.len(),
         mir.movements.len(),
         mir.maneuver_paths.len(),
+        mir.stop_lines.len(),
+        mir.maneuver_gates.len(),
+        mir.waiting_zones.len(),
     ]
     .into_iter()
     .fold(0_u64, |total, count| {
@@ -659,6 +716,9 @@ pub(crate) fn freeze_source_map(
         mir.movement_maneuver_paths.len(),
         mir.maneuver_path_edges.len(),
         mir.junction_internal_edges.len(),
+        mir.maneuver_path_gates.len(),
+        mir.maneuver_path_waiting_zones.len(),
+        mir.stop_line_maneuver_gates.len(),
     ]
     .into_iter()
     .fold(0_u64, |total, count| {
@@ -730,6 +790,21 @@ pub(crate) fn freeze_source_map(
             StableEntitySourceRecord<ManeuverPathOrdinal, ManeuverPathId>,
         >(
             mir.maneuver_paths.len().try_into().unwrap_or(u64::MAX)
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<StopLineOrdinal, StopLineId>,
+        >(
+            mir.stop_lines.len().try_into().unwrap_or(u64::MAX)
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<ManeuverGateOrdinal, ManeuverGateId>,
+        >(
+            mir.maneuver_gates.len().try_into().unwrap_or(u64::MAX)
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<WaitingZoneOrdinal, WaitingZoneId>,
+        >(
+            mir.waiting_zones.len().try_into().unwrap_or(u64::MAX)
         ))
         .saturating_add(requested_bytes::<JunctionRelationSourceRecord>(
             junction_relation_count,
@@ -828,6 +903,9 @@ pub(crate) fn freeze_source_map(
     let mut junction_sources = Vec::with_capacity(mir.junctions.len());
     let mut movement_sources = Vec::with_capacity(mir.movements.len());
     let mut maneuver_path_sources = Vec::with_capacity(mir.maneuver_paths.len());
+    let mut stop_line_sources = Vec::with_capacity(mir.stop_lines.len());
+    let mut maneuver_gate_sources = Vec::with_capacity(mir.maneuver_gates.len());
+    let mut waiting_zone_sources = Vec::with_capacity(mir.waiting_zones.len());
     let mut junction_relation_sources = Vec::with_capacity(
         usize::try_from(junction_relation_count)
             .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
@@ -1017,6 +1095,100 @@ pub(crate) fn freeze_source_map(
                 primary: location(source_document_ordinal, &edge.source_span),
             });
         }
+        let lir_path = &frozen_lir.lir.maneuver_paths[ordinal.index()];
+        for (local_index, gate_ordinal) in frozen_lir.lir.maneuver_path_gates
+            [lir_path.maneuver_gates.as_usize_range()]
+        .iter()
+        .copied()
+        .enumerate()
+        {
+            let gate_key = frozen_lir.canonical_mir_maneuver_gate_order[gate_ordinal.index()];
+            let gate = &mir.maneuver_gates[gate_key.index()];
+            junction_relation_sources.push(JunctionRelationSourceRecord {
+                owner: JunctionRelationOwnerRecord::ManeuverPath(ordinal, path.stable_id),
+                role: SourceRelationRole::ManeuverPathGate,
+                local_index: u32::try_from(local_index)
+                    .expect("LIR relation range precheck proved local index fits u32"),
+                primary: location(
+                    mir.modules[gate.module.index()].source_document_ordinal,
+                    &gate.source_span,
+                ),
+            });
+        }
+        for (local_index, waiting_ordinal) in frozen_lir.lir.maneuver_path_waiting_zones
+            [lir_path.waiting_zones.as_usize_range()]
+        .iter()
+        .copied()
+        .enumerate()
+        {
+            let waiting_key = frozen_lir.canonical_mir_waiting_zone_order[waiting_ordinal.index()];
+            let waiting = &mir.waiting_zones[waiting_key.index()];
+            junction_relation_sources.push(JunctionRelationSourceRecord {
+                owner: JunctionRelationOwnerRecord::ManeuverPath(ordinal, path.stable_id),
+                role: SourceRelationRole::ManeuverPathWaitingZone,
+                local_index: u32::try_from(local_index)
+                    .expect("LIR relation range precheck proved local index fits u32"),
+                primary: location(
+                    mir.modules[waiting.module.index()].source_document_ordinal,
+                    &waiting.source_span,
+                ),
+            });
+        }
+    }
+
+    for mir_key in frozen_lir.canonical_mir_stop_line_order.iter().copied() {
+        let stop_line = &mir.stop_lines[mir_key.index()];
+        let ordinal = frozen_lir.mir_stop_line_to_lir[mir_key.index()];
+        stop_line_sources.push(StableEntitySourceRecord {
+            ordinal,
+            stable_id: stop_line.stable_id,
+            primary: location(
+                mir.modules[stop_line.module.index()].source_document_ordinal,
+                &stop_line.source_span,
+            ),
+        });
+        let lir_stop_line = &frozen_lir.lir.stop_lines[ordinal.index()];
+        for (local_index, gate_ordinal) in frozen_lir.lir.stop_line_maneuver_gates
+            [lir_stop_line.maneuver_gates.as_usize_range()]
+        .iter()
+        .copied()
+        .enumerate()
+        {
+            let gate_key = frozen_lir.canonical_mir_maneuver_gate_order[gate_ordinal.index()];
+            let gate = &mir.maneuver_gates[gate_key.index()];
+            junction_relation_sources.push(JunctionRelationSourceRecord {
+                owner: JunctionRelationOwnerRecord::StopLine(ordinal, stop_line.stable_id),
+                role: SourceRelationRole::StopLineManeuverGate,
+                local_index: u32::try_from(local_index)
+                    .expect("LIR relation range precheck proved local index fits u32"),
+                primary: location(
+                    mir.modules[gate.module.index()].source_document_ordinal,
+                    &gate.source_span,
+                ),
+            });
+        }
+    }
+    for mir_key in frozen_lir.canonical_mir_maneuver_gate_order.iter().copied() {
+        let gate = &mir.maneuver_gates[mir_key.index()];
+        maneuver_gate_sources.push(StableEntitySourceRecord {
+            ordinal: frozen_lir.mir_maneuver_gate_to_lir[mir_key.index()],
+            stable_id: gate.stable_id,
+            primary: location(
+                mir.modules[gate.module.index()].source_document_ordinal,
+                &gate.source_span,
+            ),
+        });
+    }
+    for mir_key in frozen_lir.canonical_mir_waiting_zone_order.iter().copied() {
+        let waiting = &mir.waiting_zones[mir_key.index()];
+        waiting_zone_sources.push(StableEntitySourceRecord {
+            ordinal: frozen_lir.mir_waiting_zone_to_lir[mir_key.index()],
+            stable_id: waiting.stable_id,
+            primary: location(
+                mir.modules[waiting.module.index()].source_document_ordinal,
+                &waiting.source_span,
+            ),
+        });
     }
 
     let mut internal_edge_local_indexes = vec![0_u32; mir.junctions.len()];
@@ -1060,6 +1232,9 @@ pub(crate) fn freeze_source_map(
         junction_sources: junction_sources.into_boxed_slice(),
         movement_sources: movement_sources.into_boxed_slice(),
         maneuver_path_sources: maneuver_path_sources.into_boxed_slice(),
+        stop_line_sources: stop_line_sources.into_boxed_slice(),
+        maneuver_gate_sources: maneuver_gate_sources.into_boxed_slice(),
+        waiting_zone_sources: waiting_zone_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),
     })
 }

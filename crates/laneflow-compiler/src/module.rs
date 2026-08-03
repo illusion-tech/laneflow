@@ -16,7 +16,8 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 
 use laneflow_static_contract::{
-    EntityKind, FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind, MovementKind, RoadSectionKind,
+    EntityKind, FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind, ManeuverGateKind,
+    ManeuverPathKind, MovementKind, RoadSectionKind, StopLineKind,
 };
 
 use crate::arena::ArenaKey;
@@ -24,9 +25,11 @@ use crate::declaration::{
     AuthoringLaneDeclaration, CorridorElementReference, DeclarationHeader, EdgeLength,
     FacilityBandDeclaration, FacilityBandInput, FacilityKindCategory, FacilityKindViolation,
     JunctionDeclaration, JunctionInput, LaneEdgeDeclaration, LaneEdgeInput, LaneGroupDeclaration,
-    LaneGroupInput, ManeuverPathDeclaration, ManeuverPathInput, MovementDeclaration, MovementInput,
-    OwnedCorridorElementReference, OwnedEntityReference, RoadCorridorDeclaration,
-    RoadCorridorInput, RoadSectionDeclaration, RoadSectionInput, SpeedLimit, SyntheticDeclaration,
+    LaneGroupInput, ManeuverGateDeclaration, ManeuverGateInput, ManeuverPathDeclaration,
+    ManeuverPathInput, MovementDeclaration, MovementInput, OwnedCorridorElementReference,
+    OwnedEntityReference, RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration,
+    RoadSectionInput, SpeedLimit, StopLineDeclaration, StopLineInput, SyntheticDeclaration,
+    WaitingZoneDeclaration, WaitingZoneInput,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
@@ -228,6 +231,8 @@ pub struct SyntheticModuleBuilder {
     controlled_string_bytes: u64,
     controlled_structural_bytes: u64,
     source_record_byte_len: u64,
+    maneuver_gate_count: u64,
+    waiting_zone_count: u64,
 }
 
 #[derive(Default)]
@@ -243,6 +248,8 @@ struct DeclarationResourceDelta {
     controlled_string_bytes: u64,
     controlled_structural_bytes: u64,
     source_bytes: u64,
+    maneuver_gates: u64,
+    waiting_zones: u64,
 }
 
 struct DeclarationResourceState {
@@ -257,6 +264,8 @@ struct DeclarationResourceState {
     controlled_string_bytes: u64,
     controlled_structural_bytes: u64,
     source_record_byte_len: u64,
+    maneuver_gate_count: u64,
+    waiting_zone_count: u64,
 }
 
 impl SyntheticModuleBuilder {
@@ -331,6 +340,8 @@ impl SyntheticModuleBuilder {
             controlled_string_bytes,
             controlled_structural_bytes: 0,
             source_record_byte_len: base_source_bytes,
+            maneuver_gate_count: 0,
+            waiting_zone_count: 0,
         })
     }
 
@@ -496,6 +507,10 @@ impl SyntheticModuleBuilder {
             source_record_byte_len: self
                 .source_record_byte_len
                 .saturating_add(delta.source_bytes),
+            maneuver_gate_count: self
+                .maneuver_gate_count
+                .saturating_add(delta.maneuver_gates),
+            waiting_zone_count: self.waiting_zone_count.saturating_add(delta.waiting_zones),
         };
         let controlled_live_bytes = state
             .controlled_string_bytes
@@ -533,6 +548,14 @@ impl SyntheticModuleBuilder {
                 CompileLimitDimension::CompilerControlledLiveBytes,
                 controlled_live_bytes,
             ),
+            (
+                CompileLimitDimension::ManeuverGateCount,
+                state.maneuver_gate_count,
+            ),
+            (
+                CompileLimitDimension::WaitingZoneCount,
+                state.waiting_zone_count,
+            ),
         ] {
             if let Some(diagnostic) = limit_diagnostic(
                 &self.limits,
@@ -559,6 +582,8 @@ impl SyntheticModuleBuilder {
         self.controlled_string_bytes = state.controlled_string_bytes;
         self.controlled_structural_bytes = state.controlled_structural_bytes;
         self.source_record_byte_len = state.source_record_byte_len;
+        self.maneuver_gate_count = state.maneuver_gate_count;
+        self.waiting_zone_count = state.waiting_zone_count;
     }
 
     /// 声明显式模块导入；网络或文件系统发现不属于该操作。
@@ -1081,6 +1106,7 @@ impl SyntheticModuleBuilder {
                     input.directed_entry_approach_key,
                     input.directed_exit_approach_key,
                 ),
+                ..DeclarationResourceDelta::default()
             },
             input.movement_key,
             &span,
@@ -1173,6 +1199,7 @@ impl SyntheticModuleBuilder {
                     &internal_edges,
                     &exit_edge,
                 ),
+                ..DeclarationResourceDelta::default()
             },
             input.maneuver_path_key,
             &span,
@@ -1195,6 +1222,236 @@ impl SyntheticModuleBuilder {
             .or_default()
             .insert(Arc::clone(&stable_key), span);
         self.declarations.push(declaration);
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明一条位于车道图边末端的停止线。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键或边引用非法、跨模块引用未显式导入、声明重复，或资源上限超限时失败。
+    /// 目标存在性、停止线与机动门转换起始边的一致性，以及停止线必须被使用的闭包在
+    /// HIR 阶段验证。
+    #[track_caller]
+    pub fn add_stop_line(
+        &mut self,
+        input: StopLineInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::StopLine, input.stop_line_key, &span)?;
+        let lane_edge = self.own_reference(EntityKind::LaneEdge, input.lane_edge, &span)?;
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.stop_line_key.len()).unwrap_or(u64::MAX);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 5,
+                references: 1,
+                relations: 1,
+                identity_fields: 2,
+                symbols: 1,
+                string_items: 3,
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(reference_spelling_bytes(&lane_edge)),
+                controlled_string_bytes: key_bytes.saturating_add(
+                    u64::try_from(lane_edge.declaration_key.len()).unwrap_or(u64::MAX),
+                ),
+                controlled_structural_bytes: size_bytes::<StopLineDeclaration>(1)
+                    .saturating_add(size_bytes::<OwnedEntityReference<LaneEdgeKind>>(1)),
+                source_bytes: stop_line_declaration_len(input.stop_line_key, &lane_edge),
+                ..DeclarationResourceDelta::default()
+            },
+            input.stop_line_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.stop_line_key.into();
+        self.declaration_index
+            .entry(EntityKind::StopLine)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations
+            .push(SyntheticDeclaration::StopLine(StopLineDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::StopLine,
+                    stable_key,
+                    span,
+                },
+                lane_edge,
+            }));
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明一个位于机动路径转换上的机动门。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键或引用非法、跨模块引用未显式导入、声明重复，或资源上限超限时失败。
+    /// 转换下标、同转换唯一性和停止线位置在 HIR 阶段验证。
+    #[track_caller]
+    pub fn add_maneuver_gate(
+        &mut self,
+        input: ManeuverGateInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::ManeuverGate, input.maneuver_gate_key, &span)?;
+        let maneuver_path =
+            self.own_reference(EntityKind::ManeuverPath, input.maneuver_path, &span)?;
+        let stop_line = self.own_reference(EntityKind::StopLine, input.stop_line, &span)?;
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.maneuver_gate_key.len()).unwrap_or(u64::MAX);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 7,
+                references: 2,
+                relations: 2,
+                identity_fields: 3,
+                symbols: 1,
+                string_items: 4,
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(reference_spelling_bytes(&maneuver_path))
+                    .saturating_add(reference_spelling_bytes(&stop_line)),
+                controlled_string_bytes: key_bytes
+                    .saturating_add(
+                        u64::try_from(maneuver_path.declaration_key.len()).unwrap_or(u64::MAX),
+                    )
+                    .saturating_add(
+                        u64::try_from(stop_line.declaration_key.len()).unwrap_or(u64::MAX),
+                    ),
+                controlled_structural_bytes: size_bytes::<ManeuverGateDeclaration>(1)
+                    .saturating_add(size_bytes::<OwnedEntityReference<ManeuverPathKind>>(1))
+                    .saturating_add(size_bytes::<OwnedEntityReference<StopLineKind>>(1)),
+                source_bytes: maneuver_gate_declaration_len(
+                    input.maneuver_gate_key,
+                    &maneuver_path,
+                    input.transition_index,
+                    &stop_line,
+                ),
+                maneuver_gates: 1,
+                ..DeclarationResourceDelta::default()
+            },
+            input.maneuver_gate_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.maneuver_gate_key.into();
+        self.declaration_index
+            .entry(EntityKind::ManeuverGate)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations.push(SyntheticDeclaration::ManeuverGate(
+            ManeuverGateDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::ManeuverGate,
+                    stable_key,
+                    span,
+                },
+                maneuver_path,
+                transition_index: input.transition_index,
+                stop_line,
+            },
+        ));
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明一个由同一路径入口门和释放门界定的等待区。
+    ///
+    /// # Errors
+    ///
+    /// `max_occupancy` 为零，稳定键或引用非法、跨模块引用未显式导入、声明重复，或
+    /// 资源上限超限时失败。门所有权、严格顺序和等待区内部不重叠约束在 HIR 阶段验证。
+    #[track_caller]
+    pub fn add_waiting_zone(
+        &mut self,
+        input: WaitingZoneInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::WaitingZone, input.waiting_zone_key, &span)?;
+        if input.max_occupancy == 0 {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::invalid_waiting_zone_capacity(input.waiting_zone_key, span),
+            ));
+        }
+        let maneuver_path =
+            self.own_reference(EntityKind::ManeuverPath, input.maneuver_path, &span)?;
+        let entry_gate = self.own_reference(EntityKind::ManeuverGate, input.entry_gate, &span)?;
+        let release_gate =
+            self.own_reference(EntityKind::ManeuverGate, input.release_gate, &span)?;
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.waiting_zone_key.len()).unwrap_or(u64::MAX);
+        let references = [
+            &maneuver_path.declaration_key,
+            &entry_gate.declaration_key,
+            &release_gate.declaration_key,
+        ];
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 9,
+                references: 3,
+                relations: 3,
+                identity_fields: 3,
+                symbols: 1,
+                string_items: 5,
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(reference_spelling_bytes(&maneuver_path))
+                    .saturating_add(reference_spelling_bytes(&entry_gate))
+                    .saturating_add(reference_spelling_bytes(&release_gate)),
+                controlled_string_bytes: references.iter().fold(key_bytes, |total, value| {
+                    total.saturating_add(u64::try_from(value.len()).unwrap_or(u64::MAX))
+                }),
+                controlled_structural_bytes: size_bytes::<WaitingZoneDeclaration>(1)
+                    .saturating_add(size_bytes::<OwnedEntityReference<ManeuverPathKind>>(1))
+                    .saturating_add(size_bytes::<OwnedEntityReference<ManeuverGateKind>>(2)),
+                source_bytes: waiting_zone_declaration_len(
+                    input.waiting_zone_key,
+                    &maneuver_path,
+                    &entry_gate,
+                    &release_gate,
+                ),
+                waiting_zones: 1,
+                ..DeclarationResourceDelta::default()
+            },
+            input.waiting_zone_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.waiting_zone_key.into();
+        self.declaration_index
+            .entry(EntityKind::WaitingZone)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations
+            .push(SyntheticDeclaration::WaitingZone(WaitingZoneDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::WaitingZone,
+                    stable_key,
+                    span,
+                },
+                maneuver_path,
+                entry_gate,
+                release_gate,
+                max_occupancy: input.max_occupancy,
+            }));
         self.commit_declaration_resources(state);
         Ok(self)
     }
@@ -1306,6 +1563,7 @@ impl SyntheticModuleBuilder {
                 controlled_structural_bytes: size_bytes::<LaneGroupDeclaration>(1)
                     .saturating_add(size_bytes::<OwnedEntityReference<RoadSectionKind>>(1)),
                 source_bytes: lane_group_declaration_len(input.lane_group_key, &road_section),
+                ..DeclarationResourceDelta::default()
             },
             input.lane_group_key,
             &span,
@@ -1482,6 +1740,7 @@ impl SyntheticModuleBuilder {
                 controlled_string_bytes,
                 controlled_structural_bytes: structural_bytes,
                 source_bytes,
+                ..DeclarationResourceDelta::default()
             },
             input.road_section_key,
             &span,
@@ -1622,6 +1881,7 @@ impl SyntheticModuleBuilder {
                     &reference_section,
                     &elements,
                 ),
+                ..DeclarationResourceDelta::default()
             },
             input.road_corridor_key,
             &span,
@@ -1743,6 +2003,8 @@ impl SyntheticModuleBuilder {
             symbol_count: self.symbol_count,
             string_item_count: self.string_item_count,
             string_bytes: self.string_bytes,
+            maneuver_gate_count: self.maneuver_gate_count,
+            waiting_zone_count: self.waiting_zone_count,
             controlled_live_bytes: self
                 .controlled_string_bytes
                 .saturating_add(self.controlled_structural_bytes)
@@ -1768,6 +2030,8 @@ pub struct SyntheticModule {
     symbol_count: u64,
     string_item_count: u64,
     string_bytes: u64,
+    maneuver_gate_count: u64,
+    waiting_zone_count: u64,
     controlled_live_bytes: u64,
 }
 
@@ -1808,6 +2072,8 @@ pub struct CompilationUnitBuilder {
     symbol_count: u64,
     string_item_count: u64,
     string_bytes: u64,
+    maneuver_gate_count: u64,
+    waiting_zone_count: u64,
     controlled_live_bytes: u64,
 }
 
@@ -1830,6 +2096,8 @@ impl CompilationUnitBuilder {
             symbol_count: 0,
             string_item_count: 0,
             string_bytes: 0,
+            maneuver_gate_count: 0,
+            waiting_zone_count: 0,
             controlled_live_bytes: 0,
         }
     }
@@ -1900,6 +2168,12 @@ impl CompilationUnitBuilder {
             .string_item_count
             .saturating_add(module.string_item_count);
         let next_string_bytes = self.string_bytes.saturating_add(module.string_bytes);
+        let next_maneuver_gate_count = self
+            .maneuver_gate_count
+            .saturating_add(module.maneuver_gate_count);
+        let next_waiting_zone_count = self
+            .waiting_zone_count
+            .saturating_add(module.waiting_zone_count);
         let next_controlled_live_bytes = self
             .controlled_live_bytes
             .saturating_add(module.controlled_live_bytes);
@@ -1927,6 +2201,14 @@ impl CompilationUnitBuilder {
             (CompileLimitDimension::SymbolCount, next_symbol_count),
             (CompileLimitDimension::StringItemCount, next_string_items),
             (CompileLimitDimension::TotalStringBytes, next_string_bytes),
+            (
+                CompileLimitDimension::ManeuverGateCount,
+                next_maneuver_gate_count,
+            ),
+            (
+                CompileLimitDimension::WaitingZoneCount,
+                next_waiting_zone_count,
+            ),
             (
                 CompileLimitDimension::CompilerControlledLiveBytes,
                 next_controlled_live_bytes,
@@ -1959,6 +2241,8 @@ impl CompilationUnitBuilder {
         self.symbol_count = next_symbol_count;
         self.string_item_count = next_string_items;
         self.string_bytes = next_string_bytes;
+        self.maneuver_gate_count = next_maneuver_gate_count;
+        self.waiting_zone_count = next_waiting_zone_count;
         self.controlled_live_bytes = next_controlled_live_bytes;
         Ok(self)
     }
@@ -2063,6 +2347,8 @@ impl CompilationUnitBuilder {
             relation_occurrence_count: self.relation_occurrence_count,
             identity_field_occurrence_count: self.identity_field_occurrence_count,
             symbol_count: self.symbol_count,
+            maneuver_gate_count: self.maneuver_gate_count,
+            waiting_zone_count: self.waiting_zone_count,
             controlled_live_bytes: self.controlled_live_bytes,
         })
     }
@@ -2081,6 +2367,8 @@ pub struct CompilationUnit {
     pub(crate) relation_occurrence_count: u64,
     pub(crate) identity_field_occurrence_count: u64,
     pub(crate) symbol_count: u64,
+    pub(crate) maneuver_gate_count: u64,
+    pub(crate) waiting_zone_count: u64,
     pub(crate) controlled_live_bytes: u64,
 }
 
@@ -2334,6 +2622,22 @@ fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
             &declaration.internal_edges,
             &declaration.exit_edge,
         )),
+        SyntheticDeclaration::StopLine(declaration) => Some(stop_line_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.lane_edge,
+        )),
+        SyntheticDeclaration::ManeuverGate(declaration) => Some(maneuver_gate_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.maneuver_path,
+            declaration.transition_index,
+            &declaration.stop_line,
+        )),
+        SyntheticDeclaration::WaitingZone(declaration) => Some(waiting_zone_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.maneuver_path,
+            &declaration.entry_gate,
+            &declaration.release_gate,
+        )),
     }
 }
 
@@ -2398,6 +2702,56 @@ fn maneuver_path_declaration_len(
         &exit_edge.module_namespace,
         &exit_edge.declaration_key,
     ))
+}
+
+fn stop_line_declaration_len(
+    stable_key: &str,
+    lane_edge: &OwnedEntityReference<LaneEdgeKind>,
+) -> u64 {
+    declaration_header_len(stable_key).saturating_add(encoded_reference_len(
+        &lane_edge.module_namespace,
+        &lane_edge.declaration_key,
+    ))
+}
+
+fn maneuver_gate_declaration_len(
+    stable_key: &str,
+    maneuver_path: &OwnedEntityReference<ManeuverPathKind>,
+    _transition_index: u32,
+    stop_line: &OwnedEntityReference<StopLineKind>,
+) -> u64 {
+    declaration_header_len(stable_key)
+        .saturating_add(encoded_reference_len(
+            &maneuver_path.module_namespace,
+            &maneuver_path.declaration_key,
+        ))
+        .saturating_add(4)
+        .saturating_add(encoded_reference_len(
+            &stop_line.module_namespace,
+            &stop_line.declaration_key,
+        ))
+}
+
+fn waiting_zone_declaration_len(
+    stable_key: &str,
+    maneuver_path: &OwnedEntityReference<ManeuverPathKind>,
+    entry_gate: &OwnedEntityReference<ManeuverGateKind>,
+    release_gate: &OwnedEntityReference<ManeuverGateKind>,
+) -> u64 {
+    declaration_header_len(stable_key)
+        .saturating_add(encoded_reference_len(
+            &maneuver_path.module_namespace,
+            &maneuver_path.declaration_key,
+        ))
+        .saturating_add(encoded_reference_len(
+            &entry_gate.module_namespace,
+            &entry_gate.declaration_key,
+        ))
+        .saturating_add(encoded_reference_len(
+            &release_gate.module_namespace,
+            &release_gate.declaration_key,
+        ))
+        .saturating_add(4)
 }
 
 fn lane_group_declaration_len(
@@ -2565,6 +2919,23 @@ fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
                 put_owned_reference(output, edge);
             }
             put_owned_reference(output, &declaration.exit_edge);
+        }
+        SyntheticDeclaration::StopLine(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            put_owned_reference(output, &declaration.lane_edge);
+        }
+        SyntheticDeclaration::ManeuverGate(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            put_owned_reference(output, &declaration.maneuver_path);
+            output.extend_from_slice(&declaration.transition_index.to_le_bytes());
+            put_owned_reference(output, &declaration.stop_line);
+        }
+        SyntheticDeclaration::WaitingZone(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            put_owned_reference(output, &declaration.maneuver_path);
+            put_owned_reference(output, &declaration.entry_gate);
+            put_owned_reference(output, &declaration.release_gate);
+            output.extend_from_slice(&declaration.max_occupancy.to_le_bytes());
         }
     }
 }

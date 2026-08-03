@@ -20,20 +20,22 @@ mod source_map;
 pub use compiler::{
     CanonicalAuthoringLaneView, CanonicalCorridorElement, CanonicalFacilityBandView,
     CanonicalIdentityFieldView, CanonicalJunctionInternalEdgeView, CanonicalJunctionView,
-    CanonicalLaneEdgeView, CanonicalLaneGroupView, CanonicalManeuverPathView,
-    CanonicalMovementView, CanonicalRoadCorridorView, CanonicalRoadSectionView, CompilationOutput,
+    CanonicalLaneEdgeView, CanonicalLaneGroupView, CanonicalManeuverGateView,
+    CanonicalManeuverPathView, CanonicalMovementView, CanonicalRoadCorridorView,
+    CanonicalRoadSectionView, CanonicalStopLineView, CanonicalWaitingZoneView, CompilationOutput,
     Compiler, ValidatedCanonicalLir,
 };
 pub use declaration::{
     AuthoringLaneInput, CorridorElementReference, EntityReference, FacilityBandInput,
     FacilityBandReference, FacilityKindCategory, FacilityKindViolation, JunctionInput,
     JunctionReference, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
-    ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference, RoadCorridorInput,
-    RoadSectionInput, RoadSectionReference, ScalarViolation,
+    ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
+    MovementInput, MovementReference, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
+    ScalarViolation, StopLineInput, StopLineReference, WaitingZoneInput,
 };
 pub use diagnostic::{
     Diagnostic, DiagnosticBundle, DiagnosticCode, DiagnosticPayload, DiagnosticSeverity,
-    SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation,
+    SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation, WaitingZoneGateRole,
 };
 pub use identity::CanonicalIdentityViolation;
 pub use limits::{CompileLimitDimension, CompileLimits};
@@ -45,7 +47,8 @@ pub use source::{SourceModuleHeader, SourceModuleHeaderInput};
 pub use source_map::{
     AuthoringLaneSourceView, CrossSectionRelationOwner, CrossSectionRelationSourceView,
     FacilityBandSourceView, JunctionRelationOwner, JunctionRelationSourceView, JunctionSourceView,
-    LaneEdgeSourceView, LaneEdgeSuccessorSourceView, LaneGroupSourceView, ManeuverPathSourceView,
-    MovementSourceView, RoadCorridorSourceView, RoadSectionSourceView, SourceDocumentView,
-    SourceLocationView, SourceRelationRole, ValidatedSourceMapInput,
+    LaneEdgeSourceView, LaneEdgeSuccessorSourceView, LaneGroupSourceView, ManeuverGateSourceView,
+    ManeuverPathSourceView, MovementSourceView, RoadCorridorSourceView, RoadSectionSourceView,
+    SourceDocumentView, SourceLocationView, SourceRelationRole, StopLineSourceView,
+    ValidatedSourceMapInput, WaitingZoneSourceView,
 };

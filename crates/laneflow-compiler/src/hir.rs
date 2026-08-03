@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     AuthoringLaneId, EntityKind, FacilityBandId, FieldTag, JunctionId, LaneEdgeId, LaneGroupId,
-    ManeuverPathId, MovementId, RoadCorridorId, RoadSectionId, StableId128,
+    ManeuverGateId, ManeuverPathId, MovementId, RoadCorridorId, RoadSectionId, StableId128,
+    StopLineId, WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
@@ -29,7 +30,10 @@ use crate::identity::{
     encode_canonical_identity,
 };
 use crate::module::SourceDocumentOrdinal;
-use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
+use crate::{
+    CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan,
+    WaitingZoneGateRole,
+};
 
 /// 区分 HIR 模块表键的零尺寸阶段标记。
 pub(crate) enum HirModuleTag {}
@@ -43,6 +47,9 @@ pub(crate) enum HirFacilityBandTag {}
 pub(crate) enum HirJunctionTag {}
 pub(crate) enum HirMovementTag {}
 pub(crate) enum HirManeuverPathTag {}
+pub(crate) enum HirStopLineTag {}
+pub(crate) enum HirManeuverGateTag {}
+pub(crate) enum HirWaitingZoneTag {}
 
 /// 仅在当前 `HirUnit` 模块表内有效的致密键。
 pub(crate) type HirModuleKey = ArenaKey<HirModuleTag>;
@@ -56,6 +63,9 @@ pub(crate) type HirFacilityBandKey = ArenaKey<HirFacilityBandTag>;
 pub(crate) type HirJunctionKey = ArenaKey<HirJunctionTag>;
 pub(crate) type HirMovementKey = ArenaKey<HirMovementTag>;
 pub(crate) type HirManeuverPathKey = ArenaKey<HirManeuverPathTag>;
+pub(crate) type HirStopLineKey = ArenaKey<HirStopLineTag>;
+pub(crate) type HirManeuverGateKey = ArenaKey<HirManeuverGateTag>;
+pub(crate) type HirWaitingZoneKey = ArenaKey<HirWaitingZoneTag>;
 
 /// 已解析为 HIR 模块键的显式导入边。
 pub(crate) struct HirImport {
@@ -222,6 +232,61 @@ pub(crate) struct HirManeuverPath {
     pub(crate) movement: HirMovementKey,
     /// 完整序列 `entry + internal + exit`；首尾是边界边，中间区间是内部边。
     pub(crate) edges: TableRange<HirManeuverPathEdge>,
+    /// 按 `transition_index` 严格递增的机动门成员区间。
+    pub(crate) maneuver_gates: TableRange<HirManeuverPathGate>,
+    /// 按入口转换、释放转换和稳定 ID 排序的等待区成员区间。
+    pub(crate) waiting_zones: TableRange<HirManeuverPathWaitingZone>,
+    pub(crate) source_span: SourceSpan,
+}
+
+/// 机动路径规范门序列中的一项。
+#[derive(Clone, Copy)]
+pub(crate) struct HirManeuverPathGate {
+    pub(crate) maneuver_gate: HirManeuverGateKey,
+}
+
+/// 机动路径规范等待区序列中的一项。
+#[derive(Clone, Copy)]
+pub(crate) struct HirManeuverPathWaitingZone {
+    pub(crate) waiting_zone: HirWaitingZoneKey,
+}
+
+/// 停止线到引用它的机动门的反向关系项。
+#[derive(Clone, Copy)]
+pub(crate) struct HirStopLineManeuverGate {
+    pub(crate) maneuver_gate: HirManeuverGateKey,
+}
+
+/// 已解析边位置并证明至少被一个机动门使用的停止线。
+pub(crate) struct HirStopLine {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: StopLineId,
+    pub(crate) lane_edge: HirLaneEdgeKey,
+    pub(crate) maneuver_gates: TableRange<HirStopLineManeuverGate>,
+    pub(crate) source_span: SourceSpan,
+}
+
+/// 已闭合到合法路径转换和同边停止线的机动门。
+pub(crate) struct HirManeuverGate {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: ManeuverGateId,
+    pub(crate) maneuver_path: HirManeuverPathKey,
+    pub(crate) transition_index: u32,
+    pub(crate) stop_line: HirStopLineKey,
+    pub(crate) source_span: SourceSpan,
+}
+
+/// 已证明门所有权、严格正向区间和同路径内部不重叠的等待区。
+pub(crate) struct HirWaitingZone {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: WaitingZoneId,
+    pub(crate) maneuver_path: HirManeuverPathKey,
+    pub(crate) entry_gate: HirManeuverGateKey,
+    pub(crate) release_gate: HirManeuverGateKey,
+    pub(crate) max_occupancy: u32,
     pub(crate) source_span: SourceSpan,
 }
 
@@ -260,6 +325,12 @@ pub(crate) struct HirUnit {
     pub(crate) movement_maneuver_paths: Box<[HirMovementManeuverPath]>,
     pub(crate) maneuver_path_edges: Box<[HirManeuverPathEdge]>,
     pub(crate) junction_internal_edges: Box<[HirJunctionInternalEdge]>,
+    pub(crate) stop_lines: Box<[HirStopLine]>,
+    pub(crate) maneuver_gates: Box<[HirManeuverGate]>,
+    pub(crate) waiting_zones: Box<[HirWaitingZone]>,
+    pub(crate) maneuver_path_gates: Box<[HirManeuverPathGate]>,
+    pub(crate) maneuver_path_waiting_zones: Box<[HirManeuverPathWaitingZone]>,
+    pub(crate) stop_line_maneuver_gates: Box<[HirStopLineManeuverGate]>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) hir_record_count: u64,
     pub(crate) controlled_live_bytes: u64,
@@ -370,6 +441,31 @@ struct JunctionCounts {
     maneuver_path_edges: u64,
 }
 
+#[derive(Default)]
+struct ControlHir {
+    stop_lines: Box<[HirStopLine]>,
+    maneuver_gates: Box<[HirManeuverGate]>,
+    waiting_zones: Box<[HirWaitingZone]>,
+    maneuver_path_gates: Box<[HirManeuverPathGate]>,
+    maneuver_path_waiting_zones: Box<[HirManeuverPathWaitingZone]>,
+    stop_line_maneuver_gates: Box<[HirStopLineManeuverGate]>,
+}
+
+#[derive(Default)]
+struct ControlCounts {
+    stop_lines: u64,
+    maneuver_gates: u64,
+    waiting_zones: u64,
+}
+
+impl ControlCounts {
+    fn entity_count(&self) -> u64 {
+        self.stop_lines
+            .saturating_add(self.maneuver_gates)
+            .saturating_add(self.waiting_zones)
+    }
+}
+
 impl JunctionCounts {
     fn entity_count(&self) -> u64 {
         self.junctions
@@ -415,12 +511,18 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let lane_edge_reference_count = lane_edge_reference_count(unit);
     let cross_section_counts = cross_section_counts(unit);
     let junction_counts = junction_counts(unit);
+    let control_counts = control_counts(unit);
     let cross_lookup_module_count = if cross_section_counts.entity_count() == 0 {
         0
     } else {
         module_count
     };
     let junction_lookup_module_count = if junction_counts.entity_count() == 0 {
+        0
+    } else {
+        module_count
+    };
+    let control_lookup_module_count = if control_counts.entity_count() == 0 {
         0
     } else {
         module_count
@@ -492,10 +594,34 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             ))
             .saturating_add(requested_bytes::<usize>(unit.declaration_count))
     };
+    let control_scratch = if control_counts.entity_count() == 0 {
+        0
+    } else {
+        requested_bytes::<CanonicalDeclarationSource<HirStopLineKey>>(control_counts.stop_lines)
+            .saturating_add(requested_bytes::<
+                CanonicalDeclarationSource<HirManeuverGateKey>,
+            >(control_counts.maneuver_gates))
+            .saturating_add(requested_bytes::<
+                CanonicalDeclarationSource<HirWaitingZoneKey>,
+            >(control_counts.waiting_zones))
+            .saturating_add(requested_bytes::<usize>(
+                control_counts
+                    .stop_lines
+                    .saturating_add(junction_counts.maneuver_paths)
+                    .saturating_mul(2),
+            ))
+            .saturating_add(requested_bytes::<HirManeuverGateKey>(
+                control_counts.maneuver_gates.saturating_mul(2),
+            ))
+            .saturating_add(requested_bytes::<HirWaitingZoneKey>(
+                control_counts.waiting_zones,
+            ))
+    };
     let (canonical_identity_bytes, largest_canonical_identity_bytes) = identity_byte_counts(unit);
     let stage_scratch_bytes = canonical_source_scratch
         .max(cross_section_scratch)
         .max(junction_scratch)
+        .max(control_scratch)
         .max(import_sort_scratch)
         .max(largest_canonical_identity_bytes);
     let hir_persistent_bytes = requested_bytes::<HirModule>(module_count)
@@ -544,6 +670,22 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_bytes::<HirJunctionInternalEdge>(
             lane_edge_count.min(junction_counts.maneuver_path_edges),
+        ))
+        .saturating_add(requested_bytes::<HirStopLine>(control_counts.stop_lines))
+        .saturating_add(requested_bytes::<HirManeuverGate>(
+            control_counts.maneuver_gates,
+        ))
+        .saturating_add(requested_bytes::<HirWaitingZone>(
+            control_counts.waiting_zones,
+        ))
+        .saturating_add(requested_bytes::<HirManeuverPathGate>(
+            control_counts.maneuver_gates,
+        ))
+        .saturating_add(requested_bytes::<HirManeuverPathWaitingZone>(
+            control_counts.waiting_zones,
+        ))
+        .saturating_add(requested_bytes::<HirStopLineManeuverGate>(
+            control_counts.maneuver_gates,
         ));
     let hir_lookup_bytes = requested_hash_table_bytes::<Arc<str>, HirModuleKey>(module_count)
         .saturating_add(requested_bytes::<HashMap<Arc<str>, HirLaneEdgeKey>>(
@@ -581,6 +723,24 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_hash_table_bytes::<Arc<str>, HirMovementKey>(
             junction_counts.movements,
+        ))
+        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirManeuverPathKey>>(
+            control_lookup_module_count,
+        ))
+        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirStopLineKey>>(
+            control_lookup_module_count,
+        ))
+        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirManeuverGateKey>>(
+            control_lookup_module_count,
+        ))
+        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirManeuverPathKey>(
+            junction_counts.maneuver_paths,
+        ))
+        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirStopLineKey>(
+            control_counts.stop_lines,
+        ))
+        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirManeuverGateKey>(
+            control_counts.maneuver_gates,
         ))
         .saturating_add(requested_hash_table_bytes::<
             StableId128,
@@ -853,12 +1013,22 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &symbols,
         &mut identities,
     )?;
-    let junction = build_junction_hir(
+    let mut junction = build_junction_hir(
         unit,
         &module_lookup,
         &lane_edges,
         &references,
         &symbols,
+        &mut identities,
+    )?;
+    let control = build_control_hir(
+        unit,
+        &module_lookup,
+        &lane_edges,
+        &references,
+        &symbols,
+        &mut junction.maneuver_paths,
+        &junction.maneuver_path_edges,
         &mut identities,
     )?;
     // 完整规范前像只服务本阶段的重复/碰撞判断。此后各表仅保留 16 字节有类型 ID，
@@ -887,6 +1057,12 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         movement_maneuver_paths: junction.movement_maneuver_paths,
         maneuver_path_edges: junction.maneuver_path_edges,
         junction_internal_edges: junction.junction_internal_edges,
+        stop_lines: control.stop_lines,
+        maneuver_gates: control.maneuver_gates,
+        waiting_zones: control.waiting_zones,
+        maneuver_path_gates: control.maneuver_path_gates,
+        maneuver_path_waiting_zones: control.maneuver_path_waiting_zones,
+        stop_line_maneuver_gates: control.stop_line_maneuver_gates,
         hir_record_count,
         controlled_live_bytes: hir_persistent_bytes,
     })
@@ -1135,7 +1311,10 @@ fn build_cross_section_hir(
                 }
                 SyntheticDeclaration::Junction(_)
                 | SyntheticDeclaration::Movement(_)
-                | SyntheticDeclaration::ManeuverPath(_) => {
+                | SyntheticDeclaration::ManeuverPath(_)
+                | SyntheticDeclaration::StopLine(_)
+                | SyntheticDeclaration::ManeuverGate(_)
+                | SyntheticDeclaration::WaitingZone(_) => {
                     unreachable!("cross-section source filter admitted junction declaration")
                 }
             }
@@ -1729,6 +1908,8 @@ fn build_junction_hir(
                             stable_id: ManeuverPathId::from_untyped(StableId128::ZERO),
                             movement: HirMovementKey::from_raw(0),
                             edges: TableRange::empty(),
+                            maneuver_gates: TableRange::empty(),
+                            waiting_zones: TableRange::empty(),
                             source_span: source.header.span.clone(),
                         })
                         .map_err(|overflow| {
@@ -2126,6 +2307,587 @@ fn build_junction_hir(
     })
 }
 
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn build_control_hir(
+    unit: &CompilationUnit,
+    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    lane_edge_references: &[HirLaneEdgeReference],
+    lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
+    maneuver_paths: &mut [HirManeuverPath],
+    maneuver_path_edges: &[HirManeuverPathEdge],
+    identities: &mut IdentityRegistry,
+) -> Result<ControlHir, DiagnosticBundle> {
+    let counts = control_counts(unit);
+    if counts.entity_count() == 0 {
+        return Ok(ControlHir::default());
+    }
+
+    let mut path_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|declaration| matches!(declaration, SyntheticDeclaration::ManeuverPath(_)))
+            .count()
+    }));
+    for (index, path) in maneuver_paths.iter().enumerate() {
+        let key = HirManeuverPathKey::from_raw(
+            u32::try_from(index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        path_symbols.insert(path.module, Arc::clone(&path.stable_key), key);
+    }
+
+    let mut stop_lines = TypedArena::<HirStopLineTag, HirStopLine>::with_capacity(count_to_usize(
+        counts.stop_lines,
+        &unit.limits,
+    )?);
+    let mut gates = TypedArena::<HirManeuverGateTag, HirManeuverGate>::with_capacity(
+        count_to_usize(counts.maneuver_gates, &unit.limits)?,
+    );
+    let mut waiting_zones = TypedArena::<HirWaitingZoneTag, HirWaitingZone>::with_capacity(
+        count_to_usize(counts.waiting_zones, &unit.limits)?,
+    );
+    let mut stop_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|declaration| matches!(declaration, SyntheticDeclaration::StopLine(_)))
+            .count()
+    }));
+    let mut gate_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|declaration| matches!(declaration, SyntheticDeclaration::ManeuverGate(_)))
+            .count()
+    }));
+    let mut stop_sources = Vec::with_capacity(count_to_usize(counts.stop_lines, &unit.limits)?);
+    let mut gate_sources = Vec::with_capacity(count_to_usize(counts.maneuver_gates, &unit.limits)?);
+    let mut waiting_sources =
+        Vec::with_capacity(count_to_usize(counts.waiting_zones, &unit.limits)?);
+
+    // 先登记全部控制对象符号，保证声明顺序不影响前向引用；依赖父项的身份先放零值，
+    // 只有引用与领域约束全部闭合后才会离开本函数。
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
+        let mut declaration_indices: Vec<_> = source_module
+            .declarations
+            .iter()
+            .enumerate()
+            .filter_map(|(index, declaration)| {
+                matches!(
+                    declaration,
+                    SyntheticDeclaration::StopLine(_)
+                        | SyntheticDeclaration::ManeuverGate(_)
+                        | SyntheticDeclaration::WaitingZone(_)
+                )
+                .then_some(index)
+            })
+            .collect();
+        declaration_indices.sort_unstable_by(|left, right| {
+            let left = declaration_header(&source_module.declarations[*left]);
+            let right = declaration_header(&source_module.declarations[*right]);
+            (left.entity_kind.code(), left.stable_key.as_bytes())
+                .cmp(&(right.entity_kind.code(), right.stable_key.as_bytes()))
+        });
+        for declaration_index in declaration_indices {
+            let source_index = u32::try_from(declaration_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?;
+            match &source_module.declarations[declaration_index] {
+                SyntheticDeclaration::StopLine(source) => {
+                    let fields = [
+                        IdentityFieldInput::new(
+                            FieldTag::AuthoringNamespaceId,
+                            source_module
+                                .descriptor()
+                                .authoring_namespace_id()
+                                .as_bytes(),
+                        ),
+                        IdentityFieldInput::new(
+                            FieldTag::StopLineKey,
+                            source.header.stable_key.as_bytes(),
+                        ),
+                    ];
+                    let stable_id = StopLineId::from_untyped(derive_identity(
+                        unit,
+                        identities,
+                        module_index,
+                        EntityKind::StopLine,
+                        &source.header.stable_key,
+                        &source.header.span,
+                        &fields,
+                    )?);
+                    let key = stop_lines
+                        .push(HirStopLine {
+                            module: module_key,
+                            stable_key: Arc::clone(&source.header.stable_key),
+                            stable_id,
+                            lane_edge: HirLaneEdgeKey::from_raw(0),
+                            maneuver_gates: TableRange::empty(),
+                            source_span: source.header.span.clone(),
+                        })
+                        .map_err(|overflow| {
+                            arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                        })?;
+                    stop_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                    stop_sources.push(CanonicalDeclarationSource {
+                        source_module_index: module_order,
+                        declaration_index: source_index,
+                        hir_key: key,
+                    });
+                }
+                SyntheticDeclaration::ManeuverGate(source) => {
+                    let key = gates
+                        .push(HirManeuverGate {
+                            module: module_key,
+                            stable_key: Arc::clone(&source.header.stable_key),
+                            stable_id: ManeuverGateId::from_untyped(StableId128::ZERO),
+                            maneuver_path: HirManeuverPathKey::from_raw(0),
+                            transition_index: source.transition_index,
+                            stop_line: HirStopLineKey::from_raw(0),
+                            source_span: source.header.span.clone(),
+                        })
+                        .map_err(|overflow| {
+                            arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                        })?;
+                    gate_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                    gate_sources.push(CanonicalDeclarationSource {
+                        source_module_index: module_order,
+                        declaration_index: source_index,
+                        hir_key: key,
+                    });
+                }
+                SyntheticDeclaration::WaitingZone(source) => {
+                    let key = waiting_zones
+                        .push(HirWaitingZone {
+                            module: module_key,
+                            stable_key: Arc::clone(&source.header.stable_key),
+                            stable_id: WaitingZoneId::from_untyped(StableId128::ZERO),
+                            maneuver_path: HirManeuverPathKey::from_raw(0),
+                            entry_gate: HirManeuverGateKey::from_raw(0),
+                            release_gate: HirManeuverGateKey::from_raw(0),
+                            max_occupancy: source.max_occupancy,
+                            source_span: source.header.span.clone(),
+                        })
+                        .map_err(|overflow| {
+                            arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                        })?;
+                    waiting_sources.push(CanonicalDeclarationSource {
+                        source_module_index: module_order,
+                        declaration_index: source_index,
+                        hir_key: key,
+                    });
+                }
+                _ => unreachable!("control source filter admitted unrelated declaration"),
+            }
+        }
+    }
+
+    let mut diagnostics =
+        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    for location in &stop_sources {
+        let source_module = &unit.modules[location.source_module_index as usize];
+        let SyntheticDeclaration::StopLine(source) =
+            &source_module.declarations[location.declaration_index as usize]
+        else {
+            unreachable!("canonical StopLine source changed kind")
+        };
+        if let Some(edge) = resolve_reference(
+            module_lookup,
+            lane_edge_symbols,
+            &source.lane_edge,
+            EntityKind::StopLine,
+            &source.header,
+            location.source_module_index,
+            &mut diagnostics,
+        ) {
+            stop_lines.get_mut(location.hir_key).lane_edge = edge;
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    let mut resolved_gate_keys = Vec::with_capacity(gates.len());
+    for location in &gate_sources {
+        let source_module = &unit.modules[location.source_module_index as usize];
+        let SyntheticDeclaration::ManeuverGate(source) =
+            &source_module.declarations[location.declaration_index as usize]
+        else {
+            unreachable!("canonical ManeuverGate source changed kind")
+        };
+        let path = resolve_reference(
+            module_lookup,
+            &path_symbols,
+            &source.maneuver_path,
+            EntityKind::ManeuverGate,
+            &source.header,
+            location.source_module_index,
+            &mut diagnostics,
+        );
+        let stop_line = resolve_reference(
+            module_lookup,
+            &stop_symbols,
+            &source.stop_line,
+            EntityKind::ManeuverGate,
+            &source.header,
+            location.source_module_index,
+            &mut diagnostics,
+        );
+        let (Some(path_key), Some(stop_line_key)) = (path, stop_line) else {
+            continue;
+        };
+        let path = &maneuver_paths[path_key.index()];
+        let transition_count = path.edges.len().saturating_sub(1);
+        if source.transition_index >= transition_count {
+            let mut diagnostic = Diagnostic::maneuver_gate_transition_out_of_range(
+                &source.header.stable_key,
+                &path.stable_key,
+                source.transition_index,
+                transition_count,
+                source.header.span.clone(),
+                path.source_span.clone(),
+            );
+            diagnostic.set_canonical_module_order(location.source_module_index);
+            diagnostics.push(diagnostic);
+            continue;
+        }
+        let from_edge = maneuver_path_edges[path.edges.as_usize_range()]
+            [source.transition_index as usize]
+            .target;
+        let stop = stop_lines.get(stop_line_key);
+        if stop.lane_edge != from_edge {
+            let mut diagnostic = Diagnostic::maneuver_gate_stop_line_mismatch(
+                &source.header.stable_key,
+                &stop.stable_key,
+                &lane_edges.get(from_edge).stable_key,
+                &lane_edges.get(stop.lane_edge).stable_key,
+                source.header.span.clone(),
+                stop.source_span.clone(),
+            );
+            diagnostic.set_canonical_module_order(location.source_module_index);
+            diagnostics.push(diagnostic);
+            continue;
+        }
+        let path_id = path.stable_id.into_untyped();
+        let fields = [
+            IdentityFieldInput::new(
+                FieldTag::AuthoringNamespaceId,
+                source_module
+                    .descriptor()
+                    .authoring_namespace_id()
+                    .as_bytes(),
+            ),
+            IdentityFieldInput::new(FieldTag::ManeuverPathStableId, path_id.as_bytes()),
+            IdentityFieldInput::new(FieldTag::GateKey, source.header.stable_key.as_bytes()),
+        ];
+        let stable_id = ManeuverGateId::from_untyped(derive_identity(
+            unit,
+            identities,
+            location.source_module_index as usize,
+            EntityKind::ManeuverGate,
+            &source.header.stable_key,
+            &source.header.span,
+            &fields,
+        )?);
+        let gate = gates.get_mut(location.hir_key);
+        gate.stable_id = stable_id;
+        gate.maneuver_path = path_key;
+        gate.stop_line = stop_line_key;
+        resolved_gate_keys.push(location.hir_key);
+    }
+
+    resolved_gate_keys.sort_unstable_by(|left, right| {
+        let left = gates.get(*left);
+        let right = gates.get(*right);
+        (
+            left.maneuver_path.raw(),
+            left.transition_index,
+            left.stable_key.as_bytes(),
+        )
+            .cmp(&(
+                right.maneuver_path.raw(),
+                right.transition_index,
+                right.stable_key.as_bytes(),
+            ))
+    });
+    for pair in resolved_gate_keys.windows(2) {
+        let first = gates.get(pair[0]);
+        let duplicate = gates.get(pair[1]);
+        if first.maneuver_path == duplicate.maneuver_path
+            && first.transition_index == duplicate.transition_index
+        {
+            let path = &maneuver_paths[first.maneuver_path.index()];
+            let mut diagnostic = Diagnostic::duplicate_maneuver_gate_path_transition(
+                &path.stable_key,
+                first.transition_index,
+                &first.stable_key,
+                &duplicate.stable_key,
+                duplicate.source_span.clone(),
+                first.source_span.clone(),
+            );
+            diagnostic.set_canonical_module_order(duplicate.module.raw());
+            diagnostics.push(diagnostic);
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    let mut path_gate_counts = vec![0_usize; maneuver_paths.len()];
+    let mut stop_gate_counts = vec![0_usize; stop_lines.len()];
+    for gate_key in &resolved_gate_keys {
+        let gate = gates.get(*gate_key);
+        path_gate_counts[gate.maneuver_path.index()] =
+            path_gate_counts[gate.maneuver_path.index()].saturating_add(1);
+        stop_gate_counts[gate.stop_line.index()] =
+            stop_gate_counts[gate.stop_line.index()].saturating_add(1);
+    }
+    for (stop_key, stop) in stop_lines.iter() {
+        if lane_edge_references[lane_edges.get(stop.lane_edge).successors.as_usize_range()]
+            .is_empty()
+        {
+            let mut diagnostic = Diagnostic::orphan_stop_line(
+                &stop.stable_key,
+                &lane_edges.get(stop.lane_edge).stable_key,
+                stop.source_span.clone(),
+            );
+            diagnostic.set_canonical_module_order(stop.module.raw());
+            diagnostics.push(diagnostic);
+        } else if stop_gate_counts[stop_key.index()] == 0 {
+            let mut diagnostic = Diagnostic::unreferenced_stop_line(
+                &stop.stable_key,
+                &lane_edges.get(stop.lane_edge).stable_key,
+                stop.source_span.clone(),
+            );
+            diagnostic.set_canonical_module_order(stop.module.raw());
+            diagnostics.push(diagnostic);
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    let mut path_gate_total = 0_usize;
+    for (index, count) in path_gate_counts.iter().copied().enumerate() {
+        maneuver_paths[index].maneuver_gates =
+            TableRange::try_from_usize(path_gate_total, count)
+                .map_err(|overflow| arena_overflow(overflow, &unit.limits, None))?;
+        path_gate_total = path_gate_total.saturating_add(count);
+    }
+    let mut maneuver_path_gates = Vec::with_capacity(path_gate_total);
+    for gate_key in &resolved_gate_keys {
+        maneuver_path_gates.push(HirManeuverPathGate {
+            maneuver_gate: *gate_key,
+        });
+    }
+    debug_assert_eq!(maneuver_path_gates.len(), path_gate_total);
+
+    let mut stop_gate_order = resolved_gate_keys.clone();
+    stop_gate_order.sort_unstable_by(|left, right| {
+        let left = gates.get(*left);
+        let right = gates.get(*right);
+        (left.stop_line.raw(), left.stable_id).cmp(&(right.stop_line.raw(), right.stable_id))
+    });
+    let mut stop_gate_total = 0_usize;
+    for (index, count) in stop_gate_counts.iter().copied().enumerate() {
+        let key = HirStopLineKey::from_raw(u32::try_from(index).unwrap_or(u32::MAX));
+        stop_lines.get_mut(key).maneuver_gates = TableRange::try_from_usize(stop_gate_total, count)
+            .map_err(|overflow| arena_overflow(overflow, &unit.limits, None))?;
+        stop_gate_total = stop_gate_total.saturating_add(count);
+    }
+    let stop_line_maneuver_gates = stop_gate_order
+        .into_iter()
+        .map(|maneuver_gate| HirStopLineManeuverGate { maneuver_gate })
+        .collect::<Vec<_>>();
+
+    let mut resolved_waiting_keys = Vec::with_capacity(waiting_zones.len());
+    for location in &waiting_sources {
+        let source_module = &unit.modules[location.source_module_index as usize];
+        let SyntheticDeclaration::WaitingZone(source) =
+            &source_module.declarations[location.declaration_index as usize]
+        else {
+            unreachable!("canonical WaitingZone source changed kind")
+        };
+        let path = resolve_reference(
+            module_lookup,
+            &path_symbols,
+            &source.maneuver_path,
+            EntityKind::WaitingZone,
+            &source.header,
+            location.source_module_index,
+            &mut diagnostics,
+        );
+        let entry_gate = resolve_reference(
+            module_lookup,
+            &gate_symbols,
+            &source.entry_gate,
+            EntityKind::WaitingZone,
+            &source.header,
+            location.source_module_index,
+            &mut diagnostics,
+        );
+        let release_gate = resolve_reference(
+            module_lookup,
+            &gate_symbols,
+            &source.release_gate,
+            EntityKind::WaitingZone,
+            &source.header,
+            location.source_module_index,
+            &mut diagnostics,
+        );
+        let (Some(path_key), Some(entry_key), Some(release_key)) = (path, entry_gate, release_gate)
+        else {
+            continue;
+        };
+        let entry = gates.get(entry_key);
+        let release = gates.get(release_key);
+        let mut path_mismatch = false;
+        for (role, gate) in [
+            (WaitingZoneGateRole::Entry, entry),
+            (WaitingZoneGateRole::Release, release),
+        ] {
+            if gate.maneuver_path != path_key {
+                let mut diagnostic = Diagnostic::waiting_zone_gate_path_mismatch(
+                    &source.header.stable_key,
+                    role,
+                    &gate.stable_key,
+                    &maneuver_paths[path_key.index()].stable_key,
+                    &maneuver_paths[gate.maneuver_path.index()].stable_key,
+                    source.header.span.clone(),
+                    gate.source_span.clone(),
+                );
+                diagnostic.set_canonical_module_order(location.source_module_index);
+                diagnostics.push(diagnostic);
+                path_mismatch = true;
+            }
+        }
+        if path_mismatch {
+            continue;
+        }
+        if entry.transition_index >= release.transition_index {
+            let mut diagnostic = Diagnostic::invalid_waiting_zone_gate_order(
+                &source.header.stable_key,
+                entry.transition_index,
+                release.transition_index,
+                source.header.span.clone(),
+            );
+            diagnostic.set_canonical_module_order(location.source_module_index);
+            diagnostics.push(diagnostic);
+            continue;
+        }
+        let path_id = maneuver_paths[path_key.index()].stable_id.into_untyped();
+        let fields = [
+            IdentityFieldInput::new(
+                FieldTag::AuthoringNamespaceId,
+                source_module
+                    .descriptor()
+                    .authoring_namespace_id()
+                    .as_bytes(),
+            ),
+            IdentityFieldInput::new(FieldTag::ManeuverPathStableId, path_id.as_bytes()),
+            IdentityFieldInput::new(
+                FieldTag::WaitingZoneKey,
+                source.header.stable_key.as_bytes(),
+            ),
+        ];
+        let stable_id = WaitingZoneId::from_untyped(derive_identity(
+            unit,
+            identities,
+            location.source_module_index as usize,
+            EntityKind::WaitingZone,
+            &source.header.stable_key,
+            &source.header.span,
+            &fields,
+        )?);
+        let waiting = waiting_zones.get_mut(location.hir_key);
+        waiting.stable_id = stable_id;
+        waiting.maneuver_path = path_key;
+        waiting.entry_gate = entry_key;
+        waiting.release_gate = release_key;
+        resolved_waiting_keys.push(location.hir_key);
+    }
+    resolved_waiting_keys.sort_unstable_by(|left, right| {
+        let left = waiting_zones.get(*left);
+        let right = waiting_zones.get(*right);
+        let left_entry = gates.get(left.entry_gate).transition_index;
+        let right_entry = gates.get(right.entry_gate).transition_index;
+        let left_release = gates.get(left.release_gate).transition_index;
+        let right_release = gates.get(right.release_gate).transition_index;
+        (
+            left.maneuver_path.raw(),
+            left_entry,
+            left_release,
+            left.stable_id,
+        )
+            .cmp(&(
+                right.maneuver_path.raw(),
+                right_entry,
+                right_release,
+                right.stable_id,
+            ))
+    });
+    let mut active: Option<(HirWaitingZoneKey, u32)> = None;
+    for waiting_key in &resolved_waiting_keys {
+        let waiting = waiting_zones.get(*waiting_key);
+        let entry = gates.get(waiting.entry_gate).transition_index;
+        let release = gates.get(waiting.release_gate).transition_index;
+        if let Some((active_key, active_release)) = active {
+            let first = waiting_zones.get(active_key);
+            if first.maneuver_path == waiting.maneuver_path && entry < active_release {
+                let mut diagnostic = Diagnostic::overlapping_waiting_zones(
+                    &maneuver_paths[waiting.maneuver_path.index()].stable_key,
+                    &first.stable_key,
+                    &waiting.stable_key,
+                    waiting.source_span.clone(),
+                    first.source_span.clone(),
+                );
+                diagnostic.set_canonical_module_order(waiting.module.raw());
+                diagnostics.push(diagnostic);
+            }
+            if first.maneuver_path != waiting.maneuver_path || release > active_release {
+                active = Some((*waiting_key, release));
+            }
+        } else {
+            active = Some((*waiting_key, release));
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    let mut path_waiting_counts = vec![0_usize; maneuver_paths.len()];
+    for waiting_key in &resolved_waiting_keys {
+        let path = waiting_zones.get(*waiting_key).maneuver_path;
+        path_waiting_counts[path.index()] = path_waiting_counts[path.index()].saturating_add(1);
+    }
+    let mut waiting_total = 0_usize;
+    for (index, count) in path_waiting_counts.iter().copied().enumerate() {
+        maneuver_paths[index].waiting_zones = TableRange::try_from_usize(waiting_total, count)
+            .map_err(|overflow| arena_overflow(overflow, &unit.limits, None))?;
+        waiting_total = waiting_total.saturating_add(count);
+    }
+    let maneuver_path_waiting_zones = resolved_waiting_keys
+        .iter()
+        .copied()
+        .map(|waiting_zone| HirManeuverPathWaitingZone { waiting_zone })
+        .collect::<Vec<_>>();
+
+    Ok(ControlHir {
+        stop_lines: stop_lines.into_boxed_slice(),
+        maneuver_gates: gates.into_boxed_slice(),
+        waiting_zones: waiting_zones.into_boxed_slice(),
+        maneuver_path_gates: maneuver_path_gates.into_boxed_slice(),
+        maneuver_path_waiting_zones: maneuver_path_waiting_zones.into_boxed_slice(),
+        stop_line_maneuver_gates: stop_line_maneuver_gates.into_boxed_slice(),
+    })
+}
+
 fn derive_identity(
     unit: &CompilationUnit,
     identities: &mut IdentityRegistry,
@@ -2272,6 +3034,9 @@ fn declaration_header(
         SyntheticDeclaration::Junction(declaration) => &declaration.header,
         SyntheticDeclaration::Movement(declaration) => &declaration.header,
         SyntheticDeclaration::ManeuverPath(declaration) => &declaration.header,
+        SyntheticDeclaration::StopLine(declaration) => &declaration.header,
+        SyntheticDeclaration::ManeuverGate(declaration) => &declaration.header,
+        SyntheticDeclaration::WaitingZone(declaration) => &declaration.header,
     }
 }
 
@@ -2332,7 +3097,10 @@ fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts {
             }
             SyntheticDeclaration::Junction(_)
             | SyntheticDeclaration::Movement(_)
-            | SyntheticDeclaration::ManeuverPath(_) => {}
+            | SyntheticDeclaration::ManeuverPath(_)
+            | SyntheticDeclaration::StopLine(_)
+            | SyntheticDeclaration::ManeuverGate(_)
+            | SyntheticDeclaration::WaitingZone(_) => {}
         }
     }
     counts
@@ -2360,6 +3128,28 @@ fn junction_counts(unit: &CompilationUnit) -> JunctionCounts {
                         .saturating_add(2),
                 );
             }
+            _ => {}
+        }
+    }
+    counts
+}
+
+fn control_counts(unit: &CompilationUnit) -> ControlCounts {
+    let mut counts = ControlCounts {
+        maneuver_gates: unit.maneuver_gate_count,
+        waiting_zones: unit.waiting_zone_count,
+        ..ControlCounts::default()
+    };
+    for declaration in unit
+        .modules
+        .iter()
+        .flat_map(|module| module.declarations.iter())
+    {
+        match declaration {
+            SyntheticDeclaration::StopLine(_) => {
+                counts.stop_lines = counts.stop_lines.saturating_add(1);
+            }
+            SyntheticDeclaration::ManeuverGate(_) | SyntheticDeclaration::WaitingZone(_) => {}
             _ => {}
         }
     }
@@ -2434,6 +3224,14 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
                 SyntheticDeclaration::ManeuverPath(_) => 88_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
+                SyntheticDeclaration::StopLine(_) => 22_u64
+                    .saturating_add(namespace_bytes)
+                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
+                SyntheticDeclaration::ManeuverGate(_) | SyntheticDeclaration::WaitingZone(_) => {
+                    44_u64
+                        .saturating_add(namespace_bytes)
+                        .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX))
+                }
             };
             total = total.saturating_add(bytes);
             largest = largest.max(bytes);

@@ -13,15 +13,17 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 **实现状态**: G2 实现进行中；`laneflow-static-contract` 已建立 `no_std` 值类型、
 标识 v1（Identity v1）登记常量、有类型稳定标识与有类型逻辑序号；
 `laneflow-compiler` 已建立生产资源配置档、来源模块头、结构化诊断、确定性
-`LFSOURCE` 来源记录、显式导入图，以及车道图边、横断面完整所有者树和路口拓扑闭包的
-受检合成领域声明。编译器侧标识 v1 编码、BLAKE3-128 派生、完整前像重复 / 碰撞登记、修订 1 全
+`LFSOURCE` 来源记录、显式导入图，以及车道图边、横断面完整所有者树、路口拓扑和
+机动门 / 等待区静态闭包的受检合成领域声明。编译器侧标识 v1 编码、BLAKE3-128 派生、完整前像重复 / 碰撞登记、修订 1 全
 22 种实体的冻结已知向量与独立测试预言机已经落地；`LaneEdge`、`RoadCorridor`、
 `RoadSection`、`AuthoringLane`、`LaneGroup`、`FacilityBand`、`Junction`、`Movement` 和
-`ManeuverPath` 已接入有类型符号解析、父项先于子项的身份闭包、规范 HIR/MIR/LIR
-连续表及来源伴随数据；完整 `entry + internal + exit` 路径与派生路口内部边排他角色已
-闭合。公共 `Compiler`
+`ManeuverPath`、`StopLine`、`ManeuverGate` 和 `WaitingZone` 已接入有类型符号解析、
+父项先于子项的身份闭包、规范 HIR/MIR/LIR 连续表及来源伴随数据；完整
+`entry + internal + exit` 路径、派生路口内部边排他角色、路径转换门、停止线使用闭包和
+等待区静态区间约束已经闭合。公共 `Compiler`
 已经原子返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`；首批支持矩阵
-中的机动门 / 等待区、信号、停车、准入、路线和空间等其余领域及后继编译遍尚未实现。#292 G1 已
+中的机动门 / 等待区路线出现项、信号、停车、准入、路线和空间等其余领域及后继编译遍
+尚未实现。#292 G1 已
 接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
 `laneflow-data` / `laneflow-core` / `laneflow-spatial`
