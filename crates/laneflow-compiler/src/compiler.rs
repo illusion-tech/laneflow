@@ -5,10 +5,17 @@
 //! 确定性预言机：每个阶段成功后才提交下一阶段，任一错误只返回
 //! [`DiagnosticBundle`]；来源伴随数据在 AST/HIR/MIR 释放前冻结。
 
-use laneflow_static_contract::{FieldTag, LaneEdgeId, LaneEdgeOrdinal};
+use laneflow_static_contract::{
+    AuthoringLaneId, AuthoringLaneOrdinal, FacilityBandId, FacilityBandOrdinal, FieldTag,
+    LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal, RoadCorridorId,
+    RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
+};
 
 use crate::hir::build_hir;
-use crate::lir::{LirIdentityField, LirLaneEdge, LirUnit, freeze_lir};
+use crate::lir::{
+    LirAuthoringLane, LirCorridorElement, LirFacilityBand, LirIdentityField, LirLaneEdge,
+    LirLaneGroup, LirRoadCorridor, LirRoadSection, LirUnit, freeze_lir,
+};
 use crate::mir::lower_to_mir;
 use crate::source_map::{ValidatedSourceMapInput, freeze_source_map};
 use crate::{CompilationUnit, Diagnostic, DiagnosticBundle};
@@ -44,6 +51,133 @@ impl ValidatedCanonicalLir {
             .map(|edge| CanonicalLaneEdgeView {
                 lir: &self.inner,
                 edge,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部道路走廊。
+    pub fn road_corridors(&self) -> impl ExactSizeIterator<Item = CanonicalRoadCorridorView<'_>> {
+        self.inner
+            .road_corridors
+            .iter()
+            .map(|record| CanonicalRoadCorridorView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取道路走廊。
+    #[must_use]
+    pub fn road_corridor(
+        &self,
+        ordinal: RoadCorridorOrdinal,
+    ) -> Option<CanonicalRoadCorridorView<'_>> {
+        self.inner
+            .road_corridors
+            .get(ordinal.index())
+            .map(|record| CanonicalRoadCorridorView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部道路区段。
+    pub fn road_sections(&self) -> impl ExactSizeIterator<Item = CanonicalRoadSectionView<'_>> {
+        self.inner
+            .road_sections
+            .iter()
+            .map(|record| CanonicalRoadSectionView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取道路区段。
+    #[must_use]
+    pub fn road_section(
+        &self,
+        ordinal: RoadSectionOrdinal,
+    ) -> Option<CanonicalRoadSectionView<'_>> {
+        self.inner
+            .road_sections
+            .get(ordinal.index())
+            .map(|record| CanonicalRoadSectionView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部编制车道。
+    pub fn authoring_lanes(&self) -> impl ExactSizeIterator<Item = CanonicalAuthoringLaneView<'_>> {
+        self.inner
+            .authoring_lanes
+            .iter()
+            .map(|record| CanonicalAuthoringLaneView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取编制车道。
+    #[must_use]
+    pub fn authoring_lane(
+        &self,
+        ordinal: AuthoringLaneOrdinal,
+    ) -> Option<CanonicalAuthoringLaneView<'_>> {
+        self.inner
+            .authoring_lanes
+            .get(ordinal.index())
+            .map(|record| CanonicalAuthoringLaneView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部车道组。
+    pub fn lane_groups(&self) -> impl ExactSizeIterator<Item = CanonicalLaneGroupView<'_>> {
+        self.inner
+            .lane_groups
+            .iter()
+            .map(|record| CanonicalLaneGroupView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取车道组。
+    #[must_use]
+    pub fn lane_group(&self, ordinal: LaneGroupOrdinal) -> Option<CanonicalLaneGroupView<'_>> {
+        self.inner
+            .lane_groups
+            .get(ordinal.index())
+            .map(|record| CanonicalLaneGroupView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部设施带。
+    pub fn facility_bands(&self) -> impl ExactSizeIterator<Item = CanonicalFacilityBandView<'_>> {
+        self.inner
+            .facility_bands
+            .iter()
+            .map(|record| CanonicalFacilityBandView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取设施带。
+    #[must_use]
+    pub fn facility_band(
+        &self,
+        ordinal: FacilityBandOrdinal,
+    ) -> Option<CanonicalFacilityBandView<'_>> {
+        self.inner
+            .facility_bands
+            .get(ordinal.index())
+            .map(|record| CanonicalFacilityBandView {
+                lir: &self.inner,
+                record,
             })
     }
 }
@@ -94,6 +228,174 @@ impl CanonicalLaneEdgeView<'_> {
     #[must_use]
     pub fn successors(&self) -> &[LaneEdgeOrdinal] {
         &self.lir.lane_edge_successors[self.edge.successors.as_usize_range()]
+    }
+}
+
+macro_rules! impl_stable_entity_view {
+    ($view:ident, $record:ty, $ordinal:ty, $id:ty) => {
+        /// Canonical LIR 中一个已验证稳定实体的借用视图。
+        #[derive(Clone, Copy)]
+        pub struct $view<'a> {
+            lir: &'a LirUnit,
+            record: &'a $record,
+        }
+
+        impl $view<'_> {
+            /// 返回当前实体表中的有类型逻辑序号。
+            #[must_use]
+            pub const fn ordinal(&self) -> $ordinal {
+                self.record.ordinal
+            }
+
+            /// 返回由完整 Identity v1 前像派生的有类型稳定标识。
+            #[must_use]
+            pub const fn stable_id(&self) -> $id {
+                self.record.stable_id
+            }
+
+            /// 按 Identity v1 登记顺序遍历完整规范身份字段。
+            pub fn identity_fields(
+                &self,
+            ) -> impl ExactSizeIterator<Item = CanonicalIdentityFieldView<'_>> {
+                self.lir.identity_fields[self.record.identity_fields.as_usize_range()]
+                    .iter()
+                    .map(|field| CanonicalIdentityFieldView {
+                        identity_field_bytes: &self.lir.identity_field_bytes,
+                        field,
+                    })
+            }
+        }
+    };
+}
+
+impl_stable_entity_view!(
+    CanonicalRoadCorridorView,
+    LirRoadCorridor,
+    RoadCorridorOrdinal,
+    RoadCorridorId
+);
+impl_stable_entity_view!(
+    CanonicalRoadSectionView,
+    LirRoadSection,
+    RoadSectionOrdinal,
+    RoadSectionId
+);
+impl_stable_entity_view!(
+    CanonicalAuthoringLaneView,
+    LirAuthoringLane,
+    AuthoringLaneOrdinal,
+    AuthoringLaneId
+);
+impl_stable_entity_view!(
+    CanonicalLaneGroupView,
+    LirLaneGroup,
+    LaneGroupOrdinal,
+    LaneGroupId
+);
+impl_stable_entity_view!(
+    CanonicalFacilityBandView,
+    LirFacilityBand,
+    FacilityBandOrdinal,
+    FacilityBandId
+);
+
+/// 道路走廊有序横断面中的一项有类型成员。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum CanonicalCorridorElement {
+    /// 一个承载编制车道的有方向道路区段。
+    RoadSection(RoadSectionOrdinal),
+    /// 一个不进入遍历图的非方向设施带。
+    FacilityBand(FacilityBandOrdinal),
+}
+
+impl CanonicalRoadCorridorView<'_> {
+    /// 返回定义横断面参考方向、且已证明属于本走廊的道路区段。
+    #[must_use]
+    pub const fn reference_section(&self) -> RoadSectionOrdinal {
+        self.record.reference_section
+    }
+
+    /// 按走廊参考方向从左到右遍历横断面成员；该顺序具有领域语义。
+    pub fn elements(&self) -> impl ExactSizeIterator<Item = CanonicalCorridorElement> + '_ {
+        self.lir.corridor_elements[self.record.elements.as_usize_range()]
+            .iter()
+            .map(|element| match element {
+                LirCorridorElement::RoadSection(ordinal) => {
+                    CanonicalCorridorElement::RoadSection(*ordinal)
+                }
+                LirCorridorElement::FacilityBand(ordinal) => {
+                    CanonicalCorridorElement::FacilityBand(*ordinal)
+                }
+            })
+    }
+}
+
+impl CanonicalRoadSectionView<'_> {
+    /// 返回唯一拥有本区段的道路走廊。
+    #[must_use]
+    pub const fn road_corridor(&self) -> RoadCorridorOrdinal {
+        self.record.road_corridor
+    }
+
+    /// 返回已验证为 lane-bearing 类别的物理设施 token。
+    #[must_use]
+    pub fn kind_id(&self) -> &str {
+        &self.record.kind_id
+    }
+
+    /// 返回按走廊参考方向从左到右排列的编制车道序号。
+    #[must_use]
+    pub fn lanes(&self) -> &[AuthoringLaneOrdinal] {
+        &self.lir.road_section_lanes[self.record.lanes.as_usize_range()]
+    }
+}
+
+impl CanonicalAuthoringLaneView<'_> {
+    /// 返回唯一拥有本编制车道的道路区段。
+    #[must_use]
+    pub const fn road_section(&self) -> RoadSectionOrdinal {
+        self.record.road_section
+    }
+
+    /// 返回沿行驶方向排列、已证明直接连通的车道图边覆盖链。
+    #[must_use]
+    pub fn edge_chain(&self) -> &[LaneEdgeOrdinal] {
+        &self.lir.authoring_lane_edges[self.record.edge_chain.as_usize_range()]
+    }
+
+    /// 返回可选车道组；存在时已证明与本车道属于同一道路区段。
+    #[must_use]
+    pub const fn lane_group(&self) -> Option<LaneGroupOrdinal> {
+        self.record.lane_group
+    }
+}
+
+impl CanonicalLaneGroupView<'_> {
+    /// 返回唯一拥有本组的道路区段。
+    #[must_use]
+    pub const fn road_section(&self) -> RoadSectionOrdinal {
+        self.record.road_section
+    }
+
+    /// 返回非空且全部属于同一父区段的编制车道成员。
+    #[must_use]
+    pub fn members(&self) -> &[AuthoringLaneOrdinal] {
+        &self.lir.lane_group_members[self.record.members.as_usize_range()]
+    }
+}
+
+impl CanonicalFacilityBandView<'_> {
+    /// 返回唯一拥有本设施带的道路走廊。
+    #[must_use]
+    pub const fn road_corridor(&self) -> RoadCorridorOrdinal {
+        self.record.road_corridor
+    }
+
+    /// 返回已验证为 non-traversable 类别的物理设施 token。
+    #[must_use]
+    pub fn kind_id(&self) -> &str {
+        &self.record.kind_id
     }
 }
 
@@ -149,7 +451,7 @@ impl CompilationOutput {
     }
 }
 
-/// 可复用的 LaneFlow 静态路网生产编译器。
+/// 可复用的 LaneFlow 静态路网编译器。
 ///
 /// 当前干净单线程预言机没有跨编译语义状态；因此失败后无需清理缓存，也不可能让上次
 /// 编译污染下一次结果。后继若加入容量复用，仍必须维持这一可观察契约。
@@ -166,7 +468,7 @@ impl Compiler {
         Self { _private: () }
     }
 
-    /// 消费一个受检编译单元并运行完整的当前生产编译管线。
+    /// 消费一个受检编译单元并运行当前已实现的 #292 领域子集编译管线。
     ///
     /// # Errors
     ///
@@ -198,9 +500,12 @@ impl Compiler {
 mod tests {
     use super::*;
     use crate::{
-        CompilationUnitBuilder, CompileLimitDimension, CompileLimits, DiagnosticPayload,
-        LaneEdgeInput, LaneEdgeReference, SourceModuleDescriptor, SourceModuleHeader,
-        SourceModuleHeaderInput, SourceRelationRole, SyntheticModule, SyntheticModuleBuilder,
+        AuthoringLaneInput, CompilationUnitBuilder, CompileLimitDimension, CompileLimits,
+        CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
+        FacilityBandReference, LaneEdgeInput, LaneEdgeReference, LaneGroupInput,
+        LaneGroupReference, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
+        SourceModuleDescriptor, SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole,
+        SyntheticModule, SyntheticModuleBuilder,
     };
 
     fn module(
@@ -246,6 +551,104 @@ mod tests {
             builder.add_synthetic_module(module).unwrap();
         }
         builder.build().unwrap()
+    }
+
+    fn cross_section_module(permuted: bool) -> SyntheticModule {
+        let limits = CompileLimits::p100_initial_v1();
+        let header = SourceModuleHeader::new(
+            SourceModuleHeaderInput {
+                authoring_namespace_id: "city/cross-section",
+                source_document_key: "cross-section.document",
+                generator_build_id: "git:0123456789abcdef",
+                parameters_and_inputs_digest: [0x11; 32],
+                frontend_options_digest: [0x22; 32],
+                random_seed: Some(42),
+                provenance: "repository:laneflow",
+            },
+            &limits,
+        )
+        .unwrap();
+        let mut builder = SyntheticModuleBuilder::new(header, &limits).unwrap();
+        let add_edges = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "edge-a",
+                    length_meters: 10.0,
+                    speed_limit_meters_per_second: 12.0,
+                    successors: &[LaneEdgeReference::local("edge-b")],
+                })
+                .unwrap()
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: "edge-b",
+                    length_meters: 12.0,
+                    speed_limit_meters_per_second: 12.0,
+                    successors: &[],
+                })
+                .unwrap();
+        };
+        let add_band = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_facility_band(FacilityBandInput {
+                    facility_band_key: "sidewalk-left",
+                    kind_id: "sidewalk",
+                })
+                .unwrap();
+        };
+        let add_group = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_lane_group(LaneGroupInput {
+                    lane_group_key: "through",
+                    road_section: RoadSectionReference::local("carriageway"),
+                })
+                .unwrap();
+        };
+        let add_section = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_road_section(RoadSectionInput {
+                    road_section_key: "carriageway",
+                    kind_id: "motorLane",
+                    lanes: &[AuthoringLaneInput {
+                        authoring_lane_key: "lane-main",
+                        edge_chain: &[
+                            LaneEdgeReference::local("edge-a"),
+                            LaneEdgeReference::local("edge-b"),
+                        ],
+                        lane_group: Some(LaneGroupReference::local("through")),
+                    }],
+                })
+                .unwrap();
+        };
+        let add_corridor = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_road_corridor(RoadCorridorInput {
+                    road_corridor_key: "main-road",
+                    reference_section: RoadSectionReference::local("carriageway"),
+                    elements: &[
+                        CorridorElementReference::facility_band(FacilityBandReference::local(
+                            "sidewalk-left",
+                        )),
+                        CorridorElementReference::road_section(RoadSectionReference::local(
+                            "carriageway",
+                        )),
+                    ],
+                })
+                .unwrap();
+        };
+
+        if permuted {
+            add_corridor(&mut builder);
+            add_section(&mut builder);
+            add_group(&mut builder);
+            add_band(&mut builder);
+            add_edges(&mut builder);
+        } else {
+            add_edges(&mut builder);
+            add_band(&mut builder);
+            add_group(&mut builder);
+            add_section(&mut builder);
+            add_corridor(&mut builder);
+        }
+        builder.finish().unwrap()
     }
 
     fn edge_key(edge: CanonicalLaneEdgeView<'_>) -> String {
@@ -326,6 +729,405 @@ mod tests {
                 0,
                 "app.document".to_owned(),
             )]
+        );
+    }
+
+    #[test]
+    fn compiler_freezes_complete_cross_section_owner_tree_and_source_relations() {
+        let output = Compiler::new()
+            .compile(unit([cross_section_module(false)]))
+            .unwrap();
+        let lir = output.lir();
+        let corridor = lir.road_corridors().next().unwrap();
+        let section = lir.road_sections().next().unwrap();
+        let lane = lir.authoring_lanes().next().unwrap();
+        let group = lir.lane_groups().next().unwrap();
+        let band = lir.facility_bands().next().unwrap();
+
+        assert_eq!(corridor.reference_section(), section.ordinal());
+        assert_eq!(
+            corridor.elements().collect::<Vec<_>>(),
+            [
+                CanonicalCorridorElement::FacilityBand(band.ordinal()),
+                CanonicalCorridorElement::RoadSection(section.ordinal()),
+            ]
+        );
+        assert_eq!(section.road_corridor(), corridor.ordinal());
+        assert_eq!(section.kind_id(), "motorLane");
+        assert_eq!(section.lanes(), [lane.ordinal()]);
+        assert_eq!(lane.road_section(), section.ordinal());
+        assert_eq!(lane.edge_chain().len(), 2);
+        assert_eq!(lane.lane_group(), Some(group.ordinal()));
+        assert_eq!(group.road_section(), section.ordinal());
+        assert_eq!(group.members(), [lane.ordinal()]);
+        assert_eq!(band.road_corridor(), corridor.ordinal());
+        assert_eq!(band.kind_id(), "sidewalk");
+
+        let section_fields = section
+            .identity_fields()
+            .map(|field| (field.tag(), field.value_bytes().to_vec()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            section_fields
+                .iter()
+                .map(|field| field.0)
+                .collect::<Vec<_>>(),
+            [
+                FieldTag::AuthoringNamespaceId,
+                FieldTag::SectionKey,
+                FieldTag::RoadCorridorStableId,
+            ]
+        );
+        assert_eq!(
+            section_fields[2].1,
+            corridor.stable_id().as_untyped().as_bytes()
+        );
+
+        let source_map = output.source_map_input();
+        assert_eq!(source_map.road_corridor_sources().len(), 1);
+        assert_eq!(source_map.road_section_sources().len(), 1);
+        assert_eq!(source_map.authoring_lane_sources().len(), 1);
+        assert_eq!(source_map.lane_group_sources().len(), 1);
+        assert_eq!(source_map.facility_band_sources().len(), 1);
+        assert_eq!(
+            source_map
+                .cross_section_relation_sources()
+                .map(|source| {
+                    (
+                        source.owner().entity_kind(),
+                        source.role(),
+                        source.local_index(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            [
+                (
+                    laneflow_static_contract::EntityKind::RoadCorridor,
+                    SourceRelationRole::RoadCorridorElement,
+                    0,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::RoadCorridor,
+                    SourceRelationRole::RoadCorridorElement,
+                    1,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::RoadSection,
+                    SourceRelationRole::RoadSectionLane,
+                    0,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::AuthoringLane,
+                    SourceRelationRole::AuthoringLaneEdge,
+                    0,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::AuthoringLane,
+                    SourceRelationRole::AuthoringLaneEdge,
+                    1,
+                ),
+                (
+                    laneflow_static_contract::EntityKind::LaneGroup,
+                    SourceRelationRole::LaneGroupMember,
+                    0,
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn cross_section_lir_semantics_ignore_top_level_declaration_order() {
+        let baseline = Compiler::new()
+            .compile(unit([cross_section_module(false)]))
+            .unwrap();
+        let permuted = Compiler::new()
+            .compile(unit([cross_section_module(true)]))
+            .unwrap();
+
+        assert_eq!(
+            baseline.lir.inner.semantic_digest,
+            permuted.lir.inner.semantic_digest
+        );
+        assert_eq!(
+            baseline
+                .lir()
+                .road_corridors()
+                .map(|corridor| corridor.stable_id())
+                .collect::<Vec<_>>(),
+            permuted
+                .lir()
+                .road_corridors()
+                .map(|corridor| corridor.stable_id())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            baseline
+                .lir()
+                .authoring_lanes()
+                .map(|lane| lane.stable_id())
+                .collect::<Vec<_>>(),
+            permuted
+                .lir()
+                .authoring_lanes()
+                .map(|lane| lane.stable_id())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn compiler_rejects_cross_section_semantic_failures_before_lir() {
+        let limits = CompileLimits::p100_initial_v1();
+        let make_builder = || {
+            let header = SourceModuleHeader::new(
+                SourceModuleHeaderInput {
+                    authoring_namespace_id: "city/failure",
+                    source_document_key: "failure.document",
+                    generator_build_id: "git:0123456789abcdef",
+                    parameters_and_inputs_digest: [0x11; 32],
+                    frontend_options_digest: [0x22; 32],
+                    random_seed: None,
+                    provenance: "repository:laneflow",
+                },
+                &limits,
+            )
+            .unwrap();
+            SyntheticModuleBuilder::new(header, &limits).unwrap()
+        };
+
+        let mut missing_owner = make_builder();
+        missing_owner
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-a",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "section-a",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-a",
+                    edge_chain: &[LaneEdgeReference::local("edge-a")],
+                    lane_group: None,
+                }],
+            })
+            .unwrap();
+        let diagnostics = match Compiler::new().compile(unit([missing_owner.finish().unwrap()])) {
+            Ok(_) => panic!("missing owner must reject compilation"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert_eq!(
+            diagnostics.diagnostics()[0].code(),
+            DiagnosticCode::MissingCrossSectionOwner
+        );
+
+        let mut disconnected = make_builder();
+        disconnected
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-a",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-b",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "section-a",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-a",
+                    edge_chain: &[
+                        LaneEdgeReference::local("edge-a"),
+                        LaneEdgeReference::local("edge-b"),
+                    ],
+                    lane_group: None,
+                }],
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-a",
+                reference_section: RoadSectionReference::local("section-a"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("section-a"),
+                )],
+            })
+            .unwrap();
+        let diagnostics = match Compiler::new().compile(unit([disconnected.finish().unwrap()])) {
+            Ok(_) => panic!("disconnected lane chain must reject compilation"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(diagnostics.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code() == DiagnosticCode::DisconnectedAuthoringLaneEdgeChain
+        }));
+
+        let mut unknown_middle = make_builder();
+        unknown_middle
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-a",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-c",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "section-a",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-a",
+                    edge_chain: &[
+                        LaneEdgeReference::local("edge-a"),
+                        LaneEdgeReference::local("missing"),
+                        LaneEdgeReference::local("edge-c"),
+                    ],
+                    lane_group: None,
+                }],
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-a",
+                reference_section: RoadSectionReference::local("section-a"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("section-a"),
+                )],
+            })
+            .unwrap();
+        let diagnostics = match Compiler::new().compile(unit([unknown_middle.finish().unwrap()])) {
+            Ok(_) => panic!("unknown lane edge must reject compilation"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(
+            diagnostics
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.code() == DiagnosticCode::UnknownReferenceTarget)
+        );
+        assert!(diagnostics.diagnostics().iter().all(|diagnostic| {
+            diagnostic.code() != DiagnosticCode::DisconnectedAuthoringLaneEdgeChain
+        }));
+
+        let mut multiple_owner = make_builder();
+        multiple_owner
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-a",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "section-a",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-a",
+                    edge_chain: &[LaneEdgeReference::local("edge-a")],
+                    lane_group: None,
+                }],
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-a",
+                reference_section: RoadSectionReference::local("section-a"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("section-a"),
+                )],
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-b",
+                reference_section: RoadSectionReference::local("section-a"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("section-a"),
+                )],
+            })
+            .unwrap();
+        let diagnostics = match Compiler::new().compile(unit([multiple_owner.finish().unwrap()])) {
+            Ok(_) => panic!("multiple cross-section owners must reject compilation"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(
+            diagnostics.diagnostics().iter().any(|diagnostic| {
+                diagnostic.code() == DiagnosticCode::MultipleCrossSectionOwners
+            })
+        );
+
+        let mut group_parent_mismatch = make_builder();
+        group_parent_mismatch
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-a",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-b",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_group(LaneGroupInput {
+                lane_group_key: "group-a",
+                road_section: RoadSectionReference::local("section-a"),
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "section-a",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-a",
+                    edge_chain: &[LaneEdgeReference::local("edge-a")],
+                    lane_group: None,
+                }],
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "section-b",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-b",
+                    edge_chain: &[LaneEdgeReference::local("edge-b")],
+                    lane_group: Some(LaneGroupReference::local("group-a")),
+                }],
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-a",
+                reference_section: RoadSectionReference::local("section-a"),
+                elements: &[
+                    CorridorElementReference::road_section(RoadSectionReference::local(
+                        "section-a",
+                    )),
+                    CorridorElementReference::road_section(RoadSectionReference::local(
+                        "section-b",
+                    )),
+                ],
+            })
+            .unwrap();
+        let diagnostics =
+            match Compiler::new().compile(unit([group_parent_mismatch.finish().unwrap()])) {
+                Ok(_) => panic!("lane-group parent mismatch must reject compilation"),
+                Err(diagnostics) => diagnostics,
+            };
+        assert!(
+            diagnostics
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.code() == DiagnosticCode::LaneGroupParentMismatch)
         );
     }
 

@@ -1,8 +1,8 @@
 //! 高层中间表示（HIR）到中层中间表示（MIR）的确定性降级阶段。
 //!
-//! HIR 已完成模块与符号解析；本阶段不再接受文本引用，而是把模块、车道图边和下游
-//! 连接冻结为目标布局中立的连续表。HIR 与 MIR 使用不同的键标记，并通过显式映射表
-//! 转换，避免两个碰巧相同的 `u32` 被误认为可跨阶段复用。
+//! HIR 已完成模块、拓扑、横断面所有者与符号解析；本阶段不再接受文本引用，而是把
+//! 模块、稳定实体和 owner-local 关系冻结为目标布局中立的连续表。HIR 与 MIR 使用
+//! 不同的键标记，并通过显式映射表转换，避免碰巧相同的 `u32` 被跨阶段复用。
 //!
 //! MIR 仍是 crate 私有编译阶段，不是静态镜像 ABI 或公共制品格式。它保留稳定键、
 //! `f64` 交通标量和来源位置；后续 LIR 验证/冻结完成前，调用方不得把这些表视为已验证
@@ -10,11 +10,13 @@
 
 use std::sync::Arc;
 
-use laneflow_static_contract::LaneEdgeId;
+use laneflow_static_contract::{
+    AuthoringLaneId, FacilityBandId, LaneEdgeId, LaneGroupId, RoadCorridorId, RoadSectionId,
+};
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::diagnostic::DiagnosticCollector;
-use crate::hir::{HirLaneEdgeKey, HirUnit};
+use crate::hir::{HirCorridorElement, HirLaneEdgeKey, HirUnit};
 use crate::module::SourceDocumentOrdinal;
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
@@ -22,11 +24,21 @@ use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle
 pub(crate) enum MirModuleTag {}
 /// 区分 MIR 车道图边表键的零尺寸阶段标记。
 pub(crate) enum MirLaneEdgeTag {}
+pub(crate) enum MirRoadCorridorTag {}
+pub(crate) enum MirRoadSectionTag {}
+pub(crate) enum MirAuthoringLaneTag {}
+pub(crate) enum MirLaneGroupTag {}
+pub(crate) enum MirFacilityBandTag {}
 
 /// 仅在当前 `MirUnit` 模块表内有效的致密键。
 pub(crate) type MirModuleKey = ArenaKey<MirModuleTag>;
 /// 仅在当前 `MirUnit` 车道图边表内有效的致密键。
 pub(crate) type MirLaneEdgeKey = ArenaKey<MirLaneEdgeTag>;
+pub(crate) type MirRoadCorridorKey = ArenaKey<MirRoadCorridorTag>;
+pub(crate) type MirRoadSectionKey = ArenaKey<MirRoadSectionTag>;
+pub(crate) type MirAuthoringLaneKey = ArenaKey<MirAuthoringLaneTag>;
+pub(crate) type MirLaneGroupKey = ArenaKey<MirLaneGroupTag>;
+pub(crate) type MirFacilityBandKey = ArenaKey<MirFacilityBandTag>;
 
 /// MIR 中保留的模块身份与来源上下文。
 pub(crate) struct MirModule {
@@ -67,6 +79,67 @@ pub(crate) struct MirLaneEdge {
     pub(crate) source_span: SourceSpan,
 }
 
+pub(crate) enum MirCorridorElement {
+    RoadSection(MirRoadSectionKey),
+    FacilityBand(MirFacilityBandKey),
+}
+
+pub(crate) struct MirRoadCorridor {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: RoadCorridorId,
+    pub(crate) reference_section: MirRoadSectionKey,
+    pub(crate) elements: TableRange<MirCorridorElement>,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirRoadSection {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: RoadSectionId,
+    pub(crate) road_corridor: MirRoadCorridorKey,
+    pub(crate) kind_id: Arc<str>,
+    pub(crate) lanes: TableRange<MirAuthoringLane>,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirAuthoringLaneEdge {
+    pub(crate) target: MirLaneEdgeKey,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirAuthoringLane {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: AuthoringLaneId,
+    pub(crate) road_section: MirRoadSectionKey,
+    pub(crate) edge_chain: TableRange<MirAuthoringLaneEdge>,
+    pub(crate) lane_group: Option<MirLaneGroupKey>,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirLaneGroupMember {
+    pub(crate) lane: MirAuthoringLaneKey,
+}
+
+pub(crate) struct MirLaneGroup {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: LaneGroupId,
+    pub(crate) road_section: MirRoadSectionKey,
+    pub(crate) members: TableRange<MirLaneGroupMember>,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirFacilityBand {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: FacilityBandId,
+    pub(crate) road_corridor: MirRoadCorridorKey,
+    pub(crate) kind_id: Arc<str>,
+    pub(crate) source_span: SourceSpan,
+}
+
 /// MIR 阶段成功后一次性冻结的目标布局中立表集合。
 ///
 /// 每个连接区间都落在 `lane_edge_connections` 内，且所有目标键指向本实例的
@@ -76,6 +149,14 @@ pub(crate) struct MirUnit {
     pub(crate) modules: Box<[MirModule]>,
     pub(crate) lane_edges: Box<[MirLaneEdge]>,
     pub(crate) lane_edge_connections: Box<[MirLaneEdgeConnection]>,
+    pub(crate) road_corridors: Box<[MirRoadCorridor]>,
+    pub(crate) corridor_elements: Box<[MirCorridorElement]>,
+    pub(crate) road_sections: Box<[MirRoadSection]>,
+    pub(crate) authoring_lanes: Box<[MirAuthoringLane]>,
+    pub(crate) authoring_lane_edges: Box<[MirAuthoringLaneEdge]>,
+    pub(crate) lane_groups: Box<[MirLaneGroup]>,
+    pub(crate) lane_group_members: Box<[MirLaneGroupMember]>,
+    pub(crate) facility_bands: Box<[MirFacilityBand]>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) mir_record_count: u64,
     pub(crate) controlled_live_bytes: u64,
@@ -92,17 +173,61 @@ pub(crate) fn lower_to_mir(
     unit: &CompilationUnit,
     hir: &HirUnit,
 ) -> Result<MirUnit, DiagnosticBundle> {
-    // MIR record 指标只计语义车道图边与连接；模块元数据仍计入分配和 live-byte 预检。
+    // MIR record 指标计全部稳定实体与关系；模块元数据另计入分配和 live-byte 预检。
     // 在任何阶段表分配前先验证记录、暂存映射和 HIR/MIR 同时存续的峰值。
     let module_count = u64::try_from(hir.modules.len()).unwrap_or(u64::MAX);
     let lane_edge_count = u64::try_from(hir.lane_edges.len()).unwrap_or(u64::MAX);
     let connection_count = u64::try_from(hir.lane_edge_references.len()).unwrap_or(u64::MAX);
-    let mir_record_count = lane_edge_count.saturating_add(connection_count);
+    let cross_record_count = [
+        hir.road_corridors.len(),
+        hir.corridor_elements.len(),
+        hir.road_sections.len(),
+        hir.authoring_lanes.len(),
+        hir.authoring_lane_edges.len(),
+        hir.lane_groups.len(),
+        hir.lane_group_members.len(),
+        hir.facility_bands.len(),
+    ]
+    .into_iter()
+    .fold(0_u64, |total, count| {
+        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
+    });
+    let mir_record_count = lane_edge_count
+        .saturating_add(connection_count)
+        .saturating_add(cross_record_count);
     let stage_scratch_bytes = requested_bytes::<MirModuleKey>(module_count)
-        .saturating_add(requested_bytes::<MirLaneEdgeKey>(lane_edge_count));
+        .saturating_add(requested_bytes::<MirLaneEdgeKey>(lane_edge_count))
+        .saturating_add(requested_bytes::<u32>(cross_record_count));
     let mir_owned_bytes = requested_bytes::<MirModule>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdge>(lane_edge_count))
-        .saturating_add(requested_bytes::<MirLaneEdgeConnection>(connection_count));
+        .saturating_add(requested_bytes::<MirLaneEdgeConnection>(connection_count))
+        .saturating_add(requested_bytes::<MirRoadCorridor>(
+            hir.road_corridors.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirCorridorElement>(
+            hir.corridor_elements.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirRoadSection>(
+            hir.road_sections.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirAuthoringLane>(
+            hir.authoring_lanes.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirAuthoringLaneEdge>(
+            hir.authoring_lane_edges
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirLaneGroup>(
+            hir.lane_groups.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirLaneGroupMember>(
+            hir.lane_group_members.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirFacilityBand>(
+            hir.facility_bands.len().try_into().unwrap_or(u64::MAX),
+        ));
     let controlled_live_bytes = unit
         .controlled_live_bytes
         .saturating_add(hir.controlled_live_bytes)
@@ -197,6 +322,107 @@ pub(crate) fn lower_to_mir(
             )?;
     }
 
+    let corridor_mapping = dense_mapping::<MirRoadCorridorTag>(hir.road_corridors.len())?;
+    let section_mapping = dense_mapping::<MirRoadSectionTag>(hir.road_sections.len())?;
+    let lane_mapping = dense_mapping::<MirAuthoringLaneTag>(hir.authoring_lanes.len())?;
+    let group_mapping = dense_mapping::<MirLaneGroupTag>(hir.lane_groups.len())?;
+    let band_mapping = dense_mapping::<MirFacilityBandTag>(hir.facility_bands.len())?;
+
+    let mut road_corridors = Vec::with_capacity(hir.road_corridors.len());
+    for corridor in &hir.road_corridors {
+        road_corridors.push(MirRoadCorridor {
+            module: hir_module_to_mir[corridor.module.index()],
+            stable_key: Arc::clone(&corridor.stable_key),
+            stable_id: corridor.stable_id,
+            reference_section: section_mapping[corridor.reference_section.index()],
+            elements: remap_range(corridor.elements, &unit.limits, &corridor.source_span)?,
+            source_span: corridor.source_span.clone(),
+        });
+    }
+    let corridor_elements: Vec<MirCorridorElement> = hir
+        .corridor_elements
+        .iter()
+        .map(|element| match element {
+            HirCorridorElement::RoadSection(key) => {
+                MirCorridorElement::RoadSection(section_mapping[key.index()])
+            }
+            HirCorridorElement::FacilityBand(key) => {
+                MirCorridorElement::FacilityBand(band_mapping[key.index()])
+            }
+        })
+        .collect();
+    let road_sections = hir
+        .road_sections
+        .iter()
+        .map(|section| {
+            Ok(MirRoadSection {
+                module: hir_module_to_mir[section.module.index()],
+                stable_key: Arc::clone(&section.stable_key),
+                stable_id: section.stable_id,
+                road_corridor: corridor_mapping[section.road_corridor.index()],
+                kind_id: Arc::clone(&section.kind_id),
+                lanes: remap_range(section.lanes, &unit.limits, &section.source_span)?,
+                source_span: section.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let authoring_lanes = hir
+        .authoring_lanes
+        .iter()
+        .map(|lane| {
+            Ok(MirAuthoringLane {
+                module: hir_module_to_mir[lane.module.index()],
+                stable_key: Arc::clone(&lane.stable_key),
+                stable_id: lane.stable_id,
+                road_section: section_mapping[lane.road_section.index()],
+                edge_chain: remap_range(lane.edge_chain, &unit.limits, &lane.source_span)?,
+                lane_group: lane.lane_group.map(|key| group_mapping[key.index()]),
+                source_span: lane.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let authoring_lane_edges: Vec<MirAuthoringLaneEdge> = hir
+        .authoring_lane_edges
+        .iter()
+        .map(|edge| MirAuthoringLaneEdge {
+            target: hir_to_mir[edge.target.index()],
+            source_span: edge.source_span.clone(),
+        })
+        .collect();
+    let lane_groups = hir
+        .lane_groups
+        .iter()
+        .map(|group| {
+            Ok(MirLaneGroup {
+                module: hir_module_to_mir[group.module.index()],
+                stable_key: Arc::clone(&group.stable_key),
+                stable_id: group.stable_id,
+                road_section: section_mapping[group.road_section.index()],
+                members: remap_range(group.members, &unit.limits, &group.source_span)?,
+                source_span: group.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let lane_group_members: Vec<MirLaneGroupMember> = hir
+        .lane_group_members
+        .iter()
+        .map(|member| MirLaneGroupMember {
+            lane: lane_mapping[member.lane.index()],
+        })
+        .collect();
+    let facility_bands: Vec<MirFacilityBand> = hir
+        .facility_bands
+        .iter()
+        .map(|band| MirFacilityBand {
+            module: hir_module_to_mir[band.module.index()],
+            stable_key: Arc::clone(&band.stable_key),
+            stable_id: band.stable_id,
+            road_corridor: corridor_mapping[band.road_corridor.index()],
+            kind_id: Arc::clone(&band.kind_id),
+            source_span: band.source_span.clone(),
+        })
+        .collect();
+
     debug_assert_eq!(modules.len(), hir.modules.len());
     debug_assert_eq!(lane_edges.len(), edge_capacity);
     debug_assert_eq!(connections.len(), connection_capacity);
@@ -204,6 +430,14 @@ pub(crate) fn lower_to_mir(
         modules: modules.into_boxed_slice(),
         lane_edges: lane_edges.into_boxed_slice(),
         lane_edge_connections: connections.into_boxed_slice(),
+        road_corridors: road_corridors.into_boxed_slice(),
+        corridor_elements: corridor_elements.into_boxed_slice(),
+        road_sections: road_sections.into_boxed_slice(),
+        authoring_lanes: authoring_lanes.into_boxed_slice(),
+        authoring_lane_edges: authoring_lane_edges.into_boxed_slice(),
+        lane_groups: lane_groups.into_boxed_slice(),
+        lane_group_members: lane_group_members.into_boxed_slice(),
+        facility_bands: facility_bands.into_boxed_slice(),
         mir_record_count,
         controlled_live_bytes: mir_owned_bytes,
     })
@@ -211,6 +445,31 @@ pub(crate) fn lower_to_mir(
 
 fn mir_key_for_hir(key: HirLaneEdgeKey, mapping: &[MirLaneEdgeKey]) -> MirLaneEdgeKey {
     mapping[key.index()]
+}
+
+fn dense_mapping<K>(count: usize) -> Result<Vec<ArenaKey<K>>, DiagnosticBundle> {
+    (0..count)
+        .map(|index| {
+            u32::try_from(index).map(ArenaKey::from_raw).map_err(|_| {
+                DiagnosticBundle::single(Diagnostic::compile_limit_exceeded_at(
+                    CompileLimitDimension::MirRecordCount,
+                    u64::from(u32::MAX),
+                    u64::from(u32::MAX) + 1,
+                    None,
+                    None,
+                ))
+            })
+        })
+        .collect()
+}
+
+fn remap_range<T, U>(
+    range: TableRange<T>,
+    limits: &crate::CompileLimits,
+    source_span: &SourceSpan,
+) -> Result<TableRange<U>, DiagnosticBundle> {
+    TableRange::try_from_usize(range.start() as usize, range.len() as usize)
+        .map_err(|overflow| arena_overflow(overflow, limits, Some(source_span.clone())))
 }
 
 fn requested_bytes<T>(count: u64) -> u64 {

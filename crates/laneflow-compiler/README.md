@@ -7,21 +7,21 @@ LaneFlow 编译器拥有的静态路网（Compiler-owned Static Network）的生
 Representation，Canonical LIR）。当前 G2 切片已建立首个生产编译资源上限配置档
 `LF-COMP-P100-INITIAL-v1`、受检来源模块头、结构化诊断，以及可派生 SHA-256 内容
 摘要的确定性 `LFSOURCE` 来源记录和显式导入图。官方合成领域专用语言（Synthetic
-DSL）已加入首个受检领域声明：车道图边的显式稳定键、交通权威长度、基础道路限速
-与有类型下游引用；构建器原子拒绝非法数值、非法或未导入引用、重复声明和重复连接，
-并把无序连接规范化后写入版本化来源记录。包内标识 v1 编码器严格校验登记字段，
+DSL）已接入车道图边与完整横断面所有者树：`RoadCorridor`、`RoadSection`、
+`AuthoringLane`、`LaneGroup` 和 `FacilityBand`。构建器原子拒绝非法数值 / token、
+非法或未导入引用、重复声明和重复无序关系，并保留横断面、车道和覆盖链的领域顺序。
+包内标识 v1 编码器严格校验登记字段，
 流式形成规范字节并派生 BLAKE3-128 `StableId128`；修订 1 的 22 种实体均由
 `tests/identity-v1-known-vectors.txt` 冻结已知向量，并由独立字节组装预言机校验。
-车道图边纵向管线使用有类型 `u32` 区块键完成符号表、
-跨模块引用解析和规范 HIR/MIR 连续表，并从
-`(authoringNamespaceId, laneEdgeKey)` 派生和传递 `LaneEdgeId`；完整身份前像只在 HIR
-临时登记表中用于重复 / 摘要碰撞判断。包内 Canonical LIR 冻结阶段再按完整 Identity
-v1 前像字节分配 `LaneEdgeOrdinal`，把连接改写为有类型序号，并以共享字段字节池保存
-后继制品所需的完整身份字段；来源位置不进入 LIR 语义摘要。公共 `Compiler` 已将该
+纵向管线使用有类型 `u32` 区块键完成跨模块符号解析、车道覆盖连通性与唯一所有者
+校验，并按父项先于子项派生横断面实体身份；完整身份前像只在 HIR 临时登记表中用于
+重复 / 摘要碰撞判断。Canonical LIR 再按各实体的完整 Identity v1 前像字节分配有类型
+逻辑序号，把连接和父子关系全部改写为同一 LIR 实例的有类型序号，并以共享字段字节池
+保存后继制品所需的完整身份字段；来源位置不进入 LIR 语义摘要。公共 `Compiler` 已将该
 当前领域子集接入原子成功闭环：任一阶段失败时只返回结构化诊断，成功时同时返回只读
 `ValidatedCanonicalLir`、与其配对的 `ValidatedSourceMapInput` 和非错误级诊断。
 `sourceDocumentKey` 在整个编译单元内唯一，来源记录在 AST/HIR/MIR 释放前按 LIR
-稳定实体与 owner-local 关系冻结；其余领域声明、后继编译遍和制品发射仍未实现。
+稳定实体与 owner-local 关系冻结；其余首批领域声明、后继编译遍和制品发射仍未实现。
 
 公共静态值契约来自 `laneflow-static-contract`。本 crate 不依赖当前核心、空间层、
 数据加载器或引擎适配器，也不提前冻结可移植制品、静态镜像或第三方前端插件接口。

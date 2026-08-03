@@ -18,10 +18,17 @@ mod source;
 mod source_map;
 
 pub use compiler::{
-    CanonicalIdentityFieldView, CanonicalLaneEdgeView, CompilationOutput, Compiler,
+    CanonicalAuthoringLaneView, CanonicalCorridorElement, CanonicalFacilityBandView,
+    CanonicalIdentityFieldView, CanonicalLaneEdgeView, CanonicalLaneGroupView,
+    CanonicalRoadCorridorView, CanonicalRoadSectionView, CompilationOutput, Compiler,
     ValidatedCanonicalLir,
 };
-pub use declaration::{EntityReference, LaneEdgeInput, LaneEdgeReference, ScalarViolation};
+pub use declaration::{
+    AuthoringLaneInput, CorridorElementReference, EntityReference, FacilityBandInput,
+    FacilityBandReference, FacilityKindCategory, FacilityKindViolation, LaneEdgeInput,
+    LaneEdgeReference, LaneGroupInput, LaneGroupReference, RoadCorridorInput, RoadSectionInput,
+    RoadSectionReference, ScalarViolation,
+};
 pub use diagnostic::{
     Diagnostic, DiagnosticBundle, DiagnosticCode, DiagnosticPayload, DiagnosticSeverity,
     SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation,
@@ -34,6 +41,8 @@ pub use module::{
 };
 pub use source::{SourceModuleHeader, SourceModuleHeaderInput};
 pub use source_map::{
-    LaneEdgeSourceView, LaneEdgeSuccessorSourceView, SourceDocumentView, SourceLocationView,
+    AuthoringLaneSourceView, CrossSectionRelationOwner, CrossSectionRelationSourceView,
+    FacilityBandSourceView, LaneEdgeSourceView, LaneEdgeSuccessorSourceView, LaneGroupSourceView,
+    RoadCorridorSourceView, RoadSectionSourceView, SourceDocumentView, SourceLocationView,
     SourceRelationRole, ValidatedSourceMapInput,
 };

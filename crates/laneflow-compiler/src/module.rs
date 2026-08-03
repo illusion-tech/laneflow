@@ -10,16 +10,20 @@
 //! 显式排序或稳定序列，不能改成遍历哈希表。
 
 use std::collections::{BTreeSet, HashMap};
+use std::mem::size_of;
 use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 
-use laneflow_static_contract::{EntityKind, LaneEdgeKind};
+use laneflow_static_contract::{EntityKind, LaneEdgeKind, LaneGroupKind, RoadSectionKind};
 
 use crate::arena::ArenaKey;
 use crate::declaration::{
-    DeclarationHeader, EdgeLength, LaneEdgeDeclaration, LaneEdgeInput, OwnedEntityReference,
-    SpeedLimit, SyntheticDeclaration,
+    AuthoringLaneDeclaration, CorridorElementReference, DeclarationHeader, EdgeLength,
+    FacilityBandDeclaration, FacilityBandInput, FacilityKindCategory, FacilityKindViolation,
+    LaneEdgeDeclaration, LaneEdgeInput, LaneGroupDeclaration, LaneGroupInput,
+    OwnedCorridorElementReference, OwnedEntityReference, RoadCorridorDeclaration,
+    RoadCorridorInput, RoadSectionDeclaration, RoadSectionInput, SpeedLimit, SyntheticDeclaration,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
@@ -223,6 +227,35 @@ pub struct SyntheticModuleBuilder {
     source_record_byte_len: u64,
 }
 
+#[derive(Default)]
+struct DeclarationResourceDelta {
+    declarations: u64,
+    typed_ast_records: u64,
+    references: u64,
+    relations: u64,
+    identity_fields: u64,
+    symbols: u64,
+    string_items: u64,
+    string_bytes: u64,
+    controlled_string_bytes: u64,
+    controlled_structural_bytes: u64,
+    source_bytes: u64,
+}
+
+struct DeclarationResourceState {
+    declaration_count: u64,
+    typed_ast_record_count: u64,
+    reference_count: u64,
+    relation_occurrence_count: u64,
+    identity_field_occurrence_count: u64,
+    symbol_count: u64,
+    string_item_count: u64,
+    string_bytes: u64,
+    controlled_string_bytes: u64,
+    controlled_structural_bytes: u64,
+    source_record_byte_len: u64,
+}
+
 impl SyntheticModuleBuilder {
     /// 建立一个只允许官方合成领域构造的来源模块构建器。
     ///
@@ -296,6 +329,208 @@ impl SyntheticModuleBuilder {
             controlled_structural_bytes: 0,
             source_record_byte_len: base_source_bytes,
         })
+    }
+
+    fn validate_declaration_key(
+        &self,
+        entity_kind: EntityKind,
+        stable_key: &str,
+        span: &SourceSpan,
+    ) -> Result<(), DiagnosticBundle> {
+        if let Some(violation) = external_token_violation(
+            stable_key,
+            self.limits.value(CompileLimitDimension::SingleStringBytes),
+        ) {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::invalid_declaration_key(entity_kind, violation, span.clone()),
+            ));
+        }
+        if let Some(existing_span) = self
+            .declaration_index
+            .get(&entity_kind)
+            .and_then(|index| index.get(stable_key))
+        {
+            return Err(DiagnosticBundle::single(Diagnostic::duplicate_declaration(
+                entity_kind,
+                stable_key,
+                span.clone(),
+                existing_span.clone(),
+            )));
+        }
+        Ok(())
+    }
+
+    fn validate_facility_kind(
+        &self,
+        entity_kind: EntityKind,
+        stable_key: &str,
+        kind_id: &str,
+        expected_category: FacilityKindCategory,
+        span: &SourceSpan,
+    ) -> Result<(), DiagnosticBundle> {
+        let violation = match external_token_violation(
+            kind_id,
+            self.limits.value(CompileLimitDimension::SingleStringBytes),
+        ) {
+            Some(violation) => Some(FacilityKindViolation::InvalidToken(violation)),
+            None => match facility_kind_category(kind_id) {
+                None => Some(FacilityKindViolation::Unknown),
+                Some(actual) if actual != expected_category => {
+                    Some(FacilityKindViolation::CategoryMismatch { actual })
+                }
+                Some(_) => None,
+            },
+        };
+        if let Some(violation) = violation {
+            return Err(DiagnosticBundle::single(Diagnostic::invalid_facility_kind(
+                entity_kind,
+                stable_key,
+                kind_id,
+                expected_category,
+                violation,
+                span.clone(),
+            )));
+        }
+        Ok(())
+    }
+
+    fn validate_reference<K: laneflow_static_contract::EntityKindMarker>(
+        &self,
+        target_kind: EntityKind,
+        reference: crate::EntityReference<'_, K>,
+        span: &SourceSpan,
+    ) -> Result<(), DiagnosticBundle> {
+        if let Some(namespace) = reference.module_namespace()
+            && let Some(violation) = external_token_violation(
+                namespace,
+                self.limits.value(CompileLimitDimension::SingleStringBytes),
+            )
+        {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::invalid_reference_namespace(violation, span.clone()),
+            ));
+        }
+        self.reference_namespace(reference.module_namespace(), span)?;
+        if let Some(violation) = external_token_violation(
+            reference.declaration_key(),
+            self.limits.value(CompileLimitDimension::SingleStringBytes),
+        ) {
+            return Err(DiagnosticBundle::single(Diagnostic::invalid_reference_key(
+                target_kind,
+                violation,
+                span.clone(),
+            )));
+        }
+        Ok(())
+    }
+
+    fn own_reference<K: laneflow_static_contract::EntityKindMarker>(
+        &self,
+        target_kind: EntityKind,
+        reference: crate::EntityReference<'_, K>,
+        span: &SourceSpan,
+    ) -> Result<OwnedEntityReference<K>, DiagnosticBundle> {
+        self.validate_reference(target_kind, reference, span)?;
+        Ok(OwnedEntityReference::new(
+            self.reference_namespace_arc(reference.module_namespace(), span)?,
+            reference.declaration_key().into(),
+            span.clone(),
+        ))
+    }
+
+    fn check_declaration_resources(
+        &self,
+        delta: DeclarationResourceDelta,
+        stable_key: &str,
+        span: &SourceSpan,
+    ) -> Result<DeclarationResourceState, DiagnosticBundle> {
+        let state = DeclarationResourceState {
+            declaration_count: self.declaration_count.saturating_add(delta.declarations),
+            typed_ast_record_count: self
+                .typed_ast_record_count
+                .saturating_add(delta.typed_ast_records),
+            reference_count: self.reference_count.saturating_add(delta.references),
+            relation_occurrence_count: self
+                .relation_occurrence_count
+                .saturating_add(delta.relations),
+            identity_field_occurrence_count: self
+                .identity_field_occurrence_count
+                .saturating_add(delta.identity_fields),
+            symbol_count: self.symbol_count.saturating_add(delta.symbols),
+            string_item_count: self.string_item_count.saturating_add(delta.string_items),
+            string_bytes: self.string_bytes.saturating_add(delta.string_bytes),
+            controlled_string_bytes: self
+                .controlled_string_bytes
+                .saturating_add(delta.controlled_string_bytes),
+            controlled_structural_bytes: self
+                .controlled_structural_bytes
+                .saturating_add(delta.controlled_structural_bytes),
+            source_record_byte_len: self
+                .source_record_byte_len
+                .saturating_add(delta.source_bytes),
+        };
+        let controlled_live_bytes = state
+            .controlled_string_bytes
+            .saturating_add(state.controlled_structural_bytes)
+            .saturating_add(state.source_record_byte_len);
+        for (dimension, observed) in [
+            (
+                CompileLimitDimension::DeclarationCount,
+                state.declaration_count,
+            ),
+            (
+                CompileLimitDimension::TypedAstRecordCount,
+                state.typed_ast_record_count,
+            ),
+            (CompileLimitDimension::ReferenceCount, state.reference_count),
+            (
+                CompileLimitDimension::RelationOccurrenceCount,
+                state.relation_occurrence_count,
+            ),
+            (
+                CompileLimitDimension::IdentityFieldOccurrenceCount,
+                state.identity_field_occurrence_count,
+            ),
+            (CompileLimitDimension::SymbolCount, state.symbol_count),
+            (
+                CompileLimitDimension::StringItemCount,
+                state.string_item_count,
+            ),
+            (CompileLimitDimension::TotalStringBytes, state.string_bytes),
+            (
+                CompileLimitDimension::SourceBytesPerModule,
+                state.source_record_byte_len,
+            ),
+            (
+                CompileLimitDimension::CompilerControlledLiveBytes,
+                controlled_live_bytes,
+            ),
+        ] {
+            if let Some(diagnostic) = limit_diagnostic(
+                &self.limits,
+                dimension,
+                observed,
+                Some(span.clone()),
+                Some(stable_key.into()),
+            ) {
+                return Err(DiagnosticBundle::single(diagnostic));
+            }
+        }
+        Ok(state)
+    }
+
+    fn commit_declaration_resources(&mut self, state: DeclarationResourceState) {
+        self.declaration_count = state.declaration_count;
+        self.typed_ast_record_count = state.typed_ast_record_count;
+        self.reference_count = state.reference_count;
+        self.relation_occurrence_count = state.relation_occurrence_count;
+        self.identity_field_occurrence_count = state.identity_field_occurrence_count;
+        self.symbol_count = state.symbol_count;
+        self.string_item_count = state.string_item_count;
+        self.string_bytes = state.string_bytes;
+        self.controlled_string_bytes = state.controlled_string_bytes;
+        self.controlled_structural_bytes = state.controlled_structural_bytes;
+        self.source_record_byte_len = state.source_record_byte_len;
     }
 
     /// 声明显式模块导入；网络或文件系统发现不属于该操作。
@@ -697,6 +932,453 @@ impl SyntheticModuleBuilder {
         self.controlled_string_bytes = next_controlled_string_bytes;
         self.controlled_structural_bytes = next_controlled_structural_bytes;
         self.source_record_byte_len = next_source_record_byte_len;
+        Ok(self)
+    }
+
+    /// 声明一个非遍历设施带；唯一走廊所有者在完整模块图中解析。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键、`kind_id` 或其类别非法，声明重复，或资源上限超限时失败。失败不会改变
+    /// 构建器。
+    #[track_caller]
+    pub fn add_facility_band(
+        &mut self,
+        input: FacilityBandInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::FacilityBand, input.facility_band_key, &span)?;
+        self.validate_facility_kind(
+            EntityKind::FacilityBand,
+            input.facility_band_key,
+            input.kind_id,
+            FacilityKindCategory::NonTraversable,
+            &span,
+        )?;
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.facility_band_key.len()).unwrap_or(u64::MAX);
+        let kind_bytes = u64::try_from(input.kind_id.len()).unwrap_or(u64::MAX);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 3,
+                identity_fields: 3,
+                symbols: 1,
+                string_items: 3,
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(kind_bytes),
+                controlled_string_bytes: key_bytes.saturating_add(kind_bytes),
+                controlled_structural_bytes: size_bytes::<FacilityBandDeclaration>(1),
+                source_bytes: facility_band_declaration_len(input.facility_band_key, input.kind_id),
+                ..DeclarationResourceDelta::default()
+            },
+            input.facility_band_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.facility_band_key.into();
+        let declaration = SyntheticDeclaration::FacilityBand(FacilityBandDeclaration {
+            header: DeclarationHeader {
+                entity_kind: EntityKind::FacilityBand,
+                stable_key: Arc::clone(&stable_key),
+                span: span.clone(),
+            },
+            kind_id: input.kind_id.into(),
+        });
+        self.declaration_index
+            .entry(EntityKind::FacilityBand)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span);
+        self.declarations.push(declaration);
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明一个车道组及其唯一道路区段父项。
+    ///
+    /// 车道成员由道路区段内各 `AuthoringLaneInput::lane_group` 反向形成；本操作不会
+    /// 接受第二份成员数组。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键或父项引用非法、跨模块引用未显式导入、声明重复，或资源上限超限时
+    /// 失败。父项存在性与非空成员约束在完整模块图建立后验证。
+    #[track_caller]
+    pub fn add_lane_group(
+        &mut self,
+        input: LaneGroupInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::LaneGroup, input.lane_group_key, &span)?;
+        let road_section =
+            self.own_reference(EntityKind::RoadSection, input.road_section, &span)?;
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.lane_group_key.len()).unwrap_or(u64::MAX);
+        let reference_bytes = reference_spelling_bytes(&road_section);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 5,
+                references: 1,
+                relations: 1,
+                identity_fields: 3,
+                symbols: 1,
+                string_items: 3,
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(reference_bytes),
+                controlled_string_bytes: key_bytes.saturating_add(
+                    u64::try_from(road_section.declaration_key.len()).unwrap_or(u64::MAX),
+                ),
+                controlled_structural_bytes: size_bytes::<LaneGroupDeclaration>(1)
+                    .saturating_add(size_bytes::<OwnedEntityReference<RoadSectionKind>>(1)),
+                source_bytes: lane_group_declaration_len(input.lane_group_key, &road_section),
+            },
+            input.lane_group_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.lane_group_key.into();
+        let declaration = SyntheticDeclaration::LaneGroup(LaneGroupDeclaration {
+            header: DeclarationHeader {
+                entity_kind: EntityKind::LaneGroup,
+                stable_key: Arc::clone(&stable_key),
+                span: span.clone(),
+            },
+            road_section,
+        });
+        self.declaration_index
+            .entry(EntityKind::LaneGroup)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span);
+        self.declarations.push(declaration);
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明道路区段及其按走廊参考方向排列的编制车道。
+    ///
+    /// # Errors
+    ///
+    /// 区段/车道稳定键、设施类别或引用非法，区段或车道链为空，同一车道链重复覆盖
+    /// 车道图边，声明重复，或资源上限超限时失败。引用存在性、链连通性、跨车道覆盖
+    /// 冲突和车道组父项一致性在完整模块图建立后验证。失败不会插入区段或任何嵌套
+    /// 编制车道。
+    #[track_caller]
+    pub fn add_road_section(
+        &mut self,
+        input: RoadSectionInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::RoadSection, input.road_section_key, &span)?;
+        self.validate_facility_kind(
+            EntityKind::RoadSection,
+            input.road_section_key,
+            input.kind_id,
+            FacilityKindCategory::LaneBearing,
+            &span,
+        )?;
+        if input.lanes.is_empty() {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::empty_road_section_lanes(input.road_section_key, span),
+            ));
+        }
+
+        let mut lane_keys = BTreeSet::new();
+        let mut lanes = Vec::with_capacity(input.lanes.len());
+        let mut edge_reference_count = 0_u64;
+        let mut lane_group_reference_count = 0_u64;
+        for lane in input.lanes {
+            self.validate_declaration_key(
+                EntityKind::AuthoringLane,
+                lane.authoring_lane_key,
+                &span,
+            )?;
+            if !lane_keys.insert(lane.authoring_lane_key) {
+                return Err(DiagnosticBundle::single(Diagnostic::duplicate_declaration(
+                    EntityKind::AuthoringLane,
+                    lane.authoring_lane_key,
+                    span.clone(),
+                    span.clone(),
+                )));
+            }
+            if lane.edge_chain.is_empty() {
+                return Err(DiagnosticBundle::single(
+                    Diagnostic::empty_authoring_lane_edge_chain(
+                        lane.authoring_lane_key,
+                        span.clone(),
+                    ),
+                ));
+            }
+            let mut edge_chain = Vec::with_capacity(lane.edge_chain.len());
+            let mut seen_edges = BTreeSet::new();
+            for edge in lane.edge_chain {
+                let edge = self.own_reference(EntityKind::LaneEdge, *edge, &span)?;
+                let edge_key = (
+                    Arc::clone(&edge.module_namespace),
+                    Arc::clone(&edge.declaration_key),
+                );
+                if !seen_edges.insert(edge_key) {
+                    return Err(DiagnosticBundle::single(
+                        Diagnostic::duplicate_authoring_lane_edge(
+                            lane.authoring_lane_key,
+                            &edge.module_namespace,
+                            &edge.declaration_key,
+                            span.clone(),
+                        ),
+                    ));
+                }
+                edge_chain.push(edge);
+            }
+            edge_reference_count = edge_reference_count
+                .saturating_add(u64::try_from(edge_chain.len()).unwrap_or(u64::MAX));
+            let lane_group = lane
+                .lane_group
+                .map(|reference| self.own_reference(EntityKind::LaneGroup, reference, &span))
+                .transpose()?;
+            lane_group_reference_count =
+                lane_group_reference_count.saturating_add(u64::from(lane_group.is_some()));
+            lanes.push(AuthoringLaneDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::AuthoringLane,
+                    stable_key: lane.authoring_lane_key.into(),
+                    span: span.clone(),
+                },
+                edge_chain: edge_chain.into_boxed_slice(),
+                lane_group,
+            });
+        }
+
+        let lane_count = u64::try_from(lanes.len()).unwrap_or(u64::MAX);
+        let reference_count = edge_reference_count.saturating_add(lane_group_reference_count);
+        let mut logical_string_bytes = u64::try_from(self.header.authoring_namespace_id.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(input.road_section_key.len()).unwrap_or(u64::MAX))
+            .saturating_add(u64::try_from(input.kind_id.len()).unwrap_or(u64::MAX));
+        let mut controlled_string_bytes = u64::try_from(input.road_section_key.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(input.kind_id.len()).unwrap_or(u64::MAX));
+        for lane in &lanes {
+            logical_string_bytes = logical_string_bytes
+                .saturating_add(
+                    u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX),
+                )
+                .saturating_add(u64::try_from(lane.header.stable_key.len()).unwrap_or(u64::MAX));
+            controlled_string_bytes = controlled_string_bytes
+                .saturating_add(u64::try_from(lane.header.stable_key.len()).unwrap_or(u64::MAX));
+            for edge in &lane.edge_chain {
+                logical_string_bytes =
+                    logical_string_bytes.saturating_add(reference_spelling_bytes(edge));
+                controlled_string_bytes = controlled_string_bytes
+                    .saturating_add(u64::try_from(edge.declaration_key.len()).unwrap_or(u64::MAX));
+            }
+            if let Some(group) = &lane.lane_group {
+                logical_string_bytes =
+                    logical_string_bytes.saturating_add(reference_spelling_bytes(group));
+                controlled_string_bytes = controlled_string_bytes
+                    .saturating_add(u64::try_from(group.declaration_key.len()).unwrap_or(u64::MAX));
+            }
+        }
+        let structural_bytes = size_bytes::<RoadSectionDeclaration>(1)
+            .saturating_add(size_bytes::<AuthoringLaneDeclaration>(lane_count))
+            .saturating_add(size_bytes::<OwnedEntityReference<LaneEdgeKind>>(
+                edge_reference_count,
+            ))
+            .saturating_add(size_bytes::<OwnedEntityReference<LaneGroupKind>>(
+                lane_group_reference_count,
+            ));
+        let source_bytes =
+            road_section_declaration_len(input.road_section_key, input.kind_id, &lanes);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1_u64.saturating_add(lane_count),
+                typed_ast_records: 3_u64
+                    .saturating_add(lane_count.saturating_mul(3))
+                    .saturating_add(reference_count.saturating_mul(2)),
+                references: reference_count,
+                relations: lane_count.saturating_add(reference_count),
+                identity_fields: 3_u64.saturating_mul(1_u64.saturating_add(lane_count)),
+                symbols: 1_u64.saturating_add(lane_count),
+                string_items: 3_u64
+                    .saturating_add(lane_count.saturating_mul(2))
+                    .saturating_add(reference_count),
+                string_bytes: logical_string_bytes,
+                controlled_string_bytes,
+                controlled_structural_bytes: structural_bytes,
+                source_bytes,
+            },
+            input.road_section_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.road_section_key.into();
+        for lane in &lanes {
+            self.declaration_index
+                .entry(EntityKind::AuthoringLane)
+                .or_default()
+                .insert(
+                    Arc::clone(&lane.header.stable_key),
+                    lane.header.span.clone(),
+                );
+        }
+        let declaration = SyntheticDeclaration::RoadSection(RoadSectionDeclaration {
+            header: DeclarationHeader {
+                entity_kind: EntityKind::RoadSection,
+                stable_key: Arc::clone(&stable_key),
+                span: span.clone(),
+            },
+            kind_id: input.kind_id.into(),
+            lanes: lanes.into_boxed_slice(),
+        });
+        self.declaration_index
+            .entry(EntityKind::RoadSection)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span);
+        self.declarations.push(declaration);
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明道路走廊、参考道路区段和有序异构横断面成员。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键或引用非法，成员为空或重复，声明重复，或资源上限超限时失败。成员目标
+    /// 存在性、完备唯一所有者树和参考区段成员性在完整模块图建立后验证。
+    #[track_caller]
+    pub fn add_road_corridor(
+        &mut self,
+        input: RoadCorridorInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::RoadCorridor, input.road_corridor_key, &span)?;
+        if input.elements.is_empty() {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::empty_road_corridor_elements(input.road_corridor_key, span),
+            ));
+        }
+        let reference_section =
+            self.own_reference(EntityKind::RoadSection, input.reference_section, &span)?;
+        let mut elements = Vec::with_capacity(input.elements.len());
+        let mut seen_elements = BTreeSet::new();
+        for element in input.elements {
+            let (target_kind, target_namespace, target_key, owned) = match *element {
+                CorridorElementReference::RoadSection(reference) => {
+                    let owned = self.own_reference(EntityKind::RoadSection, reference, &span)?;
+                    (
+                        EntityKind::RoadSection,
+                        Arc::clone(&owned.module_namespace),
+                        Arc::clone(&owned.declaration_key),
+                        OwnedCorridorElementReference::RoadSection(owned),
+                    )
+                }
+                CorridorElementReference::FacilityBand(reference) => {
+                    let owned = self.own_reference(EntityKind::FacilityBand, reference, &span)?;
+                    (
+                        EntityKind::FacilityBand,
+                        Arc::clone(&owned.module_namespace),
+                        Arc::clone(&owned.declaration_key),
+                        OwnedCorridorElementReference::FacilityBand(owned),
+                    )
+                }
+            };
+            if !seen_elements.insert((
+                target_kind,
+                Arc::clone(&target_namespace),
+                Arc::clone(&target_key),
+            )) {
+                return Err(DiagnosticBundle::single(
+                    Diagnostic::duplicate_road_corridor_element(
+                        input.road_corridor_key,
+                        target_kind,
+                        &target_namespace,
+                        &target_key,
+                        span.clone(),
+                    ),
+                ));
+            }
+            elements.push(owned);
+        }
+
+        let element_count = u64::try_from(elements.len()).unwrap_or(u64::MAX);
+        let reference_count = 1_u64.saturating_add(element_count);
+        let key_bytes = u64::try_from(input.road_corridor_key.len()).unwrap_or(u64::MAX);
+        let mut logical_string_bytes = u64::try_from(self.header.authoring_namespace_id.len())
+            .unwrap_or(u64::MAX)
+            .saturating_add(key_bytes)
+            .saturating_add(reference_spelling_bytes(&reference_section));
+        let mut controlled_string_bytes = key_bytes.saturating_add(
+            u64::try_from(reference_section.declaration_key.len()).unwrap_or(u64::MAX),
+        );
+        for element in &elements {
+            let (namespace, key) = match element {
+                OwnedCorridorElementReference::RoadSection(reference) => {
+                    (&reference.module_namespace, &reference.declaration_key)
+                }
+                OwnedCorridorElementReference::FacilityBand(reference) => {
+                    (&reference.module_namespace, &reference.declaration_key)
+                }
+            };
+            logical_string_bytes =
+                logical_string_bytes.saturating_add(reference_spelling_parts_bytes(namespace, key));
+            controlled_string_bytes = controlled_string_bytes
+                .saturating_add(u64::try_from(key.len()).unwrap_or(u64::MAX));
+        }
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 3_u64.saturating_add(reference_count.saturating_mul(2)),
+                references: reference_count,
+                relations: reference_count,
+                identity_fields: 2,
+                symbols: 1,
+                string_items: 2_u64.saturating_add(reference_count),
+                string_bytes: logical_string_bytes,
+                controlled_string_bytes,
+                controlled_structural_bytes: size_bytes::<RoadCorridorDeclaration>(1)
+                    .saturating_add(size_bytes::<OwnedEntityReference<RoadSectionKind>>(1))
+                    .saturating_add(size_bytes::<OwnedCorridorElementReference>(element_count)),
+                source_bytes: road_corridor_declaration_len(
+                    input.road_corridor_key,
+                    &reference_section,
+                    &elements,
+                ),
+            },
+            input.road_corridor_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.road_corridor_key.into();
+        let declaration = SyntheticDeclaration::RoadCorridor(RoadCorridorDeclaration {
+            header: DeclarationHeader {
+                entity_kind: EntityKind::RoadCorridor,
+                stable_key: Arc::clone(&stable_key),
+                span: span.clone(),
+            },
+            reference_section,
+            elements: elements.into_boxed_slice(),
+        });
+        self.declaration_index
+            .entry(EntityKind::RoadCorridor)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span);
+        self.declarations.push(declaration);
+        self.commit_declaration_resources(state);
         Ok(self)
     }
 
@@ -1215,6 +1897,44 @@ fn push_limit_if_exceeded(
     }
 }
 
+fn facility_kind_category(kind_id: &str) -> Option<FacilityKindCategory> {
+    let seed_category = match kind_id {
+        "motorLane" | "nonMotorLane" => Some(FacilityKindCategory::LaneBearing),
+        "sidewalk" | "median" | "plantingStrip" | "facilityStrip" | "shoulder" => {
+            Some(FacilityKindCategory::NonTraversable)
+        }
+        _ => None,
+    };
+    if seed_category.is_some() {
+        return seed_category;
+    }
+    // `x-lane-` 是 `x-` 的特化前缀，必须先失败关闭；空 lane 后缀不能回退成普通 band。
+    if let Some(suffix) = kind_id.strip_prefix("x-lane-") {
+        return (!suffix.is_empty()).then_some(FacilityKindCategory::LaneBearing);
+    }
+    kind_id
+        .strip_prefix("x-")
+        .filter(|suffix| !suffix.is_empty())
+        .map(|_| FacilityKindCategory::NonTraversable)
+}
+
+fn size_bytes<T>(count: u64) -> u64 {
+    count.saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX))
+}
+
+fn reference_spelling_bytes<K: laneflow_static_contract::EntityKindMarker>(
+    reference: &OwnedEntityReference<K>,
+) -> u64 {
+    reference_spelling_parts_bytes(&reference.module_namespace, &reference.declaration_key)
+}
+
+fn reference_spelling_parts_bytes(module_namespace: &str, declaration_key: &str) -> u64 {
+    u64::try_from(module_namespace.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(1)
+        .saturating_add(u64::try_from(declaration_key.len()).unwrap_or(u64::MAX))
+}
+
 fn encoded_source_record_len(
     header: &SourceModuleHeader,
     imports: &[ImportRecord],
@@ -1316,14 +2036,107 @@ fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
             }
             Some(length)
         }
+        SyntheticDeclaration::RoadCorridor(declaration) => Some(road_corridor_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.reference_section,
+            &declaration.elements,
+        )),
+        SyntheticDeclaration::RoadSection(declaration) => Some(road_section_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.kind_id,
+            &declaration.lanes,
+        )),
+        SyntheticDeclaration::LaneGroup(declaration) => Some(lane_group_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.road_section,
+        )),
+        SyntheticDeclaration::FacilityBand(declaration) => Some(facility_band_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.kind_id,
+        )),
     }
 }
 
-fn lane_edge_declaration_base_len(stable_key: &str) -> u64 {
+fn declaration_header_len(stable_key: &str) -> u64 {
     2_u64
         .saturating_add(4)
         .saturating_add(u64::try_from(stable_key.len()).unwrap_or(u64::MAX))
-        .saturating_add(16 + 8 + 8 + 4)
+        .saturating_add(16)
+}
+
+fn lane_edge_declaration_base_len(stable_key: &str) -> u64 {
+    declaration_header_len(stable_key).saturating_add(8 + 8 + 4)
+}
+
+fn facility_band_declaration_len(stable_key: &str, kind_id: &str) -> u64 {
+    declaration_header_len(stable_key)
+        .saturating_add(4)
+        .saturating_add(u64::try_from(kind_id.len()).unwrap_or(u64::MAX))
+}
+
+fn lane_group_declaration_len(
+    stable_key: &str,
+    road_section: &OwnedEntityReference<RoadSectionKind>,
+) -> u64 {
+    declaration_header_len(stable_key).saturating_add(encoded_reference_len(
+        &road_section.module_namespace,
+        &road_section.declaration_key,
+    ))
+}
+
+fn road_section_declaration_len(
+    stable_key: &str,
+    kind_id: &str,
+    lanes: &[AuthoringLaneDeclaration],
+) -> u64 {
+    let mut length = declaration_header_len(stable_key)
+        .saturating_add(4)
+        .saturating_add(u64::try_from(kind_id.len()).unwrap_or(u64::MAX))
+        .saturating_add(4);
+    for lane in lanes {
+        length = length
+            .saturating_add(declaration_header_len(&lane.header.stable_key))
+            .saturating_add(4)
+            .saturating_add(1);
+        for edge in &lane.edge_chain {
+            length = length.saturating_add(encoded_reference_len(
+                &edge.module_namespace,
+                &edge.declaration_key,
+            ));
+        }
+        if let Some(lane_group) = &lane.lane_group {
+            length = length.saturating_add(encoded_reference_len(
+                &lane_group.module_namespace,
+                &lane_group.declaration_key,
+            ));
+        }
+    }
+    length
+}
+
+fn road_corridor_declaration_len(
+    stable_key: &str,
+    reference_section: &OwnedEntityReference<RoadSectionKind>,
+    elements: &[OwnedCorridorElementReference],
+) -> u64 {
+    let mut length = declaration_header_len(stable_key)
+        .saturating_add(encoded_reference_len(
+            &reference_section.module_namespace,
+            &reference_section.declaration_key,
+        ))
+        .saturating_add(4);
+    for element in elements {
+        let reference_len = match element {
+            OwnedCorridorElementReference::RoadSection(reference) => {
+                encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+            }
+            OwnedCorridorElementReference::FacilityBand(reference) => {
+                encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+            }
+        };
+        length = length.saturating_add(2).saturating_add(reference_len);
+    }
+    length
 }
 
 fn encoded_reference_len(module_namespace: &str, declaration_key: &str) -> u64 {
@@ -1337,9 +2150,7 @@ fn encoded_reference_len(module_namespace: &str, declaration_key: &str) -> u64 {
 fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
     match declaration {
         SyntheticDeclaration::LaneEdge(declaration) => {
-            output.extend_from_slice(&(declaration.header.entity_kind as u16).to_le_bytes());
-            put_bytes(output, &declaration.header.stable_key);
-            put_span(output, &declaration.header.span);
+            put_declaration_header(output, &declaration.header);
             output.extend_from_slice(&declaration.length.value().to_le_bytes());
             output.extend_from_slice(&declaration.speed_limit.value().to_le_bytes());
             output.extend_from_slice(
@@ -1353,7 +2164,75 @@ fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
                 put_span(output, &successor.span);
             }
         }
+        SyntheticDeclaration::RoadCorridor(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            put_owned_reference(output, &declaration.reference_section);
+            output.extend_from_slice(
+                &u32::try_from(declaration.elements.len())
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            );
+            for element in &declaration.elements {
+                match element {
+                    OwnedCorridorElementReference::RoadSection(reference) => {
+                        output.extend_from_slice(&(EntityKind::RoadSection as u16).to_le_bytes());
+                        put_owned_reference(output, reference);
+                    }
+                    OwnedCorridorElementReference::FacilityBand(reference) => {
+                        output.extend_from_slice(&(EntityKind::FacilityBand as u16).to_le_bytes());
+                        put_owned_reference(output, reference);
+                    }
+                }
+            }
+        }
+        SyntheticDeclaration::RoadSection(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            put_bytes(output, &declaration.kind_id);
+            output.extend_from_slice(
+                &u32::try_from(declaration.lanes.len())
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            );
+            for lane in &declaration.lanes {
+                put_declaration_header(output, &lane.header);
+                output.extend_from_slice(
+                    &u32::try_from(lane.edge_chain.len())
+                        .unwrap_or(u32::MAX)
+                        .to_le_bytes(),
+                );
+                for edge in &lane.edge_chain {
+                    put_owned_reference(output, edge);
+                }
+                output.push(u8::from(lane.lane_group.is_some()));
+                if let Some(lane_group) = &lane.lane_group {
+                    put_owned_reference(output, lane_group);
+                }
+            }
+        }
+        SyntheticDeclaration::LaneGroup(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            put_owned_reference(output, &declaration.road_section);
+        }
+        SyntheticDeclaration::FacilityBand(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            put_bytes(output, &declaration.kind_id);
+        }
     }
+}
+
+fn put_declaration_header(output: &mut Vec<u8>, header: &DeclarationHeader) {
+    output.extend_from_slice(&(header.entity_kind as u16).to_le_bytes());
+    put_bytes(output, &header.stable_key);
+    put_span(output, &header.span);
+}
+
+fn put_owned_reference<K: laneflow_static_contract::EntityKindMarker>(
+    output: &mut Vec<u8>,
+    reference: &OwnedEntityReference<K>,
+) {
+    put_bytes(output, &reference.module_namespace);
+    put_bytes(output, &reference.declaration_key);
+    put_span(output, &reference.span);
 }
 
 fn put_bytes(output: &mut Vec<u8>, value: &str) {
@@ -1744,10 +2623,14 @@ mod tests {
 
         let module = builder.finish().unwrap();
         assert_eq!(module.declaration_count, 2);
-        let SyntheticDeclaration::LaneEdge(terminal) = &module.declarations[0];
+        let SyntheticDeclaration::LaneEdge(terminal) = &module.declarations[0] else {
+            panic!("expected LaneEdge declaration")
+        };
         assert!(terminal.successors.is_empty());
         assert_eq!(terminal.header.span.source_document_key(), "source.test");
-        let SyntheticDeclaration::LaneEdge(loop_edge) = &module.declarations[1];
+        let SyntheticDeclaration::LaneEdge(loop_edge) = &module.declarations[1] else {
+            panic!("expected LaneEdge declaration")
+        };
         assert_eq!(loop_edge.successors.len(), 1);
         assert_eq!(loop_edge.successors[0].declaration_key.as_ref(), "loop");
     }
@@ -1904,7 +2787,9 @@ mod tests {
 
         let module = builder.finish().unwrap();
         assert_eq!(module.declaration_count, 1);
-        let SyntheticDeclaration::LaneEdge(edge) = &module.declarations[0];
+        let SyntheticDeclaration::LaneEdge(edge) = &module.declarations[0] else {
+            panic!("expected LaneEdge declaration")
+        };
         assert_eq!(edge.length.value(), 1.0);
     }
 
@@ -2020,6 +2905,42 @@ mod tests {
             u64::from(module.descriptor.source_record_byte_len),
             u64::try_from(module.source_record.len()).unwrap()
         );
+    }
+
+    #[test]
+    fn facility_kind_validation_matches_the_accepted_seed_and_extension_prefixes() {
+        let limits = CompileLimits::p100_initial_v1();
+        let mut builder =
+            SyntheticModuleBuilder::new(header("city/a", "source.test"), &limits).unwrap();
+        for (key, kind_id) in [
+            ("band-sidewalk", "sidewalk"),
+            ("band-median", "median"),
+            ("band-planting", "plantingStrip"),
+            ("band-facility", "facilityStrip"),
+            ("band-shoulder", "shoulder"),
+            ("band-custom", "x-platform"),
+        ] {
+            builder
+                .add_facility_band(FacilityBandInput {
+                    facility_band_key: key,
+                    kind_id,
+                })
+                .unwrap();
+        }
+
+        for invalid in ["x-", "x-lane-"] {
+            let diagnostics = expect_diagnostics(builder.add_facility_band(FacilityBandInput {
+                facility_band_key: "invalid-band",
+                kind_id: invalid,
+            }));
+            assert_eq!(
+                diagnostics.diagnostics()[0].code(),
+                DiagnosticCode::InvalidFacilityKind
+            );
+        }
+
+        let module = builder.finish().unwrap();
+        assert_eq!(module.declaration_count, 6);
     }
 
     #[test]
