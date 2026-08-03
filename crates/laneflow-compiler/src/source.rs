@@ -1,3 +1,9 @@
+//! 官方合成来源模块头的受检构造。
+//!
+//! 调用方只提供不含内容摘要的来源描述信息；本模块验证文本和资源上限后取得所有权。
+//! 规范来源记录及 `sourceContentDigest` 必须在完整领域声明已经规范化后由
+//! `SyntheticModuleBuilder::finish` 派生，因此头不能与任意内容摘要自行配对。
+
 use crate::diagnostic::DiagnosticCollector;
 use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceHeaderField,
@@ -6,14 +12,26 @@ use crate::{
 use std::sync::Arc;
 
 /// 调用方提供、随后由编译器受检复制的合成来源模块头输入。
+///
+/// 字符串只在 [`SourceModuleHeader::new`] 成功后复制；失败不会留下部分头。两个摘要均
+/// 是调用方声明的来源沿袭元数据，不是模块内容摘要，也不会替代后续
+/// `sourceContentDigest` 的派生。
 #[derive(Clone, Copy, Debug)]
 pub struct SourceModuleHeaderInput<'a> {
+    /// 模块拥有声明的稳定 ASCII 命名空间，也是声明身份前像的一部分。
     pub authoring_namespace_id: &'a str,
+    /// 与机器路径无关的稳定 ASCII 来源文档键，用于诊断位置与规范排序。
     pub source_document_key: &'a str,
+    /// 生成该来源的前端或生成器构建标识；仅作可审计来源沿袭。
     pub generator_build_id: &'a str,
+    /// 调用参数与外部输入集合的 32 字节摘要；其算法由生成方契约负责。
     pub parameters_and_inputs_digest: [u8; 32],
+    /// 影响前端输出的选项集合的 32 字节摘要；不是来源记录内容摘要。
     pub frontend_options_digest: [u8; 32],
+    /// 生成过程实际使用的随机种子；若生成过程使用随机性，调用方必须提供 `Some`。
+    /// 本构造器只能保存该声明，无法审计生成器是否暗中使用了未登记随机源。
     pub random_seed: Option<u64>,
+    /// 供审计与诊断展示的可见 ASCII 来源沿袭说明。
     pub provenance: &'a str,
 }
 
@@ -22,18 +40,35 @@ pub struct SourceModuleHeaderInput<'a> {
 /// 本类型不包含 `sourceContentDigest`：内容摘要只能由官方前端在规范化来源记录完成后
 /// 派生，调用方不能自报或把头与任意模块内容配对。
 pub struct SourceModuleHeader {
+    /// 已验证的声明身份命名空间。
     pub(crate) authoring_namespace_id: Arc<str>,
+    /// 已验证、与机器路径无关的来源文档键。
     pub(crate) source_document_key: Arc<str>,
+    /// 已验证的生成器构建标识。
     pub(crate) generator_build_id: Arc<str>,
+    /// 原样保留的参数与输入摘要。
     pub(crate) parameters_and_inputs_digest: [u8; 32],
+    /// 原样保留的前端选项摘要。
     pub(crate) frontend_options_digest: [u8; 32],
+    /// 原样保留的可选随机种子。
     pub(crate) random_seed: Option<u64>,
+    /// 已验证的来源沿袭说明。
     pub(crate) provenance: Arc<str>,
+    /// 合成前端调用点；用于给模块级诊断提供稳定来源位置，不参与实体身份。
     pub(crate) declaration_span: crate::SourceSpan,
 }
 
 impl SourceModuleHeader {
     /// 校验并原子复制合成来源模块的非内容字段。
+    ///
+    /// 成功后返回的头拥有全部字符串，并记录此调用点作为模块声明位置。该位置使用
+    /// `source_document_key`，不会记录宿主机器路径。
+    ///
+    /// # Errors
+    ///
+    /// 当必填文本为空、超过字符串上限、违反 ASCII/token 规则，或逻辑字符串与编译器
+    /// 控制存续字节超过 `limits` 时，返回规范有序的 [`DiagnosticBundle`]。所有安全可
+    /// 检查字段都会参与诊断收集；失败时不复制并返回部分头。
     #[track_caller]
     pub fn new(
         input: SourceModuleHeaderInput<'_>,
@@ -128,36 +163,43 @@ impl SourceModuleHeader {
         })
     }
 
+    /// 返回声明身份使用的 authoring namespace。
     #[must_use]
     pub fn authoring_namespace_id(&self) -> &str {
         &self.authoring_namespace_id
     }
 
+    /// 返回与机器路径无关的来源文档键。
     #[must_use]
     pub fn source_document_key(&self) -> &str {
         &self.source_document_key
     }
 
+    /// 返回生成器构建标识。
     #[must_use]
     pub fn generator_build_id(&self) -> &str {
         &self.generator_build_id
     }
 
+    /// 返回调用方登记的参数与输入摘要；它不是模块内容摘要。
     #[must_use]
     pub const fn parameters_and_inputs_digest(&self) -> &[u8; 32] {
         &self.parameters_and_inputs_digest
     }
 
+    /// 返回调用方登记的前端选项摘要；它不是模块内容摘要。
     #[must_use]
     pub const fn frontend_options_digest(&self) -> &[u8; 32] {
         &self.frontend_options_digest
     }
 
+    /// 返回生成过程登记的随机种子。
     #[must_use]
     pub const fn random_seed(&self) -> Option<u64> {
         self.random_seed
     }
 
+    /// 返回供审计使用的来源沿袭说明。
     #[must_use]
     pub fn provenance(&self) -> &str {
         &self.provenance
@@ -231,6 +273,8 @@ pub(crate) fn external_token_violation(value: &str, limit: u64) -> Option<Source
         });
     }
 
+    // 空串已在上方排除，因此读取首字节不会 panic。首字节规则阻止仅由标点构成的键，
+    // 后续字符仍允许模块/文档键需要的 `. _ : / -`。
     let bytes = value.as_bytes();
     if !bytes[0].is_ascii_alphanumeric() {
         return Some(SourceTextViolation::InvalidFirstByte { byte: bytes[0] });

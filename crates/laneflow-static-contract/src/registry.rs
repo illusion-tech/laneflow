@@ -1,18 +1,27 @@
 //! Identity v1 的闭合登记表。
+//!
+//! 本模块只登记稳定代码、字段顺序和字段编码，不负责拼接规范身份字节或计算 BLAKE3。
+//! 编译器与独立验证器必须分别消费同一登记元数据并独立实现编码，以避免共享算法成为
+//! 共同失效点。枚举的数值、保留空位以及 [`EntityKind::required_tags`] 返回的顺序均是
+//! Identity v1 契约的一部分，不能按源码美观需要重新编号或排序。
 
-/// Identity envelope 的固定魔数。
+/// Identity envelope 的固定四字节 ASCII 魔数。
 pub const IDENTITY_MAGIC: [u8; 4] = *b"LFID";
 
-/// Identity v1 的规范字节编码版本。
+/// Identity v1 的规范字节编码版本；改变 envelope 或字段编码规则时必须提升。
 pub const IDENTITY_ENCODING_VERSION: u16 = 1;
 
-/// Identity v1 的实体种类 / 字段标签登记表修订。
+/// Identity v1 的实体种类 / 字段标签登记表修订；登记项增删或身份字段变化时必须提升。
 pub const IDENTITY_REGISTRY_REVISION: u16 = 1;
 
-/// 拼接在规范身份字节之前的 Stable ID BLAKE3 输入域前缀。
+/// 拼接在规范身份字节之前的 Stable ID BLAKE3 输入域分离前缀。
+///
+/// 末尾 NUL 是常量自身的一部分，编码器不得按 C 字符串规则截断。
 pub const STABLE_ID_DOMAIN_PREFIX: &[u8] = b"laneflow.stable-id.v1\0";
 
 /// Identity v1 中实体的身份类别。
+///
+/// 类别决定身份来自普通来源声明，还是来自不应依赖可选领域角色的可寻址拓扑实体。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum EntityCategory {
     /// 由来源模块声明的实体。
@@ -22,6 +31,8 @@ pub enum EntityCategory {
 }
 
 /// Identity v1 的实体种类登记表。
+///
+/// `repr(u16)` 数值进入规范身份 envelope。未知代码必须失败关闭，不能映射为相近种类。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u16)]
 pub enum EntityKind {
@@ -50,7 +61,7 @@ pub enum EntityKind {
 }
 
 impl EntityKind {
-    /// Registry revision 1 中按代码排序的全部实体种类。
+    /// Registry revision 1 中按代码升序排列的全部已登记实体种类。
     pub const ALL: [Self; 22] = [
         Self::RoadCorridor,
         Self::RoadSection,
@@ -76,11 +87,13 @@ impl EntityKind {
         Self::CanonicalFrame,
     ];
 
+    /// 返回写入 Identity v1 envelope 的稳定 `u16` 种类代码。
     #[must_use]
     pub const fn code(self) -> u16 {
         self as u16
     }
 
+    /// 解析已登记种类代码；未知或其他修订才定义的代码返回 `None`。
     #[must_use]
     pub const fn from_code(code: u16) -> Option<Self> {
         match code {
@@ -110,6 +123,7 @@ impl EntityKind {
         }
     }
 
+    /// 返回该实体种类的身份类别。
     #[must_use]
     pub const fn category(self) -> EntityCategory {
         match self {
@@ -118,6 +132,7 @@ impl EntityKind {
         }
     }
 
+    /// 返回用于规范文本表示和诊断的稳定 ASCII slug。
     #[must_use]
     pub const fn slug(self) -> &'static str {
         match self {
@@ -146,6 +161,9 @@ impl EntityKind {
         }
     }
 
+    /// 返回构造该实体 Identity v1 前像时必需的字段标签规范序列。
+    ///
+    /// 返回顺序就是编码顺序；调用者不得排序、去重，也不得从 source map 补入缺失字段。
     #[must_use]
     pub const fn required_tags(self) -> &'static [FieldTag] {
         match self {
@@ -221,10 +239,14 @@ impl EntityKind {
     }
 }
 
-/// Identity v1 字段的规范编码。
+/// Identity v1 字段值的规范编码类别。
+///
+/// 该枚举只描述值载荷；字段标签、长度和 envelope 仍由 Identity v1 编码规则约束。
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum FieldEncoding {
+    /// 受 Identity v1 文本规则约束的 ASCII 字节。
     Ascii,
+    /// 恰好 16 字节的原始 `StableId128`。
     StableId128,
 }
 
@@ -268,7 +290,9 @@ pub enum FieldTag {
 }
 
 impl FieldTag {
-    /// Registry revision 1 中按代码排序的全部已登记字段标签。
+    /// Registry revision 1 中按代码升序排列的全部已登记字段标签。
+    ///
+    /// 保留代码 23 不在此集合中。
     pub const ALL: [Self; 33] = [
         Self::AuthoringNamespaceId,
         Self::CorridorKey,
@@ -305,11 +329,13 @@ impl FieldTag {
         Self::JunctionStableId,
     ];
 
+    /// 返回写入规范身份字节的稳定 `u16` 字段代码。
     #[must_use]
     pub const fn code(self) -> u16 {
         self as u16
     }
 
+    /// 解析已登记字段代码；未知代码和保留代码 23 返回 `None`。
     #[must_use]
     pub const fn from_code(code: u16) -> Option<Self> {
         match code {
@@ -350,6 +376,7 @@ impl FieldTag {
         }
     }
 
+    /// 返回登记表中的稳定 lowerCamelCase 字段名，供描述符和诊断使用。
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -389,6 +416,7 @@ impl FieldTag {
         }
     }
 
+    /// 返回该字段值在 Identity v1 中必须采用的编码类别。
     #[must_use]
     pub const fn encoding(self) -> FieldEncoding {
         match self {

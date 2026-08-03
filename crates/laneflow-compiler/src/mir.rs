@@ -1,3 +1,13 @@
+//! 高层中间表示（HIR）到中层中间表示（MIR）的确定性降级阶段。
+//!
+//! HIR 已完成模块与符号解析；本阶段不再接受文本引用，而是把模块、车道图边和下游
+//! 连接冻结为目标布局中立的连续表。HIR 与 MIR 使用不同的键标记，并通过显式映射表
+//! 转换，避免两个碰巧相同的 `u32` 被误认为可跨阶段复用。
+//!
+//! MIR 仍是 crate 私有编译阶段，不是静态镜像 ABI 或公共制品格式。它保留稳定键、
+//! `f64` 交通标量和来源位置；后续 LIR 验证/冻结完成前，调用方不得把这些表视为已验证
+//! 发布输出。
+
 use std::sync::Arc;
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
@@ -5,32 +15,55 @@ use crate::diagnostic::DiagnosticCollector;
 use crate::hir::{HirLaneEdgeKey, HirUnit};
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
+/// 区分 MIR 模块表键的零尺寸阶段标记。
 pub(crate) enum MirModuleTag {}
+/// 区分 MIR 车道图边表键的零尺寸阶段标记。
 pub(crate) enum MirLaneEdgeTag {}
 
+/// 仅在当前 `MirUnit` 模块表内有效的致密键。
 pub(crate) type MirModuleKey = ArenaKey<MirModuleTag>;
+/// 仅在当前 `MirUnit` 车道图边表内有效的致密键。
 pub(crate) type MirLaneEdgeKey = ArenaKey<MirLaneEdgeTag>;
 
+/// MIR 中保留的模块身份与来源上下文。
 pub(crate) struct MirModule {
+    /// 模块稳定 authoring namespace。
     pub(crate) authoring_namespace_id: Arc<str>,
+    /// 与机器路径无关的来源文档键。
     pub(crate) source_document_key: Arc<str>,
+    /// 模块声明位置。
     pub(crate) source_span: SourceSpan,
 }
 
+/// MIR 平坦连接表中的一条有类型车道图边连接。
 pub(crate) struct MirLaneEdgeConnection {
+    /// 当前 `MirUnit::lane_edges` 中的目标键。
     pub(crate) target: MirLaneEdgeKey,
+    /// 原始引用位置，供后续诊断与源映射使用。
     pub(crate) source_span: SourceSpan,
 }
 
+/// 已冻结模块归属和连续连接区间的车道图边 MIR 记录。
 pub(crate) struct MirLaneEdge {
+    /// 拥有声明的 MIR 模块；不能用原始值当作 HIR 模块键。
     pub(crate) module: MirModuleKey,
+    /// 模块内稳定键；不由 MIR 致密下标派生。
     pub(crate) stable_key: Arc<str>,
+    /// 交通权威长度，单位为米并保持 `f64`。
     pub(crate) length_meters: f64,
+    /// 基础道路限速，单位为米每秒并保持 `f64`。
     pub(crate) speed_limit_meters_per_second: f64,
+    /// 此边在 `MirUnit::lane_edge_connections` 中的半开连续区间。
     pub(crate) connections: TableRange<MirLaneEdgeConnection>,
+    /// 原始声明位置。
     pub(crate) source_span: SourceSpan,
 }
 
+/// MIR 阶段成功后一次性冻结的目标布局中立表集合。
+///
+/// 每个连接区间都落在 `lane_edge_connections` 内，且所有目标键指向本实例的
+/// `lane_edges`。`controlled_live_bytes` 只统计 MIR 成功返回后自身拥有的表；阶段峰值
+/// 预检还包含 CompilationUnit、HIR 与键映射暂存区。
 pub(crate) struct MirUnit {
     pub(crate) modules: Box<[MirModule]>,
     pub(crate) lane_edges: Box<[MirLaneEdge]>,
@@ -39,10 +72,19 @@ pub(crate) struct MirUnit {
     pub(crate) controlled_live_bytes: u64,
 }
 
+/// 将已解析 HIR 降级为连续 MIR 表，并显式重映射全部阶段键。
+///
+/// # Errors
+///
+/// 当 MIR 记录、阶段暂存区、编译器控制存续字节或 `u32` 表边界超过所选配置档时，
+/// 返回资源诊断且不返回部分 MIR。输入 HIR 只能由 `build_hir` 成功产生，因此本函数不
+/// 重复执行文本符号解析。
 pub(crate) fn lower_to_mir(
     unit: &CompilationUnit,
     hir: &HirUnit,
 ) -> Result<MirUnit, DiagnosticBundle> {
+    // MIR record 指标只计语义车道图边与连接；模块元数据仍计入分配和 live-byte 预检。
+    // 在任何阶段表分配前先验证记录、暂存映射和 HIR/MIR 同时存续的峰值。
     let module_count = u64::try_from(hir.modules.len()).unwrap_or(u64::MAX);
     let lane_edge_count = u64::try_from(hir.lane_edges.len()).unwrap_or(u64::MAX);
     let connection_count = u64::try_from(hir.lane_edge_references.len()).unwrap_or(u64::MAX);
@@ -89,6 +131,7 @@ pub(crate) fn lower_to_mir(
         return Err(diagnostics.finish());
     }
 
+    // 不依赖 HIR/MIR raw key 数值碰巧一致：每次插入都记录显式 stage-to-stage 映射。
     let mut modules = TypedArena::<MirModuleTag, MirModule>::with_capacity(hir.modules.len());
     let mut hir_module_to_mir = Vec::with_capacity(hir.modules.len());
     for module in &hir.modules {
@@ -125,6 +168,8 @@ pub(crate) fn lower_to_mir(
         hir_to_mir.push(mir_key);
     }
 
+    // 按 HIR 的规范边顺序追加连接，并以 TableRange 记录每条边的连续片段；这样后续遍历
+    // 不需要哈希查找或每边独立分配。
     let mut connections = Vec::with_capacity(connection_capacity);
     for (hir_index, edge) in hir.lane_edges.iter().enumerate() {
         let mir_key = hir_to_mir[hir_index];
