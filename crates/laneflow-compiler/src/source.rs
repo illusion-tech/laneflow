@@ -3,6 +3,7 @@ use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceHeaderField,
     SourceTextViolation,
 };
+use std::sync::Arc;
 
 /// 调用方提供、随后由编译器受检复制的合成来源模块头输入。
 #[derive(Clone, Copy, Debug)]
@@ -21,17 +22,19 @@ pub struct SourceModuleHeaderInput<'a> {
 /// 本类型不包含 `sourceContentDigest`：内容摘要只能由官方前端在规范化来源记录完成后
 /// 派生，调用方不能自报或把头与任意模块内容配对。
 pub struct SourceModuleHeader {
-    authoring_namespace_id: Box<str>,
-    source_document_key: Box<str>,
-    generator_build_id: Box<str>,
-    parameters_and_inputs_digest: [u8; 32],
-    frontend_options_digest: [u8; 32],
-    random_seed: Option<u64>,
-    provenance: Box<str>,
+    pub(crate) authoring_namespace_id: Arc<str>,
+    pub(crate) source_document_key: Arc<str>,
+    pub(crate) generator_build_id: Arc<str>,
+    pub(crate) parameters_and_inputs_digest: [u8; 32],
+    pub(crate) frontend_options_digest: [u8; 32],
+    pub(crate) random_seed: Option<u64>,
+    pub(crate) provenance: Arc<str>,
+    pub(crate) declaration_span: crate::SourceSpan,
 }
 
 impl SourceModuleHeader {
     /// 校验并原子复制合成来源模块的非内容字段。
+    #[track_caller]
     pub fn new(
         input: SourceModuleHeaderInput<'_>,
         limits: &CompileLimits,
@@ -65,14 +68,28 @@ impl SourceModuleHeader {
             &mut diagnostics,
         );
 
-        let string_item_count = 4;
+        // 校准契约只把规范模块名与来源文档键计入驻留字符串聚合；生成器标识和
+        // 来源沿袭属于描述符元数据，但其复制字节仍计入编译器控制存续内存。
+        let string_item_count = 2;
         check_limit(
             limits,
             CompileLimitDimension::StringItemCount,
             string_item_count,
             &mut diagnostics,
         );
-        let total_string_bytes = [
+        let total_string_bytes = [input.authoring_namespace_id, input.source_document_key]
+            .into_iter()
+            .try_fold(0_u64, |total, value| {
+                total.checked_add(u64::try_from(value.len()).ok()?)
+            })
+            .unwrap_or(u64::MAX);
+        check_limit(
+            limits,
+            CompileLimitDimension::TotalStringBytes,
+            total_string_bytes,
+            &mut diagnostics,
+        );
+        let controlled_live_bytes = [
             input.authoring_namespace_id,
             input.source_document_key,
             input.generator_build_id,
@@ -85,14 +102,8 @@ impl SourceModuleHeader {
         .unwrap_or(u64::MAX);
         check_limit(
             limits,
-            CompileLimitDimension::TotalStringBytes,
-            total_string_bytes,
-            &mut diagnostics,
-        );
-        check_limit(
-            limits,
             CompileLimitDimension::CompilerControlledLiveBytes,
-            total_string_bytes,
+            controlled_live_bytes,
             &mut diagnostics,
         );
 
@@ -100,14 +111,20 @@ impl SourceModuleHeader {
             return Err(diagnostics.finish());
         }
 
+        let source_document_key: Arc<str> = input.source_document_key.into();
+        let declaration_span = crate::SourceSpan::at_caller(
+            Arc::clone(&source_document_key),
+            std::panic::Location::caller(),
+        );
         Ok(Self {
             authoring_namespace_id: input.authoring_namespace_id.into(),
-            source_document_key: input.source_document_key.into(),
+            source_document_key,
             generator_build_id: input.generator_build_id.into(),
             parameters_and_inputs_digest: input.parameters_and_inputs_digest,
             frontend_options_digest: input.frontend_options_digest,
             random_seed: input.random_seed,
             provenance: input.provenance.into(),
+            declaration_span,
         })
     }
 
@@ -167,30 +184,8 @@ fn validate_external_token(
     limit: u64,
     diagnostics: &mut DiagnosticCollector,
 ) {
-    if let Some(violation) = common_text_violation(value, limit) {
+    if let Some(violation) = external_token_violation(value, limit) {
         diagnostics.push(Diagnostic::invalid_source_header_field(field, violation));
-        return;
-    }
-
-    let bytes = value.as_bytes();
-    if !bytes[0].is_ascii_alphanumeric() {
-        diagnostics.push(Diagnostic::invalid_source_header_field(
-            field,
-            SourceTextViolation::InvalidFirstByte { byte: bytes[0] },
-        ));
-        return;
-    }
-
-    if let Some((byte_index, byte)) = bytes.iter().copied().enumerate().find(|(_, byte)| {
-        !byte.is_ascii_alphanumeric() && !matches!(byte, b'.' | b'_' | b':' | b'/' | b'-')
-    }) {
-        diagnostics.push(Diagnostic::invalid_source_header_field(
-            field,
-            SourceTextViolation::InvalidTokenByte {
-                byte_index: u64::try_from(byte_index).unwrap_or(u64::MAX),
-                byte,
-            },
-        ));
     }
 }
 
@@ -218,6 +213,40 @@ fn validate_visible_ascii(
             },
         ));
     }
+}
+
+pub(crate) fn external_token_violation(value: &str, limit: u64) -> Option<SourceTextViolation> {
+    if value.is_empty() {
+        return Some(SourceTextViolation::Empty);
+    }
+
+    let observed = u64::try_from(value.len()).unwrap_or(u64::MAX);
+    if observed > limit {
+        return Some(SourceTextViolation::TooLong { limit, observed });
+    }
+
+    if let Some(byte_index) = value.bytes().position(|byte| !byte.is_ascii()) {
+        return Some(SourceTextViolation::NonAscii {
+            byte_index: u64::try_from(byte_index).unwrap_or(u64::MAX),
+        });
+    }
+
+    let bytes = value.as_bytes();
+    if !bytes[0].is_ascii_alphanumeric() {
+        return Some(SourceTextViolation::InvalidFirstByte { byte: bytes[0] });
+    }
+
+    bytes
+        .iter()
+        .copied()
+        .enumerate()
+        .find(|(_, byte)| {
+            !byte.is_ascii_alphanumeric() && !matches!(byte, b'.' | b'_' | b':' | b'/' | b'-')
+        })
+        .map(|(byte_index, byte)| SourceTextViolation::InvalidTokenByte {
+            byte_index: u64::try_from(byte_index).unwrap_or(u64::MAX),
+            byte,
+        })
 }
 
 fn common_text_violation(value: &str, limit: u64) -> Option<SourceTextViolation> {
