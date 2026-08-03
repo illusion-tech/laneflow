@@ -1,7 +1,10 @@
 use core::fmt;
 use std::sync::Arc;
 
+use laneflow_static_contract::EntityKind;
+
 use crate::CompileLimitDimension;
+use crate::declaration::ScalarViolation;
 
 /// 来源文档内受检的一基行列位置。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -73,6 +76,14 @@ pub enum DiagnosticCode {
     DuplicateModuleNamespace,
     UnknownImport,
     ImportCycle,
+    InvalidDeclarationKey,
+    DuplicateDeclaration,
+    InvalidReferenceNamespace,
+    InvalidReferenceKey,
+    UnimportedReferenceModule,
+    InvalidLaneEdgeLength,
+    InvalidLaneEdgeSpeedLimit,
+    DuplicateLaneEdgeSuccessor,
     CompileLimitExceeded,
 }
 
@@ -87,6 +98,14 @@ impl DiagnosticCode {
             Self::DuplicateModuleNamespace => "LF-COMP-DUPLICATE-MODULE-NAMESPACE",
             Self::UnknownImport => "LF-COMP-UNKNOWN-IMPORT",
             Self::ImportCycle => "LF-COMP-IMPORT-CYCLE",
+            Self::InvalidDeclarationKey => "LF-COMP-DECLARATION-KEY",
+            Self::DuplicateDeclaration => "LF-COMP-DUPLICATE-DECLARATION",
+            Self::InvalidReferenceNamespace => "LF-COMP-REFERENCE-NAMESPACE",
+            Self::InvalidReferenceKey => "LF-COMP-REFERENCE-KEY",
+            Self::UnimportedReferenceModule => "LF-COMP-UNIMPORTED-REFERENCE-MODULE",
+            Self::InvalidLaneEdgeLength => "LF-COMP-LANE-EDGE-LENGTH",
+            Self::InvalidLaneEdgeSpeedLimit => "LF-COMP-LANE-EDGE-SPEED-LIMIT",
+            Self::DuplicateLaneEdgeSuccessor => "LF-COMP-DUPLICATE-LANE-EDGE-SUCCESSOR",
             Self::CompileLimitExceeded => "LF-COMP-RESOURCE-LIMIT",
         }
     }
@@ -163,6 +182,39 @@ pub enum DiagnosticPayload {
     },
     ImportCycle {
         namespaces: Box<[Box<str>]>,
+    },
+    InvalidDeclarationKey {
+        entity_kind: EntityKind,
+        violation: SourceTextViolation,
+    },
+    DuplicateDeclaration {
+        entity_kind: EntityKind,
+        stable_key: Box<str>,
+    },
+    InvalidReferenceNamespace {
+        violation: SourceTextViolation,
+    },
+    InvalidReferenceKey {
+        entity_kind: EntityKind,
+        violation: SourceTextViolation,
+    },
+    UnimportedReferenceModule {
+        namespace: Box<str>,
+    },
+    InvalidLaneEdgeLength {
+        stable_key: Box<str>,
+        value_bits: u64,
+        violation: ScalarViolation,
+    },
+    InvalidLaneEdgeSpeedLimit {
+        stable_key: Box<str>,
+        value_bits: u64,
+        violation: ScalarViolation,
+    },
+    DuplicateLaneEdgeSuccessor {
+        stable_key: Box<str>,
+        target_namespace: Box<str>,
+        target_key: Box<str>,
     },
 }
 
@@ -293,6 +345,140 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn invalid_declaration_key(
+        entity_kind: EntityKind,
+        violation: SourceTextViolation,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidDeclarationKey,
+            DiagnosticPayload::InvalidDeclarationKey {
+                entity_kind,
+                violation,
+            },
+            Some(primary_span),
+            Box::default(),
+            None,
+        )
+    }
+
+    pub(crate) fn duplicate_declaration(
+        entity_kind: EntityKind,
+        stable_key: &str,
+        primary_span: SourceSpan,
+        related_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateDeclaration,
+            DiagnosticPayload::DuplicateDeclaration {
+                entity_kind,
+                stable_key: stable_key.into(),
+            },
+            Some(primary_span),
+            Box::new([related_span]),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_reference_key(
+        entity_kind: EntityKind,
+        violation: SourceTextViolation,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidReferenceKey,
+            DiagnosticPayload::InvalidReferenceKey {
+                entity_kind,
+                violation,
+            },
+            Some(primary_span),
+            Box::default(),
+            None,
+        )
+    }
+
+    pub(crate) fn invalid_reference_namespace(
+        violation: SourceTextViolation,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidReferenceNamespace,
+            DiagnosticPayload::InvalidReferenceNamespace { violation },
+            Some(primary_span),
+            Box::default(),
+            None,
+        )
+    }
+
+    pub(crate) fn unimported_reference_module(namespace: &str, primary_span: SourceSpan) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::UnimportedReferenceModule,
+            DiagnosticPayload::UnimportedReferenceModule {
+                namespace: namespace.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(namespace.into()),
+        )
+    }
+
+    pub(crate) fn invalid_lane_edge_length(
+        stable_key: &str,
+        value: f64,
+        violation: ScalarViolation,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidLaneEdgeLength,
+            DiagnosticPayload::InvalidLaneEdgeLength {
+                stable_key: stable_key.into(),
+                value_bits: value.to_bits(),
+                violation,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_lane_edge_speed_limit(
+        stable_key: &str,
+        value: f64,
+        violation: ScalarViolation,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidLaneEdgeSpeedLimit,
+            DiagnosticPayload::InvalidLaneEdgeSpeedLimit {
+                stable_key: stable_key.into(),
+                value_bits: value.to_bits(),
+                violation,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn duplicate_lane_edge_successor(
+        stable_key: &str,
+        target_namespace: &str,
+        target_key: &str,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateLaneEdgeSuccessor,
+            DiagnosticPayload::DuplicateLaneEdgeSuccessor {
+                stable_key: stable_key.into(),
+                target_namespace: target_namespace.into(),
+                target_key: target_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
     pub(crate) const fn set_canonical_module_order(&mut self, order: u32) {
         self.canonical_module_order = order;
     }
@@ -409,6 +595,88 @@ impl fmt::Display for Diagnostic {
                     .map(AsRef::as_ref)
                     .collect::<Vec<&str>>()
                     .join(" -> ")
+            ),
+            DiagnosticPayload::InvalidDeclarationKey {
+                entity_kind,
+                violation,
+            } => write!(
+                formatter,
+                "{} 声明的稳定键非法：{}",
+                entity_kind.slug(),
+                SourceTextViolationDisplay(*violation)
+            ),
+            DiagnosticPayload::DuplicateDeclaration {
+                entity_kind,
+                stable_key,
+            } => write!(
+                formatter,
+                "来源模块重复声明 {} 稳定键 {stable_key}",
+                entity_kind.slug()
+            ),
+            DiagnosticPayload::InvalidReferenceNamespace { violation } => write!(
+                formatter,
+                "引用目标模块命名空间非法：{}",
+                SourceTextViolationDisplay(*violation)
+            ),
+            DiagnosticPayload::InvalidReferenceKey {
+                entity_kind,
+                violation,
+            } => write!(
+                formatter,
+                "指向 {} 声明的引用键非法：{}",
+                entity_kind.slug(),
+                SourceTextViolationDisplay(*violation)
+            ),
+            DiagnosticPayload::UnimportedReferenceModule { namespace } => {
+                write!(
+                    formatter,
+                    "引用目标模块 {namespace} 未被当前来源模块显式导入"
+                )
+            }
+            DiagnosticPayload::InvalidLaneEdgeLength {
+                stable_key,
+                value_bits,
+                violation,
+            } => write!(
+                formatter,
+                "车道图边 {stable_key} 的长度 {} 非法：{}",
+                f64::from_bits(*value_bits),
+                ScalarViolationDisplay(*violation)
+            ),
+            DiagnosticPayload::InvalidLaneEdgeSpeedLimit {
+                stable_key,
+                value_bits,
+                violation,
+            } => write!(
+                formatter,
+                "车道图边 {stable_key} 的基础道路限速 {} 非法：{}",
+                f64::from_bits(*value_bits),
+                ScalarViolationDisplay(*violation)
+            ),
+            DiagnosticPayload::DuplicateLaneEdgeSuccessor {
+                stable_key,
+                target_namespace,
+                target_key,
+            } => write!(
+                formatter,
+                "车道图边 {stable_key} 重复声明下游连接 {target_namespace}:{target_key}"
+            ),
+        }
+    }
+}
+
+struct ScalarViolationDisplay(ScalarViolation);
+
+impl fmt::Display for ScalarViolationDisplay {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            ScalarViolation::NotFinite => formatter.write_str("必须是有限数"),
+            ScalarViolation::NotGreaterThan {
+                exclusive_minimum_bits,
+            } => write!(
+                formatter,
+                "必须严格大于 {}",
+                f64::from_bits(exclusive_minimum_bits)
             ),
         }
     }

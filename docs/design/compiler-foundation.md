@@ -13,8 +13,9 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 **实现状态**: G2 实现进行中；`laneflow-static-contract` 已建立 `no_std` 值类型、
 标识 v1（Identity v1）登记常量、有类型稳定标识与有类型逻辑序号；
 `laneflow-compiler` 已建立生产资源配置档、来源模块头、结构化诊断、确定性
-`LFSOURCE` 来源记录及显式导入图，领域声明、编译遍与已验证输出尚未实现。#292 G1
-已接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
+`LFSOURCE` 来源记录、显式导入图，以及车道图边的首个受检合成领域声明；其余领域
+声明、编译遍与已验证输出尚未实现。#292 G1 已接受 #308 G4 非生产研究证据及首轮
+资源 / 性能输入；当前生产路径仍是
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
 `laneflow-data` / `laneflow-core` / `laneflow-spatial`
 
