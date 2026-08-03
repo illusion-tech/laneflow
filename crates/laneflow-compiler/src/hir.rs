@@ -1,3 +1,14 @@
+//! Typed AST 到高层中间表示（HIR）的符号解析阶段。
+//!
+//! 输入 [`CompilationUnit`] 已闭合模块导入图并冻结依赖优先顺序。本阶段据此建立连续
+//! 模块表和车道图边符号表，把 `(module namespace, stable key)` 引用解析为阶段私有
+//! `u32` 键，并保留来源位置供后续诊断/源映射使用。声明先全部登记、再统一解析引用，
+//! 因此前向引用和自环合法。
+//!
+//! HIR 表顺序是规范顺序：模块沿用编译单元顺序，模块内声明按稳定键排序，导入和连接
+//! 也使用已显式规范化的序列。`HashMap` 仅作查找，绝不能通过迭代哈希表决定诊断或
+//! 后续布局。所有键、区间和类型均为 crate 私有，不能跨阶段或进入持久制品。
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -8,38 +19,65 @@ use crate::declaration::{LaneEdgeDeclaration, SyntheticDeclaration};
 use crate::diagnostic::DiagnosticCollector;
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
+/// 区分 HIR 模块表键的零尺寸阶段标记。
 pub(crate) enum HirModuleTag {}
+/// 区分 HIR 车道图边表键的零尺寸阶段标记。
 pub(crate) enum HirLaneEdgeTag {}
 
+/// 仅在当前 `HirUnit` 模块表内有效的致密键。
 pub(crate) type HirModuleKey = ArenaKey<HirModuleTag>;
+/// 仅在当前 `HirUnit` 车道图边表内有效的致密键。
 pub(crate) type HirLaneEdgeKey = ArenaKey<HirLaneEdgeTag>;
 
+/// 已解析为 HIR 模块键的显式导入边。
 pub(crate) struct HirImport {
+    /// 被导入模块；目标在规范模块顺序中位于当前模块之前。
     pub(crate) target: HirModuleKey,
+    /// 原始导入声明位置。
     pub(crate) source_span: SourceSpan,
 }
 
+/// HIR 模块记录及其在平坦导入表中的连续区间。
 pub(crate) struct HirModule {
+    /// 声明身份与跨模块解析使用的稳定命名空间。
     pub(crate) authoring_namespace_id: Arc<str>,
+    /// 与机器路径无关的来源文档键。
     pub(crate) source_document_key: Arc<str>,
+    /// 此模块在 `HirUnit::imports` 中的半开区间。
     pub(crate) imports: TableRange<HirImport>,
+    /// 模块声明位置。
     pub(crate) source_span: SourceSpan,
 }
 
+/// 已解析为 HIR 车道图边键的下游引用。
 pub(crate) struct HirLaneEdgeReference {
+    /// 当前 `HirUnit::lane_edges` 中的目标键。
     pub(crate) target: HirLaneEdgeKey,
+    /// 原始引用位置。
     pub(crate) source_span: SourceSpan,
 }
 
+/// 完成模块归属和下游符号解析的车道图边 HIR 记录。
 pub(crate) struct HirLaneEdge {
+    /// 拥有此声明的 HIR 模块。
     pub(crate) module: HirModuleKey,
+    /// 模块内稳定键；不是 HIR 致密下标。
     pub(crate) stable_key: Arc<str>,
+    /// 交通权威长度，单位为米并保留来源 `f64` 精度。
     pub(crate) length_meters: f64,
+    /// 基础道路限速，单位为米每秒并保留来源 `f64` 精度。
     pub(crate) speed_limit_meters_per_second: f64,
+    /// 此边在 `HirUnit::lane_edge_references` 中的连续下游引用区间。
     pub(crate) successors: TableRange<HirLaneEdgeReference>,
+    /// 原始声明位置。
     pub(crate) source_span: SourceSpan,
 }
 
+/// HIR 阶段成功后一次性冻结的连续只读表集合。
+///
+/// 构造完成时所有引用均已解析，所有 `TableRange` 都落在对应平坦表内。字段中的键只对
+/// 本实例有效。`controlled_live_bytes` 仅统计成功返回后由 HIR 自身持有的阶段字节；
+/// 资源预检使用的峰值还包含输入、查找表和暂存区。
 pub(crate) struct HirUnit {
     pub(crate) modules: Box<[HirModule]>,
     pub(crate) imports: Box<[HirImport]>,
@@ -49,6 +87,7 @@ pub(crate) struct HirUnit {
     pub(crate) controlled_live_bytes: u64,
 }
 
+/// 按 HIR 模块隔离的车道图边查找索引；不提供规范遍历能力。
 struct LaneEdgeSymbolTable {
     by_module: Vec<HashMap<Arc<str>, HirLaneEdgeKey>>,
 }
@@ -77,13 +116,24 @@ impl LaneEdgeSymbolTable {
 }
 
 #[derive(Clone, Copy)]
+/// 把规范 HIR 键映回 Typed AST 物理位置的阶段暂存记录。
+///
+/// HIR 键不能冒充来源模块/声明下标；显式保存两者可在声明排序后仍准确读取来源记录。
 struct CanonicalLaneEdgeSource {
     source_module_index: u32,
     declaration_index: u32,
     hir_key: HirLaneEdgeKey,
 }
 
+/// 建立模块/符号表并解析编译单元中的全部车道图边引用。
+///
+/// # Errors
+///
+/// 当 HIR 记录数、阶段暂存区、编译器控制存续字节或 `u32` 表边界超过所选配置档，
+/// 或任一目标稳定键不存在时，返回规范有序诊断。失败不会返回部分 HIR。
 pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBundle> {
+    // 在任何与记录数成正比的阶段分配前，同时预检持久表、lookup 预算和阶段最大暂存区。
+    // scratch 取互斥工作集的最大值而非总和，live peak 则包含输入与当时存续的全部集合。
     let module_count = u64::try_from(unit.modules.len()).unwrap_or(u64::MAX);
     let hir_record_count = module_count
         .saturating_add(unit.import_edge_count)
@@ -154,6 +204,8 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let import_capacity = count_to_usize(unit.import_edge_count, &unit.limits)?;
     let declaration_capacity = count_to_usize(unit.declaration_count, &unit.limits)?;
     let reference_capacity = count_to_usize(unit.reference_count, &unit.limits)?;
+    // 第一阶段冻结模块键。CompilationUnit 已按依赖优先排序，因此 raw key 顺序可直接
+    // 作为后续规范模块轴；module_lookup 只用于解析，不参与任何输出遍历。
     let mut modules = TypedArena::<HirModuleTag, HirModule>::with_capacity(module_capacity);
     let mut module_lookup = HashMap::with_capacity(module_capacity);
     for source_module in &unit.modules {
@@ -168,6 +220,8 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         module_lookup.insert(source_module.descriptor().authoring_namespace_arc(), key);
     }
 
+    // 每个模块的导入单独按目标命名空间排序后追加到一个平坦表，TableRange 保留模块
+    // 边界并避免每模块 Vec 的额外分配。
     let mut imports = Vec::with_capacity(import_capacity);
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key =
@@ -189,6 +243,8 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 .map_err(|overflow| arena_overflow(overflow, &unit.limits, primary_span.clone()))?;
     }
 
+    // 先按 `(canonical module order, stable key)` 为全部声明分配键并建立完整符号表。
+    // 这一步必须先于连接解析，才能让前向引用、自环和跨模块引用具有相同语义。
     let mut lane_edges =
         TypedArena::<HirLaneEdgeTag, HirLaneEdge>::with_capacity(declaration_capacity);
     let mut symbols =
@@ -245,6 +301,8 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         }
     }
 
+    // 第二遍只解析已经规范化的引用序列。未知目标继续收集到有界诊断集合中；该边的
+    // 临时区间不会在失败时泄漏，因为整个 HirUnit 仅在零错误后提交。
     let mut references = Vec::with_capacity(reference_capacity);
     let mut diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));

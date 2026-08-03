@@ -1,34 +1,68 @@
+//! 编译资源上限的具名生产配置档。
+//!
+//! 同一份 [`CompileLimits`] 从来源构造一直传递到各编译阶段，使所有与输入规模成正比
+//! 的复制、表构造和暂存区分配都能在分配前失败关闭。字段保持私有，防止调用方拼出
+//! 未经校准的“无限制”配置，也避免把阶段内部计数布局冻结成公共兼容接口。
+
 /// 首个生产编译资源上限配置档的稳定标识符。
 const P100_INITIAL_V1_PROFILE_ID: &str = "LF-COMP-P100-INITIAL-v1";
 
 /// 编译资源上限诊断使用的有类型维度。
+///
+/// `*Count` 维度以记录或出现次数计，`*Bytes` 维度以字节计。枚举值本身不作为线格式
+/// 代码；稳定诊断字段名由 [`CompileLimitDimension::as_str`] 提供。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum CompileLimitDimension {
+    /// 编译单元中的来源模块数。
     ModuleCount,
+    /// 模块图中的显式导入边数。
     ImportEdgeCount,
+    /// 单个模块的规范来源记录字节数。
     SourceBytesPerModule,
+    /// 编译单元全部规范来源记录的累计字节数。
     SourceBytesTotal,
+    /// 全部领域声明数。
     DeclarationCount,
+    /// Typed AST 的逻辑记录数。
     TypedAstRecordCount,
+    /// HIR 的逻辑记录数。
     HirRecordCount,
+    /// MIR 的逻辑记录数。
     MirRecordCount,
+    /// Canonical LIR 的逻辑记录数。
     LirRecordCount,
+    /// 有类型引用出现次数。
     ReferenceCount,
+    /// 多值关系中的成员出现次数。
     RelationOccurrenceCount,
+    /// 规范身份字段出现次数。
     IdentityFieldOccurrenceCount,
+    /// 静态路线成员出现次数。
     RouteOccurrenceCount,
+    /// ManeuverGate 声明数。
     ManeuverGateCount,
+    /// WaitingZone 声明数。
     WaitingZoneCount,
+    /// 几何点记录数。
     GeometryPointCount,
+    /// 需要进入符号表的声明数。
     SymbolCount,
+    /// 资源模型计入的逻辑字符串项数；相同文本的多次语义出现分别计数。
     StringItemCount,
+    /// 单个受检字符串允许的最大字节数。
     SingleStringBytes,
+    /// 资源模型计入的逻辑字符串累计字节数。
     TotalStringBytes,
+    /// 一次失败最多保留的规范有序诊断数。
     DiagnosticCount,
+    /// 任一编译阶段同时需要的私有暂存区字节数。
     StageScratchBytes,
+    /// 编译输出受控字节数。
     OutputBytes,
+    /// 编译器拥有且在某一阶段同时存续的峰值字节预算。
     CompilerControlledLiveBytes,
+    /// 可复用编译器实例在一次编译后允许保留的容量字节数。
     RetainedCapacityBytes,
 }
 
@@ -101,6 +135,9 @@ pub struct CompileLimits {
 
 impl CompileLimits {
     /// 选择 #292 G1 冻结的首个生产资源配置档。
+    ///
+    /// 返回值是完整快照；后续校准若改变任一精确上限，必须使用新的配置档标识符，而
+    /// 不能原地改变 `LF-COMP-P100-INITIAL-v1` 的语义。
     #[must_use]
     pub const fn p100_initial_v1() -> Self {
         Self {
@@ -138,6 +175,7 @@ impl CompileLimits {
         P100_INITIAL_V1_PROFILE_ID
     }
 
+    /// 返回某维度的精确上限，并统一提升为 `u64` 供饱和计数比较。
     pub(crate) const fn value(&self, dimension: CompileLimitDimension) -> u64 {
         match dimension {
             CompileLimitDimension::ModuleCount => self.max_module_count as u64,

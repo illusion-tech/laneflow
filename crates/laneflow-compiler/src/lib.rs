@@ -1,7 +1,8 @@
 #![doc = include_str!("../README.md")]
 
-// 这些阶段私有模块会在 Canonical LIR/Compiler 公共闭环切片接线；当前切片先以包内
-// 测试冻结 Typed AST→HIR→MIR 的正确性，不能为消除暂时未接线而扩大公共 API。
+// arena/HIR/MIR 会在 Canonical LIR 与 Compiler 公共闭环切片中接线。当前仅由包内测试
+// 验证 Typed AST→HIR→MIR 的阶段不变量；保持私有可防止临时键和中间表被调用方误当成
+// 已验证输出，也不能为了消除暂时的 dead_code 而提前扩大公共兼容面。
 #[allow(dead_code)]
 mod arena;
 mod declaration;

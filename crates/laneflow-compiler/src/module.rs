@@ -1,3 +1,14 @@
+//! 官方合成来源模块及规范模块图的构建。
+//!
+//! 数据流为 `SourceModuleHeader` → [`SyntheticModuleBuilder`] → [`SyntheticModule`] →
+//! [`CompilationUnitBuilder`] → [`CompilationUnit`]。前一构建器校验并拥有 Typed AST
+//! 声明，同时生成确定性的 `LFSOURCE` 来源记录；后一构建器闭合显式导入图，并冻结
+//! “依赖在前、同层命名空间字节序”模块顺序。所有可失败的增量操作先计算并验证候选
+//! 状态，再一次性提交，因而错误不会留下半条导入、声明或累计计数。
+//!
+//! `HashMap` 只服务唯一性与目标查找。来源记录顺序、诊断顺序和编译单元顺序均来自
+//! 显式排序或稳定序列，不能改成遍历哈希表。
+
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
@@ -18,10 +29,12 @@ use crate::{
 
 const SOURCE_RECORD_MAGIC: [u8; 8] = *b"LFSOURCE";
 
-/// 首版合成领域专用语言来源记录编码版本。
+/// 首版合成领域专用语言 `LFSOURCE` 来源记录编码版本。
 pub const SYNTHETIC_FRONTEND_VERSION: u32 = 1;
 
 /// 官方来源模块使用的来源语言。
+///
+/// 这是封闭生产前端选择器，不是第三方前端插件登记接口。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u16)]
 #[non_exhaustive]
@@ -30,6 +43,7 @@ pub enum SourceLanguage {
 }
 
 impl SourceLanguage {
+    /// 返回描述符与诊断使用的稳定 ASCII 名称。
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -39,6 +53,10 @@ impl SourceLanguage {
 }
 
 /// 由官方前端派生、调用方无法独立构造的来源模块描述符。
+///
+/// 描述符与同一个 [`SyntheticModule`] 内的规范来源记录不可分配对；其中
+/// `source_content_digest` 是该记录精确字节的 SHA-256，而生成器、选项、输入摘要与
+/// provenance 只描述来源沿袭，不能冒充内容摘要。
 pub struct SourceModuleDescriptor {
     authoring_namespace_id: Arc<str>,
     source_language: SourceLanguage,
@@ -56,61 +74,75 @@ pub struct SourceModuleDescriptor {
 }
 
 impl SourceModuleDescriptor {
+    /// 返回拥有本模块声明的稳定 authoring namespace。
     #[must_use]
     pub fn authoring_namespace_id(&self) -> &str {
         &self.authoring_namespace_id
     }
 
+    /// 返回生成本模块的官方来源语言。
     #[must_use]
     pub const fn source_language(&self) -> SourceLanguage {
         self.source_language
     }
 
+    /// 返回规范 `LFSOURCE` 记录精确字节的 SHA-256 摘要。
     #[must_use]
     pub const fn source_content_digest(&self) -> &[u8; 32] {
         &self.source_content_digest
     }
 
+    /// 返回参与 `source_content_digest` 的规范来源记录字节数。
     #[must_use]
     pub const fn source_record_byte_len(&self) -> u32 {
         self.source_record_byte_len
     }
 
+    /// 返回该来源语言记录的编码版本。
     #[must_use]
     pub const fn frontend_version(&self) -> u32 {
         self.frontend_version
     }
 
+    /// 返回调用方登记的前端选项摘要；它不认证来源记录内容。
     #[must_use]
     pub const fn frontend_options_digest(&self) -> &[u8; 32] {
         &self.frontend_options_digest
     }
 
+    /// 返回生成器构建标识。
     #[must_use]
     pub fn generator_build_id(&self) -> &str {
         &self.generator_build_id
     }
 
+    /// 返回调用参数与外部输入集合的登记摘要。
     #[must_use]
     pub const fn parameters_and_inputs_digest(&self) -> &[u8; 32] {
         &self.parameters_and_inputs_digest
     }
 
+    /// 返回生成过程登记的随机种子。
     #[must_use]
     pub const fn random_seed(&self) -> Option<u64> {
         self.random_seed
     }
 
+    /// 返回供审计使用的来源沿袭说明。
     #[must_use]
     pub fn provenance(&self) -> &str {
         &self.provenance
     }
 
+    /// 返回与机器路径无关的来源文档键。
     #[must_use]
     pub fn source_document_key(&self) -> &str {
         &self.source_document_key
     }
 
+    /// 按命名空间字节序遍历本模块的显式导入集合。
+    ///
+    /// 该顺序已在 `SyntheticModuleBuilder::finish` 冻结，不反映 `add_import` 调用顺序。
     pub fn imports(&self) -> impl ExactSizeIterator<Item = &str> {
         self.imports.iter().map(AsRef::as_ref)
     }
@@ -134,6 +166,10 @@ struct ImportRecord {
 }
 
 /// 官方合成领域专用语言来源模块的受检构建器。
+///
+/// 构建器拥有头和已接受声明，并持续维护资源计数。每个 `add_*` 操作要么完整提交所有
+/// 记录、索引和计数，要么返回诊断且保持原状态；调用方可以修正输入后继续使用同一
+/// 构建器。
 pub struct SyntheticModuleBuilder {
     header: SourceModuleHeader,
     limits: CompileLimits,
@@ -156,6 +192,11 @@ pub struct SyntheticModuleBuilder {
 
 impl SyntheticModuleBuilder {
     /// 建立一个只允许官方合成领域构造的来源模块构建器。
+    ///
+    /// # Errors
+    ///
+    /// 若空模块的基础 `LFSOURCE` 记录、逻辑字符串或编译器控制存续字节已经超过
+    /// `limits`，返回资源上限诊断且不建立构建器。
     pub fn new(
         header: SourceModuleHeader,
         limits: &CompileLimits,
@@ -225,6 +266,14 @@ impl SyntheticModuleBuilder {
     }
 
     /// 声明显式模块导入；网络或文件系统发现不属于该操作。
+    ///
+    /// `namespace` 只建立图边，不要求目标模块已加入 `CompilationUnitBuilder`；目标
+    /// 存在性和全图循环在构建编译单元时验证。
+    ///
+    /// # Errors
+    ///
+    /// 当命名空间非法、等于当前模块、已经导入，或加入后任一资源计数超限时失败。
+    /// 失败不会修改导入集合、索引或累计计数。
     #[track_caller]
     pub fn add_import(&mut self, namespace: &str) -> Result<&mut Self, DiagnosticBundle> {
         let span = SourceSpan::at_caller(
@@ -325,6 +374,51 @@ impl SyntheticModuleBuilder {
     }
 
     /// 声明车道图边、基础道路限速和无序显式下游连接。
+    ///
+    /// 目标允许后置声明、自环或跨显式导入模块；目标存在性在 HIR 阶段解析。传入的
+    /// `successors` 会按 `(module namespace, declaration key)` 排序，调用顺序不进入
+    /// 来源身份。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键或引用 token 非法、引用未导入模块、键/连接重复、长度或限速违反数值
+    /// 约束，或候选声明导致资源上限超限时失败。失败不会插入部分声明或改变计数。
+    ///
+    /// # Examples
+    ///
+    /// 空 `successors` 明确表示终止边：
+    ///
+    /// ```
+    /// use laneflow_compiler::{
+    ///     CompileLimits, DiagnosticBundle, LaneEdgeInput, SourceModuleHeader,
+    ///     SourceModuleHeaderInput, SyntheticModuleBuilder,
+    /// };
+    ///
+    /// let limits = CompileLimits::p100_initial_v1();
+    /// let header = SourceModuleHeader::new(
+    ///     SourceModuleHeaderInput {
+    ///         authoring_namespace_id: "example",
+    ///         source_document_key: "example/source",
+    ///         generator_build_id: "example-generator-v1",
+    ///         parameters_and_inputs_digest: [0; 32],
+    ///         frontend_options_digest: [0; 32],
+    ///         random_seed: None,
+    ///         provenance: "rustdoc example",
+    ///     },
+    ///     &limits,
+    /// )?;
+    /// let mut module = SyntheticModuleBuilder::new(header, &limits)?;
+    /// module.add_lane_edge(LaneEdgeInput {
+    ///     lane_edge_key: "terminal",
+    ///     length_meters: 12.0,
+    ///     speed_limit_meters_per_second: 8.0,
+    ///     successors: &[],
+    /// })?;
+    /// let module = module.finish()?;
+    /// assert_eq!(module.descriptor().authoring_namespace_id(), "example");
+    ///
+    /// # Ok::<(), DiagnosticBundle>(())
+    /// ```
     #[track_caller]
     pub fn add_lane_edge(
         &mut self,
@@ -513,6 +607,8 @@ impl SyntheticModuleBuilder {
             }
         }
 
+        // 前面的验证只计算候选计数。到这里仍不修改构建器；先复制并规范化完整连接集，
+        // 让重复检查也保持失败原子性。
         let mut successors = Vec::with_capacity(input.successors.len());
         for successor in input.successors {
             let namespace = self.reference_namespace_arc(successor.module_namespace(), &span)?;
@@ -551,6 +647,7 @@ impl SyntheticModuleBuilder {
             speed_limit,
             successors: successors.into_boxed_slice(),
         });
+        // 所有可能失败的检查已经完成；从索引开始一次性提交声明及其累计计数。
         self.declaration_index
             .entry(EntityKind::LaneEdge)
             .or_default()
@@ -603,6 +700,16 @@ impl SyntheticModuleBuilder {
     }
 
     /// 原子派生来源记录、SHA-256 内容摘要与不可配错的模块描述符。
+    ///
+    /// `LFSOURCE` 记录保留受检调用顺序、每条声明内已规范化的 successors 与来源位置；
+    /// 描述符的 imports 另按命名空间排序供模块图使用。成功会消费构建器，避免摘要
+    /// 派生后继续修改内容。
+    ///
+    /// # Errors
+    ///
+    /// 若最终记录长度溢出 `u32` 或超过单模块来源字节上限，则返回资源诊断，不返回
+    /// 描述符或部分模块。该方法按值取得 `self`，因此失败也会消费构建器；调用方不能
+    /// 在失败后继续追加声明。
     pub fn finish(self) -> Result<SyntheticModule, DiagnosticBundle> {
         let source_record = encode_source_record(
             &self.header,
@@ -666,6 +773,9 @@ impl SyntheticModuleBuilder {
 }
 
 /// 官方合成来源与其派生描述符的不可分封装。
+///
+/// 字段私有使内容、精确字节摘要和来源沿袭不能被调用方拆开重配。模块仍是 Typed AST
+/// 输入，不是 HIR/MIR/LIR，也不承诺稳定序列化接口。
 pub struct SyntheticModule {
     descriptor: SourceModuleDescriptor,
     source_record: Box<[u8]>,
@@ -683,6 +793,7 @@ pub struct SyntheticModule {
 }
 
 impl SyntheticModule {
+    /// 返回由同一模块内容原子派生的只读描述符。
     #[must_use]
     pub const fn descriptor(&self) -> &SourceModuleDescriptor {
         &self.descriptor
@@ -700,6 +811,9 @@ impl SyntheticModule {
 }
 
 /// 只接受 #292 官方来源模块的编译单元构建器。
+///
+/// 模块可以按任意顺序加入；[`CompilationUnitBuilder::build`] 会验证导入闭包与循环，
+/// 再冻结规范依赖顺序。构建器不会访问文件系统或自动发现模块。
 pub struct CompilationUnitBuilder {
     limits: CompileLimits,
     modules: Vec<SyntheticModule>,
@@ -718,6 +832,7 @@ pub struct CompilationUnitBuilder {
 }
 
 impl CompilationUnitBuilder {
+    /// 用同一份显式资源配置档建立空编译单元构建器。
     #[must_use]
     pub fn new(limits: CompileLimits) -> Self {
         Self {
@@ -738,6 +853,13 @@ impl CompilationUnitBuilder {
         }
     }
 
+    /// 原子加入一个已经由官方前端完成受检构造的模块。
+    ///
+    /// # Errors
+    ///
+    /// 当 authoring namespace 与已加入模块重复，或加入后的模块、来源字节、声明、引用、
+    /// 字符串及存续内存等累计维度超过配置档时失败。失败不会改变构建器的索引与计数，
+    /// 但 `module` 按值传入并会被释放；重试时需要重新构造该模块。
     pub fn add_synthetic_module(
         &mut self,
         module: SyntheticModule,
@@ -843,6 +965,15 @@ impl CompilationUnitBuilder {
         Ok(self)
     }
 
+    /// 验证完整导入图并冻结依赖优先的规范模块顺序。
+    ///
+    /// 无依赖或同时就绪的模块按 authoring namespace 字节序打破平局；该顺序成为后续
+    /// HIR 及诊断排序的模块轴，与调用方加入顺序无关。
+    ///
+    /// # Errors
+    ///
+    /// 任一显式导入没有对应模块，或导入图包含一个或多个循环时，返回有界、规范有序
+    /// 诊断且不返回部分 [`CompilationUnit`]。该方法无论成功或失败都会消费构建器。
     pub fn build(self) -> Result<CompilationUnit, DiagnosticBundle> {
         let mut diagnostics =
             DiagnosticCollector::new(self.limits.value(CompileLimitDimension::DiagnosticCount));
@@ -940,6 +1071,9 @@ impl CompilationUnitBuilder {
 }
 
 /// 规范模块顺序已冻结的原子编译输入。
+///
+/// 构造完成后，全部导入目标存在、导入图无环，并且 `modules` 按依赖优先的规范顺序
+/// 排列。类型字段私有，后续阶段可以依赖这些不变量而无需重新接受裸模块数组。
 pub struct CompilationUnit {
     pub(crate) limits: CompileLimits,
     pub(crate) modules: Box<[SyntheticModule]>,
@@ -953,11 +1087,13 @@ pub struct CompilationUnit {
 }
 
 impl CompilationUnit {
+    /// 返回编译单元中的来源模块数。
     #[must_use]
     pub const fn module_count(&self) -> usize {
         self.modules.len()
     }
 
+    /// 按冻结后的依赖优先规范顺序遍历模块描述符。
     pub fn module_descriptors(&self) -> impl ExactSizeIterator<Item = &SourceModuleDescriptor> {
         self.modules.iter().map(|module| &module.descriptor)
     }
@@ -1070,6 +1206,8 @@ fn encode_source_record(
             expected_len,
         ))
     })?;
+    // 先精确计算并校验长度，再分配与写入；这样不可信规模不能通过 Vec 增长在上限检查
+    // 之前制造线性分配。所有整数与 f64 都使用小端原始字节，字符串使用 u32 长度前缀。
     let mut bytes = Vec::with_capacity(capacity);
     bytes.extend_from_slice(&SOURCE_RECORD_MAGIC);
     bytes.extend_from_slice(&SYNTHETIC_FRONTEND_VERSION.to_le_bytes());
@@ -1190,6 +1328,8 @@ fn canonical_topological_order(
         });
     }
 
+    // Kahn 就绪集同时携带命名空间与原索引：拓扑约束只规定依赖在前，BTreeSet 为所有
+    // 合法平局给出唯一字节序，避免模块加入顺序泄漏到规范输出。
     let mut ready = BTreeSet::new();
     for (index, degree) in indegree.iter().copied().enumerate() {
         if degree == 0 {
@@ -1243,6 +1383,8 @@ fn find_canonical_cycles(
     modules: &[SyntheticModule],
     module_index: &HashMap<Arc<str>, usize>,
 ) -> Vec<Vec<usize>> {
+    // Tarjan 只负责找出强连通分量；遍历依赖、分量成员和最终分量列表都再按命名空间
+    // 规范化，使诊断不依赖 HashMap 或来源导入顺序。
     struct Tarjan<'a> {
         modules: &'a [SyntheticModule],
         module_index: &'a HashMap<Arc<str>, usize>,
@@ -1350,6 +1492,8 @@ fn canonical_cycle_for_component(
     modules: &[SyntheticModule],
     module_index: &HashMap<Arc<str>, usize>,
 ) -> Vec<usize> {
+    // 一个 SCC 可能包含多条环。固定从字节序最小成员出发，并按规范依赖顺序寻找首条
+    // 回路，为同一非法图选择稳定且可复现的诊断见证。
     fn find_path(
         index: usize,
         target: usize,
