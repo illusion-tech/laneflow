@@ -10,6 +10,8 @@
 
 use std::sync::Arc;
 
+use laneflow_static_contract::LaneEdgeId;
+
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::diagnostic::DiagnosticCollector;
 use crate::hir::{HirLaneEdgeKey, HirUnit};
@@ -49,6 +51,8 @@ pub(crate) struct MirLaneEdge {
     pub(crate) module: MirModuleKey,
     /// 模块内稳定键；不由 MIR 致密下标派生。
     pub(crate) stable_key: Arc<str>,
+    /// 从 HIR 原样携带的 Identity v1 有类型稳定标识。
+    pub(crate) stable_id: LaneEdgeId,
     /// 交通权威长度，单位为米并保持 `f64`。
     pub(crate) length_meters: f64,
     /// 基础道路限速，单位为米每秒并保持 `f64`。
@@ -157,6 +161,7 @@ pub(crate) fn lower_to_mir(
             .push(MirLaneEdge {
                 module,
                 stable_key: Arc::clone(&edge.stable_key),
+                stable_id: edge.stable_id,
                 length_meters: edge.length_meters,
                 speed_limit_meters_per_second: edge.speed_limit_meters_per_second,
                 connections: TableRange::empty(),
@@ -313,6 +318,7 @@ mod tests {
         assert_eq!(mir.lane_edge_connections.len(), 2);
         assert_eq!(mir.mir_record_count, 5);
         assert_eq!(mir.modules[1].source_document_key.as_ref(), "city/app");
+        assert_eq!(mir.lane_edges[1].stable_id, hir.lane_edges[1].stable_id);
         assert_eq!(mir.lane_edges[1].length_meters, 12.5);
         assert_eq!(mir.lane_edges[1].speed_limit_meters_per_second, 13.75);
         assert_eq!(

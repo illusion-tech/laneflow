@@ -14,8 +14,10 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 标识 v1（Identity v1）登记常量、有类型稳定标识与有类型逻辑序号；
 `laneflow-compiler` 已建立生产资源配置档、来源模块头、结构化诊断、确定性
 `LFSOURCE` 来源记录、显式导入图，以及车道图边的首个受检合成领域声明；其余领域
-声明尚未实现。车道图边已经建立包内有类型符号表、跨模块引用解析和规范 HIR/MIR
-连续表，但尚未接入公共 `Compiler`，后继编译遍与已验证输出仍未实现。#292 G1 已
+声明尚未实现。编译器侧标识 v1 编码、BLAKE3-128 派生、完整前像重复 / 碰撞登记、
+修订 1 全 22 种实体的冻结已知向量与独立测试预言机已经落地；车道图边已经把
+`LaneEdgeId` 接入包内有类型符号表、跨模块引用解析和规范 HIR/MIR 连续表。该管线
+尚未接入公共 `Compiler`，后继编译遍与已验证输出仍未实现。#292 G1 已
 接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
 `laneflow-data` / `laneflow-core` / `laneflow-spatial`

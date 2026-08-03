@@ -8,10 +8,11 @@
 use core::fmt;
 use std::sync::Arc;
 
-use laneflow_static_contract::EntityKind;
+use laneflow_static_contract::{EntityKind, StableId128};
 
 use crate::CompileLimitDimension;
 use crate::declaration::ScalarViolation;
+use crate::identity::CanonicalIdentityViolation;
 
 /// 来源文档内受检的一基行列位置。
 ///
@@ -123,6 +124,12 @@ pub enum DiagnosticCode {
     InvalidLaneEdgeSpeedLimit,
     /// 同一车道图边重复列出相同下游目标。
     DuplicateLaneEdgeSuccessor,
+    /// 编译器构造的规范身份字段不满足 Identity v1 登记表。
+    InvalidCanonicalIdentity,
+    /// 同一完整规范身份在编译单元中出现多次。
+    DuplicateCanonicalIdentity,
+    /// 不同完整规范身份派生出相同 StableId128。
+    IdentityDigestCollision,
     /// 候选输入或阶段工作集超过显式编译资源配置档。
     CompileLimitExceeded,
 }
@@ -147,6 +154,9 @@ impl DiagnosticCode {
             Self::InvalidLaneEdgeLength => "LF-COMP-LANE-EDGE-LENGTH",
             Self::InvalidLaneEdgeSpeedLimit => "LF-COMP-LANE-EDGE-SPEED-LIMIT",
             Self::DuplicateLaneEdgeSuccessor => "LF-COMP-DUPLICATE-LANE-EDGE-SUCCESSOR",
+            Self::InvalidCanonicalIdentity => "LF-COMP-INVALID-CANONICAL-IDENTITY",
+            Self::DuplicateCanonicalIdentity => "LF-COMP-DUPLICATE-CANONICAL-IDENTITY",
+            Self::IdentityDigestCollision => "LF-COMP-IDENTITY-DIGEST-COLLISION",
             Self::CompileLimitExceeded => "LF-COMP-RESOURCE-LIMIT",
         }
     }
@@ -307,6 +317,22 @@ pub enum DiagnosticPayload {
         stable_key: Box<str>,
         target_namespace: Box<str>,
         target_key: Box<str>,
+    },
+    /// 实体种类、来源稳定键及不能形成 Identity v1 前像的精确原因。
+    InvalidCanonicalIdentity {
+        entity_kind: EntityKind,
+        stable_key: Box<str>,
+        violation: CanonicalIdentityViolation,
+    },
+    /// 重复完整身份的实体种类和已派生摘要。
+    DuplicateCanonicalIdentity {
+        entity_kind: EntityKind,
+        stable_id: StableId128,
+    },
+    /// 发生 BLAKE3-128 摘要碰撞的实体种类和冲突摘要。
+    IdentityDigestCollision {
+        entity_kind: EntityKind,
+        stable_id: StableId128,
     },
 }
 
@@ -597,6 +623,63 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn invalid_canonical_identity(
+        entity_kind: EntityKind,
+        stable_key: &str,
+        violation: CanonicalIdentityViolation,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidCanonicalIdentity,
+            DiagnosticPayload::InvalidCanonicalIdentity {
+                entity_kind,
+                stable_key: stable_key.into(),
+                violation,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn duplicate_canonical_identity(
+        entity_kind: EntityKind,
+        stable_key: &str,
+        stable_id: StableId128,
+        primary_span: SourceSpan,
+        existing_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateCanonicalIdentity,
+            DiagnosticPayload::DuplicateCanonicalIdentity {
+                entity_kind,
+                stable_id,
+            },
+            Some(primary_span),
+            Box::new([existing_span]),
+            Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn identity_digest_collision(
+        entity_kind: EntityKind,
+        stable_key: &str,
+        stable_id: StableId128,
+        primary_span: SourceSpan,
+        existing_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::IdentityDigestCollision,
+            DiagnosticPayload::IdentityDigestCollision {
+                entity_kind,
+                stable_id,
+            },
+            Some(primary_span),
+            Box::new([existing_span]),
+            Some(stable_key.into()),
+        )
+    }
+
     pub(crate) const fn set_canonical_module_order(&mut self, order: u32) {
         self.canonical_module_order = order;
     }
@@ -794,6 +877,72 @@ impl fmt::Display for Diagnostic {
             } => write!(
                 formatter,
                 "车道图边 {stable_key} 重复声明下游连接 {target_namespace}:{target_key}"
+            ),
+            DiagnosticPayload::InvalidCanonicalIdentity {
+                entity_kind,
+                stable_key,
+                violation,
+            } => write!(
+                formatter,
+                "{} 声明 {stable_key} 的规范身份非法：{}",
+                entity_kind.slug(),
+                CanonicalIdentityViolationDisplay(*violation)
+            ),
+            DiagnosticPayload::DuplicateCanonicalIdentity {
+                entity_kind,
+                stable_id,
+            } => write!(
+                formatter,
+                "{} 完整规范身份重复，StableId128 为 {stable_id:x}",
+                entity_kind.slug()
+            ),
+            DiagnosticPayload::IdentityDigestCollision {
+                entity_kind,
+                stable_id,
+            } => write!(
+                formatter,
+                "{} 的不同规范身份产生相同 StableId128 {stable_id:x}",
+                entity_kind.slug()
+            ),
+        }
+    }
+}
+
+struct CanonicalIdentityViolationDisplay(CanonicalIdentityViolation);
+
+impl fmt::Display for CanonicalIdentityViolationDisplay {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            CanonicalIdentityViolation::FieldCountMismatch { expected, actual } => {
+                write!(formatter, "字段数不匹配，要求 {expected}，实际 {actual}")
+            }
+            CanonicalIdentityViolation::UnknownFieldTag { position, tag } => {
+                write!(formatter, "字段位置 {position} 使用未知标签 {tag}")
+            }
+            CanonicalIdentityViolation::UnexpectedFieldTag {
+                position,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "字段位置 {position} 要求标签 {expected}，实际为 {actual}"
+            ),
+            CanonicalIdentityViolation::InvalidAsciiField { tag, violation } => write!(
+                formatter,
+                "标签 {tag} 的 ASCII 值非法：{}",
+                SourceTextViolationDisplay(violation)
+            ),
+            CanonicalIdentityViolation::InvalidStableIdLength { tag, actual } => write!(
+                formatter,
+                "标签 {tag} 的 StableId128 必须为 16 字节，实际为 {actual}"
+            ),
+            CanonicalIdentityViolation::FieldByteLengthOverflow { tag, actual } => write!(
+                formatter,
+                "标签 {tag} 的字段字节数不能写入 u32，实际为 {actual}"
+            ),
+            CanonicalIdentityViolation::CanonicalByteLengthOverflow { actual } => write!(
+                formatter,
+                "规范身份总字节数不能由当前平台表示，实际为 {actual}"
             ),
         }
     }

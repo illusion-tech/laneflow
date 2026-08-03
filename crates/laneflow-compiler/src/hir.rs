@@ -12,11 +12,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use laneflow_static_contract::EntityKind;
+use laneflow_static_contract::{EntityKind, FieldTag, LaneEdgeId, StableId128};
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::declaration::{LaneEdgeDeclaration, SyntheticDeclaration};
 use crate::diagnostic::DiagnosticCollector;
+use crate::identity::{
+    IdentityFieldInput, IdentityRegistrationError, IdentityRegistry, RegisteredCanonicalIdentity,
+    encode_canonical_identity,
+};
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
 /// 区分 HIR 模块表键的零尺寸阶段标记。
@@ -63,6 +67,8 @@ pub(crate) struct HirLaneEdge {
     pub(crate) module: HirModuleKey,
     /// 模块内稳定键；不是 HIR 致密下标。
     pub(crate) stable_key: Arc<str>,
+    /// 由 `(authoringNamespaceId, laneEdgeKey)` 的完整 Identity v1 前像派生。
+    pub(crate) stable_id: LaneEdgeId,
     /// 交通权威长度，单位为米并保留来源 `f64` 精度。
     pub(crate) length_meters: f64,
     /// 基础道路限速，单位为米每秒并保留来源 `f64` 精度。
@@ -145,7 +151,11 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         requested_bytes::<CanonicalLaneEdgeSource>(unit.declaration_count)
             .saturating_add(requested_bytes::<usize>(unit.declaration_count));
     let import_sort_scratch = requested_bytes::<(&str, &SourceSpan)>(unit.import_edge_count);
-    let stage_scratch_bytes = canonical_source_scratch.max(import_sort_scratch);
+    let (canonical_identity_bytes, largest_canonical_identity_bytes) =
+        lane_edge_identity_byte_counts(unit);
+    let stage_scratch_bytes = canonical_source_scratch
+        .max(import_sort_scratch)
+        .max(largest_canonical_identity_bytes);
     let hir_persistent_bytes = requested_bytes::<HirModule>(module_count)
         .saturating_add(requested_bytes::<HirImport>(unit.import_edge_count))
         .saturating_add(requested_bytes::<HirLaneEdge>(unit.declaration_count))
@@ -158,7 +168,12 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_hash_table_bytes::<Arc<str>, HirLaneEdgeKey>(
             unit.symbol_count,
-        ));
+        ))
+        .saturating_add(requested_hash_table_bytes::<
+            StableId128,
+            RegisteredCanonicalIdentity,
+        >(unit.declaration_count))
+        .saturating_add(canonical_identity_bytes);
     let controlled_live_bytes = unit
         .controlled_live_bytes
         .saturating_add(hir_persistent_bytes)
@@ -249,6 +264,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         TypedArena::<HirLaneEdgeTag, HirLaneEdge>::with_capacity(declaration_capacity);
     let mut symbols =
         LaneEdgeSymbolTable::new(unit.modules.iter().map(|module| module.declarations.len()));
+    let mut identities = IdentityRegistry::with_capacity(declaration_capacity);
     let mut canonical_sources = Vec::with_capacity(declaration_capacity);
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key =
@@ -268,10 +284,62 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         });
         for declaration_index in declaration_indices {
             let source = declaration(&source_module.declarations[declaration_index]);
+            let fields = [
+                IdentityFieldInput::new(
+                    FieldTag::AuthoringNamespaceId,
+                    source_module
+                        .descriptor()
+                        .authoring_namespace_id()
+                        .as_bytes(),
+                ),
+                IdentityFieldInput::new(FieldTag::LaneEdgeKey, source.header.stable_key.as_bytes()),
+            ];
+            let identity = encode_canonical_identity(
+                EntityKind::LaneEdge,
+                &fields,
+                unit.limits.value(CompileLimitDimension::SingleStringBytes),
+            )
+            .map_err(|violation| {
+                let mut diagnostic = Diagnostic::invalid_canonical_identity(
+                    EntityKind::LaneEdge,
+                    &source.header.stable_key,
+                    violation,
+                    source.header.span.clone(),
+                );
+                diagnostic
+                    .set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+                DiagnosticBundle::single(diagnostic)
+            })?;
+            if let Err(error) = identities.register(&identity, &source.header.span) {
+                let mut diagnostic = match error {
+                    IdentityRegistrationError::Duplicate { existing_span } => {
+                        Diagnostic::duplicate_canonical_identity(
+                            identity.kind(),
+                            &source.header.stable_key,
+                            identity.stable_id(),
+                            source.header.span.clone(),
+                            existing_span,
+                        )
+                    }
+                    IdentityRegistrationError::DigestCollision { existing_span } => {
+                        Diagnostic::identity_digest_collision(
+                            identity.kind(),
+                            &source.header.stable_key,
+                            identity.stable_id(),
+                            source.header.span.clone(),
+                            existing_span,
+                        )
+                    }
+                };
+                diagnostic
+                    .set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+                return Err(DiagnosticBundle::single(diagnostic));
+            }
             let key = lane_edges
                 .push(HirLaneEdge {
                     module: module_key,
                     stable_key: Arc::clone(&source.header.stable_key),
+                    stable_id: LaneEdgeId::from_untyped(identity.stable_id()),
                     length_meters: source.length.value(),
                     speed_limit_meters_per_second: source.speed_limit.value(),
                     successors: TableRange::empty(),
@@ -300,6 +368,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             });
         }
     }
+    // 完整规范前像只服务本阶段的重复/碰撞判断。此后仅保留 16 字节 LaneEdgeId，避免
+    // 在 HIR 与 MIR 中为每条边复制可重建的身份 envelope。
+    drop(identities);
 
     // 第二遍只解析已经规范化的引用序列。未知目标继续收集到有界诊断集合中；该边的
     // 临时区间不会在失败时泄漏，因为整个 HirUnit 仅在零错误后提交。
@@ -361,6 +432,25 @@ fn declaration(declaration: &SyntheticDeclaration) -> &LaneEdgeDeclaration {
     match declaration {
         SyntheticDeclaration::LaneEdge(declaration) => declaration,
     }
+}
+
+fn lane_edge_identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
+    let mut total = 0_u64;
+    let mut largest = 0_u64;
+    for module in &unit.modules {
+        let namespace_bytes =
+            u64::try_from(module.descriptor().authoring_namespace_id().len()).unwrap_or(u64::MAX);
+        for source_declaration in &module.declarations {
+            // Envelope 固定 10 字节，每个 LaneEdge 的两个字段各有 6 字节 tag/length 头。
+            let bytes = 22_u64.saturating_add(namespace_bytes).saturating_add(
+                u64::try_from(declaration(source_declaration).header.stable_key.len())
+                    .unwrap_or(u64::MAX),
+            );
+            total = total.saturating_add(bytes);
+            largest = largest.max(bytes);
+        }
+    }
+    (total, largest)
 }
 
 fn requested_bytes<T>(count: u64) -> u64 {
@@ -562,12 +652,81 @@ mod tests {
         };
         assert_eq!(projection(&left), projection(&right));
         assert_eq!(
+            left.lane_edges
+                .iter()
+                .map(|edge| edge.stable_id)
+                .collect::<Vec<_>>(),
+            right
+                .lane_edges
+                .iter()
+                .map(|edge| edge.stable_id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
             projection(&left),
             [
                 ("edge-a".into(), vec![1, 2]),
                 ("edge-b".into(), vec![]),
                 ("edge-c".into(), vec![]),
             ]
+        );
+    }
+
+    #[test]
+    fn hir_lane_edge_identity_uses_namespace_and_key_instead_of_dense_position() {
+        let city_a = unit([module("city/a", &[], &[("edge-a", &[]), ("edge-b", &[])])]);
+        let city_b = unit([module("city/b", &[], &[("edge-a", &[])])]);
+        let city_a = build_hir(&city_a).unwrap();
+        let city_b = build_hir(&city_b).unwrap();
+
+        assert_ne!(
+            city_a.lane_edges[0].stable_id,
+            city_a.lane_edges[1].stable_id
+        );
+        assert_ne!(
+            city_a.lane_edges[0].stable_id,
+            city_b.lane_edges[0].stable_id
+        );
+        assert_eq!(
+            city_a.lane_edges[0].stable_id.to_string(),
+            format!(
+                "lfid1_lane-edge_{:x}",
+                city_a.lane_edges[0].stable_id.as_untyped()
+            )
+        );
+    }
+
+    #[test]
+    fn hir_lane_edge_identity_ignores_non_identity_scalars_and_connections() {
+        let baseline = unit([module("city/a", &[], &[("edge-a", &[]), ("edge-b", &[])])]);
+
+        let limits = CompileLimits::p100_initial_v1();
+        let mut changed = SyntheticModuleBuilder::new(header("city/a"), &limits).unwrap();
+        changed
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-a",
+                length_meters: 99.0,
+                speed_limit_meters_per_second: 2.0,
+                successors: &[LaneEdgeReference::local("edge-b")],
+            })
+            .unwrap();
+        changed
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-b",
+                length_meters: 1.0,
+                speed_limit_meters_per_second: 1.0,
+                successors: &[],
+            })
+            .unwrap();
+        let changed = unit([changed.finish().unwrap()]);
+
+        let baseline = build_hir(&baseline).unwrap();
+        let changed = build_hir(&changed).unwrap();
+        assert_eq!(baseline.lane_edges[0].stable_key.as_ref(), "edge-a");
+        assert_eq!(changed.lane_edges[0].stable_key.as_ref(), "edge-a");
+        assert_eq!(
+            baseline.lane_edges[0].stable_id,
+            changed.lane_edges[0].stable_id
         );
     }
 

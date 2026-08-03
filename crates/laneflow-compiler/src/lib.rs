@@ -9,6 +9,7 @@ mod declaration;
 mod diagnostic;
 #[allow(dead_code)]
 mod hir;
+mod identity;
 mod limits;
 #[allow(dead_code)]
 mod mir;
@@ -20,6 +21,7 @@ pub use diagnostic::{
     Diagnostic, DiagnosticBundle, DiagnosticCode, DiagnosticPayload, DiagnosticSeverity,
     SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation,
 };
+pub use identity::CanonicalIdentityViolation;
 pub use limits::{CompileLimitDimension, CompileLimits};
 pub use module::{
     CompilationUnit, CompilationUnitBuilder, SYNTHETIC_FRONTEND_VERSION, SourceLanguage,
