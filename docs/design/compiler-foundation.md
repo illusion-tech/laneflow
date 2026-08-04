@@ -189,12 +189,27 @@ laneflow-data --------------------> laneflow-core
 laneflow-data --------------------> laneflow-spatial
 ```
 
-`laneflow-current-source` 是版本锁定的当前包来源解码边界，只拥有 Traffic v0.10、
+`laneflow-current-source` 是版本锁定的当前态来源包唯一验证权威，拥有 Traffic v0.10、
 SpatialPackage v0.1 与 ScenarioManifest v0.1 的线格式数据传输对象（wire Data
-Transfer Object，wire DTO）、精确原始字节身份、版本和
-语法/形状诊断；它不能依赖 `laneflow-compiler`、`laneflow-core` 或
-`laneflow-spatial`。当前生产期的 `laneflow-data` 与迁移专用
-`laneflow-current-import` 复用这一份解码实现，避免维护两套 JSON 解析和版本判断。
+Transfer Object，wire DTO）、精确原始字节身份、版本和语法/形状诊断。它必须先验证
+场景清单描述符、两个不同且非空的制品引用、角色专属媒体类型、调用方具名制品引用的
+唯一性，以及描述符声明的原始字节长度和 SHA-256 摘要；Traffic/Spatial 两份原始制品
+全部与同一份场景清单精确配对后，才允许解析其线格式 DTO。任一步失败都不能返回部分
+结果。
+
+该边界以单一原子结果返回已验证描述符、三份来源的精确字节身份和已解析 DTO。它只在
+校验与解析调用期间借用原始字节，不为接入复制或保留来源全文；摘要与长度各计算一次。
+此处建立的是相对于输入场景清单的精确内容配对，不把 SHA-256 本身解释为场景清单的
+发布真实性证明。`laneflow-current-source` 不能依赖 `laneflow-compiler`、
+`laneflow-core` 或 `laneflow-spatial`。
+
+凡以 ScenarioManifest 组合 Traffic/Spatial 的入口，当前生产期的 `laneflow-data` 与
+迁移专用 `laneflow-current-import` 都只能消费这一原子受检结果，不得各自重新实现或
+绕过场景清单到制品的绑定。只使用 Traffic 的 current Core 消费者仍可不提供 Spatial
+或 ScenarioManifest，但该独立入口不能被解释为已完成场景包配对。`laneflow-data`
+继续独占 Traffic/Spatial 到当前 Core/Spatial 对象的规范化和跨制品领域校验；
+`laneflow-current-import` 继续独占迁移映射。由此既避免两套 JSON 解析、版本判断和
+摘要验证，也不会把当前对象图依赖引入来源包。
 
 `laneflow-current-import` 只把受检当前态来源 DTO 映射到
 `laneflow-compiler` 拥有的具体 `CurrentImportModuleBuilder`；它不读取
@@ -1154,6 +1169,10 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 - [ ] 命名空间/文档、导入图、全部资源维度和规范模块顺序只有一个实现权威；
 - [ ] #296/#297 的具体受检入口与 `laneflow-current-source` /
       `laneflow-current-import` 目标包依赖图闭合，编译器不依赖当前态对象图；
+- [ ] `laneflow-current-source` 是场景清单到原始 Traffic/Spatial 制品精确绑定和线格式
+      解析的唯一权威；二者的 ScenarioManifest 组合入口只消费其原子成功结果，不重复
+      或绕过长度、SHA-256、媒体类型与引用验证，同时保留无需空间制品的 Traffic-only
+      current Core 契约；
 - [ ] 记录级零动态分派、零完整克隆、一次摘要/计数/排序与配对性能验证方案闭合；
 - [ ] 第三方自定义前端非承诺、各议题职责和 G2 阻塞关系没有歧义；
 - [ ] `network-compiler.md`、路线图、设计索引、Skills 与术语表引用一致；

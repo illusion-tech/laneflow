@@ -1696,8 +1696,14 @@ laneflow-current-import --> laneflow-current-source
 laneflow-data -----------> laneflow-current-source
 ```
 
-`laneflow-current-source` 是无 Core/Spatial 依赖的版本锁定当前态包线格式解码 SSOT；
-`laneflow-current-import` 从其受检 DTO 构造编译器拥有的具体导入模块。
+`laneflow-current-source` 是无 Core/Spatial 依赖的版本锁定当前态来源包验证 SSOT；它先
+把 ScenarioManifest 的制品引用、角色专属媒体类型、原始字节长度和 SHA-256 摘要与
+调用方提供的具名 Traffic/Spatial 制品原子绑定，全部绑定成功后才解析线格式 DTO，
+失败时不返回部分结果。凡以 ScenarioManifest 组合 Traffic/Spatial，`laneflow-data`
+与 `laneflow-current-import` 都只能消费该单一受检结果，不得重复或绕过绑定；无需空间
+制品的 Traffic-only current Core 入口保持独立。`laneflow-data` 继续拥有当前
+Core/Spatial 规范化，`laneflow-current-import` 从受检 DTO 构造编译器拥有的具体导入
+模块。
 `laneflow-compiler` 不能反向依赖任一迁移/当前态包，导入器也不能消费
 `InitialTrafficData` 或 `SpatialRegistry`。完整职责和退役边界见
 `compiler-foundation.md` 第 2.3 节。
