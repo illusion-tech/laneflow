@@ -1,7 +1,7 @@
 # LaneFlow 双语术语表
 
 **文档状态**: Active<br>
-**最后更新**: 2026-08-02<br>
+**最后更新**: 2026-08-04<br>
 **适用范围**: LaneFlow 架构、ADR、设计文档、Agent Skill、Issue/PR 设计说明、
 #291 编译器时代静态路网方案与城市模拟游戏交通基础
 
@@ -58,9 +58,11 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | ----------------------- | --------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 数据编制                | authoring                                                 | —                                       | 创建、导入、编辑或生成静态路网来源的活动。                                                                                                                                     |
 | 权威来源模块图          | authoritative source module graph                         | —                                       | 一个编译单元内唯一可重放的编制事实源；节点是来源模块，边是显式导入关系。                                                                                                       |
-| 来源模块                | source module                                             | —                                       | 绑定稳定命名空间、来源语言、工具版本、选项和来源沿袭，并拥有一个或多个来源文档的逻辑编译节点；当前合成前端每个模块恰有一个文档，#315 G1 提案允许官方前端保留多文档来源。       |
-| 来源模块头              | source module header                                      | `SourceModuleHeader`                    | 目标态已接受（#292 G1），调用方提供命名空间、工具、选项和来源沿袭等非内容字段的受检输入；模块描述符以及各文档的内容摘要与描述符由官方前端构建器派生。                          |
-| 来源文档描述符          | source document descriptor                                | `SourceDocumentDescriptor`              | 目标态提案中（#315 G1），把一个来源文档的稳定文档键、精确内容摘要、原始字节长度及所属逻辑模块不可分绑定的字段私有值；模块与文档不要求一一对应。                                |
+| 来源模块                | source module                                             | —                                       | 绑定稳定命名空间、来源语言、工具/选项、来源沿袭和文档集摘要的逻辑编译节点；拥有一份或多份来源文档。当前合成前端恰有一份，#315 提案允许多文档。                                 |
+| 来源模块头              | source module header                                      | `SourceModuleHeader`                    | 目标态已接受（#292 G1），调用方提供命名空间、工具、选项和来源沿袭等非内容字段的受检输入；模块描述符、文档集摘要以及各文档的内容摘要与描述符由官方前端构建器派生。              |
+| 来源文档描述符          | source document descriptor                                | `SourceDocumentDescriptor`              | 提案中（Proposed；#315），把一个来源文档的稳定文档键、精确内容摘要、原始字节长度及所属逻辑模块不可分绑定的字段私有值；模块与文档不要求一一对应。                               |
+| 来源文档摘要            | source document digest                                    | `sourceDocumentDigest`                  | 提案中（Proposed；#315），由官方前端对一份版本化规范来源记录的精确原始字节计算一次所得的 SHA-256；它不由调用方自报，也不参与实体稳定标识。                                     |
+| 来源文档集摘要          | source document-set digest                                | `sourceDocumentSetDigest`               | 提案中（Proposed；#315），对一个逻辑模块内按文档键规范排序的文档键、精确长度和逐文档摘要进行版本化、域分隔聚合所得的 SHA-256；它用于模块级重放/缓存比较，不替代逐文档身份。    |
 | 来源语言                | source language                                           | —                                       | 定义来源模块语法和来源保真的输入语言。                                                                                                                                         |
 | 编制命名空间标识        | authoring namespace ID                                    | `authoringNamespaceId`                  | 隔离稳定标识域、且不依赖文件路径或遍历顺序的持久标识。                                                                                                                         |
 | 编译单元                | compilation unit                                          | —                                       | 由一个权威来源模块图及其显式选项共同构成的原子编译输入。                                                                                                                       |
@@ -68,13 +70,14 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 编译器基础设施          | compiler foundation                                       | —                                       | 承载表示类型、编译遍驱动器、诊断、区块分配、确定性和编译发射器边界的公共基础。                                                                                                 |
 | 封闭契约                | closed contract                                           | —                                       | 以登记的闭合集合冻结允许的类型、字段、配置和组合；未知或未登记输入必须失败关闭，调用方不得任意扩展。                                                                           |
 | 前端                    | frontend                                                  | —                                       | 只负责特定来源语言的解析、类型化与来源位置，不拥有后续全局静态语义。                                                                                                           |
-| 官方前端模块            | official frontend module                                  | `SyntheticModule` 等                    | 目标态提案中（#315 G1），由 LaneFlow 官方前端完成受检构造、以具体字段私有类型绑定来源记录身份、描述符、导入、声明和模块资源计数的模块；它不是第三方扩展协议。                  |
-| 共同受检模块接入        | shared checked module admission                           | —                                       | 目标态提案中（#315 G1），把不同官方前端模块原子移入同一编译单元，并统一执行唯一性、资源上限、导入图和规范顺序检查的编译器私有接入路径。                                        |
-| 模块资源计数            | module resource counts                                    | —                                       | 目标态提案中（#315 G1），由官方前端在受检构造期间一次性派生、供共同接入累计检查来源字节、声明、引用、关系、字符串、几何点和存续内存等上限的字段私有计数集合。                  |
+| 官方前端模块            | official frontend module                                  | `SyntheticModule` 等                    | 提案中（Proposed；#315），由 LaneFlow 官方前端完成受检构造、以具体字段私有类型绑定来源记录身份、描述符、导入、声明和模块资源计数的模块；它不是第三方扩展协议。                 |
+| 共同受检模块接入        | shared checked module admission                           | —                                       | 提案中（Proposed；#315），把不同官方前端模块原子移入同一编译单元，并统一执行唯一性、资源上限、导入图和规范顺序检查的编译器私有接入路径。                                       |
+| 模块资源计数            | module resource counts                                    | —                                       | 提案中（Proposed；#315），由官方前端在受检构造期间一次性派生、供共同接入累计检查来源字节、声明、引用、关系、字符串、几何点和存续内存等上限的字段私有计数集合。                 |
 | 合成领域专用语言前端    | Synthetic DSL frontend                                    | —                                       | 面向测试、基准、示例和程序化场景的可重放来源前端。                                                                                                                             |
 | 几何文档前端            | Geometry document frontend                                | —                                       | 生产路网的主要编制前端，表达参考线、横断面、连接和静态规则。                                                                                                                   |
 | 导入前端                | import frontend                                           | —                                       | 把外部来源及其工具、选项和来源沿袭显式转换为来源模块的前端。                                                                                                                   |
-| 当前态来源资源配置档    | current-source resource profile                           | `CurrentSourceLimits`                   | 目标态提案中（#315 G1），在解析 current Manifest/Traffic/Spatial 前限制各文档和组合字节、字符串、记录与解析存续内存的显式有界配置；不存在默认或无限配置。                      |
+| 当前态来源资源配置档    | current-source resource profile                           | `CurrentSourceLimits`                   | 提案中（Proposed；#315），在解析 current Manifest/Traffic/Spatial 前限制各文档和组合字节、字符串、记录、位置条目与解析存续内存的显式有界配置；不存在默认或无限配置。           |
+| 当前态来源位置表        | current-source location table                             | `CurrentSourceLocationTable`            | 提案中（Proposed；#315），与同一次有界 current 线格式解析原子产生、以有类型记录/字段键关联真实来源行列的位置伴随表；受资源配置档约束，导入时消费且不保留第二份原始来源全文。   |
 | 编辑器编制界面          | editor authoring surface                                  | —                                       | 编辑并持久化来源模块、显示来源诊断的交互界面；它不私有化编译语义。                                                                                                             |
 | 交换格式                | interchange format                                        | —                                       | 可由独立工具跨进程或跨语言读写、具有显式版本与兼容规则的序列化数据契约。                                                                                                       |
 | 来源位置                | source span                                               | —                                       | 诊断和源映射使用的来源文件、区间或画布选区。                                                                                                                                   |
@@ -99,6 +102,8 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 确定性合并顺序          | deterministic merge order                                 | —                                       | 并行或分片结果按固定规则合并，使输出不依赖线程调度。                                                                                                                           |
 | 编译资源上限            | compile limits                                            | `CompileLimits`                         | 目标态已接受（#292 G1），在后继阶段分配前限制来源、记录、关系、字符串、诊断、暂存区和编译器控制总存续内存的失败关闭边界；v0.10 首轮精确值由具名 P100 配置档冻结。              |
 | P100 首轮编译资源配置档 | P100 initial compile limits profile                       | `LF-COMP-P100-INITIAL-v1`               | 目标态已接受（#292 G1），以 #308 压力分层逐维上包络冻结、由宿主显式选择且不提供无限模式的首轮生产编译资源上限向量。                                                            |
+| 来源文档计数            | source document count                                     | `SourceDocumentCount`                   | 提案中（Proposed；#315），一个编译单元内独立来源文档描述符的累计数量；它不属于有类型抽象语法树领域记录，不能挤入 `TypedAstRecordCount`。                                       |
+| 第二版编译资源配置档    | P100 second compile limits profile                        | `LF-COMP-P100-INITIAL-v2`               | 提案中（Proposed；#315），保持 v1 不可变并新增来源文档计数上限的闭合配置档；初始容量由既有模块上限与已知三文档结构推导，仍须通过五级及边界工作负载重新取得资格。               |
 | P100 首轮编译性能门槛   | P100 initial compiler performance gate                    | `LF-COMP-P100-R0-v1`                    | #292 原 G1 输入；G2 发现 #308 抽象工作负载不能无损映射生产语义，后继 G1 修订已将其降为非门禁容量估算和实现选型输入，不构成产品通过（Product Pass）。                           |
 | P100 首轮生产编译基线   | P100 initial production compiler baseline                 | `LF-COMP-P100-PRODUCTION-R0-v1`         | #292 G1 修订后接受，以真实合法产品场景在 `LF-P100-REF-01` 上形成的首轮描述性生产 R0；用于后继同机回退对照，不是产品 SLA 或城市容量。                                           |
 | 干净单工作线程编译      | clean single-thread compile                               | —                                       | 目标态已接受（#292 G1），不使用增量缓存、只由一个工作线程从完整来源执行全部生产编译遍的确定性参考路径；内存 LIR 保持规范语义一致，后继制品存在时保持精确字节一致。             |

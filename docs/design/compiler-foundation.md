@@ -198,18 +198,26 @@ Transfer Object，wire DTO）、精确原始字节身份、版本和语法/形�
 `CurrentSourceLimits`，不能只按配置档标识符匹配后复制数值常量。精确数值和诊断属于 #297
 G1；资源上限不可选且在按规模分配前生效，属于 #315 共同边界。
 
-解析顺序固定为：在解析 ScenarioManifest 前检查其实际字节长度；有界解析并对其原始字节计算一次
-SHA-256 后，验证两个不同且非空的制品引用、角色专属媒体类型与调用方具名制品引用唯一性；再在计算摘要
-或解析前同时
+解析顺序固定为：组合入口先要求调用方恰好提供两个 `NamedArtifact`，并在任何集合索引、
+复制或按输入规模分配前拒绝其他数量；ScenarioManifest v0.1 的闭合角色只有 Traffic 与
+Spatial，因此实现直接比较这两个具名制品，不为调用方集合建立 `HashMap`，也不接受未被场景清单
+引用的额外制品。随后在解析 ScenarioManifest 前检查其实际字节长度；有界解析并对其原始字节计算一次
+SHA-256 后，验证两个不同且非空的制品引用、角色专属媒体类型，以及它们与两项调用方制品的一一对应；
+再在计算摘要或解析前同时
 检查 Traffic/Spatial 的声明长度、实际长度、单文档与组合字节上限；只对通过上限的原始字节
 各计算一次 SHA-256，两份制品与同一份场景清单精确配对后才解析 DTO。线格式解码器必须在
 字符串、序列、记录或存续内存的按规模分配之前累计并检查对应计数；不能先无界反序列化完整 DTO
 再事后统计。
 
-该边界以单一原子结果返回已验证场景清单绑定、三个字段私有的当前态来源文档身份和已解析
-DTO。`laneflow-current-source` 不构造编译器类型；`laneflow-current-import` 只把这三个受检身份一对一移入
-编译器拥有的 `SourceDocumentDescriptor`，不重新读取来源全文或计算摘要。该边界只在校验与解析调用
-期间借用原始字节，不为接入复制或保留来源全文。任一步失败都不能返回部分结果。此处建立的是相对于
+该边界以单一原子结果返回已验证场景清单绑定、三个字段私有的当前态来源文档身份、已解析
+DTO，以及与同一次有界解析不可分的当前态来源位置表（current-source location table）
+`CurrentSourceLocationTable`。位置表以文档内有类型记录/字段键关联解析期间确认的真实 `u32`
+起止行列，不保存重复路径字符串或第二份来源全文；条目数、字符串和实际存续字节必须纳入
+`CurrentSourceLimits`，并在增长前检查。#297 G1 独占三种 wire DTO 到位置键的精确闭合集合。
+`laneflow-current-source` 不构造编译器类型；`laneflow-current-import` 只把三个受检身份及映射所需位置
+一对一移入编译器拥有的 `SourceDocumentDescriptor` / `SourceSpan`，不重新读取、重新解析来源全文或
+重新计算摘要。导入模块 `finish` 完成后即释放位置表；HIR/MIR/LIR 不保留该迁移专用表。该边界只在
+校验与解析调用期间借用原始字节，不为接入复制或保留来源全文。任一步失败都不能返回部分结果。此处建立的是相对于
 输入场景清单的精确内容配对，不把 SHA-256 本身解释为场景清单的发布真实性证明。
 `laneflow-current-source` 不能依赖
 `laneflow-compiler`、`laneflow-core` 或 `laneflow-spatial`。
@@ -259,6 +267,8 @@ pub struct DiagnosticBundle { /* 私有字段 */ }
 
 impl CompileLimits {
     pub fn p100_initial_v1() -> Self;
+    // #315 G1 提案；v1 保持不可变。
+    pub fn p100_initial_v2() -> Self;
 }
 
 impl SyntheticModuleBuilder {
@@ -303,9 +313,12 @@ impl CompilationOutput {
 可见性、错误和确定性契约的前提下细化包内私有字段与实现名称；任何公共接口或上述
 契约变化都必须重新进入 G1，不得作为实现细节直接修改。
 #315 正通过本 G1 显式提议一项该类变化：`SourceModuleDescriptor` 保留为只读公共逻辑模块值，
-文档专属的键、摘要和长度改由新的只读公共 `SourceDocumentDescriptor` 暴露。它不提供公开构造器；
+新增版本化文档集摘要查询；文档专属的键、摘要和长度改由新的只读公共
+`SourceDocumentDescriptor` 暴露。它不提供公开构造器；
 `ValidatedSourceMapInput` 分别提供稳定顺序的模块与文档视图。现有从 `SourceModuleDescriptor` 读取
-文档专属字段的公开查询会在 #315 G2 中迁移到文档描述符，不保留“第一个文档”的隐式兼容语义。
+文档专属字段的公开查询会在 #315 G2 中迁移到文档描述符；模块新增
+`source_document_set_digest()` / `source_document_set_digest_version()` 查询，不保留“第一个
+文档”的隐式兼容语义，也不让旧 `source_content_digest()` 同时表示文档摘要和文档集摘要。
 `SyntheticModuleBuilder` 只接受首批支持矩阵中的领域构造；`CompilationUnitBuilder`
 只接受 #292 明确支持的官方来源模块。二者都不能自行伪造有类型抽象语法树或已验证
 阶段。必须保持：
@@ -416,12 +429,23 @@ pub struct CompilationUnit {
 }
 ```
 
-`SourceModuleDescriptor` 从此只表达逻辑模块的命名空间、来源语言、工具/选项和来源沿袭；
-精确 `sourceDocumentKey`、`sourceContentDigest` 与 `sourceRecordByteLen` 移入字段私有的
+`SourceModuleDescriptor` 从此表达逻辑模块的命名空间、来源语言、工具/选项、来源沿袭，以及
+版本化的 `sourceDocumentSetDigest`；精确 `sourceDocumentKey`、`sourceDocumentDigest` 与
+`sourceRecordByteLen` 移入字段私有的
 `SourceDocumentDescriptor`。一个逻辑模块必须拥有一个或多个来源文档；当前
 `SyntheticModule` 恰有一个文档，后续 `CurrentImportModule` 仍是一个逻辑模块，但必须保留
 ScenarioManifest、Traffic 与 Spatial 三个文档描述符。不得为满足当前一对一实现而虚构三个
 模块、命名空间或导入边；ScenarioManifest 即使不直接产生声明，也是必须保留的来源证据。
+
+`sourceDocumentSetDigest` v1 是模块级快速重放/缓存比较值，不替代逐文档精确身份，也不参与实体
+稳定标识。官方前端先对每份规范来源记录精确字节各计算一次 SHA-256，形成
+`sourceDocumentDigest`；随后只对已经派生的文档描述符计算一次 SHA-256 聚合，不重新读取或哈希
+来源全文，并复用模块内文档规范化所需的同一次排序结果，不执行第二次规范排序。聚合前像按
+`sourceDocumentKey` UTF-8 字节序排列，依次编码：ASCII 域
+`LFSOURCE-DOCUMENT-SET`、`u32` 小端版本 `1`、`u32` 小端文档数，以及每份文档的 `u32`
+小端键字节数、键字节、`u32` 小端 `sourceRecordByteLen` 和 32 字节
+`sourceDocumentDigest`。算法或编码变化必须提升文档集摘要版本并更新已知向量；不能选择“第一个
+文档”充当模块摘要，也不能让单文档模块把文档摘要与文档集摘要混为同一语义。
 
 当前私有枚举 `SyntheticDeclaration` 实际承载全部共同有类型抽象语法树声明，G2 应将其
 改名为 `TypedAstDeclaration` 或语义完全等价的非前端专用名称。HIR 只遍历
@@ -447,10 +471,11 @@ pub fn add_current_import_module(&mut self, module: CurrentImportModule) -> Resu
 
 1. 官方前端 `finish` 从受检声明和规范来源记录一次性派生一个模块描述符、一个或多个
    文档描述符、导入、共同声明与全部模块资源计数；字段私有性保证调用方不能重配其中任一部分。
-   摘要和精确长度只能由前端对各文档的实际规范来源字节计算，不能由调用方自报。
+   逐文档摘要和精确长度只能由前端对各文档的实际规范来源字节计算；模块文档集摘要只能按本节
+   v1 前像从这些受检描述符聚合，二者都不能由调用方自报。
 2. `add_*_module` 按值消费具体封装，把内容移动到私有接入值；不得克隆（clone）完整声明、
    字符串或几何点，也不得再次编码来源、计算摘要或扫描声明重算资源。
-3. 私有接入函数在修改构建器前一次性计算命名空间、全部 `sourceDocumentKey`、模块数、
+3. 私有接入函数在修改构建器前一次性计算命名空间、全部 `sourceDocumentKey`、模块数、文档数、
    来源字节、导入、声明、引用、关系、身份字段、符号、字符串、机动门、等待区、路线
    出现项、几何点和编译器控制存续字节数的候选累计值，并执行全部
    `CompileLimits` 检查。任一失败只返回规范诊断；构建器的模块、索引和计数保持不变，
@@ -464,7 +489,7 @@ pub fn add_current_import_module(&mut self, module: CurrentImportModule) -> Resu
    共同接入复制全文。具体模块和 `CompilationUnitBuilder` 只保留已绑定描述符、来源
    位置、声明与模块资源计数；HIR/MIR/LIR 和源映射不保留第二份来源全文。
 
-这里的“全部”只指共同接入拥有的编译单元聚合维度：`ModuleCount`、
+这里的“全部”只指共同接入拥有的编译单元聚合维度：`ModuleCount`、`SourceDocumentCount`、
 `ImportEdgeCount`、`SourceBytesTotal`、`DeclarationCount`、`TypedAstRecordCount`、
 `ReferenceCount`、`RelationOccurrenceCount`、`IdentityFieldOccurrenceCount`、
 `RouteOccurrenceCount`、`ManeuverGateCount`、`WaitingZoneCount`、`GeometryPointCount`、
@@ -474,15 +499,25 @@ pub fn add_current_import_module(&mut self, module: CurrentImportModule) -> Resu
 各自阶段检查。共同接入信任字段私有模块携带的一次性模块资源计数，不重新遍历记录；
 这既不会漏掉维度，也不会复制其他阶段的验证权威。
 
-多来源文档不增加新的 `CompileLimitDimension`：每个 `SourceDocumentDescriptor` 纳入既有
-`TypedAstRecordCount`，文档键纳入既有字符串条目数/字节数；`SourceBytesPerModule` 是该逻辑
-模块所有来源文档原始字节长度之和，因而也界定任一单文档；`SourceBytesTotal` 继续跨模块
-累计。这保留 #292 已接受配置档的维度与语义，不为 #315 重定既有数值。对 current 原始字节，
-第 2.3 节的 `CurrentSourceLimits` 必须在构造这些描述符和 DTO 前以同等或更严上限先行失败。
+`SourceDocumentDescriptor` 是来源伴随记录，不是有类型抽象语法树领域记录，因此不能挤入
+`TypedAstRecordCount`；既有模块头继续独立计为一条 typed AST 逻辑记录。#315 为多文档基数增加
+独立 `SourceDocumentCount`，文档键仍纳入既有字符串条目数/字节数；`SourceBytesPerModule` 是该逻辑
+模块所有来源文档原始字节长度之和，因而也界定任一单文档；`SourceBytesTotal` 继续跨模块累计。
 
-第 5 项不改变 `sourceContentDigest`、`sourceRecordByteLen` 或 `SourceBytesTotal` 的逻辑
-计数，也不允许把调用方自报摘要变成可信输入。来源字节存续期间的实际峰值必须由前端
-自身的 `CompileLimits` 检查覆盖；共同接入累计 `SourceBytesTotal`，并以释放后的实际
+`LF-COMP-P100-INITIAL-v1` 的维度和数值保持不可变，只继续描述 #292 已交付的单文档
+Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
+`max_source_document_count = 1566` 外，其余精确上限继承 v1；该值由 v1 的
+`max_module_count = 522` 与首批闭合官方前端中最大每逻辑模块三个来源文档相乘得到，不是凭墙钟
+直觉放宽预算。#296 若证明一个 Geometry 逻辑模块必须使编译单元超过该文档总数，必须携带实测存续
+内存和真实工作负载证据另行提升配置档版本，不能原地修改 v2。G2/G3 还必须让现有五级生产工作负载、
+三文档导入样例以及 `SourceDocumentCount` 边界/边界加一测试重新取得资格；未完成前不得声称 v2
+已通过生产资源门禁。对 current 原始字节，第 2.3 节的 `CurrentSourceLimits` 必须在构造这些描述符、
+位置表和 DTO 前以同等或更严上限先行失败。
+
+第 5 项不改变逐文档 `sourceDocumentDigest`、`sourceRecordByteLen` 或 `SourceBytesTotal` 的逻辑
+计数；文档集聚合只扫描紧凑描述符，不再次扫描来源字节，也不允许把调用方自报摘要变成可信输入。
+来源字节存续期间的实际峰值必须由前端自身的 `CompileLimits` 检查覆盖；共同接入累计
+`SourceBytesTotal`，并以释放后的实际
 存续量检查编译单元级编译器控制存续字节数。由此不会把互不共存的多份来源
 全文虚构为同时存续，也不会因摘要已经存在而漏掉总输入规模上限。
 
@@ -652,11 +687,11 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 ### 5.3 编译资源上限
 
 编译资源上限（Compile Limits）的精确类型 `CompileLimits` 是显式输入，不提供隐式
-无限生产模式，也不得以 Rust `Default` 或来源自报字段绕过宿主选择。v0.10 只提供
-`CompileLimits::p100_initial_v1()` 这一生产具名构造器；调用方必须显式选择它，测试
-可以在包内构造更小边界，但不能获得无限配置。该构造器的稳定配置档标识符为
-`LF-COMP-P100-INITIAL-v1`。字段保持私有，避免把内部阶段布局变成公共兼容面；配置档
-修订改变任一上限时必须提升标识符修订并重新执行边界测试。
+无限生产模式，也不得以 Rust `Default` 或来源自报字段绕过宿主选择。当前生产实现只提供
+`CompileLimits::p100_initial_v1()`；#315 G1 提议为多文档共同接入增加
+`CompileLimits::p100_initial_v2()`，并保留 v1 的精确语义和构造器。调用方必须显式选择具名配置档，
+测试可以在包内构造更小边界，但不能获得无限配置。字段保持私有，避免把内部阶段布局变成公共兼容面；
+配置档增加维度或改变任一上限时必须提升标识符修订并重新执行边界测试。
 
 `LF-COMP-P100-INITIAL-v1` 以 #308 九个压力分层的逐维上包络为来源。来源 / 领域计数
 取原始测量制品 `v0.10-compiler-budget-calibration-raw.json` 中
@@ -695,6 +730,18 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 | `max_output_bytes`                    |  2782758 | 正在构造的 LIR / 伴随输出逻辑字节                |
 | `max_compiler_controlled_live_bytes`  | 43269120 | 编译器控制总存续请求字节                         |
 | `max_retained_capacity_bytes`         | 36925688 | 一次编译结束后编译器实例允许保留的无语义容量字节 |
+
+`LF-COMP-P100-INITIAL-v2` 继承上表全部精确值并增加：
+
+| 私有配置字段                | 精确上限 | 计数对象 / 单位 |
+| --------------------------- | -------: | --------------- |
+| `max_source_document_count` |     1566 | 来源文档描述符  |
+
+该上限等于既有 `max_module_count` 522 乘以 #315 已知最大三文档导入结构；它保证每个允许的
+模块槽都可承载一个 `CurrentImportModule`，同时在共同接入写入文档索引前给出直接基数边界。
+`SourceDocumentCount` 不包含模块头或声明；它们分别继续由 `ModuleCount` /
+`TypedAstRecordCount` 计数。配置档 v2 在实现中成为生产选择前，必须按第 3.3 与 10.4 节完成五级、
+三文档和边界重新资格验证。
 
 单模块来源上限与总来源上限同值，是从已资格验证的总来源上限作出的失败关闭收窄；#292 G2
 仍须分别验证单模块与跨模块累计边界。阶段记录数是实现预算而不是公共数据模型：生产 IR
@@ -761,7 +808,8 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 `SyntheticModuleBuilder::finish` 计算来源内容摘要，调用方不能自报摘要或单独配对
 来源模块描述符。首版合成来源记录使用 `frontendVersion` 版本化的确定性长度前缀
 编码，精确字节以 `LFSOURCE` 魔数 / 域前缀开头，并对完整记录精确字节计算 SHA-256
-形成 `sourceContentDigest`；编码变化必须提升前端版本并更新已知向量。调用机器的
+形成该文档的 `sourceDocumentDigest`；再按第 3.3 节从单文档描述符派生模块的
+`sourceDocumentSetDigest`。编码变化必须提升前端版本并更新两类已知向量。调用机器的
 绝对路径、墙钟时间和指针地址不进入该记录。
 该摘要只服务来源沿袭和重放，不参与实体稳定标识。测试可以使用显式 `test_only`
 来源模块头；该能力不得进入发布接口。
@@ -1000,11 +1048,15 @@ LIR 或后继制品。
 - 新增接入边界样本只计时“已完成前端构造的具体模块 → `add_*_module` → `build`”，
   模块来源编码与声明构造在停表外，避免把不同前端解析成本归给共同接入；#297 必须另行测量有界
   current 解码成本，不把该数值伪装成 #315 共同接入回归；
+- 前端 `finish` 另以计数证明每份原始文档只执行一次 SHA-256；文档集摘要只扫描按键排序后的紧凑
+  描述符，`SourceDocumentCount` 只增加常数次候选累计/比较，不允许再次扫描原始载荷；
 - 每级至少 1 次预热和 7 次正式样本，报告中位数、中位数绝对偏差（Median Absolute
   Deviation，MAD）、编译器控制峰值字节和保留容量；不因本次私有重构另立城市容量或
   产品服务等级协议（Service-level Agreement，SLA）；
-- 基线/候选的 LIR 语义指纹、规范模块顺序、来源描述符、源映射和诊断必须精确
-  等价。任何可重复时延或内存回退都必须定位到具体阶段并修复，或携带事实回到 G1；
+- 基线/候选的 LIR 语义指纹、规范模块顺序、来源位置、源映射和诊断必须语义等价；既有 Synthetic
+  `sourceContentDigest` 必须逐项等于候选单文档的 `sourceDocumentDigest`，新增文档集摘要则必须匹配
+  独立 v1 聚合预言机，不能要求它与单文档摘要相等。任何可重复时延或内存回退都必须定位到具体阶段并
+  修复，或携带事实回到 G1；
   预期的来源记录在 `finish` 后释放若形成内存改善，也必须由阶段生命周期计数证明，
   不能只看进程噪声。
 
@@ -1015,8 +1067,10 @@ LIR 或后继制品。
 公开面不存在通用模块/特征构造入口。测试专用封装不成为生产 `SourceLanguage` 或
 第三方兼容承诺。
 
-当前态来源的后继验证还必须覆盖 Manifest/Traffic/Spatial 的单文档和组合字节上限、字符串/序列/
-记录/存续内存上限的边界前后值、超限时在按规模分配前失败，以及不存在无配置或无界解码入口。
+当前态来源的后继验证还必须覆盖：组合入口在任何集合索引分配前只接受恰好两个具名制品；
+Manifest/Traffic/Spatial 的单文档和组合字节上限；字符串/序列/记录/位置条目/存续内存上限的
+边界前后值；超限时在按规模分配前失败；位置表能把不同文档的字段/记录映射为真实来源位置且不需要
+重读；以及不存在无配置或无界解码入口。
 
 ## 11. 测试、工作负载与基准
 
@@ -1025,7 +1079,7 @@ LIR 或后继制品。
 - 每个编译遍的正向、首错误和多错误稳定排序；
 - 成功路径保留警告 / 提示，错误路径不返回部分 LIR 或部分源映射输入；
 - 模块、导入和引用循环；
-- 来源模块/文档描述符由构建器派生、每文档内容摘要已知向量、重复
+- 来源模块/文档描述符由构建器派生、逐文档摘要与文档集聚合摘要已知向量、重复
   `sourceDocumentKey`、一模块多文档独立源映射；
 - 表、区间、有类型逻辑序号、模块 / 编译单元累计资源上限和暂存区边界；
 - 标识 v1 已知向量和变形测试；
@@ -1219,14 +1273,17 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
       模块序号推导文档序号；
 - [ ] 具体官方模块、私有共同接入、来源记录释放时点与失败原子性已经冻结；
 - [ ] 命名空间/文档、导入图、全部资源维度和规范模块顺序只有一个实现权威；
+- [ ] `LF-COMP-P100-INITIAL-v1` 保持不可变；v2 的 `SourceDocumentCount`、三文档容量推导、
+      五级/边界重新资格验证和配置档版本迁移已经冻结；
 - [ ] #296/#297 的具体受检入口与 `laneflow-current-source` /
       `laneflow-current-import` 目标包依赖图闭合，编译器不依赖当前态对象图；
 - [ ] `laneflow-current-source` 是场景清单到原始 Traffic/Spatial 制品精确绑定和线格式
-      解析的唯一权威；组合入口要求显式有界 `CurrentSourceLimits`，在按规模分配前检查实际/
-      声明/组合字节与解码计数，不存在默认、无限或先无界解码后统计的入口；
+      解析的唯一权威；组合入口在任何集合索引分配前只接受恰好两个具名制品，并要求显式有界
+      `CurrentSourceLimits`，在按规模分配前检查实际/声明/组合字节与解码计数，不存在默认、无限或
+      先无界解码后统计的入口；
 - [ ] ScenarioManifest 组合入口只消费原子成功结果，不重复或绕过长度、SHA-256、媒体
-      类型与引用验证；该结果保留 Manifest/Traffic/Spatial 三个来源文档的独立身份，同时保留
-      无需空间制品的 Traffic-only current Core 契约；
+      类型与引用验证；该结果保留 Manifest/Traffic/Spatial 三个来源文档的独立身份和受限的字段/
+      记录位置表，导入时不重读原始字节，同时保留无需空间制品的 Traffic-only current Core 契约；
 - [ ] 记录级零动态分派、零完整克隆、一次摘要/计数/排序、多文档紧凑序号解析与配对性能
       验证方案闭合；
 - [ ] 第三方自定义前端非承诺、各议题职责和 G2 阻塞关系没有歧义；

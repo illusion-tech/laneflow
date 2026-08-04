@@ -162,16 +162,26 @@ Geometry、OSM 或 Editor frontend 不依赖 #292 的 DSL 语法或 Core-shaped 
 ```text
 moduleNamespaceId
 sourceLanguage
-sourceContentDigest
+sourceDocumentSetDigestVersion
+sourceDocumentSetDigest
 frontendVersion
 frontendOptionsDigest
 origin / provenance
 imports
+documents[] {
+  sourceDocumentKey
+  sourceDocumentDigest
+  sourceRecordByteLen
+}
 ```
 
-`sourceContentDigest` 是各官方前端对其版本化规范来源记录精确字节计算的 SHA-256，
-只服务重放与来源沿袭，不参与实体稳定标识；任何会改变规范来源记录字节的编码变化
-必须提升对应 `frontendVersion`。#292 合成领域专用语言前端的首版记录与摘要规则由
+`sourceDocumentDigest` 是各官方前端对每份版本化规范来源记录精确字节各计算一次的
+SHA-256；`sourceDocumentSetDigest` 是对模块内按文档键排序的文档键、精确长度与逐文档摘要进行
+版本化、域分隔聚合后的 SHA-256。两者只服务重放、缓存比较与来源沿袭，不参与实体稳定标识。
+聚合不能选择某一文档，也不能重新读取和哈希全部来源载荷；精确 v1 前像以
+`compiler-foundation.md` 第 3.3 节为权威。任何会改变规范来源记录字节的编码变化必须提升对应
+`frontendVersion`；任何改变文档集聚合前像的变化必须提升
+`sourceDocumentSetDigestVersion`。#292 合成领域专用语言前端的首版记录规则由
 `compiler-foundation.md` 冻结，后继前端必须在各自 G1 冻结精确来源字节。
 
 - Geometry document 是生产场景的主要 source language，但不是唯一 SSOT；
@@ -254,6 +264,11 @@ compiler、Adapter 或 scenario policy 绕过。
 顺序和文档键独立冻结序号，每个来源位置都解析自身文档键；不能从模块序号推导文档，也不能为多文档
 来源虚构模块、命名空间或导入边。
 
+来源文档是来源伴随记录，不纳入 `TypedAstRecordCount`。#315 增加独立
+`SourceDocumentCount`，并通过新的 `LF-COMP-P100-INITIAL-v2` 约束编译单元文档总数；v1
+配置档保持不可变。v2 的初始上限、三文档容量推导和重新资格验证以
+`compiler-foundation.md` 第 3.3、10.4 节为权威。
+
 来源专用封装以移动语义进入接入值，不复制完整 AST、字符串或几何。精确来源记录
 （exact source record）只存续到官方前端 `finish` 完成一次摘要、长度和来源位置派生；
 共同接入只保留已绑定摘要、精确长度、来源位置与来源沿袭。借用调用方输入的前端不得
@@ -262,7 +277,9 @@ compiler、Adapter 或 scenario policy 绕过。
 摘要、重复资源计数或第二次规范排序。精确所有权、失败事务、#297 迁移包依赖图和
 配对性能验证以 `compiler-foundation.md` 第 2.3、3.3 与 10.4 节为权威。
 对 current 原始制品，该文档第 2.3 节要求的显式有界 `CurrentSourceLimits` 必须在按输入规模分配前生效，
-不存在默认、无限或先完整解码后计数的路径。
+不存在默认、无限或先完整解码后计数的路径。ScenarioManifest v0.1 组合入口在任何集合索引分配前只
+接受恰好两个具名制品并直接匹配 Traffic/Spatial；原子成功结果同时携带受限的字段/记录来源位置表，
+使导入器无需重读或重新解析原始 JSON 即可构造真实 `SourceSpan`。
 
 这不是第三方前端插件协议。公开面只增加 LaneFlow 拥有的具体
 `add_geometry_module` / `add_current_import_module`；通用 `add_module`、公共前端
@@ -1702,12 +1719,15 @@ laneflow-data -----------> laneflow-current-source
 ```
 
 `laneflow-current-source` 是无 Core/Spatial 依赖的版本锁定当前态来源包验证 SSOT。它要求显式有界
-`CurrentSourceLimits`，先检查 ScenarioManifest 实际长度，有界解析并对其原始字节计算一次 SHA-256，
-再验证制品引用和角色专属媒体类型；
+`CurrentSourceLimits`，并在任何集合索引、复制或按输入规模分配前要求组合入口恰好接收两个
+`NamedArtifact`；实现直接匹配 Traffic/Spatial，不建立调用方集合 `HashMap`，也不接受额外制品。
+随后先检查 ScenarioManifest 实际长度，有界解析并对其原始字节计算一次 SHA-256，再验证制品引用和
+角色专属媒体类型；
 在计算摘要或解析 Traffic/Spatial 前，检查它们的声明/实际/组合字节上限。只有通过这些上限的
 原始字节才各计算一次 SHA-256，与同一场景清单精确配对后再由在按规模分配前累计资源的解码器构造
-DTO。原子结果保留 ScenarioManifest、Traffic 与 Spatial 三个字段私有的独立来源文档身份；
-`laneflow-current-import` 把它们一对一移入编译器拥有的文档描述符，不重新哈希。该组合仍是一个
+DTO 和受限的字段/记录来源位置表。原子结果保留 ScenarioManifest、Traffic 与 Spatial 三个字段私有的
+独立来源文档身份；`laneflow-current-import` 把身份和所需真实来源位置一对一移入编译器拥有的文档
+描述符 / `SourceSpan`，不重新哈希、重读或重新解析原始字节；导入模块完成后释放位置表。该组合仍是一个
 逻辑导入模块，不虚构三个模块或导入边。任一步失败都不返回部分结果。凡以 ScenarioManifest 组合
 Traffic/Spatial，`laneflow-data`
 与 `laneflow-current-import` 都只能消费该单一受检结果，不得重复或绕过绑定；无需空间
