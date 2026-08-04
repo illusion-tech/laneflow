@@ -9,7 +9,8 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     EntityKind, EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
-    ManeuverGateKind, ManeuverPathKind, MovementKind, RoadSectionKind, StopLineKind,
+    ManeuverGateKind, ManeuverPathKind, MovementKind, RoadSectionKind, SignalAspect,
+    SignalGroupKind, StopLineKind,
 };
 
 use crate::SourceSpan;
@@ -90,6 +91,8 @@ pub type ManeuverPathReference<'a> = EntityReference<'a, ManeuverPathKind>;
 pub type StopLineReference<'a> = EntityReference<'a, StopLineKind>;
 /// 指向机动门声明的有类型未解析引用。
 pub type ManeuverGateReference<'a> = EntityReference<'a, ManeuverGateKind>;
+/// 指向信号组声明的有类型未解析引用。
+pub type SignalGroupReference<'a> = EntityReference<'a, SignalGroupKind>;
 /// 横断面物理设施类别可承载的结构形态。
 ///
 /// 该分类只约束 `FacilityKind` token 可以用于道路区段还是设施带，不授予任何交通
@@ -273,6 +276,58 @@ pub struct ManeuverGateInput<'a> {
     pub transition_index: u32,
     /// 标记该转换起始边末端的停止线。
     pub stop_line: StopLineReference<'a>,
+    /// 信号层控制绑定；`None` 只表示信号层不施加约束。
+    pub signal_control: SignalControlInput<'a>,
+}
+
+/// 机动门的编制期信号层控制绑定。
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
+pub enum SignalControlInput<'a> {
+    /// 由指定信号组控制。
+    Group(SignalGroupReference<'a>),
+    /// 不受固定时制（fixed-time）信号层控制。
+    None,
+}
+
+/// 合成领域专用语言的信号组声明输入。
+#[derive(Clone, Copy, Debug)]
+pub struct SignalGroupInput<'a> {
+    /// 来源模块内显式持久化且唯一的信号组稳定键。
+    pub signal_group_key: &'a str,
+}
+
+/// 一个固定时制相位中某信号组的完整状态记录。
+#[derive(Clone, Copy, Debug)]
+pub struct SignalGroupStateInput<'a> {
+    /// 必须属于同一控制器的信号组。
+    pub signal_group: SignalGroupReference<'a>,
+    /// 本相位内该组的灯色指示。
+    pub aspect: SignalAspect,
+}
+
+/// 信号控制器程序中的所有者局部（owner-local）有序相位输入。
+#[derive(Clone, Copy, Debug)]
+pub struct SignalPhaseInput<'a> {
+    /// 在所属控制器内唯一且稳定的相位键。
+    pub signal_phase_key: &'a str,
+    /// 相位持续时间，单位为毫秒；必须位于可移植安全整数正区间。
+    pub duration_ms: u64,
+    /// 对控制器全部信号组恰好各出现一次的状态集合。
+    pub states: &'a [SignalGroupStateInput<'a>],
+}
+
+/// 合成领域专用语言的固定时制信号控制器输入。
+#[derive(Clone, Copy, Debug)]
+pub struct SignalControllerInput<'a> {
+    /// 来源模块内显式持久化且唯一的控制器稳定键。
+    pub signal_controller_key: &'a str,
+    /// 相对世界时间零点的规范相位偏移，单位为毫秒。
+    pub offset_ms: u64,
+    /// 非空、无重复且由本控制器唯一拥有的信号组集合。
+    pub signal_groups: &'a [SignalGroupReference<'a>],
+    /// 非空且顺序定义循环程序的相位序列。
+    pub phases: &'a [SignalPhaseInput<'a>],
 }
 
 /// 合成领域专用语言的等待区声明输入。
@@ -500,6 +555,35 @@ pub(crate) struct ManeuverGateDeclaration {
     pub(crate) maneuver_path: OwnedEntityReference<ManeuverPathKind>,
     pub(crate) transition_index: u32,
     pub(crate) stop_line: OwnedEntityReference<StopLineKind>,
+    pub(crate) signal_control: OwnedSignalControl,
+}
+
+/// Typed AST 中已拥有的机动门信号控制绑定。
+pub(crate) enum OwnedSignalControl {
+    Group(OwnedEntityReference<SignalGroupKind>),
+    None,
+}
+
+pub(crate) struct SignalGroupDeclaration {
+    pub(crate) header: DeclarationHeader,
+}
+
+pub(crate) struct SignalGroupStateDeclaration {
+    pub(crate) signal_group: OwnedEntityReference<SignalGroupKind>,
+    pub(crate) aspect: SignalAspect,
+}
+
+pub(crate) struct SignalPhaseDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) duration_ms: u64,
+    pub(crate) states: Box<[SignalGroupStateDeclaration]>,
+}
+
+pub(crate) struct SignalControllerDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) offset_ms: u64,
+    pub(crate) signal_groups: Box<[OwnedEntityReference<SignalGroupKind>]>,
+    pub(crate) phases: Box<[SignalPhaseDeclaration]>,
 }
 
 /// 已通过字段级检查、等待门顺序和区间重叠闭包校验的等待区 Typed AST 记录。
@@ -531,4 +615,6 @@ pub(crate) enum SyntheticDeclaration {
     ManeuverGate(ManeuverGateDeclaration),
     WaitingZone(WaitingZoneDeclaration),
     StaticRoute(StaticRouteDeclaration),
+    SignalGroup(SignalGroupDeclaration),
+    SignalController(SignalControllerDeclaration),
 }

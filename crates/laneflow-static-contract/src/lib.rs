@@ -6,6 +6,7 @@ extern crate std;
 
 mod registry;
 mod typed;
+mod values;
 
 pub use registry::{
     EntityCategory, EntityKind, FieldEncoding, FieldTag, IDENTITY_ENCODING_VERSION, IDENTITY_MAGIC,
@@ -28,3 +29,4 @@ pub use typed::{
     StopLineKind, StopLineOrdinal, VehicleProfileId, VehicleProfileKind, VehicleProfileOrdinal,
     WaitingZoneId, WaitingZoneKind, WaitingZoneOrdinal,
 };
+pub use values::SignalAspect;

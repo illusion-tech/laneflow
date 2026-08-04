@@ -10,8 +10,9 @@ use laneflow_static_contract::{
     JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
     ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId,
     MovementOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
-    StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal, WaitingZoneId,
-    WaitingZoneOrdinal,
+    SignalAspect, SignalControllerId, SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal,
+    SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal, StopLineId,
+    StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::hir::build_hir;
@@ -19,7 +20,8 @@ use crate::lir::{
     LirAuthoringLane, LirCorridorElement, LirFacilityBand, LirGateOccurrence, LirIdentityField,
     LirJunction, LirJunctionInternalEdge, LirLaneEdge, LirLaneGroup, LirManeuverGate,
     LirManeuverOccurrence, LirManeuverPath, LirMovement, LirRoadCorridor, LirRoadSection,
-    LirRouteOccurrenceRef, LirStaticRoute, LirStopLine, LirUnit, LirWaitingZone,
+    LirRouteOccurrenceRef, LirSignalControl, LirSignalController, LirSignalGroup, LirSignalPhase,
+    LirSignalPhaseState, LirStaticRoute, LirStopLine, LirUnit, LirWaitingZone,
     LirWaitingZoneOccurrence, freeze_lir,
 };
 use crate::mir::lower_to_mir;
@@ -334,6 +336,86 @@ impl ValidatedCanonicalLir {
             })
     }
 
+    /// 按完整 Identity v1 前像规范顺序遍历全部信号组。
+    pub fn signal_groups(&self) -> impl ExactSizeIterator<Item = CanonicalSignalGroupView<'_>> {
+        self.inner
+            .signal_groups
+            .iter()
+            .map(|record| CanonicalSignalGroupView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取信号组。
+    #[must_use]
+    pub fn signal_group(
+        &self,
+        ordinal: SignalGroupOrdinal,
+    ) -> Option<CanonicalSignalGroupView<'_>> {
+        self.inner
+            .signal_groups
+            .get(ordinal.index())
+            .map(|record| CanonicalSignalGroupView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部固定时制信号控制器。
+    pub fn signal_controllers(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalSignalControllerView<'_>> {
+        self.inner
+            .signal_controllers
+            .iter()
+            .map(|record| CanonicalSignalControllerView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取信号控制器。
+    #[must_use]
+    pub fn signal_controller(
+        &self,
+        ordinal: SignalControllerOrdinal,
+    ) -> Option<CanonicalSignalControllerView<'_>> {
+        self.inner
+            .signal_controllers
+            .get(ordinal.index())
+            .map(|record| CanonicalSignalControllerView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部所有者局部（owner-local）信号相位。
+    pub fn signal_phases(&self) -> impl ExactSizeIterator<Item = CanonicalSignalPhaseView<'_>> {
+        self.inner
+            .signal_phases
+            .iter()
+            .map(|record| CanonicalSignalPhaseView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取信号相位。
+    #[must_use]
+    pub fn signal_phase(
+        &self,
+        ordinal: SignalPhaseOrdinal,
+    ) -> Option<CanonicalSignalPhaseView<'_>> {
+        self.inner
+            .signal_phases
+            .get(ordinal.index())
+            .map(|record| CanonicalSignalPhaseView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
     /// 按 `LaneEdgeOrdinal` 遍历全部派生的路口内部边所有权。
     ///
     /// 验证阶段已证明每条内部边最多属于一个路口，并且不会同时承担任一路径的入口或出口
@@ -545,6 +627,24 @@ impl_stable_entity_view!(
     LirWaitingZone,
     WaitingZoneOrdinal,
     WaitingZoneId
+);
+impl_stable_entity_view!(
+    CanonicalSignalGroupView,
+    LirSignalGroup,
+    SignalGroupOrdinal,
+    SignalGroupId
+);
+impl_stable_entity_view!(
+    CanonicalSignalControllerView,
+    LirSignalController,
+    SignalControllerOrdinal,
+    SignalControllerId
+);
+impl_stable_entity_view!(
+    CanonicalSignalPhaseView,
+    LirSignalPhase,
+    SignalPhaseOrdinal,
+    SignalPhaseId
 );
 impl_stable_entity_view!(
     CanonicalStaticRouteView,
@@ -808,6 +908,15 @@ impl CanonicalManeuverGateView<'_> {
         self.record.stop_line
     }
 
+    /// 返回信号层控制绑定；`None` 不代表其他通行权约束已经放行。
+    #[must_use]
+    pub const fn signal_control(&self) -> CanonicalSignalControl {
+        match self.record.signal_control {
+            LirSignalControl::Group(group) => CanonicalSignalControl::Group(group),
+            LirSignalControl::None => CanonicalSignalControl::None,
+        }
+    }
+
     /// 遍历匹配此机动门的静态路线门出现项。
     pub fn static_route_occurrences(
         &self,
@@ -816,6 +925,97 @@ impl CanonicalManeuverGateView<'_> {
             &self.lir.maneuver_gate_route_occurrences
                 [self.record.static_route_occurrences.as_usize_range()],
         )
+    }
+}
+
+/// 已验证机动门的信号层控制绑定。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum CanonicalSignalControl {
+    /// 由指定固定时制信号组给出灯色约束。
+    Group(SignalGroupOrdinal),
+    /// 信号层不对该门施加约束；不等同于最终可通行。
+    None,
+}
+
+impl CanonicalSignalGroupView<'_> {
+    /// 返回唯一拥有本信号组的固定时制控制器。
+    #[must_use]
+    pub const fn controller(&self) -> SignalControllerOrdinal {
+        self.record.controller
+    }
+
+    /// 返回由本组控制的非空机动门集合，按门的规范序号冻结。
+    #[must_use]
+    pub fn maneuver_gates(&self) -> &[ManeuverGateOrdinal] {
+        &self.lir.signal_group_maneuver_gates[self.record.maneuver_gates.as_usize_range()]
+    }
+}
+
+impl CanonicalSignalControllerView<'_> {
+    /// 返回相对世界时间零点的规范循环偏移，单位为毫秒。
+    #[must_use]
+    pub const fn offset_ms(&self) -> u64 {
+        self.record.offset_ms
+    }
+
+    /// 返回全部相位持续时间之和，单位为毫秒。
+    #[must_use]
+    pub const fn cycle_duration_ms(&self) -> u64 {
+        self.record.cycle_duration_ms
+    }
+
+    /// 返回本控制器唯一拥有的信号组集合，按规范序号冻结。
+    #[must_use]
+    pub fn signal_groups(&self) -> &[SignalGroupOrdinal] {
+        &self.lir.signal_controller_groups[self.record.signal_groups.as_usize_range()]
+    }
+
+    /// 返回定义固定时制循环程序的相位序列；该顺序具有执行语义。
+    #[must_use]
+    pub fn phases(&self) -> &[SignalPhaseOrdinal] {
+        &self.lir.signal_controller_phases[self.record.phases.as_usize_range()]
+    }
+}
+
+impl CanonicalSignalPhaseView<'_> {
+    /// 返回唯一拥有本相位的信号控制器。
+    #[must_use]
+    pub const fn controller(&self) -> SignalControllerOrdinal {
+        self.record.controller
+    }
+
+    /// 返回相位持续时间，单位为毫秒。
+    #[must_use]
+    pub const fn duration_ms(&self) -> u64 {
+        self.record.duration_ms
+    }
+
+    /// 按控制器信号组规范顺序遍历完整灯色赋值。
+    pub fn states(&self) -> impl ExactSizeIterator<Item = CanonicalSignalPhaseStateView<'_>> + '_ {
+        self.lir.signal_phase_states[self.record.states.as_usize_range()]
+            .iter()
+            .map(|record| CanonicalSignalPhaseStateView { record })
+    }
+}
+
+/// 固定时制相位对一个信号组的只读状态赋值。
+#[derive(Clone, Copy)]
+pub struct CanonicalSignalPhaseStateView<'a> {
+    record: &'a LirSignalPhaseState,
+}
+
+impl CanonicalSignalPhaseStateView<'_> {
+    /// 返回被赋值的信号组。
+    #[must_use]
+    pub const fn signal_group(self) -> SignalGroupOrdinal {
+        self.record.signal_group
+    }
+
+    /// 返回本相位内的灯色指示；它不是最终通行权判定。
+    #[must_use]
+    pub const fn aspect(self) -> SignalAspect {
+        self.record.aspect
     }
 }
 
@@ -1169,10 +1369,11 @@ mod tests {
         FacilityBandReference, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
         LaneGroupInput, LaneGroupReference, ManeuverGateInput, ManeuverGateReference,
         ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
-        RoadCorridorInput, RoadSectionInput, RoadSectionReference, SourceModuleDescriptor,
-        SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, StaticRouteInput,
-        StopLineInput, StopLineReference, SyntheticModule, SyntheticModuleBuilder,
-        WaitingZoneInput,
+        RoadCorridorInput, RoadSectionInput, RoadSectionReference, SignalControlInput,
+        SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
+        SignalPhaseInput, SourceModuleDescriptor, SourceModuleHeader, SourceModuleHeaderInput,
+        SourceRelationRole, StaticRouteInput, StopLineInput, StopLineReference, SyntheticModule,
+        SyntheticModuleBuilder, WaitingZoneInput,
     };
 
     fn module(
@@ -1561,6 +1762,7 @@ mod tests {
                     maneuver_path: ManeuverPathReference::local("path-main"),
                     transition_index: 0,
                     stop_line: StopLineReference::local("stop-entry"),
+                    signal_control: SignalControlInput::None,
                 })
                 .unwrap()
                 .add_maneuver_gate(ManeuverGateInput {
@@ -1568,6 +1770,7 @@ mod tests {
                     maneuver_path: ManeuverPathReference::local("path-main"),
                     transition_index: 1,
                     stop_line: StopLineReference::local("stop-middle"),
+                    signal_control: SignalControlInput::None,
                 })
                 .unwrap();
         };
@@ -1591,6 +1794,176 @@ mod tests {
             add_gates(builder);
             add_waiting(builder);
         }
+    }
+
+    fn signal_module(permuted: bool) -> SyntheticModule {
+        let mut builder = control_builder(if permuted {
+            "signal-permuted.document"
+        } else {
+            "signal.document"
+        });
+        let add_stops = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_stop_line(StopLineInput {
+                    stop_line_key: "stop-entry",
+                    lane_edge: LaneEdgeReference::local("entry"),
+                })
+                .unwrap()
+                .add_stop_line(StopLineInput {
+                    stop_line_key: "stop-middle",
+                    lane_edge: LaneEdgeReference::local("middle"),
+                })
+                .unwrap();
+        };
+        let add_groups = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_signal_group(SignalGroupInput {
+                    signal_group_key: "group-entry",
+                })
+                .unwrap()
+                .add_signal_group(SignalGroupInput {
+                    signal_group_key: "group-release",
+                })
+                .unwrap();
+        };
+        let add_gates = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_maneuver_gate(ManeuverGateInput {
+                    maneuver_gate_key: "gate-entry",
+                    maneuver_path: ManeuverPathReference::local("path-main"),
+                    transition_index: 0,
+                    stop_line: StopLineReference::local("stop-entry"),
+                    signal_control: SignalControlInput::Group(SignalGroupReference::local(
+                        "group-entry",
+                    )),
+                })
+                .unwrap()
+                .add_maneuver_gate(ManeuverGateInput {
+                    maneuver_gate_key: "gate-release",
+                    maneuver_path: ManeuverPathReference::local("path-main"),
+                    transition_index: 1,
+                    stop_line: StopLineReference::local("stop-middle"),
+                    signal_control: SignalControlInput::Group(SignalGroupReference::local(
+                        "group-release",
+                    )),
+                })
+                .unwrap();
+        };
+        let add_controller = |builder: &mut SyntheticModuleBuilder, reverse_sets: bool| {
+            let groups = if reverse_sets {
+                [
+                    SignalGroupReference::local("group-release"),
+                    SignalGroupReference::local("group-entry"),
+                ]
+            } else {
+                [
+                    SignalGroupReference::local("group-entry"),
+                    SignalGroupReference::local("group-release"),
+                ]
+            };
+            let go_states = if reverse_sets {
+                [
+                    SignalGroupStateInput {
+                        signal_group: SignalGroupReference::local("group-release"),
+                        aspect: SignalAspect::Red,
+                    },
+                    SignalGroupStateInput {
+                        signal_group: SignalGroupReference::local("group-entry"),
+                        aspect: SignalAspect::Green,
+                    },
+                ]
+            } else {
+                [
+                    SignalGroupStateInput {
+                        signal_group: SignalGroupReference::local("group-entry"),
+                        aspect: SignalAspect::Green,
+                    },
+                    SignalGroupStateInput {
+                        signal_group: SignalGroupReference::local("group-release"),
+                        aspect: SignalAspect::Red,
+                    },
+                ]
+            };
+            let clear_states = if reverse_sets {
+                [
+                    SignalGroupStateInput {
+                        signal_group: SignalGroupReference::local("group-release"),
+                        aspect: SignalAspect::Green,
+                    },
+                    SignalGroupStateInput {
+                        signal_group: SignalGroupReference::local("group-entry"),
+                        aspect: SignalAspect::Yellow,
+                    },
+                ]
+            } else {
+                [
+                    SignalGroupStateInput {
+                        signal_group: SignalGroupReference::local("group-entry"),
+                        aspect: SignalAspect::Yellow,
+                    },
+                    SignalGroupStateInput {
+                        signal_group: SignalGroupReference::local("group-release"),
+                        aspect: SignalAspect::Green,
+                    },
+                ]
+            };
+            builder
+                .add_signal_controller(SignalControllerInput {
+                    signal_controller_key: "controller-main",
+                    offset_ms: 1_000,
+                    signal_groups: &groups,
+                    phases: &[
+                        SignalPhaseInput {
+                            signal_phase_key: "phase-go",
+                            duration_ms: 30_000,
+                            states: &go_states,
+                        },
+                        SignalPhaseInput {
+                            signal_phase_key: "phase-clear",
+                            duration_ms: 5_000,
+                            states: &clear_states,
+                        },
+                    ],
+                })
+                .unwrap();
+        };
+        if permuted {
+            add_controller(&mut builder, true);
+            add_gates(&mut builder);
+            add_groups(&mut builder);
+            add_stops(&mut builder);
+        } else {
+            add_stops(&mut builder);
+            add_groups(&mut builder);
+            add_gates(&mut builder);
+            add_controller(&mut builder, false);
+        }
+        builder.finish().unwrap()
+    }
+
+    fn single_signal_group_builder(document: &str) -> SyntheticModuleBuilder {
+        let mut builder = control_builder(document);
+        builder
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-entry",
+                lane_edge: LaneEdgeReference::local("entry"),
+            })
+            .unwrap()
+            .add_signal_group(SignalGroupInput {
+                signal_group_key: "group-main",
+            })
+            .unwrap()
+            .add_maneuver_gate(ManeuverGateInput {
+                maneuver_gate_key: "gate-entry",
+                maneuver_path: ManeuverPathReference::local("path-main"),
+                transition_index: 0,
+                stop_line: StopLineReference::local("stop-entry"),
+                signal_control: SignalControlInput::Group(SignalGroupReference::local(
+                    "group-main",
+                )),
+            })
+            .unwrap();
+        builder
     }
 
     fn stable_key<'a>(
@@ -1693,6 +2066,342 @@ mod tests {
                 "app.document".to_owned(),
             )]
         );
+    }
+
+    #[test]
+    fn compiler_freezes_fixed_time_signal_program_bindings_and_source_relations() {
+        let output = Compiler::new()
+            .compile(unit([signal_module(false)]))
+            .unwrap();
+        let lir = output.lir();
+        let groups = lir.signal_groups().collect::<Vec<_>>();
+        let controller = lir.signal_controllers().next().unwrap();
+        let phases = controller
+            .phases()
+            .iter()
+            .map(|ordinal| lir.signal_phase(*ordinal).unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(controller.offset_ms(), 1_000);
+        assert_eq!(controller.cycle_duration_ms(), 35_000);
+        assert_eq!(controller.signal_groups().len(), 2);
+        assert_eq!(
+            phases
+                .iter()
+                .map(|phase| phase.duration_ms())
+                .collect::<Vec<_>>(),
+            [30_000, 5_000]
+        );
+        assert!(phases.iter().all(|phase| {
+            phase.controller() == controller.ordinal()
+                && phase
+                    .states()
+                    .map(|state| state.signal_group())
+                    .collect::<Vec<_>>()
+                    == controller.signal_groups()
+        }));
+        assert!(groups.iter().all(|group| {
+            group.controller() == controller.ordinal() && group.maneuver_gates().len() == 1
+        }));
+        assert!(
+            lir.maneuver_gates()
+                .all(|gate| matches!(gate.signal_control(), CanonicalSignalControl::Group(_)))
+        );
+        assert_eq!(
+            phases[0]
+                .identity_fields()
+                .map(|field| field.tag())
+                .collect::<Vec<_>>(),
+            [
+                FieldTag::AuthoringNamespaceId,
+                FieldTag::SignalControllerStableId,
+                FieldTag::PhaseKey,
+            ]
+        );
+
+        let source_map = output.source_map_input();
+        assert_eq!(source_map.signal_group_sources().len(), 2);
+        assert_eq!(source_map.signal_controller_sources().len(), 1);
+        assert_eq!(source_map.signal_phase_sources().len(), 2);
+        assert_eq!(source_map.signal_relation_sources().len(), 10);
+        assert_eq!(
+            source_map
+                .signal_relation_sources()
+                .fold([0_u32; 4], |mut counts, source| {
+                    let index = match source.role() {
+                        SourceRelationRole::SignalControllerGroup => 0,
+                        SourceRelationRole::SignalControllerPhase => 1,
+                        SourceRelationRole::SignalPhaseState => 2,
+                        SourceRelationRole::ManeuverGateSignalGroup => 3,
+                        _ => unreachable!("unexpected signal relation role"),
+                    };
+                    counts[index] += 1;
+                    counts
+                }),
+            [2, 2, 4, 2]
+        );
+    }
+
+    #[test]
+    fn signal_set_permutation_does_not_change_lir_semantics() {
+        let baseline = Compiler::new()
+            .compile(unit([signal_module(false)]))
+            .unwrap();
+        let permuted = Compiler::new()
+            .compile(unit([signal_module(true)]))
+            .unwrap();
+        assert_eq!(
+            baseline.lir.inner.semantic_digest,
+            permuted.lir.inner.semantic_digest
+        );
+    }
+
+    #[test]
+    fn signal_controller_rejects_empty_group_and_phase_programs() {
+        let mut builder = control_builder("signal-invalid.document");
+        builder
+            .add_signal_controller(SignalControllerInput {
+                signal_controller_key: "controller-empty",
+                offset_ms: 0,
+                signal_groups: &[],
+                phases: &[],
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(builder),
+            [
+                DiagnosticCode::EmptySignalControllerGroups,
+                DiagnosticCode::EmptySignalControllerPhases,
+            ]
+        );
+    }
+
+    #[test]
+    fn signal_program_validation_closes_phase_time_and_ownership_boundaries() {
+        let valid_state = [SignalGroupStateInput {
+            signal_group: SignalGroupReference::local("group-main"),
+            aspect: SignalAspect::Red,
+        }];
+
+        let mut missing = single_signal_group_builder("signal-missing-state.document");
+        missing
+            .add_signal_controller(SignalControllerInput {
+                signal_controller_key: "controller-main",
+                offset_ms: 0,
+                signal_groups: &[SignalGroupReference::local("group-main")],
+                phases: &[SignalPhaseInput {
+                    signal_phase_key: "phase-main",
+                    duration_ms: 100,
+                    states: &[],
+                }],
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(missing),
+            [DiagnosticCode::MissingSignalPhaseGroup]
+        );
+
+        let duplicate_states = [valid_state[0], valid_state[0]];
+        let mut duplicate = single_signal_group_builder("signal-duplicate-state.document");
+        duplicate
+            .add_signal_controller(SignalControllerInput {
+                signal_controller_key: "controller-main",
+                offset_ms: 0,
+                signal_groups: &[
+                    SignalGroupReference::local("group-main"),
+                    SignalGroupReference::local("group-main"),
+                ],
+                phases: &[SignalPhaseInput {
+                    signal_phase_key: "phase-main",
+                    duration_ms: 100,
+                    states: &duplicate_states,
+                }],
+            })
+            .unwrap();
+        let duplicate_codes = compile_diagnostic_codes(duplicate);
+        assert!(duplicate_codes.contains(&DiagnosticCode::DuplicateSignalControllerGroup));
+        assert!(duplicate_codes.contains(&DiagnosticCode::DuplicateSignalPhaseGroup));
+
+        let mut invalid_duration = single_signal_group_builder("signal-invalid-duration.document");
+        invalid_duration
+            .add_signal_controller(SignalControllerInput {
+                signal_controller_key: "controller-main",
+                offset_ms: 0,
+                signal_groups: &[SignalGroupReference::local("group-main")],
+                phases: &[SignalPhaseInput {
+                    signal_phase_key: "phase-main",
+                    duration_ms: 0,
+                    states: &valid_state,
+                }],
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(invalid_duration),
+            [DiagnosticCode::InvalidSignalPhaseDuration]
+        );
+
+        let mut invalid_offset = single_signal_group_builder("signal-invalid-offset.document");
+        invalid_offset
+            .add_signal_controller(SignalControllerInput {
+                signal_controller_key: "controller-main",
+                offset_ms: 100,
+                signal_groups: &[SignalGroupReference::local("group-main")],
+                phases: &[SignalPhaseInput {
+                    signal_phase_key: "phase-main",
+                    duration_ms: 100,
+                    states: &valid_state,
+                }],
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(invalid_offset),
+            [DiagnosticCode::InvalidSignalControllerOffset]
+        );
+
+        let mut cycle_overflow = single_signal_group_builder("signal-cycle-overflow.document");
+        cycle_overflow
+            .add_signal_controller(SignalControllerInput {
+                signal_controller_key: "controller-main",
+                offset_ms: 0,
+                signal_groups: &[SignalGroupReference::local("group-main")],
+                phases: &[
+                    SignalPhaseInput {
+                        signal_phase_key: "phase-long",
+                        duration_ms: 9_007_199_254_740_991,
+                        states: &valid_state,
+                    },
+                    SignalPhaseInput {
+                        signal_phase_key: "phase-overflow",
+                        duration_ms: 1,
+                        states: &valid_state,
+                    },
+                ],
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(cycle_overflow),
+            [DiagnosticCode::SignalCycleDurationOverflow]
+        );
+
+        let mut multiple_owner = single_signal_group_builder("signal-owner.document");
+        for controller_key in ["controller-a", "controller-b"] {
+            multiple_owner
+                .add_signal_controller(SignalControllerInput {
+                    signal_controller_key: controller_key,
+                    offset_ms: 0,
+                    signal_groups: &[SignalGroupReference::local("group-main")],
+                    phases: &[SignalPhaseInput {
+                        signal_phase_key: "phase-main",
+                        duration_ms: 100,
+                        states: &valid_state,
+                    }],
+                })
+                .unwrap();
+        }
+        assert!(
+            compile_diagnostic_codes(multiple_owner)
+                .contains(&DiagnosticCode::SignalGroupMultipleControllers)
+        );
+    }
+
+    #[test]
+    fn signal_group_reference_failure_is_reported_even_without_signal_entities() {
+        let mut builder = control_builder("signal-unknown-group.document");
+        builder
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-entry",
+                lane_edge: LaneEdgeReference::local("entry"),
+            })
+            .unwrap()
+            .add_maneuver_gate(ManeuverGateInput {
+                maneuver_gate_key: "gate-entry",
+                maneuver_path: ManeuverPathReference::local("path-main"),
+                transition_index: 0,
+                stop_line: StopLineReference::local("stop-entry"),
+                signal_control: SignalControlInput::Group(SignalGroupReference::local(
+                    "group-missing",
+                )),
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(builder),
+            [DiagnosticCode::UnknownReferenceTarget]
+        );
+    }
+
+    #[test]
+    fn signal_validation_reports_local_identity_and_global_closure_failures() {
+        let valid_state = [SignalGroupStateInput {
+            signal_group: SignalGroupReference::local("group-main"),
+            aspect: SignalAspect::Red,
+        }];
+
+        let mut duplicate_phase = single_signal_group_builder("signal-duplicate-phase.document");
+        duplicate_phase
+            .add_signal_controller(SignalControllerInput {
+                signal_controller_key: "controller-main",
+                offset_ms: 0,
+                signal_groups: &[SignalGroupReference::local("group-main")],
+                phases: &[
+                    SignalPhaseInput {
+                        signal_phase_key: "phase-main",
+                        duration_ms: 100,
+                        states: &valid_state,
+                    },
+                    SignalPhaseInput {
+                        signal_phase_key: "phase-main",
+                        duration_ms: 100,
+                        states: &valid_state,
+                    },
+                ],
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(duplicate_phase),
+            [DiagnosticCode::DuplicateSignalPhaseKey]
+        );
+
+        let mut foreign_phase_group =
+            single_signal_group_builder("signal-foreign-phase-group.document");
+        foreign_phase_group
+            .add_signal_group(SignalGroupInput {
+                signal_group_key: "group-foreign",
+            })
+            .unwrap();
+        let states = [
+            valid_state[0],
+            SignalGroupStateInput {
+                signal_group: SignalGroupReference::local("group-foreign"),
+                aspect: SignalAspect::Green,
+            },
+        ];
+        foreign_phase_group
+            .add_signal_controller(SignalControllerInput {
+                signal_controller_key: "controller-main",
+                offset_ms: 0,
+                signal_groups: &[SignalGroupReference::local("group-main")],
+                phases: &[SignalPhaseInput {
+                    signal_phase_key: "phase-main",
+                    duration_ms: 100,
+                    states: &states,
+                }],
+            })
+            .unwrap();
+        let foreign_group_codes = compile_diagnostic_codes(foreign_phase_group);
+        assert!(foreign_group_codes.contains(&DiagnosticCode::UnknownSignalPhaseGroup));
+        assert!(foreign_group_codes.contains(&DiagnosticCode::UnownedSignalGroup));
+        assert!(foreign_group_codes.contains(&DiagnosticCode::UnusedSignalGroup));
+
+        let mut orphan_group = control_builder("signal-orphan-group.document");
+        orphan_group
+            .add_signal_group(SignalGroupInput {
+                signal_group_key: "group-orphan",
+            })
+            .unwrap();
+        let orphan_codes = compile_diagnostic_codes(orphan_group);
+        assert!(orphan_codes.contains(&DiagnosticCode::UnownedSignalGroup));
+        assert!(orphan_codes.contains(&DiagnosticCode::UnusedSignalGroup));
     }
 
     #[test]
@@ -3149,6 +3858,7 @@ mod tests {
                 maneuver_path: ManeuverPathReference::local("path-main"),
                 transition_index: 2,
                 stop_line: StopLineReference::local("stop-entry"),
+                signal_control: SignalControlInput::None,
             })
             .unwrap();
         assert!(
@@ -3170,6 +3880,7 @@ mod tests {
                     maneuver_path: ManeuverPathReference::local("path-main"),
                     transition_index: 0,
                     stop_line: StopLineReference::local("stop-entry"),
+                    signal_control: SignalControlInput::None,
                 })
                 .unwrap();
         }
@@ -3190,6 +3901,7 @@ mod tests {
                 maneuver_path: ManeuverPathReference::local("path-main"),
                 transition_index: 0,
                 stop_line: StopLineReference::local("stop-middle"),
+                signal_control: SignalControlInput::None,
             })
             .unwrap();
         assert!(

@@ -10,13 +10,14 @@ use laneflow_static_contract::{
     JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
     ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId,
     MovementOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
-    StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal, WaitingZoneId,
-    WaitingZoneOrdinal,
+    SignalControllerId, SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal, SignalPhaseId,
+    SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal,
+    WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::diagnostic::DiagnosticCollector;
 use crate::lir::LirFreezeOutput;
-use crate::mir::MirUnit;
+use crate::mir::{MirSignalControl, MirUnit};
 use crate::module::SourceDocumentOrdinal;
 use crate::{
     CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceModuleDescriptor,
@@ -30,6 +31,7 @@ const CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES: u64 = 2 + 4 + 16 + 2 + 4 + 4 
 const JUNCTION_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
 const SOURCE_LOCATION_LOGICAL_BYTES: u64 = 4 + 8 + 8;
 const ROUTE_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES + 1;
+const SIGNAL_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
 
 /// owner-local 来源记录中登记的有类型语义角色。
 ///
@@ -70,6 +72,14 @@ pub enum SourceRelationRole {
     StaticRouteGateOccurrence = 15,
     /// 静态路线中一次等待区匹配。
     StaticRouteWaitingZoneOccurrence = 16,
+    /// 信号控制器唯一拥有的一项信号组。
+    SignalControllerGroup = 17,
+    /// 信号控制器固定时制程序中的一个有序相位。
+    SignalControllerPhase = 18,
+    /// 信号相位对控制器内一个信号组的灯色赋值。
+    SignalPhaseState = 19,
+    /// 机动门到固定时制信号组的控制绑定。
+    ManeuverGateSignalGroup = 20,
 }
 
 #[derive(Clone, Copy)]
@@ -138,6 +148,20 @@ struct RouteRelationSourceRecord {
     contributing: Option<SourceLocationRecord>,
 }
 
+struct SignalRelationSourceRecord {
+    owner: SignalRelationOwnerRecord,
+    role: SourceRelationRole,
+    local_index: u32,
+    primary: SourceLocationRecord,
+}
+
+#[derive(Clone, Copy)]
+enum SignalRelationOwnerRecord {
+    SignalController(SignalControllerOrdinal, SignalControllerId),
+    SignalPhase(SignalPhaseOrdinal, SignalPhaseId),
+    ManeuverGate(ManeuverGateOrdinal, ManeuverGateId),
+}
+
 /// 与一个 Canonical LIR 原子配对的已验证源映射输入。
 ///
 /// 本类型不能由调用方构造。来源文档与来源模块在当前官方前端中一一对应，并按编译单元
@@ -158,6 +182,11 @@ pub struct ValidatedSourceMapInput {
     stop_line_sources: Box<[StableEntitySourceRecord<StopLineOrdinal, StopLineId>]>,
     maneuver_gate_sources: Box<[StableEntitySourceRecord<ManeuverGateOrdinal, ManeuverGateId>]>,
     waiting_zone_sources: Box<[StableEntitySourceRecord<WaitingZoneOrdinal, WaitingZoneId>]>,
+    signal_group_sources: Box<[StableEntitySourceRecord<SignalGroupOrdinal, SignalGroupId>]>,
+    signal_controller_sources:
+        Box<[StableEntitySourceRecord<SignalControllerOrdinal, SignalControllerId>]>,
+    signal_phase_sources: Box<[StableEntitySourceRecord<SignalPhaseOrdinal, SignalPhaseId>]>,
+    signal_relation_sources: Box<[SignalRelationSourceRecord]>,
     junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
     static_route_sources: Box<[StableEntitySourceRecord<StaticRouteOrdinal, StaticRouteId>]>,
     route_relation_sources: Box<[RouteRelationSourceRecord]>,
@@ -325,6 +354,50 @@ impl ValidatedSourceMapInput {
         self.waiting_zone_sources
             .iter()
             .map(|record| WaitingZoneSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按 `SignalGroupOrdinal` 递增顺序遍历信号组来源记录。
+    pub fn signal_group_sources(&self) -> impl ExactSizeIterator<Item = SignalGroupSourceView<'_>> {
+        self.signal_group_sources
+            .iter()
+            .map(|record| SignalGroupSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按 `SignalControllerOrdinal` 递增顺序遍历信号控制器来源记录。
+    pub fn signal_controller_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = SignalControllerSourceView<'_>> {
+        self.signal_controller_sources
+            .iter()
+            .map(|record| SignalControllerSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按 `SignalPhaseOrdinal` 递增顺序遍历信号相位来源记录。
+    pub fn signal_phase_sources(&self) -> impl ExactSizeIterator<Item = SignalPhaseSourceView<'_>> {
+        self.signal_phase_sources
+            .iter()
+            .map(|record| SignalPhaseSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 遍历控制器程序、相位状态和机动门信号绑定的规范来源记录。
+    pub fn signal_relation_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = SignalRelationSourceView<'_>> {
+        self.signal_relation_sources
+            .iter()
+            .map(|record| SignalRelationSourceView {
                 source_map: self,
                 record,
             })
@@ -507,6 +580,13 @@ stable_source_view!(ManeuverPathSourceView, ManeuverPathOrdinal, ManeuverPathId)
 stable_source_view!(StopLineSourceView, StopLineOrdinal, StopLineId);
 stable_source_view!(ManeuverGateSourceView, ManeuverGateOrdinal, ManeuverGateId);
 stable_source_view!(WaitingZoneSourceView, WaitingZoneOrdinal, WaitingZoneId);
+stable_source_view!(SignalGroupSourceView, SignalGroupOrdinal, SignalGroupId);
+stable_source_view!(
+    SignalControllerSourceView,
+    SignalControllerOrdinal,
+    SignalControllerId
+);
+stable_source_view!(SignalPhaseSourceView, SignalPhaseOrdinal, SignalPhaseId);
 stable_source_view!(StaticRouteSourceView, StaticRouteOrdinal, StaticRouteId);
 
 /// 一条横断面 owner-local 关系来源记录的只读视图。
@@ -670,6 +750,78 @@ impl JunctionRelationSourceView<'_> {
     }
 }
 
+/// 信号所有权、程序或控制绑定关系 owner 的有类型身份。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum SignalRelationOwner {
+    /// 固定时制控制器及其有类型身份。
+    SignalController(SignalControllerOrdinal, SignalControllerId),
+    /// 控制器 owner-local 相位及其有类型身份。
+    SignalPhase(SignalPhaseOrdinal, SignalPhaseId),
+    /// 绑定信号组的机动门及其有类型身份。
+    ManeuverGate(ManeuverGateOrdinal, ManeuverGateId),
+}
+
+impl SignalRelationOwner {
+    /// 返回 owner 对应的 Identity v1 实体种类。
+    #[must_use]
+    pub const fn entity_kind(self) -> EntityKind {
+        match self {
+            Self::SignalController(_, _) => EntityKind::SignalController,
+            Self::SignalPhase(_, _) => EntityKind::SignalPhase,
+            Self::ManeuverGate(_, _) => EntityKind::ManeuverGate,
+        }
+    }
+}
+
+/// 一条固定时制信号 owner-local 关系来源记录的只读视图。
+#[derive(Clone, Copy)]
+pub struct SignalRelationSourceView<'a> {
+    source_map: &'a ValidatedSourceMapInput,
+    record: &'a SignalRelationSourceRecord,
+}
+
+impl SignalRelationSourceView<'_> {
+    /// 返回关系 owner 的有类型 LIR 序号与稳定标识。
+    #[must_use]
+    pub const fn owner(&self) -> SignalRelationOwner {
+        match self.record.owner {
+            SignalRelationOwnerRecord::SignalController(ordinal, stable_id) => {
+                SignalRelationOwner::SignalController(ordinal, stable_id)
+            }
+            SignalRelationOwnerRecord::SignalPhase(ordinal, stable_id) => {
+                SignalRelationOwner::SignalPhase(ordinal, stable_id)
+            }
+            SignalRelationOwnerRecord::ManeuverGate(ordinal, stable_id) => {
+                SignalRelationOwner::ManeuverGate(ordinal, stable_id)
+            }
+        }
+    }
+
+    /// 返回控制器成员、程序状态或门绑定的有类型角色。
+    #[must_use]
+    pub const fn role(&self) -> SourceRelationRole {
+        self.record.role
+    }
+
+    /// 返回同一 owner 与角色内的零基序号。
+    #[must_use]
+    pub const fn local_index(&self) -> u32 {
+        self.record.local_index
+    }
+
+    /// 返回建立该静态信号关系的主要来源位置。
+    #[must_use]
+    pub fn primary_source(&self) -> SourceLocationView<'_> {
+        self.source_map.location(self.record.primary)
+    }
+
+    /// 当前显式信号关系没有额外贡献来源。
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+        core::iter::empty()
+    }
+}
+
 /// 一条 owner-local 下游连接来源记录的只读视图。
 #[derive(Clone, Copy)]
 pub struct LaneEdgeSuccessorSourceView<'a> {
@@ -818,6 +970,25 @@ pub(crate) fn freeze_source_map(
     .fold(0_u64, |total, count| {
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
+    let signal_entity_count = [
+        mir.signal_groups.len(),
+        mir.signal_controllers.len(),
+        mir.signal_phases.len(),
+    ]
+    .into_iter()
+    .fold(0_u64, |total, count| {
+        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
+    });
+    let signal_relation_count = [
+        mir.signal_controller_groups.len(),
+        mir.signal_phases.len(),
+        mir.signal_phase_states.len(),
+        mir.signal_group_maneuver_gates.len(),
+    ]
+    .into_iter()
+    .fold(0_u64, |total, count| {
+        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
+    });
     let static_route_count = u64::try_from(mir.static_routes.len()).unwrap_or(u64::MAX);
     let route_relation_count = [
         mir.static_route_edges.len(),
@@ -854,6 +1025,8 @@ pub(crate) fn freeze_source_map(
         .saturating_add(
             junction_relation_count.saturating_mul(JUNCTION_RELATION_SOURCE_LOGICAL_BYTES),
         )
+        .saturating_add(signal_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
+        .saturating_add(signal_relation_count.saturating_mul(SIGNAL_RELATION_SOURCE_LOGICAL_BYTES))
         .saturating_add(static_route_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(route_relation_count.saturating_mul(ROUTE_RELATION_SOURCE_LOGICAL_BYTES))
         .saturating_add(
@@ -927,6 +1100,24 @@ pub(crate) fn freeze_source_map(
         ))
         .saturating_add(requested_bytes::<JunctionRelationSourceRecord>(
             junction_relation_count,
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<SignalGroupOrdinal, SignalGroupId>,
+        >(
+            mir.signal_groups.len().try_into().unwrap_or(u64::MAX)
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<SignalControllerOrdinal, SignalControllerId>,
+        >(
+            mir.signal_controllers.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<SignalPhaseOrdinal, SignalPhaseId>,
+        >(
+            mir.signal_phases.len().try_into().unwrap_or(u64::MAX)
+        ))
+        .saturating_add(requested_bytes::<SignalRelationSourceRecord>(
+            signal_relation_count,
         ))
         .saturating_add(requested_bytes::<
             StableEntitySourceRecord<StaticRouteOrdinal, StaticRouteId>,
@@ -1031,6 +1222,13 @@ pub(crate) fn freeze_source_map(
     let mut stop_line_sources = Vec::with_capacity(mir.stop_lines.len());
     let mut maneuver_gate_sources = Vec::with_capacity(mir.maneuver_gates.len());
     let mut waiting_zone_sources = Vec::with_capacity(mir.waiting_zones.len());
+    let mut signal_group_sources = Vec::with_capacity(mir.signal_groups.len());
+    let mut signal_controller_sources = Vec::with_capacity(mir.signal_controllers.len());
+    let mut signal_phase_sources = Vec::with_capacity(mir.signal_phases.len());
+    let mut signal_relation_sources = Vec::with_capacity(
+        usize::try_from(signal_relation_count)
+            .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
+    );
     let mut junction_relation_sources = Vec::with_capacity(
         usize::try_from(junction_relation_count)
             .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
@@ -1321,6 +1519,97 @@ pub(crate) fn freeze_source_map(
         });
     }
 
+    for mir_key in frozen_lir.canonical_mir_signal_group_order.iter().copied() {
+        let group = &mir.signal_groups[mir_key.index()];
+        signal_group_sources.push(StableEntitySourceRecord {
+            ordinal: frozen_lir.mir_signal_group_to_lir[mir_key.index()],
+            stable_id: group.stable_id,
+            primary: location(
+                mir.modules[group.module.index()].source_document_ordinal,
+                &group.source_span,
+            ),
+        });
+    }
+    for mir_key in frozen_lir
+        .canonical_mir_signal_controller_order
+        .iter()
+        .copied()
+    {
+        let controller = &mir.signal_controllers[mir_key.index()];
+        let ordinal = frozen_lir.mir_signal_controller_to_lir[mir_key.index()];
+        let source_document_ordinal =
+            mir.modules[controller.module.index()].source_document_ordinal;
+        signal_controller_sources.push(StableEntitySourceRecord {
+            ordinal,
+            stable_id: controller.stable_id,
+            primary: location(source_document_ordinal, &controller.source_span),
+        });
+        let lir_controller = &frozen_lir.lir.signal_controllers[ordinal.index()];
+        for local_index in 0..lir_controller.signal_groups.len() {
+            signal_relation_sources.push(SignalRelationSourceRecord {
+                owner: SignalRelationOwnerRecord::SignalController(ordinal, controller.stable_id),
+                role: SourceRelationRole::SignalControllerGroup,
+                local_index,
+                primary: location(source_document_ordinal, &controller.source_span),
+            });
+        }
+        for (local_index, phase_ordinal) in frozen_lir.lir.signal_controller_phases
+            [lir_controller.phases.as_usize_range()]
+        .iter()
+        .copied()
+        .enumerate()
+        {
+            let phase_key = frozen_lir.canonical_mir_signal_phase_order[phase_ordinal.index()];
+            let phase = &mir.signal_phases[phase_key.index()];
+            signal_relation_sources.push(SignalRelationSourceRecord {
+                owner: SignalRelationOwnerRecord::SignalController(ordinal, controller.stable_id),
+                role: SourceRelationRole::SignalControllerPhase,
+                local_index: u32::try_from(local_index)
+                    .expect("LIR relation range precheck proved local index fits u32"),
+                primary: location(
+                    mir.modules[phase.module.index()].source_document_ordinal,
+                    &phase.source_span,
+                ),
+            });
+        }
+    }
+    for mir_key in frozen_lir.canonical_mir_signal_phase_order.iter().copied() {
+        let phase = &mir.signal_phases[mir_key.index()];
+        let ordinal = frozen_lir.mir_signal_phase_to_lir[mir_key.index()];
+        let source_document_ordinal = mir.modules[phase.module.index()].source_document_ordinal;
+        signal_phase_sources.push(StableEntitySourceRecord {
+            ordinal,
+            stable_id: phase.stable_id,
+            primary: location(source_document_ordinal, &phase.source_span),
+        });
+        let lir_phase = &frozen_lir.lir.signal_phases[ordinal.index()];
+        for local_index in 0..lir_phase.states.len() {
+            signal_relation_sources.push(SignalRelationSourceRecord {
+                owner: SignalRelationOwnerRecord::SignalPhase(ordinal, phase.stable_id),
+                role: SourceRelationRole::SignalPhaseState,
+                local_index,
+                primary: location(source_document_ordinal, &phase.source_span),
+            });
+        }
+    }
+    for mir_key in frozen_lir.canonical_mir_maneuver_gate_order.iter().copied() {
+        let gate = &mir.maneuver_gates[mir_key.index()];
+        if matches!(gate.signal_control, MirSignalControl::Group(_)) {
+            signal_relation_sources.push(SignalRelationSourceRecord {
+                owner: SignalRelationOwnerRecord::ManeuverGate(
+                    frozen_lir.mir_maneuver_gate_to_lir[mir_key.index()],
+                    gate.stable_id,
+                ),
+                role: SourceRelationRole::ManeuverGateSignalGroup,
+                local_index: 0,
+                primary: location(
+                    mir.modules[gate.module.index()].source_document_ordinal,
+                    &gate.source_span,
+                ),
+            });
+        }
+    }
+
     for mir_key in frozen_lir.canonical_mir_static_route_order.iter().copied() {
         let route = &mir.static_routes[mir_key.index()];
         let ordinal = frozen_lir.mir_static_route_to_lir[mir_key.index()];
@@ -1437,6 +1726,10 @@ pub(crate) fn freeze_source_map(
         junction_relation_sources.len(),
         usize::try_from(junction_relation_count).unwrap_or(usize::MAX)
     );
+    debug_assert_eq!(
+        signal_relation_sources.len(),
+        usize::try_from(signal_relation_count).unwrap_or(usize::MAX)
+    );
     let source_modules = unit.into_source_module_descriptors();
     Ok(ValidatedSourceMapInput {
         source_modules,
@@ -1454,6 +1747,10 @@ pub(crate) fn freeze_source_map(
         stop_line_sources: stop_line_sources.into_boxed_slice(),
         maneuver_gate_sources: maneuver_gate_sources.into_boxed_slice(),
         waiting_zone_sources: waiting_zone_sources.into_boxed_slice(),
+        signal_group_sources: signal_group_sources.into_boxed_slice(),
+        signal_controller_sources: signal_controller_sources.into_boxed_slice(),
+        signal_phase_sources: signal_phase_sources.into_boxed_slice(),
+        signal_relation_sources: signal_relation_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),
         static_route_sources: static_route_sources.into_boxed_slice(),
         route_relation_sources: route_relation_sources.into_boxed_slice(),

@@ -16,8 +16,9 @@ use laneflow_static_contract::{
     FieldTag, JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId,
     LaneGroupOrdinal, ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal,
     MovementId, MovementOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
-    RoadSectionOrdinal, StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal,
-    WaitingZoneId, WaitingZoneOrdinal,
+    RoadSectionOrdinal, SignalAspect, SignalControllerId, SignalControllerOrdinal, SignalGroupId,
+    SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal,
+    StopLineId, StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange};
@@ -25,7 +26,8 @@ use crate::diagnostic::DiagnosticCollector;
 use crate::mir::{
     MirAuthoringLaneKey, MirCorridorElement, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeKey,
     MirLaneGroupKey, MirManeuverGateKey, MirManeuverPathKey, MirMovementKey, MirRoadCorridorKey,
-    MirRoadSectionKey, MirStaticRouteKey, MirStopLineKey, MirUnit, MirWaitingZoneKey,
+    MirRoadSectionKey, MirSignalControl, MirSignalControllerKey, MirSignalGroupKey,
+    MirSignalPhaseKey, MirStaticRouteKey, MirStopLineKey, MirUnit, MirWaitingZoneKey,
 };
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
@@ -45,7 +47,7 @@ const LIR_JUNCTION_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8;
 const LIR_MOVEMENT_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 8;
 const LIR_MANEUVER_PATH_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 8 + 8 + 8;
 const LIR_STOP_LINE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
-const LIR_MANEUVER_GATE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 8;
+const LIR_MANEUVER_GATE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 1 + 4 + 8;
 const LIR_WAITING_ZONE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 4 + 4 + 4 + 8;
 const LIR_STATIC_ROUTE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8 + 8 + 8 + 8 + 8;
 const LIR_MANEUVER_OCCURRENCE_LOGICAL_BYTES: u64 = 4 + 4 + 4 + 8 + 8;
@@ -54,6 +56,10 @@ const LIR_WAITING_OCCURRENCE_LOGICAL_BYTES: u64 = 4 + 4 + 4 + 4 + 4 + 4;
 const LIR_ROUTE_OCCURRENCE_REF_LOGICAL_BYTES: u64 = 4 + 4;
 const LIR_JUNCTION_INTERNAL_EDGE_LOGICAL_BYTES: u64 = 4 + 4;
 const LIR_TYPED_ORDINAL_LOGICAL_BYTES: u64 = 4;
+const LIR_SIGNAL_GROUP_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
+const LIR_SIGNAL_CONTROLLER_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8 + 8 + 8 + 8;
+const LIR_SIGNAL_PHASE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 8;
+const LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES: u64 = 4 + 1;
 const LIR_CORRIDOR_ELEMENT_LOGICAL_BYTES: u64 = 2 + 4;
 const LIR_SEMANTIC_DIGEST_BYTES: u64 = 32;
 
@@ -174,7 +180,46 @@ pub(crate) struct LirManeuverGate {
     pub(crate) maneuver_path: ManeuverPathOrdinal,
     pub(crate) transition_index: u32,
     pub(crate) stop_line: StopLineOrdinal,
+    pub(crate) signal_control: LirSignalControl,
     pub(crate) static_route_occurrences: TableRange<LirRouteOccurrenceRef>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum LirSignalControl {
+    Group(SignalGroupOrdinal),
+    None,
+}
+
+pub(crate) struct LirSignalGroup {
+    pub(crate) ordinal: SignalGroupOrdinal,
+    pub(crate) stable_id: SignalGroupId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) controller: SignalControllerOrdinal,
+    pub(crate) maneuver_gates: TableRange<ManeuverGateOrdinal>,
+}
+
+pub(crate) struct LirSignalController {
+    pub(crate) ordinal: SignalControllerOrdinal,
+    pub(crate) stable_id: SignalControllerId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) offset_ms: u64,
+    pub(crate) cycle_duration_ms: u64,
+    pub(crate) signal_groups: TableRange<SignalGroupOrdinal>,
+    pub(crate) phases: TableRange<SignalPhaseOrdinal>,
+}
+
+pub(crate) struct LirSignalPhase {
+    pub(crate) ordinal: SignalPhaseOrdinal,
+    pub(crate) stable_id: SignalPhaseId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) controller: SignalControllerOrdinal,
+    pub(crate) duration_ms: u64,
+    pub(crate) states: TableRange<LirSignalPhaseState>,
+}
+
+pub(crate) struct LirSignalPhaseState {
+    pub(crate) signal_group: SignalGroupOrdinal,
+    pub(crate) aspect: SignalAspect,
 }
 
 pub(crate) struct LirWaitingZone {
@@ -271,6 +316,13 @@ pub(crate) struct LirUnit {
     pub(crate) maneuver_path_gates: Box<[ManeuverGateOrdinal]>,
     pub(crate) maneuver_path_waiting_zones: Box<[WaitingZoneOrdinal]>,
     pub(crate) stop_line_maneuver_gates: Box<[ManeuverGateOrdinal]>,
+    pub(crate) signal_groups: Box<[LirSignalGroup]>,
+    pub(crate) signal_controllers: Box<[LirSignalController]>,
+    pub(crate) signal_controller_groups: Box<[SignalGroupOrdinal]>,
+    pub(crate) signal_controller_phases: Box<[SignalPhaseOrdinal]>,
+    pub(crate) signal_phases: Box<[LirSignalPhase]>,
+    pub(crate) signal_phase_states: Box<[LirSignalPhaseState]>,
+    pub(crate) signal_group_maneuver_gates: Box<[ManeuverGateOrdinal]>,
     pub(crate) static_routes: Box<[LirStaticRoute]>,
     pub(crate) static_route_edges: Box<[LaneEdgeOrdinal]>,
     pub(crate) static_route_transitions: Box<[LirStaticRouteTransition]>,
@@ -322,6 +374,12 @@ pub(crate) struct LirFreezeOutput {
     pub(crate) mir_maneuver_gate_to_lir: Box<[ManeuverGateOrdinal]>,
     pub(crate) canonical_mir_waiting_zone_order: Box<[MirWaitingZoneKey]>,
     pub(crate) mir_waiting_zone_to_lir: Box<[WaitingZoneOrdinal]>,
+    pub(crate) canonical_mir_signal_group_order: Box<[MirSignalGroupKey]>,
+    pub(crate) mir_signal_group_to_lir: Box<[SignalGroupOrdinal]>,
+    pub(crate) canonical_mir_signal_controller_order: Box<[MirSignalControllerKey]>,
+    pub(crate) mir_signal_controller_to_lir: Box<[SignalControllerOrdinal]>,
+    pub(crate) canonical_mir_signal_phase_order: Box<[MirSignalPhaseKey]>,
+    pub(crate) mir_signal_phase_to_lir: Box<[SignalPhaseOrdinal]>,
     pub(crate) canonical_mir_static_route_order: Box<[MirStaticRouteKey]>,
     pub(crate) mir_static_route_to_lir: Box<[StaticRouteOrdinal]>,
 }
@@ -396,6 +454,21 @@ impl LirFreezeOutput {
             self.canonical_mir_waiting_zone_order.len(),
             self.mir_waiting_zone_to_lir.len(),
         ))
+        .saturating_add(mapping_pair_bytes::<MirSignalGroupKey, SignalGroupOrdinal>(
+            self.canonical_mir_signal_group_order.len(),
+            self.mir_signal_group_to_lir.len(),
+        ))
+        .saturating_add(mapping_pair_bytes::<
+            MirSignalControllerKey,
+            SignalControllerOrdinal,
+        >(
+            self.canonical_mir_signal_controller_order.len(),
+            self.mir_signal_controller_to_lir.len(),
+        ))
+        .saturating_add(mapping_pair_bytes::<MirSignalPhaseKey, SignalPhaseOrdinal>(
+            self.canonical_mir_signal_phase_order.len(),
+            self.mir_signal_phase_to_lir.len(),
+        ))
         .saturating_add(mapping_pair_bytes::<MirStaticRouteKey, StaticRouteOrdinal>(
             self.canonical_mir_static_route_order.len(),
             self.mir_static_route_to_lir.len(),
@@ -440,6 +513,14 @@ pub(crate) fn freeze_lir(
     let stop_line_count = u64::try_from(mir.stop_lines.len()).unwrap_or(u64::MAX);
     let maneuver_gate_count = u64::try_from(mir.maneuver_gates.len()).unwrap_or(u64::MAX);
     let waiting_zone_count = u64::try_from(mir.waiting_zones.len()).unwrap_or(u64::MAX);
+    let signal_group_count = u64::try_from(mir.signal_groups.len()).unwrap_or(u64::MAX);
+    let signal_controller_count = u64::try_from(mir.signal_controllers.len()).unwrap_or(u64::MAX);
+    let signal_controller_group_count =
+        u64::try_from(mir.signal_controller_groups.len()).unwrap_or(u64::MAX);
+    let signal_phase_count = u64::try_from(mir.signal_phases.len()).unwrap_or(u64::MAX);
+    let signal_phase_state_count = u64::try_from(mir.signal_phase_states.len()).unwrap_or(u64::MAX);
+    let signal_group_gate_count =
+        u64::try_from(mir.signal_group_maneuver_gates.len()).unwrap_or(u64::MAX);
     let static_route_count = u64::try_from(mir.static_routes.len()).unwrap_or(u64::MAX);
     let static_route_edge_count = u64::try_from(mir.static_route_edges.len()).unwrap_or(u64::MAX);
     let static_route_transition_count =
@@ -485,6 +566,13 @@ pub(crate) fn freeze_lir(
         reverse_occurrence_count,
         waiting_zone_count,
         maneuver_gate_count,
+        signal_group_count,
+        signal_controller_count,
+        signal_controller_group_count,
+        signal_phase_count,
+        signal_phase_count,
+        signal_phase_state_count,
+        signal_group_gate_count,
         waiting_zone_count,
         maneuver_gate_count,
     ]
@@ -506,6 +594,9 @@ pub(crate) fn freeze_lir(
         .saturating_add(stop_line_count.saturating_mul(2))
         .saturating_add(maneuver_gate_count.saturating_mul(3))
         .saturating_add(waiting_zone_count.saturating_mul(3))
+        .saturating_add(signal_group_count.saturating_mul(2))
+        .saturating_add(signal_controller_count.saturating_mul(2))
+        .saturating_add(signal_phase_count.saturating_mul(3))
         .saturating_add(static_route_count.saturating_mul(2));
     let identity_field_byte_count = identity_field_byte_count(mir);
     let kind_id_byte_count = mir
@@ -542,6 +633,9 @@ pub(crate) fn freeze_lir(
                 .saturating_add(stop_line_count)
                 .saturating_add(maneuver_gate_count)
                 .saturating_add(waiting_zone_count)
+                .saturating_add(signal_group_count)
+                .saturating_add(signal_controller_count)
+                .saturating_add(signal_phase_count)
                 .saturating_add(static_route_count)
                 .saturating_mul(2),
         ))
@@ -581,6 +675,17 @@ pub(crate) fn freeze_lir(
         .saturating_add(maneuver_gate_count.saturating_mul(LIR_MANEUVER_GATE_LOGICAL_BYTES))
         .saturating_add(waiting_zone_count.saturating_mul(LIR_WAITING_ZONE_LOGICAL_BYTES))
         .saturating_add(maneuver_gate_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
+        .saturating_add(signal_group_count.saturating_mul(LIR_SIGNAL_GROUP_LOGICAL_BYTES))
+        .saturating_add(signal_controller_count.saturating_mul(LIR_SIGNAL_CONTROLLER_LOGICAL_BYTES))
+        .saturating_add(
+            signal_controller_group_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES),
+        )
+        .saturating_add(signal_phase_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
+        .saturating_add(signal_phase_count.saturating_mul(LIR_SIGNAL_PHASE_LOGICAL_BYTES))
+        .saturating_add(
+            signal_phase_state_count.saturating_mul(LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES),
+        )
+        .saturating_add(signal_group_gate_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(static_route_count.saturating_mul(LIR_STATIC_ROUTE_LOGICAL_BYTES))
         .saturating_add(static_route_edge_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(
@@ -632,6 +737,22 @@ pub(crate) fn freeze_lir(
         .saturating_add(requested_bytes::<ManeuverGateOrdinal>(maneuver_gate_count))
         .saturating_add(requested_bytes::<WaitingZoneOrdinal>(waiting_zone_count))
         .saturating_add(requested_bytes::<ManeuverGateOrdinal>(maneuver_gate_count));
+    let output_owned_bytes = output_owned_bytes
+        .saturating_add(requested_bytes::<LirSignalGroup>(signal_group_count))
+        .saturating_add(requested_bytes::<LirSignalController>(
+            signal_controller_count,
+        ))
+        .saturating_add(requested_bytes::<SignalGroupOrdinal>(
+            signal_controller_group_count,
+        ))
+        .saturating_add(requested_bytes::<SignalPhaseOrdinal>(signal_phase_count))
+        .saturating_add(requested_bytes::<LirSignalPhase>(signal_phase_count))
+        .saturating_add(requested_bytes::<LirSignalPhaseState>(
+            signal_phase_state_count,
+        ))
+        .saturating_add(requested_bytes::<ManeuverGateOrdinal>(
+            signal_group_gate_count,
+        ));
     let output_owned_bytes = output_owned_bytes
         .saturating_add(requested_bytes::<LirStaticRoute>(static_route_count))
         .saturating_add(requested_bytes::<LaneEdgeOrdinal>(static_route_edge_count))
@@ -1325,6 +1446,87 @@ pub(crate) fn freeze_lir(
         primary_span.clone(),
     )?;
 
+    let mut canonical_mir_signal_group_order: Vec<MirSignalGroupKey> =
+        dense_mir_keys(mir.signal_groups.len());
+    canonical_mir_signal_group_order.sort_unstable_by(|left, right| {
+        let left = &mir.signal_groups[left.index()];
+        let right = &mir.signal_groups[right.index()];
+        compare_identity_parts(
+            &mir.modules[left.module.index()].authoring_namespace_id,
+            &left.stable_key,
+            None,
+            &mir.modules[right.module.index()].authoring_namespace_id,
+            &right.stable_key,
+            None,
+        )
+    });
+    let mir_signal_group_to_lir = ordinal_mapping(
+        mir.signal_groups.len(),
+        &canonical_mir_signal_group_order,
+        SignalGroupOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
+    let mut canonical_mir_signal_controller_order: Vec<MirSignalControllerKey> =
+        dense_mir_keys(mir.signal_controllers.len());
+    canonical_mir_signal_controller_order.sort_unstable_by(|left, right| {
+        let left = &mir.signal_controllers[left.index()];
+        let right = &mir.signal_controllers[right.index()];
+        compare_identity_parts(
+            &mir.modules[left.module.index()].authoring_namespace_id,
+            &left.stable_key,
+            None,
+            &mir.modules[right.module.index()].authoring_namespace_id,
+            &right.stable_key,
+            None,
+        )
+    });
+    let mir_signal_controller_to_lir = ordinal_mapping(
+        mir.signal_controllers.len(),
+        &canonical_mir_signal_controller_order,
+        SignalControllerOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
+    let mut canonical_mir_signal_phase_order: Vec<MirSignalPhaseKey> =
+        dense_mir_keys(mir.signal_phases.len());
+    canonical_mir_signal_phase_order.sort_unstable_by(|left, right| {
+        let left = &mir.signal_phases[left.index()];
+        let right = &mir.signal_phases[right.index()];
+        compare_length_prefixed(
+            mir.modules[left.module.index()]
+                .authoring_namespace_id
+                .as_bytes(),
+            mir.modules[right.module.index()]
+                .authoring_namespace_id
+                .as_bytes(),
+        )
+        .then_with(|| {
+            mir.signal_controllers[left.controller.index()]
+                .stable_id
+                .as_untyped()
+                .as_bytes()
+                .cmp(
+                    mir.signal_controllers[right.controller.index()]
+                        .stable_id
+                        .as_untyped()
+                        .as_bytes(),
+                )
+        })
+        .then_with(|| {
+            compare_length_prefixed(left.stable_key.as_bytes(), right.stable_key.as_bytes())
+        })
+    });
+    let mir_signal_phase_to_lir = ordinal_mapping(
+        mir.signal_phases.len(),
+        &canonical_mir_signal_phase_order,
+        SignalPhaseOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
     let mut canonical_mir_static_route_order: Vec<MirStaticRouteKey> =
         dense_mir_keys(mir.static_routes.len());
     canonical_mir_static_route_order.sort_unstable_by(|left, right| {
@@ -1633,6 +1835,12 @@ pub(crate) fn freeze_lir(
             maneuver_path: mir_maneuver_path_to_lir[gate.maneuver_path.index()],
             transition_index: gate.transition_index,
             stop_line: mir_stop_line_to_lir[gate.stop_line.index()],
+            signal_control: match gate.signal_control {
+                MirSignalControl::Group(group) => {
+                    LirSignalControl::Group(mir_signal_group_to_lir[group.index()])
+                }
+                MirSignalControl::None => LirSignalControl::None,
+            },
             static_route_occurrences: TableRange::empty(),
         });
     }
@@ -1680,6 +1888,151 @@ pub(crate) fn freeze_lir(
             release_gate: mir_maneuver_gate_to_lir[waiting.release_gate.index()],
             max_occupancy: waiting.max_occupancy,
             static_route_occurrences: TableRange::empty(),
+        });
+    }
+
+    let mut signal_groups = Vec::with_capacity(mir.signal_groups.len());
+    let mut signal_group_maneuver_gates = Vec::with_capacity(mir.signal_group_maneuver_gates.len());
+    for mir_key in canonical_mir_signal_group_order.iter().copied() {
+        let group = &mir.signal_groups[mir_key.index()];
+        let identity_range = push_lir_identity(
+            &mut identity_fields,
+            &mut identity_field_bytes,
+            FieldTag::SignalGroupKey,
+            &mir.modules[group.module.index()].authoring_namespace_id,
+            &group.stable_key,
+            None,
+            &unit.limits,
+            primary_span.clone(),
+        )?;
+        let gate_start = signal_group_maneuver_gates.len();
+        signal_group_maneuver_gates.extend(
+            mir.signal_group_maneuver_gates[group.maneuver_gates.as_usize_range()]
+                .iter()
+                .map(|member| mir_maneuver_gate_to_lir[member.maneuver_gate.index()]),
+        );
+        signal_group_maneuver_gates[gate_start..].sort_unstable();
+        signal_groups.push(LirSignalGroup {
+            ordinal: mir_signal_group_to_lir[mir_key.index()],
+            stable_id: group.stable_id,
+            identity_fields: identity_range,
+            controller: mir_signal_controller_to_lir[group.controller.index()],
+            maneuver_gates: relation_range(
+                gate_start,
+                signal_group_maneuver_gates.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+        });
+    }
+
+    let mut signal_controllers = Vec::with_capacity(mir.signal_controllers.len());
+    let mut signal_controller_groups = Vec::with_capacity(mir.signal_controller_groups.len());
+    let mut signal_controller_phases = Vec::with_capacity(mir.signal_phases.len());
+    for mir_key in canonical_mir_signal_controller_order.iter().copied() {
+        let controller = &mir.signal_controllers[mir_key.index()];
+        let identity_range = push_lir_identity(
+            &mut identity_fields,
+            &mut identity_field_bytes,
+            FieldTag::SignalControllerKey,
+            &mir.modules[controller.module.index()].authoring_namespace_id,
+            &controller.stable_key,
+            None,
+            &unit.limits,
+            primary_span.clone(),
+        )?;
+        let group_start = signal_controller_groups.len();
+        signal_controller_groups.extend(
+            mir.signal_controller_groups[controller.signal_groups.as_usize_range()]
+                .iter()
+                .map(|member| mir_signal_group_to_lir[member.signal_group.index()]),
+        );
+        // 信号组是集合语义；LIR 统一使用规范 ordinal 顺序。
+        signal_controller_groups[group_start..].sort_unstable();
+        let phase_start = signal_controller_phases.len();
+        for phase_index in controller.phases.as_usize_range() {
+            signal_controller_phases.push(mir_signal_phase_to_lir[phase_index]);
+        }
+        signal_controllers.push(LirSignalController {
+            ordinal: mir_signal_controller_to_lir[mir_key.index()],
+            stable_id: controller.stable_id,
+            identity_fields: identity_range,
+            offset_ms: controller.offset_ms,
+            cycle_duration_ms: controller.cycle_duration_ms,
+            signal_groups: relation_range(
+                group_start,
+                signal_controller_groups.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+            // 相位顺序就是固定时制程序顺序，不能按 ordinal 再排序。
+            phases: relation_range(
+                phase_start,
+                signal_controller_phases.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+        });
+    }
+
+    let mut signal_phases = Vec::with_capacity(mir.signal_phases.len());
+    let mut signal_phase_states = Vec::with_capacity(mir.signal_phase_states.len());
+    for mir_key in canonical_mir_signal_phase_order.iter().copied() {
+        let phase = &mir.signal_phases[mir_key.index()];
+        let identity_start = identity_fields.len();
+        for (tag, value) in [
+            (
+                FieldTag::AuthoringNamespaceId,
+                mir.modules[phase.module.index()]
+                    .authoring_namespace_id
+                    .as_bytes(),
+            ),
+            (
+                FieldTag::SignalControllerStableId,
+                mir.signal_controllers[phase.controller.index()]
+                    .stable_id
+                    .as_untyped()
+                    .as_bytes(),
+            ),
+            (FieldTag::PhaseKey, phase.stable_key.as_bytes()),
+        ] {
+            push_identity_field(
+                &mut identity_fields,
+                &mut identity_field_bytes,
+                tag,
+                value,
+                &unit.limits,
+                primary_span.clone(),
+            )?;
+        }
+        let state_start = signal_phase_states.len();
+        signal_phase_states.extend(
+            mir.signal_phase_states[phase.states.as_usize_range()]
+                .iter()
+                .map(|state| LirSignalPhaseState {
+                    signal_group: mir_signal_group_to_lir[state.signal_group.index()],
+                    aspect: state.aspect,
+                }),
+        );
+        // 相位状态与控制器组表使用同一规范 ordinal 轴，调用方可以逐项配对读取。
+        signal_phase_states[state_start..].sort_unstable_by_key(|state| state.signal_group);
+        signal_phases.push(LirSignalPhase {
+            ordinal: mir_signal_phase_to_lir[mir_key.index()],
+            stable_id: phase.stable_id,
+            identity_fields: relation_range(
+                identity_start,
+                identity_fields.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+            controller: mir_signal_controller_to_lir[phase.controller.index()],
+            duration_ms: phase.duration_ms,
+            states: relation_range(
+                state_start,
+                signal_phase_states.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
         });
     }
 
@@ -1915,6 +2268,13 @@ pub(crate) fn freeze_lir(
         &maneuver_path_gates,
         &maneuver_path_waiting_zones,
         &stop_line_maneuver_gates,
+        &signal_groups,
+        &signal_controllers,
+        &signal_controller_groups,
+        &signal_controller_phases,
+        &signal_phases,
+        &signal_phase_states,
+        &signal_group_maneuver_gates,
         &static_routes,
         &static_route_edges,
         &static_route_transitions,
@@ -1950,6 +2310,13 @@ pub(crate) fn freeze_lir(
             maneuver_path_gates: maneuver_path_gates.into_boxed_slice(),
             maneuver_path_waiting_zones: maneuver_path_waiting_zones.into_boxed_slice(),
             stop_line_maneuver_gates: stop_line_maneuver_gates.into_boxed_slice(),
+            signal_groups: signal_groups.into_boxed_slice(),
+            signal_controllers: signal_controllers.into_boxed_slice(),
+            signal_controller_groups: signal_controller_groups.into_boxed_slice(),
+            signal_controller_phases: signal_controller_phases.into_boxed_slice(),
+            signal_phases: signal_phases.into_boxed_slice(),
+            signal_phase_states: signal_phase_states.into_boxed_slice(),
+            signal_group_maneuver_gates: signal_group_maneuver_gates.into_boxed_slice(),
             static_routes: static_routes.into_boxed_slice(),
             static_route_edges: static_route_edges.into_boxed_slice(),
             static_route_transitions: static_route_transitions.into_boxed_slice(),
@@ -1992,6 +2359,13 @@ pub(crate) fn freeze_lir(
         mir_maneuver_gate_to_lir: mir_maneuver_gate_to_lir.into_boxed_slice(),
         canonical_mir_waiting_zone_order: canonical_mir_waiting_zone_order.into_boxed_slice(),
         mir_waiting_zone_to_lir: mir_waiting_zone_to_lir.into_boxed_slice(),
+        canonical_mir_signal_group_order: canonical_mir_signal_group_order.into_boxed_slice(),
+        mir_signal_group_to_lir: mir_signal_group_to_lir.into_boxed_slice(),
+        canonical_mir_signal_controller_order: canonical_mir_signal_controller_order
+            .into_boxed_slice(),
+        mir_signal_controller_to_lir: mir_signal_controller_to_lir.into_boxed_slice(),
+        canonical_mir_signal_phase_order: canonical_mir_signal_phase_order.into_boxed_slice(),
+        mir_signal_phase_to_lir: mir_signal_phase_to_lir.into_boxed_slice(),
         canonical_mir_static_route_order: canonical_mir_static_route_order.into_boxed_slice(),
         mir_static_route_to_lir: mir_static_route_to_lir.into_boxed_slice(),
     })
@@ -2209,6 +2583,20 @@ fn identity_field_byte_count(mir: &MirUnit) -> u64 {
             true,
         );
     }
+    for group in &mir.signal_groups {
+        add(&mut total, group.module.index(), &group.stable_key, false);
+    }
+    for controller in &mir.signal_controllers {
+        add(
+            &mut total,
+            controller.module.index(),
+            &controller.stable_key,
+            false,
+        );
+    }
+    for phase in &mir.signal_phases {
+        add(&mut total, phase.module.index(), &phase.stable_key, true);
+    }
     for route in &mir.static_routes {
         add(&mut total, route.module.index(), &route.stable_key, false);
     }
@@ -2296,6 +2684,13 @@ fn semantic_digest(
     maneuver_path_gates: &[ManeuverGateOrdinal],
     maneuver_path_waiting_zones: &[WaitingZoneOrdinal],
     stop_line_maneuver_gates: &[ManeuverGateOrdinal],
+    signal_groups: &[LirSignalGroup],
+    signal_controllers: &[LirSignalController],
+    signal_controller_groups: &[SignalGroupOrdinal],
+    signal_controller_phases: &[SignalPhaseOrdinal],
+    signal_phases: &[LirSignalPhase],
+    signal_phase_states: &[LirSignalPhaseState],
+    signal_group_maneuver_gates: &[ManeuverGateOrdinal],
     static_routes: &[LirStaticRoute],
     static_route_edges: &[LaneEdgeOrdinal],
     static_route_transitions: &[LirStaticRouteTransition],
@@ -2536,6 +2931,15 @@ fn semantic_digest(
         hash_u32(&mut hasher, gate.maneuver_path.raw());
         hash_u32(&mut hasher, gate.transition_index);
         hash_u32(&mut hasher, gate.stop_line.raw());
+        match gate.signal_control {
+            LirSignalControl::Group(group) => {
+                hasher.update(&[1]);
+                hash_u32(&mut hasher, group.raw());
+            }
+            LirSignalControl::None => {
+                hasher.update(&[0]);
+            }
+        }
     }
     hash_u32(&mut hasher, EntityKind::WaitingZone.code().into());
     hash_u32(
@@ -2555,6 +2959,73 @@ fn semantic_digest(
         hash_u32(&mut hasher, waiting.entry_gate.raw());
         hash_u32(&mut hasher, waiting.release_gate.raw());
         hash_u32(&mut hasher, waiting.max_occupancy);
+    }
+    hash_u32(&mut hasher, EntityKind::SignalGroup.code().into());
+    hash_u32(
+        &mut hasher,
+        signal_groups.len().try_into().unwrap_or(u32::MAX),
+    );
+    for group in signal_groups {
+        hash_u32(&mut hasher, group.ordinal.raw());
+        hasher.update(group.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            group.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_u32(&mut hasher, group.controller.raw());
+        hash_u32(&mut hasher, group.maneuver_gates.len());
+        for gate in &signal_group_maneuver_gates[group.maneuver_gates.as_usize_range()] {
+            hash_u32(&mut hasher, gate.raw());
+        }
+    }
+    hash_u32(&mut hasher, EntityKind::SignalController.code().into());
+    hash_u32(
+        &mut hasher,
+        signal_controllers.len().try_into().unwrap_or(u32::MAX),
+    );
+    for controller in signal_controllers {
+        hash_u32(&mut hasher, controller.ordinal.raw());
+        hasher.update(controller.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            controller.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hasher.update(&controller.offset_ms.to_le_bytes());
+        hasher.update(&controller.cycle_duration_ms.to_le_bytes());
+        hash_u32(&mut hasher, controller.signal_groups.len());
+        for group in &signal_controller_groups[controller.signal_groups.as_usize_range()] {
+            hash_u32(&mut hasher, group.raw());
+        }
+        hash_u32(&mut hasher, controller.phases.len());
+        for phase in &signal_controller_phases[controller.phases.as_usize_range()] {
+            hash_u32(&mut hasher, phase.raw());
+        }
+    }
+    hash_u32(&mut hasher, EntityKind::SignalPhase.code().into());
+    hash_u32(
+        &mut hasher,
+        signal_phases.len().try_into().unwrap_or(u32::MAX),
+    );
+    for phase in signal_phases {
+        hash_u32(&mut hasher, phase.ordinal.raw());
+        hasher.update(phase.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            phase.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_u32(&mut hasher, phase.controller.raw());
+        hasher.update(&phase.duration_ms.to_le_bytes());
+        hash_u32(&mut hasher, phase.states.len());
+        for state in &signal_phase_states[phase.states.as_usize_range()] {
+            hash_u32(&mut hasher, state.signal_group.raw());
+            hasher.update(&[signal_aspect_digest_code(state.aspect)]);
+        }
     }
     hash_u32(&mut hasher, EntityKind::StaticRoute.code().into());
     hash_u32(
@@ -2612,6 +3083,16 @@ fn semantic_digest(
         }
     }
     *hasher.finalize().as_bytes()
+}
+
+#[allow(unreachable_patterns)]
+fn signal_aspect_digest_code(aspect: SignalAspect) -> u8 {
+    match aspect {
+        SignalAspect::Red => 1,
+        SignalAspect::Yellow => 2,
+        SignalAspect::Green => 3,
+        _ => unreachable!("compiler received an unsupported SignalAspect variant"),
+    }
 }
 
 fn hash_optional_ordinal(hasher: &mut blake3::Hasher, value: Option<u32>) {
