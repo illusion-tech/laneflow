@@ -1,7 +1,7 @@
 # 路网编译器与目标静态镜像
 
-**文档状态**: Accepted（#291 target design；未实现）<br>
-**最后更新**: 2026-07-29<br>
+**文档状态**: Accepted（#291 target design）；#315 G1 共同受检模块接入修订提案中<br>
+**最后更新**: 2026-08-04<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网编译权威、标识派生、可移植规范制品（Portable Canonical
 Artifact）、目标静态镜像（Target Static Image）、源映射（Source Map）、语义差异
@@ -10,9 +10,9 @@ Runtime）命名、静态执行约束（Static Execution Constraints）、不可
 （Immutable Network Revision）和当前态（Current）→目标态（Target）迁移<br>
 **实现状态**: 未实现；当前态生产路径仍使用 Traffic v0.10 / SpatialPackage v0.1 /
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
-#292 已重划为编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
-（Synthetic DSL Frontend）；#291 G1 前置条件已经满足，#292 G1 已接受实现设计，
-仍须按自身 Gate 完成 G2 开工、实现与最终交付
+#292 已完成编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
+（Synthetic DSL Frontend）G4；#315 正在 G1 冻结多官方前端的共同受检模块接入，
+未授权生产 Rust 实现
 
 **关联决策与设计**:
 
@@ -242,7 +242,28 @@ compiler、Adapter 或 scenario policy 绕过。
 - 使用 Rust 容器遍历顺序作为标识/顺序；
 - 把 builder-only TOML/Rust type 公开为 interchange contract。
 
-### 5.2 几何文档前端（Geometry Document Frontend）
+### 5.2 官方前端共同受检模块接入（Shared Checked Module Admission，#315 Proposed）
+
+合成、几何与当前态导入来源都以字段私有的具体官方前端模块进入
+`CompilationUnitBuilder`，但构建器内部只存在一条编译器私有（compiler-private）
+原子接入路径。
+该路径统一拥有命名空间/来源文档唯一性、共同接入适用的全部资源上限、失败不污染和
+规范模块顺序；前端不得复制这些规则。成功 `build` 后，`CompilationUnit` 只保存共同
+`TypedAstModule`，HIR/MIR 不按来源语言分支。
+
+来源专用封装以移动语义进入接入值，不复制完整 AST、字符串或几何。精确来源记录
+（exact source record）只存续到官方前端 `finish` 完成一次摘要、长度和来源位置派生；
+共同接入只保留已绑定摘要、精确长度、来源位置与来源沿袭。借用调用方输入的前端不得
+为接入复制来源全文。记录级循环禁止特征对象（trait object）、前端枚举
+（enum）分支、重复
+摘要、重复资源计数或第二次规范排序。精确所有权、失败事务、#297 迁移包依赖图和
+配对性能验证以 `compiler-foundation.md` 第 2.3、3.3 与 10.4 节为权威。
+
+这不是第三方前端插件协议。公开面只增加 LaneFlow 拥有的具体
+`add_geometry_module` / `add_current_import_module`；通用 `add_module`、公共前端
+特征（trait）、裸 Typed AST 和裸描述符/内容配对继续禁止。
+
+### 5.3 几何文档前端（Geometry Document Frontend）
 
 长期生产 authoring frontend。目标模型包含：
 
@@ -255,7 +276,7 @@ compiler、Adapter 或 scenario policy 绕过。
 authoring curve evaluator。具体 curve segment 集合由独立 numeric/authoring G1
 和 benchmark 冻结，不在 #291 先选 library。
 
-### 5.3 导入与编辑器编制（Import and Editor Authoring）
+### 5.4 导入与编辑器编制（Import and Editor Authoring）
 
 - importer 保存来源 provenance，必须显式生成稳定 key；不允许用导入遍历 ordinal
   冒充标识；
@@ -1667,6 +1688,20 @@ laneflow-adapter-* ------> laneflow-spatial
 laneflow-adapter-* ------> laneflow-static-image
 ```
 
+#315 G1 另外提议下列迁移专用边界；它不进入上述目标生产/运行时包依赖图：
+
+```text
+laneflow-current-import --> laneflow-compiler
+laneflow-current-import --> laneflow-current-source
+laneflow-data -----------> laneflow-current-source
+```
+
+`laneflow-current-source` 是无 Core/Spatial 依赖的版本锁定当前态包线格式解码 SSOT；
+`laneflow-current-import` 从其受检 DTO 构造编译器拥有的具体导入模块。
+`laneflow-compiler` 不能反向依赖任一迁移/当前态包，导入器也不能消费
+`InitialTrafficData` 或 `SpatialRegistry`。完整职责和退役边界见
+`compiler-foundation.md` 第 2.3 节。
+
 职责与禁止依赖：
 
 | 包（Crate）                | 拥有职责（Owns）                                                                                    | 禁止依赖（Must Not Depend On）                                      |
@@ -1692,7 +1727,9 @@ normalization authority。
 阶段 1  #291：ADR 0020/0021 + 本设计完成 G1
 阶段 2  #292：static-contract + compiler foundation + Synthetic DSL frontend 纵向闭环
 阶段 3  #292 验收：integration-only LIR→current projection 支撑 #282–#285 等价验证
-阶段 4  Geometry document frontend + topology/geometry MIR（可与阶段 3 并行）
+阶段 4a #315：官方前端共同受检模块接入（#296/#297 只可并行完成 G1）
+阶段 4b #296 几何文档前端 + 拓扑/几何 MIR
+        #297 当前 Traffic/Spatial 迁移导入前端（两者在 #315 G4 后可并行 G2）
 阶段 5  #298 可移植规范制品/源映射/语义差异 + #299 独立验证器
 阶段 6  #300 目标静态镜像 + #301 交通运行时/空间层共享镜像路径
         + #302 不可变路网修订/运行时快照/在线切换
@@ -1700,9 +1737,10 @@ normalization authority。
 阶段 8  #294：production cutover，完成 core→runtime rename 并移除 projection/重复构建
 ```
 
-阶段是架构迁移顺序，不是把终态降级为最小方案。#292 只有在阶段 2 与阶段 3 均完成
-后才能达到 G4，因此“#292 G4”与“projection 就绪后恢复 #282–#285”是同一前置条件，
-不是两个互相竞争的恢复点。每个阶段都必须沿同一个
+阶段是架构迁移顺序，不是把终态降级为最小方案。#292 已在阶段 2 与阶段 3 均完成后
+达到 G4，因此“#292 G4”与“projection 就绪后恢复 #282–#285”是同一前置条件，不是
+两个互相竞争的恢复点。阶段 4a 只建立共享模块基础；#296/#297 可以并行冻结 G1，
+但必须等待 #315 G4 才能进入 G2。每个阶段都必须沿同一个
 AST/HIR/MIR/LIR 与 artifact/image contract 前进，不允许先建一个注定废弃的 Core
 builder API。阶段 3 的 bridge 固定为 `laneflow-compiler-test-support` 或等价
 integration-only crate：它可以依赖 compiler + current Core/Spatial，将 validated

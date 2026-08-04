@@ -309,17 +309,21 @@ committed state `T` 并原子提交 `T + Δ`，不得因边界增加一 tick 延
 当前 Traffic v0.10 / SpatialPackage v0.1 / ScenarioManifest v0.1、
 `InitialTrafficData` 与 Spatial registry 仍是 production contract，直到 target
 迁移由阶段 8 生产切换 Issue #294 完成 G4；target 文档不得误写成现状。#292 已
-重划为 compiler foundation + Synthetic DSL frontend 的首个纵向闭环；#291 G1
-前置条件已经满足，#292 G1 也已冻结实现 API、首轮资源配置档与原性能门槛。#308 已
+重划为编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端（Synthetic DSL
+Frontend）的首个纵向闭环；#291 G1
+前置条件已经满足，#292 已完成 G4。#308 已
 完成 G4，并交付机器可读工作负载、实测校准 / 压力规模、资源预算建议和私有容器
-证据；#292 已记录 G2 并完成首个生产实现与迁移等价本地验证。G2 同时确认研究抽象
-工作负载不能按原自然身份无损映射为合法生产语义；append-only G1 修订已选择真实产品
-场景，并完成 P100 首轮生产编译基线。当前 Project 状态和原生依赖关系以 GitHub 为准。
+证据；#292 的 G2 同时确认研究抽象
+工作负载不能按原自然身份无损映射为合法生产语义；仅追加（append-only）G1 修订已
+选择真实产品场景，并完成 P100 首轮生产编译基线；其实现、迁移等价、外部审阅和生产基线均已随
+交付 PR（Delivery PR）#314 完成 G4。当前 Project 状态和原生依赖关系以 GitHub 为准。
 
-迁移顺序为 `#291 架构 G1（已完成）→ #308 非生产预算校准完成 G4（已完成）→ #292
-static-contract/compiler foundation/Synthetic DSL + integration-only LIR→current
-projection 完成 G4 → 恢复 #282–#285`；之后 Geometry
-frontend/MIR 可以与恢复的 runtime slices 并行推进，再由 #298 交付可移植规范制品 /
+迁移顺序为“#291 架构 G1（已完成）→ #308 非生产预算校准完成 G4（已完成）→ #292
+静态契约/编译器基础设施/合成领域专用语言 + 集成专用 LIR→当前态投影完成 G4
+（已完成）→ 恢复 #282–#285”。官方生产前端先由 #315 建立共同受检
+模块接入；#296 几何文档前端/MIR 与 #297 当前态包迁移导入可以并行完成 G1，但都必须
+等待 #315 G4 后才能进入 G2。它们可以与恢复的运行时切片并行推进，
+再由 #298 交付可移植规范制品 /
 源映射 / 语义差异、#299 交付独立验证器、#300 交付目标静态镜像、#301 交付交通
 运行时 / 空间层共享镜像路径、#302 交付不可变路网修订 / 运行时快照（Runtime
 Snapshot）/ 在线镜像切换，随后进入行为 / 性能 / 安全生产切换闸口。
