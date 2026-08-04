@@ -45,5 +45,10 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 `sourceDocumentKey` 在整个编译单元内唯一，来源记录在 AST/HIR/MIR 释放前按 LIR
 稳定实体与 owner-local 关系冻结；动态路线生命周期、后继编译遍和制品发射仍未实现。
 
+成功输出还通过 `CompilationMetrics` 暴露 LIR 逻辑记录数、逻辑输出字节、编译器控制
+峰值字节和同版本语义指纹；`Compiler::retained_capacity_bytes()` 单独报告跨编译保留
+容量。它们只服务宿主预算观测和确定性核对，不暴露私有阶段布局，也不能替代版本化
+制品摘要或操作系统进程内存。
+
 公共静态值契约来自 `laneflow-static-contract`。本 crate 不依赖当前核心、空间层、
 数据加载器或引擎适配器，也不提前冻结可移植制品、静态镜像或第三方前端插件接口。

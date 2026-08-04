@@ -1851,6 +1851,52 @@ pub struct CompilationOutput {
     lir: ValidatedCanonicalLir,
     source_map_input: ValidatedSourceMapInput,
     diagnostics: Box<[Diagnostic]>,
+    metrics: CompilationMetrics,
+}
+
+/// 一次成功生产编译的只读资源与确定性观测值。
+///
+/// 这些值来自编译器实际完成的 HIR→MIR→Canonical LIR 管线，不包含前端构造、当前态
+/// 投影或证据序列化。字节数是编译器内部资源模型使用的逻辑值，不等同于操作系统进程
+/// 工作集，也不是静态镜像或后继可移植制品的文件大小。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CompilationMetrics {
+    lir_record_count: u64,
+    output_logical_bytes: u64,
+    compiler_controlled_peak_bytes: u64,
+    semantic_fingerprint: [u8; 32],
+}
+
+impl CompilationMetrics {
+    /// 返回 Canonical LIR 的实体、关系与出现项逻辑记录总数。
+    #[must_use]
+    pub const fn lir_record_count(self) -> u64 {
+        self.lir_record_count
+    }
+
+    /// 返回目标布局中立的 Canonical LIR 逻辑输出字节数。
+    #[must_use]
+    pub const fn output_logical_bytes(self) -> u64 {
+        self.output_logical_bytes
+    }
+
+    /// 返回本次编译资源模型计算的编译器控制峰值字节数。
+    ///
+    /// 该值覆盖同一阶段同时存续的来源、IR、暂存区和输出容量，但不包含标准库、系统
+    /// 分配器元数据或进程内其他组件的内存。
+    #[must_use]
+    pub const fn compiler_controlled_peak_bytes(self) -> u64 {
+        self.compiler_controlled_peak_bytes
+    }
+
+    /// 返回当前编译器版本对完整 Canonical LIR 语义计算的确定性指纹。
+    ///
+    /// 该指纹用于同版本重复编译和性能证据核对；它不是制品完整性摘要、路网修订 ID
+    /// 或跨格式版本兼容承诺，调用方不得用它替代后继版本化制品描述符。
+    #[must_use]
+    pub const fn semantic_fingerprint(self) -> [u8; 32] {
+        self.semantic_fingerprint
+    }
 }
 
 impl CompilationOutput {
@@ -1871,6 +1917,14 @@ impl CompilationOutput {
     pub const fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
+
+    /// 返回本次成功编译的资源与确定性观测值。
+    ///
+    /// 调用者可以在停表后读取该值并形成基线；读取不会遍历或复制 LIR。
+    #[must_use]
+    pub const fn metrics(&self) -> CompilationMetrics {
+        self.metrics
+    }
 }
 
 /// 可复用的 LaneFlow 静态路网编译器。
@@ -1890,6 +1944,16 @@ impl Compiler {
         Self { _private: () }
     }
 
+    /// 返回当前实例跨编译保留的容量字节数。
+    ///
+    /// 首版干净单工作线程编译器不保留 arena、缓存或其他堆容量，因此恒为零。后继若
+    /// 引入容量复用，必须让该值覆盖所有由 `Compiler` 拥有、会影响宿主长期内存预算的
+    /// 保留容量。
+    #[must_use]
+    pub const fn retained_capacity_bytes(&self) -> u64 {
+        0
+    }
+
     /// 消费一个受检编译单元并运行当前已实现的 #292 领域子集编译管线。
     ///
     /// # Errors
@@ -1902,18 +1966,34 @@ impl Compiler {
         unit: CompilationUnit,
     ) -> Result<CompilationOutput, DiagnosticBundle> {
         let hir = build_hir(&unit)?;
+        let hir_peak_controlled_live_bytes = hir.peak_controlled_live_bytes;
         let mir = lower_to_mir(&unit, &hir)?;
+        let mir_peak_controlled_live_bytes = mir.peak_controlled_live_bytes;
         // MIR 已拥有后继阶段所需的完整语义与来源位置；尽早释放 HIR，避免把阶段共存
         // 时间延长到 LIR/source-map 冻结并破坏资源峰值模型。
         drop(hir);
         let frozen_lir = freeze_lir(&unit, &mir)?;
+        let lir_record_count = frozen_lir.lir.lir_record_count;
+        let output_logical_bytes = frozen_lir.lir.output_bytes;
+        let semantic_fingerprint = frozen_lir.lir.semantic_digest;
+        let lir_peak_controlled_live_bytes = frozen_lir.lir.peak_controlled_live_bytes;
         let source_map_input = freeze_source_map(unit, &mir, &frozen_lir)?;
+        let metrics = CompilationMetrics {
+            lir_record_count,
+            output_logical_bytes,
+            compiler_controlled_peak_bytes: hir_peak_controlled_live_bytes
+                .max(mir_peak_controlled_live_bytes)
+                .max(lir_peak_controlled_live_bytes)
+                .max(source_map_input.peak_controlled_live_bytes()),
+            semantic_fingerprint,
+        };
         drop(mir);
         let crate::lir::LirFreezeOutput { lir, .. } = frozen_lir;
         Ok(CompilationOutput {
             lir: ValidatedCanonicalLir { inner: lir },
             source_map_input,
             diagnostics: Box::default(),
+            metrics,
         })
     }
 }
@@ -2745,9 +2825,25 @@ mod tests {
             ),
             module("city/base", "base.document", &[], &[("edge-b", 20.0, &[])]),
         ]);
-        let output = Compiler::new().compile(input).unwrap();
+        let mut compiler = Compiler::new();
+        let output = compiler.compile(input).unwrap();
 
         assert!(output.diagnostics().is_empty());
+        let metrics = output.metrics();
+        assert_eq!(
+            metrics.lir_record_count(),
+            output.lir.inner.lir_record_count
+        );
+        assert_eq!(
+            metrics.output_logical_bytes(),
+            output.lir.inner.output_bytes
+        );
+        assert!(metrics.compiler_controlled_peak_bytes() >= output.lir.inner.controlled_live_bytes);
+        assert_eq!(
+            metrics.semantic_fingerprint(),
+            output.lir.inner.semantic_digest
+        );
+        assert_eq!(compiler.retained_capacity_bytes(), 0);
         let edges = output.lir().lane_edges().collect::<Vec<_>>();
         assert_eq!(edges.len(), 2);
         assert_eq!(edge_key(edges[0]), "edge-a");

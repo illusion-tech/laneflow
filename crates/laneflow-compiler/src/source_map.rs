@@ -254,9 +254,15 @@ pub struct ValidatedSourceMapInput {
     junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
     static_route_sources: Box<[StableEntitySourceRecord<StaticRouteOrdinal, StaticRouteId>]>,
     route_relation_sources: Box<[RouteRelationSourceRecord]>,
+    peak_controlled_live_bytes: u64,
 }
 
 impl ValidatedSourceMapInput {
+    /// 返回源映射冻结阶段的编译器控制峰值。
+    pub(crate) const fn peak_controlled_live_bytes(&self) -> u64 {
+        self.peak_controlled_live_bytes
+    }
+
     /// 按依赖优先规范顺序遍历来源模块描述符。
     pub fn source_modules(&self) -> impl ExactSizeIterator<Item = &SourceModuleDescriptor> {
         self.source_modules.iter()
@@ -2373,6 +2379,7 @@ pub(crate) fn freeze_source_map(
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),
         static_route_sources: static_route_sources.into_boxed_slice(),
         route_relation_sources: route_relation_sources.into_boxed_slice(),
+        peak_controlled_live_bytes: controlled_live_bytes,
     })
 }
 
