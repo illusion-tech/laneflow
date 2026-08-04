@@ -250,6 +250,9 @@ compiler、Adapter 或 scenario policy 绕过。
 该路径统一拥有命名空间/来源文档唯一性、共同接入适用的全部资源上限、失败不污染和
 规范模块顺序；前端不得复制这些规则。成功 `build` 后，`CompilationUnit` 只保存共同
 `TypedAstModule`，HIR/MIR 不按来源语言分支。
+来源模块是命名空间和导入图的逻辑节点，可以拥有一个或多个独立来源文档描述符。来源文档按规范模块
+顺序和文档键独立冻结序号，每个来源位置都解析自身文档键；不能从模块序号推导文档，也不能为多文档
+来源虚构模块、命名空间或导入边。
 
 来源专用封装以移动语义进入接入值，不复制完整 AST、字符串或几何。精确来源记录
 （exact source record）只存续到官方前端 `finish` 完成一次摘要、长度和来源位置派生；
@@ -258,6 +261,8 @@ compiler、Adapter 或 scenario policy 绕过。
 （enum）分支、重复
 摘要、重复资源计数或第二次规范排序。精确所有权、失败事务、#297 迁移包依赖图和
 配对性能验证以 `compiler-foundation.md` 第 2.3、3.3 与 10.4 节为权威。
+对 current 原始制品，该文档第 2.3 节要求的显式有界 `CurrentSourceLimits` 必须在按输入规模分配前生效，
+不存在默认、无限或先完整解码后计数的路径。
 
 这不是第三方前端插件协议。公开面只增加 LaneFlow 拥有的具体
 `add_geometry_module` / `add_current_import_module`；通用 `add_module`、公共前端
@@ -1696,10 +1701,15 @@ laneflow-current-import --> laneflow-current-source
 laneflow-data -----------> laneflow-current-source
 ```
 
-`laneflow-current-source` 是无 Core/Spatial 依赖的版本锁定当前态来源包验证 SSOT；它先
-把 ScenarioManifest 的制品引用、角色专属媒体类型、原始字节长度和 SHA-256 摘要与
-调用方提供的具名 Traffic/Spatial 制品原子绑定，全部绑定成功后才解析线格式 DTO，
-失败时不返回部分结果。凡以 ScenarioManifest 组合 Traffic/Spatial，`laneflow-data`
+`laneflow-current-source` 是无 Core/Spatial 依赖的版本锁定当前态来源包验证 SSOT。它要求显式有界
+`CurrentSourceLimits`，先检查 ScenarioManifest 实际长度，有界解析并对其原始字节计算一次 SHA-256，
+再验证制品引用和角色专属媒体类型；
+在计算摘要或解析 Traffic/Spatial 前，检查它们的声明/实际/组合字节上限。只有通过这些上限的
+原始字节才各计算一次 SHA-256，与同一场景清单精确配对后再由在按规模分配前累计资源的解码器构造
+DTO。原子结果保留 ScenarioManifest、Traffic 与 Spatial 三个字段私有的独立来源文档身份；
+`laneflow-current-import` 把它们一对一移入编译器拥有的文档描述符，不重新哈希。该组合仍是一个
+逻辑导入模块，不虚构三个模块或导入边。任一步失败都不返回部分结果。凡以 ScenarioManifest 组合
+Traffic/Spatial，`laneflow-data`
 与 `laneflow-current-import` 都只能消费该单一受检结果，不得重复或绕过绑定；无需空间
 制品的 Traffic-only current Core 入口保持独立。`laneflow-data` 继续拥有当前
 Core/Spatial 规范化，`laneflow-current-import` 从受检 DTO 构造编译器拥有的具体导入

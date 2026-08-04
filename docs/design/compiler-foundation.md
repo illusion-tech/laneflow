@@ -191,17 +191,28 @@ laneflow-data --------------------> laneflow-spatial
 
 `laneflow-current-source` 是版本锁定的当前态来源包唯一验证权威，拥有 Traffic v0.10、
 SpatialPackage v0.1 与 ScenarioManifest v0.1 的线格式数据传输对象（wire Data
-Transfer Object，wire DTO）、精确原始字节身份、版本和语法/形状诊断。它必须先验证
-场景清单描述符、两个不同且非空的制品引用、角色专属媒体类型、调用方具名制品引用的
-唯一性，以及描述符声明的原始字节长度和 SHA-256 摘要；Traffic/Spatial 两份原始制品
-全部与同一份场景清单精确配对后，才允许解析其线格式 DTO。任一步失败都不能返回部分
-结果。
+Transfer Object，wire DTO）、精确原始字节身份、版本和语法/形状诊断。它的解析入口必须要求显式
+当前态来源资源配置档（current-source resource profile）`CurrentSourceLimits`；不提供默认、无限或
+信任调用方的绕过路径。`laneflow-data` 选择具名当前态加载配置档；
+`laneflow-current-import` 则从 `laneflow-compiler` 提供的只读前端上限投影派生同等或更严的
+`CurrentSourceLimits`，不能只按配置档标识符匹配后复制数值常量。精确数值和诊断属于 #297
+G1；资源上限不可选且在按规模分配前生效，属于 #315 共同边界。
 
-该边界以单一原子结果返回已验证描述符、三份来源的精确字节身份和已解析 DTO。它只在
-校验与解析调用期间借用原始字节，不为接入复制或保留来源全文；摘要与长度各计算一次。
-此处建立的是相对于输入场景清单的精确内容配对，不把 SHA-256 本身解释为场景清单的
-发布真实性证明。`laneflow-current-source` 不能依赖 `laneflow-compiler`、
-`laneflow-core` 或 `laneflow-spatial`。
+解析顺序固定为：在解析 ScenarioManifest 前检查其实际字节长度；有界解析并对其原始字节计算一次
+SHA-256 后，验证两个不同且非空的制品引用、角色专属媒体类型与调用方具名制品引用唯一性；再在计算摘要
+或解析前同时
+检查 Traffic/Spatial 的声明长度、实际长度、单文档与组合字节上限；只对通过上限的原始字节
+各计算一次 SHA-256，两份制品与同一份场景清单精确配对后才解析 DTO。线格式解码器必须在
+字符串、序列、记录或存续内存的按规模分配之前累计并检查对应计数；不能先无界反序列化完整 DTO
+再事后统计。
+
+该边界以单一原子结果返回已验证场景清单绑定、三个字段私有的当前态来源文档身份和已解析
+DTO。`laneflow-current-source` 不构造编译器类型；`laneflow-current-import` 只把这三个受检身份一对一移入
+编译器拥有的 `SourceDocumentDescriptor`，不重新读取来源全文或计算摘要。该边界只在校验与解析调用
+期间借用原始字节，不为接入复制或保留来源全文。任一步失败都不能返回部分结果。此处建立的是相对于
+输入场景清单的精确内容配对，不把 SHA-256 本身解释为场景清单的发布真实性证明。
+`laneflow-current-source` 不能依赖
+`laneflow-compiler`、`laneflow-core` 或 `laneflow-spatial`。
 
 凡以 ScenarioManifest 组合 Traffic/Spatial 的入口，当前生产期的 `laneflow-data` 与
 迁移专用 `laneflow-current-import` 都只能消费这一原子受检结果，不得各自重新实现或
@@ -233,6 +244,8 @@ Transfer Object，wire DTO）、精确原始字节身份、版本和语法/形�
 ```rust
 pub struct SourceModuleHeader { /* 调用方提供的非内容字段，私有字段 */ }
 pub struct SourceModuleDescriptor { /* 私有字段 */ }
+// #315 G1 提案增加只读公共值，不提供裸构造器。
+pub struct SourceDocumentDescriptor { /* 私有字段 */ }
 pub struct SyntheticModuleBuilder { /* 私有字段 */ }
 pub struct SyntheticModule { /* 私有字段 */ }
 pub struct CompilationUnitBuilder { /* 私有字段 */ }
@@ -289,6 +302,10 @@ impl CompilationOutput {
 以上代码表达 #292 G1 与后继性能证据边界修订已接受的公共接口形状。G2 可以在不改变公共构造、所有权、
 可见性、错误和确定性契约的前提下细化包内私有字段与实现名称；任何公共接口或上述
 契约变化都必须重新进入 G1，不得作为实现细节直接修改。
+#315 正通过本 G1 显式提议一项该类变化：`SourceModuleDescriptor` 保留为只读公共逻辑模块值，
+文档专属的键、摘要和长度改由新的只读公共 `SourceDocumentDescriptor` 暴露。它不提供公开构造器；
+`ValidatedSourceMapInput` 分别提供稳定顺序的模块与文档视图。现有从 `SourceModuleDescriptor` 读取
+文档专属字段的公开查询会在 #315 G2 中迁移到文档描述符，不保留“第一个文档”的隐式兼容语义。
 `SyntheticModuleBuilder` 只接受首批支持矩阵中的领域构造；`CompilationUnitBuilder`
 只接受 #292 明确支持的官方来源模块。二者都不能自行伪造有类型抽象语法树或已验证
 阶段。必须保持：
@@ -319,7 +336,7 @@ impl CompilationOutput {
 该伴随数据不能新增默认值、关系或其他静态语义。类型系统由此阻止未验证阶段误入
 后端，同时允许相同 LIR 语义对应不同来源位置和来源沿袭。
 
-调用方不能独立构造 `SourceModuleDescriptor` 或自报内容摘要。
+调用方不能独立构造 `SourceModuleDescriptor` / `SourceDocumentDescriptor` 或自报内容摘要。
 `SyntheticModuleBuilder::finish` 必须从调用方提供的 `SourceModuleHeader`、受检领域
 声明和规范化调用记录原子生成 `SyntheticModule` 及其内嵌描述符；
 `CompilationUnitBuilder` 只接收该封装结果，并在加入模块时重新校验累计计数与导入
@@ -335,8 +352,8 @@ impl CompilationOutput {
 受检构造接口：
 
 - 每个来源模块必须有稳定编制命名空间标识（Authoring Namespace ID）
-  `authoringNamespaceId`、来源语言（Source Language）、内容摘要、前端版本、选项
-  摘要与来源沿袭（Provenance）；
+  `authoringNamespaceId`、来源语言（Source Language）、前端版本、选项摘要与来源沿袭
+  （Provenance），并拥有一个或多个各自绑定稳定文档键、精确内容摘要和长度的来源文档；
 - 每个声明必须有显式稳定键和来源位置（Source Span）；
 - 可发布模块不接受匿名命名空间、缺失来源沿袭或测试专用来源位置；
 - 前端专用语法（Frontend-specific Syntax）可以作为来源诊断元数据保留，但不得
@@ -377,8 +394,13 @@ struct AdmittedOfficialModule {
     resource_counts: ModuleResourceCounts,
 }
 
+pub struct SourceDocumentDescriptor {
+    /* 文档键、内容摘要、原始字节长度与所属模块 */
+}
+
 struct TypedAstModule {
     descriptor: SourceModuleDescriptor,
+    source_documents: Box<[SourceDocumentDescriptor]>,
     imports: Box<[ImportRecord]>,
     declarations: Box<[TypedAstDeclaration]>,
 }
@@ -393,6 +415,13 @@ pub struct CompilationUnit {
     /* 已验证的编译单元级计数 */
 }
 ```
+
+`SourceModuleDescriptor` 从此只表达逻辑模块的命名空间、来源语言、工具/选项和来源沿袭；
+精确 `sourceDocumentKey`、`sourceContentDigest` 与 `sourceRecordByteLen` 移入字段私有的
+`SourceDocumentDescriptor`。一个逻辑模块必须拥有一个或多个来源文档；当前
+`SyntheticModule` 恰有一个文档，后续 `CurrentImportModule` 仍是一个逻辑模块，但必须保留
+ScenarioManifest、Traffic 与 Spatial 三个文档描述符。不得为满足当前一对一实现而虚构三个
+模块、命名空间或导入边；ScenarioManifest 即使不直接产生声明，也是必须保留的来源证据。
 
 当前私有枚举 `SyntheticDeclaration` 实际承载全部共同有类型抽象语法树声明，G2 应将其
 改名为 `TypedAstDeclaration` 或语义完全等价的非前端专用名称。HIR 只遍历
@@ -416,19 +445,20 @@ pub fn add_current_import_module(&mut self, module: CurrentImportModule) -> Resu
 
 共同接入必须按下列事务边界执行：
 
-1. 官方前端 `finish` 从受检声明和规范来源记录一次性派生描述符、导入、共同声明与全部
-   模块资源计数；字段私有性保证调用方不能重配其中任一部分。摘要和精确长度只能由
-   前端对实际规范来源字节计算，不能由调用方自报。
+1. 官方前端 `finish` 从受检声明和规范来源记录一次性派生一个模块描述符、一个或多个
+   文档描述符、导入、共同声明与全部模块资源计数；字段私有性保证调用方不能重配其中任一部分。
+   摘要和精确长度只能由前端对各文档的实际规范来源字节计算，不能由调用方自报。
 2. `add_*_module` 按值消费具体封装，把内容移动到私有接入值；不得克隆（clone）完整声明、
    字符串或几何点，也不得再次编码来源、计算摘要或扫描声明重算资源。
-3. 私有接入函数在修改构建器前一次性计算命名空间、`sourceDocumentKey`、模块数、
+3. 私有接入函数在修改构建器前一次性计算命名空间、全部 `sourceDocumentKey`、模块数、
    来源字节、导入、声明、引用、关系、身份字段、符号、字符串、机动门、等待区、路线
    出现项、几何点和编译器控制存续字节数的候选累计值，并执行全部
    `CompileLimits` 检查。任一失败只返回规范诊断；构建器的模块、索引和计数保持不变，
    已消费模块被释放。
-4. 全部检查成功后才移动模块、写入索引并提交候选累计值。调用方加入顺序仍不是规范
+4. 全部检查成功后才移动模块、写入模块/文档索引并提交候选累计值。调用方加入顺序仍不是规范
    顺序；`build` 在全部模块到齐后统一验证未知导入和循环，并冻结依赖优先、命名空间
-   字节序打破平局的规范拓扑顺序。
+   字节序打破平局的规范模块拓扑顺序。来源文档序号在逻辑模块顺序之上，再按模块内完整
+   `sourceDocumentKey` 的 UTF-8 字节序冻结；它是独立登记，不能从模块序号推导。
 5. 精确来源记录只在官方前端计算 SHA-256、长度、来源位置和来源专用诊断期间存续。
    `finish` 必须在返回具体模块前释放自有来源字节；接受调用方借用字节的前端不得为了
    共同接入复制全文。具体模块和 `CompilationUnitBuilder` 只保留已绑定描述符、来源
@@ -444,6 +474,12 @@ pub fn add_current_import_module(&mut self, module: CurrentImportModule) -> Resu
 各自阶段检查。共同接入信任字段私有模块携带的一次性模块资源计数，不重新遍历记录；
 这既不会漏掉维度，也不会复制其他阶段的验证权威。
 
+多来源文档不增加新的 `CompileLimitDimension`：每个 `SourceDocumentDescriptor` 纳入既有
+`TypedAstRecordCount`，文档键纳入既有字符串条目数/字节数；`SourceBytesPerModule` 是该逻辑
+模块所有来源文档原始字节长度之和，因而也界定任一单文档；`SourceBytesTotal` 继续跨模块
+累计。这保留 #292 已接受配置档的维度与语义，不为 #315 重定既有数值。对 current 原始字节，
+第 2.3 节的 `CurrentSourceLimits` 必须在构造这些描述符和 DTO 前以同等或更严上限先行失败。
+
 第 5 项不改变 `sourceContentDigest`、`sourceRecordByteLen` 或 `SourceBytesTotal` 的逻辑
 计数，也不允许把调用方自报摘要变成可信输入。来源字节存续期间的实际峰值必须由前端
 自身的 `CompileLimits` 检查覆盖；共同接入累计 `SourceBytesTotal`，并以释放后的实际
@@ -455,10 +491,11 @@ pub fn add_current_import_module(&mut self, module: CurrentImportModule) -> Resu
 `TypedAstModule` 前消除；任何声明、引用、关系、
 字符串或几何点循环都不得承担前端变体分支或虚调用。
 
-职责归属保持互补：#315 只拥有共同表示、原子接入、生命周期和共享测试；#296 只拥有
-Geometry 来源契约及专用降阶；#297 只拥有当前态来源解码、稳定键/来源沿袭映射与具体
-导入模块构造。#296/#297 可以并行完成 G1，但二者进入 G2 前都必须以 #315 G4 后的
-精确 `main` 重新复核公共面、包依赖图与生产基线。
+职责归属保持互补：#315 只拥有共同表示、模块/文档独立登记与源映射不变量、原子接入、
+生命周期和共享测试；#296 只拥有 Geometry 来源契约及专用降阶；#297 只拥有当前态来源资源配置档的
+精确数值/诊断、有界解码、三种文档的角色/键/来源位置映射与具体导入模块构造。#296/#297
+可以并行完成 G1，但二者进入 G2 前都必须以 #315 G4 后的精确 `main` 重新复核公共面、包依赖图与
+生产基线。
 
 ## 4. 阶段表示与内存所有权
 
@@ -466,7 +503,7 @@ Geometry 来源契约及专用降阶；#297 只拥有当前态来源解码、稳
 
 有类型抽象语法树保留：
 
-- 来源模块描述符；
+- 来源模块描述符与一个或多个来源文档描述符；
 - 声明种类、显式稳定键和有类型单位；
 - 有类型未解析引用；
 - 来源位置与来源沿袭；
@@ -546,11 +583,16 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 已验证源映射输入（Validated Source-map Input）与 LIR 在同一次成功编译中原子
 冻结，但不属于静态路网语义。它至少保存：
 
-- 来源模块描述符、来源文档登记和来源沿袭；
+- 分离的来源模块描述符表与来源文档描述符表；每个文档显式关联所属逻辑模块和来源沿袭；
 - 稳定实体的实体种类、`StableId128`、有类型逻辑序号与主要 / 关联来源位置；
 - 所有者局部关系 / 出现项的所有者稳定标识、有类型角色、本次编译局部序号与来源
   位置；
 - 生成关系的推导链和贡献来源位置（contributing spans）。
+
+编译单元先以第 3.3 节的独立文档顺序冻结全局来源文档登记。从有类型抽象语法树降阶到 HIR 时，
+每个声明、关系或诊断位置都必须把自身 `SourceSpan.source_document_key` 解析为已登记文档序号；
+不能从所属模块序号推断文档。为避免后续记录热循环携带或比较 `Arc<str>`，HIR/MIR 保留一次解析后的
+紧凑内部文档序号和区间。精确公开类型由 G2 以现有 `u32` 上界契约实现，不把该优化变成可持久制品编码承诺。
 
 后继 #298 只能从同一个已验证编译结果（Validated Compilation Output）中的 LIR 与
 该伴随数据原子发射源映射；不能从已经释放的 AST/HIR/MIR 重新猜测来源，也不能让
@@ -725,9 +767,11 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 来源模块头；该能力不得进入发布接口。
 
 领域专用语言构建器的声明方法使用 `#[track_caller]` 或等价宏捕获 Rust 文件、行和
-列作为来源位置。每个来源模块另有调用方提供、与机器路径无关的稳定
-`sourceDocumentKey`；该键在同一来源模块内必须唯一，并受 `CompileLimits` 的
-`ASCII` 字符集与长度上限约束，重复键在进入诊断排序前失败。
+列作为来源位置。每个合成来源模块恰有一个 `SourceDocumentDescriptor`；构建器把调用方提供、
+与机器路径无关的稳定 `sourceDocumentKey`，以及它对 `LFSOURCE` 精确记录字节派生的摘要和长度
+不可分绑定到该描述符。`sourceDocumentKey` 在整个编译单元内必须唯一，并受 `CompileLimits` 的
+`ASCII` 字符集与长度上限约束，重复键在进入诊断排序前失败。后继多文档官方前端为每个文档派生独立描述符，
+并在共同接入前以同一编译单元级唯一性规则验证。
 `file!()` 结果只作本地显示和来源沿袭。循环展开的多个声明可以共享调用位置，但诊断
 必须同时携带声明的显式稳定键；来源位置、文件路径和展开序号都不得参与标识。
 
@@ -833,10 +877,11 @@ G1 冻结以下两个当前态固定样例的等价迁移：
 或有类型载荷语义。
 
 来源位置使用“`sourceDocumentKey`、起始行 / 列、结束行 / 列”四部分，字段宽度使用
-受检的 `u32`。`sourceDocumentKey` 是来源模块内显式、稳定、与机器路径无关的 `ASCII`
+受检的 `u32`。`sourceDocumentKey` 是来源文档显式、稳定、与机器路径无关的 `ASCII`
 键；合成领域专用语言使用该键、调用位置和声明的显式稳定键，未来文本前端使用该键与
-真实文本范围。宿主路径只服务显示和来源沿袭，不参与规范标识、规范排序、可移植规范
-制品或语义差异。
+真实文本范围。每个位置的文档键必须存在于所属逻辑模块的文档描述符集，并解析为独立来源文档序号；
+来源模块序号不能替代或推导文档序号。宿主路径只服务显示和来源沿袭，不参与规范标识、规范排序、可移植规范制品
+或语义差异。
 
 ## 9. 集成专用的已验证规范低层中间表示到当前态投影
 
@@ -953,7 +998,8 @@ LIR 或后继制品。
 - 既有 `Compiler::compile` 计时边界继续覆盖完整 HIR→MIR→LIR→源映射管线，确认共同
   表示没有引入记录级分派或额外转换；
 - 新增接入边界样本只计时“已完成前端构造的具体模块 → `add_*_module` → `build`”，
-  模块来源编码与声明构造在停表外，避免把不同前端解析成本归给共同接入；
+  模块来源编码与声明构造在停表外，避免把不同前端解析成本归给共同接入；#297 必须另行测量有界
+  current 解码成本，不把该数值伪装成 #315 共同接入回归；
 - 每级至少 1 次预热和 7 次正式样本，报告中位数、中位数绝对偏差（Median Absolute
   Deviation，MAD）、编译器控制峰值字节和保留容量；不因本次私有重构另立城市容量或
   产品服务等级协议（Service-level Agreement，SLA）；
@@ -963,10 +1009,14 @@ LIR 或后继制品。
   不能只看进程噪声。
 
 自动化验证至少覆盖：现有合成来源公共 API；加入顺序变形；命名空间/来源文档
-冲突与共同接入适用的全部 `CompileLimits` 维度；接入失败后构建器不污染；未知导入与
-循环；测试专用第二种官方封装复用同一私有接入而不复制检查；重复性 / 变形测试；
+冲突与共同接入适用的全部 `CompileLimits` 维度；一个逻辑模块保留三个来源文档、其中一个文档无声明、
+声明/关系位置分别指向不同文档且源映射精确保留；文档序号不从模块序号推导；接入失败后构建器不污染；
+未知导入与循环；测试专用第二种官方封装复用同一私有接入而不复制检查；重复性 / 变形测试；
 公开面不存在通用模块/特征构造入口。测试专用封装不成为生产 `SourceLanguage` 或
 第三方兼容承诺。
+
+当前态来源的后继验证还必须覆盖 Manifest/Traffic/Spatial 的单文档和组合字节上限、字符串/序列/
+记录/存续内存上限的边界前后值、超限时在按规模分配前失败，以及不存在无配置或无界解码入口。
 
 ## 11. 测试、工作负载与基准
 
@@ -975,7 +1025,8 @@ LIR 或后继制品。
 - 每个编译遍的正向、首错误和多错误稳定排序；
 - 成功路径保留警告 / 提示，错误路径不返回部分 LIR 或部分源映射输入；
 - 模块、导入和引用循环；
-- 来源模块描述符由构建器派生、内容摘要已知向量、重复 `sourceDocumentKey`；
+- 来源模块/文档描述符由构建器派生、每文档内容摘要已知向量、重复
+  `sourceDocumentKey`、一模块多文档独立源映射；
 - 表、区间、有类型逻辑序号、模块 / 编译单元累计资源上限和暂存区边界；
 - 标识 v1 已知向量和变形测试；
 - 声明置换与无关插入；
@@ -1164,16 +1215,20 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 ## 14. #315 G1 验收清单（Proposed）
 
 - [ ] `CompilationUnit` 只保存共同 `TypedAstModule`，HIR 不再依赖
-      `SyntheticModule` 或前端变体；
+      `SyntheticModule` 或前端变体；逻辑模块与一个或多个来源文档分离建模，源映射不从
+      模块序号推导文档序号；
 - [ ] 具体官方模块、私有共同接入、来源记录释放时点与失败原子性已经冻结；
 - [ ] 命名空间/文档、导入图、全部资源维度和规范模块顺序只有一个实现权威；
 - [ ] #296/#297 的具体受检入口与 `laneflow-current-source` /
       `laneflow-current-import` 目标包依赖图闭合，编译器不依赖当前态对象图；
 - [ ] `laneflow-current-source` 是场景清单到原始 Traffic/Spatial 制品精确绑定和线格式
-      解析的唯一权威；二者的 ScenarioManifest 组合入口只消费其原子成功结果，不重复
-      或绕过长度、SHA-256、媒体类型与引用验证，同时保留无需空间制品的 Traffic-only
-      current Core 契约；
-- [ ] 记录级零动态分派、零完整克隆、一次摘要/计数/排序与配对性能验证方案闭合；
+      解析的唯一权威；组合入口要求显式有界 `CurrentSourceLimits`，在按规模分配前检查实际/
+      声明/组合字节与解码计数，不存在默认、无限或先无界解码后统计的入口；
+- [ ] ScenarioManifest 组合入口只消费原子成功结果，不重复或绕过长度、SHA-256、媒体
+      类型与引用验证；该结果保留 Manifest/Traffic/Spatial 三个来源文档的独立身份，同时保留
+      无需空间制品的 Traffic-only current Core 契约；
+- [ ] 记录级零动态分派、零完整克隆、一次摘要/计数/排序、多文档紧凑序号解析与配对性能
+      验证方案闭合；
 - [ ] 第三方自定义前端非承诺、各议题职责和 G2 阻塞关系没有歧义；
 - [ ] `network-compiler.md`、路线图、设计索引、Skills 与术语表引用一致；
 - [ ] 对 G1 精确头完成本地全面审阅和有效外部审阅，并在 #315 追加只读
