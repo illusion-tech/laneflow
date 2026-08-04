@@ -3186,6 +3186,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-compiler-test-support"
+version = "0.0.0"
+dependencies = [
+ "laneflow-compiler",
+ "laneflow-core",
+ "laneflow-spatial",
+ "laneflow-static-contract",
+]
+
+[[package]]
 name = "laneflow-core"
 version = "0.0.0"
 dependencies = [

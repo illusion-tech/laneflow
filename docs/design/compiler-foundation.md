@@ -38,7 +38,10 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 全局固定空间契约，声明不拥有 CRS、宿主放置或可变原点。车道图边中心线已经接入同一
 管线：空间存在时验证全图恰好一次覆盖、规范 `f32` 线段、交通长度绑定和连接端点连续性，
 再按 `LaneEdgeOrdinal` 对齐冻结点、累计弧长、切向与上方向采样表；不声明中心线时仍允许
-无图形配置（headless）LIR。公共 `Compiler` 已经原子
+无图形配置（headless）LIR。集成专用 `laneflow-compiler-test-support` 已把
+`ValidatedCanonicalLir` 按有类型序号投影为当前 `InitialTrafficData`、可选
+`SpatialRegistry` 与稳定映射报告；它保持 `publish = false`，不读取当前 JSON，也不
+成为生产后端。公共 `Compiler` 已经原子
 返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`；首批支持矩阵中的
 动态路线生命周期及后继编译遍尚未实现。
 #292 G1 已
@@ -685,6 +688,11 @@ G1 冻结以下两个当前态固定样例的等价迁移：
 - LIR 已完成的稳定标识、所有者、拓扑、长度、出现项和顺序语义不在投影中重算；
 - 当前态构造器仍可执行自己的防御校验，但其结果不是编译器语义验证的实现；
 - 当前态句柄 / 登记表序号只存在于投影结果，不回写 LIR；
+- 投影对象的 current external ID 使用对应 `StableId` 的规范文本，避免不同来源模块的
+  owner-local key 在当前全局 ID 空间碰撞；稳定映射报告负责关联 LIR ordinal、
+  `StableId` 与 current external ID，当前没有独立 ID 的 `SectionLane` 明确记为无映射；
+- 当前 `SpatialRegistry` 只能完整绑定一个 `CanonicalFrame`；无几何 LIR 投影为无
+  `SpatialRegistry`，多 frame LIR 在本迁移桥显式失败，不把该限制回写为编译器契约；
 - 不读取当前态 `Traffic v0.10` `JSON` 形成目标态语义；
 - 投影不成为 `laneflow-compiler` 功能特性（feature），不被生产编译发射器复用；
 - #294 完成生产切换时删除。

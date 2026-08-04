@@ -1,0 +1,22 @@
+[package]
+name = "laneflow-compiler-test-support"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "LaneFlow 已验证 Canonical LIR 到当前态的集成测试专用投影。"
+publish = false
+
+[lib]
+name = "laneflow_compiler_test_support"
+path = "src/lib.rs"
+
+[dependencies]
+laneflow-compiler = { version = "0.0.0", path = "../laneflow-compiler" }
+laneflow-core = { version = "0.0.0", path = "../laneflow-core" }
+laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
+laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
+
+[lints]
+workspace = true
