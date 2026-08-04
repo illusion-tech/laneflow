@@ -17,6 +17,9 @@ description: 应用 LaneFlow 项目治理（GitHub Issue、PR、commit、Project
 8. 涉及许可证、Cargo 依赖、RustSec、cargo-deny 或 Dependabot 时，额外阅读 `docs/governance/dependency-security.md`
 9. 涉及产品定位、城市级范围、出行编排、Routing、路网修订、存档/回放、并行或
    fidelity 时，额外阅读 `docs/adr/0021-city-simulation-game-traffic-foundation.md`
+10. 准备 #292 G3/G4、审阅其性能验收或同步 Gate Ledger 时，额外阅读
+    `docs/design/compiler-foundation.md` 与
+    `docs/reference/v0.10-compiler-foundation-validation.md`
 
 ## 工作流
 
