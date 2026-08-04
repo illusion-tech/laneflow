@@ -497,8 +497,8 @@ pub(crate) struct MirStaticRoute {
 /// MIR 阶段成功后一次性冻结的目标布局中立表集合。
 ///
 /// 每个连接区间都落在 `lane_edge_connections` 内，且所有目标键指向本实例的
-/// `lane_edges`。`controlled_live_bytes` 只统计 MIR 成功返回后自身拥有的表；阶段峰值
-/// 预检还包含 CompilationUnit、HIR 与键映射暂存区。
+/// `lane_edges`。`controlled_live_bytes` 只统计 MIR 成功返回后自身拥有的表；
+/// `peak_controlled_live_bytes` 另保存 CompilationUnit、HIR 与键映射暂存区的共存峰值。
 pub(crate) struct MirUnit {
     pub(crate) modules: Box<[MirModule]>,
     pub(crate) lane_edges: Box<[MirLaneEdge]>,
@@ -550,6 +550,7 @@ pub(crate) struct MirUnit {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) mir_record_count: u64,
     pub(crate) controlled_live_bytes: u64,
+    pub(crate) peak_controlled_live_bytes: u64,
 }
 
 /// 将已解析 HIR 降级为连续 MIR 表，并显式重映射全部阶段键。
@@ -1660,6 +1661,7 @@ pub(crate) fn lower_to_mir(
         waiting_zone_occurrences: waiting_zone_occurrences.into_boxed_slice(),
         mir_record_count,
         controlled_live_bytes: mir_owned_bytes,
+        peak_controlled_live_bytes: controlled_live_bytes,
     })
 }
 

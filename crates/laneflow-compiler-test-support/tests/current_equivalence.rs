@@ -3,7 +3,7 @@
 //! 当前 JSON loader 和 Synthetic DSL 前端分别消费同一固定制品；只有后者进入
 //! `Compiler`。投影函数仍只看 `ValidatedCanonicalLir`，不会从当前对象图补语义。
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, hint::black_box, time::Instant};
 
 use laneflow_compiler::{
     AccessEffect, AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput,
@@ -28,7 +28,7 @@ use laneflow_core::{
 use laneflow_data::{NamedArtifact, from_json_slice, from_scenario_json_slice};
 use laneflow_spatial::{SpatialEdgeInput, SpatialRegistry};
 use laneflow_static_contract::{EntityKind, FieldTag};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 const TRAFFIC_NAMESPACE: &str = "fixture/traffic";
 const SPATIAL_NAMESPACE: &str = "fixture/spatial";
@@ -42,6 +42,10 @@ const SIGNALIZED_MANIFEST: &[u8] =
     include_bytes!("../../../examples/data/v0.1-signalized-corridor.scenario.json");
 const MULTI_GATE_TRAFFIC: &[u8] =
     include_bytes!("../../../examples/data/v0.10-multi-gate-waiting-zone.laneflow.json");
+const PRODUCTION_BASELINE_ID: &str = "LF-COMP-P100-PRODUCTION-R0-v1";
+const PRODUCTION_BASELINE_WORKLOAD_ID: &str = "LF-COMP-PRODUCTION-CORRIDOR-v1";
+const PRODUCTION_BASELINE_SCALES: [usize; 5] = [1, 2, 3, 4, 5];
+const PRODUCTION_BASELINE_SAMPLE_COUNT: usize = 7;
 
 #[test]
 fn signalized_corridor_projects_the_complete_current_static_contract() {
@@ -149,6 +153,132 @@ fn multi_gate_waiting_zone_preserves_gate_and_waiting_occurrences() {
     );
 }
 
+/// 在 P100 推荐参考机型上生成 #292 首轮生产编译紧凑基线。
+///
+/// 该测试默认忽略，避免普通回归把墙钟测量误当成功能门禁。规模输入与
+/// `CompilationUnit` 均在计时区外建立；唯一计时区只覆盖 `Compiler::compile`。每级
+/// 只保留 min/median/max，不保存逐样本 raw，也不启动隔离子进程。
+#[test]
+#[ignore = "只在 #292 生产性能基线重测时以 release 单线程显式运行"]
+fn p100_production_compiler_baseline() {
+    let traffic: Value = serde_json::from_slice(SIGNALIZED_TRAFFIC).unwrap();
+    let spatial: Value = serde_json::from_slice(SIGNALIZED_SPATIAL).unwrap();
+    let mut compiler = Compiler::new();
+    let mut levels = Vec::with_capacity(PRODUCTION_BASELINE_SCALES.len());
+
+    for (level_index, copies) in PRODUCTION_BASELINE_SCALES.into_iter().enumerate() {
+        eprintln!(
+            "生产编译基线进度：第 {}/{} 级，{} 份完整信号化走廊",
+            level_index + 1,
+            PRODUCTION_BASELINE_SCALES.len(),
+            copies
+        );
+
+        // 预热只消除首次执行固定成本；它不进入七个正式样本，也不改变 Compiler 的
+        // retained capacity（当前实现恒为零）。
+        let warmup = repeated_signalized_corridor_unit(&traffic, &spatial, copies);
+        black_box(compiler.compile(warmup).unwrap());
+
+        let mut elapsed_ns = Vec::with_capacity(PRODUCTION_BASELINE_SAMPLE_COUNT);
+        let mut expected_metrics = None;
+        let mut lane_edge_count = 0_usize;
+        for _ in 0..PRODUCTION_BASELINE_SAMPLE_COUNT {
+            // 前端 JSON 解析、DSL 构造和规模复制均明确留在计时区外。
+            let unit = repeated_signalized_corridor_unit(&traffic, &spatial, copies);
+            let started = Instant::now();
+            let output = compiler.compile(black_box(unit)).unwrap();
+            let duration_ns = u64::try_from(started.elapsed().as_nanos()).unwrap();
+
+            // 指标读取与确定性判定发生在停表后，不能污染 compile wall clock。
+            let metrics = output.metrics();
+            if let Some(expected) = expected_metrics {
+                assert_eq!(metrics, expected, "同一级重复编译必须产生相同观测值");
+            } else {
+                expected_metrics = Some(metrics);
+            }
+            assert_eq!(compiler.retained_capacity_bytes(), 0);
+            lane_edge_count = output.lir().lane_edges().len();
+            elapsed_ns.push(duration_ns);
+            black_box(output);
+        }
+
+        elapsed_ns.sort_unstable();
+        let metrics = expected_metrics.unwrap();
+        assert_eq!(lane_edge_count, 66 * copies);
+        levels.push(json!({
+            "corridorCopies": copies,
+            "sourceModuleCount": copies * 2,
+            "laneEdgeCount": lane_edge_count,
+            "formalSampleCount": PRODUCTION_BASELINE_SAMPLE_COUNT,
+            "wallClockNs": {
+                "min": elapsed_ns[0],
+                "median": elapsed_ns[PRODUCTION_BASELINE_SAMPLE_COUNT / 2],
+                "max": elapsed_ns[PRODUCTION_BASELINE_SAMPLE_COUNT - 1]
+            },
+            "lirRecordCount": metrics.lir_record_count(),
+            "lirOutputLogicalBytes": metrics.output_logical_bytes(),
+            "compilerControlledPeakBytes": metrics.compiler_controlled_peak_bytes(),
+            "compilerRetainedCapacityBytes": compiler.retained_capacity_bytes(),
+            "semanticFingerprint": encode_hex(&metrics.semantic_fingerprint())
+        }));
+    }
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "schemaVersion": 1,
+            "baselineId": PRODUCTION_BASELINE_ID,
+            "workloadId": PRODUCTION_BASELINE_WORKLOAD_ID,
+            "compileLimitsProfile": CompileLimits::p100_initial_v1().profile_id(),
+            "timingBoundary": "Compiler::compile only",
+            "samplePolicy": "one warmup plus seven formal samples per level; single process; one worker",
+            "levels": levels
+        }))
+        .unwrap()
+    );
+}
+
+fn repeated_signalized_corridor_unit(
+    traffic: &Value,
+    spatial: &Value,
+    copies: usize,
+) -> laneflow_compiler::CompilationUnit {
+    let limits = CompileLimits::p100_initial_v1();
+    let mut unit = CompilationUnitBuilder::new(limits.clone());
+    for index in 0..copies {
+        let traffic_namespace = format!("baseline/traffic/{index:02}");
+        let spatial_namespace = format!("baseline/spatial/{index:02}");
+        let traffic_document = format!("baseline/current-traffic-{index:02}.lfsynthetic");
+        let spatial_document = format!("baseline/current-spatial-{index:02}.lfsynthetic");
+        unit.add_synthetic_module(build_traffic_module_for(
+            traffic,
+            &limits,
+            &traffic_namespace,
+            &traffic_document,
+        ))
+        .unwrap();
+        unit.add_synthetic_module(build_spatial_module_for(
+            spatial,
+            &limits,
+            &spatial_namespace,
+            &traffic_namespace,
+            &spatial_document,
+        ))
+        .unwrap();
+    }
+    unit.build().unwrap()
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut output, "{byte:02x}").unwrap();
+    }
+    output
+}
+
 fn compile_current_fixture(
     traffic_bytes: &[u8],
     spatial_bytes: Option<&[u8]>,
@@ -170,12 +300,22 @@ fn build_traffic_module(
     traffic: &Value,
     limits: &CompileLimits,
 ) -> laneflow_compiler::SyntheticModule {
+    build_traffic_module_for(
+        traffic,
+        limits,
+        TRAFFIC_NAMESPACE,
+        "fixture/current-traffic.lfsynthetic",
+    )
+}
+
+fn build_traffic_module_for(
+    traffic: &Value,
+    limits: &CompileLimits,
+    traffic_namespace: &str,
+    source_document_key: &str,
+) -> laneflow_compiler::SyntheticModule {
     let mut builder = SyntheticModuleBuilder::new(
-        header(
-            TRAFFIC_NAMESPACE,
-            "fixture/current-traffic.lfsynthetic",
-            limits,
-        ),
+        header(traffic_namespace, source_document_key, limits),
         limits,
     )
     .unwrap();
@@ -506,16 +646,28 @@ fn build_spatial_module(
     spatial: &Value,
     limits: &CompileLimits,
 ) -> laneflow_compiler::SyntheticModule {
+    build_spatial_module_for(
+        spatial,
+        limits,
+        SPATIAL_NAMESPACE,
+        TRAFFIC_NAMESPACE,
+        "fixture/current-spatial.lfsynthetic",
+    )
+}
+
+fn build_spatial_module_for(
+    spatial: &Value,
+    limits: &CompileLimits,
+    spatial_namespace: &str,
+    traffic_namespace: &str,
+    source_document_key: &str,
+) -> laneflow_compiler::SyntheticModule {
     let mut builder = SyntheticModuleBuilder::new(
-        header(
-            SPATIAL_NAMESPACE,
-            "fixture/current-spatial.lfsynthetic",
-            limits,
-        ),
+        header(spatial_namespace, source_document_key, limits),
         limits,
     )
     .unwrap();
-    builder.add_import(TRAFFIC_NAMESPACE).unwrap();
+    builder.add_import(traffic_namespace).unwrap();
     let points = array(spatial, "edges")
         .iter()
         .map(|edge| {
@@ -538,7 +690,7 @@ fn build_spatial_module(
         .iter()
         .enumerate()
         .map(|(index, edge)| LaneEdgeGeometryInput {
-            lane_edge: LaneEdgeReference::imported(TRAFFIC_NAMESPACE, text(edge, "trafficEdgeId")),
+            lane_edge: LaneEdgeReference::imported(traffic_namespace, text(edge, "trafficEdgeId")),
             centerline_points: &points[index],
         })
         .collect::<Vec<_>>();

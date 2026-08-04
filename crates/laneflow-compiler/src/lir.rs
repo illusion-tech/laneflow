@@ -414,8 +414,8 @@ pub(crate) struct LirRouteOccurrenceRef {
 /// 当前纵向切片冻结出的连续、目标布局中立 LIR 表。
 ///
 /// 每条边的 `ordinal` 必须等于其切片下标；全部身份字段区间和连接区间均落在本实例的
-/// 对应平面表内。`controlled_live_bytes` 只统计成功返回后由本结果持有的请求字节，不含
-/// 已释放的 MIR 或冻结暂存区。
+/// 对应平面表内。`controlled_live_bytes` 只统计成功返回后由本结果持有的请求字节；
+/// `peak_controlled_live_bytes` 另保存 MIR、冻结暂存区与新输出共存时的阶段峰值。
 pub(crate) struct LirUnit {
     pub(crate) lane_edges: Box<[LirLaneEdge]>,
     pub(crate) lane_edge_successors: Box<[LaneEdgeOrdinal]>,
@@ -477,6 +477,7 @@ pub(crate) struct LirUnit {
     pub(crate) lir_record_count: u64,
     pub(crate) output_bytes: u64,
     pub(crate) controlled_live_bytes: u64,
+    pub(crate) peak_controlled_live_bytes: u64,
 }
 
 /// LIR 与冻结源映射所需的临时阶段映射。
@@ -3015,6 +3016,7 @@ pub(crate) fn freeze_lir(
             lir_record_count,
             output_bytes,
             controlled_live_bytes: output_owned_bytes,
+            peak_controlled_live_bytes: controlled_live_bytes,
         },
         canonical_mir_edge_order: canonical_order.into_boxed_slice(),
         mir_to_lir: mir_to_lir.into_boxed_slice(),

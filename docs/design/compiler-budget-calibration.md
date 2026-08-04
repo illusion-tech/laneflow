@@ -1985,6 +1985,11 @@ cargo +1.96.0 run --release --locked `
 不能直接充当产品通过（Product Pass）。精确差额、禁止伪预算边界与 G1 修订入口见
 `compiler-foundation.md` 第 11.4 节。
 
+#292 后继 append-only G1 修订已选择真实合法产品场景，形成
+`LF-COMP-P100-PRODUCTION-R0-v1` 描述性生产基线；#308 继续只承担容量估算与实现选型
+输入。该生产结果记录于 `v0.10-compiler-production-baseline.md`，不回写或重算本研究的
+历史 raw / Evidence。
+
 ### 11.3 不能冻结的内容
 
 #308 不能单独裁决：

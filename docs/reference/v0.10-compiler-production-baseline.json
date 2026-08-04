@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "baselineId": "LF-COMP-P100-PRODUCTION-R0-v1",
+  "workloadId": "LF-COMP-PRODUCTION-CORRIDOR-v1",
+  "compileLimitsProfile": "LF-COMP-P100-INITIAL-v1",
+  "compilerImplementationRevision": "与本证据同一提交",
+  "measuredAt": "2026-08-04",
+  "environment": {
+    "hardwareId": "LF-P100-REF-01",
+    "hardwareIdentitySha256": "a4992211b6e629e3f682e45ad9e58eca559aa4bfe452c6f7e1c2dec554afe949",
+    "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+    "physicalCoreCount": 16,
+    "logicalProcessorCount": 32,
+    "physicalMemoryBytes": 66232508416,
+    "operatingSystem": "Microsoft Windows 11 专业版 Insider Preview",
+    "operatingSystemBuild": "29639",
+    "targetTriple": "x86_64-pc-windows-msvc",
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "llvm": "22.1.2",
+    "powerSource": "交流电",
+    "powerPlan": "平衡",
+    "bios": "N.1.09MRO07 (2025-04-08)"
+  },
+  "measurement": {
+    "timingBoundary": "Compiler::compile only",
+    "warmupCountPerLevel": 1,
+    "formalSampleCountPerLevel": 7,
+    "processCount": 1,
+    "workerCount": 1,
+    "rawSamplesPersisted": false,
+    "levels": [
+      {
+        "corridorCopies": 1,
+        "sourceModuleCount": 2,
+        "laneEdgeCount": 66,
+        "wallClockNs": {
+          "min": 2038100,
+          "median": 2086300,
+          "max": 2147300
+        },
+        "lirRecordCount": 4195,
+        "lirOutputLogicalBytes": 120203,
+        "compilerControlledPeakBytes": 642529,
+        "compilerRetainedCapacityBytes": 0,
+        "semanticFingerprint": "21033b5cbf88530b686de572fa98012b94c7486f239eb3edd70c339cea4b3dcd"
+      },
+      {
+        "corridorCopies": 2,
+        "sourceModuleCount": 4,
+        "laneEdgeCount": 132,
+        "wallClockNs": {
+          "min": 4088600,
+          "median": 4173900,
+          "max": 4445500
+        },
+        "lirRecordCount": 8390,
+        "lirOutputLogicalBytes": 240374,
+        "compilerControlledPeakBytes": 1284802,
+        "compilerRetainedCapacityBytes": 0,
+        "semanticFingerprint": "cbb6a8ea88e0a04a000d6e2286f1e96c4d618b3b417fdc35d23cc0c810dc74a7"
+      },
+      {
+        "corridorCopies": 3,
+        "sourceModuleCount": 6,
+        "laneEdgeCount": 198,
+        "wallClockNs": {
+          "min": 5939300,
+          "median": 6131300,
+          "max": 6272200
+        },
+        "lirRecordCount": 12585,
+        "lirOutputLogicalBytes": 360545,
+        "compilerControlledPeakBytes": 1927075,
+        "compilerRetainedCapacityBytes": 0,
+        "semanticFingerprint": "c2996168aadb35428f25d7981a2d313d9437fb13e7b369ec70e0ad2c5b7e5b31"
+      },
+      {
+        "corridorCopies": 4,
+        "sourceModuleCount": 8,
+        "laneEdgeCount": 264,
+        "wallClockNs": {
+          "min": 7973200,
+          "median": 8185400,
+          "max": 8318500
+        },
+        "lirRecordCount": 16780,
+        "lirOutputLogicalBytes": 480716,
+        "compilerControlledPeakBytes": 2569348,
+        "compilerRetainedCapacityBytes": 0,
+        "semanticFingerprint": "dce73ca9115e62dc507be23565ec91c0a838a47c89ced0f58078ecd05733ad9a"
+      },
+      {
+        "corridorCopies": 5,
+        "sourceModuleCount": 10,
+        "laneEdgeCount": 330,
+        "wallClockNs": {
+          "min": 9870100,
+          "median": 10070600,
+          "max": 10179600
+        },
+        "lirRecordCount": 20975,
+        "lirOutputLogicalBytes": 600887,
+        "compilerControlledPeakBytes": 3211621,
+        "compilerRetainedCapacityBytes": 0,
+        "semanticFingerprint": "a702797aa7afb2283b4d0ce408e09c492320fb0439c814e605548713ab27f649"
+      }
+    ]
+  }
+}

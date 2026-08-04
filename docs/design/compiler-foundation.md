@@ -187,6 +187,7 @@ pub struct CompilationUnitBuilder { /* 私有字段 */ }
 pub struct CompilationUnit { /* 私有字段 */ }
 pub struct ValidatedCanonicalLir { /* 私有字段 */ }
 pub struct ValidatedSourceMapInput { /* 私有字段 */ }
+pub struct CompilationMetrics { /* 私有字段 */ }
 pub struct CompilationOutput { /* 私有字段 */ }
 pub struct CompileLimits { /* 私有字段 */ }
 pub struct DiagnosticBundle { /* 私有字段 */ }
@@ -220,14 +221,20 @@ pub struct Compiler { /* 可复用暂存区和不可变配置 */ }
 impl Compiler {
     pub fn new() -> Self;
 
+    pub fn retained_capacity_bytes(&self) -> u64;
+
     pub fn compile(
         &mut self,
         unit: CompilationUnit,
     ) -> Result<CompilationOutput, DiagnosticBundle>;
 }
+
+impl CompilationOutput {
+    pub fn metrics(&self) -> CompilationMetrics;
+}
 ```
 
-以上代码表达 #292 G1 已接受的公共接口形状。G2 可以在不改变公共构造、所有权、
+以上代码表达 #292 G1 与后继性能证据边界修订已接受的公共接口形状。G2 可以在不改变公共构造、所有权、
 可见性、错误和确定性契约的前提下细化包内私有字段与实现名称；任何公共接口或上述
 契约变化都必须重新进入 G1，不得作为实现细节直接修改。
 `SyntheticModuleBuilder` 只接受首批支持矩阵中的领域构造；`CompilationUnitBuilder`
@@ -244,6 +251,9 @@ impl Compiler {
 - `ValidatedSourceMapInput` 字段私有，只暴露已验证的来源模块、文档、来源位置、
   来源沿袭和 LIR 键关联，不得补充静态语义；
 - `CompilationOutput` 原子拥有 LIR、已验证源映射输入和零个或多个非错误级诊断；
+- `CompilationMetrics` 只读报告 LIR 记录、逻辑输出、编译器控制峰值和同版本语义
+  指纹；`Compiler::retained_capacity_bytes` 单独报告跨编译保留容量。二者不得暴露
+  私有阶段布局，也不替代操作系统进程内存或后继制品摘要；
 - 不公开 `validate_unchecked_lir`、`assume_valid` 或从裸表直接构造
   `ValidatedCanonicalLir` 的入口；
 - `Compiler::compile` 发生任一错误级诊断时只返回排序后的 `DiagnosticBundle`，不
@@ -815,9 +825,9 @@ LIR 或后继制品。
 
 `LF-COMP-CURRENT-EQUIV-v1` 只证明现有固定样例的正确性、回归与小输入固定成本，不
 通过复制样例推断城市容量，也不与 #308 的
-`LF-COMP-RESEARCH-CURRENT-FIXTURES-v1` 合并。前三项直接复用
-`compiler-calibration-workloads-v1.json` 的生成规则与下列冻结规模；不得在 #292
-另抄一套记录公式：
+`LF-COMP-RESEARCH-CURRENT-FIXTURES-v1` 合并。原 G1 要求前三项直接复用
+`compiler-calibration-workloads-v1.json` 的生成规则与下列冻结规模；第 11.4 节的 G2
+发现与第 11.5 节的 append-only G1 修订随后取消其产品门禁角色，但不改写该历史输入：
 
 | 工作负载 | 模块图配置档       | 基础规模 `B` | 正式五级规模      | 校准规模 | 压力规模 |
 | -------- | ------------------ | -----------: | ----------------- | -------: | -------: |
@@ -841,6 +851,10 @@ LIR 或后继制品。
 - 失败输入在限制边界的最大工作量。
 
 ### 11.3 #308 G4 证据与 #292 首轮性能门槛
+
+本节保存 #292 原 G1 的研究输入和判定方法。第 11.4 节确认其生产适用性缺口后，第
+11.5 节的 append-only G1 修订已经取代其“产品通过门槛”角色；本节数值现只作容量
+估算和实现选型输入。
 
 #308 已完成 G4。其原始测量、机器可读 Evidence 与报告冻结了研究替身的 P100 同机
 R0 研究基线；产品负责人另行把同一台 `LF-P100-REF-01` 物理机器选定为目标产品推荐参考
@@ -908,6 +922,24 @@ G2 把 `compiler-calibration-workloads-v1.json` 逐项映射到真实生产语�
 不得通过忽略不适用分层、复用原自然身份或只测两个固定样例来伪造生产性能通过。两个
 固定样例的迁移等价证据仍由第 9.1 节独立成立。
 
+### 11.5 G1 修订后的首轮生产基线
+
+#292 的 append-only [G1 性能证据边界修订][g1-performance-revision] 已选择第 11.4 节
+方案 2：`LF-COMP-P100-R0-v1` 保留为非门禁容量估算输入，真实生产
+`Compiler::compile` 使用 `LF-COMP-P100-PRODUCTION-R0-v1` 形成首轮描述性基线。
+
+工作负载 `LF-COMP-PRODUCTION-CORRIDOR-v1` 把完整信号化走廊 Traffic + Spatial 样例
+复制到独立命名空间。首次试运行证明第 6 份走廊会让 `SourceBytesTotal=560374` 超过
+`LF-COMP-P100-INITIAL-v1` 的 `542741` 字节上限；[G1 规模阶梯更正][g1-scale-correction]
+因而冻结 1、2、3、4、5 份完整走廊，不放宽资源配置档。
+
+P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造在停表外，唯一计时区只
+覆盖 `Compiler::compile`。全部 35 个样本成功且同级语义指纹一致；1→5 份走廊的墙钟
+中位数为 2.0863→10.0706 ms，含源映射冻结的全管线编译器控制峰值为
+642529→3211621 字节，保留容量恒为 0。完整紧凑证据与环境边界见
+`v0.10-compiler-production-baseline.md` 和配对 JSON。
+该结果成为后继同机生产回退对照，不是产品 SLA、城市容量或 #298 制品发射预算。
+
 ## 12. #292 G1 接受结果与 G2 前置
 
 #292 G1 已确认：
@@ -916,8 +948,9 @@ G2 把 `compiler-calibration-workloads-v1.json` 逐项映射到真实生产语�
       架构审阅；
 - [x] 合成领域专用语言前端的支持 / 拒绝矩阵与两个迁移场景闭合；
 - [x] 标识 v1 值类型、独立编码边界和已知向量计划闭合；
-- [x] #308 已按自身 Gate 完成非生产校准研究；`CompileLimits`、工作负载规模、时延 /
-      内存门槛及其证据边界已经由精确提交和机器可读 Evidence 冻结；
+- [x] #308 已按自身 Gate 完成非生产校准研究；`CompileLimits` 与容量估算输入已经由
+      精确提交和机器可读 Evidence 冻结；G2 发现后的生产性能边界由第 11.5 节追加
+      G1 修订；
 - [x] 哈希 / 缓存候选结论、拒绝服务边界和依赖审计要求已冻结；首版保留标准库基线，
       真实生产实现结果进入 G2/G3；
 - [x] 集成专用投影的静态语义、行为、事件、确定性和空间层等价矩阵闭合；
@@ -941,9 +974,13 @@ G2 把 `compiler-calibration-workloads-v1.json` 逐项映射到真实生产语�
 - [x] 工作区编译检查/测试/文档测试（workspace check/test/doctest）、三个新包严格
       Clippy、发布配置测试（release tests）、rustdoc、cargo-deny 与 Markdown 表格检查
       已经完成；
-- [ ] 规模扩展生产性能基线尚未形成；第 11.4 节的不适用差额必须先取得仅追加
-      （append-only）G1 修订判断；
+- [x] 第 11.4 节的不适用差额已经取得 append-only G1 修订，并形成五级
+      `LF-COMP-P100-PRODUCTION-R0-v1` 生产基线；
 - [ ] Delivery PR、CI、精确头（exact-head）外部审阅与 G3 合并判断尚未开始。
 
-因此当前状态是“G2 正确性纵向切片完成、整体 G3 尚未就绪”，不能把本地验证文档或
-`Gate: G3 Candidate` 提交尾部字段（commit footer）解释为正式 `G3 Pass`。
+因此当前状态是“G2 正确性和生产性能本地证据完成，可以进入 Delivery PR 审阅，但
+整体 G3 尚未通过”，不能把本地验证文档或 `Gate: G3 Candidate` 提交尾部字段
+（commit footer）解释为正式 `G3 Pass`。
+
+[g1-performance-revision]: https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5175472658
+[g1-scale-correction]: https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5175536346

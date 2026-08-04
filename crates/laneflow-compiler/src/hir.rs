@@ -592,8 +592,8 @@ pub(crate) struct HirStaticRoute {
 /// HIR 阶段成功后一次性冻结的连续只读表集合。
 ///
 /// 构造完成时所有引用均已解析，所有 `TableRange` 都落在对应平坦表内。字段中的键只对
-/// 本实例有效。`controlled_live_bytes` 仅统计成功返回后由 HIR 自身持有的阶段字节；
-/// 资源预检使用的峰值还包含输入、查找表和暂存区。
+/// 本实例有效。`controlled_live_bytes` 统计成功返回后由 HIR 自身持有的阶段字节；
+/// `peak_controlled_live_bytes` 另保存资源预检已经计算的输入、查找表和暂存区共存峰值。
 pub(crate) struct HirUnit {
     pub(crate) modules: Box<[HirModule]>,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -647,6 +647,7 @@ pub(crate) struct HirUnit {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) hir_record_count: u64,
     pub(crate) controlled_live_bytes: u64,
+    pub(crate) peak_controlled_live_bytes: u64,
 }
 
 /// 按 HIR 模块隔离的有类型符号查找索引；不提供规范遍历能力。
@@ -1795,6 +1796,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         waiting_zone_occurrences: route.waiting_zone_occurrences,
         hir_record_count,
         controlled_live_bytes: hir_persistent_bytes,
+        peak_controlled_live_bytes: controlled_live_bytes,
     })
 }
 
