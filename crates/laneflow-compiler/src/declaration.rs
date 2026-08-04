@@ -11,6 +11,7 @@ use laneflow_static_contract::{
     AccessEffect, EntityKind, EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind,
     LaneGroupKind, ManeuverGateKind, ManeuverPathKind, MovementKind, ParkingAreaKind,
     ParticipantClassKind, RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind,
+    VehicleProfileKind,
 };
 
 use crate::SourceSpan;
@@ -97,6 +98,8 @@ pub type SignalGroupReference<'a> = EntityReference<'a, SignalGroupKind>;
 pub type ParkingAreaReference<'a> = EntityReference<'a, ParkingAreaKind>;
 /// 指向参与者类别声明的有类型未解析引用。
 pub type ParticipantClassReference<'a> = EntityReference<'a, ParticipantClassKind>;
+/// 指向车辆配置声明的有类型未解析引用。
+pub type VehicleProfileReference<'a> = EntityReference<'a, VehicleProfileKind>;
 /// 横断面物理设施类别可承载的结构形态。
 ///
 /// 该分类只约束 `FacilityKind` token 可以用于道路区段还是设施带，不授予任何交通
@@ -392,6 +395,41 @@ pub struct ParticipantClassInput<'a> {
     pub extends: Option<ParticipantClassReference<'a>>,
 }
 
+/// 当前道路机动车执行域采用的 IIDM 静态参数。
+///
+/// 这些字段逐项沿用 current Core `IidmProfileSpec` 的 `f64` 数值语义；该类型不是
+/// 其他交通执行域的通用运行参数基类。
+#[derive(Clone, Copy, Debug)]
+pub struct IidmVehicleProfileInput {
+    /// 车辆长度，单位为米；必须有限且严格大于几何间隙 epsilon。
+    pub length_meters: f64,
+    /// 自由流期望速度，单位为米每秒；必须有限且大于零。
+    pub desired_speed_meters_per_second: f64,
+    /// 行为最小间距，单位为米；必须有限且不小于零。
+    pub min_gap_meters: f64,
+    /// 期望时间间隔，单位为秒；必须有限且大于零。
+    pub time_headway_seconds: f64,
+    /// 最大舒适加速度，单位为米每二次方秒；必须有限且大于零。
+    pub max_acceleration_meters_per_second_squared: f64,
+    /// 舒适减速度幅值，单位为米每二次方秒；必须有限且大于零。
+    pub comfortable_deceleration_meters_per_second_squared: f64,
+    /// 紧急减速度幅值，单位为米每二次方秒；必须有限、大于零且不小于舒适减速度。
+    pub emergency_deceleration_meters_per_second_squared: f64,
+}
+
+/// 合成领域专用语言的当前道路机动车车辆配置声明输入。
+///
+/// `participant_class` 只决定静态准入分类，不改变 IIDM 模型或交通执行域。
+#[derive(Clone, Copy, Debug)]
+pub struct VehicleProfileInput<'a> {
+    /// 来源模块内显式持久化且唯一的车辆配置稳定键。
+    pub vehicle_profile_key: &'a str,
+    /// 恰好一个参与者类别；目标必须存在于同一编译单元。
+    pub participant_class: ParticipantClassReference<'a>,
+    /// 当前 Core 已接受的 IIDM 静态参数。
+    pub iidm: IidmVehicleProfileInput,
+}
+
 /// 静态准入规则可以引用的目标。
 ///
 /// 四个可遍历目标在本切片编译为静态准入表；`FacilityBand` 保留为可诊断输入，HIR
@@ -574,6 +612,11 @@ pub enum ScalarViolation {
         /// 排他下限的 IEEE 754 位模式。
         exclusive_minimum_bits: u64,
     },
+    /// 输入小于给定的包含下限。
+    NotLessThan {
+        /// 包含下限的 IEEE 754 位模式。
+        inclusive_minimum_bits: u64,
+    },
 }
 
 /// 所有受检 Typed AST 声明共享的身份与诊断上下文。
@@ -724,6 +767,13 @@ pub(crate) struct ParticipantClassDeclaration {
     pub(crate) extends: Option<OwnedEntityReference<ParticipantClassKind>>,
 }
 
+/// 已通过字段级检查、等待解析唯一参与者类别的车辆配置 Typed AST 记录。
+pub(crate) struct VehicleProfileDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) participant_class: OwnedEntityReference<ParticipantClassKind>,
+    pub(crate) iidm: IidmVehicleProfileInput,
+}
+
 /// Typed AST 中已拥有的准入目标引用。
 pub(crate) enum OwnedAccessRuleTarget {
     LaneEdge(OwnedEntityReference<LaneEdgeKind>),
@@ -784,5 +834,6 @@ pub(crate) enum SyntheticDeclaration {
     ParkingArea(ParkingAreaDeclaration),
     ParkingSpace(ParkingSpaceDeclaration),
     ParticipantClass(ParticipantClassDeclaration),
+    VehicleProfile(VehicleProfileDeclaration),
     AccessRule(AccessRuleDeclaration),
 }

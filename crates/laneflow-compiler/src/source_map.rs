@@ -13,8 +13,8 @@ use laneflow_static_contract::{
     ParkingSpaceId, ParkingSpaceOrdinal, ParticipantClassId, ParticipantClassOrdinal,
     RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal, SignalControllerId,
     SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal,
-    StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal, WaitingZoneId,
-    WaitingZoneOrdinal,
+    StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal, VehicleProfileId,
+    VehicleProfileOrdinal, WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::diagnostic::DiagnosticCollector;
@@ -96,6 +96,8 @@ pub enum SourceRelationRole {
     AccessRuleTarget = 25,
     /// 准入规则集合中的一项参与者类别选择器。
     AccessRuleParticipantClass = 26,
+    /// 车辆配置到其唯一参与者类别的静态分类关系。
+    VehicleProfileParticipantClass = 27,
 }
 
 #[derive(Clone, Copy)]
@@ -189,6 +191,7 @@ struct AccessRelationSourceRecord {
 #[derive(Clone, Copy)]
 enum AccessRelationOwnerRecord {
     ParticipantClass(ParticipantClassOrdinal, ParticipantClassId),
+    VehicleProfile(VehicleProfileOrdinal, VehicleProfileId),
     AccessRule(AccessRuleOrdinal, AccessRuleId),
 }
 
@@ -229,6 +232,8 @@ pub struct ValidatedSourceMapInput {
     parking_relation_sources: Box<[ParkingRelationSourceRecord]>,
     participant_class_sources:
         Box<[StableEntitySourceRecord<ParticipantClassOrdinal, ParticipantClassId>]>,
+    vehicle_profile_sources:
+        Box<[StableEntitySourceRecord<VehicleProfileOrdinal, VehicleProfileId>]>,
     access_rule_sources: Box<[StableEntitySourceRecord<AccessRuleOrdinal, AccessRuleId>]>,
     access_relation_sources: Box<[AccessRelationSourceRecord]>,
     junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
@@ -493,6 +498,18 @@ impl ValidatedSourceMapInput {
             })
     }
 
+    /// 按 `VehicleProfileOrdinal` 递增顺序遍历车辆配置来源记录。
+    pub fn vehicle_profile_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = VehicleProfileSourceView<'_>> {
+        self.vehicle_profile_sources
+            .iter()
+            .map(|record| VehicleProfileSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
     /// 按 `AccessRuleOrdinal` 递增顺序遍历准入规则来源记录。
     pub fn access_rule_sources(&self) -> impl ExactSizeIterator<Item = AccessRuleSourceView<'_>> {
         self.access_rule_sources
@@ -705,6 +722,11 @@ stable_source_view!(
     ParticipantClassSourceView,
     ParticipantClassOrdinal,
     ParticipantClassId
+);
+stable_source_view!(
+    VehicleProfileSourceView,
+    VehicleProfileOrdinal,
+    VehicleProfileId
 );
 stable_source_view!(AccessRuleSourceView, AccessRuleOrdinal, AccessRuleId);
 stable_source_view!(StaticRouteSourceView, StaticRouteOrdinal, StaticRouteId);
@@ -992,6 +1014,8 @@ impl ParkingRelationSourceView<'_> {
 pub enum AccessRelationOwner {
     /// 参与者类别及其有类型身份。
     ParticipantClass(ParticipantClassOrdinal, ParticipantClassId),
+    /// 当前道路机动车车辆配置及其有类型身份。
+    VehicleProfile(VehicleProfileOrdinal, VehicleProfileId),
     /// 准入规则及其有类型身份。
     AccessRule(AccessRuleOrdinal, AccessRuleId),
 }
@@ -1002,6 +1026,7 @@ impl AccessRelationOwner {
     pub const fn entity_kind(self) -> EntityKind {
         match self {
             Self::ParticipantClass(_, _) => EntityKind::ParticipantClass,
+            Self::VehicleProfile(_, _) => EntityKind::VehicleProfile,
             Self::AccessRule(_, _) => EntityKind::AccessRule,
         }
     }
@@ -1021,6 +1046,9 @@ impl AccessRelationSourceView<'_> {
         match self.record.owner {
             AccessRelationOwnerRecord::ParticipantClass(ordinal, stable_id) => {
                 AccessRelationOwner::ParticipantClass(ordinal, stable_id)
+            }
+            AccessRelationOwnerRecord::VehicleProfile(ordinal, stable_id) => {
+                AccessRelationOwner::VehicleProfile(ordinal, stable_id)
             }
             AccessRelationOwnerRecord::AccessRule(ordinal, stable_id) => {
                 AccessRelationOwner::AccessRule(ordinal, stable_id)
@@ -1228,6 +1256,7 @@ pub(crate) fn freeze_source_map(
         .saturating_add(u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX));
     let access_entity_count = u64::try_from(mir.participant_classes.len())
         .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(mir.vehicle_profiles.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(mir.access_rules.len()).unwrap_or(u64::MAX));
     let access_relation_count = mir
         .participant_classes
@@ -1236,6 +1265,7 @@ pub(crate) fn freeze_source_map(
         .count()
         .try_into()
         .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(mir.vehicle_profiles.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(mir.access_rules.len()).unwrap_or(u64::MAX))
         .saturating_add(
             u64::try_from(mir.access_rule_participant_classes.len()).unwrap_or(u64::MAX),
@@ -1395,6 +1425,11 @@ pub(crate) fn freeze_source_map(
             mir.participant_classes.len().try_into().unwrap_or(u64::MAX),
         ))
         .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<VehicleProfileOrdinal, VehicleProfileId>,
+        >(
+            mir.vehicle_profiles.len().try_into().unwrap_or(u64::MAX)
+        ))
+        .saturating_add(requested_bytes::<
             StableEntitySourceRecord<AccessRuleOrdinal, AccessRuleId>,
         >(
             mir.access_rules.len().try_into().unwrap_or(u64::MAX)
@@ -1526,6 +1561,7 @@ pub(crate) fn freeze_source_map(
             .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
     );
     let mut participant_class_sources = Vec::with_capacity(mir.participant_classes.len());
+    let mut vehicle_profile_sources = Vec::with_capacity(mir.vehicle_profiles.len());
     let mut access_rule_sources = Vec::with_capacity(mir.access_rules.len());
     let mut access_relation_sources = Vec::with_capacity(
         usize::try_from(access_relation_count)
@@ -1988,6 +2024,29 @@ pub(crate) fn freeze_source_map(
             });
         }
     }
+    for mir_key in frozen_lir
+        .canonical_mir_vehicle_profile_order
+        .iter()
+        .copied()
+    {
+        let profile = &mir.vehicle_profiles[mir_key.index()];
+        let ordinal = frozen_lir.mir_vehicle_profile_to_lir[mir_key.index()];
+        let source_document_ordinal = mir.modules[profile.module.index()].source_document_ordinal;
+        vehicle_profile_sources.push(StableEntitySourceRecord {
+            ordinal,
+            stable_id: profile.stable_id,
+            primary: location(source_document_ordinal, &profile.source_span),
+        });
+        access_relation_sources.push(AccessRelationSourceRecord {
+            owner: AccessRelationOwnerRecord::VehicleProfile(ordinal, profile.stable_id),
+            role: SourceRelationRole::VehicleProfileParticipantClass,
+            local_index: 0,
+            primary: location(
+                source_document_ordinal,
+                &profile.participant_class_source_span,
+            ),
+        });
+    }
     for mir_key in frozen_lir.canonical_mir_access_rule_order.iter().copied() {
         let rule = &mir.access_rules[mir_key.index()];
         let ordinal = frozen_lir.mir_access_rule_to_lir[mir_key.index()];
@@ -2178,6 +2237,7 @@ pub(crate) fn freeze_source_map(
         parking_space_sources: parking_space_sources.into_boxed_slice(),
         parking_relation_sources: parking_relation_sources.into_boxed_slice(),
         participant_class_sources: participant_class_sources.into_boxed_slice(),
+        vehicle_profile_sources: vehicle_profile_sources.into_boxed_slice(),
         access_rule_sources: access_rule_sources.into_boxed_slice(),
         access_relation_sources: access_relation_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),

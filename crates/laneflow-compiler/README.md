@@ -17,7 +17,9 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 支持 LaneEdge、LaneGroup、RoadSection 和 ManeuverPath 两个独立求值平面，并保留
 效果（effect）、类别集合、优先级（priority）与法规来源。相反效果的精确并列在编译期
 拒绝，FacilityBand target 以结构化能力门卫（capability guard）失败关闭；时变窗口尚未
-进入本切片。
+进入本切片。当前道路机动车 `VehicleProfile` 已沿用 current Core IIDM `f64` 数值约束，
+解析唯一 `ParticipantClass` 引用并进入规范身份、语义摘要和来源映射；该配置不是其他
+交通执行域的通用参数基类。
 `StaticRoute` 保留显式有序边出现项，
 并预编译相邻边门、机动路径、机动门和等待区出现项。构建器原子拒绝非法数值 / token、非法或未
 导入引用、重复声明和重复无序关系，并保留横断面、车道、覆盖链、完整机动路径与静态

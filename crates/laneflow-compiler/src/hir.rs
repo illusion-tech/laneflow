@@ -21,7 +21,7 @@ use laneflow_static_contract::{
     PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, PARKING_HEADING_OFFSET_MAXIMUM_RADIANS,
     PARKING_HEADING_OFFSET_MINIMUM_RADIANS, ParkingAreaId, ParkingSpaceId, ParticipantClassId,
     RoadCorridorId, RoadSectionId, SignalAspect, SignalControllerId, SignalGroupId, SignalPhaseId,
-    StableId128, StaticRouteId, StopLineId, WaitingZoneId,
+    StableId128, StaticRouteId, StopLineId, VehicleProfileId, WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
@@ -63,6 +63,7 @@ pub(crate) enum HirSignalPhaseTag {}
 pub(crate) enum HirParkingAreaTag {}
 pub(crate) enum HirParkingSpaceTag {}
 pub(crate) enum HirParticipantClassTag {}
+pub(crate) enum HirVehicleProfileTag {}
 pub(crate) enum HirAccessRuleTag {}
 
 /// 仅在当前 `HirUnit` 模块表内有效的致密键。
@@ -86,6 +87,7 @@ pub(crate) type HirSignalControllerKey = ArenaKey<HirSignalControllerTag>;
 pub(crate) type HirParkingAreaKey = ArenaKey<HirParkingAreaTag>;
 pub(crate) type HirParkingSpaceKey = ArenaKey<HirParkingSpaceTag>;
 pub(crate) type HirParticipantClassKey = ArenaKey<HirParticipantClassTag>;
+pub(crate) type HirVehicleProfileKey = ArenaKey<HirVehicleProfileTag>;
 pub(crate) type HirAccessRuleKey = ArenaKey<HirAccessRuleTag>;
 
 /// 已解析为 HIR 模块键的显式导入边。
@@ -418,6 +420,23 @@ pub(crate) struct HirParticipantClass {
     pub(crate) source_span: SourceSpan,
 }
 
+/// 已解析唯一参与者类别、并保持 current Core IIDM `f64` 语义的车辆配置。
+pub(crate) struct HirVehicleProfile {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: VehicleProfileId,
+    pub(crate) participant_class: HirParticipantClassKey,
+    pub(crate) participant_class_source_span: SourceSpan,
+    pub(crate) length_meters: f64,
+    pub(crate) desired_speed_meters_per_second: f64,
+    pub(crate) min_gap_meters: f64,
+    pub(crate) time_headway_seconds: f64,
+    pub(crate) max_acceleration_meters_per_second_squared: f64,
+    pub(crate) comfortable_deceleration_meters_per_second_squared: f64,
+    pub(crate) emergency_deceleration_meters_per_second_squared: f64,
+    pub(crate) source_span: SourceSpan,
+}
+
 /// HIR 中已解析且保持求值平面边界的准入目标。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum HirAccessTarget {
@@ -570,6 +589,7 @@ pub(crate) struct HirUnit {
     pub(crate) parking_spaces: Box<[HirParkingSpace]>,
     pub(crate) parking_area_spaces: Box<[HirParkingAreaSpace]>,
     pub(crate) participant_classes: Box<[HirParticipantClass]>,
+    pub(crate) vehicle_profiles: Box<[HirVehicleProfile]>,
     pub(crate) access_rules: Box<[HirAccessRule]>,
     pub(crate) access_rule_participant_classes: Box<[HirAccessRuleParticipantClass]>,
     pub(crate) static_routes: Box<[HirStaticRoute]>,
@@ -742,6 +762,7 @@ struct ParkingCounts {
 #[derive(Default)]
 struct AccessHir {
     participant_classes: Box<[HirParticipantClass]>,
+    vehicle_profiles: Box<[HirVehicleProfile]>,
     access_rules: Box<[HirAccessRule]>,
     access_rule_participant_classes: Box<[HirAccessRuleParticipantClass]>,
 }
@@ -749,6 +770,7 @@ struct AccessHir {
 #[derive(Default)]
 struct AccessCounts {
     participant_classes: u64,
+    vehicle_profiles: u64,
     access_rules: u64,
     rule_class_references: u64,
 }
@@ -774,7 +796,9 @@ struct FirstAccessRegulation {
 
 impl AccessCounts {
     fn entity_count(&self) -> u64 {
-        self.participant_classes.saturating_add(self.access_rules)
+        self.participant_classes
+            .saturating_add(self.access_rules)
+            .saturating_add(self.vehicle_profiles)
     }
 }
 
@@ -1083,6 +1107,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             access_counts.participant_classes,
         )
         .saturating_add(requested_bytes::<
+            CanonicalDeclarationSource<HirVehicleProfileKey>,
+        >(access_counts.vehicle_profiles))
+        .saturating_add(requested_bytes::<
             CanonicalDeclarationSource<HirAccessRuleKey>,
         >(access_counts.access_rules))
         .saturating_add(requested_bytes::<Option<HirParticipantClassKey>>(
@@ -1195,6 +1222,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_bytes::<HirParticipantClass>(
             access_counts.participant_classes,
+        ))
+        .saturating_add(requested_bytes::<HirVehicleProfile>(
+            access_counts.vehicle_profiles,
         ))
         .saturating_add(requested_bytes::<HirAccessRule>(access_counts.access_rules))
         .saturating_add(requested_bytes::<HirAccessRuleParticipantClass>(
@@ -1657,6 +1687,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         parking_spaces: parking.parking_spaces,
         parking_area_spaces: parking.parking_area_spaces,
         participant_classes: access.participant_classes,
+        vehicle_profiles: access.vehicle_profiles,
         access_rules: access.access_rules,
         access_rule_participant_classes: access.access_rule_participant_classes,
         static_routes: route.static_routes,
@@ -1923,6 +1954,7 @@ fn build_cross_section_hir(
                 | SyntheticDeclaration::ParkingArea(_)
                 | SyntheticDeclaration::ParkingSpace(_)
                 | SyntheticDeclaration::ParticipantClass(_)
+                | SyntheticDeclaration::VehicleProfile(_)
                 | SyntheticDeclaration::AccessRule(_) => {
                     unreachable!("cross-section source filter admitted junction declaration")
                 }
@@ -4754,6 +4786,113 @@ fn build_access_hir(
         }
     }
 
+    // VehicleProfile 只消费已经闭合的分类法；它不会反向改变类别层级或把车辆参数
+    // 提升为跨执行域能力。先登记规范身份，再统一解析类别，保留前向/跨模块引用。
+    let mut profiles = TypedArena::<HirVehicleProfileTag, HirVehicleProfile>::with_capacity(
+        count_to_usize(counts.vehicle_profiles, &unit.limits)?,
+    );
+    let mut profile_sources =
+        Vec::with_capacity(count_to_usize(counts.vehicle_profiles, &unit.limits)?);
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index).expect("module table is u32-bounded"),
+        );
+        let mut declaration_indices: Vec<_> = source_module
+            .declarations
+            .iter()
+            .enumerate()
+            .filter_map(|(index, declaration)| {
+                matches!(declaration, SyntheticDeclaration::VehicleProfile(_)).then_some(index)
+            })
+            .collect();
+        declaration_indices.sort_unstable_by(|left, right| {
+            declaration_header(&source_module.declarations[*left])
+                .stable_key
+                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        });
+        for declaration_index in declaration_indices {
+            let SyntheticDeclaration::VehicleProfile(source) =
+                &source_module.declarations[declaration_index]
+            else {
+                unreachable!("filtered declaration must be VehicleProfile");
+            };
+            let fields = [
+                IdentityFieldInput::new(
+                    FieldTag::AuthoringNamespaceId,
+                    source_module
+                        .descriptor()
+                        .authoring_namespace_id()
+                        .as_bytes(),
+                ),
+                IdentityFieldInput::new(
+                    FieldTag::VehicleProfileKey,
+                    source.header.stable_key.as_bytes(),
+                ),
+            ];
+            let stable_id = VehicleProfileId::from_untyped(derive_identity(
+                unit,
+                identities,
+                module_index,
+                EntityKind::VehicleProfile,
+                &source.header.stable_key,
+                &source.header.span,
+                &fields,
+            )?);
+            let iidm = source.iidm;
+            let key = profiles
+                .push(HirVehicleProfile {
+                    module: module_key,
+                    stable_key: Arc::clone(&source.header.stable_key),
+                    stable_id,
+                    participant_class: HirParticipantClassKey::from_raw(0),
+                    participant_class_source_span: source.participant_class.span.clone(),
+                    length_meters: iidm.length_meters,
+                    desired_speed_meters_per_second: iidm.desired_speed_meters_per_second,
+                    min_gap_meters: iidm.min_gap_meters,
+                    time_headway_seconds: iidm.time_headway_seconds,
+                    max_acceleration_meters_per_second_squared: iidm
+                        .max_acceleration_meters_per_second_squared,
+                    comfortable_deceleration_meters_per_second_squared: iidm
+                        .comfortable_deceleration_meters_per_second_squared,
+                    emergency_deceleration_meters_per_second_squared: iidm
+                        .emergency_deceleration_meters_per_second_squared,
+                    source_span: source.header.span.clone(),
+                })
+                .map_err(|overflow| {
+                    arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                })?;
+            profile_sources.push(CanonicalDeclarationSource {
+                source_module_index: u32::try_from(module_index)
+                    .expect("module table is u32-bounded"),
+                declaration_index: u32::try_from(declaration_index)
+                    .expect("declaration table is u32-bounded"),
+                hir_key: key,
+            });
+        }
+    }
+    for location in &profile_sources {
+        let source_module = &unit.modules[location.source_module_index as usize];
+        let SyntheticDeclaration::VehicleProfile(source) =
+            &source_module.declarations[location.declaration_index as usize]
+        else {
+            unreachable!("canonical vehicle profile source changed kind");
+        };
+        if let Some(participant_class) = resolve_reference(
+            module_lookup,
+            &class_symbols,
+            &source.participant_class,
+            EntityKind::VehicleProfile,
+            &source.header,
+            location.source_module_index,
+            &mut diagnostics,
+        ) {
+            profiles.get_mut(location.hir_key).participant_class = participant_class;
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
     let mut rules = TypedArena::<HirAccessRuleTag, HirAccessRule>::with_capacity(count_to_usize(
         counts.access_rules,
         &unit.limits,
@@ -4957,6 +5096,7 @@ fn build_access_hir(
 
     Ok(AccessHir {
         participant_classes: classes.into_boxed_slice(),
+        vehicle_profiles: profiles.into_boxed_slice(),
         access_rules: rules.into_boxed_slice(),
         access_rule_participant_classes: rule_classes.into_boxed_slice(),
     })
@@ -5898,6 +6038,7 @@ fn declaration_header(
         SyntheticDeclaration::ParkingArea(declaration) => &declaration.header,
         SyntheticDeclaration::ParkingSpace(declaration) => &declaration.header,
         SyntheticDeclaration::ParticipantClass(declaration) => &declaration.header,
+        SyntheticDeclaration::VehicleProfile(declaration) => &declaration.header,
         SyntheticDeclaration::AccessRule(declaration) => &declaration.header,
     }
 }
@@ -5969,6 +6110,7 @@ fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts {
             | SyntheticDeclaration::ParkingArea(_)
             | SyntheticDeclaration::ParkingSpace(_)
             | SyntheticDeclaration::ParticipantClass(_)
+            | SyntheticDeclaration::VehicleProfile(_)
             | SyntheticDeclaration::AccessRule(_) => {}
         }
     }
@@ -6119,6 +6261,9 @@ fn access_counts(unit: &CompilationUnit) -> AccessCounts {
             SyntheticDeclaration::ParticipantClass(_) => {
                 counts.participant_classes = counts.participant_classes.saturating_add(1);
             }
+            SyntheticDeclaration::VehicleProfile(_) => {
+                counts.vehicle_profiles = counts.vehicle_profiles.saturating_add(1);
+            }
             SyntheticDeclaration::AccessRule(rule) => {
                 counts.access_rules = counts.access_rules.saturating_add(1);
                 counts.rule_class_references = counts.rule_class_references.saturating_add(
@@ -6213,6 +6358,7 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
                 | SyntheticDeclaration::ParkingArea(_)
                 | SyntheticDeclaration::ParkingSpace(_)
                 | SyntheticDeclaration::ParticipantClass(_)
+                | SyntheticDeclaration::VehicleProfile(_)
                 | SyntheticDeclaration::AccessRule(_) => 22_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),

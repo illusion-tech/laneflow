@@ -28,20 +28,21 @@ pub use compiler::{
     CanonicalRoadCorridorView, CanonicalRoadSectionView, CanonicalSignalControl,
     CanonicalSignalControllerView, CanonicalSignalGroupView, CanonicalSignalPhaseStateView,
     CanonicalSignalPhaseView, CanonicalStaticRouteOccurrenceRef, CanonicalStaticRouteView,
-    CanonicalStopLineView, CanonicalWaitingZoneOccurrenceView, CanonicalWaitingZoneView,
-    CompilationOutput, Compiler, ValidatedCanonicalLir,
+    CanonicalStopLineView, CanonicalVehicleProfileView, CanonicalWaitingZoneOccurrenceView,
+    CanonicalWaitingZoneView, CompilationOutput, Compiler, ValidatedCanonicalLir,
 };
 pub use declaration::{
     AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput,
     CorridorElementReference, EntityReference, FacilityBandInput, FacilityBandReference,
-    FacilityKindCategory, FacilityKindViolation, JunctionInput, JunctionReference, LaneEdgeInput,
-    LaneEdgeReference, LaneGroupInput, LaneGroupReference, ManeuverGateInput,
-    ManeuverGateReference, ManeuverPathInput, ManeuverPathReference, MovementInput,
-    MovementReference, ParkingAreaInput, ParkingAreaReference, ParkingLaneAnchorInput,
-    ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
-    RoadCorridorInput, RoadSectionInput, RoadSectionReference, ScalarViolation, SignalControlInput,
-    SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
-    SignalPhaseInput, StaticRouteInput, StopLineInput, StopLineReference, WaitingZoneInput,
+    FacilityKindCategory, FacilityKindViolation, IidmVehicleProfileInput, JunctionInput,
+    JunctionReference, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
+    ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
+    MovementInput, MovementReference, ParkingAreaInput, ParkingAreaReference,
+    ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput,
+    ParticipantClassReference, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
+    ScalarViolation, SignalControlInput, SignalControllerInput, SignalGroupInput,
+    SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, StaticRouteInput, StopLineInput,
+    StopLineReference, VehicleProfileInput, VehicleProfileReference, WaitingZoneInput,
 };
 pub use diagnostic::{
     AccessCapability, AccessPlane, AccessRegulationField, Diagnostic, DiagnosticBundle,
@@ -67,5 +68,5 @@ pub use source_map::{
     RoadSectionSourceView, RouteRelationSourceView, SignalControllerSourceView,
     SignalGroupSourceView, SignalPhaseSourceView, SignalRelationOwner, SignalRelationSourceView,
     SourceDocumentView, SourceLocationView, SourceRelationRole, StaticRouteSourceView,
-    StopLineSourceView, ValidatedSourceMapInput, WaitingZoneSourceView,
+    StopLineSourceView, ValidatedSourceMapInput, VehicleProfileSourceView, WaitingZoneSourceView,
 };

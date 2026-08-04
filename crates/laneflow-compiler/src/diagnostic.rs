@@ -236,6 +236,10 @@ pub enum DiagnosticCode {
     OrphanParkingArea,
     /// 参与者类别的单继承链形成循环。
     ParticipantClassInheritanceCycle,
+    /// 车辆配置的 IIDM 数值违反 current Core 约束。
+    InvalidVehicleProfileValue,
+    /// 车辆配置的紧急减速度小于舒适减速度。
+    InvalidVehicleProfileDecelerationOrder,
     /// 准入规则没有声明任何参与者类别。
     EmptyAccessRuleParticipantClasses,
     /// 准入规则请求了首版尚未实现的能力。
@@ -344,6 +348,10 @@ impl DiagnosticCode {
             Self::InvalidParkingSpaceGeometry => "LF-COMP-PARKING-SPACE-GEOMETRY",
             Self::OrphanParkingArea => "LF-COMP-ORPHAN-PARKING-AREA",
             Self::ParticipantClassInheritanceCycle => "LF-COMP-PARTICIPANT-CLASS-CYCLE",
+            Self::InvalidVehicleProfileValue => "LF-COMP-VEHICLE-PROFILE-VALUE",
+            Self::InvalidVehicleProfileDecelerationOrder => {
+                "LF-COMP-VEHICLE-PROFILE-DECELERATION-ORDER"
+            }
             Self::EmptyAccessRuleParticipantClasses => "LF-COMP-EMPTY-ACCESS-RULE-CLASSES",
             Self::AccessCapabilityUnavailable => "LF-COMP-ACCESS-CAPABILITY-UNAVAILABLE",
             Self::InvalidAccessRegulationString => "LF-COMP-ACCESS-REGULATION-STRING",
@@ -943,6 +951,19 @@ pub enum DiagnosticPayload {
     ParticipantClassInheritanceCycle {
         participant_class_key: Box<str>,
     },
+    /// 非法车辆配置字段、原始值和结构化数值约束。
+    InvalidVehicleProfileValue {
+        vehicle_profile_key: Box<str>,
+        field: Box<str>,
+        value_bits: u64,
+        violation: ScalarViolation,
+    },
+    /// 车辆配置两项减速度幅值没有形成合法顺序。
+    InvalidVehicleProfileDecelerationOrder {
+        vehicle_profile_key: Box<str>,
+        comfortable_deceleration_bits: u64,
+        emergency_deceleration_bits: u64,
+    },
     EmptyAccessRuleParticipantClasses {
         access_rule_key: Box<str>,
     },
@@ -1291,6 +1312,46 @@ impl Diagnostic {
             Some(primary_span),
             Box::default(),
             Some(stable_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_vehicle_profile_value(
+        vehicle_profile_key: &str,
+        field: &'static str,
+        value: f64,
+        violation: ScalarViolation,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidVehicleProfileValue,
+            DiagnosticPayload::InvalidVehicleProfileValue {
+                vehicle_profile_key: vehicle_profile_key.into(),
+                field: field.into(),
+                value_bits: value.to_bits(),
+                violation,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(vehicle_profile_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_vehicle_profile_deceleration_order(
+        vehicle_profile_key: &str,
+        comfortable_deceleration: f64,
+        emergency_deceleration: f64,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidVehicleProfileDecelerationOrder,
+            DiagnosticPayload::InvalidVehicleProfileDecelerationOrder {
+                vehicle_profile_key: vehicle_profile_key.into(),
+                comfortable_deceleration_bits: comfortable_deceleration.to_bits(),
+                emergency_deceleration_bits: emergency_deceleration.to_bits(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(vehicle_profile_key.into()),
         )
     }
 
@@ -3119,6 +3180,27 @@ impl fmt::Display for Diagnostic {
                 formatter,
                 "参与者类别 {participant_class_key} 所在的单继承链形成循环"
             ),
+            DiagnosticPayload::InvalidVehicleProfileValue {
+                vehicle_profile_key,
+                field,
+                value_bits,
+                violation,
+            } => write!(
+                formatter,
+                "车辆配置 {vehicle_profile_key} 的 {field}={} 非法：{}",
+                f64::from_bits(*value_bits),
+                ScalarViolationDisplay(*violation),
+            ),
+            DiagnosticPayload::InvalidVehicleProfileDecelerationOrder {
+                vehicle_profile_key,
+                comfortable_deceleration_bits,
+                emergency_deceleration_bits,
+            } => write!(
+                formatter,
+                "车辆配置 {vehicle_profile_key} 的 emergencyDeceleration={} 必须不小于 comfortableDeceleration={}",
+                f64::from_bits(*emergency_deceleration_bits),
+                f64::from_bits(*comfortable_deceleration_bits),
+            ),
             DiagnosticPayload::EmptyAccessRuleParticipantClasses { access_rule_key } => write!(
                 formatter,
                 "准入规则 {access_rule_key} 必须至少引用一个参与者类别"
@@ -3274,6 +3356,13 @@ impl fmt::Display for ScalarViolationDisplay {
                 formatter,
                 "必须严格大于 {}",
                 f64::from_bits(exclusive_minimum_bits)
+            ),
+            ScalarViolation::NotLessThan {
+                inclusive_minimum_bits,
+            } => write!(
+                formatter,
+                "必须大于或等于 {}",
+                f64::from_bits(inclusive_minimum_bits)
             ),
         }
     }

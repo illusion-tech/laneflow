@@ -17,8 +17,8 @@ use sha2::{Digest, Sha256};
 
 use laneflow_static_contract::{
     AccessEffect, EntityKind, FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind,
-    ManeuverGateKind, ManeuverPathKind, MovementKind, ParticipantClassKind, RoadSectionKind,
-    SignalAspect, SignalGroupKind, StopLineKind,
+    MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS, ManeuverGateKind, ManeuverPathKind, MovementKind,
+    ParticipantClassKind, RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind,
 };
 
 use crate::arena::ArenaKey;
@@ -33,10 +33,11 @@ use crate::declaration::{
     ParkingAreaDeclaration, ParkingAreaInput, ParkingLaneAnchorDeclaration,
     ParkingSpaceDeclaration, ParkingSpaceInput, ParticipantClassDeclaration, ParticipantClassInput,
     ParticipantClassReference, RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration,
-    RoadSectionInput, SignalControlInput, SignalControllerDeclaration, SignalControllerInput,
-    SignalGroupDeclaration, SignalGroupInput, SignalGroupReference, SignalGroupStateDeclaration,
-    SignalPhaseDeclaration, SignalPhaseInput, SpeedLimit, StaticRouteDeclaration, StaticRouteInput,
-    StopLineDeclaration, StopLineInput, SyntheticDeclaration, WaitingZoneDeclaration,
+    RoadSectionInput, ScalarViolation, SignalControlInput, SignalControllerDeclaration,
+    SignalControllerInput, SignalGroupDeclaration, SignalGroupInput, SignalGroupReference,
+    SignalGroupStateDeclaration, SignalPhaseDeclaration, SignalPhaseInput, SpeedLimit,
+    StaticRouteDeclaration, StaticRouteInput, StopLineDeclaration, StopLineInput,
+    SyntheticDeclaration, VehicleProfileDeclaration, VehicleProfileInput, WaitingZoneDeclaration,
     WaitingZoneInput,
 };
 use crate::diagnostic::DiagnosticCollector;
@@ -1770,6 +1771,83 @@ impl SyntheticModuleBuilder {
         Ok(self)
     }
 
+    /// 声明一个当前道路机动车执行域使用的 IIDM 车辆配置。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键或参与者类别引用非法、任一 IIDM 数值违反 current Core 约束、减速度
+    /// 顺序非法、跨模块引用未显式导入、声明重复，或资源上限超限时失败。类别目标
+    /// 存在性在完整模块图建立后的 HIR 阶段验证。
+    #[track_caller]
+    pub fn add_vehicle_profile(
+        &mut self,
+        input: VehicleProfileInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(
+            EntityKind::VehicleProfile,
+            input.vehicle_profile_key,
+            &span,
+        )?;
+        self.validate_reference(EntityKind::ParticipantClass, input.participant_class, &span)?;
+        validate_vehicle_profile_scalars(input, &span)?;
+
+        let participant_class =
+            self.own_reference(EntityKind::ParticipantClass, input.participant_class, &span)?;
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.vehicle_profile_key.len()).unwrap_or(u64::MAX);
+        let reference_bytes = reference_spelling_bytes(&participant_class);
+        let controlled_reference_bytes =
+            u64::try_from(participant_class.declaration_key.len()).unwrap_or(u64::MAX);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 5,
+                references: 1,
+                relations: 1,
+                identity_fields: 2,
+                symbols: 1,
+                string_items: 3,
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(reference_bytes),
+                controlled_string_bytes: key_bytes.saturating_add(controlled_reference_bytes),
+                controlled_structural_bytes: size_bytes::<VehicleProfileDeclaration>(1)
+                    .saturating_add(size_bytes::<OwnedEntityReference<ParticipantClassKind>>(1)),
+                source_bytes: vehicle_profile_declaration_len(
+                    input.vehicle_profile_key,
+                    &participant_class,
+                ),
+                ..DeclarationResourceDelta::default()
+            },
+            input.vehicle_profile_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.vehicle_profile_key.into();
+        self.declaration_index
+            .entry(EntityKind::VehicleProfile)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations.push(SyntheticDeclaration::VehicleProfile(
+            VehicleProfileDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::VehicleProfile,
+                    stable_key,
+                    span,
+                },
+                participant_class,
+                iidm: input.iidm,
+            },
+        ));
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
     /// 声明一条永远适用的静态准入规则。
     ///
     /// # Errors
@@ -3375,6 +3453,102 @@ fn encode_source_record(
     Ok(bytes)
 }
 
+fn validate_vehicle_profile_scalars(
+    input: VehicleProfileInput<'_>,
+    span: &SourceSpan,
+) -> Result<(), DiagnosticBundle> {
+    let iidm = input.iidm;
+    let remaining_positive_fields = [
+        ("timeHeadway", iidm.time_headway_seconds),
+        (
+            "maxAcceleration",
+            iidm.max_acceleration_meters_per_second_squared,
+        ),
+        (
+            "comfortableDeceleration",
+            iidm.comfortable_deceleration_meters_per_second_squared,
+        ),
+        (
+            "emergencyDeceleration",
+            iidm.emergency_deceleration_meters_per_second_squared,
+        ),
+    ];
+    if !iidm.length_meters.is_finite() || iidm.length_meters <= MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS
+    {
+        let violation = if iidm.length_meters.is_finite() {
+            ScalarViolation::NotGreaterThan {
+                exclusive_minimum_bits: MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS.to_bits(),
+            }
+        } else {
+            ScalarViolation::NotFinite
+        };
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_vehicle_profile_value(
+                input.vehicle_profile_key,
+                "length",
+                iidm.length_meters,
+                violation,
+                span.clone(),
+            ),
+        ));
+    }
+    if let Err(violation) = SpeedLimit::try_new(iidm.desired_speed_meters_per_second) {
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_vehicle_profile_value(
+                input.vehicle_profile_key,
+                "desiredSpeed",
+                iidm.desired_speed_meters_per_second,
+                violation,
+                span.clone(),
+            ),
+        ));
+    }
+    if !iidm.min_gap_meters.is_finite() || iidm.min_gap_meters < 0.0 {
+        let violation = if iidm.min_gap_meters.is_finite() {
+            ScalarViolation::NotLessThan {
+                inclusive_minimum_bits: 0.0_f64.to_bits(),
+            }
+        } else {
+            ScalarViolation::NotFinite
+        };
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_vehicle_profile_value(
+                input.vehicle_profile_key,
+                "minGap",
+                iidm.min_gap_meters,
+                violation,
+                span.clone(),
+            ),
+        ));
+    }
+    for (field, value) in remaining_positive_fields {
+        if let Err(violation) = SpeedLimit::try_new(value) {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::invalid_vehicle_profile_value(
+                    input.vehicle_profile_key,
+                    field,
+                    value,
+                    violation,
+                    span.clone(),
+                ),
+            ));
+        }
+    }
+    if iidm.emergency_deceleration_meters_per_second_squared
+        < iidm.comfortable_deceleration_meters_per_second_squared
+    {
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_vehicle_profile_deceleration_order(
+                input.vehicle_profile_key,
+                iidm.comfortable_deceleration_meters_per_second_squared,
+                iidm.emergency_deceleration_meters_per_second_squared,
+                span.clone(),
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
     match declaration {
         SyntheticDeclaration::LaneEdge(declaration) => {
@@ -3460,6 +3634,10 @@ fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
                 declaration.extends.as_ref(),
             ))
         }
+        SyntheticDeclaration::VehicleProfile(declaration) => Some(vehicle_profile_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.participant_class,
+        )),
         SyntheticDeclaration::AccessRule(declaration) => Some(access_rule_declaration_len(
             &declaration.header.stable_key,
             &declaration.target,
@@ -3474,6 +3652,18 @@ fn declaration_header_len(stable_key: &str) -> u64 {
         .saturating_add(4)
         .saturating_add(u64::try_from(stable_key.len()).unwrap_or(u64::MAX))
         .saturating_add(16)
+}
+
+fn vehicle_profile_declaration_len(
+    stable_key: &str,
+    participant_class: &OwnedEntityReference<ParticipantClassKind>,
+) -> u64 {
+    declaration_header_len(stable_key)
+        .saturating_add(encoded_reference_len(
+            &participant_class.module_namespace,
+            &participant_class.declaration_key,
+        ))
+        .saturating_add(7 * 8)
 }
 
 fn lane_edge_declaration_base_len(stable_key: &str) -> u64 {
@@ -4092,6 +4282,22 @@ fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
             output.push(u8::from(declaration.extends.is_some()));
             if let Some(parent) = &declaration.extends {
                 put_owned_reference(output, parent);
+            }
+        }
+        SyntheticDeclaration::VehicleProfile(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            put_owned_reference(output, &declaration.participant_class);
+            let iidm = declaration.iidm;
+            for value in [
+                iidm.length_meters,
+                iidm.desired_speed_meters_per_second,
+                iidm.min_gap_meters,
+                iidm.time_headway_seconds,
+                iidm.max_acceleration_meters_per_second_squared,
+                iidm.comfortable_deceleration_meters_per_second_squared,
+                iidm.emergency_deceleration_meters_per_second_squared,
+            ] {
+                output.extend_from_slice(&value.to_bits().to_le_bytes());
             }
         }
         SyntheticDeclaration::AccessRule(declaration) => {
