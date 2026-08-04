@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    AccessEffect, AccessRuleId, AuthoringLaneId, EntityKind, FacilityBandId, FieldTag, JunctionId,
-    LaneEdgeId, LaneGroupId, MIN_PARKING_EXTENT_EXCLUSIVE_METERS,
+    AccessEffect, AccessRuleId, AuthoringLaneId, CanonicalFrameId, EntityKind, FacilityBandId,
+    FieldTag, JunctionId, LaneEdgeId, LaneGroupId, MIN_PARKING_EXTENT_EXCLUSIVE_METERS,
     MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS, ManeuverGateId, ManeuverPathId, MovementId,
     PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, PARKING_HEADING_OFFSET_MAXIMUM_RADIANS,
     PARKING_HEADING_OFFSET_MINIMUM_RADIANS, ParkingAreaId, ParkingSpaceId, ParticipantClassId,
@@ -64,6 +64,7 @@ pub(crate) enum HirParkingAreaTag {}
 pub(crate) enum HirParkingSpaceTag {}
 pub(crate) enum HirParticipantClassTag {}
 pub(crate) enum HirVehicleProfileTag {}
+pub(crate) enum HirCanonicalFrameTag {}
 pub(crate) enum HirAccessRuleTag {}
 
 /// 仅在当前 `HirUnit` 模块表内有效的致密键。
@@ -437,6 +438,17 @@ pub(crate) struct HirVehicleProfile {
     pub(crate) source_span: SourceSpan,
 }
 
+/// 已冻结稳定身份的规范坐标框架。
+///
+/// 该记录故意不保存轴向、单位或宿主放置：这些语义分别由全局 canonical frame
+/// 契约和 Adapter 边界拥有，不能成为同一 `frameId` 下的可变配置。
+pub(crate) struct HirCanonicalFrame {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: CanonicalFrameId,
+    pub(crate) source_span: SourceSpan,
+}
+
 /// HIR 中已解析且保持求值平面边界的准入目标。
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum HirAccessTarget {
@@ -590,6 +602,7 @@ pub(crate) struct HirUnit {
     pub(crate) parking_area_spaces: Box<[HirParkingAreaSpace]>,
     pub(crate) participant_classes: Box<[HirParticipantClass]>,
     pub(crate) vehicle_profiles: Box<[HirVehicleProfile]>,
+    pub(crate) canonical_frames: Box<[HirCanonicalFrame]>,
     pub(crate) access_rules: Box<[HirAccessRule]>,
     pub(crate) access_rule_participant_classes: Box<[HirAccessRuleParticipantClass]>,
     pub(crate) static_routes: Box<[HirStaticRoute]>,
@@ -760,6 +773,16 @@ struct ParkingCounts {
 }
 
 #[derive(Default)]
+struct SpatialHir {
+    canonical_frames: Box<[HirCanonicalFrame]>,
+}
+
+#[derive(Default)]
+struct SpatialCounts {
+    canonical_frames: u64,
+}
+
+#[derive(Default)]
 struct AccessHir {
     participant_classes: Box<[HirParticipantClass]>,
     vehicle_profiles: Box<[HirVehicleProfile]>,
@@ -890,6 +913,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let control_counts = control_counts(unit);
     let signal_counts = signal_counts(unit);
     let parking_counts = parking_counts(unit);
+    let spatial_counts = spatial_counts(unit);
     let access_counts = access_counts(unit);
     let route_counts = route_counts(unit);
     let cross_lookup_module_count = if cross_section_counts.entity_count() == 0 {
@@ -1100,6 +1124,11 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             ))
             .saturating_add(requested_bytes::<usize>(unit.declaration_count))
     };
+    let spatial_scratch = if spatial_counts.canonical_frames == 0 {
+        0
+    } else {
+        requested_bytes::<usize>(unit.declaration_count)
+    };
     let access_scratch = if access_counts.entity_count() == 0 {
         0
     } else {
@@ -1134,6 +1163,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         .max(control_scratch)
         .max(signal_scratch)
         .max(parking_scratch)
+        .max(spatial_scratch)
         .max(access_scratch)
         .max(route_scratch)
         .max(import_sort_scratch)
@@ -1219,6 +1249,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         .saturating_add(requested_bytes::<HirParkingSpace>(parking_counts.spaces))
         .saturating_add(requested_bytes::<HirParkingAreaSpace>(
             parking_counts.memberships,
+        ))
+        .saturating_add(requested_bytes::<HirCanonicalFrame>(
+            spatial_counts.canonical_frames,
         ))
         .saturating_add(requested_bytes::<HirParticipantClass>(
             access_counts.participant_classes,
@@ -1621,6 +1654,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &mut identities,
     )?;
     let parking = build_parking_hir(unit, &module_lookup, &lane_edges, &symbols, &mut identities)?;
+    let spatial = build_spatial_hir(unit, &mut identities)?;
     let access = build_access_hir(
         unit,
         &module_lookup,
@@ -1686,6 +1720,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         parking_areas: parking.parking_areas,
         parking_spaces: parking.parking_spaces,
         parking_area_spaces: parking.parking_area_spaces,
+        canonical_frames: spatial.canonical_frames,
         participant_classes: access.participant_classes,
         vehicle_profiles: access.vehicle_profiles,
         access_rules: access.access_rules,
@@ -1955,6 +1990,7 @@ fn build_cross_section_hir(
                 | SyntheticDeclaration::ParkingSpace(_)
                 | SyntheticDeclaration::ParticipantClass(_)
                 | SyntheticDeclaration::VehicleProfile(_)
+                | SyntheticDeclaration::CanonicalFrame(_)
                 | SyntheticDeclaration::AccessRule(_) => {
                     unreachable!("cross-section source filter admitted junction declaration")
                 }
@@ -4105,6 +4141,82 @@ fn build_signal_hir(
     })
 }
 
+fn build_spatial_hir(
+    unit: &CompilationUnit,
+    identities: &mut IdentityRegistry,
+) -> Result<SpatialHir, DiagnosticBundle> {
+    let counts = spatial_counts(unit);
+    if counts.canonical_frames == 0 {
+        return Ok(SpatialHir::default());
+    }
+
+    let mut frames = TypedArena::<HirCanonicalFrameTag, HirCanonicalFrame>::with_capacity(
+        count_to_usize(counts.canonical_frames, &unit.limits)?,
+    );
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        let mut declaration_indices: Vec<_> = source_module
+            .declarations
+            .iter()
+            .enumerate()
+            .filter_map(|(index, declaration)| {
+                matches!(declaration, SyntheticDeclaration::CanonicalFrame(_)).then_some(index)
+            })
+            .collect();
+        declaration_indices.sort_unstable_by(|left, right| {
+            declaration_header(&source_module.declarations[*left])
+                .stable_key
+                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        });
+        for declaration_index in declaration_indices {
+            let SyntheticDeclaration::CanonicalFrame(source) =
+                &source_module.declarations[declaration_index]
+            else {
+                unreachable!("canonical frame source filter admitted unrelated declaration")
+            };
+            let fields = [
+                IdentityFieldInput::new(
+                    FieldTag::AuthoringNamespaceId,
+                    source_module
+                        .descriptor()
+                        .authoring_namespace_id()
+                        .as_bytes(),
+                ),
+                IdentityFieldInput::new(
+                    FieldTag::CanonicalFrameKey,
+                    source.header.stable_key.as_bytes(),
+                ),
+            ];
+            let stable_id = CanonicalFrameId::from_untyped(derive_identity(
+                unit,
+                identities,
+                module_index,
+                EntityKind::CanonicalFrame,
+                &source.header.stable_key,
+                &source.header.span,
+                &fields,
+            )?);
+            frames
+                .push(HirCanonicalFrame {
+                    module: module_key,
+                    stable_key: Arc::clone(&source.header.stable_key),
+                    stable_id,
+                    source_span: source.header.span.clone(),
+                })
+                .map_err(|overflow| {
+                    arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                })?;
+        }
+    }
+
+    Ok(SpatialHir {
+        canonical_frames: frames.into_boxed_slice(),
+    })
+}
+
 #[allow(clippy::too_many_lines)]
 fn build_parking_hir(
     unit: &CompilationUnit,
@@ -6039,6 +6151,7 @@ fn declaration_header(
         SyntheticDeclaration::ParkingSpace(declaration) => &declaration.header,
         SyntheticDeclaration::ParticipantClass(declaration) => &declaration.header,
         SyntheticDeclaration::VehicleProfile(declaration) => &declaration.header,
+        SyntheticDeclaration::CanonicalFrame(declaration) => &declaration.header,
         SyntheticDeclaration::AccessRule(declaration) => &declaration.header,
     }
 }
@@ -6111,6 +6224,7 @@ fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts {
             | SyntheticDeclaration::ParkingSpace(_)
             | SyntheticDeclaration::ParticipantClass(_)
             | SyntheticDeclaration::VehicleProfile(_)
+            | SyntheticDeclaration::CanonicalFrame(_)
             | SyntheticDeclaration::AccessRule(_) => {}
         }
     }
@@ -6276,6 +6390,18 @@ fn access_counts(unit: &CompilationUnit) -> AccessCounts {
     counts
 }
 
+fn spatial_counts(unit: &CompilationUnit) -> SpatialCounts {
+    let canonical_frames = unit
+        .modules
+        .iter()
+        .flat_map(|module| module.declarations.iter())
+        .filter(|declaration| matches!(declaration, SyntheticDeclaration::CanonicalFrame(_)))
+        .count()
+        .try_into()
+        .unwrap_or(u64::MAX);
+    SpatialCounts { canonical_frames }
+}
+
 fn corridors_capacity(
     counts: &CrossSectionCounts,
     limits: &crate::CompileLimits,
@@ -6359,6 +6485,7 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
                 | SyntheticDeclaration::ParkingSpace(_)
                 | SyntheticDeclaration::ParticipantClass(_)
                 | SyntheticDeclaration::VehicleProfile(_)
+                | SyntheticDeclaration::CanonicalFrame(_)
                 | SyntheticDeclaration::AccessRule(_) => 22_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),

@@ -19,7 +19,9 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 拒绝，FacilityBand target 以结构化能力门卫（capability guard）失败关闭；时变窗口尚未
 进入本切片。当前道路机动车 `VehicleProfile` 已沿用 current Core IIDM `f64` 数值约束，
 解析唯一 `ParticipantClass` 引用并进入规范身份、语义摘要和来源映射；该配置不是其他
-交通执行域的通用参数基类。
+交通执行域的通用参数基类。`CanonicalFrame` 也已把 SpatialPackage v0.1 的稳定
+`frameId` 接入同一管线；坐标单位、手性、轴向和范围继续由全局空间契约固定，声明中
+不重复保存 CRS、宿主放置或可变原点。
 `StaticRoute` 保留显式有序边出现项，
 并预编译相邻边门、机动路径、机动门和等待区出现项。构建器原子拒绝非法数值 / token、非法或未
 导入引用、重复声明和重复无序关系，并保留横断面、车道、覆盖链、完整机动路径与静态
@@ -38,8 +40,8 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 当前领域子集接入原子成功闭环：任一阶段失败时只返回结构化诊断，成功时同时返回只读
 `ValidatedCanonicalLir`、与其配对的 `ValidatedSourceMapInput` 和非错误级诊断。
 `sourceDocumentKey` 在整个编译单元内唯一，来源记录在 AST/HIR/MIR 释放前按 LIR
-稳定实体与 owner-local 关系冻结；车辆配置、动态路线生命周期、空间等其余
-首批领域声明，以及后继编译遍和制品发射仍未实现。
+稳定实体与 owner-local 关系冻结；动态路线生命周期、车道图边规范折线等其余空间
+声明，以及后继编译遍和制品发射仍未实现。
 
 公共静态值契约来自 `laneflow-static-contract`。本 crate 不依赖当前核心、空间层、
 数据加载器或引擎适配器，也不提前冻结可移植制品、静态镜像或第三方前端插件接口。

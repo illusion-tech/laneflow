@@ -7,26 +7,26 @@
 
 use laneflow_static_contract::{
     AccessEffect, AccessRuleId, AccessRuleOrdinal, AuthoringLaneId, AuthoringLaneOrdinal,
-    FacilityBandId, FacilityBandOrdinal, FieldTag, JunctionId, JunctionOrdinal, LaneEdgeId,
-    LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal, ManeuverGateId, ManeuverGateOrdinal,
-    ManeuverPathId, ManeuverPathOrdinal, MovementId, MovementOrdinal, ParkingAreaId,
-    ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal, ParticipantClassId,
-    ParticipantClassOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
-    RoadSectionOrdinal, SignalAspect, SignalControllerId, SignalControllerOrdinal, SignalGroupId,
-    SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal,
-    StopLineId, StopLineOrdinal, VehicleProfileId, VehicleProfileOrdinal, WaitingZoneId,
-    WaitingZoneOrdinal,
+    CanonicalFrameId, CanonicalFrameOrdinal, FacilityBandId, FacilityBandOrdinal, FieldTag,
+    JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
+    ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId,
+    MovementOrdinal, ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal,
+    ParticipantClassId, ParticipantClassOrdinal, RoadCorridorId, RoadCorridorOrdinal,
+    RoadSectionId, RoadSectionOrdinal, SignalAspect, SignalControllerId, SignalControllerOrdinal,
+    SignalGroupId, SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StaticRouteId,
+    StaticRouteOrdinal, StopLineId, StopLineOrdinal, VehicleProfileId, VehicleProfileOrdinal,
+    WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::hir::build_hir;
 use crate::lir::{
-    LirAccessRule, LirAccessTarget, LirAuthoringLane, LirCorridorElement, LirFacilityBand,
-    LirGateOccurrence, LirIdentityField, LirJunction, LirJunctionInternalEdge, LirLaneEdge,
-    LirLaneGroup, LirManeuverGate, LirManeuverOccurrence, LirManeuverPath, LirMovement,
-    LirParkingArea, LirParkingSpace, LirParticipantClass, LirRoadCorridor, LirRoadSection,
-    LirRouteOccurrenceRef, LirSignalControl, LirSignalController, LirSignalGroup, LirSignalPhase,
-    LirSignalPhaseState, LirStaticRoute, LirStopLine, LirUnit, LirVehicleProfile, LirWaitingZone,
-    LirWaitingZoneOccurrence, freeze_lir,
+    LirAccessRule, LirAccessTarget, LirAuthoringLane, LirCanonicalFrame, LirCorridorElement,
+    LirFacilityBand, LirGateOccurrence, LirIdentityField, LirJunction, LirJunctionInternalEdge,
+    LirLaneEdge, LirLaneGroup, LirManeuverGate, LirManeuverOccurrence, LirManeuverPath,
+    LirMovement, LirParkingArea, LirParkingSpace, LirParticipantClass, LirRoadCorridor,
+    LirRoadSection, LirRouteOccurrenceRef, LirSignalControl, LirSignalController, LirSignalGroup,
+    LirSignalPhase, LirSignalPhaseState, LirStaticRoute, LirStopLine, LirUnit, LirVehicleProfile,
+    LirWaitingZone, LirWaitingZoneOccurrence, freeze_lir,
 };
 use crate::mir::lower_to_mir;
 use crate::source_map::{ValidatedSourceMapInput, freeze_source_map};
@@ -528,6 +528,32 @@ impl ValidatedCanonicalLir {
             })
     }
 
+    /// 按完整 Identity v1 前像规范顺序遍历全部规范坐标框架。
+    pub fn canonical_frames(&self) -> impl ExactSizeIterator<Item = CanonicalFrameView<'_>> {
+        self.inner
+            .canonical_frames
+            .iter()
+            .map(|record| CanonicalFrameView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取规范坐标框架。
+    #[must_use]
+    pub fn canonical_frame(
+        &self,
+        ordinal: CanonicalFrameOrdinal,
+    ) -> Option<CanonicalFrameView<'_>> {
+        self.inner
+            .canonical_frames
+            .get(ordinal.index())
+            .map(|record| CanonicalFrameView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
     /// 按完整 Identity v1 前像规范顺序遍历全部静态准入规则。
     pub fn access_rules(&self) -> impl ExactSizeIterator<Item = CanonicalAccessRuleView<'_>> {
         self.inner
@@ -804,6 +830,12 @@ impl_stable_entity_view!(
     LirVehicleProfile,
     VehicleProfileOrdinal,
     VehicleProfileId
+);
+impl_stable_entity_view!(
+    CanonicalFrameView,
+    LirCanonicalFrame,
+    CanonicalFrameOrdinal,
+    CanonicalFrameId
 );
 impl_stable_entity_view!(
     CanonicalAccessRuleView,
@@ -1800,19 +1832,19 @@ mod tests {
     use super::*;
     use crate::{
         AccessCapability, AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput,
-        AuthoringLaneInput, CompilationUnitBuilder, CompileLimitDimension, CompileLimits,
-        CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
-        FacilityBandReference, IidmVehicleProfileInput, JunctionInput, JunctionReference,
-        LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference, ManeuverGateInput,
-        ManeuverGateReference, ManeuverPathInput, ManeuverPathReference, MovementInput,
-        MovementReference, ParkingAreaInput, ParkingAreaReference, ParkingLaneAnchorInput,
-        ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput,
-        ParticipantClassReference, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
-        SignalControlInput, SignalControllerInput, SignalGroupInput, SignalGroupReference,
-        SignalGroupStateInput, SignalPhaseInput, SourceModuleDescriptor, SourceModuleHeader,
-        SourceModuleHeaderInput, SourceRelationRole, StaticRouteInput, StopLineInput,
-        StopLineReference, SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput,
-        WaitingZoneInput,
+        AuthoringLaneInput, CanonicalFrameInput, CompilationUnitBuilder, CompileLimitDimension,
+        CompileLimits, CorridorElementReference, DiagnosticCode, DiagnosticPayload,
+        FacilityBandInput, FacilityBandReference, IidmVehicleProfileInput, JunctionInput,
+        JunctionReference, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
+        ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
+        MovementInput, MovementReference, ParkingAreaInput, ParkingAreaReference,
+        ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput,
+        ParticipantClassInput, ParticipantClassReference, RoadCorridorInput, RoadSectionInput,
+        RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
+        SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleDescriptor,
+        SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, StaticRouteInput,
+        StopLineInput, StopLineReference, SyntheticModule, SyntheticModuleBuilder,
+        VehicleProfileInput, WaitingZoneInput,
     };
 
     fn module(
@@ -4808,6 +4840,67 @@ mod tests {
             crate::AccessRelationOwner::VehicleProfile(ordinal, stable_id)
                 if ordinal == profile.ordinal() && stable_id == profile.stable_id()
         ));
+    }
+
+    #[test]
+    fn compiler_freezes_canonical_frames_in_identity_order_with_sources() {
+        let mut builder = access_builder("canonical-frame.document");
+        builder
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-z",
+            })
+            .unwrap()
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-a",
+            })
+            .unwrap();
+
+        let output = Compiler::new()
+            .compile(unit([builder.finish().unwrap()]))
+            .unwrap();
+        let frames = output.lir().canonical_frames().collect::<Vec<_>>();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].ordinal().raw(), 0);
+        assert_eq!(frames[1].ordinal().raw(), 1);
+        assert_eq!(
+            stable_key(frames[0].identity_fields(), FieldTag::CanonicalFrameKey),
+            "frame-a"
+        );
+        assert_eq!(
+            stable_key(frames[1].identity_fields(), FieldTag::CanonicalFrameKey),
+            "frame-z"
+        );
+        let sources = output
+            .source_map_input()
+            .canonical_frame_sources()
+            .collect::<Vec<_>>();
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0].ordinal(), frames[0].ordinal());
+        assert_eq!(sources[0].stable_id(), frames[0].stable_id());
+        assert_eq!(sources[1].ordinal(), frames[1].ordinal());
+        assert_eq!(sources[1].stable_id(), frames[1].stable_id());
+    }
+
+    #[test]
+    fn canonical_frame_identity_changes_lir_semantic_digest() {
+        let compile = |key| {
+            let mut builder = access_builder("canonical-frame-digest.document");
+            builder
+                .add_canonical_frame(CanonicalFrameInput {
+                    canonical_frame_key: key,
+                })
+                .unwrap();
+            Compiler::new()
+                .compile(unit([builder.finish().unwrap()]))
+                .unwrap()
+        };
+
+        let left = compile("frame-a");
+        let right = compile("frame-b");
+        assert_ne!(
+            left.lir.inner.semantic_digest,
+            right.lir.inner.semantic_digest
+        );
     }
 
     #[test]
