@@ -3189,6 +3189,7 @@ dependencies = [
 name = "laneflow-compiler-test-support"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "laneflow-compiler",
  "laneflow-core",
  "laneflow-data",
