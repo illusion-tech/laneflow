@@ -1,6 +1,6 @@
 # 编译器基础设施与合成领域专用语言前端
 
-**文档状态**: 已接受（Accepted；#292 G1；G2 实现进行中）<br>
+**文档状态**: 已接受（Accepted；#292 G1）；#315 G1 共同受检模块接入修订提案中<br>
 **最后更新**: 2026-08-04<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
@@ -10,7 +10,7 @@ Typed AST）→高层中间表示（High-level Intermediate Representation，HIR
 合成领域专用语言前端（Synthetic Domain-specific Language Frontend，Synthetic DSL
 Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism）编译、诊断
 （Diagnostic）与当前态等价投影<br>
-**实现状态**: G2 实现进行中；`laneflow-static-contract` 已建立 `no_std` 值类型、
+**实现状态**: #292 已完成 G4；`laneflow-static-contract` 已建立 `no_std` 值类型、
 标识 v1（Identity v1）登记常量、有类型稳定标识与有类型逻辑序号；
 `laneflow-compiler` 已建立生产资源配置档、来源模块头、结构化诊断、确定性
 `LFSOURCE` 来源记录、显式导入图，以及车道图边、横断面完整所有者树、路口拓扑和
@@ -48,7 +48,8 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 #292 G1 已
 接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
-`laneflow-data` / `laneflow-core` / `laneflow-spatial`
+`laneflow-data` / `laneflow-core` / `laneflow-spatial`。#315 只处于 G1 设计冻结，本文中
+标注为“#315 G1 提案”的内容尚未成为已接受实现契约
 
 **关联决策与设计**:
 
@@ -170,6 +171,41 @@ HIR 和 MIR 的区块分配键（arena key）则留在编译器内部。这样�
 
 #292 可以定义后继编译发射器所需的只读已验证规范低层中间表示视图（View），但不得用私有
 临时线格式提前冻结 #298/#300 的公共字节契约。
+
+### 2.3 #315 官方前端共同接入与 #297 迁移边界（Proposed）
+
+#315 G1 提议保持 `laneflow-compiler` 的生产依赖方向不变，并为 #296/#297 冻结下列
+目标包依赖图。箭头仍表示左侧正常依赖右侧；图中的当前态/迁移相关包都设置
+`publish = false`，不进入 Traffic Runtime 依赖闭包：
+
+```text
+laneflow-compiler ----------------> laneflow-static-contract
+
+laneflow-current-import ----------> laneflow-compiler
+laneflow-current-import ----------> laneflow-current-source
+
+laneflow-data --------------------> laneflow-current-source
+laneflow-data --------------------> laneflow-core
+laneflow-data --------------------> laneflow-spatial
+```
+
+`laneflow-current-source` 是版本锁定的当前包来源解码边界，只拥有 Traffic v0.10、
+SpatialPackage v0.1 与 ScenarioManifest v0.1 的线格式数据传输对象（wire Data
+Transfer Object，wire DTO）、精确原始字节身份、版本和
+语法/形状诊断；它不能依赖 `laneflow-compiler`、`laneflow-core` 或
+`laneflow-spatial`。当前生产期的 `laneflow-data` 与迁移专用
+`laneflow-current-import` 复用这一份解码实现，避免维护两套 JSON 解析和版本判断。
+
+`laneflow-current-import` 只把受检当前态来源 DTO 映射到
+`laneflow-compiler` 拥有的具体 `CurrentImportModuleBuilder`；它不读取
+`InitialTrafficData`、`SpatialRegistry` 或其他当前态对象图，不拥有 HIR/MIR
+编译遍，也不直接发射 LIR。阶段 8 删除运行时 JSON 路径时可以移除
+`laneflow-data` 对当前 Core/Spatial 的生产依赖，同时保留独立离线迁移入口；完成
+#297 资产审计和既定保留期后，这两个迁移包可由单独治理决策退役。
+
+#296 的 `GeometryModuleBuilder` / `GeometryModule` 继续由 `laneflow-compiler` 拥有，
+不为共同接入另建前端插件包。以上名称和依赖方向属于 #315 G1 提案；具体当前态线格式
+字段、错误和来源位置契约仍由 #297 G1 独占。
 
 ## 3. 公共接口与构造权威
 
@@ -307,6 +343,107 @@ impl CompilationOutput {
 - 公共来源模型是否能保持独立于编译器私有的有类型抽象语法树、HIR 和 MIR。
 
 本段只登记后继决策入口，不预选具体协议，也不构成 v0.10 兼容承诺。
+
+### 3.3 官方前端共同受检模块接入（#315 Proposed）
+
+#315 G1 提议把当前 `CompilationUnitBuilder` / `CompilationUnit` 对
+`SyntheticModule` 的内部依赖替换为编译器私有（compiler-private）共同表示，同时保持
+公开构造面为来源专用的具体类型。下列名称表达所有权和阶段边界；除已经接受的公开类型名以及
+`TypedAstModule` / `TypedAstDeclaration` 外，G2 可以选择等价的私有实现名称：
+
+```rust
+pub struct SyntheticModule { /* 字段私有的官方具体模块 */ }
+// #296 / #297 后继增加各自的具体类型，而不是公开通用模块特征（trait）。
+pub struct GeometryModule { /* 字段私有 */ }
+pub struct CurrentImportModule { /* 字段私有 */ }
+
+struct AdmittedOfficialModule {
+    typed_ast: TypedAstModule,
+    resource_counts: ModuleResourceCounts,
+}
+
+struct TypedAstModule {
+    descriptor: SourceModuleDescriptor,
+    imports: Box<[ImportRecord]>,
+    declarations: Box<[TypedAstDeclaration]>,
+}
+
+pub struct CompilationUnitBuilder {
+    modules: Vec<AdmittedOfficialModule>,
+    /* 唯一性索引和累计资源状态 */
+}
+
+pub struct CompilationUnit {
+    modules: Box<[TypedAstModule]>,
+    /* 已验证的编译单元级计数 */
+}
+```
+
+当前私有枚举 `SyntheticDeclaration` 实际承载全部共同有类型抽象语法树声明，G2 应将其
+改名为 `TypedAstDeclaration` 或语义完全等价的非前端专用名称。HIR 只遍历
+`TypedAstModule` 与 `TypedAstDeclaration`，不能按 `SourceLanguage`、前端种类或公开
+模块封装在记录级分支。#315 不提前增加 `SourceLanguage` 变体；Geometry 和
+当前态导入的精确来源语言值分别由 #296/#297 G1 冻结。
+
+`CompilationUnitBuilder` 的公开入口保持具体且封闭：
+
+```rust
+pub fn add_synthetic_module(&mut self, module: SyntheticModule) -> Result<&mut Self, DiagnosticBundle>;
+// 后继分别由 #296 / #297 增加：
+pub fn add_geometry_module(&mut self, module: GeometryModule) -> Result<&mut Self, DiagnosticBundle>;
+pub fn add_current_import_module(&mut self, module: CurrentImportModule) -> Result<&mut Self, DiagnosticBundle>;
+```
+
+三个方法只负责消费各自字段私有封装并调用同一个私有接入函数。不得公开
+`add_module`、`OfficialFrontend` 特征、裸 `TypedAstModule`、裸描述符/内容配对入口，
+也不得让外部包实现接入特征。具体构建器可以复用编译器私有
+`TypedAstSink`，但每种来源记录、版本、位置和专用语义仍由其拥有的前端完成受检构造。
+
+共同接入必须按下列事务边界执行：
+
+1. 官方前端 `finish` 从受检声明和规范来源记录一次性派生描述符、导入、共同声明与全部
+   模块资源计数；字段私有性保证调用方不能重配其中任一部分。摘要和精确长度只能由
+   前端对实际规范来源字节计算，不能由调用方自报。
+2. `add_*_module` 按值消费具体封装，把内容移动到私有接入值；不得克隆（clone）完整声明、
+   字符串或几何点，也不得再次编码来源、计算摘要或扫描声明重算资源。
+3. 私有接入函数在修改构建器前一次性计算命名空间、`sourceDocumentKey`、模块数、
+   来源字节、导入、声明、引用、关系、身份字段、符号、字符串、机动门、等待区、路线
+   出现项、几何点和编译器控制存续字节数的候选累计值，并执行全部
+   `CompileLimits` 检查。任一失败只返回规范诊断；构建器的模块、索引和计数保持不变，
+   已消费模块被释放。
+4. 全部检查成功后才移动模块、写入索引并提交候选累计值。调用方加入顺序仍不是规范
+   顺序；`build` 在全部模块到齐后统一验证未知导入和循环，并冻结依赖优先、命名空间
+   字节序打破平局的规范拓扑顺序。
+5. 精确来源记录只在官方前端计算 SHA-256、长度、来源位置和来源专用诊断期间存续。
+   `finish` 必须在返回具体模块前释放自有来源字节；接受调用方借用字节的前端不得为了
+   共同接入复制全文。具体模块和 `CompilationUnitBuilder` 只保留已绑定描述符、来源
+   位置、声明与模块资源计数；HIR/MIR/LIR 和源映射不保留第二份来源全文。
+
+这里的“全部”只指共同接入拥有的编译单元聚合维度：`ModuleCount`、
+`ImportEdgeCount`、`SourceBytesTotal`、`DeclarationCount`、`TypedAstRecordCount`、
+`ReferenceCount`、`RelationOccurrenceCount`、`IdentityFieldOccurrenceCount`、
+`RouteOccurrenceCount`、`ManeuverGateCount`、`WaitingZoneCount`、`GeometryPointCount`、
+`SymbolCount`、`StringItemCount`、`TotalStringBytes` 和接入后实际
+`CompilerControlledLiveBytes`。`SourceBytesPerModule`、`SingleStringBytes` 与前端构造
+峰值由具体前端在 `finish` 前检查；HIR/MIR/LIR、诊断、暂存区、输出与保留容量维度仍由
+各自阶段检查。共同接入信任字段私有模块携带的一次性模块资源计数，不重新遍历记录；
+这既不会漏掉维度，也不会复制其他阶段的验证权威。
+
+第 5 项不改变 `sourceContentDigest`、`sourceRecordByteLen` 或 `SourceBytesTotal` 的逻辑
+计数，也不允许把调用方自报摘要变成可信输入。来源字节存续期间的实际峰值必须由前端
+自身的 `CompileLimits` 检查覆盖；共同接入累计 `SourceBytesTotal`，并以释放后的实际
+存续量检查编译单元级编译器控制存续字节数。由此不会把互不共存的多份来源
+全文虚构为同时存续，也不会因摘要已经存在而漏掉总输入规模上限。
+
+共同接入不需要特征对象（trait object）。若 G2 为代码组织使用私有枚举（enum）或封闭
+特征（sealed trait），只允许每个模块一次的常数次分派，并且必须在进入
+`TypedAstModule` 前消除；任何声明、引用、关系、
+字符串或几何点循环都不得承担前端变体分支或虚调用。
+
+职责归属保持互补：#315 只拥有共同表示、原子接入、生命周期和共享测试；#296 只拥有
+Geometry 来源契约及专用降阶；#297 只拥有当前态来源解码、稳定键/来源沿袭映射与具体
+导入模块构造。#296/#297 可以并行完成 G1，但二者进入 G2 前都必须以 #315 G4 后的
+精确 `main` 重新复核公共面、包依赖图与生产基线。
 
 ## 4. 阶段表示与内存所有权
 
@@ -792,6 +929,30 @@ Version，MSRV）1.96、许可证、维护状态、安全记录和依赖树。
 增量能力同样必须以干净编译为预言机；缓存未命中 / 命中只影响复用，不改变诊断、
 LIR 或后继制品。
 
+### 10.4 #315 共同接入性能与验证边界（Proposed）
+
+#315 不进入交通运行时（Traffic Runtime）固定步进热路径，但仍不能以“离线”作为重复
+工作和无界内存的豁免。G2/G3 必须在同一 P100 机器、相同发布配置（release）和相同
+`LF-COMP-P100-PRODUCTION-R0-v1` 五级工作负载上形成基线/候选（base/candidate）配对证据：
+
+- 既有 `Compiler::compile` 计时边界继续覆盖完整 HIR→MIR→LIR→源映射管线，确认共同
+  表示没有引入记录级分派或额外转换；
+- 新增接入边界样本只计时“已完成前端构造的具体模块 → `add_*_module` → `build`”，
+  模块来源编码与声明构造在停表外，避免把不同前端解析成本归给共同接入；
+- 每级至少 1 次预热和 7 次正式样本，报告中位数、中位数绝对偏差（Median Absolute
+  Deviation，MAD）、编译器控制峰值字节和保留容量；不因本次私有重构另立城市容量或
+  产品服务等级协议（Service-level Agreement，SLA）；
+- 基线/候选的 LIR 语义指纹、规范模块顺序、来源描述符、源映射和诊断必须精确
+  等价。任何可重复时延或内存回退都必须定位到具体阶段并修复，或携带事实回到 G1；
+  预期的来源记录在 `finish` 后释放若形成内存改善，也必须由阶段生命周期计数证明，
+  不能只看进程噪声。
+
+自动化验证至少覆盖：现有合成来源公共 API；加入顺序变形；命名空间/来源文档
+冲突与共同接入适用的全部 `CompileLimits` 维度；接入失败后构建器不污染；未知导入与
+循环；测试专用第二种官方封装复用同一私有接入而不复制检查；重复性 / 变形测试；
+公开面不存在通用模块/特征构造入口。测试专用封装不成为生产 `SourceLanguage` 或
+第三方兼容承诺。
+
 ## 11. 测试、工作负载与基准
 
 ### 11.1 正确性测试
@@ -964,10 +1125,12 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 并让实时 Project 状态与 G2 一致；具体状态只从 GitHub 读取。不得把本地分支、G1
 启动评论或本文的 Accepted 状态单独当作 G2 授权。
 
-## 13. #292 G2 实现状态与 G3 前置
+## 13. #292 G4 完成状态
 
-#292 已记录 [G2 Pass](https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5160723273)。
-截至 `v0.10-compiler-foundation-validation.md` 保存的本地实现末端：
+#292 已依次记录 [G2 Pass](https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5160723273)、
+[G3 交付确认](https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5177504302) 与
+[G4 完成判断](https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5177635981)。
+截至 G4 合入 `main@c20308cd4c2d311862f7b4c9aaa1d6768e62406e`：
 
 - [x] 三个包、编译阶段、G1 首批领域语义、Identity v1、诊断和资源上限已经实现；
 - [x] 集成专用投影与两个 `LF-COMP-CURRENT-EQUIV-v1` 样例已经形成静态、空间、行为、
@@ -975,13 +1138,30 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 - [x] 工作区编译检查/测试/文档测试（workspace check/test/doctest）、三个新包严格
       Clippy、发布配置测试（release tests）、rustdoc、cargo-deny 与 Markdown 表格检查
       已经完成；
-- [x] 第 11.4 节的不适用差额已经取得 append-only G1 修订，并形成五级
+- [x] 第 11.4 节的不适用差额已经取得仅追加（append-only）G1 修订，并形成五级
       `LF-COMP-P100-PRODUCTION-R0-v1` 生产基线；
-- [ ] Delivery PR、CI、精确头（exact-head）外部审阅与 G3 合并判断尚未开始。
+- [x] Related PR #307 与 Delivery PR #314 已通过各自 G3、正常检查和精确头
+      （exact-head）外部干净审阅后合入，#292 已完成 G4 并关闭。
 
-因此当前状态是“G2 正确性和生产性能本地证据完成，可以进入 Delivery PR 审阅，但
-整体 G3 尚未通过”，不能把本地验证文档或 `Gate: G3 Candidate` 提交尾部字段
-（commit footer）解释为正式 `G3 Pass`。
+本节只同步 #292 的已完成事实。#315 提案不得倒改 #292 的 G1/G2/G3/G4 证据，也不能
+把 #292 的生产基线自动解释为新前端的解析成本预算。
+
+## 14. #315 G1 验收清单（Proposed）
+
+- [ ] `CompilationUnit` 只保存共同 `TypedAstModule`，HIR 不再依赖
+      `SyntheticModule` 或前端变体；
+- [ ] 具体官方模块、私有共同接入、来源记录释放时点与失败原子性已经冻结；
+- [ ] 命名空间/文档、导入图、全部资源维度和规范模块顺序只有一个实现权威；
+- [ ] #296/#297 的具体受检入口与 `laneflow-current-source` /
+      `laneflow-current-import` 目标包依赖图闭合，编译器不依赖当前态对象图；
+- [ ] 记录级零动态分派、零完整克隆、一次摘要/计数/排序与配对性能验证方案闭合；
+- [ ] 第三方自定义前端非承诺、各议题职责和 G2 阻塞关系没有歧义；
+- [ ] `network-compiler.md`、路线图、设计索引、Skills 与术语表引用一致；
+- [ ] 对 G1 精确头完成本地全面审阅和有效外部审阅，并在 #315 追加只读
+      `## G1 设计判断` Pass 评论。
+
+本清单在 #315 G1 Pass 前全部是提案输入，不修改 #292 已接受的历史 Gate 记录，也不
+授权生产 Rust 实现。
 
 [g1-performance-revision]: https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5175472658
 [g1-scale-correction]: https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5175536346
