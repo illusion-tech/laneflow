@@ -23,9 +23,10 @@ pub use compiler::{
     CanonicalJunctionView, CanonicalLaneEdgeView, CanonicalLaneGroupView,
     CanonicalManeuverGateView, CanonicalManeuverOccurrenceView, CanonicalManeuverPathView,
     CanonicalMovementView, CanonicalRoadCorridorView, CanonicalRoadSectionView,
-    CanonicalStaticRouteOccurrenceRef, CanonicalStaticRouteView, CanonicalStopLineView,
-    CanonicalWaitingZoneOccurrenceView, CanonicalWaitingZoneView, CompilationOutput, Compiler,
-    ValidatedCanonicalLir,
+    CanonicalSignalControl, CanonicalSignalControllerView, CanonicalSignalGroupView,
+    CanonicalSignalPhaseStateView, CanonicalSignalPhaseView, CanonicalStaticRouteOccurrenceRef,
+    CanonicalStaticRouteView, CanonicalStopLineView, CanonicalWaitingZoneOccurrenceView,
+    CanonicalWaitingZoneView, CompilationOutput, Compiler, ValidatedCanonicalLir,
 };
 pub use declaration::{
     AuthoringLaneInput, CorridorElementReference, EntityReference, FacilityBandInput,
@@ -33,13 +34,16 @@ pub use declaration::{
     JunctionReference, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
     ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
     MovementInput, MovementReference, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
-    ScalarViolation, StaticRouteInput, StopLineInput, StopLineReference, WaitingZoneInput,
+    ScalarViolation, SignalControlInput, SignalControllerInput, SignalGroupInput,
+    SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, StaticRouteInput, StopLineInput,
+    StopLineReference, WaitingZoneInput,
 };
 pub use diagnostic::{
     Diagnostic, DiagnosticBundle, DiagnosticCode, DiagnosticPayload, DiagnosticSeverity,
     SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation, WaitingZoneGateRole,
 };
 pub use identity::CanonicalIdentityViolation;
+pub use laneflow_static_contract::SignalAspect;
 pub use limits::{CompileLimitDimension, CompileLimits};
 pub use module::{
     CompilationUnit, CompilationUnitBuilder, SYNTHETIC_FRONTEND_VERSION, SourceLanguage,
@@ -51,6 +55,8 @@ pub use source_map::{
     FacilityBandSourceView, JunctionRelationOwner, JunctionRelationSourceView, JunctionSourceView,
     LaneEdgeSourceView, LaneEdgeSuccessorSourceView, LaneGroupSourceView, ManeuverGateSourceView,
     ManeuverPathSourceView, MovementSourceView, RoadCorridorSourceView, RoadSectionSourceView,
-    RouteRelationSourceView, SourceDocumentView, SourceLocationView, SourceRelationRole,
-    StaticRouteSourceView, StopLineSourceView, ValidatedSourceMapInput, WaitingZoneSourceView,
+    RouteRelationSourceView, SignalControllerSourceView, SignalGroupSourceView,
+    SignalPhaseSourceView, SignalRelationOwner, SignalRelationSourceView, SourceDocumentView,
+    SourceLocationView, SourceRelationRole, StaticRouteSourceView, StopLineSourceView,
+    ValidatedSourceMapInput, WaitingZoneSourceView,
 };

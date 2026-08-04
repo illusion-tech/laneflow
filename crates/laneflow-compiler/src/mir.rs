@@ -12,13 +12,13 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     AuthoringLaneId, FacilityBandId, JunctionId, LaneEdgeId, LaneGroupId, ManeuverGateId,
-    ManeuverPathId, MovementId, RoadCorridorId, RoadSectionId, StaticRouteId, StopLineId,
-    WaitingZoneId,
+    ManeuverPathId, MovementId, RoadCorridorId, RoadSectionId, SignalAspect, SignalControllerId,
+    SignalGroupId, SignalPhaseId, StaticRouteId, StopLineId, WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::diagnostic::DiagnosticCollector;
-use crate::hir::{HirCorridorElement, HirLaneEdgeKey, HirUnit};
+use crate::hir::{HirCorridorElement, HirLaneEdgeKey, HirSignalControl, HirUnit};
 use crate::module::SourceDocumentOrdinal;
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
@@ -38,6 +38,9 @@ pub(crate) enum MirStopLineTag {}
 pub(crate) enum MirManeuverGateTag {}
 pub(crate) enum MirWaitingZoneTag {}
 pub(crate) enum MirStaticRouteTag {}
+pub(crate) enum MirSignalGroupTag {}
+pub(crate) enum MirSignalControllerTag {}
+pub(crate) enum MirSignalPhaseTag {}
 
 /// 仅在当前 `MirUnit` 模块表内有效的致密键。
 pub(crate) type MirModuleKey = ArenaKey<MirModuleTag>;
@@ -55,6 +58,9 @@ pub(crate) type MirStopLineKey = ArenaKey<MirStopLineTag>;
 pub(crate) type MirManeuverGateKey = ArenaKey<MirManeuverGateTag>;
 pub(crate) type MirWaitingZoneKey = ArenaKey<MirWaitingZoneTag>;
 pub(crate) type MirStaticRouteKey = ArenaKey<MirStaticRouteTag>;
+pub(crate) type MirSignalGroupKey = ArenaKey<MirSignalGroupTag>;
+pub(crate) type MirSignalControllerKey = ArenaKey<MirSignalControllerTag>;
+pub(crate) type MirSignalPhaseKey = ArenaKey<MirSignalPhaseTag>;
 
 /// MIR 中保留的模块身份与来源上下文。
 pub(crate) struct MirModule {
@@ -227,7 +233,57 @@ pub(crate) struct MirManeuverGate {
     pub(crate) maneuver_path: MirManeuverPathKey,
     pub(crate) transition_index: u32,
     pub(crate) stop_line: MirStopLineKey,
+    pub(crate) signal_control: MirSignalControl,
     pub(crate) source_span: SourceSpan,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum MirSignalControl {
+    Group(MirSignalGroupKey),
+    None,
+}
+
+pub(crate) struct MirSignalGroup {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: SignalGroupId,
+    pub(crate) controller: MirSignalControllerKey,
+    pub(crate) maneuver_gates: TableRange<MirSignalGroupManeuverGate>,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirSignalGroupManeuverGate {
+    pub(crate) maneuver_gate: MirManeuverGateKey,
+}
+
+pub(crate) struct MirSignalControllerGroup {
+    pub(crate) signal_group: MirSignalGroupKey,
+}
+
+pub(crate) struct MirSignalController {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: SignalControllerId,
+    pub(crate) offset_ms: u64,
+    pub(crate) cycle_duration_ms: u64,
+    pub(crate) signal_groups: TableRange<MirSignalControllerGroup>,
+    pub(crate) phases: TableRange<MirSignalPhase>,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirSignalPhase {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: SignalPhaseId,
+    pub(crate) controller: MirSignalControllerKey,
+    pub(crate) duration_ms: u64,
+    pub(crate) states: TableRange<MirSignalPhaseState>,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirSignalPhaseState {
+    pub(crate) signal_group: MirSignalGroupKey,
+    pub(crate) aspect: SignalAspect,
 }
 
 pub(crate) struct MirWaitingZone {
@@ -325,6 +381,12 @@ pub(crate) struct MirUnit {
     pub(crate) maneuver_path_gates: Box<[MirManeuverPathGate]>,
     pub(crate) maneuver_path_waiting_zones: Box<[MirManeuverPathWaitingZone]>,
     pub(crate) stop_line_maneuver_gates: Box<[MirStopLineManeuverGate]>,
+    pub(crate) signal_groups: Box<[MirSignalGroup]>,
+    pub(crate) signal_controllers: Box<[MirSignalController]>,
+    pub(crate) signal_controller_groups: Box<[MirSignalControllerGroup]>,
+    pub(crate) signal_phases: Box<[MirSignalPhase]>,
+    pub(crate) signal_phase_states: Box<[MirSignalPhaseState]>,
+    pub(crate) signal_group_maneuver_gates: Box<[MirSignalGroupManeuverGate]>,
     pub(crate) static_routes: Box<[MirStaticRoute]>,
     pub(crate) static_route_edges: Box<[MirStaticRouteEdge]>,
     pub(crate) static_route_transitions: Box<[MirStaticRouteTransition]>,
@@ -403,11 +465,24 @@ pub(crate) fn lower_to_mir(
     .fold(0_u64, |total, count| {
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
+    let signal_record_count = [
+        hir.signal_groups.len(),
+        hir.signal_controllers.len(),
+        hir.signal_controller_groups.len(),
+        hir.signal_phases.len(),
+        hir.signal_phase_states.len(),
+        hir.signal_group_maneuver_gates.len(),
+    ]
+    .into_iter()
+    .fold(0_u64, |total, count| {
+        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
+    });
     let mir_record_count = lane_edge_count
         .saturating_add(connection_count)
         .saturating_add(cross_record_count)
         .saturating_add(junction_record_count)
         .saturating_add(control_record_count)
+        .saturating_add(signal_record_count)
         .saturating_add(route_record_count);
     let stage_scratch_bytes = requested_bytes::<MirModuleKey>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdgeKey>(lane_edge_count))
@@ -427,6 +502,11 @@ pub(crate) fn lower_to_mir(
         ))
         .saturating_add(requested_bytes::<u32>(
             u64::try_from(hir.static_routes.len()).unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<u32>(
+            u64::try_from(hir.signal_groups.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(u64::try_from(hir.signal_controllers.len()).unwrap_or(u64::MAX)),
         ));
     let mir_owned_bytes = requested_bytes::<MirModule>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdge>(lane_edge_count))
@@ -505,6 +585,30 @@ pub(crate) fn lower_to_mir(
         ))
         .saturating_add(requested_bytes::<MirStopLineManeuverGate>(
             hir.stop_line_maneuver_gates
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirSignalGroup>(
+            hir.signal_groups.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirSignalController>(
+            hir.signal_controllers.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirSignalControllerGroup>(
+            hir.signal_controller_groups
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirSignalPhase>(
+            hir.signal_phases.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirSignalPhaseState>(
+            hir.signal_phase_states.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirSignalGroupManeuverGate>(
+            hir.signal_group_maneuver_gates
                 .len()
                 .try_into()
                 .unwrap_or(u64::MAX),
@@ -816,6 +920,9 @@ pub(crate) fn lower_to_mir(
         })
         .collect::<Vec<_>>();
 
+    let signal_group_mapping = dense_mapping::<MirSignalGroupTag>(hir.signal_groups.len())?;
+    let signal_controller_mapping =
+        dense_mapping::<MirSignalControllerTag>(hir.signal_controllers.len())?;
     let stop_line_mapping = dense_mapping::<MirStopLineTag>(hir.stop_lines.len())?;
     let maneuver_gate_mapping = dense_mapping::<MirManeuverGateTag>(hir.maneuver_gates.len())?;
     let waiting_zone_mapping = dense_mapping::<MirWaitingZoneTag>(hir.waiting_zones.len())?;
@@ -847,6 +954,12 @@ pub(crate) fn lower_to_mir(
             maneuver_path: maneuver_path_mapping[gate.maneuver_path.index()],
             transition_index: gate.transition_index,
             stop_line: stop_line_mapping[gate.stop_line.index()],
+            signal_control: match gate.signal_control {
+                HirSignalControl::Group(group) => {
+                    MirSignalControl::Group(signal_group_mapping[group.index()])
+                }
+                HirSignalControl::None => MirSignalControl::None,
+            },
             source_span: gate.source_span.clone(),
         })
         .collect::<Vec<_>>();
@@ -882,6 +995,82 @@ pub(crate) fn lower_to_mir(
         .stop_line_maneuver_gates
         .iter()
         .map(|member| MirStopLineManeuverGate {
+            maneuver_gate: maneuver_gate_mapping[member.maneuver_gate.index()],
+        })
+        .collect::<Vec<_>>();
+
+    let signal_groups = hir
+        .signal_groups
+        .iter()
+        .map(|group| {
+            Ok(MirSignalGroup {
+                module: hir_module_to_mir[group.module.index()],
+                stable_key: Arc::clone(&group.stable_key),
+                stable_id: group.stable_id,
+                controller: signal_controller_mapping[group.controller.index()],
+                maneuver_gates: remap_range(
+                    group.maneuver_gates,
+                    &unit.limits,
+                    &group.source_span,
+                )?,
+                source_span: group.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let signal_controllers = hir
+        .signal_controllers
+        .iter()
+        .map(|controller| {
+            Ok(MirSignalController {
+                module: hir_module_to_mir[controller.module.index()],
+                stable_key: Arc::clone(&controller.stable_key),
+                stable_id: controller.stable_id,
+                offset_ms: controller.offset_ms,
+                cycle_duration_ms: controller.cycle_duration_ms,
+                signal_groups: remap_range(
+                    controller.signal_groups,
+                    &unit.limits,
+                    &controller.source_span,
+                )?,
+                phases: remap_range(controller.phases, &unit.limits, &controller.source_span)?,
+                source_span: controller.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let signal_controller_groups = hir
+        .signal_controller_groups
+        .iter()
+        .map(|member| MirSignalControllerGroup {
+            signal_group: signal_group_mapping[member.signal_group.index()],
+        })
+        .collect::<Vec<_>>();
+    let signal_phases = hir
+        .signal_phases
+        .iter()
+        .map(|phase| {
+            Ok(MirSignalPhase {
+                module: hir_module_to_mir[phase.module.index()],
+                stable_key: Arc::clone(&phase.stable_key),
+                stable_id: phase.stable_id,
+                controller: signal_controller_mapping[phase.controller.index()],
+                duration_ms: phase.duration_ms,
+                states: remap_range(phase.states, &unit.limits, &phase.source_span)?,
+                source_span: phase.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let signal_phase_states = hir
+        .signal_phase_states
+        .iter()
+        .map(|state| MirSignalPhaseState {
+            signal_group: signal_group_mapping[state.signal_group.index()],
+            aspect: state.aspect,
+        })
+        .collect::<Vec<_>>();
+    let signal_group_maneuver_gates = hir
+        .signal_group_maneuver_gates
+        .iter()
+        .map(|member| MirSignalGroupManeuverGate {
             maneuver_gate: maneuver_gate_mapping[member.maneuver_gate.index()],
         })
         .collect::<Vec<_>>();
@@ -1013,6 +1202,12 @@ pub(crate) fn lower_to_mir(
         maneuver_path_gates: maneuver_path_gates.into_boxed_slice(),
         maneuver_path_waiting_zones: maneuver_path_waiting_zones.into_boxed_slice(),
         stop_line_maneuver_gates: stop_line_maneuver_gates.into_boxed_slice(),
+        signal_groups: signal_groups.into_boxed_slice(),
+        signal_controllers: signal_controllers.into_boxed_slice(),
+        signal_controller_groups: signal_controller_groups.into_boxed_slice(),
+        signal_phases: signal_phases.into_boxed_slice(),
+        signal_phase_states: signal_phase_states.into_boxed_slice(),
+        signal_group_maneuver_gates: signal_group_maneuver_gates.into_boxed_slice(),
         static_routes: static_routes.into_boxed_slice(),
         static_route_edges: static_route_edges.into_boxed_slice(),
         static_route_transitions: static_route_transitions.into_boxed_slice(),

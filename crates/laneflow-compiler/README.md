@@ -9,8 +9,10 @@ Representation，Canonical LIR）。当前 G2 切片已建立首个生产编译�
 摘要的确定性 `LFSOURCE` 来源记录和显式导入图。官方合成领域专用语言（Synthetic
 DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`、`Movement` 和
 `ManeuverPath` 构成的路口拓扑闭包；`StopLine`、`ManeuverGate` 与 `WaitingZone`
-也已形成独立的静态控制边界闭包；`StaticRoute` 保留显式有序边出现项，并预编译相邻
-边门、机动路径、机动门和等待区出现项。构建器原子拒绝非法数值 / token、非法或未
+也已形成独立的静态控制边界闭包；不可变固定时制 `SignalController` 程序、
+`SignalPhase` 完整状态和 `ManeuverGate` 到 `SignalGroup` 的控制绑定会在运行时之前
+闭合并冻结，但不替代运行时的最终通行权裁决；`StaticRoute` 保留显式有序边出现项，
+并预编译相邻边门、机动路径、机动门和等待区出现项。构建器原子拒绝非法数值 / token、非法或未
 导入引用、重复声明和重复无序关系，并保留横断面、车道、覆盖链、完整机动路径与静态
 路线的领域顺序。
 包内标识 v1 编码器严格校验登记字段，
@@ -27,7 +29,7 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 当前领域子集接入原子成功闭环：任一阶段失败时只返回结构化诊断，成功时同时返回只读
 `ValidatedCanonicalLir`、与其配对的 `ValidatedSourceMapInput` 和非错误级诊断。
 `sourceDocumentKey` 在整个编译单元内唯一，来源记录在 AST/HIR/MIR 释放前按 LIR
-稳定实体与 owner-local 关系冻结；信号、停车、准入、动态路线生命周期、空间等其余
+稳定实体与 owner-local 关系冻结；停车、准入、动态路线生命周期、空间等其余
 首批领域声明，以及后继编译遍和制品发射仍未实现。
 
 公共静态值契约来自 `laneflow-static-contract`。本 crate 不依赖当前核心、空间层、

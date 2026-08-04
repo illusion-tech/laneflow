@@ -16,13 +16,15 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     AuthoringLaneId, EntityKind, FacilityBandId, FieldTag, JunctionId, LaneEdgeId, LaneGroupId,
-    ManeuverGateId, ManeuverPathId, MovementId, RoadCorridorId, RoadSectionId, StableId128,
-    StaticRouteId, StopLineId, WaitingZoneId,
+    ManeuverGateId, ManeuverPathId, MovementId, RoadCorridorId, RoadSectionId, SignalAspect,
+    SignalControllerId, SignalGroupId, SignalPhaseId, StableId128, StaticRouteId, StopLineId,
+    WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::declaration::{
-    LaneEdgeDeclaration, OwnedCorridorElementReference, OwnedEntityReference, SyntheticDeclaration,
+    LaneEdgeDeclaration, OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
+    SyntheticDeclaration,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::{
@@ -51,6 +53,9 @@ pub(crate) enum HirStopLineTag {}
 pub(crate) enum HirManeuverGateTag {}
 pub(crate) enum HirWaitingZoneTag {}
 pub(crate) enum HirStaticRouteTag {}
+pub(crate) enum HirSignalGroupTag {}
+pub(crate) enum HirSignalControllerTag {}
+pub(crate) enum HirSignalPhaseTag {}
 
 /// 仅在当前 `HirUnit` 模块表内有效的致密键。
 pub(crate) type HirModuleKey = ArenaKey<HirModuleTag>;
@@ -68,6 +73,8 @@ pub(crate) type HirStopLineKey = ArenaKey<HirStopLineTag>;
 pub(crate) type HirManeuverGateKey = ArenaKey<HirManeuverGateTag>;
 pub(crate) type HirWaitingZoneKey = ArenaKey<HirWaitingZoneTag>;
 pub(crate) type HirStaticRouteKey = ArenaKey<HirStaticRouteTag>;
+pub(crate) type HirSignalGroupKey = ArenaKey<HirSignalGroupTag>;
+pub(crate) type HirSignalControllerKey = ArenaKey<HirSignalControllerTag>;
 
 /// 已解析为 HIR 模块键的显式导入边。
 pub(crate) struct HirImport {
@@ -277,7 +284,68 @@ pub(crate) struct HirManeuverGate {
     pub(crate) maneuver_path: HirManeuverPathKey,
     pub(crate) transition_index: u32,
     pub(crate) stop_line: HirStopLineKey,
+    /// 信号层绑定；`None` 不改变其他通行权层的约束。
+    pub(crate) signal_control: HirSignalControl,
     pub(crate) source_span: SourceSpan,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum HirSignalControl {
+    Group(HirSignalGroupKey),
+    None,
+}
+
+/// 由一个固定时制控制器唯一拥有、并至少控制一个机动门的信号组。
+pub(crate) struct HirSignalGroup {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: SignalGroupId,
+    pub(crate) controller: HirSignalControllerKey,
+    pub(crate) maneuver_gates: TableRange<HirSignalGroupManeuverGate>,
+    pub(crate) source_span: SourceSpan,
+}
+
+/// 一个信号组控制的机动门反向关系项。
+#[derive(Clone, Copy)]
+pub(crate) struct HirSignalGroupManeuverGate {
+    pub(crate) maneuver_gate: HirManeuverGateKey,
+}
+
+/// 控制器有序信号组列表中的一项。
+#[derive(Clone, Copy)]
+pub(crate) struct HirSignalControllerGroup {
+    pub(crate) signal_group: HirSignalGroupKey,
+}
+
+/// 固定时制控制器的不可变循环程序。
+pub(crate) struct HirSignalController {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: SignalControllerId,
+    pub(crate) offset_ms: u64,
+    pub(crate) cycle_duration_ms: u64,
+    pub(crate) signal_groups: TableRange<HirSignalControllerGroup>,
+    pub(crate) phases: TableRange<HirSignalPhase>,
+    pub(crate) source_span: SourceSpan,
+}
+
+/// 控制器所有者局部（owner-local）的一个有序固定时制相位。
+pub(crate) struct HirSignalPhase {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: SignalPhaseId,
+    pub(crate) controller: HirSignalControllerKey,
+    pub(crate) duration_ms: u64,
+    /// 状态按所属控制器的 `signal_groups` 顺序规范化，而非按输入顺序保存。
+    pub(crate) states: TableRange<HirSignalPhaseState>,
+    pub(crate) source_span: SourceSpan,
+}
+
+/// 一个相位对其控制器信号组的完整灯色赋值。
+#[derive(Clone, Copy)]
+pub(crate) struct HirSignalPhaseState {
+    pub(crate) signal_group: HirSignalGroupKey,
+    pub(crate) aspect: SignalAspect,
 }
 
 /// 已证明门所有权、严格正向区间和同路径内部不重叠的等待区。
@@ -386,6 +454,12 @@ pub(crate) struct HirUnit {
     pub(crate) maneuver_path_gates: Box<[HirManeuverPathGate]>,
     pub(crate) maneuver_path_waiting_zones: Box<[HirManeuverPathWaitingZone]>,
     pub(crate) stop_line_maneuver_gates: Box<[HirStopLineManeuverGate]>,
+    pub(crate) signal_groups: Box<[HirSignalGroup]>,
+    pub(crate) signal_controllers: Box<[HirSignalController]>,
+    pub(crate) signal_controller_groups: Box<[HirSignalControllerGroup]>,
+    pub(crate) signal_phases: Box<[HirSignalPhase]>,
+    pub(crate) signal_phase_states: Box<[HirSignalPhaseState]>,
+    pub(crate) signal_group_maneuver_gates: Box<[HirSignalGroupManeuverGate]>,
     pub(crate) static_routes: Box<[HirStaticRoute]>,
     pub(crate) static_route_edges: Box<[HirStaticRouteEdge]>,
     pub(crate) static_route_transitions: Box<[HirStaticRouteTransition]>,
@@ -520,6 +594,34 @@ struct ControlCounts {
 }
 
 #[derive(Default)]
+struct SignalHir {
+    signal_groups: Box<[HirSignalGroup]>,
+    signal_controllers: Box<[HirSignalController]>,
+    signal_controller_groups: Box<[HirSignalControllerGroup]>,
+    signal_phases: Box<[HirSignalPhase]>,
+    signal_phase_states: Box<[HirSignalPhaseState]>,
+    signal_group_maneuver_gates: Box<[HirSignalGroupManeuverGate]>,
+}
+
+#[derive(Default)]
+struct SignalCounts {
+    groups: u64,
+    controllers: u64,
+    controller_groups: u64,
+    phases: u64,
+    phase_states: u64,
+    controlled_gates: u64,
+}
+
+impl SignalCounts {
+    fn entity_count(&self) -> u64 {
+        self.groups
+            .saturating_add(self.controllers)
+            .saturating_add(self.phases)
+    }
+}
+
+#[derive(Default)]
 struct RouteHir {
     static_routes: Box<[HirStaticRoute]>,
     static_route_edges: Box<[HirStaticRouteEdge]>,
@@ -591,6 +693,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let cross_section_counts = cross_section_counts(unit);
     let junction_counts = junction_counts(unit);
     let control_counts = control_counts(unit);
+    let signal_counts = signal_counts(unit);
     let route_counts = route_counts(unit);
     let cross_lookup_module_count = if cross_section_counts.entity_count() == 0 {
         0
@@ -607,12 +710,19 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     } else {
         module_count
     };
+    let signal_lookup_module_count = if signal_counts.entity_count() == 0 {
+        0
+    } else {
+        module_count
+    };
     let hir_record_count = module_count
         .saturating_add(unit.import_edge_count)
         .saturating_add(unit.symbol_count)
         .saturating_add(unit.identity_field_occurrence_count)
         .saturating_add(unit.reference_count)
         .saturating_add(unit.relation_occurrence_count)
+        // 信号组到机动门的反向使用关系由 HIR 派生，Typed AST 只计正向绑定。
+        .saturating_add(signal_counts.controlled_gates)
         // 路线边引用已计入 CompilationUnit 关系数；转换以及三类派生出现项只在 HIR
         // 中产生，按单条边至多各生成一项的上界纳入预检。
         .saturating_add(route_counts.route_transitions)
@@ -735,11 +845,45 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 route_counts.largest_route_edges,
             ))
     };
+    let signal_scratch = if signal_counts.entity_count() == 0 {
+        0
+    } else {
+        requested_bytes::<CanonicalDeclarationSource<HirSignalGroupKey>>(signal_counts.groups)
+            .saturating_add(requested_bytes::<
+                CanonicalDeclarationSource<HirSignalControllerKey>,
+            >(signal_counts.controllers))
+            .saturating_add(requested_bytes::<
+                Option<(HirSignalControllerKey, SourceSpan)>,
+            >(signal_counts.groups))
+            .saturating_add(requested_bytes::<Option<(SignalAspect, SourceSpan)>>(
+                signal_counts.groups,
+            ))
+            .saturating_add(requested_bytes::<usize>(
+                signal_counts.groups.saturating_mul(3),
+            ))
+            .saturating_add(requested_bytes::<HirSignalGroupKey>(
+                signal_counts.controller_groups,
+            ))
+            .saturating_add(requested_bytes::<(HirSignalGroupKey, HirManeuverGateKey)>(
+                signal_counts.controlled_gates,
+            ))
+            .saturating_add(requested_hash_table_bytes::<HirSignalGroupKey, SourceSpan>(
+                signal_counts.controller_groups,
+            ))
+            .saturating_add(requested_hash_table_bytes::<HirSignalGroupKey, usize>(
+                signal_counts.controller_groups,
+            ))
+            .saturating_add(requested_hash_table_bytes::<Arc<str>, SourceSpan>(
+                signal_counts.phases,
+            ))
+            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
+    };
     let (canonical_identity_bytes, largest_canonical_identity_bytes) = identity_byte_counts(unit);
     let stage_scratch_bytes = canonical_source_scratch
         .max(cross_section_scratch)
         .max(junction_scratch)
         .max(control_scratch)
+        .max(signal_scratch)
         .max(route_scratch)
         .max(import_sort_scratch)
         .max(largest_canonical_identity_bytes);
@@ -805,6 +949,20 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_bytes::<HirStopLineManeuverGate>(
             control_counts.maneuver_gates,
+        ))
+        .saturating_add(requested_bytes::<HirSignalGroup>(signal_counts.groups))
+        .saturating_add(requested_bytes::<HirSignalController>(
+            signal_counts.controllers,
+        ))
+        .saturating_add(requested_bytes::<HirSignalControllerGroup>(
+            signal_counts.controller_groups,
+        ))
+        .saturating_add(requested_bytes::<HirSignalPhase>(signal_counts.phases))
+        .saturating_add(requested_bytes::<HirSignalPhaseState>(
+            signal_counts.phase_states,
+        ))
+        .saturating_add(requested_bytes::<HirSignalGroupManeuverGate>(
+            signal_counts.controlled_gates,
         ))
         .saturating_add(requested_bytes::<HirStaticRoute>(
             route_counts.static_routes,
@@ -878,6 +1036,12 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_hash_table_bytes::<Arc<str>, HirManeuverGateKey>(
             control_counts.maneuver_gates,
+        ))
+        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirSignalGroupKey>>(
+            signal_lookup_module_count,
+        ))
+        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirSignalGroupKey>(
+            signal_counts.groups,
         ))
         .saturating_add(requested_hash_table_bytes::<
             StableId128,
@@ -1158,7 +1322,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &symbols,
         &mut identities,
     )?;
-    let control = build_control_hir(
+    let mut control = build_control_hir(
         unit,
         &module_lookup,
         &lane_edges,
@@ -1166,6 +1330,12 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &symbols,
         &mut junction.maneuver_paths,
         &junction.maneuver_path_edges,
+        &mut identities,
+    )?;
+    let signal = build_signal_hir(
+        unit,
+        &module_lookup,
+        &mut control.maneuver_gates,
         &mut identities,
     )?;
     let route = build_route_hir(
@@ -1216,6 +1386,12 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         maneuver_path_gates: control.maneuver_path_gates,
         maneuver_path_waiting_zones: control.maneuver_path_waiting_zones,
         stop_line_maneuver_gates: control.stop_line_maneuver_gates,
+        signal_groups: signal.signal_groups,
+        signal_controllers: signal.signal_controllers,
+        signal_controller_groups: signal.signal_controller_groups,
+        signal_phases: signal.signal_phases,
+        signal_phase_states: signal.signal_phase_states,
+        signal_group_maneuver_gates: signal.signal_group_maneuver_gates,
         static_routes: route.static_routes,
         static_route_edges: route.static_route_edges,
         static_route_transitions: route.static_route_transitions,
@@ -1474,7 +1650,9 @@ fn build_cross_section_hir(
                 | SyntheticDeclaration::StopLine(_)
                 | SyntheticDeclaration::ManeuverGate(_)
                 | SyntheticDeclaration::WaitingZone(_)
-                | SyntheticDeclaration::StaticRoute(_) => {
+                | SyntheticDeclaration::StaticRoute(_)
+                | SyntheticDeclaration::SignalGroup(_)
+                | SyntheticDeclaration::SignalController(_) => {
                     unreachable!("cross-section source filter admitted junction declaration")
                 }
             }
@@ -2610,6 +2788,7 @@ fn build_control_hir(
                             maneuver_path: HirManeuverPathKey::from_raw(0),
                             transition_index: source.transition_index,
                             stop_line: HirStopLineKey::from_raw(0),
+                            signal_control: HirSignalControl::None,
                             source_span: source.header.span.clone(),
                         })
                         .map_err(|overflow| {
@@ -3045,6 +3224,581 @@ fn build_control_hir(
         maneuver_path_gates: maneuver_path_gates.into_boxed_slice(),
         maneuver_path_waiting_zones: maneuver_path_waiting_zones.into_boxed_slice(),
         stop_line_maneuver_gates: stop_line_maneuver_gates.into_boxed_slice(),
+    })
+}
+
+/// JavaScript/JSON 等常见编制前端可以无损表达的最大整数毫秒值。
+const MAX_PORTABLE_SIGNAL_TIME_MS: u64 = 9_007_199_254_740_991;
+
+#[allow(clippy::too_many_lines)]
+fn build_signal_hir(
+    unit: &CompilationUnit,
+    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    maneuver_gates: &mut [HirManeuverGate],
+    identities: &mut IdentityRegistry,
+) -> Result<SignalHir, DiagnosticBundle> {
+    let counts = signal_counts(unit);
+    if counts.entity_count() == 0 && counts.controlled_gates == 0 {
+        return Ok(SignalHir::default());
+    }
+
+    let mut groups = TypedArena::<HirSignalGroupTag, HirSignalGroup>::with_capacity(
+        count_to_usize(counts.groups, &unit.limits)?,
+    );
+    let mut controllers = TypedArena::<HirSignalControllerTag, HirSignalController>::with_capacity(
+        count_to_usize(counts.controllers, &unit.limits)?,
+    );
+    let mut phases = TypedArena::<HirSignalPhaseTag, HirSignalPhase>::with_capacity(
+        count_to_usize(counts.phases, &unit.limits)?,
+    );
+    let mut group_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|declaration| matches!(declaration, SyntheticDeclaration::SignalGroup(_)))
+            .count()
+    }));
+    let mut gate_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|declaration| matches!(declaration, SyntheticDeclaration::ManeuverGate(_)))
+            .count()
+    }));
+    for (index, gate) in maneuver_gates.iter().enumerate() {
+        let key = HirManeuverGateKey::from_raw(
+            u32::try_from(index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        gate_symbols.insert(gate.module, Arc::clone(&gate.stable_key), key);
+    }
+
+    let mut group_sources = Vec::with_capacity(count_to_usize(counts.groups, &unit.limits)?);
+    let mut controller_sources =
+        Vec::with_capacity(count_to_usize(counts.controllers, &unit.limits)?);
+
+    // 信号组和控制器先按规范模块顺序、模块内稳定键登记，随后才解析所有权和门绑定。
+    // 因此控制器、相位或门都可以前向引用同一编译单元内的组。
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
+        let mut declaration_indices: Vec<_> = source_module
+            .declarations
+            .iter()
+            .enumerate()
+            .filter_map(|(index, declaration)| {
+                matches!(
+                    declaration,
+                    SyntheticDeclaration::SignalGroup(_)
+                        | SyntheticDeclaration::SignalController(_)
+                )
+                .then_some(index)
+            })
+            .collect();
+        declaration_indices.sort_unstable_by(|left, right| {
+            let left = declaration_header(&source_module.declarations[*left]);
+            let right = declaration_header(&source_module.declarations[*right]);
+            (left.entity_kind.code(), left.stable_key.as_bytes())
+                .cmp(&(right.entity_kind.code(), right.stable_key.as_bytes()))
+        });
+        for declaration_index in declaration_indices {
+            let source_index = u32::try_from(declaration_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?;
+            match &source_module.declarations[declaration_index] {
+                SyntheticDeclaration::SignalGroup(source) => {
+                    let fields = [
+                        IdentityFieldInput::new(
+                            FieldTag::AuthoringNamespaceId,
+                            source_module
+                                .descriptor()
+                                .authoring_namespace_id()
+                                .as_bytes(),
+                        ),
+                        IdentityFieldInput::new(
+                            FieldTag::SignalGroupKey,
+                            source.header.stable_key.as_bytes(),
+                        ),
+                    ];
+                    let stable_id = SignalGroupId::from_untyped(derive_identity(
+                        unit,
+                        identities,
+                        module_index,
+                        EntityKind::SignalGroup,
+                        &source.header.stable_key,
+                        &source.header.span,
+                        &fields,
+                    )?);
+                    let key = groups
+                        .push(HirSignalGroup {
+                            module: module_key,
+                            stable_key: Arc::clone(&source.header.stable_key),
+                            stable_id,
+                            controller: HirSignalControllerKey::from_raw(0),
+                            maneuver_gates: TableRange::empty(),
+                            source_span: source.header.span.clone(),
+                        })
+                        .map_err(|overflow| {
+                            arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                        })?;
+                    group_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+                    group_sources.push(CanonicalDeclarationSource {
+                        source_module_index: module_order,
+                        declaration_index: source_index,
+                        hir_key: key,
+                    });
+                }
+                SyntheticDeclaration::SignalController(source) => {
+                    let fields = [
+                        IdentityFieldInput::new(
+                            FieldTag::AuthoringNamespaceId,
+                            source_module
+                                .descriptor()
+                                .authoring_namespace_id()
+                                .as_bytes(),
+                        ),
+                        IdentityFieldInput::new(
+                            FieldTag::SignalControllerKey,
+                            source.header.stable_key.as_bytes(),
+                        ),
+                    ];
+                    let stable_id = SignalControllerId::from_untyped(derive_identity(
+                        unit,
+                        identities,
+                        module_index,
+                        EntityKind::SignalController,
+                        &source.header.stable_key,
+                        &source.header.span,
+                        &fields,
+                    )?);
+                    let key = controllers
+                        .push(HirSignalController {
+                            module: module_key,
+                            stable_key: Arc::clone(&source.header.stable_key),
+                            stable_id,
+                            offset_ms: source.offset_ms,
+                            cycle_duration_ms: 0,
+                            signal_groups: TableRange::empty(),
+                            phases: TableRange::empty(),
+                            source_span: source.header.span.clone(),
+                        })
+                        .map_err(|overflow| {
+                            arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                        })?;
+                    controller_sources.push(CanonicalDeclarationSource {
+                        source_module_index: module_order,
+                        declaration_index: source_index,
+                        hir_key: key,
+                    });
+                }
+                _ => unreachable!("signal source filter admitted unrelated declaration"),
+            }
+        }
+    }
+
+    let mut diagnostics =
+        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut owners: Vec<Option<(HirSignalControllerKey, SourceSpan)>> = vec![None; groups.len()];
+    let mut controller_group_rows =
+        Vec::with_capacity(count_to_usize(counts.controller_groups, &unit.limits)?);
+    let mut phase_states = Vec::with_capacity(count_to_usize(counts.phase_states, &unit.limits)?);
+
+    for location in &controller_sources {
+        let source_module = &unit.modules[location.source_module_index as usize];
+        let SyntheticDeclaration::SignalController(source) =
+            &source_module.declarations[location.declaration_index as usize]
+        else {
+            unreachable!("canonical SignalController source changed kind")
+        };
+        let module_order = location.source_module_index;
+        let controller_key = location.hir_key;
+
+        if source.signal_groups.is_empty() {
+            let mut diagnostic = Diagnostic::empty_signal_controller_groups(
+                &source.header.stable_key,
+                source.header.span.clone(),
+            );
+            diagnostic.set_canonical_module_order(module_order);
+            diagnostics.push(diagnostic);
+        }
+        if source.phases.is_empty() {
+            let mut diagnostic = Diagnostic::empty_signal_controller_phases(
+                &source.header.stable_key,
+                source.header.span.clone(),
+            );
+            diagnostic.set_canonical_module_order(module_order);
+            diagnostics.push(diagnostic);
+        }
+
+        let mut resolved_groups = Vec::with_capacity(source.signal_groups.len());
+        let mut first_group_spans =
+            HashMap::<HirSignalGroupKey, SourceSpan>::with_capacity(source.signal_groups.len());
+        for reference in &source.signal_groups {
+            let Some(group_key) = resolve_reference(
+                module_lookup,
+                &group_symbols,
+                reference,
+                EntityKind::SignalController,
+                &source.header,
+                module_order,
+                &mut diagnostics,
+            ) else {
+                continue;
+            };
+            if let Some(first_span) = first_group_spans.get(&group_key) {
+                let mut diagnostic = Diagnostic::duplicate_signal_controller_group(
+                    &source.header.stable_key,
+                    &groups.get(group_key).stable_key,
+                    reference.span.clone(),
+                    first_span.clone(),
+                );
+                diagnostic.set_canonical_module_order(module_order);
+                diagnostics.push(diagnostic);
+                continue;
+            }
+            first_group_spans.insert(group_key, reference.span.clone());
+            if let Some((first_controller, first_span)) = &owners[group_key.index()] {
+                let mut diagnostic = Diagnostic::signal_group_multiple_controllers(
+                    &groups.get(group_key).stable_key,
+                    &controllers.get(*first_controller).stable_key,
+                    &source.header.stable_key,
+                    reference.span.clone(),
+                    first_span.clone(),
+                );
+                diagnostic.set_canonical_module_order(module_order);
+                diagnostics.push(diagnostic);
+            } else {
+                owners[group_key.index()] = Some((controller_key, reference.span.clone()));
+                groups.get_mut(group_key).controller = controller_key;
+            }
+            resolved_groups.push(group_key);
+        }
+        // 控制器的组声明是集合语义；以稳定身份规范化后，来源排列不会渗入制品。
+        resolved_groups.sort_unstable_by_key(|key| groups.get(*key).stable_id);
+        let group_start = controller_group_rows.len();
+        controller_group_rows.extend(
+            resolved_groups
+                .iter()
+                .copied()
+                .map(|signal_group| HirSignalControllerGroup { signal_group }),
+        );
+        controllers.get_mut(controller_key).signal_groups = TableRange::try_from_usize(
+            group_start,
+            controller_group_rows.len().saturating_sub(group_start),
+        )
+        .map_err(|overflow| {
+            arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+        })?;
+
+        let group_positions: HashMap<_, _> = resolved_groups
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(position, key)| (key, position))
+            .collect();
+        let phase_start = phases.len();
+        let mut phase_keys = HashMap::<Arc<str>, SourceSpan>::with_capacity(source.phases.len());
+        let mut cycle_duration_ms = 0_u64;
+        let mut cycle_overflow = false;
+        let mut cycle_valid = true;
+        for phase_source in &source.phases {
+            if let Some(first_span) = phase_keys.get(&phase_source.header.stable_key) {
+                let mut diagnostic = Diagnostic::duplicate_signal_phase_key(
+                    &source.header.stable_key,
+                    &phase_source.header.stable_key,
+                    phase_source.header.span.clone(),
+                    first_span.clone(),
+                );
+                diagnostic.set_canonical_module_order(module_order);
+                diagnostics.push(diagnostic);
+                continue;
+            }
+            phase_keys.insert(
+                Arc::clone(&phase_source.header.stable_key),
+                phase_source.header.span.clone(),
+            );
+
+            if phase_source.duration_ms == 0
+                || phase_source.duration_ms > MAX_PORTABLE_SIGNAL_TIME_MS
+            {
+                cycle_valid = false;
+                let mut diagnostic = Diagnostic::invalid_signal_phase_duration(
+                    &source.header.stable_key,
+                    &phase_source.header.stable_key,
+                    phase_source.duration_ms,
+                    MAX_PORTABLE_SIGNAL_TIME_MS,
+                    phase_source.header.span.clone(),
+                );
+                diagnostic.set_canonical_module_order(module_order);
+                diagnostics.push(diagnostic);
+            } else if !cycle_overflow {
+                match cycle_duration_ms.checked_add(phase_source.duration_ms) {
+                    Some(sum) if sum <= MAX_PORTABLE_SIGNAL_TIME_MS => {
+                        cycle_duration_ms = sum;
+                    }
+                    _ => {
+                        cycle_overflow = true;
+                        cycle_valid = false;
+                        let mut diagnostic = Diagnostic::signal_cycle_duration_overflow(
+                            &source.header.stable_key,
+                            MAX_PORTABLE_SIGNAL_TIME_MS,
+                            source.header.span.clone(),
+                        );
+                        diagnostic.set_canonical_module_order(module_order);
+                        diagnostics.push(diagnostic);
+                    }
+                }
+            }
+
+            let fields = [
+                IdentityFieldInput::new(
+                    FieldTag::AuthoringNamespaceId,
+                    source_module
+                        .descriptor()
+                        .authoring_namespace_id()
+                        .as_bytes(),
+                ),
+                IdentityFieldInput::new(
+                    FieldTag::SignalControllerStableId,
+                    controllers
+                        .get(controller_key)
+                        .stable_id
+                        .as_untyped()
+                        .as_bytes(),
+                ),
+                IdentityFieldInput::new(
+                    FieldTag::PhaseKey,
+                    phase_source.header.stable_key.as_bytes(),
+                ),
+            ];
+            let stable_id = SignalPhaseId::from_untyped(derive_identity(
+                unit,
+                identities,
+                location.source_module_index as usize,
+                EntityKind::SignalPhase,
+                &phase_source.header.stable_key,
+                &phase_source.header.span,
+                &fields,
+            )?);
+
+            let mut states_by_position: Vec<Option<(SignalAspect, SourceSpan)>> =
+                vec![None; resolved_groups.len()];
+            for state in &phase_source.states {
+                let Some(group_key) = resolve_reference(
+                    module_lookup,
+                    &group_symbols,
+                    &state.signal_group,
+                    EntityKind::SignalPhase,
+                    &phase_source.header,
+                    module_order,
+                    &mut diagnostics,
+                ) else {
+                    continue;
+                };
+                let Some(&position) = group_positions.get(&group_key) else {
+                    let mut diagnostic = Diagnostic::unknown_signal_phase_group(
+                        &source.header.stable_key,
+                        &phase_source.header.stable_key,
+                        &groups.get(group_key).stable_key,
+                        state.signal_group.span.clone(),
+                        source.header.span.clone(),
+                    );
+                    diagnostic.set_canonical_module_order(module_order);
+                    diagnostics.push(diagnostic);
+                    continue;
+                };
+                if let Some((_, first_span)) = &states_by_position[position] {
+                    let mut diagnostic = Diagnostic::duplicate_signal_phase_group(
+                        &source.header.stable_key,
+                        &phase_source.header.stable_key,
+                        &groups.get(group_key).stable_key,
+                        state.signal_group.span.clone(),
+                        first_span.clone(),
+                    );
+                    diagnostic.set_canonical_module_order(module_order);
+                    diagnostics.push(diagnostic);
+                } else {
+                    states_by_position[position] =
+                        Some((state.aspect, state.signal_group.span.clone()));
+                }
+            }
+            let state_start = phase_states.len();
+            for (position, group_key) in resolved_groups.iter().copied().enumerate() {
+                let Some((aspect, _)) = &states_by_position[position] else {
+                    let mut diagnostic = Diagnostic::missing_signal_phase_group(
+                        &source.header.stable_key,
+                        &phase_source.header.stable_key,
+                        &groups.get(group_key).stable_key,
+                        phase_source.header.span.clone(),
+                        groups.get(group_key).source_span.clone(),
+                    );
+                    diagnostic.set_canonical_module_order(module_order);
+                    diagnostics.push(diagnostic);
+                    // 失败路径不补虚构状态，保证阶段分配不会超过输入关系数预算。
+                    continue;
+                };
+                phase_states.push(HirSignalPhaseState {
+                    signal_group: group_key,
+                    aspect: *aspect,
+                });
+            }
+            phases
+                .push(HirSignalPhase {
+                    module: controllers.get(controller_key).module,
+                    stable_key: Arc::clone(&phase_source.header.stable_key),
+                    stable_id,
+                    controller: controller_key,
+                    duration_ms: phase_source.duration_ms,
+                    states: TableRange::try_from_usize(
+                        state_start,
+                        phase_states.len().saturating_sub(state_start),
+                    )
+                    .map_err(|overflow| {
+                        arena_overflow(
+                            overflow,
+                            &unit.limits,
+                            Some(phase_source.header.span.clone()),
+                        )
+                    })?,
+                    source_span: phase_source.header.span.clone(),
+                })
+                .map_err(|overflow| {
+                    arena_overflow(
+                        overflow,
+                        &unit.limits,
+                        Some(phase_source.header.span.clone()),
+                    )
+                })?;
+        }
+        let controller = controllers.get_mut(controller_key);
+        controller.cycle_duration_ms = cycle_duration_ms;
+        controller.phases =
+            TableRange::try_from_usize(phase_start, phases.len().saturating_sub(phase_start))
+                .map_err(|overflow| {
+                    arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                })?;
+        if !source.phases.is_empty()
+            && cycle_valid
+            && (source.offset_ms > MAX_PORTABLE_SIGNAL_TIME_MS
+                || source.offset_ms >= cycle_duration_ms)
+        {
+            let mut diagnostic = Diagnostic::invalid_signal_controller_offset(
+                &source.header.stable_key,
+                source.offset_ms,
+                cycle_duration_ms,
+                MAX_PORTABLE_SIGNAL_TIME_MS,
+                source.header.span.clone(),
+            );
+            diagnostic.set_canonical_module_order(module_order);
+            diagnostics.push(diagnostic);
+        }
+    }
+
+    for location in &group_sources {
+        if owners[location.hir_key.index()].is_none() {
+            let group = groups.get(location.hir_key);
+            let mut diagnostic =
+                Diagnostic::unowned_signal_group(&group.stable_key, group.source_span.clone());
+            diagnostic.set_canonical_module_order(location.source_module_index);
+            diagnostics.push(diagnostic);
+        }
+    }
+
+    // 正向门绑定完成后，按组/门稳定身份建立连续反向表；运行时不需要扫描全部门。
+    let mut usages = Vec::<(HirSignalGroupKey, HirManeuverGateKey)>::with_capacity(count_to_usize(
+        counts.controlled_gates,
+        &unit.limits,
+    )?);
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
+        let mut declarations: Vec<_> = source_module
+            .declarations
+            .iter()
+            .filter_map(|declaration| match declaration {
+                SyntheticDeclaration::ManeuverGate(gate) => Some(gate),
+                _ => None,
+            })
+            .collect();
+        declarations
+            .sort_unstable_by(|left, right| left.header.stable_key.cmp(&right.header.stable_key));
+        for source in declarations {
+            let gate_key = gate_symbols
+                .get(module_key, &source.header.stable_key)
+                .expect("control HIR must contain every ManeuverGate symbol");
+            match &source.signal_control {
+                OwnedSignalControl::None => {}
+                OwnedSignalControl::Group(reference) => {
+                    let Some(group_key) = resolve_reference(
+                        module_lookup,
+                        &group_symbols,
+                        reference,
+                        EntityKind::ManeuverGate,
+                        &source.header,
+                        module_order,
+                        &mut diagnostics,
+                    ) else {
+                        continue;
+                    };
+                    maneuver_gates[gate_key.index()].signal_control =
+                        HirSignalControl::Group(group_key);
+                    usages.push((group_key, gate_key));
+                }
+            }
+        }
+    }
+    usages.sort_unstable_by(|left, right| {
+        (
+            groups.get(left.0).stable_id,
+            maneuver_gates[left.1.index()].stable_id,
+        )
+            .cmp(&(
+                groups.get(right.0).stable_id,
+                maneuver_gates[right.1.index()].stable_id,
+            ))
+    });
+    let mut usage_count_by_group = vec![0_usize; groups.len()];
+    for (group, _) in &usages {
+        usage_count_by_group[group.index()] = usage_count_by_group[group.index()].saturating_add(1);
+    }
+    let mut usage_start = 0_usize;
+    for (index, count) in usage_count_by_group.iter().copied().enumerate() {
+        let group_key = HirSignalGroupKey::from_raw(
+            u32::try_from(index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        groups.get_mut(group_key).maneuver_gates =
+            TableRange::try_from_usize(usage_start, count)
+                .map_err(|overflow| arena_overflow(overflow, &unit.limits, None))?;
+        usage_start = usage_start.saturating_add(count);
+        if count == 0 {
+            let group = groups.get(group_key);
+            let mut diagnostic =
+                Diagnostic::unused_signal_group(&group.stable_key, group.source_span.clone());
+            diagnostic.set_canonical_module_order(group.module.raw());
+            diagnostics.push(diagnostic);
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    Ok(SignalHir {
+        signal_groups: groups.into_boxed_slice(),
+        signal_controllers: controllers.into_boxed_slice(),
+        signal_controller_groups: controller_group_rows.into_boxed_slice(),
+        signal_phases: phases.into_boxed_slice(),
+        signal_phase_states: phase_states.into_boxed_slice(),
+        signal_group_maneuver_gates: usages
+            .into_iter()
+            .map(|(_, maneuver_gate)| HirSignalGroupManeuverGate { maneuver_gate })
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
     })
 }
 
@@ -3698,6 +4452,8 @@ fn declaration_header(
         SyntheticDeclaration::ManeuverGate(declaration) => &declaration.header,
         SyntheticDeclaration::WaitingZone(declaration) => &declaration.header,
         SyntheticDeclaration::StaticRoute(declaration) => &declaration.header,
+        SyntheticDeclaration::SignalGroup(declaration) => &declaration.header,
+        SyntheticDeclaration::SignalController(declaration) => &declaration.header,
     }
 }
 
@@ -3762,7 +4518,9 @@ fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts {
             | SyntheticDeclaration::StopLine(_)
             | SyntheticDeclaration::ManeuverGate(_)
             | SyntheticDeclaration::WaitingZone(_)
-            | SyntheticDeclaration::StaticRoute(_) => {}
+            | SyntheticDeclaration::StaticRoute(_)
+            | SyntheticDeclaration::SignalGroup(_)
+            | SyntheticDeclaration::SignalController(_) => {}
         }
     }
     counts
@@ -3836,6 +4594,45 @@ fn route_counts(unit: &CompilationUnit) -> RouteCounts {
         }
     }
     debug_assert_eq!(counts.route_edges, unit.route_occurrence_count);
+    counts
+}
+
+fn signal_counts(unit: &CompilationUnit) -> SignalCounts {
+    let mut counts = SignalCounts::default();
+    for declaration in unit
+        .modules
+        .iter()
+        .flat_map(|module| module.declarations.iter())
+    {
+        match declaration {
+            SyntheticDeclaration::SignalGroup(_) => {
+                counts.groups = counts.groups.saturating_add(1);
+            }
+            SyntheticDeclaration::SignalController(controller) => {
+                counts.controllers = counts.controllers.saturating_add(1);
+                counts.controller_groups = counts.controller_groups.saturating_add(
+                    u64::try_from(controller.signal_groups.len()).unwrap_or(u64::MAX),
+                );
+                counts.phases = counts
+                    .phases
+                    .saturating_add(u64::try_from(controller.phases.len()).unwrap_or(u64::MAX));
+                counts.phase_states =
+                    counts
+                        .phase_states
+                        .saturating_add(controller.phases.iter().fold(0_u64, |total, phase| {
+                            total.saturating_add(
+                                u64::try_from(phase.states.len()).unwrap_or(u64::MAX),
+                            )
+                        }));
+            }
+            SyntheticDeclaration::ManeuverGate(gate)
+                if matches!(gate.signal_control, OwnedSignalControl::Group(_)) =>
+            {
+                counts.controlled_gates = counts.controlled_gates.saturating_add(1);
+            }
+            _ => {}
+        }
+    }
     counts
 }
 
@@ -3916,6 +4713,10 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
                         .saturating_add(namespace_bytes)
                         .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX))
                 }
+                SyntheticDeclaration::SignalGroup(_)
+                | SyntheticDeclaration::SignalController(_) => 22_u64
+                    .saturating_add(namespace_bytes)
+                    .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
             };
             total = total.saturating_add(bytes);
             largest = largest.max(bytes);
@@ -3926,6 +4727,15 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
                     );
                     total = total.saturating_add(lane_bytes);
                     largest = largest.max(lane_bytes);
+                }
+            }
+            if let SyntheticDeclaration::SignalController(controller) = source_declaration {
+                for phase in &controller.phases {
+                    let phase_bytes = 44_u64.saturating_add(namespace_bytes).saturating_add(
+                        u64::try_from(phase.header.stable_key.len()).unwrap_or(u64::MAX),
+                    );
+                    total = total.saturating_add(phase_bytes);
+                    largest = largest.max(phase_bytes);
                 }
             }
         }

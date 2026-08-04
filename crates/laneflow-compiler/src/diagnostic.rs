@@ -202,6 +202,32 @@ pub enum DiagnosticCode {
     StaticRouteManeuverInternalOverlap,
     /// 静态路线中的路口内部边没有被任何完整机动路径出现项覆盖。
     StaticRouteInternalEdgeUncovered,
+    /// 信号控制器没有任何信号组成员。
+    EmptySignalControllerGroups,
+    /// 信号控制器没有任何程序相位。
+    EmptySignalControllerPhases,
+    /// 信号控制器重复列出同一信号组。
+    DuplicateSignalControllerGroup,
+    /// 同一信号组被多个控制器拥有。
+    SignalGroupMultipleControllers,
+    /// 信号组没有控制器所有者。
+    UnownedSignalGroup,
+    /// 信号组没有被任何机动门使用。
+    UnusedSignalGroup,
+    /// 同一控制器内重复声明相位键。
+    DuplicateSignalPhaseKey,
+    /// 信号相位持续时间不在可移植正整数范围内。
+    InvalidSignalPhaseDuration,
+    /// 相位重复定义同一信号组状态。
+    DuplicateSignalPhaseGroup,
+    /// 相位状态引用不属于所属控制器的信号组。
+    UnknownSignalPhaseGroup,
+    /// 相位缺少所属控制器的信号组状态。
+    MissingSignalPhaseGroup,
+    /// 控制器相位周期累计值超过可移植范围。
+    SignalCycleDurationOverflow,
+    /// 控制器时间偏移不在可移植且小于周期的规范范围内。
+    InvalidSignalControllerOffset,
     /// 编译器构造的规范身份字段不满足 Identity v1 登记表。
     InvalidCanonicalIdentity,
     /// 同一完整规范身份在编译单元中出现多次。
@@ -283,6 +309,19 @@ impl DiagnosticCode {
             Self::StaticRouteInternalEdgeUncovered => {
                 "LF-COMP-STATIC-ROUTE-INTERNAL-EDGE-UNCOVERED"
             }
+            Self::EmptySignalControllerGroups => "LF-COMP-EMPTY-SIGNAL-CONTROLLER-GROUPS",
+            Self::EmptySignalControllerPhases => "LF-COMP-EMPTY-SIGNAL-CONTROLLER-PHASES",
+            Self::DuplicateSignalControllerGroup => "LF-COMP-DUPLICATE-SIGNAL-CONTROLLER-GROUP",
+            Self::SignalGroupMultipleControllers => "LF-COMP-SIGNAL-GROUP-MULTIPLE-CONTROLLERS",
+            Self::UnownedSignalGroup => "LF-COMP-UNOWNED-SIGNAL-GROUP",
+            Self::UnusedSignalGroup => "LF-COMP-UNUSED-SIGNAL-GROUP",
+            Self::DuplicateSignalPhaseKey => "LF-COMP-DUPLICATE-SIGNAL-PHASE-KEY",
+            Self::InvalidSignalPhaseDuration => "LF-COMP-SIGNAL-PHASE-DURATION",
+            Self::DuplicateSignalPhaseGroup => "LF-COMP-DUPLICATE-SIGNAL-PHASE-GROUP",
+            Self::UnknownSignalPhaseGroup => "LF-COMP-UNKNOWN-SIGNAL-PHASE-GROUP",
+            Self::MissingSignalPhaseGroup => "LF-COMP-MISSING-SIGNAL-PHASE-GROUP",
+            Self::SignalCycleDurationOverflow => "LF-COMP-SIGNAL-CYCLE-DURATION-OVERFLOW",
+            Self::InvalidSignalControllerOffset => "LF-COMP-SIGNAL-CONTROLLER-OFFSET",
             Self::InvalidCanonicalIdentity => "LF-COMP-INVALID-CANONICAL-IDENTITY",
             Self::DuplicateCanonicalIdentity => "LF-COMP-DUPLICATE-CANONICAL-IDENTITY",
             Self::IdentityDigestCollision => "LF-COMP-IDENTITY-DIGEST-COLLISION",
@@ -487,9 +526,13 @@ pub enum DiagnosticPayload {
         violation: FacilityKindViolation,
     },
     /// 没有编制车道的道路区段。
-    EmptyRoadSectionLanes { stable_key: Box<str> },
+    EmptyRoadSectionLanes {
+        stable_key: Box<str>,
+    },
     /// 没有车道图边覆盖的编制车道。
-    EmptyAuthoringLaneEdgeChain { stable_key: Box<str> },
+    EmptyAuthoringLaneEdgeChain {
+        stable_key: Box<str>,
+    },
     /// 编制车道覆盖链中的重复车道图边引用。
     DuplicateAuthoringLaneEdge {
         stable_key: Box<str>,
@@ -497,7 +540,9 @@ pub enum DiagnosticPayload {
         target_key: Box<str>,
     },
     /// 没有横断面成员的道路走廊。
-    EmptyRoadCorridorElements { stable_key: Box<str> },
+    EmptyRoadCorridorElements {
+        stable_key: Box<str>,
+    },
     /// 道路走廊有序横断面中的重复成员引用。
     DuplicateRoadCorridorElement {
         stable_key: Box<str>,
@@ -543,11 +588,17 @@ pub enum DiagnosticPayload {
         group_section_key: Box<str>,
     },
     /// 没有任何编制车道成员的车道组。
-    EmptyLaneGroup { stable_key: Box<str> },
+    EmptyLaneGroup {
+        stable_key: Box<str>,
+    },
     /// 没有任何通行流向成员的路口。
-    EmptyJunction { junction_key: Box<str> },
+    EmptyJunction {
+        junction_key: Box<str>,
+    },
     /// 没有任何机动路径成员的通行流向。
-    EmptyMovement { movement_key: Box<str> },
+    EmptyMovement {
+        movement_key: Box<str>,
+    },
     /// 机动路径完整边序列中不相连的一对相邻边。
     DisconnectedManeuverPath {
         path_key: Box<str>,
@@ -607,7 +658,9 @@ pub enum DiagnosticPayload {
         edge_key: Box<str>,
     },
     /// 最大占用数为零的等待区。
-    InvalidWaitingZoneCapacity { waiting_zone_key: Box<str> },
+    InvalidWaitingZoneCapacity {
+        waiting_zone_key: Box<str>,
+    },
     /// 等待区中不属于声明路径的入口门或释放门。
     WaitingZoneGatePathMismatch {
         waiting_zone_key: Box<str>,
@@ -629,7 +682,9 @@ pub enum DiagnosticPayload {
         second_waiting_zone_key: Box<str>,
     },
     /// 没有任何边出现项的静态路线。
-    EmptyStaticRoute { static_route_key: Box<str> },
+    EmptyStaticRoute {
+        static_route_key: Box<str>,
+    },
     /// 静态路线中不相连的一对相邻边及后项在路线内的下标。
     DisconnectedStaticRouteEdge {
         static_route_key: Box<str>,
@@ -680,6 +735,62 @@ pub enum DiagnosticPayload {
         static_route_key: Box<str>,
         route_edge_index: u32,
         edge_key: Box<str>,
+    },
+    EmptySignalControllerGroups {
+        signal_controller_key: Box<str>,
+    },
+    EmptySignalControllerPhases {
+        signal_controller_key: Box<str>,
+    },
+    DuplicateSignalControllerGroup {
+        signal_controller_key: Box<str>,
+        signal_group_key: Box<str>,
+    },
+    SignalGroupMultipleControllers {
+        signal_group_key: Box<str>,
+        first_controller_key: Box<str>,
+        duplicate_controller_key: Box<str>,
+    },
+    UnownedSignalGroup {
+        signal_group_key: Box<str>,
+    },
+    UnusedSignalGroup {
+        signal_group_key: Box<str>,
+    },
+    DuplicateSignalPhaseKey {
+        signal_controller_key: Box<str>,
+        signal_phase_key: Box<str>,
+    },
+    InvalidSignalPhaseDuration {
+        signal_controller_key: Box<str>,
+        signal_phase_key: Box<str>,
+        duration_ms: u64,
+        max_inclusive: u64,
+    },
+    DuplicateSignalPhaseGroup {
+        signal_controller_key: Box<str>,
+        signal_phase_key: Box<str>,
+        signal_group_key: Box<str>,
+    },
+    UnknownSignalPhaseGroup {
+        signal_controller_key: Box<str>,
+        signal_phase_key: Box<str>,
+        signal_group_key: Box<str>,
+    },
+    MissingSignalPhaseGroup {
+        signal_controller_key: Box<str>,
+        signal_phase_key: Box<str>,
+        signal_group_key: Box<str>,
+    },
+    SignalCycleDurationOverflow {
+        signal_controller_key: Box<str>,
+        max_inclusive: u64,
+    },
+    InvalidSignalControllerOffset {
+        signal_controller_key: Box<str>,
+        offset_ms: u64,
+        cycle_duration_ms: u64,
+        max_inclusive: u64,
     },
     /// 实体种类、来源稳定键及不能形成 Identity v1 前像的精确原因。
     InvalidCanonicalIdentity {
@@ -1732,6 +1843,236 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn empty_signal_controller_groups(
+        controller_key: &str,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::EmptySignalControllerGroups,
+            DiagnosticPayload::EmptySignalControllerGroups {
+                signal_controller_key: controller_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(controller_key.into()),
+        )
+    }
+
+    pub(crate) fn empty_signal_controller_phases(
+        controller_key: &str,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::EmptySignalControllerPhases,
+            DiagnosticPayload::EmptySignalControllerPhases {
+                signal_controller_key: controller_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(controller_key.into()),
+        )
+    }
+
+    pub(crate) fn duplicate_signal_controller_group(
+        controller_key: &str,
+        group_key: &str,
+        primary_span: SourceSpan,
+        first_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateSignalControllerGroup,
+            DiagnosticPayload::DuplicateSignalControllerGroup {
+                signal_controller_key: controller_key.into(),
+                signal_group_key: group_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_span]),
+            Some(controller_key.into()),
+        )
+    }
+
+    pub(crate) fn signal_group_multiple_controllers(
+        group_key: &str,
+        first_controller_key: &str,
+        duplicate_controller_key: &str,
+        primary_span: SourceSpan,
+        first_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::SignalGroupMultipleControllers,
+            DiagnosticPayload::SignalGroupMultipleControllers {
+                signal_group_key: group_key.into(),
+                first_controller_key: first_controller_key.into(),
+                duplicate_controller_key: duplicate_controller_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_span]),
+            Some(group_key.into()),
+        )
+    }
+
+    pub(crate) fn unowned_signal_group(group_key: &str, primary_span: SourceSpan) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::UnownedSignalGroup,
+            DiagnosticPayload::UnownedSignalGroup {
+                signal_group_key: group_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(group_key.into()),
+        )
+    }
+
+    pub(crate) fn unused_signal_group(group_key: &str, primary_span: SourceSpan) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::UnusedSignalGroup,
+            DiagnosticPayload::UnusedSignalGroup {
+                signal_group_key: group_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(group_key.into()),
+        )
+    }
+
+    pub(crate) fn duplicate_signal_phase_key(
+        controller_key: &str,
+        phase_key: &str,
+        primary_span: SourceSpan,
+        first_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateSignalPhaseKey,
+            DiagnosticPayload::DuplicateSignalPhaseKey {
+                signal_controller_key: controller_key.into(),
+                signal_phase_key: phase_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_span]),
+            Some(controller_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_signal_phase_duration(
+        controller_key: &str,
+        phase_key: &str,
+        duration_ms: u64,
+        max_inclusive: u64,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidSignalPhaseDuration,
+            DiagnosticPayload::InvalidSignalPhaseDuration {
+                signal_controller_key: controller_key.into(),
+                signal_phase_key: phase_key.into(),
+                duration_ms,
+                max_inclusive,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(controller_key.into()),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn duplicate_signal_phase_group(
+        controller_key: &str,
+        phase_key: &str,
+        group_key: &str,
+        primary_span: SourceSpan,
+        first_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateSignalPhaseGroup,
+            DiagnosticPayload::DuplicateSignalPhaseGroup {
+                signal_controller_key: controller_key.into(),
+                signal_phase_key: phase_key.into(),
+                signal_group_key: group_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_span]),
+            Some(controller_key.into()),
+        )
+    }
+
+    pub(crate) fn unknown_signal_phase_group(
+        controller_key: &str,
+        phase_key: &str,
+        group_key: &str,
+        primary_span: SourceSpan,
+        controller_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::UnknownSignalPhaseGroup,
+            DiagnosticPayload::UnknownSignalPhaseGroup {
+                signal_controller_key: controller_key.into(),
+                signal_phase_key: phase_key.into(),
+                signal_group_key: group_key.into(),
+            },
+            Some(primary_span),
+            Box::new([controller_span]),
+            Some(controller_key.into()),
+        )
+    }
+
+    pub(crate) fn missing_signal_phase_group(
+        controller_key: &str,
+        phase_key: &str,
+        group_key: &str,
+        primary_span: SourceSpan,
+        group_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::MissingSignalPhaseGroup,
+            DiagnosticPayload::MissingSignalPhaseGroup {
+                signal_controller_key: controller_key.into(),
+                signal_phase_key: phase_key.into(),
+                signal_group_key: group_key.into(),
+            },
+            Some(primary_span),
+            Box::new([group_span]),
+            Some(controller_key.into()),
+        )
+    }
+
+    pub(crate) fn signal_cycle_duration_overflow(
+        controller_key: &str,
+        max_inclusive: u64,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::SignalCycleDurationOverflow,
+            DiagnosticPayload::SignalCycleDurationOverflow {
+                signal_controller_key: controller_key.into(),
+                max_inclusive,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(controller_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_signal_controller_offset(
+        controller_key: &str,
+        offset_ms: u64,
+        cycle_duration_ms: u64,
+        max_inclusive: u64,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidSignalControllerOffset,
+            DiagnosticPayload::InvalidSignalControllerOffset {
+                signal_controller_key: controller_key.into(),
+                offset_ms,
+                cycle_duration_ms,
+                max_inclusive,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(controller_key.into()),
+        )
+    }
+
     pub(crate) fn invalid_canonical_identity(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -2293,6 +2634,96 @@ impl fmt::Display for Diagnostic {
             } => write!(
                 formatter,
                 "静态路线 {static_route_key} 的路口内部边出现项 {route_edge_index}（{edge_key}）未被完整机动路径覆盖"
+            ),
+            DiagnosticPayload::EmptySignalControllerGroups {
+                signal_controller_key,
+            } => write!(
+                formatter,
+                "信号控制器 {signal_controller_key} 必须至少拥有一个信号组"
+            ),
+            DiagnosticPayload::EmptySignalControllerPhases {
+                signal_controller_key,
+            } => write!(
+                formatter,
+                "信号控制器 {signal_controller_key} 必须至少声明一个相位"
+            ),
+            DiagnosticPayload::DuplicateSignalControllerGroup {
+                signal_controller_key,
+                signal_group_key,
+            } => write!(
+                formatter,
+                "信号控制器 {signal_controller_key} 重复拥有信号组 {signal_group_key}"
+            ),
+            DiagnosticPayload::SignalGroupMultipleControllers {
+                signal_group_key,
+                first_controller_key,
+                duplicate_controller_key,
+            } => write!(
+                formatter,
+                "信号组 {signal_group_key} 同时被控制器 {first_controller_key} 与 {duplicate_controller_key} 拥有"
+            ),
+            DiagnosticPayload::UnownedSignalGroup { signal_group_key } => write!(
+                formatter,
+                "信号组 {signal_group_key} 没有唯一的信号控制器所有者"
+            ),
+            DiagnosticPayload::UnusedSignalGroup { signal_group_key } => {
+                write!(formatter, "信号组 {signal_group_key} 未被任何机动门使用")
+            }
+            DiagnosticPayload::DuplicateSignalPhaseKey {
+                signal_controller_key,
+                signal_phase_key,
+            } => write!(
+                formatter,
+                "信号控制器 {signal_controller_key} 重复声明相位键 {signal_phase_key}"
+            ),
+            DiagnosticPayload::InvalidSignalPhaseDuration {
+                signal_controller_key,
+                signal_phase_key,
+                duration_ms,
+                max_inclusive,
+            } => write!(
+                formatter,
+                "信号控制器 {signal_controller_key} 的相位 {signal_phase_key} 持续时间 {duration_ms} ms 非法：必须位于 1..={max_inclusive}"
+            ),
+            DiagnosticPayload::DuplicateSignalPhaseGroup {
+                signal_controller_key,
+                signal_phase_key,
+                signal_group_key,
+            } => write!(
+                formatter,
+                "信号控制器 {signal_controller_key} 的相位 {signal_phase_key} 重复声明信号组 {signal_group_key}"
+            ),
+            DiagnosticPayload::UnknownSignalPhaseGroup {
+                signal_controller_key,
+                signal_phase_key,
+                signal_group_key,
+            } => write!(
+                formatter,
+                "信号控制器 {signal_controller_key} 的相位 {signal_phase_key} 引用了不属于该控制器的信号组 {signal_group_key}"
+            ),
+            DiagnosticPayload::MissingSignalPhaseGroup {
+                signal_controller_key,
+                signal_phase_key,
+                signal_group_key,
+            } => write!(
+                formatter,
+                "信号控制器 {signal_controller_key} 的相位 {signal_phase_key} 缺少信号组 {signal_group_key} 的状态"
+            ),
+            DiagnosticPayload::SignalCycleDurationOverflow {
+                signal_controller_key,
+                max_inclusive,
+            } => write!(
+                formatter,
+                "信号控制器 {signal_controller_key} 的循环持续时间超过可移植上限 {max_inclusive} ms"
+            ),
+            DiagnosticPayload::InvalidSignalControllerOffset {
+                signal_controller_key,
+                offset_ms,
+                cycle_duration_ms,
+                max_inclusive,
+            } => write!(
+                formatter,
+                "信号控制器 {signal_controller_key} 的偏移 {offset_ms} ms 非法：必须不超过 {max_inclusive} 且严格小于循环时长 {cycle_duration_ms} ms"
             ),
             DiagnosticPayload::InvalidCanonicalIdentity {
                 entity_kind,

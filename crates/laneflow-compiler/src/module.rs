@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 
 use laneflow_static_contract::{
     EntityKind, FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind, ManeuverGateKind,
-    ManeuverPathKind, MovementKind, RoadSectionKind, StopLineKind,
+    ManeuverPathKind, MovementKind, RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind,
 };
 
 use crate::arena::ArenaKey;
@@ -27,9 +27,12 @@ use crate::declaration::{
     JunctionDeclaration, JunctionInput, LaneEdgeDeclaration, LaneEdgeInput, LaneGroupDeclaration,
     LaneGroupInput, ManeuverGateDeclaration, ManeuverGateInput, ManeuverPathDeclaration,
     ManeuverPathInput, MovementDeclaration, MovementInput, OwnedCorridorElementReference,
-    OwnedEntityReference, RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration,
-    RoadSectionInput, SpeedLimit, StaticRouteDeclaration, StaticRouteInput, StopLineDeclaration,
-    StopLineInput, SyntheticDeclaration, WaitingZoneDeclaration, WaitingZoneInput,
+    OwnedEntityReference, OwnedSignalControl, RoadCorridorDeclaration, RoadCorridorInput,
+    RoadSectionDeclaration, RoadSectionInput, SignalControlInput, SignalControllerDeclaration,
+    SignalControllerInput, SignalGroupDeclaration, SignalGroupInput, SignalGroupReference,
+    SignalGroupStateDeclaration, SignalPhaseDeclaration, SignalPhaseInput, SpeedLimit,
+    StaticRouteDeclaration, StaticRouteInput, StopLineDeclaration, StopLineInput,
+    SyntheticDeclaration, WaitingZoneDeclaration, WaitingZoneInput,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
@@ -1301,6 +1304,233 @@ impl SyntheticModuleBuilder {
         Ok(self)
     }
 
+    /// 声明一个由固定时制控制器唯一拥有的信号组。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键非法、声明重复或资源上限超限时失败。控制器所有权和至少一个
+    /// `ManeuverGate` 使用关系在 HIR 阶段闭合。
+    #[track_caller]
+    pub fn add_signal_group(
+        &mut self,
+        input: SignalGroupInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::SignalGroup, input.signal_group_key, &span)?;
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.signal_group_key.len()).unwrap_or(u64::MAX);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 3,
+                identity_fields: 2,
+                symbols: 1,
+                string_items: 2,
+                string_bytes: namespace_bytes.saturating_add(key_bytes),
+                controlled_string_bytes: key_bytes,
+                controlled_structural_bytes: size_bytes::<SignalGroupDeclaration>(1),
+                source_bytes: declaration_header_len(input.signal_group_key),
+                ..DeclarationResourceDelta::default()
+            },
+            input.signal_group_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.signal_group_key.into();
+        self.declaration_index
+            .entry(EntityKind::SignalGroup)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations
+            .push(SyntheticDeclaration::SignalGroup(SignalGroupDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::SignalGroup,
+                    stable_key,
+                    span,
+                },
+            }));
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明一个不可变固定时制（immutable fixed-time）信号控制器及其有序相位程序。
+    ///
+    /// 输入顺序只对 `phases` 具有程序语义；`signal_groups` 与每个相位的 `states`
+    /// 作为完备集合在 HIR 中规范化。相位键只在本控制器内唯一。
+    ///
+    /// # Errors
+    ///
+    /// 控制器/相位稳定键或信号组引用非法，跨模块引用未显式导入，或资源上限超限时
+    /// 失败。非空、唯一所有权、状态完备性、时间范围、cycle 与 offset 约束在 HIR
+    /// 阶段统一验证。
+    #[track_caller]
+    pub fn add_signal_controller(
+        &mut self,
+        input: SignalControllerInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(
+            EntityKind::SignalController,
+            input.signal_controller_key,
+            &span,
+        )?;
+        for phase in input.phases {
+            self.validate_identity_ascii_field(
+                EntityKind::SignalPhase,
+                phase.signal_phase_key,
+                FieldTag::PhaseKey,
+                phase.signal_phase_key,
+                &span,
+            )?;
+        }
+        for group in input.signal_groups {
+            self.validate_reference(EntityKind::SignalGroup, *group, &span)?;
+        }
+        for phase in input.phases {
+            for state in phase.states {
+                self.validate_reference(EntityKind::SignalGroup, state.signal_group, &span)?;
+            }
+        }
+
+        let phase_count = u64::try_from(input.phases.len()).unwrap_or(u64::MAX);
+        let group_count = u64::try_from(input.signal_groups.len()).unwrap_or(u64::MAX);
+        let state_count = input.phases.iter().fold(0_u64, |total, phase| {
+            total.saturating_add(u64::try_from(phase.states.len()).unwrap_or(u64::MAX))
+        });
+        let reference_count = group_count.saturating_add(state_count);
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.signal_controller_key.len()).unwrap_or(u64::MAX);
+        let mut logical_string_bytes = namespace_bytes
+            .saturating_mul(1_u64.saturating_add(phase_count))
+            .saturating_add(key_bytes);
+        let mut controlled_string_bytes = key_bytes;
+        for group in input.signal_groups {
+            let namespace = group
+                .module_namespace()
+                .unwrap_or(&self.header.authoring_namespace_id);
+            logical_string_bytes = logical_string_bytes.saturating_add(
+                reference_spelling_parts_bytes(namespace, group.declaration_key()),
+            );
+            controlled_string_bytes = controlled_string_bytes
+                .saturating_add(u64::try_from(group.declaration_key().len()).unwrap_or(u64::MAX));
+        }
+        for phase in input.phases {
+            let phase_key_bytes = u64::try_from(phase.signal_phase_key.len()).unwrap_or(u64::MAX);
+            logical_string_bytes = logical_string_bytes.saturating_add(phase_key_bytes);
+            controlled_string_bytes = controlled_string_bytes.saturating_add(phase_key_bytes);
+            for state in phase.states {
+                let namespace = state
+                    .signal_group
+                    .module_namespace()
+                    .unwrap_or(&self.header.authoring_namespace_id);
+                logical_string_bytes = logical_string_bytes.saturating_add(
+                    reference_spelling_parts_bytes(namespace, state.signal_group.declaration_key()),
+                );
+                controlled_string_bytes = controlled_string_bytes.saturating_add(
+                    u64::try_from(state.signal_group.declaration_key().len()).unwrap_or(u64::MAX),
+                );
+            }
+        }
+        let structural_bytes = size_bytes::<SignalControllerDeclaration>(1)
+            .saturating_add(size_bytes::<OwnedEntityReference<SignalGroupKind>>(
+                group_count,
+            ))
+            .saturating_add(size_bytes::<SignalPhaseDeclaration>(phase_count))
+            .saturating_add(size_bytes::<SignalGroupStateDeclaration>(state_count))
+            .saturating_add(size_bytes::<OwnedEntityReference<SignalGroupKind>>(
+                state_count,
+            ));
+        let source_bytes = signal_controller_input_len(
+            input.signal_controller_key,
+            input.offset_ms,
+            input.signal_groups,
+            input.phases,
+            &self.header.authoring_namespace_id,
+        );
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1_u64.saturating_add(phase_count),
+                typed_ast_records: 3_u64
+                    .saturating_add(phase_count.saturating_mul(3))
+                    .saturating_add(group_count.saturating_mul(2))
+                    .saturating_add(state_count.saturating_mul(3)),
+                references: reference_count,
+                relations: group_count
+                    .saturating_add(phase_count)
+                    .saturating_add(state_count),
+                identity_fields: 2_u64.saturating_add(phase_count.saturating_mul(3)),
+                symbols: 1_u64.saturating_add(phase_count),
+                string_items: 2_u64
+                    .saturating_add(phase_count.saturating_mul(2))
+                    .saturating_add(reference_count),
+                string_bytes: logical_string_bytes,
+                controlled_string_bytes,
+                controlled_structural_bytes: structural_bytes,
+                source_bytes,
+                ..DeclarationResourceDelta::default()
+            },
+            input.signal_controller_key,
+            &span,
+        )?;
+
+        let mut signal_groups = Vec::with_capacity(input.signal_groups.len());
+        for group in input.signal_groups {
+            signal_groups.push(self.own_reference(EntityKind::SignalGroup, *group, &span)?);
+        }
+        let mut phases = Vec::with_capacity(input.phases.len());
+        for phase in input.phases {
+            let mut states = Vec::with_capacity(phase.states.len());
+            for phase_state in phase.states {
+                states.push(SignalGroupStateDeclaration {
+                    signal_group: self.own_reference(
+                        EntityKind::SignalGroup,
+                        phase_state.signal_group,
+                        &span,
+                    )?,
+                    aspect: phase_state.aspect,
+                });
+            }
+            phases.push(SignalPhaseDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::SignalPhase,
+                    stable_key: phase.signal_phase_key.into(),
+                    span: span.clone(),
+                },
+                duration_ms: phase.duration_ms,
+                states: states.into_boxed_slice(),
+            });
+        }
+
+        let stable_key: Arc<str> = input.signal_controller_key.into();
+        self.declaration_index
+            .entry(EntityKind::SignalController)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations
+            .push(SyntheticDeclaration::SignalController(
+                SignalControllerDeclaration {
+                    header: DeclarationHeader {
+                        entity_kind: EntityKind::SignalController,
+                        stable_key,
+                        span,
+                    },
+                    offset_ms: input.offset_ms,
+                    signal_groups: signal_groups.into_boxed_slice(),
+                    phases: phases.into_boxed_slice(),
+                },
+            ));
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
     /// 声明一个位于机动路径转换上的机动门。
     ///
     /// # Errors
@@ -1320,37 +1550,58 @@ impl SyntheticModuleBuilder {
         let maneuver_path =
             self.own_reference(EntityKind::ManeuverPath, input.maneuver_path, &span)?;
         let stop_line = self.own_reference(EntityKind::StopLine, input.stop_line, &span)?;
+        let signal_control = match input.signal_control {
+            SignalControlInput::Group(group) => OwnedSignalControl::Group(self.own_reference(
+                EntityKind::SignalGroup,
+                group,
+                &span,
+            )?),
+            SignalControlInput::None => OwnedSignalControl::None,
+        };
+        let signal_group_reference = match &signal_control {
+            OwnedSignalControl::Group(group) => Some(group),
+            OwnedSignalControl::None => None,
+        };
         let namespace_bytes =
             u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
         let key_bytes = u64::try_from(input.maneuver_gate_key.len()).unwrap_or(u64::MAX);
         let state = self.check_declaration_resources(
             DeclarationResourceDelta {
                 declarations: 1,
-                typed_ast_records: 7,
-                references: 2,
-                relations: 2,
+                typed_ast_records: 8_u64
+                    .saturating_add(u64::from(signal_group_reference.is_some()).saturating_mul(2)),
+                references: 2_u64.saturating_add(u64::from(signal_group_reference.is_some())),
+                relations: 2_u64.saturating_add(u64::from(signal_group_reference.is_some())),
                 identity_fields: 3,
                 symbols: 1,
-                string_items: 4,
+                string_items: 4_u64.saturating_add(u64::from(signal_group_reference.is_some())),
                 string_bytes: namespace_bytes
                     .saturating_add(key_bytes)
                     .saturating_add(reference_spelling_bytes(&maneuver_path))
-                    .saturating_add(reference_spelling_bytes(&stop_line)),
+                    .saturating_add(reference_spelling_bytes(&stop_line))
+                    .saturating_add(signal_group_reference.map_or(0, reference_spelling_bytes)),
                 controlled_string_bytes: key_bytes
                     .saturating_add(
                         u64::try_from(maneuver_path.declaration_key.len()).unwrap_or(u64::MAX),
                     )
                     .saturating_add(
                         u64::try_from(stop_line.declaration_key.len()).unwrap_or(u64::MAX),
-                    ),
+                    )
+                    .saturating_add(signal_group_reference.map_or(0, |group| {
+                        u64::try_from(group.declaration_key.len()).unwrap_or(u64::MAX)
+                    })),
                 controlled_structural_bytes: size_bytes::<ManeuverGateDeclaration>(1)
                     .saturating_add(size_bytes::<OwnedEntityReference<ManeuverPathKind>>(1))
-                    .saturating_add(size_bytes::<OwnedEntityReference<StopLineKind>>(1)),
+                    .saturating_add(size_bytes::<OwnedEntityReference<StopLineKind>>(1))
+                    .saturating_add(size_bytes::<OwnedEntityReference<SignalGroupKind>>(
+                        u64::from(signal_group_reference.is_some()),
+                    )),
                 source_bytes: maneuver_gate_declaration_len(
                     input.maneuver_gate_key,
                     &maneuver_path,
                     input.transition_index,
                     &stop_line,
+                    &signal_control,
                 ),
                 maneuver_gates: 1,
                 ..DeclarationResourceDelta::default()
@@ -1374,6 +1625,7 @@ impl SyntheticModuleBuilder {
                 maneuver_path,
                 transition_index: input.transition_index,
                 stop_line,
+                signal_control,
             },
         ));
         self.commit_declaration_resources(state);
@@ -2761,6 +3013,7 @@ fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
             &declaration.maneuver_path,
             declaration.transition_index,
             &declaration.stop_line,
+            &declaration.signal_control,
         )),
         SyntheticDeclaration::WaitingZone(declaration) => Some(waiting_zone_declaration_len(
             &declaration.header.stable_key,
@@ -2772,6 +3025,12 @@ fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
             &declaration.header.stable_key,
             &declaration.edge_sequence,
         )),
+        SyntheticDeclaration::SignalGroup(declaration) => {
+            Some(declaration_header_len(&declaration.header.stable_key))
+        }
+        SyntheticDeclaration::SignalController(declaration) => {
+            Some(signal_controller_declaration_len(declaration))
+        }
     }
 }
 
@@ -2853,6 +3112,7 @@ fn maneuver_gate_declaration_len(
     maneuver_path: &OwnedEntityReference<ManeuverPathKind>,
     _transition_index: u32,
     stop_line: &OwnedEntityReference<StopLineKind>,
+    signal_control: &OwnedSignalControl,
 ) -> u64 {
     declaration_header_len(stable_key)
         .saturating_add(encoded_reference_len(
@@ -2864,6 +3124,71 @@ fn maneuver_gate_declaration_len(
             &stop_line.module_namespace,
             &stop_line.declaration_key,
         ))
+        .saturating_add(1)
+        .saturating_add(match signal_control {
+            OwnedSignalControl::Group(group) => {
+                encoded_reference_len(&group.module_namespace, &group.declaration_key)
+            }
+            OwnedSignalControl::None => 0,
+        })
+}
+
+fn signal_controller_input_len(
+    stable_key: &str,
+    _offset_ms: u64,
+    signal_groups: &[SignalGroupReference<'_>],
+    phases: &[SignalPhaseInput<'_>],
+    local_namespace: &str,
+) -> u64 {
+    let mut length = declaration_header_len(stable_key).saturating_add(8 + 4 + 4);
+    for group in signal_groups {
+        length = length.saturating_add(encoded_reference_len(
+            group.module_namespace().unwrap_or(local_namespace),
+            group.declaration_key(),
+        ));
+    }
+    for phase in phases {
+        length = length
+            .saturating_add(declaration_header_len(phase.signal_phase_key))
+            .saturating_add(8 + 4);
+        for state in phase.states {
+            length = length
+                .saturating_add(encoded_reference_len(
+                    state
+                        .signal_group
+                        .module_namespace()
+                        .unwrap_or(local_namespace),
+                    state.signal_group.declaration_key(),
+                ))
+                .saturating_add(1);
+        }
+    }
+    length
+}
+
+fn signal_controller_declaration_len(declaration: &SignalControllerDeclaration) -> u64 {
+    let mut length =
+        declaration_header_len(&declaration.header.stable_key).saturating_add(8 + 4 + 4);
+    for group in &declaration.signal_groups {
+        length = length.saturating_add(encoded_reference_len(
+            &group.module_namespace,
+            &group.declaration_key,
+        ));
+    }
+    for phase in &declaration.phases {
+        length = length
+            .saturating_add(declaration_header_len(&phase.header.stable_key))
+            .saturating_add(8 + 4);
+        for state in &phase.states {
+            length = length
+                .saturating_add(encoded_reference_len(
+                    &state.signal_group.module_namespace,
+                    &state.signal_group.declaration_key,
+                ))
+                .saturating_add(1);
+        }
+    }
+    length
 }
 
 fn waiting_zone_declaration_len(
@@ -3078,6 +3403,13 @@ fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
             put_owned_reference(output, &declaration.maneuver_path);
             output.extend_from_slice(&declaration.transition_index.to_le_bytes());
             put_owned_reference(output, &declaration.stop_line);
+            match &declaration.signal_control {
+                OwnedSignalControl::None => output.push(0),
+                OwnedSignalControl::Group(group) => {
+                    output.push(1);
+                    put_owned_reference(output, group);
+                }
+            }
         }
         SyntheticDeclaration::WaitingZone(declaration) => {
             put_declaration_header(output, &declaration.header);
@@ -3097,6 +3429,49 @@ fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
                 put_owned_reference(output, edge);
             }
         }
+        SyntheticDeclaration::SignalGroup(declaration) => {
+            put_declaration_header(output, &declaration.header);
+        }
+        SyntheticDeclaration::SignalController(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            output.extend_from_slice(&declaration.offset_ms.to_le_bytes());
+            output.extend_from_slice(
+                &u32::try_from(declaration.signal_groups.len())
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            );
+            for group in &declaration.signal_groups {
+                put_owned_reference(output, group);
+            }
+            output.extend_from_slice(
+                &u32::try_from(declaration.phases.len())
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            );
+            for phase in &declaration.phases {
+                put_declaration_header(output, &phase.header);
+                output.extend_from_slice(&phase.duration_ms.to_le_bytes());
+                output.extend_from_slice(
+                    &u32::try_from(phase.states.len())
+                        .unwrap_or(u32::MAX)
+                        .to_le_bytes(),
+                );
+                for state in &phase.states {
+                    put_owned_reference(output, &state.signal_group);
+                    output.push(signal_aspect_source_code(state.aspect));
+                }
+            }
+        }
+    }
+}
+
+#[allow(unreachable_patterns)]
+fn signal_aspect_source_code(aspect: SignalAspect) -> u8 {
+    match aspect {
+        SignalAspect::Red => 1,
+        SignalAspect::Yellow => 2,
+        SignalAspect::Green => 3,
+        _ => unreachable!("SignalAspect extension requires a new synthetic frontend version"),
     }
 }
 
