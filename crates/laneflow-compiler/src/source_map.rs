@@ -6,10 +6,11 @@
 //! [`crate::CompilationOutput`] 中的 [`crate::ValidatedCanonicalLir`]。
 
 use laneflow_static_contract::{
-    AuthoringLaneId, AuthoringLaneOrdinal, EntityKind, FacilityBandId, FacilityBandOrdinal,
-    JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
-    ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId,
-    MovementOrdinal, ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal,
+    AccessRuleId, AccessRuleOrdinal, AuthoringLaneId, AuthoringLaneOrdinal, EntityKind,
+    FacilityBandId, FacilityBandOrdinal, JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal,
+    LaneGroupId, LaneGroupOrdinal, ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId,
+    ManeuverPathOrdinal, MovementId, MovementOrdinal, ParkingAreaId, ParkingAreaOrdinal,
+    ParkingSpaceId, ParkingSpaceOrdinal, ParticipantClassId, ParticipantClassOrdinal,
     RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal, SignalControllerId,
     SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal,
     StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal, WaitingZoneId,
@@ -34,6 +35,7 @@ const SOURCE_LOCATION_LOGICAL_BYTES: u64 = 4 + 8 + 8;
 const ROUTE_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES + 1;
 const SIGNAL_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
 const PARKING_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
+const ACCESS_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
 
 /// owner-local 来源记录中登记的有类型语义角色。
 ///
@@ -88,6 +90,12 @@ pub enum SourceRelationRole {
     ParkingSpaceEntry = 22,
     /// 停车位出口到车道图边严格内部位置的锚定。
     ParkingSpaceExit = 23,
+    /// 参与者类别到其可选单继承父类的关系。
+    ParticipantClassExtends = 24,
+    /// 准入规则到其静态目标的关系。
+    AccessRuleTarget = 25,
+    /// 准入规则集合中的一项参与者类别选择器。
+    AccessRuleParticipantClass = 26,
 }
 
 #[derive(Clone, Copy)]
@@ -171,6 +179,19 @@ struct ParkingRelationSourceRecord {
     primary: SourceLocationRecord,
 }
 
+struct AccessRelationSourceRecord {
+    owner: AccessRelationOwnerRecord,
+    role: SourceRelationRole,
+    local_index: u32,
+    primary: SourceLocationRecord,
+}
+
+#[derive(Clone, Copy)]
+enum AccessRelationOwnerRecord {
+    ParticipantClass(ParticipantClassOrdinal, ParticipantClassId),
+    AccessRule(AccessRuleOrdinal, AccessRuleId),
+}
+
 #[derive(Clone, Copy)]
 enum SignalRelationOwnerRecord {
     SignalController(SignalControllerOrdinal, SignalControllerId),
@@ -206,6 +227,10 @@ pub struct ValidatedSourceMapInput {
     parking_area_sources: Box<[StableEntitySourceRecord<ParkingAreaOrdinal, ParkingAreaId>]>,
     parking_space_sources: Box<[StableEntitySourceRecord<ParkingSpaceOrdinal, ParkingSpaceId>]>,
     parking_relation_sources: Box<[ParkingRelationSourceRecord]>,
+    participant_class_sources:
+        Box<[StableEntitySourceRecord<ParticipantClassOrdinal, ParticipantClassId>]>,
+    access_rule_sources: Box<[StableEntitySourceRecord<AccessRuleOrdinal, AccessRuleId>]>,
+    access_relation_sources: Box<[AccessRelationSourceRecord]>,
     junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
     static_route_sources: Box<[StableEntitySourceRecord<StaticRouteOrdinal, StaticRouteId>]>,
     route_relation_sources: Box<[RouteRelationSourceRecord]>,
@@ -456,6 +481,40 @@ impl ValidatedSourceMapInput {
             })
     }
 
+    /// 按 `ParticipantClassOrdinal` 递增顺序遍历参与者类别来源记录。
+    pub fn participant_class_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = ParticipantClassSourceView<'_>> {
+        self.participant_class_sources
+            .iter()
+            .map(|record| ParticipantClassSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按 `AccessRuleOrdinal` 递增顺序遍历准入规则来源记录。
+    pub fn access_rule_sources(&self) -> impl ExactSizeIterator<Item = AccessRuleSourceView<'_>> {
+        self.access_rule_sources
+            .iter()
+            .map(|record| AccessRuleSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按 owner、角色和局部下标遍历准入关系来源记录。
+    pub fn access_relation_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = AccessRelationSourceView<'_>> {
+        self.access_relation_sources
+            .iter()
+            .map(|record| AccessRelationSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
     /// 遍历路口所有者树、完整路径序列、派生内部边与静态控制边界的规范来源记录。
     pub fn junction_relation_sources(
         &self,
@@ -642,6 +701,12 @@ stable_source_view!(
 stable_source_view!(SignalPhaseSourceView, SignalPhaseOrdinal, SignalPhaseId);
 stable_source_view!(ParkingAreaSourceView, ParkingAreaOrdinal, ParkingAreaId);
 stable_source_view!(ParkingSpaceSourceView, ParkingSpaceOrdinal, ParkingSpaceId);
+stable_source_view!(
+    ParticipantClassSourceView,
+    ParticipantClassOrdinal,
+    ParticipantClassId
+);
+stable_source_view!(AccessRuleSourceView, AccessRuleOrdinal, AccessRuleId);
 stable_source_view!(StaticRouteSourceView, StaticRouteOrdinal, StaticRouteId);
 
 /// 一条横断面 owner-local 关系来源记录的只读视图。
@@ -921,6 +986,72 @@ impl ParkingRelationSourceView<'_> {
     }
 }
 
+/// 参与者类别继承或准入规则关系 owner 的有类型身份。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum AccessRelationOwner {
+    /// 参与者类别及其有类型身份。
+    ParticipantClass(ParticipantClassOrdinal, ParticipantClassId),
+    /// 准入规则及其有类型身份。
+    AccessRule(AccessRuleOrdinal, AccessRuleId),
+}
+
+impl AccessRelationOwner {
+    /// 返回 owner 对应的 Identity v1 实体种类。
+    #[must_use]
+    pub const fn entity_kind(self) -> EntityKind {
+        match self {
+            Self::ParticipantClass(_, _) => EntityKind::ParticipantClass,
+            Self::AccessRule(_, _) => EntityKind::AccessRule,
+        }
+    }
+}
+
+/// 一条类别继承、规则目标或规则类别选择器的来源视图。
+#[derive(Clone, Copy)]
+pub struct AccessRelationSourceView<'a> {
+    source_map: &'a ValidatedSourceMapInput,
+    record: &'a AccessRelationSourceRecord,
+}
+
+impl AccessRelationSourceView<'_> {
+    /// 返回关系 owner 的有类型 LIR 序号与稳定标识。
+    #[must_use]
+    pub const fn owner(&self) -> AccessRelationOwner {
+        match self.record.owner {
+            AccessRelationOwnerRecord::ParticipantClass(ordinal, stable_id) => {
+                AccessRelationOwner::ParticipantClass(ordinal, stable_id)
+            }
+            AccessRelationOwnerRecord::AccessRule(ordinal, stable_id) => {
+                AccessRelationOwner::AccessRule(ordinal, stable_id)
+            }
+        }
+    }
+
+    /// 返回继承、目标或类别选择器角色。
+    #[must_use]
+    pub const fn role(&self) -> SourceRelationRole {
+        self.record.role
+    }
+
+    /// 返回同一 owner 与角色内的规范零基下标。
+    #[must_use]
+    pub const fn local_index(&self) -> u32 {
+        self.record.local_index
+    }
+
+    /// 返回关系引用的精确来源位置。
+    #[must_use]
+    pub fn primary_source(&self) -> SourceLocationView<'_> {
+        self.source_map.location(self.record.primary)
+    }
+
+    /// 当前显式准入关系没有额外贡献来源。
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+        core::iter::empty()
+    }
+}
+
 /// 一条 owner-local 下游连接来源记录的只读视图。
 #[derive(Clone, Copy)]
 pub struct LaneEdgeSuccessorSourceView<'a> {
@@ -1095,6 +1226,20 @@ pub(crate) fn freeze_source_map(
         .unwrap_or(u64::MAX)
         .saturating_mul(2)
         .saturating_add(u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX));
+    let access_entity_count = u64::try_from(mir.participant_classes.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(mir.access_rules.len()).unwrap_or(u64::MAX));
+    let access_relation_count = mir
+        .participant_classes
+        .iter()
+        .filter(|participant_class| participant_class.parent.is_some())
+        .count()
+        .try_into()
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(mir.access_rules.len()).unwrap_or(u64::MAX))
+        .saturating_add(
+            u64::try_from(mir.access_rule_participant_classes.len()).unwrap_or(u64::MAX),
+        );
     let static_route_count = u64::try_from(mir.static_routes.len()).unwrap_or(u64::MAX);
     let route_relation_count = [
         mir.static_route_edges.len(),
@@ -1137,6 +1282,8 @@ pub(crate) fn freeze_source_map(
         .saturating_add(
             parking_relation_count.saturating_mul(PARKING_RELATION_SOURCE_LOGICAL_BYTES),
         )
+        .saturating_add(access_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
+        .saturating_add(access_relation_count.saturating_mul(ACCESS_RELATION_SOURCE_LOGICAL_BYTES))
         .saturating_add(static_route_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(route_relation_count.saturating_mul(ROUTE_RELATION_SOURCE_LOGICAL_BYTES))
         .saturating_add(
@@ -1243,14 +1390,34 @@ pub(crate) fn freeze_source_map(
             parking_relation_count,
         ))
         .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<ParticipantClassOrdinal, ParticipantClassId>,
+        >(
+            mir.participant_classes.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<AccessRuleOrdinal, AccessRuleId>,
+        >(
+            mir.access_rules.len().try_into().unwrap_or(u64::MAX)
+        ))
+        .saturating_add(requested_bytes::<AccessRelationSourceRecord>(
+            access_relation_count,
+        ))
+        .saturating_add(requested_bytes::<
             StableEntitySourceRecord<StaticRouteOrdinal, StaticRouteId>,
         >(static_route_count))
         .saturating_add(requested_bytes::<RouteRelationSourceRecord>(
             route_relation_count,
         ));
     // 派生内部边需要按 owner 生成稠密 local index；计数器只活到源映射冻结完成。
-    let source_map_scratch_bytes =
-        requested_bytes::<u32>(mir.junctions.len().try_into().unwrap_or(u64::MAX));
+    let source_map_scratch_bytes = requested_bytes::<u32>(
+        mir.junctions.len().try_into().unwrap_or(u64::MAX),
+    )
+    .max(requested_bytes::<(ParticipantClassOrdinal, SourceSpan)>(
+        mir.access_rule_participant_classes
+            .len()
+            .try_into()
+            .unwrap_or(u64::MAX),
+    ));
     let controlled_live_bytes = unit
         .controlled_live_bytes
         .saturating_add(mir.controlled_live_bytes)
@@ -1356,6 +1523,12 @@ pub(crate) fn freeze_source_map(
     let mut parking_space_sources = Vec::with_capacity(mir.parking_spaces.len());
     let mut parking_relation_sources = Vec::with_capacity(
         usize::try_from(parking_relation_count)
+            .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
+    );
+    let mut participant_class_sources = Vec::with_capacity(mir.participant_classes.len());
+    let mut access_rule_sources = Vec::with_capacity(mir.access_rules.len());
+    let mut access_relation_sources = Vec::with_capacity(
+        usize::try_from(access_relation_count)
             .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
     );
     let mut junction_relation_sources = Vec::with_capacity(
@@ -1783,6 +1956,75 @@ pub(crate) fn freeze_source_map(
         }
     }
 
+    for mir_key in frozen_lir
+        .canonical_mir_participant_class_order
+        .iter()
+        .copied()
+    {
+        let participant_class = &mir.participant_classes[mir_key.index()];
+        let ordinal = frozen_lir.mir_participant_class_to_lir[mir_key.index()];
+        let source_document_ordinal =
+            mir.modules[participant_class.module.index()].source_document_ordinal;
+        participant_class_sources.push(StableEntitySourceRecord {
+            ordinal,
+            stable_id: participant_class.stable_id,
+            primary: location(source_document_ordinal, &participant_class.source_span),
+        });
+        if participant_class.parent.is_some() {
+            access_relation_sources.push(AccessRelationSourceRecord {
+                owner: AccessRelationOwnerRecord::ParticipantClass(
+                    ordinal,
+                    participant_class.stable_id,
+                ),
+                role: SourceRelationRole::ParticipantClassExtends,
+                local_index: 0,
+                primary: location(
+                    source_document_ordinal,
+                    participant_class
+                        .parent_source_span
+                        .as_ref()
+                        .expect("resolved parent retains its reference source"),
+                ),
+            });
+        }
+    }
+    for mir_key in frozen_lir.canonical_mir_access_rule_order.iter().copied() {
+        let rule = &mir.access_rules[mir_key.index()];
+        let ordinal = frozen_lir.mir_access_rule_to_lir[mir_key.index()];
+        let source_document_ordinal = mir.modules[rule.module.index()].source_document_ordinal;
+        access_rule_sources.push(StableEntitySourceRecord {
+            ordinal,
+            stable_id: rule.stable_id,
+            primary: location(source_document_ordinal, &rule.source_span),
+        });
+        access_relation_sources.push(AccessRelationSourceRecord {
+            owner: AccessRelationOwnerRecord::AccessRule(ordinal, rule.stable_id),
+            role: SourceRelationRole::AccessRuleTarget,
+            local_index: 0,
+            primary: location(source_document_ordinal, &rule.target_source_span),
+        });
+        let mut selectors = mir.access_rule_participant_classes
+            [rule.participant_classes.as_usize_range()]
+        .iter()
+        .map(|selector| {
+            (
+                frozen_lir.mir_participant_class_to_lir[selector.participant_class.index()],
+                selector.source_span.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+        selectors.sort_unstable_by_key(|(participant_class, _)| *participant_class);
+        for (local_index, (_, source_span)) in selectors.into_iter().enumerate() {
+            access_relation_sources.push(AccessRelationSourceRecord {
+                owner: AccessRelationOwnerRecord::AccessRule(ordinal, rule.stable_id),
+                role: SourceRelationRole::AccessRuleParticipantClass,
+                local_index: u32::try_from(local_index)
+                    .expect("LIR relation range precheck proved local index fits u32"),
+                primary: location(source_document_ordinal, &source_span),
+            });
+        }
+    }
+
     for mir_key in frozen_lir.canonical_mir_static_route_order.iter().copied() {
         let route = &mir.static_routes[mir_key.index()];
         let ordinal = frozen_lir.mir_static_route_to_lir[mir_key.index()];
@@ -1907,6 +2149,10 @@ pub(crate) fn freeze_source_map(
         parking_relation_sources.len(),
         usize::try_from(parking_relation_count).unwrap_or(usize::MAX)
     );
+    debug_assert_eq!(
+        access_relation_sources.len(),
+        usize::try_from(access_relation_count).unwrap_or(usize::MAX)
+    );
     let source_modules = unit.into_source_module_descriptors();
     Ok(ValidatedSourceMapInput {
         source_modules,
@@ -1931,6 +2177,9 @@ pub(crate) fn freeze_source_map(
         parking_area_sources: parking_area_sources.into_boxed_slice(),
         parking_space_sources: parking_space_sources.into_boxed_slice(),
         parking_relation_sources: parking_relation_sources.into_boxed_slice(),
+        participant_class_sources: participant_class_sources.into_boxed_slice(),
+        access_rule_sources: access_rule_sources.into_boxed_slice(),
+        access_relation_sources: access_relation_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),
         static_route_sources: static_route_sources.into_boxed_slice(),
         route_relation_sources: route_relation_sources.into_boxed_slice(),

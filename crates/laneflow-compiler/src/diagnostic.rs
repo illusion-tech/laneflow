@@ -234,6 +234,18 @@ pub enum DiagnosticCode {
     InvalidParkingSpaceGeometry,
     /// 停车区域没有任何停车位成员。
     OrphanParkingArea,
+    /// 参与者类别的单继承链形成循环。
+    ParticipantClassInheritanceCycle,
+    /// 准入规则没有声明任何参与者类别。
+    EmptyAccessRuleParticipantClasses,
+    /// 准入规则请求了首版尚未实现的能力。
+    AccessCapabilityUnavailable,
+    /// 准入规则的法规来源字段违反长度约束。
+    InvalidAccessRegulationString,
+    /// 同一编译单元中的法规来源法域或版本不一致。
+    AccessRegulationMismatch,
+    /// 规范裁决后仍存在效果相反且完全并列的准入规则。
+    AccessRuleAmbiguity,
     /// 编译器构造的规范身份字段不满足 Identity v1 登记表。
     InvalidCanonicalIdentity,
     /// 同一完整规范身份在编译单元中出现多次。
@@ -331,6 +343,12 @@ impl DiagnosticCode {
             Self::InvalidParkingAnchorProgress => "LF-COMP-PARKING-ANCHOR-PROGRESS",
             Self::InvalidParkingSpaceGeometry => "LF-COMP-PARKING-SPACE-GEOMETRY",
             Self::OrphanParkingArea => "LF-COMP-ORPHAN-PARKING-AREA",
+            Self::ParticipantClassInheritanceCycle => "LF-COMP-PARTICIPANT-CLASS-CYCLE",
+            Self::EmptyAccessRuleParticipantClasses => "LF-COMP-EMPTY-ACCESS-RULE-CLASSES",
+            Self::AccessCapabilityUnavailable => "LF-COMP-ACCESS-CAPABILITY-UNAVAILABLE",
+            Self::InvalidAccessRegulationString => "LF-COMP-ACCESS-REGULATION-STRING",
+            Self::AccessRegulationMismatch => "LF-COMP-ACCESS-REGULATION-MISMATCH",
+            Self::AccessRuleAmbiguity => "LF-COMP-ACCESS-RULE-AMBIGUITY",
             Self::InvalidCanonicalIdentity => "LF-COMP-INVALID-CANONICAL-IDENTITY",
             Self::DuplicateCanonicalIdentity => "LF-COMP-DUPLICATE-CANONICAL-IDENTITY",
             Self::IdentityDigestCollision => "LF-COMP-IDENTITY-DIGEST-COLLISION",
@@ -486,6 +504,38 @@ pub enum SourceTextViolation {
     InvalidTokenByte { byte_index: u64, byte: u8 },
     /// 可见文本包含控制字节；空格不属于此错误。
     ControlByte { byte_index: u64, byte: u8 },
+}
+
+/// 首版静态准入编译明确拒绝的能力。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum AccessCapability {
+    /// 以 `FacilityBand` 作为准入目标。
+    FacilityBandTarget,
+    /// 带时段窗口的动态准入规则。
+    TimeWindows,
+}
+
+/// 准入规则组合裁决所在的独立平面。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum AccessPlane {
+    /// 车道图边以及展开到边的车道组/道路区段规则。
+    Edge,
+    /// 保持机动路径身份、不展平为边的规则。
+    ManeuverPath,
+}
+
+/// 法规来源中受长度约束的字段。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum AccessRegulationField {
+    /// 法域。
+    Jurisdiction,
+    /// 法规版本。
+    Version,
+    /// 可选来源说明。
+    Source,
 }
 
 /// 诊断的有类型载荷。
@@ -889,6 +939,37 @@ pub enum DiagnosticPayload {
     /// 没有任何成员的停车区域。
     OrphanParkingArea {
         parking_area_key: Box<str>,
+    },
+    ParticipantClassInheritanceCycle {
+        participant_class_key: Box<str>,
+    },
+    EmptyAccessRuleParticipantClasses {
+        access_rule_key: Box<str>,
+    },
+    AccessCapabilityUnavailable {
+        access_rule_key: Box<str>,
+        capability: AccessCapability,
+    },
+    InvalidAccessRegulationString {
+        access_rule_key: Box<str>,
+        field: AccessRegulationField,
+        character_count: u32,
+    },
+    AccessRegulationMismatch {
+        first_rule_key: Box<str>,
+        first_jurisdiction: Box<str>,
+        first_version: Box<str>,
+        second_rule_key: Box<str>,
+        second_jurisdiction: Box<str>,
+        second_version: Box<str>,
+    },
+    AccessRuleAmbiguity {
+        plane: AccessPlane,
+        target_kind: EntityKind,
+        target_key: Box<str>,
+        participant_class_key: Box<str>,
+        first_rule_key: Box<str>,
+        second_rule_key: Box<str>,
     },
     /// 实体种类、来源稳定键及不能形成 Identity v1 前像的精确原因。
     InvalidCanonicalIdentity {
@@ -2229,6 +2310,127 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn participant_class_inheritance_cycle(
+        participant_class_key: &str,
+        primary_span: SourceSpan,
+        related_spans: Box<[SourceSpan]>,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::ParticipantClassInheritanceCycle,
+            DiagnosticPayload::ParticipantClassInheritanceCycle {
+                participant_class_key: participant_class_key.into(),
+            },
+            Some(primary_span),
+            related_spans,
+            Some(participant_class_key.into()),
+        )
+    }
+
+    pub(crate) fn empty_access_rule_participant_classes(
+        access_rule_key: &str,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::EmptyAccessRuleParticipantClasses,
+            DiagnosticPayload::EmptyAccessRuleParticipantClasses {
+                access_rule_key: access_rule_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(access_rule_key.into()),
+        )
+    }
+
+    pub(crate) fn access_capability_unavailable(
+        access_rule_key: &str,
+        capability: AccessCapability,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::AccessCapabilityUnavailable,
+            DiagnosticPayload::AccessCapabilityUnavailable {
+                access_rule_key: access_rule_key.into(),
+                capability,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(access_rule_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_access_regulation_string(
+        access_rule_key: &str,
+        field: AccessRegulationField,
+        character_count: u32,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidAccessRegulationString,
+            DiagnosticPayload::InvalidAccessRegulationString {
+                access_rule_key: access_rule_key.into(),
+                field,
+                character_count,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(access_rule_key.into()),
+        )
+    }
+
+    #[expect(clippy::too_many_arguments, reason = "诊断必须保留两份完整法规来源")]
+    pub(crate) fn access_regulation_mismatch(
+        first_rule_key: &str,
+        first_jurisdiction: &str,
+        first_version: &str,
+        second_rule_key: &str,
+        second_jurisdiction: &str,
+        second_version: &str,
+        primary_span: SourceSpan,
+        related_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::AccessRegulationMismatch,
+            DiagnosticPayload::AccessRegulationMismatch {
+                first_rule_key: first_rule_key.into(),
+                first_jurisdiction: first_jurisdiction.into(),
+                first_version: first_version.into(),
+                second_rule_key: second_rule_key.into(),
+                second_jurisdiction: second_jurisdiction.into(),
+                second_version: second_version.into(),
+            },
+            Some(primary_span),
+            vec![related_span].into_boxed_slice(),
+            Some(second_rule_key.into()),
+        )
+    }
+
+    #[expect(clippy::too_many_arguments, reason = "诊断必须保留完整裁决冲突键")]
+    pub(crate) fn access_rule_ambiguity(
+        plane: AccessPlane,
+        target_kind: EntityKind,
+        target_key: &str,
+        participant_class_key: &str,
+        first_rule_key: &str,
+        second_rule_key: &str,
+        primary_span: SourceSpan,
+        related_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::AccessRuleAmbiguity,
+            DiagnosticPayload::AccessRuleAmbiguity {
+                plane,
+                target_kind,
+                target_key: target_key.into(),
+                participant_class_key: participant_class_key.into(),
+                first_rule_key: first_rule_key.into(),
+                second_rule_key: second_rule_key.into(),
+            },
+            Some(primary_span),
+            vec![related_span].into_boxed_slice(),
+            Some(second_rule_key.into()),
+        )
+    }
+
     pub(crate) fn invalid_canonical_identity(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -2911,6 +3113,57 @@ impl fmt::Display for Diagnostic {
             DiagnosticPayload::OrphanParkingArea { parking_area_key } => {
                 write!(formatter, "停车区域 {parking_area_key} 没有任何停车位成员")
             }
+            DiagnosticPayload::ParticipantClassInheritanceCycle {
+                participant_class_key,
+            } => write!(
+                formatter,
+                "参与者类别 {participant_class_key} 所在的单继承链形成循环"
+            ),
+            DiagnosticPayload::EmptyAccessRuleParticipantClasses { access_rule_key } => write!(
+                formatter,
+                "准入规则 {access_rule_key} 必须至少引用一个参与者类别"
+            ),
+            DiagnosticPayload::AccessCapabilityUnavailable {
+                access_rule_key,
+                capability,
+            } => write!(
+                formatter,
+                "准入规则 {access_rule_key} 请求的能力 {} 在首版静态编译中不可用",
+                capability.as_str()
+            ),
+            DiagnosticPayload::InvalidAccessRegulationString {
+                access_rule_key,
+                field,
+                character_count,
+            } => write!(
+                formatter,
+                "准入规则 {access_rule_key} 的法规来源字段 {} 含 {character_count} 个字符；必须位于 1 到 128 个字符",
+                field.as_str()
+            ),
+            DiagnosticPayload::AccessRegulationMismatch {
+                first_rule_key,
+                first_jurisdiction,
+                first_version,
+                second_rule_key,
+                second_jurisdiction,
+                second_version,
+            } => write!(
+                formatter,
+                "准入规则 {second_rule_key} 的法规来源 ({second_jurisdiction}, {second_version}) 与规则 {first_rule_key} 的 ({first_jurisdiction}, {first_version}) 不一致"
+            ),
+            DiagnosticPayload::AccessRuleAmbiguity {
+                plane,
+                target_kind,
+                target_key,
+                participant_class_key,
+                first_rule_key,
+                second_rule_key,
+            } => write!(
+                formatter,
+                "准入{}平面中，{} {target_key} 对参与者类别 {participant_class_key} 的规则 {first_rule_key} 与 {second_rule_key} 完全并列但效果相反",
+                plane.as_str(),
+                target_kind.slug()
+            ),
             DiagnosticPayload::InvalidCanonicalIdentity {
                 entity_kind,
                 stable_key,
@@ -2937,6 +3190,34 @@ impl fmt::Display for Diagnostic {
                 "{} 的不同规范身份产生相同 StableId128 {stable_id:x}",
                 entity_kind.slug()
             ),
+        }
+    }
+}
+
+impl AccessCapability {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::FacilityBandTarget => "facilityBandTarget",
+            Self::TimeWindows => "timeWindows",
+        }
+    }
+}
+
+impl AccessPlane {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Edge => "车道图边",
+            Self::ManeuverPath => "机动路径",
+        }
+    }
+}
+
+impl AccessRegulationField {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Jurisdiction => "jurisdiction",
+            Self::Version => "version",
+            Self::Source => "source",
         }
     }
 }

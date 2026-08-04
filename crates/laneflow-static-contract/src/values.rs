@@ -18,6 +18,19 @@ pub enum SignalAspect {
     Green,
 }
 
+/// 静态准入规则对匹配交通参与单元给出的平面内效果。
+///
+/// `Allow` 只在同一准入平面内参与更具体规则的豁免裁决，不能解除另一平面的
+/// `Deny`，也不能覆盖运行时安全约束。该值不携带优先级、参与者类别或目标信息。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum AccessEffect {
+    /// 显式放行。
+    Allow,
+    /// 显式拒绝。
+    Deny,
+}
+
 /// 停车锚点距 `LaneEdge` 两端必须严格大于的距离，单位为米。
 ///
 /// 该排他边界避免入口/出口落在拓扑连接点上，从而让锚点始终唯一属于一条边。

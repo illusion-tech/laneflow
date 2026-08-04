@@ -12,24 +12,26 @@
 use core::cmp::Ordering;
 
 use laneflow_static_contract::{
-    AuthoringLaneId, AuthoringLaneOrdinal, EntityKind, FacilityBandId, FacilityBandOrdinal,
-    FieldTag, JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId,
-    LaneGroupOrdinal, ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal,
-    MovementId, MovementOrdinal, ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId,
-    ParkingSpaceOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
-    SignalAspect, SignalControllerId, SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal,
-    SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal, StopLineId,
-    StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
+    AccessEffect, AccessRuleId, AccessRuleOrdinal, AuthoringLaneId, AuthoringLaneOrdinal,
+    EntityKind, FacilityBandId, FacilityBandOrdinal, FieldTag, JunctionId, JunctionOrdinal,
+    LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal, ManeuverGateId,
+    ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId, MovementOrdinal,
+    ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal, ParticipantClassId,
+    ParticipantClassOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
+    RoadSectionOrdinal, SignalAspect, SignalControllerId, SignalControllerOrdinal, SignalGroupId,
+    SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal,
+    StopLineId, StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange};
 use crate::diagnostic::DiagnosticCollector;
 use crate::mir::{
-    MirAuthoringLaneKey, MirCorridorElement, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeKey,
-    MirLaneGroupKey, MirManeuverGateKey, MirManeuverPathKey, MirMovementKey, MirParkingAreaKey,
-    MirParkingSpaceKey, MirRoadCorridorKey, MirRoadSectionKey, MirSignalControl,
-    MirSignalControllerKey, MirSignalGroupKey, MirSignalPhaseKey, MirStaticRouteKey,
-    MirStopLineKey, MirUnit, MirWaitingZoneKey,
+    MirAccessRuleKey, MirAccessTarget, MirAuthoringLaneKey, MirCorridorElement, MirFacilityBandKey,
+    MirJunctionKey, MirLaneEdgeKey, MirLaneGroupKey, MirManeuverGateKey, MirManeuverPathKey,
+    MirMovementKey, MirParkingAreaKey, MirParkingSpaceKey, MirParticipantClassKey,
+    MirRoadCorridorKey, MirRoadSectionKey, MirSignalControl, MirSignalControllerKey,
+    MirSignalGroupKey, MirSignalPhaseKey, MirStaticRouteKey, MirStopLineKey, MirUnit,
+    MirWaitingZoneKey,
 };
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
@@ -64,6 +66,10 @@ const LIR_SIGNAL_PHASE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 8;
 const LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES: u64 = 4 + 1;
 const LIR_PARKING_AREA_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8;
 const LIR_PARKING_SPACE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + (4 + 8) * 2 + 8 * 4;
+const LIR_PARTICIPANT_CLASS_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + 4 + 4 + 4;
+// target 按 tag+ordinal 计；可选 regulation 按 presence、两个必需字符串区间和一个
+// 可选来源区间的最大形状计。实际 UTF-8 内容在下方按字节数另行累加。
+const LIR_ACCESS_RULE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + (2 + 4) + 1 + 8 + (1 + 4 + 4 + 1 + 4) + 4;
 const LIR_CORRIDOR_ELEMENT_LOGICAL_BYTES: u64 = 2 + 4;
 const LIR_SEMANTIC_DIGEST_BYTES: u64 = 32;
 
@@ -257,6 +263,41 @@ pub(crate) struct LirParkingSpace {
     pub(crate) geometry: LirParkingSpaceGeometry,
 }
 
+pub(crate) struct LirParticipantClass {
+    pub(crate) ordinal: ParticipantClassOrdinal,
+    pub(crate) stable_id: ParticipantClassId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) parent: Option<ParticipantClassOrdinal>,
+    pub(crate) depth: u32,
+    pub(crate) subtree_enter: u32,
+    pub(crate) subtree_exit: u32,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum LirAccessTarget {
+    LaneEdge(LaneEdgeOrdinal),
+    LaneGroup(LaneGroupOrdinal),
+    RoadSection(RoadSectionOrdinal),
+    ManeuverPath(ManeuverPathOrdinal),
+}
+
+pub(crate) struct LirAccessRegulation {
+    pub(crate) jurisdiction: Box<str>,
+    pub(crate) version: Box<str>,
+    pub(crate) source: Option<Box<str>>,
+}
+
+pub(crate) struct LirAccessRule {
+    pub(crate) ordinal: AccessRuleOrdinal,
+    pub(crate) stable_id: AccessRuleId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) target: LirAccessTarget,
+    pub(crate) effect: AccessEffect,
+    pub(crate) participant_classes: TableRange<ParticipantClassOrdinal>,
+    pub(crate) regulation: Option<LirAccessRegulation>,
+    pub(crate) priority: i32,
+}
+
 pub(crate) struct LirWaitingZone {
     pub(crate) ordinal: WaitingZoneOrdinal,
     pub(crate) stable_id: WaitingZoneId,
@@ -361,6 +402,9 @@ pub(crate) struct LirUnit {
     pub(crate) parking_areas: Box<[LirParkingArea]>,
     pub(crate) parking_spaces: Box<[LirParkingSpace]>,
     pub(crate) parking_area_spaces: Box<[ParkingSpaceOrdinal]>,
+    pub(crate) participant_classes: Box<[LirParticipantClass]>,
+    pub(crate) access_rules: Box<[LirAccessRule]>,
+    pub(crate) access_rule_participant_classes: Box<[ParticipantClassOrdinal]>,
     pub(crate) static_routes: Box<[LirStaticRoute]>,
     pub(crate) static_route_edges: Box<[LaneEdgeOrdinal]>,
     pub(crate) static_route_transitions: Box<[LirStaticRouteTransition]>,
@@ -422,6 +466,10 @@ pub(crate) struct LirFreezeOutput {
     pub(crate) mir_parking_area_to_lir: Box<[ParkingAreaOrdinal]>,
     pub(crate) canonical_mir_parking_space_order: Box<[MirParkingSpaceKey]>,
     pub(crate) mir_parking_space_to_lir: Box<[ParkingSpaceOrdinal]>,
+    pub(crate) canonical_mir_participant_class_order: Box<[MirParticipantClassKey]>,
+    pub(crate) mir_participant_class_to_lir: Box<[ParticipantClassOrdinal]>,
+    pub(crate) canonical_mir_access_rule_order: Box<[MirAccessRuleKey]>,
+    pub(crate) mir_access_rule_to_lir: Box<[AccessRuleOrdinal]>,
     pub(crate) canonical_mir_static_route_order: Box<[MirStaticRouteKey]>,
     pub(crate) mir_static_route_to_lir: Box<[StaticRouteOrdinal]>,
 }
@@ -521,6 +569,17 @@ impl LirFreezeOutput {
                 self.mir_parking_space_to_lir.len(),
             ),
         )
+        .saturating_add(mapping_pair_bytes::<
+            MirParticipantClassKey,
+            ParticipantClassOrdinal,
+        >(
+            self.canonical_mir_participant_class_order.len(),
+            self.mir_participant_class_to_lir.len(),
+        ))
+        .saturating_add(mapping_pair_bytes::<MirAccessRuleKey, AccessRuleOrdinal>(
+            self.canonical_mir_access_rule_order.len(),
+            self.mir_access_rule_to_lir.len(),
+        ))
         .saturating_add(mapping_pair_bytes::<MirStaticRouteKey, StaticRouteOrdinal>(
             self.canonical_mir_static_route_order.len(),
             self.mir_static_route_to_lir.len(),
@@ -576,6 +635,10 @@ pub(crate) fn freeze_lir(
     let parking_area_count = u64::try_from(mir.parking_areas.len()).unwrap_or(u64::MAX);
     let parking_space_count = u64::try_from(mir.parking_spaces.len()).unwrap_or(u64::MAX);
     let parking_area_space_count = u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX);
+    let participant_class_count = u64::try_from(mir.participant_classes.len()).unwrap_or(u64::MAX);
+    let access_rule_count = u64::try_from(mir.access_rules.len()).unwrap_or(u64::MAX);
+    let access_rule_class_count =
+        u64::try_from(mir.access_rule_participant_classes.len()).unwrap_or(u64::MAX);
     let static_route_count = u64::try_from(mir.static_routes.len()).unwrap_or(u64::MAX);
     let static_route_edge_count = u64::try_from(mir.static_route_edges.len()).unwrap_or(u64::MAX);
     let static_route_transition_count =
@@ -631,6 +694,9 @@ pub(crate) fn freeze_lir(
         parking_area_count,
         parking_space_count,
         parking_area_space_count,
+        participant_class_count,
+        access_rule_count,
+        access_rule_class_count,
         waiting_zone_count,
         maneuver_gate_count,
     ]
@@ -657,6 +723,8 @@ pub(crate) fn freeze_lir(
         .saturating_add(signal_phase_count.saturating_mul(3))
         .saturating_add(parking_area_count.saturating_mul(2))
         .saturating_add(parking_space_count.saturating_mul(2))
+        .saturating_add(participant_class_count.saturating_mul(2))
+        .saturating_add(access_rule_count.saturating_mul(2))
         .saturating_add(static_route_count.saturating_mul(2));
     let identity_field_byte_count = identity_field_byte_count(mir);
     let kind_id_byte_count = mir
@@ -674,6 +742,20 @@ pub(crate) fn freeze_lir(
             )
             .saturating_add(
                 u64::try_from(movement.directed_exit_approach_key.len()).unwrap_or(u64::MAX),
+            )
+    });
+    let access_regulation_byte_count = mir.access_rules.iter().fold(0_u64, |total, rule| {
+        let Some(regulation) = &rule.regulation else {
+            return total;
+        };
+        total
+            .saturating_add(u64::try_from(regulation.jurisdiction.len()).unwrap_or(u64::MAX))
+            .saturating_add(u64::try_from(regulation.version.len()).unwrap_or(u64::MAX))
+            .saturating_add(
+                regulation
+                    .source
+                    .as_ref()
+                    .map_or(0, |source| u64::try_from(source.len()).unwrap_or(u64::MAX)),
             )
     });
 
@@ -698,6 +780,8 @@ pub(crate) fn freeze_lir(
                 .saturating_add(signal_phase_count)
                 .saturating_add(parking_area_count)
                 .saturating_add(parking_space_count)
+                .saturating_add(participant_class_count)
+                .saturating_add(access_rule_count)
                 .saturating_add(static_route_count)
                 .saturating_mul(2),
         ))
@@ -751,6 +835,10 @@ pub(crate) fn freeze_lir(
         .saturating_add(parking_area_count.saturating_mul(LIR_PARKING_AREA_LOGICAL_BYTES))
         .saturating_add(parking_space_count.saturating_mul(LIR_PARKING_SPACE_LOGICAL_BYTES))
         .saturating_add(parking_area_space_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
+        .saturating_add(participant_class_count.saturating_mul(LIR_PARTICIPANT_CLASS_LOGICAL_BYTES))
+        .saturating_add(access_rule_count.saturating_mul(LIR_ACCESS_RULE_LOGICAL_BYTES))
+        .saturating_add(access_rule_class_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
+        .saturating_add(access_regulation_byte_count)
         .saturating_add(static_route_count.saturating_mul(LIR_STATIC_ROUTE_LOGICAL_BYTES))
         .saturating_add(static_route_edge_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(
@@ -822,7 +910,15 @@ pub(crate) fn freeze_lir(
         .saturating_add(requested_bytes::<LirParkingSpace>(parking_space_count))
         .saturating_add(requested_bytes::<ParkingSpaceOrdinal>(
             parking_area_space_count,
-        ));
+        ))
+        .saturating_add(requested_bytes::<LirParticipantClass>(
+            participant_class_count,
+        ))
+        .saturating_add(requested_bytes::<LirAccessRule>(access_rule_count))
+        .saturating_add(requested_bytes::<ParticipantClassOrdinal>(
+            access_rule_class_count,
+        ))
+        .saturating_add(access_regulation_byte_count);
     let output_owned_bytes = output_owned_bytes
         .saturating_add(requested_bytes::<LirStaticRoute>(static_route_count))
         .saturating_add(requested_bytes::<LaneEdgeOrdinal>(static_route_edge_count))
@@ -1641,6 +1737,50 @@ pub(crate) fn freeze_lir(
         primary_span.clone(),
     )?;
 
+    let mut canonical_mir_participant_class_order: Vec<MirParticipantClassKey> =
+        dense_mir_keys(mir.participant_classes.len());
+    canonical_mir_participant_class_order.sort_unstable_by(|left, right| {
+        let left = &mir.participant_classes[left.index()];
+        let right = &mir.participant_classes[right.index()];
+        compare_identity_parts(
+            &mir.modules[left.module.index()].authoring_namespace_id,
+            &left.stable_key,
+            None,
+            &mir.modules[right.module.index()].authoring_namespace_id,
+            &right.stable_key,
+            None,
+        )
+    });
+    let mir_participant_class_to_lir = ordinal_mapping(
+        mir.participant_classes.len(),
+        &canonical_mir_participant_class_order,
+        ParticipantClassOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
+    let mut canonical_mir_access_rule_order: Vec<MirAccessRuleKey> =
+        dense_mir_keys(mir.access_rules.len());
+    canonical_mir_access_rule_order.sort_unstable_by(|left, right| {
+        let left = &mir.access_rules[left.index()];
+        let right = &mir.access_rules[right.index()];
+        compare_identity_parts(
+            &mir.modules[left.module.index()].authoring_namespace_id,
+            &left.stable_key,
+            None,
+            &mir.modules[right.module.index()].authoring_namespace_id,
+            &right.stable_key,
+            None,
+        )
+    });
+    let mir_access_rule_to_lir = ordinal_mapping(
+        mir.access_rules.len(),
+        &canonical_mir_access_rule_order,
+        AccessRuleOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
     let mut canonical_mir_static_route_order: Vec<MirStaticRouteKey> =
         dense_mir_keys(mir.static_routes.len());
     canonical_mir_static_route_order.sort_unstable_by(|left, right| {
@@ -2221,6 +2361,92 @@ pub(crate) fn freeze_lir(
         });
     }
 
+    let mut participant_classes = Vec::with_capacity(mir.participant_classes.len());
+    for mir_key in canonical_mir_participant_class_order.iter().copied() {
+        let participant_class = &mir.participant_classes[mir_key.index()];
+        let identity_range = push_lir_identity(
+            &mut identity_fields,
+            &mut identity_field_bytes,
+            FieldTag::ParticipantClassKey,
+            &mir.modules[participant_class.module.index()].authoring_namespace_id,
+            &participant_class.stable_key,
+            None,
+            &unit.limits,
+            primary_span.clone(),
+        )?;
+        participant_classes.push(LirParticipantClass {
+            ordinal: mir_participant_class_to_lir[mir_key.index()],
+            stable_id: participant_class.stable_id,
+            identity_fields: identity_range,
+            parent: participant_class
+                .parent
+                .map(|parent| mir_participant_class_to_lir[parent.index()]),
+            depth: participant_class.depth,
+            subtree_enter: participant_class.subtree_enter,
+            subtree_exit: participant_class.subtree_exit,
+        });
+    }
+
+    let mut access_rules = Vec::with_capacity(mir.access_rules.len());
+    let mut access_rule_participant_classes =
+        Vec::with_capacity(mir.access_rule_participant_classes.len());
+    for mir_key in canonical_mir_access_rule_order.iter().copied() {
+        let rule = &mir.access_rules[mir_key.index()];
+        let identity_range = push_lir_identity(
+            &mut identity_fields,
+            &mut identity_field_bytes,
+            FieldTag::AccessRuleKey,
+            &mir.modules[rule.module.index()].authoring_namespace_id,
+            &rule.stable_key,
+            None,
+            &unit.limits,
+            primary_span.clone(),
+        )?;
+        let class_start = access_rule_participant_classes.len();
+        access_rule_participant_classes.extend(
+            mir.access_rule_participant_classes[rule.participant_classes.as_usize_range()]
+                .iter()
+                .map(|selector| mir_participant_class_to_lir[selector.participant_class.index()]),
+        );
+        access_rule_participant_classes[class_start..].sort_unstable();
+        let target = match rule.target {
+            MirAccessTarget::LaneEdge(target) => {
+                LirAccessTarget::LaneEdge(mir_to_lir[target.index()])
+            }
+            MirAccessTarget::LaneGroup(target) => {
+                LirAccessTarget::LaneGroup(mir_group_to_lir[target.index()])
+            }
+            MirAccessTarget::RoadSection(target) => {
+                LirAccessTarget::RoadSection(mir_section_to_lir[target.index()])
+            }
+            MirAccessTarget::ManeuverPath(target) => {
+                LirAccessTarget::ManeuverPath(mir_maneuver_path_to_lir[target.index()])
+            }
+        };
+        access_rules.push(LirAccessRule {
+            ordinal: mir_access_rule_to_lir[mir_key.index()],
+            stable_id: rule.stable_id,
+            identity_fields: identity_range,
+            target,
+            effect: rule.effect,
+            participant_classes: relation_range(
+                class_start,
+                access_rule_participant_classes.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+            regulation: rule
+                .regulation
+                .as_ref()
+                .map(|regulation| LirAccessRegulation {
+                    jurisdiction: regulation.jurisdiction.as_ref().into(),
+                    version: regulation.version.as_ref().into(),
+                    source: regulation.source.as_deref().map(Into::into),
+                }),
+            priority: rule.priority,
+        });
+    }
+
     let mut static_routes = Vec::with_capacity(mir.static_routes.len());
     let mut static_route_edges = Vec::with_capacity(mir.static_route_edges.len());
     let mut static_route_transitions = Vec::with_capacity(mir.static_route_transitions.len());
@@ -2463,6 +2689,9 @@ pub(crate) fn freeze_lir(
         &parking_areas,
         &parking_spaces,
         &parking_area_spaces,
+        &participant_classes,
+        &access_rules,
+        &access_rule_participant_classes,
         &static_routes,
         &static_route_edges,
         &static_route_transitions,
@@ -2508,6 +2737,9 @@ pub(crate) fn freeze_lir(
             parking_areas: parking_areas.into_boxed_slice(),
             parking_spaces: parking_spaces.into_boxed_slice(),
             parking_area_spaces: parking_area_spaces.into_boxed_slice(),
+            participant_classes: participant_classes.into_boxed_slice(),
+            access_rules: access_rules.into_boxed_slice(),
+            access_rule_participant_classes: access_rule_participant_classes.into_boxed_slice(),
             static_routes: static_routes.into_boxed_slice(),
             static_route_edges: static_route_edges.into_boxed_slice(),
             static_route_transitions: static_route_transitions.into_boxed_slice(),
@@ -2561,6 +2793,11 @@ pub(crate) fn freeze_lir(
         mir_parking_area_to_lir: mir_parking_area_to_lir.into_boxed_slice(),
         canonical_mir_parking_space_order: canonical_mir_parking_space_order.into_boxed_slice(),
         mir_parking_space_to_lir: mir_parking_space_to_lir.into_boxed_slice(),
+        canonical_mir_participant_class_order: canonical_mir_participant_class_order
+            .into_boxed_slice(),
+        mir_participant_class_to_lir: mir_participant_class_to_lir.into_boxed_slice(),
+        canonical_mir_access_rule_order: canonical_mir_access_rule_order.into_boxed_slice(),
+        mir_access_rule_to_lir: mir_access_rule_to_lir.into_boxed_slice(),
         canonical_mir_static_route_order: canonical_mir_static_route_order.into_boxed_slice(),
         mir_static_route_to_lir: mir_static_route_to_lir.into_boxed_slice(),
     })
@@ -2798,6 +3035,17 @@ fn identity_field_byte_count(mir: &MirUnit) -> u64 {
     for space in &mir.parking_spaces {
         add(&mut total, space.module.index(), &space.stable_key, false);
     }
+    for participant_class in &mir.participant_classes {
+        add(
+            &mut total,
+            participant_class.module.index(),
+            &participant_class.stable_key,
+            false,
+        );
+    }
+    for rule in &mir.access_rules {
+        add(&mut total, rule.module.index(), &rule.stable_key, false);
+    }
     for route in &mir.static_routes {
         add(&mut total, route.module.index(), &route.stable_key, false);
     }
@@ -2895,6 +3143,9 @@ fn semantic_digest(
     parking_areas: &[LirParkingArea],
     parking_spaces: &[LirParkingSpace],
     parking_area_spaces: &[ParkingSpaceOrdinal],
+    participant_classes: &[LirParticipantClass],
+    access_rules: &[LirAccessRule],
+    access_rule_participant_classes: &[ParticipantClassOrdinal],
     static_routes: &[LirStaticRoute],
     static_route_edges: &[LaneEdgeOrdinal],
     static_route_transitions: &[LirStaticRouteTransition],
@@ -3278,6 +3529,88 @@ fn semantic_digest(
             hasher.update(&value.to_bits().to_le_bytes());
         }
     }
+    hash_u32(&mut hasher, EntityKind::ParticipantClass.code().into());
+    hash_u32(
+        &mut hasher,
+        participant_classes.len().try_into().unwrap_or(u32::MAX),
+    );
+    for participant_class in participant_classes {
+        hash_u32(&mut hasher, participant_class.ordinal.raw());
+        hasher.update(participant_class.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            participant_class.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_optional_ordinal(
+            &mut hasher,
+            participant_class.parent.map(ParticipantClassOrdinal::raw),
+        );
+        hash_u32(&mut hasher, participant_class.depth);
+        hash_u32(&mut hasher, participant_class.subtree_enter);
+        hash_u32(&mut hasher, participant_class.subtree_exit);
+    }
+    hash_u32(&mut hasher, EntityKind::AccessRule.code().into());
+    hash_u32(
+        &mut hasher,
+        access_rules.len().try_into().unwrap_or(u32::MAX),
+    );
+    for rule in access_rules {
+        hash_u32(&mut hasher, rule.ordinal.raw());
+        hasher.update(rule.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            rule.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        match rule.target {
+            LirAccessTarget::LaneEdge(target) => {
+                hasher.update(&EntityKind::LaneEdge.code().to_le_bytes());
+                hash_u32(&mut hasher, target.raw());
+            }
+            LirAccessTarget::LaneGroup(target) => {
+                hasher.update(&EntityKind::LaneGroup.code().to_le_bytes());
+                hash_u32(&mut hasher, target.raw());
+            }
+            LirAccessTarget::RoadSection(target) => {
+                hasher.update(&EntityKind::RoadSection.code().to_le_bytes());
+                hash_u32(&mut hasher, target.raw());
+            }
+            LirAccessTarget::ManeuverPath(target) => {
+                hasher.update(&EntityKind::ManeuverPath.code().to_le_bytes());
+                hash_u32(&mut hasher, target.raw());
+            }
+        }
+        hasher.update(&[access_effect_digest_code(rule.effect)]);
+        hash_u32(&mut hasher, rule.participant_classes.len());
+        for participant_class in
+            &access_rule_participant_classes[rule.participant_classes.as_usize_range()]
+        {
+            hash_u32(&mut hasher, participant_class.raw());
+        }
+        match &rule.regulation {
+            Some(regulation) => {
+                hasher.update(&[1]);
+                hash_bytes(&mut hasher, regulation.jurisdiction.as_bytes());
+                hash_bytes(&mut hasher, regulation.version.as_bytes());
+                match &regulation.source {
+                    Some(source) => {
+                        hasher.update(&[1]);
+                        hash_bytes(&mut hasher, source.as_bytes());
+                    }
+                    None => {
+                        hasher.update(&[0]);
+                    }
+                }
+            }
+            None => {
+                hasher.update(&[0]);
+            }
+        }
+        hasher.update(&rule.priority.to_le_bytes());
+    }
     hash_u32(&mut hasher, EntityKind::StaticRoute.code().into());
     hash_u32(
         &mut hasher,
@@ -3343,6 +3676,14 @@ fn signal_aspect_digest_code(aspect: SignalAspect) -> u8 {
         SignalAspect::Yellow => 2,
         SignalAspect::Green => 3,
         _ => unreachable!("compiler received an unsupported SignalAspect variant"),
+    }
+}
+
+fn access_effect_digest_code(effect: AccessEffect) -> u8 {
+    match effect {
+        AccessEffect::Allow => 1,
+        AccessEffect::Deny => 2,
+        _ => unreachable!("compiler received an unsupported AccessEffect variant"),
     }
 }
 

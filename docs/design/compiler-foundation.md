@@ -23,10 +23,16 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 等待区静态区间约束已经闭合。不可变固定时制信号程序、完整相位状态和机动门信号绑定
 已在运行时之前闭合；停车区域（`ParkingArea`）、停车位（`ParkingSpace`）、入口 / 出口
 车道锚点、当前态静态几何和区域反向成员索引也已接入相同原子管线，其中区域归属不参与
-停车位身份。`StaticRoute` 已保留显式有序边出现项，并预编译相邻边门、
+停车位身份。参与者类别（`ParticipantClass`）单继承闭包与静态准入规则
+（`AccessRule`）已经接入；编译器保留效果（effect）、类别集合、优先级（priority）和
+法规来源，分别冻结 LaneEdge / LaneGroup / RoadSection 的边平面目标与 ManeuverPath
+路径平面目标，
+并在运行时之前拒绝继承环、无类别规则、法规来源不一致和相反效果的精确并列。
+FacilityBand target 继续由结构化能力门卫（capability guard）失败关闭，时变窗口尚未
+进入合成领域声明。`StaticRoute` 已保留显式有序边出现项，并预编译相邻边门、
 机动路径、机动门、等待区出现项和反向索引。公共 `Compiler`
 已经原子返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`；首批支持矩阵
-中的准入、车辆配置、动态路线生命周期和空间等其余领域及后继编译遍尚未实现。
+中的车辆配置、动态路线生命周期和空间等其余领域及后继编译遍尚未实现。
 #292 G1 已
 接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /

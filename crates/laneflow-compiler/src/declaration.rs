@@ -8,9 +8,9 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    EntityKind, EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
-    ManeuverGateKind, ManeuverPathKind, MovementKind, ParkingAreaKind, RoadSectionKind,
-    SignalAspect, SignalGroupKind, StopLineKind,
+    AccessEffect, EntityKind, EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind,
+    LaneGroupKind, ManeuverGateKind, ManeuverPathKind, MovementKind, ParkingAreaKind,
+    ParticipantClassKind, RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind,
 };
 
 use crate::SourceSpan;
@@ -95,6 +95,8 @@ pub type ManeuverGateReference<'a> = EntityReference<'a, ManeuverGateKind>;
 pub type SignalGroupReference<'a> = EntityReference<'a, SignalGroupKind>;
 /// 指向停车区域声明的有类型未解析引用。
 pub type ParkingAreaReference<'a> = EntityReference<'a, ParkingAreaKind>;
+/// 指向参与者类别声明的有类型未解析引用。
+pub type ParticipantClassReference<'a> = EntityReference<'a, ParticipantClassKind>;
 /// 横断面物理设施类别可承载的结构形态。
 ///
 /// 该分类只约束 `FacilityKind` token 可以用于道路区段还是设施带，不授予任何交通
@@ -379,6 +381,67 @@ pub struct ParkingSpaceInput<'a> {
     pub geometry: ParkingSpaceGeometryInput,
 }
 
+/// 合成领域专用语言的参与者类别声明输入。
+///
+/// 类别只建立准入分类法，不声明交通执行域、运动模型或生命周期能力。
+#[derive(Clone, Copy, Debug)]
+pub struct ParticipantClassInput<'a> {
+    /// 来源模块内显式持久化且唯一的类别稳定键。
+    pub participant_class_key: &'a str,
+    /// 可选单继承父类；完整层级必须无环。
+    pub extends: Option<ParticipantClassReference<'a>>,
+}
+
+/// 静态准入规则可以引用的目标。
+///
+/// 四个可遍历目标在本切片编译为静态准入表；`FacilityBand` 保留为可诊断输入，HIR
+/// 会在确认引用存在后以 capability-unavailable 拒绝，不能静默忽略。
+#[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
+pub enum AccessRuleTargetInput<'a> {
+    /// 单条车道图边。
+    LaneEdge(LaneEdgeReference<'a>),
+    /// 通过成员车道覆盖到车道图边的车道组。
+    LaneGroup(LaneGroupReference<'a>),
+    /// 通过编制车道覆盖到车道图边的道路区段。
+    RoadSection(RoadSectionReference<'a>),
+    /// 不展平为边的机动路径。
+    ManeuverPath(ManeuverPathReference<'a>),
+    /// 首版不具备运行时行为的设施带目标。
+    FacilityBand(FacilityBandReference<'a>),
+}
+
+/// 准入规则携带的法规来源信息；该信息用于审计，不参与规则优先级计算。
+#[derive(Clone, Copy, Debug)]
+pub struct AccessRegulationInput<'a> {
+    /// 法域；字符数必须位于 1 到 128。
+    pub jurisdiction: &'a str,
+    /// 法规版本；字符数必须位于 1 到 128。
+    pub version: &'a str,
+    /// 可选来源说明；存在时字符数必须位于 1 到 128。
+    pub source: Option<&'a str>,
+}
+
+/// 合成领域专用语言的静态准入规则声明输入。
+///
+/// `participant_classes` 按集合解释：输入顺序不影响规范结果，重复引用会被规范化去重。
+/// 本切片只接受永远适用的静态规则；时变窗口由后继运行时 G1 处理。
+#[derive(Clone, Copy, Debug)]
+pub struct AccessRuleInput<'a> {
+    /// 来源模块内显式持久化且唯一的规则稳定键。
+    pub access_rule_key: &'a str,
+    /// 恰好一个准入目标。
+    pub target: AccessRuleTargetInput<'a>,
+    /// 平面内准入效果。
+    pub effect: AccessEffect,
+    /// 非空参与者类别集合；类别的传递后代也匹配本规则。
+    pub participant_classes: &'a [ParticipantClassReference<'a>],
+    /// 可选法规来源；同一编译单元内所有已声明来源必须共享法域和版本。
+    pub regulation: Option<AccessRegulationInput<'a>>,
+    /// 在参与者和目标 specificity 相同后使用的显式优先级。
+    pub priority: i32,
+}
+
 /// 合成领域专用语言的等待区声明输入。
 ///
 /// 等待区由同一路径上的入口门和释放门界定。入口转换必须严格早于释放转换；同一路径
@@ -655,6 +718,38 @@ pub(crate) struct ParkingSpaceDeclaration {
     pub(crate) geometry: ParkingSpaceGeometryInput,
 }
 
+/// 已通过字段级检查、等待解析父类并编译层级区间的参与者类别 Typed AST 记录。
+pub(crate) struct ParticipantClassDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) extends: Option<OwnedEntityReference<ParticipantClassKind>>,
+}
+
+/// Typed AST 中已拥有的准入目标引用。
+pub(crate) enum OwnedAccessRuleTarget {
+    LaneEdge(OwnedEntityReference<LaneEdgeKind>),
+    LaneGroup(OwnedEntityReference<LaneGroupKind>),
+    RoadSection(OwnedEntityReference<RoadSectionKind>),
+    ManeuverPath(OwnedEntityReference<ManeuverPathKind>),
+    FacilityBand(OwnedEntityReference<FacilityBandKind>),
+}
+
+/// Typed AST 中已拥有的法规来源信息。
+pub(crate) struct OwnedAccessRegulation {
+    pub(crate) jurisdiction: Arc<str>,
+    pub(crate) version: Arc<str>,
+    pub(crate) source: Option<Arc<str>>,
+}
+
+/// 已通过字段级检查、等待目标/类别解析和组合裁决的静态准入规则记录。
+pub(crate) struct AccessRuleDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) target: OwnedAccessRuleTarget,
+    pub(crate) effect: AccessEffect,
+    pub(crate) participant_classes: Box<[OwnedEntityReference<ParticipantClassKind>]>,
+    pub(crate) regulation: Option<OwnedAccessRegulation>,
+    pub(crate) priority: i32,
+}
+
 /// 已通过字段级检查、等待门顺序和区间重叠闭包校验的等待区 Typed AST 记录。
 pub(crate) struct WaitingZoneDeclaration {
     pub(crate) header: DeclarationHeader,
@@ -688,4 +783,6 @@ pub(crate) enum SyntheticDeclaration {
     SignalController(SignalControllerDeclaration),
     ParkingArea(ParkingAreaDeclaration),
     ParkingSpace(ParkingSpaceDeclaration),
+    ParticipantClass(ParticipantClassDeclaration),
+    AccessRule(AccessRuleDeclaration),
 }

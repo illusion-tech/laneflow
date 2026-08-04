@@ -6,24 +6,26 @@
 //! [`DiagnosticBundle`]；来源伴随数据在 AST/HIR/MIR 释放前冻结。
 
 use laneflow_static_contract::{
-    AuthoringLaneId, AuthoringLaneOrdinal, FacilityBandId, FacilityBandOrdinal, FieldTag,
-    JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
-    ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId,
-    MovementOrdinal, ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal,
-    RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal, SignalAspect,
-    SignalControllerId, SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal, SignalPhaseId,
-    SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal,
-    WaitingZoneId, WaitingZoneOrdinal,
+    AccessEffect, AccessRuleId, AccessRuleOrdinal, AuthoringLaneId, AuthoringLaneOrdinal,
+    FacilityBandId, FacilityBandOrdinal, FieldTag, JunctionId, JunctionOrdinal, LaneEdgeId,
+    LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal, ManeuverGateId, ManeuverGateOrdinal,
+    ManeuverPathId, ManeuverPathOrdinal, MovementId, MovementOrdinal, ParkingAreaId,
+    ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal, ParticipantClassId,
+    ParticipantClassOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
+    RoadSectionOrdinal, SignalAspect, SignalControllerId, SignalControllerOrdinal, SignalGroupId,
+    SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal,
+    StopLineId, StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::hir::build_hir;
 use crate::lir::{
-    LirAuthoringLane, LirCorridorElement, LirFacilityBand, LirGateOccurrence, LirIdentityField,
-    LirJunction, LirJunctionInternalEdge, LirLaneEdge, LirLaneGroup, LirManeuverGate,
-    LirManeuverOccurrence, LirManeuverPath, LirMovement, LirParkingArea, LirParkingSpace,
-    LirRoadCorridor, LirRoadSection, LirRouteOccurrenceRef, LirSignalControl, LirSignalController,
-    LirSignalGroup, LirSignalPhase, LirSignalPhaseState, LirStaticRoute, LirStopLine, LirUnit,
-    LirWaitingZone, LirWaitingZoneOccurrence, freeze_lir,
+    LirAccessRule, LirAccessTarget, LirAuthoringLane, LirCorridorElement, LirFacilityBand,
+    LirGateOccurrence, LirIdentityField, LirJunction, LirJunctionInternalEdge, LirLaneEdge,
+    LirLaneGroup, LirManeuverGate, LirManeuverOccurrence, LirManeuverPath, LirMovement,
+    LirParkingArea, LirParkingSpace, LirParticipantClass, LirRoadCorridor, LirRoadSection,
+    LirRouteOccurrenceRef, LirSignalControl, LirSignalController, LirSignalGroup, LirSignalPhase,
+    LirSignalPhaseState, LirStaticRoute, LirStopLine, LirUnit, LirWaitingZone,
+    LirWaitingZoneOccurrence, freeze_lir,
 };
 use crate::mir::lower_to_mir;
 use crate::source_map::{ValidatedSourceMapInput, freeze_source_map};
@@ -469,6 +471,57 @@ impl ValidatedCanonicalLir {
             })
     }
 
+    /// 按完整 Identity v1 前像规范顺序遍历全部参与者类别。
+    pub fn participant_classes(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalParticipantClassView<'_>> {
+        self.inner
+            .participant_classes
+            .iter()
+            .map(|record| CanonicalParticipantClassView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取参与者类别。
+    #[must_use]
+    pub fn participant_class(
+        &self,
+        ordinal: ParticipantClassOrdinal,
+    ) -> Option<CanonicalParticipantClassView<'_>> {
+        self.inner
+            .participant_classes
+            .get(ordinal.index())
+            .map(|record| CanonicalParticipantClassView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部静态准入规则。
+    pub fn access_rules(&self) -> impl ExactSizeIterator<Item = CanonicalAccessRuleView<'_>> {
+        self.inner
+            .access_rules
+            .iter()
+            .map(|record| CanonicalAccessRuleView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取静态准入规则。
+    #[must_use]
+    pub fn access_rule(&self, ordinal: AccessRuleOrdinal) -> Option<CanonicalAccessRuleView<'_>> {
+        self.inner
+            .access_rules
+            .get(ordinal.index())
+            .map(|record| CanonicalAccessRuleView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
     /// 按 `LaneEdgeOrdinal` 遍历全部派生的路口内部边所有权。
     ///
     /// 验证阶段已证明每条内部边最多属于一个路口，并且不会同时承担任一路径的入口或出口
@@ -710,6 +763,18 @@ impl_stable_entity_view!(
     LirParkingSpace,
     ParkingSpaceOrdinal,
     ParkingSpaceId
+);
+impl_stable_entity_view!(
+    CanonicalParticipantClassView,
+    LirParticipantClass,
+    ParticipantClassOrdinal,
+    ParticipantClassId
+);
+impl_stable_entity_view!(
+    CanonicalAccessRuleView,
+    LirAccessRule,
+    AccessRuleOrdinal,
+    AccessRuleId
 );
 impl_stable_entity_view!(
     CanonicalStaticRouteView,
@@ -1185,6 +1250,124 @@ impl CanonicalParkingSpaceGeometry {
     }
 }
 
+impl CanonicalParticipantClassView<'_> {
+    /// 返回可选单继承父类；`None` 表示分类法根类别。
+    #[must_use]
+    pub const fn parent(&self) -> Option<ParticipantClassOrdinal> {
+        self.record.parent
+    }
+
+    /// 返回继承深度；根类别深度为 `0`。
+    #[must_use]
+    pub const fn depth(&self) -> u32 {
+        self.record.depth
+    }
+
+    /// 返回用于常数时间后代判断的 Euler tour 半开区间。
+    #[must_use]
+    pub const fn subtree_interval(&self) -> (u32, u32) {
+        (self.record.subtree_enter, self.record.subtree_exit)
+    }
+
+    /// 判断另一个类别序号是否位于本类别的传递子树中（包含自身）。
+    #[must_use]
+    pub fn contains(&self, other: ParticipantClassOrdinal) -> bool {
+        self.lir
+            .participant_classes
+            .get(other.index())
+            .is_some_and(|candidate| {
+                self.record.subtree_enter <= candidate.subtree_enter
+                    && candidate.subtree_enter < self.record.subtree_exit
+            })
+    }
+}
+
+/// Canonical LIR 中一条准入规则的有类型静态目标。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum CanonicalAccessTarget {
+    /// 单条车道图边。
+    LaneEdge(LaneEdgeOrdinal),
+    /// 车道组；运行时投影可按预编译覆盖关系展开到边。
+    LaneGroup(LaneGroupOrdinal),
+    /// 道路区段；运行时投影可按预编译覆盖关系展开到边。
+    RoadSection(RoadSectionOrdinal),
+    /// 保持独立准入平面的机动路径。
+    ManeuverPath(ManeuverPathOrdinal),
+}
+
+/// 一条准入规则所携带法规来源的借用视图。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CanonicalAccessRegulationView<'a> {
+    jurisdiction: &'a str,
+    version: &'a str,
+    source: Option<&'a str>,
+}
+
+impl<'a> CanonicalAccessRegulationView<'a> {
+    /// 返回法域。
+    #[must_use]
+    pub const fn jurisdiction(self) -> &'a str {
+        self.jurisdiction
+    }
+
+    /// 返回法规版本。
+    #[must_use]
+    pub const fn version(self) -> &'a str {
+        self.version
+    }
+
+    /// 返回可选来源说明。
+    #[must_use]
+    pub const fn source(self) -> Option<&'a str> {
+        self.source
+    }
+}
+
+impl CanonicalAccessRuleView<'_> {
+    /// 返回规则目标；边平面与机动路径平面分别组合，不能跨平面相互覆盖。
+    #[must_use]
+    pub const fn target(&self) -> CanonicalAccessTarget {
+        match self.record.target {
+            LirAccessTarget::LaneEdge(target) => CanonicalAccessTarget::LaneEdge(target),
+            LirAccessTarget::LaneGroup(target) => CanonicalAccessTarget::LaneGroup(target),
+            LirAccessTarget::RoadSection(target) => CanonicalAccessTarget::RoadSection(target),
+            LirAccessTarget::ManeuverPath(target) => CanonicalAccessTarget::ManeuverPath(target),
+        }
+    }
+
+    /// 返回规则在当前准入平面内的允许或拒绝效果。
+    #[must_use]
+    pub const fn effect(&self) -> AccessEffect {
+        self.record.effect
+    }
+
+    /// 返回按规范类别序号排序、去重后的非空类别集合。
+    #[must_use]
+    pub fn participant_classes(&self) -> &[ParticipantClassOrdinal] {
+        &self.lir.access_rule_participant_classes[self.record.participant_classes.as_usize_range()]
+    }
+
+    /// 返回可选法规来源；该信息不参与规则优先级计算。
+    #[must_use]
+    pub fn regulation(&self) -> Option<CanonicalAccessRegulationView<'_>> {
+        self.record
+            .regulation
+            .as_ref()
+            .map(|regulation| CanonicalAccessRegulationView {
+                jurisdiction: &regulation.jurisdiction,
+                version: &regulation.version,
+                source: regulation.source.as_deref(),
+            })
+    }
+
+    /// 返回类别与目标具体度相同后的显式优先级。
+    #[must_use]
+    pub const fn priority(&self) -> i32 {
+        self.record.priority
+    }
+}
+
 impl CanonicalWaitingZoneView<'_> {
     /// 返回唯一拥有本等待区的机动路径。
     #[must_use]
@@ -1530,17 +1713,19 @@ impl Compiler {
 mod tests {
     use super::*;
     use crate::{
+        AccessCapability, AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput,
         AuthoringLaneInput, CompilationUnitBuilder, CompileLimitDimension, CompileLimits,
         CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
         FacilityBandReference, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
         LaneGroupInput, LaneGroupReference, ManeuverGateInput, ManeuverGateReference,
         ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
         ParkingAreaInput, ParkingAreaReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput,
-        ParkingSpaceInput, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
-        SignalControlInput, SignalControllerInput, SignalGroupInput, SignalGroupReference,
-        SignalGroupStateInput, SignalPhaseInput, SourceModuleDescriptor, SourceModuleHeader,
-        SourceModuleHeaderInput, SourceRelationRole, StaticRouteInput, StopLineInput,
-        StopLineReference, SyntheticModule, SyntheticModuleBuilder, WaitingZoneInput,
+        ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference, RoadCorridorInput,
+        RoadSectionInput, RoadSectionReference, SignalControlInput, SignalControllerInput,
+        SignalGroupInput, SignalGroupReference, SignalGroupStateInput, SignalPhaseInput,
+        SourceModuleDescriptor, SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole,
+        StaticRouteInput, StopLineInput, StopLineReference, SyntheticModule,
+        SyntheticModuleBuilder, WaitingZoneInput,
     };
 
     fn module(
@@ -2170,6 +2355,93 @@ mod tests {
         )
         .unwrap();
         SyntheticModuleBuilder::new(header, &limits).unwrap()
+    }
+
+    fn access_builder(document: &str) -> SyntheticModuleBuilder {
+        let limits = CompileLimits::p100_initial_v1();
+        let header = SourceModuleHeader::new(
+            SourceModuleHeaderInput {
+                authoring_namespace_id: "city/access",
+                source_document_key: document,
+                generator_build_id: "git:0123456789abcdef",
+                parameters_and_inputs_digest: [0x11; 32],
+                frontend_options_digest: [0x22; 32],
+                random_seed: Some(42),
+                provenance: "repository:laneflow",
+            },
+            &limits,
+        )
+        .unwrap();
+        let mut builder = SyntheticModuleBuilder::new(header, &limits).unwrap();
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-main",
+                length_meters: 20.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap();
+        builder
+    }
+
+    fn access_semantics_module(permuted: bool) -> SyntheticModule {
+        let mut builder = access_builder("access-semantic.document");
+        let add_root = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_participant_class(ParticipantClassInput {
+                    participant_class_key: "road-user",
+                    extends: None,
+                })
+                .unwrap();
+        };
+        let add_child = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_participant_class(ParticipantClassInput {
+                    participant_class_key: "car",
+                    extends: Some(ParticipantClassReference::local("road-user")),
+                })
+                .unwrap();
+        };
+        let add_allow = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_access_rule(AccessRuleInput {
+                    access_rule_key: "allow-road-users",
+                    target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
+                    effect: AccessEffect::Allow,
+                    participant_classes: &[ParticipantClassReference::local("road-user")],
+                    regulation: Some(AccessRegulationInput {
+                        jurisdiction: "CN-test",
+                        version: "2026-01",
+                        source: Some("fixture"),
+                    }),
+                    priority: 0,
+                })
+                .unwrap();
+        };
+        let add_deny = |builder: &mut SyntheticModuleBuilder| {
+            builder
+                .add_access_rule(AccessRuleInput {
+                    access_rule_key: "deny-cars",
+                    target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
+                    effect: AccessEffect::Deny,
+                    participant_classes: &[ParticipantClassReference::local("car")],
+                    regulation: None,
+                    priority: 0,
+                })
+                .unwrap();
+        };
+        if permuted {
+            add_deny(&mut builder);
+            add_allow(&mut builder);
+            add_child(&mut builder);
+            add_root(&mut builder);
+        } else {
+            add_root(&mut builder);
+            add_child(&mut builder);
+            add_allow(&mut builder);
+            add_deny(&mut builder);
+        }
+        builder.finish().unwrap()
     }
 
     fn add_parking_edges(builder: &mut SyntheticModuleBuilder) {
@@ -4379,5 +4651,409 @@ mod tests {
             4
         );
         assert!(!codes.contains(&DiagnosticCode::OrphanParkingArea));
+    }
+
+    #[test]
+    fn compiler_freezes_participant_hierarchy_access_rules_and_sources() {
+        let output = Compiler::new()
+            .compile(unit([access_semantics_module(false)]))
+            .unwrap();
+        assert_eq!(output.lir().participant_classes().len(), 2);
+        assert_eq!(output.lir().access_rules().len(), 2);
+        let classes = output
+            .lir()
+            .participant_classes()
+            .map(|class| {
+                (
+                    stable_key(class.identity_fields(), FieldTag::ParticipantClassKey),
+                    class.ordinal(),
+                    class.parent(),
+                    class.depth(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let road_user = classes.iter().find(|class| class.0 == "road-user").unwrap();
+        let car = classes.iter().find(|class| class.0 == "car").unwrap();
+        assert_eq!(road_user.2, None);
+        assert_eq!(road_user.3, 0);
+        assert_eq!(car.2, Some(road_user.1));
+        assert_eq!(car.3, 1);
+        assert!(
+            output
+                .lir()
+                .participant_class(road_user.1)
+                .unwrap()
+                .contains(car.1)
+        );
+
+        let allow = output
+            .lir()
+            .access_rules()
+            .find(|rule| {
+                stable_key(rule.identity_fields(), FieldTag::AccessRuleKey) == "allow-road-users"
+            })
+            .unwrap();
+        assert_eq!(allow.effect(), AccessEffect::Allow);
+        assert_eq!(allow.participant_classes(), &[road_user.1]);
+        assert_eq!(allow.regulation().unwrap().jurisdiction(), "CN-test");
+        assert!(matches!(allow.target(), CanonicalAccessTarget::LaneEdge(_)));
+
+        let source_map = output.source_map_input();
+        assert_eq!(source_map.participant_class_sources().len(), 2);
+        assert_eq!(source_map.access_rule_sources().len(), 2);
+        assert_eq!(source_map.access_relation_sources().len(), 5);
+        assert_eq!(
+            source_map
+                .access_relation_sources()
+                .map(|relation| relation.role())
+                .collect::<Vec<_>>(),
+            [
+                SourceRelationRole::ParticipantClassExtends,
+                SourceRelationRole::AccessRuleTarget,
+                SourceRelationRole::AccessRuleParticipantClass,
+                SourceRelationRole::AccessRuleTarget,
+                SourceRelationRole::AccessRuleParticipantClass,
+            ]
+        );
+
+        let permuted = Compiler::new()
+            .compile(unit([access_semantics_module(true)]))
+            .unwrap();
+        assert_eq!(
+            output.lir.inner.semantic_digest,
+            permuted.lir.inner.semantic_digest
+        );
+    }
+
+    #[test]
+    fn access_validation_rejects_inheritance_cycles_and_exact_rule_ties() {
+        let mut cycle = access_builder("access-cycle.document");
+        cycle
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "a",
+                extends: Some(ParticipantClassReference::local("b")),
+            })
+            .unwrap()
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "b",
+                extends: Some(ParticipantClassReference::local("a")),
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(cycle),
+            [DiagnosticCode::ParticipantClassInheritanceCycle]
+        );
+
+        let mut ambiguity = access_builder("access-ambiguity.document");
+        ambiguity
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "all",
+                extends: None,
+            })
+            .unwrap();
+        for (key, effect) in [
+            ("allow-all", AccessEffect::Allow),
+            ("deny-all", AccessEffect::Deny),
+        ] {
+            ambiguity
+                .add_access_rule(AccessRuleInput {
+                    access_rule_key: key,
+                    target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
+                    effect,
+                    participant_classes: &[ParticipantClassReference::local("all")],
+                    regulation: None,
+                    priority: 0,
+                })
+                .unwrap();
+        }
+        assert_eq!(
+            compile_diagnostic_codes(ambiguity),
+            [DiagnosticCode::AccessRuleAmbiguity]
+        );
+    }
+
+    #[test]
+    fn compiler_preserves_all_supported_access_target_planes() {
+        let mut edge_targets = access_builder("access-edge-targets.document");
+        edge_targets
+            .add_lane_group(LaneGroupInput {
+                lane_group_key: "group-main",
+                road_section: RoadSectionReference::local("section-main"),
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "section-main",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-main",
+                    edge_chain: &[LaneEdgeReference::local("edge-main")],
+                    lane_group: Some(LaneGroupReference::local("group-main")),
+                }],
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-main",
+                reference_section: RoadSectionReference::local("section-main"),
+                elements: &[CorridorElementReference::road_section(
+                    RoadSectionReference::local("section-main"),
+                )],
+            })
+            .unwrap()
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "all",
+                extends: None,
+            })
+            .unwrap();
+        for (key, target, effect) in [
+            (
+                "rule-edge",
+                AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
+                AccessEffect::Deny,
+            ),
+            (
+                "rule-group",
+                AccessRuleTargetInput::LaneGroup(LaneGroupReference::local("group-main")),
+                AccessEffect::Allow,
+            ),
+            (
+                "rule-section",
+                AccessRuleTargetInput::RoadSection(RoadSectionReference::local("section-main")),
+                AccessEffect::Deny,
+            ),
+        ] {
+            edge_targets
+                .add_access_rule(AccessRuleInput {
+                    access_rule_key: key,
+                    target,
+                    effect,
+                    participant_classes: &[ParticipantClassReference::local("all")],
+                    regulation: None,
+                    priority: 0,
+                })
+                .unwrap();
+        }
+        let edge_output = Compiler::new()
+            .compile(unit([edge_targets.finish().unwrap()]))
+            .unwrap();
+        assert_eq!(
+            edge_output
+                .lir()
+                .access_rules()
+                .map(|rule| match rule.target() {
+                    CanonicalAccessTarget::LaneEdge(_) => "edge",
+                    CanonicalAccessTarget::LaneGroup(_) => "group",
+                    CanonicalAccessTarget::RoadSection(_) => "section",
+                    CanonicalAccessTarget::ManeuverPath(_) => "path",
+                })
+                .collect::<Vec<_>>(),
+            ["edge", "group", "section"]
+        );
+
+        let mut path_target = junction_builder("access-path-target.document");
+        path_target
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("exit")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_junction(JunctionInput {
+                junction_key: "junction-main",
+            })
+            .unwrap()
+            .add_movement(MovementInput {
+                movement_key: "movement-main",
+                junction: JunctionReference::local("junction-main"),
+                directed_entry_approach_key: "approach-entry",
+                directed_exit_approach_key: "approach-exit",
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-main",
+                movement: MovementReference::local("movement-main"),
+                entry_edge: LaneEdgeReference::local("entry"),
+                internal_edges: &[],
+                exit_edge: LaneEdgeReference::local("exit"),
+            })
+            .unwrap()
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "all",
+                extends: None,
+            })
+            .unwrap()
+            .add_access_rule(AccessRuleInput {
+                access_rule_key: "rule-path",
+                target: AccessRuleTargetInput::ManeuverPath(ManeuverPathReference::local(
+                    "path-main",
+                )),
+                effect: AccessEffect::Deny,
+                participant_classes: &[ParticipantClassReference::local("all")],
+                regulation: None,
+                priority: 7,
+            })
+            .unwrap();
+        let path_output = Compiler::new()
+            .compile(unit([path_target.finish().unwrap()]))
+            .unwrap();
+        let path_rule = path_output.lir().access_rules().next().unwrap();
+        assert!(matches!(
+            path_rule.target(),
+            CanonicalAccessTarget::ManeuverPath(_)
+        ));
+        assert_eq!(path_rule.priority(), 7);
+    }
+
+    #[test]
+    fn access_validation_closes_shape_capability_reference_and_regulation_failures() {
+        let mut empty = access_builder("access-empty-classes.document");
+        empty
+            .add_access_rule(AccessRuleInput {
+                access_rule_key: "empty",
+                target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
+                effect: AccessEffect::Allow,
+                participant_classes: &[],
+                regulation: None,
+                priority: 0,
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(empty),
+            [DiagnosticCode::EmptyAccessRuleParticipantClasses]
+        );
+
+        let mut unknown = access_builder("access-unknown-class.document");
+        unknown
+            .add_access_rule(AccessRuleInput {
+                access_rule_key: "unknown",
+                target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
+                effect: AccessEffect::Allow,
+                participant_classes: &[ParticipantClassReference::local("missing")],
+                regulation: None,
+                priority: 0,
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(unknown),
+            [DiagnosticCode::UnknownReferenceTarget]
+        );
+
+        let mut facility = access_builder("access-facility-band.document");
+        facility
+            .add_facility_band(FacilityBandInput {
+                facility_band_key: "band-main",
+                kind_id: "sidewalk",
+            })
+            .unwrap()
+            .add_road_section(RoadSectionInput {
+                road_section_key: "section-main",
+                kind_id: "motorLane",
+                lanes: &[AuthoringLaneInput {
+                    authoring_lane_key: "lane-main",
+                    edge_chain: &[LaneEdgeReference::local("edge-main")],
+                    lane_group: None,
+                }],
+            })
+            .unwrap()
+            .add_road_corridor(RoadCorridorInput {
+                road_corridor_key: "corridor-main",
+                reference_section: RoadSectionReference::local("section-main"),
+                elements: &[
+                    CorridorElementReference::road_section(RoadSectionReference::local(
+                        "section-main",
+                    )),
+                    CorridorElementReference::facility_band(FacilityBandReference::local(
+                        "band-main",
+                    )),
+                ],
+            })
+            .unwrap()
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "all",
+                extends: None,
+            })
+            .unwrap()
+            .add_access_rule(AccessRuleInput {
+                access_rule_key: "band-rule",
+                target: AccessRuleTargetInput::FacilityBand(FacilityBandReference::local(
+                    "band-main",
+                )),
+                effect: AccessEffect::Allow,
+                participant_classes: &[ParticipantClassReference::local("all")],
+                regulation: None,
+                priority: 0,
+            })
+            .unwrap();
+        let diagnostics = match Compiler::new().compile(unit([facility.finish().unwrap()])) {
+            Ok(_) => panic!("FacilityBand target must fail closed"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert!(matches!(
+            diagnostics.diagnostics()[0].payload(),
+            DiagnosticPayload::AccessCapabilityUnavailable {
+                capability: AccessCapability::FacilityBandTarget,
+                ..
+            }
+        ));
+
+        let mut invalid_regulation = access_builder("access-invalid-regulation.document");
+        invalid_regulation
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "all",
+                extends: None,
+            })
+            .unwrap()
+            .add_access_rule(AccessRuleInput {
+                access_rule_key: "invalid-regulation",
+                target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
+                effect: AccessEffect::Allow,
+                participant_classes: &[ParticipantClassReference::local("all")],
+                regulation: Some(AccessRegulationInput {
+                    jurisdiction: "",
+                    version: "2026-01",
+                    source: None,
+                }),
+                priority: 0,
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(invalid_regulation),
+            [DiagnosticCode::InvalidAccessRegulationString]
+        );
+
+        let mut mismatch = access_builder("access-regulation-mismatch.document");
+        mismatch
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "all",
+                extends: None,
+            })
+            .unwrap();
+        for (key, jurisdiction) in [("rule-a", "CN-a"), ("rule-b", "CN-b")] {
+            mismatch
+                .add_access_rule(AccessRuleInput {
+                    access_rule_key: key,
+                    target: AccessRuleTargetInput::LaneEdge(LaneEdgeReference::local("edge-main")),
+                    effect: AccessEffect::Allow,
+                    participant_classes: &[ParticipantClassReference::local("all")],
+                    regulation: Some(AccessRegulationInput {
+                        jurisdiction,
+                        version: "2026-01",
+                        source: None,
+                    }),
+                    priority: 0,
+                })
+                .unwrap();
+        }
+        assert_eq!(
+            compile_diagnostic_codes(mismatch),
+            [DiagnosticCode::AccessRegulationMismatch]
+        );
     }
 }

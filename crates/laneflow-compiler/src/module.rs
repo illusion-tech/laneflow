@@ -16,24 +16,28 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 
 use laneflow_static_contract::{
-    EntityKind, FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind, ManeuverGateKind,
-    ManeuverPathKind, MovementKind, RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind,
+    AccessEffect, EntityKind, FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind,
+    ManeuverGateKind, ManeuverPathKind, MovementKind, ParticipantClassKind, RoadSectionKind,
+    SignalAspect, SignalGroupKind, StopLineKind,
 };
 
 use crate::arena::ArenaKey;
 use crate::declaration::{
+    AccessRegulationInput, AccessRuleDeclaration, AccessRuleInput, AccessRuleTargetInput,
     AuthoringLaneDeclaration, CorridorElementReference, DeclarationHeader, EdgeLength,
     FacilityBandDeclaration, FacilityBandInput, FacilityKindCategory, FacilityKindViolation,
     JunctionDeclaration, JunctionInput, LaneEdgeDeclaration, LaneEdgeInput, LaneGroupDeclaration,
     LaneGroupInput, ManeuverGateDeclaration, ManeuverGateInput, ManeuverPathDeclaration,
-    ManeuverPathInput, MovementDeclaration, MovementInput, OwnedCorridorElementReference,
-    OwnedEntityReference, OwnedSignalControl, ParkingAreaDeclaration, ParkingAreaInput,
-    ParkingLaneAnchorDeclaration, ParkingSpaceDeclaration, ParkingSpaceInput,
-    RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration, RoadSectionInput,
-    SignalControlInput, SignalControllerDeclaration, SignalControllerInput, SignalGroupDeclaration,
-    SignalGroupInput, SignalGroupReference, SignalGroupStateDeclaration, SignalPhaseDeclaration,
-    SignalPhaseInput, SpeedLimit, StaticRouteDeclaration, StaticRouteInput, StopLineDeclaration,
-    StopLineInput, SyntheticDeclaration, WaitingZoneDeclaration, WaitingZoneInput,
+    ManeuverPathInput, MovementDeclaration, MovementInput, OwnedAccessRegulation,
+    OwnedAccessRuleTarget, OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
+    ParkingAreaDeclaration, ParkingAreaInput, ParkingLaneAnchorDeclaration,
+    ParkingSpaceDeclaration, ParkingSpaceInput, ParticipantClassDeclaration, ParticipantClassInput,
+    ParticipantClassReference, RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration,
+    RoadSectionInput, SignalControlInput, SignalControllerDeclaration, SignalControllerInput,
+    SignalGroupDeclaration, SignalGroupInput, SignalGroupReference, SignalGroupStateDeclaration,
+    SignalPhaseDeclaration, SignalPhaseInput, SpeedLimit, StaticRouteDeclaration, StaticRouteInput,
+    StopLineDeclaration, StopLineInput, SyntheticDeclaration, WaitingZoneDeclaration,
+    WaitingZoneInput,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
@@ -1687,6 +1691,263 @@ impl SyntheticModuleBuilder {
         Ok(self)
     }
 
+    /// 声明一个只用于静态准入分类法的参与者类别。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键或父类引用非法、跨模块引用未显式导入、声明重复，或资源上限超限时
+    /// 失败。父类存在性和继承环在完整模块图建立后的 HIR 阶段验证。
+    #[track_caller]
+    pub fn add_participant_class(
+        &mut self,
+        input: ParticipantClassInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(
+            EntityKind::ParticipantClass,
+            input.participant_class_key,
+            &span,
+        )?;
+        let extends = input
+            .extends
+            .map(|parent| self.own_reference(EntityKind::ParticipantClass, parent, &span))
+            .transpose()?;
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.participant_class_key.len()).unwrap_or(u64::MAX);
+        let reference_count = u64::from(extends.is_some());
+        let reference_bytes = extends.as_ref().map_or(0, reference_spelling_bytes);
+        let controlled_reference_bytes = extends.as_ref().map_or(0, |reference| {
+            u64::try_from(reference.declaration_key.len()).unwrap_or(u64::MAX)
+        });
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 3_u64.saturating_add(reference_count.saturating_mul(2)),
+                references: reference_count,
+                relations: reference_count,
+                identity_fields: 2,
+                symbols: 1,
+                string_items: 2_u64.saturating_add(reference_count),
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(reference_bytes),
+                controlled_string_bytes: key_bytes.saturating_add(controlled_reference_bytes),
+                controlled_structural_bytes: size_bytes::<ParticipantClassDeclaration>(1)
+                    .saturating_add(size_bytes::<OwnedEntityReference<ParticipantClassKind>>(
+                        reference_count,
+                    )),
+                source_bytes: participant_class_declaration_len(
+                    input.participant_class_key,
+                    extends.as_ref(),
+                ),
+                ..DeclarationResourceDelta::default()
+            },
+            input.participant_class_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.participant_class_key.into();
+        self.declaration_index
+            .entry(EntityKind::ParticipantClass)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations
+            .push(SyntheticDeclaration::ParticipantClass(
+                ParticipantClassDeclaration {
+                    header: DeclarationHeader {
+                        entity_kind: EntityKind::ParticipantClass,
+                        stable_key,
+                        span,
+                    },
+                    extends,
+                },
+            ));
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明一条永远适用的静态准入规则。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键或任一引用非法、跨模块引用未显式导入、声明重复，或资源上限超限时
+    /// 失败。空类别集合、未知目标/类别、FacilityBand capability guard、法规来源
+    /// 一致性和组合歧义在 HIR 阶段按确定顺序验证。
+    #[track_caller]
+    pub fn add_access_rule(
+        &mut self,
+        input: AccessRuleInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::AccessRule, input.access_rule_key, &span)?;
+        match input.target {
+            AccessRuleTargetInput::LaneEdge(reference) => {
+                self.validate_reference(EntityKind::LaneEdge, reference, &span)?;
+            }
+            AccessRuleTargetInput::LaneGroup(reference) => {
+                self.validate_reference(EntityKind::LaneGroup, reference, &span)?;
+            }
+            AccessRuleTargetInput::RoadSection(reference) => {
+                self.validate_reference(EntityKind::RoadSection, reference, &span)?;
+            }
+            AccessRuleTargetInput::ManeuverPath(reference) => {
+                self.validate_reference(EntityKind::ManeuverPath, reference, &span)?;
+            }
+            AccessRuleTargetInput::FacilityBand(reference) => {
+                self.validate_reference(EntityKind::FacilityBand, reference, &span)?;
+            }
+        }
+        for reference in input.participant_classes {
+            self.validate_reference(EntityKind::ParticipantClass, *reference, &span)?;
+        }
+
+        let reference_count = 1_u64
+            .saturating_add(u64::try_from(input.participant_classes.len()).unwrap_or(u64::MAX));
+        let regulation_string_count = input.regulation.map_or(0_u64, |regulation| {
+            2_u64.saturating_add(u64::from(regulation.source.is_some()))
+        });
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.access_rule_key.len()).unwrap_or(u64::MAX);
+        let (_, target_namespace, target_key) = access_target_input_parts(input.target);
+        let target_namespace = target_namespace.unwrap_or(&self.header.authoring_namespace_id);
+        let target_bytes = reference_spelling_parts_bytes(target_namespace, target_key);
+        let class_reference_bytes =
+            input
+                .participant_classes
+                .iter()
+                .fold(0_u64, |total, reference| {
+                    let namespace = reference
+                        .module_namespace()
+                        .unwrap_or(&self.header.authoring_namespace_id);
+                    total.saturating_add(reference_spelling_parts_bytes(
+                        namespace,
+                        reference.declaration_key(),
+                    ))
+                });
+        let controlled_reference_bytes = input.participant_classes.iter().fold(
+            u64::try_from(target_key.len()).unwrap_or(u64::MAX),
+            |total, reference| {
+                total.saturating_add(
+                    u64::try_from(reference.declaration_key().len()).unwrap_or(u64::MAX),
+                )
+            },
+        );
+        let regulation_bytes = input.regulation.map_or(0_u64, |regulation| {
+            u64::try_from(regulation.jurisdiction.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(u64::try_from(regulation.version.len()).unwrap_or(u64::MAX))
+                .saturating_add(
+                    regulation
+                        .source
+                        .as_ref()
+                        .map_or(0, |source| u64::try_from(source.len()).unwrap_or(u64::MAX)),
+                )
+        });
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 8_u64
+                    .saturating_add(reference_count.saturating_mul(2))
+                    .saturating_add(regulation_string_count),
+                references: reference_count,
+                relations: reference_count,
+                identity_fields: 2,
+                symbols: 1,
+                string_items: 2_u64
+                    .saturating_add(reference_count)
+                    .saturating_add(regulation_string_count),
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(target_bytes)
+                    .saturating_add(class_reference_bytes)
+                    .saturating_add(regulation_bytes),
+                controlled_string_bytes: key_bytes
+                    .saturating_add(controlled_reference_bytes)
+                    .saturating_add(regulation_bytes),
+                controlled_structural_bytes: size_bytes::<AccessRuleDeclaration>(1)
+                    .saturating_add(size_bytes::<OwnedAccessRuleTarget>(1))
+                    .saturating_add(size_bytes::<OwnedEntityReference<ParticipantClassKind>>(
+                        u64::try_from(input.participant_classes.len()).unwrap_or(u64::MAX),
+                    ))
+                    .saturating_add(size_bytes::<OwnedAccessRegulation>(u64::from(
+                        input.regulation.is_some(),
+                    ))),
+                source_bytes: access_rule_input_len(
+                    input.access_rule_key,
+                    input.target,
+                    input.participant_classes,
+                    input.regulation,
+                    &self.header.authoring_namespace_id,
+                ),
+                ..DeclarationResourceDelta::default()
+            },
+            input.access_rule_key,
+            &span,
+        )?;
+
+        // 所有计数、字符串和来源长度门禁均已通过后才复制可变长输入，保证超限调用不会
+        // 先按不受信任的 slice 长度申请内存，也不会留下部分声明。
+        let target = match input.target {
+            AccessRuleTargetInput::LaneEdge(reference) => OwnedAccessRuleTarget::LaneEdge(
+                self.own_reference(EntityKind::LaneEdge, reference, &span)?,
+            ),
+            AccessRuleTargetInput::LaneGroup(reference) => OwnedAccessRuleTarget::LaneGroup(
+                self.own_reference(EntityKind::LaneGroup, reference, &span)?,
+            ),
+            AccessRuleTargetInput::RoadSection(reference) => OwnedAccessRuleTarget::RoadSection(
+                self.own_reference(EntityKind::RoadSection, reference, &span)?,
+            ),
+            AccessRuleTargetInput::ManeuverPath(reference) => OwnedAccessRuleTarget::ManeuverPath(
+                self.own_reference(EntityKind::ManeuverPath, reference, &span)?,
+            ),
+            AccessRuleTargetInput::FacilityBand(reference) => OwnedAccessRuleTarget::FacilityBand(
+                self.own_reference(EntityKind::FacilityBand, reference, &span)?,
+            ),
+        };
+        let mut participant_classes = Vec::with_capacity(input.participant_classes.len());
+        for reference in input.participant_classes {
+            participant_classes.push(self.own_reference(
+                EntityKind::ParticipantClass,
+                *reference,
+                &span,
+            )?);
+        }
+        let regulation = input.regulation.map(|regulation| OwnedAccessRegulation {
+            jurisdiction: regulation.jurisdiction.into(),
+            version: regulation.version.into(),
+            source: regulation.source.map(Into::into),
+        });
+
+        let stable_key: Arc<str> = input.access_rule_key.into();
+        self.declaration_index
+            .entry(EntityKind::AccessRule)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations
+            .push(SyntheticDeclaration::AccessRule(AccessRuleDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::AccessRule,
+                    stable_key,
+                    span,
+                },
+                target,
+                effect: input.effect,
+                participant_classes: participant_classes.into_boxed_slice(),
+                regulation,
+                priority: input.priority,
+            }));
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
     /// 声明一个位于机动路径转换上的机动门。
     ///
     /// # Errors
@@ -3193,6 +3454,18 @@ fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
         SyntheticDeclaration::ParkingSpace(declaration) => {
             Some(parking_space_declaration_len(declaration))
         }
+        SyntheticDeclaration::ParticipantClass(declaration) => {
+            Some(participant_class_declaration_len(
+                &declaration.header.stable_key,
+                declaration.extends.as_ref(),
+            ))
+        }
+        SyntheticDeclaration::AccessRule(declaration) => Some(access_rule_declaration_len(
+            &declaration.header.stable_key,
+            &declaration.target,
+            &declaration.participant_classes,
+            declaration.regulation.as_ref(),
+        )),
     }
 }
 
@@ -3386,6 +3659,142 @@ fn parking_space_declaration_len(declaration: &ParkingSpaceDeclaration) -> u64 {
         ));
     }
     length
+}
+
+fn participant_class_declaration_len(
+    stable_key: &str,
+    extends: Option<&OwnedEntityReference<ParticipantClassKind>>,
+) -> u64 {
+    declaration_header_len(stable_key)
+        .saturating_add(1)
+        .saturating_add(extends.map_or(0, |reference| {
+            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+        }))
+}
+
+fn access_target_input_parts(
+    target: AccessRuleTargetInput<'_>,
+) -> (EntityKind, Option<&str>, &str) {
+    match target {
+        AccessRuleTargetInput::LaneEdge(reference) => (
+            EntityKind::LaneEdge,
+            reference.module_namespace(),
+            reference.declaration_key(),
+        ),
+        AccessRuleTargetInput::LaneGroup(reference) => (
+            EntityKind::LaneGroup,
+            reference.module_namespace(),
+            reference.declaration_key(),
+        ),
+        AccessRuleTargetInput::RoadSection(reference) => (
+            EntityKind::RoadSection,
+            reference.module_namespace(),
+            reference.declaration_key(),
+        ),
+        AccessRuleTargetInput::ManeuverPath(reference) => (
+            EntityKind::ManeuverPath,
+            reference.module_namespace(),
+            reference.declaration_key(),
+        ),
+        AccessRuleTargetInput::FacilityBand(reference) => (
+            EntityKind::FacilityBand,
+            reference.module_namespace(),
+            reference.declaration_key(),
+        ),
+    }
+}
+
+fn access_rule_input_len(
+    stable_key: &str,
+    target: AccessRuleTargetInput<'_>,
+    participant_classes: &[ParticipantClassReference<'_>],
+    regulation: Option<AccessRegulationInput<'_>>,
+    local_namespace: &str,
+) -> u64 {
+    let (_, target_namespace, target_key) = access_target_input_parts(target);
+    let mut length = declaration_header_len(stable_key)
+        .saturating_add(2)
+        .saturating_add(encoded_reference_len(
+            target_namespace.unwrap_or(local_namespace),
+            target_key,
+        ))
+        .saturating_add(1 + 4 + 4);
+    for class in participant_classes {
+        length = length.saturating_add(encoded_reference_len(
+            class.module_namespace().unwrap_or(local_namespace),
+            class.declaration_key(),
+        ));
+    }
+    length = length.saturating_add(1);
+    if let Some(regulation) = regulation {
+        for value in [
+            Some(regulation.jurisdiction),
+            Some(regulation.version),
+            regulation.source,
+        ] {
+            length = length.saturating_add(1);
+            if let Some(value) = value {
+                length = length
+                    .saturating_add(4)
+                    .saturating_add(u64::try_from(value.len()).unwrap_or(u64::MAX));
+            }
+        }
+    }
+    length
+}
+
+fn access_rule_declaration_len(
+    stable_key: &str,
+    target: &OwnedAccessRuleTarget,
+    participant_classes: &[OwnedEntityReference<ParticipantClassKind>],
+    regulation: Option<&OwnedAccessRegulation>,
+) -> u64 {
+    let mut length = declaration_header_len(stable_key)
+        .saturating_add(2)
+        .saturating_add(access_target_encoded_reference_len(target))
+        .saturating_add(1 + 4 + 4);
+    for class in participant_classes {
+        length = length.saturating_add(encoded_reference_len(
+            &class.module_namespace,
+            &class.declaration_key,
+        ));
+    }
+    length = length.saturating_add(1);
+    if let Some(regulation) = regulation {
+        for value in [
+            Some(regulation.jurisdiction.as_ref()),
+            Some(regulation.version.as_ref()),
+            regulation.source.as_deref(),
+        ] {
+            length = length.saturating_add(1);
+            if let Some(value) = value {
+                length = length
+                    .saturating_add(4)
+                    .saturating_add(u64::try_from(value.len()).unwrap_or(u64::MAX));
+            }
+        }
+    }
+    length
+}
+
+fn access_target_encoded_reference_len(target: &OwnedAccessRuleTarget) -> u64 {
+    match target {
+        OwnedAccessRuleTarget::LaneEdge(reference) => {
+            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+        }
+        OwnedAccessRuleTarget::LaneGroup(reference) => {
+            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+        }
+        OwnedAccessRuleTarget::RoadSection(reference) => {
+            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+        }
+        OwnedAccessRuleTarget::ManeuverPath(reference) => {
+            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+        }
+        OwnedAccessRuleTarget::FacilityBand(reference) => {
+            encoded_reference_len(&reference.module_namespace, &reference.declaration_key)
+        }
+    }
 }
 
 fn waiting_zone_declaration_len(
@@ -3678,6 +4087,33 @@ fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
             output.extend_from_slice(&geometry.length_meters.to_bits().to_le_bytes());
             output.extend_from_slice(&geometry.width_meters.to_bits().to_le_bytes());
         }
+        SyntheticDeclaration::ParticipantClass(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            output.push(u8::from(declaration.extends.is_some()));
+            if let Some(parent) = &declaration.extends {
+                put_owned_reference(output, parent);
+            }
+        }
+        SyntheticDeclaration::AccessRule(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            put_access_target(output, &declaration.target);
+            output.push(access_effect_source_code(declaration.effect));
+            output.extend_from_slice(
+                &u32::try_from(declaration.participant_classes.len())
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            );
+            for class in &declaration.participant_classes {
+                put_owned_reference(output, class);
+            }
+            output.extend_from_slice(&declaration.priority.to_le_bytes());
+            output.push(u8::from(declaration.regulation.is_some()));
+            if let Some(regulation) = &declaration.regulation {
+                put_optional_bytes(output, Some(&regulation.jurisdiction));
+                put_optional_bytes(output, Some(&regulation.version));
+                put_optional_bytes(output, regulation.source.as_deref());
+            }
+        }
     }
 }
 
@@ -3688,6 +4124,15 @@ fn signal_aspect_source_code(aspect: SignalAspect) -> u8 {
         SignalAspect::Yellow => 2,
         SignalAspect::Green => 3,
         _ => unreachable!("SignalAspect extension requires a new synthetic frontend version"),
+    }
+}
+
+#[allow(unreachable_patterns)]
+fn access_effect_source_code(effect: AccessEffect) -> u8 {
+    match effect {
+        AccessEffect::Allow => 1,
+        AccessEffect::Deny => 2,
+        _ => unreachable!("AccessEffect extension requires a new synthetic frontend version"),
     }
 }
 
@@ -3704,6 +4149,38 @@ fn put_owned_reference<K: laneflow_static_contract::EntityKindMarker>(
     put_bytes(output, &reference.module_namespace);
     put_bytes(output, &reference.declaration_key);
     put_span(output, &reference.span);
+}
+
+fn put_access_target(output: &mut Vec<u8>, target: &OwnedAccessRuleTarget) {
+    match target {
+        OwnedAccessRuleTarget::LaneEdge(reference) => {
+            output.extend_from_slice(&(EntityKind::LaneEdge as u16).to_le_bytes());
+            put_owned_reference(output, reference);
+        }
+        OwnedAccessRuleTarget::LaneGroup(reference) => {
+            output.extend_from_slice(&(EntityKind::LaneGroup as u16).to_le_bytes());
+            put_owned_reference(output, reference);
+        }
+        OwnedAccessRuleTarget::RoadSection(reference) => {
+            output.extend_from_slice(&(EntityKind::RoadSection as u16).to_le_bytes());
+            put_owned_reference(output, reference);
+        }
+        OwnedAccessRuleTarget::ManeuverPath(reference) => {
+            output.extend_from_slice(&(EntityKind::ManeuverPath as u16).to_le_bytes());
+            put_owned_reference(output, reference);
+        }
+        OwnedAccessRuleTarget::FacilityBand(reference) => {
+            output.extend_from_slice(&(EntityKind::FacilityBand as u16).to_le_bytes());
+            put_owned_reference(output, reference);
+        }
+    }
+}
+
+fn put_optional_bytes(output: &mut Vec<u8>, value: Option<&str>) {
+    output.push(u8::from(value.is_some()));
+    if let Some(value) = value {
+        put_bytes(output, value);
+    }
 }
 
 fn put_bytes(output: &mut Vec<u8>, value: &str) {
