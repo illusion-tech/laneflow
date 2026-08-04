@@ -172,6 +172,7 @@ documents[] {
   sourceDocumentKey
   sourceDocumentDigest
   sourceRecordByteLen
+  sourceDocumentOrigin
 }
 ```
 
@@ -183,6 +184,13 @@ SHA-256；`sourceDocumentSetDigest` 是对模块内按文档键排序的文档�
 `frontendVersion`；任何改变文档集聚合前像的变化必须提升
 `sourceDocumentSetDigestVersion`。#292 合成领域专用语言前端的首版记录规则由
 `compiler-foundation.md` 冻结，后继前端必须在各自 G1 冻结精确来源字节。
+
+模块级 `origin / provenance` 描述工具、选项与整体转换沿袭，不能替代每份文档自己的
+来源记录（Source Document Origin）。后者保存冷的显示/审计来源，并与文档摘要和长度
+不可分关联；调用方提供的宿主路径或发布来源声明不自动具有真实性。实现可以把重复
+来源字符串驻留到共享表，但每个文档必须保留明确关联。逐文档来源记录不参与
+`sourceDocumentSetDigest`、稳定标识或 LIR 语义摘要，其条目、字符串与存续字节必须
+纳入资源上限。
 
 - Geometry document 是生产场景的主要 source language，但不是唯一 SSOT；
 - Synthetic DSL source 是测试、fixture、benchmark 和示例 module 的权威输入；
@@ -269,20 +277,24 @@ compiler、Adapter 或 scenario policy 绕过。
 配置档保持不可变。v2 的初始上限、三文档容量推导和重新资格验证以
 `compiler-foundation.md` 第 3.3、10.4 节为权威。
 
-来源专用封装以移动语义进入接入值，不复制完整 AST、字符串或几何。精确来源记录
+来源专用封装以移动语义进入接入值，不复制完整 AST、字符串或几何。精确来源载荷
 （exact source record）只存续到官方前端 `finish` 完成一次摘要、长度和来源位置派生；
-共同接入只保留已绑定摘要、精确长度、来源位置与来源沿袭。借用调用方输入的前端不得
+共同接入只保留已绑定摘要、精确长度、来源位置、模块级沿袭与逐文档来源记录。借用
+调用方输入的前端不得
 为接入复制来源全文。记录级循环禁止特征对象（trait object）、前端枚举
 （enum）分支、重复
 摘要、重复资源计数或第二次规范排序。精确所有权、失败事务、#297 迁移包依赖图和
 配对性能验证以 `compiler-foundation.md` 第 2.3、3.3 与 10.4 节为权威。
 对 current 原始制品，该文档第 2.3 节要求的显式有界 `CurrentSourceLimits` 必须在按输入规模分配前生效，
-不存在默认、无限或先完整解码后计数的路径。ScenarioManifest v0.1 组合入口在任何集合索引分配前只
-接受恰好两个具名制品并直接匹配 Traffic/Spatial；原子成功结果同时携带受限的字段/记录来源位置表，
-使导入器无需重读或重新解析原始 JSON 即可构造真实 `SourceSpan`。
+不存在默认、无限或先完整解码后计数的路径。ScenarioManifest v0.1 仍封闭为 Traffic/Spatial 两个角色，
+但调用方查找集合允许未引用的唯一额外制品；组合入口在任何集合索引分配前限制制品数、单个引用长度和
+引用总字节，保持全集合非空/唯一检查，只匹配、哈希并解析 Manifest 引用的两份载荷。原子成功结果是
+字段私有的 `ValidatedCurrentSourceBundle`，同时携带三个文档的身份、逐文档来源记录和受限的字段/记录
+来源位置表，使 compiler 的迁移特性无需重读或重新解析原始 JSON 即可构造真实 `SourceSpan`。
 
 这不是第三方前端插件协议。公开面只增加 LaneFlow 拥有的具体
-`add_geometry_module` / `add_current_import_module`；通用 `add_module`、公共前端
+`add_geometry_module`，以及只在迁移特性下接受 `ValidatedCurrentSourceBundle` 的
+`add_validated_current_source`；通用 `add_module`、公共前端
 特征（trait）、裸 Typed AST 和裸描述符/内容配对继续禁止。
 
 ### 5.3 几何文档前端（Geometry Document Frontend）
@@ -1713,30 +1725,41 @@ laneflow-adapter-* ------> laneflow-static-image
 #315 G1 另外提议下列迁移专用边界；它不进入上述目标生产/运行时包依赖图：
 
 ```text
-laneflow-current-import --> laneflow-compiler
-laneflow-current-import --> laneflow-current-source
-laneflow-data -----------> laneflow-current-source
+laneflow-compiler --[current-v0_10-import]--> laneflow-current-source
+laneflow-current-import --------------------> laneflow-compiler
+laneflow-current-import --------------------> laneflow-current-source
+laneflow-data ------------------------------> laneflow-current-source
 ```
 
 `laneflow-current-source` 是无 Core/Spatial 依赖的版本锁定当前态来源包验证 SSOT。它要求显式有界
-`CurrentSourceLimits`，并在任何集合索引、复制或按输入规模分配前要求组合入口恰好接收两个
-`NamedArtifact`；实现直接匹配 Traffic/Spatial，不建立调用方集合 `HashMap`，也不接受额外制品。
+`CurrentSourceLimits`，并在任何集合索引、复制或按输入规模分配前检查调用方
+`NamedArtifact` 数量、单个引用长度和引用总字节。ScenarioManifest 的角色仍恰好只有 Traffic/Spatial，
+但调用方查找集合可以包含未引用的唯一额外制品；实现保持全集合非空/唯一语义，只定位目标两项且不
+哈希、解析或复制额外制品载荷。具体唯一性容器由 #297 G1 按精确上限和基准选择，不在 #315 预选。
 随后先检查 ScenarioManifest 实际长度，有界解析并对其原始字节计算一次 SHA-256，再验证制品引用和
 角色专属媒体类型；
 在计算摘要或解析 Traffic/Spatial 前，检查它们的声明/实际/组合字节上限。只有通过这些上限的
 原始字节才各计算一次 SHA-256，与同一场景清单精确配对后再由在按规模分配前累计资源的解码器构造
-DTO 和受限的字段/记录来源位置表。原子结果保留 ScenarioManifest、Traffic 与 Spatial 三个字段私有的
-独立来源文档身份；`laneflow-current-import` 把身份和所需真实来源位置一对一移入编译器拥有的文档
-描述符 / `SourceSpan`，不重新哈希、重读或重新解析原始字节；导入模块完成后释放位置表。该组合仍是一个
+DTO 和受限的字段/记录来源位置表。字段私有的 `ValidatedCurrentSourceBundle` 原子保留
+ScenarioManifest、Traffic 与 Spatial 三个独立来源文档的身份、逐文档来源记录、DTO 与位置；
+compiler 只在默认关闭的 `current-v0_10-import` 迁移特性下依赖并消费该能力，在包内把身份和所需真实
+来源位置一对一移入编译器拥有的文档描述符 / `SourceSpan`，不重新哈希、重读或重新解析原始字节；
+导入模块完成后释放位置表。该组合仍是一个
 逻辑导入模块，不虚构三个模块或导入边。任一步失败都不返回部分结果。凡以 ScenarioManifest 组合
 Traffic/Spatial，`laneflow-data`
-与 `laneflow-current-import` 都只能消费该单一受检结果，不得重复或绕过绑定；无需空间
+与 compiler 的迁移特性都只能消费该单一受检结果，不得重复或绕过绑定；无需空间
 制品的 Traffic-only current Core 入口保持独立。`laneflow-data` 继续拥有当前
-Core/Spatial 规范化，`laneflow-current-import` 从受检 DTO 构造编译器拥有的具体导入
-模块。
-`laneflow-compiler` 不能反向依赖任一迁移/当前态包，导入器也不能消费
+Core/Spatial 规范化；`laneflow-current-import` 只选择迁移特性、调用来源包并把完整受检能力交给
+compiler，不接触 compiler 私有 builder。
+默认 `laneflow-compiler` 不能依赖迁移包；其迁移特性只依赖无 Core/Spatial 对象图的
+`laneflow-current-source`，导入器也不能消费
 `InitialTrafficData` 或 `SpatialRegistry`。完整职责和退役边界见
 `compiler-foundation.md` 第 2.3 节。
+
+受检包没有公开字段、裸构造器、`Default` 或反序列化入口，只能由组合验证成功路径
+铸造；compiler 可以只读访问或按值移出其既有绑定内容，但任何调用方都不能从拆出的
+DTO、摘要、来源记录或位置重新组装受检包。该能力边界是可由 Rust 跨包强制的公开
+类型约束，不依赖 friend-crate 可见性。
 
 职责与禁止依赖：
 
