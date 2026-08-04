@@ -4335,9 +4335,9 @@ fn build_spatial_hir(
                 let mut geometry_valid = true;
                 for (segment_index, pair) in geometry.centerline_points.windows(2).enumerate() {
                     let delta = [
-                        pair[1].x - pair[0].x,
-                        pair[1].y - pair[0].y,
-                        pair[1].z - pair[0].z,
+                        canonicalize_spatial_zero(pair[1].x - pair[0].x),
+                        canonicalize_spatial_zero(pair[1].y - pair[0].y),
+                        canonicalize_spatial_zero(pair[1].z - pair[0].z),
                     ];
                     let length = delta[0].hypot(delta[1]).hypot(delta[2]);
                     if length <= SPATIAL_MIN_SEGMENT_LENGTH_METERS {
@@ -4360,7 +4360,9 @@ fn build_spatial_hir(
                         geometry_valid = false;
                         break;
                     }
-                    let tangent = [delta[0] / length, delta[1] / length, delta[2] / length];
+                    // 与 current Spatial 的受检单位向量构造保持逐位一致：先按最大绝对
+                    // 分量缩放可避免平方求和溢出，也防止迁移投影重建出不同的局部基。
+                    let tangent = normalize_spatial_vector(delta);
                     let projected_up = tangent[0].hypot(tangent[2]);
                     if projected_up < SPATIAL_MIN_PROJECTED_UP_LENGTH {
                         let mut diagnostic = Diagnostic::invalid_spatial_geometry(
@@ -4382,18 +4384,13 @@ fn build_spatial_hir(
                         geometry_valid = false;
                         break;
                     }
-                    let left = [tangent[2] / projected_up, 0.0, -tangent[0] / projected_up];
+                    let left = normalize_spatial_vector([tangent[2], 0.0, -tangent[0]]);
                     let raw_up = [
                         tangent[1] * left[2],
                         tangent[2] * left[0] - tangent[0] * left[2],
                         -tangent[1] * left[0],
                     ];
-                    let up_length = raw_up[0].hypot(raw_up[1]).hypot(raw_up[2]);
-                    let up = [
-                        raw_up[0] / up_length,
-                        raw_up[1] / up_length,
-                        raw_up[2] / up_length,
-                    ];
+                    let up = normalize_spatial_vector(raw_up);
                     let next_cumulative = cumulative + length;
                     if !next_cumulative.is_finite() || next_cumulative <= cumulative {
                         let mut diagnostic = Diagnostic::invalid_spatial_geometry(
@@ -4571,6 +4568,22 @@ fn build_spatial_hir(
         canonical_points: points.into_boxed_slice(),
         spatial_segments: segments.into_boxed_slice(),
     })
+}
+
+fn normalize_spatial_vector(vector: [f32; 3]) -> [f32; 3] {
+    let scale = vector[0].abs().max(vector[1].abs()).max(vector[2].abs());
+    debug_assert!(scale > 0.0, "validated spatial direction must be non-zero");
+    let scaled = [vector[0] / scale, vector[1] / scale, vector[2] / scale];
+    let scaled_length = scaled[0].hypot(scaled[1]).hypot(scaled[2]);
+    [
+        canonicalize_spatial_zero(scaled[0] / scaled_length),
+        canonicalize_spatial_zero(scaled[1] / scaled_length),
+        canonicalize_spatial_zero(scaled[2] / scaled_length),
+    ]
+}
+
+const fn canonicalize_spatial_zero(value: f32) -> f32 {
+    if value == 0.0 { 0.0 } else { value }
 }
 
 #[allow(clippy::too_many_lines)]

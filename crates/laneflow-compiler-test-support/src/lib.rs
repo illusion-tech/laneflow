@@ -6,12 +6,12 @@ use laneflow_compiler::{
     CanonicalAccessTarget, CanonicalCorridorElement, CanonicalSignalControl, ValidatedCanonicalLir,
 };
 use laneflow_core::{
-    AccessEffect, AccessRegistry, AccessRule, AccessTargetId, CorridorElementId,
-    CrossSectionRegistry, EdgeLength, FacilityBand, IidmProfileSpec, InitialTrafficData, Junction,
-    JunctionRegistry, LaneEdge, LaneGraph, LaneGroup, ManeuverGate, ManeuverPath, Movement,
-    ParkingArea, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry, ParticipantClass,
-    ParticipantClassRegistry, RoadCorridor, RoadSection, Route, SectionLane, SignalAspect,
-    SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
+    AccessEffect, AccessRegistry, AccessRule, AccessTargetId, CoreWorld, CorridorElementId,
+    CrossSectionRegistry, EdgeLength, EdgeProgress, FacilityBand, IidmProfileSpec,
+    InitialTrafficData, Junction, JunctionRegistry, LaneEdge, LaneGraph, LaneGroup, ManeuverGate,
+    ManeuverPath, Movement, ParkingArea, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry,
+    ParticipantClass, ParticipantClassRegistry, RoadCorridor, RoadSection, Route, SectionLane,
+    SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
     SignalRegistry, SpeedLimit, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
     WaitingRegistry, WaitingZone,
 };
@@ -135,6 +135,15 @@ pub enum ProjectionError {
     },
     /// 当前单个 `SpatialRegistry` 无法表达多个规范坐标框架。
     MultipleCanonicalFrames,
+    /// LIR 预计算表与 current Core/Spatial 从权威源字段独立重建的结果不一致。
+    PrecomputedDataMismatch {
+        /// 发生不一致的静态路线或实体 external ID。
+        entity_id: Box<str>,
+        /// 不一致的 LIR 表或字段名。
+        table: &'static str,
+        /// 表内记录下标；表长或实体级字段不一致时为 `None`。
+        record_index: Option<usize>,
+    },
     /// 当前 Core 构造器拒绝了投影对象。
     Core(Box<laneflow_core::CoreError>),
     /// 当前 Spatial 构造器拒绝了投影对象。
@@ -154,6 +163,20 @@ impl fmt::Display for ProjectionError {
             Self::MultipleCanonicalFrames => formatter.write_str(
                 "当前 SpatialRegistry 只能完整绑定一个 CanonicalFrame，不能投影多 frame LIR",
             ),
+            Self::PrecomputedDataMismatch {
+                entity_id,
+                table,
+                record_index,
+            } => {
+                write!(
+                    formatter,
+                    "Canonical LIR 预计算数据与独立重建结果不一致：实体 {entity_id}，表 {table}"
+                )?;
+                if let Some(index) = record_index {
+                    write!(formatter, "，记录 {index}")?;
+                }
+                Ok(())
+            }
             Self::Core(source) => write!(formatter, "当前 Core 构造拒绝投影：{source}"),
             Self::Spatial(source) => write!(formatter, "当前 Spatial 构造拒绝投影：{source}"),
         }
@@ -165,7 +188,9 @@ impl Error for ProjectionError {
         match self {
             Self::Core(source) => Some(source.as_ref()),
             Self::Spatial(source) => Some(source.as_ref()),
-            Self::PartialSpatialCoverage { .. } | Self::MultipleCanonicalFrames => None,
+            Self::PartialSpatialCoverage { .. }
+            | Self::MultipleCanonicalFrames
+            | Self::PrecomputedDataMismatch { .. } => None,
         }
     }
 }
@@ -190,8 +215,9 @@ impl From<SpatialError> for ProjectionError {
 ///
 /// # Errors
 ///
-/// 当前 Core/Spatial 构造器拒绝投影，空间几何覆盖不完整，或合法 LIR 使用多个
-/// canonical frame 而当前 `SpatialRegistry` 无法表达时返回错误。
+/// 当前 Core/Spatial 构造器拒绝投影，空间几何覆盖不完整，合法 LIR 使用多个
+/// canonical frame 而当前 `SpatialRegistry` 无法表达，或 LIR 预计算表与独立重建结果
+/// 不一致时返回错误。
 pub fn project(lir: &ValidatedCanonicalLir) -> Result<CurrentProjection, ProjectionError> {
     let ids = ProjectionIds::from_lir(lir);
 
@@ -225,6 +251,7 @@ pub fn project(lir: &ValidatedCanonicalLir) -> Result<CurrentProjection, Project
         access,
         waiting,
     )?;
+    validate_route_precomputes(lir, &ids, &traffic)?;
     let spatial = project_spatial(lir, &ids, traffic.lane_graph())?;
     let mappings = ProjectionMappingReport {
         entries: projection_mappings(lir, &ids).into_boxed_slice(),
@@ -718,6 +745,308 @@ fn project_routes(
         .collect()
 }
 
+type RouteOccurrenceRef = (u32, u32);
+
+fn validate_route_precomputes(
+    lir: &ValidatedCanonicalLir,
+    ids: &ProjectionIds,
+    traffic: &InitialTrafficData,
+) -> Result<(), ProjectionError> {
+    // `CoreWorld` 只消费由边序列构造的 current Route，并独立编译全部 occurrence 表；
+    // 不把 LIR 预计算结果喂给预言机，避免错误的 LIR 表自证正确。
+    let world = CoreWorld::with_traffic_data(1, traffic.clone(), Vec::new())?;
+    let mut edge_reverse = vec![Vec::new(); ids.lane_edges.len()];
+    let mut path_reverse = vec![Vec::new(); ids.maneuver_paths.len()];
+    let mut gate_reverse = vec![Vec::new(); ids.maneuver_gates.len()];
+    let mut waiting_reverse = vec![Vec::new(); ids.waiting_zones.len()];
+
+    for route in lir.static_routes() {
+        let route_id = &ids.static_routes[route.ordinal().index()];
+        let route_handle = world
+            .route_handle(route_id)
+            .ok_or_else(|| precomputed_mismatch(route_id, "staticRoutes", None))?;
+        let expected_edges = route
+            .edges()
+            .iter()
+            .map(|edge| {
+                world
+                    .lane_graph()
+                    .edge_handle(&ids.lane_edges[edge.index()])
+                    .expect("projected LaneEdge ID must resolve")
+            })
+            .collect::<Vec<_>>();
+        if world.route_edges(route_handle) != Some(expected_edges.as_slice()) {
+            return Err(precomputed_mismatch(route_id, "staticRouteEdges", None));
+        }
+        for (occurrence_index, edge) in route.edges().iter().copied().enumerate() {
+            edge_reverse[edge.index()].push((
+                route.ordinal().raw(),
+                u32::try_from(occurrence_index)
+                    .expect("validated route occurrence index must fit u32"),
+            ));
+        }
+
+        let expected_transitions = route
+            .transition_gates()
+            .map(|gate| {
+                gate.map(|gate| {
+                    world
+                        .signals()
+                        .maneuver_gate_handle(&ids.maneuver_gates[gate.index()])
+                        .expect("projected ManeuverGate ID must resolve")
+                })
+            })
+            .collect::<Vec<_>>();
+        if expected_transitions.len() != expected_edges.len().saturating_sub(1) {
+            return Err(precomputed_mismatch(
+                route_id,
+                "staticRouteTransitions",
+                None,
+            ));
+        }
+        let actual_transitions = (0..expected_transitions.len())
+            .map(|index| world.route_transition_gate(route_handle, index))
+            .collect::<Option<Vec<_>>>();
+        let Some(actual_transitions) = actual_transitions else {
+            return Err(precomputed_mismatch(
+                route_id,
+                "staticRouteTransitions",
+                None,
+            ));
+        };
+        if let Some(index) = first_mismatch(&expected_transitions, &actual_transitions) {
+            return Err(precomputed_mismatch(
+                route_id,
+                "staticRouteTransitions",
+                Some(index),
+            ));
+        }
+
+        let expected_maneuvers = route.maneuver_occurrences().collect::<Vec<_>>();
+        let actual_maneuvers = world
+            .route_maneuver_occurrences(route_handle)
+            .expect("projected static Route must retain its occurrence tables");
+        if expected_maneuvers.len() != actual_maneuvers.len() {
+            return Err(precomputed_mismatch(route_id, "maneuverOccurrences", None));
+        }
+        for (index, (expected, actual)) in expected_maneuvers
+            .iter()
+            .copied()
+            .zip(actual_maneuvers.iter().copied())
+            .enumerate()
+        {
+            let path = expected.maneuver_path();
+            let expected_path = world
+                .junctions()
+                .maneuver_path_handle(&ids.maneuver_paths[path.index()])
+                .expect("projected ManeuverPath ID must resolve");
+            let expected_gate_range = expected.gate_occurrence_range();
+            let expected_waiting_range = expected.waiting_zone_occurrence_range();
+            if actual.maneuver_path() != expected_path
+                || actual.entry_route_edge_index() != expected.entry_route_edge_index() as usize
+                || actual.exit_route_edge_index() != expected.exit_route_edge_index() as usize
+                || actual.gate_occurrence_range()
+                    != (expected_gate_range.start as usize..expected_gate_range.end as usize)
+                || actual.waiting_zone_occurrence_range()
+                    != (expected_waiting_range.start as usize..expected_waiting_range.end as usize)
+            {
+                return Err(precomputed_mismatch(
+                    route_id,
+                    "maneuverOccurrences",
+                    Some(index),
+                ));
+            }
+            path_reverse[path.index()].push((
+                route.ordinal().raw(),
+                u32::try_from(index).expect("validated maneuver occurrence index must fit u32"),
+            ));
+        }
+
+        let expected_gates = route.gate_occurrences().collect::<Vec<_>>();
+        let actual_gates = world
+            .route_gate_occurrences(route_handle)
+            .expect("projected static Route must retain its gate occurrence table");
+        if expected_gates.len() != actual_gates.len() {
+            return Err(precomputed_mismatch(route_id, "gateOccurrences", None));
+        }
+        for (index, (expected, actual)) in expected_gates
+            .iter()
+            .copied()
+            .zip(actual_gates.iter().copied())
+            .enumerate()
+        {
+            let gate = expected.maneuver_gate();
+            let expected_gate = world
+                .signals()
+                .maneuver_gate_handle(&ids.maneuver_gates[gate.index()])
+                .expect("projected ManeuverGate ID must resolve");
+            if actual.gate() != expected_gate
+                || actual.maneuver_occurrence_index()
+                    != expected.maneuver_occurrence_index() as usize
+                || actual.from_route_edge_index() != expected.from_route_edge_index() as usize
+                || actual.next_gate_occurrence_index()
+                    != expected
+                        .next_gate_occurrence_index()
+                        .map(|value| value as usize)
+                || actual.next_boundary_route_edge_index()
+                    != expected.next_boundary_route_edge_index() as usize
+                || actual.waiting_zone_occurrence_index()
+                    != expected
+                        .waiting_zone_occurrence_index()
+                        .map(|value| value as usize)
+            {
+                return Err(precomputed_mismatch(
+                    route_id,
+                    "gateOccurrences",
+                    Some(index),
+                ));
+            }
+            gate_reverse[gate.index()].push((
+                route.ordinal().raw(),
+                u32::try_from(index).expect("validated gate occurrence index must fit u32"),
+            ));
+        }
+
+        let expected_waiting = route.waiting_zone_occurrences().collect::<Vec<_>>();
+        let actual_waiting = world
+            .route_waiting_zone_occurrences(route_handle)
+            .expect("projected static Route must retain its waiting-zone occurrence table");
+        if expected_waiting.len() != actual_waiting.len() {
+            return Err(precomputed_mismatch(
+                route_id,
+                "waitingZoneOccurrences",
+                None,
+            ));
+        }
+        for (index, (expected, actual)) in expected_waiting
+            .iter()
+            .copied()
+            .zip(actual_waiting.iter().copied())
+            .enumerate()
+        {
+            let waiting_zone = expected.waiting_zone();
+            let expected_waiting_zone = world
+                .waiting()
+                .waiting_zone_handle(&ids.waiting_zones[waiting_zone.index()])
+                .expect("projected WaitingZone ID must resolve");
+            if actual.waiting_zone() != expected_waiting_zone
+                || actual.maneuver_occurrence_index()
+                    != expected.maneuver_occurrence_index() as usize
+                || actual.entry_gate_occurrence_index()
+                    != expected.entry_gate_occurrence_index() as usize
+                || actual.release_gate_occurrence_index()
+                    != expected.release_gate_occurrence_index() as usize
+                || actual.entry_route_edge_index() != expected.entry_route_edge_index() as usize
+                || actual.release_route_edge_index() != expected.release_route_edge_index() as usize
+            {
+                return Err(precomputed_mismatch(
+                    route_id,
+                    "waitingZoneOccurrences",
+                    Some(index),
+                ));
+            }
+            waiting_reverse[waiting_zone.index()].push((
+                route.ordinal().raw(),
+                u32::try_from(index).expect("validated waiting-zone occurrence index must fit u32"),
+            ));
+        }
+    }
+
+    validate_reverse_occurrences(
+        lir,
+        ids,
+        &edge_reverse,
+        &path_reverse,
+        &gate_reverse,
+        &waiting_reverse,
+    )
+}
+
+fn validate_reverse_occurrences(
+    lir: &ValidatedCanonicalLir,
+    ids: &ProjectionIds,
+    edge_reverse: &[Vec<RouteOccurrenceRef>],
+    path_reverse: &[Vec<RouteOccurrenceRef>],
+    gate_reverse: &[Vec<RouteOccurrenceRef>],
+    waiting_reverse: &[Vec<RouteOccurrenceRef>],
+) -> Result<(), ProjectionError> {
+    for edge in lir.lane_edges() {
+        validate_reverse_occurrence_table(
+            &ids.lane_edges[edge.ordinal().index()],
+            "laneEdgeRouteOccurrences",
+            edge.static_route_occurrences(),
+            &edge_reverse[edge.ordinal().index()],
+        )?;
+    }
+    for path in lir.maneuver_paths() {
+        validate_reverse_occurrence_table(
+            &ids.maneuver_paths[path.ordinal().index()],
+            "maneuverPathRouteOccurrences",
+            path.static_route_occurrences(),
+            &path_reverse[path.ordinal().index()],
+        )?;
+    }
+    for gate in lir.maneuver_gates() {
+        validate_reverse_occurrence_table(
+            &ids.maneuver_gates[gate.ordinal().index()],
+            "maneuverGateRouteOccurrences",
+            gate.static_route_occurrences(),
+            &gate_reverse[gate.ordinal().index()],
+        )?;
+    }
+    for waiting_zone in lir.waiting_zones() {
+        validate_reverse_occurrence_table(
+            &ids.waiting_zones[waiting_zone.ordinal().index()],
+            "waitingZoneRouteOccurrences",
+            waiting_zone.static_route_occurrences(),
+            &waiting_reverse[waiting_zone.ordinal().index()],
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_reverse_occurrence_table(
+    entity_id: &str,
+    table: &'static str,
+    actual: impl ExactSizeIterator<Item = laneflow_compiler::CanonicalStaticRouteOccurrenceRef>,
+    expected: &[RouteOccurrenceRef],
+) -> Result<(), ProjectionError> {
+    let actual = actual
+        .map(|occurrence| {
+            (
+                occurrence.static_route().raw(),
+                occurrence.occurrence_index(),
+            )
+        })
+        .collect::<Vec<_>>();
+    if actual.len() != expected.len() {
+        return Err(precomputed_mismatch(entity_id, table, None));
+    }
+    if let Some(index) = first_mismatch(expected, &actual) {
+        return Err(precomputed_mismatch(entity_id, table, Some(index)));
+    }
+    Ok(())
+}
+
+fn first_mismatch<T: PartialEq>(expected: &[T], actual: &[T]) -> Option<usize> {
+    expected
+        .iter()
+        .zip(actual)
+        .position(|(expected, actual)| expected != actual)
+}
+
+fn precomputed_mismatch(
+    entity_id: &str,
+    table: &'static str,
+    record_index: Option<usize>,
+) -> ProjectionError {
+    ProjectionError::PrecomputedDataMismatch {
+        entity_id: entity_id.into(),
+        table,
+        record_index,
+    }
+}
+
 fn project_spatial(
     lir: &ValidatedCanonicalLir,
     ids: &ProjectionIds,
@@ -766,9 +1095,92 @@ fn project_spatial(
             .expect("projected LaneEdge ID must resolve");
         SpatialEdgeInput::new(edge, points)
     });
-    Ok(Some(SpatialRegistry::try_new(
-        lane_graph, frame_id, inputs,
-    )?))
+    let registry = SpatialRegistry::try_new(lane_graph, frame_id, inputs)?;
+    validate_spatial_precomputes(lir, ids, lane_graph, &registry)?;
+    Ok(Some(registry))
+}
+
+fn validate_spatial_precomputes(
+    lir: &ValidatedCanonicalLir,
+    ids: &ProjectionIds,
+    lane_graph: &LaneGraph,
+    registry: &SpatialRegistry,
+) -> Result<(), ProjectionError> {
+    for edge in lir.lane_edges() {
+        let edge_id = &ids.lane_edges[edge.ordinal().index()];
+        let geometry = edge
+            .spatial_geometry()
+            .expect("complete geometry coverage was checked");
+        let points = geometry.points().collect::<Vec<_>>();
+        let segments = geometry.segments().collect::<Vec<_>>();
+        if segments.len() != points.len().saturating_sub(1) {
+            return Err(precomputed_mismatch(edge_id, "spatialSegments", None));
+        }
+
+        let mut cumulative = 0.0_f32;
+        for (index, (segment, pair)) in segments.iter().zip(points.windows(2)).enumerate() {
+            // 与 current Spatial 从点表建表时相同，只把权威点作为输入；LIR 的 length、
+            // cumulative、tangent 和 up 均不参与重算，因而不能掩盖自身损坏。
+            let delta = [
+                pair[1].x - pair[0].x,
+                pair[1].y - pair[0].y,
+                pair[1].z - pair[0].z,
+            ];
+            let length = delta[0].hypot(delta[1]).hypot(delta[2]);
+            cumulative += length;
+            if segment.length_meters.to_bits() != length.to_bits()
+                || segment.cumulative_end_meters.to_bits() != cumulative.to_bits()
+            {
+                return Err(precomputed_mismatch(
+                    edge_id,
+                    "spatialSegmentLengths",
+                    Some(index),
+                ));
+            }
+        }
+        if geometry.arc_length_meters().to_bits() != cumulative.to_bits() {
+            return Err(precomputed_mismatch(
+                edge_id,
+                "spatialArcLengthMeters",
+                None,
+            ));
+        }
+
+        let edge_handle = lane_graph
+            .edge_handle(edge_id)
+            .expect("projected LaneEdge ID must resolve");
+        let core_length = lane_graph
+            .edge_length(edge_handle)
+            .expect("projected LaneEdge handle must retain its length")
+            .value();
+        let mut cumulative_start = 0.0_f32;
+        for (index, segment) in segments.iter().enumerate() {
+            // 取段内中点而非边界，避免顶点的“出段切向量”规则把相邻段混入比较。
+            let geometry_midpoint = cumulative_start + segment.length_meters * 0.5;
+            let progress = EdgeProgress::try_new(
+                core_length * (f64::from(geometry_midpoint) / f64::from(cumulative)),
+            )?;
+            let pose = registry.sample(edge_handle, progress)?;
+            let tangent = pose.tangent();
+            let up = pose.up();
+            if [
+                tangent.x().to_bits(),
+                tangent.y().to_bits(),
+                tangent.z().to_bits(),
+            ] != segment.tangent.map(f32::to_bits)
+                || [up.x().to_bits(), up.y().to_bits(), up.z().to_bits()]
+                    != segment.up.map(f32::to_bits)
+            {
+                return Err(precomputed_mismatch(
+                    edge_id,
+                    "spatialSegmentBasis",
+                    Some(index),
+                ));
+            }
+            cumulative_start = segment.cumulative_end_meters;
+        }
+    }
+    Ok(())
 }
 
 fn projection_mappings(lir: &ValidatedCanonicalLir, ids: &ProjectionIds) -> Vec<ProjectionMapping> {
