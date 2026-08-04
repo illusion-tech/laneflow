@@ -2,6 +2,10 @@
 
 use std::fmt;
 
+pub use laneflow_static_contract::{
+    CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,
+};
+
 use crate::{SpatialAxis, SpatialError};
 
 /// 标准坐标框架 ID 使用的稳定 ASCII token 模式。
@@ -10,12 +14,6 @@ pub const CANONICAL_FRAME_ID_PATTERN: &str = "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127
 const CANONICAL_FRAME_ID_MAX_LEN: usize = 128;
 const POINT_VALUE_KIND: &str = "CanonicalPoint3F32";
 const VECTOR_VALUE_KIND: &str = "CanonicalVector3F32";
-
-/// canonical frame 中点分量允许的最小值，单位为米。
-pub const CANONICAL_POINT_COMPONENT_MIN_METERS: f32 = -16_384.0;
-
-/// canonical frame 中点分量允许的最大值，单位为米。
-pub const CANONICAL_POINT_COMPONENT_MAX_METERS: f32 = 16_384.0;
 
 /// LaneFlow 标准坐标框架的稳定身份。
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

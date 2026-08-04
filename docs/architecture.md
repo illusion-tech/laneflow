@@ -72,6 +72,7 @@ v0.6 #123 已在 G1 接受引擎无关的空间层（Spatial Layer），#133 已
 
 ```text
 laneflow-spatial -> laneflow-core
+laneflow-spatial -> laneflow-static-contract  (共享静态空间数值边界)
 laneflow-data -> laneflow-spatial  (只在空间包加载与绑定路径)
 引擎适配器 -> laneflow-core / laneflow-spatial / laneflow-data
 laneflow-core -X-> laneflow-spatial

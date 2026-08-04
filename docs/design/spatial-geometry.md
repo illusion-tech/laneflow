@@ -153,7 +153,11 @@ SpatialPackage v0.1
 
 ## 4. LaneFlow 自有空间类型
 
-生产 crate 为 `crates/laneflow-spatial`（package `laneflow-spatial`、lib `laneflow_spatial`），依赖方向固定为 `laneflow-spatial -> laneflow-core`。除 Core path dependency 外不增加生产依赖，Core 不反向依赖 Spatial。
+生产 crate 为 `crates/laneflow-spatial`（package `laneflow-spatial`、lib
+`laneflow_spatial`），依赖方向固定为
+`laneflow-spatial -> laneflow-core + laneflow-static-contract`。中立的
+`laneflow-static-contract` 只提供当前 Spatial、编译器和目标 Runtime 共同解释的数值
+边界；Core 不反向依赖 Spatial。
 
 #133/#135 已固化以下公共类型：
 

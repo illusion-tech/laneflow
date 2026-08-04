@@ -430,6 +430,26 @@ pub struct VehicleProfileInput<'a> {
     pub iidm: IidmVehicleProfileInput,
 }
 
+/// 已量化到规范 `f32` 空间的一点，单位为米。
+///
+/// 构建器会拒绝非有限值和超出 canonical frame 范围的分量，并把带符号零规范化；
+/// 成功后 LIR 只保存 `+0.0`。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanonicalPoint3F32Input {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+/// 一条车道图边在某个规范坐标框架中的显式中心线。
+#[derive(Clone, Copy, Debug)]
+pub struct LaneEdgeGeometryInput<'a> {
+    /// 被完整覆盖的既有车道图边。
+    pub lane_edge: LaneEdgeReference<'a>,
+    /// 按行驶方向排列的量化后规范点；至少包含两点。
+    pub centerline_points: &'a [CanonicalPoint3F32Input],
+}
+
 /// 合成领域专用语言的规范坐标框架声明输入。
 ///
 /// `canonical_frame_key` 对应 SpatialPackage v0.1 的 `frameId`。坐标单位、手性、
@@ -438,6 +458,8 @@ pub struct VehicleProfileInput<'a> {
 pub struct CanonicalFrameInput<'a> {
     /// 来源模块内显式持久化且唯一的规范坐标框架稳定键。
     pub canonical_frame_key: &'a str,
+    /// 由该 frame 拥有的车道图边中心线集合；集合顺序不参与语义。
+    pub lane_edge_geometries: &'a [LaneEdgeGeometryInput<'a>],
 }
 
 /// 静态准入规则可以引用的目标。
@@ -787,6 +809,13 @@ pub(crate) struct VehicleProfileDeclaration {
 /// 已通过字段级检查、等待冻结稳定身份的规范坐标框架 Typed AST 记录。
 pub(crate) struct CanonicalFrameDeclaration {
     pub(crate) header: DeclarationHeader,
+    pub(crate) lane_edge_geometries: Box<[LaneEdgeGeometryDeclaration]>,
+}
+
+/// Typed AST 中已拥有的一条车道图边规范中心线。
+pub(crate) struct LaneEdgeGeometryDeclaration {
+    pub(crate) lane_edge: OwnedEntityReference<LaneEdgeKind>,
+    pub(crate) centerline_points: Box<[CanonicalPoint3F32Input]>,
 }
 
 /// Typed AST 中已拥有的准入目标引用。

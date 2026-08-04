@@ -1,28 +1,13 @@
 //! 量化后折线、长度绑定与确定性采样。
 
 use laneflow_core::{EdgeHandle, EdgeLength, EdgeProgress};
+pub use laneflow_static_contract::{
+    SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS, SPATIAL_JOIN_POSITION_TOLERANCE_METERS,
+    SPATIAL_LENGTH_ABS_TOLERANCE_METERS, SPATIAL_LENGTH_REL_TOLERANCE,
+    SPATIAL_MIN_PROJECTED_UP_LENGTH, SPATIAL_MIN_SEGMENT_LENGTH_METERS,
+};
 
 use crate::{CanonicalPoint3F32, CanonicalUnitVector3F32, CanonicalVector3F32, SpatialError};
-
-/// 中心线线段允许的最小长度，单位为米；有效线段必须严格大于该值。
-pub const SPATIAL_MIN_SEGMENT_LENGTH_METERS: f32 = 0.1;
-
-/// Core 长度与几何弧长绑定的绝对容差下限，单位为米。
-pub const SPATIAL_LENGTH_ABS_TOLERANCE_METERS: f64 = 0.01;
-
-/// Core 长度与几何弧长绑定的相对容差系数。
-pub const SPATIAL_LENGTH_REL_TOLERANCE: f64 = 1.0e-6;
-
-/// current-f64 Core edge length 的量化余量，单位为米。
-pub const SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS: f64 = 0.0;
-
-/// 已连接 edge 端点允许的最大距离，单位为米。
-pub const SPATIAL_JOIN_POSITION_TOLERANCE_METERS: f32 = 0.005;
-
-/// canonical `+Y` 投影长度允许的最小值；等于该值时有效。
-///
-/// 该值是 `sin(0.5°)` 的 `f32` 冻结值。
-pub const SPATIAL_MIN_PROJECTED_UP_LENGTH: f32 = 0.008_726_535;
 
 /// 一条 Core edge 及其借用的量化后 canonical 中心线输入。
 #[derive(Clone, Copy, Debug, PartialEq)]

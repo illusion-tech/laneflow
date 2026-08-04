@@ -70,6 +70,9 @@ const LIR_PARKING_SPACE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + (4 + 8) * 2 + 
 const LIR_PARTICIPANT_CLASS_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + 4 + 4 + 4;
 const LIR_VEHICLE_PROFILE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 * 7;
 const LIR_CANONICAL_FRAME_LOGICAL_BYTES: u64 = 4 + 16 + 8;
+const LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES: u64 = 4 + 8 + 8 + 4;
+const LIR_CANONICAL_POINT_LOGICAL_BYTES: u64 = 4 * 3;
+const LIR_SPATIAL_SEGMENT_LOGICAL_BYTES: u64 = 4 * 8;
 // target 按 tag+ordinal 计；可选 regulation 按 presence、两个必需字符串区间和一个
 // 可选来源区间的最大形状计。实际 UTF-8 内容在下方按字节数另行累加。
 const LIR_ACCESS_RULE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + (2 + 4) + 1 + 8 + (1 + 4 + 4 + 1 + 4) + 4;
@@ -296,6 +299,29 @@ pub(crate) struct LirCanonicalFrame {
     pub(crate) identity_fields: TableRange<LirIdentityField>,
 }
 
+/// 与 `LaneEdgeOrdinal` 同下标对齐的规范空间几何。
+pub(crate) struct LirLaneEdgeGeometry {
+    pub(crate) canonical_frame: CanonicalFrameOrdinal,
+    pub(crate) points: TableRange<LirCanonicalPoint3F32>,
+    pub(crate) segments: TableRange<LirSpatialSegment>,
+    pub(crate) arc_length_meters: f32,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct LirCanonicalPoint3F32 {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) z: f32,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct LirSpatialSegment {
+    pub(crate) length_meters: f32,
+    pub(crate) cumulative_end_meters: f32,
+    pub(crate) tangent: [f32; 3],
+    pub(crate) up: [f32; 3],
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum LirAccessTarget {
     LaneEdge(LaneEdgeOrdinal),
@@ -428,6 +454,9 @@ pub(crate) struct LirUnit {
     pub(crate) participant_classes: Box<[LirParticipantClass]>,
     pub(crate) vehicle_profiles: Box<[LirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[LirCanonicalFrame]>,
+    pub(crate) lane_edge_geometries: Box<[LirLaneEdgeGeometry]>,
+    pub(crate) canonical_points: Box<[LirCanonicalPoint3F32]>,
+    pub(crate) spatial_segments: Box<[LirSpatialSegment]>,
     pub(crate) access_rules: Box<[LirAccessRule]>,
     pub(crate) access_rule_participant_classes: Box<[ParticipantClassOrdinal]>,
     pub(crate) static_routes: Box<[LirStaticRoute]>,
@@ -681,6 +710,9 @@ pub(crate) fn freeze_lir(
     let participant_class_count = u64::try_from(mir.participant_classes.len()).unwrap_or(u64::MAX);
     let vehicle_profile_count = u64::try_from(mir.vehicle_profiles.len()).unwrap_or(u64::MAX);
     let canonical_frame_count = u64::try_from(mir.canonical_frames.len()).unwrap_or(u64::MAX);
+    let spatial_geometry_count = u64::try_from(mir.lane_edge_geometries.len()).unwrap_or(u64::MAX);
+    let canonical_point_count = u64::try_from(mir.canonical_points.len()).unwrap_or(u64::MAX);
+    let spatial_segment_count = u64::try_from(mir.spatial_segments.len()).unwrap_or(u64::MAX);
     let access_rule_count = u64::try_from(mir.access_rules.len()).unwrap_or(u64::MAX);
     let access_rule_class_count =
         u64::try_from(mir.access_rule_participant_classes.len()).unwrap_or(u64::MAX);
@@ -742,6 +774,9 @@ pub(crate) fn freeze_lir(
         participant_class_count,
         vehicle_profile_count,
         canonical_frame_count,
+        spatial_geometry_count,
+        canonical_point_count,
+        spatial_segment_count,
         access_rule_count,
         access_rule_class_count,
         waiting_zone_count,
@@ -837,6 +872,7 @@ pub(crate) fn freeze_lir(
                 .saturating_mul(2),
         ))
         .saturating_add(requested_bytes::<u32>(junction_internal_edge_count))
+        .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
         // 四类反向索引先以 `(targetOrdinal, occurrence)` 排序，再复制进最终连续表；
         // 最终表已计入 output-owned bytes，这里只补临时排序对。
         .saturating_add(requested_bytes::<(u32, LirRouteOccurrenceRef)>(
@@ -889,6 +925,9 @@ pub(crate) fn freeze_lir(
         .saturating_add(participant_class_count.saturating_mul(LIR_PARTICIPANT_CLASS_LOGICAL_BYTES))
         .saturating_add(vehicle_profile_count.saturating_mul(LIR_VEHICLE_PROFILE_LOGICAL_BYTES))
         .saturating_add(canonical_frame_count.saturating_mul(LIR_CANONICAL_FRAME_LOGICAL_BYTES))
+        .saturating_add(spatial_geometry_count.saturating_mul(LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES))
+        .saturating_add(canonical_point_count.saturating_mul(LIR_CANONICAL_POINT_LOGICAL_BYTES))
+        .saturating_add(spatial_segment_count.saturating_mul(LIR_SPATIAL_SEGMENT_LOGICAL_BYTES))
         .saturating_add(access_rule_count.saturating_mul(LIR_ACCESS_RULE_LOGICAL_BYTES))
         .saturating_add(access_rule_class_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(access_regulation_byte_count)
@@ -969,6 +1008,13 @@ pub(crate) fn freeze_lir(
         ))
         .saturating_add(requested_bytes::<LirVehicleProfile>(vehicle_profile_count))
         .saturating_add(requested_bytes::<LirCanonicalFrame>(canonical_frame_count))
+        .saturating_add(requested_bytes::<LirLaneEdgeGeometry>(
+            spatial_geometry_count,
+        ))
+        .saturating_add(requested_bytes::<LirCanonicalPoint3F32>(
+            canonical_point_count,
+        ))
+        .saturating_add(requested_bytes::<LirSpatialSegment>(spatial_segment_count))
         .saturating_add(requested_bytes::<LirAccessRule>(access_rule_count))
         .saturating_add(requested_bytes::<ParticipantClassOrdinal>(
             access_rule_class_count,
@@ -2537,6 +2583,59 @@ pub(crate) fn freeze_lir(
         });
     }
 
+    // HIR 已证明“空间存在时每条 LaneEdge 恰好一条几何”。冻结阶段只按最终
+    // LaneEdgeOrdinal 重排，并保持每条中心线内部的点/线段顺序。
+    let mut mir_edge_to_geometry = vec![None; mir.lane_edges.len()];
+    for (index, geometry) in mir.lane_edge_geometries.iter().enumerate() {
+        debug_assert!(mir_edge_to_geometry[geometry.lane_edge.index()].is_none());
+        mir_edge_to_geometry[geometry.lane_edge.index()] = Some(index);
+    }
+    let mut lane_edge_geometries = Vec::with_capacity(mir.lane_edge_geometries.len());
+    let mut canonical_points = Vec::with_capacity(mir.canonical_points.len());
+    let mut spatial_segments = Vec::with_capacity(mir.spatial_segments.len());
+    for mir_edge in canonical_order.iter().copied() {
+        let Some(geometry_index) = mir_edge_to_geometry[mir_edge.index()] else {
+            debug_assert!(mir.lane_edge_geometries.is_empty());
+            continue;
+        };
+        let geometry = &mir.lane_edge_geometries[geometry_index];
+        let point_start = canonical_points.len();
+        canonical_points.extend(
+            mir.canonical_points[geometry.points.as_usize_range()]
+                .iter()
+                .map(|point| LirCanonicalPoint3F32 {
+                    x: point.x,
+                    y: point.y,
+                    z: point.z,
+                }),
+        );
+        let segment_start = spatial_segments.len();
+        spatial_segments.extend(
+            mir.spatial_segments[geometry.segments.as_usize_range()]
+                .iter()
+                .map(|segment| LirSpatialSegment {
+                    length_meters: segment.length_meters,
+                    cumulative_end_meters: segment.cumulative_end_meters,
+                    tangent: segment.tangent,
+                    up: segment.up,
+                }),
+        );
+        lane_edge_geometries.push(LirLaneEdgeGeometry {
+            canonical_frame: mir_canonical_frame_to_lir[geometry.canonical_frame.index()],
+            points: TableRange::try_from_usize(
+                point_start,
+                canonical_points.len().saturating_sub(point_start),
+            )
+            .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
+            segments: TableRange::try_from_usize(
+                segment_start,
+                spatial_segments.len().saturating_sub(segment_start),
+            )
+            .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?,
+            arc_length_meters: geometry.arc_length_meters,
+        });
+    }
+
     let mut access_rules = Vec::with_capacity(mir.access_rules.len());
     let mut access_rule_participant_classes =
         Vec::with_capacity(mir.access_rule_participant_classes.len());
@@ -2842,6 +2941,9 @@ pub(crate) fn freeze_lir(
         &participant_classes,
         &vehicle_profiles,
         &canonical_frames,
+        &lane_edge_geometries,
+        &canonical_points,
+        &spatial_segments,
         &access_rules,
         &access_rule_participant_classes,
         &static_routes,
@@ -2892,6 +2994,9 @@ pub(crate) fn freeze_lir(
             participant_classes: participant_classes.into_boxed_slice(),
             vehicle_profiles: vehicle_profiles.into_boxed_slice(),
             canonical_frames: canonical_frames.into_boxed_slice(),
+            lane_edge_geometries: lane_edge_geometries.into_boxed_slice(),
+            canonical_points: canonical_points.into_boxed_slice(),
+            spatial_segments: spatial_segments.into_boxed_slice(),
             access_rules: access_rules.into_boxed_slice(),
             access_rule_participant_classes: access_rule_participant_classes.into_boxed_slice(),
             static_routes: static_routes.into_boxed_slice(),
@@ -3315,6 +3420,9 @@ fn semantic_digest(
     participant_classes: &[LirParticipantClass],
     vehicle_profiles: &[LirVehicleProfile],
     canonical_frames: &[LirCanonicalFrame],
+    lane_edge_geometries: &[LirLaneEdgeGeometry],
+    canonical_points: &[LirCanonicalPoint3F32],
+    spatial_segments: &[LirSpatialSegment],
     access_rules: &[LirAccessRule],
     access_rule_participant_classes: &[ParticipantClassOrdinal],
     static_routes: &[LirStaticRoute],
@@ -3763,6 +3871,30 @@ fn semantic_digest(
             identity_fields,
             identity_field_bytes,
         );
+    }
+    hash_u32(
+        &mut hasher,
+        lane_edge_geometries.len().try_into().unwrap_or(u32::MAX),
+    );
+    for geometry in lane_edge_geometries {
+        hash_u32(&mut hasher, geometry.canonical_frame.raw());
+        hasher.update(&geometry.arc_length_meters.to_bits().to_le_bytes());
+        hash_u32(&mut hasher, geometry.points.len());
+        for point in &canonical_points[geometry.points.as_usize_range()] {
+            for component in [point.x, point.y, point.z] {
+                hasher.update(&component.to_bits().to_le_bytes());
+            }
+        }
+        hash_u32(&mut hasher, geometry.segments.len());
+        for segment in &spatial_segments[geometry.segments.as_usize_range()] {
+            for value in [segment.length_meters, segment.cumulative_end_meters]
+                .into_iter()
+                .chain(segment.tangent)
+                .chain(segment.up)
+            {
+                hasher.update(&value.to_bits().to_le_bytes());
+            }
+        }
     }
     hash_u32(&mut hasher, EntityKind::AccessRule.code().into());
     hash_u32(

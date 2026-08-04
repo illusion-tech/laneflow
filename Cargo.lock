@@ -3245,6 +3245,7 @@ version = "0.0.0"
 dependencies = [
  "criterion",
  "laneflow-core",
+ "laneflow-static-contract",
  "proptest",
  "stats_alloc",
 ]
