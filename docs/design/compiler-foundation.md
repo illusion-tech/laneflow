@@ -30,9 +30,11 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 并在运行时之前拒绝继承环、无类别规则、法规来源不一致和相反效果的精确并列。
 FacilityBand target 继续由结构化能力门卫（capability guard）失败关闭，时变窗口尚未
 进入合成领域声明。`StaticRoute` 已保留显式有序边出现项，并预编译相邻边门、
-机动路径、机动门、等待区出现项和反向索引。公共 `Compiler`
+机动路径、机动门、等待区出现项和反向索引。当前道路机动车的 `VehicleProfile` 已按
+current Core IIDM `f64` 数值约束接入，唯一引用一个 `ParticipantClass`，并冻结身份、
+参数、语义摘要与来源关系；它不构成其他交通执行域的通用参数基类。公共 `Compiler`
 已经原子返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`；首批支持矩阵
-中的车辆配置、动态路线生命周期和空间等其余领域及后继编译遍尚未实现。
+中的动态路线生命周期、空间等其余领域及后继编译遍尚未实现。
 #292 G1 已
 接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /

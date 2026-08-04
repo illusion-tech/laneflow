@@ -14,7 +14,7 @@ use laneflow_static_contract::{
     AccessEffect, AccessRuleId, AuthoringLaneId, FacilityBandId, JunctionId, LaneEdgeId,
     LaneGroupId, ManeuverGateId, ManeuverPathId, MovementId, ParkingAreaId, ParkingSpaceId,
     ParticipantClassId, RoadCorridorId, RoadSectionId, SignalAspect, SignalControllerId,
-    SignalGroupId, SignalPhaseId, StaticRouteId, StopLineId, WaitingZoneId,
+    SignalGroupId, SignalPhaseId, StaticRouteId, StopLineId, VehicleProfileId, WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
@@ -45,6 +45,7 @@ pub(crate) enum MirSignalPhaseTag {}
 pub(crate) enum MirParkingAreaTag {}
 pub(crate) enum MirParkingSpaceTag {}
 pub(crate) enum MirParticipantClassTag {}
+pub(crate) enum MirVehicleProfileTag {}
 pub(crate) enum MirAccessRuleTag {}
 
 /// 仅在当前 `MirUnit` 模块表内有效的致密键。
@@ -69,6 +70,7 @@ pub(crate) type MirSignalPhaseKey = ArenaKey<MirSignalPhaseTag>;
 pub(crate) type MirParkingAreaKey = ArenaKey<MirParkingAreaTag>;
 pub(crate) type MirParkingSpaceKey = ArenaKey<MirParkingSpaceTag>;
 pub(crate) type MirParticipantClassKey = ArenaKey<MirParticipantClassTag>;
+pub(crate) type MirVehicleProfileKey = ArenaKey<MirVehicleProfileTag>;
 pub(crate) type MirAccessRuleKey = ArenaKey<MirAccessRuleTag>;
 
 /// MIR 中保留的模块身份与来源上下文。
@@ -344,6 +346,22 @@ pub(crate) struct MirParticipantClass {
     pub(crate) source_span: SourceSpan,
 }
 
+pub(crate) struct MirVehicleProfile {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: VehicleProfileId,
+    pub(crate) participant_class: MirParticipantClassKey,
+    pub(crate) participant_class_source_span: SourceSpan,
+    pub(crate) length_meters: f64,
+    pub(crate) desired_speed_meters_per_second: f64,
+    pub(crate) min_gap_meters: f64,
+    pub(crate) time_headway_seconds: f64,
+    pub(crate) max_acceleration_meters_per_second_squared: f64,
+    pub(crate) comfortable_deceleration_meters_per_second_squared: f64,
+    pub(crate) emergency_deceleration_meters_per_second_squared: f64,
+    pub(crate) source_span: SourceSpan,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum MirAccessTarget {
     LaneEdge(MirLaneEdgeKey),
@@ -481,6 +499,7 @@ pub(crate) struct MirUnit {
     pub(crate) parking_spaces: Box<[MirParkingSpace]>,
     pub(crate) parking_area_spaces: Box<[MirParkingAreaSpace]>,
     pub(crate) participant_classes: Box<[MirParticipantClass]>,
+    pub(crate) vehicle_profiles: Box<[MirVehicleProfile]>,
     pub(crate) access_rules: Box<[MirAccessRule]>,
     pub(crate) access_rule_participant_classes: Box<[MirAccessRuleParticipantClass]>,
     pub(crate) static_routes: Box<[MirStaticRoute]>,
@@ -584,6 +603,7 @@ pub(crate) fn lower_to_mir(
     });
     let access_record_count = [
         hir.participant_classes.len(),
+        hir.vehicle_profiles.len(),
         hir.access_rules.len(),
         hir.access_rule_participant_classes.len(),
     ]
@@ -632,6 +652,7 @@ pub(crate) fn lower_to_mir(
         .saturating_add(requested_bytes::<u32>(
             u64::try_from(hir.participant_classes.len())
                 .unwrap_or(u64::MAX)
+                .saturating_add(u64::try_from(hir.vehicle_profiles.len()).unwrap_or(u64::MAX))
                 .saturating_add(u64::try_from(hir.access_rules.len()).unwrap_or(u64::MAX)),
         ));
     let mir_owned_bytes = requested_bytes::<MirModule>(module_count)
@@ -750,6 +771,9 @@ pub(crate) fn lower_to_mir(
         ))
         .saturating_add(requested_bytes::<MirParticipantClass>(
             hir.participant_classes.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirVehicleProfile>(
+            hir.vehicle_profiles.len().try_into().unwrap_or(u64::MAX),
         ))
         .saturating_add(requested_bytes::<MirAccessRule>(
             hir.access_rules.len().try_into().unwrap_or(u64::MAX),
@@ -1291,6 +1315,31 @@ pub(crate) fn lower_to_mir(
             source_span: participant_class.source_span.clone(),
         })
         .collect::<Vec<_>>();
+    let vehicle_profile_mapping =
+        dense_mapping::<MirVehicleProfileTag>(hir.vehicle_profiles.len())?;
+    let vehicle_profiles = hir
+        .vehicle_profiles
+        .iter()
+        .map(|profile| MirVehicleProfile {
+            module: hir_module_to_mir[profile.module.index()],
+            stable_key: Arc::clone(&profile.stable_key),
+            stable_id: profile.stable_id,
+            participant_class: participant_class_mapping[profile.participant_class.index()],
+            participant_class_source_span: profile.participant_class_source_span.clone(),
+            length_meters: profile.length_meters,
+            desired_speed_meters_per_second: profile.desired_speed_meters_per_second,
+            min_gap_meters: profile.min_gap_meters,
+            time_headway_seconds: profile.time_headway_seconds,
+            max_acceleration_meters_per_second_squared: profile
+                .max_acceleration_meters_per_second_squared,
+            comfortable_deceleration_meters_per_second_squared: profile
+                .comfortable_deceleration_meters_per_second_squared,
+            emergency_deceleration_meters_per_second_squared: profile
+                .emergency_deceleration_meters_per_second_squared,
+            source_span: profile.source_span.clone(),
+        })
+        .collect::<Vec<_>>();
+    debug_assert_eq!(vehicle_profile_mapping.len(), vehicle_profiles.len());
     let access_rule_mapping = dense_mapping::<MirAccessRuleTag>(hir.access_rules.len())?;
     let access_rules = hir
         .access_rules
@@ -1482,6 +1531,7 @@ pub(crate) fn lower_to_mir(
         parking_spaces: parking_spaces.into_boxed_slice(),
         parking_area_spaces: parking_area_spaces.into_boxed_slice(),
         participant_classes: participant_classes.into_boxed_slice(),
+        vehicle_profiles: vehicle_profiles.into_boxed_slice(),
         access_rules: access_rules.into_boxed_slice(),
         access_rule_participant_classes: access_rule_participant_classes.into_boxed_slice(),
         static_routes: static_routes.into_boxed_slice(),

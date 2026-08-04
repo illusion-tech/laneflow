@@ -44,6 +44,12 @@ pub const MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS: f64 = 1.0e-9;
 /// 停车位长度和宽度必须严格大于的距离，单位为米。
 pub const MIN_PARKING_EXTENT_EXCLUSIVE_METERS: f64 = 1.0e-9;
 
+/// 当前道路机动车 `VehicleProfile` 长度必须严格大于的距离，单位为米。
+///
+/// 编译器以此显式保留与 current Core 已接受契约相同的输入边界；后继目标运行时也应
+/// 消费该常量，避免形成另一种“最短合法车辆”定义。
+pub const MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS: f64 = 1.0e-9;
+
 /// 停车位朝向偏移的包含下界，单位为弧度。
 pub const PARKING_HEADING_OFFSET_MINIMUM_RADIANS: f64 = -core::f64::consts::PI;
 

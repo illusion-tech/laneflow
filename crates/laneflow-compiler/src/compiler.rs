@@ -14,7 +14,8 @@ use laneflow_static_contract::{
     ParticipantClassOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
     RoadSectionOrdinal, SignalAspect, SignalControllerId, SignalControllerOrdinal, SignalGroupId,
     SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal,
-    StopLineId, StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
+    StopLineId, StopLineOrdinal, VehicleProfileId, VehicleProfileOrdinal, WaitingZoneId,
+    WaitingZoneOrdinal,
 };
 
 use crate::hir::build_hir;
@@ -24,7 +25,7 @@ use crate::lir::{
     LirLaneGroup, LirManeuverGate, LirManeuverOccurrence, LirManeuverPath, LirMovement,
     LirParkingArea, LirParkingSpace, LirParticipantClass, LirRoadCorridor, LirRoadSection,
     LirRouteOccurrenceRef, LirSignalControl, LirSignalController, LirSignalGroup, LirSignalPhase,
-    LirSignalPhaseState, LirStaticRoute, LirStopLine, LirUnit, LirWaitingZone,
+    LirSignalPhaseState, LirStaticRoute, LirStopLine, LirUnit, LirVehicleProfile, LirWaitingZone,
     LirWaitingZoneOccurrence, freeze_lir,
 };
 use crate::mir::lower_to_mir;
@@ -499,6 +500,34 @@ impl ValidatedCanonicalLir {
             })
     }
 
+    /// 按完整 Identity v1 前像规范顺序遍历全部车辆配置。
+    pub fn vehicle_profiles(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalVehicleProfileView<'_>> {
+        self.inner
+            .vehicle_profiles
+            .iter()
+            .map(|record| CanonicalVehicleProfileView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取车辆配置。
+    #[must_use]
+    pub fn vehicle_profile(
+        &self,
+        ordinal: VehicleProfileOrdinal,
+    ) -> Option<CanonicalVehicleProfileView<'_>> {
+        self.inner
+            .vehicle_profiles
+            .get(ordinal.index())
+            .map(|record| CanonicalVehicleProfileView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
     /// 按完整 Identity v1 前像规范顺序遍历全部静态准入规则。
     pub fn access_rules(&self) -> impl ExactSizeIterator<Item = CanonicalAccessRuleView<'_>> {
         self.inner
@@ -769,6 +798,12 @@ impl_stable_entity_view!(
     LirParticipantClass,
     ParticipantClassOrdinal,
     ParticipantClassId
+);
+impl_stable_entity_view!(
+    CanonicalVehicleProfileView,
+    LirVehicleProfile,
+    VehicleProfileOrdinal,
+    VehicleProfileId
 );
 impl_stable_entity_view!(
     CanonicalAccessRuleView,
@@ -1282,6 +1317,57 @@ impl CanonicalParticipantClassView<'_> {
     }
 }
 
+impl CanonicalVehicleProfileView<'_> {
+    /// 返回该车辆配置唯一引用的参与者类别。
+    #[must_use]
+    pub const fn participant_class(&self) -> ParticipantClassOrdinal {
+        self.record.participant_class
+    }
+
+    /// 返回车辆长度，单位为米。
+    #[must_use]
+    pub const fn length_meters(&self) -> f64 {
+        self.record.length_meters
+    }
+
+    /// 返回自由流期望速度，单位为米每秒。
+    #[must_use]
+    pub const fn desired_speed_meters_per_second(&self) -> f64 {
+        self.record.desired_speed_meters_per_second
+    }
+
+    /// 返回行为最小间距，单位为米。
+    #[must_use]
+    pub const fn min_gap_meters(&self) -> f64 {
+        self.record.min_gap_meters
+    }
+
+    /// 返回期望时间间隔，单位为秒。
+    #[must_use]
+    pub const fn time_headway_seconds(&self) -> f64 {
+        self.record.time_headway_seconds
+    }
+
+    /// 返回最大舒适加速度，单位为米每二次方秒。
+    #[must_use]
+    pub const fn max_acceleration_meters_per_second_squared(&self) -> f64 {
+        self.record.max_acceleration_meters_per_second_squared
+    }
+
+    /// 返回舒适减速度幅值，单位为米每二次方秒。
+    #[must_use]
+    pub const fn comfortable_deceleration_meters_per_second_squared(&self) -> f64 {
+        self.record
+            .comfortable_deceleration_meters_per_second_squared
+    }
+
+    /// 返回紧急减速度幅值，单位为米每二次方秒。
+    #[must_use]
+    pub const fn emergency_deceleration_meters_per_second_squared(&self) -> f64 {
+        self.record.emergency_deceleration_meters_per_second_squared
+    }
+}
+
 /// Canonical LIR 中一条准入规则的有类型静态目标。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -1716,16 +1802,17 @@ mod tests {
         AccessCapability, AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput,
         AuthoringLaneInput, CompilationUnitBuilder, CompileLimitDimension, CompileLimits,
         CorridorElementReference, DiagnosticCode, DiagnosticPayload, FacilityBandInput,
-        FacilityBandReference, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
-        LaneGroupInput, LaneGroupReference, ManeuverGateInput, ManeuverGateReference,
-        ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
-        ParkingAreaInput, ParkingAreaReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput,
-        ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference, RoadCorridorInput,
-        RoadSectionInput, RoadSectionReference, SignalControlInput, SignalControllerInput,
-        SignalGroupInput, SignalGroupReference, SignalGroupStateInput, SignalPhaseInput,
-        SourceModuleDescriptor, SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole,
-        StaticRouteInput, StopLineInput, StopLineReference, SyntheticModule,
-        SyntheticModuleBuilder, WaitingZoneInput,
+        FacilityBandReference, IidmVehicleProfileInput, JunctionInput, JunctionReference,
+        LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference, ManeuverGateInput,
+        ManeuverGateReference, ManeuverPathInput, ManeuverPathReference, MovementInput,
+        MovementReference, ParkingAreaInput, ParkingAreaReference, ParkingLaneAnchorInput,
+        ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput,
+        ParticipantClassReference, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
+        SignalControlInput, SignalControllerInput, SignalGroupInput, SignalGroupReference,
+        SignalGroupStateInput, SignalPhaseInput, SourceModuleDescriptor, SourceModuleHeader,
+        SourceModuleHeaderInput, SourceRelationRole, StaticRouteInput, StopLineInput,
+        StopLineReference, SyntheticModule, SyntheticModuleBuilder, VehicleProfileInput,
+        WaitingZoneInput,
     };
 
     fn module(
@@ -2382,6 +2469,18 @@ mod tests {
             })
             .unwrap();
         builder
+    }
+
+    fn canonical_iidm_profile() -> IidmVehicleProfileInput {
+        IidmVehicleProfileInput {
+            length_meters: 4.5,
+            desired_speed_meters_per_second: 13.75,
+            min_gap_meters: 2.0,
+            time_headway_seconds: 1.4,
+            max_acceleration_meters_per_second_squared: 1.8,
+            comfortable_deceleration_meters_per_second_squared: 2.0,
+            emergency_deceleration_meters_per_second_squared: 4.5,
+        }
     }
 
     fn access_semantics_module(permuted: bool) -> SyntheticModule {
@@ -4651,6 +4750,127 @@ mod tests {
             4
         );
         assert!(!codes.contains(&DiagnosticCode::OrphanParkingArea));
+    }
+
+    #[test]
+    fn compiler_freezes_vehicle_profile_values_identity_and_class_source() {
+        let mut builder = access_builder("vehicle-profile.document");
+        builder
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "passenger-car",
+                extends: None,
+            })
+            .unwrap()
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "standard-car",
+                participant_class: ParticipantClassReference::local("passenger-car"),
+                iidm: canonical_iidm_profile(),
+            })
+            .unwrap();
+
+        let output = Compiler::new()
+            .compile(unit([builder.finish().unwrap()]))
+            .unwrap();
+        let profile = output.lir().vehicle_profiles().next().unwrap();
+        assert_eq!(
+            stable_key(profile.identity_fields(), FieldTag::VehicleProfileKey),
+            "standard-car"
+        );
+        assert_eq!(profile.length_meters(), 4.5);
+        assert_eq!(profile.desired_speed_meters_per_second(), 13.75);
+        assert_eq!(profile.min_gap_meters(), 2.0);
+        assert_eq!(profile.time_headway_seconds(), 1.4);
+        assert_eq!(profile.max_acceleration_meters_per_second_squared(), 1.8);
+        assert_eq!(
+            profile.comfortable_deceleration_meters_per_second_squared(),
+            2.0
+        );
+        assert_eq!(
+            profile.emergency_deceleration_meters_per_second_squared(),
+            4.5
+        );
+        assert_eq!(
+            output
+                .lir()
+                .participant_class(profile.participant_class())
+                .unwrap()
+                .ordinal(),
+            profile.participant_class()
+        );
+        assert_eq!(output.source_map_input().vehicle_profile_sources().len(), 1);
+        let relation = output
+            .source_map_input()
+            .access_relation_sources()
+            .find(|source| source.role() == SourceRelationRole::VehicleProfileParticipantClass)
+            .unwrap();
+        assert!(matches!(
+            relation.owner(),
+            crate::AccessRelationOwner::VehicleProfile(ordinal, stable_id)
+                if ordinal == profile.ordinal() && stable_id == profile.stable_id()
+        ));
+    }
+
+    #[test]
+    fn vehicle_profile_frontend_rejects_invalid_scalars_and_deceleration_order() {
+        let mut invalid_scalar = access_builder("vehicle-profile-invalid-scalar.document");
+        invalid_scalar
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "car",
+                extends: None,
+            })
+            .unwrap();
+        let mut iidm = canonical_iidm_profile();
+        iidm.min_gap_meters = -0.1;
+        let diagnostics = match invalid_scalar.add_vehicle_profile(VehicleProfileInput {
+            vehicle_profile_key: "invalid-gap",
+            participant_class: ParticipantClassReference::local("car"),
+            iidm,
+        }) {
+            Ok(_) => panic!("negative minGap must fail"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert_eq!(
+            diagnostics.diagnostics()[0].code(),
+            DiagnosticCode::InvalidVehicleProfileValue
+        );
+
+        let mut invalid_order = access_builder("vehicle-profile-invalid-order.document");
+        invalid_order
+            .add_participant_class(ParticipantClassInput {
+                participant_class_key: "car",
+                extends: None,
+            })
+            .unwrap();
+        let mut iidm = canonical_iidm_profile();
+        iidm.emergency_deceleration_meters_per_second_squared = 1.0;
+        let diagnostics = match invalid_order.add_vehicle_profile(VehicleProfileInput {
+            vehicle_profile_key: "invalid-order",
+            participant_class: ParticipantClassReference::local("car"),
+            iidm,
+        }) {
+            Ok(_) => panic!("invalid deceleration order must fail"),
+            Err(diagnostics) => diagnostics,
+        };
+        assert_eq!(
+            diagnostics.diagnostics()[0].code(),
+            DiagnosticCode::InvalidVehicleProfileDecelerationOrder
+        );
+    }
+
+    #[test]
+    fn vehicle_profile_unknown_participant_class_fails_during_hir_resolution() {
+        let mut builder = access_builder("vehicle-profile-unknown-class.document");
+        builder
+            .add_vehicle_profile(VehicleProfileInput {
+                vehicle_profile_key: "standard-car",
+                participant_class: ParticipantClassReference::local("missing"),
+                iidm: canonical_iidm_profile(),
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(builder),
+            [DiagnosticCode::UnknownReferenceTarget]
+        );
     }
 
     #[test]

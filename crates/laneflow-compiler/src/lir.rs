@@ -20,7 +20,8 @@ use laneflow_static_contract::{
     ParticipantClassOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
     RoadSectionOrdinal, SignalAspect, SignalControllerId, SignalControllerOrdinal, SignalGroupId,
     SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal,
-    StopLineId, StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
+    StopLineId, StopLineOrdinal, VehicleProfileId, VehicleProfileOrdinal, WaitingZoneId,
+    WaitingZoneOrdinal,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange};
@@ -31,7 +32,7 @@ use crate::mir::{
     MirMovementKey, MirParkingAreaKey, MirParkingSpaceKey, MirParticipantClassKey,
     MirRoadCorridorKey, MirRoadSectionKey, MirSignalControl, MirSignalControllerKey,
     MirSignalGroupKey, MirSignalPhaseKey, MirStaticRouteKey, MirStopLineKey, MirUnit,
-    MirWaitingZoneKey,
+    MirVehicleProfileKey, MirWaitingZoneKey,
 };
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
@@ -67,6 +68,7 @@ const LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES: u64 = 4 + 1;
 const LIR_PARKING_AREA_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8;
 const LIR_PARKING_SPACE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + (4 + 8) * 2 + 8 * 4;
 const LIR_PARTICIPANT_CLASS_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + 4 + 4 + 4;
+const LIR_VEHICLE_PROFILE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 * 7;
 // target 按 tag+ordinal 计；可选 regulation 按 presence、两个必需字符串区间和一个
 // 可选来源区间的最大形状计。实际 UTF-8 内容在下方按字节数另行累加。
 const LIR_ACCESS_RULE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + (2 + 4) + 1 + 8 + (1 + 4 + 4 + 1 + 4) + 4;
@@ -273,6 +275,20 @@ pub(crate) struct LirParticipantClass {
     pub(crate) subtree_exit: u32,
 }
 
+pub(crate) struct LirVehicleProfile {
+    pub(crate) ordinal: VehicleProfileOrdinal,
+    pub(crate) stable_id: VehicleProfileId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) participant_class: ParticipantClassOrdinal,
+    pub(crate) length_meters: f64,
+    pub(crate) desired_speed_meters_per_second: f64,
+    pub(crate) min_gap_meters: f64,
+    pub(crate) time_headway_seconds: f64,
+    pub(crate) max_acceleration_meters_per_second_squared: f64,
+    pub(crate) comfortable_deceleration_meters_per_second_squared: f64,
+    pub(crate) emergency_deceleration_meters_per_second_squared: f64,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum LirAccessTarget {
     LaneEdge(LaneEdgeOrdinal),
@@ -403,6 +419,7 @@ pub(crate) struct LirUnit {
     pub(crate) parking_spaces: Box<[LirParkingSpace]>,
     pub(crate) parking_area_spaces: Box<[ParkingSpaceOrdinal]>,
     pub(crate) participant_classes: Box<[LirParticipantClass]>,
+    pub(crate) vehicle_profiles: Box<[LirVehicleProfile]>,
     pub(crate) access_rules: Box<[LirAccessRule]>,
     pub(crate) access_rule_participant_classes: Box<[ParticipantClassOrdinal]>,
     pub(crate) static_routes: Box<[LirStaticRoute]>,
@@ -468,6 +485,8 @@ pub(crate) struct LirFreezeOutput {
     pub(crate) mir_parking_space_to_lir: Box<[ParkingSpaceOrdinal]>,
     pub(crate) canonical_mir_participant_class_order: Box<[MirParticipantClassKey]>,
     pub(crate) mir_participant_class_to_lir: Box<[ParticipantClassOrdinal]>,
+    pub(crate) canonical_mir_vehicle_profile_order: Box<[MirVehicleProfileKey]>,
+    pub(crate) mir_vehicle_profile_to_lir: Box<[VehicleProfileOrdinal]>,
     pub(crate) canonical_mir_access_rule_order: Box<[MirAccessRuleKey]>,
     pub(crate) mir_access_rule_to_lir: Box<[AccessRuleOrdinal]>,
     pub(crate) canonical_mir_static_route_order: Box<[MirStaticRouteKey]>,
@@ -576,6 +595,13 @@ impl LirFreezeOutput {
             self.canonical_mir_participant_class_order.len(),
             self.mir_participant_class_to_lir.len(),
         ))
+        .saturating_add(mapping_pair_bytes::<
+            MirVehicleProfileKey,
+            VehicleProfileOrdinal,
+        >(
+            self.canonical_mir_vehicle_profile_order.len(),
+            self.mir_vehicle_profile_to_lir.len(),
+        ))
         .saturating_add(mapping_pair_bytes::<MirAccessRuleKey, AccessRuleOrdinal>(
             self.canonical_mir_access_rule_order.len(),
             self.mir_access_rule_to_lir.len(),
@@ -636,6 +662,7 @@ pub(crate) fn freeze_lir(
     let parking_space_count = u64::try_from(mir.parking_spaces.len()).unwrap_or(u64::MAX);
     let parking_area_space_count = u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX);
     let participant_class_count = u64::try_from(mir.participant_classes.len()).unwrap_or(u64::MAX);
+    let vehicle_profile_count = u64::try_from(mir.vehicle_profiles.len()).unwrap_or(u64::MAX);
     let access_rule_count = u64::try_from(mir.access_rules.len()).unwrap_or(u64::MAX);
     let access_rule_class_count =
         u64::try_from(mir.access_rule_participant_classes.len()).unwrap_or(u64::MAX);
@@ -695,6 +722,7 @@ pub(crate) fn freeze_lir(
         parking_space_count,
         parking_area_space_count,
         participant_class_count,
+        vehicle_profile_count,
         access_rule_count,
         access_rule_class_count,
         waiting_zone_count,
@@ -724,6 +752,7 @@ pub(crate) fn freeze_lir(
         .saturating_add(parking_area_count.saturating_mul(2))
         .saturating_add(parking_space_count.saturating_mul(2))
         .saturating_add(participant_class_count.saturating_mul(2))
+        .saturating_add(vehicle_profile_count.saturating_mul(2))
         .saturating_add(access_rule_count.saturating_mul(2))
         .saturating_add(static_route_count.saturating_mul(2));
     let identity_field_byte_count = identity_field_byte_count(mir);
@@ -781,6 +810,7 @@ pub(crate) fn freeze_lir(
                 .saturating_add(parking_area_count)
                 .saturating_add(parking_space_count)
                 .saturating_add(participant_class_count)
+                .saturating_add(vehicle_profile_count)
                 .saturating_add(access_rule_count)
                 .saturating_add(static_route_count)
                 .saturating_mul(2),
@@ -836,6 +866,7 @@ pub(crate) fn freeze_lir(
         .saturating_add(parking_space_count.saturating_mul(LIR_PARKING_SPACE_LOGICAL_BYTES))
         .saturating_add(parking_area_space_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(participant_class_count.saturating_mul(LIR_PARTICIPANT_CLASS_LOGICAL_BYTES))
+        .saturating_add(vehicle_profile_count.saturating_mul(LIR_VEHICLE_PROFILE_LOGICAL_BYTES))
         .saturating_add(access_rule_count.saturating_mul(LIR_ACCESS_RULE_LOGICAL_BYTES))
         .saturating_add(access_rule_class_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(access_regulation_byte_count)
@@ -914,6 +945,7 @@ pub(crate) fn freeze_lir(
         .saturating_add(requested_bytes::<LirParticipantClass>(
             participant_class_count,
         ))
+        .saturating_add(requested_bytes::<LirVehicleProfile>(vehicle_profile_count))
         .saturating_add(requested_bytes::<LirAccessRule>(access_rule_count))
         .saturating_add(requested_bytes::<ParticipantClassOrdinal>(
             access_rule_class_count,
@@ -1759,6 +1791,28 @@ pub(crate) fn freeze_lir(
         primary_span.clone(),
     )?;
 
+    let mut canonical_mir_vehicle_profile_order: Vec<MirVehicleProfileKey> =
+        dense_mir_keys(mir.vehicle_profiles.len());
+    canonical_mir_vehicle_profile_order.sort_unstable_by(|left, right| {
+        let left = &mir.vehicle_profiles[left.index()];
+        let right = &mir.vehicle_profiles[right.index()];
+        compare_identity_parts(
+            &mir.modules[left.module.index()].authoring_namespace_id,
+            &left.stable_key,
+            None,
+            &mir.modules[right.module.index()].authoring_namespace_id,
+            &right.stable_key,
+            None,
+        )
+    });
+    let mir_vehicle_profile_to_lir = ordinal_mapping(
+        mir.vehicle_profiles.len(),
+        &canonical_mir_vehicle_profile_order,
+        VehicleProfileOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
     let mut canonical_mir_access_rule_order: Vec<MirAccessRuleKey> =
         dense_mir_keys(mir.access_rules.len());
     canonical_mir_access_rule_order.sort_unstable_by(|left, right| {
@@ -2387,6 +2441,37 @@ pub(crate) fn freeze_lir(
         });
     }
 
+    let mut vehicle_profiles = Vec::with_capacity(mir.vehicle_profiles.len());
+    for mir_key in canonical_mir_vehicle_profile_order.iter().copied() {
+        let profile = &mir.vehicle_profiles[mir_key.index()];
+        let identity_range = push_lir_identity(
+            &mut identity_fields,
+            &mut identity_field_bytes,
+            FieldTag::VehicleProfileKey,
+            &mir.modules[profile.module.index()].authoring_namespace_id,
+            &profile.stable_key,
+            None,
+            &unit.limits,
+            primary_span.clone(),
+        )?;
+        vehicle_profiles.push(LirVehicleProfile {
+            ordinal: mir_vehicle_profile_to_lir[mir_key.index()],
+            stable_id: profile.stable_id,
+            identity_fields: identity_range,
+            participant_class: mir_participant_class_to_lir[profile.participant_class.index()],
+            length_meters: profile.length_meters,
+            desired_speed_meters_per_second: profile.desired_speed_meters_per_second,
+            min_gap_meters: profile.min_gap_meters,
+            time_headway_seconds: profile.time_headway_seconds,
+            max_acceleration_meters_per_second_squared: profile
+                .max_acceleration_meters_per_second_squared,
+            comfortable_deceleration_meters_per_second_squared: profile
+                .comfortable_deceleration_meters_per_second_squared,
+            emergency_deceleration_meters_per_second_squared: profile
+                .emergency_deceleration_meters_per_second_squared,
+        });
+    }
+
     let mut access_rules = Vec::with_capacity(mir.access_rules.len());
     let mut access_rule_participant_classes =
         Vec::with_capacity(mir.access_rule_participant_classes.len());
@@ -2690,6 +2775,7 @@ pub(crate) fn freeze_lir(
         &parking_spaces,
         &parking_area_spaces,
         &participant_classes,
+        &vehicle_profiles,
         &access_rules,
         &access_rule_participant_classes,
         &static_routes,
@@ -2738,6 +2824,7 @@ pub(crate) fn freeze_lir(
             parking_spaces: parking_spaces.into_boxed_slice(),
             parking_area_spaces: parking_area_spaces.into_boxed_slice(),
             participant_classes: participant_classes.into_boxed_slice(),
+            vehicle_profiles: vehicle_profiles.into_boxed_slice(),
             access_rules: access_rules.into_boxed_slice(),
             access_rule_participant_classes: access_rule_participant_classes.into_boxed_slice(),
             static_routes: static_routes.into_boxed_slice(),
@@ -2796,6 +2883,8 @@ pub(crate) fn freeze_lir(
         canonical_mir_participant_class_order: canonical_mir_participant_class_order
             .into_boxed_slice(),
         mir_participant_class_to_lir: mir_participant_class_to_lir.into_boxed_slice(),
+        canonical_mir_vehicle_profile_order: canonical_mir_vehicle_profile_order.into_boxed_slice(),
+        mir_vehicle_profile_to_lir: mir_vehicle_profile_to_lir.into_boxed_slice(),
         canonical_mir_access_rule_order: canonical_mir_access_rule_order.into_boxed_slice(),
         mir_access_rule_to_lir: mir_access_rule_to_lir.into_boxed_slice(),
         canonical_mir_static_route_order: canonical_mir_static_route_order.into_boxed_slice(),
@@ -3043,6 +3132,14 @@ fn identity_field_byte_count(mir: &MirUnit) -> u64 {
             false,
         );
     }
+    for profile in &mir.vehicle_profiles {
+        add(
+            &mut total,
+            profile.module.index(),
+            &profile.stable_key,
+            false,
+        );
+    }
     for rule in &mir.access_rules {
         add(&mut total, rule.module.index(), &rule.stable_key, false);
     }
@@ -3144,6 +3241,7 @@ fn semantic_digest(
     parking_spaces: &[LirParkingSpace],
     parking_area_spaces: &[ParkingSpaceOrdinal],
     participant_classes: &[LirParticipantClass],
+    vehicle_profiles: &[LirVehicleProfile],
     access_rules: &[LirAccessRule],
     access_rule_participant_classes: &[ParticipantClassOrdinal],
     static_routes: &[LirStaticRoute],
@@ -3550,6 +3648,33 @@ fn semantic_digest(
         hash_u32(&mut hasher, participant_class.depth);
         hash_u32(&mut hasher, participant_class.subtree_enter);
         hash_u32(&mut hasher, participant_class.subtree_exit);
+    }
+    hash_u32(&mut hasher, EntityKind::VehicleProfile.code().into());
+    hash_u32(
+        &mut hasher,
+        vehicle_profiles.len().try_into().unwrap_or(u32::MAX),
+    );
+    for profile in vehicle_profiles {
+        hash_u32(&mut hasher, profile.ordinal.raw());
+        hasher.update(profile.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            profile.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_u32(&mut hasher, profile.participant_class.raw());
+        for value in [
+            profile.length_meters,
+            profile.desired_speed_meters_per_second,
+            profile.min_gap_meters,
+            profile.time_headway_seconds,
+            profile.max_acceleration_meters_per_second_squared,
+            profile.comfortable_deceleration_meters_per_second_squared,
+            profile.emergency_deceleration_meters_per_second_squared,
+        ] {
+            hasher.update(&value.to_bits().to_le_bytes());
+        }
     }
     hash_u32(&mut hasher, EntityKind::AccessRule.code().into());
     hash_u32(
