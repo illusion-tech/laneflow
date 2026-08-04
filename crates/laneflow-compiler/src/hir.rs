@@ -4165,20 +4165,26 @@ fn build_signal_hir(
                 maneuver_gates[right.1.index()].stable_id,
             ))
     });
-    let mut usage_count_by_group = vec![0_usize; groups.len()];
-    for (group, _) in &usages {
-        usage_count_by_group[group.index()] = usage_count_by_group[group.index()].saturating_add(1);
+    // `usages` 按 StableId 排序，不能再假设其 owner 顺序与 arena key 相同。先从实际
+    // 连续分组回填每个 group 的 range，避免 arena 顺序与 StableId 顺序不一致时把
+    // 相邻 group 的成员切片错配给当前 group。
+    let mut usage_ranges = vec![(0_usize, 0_usize); groups.len()];
+    let mut usage_cursor = 0_usize;
+    while usage_cursor < usages.len() {
+        let group = usages[usage_cursor].0;
+        let start = usage_cursor;
+        while usage_cursor < usages.len() && usages[usage_cursor].0 == group {
+            usage_cursor = usage_cursor.saturating_add(1);
+        }
+        usage_ranges[group.index()] = (start, usage_cursor.saturating_sub(start));
     }
-    let mut usage_start = 0_usize;
-    for (index, count) in usage_count_by_group.iter().copied().enumerate() {
+    for (index, (start, count)) in usage_ranges.iter().copied().enumerate() {
         let group_key = HirSignalGroupKey::from_raw(
             u32::try_from(index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
-        groups.get_mut(group_key).maneuver_gates =
-            TableRange::try_from_usize(usage_start, count)
-                .map_err(|overflow| arena_overflow(overflow, &unit.limits, None))?;
-        usage_start = usage_start.saturating_add(count);
+        groups.get_mut(group_key).maneuver_gates = TableRange::try_from_usize(start, count)
+            .map_err(|overflow| arena_overflow(overflow, &unit.limits, None))?;
         if count == 0 {
             let group = groups.get(group_key);
             let mut diagnostic =
@@ -4917,24 +4923,30 @@ fn build_parking_hir(
     memberships.sort_unstable_by_key(|(area, space)| {
         (areas.get(*area).stable_id, spaces.get(*space).stable_id)
     });
-    let mut area_spaces = Vec::with_capacity(memberships.len());
+    let area_spaces = memberships
+        .iter()
+        .map(|(_, parking_space)| HirParkingAreaSpace {
+            parking_space: *parking_space,
+        })
+        .collect::<Vec<_>>();
+    let mut area_ranges = vec![(0_usize, 0_usize); areas.len()];
     let mut cursor = 0_usize;
-    for area_index in 0..areas.len() {
+    while cursor < memberships.len() {
+        let area = memberships[cursor].0;
+        let start = cursor;
+        while cursor < memberships.len() && memberships[cursor].0 == area {
+            cursor = cursor.saturating_add(1);
+        }
+        area_ranges[area.index()] = (start, cursor.saturating_sub(start));
+    }
+    for (area_index, (start, count)) in area_ranges.iter().copied().enumerate() {
         let area_key = HirParkingAreaKey::from_raw(
             u32::try_from(area_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
         );
-        let start = cursor;
-        while cursor < memberships.len() && memberships[cursor].0 == area_key {
-            area_spaces.push(HirParkingAreaSpace {
-                parking_space: memberships[cursor].1,
-            });
-            cursor = cursor.saturating_add(1);
-        }
         let source_span = areas.get(area_key).source_span.clone();
-        areas.get_mut(area_key).parking_spaces =
-            TableRange::try_from_usize(start, cursor.saturating_sub(start))
-                .map_err(|overflow| arena_overflow(overflow, &unit.limits, Some(source_span)))?;
+        areas.get_mut(area_key).parking_spaces = TableRange::try_from_usize(start, count)
+            .map_err(|overflow| arena_overflow(overflow, &unit.limits, Some(source_span)))?;
     }
 
     Ok(ParkingHir {
