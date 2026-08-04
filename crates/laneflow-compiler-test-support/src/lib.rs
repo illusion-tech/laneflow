@@ -7,14 +7,14 @@ use laneflow_compiler::{
     CanonicalSignalControl, ValidatedCanonicalLir,
 };
 use laneflow_core::{
-    AccessEffect, AccessRegistry, AccessRule, AccessTargetId, CoreWorld, CorridorElementId,
-    CrossSectionRegistry, EdgeLength, EdgeProgress, FacilityBand, IidmProfileSpec,
-    InitialTrafficData, Junction, JunctionRegistry, LaneEdge, LaneGraph, LaneGroup, ManeuverGate,
-    ManeuverPath, Movement, ParkingArea, ParkingRegistry, ParkingSpace, ParkingSpaceGeometry,
-    ParticipantClass, ParticipantClassRegistry, RoadCorridor, RoadSection, Route, SectionLane,
-    SignalAspect, SignalControlInput, SignalController, SignalGroup, SignalGroupState, SignalPhase,
-    SignalRegistry, SpeedLimit, StopLine, StopLineLocation, VehicleProfile, VehicleProfileRegistry,
-    WaitingRegistry, WaitingZone,
+    AccessEffect, AccessRegistry, AccessRule, AccessTargetId, CoreWorld, CorridorElement,
+    CorridorElementId, CrossSectionRegistry, EdgeLength, EdgeProgress, FacilityBand,
+    IidmProfileSpec, InitialTrafficData, Junction, JunctionRegistry, LaneEdge, LaneGraph,
+    LaneGroup, ManeuverGate, ManeuverPath, Movement, ParkingArea, ParkingRegistry, ParkingSpace,
+    ParkingSpaceGeometry, ParticipantClass, ParticipantClassRegistry, RoadCorridor, RoadSection,
+    Route, SectionLane, SignalAspect, SignalControl, SignalControlInput, SignalController,
+    SignalGroup, SignalGroupState, SignalPhase, SignalRegistry, SpeedLimit, StopLine,
+    StopLineLocation, VehicleProfile, VehicleProfileRegistry, WaitingRegistry, WaitingZone,
 };
 use laneflow_spatial::{
     CanonicalFrameId, CanonicalPoint3F32, SpatialEdgeInput, SpatialError, SpatialRegistry,
@@ -547,9 +547,180 @@ fn project_cross_section(
             elements,
         )
     });
-    Ok(CrossSectionRegistry::try_new(
-        lane_graph, bands, sections, groups, corridors,
-    )?)
+    let registry = CrossSectionRegistry::try_new(lane_graph, bands, sections, groups, corridors)?;
+
+    // current registry 以 corridor/section/lane 的前向输入重建 owner 与成员反查；同时
+    // 比较 LIR 的反向字段，才能证明两侧冻结表一致，而不是只证明重建结果自洽。
+    for corridor in lir.road_corridors() {
+        let corridor_id = &ids.road_corridors[corridor.ordinal().index()];
+        let handle = registry
+            .corridor_handle(corridor_id)
+            .expect("projected RoadCorridor ID must resolve");
+        let expected = corridor
+            .elements()
+            .map(|element| match element {
+                CanonicalCorridorElement::RoadSection(section) => {
+                    (0_u8, ids.road_sections[section.index()].as_str())
+                }
+                CanonicalCorridorElement::FacilityBand(band) => {
+                    (1_u8, ids.facility_bands[band.index()].as_str())
+                }
+                _ => unreachable!(
+                    "compiler and integration projection use the same closed LIR version"
+                ),
+            })
+            .collect::<Vec<_>>();
+        let actual = registry
+            .corridor_elements(handle)
+            .expect("projected RoadCorridor handle must resolve")
+            .iter()
+            .map(|element| match element {
+                CorridorElement::Section(section) => (
+                    0_u8,
+                    registry
+                        .section_external_id(*section)
+                        .expect("projected RoadSection handle must resolve"),
+                ),
+                CorridorElement::Band(band) => (
+                    1_u8,
+                    registry
+                        .band_external_id(*band)
+                        .expect("projected FacilityBand handle must resolve"),
+                ),
+            })
+            .collect::<Vec<_>>();
+        validate_precomputed_sequence(corridor_id, "corridorElements", &expected, &actual)?;
+    }
+    for section in lir.road_sections() {
+        let section_id = &ids.road_sections[section.ordinal().index()];
+        let section_handle = registry
+            .section_handle(section_id)
+            .expect("projected RoadSection ID must resolve");
+        let actual_owner = registry.corridors().find_map(|corridor| {
+            registry
+                .corridor_elements(corridor)
+                .expect("projected RoadCorridor handle must resolve")
+                .contains(&CorridorElement::Section(section_handle))
+                .then(|| {
+                    registry
+                        .corridor_external_id(corridor)
+                        .expect("projected RoadCorridor handle must resolve")
+                })
+        });
+        let expected_owner = Some(ids.road_corridors[section.road_corridor().index()].as_str());
+        if actual_owner != expected_owner {
+            return Err(precomputed_mismatch(
+                section_id,
+                "roadSectionRoadCorridor",
+                None,
+            ));
+        }
+    }
+    for band in lir.facility_bands() {
+        let band_id = &ids.facility_bands[band.ordinal().index()];
+        let band_handle = registry
+            .band_handle(band_id)
+            .expect("projected FacilityBand ID must resolve");
+        let actual_owner = registry.corridors().find_map(|corridor| {
+            registry
+                .corridor_elements(corridor)
+                .expect("projected RoadCorridor handle must resolve")
+                .contains(&CorridorElement::Band(band_handle))
+                .then(|| {
+                    registry
+                        .corridor_external_id(corridor)
+                        .expect("projected RoadCorridor handle must resolve")
+                })
+        });
+        let expected_owner = Some(ids.road_corridors[band.road_corridor().index()].as_str());
+        if actual_owner != expected_owner {
+            return Err(precomputed_mismatch(
+                band_id,
+                "facilityBandRoadCorridor",
+                None,
+            ));
+        }
+    }
+    for lane in lir.authoring_lanes() {
+        let lane_id = lane.stable_id().to_string();
+        let first_edge = lane
+            .edge_chain()
+            .first()
+            .expect("validated AuthoringLane edge chain must be non-empty");
+        let edge_handle = lane_graph
+            .edge_handle(&ids.lane_edges[first_edge.index()])
+            .expect("projected LaneEdge ID must resolve");
+        let (actual_section, lane_index) = registry
+            .edge_lane_membership(edge_handle)
+            .expect("projected AuthoringLane edge must retain lane membership");
+        let actual_owner = registry
+            .section_external_id(actual_section)
+            .expect("projected RoadSection handle must resolve");
+        let expected_owner = ids.road_sections[lane.road_section().index()].as_str();
+        if actual_owner != expected_owner {
+            return Err(precomputed_mismatch(
+                &lane_id,
+                "authoringLaneRoadSection",
+                None,
+            ));
+        }
+        let actual_edges = registry
+            .section_lanes(actual_section)
+            .expect("projected RoadSection handle must resolve")
+            .nth(lane_index)
+            .expect("projected AuthoringLane index must resolve")
+            .1
+            .iter()
+            .map(|edge| {
+                lane_graph
+                    .edge_external_id(*edge)
+                    .expect("projected LaneEdge handle must resolve")
+            })
+            .collect::<Vec<_>>();
+        let expected_edges = lane
+            .edge_chain()
+            .iter()
+            .map(|edge| ids.lane_edges[edge.index()].as_str())
+            .collect::<Vec<_>>();
+        validate_precomputed_sequence(
+            &lane_id,
+            "authoringLaneEdgeChain",
+            &expected_edges,
+            &actual_edges,
+        )?;
+    }
+    for group in lir.lane_groups() {
+        let group_id = &ids.lane_groups[group.ordinal().index()];
+        let group_handle = registry
+            .group_handle(group_id)
+            .expect("projected LaneGroup ID must resolve");
+        let actual_section = registry
+            .lane_group_section(group_handle)
+            .expect("projected LaneGroup handle must resolve");
+        let actual_owner = registry
+            .section_external_id(actual_section)
+            .expect("projected RoadSection handle must resolve");
+        let expected_owner = ids.road_sections[group.road_section().index()].as_str();
+        if actual_owner != expected_owner {
+            return Err(precomputed_mismatch(group_id, "laneGroupRoadSection", None));
+        }
+        let section = lir
+            .road_section(group.road_section())
+            .expect("validated LIR RoadSection ordinal must resolve");
+        let actual_members = registry
+            .group_lanes(group_handle)
+            .expect("projected LaneGroup handle must resolve")
+            .map(|lane_index| section.lanes()[lane_index])
+            .collect::<Vec<_>>();
+        validate_precomputed_sequence(
+            group_id,
+            "laneGroupMembers",
+            group.members(),
+            &actual_members,
+        )?;
+    }
+
+    Ok(registry)
 }
 
 fn project_junctions(
@@ -742,11 +913,147 @@ fn project_signals(
         controllers,
         gates,
     )?;
+    for path in lir.maneuver_paths() {
+        let path_id = &ids.maneuver_paths[path.ordinal().index()];
+        let path_handle = junctions
+            .maneuver_path_handle(path_id)
+            .expect("projected ManeuverPath ID must resolve");
+        let expected = path
+            .maneuver_gates()
+            .iter()
+            .map(|gate| ids.maneuver_gates[gate.index()].as_str())
+            .collect::<Vec<_>>();
+        let actual = registry
+            .maneuver_path_gates(path_handle)
+            .expect("projected ManeuverPath handle must resolve")
+            .map(|gate| {
+                registry
+                    .maneuver_gate_external_id(gate)
+                    .expect("projected ManeuverGate handle must resolve")
+            })
+            .collect::<Vec<_>>();
+        validate_precomputed_sequence(path_id, "maneuverPathGates", &expected, &actual)?;
+    }
+    for stop_line in lir.stop_lines() {
+        let stop_line_id = &ids.stop_lines[stop_line.ordinal().index()];
+        let stop_line_handle = registry
+            .stop_line_handle(stop_line_id)
+            .expect("projected StopLine ID must resolve");
+        let expected = stop_line
+            .maneuver_gates()
+            .iter()
+            .map(|gate| ids.maneuver_gates[gate.index()].as_str())
+            .collect::<Vec<_>>();
+        let mut actual = registry
+            .maneuver_gates()
+            .filter(|gate| registry.maneuver_gate_stop_line(*gate) == Some(stop_line_handle))
+            .map(|gate| {
+                registry
+                    .maneuver_gate_external_id(gate)
+                    .expect("projected ManeuverGate handle must resolve")
+            })
+            .collect::<Vec<_>>();
+        // StopLine 的成员契约按 StableId128 字节排序；投影 external ID 的十六进制后缀
+        // 保持同一字节顺序，因此这里直接以 ID 文本恢复该规范顺序。
+        actual.sort_unstable();
+        validate_precomputed_sequence(stop_line_id, "stopLineManeuverGates", &expected, &actual)?;
+    }
+    for group in lir.signal_groups() {
+        let group_id = &ids.signal_groups[group.ordinal().index()];
+        let group_handle = registry
+            .group_handle(group_id)
+            .expect("projected SignalGroup ID must resolve");
+        let actual_controller = registry
+            .group_controller(group_handle)
+            .and_then(|controller| registry.controller_external_id(controller));
+        let expected_controller = Some(ids.signal_controllers[group.controller().index()].as_str());
+        if actual_controller != expected_controller {
+            return Err(precomputed_mismatch(
+                group_id,
+                "signalGroupController",
+                None,
+            ));
+        }
+        let expected = group
+            .maneuver_gates()
+            .iter()
+            .map(|gate| ids.maneuver_gates[gate.index()].as_str())
+            .collect::<Vec<_>>();
+        let mut actual = registry
+            .maneuver_gates()
+            .filter(|gate| {
+                registry.maneuver_gate_control(*gate) == Some(SignalControl::Group(group_handle))
+            })
+            .map(|gate| {
+                registry
+                    .maneuver_gate_external_id(gate)
+                    .expect("projected ManeuverGate handle must resolve")
+            })
+            .collect::<Vec<_>>();
+        actual.sort_unstable_by_key(|gate_id| {
+            ids.maneuver_gates
+                .iter()
+                .position(|candidate| candidate == gate_id)
+                .expect("projected ManeuverGate ID must map back to LIR ordinal")
+        });
+        validate_precomputed_sequence(group_id, "signalGroupManeuverGates", &expected, &actual)?;
+    }
     for controller in lir.signal_controllers() {
         let controller_id = &ids.signal_controllers[controller.ordinal().index()];
         let handle = registry
             .controller_handle(controller_id)
             .expect("projected SignalController ID must resolve");
+        let expected_groups = controller
+            .signal_groups()
+            .iter()
+            .map(|group| ids.signal_groups[group.index()].as_str())
+            .collect::<Vec<_>>();
+        let actual_groups = registry
+            .controller_groups(handle)
+            .expect("projected SignalController handle must resolve")
+            .iter()
+            .map(|group| {
+                registry
+                    .group_external_id(*group)
+                    .expect("projected SignalGroup handle must resolve")
+            })
+            .collect::<Vec<_>>();
+        validate_precomputed_sequence(
+            controller_id,
+            "signalControllerGroups",
+            &expected_groups,
+            &actual_groups,
+        )?;
+        let expected_phases = controller
+            .phases()
+            .iter()
+            .map(|phase| ids.signal_phases[phase.index()].as_str())
+            .collect::<Vec<_>>();
+        let actual_phases = registry
+            .controller(handle)
+            .expect("projected SignalController handle must resolve")
+            .phases()
+            .iter()
+            .map(SignalPhase::id)
+            .collect::<Vec<_>>();
+        validate_precomputed_sequence(
+            controller_id,
+            "signalControllerPhases",
+            &expected_phases,
+            &actual_phases,
+        )?;
+        for (index, phase_ordinal) in controller.phases().iter().copied().enumerate() {
+            let phase = lir
+                .signal_phase(phase_ordinal)
+                .expect("validated SignalPhase ordinal must resolve");
+            if phase.controller() != controller.ordinal() {
+                return Err(precomputed_mismatch(
+                    controller_id,
+                    "signalPhaseController",
+                    Some(index),
+                ));
+            }
+        }
         if registry.controller_cycle_duration_ms(handle) != Some(controller.cycle_duration_ms()) {
             return Err(precomputed_mismatch(
                 controller_id,
@@ -773,7 +1080,29 @@ fn project_waiting(
             view.max_occupancy(),
         )
     });
-    Ok(WaitingRegistry::try_new(junctions, signals, zones)?)
+    let registry = WaitingRegistry::try_new(junctions, signals, zones)?;
+    for path in lir.maneuver_paths() {
+        let path_id = &ids.maneuver_paths[path.ordinal().index()];
+        let path_handle = junctions
+            .maneuver_path_handle(path_id)
+            .expect("projected ManeuverPath ID must resolve");
+        let expected = path
+            .waiting_zones()
+            .iter()
+            .map(|zone| ids.waiting_zones[zone.index()].as_str())
+            .collect::<Vec<_>>();
+        let actual = registry
+            .maneuver_path_waiting_zones(path_handle)
+            .expect("projected ManeuverPath handle must resolve")
+            .map(|zone| {
+                registry
+                    .waiting_zone_external_id(zone)
+                    .expect("projected WaitingZone handle must resolve")
+            })
+            .collect::<Vec<_>>();
+        validate_precomputed_sequence(path_id, "maneuverPathWaitingZones", &expected, &actual)?;
+    }
+    Ok(registry)
 }
 
 fn project_parking(
@@ -804,7 +1133,30 @@ fn project_parking(
             ),
         )
     });
-    Ok(ParkingRegistry::try_new(lane_graph, areas, spaces)?)
+    let registry = ParkingRegistry::try_new(lane_graph, areas, spaces)?;
+    for area in lir.parking_areas() {
+        let area_id = &ids.parking_areas[area.ordinal().index()];
+        let area_handle = registry
+            .area_handle(area_id)
+            .expect("projected ParkingArea ID must resolve");
+        let expected = area
+            .parking_spaces()
+            .iter()
+            .map(|space| ids.parking_spaces[space.index()].as_str())
+            .collect::<Vec<_>>();
+        let actual = registry
+            .area_spaces(area_handle)
+            .expect("projected ParkingArea handle must resolve")
+            .iter()
+            .map(|space| {
+                registry
+                    .space_external_id(*space)
+                    .expect("projected ParkingSpace handle must resolve")
+            })
+            .collect::<Vec<_>>();
+        validate_precomputed_sequence(area_id, "parkingAreaSpaces", &expected, &actual)?;
+    }
+    Ok(registry)
 }
 
 fn project_participant_classes(
@@ -1251,6 +1603,21 @@ fn first_mismatch<T: PartialEq>(expected: &[T], actual: &[T]) -> Option<usize> {
         .iter()
         .zip(actual)
         .position(|(expected, actual)| expected != actual)
+}
+
+fn validate_precomputed_sequence<T: PartialEq>(
+    entity_id: &str,
+    table: &'static str,
+    expected: &[T],
+    actual: &[T],
+) -> Result<(), ProjectionError> {
+    if expected.len() != actual.len() {
+        return Err(precomputed_mismatch(entity_id, table, None));
+    }
+    if let Some(index) = first_mismatch(expected, actual) {
+        return Err(precomputed_mismatch(entity_id, table, Some(index)));
+    }
+    Ok(())
 }
 
 fn precomputed_mismatch(
