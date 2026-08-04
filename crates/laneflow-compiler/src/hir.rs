@@ -16,9 +16,11 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     AuthoringLaneId, EntityKind, FacilityBandId, FieldTag, JunctionId, LaneEdgeId, LaneGroupId,
-    ManeuverGateId, ManeuverPathId, MovementId, RoadCorridorId, RoadSectionId, SignalAspect,
-    SignalControllerId, SignalGroupId, SignalPhaseId, StableId128, StaticRouteId, StopLineId,
-    WaitingZoneId,
+    MIN_PARKING_EXTENT_EXCLUSIVE_METERS, MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
+    ManeuverGateId, ManeuverPathId, MovementId, PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS,
+    PARKING_HEADING_OFFSET_MAXIMUM_RADIANS, PARKING_HEADING_OFFSET_MINIMUM_RADIANS, ParkingAreaId,
+    ParkingSpaceId, RoadCorridorId, RoadSectionId, SignalAspect, SignalControllerId, SignalGroupId,
+    SignalPhaseId, StableId128, StaticRouteId, StopLineId, WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
@@ -33,8 +35,8 @@ use crate::identity::{
 };
 use crate::module::SourceDocumentOrdinal;
 use crate::{
-    CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan,
-    WaitingZoneGateRole,
+    CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, ParkingAnchorRole,
+    ParkingGeometryField, ParkingGeometryViolation, SourceSpan, WaitingZoneGateRole,
 };
 
 /// 区分 HIR 模块表键的零尺寸阶段标记。
@@ -56,6 +58,8 @@ pub(crate) enum HirStaticRouteTag {}
 pub(crate) enum HirSignalGroupTag {}
 pub(crate) enum HirSignalControllerTag {}
 pub(crate) enum HirSignalPhaseTag {}
+pub(crate) enum HirParkingAreaTag {}
+pub(crate) enum HirParkingSpaceTag {}
 
 /// 仅在当前 `HirUnit` 模块表内有效的致密键。
 pub(crate) type HirModuleKey = ArenaKey<HirModuleTag>;
@@ -75,6 +79,8 @@ pub(crate) type HirWaitingZoneKey = ArenaKey<HirWaitingZoneTag>;
 pub(crate) type HirStaticRouteKey = ArenaKey<HirStaticRouteTag>;
 pub(crate) type HirSignalGroupKey = ArenaKey<HirSignalGroupTag>;
 pub(crate) type HirSignalControllerKey = ArenaKey<HirSignalControllerTag>;
+pub(crate) type HirParkingAreaKey = ArenaKey<HirParkingAreaTag>;
+pub(crate) type HirParkingSpaceKey = ArenaKey<HirParkingSpaceTag>;
 
 /// 已解析为 HIR 模块键的显式导入边。
 pub(crate) struct HirImport {
@@ -348,6 +354,49 @@ pub(crate) struct HirSignalPhaseState {
     pub(crate) aspect: SignalAspect,
 }
 
+/// 停车区域的一个规范停车位成员。
+#[derive(Clone, Copy)]
+pub(crate) struct HirParkingAreaSpace {
+    pub(crate) parking_space: HirParkingSpaceKey,
+}
+
+/// 已证明至少拥有一个停车位成员的停车区域。
+pub(crate) struct HirParkingArea {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: ParkingAreaId,
+    pub(crate) parking_spaces: TableRange<HirParkingAreaSpace>,
+    pub(crate) source_span: SourceSpan,
+}
+
+/// 已解析到车道图边严格内部位置的停车锚点。
+#[derive(Clone, Copy)]
+pub(crate) struct HirParkingLaneAnchor {
+    pub(crate) lane_edge: HirLaneEdgeKey,
+    pub(crate) progress_meters: f64,
+}
+
+/// 已验证的停车位矩形几何；数值保持来源 `f64` 精度。
+#[derive(Clone, Copy)]
+pub(crate) struct HirParkingSpaceGeometry {
+    pub(crate) lateral_offset_meters: f64,
+    pub(crate) heading_offset_radians: f64,
+    pub(crate) length_meters: f64,
+    pub(crate) width_meters: f64,
+}
+
+/// 已闭合可选区域归属、入口/出口锚点和矩形几何的停车位。
+pub(crate) struct HirParkingSpace {
+    pub(crate) module: HirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: ParkingSpaceId,
+    pub(crate) parking_area: Option<HirParkingAreaKey>,
+    pub(crate) entry: HirParkingLaneAnchor,
+    pub(crate) exit: HirParkingLaneAnchor,
+    pub(crate) geometry: HirParkingSpaceGeometry,
+    pub(crate) source_span: SourceSpan,
+}
+
 /// 已证明门所有权、严格正向区间和同路径内部不重叠的等待区。
 pub(crate) struct HirWaitingZone {
     pub(crate) module: HirModuleKey,
@@ -460,6 +509,9 @@ pub(crate) struct HirUnit {
     pub(crate) signal_phases: Box<[HirSignalPhase]>,
     pub(crate) signal_phase_states: Box<[HirSignalPhaseState]>,
     pub(crate) signal_group_maneuver_gates: Box<[HirSignalGroupManeuverGate]>,
+    pub(crate) parking_areas: Box<[HirParkingArea]>,
+    pub(crate) parking_spaces: Box<[HirParkingSpace]>,
+    pub(crate) parking_area_spaces: Box<[HirParkingAreaSpace]>,
     pub(crate) static_routes: Box<[HirStaticRoute]>,
     pub(crate) static_route_edges: Box<[HirStaticRouteEdge]>,
     pub(crate) static_route_transitions: Box<[HirStaticRouteTransition]>,
@@ -613,6 +665,26 @@ struct SignalCounts {
     controlled_gates: u64,
 }
 
+#[derive(Default)]
+struct ParkingHir {
+    parking_areas: Box<[HirParkingArea]>,
+    parking_spaces: Box<[HirParkingSpace]>,
+    parking_area_spaces: Box<[HirParkingAreaSpace]>,
+}
+
+#[derive(Default)]
+struct ParkingCounts {
+    areas: u64,
+    spaces: u64,
+    memberships: u64,
+}
+
+impl ParkingCounts {
+    fn entity_count(&self) -> u64 {
+        self.areas.saturating_add(self.spaces)
+    }
+}
+
 impl SignalCounts {
     fn entity_count(&self) -> u64 {
         self.groups
@@ -694,6 +766,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let junction_counts = junction_counts(unit);
     let control_counts = control_counts(unit);
     let signal_counts = signal_counts(unit);
+    let parking_counts = parking_counts(unit);
     let route_counts = route_counts(unit);
     let cross_lookup_module_count = if cross_section_counts.entity_count() == 0 {
         0
@@ -715,6 +788,11 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     } else {
         module_count
     };
+    let parking_lookup_module_count = if parking_counts.entity_count() == 0 {
+        0
+    } else {
+        module_count
+    };
     let hir_record_count = module_count
         .saturating_add(unit.import_edge_count)
         .saturating_add(unit.symbol_count)
@@ -723,6 +801,8 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         .saturating_add(unit.relation_occurrence_count)
         // 信号组到机动门的反向使用关系由 HIR 派生，Typed AST 只计正向绑定。
         .saturating_add(signal_counts.controlled_gates)
+        // 区域归属在 Typed AST 中按停车位正向引用计数；区域成员表是 HIR 派生反向关系。
+        .saturating_add(parking_counts.memberships)
         // 路线边引用已计入 CompilationUnit 关系数；转换以及三类派生出现项只在 HIR
         // 中产生，按单条边至多各生成一项的上界纳入预检。
         .saturating_add(route_counts.route_transitions)
@@ -878,12 +958,26 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             ))
             .saturating_add(requested_bytes::<usize>(unit.declaration_count))
     };
+    let parking_scratch = if parking_counts.entity_count() == 0 {
+        0
+    } else {
+        requested_bytes::<CanonicalDeclarationSource<HirParkingAreaKey>>(parking_counts.areas)
+            .saturating_add(requested_bytes::<
+                CanonicalDeclarationSource<HirParkingSpaceKey>,
+            >(parking_counts.spaces))
+            .saturating_add(requested_bytes::<bool>(parking_counts.areas))
+            .saturating_add(requested_bytes::<(HirParkingAreaKey, HirParkingSpaceKey)>(
+                parking_counts.memberships,
+            ))
+            .saturating_add(requested_bytes::<usize>(unit.declaration_count))
+    };
     let (canonical_identity_bytes, largest_canonical_identity_bytes) = identity_byte_counts(unit);
     let stage_scratch_bytes = canonical_source_scratch
         .max(cross_section_scratch)
         .max(junction_scratch)
         .max(control_scratch)
         .max(signal_scratch)
+        .max(parking_scratch)
         .max(route_scratch)
         .max(import_sort_scratch)
         .max(largest_canonical_identity_bytes);
@@ -964,6 +1058,11 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         .saturating_add(requested_bytes::<HirSignalGroupManeuverGate>(
             signal_counts.controlled_gates,
         ))
+        .saturating_add(requested_bytes::<HirParkingArea>(parking_counts.areas))
+        .saturating_add(requested_bytes::<HirParkingSpace>(parking_counts.spaces))
+        .saturating_add(requested_bytes::<HirParkingAreaSpace>(
+            parking_counts.memberships,
+        ))
         .saturating_add(requested_bytes::<HirStaticRoute>(
             route_counts.static_routes,
         ))
@@ -1042,6 +1141,12 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_hash_table_bytes::<Arc<str>, HirSignalGroupKey>(
             signal_counts.groups,
+        ))
+        .saturating_add(requested_bytes::<HashMap<Arc<str>, HirParkingAreaKey>>(
+            parking_lookup_module_count,
+        ))
+        .saturating_add(requested_hash_table_bytes::<Arc<str>, HirParkingAreaKey>(
+            parking_counts.areas,
         ))
         .saturating_add(requested_hash_table_bytes::<
             StableId128,
@@ -1338,6 +1443,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &mut control.maneuver_gates,
         &mut identities,
     )?;
+    let parking = build_parking_hir(unit, &module_lookup, &lane_edges, &symbols, &mut identities)?;
     let route = build_route_hir(
         unit,
         &module_lookup,
@@ -1392,6 +1498,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         signal_phases: signal.signal_phases,
         signal_phase_states: signal.signal_phase_states,
         signal_group_maneuver_gates: signal.signal_group_maneuver_gates,
+        parking_areas: parking.parking_areas,
+        parking_spaces: parking.parking_spaces,
+        parking_area_spaces: parking.parking_area_spaces,
         static_routes: route.static_routes,
         static_route_edges: route.static_route_edges,
         static_route_transitions: route.static_route_transitions,
@@ -1652,7 +1761,9 @@ fn build_cross_section_hir(
                 | SyntheticDeclaration::WaitingZone(_)
                 | SyntheticDeclaration::StaticRoute(_)
                 | SyntheticDeclaration::SignalGroup(_)
-                | SyntheticDeclaration::SignalController(_) => {
+                | SyntheticDeclaration::SignalController(_)
+                | SyntheticDeclaration::ParkingArea(_)
+                | SyntheticDeclaration::ParkingSpace(_) => {
                     unreachable!("cross-section source filter admitted junction declaration")
                 }
             }
@@ -3802,6 +3913,376 @@ fn build_signal_hir(
     })
 }
 
+#[allow(clippy::too_many_lines)]
+fn build_parking_hir(
+    unit: &CompilationUnit,
+    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
+    identities: &mut IdentityRegistry,
+) -> Result<ParkingHir, DiagnosticBundle> {
+    let counts = parking_counts(unit);
+    if counts.entity_count() == 0 {
+        return Ok(ParkingHir::default());
+    }
+
+    let mut areas = TypedArena::<HirParkingAreaTag, HirParkingArea>::with_capacity(count_to_usize(
+        counts.areas,
+        &unit.limits,
+    )?);
+    let mut spaces = TypedArena::<HirParkingSpaceTag, HirParkingSpace>::with_capacity(
+        count_to_usize(counts.spaces, &unit.limits)?,
+    );
+    let mut area_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
+        module
+            .declarations
+            .iter()
+            .filter(|declaration| matches!(declaration, SyntheticDeclaration::ParkingArea(_)))
+            .count()
+    }));
+    let mut area_sources = Vec::with_capacity(count_to_usize(counts.areas, &unit.limits)?);
+    let mut space_sources =
+        Vec::<(u32, u32)>::with_capacity(count_to_usize(counts.spaces, &unit.limits)?);
+
+    // ParkingArea 必须先完整登记，ParkingSpace 的可选归属因而允许前向和跨模块引用。
+    // 两类实体仍分别按模块和稳定键规范排序，来源声明顺序不会进入身份或布局语义。
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
+        let mut area_indices: Vec<_> = source_module
+            .declarations
+            .iter()
+            .enumerate()
+            .filter_map(|(index, declaration)| {
+                matches!(declaration, SyntheticDeclaration::ParkingArea(_)).then_some(index)
+            })
+            .collect();
+        area_indices.sort_unstable_by(|left, right| {
+            declaration_header(&source_module.declarations[*left])
+                .stable_key
+                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        });
+        for declaration_index in area_indices {
+            let SyntheticDeclaration::ParkingArea(source) =
+                &source_module.declarations[declaration_index]
+            else {
+                unreachable!("parking area source filter admitted unrelated declaration")
+            };
+            let fields = [
+                IdentityFieldInput::new(
+                    FieldTag::AuthoringNamespaceId,
+                    source_module
+                        .descriptor()
+                        .authoring_namespace_id()
+                        .as_bytes(),
+                ),
+                IdentityFieldInput::new(
+                    FieldTag::ParkingAreaKey,
+                    source.header.stable_key.as_bytes(),
+                ),
+            ];
+            let stable_id = ParkingAreaId::from_untyped(derive_identity(
+                unit,
+                identities,
+                module_index,
+                EntityKind::ParkingArea,
+                &source.header.stable_key,
+                &source.header.span,
+                &fields,
+            )?);
+            let key = areas
+                .push(HirParkingArea {
+                    module: module_key,
+                    stable_key: Arc::clone(&source.header.stable_key),
+                    stable_id,
+                    parking_spaces: TableRange::empty(),
+                    source_span: source.header.span.clone(),
+                })
+                .map_err(|overflow| {
+                    arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+                })?;
+            area_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
+            area_sources.push(CanonicalDeclarationSource {
+                source_module_index: module_order,
+                declaration_index: u32::try_from(declaration_index)
+                    .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+                hir_key: key,
+            });
+        }
+
+        let mut indices: Vec<_> = source_module
+            .declarations
+            .iter()
+            .enumerate()
+            .filter_map(|(index, declaration)| {
+                matches!(declaration, SyntheticDeclaration::ParkingSpace(_)).then_some(index)
+            })
+            .collect();
+        indices.sort_unstable_by(|left, right| {
+            declaration_header(&source_module.declarations[*left])
+                .stable_key
+                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+        });
+        for declaration_index in indices {
+            space_sources.push((
+                module_order,
+                u32::try_from(declaration_index)
+                    .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+            ));
+        }
+    }
+
+    let mut diagnostics =
+        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut area_has_member = vec![false; areas.len()];
+    let mut memberships = Vec::<(HirParkingAreaKey, HirParkingSpaceKey)>::with_capacity(
+        count_to_usize(counts.memberships, &unit.limits)?,
+    );
+
+    for (module_order, declaration_index) in space_sources {
+        let module_index = module_order as usize;
+        let source_module = &unit.modules[module_index];
+        let SyntheticDeclaration::ParkingSpace(source) =
+            &source_module.declarations[declaration_index as usize]
+        else {
+            unreachable!("canonical ParkingSpace source changed kind")
+        };
+        let module_key = HirModuleKey::from_raw(module_order);
+        let fields = [
+            IdentityFieldInput::new(
+                FieldTag::AuthoringNamespaceId,
+                source_module
+                    .descriptor()
+                    .authoring_namespace_id()
+                    .as_bytes(),
+            ),
+            IdentityFieldInput::new(
+                FieldTag::ParkingSpaceKey,
+                source.header.stable_key.as_bytes(),
+            ),
+        ];
+        let stable_id = ParkingSpaceId::from_untyped(derive_identity(
+            unit,
+            identities,
+            module_index,
+            EntityKind::ParkingSpace,
+            &source.header.stable_key,
+            &source.header.span,
+            &fields,
+        )?);
+
+        let parking_area = source.parking_area.as_ref().and_then(|reference| {
+            let area = resolve_reference(
+                module_lookup,
+                &area_symbols,
+                reference,
+                EntityKind::ParkingSpace,
+                &source.header,
+                module_order,
+                &mut diagnostics,
+            );
+            if let Some(area) = area {
+                // 区域孤立性由声明关系判断；成员自己的其他字段失败不应产生级联 orphan。
+                area_has_member[area.index()] = true;
+            }
+            area
+        });
+        let entry_edge = resolve_reference(
+            module_lookup,
+            lane_edge_symbols,
+            &source.entry.lane_edge,
+            EntityKind::ParkingSpace,
+            &source.header,
+            module_order,
+            &mut diagnostics,
+        );
+        let exit_edge = resolve_reference(
+            module_lookup,
+            lane_edge_symbols,
+            &source.exit.lane_edge,
+            EntityKind::ParkingSpace,
+            &source.header,
+            module_order,
+            &mut diagnostics,
+        );
+
+        for (role, anchor, edge) in [
+            (ParkingAnchorRole::Entry, &source.entry, entry_edge),
+            (ParkingAnchorRole::Exit, &source.exit, exit_edge),
+        ] {
+            let Some(edge) = edge else { continue };
+            let edge_length = lane_edges.get(edge).length_meters;
+            let progress = anchor.progress_meters;
+            if !progress.is_finite()
+                || progress <= PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS
+                || progress >= edge_length - PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS
+            {
+                let mut diagnostic = Diagnostic::invalid_parking_anchor_progress(
+                    &source.header.stable_key,
+                    role,
+                    &lane_edges.get(edge).stable_key,
+                    progress,
+                    edge_length,
+                    PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS,
+                    anchor.lane_edge.span.clone(),
+                );
+                diagnostic.set_canonical_module_order(module_order);
+                diagnostics.push(diagnostic);
+            }
+        }
+
+        let geometry = source.geometry;
+        for (field, value, violation) in [
+            (
+                ParkingGeometryField::LateralOffsetMeters,
+                geometry.lateral_offset_meters,
+                if !geometry.lateral_offset_meters.is_finite() {
+                    Some(ParkingGeometryViolation::NotFinite)
+                } else if geometry.lateral_offset_meters.abs()
+                    <= MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS
+                {
+                    Some(ParkingGeometryViolation::AbsoluteNotGreaterThan {
+                        exclusive_minimum_bits: MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS
+                            .to_bits(),
+                    })
+                } else {
+                    None
+                },
+            ),
+            (
+                ParkingGeometryField::HeadingOffsetRadians,
+                geometry.heading_offset_radians,
+                if !geometry.heading_offset_radians.is_finite() {
+                    Some(ParkingGeometryViolation::NotFinite)
+                } else if !(PARKING_HEADING_OFFSET_MINIMUM_RADIANS
+                    ..PARKING_HEADING_OFFSET_MAXIMUM_RADIANS)
+                    .contains(&geometry.heading_offset_radians)
+                {
+                    Some(ParkingGeometryViolation::OutsideHalfOpenRange {
+                        minimum_inclusive_bits: PARKING_HEADING_OFFSET_MINIMUM_RADIANS.to_bits(),
+                        maximum_exclusive_bits: PARKING_HEADING_OFFSET_MAXIMUM_RADIANS.to_bits(),
+                    })
+                } else {
+                    None
+                },
+            ),
+            (
+                ParkingGeometryField::LengthMeters,
+                geometry.length_meters,
+                parking_extent_violation(geometry.length_meters),
+            ),
+            (
+                ParkingGeometryField::WidthMeters,
+                geometry.width_meters,
+                parking_extent_violation(geometry.width_meters),
+            ),
+        ] {
+            if let Some(violation) = violation {
+                let mut diagnostic = Diagnostic::invalid_parking_space_geometry(
+                    &source.header.stable_key,
+                    field,
+                    value,
+                    violation,
+                    source.header.span.clone(),
+                );
+                diagnostic.set_canonical_module_order(module_order);
+                diagnostics.push(diagnostic);
+            }
+        }
+
+        let (Some(entry_edge), Some(exit_edge)) = (entry_edge, exit_edge) else {
+            continue;
+        };
+        let space_key = spaces
+            .push(HirParkingSpace {
+                module: module_key,
+                stable_key: Arc::clone(&source.header.stable_key),
+                stable_id,
+                parking_area,
+                entry: HirParkingLaneAnchor {
+                    lane_edge: entry_edge,
+                    progress_meters: source.entry.progress_meters,
+                },
+                exit: HirParkingLaneAnchor {
+                    lane_edge: exit_edge,
+                    progress_meters: source.exit.progress_meters,
+                },
+                geometry: HirParkingSpaceGeometry {
+                    lateral_offset_meters: geometry.lateral_offset_meters,
+                    heading_offset_radians: geometry.heading_offset_radians,
+                    length_meters: geometry.length_meters,
+                    width_meters: geometry.width_meters,
+                },
+                source_span: source.header.span.clone(),
+            })
+            .map_err(|overflow| {
+                arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
+            })?;
+        if let Some(area) = parking_area {
+            memberships.push((area, space_key));
+        }
+    }
+
+    for location in &area_sources {
+        if !area_has_member[location.hir_key.index()] {
+            let area = areas.get(location.hir_key);
+            let mut diagnostic =
+                Diagnostic::orphan_parking_area(&area.stable_key, area.source_span.clone());
+            diagnostic.set_canonical_module_order(location.source_module_index);
+            diagnostics.push(diagnostic);
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+
+    // 归属是集合语义。按区域 StableId、停车位 StableId 冻结反向成员表，避免来源排列
+    // 改变 LIR 或语义摘要；独立停车位不会出现在该表中。
+    memberships.sort_unstable_by_key(|(area, space)| {
+        (areas.get(*area).stable_id, spaces.get(*space).stable_id)
+    });
+    let mut area_spaces = Vec::with_capacity(memberships.len());
+    let mut cursor = 0_usize;
+    for area_index in 0..areas.len() {
+        let area_key = HirParkingAreaKey::from_raw(
+            u32::try_from(area_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        let start = cursor;
+        while cursor < memberships.len() && memberships[cursor].0 == area_key {
+            area_spaces.push(HirParkingAreaSpace {
+                parking_space: memberships[cursor].1,
+            });
+            cursor = cursor.saturating_add(1);
+        }
+        let source_span = areas.get(area_key).source_span.clone();
+        areas.get_mut(area_key).parking_spaces =
+            TableRange::try_from_usize(start, cursor.saturating_sub(start))
+                .map_err(|overflow| arena_overflow(overflow, &unit.limits, Some(source_span)))?;
+    }
+
+    Ok(ParkingHir {
+        parking_areas: areas.into_boxed_slice(),
+        parking_spaces: spaces.into_boxed_slice(),
+        parking_area_spaces: area_spaces.into_boxed_slice(),
+    })
+}
+
+fn parking_extent_violation(value: f64) -> Option<ParkingGeometryViolation> {
+    if !value.is_finite() {
+        Some(ParkingGeometryViolation::NotFinite)
+    } else if value <= MIN_PARKING_EXTENT_EXCLUSIVE_METERS {
+        Some(ParkingGeometryViolation::NotGreaterThan {
+            exclusive_minimum_bits: MIN_PARKING_EXTENT_EXCLUSIVE_METERS.to_bits(),
+        })
+    } else {
+        None
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn build_route_hir(
     unit: &CompilationUnit,
@@ -4454,6 +4935,8 @@ fn declaration_header(
         SyntheticDeclaration::StaticRoute(declaration) => &declaration.header,
         SyntheticDeclaration::SignalGroup(declaration) => &declaration.header,
         SyntheticDeclaration::SignalController(declaration) => &declaration.header,
+        SyntheticDeclaration::ParkingArea(declaration) => &declaration.header,
+        SyntheticDeclaration::ParkingSpace(declaration) => &declaration.header,
     }
 }
 
@@ -4520,7 +5003,9 @@ fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts {
             | SyntheticDeclaration::WaitingZone(_)
             | SyntheticDeclaration::StaticRoute(_)
             | SyntheticDeclaration::SignalGroup(_)
-            | SyntheticDeclaration::SignalController(_) => {}
+            | SyntheticDeclaration::SignalController(_)
+            | SyntheticDeclaration::ParkingArea(_)
+            | SyntheticDeclaration::ParkingSpace(_) => {}
         }
     }
     counts
@@ -4636,6 +5121,29 @@ fn signal_counts(unit: &CompilationUnit) -> SignalCounts {
     counts
 }
 
+fn parking_counts(unit: &CompilationUnit) -> ParkingCounts {
+    let mut counts = ParkingCounts::default();
+    for declaration in unit
+        .modules
+        .iter()
+        .flat_map(|module| module.declarations.iter())
+    {
+        match declaration {
+            SyntheticDeclaration::ParkingArea(_) => {
+                counts.areas = counts.areas.saturating_add(1);
+            }
+            SyntheticDeclaration::ParkingSpace(space) => {
+                counts.spaces = counts.spaces.saturating_add(1);
+                if space.parking_area.is_some() {
+                    counts.memberships = counts.memberships.saturating_add(1);
+                }
+            }
+            _ => {}
+        }
+    }
+    counts
+}
+
 fn corridors_capacity(
     counts: &CrossSectionCounts,
     limits: &crate::CompileLimits,
@@ -4714,7 +5222,9 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
                         .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX))
                 }
                 SyntheticDeclaration::SignalGroup(_)
-                | SyntheticDeclaration::SignalController(_) => 22_u64
+                | SyntheticDeclaration::SignalController(_)
+                | SyntheticDeclaration::ParkingArea(_)
+                | SyntheticDeclaration::ParkingSpace(_) => 22_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
             };
