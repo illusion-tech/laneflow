@@ -228,6 +228,12 @@ pub enum DiagnosticCode {
     SignalCycleDurationOverflow,
     /// 控制器时间偏移不在可移植且小于周期的规范范围内。
     InvalidSignalControllerOffset,
+    /// 停车位入口或出口锚点不位于车道图边的严格内部。
+    InvalidParkingAnchorProgress,
+    /// 停车位矩形几何字段违反有限性、范围或最小尺寸约束。
+    InvalidParkingSpaceGeometry,
+    /// 停车区域没有任何停车位成员。
+    OrphanParkingArea,
     /// 编译器构造的规范身份字段不满足 Identity v1 登记表。
     InvalidCanonicalIdentity,
     /// 同一完整规范身份在编译单元中出现多次。
@@ -322,6 +328,9 @@ impl DiagnosticCode {
             Self::MissingSignalPhaseGroup => "LF-COMP-MISSING-SIGNAL-PHASE-GROUP",
             Self::SignalCycleDurationOverflow => "LF-COMP-SIGNAL-CYCLE-DURATION-OVERFLOW",
             Self::InvalidSignalControllerOffset => "LF-COMP-SIGNAL-CONTROLLER-OFFSET",
+            Self::InvalidParkingAnchorProgress => "LF-COMP-PARKING-ANCHOR-PROGRESS",
+            Self::InvalidParkingSpaceGeometry => "LF-COMP-PARKING-SPACE-GEOMETRY",
+            Self::OrphanParkingArea => "LF-COMP-ORPHAN-PARKING-AREA",
             Self::InvalidCanonicalIdentity => "LF-COMP-INVALID-CANONICAL-IDENTITY",
             Self::DuplicateCanonicalIdentity => "LF-COMP-DUPLICATE-CANONICAL-IDENTITY",
             Self::IdentityDigestCollision => "LF-COMP-IDENTITY-DIGEST-COLLISION",
@@ -378,6 +387,75 @@ pub enum WaitingZoneGateRole {
     Entry,
     /// 界定等待区终点的释放门。
     Release,
+}
+
+/// 停车锚点诊断中发生约束失败的连接角色。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum ParkingAnchorRole {
+    /// 驶入并提交停车动作前到达的入口锚点。
+    Entry,
+    /// 离开停车位后重新接入车道图的出口锚点。
+    Exit,
+}
+
+impl ParkingAnchorRole {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Entry => "entry",
+            Self::Exit => "exit",
+        }
+    }
+}
+
+/// 停车位矩形几何诊断中的受检字段。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum ParkingGeometryField {
+    /// 相对入口边中心线的横向偏移，单位为米。
+    LateralOffsetMeters,
+    /// 相对入口边正向切线的朝向偏移，单位为弧度。
+    HeadingOffsetRadians,
+    /// 沿停车朝向的泊位长度，单位为米。
+    LengthMeters,
+    /// 垂直停车朝向的泊位宽度，单位为米。
+    WidthMeters,
+}
+
+impl ParkingGeometryField {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::LateralOffsetMeters => "lateralOffsetMeters",
+            Self::HeadingOffsetRadians => "headingOffsetRadians",
+            Self::LengthMeters => "lengthMeters",
+            Self::WidthMeters => "widthMeters",
+        }
+    }
+}
+
+/// 停车位矩形几何字段的结构化失败原因。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum ParkingGeometryViolation {
+    /// 输入为 NaN 或正负无穷。
+    NotFinite,
+    /// 输入的绝对值没有严格大于排他下限。
+    AbsoluteNotGreaterThan {
+        /// 排他下限的 IEEE 754 位模式。
+        exclusive_minimum_bits: u64,
+    },
+    /// 输入没有严格大于排他下限。
+    NotGreaterThan {
+        /// 排他下限的 IEEE 754 位模式。
+        exclusive_minimum_bits: u64,
+    },
+    /// 输入不在包含下界、排除上界的半开区间内。
+    OutsideHalfOpenRange {
+        /// 包含下界的 IEEE 754 位模式。
+        minimum_inclusive_bits: u64,
+        /// 排他上界的 IEEE 754 位模式。
+        maximum_exclusive_bits: u64,
+    },
 }
 
 impl WaitingZoneGateRole {
@@ -791,6 +869,26 @@ pub enum DiagnosticPayload {
         offset_ms: u64,
         cycle_duration_ms: u64,
         max_inclusive: u64,
+    },
+    /// 非法停车锚点及边界比较所需的精确浮点位模式。
+    InvalidParkingAnchorProgress {
+        parking_space_key: Box<str>,
+        role: ParkingAnchorRole,
+        lane_edge_key: Box<str>,
+        progress_bits: u64,
+        edge_length_bits: u64,
+        endpoint_clearance_bits: u64,
+    },
+    /// 非法停车几何字段、原始值和结构化失败原因。
+    InvalidParkingSpaceGeometry {
+        parking_space_key: Box<str>,
+        field: ParkingGeometryField,
+        value_bits: u64,
+        violation: ParkingGeometryViolation,
+    },
+    /// 没有任何成员的停车区域。
+    OrphanParkingArea {
+        parking_area_key: Box<str>,
     },
     /// 实体种类、来源稳定键及不能形成 Identity v1 前像的精确原因。
     InvalidCanonicalIdentity {
@@ -2073,6 +2171,64 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn invalid_parking_anchor_progress(
+        parking_space_key: &str,
+        role: ParkingAnchorRole,
+        lane_edge_key: &str,
+        progress_meters: f64,
+        edge_length_meters: f64,
+        endpoint_clearance_meters: f64,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidParkingAnchorProgress,
+            DiagnosticPayload::InvalidParkingAnchorProgress {
+                parking_space_key: parking_space_key.into(),
+                role,
+                lane_edge_key: lane_edge_key.into(),
+                progress_bits: progress_meters.to_bits(),
+                edge_length_bits: edge_length_meters.to_bits(),
+                endpoint_clearance_bits: endpoint_clearance_meters.to_bits(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(parking_space_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_parking_space_geometry(
+        parking_space_key: &str,
+        field: ParkingGeometryField,
+        value: f64,
+        violation: ParkingGeometryViolation,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidParkingSpaceGeometry,
+            DiagnosticPayload::InvalidParkingSpaceGeometry {
+                parking_space_key: parking_space_key.into(),
+                field,
+                value_bits: value.to_bits(),
+                violation,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(parking_space_key.into()),
+        )
+    }
+
+    pub(crate) fn orphan_parking_area(parking_area_key: &str, primary_span: SourceSpan) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::OrphanParkingArea,
+            DiagnosticPayload::OrphanParkingArea {
+                parking_area_key: parking_area_key.into(),
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(parking_area_key.into()),
+        )
+    }
+
     pub(crate) fn invalid_canonical_identity(
         entity_kind: EntityKind,
         stable_key: &str,
@@ -2725,6 +2881,36 @@ impl fmt::Display for Diagnostic {
                 formatter,
                 "信号控制器 {signal_controller_key} 的偏移 {offset_ms} ms 非法：必须不超过 {max_inclusive} 且严格小于循环时长 {cycle_duration_ms} ms"
             ),
+            DiagnosticPayload::InvalidParkingAnchorProgress {
+                parking_space_key,
+                role,
+                lane_edge_key,
+                progress_bits,
+                edge_length_bits,
+                endpoint_clearance_bits,
+            } => write!(
+                formatter,
+                "停车位 {parking_space_key} 的 {} 锚点在车道图边 {lane_edge_key} 上进度为 {} m；必须有限且严格位于 ({}, {}) m",
+                role.as_str(),
+                f64::from_bits(*progress_bits),
+                f64::from_bits(*endpoint_clearance_bits),
+                f64::from_bits(*edge_length_bits) - f64::from_bits(*endpoint_clearance_bits),
+            ),
+            DiagnosticPayload::InvalidParkingSpaceGeometry {
+                parking_space_key,
+                field,
+                value_bits,
+                violation,
+            } => write!(
+                formatter,
+                "停车位 {parking_space_key} 的 {}={} 非法：{}",
+                field.as_str(),
+                f64::from_bits(*value_bits),
+                ParkingGeometryViolationDisplay(*violation),
+            ),
+            DiagnosticPayload::OrphanParkingArea { parking_area_key } => {
+                write!(formatter, "停车区域 {parking_area_key} 没有任何停车位成员")
+            }
             DiagnosticPayload::InvalidCanonicalIdentity {
                 entity_kind,
                 stable_key,
@@ -2807,6 +2993,39 @@ impl fmt::Display for ScalarViolationDisplay {
                 formatter,
                 "必须严格大于 {}",
                 f64::from_bits(exclusive_minimum_bits)
+            ),
+        }
+    }
+}
+
+struct ParkingGeometryViolationDisplay(ParkingGeometryViolation);
+
+impl fmt::Display for ParkingGeometryViolationDisplay {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            ParkingGeometryViolation::NotFinite => formatter.write_str("必须是有限数"),
+            ParkingGeometryViolation::AbsoluteNotGreaterThan {
+                exclusive_minimum_bits,
+            } => write!(
+                formatter,
+                "绝对值必须严格大于 {}",
+                f64::from_bits(exclusive_minimum_bits)
+            ),
+            ParkingGeometryViolation::NotGreaterThan {
+                exclusive_minimum_bits,
+            } => write!(
+                formatter,
+                "必须严格大于 {}",
+                f64::from_bits(exclusive_minimum_bits)
+            ),
+            ParkingGeometryViolation::OutsideHalfOpenRange {
+                minimum_inclusive_bits,
+                maximum_exclusive_bits,
+            } => write!(
+                formatter,
+                "必须位于 [{}, {})",
+                f64::from_bits(minimum_inclusive_bits),
+                f64::from_bits(maximum_exclusive_bits)
             ),
         }
     }

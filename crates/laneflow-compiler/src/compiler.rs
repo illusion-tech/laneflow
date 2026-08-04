@@ -9,20 +9,21 @@ use laneflow_static_contract::{
     AuthoringLaneId, AuthoringLaneOrdinal, FacilityBandId, FacilityBandOrdinal, FieldTag,
     JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
     ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId,
-    MovementOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
-    SignalAspect, SignalControllerId, SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal,
-    SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal, StopLineId,
-    StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
+    MovementOrdinal, ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal,
+    RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal, SignalAspect,
+    SignalControllerId, SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal, SignalPhaseId,
+    SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal,
+    WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::hir::build_hir;
 use crate::lir::{
     LirAuthoringLane, LirCorridorElement, LirFacilityBand, LirGateOccurrence, LirIdentityField,
     LirJunction, LirJunctionInternalEdge, LirLaneEdge, LirLaneGroup, LirManeuverGate,
-    LirManeuverOccurrence, LirManeuverPath, LirMovement, LirRoadCorridor, LirRoadSection,
-    LirRouteOccurrenceRef, LirSignalControl, LirSignalController, LirSignalGroup, LirSignalPhase,
-    LirSignalPhaseState, LirStaticRoute, LirStopLine, LirUnit, LirWaitingZone,
-    LirWaitingZoneOccurrence, freeze_lir,
+    LirManeuverOccurrence, LirManeuverPath, LirMovement, LirParkingArea, LirParkingSpace,
+    LirRoadCorridor, LirRoadSection, LirRouteOccurrenceRef, LirSignalControl, LirSignalController,
+    LirSignalGroup, LirSignalPhase, LirSignalPhaseState, LirStaticRoute, LirStopLine, LirUnit,
+    LirWaitingZone, LirWaitingZoneOccurrence, freeze_lir,
 };
 use crate::mir::lower_to_mir;
 use crate::source_map::{ValidatedSourceMapInput, freeze_source_map};
@@ -416,6 +417,58 @@ impl ValidatedCanonicalLir {
             })
     }
 
+    /// 按完整 Identity v1 前像规范顺序遍历全部停车区域。
+    pub fn parking_areas(&self) -> impl ExactSizeIterator<Item = CanonicalParkingAreaView<'_>> {
+        self.inner
+            .parking_areas
+            .iter()
+            .map(|record| CanonicalParkingAreaView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取停车区域。
+    #[must_use]
+    pub fn parking_area(
+        &self,
+        ordinal: ParkingAreaOrdinal,
+    ) -> Option<CanonicalParkingAreaView<'_>> {
+        self.inner
+            .parking_areas
+            .get(ordinal.index())
+            .map(|record| CanonicalParkingAreaView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 按完整 Identity v1 前像规范顺序遍历全部停车位。
+    pub fn parking_spaces(&self) -> impl ExactSizeIterator<Item = CanonicalParkingSpaceView<'_>> {
+        self.inner
+            .parking_spaces
+            .iter()
+            .map(|record| CanonicalParkingSpaceView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
+    /// 通过当前 LIR 实例的有类型序号读取停车位。
+    #[must_use]
+    pub fn parking_space(
+        &self,
+        ordinal: ParkingSpaceOrdinal,
+    ) -> Option<CanonicalParkingSpaceView<'_>> {
+        self.inner
+            .parking_spaces
+            .get(ordinal.index())
+            .map(|record| CanonicalParkingSpaceView {
+                lir: &self.inner,
+                record,
+            })
+    }
+
     /// 按 `LaneEdgeOrdinal` 遍历全部派生的路口内部边所有权。
     ///
     /// 验证阶段已证明每条内部边最多属于一个路口，并且不会同时承担任一路径的入口或出口
@@ -645,6 +698,18 @@ impl_stable_entity_view!(
     LirSignalPhase,
     SignalPhaseOrdinal,
     SignalPhaseId
+);
+impl_stable_entity_view!(
+    CanonicalParkingAreaView,
+    LirParkingArea,
+    ParkingAreaOrdinal,
+    ParkingAreaId
+);
+impl_stable_entity_view!(
+    CanonicalParkingSpaceView,
+    LirParkingSpace,
+    ParkingSpaceOrdinal,
+    ParkingSpaceId
 );
 impl_stable_entity_view!(
     CanonicalStaticRouteView,
@@ -1019,6 +1084,107 @@ impl CanonicalSignalPhaseStateView<'_> {
     }
 }
 
+impl CanonicalParkingAreaView<'_> {
+    /// 返回按规范停车位序号冻结的非空成员集合。
+    #[must_use]
+    pub fn parking_spaces(&self) -> &[ParkingSpaceOrdinal] {
+        &self.lir.parking_area_spaces[self.record.parking_spaces.as_usize_range()]
+    }
+}
+
+impl CanonicalParkingSpaceView<'_> {
+    /// 返回可选停车区域组织归属；`None` 表示合法的独立停车位。
+    #[must_use]
+    pub const fn parking_area(&self) -> Option<ParkingAreaOrdinal> {
+        self.record.parking_area
+    }
+
+    /// 返回驶入并提交停车动作前必须到达的车道图锚点。
+    #[must_use]
+    pub const fn entry(&self) -> CanonicalParkingLaneAnchor {
+        CanonicalParkingLaneAnchor {
+            lane_edge: self.record.entry.lane_edge,
+            progress_meters: self.record.entry.progress_meters,
+        }
+    }
+
+    /// 返回离开停车位后重新接入车道图的锚点。
+    #[must_use]
+    pub const fn exit(&self) -> CanonicalParkingLaneAnchor {
+        CanonicalParkingLaneAnchor {
+            lane_edge: self.record.exit.lane_edge,
+            progress_meters: self.record.exit.progress_meters,
+        }
+    }
+
+    /// 返回相对入口边正向切线解释的不可变矩形几何。
+    #[must_use]
+    pub const fn geometry(&self) -> CanonicalParkingSpaceGeometry {
+        CanonicalParkingSpaceGeometry {
+            lateral_offset_meters: self.record.geometry.lateral_offset_meters,
+            heading_offset_radians: self.record.geometry.heading_offset_radians,
+            length_meters: self.record.geometry.length_meters,
+            width_meters: self.record.geometry.width_meters,
+        }
+    }
+}
+
+/// Canonical LIR 中一个已验证停车锚点的值视图。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanonicalParkingLaneAnchor {
+    lane_edge: LaneEdgeOrdinal,
+    progress_meters: f64,
+}
+
+impl CanonicalParkingLaneAnchor {
+    /// 返回锚点所在的车道图边。
+    #[must_use]
+    pub const fn lane_edge(self) -> LaneEdgeOrdinal {
+        self.lane_edge
+    }
+
+    /// 返回从边起点量取的纵向进度，单位为米。
+    #[must_use]
+    pub const fn progress_meters(self) -> f64 {
+        self.progress_meters
+    }
+}
+
+/// Canonical LIR 中已验证停车位矩形几何的值视图。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanonicalParkingSpaceGeometry {
+    lateral_offset_meters: f64,
+    heading_offset_radians: f64,
+    length_meters: f64,
+    width_meters: f64,
+}
+
+impl CanonicalParkingSpaceGeometry {
+    /// 返回相对入口边中心线的横向偏移，单位为米；正值位于行驶方向左侧。
+    #[must_use]
+    pub const fn lateral_offset_meters(self) -> f64 {
+        self.lateral_offset_meters
+    }
+
+    /// 返回相对入口边正向切线的逆时针朝向偏移，单位为弧度。
+    #[must_use]
+    pub const fn heading_offset_radians(self) -> f64 {
+        self.heading_offset_radians
+    }
+
+    /// 返回沿停车朝向的泊位长度，单位为米。
+    #[must_use]
+    pub const fn length_meters(self) -> f64 {
+        self.length_meters
+    }
+
+    /// 返回垂直停车朝向的泊位宽度，单位为米。
+    #[must_use]
+    pub const fn width_meters(self) -> f64 {
+        self.width_meters
+    }
+}
+
 impl CanonicalWaitingZoneView<'_> {
     /// 返回唯一拥有本等待区的机动路径。
     #[must_use]
@@ -1369,11 +1535,12 @@ mod tests {
         FacilityBandReference, JunctionInput, JunctionReference, LaneEdgeInput, LaneEdgeReference,
         LaneGroupInput, LaneGroupReference, ManeuverGateInput, ManeuverGateReference,
         ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
-        RoadCorridorInput, RoadSectionInput, RoadSectionReference, SignalControlInput,
-        SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
-        SignalPhaseInput, SourceModuleDescriptor, SourceModuleHeader, SourceModuleHeaderInput,
-        SourceRelationRole, StaticRouteInput, StopLineInput, StopLineReference, SyntheticModule,
-        SyntheticModuleBuilder, WaitingZoneInput,
+        ParkingAreaInput, ParkingAreaReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput,
+        ParkingSpaceInput, RoadCorridorInput, RoadSectionInput, RoadSectionReference,
+        SignalControlInput, SignalControllerInput, SignalGroupInput, SignalGroupReference,
+        SignalGroupStateInput, SignalPhaseInput, SourceModuleDescriptor, SourceModuleHeader,
+        SourceModuleHeaderInput, SourceRelationRole, StaticRouteInput, StopLineInput,
+        StopLineReference, SyntheticModule, SyntheticModuleBuilder, WaitingZoneInput,
     };
 
     fn module(
@@ -1985,6 +2152,84 @@ mod tests {
                 .map(Diagnostic::code)
                 .collect(),
         }
+    }
+
+    fn parking_builder(document: &str) -> SyntheticModuleBuilder {
+        let limits = CompileLimits::p100_initial_v1();
+        let header = SourceModuleHeader::new(
+            SourceModuleHeaderInput {
+                authoring_namespace_id: "city/parking",
+                source_document_key: document,
+                generator_build_id: "git:0123456789abcdef",
+                parameters_and_inputs_digest: [0x11; 32],
+                frontend_options_digest: [0x22; 32],
+                random_seed: Some(42),
+                provenance: "repository:laneflow",
+            },
+            &limits,
+        )
+        .unwrap();
+        SyntheticModuleBuilder::new(header, &limits).unwrap()
+    }
+
+    fn add_parking_edges(builder: &mut SyntheticModuleBuilder) {
+        for key in ["parking-entry", "parking-exit"] {
+            builder
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: key,
+                    length_meters: 20.0,
+                    speed_limit_meters_per_second: 8.0,
+                    successors: &[],
+                })
+                .unwrap();
+        }
+    }
+
+    fn add_parking_space(builder: &mut SyntheticModuleBuilder, key: &str, area: Option<&str>) {
+        builder
+            .add_parking_space(ParkingSpaceInput {
+                parking_space_key: key,
+                parking_area: area.map(ParkingAreaReference::local),
+                entry: ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-entry"),
+                    progress_meters: 4.0,
+                },
+                exit: ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-exit"),
+                    progress_meters: 6.0,
+                },
+                geometry: ParkingSpaceGeometryInput {
+                    lateral_offset_meters: -3.0,
+                    heading_offset_radians: 0.25,
+                    length_meters: 5.5,
+                    width_meters: 2.6,
+                },
+            })
+            .unwrap();
+    }
+
+    fn parking_module(document: &str, area_key: &str, permuted: bool) -> SyntheticModule {
+        let mut builder = parking_builder(document);
+        if permuted {
+            add_parking_space(&mut builder, "space-independent", None);
+            add_parking_space(&mut builder, "space-owned", Some(area_key));
+            builder
+                .add_parking_area(ParkingAreaInput {
+                    parking_area_key: area_key,
+                })
+                .unwrap();
+            add_parking_edges(&mut builder);
+        } else {
+            add_parking_edges(&mut builder);
+            builder
+                .add_parking_area(ParkingAreaInput {
+                    parking_area_key: area_key,
+                })
+                .unwrap();
+            add_parking_space(&mut builder, "space-owned", Some(area_key));
+            add_parking_space(&mut builder, "space-independent", None);
+        }
+        builder.finish().unwrap()
     }
 
     fn edge_key(edge: CanonicalLaneEdgeView<'_>) -> String {
@@ -3978,5 +4223,161 @@ mod tests {
         assert!(
             compile_diagnostic_codes(overlap).contains(&DiagnosticCode::OverlappingWaitingZones)
         );
+    }
+
+    #[test]
+    fn parking_static_contract_freezes_area_standalone_space_and_source_roles() {
+        let output = Compiler::new()
+            .compile(unit([parking_module(
+                "parking.document",
+                "area-main",
+                false,
+            )]))
+            .unwrap();
+        let area = output.lir().parking_areas().next().unwrap();
+        let spaces = output.lir().parking_spaces().collect::<Vec<_>>();
+        assert_eq!(spaces.len(), 2);
+        let owned = spaces
+            .iter()
+            .copied()
+            .find(|space| {
+                stable_key(space.identity_fields(), FieldTag::ParkingSpaceKey) == "space-owned"
+            })
+            .unwrap();
+        let independent = spaces
+            .iter()
+            .copied()
+            .find(|space| {
+                stable_key(space.identity_fields(), FieldTag::ParkingSpaceKey)
+                    == "space-independent"
+            })
+            .unwrap();
+
+        assert_eq!(area.parking_spaces(), [owned.ordinal()]);
+        assert_eq!(owned.parking_area(), Some(area.ordinal()));
+        assert_eq!(independent.parking_area(), None);
+        assert_eq!(owned.entry().progress_meters(), 4.0);
+        assert_eq!(owned.exit().progress_meters(), 6.0);
+        assert_ne!(owned.entry().lane_edge(), owned.exit().lane_edge());
+        assert_eq!(owned.geometry().lateral_offset_meters(), -3.0);
+        assert_eq!(owned.geometry().heading_offset_radians(), 0.25);
+        assert_eq!(owned.geometry().length_meters(), 5.5);
+        assert_eq!(owned.geometry().width_meters(), 2.6);
+
+        assert_eq!(output.source_map_input().parking_area_sources().len(), 1);
+        assert_eq!(output.source_map_input().parking_space_sources().len(), 2);
+        let roles = output
+            .source_map_input()
+            .parking_relation_sources()
+            .map(|source| source.role())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            roles,
+            [
+                SourceRelationRole::ParkingSpaceArea,
+                SourceRelationRole::ParkingSpaceEntry,
+                SourceRelationRole::ParkingSpaceExit,
+                SourceRelationRole::ParkingSpaceEntry,
+                SourceRelationRole::ParkingSpaceExit,
+            ]
+        );
+    }
+
+    #[test]
+    fn parking_identity_and_digest_obey_set_and_organizational_semantics() {
+        let first = Compiler::new()
+            .compile(unit([parking_module(
+                "parking-a.document",
+                "area-a",
+                false,
+            )]))
+            .unwrap();
+        let permuted = Compiler::new()
+            .compile(unit([parking_module("parking-b.document", "area-a", true)]))
+            .unwrap();
+        assert_eq!(
+            first.lir.inner.semantic_digest,
+            permuted.lir.inner.semantic_digest
+        );
+
+        let reassigned = Compiler::new()
+            .compile(unit([parking_module(
+                "parking-c.document",
+                "area-b",
+                false,
+            )]))
+            .unwrap();
+        let owned_id = |output: &CompilationOutput| {
+            output
+                .lir()
+                .parking_spaces()
+                .find(|space| {
+                    stable_key(space.identity_fields(), FieldTag::ParkingSpaceKey) == "space-owned"
+                })
+                .unwrap()
+                .stable_id()
+        };
+        assert_eq!(owned_id(&first), owned_id(&reassigned));
+        assert_ne!(
+            first.lir().parking_areas().next().unwrap().stable_id(),
+            reassigned.lir().parking_areas().next().unwrap().stable_id()
+        );
+    }
+
+    #[test]
+    fn parking_validation_rejects_orphan_anchor_and_geometry_failures() {
+        let mut orphan = parking_builder("parking-orphan.document");
+        orphan
+            .add_parking_area(ParkingAreaInput {
+                parking_area_key: "area-orphan",
+            })
+            .unwrap();
+        assert_eq!(
+            compile_diagnostic_codes(orphan),
+            [DiagnosticCode::OrphanParkingArea]
+        );
+
+        let mut invalid = parking_builder("parking-invalid.document");
+        add_parking_edges(&mut invalid);
+        invalid
+            .add_parking_area(ParkingAreaInput {
+                parking_area_key: "area-main",
+            })
+            .unwrap()
+            .add_parking_space(ParkingSpaceInput {
+                parking_space_key: "space-invalid",
+                parking_area: Some(ParkingAreaReference::local("area-main")),
+                entry: ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-entry"),
+                    progress_meters: 0.0,
+                },
+                exit: ParkingLaneAnchorInput {
+                    lane_edge: LaneEdgeReference::local("parking-exit"),
+                    progress_meters: 20.0,
+                },
+                geometry: ParkingSpaceGeometryInput {
+                    lateral_offset_meters: 0.0,
+                    heading_offset_radians: core::f64::consts::PI,
+                    length_meters: 0.0,
+                    width_meters: f64::INFINITY,
+                },
+            })
+            .unwrap();
+        let codes = compile_diagnostic_codes(invalid);
+        assert_eq!(
+            codes
+                .iter()
+                .filter(|code| **code == DiagnosticCode::InvalidParkingAnchorProgress)
+                .count(),
+            2
+        );
+        assert_eq!(
+            codes
+                .iter()
+                .filter(|code| **code == DiagnosticCode::InvalidParkingSpaceGeometry)
+                .count(),
+            4
+        );
+        assert!(!codes.contains(&DiagnosticCode::OrphanParkingArea));
     }
 }

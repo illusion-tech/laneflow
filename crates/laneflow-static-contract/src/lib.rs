@@ -29,4 +29,8 @@ pub use typed::{
     StopLineKind, StopLineOrdinal, VehicleProfileId, VehicleProfileKind, VehicleProfileOrdinal,
     WaitingZoneId, WaitingZoneKind, WaitingZoneOrdinal,
 };
-pub use values::SignalAspect;
+pub use values::{
+    MIN_PARKING_EXTENT_EXCLUSIVE_METERS, MIN_PARKING_LATERAL_OFFSET_ABS_EXCLUSIVE_METERS,
+    PARKING_ANCHOR_ENDPOINT_CLEARANCE_METERS, PARKING_HEADING_OFFSET_MAXIMUM_RADIANS,
+    PARKING_HEADING_OFFSET_MINIMUM_RADIANS, SignalAspect,
+};

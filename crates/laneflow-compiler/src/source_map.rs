@@ -9,10 +9,11 @@ use laneflow_static_contract::{
     AuthoringLaneId, AuthoringLaneOrdinal, EntityKind, FacilityBandId, FacilityBandOrdinal,
     JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal,
     ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId,
-    MovementOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
-    SignalControllerId, SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal, SignalPhaseId,
-    SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal,
-    WaitingZoneId, WaitingZoneOrdinal,
+    MovementOrdinal, ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal,
+    RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal, SignalControllerId,
+    SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal,
+    StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal, WaitingZoneId,
+    WaitingZoneOrdinal,
 };
 
 use crate::diagnostic::DiagnosticCollector;
@@ -32,6 +33,7 @@ const JUNCTION_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURC
 const SOURCE_LOCATION_LOGICAL_BYTES: u64 = 4 + 8 + 8;
 const ROUTE_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES + 1;
 const SIGNAL_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
+const PARKING_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
 
 /// owner-local 来源记录中登记的有类型语义角色。
 ///
@@ -80,6 +82,12 @@ pub enum SourceRelationRole {
     SignalPhaseState = 19,
     /// 机动门到固定时制信号组的控制绑定。
     ManeuverGateSignalGroup = 20,
+    /// 停车位到可选停车区域的组织归属。
+    ParkingSpaceArea = 21,
+    /// 停车位入口到车道图边严格内部位置的锚定。
+    ParkingSpaceEntry = 22,
+    /// 停车位出口到车道图边严格内部位置的锚定。
+    ParkingSpaceExit = 23,
 }
 
 #[derive(Clone, Copy)]
@@ -155,6 +163,14 @@ struct SignalRelationSourceRecord {
     primary: SourceLocationRecord,
 }
 
+struct ParkingRelationSourceRecord {
+    owner_ordinal: ParkingSpaceOrdinal,
+    owner_stable_id: ParkingSpaceId,
+    role: SourceRelationRole,
+    local_index: u32,
+    primary: SourceLocationRecord,
+}
+
 #[derive(Clone, Copy)]
 enum SignalRelationOwnerRecord {
     SignalController(SignalControllerOrdinal, SignalControllerId),
@@ -187,6 +203,9 @@ pub struct ValidatedSourceMapInput {
         Box<[StableEntitySourceRecord<SignalControllerOrdinal, SignalControllerId>]>,
     signal_phase_sources: Box<[StableEntitySourceRecord<SignalPhaseOrdinal, SignalPhaseId>]>,
     signal_relation_sources: Box<[SignalRelationSourceRecord]>,
+    parking_area_sources: Box<[StableEntitySourceRecord<ParkingAreaOrdinal, ParkingAreaId>]>,
+    parking_space_sources: Box<[StableEntitySourceRecord<ParkingSpaceOrdinal, ParkingSpaceId>]>,
+    parking_relation_sources: Box<[ParkingRelationSourceRecord]>,
     junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
     static_route_sources: Box<[StableEntitySourceRecord<StaticRouteOrdinal, StaticRouteId>]>,
     route_relation_sources: Box<[RouteRelationSourceRecord]>,
@@ -403,6 +422,40 @@ impl ValidatedSourceMapInput {
             })
     }
 
+    /// 按 `ParkingAreaOrdinal` 递增顺序遍历停车区域来源记录。
+    pub fn parking_area_sources(&self) -> impl ExactSizeIterator<Item = ParkingAreaSourceView<'_>> {
+        self.parking_area_sources
+            .iter()
+            .map(|record| ParkingAreaSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按 `ParkingSpaceOrdinal` 递增顺序遍历停车位来源记录。
+    pub fn parking_space_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = ParkingSpaceSourceView<'_>> {
+        self.parking_space_sources
+            .iter()
+            .map(|record| ParkingSpaceSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 遍历停车位可选区域归属和入口/出口锚点的规范来源记录。
+    pub fn parking_relation_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = ParkingRelationSourceView<'_>> {
+        self.parking_relation_sources
+            .iter()
+            .map(|record| ParkingRelationSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
     /// 遍历路口所有者树、完整路径序列、派生内部边与静态控制边界的规范来源记录。
     pub fn junction_relation_sources(
         &self,
@@ -587,6 +640,8 @@ stable_source_view!(
     SignalControllerId
 );
 stable_source_view!(SignalPhaseSourceView, SignalPhaseOrdinal, SignalPhaseId);
+stable_source_view!(ParkingAreaSourceView, ParkingAreaOrdinal, ParkingAreaId);
+stable_source_view!(ParkingSpaceSourceView, ParkingSpaceOrdinal, ParkingSpaceId);
 stable_source_view!(StaticRouteSourceView, StaticRouteOrdinal, StaticRouteId);
 
 /// 一条横断面 owner-local 关系来源记录的只读视图。
@@ -822,6 +877,50 @@ impl SignalRelationSourceView<'_> {
     }
 }
 
+/// 一条停车位 owner-local 关系来源记录的只读视图。
+#[derive(Clone, Copy)]
+pub struct ParkingRelationSourceView<'a> {
+    source_map: &'a ValidatedSourceMapInput,
+    record: &'a ParkingRelationSourceRecord,
+}
+
+impl ParkingRelationSourceView<'_> {
+    /// 返回拥有区域归属或锚点关系的停车位序号。
+    #[must_use]
+    pub const fn owner_ordinal(&self) -> ParkingSpaceOrdinal {
+        self.record.owner_ordinal
+    }
+
+    /// 返回拥有该关系的停车位稳定标识。
+    #[must_use]
+    pub const fn owner_stable_id(&self) -> ParkingSpaceId {
+        self.record.owner_stable_id
+    }
+
+    /// 返回区域归属、入口锚点或出口锚点角色。
+    #[must_use]
+    pub const fn role(&self) -> SourceRelationRole {
+        self.record.role
+    }
+
+    /// 返回同一停车位与角色内的零基下标；当前三个角色都只有下标 `0`。
+    #[must_use]
+    pub const fn local_index(&self) -> u32 {
+        self.record.local_index
+    }
+
+    /// 返回建立该停车静态关系的主要来源位置。
+    #[must_use]
+    pub fn primary_source(&self) -> SourceLocationView<'_> {
+        self.source_map.location(self.record.primary)
+    }
+
+    /// 当前显式停车关系没有额外贡献来源。
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+        core::iter::empty()
+    }
+}
+
 /// 一条 owner-local 下游连接来源记录的只读视图。
 #[derive(Clone, Copy)]
 pub struct LaneEdgeSuccessorSourceView<'a> {
@@ -989,6 +1088,13 @@ pub(crate) fn freeze_source_map(
     .fold(0_u64, |total, count| {
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
+    let parking_entity_count = u64::try_from(mir.parking_areas.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(mir.parking_spaces.len()).unwrap_or(u64::MAX));
+    let parking_relation_count = u64::try_from(mir.parking_spaces.len())
+        .unwrap_or(u64::MAX)
+        .saturating_mul(2)
+        .saturating_add(u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX));
     let static_route_count = u64::try_from(mir.static_routes.len()).unwrap_or(u64::MAX);
     let route_relation_count = [
         mir.static_route_edges.len(),
@@ -1027,6 +1133,10 @@ pub(crate) fn freeze_source_map(
         )
         .saturating_add(signal_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(signal_relation_count.saturating_mul(SIGNAL_RELATION_SOURCE_LOGICAL_BYTES))
+        .saturating_add(parking_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
+        .saturating_add(
+            parking_relation_count.saturating_mul(PARKING_RELATION_SOURCE_LOGICAL_BYTES),
+        )
         .saturating_add(static_route_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(route_relation_count.saturating_mul(ROUTE_RELATION_SOURCE_LOGICAL_BYTES))
         .saturating_add(
@@ -1118,6 +1228,19 @@ pub(crate) fn freeze_source_map(
         ))
         .saturating_add(requested_bytes::<SignalRelationSourceRecord>(
             signal_relation_count,
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<ParkingAreaOrdinal, ParkingAreaId>,
+        >(
+            mir.parking_areas.len().try_into().unwrap_or(u64::MAX)
+        ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<ParkingSpaceOrdinal, ParkingSpaceId>,
+        >(
+            mir.parking_spaces.len().try_into().unwrap_or(u64::MAX)
+        ))
+        .saturating_add(requested_bytes::<ParkingRelationSourceRecord>(
+            parking_relation_count,
         ))
         .saturating_add(requested_bytes::<
             StableEntitySourceRecord<StaticRouteOrdinal, StaticRouteId>,
@@ -1227,6 +1350,12 @@ pub(crate) fn freeze_source_map(
     let mut signal_phase_sources = Vec::with_capacity(mir.signal_phases.len());
     let mut signal_relation_sources = Vec::with_capacity(
         usize::try_from(signal_relation_count)
+            .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
+    );
+    let mut parking_area_sources = Vec::with_capacity(mir.parking_areas.len());
+    let mut parking_space_sources = Vec::with_capacity(mir.parking_spaces.len());
+    let mut parking_relation_sources = Vec::with_capacity(
+        usize::try_from(parking_relation_count)
             .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
     );
     let mut junction_relation_sources = Vec::with_capacity(
@@ -1610,6 +1739,50 @@ pub(crate) fn freeze_source_map(
         }
     }
 
+    for mir_key in frozen_lir.canonical_mir_parking_area_order.iter().copied() {
+        let area = &mir.parking_areas[mir_key.index()];
+        parking_area_sources.push(StableEntitySourceRecord {
+            ordinal: frozen_lir.mir_parking_area_to_lir[mir_key.index()],
+            stable_id: area.stable_id,
+            primary: location(
+                mir.modules[area.module.index()].source_document_ordinal,
+                &area.source_span,
+            ),
+        });
+    }
+    for mir_key in frozen_lir.canonical_mir_parking_space_order.iter().copied() {
+        let space = &mir.parking_spaces[mir_key.index()];
+        let ordinal = frozen_lir.mir_parking_space_to_lir[mir_key.index()];
+        let source_document_ordinal = mir.modules[space.module.index()].source_document_ordinal;
+        let primary = location(source_document_ordinal, &space.source_span);
+        parking_space_sources.push(StableEntitySourceRecord {
+            ordinal,
+            stable_id: space.stable_id,
+            primary,
+        });
+        if space.parking_area.is_some() {
+            parking_relation_sources.push(ParkingRelationSourceRecord {
+                owner_ordinal: ordinal,
+                owner_stable_id: space.stable_id,
+                role: SourceRelationRole::ParkingSpaceArea,
+                local_index: 0,
+                primary,
+            });
+        }
+        for role in [
+            SourceRelationRole::ParkingSpaceEntry,
+            SourceRelationRole::ParkingSpaceExit,
+        ] {
+            parking_relation_sources.push(ParkingRelationSourceRecord {
+                owner_ordinal: ordinal,
+                owner_stable_id: space.stable_id,
+                role,
+                local_index: 0,
+                primary,
+            });
+        }
+    }
+
     for mir_key in frozen_lir.canonical_mir_static_route_order.iter().copied() {
         let route = &mir.static_routes[mir_key.index()];
         let ordinal = frozen_lir.mir_static_route_to_lir[mir_key.index()];
@@ -1730,6 +1903,10 @@ pub(crate) fn freeze_source_map(
         signal_relation_sources.len(),
         usize::try_from(signal_relation_count).unwrap_or(usize::MAX)
     );
+    debug_assert_eq!(
+        parking_relation_sources.len(),
+        usize::try_from(parking_relation_count).unwrap_or(usize::MAX)
+    );
     let source_modules = unit.into_source_module_descriptors();
     Ok(ValidatedSourceMapInput {
         source_modules,
@@ -1751,6 +1928,9 @@ pub(crate) fn freeze_source_map(
         signal_controller_sources: signal_controller_sources.into_boxed_slice(),
         signal_phase_sources: signal_phase_sources.into_boxed_slice(),
         signal_relation_sources: signal_relation_sources.into_boxed_slice(),
+        parking_area_sources: parking_area_sources.into_boxed_slice(),
+        parking_space_sources: parking_space_sources.into_boxed_slice(),
+        parking_relation_sources: parking_relation_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),
         static_route_sources: static_route_sources.into_boxed_slice(),
         route_relation_sources: route_relation_sources.into_boxed_slice(),

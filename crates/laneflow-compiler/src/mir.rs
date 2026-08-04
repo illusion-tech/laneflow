@@ -12,8 +12,9 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     AuthoringLaneId, FacilityBandId, JunctionId, LaneEdgeId, LaneGroupId, ManeuverGateId,
-    ManeuverPathId, MovementId, RoadCorridorId, RoadSectionId, SignalAspect, SignalControllerId,
-    SignalGroupId, SignalPhaseId, StaticRouteId, StopLineId, WaitingZoneId,
+    ManeuverPathId, MovementId, ParkingAreaId, ParkingSpaceId, RoadCorridorId, RoadSectionId,
+    SignalAspect, SignalControllerId, SignalGroupId, SignalPhaseId, StaticRouteId, StopLineId,
+    WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
@@ -41,6 +42,8 @@ pub(crate) enum MirStaticRouteTag {}
 pub(crate) enum MirSignalGroupTag {}
 pub(crate) enum MirSignalControllerTag {}
 pub(crate) enum MirSignalPhaseTag {}
+pub(crate) enum MirParkingAreaTag {}
+pub(crate) enum MirParkingSpaceTag {}
 
 /// 仅在当前 `MirUnit` 模块表内有效的致密键。
 pub(crate) type MirModuleKey = ArenaKey<MirModuleTag>;
@@ -61,6 +64,8 @@ pub(crate) type MirStaticRouteKey = ArenaKey<MirStaticRouteTag>;
 pub(crate) type MirSignalGroupKey = ArenaKey<MirSignalGroupTag>;
 pub(crate) type MirSignalControllerKey = ArenaKey<MirSignalControllerTag>;
 pub(crate) type MirSignalPhaseKey = ArenaKey<MirSignalPhaseTag>;
+pub(crate) type MirParkingAreaKey = ArenaKey<MirParkingAreaTag>;
+pub(crate) type MirParkingSpaceKey = ArenaKey<MirParkingSpaceTag>;
 
 /// MIR 中保留的模块身份与来源上下文。
 pub(crate) struct MirModule {
@@ -286,6 +291,43 @@ pub(crate) struct MirSignalPhaseState {
     pub(crate) aspect: SignalAspect,
 }
 
+pub(crate) struct MirParkingAreaSpace {
+    pub(crate) parking_space: MirParkingSpaceKey,
+}
+
+pub(crate) struct MirParkingArea {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: ParkingAreaId,
+    pub(crate) parking_spaces: TableRange<MirParkingAreaSpace>,
+    pub(crate) source_span: SourceSpan,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct MirParkingLaneAnchor {
+    pub(crate) lane_edge: MirLaneEdgeKey,
+    pub(crate) progress_meters: f64,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct MirParkingSpaceGeometry {
+    pub(crate) lateral_offset_meters: f64,
+    pub(crate) heading_offset_radians: f64,
+    pub(crate) length_meters: f64,
+    pub(crate) width_meters: f64,
+}
+
+pub(crate) struct MirParkingSpace {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: ParkingSpaceId,
+    pub(crate) parking_area: Option<MirParkingAreaKey>,
+    pub(crate) entry: MirParkingLaneAnchor,
+    pub(crate) exit: MirParkingLaneAnchor,
+    pub(crate) geometry: MirParkingSpaceGeometry,
+    pub(crate) source_span: SourceSpan,
+}
+
 pub(crate) struct MirWaitingZone {
     pub(crate) module: MirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -387,6 +429,9 @@ pub(crate) struct MirUnit {
     pub(crate) signal_phases: Box<[MirSignalPhase]>,
     pub(crate) signal_phase_states: Box<[MirSignalPhaseState]>,
     pub(crate) signal_group_maneuver_gates: Box<[MirSignalGroupManeuverGate]>,
+    pub(crate) parking_areas: Box<[MirParkingArea]>,
+    pub(crate) parking_spaces: Box<[MirParkingSpace]>,
+    pub(crate) parking_area_spaces: Box<[MirParkingAreaSpace]>,
     pub(crate) static_routes: Box<[MirStaticRoute]>,
     pub(crate) static_route_edges: Box<[MirStaticRouteEdge]>,
     pub(crate) static_route_transitions: Box<[MirStaticRouteTransition]>,
@@ -477,12 +522,22 @@ pub(crate) fn lower_to_mir(
     .fold(0_u64, |total, count| {
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
+    let parking_record_count = [
+        hir.parking_areas.len(),
+        hir.parking_spaces.len(),
+        hir.parking_area_spaces.len(),
+    ]
+    .into_iter()
+    .fold(0_u64, |total, count| {
+        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
+    });
     let mir_record_count = lane_edge_count
         .saturating_add(connection_count)
         .saturating_add(cross_record_count)
         .saturating_add(junction_record_count)
         .saturating_add(control_record_count)
         .saturating_add(signal_record_count)
+        .saturating_add(parking_record_count)
         .saturating_add(route_record_count);
     let stage_scratch_bytes = requested_bytes::<MirModuleKey>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdgeKey>(lane_edge_count))
@@ -507,6 +562,11 @@ pub(crate) fn lower_to_mir(
             u64::try_from(hir.signal_groups.len())
                 .unwrap_or(u64::MAX)
                 .saturating_add(u64::try_from(hir.signal_controllers.len()).unwrap_or(u64::MAX)),
+        ))
+        .saturating_add(requested_bytes::<u32>(
+            u64::try_from(hir.parking_areas.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(u64::try_from(hir.parking_spaces.len()).unwrap_or(u64::MAX)),
         ));
     let mir_owned_bytes = requested_bytes::<MirModule>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdge>(lane_edge_count))
@@ -612,6 +672,15 @@ pub(crate) fn lower_to_mir(
                 .len()
                 .try_into()
                 .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirParkingArea>(
+            hir.parking_areas.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirParkingSpace>(
+            hir.parking_spaces.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirParkingAreaSpace>(
+            hir.parking_area_spaces.len().try_into().unwrap_or(u64::MAX),
         ))
         .saturating_add(requested_bytes::<MirStaticRoute>(
             hir.static_routes.len().try_into().unwrap_or(u64::MAX),
@@ -1075,6 +1144,56 @@ pub(crate) fn lower_to_mir(
         })
         .collect::<Vec<_>>();
 
+    let parking_area_mapping = dense_mapping::<MirParkingAreaTag>(hir.parking_areas.len())?;
+    let parking_space_mapping = dense_mapping::<MirParkingSpaceTag>(hir.parking_spaces.len())?;
+    let parking_areas = hir
+        .parking_areas
+        .iter()
+        .map(|area| {
+            Ok(MirParkingArea {
+                module: hir_module_to_mir[area.module.index()],
+                stable_key: Arc::clone(&area.stable_key),
+                stable_id: area.stable_id,
+                parking_spaces: remap_range(area.parking_spaces, &unit.limits, &area.source_span)?,
+                source_span: area.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let parking_spaces = hir
+        .parking_spaces
+        .iter()
+        .map(|space| MirParkingSpace {
+            module: hir_module_to_mir[space.module.index()],
+            stable_key: Arc::clone(&space.stable_key),
+            stable_id: space.stable_id,
+            parking_area: space
+                .parking_area
+                .map(|area| parking_area_mapping[area.index()]),
+            entry: MirParkingLaneAnchor {
+                lane_edge: hir_to_mir[space.entry.lane_edge.index()],
+                progress_meters: space.entry.progress_meters,
+            },
+            exit: MirParkingLaneAnchor {
+                lane_edge: hir_to_mir[space.exit.lane_edge.index()],
+                progress_meters: space.exit.progress_meters,
+            },
+            geometry: MirParkingSpaceGeometry {
+                lateral_offset_meters: space.geometry.lateral_offset_meters,
+                heading_offset_radians: space.geometry.heading_offset_radians,
+                length_meters: space.geometry.length_meters,
+                width_meters: space.geometry.width_meters,
+            },
+            source_span: space.source_span.clone(),
+        })
+        .collect::<Vec<_>>();
+    let parking_area_spaces = hir
+        .parking_area_spaces
+        .iter()
+        .map(|member| MirParkingAreaSpace {
+            parking_space: parking_space_mapping[member.parking_space.index()],
+        })
+        .collect::<Vec<_>>();
+
     let static_route_mapping = dense_mapping::<MirStaticRouteTag>(hir.static_routes.len())?;
     debug_assert_eq!(static_route_mapping.len(), hir.static_routes.len());
     let static_routes = hir
@@ -1208,6 +1327,9 @@ pub(crate) fn lower_to_mir(
         signal_phases: signal_phases.into_boxed_slice(),
         signal_phase_states: signal_phase_states.into_boxed_slice(),
         signal_group_maneuver_gates: signal_group_maneuver_gates.into_boxed_slice(),
+        parking_areas: parking_areas.into_boxed_slice(),
+        parking_spaces: parking_spaces.into_boxed_slice(),
+        parking_area_spaces: parking_area_spaces.into_boxed_slice(),
         static_routes: static_routes.into_boxed_slice(),
         static_route_edges: static_route_edges.into_boxed_slice(),
         static_route_transitions: static_route_transitions.into_boxed_slice(),

@@ -27,12 +27,13 @@ use crate::declaration::{
     JunctionDeclaration, JunctionInput, LaneEdgeDeclaration, LaneEdgeInput, LaneGroupDeclaration,
     LaneGroupInput, ManeuverGateDeclaration, ManeuverGateInput, ManeuverPathDeclaration,
     ManeuverPathInput, MovementDeclaration, MovementInput, OwnedCorridorElementReference,
-    OwnedEntityReference, OwnedSignalControl, RoadCorridorDeclaration, RoadCorridorInput,
-    RoadSectionDeclaration, RoadSectionInput, SignalControlInput, SignalControllerDeclaration,
-    SignalControllerInput, SignalGroupDeclaration, SignalGroupInput, SignalGroupReference,
-    SignalGroupStateDeclaration, SignalPhaseDeclaration, SignalPhaseInput, SpeedLimit,
-    StaticRouteDeclaration, StaticRouteInput, StopLineDeclaration, StopLineInput,
-    SyntheticDeclaration, WaitingZoneDeclaration, WaitingZoneInput,
+    OwnedEntityReference, OwnedSignalControl, ParkingAreaDeclaration, ParkingAreaInput,
+    ParkingLaneAnchorDeclaration, ParkingSpaceDeclaration, ParkingSpaceInput,
+    RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration, RoadSectionInput,
+    SignalControlInput, SignalControllerDeclaration, SignalControllerInput, SignalGroupDeclaration,
+    SignalGroupInput, SignalGroupReference, SignalGroupStateDeclaration, SignalPhaseDeclaration,
+    SignalPhaseInput, SpeedLimit, StaticRouteDeclaration, StaticRouteInput, StopLineDeclaration,
+    StopLineInput, SyntheticDeclaration, WaitingZoneDeclaration, WaitingZoneInput,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
@@ -1527,6 +1528,161 @@ impl SyntheticModuleBuilder {
                     phases: phases.into_boxed_slice(),
                 },
             ));
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明一个可选组织停车位的不可变停车区域。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键非法、声明重复或资源上限超限时失败。区域至少拥有一个停车位的闭包在
+    /// HIR 阶段验证。
+    #[track_caller]
+    pub fn add_parking_area(
+        &mut self,
+        input: ParkingAreaInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::ParkingArea, input.parking_area_key, &span)?;
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.parking_area_key.len()).unwrap_or(u64::MAX);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 3,
+                identity_fields: 2,
+                symbols: 1,
+                string_items: 2,
+                string_bytes: namespace_bytes.saturating_add(key_bytes),
+                controlled_string_bytes: key_bytes,
+                controlled_structural_bytes: size_bytes::<ParkingAreaDeclaration>(1),
+                source_bytes: declaration_header_len(input.parking_area_key),
+                ..DeclarationResourceDelta::default()
+            },
+            input.parking_area_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.parking_area_key.into();
+        self.declaration_index
+            .entry(EntityKind::ParkingArea)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations
+            .push(SyntheticDeclaration::ParkingArea(ParkingAreaDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::ParkingArea,
+                    stable_key,
+                    span,
+                },
+            }));
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
+    /// 声明一个带可选区域归属、入口/出口锚点和矩形几何的不可变停车位。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键或引用非法、跨模块引用未显式导入、声明重复，或资源上限超限时失败。
+    /// 区域存在性、锚点边界、几何范围和区域非孤立约束在 HIR 阶段统一验证。
+    #[track_caller]
+    pub fn add_parking_space(
+        &mut self,
+        input: ParkingSpaceInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(EntityKind::ParkingSpace, input.parking_space_key, &span)?;
+        if let Some(area) = input.parking_area {
+            self.validate_reference(EntityKind::ParkingArea, area, &span)?;
+        }
+        self.validate_reference(EntityKind::LaneEdge, input.entry.lane_edge, &span)?;
+        self.validate_reference(EntityKind::LaneEdge, input.exit.lane_edge, &span)?;
+
+        let reference_count = 2_u64.saturating_add(u64::from(input.parking_area.is_some()));
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.parking_space_key.len()).unwrap_or(u64::MAX);
+        let mut logical_string_bytes = namespace_bytes.saturating_add(key_bytes);
+        let mut controlled_string_bytes = key_bytes;
+        if let Some(area) = input.parking_area {
+            logical_string_bytes =
+                logical_string_bytes.saturating_add(reference_spelling_parts_bytes(
+                    area.module_namespace()
+                        .unwrap_or(&self.header.authoring_namespace_id),
+                    area.declaration_key(),
+                ));
+            controlled_string_bytes = controlled_string_bytes
+                .saturating_add(u64::try_from(area.declaration_key().len()).unwrap_or(u64::MAX));
+        }
+        for edge in [input.entry.lane_edge, input.exit.lane_edge] {
+            logical_string_bytes =
+                logical_string_bytes.saturating_add(reference_spelling_parts_bytes(
+                    edge.module_namespace()
+                        .unwrap_or(&self.header.authoring_namespace_id),
+                    edge.declaration_key(),
+                ));
+            controlled_string_bytes = controlled_string_bytes
+                .saturating_add(u64::try_from(edge.declaration_key().len()).unwrap_or(u64::MAX));
+        }
+        let source_bytes = parking_space_input_len(&input, &self.header.authoring_namespace_id);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 7_u64.saturating_add(reference_count.saturating_mul(2)),
+                references: reference_count,
+                relations: reference_count,
+                identity_fields: 2,
+                symbols: 1,
+                string_items: 2_u64.saturating_add(reference_count),
+                string_bytes: logical_string_bytes,
+                controlled_string_bytes,
+                controlled_structural_bytes: size_bytes::<ParkingSpaceDeclaration>(1),
+                source_bytes,
+                ..DeclarationResourceDelta::default()
+            },
+            input.parking_space_key,
+            &span,
+        )?;
+
+        let parking_area = match input.parking_area {
+            Some(area) => Some(self.own_reference(EntityKind::ParkingArea, area, &span)?),
+            None => None,
+        };
+        let entry = ParkingLaneAnchorDeclaration {
+            lane_edge: self.own_reference(EntityKind::LaneEdge, input.entry.lane_edge, &span)?,
+            progress_meters: input.entry.progress_meters,
+        };
+        let exit = ParkingLaneAnchorDeclaration {
+            lane_edge: self.own_reference(EntityKind::LaneEdge, input.exit.lane_edge, &span)?,
+            progress_meters: input.exit.progress_meters,
+        };
+        let stable_key: Arc<str> = input.parking_space_key.into();
+        self.declaration_index
+            .entry(EntityKind::ParkingSpace)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations.push(SyntheticDeclaration::ParkingSpace(
+            ParkingSpaceDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::ParkingSpace,
+                    stable_key,
+                    span,
+                },
+                parking_area,
+                entry,
+                exit,
+                geometry: input.geometry,
+            },
+        ));
         self.commit_declaration_resources(state);
         Ok(self)
     }
@@ -3031,6 +3187,12 @@ fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
         SyntheticDeclaration::SignalController(declaration) => {
             Some(signal_controller_declaration_len(declaration))
         }
+        SyntheticDeclaration::ParkingArea(declaration) => {
+            Some(declaration_header_len(&declaration.header.stable_key))
+        }
+        SyntheticDeclaration::ParkingSpace(declaration) => {
+            Some(parking_space_declaration_len(declaration))
+        }
     }
 }
 
@@ -3187,6 +3349,41 @@ fn signal_controller_declaration_len(declaration: &SignalControllerDeclaration) 
                 ))
                 .saturating_add(1);
         }
+    }
+    length
+}
+
+fn parking_space_input_len(input: &ParkingSpaceInput<'_>, local_namespace: &str) -> u64 {
+    let mut length = declaration_header_len(input.parking_space_key).saturating_add(1 + 8 * 6);
+    if let Some(area) = input.parking_area {
+        length = length.saturating_add(encoded_reference_len(
+            area.module_namespace().unwrap_or(local_namespace),
+            area.declaration_key(),
+        ));
+    }
+    for edge in [input.entry.lane_edge, input.exit.lane_edge] {
+        length = length.saturating_add(encoded_reference_len(
+            edge.module_namespace().unwrap_or(local_namespace),
+            edge.declaration_key(),
+        ));
+    }
+    length
+}
+
+fn parking_space_declaration_len(declaration: &ParkingSpaceDeclaration) -> u64 {
+    let mut length =
+        declaration_header_len(&declaration.header.stable_key).saturating_add(1 + 8 * 6);
+    if let Some(area) = &declaration.parking_area {
+        length = length.saturating_add(encoded_reference_len(
+            &area.module_namespace,
+            &area.declaration_key,
+        ));
+    }
+    for anchor in [&declaration.entry, &declaration.exit] {
+        length = length.saturating_add(encoded_reference_len(
+            &anchor.lane_edge.module_namespace,
+            &anchor.lane_edge.declaration_key,
+        ));
     }
     length
 }
@@ -3461,6 +3658,25 @@ fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
                     output.push(signal_aspect_source_code(state.aspect));
                 }
             }
+        }
+        SyntheticDeclaration::ParkingArea(declaration) => {
+            put_declaration_header(output, &declaration.header);
+        }
+        SyntheticDeclaration::ParkingSpace(declaration) => {
+            put_declaration_header(output, &declaration.header);
+            output.push(u8::from(declaration.parking_area.is_some()));
+            if let Some(area) = &declaration.parking_area {
+                put_owned_reference(output, area);
+            }
+            for anchor in [&declaration.entry, &declaration.exit] {
+                put_owned_reference(output, &anchor.lane_edge);
+                output.extend_from_slice(&anchor.progress_meters.to_bits().to_le_bytes());
+            }
+            let geometry = declaration.geometry;
+            output.extend_from_slice(&geometry.lateral_offset_meters.to_bits().to_le_bytes());
+            output.extend_from_slice(&geometry.heading_offset_radians.to_bits().to_le_bytes());
+            output.extend_from_slice(&geometry.length_meters.to_bits().to_le_bytes());
+            output.extend_from_slice(&geometry.width_meters.to_bits().to_le_bytes());
         }
     }
 }

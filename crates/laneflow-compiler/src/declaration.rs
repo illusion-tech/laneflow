@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     EntityKind, EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind, LaneGroupKind,
-    ManeuverGateKind, ManeuverPathKind, MovementKind, RoadSectionKind, SignalAspect,
-    SignalGroupKind, StopLineKind,
+    ManeuverGateKind, ManeuverPathKind, MovementKind, ParkingAreaKind, RoadSectionKind,
+    SignalAspect, SignalGroupKind, StopLineKind,
 };
 
 use crate::SourceSpan;
@@ -93,6 +93,8 @@ pub type StopLineReference<'a> = EntityReference<'a, StopLineKind>;
 pub type ManeuverGateReference<'a> = EntityReference<'a, ManeuverGateKind>;
 /// 指向信号组声明的有类型未解析引用。
 pub type SignalGroupReference<'a> = EntityReference<'a, SignalGroupKind>;
+/// 指向停车区域声明的有类型未解析引用。
+pub type ParkingAreaReference<'a> = EntityReference<'a, ParkingAreaKind>;
 /// 横断面物理设施类别可承载的结构形态。
 ///
 /// 该分类只约束 `FacilityKind` token 可以用于道路区段还是设施带，不授予任何交通
@@ -328,6 +330,53 @@ pub struct SignalControllerInput<'a> {
     pub signal_groups: &'a [SignalGroupReference<'a>],
     /// 非空且顺序定义循环程序的相位序列。
     pub phases: &'a [SignalPhaseInput<'a>],
+}
+
+/// 停车位连接车道图边的入口或出口锚点输入。
+#[derive(Clone, Copy, Debug)]
+pub struct ParkingLaneAnchorInput<'a> {
+    /// 锚点所在的车道图边。
+    pub lane_edge: LaneEdgeReference<'a>,
+    /// 从边起点量取的纵向进度，单位为米。
+    pub progress_meters: f64,
+}
+
+/// 停车位相对入口边正向切线的矩形几何输入。
+#[derive(Clone, Copy, Debug)]
+pub struct ParkingSpaceGeometryInput {
+    /// 相对入口边中心线的横向偏移，单位为米；正值位于行驶方向左侧。
+    pub lateral_offset_meters: f64,
+    /// 相对入口边正向切线的逆时针朝向偏移，单位为弧度。
+    pub heading_offset_radians: f64,
+    /// 沿停车朝向的泊位长度，单位为米。
+    pub length_meters: f64,
+    /// 垂直停车朝向的泊位宽度，单位为米。
+    pub width_meters: f64,
+}
+
+/// 合成领域专用语言的停车区域声明输入。
+#[derive(Clone, Copy, Debug)]
+pub struct ParkingAreaInput<'a> {
+    /// 来源模块内显式持久化且唯一的停车区域稳定键。
+    pub parking_area_key: &'a str,
+}
+
+/// 合成领域专用语言的停车位声明输入。
+///
+/// `parking_area` 只建立可选组织关系，不参与停车位 Identity v1；改变区域归属不能
+/// 造成停车位身份漂移。入口和出口锚点均必须解析到既有车道图边。
+#[derive(Clone, Copy, Debug)]
+pub struct ParkingSpaceInput<'a> {
+    /// 来源模块内显式持久化且唯一的停车位稳定键。
+    pub parking_space_key: &'a str,
+    /// 可选停车区域；`None` 表示合法的独立停车位。
+    pub parking_area: Option<ParkingAreaReference<'a>>,
+    /// 停车提交前交通参与单元必须到达的入口锚点。
+    pub entry: ParkingLaneAnchorInput<'a>,
+    /// 离开停车位后重新进入车道图的出口锚点。
+    pub exit: ParkingLaneAnchorInput<'a>,
+    /// 停车表现使用的不可变矩形几何。
+    pub geometry: ParkingSpaceGeometryInput,
 }
 
 /// 合成领域专用语言的等待区声明输入。
@@ -586,6 +635,26 @@ pub(crate) struct SignalControllerDeclaration {
     pub(crate) phases: Box<[SignalPhaseDeclaration]>,
 }
 
+/// 已通过字段级检查、等待反向成员闭包的停车区域 Typed AST 记录。
+pub(crate) struct ParkingAreaDeclaration {
+    pub(crate) header: DeclarationHeader,
+}
+
+/// Typed AST 中拥有的停车锚点。
+pub(crate) struct ParkingLaneAnchorDeclaration {
+    pub(crate) lane_edge: OwnedEntityReference<LaneEdgeKind>,
+    pub(crate) progress_meters: f64,
+}
+
+/// 已通过字段级检查、等待解析区域、锚点和几何的停车位 Typed AST 记录。
+pub(crate) struct ParkingSpaceDeclaration {
+    pub(crate) header: DeclarationHeader,
+    pub(crate) parking_area: Option<OwnedEntityReference<ParkingAreaKind>>,
+    pub(crate) entry: ParkingLaneAnchorDeclaration,
+    pub(crate) exit: ParkingLaneAnchorDeclaration,
+    pub(crate) geometry: ParkingSpaceGeometryInput,
+}
+
 /// 已通过字段级检查、等待门顺序和区间重叠闭包校验的等待区 Typed AST 记录。
 pub(crate) struct WaitingZoneDeclaration {
     pub(crate) header: DeclarationHeader,
@@ -617,4 +686,6 @@ pub(crate) enum SyntheticDeclaration {
     StaticRoute(StaticRouteDeclaration),
     SignalGroup(SignalGroupDeclaration),
     SignalController(SignalControllerDeclaration),
+    ParkingArea(ParkingAreaDeclaration),
+    ParkingSpace(ParkingSpaceDeclaration),
 }

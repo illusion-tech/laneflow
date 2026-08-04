@@ -15,19 +15,21 @@ use laneflow_static_contract::{
     AuthoringLaneId, AuthoringLaneOrdinal, EntityKind, FacilityBandId, FacilityBandOrdinal,
     FieldTag, JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId,
     LaneGroupOrdinal, ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal,
-    MovementId, MovementOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
-    RoadSectionOrdinal, SignalAspect, SignalControllerId, SignalControllerOrdinal, SignalGroupId,
-    SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal,
-    StopLineId, StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
+    MovementId, MovementOrdinal, ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId,
+    ParkingSpaceOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal,
+    SignalAspect, SignalControllerId, SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal,
+    SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal, StopLineId,
+    StopLineOrdinal, WaitingZoneId, WaitingZoneOrdinal,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange};
 use crate::diagnostic::DiagnosticCollector;
 use crate::mir::{
     MirAuthoringLaneKey, MirCorridorElement, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeKey,
-    MirLaneGroupKey, MirManeuverGateKey, MirManeuverPathKey, MirMovementKey, MirRoadCorridorKey,
-    MirRoadSectionKey, MirSignalControl, MirSignalControllerKey, MirSignalGroupKey,
-    MirSignalPhaseKey, MirStaticRouteKey, MirStopLineKey, MirUnit, MirWaitingZoneKey,
+    MirLaneGroupKey, MirManeuverGateKey, MirManeuverPathKey, MirMovementKey, MirParkingAreaKey,
+    MirParkingSpaceKey, MirRoadCorridorKey, MirRoadSectionKey, MirSignalControl,
+    MirSignalControllerKey, MirSignalGroupKey, MirSignalPhaseKey, MirStaticRouteKey,
+    MirStopLineKey, MirUnit, MirWaitingZoneKey,
 };
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
@@ -60,6 +62,8 @@ const LIR_SIGNAL_GROUP_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8;
 const LIR_SIGNAL_CONTROLLER_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8 + 8 + 8 + 8;
 const LIR_SIGNAL_PHASE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 + 8;
 const LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES: u64 = 4 + 1;
+const LIR_PARKING_AREA_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 8;
+const LIR_PARKING_SPACE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + (4 + 8) * 2 + 8 * 4;
 const LIR_CORRIDOR_ELEMENT_LOGICAL_BYTES: u64 = 2 + 4;
 const LIR_SEMANTIC_DIGEST_BYTES: u64 = 32;
 
@@ -222,6 +226,37 @@ pub(crate) struct LirSignalPhaseState {
     pub(crate) aspect: SignalAspect,
 }
 
+pub(crate) struct LirParkingArea {
+    pub(crate) ordinal: ParkingAreaOrdinal,
+    pub(crate) stable_id: ParkingAreaId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) parking_spaces: TableRange<ParkingSpaceOrdinal>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct LirParkingLaneAnchor {
+    pub(crate) lane_edge: LaneEdgeOrdinal,
+    pub(crate) progress_meters: f64,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct LirParkingSpaceGeometry {
+    pub(crate) lateral_offset_meters: f64,
+    pub(crate) heading_offset_radians: f64,
+    pub(crate) length_meters: f64,
+    pub(crate) width_meters: f64,
+}
+
+pub(crate) struct LirParkingSpace {
+    pub(crate) ordinal: ParkingSpaceOrdinal,
+    pub(crate) stable_id: ParkingSpaceId,
+    pub(crate) identity_fields: TableRange<LirIdentityField>,
+    pub(crate) parking_area: Option<ParkingAreaOrdinal>,
+    pub(crate) entry: LirParkingLaneAnchor,
+    pub(crate) exit: LirParkingLaneAnchor,
+    pub(crate) geometry: LirParkingSpaceGeometry,
+}
+
 pub(crate) struct LirWaitingZone {
     pub(crate) ordinal: WaitingZoneOrdinal,
     pub(crate) stable_id: WaitingZoneId,
@@ -323,6 +358,9 @@ pub(crate) struct LirUnit {
     pub(crate) signal_phases: Box<[LirSignalPhase]>,
     pub(crate) signal_phase_states: Box<[LirSignalPhaseState]>,
     pub(crate) signal_group_maneuver_gates: Box<[ManeuverGateOrdinal]>,
+    pub(crate) parking_areas: Box<[LirParkingArea]>,
+    pub(crate) parking_spaces: Box<[LirParkingSpace]>,
+    pub(crate) parking_area_spaces: Box<[ParkingSpaceOrdinal]>,
     pub(crate) static_routes: Box<[LirStaticRoute]>,
     pub(crate) static_route_edges: Box<[LaneEdgeOrdinal]>,
     pub(crate) static_route_transitions: Box<[LirStaticRouteTransition]>,
@@ -380,6 +418,10 @@ pub(crate) struct LirFreezeOutput {
     pub(crate) mir_signal_controller_to_lir: Box<[SignalControllerOrdinal]>,
     pub(crate) canonical_mir_signal_phase_order: Box<[MirSignalPhaseKey]>,
     pub(crate) mir_signal_phase_to_lir: Box<[SignalPhaseOrdinal]>,
+    pub(crate) canonical_mir_parking_area_order: Box<[MirParkingAreaKey]>,
+    pub(crate) mir_parking_area_to_lir: Box<[ParkingAreaOrdinal]>,
+    pub(crate) canonical_mir_parking_space_order: Box<[MirParkingSpaceKey]>,
+    pub(crate) mir_parking_space_to_lir: Box<[ParkingSpaceOrdinal]>,
     pub(crate) canonical_mir_static_route_order: Box<[MirStaticRouteKey]>,
     pub(crate) mir_static_route_to_lir: Box<[StaticRouteOrdinal]>,
 }
@@ -469,6 +511,16 @@ impl LirFreezeOutput {
             self.canonical_mir_signal_phase_order.len(),
             self.mir_signal_phase_to_lir.len(),
         ))
+        .saturating_add(mapping_pair_bytes::<MirParkingAreaKey, ParkingAreaOrdinal>(
+            self.canonical_mir_parking_area_order.len(),
+            self.mir_parking_area_to_lir.len(),
+        ))
+        .saturating_add(
+            mapping_pair_bytes::<MirParkingSpaceKey, ParkingSpaceOrdinal>(
+                self.canonical_mir_parking_space_order.len(),
+                self.mir_parking_space_to_lir.len(),
+            ),
+        )
         .saturating_add(mapping_pair_bytes::<MirStaticRouteKey, StaticRouteOrdinal>(
             self.canonical_mir_static_route_order.len(),
             self.mir_static_route_to_lir.len(),
@@ -521,6 +573,9 @@ pub(crate) fn freeze_lir(
     let signal_phase_state_count = u64::try_from(mir.signal_phase_states.len()).unwrap_or(u64::MAX);
     let signal_group_gate_count =
         u64::try_from(mir.signal_group_maneuver_gates.len()).unwrap_or(u64::MAX);
+    let parking_area_count = u64::try_from(mir.parking_areas.len()).unwrap_or(u64::MAX);
+    let parking_space_count = u64::try_from(mir.parking_spaces.len()).unwrap_or(u64::MAX);
+    let parking_area_space_count = u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX);
     let static_route_count = u64::try_from(mir.static_routes.len()).unwrap_or(u64::MAX);
     let static_route_edge_count = u64::try_from(mir.static_route_edges.len()).unwrap_or(u64::MAX);
     let static_route_transition_count =
@@ -573,6 +628,9 @@ pub(crate) fn freeze_lir(
         signal_phase_count,
         signal_phase_state_count,
         signal_group_gate_count,
+        parking_area_count,
+        parking_space_count,
+        parking_area_space_count,
         waiting_zone_count,
         maneuver_gate_count,
     ]
@@ -597,6 +655,8 @@ pub(crate) fn freeze_lir(
         .saturating_add(signal_group_count.saturating_mul(2))
         .saturating_add(signal_controller_count.saturating_mul(2))
         .saturating_add(signal_phase_count.saturating_mul(3))
+        .saturating_add(parking_area_count.saturating_mul(2))
+        .saturating_add(parking_space_count.saturating_mul(2))
         .saturating_add(static_route_count.saturating_mul(2));
     let identity_field_byte_count = identity_field_byte_count(mir);
     let kind_id_byte_count = mir
@@ -636,6 +696,8 @@ pub(crate) fn freeze_lir(
                 .saturating_add(signal_group_count)
                 .saturating_add(signal_controller_count)
                 .saturating_add(signal_phase_count)
+                .saturating_add(parking_area_count)
+                .saturating_add(parking_space_count)
                 .saturating_add(static_route_count)
                 .saturating_mul(2),
         ))
@@ -686,6 +748,9 @@ pub(crate) fn freeze_lir(
             signal_phase_state_count.saturating_mul(LIR_SIGNAL_PHASE_STATE_LOGICAL_BYTES),
         )
         .saturating_add(signal_group_gate_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
+        .saturating_add(parking_area_count.saturating_mul(LIR_PARKING_AREA_LOGICAL_BYTES))
+        .saturating_add(parking_space_count.saturating_mul(LIR_PARKING_SPACE_LOGICAL_BYTES))
+        .saturating_add(parking_area_space_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(static_route_count.saturating_mul(LIR_STATIC_ROUTE_LOGICAL_BYTES))
         .saturating_add(static_route_edge_count.saturating_mul(LIR_TYPED_ORDINAL_LOGICAL_BYTES))
         .saturating_add(
@@ -752,6 +817,11 @@ pub(crate) fn freeze_lir(
         ))
         .saturating_add(requested_bytes::<ManeuverGateOrdinal>(
             signal_group_gate_count,
+        ))
+        .saturating_add(requested_bytes::<LirParkingArea>(parking_area_count))
+        .saturating_add(requested_bytes::<LirParkingSpace>(parking_space_count))
+        .saturating_add(requested_bytes::<ParkingSpaceOrdinal>(
+            parking_area_space_count,
         ));
     let output_owned_bytes = output_owned_bytes
         .saturating_add(requested_bytes::<LirStaticRoute>(static_route_count))
@@ -1527,6 +1597,50 @@ pub(crate) fn freeze_lir(
         primary_span.clone(),
     )?;
 
+    let mut canonical_mir_parking_area_order: Vec<MirParkingAreaKey> =
+        dense_mir_keys(mir.parking_areas.len());
+    canonical_mir_parking_area_order.sort_unstable_by(|left, right| {
+        let left = &mir.parking_areas[left.index()];
+        let right = &mir.parking_areas[right.index()];
+        compare_identity_parts(
+            &mir.modules[left.module.index()].authoring_namespace_id,
+            &left.stable_key,
+            None,
+            &mir.modules[right.module.index()].authoring_namespace_id,
+            &right.stable_key,
+            None,
+        )
+    });
+    let mir_parking_area_to_lir = ordinal_mapping(
+        mir.parking_areas.len(),
+        &canonical_mir_parking_area_order,
+        ParkingAreaOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
+    let mut canonical_mir_parking_space_order: Vec<MirParkingSpaceKey> =
+        dense_mir_keys(mir.parking_spaces.len());
+    canonical_mir_parking_space_order.sort_unstable_by(|left, right| {
+        let left = &mir.parking_spaces[left.index()];
+        let right = &mir.parking_spaces[right.index()];
+        compare_identity_parts(
+            &mir.modules[left.module.index()].authoring_namespace_id,
+            &left.stable_key,
+            None,
+            &mir.modules[right.module.index()].authoring_namespace_id,
+            &right.stable_key,
+            None,
+        )
+    });
+    let mir_parking_space_to_lir = ordinal_mapping(
+        mir.parking_spaces.len(),
+        &canonical_mir_parking_space_order,
+        ParkingSpaceOrdinal::try_from_usize,
+        &unit.limits,
+        primary_span.clone(),
+    )?;
+
     let mut canonical_mir_static_route_order: Vec<MirStaticRouteKey> =
         dense_mir_keys(mir.static_routes.len());
     canonical_mir_static_route_order.sort_unstable_by(|left, right| {
@@ -2036,6 +2150,77 @@ pub(crate) fn freeze_lir(
         });
     }
 
+    let mut parking_areas = Vec::with_capacity(mir.parking_areas.len());
+    let mut parking_area_spaces = Vec::with_capacity(mir.parking_area_spaces.len());
+    for mir_key in canonical_mir_parking_area_order.iter().copied() {
+        let area = &mir.parking_areas[mir_key.index()];
+        let identity_range = push_lir_identity(
+            &mut identity_fields,
+            &mut identity_field_bytes,
+            FieldTag::ParkingAreaKey,
+            &mir.modules[area.module.index()].authoring_namespace_id,
+            &area.stable_key,
+            None,
+            &unit.limits,
+            primary_span.clone(),
+        )?;
+        let member_start = parking_area_spaces.len();
+        parking_area_spaces.extend(
+            mir.parking_area_spaces[area.parking_spaces.as_usize_range()]
+                .iter()
+                .map(|member| mir_parking_space_to_lir[member.parking_space.index()]),
+        );
+        parking_area_spaces[member_start..].sort_unstable();
+        parking_areas.push(LirParkingArea {
+            ordinal: mir_parking_area_to_lir[mir_key.index()],
+            stable_id: area.stable_id,
+            identity_fields: identity_range,
+            parking_spaces: relation_range(
+                member_start,
+                parking_area_spaces.len(),
+                &unit.limits,
+                primary_span.clone(),
+            )?,
+        });
+    }
+
+    let mut parking_spaces = Vec::with_capacity(mir.parking_spaces.len());
+    for mir_key in canonical_mir_parking_space_order.iter().copied() {
+        let space = &mir.parking_spaces[mir_key.index()];
+        let identity_range = push_lir_identity(
+            &mut identity_fields,
+            &mut identity_field_bytes,
+            FieldTag::ParkingSpaceKey,
+            &mir.modules[space.module.index()].authoring_namespace_id,
+            &space.stable_key,
+            None,
+            &unit.limits,
+            primary_span.clone(),
+        )?;
+        parking_spaces.push(LirParkingSpace {
+            ordinal: mir_parking_space_to_lir[mir_key.index()],
+            stable_id: space.stable_id,
+            identity_fields: identity_range,
+            parking_area: space
+                .parking_area
+                .map(|area| mir_parking_area_to_lir[area.index()]),
+            entry: LirParkingLaneAnchor {
+                lane_edge: mir_to_lir[space.entry.lane_edge.index()],
+                progress_meters: space.entry.progress_meters,
+            },
+            exit: LirParkingLaneAnchor {
+                lane_edge: mir_to_lir[space.exit.lane_edge.index()],
+                progress_meters: space.exit.progress_meters,
+            },
+            geometry: LirParkingSpaceGeometry {
+                lateral_offset_meters: space.geometry.lateral_offset_meters,
+                heading_offset_radians: space.geometry.heading_offset_radians,
+                length_meters: space.geometry.length_meters,
+                width_meters: space.geometry.width_meters,
+            },
+        });
+    }
+
     let mut static_routes = Vec::with_capacity(mir.static_routes.len());
     let mut static_route_edges = Vec::with_capacity(mir.static_route_edges.len());
     let mut static_route_transitions = Vec::with_capacity(mir.static_route_transitions.len());
@@ -2275,6 +2460,9 @@ pub(crate) fn freeze_lir(
         &signal_phases,
         &signal_phase_states,
         &signal_group_maneuver_gates,
+        &parking_areas,
+        &parking_spaces,
+        &parking_area_spaces,
         &static_routes,
         &static_route_edges,
         &static_route_transitions,
@@ -2317,6 +2505,9 @@ pub(crate) fn freeze_lir(
             signal_phases: signal_phases.into_boxed_slice(),
             signal_phase_states: signal_phase_states.into_boxed_slice(),
             signal_group_maneuver_gates: signal_group_maneuver_gates.into_boxed_slice(),
+            parking_areas: parking_areas.into_boxed_slice(),
+            parking_spaces: parking_spaces.into_boxed_slice(),
+            parking_area_spaces: parking_area_spaces.into_boxed_slice(),
             static_routes: static_routes.into_boxed_slice(),
             static_route_edges: static_route_edges.into_boxed_slice(),
             static_route_transitions: static_route_transitions.into_boxed_slice(),
@@ -2366,6 +2557,10 @@ pub(crate) fn freeze_lir(
         mir_signal_controller_to_lir: mir_signal_controller_to_lir.into_boxed_slice(),
         canonical_mir_signal_phase_order: canonical_mir_signal_phase_order.into_boxed_slice(),
         mir_signal_phase_to_lir: mir_signal_phase_to_lir.into_boxed_slice(),
+        canonical_mir_parking_area_order: canonical_mir_parking_area_order.into_boxed_slice(),
+        mir_parking_area_to_lir: mir_parking_area_to_lir.into_boxed_slice(),
+        canonical_mir_parking_space_order: canonical_mir_parking_space_order.into_boxed_slice(),
+        mir_parking_space_to_lir: mir_parking_space_to_lir.into_boxed_slice(),
         canonical_mir_static_route_order: canonical_mir_static_route_order.into_boxed_slice(),
         mir_static_route_to_lir: mir_static_route_to_lir.into_boxed_slice(),
     })
@@ -2597,6 +2792,12 @@ fn identity_field_byte_count(mir: &MirUnit) -> u64 {
     for phase in &mir.signal_phases {
         add(&mut total, phase.module.index(), &phase.stable_key, true);
     }
+    for area in &mir.parking_areas {
+        add(&mut total, area.module.index(), &area.stable_key, false);
+    }
+    for space in &mir.parking_spaces {
+        add(&mut total, space.module.index(), &space.stable_key, false);
+    }
     for route in &mir.static_routes {
         add(&mut total, route.module.index(), &route.stable_key, false);
     }
@@ -2691,6 +2892,9 @@ fn semantic_digest(
     signal_phases: &[LirSignalPhase],
     signal_phase_states: &[LirSignalPhaseState],
     signal_group_maneuver_gates: &[ManeuverGateOrdinal],
+    parking_areas: &[LirParkingArea],
+    parking_spaces: &[LirParkingSpace],
+    parking_area_spaces: &[ParkingSpaceOrdinal],
     static_routes: &[LirStaticRoute],
     static_route_edges: &[LaneEdgeOrdinal],
     static_route_transitions: &[LirStaticRouteTransition],
@@ -3025,6 +3229,53 @@ fn semantic_digest(
         for state in &signal_phase_states[phase.states.as_usize_range()] {
             hash_u32(&mut hasher, state.signal_group.raw());
             hasher.update(&[signal_aspect_digest_code(state.aspect)]);
+        }
+    }
+    hash_u32(&mut hasher, EntityKind::ParkingArea.code().into());
+    hash_u32(
+        &mut hasher,
+        parking_areas.len().try_into().unwrap_or(u32::MAX),
+    );
+    for area in parking_areas {
+        hash_u32(&mut hasher, area.ordinal.raw());
+        hasher.update(area.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            area.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_u32(&mut hasher, area.parking_spaces.len());
+        for space in &parking_area_spaces[area.parking_spaces.as_usize_range()] {
+            hash_u32(&mut hasher, space.raw());
+        }
+    }
+    hash_u32(&mut hasher, EntityKind::ParkingSpace.code().into());
+    hash_u32(
+        &mut hasher,
+        parking_spaces.len().try_into().unwrap_or(u32::MAX),
+    );
+    for space in parking_spaces {
+        hash_u32(&mut hasher, space.ordinal.raw());
+        hasher.update(space.stable_id.as_untyped().as_bytes());
+        hash_identity(
+            &mut hasher,
+            space.identity_fields,
+            identity_fields,
+            identity_field_bytes,
+        );
+        hash_optional_ordinal(&mut hasher, space.parking_area.map(ParkingAreaOrdinal::raw));
+        for anchor in [space.entry, space.exit] {
+            hash_u32(&mut hasher, anchor.lane_edge.raw());
+            hasher.update(&anchor.progress_meters.to_bits().to_le_bytes());
+        }
+        for value in [
+            space.geometry.lateral_offset_meters,
+            space.geometry.heading_offset_radians,
+            space.geometry.length_meters,
+            space.geometry.width_meters,
+        ] {
+            hasher.update(&value.to_bits().to_le_bytes());
         }
     }
     hash_u32(&mut hasher, EntityKind::StaticRoute.code().into());
