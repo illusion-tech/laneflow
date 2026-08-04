@@ -19,8 +19,9 @@ Frontend）、标识 v1（Identity v1）首次实现、确定性（Determinism�
 `RoadSection`、`AuthoringLane`、`LaneGroup`、`FacilityBand`、`Junction`、`Movement` 和
 `ManeuverPath`、`StopLine`、`ManeuverGate` 和 `WaitingZone` 已接入有类型符号解析、
 父项先于子项的身份闭包、规范 HIR/MIR/LIR 连续表及来源伴随数据；完整
-`entry + internal + exit` 路径、派生路口内部边排他角色、路径转换门、停止线使用闭包和
-等待区静态区间约束已经闭合。不可变固定时制信号程序、完整相位状态和机动门信号绑定
+`entry + internal + exit` 路径、派生路口内部边排他角色、路径转换门、每条 `LaneEdge`
+至多一条 `StopLine` 与入口候选路径完整覆盖约束、等待区静态区间约束已经闭合。不可变
+固定时制信号程序、完整相位状态和机动门信号绑定
 已在运行时之前闭合；停车区域（`ParkingArea`）、停车位（`ParkingSpace`）、入口 / 出口
 车道锚点、当前态静态几何和区域反向成员索引也已接入相同原子管线，其中区域归属不参与
 停车位身份。参与者类别（`ParticipantClass`）单继承闭包与静态准入规则
@@ -935,7 +936,7 @@ G2 把 `compiler-calibration-workloads-v1.json` 逐项映射到真实生产语�
 
 P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造在停表外，唯一计时区只
 覆盖 `Compiler::compile`。全部 35 个样本成功且同级语义指纹一致；1→5 份走廊的墙钟
-中位数为 2.3694→10.7631 ms，含源映射冻结的全管线编译器控制峰值为
+中位数为 2.2446→11.3253 ms，含源映射冻结的全管线编译器控制峰值为
 642529→3211621 字节，保留容量恒为 0。完整紧凑证据与环境边界见
 `v0.10-compiler-production-baseline.md` 和配对 JSON。
 该结果成为后继同机生产回退对照，不是产品 SLA、城市容量或 #298 制品发射预算。

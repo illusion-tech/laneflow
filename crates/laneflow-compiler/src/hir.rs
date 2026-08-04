@@ -1079,6 +1079,13 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                     .saturating_add(junction_counts.maneuver_paths)
                     .saturating_mul(2),
             ))
+            .saturating_add(requested_bytes::<Option<HirStopLineKey>>(lane_edge_count))
+            .saturating_add(requested_bytes::<u8>(
+                control_counts
+                    .stop_lines
+                    .saturating_add(junction_counts.maneuver_paths)
+                    .saturating_add(lane_edge_reference_count),
+            ))
             .saturating_add(requested_bytes::<HirManeuverGateKey>(
                 control_counts.maneuver_gates.saturating_mul(2),
             ))
@@ -3232,6 +3239,9 @@ fn build_control_hir(
 
     let mut diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    // StopLine 对 LaneEdge 是一对一关系。该表既在解析阶段发现重复所有者，也在后续
+    // 覆盖校验中把候选 ManeuverPath 反查到唯一 StopLine，避免按停止线反复扫描路径。
+    let mut stop_line_by_edge = vec![None; lane_edges.len()];
     for location in &stop_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
         let SyntheticDeclaration::StopLine(source) =
@@ -3248,6 +3258,21 @@ fn build_control_hir(
             location.source_module_index,
             &mut diagnostics,
         ) {
+            if let Some(first_key) = stop_line_by_edge[edge.index()] {
+                let first = stop_lines.get(first_key);
+                let duplicate = stop_lines.get(location.hir_key);
+                let mut diagnostic = Diagnostic::duplicate_stop_line_edge(
+                    &lane_edges.get(edge).stable_key,
+                    &first.stable_key,
+                    &duplicate.stable_key,
+                    duplicate.source_span.clone(),
+                    first.source_span.clone(),
+                );
+                diagnostic.set_canonical_module_order(location.source_module_index);
+                diagnostics.push(diagnostic);
+            } else {
+                stop_line_by_edge[edge.index()] = Some(location.hir_key);
+            }
             stop_lines.get_mut(location.hir_key).lane_edge = edge;
         }
     }
@@ -3383,17 +3408,56 @@ fn build_control_hir(
 
     let mut path_gate_counts = vec![0_usize; maneuver_paths.len()];
     let mut stop_gate_counts = vec![0_usize; stop_lines.len()];
+    // 使用 u8 标志，使实际容量与上方 scratch 字节预算保持一一对应。
+    let mut path_has_entry_gate = vec![0_u8; maneuver_paths.len()];
+    let mut stop_has_entry_gate = vec![0_u8; stop_lines.len()];
     for gate_key in &resolved_gate_keys {
         let gate = gates.get(*gate_key);
         path_gate_counts[gate.maneuver_path.index()] =
             path_gate_counts[gate.maneuver_path.index()].saturating_add(1);
         stop_gate_counts[gate.stop_line.index()] =
             stop_gate_counts[gate.stop_line.index()].saturating_add(1);
+        if gate.transition_index == 0 {
+            path_has_entry_gate[gate.maneuver_path.index()] = 1;
+            stop_has_entry_gate[gate.stop_line.index()] = 1;
+        }
+    }
+
+    // 每个 successor 引用是否至少有一条 ManeuverPath 以该转换起步。路径已在前一阶段
+    // 验证连通，因此这里可以用首个转换建立线性覆盖表，并同时检查所有候选路径的入口门。
+    let mut successor_has_path = vec![0_u8; lane_edge_references.len()];
+    for (path_index, path) in maneuver_paths.iter().enumerate() {
+        let path_edges = &maneuver_path_edges[path.edges.as_usize_range()];
+        let [from, to, ..] = path_edges else {
+            unreachable!("validated ManeuverPath must contain at least entry and exit edges")
+        };
+        let successor_range = lane_edges.get(from.target).successors.as_usize_range();
+        let successor_offset = lane_edge_references[successor_range.clone()]
+            .iter()
+            .position(|successor| successor.target == to.target)
+            .expect("validated ManeuverPath first transition must be connected");
+        successor_has_path[successor_range.start + successor_offset] = 1;
+
+        let Some(stop_key) = stop_line_by_edge[from.target.index()] else {
+            continue;
+        };
+        if stop_has_entry_gate[stop_key.index()] == 0 || path_has_entry_gate[path_index] != 0 {
+            continue;
+        }
+        let stop = stop_lines.get(stop_key);
+        let mut diagnostic = Diagnostic::missing_maneuver_gate_coverage(
+            &stop.stable_key,
+            &lane_edges.get(from.target).stable_key,
+            &path.stable_key,
+            stop.source_span.clone(),
+            path.source_span.clone(),
+        );
+        diagnostic.set_canonical_module_order(stop.module.raw());
+        diagnostics.push(diagnostic);
     }
     for (stop_key, stop) in stop_lines.iter() {
-        if lane_edge_references[lane_edges.get(stop.lane_edge).successors.as_usize_range()]
-            .is_empty()
-        {
+        let successor_range = lane_edges.get(stop.lane_edge).successors.as_usize_range();
+        if successor_range.is_empty() {
             let mut diagnostic = Diagnostic::orphan_stop_line(
                 &stop.stable_key,
                 &lane_edges.get(stop.lane_edge).stable_key,
@@ -3409,11 +3473,31 @@ fn build_control_hir(
             );
             diagnostic.set_canonical_module_order(stop.module.raw());
             diagnostics.push(diagnostic);
+        } else if stop_has_entry_gate[stop_key.index()] != 0 {
+            for successor_index in successor_range {
+                if successor_has_path[successor_index] != 0 {
+                    continue;
+                }
+                let successor = lane_edge_references[successor_index].target;
+                let mut diagnostic = Diagnostic::missing_maneuver_path_coverage(
+                    &stop.stable_key,
+                    &lane_edges.get(stop.lane_edge).stable_key,
+                    &lane_edges.get(successor).stable_key,
+                    stop.source_span.clone(),
+                    lane_edges.get(successor).source_span.clone(),
+                );
+                diagnostic.set_canonical_module_order(stop.module.raw());
+                diagnostics.push(diagnostic);
+            }
         }
     }
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
     }
+    drop(stop_line_by_edge);
+    drop(path_has_entry_gate);
+    drop(stop_has_entry_gate);
+    drop(successor_has_path);
 
     let mut path_gate_total = 0_usize;
     for (index, count) in path_gate_counts.iter().copied().enumerate() {

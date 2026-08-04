@@ -34,9 +34,9 @@
         "sourceModuleCount": 2,
         "laneEdgeCount": 66,
         "wallClockNs": {
-          "min": 2090000,
-          "median": 2369400,
-          "max": 2635200
+          "min": 2111100,
+          "median": 2244600,
+          "max": 2273300
         },
         "lirRecordCount": 4195,
         "lirOutputLogicalBytes": 120203,
@@ -49,9 +49,9 @@
         "sourceModuleCount": 4,
         "laneEdgeCount": 132,
         "wallClockNs": {
-          "min": 4207200,
-          "median": 4425300,
-          "max": 4825200
+          "min": 4376600,
+          "median": 4546500,
+          "max": 4587500
         },
         "lirRecordCount": 8390,
         "lirOutputLogicalBytes": 240374,
@@ -64,9 +64,9 @@
         "sourceModuleCount": 6,
         "laneEdgeCount": 198,
         "wallClockNs": {
-          "min": 6105700,
-          "median": 6276000,
-          "max": 6497600
+          "min": 6133200,
+          "median": 6391600,
+          "max": 6551300
         },
         "lirRecordCount": 12585,
         "lirOutputLogicalBytes": 360545,
@@ -79,9 +79,9 @@
         "sourceModuleCount": 8,
         "laneEdgeCount": 264,
         "wallClockNs": {
-          "min": 8207500,
-          "median": 8392900,
-          "max": 8574800
+          "min": 8548800,
+          "median": 8788000,
+          "max": 10048200
         },
         "lirRecordCount": 16780,
         "lirOutputLogicalBytes": 480716,
@@ -94,9 +94,9 @@
         "sourceModuleCount": 10,
         "laneEdgeCount": 330,
         "wallClockNs": {
-          "min": 10441100,
-          "median": 10763100,
-          "max": 11256800
+          "min": 10535400,
+          "median": 11325300,
+          "max": 13916400
         },
         "lirRecordCount": 20975,
         "lirOutputLogicalBytes": 600887,

@@ -2320,6 +2320,83 @@ mod tests {
         builder
     }
 
+    fn branched_control_builder(
+        document: &str,
+        include_right_path: bool,
+    ) -> SyntheticModuleBuilder {
+        let mut builder = junction_builder(document);
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "entry",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[
+                    LaneEdgeReference::local("middle-left"),
+                    LaneEdgeReference::local("middle-right"),
+                ],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "middle-left",
+                length_meters: 8.0,
+                speed_limit_meters_per_second: 8.0,
+                successors: &[LaneEdgeReference::local("exit-left")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "middle-right",
+                length_meters: 8.0,
+                speed_limit_meters_per_second: 8.0,
+                successors: &[LaneEdgeReference::local("exit-right")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit-left",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "exit-right",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap()
+            .add_junction(JunctionInput {
+                junction_key: "junction-main",
+            })
+            .unwrap()
+            .add_movement(MovementInput {
+                movement_key: "movement-through",
+                junction: JunctionReference::local("junction-main"),
+                directed_entry_approach_key: "approach-westbound",
+                directed_exit_approach_key: "approach-eastbound",
+            })
+            .unwrap()
+            .add_maneuver_path(ManeuverPathInput {
+                maneuver_path_key: "path-left",
+                movement: MovementReference::local("movement-through"),
+                entry_edge: LaneEdgeReference::local("entry"),
+                internal_edges: &[LaneEdgeReference::local("middle-left")],
+                exit_edge: LaneEdgeReference::local("exit-left"),
+            })
+            .unwrap();
+        if include_right_path {
+            builder
+                .add_maneuver_path(ManeuverPathInput {
+                    maneuver_path_key: "path-right",
+                    movement: MovementReference::local("movement-through"),
+                    entry_edge: LaneEdgeReference::local("entry"),
+                    internal_edges: &[LaneEdgeReference::local("middle-right")],
+                    exit_edge: LaneEdgeReference::local("exit-right"),
+                })
+                .unwrap();
+        }
+        builder
+    }
+
     fn route_validation_builder(document: &str) -> SyntheticModuleBuilder {
         let mut builder = junction_builder(document);
         builder
@@ -4762,6 +4839,60 @@ mod tests {
             .unwrap();
         assert!(
             compile_diagnostic_codes(unreferenced).contains(&DiagnosticCode::UnreferencedStopLine)
+        );
+
+        let mut duplicate_stop_line = control_builder("stop-duplicate-edge.document");
+        for key in ["stop-entry-a", "stop-entry-b"] {
+            duplicate_stop_line
+                .add_stop_line(StopLineInput {
+                    stop_line_key: key,
+                    lane_edge: LaneEdgeReference::local("entry"),
+                })
+                .unwrap();
+        }
+        assert!(
+            compile_diagnostic_codes(duplicate_stop_line)
+                .contains(&DiagnosticCode::DuplicateStopLineEdge)
+        );
+
+        let mut missing_gate = branched_control_builder("stop-missing-gate.document", true);
+        missing_gate
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-entry",
+                lane_edge: LaneEdgeReference::local("entry"),
+            })
+            .unwrap()
+            .add_maneuver_gate(ManeuverGateInput {
+                maneuver_gate_key: "gate-left",
+                maneuver_path: ManeuverPathReference::local("path-left"),
+                transition_index: 0,
+                stop_line: StopLineReference::local("stop-entry"),
+                signal_control: SignalControlInput::None,
+            })
+            .unwrap();
+        assert!(
+            compile_diagnostic_codes(missing_gate)
+                .contains(&DiagnosticCode::MissingManeuverGateCoverage)
+        );
+
+        let mut missing_path = branched_control_builder("stop-missing-path.document", false);
+        missing_path
+            .add_stop_line(StopLineInput {
+                stop_line_key: "stop-entry",
+                lane_edge: LaneEdgeReference::local("entry"),
+            })
+            .unwrap()
+            .add_maneuver_gate(ManeuverGateInput {
+                maneuver_gate_key: "gate-left",
+                maneuver_path: ManeuverPathReference::local("path-left"),
+                transition_index: 0,
+                stop_line: StopLineReference::local("stop-entry"),
+                signal_control: SignalControlInput::None,
+            })
+            .unwrap();
+        assert!(
+            compile_diagnostic_codes(missing_path)
+                .contains(&DiagnosticCode::MissingManeuverPathCoverage)
         );
     }
 
