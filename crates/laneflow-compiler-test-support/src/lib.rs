@@ -577,9 +577,93 @@ fn project_junctions(
             ids.lane_edges[view.exit_edge().index()].clone(),
         )
     });
-    Ok(JunctionRegistry::try_new(
-        lane_graph, junctions, movements, paths,
-    )?)
+    let registry = JunctionRegistry::try_new(lane_graph, junctions, movements, paths)?;
+
+    // current JunctionRegistry 从 parent 引用和路径边序列重新构造三类索引；这里再与
+    // Canonical LIR 的预编译表逐项对照，避免投影过程用正确重建结果掩盖 LIR 损坏。
+    for junction in lir.junctions() {
+        let junction_id = &ids.junctions[junction.ordinal().index()];
+        let handle = registry
+            .junction_handle(junction_id)
+            .expect("projected Junction ID must resolve");
+        let actual = registry
+            .junction_movements(handle)
+            .expect("projected Junction handle must resolve")
+            .map(|movement| {
+                registry
+                    .movement_external_id(movement)
+                    .expect("projected Movement handle must resolve")
+            })
+            .collect::<Vec<_>>();
+        let expected = junction
+            .movements()
+            .iter()
+            .map(|movement| ids.movements[movement.index()].as_str())
+            .collect::<Vec<_>>();
+        if expected.len() != actual.len() {
+            return Err(precomputed_mismatch(junction_id, "junctionMovements", None));
+        }
+        if let Some(index) = first_mismatch(&expected, &actual) {
+            return Err(precomputed_mismatch(
+                junction_id,
+                "junctionMovements",
+                Some(index),
+            ));
+        }
+    }
+    for movement in lir.movements() {
+        let movement_id = &ids.movements[movement.ordinal().index()];
+        let handle = registry
+            .movement_handle(movement_id)
+            .expect("projected Movement ID must resolve");
+        let actual = registry
+            .movement_maneuver_paths(handle)
+            .expect("projected Movement handle must resolve")
+            .map(|path| {
+                registry
+                    .maneuver_path_external_id(path)
+                    .expect("projected ManeuverPath handle must resolve")
+            })
+            .collect::<Vec<_>>();
+        let expected = movement
+            .maneuver_paths()
+            .iter()
+            .map(|path| ids.maneuver_paths[path.index()].as_str())
+            .collect::<Vec<_>>();
+        if expected.len() != actual.len() {
+            return Err(precomputed_mismatch(
+                movement_id,
+                "movementManeuverPaths",
+                None,
+            ));
+        }
+        if let Some(index) = first_mismatch(&expected, &actual) {
+            return Err(precomputed_mismatch(
+                movement_id,
+                "movementManeuverPaths",
+                Some(index),
+            ));
+        }
+    }
+    for edge in lir.lane_edges() {
+        let edge_id = &ids.lane_edges[edge.ordinal().index()];
+        let edge_handle = lane_graph
+            .edge_handle(edge_id)
+            .expect("projected LaneEdge ID must resolve");
+        let expected = lir
+            .junction_internal_owner(edge.ordinal())
+            .map(|junction| ids.junctions[junction.index()].as_str());
+        let actual = registry.internal_edge_owner(edge_handle).map(|junction| {
+            registry
+                .junction_external_id(junction)
+                .expect("projected Junction handle must resolve")
+        });
+        if expected != actual {
+            return Err(precomputed_mismatch(edge_id, "junctionInternalEdges", None));
+        }
+    }
+
+    Ok(registry)
 }
 
 fn project_signals(

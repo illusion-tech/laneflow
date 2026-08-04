@@ -2953,6 +2953,10 @@ pub(crate) fn freeze_lir(
         &maneuver_occurrences,
         &gate_occurrences,
         &waiting_zone_occurrences,
+        &lane_edge_route_occurrences,
+        &maneuver_path_route_occurrences,
+        &maneuver_gate_route_occurrences,
+        &waiting_zone_route_occurrences,
         &identity_fields,
         &identity_field_bytes,
     );
@@ -3433,6 +3437,10 @@ fn semantic_digest(
     maneuver_occurrences: &[LirManeuverOccurrence],
     gate_occurrences: &[LirGateOccurrence],
     waiting_zone_occurrences: &[LirWaitingZoneOccurrence],
+    lane_edge_route_occurrences: &[LirRouteOccurrenceRef],
+    maneuver_path_route_occurrences: &[LirRouteOccurrenceRef],
+    maneuver_gate_route_occurrences: &[LirRouteOccurrenceRef],
+    waiting_zone_route_occurrences: &[LirRouteOccurrenceRef],
     identity_fields: &[LirIdentityField],
     identity_field_bytes: &[u8],
 ) -> [u8; 32] {
@@ -4013,7 +4021,61 @@ fn semantic_digest(
             hash_u32(&mut hasher, occurrence.release_route_edge_index);
         }
     }
+    // 反向 occurrence 表是 Canonical LIR 的可观察输出，不能只依赖正向路线表间接覆盖。
+    // 同时哈希实体范围和连续表，确保范围切分或冻结顺序的回退也会改变语义摘要。
+    hash_reverse_occurrences(
+        &mut hasher,
+        EntityKind::LaneEdge,
+        edges
+            .iter()
+            .map(|entity| (entity.ordinal.raw(), entity.static_route_occurrences)),
+        lane_edge_route_occurrences,
+    );
+    hash_reverse_occurrences(
+        &mut hasher,
+        EntityKind::ManeuverPath,
+        maneuver_paths
+            .iter()
+            .map(|entity| (entity.ordinal.raw(), entity.static_route_occurrences)),
+        maneuver_path_route_occurrences,
+    );
+    hash_reverse_occurrences(
+        &mut hasher,
+        EntityKind::ManeuverGate,
+        maneuver_gates
+            .iter()
+            .map(|entity| (entity.ordinal.raw(), entity.static_route_occurrences)),
+        maneuver_gate_route_occurrences,
+    );
+    hash_reverse_occurrences(
+        &mut hasher,
+        EntityKind::WaitingZone,
+        waiting_zones
+            .iter()
+            .map(|entity| (entity.ordinal.raw(), entity.static_route_occurrences)),
+        waiting_zone_route_occurrences,
+    );
     *hasher.finalize().as_bytes()
+}
+
+fn hash_reverse_occurrences(
+    hasher: &mut blake3::Hasher,
+    entity_kind: EntityKind,
+    entities: impl ExactSizeIterator<Item = (u32, TableRange<LirRouteOccurrenceRef>)>,
+    occurrences: &[LirRouteOccurrenceRef],
+) {
+    hash_u32(hasher, entity_kind.code().into());
+    hash_u32(hasher, entities.len().try_into().unwrap_or(u32::MAX));
+    for (ordinal, range) in entities {
+        hash_u32(hasher, ordinal);
+        hash_u32(hasher, range.start());
+        hash_u32(hasher, range.len());
+    }
+    hash_u32(hasher, occurrences.len().try_into().unwrap_or(u32::MAX));
+    for occurrence in occurrences {
+        hash_u32(hasher, occurrence.static_route.raw());
+        hash_u32(hasher, occurrence.occurrence_index);
+    }
 }
 
 #[allow(unreachable_patterns)]
@@ -4324,6 +4386,29 @@ mod tests {
         )]);
 
         assert_ne!(lir(&left).semantic_digest, lir(&right).semantic_digest);
+    }
+
+    #[test]
+    fn reverse_occurrence_ranges_and_entries_change_the_digest() {
+        fn digest(range: TableRange<LirRouteOccurrenceRef>, occurrence_index: u32) -> [u8; 32] {
+            let mut hasher = blake3::Hasher::new();
+            let occurrences = [LirRouteOccurrenceRef {
+                static_route: StaticRouteOrdinal::from_raw(0),
+                occurrence_index,
+            }];
+            hash_reverse_occurrences(
+                &mut hasher,
+                EntityKind::LaneEdge,
+                [(0, range)].into_iter(),
+                &occurrences,
+            );
+            *hasher.finalize().as_bytes()
+        }
+
+        let included = TableRange::try_from_usize(0, 1).unwrap();
+        let excluded = TableRange::try_from_usize(0, 0).unwrap();
+        assert_ne!(digest(included, 0), digest(excluded, 0));
+        assert_ne!(digest(included, 0), digest(included, 1));
     }
 
     #[test]
