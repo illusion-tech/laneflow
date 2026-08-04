@@ -48,6 +48,9 @@
 - `v0.10-compiler-budget-calibration-report.md`：上述 R0 的中文权威结论、预算摘要、候选
   判断、环境边界、P100 同机硬件角色更新与精确复现命令；硬件角色更新不改变原始证据
   或追溯形成 Product Pass。
+- `v0.10-compiler-foundation-validation.md`：#292 G2 生产纵向切片的实现、依赖方向、
+  迁移等价、本地验证与性能门槛适用性结论；记录当前不能声称整体 G3 Pass 的精确原因
+  和建议的 G1 修订路径。
 - `commit-convention.md`：提交信息规范，以 Conventional Commits 标题为基础，用 `Gate`、`Slice`、`Impact`、`Validation` 等字段记录 LaneFlow 治理状态；并说明 PR 默认使用 Rebase and merge。
 - `rust-code-style.md`：补充 `rustfmt` 无法表达的 Rust 仓库级可读性约定，当前重点规定数字字面量分组边界与例外。
 - `validation-matrix.md`：切片类型到最小验证要求的矩阵，用于 `G3` 合并闸口判断。

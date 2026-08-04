@@ -722,7 +722,8 @@ G1 冻结以下两个当前态固定样例的等价迁移：
   完整静态快照或稳定标识映射；
 - 多机动门等待区样例对照全部静态登记表，并单独冻结同一路线的 3 个机动门出现项和
   2 个等待区出现项；
-- 测试专用 frontend 与当前 loader 分别从同一受版本控制制品构造输入；`project()` 本身
+- 测试专用前端（frontend）与当前加载器（loader）分别从同一受版本控制制品构造输入；
+  `project()` 本身
   仍只接受 `&ValidatedCanonicalLir`，没有从 current 对象图补齐语义。
 
 上述证据证明当前固定样例的迁移等价，不把样例大小换算为城市容量或生产性能预算。
@@ -888,7 +889,8 @@ G2 把 `compiler-calibration-workloads-v1.json` 逐项映射到真实生产语�
   `ManeuverPath`、`ManeuverGate` 和 `WaitingZone`。生产语义中的完整机动路径必须同时
   表达入口边、内部边和出口边；同一条边不能兼任边界与内部角色，因此该抽象记录组合
   不能降为合法 `Synthetic DSL`；
-- 模块图配置档的 `crossModuleReferences` 是研究阶段的独立抽象记录。生产 frontend
+- 模块图配置档的 `crossModuleReferences` 是研究阶段的独立抽象记录。生产前端
+  （frontend）
   只有由具体领域声明拥有的有类型引用；为凑齐该记录而新增 `StaticRoute` 等声明会改变
   声明数、关系数和实际编译工作，不能继续使用原自然身份；
 - #308 的阶段记录、受控分配和保留容量来自研究替身模型，不是生产
@@ -927,3 +929,21 @@ G2 把 `compiler-calibration-workloads-v1.json` 逐项映射到真实生产语�
 `G1 Pass` 只冻结实现输入。实现开始前仍须复核 GitHub 元数据 / 原生依赖、记录 G2，
 并让实时 Project 状态与 G2 一致；具体状态只从 GitHub 读取。不得把本地分支、G1
 启动评论或本文的 Accepted 状态单独当作 G2 授权。
+
+## 13. #292 G2 实现状态与 G3 前置
+
+#292 已记录 [G2 Pass](https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5160723273)。
+截至 `v0.10-compiler-foundation-validation.md` 保存的本地实现末端：
+
+- [x] 三个包、编译阶段、G1 首批领域语义、Identity v1、诊断和资源上限已经实现；
+- [x] 集成专用投影与两个 `LF-COMP-CURRENT-EQUIV-v1` 样例已经形成静态、空间、行为、
+      事件和重复编译证据；
+- [x] 工作区编译检查/测试/文档测试（workspace check/test/doctest）、三个新包严格
+      Clippy、发布配置测试（release tests）、rustdoc、cargo-deny 与 Markdown 表格检查
+      已经完成；
+- [ ] 规模扩展生产性能基线尚未形成；第 11.4 节的不适用差额必须先取得仅追加
+      （append-only）G1 修订判断；
+- [ ] Delivery PR、CI、精确头（exact-head）外部审阅与 G3 合并判断尚未开始。
+
+因此当前状态是“G2 正确性纵向切片完成、整体 G3 尚未就绪”，不能把本地验证文档或
+`Gate: G3 Candidate` 提交尾部字段（commit footer）解释为正式 `G3 Pass`。
