@@ -11,15 +11,15 @@
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    AuthoringLaneId, FacilityBandId, JunctionId, LaneEdgeId, LaneGroupId, ManeuverGateId,
-    ManeuverPathId, MovementId, ParkingAreaId, ParkingSpaceId, RoadCorridorId, RoadSectionId,
-    SignalAspect, SignalControllerId, SignalGroupId, SignalPhaseId, StaticRouteId, StopLineId,
-    WaitingZoneId,
+    AccessEffect, AccessRuleId, AuthoringLaneId, FacilityBandId, JunctionId, LaneEdgeId,
+    LaneGroupId, ManeuverGateId, ManeuverPathId, MovementId, ParkingAreaId, ParkingSpaceId,
+    ParticipantClassId, RoadCorridorId, RoadSectionId, SignalAspect, SignalControllerId,
+    SignalGroupId, SignalPhaseId, StaticRouteId, StopLineId, WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::diagnostic::DiagnosticCollector;
-use crate::hir::{HirCorridorElement, HirLaneEdgeKey, HirSignalControl, HirUnit};
+use crate::hir::{HirAccessTarget, HirCorridorElement, HirLaneEdgeKey, HirSignalControl, HirUnit};
 use crate::module::SourceDocumentOrdinal;
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
@@ -44,6 +44,8 @@ pub(crate) enum MirSignalControllerTag {}
 pub(crate) enum MirSignalPhaseTag {}
 pub(crate) enum MirParkingAreaTag {}
 pub(crate) enum MirParkingSpaceTag {}
+pub(crate) enum MirParticipantClassTag {}
+pub(crate) enum MirAccessRuleTag {}
 
 /// 仅在当前 `MirUnit` 模块表内有效的致密键。
 pub(crate) type MirModuleKey = ArenaKey<MirModuleTag>;
@@ -66,6 +68,8 @@ pub(crate) type MirSignalControllerKey = ArenaKey<MirSignalControllerTag>;
 pub(crate) type MirSignalPhaseKey = ArenaKey<MirSignalPhaseTag>;
 pub(crate) type MirParkingAreaKey = ArenaKey<MirParkingAreaTag>;
 pub(crate) type MirParkingSpaceKey = ArenaKey<MirParkingSpaceTag>;
+pub(crate) type MirParticipantClassKey = ArenaKey<MirParticipantClassTag>;
+pub(crate) type MirAccessRuleKey = ArenaKey<MirAccessRuleTag>;
 
 /// MIR 中保留的模块身份与来源上下文。
 pub(crate) struct MirModule {
@@ -328,6 +332,50 @@ pub(crate) struct MirParkingSpace {
     pub(crate) source_span: SourceSpan,
 }
 
+pub(crate) struct MirParticipantClass {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: ParticipantClassId,
+    pub(crate) parent: Option<MirParticipantClassKey>,
+    pub(crate) parent_source_span: Option<SourceSpan>,
+    pub(crate) depth: u32,
+    pub(crate) subtree_enter: u32,
+    pub(crate) subtree_exit: u32,
+    pub(crate) source_span: SourceSpan,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum MirAccessTarget {
+    LaneEdge(MirLaneEdgeKey),
+    LaneGroup(MirLaneGroupKey),
+    RoadSection(MirRoadSectionKey),
+    ManeuverPath(MirManeuverPathKey),
+}
+
+pub(crate) struct MirAccessRegulation {
+    pub(crate) jurisdiction: Arc<str>,
+    pub(crate) version: Arc<str>,
+    pub(crate) source: Option<Arc<str>>,
+}
+
+pub(crate) struct MirAccessRuleParticipantClass {
+    pub(crate) participant_class: MirParticipantClassKey,
+    pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirAccessRule {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: AccessRuleId,
+    pub(crate) target: MirAccessTarget,
+    pub(crate) target_source_span: SourceSpan,
+    pub(crate) effect: AccessEffect,
+    pub(crate) participant_classes: TableRange<MirAccessRuleParticipantClass>,
+    pub(crate) regulation: Option<MirAccessRegulation>,
+    pub(crate) priority: i32,
+    pub(crate) source_span: SourceSpan,
+}
+
 pub(crate) struct MirWaitingZone {
     pub(crate) module: MirModuleKey,
     pub(crate) stable_key: Arc<str>,
@@ -432,6 +480,9 @@ pub(crate) struct MirUnit {
     pub(crate) parking_areas: Box<[MirParkingArea]>,
     pub(crate) parking_spaces: Box<[MirParkingSpace]>,
     pub(crate) parking_area_spaces: Box<[MirParkingAreaSpace]>,
+    pub(crate) participant_classes: Box<[MirParticipantClass]>,
+    pub(crate) access_rules: Box<[MirAccessRule]>,
+    pub(crate) access_rule_participant_classes: Box<[MirAccessRuleParticipantClass]>,
     pub(crate) static_routes: Box<[MirStaticRoute]>,
     pub(crate) static_route_edges: Box<[MirStaticRouteEdge]>,
     pub(crate) static_route_transitions: Box<[MirStaticRouteTransition]>,
@@ -531,6 +582,15 @@ pub(crate) fn lower_to_mir(
     .fold(0_u64, |total, count| {
         total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
     });
+    let access_record_count = [
+        hir.participant_classes.len(),
+        hir.access_rules.len(),
+        hir.access_rule_participant_classes.len(),
+    ]
+    .into_iter()
+    .fold(0_u64, |total, count| {
+        total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX))
+    });
     let mir_record_count = lane_edge_count
         .saturating_add(connection_count)
         .saturating_add(cross_record_count)
@@ -538,6 +598,7 @@ pub(crate) fn lower_to_mir(
         .saturating_add(control_record_count)
         .saturating_add(signal_record_count)
         .saturating_add(parking_record_count)
+        .saturating_add(access_record_count)
         .saturating_add(route_record_count);
     let stage_scratch_bytes = requested_bytes::<MirModuleKey>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdgeKey>(lane_edge_count))
@@ -567,6 +628,11 @@ pub(crate) fn lower_to_mir(
             u64::try_from(hir.parking_areas.len())
                 .unwrap_or(u64::MAX)
                 .saturating_add(u64::try_from(hir.parking_spaces.len()).unwrap_or(u64::MAX)),
+        ))
+        .saturating_add(requested_bytes::<u32>(
+            u64::try_from(hir.participant_classes.len())
+                .unwrap_or(u64::MAX)
+                .saturating_add(u64::try_from(hir.access_rules.len()).unwrap_or(u64::MAX)),
         ));
     let mir_owned_bytes = requested_bytes::<MirModule>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdge>(lane_edge_count))
@@ -681,6 +747,18 @@ pub(crate) fn lower_to_mir(
         ))
         .saturating_add(requested_bytes::<MirParkingAreaSpace>(
             hir.parking_area_spaces.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirParticipantClass>(
+            hir.participant_classes.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirAccessRule>(
+            hir.access_rules.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirAccessRuleParticipantClass>(
+            hir.access_rule_participant_classes
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
         ))
         .saturating_add(requested_bytes::<MirStaticRoute>(
             hir.static_routes.len().try_into().unwrap_or(u64::MAX),
@@ -1194,6 +1272,79 @@ pub(crate) fn lower_to_mir(
         })
         .collect::<Vec<_>>();
 
+    let participant_class_mapping =
+        dense_mapping::<MirParticipantClassTag>(hir.participant_classes.len())?;
+    let participant_classes = hir
+        .participant_classes
+        .iter()
+        .map(|participant_class| MirParticipantClass {
+            module: hir_module_to_mir[participant_class.module.index()],
+            stable_key: Arc::clone(&participant_class.stable_key),
+            stable_id: participant_class.stable_id,
+            parent: participant_class
+                .parent
+                .map(|parent| participant_class_mapping[parent.index()]),
+            parent_source_span: participant_class.parent_source_span.clone(),
+            depth: participant_class.depth,
+            subtree_enter: participant_class.subtree_enter,
+            subtree_exit: participant_class.subtree_exit,
+            source_span: participant_class.source_span.clone(),
+        })
+        .collect::<Vec<_>>();
+    let access_rule_mapping = dense_mapping::<MirAccessRuleTag>(hir.access_rules.len())?;
+    let access_rules = hir
+        .access_rules
+        .iter()
+        .map(|rule| {
+            let target = match rule.target {
+                HirAccessTarget::LaneEdge(target) => {
+                    MirAccessTarget::LaneEdge(hir_to_mir[target.index()])
+                }
+                HirAccessTarget::LaneGroup(target) => {
+                    MirAccessTarget::LaneGroup(group_mapping[target.index()])
+                }
+                HirAccessTarget::RoadSection(target) => {
+                    MirAccessTarget::RoadSection(section_mapping[target.index()])
+                }
+                HirAccessTarget::ManeuverPath(target) => {
+                    MirAccessTarget::ManeuverPath(maneuver_path_mapping[target.index()])
+                }
+            };
+            Ok(MirAccessRule {
+                module: hir_module_to_mir[rule.module.index()],
+                stable_key: Arc::clone(&rule.stable_key),
+                stable_id: rule.stable_id,
+                target,
+                target_source_span: rule.target_source_span.clone(),
+                effect: rule.effect,
+                participant_classes: remap_range(
+                    rule.participant_classes,
+                    &unit.limits,
+                    &rule.source_span,
+                )?,
+                regulation: rule
+                    .regulation
+                    .as_ref()
+                    .map(|regulation| MirAccessRegulation {
+                        jurisdiction: Arc::clone(&regulation.jurisdiction),
+                        version: Arc::clone(&regulation.version),
+                        source: regulation.source.clone(),
+                    }),
+                priority: rule.priority,
+                source_span: rule.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let access_rule_participant_classes = hir
+        .access_rule_participant_classes
+        .iter()
+        .map(|selector| MirAccessRuleParticipantClass {
+            participant_class: participant_class_mapping[selector.participant_class.index()],
+            source_span: selector.source_span.clone(),
+        })
+        .collect::<Vec<_>>();
+    debug_assert_eq!(access_rule_mapping.len(), access_rules.len());
+
     let static_route_mapping = dense_mapping::<MirStaticRouteTag>(hir.static_routes.len())?;
     debug_assert_eq!(static_route_mapping.len(), hir.static_routes.len());
     let static_routes = hir
@@ -1330,6 +1481,9 @@ pub(crate) fn lower_to_mir(
         parking_areas: parking_areas.into_boxed_slice(),
         parking_spaces: parking_spaces.into_boxed_slice(),
         parking_area_spaces: parking_area_spaces.into_boxed_slice(),
+        participant_classes: participant_classes.into_boxed_slice(),
+        access_rules: access_rules.into_boxed_slice(),
+        access_rule_participant_classes: access_rule_participant_classes.into_boxed_slice(),
         static_routes: static_routes.into_boxed_slice(),
         static_route_edges: static_route_edges.into_boxed_slice(),
         static_route_transitions: static_route_transitions.into_boxed_slice(),

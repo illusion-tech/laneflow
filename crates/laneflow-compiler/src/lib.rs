@@ -18,36 +18,39 @@ mod source;
 mod source_map;
 
 pub use compiler::{
+    CanonicalAccessRegulationView, CanonicalAccessRuleView, CanonicalAccessTarget,
     CanonicalAuthoringLaneView, CanonicalCorridorElement, CanonicalFacilityBandView,
     CanonicalGateOccurrenceView, CanonicalIdentityFieldView, CanonicalJunctionInternalEdgeView,
     CanonicalJunctionView, CanonicalLaneEdgeView, CanonicalLaneGroupView,
     CanonicalManeuverGateView, CanonicalManeuverOccurrenceView, CanonicalManeuverPathView,
     CanonicalMovementView, CanonicalParkingAreaView, CanonicalParkingLaneAnchor,
-    CanonicalParkingSpaceGeometry, CanonicalParkingSpaceView, CanonicalRoadCorridorView,
-    CanonicalRoadSectionView, CanonicalSignalControl, CanonicalSignalControllerView,
-    CanonicalSignalGroupView, CanonicalSignalPhaseStateView, CanonicalSignalPhaseView,
-    CanonicalStaticRouteOccurrenceRef, CanonicalStaticRouteView, CanonicalStopLineView,
-    CanonicalWaitingZoneOccurrenceView, CanonicalWaitingZoneView, CompilationOutput, Compiler,
-    ValidatedCanonicalLir,
+    CanonicalParkingSpaceGeometry, CanonicalParkingSpaceView, CanonicalParticipantClassView,
+    CanonicalRoadCorridorView, CanonicalRoadSectionView, CanonicalSignalControl,
+    CanonicalSignalControllerView, CanonicalSignalGroupView, CanonicalSignalPhaseStateView,
+    CanonicalSignalPhaseView, CanonicalStaticRouteOccurrenceRef, CanonicalStaticRouteView,
+    CanonicalStopLineView, CanonicalWaitingZoneOccurrenceView, CanonicalWaitingZoneView,
+    CompilationOutput, Compiler, ValidatedCanonicalLir,
 };
 pub use declaration::{
-    AuthoringLaneInput, CorridorElementReference, EntityReference, FacilityBandInput,
-    FacilityBandReference, FacilityKindCategory, FacilityKindViolation, JunctionInput,
-    JunctionReference, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
-    ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
-    MovementInput, MovementReference, ParkingAreaInput, ParkingAreaReference,
-    ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput, RoadCorridorInput,
-    RoadSectionInput, RoadSectionReference, ScalarViolation, SignalControlInput,
+    AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput,
+    CorridorElementReference, EntityReference, FacilityBandInput, FacilityBandReference,
+    FacilityKindCategory, FacilityKindViolation, JunctionInput, JunctionReference, LaneEdgeInput,
+    LaneEdgeReference, LaneGroupInput, LaneGroupReference, ManeuverGateInput,
+    ManeuverGateReference, ManeuverPathInput, ManeuverPathReference, MovementInput,
+    MovementReference, ParkingAreaInput, ParkingAreaReference, ParkingLaneAnchorInput,
+    ParkingSpaceGeometryInput, ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference,
+    RoadCorridorInput, RoadSectionInput, RoadSectionReference, ScalarViolation, SignalControlInput,
     SignalControllerInput, SignalGroupInput, SignalGroupReference, SignalGroupStateInput,
     SignalPhaseInput, StaticRouteInput, StopLineInput, StopLineReference, WaitingZoneInput,
 };
 pub use diagnostic::{
-    Diagnostic, DiagnosticBundle, DiagnosticCode, DiagnosticPayload, DiagnosticSeverity,
-    ParkingAnchorRole, ParkingGeometryField, ParkingGeometryViolation, SourceHeaderField,
-    SourcePosition, SourceSpan, SourceTextViolation, WaitingZoneGateRole,
+    AccessCapability, AccessPlane, AccessRegulationField, Diagnostic, DiagnosticBundle,
+    DiagnosticCode, DiagnosticPayload, DiagnosticSeverity, ParkingAnchorRole, ParkingGeometryField,
+    ParkingGeometryViolation, SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation,
+    WaitingZoneGateRole,
 };
 pub use identity::CanonicalIdentityViolation;
-pub use laneflow_static_contract::SignalAspect;
+pub use laneflow_static_contract::{AccessEffect, SignalAspect};
 pub use limits::{CompileLimitDimension, CompileLimits};
 pub use module::{
     CompilationUnit, CompilationUnitBuilder, SYNTHETIC_FRONTEND_VERSION, SourceLanguage,
@@ -55,12 +58,14 @@ pub use module::{
 };
 pub use source::{SourceModuleHeader, SourceModuleHeaderInput};
 pub use source_map::{
-    AuthoringLaneSourceView, CrossSectionRelationOwner, CrossSectionRelationSourceView,
-    FacilityBandSourceView, JunctionRelationOwner, JunctionRelationSourceView, JunctionSourceView,
-    LaneEdgeSourceView, LaneEdgeSuccessorSourceView, LaneGroupSourceView, ManeuverGateSourceView,
+    AccessRelationOwner, AccessRelationSourceView, AccessRuleSourceView, AuthoringLaneSourceView,
+    CrossSectionRelationOwner, CrossSectionRelationSourceView, FacilityBandSourceView,
+    JunctionRelationOwner, JunctionRelationSourceView, JunctionSourceView, LaneEdgeSourceView,
+    LaneEdgeSuccessorSourceView, LaneGroupSourceView, ManeuverGateSourceView,
     ManeuverPathSourceView, MovementSourceView, ParkingAreaSourceView, ParkingRelationSourceView,
-    ParkingSpaceSourceView, RoadCorridorSourceView, RoadSectionSourceView, RouteRelationSourceView,
-    SignalControllerSourceView, SignalGroupSourceView, SignalPhaseSourceView, SignalRelationOwner,
-    SignalRelationSourceView, SourceDocumentView, SourceLocationView, SourceRelationRole,
-    StaticRouteSourceView, StopLineSourceView, ValidatedSourceMapInput, WaitingZoneSourceView,
+    ParkingSpaceSourceView, ParticipantClassSourceView, RoadCorridorSourceView,
+    RoadSectionSourceView, RouteRelationSourceView, SignalControllerSourceView,
+    SignalGroupSourceView, SignalPhaseSourceView, SignalRelationOwner, SignalRelationSourceView,
+    SourceDocumentView, SourceLocationView, SourceRelationRole, StaticRouteSourceView,
+    StopLineSourceView, ValidatedSourceMapInput, WaitingZoneSourceView,
 };
