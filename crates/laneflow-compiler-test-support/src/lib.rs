@@ -3,7 +3,8 @@
 use std::{error::Error, fmt};
 
 use laneflow_compiler::{
-    CanonicalAccessTarget, CanonicalCorridorElement, CanonicalSignalControl, ValidatedCanonicalLir,
+    CanonicalAccessTarget, CanonicalCorridorElement, CanonicalIdentityFieldView,
+    CanonicalSignalControl, ValidatedCanonicalLir,
 };
 use laneflow_core::{
     AccessEffect, AccessRegistry, AccessRule, AccessTargetId, CoreWorld, CorridorElementId,
@@ -18,7 +19,10 @@ use laneflow_core::{
 use laneflow_spatial::{
     CanonicalFrameId, CanonicalPoint3F32, SpatialEdgeInput, SpatialError, SpatialRegistry,
 };
-use laneflow_static_contract::{EntityKind, EntityKindMarker, StableId, StableId128};
+use laneflow_static_contract::{
+    EntityKind, EntityKindMarker, IDENTITY_ENCODING_VERSION, IDENTITY_MAGIC,
+    STABLE_ID_DOMAIN_PREFIX, StableId, StableId128,
+};
 
 /// 一条 Canonical LIR 实体到当前态定位键的稳定对应关系。
 ///
@@ -219,6 +223,7 @@ impl From<SpatialError> for ProjectionError {
 /// canonical frame 而当前 `SpatialRegistry` 无法表达，或 LIR 预计算表与独立重建结果
 /// 不一致时返回错误。
 pub fn project(lir: &ValidatedCanonicalLir) -> Result<CurrentProjection, ProjectionError> {
+    validate_stable_ids(lir)?;
     let ids = ProjectionIds::from_lir(lir);
 
     let lane_graph = project_lane_graph(lir, &ids)?;
@@ -377,6 +382,92 @@ impl ProjectionIds {
                 .collect(),
         }
     }
+}
+
+fn validate_stable_ids(lir: &ValidatedCanonicalLir) -> Result<(), ProjectionError> {
+    macro_rules! validate {
+        ($iter:expr, $kind:expr) => {
+            for view in $iter {
+                let stable_id = view.stable_id();
+                validate_stable_id(
+                    $kind,
+                    stable_id.into_untyped(),
+                    &stable_id.to_string(),
+                    view.identity_fields(),
+                )?;
+            }
+        };
+    }
+
+    validate!(lir.road_corridors(), EntityKind::RoadCorridor);
+    validate!(lir.road_sections(), EntityKind::RoadSection);
+    validate!(lir.authoring_lanes(), EntityKind::AuthoringLane);
+    validate!(lir.lane_edges(), EntityKind::LaneEdge);
+    validate!(lir.junctions(), EntityKind::Junction);
+    validate!(lir.movements(), EntityKind::Movement);
+    validate!(lir.maneuver_paths(), EntityKind::ManeuverPath);
+    validate!(lir.maneuver_gates(), EntityKind::ManeuverGate);
+    validate!(lir.waiting_zones(), EntityKind::WaitingZone);
+    validate!(lir.stop_lines(), EntityKind::StopLine);
+    validate!(lir.signal_groups(), EntityKind::SignalGroup);
+    validate!(lir.signal_controllers(), EntityKind::SignalController);
+    validate!(lir.signal_phases(), EntityKind::SignalPhase);
+    validate!(lir.parking_areas(), EntityKind::ParkingArea);
+    validate!(lir.parking_spaces(), EntityKind::ParkingSpace);
+    validate!(lir.lane_groups(), EntityKind::LaneGroup);
+    validate!(lir.facility_bands(), EntityKind::FacilityBand);
+    validate!(lir.participant_classes(), EntityKind::ParticipantClass);
+    validate!(lir.access_rules(), EntityKind::AccessRule);
+    validate!(lir.vehicle_profiles(), EntityKind::VehicleProfile);
+    validate!(lir.static_routes(), EntityKind::StaticRoute);
+    validate!(lir.canonical_frames(), EntityKind::CanonicalFrame);
+    Ok(())
+}
+
+fn validate_stable_id<'a>(
+    kind: EntityKind,
+    actual: StableId128,
+    entity_id: &str,
+    fields: impl ExactSizeIterator<Item = CanonicalIdentityFieldView<'a>>,
+) -> Result<(), ProjectionError> {
+    let fields = fields.collect::<Vec<_>>();
+    if fields.len() != kind.required_tags().len() {
+        return Err(precomputed_mismatch(entity_id, "identityFields", None));
+    }
+    for (index, (field, required_tag)) in fields.iter().zip(kind.required_tags()).enumerate() {
+        if field.tag() != *required_tag {
+            return Err(precomputed_mismatch(
+                entity_id,
+                "identityFields",
+                Some(index),
+            ));
+        }
+    }
+
+    // 只依赖公开 Identity v1 SSOT 常量和 LIR 前像字节，独立于 production compiler
+    // 私有编码器重建 BLAKE3-128，避免同一错误实现成为自己的验证预言机。
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(STABLE_ID_DOMAIN_PREFIX);
+    hasher.update(&IDENTITY_MAGIC);
+    hasher.update(&IDENTITY_ENCODING_VERSION.to_le_bytes());
+    hasher.update(&kind.code().to_le_bytes());
+    let field_count = u16::try_from(fields.len())
+        .map_err(|_| precomputed_mismatch(entity_id, "identityFields", None))?;
+    hasher.update(&field_count.to_le_bytes());
+    for (index, field) in fields.iter().enumerate() {
+        hasher.update(&field.tag().code().to_le_bytes());
+        let value_length = u32::try_from(field.value_bytes().len())
+            .map_err(|_| precomputed_mismatch(entity_id, "identityFields", Some(index)))?;
+        hasher.update(&value_length.to_le_bytes());
+        hasher.update(field.value_bytes());
+    }
+    let digest = hasher.finalize();
+    let mut expected = [0_u8; 16];
+    expected.copy_from_slice(&digest.as_bytes()[..16]);
+    if actual != StableId128::from_bytes(expected) {
+        return Err(precomputed_mismatch(entity_id, "stableId", None));
+    }
+    Ok(())
 }
 
 fn project_lane_graph(
@@ -559,14 +650,28 @@ fn project_signals(
             control,
         )
     });
-    Ok(SignalRegistry::try_new(
+    let registry = SignalRegistry::try_new(
         lane_graph,
         junctions,
         stop_lines,
         groups,
         controllers,
         gates,
-    )?)
+    )?;
+    for controller in lir.signal_controllers() {
+        let controller_id = &ids.signal_controllers[controller.ordinal().index()];
+        let handle = registry
+            .controller_handle(controller_id)
+            .expect("projected SignalController ID must resolve");
+        if registry.controller_cycle_duration_ms(handle) != Some(controller.cycle_duration_ms()) {
+            return Err(precomputed_mismatch(
+                controller_id,
+                "signalControllerCycleDurationMs",
+                None,
+            ));
+        }
+    }
+    Ok(registry)
 }
 
 fn project_waiting(
@@ -632,7 +737,36 @@ fn project_participant_classes(
             )
         })
         .collect();
-    Ok(ParticipantClassRegistry::try_new(classes)?)
+    let registry = ParticipantClassRegistry::try_new(classes)?;
+    let views = lir.participant_classes().collect::<Vec<_>>();
+    for ancestor in &views {
+        let ancestor_id = &ids.participant_classes[ancestor.ordinal().index()];
+        let ancestor_handle = registry
+            .class_handle(ancestor_id)
+            .expect("projected ParticipantClass ID must resolve");
+        if registry.depth(ancestor_handle) != Some(ancestor.depth()) {
+            return Err(precomputed_mismatch(
+                ancestor_id,
+                "participantClassDepth",
+                None,
+            ));
+        }
+        for descendant in &views {
+            let descendant_handle = registry
+                .class_handle(&ids.participant_classes[descendant.ordinal().index()])
+                .expect("projected ParticipantClass ID must resolve");
+            if ancestor.contains(descendant.ordinal())
+                != registry.is_descendant_or_self(descendant_handle, ancestor_handle)
+            {
+                return Err(precomputed_mismatch(
+                    ancestor_id,
+                    "participantClassSubtree",
+                    Some(descendant.ordinal().index()),
+                ));
+            }
+        }
+    }
+    Ok(registry)
 }
 
 fn project_vehicle_profiles(

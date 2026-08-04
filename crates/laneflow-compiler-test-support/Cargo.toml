@@ -13,6 +13,7 @@ name = "laneflow_compiler_test_support"
 path = "src/lib.rs"
 
 [dependencies]
+blake3 = "1.8"
 laneflow-compiler = { version = "0.0.0", path = "../laneflow-compiler" }
 laneflow-core = { version = "0.0.0", path = "../laneflow-core" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
