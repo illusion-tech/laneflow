@@ -18,5 +18,9 @@ laneflow-core = { version = "0.0.0", path = "../laneflow-core" }
 laneflow-spatial = { version = "0.0.0", path = "../laneflow-spatial" }
 laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
 
+[dev-dependencies]
+laneflow-data = { version = "0.0.0", path = "../laneflow-data" }
+serde_json = "1.0"
+
 [lints]
 workspace = true
