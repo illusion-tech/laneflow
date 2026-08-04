@@ -172,10 +172,16 @@ pub enum DiagnosticCode {
     DuplicateManeuverGatePathTransition,
     /// 机动门停止线不位于转换的起始边末端。
     ManeuverGateStopLineMismatch,
+    /// 同一车道图边重复声明停止线。
+    DuplicateStopLineEdge,
     /// 停止线位于无法形成路径转换的终止边。
     OrphanStopLine,
     /// 非终止边上的停止线未被任何机动门引用。
     UnreferencedStopLine,
+    /// 启用入口门的停止线存在没有机动路径覆盖的下游转换。
+    MissingManeuverPathCoverage,
+    /// 启用入口门的停止线存在没有入口机动门覆盖的候选路径。
+    MissingManeuverGateCoverage,
     /// 等待区容量为零。
     InvalidWaitingZoneCapacity,
     /// 等待区引用的入口门或释放门不属于其声明路径。
@@ -312,8 +318,11 @@ impl DiagnosticCode {
                 "LF-COMP-DUPLICATE-MANEUVER-GATE-PATH-TRANSITION"
             }
             Self::ManeuverGateStopLineMismatch => "LF-COMP-MANEUVER-GATE-STOP-LINE-MISMATCH",
+            Self::DuplicateStopLineEdge => "LF-COMP-DUPLICATE-STOP-LINE-EDGE",
             Self::OrphanStopLine => "LF-COMP-ORPHAN-STOP-LINE",
             Self::UnreferencedStopLine => "LF-COMP-UNREFERENCED-STOP-LINE",
+            Self::MissingManeuverPathCoverage => "LF-COMP-MISSING-MANEUVER-PATH-COVERAGE",
+            Self::MissingManeuverGateCoverage => "LF-COMP-MISSING-MANEUVER-GATE-COVERAGE",
             Self::InvalidWaitingZoneCapacity => "LF-COMP-WAITING-ZONE-CAPACITY",
             Self::WaitingZoneGatePathMismatch => "LF-COMP-WAITING-ZONE-GATE-PATH-MISMATCH",
             Self::InvalidWaitingZoneGateOrder => "LF-COMP-WAITING-ZONE-GATE-ORDER",
@@ -854,6 +863,12 @@ pub enum DiagnosticPayload {
         path_from_edge_key: Box<str>,
         stop_line_edge_key: Box<str>,
     },
+    /// 同一车道图边上的首个和重复停止线。
+    DuplicateStopLineEdge {
+        edge_key: Box<str>,
+        first_stop_line_key: Box<str>,
+        duplicate_stop_line_key: Box<str>,
+    },
     /// 位于终止边、无法形成任何路径转换的停止线。
     OrphanStopLine {
         stop_line_key: Box<str>,
@@ -863,6 +878,18 @@ pub enum DiagnosticPayload {
     UnreferencedStopLine {
         stop_line_key: Box<str>,
         edge_key: Box<str>,
+    },
+    /// 启用入口门的停止线及没有任何候选路径的下游转换。
+    MissingManeuverPathCoverage {
+        stop_line_key: Box<str>,
+        from_edge_key: Box<str>,
+        to_edge_key: Box<str>,
+    },
+    /// 启用入口门的停止线及缺少入口门的候选路径。
+    MissingManeuverGateCoverage {
+        stop_line_key: Box<str>,
+        edge_key: Box<str>,
+        maneuver_path_key: Box<str>,
     },
     /// 最大占用数为零的等待区。
     InvalidWaitingZoneCapacity {
@@ -1891,6 +1918,26 @@ impl Diagnostic {
         )
     }
 
+    pub(crate) fn duplicate_stop_line_edge(
+        edge_key: &str,
+        first_stop_line_key: &str,
+        duplicate_stop_line_key: &str,
+        primary_span: SourceSpan,
+        first_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DuplicateStopLineEdge,
+            DiagnosticPayload::DuplicateStopLineEdge {
+                edge_key: edge_key.into(),
+                first_stop_line_key: first_stop_line_key.into(),
+                duplicate_stop_line_key: duplicate_stop_line_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_span]),
+            Some(duplicate_stop_line_key.into()),
+        )
+    }
+
     pub(crate) fn orphan_stop_line(
         stop_line_key: &str,
         edge_key: &str,
@@ -1921,6 +1968,46 @@ impl Diagnostic {
             },
             Some(primary_span),
             Box::default(),
+            Some(stop_line_key.into()),
+        )
+    }
+
+    pub(crate) fn missing_maneuver_path_coverage(
+        stop_line_key: &str,
+        from_edge_key: &str,
+        to_edge_key: &str,
+        primary_span: SourceSpan,
+        to_edge_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::MissingManeuverPathCoverage,
+            DiagnosticPayload::MissingManeuverPathCoverage {
+                stop_line_key: stop_line_key.into(),
+                from_edge_key: from_edge_key.into(),
+                to_edge_key: to_edge_key.into(),
+            },
+            Some(primary_span),
+            Box::new([to_edge_span]),
+            Some(stop_line_key.into()),
+        )
+    }
+
+    pub(crate) fn missing_maneuver_gate_coverage(
+        stop_line_key: &str,
+        edge_key: &str,
+        maneuver_path_key: &str,
+        primary_span: SourceSpan,
+        path_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::MissingManeuverGateCoverage,
+            DiagnosticPayload::MissingManeuverGateCoverage {
+                stop_line_key: stop_line_key.into(),
+                edge_key: edge_key.into(),
+                maneuver_path_key: maneuver_path_key.into(),
+            },
+            Some(primary_span),
+            Box::new([path_span]),
             Some(stop_line_key.into()),
         )
     }
@@ -3039,6 +3126,14 @@ impl fmt::Display for Diagnostic {
                 formatter,
                 "机动门 {maneuver_gate_key} 的转换起始边 {path_from_edge_key} 与停止线 {stop_line_key} 所属边 {stop_line_edge_key} 不一致"
             ),
+            DiagnosticPayload::DuplicateStopLineEdge {
+                edge_key,
+                first_stop_line_key,
+                duplicate_stop_line_key,
+            } => write!(
+                formatter,
+                "车道图边 {edge_key} 重复声明停止线：首个为 {first_stop_line_key}，重复项为 {duplicate_stop_line_key}"
+            ),
             DiagnosticPayload::OrphanStopLine {
                 stop_line_key,
                 edge_key,
@@ -3052,6 +3147,22 @@ impl fmt::Display for Diagnostic {
             } => write!(
                 formatter,
                 "停止线 {stop_line_key} 位于非终止边 {edge_key}，但未被任何机动门引用"
+            ),
+            DiagnosticPayload::MissingManeuverPathCoverage {
+                stop_line_key,
+                from_edge_key,
+                to_edge_key,
+            } => write!(
+                formatter,
+                "停止线 {stop_line_key} 启用了入口机动门，但车道图转换 {from_edge_key} -> {to_edge_key} 没有候选机动路径"
+            ),
+            DiagnosticPayload::MissingManeuverGateCoverage {
+                stop_line_key,
+                edge_key,
+                maneuver_path_key,
+            } => write!(
+                formatter,
+                "停止线 {stop_line_key} 所在边 {edge_key} 的候选机动路径 {maneuver_path_key} 缺少 transitionIndex=0 入口机动门"
             ),
             DiagnosticPayload::InvalidWaitingZoneCapacity { waiting_zone_key } => write!(
                 formatter,
