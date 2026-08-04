@@ -14,6 +14,7 @@ path = "src/lib.rs"
 
 [dependencies]
 laneflow-core = { version = "0.0.0", path = "../laneflow-core" }
+laneflow-static-contract = { version = "0.0.0", path = "../laneflow-static-contract" }
 
 [dev-dependencies]
 criterion = "0.8"

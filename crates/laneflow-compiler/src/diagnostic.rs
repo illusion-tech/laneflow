@@ -240,6 +240,8 @@ pub enum DiagnosticCode {
     InvalidVehicleProfileValue,
     /// 车辆配置的紧急减速度小于舒适减速度。
     InvalidVehicleProfileDecelerationOrder,
+    /// 规范空间几何违反点、线段、长度绑定或覆盖完整性约束。
+    InvalidSpatialGeometry,
     /// 准入规则没有声明任何参与者类别。
     EmptyAccessRuleParticipantClasses,
     /// 准入规则请求了首版尚未实现的能力。
@@ -352,6 +354,7 @@ impl DiagnosticCode {
             Self::InvalidVehicleProfileDecelerationOrder => {
                 "LF-COMP-VEHICLE-PROFILE-DECELERATION-ORDER"
             }
+            Self::InvalidSpatialGeometry => "LF-COMP-SPATIAL-GEOMETRY",
             Self::EmptyAccessRuleParticipantClasses => "LF-COMP-EMPTY-ACCESS-RULE-CLASSES",
             Self::AccessCapabilityUnavailable => "LF-COMP-ACCESS-CAPABILITY-UNAVAILABLE",
             Self::InvalidAccessRegulationString => "LF-COMP-ACCESS-REGULATION-STRING",
@@ -481,6 +484,74 @@ pub enum ParkingGeometryViolation {
         minimum_inclusive_bits: u64,
         /// 排他上界的 IEEE 754 位模式。
         maximum_exclusive_bits: u64,
+    },
+}
+
+/// 规范空间点诊断中使用的坐标轴。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum SpatialAxis {
+    X,
+    Y,
+    Z,
+}
+
+impl SpatialAxis {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::X => "x",
+            Self::Y => "y",
+            Self::Z => "z",
+        }
+    }
+}
+
+/// 规范空间几何的结构化失败原因。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum SpatialGeometryViolation {
+    InsufficientPoints {
+        minimum: u32,
+        actual: u32,
+    },
+    NonFiniteCoordinate {
+        point_index: u32,
+        axis: SpatialAxis,
+        value_bits: u32,
+    },
+    CoordinateOutOfRange {
+        point_index: u32,
+        axis: SpatialAxis,
+        value_bits: u32,
+        minimum_bits: u32,
+        maximum_bits: u32,
+    },
+    DuplicateEdgeBinding,
+    MissingEdgeBinding,
+    DegenerateSegment {
+        segment_index: u32,
+        length_bits: u32,
+        minimum_bits: u32,
+    },
+    DegenerateProjectedUp {
+        segment_index: u32,
+        projected_up_bits: u32,
+        minimum_bits: u32,
+    },
+    ArcLengthAccumulationFailed {
+        segment_index: u32,
+        accumulated_bits: u32,
+        segment_length_bits: u32,
+    },
+    LengthMismatch {
+        lane_edge_length_bits: u64,
+        geometry_length_bits: u32,
+        tolerance_bits: u64,
+    },
+    ConnectedEdgesUseDifferentFrames,
+    DiscontinuousJoin {
+        distance_bits: u32,
+        tolerance_bits: u32,
     },
 }
 
@@ -964,6 +1035,13 @@ pub enum DiagnosticPayload {
         comfortable_deceleration_bits: u64,
         emergency_deceleration_bits: u64,
     },
+    /// 非法规范空间几何及可选的关联后继边。
+    InvalidSpatialGeometry {
+        canonical_frame_key: Option<Box<str>>,
+        lane_edge_key: Box<str>,
+        related_lane_edge_key: Option<Box<str>>,
+        violation: SpatialGeometryViolation,
+    },
     EmptyAccessRuleParticipantClasses {
         access_rule_key: Box<str>,
     },
@@ -1352,6 +1430,31 @@ impl Diagnostic {
             Some(primary_span),
             Box::default(),
             Some(vehicle_profile_key.into()),
+        )
+    }
+
+    pub(crate) fn invalid_spatial_geometry(
+        canonical_frame_key: Option<&str>,
+        lane_edge_key: &str,
+        related_lane_edge_key: Option<&str>,
+        violation: SpatialGeometryViolation,
+        primary_span: SourceSpan,
+        related_span: Option<SourceSpan>,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidSpatialGeometry,
+            DiagnosticPayload::InvalidSpatialGeometry {
+                canonical_frame_key: canonical_frame_key.map(Into::into),
+                lane_edge_key: lane_edge_key.into(),
+                related_lane_edge_key: related_lane_edge_key.map(Into::into),
+                violation,
+            },
+            Some(primary_span),
+            related_span.map_or_else(
+                || Vec::new().into_boxed_slice(),
+                |span| vec![span].into_boxed_slice(),
+            ),
+            Some(lane_edge_key.into()),
         )
     }
 
@@ -3201,6 +3304,25 @@ impl fmt::Display for Diagnostic {
                 f64::from_bits(*emergency_deceleration_bits),
                 f64::from_bits(*comfortable_deceleration_bits),
             ),
+            DiagnosticPayload::InvalidSpatialGeometry {
+                canonical_frame_key,
+                lane_edge_key,
+                related_lane_edge_key,
+                violation,
+            } => {
+                write!(formatter, "车道图边 {lane_edge_key} 的规范空间几何")?;
+                if let Some(frame_key) = canonical_frame_key {
+                    write!(formatter, "（规范坐标框架 {frame_key}）")?;
+                }
+                if let Some(related_key) = related_lane_edge_key {
+                    write!(formatter, "（关联边 {related_key}）")?;
+                }
+                write!(
+                    formatter,
+                    "非法：{}",
+                    SpatialGeometryViolationDisplay(*violation)
+                )
+            }
             DiagnosticPayload::EmptyAccessRuleParticipantClasses { access_rule_key } => write!(
                 formatter,
                 "准入规则 {access_rule_key} 必须至少引用一个参与者类别"
@@ -3396,6 +3518,103 @@ impl fmt::Display for ParkingGeometryViolationDisplay {
                 "必须位于 [{}, {})",
                 f64::from_bits(minimum_inclusive_bits),
                 f64::from_bits(maximum_exclusive_bits)
+            ),
+        }
+    }
+}
+
+struct SpatialGeometryViolationDisplay(SpatialGeometryViolation);
+
+impl fmt::Display for SpatialGeometryViolationDisplay {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            SpatialGeometryViolation::InsufficientPoints { minimum, actual } => {
+                write!(formatter, "中心线至少需要 {minimum} 个点，实际为 {actual}")
+            }
+            SpatialGeometryViolation::NonFiniteCoordinate {
+                point_index,
+                axis,
+                value_bits,
+            } => {
+                write!(
+                    formatter,
+                    "第 {point_index} 点的 {}={} 不是有限数",
+                    axis.as_str(),
+                    f32::from_bits(value_bits)
+                )
+            }
+            SpatialGeometryViolation::CoordinateOutOfRange {
+                point_index,
+                axis,
+                value_bits,
+                minimum_bits,
+                maximum_bits,
+            } => write!(
+                formatter,
+                "第 {point_index} 点的 {}={} 不在 [{}, {}]",
+                axis.as_str(),
+                f32::from_bits(value_bits),
+                f32::from_bits(minimum_bits),
+                f32::from_bits(maximum_bits)
+            ),
+            SpatialGeometryViolation::DuplicateEdgeBinding => {
+                formatter.write_str("同一车道图边被重复绑定")
+            }
+            SpatialGeometryViolation::MissingEdgeBinding => {
+                formatter.write_str("启用空间几何后该车道图边缺少中心线")
+            }
+            SpatialGeometryViolation::DegenerateSegment {
+                segment_index,
+                length_bits,
+                minimum_bits,
+            } => write!(
+                formatter,
+                "第 {segment_index} 线段长度 {} 必须严格大于 {} 米",
+                f32::from_bits(length_bits),
+                f32::from_bits(minimum_bits)
+            ),
+            SpatialGeometryViolation::DegenerateProjectedUp {
+                segment_index,
+                projected_up_bits,
+                minimum_bits,
+            } => write!(
+                formatter,
+                "第 {segment_index} 线段的水平投影长度 {} 必须不小于 {}",
+                f32::from_bits(projected_up_bits),
+                f32::from_bits(minimum_bits)
+            ),
+            SpatialGeometryViolation::ArcLengthAccumulationFailed {
+                segment_index,
+                accumulated_bits,
+                segment_length_bits,
+            } => write!(
+                formatter,
+                "第 {segment_index} 线段无法把长度 {} 米累加到 {} 米并保持有限且严格递增",
+                f32::from_bits(segment_length_bits),
+                f32::from_bits(accumulated_bits)
+            ),
+            SpatialGeometryViolation::LengthMismatch {
+                lane_edge_length_bits,
+                geometry_length_bits,
+                tolerance_bits,
+            } => write!(
+                formatter,
+                "中心线长度 {} 与 LaneEdge 长度 {} 米的差超过容差 {} 米",
+                f32::from_bits(geometry_length_bits),
+                f64::from_bits(lane_edge_length_bits),
+                f64::from_bits(tolerance_bits)
+            ),
+            SpatialGeometryViolation::ConnectedEdgesUseDifferentFrames => {
+                formatter.write_str("直接连接的两条边属于不同 canonical frame")
+            }
+            SpatialGeometryViolation::DiscontinuousJoin {
+                distance_bits,
+                tolerance_bits,
+            } => write!(
+                formatter,
+                "连接端点距离 {} 米超过容差 {} 米",
+                f32::from_bits(distance_bits),
+                f32::from_bits(tolerance_bits)
             ),
         }
     }

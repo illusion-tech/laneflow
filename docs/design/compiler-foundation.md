@@ -35,9 +35,12 @@ current Core IIDM `f64` 数值约束接入，唯一引用一个 `ParticipantClas
 参数、语义摘要与来源关系；它不构成其他交通执行域的通用参数基类。规范坐标框架
 （`CanonicalFrame`）已把 SpatialPackage v0.1 的稳定 `frameId` 接入 Typed
 AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方向和有界点范围仍是
-全局固定空间契约，声明不拥有 CRS、宿主放置或可变原点。公共 `Compiler` 已经原子
+全局固定空间契约，声明不拥有 CRS、宿主放置或可变原点。车道图边中心线已经接入同一
+管线：空间存在时验证全图恰好一次覆盖、规范 `f32` 线段、交通长度绑定和连接端点连续性，
+再按 `LaneEdgeOrdinal` 对齐冻结点、累计弧长、切向与上方向采样表；不声明中心线时仍允许
+无图形配置（headless）LIR。公共 `Compiler` 已经原子
 返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`；首批支持矩阵中的
-动态路线生命周期、车道图边规范折线等其余空间领域及后继编译遍尚未实现。
+动态路线生命周期及后继编译遍尚未实现。
 #292 G1 已
 接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /

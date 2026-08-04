@@ -20,13 +20,14 @@ use laneflow_static_contract::{
 
 use crate::hir::build_hir;
 use crate::lir::{
-    LirAccessRule, LirAccessTarget, LirAuthoringLane, LirCanonicalFrame, LirCorridorElement,
-    LirFacilityBand, LirGateOccurrence, LirIdentityField, LirJunction, LirJunctionInternalEdge,
-    LirLaneEdge, LirLaneGroup, LirManeuverGate, LirManeuverOccurrence, LirManeuverPath,
-    LirMovement, LirParkingArea, LirParkingSpace, LirParticipantClass, LirRoadCorridor,
-    LirRoadSection, LirRouteOccurrenceRef, LirSignalControl, LirSignalController, LirSignalGroup,
-    LirSignalPhase, LirSignalPhaseState, LirStaticRoute, LirStopLine, LirUnit, LirVehicleProfile,
-    LirWaitingZone, LirWaitingZoneOccurrence, freeze_lir,
+    LirAccessRule, LirAccessTarget, LirAuthoringLane, LirCanonicalFrame, LirCanonicalPoint3F32,
+    LirCorridorElement, LirFacilityBand, LirGateOccurrence, LirIdentityField, LirJunction,
+    LirJunctionInternalEdge, LirLaneEdge, LirLaneEdgeGeometry, LirLaneGroup, LirManeuverGate,
+    LirManeuverOccurrence, LirManeuverPath, LirMovement, LirParkingArea, LirParkingSpace,
+    LirParticipantClass, LirRoadCorridor, LirRoadSection, LirRouteOccurrenceRef, LirSignalControl,
+    LirSignalController, LirSignalGroup, LirSignalPhase, LirSignalPhaseState, LirSpatialSegment,
+    LirStaticRoute, LirStopLine, LirUnit, LirVehicleProfile, LirWaitingZone,
+    LirWaitingZoneOccurrence, freeze_lir,
 };
 use crate::mir::lower_to_mir;
 use crate::source_map::{ValidatedSourceMapInput, freeze_source_map};
@@ -683,6 +684,96 @@ impl CanonicalLaneEdgeView<'_> {
             &self.lir.lane_edge_route_occurrences
                 [self.edge.static_route_occurrences.as_usize_range()],
         )
+    }
+
+    /// 返回与本边同 ordinal 对齐的规范空间几何；headless LIR 返回 `None`。
+    #[must_use]
+    pub fn spatial_geometry(&self) -> Option<CanonicalLaneEdgeGeometryView<'_>> {
+        self.lir
+            .lane_edge_geometries
+            .get(self.edge.ordinal.index())
+            .map(|geometry| CanonicalLaneEdgeGeometryView {
+                lir: self.lir,
+                lane_edge: self.edge.ordinal,
+                geometry,
+            })
+    }
+}
+
+/// 一条 `LaneEdge` 的只读规范中心线及预计算采样表。
+#[derive(Clone, Copy)]
+pub struct CanonicalLaneEdgeGeometryView<'a> {
+    lir: &'a LirUnit,
+    lane_edge: LaneEdgeOrdinal,
+    geometry: &'a LirLaneEdgeGeometry,
+}
+
+impl CanonicalLaneEdgeGeometryView<'_> {
+    #[must_use]
+    pub const fn lane_edge(&self) -> LaneEdgeOrdinal {
+        self.lane_edge
+    }
+
+    #[must_use]
+    pub const fn canonical_frame(&self) -> CanonicalFrameOrdinal {
+        self.geometry.canonical_frame
+    }
+
+    #[must_use]
+    pub const fn arc_length_meters(&self) -> f32 {
+        self.geometry.arc_length_meters
+    }
+
+    pub fn points(&self) -> impl ExactSizeIterator<Item = CanonicalPoint3F32> + '_ {
+        self.lir.canonical_points[self.geometry.points.as_usize_range()]
+            .iter()
+            .copied()
+            .map(CanonicalPoint3F32::from)
+    }
+
+    pub fn segments(&self) -> impl ExactSizeIterator<Item = CanonicalSpatialSegment> + '_ {
+        self.lir.spatial_segments[self.geometry.segments.as_usize_range()]
+            .iter()
+            .copied()
+            .map(CanonicalSpatialSegment::from)
+    }
+}
+
+/// 已量化到 canonical frame 的只读 `f32` 点，单位为米。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanonicalPoint3F32 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+impl From<LirCanonicalPoint3F32> for CanonicalPoint3F32 {
+    fn from(point: LirCanonicalPoint3F32) -> Self {
+        Self {
+            x: point.x,
+            y: point.y,
+            z: point.z,
+        }
+    }
+}
+
+/// 中心线采样使用的单段累计弧长和正交局部基。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanonicalSpatialSegment {
+    pub length_meters: f32,
+    pub cumulative_end_meters: f32,
+    pub tangent: [f32; 3],
+    pub up: [f32; 3],
+}
+
+impl From<LirSpatialSegment> for CanonicalSpatialSegment {
+    fn from(segment: LirSpatialSegment) -> Self {
+        Self {
+            length_meters: segment.length_meters,
+            cumulative_end_meters: segment.cumulative_end_meters,
+            tangent: segment.tangent,
+            up: segment.up,
+        }
     }
 }
 
@@ -1832,19 +1923,19 @@ mod tests {
     use super::*;
     use crate::{
         AccessCapability, AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput,
-        AuthoringLaneInput, CanonicalFrameInput, CompilationUnitBuilder, CompileLimitDimension,
-        CompileLimits, CorridorElementReference, DiagnosticCode, DiagnosticPayload,
-        FacilityBandInput, FacilityBandReference, IidmVehicleProfileInput, JunctionInput,
-        JunctionReference, LaneEdgeInput, LaneEdgeReference, LaneGroupInput, LaneGroupReference,
-        ManeuverGateInput, ManeuverGateReference, ManeuverPathInput, ManeuverPathReference,
-        MovementInput, MovementReference, ParkingAreaInput, ParkingAreaReference,
-        ParkingLaneAnchorInput, ParkingSpaceGeometryInput, ParkingSpaceInput,
-        ParticipantClassInput, ParticipantClassReference, RoadCorridorInput, RoadSectionInput,
-        RoadSectionReference, SignalControlInput, SignalControllerInput, SignalGroupInput,
-        SignalGroupReference, SignalGroupStateInput, SignalPhaseInput, SourceModuleDescriptor,
-        SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole, StaticRouteInput,
-        StopLineInput, StopLineReference, SyntheticModule, SyntheticModuleBuilder,
-        VehicleProfileInput, WaitingZoneInput,
+        AuthoringLaneInput, CanonicalFrameInput, CanonicalPoint3F32Input, CompilationUnitBuilder,
+        CompileLimitDimension, CompileLimits, CorridorElementReference, DiagnosticCode,
+        DiagnosticPayload, FacilityBandInput, FacilityBandReference, IidmVehicleProfileInput,
+        JunctionInput, JunctionReference, LaneEdgeGeometryInput, LaneEdgeInput, LaneEdgeReference,
+        LaneGroupInput, LaneGroupReference, ManeuverGateInput, ManeuverGateReference,
+        ManeuverPathInput, ManeuverPathReference, MovementInput, MovementReference,
+        ParkingAreaInput, ParkingAreaReference, ParkingLaneAnchorInput, ParkingSpaceGeometryInput,
+        ParkingSpaceInput, ParticipantClassInput, ParticipantClassReference, RoadCorridorInput,
+        RoadSectionInput, RoadSectionReference, SignalControlInput, SignalControllerInput,
+        SignalGroupInput, SignalGroupReference, SignalGroupStateInput, SignalPhaseInput,
+        SourceModuleDescriptor, SourceModuleHeader, SourceModuleHeaderInput, SourceRelationRole,
+        StaticRouteInput, StopLineInput, StopLineReference, SyntheticModule,
+        SyntheticModuleBuilder, VehicleProfileInput, WaitingZoneInput,
     };
 
     fn module(
@@ -4848,10 +4939,12 @@ mod tests {
         builder
             .add_canonical_frame(CanonicalFrameInput {
                 canonical_frame_key: "frame-z",
+                lane_edge_geometries: &[],
             })
             .unwrap()
             .add_canonical_frame(CanonicalFrameInput {
                 canonical_frame_key: "frame-a",
+                lane_edge_geometries: &[],
             })
             .unwrap();
 
@@ -4888,6 +4981,7 @@ mod tests {
             builder
                 .add_canonical_frame(CanonicalFrameInput {
                     canonical_frame_key: key,
+                    lane_edge_geometries: &[],
                 })
                 .unwrap();
             Compiler::new()
@@ -4901,6 +4995,260 @@ mod tests {
             left.lir.inner.semantic_digest,
             right.lir.inner.semantic_digest
         );
+    }
+
+    #[test]
+    fn compiler_validates_and_freezes_lane_edge_spatial_sampling_tables() {
+        let points = [
+            CanonicalPoint3F32Input {
+                x: -0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            CanonicalPoint3F32Input {
+                x: 8.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            CanonicalPoint3F32Input {
+                x: 20.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        ];
+        let geometries = [LaneEdgeGeometryInput {
+            lane_edge: LaneEdgeReference::local("edge-main"),
+            centerline_points: &points,
+        }];
+        let mut builder = access_builder("canonical-spatial.document");
+        builder
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-main",
+                lane_edge_geometries: &geometries,
+            })
+            .unwrap();
+
+        let output = Compiler::new()
+            .compile(unit([builder.finish().unwrap()]))
+            .unwrap();
+        let edge = output.lir().lane_edges().next().unwrap();
+        let geometry = edge.spatial_geometry().unwrap();
+        assert_eq!(geometry.lane_edge(), edge.ordinal());
+        assert_eq!(geometry.canonical_frame().raw(), 0);
+        assert_eq!(geometry.arc_length_meters(), 20.0);
+        let frozen_points = geometry.points().collect::<Vec<_>>();
+        assert_eq!(frozen_points.len(), 3);
+        assert_eq!(frozen_points[0].x.to_bits(), 0.0_f32.to_bits());
+        let segments = geometry.segments().collect::<Vec<_>>();
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].length_meters, 8.0);
+        assert_eq!(segments[1].cumulative_end_meters, 20.0);
+        assert_eq!(segments[0].tangent, [1.0, 0.0, 0.0]);
+        assert_eq!(segments[0].up, [0.0, 1.0, 0.0]);
+
+        let relation = output
+            .source_map_input()
+            .spatial_relation_sources()
+            .next()
+            .unwrap();
+        assert_eq!(relation.owner_ordinal(), geometry.canonical_frame());
+        assert_eq!(
+            relation.role(),
+            SourceRelationRole::CanonicalFrameLaneEdgeGeometry
+        );
+        assert_eq!(relation.local_index(), 0);
+    }
+
+    #[test]
+    fn spatial_geometry_rejects_length_mismatch_without_partial_output() {
+        let points = [
+            CanonicalPoint3F32Input {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            CanonicalPoint3F32Input {
+                x: 19.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        ];
+        let geometries = [LaneEdgeGeometryInput {
+            lane_edge: LaneEdgeReference::local("edge-main"),
+            centerline_points: &points,
+        }];
+        let mut builder = access_builder("canonical-spatial-length.document");
+        builder
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-main",
+                lane_edge_geometries: &geometries,
+            })
+            .unwrap();
+
+        let diagnostics = Compiler::new()
+            .compile(unit([builder.finish().unwrap()]))
+            .err()
+            .expect("mismatched geometry must fail");
+        assert_eq!(diagnostics.diagnostics().len(), 1);
+        assert_eq!(
+            diagnostics.diagnostics()[0].code(),
+            DiagnosticCode::InvalidSpatialGeometry
+        );
+        assert!(matches!(
+            diagnostics.diagnostics()[0].payload(),
+            DiagnosticPayload::InvalidSpatialGeometry {
+                violation: crate::SpatialGeometryViolation::LengthMismatch { .. },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn spatial_geometry_set_order_does_not_change_lir_semantics() {
+        let compile = |reverse: bool| {
+            let limits = CompileLimits::p100_initial_v1();
+            let header = SourceModuleHeader::new(
+                SourceModuleHeaderInput {
+                    authoring_namespace_id: "city/spatial-order",
+                    source_document_key: if reverse {
+                        "spatial-order-reverse.document"
+                    } else {
+                        "spatial-order.document"
+                    },
+                    generator_build_id: "git:0123456789abcdef",
+                    parameters_and_inputs_digest: [0x11; 32],
+                    frontend_options_digest: [0x22; 32],
+                    random_seed: Some(42),
+                    provenance: "repository:laneflow",
+                },
+                &limits,
+            )
+            .unwrap();
+            let mut builder = SyntheticModuleBuilder::new(header, &limits).unwrap();
+            for key in ["edge-a", "edge-b"] {
+                builder
+                    .add_lane_edge(LaneEdgeInput {
+                        lane_edge_key: key,
+                        length_meters: 10.0,
+                        speed_limit_meters_per_second: 10.0,
+                        successors: &[],
+                    })
+                    .unwrap();
+            }
+            let points_a = [
+                CanonicalPoint3F32Input {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                CanonicalPoint3F32Input {
+                    x: 10.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+            ];
+            let points_b = [
+                CanonicalPoint3F32Input {
+                    x: 20.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                CanonicalPoint3F32Input {
+                    x: 30.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+            ];
+            let ordered = [
+                LaneEdgeGeometryInput {
+                    lane_edge: LaneEdgeReference::local("edge-a"),
+                    centerline_points: &points_a,
+                },
+                LaneEdgeGeometryInput {
+                    lane_edge: LaneEdgeReference::local("edge-b"),
+                    centerline_points: &points_b,
+                },
+            ];
+            let reversed = [ordered[1], ordered[0]];
+            builder
+                .add_canonical_frame(CanonicalFrameInput {
+                    canonical_frame_key: "frame-main",
+                    lane_edge_geometries: if reverse { &reversed } else { &ordered },
+                })
+                .unwrap();
+            Compiler::new()
+                .compile(unit([builder.finish().unwrap()]))
+                .unwrap()
+        };
+
+        assert_eq!(
+            compile(false).lir.inner.semantic_digest,
+            compile(true).lir.inner.semantic_digest
+        );
+    }
+
+    #[test]
+    fn spatial_geometry_requires_complete_coverage_once_enabled() {
+        let limits = CompileLimits::p100_initial_v1();
+        let header = SourceModuleHeader::new(
+            SourceModuleHeaderInput {
+                authoring_namespace_id: "city/spatial-coverage",
+                source_document_key: "spatial-coverage.document",
+                generator_build_id: "git:0123456789abcdef",
+                parameters_and_inputs_digest: [0x11; 32],
+                frontend_options_digest: [0x22; 32],
+                random_seed: Some(42),
+                provenance: "repository:laneflow",
+            },
+            &limits,
+        )
+        .unwrap();
+        let mut builder = SyntheticModuleBuilder::new(header, &limits).unwrap();
+        for key in ["edge-a", "edge-b"] {
+            builder
+                .add_lane_edge(LaneEdgeInput {
+                    lane_edge_key: key,
+                    length_meters: 10.0,
+                    speed_limit_meters_per_second: 10.0,
+                    successors: &[],
+                })
+                .unwrap();
+        }
+        let points = [
+            CanonicalPoint3F32Input {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            CanonicalPoint3F32Input {
+                x: 10.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        ];
+        let geometries = [LaneEdgeGeometryInput {
+            lane_edge: LaneEdgeReference::local("edge-a"),
+            centerline_points: &points,
+        }];
+        builder
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-main",
+                lane_edge_geometries: &geometries,
+            })
+            .unwrap();
+
+        let diagnostics = Compiler::new()
+            .compile(unit([builder.finish().unwrap()]))
+            .err()
+            .expect("partial coverage must fail");
+        assert!(matches!(
+            diagnostics.diagnostics()[0].payload(),
+            DiagnosticPayload::InvalidSpatialGeometry {
+                lane_edge_key,
+                violation: crate::SpatialGeometryViolation::MissingEdgeBinding,
+                ..
+            } if lane_edge_key.as_ref() == "edge-b"
+        ));
     }
 
     #[test]

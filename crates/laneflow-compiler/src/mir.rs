@@ -369,7 +369,32 @@ pub(crate) struct MirCanonicalFrame {
     pub(crate) module: MirModuleKey,
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: CanonicalFrameId,
+    pub(crate) lane_edge_geometries: TableRange<MirLaneEdgeGeometry>,
     pub(crate) source_span: SourceSpan,
+}
+
+pub(crate) struct MirLaneEdgeGeometry {
+    pub(crate) canonical_frame: MirCanonicalFrameKey,
+    pub(crate) lane_edge: MirLaneEdgeKey,
+    pub(crate) points: TableRange<MirCanonicalPoint3F32>,
+    pub(crate) segments: TableRange<MirSpatialSegment>,
+    pub(crate) arc_length_meters: f32,
+    pub(crate) source_span: SourceSpan,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct MirCanonicalPoint3F32 {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) z: f32,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct MirSpatialSegment {
+    pub(crate) length_meters: f32,
+    pub(crate) cumulative_end_meters: f32,
+    pub(crate) tangent: [f32; 3],
+    pub(crate) up: [f32; 3],
 }
 
 #[derive(Clone, Copy)]
@@ -511,6 +536,9 @@ pub(crate) struct MirUnit {
     pub(crate) participant_classes: Box<[MirParticipantClass]>,
     pub(crate) vehicle_profiles: Box<[MirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[MirCanonicalFrame]>,
+    pub(crate) lane_edge_geometries: Box<[MirLaneEdgeGeometry]>,
+    pub(crate) canonical_points: Box<[MirCanonicalPoint3F32]>,
+    pub(crate) spatial_segments: Box<[MirSpatialSegment]>,
     pub(crate) access_rules: Box<[MirAccessRule]>,
     pub(crate) access_rule_participant_classes: Box<[MirAccessRuleParticipantClass]>,
     pub(crate) static_routes: Box<[MirStaticRoute]>,
@@ -630,6 +658,9 @@ pub(crate) fn lower_to_mir(
         .saturating_add(signal_record_count)
         .saturating_add(parking_record_count)
         .saturating_add(u64::try_from(hir.canonical_frames.len()).unwrap_or(u64::MAX))
+        .saturating_add(u64::try_from(hir.lane_edge_geometries.len()).unwrap_or(u64::MAX))
+        .saturating_add(u64::try_from(hir.canonical_points.len()).unwrap_or(u64::MAX))
+        .saturating_add(u64::try_from(hir.spatial_segments.len()).unwrap_or(u64::MAX))
         .saturating_add(access_record_count)
         .saturating_add(route_record_count);
     let stage_scratch_bytes = requested_bytes::<MirModuleKey>(module_count)
@@ -666,6 +697,9 @@ pub(crate) fn lower_to_mir(
                 .unwrap_or(u64::MAX)
                 .saturating_add(u64::try_from(hir.vehicle_profiles.len()).unwrap_or(u64::MAX))
                 .saturating_add(u64::try_from(hir.access_rules.len()).unwrap_or(u64::MAX)),
+        ))
+        .saturating_add(requested_bytes::<u32>(
+            u64::try_from(hir.canonical_frames.len()).unwrap_or(u64::MAX),
         ));
     let mir_owned_bytes = requested_bytes::<MirModule>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdge>(lane_edge_count))
@@ -783,6 +817,18 @@ pub(crate) fn lower_to_mir(
         ))
         .saturating_add(requested_bytes::<MirCanonicalFrame>(
             hir.canonical_frames.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirLaneEdgeGeometry>(
+            hir.lane_edge_geometries
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirCanonicalPoint3F32>(
+            hir.canonical_points.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirSpatialSegment>(
+            hir.spatial_segments.len().try_into().unwrap_or(u64::MAX),
         ))
         .saturating_add(requested_bytes::<MirParticipantClass>(
             hir.participant_classes.len().try_into().unwrap_or(u64::MAX),
@@ -1311,14 +1357,56 @@ pub(crate) fn lower_to_mir(
         })
         .collect::<Vec<_>>();
 
+    let canonical_frame_mapping =
+        dense_mapping::<MirCanonicalFrameTag>(hir.canonical_frames.len())?;
     let canonical_frames = hir
         .canonical_frames
         .iter()
-        .map(|frame| MirCanonicalFrame {
-            module: hir_module_to_mir[frame.module.index()],
-            stable_key: Arc::clone(&frame.stable_key),
-            stable_id: frame.stable_id,
-            source_span: frame.source_span.clone(),
+        .map(|frame| {
+            Ok(MirCanonicalFrame {
+                module: hir_module_to_mir[frame.module.index()],
+                stable_key: Arc::clone(&frame.stable_key),
+                stable_id: frame.stable_id,
+                lane_edge_geometries: remap_range(
+                    frame.lane_edge_geometries,
+                    &unit.limits,
+                    &frame.source_span,
+                )?,
+                source_span: frame.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let lane_edge_geometries = hir
+        .lane_edge_geometries
+        .iter()
+        .map(|geometry| {
+            Ok(MirLaneEdgeGeometry {
+                canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
+                lane_edge: hir_to_mir[geometry.lane_edge.index()],
+                points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,
+                segments: remap_range(geometry.segments, &unit.limits, &geometry.source_span)?,
+                arc_length_meters: geometry.arc_length_meters,
+                source_span: geometry.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let canonical_points = hir
+        .canonical_points
+        .iter()
+        .map(|point| MirCanonicalPoint3F32 {
+            x: point.x,
+            y: point.y,
+            z: point.z,
+        })
+        .collect::<Vec<_>>();
+    let spatial_segments = hir
+        .spatial_segments
+        .iter()
+        .map(|segment| MirSpatialSegment {
+            length_meters: segment.length_meters,
+            cumulative_end_meters: segment.cumulative_end_meters,
+            tangent: segment.tangent,
+            up: segment.up,
         })
         .collect::<Vec<_>>();
 
@@ -1557,6 +1645,9 @@ pub(crate) fn lower_to_mir(
         parking_spaces: parking_spaces.into_boxed_slice(),
         parking_area_spaces: parking_area_spaces.into_boxed_slice(),
         canonical_frames: canonical_frames.into_boxed_slice(),
+        lane_edge_geometries: lane_edge_geometries.into_boxed_slice(),
+        canonical_points: canonical_points.into_boxed_slice(),
+        spatial_segments: spatial_segments.into_boxed_slice(),
         participant_classes: participant_classes.into_boxed_slice(),
         vehicle_profiles: vehicle_profiles.into_boxed_slice(),
         access_rules: access_rules.into_boxed_slice(),

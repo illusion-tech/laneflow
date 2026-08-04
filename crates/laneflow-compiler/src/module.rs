@@ -16,7 +16,8 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 
 use laneflow_static_contract::{
-    AccessEffect, EntityKind, FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind,
+    AccessEffect, CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS,
+    EntityKind, FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind,
     MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS, ManeuverGateKind, ManeuverPathKind, MovementKind,
     ParticipantClassKind, RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind,
 };
@@ -25,9 +26,10 @@ use crate::arena::ArenaKey;
 use crate::declaration::{
     AccessRegulationInput, AccessRuleDeclaration, AccessRuleInput, AccessRuleTargetInput,
     AuthoringLaneDeclaration, CanonicalFrameDeclaration, CanonicalFrameInput,
-    CorridorElementReference, DeclarationHeader, EdgeLength, FacilityBandDeclaration,
-    FacilityBandInput, FacilityKindCategory, FacilityKindViolation, JunctionDeclaration,
-    JunctionInput, LaneEdgeDeclaration, LaneEdgeInput, LaneGroupDeclaration, LaneGroupInput,
+    CanonicalPoint3F32Input, CorridorElementReference, DeclarationHeader, EdgeLength,
+    FacilityBandDeclaration, FacilityBandInput, FacilityKindCategory, FacilityKindViolation,
+    JunctionDeclaration, JunctionInput, LaneEdgeDeclaration, LaneEdgeGeometryDeclaration,
+    LaneEdgeGeometryInput, LaneEdgeInput, LaneGroupDeclaration, LaneGroupInput,
     ManeuverGateDeclaration, ManeuverGateInput, ManeuverPathDeclaration, ManeuverPathInput,
     MovementDeclaration, MovementInput, OwnedAccessRegulation, OwnedAccessRuleTarget,
     OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
@@ -45,7 +47,7 @@ use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
 use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceModuleHeader,
-    SourceSpan,
+    SourceSpan, SpatialAxis, SpatialGeometryViolation,
 };
 
 const SOURCE_RECORD_MAGIC: [u8; 8] = *b"LFSOURCE";
@@ -244,6 +246,7 @@ pub struct SyntheticModuleBuilder {
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
     route_occurrence_count: u64,
+    geometry_point_count: u64,
 }
 
 #[derive(Default)]
@@ -262,6 +265,7 @@ struct DeclarationResourceDelta {
     maneuver_gates: u64,
     waiting_zones: u64,
     route_occurrences: u64,
+    geometry_points: u64,
 }
 
 struct DeclarationResourceState {
@@ -279,6 +283,7 @@ struct DeclarationResourceState {
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
     route_occurrence_count: u64,
+    geometry_point_count: u64,
 }
 
 impl SyntheticModuleBuilder {
@@ -356,6 +361,7 @@ impl SyntheticModuleBuilder {
             maneuver_gate_count: 0,
             waiting_zone_count: 0,
             route_occurrence_count: 0,
+            geometry_point_count: 0,
         })
     }
 
@@ -528,6 +534,9 @@ impl SyntheticModuleBuilder {
             route_occurrence_count: self
                 .route_occurrence_count
                 .saturating_add(delta.route_occurrences),
+            geometry_point_count: self
+                .geometry_point_count
+                .saturating_add(delta.geometry_points),
         };
         let controlled_live_bytes = state
             .controlled_string_bytes
@@ -577,6 +586,10 @@ impl SyntheticModuleBuilder {
                 CompileLimitDimension::RouteOccurrenceCount,
                 state.route_occurrence_count,
             ),
+            (
+                CompileLimitDimension::GeometryPointCount,
+                state.geometry_point_count,
+            ),
         ] {
             if let Some(diagnostic) = limit_diagnostic(
                 &self.limits,
@@ -606,6 +619,7 @@ impl SyntheticModuleBuilder {
         self.maneuver_gate_count = state.maneuver_gate_count;
         self.waiting_zone_count = state.waiting_zone_count;
         self.route_occurrence_count = state.route_occurrence_count;
+        self.geometry_point_count = state.geometry_point_count;
     }
 
     /// 声明显式模块导入；网络或文件系统发现不属于该操作。
@@ -1849,14 +1863,17 @@ impl SyntheticModuleBuilder {
         Ok(self)
     }
 
-    /// 声明一个 SpatialPackage v0.1 使用的规范坐标框架身份。
+    /// 声明一个 SpatialPackage v0.1 使用的规范坐标框架及其车道边中心线。
     ///
-    /// 该声明只拥有 `frameId` 身份；坐标单位、轴向、手性和范围沿用全局空间契约，
-    /// 调用方不得借此编码 CRS、宿主放置或可变原点。
+    /// 坐标单位、轴向、手性和范围沿用全局空间契约，调用方不得借此编码 CRS、宿主
+    /// 放置或可变原点。几何集合顺序不参与语义；每条中心线内部的点顺序按行驶方向
+    /// 保留。
     ///
     /// # Errors
     ///
-    /// 稳定键非法、声明重复，或资源上限超限时失败。
+    /// 稳定键或边引用非法、同一 frame 重复绑定边、点数不足、坐标非法、声明重复，
+    /// 或资源上限超限时失败。跨 frame 重复、全图覆盖、长度与连接连续性在 HIR 阶段
+    /// 统一验证。
     #[track_caller]
     pub fn add_canonical_frame(
         &mut self,
@@ -1872,25 +1889,198 @@ impl SyntheticModuleBuilder {
             &span,
         )?;
 
+        for geometry in input.lane_edge_geometries {
+            self.validate_reference(EntityKind::LaneEdge, geometry.lane_edge, &span)?;
+            if geometry.centerline_points.len() < 2 {
+                return Err(DiagnosticBundle::single(
+                    Diagnostic::invalid_spatial_geometry(
+                        Some(input.canonical_frame_key),
+                        geometry.lane_edge.declaration_key(),
+                        None,
+                        SpatialGeometryViolation::InsufficientPoints {
+                            minimum: 2,
+                            actual: u32::try_from(geometry.centerline_points.len())
+                                .unwrap_or(u32::MAX),
+                        },
+                        span,
+                        None,
+                    ),
+                ));
+            }
+            for (point_index, point) in geometry.centerline_points.iter().enumerate() {
+                for (axis, value) in [
+                    (SpatialAxis::X, point.x),
+                    (SpatialAxis::Y, point.y),
+                    (SpatialAxis::Z, point.z),
+                ] {
+                    let point_index = u32::try_from(point_index).unwrap_or(u32::MAX);
+                    let violation = if !value.is_finite() {
+                        Some(SpatialGeometryViolation::NonFiniteCoordinate {
+                            point_index,
+                            axis,
+                            value_bits: value.to_bits(),
+                        })
+                    } else if !(CANONICAL_POINT_COMPONENT_MIN_METERS
+                        ..=CANONICAL_POINT_COMPONENT_MAX_METERS)
+                        .contains(&value)
+                    {
+                        Some(SpatialGeometryViolation::CoordinateOutOfRange {
+                            point_index,
+                            axis,
+                            value_bits: value.to_bits(),
+                            minimum_bits: CANONICAL_POINT_COMPONENT_MIN_METERS.to_bits(),
+                            maximum_bits: CANONICAL_POINT_COMPONENT_MAX_METERS.to_bits(),
+                        })
+                    } else {
+                        None
+                    };
+                    if let Some(violation) = violation {
+                        return Err(DiagnosticBundle::single(
+                            Diagnostic::invalid_spatial_geometry(
+                                Some(input.canonical_frame_key),
+                                geometry.lane_edge.declaration_key(),
+                                None,
+                                violation,
+                                span,
+                                None,
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+
         let namespace_bytes =
             u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
         let key_bytes = u64::try_from(input.canonical_frame_key.len()).unwrap_or(u64::MAX);
+        let geometry_count = u64::try_from(input.lane_edge_geometries.len()).unwrap_or(u64::MAX);
+        let point_count = input
+            .lane_edge_geometries
+            .iter()
+            .fold(0_u64, |total, geometry| {
+                total.saturating_add(
+                    u64::try_from(geometry.centerline_points.len()).unwrap_or(u64::MAX),
+                )
+            });
+        let reference_string_bytes =
+            input
+                .lane_edge_geometries
+                .iter()
+                .fold(0_u64, |total, geometry| {
+                    total.saturating_add(reference_spelling_parts_bytes(
+                        geometry
+                            .lane_edge
+                            .module_namespace()
+                            .unwrap_or(&self.header.authoring_namespace_id),
+                        geometry.lane_edge.declaration_key(),
+                    ))
+                });
+        let controlled_reference_bytes =
+            input
+                .lane_edge_geometries
+                .iter()
+                .fold(0_u64, |total, geometry| {
+                    total.saturating_add(
+                        u64::try_from(geometry.lane_edge.declaration_key().len())
+                            .unwrap_or(u64::MAX),
+                    )
+                });
         let state = self.check_declaration_resources(
             DeclarationResourceDelta {
                 declarations: 1,
-                typed_ast_records: 3,
+                typed_ast_records: 3_u64
+                    .saturating_add(geometry_count.saturating_mul(2))
+                    .saturating_add(point_count),
+                references: geometry_count,
+                relations: geometry_count,
                 identity_fields: 2,
                 symbols: 1,
-                string_items: 2,
-                string_bytes: namespace_bytes.saturating_add(key_bytes),
-                controlled_string_bytes: key_bytes,
-                controlled_structural_bytes: size_bytes::<CanonicalFrameDeclaration>(1),
-                source_bytes: declaration_header_len(input.canonical_frame_key),
+                string_items: 2_u64.saturating_add(geometry_count),
+                string_bytes: namespace_bytes
+                    .saturating_add(key_bytes)
+                    .saturating_add(reference_string_bytes),
+                controlled_string_bytes: key_bytes.saturating_add(controlled_reference_bytes),
+                controlled_structural_bytes: size_bytes::<CanonicalFrameDeclaration>(1)
+                    .saturating_add(size_bytes::<LaneEdgeGeometryDeclaration>(geometry_count))
+                    .saturating_add(size_bytes::<CanonicalPoint3F32Input>(point_count)),
+                source_bytes: canonical_frame_input_len(
+                    input.canonical_frame_key,
+                    input.lane_edge_geometries,
+                    &self.header.authoring_namespace_id,
+                ),
+                geometry_points: point_count,
                 ..DeclarationResourceDelta::default()
             },
             input.canonical_frame_key,
             &span,
         )?;
+
+        // 只有资源预检成功后才为规范集合顺序分配暂存索引；不可信几何数量不能抢在
+        // `max_geometry_point_count` / live-byte 检查之前触发线性分配。
+        let mut ordered_geometries = input.lane_edge_geometries.iter().collect::<Vec<_>>();
+        ordered_geometries.sort_unstable_by(|left, right| {
+            left.lane_edge
+                .module_namespace()
+                .unwrap_or(&self.header.authoring_namespace_id)
+                .cmp(
+                    right
+                        .lane_edge
+                        .module_namespace()
+                        .unwrap_or(&self.header.authoring_namespace_id),
+                )
+                .then_with(|| {
+                    left.lane_edge
+                        .declaration_key()
+                        .cmp(right.lane_edge.declaration_key())
+                })
+        });
+        if let Some(duplicate) = ordered_geometries.windows(2).find_map(|pair| {
+            let left_namespace = pair[0]
+                .lane_edge
+                .module_namespace()
+                .unwrap_or(&self.header.authoring_namespace_id);
+            let right_namespace = pair[1]
+                .lane_edge
+                .module_namespace()
+                .unwrap_or(&self.header.authoring_namespace_id);
+            (left_namespace == right_namespace
+                && pair[0].lane_edge.declaration_key() == pair[1].lane_edge.declaration_key())
+            .then_some(pair[1])
+        }) {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::invalid_spatial_geometry(
+                    Some(input.canonical_frame_key),
+                    duplicate.lane_edge.declaration_key(),
+                    None,
+                    SpatialGeometryViolation::DuplicateEdgeBinding,
+                    span,
+                    None,
+                ),
+            ));
+        }
+
+        let lane_edge_geometries = ordered_geometries
+            .into_iter()
+            .map(|geometry| {
+                let lane_edge =
+                    self.own_reference(EntityKind::LaneEdge, geometry.lane_edge, &span)?;
+                let centerline_points = geometry
+                    .centerline_points
+                    .iter()
+                    .map(|point| CanonicalPoint3F32Input {
+                        x: normalize_spatial_zero(point.x),
+                        y: normalize_spatial_zero(point.y),
+                        z: normalize_spatial_zero(point.z),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                Ok(LaneEdgeGeometryDeclaration {
+                    lane_edge,
+                    centerline_points,
+                })
+            })
+            .collect::<Result<Vec<_>, DiagnosticBundle>>()?
+            .into_boxed_slice();
 
         let stable_key: Arc<str> = input.canonical_frame_key.into();
         self.declaration_index
@@ -1904,6 +2094,7 @@ impl SyntheticModuleBuilder {
                     stable_key,
                     span,
                 },
+                lane_edge_geometries,
             },
         ));
         self.commit_declaration_resources(state);
@@ -2931,6 +3122,7 @@ impl SyntheticModuleBuilder {
             maneuver_gate_count: self.maneuver_gate_count,
             waiting_zone_count: self.waiting_zone_count,
             route_occurrence_count: self.route_occurrence_count,
+            geometry_point_count: self.geometry_point_count,
             controlled_live_bytes: self
                 .controlled_string_bytes
                 .saturating_add(self.controlled_structural_bytes)
@@ -2959,6 +3151,7 @@ pub struct SyntheticModule {
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
     route_occurrence_count: u64,
+    geometry_point_count: u64,
     controlled_live_bytes: u64,
 }
 
@@ -3002,6 +3195,7 @@ pub struct CompilationUnitBuilder {
     maneuver_gate_count: u64,
     waiting_zone_count: u64,
     route_occurrence_count: u64,
+    geometry_point_count: u64,
     controlled_live_bytes: u64,
 }
 
@@ -3027,6 +3221,7 @@ impl CompilationUnitBuilder {
             maneuver_gate_count: 0,
             waiting_zone_count: 0,
             route_occurrence_count: 0,
+            geometry_point_count: 0,
             controlled_live_bytes: 0,
         }
     }
@@ -3106,6 +3301,9 @@ impl CompilationUnitBuilder {
         let next_route_occurrence_count = self
             .route_occurrence_count
             .saturating_add(module.route_occurrence_count);
+        let next_geometry_point_count = self
+            .geometry_point_count
+            .saturating_add(module.geometry_point_count);
         let next_controlled_live_bytes = self
             .controlled_live_bytes
             .saturating_add(module.controlled_live_bytes);
@@ -3146,6 +3344,10 @@ impl CompilationUnitBuilder {
                 next_route_occurrence_count,
             ),
             (
+                CompileLimitDimension::GeometryPointCount,
+                next_geometry_point_count,
+            ),
+            (
                 CompileLimitDimension::CompilerControlledLiveBytes,
                 next_controlled_live_bytes,
             ),
@@ -3180,6 +3382,7 @@ impl CompilationUnitBuilder {
         self.maneuver_gate_count = next_maneuver_gate_count;
         self.waiting_zone_count = next_waiting_zone_count;
         self.route_occurrence_count = next_route_occurrence_count;
+        self.geometry_point_count = next_geometry_point_count;
         self.controlled_live_bytes = next_controlled_live_bytes;
         Ok(self)
     }
@@ -3287,6 +3490,7 @@ impl CompilationUnitBuilder {
             maneuver_gate_count: self.maneuver_gate_count,
             waiting_zone_count: self.waiting_zone_count,
             route_occurrence_count: self.route_occurrence_count,
+            geometry_point_count: self.geometry_point_count,
             controlled_live_bytes: self.controlled_live_bytes,
         })
     }
@@ -3308,6 +3512,7 @@ pub struct CompilationUnit {
     pub(crate) maneuver_gate_count: u64,
     pub(crate) waiting_zone_count: u64,
     pub(crate) route_occurrence_count: u64,
+    pub(crate) geometry_point_count: u64,
     pub(crate) controlled_live_bytes: u64,
 }
 
@@ -3411,6 +3616,10 @@ fn facility_kind_category(kind_id: &str) -> Option<FacilityKindCategory> {
 
 fn size_bytes<T>(count: u64) -> u64 {
     count.saturating_mul(u64::try_from(size_of::<T>()).unwrap_or(u64::MAX))
+}
+
+fn normalize_spatial_zero(value: f32) -> f32 {
+    if value == 0.0 { 0.0 } else { value }
 }
 
 fn reference_spelling_bytes<K: laneflow_static_contract::EntityKindMarker>(
@@ -3701,7 +3910,7 @@ fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
             &declaration.participant_class,
         )),
         SyntheticDeclaration::CanonicalFrame(declaration) => {
-            Some(declaration_header_len(&declaration.header.stable_key))
+            Some(canonical_frame_declaration_len(declaration))
         }
         SyntheticDeclaration::AccessRule(declaration) => Some(access_rule_declaration_len(
             &declaration.header.stable_key,
@@ -3729,6 +3938,51 @@ fn vehicle_profile_declaration_len(
             &participant_class.declaration_key,
         ))
         .saturating_add(7 * 8)
+}
+
+fn canonical_frame_input_len(
+    stable_key: &str,
+    geometries: &[LaneEdgeGeometryInput<'_>],
+    local_namespace: &str,
+) -> u64 {
+    geometries.iter().fold(
+        declaration_header_len(stable_key).saturating_add(4),
+        |total, geometry| {
+            total
+                .saturating_add(encoded_reference_len(
+                    geometry
+                        .lane_edge
+                        .module_namespace()
+                        .unwrap_or(local_namespace),
+                    geometry.lane_edge.declaration_key(),
+                ))
+                .saturating_add(4)
+                .saturating_add(
+                    u64::try_from(geometry.centerline_points.len())
+                        .unwrap_or(u64::MAX)
+                        .saturating_mul(12),
+                )
+        },
+    )
+}
+
+fn canonical_frame_declaration_len(declaration: &CanonicalFrameDeclaration) -> u64 {
+    declaration.lane_edge_geometries.iter().fold(
+        declaration_header_len(&declaration.header.stable_key).saturating_add(4),
+        |total, geometry| {
+            total
+                .saturating_add(encoded_reference_len(
+                    &geometry.lane_edge.module_namespace,
+                    &geometry.lane_edge.declaration_key,
+                ))
+                .saturating_add(4)
+                .saturating_add(
+                    u64::try_from(geometry.centerline_points.len())
+                        .unwrap_or(u64::MAX)
+                        .saturating_mul(12),
+                )
+        },
+    )
 }
 
 fn lane_edge_declaration_base_len(stable_key: &str) -> u64 {
@@ -4367,6 +4621,24 @@ fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
         }
         SyntheticDeclaration::CanonicalFrame(declaration) => {
             put_declaration_header(output, &declaration.header);
+            output.extend_from_slice(
+                &u32::try_from(declaration.lane_edge_geometries.len())
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            );
+            for geometry in &declaration.lane_edge_geometries {
+                put_owned_reference(output, &geometry.lane_edge);
+                output.extend_from_slice(
+                    &u32::try_from(geometry.centerline_points.len())
+                        .unwrap_or(u32::MAX)
+                        .to_le_bytes(),
+                );
+                for point in &geometry.centerline_points {
+                    for component in [point.x, point.y, point.z] {
+                        output.extend_from_slice(&component.to_bits().to_le_bytes());
+                    }
+                }
+            }
         }
         SyntheticDeclaration::AccessRule(declaration) => {
             put_declaration_header(output, &declaration.header);

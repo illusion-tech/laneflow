@@ -37,6 +37,7 @@ const ROUTE_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_L
 const SIGNAL_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
 const PARKING_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
 const ACCESS_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
+const SPATIAL_RELATION_SOURCE_LOGICAL_BYTES: u64 = CROSS_SECTION_RELATION_SOURCE_LOGICAL_BYTES;
 
 /// owner-local 来源记录中登记的有类型语义角色。
 ///
@@ -99,6 +100,8 @@ pub enum SourceRelationRole {
     AccessRuleParticipantClass = 26,
     /// 车辆配置到其唯一参与者类别的静态分类关系。
     VehicleProfileParticipantClass = 27,
+    /// 规范坐标框架拥有的一条车道图边中心线。
+    CanonicalFrameLaneEdgeGeometry = 28,
 }
 
 #[derive(Clone, Copy)]
@@ -182,6 +185,14 @@ struct ParkingRelationSourceRecord {
     primary: SourceLocationRecord,
 }
 
+struct SpatialRelationSourceRecord {
+    owner_ordinal: CanonicalFrameOrdinal,
+    owner_stable_id: CanonicalFrameId,
+    role: SourceRelationRole,
+    local_index: u32,
+    primary: SourceLocationRecord,
+}
+
 struct AccessRelationSourceRecord {
     owner: AccessRelationOwnerRecord,
     role: SourceRelationRole,
@@ -237,6 +248,7 @@ pub struct ValidatedSourceMapInput {
         Box<[StableEntitySourceRecord<VehicleProfileOrdinal, VehicleProfileId>]>,
     canonical_frame_sources:
         Box<[StableEntitySourceRecord<CanonicalFrameOrdinal, CanonicalFrameId>]>,
+    spatial_relation_sources: Box<[SpatialRelationSourceRecord]>,
     access_rule_sources: Box<[StableEntitySourceRecord<AccessRuleOrdinal, AccessRuleId>]>,
     access_relation_sources: Box<[AccessRelationSourceRecord]>,
     junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
@@ -520,6 +532,18 @@ impl ValidatedSourceMapInput {
         self.canonical_frame_sources
             .iter()
             .map(|record| CanonicalFrameSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
+    /// 按规范坐标框架序号和局部下标遍历中心线归属来源记录。
+    pub fn spatial_relation_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = SpatialRelationSourceView<'_>> {
+        self.spatial_relation_sources
+            .iter()
+            .map(|record| SpatialRelationSourceView {
                 source_map: self,
                 record,
             })
@@ -1028,6 +1052,44 @@ impl ParkingRelationSourceView<'_> {
     }
 }
 
+/// 一条 canonical frame 到中心线的 owner-local 来源记录。
+#[derive(Clone, Copy)]
+pub struct SpatialRelationSourceView<'a> {
+    source_map: &'a ValidatedSourceMapInput,
+    record: &'a SpatialRelationSourceRecord,
+}
+
+impl SpatialRelationSourceView<'_> {
+    #[must_use]
+    pub const fn owner_ordinal(&self) -> CanonicalFrameOrdinal {
+        self.record.owner_ordinal
+    }
+
+    #[must_use]
+    pub const fn owner_stable_id(&self) -> CanonicalFrameId {
+        self.record.owner_stable_id
+    }
+
+    #[must_use]
+    pub const fn role(&self) -> SourceRelationRole {
+        self.record.role
+    }
+
+    #[must_use]
+    pub const fn local_index(&self) -> u32 {
+        self.record.local_index
+    }
+
+    #[must_use]
+    pub fn primary_source(&self) -> SourceLocationView<'_> {
+        self.source_map.location(self.record.primary)
+    }
+
+    pub fn contributing_sources(&self) -> impl ExactSizeIterator<Item = SourceLocationView<'_>> {
+        core::iter::empty()
+    }
+}
+
 /// 参与者类别继承或准入规则关系 owner 的有类型身份。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -1275,6 +1337,7 @@ pub(crate) fn freeze_source_map(
         .saturating_mul(2)
         .saturating_add(u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX));
     let spatial_entity_count = u64::try_from(mir.canonical_frames.len()).unwrap_or(u64::MAX);
+    let spatial_relation_count = u64::try_from(mir.lane_edge_geometries.len()).unwrap_or(u64::MAX);
     let access_entity_count = u64::try_from(mir.participant_classes.len())
         .unwrap_or(u64::MAX)
         .saturating_add(u64::try_from(mir.vehicle_profiles.len()).unwrap_or(u64::MAX))
@@ -1334,6 +1397,9 @@ pub(crate) fn freeze_source_map(
             parking_relation_count.saturating_mul(PARKING_RELATION_SOURCE_LOGICAL_BYTES),
         )
         .saturating_add(spatial_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
+        .saturating_add(
+            spatial_relation_count.saturating_mul(SPATIAL_RELATION_SOURCE_LOGICAL_BYTES),
+        )
         .saturating_add(access_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(access_relation_count.saturating_mul(ACCESS_RELATION_SOURCE_LOGICAL_BYTES))
         .saturating_add(static_route_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
@@ -1444,6 +1510,9 @@ pub(crate) fn freeze_source_map(
         .saturating_add(requested_bytes::<
             StableEntitySourceRecord<CanonicalFrameOrdinal, CanonicalFrameId>,
         >(spatial_entity_count))
+        .saturating_add(requested_bytes::<SpatialRelationSourceRecord>(
+            spatial_relation_count,
+        ))
         .saturating_add(requested_bytes::<
             StableEntitySourceRecord<ParticipantClassOrdinal, ParticipantClassId>,
         >(
@@ -1588,6 +1657,7 @@ pub(crate) fn freeze_source_map(
     let mut participant_class_sources = Vec::with_capacity(mir.participant_classes.len());
     let mut vehicle_profile_sources = Vec::with_capacity(mir.vehicle_profiles.len());
     let mut canonical_frame_sources = Vec::with_capacity(mir.canonical_frames.len());
+    let mut spatial_relation_sources = Vec::with_capacity(mir.lane_edge_geometries.len());
     let mut access_rule_sources = Vec::with_capacity(mir.access_rules.len());
     let mut access_relation_sources = Vec::with_capacity(
         usize::try_from(access_relation_count)
@@ -2086,6 +2156,20 @@ pub(crate) fn freeze_source_map(
             stable_id: frame.stable_id,
             primary: location(source_document_ordinal, &frame.source_span),
         });
+        for (local_index, geometry) in mir.lane_edge_geometries
+            [frame.lane_edge_geometries.as_usize_range()]
+        .iter()
+        .enumerate()
+        {
+            spatial_relation_sources.push(SpatialRelationSourceRecord {
+                owner_ordinal: ordinal,
+                owner_stable_id: frame.stable_id,
+                role: SourceRelationRole::CanonicalFrameLaneEdgeGeometry,
+                local_index: u32::try_from(local_index)
+                    .expect("MIR range precheck proved local index fits u32"),
+                primary: location(source_document_ordinal, &geometry.source_span),
+            });
+        }
     }
     for mir_key in frozen_lir.canonical_mir_access_rule_order.iter().copied() {
         let rule = &mir.access_rules[mir_key.index()];
@@ -2252,6 +2336,10 @@ pub(crate) fn freeze_source_map(
         access_relation_sources.len(),
         usize::try_from(access_relation_count).unwrap_or(usize::MAX)
     );
+    debug_assert_eq!(
+        spatial_relation_sources.len(),
+        usize::try_from(spatial_relation_count).unwrap_or(usize::MAX)
+    );
     let source_modules = unit.into_source_module_descriptors();
     Ok(ValidatedSourceMapInput {
         source_modules,
@@ -2279,6 +2367,7 @@ pub(crate) fn freeze_source_map(
         participant_class_sources: participant_class_sources.into_boxed_slice(),
         vehicle_profile_sources: vehicle_profile_sources.into_boxed_slice(),
         canonical_frame_sources: canonical_frame_sources.into_boxed_slice(),
+        spatial_relation_sources: spatial_relation_sources.into_boxed_slice(),
         access_rule_sources: access_rule_sources.into_boxed_slice(),
         access_relation_sources: access_relation_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),
