@@ -430,6 +430,16 @@ pub struct VehicleProfileInput<'a> {
     pub iidm: IidmVehicleProfileInput,
 }
 
+/// 合成领域专用语言的规范坐标框架声明输入。
+///
+/// `canonical_frame_key` 对应 SpatialPackage v0.1 的 `frameId`。坐标单位、手性、
+/// 上方向和有界范围由全局 canonical frame 契约固定，不是每条声明可变的属性。
+#[derive(Clone, Copy, Debug)]
+pub struct CanonicalFrameInput<'a> {
+    /// 来源模块内显式持久化且唯一的规范坐标框架稳定键。
+    pub canonical_frame_key: &'a str,
+}
+
 /// 静态准入规则可以引用的目标。
 ///
 /// 四个可遍历目标在本切片编译为静态准入表；`FacilityBand` 保留为可诊断输入，HIR
@@ -774,6 +784,11 @@ pub(crate) struct VehicleProfileDeclaration {
     pub(crate) iidm: IidmVehicleProfileInput,
 }
 
+/// 已通过字段级检查、等待冻结稳定身份的规范坐标框架 Typed AST 记录。
+pub(crate) struct CanonicalFrameDeclaration {
+    pub(crate) header: DeclarationHeader,
+}
+
 /// Typed AST 中已拥有的准入目标引用。
 pub(crate) enum OwnedAccessRuleTarget {
     LaneEdge(OwnedEntityReference<LaneEdgeKind>),
@@ -835,5 +850,6 @@ pub(crate) enum SyntheticDeclaration {
     ParkingSpace(ParkingSpaceDeclaration),
     ParticipantClass(ParticipantClassDeclaration),
     VehicleProfile(VehicleProfileDeclaration),
+    CanonicalFrame(CanonicalFrameDeclaration),
     AccessRule(AccessRuleDeclaration),
 }

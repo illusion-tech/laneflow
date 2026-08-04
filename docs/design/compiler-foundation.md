@@ -32,9 +32,12 @@ FacilityBand target 继续由结构化能力门卫（capability guard）失败�
 进入合成领域声明。`StaticRoute` 已保留显式有序边出现项，并预编译相邻边门、
 机动路径、机动门、等待区出现项和反向索引。当前道路机动车的 `VehicleProfile` 已按
 current Core IIDM `f64` 数值约束接入，唯一引用一个 `ParticipantClass`，并冻结身份、
-参数、语义摘要与来源关系；它不构成其他交通执行域的通用参数基类。公共 `Compiler`
-已经原子返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`；首批支持矩阵
-中的动态路线生命周期、空间等其余领域及后继编译遍尚未实现。
+参数、语义摘要与来源关系；它不构成其他交通执行域的通用参数基类。规范坐标框架
+（`CanonicalFrame`）已把 SpatialPackage v0.1 的稳定 `frameId` 接入 Typed
+AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方向和有界点范围仍是
+全局固定空间契约，声明不拥有 CRS、宿主放置或可变原点。公共 `Compiler` 已经原子
+返回配对的 `ValidatedCanonicalLir` 与 `ValidatedSourceMapInput`；首批支持矩阵中的
+动态路线生命周期、车道图边规范折线等其余空间领域及后继编译遍尚未实现。
 #292 G1 已
 接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /

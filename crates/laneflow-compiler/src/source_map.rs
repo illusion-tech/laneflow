@@ -6,15 +6,16 @@
 //! [`crate::CompilationOutput`] 中的 [`crate::ValidatedCanonicalLir`]。
 
 use laneflow_static_contract::{
-    AccessRuleId, AccessRuleOrdinal, AuthoringLaneId, AuthoringLaneOrdinal, EntityKind,
-    FacilityBandId, FacilityBandOrdinal, JunctionId, JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal,
-    LaneGroupId, LaneGroupOrdinal, ManeuverGateId, ManeuverGateOrdinal, ManeuverPathId,
-    ManeuverPathOrdinal, MovementId, MovementOrdinal, ParkingAreaId, ParkingAreaOrdinal,
-    ParkingSpaceId, ParkingSpaceOrdinal, ParticipantClassId, ParticipantClassOrdinal,
-    RoadCorridorId, RoadCorridorOrdinal, RoadSectionId, RoadSectionOrdinal, SignalControllerId,
-    SignalControllerOrdinal, SignalGroupId, SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal,
-    StaticRouteId, StaticRouteOrdinal, StopLineId, StopLineOrdinal, VehicleProfileId,
-    VehicleProfileOrdinal, WaitingZoneId, WaitingZoneOrdinal,
+    AccessRuleId, AccessRuleOrdinal, AuthoringLaneId, AuthoringLaneOrdinal, CanonicalFrameId,
+    CanonicalFrameOrdinal, EntityKind, FacilityBandId, FacilityBandOrdinal, JunctionId,
+    JunctionOrdinal, LaneEdgeId, LaneEdgeOrdinal, LaneGroupId, LaneGroupOrdinal, ManeuverGateId,
+    ManeuverGateOrdinal, ManeuverPathId, ManeuverPathOrdinal, MovementId, MovementOrdinal,
+    ParkingAreaId, ParkingAreaOrdinal, ParkingSpaceId, ParkingSpaceOrdinal, ParticipantClassId,
+    ParticipantClassOrdinal, RoadCorridorId, RoadCorridorOrdinal, RoadSectionId,
+    RoadSectionOrdinal, SignalControllerId, SignalControllerOrdinal, SignalGroupId,
+    SignalGroupOrdinal, SignalPhaseId, SignalPhaseOrdinal, StaticRouteId, StaticRouteOrdinal,
+    StopLineId, StopLineOrdinal, VehicleProfileId, VehicleProfileOrdinal, WaitingZoneId,
+    WaitingZoneOrdinal,
 };
 
 use crate::diagnostic::DiagnosticCollector;
@@ -234,6 +235,8 @@ pub struct ValidatedSourceMapInput {
         Box<[StableEntitySourceRecord<ParticipantClassOrdinal, ParticipantClassId>]>,
     vehicle_profile_sources:
         Box<[StableEntitySourceRecord<VehicleProfileOrdinal, VehicleProfileId>]>,
+    canonical_frame_sources:
+        Box<[StableEntitySourceRecord<CanonicalFrameOrdinal, CanonicalFrameId>]>,
     access_rule_sources: Box<[StableEntitySourceRecord<AccessRuleOrdinal, AccessRuleId>]>,
     access_relation_sources: Box<[AccessRelationSourceRecord]>,
     junction_relation_sources: Box<[JunctionRelationSourceRecord]>,
@@ -510,6 +513,18 @@ impl ValidatedSourceMapInput {
             })
     }
 
+    /// 按 `CanonicalFrameOrdinal` 递增顺序遍历规范坐标框架来源记录。
+    pub fn canonical_frame_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = CanonicalFrameSourceView<'_>> {
+        self.canonical_frame_sources
+            .iter()
+            .map(|record| CanonicalFrameSourceView {
+                source_map: self,
+                record,
+            })
+    }
+
     /// 按 `AccessRuleOrdinal` 递增顺序遍历准入规则来源记录。
     pub fn access_rule_sources(&self) -> impl ExactSizeIterator<Item = AccessRuleSourceView<'_>> {
         self.access_rule_sources
@@ -727,6 +742,11 @@ stable_source_view!(
     VehicleProfileSourceView,
     VehicleProfileOrdinal,
     VehicleProfileId
+);
+stable_source_view!(
+    CanonicalFrameSourceView,
+    CanonicalFrameOrdinal,
+    CanonicalFrameId
 );
 stable_source_view!(AccessRuleSourceView, AccessRuleOrdinal, AccessRuleId);
 stable_source_view!(StaticRouteSourceView, StaticRouteOrdinal, StaticRouteId);
@@ -1254,6 +1274,7 @@ pub(crate) fn freeze_source_map(
         .unwrap_or(u64::MAX)
         .saturating_mul(2)
         .saturating_add(u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX));
+    let spatial_entity_count = u64::try_from(mir.canonical_frames.len()).unwrap_or(u64::MAX);
     let access_entity_count = u64::try_from(mir.participant_classes.len())
         .unwrap_or(u64::MAX)
         .saturating_add(u64::try_from(mir.vehicle_profiles.len()).unwrap_or(u64::MAX))
@@ -1312,6 +1333,7 @@ pub(crate) fn freeze_source_map(
         .saturating_add(
             parking_relation_count.saturating_mul(PARKING_RELATION_SOURCE_LOGICAL_BYTES),
         )
+        .saturating_add(spatial_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(access_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
         .saturating_add(access_relation_count.saturating_mul(ACCESS_RELATION_SOURCE_LOGICAL_BYTES))
         .saturating_add(static_route_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
@@ -1419,6 +1441,9 @@ pub(crate) fn freeze_source_map(
         .saturating_add(requested_bytes::<ParkingRelationSourceRecord>(
             parking_relation_count,
         ))
+        .saturating_add(requested_bytes::<
+            StableEntitySourceRecord<CanonicalFrameOrdinal, CanonicalFrameId>,
+        >(spatial_entity_count))
         .saturating_add(requested_bytes::<
             StableEntitySourceRecord<ParticipantClassOrdinal, ParticipantClassId>,
         >(
@@ -1562,6 +1587,7 @@ pub(crate) fn freeze_source_map(
     );
     let mut participant_class_sources = Vec::with_capacity(mir.participant_classes.len());
     let mut vehicle_profile_sources = Vec::with_capacity(mir.vehicle_profiles.len());
+    let mut canonical_frame_sources = Vec::with_capacity(mir.canonical_frames.len());
     let mut access_rule_sources = Vec::with_capacity(mir.access_rules.len());
     let mut access_relation_sources = Vec::with_capacity(
         usize::try_from(access_relation_count)
@@ -2047,6 +2073,20 @@ pub(crate) fn freeze_source_map(
             ),
         });
     }
+    for mir_key in frozen_lir
+        .canonical_mir_canonical_frame_order
+        .iter()
+        .copied()
+    {
+        let frame = &mir.canonical_frames[mir_key.index()];
+        let ordinal = frozen_lir.mir_canonical_frame_to_lir[mir_key.index()];
+        let source_document_ordinal = mir.modules[frame.module.index()].source_document_ordinal;
+        canonical_frame_sources.push(StableEntitySourceRecord {
+            ordinal,
+            stable_id: frame.stable_id,
+            primary: location(source_document_ordinal, &frame.source_span),
+        });
+    }
     for mir_key in frozen_lir.canonical_mir_access_rule_order.iter().copied() {
         let rule = &mir.access_rules[mir_key.index()];
         let ordinal = frozen_lir.mir_access_rule_to_lir[mir_key.index()];
@@ -2238,6 +2278,7 @@ pub(crate) fn freeze_source_map(
         parking_relation_sources: parking_relation_sources.into_boxed_slice(),
         participant_class_sources: participant_class_sources.into_boxed_slice(),
         vehicle_profile_sources: vehicle_profile_sources.into_boxed_slice(),
+        canonical_frame_sources: canonical_frame_sources.into_boxed_slice(),
         access_rule_sources: access_rule_sources.into_boxed_slice(),
         access_relation_sources: access_relation_sources.into_boxed_slice(),
         junction_relation_sources: junction_relation_sources.into_boxed_slice(),

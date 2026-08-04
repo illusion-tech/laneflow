@@ -11,10 +11,11 @@
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    AccessEffect, AccessRuleId, AuthoringLaneId, FacilityBandId, JunctionId, LaneEdgeId,
-    LaneGroupId, ManeuverGateId, ManeuverPathId, MovementId, ParkingAreaId, ParkingSpaceId,
-    ParticipantClassId, RoadCorridorId, RoadSectionId, SignalAspect, SignalControllerId,
-    SignalGroupId, SignalPhaseId, StaticRouteId, StopLineId, VehicleProfileId, WaitingZoneId,
+    AccessEffect, AccessRuleId, AuthoringLaneId, CanonicalFrameId, FacilityBandId, JunctionId,
+    LaneEdgeId, LaneGroupId, ManeuverGateId, ManeuverPathId, MovementId, ParkingAreaId,
+    ParkingSpaceId, ParticipantClassId, RoadCorridorId, RoadSectionId, SignalAspect,
+    SignalControllerId, SignalGroupId, SignalPhaseId, StaticRouteId, StopLineId, VehicleProfileId,
+    WaitingZoneId,
 };
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
@@ -46,6 +47,7 @@ pub(crate) enum MirParkingAreaTag {}
 pub(crate) enum MirParkingSpaceTag {}
 pub(crate) enum MirParticipantClassTag {}
 pub(crate) enum MirVehicleProfileTag {}
+pub(crate) enum MirCanonicalFrameTag {}
 pub(crate) enum MirAccessRuleTag {}
 
 /// 仅在当前 `MirUnit` 模块表内有效的致密键。
@@ -71,6 +73,7 @@ pub(crate) type MirParkingAreaKey = ArenaKey<MirParkingAreaTag>;
 pub(crate) type MirParkingSpaceKey = ArenaKey<MirParkingSpaceTag>;
 pub(crate) type MirParticipantClassKey = ArenaKey<MirParticipantClassTag>;
 pub(crate) type MirVehicleProfileKey = ArenaKey<MirVehicleProfileTag>;
+pub(crate) type MirCanonicalFrameKey = ArenaKey<MirCanonicalFrameTag>;
 pub(crate) type MirAccessRuleKey = ArenaKey<MirAccessRuleTag>;
 
 /// MIR 中保留的模块身份与来源上下文。
@@ -362,6 +365,13 @@ pub(crate) struct MirVehicleProfile {
     pub(crate) source_span: SourceSpan,
 }
 
+pub(crate) struct MirCanonicalFrame {
+    pub(crate) module: MirModuleKey,
+    pub(crate) stable_key: Arc<str>,
+    pub(crate) stable_id: CanonicalFrameId,
+    pub(crate) source_span: SourceSpan,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum MirAccessTarget {
     LaneEdge(MirLaneEdgeKey),
@@ -500,6 +510,7 @@ pub(crate) struct MirUnit {
     pub(crate) parking_area_spaces: Box<[MirParkingAreaSpace]>,
     pub(crate) participant_classes: Box<[MirParticipantClass]>,
     pub(crate) vehicle_profiles: Box<[MirVehicleProfile]>,
+    pub(crate) canonical_frames: Box<[MirCanonicalFrame]>,
     pub(crate) access_rules: Box<[MirAccessRule]>,
     pub(crate) access_rule_participant_classes: Box<[MirAccessRuleParticipantClass]>,
     pub(crate) static_routes: Box<[MirStaticRoute]>,
@@ -618,6 +629,7 @@ pub(crate) fn lower_to_mir(
         .saturating_add(control_record_count)
         .saturating_add(signal_record_count)
         .saturating_add(parking_record_count)
+        .saturating_add(u64::try_from(hir.canonical_frames.len()).unwrap_or(u64::MAX))
         .saturating_add(access_record_count)
         .saturating_add(route_record_count);
     let stage_scratch_bytes = requested_bytes::<MirModuleKey>(module_count)
@@ -768,6 +780,9 @@ pub(crate) fn lower_to_mir(
         ))
         .saturating_add(requested_bytes::<MirParkingAreaSpace>(
             hir.parking_area_spaces.len().try_into().unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirCanonicalFrame>(
+            hir.canonical_frames.len().try_into().unwrap_or(u64::MAX),
         ))
         .saturating_add(requested_bytes::<MirParticipantClass>(
             hir.participant_classes.len().try_into().unwrap_or(u64::MAX),
@@ -1296,6 +1311,17 @@ pub(crate) fn lower_to_mir(
         })
         .collect::<Vec<_>>();
 
+    let canonical_frames = hir
+        .canonical_frames
+        .iter()
+        .map(|frame| MirCanonicalFrame {
+            module: hir_module_to_mir[frame.module.index()],
+            stable_key: Arc::clone(&frame.stable_key),
+            stable_id: frame.stable_id,
+            source_span: frame.source_span.clone(),
+        })
+        .collect::<Vec<_>>();
+
     let participant_class_mapping =
         dense_mapping::<MirParticipantClassTag>(hir.participant_classes.len())?;
     let participant_classes = hir
@@ -1530,6 +1556,7 @@ pub(crate) fn lower_to_mir(
         parking_areas: parking_areas.into_boxed_slice(),
         parking_spaces: parking_spaces.into_boxed_slice(),
         parking_area_spaces: parking_area_spaces.into_boxed_slice(),
+        canonical_frames: canonical_frames.into_boxed_slice(),
         participant_classes: participant_classes.into_boxed_slice(),
         vehicle_profiles: vehicle_profiles.into_boxed_slice(),
         access_rules: access_rules.into_boxed_slice(),

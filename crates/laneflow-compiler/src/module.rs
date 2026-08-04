@@ -24,12 +24,13 @@ use laneflow_static_contract::{
 use crate::arena::ArenaKey;
 use crate::declaration::{
     AccessRegulationInput, AccessRuleDeclaration, AccessRuleInput, AccessRuleTargetInput,
-    AuthoringLaneDeclaration, CorridorElementReference, DeclarationHeader, EdgeLength,
-    FacilityBandDeclaration, FacilityBandInput, FacilityKindCategory, FacilityKindViolation,
-    JunctionDeclaration, JunctionInput, LaneEdgeDeclaration, LaneEdgeInput, LaneGroupDeclaration,
-    LaneGroupInput, ManeuverGateDeclaration, ManeuverGateInput, ManeuverPathDeclaration,
-    ManeuverPathInput, MovementDeclaration, MovementInput, OwnedAccessRegulation,
-    OwnedAccessRuleTarget, OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
+    AuthoringLaneDeclaration, CanonicalFrameDeclaration, CanonicalFrameInput,
+    CorridorElementReference, DeclarationHeader, EdgeLength, FacilityBandDeclaration,
+    FacilityBandInput, FacilityKindCategory, FacilityKindViolation, JunctionDeclaration,
+    JunctionInput, LaneEdgeDeclaration, LaneEdgeInput, LaneGroupDeclaration, LaneGroupInput,
+    ManeuverGateDeclaration, ManeuverGateInput, ManeuverPathDeclaration, ManeuverPathInput,
+    MovementDeclaration, MovementInput, OwnedAccessRegulation, OwnedAccessRuleTarget,
+    OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl,
     ParkingAreaDeclaration, ParkingAreaInput, ParkingLaneAnchorDeclaration,
     ParkingSpaceDeclaration, ParkingSpaceInput, ParticipantClassDeclaration, ParticipantClassInput,
     ParticipantClassReference, RoadCorridorDeclaration, RoadCorridorInput, RoadSectionDeclaration,
@@ -1848,6 +1849,67 @@ impl SyntheticModuleBuilder {
         Ok(self)
     }
 
+    /// 声明一个 SpatialPackage v0.1 使用的规范坐标框架身份。
+    ///
+    /// 该声明只拥有 `frameId` 身份；坐标单位、轴向、手性和范围沿用全局空间契约，
+    /// 调用方不得借此编码 CRS、宿主放置或可变原点。
+    ///
+    /// # Errors
+    ///
+    /// 稳定键非法、声明重复，或资源上限超限时失败。
+    #[track_caller]
+    pub fn add_canonical_frame(
+        &mut self,
+        input: CanonicalFrameInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        let span = SourceSpan::at_caller(
+            Arc::clone(&self.header.source_document_key),
+            std::panic::Location::caller(),
+        );
+        self.validate_declaration_key(
+            EntityKind::CanonicalFrame,
+            input.canonical_frame_key,
+            &span,
+        )?;
+
+        let namespace_bytes =
+            u64::try_from(self.header.authoring_namespace_id.len()).unwrap_or(u64::MAX);
+        let key_bytes = u64::try_from(input.canonical_frame_key.len()).unwrap_or(u64::MAX);
+        let state = self.check_declaration_resources(
+            DeclarationResourceDelta {
+                declarations: 1,
+                typed_ast_records: 3,
+                identity_fields: 2,
+                symbols: 1,
+                string_items: 2,
+                string_bytes: namespace_bytes.saturating_add(key_bytes),
+                controlled_string_bytes: key_bytes,
+                controlled_structural_bytes: size_bytes::<CanonicalFrameDeclaration>(1),
+                source_bytes: declaration_header_len(input.canonical_frame_key),
+                ..DeclarationResourceDelta::default()
+            },
+            input.canonical_frame_key,
+            &span,
+        )?;
+
+        let stable_key: Arc<str> = input.canonical_frame_key.into();
+        self.declaration_index
+            .entry(EntityKind::CanonicalFrame)
+            .or_default()
+            .insert(Arc::clone(&stable_key), span.clone());
+        self.declarations.push(SyntheticDeclaration::CanonicalFrame(
+            CanonicalFrameDeclaration {
+                header: DeclarationHeader {
+                    entity_kind: EntityKind::CanonicalFrame,
+                    stable_key,
+                    span,
+                },
+            },
+        ));
+        self.commit_declaration_resources(state);
+        Ok(self)
+    }
+
     /// 声明一条永远适用的静态准入规则。
     ///
     /// # Errors
@@ -3638,6 +3700,9 @@ fn encoded_declaration_len(declaration: &SyntheticDeclaration) -> Option<u64> {
             &declaration.header.stable_key,
             &declaration.participant_class,
         )),
+        SyntheticDeclaration::CanonicalFrame(declaration) => {
+            Some(declaration_header_len(&declaration.header.stable_key))
+        }
         SyntheticDeclaration::AccessRule(declaration) => Some(access_rule_declaration_len(
             &declaration.header.stable_key,
             &declaration.target,
@@ -4299,6 +4364,9 @@ fn put_declaration(output: &mut Vec<u8>, declaration: &SyntheticDeclaration) {
             ] {
                 output.extend_from_slice(&value.to_bits().to_le_bytes());
             }
+        }
+        SyntheticDeclaration::CanonicalFrame(declaration) => {
+            put_declaration_header(output, &declaration.header);
         }
         SyntheticDeclaration::AccessRule(declaration) => {
             put_declaration_header(output, &declaration.header);
