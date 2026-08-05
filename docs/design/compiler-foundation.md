@@ -307,16 +307,11 @@ builder 调用内。它不预取或复制 `CurrentSourceLimits`，不自行建�
 
 `laneflow-compiler` 的首版生产公共面限制为四类能力：官方来源构造、编译执行、
 诊断与资源限制、只读已验证输出。#292 只交付合成领域专用语言前端的来源构造接口，
-不公开通用前端插件接口。编译单元（Compilation Unit）只能经下列受检构造面建立：
+不公开通用前端插件接口。以下第一段代码只列出 #292 G4 已交付的受检构造面：
 
 ```rust
 pub struct SourceModuleHeader { /* 调用方提供的非内容字段，私有字段 */ }
 pub struct SourceModuleDescriptor { /* 私有字段 */ }
-// #315 G1 提案增加只读公共值，不提供裸构造器。
-pub struct SourceDocumentOrigin { /* 字段私有的逐文档显示/审计来源 */ }
-pub struct SourceDocumentDescriptor { /* 私有字段 */ }
-// #315 G1 提案；只借用 current 原始输入，不表示已验证状态。
-pub struct CurrentSourceInput<'a> { /* 私有字段 */ }
 pub struct SyntheticModuleBuilder { /* 私有字段 */ }
 pub struct SyntheticModule { /* 私有字段 */ }
 pub struct CompilationUnitBuilder { /* 私有字段 */ }
@@ -330,14 +325,6 @@ pub struct DiagnosticBundle { /* 私有字段 */ }
 
 impl CompileLimits {
     pub fn p100_initial_v1() -> Self;
-    // #315 G1 提案；v1 保持不可变。
-    pub fn p100_initial_v2() -> Self;
-}
-
-// #315 G1 提案；仅在 current-v0_10-import 特性下存在。
-impl<'a> CurrentSourceInput<'a> {
-    // 精确借用参数由 #297 G1 冻结；该构造器只组装原始输入，不执行受检工作。
-    pub fn new(/* #297 冻结的借用原始文档、具名制品与来源声明 */) -> Self;
 }
 
 impl SyntheticModuleBuilder {
@@ -355,12 +342,6 @@ impl CompilationUnitBuilder {
     pub fn add_synthetic_module(
         &mut self,
         module: SyntheticModule,
-    ) -> Result<&mut Self, DiagnosticBundle>;
-
-    // #315 G1 提案；只在默认关闭的 current-v0_10-import 特性下存在。
-    pub fn add_current_source(
-        &mut self,
-        source: CurrentSourceInput<'_>,
     ) -> Result<&mut Self, DiagnosticBundle>;
 
     pub fn build(self) -> Result<CompilationUnit, DiagnosticBundle>;
@@ -387,7 +368,36 @@ impl CompilationOutput {
 以上代码表达 #292 G1 与后继性能证据边界修订已接受的公共接口形状。G2 可以在不改变公共构造、所有权、
 可见性、错误和确定性契约的前提下细化包内私有字段与实现名称；任何公共接口或上述
 契约变化都必须重新进入 G1，不得作为实现细节直接修改。
-#315 正通过本 G1 显式提议一项该类变化：`SourceModuleDescriptor` 保留为只读公共逻辑模块值，
+
+以下第二段代码只表达 #315 Proposed 增量；在 #315 G1 Pass 前，它们不是 #292 已接受接口或当前
+生产 API：
+
+```rust
+pub struct SourceDocumentOrigin { /* 字段私有的逐文档显示/审计来源 */ }
+pub struct SourceDocumentDescriptor { /* 私有字段 */ }
+pub struct CurrentSourceInput<'a> { /* 私有字段；只借用 current 原始输入 */ }
+
+impl CompileLimits {
+    // v1 保持不可变。
+    pub fn p100_initial_v2() -> Self;
+}
+
+// 仅在 current-v0_10-import 特性下存在。
+impl<'a> CurrentSourceInput<'a> {
+    // 精确借用参数由 #297 G1 冻结；该构造器只组装原始输入，不执行受检工作。
+    pub fn new(/* #297 冻结的借用原始文档、具名制品与来源声明 */) -> Self;
+}
+
+impl CompilationUnitBuilder {
+    // 仅在默认关闭的 current-v0_10-import 特性下存在。
+    pub fn add_current_source(
+        &mut self,
+        source: CurrentSourceInput<'_>,
+    ) -> Result<&mut Self, DiagnosticBundle>;
+}
+```
+
+#315 正通过本 G1 显式提议上述变化：`SourceModuleDescriptor` 保留为只读公共逻辑模块值，
 新增版本化文档集摘要查询；文档专属的键、摘要、长度和来源记录改由新的只读公共
 `SourceDocumentDescriptor` / `SourceDocumentOrigin` 暴露。二者不提供公开构造器；
 `ValidatedSourceMapInput` 分别提供稳定顺序的模块与文档视图。现有从 `SourceModuleDescriptor` 读取
