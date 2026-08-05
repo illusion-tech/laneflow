@@ -184,7 +184,6 @@ laneflow-compiler ----------------> laneflow-static-contract
 laneflow-compiler --[current-v0_10-import]--> laneflow-current-source
 
 laneflow-current-import --------------------> laneflow-compiler
-laneflow-current-import --------------------> laneflow-current-source
 
 laneflow-data ------------------------------> laneflow-current-source
 laneflow-data ------------------------------> laneflow-core
@@ -193,8 +192,9 @@ laneflow-data ------------------------------> laneflow-spatial
 
 `current-v0_10-import` 是默认关闭、迁移完成后删除的编译器特性（feature）。它只让离线
 `laneflow-compiler` 在 current 导入构建中依赖下述字段私有受检能力；不让默认编译器、
-目标静态镜像、交通运行时或空间层依赖 current 包。`laneflow-current-import` 是选择该
-特性并串联验证与编译的薄编排包，不拥有或穿透编译器私有的有类型抽象语法树构造器。
+目标静态镜像、交通运行时或空间层依赖 current 包。`laneflow-current-import` 只通过
+`laneflow-compiler` 依赖选择该特性并串联验证与编译；它不得直接依赖
+`laneflow-current-source`，也不拥有或穿透编译器私有的有类型抽象语法树构造器。
 
 `laneflow-current-source` 是版本锁定的当前态来源包唯一线格式验证权威，拥有 Traffic v0.10、
 SpatialPackage v0.1 与 ScenarioManifest v0.1 的数据传输对象（wire Data Transfer Object，
@@ -216,6 +216,12 @@ wire DTO）、精确原始字节身份、版本和语法/形状诊断。它必�
    预取后再回传的配置。它可以在任何集合索引、复制或按输入规模分配前限制制品数、单个引用长度、
    引用总字节以及后续解码资源，并使用受同一剩余配置档约束的有界位置接收器。精确数值和诊断
    属于 #297 G1；资源上限不可选且先于规模分配生效，属于 #315 共同边界。
+
+严格策略为供 `laneflow-compiler` 跨包调用而存在的可见入口不是 Rust 的 friend-crate
+隔离边界。官方迁移路径通过上述单向包依赖图强制：`laneflow-current-import` 的正常依赖闭包
+不能命名或调用该入口，只能把借用的原始输入交给 compiler。任意另行声明
+`laneflow-current-source` 依赖的外部程序当然仍可自行解析或分配；这类调用方自有（caller-owned）工作不在
+compiler 资源保证内，其结果也不能作为预构造能力提交给 builder。
 
 两种策略共享实现是为了避免版本判断、JSON 解析、摘要和配对规则分叉，而不是让严格策略改变
 当前态生产兼容策略的接受集合。若在旧路径退役前需要对所有 v0.1 调用方施加引用或集合硬上限，必须以
@@ -254,7 +260,9 @@ DTO。严格线格式解码器必须在字符串、序列、记录或存续内�
 降阶和共同接入提交。`CurrentSourceInput` 字段保持私有，但必须提供特性门控的公开 `new` 构造器，
 让独立 crate `laneflow-current-import` 能从借用的原始输入和未认证显示/审计来源构造它；该构造器
 只保存借用，不分配、不复制、不解析、不哈希、不验证，也不要求调用方先构造字段私有的
-`SourceDocumentOrigin`。精确借用参数类型由 #297 G1 冻结。编译器不公开接受预先构造的
+`SourceDocumentOrigin`。其签名只能使用 compiler 自己拥有的借用输入值和 Rust 标准借用类型，
+不得泄漏要求 importer 直接依赖 `laneflow-current-source` 的 DTO、验证器或能力类型。精确借用参数
+类型由 #297 G1 冻结。编译器不公开接受预先构造的
 `ValidatedCurrentImportBundle`，因此不存在调用方先按旧状态取得限额、再在 builder 状态变化后
 提交能力值的窗口。
 
@@ -288,9 +296,11 @@ DTO。严格线格式解码器必须在字符串、序列、记录或存续内�
 迁移特性下的 compiler 私有当前态降阶继续独占迁移映射。由此既避免两套 JSON 解析、版本判断和
 摘要验证，也不会把当前对象图依赖引入来源包。
 
-`laneflow-current-import` 只负责整理借用的 `CurrentSourceInput` 并调用
+`laneflow-current-import` 的正常库依赖只包含启用迁移特性的 `laneflow-compiler`；它只负责整理借用的
+`CurrentSourceInput` 并调用
 `CompilationUnitBuilder::add_current_source`；剩余上限派生、严格来源验证与接入事务都留在该
-builder 调用内。它不预取或复制 `CurrentSourceLimits`，不自行建立再回传受检包，也不接触
+builder 调用内。由于没有到 `laneflow-current-source` 的直接依赖，它不能预取或复制
+`CurrentSourceLimits`、调用严格解析或自行建立再回传受检包，也不接触
 `CurrentImportModuleBuilder` 或裸描述符/位置，
 不读取 `InitialTrafficData`、`SpatialRegistry` 或其他当前态对象图，不拥有 HIR/MIR
 编译遍，也不直接发射 LIR。阶段 8 删除运行时 JSON 路径时可以移除 `laneflow-data`
@@ -1221,7 +1231,8 @@ Manifest/Traffic/Spatial 的单文档和组合字节上限；字符串/序列/�
 成功/失败结论；位置表能把不同文档的字段/记录映射为真实来源位置且不需要重读；三个文档来源记录的
 边界与释放后保留；以及严格编译导入不存在无配置、过期配置快照或无界解码入口。跨 crate 编译测试必须
 证明 `laneflow-current-import` 能经公开零复制构造器建立 `CurrentSourceInput`，同时仍不能构造
-`ValidatedCurrentImportBundle`；v1 Synthetic 继续成功，v1 current 在解析前以配置档不兼容失败，v2
+`ValidatedCurrentImportBundle`；Cargo 清单与依赖图测试还必须证明 importer 不直接依赖或命名
+`laneflow-current-source`。v1 Synthetic 继续成功，v1 current 在解析前以配置档不兼容失败，v2
 三文档导入及 `SourceDocumentCount` 边界/边界加一按规范成功或失败。
 
 ## 11. 测试、工作负载与基准
@@ -1430,7 +1441,8 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
       v1 不合成默认值或自动升级，固定三文档 current 在解析前拒绝 v1；
 - [ ] #296/#297 的具体受检入口与 `laneflow-current-source` /
       `laneflow-current-import` 目标包依赖图闭合；compiler 只在默认关闭、可退役的迁移
-      特性下依赖 current-source 的字段私有受检能力，且不依赖当前态 Core/Spatial 对象图；
+      特性下依赖 current-source 的字段私有受检能力，importer 只依赖 compiler 且公共输入签名不泄漏
+      current-source 类型；两者均不依赖当前态 Core/Spatial 对象图；
 - [ ] `laneflow-current-source` 是场景清单到原始 Traffic/Spatial 制品精确绑定和线格式
       解析的唯一权威；当前态生产兼容策略不新增制品数、引用长度或引用总字节拒绝条件，严格编译导入
       策略则在任何集合索引分配前以 builder 剩余 `CurrentSourceLimits` 检查这些维度及实际/声明/组合

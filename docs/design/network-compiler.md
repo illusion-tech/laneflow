@@ -156,8 +156,25 @@ Geometry、OSM 或 Editor frontend 不依赖 #292 的 DSL 语法或 Core-shaped 
 ### 4.1 数据编制权威（Authoring Authority）
 
 一个 compilation unit 的唯一 authoring authority 是显式、可重放的
-**authoritative source module graph**，不是某一种固定文档格式。每个 module 至少
-冻结：
+**authoritative source module graph**，不是某一种固定文档格式。#291 已接受、#292 已交付的
+单文档基线要求每个 module 至少冻结：
+
+```text
+moduleNamespaceId
+sourceLanguage
+sourceContentDigest
+frontendVersion
+frontendOptionsDigest
+origin / provenance
+imports
+```
+
+`sourceContentDigest` 是官方前端对单份版本化规范来源记录精确字节计算的 SHA-256，只服务
+重放与来源沿袭，不参与实体稳定标识。#292 合成领域专用语言前端的首版记录与摘要规则由
+`compiler-foundation.md` 冻结。
+
+#315 G1 Proposed 以一个逻辑模块拥有一个或多个来源文档的下列形状替代上述单文档摘要字段；
+在 #315 G1 Pass 前，该区块不是 #291/#292 已接受的 descriptor 接口：
 
 ```text
 moduleNamespaceId
@@ -182,8 +199,8 @@ SHA-256；`sourceDocumentSetDigest` 是对模块内按文档键排序的文档�
 聚合不能选择某一文档，也不能重新读取和哈希全部来源载荷；精确 v1 前像以
 `compiler-foundation.md` 第 3.3 节为权威。任何会改变规范来源记录字节的编码变化必须提升对应
 `frontendVersion`；任何改变文档集聚合前像的变化必须提升
-`sourceDocumentSetDigestVersion`。#292 合成领域专用语言前端的首版记录规则由
-`compiler-foundation.md` 冻结，后继前端必须在各自 G1 冻结精确来源字节。
+`sourceDocumentSetDigestVersion`。现有 Synthetic `sourceContentDigest` 必须逐项等于候选单文档的
+`sourceDocumentDigest`；新的文档集摘要具有独立语义。后继前端必须在各自 G1 冻结精确来源字节。
 
 模块级 `origin / provenance` 描述工具、选项与整体转换沿袭，不能替代每份文档自己的
 来源记录（Source Document Origin）。后者保存冷的显示/审计来源，并与文档摘要和长度
@@ -294,6 +311,9 @@ current 导入必须在读取/哈希/解析前拒绝 v1；Geometry 按 #296 冻�
 `laneflow-data` 使用的当前态生产兼容策略不得新增制品数、单个引用长度或引用总字节拒绝条件；compiler
 使用的严格导入策略必须在 builder 的同一次 `&mut self` 调用内取得剩余 `CurrentSourceLimits`，并在按
 输入规模分配前生效，不存在默认、无限、外部预取后回传或先完整解码后计数的严格路径。
+该严格入口为 compiler 跨包调用而可见，不被误写为 friend-crate 隔离；官方 importer 通过包依赖图
+禁止直接依赖 `laneflow-current-source`，只把 compiler 自有的借用输入交给 builder。任意外部程序
+自行声明 source 依赖后进行的调用方自有（caller-owned）解析不属于 compiler 资源保证，其结果也不能提交给 builder。
 ScenarioManifest v0.1 仍封闭为 Traffic/Spatial 两个角色，但调用方查找集合允许未引用的唯一额外制品；
 两种策略都保持既有全集合非空/唯一检查，只匹配、哈希并解析 Manifest 引用的两份载荷。原子成功结果是
 分型的字段私有能力：生产兼容策略只返回不含 compiler-only 位置表的
@@ -302,10 +322,14 @@ ScenarioManifest v0.1 仍封闭为 Traffic/Spatial 两个角色，但调用方�
 不允许调用方互相转换；严格能力使 compiler 的迁移特性无需重读或重新解析原始 JSON 即可构造真实
 `SourceSpan`，生产能力则不为现行加载器新增随记录数增长的无界位置分配。
 
-这不是第三方前端插件协议。公开面只增加 LaneFlow 拥有的具体
-`add_geometry_module`，以及只在迁移特性下接受借用 `CurrentSourceInput`、内部完成剩余预算派生与
-严格验证的 `add_current_source`。`CurrentSourceInput` 字段私有但提供特性门控的公开零复制构造器，
-使独立 `laneflow-current-import` 可整理原始借用；构造器不解析、哈希、验证或铸造来源记录。
+这不是第三方前端插件协议。#315 只冻结公开面继续使用 LaneFlow 拥有的具体入口以及它们进入共同
+私有接入的规则，不交付或冻结 Geometry 公共签名。`GeometryModule` 与
+`add_geometry_module` 是 #296 保留入口，其精确类型、签名、实际来源文档基数和 v1/v2 准入行为只由
+#296 G1 冻结。#315 Proposed 的 current 迁移入口只在迁移特性下接受借用
+`CurrentSourceInput`、内部完成剩余预算派生与严格验证；其精确借用参数仍由 #297 G1 冻结。
+`CurrentSourceInput` 字段私有但提供特性门控的公开零复制构造器，使独立
+`laneflow-current-import` 可整理 compiler 自有的原始借用；构造器不解析、哈希、验证或铸造来源记录，
+签名也不得泄漏 current-source 类型。
 compiler 不公开接受预构造的 `ValidatedCurrentImportBundle`。
 通用 `add_module`、公共前端
 特征（trait）、裸 Typed AST 和裸描述符/内容配对继续禁止。
@@ -1740,7 +1764,6 @@ laneflow-adapter-* ------> laneflow-static-image
 ```text
 laneflow-compiler --[current-v0_10-import]--> laneflow-current-source
 laneflow-current-import --------------------> laneflow-compiler
-laneflow-current-import --------------------> laneflow-current-source
 laneflow-data ------------------------------> laneflow-current-source
 ```
 
@@ -1772,7 +1795,8 @@ Core/Spatial 规范化；`laneflow-current-import` 只选择迁移特性、经�
 compiler 私有 builder。该构造器不解析、哈希、验证或要求调用方构造字段私有来源记录。
 默认 `laneflow-compiler` 不能依赖迁移包；其迁移特性只依赖无 Core/Spatial 对象图的
 `laneflow-current-source`，导入器也不能消费
-`InitialTrafficData` 或 `SpatialRegistry`。完整职责和退役边界见
+`InitialTrafficData` 或 `SpatialRegistry`；其正常依赖中也不得出现 `laneflow-current-source`，
+`CurrentSourceInput` 的公共构造签名不得要求该依赖。完整职责和退役边界见
 `compiler-foundation.md` 第 2.3 节。
 
 两类受检包都没有公开字段、裸构造器、`Default` 或反序列化入口，只能由对应组合验证成功路径
