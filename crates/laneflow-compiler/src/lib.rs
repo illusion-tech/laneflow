@@ -57,7 +57,8 @@ pub use identity::CanonicalIdentityViolation;
 pub use laneflow_static_contract::{AccessEffect, SignalAspect};
 pub use limits::{CompileLimitDimension, CompileLimits};
 pub use module::{
-    CompilationUnit, CompilationUnitBuilder, SYNTHETIC_FRONTEND_VERSION, SourceLanguage,
+    CompilationUnit, CompilationUnitBuilder, SOURCE_DOCUMENT_SET_DIGEST_VERSION,
+    SYNTHETIC_FRONTEND_VERSION, SourceDocumentDescriptor, SourceDocumentOrigin, SourceLanguage,
     SourceModuleDescriptor, SyntheticModule, SyntheticModuleBuilder,
 };
 pub use source::{SourceModuleHeader, SourceModuleHeaderInput};

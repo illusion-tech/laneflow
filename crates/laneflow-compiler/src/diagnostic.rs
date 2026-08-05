@@ -102,8 +102,10 @@ pub enum DiagnosticCode {
     DuplicateImport,
     /// 编译单元包含两个相同 authoring namespace 的模块。
     DuplicateModuleNamespace,
-    /// 编译单元包含两个声明相同 `sourceDocumentKey` 的模块。
+    /// 编译单元内两个模块或同一模块内两份文档声明相同 `sourceDocumentKey`。
     DuplicateSourceDocumentKey,
+    /// 来源位置引用的文档未登记在拥有该语义记录的逻辑模块中。
+    SourceDocumentOwnershipMismatch,
     /// 显式导入在完整编译单元中没有目标模块。
     UnknownImport,
     /// 一个或多个显式导入边形成循环。
@@ -264,6 +266,8 @@ pub enum DiagnosticCode {
     DuplicateCanonicalIdentity,
     /// 不同完整规范身份派生出相同 StableId128。
     IdentityDigestCollision,
+    /// 选择的编译资源配置档不支持候选官方模块必需的维度。
+    CompileProfileIncompatible,
     /// 候选输入或阶段工作集超过显式编译资源配置档。
     CompileLimitExceeded,
 }
@@ -278,6 +282,7 @@ impl DiagnosticCode {
             Self::DuplicateImport => "LF-COMP-DUPLICATE-IMPORT",
             Self::DuplicateModuleNamespace => "LF-COMP-DUPLICATE-MODULE-NAMESPACE",
             Self::DuplicateSourceDocumentKey => "LF-COMP-DUPLICATE-SOURCE-DOCUMENT-KEY",
+            Self::SourceDocumentOwnershipMismatch => "LF-COMP-SOURCE-DOCUMENT-OWNERSHIP-MISMATCH",
             Self::UnknownImport => "LF-COMP-UNKNOWN-IMPORT",
             Self::ImportCycle => "LF-COMP-IMPORT-CYCLE",
             Self::InvalidDeclarationKey => "LF-COMP-DECLARATION-KEY",
@@ -372,6 +377,7 @@ impl DiagnosticCode {
             Self::InvalidCanonicalIdentity => "LF-COMP-INVALID-CANONICAL-IDENTITY",
             Self::DuplicateCanonicalIdentity => "LF-COMP-DUPLICATE-CANONICAL-IDENTITY",
             Self::IdentityDigestCollision => "LF-COMP-IDENTITY-DIGEST-COLLISION",
+            Self::CompileProfileIncompatible => "LF-COMP-PROFILE-INCOMPATIBLE",
             Self::CompileLimitExceeded => "LF-COMP-RESOURCE-LIMIT",
         }
     }
@@ -644,6 +650,11 @@ pub enum DiagnosticPayload {
         limit: u64,
         observed: u64,
     },
+    /// 缺少必需维度的配置档标识与维度。
+    CompileProfileIncompatible {
+        profile_id: Box<str>,
+        required_dimension: CompileLimitDimension,
+    },
     /// 导入命名空间的文本失败原因。
     InvalidImportNamespace {
         /// 命名空间违反的精确文本规则。
@@ -661,8 +672,14 @@ pub enum DiagnosticPayload {
     },
     /// 在编译单元内不能唯一定位来源位置的重复文档键。
     DuplicateSourceDocumentKey {
-        /// 两个来源模块共同声明的 `sourceDocumentKey`。
+        /// 两个模块或同一模块内两份文档共同声明的 `sourceDocumentKey`。
         source_document_key: Box<str>,
+    },
+    /// 来源位置文档缺失或属于另一个逻辑模块。
+    SourceDocumentOwnershipMismatch {
+        source_document_key: Box<str>,
+        expected_authoring_namespace_id: Box<str>,
+        actual_authoring_namespace_id: Option<Box<str>>,
     },
     /// 在编译单元中没有目标模块的导入命名空间。
     UnknownImport {
@@ -1167,6 +1184,24 @@ impl Diagnostic {
         }
     }
 
+    pub(crate) fn compile_profile_incompatible(
+        profile_id: &str,
+        required_dimension: CompileLimitDimension,
+        primary_span: SourceSpan,
+        stable_key: &str,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::CompileProfileIncompatible,
+            DiagnosticPayload::CompileProfileIncompatible {
+                profile_id: profile_id.into(),
+                required_dimension,
+            },
+            Some(primary_span),
+            Box::default(),
+            Some(stable_key.into()),
+        )
+    }
+
     pub(crate) fn invalid_import_namespace(
         violation: SourceTextViolation,
         primary_span: SourceSpan,
@@ -1224,6 +1259,25 @@ impl Diagnostic {
             },
             Some(primary_span),
             Box::new([related_span]),
+            Some(source_document_key.into()),
+        )
+    }
+
+    pub(crate) fn source_document_ownership_mismatch(
+        source_document_key: &str,
+        expected_authoring_namespace_id: &str,
+        actual_authoring_namespace_id: Option<&str>,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::SourceDocumentOwnershipMismatch,
+            DiagnosticPayload::SourceDocumentOwnershipMismatch {
+                source_document_key: source_document_key.into(),
+                expected_authoring_namespace_id: expected_authoring_namespace_id.into(),
+                actual_authoring_namespace_id: actual_authoring_namespace_id.map(Into::into),
+            },
+            Some(primary_span),
+            Box::default(),
             Some(source_document_key.into()),
         )
     }
@@ -2839,6 +2893,14 @@ impl fmt::Display for Diagnostic {
                 "编译资源维度 {} 超过上限：允许 {limit}，实际 {observed}",
                 dimension.as_str()
             ),
+            DiagnosticPayload::CompileProfileIncompatible {
+                profile_id,
+                required_dimension,
+            } => write!(
+                formatter,
+                "编译资源配置档 {profile_id} 不支持必需维度 {}",
+                required_dimension.as_str()
+            ),
             DiagnosticPayload::InvalidImportNamespace { violation } => write!(
                 formatter,
                 "导入模块命名空间非法：{}",
@@ -2856,6 +2918,20 @@ impl fmt::Display for Diagnostic {
                 formatter,
                 "编译单元包含重复来源文档键 {source_document_key}"
             ),
+            DiagnosticPayload::SourceDocumentOwnershipMismatch {
+                source_document_key,
+                expected_authoring_namespace_id,
+                actual_authoring_namespace_id,
+            } => match actual_authoring_namespace_id {
+                Some(actual) => write!(
+                    formatter,
+                    "来源文档 {source_document_key} 属于逻辑模块 {actual}，不能用于 {expected_authoring_namespace_id} 的来源位置"
+                ),
+                None => write!(
+                    formatter,
+                    "来源文档 {source_document_key} 未登记在逻辑模块 {expected_authoring_namespace_id} 的文档集中"
+                ),
+            },
             DiagnosticPayload::UnknownImport { namespace } => {
                 write!(formatter, "导入目标模块 {namespace} 不存在")
             }

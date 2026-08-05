@@ -1,6 +1,6 @@
 # 路网编译器与目标静态镜像
 
-**文档状态**: Accepted（#291 target design）；#315 共同受检模块接入已接受（Accepted；G1）<br>
+**文档状态**: Accepted（#291 target design）；#315 共同受检模块接入契约已实现<br>
 **最后更新**: 2026-08-05<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网编译权威、标识派生、可移植规范制品（Portable Canonical
@@ -11,8 +11,8 @@ Runtime）命名、静态执行约束（Static Execution Constraints）、不可
 **实现状态**: 未实现；当前态生产路径仍使用 Traffic v0.10 / SpatialPackage v0.1 /
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已完成编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
-（Synthetic DSL Frontend）G4；#315 G1 已接受多官方前端的共同受检模块接入目标契约，
-尚未授权 G2 生产 Rust 实现
+（Synthetic DSL Frontend）G4；#315 已落地私有共同 Typed AST、逻辑模块/来源文档独立登记、
+原子共同接入、文档集摘要与 v2 文档数配置档；#296/#297 具体前端仍未实现
 
 **关联决策与设计**:
 
@@ -173,8 +173,7 @@ imports
 重放与来源沿袭，不参与实体稳定标识。#292 合成领域专用语言前端的首版记录与摘要规则由
 `compiler-foundation.md` 冻结。
 
-#315 G1 已接受以一个逻辑模块拥有一个或多个来源文档的下列形状替代上述单文档摘要字段；
-该区块是目标 descriptor 接口，尚待 G2 实现：
+#315 G2 已以一个逻辑模块拥有一个或多个来源文档的下列形状替代上述单文档摘要字段：
 
 ```text
 moduleNamespaceId
@@ -277,7 +276,7 @@ compiler、Adapter 或 scenario policy 绕过。
 - 使用 Rust 容器遍历顺序作为标识/顺序；
 - 把 builder-only TOML/Rust type 公开为 interchange contract。
 
-### 5.2 官方前端共同受检模块接入（Shared Checked Module Admission，#315 G1 Accepted）
+### 5.2 官方前端共同受检模块接入（Shared Checked Module Admission，#315 G2 Implemented）
 
 合成、几何与当前态导入来源都以字段私有的具体官方前端模块进入
 `CompilationUnitBuilder`，但构建器内部只存在一条编译器私有（compiler-private）
@@ -1829,7 +1828,7 @@ normalization authority。
 阶段 1  #291：ADR 0020/0021 + 本设计完成 G1
 阶段 2  #292：static-contract + compiler foundation + Synthetic DSL frontend 纵向闭环
 阶段 3  #292 验收：integration-only LIR→current projection 支撑 #282–#285 等价验证
-阶段 4a #315：官方前端共同受检模块接入（#296/#297 只可并行完成 G1）
+阶段 4a #315：官方前端共同受检模块接入实现；G3/G4 状态以动态治理记录为准
 阶段 4b #296 几何文档前端 + 拓扑/几何 MIR
         #297 当前 Traffic/Spatial 迁移导入前端（两者在 #315 G4 后可并行 G2）
 阶段 5  #298 可移植规范制品/源映射/语义差异 + #299 独立验证器

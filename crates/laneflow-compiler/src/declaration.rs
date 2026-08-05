@@ -653,7 +653,7 @@ pub enum ScalarViolation {
 
 /// 所有受检 Typed AST 声明共享的身份与诊断上下文。
 pub(crate) struct DeclarationHeader {
-    /// 声明实体种类；与外层 `SyntheticDeclaration` 变体保持一致。
+    /// 声明实体种类；与外层 `TypedAstDeclaration` 变体保持一致。
     pub(crate) entity_kind: EntityKind,
     /// 所属来源模块内唯一且显式持久化的稳定键。
     pub(crate) stable_key: Arc<str>,
@@ -860,7 +860,7 @@ pub(crate) struct StaticRouteDeclaration {
 }
 
 /// 官方合成前端当前支持的封闭声明集合。
-pub(crate) enum SyntheticDeclaration {
+pub(crate) enum TypedAstDeclaration {
     LaneEdge(LaneEdgeDeclaration),
     RoadCorridor(RoadCorridorDeclaration),
     RoadSection(RoadSectionDeclaration),
