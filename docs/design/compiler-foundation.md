@@ -198,8 +198,9 @@ laneflow-data ------------------------------> laneflow-spatial
 
 `laneflow-current-source` 是版本锁定的当前态来源包唯一线格式验证权威，拥有 Traffic v0.10、
 SpatialPackage v0.1 与 ScenarioManifest v0.1 的数据传输对象（wire Data Transfer Object，
-wire DTO）、精确原始字节身份、版本和语法/形状诊断。它必须在同一套私有解析、配对、摘要和
-位置采集实现上提供两种语义不同、不得互相替代的官方策略：
+wire DTO）、精确原始字节身份、版本和语法/形状诊断。它必须在同一套私有版本判断、解析、
+配对和摘要实现上提供两种语义不同、不得互相替代的官方策略；来源位置由同一解析流程按策略
+静态选择位置接收器，不得为此复制解析器、第二次扫描原始字节或引入记录级动态分派：
 
 1. 当前态生产兼容策略（current-source production compatibility policy）只供 `laneflow-data`
    保持现行 v0.1 加载契约。它继续接受 schema 与
@@ -207,12 +208,14 @@ wire DTO）、精确原始字节身份、版本和语法/形状诊断。它必�
    Manifest 引用的额外制品；不得新增单个引用长度、引用总字节或制品总数拒绝条件。它仍执行
    既有的非空/全集合唯一性、角色、媒体类型、声明长度、摘要和目标制品配对检查。该路径保留
    current 的既有资源风险，直至 #294 移除生产 current JSON 路径；#315/#297 不能把编译器资源
-   策略写回不可变的 ScenarioManifest v0.1 接受域。
+   策略写回不可变的 ScenarioManifest v0.1 接受域。生产兼容解析使用不收集位置的空操作接收器，
+   不构造、返回或保留 `CurrentSourceLocationTable`，也不物化现行加载器不消费的 compiler-only
+   字段/记录来源索引。
 2. 严格编译导入策略只由启用迁移特性的 `CompilationUnitBuilder::add_current_source` 调用，
    必须接收该 builder 当前状态派生的剩余 `CurrentSourceLimits`；不提供默认、无限或由外部调用方
    预取后再回传的配置。它可以在任何集合索引、复制或按输入规模分配前限制制品数、单个引用长度、
-   引用总字节以及后续解码资源。精确数值和诊断属于 #297 G1；资源上限不可选且先于规模分配
-   生效，属于 #315 共同边界。
+   引用总字节以及后续解码资源，并使用受同一剩余配置档约束的有界位置接收器。精确数值和诊断
+   属于 #297 G1；资源上限不可选且先于规模分配生效，属于 #315 共同边界。
 
 两种策略共享实现是为了避免版本判断、JSON 解析、摘要和配对规则分叉，而不是让严格策略改变
 当前态生产兼容策略的接受集合。若在旧路径退役前需要对所有 v0.1 调用方施加引用或集合硬上限，必须以
@@ -226,30 +229,40 @@ DTO。严格线格式解码器必须在字符串、序列、记录或存续内�
 先无界反序列化完整 DTO 再事后统计。当前态生产兼容策略复用相同的版本、摘要、角色、媒体类型和配对语义，
 但不得把这些严格资源上限变成 v0.1 新的拒绝条件。
 
-该边界以字段私有的已验证当前态来源包（validated current-source bundle）
-`ValidatedCurrentSourceBundle` 单一原子返回已验证场景清单绑定、三个当前态来源文档
-身份、逐文档来源记录、已解析 DTO，以及与同一次验证不可分的当前态来源位置表
-（current-source location table）`CurrentSourceLocationTable`。位置表以文档内有类型记录/字段键关联解析期间确认的真实 `u32`
-起止行列，不保存重复路径字符串或第二份来源全文；严格编译导入时，其条目数、字符串和实际存续字节
-必须纳入 `CurrentSourceLimits`，并在增长前检查。#297 G1 独占三种 wire DTO 到位置键的精确闭合集合。
-每个文档的字段私有来源记录都必须区分文档角色；Traffic/Spatial 文档还必须保留经
-Manifest 绑定的制品引用。Manifest 文档及两份被引用文档都可携带调用方提供的稳定
-显示/审计来源；这类宿主来源只是声明，不能冒充内容身份或发布真实性。
-精确字段由 #297 G1 冻结。严格编译导入中，来源记录的条目、字符串和存续字节必须受限；两种策略下的
-来源记录都不进入 `sourceDocumentSetDigest`、稳定标识或 LIR 语义摘要。
+两种策略返回不同、字段私有且不能由调用方互相转换的能力值：
+
+- 已验证当前态来源包（validated current-source bundle）`ValidatedCurrentSourceBundle`
+  原子绑定已验证场景清单、三个当前态来源文档的精确身份和已解析 DTO；它是两种策略共享的
+  最小受检内容，不包含 compiler-only 来源记录或位置表。当前态生产兼容策略只返回该能力，
+  `laneflow-data` 按值消费后继续执行 current Core/Spatial 规范化。
+- 已验证当前态导入包（validated current-import bundle）`ValidatedCurrentImportBundle`
+  只能由严格编译导入策略铸造；它不可分地拥有上述来源包、三个逐文档来源记录，以及与同一次
+  解析产生的当前态来源位置表（current-source location table）`CurrentSourceLocationTable`。
+  位置表以文档内有类型记录/字段键关联解析期间确认的真实 `u32` 起止行列，不保存重复路径字符串
+  或第二份来源全文；其条目数、字符串和实际存续字节必须纳入 `CurrentSourceLimits`，并在增长前
+  检查。#297 G1 独占三种 wire DTO 到位置键的精确闭合集合。
+
+严格导入的每个逐文档来源记录都必须区分文档角色；Traffic/Spatial 文档还必须保留经 Manifest
+绑定的制品引用。Manifest 文档及两份被引用文档都可携带调用方提供的稳定显示/审计来源；这类
+宿主来源只是声明，不能冒充内容身份或发布真实性。精确字段由 #297 G1 冻结。来源记录的条目、
+字符串和存续字节必须受限；它们不进入 `sourceDocumentSetDigest`、稳定标识或 LIR 语义摘要。
 
 `laneflow-current-source` 不构造编译器类型；它通过私有字段保证调用方不能拆散 DTO、
 摘要、长度、来源记录与位置表，也不能自报这些内容身份。启用迁移特性时，
 `CompilationUnitBuilder::add_current_source` 接受只借用原始 Manifest、具名制品与显示/审计来源的
 `CurrentSourceInput`，在持有 `&mut self` 的整个调用期间完成剩余预算派生、严格来源验证、当前态 DTO
-降阶和共同接入提交。编译器不公开接受预先构造的 `ValidatedCurrentSourceBundle`，因此不存在调用方
-先按旧状态取得限额、再在 builder 状态变化后提交能力值的窗口。
+降阶和共同接入提交。`CurrentSourceInput` 字段保持私有，但必须提供特性门控的公开 `new` 构造器，
+让独立 crate `laneflow-current-import` 能从借用的原始输入和未认证显示/审计来源构造它；该构造器
+只保存借用，不分配、不复制、不解析、不哈希、不验证，也不要求调用方先构造字段私有的
+`SourceDocumentOrigin`。精确借用参数类型由 #297 G1 冻结。编译器不公开接受预先构造的
+`ValidatedCurrentImportBundle`，因此不存在调用方先按旧状态取得限额、再在 builder 状态变化后
+提交能力值的窗口。
 
 对 `SourceBytesTotal`、`CompilerControlledLiveBytes` 等累计维度，有效上限取“严格配置档上限”与
 “编译单元上限减去 builder 已提交用量”二者的较小值；对 `SourceBytesPerModule` 等候选局部维度，则取
 严格配置档与对应局部 `CompileLimits` 上限的较小值，不扣减无关模块。减法必须受检，余额不足时在来源
-解析或按规模分配前返回资源诊断。来源包在该有效上限内一次性铸造
-`ValidatedCurrentSourceBundle`，compiler 随即
+解析或按规模分配前返回资源诊断。导入包在该有效上限内一次性铸造
+`ValidatedCurrentImportBundle`，compiler 随即
 在同一调用栈内把 DTO、身份和所需真实位置一对一移动到私有导入模块，再执行共同接入的精确候选累计
 复核。全部检查成功后才原子提交；任一步失败都释放候选并保持 builder 的模块、索引和计数不变。
 该顺序允许不同官方模块以任意顺序加入，不要求 current 模块先到，也不增加来源全文扫描、摘要、复制
@@ -260,11 +273,11 @@ Manifest 绑定的制品引用。Manifest 文档及两份被引用文档都可�
 `laneflow-current-source` 不能依赖 `laneflow-compiler`、`laneflow-core` 或
 `laneflow-spatial`。
 
-`ValidatedCurrentSourceBundle` 不提供公开字段、裸构造器、`Default` 或反序列化入口；
-只能由上述组合验证成功路径铸造。它可以提供只读视图和按值移出既有绑定内容的消费
-方法，使 compiler 完成降阶而不复制载荷；这些返回值不存在重新组装为受检包的公共
-入口。由此跨包边界依赖 Rust 可实际强制的能力值，而不是不存在的 friend-crate
-可见性或仅靠约定禁止调用方伪造。
+`ValidatedCurrentSourceBundle` 与 `ValidatedCurrentImportBundle` 都不提供公开字段、裸构造器、
+`Default` 或反序列化入口，只能由对应组合验证成功路径铸造。二者可以提供只读视图和按值移出
+既有绑定内容的消费方法；只有导入包暴露 compiler 消费位置表和逐文档来源记录的能力，生产来源包
+不存在补入这些数据或升级为导入包的公共入口。由此跨包边界依赖 Rust 可实际强制的能力值，而不是
+不存在的 friend-crate 可见性或仅靠约定禁止调用方伪造。
 
 凡以 ScenarioManifest 组合 Traffic/Spatial 的入口，当前生产期的 `laneflow-data` 与
 迁移特性下的 `laneflow-compiler` 都必须调用 `laneflow-current-source` 的对应官方策略并消费其
@@ -319,6 +332,12 @@ impl CompileLimits {
     pub fn p100_initial_v1() -> Self;
     // #315 G1 提案；v1 保持不可变。
     pub fn p100_initial_v2() -> Self;
+}
+
+// #315 G1 提案；仅在 current-v0_10-import 特性下存在。
+impl<'a> CurrentSourceInput<'a> {
+    // 精确借用参数由 #297 G1 冻结；该构造器只组装原始输入，不执行受检工作。
+    pub fn new(/* #297 冻结的借用原始文档、具名制品与来源声明 */) -> Self;
 }
 
 impl SyntheticModuleBuilder {
@@ -412,7 +431,7 @@ impl CompilationOutput {
 `CompilationUnitBuilder` 只接收该封装结果，并在加入模块时重新校验累计计数与导入
 闭包。后继同包官方前端可以增加各自的受检 `add_*_module` 方法；跨包 current
 迁移只允许把借用的 `CurrentSourceInput` 交给迁移特性入口，由入口内部取得并消费
-`laneflow-current-source` 铸造的完整 `ValidatedCurrentSourceBundle`；不得开放预构造能力或裸描述符、
+`laneflow-current-source` 铸造的完整 `ValidatedCurrentImportBundle`；不得开放预构造能力或裸描述符、
 摘要、位置、模块内容的配对入口。
 
 ### 3.2 官方前端封闭边界
@@ -553,7 +572,7 @@ pub fn add_current_source(
 
 1. compiler 同包官方前端的 `finish` 从受检声明和规范来源记录一次性派生一个模块描述符、一个或多个
    文档描述符、逐文档来源记录、导入、共同声明与全部模块资源计数；当前态路径先按 builder 已提交计数
-   派生剩余 `CurrentSourceLimits`，再从严格验证得到的完整 `ValidatedCurrentSourceBundle` 在包内派生
+   派生剩余 `CurrentSourceLimits`，再从严格验证得到的完整 `ValidatedCurrentImportBundle` 在包内派生
    同样内容。字段私有性保证调用方不能重配其中任一部分。
    逐文档摘要和精确长度只能由前端对各文档的实际规范来源字节计算；模块文档集摘要只能按本节
    v1 前像从这些受检描述符聚合，二者都不能由调用方自报。
@@ -603,6 +622,16 @@ Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
 三文档导入样例以及 `SourceDocumentCount` 边界/边界加一测试重新取得资格；未完成前不得声称 v2
 已通过生产资源门禁。对严格编译导入的 current 原始字节，第 2.3 节的 `CurrentSourceLimits` 必须在构造
 这些描述符、位置表和 DTO 前以同等或更严上限先行失败；该约束不回写当前态生产兼容策略。
+
+`CompileLimits` 私有保存配置档修订与受支持维度，不能由调用方补字段或隐式升级。v1 只通过既有
+`ModuleCount` 隐式覆盖“每个逻辑模块恰有一个来源文档”的形状，当前 Synthetic 符合该形状；v1
+没有可供新入口猜测的 `SourceDocumentCount` 默认值。任何官方前端若产生多文档模块，必须在前端按
+规模分配和共同接入提交前
+确认 builder 选择了 v2 或后继显式包含该维度的具名配置档，否则返回结构化配置档不兼容诊断。
+`add_current_source` 固定产生 Manifest/Traffic/Spatial 三文档，因此必须在读取、哈希或解析原始输入前
+拒绝 v1。`add_geometry_module` 是否需要 v2 由 #296 G1 冻结的实际文档基数决定；单文档 Geometry
+不能仅因入口名称新增而被错误判定为多文档，但多文档 Geometry 不得绕过该规则。现有 v1 Synthetic
+行为保持不变。
 
 第 5 项不改变逐文档 `sourceDocumentDigest`、`sourceRecordByteLen` 或 `SourceBytesTotal` 的逻辑
 计数；文档集聚合只扫描紧凑描述符，不再次扫描来源字节，也不允许把调用方自报摘要变成可信输入。
@@ -784,6 +813,11 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 `CompileLimits::p100_initial_v2()`，并保留 v1 的精确语义和构造器。调用方必须显式选择具名配置档，
 测试可以在包内构造更小边界，但不能获得无限配置。字段保持私有，避免把内部阶段布局变成公共兼容面；
 配置档增加维度或改变任一上限时必须提升标识符修订并重新执行边界测试。
+
+配置档选择也是官方前端准入能力，不只是数值查表：v1 仅以 `ModuleCount` 隐式约束一模块一文档形状，
+多文档模块要求 v2 或后继显式携带 `SourceDocumentCount` 的配置档。实现不得为 v1 合成默认文档上限、
+自动升级或在提交后补检。固定三文档的 `add_current_source` 必须在解析和按规模分配前拒绝 v1；
+Geometry 则按 #296 冻结的实际文档基数应用同一规则。
 
 `LF-COMP-P100-INITIAL-v1` 以 #308 九个压力分层的逐维上包络为来源。来源 / 领域计数
 取原始测量制品 `v0.10-compiler-budget-calibration-raw.json` 中
@@ -1161,7 +1195,7 @@ LIR 或后继制品。
 查询；文档序号不从模块序号推导；接入失败后构建器不污染；
 未知导入与循环；测试专用第二种官方封装复用同一私有接入而不复制检查；重复性 / 变形测试；
 公开面不存在通用模块/特征构造入口；compile-fail 测试证明调用方不能把
-`ValidatedCurrentSourceBundle` 直接提交给 compiler，也不能构造或重配该能力的摘要、描述符、
+`ValidatedCurrentImportBundle` 直接提交给 compiler，也不能构造或重配该能力的摘要、描述符、
 来源记录和位置表。测试专用封装不成为生产 `SourceLanguage` 或
 第三方兼容承诺。
 
@@ -1169,11 +1203,16 @@ LIR 或后继制品。
 schema 合法且既有加载器接受的长不透明引用、任意数量唯一制品和未引用的唯一额外制品，并保持全集合
 非空/唯一语义；同一输入在严格编译导入策略超过制品数、单个引用长度或引用总字节时，于任何集合索引
 分配前返回结构化资源诊断；两种策略都只对 Manifest 引用的两份载荷执行长度、SHA-256 和解析；
+生产兼容策略使用不收集位置的路径且不构造/返回 `CurrentSourceLocationTable`，严格导入策略以有界
+位置接收器在同一次解析中产生位置表；两者共享版本、解析、摘要和配对实现且不重复扫描；
 Manifest/Traffic/Spatial 的单文档和组合字节上限；字符串/序列/记录/位置条目/存续内存上限的
 边界前后值；先加入其他官方模块后，`SourceBytesTotal` 与 `CompilerControlledLiveBytes` 的剩余值
 恰好等于边界时成功、边界加一时在规模分配前失败；失败不污染 builder，且不同加入顺序得到同一
 成功/失败结论；位置表能把不同文档的字段/记录映射为真实来源位置且不需要重读；三个文档来源记录的
-边界与释放后保留；以及严格编译导入不存在无配置、过期配置快照或无界解码入口。
+边界与释放后保留；以及严格编译导入不存在无配置、过期配置快照或无界解码入口。跨 crate 编译测试必须
+证明 `laneflow-current-import` 能经公开零复制构造器建立 `CurrentSourceInput`，同时仍不能构造
+`ValidatedCurrentImportBundle`；v1 Synthetic 继续成功，v1 current 在解析前以配置档不兼容失败，v2
+三文档导入及 `SourceDocumentCount` 边界/边界加一按规范成功或失败。
 
 ## 11. 测试、工作负载与基准
 
@@ -1377,7 +1416,8 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 - [ ] 具体官方模块、私有共同接入、来源记录释放时点与失败原子性已经冻结；
 - [ ] 命名空间/文档、导入图、全部资源维度和规范模块顺序只有一个实现权威；
 - [ ] `LF-COMP-P100-INITIAL-v1` 保持不可变；v2 的 `SourceDocumentCount`、三文档容量推导、
-      五级/边界重新资格验证和配置档版本迁移已经冻结；
+      五级/边界重新资格验证和配置档版本迁移已经冻结；多文档准入只接受显式具备该维度的配置档，
+      v1 不合成默认值或自动升级，固定三文档 current 在解析前拒绝 v1；
 - [ ] #296/#297 的具体受检入口与 `laneflow-current-source` /
       `laneflow-current-import` 目标包依赖图闭合；compiler 只在默认关闭、可退役的迁移
       特性下依赖 current-source 的字段私有受检能力，且不依赖当前态 Core/Spatial 对象图；
@@ -1386,10 +1426,11 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
       策略则在任何集合索引分配前以 builder 剩余 `CurrentSourceLimits` 检查这些维度及实际/声明/组合
       字节与解码计数，不存在默认、无限、过期上限快照或先无界解码后统计的严格入口；
 - [ ] ScenarioManifest 组合入口只消费原子成功结果，不重复或绕过长度、SHA-256、媒体
-      类型与引用验证；该结果保留 Manifest/Traffic/Spatial 三个来源文档的独立身份、逐文档来源记录和
-      受限字段/记录位置表，导入时不重读原始字节；compiler 当前态入口只接受借用原始输入并在独占
-      builder 调用内完成严格验证、降阶和原子提交，不公开接受预构造能力值；同时保留无需空间制品的
-      Traffic-only current Core 契约；
+      类型与引用验证；生产兼容结果不构造或保留 compiler-only 位置表，严格导入结果保留
+      Manifest/Traffic/Spatial 三个来源文档的独立身份、逐文档来源记录和受限字段/记录位置表，且两者
+      共享单一解析权威、均不重读原始字节；`CurrentSourceInput` 有外部 crate 可调用的零复制构造器，
+      compiler 当前态入口只接受该借用原始输入并在独占 builder 调用内完成严格验证、降阶和原子提交，
+      不公开接受预构造导入能力值；同时保留无需空间制品的 Traffic-only current Core 契约；
 - [ ] 记录级零动态分派、零完整克隆、一次摘要/计数/排序、多文档紧凑序号解析与配对性能
       验证方案闭合；
 - [ ] 第三方自定义前端非承诺、各议题职责和 G2 阻塞关系没有歧义；
