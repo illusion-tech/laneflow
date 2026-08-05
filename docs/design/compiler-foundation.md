@@ -196,52 +196,67 @@ laneflow-data ------------------------------> laneflow-spatial
 目标静态镜像、交通运行时或空间层依赖 current 包。`laneflow-current-import` 是选择该
 特性并串联验证与编译的薄编排包，不拥有或穿透编译器私有的有类型抽象语法树构造器。
 
-`laneflow-current-source` 是版本锁定的当前态来源包唯一验证权威，拥有 Traffic v0.10、
-SpatialPackage v0.1 与 ScenarioManifest v0.1 的线格式数据传输对象（wire Data
-Transfer Object，wire DTO）、精确原始字节身份、版本和语法/形状诊断。它的解析入口必须要求显式
-当前态来源资源配置档（current-source resource profile）`CurrentSourceLimits`；不提供默认、无限或
-信任调用方的绕过路径。`laneflow-data` 选择具名当前态加载配置档；
-`laneflow-current-import` 则从 `laneflow-compiler` 提供的只读前端上限投影派生同等或更严的
-`CurrentSourceLimits`，不能只按配置档标识符匹配后复制数值常量。精确数值和诊断属于 #297
-G1；资源上限不可选且在按规模分配前生效，属于 #315 共同边界。
+`laneflow-current-source` 是版本锁定的当前态来源包唯一线格式验证权威，拥有 Traffic v0.10、
+SpatialPackage v0.1 与 ScenarioManifest v0.1 的数据传输对象（wire Data Transfer Object，
+wire DTO）、精确原始字节身份、版本和语法/形状诊断。它必须在同一套私有解析、配对、摘要和
+位置采集实现上提供两种语义不同、不得互相替代的官方策略：
 
-ScenarioManifest v0.1 的闭合角色仍恰好只有 Traffic 与 Spatial，但该角色基数不得
-改写调用方具名制品查找集合的 current 契约。组合入口先在任何集合索引、复制或按输入
-规模分配前检查 `NamedArtifact` 数量、单个引用长度和引用字符串总字节数；通过显式
-`CurrentSourceLimits` 后，仍须拒绝空引用及调用方全集合中的重复引用，但必须允许唯一
-命名、未被本 Manifest 引用的额外制品。实现对有界集合定位 Manifest 指定的两项；不
-哈希、解析或复制额外制品载荷。#315 只冻结有界扫描、全集合唯一性和目标载荷零额外
-工作的语义，不冻结 `HashMap` 或其他具体容器；#297 G1 依据精确上限和配对基准选择
-实现。
+1. 当前态生产兼容策略（current-source production compatibility policy）只供 `laneflow-data`
+   保持现行 v0.1 加载契约。它继续接受 schema 与
+   当前加载器已经接受的任意非空不透明 `artifactRef`、任意数量的唯一具名制品以及唯一但未被
+   Manifest 引用的额外制品；不得新增单个引用长度、引用总字节或制品总数拒绝条件。它仍执行
+   既有的非空/全集合唯一性、角色、媒体类型、声明长度、摘要和目标制品配对检查。该路径保留
+   current 的既有资源风险，直至 #294 移除生产 current JSON 路径；#315/#297 不能把编译器资源
+   策略写回不可变的 ScenarioManifest v0.1 接受域。
+2. 严格编译导入策略只由启用迁移特性的 `CompilationUnitBuilder::add_current_source` 调用，
+   必须接收该 builder 当前状态派生的剩余 `CurrentSourceLimits`；不提供默认、无限或由外部调用方
+   预取后再回传的配置。它可以在任何集合索引、复制或按输入规模分配前限制制品数、单个引用长度、
+   引用总字节以及后续解码资源。精确数值和诊断属于 #297 G1；资源上限不可选且先于规模分配
+   生效，属于 #315 共同边界。
 
-随后在解析 ScenarioManifest 前检查其实际字节长度；有界解析并对其原始字节计算一次
-SHA-256 后，验证两个不同且非空的制品引用、角色专属媒体类型，以及它们与调用方集合
-中两个目标制品的一一对应；再在计算摘要或解析前同时
-检查 Traffic/Spatial 的声明长度、实际长度、单文档与组合字节上限；只对通过上限的原始字节
-各计算一次 SHA-256，两份制品与同一份场景清单精确配对后才解析 DTO。线格式解码器必须在
-字符串、序列、记录或存续内存的按规模分配之前累计并检查对应计数；不能先无界反序列化完整 DTO
-再事后统计。
+两种策略共享实现是为了避免版本判断、JSON 解析、摘要和配对规则分叉，而不是让严格策略改变
+当前态生产兼容策略的接受集合。若在旧路径退役前需要对所有 v0.1 调用方施加引用或集合硬上限，必须以
+专门的数据格式变更、新 schema/格式版本、迁移说明和兼容测试作出决策，不能在 #297 的导入实现中隐式完成。
+
+严格编译导入策略随后在解析 ScenarioManifest 前检查其实际字节长度；有界解析并对其原始字节计算
+一次 SHA-256 后，验证两个不同且非空的制品引用、角色专属媒体类型，以及它们与调用方集合中两个目标
+制品的一一对应；再在计算摘要或解析前同时检查 Traffic/Spatial 的声明长度、实际长度、单文档与组合
+字节上限；只对通过上限的原始字节各计算一次 SHA-256，两份制品与同一份场景清单精确配对后才解析
+DTO。严格线格式解码器必须在字符串、序列、记录或存续内存的按规模分配之前累计并检查对应计数；不能
+先无界反序列化完整 DTO 再事后统计。当前态生产兼容策略复用相同的版本、摘要、角色、媒体类型和配对语义，
+但不得把这些严格资源上限变成 v0.1 新的拒绝条件。
 
 该边界以字段私有的已验证当前态来源包（validated current-source bundle）
 `ValidatedCurrentSourceBundle` 单一原子返回已验证场景清单绑定、三个当前态来源文档
-身份、逐文档来源记录、已解析 DTO，以及与同一次有界解析不可分的当前态来源位置表
+身份、逐文档来源记录、已解析 DTO，以及与同一次验证不可分的当前态来源位置表
 （current-source location table）`CurrentSourceLocationTable`。位置表以文档内有类型记录/字段键关联解析期间确认的真实 `u32`
-起止行列，不保存重复路径字符串或第二份来源全文；条目数、字符串和实际存续字节必须纳入
-`CurrentSourceLimits`，并在增长前检查。#297 G1 独占三种 wire DTO 到位置键的精确闭合集合。
+起止行列，不保存重复路径字符串或第二份来源全文；严格编译导入时，其条目数、字符串和实际存续字节
+必须纳入 `CurrentSourceLimits`，并在增长前检查。#297 G1 独占三种 wire DTO 到位置键的精确闭合集合。
 每个文档的字段私有来源记录都必须区分文档角色；Traffic/Spatial 文档还必须保留经
 Manifest 绑定的制品引用。Manifest 文档及两份被引用文档都可携带调用方提供的稳定
 显示/审计来源；这类宿主来源只是声明，不能冒充内容身份或发布真实性。
-精确字段由 #297 G1 冻结。来源记录的条目、字符串和存续字节必须受限，且不进入
-`sourceDocumentSetDigest`、稳定标识或 LIR 语义摘要。
+精确字段由 #297 G1 冻结。严格编译导入中，来源记录的条目、字符串和存续字节必须受限；两种策略下的
+来源记录都不进入 `sourceDocumentSetDigest`、稳定标识或 LIR 语义摘要。
 
 `laneflow-current-source` 不构造编译器类型；它通过私有字段保证调用方不能拆散 DTO、
 摘要、长度、来源记录与位置表，也不能自报这些内容身份。启用迁移特性时，
-`laneflow-compiler` 的受检入口按值消费完整 `ValidatedCurrentSourceBundle`，在包内完成
-当前态 DTO 到具体导入模块及 `SourceDocumentDescriptor` / `SourceSpan` 的一对一降阶，
-不重新读取、重新解析来源全文或重新计算摘要。导入模块构造完成后即释放位置表；HIR/MIR/LIR
-不保留该迁移专用表。该边界只在
-校验与解析调用期间借用原始字节，不为接入复制或保留来源全文。任一步失败都不能返回部分结果。此处建立的是相对于
-输入场景清单的精确内容配对，不把 SHA-256 本身解释为场景清单的发布真实性证明。
+`CompilationUnitBuilder::add_current_source` 接受只借用原始 Manifest、具名制品与显示/审计来源的
+`CurrentSourceInput`，在持有 `&mut self` 的整个调用期间完成剩余预算派生、严格来源验证、当前态 DTO
+降阶和共同接入提交。编译器不公开接受预先构造的 `ValidatedCurrentSourceBundle`，因此不存在调用方
+先按旧状态取得限额、再在 builder 状态变化后提交能力值的窗口。
+
+对 `SourceBytesTotal`、`CompilerControlledLiveBytes` 等累计维度，有效上限取“严格配置档上限”与
+“编译单元上限减去 builder 已提交用量”二者的较小值；对 `SourceBytesPerModule` 等候选局部维度，则取
+严格配置档与对应局部 `CompileLimits` 上限的较小值，不扣减无关模块。减法必须受检，余额不足时在来源
+解析或按规模分配前返回资源诊断。来源包在该有效上限内一次性铸造
+`ValidatedCurrentSourceBundle`，compiler 随即
+在同一调用栈内把 DTO、身份和所需真实位置一对一移动到私有导入模块，再执行共同接入的精确候选累计
+复核。全部检查成功后才原子提交；任一步失败都释放候选并保持 builder 的模块、索引和计数不变。
+该顺序允许不同官方模块以任意顺序加入，不要求 current 模块先到，也不增加来源全文扫描、摘要、复制
+或排序。导入模块构造完成后即释放位置表；HIR/MIR/LIR 不保留该迁移专用表。
+
+该边界只在校验与解析调用期间借用原始字节，不为接入复制或保留来源全文。此处建立的是相对于输入
+场景清单的精确内容配对，不把 SHA-256 本身解释为场景清单的发布真实性证明。
 `laneflow-current-source` 不能依赖 `laneflow-compiler`、`laneflow-core` 或
 `laneflow-spatial`。
 
@@ -252,16 +267,18 @@ Manifest 绑定的制品引用。Manifest 文档及两份被引用文档都可�
 可见性或仅靠约定禁止调用方伪造。
 
 凡以 ScenarioManifest 组合 Traffic/Spatial 的入口，当前生产期的 `laneflow-data` 与
-迁移特性下的 `laneflow-compiler` 都只能消费这一原子受检结果，不得各自重新实现或
-绕过场景清单到制品的绑定。只使用 Traffic 的 current Core 消费者仍可不提供 Spatial
+迁移特性下的 `laneflow-compiler` 都必须调用 `laneflow-current-source` 的对应官方策略并消费其
+原子受检结果，不得各自重新实现或绕过场景清单到制品的绑定。只使用 Traffic 的 current Core
+消费者仍可不提供 Spatial
 或 ScenarioManifest，但该独立入口不能被解释为已完成场景包配对。`laneflow-data`
 继续独占 Traffic/Spatial 到当前 Core/Spatial 对象的规范化和跨制品领域校验；
 迁移特性下的 compiler 私有当前态降阶继续独占迁移映射。由此既避免两套 JSON 解析、版本判断和
 摘要验证，也不会把当前对象图依赖引入来源包。
 
-`laneflow-current-import` 只负责从 `laneflow-compiler` 的只读 v2 上限投影取得
-`CurrentSourceLimits`、调用 `laneflow-current-source` 建立受检包，再把整个包交给
-compiler 的迁移特性入口；它不接触 `CurrentImportModuleBuilder` 或裸描述符/位置，
+`laneflow-current-import` 只负责整理借用的 `CurrentSourceInput` 并调用
+`CompilationUnitBuilder::add_current_source`；剩余上限派生、严格来源验证与接入事务都留在该
+builder 调用内。它不预取或复制 `CurrentSourceLimits`，不自行建立再回传受检包，也不接触
+`CurrentImportModuleBuilder` 或裸描述符/位置，
 不读取 `InitialTrafficData`、`SpatialRegistry` 或其他当前态对象图，不拥有 HIR/MIR
 编译遍，也不直接发射 LIR。阶段 8 删除运行时 JSON 路径时可以移除 `laneflow-data`
 对当前 Core/Spatial 的生产依赖，同时保留独立离线迁移入口；完成 #297 资产审计和
@@ -285,6 +302,8 @@ pub struct SourceModuleDescriptor { /* 私有字段 */ }
 // #315 G1 提案增加只读公共值，不提供裸构造器。
 pub struct SourceDocumentOrigin { /* 字段私有的逐文档显示/审计来源 */ }
 pub struct SourceDocumentDescriptor { /* 私有字段 */ }
+// #315 G1 提案；只借用 current 原始输入，不表示已验证状态。
+pub struct CurrentSourceInput<'a> { /* 私有字段 */ }
 pub struct SyntheticModuleBuilder { /* 私有字段 */ }
 pub struct SyntheticModule { /* 私有字段 */ }
 pub struct CompilationUnitBuilder { /* 私有字段 */ }
@@ -320,11 +339,9 @@ impl CompilationUnitBuilder {
     ) -> Result<&mut Self, DiagnosticBundle>;
 
     // #315 G1 提案；只在默认关闭的 current-v0_10-import 特性下存在。
-    pub fn current_source_limits(&self) -> CurrentSourceLimits;
-
-    pub fn add_validated_current_source(
+    pub fn add_current_source(
         &mut self,
-        source: ValidatedCurrentSourceBundle,
+        source: CurrentSourceInput<'_>,
     ) -> Result<&mut Self, DiagnosticBundle>;
 
     pub fn build(self) -> Result<CompilationUnit, DiagnosticBundle>;
@@ -394,9 +411,9 @@ impl CompilationOutput {
 声明和规范化调用记录原子生成 `SyntheticModule` 及其内嵌描述符；
 `CompilationUnitBuilder` 只接收该封装结果，并在加入模块时重新校验累计计数与导入
 闭包。后继同包官方前端可以增加各自的受检 `add_*_module` 方法；跨包 current
-迁移只允许把 `laneflow-current-source` 铸造的完整
-`ValidatedCurrentSourceBundle` 交给迁移特性入口，不得开放裸描述符、摘要、位置或
-模块内容的配对入口。
+迁移只允许把借用的 `CurrentSourceInput` 交给迁移特性入口，由入口内部取得并消费
+`laneflow-current-source` 铸造的完整 `ValidatedCurrentSourceBundle`；不得开放预构造能力或裸描述符、
+摘要、位置、模块内容的配对入口。
 
 ### 3.2 官方前端封闭边界
 
@@ -516,16 +533,16 @@ ScenarioManifest、Traffic 与 Spatial 三个文档描述符。不得为满足�
 pub fn add_synthetic_module(&mut self, module: SyntheticModule) -> Result<&mut Self, DiagnosticBundle>;
 // 后继由 #296 增加：
 pub fn add_geometry_module(&mut self, module: GeometryModule) -> Result<&mut Self, DiagnosticBundle>;
-// #297 只在 current-v0_10-import 特性下使用该能力入口：
-pub fn add_validated_current_source(
+// #297 只在 current-v0_10-import 特性下使用该原子入口：
+pub fn add_current_source(
     &mut self,
-    source: ValidatedCurrentSourceBundle,
+    source: CurrentSourceInput<'_>,
 ) -> Result<&mut Self, DiagnosticBundle>;
 ```
 
-前两个方法消费 compiler 自身字段私有封装；当前态方法只接受
-`laneflow-current-source` 在有界验证/解析成功后才能铸造的字段私有能力，并先在
-compiler 包内降阶为私有 `CurrentImportModule`。三条路径最终调用同一个私有接入函数。
+前两个方法消费 compiler 自身字段私有封装；当前态方法在独占 builder 状态的单次调用内，根据
+已提交模块派生严格剩余上限、调用 `laneflow-current-source` 铸造字段私有能力，并在 compiler
+包内降阶为私有 `CurrentImportModule`。三条路径最终调用同一个私有接入函数。
 不得公开
 `add_module`、`OfficialFrontend` 特征、裸 `TypedAstModule`、裸描述符/内容配对入口，
 也不得让外部包实现接入特征。`CurrentImportModuleBuilder` 若作为实现名称存在，必须
@@ -535,11 +552,13 @@ compiler 包内降阶为私有 `CurrentImportModule`。三条路径最终调用�
 共同接入必须按下列事务边界执行：
 
 1. compiler 同包官方前端的 `finish` 从受检声明和规范来源记录一次性派生一个模块描述符、一个或多个
-   文档描述符、逐文档来源记录、导入、共同声明与全部模块资源计数；当前态路径则只从完整
-   `ValidatedCurrentSourceBundle` 在包内派生同样内容。字段私有性保证调用方不能重配其中任一部分。
+   文档描述符、逐文档来源记录、导入、共同声明与全部模块资源计数；当前态路径先按 builder 已提交计数
+   派生剩余 `CurrentSourceLimits`，再从严格验证得到的完整 `ValidatedCurrentSourceBundle` 在包内派生
+   同样内容。字段私有性保证调用方不能重配其中任一部分。
    逐文档摘要和精确长度只能由前端对各文档的实际规范来源字节计算；模块文档集摘要只能按本节
    v1 前像从这些受检描述符聚合，二者都不能由调用方自报。
-2. `add_*_module` 或当前态受检来源入口按值消费具体封装，把内容移动到私有接入值；不得克隆（clone）完整声明、
+2. `add_*_module` 按值消费具体封装；当前态入口只借用原始输入，并在调用内部按值消费验证结果。两者都把
+   内容移动到私有接入值；不得克隆（clone）完整声明、
    字符串或几何点，也不得再次编码来源、计算摘要或扫描声明重算资源。
 3. 私有接入函数在修改构建器前一次性计算命名空间、全部 `sourceDocumentKey`、模块数、文档数、
    来源字节、导入、声明、引用、关系、身份字段、符号、字符串、机动门、等待区、路线
@@ -572,7 +591,8 @@ compiler 包内降阶为私有 `CurrentImportModule`。三条路径最终调用�
 每个文档恰好有一条 `SourceDocumentOrigin` 关联，因此不另增可独立漂移的 origin 基数
 维度；来源角色、引用、显示/审计来源字符串和共享驻留表必须分别计入既有
 `StringItemCount`、`TotalStringBytes` 与 `CompilerControlledLiveBytes`，并同时受
-`CurrentSourceLimits` 的解析前上限约束。
+严格编译导入策略的 `CurrentSourceLimits` 解析前上限约束。当前态生产兼容策略不得据此缩窄 v0.1
+既有接受集合。
 
 `LF-COMP-P100-INITIAL-v1` 的维度和数值保持不可变，只继续描述 #292 已交付的单文档
 Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
@@ -581,8 +601,8 @@ Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
 直觉放宽预算。#296 若证明一个 Geometry 逻辑模块必须使编译单元超过该文档总数，必须携带实测存续
 内存和真实工作负载证据另行提升配置档版本，不能原地修改 v2。G2/G3 还必须让现有五级生产工作负载、
 三文档导入样例以及 `SourceDocumentCount` 边界/边界加一测试重新取得资格；未完成前不得声称 v2
-已通过生产资源门禁。对 current 原始字节，第 2.3 节的 `CurrentSourceLimits` 必须在构造这些描述符、
-位置表和 DTO 前以同等或更严上限先行失败。
+已通过生产资源门禁。对严格编译导入的 current 原始字节，第 2.3 节的 `CurrentSourceLimits` 必须在构造
+这些描述符、位置表和 DTO 前以同等或更严上限先行失败；该约束不回写当前态生产兼容策略。
 
 第 5 项不改变逐文档 `sourceDocumentDigest`、`sourceRecordByteLen` 或 `SourceBytesTotal` 的逻辑
 计数；文档集聚合只扫描紧凑描述符，不再次扫描来源字节，也不允许把调用方自报摘要变成可信输入。
@@ -598,7 +618,7 @@ Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
 
 职责归属保持互补：#315 只拥有共同表示、模块/文档独立登记与源映射不变量、原子接入、
 跨包受检能力入口、生命周期和共享测试；#296 只拥有 Geometry 来源契约及专用降阶；
-#297 只拥有当前态来源资源配置档的精确数值/诊断、有界解码、三种文档的角色/键/来源记录/
+#297 只拥有严格编译导入的当前态来源资源配置档精确数值/诊断、有界解码、三种文档的角色/键/来源记录/
 来源位置映射、compiler 迁移特性内的具体降阶和薄编排包。#296/#297
 可以并行完成 G1，但二者进入 G2 前都必须以 #315 G4 后的精确 `main` 重新复核公共面、包依赖图与
 生产基线。
@@ -1140,17 +1160,20 @@ LIR 或后继制品。
 声明/关系位置分别指向不同文档且源映射精确保留；三个文档拥有可区分的来源记录且原始字节释放后仍可
 查询；文档序号不从模块序号推导；接入失败后构建器不污染；
 未知导入与循环；测试专用第二种官方封装复用同一私有接入而不复制检查；重复性 / 变形测试；
-公开面不存在通用模块/特征构造入口；compile-fail 测试证明没有
-`ValidatedCurrentSourceBundle` 时不能调用 current 降阶，也不能构造或重配该能力的
-摘要、描述符、来源记录和位置表。测试专用封装不成为生产 `SourceLanguage` 或
+公开面不存在通用模块/特征构造入口；compile-fail 测试证明调用方不能把
+`ValidatedCurrentSourceBundle` 直接提交给 compiler，也不能构造或重配该能力的摘要、描述符、
+来源记录和位置表。测试专用封装不成为生产 `SourceLanguage` 或
 第三方兼容承诺。
 
-当前态来源的后继验证还必须覆盖：Manifest 角色仍恰好为 Traffic/Spatial；组合入口在任何集合索引
-分配前限制调用方具名制品数量、单个引用长度和引用总字节，允许未引用的唯一额外制品并保持全集合
-非空/唯一语义；只对 Manifest 引用的两份载荷执行长度、SHA-256 和解析；
+当前态来源的后继验证还必须覆盖：Manifest 角色仍恰好为 Traffic/Spatial；当前态生产兼容策略接受
+schema 合法且既有加载器接受的长不透明引用、任意数量唯一制品和未引用的唯一额外制品，并保持全集合
+非空/唯一语义；同一输入在严格编译导入策略超过制品数、单个引用长度或引用总字节时，于任何集合索引
+分配前返回结构化资源诊断；两种策略都只对 Manifest 引用的两份载荷执行长度、SHA-256 和解析；
 Manifest/Traffic/Spatial 的单文档和组合字节上限；字符串/序列/记录/位置条目/存续内存上限的
-边界前后值；超限时在按规模分配前失败；位置表能把不同文档的字段/记录映射为真实来源位置且不需要
-重读；三个文档来源记录的边界与释放后保留；以及不存在无配置或无界解码入口。
+边界前后值；先加入其他官方模块后，`SourceBytesTotal` 与 `CompilerControlledLiveBytes` 的剩余值
+恰好等于边界时成功、边界加一时在规模分配前失败；失败不污染 builder，且不同加入顺序得到同一
+成功/失败结论；位置表能把不同文档的字段/记录映射为真实来源位置且不需要重读；三个文档来源记录的
+边界与释放后保留；以及严格编译导入不存在无配置、过期配置快照或无界解码入口。
 
 ## 11. 测试、工作负载与基准
 
@@ -1359,13 +1382,14 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
       `laneflow-current-import` 目标包依赖图闭合；compiler 只在默认关闭、可退役的迁移
       特性下依赖 current-source 的字段私有受检能力，且不依赖当前态 Core/Spatial 对象图；
 - [ ] `laneflow-current-source` 是场景清单到原始 Traffic/Spatial 制品精确绑定和线格式
-      解析的唯一权威；Manifest 角色保持恰好两项，但调用方集合允许未引用的唯一额外制品；组合入口在
-      任何集合索引分配前以显式有界 `CurrentSourceLimits` 检查制品数、引用字符串、实际/声明/组合
-      字节与解码计数，不存在默认、无限或先无界解码后统计的入口；
+      解析的唯一权威；当前态生产兼容策略不新增制品数、引用长度或引用总字节拒绝条件，严格编译导入
+      策略则在任何集合索引分配前以 builder 剩余 `CurrentSourceLimits` 检查这些维度及实际/声明/组合
+      字节与解码计数，不存在默认、无限、过期上限快照或先无界解码后统计的严格入口；
 - [ ] ScenarioManifest 组合入口只消费原子成功结果，不重复或绕过长度、SHA-256、媒体
       类型与引用验证；该结果保留 Manifest/Traffic/Spatial 三个来源文档的独立身份、逐文档来源记录和
-      受限字段/记录位置表，导入时不重读原始字节；compiler 当前态入口只能接受这一字段私有能力，
-      同时保留无需空间制品的 Traffic-only current Core 契约；
+      受限字段/记录位置表，导入时不重读原始字节；compiler 当前态入口只接受借用原始输入并在独占
+      builder 调用内完成严格验证、降阶和原子提交，不公开接受预构造能力值；同时保留无需空间制品的
+      Traffic-only current Core 契约；
 - [ ] 记录级零动态分派、零完整克隆、一次摘要/计数/排序、多文档紧凑序号解析与配对性能
       验证方案闭合；
 - [ ] 第三方自定义前端非承诺、各议题职责和 G2 阻塞关系没有歧义；
