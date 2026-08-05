@@ -1,7 +1,7 @@
 # 路网编译器与目标静态镜像
 
 **文档状态**: Accepted（#291 target design）；#315 G1 共同受检模块接入修订提案中<br>
-**最后更新**: 2026-08-04<br>
+**最后更新**: 2026-08-05<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网编译权威、标识派生、可移植规范制品（Portable Canonical
 Artifact）、目标静态镜像（Target Static Image）、源映射（Source Map）、语义差异
@@ -1877,8 +1877,9 @@ Cutover 前必须证明：
   profile 与 crate DAG 均为 closed contract；
 - Data/current Core/target Traffic Runtime/Spatial/Adapter 文档清楚标注 current 与
   target；
-- #292 已重划为 compiler foundation + Synthetic DSL frontend；#291 G1 前置条件
-  已经满足，#292 G1 已接受实现设计，G2、实现与最终交付仍须按自身 Gate 推进；
+- #292 已完成 compiler foundation + Synthetic DSL frontend、集成专用
+  LIR→current projection 及其 G2/G3/G4；#282–#285 关于 #292 的稳定开工前置已经满足；
+  #296/#297 可以并行完成自身 G1，但进入 G2 还必须满足各自 Gate 并等待 #315 G4；
   当前 Project 状态和原生依赖关系不在长期设计中镜像；
 - 阶段 8 生产切换、core→runtime 原子改名与旧路径移除由 #294 的 G4 独占，不再
   误绑到 #291 的设计交付 G4；

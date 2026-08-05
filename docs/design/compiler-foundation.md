@@ -1,7 +1,7 @@
 # 编译器基础设施与合成领域专用语言前端
 
-**文档状态**: 已接受（Accepted；#292 G1）；#315 G1 共同受检模块接入修订提案中<br>
-**最后更新**: 2026-08-04<br>
+**文档状态**: #292 已接受并完成 G4；#315 G1 共同受检模块接入修订提案中<br>
+**最后更新**: 2026-08-05<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -114,9 +114,9 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 5. 建立编译时延、峰值 / 保留内存（Retained Memory）和规模扩展基线，不以运行时
    交通参与单元规模替代编译器工作量。
 
-#292 G1 已接受本文并在 GitHub 议题（Issue）#292 记录 `G1 Pass`。开始生产实现前
-仍须从 GitHub 复核实时元数据与原生依赖，并记录 G2 开工判断；仓库长期文档不镜像
-项目（Project）当前列。
+#292 G1 已接受本文并在 GitHub 议题（Issue）#292 记录 `G1 Pass`；随后完成 G2、G3
+与 G4，当前完成事实和证据见第 13 节。第 12 节继续保存当时的 G1 接受结果与 G2
+前置，不把历史 Gate 记录改写成一次性完成；仓库长期文档也不镜像项目（Project）当前列。
 
 ## 2. 包与依赖切片
 
