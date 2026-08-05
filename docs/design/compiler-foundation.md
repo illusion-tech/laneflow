@@ -1,6 +1,6 @@
 # 编译器基础设施与合成领域专用语言前端
 
-**文档状态**: #292 已接受并完成 G4；#315 G1 共同受检模块接入修订提案中<br>
+**文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入已接受（Accepted；G1）<br>
 **最后更新**: 2026-08-05<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
@@ -48,8 +48,8 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 #292 G1 已
 接受 #308 G4 非生产研究证据及首轮资源 / 性能输入；当前生产路径仍是
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
-`laneflow-data` / `laneflow-core` / `laneflow-spatial`。#315 只处于 G1 设计冻结，本文中
-标注为“#315 G1 提案”的内容尚未成为已接受实现契约
+`laneflow-data` / `laneflow-core` / `laneflow-spatial`。#315 G1 已接受本文登记的目标契约，
+但尚未授权 G2 生产 Rust 实现，也不把目标接口写成当前生产事实
 
 **关联决策与设计**:
 
@@ -172,9 +172,9 @@ HIR 和 MIR 的区块分配键（arena key）则留在编译器内部。这样�
 #292 可以定义后继编译发射器所需的只读已验证规范低层中间表示视图（View），但不得用私有
 临时线格式提前冻结 #298/#300 的公共字节契约。
 
-### 2.3 #315 官方前端共同接入与 #297 迁移边界（Proposed）
+### 2.3 #315 官方前端共同接入与 #297 迁移边界（Accepted）
 
-#315 G1 提议保持 `laneflow-compiler` 的生产依赖方向不变，并为 #296/#297 冻结下列
+#315 G1 已接受保持 `laneflow-compiler` 的生产依赖方向不变，并为 #296/#297 冻结下列
 目标包依赖图。箭头仍表示左侧正常依赖右侧；图中的当前态/迁移相关包都设置
 `publish = false`，不进入 Traffic Runtime 依赖闭包：
 
@@ -308,7 +308,7 @@ builder 调用内。由于没有到 `laneflow-current-source` 的直接依赖，
 既定保留期后，迁移特性与这两个迁移包可由单独治理决策退役。
 
 #296 的 `GeometryModuleBuilder` / `GeometryModule` 继续由 `laneflow-compiler` 拥有，
-不为共同接入另建前端插件包。以上名称和依赖方向属于 #315 G1 提案；具体当前态线格式
+不为共同接入另建前端插件包。以上名称和依赖方向已由 #315 G1 接受；具体当前态线格式
 字段、错误和来源位置契约仍由 #297 G1 独占。
 
 ## 3. 公共接口与构造权威
@@ -379,8 +379,7 @@ impl CompilationOutput {
 可见性、错误和确定性契约的前提下细化包内私有字段与实现名称；任何公共接口或上述
 契约变化都必须重新进入 G1，不得作为实现细节直接修改。
 
-以下第二段代码只表达 #315 Proposed 增量；在 #315 G1 Pass 前，它们不是 #292 已接受接口或当前
-生产 API：
+以下第二段代码表达 #315 G1 已接受增量；它们尚未由 G2 实现，因而不是当前生产 API：
 
 ```rust
 pub struct SourceDocumentOrigin { /* 字段私有的逐文档显示/审计来源 */ }
@@ -407,7 +406,7 @@ impl CompilationUnitBuilder {
 }
 ```
 
-#315 正通过本 G1 显式提议上述变化：`SourceModuleDescriptor` 保留为只读公共逻辑模块值，
+#315 G1 已接受上述变化：`SourceModuleDescriptor` 保留为只读公共逻辑模块值，
 新增版本化文档集摘要查询；文档专属的键、摘要、长度和来源记录改由新的只读公共
 `SourceDocumentDescriptor` / `SourceDocumentOrigin` 暴露。二者不提供公开构造器；
 `ValidatedSourceMapInput` 分别提供稳定顺序的模块与文档视图。现有从 `SourceModuleDescriptor` 读取
@@ -451,12 +450,12 @@ impl CompilationUnitBuilder {
 `CompilationUnitBuilder` 只接收该封装结果，并在加入模块时重新校验累计计数与导入
 闭包。
 
-**#315 G1 Proposed：**把同一不可伪造边界扩展到 `SourceDocumentDescriptor` 和逐文档
+**#315 G1 Accepted：**把同一不可伪造边界扩展到 `SourceDocumentDescriptor` 和逐文档
 来源记录；后继同包官方前端可以增加各自的受检 `add_*_module` 方法。跨包 current
 迁移只允许把借用的 `CurrentSourceInput` 交给迁移特性入口，由入口内部取得并消费
 `laneflow-current-source` 铸造的完整 `ValidatedCurrentImportBundle`；不得开放预构造能力或裸描述符、
-摘要、位置、模块内容的配对入口。在 #315 G1 Pass 前，这些逐文档类型与 current 入口
-不是 #292 已接受公共面或当前实现事实。
+摘要、位置、模块内容的配对入口。这些逐文档类型与 current 入口属于已接受目标公共面，
+但在 G2 落地前仍不是当前实现事实。
 
 ### 3.2 官方前端封闭边界
 
@@ -474,10 +473,10 @@ impl CompilationUnitBuilder {
 - 前端专用语法（Frontend-specific Syntax）可以作为来源诊断元数据保留，但不得
   绕过共同 HIR/MIR 编译遍。
 
-**#315 G1 Proposed：**把第一项扩展为每个逻辑来源模块拥有一个或多个来源文档；每份
+**#315 G1 Accepted：**把第一项扩展为每个逻辑来源模块拥有一个或多个来源文档；每份
 文档各自绑定稳定文档键、精确内容摘要、长度和逐文档来源记录。模块级来源沿袭只描述
-工具、选项和整体转换，不能替代各文档自身的显示/审计来源。在 #315 G1 Pass 前，
-`SourceDocumentDescriptor` / `SourceDocumentOrigin` 不是上述 #292 已接受边界的必需构造。
+工具、选项和整体转换，不能替代各文档自身的显示/审计来源。该规则属于 #315 G1
+已接受目标边界；`SourceDocumentDescriptor` / `SourceDocumentOrigin` 尚待 G2 实现。
 
 第三方工具在 v0.10 可以调用公开的合成领域专用语言构造接口；后继官方几何文档
 前端、导入前端或编辑器编制界面分别通过其冻结的来源契约接入，而不是让调用方构造
@@ -496,9 +495,9 @@ impl CompilationUnitBuilder {
 
 本段只登记后继决策入口，不预选具体协议，也不构成 v0.10 兼容承诺。
 
-### 3.3 官方前端共同受检模块接入（#315 Proposed）
+### 3.3 官方前端共同受检模块接入（#315 G1 Accepted）
 
-#315 G1 提议把当前 `CompilationUnitBuilder` / `CompilationUnit` 对
+#315 G1 已接受把当前 `CompilationUnitBuilder` / `CompilationUnit` 对
 `SyntheticModule` 的内部依赖替换为编译器私有（compiler-private）共同表示，同时保持
 公开构造面为来源专用的具体类型。下列名称表达所有权和阶段边界；除已经接受的公开类型名以及
 `TypedAstModule` / `TypedAstDeclaration` 外，G2 可以选择等价的私有实现名称：
@@ -691,9 +690,9 @@ Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
 - 来源位置与来源沿袭；
 - 官方前端展开来源，但不保存当前核心句柄或目标布局（Layout）。
 
-**#315 G1 Proposed：**把第一项扩展为同时保留一个逻辑模块的一个或多个
-`SourceDocumentDescriptor`；在 #315 G1 Pass 前，该 descriptor set 不是 #292 已接受
-阶段表示或当前一模块一文档实现事实。
+**#315 G1 Accepted：**把第一项扩展为同时保留一个逻辑模块的一个或多个
+`SourceDocumentDescriptor`；该 descriptor set 是已接受目标阶段表示，但在 G2 落地前
+仍不是当前一模块一文档实现事实。
 
 同一个有类型抽象语法树模块内的声明按来源顺序保存，来源顺序只服务诊断和显式有序
 语义，不能直接成为稳定标识或最终表顺序。
@@ -775,9 +774,9 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
   位置；
 - 生成关系的推导链和贡献来源位置（contributing spans）。
 
-**#315 G1 Proposed：**只提议把上述一模块一文档基线扩展为分离的来源模块描述符表、来源文档描述符表
-与可去重的逐文档来源记录表；在 #315 G1 Pass 前，以下多文档登记不是 #292 已接受契约
-或当前实现事实：每个文档显式关联所属逻辑模块和一条来源记录，模块级工具/转换沿袭不能
+**#315 G1 Accepted：**把上述一模块一文档基线扩展为分离的来源模块描述符表、来源文档描述符表
+与可去重的逐文档来源记录表；以下多文档登记属于已接受目标契约，但在 G2 落地前仍不是
+当前实现事实：每个文档显式关联所属逻辑模块和一条来源记录，模块级工具/转换沿袭不能
 替代该关联；编译单元按第 3.3 节的独立文档顺序冻结全局来源文档登记。从有类型抽象语法树
 降阶到 HIR 时，每个声明、关系或诊断位置都把自身 `SourceSpan.source_document_key`
 解析为已登记文档序号，不能从所属模块序号推断文档。为避免后续记录热循环携带或比较
@@ -847,13 +846,13 @@ LIR 必须保留后继可移植规范制品所需的完整规范标识元组前�
 更小边界，但不能获得无限配置。字段保持私有，避免把内部阶段布局变成公共兼容面；
 配置档增加维度或改变任一上限时必须提升标识符修订并重新执行边界测试。
 
-**#315 G1 Proposed：**为多文档共同接入增加 `CompileLimits::p100_initial_v2()`，并保留
+**#315 G1 Accepted：**为多文档共同接入增加 `CompileLimits::p100_initial_v2()`，并保留
 v1 的精确语义和构造器。配置档选择也是官方前端准入能力，不只是数值查表：v1 仅以
 `ModuleCount` 隐式约束一模块一文档形状，
 多文档模块要求 v2 或后继显式携带 `SourceDocumentCount` 的配置档。实现不得为 v1 合成默认文档上限、
 自动升级或在提交后补检。固定三文档的 `add_current_source` 必须在解析和按规模分配前拒绝 v1；
-Geometry 则按 #296 冻结的实际文档基数应用同一规则。在 #315 G1 Pass 前，v2 及其
-`SourceDocumentCount` 不是当前生产配置档。
+Geometry 则按 #296 冻结的实际文档基数应用同一规则。v2 及其 `SourceDocumentCount`
+属于已接受目标配置档，但在 G2 落地前不是当前生产配置档。
 
 `LF-COMP-P100-INITIAL-v1` 以 #308 九个压力分层的逐维上包络为来源。来源 / 领域计数
 取原始测量制品 `v0.10-compiler-budget-calibration-raw.json` 中
@@ -893,7 +892,7 @@ Geometry 则按 #296 冻结的实际文档基数应用同一规则。在 #315 G1
 | `max_compiler_controlled_live_bytes`  | 43269120 | 编译器控制总存续请求字节                         |
 | `max_retained_capacity_bytes`         | 36925688 | 一次编译结束后编译器实例允许保留的无语义容量字节 |
 
-**#315 G1 Proposed 配置档：**`LF-COMP-P100-INITIAL-v2` 继承上表全部精确值并增加：
+**#315 G1 Accepted 配置档：**`LF-COMP-P100-INITIAL-v2` 继承上表全部精确值并增加：
 
 | 私有配置字段                | 精确上限 | 计数对象 / 单位 |
 | --------------------------- | -------: | --------------- |
@@ -982,13 +981,13 @@ Geometry 则按 #296 冻结的实际文档基数应用同一规则。在 #315 G1
 `file!()` 结果只作本地显示和来源沿袭。循环展开的多个声明可以共享调用位置，但诊断
 必须同时携带声明的显式稳定键；来源位置、文件路径和展开序号都不得参与标识。
 
-**#315 G1 Proposed：**在不原地改义上述字段的前提下迁移为逐文档形状：每个 `SyntheticModule`
+**#315 G1 Accepted：**在不原地改义上述字段的前提下迁移为逐文档形状：每个 `SyntheticModule`
 恰有一个 `SourceDocumentDescriptor`，其 `sourceDocumentDigest` 必须逐字节等于既有
 `sourceContentDigest`；再按第 3.3 节从单文档描述符派生模块级
 `sourceDocumentSetDigest`。构建器把 `sourceDocumentKey`、摘要和 `LFSOURCE` 精确记录
 长度不可分绑定到该描述符；后继多文档官方前端也为每份文档派生独立描述符并沿用
-编译单元级唯一性规则。该迁移必须更新两类已知向量；在 #315 G1 Pass 前，
-它不是 #292 已接受的公共接口或当前实现事实。
+编译单元级唯一性规则。该迁移必须更新两类已知向量；它属于 #315 G1 已接受目标接口，
+但在 G2 落地前不是当前实现事实。
 
 ### 6.2 首批支持矩阵
 
@@ -1097,9 +1096,9 @@ G1 冻结以下两个当前态固定样例的等价迁移：
 真实文本范围。宿主路径只服务显示和来源沿袭，不参与规范标识、规范排序、可移植规范
 制品或语义差异。
 
-**#315 G1 Proposed：**每个位置的文档键必须存在于所属逻辑模块的文档描述符集，并解析
-为独立来源文档序号；来源模块序号不能替代或推导文档序号。在 #315 G1 Pass 前，
-该多文档解析规则不是 #292 已接受诊断契约或当前一模块一文档实现事实。
+**#315 G1 Accepted：**每个位置的文档键必须存在于所属逻辑模块的文档描述符集，并解析
+为独立来源文档序号；来源模块序号不能替代或推导文档序号。该多文档解析规则属于
+已接受目标诊断契约，但在 G2 落地前不是当前一模块一文档实现事实。
 
 ## 9. 集成专用的已验证规范低层中间表示到当前态投影
 
@@ -1207,7 +1206,7 @@ Version，MSRV）1.96、许可证、维护状态、安全记录和依赖树。
 增量能力同样必须以干净编译为预言机；缓存未命中 / 命中只影响复用，不改变诊断、
 LIR 或后继制品。
 
-### 10.4 #315 共同接入性能与验证边界（Proposed）
+### 10.4 #315 共同接入性能与验证边界（Accepted）
 
 #315 不进入交通运行时（Traffic Runtime）固定步进热路径，但仍不能以“离线”作为重复
 工作和无界内存的豁免。G2/G3 必须在同一 P100 机器、相同发布配置（release）和相同
@@ -1280,8 +1279,8 @@ Manifest/Traffic/Spatial 的单文档和组合字节上限；字符串/序列/�
   发射器，以及调用方不能构造描述符 / 模块错配。
 
 #315 的 `SourceDocumentDescriptor`、逐文档/文档集摘要已知向量和一模块多文档独立
-源映射测试只属于第 10.4 节的 **#315 G1 Proposed** 验证增量；在 #315 G1 Pass 前，
-它们不进入上述 #292 已接受的通用正确性测试矩阵。
+源映射测试只属于第 10.4 节的 **#315 G1 Accepted** 验证增量；它们不倒改上述 #292
+已接受的历史通用正确性测试矩阵，并须由 #315 G2 实现验证。
 
 ### 11.2 编译器工作负载
 
@@ -1454,42 +1453,43 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 - [x] Related PR #307 与 Delivery PR #314 已通过各自 G3、正常检查和精确头
       （exact-head）外部干净审阅后合入，#292 已完成 G4 并关闭。
 
-本节只同步 #292 的已完成事实。#315 提案不得倒改 #292 的 G1/G2/G3/G4 证据，也不能
+本节只同步 #292 的已完成事实。#315 已接受增量不得倒改 #292 的 G1/G2/G3/G4 证据，也不能
 把 #292 的生产基线自动解释为新前端的解析成本预算。
 
-## 14. #315 G1 验收清单（Proposed）
+## 14. #315 G1 接受结果与 G2 前置
 
-- [ ] `CompilationUnit` 只保存共同 `TypedAstModule`，HIR 不再依赖
+- [x] `CompilationUnit` 只保存共同 `TypedAstModule`，HIR 不再依赖
       `SyntheticModule` 或前端变体；逻辑模块与一个或多个来源文档分离建模，源映射不从
       模块序号推导文档序号；
-- [ ] 具体官方模块、私有共同接入、来源记录释放时点与失败原子性已经冻结；
-- [ ] 命名空间/文档、导入图、全部资源维度和规范模块顺序只有一个实现权威；
-- [ ] `LF-COMP-P100-INITIAL-v1` 保持不可变；v2 的 `SourceDocumentCount`、三文档容量推导、
+- [x] 具体官方模块、私有共同接入、来源记录释放时点与失败原子性已经冻结；
+- [x] 命名空间/文档、导入图、全部资源维度和规范模块顺序只有一个实现权威；
+- [x] `LF-COMP-P100-INITIAL-v1` 保持不可变；v2 的 `SourceDocumentCount`、三文档容量推导、
       五级/边界重新资格验证和配置档版本迁移已经冻结；多文档准入只接受显式具备该维度的配置档，
       v1 不合成默认值或自动升级，固定三文档 current 在解析前拒绝 v1；
-- [ ] #296/#297 的具体受检入口与 `laneflow-current-source` /
+- [x] #296/#297 的具体受检入口与 `laneflow-current-source` /
       `laneflow-current-import` 目标包依赖图闭合；compiler 只在默认关闭、可退役的迁移
       特性下依赖 current-source 的字段私有受检能力，importer 只依赖 compiler 且公共输入签名不泄漏
       current-source 类型；两者均不依赖当前态 Core/Spatial 对象图；
-- [ ] `laneflow-current-source` 是场景清单到原始 Traffic/Spatial 制品精确绑定和线格式
+- [x] `laneflow-current-source` 是场景清单到原始 Traffic/Spatial 制品精确绑定和线格式
       解析的唯一权威；当前态生产兼容策略不新增制品数、引用长度或引用总字节拒绝条件，严格编译导入
       策略则在任何集合索引分配前以 builder 剩余 `CurrentSourceLimits` 检查这些维度及实际/声明/组合
       字节与解码计数，不存在默认、无限、过期上限快照或先无界解码后统计的严格入口；
-- [ ] ScenarioManifest 组合入口只消费原子成功结果，不重复或绕过长度、SHA-256、媒体
+- [x] ScenarioManifest 组合入口只消费原子成功结果，不重复或绕过长度、SHA-256、媒体
       类型与引用验证；生产兼容结果不构造或保留 compiler-only 位置表，严格导入结果保留
       Manifest/Traffic/Spatial 三个来源文档的独立身份、逐文档来源记录和受限字段/记录位置表，且两者
       共享单一解析权威、均不重读原始字节；`CurrentSourceInput` 有外部 crate 可调用的零复制构造器，
       compiler 当前态入口只接受该借用原始输入并在独占 builder 调用内完成严格验证、降阶和原子提交，
       不公开接受预构造导入能力值；同时保留无需空间制品的 Traffic-only current Core 契约；
-- [ ] 记录级零动态分派、零完整克隆、一次摘要/计数/排序、多文档紧凑序号解析与配对性能
+- [x] 记录级零动态分派、零完整克隆、一次摘要/计数/排序、多文档紧凑序号解析与配对性能
       验证方案闭合；
-- [ ] 第三方自定义前端非承诺、各议题职责和 G2 阻塞关系没有歧义；
-- [ ] `network-compiler.md`、路线图、设计索引、Skills 与术语表引用一致；
-- [ ] 对 G1 精确头完成本地全面审阅和有效外部审阅，并在 #315 追加只读
-      `## G1 设计判断` Pass 评论。
+- [x] 第三方自定义前端非承诺、各议题职责和 G2 阻塞关系没有歧义；
+- [x] `network-compiler.md`、路线图、设计索引、Skills 与术语表引用一致；
+- [x] 对 G1 精确头完成本地全面审阅和有效外部审阅，并在 #315 追加只读
+      [`## G1 设计判断` Pass 评论](https://github.com/illusion-tech/laneflow/issues/315#issuecomment-5189018791)。
 
-本清单在 #315 G1 Pass 前全部是提案输入，不修改 #292 已接受的历史 Gate 记录，也不
-授权生产 Rust 实现。
+本清单已由 #315 G1 Pass 接受为目标实现输入；它不修改 #292 已接受的历史 Gate 记录，
+也不授权生产 Rust 实现。#315 只有完成本 Related PR 的 G3/G4 收口后，#296/#297 才可
+按各自 Gate 进入 G2。
 
 [g1-performance-revision]: https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5175472658
 [g1-scale-correction]: https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5175536346

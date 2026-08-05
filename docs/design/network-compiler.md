@@ -1,6 +1,6 @@
 # 路网编译器与目标静态镜像
 
-**文档状态**: Accepted（#291 target design）；#315 G1 共同受检模块接入修订提案中<br>
+**文档状态**: Accepted（#291 target design）；#315 共同受检模块接入已接受（Accepted；G1）<br>
 **最后更新**: 2026-08-05<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网编译权威、标识派生、可移植规范制品（Portable Canonical
@@ -11,8 +11,8 @@ Runtime）命名、静态执行约束（Static Execution Constraints）、不可
 **实现状态**: 未实现；当前态生产路径仍使用 Traffic v0.10 / SpatialPackage v0.1 /
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已完成编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
-（Synthetic DSL Frontend）G4；#315 正在 G1 冻结多官方前端的共同受检模块接入，
-未授权生产 Rust 实现
+（Synthetic DSL Frontend）G4；#315 G1 已接受多官方前端的共同受检模块接入目标契约，
+尚未授权 G2 生产 Rust 实现
 
 **关联决策与设计**:
 
@@ -173,8 +173,8 @@ imports
 重放与来源沿袭，不参与实体稳定标识。#292 合成领域专用语言前端的首版记录与摘要规则由
 `compiler-foundation.md` 冻结。
 
-#315 G1 Proposed 以一个逻辑模块拥有一个或多个来源文档的下列形状替代上述单文档摘要字段；
-在 #315 G1 Pass 前，该区块不是 #291/#292 已接受的 descriptor 接口：
+#315 G1 已接受以一个逻辑模块拥有一个或多个来源文档的下列形状替代上述单文档摘要字段；
+该区块是目标 descriptor 接口，尚待 G2 实现：
 
 ```text
 moduleNamespaceId
@@ -277,7 +277,7 @@ compiler、Adapter 或 scenario policy 绕过。
 - 使用 Rust 容器遍历顺序作为标识/顺序；
 - 把 builder-only TOML/Rust type 公开为 interchange contract。
 
-### 5.2 官方前端共同受检模块接入（Shared Checked Module Admission，#315 Proposed）
+### 5.2 官方前端共同受检模块接入（Shared Checked Module Admission，#315 G1 Accepted）
 
 合成、几何与当前态导入来源都以字段私有的具体官方前端模块进入
 `CompilationUnitBuilder`，但构建器内部只存在一条编译器私有（compiler-private）
@@ -325,7 +325,7 @@ ScenarioManifest v0.1 仍封闭为 Traffic/Spatial 两个角色，但调用方�
 这不是第三方前端插件协议。#315 只冻结公开面继续使用 LaneFlow 拥有的具体入口以及它们进入共同
 私有接入的规则，不交付或冻结 Geometry 公共签名。`GeometryModule` 与
 `add_geometry_module` 是 #296 保留入口，其精确类型、签名、实际来源文档基数和 v1/v2 准入行为只由
-#296 G1 冻结。#315 Proposed 的 current 迁移入口只在迁移特性下接受借用
+#296 G1 冻结。#315 G1 已接受的 current 迁移入口只在迁移特性下接受借用
 `CurrentSourceInput`、内部完成剩余预算派生与严格验证；其精确借用参数仍由 #297 G1 冻结。
 `CurrentSourceInput` 字段私有但提供特性门控的公开零复制构造器，使独立
 `laneflow-current-import` 可整理 compiler 自有的原始借用；构造器不解析、哈希、验证或铸造来源记录，
@@ -1759,7 +1759,7 @@ laneflow-adapter-* ------> laneflow-spatial
 laneflow-adapter-* ------> laneflow-static-image
 ```
 
-#315 G1 另外提议下列迁移专用边界；它不进入上述目标生产/运行时包依赖图：
+#315 G1 另外已接受下列迁移专用边界；它不进入上述目标生产/运行时包依赖图：
 
 ```text
 laneflow-compiler --[current-v0_10-import]--> laneflow-current-source
