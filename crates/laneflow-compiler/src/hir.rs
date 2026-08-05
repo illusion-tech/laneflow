@@ -30,14 +30,13 @@ use laneflow_static_contract::{
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::declaration::{
     LaneEdgeDeclaration, OwnedAccessRegulation, OwnedAccessRuleTarget,
-    OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl, SyntheticDeclaration,
+    OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl, TypedAstDeclaration,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::identity::{
     IdentityFieldInput, IdentityRegistrationError, IdentityRegistry, RegisteredCanonicalIdentity,
     encode_canonical_identity,
 };
-use crate::module::SourceDocumentOrdinal;
 use crate::{
     AccessCapability, AccessPlane, AccessRegulationField, CompilationUnit, CompileLimitDimension,
     Diagnostic, DiagnosticBundle, ParkingAnchorRole, ParkingGeometryField,
@@ -109,10 +108,6 @@ pub(crate) struct HirImport {
 pub(crate) struct HirModule {
     /// 声明身份与跨模块解析使用的稳定命名空间。
     pub(crate) authoring_namespace_id: Arc<str>,
-    /// 与机器路径无关的来源文档键。
-    pub(crate) source_document_key: Arc<str>,
-    /// 编译单元来源文档登记中的显式序号；不能从 `HirModuleKey.raw()` 推断。
-    pub(crate) source_document_ordinal: SourceDocumentOrdinal,
     /// 此模块在 `HirUnit::imports` 中的半开区间。
     pub(crate) imports: TableRange<HirImport>,
     /// 模块声明位置。
@@ -531,7 +526,7 @@ pub(crate) struct HirWaitingZone {
 pub(crate) struct HirJunctionInternalEdge {
     pub(crate) edge: HirLaneEdgeKey,
     pub(crate) junction: HirJunctionKey,
-    /// 首次建立该排他声明的路径，供来源映射和诊断回链。
+    /// 首次建立该排他声明的路径，供诊断回链、规范来源选择与路线闭包使用。
     pub(crate) source_path: HirManeuverPathKey,
     pub(crate) source_span: SourceSpan,
 }
@@ -1472,16 +1467,10 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     // 作为后续规范模块轴；module_lookup 只用于解析，不参与任何输出遍历。
     let mut modules = TypedArena::<HirModuleTag, HirModule>::with_capacity(module_capacity);
     let mut module_lookup = HashMap::with_capacity(module_capacity);
-    for (source_document_index, source_module) in unit.modules.iter().enumerate() {
-        let source_document_ordinal =
-            SourceDocumentOrdinal::from_raw(u32::try_from(source_document_index).map_err(
-                |_| arena_overflow(ArenaKeyOverflow, &unit.limits, primary_span.clone()),
-            )?);
+    for source_module in &unit.modules {
         let key = modules
             .push(HirModule {
                 authoring_namespace_id: source_module.descriptor().authoring_namespace_arc(),
-                source_document_key: source_module.descriptor().source_document_key_arc(),
-                source_document_ordinal,
                 imports: TableRange::empty(),
                 source_span: source_module.descriptor().declaration_span().clone(),
             })
@@ -1520,7 +1509,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::LaneEdge(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::LaneEdge(_)))
             .count()
     }));
     let mut identities =
@@ -1535,7 +1524,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         declaration_indices.retain(|index| {
             matches!(
                 source_module.declarations[*index],
-                SyntheticDeclaration::LaneEdge(_)
+                TypedAstDeclaration::LaneEdge(_)
             )
         });
         declaration_indices.sort_unstable_by(|left, right| {
@@ -1826,21 +1815,21 @@ fn build_cross_section_hir(
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::RoadSection(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::RoadSection(_)))
             .count()
     }));
     let mut group_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::LaneGroup(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::LaneGroup(_)))
             .count()
     }));
     let mut band_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::FacilityBand(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::FacilityBand(_)))
             .count()
     }));
 
@@ -1880,10 +1869,10 @@ fn build_cross_section_hir(
             .filter_map(|(index, declaration)| {
                 matches!(
                     declaration,
-                    SyntheticDeclaration::RoadCorridor(_)
-                        | SyntheticDeclaration::RoadSection(_)
-                        | SyntheticDeclaration::LaneGroup(_)
-                        | SyntheticDeclaration::FacilityBand(_)
+                    TypedAstDeclaration::RoadCorridor(_)
+                        | TypedAstDeclaration::RoadSection(_)
+                        | TypedAstDeclaration::LaneGroup(_)
+                        | TypedAstDeclaration::FacilityBand(_)
                 )
                 .then_some(index)
             })
@@ -1900,10 +1889,10 @@ fn build_cross_section_hir(
             let declaration_index = u32::try_from(source_declaration_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?;
             match &source_module.declarations[source_declaration_index] {
-                SyntheticDeclaration::LaneEdge(_) => {
+                TypedAstDeclaration::LaneEdge(_) => {
                     unreachable!("cross-section source filter admitted LaneEdge")
                 }
-                SyntheticDeclaration::RoadCorridor(source) => {
+                TypedAstDeclaration::RoadCorridor(source) => {
                     let fields = [
                         IdentityFieldInput::new(
                             FieldTag::AuthoringNamespaceId,
@@ -1944,7 +1933,7 @@ fn build_cross_section_hir(
                         hir_key: key,
                     });
                 }
-                SyntheticDeclaration::RoadSection(source) => {
+                TypedAstDeclaration::RoadSection(source) => {
                     let lane_start = lanes.len();
                     let section_key = sections
                         .push(HirRoadSection {
@@ -2008,7 +1997,7 @@ fn build_cross_section_hir(
                         arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                     })?;
                 }
-                SyntheticDeclaration::LaneGroup(source) => {
+                TypedAstDeclaration::LaneGroup(source) => {
                     let key = groups
                         .push(HirLaneGroup {
                             module: module_key,
@@ -2028,7 +2017,7 @@ fn build_cross_section_hir(
                         hir_key: key,
                     });
                 }
-                SyntheticDeclaration::FacilityBand(source) => {
+                TypedAstDeclaration::FacilityBand(source) => {
                     let key = bands
                         .push(HirFacilityBand {
                             module: module_key,
@@ -2048,21 +2037,21 @@ fn build_cross_section_hir(
                         hir_key: key,
                     });
                 }
-                SyntheticDeclaration::Junction(_)
-                | SyntheticDeclaration::Movement(_)
-                | SyntheticDeclaration::ManeuverPath(_)
-                | SyntheticDeclaration::StopLine(_)
-                | SyntheticDeclaration::ManeuverGate(_)
-                | SyntheticDeclaration::WaitingZone(_)
-                | SyntheticDeclaration::StaticRoute(_)
-                | SyntheticDeclaration::SignalGroup(_)
-                | SyntheticDeclaration::SignalController(_)
-                | SyntheticDeclaration::ParkingArea(_)
-                | SyntheticDeclaration::ParkingSpace(_)
-                | SyntheticDeclaration::ParticipantClass(_)
-                | SyntheticDeclaration::VehicleProfile(_)
-                | SyntheticDeclaration::CanonicalFrame(_)
-                | SyntheticDeclaration::AccessRule(_) => {
+                TypedAstDeclaration::Junction(_)
+                | TypedAstDeclaration::Movement(_)
+                | TypedAstDeclaration::ManeuverPath(_)
+                | TypedAstDeclaration::StopLine(_)
+                | TypedAstDeclaration::ManeuverGate(_)
+                | TypedAstDeclaration::WaitingZone(_)
+                | TypedAstDeclaration::StaticRoute(_)
+                | TypedAstDeclaration::SignalGroup(_)
+                | TypedAstDeclaration::SignalController(_)
+                | TypedAstDeclaration::ParkingArea(_)
+                | TypedAstDeclaration::ParkingSpace(_)
+                | TypedAstDeclaration::ParticipantClass(_)
+                | TypedAstDeclaration::VehicleProfile(_)
+                | TypedAstDeclaration::CanonicalFrame(_)
+                | TypedAstDeclaration::AccessRule(_) => {
                     unreachable!("cross-section source filter admitted junction declaration")
                 }
             }
@@ -2079,7 +2068,7 @@ fn build_cross_section_hir(
 
     for location in &corridor_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
-        let SyntheticDeclaration::RoadCorridor(source) =
+        let TypedAstDeclaration::RoadCorridor(source) =
             &source_module.declarations[location.declaration_index as usize]
         else {
             unreachable!("canonical RoadCorridor source changed kind")
@@ -2198,7 +2187,7 @@ fn build_cross_section_hir(
     // 父走廊已唯一闭合，此时才派生 RoadSection / FacilityBand identity。
     for location in &section_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
-        let SyntheticDeclaration::RoadSection(source) =
+        let TypedAstDeclaration::RoadSection(source) =
             &source_module.declarations[location.declaration_index as usize]
         else {
             unreachable!("canonical RoadSection source changed kind")
@@ -2237,7 +2226,7 @@ fn build_cross_section_hir(
     }
     for location in &band_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
-        let SyntheticDeclaration::FacilityBand(source) =
+        let TypedAstDeclaration::FacilityBand(source) =
             &source_module.declarations[location.declaration_index as usize]
         else {
             unreachable!("canonical FacilityBand source changed kind")
@@ -2281,7 +2270,7 @@ fn build_cross_section_hir(
     // LaneGroup 的父区段是其 identity 输入，必须先解析再处理引用它的编制车道。
     for location in &group_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
-        let SyntheticDeclaration::LaneGroup(source) =
+        let TypedAstDeclaration::LaneGroup(source) =
             &source_module.declarations[location.declaration_index as usize]
         else {
             unreachable!("canonical LaneGroup source changed kind")
@@ -2335,7 +2324,7 @@ fn build_cross_section_hir(
     let mut group_member_counts = vec![0_usize; groups.len()];
     for location in &lane_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
-        let SyntheticDeclaration::RoadSection(section_source) =
+        let TypedAstDeclaration::RoadSection(section_source) =
             &source_module.declarations[location.declaration_index as usize]
         else {
             unreachable!("canonical AuthoringLane source parent changed kind")
@@ -2551,14 +2540,14 @@ fn build_junction_hir(
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::Junction(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::Junction(_)))
             .count()
     }));
     let mut movement_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::Movement(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::Movement(_)))
             .count()
     }));
     let mut movement_sources = Vec::with_capacity(movement_capacity);
@@ -2580,7 +2569,7 @@ fn build_junction_hir(
         });
         for declaration_index in declaration_indices {
             match &source_module.declarations[declaration_index] {
-                SyntheticDeclaration::Junction(source) => {
+                TypedAstDeclaration::Junction(source) => {
                     let fields = [
                         IdentityFieldInput::new(
                             FieldTag::AuthoringNamespaceId,
@@ -2616,7 +2605,7 @@ fn build_junction_hir(
                         })?;
                     junction_symbols.insert(module_key, Arc::clone(&source.header.stable_key), key);
                 }
-                SyntheticDeclaration::Movement(source) => {
+                TypedAstDeclaration::Movement(source) => {
                     let key = movements
                         .push(HirMovement {
                             module: module_key,
@@ -2648,7 +2637,7 @@ fn build_junction_hir(
                         hir_key: key,
                     });
                 }
-                SyntheticDeclaration::ManeuverPath(source) => {
+                TypedAstDeclaration::ManeuverPath(source) => {
                     let key = paths
                         .push(HirManeuverPath {
                             module: module_key,
@@ -3075,7 +3064,7 @@ fn build_control_hir(
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::ManeuverPath(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::ManeuverPath(_)))
             .count()
     }));
     for (index, path) in maneuver_paths.iter().enumerate() {
@@ -3100,14 +3089,14 @@ fn build_control_hir(
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::StopLine(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::StopLine(_)))
             .count()
     }));
     let mut gate_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::ManeuverGate(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::ManeuverGate(_)))
             .count()
     }));
     let mut stop_sources = Vec::with_capacity(count_to_usize(counts.stop_lines, &unit.limits)?);
@@ -3130,9 +3119,9 @@ fn build_control_hir(
             .filter_map(|(index, declaration)| {
                 matches!(
                     declaration,
-                    SyntheticDeclaration::StopLine(_)
-                        | SyntheticDeclaration::ManeuverGate(_)
-                        | SyntheticDeclaration::WaitingZone(_)
+                    TypedAstDeclaration::StopLine(_)
+                        | TypedAstDeclaration::ManeuverGate(_)
+                        | TypedAstDeclaration::WaitingZone(_)
                 )
                 .then_some(index)
             })
@@ -3147,7 +3136,7 @@ fn build_control_hir(
             let source_index = u32::try_from(declaration_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?;
             match &source_module.declarations[declaration_index] {
-                SyntheticDeclaration::StopLine(source) => {
+                TypedAstDeclaration::StopLine(source) => {
                     let fields = [
                         IdentityFieldInput::new(
                             FieldTag::AuthoringNamespaceId,
@@ -3189,7 +3178,7 @@ fn build_control_hir(
                         hir_key: key,
                     });
                 }
-                SyntheticDeclaration::ManeuverGate(source) => {
+                TypedAstDeclaration::ManeuverGate(source) => {
                     let key = gates
                         .push(HirManeuverGate {
                             module: module_key,
@@ -3211,7 +3200,7 @@ fn build_control_hir(
                         hir_key: key,
                     });
                 }
-                SyntheticDeclaration::WaitingZone(source) => {
+                TypedAstDeclaration::WaitingZone(source) => {
                     let key = waiting_zones
                         .push(HirWaitingZone {
                             module: module_key,
@@ -3244,7 +3233,7 @@ fn build_control_hir(
     let mut stop_line_by_edge = vec![None; lane_edges.len()];
     for location in &stop_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
-        let SyntheticDeclaration::StopLine(source) =
+        let TypedAstDeclaration::StopLine(source) =
             &source_module.declarations[location.declaration_index as usize]
         else {
             unreachable!("canonical StopLine source changed kind")
@@ -3283,7 +3272,7 @@ fn build_control_hir(
     let mut resolved_gate_keys = Vec::with_capacity(gates.len());
     for location in &gate_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
-        let SyntheticDeclaration::ManeuverGate(source) =
+        let TypedAstDeclaration::ManeuverGate(source) =
             &source_module.declarations[location.declaration_index as usize]
         else {
             unreachable!("canonical ManeuverGate source changed kind")
@@ -3535,7 +3524,7 @@ fn build_control_hir(
     let mut resolved_waiting_keys = Vec::with_capacity(waiting_zones.len());
     for location in &waiting_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
-        let SyntheticDeclaration::WaitingZone(source) =
+        let TypedAstDeclaration::WaitingZone(source) =
             &source_module.declarations[location.declaration_index as usize]
         else {
             unreachable!("canonical WaitingZone source changed kind")
@@ -3742,14 +3731,14 @@ fn build_signal_hir(
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::SignalGroup(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::SignalGroup(_)))
             .count()
     }));
     let mut gate_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::ManeuverGate(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::ManeuverGate(_)))
             .count()
     }));
     for (index, gate) in maneuver_gates.iter().enumerate() {
@@ -3779,8 +3768,7 @@ fn build_signal_hir(
             .filter_map(|(index, declaration)| {
                 matches!(
                     declaration,
-                    SyntheticDeclaration::SignalGroup(_)
-                        | SyntheticDeclaration::SignalController(_)
+                    TypedAstDeclaration::SignalGroup(_) | TypedAstDeclaration::SignalController(_)
                 )
                 .then_some(index)
             })
@@ -3795,7 +3783,7 @@ fn build_signal_hir(
             let source_index = u32::try_from(declaration_index)
                 .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?;
             match &source_module.declarations[declaration_index] {
-                SyntheticDeclaration::SignalGroup(source) => {
+                TypedAstDeclaration::SignalGroup(source) => {
                     let fields = [
                         IdentityFieldInput::new(
                             FieldTag::AuthoringNamespaceId,
@@ -3837,7 +3825,7 @@ fn build_signal_hir(
                         hir_key: key,
                     });
                 }
-                SyntheticDeclaration::SignalController(source) => {
+                TypedAstDeclaration::SignalController(source) => {
                     let fields = [
                         IdentityFieldInput::new(
                             FieldTag::AuthoringNamespaceId,
@@ -3894,7 +3882,7 @@ fn build_signal_hir(
 
     for location in &controller_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
-        let SyntheticDeclaration::SignalController(source) =
+        let TypedAstDeclaration::SignalController(source) =
             &source_module.declarations[location.declaration_index as usize]
         else {
             unreachable!("canonical SignalController source changed kind")
@@ -4208,7 +4196,7 @@ fn build_signal_hir(
             .declarations
             .iter()
             .filter_map(|declaration| match declaration {
-                SyntheticDeclaration::ManeuverGate(gate) => Some(gate),
+                TypedAstDeclaration::ManeuverGate(gate) => Some(gate),
                 _ => None,
             })
             .collect();
@@ -4328,7 +4316,7 @@ fn build_spatial_hir(
             .iter()
             .enumerate()
             .filter_map(|(index, declaration)| {
-                matches!(declaration, SyntheticDeclaration::CanonicalFrame(_)).then_some(index)
+                matches!(declaration, TypedAstDeclaration::CanonicalFrame(_)).then_some(index)
             })
             .collect();
         declaration_indices.sort_unstable_by(|left, right| {
@@ -4337,7 +4325,7 @@ fn build_spatial_hir(
                 .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
         });
         for declaration_index in declaration_indices {
-            let SyntheticDeclaration::CanonicalFrame(source) =
+            let TypedAstDeclaration::CanonicalFrame(source) =
                 &source_module.declarations[declaration_index]
             else {
                 unreachable!("canonical frame source filter admitted unrelated declaration")
@@ -4700,7 +4688,7 @@ fn build_parking_hir(
         module
             .declarations
             .iter()
-            .filter(|declaration| matches!(declaration, SyntheticDeclaration::ParkingArea(_)))
+            .filter(|declaration| matches!(declaration, TypedAstDeclaration::ParkingArea(_)))
             .count()
     }));
     let mut area_sources = Vec::with_capacity(count_to_usize(counts.areas, &unit.limits)?);
@@ -4720,7 +4708,7 @@ fn build_parking_hir(
             .iter()
             .enumerate()
             .filter_map(|(index, declaration)| {
-                matches!(declaration, SyntheticDeclaration::ParkingArea(_)).then_some(index)
+                matches!(declaration, TypedAstDeclaration::ParkingArea(_)).then_some(index)
             })
             .collect();
         area_indices.sort_unstable_by(|left, right| {
@@ -4729,7 +4717,7 @@ fn build_parking_hir(
                 .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
         });
         for declaration_index in area_indices {
-            let SyntheticDeclaration::ParkingArea(source) =
+            let TypedAstDeclaration::ParkingArea(source) =
                 &source_module.declarations[declaration_index]
             else {
                 unreachable!("parking area source filter admitted unrelated declaration")
@@ -4781,7 +4769,7 @@ fn build_parking_hir(
             .iter()
             .enumerate()
             .filter_map(|(index, declaration)| {
-                matches!(declaration, SyntheticDeclaration::ParkingSpace(_)).then_some(index)
+                matches!(declaration, TypedAstDeclaration::ParkingSpace(_)).then_some(index)
             })
             .collect();
         indices.sort_unstable_by(|left, right| {
@@ -4808,7 +4796,7 @@ fn build_parking_hir(
     for (module_order, declaration_index) in space_sources {
         let module_index = module_order as usize;
         let source_module = &unit.modules[module_index];
-        let SyntheticDeclaration::ParkingSpace(source) =
+        let TypedAstDeclaration::ParkingSpace(source) =
             &source_module.declarations[declaration_index as usize]
         else {
             unreachable!("canonical ParkingSpace source changed kind")
@@ -5070,42 +5058,42 @@ fn build_access_hir(
         module
             .declarations
             .iter()
-            .filter(|item| matches!(item, SyntheticDeclaration::ParticipantClass(_)))
+            .filter(|item| matches!(item, TypedAstDeclaration::ParticipantClass(_)))
             .count()
     }));
     let mut edge_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
         module
             .declarations
             .iter()
-            .filter(|item| matches!(item, SyntheticDeclaration::LaneEdge(_)))
+            .filter(|item| matches!(item, TypedAstDeclaration::LaneEdge(_)))
             .count()
     }));
     let mut group_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
         module
             .declarations
             .iter()
-            .filter(|item| matches!(item, SyntheticDeclaration::LaneGroup(_)))
+            .filter(|item| matches!(item, TypedAstDeclaration::LaneGroup(_)))
             .count()
     }));
     let mut section_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
         module
             .declarations
             .iter()
-            .filter(|item| matches!(item, SyntheticDeclaration::RoadSection(_)))
+            .filter(|item| matches!(item, TypedAstDeclaration::RoadSection(_)))
             .count()
     }));
     let mut path_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
         module
             .declarations
             .iter()
-            .filter(|item| matches!(item, SyntheticDeclaration::ManeuverPath(_)))
+            .filter(|item| matches!(item, TypedAstDeclaration::ManeuverPath(_)))
             .count()
     }));
     let mut band_symbols = SymbolTable::new(unit.modules.iter().map(|module| {
         module
             .declarations
             .iter()
-            .filter(|item| matches!(item, SyntheticDeclaration::FacilityBand(_)))
+            .filter(|item| matches!(item, TypedAstDeclaration::FacilityBand(_)))
             .count()
     }));
     for (key, edge) in lane_edges.iter() {
@@ -5154,7 +5142,7 @@ fn build_access_hir(
             .iter()
             .enumerate()
             .filter_map(|(index, declaration)| {
-                matches!(declaration, SyntheticDeclaration::ParticipantClass(_)).then_some(index)
+                matches!(declaration, TypedAstDeclaration::ParticipantClass(_)).then_some(index)
             })
             .collect();
         declaration_indices.sort_unstable_by(|left, right| {
@@ -5163,7 +5151,7 @@ fn build_access_hir(
                 .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
         });
         for declaration_index in declaration_indices {
-            let SyntheticDeclaration::ParticipantClass(source) =
+            let TypedAstDeclaration::ParticipantClass(source) =
                 &source_module.declarations[declaration_index]
             else {
                 unreachable!("filtered declaration must be ParticipantClass");
@@ -5223,7 +5211,7 @@ fn build_access_hir(
             .expect("u32 module index must fit usize on supported targets");
         let declaration_index = usize::try_from(location.declaration_index)
             .expect("u32 declaration index must fit usize on supported targets");
-        let SyntheticDeclaration::ParticipantClass(source) =
+        let TypedAstDeclaration::ParticipantClass(source) =
             &unit.modules[module_index].declarations[declaration_index]
         else {
             unreachable!("canonical class source must still name ParticipantClass");
@@ -5379,7 +5367,7 @@ fn build_access_hir(
             .iter()
             .enumerate()
             .filter_map(|(index, declaration)| {
-                matches!(declaration, SyntheticDeclaration::VehicleProfile(_)).then_some(index)
+                matches!(declaration, TypedAstDeclaration::VehicleProfile(_)).then_some(index)
             })
             .collect();
         declaration_indices.sort_unstable_by(|left, right| {
@@ -5388,7 +5376,7 @@ fn build_access_hir(
                 .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
         });
         for declaration_index in declaration_indices {
-            let SyntheticDeclaration::VehicleProfile(source) =
+            let TypedAstDeclaration::VehicleProfile(source) =
                 &source_module.declarations[declaration_index]
             else {
                 unreachable!("filtered declaration must be VehicleProfile");
@@ -5449,7 +5437,7 @@ fn build_access_hir(
     }
     for location in &profile_sources {
         let source_module = &unit.modules[location.source_module_index as usize];
-        let SyntheticDeclaration::VehicleProfile(source) =
+        let TypedAstDeclaration::VehicleProfile(source) =
             &source_module.declarations[location.declaration_index as usize]
         else {
             unreachable!("canonical vehicle profile source changed kind");
@@ -5484,7 +5472,7 @@ fn build_access_hir(
             .iter()
             .enumerate()
             .filter_map(|(index, declaration)| {
-                matches!(declaration, SyntheticDeclaration::AccessRule(_)).then_some(index)
+                matches!(declaration, TypedAstDeclaration::AccessRule(_)).then_some(index)
             })
             .collect();
         declaration_indices.sort_unstable_by(|left, right| {
@@ -5493,7 +5481,7 @@ fn build_access_hir(
                 .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
         });
         for declaration_index in declaration_indices {
-            let SyntheticDeclaration::AccessRule(source) =
+            let TypedAstDeclaration::AccessRule(source) =
                 &source_module.declarations[declaration_index]
             else {
                 unreachable!("filtered declaration must be AccessRule");
@@ -5555,7 +5543,7 @@ fn build_access_hir(
             .expect("u32 module index must fit usize on supported targets");
         let declaration_index = usize::try_from(location.declaration_index)
             .expect("u32 declaration index must fit usize on supported targets");
-        let SyntheticDeclaration::AccessRule(source) =
+        let TypedAstDeclaration::AccessRule(source) =
             &unit.modules[module_index].declarations[declaration_index]
         else {
             unreachable!("canonical rule source must still name AccessRule");
@@ -6041,7 +6029,7 @@ fn build_route_hir(
             .iter()
             .enumerate()
             .filter_map(|(index, declaration)| {
-                matches!(declaration, SyntheticDeclaration::StaticRoute(_)).then_some(index)
+                matches!(declaration, TypedAstDeclaration::StaticRoute(_)).then_some(index)
             })
             .collect::<Vec<_>>();
         declaration_indices.sort_unstable_by(|left, right| {
@@ -6050,7 +6038,7 @@ fn build_route_hir(
                 .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
         });
         for declaration_index in declaration_indices {
-            let SyntheticDeclaration::StaticRoute(source) =
+            let TypedAstDeclaration::StaticRoute(source) =
                 &source_module.declarations[declaration_index]
             else {
                 unreachable!("route source filter admitted unrelated declaration")
@@ -6119,7 +6107,7 @@ fn build_route_hir(
 
     for location in sources {
         let source_module = &unit.modules[location.source_module_index as usize];
-        let SyntheticDeclaration::StaticRoute(source) =
+        let TypedAstDeclaration::StaticRoute(source) =
             &source_module.declarations[location.declaration_index as usize]
         else {
             unreachable!("canonical StaticRoute source changed kind")
@@ -6569,55 +6557,53 @@ where
     Some(target)
 }
 
-fn lane_edge_declaration(declaration: &SyntheticDeclaration) -> Option<&LaneEdgeDeclaration> {
+fn lane_edge_declaration(declaration: &TypedAstDeclaration) -> Option<&LaneEdgeDeclaration> {
     match declaration {
-        SyntheticDeclaration::LaneEdge(declaration) => Some(declaration),
+        TypedAstDeclaration::LaneEdge(declaration) => Some(declaration),
         _ => None,
     }
 }
 
 fn movement_declaration(
-    declaration: &SyntheticDeclaration,
+    declaration: &TypedAstDeclaration,
 ) -> Option<&crate::declaration::MovementDeclaration> {
     match declaration {
-        SyntheticDeclaration::Movement(declaration) => Some(declaration),
+        TypedAstDeclaration::Movement(declaration) => Some(declaration),
         _ => None,
     }
 }
 
 fn maneuver_path_declaration(
-    declaration: &SyntheticDeclaration,
+    declaration: &TypedAstDeclaration,
 ) -> Option<&crate::declaration::ManeuverPathDeclaration> {
     match declaration {
-        SyntheticDeclaration::ManeuverPath(declaration) => Some(declaration),
+        TypedAstDeclaration::ManeuverPath(declaration) => Some(declaration),
         _ => None,
     }
 }
 
-fn declaration_header(
-    declaration: &SyntheticDeclaration,
-) -> &crate::declaration::DeclarationHeader {
+fn declaration_header(declaration: &TypedAstDeclaration) -> &crate::declaration::DeclarationHeader {
     match declaration {
-        SyntheticDeclaration::LaneEdge(declaration) => &declaration.header,
-        SyntheticDeclaration::RoadCorridor(declaration) => &declaration.header,
-        SyntheticDeclaration::RoadSection(declaration) => &declaration.header,
-        SyntheticDeclaration::LaneGroup(declaration) => &declaration.header,
-        SyntheticDeclaration::FacilityBand(declaration) => &declaration.header,
-        SyntheticDeclaration::Junction(declaration) => &declaration.header,
-        SyntheticDeclaration::Movement(declaration) => &declaration.header,
-        SyntheticDeclaration::ManeuverPath(declaration) => &declaration.header,
-        SyntheticDeclaration::StopLine(declaration) => &declaration.header,
-        SyntheticDeclaration::ManeuverGate(declaration) => &declaration.header,
-        SyntheticDeclaration::WaitingZone(declaration) => &declaration.header,
-        SyntheticDeclaration::StaticRoute(declaration) => &declaration.header,
-        SyntheticDeclaration::SignalGroup(declaration) => &declaration.header,
-        SyntheticDeclaration::SignalController(declaration) => &declaration.header,
-        SyntheticDeclaration::ParkingArea(declaration) => &declaration.header,
-        SyntheticDeclaration::ParkingSpace(declaration) => &declaration.header,
-        SyntheticDeclaration::ParticipantClass(declaration) => &declaration.header,
-        SyntheticDeclaration::VehicleProfile(declaration) => &declaration.header,
-        SyntheticDeclaration::CanonicalFrame(declaration) => &declaration.header,
-        SyntheticDeclaration::AccessRule(declaration) => &declaration.header,
+        TypedAstDeclaration::LaneEdge(declaration) => &declaration.header,
+        TypedAstDeclaration::RoadCorridor(declaration) => &declaration.header,
+        TypedAstDeclaration::RoadSection(declaration) => &declaration.header,
+        TypedAstDeclaration::LaneGroup(declaration) => &declaration.header,
+        TypedAstDeclaration::FacilityBand(declaration) => &declaration.header,
+        TypedAstDeclaration::Junction(declaration) => &declaration.header,
+        TypedAstDeclaration::Movement(declaration) => &declaration.header,
+        TypedAstDeclaration::ManeuverPath(declaration) => &declaration.header,
+        TypedAstDeclaration::StopLine(declaration) => &declaration.header,
+        TypedAstDeclaration::ManeuverGate(declaration) => &declaration.header,
+        TypedAstDeclaration::WaitingZone(declaration) => &declaration.header,
+        TypedAstDeclaration::StaticRoute(declaration) => &declaration.header,
+        TypedAstDeclaration::SignalGroup(declaration) => &declaration.header,
+        TypedAstDeclaration::SignalController(declaration) => &declaration.header,
+        TypedAstDeclaration::ParkingArea(declaration) => &declaration.header,
+        TypedAstDeclaration::ParkingSpace(declaration) => &declaration.header,
+        TypedAstDeclaration::ParticipantClass(declaration) => &declaration.header,
+        TypedAstDeclaration::VehicleProfile(declaration) => &declaration.header,
+        TypedAstDeclaration::CanonicalFrame(declaration) => &declaration.header,
+        TypedAstDeclaration::AccessRule(declaration) => &declaration.header,
     }
 }
 
@@ -6625,7 +6611,7 @@ fn lane_edge_count(unit: &CompilationUnit) -> u64 {
     unit.modules
         .iter()
         .flat_map(|module| module.declarations.iter())
-        .filter(|declaration| matches!(declaration, SyntheticDeclaration::LaneEdge(_)))
+        .filter(|declaration| matches!(declaration, TypedAstDeclaration::LaneEdge(_)))
         .count()
         .try_into()
         .unwrap_or(u64::MAX)
@@ -6649,14 +6635,14 @@ fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts {
         .flat_map(|module| module.declarations.iter())
     {
         match declaration {
-            SyntheticDeclaration::LaneEdge(_) => {}
-            SyntheticDeclaration::RoadCorridor(corridor) => {
+            TypedAstDeclaration::LaneEdge(_) => {}
+            TypedAstDeclaration::RoadCorridor(corridor) => {
                 counts.road_corridors = counts.road_corridors.saturating_add(1);
                 counts.corridor_elements = counts
                     .corridor_elements
                     .saturating_add(u64::try_from(corridor.elements.len()).unwrap_or(u64::MAX));
             }
-            SyntheticDeclaration::RoadSection(section) => {
+            TypedAstDeclaration::RoadSection(section) => {
                 counts.road_sections = counts.road_sections.saturating_add(1);
                 counts.authoring_lanes = counts
                     .authoring_lanes
@@ -6670,27 +6656,27 @@ fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts {
                             )
                         }));
             }
-            SyntheticDeclaration::LaneGroup(_) => {
+            TypedAstDeclaration::LaneGroup(_) => {
                 counts.lane_groups = counts.lane_groups.saturating_add(1);
             }
-            SyntheticDeclaration::FacilityBand(_) => {
+            TypedAstDeclaration::FacilityBand(_) => {
                 counts.facility_bands = counts.facility_bands.saturating_add(1);
             }
-            SyntheticDeclaration::Junction(_)
-            | SyntheticDeclaration::Movement(_)
-            | SyntheticDeclaration::ManeuverPath(_)
-            | SyntheticDeclaration::StopLine(_)
-            | SyntheticDeclaration::ManeuverGate(_)
-            | SyntheticDeclaration::WaitingZone(_)
-            | SyntheticDeclaration::StaticRoute(_)
-            | SyntheticDeclaration::SignalGroup(_)
-            | SyntheticDeclaration::SignalController(_)
-            | SyntheticDeclaration::ParkingArea(_)
-            | SyntheticDeclaration::ParkingSpace(_)
-            | SyntheticDeclaration::ParticipantClass(_)
-            | SyntheticDeclaration::VehicleProfile(_)
-            | SyntheticDeclaration::CanonicalFrame(_)
-            | SyntheticDeclaration::AccessRule(_) => {}
+            TypedAstDeclaration::Junction(_)
+            | TypedAstDeclaration::Movement(_)
+            | TypedAstDeclaration::ManeuverPath(_)
+            | TypedAstDeclaration::StopLine(_)
+            | TypedAstDeclaration::ManeuverGate(_)
+            | TypedAstDeclaration::WaitingZone(_)
+            | TypedAstDeclaration::StaticRoute(_)
+            | TypedAstDeclaration::SignalGroup(_)
+            | TypedAstDeclaration::SignalController(_)
+            | TypedAstDeclaration::ParkingArea(_)
+            | TypedAstDeclaration::ParkingSpace(_)
+            | TypedAstDeclaration::ParticipantClass(_)
+            | TypedAstDeclaration::VehicleProfile(_)
+            | TypedAstDeclaration::CanonicalFrame(_)
+            | TypedAstDeclaration::AccessRule(_) => {}
         }
     }
     counts
@@ -6704,13 +6690,13 @@ fn junction_counts(unit: &CompilationUnit) -> JunctionCounts {
         .flat_map(|module| module.declarations.iter())
     {
         match declaration {
-            SyntheticDeclaration::Junction(_) => {
+            TypedAstDeclaration::Junction(_) => {
                 counts.junctions = counts.junctions.saturating_add(1);
             }
-            SyntheticDeclaration::Movement(_) => {
+            TypedAstDeclaration::Movement(_) => {
                 counts.movements = counts.movements.saturating_add(1);
             }
-            SyntheticDeclaration::ManeuverPath(path) => {
+            TypedAstDeclaration::ManeuverPath(path) => {
                 counts.maneuver_paths = counts.maneuver_paths.saturating_add(1);
                 counts.maneuver_path_edges = counts.maneuver_path_edges.saturating_add(
                     u64::try_from(path.internal_edges.len())
@@ -6736,10 +6722,10 @@ fn control_counts(unit: &CompilationUnit) -> ControlCounts {
         .flat_map(|module| module.declarations.iter())
     {
         match declaration {
-            SyntheticDeclaration::StopLine(_) => {
+            TypedAstDeclaration::StopLine(_) => {
                 counts.stop_lines = counts.stop_lines.saturating_add(1);
             }
-            SyntheticDeclaration::ManeuverGate(_) | SyntheticDeclaration::WaitingZone(_) => {}
+            TypedAstDeclaration::ManeuverGate(_) | TypedAstDeclaration::WaitingZone(_) => {}
             _ => {}
         }
     }
@@ -6753,7 +6739,7 @@ fn route_counts(unit: &CompilationUnit) -> RouteCounts {
         .iter()
         .flat_map(|module| module.declarations.iter())
     {
-        if let SyntheticDeclaration::StaticRoute(route) = declaration {
+        if let TypedAstDeclaration::StaticRoute(route) = declaration {
             let edge_count = u64::try_from(route.edge_sequence.len()).unwrap_or(u64::MAX);
             counts.static_routes = counts.static_routes.saturating_add(1);
             counts.route_edges = counts.route_edges.saturating_add(edge_count);
@@ -6775,10 +6761,10 @@ fn signal_counts(unit: &CompilationUnit) -> SignalCounts {
         .flat_map(|module| module.declarations.iter())
     {
         match declaration {
-            SyntheticDeclaration::SignalGroup(_) => {
+            TypedAstDeclaration::SignalGroup(_) => {
                 counts.groups = counts.groups.saturating_add(1);
             }
-            SyntheticDeclaration::SignalController(controller) => {
+            TypedAstDeclaration::SignalController(controller) => {
                 counts.controllers = counts.controllers.saturating_add(1);
                 counts.controller_groups = counts.controller_groups.saturating_add(
                     u64::try_from(controller.signal_groups.len()).unwrap_or(u64::MAX),
@@ -6795,7 +6781,7 @@ fn signal_counts(unit: &CompilationUnit) -> SignalCounts {
                             )
                         }));
             }
-            SyntheticDeclaration::ManeuverGate(gate)
+            TypedAstDeclaration::ManeuverGate(gate)
                 if matches!(gate.signal_control, OwnedSignalControl::Group(_)) =>
             {
                 counts.controlled_gates = counts.controlled_gates.saturating_add(1);
@@ -6814,10 +6800,10 @@ fn parking_counts(unit: &CompilationUnit) -> ParkingCounts {
         .flat_map(|module| module.declarations.iter())
     {
         match declaration {
-            SyntheticDeclaration::ParkingArea(_) => {
+            TypedAstDeclaration::ParkingArea(_) => {
                 counts.areas = counts.areas.saturating_add(1);
             }
-            SyntheticDeclaration::ParkingSpace(space) => {
+            TypedAstDeclaration::ParkingSpace(space) => {
                 counts.spaces = counts.spaces.saturating_add(1);
                 if space.parking_area.is_some() {
                     counts.memberships = counts.memberships.saturating_add(1);
@@ -6837,13 +6823,13 @@ fn access_counts(unit: &CompilationUnit) -> AccessCounts {
         .flat_map(|module| module.declarations.iter())
     {
         match declaration {
-            SyntheticDeclaration::ParticipantClass(_) => {
+            TypedAstDeclaration::ParticipantClass(_) => {
                 counts.participant_classes = counts.participant_classes.saturating_add(1);
             }
-            SyntheticDeclaration::VehicleProfile(_) => {
+            TypedAstDeclaration::VehicleProfile(_) => {
                 counts.vehicle_profiles = counts.vehicle_profiles.saturating_add(1);
             }
-            SyntheticDeclaration::AccessRule(rule) => {
+            TypedAstDeclaration::AccessRule(rule) => {
                 counts.access_rules = counts.access_rules.saturating_add(1);
                 counts.rule_class_references = counts.rule_class_references.saturating_add(
                     u64::try_from(rule.participant_classes.len()).unwrap_or(u64::MAX),
@@ -6862,7 +6848,7 @@ fn spatial_counts(unit: &CompilationUnit) -> SpatialCounts {
         .iter()
         .flat_map(|module| module.declarations.iter())
     {
-        if let SyntheticDeclaration::CanonicalFrame(frame) = declaration {
+        if let TypedAstDeclaration::CanonicalFrame(frame) = declaration {
             counts.canonical_frames = counts.canonical_frames.saturating_add(1);
             counts.lane_edge_geometries = counts.lane_edge_geometries.saturating_add(
                 u64::try_from(frame.lane_edge_geometries.len()).unwrap_or(u64::MAX),
@@ -6923,18 +6909,18 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
         for source_declaration in &module.declarations {
             let header = declaration_header(source_declaration);
             let bytes = match source_declaration {
-                SyntheticDeclaration::LaneEdge(_)
-                | SyntheticDeclaration::RoadCorridor(_)
-                | SyntheticDeclaration::Junction(_)
-                | SyntheticDeclaration::StaticRoute(_) => 22_u64
+                TypedAstDeclaration::LaneEdge(_)
+                | TypedAstDeclaration::RoadCorridor(_)
+                | TypedAstDeclaration::Junction(_)
+                | TypedAstDeclaration::StaticRoute(_) => 22_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
-                SyntheticDeclaration::RoadSection(_)
-                | SyntheticDeclaration::LaneGroup(_)
-                | SyntheticDeclaration::FacilityBand(_) => 44_u64
+                TypedAstDeclaration::RoadSection(_)
+                | TypedAstDeclaration::LaneGroup(_)
+                | TypedAstDeclaration::FacilityBand(_) => 44_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
-                SyntheticDeclaration::Movement(movement) => 56_u64
+                TypedAstDeclaration::Movement(movement) => 56_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX))
                     .saturating_add(
@@ -6945,31 +6931,31 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
                         u64::try_from(movement.directed_exit_approach_key.len())
                             .unwrap_or(u64::MAX),
                     ),
-                SyntheticDeclaration::ManeuverPath(_) => 88_u64
+                TypedAstDeclaration::ManeuverPath(_) => 88_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
-                SyntheticDeclaration::StopLine(_) => 22_u64
+                TypedAstDeclaration::StopLine(_) => 22_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
-                SyntheticDeclaration::ManeuverGate(_) | SyntheticDeclaration::WaitingZone(_) => {
+                TypedAstDeclaration::ManeuverGate(_) | TypedAstDeclaration::WaitingZone(_) => {
                     44_u64
                         .saturating_add(namespace_bytes)
                         .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX))
                 }
-                SyntheticDeclaration::SignalGroup(_)
-                | SyntheticDeclaration::SignalController(_)
-                | SyntheticDeclaration::ParkingArea(_)
-                | SyntheticDeclaration::ParkingSpace(_)
-                | SyntheticDeclaration::ParticipantClass(_)
-                | SyntheticDeclaration::VehicleProfile(_)
-                | SyntheticDeclaration::CanonicalFrame(_)
-                | SyntheticDeclaration::AccessRule(_) => 22_u64
+                TypedAstDeclaration::SignalGroup(_)
+                | TypedAstDeclaration::SignalController(_)
+                | TypedAstDeclaration::ParkingArea(_)
+                | TypedAstDeclaration::ParkingSpace(_)
+                | TypedAstDeclaration::ParticipantClass(_)
+                | TypedAstDeclaration::VehicleProfile(_)
+                | TypedAstDeclaration::CanonicalFrame(_)
+                | TypedAstDeclaration::AccessRule(_) => 22_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
             };
             total = total.saturating_add(bytes);
             largest = largest.max(bytes);
-            if let SyntheticDeclaration::RoadSection(section) = source_declaration {
+            if let TypedAstDeclaration::RoadSection(section) = source_declaration {
                 for lane in &section.lanes {
                     let lane_bytes = 44_u64.saturating_add(namespace_bytes).saturating_add(
                         u64::try_from(lane.header.stable_key.len()).unwrap_or(u64::MAX),
@@ -6978,7 +6964,7 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
                     largest = largest.max(lane_bytes);
                 }
             }
-            if let SyntheticDeclaration::SignalController(controller) = source_declaration {
+            if let TypedAstDeclaration::SignalController(controller) = source_declaration {
                 for phase in &controller.phases {
                     let phase_bytes = 44_u64.saturating_add(namespace_bytes).saturating_add(
                         u64::try_from(phase.header.stable_key.len()).unwrap_or(u64::MAX),

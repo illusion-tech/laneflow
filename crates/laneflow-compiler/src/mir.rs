@@ -21,7 +21,6 @@ use laneflow_static_contract::{
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::diagnostic::DiagnosticCollector;
 use crate::hir::{HirAccessTarget, HirCorridorElement, HirLaneEdgeKey, HirSignalControl, HirUnit};
-use crate::module::SourceDocumentOrdinal;
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
 /// 区分 MIR 模块表键的零尺寸阶段标记。
@@ -80,11 +79,6 @@ pub(crate) type MirAccessRuleKey = ArenaKey<MirAccessRuleTag>;
 pub(crate) struct MirModule {
     /// 模块稳定 authoring namespace。
     pub(crate) authoring_namespace_id: Arc<str>,
-    /// 与机器路径无关的来源文档键。
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) source_document_key: Arc<str>,
-    /// 编译单元来源文档登记中的显式序号；不能从 `MirModuleKey.raw()` 推断。
-    pub(crate) source_document_ordinal: SourceDocumentOrdinal,
     /// 模块声明位置。
     pub(crate) source_span: SourceSpan,
 }
@@ -443,7 +437,8 @@ pub(crate) struct MirWaitingZone {
 pub(crate) struct MirJunctionInternalEdge {
     pub(crate) edge: MirLaneEdgeKey,
     pub(crate) junction: MirJunctionKey,
-    pub(crate) source_path: MirManeuverPathKey,
+    /// 选择为规范主要来源的路径所属模块。
+    pub(crate) module: MirModuleKey,
     pub(crate) source_span: SourceSpan,
 }
 
@@ -917,8 +912,6 @@ pub(crate) fn lower_to_mir(
         let mir_key = modules
             .push(MirModule {
                 authoring_namespace_id: Arc::clone(&module.authoring_namespace_id),
-                source_document_key: Arc::clone(&module.source_document_key),
-                source_document_ordinal: module.source_document_ordinal,
                 source_span: module.source_span.clone(),
             })
             .map_err(|overflow| arena_overflow(overflow, &unit.limits, primary_span.clone()))?;
@@ -1148,7 +1141,9 @@ pub(crate) fn lower_to_mir(
         .map(|relation| MirJunctionInternalEdge {
             edge: hir_to_mir[relation.edge.index()],
             junction: junction_mapping[relation.junction.index()],
-            source_path: maneuver_path_mapping[relation.source_path.index()],
+            module: hir_module_to_mir[hir.maneuver_paths[relation.source_path.index()]
+                .module
+                .index()],
             source_span: relation.source_span.clone(),
         })
         .collect::<Vec<_>>();
@@ -1813,7 +1808,7 @@ mod tests {
         assert_eq!(mir.lane_edges.len(), 3);
         assert_eq!(mir.lane_edge_connections.len(), 2);
         assert_eq!(mir.mir_record_count, 5);
-        assert_eq!(mir.modules[1].source_document_key.as_ref(), "city/app");
+        assert_eq!(mir.modules[1].source_span.source_document_key(), "city/app");
         assert_eq!(mir.lane_edges[1].stable_id, hir.lane_edges[1].stable_id);
         assert_eq!(mir.lane_edges[1].length_meters, 12.5);
         assert_eq!(mir.lane_edges[1].speed_limit_meters_per_second, 13.75);

@@ -42,8 +42,15 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 保存后继制品所需的完整身份字段；来源位置不进入 LIR 语义摘要。公共 `Compiler` 已将该
 当前领域子集接入原子成功闭环：任一阶段失败时只返回结构化诊断，成功时同时返回只读
 `ValidatedCanonicalLir`、与其配对的 `ValidatedSourceMapInput` 和非错误级诊断。
-`sourceDocumentKey` 在整个编译单元内唯一，来源记录在 AST/HIR/MIR 释放前按 LIR
-稳定实体与 owner-local 关系冻结；动态路线生命周期、后继编译遍和制品发射仍未实现。
+`CompilationUnit` 内部只保留编译器私有的 `TypedAstModule` /
+`TypedAstDeclaration`，具体官方前端通过同一条原子私有接入路径提交。逻辑模块与
+一份或多份 `SourceDocumentDescriptor` 独立建模；模块使用版本化
+`sourceDocumentSetDigest`，每份文档单独保留键、SHA-256、长度与冷显示/审计来源。
+`LF-COMP-P100-INITIAL-v1` 保持不变且只支持每模块一份文档；
+`LF-COMP-P100-INITIAL-v2` 只新增 `max_source_document_count = 1566`。
+`sourceDocumentKey` 在整个编译单元内唯一，来源位置按每条 span 的文档键解析独立
+文档序号，再在 AST/HIR/MIR 释放前按 LIR 稳定实体与 owner-local 关系冻结；
+动态路线生命周期、后继编译遍和制品发射仍未实现。
 
 成功输出还通过 `CompilationMetrics` 暴露 LIR 逻辑记录数、逻辑输出字节、编译器控制
 峰值字节和同版本语义指纹；`Compiler::retained_capacity_bytes()` 单独报告跨编译保留

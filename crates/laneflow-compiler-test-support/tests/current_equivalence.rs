@@ -157,7 +157,7 @@ fn multi_gate_waiting_zone_preserves_gate_and_waiting_occurrences() {
 ///
 /// 该测试默认忽略，避免普通回归把墙钟测量误当成功能门禁。规模输入与
 /// `CompilationUnit` 均在计时区外建立；唯一计时区只覆盖 `Compiler::compile`。每级
-/// 只保留 min/median/max，不保存逐样本 raw，也不启动隔离子进程。
+/// 只保留 min/median/MAD/max，不保存逐样本 raw，也不启动隔离子进程。
 #[test]
 #[ignore = "只在 #292 生产性能基线重测时以 release 单线程显式运行"]
 fn p100_production_compiler_baseline() {
@@ -203,6 +203,13 @@ fn p100_production_compiler_baseline() {
         }
 
         elapsed_ns.sort_unstable();
+        let median_ns = elapsed_ns[PRODUCTION_BASELINE_SAMPLE_COUNT / 2];
+        let mut absolute_deviations = elapsed_ns
+            .iter()
+            .map(|sample| sample.abs_diff(median_ns))
+            .collect::<Vec<_>>();
+        absolute_deviations.sort_unstable();
+        let mad_ns = absolute_deviations[PRODUCTION_BASELINE_SAMPLE_COUNT / 2];
         let metrics = expected_metrics.unwrap();
         assert_eq!(lane_edge_count, 66 * copies);
         levels.push(json!({
@@ -212,7 +219,8 @@ fn p100_production_compiler_baseline() {
             "formalSampleCount": PRODUCTION_BASELINE_SAMPLE_COUNT,
             "wallClockNs": {
                 "min": elapsed_ns[0],
-                "median": elapsed_ns[PRODUCTION_BASELINE_SAMPLE_COUNT / 2],
+                "median": median_ns,
+                "mad": mad_ns,
                 "max": elapsed_ns[PRODUCTION_BASELINE_SAMPLE_COUNT - 1]
             },
             "lirRecordCount": metrics.lir_record_count(),

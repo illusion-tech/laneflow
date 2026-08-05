@@ -6,6 +6,14 @@
 
 /// 首个生产编译资源上限配置档的稳定标识符。
 const P100_INITIAL_V1_PROFILE_ID: &str = "LF-COMP-P100-INITIAL-v1";
+/// 首个显式限定多文档逻辑模块的生产配置档标识符。
+const P100_INITIAL_V2_PROFILE_ID: &str = "LF-COMP-P100-INITIAL-v2";
+
+#[derive(Clone, Copy)]
+enum CompileLimitsProfile {
+    P100InitialV1,
+    P100InitialV2,
+}
 
 /// 编译资源上限诊断使用的有类型维度。
 ///
@@ -16,6 +24,8 @@ const P100_INITIAL_V1_PROFILE_ID: &str = "LF-COMP-P100-INITIAL-v1";
 pub enum CompileLimitDimension {
     /// 编译单元中的来源模块数。
     ModuleCount,
+    /// 编译单元中独立登记的来源文档数。
+    SourceDocumentCount,
     /// 模块图中的显式导入边数。
     ImportEdgeCount,
     /// 单个模块的规范来源记录字节数。
@@ -72,6 +82,7 @@ impl CompileLimitDimension {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ModuleCount => "max_module_count",
+            Self::SourceDocumentCount => "max_source_document_count",
             Self::ImportEdgeCount => "max_import_edge_count",
             Self::SourceBytesPerModule => "max_source_bytes_per_module",
             Self::SourceBytesTotal => "max_source_bytes_total",
@@ -106,7 +117,9 @@ impl CompileLimitDimension {
 /// 具名配置档；本类型有意不实现 [`Default`]。
 #[derive(Clone)]
 pub struct CompileLimits {
+    profile: CompileLimitsProfile,
     max_module_count: u32,
+    max_source_document_count: Option<u32>,
     max_import_edge_count: u32,
     max_source_bytes_per_module: u32,
     max_source_bytes_total: u32,
@@ -141,7 +154,9 @@ impl CompileLimits {
     #[must_use]
     pub const fn p100_initial_v1() -> Self {
         Self {
+            profile: CompileLimitsProfile::P100InitialV1,
             max_module_count: 522,
+            max_source_document_count: None,
             max_import_edge_count: 1_032,
             max_source_bytes_per_module: 542_741,
             max_source_bytes_total: 542_741,
@@ -169,16 +184,45 @@ impl CompileLimits {
         }
     }
 
+    /// 选择 #315 G1 冻结的多文档生产资源配置档。
+    ///
+    /// v2 逐项继承 v1 的精确上限，只新增编译单元最多 1,566 份来源
+    /// 文档的显式维度。v1 依然只接受每模块一份文档的形状。
+    #[must_use]
+    pub const fn p100_initial_v2() -> Self {
+        let mut limits = Self::p100_initial_v1();
+        limits.profile = CompileLimitsProfile::P100InitialV2;
+        limits.max_source_document_count = Some(1_566);
+        limits
+    }
+
     /// 返回调用方显式选择的稳定配置档标识符。
     #[must_use]
     pub const fn profile_id(&self) -> &'static str {
-        P100_INITIAL_V1_PROFILE_ID
+        match self.profile {
+            CompileLimitsProfile::P100InitialV1 => P100_INITIAL_V1_PROFILE_ID,
+            CompileLimitsProfile::P100InitialV2 => P100_INITIAL_V2_PROFILE_ID,
+        }
+    }
+
+    /// 返回配置档是否显式支持独立来源文档数维度。
+    pub(crate) const fn source_document_count_limit(&self) -> Option<u64> {
+        match self.max_source_document_count {
+            Some(limit) => Some(limit as u64),
+            None => None,
+        }
     }
 
     /// 返回某维度的精确上限，并统一提升为 `u64` 供饱和计数比较。
     pub(crate) const fn value(&self, dimension: CompileLimitDimension) -> u64 {
         match dimension {
             CompileLimitDimension::ModuleCount => self.max_module_count as u64,
+            CompileLimitDimension::SourceDocumentCount => match self.max_source_document_count {
+                Some(limit) => limit as u64,
+                None => {
+                    panic!("selected compile-limits profile has no source-document-count dimension")
+                }
+            },
             CompileLimitDimension::ImportEdgeCount => self.max_import_edge_count as u64,
             CompileLimitDimension::SourceBytesPerModule => self.max_source_bytes_per_module as u64,
             CompileLimitDimension::SourceBytesTotal => self.max_source_bytes_total as u64,
@@ -252,6 +296,43 @@ impl CompileLimits {
         self.max_compiler_controlled_live_bytes = compiler_controlled_live_bytes;
         self
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_admission_limit(
+        mut self,
+        dimension: CompileLimitDimension,
+        limit: u32,
+    ) -> Self {
+        match dimension {
+            CompileLimitDimension::ModuleCount => self.max_module_count = limit,
+            CompileLimitDimension::SourceDocumentCount => {
+                self.max_source_document_count = Some(limit)
+            }
+            CompileLimitDimension::ImportEdgeCount => self.max_import_edge_count = limit,
+            CompileLimitDimension::SourceBytesTotal => self.max_source_bytes_total = limit,
+            CompileLimitDimension::DeclarationCount => self.max_declaration_count = limit,
+            CompileLimitDimension::TypedAstRecordCount => self.max_typed_ast_record_count = limit,
+            CompileLimitDimension::ReferenceCount => self.max_reference_count = limit,
+            CompileLimitDimension::RelationOccurrenceCount => {
+                self.max_relation_occurrence_count = limit
+            }
+            CompileLimitDimension::IdentityFieldOccurrenceCount => {
+                self.max_identity_field_occurrence_count = limit
+            }
+            CompileLimitDimension::SymbolCount => self.max_symbol_count = limit,
+            CompileLimitDimension::StringItemCount => self.max_string_item_count = limit,
+            CompileLimitDimension::TotalStringBytes => self.max_total_string_bytes = limit,
+            CompileLimitDimension::ManeuverGateCount => self.max_maneuver_gate_count = limit,
+            CompileLimitDimension::WaitingZoneCount => self.max_waiting_zone_count = limit,
+            CompileLimitDimension::RouteOccurrenceCount => self.max_route_occurrence_count = limit,
+            CompileLimitDimension::GeometryPointCount => self.max_geometry_point_count = limit,
+            CompileLimitDimension::CompilerControlledLiveBytes => {
+                self.max_compiler_controlled_live_bytes = limit
+            }
+            _ => panic!("dimension is not enforced by common official-module admission"),
+        }
+        self
+    }
 }
 
 #[cfg(test)]
@@ -264,6 +345,7 @@ mod tests {
 
         assert_eq!(limits.profile_id(), "LF-COMP-P100-INITIAL-v1");
         assert_eq!(limits.max_module_count, 522);
+        assert_eq!(limits.max_source_document_count, None);
         assert_eq!(limits.max_import_edge_count, 1_032);
         assert_eq!(limits.max_source_bytes_per_module, 542_741);
         assert_eq!(limits.max_source_bytes_total, 542_741);
@@ -288,6 +370,45 @@ mod tests {
         assert_eq!(limits.max_output_bytes, 2_782_758);
         assert_eq!(limits.max_compiler_controlled_live_bytes, 43_269_120);
         assert_eq!(limits.max_retained_capacity_bytes, 36_925_688);
+    }
+
+    #[test]
+    fn p100_initial_v2_only_adds_the_accepted_source_document_limit() {
+        let v1 = CompileLimits::p100_initial_v1();
+        let v2 = CompileLimits::p100_initial_v2();
+
+        assert_eq!(v2.profile_id(), "LF-COMP-P100-INITIAL-v2");
+        assert_eq!(v1.source_document_count_limit(), None);
+        assert_eq!(v2.source_document_count_limit(), Some(1_566));
+        for dimension in [
+            CompileLimitDimension::ModuleCount,
+            CompileLimitDimension::ImportEdgeCount,
+            CompileLimitDimension::SourceBytesPerModule,
+            CompileLimitDimension::SourceBytesTotal,
+            CompileLimitDimension::DeclarationCount,
+            CompileLimitDimension::TypedAstRecordCount,
+            CompileLimitDimension::HirRecordCount,
+            CompileLimitDimension::MirRecordCount,
+            CompileLimitDimension::LirRecordCount,
+            CompileLimitDimension::ReferenceCount,
+            CompileLimitDimension::RelationOccurrenceCount,
+            CompileLimitDimension::IdentityFieldOccurrenceCount,
+            CompileLimitDimension::RouteOccurrenceCount,
+            CompileLimitDimension::ManeuverGateCount,
+            CompileLimitDimension::WaitingZoneCount,
+            CompileLimitDimension::GeometryPointCount,
+            CompileLimitDimension::SymbolCount,
+            CompileLimitDimension::StringItemCount,
+            CompileLimitDimension::SingleStringBytes,
+            CompileLimitDimension::TotalStringBytes,
+            CompileLimitDimension::DiagnosticCount,
+            CompileLimitDimension::StageScratchBytes,
+            CompileLimitDimension::OutputBytes,
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            CompileLimitDimension::RetainedCapacityBytes,
+        ] {
+            assert_eq!(v2.value(dimension), v1.value(dimension));
+        }
     }
 
     #[test]
