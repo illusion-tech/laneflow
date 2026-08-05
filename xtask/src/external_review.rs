@@ -788,6 +788,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     }
 
     let mut evidence = Vec::new();
+    let mut unbound_clean_ambiguities = Vec::new();
     let mut stale_or_dismissed = false;
     let mut unthreaded_findings = 0;
     for review in &pr.reviews.nodes {
@@ -892,10 +893,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             continue;
         }
         let Some(reviewed_head) = parse_reviewed_commit(&comment.body) else {
-            diagnostics.push(format!(
-                "Codex clean comment `{}` 缺少可解析的 Reviewed commit",
-                comment.id
-            ));
+            push_unbound_clean_ambiguity(&mut unbound_clean_ambiguities, &mut diagnostics, comment);
             continue;
         };
         push_evidence(
@@ -951,6 +949,17 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         .rev()
         .find(|item| item.outcome == EvidenceOutcome::Findings)
         .copied();
+    for ambiguity in &unbound_clean_ambiguities {
+        let superseded = latest_clean.is_some_and(|clean| {
+            timestamp_second(&clean.submitted_at) > timestamp_second(&ambiguity.created_at)
+        });
+        if !superseded {
+            diagnostics.push(format!(
+                "Codex clean comment `{}` 缺少可解析的 Reviewed commit，且没有严格晚于它的 current-head clean completion",
+                ambiguity.id
+            ));
+        }
+    }
     let finding_count = finding_thread_ids.len() + unthreaded_findings;
 
     let (state, requires_rereview, primary, state_diagnostic) = if !diagnostics.is_empty() {
@@ -1063,6 +1072,36 @@ struct EvidenceInput<'a> {
     outcome: EvidenceOutcome,
     submitted_at: &'a str,
     evidence_url: &'a str,
+}
+
+struct UnboundCleanAmbiguity {
+    id: String,
+    created_at: String,
+}
+
+fn push_unbound_clean_ambiguity(
+    ambiguities: &mut Vec<UnboundCleanAmbiguity>,
+    diagnostics: &mut Vec<String>,
+    comment: &IssueComment,
+) {
+    if !valid_timestamp(&comment.created_at) {
+        diagnostics.push(format!(
+            "Codex clean comment `{}` 的 createdAt 不是 UTC RFC3339：{}",
+            comment.id, comment.created_at
+        ));
+        return;
+    }
+    if !valid_github_url(&comment.url) {
+        diagnostics.push(format!(
+            "Codex clean comment `{}` 的 evidence URL 不是 GitHub HTTPS URL：{}",
+            comment.id, comment.url
+        ));
+        return;
+    }
+    ambiguities.push(UnboundCleanAmbiguity {
+        id: comment.id.clone(),
+        created_at: comment.created_at.clone(),
+    });
 }
 
 fn push_evidence(
@@ -1265,6 +1304,10 @@ fn valid_timestamp(value: &str) -> bool {
         return true;
     }
     bytes[19] == b'.' && bytes[20..bytes.len() - 1].iter().all(u8::is_ascii_digit)
+}
+
+fn timestamp_second(value: &str) -> &str {
+    &value[..19]
 }
 
 fn valid_github_url(value: &str) -> bool {
@@ -2221,6 +2264,22 @@ mod tests {
                 ExternalReviewState::ProviderError,
             ),
             (
+                include_str!(
+                    "../fixtures/external-review/codex-old-no-sha-then-current-clean.json"
+                ),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!("../fixtures/external-review/codex-current-clean-then-no-sha.json"),
+                ExternalReviewState::ProviderError,
+            ),
+            (
+                include_str!(
+                    "../fixtures/external-review/codex-old-no-sha-same-second-current-clean.json"
+                ),
+                ExternalReviewState::ProviderError,
+            ),
+            (
                 include_str!("../fixtures/external-review/provider-error.json"),
                 ExternalReviewState::ProviderError,
             ),
@@ -2272,6 +2331,42 @@ mod tests {
         assert_eq!(result.state, ExternalReviewState::ProviderError);
         assert!(
             result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("在创建后被编辑"))
+        );
+    }
+
+    #[test]
+    fn only_strictly_later_current_head_clean_supersedes_unbound_clean() {
+        let superseded = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/codex-old-no-sha-then-current-clean.json"
+        )));
+        let late_ambiguity = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/codex-current-clean-then-no-sha.json"
+        )));
+        let same_second = evaluate_snapshot(&fixture(include_str!(
+            "../fixtures/external-review/codex-old-no-sha-same-second-current-clean.json"
+        )));
+        let mut edited_snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-old-no-sha-then-current-clean.json"
+        ));
+        edited_snapshot.pull_request.comments.nodes[0].updated_at =
+            "2026-08-05T07:00:01Z".to_string();
+        let edited = evaluate_snapshot(&edited_snapshot);
+
+        assert_eq!(superseded.state, ExternalReviewState::Pass);
+        assert!(superseded.diagnostics.is_empty());
+        assert_eq!(late_ambiguity.state, ExternalReviewState::ProviderError);
+        assert_eq!(same_second.state, ExternalReviewState::ProviderError);
+        for result in [late_ambiguity, same_second] {
+            assert!(result.diagnostics.iter().any(|diagnostic| {
+                diagnostic.contains("没有严格晚于它的 current-head clean completion")
+            }));
+        }
+        assert_eq!(edited.state, ExternalReviewState::ProviderError);
+        assert!(
+            edited
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.contains("在创建后被编辑"))

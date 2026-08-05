@@ -1,7 +1,7 @@
 # GitHub 工作流
 
 **文档状态**: Active  
-**最后更新**: 2026-07-24
+**最后更新**: 2026-08-05
 **适用范围**: LaneFlow 的 Issue、PR、Project、Milestone、Release 和 CI 治理
 
 ## 1. 工作流原则
@@ -141,7 +141,7 @@ Delivery PR / Related PRs 关联规则：
 
 - PR author 可以做 self-review 并担任 G3 Owner，但不能把自己的 review 计入外部 reviewer 数量。
 - Copilot、Codex Connector 与人工 reviewer 通过 provider adapter 归一化；只信任 allowlist actor 和可追溯 GitHub event，不信任作者转贴文本。
-- review request、reaction、任务启动和无 reviewed SHA 摘要只表示 pending。
+- review request、reaction 和任务启动只表示 pending。受信任 Codex provider 的无 reviewed SHA clean 摘要本身不计为 completion，并形成失败关闭的时序歧义；只有严格晚于它且绑定 current exact head 的字段完整有效 clean completion 才能覆盖该歧义。
 - `reviewThreads=0` 只表示当前没有 unresolved thread；没有有效 completion 时仍为未审阅。
 - finding 被作者 resolve 后进入 `AwaitingRereview`，必须重新请求 reviewer 并取得 current-head clean completion。
 - new push 或 review dismissal 使旧 completion、Check 与 G3 comment stale。G3 comment 必须新增，不得编辑旧评论回填。
@@ -174,7 +174,7 @@ R0 fixture / 历史事件 replay 使用版本化 snapshot：
 cargo +1.96.0 run --locked -p xtask -- check-external-review --input <snapshot.json> --format json --expect <state>
 ```
 
-snapshot 与结果均使用 `schemaVersion: 1`。live evaluator 读取 author、current head/base、review requests、reviews、issue comments 和 review threads，并在计算后再次读取 head/base；任一 connection 超过 100 条、thread comment 截断、actor/SHA/timestamp 缺失、provider 文案歧义或二次读取发生竞态时返回 `provider_error`。`--expect` 只用于 fixture/replay 断言；未提供时只有 `pass` 退出成功，`waived` 仍保持独立状态。
+snapshot 与结果均使用 `schemaVersion: 1`。live evaluator 读取 author、current head/base、review requests、reviews、issue comments 和 review threads，并在计算后再次读取 head/base；任一 connection 超过 100 条、thread comment 截断、actor/timestamp 缺失、provider 文案歧义或二次读取发生竞态时返回 `provider_error`。review/review comment 的 SHA 缺失同样失败关闭；唯一窄例外是受信任 Codex provider 的无绑定 clean comment 可被创建/提交时间严格更晚、绑定 current exact head 且字段完整有效的 clean completion supersede。仅有无绑定 clean、最终有效 current-head clean 之后又出现无绑定 clean、两者同秒无法证明先后、comment 被编辑，或时间/URL/OID 无效时仍返回 `provider_error`。`--expect` 只用于 fixture/replay 断言；未提供时只有 `pass` 退出成功，`waived` 仍保持独立状态。
 
 `check-gate-evidence g3` 的 external-review 集成以 Issue #230 的 G2-B 增量开工记录时间 `2026-07-24T15:16:21Z` 为迁移边界：更早的 G3 comment 保留 legacy 历史语义，不追溯要求新增字段；该时点及之后创建的 G3 comment 必须显式包含 `Gate 结果`，是未编辑的 append-only 记录，并包含完整 current head。`G3 Pass` / `R0-R1 bootstrap` 必须晚于 live evaluator 识别的最终 completion；`G3 Waived` 必须使用 `development-gates.md` 规定的 `external-review-waiver:v1` 结构化记录，live evaluator 保持 `waived` 而不冒充 `pass`。waiver 路径只读取并二次确认 PR number、author、draft、current head/base identity，不依赖 provider review connection；GitHub identity API 不可读、head/base 竞态或 Draft PR 仍然 fail closed。
 

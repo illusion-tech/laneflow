@@ -1,7 +1,7 @@
 # 开发闸口
 
 **文档状态**: Active  
-**最后更新**: 2026-07-24
+**最后更新**: 2026-08-05
 
 **适用范围**: LaneFlow 的需求、设计、实现、评审与完成治理
 
@@ -199,7 +199,7 @@ G1 证据可以是：
 - PR author 可以且应执行 author self-review，并可以同时担任 Maintainer / G3 Owner。
 - author self-review 不计入外部 reviewer 数量；G3 Owner 负责最终判断，但不能自行补写缺失的外部审阅证据。
 - “外部”指独立于 PR author 的受信任审阅执行主体，不要求必须是另一名自然人。受信任的 Copilot、Codex Connector 或其他 GitHub actor/provider 可以满足门槛；其他贡献者创建 PR 时，`wangzishi` 的人工 `APPROVED` 也可以满足门槛。
-- 作者转贴的本地 Cursor / Agent 输出、作者本人发布的“已审阅”文字、review request、reaction、pending 状态和没有 reviewed SHA 的摘要均不计数。
+- 作者转贴的本地 Cursor / Agent 输出、作者本人发布的“已审阅”文字、review request、reaction、pending 状态和没有 reviewed SHA 的摘要均不计数。受信任 Codex provider 的无绑定 clean 摘要还形成失败关闭的时序歧义；只有严格晚于它、绑定 current exact head 且字段完整有效的 clean completion 才能 supersede 该歧义。
 
 有效 completion event 必须记录：
 
@@ -228,6 +228,7 @@ AwaitingReview
 - 当前 exact head 首次得到一个有效 reviewer 的 clean completion 后，才满足 reviewer 数量门槛。
 - 出现 finding 后，仅修复代码、回复或由作者 resolve thread 不能恢复为 clean；必须形成 `finding -> disposition -> exact-head clean re-review`。
 - `unresolved actionable threads == 0` 是必要条件，不是充分条件。
+- 受信任 Codex provider 创建且保持未编辑、时间与 URL 有效、符合 clean marker 但缺少可解析 `Reviewed commit` 的 comment，是无绑定 clean 歧义事件。只有创建/提交时间严格晚于该事件、actor/provider 可信、绑定 current exact head 且字段完整有效的 clean completion 才能覆盖它；GitHub 秒级时间相同不能证明先后。仅有此类歧义，或最后一个有效 current-head clean completion 之后仍有此类歧义，均返回 `provider_error`。被编辑 comment、无效时间/URL/OID、分页截断、actor/provider 不可信和 head/base 竞态不适用该窄规则，继续直接失败关闭。
 - R1 没有原生 thread-resolution workflow event；每批 resolve / unresolve 后必须新增顶层 `external-review: thread-state-changed` comment，等待 trusted publisher 重读状态。R2 必须由专用 GitHub App 的 `pull_request_review_thread` webhook 或等价自动信号覆盖两个方向；若 unresolve 仍需人工 marker，不得进入 R2。
 - 首版标准路径只接受 exact-head review。content-equivalent rebase 不自动继承 Pass，只能按显式例外处理。
 
