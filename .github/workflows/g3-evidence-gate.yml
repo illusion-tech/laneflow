@@ -188,12 +188,13 @@ jobs:
           targets="$DIRECT_PRS"
           resolver_failed=false
           while IFS= read -r pr_number; do
+            resolver_stderr="${RUNNER_TEMP}/g3-evidence-resolver-${pr_number}.stderr"
             set +e
             discovered="$(
               cargo +1.96.0 run --quiet --locked -p xtask -- \
                 resolve-g3-evidence-shadow-targets \
                 --repo "$REPOSITORY" \
-                --pr "$pr_number" 2>&1
+                --pr "$pr_number" 2>"$resolver_stderr"
             )"
             resolver_status=$?
             set -e
@@ -201,7 +202,10 @@ jobs:
               'type == "array" and all(.[]; type == "number" and . > 0)' \
               <<<"$discovered" >/dev/null; then
               echo "::warning::Dependent target discovery failed for PR #${pr_number}; refreshing every open main PR"
-              printf '%s\n' "$discovered"
+              printf '%s\n' "$discovered" >&2
+              if [[ -s "$resolver_stderr" ]]; then
+                sed 's/^/resolver stderr: /' "$resolver_stderr" >&2
+              fi
               resolver_failed=true
               break
             fi
@@ -252,7 +256,7 @@ jobs:
       matrix: ${{ fromJSON(needs.resolve-targets.outputs.matrix) }}
     concurrency:
       group: g3-evidence-gate-pr-${{ matrix.pr }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout trusted validator from main
@@ -311,36 +315,43 @@ jobs:
           )"
 
           if [[ "$initial_eligibility" == "eligible" ]]; then
-            set +e
-            validation_output="$(
-              cargo +1.96.0 run --locked -p xtask -- \
-                check-gate-evidence-target \
-                --repo "$REPOSITORY" \
-                --pr "$PR_NUMBER" 2>&1
-            )"
-            validation_exit=$?
-            set -e
-            if [[ "$validation_exit" -eq 0 && "$ALLOW_SUCCESS" == "true" ]]; then
-              if [[ ! "$MARKER_COMMENT_ID" =~ ^[1-9][0-9]*$ ]]; then
-                validation_output="${validation_output}\n\nTrusted marker comment ID is missing or invalid."
-                validation_exit=1
-              else
-                set +e
-                marker_output="$(
-                  cargo +1.96.0 run --locked -p xtask -- \
-                    check-g3-evidence-marker \
-                    --repo "$REPOSITORY" \
-                    --pr "$PR_NUMBER" \
-                    --comment-id "$MARKER_COMMENT_ID" 2>&1
-                )"
-                marker_exit=$?
-                set -e
-                validation_output="${validation_output}\n\n${marker_output}"
-                if [[ "$marker_exit" -ne 0 ]]; then
-                  validation_exit=$marker_exit
+            evaluate_evidence() {
+              local marker_exit
+              local marker_output
+
+              set +e
+              validation_output="$(
+                cargo +1.96.0 run --locked -p xtask -- \
+                  check-gate-evidence-target \
+                  --repo "$REPOSITORY" \
+                  --pr "$PR_NUMBER" 2>&1
+              )"
+              validation_exit=$?
+              set -e
+              if [[ "$validation_exit" -eq 0 && "$ALLOW_SUCCESS" == "true" ]]; then
+                if [[ ! "$MARKER_COMMENT_ID" =~ ^[1-9][0-9]*$ ]]; then
+                  validation_output="${validation_output}\n\nTrusted marker comment ID is missing or invalid."
+                  validation_exit=1
+                else
+                  set +e
+                  marker_output="$(
+                    cargo +1.96.0 run --locked -p xtask -- \
+                      check-g3-evidence-marker \
+                      --repo "$REPOSITORY" \
+                      --pr "$PR_NUMBER" \
+                      --comment-id "$MARKER_COMMENT_ID" 2>&1
+                  )"
+                  marker_exit=$?
+                  set -e
+                  validation_output="${validation_output}\n\n${marker_output}"
+                  if [[ "$marker_exit" -ne 0 ]]; then
+                    validation_exit=$marker_exit
+                  fi
                 fi
               fi
-            fi
+            }
+
+            evaluate_evidence
           else
             validation_output="PR #${PR_NUMBER} is not eligible for G3 evidence: ${initial_eligibility}"
             validation_exit=1
@@ -361,12 +372,41 @@ jobs:
             ' <<<"$final_pr"
           )"
           if [[ "$initial_head" != "$final_head" || "$initial_base" != "$final_base" || "$final_head_repo" != "$REPOSITORY" ]]; then
-            echo "PR identity changed while G3 evidence was being evaluated" >&2
-            exit 1
+            validation_output="${validation_output}\n\nPR identity changed while G3 evidence was being evaluated; publishing failure on the originally evaluated head."
+            validation_exit=1
           fi
           if [[ "$initial_eligibility" != "$final_eligibility" ]]; then
             validation_output="${validation_output}\n\nPR eligibility changed during evaluation: ${initial_eligibility} -> ${final_eligibility}"
             validation_exit=1
+          fi
+
+          if [[ "$validation_exit" -eq 0 && "$ALLOW_SUCCESS" == "true" && "$final_eligibility" == "eligible" ]]; then
+            first_validation_output="$validation_output"
+            evaluate_evidence
+            validation_output="${first_validation_output}\n\nFinal trusted revalidation:\n${validation_output}"
+
+            publish_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+            publish_head="$(jq -er '.head.sha' <<<"$publish_pr")"
+            publish_base="$(jq -er '.base.sha' <<<"$publish_pr")"
+            publish_head_repo="$(jq -er '.head.repo.full_name' <<<"$publish_pr")"
+            publish_eligibility="$(
+              jq -r --arg repo "$REPOSITORY" '
+                if .state != "open" then "not-open"
+                elif .draft then "draft"
+                elif .base.ref != "main" then "non-main"
+                elif .head.repo.full_name != $repo then "cross-repository"
+                else "eligible"
+                end
+              ' <<<"$publish_pr"
+            )"
+            if [[ "$final_head" != "$publish_head" || "$final_base" != "$publish_base" || "$final_head_repo" != "$publish_head_repo" ]]; then
+              validation_output="${validation_output}\n\nPR identity changed during final trusted revalidation."
+              validation_exit=1
+            fi
+            if [[ "$final_eligibility" != "$publish_eligibility" ]]; then
+              validation_output="${validation_output}\n\nPR eligibility changed during final trusted revalidation: ${final_eligibility} -> ${publish_eligibility}"
+              validation_exit=1
+            fi
           fi
 
           validation_output="${validation_output:0:14000}"
