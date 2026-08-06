@@ -2,8 +2,6 @@ name: G3 Evidence Gate Shadow
 
 on:
   pull_request_target:
-    branches:
-      - main
     types:
       - opened
       - reopened
@@ -35,6 +33,17 @@ on:
         description: PR number to evaluate
         required: true
         type: string
+
+concurrency:
+  group: >-
+    g3-evidence-gate-event-${{
+      github.event.pull_request.number ||
+      github.event.issue.number ||
+      github.event.workflow_run.pull_requests[0].number ||
+      inputs.pr_number ||
+      github.run_id
+    }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
