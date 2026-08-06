@@ -50,6 +50,8 @@ DSL）已接入车道图边、完整横断面所有者树，以及由 `Junction`
 `LF-COMP-P100-INITIAL-v2` 只新增 `max_source_document_count = 1566`。
 `sourceDocumentKey` 在整个编译单元内唯一，来源位置按每条 span 的文档键解析独立
 文档序号，再在 AST/HIR/MIR 释放前按 LIR 稳定实体与 owner-local 关系冻结；
+共同准入分别核算构建器存续量、模块图冻结 scratch、构建峰值和成功结果存续量，模块索引、
+文档索引及模块包装均不能游离于 `CompileLimits`；
 动态路线生命周期、后继编译遍和制品发射仍未实现。
 
 成功输出还通过 `CompilationMetrics` 暴露 LIR 逻辑记录数、逻辑输出字节、编译器控制

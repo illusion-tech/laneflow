@@ -326,6 +326,7 @@ impl CompileLimits {
             CompileLimitDimension::WaitingZoneCount => self.max_waiting_zone_count = limit,
             CompileLimitDimension::RouteOccurrenceCount => self.max_route_occurrence_count = limit,
             CompileLimitDimension::GeometryPointCount => self.max_geometry_point_count = limit,
+            CompileLimitDimension::StageScratchBytes => self.max_stage_scratch_bytes = limit,
             CompileLimitDimension::CompilerControlledLiveBytes => {
                 self.max_compiler_controlled_live_bytes = limit
             }

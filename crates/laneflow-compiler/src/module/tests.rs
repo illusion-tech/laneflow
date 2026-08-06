@@ -777,6 +777,157 @@ fn common_admission_enforces_every_owned_cumulative_resource_dimension_atomicall
 }
 
 #[test]
+fn admission_sizing_accounts_for_builder_indexes_wrappers_and_result_modules() {
+    let limits = CompileLimits::p100_initial_v2();
+    let mut builder = CompilationUnitBuilder::new(limits.clone());
+    builder
+        .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
+        .unwrap();
+
+    let sizing = AdmissionSizing::from_totals(
+        builder.totals,
+        limits.value(CompileLimitDimension::DiagnosticCount),
+    );
+    let expected_document_index = source_document_index_requested_bytes(1);
+    let expected_module_index = requested_hash_table_bytes::<Arc<str>, usize>(1);
+    assert_eq!(
+        sizing.builder_live_bytes,
+        builder
+            .totals
+            .module_payload_live_bytes
+            .saturating_add(expected_document_index)
+            .saturating_add(expected_module_index)
+            .saturating_add(size_bytes::<AdmittedOfficialModule>(1))
+    );
+    assert_eq!(
+        sizing.result_live_bytes,
+        builder
+            .totals
+            .module_payload_live_bytes
+            .saturating_add(expected_document_index)
+            .saturating_add(size_bytes::<TypedAstModule>(1))
+    );
+    assert!(sizing.build_scratch_bytes > 0);
+    assert!(sizing.build_peak_live_bytes > sizing.builder_live_bytes);
+
+    let unit = builder.build().unwrap();
+    assert_eq!(unit.controlled_live_bytes, sizing.result_live_bytes);
+}
+
+#[test]
+fn build_checks_admission_scratch_and_peak_boundaries_before_freezing() {
+    fn sizing_for_one_module() -> AdmissionSizing {
+        let limits = CompileLimits::p100_initial_v2();
+        let mut builder = CompilationUnitBuilder::new(limits.clone());
+        builder
+            .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
+            .unwrap();
+        AdmissionSizing::from_totals(
+            builder.totals,
+            limits.value(CompileLimitDimension::DiagnosticCount),
+        )
+    }
+
+    fn build_with_limit(
+        dimension: CompileLimitDimension,
+        limit: u32,
+    ) -> Result<CompilationUnit, DiagnosticBundle> {
+        let limits = CompileLimits::p100_initial_v2().with_test_admission_limit(dimension, limit);
+        let mut builder = CompilationUnitBuilder::new(limits);
+        builder
+            .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
+            .unwrap();
+        builder.build()
+    }
+
+    let sizing = sizing_for_one_module();
+    for (dimension, observed) in [
+        (
+            CompileLimitDimension::StageScratchBytes,
+            sizing.build_scratch_bytes,
+        ),
+        (
+            CompileLimitDimension::CompilerControlledLiveBytes,
+            sizing.build_peak_live_bytes,
+        ),
+    ] {
+        let boundary = u32::try_from(observed).unwrap();
+        let diagnostics = expect_diagnostics(build_with_limit(dimension, boundary - 1));
+        assert!(matches!(
+            diagnostics.diagnostics()[0].payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: actual_dimension,
+                limit,
+                observed: actual_observed,
+            } if *actual_dimension == dimension
+                && *limit == u64::from(boundary - 1)
+                && *actual_observed == observed
+        ));
+
+        let unit = build_with_limit(dimension, boundary).unwrap();
+        assert_eq!(unit.module_count(), 1);
+    }
+}
+
+#[test]
+fn default_profile_can_freeze_its_maximum_module_count() {
+    let limits = CompileLimits::p100_initial_v2();
+    let mut builder = CompilationUnitBuilder::new(limits.clone());
+    for index in 0..limits.value(CompileLimitDimension::ModuleCount) {
+        let namespace = format!("city/{index:03}");
+        let document = format!("source/{index:03}");
+        builder
+            .add_synthetic_module(module_with_document(&namespace, &document, &[]))
+            .unwrap();
+    }
+    let sizing = AdmissionSizing::from_totals(
+        builder.totals,
+        limits.value(CompileLimitDimension::DiagnosticCount),
+    );
+    assert!(sizing.build_scratch_bytes <= limits.value(CompileLimitDimension::StageScratchBytes));
+    assert!(
+        sizing.build_peak_live_bytes
+            <= limits.value(CompileLimitDimension::CompilerControlledLiveBytes)
+    );
+
+    let unit = builder.build().unwrap();
+    assert_eq!(
+        u64::try_from(unit.module_count()).unwrap(),
+        limits.value(CompileLimitDimension::ModuleCount)
+    );
+}
+
+#[test]
+fn build_limit_diagnostic_uses_canonical_module_context() {
+    fn add_modules(builder: &mut CompilationUnitBuilder, namespaces: [&str; 2]) {
+        for namespace in namespaces {
+            let document = format!("source/{namespace}");
+            builder
+                .add_synthetic_module(module_with_document(namespace, &document, &[]))
+                .unwrap();
+        }
+    }
+
+    let default_limits = CompileLimits::p100_initial_v2();
+    let mut sizing_builder = CompilationUnitBuilder::new(default_limits.clone());
+    add_modules(&mut sizing_builder, ["city/z", "city/a"]);
+    let sizing = AdmissionSizing::from_totals(
+        sizing_builder.totals,
+        default_limits.value(CompileLimitDimension::DiagnosticCount),
+    );
+    let failing_limit = u32::try_from(sizing.build_scratch_bytes).unwrap() - 1;
+
+    for namespaces in [["city/z", "city/a"], ["city/a", "city/z"]] {
+        let limits = CompileLimits::p100_initial_v2()
+            .with_test_admission_limit(CompileLimitDimension::StageScratchBytes, failing_limit);
+        let mut builder = CompilationUnitBuilder::new(limits);
+        add_modules(&mut builder, namespaces);
+        let diagnostics = expect_diagnostics(builder.build());
+        assert_eq!(diagnostics.diagnostics()[0].stable_key(), Some("city/a"));
+    }
+}
+
+#[test]
 fn v2_source_document_count_accepts_boundary_and_rejects_boundary_plus_one_atomically() {
     fn document_inputs(count: usize) -> (Vec<String>, Vec<Vec<u8>>) {
         let keys = (0..count)
@@ -1106,7 +1257,7 @@ fn benchmark_common_admission_only_reports_median_mad_and_memory() {
             .collect()
     }
 
-    fn run_once(modules: Vec<TestOfficialModule>) -> (u128, u64, u64) {
+    fn run_once(modules: Vec<TestOfficialModule>) -> (u128, AdmissionSizing, u64) {
         let origin_bytes = modules
             .iter()
             .flat_map(|module| module.admitted.source_documents.iter())
@@ -1115,25 +1266,35 @@ fn benchmark_common_admission_only_reports_median_mad_and_memory() {
                 total.saturating_add(u64::try_from(origin.len()).unwrap_or(u64::MAX))
             });
         let start = Instant::now();
-        let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v2());
+        let limits = CompileLimits::p100_initial_v2();
+        let diagnostic_limit = limits.value(CompileLimitDimension::DiagnosticCount);
+        let mut builder = CompilationUnitBuilder::new(limits);
         for module in modules {
             builder.add_test_official_module(module).unwrap();
         }
+        let totals = builder.totals;
         let unit = builder.build().unwrap();
         let elapsed = start.elapsed().as_nanos();
-        let controlled_live_bytes = black_box(unit.controlled_live_bytes);
+        let sizing = AdmissionSizing::from_totals(totals, diagnostic_limit);
+        let result_live_bytes = black_box(unit.controlled_live_bytes);
+        assert_eq!(result_live_bytes, sizing.result_live_bytes);
         black_box(unit);
-        (elapsed, controlled_live_bytes, origin_bytes)
+        (elapsed, sizing, origin_bytes)
     }
 
     let _warmup = run_once(fixture());
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
-    let mut controlled_live_bytes = 0_u64;
+    let mut sizing = AdmissionSizing {
+        builder_live_bytes: 0,
+        result_live_bytes: 0,
+        build_scratch_bytes: 0,
+        build_peak_live_bytes: 0,
+    };
     let mut origin_bytes = 0_u64;
     for _ in 0..SAMPLE_COUNT {
-        let (elapsed, live_bytes, measured_origin_bytes) = run_once(fixture());
+        let (elapsed, measured_sizing, measured_origin_bytes) = run_once(fixture());
         samples.push(elapsed);
-        controlled_live_bytes = live_bytes;
+        sizing = measured_sizing;
         origin_bytes = measured_origin_bytes;
     }
     samples.sort_unstable();
@@ -1145,7 +1306,11 @@ fn benchmark_common_admission_only_reports_median_mad_and_memory() {
     deviations.sort_unstable();
     let mad_ns = deviations[SAMPLE_COUNT / 2];
     println!(
-        "admission-only modules={MODULE_COUNT} documents={} warmups=1 samples={SAMPLE_COUNT} median_ns={median_ns} mad_ns={mad_ns} origin_bytes={origin_bytes} controlled_live_bytes={controlled_live_bytes}",
-        MODULE_COUNT * 3
+        "admission-only modules={MODULE_COUNT} documents={} warmups=1 samples={SAMPLE_COUNT} median_ns={median_ns} mad_ns={mad_ns} origin_bytes={origin_bytes} builder_live_bytes={} result_live_bytes={} build_scratch_bytes={} admission_peak_live_bytes={}",
+        MODULE_COUNT * 3,
+        sizing.builder_live_bytes,
+        sizing.result_live_bytes,
+        sizing.build_scratch_bytes,
+        sizing.build_peak_live_bytes,
     );
 }
