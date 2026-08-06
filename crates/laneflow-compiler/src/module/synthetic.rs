@@ -2937,18 +2937,18 @@ impl SyntheticModuleBuilder {
             random_seed: self.header.random_seed,
             provenance: self.header.provenance,
             imports: canonical_imports.into_boxed_slice(),
-            declaration_span: self.header.declaration_span,
         };
 
         Ok(SyntheticModule {
-            admitted: AdmittedOfficialModule {
-                typed_ast: TypedAstModule {
+            admitted: AdmittedOfficialModule::new(
+                TypedAstModule {
                     descriptor,
+                    declaration_span: self.header.declaration_span,
                     source_documents,
                     imports: self.imports.into_boxed_slice(),
                     declarations: self.declarations.into_boxed_slice(),
                 },
-                resource_counts: ModuleResourceCounts {
+                ModuleResourceCounts {
                     source_bytes: u64::from(source_record_byte_len),
                     declaration_count: self.declaration_count,
                     typed_ast_record_count: self.typed_ast_record_count,
@@ -2967,7 +2967,7 @@ impl SyntheticModuleBuilder {
                         .saturating_add(self.controlled_structural_bytes)
                         .saturating_add(size_bytes::<SourceDocumentDescriptor>(1)),
                 },
-            },
+            ),
         })
     }
 }
@@ -2980,12 +2980,12 @@ impl SyntheticModule {
     /// 返回由同一模块内容原子派生的只读描述符。
     #[must_use]
     pub const fn descriptor(&self) -> &SourceModuleDescriptor {
-        &self.admitted.typed_ast.descriptor
+        &self.admitted.typed_ast().descriptor
     }
 
     /// 按文档键 UTF-8 字节序遍历该逻辑模块的来源文档描述符。
     pub fn source_documents(&self) -> impl ExactSizeIterator<Item = &SourceDocumentDescriptor> {
-        self.admitted.typed_ast.source_documents.iter()
+        self.admitted.source_documents.iter()
     }
 }
 

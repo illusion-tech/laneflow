@@ -225,6 +225,7 @@ enum SignalRelationOwnerRecord {
 /// 全局唯一，并与所属逻辑模块不可分绑定。
 pub struct ValidatedSourceMapInput {
     source_modules: Box<[SourceModuleDescriptor]>,
+    source_module_declaration_sources: Box<[SourceLocationRecord]>,
     source_documents: Box<[SourceDocumentDescriptor]>,
     lane_edge_sources: Box<[LaneEdgeSourceRecord]>,
     lane_edge_successor_sources: Box<[LaneEdgeSuccessorSourceRecord]>,
@@ -272,6 +273,20 @@ impl ValidatedSourceMapInput {
     /// 按依赖优先规范顺序遍历来源模块描述符。
     pub fn source_modules(&self) -> impl ExactSizeIterator<Item = &SourceModuleDescriptor> {
         self.source_modules.iter()
+    }
+
+    /// 按依赖优先规范顺序遍历来源模块及其已解析声明位置。
+    pub fn source_module_sources(
+        &self,
+    ) -> impl ExactSizeIterator<Item = SourceModuleSourceView<'_>> {
+        self.source_modules
+            .iter()
+            .zip(self.source_module_declaration_sources.iter().copied())
+            .map(|(descriptor, primary)| SourceModuleSourceView {
+                source_map: self,
+                descriptor,
+                primary,
+            })
     }
 
     /// 按独立冻结序遍历全局唯一来源文档登记。
@@ -624,6 +639,28 @@ impl ValidatedSourceMapInput {
             start: record.start,
             end: record.end,
         }
+    }
+}
+
+/// 一个来源模块及其已解析声明位置的只读视图。
+#[derive(Clone, Copy)]
+pub struct SourceModuleSourceView<'a> {
+    source_map: &'a ValidatedSourceMapInput,
+    descriptor: &'a SourceModuleDescriptor,
+    primary: SourceLocationRecord,
+}
+
+impl<'a> SourceModuleSourceView<'a> {
+    /// 返回与本来源位置不可分配对的模块描述符。
+    #[must_use]
+    pub const fn descriptor(&self) -> &'a SourceModuleDescriptor {
+        self.descriptor
+    }
+
+    /// 返回模块声明的主要来源位置。
+    #[must_use]
+    pub fn primary_source(&self) -> SourceLocationView<'a> {
+        self.source_map.location(self.primary)
     }
 }
 

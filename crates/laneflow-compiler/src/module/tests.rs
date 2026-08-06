@@ -138,13 +138,12 @@ fn lane_edge_accepts_terminal_and_self_loop_topology() {
 
     let module = builder.finish().unwrap();
     assert_eq!(module.admitted.resource_counts.declaration_count, 2);
-    let TypedAstDeclaration::LaneEdge(terminal) = &module.admitted.typed_ast.declarations[0] else {
+    let TypedAstDeclaration::LaneEdge(terminal) = &module.admitted.declarations[0] else {
         panic!("expected LaneEdge declaration")
     };
     assert!(terminal.successors.is_empty());
     assert_eq!(terminal.header.span.source_document_key(), "source.test");
-    let TypedAstDeclaration::LaneEdge(loop_edge) = &module.admitted.typed_ast.declarations[1]
-    else {
+    let TypedAstDeclaration::LaneEdge(loop_edge) = &module.admitted.declarations[1] else {
         panic!("expected LaneEdge declaration")
     };
     assert_eq!(loop_edge.successors.len(), 1);
@@ -303,7 +302,7 @@ fn duplicate_lane_edge_and_successor_fail_without_mutating_prior_state() {
 
     let module = builder.finish().unwrap();
     assert_eq!(module.admitted.resource_counts.declaration_count, 1);
-    let TypedAstDeclaration::LaneEdge(edge) = &module.admitted.typed_ast.declarations[0] else {
+    let TypedAstDeclaration::LaneEdge(edge) = &module.admitted.declarations[0] else {
         panic!("expected LaneEdge declaration")
     };
     assert_eq!(edge.length.value(), 1.0);
@@ -700,6 +699,32 @@ fn common_admission_rejects_duplicate_keys_inside_one_official_module_atomically
 }
 
 #[test]
+fn common_admission_enforces_canonical_document_order_before_index_commit() {
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v2());
+    let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        TestOfficialModule::from_synthetic_with_unsorted_documents(
+            module_with_document("city/a", "source/a", &[]),
+            &[("source/a", b"duplicate"), ("source/b", b"b")],
+        )
+    }));
+    let panic = match unwind {
+        Ok(_) => panic!("unsorted official documents must violate admission invariant"),
+        Err(panic) => panic,
+    };
+    let message = panic
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or_default();
+    assert!(message.contains("canonically sort source documents"));
+
+    builder
+        .add_synthetic_module(module_with_document("city/a", "source/a", &[]))
+        .unwrap();
+    assert_eq!(builder.build().unwrap().source_document_count(), 1);
+}
+
+#[test]
 fn common_admission_enforces_every_owned_cumulative_resource_dimension_atomically() {
     let dimensions = [
         CompileLimitDimension::ModuleCount,
@@ -999,19 +1024,11 @@ fn document_set_digest_and_frozen_document_order_ignore_input_order() {
         &[("source/a", b"a"), ("source/z", b"z")],
     );
     assert_eq!(
-        left.admitted
-            .typed_ast
-            .descriptor
-            .source_document_set_digest(),
-        right
-            .admitted
-            .typed_ast
-            .descriptor
-            .source_document_set_digest()
+        left.admitted.descriptor.source_document_set_digest(),
+        right.admitted.descriptor.source_document_set_digest()
     );
     assert_eq!(
         left.admitted
-            .typed_ast
             .source_documents
             .iter()
             .map(SourceDocumentDescriptor::source_document_key)
@@ -1102,6 +1119,7 @@ fn three_document_module_retains_distinct_entity_relation_and_cold_origins() {
         )
     };
     SOURCE_DOCUMENT_DIGEST_CALL_COUNT.with(|count| assert_eq!(count.get(), 3));
+    test_module.move_module_declaration_span_to("source/secondary");
     test_module.move_first_lane_edge_span_to("source/secondary");
     test_module.move_first_lane_edge_successor_span_to("source/tertiary");
 
@@ -1109,6 +1127,19 @@ fn three_document_module_retains_distinct_entity_relation_and_cold_origins() {
     unit_builder.add_test_official_module(test_module).unwrap();
     let mut compiler = crate::Compiler::new();
     let output = compiler.compile(unit_builder.build().unwrap()).unwrap();
+    assert_eq!(
+        output
+            .source_map_input()
+            .source_module_sources()
+            .map(|source| (
+                source.descriptor().authoring_namespace_id(),
+                source.primary_source().source_document_key(),
+                source.primary_source().start().line(),
+                source.primary_source().start().column(),
+            ))
+            .collect::<Vec<_>>(),
+        [("city/a", "source/secondary", 37, 5)]
+    );
     assert_eq!(
         output
             .source_map_input()
@@ -1152,6 +1183,54 @@ fn three_document_module_retains_distinct_entity_relation_and_cold_origins() {
             ("source/tertiary", Some("memory://tertiary")),
         ]
     );
+}
+
+#[test]
+fn source_map_output_bytes_include_module_declaration_document_ordinal() {
+    let limits = CompileLimits::p100_initial_v2();
+    let mut module = TestOfficialModule::from_synthetic_with_documents(
+        module_with_document("city/a", "source/primary", &[]),
+        &[("source/secondary", b"secondary")],
+    );
+    module.move_module_declaration_span_to("source/secondary");
+
+    let mut builder = CompilationUnitBuilder::new(limits);
+    builder.add_test_official_module(module).unwrap();
+    let mut unit = builder.build().unwrap();
+    let source_map_logical_bytes = unit.modules.iter().fold(0_u64, |total, module| {
+        module.source_documents.iter().fold(
+            total
+                .saturating_add(module.descriptor.source_map_logical_bytes())
+                .saturating_add(4 + 8 + 8),
+            |document_total, document| {
+                document_total.saturating_add(document.source_map_logical_bytes())
+            },
+        )
+    });
+    let hir = crate::hir::build_hir(&unit).unwrap();
+    let mir = crate::mir::lower_to_mir(&unit, &hir).unwrap();
+    let lir_output_bytes = crate::lir::freeze_lir(&unit, &mir)
+        .unwrap()
+        .lir
+        .output_bytes;
+    let expected_output_bytes = lir_output_bytes.saturating_add(source_map_logical_bytes);
+    let failing_limit = u32::try_from(expected_output_bytes - 1).unwrap();
+    unit.limits = CompileLimits::p100_initial_v2().with_test_lir_limits(
+        u32::MAX,
+        u32::MAX,
+        failing_limit,
+        u32::MAX,
+    );
+
+    let diagnostics = expect_diagnostics(crate::Compiler::new().compile(unit));
+    assert!(diagnostics.diagnostics().iter().any(|diagnostic| matches!(
+        diagnostic.payload(),
+        DiagnosticPayload::CompileLimitExceeded {
+            dimension: CompileLimitDimension::OutputBytes,
+            limit,
+            observed,
+        } if *limit == u64::from(failing_limit) && *observed == expected_output_bytes
+    )));
 }
 
 #[test]
