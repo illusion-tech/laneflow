@@ -962,7 +962,7 @@ impl GateEvidencePhase {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct GateEvidenceArgs {
     phase: GateEvidencePhase,
     repo: String,
@@ -1221,6 +1221,7 @@ fn check_gate_evidence_target(args: &[String]) -> Result<(), String> {
     let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
     validate_gate_evidence_target_pr(&pr, role, &issue_numbers)?;
     let resolved_args = resolve_gate_evidence_targets(&repo, pr_number, role, &issue_numbers)?;
+    validate_gate_evidence_target_assertions(&pr, &resolved_args)?;
     for args in &resolved_args {
         check_gate_evidence_with_args(args)?;
     }
@@ -1233,6 +1234,7 @@ fn check_gate_evidence_target(args: &[String]) -> Result<(), String> {
     if final_role != role || final_issue_numbers != issue_numbers || final_args != resolved_args {
         return Err("PR / Issue Gate 元数据在 target 校验期间发生变化；请重新运行".to_string());
     }
+    validate_gate_evidence_target_assertions(&final_pr, &final_args)?;
     for args in &final_args {
         check_gate_evidence_with_args(args)?;
         print_gate_evidence_success(args);
@@ -1245,15 +1247,48 @@ fn check_g3_shadow_success_eligibility(args: &[String]) -> Result<(), String> {
     let pr = gh_pr_view_for_phase(&repo, pr_number, GateEvidencePhase::G3)?;
     let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
     validate_gate_evidence_target_pr(&pr, role, &issue_numbers)?;
+    let resolved_args = resolve_gate_evidence_targets(&repo, pr_number, role, &issue_numbers)?;
+    validate_gate_evidence_target_assertions(&pr, &resolved_args)?;
+    validate_g3_shadow_success_pr(&pr, &format!("PR #{pr_number}"))?;
+
+    let mut checked_related_prs = BTreeSet::new();
+    for resolved in &resolved_args {
+        for related_number in &resolved.related_prs {
+            if *related_number == pr_number {
+                continue;
+            }
+            let related_pr = gh_pr_view_for_phase(&repo, *related_number, GateEvidencePhase::G3)?;
+            if g3_requires_external_review(&related_pr)? {
+                validate_related_full_set_member(
+                    &repo,
+                    *related_number,
+                    resolved.issue,
+                    &related_pr,
+                )?;
+                if checked_related_prs.insert(*related_number) {
+                    validate_g3_shadow_success_pr(
+                        &related_pr,
+                        &format!("Related PR #{related_number}"),
+                    )?;
+                }
+            }
+        }
+    }
+    println!(
+        "已确认 G3 shadow success eligibility：PR #{pr_number} 的完整 current-evidence PR 集合均使用非过期型 Gate 结果"
+    );
+    Ok(())
+}
+
+fn validate_g3_shadow_success_pr(pr: &GitHubPullRequest, label: &str) -> Result<(), String> {
     let permalink = completed_gate_permalink(&pr.body, "G3")?;
     let comment = pr
         .comments
         .iter()
         .find(|comment| comment.url == permalink)
-        .ok_or("PR G3 permalink 未指向当前 PR comment")?;
-    validate_g3_shadow_success_result(parse_g3_result(&comment.body)?)?;
-    println!("已确认 G3 shadow success eligibility：PR #{pr_number} 使用非过期型 Gate 结果");
-    Ok(())
+        .ok_or_else(|| format!("{label} G3 permalink 未指向当前 PR comment"))?;
+    validate_g3_shadow_success_result(parse_g3_result(&comment.body)?)
+        .map_err(|error| format!("{label}: {error}"))
 }
 
 fn validate_g3_shadow_success_result(result: G3Result) -> Result<(), String> {
@@ -1505,6 +1540,7 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
         }
         for (number, related_pr) in args.related_prs.iter().zip(&related_prs) {
             if g3_requires_external_review(related_pr)? {
+                validate_related_full_set_member(&args.repo, *number, args.issue, related_pr)?;
                 validate_external_review_g3(
                     &args.repo,
                     args.issue,
@@ -1531,6 +1567,39 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
         }
     }
     Ok(())
+}
+
+fn validate_related_full_set_member(
+    repo: &str,
+    pr_number: u64,
+    current_issue: u64,
+    pr: &GitHubPullRequest,
+) -> Result<(), String> {
+    let issue_numbers = validate_related_full_set_member_metadata(current_issue, pr)?;
+    let resolved_args = resolve_gate_evidence_targets(
+        repo,
+        pr_number,
+        GateEvidencePrRole::Related,
+        &issue_numbers,
+    )?;
+    validate_gate_evidence_target_assertions(pr, &resolved_args)
+}
+
+fn validate_related_full_set_member_metadata(
+    current_issue: u64,
+    pr: &GitHubPullRequest,
+) -> Result<Vec<u64>, String> {
+    let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
+    if role != GateEvidencePrRole::Related {
+        return Err("Delivery full-set 成员的 `PR 角色` 必须精确为 `Related PR`".to_string());
+    }
+    if !issue_numbers.contains(&current_issue) {
+        return Err(format!(
+            "Delivery full-set 的 Related PR `关联 Issue` 未包含当前 Issue #{current_issue}"
+        ));
+    }
+    validate_gate_evidence_target_pr(pr, role, &issue_numbers)?;
+    Ok(issue_numbers)
 }
 
 fn print_gate_evidence_success(args: &GateEvidenceArgs) {
@@ -1728,6 +1797,19 @@ fn validate_gate_evidence_target_pr(
         .find(|comment| comment.url == permalink)
         .ok_or("PR G3 permalink 未指向当前 PR comment")?;
     validate_gate_waiver_record_set(comment, &declared_issues)
+}
+
+fn validate_gate_evidence_target_assertions(
+    pr: &GitHubPullRequest,
+    resolved_args: &[GateEvidenceArgs],
+) -> Result<(), String> {
+    let permalink = completed_gate_permalink(&pr.body, "G3")?;
+    let comment = pr
+        .comments
+        .iter()
+        .find(|comment| comment.url == permalink)
+        .ok_or("PR G3 permalink 未指向当前 PR comment")?;
+    validate_gate_assertion_set(&comment.body, "PR G3", resolved_args, GateEvidencePhase::G3)
 }
 
 fn resolve_gate_evidence_target_args(
@@ -2851,6 +2933,46 @@ fn validate_gate_assertion(
     args: &GateEvidenceArgs,
     phase: GateEvidencePhase,
 ) -> Result<(), String> {
+    let actual_commands = gate_assertion_commands(body, label, phase)?;
+    let expected_command = expected_gate_command(args, phase);
+    if !actual_commands.contains(&expected_command) {
+        return Err(format!(
+            "{label} comment 的 `Gate 断言` 命令与当前参数不一致：期望包含 `{expected_command}`；实际 [{}]",
+            actual_commands.into_iter().collect::<Vec<_>>().join("；")
+        ));
+    }
+    Ok(())
+}
+
+fn validate_gate_assertion_set(
+    body: &str,
+    label: &str,
+    args: &[GateEvidenceArgs],
+    phase: GateEvidencePhase,
+) -> Result<(), String> {
+    let actual_commands = gate_assertion_commands(body, label, phase)?;
+    let expected_commands = args
+        .iter()
+        .map(|args| expected_gate_command(args, phase))
+        .collect::<BTreeSet<_>>();
+    if expected_commands.len() != args.len() {
+        return Err(format!("{label} target 解析出了重复的 `Gate 断言` 命令"));
+    }
+    if actual_commands != expected_commands {
+        return Err(format!(
+            "{label} comment 的完整 `Gate 断言` 命令集合与全部声明 Issue target 不一致：期望 [{}]；实际 [{}]",
+            expected_commands.into_iter().collect::<Vec<_>>().join("；"),
+            actual_commands.into_iter().collect::<Vec<_>>().join("；")
+        ));
+    }
+    Ok(())
+}
+
+fn gate_assertion_commands(
+    body: &str,
+    label: &str,
+    phase: GateEvidencePhase,
+) -> Result<BTreeSet<String>, String> {
     let assertion_lines = body
         .lines()
         .filter(|line| line.starts_with(GATE_ASSERTION_PREFIX))
@@ -2861,10 +2983,7 @@ fn validate_gate_assertion(
     if phase == GateEvidencePhase::G4 && assertion_lines.len() != 1 {
         return Err(format!("{label} comment 的 G4 只能包含一条 `Gate 断言` 行"));
     }
-    let expected_command = expected_gate_command(args, phase);
-    let mut actual_commands = Vec::new();
     let mut unique_commands = BTreeSet::new();
-    let mut matching_commands = 0;
     for assertion_line in assertion_lines {
         let value = assertion_line
             .strip_prefix(GATE_ASSERTION_PREFIX)
@@ -2878,7 +2997,7 @@ fn validate_gate_assertion(
         let Some((actual_command, result)) = command_and_result.split_once('`') else {
             return Err(format!("{label} comment 的 `Gate 断言` 命令缺少闭合反引号"));
         };
-        if !unique_commands.insert(actual_command) {
+        if !unique_commands.insert(actual_command.to_string()) {
             return Err(format!(
                 "{label} comment 的 `Gate 断言` 不得重复同一规范命令：`{actual_command}`"
             ));
@@ -2888,18 +3007,8 @@ fn validate_gate_assertion(
                 "{label} comment 的 `Gate 断言` 必须在规范命令后明确记录 `已通过`"
             ));
         }
-        if actual_command == expected_command {
-            matching_commands += 1;
-        }
-        actual_commands.push(actual_command);
     }
-    if matching_commands != 1 {
-        return Err(format!(
-            "{label} comment 的 `Gate 断言` 命令与当前参数不一致：期望恰好一条 `{expected_command}`；实际 [{}]",
-            actual_commands.join("；")
-        ));
-    }
-    Ok(())
+    Ok(unique_commands)
 }
 
 fn expected_gate_command(args: &GateEvidenceArgs, phase: GateEvidencePhase) -> String {
@@ -4044,7 +4153,10 @@ Refs: #12
 
     fn related_pr_for_args(closes_issue: bool, args: &GateEvidenceArgs) -> GitHubPullRequest {
         GitHubPullRequest {
-            body: format!("- [x] G3 合并判断已记录：[G3 评论]({RELATED_G3_URL})\nRefs: #60"),
+            body: format!(
+                "- 关联 Issue：#{}\n- PR 角色：Related PR\n- [x] G3 合并判断已记录：[G3 评论]({RELATED_G3_URL})\nRefs: #{}",
+                args.issue, args.issue
+            ),
             state: "OPEN".to_string(),
             is_draft: false,
             created_at: "2026-07-10T04:30:00Z".to_string(),
@@ -4218,6 +4330,35 @@ Refs: #12
             validate_gate_evidence_target_pr(&related_pr, GateEvidencePrRole::Related, &[60])
                 .expect_err("Related targets must not close any Issue");
         assert!(related_error.contains("Related PR 不得关闭任何 Issue"));
+    }
+
+    #[test]
+    fn delivery_full_set_validates_each_related_target_metadata() {
+        let related = related_pr(false);
+        assert_eq!(
+            validate_related_full_set_member_metadata(60, &related).unwrap(),
+            vec![60]
+        );
+
+        let mut wrong_role = related_pr(false);
+        wrong_role.body = wrong_role
+            .body
+            .replace("PR 角色：Related PR", "PR 角色：Delivery PR");
+        let role_error = validate_related_full_set_member_metadata(60, &wrong_role)
+            .expect_err("full-set member must declare the Related role");
+        assert!(role_error.contains("必须精确为 `Related PR`"));
+
+        let closing_error = validate_related_full_set_member_metadata(60, &related_pr(true))
+            .expect_err("full-set Related member must keep an empty closing set");
+        assert!(closing_error.contains("Related PR 不得关闭任何 Issue"));
+
+        let mut wrong_issue = related_pr(false);
+        wrong_issue.body = wrong_issue
+            .body
+            .replace("关联 Issue：#60", "关联 Issue：#61");
+        let issue_error = validate_related_full_set_member_metadata(60, &wrong_issue)
+            .expect_err("full-set member must declare the current Issue");
+        assert!(issue_error.contains("未包含当前 Issue #60"));
     }
 
     #[test]
@@ -4836,6 +4977,20 @@ Refs: #12
     }
 
     #[test]
+    fn waived_full_set_member_cannot_receive_shadow_success() {
+        let mut delivery = delivery_pr(None);
+        delivery.comments[0].body = "- Gate 结果：`G3 Pass`".to_string();
+        let mut related = related_pr(false);
+        related.comments[0].body = "- Gate 结果：`G3 Waived`".to_string();
+
+        assert!(validate_g3_shadow_success_pr(&delivery, "Delivery PR #61").is_ok());
+        let error = validate_g3_shadow_success_pr(&related, "Related PR #62")
+            .expect_err("a waived Related member must keep Delivery shadow non-success");
+        assert!(error.contains("Related PR #62"));
+        assert!(error.contains("不得发布 success"));
+    }
+
+    #[test]
     fn parses_reference_style_structured_gate_waiver() {
         let mut comment = GitHubComment {
             url: RELATED_G3_URL.to_string(),
@@ -5157,6 +5312,32 @@ Refs: #12
             validate_gate_assertion(&body, "multi-Issue G3", &second_args, GateEvidencePhase::G3)
                 .is_ok()
         );
+        assert!(
+            validate_gate_assertion_set(
+                &body,
+                "multi-Issue G3",
+                &[first_args.clone(), second_args.clone()],
+                GateEvidencePhase::G3
+            )
+            .is_ok()
+        );
+
+        let unrelated_args = GateEvidenceArgs {
+            issue: 999,
+            ..second_args.clone()
+        };
+        let body_with_extra = format!(
+            "{body}\n{GATE_ASSERTION_PREFIX}`{}` 已通过。",
+            expected_gate_command(&unrelated_args, GateEvidencePhase::G3)
+        );
+        let error = validate_gate_assertion_set(
+            &body_with_extra,
+            "multi-Issue G3",
+            &[first_args, second_args],
+            GateEvidencePhase::G3,
+        )
+        .expect_err("undeclared or mismatched assertion commands must fail closed");
+        assert!(error.contains("完整 `Gate 断言` 命令集合"));
     }
 
     #[test]
