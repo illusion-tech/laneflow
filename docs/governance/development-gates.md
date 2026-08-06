@@ -247,7 +247,7 @@ R1 的 `External Review Gate Shadow` 由 `github-actions` 发布，只用于 non
 
 完成 append-only G3 comment、PR body permalink 和 Issue 增量 permalink 后，操作者新增正文精确为 `g3-evidence: changed` 的顶层 PR comment，等待 trusted workflow 重读远端证据。该 marker 只是唤醒信号，不能携带结论。`G3 Evidence Gate Shadow` 由 `github-actions` 发布且当前不在 ruleset 中，只能证明 trusted-ref replay 的 telemetry 结果，不能声称已经阻止合并；修改该 workflow / validator 的候选 PR 也不能用尚未合入 `main` 的实现自批。
 
-标准 `check-gate-evidence g3` 和 target 模式只接受仍为 `OPEN` 且尚未合并的当前 Delivery / Related PR。合并后补写或重放标准 G3 必须失败；`check-gate-evidence g4` 继续允许读取合并前形成的 append-only G3 证据做历史复核。
+标准 `check-gate-evidence g3` 和 target 模式只接受仍为 `OPEN`、非 Draft 且尚未合并的当前 Delivery / Related PR。target 模式在确认 PR / Issue 角色元数据稳定后必须重跑完整远端证据校验，不能只比较数字参数。合并后补写或重放标准 G3 必须失败；`check-gate-evidence g4` 继续允许读取合并前形成的 append-only G3 证据做历史复核。
 
 fork / cross-repository PR 的 head commit 不保证存在于 base repository，base repository 的 `GITHUB_TOKEN` 因而不能可靠创建关联 Check。此类 PR 不计入 R1 eligible sample；R2 不把缺失 Check 当作成功，必须把最终 patchset 迁移为 same-repository PR，并在新 PR 的 exact head 重新完成外部审阅与 G3。只有 security / emergency hotfix 等既有显式例外可以使用临时 ruleset bypass，不能形成 fork 的 standing bypass。
 
