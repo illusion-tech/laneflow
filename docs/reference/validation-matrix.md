@@ -78,6 +78,7 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 | Related PR B 自身仍由 main 上的旧 validator 判断                                       | 按 R0 bootstrap 人工核验 exact-head review；不得用候选 validator 自批                         |
 | Related PR C 自身尚未把 shadow workflow 合入 main                                      | 使用 main 上的 live validator；候选 Check 不得自批，Check 缺失按 R0 bootstrap 记录            |
 | PR B 合入后的 R0/R1 PR 尚无 required External Review Gate                              | `G3 Pass` / bootstrap 要求 live `pass`；结构化 `G3 Waived` 保持 `waived`，并记录 Check 缺失   |
+| 多 Issue PR 使用 `G3 Waived`，但 waiver 缺少某个 Issue 或 `followUpIssue` 重复         | Fail；每个关联 Issue 必须有一条唯一匹配的 `external-review-waiver:v1` 记录                    |
 | PR body 缺少明确 `关联 Issue` 列表、仍保留角色模板占位或角色与任一 Issue 元数据不一致  | `G3 Evidence Gate Shadow` Fail；多 Issue 必须逐个校验，不得猜测 target 参数                   |
 | 多 Issue PR 的同一 G3 comment 只含一条 Issue-specific 断言或存在重复命令               | Fail；每个关联 Issue 必须有一条精确且已通过的独立断言                                         |
 | Delivery target 的 Issue `Related PRs` 有重复/遗漏，或 Related target 未列入该字段     | Fail；Delivery 必须按 Issue 记录构造完整 full-set，Related 只校验自身                         |

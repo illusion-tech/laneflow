@@ -2925,31 +2925,66 @@ fn parse_gate_waiver(
     now: u64,
 ) -> Result<external_review::WaiverInput, String> {
     let marker_count = comment.body.matches(EXTERNAL_REVIEW_WAIVER_START).count();
-    if marker_count != 1 {
+    if marker_count == 0 {
         return Err(format!(
-            "G3 Waived comment 必须包含且只包含一个 `{EXTERNAL_REVIEW_WAIVER_START}` 结构化记录"
+            "G3 Waived comment 必须至少包含一个 `{EXTERNAL_REVIEW_WAIVER_START}` 结构化记录"
         ));
     }
-    let (_, after_start) = comment
+    let mut records = Vec::with_capacity(marker_count);
+    let mut seen_ids = BTreeSet::new();
+    let mut seen_follow_up_issues = BTreeSet::new();
+    for (index, after_start) in comment
         .body
-        .split_once(EXTERNAL_REVIEW_WAIVER_START)
-        .ok_or_else(|| "G3 Waived comment 缺少结构化 waiver 起始标记".to_string())?;
-    let (json, _) = after_start
-        .split_once(EXTERNAL_REVIEW_WAIVER_END)
-        .ok_or_else(|| "G3 Waived comment 缺少结构化 waiver 结束标记".to_string())?;
-    let record = serde_json::from_str::<GateWaiverRecord>(json.trim())
-        .map_err(|error| format!("G3 Waived 结构化记录不是 schema v1 JSON：{error}"))?;
-    if record.schema_version != 1 {
-        return Err(format!(
-            "G3 Waived schemaVersion 必须为 1，实际为 {}",
-            record.schema_version
-        ));
+        .split(EXTERNAL_REVIEW_WAIVER_START)
+        .skip(1)
+        .enumerate()
+    {
+        let (json, _) = after_start
+            .split_once(EXTERNAL_REVIEW_WAIVER_END)
+            .ok_or_else(|| format!("G3 Waived 第 {} 个结构化记录缺少结束标记", index + 1))?;
+        let record = serde_json::from_str::<GateWaiverRecord>(json.trim()).map_err(|error| {
+            format!(
+                "G3 Waived 第 {} 个结构化记录不是 schema v1 JSON：{error}",
+                index + 1
+            )
+        })?;
+        if record.schema_version != 1 {
+            return Err(format!(
+                "G3 Waived schemaVersion 必须为 1，实际为 {}",
+                record.schema_version
+            ));
+        }
+        if !record
+            .follow_up_issue
+            .strip_prefix('#')
+            .and_then(|value| value.parse::<u64>().ok())
+            .is_some_and(|number| number > 0)
+        {
+            return Err(format!(
+                "G3 Waived followUpIssue 必须是明确的正整数 Issue 编号：{}",
+                record.follow_up_issue
+            ));
+        }
+        if !seen_ids.insert(record.id.clone()) {
+            return Err(format!("G3 Waived id 不能重复：{}", record.id));
+        }
+        if !seen_follow_up_issues.insert(record.follow_up_issue.clone()) {
+            return Err(format!(
+                "G3 Waived 每个 Issue 只能包含一个结构化记录：{}",
+                record.follow_up_issue
+            ));
+        }
+        records.push(record);
     }
-    if record.follow_up_issue != format!("#{issue_number}") {
-        return Err(format!(
-            "G3 Waived followUpIssue 必须指向当前 Issue `#{issue_number}`"
-        ));
-    }
+    let expected_follow_up_issue = format!("#{issue_number}");
+    let record = records
+        .into_iter()
+        .find(|record| record.follow_up_issue == expected_follow_up_issue)
+        .ok_or_else(|| {
+            format!(
+                "G3 Waived multi-Issue comment 缺少当前 Issue `{expected_follow_up_issue}` 的唯一结构化记录"
+            )
+        })?;
     let author = comment
         .author
         .as_ref()
@@ -4463,6 +4498,78 @@ Refs: #12
         let error = parse_gate_waiver(&comment, 60, now)
             .expect_err("waiver author must be a trusted G3 Owner");
         assert!(error.contains("不在 trusted G3 Owner allowlist"));
+    }
+
+    #[test]
+    fn parses_one_structured_gate_waiver_per_associated_issue() {
+        let waiver_60 = r##"<!-- external-review-waiver:v1
+{
+  "schemaVersion": 1,
+  "id": "waiver-60-1",
+  "exceptionType": "provider_platform_outage",
+  "currentHeadOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "currentBaseOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "reason": "all configured providers unavailable",
+  "evidenceRefs": ["waiver-evidence-60"],
+  "risk": "review coverage unavailable",
+  "acceptanceBoundary": "metadata-only governance change",
+  "expiresAt": "2026-07-24T17:00:00Z",
+  "followUpIssue": "#60",
+  "cleanupOwner": "wangzishi",
+  "authorizedBy": "wangzishi"
+}
+-->"##;
+        let waiver_61 = r##"<!-- external-review-waiver:v1
+{
+  "schemaVersion": 1,
+  "id": "waiver-61-1",
+  "exceptionType": "provider_platform_outage",
+  "currentHeadOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "currentBaseOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "reason": "all configured providers unavailable",
+  "evidenceRefs": ["waiver-evidence-61"],
+  "risk": "review coverage unavailable",
+  "acceptanceBoundary": "metadata-only governance change",
+  "expiresAt": "2026-07-24T17:00:00Z",
+  "followUpIssue": "#61",
+  "cleanupOwner": "wangzishi",
+  "authorizedBy": "wangzishi"
+}
+-->"##;
+        let mut comment = GitHubComment {
+            url: RELATED_G3_URL.to_string(),
+            body: format!(
+                r##"- Gate 结果：`G3 Waived`
+- 例外：`G3 Waived`；Issue #60 证据：[批准记录 60][waiver-evidence-60]；Issue #61 证据：[批准记录 61][waiver-evidence-61]。
+{waiver_60}
+{waiver_61}
+
+[waiver-evidence-60]: https://github.com/illusion-tech/laneflow/issues/60#issuecomment-1
+[waiver-evidence-61]: https://github.com/illusion-tech/laneflow/issues/61#issuecomment-2"##
+            ),
+            author: Some(GitHubActor {
+                login: "wangzishi".to_string(),
+            }),
+            created_at: "2026-07-24T16:00:00Z".to_string(),
+            includes_created_edit: false,
+        };
+        let now = parse_utc_timestamp_seconds("2026-07-24T16:30:00Z").unwrap();
+
+        assert_eq!(
+            parse_gate_waiver(&comment, 60, now).unwrap().id,
+            "waiver-60-1"
+        );
+        assert_eq!(
+            parse_gate_waiver(&comment, 61, now).unwrap().id,
+            "waiver-61-1"
+        );
+
+        comment.body = comment
+            .body
+            .replace(r##""followUpIssue": "#61""##, r##""followUpIssue": "#60""##);
+        let error = parse_gate_waiver(&comment, 60, now)
+            .expect_err("duplicate per-Issue waiver records must fail closed");
+        assert!(error.contains("每个 Issue 只能包含一个"));
     }
 
     #[test]
