@@ -325,6 +325,8 @@ jobs:
 
           if [[ "$initial_eligibility" == "eligible" ]]; then
             evaluate_evidence() {
+              local eligibility_exit
+              local eligibility_output
               local marker_exit
               local marker_output
 
@@ -338,7 +340,19 @@ jobs:
               validation_exit=$?
               set -e
               if [[ "$validation_exit" -eq 0 && "$ALLOW_SUCCESS" == "true" ]]; then
-                if [[ ! "$MARKER_COMMENT_ID" =~ ^[1-9][0-9]*$ ]]; then
+                set +e
+                eligibility_output="$(
+                  cargo +1.96.0 run --locked -p xtask -- \
+                    check-g3-shadow-success-eligibility \
+                    --repo "$REPOSITORY" \
+                    --pr "$PR_NUMBER" 2>&1
+                )"
+                eligibility_exit=$?
+                set -e
+                validation_output="${validation_output}\n\n${eligibility_output}"
+                if [[ "$eligibility_exit" -ne 0 ]]; then
+                  validation_exit=$eligibility_exit
+                elif [[ ! "$MARKER_COMMENT_ID" =~ ^[1-9][0-9]*$ ]]; then
                   validation_output="${validation_output}\n\nTrusted marker comment ID is missing or invalid."
                   validation_exit=1
                 else
