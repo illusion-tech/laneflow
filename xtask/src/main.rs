@@ -101,6 +101,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         Some("resolve-g3-evidence-shadow-targets") => {
             resolve_g3_evidence_shadow_targets(&args[1..])
         }
+        Some("resolve-g3-evidence-shadow-issue-event-targets") => {
+            resolve_g3_evidence_shadow_issue_event_targets(&args[1..])
+        }
         Some("check-external-review") => external_review::run(&args[1..]),
         Some("publish-external-review-check") => {
             external_review::run_publish_check(&args[1..])
@@ -116,7 +119,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         },
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-g3-shadow-success-eligibility, check-g3-evidence-marker, resolve-g3-evidence-shadow-targets, check-external-review, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-g3-shadow-success-eligibility, check-g3-evidence-marker, resolve-g3-evidence-shadow-targets, resolve-g3-evidence-shadow-issue-event-targets, check-external-review, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
                 .to_string(),
         ),
     }
@@ -990,6 +993,37 @@ struct GitHubIssueListEntry {
     pull_request: Option<serde_json::Value>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct GitHubIssuesEvent {
+    issue: GitHubIssuesEventIssue,
+    #[serde(default)]
+    changes: GitHubIssuesEventChanges,
+    repository: GitHubIssuesEventRepository,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubIssuesEventIssue {
+    number: u64,
+    body: Option<String>,
+    #[serde(default)]
+    pull_request: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct GitHubIssuesEventChanges {
+    body: Option<GitHubIssuesEventBodyChange>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubIssuesEventBodyChange {
+    from: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubIssuesEventRepository {
+    full_name: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 struct GitHubIssueCommentRest {
     body: Option<String>,
@@ -1013,9 +1047,7 @@ struct GitHubEditTimestampsData {
 
 #[derive(Debug, serde::Deserialize)]
 struct GitHubEditTimestampsRepository {
-    #[serde(rename = "pullRequest")]
-    pull_request: Option<GitHubEditTimestamps>,
-    issue: Option<GitHubEditTimestamps>,
+    target: Option<GitHubEditTimestamps>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1024,6 +1056,12 @@ struct GitHubEditTimestamps {
     created_at: String,
     #[serde(rename = "lastEditedAt")]
     last_edited_at: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum GitHubEditTarget {
+    PullRequest,
+    Issue,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1233,7 +1271,9 @@ fn check_g3_evidence_marker(args: &[String]) -> Result<(), String> {
     validate_g3_evidence_marker_comment(&marker_before, &repo, pr_number)?;
 
     let pr = gh_pr_view_for_phase(&repo, pr_number, GateEvidencePhase::G3)?;
-    let (_, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
+    let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
+    validate_gate_evidence_target_pr(&pr, role, &issue_numbers)?;
+    let resolved_args = resolve_gate_evidence_targets(&repo, pr_number, role, &issue_numbers)?;
     let g3_permalink = completed_gate_permalink(&pr.body, "G3")?;
     let g3_comment = pr
         .comments
@@ -1246,17 +1286,21 @@ fn check_g3_evidence_marker(args: &[String]) -> Result<(), String> {
         "current G3 comment",
     )?;
 
+    let relevant_prs = relevant_g3_marker_prs(pr_number, &resolved_args);
     for issue_number in issue_numbers {
-        let timestamps = gh_edit_timestamps(&repo, pr_number, issue_number)?;
+        let timestamps = gh_edit_timestamps(&repo, issue_number, GitHubEditTarget::Issue)?;
         validate_marker_after_edit_timestamps(
             &marker_before.created_at,
-            &timestamps.pull_request,
-            "PR body",
-        )?;
-        validate_marker_after_edit_timestamps(
-            &marker_before.created_at,
-            &timestamps.issue,
+            &timestamps,
             &format!("Issue #{issue_number} body"),
+        )?;
+    }
+    for relevant_pr in relevant_prs {
+        let timestamps = gh_edit_timestamps(&repo, relevant_pr, GitHubEditTarget::PullRequest)?;
+        validate_marker_after_edit_timestamps(
+            &marker_before.created_at,
+            &timestamps,
+            &format!("associated PR #{relevant_pr} body"),
         )?;
     }
 
@@ -1268,6 +1312,15 @@ fn check_g3_evidence_marker(args: &[String]) -> Result<(), String> {
         "已校验 G3 evidence marker：PR #{pr_number}，comment {comment_id} 晚于最终 G3 / body evidence"
     );
     Ok(())
+}
+
+fn relevant_g3_marker_prs(pr_number: u64, resolved_args: &[GateEvidenceArgs]) -> BTreeSet<u64> {
+    let mut relevant_prs = BTreeSet::from([pr_number]);
+    for args in resolved_args {
+        relevant_prs.extend(args.delivery_pr);
+        relevant_prs.extend(args.related_prs.iter().copied());
+    }
+    relevant_prs
 }
 
 fn resolve_g3_evidence_shadow_targets(args: &[String]) -> Result<(), String> {
@@ -1289,6 +1342,40 @@ fn resolve_g3_evidence_shadow_targets(args: &[String]) -> Result<(), String> {
         "{}",
         serde_json::to_string(&targets)
             .map_err(|error| format!("无法序列化 G3 evidence shadow targets: {error}"))?
+    );
+    Ok(())
+}
+
+fn resolve_g3_evidence_shadow_issue_event_targets(args: &[String]) -> Result<(), String> {
+    let (repo, event_path) = parse_g3_evidence_issue_event_target_args(args)?;
+    let event_bytes = fs::read(&event_path).map_err(|error| {
+        format!(
+            "无法读取 GitHub issues event `{}`: {error}",
+            event_path.display()
+        )
+    })?;
+    let event: GitHubIssuesEvent = serde_json::from_slice(&event_bytes).map_err(|error| {
+        format!(
+            "GitHub issues event `{}` 不是预期 JSON: {error}",
+            event_path.display()
+        )
+    })?;
+    if event.repository.full_name != repo {
+        return Err(format!(
+            "GitHub issues event repository 与 --repo 不一致：event={}；repo={repo}",
+            event.repository.full_name
+        ));
+    }
+    if event.issue.number == 0 || event.issue.pull_request.is_some() {
+        return Err("GitHub issues event 必须指向正整数编号的非 PR Issue".to_string());
+    }
+
+    let targets = discover_g3_evidence_shadow_issue_event_targets(&event)?;
+    println!(
+        "{}",
+        serde_json::to_string(&targets).map_err(|error| format!(
+            "无法序列化 G3 evidence shadow Issue event targets: {error}"
+        ))?
     );
     Ok(())
 }
@@ -1319,6 +1406,51 @@ fn discover_g3_evidence_shadow_targets(
         let delivery_line = unique_metadata_line(body, "Delivery PR")?;
         targets.extend(parse_delivery_pr_selection(delivery_line, false)?);
     }
+    Ok(targets.into_iter().collect())
+}
+
+fn discover_g3_evidence_shadow_issue_targets(issue_body: &str) -> Result<Vec<u64>, String> {
+    let delivery_count = issue_body
+        .lines()
+        .filter(|line| line.starts_with("- Delivery PR："))
+        .count();
+    let related_count = issue_body
+        .lines()
+        .filter(|line| line.starts_with("- Related PRs："))
+        .count();
+    if delivery_count == 0 && related_count == 0 {
+        return Ok(Vec::new());
+    }
+    if delivery_count != 1 || related_count != 1 {
+        return Err(
+            "受治理 Issue 必须各包含一个 `Delivery PR` 与 `Related PRs` 元数据字段".to_string(),
+        );
+    }
+
+    let delivery_line = unique_metadata_line(issue_body, "Delivery PR")?;
+    let related_line = unique_metadata_line(issue_body, "Related PRs")?;
+    let mut targets = parse_delivery_pr_selection(delivery_line, false)?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    targets.extend(parse_related_pr_selection(related_line)?);
+    Ok(targets.into_iter().collect())
+}
+
+fn discover_g3_evidence_shadow_issue_event_targets(
+    event: &GitHubIssuesEvent,
+) -> Result<Vec<u64>, String> {
+    let mut targets = BTreeSet::new();
+    if let Some(previous_body) = event
+        .changes
+        .body
+        .as_ref()
+        .and_then(|change| change.from.as_deref())
+    {
+        targets.extend(discover_g3_evidence_shadow_issue_targets(previous_body)?);
+    }
+    targets.extend(discover_g3_evidence_shadow_issue_targets(
+        event.issue.body.as_deref().unwrap_or_default(),
+    )?);
     Ok(targets.into_iter().collect())
 }
 
@@ -1451,6 +1583,44 @@ fn parse_gate_evidence_target_args(args: &[String]) -> Result<(String, u64), Str
         return Err(format!("`--repo` 格式不正确：{repo}，应为 `owner/repo`"));
     }
     Ok((repo, pr.ok_or("缺少 `--pr <number>`")?))
+}
+
+fn parse_g3_evidence_issue_event_target_args(args: &[String]) -> Result<(String, PathBuf), String> {
+    let mut repo = None;
+    let mut event_path = None;
+    let mut index = 0;
+    while index < args.len() {
+        let flag = &args[index];
+        let value = args.get(index + 1).ok_or_else(|| {
+            format!(
+                "`{flag}` 缺少值。用法：resolve-g3-evidence-shadow-issue-event-targets --repo <owner/repo> --event-path <path>"
+            )
+        })?;
+        match flag.as_str() {
+            "--repo" => {
+                if repo.replace(value.clone()).is_some() {
+                    return Err("`--repo` 只能指定一次".to_string());
+                }
+            }
+            "--event-path" => {
+                if event_path.replace(PathBuf::from(value)).is_some() {
+                    return Err("`--event-path` 只能指定一次".to_string());
+                }
+            }
+            _ => {
+                return Err(format!(
+                    "未知 resolve-g3-evidence-shadow-issue-event-targets 参数：{flag}"
+                ));
+            }
+        }
+        index += 2;
+    }
+
+    let repo = repo.ok_or("缺少 `--repo <owner/repo>`")?;
+    if !valid_repository_name(&repo) {
+        return Err(format!("`--repo` 格式不正确：{repo}，应为 `owner/repo`"));
+    }
+    Ok((repo, event_path.ok_or("缺少 `--event-path <path>`")?))
 }
 
 fn parse_g3_evidence_marker_args(args: &[String]) -> Result<(String, u64, u64), String> {
@@ -1858,18 +2028,30 @@ fn gh_issue_comment(repo: &str, comment_id: u64) -> Result<GitHubIssueCommentRes
 
 fn gh_edit_timestamps(
     repo: &str,
-    pr_number: u64,
-    issue_number: u64,
-) -> Result<GitHubEditTimestampsRepository, String> {
+    number: u64,
+    target: GitHubEditTarget,
+) -> Result<GitHubEditTimestamps, String> {
     let (owner, name) = repo
         .split_once('/')
         .ok_or_else(|| format!("`--repo` 格式不正确：{repo}，应为 `owner/repo`"))?;
-    let query = r#"query($owner: String!, $name: String!, $pr: Int!, $issue: Int!) {
+    let (query, label) = match target {
+        GitHubEditTarget::PullRequest => (
+            r#"query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
-    pullRequest(number: $pr) { createdAt lastEditedAt }
-    issue(number: $issue) { createdAt lastEditedAt }
+    target: pullRequest(number: $number) { createdAt lastEditedAt }
   }
-}"#;
+}"#,
+            "PR",
+        ),
+        GitHubEditTarget::Issue => (
+            r#"query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    target: issue(number: $number) { createdAt lastEditedAt }
+  }
+}"#,
+            "Issue",
+        ),
+    };
     let response: GitHubEditTimestampsResponse = gh_json(&[
         "api".to_string(),
         "graphql".to_string(),
@@ -1880,21 +2062,15 @@ fn gh_edit_timestamps(
         "-F".to_string(),
         format!("name={name}"),
         "-F".to_string(),
-        format!("pr={pr_number}"),
-        "-F".to_string(),
-        format!("issue={issue_number}"),
+        format!("number={number}"),
     ])?;
     let repository = response
         .data
         .repository
         .ok_or("GitHub GraphQL 未返回目标 repository")?;
-    if repository.pull_request.is_none() {
-        return Err(format!("GitHub GraphQL 未返回 PR #{pr_number}"));
-    }
-    if repository.issue.is_none() {
-        return Err(format!("GitHub GraphQL 未返回 Issue #{issue_number}"));
-    }
-    Ok(repository)
+    repository
+        .target
+        .ok_or_else(|| format!("GitHub GraphQL 未返回 {label} #{number}"))
 }
 
 fn validate_g3_evidence_marker_comment(
@@ -1923,12 +2099,9 @@ fn validate_g3_evidence_marker_comment(
 
 fn validate_marker_after_edit_timestamps(
     marker_created_at: &str,
-    timestamps: &Option<GitHubEditTimestamps>,
+    timestamps: &GitHubEditTimestamps,
     label: &str,
 ) -> Result<(), String> {
-    let timestamps = timestamps
-        .as_ref()
-        .ok_or_else(|| format!("GitHub GraphQL 未返回 {label} 时间"))?;
     let evidence_timestamp = timestamps
         .last_edited_at
         .as_deref()
@@ -4144,6 +4317,60 @@ Refs: #12
     }
 
     #[test]
+    fn issue_event_target_discovery_is_bounded_to_recorded_prs() {
+        let governed_issue = "- Delivery PR：#61\n- Related PRs：#62、#63\n- [x] G0 立项已记录：";
+        assert_eq!(
+            discover_g3_evidence_shadow_issue_targets(governed_issue).unwrap(),
+            vec![61, 62, 63]
+        );
+        assert!(
+            discover_g3_evidence_shadow_issue_targets("ordinary issue without PR metadata")
+                .unwrap()
+                .is_empty()
+        );
+
+        let partial_error = discover_g3_evidence_shadow_issue_targets("- Delivery PR：#61")
+            .expect_err("partial governed metadata must trigger the conservative fallback");
+        assert!(partial_error.contains("各包含一个"));
+
+        let edited_event = GitHubIssuesEvent {
+            issue: GitHubIssuesEventIssue {
+                number: 60,
+                body: Some("- Delivery PR：#71\n- Related PRs：#72".to_string()),
+                pull_request: None,
+            },
+            changes: GitHubIssuesEventChanges {
+                body: Some(GitHubIssuesEventBodyChange {
+                    from: Some("- Delivery PR：#61\n- Related PRs：#62".to_string()),
+                }),
+            },
+            repository: GitHubIssuesEventRepository {
+                full_name: "illusion-tech/laneflow".to_string(),
+            },
+        };
+        assert_eq!(
+            discover_g3_evidence_shadow_issue_event_targets(&edited_event).unwrap(),
+            vec![61, 62, 71, 72]
+        );
+    }
+
+    #[test]
+    fn delivery_marker_freshness_covers_the_full_associated_pr_set() {
+        let args = GateEvidenceArgs {
+            phase: GateEvidencePhase::G3,
+            repo: "illusion-tech/laneflow".to_string(),
+            issue: 60,
+            delivery_pr: Some(61),
+            related_prs: vec![62, 63],
+        };
+
+        assert_eq!(
+            relevant_g3_marker_prs(61, &[args]),
+            BTreeSet::from([61, 62, 63])
+        );
+    }
+
+    #[test]
     fn parses_g3_evidence_marker_arguments() {
         assert_eq!(
             parse_g3_evidence_marker_args(&[
@@ -4482,6 +4709,10 @@ Refs: #12
         assert!(workflow.contains("check-g3-shadow-success-eligibility"));
         assert!(workflow.contains("check-g3-evidence-marker"));
         assert!(workflow.contains("resolve-g3-evidence-shadow-targets"));
+        assert!(workflow.contains("resolve-g3-evidence-shadow-issue-event-targets"));
+        assert!(workflow.contains("--event-path \"$GITHUB_EVENT_PATH\""));
+        assert!(workflow.contains("issues)\n              jq -e"));
+        assert!(!workflow.contains("issues)\n              pr_numbers=\"$(all_open_prs)\""));
         assert!(workflow.contains("2>\"$resolver_stderr\""));
         assert!(workflow.contains("cancel-in-progress: false"));
         assert!(workflow.contains("Final trusted revalidation:"));

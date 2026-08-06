@@ -73,15 +73,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          all_open_prs() {
-            local open_prs
-            open_prs="$(gh api --paginate \
-              "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" \
-              --jq '.[].number')"
-            printf '%s\n' "$open_prs" |
-              jq -Rsc 'split("\n") | map(select(length > 0) | tonumber) | unique'
-          }
-
           workflow_run_prs() {
             local direct_prs
             local head_sha
@@ -131,7 +122,9 @@ jobs:
               pr_numbers="$(workflow_run_prs)"
               ;;
             issues)
-              pr_numbers="$(all_open_prs)"
+              jq -e '.issue.number | type == "number" and . > 0' \
+                "$GITHUB_EVENT_PATH" >/dev/null
+              pr_numbers='[]'
               ;;
             workflow_dispatch)
               if [[ "$MANUAL_PR" =~ ^[1-9][0-9]*$ ]]; then
@@ -181,6 +174,7 @@ jobs:
           ALLOW_SUCCESS_EVENT: "${{ github.event_name == 'issue_comment' && github.event.action == 'created' && github.event.comment.body == 'g3-evidence: changed' }}"
           DIRECT_PRS: ${{ steps.direct.outputs.pr_numbers }}
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -194,9 +188,34 @@ jobs:
               jq -Rsc 'split("\n") | map(select(length > 0) | tonumber) | unique'
           }
 
-          targets="$DIRECT_PRS"
+          direct_prs="$DIRECT_PRS"
           resolver_failed=false
-          while IFS= read -r pr_number; do
+          if [[ "$EVENT_NAME" == "issues" ]]; then
+            issue_resolver_stderr="${RUNNER_TEMP}/g3-evidence-issue-event-resolver.stderr"
+            set +e
+            direct_prs="$(
+              cargo +1.96.0 run --quiet --locked -p xtask -- \
+                resolve-g3-evidence-shadow-issue-event-targets \
+                --repo "$REPOSITORY" \
+                --event-path "$GITHUB_EVENT_PATH" 2>"$issue_resolver_stderr"
+            )"
+            issue_resolver_status=$?
+            set -e
+            if [[ "$issue_resolver_status" -ne 0 ]] || ! jq -e \
+              'type == "array" and all(.[]; type == "number" and . > 0)' \
+              <<<"$direct_prs" >/dev/null; then
+              echo "::warning::Issue event target discovery failed; refreshing every open main PR"
+              printf '%s\n' "$direct_prs" >&2
+              if [[ -s "$issue_resolver_stderr" ]]; then
+                sed 's/^/issue resolver stderr: /' "$issue_resolver_stderr" >&2
+              fi
+              direct_prs='[]'
+              resolver_failed=true
+            fi
+          fi
+
+          targets="$direct_prs"
+          while [[ "$resolver_failed" == "false" ]] && IFS= read -r pr_number; do
             resolver_stderr="${RUNNER_TEMP}/g3-evidence-resolver-${pr_number}.stderr"
             set +e
             discovered="$(
@@ -224,13 +243,13 @@ jobs:
                 --argjson discovered "$discovered" \
                 '$current + $discovered | unique'
             )"
-          done < <(jq -r '.[]' <<<"$DIRECT_PRS")
+          done < <(jq -r '.[]' <<<"$direct_prs")
 
           if [[ "$resolver_failed" == "true" ]]; then
             open_prs="$(all_open_prs)"
             targets="$(
               jq -cn \
-                --argjson direct "$DIRECT_PRS" \
+                --argjson direct "$direct_prs" \
                 --argjson open "$open_prs" \
                 '$direct + $open | unique'
             )"
@@ -239,7 +258,7 @@ jobs:
           matrix="$(
             jq -cn \
               --argjson targets "$targets" \
-              --argjson direct "$DIRECT_PRS" \
+              --argjson direct "$direct_prs" \
               --argjson allow_success "$ALLOW_SUCCESS_EVENT" '
                 {include: [
                   $targets[] as $pr |
