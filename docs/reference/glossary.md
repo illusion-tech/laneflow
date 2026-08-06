@@ -1,7 +1,7 @@
 # LaneFlow 双语术语表
 
 **文档状态**: Active<br>
-**最后更新**: 2026-08-04<br>
+**最后更新**: 2026-08-06<br>
 **适用范围**: LaneFlow 架构、ADR、设计文档、Agent Skill、Issue/PR 设计说明、
 #291 编译器时代静态路网方案与城市模拟游戏交通基础
 
@@ -81,6 +81,7 @@ LaneFlow 的长期设计以中文为权威事实，英文只用于辅助理解�
 | 当前态来源输入          | current-source input                                      | `CurrentSourceInput`                    | 目标态已接受（#315 G1），经公开零复制构造器只借用原始 ScenarioManifest、具名制品和显示/审计来源；不表示已验证状态，也不携带可脱离 builder 使用的资源余额。                     |
 | 当前态生产兼容策略      | current-source production compatibility policy            | —                                       | 目标态已接受（#315 G1），供 `laneflow-data` 保持 v0.1 既有接受集合；不新增制品或引用拒绝条件，也不构造/保留编译器专用来源位置表。                                              |
 | 当前态来源资源配置档    | current-source resource profile                           | `CurrentSourceLimits`                   | 目标态已接受（#315 G1），严格导入解析前使用的显式剩余上限；覆盖制品、引用、字节、记录、位置与存续内存，由 builder 当前状态派生，无默认、无限或外部预取配置。                   |
+| 当前态导入配置档        | P100 current-source import profile                        | `LF-CURRENT-SOURCE-P100-IMPORT-v1`      | Review（#297 G1 候选）：为 current 三文档严格导入冻结 source 专用硬上限，并与调用点 compiler 余额逐维取更严值；它不改变 production-compatible current loader 的接受域。        |
 | 当前态来源位置表        | current-source location table                             | `CurrentSourceLocationTable`            | 目标态已接受（#315 G1），仅由严格编译导入在同一次有界解析中产生、关联真实来源行列的位置伴随表；生产兼容加载不构造或保留它。                                                    |
 | 已验证当前态来源包      | validated current-source bundle                           | `ValidatedCurrentSourceBundle`          | 目标态已接受（#315 G1），由共同验证权威原子绑定 DTO、三文档精确身份和场景清单配对的最小字段私有能力；不包含编译器专用来源记录/位置，也不证明发布真实性。                       |
 | 已验证当前态导入包      | validated current-import bundle                           | `ValidatedCurrentImportBundle`          | 目标态已接受（#315 G1），仅由严格编译导入策略铸造、不可分拥有已验证来源包、逐文档来源记录和受限位置表的字段私有能力；不能由生产来源包公开升级或由调用方构造。                  |

@@ -1,7 +1,7 @@
 # 编译器基础设施与合成领域专用语言前端
 
 **文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入契约已实现<br>
-**最后更新**: 2026-08-05<br>
+**最后更新**: 2026-08-06<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -50,8 +50,9 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
 `laneflow-data` / `laneflow-core` / `laneflow-spatial`。#315 已按 G2 授权落地共同私有
 `TypedAstModule` / `TypedAstDeclaration`、逻辑模块与来源文档独立登记、原子共同接入、
-文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#296/#297 的具体前端入口、current 线格式、
-文档角色与专用降阶仍不是当前实现事实
+文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#297 已形成 G1 Review 候选，精确入口、
+严格资源配置、三文档位置和 current 专用降阶见 `current-package-import.md`；该候选尚未
+取得 G1 Pass，#296/#297 的具体前端仍不是当前实现事实
 
 **关联决策与设计**:
 
@@ -65,6 +66,7 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 - `spatial-geometry.md`
 - `core-runtime-performance-baseline.md`（复用 P100 硬件身份，不复用运行时规模或预算）
 - `compiler-budget-calibration.md`
+- `current-package-import.md`
 - `../reference/compiler-calibration-workloads-v1.json`
 - `../reference/v0.10-compiler-budget-calibration-report.md`
 - `../reference/v0.10-compiler-budget-calibration-raw.json`
@@ -312,6 +314,27 @@ builder 调用内。由于没有到 `laneflow-current-source` 的直接依赖，
 #296 的 `GeometryModuleBuilder` / `GeometryModule` 继续由 `laneflow-compiler` 拥有，
 不为共同接入另建前端插件包。以上名称和依赖方向已由 #315 G1 接受；具体当前态线格式
 字段、错误和来源位置契约仍由 #297 G1 独占。
+
+### 2.4 #297 current 包迁移导入候选（Review）
+
+#297 G1 的精确候选由 [`current-package-import.md`](current-package-import.md) 统一冻结：
+
+- compiler 特性门控公共面为零复制 `CurrentSourceArtifact::new`、
+  `CurrentSourceInput::new(manifest_bytes, manifest_display_source, artifacts)` 和唯一原子
+  `CompilationUnitBuilder::add_current_source`；公共签名不泄漏 current-source 类型；
+- 一个固定 `current/v0.10` namespace 下保留 Manifest/Traffic/Spatial 三个稳定文档键，
+  采用 `SourceLanguage::CurrentTrafficSpatialV0_10 = 2`，不虚构模块或导入边；
+- `LF-CURRENT-SOURCE-P100-IMPORT-v1` 以 source 专用硬上限和调用点 builder 余额共同
+  形成有效 `CurrentSourceLimits`；v1 compiler profile 在读、哈希、解析前拒绝；
+- production-compatible Data 路径保持现有 accepted set 且不收集位置，strict 路径用
+  静态位置策略保留真实字段/记录 span，并在增长前失败关闭；
+- 全部 LaneEdge 原样使用 current external ID；无独立 ID 的 AuthoringLane 用非空覆盖链
+  首 edge ID，Movement 的两个 target-only approach key 用固定后缀派生；其他实体原样
+  使用其 current ID，再交给共同 HIR/MIR/LIR 裁决 owner、coverage 和全局语义。
+
+本节只登记 G1 Review 候选，不把 #297 描述为已实现或已通过 Gate。候选数值、诊断、
+位置闭合集合、资产分类、性能和等价矩阵只以该专门设计为权威；#297 取得 exact-head
+`G1 Pass` 后才能把状态改为 Accepted 并进入 G2。
 
 ## 3. 公共接口与构造权威
 
@@ -678,8 +701,8 @@ Synthetic 路径。#315 G2 使用新的 `LF-COMP-P100-INITIAL-v2`：除新增
 跨包受检能力入口、生命周期和共享测试；#296 只拥有 Geometry 来源契约及专用降阶；
 #297 只拥有严格编译导入的当前态来源资源配置档精确数值/诊断、有界解码、三种文档的角色/键/来源记录/
 来源位置映射、compiler 迁移特性内的具体降阶和薄编排包。#296/#297
-可以并行完成 G1，但二者进入 G2 前都必须以 #315 G4 后的精确 `main` 重新复核公共面、包依赖图与
-生产基线。
+可以并行完成 G1，但二者进入 G2 前都必须以包含 #315 已关闭共同实现的精确 `main`
+重新复核公共面、包依赖图、生产基线和上游治理证明边界。
 
 ## 4. 阶段表示与内存所有权
 
@@ -1493,8 +1516,9 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
       [`## G1 设计判断` Pass 评论](https://github.com/illusion-tech/laneflow/issues/315#issuecomment-5189018791)。
 
 本清单已由 #315 G1 Pass 接受为目标实现输入；在当时它不修改 #292 已接受的历史 Gate
-记录，也尚未授权生产 Rust 实现。后继 G2 授权与实现结果见第 15 节。#315 只有完成
-Delivery PR 的 G3/G4 收口后，#296/#297 才可按各自 Gate 进入 G2。
+记录，也尚未授权生产 Rust 实现。后继 G2 授权与实现结果见第 15 节。当时 #315 的
+Delivery PR 收口是 #296/#297 进入各自 G2 的硬前置；该前置后来以 #315
+`G4 Exception` 关闭，但不替代后继议题自身 Gate 或 exact-main 复核。
 
 ## 15. #315 共同接入实现事实与交付边界
 
@@ -1522,8 +1546,9 @@ Delivery PR 的 G3/G4 收口后，#296/#297 才可按各自 Gate 进入 G2。
       排除在本切片之外。
 
 本节只记录稳定实现边界，不充当动态治理状态。Delivery PR、required CI、精确头外部审阅、
-full-set G3 证据与 G4 收口必须从 GitHub 和对应验证快照读取；在 #315 完成 G4 前，
-#296/#297 仍不得进入各自 G2。
+full-set G3 证据与治理收口必须从 GitHub 和对应验证快照读取。#315 后来以
+[`G4 Exception`](https://github.com/illusion-tech/laneflow/issues/315#issuecomment-5203763190)
+关闭；#296/#297 因而不再等待其代码交付，但各自 G2 必须显式复核继承的例外证明边界。
 
 [g1-performance-revision]: https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5175472658
 [g1-scale-correction]: https://github.com/illusion-tech/laneflow/issues/292#issuecomment-5175536346

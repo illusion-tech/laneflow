@@ -68,9 +68,14 @@
   资源配置档和原 G1 性能门槛。G2 已交付生产实现与迁移等价证据，同时发现研究
   工作负载不能按原自然身份无损映射为合法生产语义；后继 append-only G1 修订已把
   #308 降为容量估算输入，并用真实合法产品场景形成 P100 首轮生产编译基线。不得把
-  #308 研究替身记录冒充产品通过（Product Pass）。#315 G1 已接受官方前端模块的共同
-  受检接入、来源记录生命周期、#297 迁移包依赖图与配对性能目标边界；这些修订尚未由
-  G2 实现，不构成当前生产事实。
+  #308 研究替身记录冒充产品通过（Product Pass）。#315 已实现官方前端模块的共同
+  受检接入与来源记录生命周期，并冻结 #297 迁移包依赖图与配对性能目标边界；#297
+  的具体 current 前端仍未实现，不构成当前生产事实。
+- `current-package-import.md`：#297 G1 Review 候选；冻结 current Traffic v0.10、
+  SpatialPackage v0.1 与 ScenarioManifest v0.1 的 production-compatible / strict
+  双策略 SSOT、零复制 compiler 输入、三文档身份与来源位置、严格资源配置档、current
+  external ID 降阶、迁移包 DAG、资产失败清单和 current→LIR→projection 等价矩阵；
+  当前尚未取得 G1 Pass，也未授权生产 Rust 实现。
 
 ## 文档状态
 
