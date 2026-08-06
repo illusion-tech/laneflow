@@ -1737,6 +1737,21 @@ fn validate_current_g3_target(
             "标准 G3 只能校验合并前仍为 OPEN 且非 Draft 的当前 {label}；历史合并证据只能由 G4 复核"
         ));
     }
+    if delivery_pr.is_some() {
+        for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
+            let is_open_candidate = related_pr.state == "OPEN"
+                && !related_pr.is_draft
+                && related_pr.merged_at.is_none();
+            let is_merged_history = related_pr.state == "MERGED"
+                && !related_pr.is_draft
+                && related_pr.merged_at.is_some();
+            if !is_open_candidate && !is_merged_history {
+                return Err(format!(
+                    "Delivery full-set G3 的 Related PR #{number} 必须是非 Draft OPEN current target，或带 mergedAt 的 MERGED 历史证据；CLOSED / 状态不一致的 Related PR 失败关闭"
+                ));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -4215,6 +4230,33 @@ Refs: #12
     }
 
     #[test]
+    fn rejects_closed_related_pr_in_delivery_full_set_g3() {
+        let mut args = gate_args(GateEvidencePhase::G3);
+        args.related_prs = vec![62];
+        let delivery_pr = delivery_pr(None);
+        let mut related_pr = related_pr(false);
+        related_pr.state = "CLOSED".to_string();
+
+        let error = validate_current_g3_target(&args, Some(&delivery_pr), &[related_pr])
+            .expect_err("abandoned Related PR must fail a Delivery full-set G3");
+
+        assert!(error.contains("Related PR #62"));
+        assert!(error.contains("CLOSED"));
+    }
+
+    #[test]
+    fn accepts_merged_related_pr_history_in_delivery_full_set_g3() {
+        let mut args = gate_args(GateEvidencePhase::G3);
+        args.related_prs = vec![62];
+        let delivery_pr = delivery_pr(None);
+        let mut related_pr = related_pr(false);
+        related_pr.state = "MERGED".to_string();
+        related_pr.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+
+        assert!(validate_current_g3_target(&args, Some(&delivery_pr), &[related_pr]).is_ok());
+    }
+
+    #[test]
     fn rejects_merged_related_as_current_related_only_g3_target() {
         let args = related_only_g3_args();
         let mut related_pr = related_pr(false);
@@ -4252,6 +4294,7 @@ Refs: #12
 
         assert!(workflow.contains("name: G3 Evidence Gate Shadow"));
         assert!(workflow.contains("pull_request_target:"));
+        assert!(!workflow.contains("pull_request_target:\n    branches:"));
         assert!(workflow.contains("issue_comment:\n    types:\n      - created"));
         assert!(workflow.contains("      - edited\n      - deleted\n  issues:"));
         assert!(
@@ -4260,6 +4303,8 @@ Refs: #12
         );
         assert!(workflow.contains("workflow_run:\n    workflows:\n      - External Review Signal"));
         assert!(workflow.contains("workflow_dispatch:"));
+        assert!(workflow.contains("g3-evidence-gate-event-${{"));
+        assert!(workflow.contains("github.event.workflow_run.pull_requests[0].number"));
         assert!(workflow.contains("github.event.comment.body == 'g3-evidence: changed'"));
         assert!(workflow.contains("github.event.issue.pull_request != null"));
         assert!(workflow.contains(
