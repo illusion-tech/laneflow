@@ -47,7 +47,7 @@ blake3 = "1.8"
 hashbrown = { version = "0.17.1", optional = true, default-features = false, features = ["inline-more"] }
 indexmap = { version = "2.14", optional = true, default-features = false, features = ["std"] }
 jsonschema = { version = "0.49.1", default-features = false }
-num-bigint = { version = "0.4.8", default-features = false }
+num-bigint = { version = "0.5.1", default-features = false }
 laneflow-data = { version = "0.0.0", path = "../../crates/laneflow-data", optional = true }
 laneflow-core = { version = "0.0.0", path = "../../crates/laneflow-core", optional = true }
 laneflow-spatial = { version = "0.0.0", path = "../../crates/laneflow-spatial", optional = true }
