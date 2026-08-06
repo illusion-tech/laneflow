@@ -236,6 +236,7 @@ pub(crate) fn freeze_source_map(
                 },
             )
         })
+        .saturating_add(module_count.saturating_mul(SOURCE_LOCATION_LOGICAL_BYTES))
         .saturating_add(lane_edge_count.saturating_mul(LANE_EDGE_SOURCE_LOGICAL_BYTES))
         .saturating_add(successor_count.saturating_mul(LANE_EDGE_SUCCESSOR_SOURCE_LOGICAL_BYTES))
         .saturating_add(cross_entity_count.saturating_mul(STABLE_ENTITY_SOURCE_LOGICAL_BYTES))
@@ -267,6 +268,7 @@ pub(crate) fn freeze_source_map(
     // 描述符平坦表、各稳定实体来源表及 owner-local 关系来源表的连续存储。峰值仍保留
     // 完整 unit，直到全部伴随表构造成功。
     let source_map_new_owned_bytes = requested_bytes::<SourceModuleDescriptor>(module_count)
+        .saturating_add(requested_bytes::<SourceLocationRecord>(module_count))
         .saturating_add(requested_bytes::<SourceDocumentDescriptor>(
             source_document_count,
         ))
@@ -413,7 +415,7 @@ pub(crate) fn freeze_source_map(
     let primary_span = unit
         .modules
         .first()
-        .map(|module| module.descriptor().declaration_span().clone());
+        .map(|module| module.declaration_span().clone());
     let stable_key = unit
         .modules
         .first()
@@ -439,6 +441,18 @@ pub(crate) fn freeze_source_map(
     // 产生语义记录的逻辑模块。缺失键和跨模块错绑都以结构化诊断失败关闭，不能 panic
     // 或借另一个模块的同名/现存文档静默归因。
     let location = SourceLocationResolver { unit: &unit, mir };
+
+    let module_capacity =
+        usize::try_from(module_count).map_err(|_| output_overflow(&unit, primary_span.clone()))?;
+    let mut source_module_declaration_sources = Vec::with_capacity(module_capacity);
+    for (module_index, module) in unit.modules.iter().enumerate() {
+        let module_ordinal = u32::try_from(module_index)
+            .expect("compile limits bound canonical module ordinals to u32");
+        source_module_declaration_sources.push(location.resolve(
+            MirModuleKey::from_raw(module_ordinal),
+            module.declaration_span(),
+        )?);
+    }
 
     let edge_capacity = usize::try_from(lane_edge_count)
         .map_err(|_| output_overflow(&unit, primary_span.clone()))?;
@@ -1109,6 +1123,7 @@ pub(crate) fn freeze_source_map(
     let (source_modules, source_documents) = unit.into_source_descriptors();
     Ok(ValidatedSourceMapInput {
         source_modules,
+        source_module_declaration_sources: source_module_declaration_sources.into_boxed_slice(),
         source_documents,
         lane_edge_sources: lane_edge_sources.into_boxed_slice(),
         lane_edge_successor_sources: lane_edge_successor_sources.into_boxed_slice(),

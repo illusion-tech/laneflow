@@ -71,7 +71,7 @@ pub use source_map::{
     ParkingSpaceSourceView, ParticipantClassSourceView, RoadCorridorSourceView,
     RoadSectionSourceView, RouteRelationSourceView, SignalControllerSourceView,
     SignalGroupSourceView, SignalPhaseSourceView, SignalRelationOwner, SignalRelationSourceView,
-    SourceDocumentView, SourceLocationView, SourceRelationRole, SpatialRelationSourceView,
-    StaticRouteSourceView, StopLineSourceView, ValidatedSourceMapInput, VehicleProfileSourceView,
-    WaitingZoneSourceView,
+    SourceDocumentView, SourceLocationView, SourceModuleSourceView, SourceRelationRole,
+    SpatialRelationSourceView, StaticRouteSourceView, StopLineSourceView, ValidatedSourceMapInput,
+    VehicleProfileSourceView, WaitingZoneSourceView,
 };

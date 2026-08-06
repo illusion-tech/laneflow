@@ -1427,7 +1427,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let primary_span = unit
         .modules
         .first()
-        .map(|module| module.descriptor().declaration_span().clone());
+        .map(|module| module.declaration_span().clone());
     let stable_key = unit
         .modules
         .first()
@@ -1472,7 +1472,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             .push(HirModule {
                 authoring_namespace_id: source_module.descriptor().authoring_namespace_arc(),
                 imports: TableRange::empty(),
-                source_span: source_module.descriptor().declaration_span().clone(),
+                source_span: source_module.declaration_span().clone(),
             })
             .map_err(|overflow| arena_overflow(overflow, &unit.limits, primary_span.clone()))?;
         module_lookup.insert(source_module.descriptor().authoring_namespace_arc(), key);

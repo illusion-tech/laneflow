@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 
-use crate::SourceSpan;
-
 const SOURCE_DOCUMENT_SET_MAGIC: &[u8] = b"LFSOURCE-DOCUMENT-SET";
 
 /// 首版来源文档集摘要前像版本。
@@ -149,7 +147,6 @@ pub struct SourceModuleDescriptor {
     pub(super) random_seed: Option<u64>,
     pub(super) provenance: Arc<str>,
     pub(super) imports: Box<[Arc<str>]>,
-    pub(super) declaration_span: SourceSpan,
 }
 
 impl SourceModuleDescriptor {
@@ -220,10 +217,6 @@ impl SourceModuleDescriptor {
         self.imports.iter().map(AsRef::as_ref)
     }
 
-    pub(crate) const fn declaration_span(&self) -> &SourceSpan {
-        &self.declaration_span
-    }
-
     pub(crate) fn authoring_namespace_arc(&self) -> Arc<str> {
         Arc::clone(&self.authoring_namespace_id)
     }
@@ -238,8 +231,7 @@ impl SourceModuleDescriptor {
             .saturating_add(32)
             .saturating_add(1)
             .saturating_add(self.random_seed.map_or(0, |_| 8))
-            .saturating_add(4)
-            .saturating_add(16);
+            .saturating_add(4);
         [
             self.authoring_namespace_id.as_ref(),
             self.generator_build_id.as_ref(),

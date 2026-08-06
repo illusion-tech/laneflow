@@ -26,6 +26,7 @@ pub(super) struct ImportRecord {
 /// 官方前端完成受检构造后交给共同编译管线的 Typed AST 模块。
 pub(crate) struct TypedAstModule {
     pub(crate) descriptor: SourceModuleDescriptor,
+    pub(crate) declaration_span: SourceSpan,
     pub(crate) source_documents: Box<[SourceDocumentDescriptor]>,
     pub(super) imports: Box<[ImportRecord]>,
     pub(crate) declarations: Box<[TypedAstDeclaration]>,
@@ -34,6 +35,10 @@ pub(crate) struct TypedAstModule {
 impl TypedAstModule {
     pub(crate) const fn descriptor(&self) -> &SourceModuleDescriptor {
         &self.descriptor
+    }
+
+    pub(crate) const fn declaration_span(&self) -> &SourceSpan {
+        &self.declaration_span
     }
 
     pub(crate) fn import_records(&self) -> impl ExactSizeIterator<Item = (&str, &SourceSpan)> {
@@ -45,8 +50,27 @@ impl TypedAstModule {
 
 /// 描述符、文档、Typed AST 与准入资源计数不可分的内部载荷。
 pub(super) struct AdmittedOfficialModule {
-    pub(super) typed_ast: TypedAstModule,
+    typed_ast: TypedAstModule,
     pub(super) resource_counts: ModuleResourceCounts,
+}
+
+impl AdmittedOfficialModule {
+    pub(super) fn new(typed_ast: TypedAstModule, resource_counts: ModuleResourceCounts) -> Self {
+        assert!(
+            typed_ast.source_documents.windows(2).all(|pair| {
+                pair[0].source_document_key.as_bytes() <= pair[1].source_document_key.as_bytes()
+            }),
+            "official frontends must canonically sort source documents before common admission"
+        );
+        Self {
+            typed_ast,
+            resource_counts,
+        }
+    }
+
+    pub(super) const fn typed_ast(&self) -> &TypedAstModule {
+        &self.typed_ast
+    }
 }
 
 impl std::ops::Deref for AdmittedOfficialModule {
@@ -147,7 +171,13 @@ impl TestOfficialModule {
             .saturating_add(size_bytes::<SourceDocumentDescriptor>(
                 u64::try_from(documents.len()).unwrap_or(u64::MAX),
             ));
-        Self { admitted }
+        let AdmittedOfficialModule {
+            typed_ast,
+            resource_counts,
+        } = admitted;
+        Self {
+            admitted: AdmittedOfficialModule::new(typed_ast, resource_counts),
+        }
     }
 
     pub(super) fn move_first_lane_edge_span_to(&mut self, source_document_key: &str) {
@@ -157,6 +187,26 @@ impl TestOfficialModule {
             panic!("test wrapper expected first declaration to be LaneEdge");
         };
         declaration.header.span = SourceSpan::point(Arc::from(source_document_key), 41, 7);
+    }
+
+    pub(super) fn move_module_declaration_span_to(&mut self, source_document_key: &str) {
+        self.admitted.typed_ast.declaration_span =
+            SourceSpan::point(Arc::from(source_document_key), 37, 5);
+    }
+
+    pub(super) fn from_synthetic_with_unsorted_documents(
+        module: SyntheticModule,
+        documents: &[(&str, &[u8])],
+    ) -> Self {
+        let mut module = Self::from_synthetic_with_documents(module, documents);
+        module.admitted.typed_ast.source_documents.swap(1, 2);
+        let AdmittedOfficialModule {
+            typed_ast,
+            resource_counts,
+        } = module.admitted;
+        Self {
+            admitted: AdmittedOfficialModule::new(typed_ast, resource_counts),
+        }
     }
 
     pub(super) fn move_first_lane_edge_successor_span_to(&mut self, source_document_key: &str) {
@@ -537,11 +587,8 @@ impl CompilationUnitBuilder {
             return Err(DiagnosticBundle::single(
                 Diagnostic::duplicate_module_namespace(
                     namespace,
-                    module.descriptor.declaration_span.clone(),
-                    self.modules[existing_index]
-                        .descriptor
-                        .declaration_span
-                        .clone(),
+                    module.declaration_span.clone(),
+                    self.modules[existing_index].declaration_span.clone(),
                 ),
             ));
         }
@@ -556,7 +603,7 @@ impl CompilationUnitBuilder {
                 Diagnostic::compile_profile_incompatible(
                     self.limits.profile_id(),
                     CompileLimitDimension::SourceDocumentCount,
-                    module.descriptor.declaration_span.clone(),
+                    module.declaration_span.clone(),
                     namespace,
                 ),
             ));
@@ -568,8 +615,8 @@ impl CompilationUnitBuilder {
             return Err(DiagnosticBundle::single(
                 Diagnostic::duplicate_source_document_key(
                     source_document_key,
-                    module.descriptor.declaration_span.clone(),
-                    module.descriptor.declaration_span.clone(),
+                    module.declaration_span.clone(),
+                    module.declaration_span.clone(),
                 ),
             ));
         }
@@ -580,11 +627,8 @@ impl CompilationUnitBuilder {
                 return Err(DiagnosticBundle::single(
                     Diagnostic::duplicate_source_document_key(
                         source_document_key,
-                        module.descriptor.declaration_span.clone(),
-                        self.modules[existing_index]
-                            .descriptor
-                            .declaration_span
-                            .clone(),
+                        module.declaration_span.clone(),
+                        self.modules[existing_index].declaration_span.clone(),
                     ),
                 ));
             }
@@ -610,7 +654,7 @@ impl CompilationUnitBuilder {
                         dimension,
                         limit,
                         observed,
-                        Some(module.descriptor.declaration_span.clone()),
+                        Some(module.declaration_span.clone()),
                         Some(namespace.into()),
                     ),
                 ));
@@ -624,7 +668,7 @@ impl CompilationUnitBuilder {
                     CompileLimitDimension::SourceDocumentCount,
                     limit,
                     next_totals.source_document_count,
-                    Some(module.descriptor.declaration_span.clone()),
+                    Some(module.declaration_span.clone()),
                     Some(namespace.into()),
                 ),
             ));
@@ -691,7 +735,7 @@ impl CompilationUnitBuilder {
                         dimension,
                         limit,
                         observed,
-                        primary_module.map(|module| module.descriptor.declaration_span.clone()),
+                        primary_module.map(|module| module.declaration_span.clone()),
                         primary_module
                             .map(|module| module.descriptor.authoring_namespace_id.as_ref().into()),
                     ),
