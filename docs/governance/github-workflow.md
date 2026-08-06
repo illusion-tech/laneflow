@@ -120,7 +120,7 @@ Milestone 用于表达版本边界，而不是单个大任务。
 - 复核关联 Issue 的 Project、Project status、Milestone、Labels、Parent / sub-issues、Blocked by、Blocking、Delivery PR 和 Related PRs 关联状态。
 - 记录测试、构建和文档检查结果。
 - 记录已知风险和例外。
-- 在 PR comment 记录 `## G3 合并判断`：checks、审阅、验证、风险、例外、合并方式和 Gate 断言；PR body 的 G3 checkbox 回链当前 comment，Issue body 的 G3 Gate Ledger 对 Related PR 增量回链并保持未勾选，直到 Delivery PR 与全部 Related PR 均完成。
+- 在 PR comment 记录 `## G3 合并判断`：current head、rollout phase、checks、External Review Gate、G3 Evidence Gate Shadow、审阅、验证、风险、例外、合并方式和 Gate 断言；PR body 的 G3 checkbox 回链当前 comment，Issue body 的 G3 Gate Ledger 对 Related PR 增量回链并保持未勾选，直到 Delivery PR 与全部 Related PR 均完成。
 - 在标准 G3 前取得至少一个受信任 external reviewer 的 exact-head completion；finding 必须处置并由新的 exact-head clean re-review 封口。
 
 不得用父任务标题合入只覆盖部分能力的实现。部分交付必须明确子切片边界。
