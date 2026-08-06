@@ -315,7 +315,7 @@ content-equivalent rebase 还必须记录 reviewed/new head、old/new base、cha
 
 PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
 
-G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 `Checks`、审阅、验证、风险、例外、合并方式和 `Gate 断言`。PR body 的 G3 checkbox 必须勾选并回链当前 PR comment；Issue body 的 G3 Gate Ledger 必须增量回链该 comment，只有 Delivery PR 与全部 Related PR 均完成时才勾选。`Gate 断言` 必须使用当前角色对应的 Related-only 或 full-set 规范命令，参数与实际调用完全一致；一个 PR 关联多个 Issue 时，在同一 comment 中为每个 Issue 分别写一条。填写后立即逐条运行，若任一失败必须移除对应 `已通过` 并修复证据。全部运行成功前不得合并。
+G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 current head、rollout phase、`Checks`、`External Review Gate`、`G3 Evidence Gate Shadow`、审阅、验证、风险、例外、合并方式和 `Gate 断言`。PR body 的 G3 checkbox 必须勾选并回链当前 PR comment；Issue body 的 G3 Gate Ledger 必须增量回链该 comment，只有 Delivery PR 与全部 Related PR 均完成时才勾选。`Gate 断言` 必须使用当前角色对应的 Related-only 或 full-set 规范命令，参数与实际调用完全一致；一个 PR 关联多个 Issue 时，在同一 comment 中为每个 Issue 分别写一条。填写后立即逐条运行，若任一失败必须移除对应 `已通过` 并修复证据。全部运行成功前不得合并。
 
 ```text
 ## G3 合并判断

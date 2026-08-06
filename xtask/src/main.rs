@@ -1132,6 +1132,7 @@ const CURRENT_G3_COMMENT_FIELDS: &[&str] = &[
     "- Current head：",
     "- Checks：",
     "- External Review Gate：",
+    "- G3 Evidence Gate Shadow：",
     "- 审阅：",
     "- Findings disposition / clean re-review：",
     "- Review threads：",
@@ -3191,11 +3192,11 @@ fn parse_gate_waiver_records(comment: &GitHubComment) -> Result<Vec<GateWaiverRe
                 record.schema_version
             ));
         }
-        gate_waiver_follow_up_issue_number(&record)?;
+        let follow_up_issue_number = gate_waiver_follow_up_issue_number(&record)?;
         if !seen_ids.insert(record.id.clone()) {
             return Err(format!("G3 Waived id 不能重复：{}", record.id));
         }
-        if !seen_follow_up_issues.insert(record.follow_up_issue.clone()) {
+        if !seen_follow_up_issues.insert(follow_up_issue_number) {
             return Err(format!(
                 "G3 Waived 每个 Issue 只能包含一个结构化记录：{}",
                 record.follow_up_issue
@@ -3207,7 +3208,7 @@ fn parse_gate_waiver_records(comment: &GitHubComment) -> Result<Vec<GateWaiverRe
 }
 
 fn gate_waiver_follow_up_issue_number(record: &GateWaiverRecord) -> Result<u64, String> {
-    record
+    let number = record
         .follow_up_issue
         .strip_prefix('#')
         .and_then(|value| value.parse::<u64>().ok())
@@ -3217,7 +3218,14 @@ fn gate_waiver_follow_up_issue_number(record: &GateWaiverRecord) -> Result<u64, 
                 "G3 Waived followUpIssue 必须是明确的正整数 Issue 编号：{}",
                 record.follow_up_issue
             )
-        })
+        })?;
+    if record.follow_up_issue != format!("#{number}") {
+        return Err(format!(
+            "G3 Waived followUpIssue 必须使用无前导零的规范 `#<positive number>`：{}",
+            record.follow_up_issue
+        ));
+    }
+    Ok(number)
 }
 
 fn validate_gate_waiver_record_set(
@@ -4777,6 +4785,21 @@ Refs: #12
     }
 
     #[test]
+    fn rejects_current_g3_without_shadow_evidence_field() {
+        let args = related_only_g3_args();
+        let issue = issue_with_pending_delivery_and_related_g3();
+        let mut related_pr = related_pr_for_args(false, &args);
+        related_pr.comments[0].created_at = EXTERNAL_REVIEW_G3_ACTIVATION.to_string();
+        related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args)
+            .replace("- G3 Evidence Gate Shadow：\n", "");
+
+        let error = validate_related_g3_evidence(&args, &issue, 62, &related_pr)
+            .expect_err("current G3 must record the shadow evidence boundary");
+
+        assert!(error.contains("- G3 Evidence Gate Shadow："));
+    }
+
+    #[test]
     fn rejects_legacy_g3_fields_after_external_review_activation() {
         let args = related_only_g3_args();
         let issue = issue_with_pending_delivery_and_related_g3();
@@ -4935,9 +4958,18 @@ Refs: #12
             .expect_err("waiver records for undeclared Issues must fail closed");
         assert!(extra_error.contains("必须与 `关联 Issue` 精确一致"));
 
-        comment.body = comment
-            .body
-            .replace(r##""followUpIssue": "#61""##, r##""followUpIssue": "#60""##);
+        comment.body = comment.body.replace(
+            r##""followUpIssue": "#61""##,
+            r##""followUpIssue": "#060""##,
+        );
+        let noncanonical_error = parse_gate_waiver(&comment, 60, now)
+            .expect_err("non-canonical per-Issue waiver numbers must fail closed");
+        assert!(noncanonical_error.contains("无前导零"));
+
+        comment.body = comment.body.replace(
+            r##""followUpIssue": "#060""##,
+            r##""followUpIssue": "#60""##,
+        );
         let error = parse_gate_waiver(&comment, 60, now)
             .expect_err("duplicate per-Issue waiver records must fail closed");
         assert!(error.contains("每个 Issue 只能包含一个"));
