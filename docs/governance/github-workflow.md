@@ -195,6 +195,23 @@ R1 的 non-required shadow 由两个 workflow 分离不可信事件与可信发�
 
 该 workflow 合入 `main` 前不能用于 Related PR C 自身的 G3；PR C 仍由已合入 main 的 validator、current-head external review 与当前 ruleset 完成 R0 bootstrap。合入后先追加 R1 起点记录，再通过手工 dispatch 和真实事件验证首次 Check；未完成该记录与首次 live 验证前不得开始计算 14 天 / 10 eligible PR 退出门槛。
 
+#### G3 evidence shadow 与强制边界
+
+`G3 Evidence Gate Shadow` 复用相同的 trusted-ref 安全边界，但独立评估 Gate Ledger 闭环：
+
+- `pull_request_target`、精确 `g3-evidence: changed` 顶层 PR comment 或显式 manual dispatch 只提供有界 PR number；workflow checkout `refs/heads/main`，不 checkout / 执行 PR head，也不把 comment body 送入 shell。
+- `check-gate-evidence-target --repo <owner/repo> --pr <number>` 从 PR body 唯一解析 `关联 Issue` 与 `PR 角色`。Delivery 自动读取 Issue 的完整 Related PR 集合；Related 只执行自身 Related-only G3。远端 metadata、permalink、append-only comment、current-head external review 或角色关系任一缺失都失败关闭。
+- 发布前后重读 open/draft/base/head repository/head/base OID；identity race 不发布旧结论。same-repository、open、targeting `main` 的 PR 才发布 `G3 Evidence Gate Shadow`，source App=`github-actions`，success / failure 只表示本次 trusted replay 结果。
+- 新增或编辑 G3 comment、PR body 或 Issue body 后，在全部 permalink 就绪时新增精确 marker；edited / deleted marker 和其他 comment 不触发刷新。Shadow success 不能替代当前 G3 comment，也不能替代 `check-gate-evidence g3` 的显式 Gate 断言。
+- 候选 validator / workflow 在合入 `main` 前不能自批。标准 G3 对已 merged / closed 的当前目标失败；G4 保留对合并前证据的历史复核。
+
+R1 不修改 ruleset，`G3 Evidence Gate Shadow` 永远不能被描述为平台级 merge blocker。R2 只接受两条强制来源：
+
+1. 当前 organization plan 与 API 支持时，在 organization ruleset 中配置 [required workflow](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#require-workflows-to-pass-before-merging)，并锁定 trusted source workflow；
+2. 否则由独立、最小权限 GitHub App 发布正式 `G3 Evidence Gate` Check，repository ruleset 同时绑定 Check name 与 expected source App。
+
+启用任一路径前必须用 API 保存 ruleset before snapshot，验证 source identity，并让恶意 PR 自定义同名 Actions job 的 canary 保持不可合并；随后重触发全部 open PR，确认 failure 真实阻断而 success 无需 `--admin`，再保存 after snapshot。organization ruleset API 返回 plan / permission `403` 时 R2 保持 blocked，不能退化为同名 required status check。现有 standing `always` bypass 必须随 cutover 移除；紧急例外仅使用有期限的 break-glass 记录。GitHub 关于 organization ruleset 创建与权限边界的说明见 [Creating rulesets for repositories in your organization](https://docs.github.com/en/organizations/managing-organization-settings/creating-rulesets-for-repositories-in-your-organization)。
+
 ### Rollout 与 ruleset 迁移
 
 Issue #230 采用 `R0 -> R1 -> R2`：

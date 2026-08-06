@@ -1,0 +1,199 @@
+name: G3 Evidence Gate Shadow
+
+on:
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - converted_to_draft
+      - edited
+  issue_comment:
+    types:
+      - created
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to evaluate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  checks: write
+
+jobs:
+  publish-shadow-check:
+    name: Publish G3 evidence shadow Check
+    if: >-
+      github.event_name != 'issue_comment' || (
+        github.event.issue.pull_request != null &&
+        github.event.comment.body == 'g3-evidence: changed'
+      )
+    concurrency:
+      group: g3-evidence-gate-pr-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR number from trusted event metadata
+        id: target
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_PR: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request_target)
+              pr_number="$(jq -er '.pull_request.number' "$GITHUB_EVENT_PATH")"
+              ;;
+            issue_comment)
+              pr_number="$(jq -er '.issue.number' "$GITHUB_EVENT_PATH")"
+              ;;
+            workflow_dispatch)
+              pr_number="$MANUAL_PR"
+              ;;
+            *)
+              echo "Unsupported trusted event: $EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+          if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
+            echo "PR number must be a positive integer" >&2
+            exit 1
+          fi
+          echo "pr_number=$pr_number" >>"$GITHUB_OUTPUT"
+
+      - name: Checkout trusted validator from main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify trusted checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "main"
+          git diff --exit-code
+
+      - name: Install Rust MSRV toolchain for trusted validator
+        shell: bash
+        run: rustup toolchain install 1.96.0 --profile minimal
+
+      - name: Evaluate metadata and publish completed shadow Check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.target.outputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          initial_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          eligibility="$(
+            jq -r --arg repo "$REPOSITORY" '
+              if .state != "open" then "not-open"
+              elif .draft then "draft"
+              elif .base.ref != "main" then "non-main"
+              elif .head.repo.full_name != $repo then "cross-repository"
+              else "eligible"
+              end
+            ' <<<"$initial_pr"
+          )"
+          if [[ "$eligibility" != "eligible" ]]; then
+            echo "::notice::PR #${PR_NUMBER} is not eligible for G3 evidence shadow: ${eligibility}"
+            exit 0
+          fi
+
+          initial_head="$(jq -er '.head.sha' <<<"$initial_pr")"
+          initial_base="$(jq -er '.base.sha' <<<"$initial_pr")"
+          if [[ ! "$initial_head" =~ ^[0-9a-f]{40}$ || ! "$initial_base" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "PR identity must contain full lowercase Git OIDs" >&2
+            exit 1
+          fi
+
+          set +e
+          validation_output="$(
+            cargo +1.96.0 run --locked -p xtask -- \
+              check-gate-evidence-target \
+              --repo "$REPOSITORY" \
+              --pr "$PR_NUMBER" 2>&1
+          )"
+          validation_exit=$?
+          set -e
+
+          final_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          final_eligibility="$(
+            jq -r --arg repo "$REPOSITORY" '
+              if .state != "open" then "not-open"
+              elif .draft then "draft"
+              elif .base.ref != "main" then "non-main"
+              elif .head.repo.full_name != $repo then "cross-repository"
+              else "eligible"
+              end
+            ' <<<"$final_pr"
+          )"
+          final_head="$(jq -er '.head.sha' <<<"$final_pr")"
+          final_base="$(jq -er '.base.sha' <<<"$final_pr")"
+          if [[ "$final_eligibility" != "eligible" || "$initial_head" != "$final_head" || "$initial_base" != "$final_base" ]]; then
+            echo "PR identity or eligibility changed while G3 evidence was being evaluated" >&2
+            exit 1
+          fi
+
+          validation_output="${validation_output:0:14000}"
+          if [[ "$validation_exit" -eq 0 ]]; then
+            conclusion="success"
+            title="G3 evidence accepted"
+          else
+            conclusion="failure"
+            title="G3 evidence rejected"
+          fi
+          summary="$(printf 'Trusted validator: refs/heads/main@%s\n\n%s' "$(git rev-parse HEAD)" "$validation_output")"
+          external_id="g3-evidence-shadow:${REPOSITORY}:pr-${PR_NUMBER}:${initial_head}:${RUN_ID}:${RUN_ATTEMPT}"
+          payload="$(
+            jq -n \
+              --arg name "G3 Evidence Gate Shadow" \
+              --arg head_sha "$initial_head" \
+              --arg conclusion "$conclusion" \
+              --arg details_url "$RUN_URL" \
+              --arg external_id "$external_id" \
+              --arg title "$title" \
+              --arg summary "$summary" \
+              '{
+                name: $name,
+                head_sha: $head_sha,
+                status: "completed",
+                conclusion: $conclusion,
+                details_url: $details_url,
+                external_id: $external_id,
+                output: {title: $title, summary: $summary}
+              }'
+          )"
+          receipt="$(
+            gh api \
+              --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${REPOSITORY}/check-runs" \
+              --input - <<<"$payload"
+          )"
+          jq -e \
+            --arg head_sha "$initial_head" \
+            --arg conclusion "$conclusion" '
+              .name == "G3 Evidence Gate Shadow" and
+              .head_sha == $head_sha and
+              .status == "completed" and
+              .conclusion == $conclusion and
+              .app.slug == "github-actions"
+            ' <<<"$receipt" >/dev/null
+          jq '{id, name, head_sha, status, conclusion, details_url, external_id, app: .app.slug}' \
+            <<<"$receipt"
