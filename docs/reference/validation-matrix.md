@@ -78,6 +78,11 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 | Related PR B 自身仍由 main 上的旧 validator 判断                                       | 按 R0 bootstrap 人工核验 exact-head review；不得用候选 validator 自批                         |
 | Related PR C 自身尚未把 shadow workflow 合入 main                                      | 使用 main 上的 live validator；候选 Check 不得自批，Check 缺失按 R0 bootstrap 记录            |
 | PR B 合入后的 R0/R1 PR 尚无 required External Review Gate                              | `G3 Pass` / bootstrap 要求 live `pass`；结构化 `G3 Waived` 保持 `waived`，并记录 Check 缺失   |
+| PR body 缺少唯一 `关联 Issue`、仍保留角色模板占位或角色与 Issue 元数据不一致           | `G3 Evidence Gate Shadow` Fail；不得猜测 target 参数                                          |
+| Delivery target 的 Issue `Related PRs` 有重复/遗漏，或 Related target 未列入该字段     | Fail；Delivery 必须按 Issue 记录构造完整 full-set，Related 只校验自身                         |
+| G3 comment / body / Issue permalink 更新后未新增精确 `g3-evidence: changed` marker     | Shadow 可能 stale，Fail；marker 触发 trusted metadata re-read 后再判断                        |
+| 当前 Delivery / Related PR 已 merged 或 closed 后运行标准 G3 / target 模式             | Fail；不得把合并后补写当作标准 G3，历史证据只由 G4 复核                                       |
+| 候选 G3 validator / workflow 尚未合入 `main`                                           | 不得用候选 `G3 Evidence Gate Shadow` 自批；使用当前 main validator 并记录 bootstrap 边界      |
 | fork / cross-repository PR 的 head 不属于 base repository                              | R1 不发布 Check 且不计 eligible sample；R2 前迁移到 same-repository PR 并重新 exact-head 审阅 |
 | R2 PR 缺少 current-head External Review Gate success                                   | Fail                                                                                          |
 | Check success 与 G3 comment 绑定不同 head，或 comment 早于最终 completion / Check      | Fail                                                                                          |
@@ -93,6 +98,9 @@ workflow 安全检查至少验证：
 - validator 显式从 `refs/heads/main` checkout，关闭 credential persistence，不 checkout、下载或执行 PR head，不执行 comment body，不读取 repository secret；
 - token 权限固定为 `contents: read`、`pull-requests: read`、`issues: read`、`checks: write`，第三方 Action 完整 SHA pin；
 - R1 Check 固定为 `External Review Gate Shadow`，绑定 API 最终确认的 current head/base，并复核 telemetry source App=`github-actions`；external ID 同时绑定 PR/head/trusted-ref/run；
+- `G3 Evidence Gate Shadow` 只解析有界 PR number，固定 checkout `refs/heads/main`，从 GitHub API 重读 PR / Issue，校验前后复核 head/base，并拒绝缺失/歧义 role、association 与 merged current target；
+- G3 evidence marker 只接受正文精确为 `g3-evidence: changed` 的新顶层 PR comment；marker 内容不进入 shell、不携带 Gate 结论；
+- `G3 Evidence Gate Shadow` source App=`github-actions` 且 non-required；R2 必须改用 organization required workflow 或独立 App expected source，并通过同名 spoof canary、open PR 重触发和 ruleset before/after 审计；
 - publisher 二次确认 `isCrossRepository=false`；fork / cross-repository PR 不尝试向 base repository 写入无法关联的 head Check；
 - 只有 `pass -> success`；`waived -> action_required`，确保 required check 不会把 waiver 当作成功；其他状态均为 failure；
 - PR concurrency 取消旧运行；identity race 不向新 head 发布旧结果；
@@ -118,7 +126,7 @@ publisher 的本地接口为 `publish-external-review-check --repo <owner/repo> 
 7. 例外缺少原因、清理责任或后续 Issue。
 8. 关联 Issue 缺少必需 GitHub 元数据 / 依赖关系审计且没有显式例外，或不适用项缺少 `N/A` 原因。
 9. Delivery PR 的 `closingIssuesReferences` 未覆盖对应 Issue，或 Related PR 误用 closing keyword，且没有显式例外。
-10. G3 comment / Issue G3 permalink 不完整或 reference-style 定义未由对应 Gate 行实际引用，Related-only 阶段提前勾选 Issue G3，Related PR 独立 G3 未永久保留单一 `--related-pr <current-related-pr>` 断言，full-set 未使用 `--delivery-pr` 加全部 Related PR，或错误要求改写历史 Related comment，`Gate 断言` 未记录与实际调用完全一致的规范命令和 `已通过` 结果，或 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 ...` 失败。
+10. G3 comment / Issue G3 permalink 不完整或 reference-style 定义未由对应 Gate 行实际引用，Related-only 阶段提前勾选 Issue G3，Related PR 独立 G3 未永久保留单一 `--related-pr <current-related-pr>` 断言，full-set 未使用 `--delivery-pr` 加全部 Related PR，或错误要求改写历史 Related comment，`Gate 断言` 未记录与实际调用完全一致的规范命令和 `已通过` 结果，标准 G3 的当前目标已经 merged / closed，或 `check-gate-evidence g3` / `check-gate-evidence-target` 失败。
 11. `../governance/security-scanning.md` 要求的适用扫描仍为 `pending`、失败、无分析、已禁用或不可用，且没有显式例外；或把 API / 命令失败误写成零开放告警。
 12. external review 缺失、pending、stale、actor/provider 不可信、finding 未完成 clean re-review，或只用 `reviewThreads=0` 证明 clean。
 13. R2 激活后 current-head `External Review Gate` 未成功、source 不是 ruleset 绑定的专用 GitHub App，spoof canary 可由 PR 自定义同名 Actions job 满足，或 G3 comment 不是 Check 后新增的 append-only Owner 判断。

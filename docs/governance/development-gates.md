@@ -243,6 +243,12 @@ steady state 的正式 `G3 Pass` 必须同时满足：
 
 R1 的 `External Review Gate Shadow` 由 `github-actions` 发布，只用于 non-required telemetry，不能直接升级为 required Check：GitHub required status checks 不区分 workflow、matrix 或 event，同仓 PR 可以创建同 source App 的同名 Actions job。R2 前必须改由独立、最小权限的专用 GitHub App 发布正式 `External Review Gate`，ruleset 同时绑定 Check name 与该 App；spoof canary 必须证明 PR 自定义的同名 job 不能满足 required check。
 
+`G3 Evidence Gate Shadow` 是独立的 R1 证据闭环 telemetry。它从 `main` 上的 trusted validator 运行 `check-gate-evidence-target --repo <owner/repo> --pr <current-pr>`，根据 PR body 中唯一的 `关联 Issue` 和精确 `PR 角色` 自动构造 Related-only 或 Delivery full-set G3 参数。Delivery 的完整 Related PR 集合只从 Issue `Related PRs` 按记录顺序读取；Related PR 必须已经列入该字段。模板占位、缺失或重复编号、角色与 Issue 元数据不一致均 fail closed。
+
+完成 append-only G3 comment、PR body permalink 和 Issue 增量 permalink 后，操作者新增正文精确为 `g3-evidence: changed` 的顶层 PR comment，等待 trusted workflow 重读远端证据。该 marker 只是唤醒信号，不能携带结论。`G3 Evidence Gate Shadow` 由 `github-actions` 发布且当前不在 ruleset 中，只能证明 trusted-ref replay 的 telemetry 结果，不能声称已经阻止合并；修改该 workflow / validator 的候选 PR 也不能用尚未合入 `main` 的实现自批。
+
+标准 `check-gate-evidence g3` 和 target 模式只接受仍为 `OPEN` 且尚未合并的当前 Delivery / Related PR。合并后补写或重放标准 G3 必须失败；`check-gate-evidence g4` 继续允许读取合并前形成的 append-only G3 证据做历史复核。
+
 fork / cross-repository PR 的 head commit 不保证存在于 base repository，base repository 的 `GITHUB_TOKEN` 因而不能可靠创建关联 Check。此类 PR 不计入 R1 eligible sample；R2 不把缺失 Check 当作成功，必须把最终 patchset 迁移为 same-repository PR，并在新 PR 的 exact head 重新完成外部审阅与 G3。只有 security / emergency hotfix 等既有显式例外可以使用临时 ruleset bypass，不能形成 fork 的 standing bypass。
 
 G3 comment 采用 append-only。new push、review dismissal 或 Gate 状态变化后，旧 review、旧 Check 和旧 G3 comment 对新 head 全部 stale；必须产生新的 completion、Check 与 superseding G3 comment，不得编辑旧评论冒充新时点。
@@ -265,6 +271,8 @@ G3 comment 采用 append-only。new push、review dismissal 或 Gate 状态变�
 - `R0`：provider fixtures、历史事件 replay、fail-closed、head binding 与 trusted-ref workflow 离线验证。
 - `R1`：`External Review Gate Shadow` 以 non-required telemetry 运行至少 14 天且覆盖至少 10 个 eligible PR；0 false-pass、最终分类全部与人工审计一致、new push 与 re-review 语义全部正确，且 workflow 无权限/secret/untrusted-code 事件。样本必须绑定 trusted workflow run，不能只按同名 Check 计数。
 - `R2`：R1 达标、专用 GitHub App publisher 就绪且同名 Actions spoof canary 失败后，才启用 required `External Review Gate`、conversation resolution，移除 `update` restriction 与 standing `always` bypass；再观察至少 7 天且 5 个 merged PR。break-glass、false-pass 或安全异常使稳定期重新计时。
+
+`G3 Evidence Gate Shadow` 使用同样的 R1 安全与准确性口径，但其 R2 强制身份单独选择：优先使用 organization ruleset 的 required workflow，把 trusted workflow 本身作为必需来源；若当前 plan / API 不支持，则由独立 GitHub App 发布专用 Check，并让 ruleset 绑定 Check name 与 expected source App。两条路径都必须先通过同名 Actions spoof canary、对全部 open PR 重新触发校验、保存 ruleset 前后快照，并移除 standing `always` bypass；能力 API 的 `403` / `404` 只能记为不可验证或不可用，不能解释为已经启用或没有配置。
 
 首版只允许四类 `G3 Waived`：
 

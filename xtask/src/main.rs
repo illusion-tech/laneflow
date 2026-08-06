@@ -93,6 +93,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             check_commit_message_file(path)
         }
         Some("check-gate-evidence") => check_gate_evidence(&args[1..]),
+        Some("check-gate-evidence-target") => check_gate_evidence_target(&args[1..]),
         Some("check-external-review") => external_review::run(&args[1..]),
         Some("publish-external-review-check") => {
             external_review::run_publish_check(&args[1..])
@@ -108,7 +109,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         },
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-external-review, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-external-review, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
                 .to_string(),
         ),
     }
@@ -960,6 +961,12 @@ struct GateEvidenceArgs {
     related_prs: Vec<u64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GateEvidencePrRole {
+    Delivery,
+    Related,
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct GitHubIssue {
     body: String,
@@ -1112,6 +1119,37 @@ const GATE_ASSERTION_PREFIX: &str = "- Gate 断言：";
 
 fn check_gate_evidence(args: &[String]) -> Result<(), String> {
     let args = parse_gate_evidence_args(args)?;
+    check_gate_evidence_with_args(&args)?;
+    print_gate_evidence_success(&args);
+    Ok(())
+}
+
+fn check_gate_evidence_target(args: &[String]) -> Result<(), String> {
+    let (repo, pr_number) = parse_gate_evidence_target_args(args)?;
+    let pr = gh_pr_view(&repo, pr_number)?;
+    let (role, issue_number) = parse_gate_evidence_target_metadata(&pr.body)?;
+    let issue = gh_issue_view(&repo, issue_number)?;
+    let args = resolve_gate_evidence_target_args(repo, pr_number, role, issue_number, &issue.body)?;
+    check_gate_evidence_with_args(&args)?;
+
+    let final_pr = gh_pr_view(&args.repo, pr_number)?;
+    let (final_role, final_issue_number) = parse_gate_evidence_target_metadata(&final_pr.body)?;
+    let final_issue = gh_issue_view(&args.repo, final_issue_number)?;
+    let final_args = resolve_gate_evidence_target_args(
+        args.repo.clone(),
+        pr_number,
+        final_role,
+        final_issue_number,
+        &final_issue.body,
+    )?;
+    if final_args != args {
+        return Err("PR / Issue Gate 元数据在 target 校验期间发生变化；请重新运行".to_string());
+    }
+    print_gate_evidence_success(&args);
+    Ok(())
+}
+
+fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> {
     let issue = gh_issue_view(&args.repo, args.issue)?;
     let delivery_pr = args
         .delivery_pr
@@ -1123,8 +1161,10 @@ fn check_gate_evidence(args: &[String]) -> Result<(), String> {
         .map(|number| gh_pr_view(&args.repo, *number))
         .collect::<Result<Vec<_>, _>>()?;
 
+    validate_current_g3_target(args, delivery_pr.as_ref(), &related_prs)?;
+
     if let (Some(delivery_number), Some(delivery_pr)) = (args.delivery_pr, delivery_pr.as_ref()) {
-        validate_gate_g3_evidence(&args, &issue, delivery_pr, &related_prs)?;
+        validate_gate_g3_evidence(args, &issue, delivery_pr, &related_prs)?;
         if g3_requires_external_review(delivery_pr)? {
             validate_external_review_g3(
                 &args.repo,
@@ -1146,8 +1186,26 @@ fn check_gate_evidence(args: &[String]) -> Result<(), String> {
             }
         }
         if args.phase == GateEvidencePhase::G4 {
-            validate_g4_evidence(&args, &issue, delivery_pr, &related_prs)?;
+            validate_g4_evidence(args, &issue, delivery_pr, &related_prs)?;
         }
+    } else {
+        let related_number = args.related_prs[0];
+        validate_related_g3_evidence(args, &issue, related_number, &related_prs[0])?;
+        if g3_requires_external_review(&related_prs[0])? {
+            validate_external_review_g3(
+                &args.repo,
+                args.issue,
+                related_number,
+                &related_prs[0],
+                &format!("Related PR #{related_number}"),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn print_gate_evidence_success(args: &GateEvidenceArgs) {
+    if let Some(delivery_number) = args.delivery_pr {
         println!(
             "已校验 Gate {} 远端证据：Issue #{}，Delivery PR #{}",
             match args.phase {
@@ -1158,23 +1216,120 @@ fn check_gate_evidence(args: &[String]) -> Result<(), String> {
             delivery_number
         );
     } else {
-        let related_number = args.related_prs[0];
-        validate_related_g3_evidence(&args, &issue, related_number, &related_prs[0])?;
-        if g3_requires_external_review(&related_prs[0])? {
-            validate_external_review_g3(
-                &args.repo,
-                args.issue,
-                related_number,
-                &related_prs[0],
-                &format!("Related PR #{related_number}"),
-            )?;
-        }
         println!(
             "已校验 Gate G3 远端证据：Issue #{}，Related PR #{}",
-            args.issue, related_number
+            args.issue, args.related_prs[0]
         );
     }
-    Ok(())
+}
+
+fn parse_gate_evidence_target_args(args: &[String]) -> Result<(String, u64), String> {
+    let mut repo = None;
+    let mut pr = None;
+    let mut index = 0;
+    while index < args.len() {
+        let flag = &args[index];
+        let value = args.get(index + 1).ok_or_else(|| {
+            format!(
+                "`{flag}` 缺少值。用法：check-gate-evidence-target --repo <owner/repo> --pr <number>"
+            )
+        })?;
+        match flag.as_str() {
+            "--repo" => {
+                if repo.replace(value.clone()).is_some() {
+                    return Err("`--repo` 只能指定一次".to_string());
+                }
+            }
+            "--pr" => {
+                if pr.replace(parse_issue_number("--pr", value)?).is_some() {
+                    return Err("`--pr` 只能指定一次".to_string());
+                }
+            }
+            _ => return Err(format!("未知 check-gate-evidence-target 参数：{flag}")),
+        }
+        index += 2;
+    }
+
+    let repo = repo.ok_or("缺少 `--repo <owner/repo>`")?;
+    if !valid_repository_name(&repo) {
+        return Err(format!("`--repo` 格式不正确：{repo}，应为 `owner/repo`"));
+    }
+    Ok((repo, pr.ok_or("缺少 `--pr <number>`")?))
+}
+
+fn parse_gate_evidence_target_metadata(body: &str) -> Result<(GateEvidencePrRole, u64), String> {
+    let issue_line = unique_metadata_line(body, "关联 Issue")?;
+    let issue_numbers = metadata_issue_numbers_in_order(issue_line);
+    let issue_number = match issue_numbers.as_slice() {
+        [number] => *number,
+        [] => return Err("PR 的 `关联 Issue` 必须唯一记录一个 `#<number>`".to_string()),
+        _ => return Err("PR 的 `关联 Issue` 只能记录一个 Issue".to_string()),
+    };
+
+    let role_line = unique_metadata_line(body, "PR 角色")?;
+    let role = role_line
+        .strip_prefix("- PR 角色：")
+        .expect("metadata_line matched the requested field")
+        .trim()
+        .trim_matches('`');
+    let role = match role {
+        "Delivery PR" => GateEvidencePrRole::Delivery,
+        "Related PR" => GateEvidencePrRole::Related,
+        _ => {
+            return Err("PR 的 `PR 角色` 必须精确为 `Delivery PR` 或 `Related PR`".to_string());
+        }
+    };
+    Ok((role, issue_number))
+}
+
+fn resolve_gate_evidence_target_args(
+    repo: String,
+    pr_number: u64,
+    role: GateEvidencePrRole,
+    issue_number: u64,
+    issue_body: &str,
+) -> Result<GateEvidenceArgs, String> {
+    let delivery_line = unique_metadata_line(issue_body, "Delivery PR")?;
+    let delivery_prs = metadata_issue_numbers_in_order(delivery_line);
+    let related_line = unique_metadata_line(issue_body, "Related PRs")?;
+    let related_prs = metadata_issue_numbers_in_order(related_line);
+    let unique_related_prs = related_prs.iter().copied().collect::<BTreeSet<_>>();
+    if unique_related_prs.len() != related_prs.len() {
+        return Err("Issue 的 `Related PRs` 字段不得包含重复 PR".to_string());
+    }
+
+    let args = match role {
+        GateEvidencePrRole::Delivery => {
+            if delivery_prs.as_slice() != [pr_number] {
+                return Err(format!(
+                    "Issue 的 `Delivery PR` 字段必须唯一记录当前 Delivery PR #{pr_number}"
+                ));
+            }
+            GateEvidenceArgs {
+                phase: GateEvidencePhase::G3,
+                repo,
+                issue: issue_number,
+                delivery_pr: Some(pr_number),
+                related_prs,
+            }
+        }
+        GateEvidencePrRole::Related => {
+            if !unique_related_prs.contains(&pr_number) {
+                return Err(format!(
+                    "Issue 的 `Related PRs` 字段未记录当前 Related PR #{pr_number}"
+                ));
+            }
+            GateEvidenceArgs {
+                phase: GateEvidencePhase::G3,
+                repo,
+                issue: issue_number,
+                delivery_pr: None,
+                related_prs: vec![pr_number],
+            }
+        }
+    };
+    validate_gate_evidence_args(&args)?;
+    Ok(args)
 }
 
 fn parse_gate_evidence_args(args: &[String]) -> Result<GateEvidenceArgs, String> {
@@ -1229,14 +1384,29 @@ fn parse_gate_evidence_args(args: &[String]) -> Result<GateEvidenceArgs, String>
         return Err(format!("`--repo` 格式不正确：{repo}，应为 `owner/repo`"));
     }
     let issue = issue.ok_or("缺少 `--issue <number>`")?;
-    let mut all_prs = related_prs.iter().copied().collect::<BTreeSet<_>>();
-    if all_prs.len() != related_prs.len() {
+    let parsed = GateEvidenceArgs {
+        phase,
+        repo,
+        issue,
+        delivery_pr,
+        related_prs,
+    };
+    validate_gate_evidence_args(&parsed)?;
+    Ok(parsed)
+}
+
+fn validate_gate_evidence_args(args: &GateEvidenceArgs) -> Result<(), String> {
+    let mut all_prs = args.related_prs.iter().copied().collect::<BTreeSet<_>>();
+    if all_prs.len() != args.related_prs.len() {
         return Err("Related PR 不能重复".to_string());
     }
-    if delivery_pr.is_some_and(|number| !all_prs.insert(number)) {
+    if args
+        .delivery_pr
+        .is_some_and(|number| !all_prs.insert(number))
+    {
         return Err("Delivery PR 与 Related PR 不能重复".to_string());
     }
-    match (phase, delivery_pr, related_prs.as_slice()) {
+    match (args.phase, args.delivery_pr, args.related_prs.as_slice()) {
         (GateEvidencePhase::G4, None, _) => {
             return Err("G4 必须指定 `--delivery-pr <number>`".to_string());
         }
@@ -1252,13 +1422,28 @@ fn parse_gate_evidence_args(args: &[String]) -> Result<GateEvidenceArgs, String>
         }
         (_, Some(_), _) => {}
     }
-    Ok(GateEvidenceArgs {
-        phase,
-        repo,
-        issue,
-        delivery_pr,
-        related_prs,
-    })
+    Ok(())
+}
+
+fn validate_current_g3_target(
+    args: &GateEvidenceArgs,
+    delivery_pr: Option<&GitHubPullRequest>,
+    related_prs: &[GitHubPullRequest],
+) -> Result<(), String> {
+    if args.phase != GateEvidencePhase::G3 {
+        return Ok(());
+    }
+    let (label, target) = if let Some(delivery_pr) = delivery_pr {
+        ("Delivery PR", delivery_pr)
+    } else {
+        ("Related PR", &related_prs[0])
+    };
+    if target.state != "OPEN" || target.merged_at.is_some() {
+        return Err(format!(
+            "标准 G3 只能校验合并前仍为 OPEN 的当前 {label}；历史合并证据只能由 G4 复核"
+        ));
+    }
+    Ok(())
 }
 
 fn parse_issue_number(flag: &str, value: &str) -> Result<u64, String> {
@@ -1782,6 +1967,18 @@ fn metadata_line<'a>(body: &'a str, field: &str) -> Result<&'a str, String> {
     body.lines()
         .find(|line| line.starts_with(&format!("- {field}：")))
         .ok_or_else(|| format!("body 缺少 `{field}` 元数据字段"))
+}
+
+fn unique_metadata_line<'a>(body: &'a str, field: &str) -> Result<&'a str, String> {
+    let lines = body
+        .lines()
+        .filter(|line| line.starts_with(&format!("- {field}：")))
+        .collect::<Vec<_>>();
+    match lines.as_slice() {
+        [line] => Ok(line),
+        [] => Err(format!("body 缺少 `{field}` 元数据字段")),
+        _ => Err(format!("body 只能包含一个 `{field}` 元数据字段")),
+    }
 }
 
 fn metadata_issue_numbers(line: &str) -> BTreeSet<u64> {
@@ -3188,6 +3385,107 @@ Refs: #12
     }
 
     #[test]
+    fn parses_gate_evidence_target_arguments() {
+        let args = vec![
+            "--repo".to_string(),
+            "illusion-tech/laneflow".to_string(),
+            "--pr".to_string(),
+            "#62".to_string(),
+        ];
+
+        assert_eq!(
+            parse_gate_evidence_target_args(&args),
+            Ok(("illusion-tech/laneflow".to_string(), 62))
+        );
+    }
+
+    #[test]
+    fn resolves_delivery_target_with_complete_related_set() {
+        let (role, issue_number) =
+            parse_gate_evidence_target_metadata("- 关联 Issue：#60\n- PR 角色：`Delivery PR`")
+                .unwrap();
+        let args = resolve_gate_evidence_target_args(
+            "illusion-tech/laneflow".to_string(),
+            61,
+            role,
+            issue_number,
+            "- Delivery PR：#61\n- Related PRs：#62、#63",
+        )
+        .unwrap();
+
+        assert_eq!(
+            args,
+            GateEvidenceArgs {
+                phase: GateEvidencePhase::G3,
+                repo: "illusion-tech/laneflow".to_string(),
+                issue: 60,
+                delivery_pr: Some(61),
+                related_prs: vec![62, 63],
+            }
+        );
+    }
+
+    #[test]
+    fn resolves_related_target_as_related_only_g3() {
+        let (role, issue_number) =
+            parse_gate_evidence_target_metadata("- 关联 Issue：#60\n- PR 角色：Related PR")
+                .unwrap();
+        let args = resolve_gate_evidence_target_args(
+            "illusion-tech/laneflow".to_string(),
+            62,
+            role,
+            issue_number,
+            "- Delivery PR：pending\n- Related PRs：#62、#63",
+        )
+        .unwrap();
+
+        assert_eq!(args, related_only_g3_args());
+    }
+
+    #[test]
+    fn rejects_ambiguous_target_metadata_and_role_placeholders() {
+        let issue_error =
+            parse_gate_evidence_target_metadata("- 关联 Issue：#60、#61\n- PR 角色：Related PR")
+                .expect_err("target must have one associated Issue");
+        assert!(issue_error.contains("只能记录一个 Issue"));
+
+        let role_error = parse_gate_evidence_target_metadata(
+            "- 关联 Issue：#60\n- PR 角色：`Delivery PR` / `Related PR`",
+        )
+        .expect_err("template role placeholder must fail closed");
+        assert!(role_error.contains("必须精确为"));
+
+        let duplicate_error = parse_gate_evidence_target_metadata(
+            "- 关联 Issue：#60\n- PR 角色：Related PR\n- PR 角色：Delivery PR",
+        )
+        .expect_err("target role metadata must be unique");
+        assert!(duplicate_error.contains("只能包含一个 `PR 角色`"));
+    }
+
+    #[test]
+    fn rejects_target_role_that_disagrees_with_issue_metadata() {
+        let delivery_error = resolve_gate_evidence_target_args(
+            "illusion-tech/laneflow".to_string(),
+            61,
+            GateEvidencePrRole::Delivery,
+            60,
+            "- Delivery PR：#64\n- Related PRs：#62",
+        )
+        .expect_err("Delivery target must match Issue metadata");
+        assert!(delivery_error.contains("当前 Delivery PR #61"));
+
+        let related_error = resolve_gate_evidence_target_args(
+            "illusion-tech/laneflow".to_string(),
+            62,
+            GateEvidencePrRole::Related,
+            60,
+            "- Delivery PR：#61\n- Related PRs：#63",
+        )
+        .expect_err("Related target must be recorded by the Issue");
+        assert!(related_error.contains("未记录当前 Related PR #62"));
+    }
+
+    #[test]
     fn rejects_g4_without_delivery_pr() {
         let args = vec![
             "g4".to_string(),
@@ -3280,6 +3578,67 @@ Refs: #12
         assert!(
             validate_g3_evidence(&gate_args(GateEvidencePhase::G3), &issue, &delivery_pr, &[])
                 .is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_merged_delivery_as_current_g3_target() {
+        let args = gate_args(GateEvidencePhase::G3);
+        let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+        let error = validate_current_g3_target(&args, Some(&delivery_pr), &[])
+            .expect_err("standard G3 must be pre-merge");
+
+        assert!(error.contains("合并前仍为 OPEN"));
+    }
+
+    #[test]
+    fn rejects_merged_related_as_current_related_only_g3_target() {
+        let args = related_only_g3_args();
+        let mut related_pr = related_pr(false);
+        related_pr.state = "MERGED".to_string();
+        related_pr.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+
+        let error = validate_current_g3_target(&args, None, &[related_pr])
+            .expect_err("Related-only G3 must be pre-merge");
+
+        assert!(error.contains("历史合并证据只能由 G4 复核"));
+    }
+
+    #[test]
+    fn g4_still_accepts_merged_delivery_as_historical_target() {
+        let args = gate_args(GateEvidencePhase::G4);
+        let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00Z"));
+
+        assert!(validate_current_g3_target(&args, Some(&delivery_pr), &[]).is_ok());
+    }
+
+    #[test]
+    fn g3_evidence_shadow_workflow_preserves_trusted_ref_boundary() {
+        let workflow = include_str!("../../.github/workflows/g3-evidence-gate.yml");
+
+        assert!(workflow.contains("name: G3 Evidence Gate Shadow"));
+        assert!(workflow.contains("pull_request_target:"));
+        assert!(workflow.contains("issue_comment:\n    types:\n      - created"));
+        assert!(workflow.contains("workflow_dispatch:"));
+        assert!(workflow.contains("github.event.comment.body == 'g3-evidence: changed'"));
+        assert!(workflow.contains(
+            "permissions:\n  contents: read\n  pull-requests: read\n  issues: read\n  checks: write"
+        ));
+        assert!(workflow.contains("ref: refs/heads/main"));
+        assert!(workflow.contains("persist-credentials: false"));
+        assert!(workflow.contains("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"));
+        assert!(workflow.contains("check-gate-evidence-target"));
+        assert!(workflow.contains("initial_head"));
+        assert!(workflow.contains("final_head"));
+        assert!(workflow.contains("final_eligibility"));
+        assert!(workflow.contains(".app.slug == \"github-actions\""));
+        assert!(!workflow.contains("refs/pull/"));
+        assert!(!workflow.contains("secrets."));
+        assert!(
+            !workflow
+                .lines()
+                .any(|line| line.trim_start() == "pull_request:")
         );
     }
 
