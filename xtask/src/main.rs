@@ -94,6 +94,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         Some("check-gate-evidence") => check_gate_evidence(&args[1..]),
         Some("check-gate-evidence-target") => check_gate_evidence_target(&args[1..]),
+        Some("check-g3-evidence-marker") => check_g3_evidence_marker(&args[1..]),
+        Some("resolve-g3-evidence-shadow-targets") => {
+            resolve_g3_evidence_shadow_targets(&args[1..])
+        }
         Some("check-external-review") => external_review::run(&args[1..]),
         Some("publish-external-review-check") => {
             external_review::run_publish_check(&args[1..])
@@ -109,7 +113,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         },
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-external-review, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-g3-evidence-marker, resolve-g3-evidence-shadow-targets, check-external-review, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
                 .to_string(),
         ),
     }
@@ -977,6 +981,49 @@ struct GitHubIssue {
 }
 
 #[derive(Debug, serde::Deserialize)]
+struct GitHubIssueListEntry {
+    body: Option<String>,
+    #[serde(default)]
+    pull_request: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+struct GitHubIssueCommentRest {
+    body: Option<String>,
+    #[serde(rename = "created_at")]
+    created_at: String,
+    #[serde(rename = "updated_at")]
+    updated_at: String,
+    #[serde(rename = "issue_url")]
+    issue_url: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubEditTimestampsResponse {
+    data: GitHubEditTimestampsData,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubEditTimestampsData {
+    repository: Option<GitHubEditTimestampsRepository>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubEditTimestampsRepository {
+    #[serde(rename = "pullRequest")]
+    pull_request: Option<GitHubEditTimestamps>,
+    issue: Option<GitHubEditTimestamps>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubEditTimestamps {
+    #[serde(rename = "createdAt")]
+    created_at: String,
+    #[serde(rename = "lastEditedAt")]
+    last_edited_at: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
 struct GitHubPullRequest {
     body: String,
     state: String,
@@ -1149,6 +1196,101 @@ fn check_gate_evidence_target(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn check_g3_evidence_marker(args: &[String]) -> Result<(), String> {
+    let (repo, pr_number, comment_id) = parse_g3_evidence_marker_args(args)?;
+    let marker_before = gh_issue_comment(&repo, comment_id)?;
+    validate_g3_evidence_marker_comment(&marker_before, &repo, pr_number)?;
+
+    let pr = gh_pr_view_for_phase(&repo, pr_number, GateEvidencePhase::G3)?;
+    let (_, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
+    let g3_permalink = completed_gate_permalink(&pr.body, "G3")?;
+    let g3_comment = pr
+        .comments
+        .iter()
+        .find(|comment| comment.url == g3_permalink)
+        .ok_or("PR G3 permalink 未指向当前 PR comment")?;
+    validate_marker_is_strictly_later(
+        &marker_before.created_at,
+        &g3_comment.created_at,
+        "current G3 comment",
+    )?;
+
+    for issue_number in issue_numbers {
+        let timestamps = gh_edit_timestamps(&repo, pr_number, issue_number)?;
+        validate_marker_after_edit_timestamps(
+            &marker_before.created_at,
+            &timestamps.pull_request,
+            "PR body",
+        )?;
+        validate_marker_after_edit_timestamps(
+            &marker_before.created_at,
+            &timestamps.issue,
+            &format!("Issue #{issue_number} body"),
+        )?;
+    }
+
+    let marker_after = gh_issue_comment(&repo, comment_id)?;
+    if marker_after != marker_before {
+        return Err("G3 evidence marker 在校验期间发生变化；请新增 marker 后重试".to_string());
+    }
+    println!(
+        "已校验 G3 evidence marker：PR #{pr_number}，comment {comment_id} 晚于最终 G3 / body evidence"
+    );
+    Ok(())
+}
+
+fn resolve_g3_evidence_shadow_targets(args: &[String]) -> Result<(), String> {
+    let (repo, pr_number) = parse_gate_evidence_target_args(args)?;
+    let issue_pages: Vec<Vec<GitHubIssueListEntry>> = gh_json(&[
+        "api".to_string(),
+        "--paginate".to_string(),
+        "--slurp".to_string(),
+        format!("repos/{repo}/issues?state=open&per_page=100"),
+    ])?;
+    let issue_bodies = issue_pages
+        .iter()
+        .flatten()
+        .filter(|issue| issue.pull_request.is_none())
+        .filter_map(|issue| issue.body.as_deref())
+        .collect::<Vec<_>>();
+    let targets = discover_g3_evidence_shadow_targets(pr_number, &issue_bodies)?;
+    println!(
+        "{}",
+        serde_json::to_string(&targets)
+            .map_err(|error| format!("无法序列化 G3 evidence shadow targets: {error}"))?
+    );
+    Ok(())
+}
+
+fn discover_g3_evidence_shadow_targets(
+    pr_number: u64,
+    issue_bodies: &[&str],
+) -> Result<Vec<u64>, String> {
+    let mut targets = BTreeSet::from([pr_number]);
+    for body in issue_bodies {
+        let related_lines = body
+            .lines()
+            .filter(|line| line.starts_with("- Related PRs："))
+            .collect::<Vec<_>>();
+        if !related_lines
+            .iter()
+            .any(|line| metadata_issue_numbers(line).contains(&pr_number))
+        {
+            continue;
+        }
+        let related_line = unique_metadata_line(body, "Related PRs")?;
+        let related_prs = parse_related_pr_selection(related_line)?;
+        if !related_prs.contains(&pr_number) {
+            return Err(format!(
+                "Issue 的 `Related PRs` 字段无法精确确认 PR #{pr_number}；拒绝猜测级联目标"
+            ));
+        }
+        let delivery_line = unique_metadata_line(body, "Delivery PR")?;
+        targets.extend(parse_delivery_pr_selection(delivery_line, false)?);
+    }
+    Ok(targets.into_iter().collect())
+}
+
 fn resolve_gate_evidence_targets(
     repo: &str,
     pr_number: u64,
@@ -1159,6 +1301,7 @@ fn resolve_gate_evidence_targets(
         .iter()
         .map(|issue_number| {
             let issue = gh_issue_view_for_phase(repo, *issue_number, GateEvidencePhase::G3)?;
+            validate_current_g3_issue(GateEvidencePhase::G3, &issue)?;
             resolve_gate_evidence_target_args(
                 repo.to_string(),
                 pr_number,
@@ -1172,6 +1315,7 @@ fn resolve_gate_evidence_targets(
 
 fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> {
     let issue = gh_issue_view_for_phase(&args.repo, args.issue, args.phase)?;
+    validate_current_g3_issue(args.phase, &issue)?;
     let delivery_pr = args
         .delivery_pr
         .map(|number| gh_pr_view_for_phase(&args.repo, number, args.phase))
@@ -1276,6 +1420,53 @@ fn parse_gate_evidence_target_args(args: &[String]) -> Result<(String, u64), Str
         return Err(format!("`--repo` 格式不正确：{repo}，应为 `owner/repo`"));
     }
     Ok((repo, pr.ok_or("缺少 `--pr <number>`")?))
+}
+
+fn parse_g3_evidence_marker_args(args: &[String]) -> Result<(String, u64, u64), String> {
+    let mut repo = None;
+    let mut pr = None;
+    let mut comment_id = None;
+    let mut index = 0;
+    while index < args.len() {
+        let flag = &args[index];
+        let value = args.get(index + 1).ok_or_else(|| {
+            format!(
+                "`{flag}` 缺少值。用法：check-g3-evidence-marker --repo <owner/repo> --pr <number> --comment-id <number>"
+            )
+        })?;
+        match flag.as_str() {
+            "--repo" => {
+                if repo.replace(value.clone()).is_some() {
+                    return Err("`--repo` 只能指定一次".to_string());
+                }
+            }
+            "--pr" => {
+                if pr.replace(parse_issue_number("--pr", value)?).is_some() {
+                    return Err("`--pr` 只能指定一次".to_string());
+                }
+            }
+            "--comment-id" => {
+                if comment_id
+                    .replace(parse_issue_number("--comment-id", value)?)
+                    .is_some()
+                {
+                    return Err("`--comment-id` 只能指定一次".to_string());
+                }
+            }
+            _ => return Err(format!("未知 check-g3-evidence-marker 参数：{flag}")),
+        }
+        index += 2;
+    }
+
+    let repo = repo.ok_or("缺少 `--repo <owner/repo>`")?;
+    if !valid_repository_name(&repo) {
+        return Err(format!("`--repo` 格式不正确：{repo}，应为 `owner/repo`"));
+    }
+    Ok((
+        repo,
+        pr.ok_or("缺少 `--pr <number>`")?,
+        comment_id.ok_or("缺少 `--comment-id <number>`")?,
+    ))
 }
 
 fn parse_gate_evidence_target_metadata(
@@ -1549,6 +1740,15 @@ fn validate_current_g3_target(
     Ok(())
 }
 
+fn validate_current_g3_issue(phase: GateEvidencePhase, issue: &GitHubIssue) -> Result<(), String> {
+    if phase == GateEvidencePhase::G3 && issue.state != "OPEN" {
+        return Err(
+            "标准 G3 只能校验仍为 OPEN 的关联 Issue；Issue 关闭必须发生在 G4 完成后".to_string(),
+        );
+    }
+    Ok(())
+}
+
 fn parse_issue_number(flag: &str, value: &str) -> Result<u64, String> {
     value
         .strip_prefix('#')
@@ -1564,6 +1764,110 @@ fn valid_repository_name(repo: &str) -> bool {
         return false;
     };
     !owner.is_empty() && !name.is_empty() && !name.contains('/')
+}
+
+fn gh_issue_comment(repo: &str, comment_id: u64) -> Result<GitHubIssueCommentRest, String> {
+    gh_json(&[
+        "api".to_string(),
+        format!("repos/{repo}/issues/comments/{comment_id}"),
+    ])
+}
+
+fn gh_edit_timestamps(
+    repo: &str,
+    pr_number: u64,
+    issue_number: u64,
+) -> Result<GitHubEditTimestampsRepository, String> {
+    let (owner, name) = repo
+        .split_once('/')
+        .ok_or_else(|| format!("`--repo` 格式不正确：{repo}，应为 `owner/repo`"))?;
+    let query = r#"query($owner: String!, $name: String!, $pr: Int!, $issue: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $pr) { createdAt lastEditedAt }
+    issue(number: $issue) { createdAt lastEditedAt }
+  }
+}"#;
+    let response: GitHubEditTimestampsResponse = gh_json(&[
+        "api".to_string(),
+        "graphql".to_string(),
+        "-f".to_string(),
+        format!("query={query}"),
+        "-F".to_string(),
+        format!("owner={owner}"),
+        "-F".to_string(),
+        format!("name={name}"),
+        "-F".to_string(),
+        format!("pr={pr_number}"),
+        "-F".to_string(),
+        format!("issue={issue_number}"),
+    ])?;
+    let repository = response
+        .data
+        .repository
+        .ok_or("GitHub GraphQL 未返回目标 repository")?;
+    if repository.pull_request.is_none() {
+        return Err(format!("GitHub GraphQL 未返回 PR #{pr_number}"));
+    }
+    if repository.issue.is_none() {
+        return Err(format!("GitHub GraphQL 未返回 Issue #{issue_number}"));
+    }
+    Ok(repository)
+}
+
+fn validate_g3_evidence_marker_comment(
+    marker: &GitHubIssueCommentRest,
+    repo: &str,
+    pr_number: u64,
+) -> Result<(), String> {
+    if marker.body.as_deref() != Some("g3-evidence: changed") {
+        return Err("G3 evidence marker 正文必须精确为 `g3-evidence: changed`".to_string());
+    }
+    if marker.created_at != marker.updated_at {
+        return Err("G3 evidence marker 在创建后被编辑；必须新增未编辑 marker".to_string());
+    }
+    let expected_issue_url = format!("https://api.github.com/repos/{repo}/issues/{pr_number}");
+    if marker.issue_url != expected_issue_url {
+        return Err(format!(
+            "G3 evidence marker 不属于当前 PR #{pr_number}：{}",
+            marker.issue_url
+        ));
+    }
+    if parse_utc_timestamp_seconds(&marker.created_at).is_none() {
+        return Err("G3 evidence marker createdAt 不是 UTC RFC3339 秒级时间".to_string());
+    }
+    Ok(())
+}
+
+fn validate_marker_after_edit_timestamps(
+    marker_created_at: &str,
+    timestamps: &Option<GitHubEditTimestamps>,
+    label: &str,
+) -> Result<(), String> {
+    let timestamps = timestamps
+        .as_ref()
+        .ok_or_else(|| format!("GitHub GraphQL 未返回 {label} 时间"))?;
+    let evidence_timestamp = timestamps
+        .last_edited_at
+        .as_deref()
+        .unwrap_or(&timestamps.created_at);
+    validate_marker_is_strictly_later(marker_created_at, evidence_timestamp, label)
+}
+
+fn validate_marker_is_strictly_later(
+    marker_created_at: &str,
+    evidence_timestamp: &str,
+    label: &str,
+) -> Result<(), String> {
+    let marker_seconds = parse_utc_timestamp_seconds(marker_created_at)
+        .ok_or("G3 evidence marker createdAt 不是 UTC RFC3339 秒级时间")?;
+    let evidence_seconds = parse_utc_timestamp_seconds(evidence_timestamp)
+        .ok_or_else(|| format!("{label} 时间不是 UTC RFC3339 秒级时间"))?;
+    if marker_seconds <= evidence_seconds {
+        return Err(format!(
+            "G3 evidence marker 必须严格晚于 {label}；GitHub 同秒无法证明最终 evidence 已完成"
+        ));
+    }
+    Ok(())
 }
 
 fn gh_issue_view_for_phase(
@@ -2294,38 +2598,50 @@ fn validate_gate_assertion(
         .lines()
         .filter(|line| line.starts_with(GATE_ASSERTION_PREFIX))
         .collect::<Vec<_>>();
-    let assertion_line = match assertion_lines.as_slice() {
-        [line] => *line,
-        [] => return Err(format!("{label} comment 缺少独立的 `Gate 断言` 行")),
-        _ => return Err(format!("{label} comment 只能包含一条 `Gate 断言` 行")),
-    };
-
-    let value = assertion_line
-        .strip_prefix(GATE_ASSERTION_PREFIX)
-        .expect("filtered assertion line must have the prefix")
-        .trim();
-    let Some(command_and_result) = value.strip_prefix('`') else {
-        return Err(format!(
-            "{label} comment 的 `Gate 断言` 必须先用反引号记录规范命令"
-        ));
-    };
-    let Some((actual_command, result)) = command_and_result.split_once('`') else {
-        return Err(format!("{label} comment 的 `Gate 断言` 命令缺少闭合反引号"));
-    };
-
+    if assertion_lines.is_empty() {
+        return Err(format!("{label} comment 缺少独立的 `Gate 断言` 行"));
+    }
+    if phase == GateEvidencePhase::G4 && assertion_lines.len() != 1 {
+        return Err(format!("{label} comment 的 G4 只能包含一条 `Gate 断言` 行"));
+    }
     let expected_command = expected_gate_command(args, phase);
-    if actual_command != expected_command {
+    let mut actual_commands = Vec::new();
+    let mut unique_commands = BTreeSet::new();
+    let mut matching_commands = 0;
+    for assertion_line in assertion_lines {
+        let value = assertion_line
+            .strip_prefix(GATE_ASSERTION_PREFIX)
+            .expect("filtered assertion line must have the prefix")
+            .trim();
+        let Some(command_and_result) = value.strip_prefix('`') else {
+            return Err(format!(
+                "{label} comment 的 `Gate 断言` 必须先用反引号记录规范命令"
+            ));
+        };
+        let Some((actual_command, result)) = command_and_result.split_once('`') else {
+            return Err(format!("{label} comment 的 `Gate 断言` 命令缺少闭合反引号"));
+        };
+        if !unique_commands.insert(actual_command) {
+            return Err(format!(
+                "{label} comment 的 `Gate 断言` 不得重复同一规范命令：`{actual_command}`"
+            ));
+        }
+        if !matches!(result.trim(), "已通过" | "已通过。") {
+            return Err(format!(
+                "{label} comment 的 `Gate 断言` 必须在规范命令后明确记录 `已通过`"
+            ));
+        }
+        if actual_command == expected_command {
+            matching_commands += 1;
+        }
+        actual_commands.push(actual_command);
+    }
+    if matching_commands != 1 {
         return Err(format!(
-            "{label} comment 的 `Gate 断言` 命令与当前参数不一致：期望 `{expected_command}`；实际 `{actual_command}`"
+            "{label} comment 的 `Gate 断言` 命令与当前参数不一致：期望恰好一条 `{expected_command}`；实际 [{}]",
+            actual_commands.join("；")
         ));
     }
-
-    if !matches!(result.trim(), "已通过" | "已通过。") {
-        return Err(format!(
-            "{label} comment 的 `Gate 断言` 必须在规范命令后明确记录 `已通过`"
-        ));
-    }
-
     Ok(())
 }
 
@@ -3610,6 +3926,101 @@ Refs: #12
     }
 
     #[test]
+    fn discovers_delivery_targets_recorded_for_a_related_pr() {
+        let issue_bodies = [
+            "- Delivery PR：#61\n- Related PRs：#62、#63",
+            "- Delivery PR：pending\n- Related PRs：#62",
+            "- Delivery PR：#81\n- Related PRs：#82",
+        ];
+
+        assert_eq!(
+            discover_g3_evidence_shadow_targets(62, &issue_bodies).unwrap(),
+            vec![61, 62]
+        );
+    }
+
+    #[test]
+    fn dependent_target_discovery_fails_closed_on_relevant_template_residue() {
+        let issue_bodies = [
+            "- Delivery PR：pending / #71 / N/A，原因：模板未清理\n- Related PRs：#62",
+            "- Delivery PR：#81\n- Related PRs：pending / #62 / N/A，原因：模板未清理",
+        ];
+
+        let error = discover_g3_evidence_shadow_targets(62, &issue_bodies)
+            .expect_err("relevant Issue metadata residue must trigger the all-open fallback");
+
+        assert!(error.contains("未清理的互斥模板选项"));
+    }
+
+    #[test]
+    fn parses_g3_evidence_marker_arguments() {
+        assert_eq!(
+            parse_g3_evidence_marker_args(&[
+                "--repo".to_string(),
+                "illusion-tech/laneflow".to_string(),
+                "--pr".to_string(),
+                "324".to_string(),
+                "--comment-id".to_string(),
+                "5190249680".to_string(),
+            ])
+            .unwrap(),
+            ("illusion-tech/laneflow".to_string(), 324, 5_190_249_680)
+        );
+    }
+
+    #[test]
+    fn validates_unedited_marker_identity_and_strict_ordering() {
+        let marker = GitHubIssueCommentRest {
+            body: Some("g3-evidence: changed".to_string()),
+            created_at: "2026-08-06T03:30:01Z".to_string(),
+            updated_at: "2026-08-06T03:30:01Z".to_string(),
+            issue_url: "https://api.github.com/repos/illusion-tech/laneflow/issues/324".to_string(),
+        };
+
+        assert!(
+            validate_g3_evidence_marker_comment(&marker, "illusion-tech/laneflow", 324).is_ok()
+        );
+        assert!(
+            validate_marker_is_strictly_later(
+                &marker.created_at,
+                "2026-08-06T03:30:00Z",
+                "current G3 comment"
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_marker_is_strictly_later(
+                &marker.created_at,
+                "2026-08-06T03:30:01Z",
+                "Issue body"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_edited_or_wrong_pr_g3_evidence_marker() {
+        let edited = GitHubIssueCommentRest {
+            body: Some("g3-evidence: changed".to_string()),
+            created_at: "2026-08-06T03:30:01Z".to_string(),
+            updated_at: "2026-08-06T03:30:02Z".to_string(),
+            issue_url: "https://api.github.com/repos/illusion-tech/laneflow/issues/324".to_string(),
+        };
+        let wrong_pr = GitHubIssueCommentRest {
+            updated_at: edited.created_at.clone(),
+            issue_url: "https://api.github.com/repos/illusion-tech/laneflow/issues/325".to_string(),
+            ..edited.clone()
+        };
+
+        assert!(
+            validate_g3_evidence_marker_comment(&edited, "illusion-tech/laneflow", 324).is_err()
+        );
+        assert!(
+            validate_g3_evidence_marker_comment(&wrong_pr, "illusion-tech/laneflow", 324).is_err()
+        );
+    }
+
+    #[test]
     fn rejects_unresolved_issue_metadata_placeholders() {
         let delivery_error = resolve_gate_evidence_target_args(
             "illusion-tech/laneflow".to_string(),
@@ -3797,14 +4208,32 @@ Refs: #12
     }
 
     #[test]
+    fn rejects_closed_issue_as_current_g3_target() {
+        let closed_issue = issue("CLOSED", "Done");
+
+        let error = validate_current_g3_issue(GateEvidencePhase::G3, &closed_issue)
+            .expect_err("standard G3 must reject a closed Issue");
+
+        assert!(error.contains("仍为 OPEN 的关联 Issue"));
+        assert!(validate_current_g3_issue(GateEvidencePhase::G4, &closed_issue).is_ok());
+    }
+
+    #[test]
     fn g3_evidence_shadow_workflow_preserves_trusted_ref_boundary() {
         let workflow = include_str!("../../.github/workflows/g3-evidence-gate.yml");
 
         assert!(workflow.contains("name: G3 Evidence Gate Shadow"));
         assert!(workflow.contains("pull_request_target:"));
         assert!(workflow.contains("issue_comment:\n    types:\n      - created"));
+        assert!(workflow.contains("      - edited\n      - deleted\n  issues:"));
+        assert!(
+            workflow
+                .contains("issues:\n    types:\n      - edited\n      - closed\n      - reopened")
+        );
+        assert!(workflow.contains("workflow_run:\n    workflows:\n      - External Review Signal"));
         assert!(workflow.contains("workflow_dispatch:"));
         assert!(workflow.contains("github.event.comment.body == 'g3-evidence: changed'"));
+        assert!(workflow.contains("github.event.issue.pull_request != null"));
         assert!(workflow.contains(
             "permissions:\n  contents: read\n  pull-requests: read\n  issues: read\n  checks: write"
         ));
@@ -3812,12 +4241,19 @@ Refs: #12
         assert!(workflow.contains("persist-credentials: false"));
         assert!(workflow.contains("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"));
         assert!(workflow.contains("check-gate-evidence-target"));
+        assert!(workflow.contains("check-g3-evidence-marker"));
+        assert!(workflow.contains("resolve-g3-evidence-shadow-targets"));
+        assert!(workflow.contains("Fresh G3 evidence marker required"));
+        assert!(workflow.contains("ALLOW_SUCCESS"));
+        assert!(workflow.contains("MARKER_COMMENT_ID"));
+        assert!(workflow.contains("- closed"));
         assert!(workflow.contains("initial_head"));
         assert!(workflow.contains("final_head"));
         assert!(workflow.contains("final_eligibility"));
         assert!(workflow.contains(".app.slug == \"github-actions\""));
         assert!(!workflow.contains("refs/pull/"));
         assert!(!workflow.contains("secrets."));
+        assert!(!workflow.contains("schedule:"));
         assert!(
             !workflow
                 .lines()
@@ -4108,6 +4544,46 @@ Refs: #12
                 .expect_err("G3 assertion arguments must match the current invocation");
 
         assert!(error.contains("命令与当前参数不一致"));
+    }
+
+    #[test]
+    fn accepts_one_g3_assertion_per_associated_issue() {
+        let first_args = related_only_g3_args();
+        let second_args = GateEvidenceArgs {
+            phase: GateEvidencePhase::G3,
+            repo: "illusion-tech/laneflow".to_string(),
+            issue: 61,
+            delivery_pr: None,
+            related_prs: vec![62],
+        };
+        let body = format!(
+            "{GATE_ASSERTION_PREFIX}`{}` 已通过。\n{GATE_ASSERTION_PREFIX}`{}` 已通过。",
+            expected_gate_command(&first_args, GateEvidencePhase::G3),
+            expected_gate_command(&second_args, GateEvidencePhase::G3)
+        );
+
+        assert!(
+            validate_gate_assertion(&body, "multi-Issue G3", &first_args, GateEvidencePhase::G3)
+                .is_ok()
+        );
+        assert!(
+            validate_gate_assertion(&body, "multi-Issue G3", &second_args, GateEvidencePhase::G3)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_multiple_g4_assertions() {
+        let args = gate_args(GateEvidencePhase::G4);
+        let command = expected_gate_command(&args, GateEvidencePhase::G4);
+        let body = format!(
+            "{GATE_ASSERTION_PREFIX}`{command}` 已通过。\n{GATE_ASSERTION_PREFIX}`{command} --related-pr 62` 已通过。"
+        );
+
+        let error = validate_gate_assertion(&body, "Issue G4", &args, GateEvidencePhase::G4)
+            .expect_err("G4 must keep one full-set assertion");
+
+        assert!(error.contains("G4 只能包含一条"));
     }
 
     #[test]

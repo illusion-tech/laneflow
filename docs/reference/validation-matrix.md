@@ -79,10 +79,12 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 | Related PR C 自身尚未把 shadow workflow 合入 main                                      | 使用 main 上的 live validator；候选 Check 不得自批，Check 缺失按 R0 bootstrap 记录            |
 | PR B 合入后的 R0/R1 PR 尚无 required External Review Gate                              | `G3 Pass` / bootstrap 要求 live `pass`；结构化 `G3 Waived` 保持 `waived`，并记录 Check 缺失   |
 | PR body 缺少明确 `关联 Issue` 列表、仍保留角色模板占位或角色与任一 Issue 元数据不一致  | `G3 Evidence Gate Shadow` Fail；多 Issue 必须逐个校验，不得猜测 target 参数                   |
+| 多 Issue PR 的同一 G3 comment 只含一条 Issue-specific 断言或存在重复命令               | Fail；每个关联 Issue 必须有一条精确且已通过的独立断言                                         |
 | Delivery target 的 Issue `Related PRs` 有重复/遗漏，或 Related target 未列入该字段     | Fail；Delivery 必须按 Issue 记录构造完整 full-set，Related 只校验自身                         |
 | Issue 的具体 PR 字段仍含 `pending / #61 / N/A`、`#<number>` 或空 `N/A` 原因            | Fail；具体编号只接受明确 `#<number>` 列表，互斥模板选项必须清理                               |
-| G3 comment / body / Issue permalink 更新后未新增精确 `g3-evidence: changed` marker     | Shadow 可能 stale，Fail；marker 触发 trusted metadata re-read 后再判断                        |
-| 当前 Delivery / Related PR 为 Draft、已 merged 或 closed 后运行标准 G3 / target 模式   | Fail；不得把未就绪或合并后补写当作标准 G3，历史证据只由 G4 复核                               |
+| G3 comment / body / Issue permalink 更新后未新增严格更晚的精确 marker                  | Fail；marker 必须未编辑且晚于最终 evidence；同秒或其他事件只能撤销旧 success                  |
+| review/thread 状态变化后未刷新 G3 shadow，或 Related 变化未级联刷新 Delivery           | Fail；trusted signal 重读直接目标并让受影响 Delivery 的旧 success 失效                        |
+| 关联 Issue 已 closed，或当前 Delivery / Related PR 为 Draft、merged 或 closed          | Fail；同仓不再 eligible 的 PR 发布 non-success，历史证据只由 G4 复核                          |
 | 候选 G3 validator / workflow 尚未合入 `main`                                           | 不得用候选 `G3 Evidence Gate Shadow` 自批；使用当前 main validator 并记录 bootstrap 边界      |
 | fork / cross-repository PR 的 head 不属于 base repository                              | R1 不发布 Check 且不计 eligible sample；R2 前迁移到 same-repository PR 并重新 exact-head 审阅 |
 | R2 PR 缺少 current-head External Review Gate success                                   | Fail                                                                                          |
@@ -99,14 +101,15 @@ workflow 安全检查至少验证：
 - validator 显式从 `refs/heads/main` checkout，关闭 credential persistence，不 checkout、下载或执行 PR head，不执行 comment body，不读取 repository secret；
 - token 权限固定为 `contents: read`、`pull-requests: read`、`issues: read`、`checks: write`，第三方 Action 完整 SHA pin；
 - R1 Check 固定为 `External Review Gate Shadow`，绑定 API 最终确认的 current head/base，并复核 telemetry source App=`github-actions`；external ID 同时绑定 PR/head/trusted-ref/run；
-- `G3 Evidence Gate Shadow` 只解析有界 PR number，固定 checkout `refs/heads/main`，从 GitHub API 重读 PR / Issue，逐个校验全部关联 Issue，校验前后复核 head/base，确认角色参数稳定后重跑完整证据，并拒绝缺失/歧义 role、association、模板残留与 Draft / merged current target；G3 查询不得请求只由 G4 使用的 `projectItems`；
-- G3 evidence marker 只接受正文精确为 `g3-evidence: changed` 的新顶层 PR comment；marker 内容不进入 shell、不携带 Gate 结论；
+- `G3 Evidence Gate Shadow` 只解析有界 PR number，固定 checkout `refs/heads/main`，从 GitHub API 重读 PR / Issue，逐个校验全部关联 Issue，校验前后复核 head/base，确认角色参数稳定后重跑完整证据，并拒绝缺失/歧义 role、association、模板残留、closed Issue 与 Draft / merged current target；多 Issue comment 必须逐 Issue 命中精确断言；G3 查询不得请求只由 G4 使用的 `projectItems`；
+- G3 evidence marker 只接受正文精确为 `g3-evidence: changed` 的新顶层 PR comment；marker 必须未编辑、属于当前 PR，并严格晚于 current G3 comment 与 PR/Issue body 最后编辑时间；只有该 created 事件可为直接目标发布 success，其他 conversation comment、marker edit/delete、review/thread/metadata/manual 与级联 Delivery 目标只能发布 non-success；marker 内容不进入 shell、不携带 Gate 结论；
+- external-review signal 必须触发 G3 trusted re-read；Related PR 事件必须从 open Issue 的 `Related PRs` 反向发现并刷新 Delivery PR，解析失败时保守刷新全部 open main PR；
 - `G3 Evidence Gate Shadow` source App=`github-actions` 且 non-required；R2 必须改用 organization required workflow 或独立 App expected source，并通过同名 spoof canary、open PR 重触发和 ruleset before/after 审计；
 - publisher 二次确认 `isCrossRepository=false`；fork / cross-repository PR 不尝试向 base repository 写入无法关联的 head Check；
 - 只有 `pass -> success`；`waived -> action_required`，确保 required check 不会把 waiver 当作成功；其他状态均为 failure；
 - PR concurrency 取消旧运行；identity race 不向新 head 发布旧结果；
 - external ID 显式包含 evaluator state、稳定 fingerprint、trusted run 与 attempt；publisher 不查询或复用既有同名 Check，每个 trusted event 必须创建并验证自己的 receipt；
-- Draft、非 `main` base、非 open PR 不计入 R1 sample；漏事件只允许显式 manual dispatch 补偿，不运行周期 schedule；
+- Draft、非 `main` base、非 open PR 不计入 R1 sample；same-repository 目标必须用 non-success 取代同一 head 的旧 success，cross-repository 不发布；漏事件只允许显式 manual dispatch 触发保守失效，重新取得 success 仍需新 marker，不运行周期 schedule；
 - R1 sample 同时绑定 trusted default-branch workflow run、external ID 与 Check receipt；PR 自定义的同名 GitHub Actions job 不得计入；
 - R2 publisher 使用独立专用 GitHub App，ruleset 绑定正式 Check name 与 expected source App；恶意 PR 新增同名 Actions job 的 canary 仍必须阻断合并；
 - R1 thread resolve / unresolve 批次必须以顶层 marker 唤醒 trusted `issue_comment` workflow；workflow 只接受 `created` 且正文精确匹配 marker 的 PR comment，edited / deleted 或其他 PR comment 不得刷新 shadow Check；R2 专用 App 必须实测 `pull_request_review_thread` / 等价自动信号覆盖两个方向，缺一则阻断 cutover；

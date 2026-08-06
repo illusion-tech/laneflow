@@ -72,7 +72,7 @@
 ## Gate Ledger
 
 - [ ] G3 合并判断已记录：[当前 head 的 PR G3 comment](...)。该 comment 必须在合并前新增且保持 append-only，并包含当前 head、rollout phase、checks、External Review Gate、结构化审阅证据、review threads、验证、风险、例外、合并方式和 Gate 断言。
-- [ ] PR / Issue permalink 均已更新后，已新增精确 `g3-evidence: changed` 顶层 PR comment 并等待 trusted `G3 Evidence Gate Shadow` 重读；候选 workflow 尚未合入 `main` 时记录 bootstrap 边界。
+- [ ] PR / Issue permalink 均已更新后，已新增精确 `g3-evidence: changed` 顶层 PR comment 并等待 trusted `G3 Evidence Gate Shadow` 重读；marker 必须未编辑并严格晚于 current G3 comment 与 PR/Issue body 最后编辑时间；只有该新建 marker 可为直接目标发布 success，其他 conversation comment、marker edit/delete、review/thread/metadata/manual 或级联 Delivery 刷新只撤销旧 success；候选 workflow 尚未合入 `main` 时记录 bootstrap 边界。
 - G4 回写：Delivery PR 在关联 Issue 的 G4 comment 发表后填入 permalink；Related PR 填 `N/A` 并说明不承担 Issue G4。
 
 <!--
@@ -97,7 +97,7 @@ G3 comment 模板（合并前发表）：
 - 合并方式：
 - Gate 断言：`<与实际运行完全一致的 check-gate-evidence g3 Related-only 或 full-set 规范命令>` 已通过。
 
-每个 Related PR 都使用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 并永久保留该 Related-only 断言；Delivery PR / full-set 使用 `--delivery-pr <number>` 并传入全部 Related PR，不改写历史 Related comment。填写与实际参数完全一致的命令后立即运行；若失败，必须移除“已通过”并修复证据。Related PR B 合入前，该命令只校验 legacy comment 结构、permalink、PR 关系和时序，不能替代对 current head 与外部审阅字段的人工核验。
+每个 Related PR 都使用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 并永久保留该 Related-only 断言；Delivery PR / full-set 使用 `--delivery-pr <number>` 并传入全部 Related PR，不改写历史 Related comment。一个 PR 关联多个 Issue 时，在同一 append-only G3 comment 中为每个 Issue 分别写一条精确 `Gate 断言`。填写与实际参数完全一致的命令后立即逐条运行；若失败，必须移除对应“已通过”并修复证据。Related PR B 合入前，该命令只校验 legacy comment 结构、permalink、PR 关系和时序，不能替代对 current head 与外部审阅字段的人工核验。
 
 如 Gate 结果为 `G3 Waived`，还必须按 `docs/governance/development-gates.md` 写入唯一 `external-review-waiver:v1` 结构化记录；evidence 使用可见 `- 例外：` 行和文末 reference-style 定义，不在 JSON 中直接写 URL。
 -->

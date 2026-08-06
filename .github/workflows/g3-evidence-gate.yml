@@ -7,13 +7,28 @@ on:
     types:
       - opened
       - reopened
+      - closed
       - synchronize
       - ready_for_review
       - converted_to_draft
       - edited
+      - review_requested
+      - review_request_removed
   issue_comment:
     types:
       - created
+      - edited
+      - deleted
+  issues:
+    types:
+      - edited
+      - closed
+      - reopened
+  workflow_run:
+    workflows:
+      - External Review Signal
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       pr_number:
@@ -28,47 +43,218 @@ permissions:
   checks: write
 
 jobs:
-  publish-shadow-check:
-    name: Publish G3 evidence shadow Check
+  resolve-targets:
+    name: Resolve direct and dependent PR targets
     if: >-
-      github.event_name != 'issue_comment' || (
-        github.event.issue.pull_request != null &&
-        github.event.comment.body == 'g3-evidence: changed'
-      )
-    concurrency:
-      group: g3-evidence-gate-pr-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
-      cancel-in-progress: true
+      github.event_name != 'issue_comment' ||
+      github.event.issue.pull_request != null
     runs-on: ubuntu-latest
+    outputs:
+      count: ${{ steps.targets.outputs.count }}
+      matrix: ${{ steps.targets.outputs.matrix }}
     steps:
-      - name: Resolve PR number from trusted event metadata
-        id: target
+      - name: Resolve direct PR numbers from trusted event metadata
+        id: direct
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
           MANUAL_PR: ${{ inputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+
+          all_open_prs() {
+            local open_prs
+            open_prs="$(gh api --paginate \
+              "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" \
+              --jq '.[].number')"
+            printf '%s\n' "$open_prs" |
+              jq -Rsc 'split("\n") | map(select(length > 0) | tonumber) | unique'
+          }
+
+          workflow_run_prs() {
+            local direct_prs
+            local head_sha
+            local associated_prs
+
+            direct_prs="$(
+              jq -c \
+                '[.workflow_run.pull_requests[].number |
+                  select(type == "number" and . > 0)] | unique' \
+                "$GITHUB_EVENT_PATH"
+            )"
+            if [[ "$(jq -r 'length' <<<"$direct_prs")" != "0" ]]; then
+              printf '%s\n' "$direct_prs"
+              return
+            fi
+
+            head_sha="$(jq -er '.workflow_run.head_sha' "$GITHUB_EVENT_PATH")"
+            if [[ ! "$head_sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "workflow_run head_sha must be a full lowercase Git OID" >&2
+              exit 1
+            fi
+            associated_prs="$(
+              gh api --paginate --slurp \
+                "repos/${REPOSITORY}/commits/${head_sha}/pulls?per_page=100"
+            )"
+            jq -ce \
+              '[.[][] |
+                select(
+                  ((.number | type) == "number") and
+                  (.number > 0) and
+                  .state == "open" and
+                  .base.ref == "main"
+                ) |
+                .number] |
+                unique' \
+              <<<"$associated_prs"
+          }
+
           case "$EVENT_NAME" in
             pull_request_target)
-              pr_number="$(jq -er '.pull_request.number' "$GITHUB_EVENT_PATH")"
+              pr_numbers="$(jq -c '[.pull_request.number]' "$GITHUB_EVENT_PATH")"
               ;;
             issue_comment)
-              pr_number="$(jq -er '.issue.number' "$GITHUB_EVENT_PATH")"
+              pr_numbers="$(jq -c '[.issue.number]' "$GITHUB_EVENT_PATH")"
+              ;;
+            workflow_run)
+              pr_numbers="$(workflow_run_prs)"
+              ;;
+            issues)
+              pr_numbers="$(all_open_prs)"
               ;;
             workflow_dispatch)
-              pr_number="$MANUAL_PR"
+              if [[ "$MANUAL_PR" =~ ^[1-9][0-9]*$ ]]; then
+                pr_numbers="$(jq -cn --argjson number "$MANUAL_PR" '[$number]')"
+              else
+                echo "pr_number must be a positive integer" >&2
+                exit 1
+              fi
               ;;
             *)
               echo "Unsupported trusted event: $EVENT_NAME" >&2
               exit 1
               ;;
           esac
-          if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
-            echo "PR number must be a positive integer" >&2
-            exit 1
-          fi
-          echo "pr_number=$pr_number" >>"$GITHUB_OUTPUT"
 
+          pr_numbers="$(
+            jq -ce \
+              'if type != "array" then error("PR target must be an array")
+               else [.[] | select(type == "number" and . > 0)] | unique
+               end' \
+              <<<"$pr_numbers"
+          )"
+          echo "pr_numbers=$pr_numbers" >>"$GITHUB_OUTPUT"
+
+      - name: Checkout trusted resolver from main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify trusted checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "main"
+          git diff --exit-code
+
+      - name: Install Rust MSRV toolchain for trusted resolver
+        shell: bash
+        run: rustup toolchain install 1.96.0 --profile minimal
+
+      - name: Include Delivery PRs affected by Related PR changes
+        id: targets
+        shell: bash
+        env:
+          ALLOW_SUCCESS_EVENT: "${{ github.event_name == 'issue_comment' && github.event.action == 'created' && github.event.comment.body == 'g3-evidence: changed' }}"
+          DIRECT_PRS: ${{ steps.direct.outputs.pr_numbers }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          all_open_prs() {
+            local open_prs
+            open_prs="$(gh api --paginate \
+              "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" \
+              --jq '.[].number')"
+            printf '%s\n' "$open_prs" |
+              jq -Rsc 'split("\n") | map(select(length > 0) | tonumber) | unique'
+          }
+
+          targets="$DIRECT_PRS"
+          resolver_failed=false
+          while IFS= read -r pr_number; do
+            set +e
+            discovered="$(
+              cargo +1.96.0 run --quiet --locked -p xtask -- \
+                resolve-g3-evidence-shadow-targets \
+                --repo "$REPOSITORY" \
+                --pr "$pr_number" 2>&1
+            )"
+            resolver_status=$?
+            set -e
+            if [[ "$resolver_status" -ne 0 ]] || ! jq -e \
+              'type == "array" and all(.[]; type == "number" and . > 0)' \
+              <<<"$discovered" >/dev/null; then
+              echo "::warning::Dependent target discovery failed for PR #${pr_number}; refreshing every open main PR"
+              printf '%s\n' "$discovered"
+              resolver_failed=true
+              break
+            fi
+            targets="$(
+              jq -cn \
+                --argjson current "$targets" \
+                --argjson discovered "$discovered" \
+                '$current + $discovered | unique'
+            )"
+          done < <(jq -r '.[]' <<<"$DIRECT_PRS")
+
+          if [[ "$resolver_failed" == "true" ]]; then
+            open_prs="$(all_open_prs)"
+            targets="$(
+              jq -cn \
+                --argjson direct "$DIRECT_PRS" \
+                --argjson open "$open_prs" \
+                '$direct + $open | unique'
+            )"
+          fi
+
+          matrix="$(
+            jq -cn \
+              --argjson targets "$targets" \
+              --argjson direct "$DIRECT_PRS" \
+              --argjson allow_success "$ALLOW_SUCCESS_EVENT" '
+                {include: [
+                  $targets[] as $pr |
+                  {
+                    pr: $pr,
+                    allow_success: (
+                      $allow_success and (($direct | index($pr)) != null)
+                    )
+                  }
+                ]}'
+          )"
+          count="$(jq -r '.include | length' <<<"$matrix")"
+          echo "count=$count" >>"$GITHUB_OUTPUT"
+          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
+
+  publish-shadow-check:
+    name: Publish G3 evidence shadow Check for PR #${{ matrix.pr }}
+    needs:
+      - resolve-targets
+    if: needs.resolve-targets.outputs.count != '0'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve-targets.outputs.matrix) }}
+    concurrency:
+      group: g3-evidence-gate-pr-${{ matrix.pr }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
       - name: Checkout trusted validator from main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -90,8 +276,10 @@ jobs:
       - name: Evaluate metadata and publish completed shadow Check
         shell: bash
         env:
+          ALLOW_SUCCESS: "${{ matrix.allow_success }}"
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.target.outputs.pr_number }}
+          MARKER_COMMENT_ID: "${{ matrix.allow_success && github.event.comment.id || '' }}"
+          PR_NUMBER: ${{ matrix.pr }}
           REPOSITORY: ${{ github.repository }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           RUN_ID: ${{ github.run_id }}
@@ -100,39 +288,68 @@ jobs:
           set -euo pipefail
 
           initial_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
-          eligibility="$(
-            jq -r --arg repo "$REPOSITORY" '
-              if .state != "open" then "not-open"
-              elif .draft then "draft"
-              elif .base.ref != "main" then "non-main"
-              elif .head.repo.full_name != $repo then "cross-repository"
-              else "eligible"
-              end
-            ' <<<"$initial_pr"
-          )"
-          if [[ "$eligibility" != "eligible" ]]; then
-            echo "::notice::PR #${PR_NUMBER} is not eligible for G3 evidence shadow: ${eligibility}"
-            exit 0
-          fi
-
           initial_head="$(jq -er '.head.sha' <<<"$initial_pr")"
           initial_base="$(jq -er '.base.sha' <<<"$initial_pr")"
+          initial_head_repo="$(jq -er '.head.repo.full_name' <<<"$initial_pr")"
           if [[ ! "$initial_head" =~ ^[0-9a-f]{40}$ || ! "$initial_base" =~ ^[0-9a-f]{40}$ ]]; then
             echo "PR identity must contain full lowercase Git OIDs" >&2
             exit 1
           fi
+          if [[ "$initial_head_repo" != "$REPOSITORY" ]]; then
+            echo "::notice::PR #${PR_NUMBER} is cross-repository; no G3 evidence shadow Check is published"
+            exit 0
+          fi
 
-          set +e
-          validation_output="$(
-            cargo +1.96.0 run --locked -p xtask -- \
-              check-gate-evidence-target \
-              --repo "$REPOSITORY" \
-              --pr "$PR_NUMBER" 2>&1
+          initial_eligibility="$(
+            jq -r '
+              if .state != "open" then "not-open"
+              elif .draft then "draft"
+              elif .base.ref != "main" then "non-main"
+              else "eligible"
+              end
+            ' <<<"$initial_pr"
           )"
-          validation_exit=$?
-          set -e
+
+          if [[ "$initial_eligibility" == "eligible" ]]; then
+            set +e
+            validation_output="$(
+              cargo +1.96.0 run --locked -p xtask -- \
+                check-gate-evidence-target \
+                --repo "$REPOSITORY" \
+                --pr "$PR_NUMBER" 2>&1
+            )"
+            validation_exit=$?
+            set -e
+            if [[ "$validation_exit" -eq 0 && "$ALLOW_SUCCESS" == "true" ]]; then
+              if [[ ! "$MARKER_COMMENT_ID" =~ ^[1-9][0-9]*$ ]]; then
+                validation_output="${validation_output}\n\nTrusted marker comment ID is missing or invalid."
+                validation_exit=1
+              else
+                set +e
+                marker_output="$(
+                  cargo +1.96.0 run --locked -p xtask -- \
+                    check-g3-evidence-marker \
+                    --repo "$REPOSITORY" \
+                    --pr "$PR_NUMBER" \
+                    --comment-id "$MARKER_COMMENT_ID" 2>&1
+                )"
+                marker_exit=$?
+                set -e
+                validation_output="${validation_output}\n\n${marker_output}"
+                if [[ "$marker_exit" -ne 0 ]]; then
+                  validation_exit=$marker_exit
+                fi
+              fi
+            fi
+          else
+            validation_output="PR #${PR_NUMBER} is not eligible for G3 evidence: ${initial_eligibility}"
+            validation_exit=1
+          fi
 
           final_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          final_head="$(jq -er '.head.sha' <<<"$final_pr")"
+          final_base="$(jq -er '.base.sha' <<<"$final_pr")"
+          final_head_repo="$(jq -er '.head.repo.full_name' <<<"$final_pr")"
           final_eligibility="$(
             jq -r --arg repo "$REPOSITORY" '
               if .state != "open" then "not-open"
@@ -143,23 +360,29 @@ jobs:
               end
             ' <<<"$final_pr"
           )"
-          final_head="$(jq -er '.head.sha' <<<"$final_pr")"
-          final_base="$(jq -er '.base.sha' <<<"$final_pr")"
-          if [[ "$final_eligibility" != "eligible" || "$initial_head" != "$final_head" || "$initial_base" != "$final_base" ]]; then
-            echo "PR identity or eligibility changed while G3 evidence was being evaluated" >&2
+          if [[ "$initial_head" != "$final_head" || "$initial_base" != "$final_base" || "$final_head_repo" != "$REPOSITORY" ]]; then
+            echo "PR identity changed while G3 evidence was being evaluated" >&2
             exit 1
+          fi
+          if [[ "$initial_eligibility" != "$final_eligibility" ]]; then
+            validation_output="${validation_output}\n\nPR eligibility changed during evaluation: ${initial_eligibility} -> ${final_eligibility}"
+            validation_exit=1
           fi
 
           validation_output="${validation_output:0:14000}"
-          if [[ "$validation_exit" -eq 0 ]]; then
+          if [[ "$validation_exit" -eq 0 && "$ALLOW_SUCCESS" == "true" && "$final_eligibility" == "eligible" ]]; then
             conclusion="success"
             title="G3 evidence accepted"
+          elif [[ "$validation_exit" -eq 0 ]]; then
+            conclusion="failure"
+            title="Fresh G3 evidence marker required"
+            validation_output="${validation_output}\n\nValidation passed, but only a newly created exact g3-evidence: changed marker may publish success."
           else
             conclusion="failure"
             title="G3 evidence rejected"
           fi
           summary="$(printf 'Trusted validator: refs/heads/main@%s\n\n%s' "$(git rev-parse HEAD)" "$validation_output")"
-          external_id="g3-evidence-shadow:${REPOSITORY}:pr-${PR_NUMBER}:${initial_head}:${RUN_ID}:${RUN_ATTEMPT}"
+          external_id="g3-evidence-shadow:${REPOSITORY}:pr-${PR_NUMBER}:${initial_head}:${conclusion}:${RUN_ID}:${RUN_ATTEMPT}"
           payload="$(
             jq -n \
               --arg name "G3 Evidence Gate Shadow" \
