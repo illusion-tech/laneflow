@@ -980,6 +980,8 @@ struct GitHubIssue {
 struct GitHubPullRequest {
     body: String,
     state: String,
+    #[serde(rename = "isDraft")]
+    is_draft: bool,
     #[serde(rename = "createdAt")]
     created_at: String,
     #[serde(rename = "mergedAt")]
@@ -1145,6 +1147,7 @@ fn check_gate_evidence_target(args: &[String]) -> Result<(), String> {
     if final_args != args {
         return Err("PR / Issue Gate 元数据在 target 校验期间发生变化；请重新运行".to_string());
     }
+    check_gate_evidence_with_args(&final_args)?;
     print_gate_evidence_success(&args);
     Ok(())
 }
@@ -1438,9 +1441,9 @@ fn validate_current_g3_target(
     } else {
         ("Related PR", &related_prs[0])
     };
-    if target.state != "OPEN" || target.merged_at.is_some() {
+    if target.state != "OPEN" || target.is_draft || target.merged_at.is_some() {
         return Err(format!(
-            "标准 G3 只能校验合并前仍为 OPEN 的当前 {label}；历史合并证据只能由 G4 复核"
+            "标准 G3 只能校验合并前仍为 OPEN 且非 Draft 的当前 {label}；历史合并证据只能由 G4 复核"
         ));
     }
     Ok(())
@@ -1483,7 +1486,8 @@ fn gh_pr_view(repo: &str, number: u64) -> Result<GitHubPullRequest, String> {
         "--repo".to_string(),
         repo.to_string(),
         "--json".to_string(),
-        "body,state,createdAt,mergedAt,closingIssuesReferences,projectItems,comments".to_string(),
+        "body,state,isDraft,createdAt,mergedAt,closingIssuesReferences,projectItems,comments"
+            .to_string(),
     ])
 }
 
@@ -3203,6 +3207,7 @@ Refs: #12
             } else {
                 "OPEN".to_string()
             },
+            is_draft: false,
             created_at: "2026-07-10T04:00:00Z".to_string(),
             merged_at: merged_at.map(ToOwned::to_owned),
             closing_issues_references: vec![IssueReference { number: 60 }],
@@ -3245,6 +3250,7 @@ Refs: #12
         GitHubPullRequest {
             body: format!("- [x] G3 合并判断已记录：[G3 评论]({RELATED_G3_URL})\nRefs: #60"),
             state: "OPEN".to_string(),
+            is_draft: false,
             created_at: "2026-07-10T04:30:00Z".to_string(),
             merged_at: None,
             closing_issues_references: closes_issue
@@ -3528,6 +3534,7 @@ Refs: #12
             r#"{
                 "body": "body",
                 "state": "MERGED",
+                "isDraft": false,
                 "createdAt": "2026-07-10T04:00:00Z",
                 "mergedAt": "2026-07-10T05:30:00Z",
                 "closingIssuesReferences": [],
@@ -3589,7 +3596,19 @@ Refs: #12
         let error = validate_current_g3_target(&args, Some(&delivery_pr), &[])
             .expect_err("standard G3 must be pre-merge");
 
-        assert!(error.contains("合并前仍为 OPEN"));
+        assert!(error.contains("合并前仍为 OPEN 且非 Draft"));
+    }
+
+    #[test]
+    fn rejects_draft_delivery_as_current_g3_target() {
+        let args = gate_args(GateEvidencePhase::G3);
+        let mut delivery_pr = delivery_pr(None);
+        delivery_pr.is_draft = true;
+
+        let error = validate_current_g3_target(&args, Some(&delivery_pr), &[])
+            .expect_err("standard G3 must reject draft PRs");
+
+        assert!(error.contains("非 Draft"));
     }
 
     #[test]
