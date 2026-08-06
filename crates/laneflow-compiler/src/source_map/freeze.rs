@@ -55,7 +55,6 @@ impl SourceMapSizing {
 /// 将受检来源文档键解析为冻结序号，并核对逻辑模块所有权。
 struct SourceLocationResolver<'a> {
     unit: &'a CompilationUnit,
-    mir: &'a MirUnit,
 }
 
 impl SourceLocationResolver<'_> {
@@ -65,41 +64,11 @@ impl SourceLocationResolver<'_> {
         owner_module: MirModuleKey,
         span: &SourceSpan,
     ) -> Result<SourceLocationRecord, DiagnosticBundle> {
-        let Some(binding) = self
+        let source_document_ordinal = self
             .unit
-            .resolve_source_document(span.source_document_key())
-        else {
-            let expected_namespace = self.mir.modules[owner_module.index()]
-                .authoring_namespace_id
-                .as_ref();
-            return Err(DiagnosticBundle::single(
-                Diagnostic::source_document_ownership_mismatch(
-                    span.source_document_key(),
-                    expected_namespace,
-                    None,
-                    span.clone(),
-                ),
-            ));
-        };
-        if binding.owner_module_ordinal() != owner_module.raw() {
-            let expected_namespace = self.mir.modules[owner_module.index()]
-                .authoring_namespace_id
-                .as_ref();
-            let actual_namespace = self.unit.modules
-                [usize::try_from(binding.owner_module_ordinal()).expect("u32 ordinals fit usize")]
-            .descriptor()
-            .authoring_namespace_id();
-            return Err(DiagnosticBundle::single(
-                Diagnostic::source_document_ownership_mismatch(
-                    span.source_document_key(),
-                    expected_namespace,
-                    Some(actual_namespace),
-                    span.clone(),
-                ),
-            ));
-        }
+            .resolve_source_document_for_module(owner_module.raw(), span)?;
         Ok(SourceLocationRecord {
-            source_document_ordinal: binding.source_document_ordinal(),
+            source_document_ordinal,
             start: span.start(),
             end: span.end(),
         })
@@ -440,7 +409,7 @@ pub(crate) fn freeze_source_map(
     // 真实文档序号由共同准入保留的全局唯一文档键绑定解析，同时核对该文档确实属于
     // 产生语义记录的逻辑模块。缺失键和跨模块错绑都以结构化诊断失败关闭，不能 panic
     // 或借另一个模块的同名/现存文档静默归因。
-    let location = SourceLocationResolver { unit: &unit, mir };
+    let location = SourceLocationResolver { unit: &unit };
 
     let module_capacity =
         usize::try_from(module_count).map_err(|_| output_overflow(&unit, primary_span.clone()))?;

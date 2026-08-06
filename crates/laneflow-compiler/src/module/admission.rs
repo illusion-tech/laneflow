@@ -349,7 +349,7 @@ impl FrozenSourceDocumentIndex {
     }
 }
 
-/// 只暴露源映射阶段所需事实的解析结果，不泄漏索引内部状态。
+/// 只暴露 HIR 与源映射阶段所需事实的解析结果，不泄漏索引内部状态。
 #[derive(Clone, Copy)]
 pub(crate) struct ResolvedSourceDocument {
     owner_module_ordinal: u32,
@@ -894,12 +894,51 @@ impl CompilationUnit {
             .flat_map(|module| module.source_documents.iter())
     }
 
+    /// 解析位置绑定的来源文档，并核对该文档属于预期规范模块。
+    ///
+    /// # Errors
+    ///
+    /// 文档键未登记或登记到另一逻辑模块时，返回结构化来源文档所有权诊断。
     #[inline]
-    pub(crate) fn resolve_source_document(
+    pub(crate) fn resolve_source_document_for_module(
         &self,
-        source_document_key: &str,
-    ) -> Option<ResolvedSourceDocument> {
-        self.source_document_index.resolve(source_document_key)
+        owner_module_ordinal: u32,
+        span: &SourceSpan,
+    ) -> Result<SourceDocumentOrdinal, DiagnosticBundle> {
+        let owner_module_index = usize::try_from(owner_module_ordinal)
+            .expect("u32 module ordinals fit usize on supported targets");
+        let expected_namespace = self.modules[owner_module_index]
+            .descriptor()
+            .authoring_namespace_id();
+        let Some(binding) = self
+            .source_document_index
+            .resolve(span.source_document_key())
+        else {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::source_document_ownership_mismatch(
+                    span.source_document_key(),
+                    expected_namespace,
+                    None,
+                    span.clone(),
+                ),
+            ));
+        };
+        if binding.owner_module_ordinal() != owner_module_ordinal {
+            let actual_module_index = usize::try_from(binding.owner_module_ordinal())
+                .expect("u32 module ordinals fit usize on supported targets");
+            let actual_namespace = self.modules[actual_module_index]
+                .descriptor()
+                .authoring_namespace_id();
+            return Err(DiagnosticBundle::single(
+                Diagnostic::source_document_ownership_mismatch(
+                    span.source_document_key(),
+                    expected_namespace,
+                    Some(actual_namespace),
+                    span.clone(),
+                ),
+            ));
+        }
+        Ok(binding.source_document_ordinal())
     }
 
     /// 消费完整 Typed AST 输入，分别搬移源映射后续需要的模块与文档描述符。
