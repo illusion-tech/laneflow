@@ -1056,6 +1056,34 @@ struct GitHubEditTimestamps {
     created_at: String,
     #[serde(rename = "lastEditedAt")]
     last_edited_at: Option<String>,
+    #[serde(rename = "updatedAt")]
+    updated_at: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubTimelineItem {
+    #[serde(default)]
+    id: Option<u64>,
+    event: String,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    updated_at: Option<String>,
+    #[serde(default)]
+    submitted_at: Option<String>,
+    #[serde(default)]
+    committer: Option<GitHubTimelineCommitter>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubTimelineCommitter {
+    date: String,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum GitHubTimelineTarget {
+    PullRequest,
+    Issue,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1368,6 +1396,21 @@ fn check_g3_evidence_marker(args: &[String]) -> Result<(), String> {
             &timestamps,
             &format!("Issue #{issue_number} body"),
         )?;
+        validate_marker_after_activity_timestamp(
+            &marker_before.created_at,
+            &timestamps.updated_at,
+            false,
+            &format!("Issue #{issue_number} activity"),
+        )?;
+        let timeline = gh_issue_timeline(&repo, issue_number)?;
+        validate_marker_after_timeline(
+            comment_id,
+            &marker_before.created_at,
+            &timeline,
+            GitHubTimelineTarget::Issue,
+            false,
+            &format!("Issue #{issue_number}"),
+        )?;
     }
     for relevant_pr in relevant_prs {
         let timestamps = gh_edit_timestamps(&repo, relevant_pr, GitHubEditTarget::PullRequest)?;
@@ -1376,6 +1419,21 @@ fn check_g3_evidence_marker(args: &[String]) -> Result<(), String> {
             &timestamps,
             &format!("associated PR #{relevant_pr} body"),
         )?;
+        validate_marker_after_activity_timestamp(
+            &marker_before.created_at,
+            &timestamps.updated_at,
+            relevant_pr == pr_number,
+            &format!("associated PR #{relevant_pr} activity"),
+        )?;
+        let timeline = gh_issue_timeline(&repo, relevant_pr)?;
+        validate_marker_after_timeline(
+            comment_id,
+            &marker_before.created_at,
+            &timeline,
+            GitHubTimelineTarget::PullRequest,
+            relevant_pr == pr_number,
+            &format!("associated PR #{relevant_pr}"),
+        )?;
     }
 
     let marker_after = gh_issue_comment(&repo, comment_id)?;
@@ -1383,7 +1441,7 @@ fn check_g3_evidence_marker(args: &[String]) -> Result<(), String> {
         return Err("G3 evidence marker 在校验期间发生变化；请新增 marker 后重试".to_string());
     }
     println!(
-        "已校验 G3 evidence marker：PR #{pr_number}，comment {comment_id} 晚于最终 G3 / body evidence"
+        "已校验 G3 evidence marker：PR #{pr_number}，comment {comment_id} 晚于最终 G3 / body / lifecycle evidence"
     );
     Ok(())
 }
@@ -1864,12 +1922,33 @@ fn validate_gate_evidence_target_pr(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or("PR G3 permalink 未指向当前 PR comment")?;
-    if phase == GateEvidencePhase::G3 && !comment.body.contains(G3_EVIDENCE_SHADOW_COMMENT_FIELD) {
-        return Err(format!(
-            "PR G3 comment 缺少 target/shadow 路径字段 `{G3_EVIDENCE_SHADOW_COMMENT_FIELD}`"
-        ));
+    if phase == GateEvidencePhase::G3 {
+        validate_g3_evidence_shadow_comment_field(&comment.body)?;
     }
     validate_gate_waiver_record_set(comment, &declared_issues)
+}
+
+fn validate_g3_evidence_shadow_comment_field(body: &str) -> Result<(), String> {
+    let line = unique_metadata_line(body, "G3 Evidence Gate Shadow")?;
+    let value = metadata_value(line, "G3 Evidence Gate Shadow")?;
+    let supported = if let Some(url) = value.strip_prefix("Check URL：") {
+        let url = url.trim().trim_end_matches('。').trim_matches('`');
+        url.starts_with("https://github.com/")
+            && (url.contains("/actions/runs/") || url.contains("/runs/"))
+            && !url.chars().any(char::is_whitespace)
+    } else if let Some(reason) = value.strip_prefix("R1 non-required：") {
+        reason.chars().any(char::is_alphanumeric)
+    } else if let Some(boundary) = value.strip_prefix("候选 workflow bootstrap：") {
+        boundary.chars().any(char::is_alphanumeric)
+    } else {
+        false
+    };
+    if !supported {
+        return Err(format!(
+            "`{G3_EVIDENCE_SHADOW_COMMENT_FIELD}` 必须唯一且使用 `Check URL：https://github.com/...`、`R1 non-required：<原因>` 或 `候选 workflow bootstrap：<边界>`"
+        ));
+    }
+    Ok(())
 }
 
 fn issue_reference_matches_repository(reference: &IssueReference, repo: &str) -> bool {
@@ -2213,7 +2292,7 @@ fn gh_edit_timestamps(
         GitHubEditTarget::PullRequest => (
             r#"query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
-    target: pullRequest(number: $number) { createdAt lastEditedAt }
+    target: pullRequest(number: $number) { createdAt lastEditedAt updatedAt }
   }
 }"#,
             "PR",
@@ -2221,7 +2300,7 @@ fn gh_edit_timestamps(
         GitHubEditTarget::Issue => (
             r#"query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
-    target: issue(number: $number) { createdAt lastEditedAt }
+    target: issue(number: $number) { createdAt lastEditedAt updatedAt }
   }
 }"#,
             "Issue",
@@ -2246,6 +2325,18 @@ fn gh_edit_timestamps(
     repository
         .target
         .ok_or_else(|| format!("GitHub GraphQL 未返回 {label} #{number}"))
+}
+
+fn gh_issue_timeline(repo: &str, number: u64) -> Result<Vec<GitHubTimelineItem>, String> {
+    let pages: Vec<Vec<GitHubTimelineItem>> = gh_json(&[
+        "api".to_string(),
+        "--paginate".to_string(),
+        "--slurp".to_string(),
+        "-H".to_string(),
+        "Accept: application/vnd.github+json".to_string(),
+        format!("repos/{repo}/issues/{number}/timeline?per_page=100"),
+    ])?;
+    Ok(pages.into_iter().flatten().collect())
 }
 
 fn validate_g3_evidence_marker_comment(
@@ -2282,6 +2373,116 @@ fn validate_marker_after_edit_timestamps(
         .as_deref()
         .unwrap_or(&timestamps.created_at);
     validate_marker_is_strictly_later(marker_created_at, evidence_timestamp, label)
+}
+
+fn validate_marker_after_activity_timestamp(
+    marker_created_at: &str,
+    activity_timestamp: &str,
+    allow_marker_same_second: bool,
+    label: &str,
+) -> Result<(), String> {
+    let marker_seconds = parse_utc_timestamp_seconds(marker_created_at)
+        .ok_or("G3 evidence marker createdAt 不是 UTC RFC3339 时间")?;
+    let activity_seconds = parse_utc_timestamp_seconds(activity_timestamp)
+        .ok_or_else(|| format!("{label} 时间不是 UTC RFC3339 时间"))?;
+    let stale = marker_seconds < activity_seconds
+        || (!allow_marker_same_second && marker_seconds == activity_seconds);
+    if stale {
+        return Err(format!(
+            "G3 evidence marker 必须{} {label}；GitHub 同秒无法证明最终 activity 已完成",
+            if allow_marker_same_second {
+                "不早于"
+            } else {
+                "严格晚于"
+            }
+        ));
+    }
+    Ok(())
+}
+
+fn validate_marker_after_timeline(
+    marker_comment_id: u64,
+    marker_created_at: &str,
+    timeline: &[GitHubTimelineItem],
+    target: GitHubTimelineTarget,
+    require_marker_event: bool,
+    label: &str,
+) -> Result<(), String> {
+    let marker_positions = timeline
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.event == "commented" && item.id == Some(marker_comment_id))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let marker_position = match (require_marker_event, marker_positions.as_slice()) {
+        (true, [position]) => Some(*position),
+        (true, []) => {
+            return Err(format!(
+                "{label} timeline 未返回 marker comment {marker_comment_id}；freshness 失败关闭"
+            ));
+        }
+        (true, _) => {
+            return Err(format!(
+                "{label} timeline 重复返回 marker comment {marker_comment_id}；freshness 失败关闭"
+            ));
+        }
+        (false, []) => None,
+        (false, _) => {
+            return Err(format!(
+                "非 marker 目标 {label} timeline 意外包含 marker comment {marker_comment_id}"
+            ));
+        }
+    };
+
+    for (index, item) in timeline.iter().enumerate() {
+        if item.event == "commented" && item.id == Some(marker_comment_id) {
+            continue;
+        }
+        let timestamp = match (target, item.event.as_str()) {
+            (GitHubTimelineTarget::Issue, "closed" | "reopened") => item.created_at.as_deref(),
+            (
+                GitHubTimelineTarget::PullRequest,
+                "closed"
+                | "reopened"
+                | "convert_to_draft"
+                | "ready_for_review"
+                | "review_requested"
+                | "review_request_removed"
+                | "review_dismissed"
+                | "head_ref_force_pushed"
+                | "head_ref_deleted"
+                | "head_ref_restored"
+                | "base_ref_changed",
+            ) => item.created_at.as_deref(),
+            (GitHubTimelineTarget::PullRequest, "commented") => {
+                item.updated_at.as_deref().or(item.created_at.as_deref())
+            }
+            (GitHubTimelineTarget::PullRequest, "reviewed") => item.submitted_at.as_deref(),
+            (GitHubTimelineTarget::PullRequest, "committed") => item
+                .committer
+                .as_ref()
+                .map(|committer| committer.date.as_str()),
+            _ => continue,
+        }
+        .ok_or_else(|| {
+            format!(
+                "{label} timeline 的 `{}` 事件缺少可验证时间；marker freshness 失败关闭",
+                item.event
+            )
+        })?;
+        if marker_position.is_some_and(|position| index > position) {
+            return Err(format!(
+                "{label} `{}` timeline event 排在 marker comment 之后；旧 marker 不得恢复 success",
+                item.event
+            ));
+        }
+        validate_marker_is_strictly_later(
+            marker_created_at,
+            timestamp,
+            &format!("{label} `{}` timeline event", item.event),
+        )?;
+    }
+    Ok(())
 }
 
 fn validate_marker_is_strictly_later(
@@ -4728,7 +4929,99 @@ Refs: #12
             )
             .is_err()
         );
+        assert!(
+            validate_marker_after_activity_timestamp(
+                &marker.created_at,
+                &marker.created_at,
+                true,
+                "marker target PR activity",
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_marker_after_activity_timestamp(
+                &marker.created_at,
+                &marker.created_at,
+                false,
+                "Related PR activity",
+            )
+            .is_err()
+        );
         assert!(parse_utc_timestamp_seconds("2026-08-06T03:30:00.Z").is_none());
+    }
+
+    #[test]
+    fn marker_freshness_covers_related_lifecycle_and_comment_activity() {
+        let marker_id = 5_190_249_680;
+        let marker_created_at = "2026-08-06T03:30:01Z";
+        let mut timeline = vec![
+            GitHubTimelineItem {
+                id: Some(1),
+                event: "closed".to_string(),
+                created_at: Some("2026-08-06T03:30:00Z".to_string()),
+                updated_at: None,
+                submitted_at: None,
+                committer: None,
+            },
+            GitHubTimelineItem {
+                id: Some(marker_id),
+                event: "commented".to_string(),
+                created_at: Some(marker_created_at.to_string()),
+                updated_at: Some("2026-08-06T03:30:05Z".to_string()),
+                submitted_at: None,
+                committer: None,
+            },
+        ];
+        assert!(
+            validate_marker_after_timeline(
+                marker_id,
+                marker_created_at,
+                &timeline,
+                GitHubTimelineTarget::PullRequest,
+                true,
+                "Related PR #62",
+            )
+            .is_ok()
+        );
+
+        timeline.push(GitHubTimelineItem {
+            id: Some(2),
+            event: "reopened".to_string(),
+            created_at: Some("2026-08-06T03:30:02Z".to_string()),
+            updated_at: None,
+            submitted_at: None,
+            committer: None,
+        });
+        let lifecycle_error = validate_marker_after_timeline(
+            marker_id,
+            marker_created_at,
+            &timeline,
+            GitHubTimelineTarget::PullRequest,
+            true,
+            "Related PR #62",
+        )
+        .expect_err("a later reopen must invalidate an older marker");
+        assert!(lifecycle_error.contains("`reopened` timeline event"));
+
+        timeline.pop();
+        timeline.push(GitHubTimelineItem {
+            id: Some(3),
+            event: "commented".to_string(),
+            created_at: Some("2026-08-06T03:29:00Z".to_string()),
+            updated_at: Some("2026-08-06T03:30:02Z".to_string()),
+            submitted_at: None,
+            committer: None,
+        });
+        let comment_error = validate_marker_after_timeline(
+            marker_id,
+            marker_created_at,
+            &timeline,
+            GitHubTimelineTarget::PullRequest,
+            true,
+            "Related PR #62",
+        )
+        .expect_err("a later comment edit must invalidate an older marker");
+        assert!(comment_error.contains("`commented` timeline event"));
     }
 
     #[test]
@@ -5134,7 +5427,37 @@ Refs: #12
         )
         .expect_err("target/shadow G3 must record the shadow evidence boundary");
 
-        assert!(error.contains("- G3 Evidence Gate Shadow："));
+        assert!(error.contains("G3 Evidence Gate Shadow"));
+    }
+
+    #[test]
+    fn accepts_only_unique_populated_shadow_evidence_choices() {
+        for value in [
+            "Check URL：https://github.com/illusion-tech/laneflow/actions/runs/1",
+            "R1 non-required：source App 仍为 github-actions，仅作 telemetry",
+            "候选 workflow bootstrap：尚未合入 main，不能用于本 PR 自批",
+        ] {
+            assert!(
+                validate_g3_evidence_shadow_comment_field(&format!(
+                    "{G3_EVIDENCE_SHADOW_COMMENT_FIELD}{value}"
+                ))
+                .is_ok()
+            );
+        }
+
+        for body in [
+            G3_EVIDENCE_SHADOW_COMMENT_FIELD.to_string(),
+            format!(
+                "说明中嵌入 {G3_EVIDENCE_SHADOW_COMMENT_FIELD}Check URL：https://github.com/example"
+            ),
+            format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}Check URL：https://github.com/example"),
+            format!("{G3_EVIDENCE_SHADOW_COMMENT_FIELD}稍后补充"),
+            format!(
+                "{G3_EVIDENCE_SHADOW_COMMENT_FIELD}R1 non-required：原因一\n{G3_EVIDENCE_SHADOW_COMMENT_FIELD}R1 non-required：原因二"
+            ),
+        ] {
+            assert!(validate_g3_evidence_shadow_comment_field(&body).is_err());
+        }
     }
 
     #[test]
