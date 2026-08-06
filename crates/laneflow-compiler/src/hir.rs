@@ -936,8 +936,11 @@ impl Hash for ManeuverPathSequence<'_> {
 /// # Errors
 ///
 /// 当 HIR 记录数、阶段暂存区、编译器控制存续字节或 `u32` 表边界超过所选配置档，
-/// 或任一目标稳定键不存在时，返回规范有序诊断。失败不会返回部分 HIR。
+/// 任一来源位置未登记或跨模块错绑，或任一目标稳定键不存在时，返回规范有序诊断。
+/// 失败不会返回部分 HIR。
 pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBundle> {
+    validate_source_document_ownership(unit)?;
+
     // 在任何与记录数成正比的阶段分配前，同时预检持久表、lookup 预算和阶段最大暂存区。
     // scratch 取互斥工作集的最大值而非总和，live peak 则包含输入与当时存续的全部集合。
     let module_count = u64::try_from(unit.modules.len()).unwrap_or(u64::MAX);
@@ -1794,6 +1797,28 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         controlled_live_bytes: hir_persistent_bytes,
         peak_controlled_live_bytes: controlled_live_bytes,
     })
+}
+
+/// 在任何 HIR 语义诊断产生前，核对全部模块、导入、声明与关系位置的文档所有权。
+///
+/// 编译单元已经按规范模块顺序冻结，因此首次失败稳定地由模块顺序和声明内结构顺序
+/// 决定。该遍历只复用冻结文档索引，不分配、不保留第二份位置表。
+fn validate_source_document_ownership(unit: &CompilationUnit) -> Result<(), DiagnosticBundle> {
+    for (module_index, module) in unit.modules.iter().enumerate() {
+        let module_ordinal = u32::try_from(module_index)
+            .expect("compile limits bound canonical module ordinals to u32");
+        unit.resolve_source_document_for_module(module_ordinal, module.declaration_span())?;
+        for (_, span) in module.import_records() {
+            unit.resolve_source_document_for_module(module_ordinal, span)?;
+        }
+        for declaration in &module.declarations {
+            declaration.try_visit_source_spans(|span| {
+                unit.resolve_source_document_for_module(module_ordinal, span)
+                    .map(|_| ())
+            })?;
+        }
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)]

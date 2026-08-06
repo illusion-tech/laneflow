@@ -1300,6 +1300,96 @@ fn source_map_rejects_an_unregistered_span_document_without_panicking() {
 }
 
 #[test]
+fn hir_rejects_cross_module_source_spans_before_semantic_diagnostics() {
+    #[derive(Clone, Copy)]
+    enum CorruptedSpan {
+        Module,
+        Declaration,
+        Reference,
+    }
+
+    for corrupted_span in [
+        CorruptedSpan::Module,
+        CorruptedSpan::Declaration,
+        CorruptedSpan::Reference,
+    ] {
+        let limits = CompileLimits::p100_initial_v2();
+        let mut synthetic =
+            SyntheticModuleBuilder::new(header("city/a", "source/a"), &limits).unwrap();
+        synthetic
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-a",
+                length_meters: 12.0,
+                speed_limit_meters_per_second: 8.0,
+                successors: &[LaneEdgeReference::local("missing-edge")],
+            })
+            .unwrap();
+        let mut test_module =
+            TestOfficialModule::from_synthetic_with_documents(synthetic.finish().unwrap(), &[]);
+        match corrupted_span {
+            CorruptedSpan::Module => test_module.move_module_declaration_span_to("source/b"),
+            CorruptedSpan::Declaration => test_module.move_first_lane_edge_span_to("source/b"),
+            CorruptedSpan::Reference => {
+                test_module.move_first_lane_edge_successor_span_to("source/b");
+            }
+        }
+
+        let mut unit_builder = CompilationUnitBuilder::new(limits);
+        unit_builder.add_test_official_module(test_module).unwrap();
+        unit_builder
+            .add_synthetic_module(module_with_document("city/b", "source/b", &[]))
+            .unwrap();
+        let diagnostics =
+            expect_diagnostics(crate::Compiler::new().compile(unit_builder.build().unwrap()));
+
+        assert_eq!(diagnostics.diagnostics().len(), 1);
+        assert!(matches!(
+            diagnostics.diagnostics()[0].payload(),
+            DiagnosticPayload::SourceDocumentOwnershipMismatch {
+                source_document_key,
+                expected_authoring_namespace_id,
+                actual_authoring_namespace_id: Some(actual),
+            } if source_document_key.as_ref() == "source/b"
+                && expected_authoring_namespace_id.as_ref() == "city/a"
+                && actual.as_ref() == "city/b"
+        ));
+    }
+}
+
+#[test]
+fn hir_rejects_unregistered_relation_span_before_semantic_diagnostics() {
+    let limits = CompileLimits::p100_initial_v2();
+    let mut synthetic = SyntheticModuleBuilder::new(header("city/a", "source/a"), &limits).unwrap();
+    synthetic
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "edge-a",
+            length_meters: 12.0,
+            speed_limit_meters_per_second: 8.0,
+            successors: &[LaneEdgeReference::local("missing-edge")],
+        })
+        .unwrap();
+    let mut test_module =
+        TestOfficialModule::from_synthetic_with_documents(synthetic.finish().unwrap(), &[]);
+    test_module.move_first_lane_edge_successor_span_to("source/missing");
+
+    let mut unit_builder = CompilationUnitBuilder::new(limits);
+    unit_builder.add_test_official_module(test_module).unwrap();
+    let diagnostics =
+        expect_diagnostics(crate::Compiler::new().compile(unit_builder.build().unwrap()));
+
+    assert_eq!(diagnostics.diagnostics().len(), 1);
+    assert!(matches!(
+        diagnostics.diagnostics()[0].payload(),
+        DiagnosticPayload::SourceDocumentOwnershipMismatch {
+            source_document_key,
+            expected_authoring_namespace_id,
+            actual_authoring_namespace_id: None,
+        } if source_document_key.as_ref() == "source/missing"
+            && expected_authoring_namespace_id.as_ref() == "city/a"
+    ));
+}
+
+#[test]
 #[ignore = "measurement-only admission benchmark; run explicitly with --release --nocapture"]
 fn benchmark_common_admission_only_reports_median_mad_and_memory() {
     use std::hint::black_box;

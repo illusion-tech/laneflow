@@ -882,3 +882,273 @@ pub(crate) enum TypedAstDeclaration {
     CanonicalFrame(CanonicalFrameDeclaration),
     AccessRule(AccessRuleDeclaration),
 }
+
+impl TypedAstDeclaration {
+    /// 以声明内的规范结构顺序访问全部来源位置。
+    ///
+    /// 该遍历显式覆盖每个声明变体及其嵌套声明、引用和关系位置，使 HIR 能在产生任何
+    /// 语义诊断前统一核对来源文档所有权。它不分配、不改变声明顺序，也不把来源位置
+    /// 纳入稳定身份。
+    pub(crate) fn try_visit_source_spans<E>(
+        &self,
+        mut visit: impl FnMut(&SourceSpan) -> Result<(), E>,
+    ) -> Result<(), E> {
+        match self {
+            Self::LaneEdge(LaneEdgeDeclaration {
+                header,
+                length: _,
+                speed_limit: _,
+                successors,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_references(successors, &mut visit)?;
+            }
+            Self::RoadCorridor(RoadCorridorDeclaration {
+                header,
+                reference_section,
+                elements,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_reference(reference_section, &mut visit)?;
+                for element in elements {
+                    match element {
+                        OwnedCorridorElementReference::RoadSection(reference) => {
+                            try_visit_reference(reference, &mut visit)?;
+                        }
+                        OwnedCorridorElementReference::FacilityBand(reference) => {
+                            try_visit_reference(reference, &mut visit)?;
+                        }
+                    }
+                }
+            }
+            Self::RoadSection(RoadSectionDeclaration {
+                header,
+                kind_id: _,
+                lanes,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                for lane in lanes {
+                    let AuthoringLaneDeclaration {
+                        header,
+                        edge_chain,
+                        lane_group,
+                    } = lane;
+                    try_visit_declaration_header(header, &mut visit)?;
+                    try_visit_references(edge_chain, &mut visit)?;
+                    if let Some(lane_group) = lane_group {
+                        try_visit_reference(lane_group, &mut visit)?;
+                    }
+                }
+            }
+            Self::LaneGroup(LaneGroupDeclaration {
+                header,
+                road_section,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_reference(road_section, &mut visit)?;
+            }
+            Self::FacilityBand(FacilityBandDeclaration { header, kind_id: _ })
+            | Self::Junction(JunctionDeclaration { header })
+            | Self::SignalGroup(SignalGroupDeclaration { header })
+            | Self::ParkingArea(ParkingAreaDeclaration { header }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+            }
+            Self::Movement(MovementDeclaration {
+                header,
+                junction,
+                directed_entry_approach_key: _,
+                directed_exit_approach_key: _,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_reference(junction, &mut visit)?;
+            }
+            Self::ManeuverPath(ManeuverPathDeclaration {
+                header,
+                movement,
+                entry_edge,
+                internal_edges,
+                exit_edge,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_reference(movement, &mut visit)?;
+                try_visit_reference(entry_edge, &mut visit)?;
+                try_visit_references(internal_edges, &mut visit)?;
+                try_visit_reference(exit_edge, &mut visit)?;
+            }
+            Self::StopLine(StopLineDeclaration { header, lane_edge }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_reference(lane_edge, &mut visit)?;
+            }
+            Self::ManeuverGate(ManeuverGateDeclaration {
+                header,
+                maneuver_path,
+                transition_index: _,
+                stop_line,
+                signal_control,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_reference(maneuver_path, &mut visit)?;
+                try_visit_reference(stop_line, &mut visit)?;
+                match signal_control {
+                    OwnedSignalControl::Group(group) => {
+                        try_visit_reference(group, &mut visit)?;
+                    }
+                    OwnedSignalControl::None => {}
+                }
+            }
+            Self::WaitingZone(WaitingZoneDeclaration {
+                header,
+                maneuver_path,
+                entry_gate,
+                release_gate,
+                max_occupancy: _,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_reference(maneuver_path, &mut visit)?;
+                try_visit_reference(entry_gate, &mut visit)?;
+                try_visit_reference(release_gate, &mut visit)?;
+            }
+            Self::StaticRoute(StaticRouteDeclaration {
+                header,
+                edge_sequence,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_references(edge_sequence, &mut visit)?;
+            }
+            Self::SignalController(SignalControllerDeclaration {
+                header,
+                offset_ms: _,
+                signal_groups,
+                phases,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_references(signal_groups, &mut visit)?;
+                for phase in phases {
+                    let SignalPhaseDeclaration {
+                        header,
+                        duration_ms: _,
+                        states,
+                    } = phase;
+                    try_visit_declaration_header(header, &mut visit)?;
+                    for state in states {
+                        let SignalGroupStateDeclaration {
+                            signal_group,
+                            aspect: _,
+                        } = state;
+                        try_visit_reference(signal_group, &mut visit)?;
+                    }
+                }
+            }
+            Self::ParkingSpace(ParkingSpaceDeclaration {
+                header,
+                parking_area,
+                entry,
+                exit,
+                geometry: _,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                if let Some(parking_area) = parking_area {
+                    try_visit_reference(parking_area, &mut visit)?;
+                }
+                for anchor in [entry, exit] {
+                    let ParkingLaneAnchorDeclaration {
+                        lane_edge,
+                        progress_meters: _,
+                    } = anchor;
+                    try_visit_reference(lane_edge, &mut visit)?;
+                }
+            }
+            Self::ParticipantClass(ParticipantClassDeclaration { header, extends }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                if let Some(extends) = extends {
+                    try_visit_reference(extends, &mut visit)?;
+                }
+            }
+            Self::VehicleProfile(VehicleProfileDeclaration {
+                header,
+                participant_class,
+                iidm: _,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                try_visit_reference(participant_class, &mut visit)?;
+            }
+            Self::CanonicalFrame(CanonicalFrameDeclaration {
+                header,
+                lane_edge_geometries,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                for geometry in lane_edge_geometries {
+                    let LaneEdgeGeometryDeclaration {
+                        lane_edge,
+                        centerline_points: _,
+                    } = geometry;
+                    try_visit_reference(lane_edge, &mut visit)?;
+                }
+            }
+            Self::AccessRule(AccessRuleDeclaration {
+                header,
+                target,
+                effect: _,
+                participant_classes,
+                regulation: _,
+                priority: _,
+            }) => {
+                try_visit_declaration_header(header, &mut visit)?;
+                match target {
+                    OwnedAccessRuleTarget::LaneEdge(reference) => {
+                        try_visit_reference(reference, &mut visit)?;
+                    }
+                    OwnedAccessRuleTarget::LaneGroup(reference) => {
+                        try_visit_reference(reference, &mut visit)?;
+                    }
+                    OwnedAccessRuleTarget::RoadSection(reference) => {
+                        try_visit_reference(reference, &mut visit)?;
+                    }
+                    OwnedAccessRuleTarget::ManeuverPath(reference) => {
+                        try_visit_reference(reference, &mut visit)?;
+                    }
+                    OwnedAccessRuleTarget::FacilityBand(reference) => {
+                        try_visit_reference(reference, &mut visit)?;
+                    }
+                }
+                try_visit_references(participant_classes, &mut visit)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn try_visit_declaration_header<E>(
+    header: &DeclarationHeader,
+    visit: &mut impl FnMut(&SourceSpan) -> Result<(), E>,
+) -> Result<(), E> {
+    let DeclarationHeader {
+        entity_kind: _,
+        stable_key: _,
+        span,
+    } = header;
+    visit(span)
+}
+
+fn try_visit_reference<K: EntityKindMarker, E>(
+    reference: &OwnedEntityReference<K>,
+    visit: &mut impl FnMut(&SourceSpan) -> Result<(), E>,
+) -> Result<(), E> {
+    let OwnedEntityReference {
+        module_namespace: _,
+        declaration_key: _,
+        span,
+        marker: _,
+    } = reference;
+    visit(span)
+}
+
+fn try_visit_references<K: EntityKindMarker, E>(
+    references: &[OwnedEntityReference<K>],
+    visit: &mut impl FnMut(&SourceSpan) -> Result<(), E>,
+) -> Result<(), E> {
+    for reference in references {
+        try_visit_reference(reference, visit)?;
+    }
+    Ok(())
+}
