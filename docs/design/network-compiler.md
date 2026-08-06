@@ -325,7 +325,9 @@ format 决定编译器语义。精确退役边界见
 
 ### 5.3 几何文档前端（Geometry Document Frontend）
 
-长期生产 authoring frontend。目标模型包含：
+长期生产 authoring frontend。#296 G1 的实现级来源格式、公开 Rust 构造面、阶段
+生命周期、曲线细分、stationing、资源/诊断顺序、验证矩阵和性能门槛统一由
+`geometry-document-frontend.md` 冻结；本节只保留综合架构边界。目标模型包含：
 
 1. 参考线：三维 curve segments、弧长与方向；
 2. 横断面：沿参考线分段变化的 lane/facility 结构；
@@ -333,8 +335,9 @@ format 决定编译器语义。精确退役边界见
 4. 规则：signals、Gate/WaitingZone、access、parking 和其他静态 overlay。
 
 曲线在 MIR 中按确定性误差预算离散为 canonical f32 polyline；static image 不保存
-authoring curve evaluator。具体 curve segment 集合由独立 numeric/authoring G1
-和 benchmark 冻结，不在 #291 先选 library。
+authoring curve evaluator。#296 G1 候选把首版收窄为一逻辑模块一份严格 UTF-8 JSON
+文档、显式模块 import、line/cubic Bézier、确定性 `f64` 求值后单次 `f32` 量化，且不
+增加第三方 geometry/parser 插件面。该候选在 #296 G1 Pass 前仍不授权生产 Rust。
 
 ### 5.4 导入与编辑器编制（Import and Editor Authoring）
 
