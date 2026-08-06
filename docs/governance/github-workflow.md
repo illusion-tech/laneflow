@@ -200,7 +200,7 @@ R1 的 non-required shadow 由两个 workflow 分离不可信事件与可信发�
 `G3 Evidence Gate Shadow` 复用相同的 trusted-ref 安全边界，但独立评估 Gate Ledger 闭环：
 
 - `pull_request_target`、精确 `g3-evidence: changed` 顶层 PR comment 或显式 manual dispatch 只提供有界 PR number；workflow checkout `refs/heads/main`，不 checkout / 执行 PR head，也不把 comment body 送入 shell。
-- `check-gate-evidence-target --repo <owner/repo> --pr <number>` 从 PR body 唯一解析 `关联 Issue` 与 `PR 角色`。Delivery 自动读取 Issue 的完整 Related PR 集合；Related 只执行自身 Related-only G3。远端 metadata、permalink、append-only comment、current-head external review 或角色关系任一缺失都失败关闭。
+- `check-gate-evidence-target --repo <owner/repo> --pr <number>` 从 PR body 解析一个或多个明确 `关联 Issue` 与唯一 `PR 角色`，并逐个 Issue 校验。Delivery 自动读取每个 Issue 的完整 Related PR 集合；Related 对每个 Issue 只执行自身 Related-only G3。具体编号字段只接受 `#<number>` 列表或该角色允许的完整 `pending` / 带原因 `N/A` 状态，不接受互斥模板选项残留。远端 metadata、permalink、append-only comment、current-head external review 或角色关系任一缺失都失败关闭；G3 API 查询省略只由 G4 使用的 `projectItems`。
 - 发布前后重读 open/draft/base/head repository/head/base OID；identity race 不发布旧结论。same-repository、open、targeting `main` 的 PR 才发布 `G3 Evidence Gate Shadow`，source App=`github-actions`，success / failure 只表示本次 trusted replay 结果。
 - 新增或编辑 G3 comment、PR body 或 Issue body 后，在全部 permalink 就绪时新增精确 marker；edited / deleted marker 和其他 comment 不触发刷新。Shadow success 不能替代当前 G3 comment，也不能替代 `check-gate-evidence g3` 的显式 Gate 断言。
 - 候选 validator / workflow 在合入 `main` 前不能自批。标准 G3 对 Draft、已 merged / closed 的当前目标失败；target 模式确认角色参数稳定后必须重跑完整远端证据；G4 保留对合并前证据的历史复核。
