@@ -1833,7 +1833,7 @@ fn validate_g3_evidence_marker_comment(
         ));
     }
     if parse_utc_timestamp_seconds(&marker.created_at).is_none() {
-        return Err("G3 evidence marker createdAt 不是 UTC RFC3339 秒级时间".to_string());
+        return Err("G3 evidence marker createdAt 不是 UTC RFC3339 时间".to_string());
     }
     Ok(())
 }
@@ -1859,9 +1859,9 @@ fn validate_marker_is_strictly_later(
     label: &str,
 ) -> Result<(), String> {
     let marker_seconds = parse_utc_timestamp_seconds(marker_created_at)
-        .ok_or("G3 evidence marker createdAt 不是 UTC RFC3339 秒级时间")?;
+        .ok_or("G3 evidence marker createdAt 不是 UTC RFC3339 时间")?;
     let evidence_seconds = parse_utc_timestamp_seconds(evidence_timestamp)
-        .ok_or_else(|| format!("{label} 时间不是 UTC RFC3339 秒级时间"))?;
+        .ok_or_else(|| format!("{label} 时间不是 UTC RFC3339 时间"))?;
     if marker_seconds <= evidence_seconds {
         return Err(format!(
             "G3 evidence marker 必须严格晚于 {label}；GitHub 同秒无法证明最终 evidence 已完成"
@@ -3033,23 +3033,34 @@ fn reference_github_url(body: &str, label: &str) -> Option<String> {
 }
 
 fn parse_utc_timestamp_seconds(value: &str) -> Option<u64> {
-    let bytes = value.as_bytes();
-    if bytes.len() != 20
+    let timestamp = value.strip_suffix('Z')?;
+    let whole_seconds = if let Some((whole_seconds, fractional_seconds)) = timestamp.split_once('.')
+    {
+        if fractional_seconds.is_empty()
+            || !fractional_seconds.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return None;
+        }
+        whole_seconds
+    } else {
+        timestamp
+    };
+    let bytes = whole_seconds.as_bytes();
+    if bytes.len() != 19
         || bytes[4] != b'-'
         || bytes[7] != b'-'
         || bytes[10] != b'T'
         || bytes[13] != b':'
         || bytes[16] != b':'
-        || bytes[19] != b'Z'
     {
         return None;
     }
-    let year = value.get(0..4)?.parse::<u64>().ok()?;
-    let month = value.get(5..7)?.parse::<u64>().ok()?;
-    let day = value.get(8..10)?.parse::<u64>().ok()?;
-    let hour = value.get(11..13)?.parse::<u64>().ok()?;
-    let minute = value.get(14..16)?.parse::<u64>().ok()?;
-    let second = value.get(17..19)?.parse::<u64>().ok()?;
+    let year = whole_seconds.get(0..4)?.parse::<u64>().ok()?;
+    let month = whole_seconds.get(5..7)?.parse::<u64>().ok()?;
+    let day = whole_seconds.get(8..10)?.parse::<u64>().ok()?;
+    let hour = whole_seconds.get(11..13)?.parse::<u64>().ok()?;
+    let minute = whole_seconds.get(14..16)?.parse::<u64>().ok()?;
+    let second = whole_seconds.get(17..19)?.parse::<u64>().ok()?;
     if year < 1970 || !(1..=12).contains(&month) || hour > 23 || minute > 59 || second > 59 {
         return None;
     }
@@ -3996,6 +4007,23 @@ Refs: #12
             )
             .is_err()
         );
+        assert!(
+            validate_marker_is_strictly_later(
+                &marker.created_at,
+                "2026-08-06T03:30:00.999999Z",
+                "PR body"
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_marker_is_strictly_later(
+                &marker.created_at,
+                "2026-08-06T03:30:01.000001Z",
+                "PR body"
+            )
+            .is_err()
+        );
+        assert!(parse_utc_timestamp_seconds("2026-08-06T03:30:00.Z").is_none());
     }
 
     #[test]
@@ -4243,6 +4271,10 @@ Refs: #12
         assert!(workflow.contains("check-gate-evidence-target"));
         assert!(workflow.contains("check-g3-evidence-marker"));
         assert!(workflow.contains("resolve-g3-evidence-shadow-targets"));
+        assert!(workflow.contains("2>\"$resolver_stderr\""));
+        assert!(workflow.contains("cancel-in-progress: false"));
+        assert!(workflow.contains("Final trusted revalidation:"));
+        assert!(workflow.contains("publishing failure on the originally evaluated head"));
         assert!(workflow.contains("Fresh G3 evidence marker required"));
         assert!(workflow.contains("ALLOW_SUCCESS"));
         assert!(workflow.contains("MARKER_COMMENT_ID"));
