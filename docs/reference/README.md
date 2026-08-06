@@ -52,7 +52,7 @@
   迁移等价、本地验证与性能门槛适用性结论；记录 G1 修订、生产基线和进入 Delivery PR
   审阅前的剩余边界。
 - `v0.10-official-module-admission-validation.md`：#315 官方前端共同受检模块接入 G2
-  的公共 Typed AST、逐文档描述符、v1/v2 配置档版本边界、原子准入、来源映射、同机配对性能
+  的编译器私有共同 Typed AST、逐文档描述符、v1/v2 配置档版本边界、原子准入、来源映射、同机配对性能
   与进入 Delivery PR 前的本地验证事实。
 - `v0.10-compiler-production-baseline.md`：#292 在 P100 推荐参考机型上运行真实生产
   `Compiler::compile` 的工作负载、计时边界、五级紧凑结果和使用边界。

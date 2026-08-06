@@ -23,8 +23,8 @@ pub(super) struct ModuleResourceCounts {
 /// 编译单元准入过程中唯一的累计资源状态。
 ///
 /// 候选值按值计算并完整通过限额校验后才替换构建器中的当前值，避免并行字段在新增
-/// 维度时漏更新。`module_payload_live_bytes` 不含文档索引的保守桶预算；索引预算由
-/// 准入层在候选文档数确定后一次加入。
+/// 维度时漏更新。`module_payload_live_bytes` 只累计模块载荷，不含共同模块/文档索引或
+/// 构建器/结果容器；这些结构由准入层在候选基数确定后按阶段一次组装进存续与峰值账本。
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct AdmissionTotals {
     pub(super) module_count: u64,

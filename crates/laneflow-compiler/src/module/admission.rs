@@ -9,10 +9,9 @@ use crate::{CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, 
 use super::descriptor::{SourceDocumentDescriptor, SourceModuleDescriptor};
 #[cfg(test)]
 use super::descriptor::{SourceDocumentOrigin, freeze_source_documents, source_document_digest};
-#[cfg(test)]
 use super::resources::size_bytes;
 use super::resources::{AdmissionTotals, ModuleResourceCounts, requested_hash_table_bytes};
-use super::synthetic::{SyntheticModule, limit_diagnostic};
+use super::synthetic::SyntheticModule;
 
 /// 区分编译单元来源文档登记序号的零尺寸标记。
 pub(crate) enum SourceDocumentTag {}
@@ -322,6 +321,135 @@ pub(super) fn source_document_index_requested_bytes(source_document_count: u64) 
     requested_hash_table_bytes::<Arc<str>, SourceDocumentBinding>(source_document_count)
 }
 
+#[inline]
+fn module_index_requested_bytes(module_count: u64) -> u64 {
+    requested_hash_table_bytes::<Arc<str>, usize>(module_count)
+}
+
+#[inline]
+fn ordered_ready_set_requested_bytes(module_count: u64) -> u64 {
+    // `BTreeSet` 没有稳定公开的节点布局。这里沿用共同哈希索引的八桶保守预算，
+    // 只把它当作有界有序就绪集的保守请求字节预算，不依赖标准库私有实现。
+    requested_hash_table_bytes::<(Arc<str>, usize), ()>(module_count)
+}
+
+#[inline]
+fn builder_live_requested_bytes(totals: AdmissionTotals) -> u64 {
+    totals
+        .module_payload_live_bytes
+        .saturating_add(source_document_index_requested_bytes(
+            totals.source_document_count,
+        ))
+        .saturating_add(module_index_requested_bytes(totals.module_count))
+        .saturating_add(size_bytes::<AdmittedOfficialModule>(totals.module_count))
+}
+
+/// 共同准入的三层内存账本：构建器存续量、冻结阶段暂存峰值与成功结果存续量。
+///
+/// 所有固定工作集项都只采用输入计数、可审计类型布局和显式保守索引模型计算，因而可以
+/// 在相应分配发生前完成限额检查。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct AdmissionSizing {
+    pub(super) builder_live_bytes: u64,
+    pub(super) result_live_bytes: u64,
+    pub(super) build_scratch_bytes: u64,
+    pub(super) build_peak_live_bytes: u64,
+}
+
+impl AdmissionSizing {
+    pub(super) fn from_totals(totals: AdmissionTotals, diagnostic_limit: u64) -> Self {
+        let module_count = totals.module_count;
+        let import_edge_count = totals.import_edge_count;
+        let module_payload_live_bytes = totals.module_payload_live_bytes;
+        let source_document_index_bytes =
+            source_document_index_requested_bytes(totals.source_document_count);
+        let module_index_bytes = module_index_requested_bytes(module_count);
+        let typed_ast_module_bytes = size_bytes::<TypedAstModule>(module_count);
+        let reordered_module_bytes = size_bytes::<(usize, AdmittedOfficialModule)>(module_count);
+
+        let canonical_index_bytes = size_bytes::<usize>(module_count);
+        // `DiagnosticCollector` 一开始就按配置档上限申请缓冲区，并存续到 `build` 返回。
+        let diagnostic_buffer_bytes = size_bytes::<Diagnostic>(diagnostic_limit);
+        let topology_scratch_bytes = size_bytes::<usize>(module_count)
+            .saturating_add(size_bytes::<Vec<usize>>(module_count))
+            .saturating_add(size_bytes::<usize>(import_edge_count))
+            .saturating_add(ordered_ready_set_requested_bytes(module_count))
+            .saturating_add(size_bytes::<usize>(module_count));
+        // 环路路径递归期间，每层的规范依赖向量可能同时存续；所有依赖项总数提供上界。
+        // 返回路径搬移期间至多有完整路径及其后缀两份 `usize` 缓冲区共存。
+        let tarjan_scratch_bytes = size_bytes::<usize>(module_count)
+            .saturating_add(size_bytes::<Option<usize>>(module_count))
+            .saturating_add(size_bytes::<usize>(module_count))
+            .saturating_add(size_bytes::<usize>(module_count))
+            .saturating_add(size_bytes::<bool>(module_count))
+            .saturating_add(size_bytes::<Vec<usize>>(module_count))
+            .saturating_add(size_bytes::<usize>(module_count))
+            .saturating_add(size_bytes::<usize>(import_edge_count.saturating_mul(2)))
+            .saturating_add(size_bytes::<bool>(module_count.saturating_mul(2)))
+            .saturating_add(size_bytes::<usize>(module_count.saturating_mul(2)))
+            .saturating_add(size_bytes::<Vec<usize>>(module_count))
+            .saturating_add(size_bytes::<usize>(module_count));
+        let graph_scratch_bytes = diagnostic_buffer_bytes
+            .saturating_add(canonical_index_bytes)
+            .saturating_add(topology_scratch_bytes)
+            .saturating_add(tarjan_scratch_bytes);
+
+        let cycle_diagnostic_scratch_bytes = diagnostic_buffer_bytes
+            .saturating_add(canonical_index_bytes)
+            .saturating_add(size_bytes::<Vec<usize>>(module_count))
+            .saturating_add(size_bytes::<usize>(module_count))
+            .saturating_add(size_bytes::<u32>(module_count))
+            .saturating_add(size_bytes::<&str>(module_count))
+            .saturating_add(size_bytes::<SourceSpan>(module_count));
+
+        let rank_bytes = size_bytes::<usize>(module_count);
+        let rank_scratch_bytes = diagnostic_buffer_bytes
+            .saturating_add(canonical_index_bytes)
+            .saturating_add(size_bytes::<usize>(module_count))
+            .saturating_add(rank_bytes);
+        let reorder_scratch_bytes = diagnostic_buffer_bytes
+            .saturating_add(canonical_index_bytes)
+            .saturating_add(rank_bytes)
+            .saturating_add(reordered_module_bytes);
+        let build_scratch_bytes = graph_scratch_bytes
+            .max(cycle_diagnostic_scratch_bytes)
+            .max(rank_scratch_bytes)
+            .max(reorder_scratch_bytes);
+
+        let builder_live_bytes = builder_live_requested_bytes(totals);
+        let result_live_bytes = module_payload_live_bytes
+            .saturating_add(source_document_index_bytes)
+            .saturating_add(typed_ast_module_bytes);
+        let graph_peak_live_bytes = builder_live_bytes.saturating_add(graph_scratch_bytes);
+        // `collect` 期间旧模块向量和重排元组向量会短暂共存。
+        let reorder_peak_live_bytes = builder_live_bytes
+            .saturating_add(diagnostic_buffer_bytes)
+            .saturating_add(canonical_index_bytes)
+            .saturating_add(rank_bytes)
+            .saturating_add(reordered_module_bytes);
+        // 元组向量被消费为最终 Typed AST 向量时，模块索引直到 `build` 返回才释放。
+        let conversion_peak_live_bytes = module_payload_live_bytes
+            .saturating_add(source_document_index_bytes)
+            .saturating_add(module_index_bytes)
+            .saturating_add(reordered_module_bytes)
+            .saturating_add(typed_ast_module_bytes)
+            .saturating_add(diagnostic_buffer_bytes)
+            .saturating_add(canonical_index_bytes)
+            .saturating_add(rank_bytes);
+        let build_peak_live_bytes = graph_peak_live_bytes
+            .max(reorder_peak_live_bytes)
+            .max(conversion_peak_live_bytes)
+            .max(result_live_bytes);
+
+        Self {
+            builder_live_bytes,
+            result_live_bytes,
+            build_scratch_bytes,
+            build_peak_live_bytes,
+        }
+    }
+}
+
 /// 只接受 #292 官方来源模块的编译单元构建器。
 ///
 /// 模块可以按任意顺序加入；[`CompilationUnitBuilder::build`] 会验证导入闭包与循环，
@@ -473,18 +601,19 @@ impl CompilationUnitBuilder {
                 .unwrap_or(u64::MAX)
                 .saturating_add(1)
         );
-        let next_controlled_live_bytes = next_totals.module_payload_live_bytes.saturating_add(
-            source_document_index_requested_bytes(next_totals.source_document_count),
-        );
-        for (dimension, observed) in next_totals.limit_observations(next_controlled_live_bytes) {
-            if let Some(diagnostic) = limit_diagnostic(
-                &self.limits,
-                dimension,
-                observed,
-                Some(module.descriptor.declaration_span.clone()),
-                Some(namespace.into()),
-            ) {
-                return Err(DiagnosticBundle::single(diagnostic));
+        let next_builder_live_bytes = builder_live_requested_bytes(next_totals);
+        for (dimension, observed) in next_totals.limit_observations(next_builder_live_bytes) {
+            let limit = self.limits.value(dimension);
+            if observed > limit {
+                return Err(DiagnosticBundle::single(
+                    Diagnostic::compile_limit_exceeded_at(
+                        dimension,
+                        limit,
+                        observed,
+                        Some(module.descriptor.declaration_span.clone()),
+                        Some(namespace.into()),
+                    ),
+                ));
             }
         }
         if let Some(limit) = self.limits.source_document_count_limit()
@@ -536,6 +665,40 @@ impl CompilationUnitBuilder {
     /// 任一显式导入没有对应模块，或导入图包含一个或多个循环时，返回有界、规范有序
     /// 诊断且不返回部分 [`CompilationUnit`]。该方法无论成功或失败都会消费构建器。
     pub fn build(self) -> Result<CompilationUnit, DiagnosticBundle> {
+        let sizing = AdmissionSizing::from_totals(
+            self.totals,
+            self.limits.value(CompileLimitDimension::DiagnosticCount),
+        );
+        let primary_module = self.modules.iter().min_by(|left, right| {
+            left.descriptor
+                .authoring_namespace_id
+                .cmp(&right.descriptor.authoring_namespace_id)
+        });
+        for (dimension, observed) in [
+            (
+                CompileLimitDimension::StageScratchBytes,
+                sizing.build_scratch_bytes,
+            ),
+            (
+                CompileLimitDimension::CompilerControlledLiveBytes,
+                sizing.build_peak_live_bytes,
+            ),
+        ] {
+            let limit = self.limits.value(dimension);
+            if observed > limit {
+                return Err(DiagnosticBundle::single(
+                    Diagnostic::compile_limit_exceeded_at(
+                        dimension,
+                        limit,
+                        observed,
+                        primary_module.map(|module| module.descriptor.declaration_span.clone()),
+                        primary_module
+                            .map(|module| module.descriptor.authoring_namespace_id.as_ref().into()),
+                    ),
+                ));
+            }
+        }
+
         let mut diagnostics =
             DiagnosticCollector::new(self.limits.value(CompileLimitDimension::DiagnosticCount));
         let mut canonical_indices: Vec<_> = (0..self.modules.len()).collect();
@@ -635,9 +798,7 @@ impl CompilationUnitBuilder {
             waiting_zone_count: self.totals.waiting_zone_count,
             route_occurrence_count: self.totals.route_occurrence_count,
             geometry_point_count: self.totals.geometry_point_count,
-            controlled_live_bytes: self.totals.module_payload_live_bytes.saturating_add(
-                source_document_index_requested_bytes(self.totals.source_document_count),
-            ),
+            controlled_live_bytes: sizing.result_live_bytes,
         })
     }
 }

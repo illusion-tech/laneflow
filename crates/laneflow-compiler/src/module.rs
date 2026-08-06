@@ -28,10 +28,13 @@ pub use synthetic::{SYNTHETIC_FRONTEND_VERSION, SyntheticModule, SyntheticModule
 pub(crate) use admission::SourceDocumentOrdinal;
 
 #[cfg(test)]
-use admission::{TestOfficialModule, TestSourceDocument, source_document_index_requested_bytes};
+use admission::{
+    AdmissionSizing, AdmittedOfficialModule, TestOfficialModule, TestSourceDocument,
+    TypedAstModule, source_document_index_requested_bytes,
+};
 #[cfg(test)]
 use descriptor::SOURCE_DOCUMENT_DIGEST_CALL_COUNT;
 #[cfg(test)]
-use resources::size_bytes;
+use resources::{requested_hash_table_bytes, size_bytes};
 #[cfg(test)]
 use synthetic_record::{encode_source_record, encoded_source_record_len};
