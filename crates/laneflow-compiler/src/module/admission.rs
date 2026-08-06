@@ -4,7 +4,9 @@ use std::sync::Arc;
 use crate::arena::ArenaKey;
 use crate::declaration::TypedAstDeclaration;
 use crate::diagnostic::DiagnosticCollector;
-use crate::{CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourceSpan};
+use crate::{
+    CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, SourcePosition, SourceSpan,
+};
 
 use super::descriptor::{SourceDocumentDescriptor, SourceModuleDescriptor};
 #[cfg(test)]
@@ -218,6 +220,135 @@ impl TestOfficialModule {
         declaration.successors[0].span = SourceSpan::point(Arc::from(source_document_key), 43, 9);
     }
 
+    pub(super) fn move_signal_relation_spans_to(
+        &mut self,
+        controller_group_document: &str,
+        phase_state_document: &str,
+        gate_signal_document: &str,
+    ) {
+        let relation_offset = |stable_key: &str| match stable_key {
+            "group-main" => 0,
+            "group-release" => 1,
+            other => panic!("unexpected test signal group {other}"),
+        };
+        let mut controller_group_count = 0_u32;
+        let mut phase_state_count = 0_u32;
+        let mut gate_signal_count = 0_u32;
+        for declaration in &mut self.admitted.typed_ast.declarations {
+            match declaration {
+                TypedAstDeclaration::SignalController(controller) => {
+                    for reference in &mut controller.signal_groups {
+                        reference.span = SourceSpan::point(
+                            Arc::from(controller_group_document),
+                            51 + relation_offset(&reference.declaration_key),
+                            3,
+                        );
+                        controller_group_count = controller_group_count.saturating_add(1);
+                    }
+                    for phase in &mut controller.phases {
+                        for state in &mut phase.states {
+                            state.signal_group.span = SourceSpan::point(
+                                Arc::from(phase_state_document),
+                                61 + relation_offset(&state.signal_group.declaration_key),
+                                5,
+                            );
+                            phase_state_count = phase_state_count.saturating_add(1);
+                        }
+                    }
+                }
+                TypedAstDeclaration::ManeuverGate(gate) => {
+                    if let crate::declaration::OwnedSignalControl::Group(reference) =
+                        &mut gate.signal_control
+                    {
+                        reference.span = SourceSpan::point(
+                            Arc::from(gate_signal_document),
+                            71 + relation_offset(&reference.declaration_key),
+                            7,
+                        );
+                        gate_signal_count = gate_signal_count.saturating_add(1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(controller_group_count, 2, "test module controller groups");
+        assert_eq!(phase_state_count, 2, "test module phase states");
+        assert_eq!(gate_signal_count, 2, "test module signal-controlled gates");
+    }
+
+    pub(super) fn move_authored_relation_spans_to(&mut self, source_document_key: &str) {
+        self.move_signal_relation_spans_to(
+            source_document_key,
+            source_document_key,
+            source_document_key,
+        );
+
+        let source_document_key: Arc<str> = source_document_key.into();
+        let span = |line| SourceSpan::point(Arc::clone(&source_document_key), line, 11);
+        let mut counts = [0_u32; 11];
+        for declaration in &mut self.admitted.typed_ast.declarations {
+            match declaration {
+                TypedAstDeclaration::RoadCorridor(corridor) => {
+                    for (index, element) in corridor.elements.iter_mut().enumerate() {
+                        match element {
+                            crate::declaration::OwnedCorridorElementReference::RoadSection(
+                                reference,
+                            ) => reference.span = span(81 + u32::try_from(index).unwrap()),
+                            crate::declaration::OwnedCorridorElementReference::FacilityBand(
+                                reference,
+                            ) => reference.span = span(81 + u32::try_from(index).unwrap()),
+                        }
+                        counts[0] = counts[0].saturating_add(1);
+                    }
+                }
+                TypedAstDeclaration::RoadSection(section) => {
+                    for lane in &mut section.lanes {
+                        lane.header.span = span(83);
+                        counts[1] = counts[1].saturating_add(1);
+                        if let Some(reference) = &mut lane.lane_group {
+                            reference.span = span(84);
+                            counts[2] = counts[2].saturating_add(1);
+                        }
+                    }
+                }
+                TypedAstDeclaration::Movement(movement) => {
+                    movement.junction.span = span(85);
+                    counts[3] = counts[3].saturating_add(1);
+                }
+                TypedAstDeclaration::ManeuverPath(path) => {
+                    path.movement.span = span(86);
+                    counts[4] = counts[4].saturating_add(1);
+                }
+                TypedAstDeclaration::ManeuverGate(gate) => {
+                    gate.maneuver_path.span = span(87 + counts[5]);
+                    counts[5] = counts[5].saturating_add(1);
+                    gate.stop_line.span = span(89 + counts[6]);
+                    counts[6] = counts[6].saturating_add(1);
+                }
+                TypedAstDeclaration::WaitingZone(waiting) => {
+                    waiting.maneuver_path.span = span(91);
+                    counts[7] = counts[7].saturating_add(1);
+                }
+                TypedAstDeclaration::ParkingSpace(space) => {
+                    if let Some(reference) = &mut space.parking_area {
+                        reference.span = span(92);
+                        counts[8] = counts[8].saturating_add(1);
+                    }
+                    space.entry.lane_edge.span = span(93);
+                    counts[9] = counts[9].saturating_add(1);
+                    space.exit.lane_edge.span = span(94);
+                    counts[10] = counts[10].saturating_add(1);
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(
+            counts,
+            [2, 1, 1, 1, 1, 2, 2, 1, 1, 1, 1],
+            "test module authored relation coverage",
+        );
+    }
+
     pub(super) fn force_resource_count(&mut self, dimension: CompileLimitDimension, observed: u64) {
         let counts = &mut self.admitted.resource_counts;
         match dimension {
@@ -363,6 +494,30 @@ impl ResolvedSourceDocument {
 
     pub(crate) const fn source_document_ordinal(self) -> SourceDocumentOrdinal {
         self.source_document_ordinal
+    }
+}
+
+/// 已核对模块归属并解析到编译单元文档表的紧凑来源位置。
+///
+/// HIR/MIR 关系记录携带本值，避免在后续热循环中继续持有或比较文档键字符串。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedSourceLocation {
+    source_document_ordinal: SourceDocumentOrdinal,
+    start: SourcePosition,
+    end: SourcePosition,
+}
+
+impl ResolvedSourceLocation {
+    pub(crate) const fn source_document_ordinal(self) -> SourceDocumentOrdinal {
+        self.source_document_ordinal
+    }
+
+    pub(crate) const fn start(self) -> SourcePosition {
+        self.start
+    }
+
+    pub(crate) const fn end(self) -> SourcePosition {
+        self.end
     }
 }
 
@@ -939,6 +1094,21 @@ impl CompilationUnit {
             ));
         }
         Ok(binding.source_document_ordinal())
+    }
+
+    /// 把一个已经通过共同准入登记的位置解析成后续 IR 可直接携带的紧凑记录。
+    #[inline]
+    pub(crate) fn resolve_source_location_for_module(
+        &self,
+        owner_module_ordinal: u32,
+        span: &SourceSpan,
+    ) -> Result<ResolvedSourceLocation, DiagnosticBundle> {
+        Ok(ResolvedSourceLocation {
+            source_document_ordinal: self
+                .resolve_source_document_for_module(owner_module_ordinal, span)?,
+            start: span.start(),
+            end: span.end(),
+        })
     }
 
     /// 消费完整 Typed AST 输入，分别搬移源映射后续需要的模块与文档描述符。

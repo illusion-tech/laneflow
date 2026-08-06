@@ -21,6 +21,7 @@ use laneflow_static_contract::{
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::diagnostic::DiagnosticCollector;
 use crate::hir::{HirAccessTarget, HirCorridorElement, HirLaneEdgeKey, HirSignalControl, HirUnit};
+use crate::module::ResolvedSourceLocation;
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
 /// 区分 MIR 模块表键的零尺寸阶段标记。
@@ -110,8 +111,14 @@ pub(crate) struct MirLaneEdge {
 }
 
 pub(crate) enum MirCorridorElement {
-    RoadSection(MirRoadSectionKey),
-    FacilityBand(MirFacilityBandKey),
+    RoadSection {
+        road_section: MirRoadSectionKey,
+        source_location: ResolvedSourceLocation,
+    },
+    FacilityBand {
+        facility_band: MirFacilityBandKey,
+        source_location: ResolvedSourceLocation,
+    },
 }
 
 pub(crate) struct MirRoadCorridor {
@@ -145,6 +152,7 @@ pub(crate) struct MirAuthoringLane {
     pub(crate) road_section: MirRoadSectionKey,
     pub(crate) edge_chain: TableRange<MirAuthoringLaneEdge>,
     pub(crate) lane_group: Option<MirLaneGroupKey>,
+    pub(crate) lane_group_source_location: Option<ResolvedSourceLocation>,
     pub(crate) source_span: SourceSpan,
 }
 
@@ -183,6 +191,7 @@ pub(crate) struct MirMovement {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: MovementId,
     pub(crate) junction: MirJunctionKey,
+    pub(crate) junction_source_location: Option<ResolvedSourceLocation>,
     pub(crate) directed_entry_approach_key: Arc<str>,
     pub(crate) directed_exit_approach_key: Arc<str>,
     pub(crate) maneuver_paths: TableRange<MirMovementManeuverPath>,
@@ -207,6 +216,7 @@ pub(crate) struct MirManeuverPath {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ManeuverPathId,
     pub(crate) movement: MirMovementKey,
+    pub(crate) movement_source_location: Option<ResolvedSourceLocation>,
     pub(crate) edges: TableRange<MirManeuverPathEdge>,
     pub(crate) maneuver_gates: TableRange<MirManeuverPathGate>,
     pub(crate) waiting_zones: TableRange<MirManeuverPathWaitingZone>,
@@ -239,15 +249,20 @@ pub(crate) struct MirManeuverGate {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ManeuverGateId,
     pub(crate) maneuver_path: MirManeuverPathKey,
+    pub(crate) maneuver_path_source_location: Option<ResolvedSourceLocation>,
     pub(crate) transition_index: u32,
     pub(crate) stop_line: MirStopLineKey,
+    pub(crate) stop_line_source_location: Option<ResolvedSourceLocation>,
     pub(crate) signal_control: MirSignalControl,
     pub(crate) source_span: SourceSpan,
 }
 
 #[derive(Clone, Copy)]
 pub(crate) enum MirSignalControl {
-    Group(MirSignalGroupKey),
+    Group {
+        signal_group: MirSignalGroupKey,
+        source_location: ResolvedSourceLocation,
+    },
     None,
 }
 
@@ -266,6 +281,7 @@ pub(crate) struct MirSignalGroupManeuverGate {
 
 pub(crate) struct MirSignalControllerGroup {
     pub(crate) signal_group: MirSignalGroupKey,
+    pub(crate) source_location: ResolvedSourceLocation,
 }
 
 pub(crate) struct MirSignalController {
@@ -292,6 +308,7 @@ pub(crate) struct MirSignalPhase {
 pub(crate) struct MirSignalPhaseState {
     pub(crate) signal_group: MirSignalGroupKey,
     pub(crate) aspect: SignalAspect,
+    pub(crate) source_location: ResolvedSourceLocation,
 }
 
 pub(crate) struct MirParkingAreaSpace {
@@ -310,6 +327,7 @@ pub(crate) struct MirParkingArea {
 pub(crate) struct MirParkingLaneAnchor {
     pub(crate) lane_edge: MirLaneEdgeKey,
     pub(crate) progress_meters: f64,
+    pub(crate) source_location: ResolvedSourceLocation,
 }
 
 #[derive(Clone, Copy)]
@@ -325,6 +343,7 @@ pub(crate) struct MirParkingSpace {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ParkingSpaceId,
     pub(crate) parking_area: Option<MirParkingAreaKey>,
+    pub(crate) parking_area_source_location: Option<ResolvedSourceLocation>,
     pub(crate) entry: MirParkingLaneAnchor,
     pub(crate) exit: MirParkingLaneAnchor,
     pub(crate) geometry: MirParkingSpaceGeometry,
@@ -428,6 +447,7 @@ pub(crate) struct MirWaitingZone {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: WaitingZoneId,
     pub(crate) maneuver_path: MirManeuverPathKey,
+    pub(crate) maneuver_path_source_location: Option<ResolvedSourceLocation>,
     pub(crate) entry_gate: MirManeuverGateKey,
     pub(crate) release_gate: MirManeuverGateKey,
     pub(crate) max_occupancy: u32,
@@ -980,13 +1000,21 @@ pub(crate) fn lower_to_mir(
     let corridor_elements: Vec<MirCorridorElement> = hir
         .corridor_elements
         .iter()
-        .map(|element| match element {
-            HirCorridorElement::RoadSection(key) => {
-                MirCorridorElement::RoadSection(section_mapping[key.index()])
-            }
-            HirCorridorElement::FacilityBand(key) => {
-                MirCorridorElement::FacilityBand(band_mapping[key.index()])
-            }
+        .map(|element| match *element {
+            HirCorridorElement::RoadSection {
+                road_section,
+                source_location,
+            } => MirCorridorElement::RoadSection {
+                road_section: section_mapping[road_section.index()],
+                source_location,
+            },
+            HirCorridorElement::FacilityBand {
+                facility_band,
+                source_location,
+            } => MirCorridorElement::FacilityBand {
+                facility_band: band_mapping[facility_band.index()],
+                source_location,
+            },
         })
         .collect();
     let road_sections = hir
@@ -1015,6 +1043,7 @@ pub(crate) fn lower_to_mir(
                 road_section: section_mapping[lane.road_section.index()],
                 edge_chain: remap_range(lane.edge_chain, &unit.limits, &lane.source_span)?,
                 lane_group: lane.lane_group.map(|key| group_mapping[key.index()]),
+                lane_group_source_location: lane.lane_group_source_location,
                 source_span: lane.source_span.clone(),
             })
         })
@@ -1086,6 +1115,7 @@ pub(crate) fn lower_to_mir(
                 stable_key: Arc::clone(&movement.stable_key),
                 stable_id: movement.stable_id,
                 junction: junction_mapping[movement.junction.index()],
+                junction_source_location: movement.junction_source_location,
                 directed_entry_approach_key: Arc::clone(&movement.directed_entry_approach_key),
                 directed_exit_approach_key: Arc::clone(&movement.directed_exit_approach_key),
                 maneuver_paths: remap_range(
@@ -1113,6 +1143,7 @@ pub(crate) fn lower_to_mir(
                 stable_key: Arc::clone(&path.stable_key),
                 stable_id: path.stable_id,
                 movement: movement_mapping[path.movement.index()],
+                movement_source_location: path.movement_source_location,
                 edges: remap_range(path.edges, &unit.limits, &path.source_span)?,
                 maneuver_gates: remap_range(path.maneuver_gates, &unit.limits, &path.source_span)?,
                 waiting_zones: remap_range(path.waiting_zones, &unit.limits, &path.source_span)?,
@@ -1180,12 +1211,18 @@ pub(crate) fn lower_to_mir(
             stable_key: Arc::clone(&gate.stable_key),
             stable_id: gate.stable_id,
             maneuver_path: maneuver_path_mapping[gate.maneuver_path.index()],
+            maneuver_path_source_location: gate.maneuver_path_source_location,
             transition_index: gate.transition_index,
             stop_line: stop_line_mapping[gate.stop_line.index()],
+            stop_line_source_location: gate.stop_line_source_location,
             signal_control: match gate.signal_control {
-                HirSignalControl::Group(group) => {
-                    MirSignalControl::Group(signal_group_mapping[group.index()])
-                }
+                HirSignalControl::Group {
+                    signal_group,
+                    source_location,
+                } => MirSignalControl::Group {
+                    signal_group: signal_group_mapping[signal_group.index()],
+                    source_location,
+                },
                 HirSignalControl::None => MirSignalControl::None,
             },
             source_span: gate.source_span.clone(),
@@ -1199,6 +1236,7 @@ pub(crate) fn lower_to_mir(
             stable_key: Arc::clone(&waiting.stable_key),
             stable_id: waiting.stable_id,
             maneuver_path: maneuver_path_mapping[waiting.maneuver_path.index()],
+            maneuver_path_source_location: waiting.maneuver_path_source_location,
             entry_gate: maneuver_gate_mapping[waiting.entry_gate.index()],
             release_gate: maneuver_gate_mapping[waiting.release_gate.index()],
             max_occupancy: waiting.max_occupancy,
@@ -1270,6 +1308,7 @@ pub(crate) fn lower_to_mir(
         .iter()
         .map(|member| MirSignalControllerGroup {
             signal_group: signal_group_mapping[member.signal_group.index()],
+            source_location: member.source_location,
         })
         .collect::<Vec<_>>();
     let signal_phases = hir
@@ -1293,6 +1332,7 @@ pub(crate) fn lower_to_mir(
         .map(|state| MirSignalPhaseState {
             signal_group: signal_group_mapping[state.signal_group.index()],
             aspect: state.aspect,
+            source_location: state.source_location,
         })
         .collect::<Vec<_>>();
     let signal_group_maneuver_gates = hir
@@ -1328,13 +1368,16 @@ pub(crate) fn lower_to_mir(
             parking_area: space
                 .parking_area
                 .map(|area| parking_area_mapping[area.index()]),
+            parking_area_source_location: space.parking_area_source_location,
             entry: MirParkingLaneAnchor {
                 lane_edge: hir_to_mir[space.entry.lane_edge.index()],
                 progress_meters: space.entry.progress_meters,
+                source_location: space.entry.source_location,
             },
             exit: MirParkingLaneAnchor {
                 lane_edge: hir_to_mir[space.exit.lane_edge.index()],
                 progress_meters: space.exit.progress_meters,
+                source_location: space.exit.source_location,
             },
             geometry: MirParkingSpaceGeometry {
                 lateral_offset_meters: space.geometry.lateral_offset_meters,
