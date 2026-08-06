@@ -286,7 +286,7 @@ G3 comment 采用 append-only。new push、review dismissal 或 Gate 状态变�
 `check-gate-evidence g3` 只在以下结构化边界内接受 `G3 Waived`：
 
 - current G3 comment 的 `- Gate 结果：` 必须精确为 `G3 Waived`，且 comment 未编辑；
-- comment 必须包含且只包含一个 `external-review-waiver:v1` HTML comment，其中是 `schemaVersion: 1` JSON；字段固定为 `id`、`exceptionType`、`currentHeadOid`、`currentBaseOid`、`reason`、`evidenceRefs`、`risk`、`acceptanceBoundary`、`expiresAt`、`followUpIssue`、`cleanupOwner`、`authorizedBy`；
+- 单 Issue PR 的 comment 必须包含且只包含一个 `external-review-waiver:v1` HTML comment；多 Issue PR 必须为每个关联 Issue 分别包含一个记录，并以唯一 `followUpIssue` 精确匹配，不接受缺失、重复或共享的模糊 waiver。每个 HTML comment 内都是 `schemaVersion: 1` JSON；字段固定为 `id`、`exceptionType`、`currentHeadOid`、`currentBaseOid`、`reason`、`evidenceRefs`、`risk`、`acceptanceBoundary`、`expiresAt`、`followUpIssue`、`cleanupOwner`、`authorizedBy`；
 - `evidenceRefs` 只保存 Markdown reference label；每个 label 必须由可见的 `- 例外：` 行引用，并在 comment 文末解析为 GitHub HTTPS 证据，JSON 内不直接写 URL；
 - current head/base 必须与 live PR 一致，`followUpIssue` 必须指向当前关联 Issue，`authorizedBy` 必须等于 append-only G3 comment author，且该 actor 必须在 trusted G3 Owner allowlist；
 - `expiresAt` 必须晚于 comment 创建时间、有效期不超过 24 小时，并在每次 Gate 运行时仍未过期；
