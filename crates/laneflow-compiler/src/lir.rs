@@ -31,8 +31,9 @@ use crate::mir::{
     MirCorridorElement, MirFacilityBandKey, MirJunctionKey, MirLaneEdgeKey, MirLaneGroupKey,
     MirManeuverGateKey, MirManeuverPathKey, MirMovementKey, MirParkingAreaKey, MirParkingSpaceKey,
     MirParticipantClassKey, MirRoadCorridorKey, MirRoadSectionKey, MirSignalControl,
-    MirSignalControllerKey, MirSignalGroupKey, MirSignalPhaseKey, MirStaticRouteKey,
-    MirStopLineKey, MirUnit, MirVehicleProfileKey, MirWaitingZoneKey,
+    MirSignalControllerGroup, MirSignalControllerKey, MirSignalGroupKey, MirSignalPhaseKey,
+    MirSignalPhaseState, MirStaticRouteKey, MirStopLineKey, MirUnit, MirVehicleProfileKey,
+    MirWaitingZoneKey,
 };
 use crate::{CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceSpan};
 
@@ -480,183 +481,154 @@ pub(crate) struct LirUnit {
     pub(crate) peak_controlled_live_bytes: u64,
 }
 
-/// LIR 与冻结源映射所需的临时阶段映射。
+/// 一类稳定实体从 MIR 致密地址到 LIR 规范序号的双向排列。
 ///
-/// 两个映射只在同一次 `Compiler::compile` 内跨越 LIR/source-map 阶段；源映射冻结后
-/// 立即释放，绝不能进入公共 LIR、制品或跨编译缓存。
+/// 两个方向在冻结输出中成对拥有，只在同一次 `Compiler::compile` 内跨越
+/// LIR/source-map 阶段；它不是身份、公共 LIR 或跨编译缓存。
+pub(crate) struct LirEntityOrder<K, O> {
+    stage_keys_in_lir_order: Box<[K]>,
+    ordinal_by_stage_key: Box<[O]>,
+}
+
+impl<K: Copy, O: Copy> LirEntityOrder<K, O> {
+    pub(crate) fn stage_keys_in_lir_order(&self) -> &[K] {
+        &self.stage_keys_in_lir_order
+    }
+
+    fn mapping_bytes(&self) -> u64 {
+        mapping_pair_bytes::<K, O>(
+            self.stage_keys_in_lir_order.len(),
+            self.ordinal_by_stage_key.len(),
+        )
+    }
+}
+
+impl<Tag, O: Copy + Into<u32>> LirEntityOrder<ArenaKey<Tag>, O> {
+    fn from_parts(
+        stage_keys_in_lir_order: Vec<ArenaKey<Tag>>,
+        ordinal_by_stage_key: Vec<O>,
+    ) -> Self {
+        debug_assert_eq!(
+            stage_keys_in_lir_order.len(),
+            ordinal_by_stage_key.len(),
+            "dense stage-key and LIR-ordinal tables must describe the same entity set"
+        );
+        debug_assert!(
+            stage_keys_in_lir_order
+                .iter()
+                .copied()
+                .enumerate()
+                .all(|(lir_index, stage_key)| {
+                    ordinal_by_stage_key[stage_key.index()].into()
+                        == u32::try_from(lir_index)
+                            .expect("LIR precheck proved entity count fits u32")
+                }),
+            "both LIR entity-order directions must be exact inverses"
+        );
+        Self {
+            stage_keys_in_lir_order: stage_keys_in_lir_order.into_boxed_slice(),
+            ordinal_by_stage_key: ordinal_by_stage_key.into_boxed_slice(),
+        }
+    }
+
+    pub(crate) fn stage_key_at_lir_index(&self, index: usize) -> ArenaKey<Tag> {
+        self.stage_keys_in_lir_order[index]
+    }
+
+    pub(crate) fn ordinal(&self, stage_key: ArenaKey<Tag>) -> O {
+        self.ordinal_by_stage_key[stage_key.index()]
+    }
+}
+
+/// 已按 LIR owner-local 行顺序冻结的 MIR 关系行地址排列。
+///
+/// 关系行没有稳定身份；本值只让来源伴随数据经过与 LIR 语义行相同的 permutation。
+pub(crate) struct OwnerLocalPermutation<Row> {
+    mir_rows_in_lir_order: Box<[ArenaKey<Row>]>,
+}
+
+impl<Row> OwnerLocalPermutation<Row> {
+    fn from_rows(mir_rows_in_lir_order: Vec<ArenaKey<Row>>) -> Self {
+        Self {
+            mir_rows_in_lir_order: mir_rows_in_lir_order.into_boxed_slice(),
+        }
+    }
+
+    pub(crate) fn mir_rows_in_lir_order(&self) -> &[ArenaKey<Row>] {
+        &self.mir_rows_in_lir_order
+    }
+
+    fn mapping_bytes(&self) -> u64 {
+        requested_bytes::<ArenaKey<Row>>(
+            u64::try_from(self.mir_rows_in_lir_order.len()).unwrap_or(u64::MAX),
+        )
+    }
+}
+
+/// LIR 与冻结源映射所需的全部临时阶段排列。
 pub(crate) struct LirFreezeOutput {
     pub(crate) lir: LirUnit,
-    pub(crate) canonical_mir_edge_order: Box<[MirLaneEdgeKey]>,
-    pub(crate) mir_to_lir: Box<[LaneEdgeOrdinal]>,
-    pub(crate) canonical_mir_corridor_order: Box<[MirRoadCorridorKey]>,
-    pub(crate) mir_corridor_to_lir: Box<[RoadCorridorOrdinal]>,
-    pub(crate) canonical_mir_section_order: Box<[MirRoadSectionKey]>,
-    pub(crate) mir_section_to_lir: Box<[RoadSectionOrdinal]>,
-    pub(crate) canonical_mir_lane_order: Box<[MirAuthoringLaneKey]>,
-    pub(crate) mir_lane_to_lir: Box<[AuthoringLaneOrdinal]>,
-    pub(crate) canonical_mir_group_order: Box<[MirLaneGroupKey]>,
-    pub(crate) mir_group_to_lir: Box<[LaneGroupOrdinal]>,
-    pub(crate) canonical_mir_band_order: Box<[MirFacilityBandKey]>,
-    pub(crate) mir_band_to_lir: Box<[FacilityBandOrdinal]>,
-    pub(crate) canonical_mir_junction_order: Box<[MirJunctionKey]>,
-    pub(crate) mir_junction_to_lir: Box<[JunctionOrdinal]>,
-    pub(crate) canonical_mir_movement_order: Box<[MirMovementKey]>,
-    pub(crate) mir_movement_to_lir: Box<[MovementOrdinal]>,
-    pub(crate) canonical_mir_maneuver_path_order: Box<[MirManeuverPathKey]>,
-    pub(crate) mir_maneuver_path_to_lir: Box<[ManeuverPathOrdinal]>,
+    pub(crate) lane_edges: LirEntityOrder<MirLaneEdgeKey, LaneEdgeOrdinal>,
+    pub(crate) road_corridors: LirEntityOrder<MirRoadCorridorKey, RoadCorridorOrdinal>,
+    pub(crate) road_sections: LirEntityOrder<MirRoadSectionKey, RoadSectionOrdinal>,
+    pub(crate) authoring_lanes: LirEntityOrder<MirAuthoringLaneKey, AuthoringLaneOrdinal>,
+    pub(crate) lane_groups: LirEntityOrder<MirLaneGroupKey, LaneGroupOrdinal>,
+    pub(crate) facility_bands: LirEntityOrder<MirFacilityBandKey, FacilityBandOrdinal>,
+    pub(crate) junctions: LirEntityOrder<MirJunctionKey, JunctionOrdinal>,
+    pub(crate) movements: LirEntityOrder<MirMovementKey, MovementOrdinal>,
+    pub(crate) maneuver_paths: LirEntityOrder<MirManeuverPathKey, ManeuverPathOrdinal>,
     pub(crate) canonical_mir_internal_edge_order: Box<[u32]>,
-    pub(crate) canonical_mir_stop_line_order: Box<[MirStopLineKey]>,
-    pub(crate) mir_stop_line_to_lir: Box<[StopLineOrdinal]>,
-    pub(crate) canonical_mir_maneuver_gate_order: Box<[MirManeuverGateKey]>,
-    pub(crate) mir_maneuver_gate_to_lir: Box<[ManeuverGateOrdinal]>,
-    pub(crate) canonical_mir_waiting_zone_order: Box<[MirWaitingZoneKey]>,
-    pub(crate) mir_waiting_zone_to_lir: Box<[WaitingZoneOrdinal]>,
-    pub(crate) canonical_mir_signal_group_order: Box<[MirSignalGroupKey]>,
-    pub(crate) mir_signal_group_to_lir: Box<[SignalGroupOrdinal]>,
-    pub(crate) canonical_mir_signal_controller_order: Box<[MirSignalControllerKey]>,
-    pub(crate) mir_signal_controller_to_lir: Box<[SignalControllerOrdinal]>,
-    pub(crate) canonical_mir_signal_phase_order: Box<[MirSignalPhaseKey]>,
-    pub(crate) mir_signal_phase_to_lir: Box<[SignalPhaseOrdinal]>,
-    pub(crate) canonical_mir_parking_area_order: Box<[MirParkingAreaKey]>,
-    pub(crate) mir_parking_area_to_lir: Box<[ParkingAreaOrdinal]>,
-    pub(crate) canonical_mir_parking_space_order: Box<[MirParkingSpaceKey]>,
-    pub(crate) mir_parking_space_to_lir: Box<[ParkingSpaceOrdinal]>,
-    pub(crate) canonical_mir_participant_class_order: Box<[MirParticipantClassKey]>,
-    pub(crate) mir_participant_class_to_lir: Box<[ParticipantClassOrdinal]>,
-    pub(crate) canonical_mir_vehicle_profile_order: Box<[MirVehicleProfileKey]>,
-    pub(crate) mir_vehicle_profile_to_lir: Box<[VehicleProfileOrdinal]>,
-    pub(crate) canonical_mir_canonical_frame_order: Box<[MirCanonicalFrameKey]>,
-    pub(crate) mir_canonical_frame_to_lir: Box<[CanonicalFrameOrdinal]>,
-    pub(crate) canonical_mir_access_rule_order: Box<[MirAccessRuleKey]>,
-    pub(crate) mir_access_rule_to_lir: Box<[AccessRuleOrdinal]>,
-    pub(crate) canonical_mir_static_route_order: Box<[MirStaticRouteKey]>,
-    pub(crate) mir_static_route_to_lir: Box<[StaticRouteOrdinal]>,
+    pub(crate) stop_lines: LirEntityOrder<MirStopLineKey, StopLineOrdinal>,
+    pub(crate) maneuver_gates: LirEntityOrder<MirManeuverGateKey, ManeuverGateOrdinal>,
+    pub(crate) waiting_zones: LirEntityOrder<MirWaitingZoneKey, WaitingZoneOrdinal>,
+    pub(crate) signal_groups: LirEntityOrder<MirSignalGroupKey, SignalGroupOrdinal>,
+    pub(crate) signal_controllers: LirEntityOrder<MirSignalControllerKey, SignalControllerOrdinal>,
+    pub(crate) signal_phases: LirEntityOrder<MirSignalPhaseKey, SignalPhaseOrdinal>,
+    pub(crate) signal_controller_groups: OwnerLocalPermutation<MirSignalControllerGroup>,
+    pub(crate) signal_phase_states: OwnerLocalPermutation<MirSignalPhaseState>,
+    pub(crate) parking_areas: LirEntityOrder<MirParkingAreaKey, ParkingAreaOrdinal>,
+    pub(crate) parking_spaces: LirEntityOrder<MirParkingSpaceKey, ParkingSpaceOrdinal>,
+    pub(crate) participant_classes: LirEntityOrder<MirParticipantClassKey, ParticipantClassOrdinal>,
+    pub(crate) vehicle_profiles: LirEntityOrder<MirVehicleProfileKey, VehicleProfileOrdinal>,
+    pub(crate) canonical_frames: LirEntityOrder<MirCanonicalFrameKey, CanonicalFrameOrdinal>,
+    pub(crate) access_rules: LirEntityOrder<MirAccessRuleKey, AccessRuleOrdinal>,
+    pub(crate) static_routes: LirEntityOrder<MirStaticRouteKey, StaticRouteOrdinal>,
 }
 
 impl LirFreezeOutput {
     /// 返回两个临时有类型映射的真实请求容量字节。
     pub(crate) fn mapping_bytes(&self) -> u64 {
-        requested_bytes::<MirLaneEdgeKey>(
-            u64::try_from(self.canonical_mir_edge_order.len()).unwrap_or(u64::MAX),
-        )
-        .saturating_add(requested_bytes::<LaneEdgeOrdinal>(
-            u64::try_from(self.mir_to_lir.len()).unwrap_or(u64::MAX),
-        ))
-        .saturating_add(
-            mapping_pair_bytes::<MirRoadCorridorKey, RoadCorridorOrdinal>(
-                self.canonical_mir_corridor_order.len(),
-                self.mir_corridor_to_lir.len(),
-            ),
-        )
-        .saturating_add(mapping_pair_bytes::<MirRoadSectionKey, RoadSectionOrdinal>(
-            self.canonical_mir_section_order.len(),
-            self.mir_section_to_lir.len(),
-        ))
-        .saturating_add(mapping_pair_bytes::<
-            MirAuthoringLaneKey,
-            AuthoringLaneOrdinal,
-        >(
-            self.canonical_mir_lane_order.len(),
-            self.mir_lane_to_lir.len(),
-        ))
-        .saturating_add(mapping_pair_bytes::<MirLaneGroupKey, LaneGroupOrdinal>(
-            self.canonical_mir_group_order.len(),
-            self.mir_group_to_lir.len(),
-        ))
-        .saturating_add(
-            mapping_pair_bytes::<MirFacilityBandKey, FacilityBandOrdinal>(
-                self.canonical_mir_band_order.len(),
-                self.mir_band_to_lir.len(),
-            ),
-        )
-        .saturating_add(mapping_pair_bytes::<MirJunctionKey, JunctionOrdinal>(
-            self.canonical_mir_junction_order.len(),
-            self.mir_junction_to_lir.len(),
-        ))
-        .saturating_add(mapping_pair_bytes::<MirMovementKey, MovementOrdinal>(
-            self.canonical_mir_movement_order.len(),
-            self.mir_movement_to_lir.len(),
-        ))
-        .saturating_add(
-            mapping_pair_bytes::<MirManeuverPathKey, ManeuverPathOrdinal>(
-                self.canonical_mir_maneuver_path_order.len(),
-                self.mir_maneuver_path_to_lir.len(),
-            ),
-        )
-        .saturating_add(requested_bytes::<u32>(
-            self.canonical_mir_internal_edge_order
-                .len()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        ))
-        .saturating_add(mapping_pair_bytes::<MirStopLineKey, StopLineOrdinal>(
-            self.canonical_mir_stop_line_order.len(),
-            self.mir_stop_line_to_lir.len(),
-        ))
-        .saturating_add(
-            mapping_pair_bytes::<MirManeuverGateKey, ManeuverGateOrdinal>(
-                self.canonical_mir_maneuver_gate_order.len(),
-                self.mir_maneuver_gate_to_lir.len(),
-            ),
-        )
-        .saturating_add(mapping_pair_bytes::<MirWaitingZoneKey, WaitingZoneOrdinal>(
-            self.canonical_mir_waiting_zone_order.len(),
-            self.mir_waiting_zone_to_lir.len(),
-        ))
-        .saturating_add(mapping_pair_bytes::<MirSignalGroupKey, SignalGroupOrdinal>(
-            self.canonical_mir_signal_group_order.len(),
-            self.mir_signal_group_to_lir.len(),
-        ))
-        .saturating_add(mapping_pair_bytes::<
-            MirSignalControllerKey,
-            SignalControllerOrdinal,
-        >(
-            self.canonical_mir_signal_controller_order.len(),
-            self.mir_signal_controller_to_lir.len(),
-        ))
-        .saturating_add(mapping_pair_bytes::<MirSignalPhaseKey, SignalPhaseOrdinal>(
-            self.canonical_mir_signal_phase_order.len(),
-            self.mir_signal_phase_to_lir.len(),
-        ))
-        .saturating_add(mapping_pair_bytes::<MirParkingAreaKey, ParkingAreaOrdinal>(
-            self.canonical_mir_parking_area_order.len(),
-            self.mir_parking_area_to_lir.len(),
-        ))
-        .saturating_add(
-            mapping_pair_bytes::<MirParkingSpaceKey, ParkingSpaceOrdinal>(
-                self.canonical_mir_parking_space_order.len(),
-                self.mir_parking_space_to_lir.len(),
-            ),
-        )
-        .saturating_add(mapping_pair_bytes::<
-            MirParticipantClassKey,
-            ParticipantClassOrdinal,
-        >(
-            self.canonical_mir_participant_class_order.len(),
-            self.mir_participant_class_to_lir.len(),
-        ))
-        .saturating_add(mapping_pair_bytes::<
-            MirVehicleProfileKey,
-            VehicleProfileOrdinal,
-        >(
-            self.canonical_mir_vehicle_profile_order.len(),
-            self.mir_vehicle_profile_to_lir.len(),
-        ))
-        .saturating_add(mapping_pair_bytes::<
-            MirCanonicalFrameKey,
-            CanonicalFrameOrdinal,
-        >(
-            self.canonical_mir_canonical_frame_order.len(),
-            self.mir_canonical_frame_to_lir.len(),
-        ))
-        .saturating_add(mapping_pair_bytes::<MirAccessRuleKey, AccessRuleOrdinal>(
-            self.canonical_mir_access_rule_order.len(),
-            self.mir_access_rule_to_lir.len(),
-        ))
-        .saturating_add(mapping_pair_bytes::<MirStaticRouteKey, StaticRouteOrdinal>(
-            self.canonical_mir_static_route_order.len(),
-            self.mir_static_route_to_lir.len(),
-        ))
+        self.lane_edges
+            .mapping_bytes()
+            .saturating_add(self.road_corridors.mapping_bytes())
+            .saturating_add(self.road_sections.mapping_bytes())
+            .saturating_add(self.authoring_lanes.mapping_bytes())
+            .saturating_add(self.lane_groups.mapping_bytes())
+            .saturating_add(self.facility_bands.mapping_bytes())
+            .saturating_add(self.junctions.mapping_bytes())
+            .saturating_add(self.movements.mapping_bytes())
+            .saturating_add(self.maneuver_paths.mapping_bytes())
+            .saturating_add(requested_bytes::<u32>(
+                self.canonical_mir_internal_edge_order
+                    .len()
+                    .try_into()
+                    .unwrap_or(u64::MAX),
+            ))
+            .saturating_add(self.stop_lines.mapping_bytes())
+            .saturating_add(self.maneuver_gates.mapping_bytes())
+            .saturating_add(self.waiting_zones.mapping_bytes())
+            .saturating_add(self.signal_groups.mapping_bytes())
+            .saturating_add(self.signal_controllers.mapping_bytes())
+            .saturating_add(self.signal_phases.mapping_bytes())
+            .saturating_add(self.signal_controller_groups.mapping_bytes())
+            .saturating_add(self.signal_phase_states.mapping_bytes())
+            .saturating_add(self.parking_areas.mapping_bytes())
+            .saturating_add(self.parking_spaces.mapping_bytes())
+            .saturating_add(self.participant_classes.mapping_bytes())
+            .saturating_add(self.vehicle_profiles.mapping_bytes())
+            .saturating_add(self.canonical_frames.mapping_bytes())
+            .saturating_add(self.access_rules.mapping_bytes())
+            .saturating_add(self.static_routes.mapping_bytes())
     }
 }
 
@@ -873,6 +845,14 @@ pub(crate) fn freeze_lir(
                 .saturating_mul(2),
         ))
         .saturating_add(requested_bytes::<u32>(junction_internal_edge_count))
+        // owner-local 关系没有稳定身份；保留其 MIR 行地址排列，使来源与 LIR 语义行
+        // 共享同一次规范重排。
+        .saturating_add(requested_bytes::<ArenaKey<MirSignalControllerGroup>>(
+            signal_controller_group_count,
+        ))
+        .saturating_add(requested_bytes::<ArenaKey<MirSignalPhaseState>>(
+            signal_phase_state_count,
+        ))
         .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
         // 四类反向索引先以 `(targetOrdinal, occurrence)` 排序，再复制进最终连续表；
         // 最终表已计入 output-owned bytes，这里只补临时排序对。
@@ -1325,11 +1305,11 @@ pub(crate) fn freeze_lir(
             mir.corridor_elements[corridor.elements.as_usize_range()]
                 .iter()
                 .map(|element| match element {
-                    MirCorridorElement::RoadSection(key) => {
-                        LirCorridorElement::RoadSection(mir_section_to_lir[key.index()])
+                    MirCorridorElement::RoadSection { road_section, .. } => {
+                        LirCorridorElement::RoadSection(mir_section_to_lir[road_section.index()])
                     }
-                    MirCorridorElement::FacilityBand(key) => {
-                        LirCorridorElement::FacilityBand(mir_band_to_lir[key.index()])
+                    MirCorridorElement::FacilityBand { facility_band, .. } => {
+                        LirCorridorElement::FacilityBand(mir_band_to_lir[facility_band.index()])
                     }
                 }),
         );
@@ -2236,8 +2216,8 @@ pub(crate) fn freeze_lir(
             transition_index: gate.transition_index,
             stop_line: mir_stop_line_to_lir[gate.stop_line.index()],
             signal_control: match gate.signal_control {
-                MirSignalControl::Group(group) => {
-                    LirSignalControl::Group(mir_signal_group_to_lir[group.index()])
+                MirSignalControl::Group { signal_group, .. } => {
+                    LirSignalControl::Group(mir_signal_group_to_lir[signal_group.index()])
                 }
                 MirSignalControl::None => LirSignalControl::None,
             },
@@ -2328,6 +2308,8 @@ pub(crate) fn freeze_lir(
 
     let mut signal_controllers = Vec::with_capacity(mir.signal_controllers.len());
     let mut signal_controller_groups = Vec::with_capacity(mir.signal_controller_groups.len());
+    let mut signal_controller_group_mir_rows: Vec<ArenaKey<MirSignalControllerGroup>> =
+        Vec::with_capacity(mir.signal_controller_groups.len());
     let mut signal_controller_phases = Vec::with_capacity(mir.signal_phases.len());
     for mir_key in canonical_mir_signal_controller_order.iter().copied() {
         let controller = &mir.signal_controllers[mir_key.index()];
@@ -2342,13 +2324,31 @@ pub(crate) fn freeze_lir(
             primary_span.clone(),
         )?;
         let group_start = signal_controller_groups.len();
+        let permutation_start = signal_controller_group_mir_rows.len();
+        signal_controller_group_mir_rows.extend(controller.signal_groups.as_usize_range().map(
+            |index| {
+                ArenaKey::from_raw(
+                    u32::try_from(index).expect("LIR precheck proved every MIR key fits u32"),
+                )
+            },
+        ));
+        signal_controller_group_mir_rows[permutation_start..].sort_unstable_by_key(|mir_row| {
+            let member = &mir.signal_controller_groups[mir_row.index()];
+            (
+                mir_signal_group_to_lir[member.signal_group.index()],
+                mir_row.raw(),
+            )
+        });
+        // 集合语义只排序这一份 MIR 行地址；语义目标和来源随后都借用此排列。
         signal_controller_groups.extend(
-            mir.signal_controller_groups[controller.signal_groups.as_usize_range()]
+            signal_controller_group_mir_rows[permutation_start..]
                 .iter()
-                .map(|member| mir_signal_group_to_lir[member.signal_group.index()]),
+                .map(|mir_row| {
+                    let member = &mir.signal_controller_groups[mir_row.index()];
+                    mir_signal_group_to_lir[member.signal_group.index()]
+                }),
         );
-        // 信号组是集合语义；LIR 统一使用规范 ordinal 顺序。
-        signal_controller_groups[group_start..].sort_unstable();
+        debug_assert_eq!(group_start, permutation_start);
         let phase_start = signal_controller_phases.len();
         for phase_index in controller.phases.as_usize_range() {
             signal_controller_phases.push(mir_signal_phase_to_lir[phase_index]);
@@ -2377,6 +2377,8 @@ pub(crate) fn freeze_lir(
 
     let mut signal_phases = Vec::with_capacity(mir.signal_phases.len());
     let mut signal_phase_states = Vec::with_capacity(mir.signal_phase_states.len());
+    let mut signal_phase_state_mir_rows: Vec<ArenaKey<MirSignalPhaseState>> =
+        Vec::with_capacity(mir.signal_phase_states.len());
     for mir_key in canonical_mir_signal_phase_order.iter().copied() {
         let phase = &mir.signal_phases[mir_key.index()];
         let identity_start = identity_fields.len();
@@ -2406,16 +2408,30 @@ pub(crate) fn freeze_lir(
             )?;
         }
         let state_start = signal_phase_states.len();
-        signal_phase_states.extend(
-            mir.signal_phase_states[phase.states.as_usize_range()]
-                .iter()
-                .map(|state| LirSignalPhaseState {
+        let permutation_start = signal_phase_state_mir_rows.len();
+        signal_phase_state_mir_rows.extend(phase.states.as_usize_range().map(|index| {
+            ArenaKey::from_raw(
+                u32::try_from(index).expect("LIR precheck proved every MIR key fits u32"),
+            )
+        }));
+        signal_phase_state_mir_rows[permutation_start..].sort_unstable_by_key(|mir_row| {
+            let state = &mir.signal_phase_states[mir_row.index()];
+            (
+                mir_signal_group_to_lir[state.signal_group.index()],
+                mir_row.raw(),
+            )
+        });
+        // 相位状态与控制器组表共享 LIR signal-group ordinal 轴。
+        signal_phase_states.extend(signal_phase_state_mir_rows[permutation_start..].iter().map(
+            |mir_row| {
+                let state = &mir.signal_phase_states[mir_row.index()];
+                LirSignalPhaseState {
                     signal_group: mir_signal_group_to_lir[state.signal_group.index()],
                     aspect: state.aspect,
-                }),
-        );
-        // 相位状态与控制器组表使用同一规范 ordinal 轴，调用方可以逐项配对读取。
-        signal_phase_states[state_start..].sort_unstable_by_key(|state| state.signal_group);
+                }
+            },
+        ));
+        debug_assert_eq!(state_start, permutation_start);
         signal_phases.push(LirSignalPhase {
             ordinal: mir_signal_phase_to_lir[mir_key.index()],
             stable_id: phase.stable_id,
@@ -3022,53 +3038,75 @@ pub(crate) fn freeze_lir(
             controlled_live_bytes: output_owned_bytes,
             peak_controlled_live_bytes: controlled_live_bytes,
         },
-        canonical_mir_edge_order: canonical_order.into_boxed_slice(),
-        mir_to_lir: mir_to_lir.into_boxed_slice(),
-        canonical_mir_corridor_order: canonical_mir_corridor_order.into_boxed_slice(),
-        mir_corridor_to_lir: mir_corridor_to_lir.into_boxed_slice(),
-        canonical_mir_section_order: canonical_mir_section_order.into_boxed_slice(),
-        mir_section_to_lir: mir_section_to_lir.into_boxed_slice(),
-        canonical_mir_lane_order: canonical_mir_lane_order.into_boxed_slice(),
-        mir_lane_to_lir: mir_lane_to_lir.into_boxed_slice(),
-        canonical_mir_group_order: canonical_mir_group_order.into_boxed_slice(),
-        mir_group_to_lir: mir_group_to_lir.into_boxed_slice(),
-        canonical_mir_band_order: canonical_mir_band_order.into_boxed_slice(),
-        mir_band_to_lir: mir_band_to_lir.into_boxed_slice(),
-        canonical_mir_junction_order: canonical_mir_junction_order.into_boxed_slice(),
-        mir_junction_to_lir: mir_junction_to_lir.into_boxed_slice(),
-        canonical_mir_movement_order: canonical_mir_movement_order.into_boxed_slice(),
-        mir_movement_to_lir: mir_movement_to_lir.into_boxed_slice(),
-        canonical_mir_maneuver_path_order: canonical_mir_maneuver_path_order.into_boxed_slice(),
-        mir_maneuver_path_to_lir: mir_maneuver_path_to_lir.into_boxed_slice(),
+        lane_edges: LirEntityOrder::from_parts(canonical_order, mir_to_lir),
+        road_corridors: LirEntityOrder::from_parts(
+            canonical_mir_corridor_order,
+            mir_corridor_to_lir,
+        ),
+        road_sections: LirEntityOrder::from_parts(canonical_mir_section_order, mir_section_to_lir),
+        authoring_lanes: LirEntityOrder::from_parts(canonical_mir_lane_order, mir_lane_to_lir),
+        lane_groups: LirEntityOrder::from_parts(canonical_mir_group_order, mir_group_to_lir),
+        facility_bands: LirEntityOrder::from_parts(canonical_mir_band_order, mir_band_to_lir),
+        junctions: LirEntityOrder::from_parts(canonical_mir_junction_order, mir_junction_to_lir),
+        movements: LirEntityOrder::from_parts(canonical_mir_movement_order, mir_movement_to_lir),
+        maneuver_paths: LirEntityOrder::from_parts(
+            canonical_mir_maneuver_path_order,
+            mir_maneuver_path_to_lir,
+        ),
         canonical_mir_internal_edge_order: canonical_mir_internal_edge_order.into_boxed_slice(),
-        canonical_mir_stop_line_order: canonical_mir_stop_line_order.into_boxed_slice(),
-        mir_stop_line_to_lir: mir_stop_line_to_lir.into_boxed_slice(),
-        canonical_mir_maneuver_gate_order: canonical_mir_maneuver_gate_order.into_boxed_slice(),
-        mir_maneuver_gate_to_lir: mir_maneuver_gate_to_lir.into_boxed_slice(),
-        canonical_mir_waiting_zone_order: canonical_mir_waiting_zone_order.into_boxed_slice(),
-        mir_waiting_zone_to_lir: mir_waiting_zone_to_lir.into_boxed_slice(),
-        canonical_mir_signal_group_order: canonical_mir_signal_group_order.into_boxed_slice(),
-        mir_signal_group_to_lir: mir_signal_group_to_lir.into_boxed_slice(),
-        canonical_mir_signal_controller_order: canonical_mir_signal_controller_order
-            .into_boxed_slice(),
-        mir_signal_controller_to_lir: mir_signal_controller_to_lir.into_boxed_slice(),
-        canonical_mir_signal_phase_order: canonical_mir_signal_phase_order.into_boxed_slice(),
-        mir_signal_phase_to_lir: mir_signal_phase_to_lir.into_boxed_slice(),
-        canonical_mir_parking_area_order: canonical_mir_parking_area_order.into_boxed_slice(),
-        mir_parking_area_to_lir: mir_parking_area_to_lir.into_boxed_slice(),
-        canonical_mir_parking_space_order: canonical_mir_parking_space_order.into_boxed_slice(),
-        mir_parking_space_to_lir: mir_parking_space_to_lir.into_boxed_slice(),
-        canonical_mir_participant_class_order: canonical_mir_participant_class_order
-            .into_boxed_slice(),
-        mir_participant_class_to_lir: mir_participant_class_to_lir.into_boxed_slice(),
-        canonical_mir_vehicle_profile_order: canonical_mir_vehicle_profile_order.into_boxed_slice(),
-        mir_vehicle_profile_to_lir: mir_vehicle_profile_to_lir.into_boxed_slice(),
-        canonical_mir_canonical_frame_order: canonical_mir_canonical_frame_order.into_boxed_slice(),
-        mir_canonical_frame_to_lir: mir_canonical_frame_to_lir.into_boxed_slice(),
-        canonical_mir_access_rule_order: canonical_mir_access_rule_order.into_boxed_slice(),
-        mir_access_rule_to_lir: mir_access_rule_to_lir.into_boxed_slice(),
-        canonical_mir_static_route_order: canonical_mir_static_route_order.into_boxed_slice(),
-        mir_static_route_to_lir: mir_static_route_to_lir.into_boxed_slice(),
+        stop_lines: LirEntityOrder::from_parts(canonical_mir_stop_line_order, mir_stop_line_to_lir),
+        maneuver_gates: LirEntityOrder::from_parts(
+            canonical_mir_maneuver_gate_order,
+            mir_maneuver_gate_to_lir,
+        ),
+        waiting_zones: LirEntityOrder::from_parts(
+            canonical_mir_waiting_zone_order,
+            mir_waiting_zone_to_lir,
+        ),
+        signal_groups: LirEntityOrder::from_parts(
+            canonical_mir_signal_group_order,
+            mir_signal_group_to_lir,
+        ),
+        signal_controllers: LirEntityOrder::from_parts(
+            canonical_mir_signal_controller_order,
+            mir_signal_controller_to_lir,
+        ),
+        signal_phases: LirEntityOrder::from_parts(
+            canonical_mir_signal_phase_order,
+            mir_signal_phase_to_lir,
+        ),
+        signal_controller_groups: OwnerLocalPermutation::from_rows(
+            signal_controller_group_mir_rows,
+        ),
+        signal_phase_states: OwnerLocalPermutation::from_rows(signal_phase_state_mir_rows),
+        parking_areas: LirEntityOrder::from_parts(
+            canonical_mir_parking_area_order,
+            mir_parking_area_to_lir,
+        ),
+        parking_spaces: LirEntityOrder::from_parts(
+            canonical_mir_parking_space_order,
+            mir_parking_space_to_lir,
+        ),
+        participant_classes: LirEntityOrder::from_parts(
+            canonical_mir_participant_class_order,
+            mir_participant_class_to_lir,
+        ),
+        vehicle_profiles: LirEntityOrder::from_parts(
+            canonical_mir_vehicle_profile_order,
+            mir_vehicle_profile_to_lir,
+        ),
+        canonical_frames: LirEntityOrder::from_parts(
+            canonical_mir_canonical_frame_order,
+            mir_canonical_frame_to_lir,
+        ),
+        access_rules: LirEntityOrder::from_parts(
+            canonical_mir_access_rule_order,
+            mir_access_rule_to_lir,
+        ),
+        static_routes: LirEntityOrder::from_parts(
+            canonical_mir_static_route_order,
+            mir_static_route_to_lir,
+        ),
     })
 }
 

@@ -25,7 +25,7 @@ use laneflow_static_contract::{
 use crate::diagnostic::DiagnosticCollector;
 use crate::lir::LirFreezeOutput;
 use crate::mir::{MirModuleKey, MirSignalControl, MirUnit};
-use crate::module::SourceDocumentOrdinal;
+use crate::module::{ResolvedSourceLocation, SourceDocumentOrdinal};
 use crate::{
     CompilationUnit, CompileLimitDimension, Diagnostic, DiagnosticBundle, SourceDocumentDescriptor,
     SourceModuleDescriptor, SourcePosition, SourceSpan,
@@ -113,6 +113,16 @@ struct SourceLocationRecord {
     source_document_ordinal: SourceDocumentOrdinal,
     start: SourcePosition,
     end: SourcePosition,
+}
+
+impl From<ResolvedSourceLocation> for SourceLocationRecord {
+    fn from(location: ResolvedSourceLocation) -> Self {
+        Self {
+            source_document_ordinal: location.source_document_ordinal(),
+            start: location.start(),
+            end: location.end(),
+        }
+    }
 }
 
 struct LaneEdgeSourceRecord {

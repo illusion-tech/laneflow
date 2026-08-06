@@ -429,9 +429,14 @@ pub(crate) fn freeze_source_map(
         .map_err(|_| output_overflow(&unit, primary_span.clone()))?;
     let mut lane_edge_sources = Vec::with_capacity(edge_capacity);
     let mut lane_edge_successor_sources = Vec::with_capacity(successor_capacity);
-    for mir_key in frozen_lir.canonical_mir_edge_order.iter().copied() {
+    for mir_key in frozen_lir
+        .lane_edges
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let edge = &mir.lane_edges[mir_key.index()];
-        let ordinal = frozen_lir.mir_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.lane_edges.ordinal(mir_key);
         lane_edge_sources.push(LaneEdgeSourceRecord {
             ordinal,
             stable_id: edge.stable_id,
@@ -500,26 +505,48 @@ pub(crate) fn freeze_source_map(
             .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
     );
 
-    for mir_key in frozen_lir.canonical_mir_corridor_order.iter().copied() {
+    for mir_key in frozen_lir
+        .road_corridors
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let corridor = &mir.road_corridors[mir_key.index()];
-        let ordinal = frozen_lir.mir_corridor_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.road_corridors.ordinal(mir_key);
         road_corridor_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: corridor.stable_id,
             primary: location.resolve(corridor.module, &corridor.source_span)?,
         });
-        for local_index in 0..corridor.elements.len() {
+        for (local_index, element) in mir.corridor_elements[corridor.elements.as_usize_range()]
+            .iter()
+            .enumerate()
+        {
+            let source_location = match element {
+                crate::mir::MirCorridorElement::RoadSection {
+                    source_location, ..
+                }
+                | crate::mir::MirCorridorElement::FacilityBand {
+                    source_location, ..
+                } => *source_location,
+            };
             cross_section_relation_sources.push(CrossSectionRelationSourceRecord {
                 owner: CrossSectionRelationOwnerRecord::RoadCorridor(ordinal, corridor.stable_id),
                 role: SourceRelationRole::RoadCorridorElement,
-                local_index,
-                primary: location.resolve(corridor.module, &corridor.source_span)?,
+                local_index: u32::try_from(local_index)
+                    .expect("MIR range precheck proved local index fits u32"),
+                primary: source_location.into(),
             });
         }
     }
-    for mir_key in frozen_lir.canonical_mir_section_order.iter().copied() {
+    for mir_key in frozen_lir
+        .road_sections
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let section = &mir.road_sections[mir_key.index()];
-        let ordinal = frozen_lir.mir_section_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.road_sections.ordinal(mir_key);
         road_section_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: section.stable_id,
@@ -536,9 +563,14 @@ pub(crate) fn freeze_source_map(
             });
         }
     }
-    for mir_key in frozen_lir.canonical_mir_lane_order.iter().copied() {
+    for mir_key in frozen_lir
+        .authoring_lanes
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let lane = &mir.authoring_lanes[mir_key.index()];
-        let ordinal = frozen_lir.mir_lane_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.authoring_lanes.ordinal(mir_key);
         authoring_lane_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: lane.stable_id,
@@ -557,9 +589,14 @@ pub(crate) fn freeze_source_map(
             });
         }
     }
-    for mir_key in frozen_lir.canonical_mir_group_order.iter().copied() {
+    for mir_key in frozen_lir
+        .lane_groups
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let group = &mir.lane_groups[mir_key.index()];
-        let ordinal = frozen_lir.mir_group_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.lane_groups.ordinal(mir_key);
         lane_group_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: group.stable_id,
@@ -575,22 +612,35 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::LaneGroupMember,
                 local_index: u32::try_from(local_index)
                     .expect("MIR range precheck proved local index fits u32"),
-                primary: location.resolve(lane.module, &lane.source_span)?,
+                primary: lane
+                    .lane_group_source_location
+                    .expect("resolved lane-group member retains its reference source")
+                    .into(),
             });
         }
     }
-    for mir_key in frozen_lir.canonical_mir_band_order.iter().copied() {
+    for mir_key in frozen_lir
+        .facility_bands
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let band = &mir.facility_bands[mir_key.index()];
         facility_band_sources.push(StableEntitySourceRecord {
-            ordinal: frozen_lir.mir_band_to_lir[mir_key.index()],
+            ordinal: frozen_lir.facility_bands.ordinal(mir_key),
             stable_id: band.stable_id,
             primary: location.resolve(band.module, &band.source_span)?,
         });
     }
 
-    for mir_key in frozen_lir.canonical_mir_junction_order.iter().copied() {
+    for mir_key in frozen_lir
+        .junctions
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let junction = &mir.junctions[mir_key.index()];
-        let ordinal = frozen_lir.mir_junction_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.junctions.ordinal(mir_key);
         junction_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: junction.stable_id,
@@ -603,21 +653,31 @@ pub(crate) fn freeze_source_map(
         .copied()
         .enumerate()
         {
-            let movement_key = frozen_lir.canonical_mir_movement_order[movement_ordinal.index()];
+            let movement_key = frozen_lir
+                .movements
+                .stage_key_at_lir_index(movement_ordinal.index());
             let movement = &mir.movements[movement_key.index()];
             junction_relation_sources.push(JunctionRelationSourceRecord {
                 owner: JunctionRelationOwnerRecord::Junction(ordinal, junction.stable_id),
                 role: SourceRelationRole::JunctionMovement,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: location.resolve(movement.module, &movement.source_span)?,
+                primary: movement
+                    .junction_source_location
+                    .expect("resolved junction member retains its reference source")
+                    .into(),
             });
         }
     }
 
-    for mir_key in frozen_lir.canonical_mir_movement_order.iter().copied() {
+    for mir_key in frozen_lir
+        .movements
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let movement = &mir.movements[mir_key.index()];
-        let ordinal = frozen_lir.mir_movement_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.movements.ordinal(mir_key);
         movement_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: movement.stable_id,
@@ -630,21 +690,31 @@ pub(crate) fn freeze_source_map(
         .copied()
         .enumerate()
         {
-            let path_key = frozen_lir.canonical_mir_maneuver_path_order[path_ordinal.index()];
+            let path_key = frozen_lir
+                .maneuver_paths
+                .stage_key_at_lir_index(path_ordinal.index());
             let path = &mir.maneuver_paths[path_key.index()];
             junction_relation_sources.push(JunctionRelationSourceRecord {
                 owner: JunctionRelationOwnerRecord::Movement(ordinal, movement.stable_id),
                 role: SourceRelationRole::MovementManeuverPath,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: location.resolve(path.module, &path.source_span)?,
+                primary: path
+                    .movement_source_location
+                    .expect("resolved movement path retains its parent reference source")
+                    .into(),
             });
         }
     }
 
-    for mir_key in frozen_lir.canonical_mir_maneuver_path_order.iter().copied() {
+    for mir_key in frozen_lir
+        .maneuver_paths
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let path = &mir.maneuver_paths[mir_key.index()];
-        let ordinal = frozen_lir.mir_maneuver_path_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.maneuver_paths.ordinal(mir_key);
         maneuver_path_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: path.stable_id,
@@ -669,14 +739,19 @@ pub(crate) fn freeze_source_map(
         .copied()
         .enumerate()
         {
-            let gate_key = frozen_lir.canonical_mir_maneuver_gate_order[gate_ordinal.index()];
+            let gate_key = frozen_lir
+                .maneuver_gates
+                .stage_key_at_lir_index(gate_ordinal.index());
             let gate = &mir.maneuver_gates[gate_key.index()];
             junction_relation_sources.push(JunctionRelationSourceRecord {
                 owner: JunctionRelationOwnerRecord::ManeuverPath(ordinal, path.stable_id),
                 role: SourceRelationRole::ManeuverPathGate,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: location.resolve(gate.module, &gate.source_span)?,
+                primary: gate
+                    .maneuver_path_source_location
+                    .expect("resolved maneuver gate retains its path reference source")
+                    .into(),
             });
         }
         for (local_index, waiting_ordinal) in frozen_lir.lir.maneuver_path_waiting_zones
@@ -685,21 +760,31 @@ pub(crate) fn freeze_source_map(
         .copied()
         .enumerate()
         {
-            let waiting_key = frozen_lir.canonical_mir_waiting_zone_order[waiting_ordinal.index()];
+            let waiting_key = frozen_lir
+                .waiting_zones
+                .stage_key_at_lir_index(waiting_ordinal.index());
             let waiting = &mir.waiting_zones[waiting_key.index()];
             junction_relation_sources.push(JunctionRelationSourceRecord {
                 owner: JunctionRelationOwnerRecord::ManeuverPath(ordinal, path.stable_id),
                 role: SourceRelationRole::ManeuverPathWaitingZone,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: location.resolve(waiting.module, &waiting.source_span)?,
+                primary: waiting
+                    .maneuver_path_source_location
+                    .expect("resolved waiting zone retains its path reference source")
+                    .into(),
             });
         }
     }
 
-    for mir_key in frozen_lir.canonical_mir_stop_line_order.iter().copied() {
+    for mir_key in frozen_lir
+        .stop_lines
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let stop_line = &mir.stop_lines[mir_key.index()];
-        let ordinal = frozen_lir.mir_stop_line_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.stop_lines.ordinal(mir_key);
         stop_line_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: stop_line.stable_id,
@@ -712,61 +797,94 @@ pub(crate) fn freeze_source_map(
         .copied()
         .enumerate()
         {
-            let gate_key = frozen_lir.canonical_mir_maneuver_gate_order[gate_ordinal.index()];
+            let gate_key = frozen_lir
+                .maneuver_gates
+                .stage_key_at_lir_index(gate_ordinal.index());
             let gate = &mir.maneuver_gates[gate_key.index()];
             junction_relation_sources.push(JunctionRelationSourceRecord {
                 owner: JunctionRelationOwnerRecord::StopLine(ordinal, stop_line.stable_id),
                 role: SourceRelationRole::StopLineManeuverGate,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: location.resolve(gate.module, &gate.source_span)?,
+                primary: gate
+                    .stop_line_source_location
+                    .expect("resolved maneuver gate retains its stop-line reference source")
+                    .into(),
             });
         }
     }
-    for mir_key in frozen_lir.canonical_mir_maneuver_gate_order.iter().copied() {
+    for mir_key in frozen_lir
+        .maneuver_gates
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let gate = &mir.maneuver_gates[mir_key.index()];
         maneuver_gate_sources.push(StableEntitySourceRecord {
-            ordinal: frozen_lir.mir_maneuver_gate_to_lir[mir_key.index()],
+            ordinal: frozen_lir.maneuver_gates.ordinal(mir_key),
             stable_id: gate.stable_id,
             primary: location.resolve(gate.module, &gate.source_span)?,
         });
     }
-    for mir_key in frozen_lir.canonical_mir_waiting_zone_order.iter().copied() {
+    for mir_key in frozen_lir
+        .waiting_zones
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let waiting = &mir.waiting_zones[mir_key.index()];
         waiting_zone_sources.push(StableEntitySourceRecord {
-            ordinal: frozen_lir.mir_waiting_zone_to_lir[mir_key.index()],
+            ordinal: frozen_lir.waiting_zones.ordinal(mir_key),
             stable_id: waiting.stable_id,
             primary: location.resolve(waiting.module, &waiting.source_span)?,
         });
     }
 
-    for mir_key in frozen_lir.canonical_mir_signal_group_order.iter().copied() {
+    for mir_key in frozen_lir
+        .signal_groups
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let group = &mir.signal_groups[mir_key.index()];
         signal_group_sources.push(StableEntitySourceRecord {
-            ordinal: frozen_lir.mir_signal_group_to_lir[mir_key.index()],
+            ordinal: frozen_lir.signal_groups.ordinal(mir_key),
             stable_id: group.stable_id,
             primary: location.resolve(group.module, &group.source_span)?,
         });
     }
     for mir_key in frozen_lir
-        .canonical_mir_signal_controller_order
+        .signal_controllers
+        .stage_keys_in_lir_order()
         .iter()
         .copied()
     {
         let controller = &mir.signal_controllers[mir_key.index()];
-        let ordinal = frozen_lir.mir_signal_controller_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.signal_controllers.ordinal(mir_key);
         signal_controller_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: controller.stable_id,
             primary: location.resolve(controller.module, &controller.source_span)?,
         });
         let lir_controller = &frozen_lir.lir.signal_controllers[ordinal.index()];
-        for local_index in 0..lir_controller.signal_groups.len() {
+        let lir_groups =
+            &frozen_lir.lir.signal_controller_groups[lir_controller.signal_groups.as_usize_range()];
+        let mir_group_rows = &frozen_lir.signal_controller_groups.mir_rows_in_lir_order()
+            [lir_controller.signal_groups.as_usize_range()];
+        debug_assert_eq!(mir_group_rows.len(), lir_groups.len());
+        for (local_index, (mir_row, lir_group)) in mir_group_rows.iter().zip(lir_groups).enumerate()
+        {
+            let group = &mir.signal_controller_groups[mir_row.index()];
+            debug_assert_eq!(
+                frozen_lir.signal_groups.ordinal(group.signal_group),
+                *lir_group
+            );
             signal_relation_sources.push(SignalRelationSourceRecord {
                 owner: SignalRelationOwnerRecord::SignalController(ordinal, controller.stable_id),
                 role: SourceRelationRole::SignalControllerGroup,
-                local_index,
-                primary: location.resolve(controller.module, &controller.source_span)?,
+                local_index: u32::try_from(local_index)
+                    .expect("LIR relation range precheck proved local index fits u32"),
+                primary: group.source_location.into(),
             });
         }
         for (local_index, phase_ordinal) in frozen_lir.lir.signal_controller_phases
@@ -775,7 +893,9 @@ pub(crate) fn freeze_source_map(
         .copied()
         .enumerate()
         {
-            let phase_key = frozen_lir.canonical_mir_signal_phase_order[phase_ordinal.index()];
+            let phase_key = frozen_lir
+                .signal_phases
+                .stage_key_at_lir_index(phase_ordinal.index());
             let phase = &mir.signal_phases[phase_key.index()];
             signal_relation_sources.push(SignalRelationSourceRecord {
                 owner: SignalRelationOwnerRecord::SignalController(ordinal, controller.stable_id),
@@ -786,50 +906,84 @@ pub(crate) fn freeze_source_map(
             });
         }
     }
-    for mir_key in frozen_lir.canonical_mir_signal_phase_order.iter().copied() {
+    for mir_key in frozen_lir
+        .signal_phases
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let phase = &mir.signal_phases[mir_key.index()];
-        let ordinal = frozen_lir.mir_signal_phase_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.signal_phases.ordinal(mir_key);
         signal_phase_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: phase.stable_id,
             primary: location.resolve(phase.module, &phase.source_span)?,
         });
         let lir_phase = &frozen_lir.lir.signal_phases[ordinal.index()];
-        for local_index in 0..lir_phase.states.len() {
+        let lir_states = &frozen_lir.lir.signal_phase_states[lir_phase.states.as_usize_range()];
+        let mir_state_rows = &frozen_lir.signal_phase_states.mir_rows_in_lir_order()
+            [lir_phase.states.as_usize_range()];
+        debug_assert_eq!(mir_state_rows.len(), lir_states.len());
+        for (local_index, (mir_row, lir_state)) in mir_state_rows.iter().zip(lir_states).enumerate()
+        {
+            let state = &mir.signal_phase_states[mir_row.index()];
+            debug_assert_eq!(
+                frozen_lir.signal_groups.ordinal(state.signal_group),
+                lir_state.signal_group
+            );
             signal_relation_sources.push(SignalRelationSourceRecord {
                 owner: SignalRelationOwnerRecord::SignalPhase(ordinal, phase.stable_id),
                 role: SourceRelationRole::SignalPhaseState,
-                local_index,
-                primary: location.resolve(phase.module, &phase.source_span)?,
+                local_index: u32::try_from(local_index)
+                    .expect("LIR relation range precheck proved local index fits u32"),
+                primary: state.source_location.into(),
             });
         }
     }
-    for mir_key in frozen_lir.canonical_mir_maneuver_gate_order.iter().copied() {
+    for mir_key in frozen_lir
+        .maneuver_gates
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let gate = &mir.maneuver_gates[mir_key.index()];
-        if matches!(gate.signal_control, MirSignalControl::Group(_)) {
+        if let MirSignalControl::Group {
+            source_location, ..
+        } = gate.signal_control
+        {
             signal_relation_sources.push(SignalRelationSourceRecord {
                 owner: SignalRelationOwnerRecord::ManeuverGate(
-                    frozen_lir.mir_maneuver_gate_to_lir[mir_key.index()],
+                    frozen_lir.maneuver_gates.ordinal(mir_key),
                     gate.stable_id,
                 ),
                 role: SourceRelationRole::ManeuverGateSignalGroup,
                 local_index: 0,
-                primary: location.resolve(gate.module, &gate.source_span)?,
+                primary: source_location.into(),
             });
         }
     }
 
-    for mir_key in frozen_lir.canonical_mir_parking_area_order.iter().copied() {
+    for mir_key in frozen_lir
+        .parking_areas
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let area = &mir.parking_areas[mir_key.index()];
         parking_area_sources.push(StableEntitySourceRecord {
-            ordinal: frozen_lir.mir_parking_area_to_lir[mir_key.index()],
+            ordinal: frozen_lir.parking_areas.ordinal(mir_key),
             stable_id: area.stable_id,
             primary: location.resolve(area.module, &area.source_span)?,
         });
     }
-    for mir_key in frozen_lir.canonical_mir_parking_space_order.iter().copied() {
+    for mir_key in frozen_lir
+        .parking_spaces
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let space = &mir.parking_spaces[mir_key.index()];
-        let ordinal = frozen_lir.mir_parking_space_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.parking_spaces.ordinal(mir_key);
         let primary = location.resolve(space.module, &space.source_span)?;
         parking_space_sources.push(StableEntitySourceRecord {
             ordinal,
@@ -842,30 +996,40 @@ pub(crate) fn freeze_source_map(
                 owner_stable_id: space.stable_id,
                 role: SourceRelationRole::ParkingSpaceArea,
                 local_index: 0,
-                primary,
+                primary: space
+                    .parking_area_source_location
+                    .expect("resolved parking-area member retains its reference source")
+                    .into(),
             });
         }
-        for role in [
-            SourceRelationRole::ParkingSpaceEntry,
-            SourceRelationRole::ParkingSpaceExit,
+        for (role, source_location) in [
+            (
+                SourceRelationRole::ParkingSpaceEntry,
+                space.entry.source_location,
+            ),
+            (
+                SourceRelationRole::ParkingSpaceExit,
+                space.exit.source_location,
+            ),
         ] {
             parking_relation_sources.push(ParkingRelationSourceRecord {
                 owner_ordinal: ordinal,
                 owner_stable_id: space.stable_id,
                 role,
                 local_index: 0,
-                primary,
+                primary: source_location.into(),
             });
         }
     }
 
     for mir_key in frozen_lir
-        .canonical_mir_participant_class_order
+        .participant_classes
+        .stage_keys_in_lir_order()
         .iter()
         .copied()
     {
         let participant_class = &mir.participant_classes[mir_key.index()];
-        let ordinal = frozen_lir.mir_participant_class_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.participant_classes.ordinal(mir_key);
         participant_class_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: participant_class.stable_id,
@@ -890,12 +1054,13 @@ pub(crate) fn freeze_source_map(
         }
     }
     for mir_key in frozen_lir
-        .canonical_mir_vehicle_profile_order
+        .vehicle_profiles
+        .stage_keys_in_lir_order()
         .iter()
         .copied()
     {
         let profile = &mir.vehicle_profiles[mir_key.index()];
-        let ordinal = frozen_lir.mir_vehicle_profile_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.vehicle_profiles.ordinal(mir_key);
         vehicle_profile_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: profile.stable_id,
@@ -909,12 +1074,13 @@ pub(crate) fn freeze_source_map(
         });
     }
     for mir_key in frozen_lir
-        .canonical_mir_canonical_frame_order
+        .canonical_frames
+        .stage_keys_in_lir_order()
         .iter()
         .copied()
     {
         let frame = &mir.canonical_frames[mir_key.index()];
-        let ordinal = frozen_lir.mir_canonical_frame_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.canonical_frames.ordinal(mir_key);
         canonical_frame_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: frame.stable_id,
@@ -935,9 +1101,14 @@ pub(crate) fn freeze_source_map(
             });
         }
     }
-    for mir_key in frozen_lir.canonical_mir_access_rule_order.iter().copied() {
+    for mir_key in frozen_lir
+        .access_rules
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let rule = &mir.access_rules[mir_key.index()];
-        let ordinal = frozen_lir.mir_access_rule_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.access_rules.ordinal(mir_key);
         access_rule_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: rule.stable_id,
@@ -954,7 +1125,9 @@ pub(crate) fn freeze_source_map(
         .iter()
         .map(|selector| {
             (
-                frozen_lir.mir_participant_class_to_lir[selector.participant_class.index()],
+                frozen_lir
+                    .participant_classes
+                    .ordinal(selector.participant_class),
                 selector.source_span.clone(),
             )
         })
@@ -971,9 +1144,14 @@ pub(crate) fn freeze_source_map(
         }
     }
 
-    for mir_key in frozen_lir.canonical_mir_static_route_order.iter().copied() {
+    for mir_key in frozen_lir
+        .static_routes
+        .stage_keys_in_lir_order()
+        .iter()
+        .copied()
+    {
         let route = &mir.static_routes[mir_key.index()];
-        let ordinal = frozen_lir.mir_static_route_to_lir[mir_key.index()];
+        let ordinal = frozen_lir.static_routes.ordinal(mir_key);
         static_route_sources.push(StableEntitySourceRecord {
             ordinal,
             stable_id: route.stable_id,
@@ -1054,7 +1232,7 @@ pub(crate) fn freeze_source_map(
     for relation_index in frozen_lir.canonical_mir_internal_edge_order.iter().copied() {
         let relation = &mir.junction_internal_edges[relation_index as usize];
         let junction = &mir.junctions[relation.junction.index()];
-        let junction_ordinal = frozen_lir.mir_junction_to_lir[relation.junction.index()];
+        let junction_ordinal = frozen_lir.junctions.ordinal(relation.junction);
         let local_index = internal_edge_local_indexes[junction_ordinal.index()];
         internal_edge_local_indexes[junction_ordinal.index()] = local_index
             .checked_add(1)

@@ -35,6 +35,203 @@ fn module_with_document(namespace: &str, document: &str, imports: &[&str]) -> Sy
     builder.finish().unwrap()
 }
 
+fn signal_module_with_document(namespace: &str, document: &str) -> SyntheticModule {
+    let limits = CompileLimits::p100_initial_v1();
+    let mut builder = SyntheticModuleBuilder::new(header(namespace, document), &limits).unwrap();
+    builder
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "entry",
+            length_meters: 10.0,
+            speed_limit_meters_per_second: 10.0,
+            successors: &[LaneEdgeReference::local("middle")],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "middle",
+            length_meters: 8.0,
+            speed_limit_meters_per_second: 8.0,
+            successors: &[LaneEdgeReference::local("exit")],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "exit",
+            length_meters: 12.0,
+            speed_limit_meters_per_second: 10.0,
+            successors: &[],
+        })
+        .unwrap()
+        .add_junction(JunctionInput {
+            junction_key: "junction-main",
+        })
+        .unwrap()
+        .add_movement(MovementInput {
+            movement_key: "movement-through",
+            junction: JunctionReference::local("junction-main"),
+            directed_entry_approach_key: "approach-westbound",
+            directed_exit_approach_key: "approach-eastbound",
+        })
+        .unwrap()
+        .add_maneuver_path(ManeuverPathInput {
+            maneuver_path_key: "path-main",
+            movement: MovementReference::local("movement-through"),
+            entry_edge: LaneEdgeReference::local("entry"),
+            internal_edges: &[LaneEdgeReference::local("middle")],
+            exit_edge: LaneEdgeReference::local("exit"),
+        })
+        .unwrap()
+        .add_stop_line(StopLineInput {
+            stop_line_key: "stop-entry",
+            lane_edge: LaneEdgeReference::local("entry"),
+        })
+        .unwrap()
+        .add_stop_line(StopLineInput {
+            stop_line_key: "stop-middle",
+            lane_edge: LaneEdgeReference::local("middle"),
+        })
+        .unwrap()
+        .add_signal_group(SignalGroupInput {
+            signal_group_key: "group-main",
+        })
+        .unwrap()
+        .add_signal_group(SignalGroupInput {
+            signal_group_key: "group-release",
+        })
+        .unwrap()
+        .add_maneuver_gate(ManeuverGateInput {
+            maneuver_gate_key: "gate-entry",
+            maneuver_path: ManeuverPathReference::local("path-main"),
+            transition_index: 0,
+            stop_line: StopLineReference::local("stop-entry"),
+            signal_control: SignalControlInput::Group(SignalGroupReference::local("group-main")),
+        })
+        .unwrap()
+        .add_maneuver_gate(ManeuverGateInput {
+            maneuver_gate_key: "gate-release",
+            maneuver_path: ManeuverPathReference::local("path-main"),
+            transition_index: 1,
+            stop_line: StopLineReference::local("stop-middle"),
+            signal_control: SignalControlInput::Group(SignalGroupReference::local("group-release")),
+        })
+        .unwrap()
+        .add_signal_controller(SignalControllerInput {
+            signal_controller_key: "controller-main",
+            offset_ms: 0,
+            signal_groups: &[
+                SignalGroupReference::local("group-release"),
+                SignalGroupReference::local("group-main"),
+            ],
+            phases: &[SignalPhaseInput {
+                signal_phase_key: "phase-main",
+                duration_ms: 30_000,
+                states: &[
+                    SignalGroupStateInput {
+                        signal_group: SignalGroupReference::local("group-main"),
+                        aspect: SignalAspect::Green,
+                    },
+                    SignalGroupStateInput {
+                        signal_group: SignalGroupReference::local("group-release"),
+                        aspect: SignalAspect::Red,
+                    },
+                ],
+            }],
+        })
+        .unwrap()
+        .add_waiting_zone(WaitingZoneInput {
+            waiting_zone_key: "waiting-main",
+            maneuver_path: ManeuverPathReference::local("path-main"),
+            entry_gate: ManeuverGateReference::local("gate-entry"),
+            release_gate: ManeuverGateReference::local("gate-release"),
+            max_occupancy: 2,
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "cross-a",
+            length_meters: 14.0,
+            speed_limit_meters_per_second: 9.0,
+            successors: &[LaneEdgeReference::local("cross-b")],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "cross-b",
+            length_meters: 16.0,
+            speed_limit_meters_per_second: 9.0,
+            successors: &[],
+        })
+        .unwrap()
+        .add_facility_band(FacilityBandInput {
+            facility_band_key: "sidewalk-left",
+            kind_id: "sidewalk",
+        })
+        .unwrap()
+        .add_lane_group(LaneGroupInput {
+            lane_group_key: "through",
+            road_section: RoadSectionReference::local("carriageway"),
+        })
+        .unwrap()
+        .add_road_section(RoadSectionInput {
+            road_section_key: "carriageway",
+            kind_id: "motorLane",
+            lanes: &[AuthoringLaneInput {
+                authoring_lane_key: "lane-main",
+                edge_chain: &[
+                    LaneEdgeReference::local("cross-a"),
+                    LaneEdgeReference::local("cross-b"),
+                ],
+                lane_group: Some(LaneGroupReference::local("through")),
+            }],
+        })
+        .unwrap()
+        .add_road_corridor(RoadCorridorInput {
+            road_corridor_key: "main-road",
+            reference_section: RoadSectionReference::local("carriageway"),
+            elements: &[
+                CorridorElementReference::facility_band(FacilityBandReference::local(
+                    "sidewalk-left",
+                )),
+                CorridorElementReference::road_section(RoadSectionReference::local("carriageway")),
+            ],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "parking-entry",
+            length_meters: 20.0,
+            speed_limit_meters_per_second: 8.0,
+            successors: &[],
+        })
+        .unwrap()
+        .add_lane_edge(LaneEdgeInput {
+            lane_edge_key: "parking-exit",
+            length_meters: 20.0,
+            speed_limit_meters_per_second: 8.0,
+            successors: &[],
+        })
+        .unwrap()
+        .add_parking_area(ParkingAreaInput {
+            parking_area_key: "parking-main",
+        })
+        .unwrap()
+        .add_parking_space(ParkingSpaceInput {
+            parking_space_key: "space-main",
+            parking_area: Some(ParkingAreaReference::local("parking-main")),
+            entry: ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("parking-entry"),
+                progress_meters: 4.0,
+            },
+            exit: ParkingLaneAnchorInput {
+                lane_edge: LaneEdgeReference::local("parking-exit"),
+                progress_meters: 6.0,
+            },
+            geometry: ParkingSpaceGeometryInput {
+                lateral_offset_meters: -3.0,
+                heading_offset_radians: 0.25,
+                length_meters: 5.5,
+                width_meters: 2.6,
+            },
+        })
+        .unwrap();
+    builder.finish().unwrap()
+}
+
 fn expect_diagnostics<T>(result: Result<T, DiagnosticBundle>) -> DiagnosticBundle {
     match result {
         Ok(_) => panic!("expected structured diagnostics"),
@@ -1183,6 +1380,207 @@ fn three_document_module_retains_distinct_entity_relation_and_cold_origins() {
             ("source/tertiary", Some("memory://tertiary")),
         ]
     );
+}
+
+#[test]
+fn signal_relations_keep_their_own_multi_document_locations() {
+    use crate::identity::{IdentityFieldInput, encode_canonical_identity};
+    use laneflow_static_contract::{EntityKind, FieldTag};
+
+    let limits = CompileLimits::p100_initial_v2();
+    let max_identity_field_bytes = limits.value(CompileLimitDimension::SingleStringBytes);
+    let mut module = TestOfficialModule::from_synthetic_with_documents(
+        signal_module_with_document("city/signal", "source/primary"),
+        &[
+            ("source/controller-groups", b"controller groups"),
+            ("source/phase-states", b"phase states"),
+            ("source/gate-signals", b"gate signals"),
+        ],
+    );
+    module.move_signal_relation_spans_to(
+        "source/controller-groups",
+        "source/phase-states",
+        "source/gate-signals",
+    );
+
+    let mut builder = CompilationUnitBuilder::new(limits);
+    builder.add_test_official_module(module).unwrap();
+    let output = crate::Compiler::new()
+        .compile(builder.build().unwrap())
+        .unwrap();
+
+    let sources = output
+        .source_map_input()
+        .signal_relation_sources()
+        .map(|source| {
+            let primary = source.primary_source();
+            (
+                source.role(),
+                source.local_index(),
+                primary.source_document_key().to_owned(),
+                primary.start().line(),
+                primary.start().column(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let controller_groups = sources
+        .iter()
+        .filter(|source| source.0 == SourceRelationRole::SignalControllerGroup)
+        .collect::<Vec<_>>();
+    let phase_states = sources
+        .iter()
+        .filter(|source| source.0 == SourceRelationRole::SignalPhaseState)
+        .collect::<Vec<_>>();
+    let lir = output.lir();
+    let controller = lir.signal_controllers().next().unwrap();
+    let group_key = |ordinal| {
+        let group = lir.signal_group(ordinal).unwrap();
+        let field = group
+            .identity_fields()
+            .find(|field| field.tag() == FieldTag::SignalGroupKey)
+            .unwrap();
+        std::str::from_utf8(field.value_bytes()).unwrap().to_owned()
+    };
+    let controller_group_keys = controller
+        .signal_groups()
+        .iter()
+        .copied()
+        .map(group_key)
+        .collect::<Vec<_>>();
+    let phase_group_keys = lir
+        .signal_phases()
+        .next()
+        .unwrap()
+        .states()
+        .map(|state| group_key(state.signal_group()))
+        .collect::<Vec<_>>();
+
+    // 此夹具必须真正覆盖两种顺序不一致的反例：HIR 用 StableId 消除来源顺序，LIR
+    // 则按完整 Identity v1 前像排序。
+    let stable_id = |key: &str| {
+        encode_canonical_identity(
+            EntityKind::SignalGroup,
+            &[
+                IdentityFieldInput::new(FieldTag::AuthoringNamespaceId, b"city/signal"),
+                IdentityFieldInput::new(FieldTag::SignalGroupKey, key.as_bytes()),
+            ],
+            max_identity_field_bytes,
+        )
+        .unwrap()
+        .stable_id()
+    };
+    let mut hir_stage_group_keys = ["group-main", "group-release"];
+    hir_stage_group_keys.sort_unstable_by_key(|key| stable_id(key));
+    assert_ne!(
+        hir_stage_group_keys,
+        [
+            controller_group_keys[0].as_str(),
+            controller_group_keys[1].as_str()
+        ],
+        "fixture must keep HIR StableId order distinct from LIR identity order"
+    );
+
+    assert_eq!(controller_groups.len(), 2);
+    assert_eq!(phase_states.len(), 2);
+    assert_eq!(controller_group_keys, ["group-main", "group-release"]);
+    assert_eq!(phase_group_keys, controller_group_keys);
+    for ((controller_group, phase_state), group_key) in controller_groups
+        .iter()
+        .zip(&phase_states)
+        .zip(&controller_group_keys)
+    {
+        assert_eq!(controller_group.1, phase_state.1);
+        assert_eq!(controller_group.2, "source/controller-groups");
+        assert_eq!(phase_state.2, "source/phase-states");
+        let relation_offset = u32::from(group_key == "group-release");
+        assert_eq!(controller_group.3, 51 + relation_offset);
+        assert_eq!(phase_state.3, 61 + relation_offset);
+        assert_eq!(controller_group.4, 3);
+        assert_eq!(phase_state.4, 5);
+    }
+
+    let mut gate_signal_lines = sources
+        .iter()
+        .filter(|source| source.0 == SourceRelationRole::ManeuverGateSignalGroup)
+        .map(|source| {
+            assert_eq!(source.1, 0);
+            assert_eq!(source.2, "source/gate-signals");
+            assert_eq!(source.4, 7);
+            source.3
+        })
+        .collect::<Vec<_>>();
+    gate_signal_lines.sort_unstable();
+    assert_eq!(gate_signal_lines, [71, 72]);
+}
+
+#[test]
+fn every_authored_owner_relation_keeps_its_multi_document_location() {
+    let limits = CompileLimits::p100_initial_v2();
+    let mut module = TestOfficialModule::from_synthetic_with_documents(
+        signal_module_with_document("city/authored-relations", "source/primary"),
+        &[("source/authored-relations", b"authored relations")],
+    );
+    module.move_authored_relation_spans_to("source/authored-relations");
+
+    let mut builder = CompilationUnitBuilder::new(limits);
+    builder.add_test_official_module(module).unwrap();
+    let output = crate::Compiler::new()
+        .compile(builder.build().unwrap())
+        .unwrap();
+    let source_map = output.source_map_input();
+    let mut documents = std::collections::BTreeMap::<SourceRelationRole, Vec<String>>::new();
+    for source in source_map.cross_section_relation_sources() {
+        documents
+            .entry(source.role())
+            .or_default()
+            .push(source.primary_source().source_document_key().to_owned());
+    }
+    for source in source_map.junction_relation_sources() {
+        documents
+            .entry(source.role())
+            .or_default()
+            .push(source.primary_source().source_document_key().to_owned());
+    }
+    for source in source_map.signal_relation_sources() {
+        documents
+            .entry(source.role())
+            .or_default()
+            .push(source.primary_source().source_document_key().to_owned());
+    }
+    for source in source_map.parking_relation_sources() {
+        documents
+            .entry(source.role())
+            .or_default()
+            .push(source.primary_source().source_document_key().to_owned());
+    }
+
+    for (role, expected_count) in [
+        (SourceRelationRole::RoadCorridorElement, 2),
+        (SourceRelationRole::RoadSectionLane, 1),
+        (SourceRelationRole::LaneGroupMember, 1),
+        (SourceRelationRole::JunctionMovement, 1),
+        (SourceRelationRole::MovementManeuverPath, 1),
+        (SourceRelationRole::ManeuverPathGate, 2),
+        (SourceRelationRole::ManeuverPathWaitingZone, 1),
+        (SourceRelationRole::StopLineManeuverGate, 2),
+        (SourceRelationRole::SignalControllerGroup, 2),
+        (SourceRelationRole::SignalPhaseState, 2),
+        (SourceRelationRole::ManeuverGateSignalGroup, 2),
+        (SourceRelationRole::ParkingSpaceArea, 1),
+        (SourceRelationRole::ParkingSpaceEntry, 1),
+        (SourceRelationRole::ParkingSpaceExit, 1),
+    ] {
+        let actual = documents
+            .get(&role)
+            .unwrap_or_else(|| panic!("missing authored relation source records for {role:?}"));
+        assert_eq!(actual.len(), expected_count, "relation count for {role:?}");
+        assert!(
+            actual
+                .iter()
+                .all(|document| document == "source/authored-relations"),
+            "relation source document for {role:?}: {actual:?}",
+        );
+    }
 }
 
 #[test]

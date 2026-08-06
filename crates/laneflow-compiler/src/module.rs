@@ -25,7 +25,7 @@ pub use descriptor::{
 };
 pub use synthetic::{SYNTHETIC_FRONTEND_VERSION, SyntheticModule, SyntheticModuleBuilder};
 
-pub(crate) use admission::SourceDocumentOrdinal;
+pub(crate) use admission::{ResolvedSourceLocation, SourceDocumentOrdinal};
 
 #[cfg(test)]
 use admission::{

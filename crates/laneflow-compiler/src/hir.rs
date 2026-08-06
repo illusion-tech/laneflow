@@ -37,6 +37,7 @@ use crate::identity::{
     IdentityFieldInput, IdentityRegistrationError, IdentityRegistry, RegisteredCanonicalIdentity,
     encode_canonical_identity,
 };
+use crate::module::ResolvedSourceLocation;
 use crate::{
     AccessCapability, AccessPlane, AccessRegulationField, CompilationUnit, CompileLimitDimension,
     Diagnostic, DiagnosticBundle, ParkingAnchorRole, ParkingGeometryField,
@@ -142,8 +143,14 @@ pub(crate) struct HirLaneEdge {
 
 /// 道路走廊有序横断面中的已解析异构成员。
 pub(crate) enum HirCorridorElement {
-    RoadSection(HirRoadSectionKey),
-    FacilityBand(HirFacilityBandKey),
+    RoadSection {
+        road_section: HirRoadSectionKey,
+        source_location: ResolvedSourceLocation,
+    },
+    FacilityBand {
+        facility_band: HirFacilityBandKey,
+        source_location: ResolvedSourceLocation,
+    },
 }
 
 /// 已证明参考区段成员性与成员唯一所有权的道路走廊。
@@ -181,6 +188,7 @@ pub(crate) struct HirAuthoringLane {
     pub(crate) road_section: HirRoadSectionKey,
     pub(crate) edge_chain: TableRange<HirAuthoringLaneEdge>,
     pub(crate) lane_group: Option<HirLaneGroupKey>,
+    pub(crate) lane_group_source_location: Option<ResolvedSourceLocation>,
     pub(crate) source_span: SourceSpan,
 }
 
@@ -225,6 +233,7 @@ pub(crate) struct HirMovement {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: MovementId,
     pub(crate) junction: HirJunctionKey,
+    pub(crate) junction_source_location: Option<ResolvedSourceLocation>,
     pub(crate) directed_entry_approach_key: Arc<str>,
     pub(crate) directed_exit_approach_key: Arc<str>,
     pub(crate) maneuver_paths: TableRange<HirMovementManeuverPath>,
@@ -253,6 +262,7 @@ pub(crate) struct HirManeuverPath {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ManeuverPathId,
     pub(crate) movement: HirMovementKey,
+    pub(crate) movement_source_location: Option<ResolvedSourceLocation>,
     /// 完整序列 `entry + internal + exit`；首尾是边界边，中间区间是内部边。
     pub(crate) edges: TableRange<HirManeuverPathEdge>,
     /// 按 `transition_index` 严格递增的机动门成员区间。
@@ -296,8 +306,10 @@ pub(crate) struct HirManeuverGate {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ManeuverGateId,
     pub(crate) maneuver_path: HirManeuverPathKey,
+    pub(crate) maneuver_path_source_location: Option<ResolvedSourceLocation>,
     pub(crate) transition_index: u32,
     pub(crate) stop_line: HirStopLineKey,
+    pub(crate) stop_line_source_location: Option<ResolvedSourceLocation>,
     /// 信号层绑定；`None` 不改变其他通行权层的约束。
     pub(crate) signal_control: HirSignalControl,
     pub(crate) source_span: SourceSpan,
@@ -305,7 +317,10 @@ pub(crate) struct HirManeuverGate {
 
 #[derive(Clone, Copy)]
 pub(crate) enum HirSignalControl {
-    Group(HirSignalGroupKey),
+    Group {
+        signal_group: HirSignalGroupKey,
+        source_location: ResolvedSourceLocation,
+    },
     None,
 }
 
@@ -329,6 +344,7 @@ pub(crate) struct HirSignalGroupManeuverGate {
 #[derive(Clone, Copy)]
 pub(crate) struct HirSignalControllerGroup {
     pub(crate) signal_group: HirSignalGroupKey,
+    pub(crate) source_location: ResolvedSourceLocation,
 }
 
 /// 固定时制控制器的不可变循环程序。
@@ -360,6 +376,7 @@ pub(crate) struct HirSignalPhase {
 pub(crate) struct HirSignalPhaseState {
     pub(crate) signal_group: HirSignalGroupKey,
     pub(crate) aspect: SignalAspect,
+    pub(crate) source_location: ResolvedSourceLocation,
 }
 
 /// 停车区域的一个规范停车位成员。
@@ -382,6 +399,7 @@ pub(crate) struct HirParkingArea {
 pub(crate) struct HirParkingLaneAnchor {
     pub(crate) lane_edge: HirLaneEdgeKey,
     pub(crate) progress_meters: f64,
+    pub(crate) source_location: ResolvedSourceLocation,
 }
 
 /// 已验证的停车位矩形几何；数值保持来源 `f64` 精度。
@@ -399,6 +417,7 @@ pub(crate) struct HirParkingSpace {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: ParkingSpaceId,
     pub(crate) parking_area: Option<HirParkingAreaKey>,
+    pub(crate) parking_area_source_location: Option<ResolvedSourceLocation>,
     pub(crate) entry: HirParkingLaneAnchor,
     pub(crate) exit: HirParkingLaneAnchor,
     pub(crate) geometry: HirParkingSpaceGeometry,
@@ -516,6 +535,7 @@ pub(crate) struct HirWaitingZone {
     pub(crate) stable_key: Arc<str>,
     pub(crate) stable_id: WaitingZoneId,
     pub(crate) maneuver_path: HirManeuverPathKey,
+    pub(crate) maneuver_path_source_location: Option<ResolvedSourceLocation>,
     pub(crate) entry_gate: HirManeuverGateKey,
     pub(crate) release_gate: HirManeuverGateKey,
     pub(crate) max_occupancy: u32,
@@ -1992,6 +2012,7 @@ fn build_cross_section_hir(
                                 road_section: section_key,
                                 edge_chain: TableRange::empty(),
                                 lane_group: None,
+                                lane_group_source_location: None,
                                 source_span: lane.header.span.clone(),
                             })
                             .map_err(|overflow| {
@@ -2133,7 +2154,13 @@ fn build_cross_section_hir(
                             location.source_module_index,
                             &mut diagnostics,
                         );
-                        corridor_elements.push(HirCorridorElement::RoadSection(target));
+                        corridor_elements.push(HirCorridorElement::RoadSection {
+                            road_section: target,
+                            source_location: unit.resolve_source_location_for_module(
+                                location.source_module_index,
+                                &reference.span,
+                            )?,
+                        });
                     }
                 }
                 OwnedCorridorElementReference::FacilityBand(reference) => {
@@ -2157,7 +2184,13 @@ fn build_cross_section_hir(
                             location.source_module_index,
                             &mut diagnostics,
                         );
-                        corridor_elements.push(HirCorridorElement::FacilityBand(target));
+                        corridor_elements.push(HirCorridorElement::FacilityBand {
+                            facility_band: target,
+                            source_location: unit.resolve_source_location_for_module(
+                                location.source_module_index,
+                                &reference.span,
+                            )?,
+                        });
                     }
                 }
             }
@@ -2480,6 +2513,13 @@ fn build_cross_section_hir(
                     )
                 })?;
         lane.lane_group = lane_group;
+        lane.lane_group_source_location = match (&lane_source.lane_group, lane_group) {
+            (Some(reference), Some(_)) => Some(unit.resolve_source_location_for_module(
+                location.source_module_index,
+                &reference.span,
+            )?),
+            _ => None,
+        };
     }
 
     for (group_key, group) in groups.iter() {
@@ -2637,6 +2677,7 @@ fn build_junction_hir(
                             stable_key: Arc::clone(&source.header.stable_key),
                             stable_id: MovementId::from_untyped(StableId128::ZERO),
                             junction: HirJunctionKey::from_raw(0),
+                            junction_source_location: None,
                             directed_entry_approach_key: Arc::clone(
                                 &source.directed_entry_approach_key,
                             ),
@@ -2669,6 +2710,7 @@ fn build_junction_hir(
                             stable_key: Arc::clone(&source.header.stable_key),
                             stable_id: ManeuverPathId::from_untyped(StableId128::ZERO),
                             movement: HirMovementKey::from_raw(0),
+                            movement_source_location: None,
                             edges: TableRange::empty(),
                             maneuver_gates: TableRange::empty(),
                             waiting_zones: TableRange::empty(),
@@ -2745,6 +2787,10 @@ fn build_junction_hir(
         let movement = movements.get_mut(location.hir_key);
         movement.stable_id = stable_id;
         movement.junction = junction;
+        movement.junction_source_location = Some(unit.resolve_source_location_for_module(
+            location.source_module_index,
+            &source.junction.span,
+        )?);
         junction_member_counts[junction.index()] =
             junction_member_counts[junction.index()].saturating_add(1);
     }
@@ -2852,6 +2898,10 @@ fn build_junction_hir(
         let path = paths.get_mut(location.hir_key);
         path.stable_id = stable_id;
         path.movement = movement;
+        path.movement_source_location = Some(unit.resolve_source_location_for_module(
+            location.source_module_index,
+            &source.movement.span,
+        )?);
         path.edges = TableRange::try_from_usize(start, path_edges.len().saturating_sub(start))
             .map_err(|overflow| {
                 arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
@@ -3210,8 +3260,10 @@ fn build_control_hir(
                             stable_key: Arc::clone(&source.header.stable_key),
                             stable_id: ManeuverGateId::from_untyped(StableId128::ZERO),
                             maneuver_path: HirManeuverPathKey::from_raw(0),
+                            maneuver_path_source_location: None,
                             transition_index: source.transition_index,
                             stop_line: HirStopLineKey::from_raw(0),
+                            stop_line_source_location: None,
                             signal_control: HirSignalControl::None,
                             source_span: source.header.span.clone(),
                         })
@@ -3232,6 +3284,7 @@ fn build_control_hir(
                             stable_key: Arc::clone(&source.header.stable_key),
                             stable_id: WaitingZoneId::from_untyped(StableId128::ZERO),
                             maneuver_path: HirManeuverPathKey::from_raw(0),
+                            maneuver_path_source_location: None,
                             entry_gate: HirManeuverGateKey::from_raw(0),
                             release_gate: HirManeuverGateKey::from_raw(0),
                             max_occupancy: source.max_occupancy,
@@ -3379,7 +3432,15 @@ fn build_control_hir(
         let gate = gates.get_mut(location.hir_key);
         gate.stable_id = stable_id;
         gate.maneuver_path = path_key;
+        gate.maneuver_path_source_location = Some(unit.resolve_source_location_for_module(
+            location.source_module_index,
+            &source.maneuver_path.span,
+        )?);
         gate.stop_line = stop_line_key;
+        gate.stop_line_source_location = Some(unit.resolve_source_location_for_module(
+            location.source_module_index,
+            &source.stop_line.span,
+        )?);
         resolved_gate_keys.push(location.hir_key);
     }
 
@@ -3648,6 +3709,10 @@ fn build_control_hir(
         let waiting = waiting_zones.get_mut(location.hir_key);
         waiting.stable_id = stable_id;
         waiting.maneuver_path = path_key;
+        waiting.maneuver_path_source_location = Some(unit.resolve_source_location_for_module(
+            location.source_module_index,
+            &source.maneuver_path.span,
+        )?);
         waiting.entry_gate = entry_key;
         waiting.release_gate = release_key;
         resolved_waiting_keys.push(location.hir_key);
@@ -3975,15 +4040,20 @@ fn build_signal_hir(
             }
             resolved_groups.push(group_key);
         }
-        // 控制器的组声明是集合语义；以稳定身份规范化后，来源排列不会渗入制品。
+        // 控制器的组声明是集合语义；这里按 StableId 建立 HIR 阶段局部确定顺序，
+        // 只用于消除来源排列，不能把它当作最终 LIR 的完整身份顺序。
         resolved_groups.sort_unstable_by_key(|key| groups.get(*key).stable_id);
         let group_start = controller_group_rows.len();
-        controller_group_rows.extend(
-            resolved_groups
-                .iter()
-                .copied()
-                .map(|signal_group| HirSignalControllerGroup { signal_group }),
-        );
+        for signal_group in resolved_groups.iter().copied() {
+            let source_span = first_group_spans
+                .get(&signal_group)
+                .expect("resolved controller group retains its first reference span");
+            controller_group_rows.push(HirSignalControllerGroup {
+                signal_group,
+                source_location: unit
+                    .resolve_source_location_for_module(module_order, source_span)?,
+            });
+        }
         controllers.get_mut(controller_key).signal_groups = TableRange::try_from_usize(
             group_start,
             controller_group_rows.len().saturating_sub(group_start),
@@ -4126,7 +4196,7 @@ fn build_signal_hir(
             }
             let state_start = phase_states.len();
             for (position, group_key) in resolved_groups.iter().copied().enumerate() {
-                let Some((aspect, _)) = &states_by_position[position] else {
+                let Some((aspect, source_span)) = &states_by_position[position] else {
                     let mut diagnostic = Diagnostic::missing_signal_phase_group(
                         &source.header.stable_key,
                         &phase_source.header.stable_key,
@@ -4142,6 +4212,8 @@ fn build_signal_hir(
                 phase_states.push(HirSignalPhaseState {
                     signal_group: group_key,
                     aspect: *aspect,
+                    source_location: unit
+                        .resolve_source_location_for_module(module_order, source_span)?,
                 });
             }
             phases
@@ -4245,8 +4317,11 @@ fn build_signal_hir(
                     ) else {
                         continue;
                     };
-                    maneuver_gates[gate_key.index()].signal_control =
-                        HirSignalControl::Group(group_key);
+                    maneuver_gates[gate_key.index()].signal_control = HirSignalControl::Group {
+                        signal_group: group_key,
+                        source_location: unit
+                            .resolve_source_location_for_module(module_order, &reference.span)?,
+                    };
                     usages.push((group_key, gate_key));
                 }
             }
@@ -4972,19 +5047,34 @@ fn build_parking_hir(
         let (Some(entry_edge), Some(exit_edge)) = (entry_edge, exit_edge) else {
             continue;
         };
+        let parking_area_source_location = match (&source.parking_area, parking_area) {
+            (Some(reference), Some(_)) => {
+                Some(unit.resolve_source_location_for_module(module_order, &reference.span)?)
+            }
+            _ => None,
+        };
         let space_key = spaces
             .push(HirParkingSpace {
                 module: module_key,
                 stable_key: Arc::clone(&source.header.stable_key),
                 stable_id,
                 parking_area,
+                parking_area_source_location,
                 entry: HirParkingLaneAnchor {
                     lane_edge: entry_edge,
                     progress_meters: source.entry.progress_meters,
+                    source_location: unit.resolve_source_location_for_module(
+                        module_order,
+                        &source.entry.lane_edge.span,
+                    )?,
                 },
                 exit: HirParkingLaneAnchor {
                     lane_edge: exit_edge,
                     progress_meters: source.exit.progress_meters,
+                    source_location: unit.resolve_source_location_for_module(
+                        module_order,
+                        &source.exit.lane_edge.span,
+                    )?,
                 },
                 geometry: HirParkingSpaceGeometry {
                     lateral_offset_meters: geometry.lateral_offset_meters,
