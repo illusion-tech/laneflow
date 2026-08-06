@@ -417,8 +417,8 @@ impl CompilationUnitBuilder {
 `source_document_set_digest()` / `source_document_set_digest_version()` 查询，不保留“第一个
 文档”的隐式兼容语义，也不让旧 `source_content_digest()` 同时表示文档摘要和文档集摘要。
 `SyntheticModuleBuilder` 只接受首批支持矩阵中的领域构造；`CompilationUnitBuilder`
-只接受 #292 明确支持的官方来源模块。二者都不能自行伪造有类型抽象语法树或已验证
-阶段。必须保持：
+只通过具体且封闭的官方前端入口接收完成受检构造的来源模块。二者都不能自行伪造
+有类型抽象语法树或已验证阶段。必须保持：
 
 - `TypedAstSink`、`TypedAstModule` 与官方前端调度接口是
   `laneflow-compiler` 的包内私有实现；
