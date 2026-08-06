@@ -5,8 +5,8 @@
 - 关联 Issue：
 - PR 角色：`Delivery PR` / `Related PR`
 - Development 关联：
-  - Delivery PR：唯一可完成关联 Issue 验收边界的 PR，使用 `Closes #<issue>` / `Resolves #<issue>`，并由 `closingIssuesReferences` 覆盖目标 Issue。
-  - Related PR：部分交付，使用 `Refs: #<issue>`；不得以 closing keyword 覆盖目标 Issue。
+  - Delivery PR：唯一可完成关联 Issue 验收边界的 PR，使用 `Closes #<issue>` / `Resolves #<issue>`，完整 `closingIssuesReferences` 必须与全部 `关联 Issue` 精确一致。
+  - Related PR：部分交付，使用 `Refs: #<issue>`；完整 `closingIssuesReferences` 必须为空。
 - 切片类型：
   - [ ] docs-only（仅文档）
   - [ ] governance（治理）
@@ -23,7 +23,7 @@
 
 - [ ] 关联 Issue 的 Project、Project status、Labels 已核验；缺失项已有显式例外。
 - [ ] Milestone、Parent / sub-issues、Blocked by、Blocking 已核验；不适用项已有 `N/A` 原因。
-- [ ] Delivery PR / Related PRs 已在 Issue 中准确记录；若本 PR 是 Delivery PR，`closingIssuesReferences` 已覆盖关联 Issue；若本 PR 是 Related PR，已记录 `Refs: #<issue>` 且没有误用 closing keyword。
+- [ ] Delivery PR / Related PRs 已在 Issue 中准确记录；若本 PR 是 Delivery PR，完整 `closingIssuesReferences` 与全部 `关联 Issue` 精确一致；若本 PR 是 Related PR，已记录 `Refs: #<issue>` 且 closing set 为空。
 
 ## 影响
 
@@ -99,7 +99,7 @@ G3 comment 模板（合并前发表）：
 
 每个 Related PR 都使用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>` 并永久保留该 Related-only 断言；Delivery PR / full-set 使用 `--delivery-pr <number>` 并传入全部 Related PR，不改写历史 Related comment。一个 PR 关联多个 Issue 时，在同一 append-only G3 comment 中为每个 Issue 分别写一条精确 `Gate 断言`。填写与实际参数完全一致的命令后立即逐条运行；若失败，必须移除对应“已通过”并修复证据。Related PR B 合入前，该命令只校验 legacy comment 结构、permalink、PR 关系和时序，不能替代对 current head 与外部审阅字段的人工核验。
 
-如 Gate 结果为 `G3 Waived`，还必须按 `docs/governance/development-gates.md` 写入 `external-review-waiver:v1` 结构化记录；单 Issue 使用一条，多 Issue 为每个关联 Issue 分别写入一条具有唯一 `followUpIssue` 的记录。evidence 使用可见 `- 例外：` 行和文末 reference-style 定义，不在 JSON 中直接写 URL。
+如 Gate 结果为 `G3 Waived`，还必须按 `docs/governance/development-gates.md` 写入 `external-review-waiver:v1` 结构化记录；单 Issue 使用一条，多 Issue 为每个关联 Issue 分别写入一条具有唯一 `followUpIssue` 的记录，完整 record set 与 `关联 Issue` 精确一致。evidence 使用可见 `- 例外：` 行和文末 reference-style 定义，不在 JSON 中直接写 URL；Shadow 对有期限 waiver 只发布 non-success。
 -->
 
 ## 完成边界

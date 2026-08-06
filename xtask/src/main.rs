@@ -94,6 +94,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         Some("check-gate-evidence") => check_gate_evidence(&args[1..]),
         Some("check-gate-evidence-target") => check_gate_evidence_target(&args[1..]),
+        Some("check-g3-shadow-success-eligibility") => {
+            check_g3_shadow_success_eligibility(&args[1..])
+        }
         Some("check-g3-evidence-marker") => check_g3_evidence_marker(&args[1..]),
         Some("resolve-g3-evidence-shadow-targets") => {
             resolve_g3_evidence_shadow_targets(&args[1..])
@@ -113,7 +116,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         },
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-g3-evidence-marker, resolve-g3-evidence-shadow-targets, check-external-review, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-g3-shadow-success-eligibility, check-g3-evidence-marker, resolve-g3-evidence-shadow-targets, check-external-review, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
                 .to_string(),
         ),
     }
@@ -1177,6 +1180,7 @@ fn check_gate_evidence_target(args: &[String]) -> Result<(), String> {
     let (repo, pr_number) = parse_gate_evidence_target_args(args)?;
     let pr = gh_pr_view_for_phase(&repo, pr_number, GateEvidencePhase::G3)?;
     let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
+    validate_gate_evidence_target_pr(&pr, role, &issue_numbers)?;
     let resolved_args = resolve_gate_evidence_targets(&repo, pr_number, role, &issue_numbers)?;
     for args in &resolved_args {
         check_gate_evidence_with_args(args)?;
@@ -1184,6 +1188,7 @@ fn check_gate_evidence_target(args: &[String]) -> Result<(), String> {
 
     let final_pr = gh_pr_view_for_phase(&repo, pr_number, GateEvidencePhase::G3)?;
     let (final_role, final_issue_numbers) = parse_gate_evidence_target_metadata(&final_pr.body)?;
+    validate_gate_evidence_target_pr(&final_pr, final_role, &final_issue_numbers)?;
     let final_args =
         resolve_gate_evidence_targets(&repo, pr_number, final_role, &final_issue_numbers)?;
     if final_role != role || final_issue_numbers != issue_numbers || final_args != resolved_args {
@@ -1194,6 +1199,32 @@ fn check_gate_evidence_target(args: &[String]) -> Result<(), String> {
         print_gate_evidence_success(args);
     }
     Ok(())
+}
+
+fn check_g3_shadow_success_eligibility(args: &[String]) -> Result<(), String> {
+    let (repo, pr_number) = parse_gate_evidence_target_args(args)?;
+    let pr = gh_pr_view_for_phase(&repo, pr_number, GateEvidencePhase::G3)?;
+    let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
+    validate_gate_evidence_target_pr(&pr, role, &issue_numbers)?;
+    let permalink = completed_gate_permalink(&pr.body, "G3")?;
+    let comment = pr
+        .comments
+        .iter()
+        .find(|comment| comment.url == permalink)
+        .ok_or("PR G3 permalink 未指向当前 PR comment")?;
+    validate_g3_shadow_success_result(parse_g3_result(&comment.body)?)?;
+    println!("已确认 G3 shadow success eligibility：PR #{pr_number} 使用非过期型 Gate 结果");
+    Ok(())
+}
+
+fn validate_g3_shadow_success_result(result: G3Result) -> Result<(), String> {
+    match result {
+        G3Result::Pass | G3Result::Bootstrap => Ok(()),
+        G3Result::Waived => Err(
+            "G3 Waived 是有到期时间的 action-required 证据，G3 Evidence Gate Shadow 不得发布 success"
+                .to_string(),
+        ),
+    }
 }
 
 fn check_g3_evidence_marker(args: &[String]) -> Result<(), String> {
@@ -1489,6 +1520,43 @@ fn parse_gate_evidence_target_metadata(
         }
     };
     Ok((role, issue_numbers))
+}
+
+fn validate_gate_evidence_target_pr(
+    pr: &GitHubPullRequest,
+    role: GateEvidencePrRole,
+    issue_numbers: &[u64],
+) -> Result<(), String> {
+    let declared_issues = issue_numbers.iter().copied().collect::<BTreeSet<_>>();
+    let closing_issues = pr
+        .closing_issues_references
+        .iter()
+        .map(|reference| reference.number)
+        .collect::<BTreeSet<_>>();
+    match role {
+        GateEvidencePrRole::Delivery if closing_issues != declared_issues => {
+            return Err(format!(
+                "Delivery PR 的完整 closingIssuesReferences 必须与 `关联 Issue` 精确一致：声明 [{}]；closing [{}]",
+                format_issue_numbers(&declared_issues),
+                format_issue_numbers(&closing_issues)
+            ));
+        }
+        GateEvidencePrRole::Related if !closing_issues.is_empty() => {
+            return Err(format!(
+                "Related PR 不得关闭任何 Issue；closingIssuesReferences 实际为 [{}]",
+                format_issue_numbers(&closing_issues)
+            ));
+        }
+        _ => {}
+    }
+
+    let permalink = completed_gate_permalink(&pr.body, "G3")?;
+    let comment = pr
+        .comments
+        .iter()
+        .find(|comment| comment.url == permalink)
+        .ok_or("PR G3 permalink 未指向当前 PR comment")?;
+    validate_gate_waiver_record_set(comment, &declared_issues)
 }
 
 fn resolve_gate_evidence_target_args(
@@ -2919,11 +2987,7 @@ fn parse_g3_full_set_recovery(
     Ok((record, evidence_urls))
 }
 
-fn parse_gate_waiver(
-    comment: &GitHubComment,
-    issue_number: u64,
-    now: u64,
-) -> Result<external_review::WaiverInput, String> {
+fn parse_gate_waiver_records(comment: &GitHubComment) -> Result<Vec<GateWaiverRecord>, String> {
     let marker_count = comment.body.matches(EXTERNAL_REVIEW_WAIVER_START).count();
     if marker_count == 0 {
         return Err(format!(
@@ -2954,17 +3018,7 @@ fn parse_gate_waiver(
                 record.schema_version
             ));
         }
-        if !record
-            .follow_up_issue
-            .strip_prefix('#')
-            .and_then(|value| value.parse::<u64>().ok())
-            .is_some_and(|number| number > 0)
-        {
-            return Err(format!(
-                "G3 Waived followUpIssue 必须是明确的正整数 Issue 编号：{}",
-                record.follow_up_issue
-            ));
-        }
+        gate_waiver_follow_up_issue_number(&record)?;
         if !seen_ids.insert(record.id.clone()) {
             return Err(format!("G3 Waived id 不能重复：{}", record.id));
         }
@@ -2976,6 +3030,63 @@ fn parse_gate_waiver(
         }
         records.push(record);
     }
+    Ok(records)
+}
+
+fn gate_waiver_follow_up_issue_number(record: &GateWaiverRecord) -> Result<u64, String> {
+    record
+        .follow_up_issue
+        .strip_prefix('#')
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|number| *number > 0)
+        .ok_or_else(|| {
+            format!(
+                "G3 Waived followUpIssue 必须是明确的正整数 Issue 编号：{}",
+                record.follow_up_issue
+            )
+        })
+}
+
+fn validate_gate_waiver_record_set(
+    comment: &GitHubComment,
+    declared_issues: &BTreeSet<u64>,
+) -> Result<(), String> {
+    if comment.created_at.as_str() < EXTERNAL_REVIEW_G3_ACTIVATION {
+        return Ok(());
+    }
+    match parse_g3_result(&comment.body)? {
+        G3Result::Waived => {
+            let records = parse_gate_waiver_records(comment)?;
+            let recorded_issues = records
+                .iter()
+                .map(gate_waiver_follow_up_issue_number)
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            if &recorded_issues != declared_issues {
+                return Err(format!(
+                    "G3 Waived 结构化记录的 followUpIssue 集合必须与 `关联 Issue` 精确一致：声明 [{}]；waiver [{}]",
+                    format_issue_numbers(declared_issues),
+                    format_issue_numbers(&recorded_issues)
+                ));
+            }
+        }
+        G3Result::Pass | G3Result::Bootstrap => {
+            if comment.body.contains(EXTERNAL_REVIEW_WAIVER_START) {
+                return Err(
+                    "非 G3 Waived comment 不得夹带 `external-review-waiver:v1` 结构化记录"
+                        .to_string(),
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_gate_waiver(
+    comment: &GitHubComment,
+    issue_number: u64,
+    now: u64,
+) -> Result<external_review::WaiverInput, String> {
+    let records = parse_gate_waiver_records(comment)?;
     let expected_follow_up_issue = format!("#{issue_number}");
     let record = records
         .into_iter()
@@ -3910,6 +4021,25 @@ Refs: #12
     }
 
     #[test]
+    fn target_requires_exact_closing_issue_associations() {
+        let mut delivery_pr = delivery_pr(None);
+        delivery_pr
+            .closing_issues_references
+            .push(IssueReference { number: 61 });
+        let delivery_error =
+            validate_gate_evidence_target_pr(&delivery_pr, GateEvidencePrRole::Delivery, &[60])
+                .expect_err("Delivery closing references must exactly match declared Issues");
+        assert!(delivery_error.contains("声明 [#60]；closing [#60, #61]"));
+
+        let mut related_pr = related_pr(false);
+        related_pr.closing_issues_references = vec![IssueReference { number: 61 }];
+        let related_error =
+            validate_gate_evidence_target_pr(&related_pr, GateEvidencePrRole::Related, &[60])
+                .expect_err("Related targets must not close any Issue");
+        assert!(related_error.contains("Related PR 不得关闭任何 Issue"));
+    }
+
+    #[test]
     fn g3_remote_queries_omit_g4_only_project_items() {
         assert!(!gh_issue_fields(GateEvidencePhase::G3).contains("projectItems"));
         assert!(!gh_pr_fields(GateEvidencePhase::G3).contains("projectItems"));
@@ -4349,6 +4479,7 @@ Refs: #12
         assert!(workflow.contains("persist-credentials: false"));
         assert!(workflow.contains("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"));
         assert!(workflow.contains("check-gate-evidence-target"));
+        assert!(workflow.contains("check-g3-shadow-success-eligibility"));
         assert!(workflow.contains("check-g3-evidence-marker"));
         assert!(workflow.contains("resolve-g3-evidence-shadow-targets"));
         assert!(workflow.contains("2>\"$resolver_stderr\""));
@@ -4445,6 +4576,9 @@ Refs: #12
         );
         assert!(parse_g3_result("- Gate 结果：pending").is_err());
         assert!(parse_g3_result("- Gate 结果：`G3 Pass`\n- Gate 结果：`G3 Waived`").is_err());
+        assert!(validate_g3_shadow_success_result(G3Result::Pass).is_ok());
+        assert!(validate_g3_shadow_success_result(G3Result::Bootstrap).is_ok());
+        assert!(validate_g3_shadow_success_result(G3Result::Waived).is_err());
     }
 
     #[test]
@@ -4563,6 +4697,12 @@ Refs: #12
             parse_gate_waiver(&comment, 61, now).unwrap().id,
             "waiver-61-1"
         );
+        let declared_issues = [60, 61].into_iter().collect::<BTreeSet<_>>();
+        assert!(validate_gate_waiver_record_set(&comment, &declared_issues).is_ok());
+        let incomplete_associations = [60].into_iter().collect::<BTreeSet<_>>();
+        let extra_error = validate_gate_waiver_record_set(&comment, &incomplete_associations)
+            .expect_err("waiver records for undeclared Issues must fail closed");
+        assert!(extra_error.contains("必须与 `关联 Issue` 精确一致"));
 
         comment.body = comment
             .body
