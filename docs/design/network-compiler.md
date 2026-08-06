@@ -1,7 +1,7 @@
 # 路网编译器与目标静态镜像
 
 **文档状态**: Accepted（#291 target design）；#315 共同受检模块接入契约已实现<br>
-**最后更新**: 2026-08-05<br>
+**最后更新**: 2026-08-06<br>
 **适用范围**: 权威来源模块图（Authoritative Source Module Graph）、编译器中间表示
 （Compiler IR）、静态路网编译权威、标识派生、可移植规范制品（Portable Canonical
 Artifact）、目标静态镜像（Target Static Image）、源映射（Source Map）、语义差异
@@ -12,7 +12,8 @@ Runtime）命名、静态执行约束（Static Execution Constraints）、不可
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已完成编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
 （Synthetic DSL Frontend）G4；#315 已落地私有共同 Typed AST、逻辑模块/来源文档独立登记、
-原子共同接入、文档集摘要与 v2 文档数配置档；#296/#297 具体前端仍未实现
+原子共同接入、文档集摘要与 v2 文档数配置档；#297 已形成 G1 Review 候选但尚未通过
+Gate，#296/#297 具体前端仍未实现
 
 **关联决策与设计**:
 
@@ -28,6 +29,7 @@ ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial 
 - `../adr/0021-city-simulation-game-traffic-foundation.md`
 - `core-id-handles.md`
 - `compiler-foundation.md`
+- `current-package-import.md`
 - `cross-section-access.md`
 - `data-format.md`
 - `data-loading.md`
@@ -332,6 +334,11 @@ ScenarioManifest v0.1 仍封闭为 Traffic/Spatial 两个角色，但调用方�
 compiler 不公开接受预构造的 `ValidatedCurrentImportBundle`。
 通用 `add_module`、公共前端
 特征（trait）、裸 Typed AST 和裸描述符/内容配对继续禁止。
+
+#297 的精确 Review 候选见 [`current-package-import.md`](current-package-import.md)：公共
+借用输入、三文档键、来源语言值、`LF-CURRENT-SOURCE-P100-IMPORT-v1` 全部精确上限、
+位置闭合集合、current ID 降阶和资产/等价矩阵均由该文件独占。该状态不表示 G1 Pass，
+也不授权实现。
 
 ### 5.3 几何文档前端（Geometry Document Frontend）
 
@@ -1828,9 +1835,9 @@ normalization authority。
 阶段 1  #291：ADR 0020/0021 + 本设计完成 G1
 阶段 2  #292：static-contract + compiler foundation + Synthetic DSL frontend 纵向闭环
 阶段 3  #292 验收：integration-only LIR→current projection 支撑 #282–#285 等价验证
-阶段 4a #315：官方前端共同受检模块接入实现；G3/G4 状态以动态治理记录为准
+阶段 4a #315：官方前端共同受检模块接入实现；治理收口边界以动态记录为准
 阶段 4b #296 几何文档前端 + 拓扑/几何 MIR
-        #297 当前 Traffic/Spatial 迁移导入前端（两者在 #315 G4 后可并行 G2）
+        #297 当前 Traffic/Spatial 迁移导入前端（两者分别按自身 Gate 推进）
 阶段 5  #298 可移植规范制品/源映射/语义差异 + #299 独立验证器
 阶段 6  #300 目标静态镜像 + #301 交通运行时/空间层共享镜像路径
         + #302 不可变路网修订/运行时快照/在线切换
@@ -1840,8 +1847,9 @@ normalization authority。
 
 阶段是架构迁移顺序，不是把终态降级为最小方案。#292 已在阶段 2 与阶段 3 均完成后
 达到 G4，因此“#292 G4”与“projection 就绪后恢复 #282–#285”是同一前置条件，不是
-两个互相竞争的恢复点。阶段 4a 只建立共享模块基础；#296/#297 可以并行冻结 G1，
-但必须等待 #315 G4 才能进入 G2。每个阶段都必须沿同一个
+两个互相竞争的恢复点。阶段 4a 只建立共享模块基础；#296/#297 分别完成自身 G1 后，
+仍须在 G2 判断中以当时 exact `main` 复核共同实现和继承的治理证明边界。每个阶段都
+必须沿同一个
 AST/HIR/MIR/LIR 与 artifact/image contract 前进，不允许先建一个注定废弃的 Core
 builder API。阶段 3 的 bridge 固定为 `laneflow-compiler-test-support` 或等价
 integration-only crate：它可以依赖 compiler + current Core/Spatial，将 validated
@@ -1914,7 +1922,8 @@ Cutover 前必须证明：
   target；
 - #292 已完成 compiler foundation + Synthetic DSL frontend、集成专用
   LIR→current projection 及其 G2/G3/G4；#282–#285 关于 #292 的稳定开工前置已经满足；
-  #296/#297 可以并行完成自身 G1，但进入 G2 还必须满足各自 Gate 并等待 #315 G4；
+  #296/#297 可以并行完成自身 G1，但进入 G2 仍必须满足各自 Gate，并以当时 exact
+  `main` 复核共同准入实现和上游治理证明边界；
   当前 Project 状态和原生依赖关系不在长期设计中镜像；
 - 阶段 8 生产切换、core→runtime 原子改名与旧路径移除由 #294 的 G4 独占，不再
   误绑到 #291 的设计交付 G4；
