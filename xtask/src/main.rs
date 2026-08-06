@@ -1095,6 +1095,13 @@ struct ProjectStatus {
 #[derive(Debug, serde::Deserialize)]
 struct IssueReference {
     number: u64,
+    repository: IssueReferenceRepository,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct IssueReferenceRepository {
+    name: String,
+    owner: GitHubActor,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1132,7 +1139,6 @@ const CURRENT_G3_COMMENT_FIELDS: &[&str] = &[
     "- Current head：",
     "- Checks：",
     "- External Review Gate：",
-    "- G3 Evidence Gate Shadow：",
     "- 审阅：",
     "- Findings disposition / clean re-review：",
     "- Review threads：",
@@ -1142,6 +1148,8 @@ const CURRENT_G3_COMMENT_FIELDS: &[&str] = &[
     "- 合并方式：",
     "- Gate 断言：",
 ];
+
+const G3_EVIDENCE_SHADOW_COMMENT_FIELD: &str = "- G3 Evidence Gate Shadow：";
 
 const EXTERNAL_REVIEW_WAIVER_START: &str = "<!-- external-review-waiver:v1";
 const EXTERNAL_REVIEW_WAIVER_END: &str = "-->";
@@ -1219,8 +1227,14 @@ fn check_gate_evidence_target(args: &[String]) -> Result<(), String> {
     let (repo, pr_number) = parse_gate_evidence_target_args(args)?;
     let pr = gh_pr_view_for_phase(&repo, pr_number, GateEvidencePhase::G3)?;
     let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
-    validate_gate_evidence_target_pr(&pr, role, &issue_numbers)?;
-    let resolved_args = resolve_gate_evidence_targets(&repo, pr_number, role, &issue_numbers)?;
+    validate_gate_evidence_target_pr(&repo, GateEvidencePhase::G3, &pr, role, &issue_numbers)?;
+    let resolved_args = resolve_gate_evidence_targets(
+        &repo,
+        pr_number,
+        role,
+        &issue_numbers,
+        GateEvidencePhase::G3,
+    )?;
     validate_gate_evidence_target_assertions(&pr, &resolved_args)?;
     for args in &resolved_args {
         check_gate_evidence_with_args(args)?;
@@ -1228,9 +1242,20 @@ fn check_gate_evidence_target(args: &[String]) -> Result<(), String> {
 
     let final_pr = gh_pr_view_for_phase(&repo, pr_number, GateEvidencePhase::G3)?;
     let (final_role, final_issue_numbers) = parse_gate_evidence_target_metadata(&final_pr.body)?;
-    validate_gate_evidence_target_pr(&final_pr, final_role, &final_issue_numbers)?;
-    let final_args =
-        resolve_gate_evidence_targets(&repo, pr_number, final_role, &final_issue_numbers)?;
+    validate_gate_evidence_target_pr(
+        &repo,
+        GateEvidencePhase::G3,
+        &final_pr,
+        final_role,
+        &final_issue_numbers,
+    )?;
+    let final_args = resolve_gate_evidence_targets(
+        &repo,
+        pr_number,
+        final_role,
+        &final_issue_numbers,
+        GateEvidencePhase::G3,
+    )?;
     if final_role != role || final_issue_numbers != issue_numbers || final_args != resolved_args {
         return Err("PR / Issue Gate 元数据在 target 校验期间发生变化；请重新运行".to_string());
     }
@@ -1246,8 +1271,14 @@ fn check_g3_shadow_success_eligibility(args: &[String]) -> Result<(), String> {
     let (repo, pr_number) = parse_gate_evidence_target_args(args)?;
     let pr = gh_pr_view_for_phase(&repo, pr_number, GateEvidencePhase::G3)?;
     let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
-    validate_gate_evidence_target_pr(&pr, role, &issue_numbers)?;
-    let resolved_args = resolve_gate_evidence_targets(&repo, pr_number, role, &issue_numbers)?;
+    validate_gate_evidence_target_pr(&repo, GateEvidencePhase::G3, &pr, role, &issue_numbers)?;
+    let resolved_args = resolve_gate_evidence_targets(
+        &repo,
+        pr_number,
+        role,
+        &issue_numbers,
+        GateEvidencePhase::G3,
+    )?;
     validate_gate_evidence_target_assertions(&pr, &resolved_args)?;
     validate_g3_shadow_success_pr(&pr, &format!("PR #{pr_number}"))?;
 
@@ -1263,6 +1294,7 @@ fn check_g3_shadow_success_eligibility(args: &[String]) -> Result<(), String> {
                     &repo,
                     *related_number,
                     resolved.issue,
+                    GateEvidencePhase::G3,
                     &related_pr,
                 )?;
                 if checked_related_prs.insert(*related_number) {
@@ -1308,8 +1340,14 @@ fn check_g3_evidence_marker(args: &[String]) -> Result<(), String> {
 
     let pr = gh_pr_view_for_phase(&repo, pr_number, GateEvidencePhase::G3)?;
     let (role, issue_numbers) = parse_gate_evidence_target_metadata(&pr.body)?;
-    validate_gate_evidence_target_pr(&pr, role, &issue_numbers)?;
-    let resolved_args = resolve_gate_evidence_targets(&repo, pr_number, role, &issue_numbers)?;
+    validate_gate_evidence_target_pr(&repo, GateEvidencePhase::G3, &pr, role, &issue_numbers)?;
+    let resolved_args = resolve_gate_evidence_targets(
+        &repo,
+        pr_number,
+        role,
+        &issue_numbers,
+        GateEvidencePhase::G3,
+    )?;
     let g3_permalink = completed_gate_permalink(&pr.body, "G3")?;
     let g3_comment = pr
         .comments
@@ -1495,12 +1533,13 @@ fn resolve_gate_evidence_targets(
     pr_number: u64,
     role: GateEvidencePrRole,
     issue_numbers: &[u64],
+    issue_phase: GateEvidencePhase,
 ) -> Result<Vec<GateEvidenceArgs>, String> {
     issue_numbers
         .iter()
         .map(|issue_number| {
-            let issue = gh_issue_view_for_phase(repo, *issue_number, GateEvidencePhase::G3)?;
-            validate_current_g3_issue(GateEvidencePhase::G3, &issue)?;
+            let issue = gh_issue_view_for_phase(repo, *issue_number, issue_phase)?;
+            validate_current_g3_issue(issue_phase, &issue)?;
             resolve_gate_evidence_target_args(
                 repo.to_string(),
                 pr_number,
@@ -1540,7 +1579,9 @@ fn check_gate_evidence_with_args(args: &GateEvidenceArgs) -> Result<(), String> 
         }
         for (number, related_pr) in args.related_prs.iter().zip(&related_prs) {
             if g3_requires_external_review(related_pr)? {
-                validate_related_full_set_member(&args.repo, *number, args.issue, related_pr)?;
+                validate_related_full_set_member(
+                    &args.repo, *number, args.issue, args.phase, related_pr,
+                )?;
                 validate_external_review_g3(
                     &args.repo,
                     args.issue,
@@ -1573,19 +1614,24 @@ fn validate_related_full_set_member(
     repo: &str,
     pr_number: u64,
     current_issue: u64,
+    issue_phase: GateEvidencePhase,
     pr: &GitHubPullRequest,
 ) -> Result<(), String> {
-    let issue_numbers = validate_related_full_set_member_metadata(current_issue, pr)?;
+    let issue_numbers =
+        validate_related_full_set_member_metadata(repo, issue_phase, current_issue, pr)?;
     let resolved_args = resolve_gate_evidence_targets(
         repo,
         pr_number,
         GateEvidencePrRole::Related,
         &issue_numbers,
+        issue_phase,
     )?;
     validate_gate_evidence_target_assertions(pr, &resolved_args)
 }
 
 fn validate_related_full_set_member_metadata(
+    repo: &str,
+    issue_phase: GateEvidencePhase,
     current_issue: u64,
     pr: &GitHubPullRequest,
 ) -> Result<Vec<u64>, String> {
@@ -1598,7 +1644,7 @@ fn validate_related_full_set_member_metadata(
             "Delivery full-set 的 Related PR `关联 Issue` 未包含当前 Issue #{current_issue}"
         ));
     }
-    validate_gate_evidence_target_pr(pr, role, &issue_numbers)?;
+    validate_gate_evidence_target_pr(repo, issue_phase, pr, role, &issue_numbers)?;
     Ok(issue_numbers)
 }
 
@@ -1763,17 +1809,35 @@ fn parse_gate_evidence_target_metadata(
 }
 
 fn validate_gate_evidence_target_pr(
+    repo: &str,
+    phase: GateEvidencePhase,
     pr: &GitHubPullRequest,
     role: GateEvidencePrRole,
     issue_numbers: &[u64],
 ) -> Result<(), String> {
     let declared_issues = issue_numbers.iter().copied().collect::<BTreeSet<_>>();
+    let foreign_closing_issues = pr
+        .closing_issues_references
+        .iter()
+        .filter(|reference| !issue_reference_matches_repository(reference, repo))
+        .map(format_issue_reference)
+        .collect::<BTreeSet<_>>();
     let closing_issues = pr
         .closing_issues_references
         .iter()
+        .filter(|reference| issue_reference_matches_repository(reference, repo))
         .map(|reference| reference.number)
         .collect::<BTreeSet<_>>();
     match role {
+        GateEvidencePrRole::Delivery if !foreign_closing_issues.is_empty() => {
+            return Err(format!(
+                "Delivery PR 的 closingIssuesReferences 必须全部属于 `{repo}`；发现跨仓库引用 [{}]",
+                foreign_closing_issues
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
         GateEvidencePrRole::Delivery if closing_issues != declared_issues => {
             return Err(format!(
                 "Delivery PR 的完整 closingIssuesReferences 必须与 `关联 Issue` 精确一致：声明 [{}]；closing [{}]",
@@ -1781,10 +1845,14 @@ fn validate_gate_evidence_target_pr(
                 format_issue_numbers(&closing_issues)
             ));
         }
-        GateEvidencePrRole::Related if !closing_issues.is_empty() => {
+        GateEvidencePrRole::Related if !pr.closing_issues_references.is_empty() => {
             return Err(format!(
                 "Related PR 不得关闭任何 Issue；closingIssuesReferences 实际为 [{}]",
-                format_issue_numbers(&closing_issues)
+                pr.closing_issues_references
+                    .iter()
+                    .map(format_issue_reference)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
         _ => {}
@@ -1796,7 +1864,31 @@ fn validate_gate_evidence_target_pr(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or("PR G3 permalink 未指向当前 PR comment")?;
+    if phase == GateEvidencePhase::G3 && !comment.body.contains(G3_EVIDENCE_SHADOW_COMMENT_FIELD) {
+        return Err(format!(
+            "PR G3 comment 缺少 target/shadow 路径字段 `{G3_EVIDENCE_SHADOW_COMMENT_FIELD}`"
+        ));
+    }
     validate_gate_waiver_record_set(comment, &declared_issues)
+}
+
+fn issue_reference_matches_repository(reference: &IssueReference, repo: &str) -> bool {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return false;
+    };
+    reference.repository.owner.login.eq_ignore_ascii_case(owner)
+        && reference.repository.name.eq_ignore_ascii_case(name)
+}
+
+fn issue_reference_matches(reference: &IssueReference, repo: &str, number: u64) -> bool {
+    reference.number == number && issue_reference_matches_repository(reference, repo)
+}
+
+fn format_issue_reference(reference: &IssueReference) -> String {
+    format!(
+        "{}/{}#{}",
+        reference.repository.owner.login, reference.repository.name, reference.number
+    )
 }
 
 fn validate_gate_evidence_target_assertions(
@@ -2323,7 +2415,7 @@ fn validate_g3_evidence(
     if !delivery_pr
         .closing_issues_references
         .iter()
-        .any(|reference| reference.number == args.issue)
+        .any(|reference| issue_reference_matches(reference, &args.repo, args.issue))
     {
         return Err(format!(
             "Delivery PR #{} 的 closingIssuesReferences 未覆盖 Issue #{}",
@@ -2493,7 +2585,7 @@ fn validate_g4_g3_full_set_recovery(
     if !delivery_pr
         .closing_issues_references
         .iter()
-        .any(|reference| reference.number == args.issue)
+        .any(|reference| issue_reference_matches(reference, &args.repo, args.issue))
     {
         return Err(format!(
             "Delivery PR #{} 的 closingIssuesReferences 未覆盖 Issue #{}",
@@ -4102,6 +4194,19 @@ Refs: #12
         comment
     }
 
+    fn issue_reference(repo: &str, number: u64) -> IssueReference {
+        let (owner, name) = repo.split_once('/').expect("test repository must be valid");
+        IssueReference {
+            number,
+            repository: IssueReferenceRepository {
+                name: name.to_string(),
+                owner: GitHubActor {
+                    login: owner.to_string(),
+                },
+            },
+        }
+    }
+
     fn delivery_pr(merged_at: Option<&str>) -> GitHubPullRequest {
         GitHubPullRequest {
             body: format!(
@@ -4115,7 +4220,7 @@ Refs: #12
             is_draft: false,
             created_at: "2026-07-10T04:00:00Z".to_string(),
             merged_at: merged_at.map(ToOwned::to_owned),
-            closing_issues_references: vec![IssueReference { number: 60 }],
+            closing_issues_references: vec![issue_reference("illusion-tech/laneflow", 60)],
             project_items: vec![ProjectItem {
                 title: "LaneFlow".to_string(),
                 status: Some(ProjectStatus {
@@ -4162,7 +4267,7 @@ Refs: #12
             created_at: "2026-07-10T04:30:00Z".to_string(),
             merged_at: None,
             closing_issues_references: closes_issue
-                .then_some(vec![IssueReference { number: 60 }])
+                .then_some(vec![issue_reference("illusion-tech/laneflow", 60)])
                 .unwrap_or_default(),
             project_items: vec![ProjectItem {
                 title: "LaneFlow".to_string(),
@@ -4315,28 +4420,57 @@ Refs: #12
 
     #[test]
     fn target_requires_exact_closing_issue_associations() {
-        let mut delivery_pr = delivery_pr(None);
-        delivery_pr
+        let mut delivery_target = delivery_pr(None);
+        delivery_target
             .closing_issues_references
-            .push(IssueReference { number: 61 });
-        let delivery_error =
-            validate_gate_evidence_target_pr(&delivery_pr, GateEvidencePrRole::Delivery, &[60])
-                .expect_err("Delivery closing references must exactly match declared Issues");
+            .push(issue_reference("illusion-tech/laneflow", 61));
+        let delivery_error = validate_gate_evidence_target_pr(
+            "illusion-tech/laneflow",
+            GateEvidencePhase::G3,
+            &delivery_target,
+            GateEvidencePrRole::Delivery,
+            &[60],
+        )
+        .expect_err("Delivery closing references must exactly match declared Issues");
         assert!(delivery_error.contains("声明 [#60]；closing [#60, #61]"));
 
         let mut related_pr = related_pr(false);
-        related_pr.closing_issues_references = vec![IssueReference { number: 61 }];
-        let related_error =
-            validate_gate_evidence_target_pr(&related_pr, GateEvidencePrRole::Related, &[60])
-                .expect_err("Related targets must not close any Issue");
+        related_pr.closing_issues_references = vec![issue_reference("illusion-tech/laneflow", 61)];
+        let related_error = validate_gate_evidence_target_pr(
+            "illusion-tech/laneflow",
+            GateEvidencePhase::G3,
+            &related_pr,
+            GateEvidencePrRole::Related,
+            &[60],
+        )
+        .expect_err("Related targets must not close any Issue");
         assert!(related_error.contains("Related PR 不得关闭任何 Issue"));
+
+        let mut cross_repo_delivery = delivery_pr(None);
+        cross_repo_delivery.closing_issues_references =
+            vec![issue_reference("illusion-tech/other", 60)];
+        let cross_repo_error = validate_gate_evidence_target_pr(
+            "illusion-tech/laneflow",
+            GateEvidencePhase::G3,
+            &cross_repo_delivery,
+            GateEvidencePrRole::Delivery,
+            &[60],
+        )
+        .expect_err("Delivery closing references must preserve repository identity");
+        assert!(cross_repo_error.contains("illusion-tech/other#60"));
     }
 
     #[test]
     fn delivery_full_set_validates_each_related_target_metadata() {
         let related = related_pr(false);
         assert_eq!(
-            validate_related_full_set_member_metadata(60, &related).unwrap(),
+            validate_related_full_set_member_metadata(
+                "illusion-tech/laneflow",
+                GateEvidencePhase::G4,
+                60,
+                &related,
+            )
+            .unwrap(),
             vec![60]
         );
 
@@ -4344,20 +4478,35 @@ Refs: #12
         wrong_role.body = wrong_role
             .body
             .replace("PR 角色：Related PR", "PR 角色：Delivery PR");
-        let role_error = validate_related_full_set_member_metadata(60, &wrong_role)
-            .expect_err("full-set member must declare the Related role");
+        let role_error = validate_related_full_set_member_metadata(
+            "illusion-tech/laneflow",
+            GateEvidencePhase::G4,
+            60,
+            &wrong_role,
+        )
+        .expect_err("full-set member must declare the Related role");
         assert!(role_error.contains("必须精确为 `Related PR`"));
 
-        let closing_error = validate_related_full_set_member_metadata(60, &related_pr(true))
-            .expect_err("full-set Related member must keep an empty closing set");
+        let closing_error = validate_related_full_set_member_metadata(
+            "illusion-tech/laneflow",
+            GateEvidencePhase::G4,
+            60,
+            &related_pr(true),
+        )
+        .expect_err("full-set Related member must keep an empty closing set");
         assert!(closing_error.contains("Related PR 不得关闭任何 Issue"));
 
         let mut wrong_issue = related_pr(false);
         wrong_issue.body = wrong_issue
             .body
             .replace("关联 Issue：#60", "关联 Issue：#61");
-        let issue_error = validate_related_full_set_member_metadata(60, &wrong_issue)
-            .expect_err("full-set member must declare the current Issue");
+        let issue_error = validate_related_full_set_member_metadata(
+            "illusion-tech/laneflow",
+            GateEvidencePhase::G4,
+            60,
+            &wrong_issue,
+        )
+        .expect_err("full-set member must declare the current Issue");
         assert!(issue_error.contains("未包含当前 Issue #60"));
     }
 
@@ -4717,6 +4866,39 @@ Refs: #12
     }
 
     #[test]
+    fn deserializes_closing_issue_repository_identity() {
+        let pr: GitHubPullRequest = serde_json::from_str(
+            r#"{
+                "body": "body",
+                "state": "OPEN",
+                "isDraft": false,
+                "createdAt": "2026-08-06T08:00:00Z",
+                "mergedAt": null,
+                "closingIssuesReferences": [{
+                    "number": 60,
+                    "repository": {
+                        "name": "laneflow",
+                        "owner": {"login": "illusion-tech"}
+                    }
+                }],
+                "comments": []
+            }"#,
+        )
+        .expect("current gh closingIssuesReferences repository shape should deserialize");
+
+        assert!(issue_reference_matches(
+            &pr.closing_issues_references[0],
+            "ILLUSION-TECH/LaneFlow",
+            60,
+        ));
+        assert!(!issue_reference_matches(
+            &pr.closing_issues_references[0],
+            "illusion-tech/other",
+            60,
+        ));
+    }
+
+    #[test]
     fn rejects_duplicate_delivery_and_related_pr() {
         let args = vec![
             "g3".to_string(),
@@ -4847,6 +5029,7 @@ Refs: #12
         assert!(workflow.contains("g3-evidence-gate-event-${{"));
         assert!(workflow.contains("github.event.workflow_run.pull_requests[0].number"));
         assert!(workflow.contains("github.event.comment.body == 'g3-evidence: changed'"));
+        assert!(workflow.contains("github.run_attempt == 1"));
         assert!(workflow.contains("github.event.issue.pull_request != null"));
         assert!(workflow.contains(
             "permissions:\n  contents: read\n  pull-requests: read\n  issues: read\n  checks: write"
@@ -4928,14 +5111,28 @@ Refs: #12
     #[test]
     fn rejects_current_g3_without_shadow_evidence_field() {
         let args = related_only_g3_args();
-        let issue = issue_with_pending_delivery_and_related_g3();
         let mut related_pr = related_pr_for_args(false, &args);
         related_pr.comments[0].created_at = EXTERNAL_REVIEW_G3_ACTIVATION.to_string();
-        related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args)
-            .replace("- G3 Evidence Gate Shadow：\n", "");
+        related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args);
 
-        let error = validate_related_g3_evidence(&args, &issue, 62, &related_pr)
-            .expect_err("current G3 must record the shadow evidence boundary");
+        assert!(
+            validate_gate_evidence_target_pr(
+                "illusion-tech/laneflow",
+                GateEvidencePhase::G4,
+                &related_pr,
+                GateEvidencePrRole::Related,
+                &[60],
+            )
+            .is_ok()
+        );
+        let error = validate_gate_evidence_target_pr(
+            "illusion-tech/laneflow",
+            GateEvidencePhase::G3,
+            &related_pr,
+            GateEvidencePrRole::Related,
+            &[60],
+        )
+        .expect_err("target/shadow G3 must record the shadow evidence boundary");
 
         assert!(error.contains("- G3 Evidence Gate Shadow："));
     }

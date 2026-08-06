@@ -171,7 +171,7 @@ jobs:
         id: targets
         shell: bash
         env:
-          ALLOW_SUCCESS_EVENT: "${{ github.event_name == 'issue_comment' && github.event.action == 'created' && github.event.comment.body == 'g3-evidence: changed' }}"
+          ALLOW_SUCCESS_EVENT: "${{ github.run_attempt == 1 && github.event_name == 'issue_comment' && github.event.action == 'created' && github.event.comment.body == 'g3-evidence: changed' }}"
           DIRECT_PRS: ${{ steps.direct.outputs.pr_numbers }}
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
