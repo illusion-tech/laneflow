@@ -43,7 +43,7 @@ Gate Ledger 是 Issue 和 PR 上的增量闸口记录，用来说明任务何时
 - G4 的完整事件证据记录在 Issue 的 `## G4 完成判断` comment，且必须在所有关联 PR 合并后、Issue 关闭前创建；Issue body 的 G4 checkbox 保存直接 comment permalink。Delivery PR 的 body 只回链该 Issue G4 comment，Related PR 不承担 Issue G4。
 - GitHub comment 是带时间和作者的过程证据，不是不可变审计日志；长期规则仍由仓库文档和 Git 历史保存。
 - 每个 Related PR 独立 G3 都必须运行 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence g3 --repo <owner/repo> --issue <number> --related-pr <current-related-pr>`；该 comment 永久保留 Related-only 断言，只验证当前 Related PR 的 comment、仍未勾选的 Issue G3 增量 permalink 与关系，不声明 Issue 整体 G3 已完成。若 Issue G3 已提前勾选，Related-only 校验必须失败。
-- Delivery PR G3、整组关系复核与 G4 使用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence <g3|g4> --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...`，并传入 Issue 已记录的全部 Related PR。整组复核按各 Related PR 原有的 Related-only 断言验证其 append-only comment，不要求改写为 full-set 命令；Delivery PR comment 和 Issue 最终断言使用 full-set 命令。`Gate 断言` 行必须用反引号记录与本次参数完全一致的规范命令并明确写 `已通过`；`待运行`、缺少成功标记或参数不匹配均视为 Gate 失败。命令或远端读取失败同样是 Gate 失败。
+- Delivery PR G3、整组关系复核与 G4 使用 `cargo +1.96.0 run --locked -p xtask -- check-gate-evidence <g3|g4> --repo <owner/repo> --issue <number> --delivery-pr <number> [--related-pr <number>]...`，并传入 Issue 已记录的全部 Related PR。整组复核按各 Related PR 原有的 Related-only 断言验证其 append-only comment，不要求改写为 full-set 命令；Delivery PR comment 和 Issue 最终断言使用 full-set 命令。`Gate 断言` 行必须用反引号记录与本次参数完全一致的规范命令并明确写 `已通过`；一个 PR 关联多个 Issue 时，同一 append-only G3 comment 必须为每个 Issue 分别保留一条精确断言，不能让单一 Issue 命令冒充整组通过。`待运行`、缺少成功标记、重复命令或参数不匹配均视为 Gate 失败。命令或远端读取失败同样是 Gate 失败。
 - 小型 `docs-only` 或 `governance` 任务可以把 G0-G2 合并为一条开工记录，但该记录必须发生在实现或开 PR 之前。
 - 如果 G4 阶段才发现 G0-G3 缺失，只能标记为补救记录，并说明流程遗漏原因。
 - Agent 不得在缺少当前 Gate 记录时继续推进下一 Gate，除非用户明确接受例外并留下原因、风险和 Cleanup owner。
@@ -243,11 +243,11 @@ steady state 的正式 `G3 Pass` 必须同时满足：
 
 R1 的 `External Review Gate Shadow` 由 `github-actions` 发布，只用于 non-required telemetry，不能直接升级为 required Check：GitHub required status checks 不区分 workflow、matrix 或 event，同仓 PR 可以创建同 source App 的同名 Actions job。R2 前必须改由独立、最小权限的专用 GitHub App 发布正式 `External Review Gate`，ruleset 同时绑定 Check name 与该 App；spoof canary 必须证明 PR 自定义的同名 job 不能满足 required check。
 
-`G3 Evidence Gate Shadow` 是独立的 R1 证据闭环 telemetry。它从 `main` 上的 trusted validator 运行 `check-gate-evidence-target --repo <owner/repo> --pr <current-pr>`，根据 PR body 中一个或多个明确的 `关联 Issue` 和精确 `PR 角色`，为每个 Issue 独立构造 Related-only 或 Delivery full-set G3 参数并全部校验。Delivery 的完整 Related PR 集合只从对应 Issue `Related PRs` 按记录顺序读取；Related PR 必须已经列入每个对应 Issue。具体 PR 编号只能使用无残留选项的 `#<number>` 列表；`pending / #61 / N/A`、`#<number>` 占位、空原因、缺失或重复编号、角色与 Issue 元数据不一致均 fail closed。G3 查询不得读取只供 G4 `Project=Done` 使用的 `projectItems`，避免要求 trusted workflow token 拥有不必要的 Projects 权限。
+`G3 Evidence Gate Shadow` 是独立的 R1 证据闭环 telemetry。它从 `main` 上的 trusted validator 运行 `check-gate-evidence-target --repo <owner/repo> --pr <current-pr>`，根据 PR body 中一个或多个明确的 `关联 Issue` 和精确 `PR 角色`，为每个 Issue 独立构造 Related-only 或 Delivery full-set G3 参数并全部校验。一个 PR 关联多个 Issue 时，同一 append-only G3 comment 为每个 Issue 分别记录一条精确 `Gate 断言`，target 模式必须逐条命中且全部通过。Delivery 的完整 Related PR 集合只从对应 Issue `Related PRs` 按记录顺序读取；Related PR 必须已经列入每个对应 Issue。具体 PR 编号只能使用无残留选项的 `#<number>` 列表；`pending / #61 / N/A`、`#<number>` 占位、空原因、缺失或重复编号、角色与 Issue 元数据不一致均 fail closed。关联 Issue 必须仍为 `OPEN`；G3 查询不得读取只供 G4 `Project=Done` 使用的 `projectItems`，避免要求 trusted workflow token 拥有不必要的 Projects 权限。
 
-完成 append-only G3 comment、PR body permalink 和 Issue 增量 permalink 后，操作者新增正文精确为 `g3-evidence: changed` 的顶层 PR comment，等待 trusted workflow 重读远端证据。该 marker 只是唤醒信号，不能携带结论。`G3 Evidence Gate Shadow` 由 `github-actions` 发布且当前不在 ruleset 中，只能证明 trusted-ref replay 的 telemetry 结果，不能声称已经阻止合并；修改该 workflow / validator 的候选 PR 也不能用尚未合入 `main` 的实现自批。
+完成 append-only G3 comment、PR body permalink 和 Issue 增量 permalink 后，操作者新增正文精确为 `g3-evidence: changed` 的顶层 PR comment，等待 trusted workflow 重读远端证据。只有该 comment 的 `created` 事件可以为直接目标发布 success；marker 必须保持未编辑，并严格晚于 current G3 comment、PR body 与每个关联 Issue body 的最后编辑时间，GitHub 同秒无法证明顺序时继续失败关闭。PR/body/Issue body、其他 conversation comment、review/thread、marker edit/delete 与 workflow dispatch 等事件只允许发布 non-success 以撤销旧结论，不能复用旧 marker 恢复 success。review signal 必须重读当前 evidence；Related PR 变化还必须级联刷新对应 Issue 已记录的 Delivery PR，级联目标不能借 Related 自身的 marker 获得 success。该 marker 只是唤醒信号，不能携带结论。`G3 Evidence Gate Shadow` 由 `github-actions` 发布且当前不在 ruleset 中，只能证明 trusted-ref replay 的 telemetry 结果，不能声称已经阻止合并；修改该 workflow / validator 的候选 PR 也不能用尚未合入 `main` 的实现自批。
 
-标准 `check-gate-evidence g3` 和 target 模式只接受仍为 `OPEN`、非 Draft 且尚未合并的当前 Delivery / Related PR。target 模式在确认 PR / Issue 角色元数据稳定后必须重跑完整远端证据校验，不能只比较数字参数。合并后补写或重放标准 G3 必须失败；`check-gate-evidence g4` 继续允许读取合并前形成的 append-only G3 证据做历史复核。
+标准 `check-gate-evidence g3` 和 target 模式只接受仍为 `OPEN` 的关联 Issue，以及仍为 `OPEN`、非 Draft 且尚未合并的当前 Delivery / Related PR。target 模式在确认 PR / Issue 角色元数据稳定后必须重跑完整远端证据校验，不能只比较数字参数。Draft、closed 或其他不再 eligible 的同仓 PR 必须用新的 non-success Check 取代同一 head 上可能残留的旧 success；合并后补写或重放标准 G3 必须失败。`check-gate-evidence g4` 继续允许读取合并前形成的 append-only G3 证据做历史复核。
 
 fork / cross-repository PR 的 head commit 不保证存在于 base repository，base repository 的 `GITHUB_TOKEN` 因而不能可靠创建关联 Check。此类 PR 不计入 R1 eligible sample；R2 不把缺失 Check 当作成功，必须把最终 patchset 迁移为 same-repository PR，并在新 PR 的 exact head 重新完成外部审阅与 G3。只有 security / emergency hotfix 等既有显式例外可以使用临时 ruleset bypass，不能形成 fork 的 standing bypass。
 
@@ -315,7 +315,7 @@ content-equivalent rebase 还必须记录 reviewed/new head、old/new base、cha
 
 PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
 
-G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 `Checks`、审阅、验证、风险、例外、合并方式和 `Gate 断言`。PR body 的 G3 checkbox 必须勾选并回链当前 PR comment；Issue body 的 G3 Gate Ledger 必须增量回链该 comment，只有 Delivery PR 与全部 Related PR 均完成时才勾选。`Gate 断言` 必须使用当前角色对应的 Related-only 或 full-set 规范命令，参数与实际调用完全一致；填写后立即运行该命令，若失败必须移除 `已通过` 并修复证据。运行成功前不得合并。
+G3 记录必须写在 PR 的 `## G3 合并判断` comment 中，至少包含 `Checks`、审阅、验证、风险、例外、合并方式和 `Gate 断言`。PR body 的 G3 checkbox 必须勾选并回链当前 PR comment；Issue body 的 G3 Gate Ledger 必须增量回链该 comment，只有 Delivery PR 与全部 Related PR 均完成时才勾选。`Gate 断言` 必须使用当前角色对应的 Related-only 或 full-set 规范命令，参数与实际调用完全一致；一个 PR 关联多个 Issue 时，在同一 comment 中为每个 Issue 分别写一条。填写后立即逐条运行，若任一失败必须移除对应 `已通过` 并修复证据。全部运行成功前不得合并。
 
 ```text
 ## G3 合并判断

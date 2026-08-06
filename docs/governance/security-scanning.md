@@ -143,7 +143,7 @@ GitHub API 版本或返回结构变化时，应在验证脚本或命令中固定
 
 - GitHub 网页或 API 中的设置变更属于仓库外状态变更，必须关联治理 Issue，并记录 G1 决策、G2 开工和实施证据。
 - 修改现有 ruleset 时必须保留目标分支、既有规则和 bypass actor；变更后重新读取完整 ruleset，确认只改变预期安全规则。
-- 新增 required workflow / required Check 时必须保存完整 before / after ruleset JSON，确认 workflow 或 expected source App 的身份绑定，并用同名 Actions spoof canary 和无 `--admin` 合并验证证明真实阻断。仅新增 non-required shadow workflow 不得同时改写为“已启用强制门禁”。
+- 新增 required workflow / required Check 时必须保存完整 before / after ruleset JSON，确认 workflow 或 expected source App 的身份绑定，并用同名 Actions spoof canary 和无 `--admin` 合并验证证明真实阻断。仅新增 non-required shadow workflow 不得同时改写为“已启用强制门禁”；shadow 对 review/thread、Related→Delivery 级联、Draft/closed 失效和 marker 时序的刷新只能作为 R1 telemetry 证据，不能替代 expected source 绑定。
 - organization ruleset、required workflow 或安全设置 API 返回 `403` / `404` 时，记录 plan / permission 限制和原始错误；不得把不可读取解释为零规则、零告警或能力已关闭，也不得据此覆盖现有 ruleset。
 - 降低或关闭本基线能力属于安全例外，必须在操作前记录原因、风险、到期条件和 Cleanup owner。
 - 临时 bypass 只处理被明确阻断的操作，不改变扫描结论；永久 bypass 授权也不能把失败、无分析或开放告警记为通过。
