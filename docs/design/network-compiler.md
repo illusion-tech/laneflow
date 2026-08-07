@@ -336,10 +336,10 @@ compiler 不公开接受预构造的 `ValidatedCurrentImportBundle`。
 通用 `add_module`、公共前端
 特征（trait）、裸 Typed AST 和裸描述符/内容配对继续禁止。
 
-#297 的精确 Review 候选见 [`current-package-import.md`](current-package-import.md)：公共
+#297 的已接受设计见 [`current-package-import.md`](current-package-import.md)：公共
 借用输入、三文档键、来源语言值、`LF-CURRENT-SOURCE-P100-IMPORT-v1` 全部精确上限、
-位置闭合集合、current ID 降阶和资产/等价矩阵均由该文件独占。该状态不表示 G1 Pass，
-也不授权实现。
+位置闭合集合、current ID 降阶和资产/等价矩阵均由该文件独占。#297 已通过 G1
+（Accepted），但仍不授权实现，开工须另行取得 `G2 Pass`。
 
 ### 5.3 几何文档前端（Geometry Document Frontend）
 
