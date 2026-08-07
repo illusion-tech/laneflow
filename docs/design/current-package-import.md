@@ -110,6 +110,13 @@ Issue，记录上述触发条件、删除版本和 Cleanup owner；该 Issue 删
 `SourceLanguage::CurrentTrafficSpatialV0_10` 与其 `as_str()` 分支。不得仅因 Runtime
 已切换便先删除唯一离线迁移入口，也不得把未定义的“保留期”变成永久兼容承诺。
 
+该专用 Issue 不能复用负责生产切换的 #294，也不能复用 #297 本身。#297 G2 开工评论必须以
+append-only `current-import-cleanup-authority:v1` 结构化记录冻结专用 Issue 的规范 URL、GitHub
+Issue Node ID 与 Cleanup owner 规范登录名；改变任一值都必须回到 G2 追加新的授权记录，不能编辑
+旧评论。G2 实现随后把同一元组和 G2 evidence permalink 写入固定路径
+`docs/reference/current-import-cleanup-authority-v1.json`。该文件是后续资产报告的可信清理责任
+输入，不由报告生成器、报告内容或验证时的可变 Issue assignee 反向决定。
+
 ## 4. Compiler 公共借用输入
 
 下列类型只在 `current-v0_10-import` 特性下公开。字段保持私有；全部构造器为 `const`、
@@ -134,11 +141,23 @@ impl<'a> CurrentSourceArtifact<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct CurrentSourceInput<'a> { /* private */ }
 
+#[derive(Clone, Copy, Debug)]
+pub struct CurrentImportProvenance<'a> { /* private */ }
+
+impl<'a> CurrentImportProvenance<'a> {
+    pub const fn new(
+        importer_build_id: &'a str,
+        importer_options_digest: [u8; 32],
+        provenance: &'a str,
+    ) -> Self;
+}
+
 impl<'a> CurrentSourceInput<'a> {
     pub const fn new(
         manifest_bytes: &'a [u8],
         manifest_display_source: Option<&'a str>,
         artifacts: &'a [CurrentSourceArtifact<'a>],
+        import_provenance: CurrentImportProvenance<'a>,
     ) -> Self;
 }
 
@@ -150,9 +169,20 @@ impl CompilationUnitBuilder {
 }
 ```
 
-一个生命周期参数同时约束切片及其元素，防止 importer 用短生命周期元数据拼出长生命
+一个生命周期参数同时约束切片、元素及导入来源沿袭，防止 importer 用短生命周期元数据拼出长生命
 周期输入。`display_source` 是未认证的显示/审计字符串，可以是仓库相对路径、资产键或
-宿主标签；它不参与摘要、标识或发布真实性。
+宿主标签；它不参与摘要、标识或发布真实性。`CurrentImportProvenance` 同样只借用调用方声明，
+其构造器不验证声明真实性；`add_current_source` 必须在读取、哈希或解析来源文档前，使用现有
+`SourceModuleHeader` 的可见 ASCII、非空、`SingleStringBytes` 与 compiler-controlled live
+bytes 规则验证并复制 `importer_build_id` 和 `provenance`，并原样保存固定宽度的
+`importer_options_digest`。失败不保留部分模块或字符串。
+
+官方 `laneflow-current-import` 必须从自身实际构建元数据和本次转换选项构造该值，不得接受会
+把任意宿主伪装成官方构建的 CLI 覆盖，也不得继续使用 `laneflow-current-import/v1` 或
+`current-package-migration` 这类工具/用途常量冒充实际构建与转换沿袭。直接调用 compiler 的
+其他宿主必须登记自己的构建、选项与沿袭，因此不同工具不会得到相同模块审计元数据。这些字段仍
+只是调用方登记的审计声明，不是发布信任锚；其真实性由后继外部描述符/验证收据或宿主认证资产链
+绑定，不能据此跳过内容摘要或独立验证。
 
 `add_current_source` 是唯一 compiler 提交入口。compiler 不公开接收
 `ValidatedCurrentImportBundle`、`CurrentSourceLimits`、当前 DTO、位置表、来源描述符或
@@ -252,24 +282,29 @@ parts→compiler 提交入口。Data 与 compiler 必须通过这些视图消费
 
 三文档共同形成一个无导入边的逻辑模块：
 
-| 项目                         | 精确值                                                      |
-| ---------------------------- | ----------------------------------------------------------- |
-| `authoringNamespaceId`       | `current/v0.10`                                             |
-| `SourceLanguage` 新值        | `CurrentTrafficSpatialV0_10 = 2`                            |
-| `SourceLanguage::as_str()`   | `current-traffic-spatial-v0.10`                             |
-| `frontendVersion`            | `1`                                                         |
-| Manifest `sourceDocumentKey` | `current/v0.10/manifest`                                    |
-| Traffic `sourceDocumentKey`  | `current/v0.10/traffic`                                     |
-| Spatial `sourceDocumentKey`  | `current/v0.10/spatial`                                     |
-| imports                      | 空集合                                                      |
-| `generatorBuildId`           | `laneflow-current-import/v1`                                |
-| `frontendOptionsDigest`      | SHA-256(`LFCURRENT-IMPORT-OPTIONS` + little-endian `1_u32`) |
-| `parametersAndInputsDigest`  | Manifest 原始字节 SHA-256                                   |
-| `randomSeed`                 | `None`                                                      |
-| `provenance`                 | `current-package-migration`                                 |
+| 项目                         | 精确值                                                    |
+| ---------------------------- | --------------------------------------------------------- |
+| `authoringNamespaceId`       | `current/v0.10`                                           |
+| `SourceLanguage` 新值        | `CurrentTrafficSpatialV0_10 = 2`                          |
+| `SourceLanguage::as_str()`   | `current-traffic-spatial-v0.10`                           |
+| `frontendVersion`            | `1`                                                       |
+| Manifest `sourceDocumentKey` | `current/v0.10/manifest`                                  |
+| Traffic `sourceDocumentKey`  | `current/v0.10/traffic`                                   |
+| Spatial `sourceDocumentKey`  | `current/v0.10/spatial`                                   |
+| imports                      | 空集合                                                    |
+| `generatorBuildId`           | `CurrentImportProvenance::new` 的实际 `importer_build_id` |
+| `frontendOptionsDigest`      | `CurrentImportProvenance::new` 的实际选项摘要             |
+| `parametersAndInputsDigest`  | Manifest 原始字节 SHA-256                                 |
+| `randomSeed`                 | `None`                                                    |
+| `provenance`                 | `CurrentImportProvenance::new` 的本次转换来源沿袭         |
 
 稳定文档键不含宿主路径、`artifactRef`、输入数组下标或内容摘要。固定 namespace 意味着
 一个编译单元至多接收一个 current 场景；第二次加入由现有重复 namespace 诊断原子拒绝。
+`frontendVersion=1` 只标识 current 前端线格式；它不能替代具体 importer build。官方 importer
+当前没有影响转换语义的可选开关时，`importer_options_digest` 使用
+SHA-256(`LFCURRENT-IMPORT-OPTIONS` + little-endian `1_u32`)；一旦增加转换选项，必须按提升后的
+封闭选项记录重新派生，不能沿用该无选项摘要。宿主文件路径、报告输出位置等不影响模块转换的工具
+选项不得混入该摘要。
 
 `SourceLanguage::CurrentTrafficSpatialV0_10` 枚举变体及其 `as_str()` match arm 都必须标注
 `#[cfg(feature = "current-v0_10-import")]`。默认特性构建的 public API 与 rustdoc 不得出现
@@ -562,6 +597,9 @@ live 余额。source 先按 Manifest 单文档硬上限 → compiler `SourceByte
 compiler 也不为 source bytes 或 admission 再遍历输入/记录。三份 document key、role、artifact ref 与
 display source 分别计入 `StringItemCount`、`TotalStringBytes` 和 live bytes；artifact ref
 与 display source 不属于 `SingleStringBytes`，但仍受 source 专用 256/1,024 byte 上限。
+`importer_build_id` 与模块级 `provenance` 沿用 `SourceModuleHeader` 的
+`SingleStringBytes`/可见 ASCII 规则，只按实际复制字节计 compiler-controlled live bytes，不
+重复计为来源文档字符串；32 字节选项摘要不产生按输入规模分配。
 
 `max_import_transaction_live_bytes` 精确等于调用点剩余的
 `CompilerControlledLiveBytes`，不另设无限值。解析期同时受 24 MiB source 峰值和该余额
@@ -989,8 +1027,20 @@ encoder 已知向量测试。
 逐项状态由 schema 的闭合分支裁决：配对迁移成功必须是 `paired-success + success + 空诊断`；
 仓库内仅交通数据与非当前版本分别是 `unpaired-traffic-only` /
 `unsupported-current-version + expected-failure + 非空诊断`；任何未处理迁移失败只能是
-`migration-failure + unhandled-failure + 非空诊断`。`overallStatus=pass` 只允许前三个
-expected=actual 分支且 cleanup Issue/owner 非空；存在任一 migration failure 时只能是 fail。
+`migration-failure + unhandled-failure + 非空诊断`。所有报告都必须携带清理责任绑定；
+`overallStatus=pass` 还要求前三个 expected=actual 分支以及从审计父提交独立验证的清理授权记录
+全部精确匹配。存在任一 migration failure 时只能是 fail；fail 报告携带清理责任只用于归责，不能
+授权退役。
+
+清理责任记录固定使用 `laneflow.current-import-cleanup-authority` v1，并由
+`current-asset-audit-v1.schema.json#/$defs/cleanupAuthorityRecord` 验证。字段按顺序为
+`schema`、`schemaVersion`、`retirementProfile`、`sourceIssue`、`g2Evidence`、
+`cleanupIssue`、`cleanupIssueNodeId`、`cleanupOwner`；其中 source Issue 固定为 #297，G2
+evidence 必须是 #297 的规范 issue-comment permalink，cleanup Issue 必须是本仓库中区别于 #294
+与 #297 的专用 Issue，owner 是不带 `@` 的规范 GitHub 登录名。精确 bytes 使用 UTF-8 无 BOM、
+两空格缩进、LF 和单个末尾 LF。报告的 `cleanup.authority` 固定记录 profile
+`LF-CURRENT-CLEANUP-AUTHORITY-v1`、上述固定路径和该文件 exact bytes 的 SHA-256，并重复可读的
+Issue URL、Node ID 与 owner；这些重复字段必须由 validator 逐项比较，不能自证。
 
 ### 13.2 仓库证据提交与原子发布
 
@@ -1008,12 +1058,21 @@ repository source digest。不得从 E、调用方工作树或其普通 index �
 blob 读取每份精确 bytes，重新派生 Git blob、字节长度、source SHA-256、`formatVersion` 状态、
 Manifest 配对、预期/实际分类、迁移结果与诊断；报告值不能参与这些派生。
 
+同一 validator 还必须从 A 的 tree 固定路径读取清理责任记录，先验证 exact bytes 摘要和
+`cleanupAuthorityRecord` 闭合结构，再把其中的 `cleanupIssue`、`cleanupIssueNodeId` 与
+`cleanupOwner` 作为唯一预期值，与报告 `cleanup` 做逐字段精确比较。它不得从 E、工作树、报告内
+authority path、调用方参数或验证时可变的 GitHub assignee 取得替代值；固定路径缺失、摘要或
+profile 不匹配、G2 evidence 不是 #297 permalink、Issue 为 #294/#297、Node ID/owner 缺失或任一
+报告字段不相等都失败关闭。
+
 预期资产按 path UTF-8 字节序唯一排序后，validator 必须与 `assets[]` 做逐位置、逐字段、等长比较，
 并从预期内容身份重新计算 `inventoryDigest`，从完整预期迁移结果重新计算 `overallStatus`。任何漏项、
 额外项、重复 path、乱序、内容身份或分类/结果差异都失败关闭；v1 还须独立复核已发布资产固定空清单，
 不能因为报告自洽而接受。G2 负向测试至少逐项篡改遗漏、额外、重复、乱序、Git blob、长度、
 SHA-256、分类/迁移结果、repository source digest、`inventoryDigest` 与 `overallStatus`，并证明
-每类都被 validator 拒绝。
+每类都被 validator 拒绝。清理责任负向矩阵还必须覆盖固定文件缺失、从 E/工作树替换、authority
+profile/path/digest 篡改、非 #297 G2 evidence、#294/#297 冒充专用 Issue、Issue URL 与 Node ID
+错配、owner 篡改，以及报告与 A 中责任记录任一字段不相等。
 
 报告 bytes 固定为 UTF-8 无 BOM、两空格缩进、LF 换行、单个末尾 LF；object 字段按 schema
 声明顺序，数组按本文规范顺序，由 importer 直接依赖的 `serde_json` 使用标准字符串转义。
@@ -1093,6 +1152,11 @@ Manifest 哈希、换行索引和 DTO 分配。G3 validator 独立重建清单�
 `O(asset count + total bytes)` 的 Git tree/blob 读取、分类和 SHA-256，但只发生在未发布离线工具与
 证据闸口，不进入 production loader、compiler 热路径或 Traffic Runtime。其代价是维护报告生成与
 独立复核命令及负向篡改矩阵，收益是漏项或自洽伪造不能产生错误 `pass`。
+从同一 A tree 读取清理责任记录只增加一次小型固定文件读取、Draft 2020-12 校验、SHA-256 和常数
+字段比较；不会访问 GitHub 网络，也不随资产数增长。实际 importer build/provenance 只替换模块
+描述符中原本就存在的两个字符串并增加一个 32 字节输入值，不增加 LIR 表、运行时镜像或固定步进
+成本；代价是官方 importer 构建必须注入可审计构建身份，直接 compiler 宿主也必须显式登记自身
+转换沿袭。
 
 G2 基准显式继承 [`compiler-foundation.md`](compiler-foundation.md) 第 10.4 节：同一 P100
 机器、相同 release 配置，每级至少 1 次预热和 7 次正式样本，报告 median、MAD、compiler
@@ -1113,24 +1177,28 @@ regression，也不得只报告成功结果 live bytes。
 `G4 Exception` 继承边界和 cleanup Issue/owner 复核且追加独立 `G2 Pass` 后，才按以下顺序
 落地；任一切片都不能提前写入 Runtime：
 
-1. 新建 `laneflow-current-source`，迁移 wire DTO、版本/摘要/配对与 Traffic-only 能力；
+1. 按 G2 append-only 授权记录提交固定路径清理责任文件，并以 A-tree 读取、摘要和字段错配负向
+   测试冻结其独立验证边界。
+2. 新建 `laneflow-current-source`，迁移 wire DTO、版本/摘要/配对与 Traffic-only 能力；
    用兼容矩阵证明 `laneflow-data` accepted set 未收窄后删除 Data 的重复 DTO/配对实现。
-2. 增加共享增长前 visitor、有界 record-token replay、static location policy，以及 strict
+3. 增加共享增长前 visitor、有界 record-token replay、static location policy，以及 strict
    profile、packed 位置槽、换行索引、位置闭合集合和 source 自身边界测试。
-3. 在 compiler 默认关闭特性下增加 `CurrentSourceArtifact`/`CurrentSourceInput`、余额派生、
-   current 私有降阶、三文档描述符/源映射和原子 admission；补 compile-fail/API/DAG 测试。
-4. 新建以 compiler 为唯一 LaneFlow 直接依赖的薄 `laneflow-current-import`，并使用第 3 节
+4. 在 compiler 默认关闭特性下增加 `CurrentSourceArtifact`/`CurrentImportProvenance`/
+   `CurrentSourceInput`、余额派生、current 私有降阶、三文档描述符/源映射和原子 admission；补
+   compile-fail/API/DAG 测试，并证明不同 build/options/provenance 原样进入只读模块描述符。
+5. 新建以 compiler 为唯一 LaneFlow 直接依赖的薄 `laneflow-current-import`，并使用第 3 节
    冻结的第三方支撑依赖白名单，实现批量调用、符合 `current-asset-audit-v1.schema.json` 的
    机器可读资产报告、失败清单和从 A 独立重建完整清单的 validator；文件读取、路径解析和原子
    输出只在该宿主工具层。
-5. 完成 `LF-COMP-CURRENT-EQUIV-v2`、release 性能/内存、全 workspace CI、外部审阅、G3/G4
+6. 完成 `LF-COMP-CURRENT-EQUIV-v2`、release 性能/内存、全 workspace CI、外部审阅、G3/G4
    证据；#294 只有在 paired success 与显式失败清单完整后才能消费删除前置。
 
 ## 16. G1 冻结清单
 
 - [x] crate DAG、第三方支撑依赖白名单、锁文件唯一解析权威、默认关闭特性、能力可见性和
       退役条件闭合；
-- [x] `CurrentSourceArtifact::new`、`CurrentSourceInput::new` 与唯一 builder 入口精确；
+- [x] `CurrentSourceArtifact::new`、`CurrentImportProvenance::new`、
+      `CurrentSourceInput::new` 与唯一 builder 入口精确；
 - [x] production-compatible / strict / Traffic-only 三条能力、source-owned 迭代器预检及
       不可转换边界精确；
 - [x] 一个逻辑模块、固定 namespace、三文档键、来源语言和逐文档 origin 精确；
@@ -1138,7 +1206,8 @@ regression，也不得只报告成功结果 live bytes。
 - [x] `LF-CURRENT-SOURCE-P100-IMPORT-v1` 全部固定值、builder 余额派生和 live 事务精确；
 - [x] Manifest/Traffic/Spatial 字段与记录位置闭合集合精确；
 - [x] current external ID、迁移派生 key、owner/coverage/geometry 降阶精确；
-- [x] 仓库资产分类、已发布资产空清单、证据提交、等价/确定性/资源/兼容/性能矩阵精确；
+- [x] 仓库资产分类、已发布资产空清单、A-tree 清理责任事实源、证据提交、
+      等价/确定性/资源/兼容/性能矩阵精确；
 - [ ] 本地全面审阅、当前 exact-head 外部 clean review 与 #297 `G1 Pass` 尚未完成。
 
 本文件处于 Review；勾选设计内容表示候选已写全，不表示治理 Gate 已通过。只有 #297

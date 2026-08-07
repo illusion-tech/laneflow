@@ -73,9 +73,10 @@
   的具体 current 前端仍未实现，不构成当前生产事实。
 - `current-package-import.md`：#297 G1 Review 候选；冻结 current Traffic v0.10、
   SpatialPackage v0.1 与 ScenarioManifest v0.1 的 production-compatible / strict
-  双策略 SSOT、零复制 compiler 输入、三文档身份与来源位置、严格资源配置档、current
-  external ID 降阶、迁移包 DAG、资产失败清单和 current→LIR→projection 等价矩阵；
-  当前尚未取得 G1 Pass，也未授权生产 Rust 实现。
+  双策略 SSOT、携带实际导入来源沿袭的零复制 compiler 输入、三文档身份与来源位置、严格
+  资源配置档、current external ID 降阶、迁移包 DAG、资产失败清单、父提交独立验证的清理
+  责任事实记录和 current→LIR→projection 等价矩阵；当前尚未取得 G1 Pass，也未授权生产 Rust
+  实现。
 
 ## 文档状态
 
