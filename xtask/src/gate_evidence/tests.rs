@@ -954,6 +954,22 @@ fn codeql_completion_must_not_follow_the_append_only_g3_comment() {
         )
         .is_ok()
     );
+    assert!(
+        validate_codeql_completion_order(
+            "Delivery PR",
+            "2026-08-07T10:00:01.1Z",
+            Some("2026-08-07T10:00:01.2Z")
+        )
+        .is_err()
+    );
+    assert!(
+        validate_codeql_completion_order(
+            "Delivery PR",
+            "2026-08-07T10:00:01.2Z",
+            Some("2026-08-07T10:00:01.1Z")
+        )
+        .is_ok()
+    );
 }
 
 #[test]
