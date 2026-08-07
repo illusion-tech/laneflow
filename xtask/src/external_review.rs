@@ -1327,20 +1327,6 @@ fn push_evidence(
 }
 
 fn collect_pagination_errors(pr: &PullRequestSnapshot, diagnostics: &mut Vec<String>) {
-    if pr.files.page_info.has_next_page {
-        diagnostics.push("changed files 超过 100 条，snapshot 被截断".to_string());
-    }
-    if pr.commits.page_info.has_next_page {
-        diagnostics.push("commits 超过 100 条，snapshot 被截断".to_string());
-    }
-    for node in &pr.commits.nodes {
-        if node.commit.authors.page_info.has_next_page {
-            diagnostics.push(format!(
-                "commit `{}` 的 authors 超过 2 条，snapshot 被截断",
-                node.commit.oid
-            ));
-        }
-    }
     if pr.review_requests.page_info.has_next_page {
         diagnostics.push("reviewRequests 超过 100 条，snapshot 被截断".to_string());
     }
@@ -2898,6 +2884,23 @@ mod tests {
         assert_eq!(result.finding_count, 2);
         assert_eq!(result.unresolved_actionable_threads, 0);
         assert!(!result.requires_rereview);
+    }
+
+    #[test]
+    fn standard_reviewer_path_ignores_lockfile_only_pagination() {
+        let mut source = fixture(include_str!("../fixtures/external-review/codex-clean.json"));
+        source.pull_request.files.page_info.has_next_page = true;
+        source.pull_request.commits.page_info.has_next_page = true;
+        assert_eq!(evaluate_snapshot(&source).state, ExternalReviewState::Pass);
+
+        let mut lockfile = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-unreviewable.json"
+        ));
+        lockfile.pull_request.files.page_info.has_next_page = true;
+        assert_ne!(
+            evaluate_snapshot(&lockfile).state,
+            ExternalReviewState::Pass
+        );
     }
 
     #[test]
