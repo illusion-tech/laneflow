@@ -1356,6 +1356,9 @@ fn handled_non_range_identity_finding(
     let Some(claimed_oid) = claimed_pr_identity_oid(&first_comment.body) else {
         return false;
     };
+    if !identity_only_non_range_finding(&first_comment.body) {
+        return false;
+    }
     if lockfile_policy::oid_matches_any_commit(claimed_oid, &metadata.commits) {
         return false;
     }
@@ -1366,10 +1369,59 @@ fn handled_non_range_identity_finding(
         comment.author.as_ref().is_some_and(|author| {
             let actor = normalize_actor(&author.login);
             actor == normalize_actor(pr_author) || TRUSTED_HUMAN_ACTORS.contains(&actor.as_str())
-        }) && comment.body.trim_start().starts_with("Disposition:")
+        }) && identity_only_disposition(&comment.body, claimed_oid, &metadata.head_oid)
             && valid_timestamp(&comment.created_at)
             && comment.created_at.as_str() > first_comment.created_at.as_str()
     })
+}
+
+fn identity_only_non_range_finding(body: &str) -> bool {
+    let lines = body
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    if lines.len() != 3
+        || ![
+            "Restore Dependabot author or add governance fields**",
+            "Restore bot authorship or add governance fields**",
+        ]
+        .iter()
+        .any(|suffix| lines[0].ends_with(suffix))
+        || !["Useful? React with 👍 / 👎.", "Useful? React with 👍 / 👎."].contains(&lines[2])
+    {
+        return false;
+    }
+    let paragraph = lines[1].to_ascii_lowercase();
+    let sentence_count = paragraph.matches(". ").count() + 1;
+    (2..=3).contains(&sentence_count)
+        && paragraph.contains("authored")
+        && paragraph.contains("codex <codex@openai.com>")
+        && paragraph.contains("dependabot")
+        && paragraph.contains("governance")
+        && (paragraph.contains("re-author")
+            || paragraph.contains("rewrite")
+            || paragraph.contains("replace the body"))
+        && ![
+            "checksum",
+            "vulnerability",
+            "advisory",
+            "license violation",
+            "unsafe code",
+        ]
+        .iter()
+        .any(|forbidden| paragraph.contains(forbidden))
+}
+
+fn identity_only_disposition(body: &str, claimed_oid: &str, current_head: &str) -> bool {
+    let trimmed = body.trim_start();
+    trimmed.starts_with("Disposition:")
+        && trimmed.contains(current_head)
+        && trimmed.contains("dependabot[bot]")
+        && trimmed.contains("49699333+dependabot[bot]@users.noreply.github.com")
+        && (trimmed.contains(claimed_oid)
+            || trimmed.contains("错误 author")
+            || trimmed.contains("误报同构"))
 }
 
 fn claimed_pr_identity_oid(body: &str) -> Option<&str> {
@@ -2594,6 +2646,17 @@ mod tests {
             .created_at
             .clone();
         snapshot.pull_request.review_threads.nodes[0].comments.nodes[1].created_at = finding_time;
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingRereview
+        );
+
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        snapshot.pull_request.review_threads.nodes[0].comments.nodes[0]
+            .body
+            .push_str(" Also, the Cargo.lock checksum is invalid.");
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::AwaitingRereview

@@ -38,6 +38,13 @@
         "conclusion": "NEUTRAL",
         "detailsUrl": "https://github.com/illusion-tech/laneflow/runs/92499577539",
         "appSlug": "github-advanced-security",
+        "pullRequests": [
+          {
+            "number": 313,
+            "headOid": "9d941d7b54a79e089b97520d66a3bf0125d5c91a",
+            "baseOid": "ea5bf34fccca4579f5c1d910da24497cf6448eac"
+          }
+        ],
         "workflowName": ""
       }
     ]

@@ -436,10 +436,6 @@ pub(super) fn validate_codeql_g3(
     if comment.created_at.as_str() < CODEQL_G3_ACTIVATION {
         return Ok(());
     }
-    if parse_g3_result(&comment.body)? == G3Result::Waived {
-        return Ok(());
-    }
-
     let result = codeql::evaluate_live(repo, number)?;
     if !result.state.satisfies_g3() {
         return Err(format!(
