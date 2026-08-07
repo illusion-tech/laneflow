@@ -986,11 +986,12 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                     }
                 }
             }
-            "codex" if state == "COMMENTED" && linked_findings > 0 => {
-                Some(EvidenceOutcome::Findings)
-            }
+            "codex" if linked_findings > 0 => Some(EvidenceOutcome::Findings),
             "codex" if state == "APPROVED" => Some(EvidenceOutcome::Clean),
             "human" if linked_findings > 0 => Some(EvidenceOutcome::Findings),
+            "human" if state == "COMMENTED" && !review.body.trim().is_empty() => {
+                Some(EvidenceOutcome::Findings)
+            }
             "human" if state == "APPROVED" => Some(EvidenceOutcome::Clean),
             "human" if state == "CHANGES_REQUESTED" => Some(EvidenceOutcome::Findings),
             _ => None,
@@ -3073,6 +3074,30 @@ mod tests {
                 ExternalReviewState::AwaitingRereview
             );
         }
+
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-awaiting-rereview.json"
+        ));
+        snapshot.pull_request.reviews.nodes[0].state = "APPROVED".to_string();
+        snapshot.pull_request.review_threads.nodes[0].comments.nodes[0]
+            .pull_request_review
+            .as_mut()
+            .expect("fixture finding must reference its review")
+            .state = "APPROVED".to_string();
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingRereview
+        );
+
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/human-approved.json"
+        ));
+        snapshot.pull_request.reviews.nodes[0].state = "COMMENTED".to_string();
+        snapshot.pull_request.reviews.nodes[0].body = "Please address this issue.".to_string();
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingRereview
+        );
     }
 
     #[test]
