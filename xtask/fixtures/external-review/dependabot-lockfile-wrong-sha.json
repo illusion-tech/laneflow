@@ -82,7 +82,7 @@
                 "author": {
                   "login": "chatgpt-codex-connector"
                 },
-                "body": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Restore bot authorship or add governance fields**\n\nThe reviewed object `4d2fb5becdaed398cb61ea42191f1e477a18ad1a` is authored by `Codex <codex@openai.com>` instead of Dependabot, so its message lacks required governance fields. Re-author this object as Dependabot or rewrite its message with the complete governance block.\n\nUseful? React with 👍 / 👎.",
+                "body": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Restore bot authorship or add governance fields**\n\nWhen CI checks this PR's commit range, this commit is not eligible for the Dependabot exception: fresh evidence versus the earlier rebuttal is that the reviewed object `4d2fb5becdaed398cb61ea42191f1e477a18ad1a` is actually authored by `Codex <codex@openai.com>`, while `xtask/src/main.rs:761-765` and `818-820` require the exact Dependabot name/email. The `Check commit messages` step in `.github/workflows/ci.yml:125-127` therefore validates the body and reports all required governance fields plus `Refs`/`Closes` as missing, blocking the required CI check; re-author this object as the bot or rewrite its message with the complete governance block.\n\nUseful? React with 👍 / 👎.",
                 "createdAt": "2026-08-06T02:20:38Z",
                 "updatedAt": "2026-08-06T02:20:38Z",
                 "url": "https://github.com/illusion-tech/laneflow/pull/313#discussion_r3725452215",

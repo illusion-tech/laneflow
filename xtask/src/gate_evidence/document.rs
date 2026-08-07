@@ -457,6 +457,7 @@ pub(super) fn validate_codeql_g3(
             result.state.as_str()
         ));
     }
+    validate_codeql_completion_order(label, &comment.created_at, result.completion_time())?;
     if !line.contains(&format!("`{}`", result.state.as_str())) {
         return Err(format!(
             "{label} G3 comment 的 CodeQL 状态与机器结果不一致：{}",
@@ -494,6 +495,27 @@ pub(super) fn codeql_evidence_url(line: &str) -> Result<&str, String> {
         })
         .unwrap_or(suffix.len());
     Ok(&suffix[..end])
+}
+
+pub(super) fn validate_codeql_completion_order(
+    label: &str,
+    comment_created_at: &str,
+    completion_time: Option<&str>,
+) -> Result<(), String> {
+    let Some(completion_time) = completion_time else {
+        return Ok(());
+    };
+    let comment_seconds = parse_utc_timestamp_seconds(comment_created_at)
+        .ok_or_else(|| format!("{label} G3 comment createdAt 不是有效 UTC RFC3339 时间"))?;
+    let completion_seconds = parse_utc_timestamp_seconds(completion_time)
+        .ok_or_else(|| format!("{label} CodeQL completedAt 不是有效 UTC RFC3339 时间"))?;
+    if comment_seconds < completion_seconds {
+        return Err(format!(
+            "{label} G3 comment 早于 CodeQL 完成时间：comment={comment_created_at}，completion={}",
+            completion_time
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn parse_g3_result(body: &str) -> Result<G3Result, String> {

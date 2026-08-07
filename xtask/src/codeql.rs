@@ -127,6 +127,8 @@ struct CheckRunSnapshot {
     #[serde(default)]
     conclusion: String,
     #[serde(default)]
+    completed_at: String,
+    #[serde(default)]
     details_url: String,
     #[serde(default)]
     app_slug: String,
@@ -153,6 +155,7 @@ struct RestCheckRun {
     name: String,
     status: String,
     conclusion: Option<String>,
+    completed_at: Option<String>,
     details_url: String,
     head_sha: String,
     app: RestCheckApp,
@@ -187,6 +190,7 @@ pub(crate) struct CodeQlResult {
     current_base_oid: String,
     pub(crate) state: CodeQlState,
     evidence_url: Option<String>,
+    completion_time: Option<String>,
     policy: Option<String>,
     diagnostics: Vec<String>,
 }
@@ -198,6 +202,10 @@ impl CodeQlResult {
 
     pub(crate) fn policy(&self) -> Option<&str> {
         self.policy.as_deref()
+    }
+
+    pub(crate) fn completion_time(&self) -> Option<&str> {
+        self.completion_time.as_deref()
     }
 }
 
@@ -292,6 +300,7 @@ fn evaluate_live_with_evidence(
     if identity.head_ref_oid != initial_head || identity.base_ref_oid != initial_base {
         result.state = CodeQlState::ProviderError;
         result.evidence_url = None;
+        result.completion_time = None;
         result.policy = None;
         result.diagnostics.push(format!(
             "head/base 竞态：首次读取 {initial_head}/{initial_base}，复核 {}/{}",
@@ -346,13 +355,21 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
     if aggregate.len() > 1 {
         diagnostics.push("current head 存在多个 CodeQL aggregate Check，无法唯一判定".to_string());
     }
+    if let Some(check) = aggregate.first() {
+        if check.status == "COMPLETED" && !lockfile_policy::is_utc_rfc3339(&check.completed_at) {
+            diagnostics.push("已完成 CodeQL aggregate Check 缺少有效 completedAt".to_string());
+        }
+    }
 
-    let (state, evidence_url, policy, state_diagnostic) = if !diagnostics.is_empty() {
-        (CodeQlState::ProviderError, None, None, None)
+    let (state, evidence_url, completion_time, policy, state_diagnostic) = if !diagnostics
+        .is_empty()
+    {
+        (CodeQlState::ProviderError, None, None, None, None)
     } else if let Some(check) = aggregate.first() {
         if !valid_github_url(&check.details_url) {
             (
                 CodeQlState::ProviderError,
+                None,
                 None,
                 None,
                 Some("CodeQL aggregate Check 缺少有效 GitHub evidence URL".to_string()),
@@ -362,12 +379,14 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
                 CodeQlState::Pending,
                 Some(check.details_url.clone()),
                 None,
+                None,
                 Some("CodeQL aggregate Check 尚未完成".to_string()),
             )
         } else if check.conclusion == "SUCCESS" {
             (
                 CodeQlState::Pass,
                 Some(check.details_url.clone()),
+                Some(check.completed_at.clone()),
                 Some("codeql-current-head-analysis".to_string()),
                 None,
             )
@@ -376,6 +395,7 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
                 Ok(_) => (
                     CodeQlState::NotApplicable,
                     Some(check.details_url.clone()),
+                    Some(check.completed_at.clone()),
                     Some("dependabot-cargo-lock-only-v1".to_string()),
                     Some(
                         "CodeQL neutral/no-analysis；精确 Dependabot Cargo.lock-only policy 判定为不适用"
@@ -385,6 +405,7 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
                 Err(reason) => (
                     CodeQlState::Failed,
                     Some(check.details_url.clone()),
+                    Some(check.completed_at.clone()),
                     None,
                     Some(format!(
                         "CodeQL neutral/no-analysis 且不满足 lockfile-only 替代规则：{reason}"
@@ -395,6 +416,7 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
             (
                 CodeQlState::Failed,
                 Some(check.details_url.clone()),
+                Some(check.completed_at.clone()),
                 None,
                 Some(format!(
                     "CodeQL aggregate Check conclusion={}，不能进入 G3",
@@ -407,6 +429,7 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
             Ok(_) => (
                 CodeQlState::NotApplicable,
                 Some(pr.url.clone()),
+                None,
                 Some("dependabot-cargo-lock-only-v1".to_string()),
                 Some(
                     "current head 未生成 CodeQL aggregate Check；精确 Dependabot Cargo.lock-only policy 判定为不适用"
@@ -415,6 +438,7 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
             ),
             Err(reason) => (
                 CodeQlState::Missing,
+                None,
                 None,
                 None,
                 Some(format!("current head 缺少 CodeQL aggregate Check：{reason}")),
@@ -433,6 +457,7 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
         current_base_oid: pr.base_ref_oid.clone(),
         state,
         evidence_url,
+        completion_time,
         policy,
         diagnostics,
     }
@@ -581,6 +606,7 @@ fn load_codeql_check_runs(
             ));
         }
         check.app_slug.clone_from(&trusted.app_slug);
+        check.completed_at.clone_from(&trusted.completed_at);
         check.pull_requests.clone_from(&trusted.pull_requests);
     }
     Ok(pr_bound_checks)
@@ -626,6 +652,7 @@ fn rest_check_run_snapshot(
         name: check.name,
         status: check.status.to_ascii_uppercase(),
         conclusion: check.conclusion.unwrap_or_default().to_ascii_uppercase(),
+        completed_at: check.completed_at.unwrap_or_default(),
         details_url: check.details_url,
         app_slug: check.app.slug,
         pull_requests: check
@@ -751,9 +778,10 @@ fn next_value(args: &[String], index: &mut usize, flag: &str) -> Result<String, 
 
 fn print_summary(result: &CodeQlResult) {
     println!(
-        "CodeQL: state={} head={} policy={} evidence={}",
+        "CodeQL: state={} head={} completed={} policy={} evidence={}",
         result.state.as_str(),
         result.current_head_oid,
+        result.completion_time.as_deref().unwrap_or("N/A"),
         result.policy.as_deref().unwrap_or("N/A"),
         result.evidence_url.as_deref().unwrap_or("N/A")
     );
@@ -818,6 +846,23 @@ mod tests {
         ] {
             assert_eq!(evaluate_snapshot(&fixture(contents)).state, expected);
         }
+    }
+
+    #[test]
+    fn completed_codeql_run_requires_a_valid_completion_time() {
+        let snapshot = fixture(include_str!("../fixtures/codeql/source-success.json"));
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, CodeQlState::Pass);
+        assert_eq!(result.completion_time(), Some("2026-08-07T00:00:00Z"));
+
+        let mut snapshot = snapshot;
+        snapshot.pull_request.status_check_rollup[0]
+            .completed_at
+            .clear();
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            CodeQlState::ProviderError
+        );
     }
 
     #[test]

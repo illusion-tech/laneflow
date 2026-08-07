@@ -36,6 +36,7 @@
         "name": "CodeQL",
         "status": "COMPLETED",
         "conclusion": "NEUTRAL",
+        "completedAt": "2026-08-07T00:00:00Z",
         "detailsUrl": "https://github.com/illusion-tech/laneflow/runs/92499577539",
         "appSlug": "github-advanced-security",
         "pullRequests": [
