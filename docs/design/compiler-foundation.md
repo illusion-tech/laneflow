@@ -269,10 +269,14 @@ DTO。严格线格式解码器必须在字符串、序列、记录或存续内�
 
 `laneflow-current-source` 不构造编译器类型；它通过私有字段保证调用方不能拆散 DTO、
 摘要、长度、来源记录与位置表，也不能自报这些内容身份。启用迁移特性时，
-`CompilationUnitBuilder::add_current_source` 接受只借用原始 Manifest、具名制品与显示/审计来源的
-`CurrentSourceInput`，在持有 `&mut self` 的整个调用期间完成剩余预算派生、严格来源验证、当前态 DTO
-降阶和共同接入提交。`CurrentSourceInput` 字段保持私有，但必须提供特性门控的公开 `new` 构造器，
-让独立 crate `laneflow-current-import` 能从借用的原始输入和未认证显示/审计来源构造它；该构造器
+`CompilationUnitBuilder::add_current_source` 接受只借用原始 Manifest、具名制品、显示/审计来源与
+本次实际导入来源沿袭的 `CurrentSourceInput`，在持有 `&mut self` 的整个调用期间完成剩余预算派生、
+严格来源验证、当前态 DTO 降阶和共同接入提交。导入来源沿袭由字段私有的
+`CurrentImportProvenance` 携带实际 importer build ID、实际选项摘要和本次转换来源沿袭；builder 在
+读取、哈希或解析来源文档前按共同 `SourceModuleHeader` 字符串规则验证并复制这些值，随后写入只读
+模块描述符。该调用方声明不是发布真实性或安全信任根；需要认证时仍由外部签名制品或构建回执证明。
+`CurrentSourceInput` 字段保持私有，但必须提供特性门控的公开 `new` 构造器，让独立 crate
+`laneflow-current-import` 能从借用的原始输入、未认证显示/审计来源和实际导入来源沿袭构造它；该构造器
 只保存借用，不分配、不复制、不解析、不哈希、不验证，也不要求调用方先构造字段私有的
 `SourceDocumentOrigin`。其签名只能使用 compiler 自己拥有的借用输入值和 Rust 标准借用类型，
 不得泄漏要求 importer 直接依赖 `laneflow-current-source` 的 DTO、验证器或能力类型。精确借用参数
@@ -339,8 +343,9 @@ feature-gated `SourceLanguage` 变体只按 `current-package-import.md` 第 3 �
 #297 G1 的精确候选由 [`current-package-import.md`](current-package-import.md) 统一冻结：
 
 - compiler 特性门控公共面为零复制 `CurrentSourceArtifact::new`、
-  `CurrentSourceInput::new(manifest_bytes, manifest_display_source, artifacts)` 和唯一原子
-  `CompilationUnitBuilder::add_current_source`；公共签名不泄漏 current-source 类型；
+  `CurrentImportProvenance::new(importer_build_id, importer_options_digest, provenance)`、
+  `CurrentSourceInput::new(manifest_bytes, manifest_display_source, artifacts, import_provenance)` 和唯一
+  原子 `CompilationUnitBuilder::add_current_source`；公共签名不泄漏 current-source 类型；
 - 一个固定 `current/v0.10` namespace 下保留 Manifest/Traffic/Spatial 三个稳定文档键；
   feature-gated `SourceLanguage::CurrentTrafficSpatialV0_10 = 2` 只在迁移特性下存在，不
   虚构模块或导入边；
@@ -431,6 +436,7 @@ impl CompilationOutput {
 pub struct SourceDocumentOrigin { /* 字段私有的逐文档显示/审计来源 */ }
 pub struct SourceDocumentDescriptor { /* 私有字段 */ }
 pub struct CurrentSourceInput<'a> { /* 私有字段；只借用 current 原始输入 */ }
+pub struct CurrentImportProvenance<'a> { /* 私有字段；只借用本次实际导入来源沿袭 */ }
 
 impl CompileLimits {
     // v1 保持不可变。
@@ -438,9 +444,22 @@ impl CompileLimits {
 }
 
 // 仅在 current-v0_10-import 特性下存在。
+impl<'a> CurrentImportProvenance<'a> {
+    pub const fn new(
+        importer_build_id: &'a str,
+        importer_options_digest: [u8; 32],
+        provenance: &'a str,
+    ) -> Self;
+}
+
 impl<'a> CurrentSourceInput<'a> {
-    // 精确借用参数由 #297 G1 冻结；该构造器只组装原始输入，不执行受检工作。
-    pub fn new(/* #297 冻结的借用原始文档、具名制品与来源声明 */) -> Self;
+    // 构造器只组装借用的原始输入与实际来源沿袭，不执行受检工作。
+    pub const fn new(
+        manifest_bytes: &'a [u8],
+        manifest_display_source: Option<&'a str>,
+        artifacts: &'a [CurrentSourceArtifact<'a>],
+        import_provenance: CurrentImportProvenance<'a>,
+    ) -> Self;
 }
 
 impl CompilationUnitBuilder {
@@ -1304,8 +1323,10 @@ Manifest/Traffic/Spatial 的单文档和组合字节上限；字符串/序列/�
 恰好等于边界时成功、边界加一时在规模分配前失败；失败不污染 builder，且不同加入顺序得到同一
 成功/失败结论；位置表能把不同文档的字段/记录映射为真实来源位置且不需要重读；三个文档来源记录的
 边界与释放后保留；以及严格编译导入不存在无配置、过期配置快照或无界解码入口。跨 crate 编译测试必须
-证明 `laneflow-current-import` 能经公开零复制构造器建立 `CurrentSourceInput`，同时仍不能构造
-`ValidatedCurrentImportBundle`；Cargo 清单与依赖图测试还必须证明 importer 的 LaneFlow 直接依赖
+证明 `laneflow-current-import` 能经公开零复制构造器建立带实际 build ID、选项摘要和转换来源沿袭的
+`CurrentSourceInput`，builder 会在读取来源文档前拒绝无效字符串，并把不同实际值原样写入只读模块
+描述符，同时外部 crate 仍不能构造 `ValidatedCurrentImportBundle`；Cargo 清单与依赖图测试还必须
+证明 importer 的 LaneFlow 直接依赖
 只有 compiler、第三方直接依赖不超出第 2.3 节白名单，且不直接依赖或命名
 `laneflow-current-source`。v1 Synthetic 继续成功，v1 current 在解析前以配置档不兼容失败，v2
 三文档导入及 `SourceDocumentCount` 边界/边界加一按规范成功或失败。
@@ -1531,9 +1552,11 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 - [x] ScenarioManifest 组合入口只消费原子成功结果，不重复或绕过长度、SHA-256、媒体
       类型与引用验证；生产兼容结果不构造或保留 compiler-only 位置表，严格导入结果保留
       Manifest/Traffic/Spatial 三个来源文档的独立身份、逐文档来源记录和受限字段/记录位置表，且两者
-      共享单一解析权威、均不重读原始字节；`CurrentSourceInput` 有外部 crate 可调用的零复制构造器，
-      compiler 当前态入口只接受该借用原始输入并在独占 builder 调用内完成严格验证、降阶和原子提交，
-      不公开接受预构造导入能力值；同时保留无需空间制品的 Traffic-only current Core 契约；
+      共享单一解析权威、均不重读原始字节；`CurrentImportProvenance` 与 `CurrentSourceInput` 有外部 crate
+      可调用的零复制构造器，实际 importer build ID、选项摘要和本次转换来源沿袭由 builder 先验证并
+      写入只读模块描述符；compiler 当前态入口只接受该借用原始输入并在独占 builder 调用内完成严格
+      验证、降阶和原子提交，不公开接受预构造导入能力值；同时保留无需空间制品的 Traffic-only current
+      Core 契约；
 - [x] 记录级零动态分派、零完整克隆、一次摘要/计数/排序、多文档紧凑序号解析与配对性能
       验证方案闭合；
 - [x] 第三方自定义前端非承诺、各议题职责和 G2 阻塞关系没有歧义；

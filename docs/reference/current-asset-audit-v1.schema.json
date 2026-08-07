@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/illusion-tech/laneflow/blob/main/docs/reference/current-asset-audit-v1.schema.json",
   "title": "LaneFlow current asset audit v1",
-  "description": "#297 current v0.10 仓库资产、空的已发布资产范围、迁移分类、结构化失败与 cleanup 责任。",
+  "description": "#297 current v0.10 仓库资产、空的已发布资产范围、迁移分类、结构化失败与受信任 cleanup 责任绑定。",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -95,17 +95,49 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "authority",
         "issue",
+        "issueNodeId",
         "owner"
       ],
       "properties": {
+        "authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profile",
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "profile": {
+              "const": "LF-CURRENT-CLEANUP-AUTHORITY-v1"
+            },
+            "path": {
+              "const": "docs/reference/current-import-cleanup-authority-v1.json"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
         "issue": {
           "type": "string",
-          "pattern": "^https://github\\.com/illusion-tech/laneflow/issues/[1-9][0-9]*$"
+          "pattern": "^https://github\\.com/illusion-tech/laneflow/issues/[1-9][0-9]*$",
+          "not": {
+            "enum": [
+              "https://github.com/illusion-tech/laneflow/issues/294",
+              "https://github.com/illusion-tech/laneflow/issues/297"
+            ]
+          }
+        },
+        "issueNodeId": {
+          "type": "string",
+          "pattern": "^I_[A-Za-z0-9_-]+$"
         },
         "owner": {
           "type": "string",
-          "minLength": 1
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
         }
       }
     }
@@ -151,6 +183,56 @@
     "sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "cleanupAuthorityRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "schemaVersion",
+        "retirementProfile",
+        "sourceIssue",
+        "g2Evidence",
+        "cleanupIssue",
+        "cleanupIssueNodeId",
+        "cleanupOwner"
+      ],
+      "properties": {
+        "schema": {
+          "const": "laneflow.current-import-cleanup-authority"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "retirementProfile": {
+          "const": "LF-CURRENT-OFFLINE-MIGRATION-RETIREMENT-v1"
+        },
+        "sourceIssue": {
+          "const": "https://github.com/illusion-tech/laneflow/issues/297"
+        },
+        "g2Evidence": {
+          "type": "string",
+          "pattern": "^https://github\\.com/illusion-tech/laneflow/issues/297#issuecomment-[1-9][0-9]*$"
+        },
+        "cleanupIssue": {
+          "type": "string",
+          "pattern": "^https://github\\.com/illusion-tech/laneflow/issues/[1-9][0-9]*$",
+          "not": {
+            "enum": [
+              "https://github.com/illusion-tech/laneflow/issues/294",
+              "https://github.com/illusion-tech/laneflow/issues/297"
+            ]
+          }
+        },
+        "cleanupIssueNodeId": {
+          "type": "string",
+          "pattern": "^I_[A-Za-z0-9_-]+$"
+        },
+        "cleanupOwner": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
+        }
+      }
     },
     "repositoryInventory": {
       "type": "object",
