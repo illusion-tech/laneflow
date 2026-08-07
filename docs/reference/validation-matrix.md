@@ -111,8 +111,8 @@ Provider fixtures 至少覆盖 Copilot clean/findings、Codex clean/findings、�
 ### 4.1 CodeQL 适用性回归
 
 `check-codeql` fixture 至少覆盖源码 PR `success`、精确 lockfile-only `neutral`、精确
-lockfile-only no-analysis、源码 PR `neutral` 和错误 author identity。预期状态分别为
-`pass`、`not_applicable`、`not_applicable`、`failed`、`failed`；同名但 source App 为
+lockfile-only 空 rollup、源码 PR `neutral` 和错误 author identity。预期状态分别为
+`pass`、`not_applicable`、`missing`、`failed`、`failed`；同名但 source App 为
 `github-actions` 的 spoof fixture 必须是 `missing`。异构 `StatusContext` rollup 不得导致
 反序列化失败；`SKIPPED` 不得误映射为 `not_applicable`。普通 PR 的 missing、pending、
 cancelled、failure、多个 aggregate Check、同 head 但其他 PR/base association、

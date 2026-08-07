@@ -33,14 +33,14 @@ LaneFlow 使用 GitHub CodeQL default setup：
 
 #### 2.1.1 Dependabot Cargo.lock-only PR 的适用性
 
-CodeQL default setup 可以对只修改 `Cargo.lock` 的 PR 返回 aggregate `CodeQL=neutral`
-（例如 `configurations not found`）或不创建 current-PR analysis。这不是扫描成功，也不再是
-未定义状态。`check-codeql` 固定输出 `pass`、`not_applicable`、`pending`、`failed`、
-`missing` 或 `provider_error`：
+CodeQL default setup 可以对只修改 `Cargo.lock` 的 PR 返回已完成的 aggregate
+`CodeQL=neutral`（例如 `configurations not found`），也可能暂时未创建 current-PR analysis。
+前者可进入窄例外判定，后者必须保持 `missing` 并等待明确结果。`check-codeql` 固定输出
+`pass`、`not_applicable`、`pending`、`failed`、`missing` 或 `provider_error`：
 
 - PR-bound rollup 选定、REST source App 精确为 `github-advanced-security` 的 aggregate `CodeQL=success` 才是常规 `pass`；每个未按 details URL 出现在 rollup 的官方 REST current-head CodeQL run 都必须补为候选，再进入同一唯一性与 PR/head/base/app 校验。该规则同时覆盖 rollup 只有同名 `github-actions` spoof，以及两次读取之间新增第二个官方失败/取消 run 的竞态，不能丢弃它们后误判 no-analysis 或沿用单个 success。任何官方候选因缺少或不匹配 `pull_requests` association 而无法绑定时都返回 `provider_error`，即使 lockfile-only policy 原本可能进入 `not_applicable`；普通源码 PR 的官方 success 则不依赖仅供 lockfile 例外使用的完整 commit/signature/force-push provenance，provenance 分页或 provider 错误只会使该窄例外不适用。已完成 run 必须提供有效 `completed_at`，G3 comment 不得早于该时间，带小数秒时按秒与纳秒精确比较。OPEN target 的 check-run `pull_requests` association 还必须精确匹配目标 PR number、current head 与 current base；G4 对 MERGED PR 重放时按 append-only G3 comment 记录的 run URL 读取该具体 REST check-run，并复核 source App、head 与结论，允许 GitHub 清空 association，但存在的 association 必须仍精确匹配。同 head 的其他 PR/base 分析、合并后新增的 latest rerun 与同名 `github-actions` job 均不计入原 G3 证据；
-- 只有 `dependabot-cargo-lock-only-v1` 能把 aggregate `NEUTRAL` / no-analysis 判为
-  `not_applicable`。该 policy 与 external-review 机器替代路径共用同一组证明：Dependabot
+- 只有 `dependabot-cargo-lock-only-v1` 能把已完成 aggregate `NEUTRAL` / no-analysis 判为
+  `not_applicable`；空 rollup 仍为 `missing`。该 policy 与 external-review 机器替代路径共用同一组证明：Dependabot
   App / bot PR author、同 repository 的 `dependabot/cargo/*` head ref、唯一 current-head
   commit、GitHub `web-flow` verified signature、完整 Dependabot force-push provenance、精确
   Dependabot commit identity、非 breaking `build(deps):` 标题、完整且唯一的
@@ -52,7 +52,7 @@ CodeQL default setup 可以对只修改 `Cargo.lock` 的 PR 返回 aggregate `Co
 
 从 `2026-08-08T00:00:00Z` 创建的 current G3 comment 起，必须唯一记录
 `- CodeQL：`：常规路径写 `pass` 与 Check URL；窄路径写 `not_applicable`、精确 policy
-ID 与 neutral/no-analysis（或 PR）证据 URL。状态必须是字段后的首个且唯一 backtick
+ID 与 neutral/no-analysis Check 证据 URL。状态必须是字段后的首个且唯一 backtick
 状态，URL 必须与机器结果精确相等，不能附加数字、query 或 fragment。Gate 结果为 `G3 Waived` 时也不能把 waiver
 冒充 CodeQL 结论；external-review waiver 不覆盖 CodeQL，waived review 仍必须独立满足
 上述 `pass` / `not_applicable`。激活边界按解析后的 UTC 秒值比较，带小数秒的同秒时间不会

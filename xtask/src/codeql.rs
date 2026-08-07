@@ -518,25 +518,12 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
             )
         }
     } else {
-        match lockfile_eligibility {
-            Ok(_) => (
-                CodeQlState::NotApplicable,
-                Some(pr.url.clone()),
-                None,
-                Some("dependabot-cargo-lock-only-v1".to_string()),
-                Some(
-                    "current head 未生成 CodeQL aggregate Check；精确 Dependabot Cargo.lock-only policy 判定为不适用"
-                        .to_string(),
-                ),
-            ),
-            Err(reason) => (
-                CodeQlState::Missing,
-                None,
-                None,
-                None,
-                Some(format!("current head 缺少 CodeQL aggregate Check：{reason}")),
-            ),
-        }
+        let diagnostic = match lockfile_eligibility {
+            Ok(_) => "current head 尚未生成 CodeQL aggregate Check；必须等待显式完成的 neutral/no-analysis 结果"
+                .to_string(),
+            Err(reason) => format!("current head 缺少 CodeQL aggregate Check：{reason}"),
+        };
+        (CodeQlState::Missing, None, None, None, Some(diagnostic))
     };
     if let Some(diagnostic) = state_diagnostic {
         diagnostics.push(diagnostic);
@@ -1142,7 +1129,7 @@ mod tests {
             ),
             (
                 include_str!("../fixtures/codeql/lockfile-no-analysis.json"),
-                CodeQlState::NotApplicable,
+                CodeQlState::Missing,
             ),
             (
                 include_str!("../fixtures/codeql/source-neutral.json"),
