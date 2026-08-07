@@ -436,13 +436,6 @@ pub(super) fn validate_codeql_g3(
     if comment.created_at.as_str() < CODEQL_G3_ACTIVATION {
         return Ok(());
     }
-    let result = codeql::evaluate_live(repo, number)?;
-    if !result.state.satisfies_g3() {
-        return Err(format!(
-            "{label} 的 CodeQL 未满足 G3：{}",
-            result.state.as_str()
-        ));
-    }
     let codeql_lines = comment
         .body
         .lines()
@@ -452,6 +445,18 @@ pub(super) fn validate_codeql_g3(
         return Err(format!("{label} G3 comment 必须恰好包含一条 `- CodeQL：`"));
     }
     let line = codeql_lines[0];
+    let evidence_url = codeql_evidence_url(line)?;
+    let result = if pr.merged_at.is_some() {
+        codeql::evaluate_live_recorded(repo, number, evidence_url)?
+    } else {
+        codeql::evaluate_live(repo, number)?
+    };
+    if !result.state.satisfies_g3() {
+        return Err(format!(
+            "{label} 的 CodeQL 未满足 G3：{}",
+            result.state.as_str()
+        ));
+    }
     if !line.contains(&format!("`{}`", result.state.as_str())) {
         return Err(format!(
             "{label} G3 comment 的 CodeQL 状态与机器结果不一致：{}",
@@ -474,6 +479,21 @@ pub(super) fn validate_codeql_g3(
         ));
     }
     Ok(())
+}
+
+pub(super) fn codeql_evidence_url(line: &str) -> Result<&str, String> {
+    let marker = "https://github.com/";
+    let positions = line.match_indices(marker).collect::<Vec<_>>();
+    if positions.len() != 1 {
+        return Err("G3 comment 的 CodeQL 行必须恰好包含一个 GitHub evidence URL".to_string());
+    }
+    let suffix = &line[positions[0].0..];
+    let end = suffix
+        .find(|character: char| {
+            character.is_whitespace() || matches!(character, ',' | '，' | '。' | ')' | ']')
+        })
+        .unwrap_or(suffix.len());
+    Ok(&suffix[..end])
 }
 
 pub(super) fn parse_g3_result(body: &str) -> Result<G3Result, String> {

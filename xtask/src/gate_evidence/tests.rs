@@ -875,6 +875,23 @@ fn requires_explicit_codeql_state_after_codeql_activation() {
 }
 
 #[test]
+fn extracts_one_recorded_codeql_evidence_url() {
+    assert_eq!(
+        codeql_evidence_url(
+            "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/92519398933。"
+        ),
+        Ok("https://github.com/illusion-tech/laneflow/runs/92519398933")
+    );
+    assert!(codeql_evidence_url("- CodeQL：`pass`").is_err());
+    assert!(
+        codeql_evidence_url(
+            "- CodeQL：https://github.com/a/b/runs/1 https://github.com/a/b/runs/2"
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn rejects_current_g3_without_shadow_evidence_field() {
     let args = related_only_g3_args();
     let mut related_pr = related_pr_for_args(false, &args);

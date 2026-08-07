@@ -154,6 +154,7 @@ struct RestCheckRun {
     status: String,
     conclusion: Option<String>,
     details_url: String,
+    head_sha: String,
     app: RestCheckApp,
     #[serde(default)]
     pull_requests: Vec<RestCheckPullRequest>,
@@ -201,7 +202,11 @@ impl CodeQlResult {
 }
 
 enum InputSource {
-    Live { repository: String, pr: u64 },
+    Live {
+        repository: String,
+        pr: u64,
+        evidence_url: Option<String>,
+    },
     Fixture(PathBuf),
 }
 
@@ -219,7 +224,14 @@ struct Args {
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let args = parse_args(args)?;
     let result = match args.input {
-        InputSource::Live { repository, pr } => evaluate_live(&repository, pr)?,
+        InputSource::Live {
+            repository,
+            pr,
+            evidence_url,
+        } => match evidence_url {
+            Some(evidence_url) => evaluate_live_recorded(&repository, pr, &evidence_url)?,
+            None => evaluate_live(&repository, pr)?,
+        },
         InputSource::Fixture(path) => {
             let contents = fs::read_to_string(&path)
                 .map_err(|error| format!("无法读取 CodeQL fixture {}：{error}", path.display()))?;
@@ -256,7 +268,23 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
 }
 
 pub(crate) fn evaluate_live(repository: &str, pr: u64) -> Result<CodeQlResult, String> {
-    let snapshot = load_live_snapshot(repository, pr)?;
+    evaluate_live_with_evidence(repository, pr, None)
+}
+
+pub(crate) fn evaluate_live_recorded(
+    repository: &str,
+    pr: u64,
+    evidence_url: &str,
+) -> Result<CodeQlResult, String> {
+    evaluate_live_with_evidence(repository, pr, Some(evidence_url))
+}
+
+fn evaluate_live_with_evidence(
+    repository: &str,
+    pr: u64,
+    evidence_url: Option<&str>,
+) -> Result<CodeQlResult, String> {
+    let snapshot = load_live_snapshot(repository, pr, evidence_url)?;
     let initial_head = snapshot.pull_request.head_ref_oid.clone();
     let initial_base = snapshot.pull_request.base_ref_oid.clone();
     let mut result = evaluate_snapshot(&snapshot);
@@ -450,7 +478,11 @@ fn lockfile_metadata(pr: &PullRequestSnapshot) -> PullRequestMetadata {
     }
 }
 
-fn load_live_snapshot(repository: &str, pr: u64) -> Result<CodeQlSnapshot, String> {
+fn load_live_snapshot(
+    repository: &str,
+    pr: u64,
+    recorded_evidence_url: Option<&str>,
+) -> Result<CodeQlSnapshot, String> {
     let output = Command::new("gh")
         .args([
             "pr",
@@ -471,13 +503,19 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<CodeQlSnapshot, Strin
     }
     let mut pull_request = serde_json::from_slice::<PullRequestSnapshot>(&output.stdout)
         .map_err(|error| format!("无法解析 gh CodeQL snapshot：{error}"))?;
-    pull_request.status_check_rollup = load_codeql_check_runs(
-        repository,
-        pull_request.number,
-        &pull_request.head_ref_oid,
-        &pull_request.base_ref_oid,
-        std::mem::take(&mut pull_request.status_check_rollup),
-    )?;
+    pull_request.status_check_rollup = match recorded_evidence_url {
+        Some(evidence_url) if evidence_url == pull_request.url => Vec::new(),
+        Some(evidence_url) => vec![load_recorded_codeql_check_run(
+            repository,
+            &pull_request.head_ref_oid,
+            evidence_url,
+        )?],
+        None => load_codeql_check_runs(
+            repository,
+            &pull_request.head_ref_oid,
+            std::mem::take(&mut pull_request.status_check_rollup),
+        )?,
+    };
     Ok(CodeQlSnapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         repository: repository.to_string(),
@@ -488,9 +526,7 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<CodeQlSnapshot, Strin
 
 fn load_codeql_check_runs(
     repository: &str,
-    pull_request: u64,
     head_oid: &str,
-    base_oid: &str,
     mut pr_bound_checks: Vec<CheckRunSnapshot>,
 ) -> Result<Vec<CheckRunSnapshot>, String> {
     let endpoint = format!(
@@ -518,29 +554,8 @@ fn load_codeql_check_runs(
     let rest_checks = response
         .check_runs
         .into_iter()
-        .map(|check| CheckRunSnapshot {
-            typename: "CheckRun".to_string(),
-            name: check.name,
-            status: check.status.to_ascii_uppercase(),
-            conclusion: check.conclusion.unwrap_or_default().to_ascii_uppercase(),
-            details_url: check.details_url,
-            app_slug: check.app.slug,
-            pull_requests: check
-                .pull_requests
-                .into_iter()
-                .filter(|association| {
-                    association.number == pull_request
-                        && association.head.sha == head_oid
-                        && association.base.sha == base_oid
-                })
-                .map(|association| CheckPullRequestSnapshot {
-                    number: association.number,
-                    head_oid: association.head.sha,
-                    base_oid: association.base.sha,
-                })
-                .collect(),
-        })
-        .collect::<Vec<_>>();
+        .map(|check| rest_check_run_snapshot(check, head_oid))
+        .collect::<Result<Vec<_>, _>>()?;
     for check in &mut pr_bound_checks {
         if check.typename != "CheckRun" || check.name != "CodeQL" {
             continue;
@@ -569,6 +584,73 @@ fn load_codeql_check_runs(
         check.pull_requests.clone_from(&trusted.pull_requests);
     }
     Ok(pr_bound_checks)
+}
+
+fn load_recorded_codeql_check_run(
+    repository: &str,
+    head_oid: &str,
+    evidence_url: &str,
+) -> Result<CheckRunSnapshot, String> {
+    let check_run_id = recorded_check_run_id(repository, evidence_url)?;
+    let endpoint = format!("repos/{repository}/check-runs/{check_run_id}");
+    let output = Command::new("gh")
+        .args(["api", &endpoint])
+        .output()
+        .map_err(|error| format!("无法启动 gh api recorded CodeQL check-run：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "gh api 读取 recorded CodeQL check-run 失败：{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let check = serde_json::from_slice::<RestCheckRun>(&output.stdout)
+        .map_err(|error| format!("无法解析 recorded CodeQL check-run API：{error}"))?;
+    if check.details_url != evidence_url {
+        return Err("recorded CodeQL check-run 的 details URL 与 G3 evidence 不一致".to_string());
+    }
+    rest_check_run_snapshot(check, head_oid)
+}
+
+fn rest_check_run_snapshot(
+    check: RestCheckRun,
+    expected_head_oid: &str,
+) -> Result<CheckRunSnapshot, String> {
+    if check.head_sha != expected_head_oid {
+        return Err(format!(
+            "CodeQL check-run head 不属于目标 PR：期望 {expected_head_oid}，实际 {}",
+            check.head_sha
+        ));
+    }
+    Ok(CheckRunSnapshot {
+        typename: "CheckRun".to_string(),
+        name: check.name,
+        status: check.status.to_ascii_uppercase(),
+        conclusion: check.conclusion.unwrap_or_default().to_ascii_uppercase(),
+        details_url: check.details_url,
+        app_slug: check.app.slug,
+        pull_requests: check
+            .pull_requests
+            .into_iter()
+            .map(|association| CheckPullRequestSnapshot {
+                number: association.number,
+                head_oid: association.head.sha,
+                base_oid: association.base.sha,
+            })
+            .collect(),
+    })
+}
+
+fn recorded_check_run_id(repository: &str, evidence_url: &str) -> Result<u64, String> {
+    let prefix = format!("https://github.com/{repository}/runs/");
+    let value = evidence_url
+        .strip_prefix(&prefix)
+        .ok_or_else(|| format!("recorded CodeQL evidence URL 必须匹配 `{prefix}<check-run-id>`"))?;
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("recorded CodeQL evidence URL 必须以纯数字 check-run ID 结尾".to_string());
+    }
+    value
+        .parse::<u64>()
+        .map_err(|error| format!("recorded CodeQL check-run ID 无效：{error}"))
 }
 
 fn load_live_identity(repository: &str, pr: u64) -> Result<PullRequestIdentity, String> {
@@ -605,6 +687,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut repository = None;
     let mut pr = None;
     let mut input = None;
+    let mut evidence_url = None;
     let mut format = OutputFormat::Human;
     let mut expected = None;
     let mut index = 0;
@@ -619,6 +702,9 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                 )
             }
             "--input" => input = Some(PathBuf::from(next_value(args, &mut index, "--input")?)),
+            "--evidence-url" => {
+                evidence_url = Some(next_value(args, &mut index, "--evidence-url")?)
+            }
             "--format" => {
                 format = match next_value(args, &mut index, "--format")?.as_str() {
                     "human" => OutputFormat::Human,
@@ -636,11 +722,15 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         index += 1;
     }
     let source = match (repository, pr, input) {
-        (Some(repository), Some(pr), None) if pr > 0 => InputSource::Live { repository, pr },
-        (None, None, Some(path)) => InputSource::Fixture(path),
+        (Some(repository), Some(pr), None) if pr > 0 => InputSource::Live {
+            repository,
+            pr,
+            evidence_url,
+        },
+        (None, None, Some(path)) if evidence_url.is_none() => InputSource::Fixture(path),
         _ => {
             return Err(
-                "用法：check-codeql (--repo <owner/repo> --pr <number> | --input <snapshot.json>) [--format human|json] [--expect <state>]"
+                "用法：check-codeql (--repo <owner/repo> --pr <number> [--evidence-url <recorded-url>] | --input <snapshot.json>) [--format human|json] [--expect <state>]"
                     .to_string(),
             )
         }
@@ -740,6 +830,11 @@ mod tests {
         snapshot.pull_request.status_check_rollup[0].pull_requests[0].base_oid =
             "cccccccccccccccccccccccccccccccccccccccc".to_string();
         assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Missing);
+
+        let mut snapshot = fixture(include_str!("../fixtures/codeql/source-success.json"));
+        snapshot.pull_request.state = "MERGED".to_string();
+        snapshot.pull_request.status_check_rollup[0].pull_requests[0].number = 330;
+        assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Missing);
     }
 
     #[test]
@@ -750,5 +845,30 @@ mod tests {
             .pull_requests
             .clear();
         assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Pass);
+    }
+
+    #[test]
+    fn parses_only_exact_repository_check_run_urls() {
+        assert_eq!(
+            recorded_check_run_id(
+                "illusion-tech/laneflow",
+                "https://github.com/illusion-tech/laneflow/runs/92519398933"
+            ),
+            Ok(92_519_398_933)
+        );
+        assert!(
+            recorded_check_run_id(
+                "illusion-tech/laneflow",
+                "https://github.com/other/laneflow/runs/92519398933"
+            )
+            .is_err()
+        );
+        assert!(
+            recorded_check_run_id(
+                "illusion-tech/laneflow",
+                "https://github.com/illusion-tech/laneflow/runs/92519398933?attempt=2"
+            )
+            .is_err()
+        );
     }
 }
