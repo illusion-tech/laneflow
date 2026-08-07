@@ -184,7 +184,7 @@ pub(super) fn validate_comment(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
-    let required_fields = if comment.created_at.as_str() >= EXTERNAL_REVIEW_G3_ACTIVATION {
+    let required_fields = if external_review_g3_active(&comment.created_at)? {
         if comment.includes_created_edit {
             return Err(format!(
                 "{label} comment 在创建后被编辑；current G3 必须 append-only"
@@ -348,7 +348,11 @@ pub(super) fn validate_g3_timing(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} permalink 未指向该 PR 的 comment"))?;
-    if comment.created_at.as_str() > merged_at {
+    let comment_time = lockfile_policy::parse_utc_rfc3339(&comment.created_at)
+        .ok_or_else(|| format!("{label} comment createdAt 不是有效 UTC RFC3339 时间"))?;
+    let merge_time = lockfile_policy::parse_utc_rfc3339(merged_at)
+        .ok_or_else(|| format!("{label} PR mergedAt 不是有效 UTC RFC3339 时间"))?;
+    if comment_time > merge_time {
         return Err(format!("{label} comment 创建时间晚于 PR 合并时间"));
     }
     Ok(())
@@ -400,12 +404,7 @@ pub(super) fn validate_external_review_g3(
         let completion_time = result
             .completion_time()
             .ok_or_else(|| format!("{label} pass 结果缺少 completion time"))?;
-        if comment.created_at.as_str() < completion_time {
-            return Err(format!(
-                "{label} G3 comment 早于最终 external review completion：comment={}，completion={completion_time}",
-                comment.created_at
-            ));
-        }
+        validate_external_review_completion_order(label, &comment.created_at, completion_time)?;
     }
     Ok(())
 }
@@ -551,6 +550,33 @@ pub(super) fn validate_codeql_completion_order(
         ));
     }
     Ok(())
+}
+
+pub(super) fn validate_external_review_completion_order(
+    label: &str,
+    comment_created_at: &str,
+    completion_time_text: &str,
+) -> Result<(), String> {
+    let comment_time = lockfile_policy::parse_utc_rfc3339(comment_created_at)
+        .ok_or_else(|| format!("{label} G3 comment createdAt 不是有效 UTC RFC3339 时间"))?;
+    let completion_time =
+        lockfile_policy::parse_utc_rfc3339(completion_time_text).ok_or_else(|| {
+            format!("{label} external review completion time 不是有效 UTC RFC3339 时间")
+        })?;
+    if comment_time < completion_time {
+        return Err(format!(
+            "{label} G3 comment 早于最终 external review completion：comment={comment_created_at}，completion={completion_time_text}"
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn external_review_g3_active(comment_created_at: &str) -> Result<bool, String> {
+    let comment_time = lockfile_policy::parse_utc_rfc3339(comment_created_at)
+        .ok_or_else(|| "G3 comment createdAt 不是有效 UTC RFC3339 时间".to_string())?;
+    let activation_time = lockfile_policy::parse_utc_rfc3339(EXTERNAL_REVIEW_G3_ACTIVATION)
+        .expect("external review G3 activation must be valid UTC RFC3339");
+    Ok(comment_time >= activation_time)
 }
 
 pub(super) fn codeql_g3_active(comment_created_at: &str) -> Result<bool, String> {
@@ -805,7 +831,7 @@ pub(super) fn validate_gate_waiver_record_set(
     comment: &GitHubComment,
     declared_issues: &BTreeSet<u64>,
 ) -> Result<(), String> {
-    if comment.created_at.as_str() < EXTERNAL_REVIEW_G3_ACTIVATION {
+    if !external_review_g3_active(&comment.created_at)? {
         return Ok(());
     }
     match parse_g3_result(&comment.body)? {
@@ -1028,5 +1054,5 @@ pub(super) fn g3_requires_external_review(pr: &GitHubPullRequest) -> Result<bool
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| "G3 permalink 未指向该 PR 的 comment".to_string())?;
-    Ok(comment.created_at.as_str() >= EXTERNAL_REVIEW_G3_ACTIVATION)
+    external_review_g3_active(&comment.created_at)
 }
