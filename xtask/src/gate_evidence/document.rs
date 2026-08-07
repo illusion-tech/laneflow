@@ -195,7 +195,7 @@ pub(super) fn validate_comment(
         required_fields
     };
     validate_comment_body(&comment.body, required_fields, label)?;
-    if comment.created_at.as_str() >= CODEQL_G3_ACTIVATION {
+    if codeql_g3_active(&comment.created_at)? {
         validate_comment_body(&comment.body, &["- CodeQL："], label)?;
     }
     validate_gate_assertion(&comment.body, label, args, GateEvidencePhase::G3)
@@ -433,7 +433,7 @@ pub(super) fn validate_codeql_g3(
         .iter()
         .find(|comment| comment.url == permalink)
         .ok_or_else(|| format!("{label} G3 permalink 未指向该 PR 的 comment"))?;
-    if comment.created_at.as_str() < CODEQL_G3_ACTIVATION {
+    if !codeql_g3_active(&comment.created_at)? {
         return Ok(());
     }
     let codeql_lines = comment
@@ -516,6 +516,14 @@ pub(super) fn validate_codeql_completion_order(
         ));
     }
     Ok(())
+}
+
+pub(super) fn codeql_g3_active(comment_created_at: &str) -> Result<bool, String> {
+    let comment_seconds = parse_utc_timestamp_seconds(comment_created_at)
+        .ok_or_else(|| "G3 comment createdAt 不是有效 UTC RFC3339 时间".to_string())?;
+    let activation_seconds = parse_utc_timestamp_seconds(CODEQL_G3_ACTIVATION)
+        .ok_or_else(|| "CODEQL_G3_ACTIVATION 不是有效 UTC RFC3339 时间".to_string())?;
+    Ok(comment_seconds >= activation_seconds)
 }
 
 pub(super) fn parse_g3_result(body: &str) -> Result<G3Result, String> {

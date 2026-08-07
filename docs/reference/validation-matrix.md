@@ -129,7 +129,8 @@ cargo +1.96.0 run --locked -p xtask -- check-codeql --repo <owner/repo> --pr <me
 `dependabot-cargo-lock-only-v1` 和 evidence URL，且 comment 时间不得早于 check-run
 `completed_at`。`check-gate-evidence g4` 对 MERGED PR
 按 append-only G3 comment 记录的具体 run URL 重放，不允许合并后的 latest rerun 改写
-历史结论；更早的 append-only G3 历史不追溯改写。
+历史结论；激活点同秒的小数秒 timestamp 必须按 UTC 数值判为已激活，更早的 append-only
+G3 历史不追溯改写。
 
 workflow 安全检查至少验证：
 

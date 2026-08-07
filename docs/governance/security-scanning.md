@@ -52,7 +52,8 @@ CodeQL default setup 可以对只修改 `Cargo.lock` 的 PR 返回 aggregate `Co
 `- CodeQL：`：常规路径写 `pass` 与 Check URL；窄路径写 `not_applicable`、精确 policy
 ID 与 neutral/no-analysis（或 PR）证据 URL。Gate 结果为 `G3 Waived` 时也不能把 waiver
 冒充 CodeQL 结论；external-review waiver 不覆盖 CodeQL，waived review 仍必须独立满足
-上述 `pass` / `not_applicable`。
+上述 `pass` / `not_applicable`。激活边界按解析后的 UTC 秒值比较，带小数秒的同秒时间不会
+因 RFC3339 字符串排序而绕过字段或 live 校验。
 
 ### 2.2 Secret Scanning
 
