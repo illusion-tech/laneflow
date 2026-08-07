@@ -71,12 +71,12 @@
   #308 研究替身记录冒充产品通过（Product Pass）。#315 已实现官方前端模块的共同
   受检接入与来源记录生命周期，并冻结 #297 迁移包依赖图与配对性能目标边界；#297
   的具体 current 前端仍未实现，不构成当前生产事实。
-- `current-package-import.md`：#297 G1 Review 候选；冻结 current Traffic v0.10、
+- `current-package-import.md`：#297 G1 已接受（Accepted）；冻结 current Traffic v0.10、
   SpatialPackage v0.1 与 ScenarioManifest v0.1 的 production-compatible / strict
   双策略 SSOT、携带实际导入来源沿袭的零复制 compiler 输入、三文档身份与来源位置、严格
   资源配置档、current external ID 降阶、迁移包 DAG、资产失败清单、父提交独立验证的清理
-  责任事实记录和 current→LIR→projection 等价矩阵；当前尚未取得 G1 Pass，也未授权生产 Rust
-  实现。
+  责任事实记录和 current→LIR→projection 等价矩阵；尚未授权生产 Rust 实现，G2 开工
+  须基于当时 exact `main` 复核后另行取得 `G2 Pass`。
 
 ## 文档状态
 
