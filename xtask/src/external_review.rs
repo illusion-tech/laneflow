@@ -1454,16 +1454,23 @@ fn handled_non_range_identity_finding(
     if !thread.is_resolved && !thread.is_outdated {
         return false;
     }
-    thread.comments.nodes.iter().skip(1).any(|comment| {
-        comment.author.as_ref().is_some_and(|author| {
-            let actor = normalize_actor(&author.login);
-            TRUSTED_HUMAN_ACTORS.contains(&actor.as_str())
-        }) && identity_only_disposition(&comment.body, claimed_oid, &metadata.head_oid)
-            && first_comment.updated_at == first_comment.created_at
-            && comment.updated_at == comment.created_at
-            && valid_timestamp(&comment.created_at)
-            && timestamp_after(&comment.created_at, &first_comment.created_at)
-    })
+    let mut disposition_found = false;
+    for comment in thread.comments.nodes.iter().skip(1) {
+        let is_disposition =
+            comment.author.as_ref().is_some_and(|author| {
+                let actor = normalize_actor(&author.login);
+                TRUSTED_HUMAN_ACTORS.contains(&actor.as_str())
+            }) && identity_only_disposition(&comment.body, claimed_oid, &metadata.head_oid)
+                && first_comment.updated_at == first_comment.created_at
+                && comment.updated_at == comment.created_at
+                && valid_timestamp(&comment.created_at)
+                && timestamp_after(&comment.created_at, &first_comment.created_at);
+        if !is_disposition {
+            return false;
+        }
+        disposition_found = true;
+    }
+    disposition_found
 }
 
 fn identity_only_non_range_finding(body: &str, claimed_oid: &str) -> bool {
@@ -2782,6 +2789,24 @@ mod tests {
         ));
         snapshot.pull_request.review_threads.nodes[0].comments.nodes[1].updated_at =
             "2026-08-06T02:30:18Z".to_string();
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingRereview
+        );
+
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        let mut substantive_reply =
+            snapshot.pull_request.review_threads.nodes[0].comments.nodes[0].clone();
+        substantive_reply.id = "PRRC-substantive-reply".to_string();
+        substantive_reply.body = "The lockfile also contains an invalid checksum.".to_string();
+        substantive_reply.created_at = "2026-08-06T02:31:00Z".to_string();
+        substantive_reply.updated_at = substantive_reply.created_at.clone();
+        snapshot.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes
+            .push(substantive_reply);
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::AwaitingRereview
