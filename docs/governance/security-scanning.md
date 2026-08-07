@@ -39,10 +39,12 @@ CodeQL default setup 可以对只修改 `Cargo.lock` 的 PR 返回 aggregate `Co
 `missing` 或 `provider_error`：
 
 - PR-bound rollup 选定、REST source App 精确为 `github-advanced-security` 的 aggregate `CodeQL=success` 才是常规 `pass`；已完成 run 必须提供有效 `completed_at`，G3 comment 不得早于该时间。OPEN target 的 check-run `pull_requests` association 还必须精确匹配目标 PR number、current head 与 current base；G4 对 MERGED PR 重放时按 append-only G3 comment 记录的 run URL 读取该具体 REST check-run，并复核 source App、head 与结论，允许 GitHub 清空 association，但存在的 association 必须仍精确匹配。同 head 的其他 PR/base 分析、合并后新增的 latest rerun 与同名 `github-actions` job 均不计入原 G3 证据；
-- 只有 `dependabot-cargo-lock-only-v1` 能把 neutral / no-analysis 判为
+- 只有 `dependabot-cargo-lock-only-v1` 能把 aggregate `NEUTRAL` / no-analysis 判为
   `not_applicable`。该 policy 与 external-review 机器替代路径共用同一组证明：Dependabot
-  App / bot PR author、唯一 current-head commit、精确 Dependabot commit identity、非
-  breaking `build(deps):` 标题、完整且唯一的 `MODIFIED Cargo.lock` changed path；
+  App / bot PR author、同 repository 的 `dependabot/cargo/*` head ref、唯一 current-head
+  commit、GitHub `web-flow` verified signature、完整 Dependabot force-push provenance、精确
+  Dependabot commit identity、非 breaking `build(deps):` 标题、完整且唯一的
+  `MODIFIED Cargo.lock` changed path；`SKIPPED` 不等于无分析并继续失败关闭；
 - 普通源码、Actions workflow、mixed-path、人工 lockfile commit、分页/身份歧义、
   `failure` / `cancelled` 或平台错误不得使用 `not_applicable`；
 - `not_applicable` 只说明 CodeQL 对该 PR diff 无受支持源码分析输入，不替代
@@ -50,7 +52,8 @@ CodeQL default setup 可以对只修改 `Cargo.lock` 的 PR 返回 aggregate `Co
 
 从 `2026-08-08T00:00:00Z` 创建的 current G3 comment 起，必须唯一记录
 `- CodeQL：`：常规路径写 `pass` 与 Check URL；窄路径写 `not_applicable`、精确 policy
-ID 与 neutral/no-analysis（或 PR）证据 URL。Gate 结果为 `G3 Waived` 时也不能把 waiver
+ID 与 neutral/no-analysis（或 PR）证据 URL。状态必须是字段后的首个且唯一 backtick
+状态，URL 必须与机器结果精确相等，不能附加数字、query 或 fragment。Gate 结果为 `G3 Waived` 时也不能把 waiver
 冒充 CodeQL 结论；external-review waiver 不覆盖 CodeQL，waived review 仍必须独立满足
 上述 `pass` / `not_applicable`。激活边界按解析后的 UTC 秒值比较，带小数秒的同秒时间不会
 因 RFC3339 字符串排序而绕过字段或 live 校验。

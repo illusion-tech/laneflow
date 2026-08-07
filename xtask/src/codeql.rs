@@ -5,11 +5,51 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 use crate::lockfile_policy::{
-    self, ChangedFile, CommitAuthor, PullRequestCommit, PullRequestMetadata,
+    self, ChangedFile, CommitAuthor, CommitSignature, ForcePush, PullRequestCommit,
+    PullRequestMetadata,
 };
 
 const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
 const RESULT_SCHEMA_VERSION: u64 = 1;
+
+const LOCKFILE_PROVENANCE_QUERY: &str = r#"
+query($owner:String!, $name:String!, $number:Int!) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      number
+      headRefName
+      headRepository { nameWithOwner }
+      commits(first:100) {
+        nodes {
+          commit {
+            oid
+            signature {
+              __typename
+              email
+              isValid
+              signer { login }
+              state
+              wasSignedByGitHub
+            }
+          }
+        }
+        pageInfo { hasNextPage }
+      }
+      forcePushes: timelineItems(first:100, itemTypes:[HEAD_REF_FORCE_PUSHED_EVENT]) {
+        nodes {
+          ... on HeadRefForcePushedEvent {
+            actor { login }
+            beforeCommit { oid }
+            afterCommit { oid }
+            createdAt
+          }
+        }
+        pageInfo { hasNextPage }
+      }
+    }
+  }
+}
+"#;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,7 +63,7 @@ pub(crate) enum CodeQlState {
 }
 
 impl CodeQlState {
-    fn parse(value: &str) -> Result<Self, String> {
+    pub(crate) fn parse(value: &str) -> Result<Self, String> {
         match value {
             "pass" => Ok(Self::Pass),
             "not_applicable" => Ok(Self::NotApplicable),
@@ -70,6 +110,10 @@ struct PullRequestSnapshot {
     #[serde(default)]
     author: Option<Actor>,
     head_ref_oid: String,
+    #[serde(default)]
+    head_ref_name: String,
+    #[serde(default)]
+    head_repository_name_with_owner: String,
     base_ref_oid: String,
     url: String,
     #[serde(default)]
@@ -80,11 +124,15 @@ struct PullRequestSnapshot {
     #[serde(default)]
     commits: Vec<CommitSnapshot>,
     #[serde(default)]
+    force_pushes: Vec<ForcePushSnapshot>,
+    #[serde(default)]
     status_check_rollup: Vec<CheckRunSnapshot>,
     #[serde(default = "default_true")]
     files_complete: bool,
     #[serde(default = "default_true")]
     commits_complete: bool,
+    #[serde(default)]
+    force_pushes_complete: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -107,6 +155,32 @@ struct CommitSnapshot {
     message_headline: String,
     #[serde(default)]
     authors: Vec<CommitAuthorSnapshot>,
+    #[serde(default)]
+    signature: Option<CommitSignatureSnapshot>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommitSignatureSnapshot {
+    #[serde(rename = "__typename")]
+    kind: String,
+    email: String,
+    is_valid: bool,
+    #[serde(default)]
+    signer: Option<Actor>,
+    state: String,
+    #[serde(rename = "wasSignedByGitHub")]
+    was_signed_by_github: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ForcePushSnapshot {
+    #[serde(default)]
+    actor: Option<Actor>,
+    before_oid: String,
+    after_oid: String,
+    created_at: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -122,7 +196,9 @@ struct CommitAuthorSnapshot {
 struct CheckRunSnapshot {
     #[serde(rename = "__typename", default)]
     typename: String,
+    #[serde(default)]
     name: String,
+    #[serde(default)]
     status: String,
     #[serde(default)]
     conclusion: String,
@@ -336,7 +412,7 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
             .push("CodeQL G3 只接受 OPEN 或带历史 checks 的 MERGED、非 Draft PR".to_string());
     }
 
-    let lockfile_metadata = lockfile_metadata(pr);
+    let lockfile_metadata = lockfile_metadata(&snapshot.repository, pr);
     let lockfile_eligibility = lockfile_policy::verify_dependabot_lockfile_only(&lockfile_metadata);
     let aggregate = pr
         .status_check_rollup
@@ -390,7 +466,7 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
                 Some("codeql-current-head-analysis".to_string()),
                 None,
             )
-        } else if matches!(check.conclusion.as_str(), "NEUTRAL" | "SKIPPED") {
+        } else if check.conclusion == "NEUTRAL" {
             match lockfile_eligibility {
                 Ok(_) => (
                     CodeQlState::NotApplicable,
@@ -463,14 +539,17 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
     }
 }
 
-fn lockfile_metadata(pr: &PullRequestSnapshot) -> PullRequestMetadata {
+fn lockfile_metadata(repository: &str, pr: &PullRequestSnapshot) -> PullRequestMetadata {
     PullRequestMetadata {
+        repository: repository.to_string(),
         author_login: pr
             .author
             .as_ref()
             .map(|author| author.login.clone())
             .unwrap_or_default(),
         head_oid: pr.head_ref_oid.clone(),
+        head_ref_name: pr.head_ref_name.clone(),
+        head_repository_name_with_owner: pr.head_repository_name_with_owner.clone(),
         files: pr
             .files
             .iter()
@@ -496,10 +575,29 @@ fn lockfile_metadata(pr: &PullRequestSnapshot) -> PullRequestMetadata {
                         email: author.email.clone(),
                     })
                     .collect(),
+                signature: commit.signature.as_ref().map(|signature| CommitSignature {
+                    kind: signature.kind.clone(),
+                    email: signature.email.clone(),
+                    is_valid: signature.is_valid,
+                    signer_login: signature.signer.as_ref().map(|signer| signer.login.clone()),
+                    state: signature.state.clone(),
+                    was_signed_by_github: signature.was_signed_by_github,
+                }),
+            })
+            .collect(),
+        force_pushes: pr
+            .force_pushes
+            .iter()
+            .map(|event| ForcePush {
+                actor_login: event.actor.as_ref().map(|actor| actor.login.clone()),
+                before_oid: event.before_oid.clone(),
+                after_oid: event.after_oid.clone(),
+                created_at: event.created_at.clone(),
             })
             .collect(),
         files_complete: pr.files_complete,
         commits_complete: pr.commits_complete,
+        force_pushes_complete: pr.force_pushes_complete,
     }
 }
 
@@ -528,6 +626,7 @@ fn load_live_snapshot(
     }
     let mut pull_request = serde_json::from_slice::<PullRequestSnapshot>(&output.stdout)
         .map_err(|error| format!("无法解析 gh CodeQL snapshot：{error}"))?;
+    load_lockfile_provenance(repository, pr, &mut pull_request)?;
     pull_request.status_check_rollup = match recorded_evidence_url {
         Some(evidence_url) if evidence_url == pull_request.url => Vec::new(),
         Some(evidence_url) => vec![load_recorded_codeql_check_run(
@@ -547,6 +646,169 @@ fn load_live_snapshot(
         pull_request,
         provider_errors: Vec::new(),
     })
+}
+
+fn load_lockfile_provenance(
+    repository: &str,
+    pr: u64,
+    pull_request: &mut PullRequestSnapshot,
+) -> Result<(), String> {
+    let (owner, name) = repository
+        .split_once('/')
+        .ok_or_else(|| format!("repository 格式不正确：{repository}"))?;
+    let output = Command::new("gh")
+        .args([
+            "api",
+            "graphql",
+            "-F",
+            &format!("owner={owner}"),
+            "-F",
+            &format!("name={name}"),
+            "-F",
+            &format!("number={pr}"),
+            "-f",
+            &format!("query={LOCKFILE_PROVENANCE_QUERY}"),
+        ])
+        .output()
+        .map_err(|error| format!("无法启动 gh GraphQL lockfile provenance：{error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "gh GraphQL 读取 lockfile provenance 失败：{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let envelope = serde_json::from_slice::<ProvenanceEnvelope>(&output.stdout)
+        .map_err(|error| format!("无法解析 lockfile provenance GraphQL：{error}"))?;
+    if !envelope.errors.is_empty() {
+        return Err(format!(
+            "lockfile provenance GraphQL errors：{}",
+            envelope
+                .errors
+                .iter()
+                .map(|error| error.message.as_str())
+                .collect::<Vec<_>>()
+                .join("；")
+        ));
+    }
+    let provenance = envelope
+        .data
+        .and_then(|data| data.repository)
+        .and_then(|repository| repository.pull_request)
+        .ok_or_else(|| format!("lockfile provenance PR 不存在或不可读：{repository}#{pr}"))?;
+    if provenance.number != pr || provenance.commits.page_info.has_next_page {
+        return Err("lockfile provenance commit connection 不完整或 PR number 不一致".to_string());
+    }
+    let signatures = provenance
+        .commits
+        .nodes
+        .into_iter()
+        .map(|node| (node.commit.oid, node.commit.signature))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for commit in &mut pull_request.commits {
+        commit.signature = signatures.get(&commit.oid).cloned().flatten();
+    }
+    pull_request.head_ref_name = provenance.head_ref_name;
+    pull_request.head_repository_name_with_owner = provenance
+        .head_repository
+        .map(|repository| repository.name_with_owner)
+        .unwrap_or_default();
+    pull_request.force_pushes = provenance
+        .force_pushes
+        .nodes
+        .into_iter()
+        .map(|event| ForcePushSnapshot {
+            actor: event.actor,
+            before_oid: event.before_commit.oid,
+            after_oid: event.after_commit.oid,
+            created_at: event.created_at,
+        })
+        .collect();
+    pull_request.force_pushes_complete = !provenance.force_pushes.page_info.has_next_page;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct ProvenanceEnvelope {
+    data: Option<ProvenanceData>,
+    #[serde(default)]
+    errors: Vec<ProvenanceError>,
+}
+
+#[derive(Deserialize)]
+struct ProvenanceError {
+    message: String,
+}
+
+#[derive(Deserialize)]
+struct ProvenanceData {
+    repository: Option<ProvenanceRepository>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProvenanceRepository {
+    pull_request: Option<ProvenancePullRequest>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProvenancePullRequest {
+    number: u64,
+    head_ref_name: String,
+    head_repository: Option<ProvenanceHeadRepository>,
+    commits: ProvenanceCommitConnection,
+    force_pushes: ProvenanceForcePushConnection,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProvenanceHeadRepository {
+    name_with_owner: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProvenanceCommitConnection {
+    nodes: Vec<ProvenanceCommitNode>,
+    page_info: ProvenancePageInfo,
+}
+
+#[derive(Deserialize)]
+struct ProvenanceCommitNode {
+    commit: ProvenanceCommit,
+}
+
+#[derive(Deserialize)]
+struct ProvenanceCommit {
+    oid: String,
+    signature: Option<CommitSignatureSnapshot>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProvenanceForcePushConnection {
+    nodes: Vec<ProvenanceForcePush>,
+    page_info: ProvenancePageInfo,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProvenanceForcePush {
+    actor: Option<Actor>,
+    before_commit: ProvenanceOid,
+    after_commit: ProvenanceOid,
+    created_at: String,
+}
+
+#[derive(Deserialize)]
+struct ProvenanceOid {
+    oid: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProvenancePageInfo {
+    has_next_page: bool,
 }
 
 fn load_codeql_check_runs(
@@ -863,6 +1125,27 @@ mod tests {
             evaluate_snapshot(&snapshot).state,
             CodeQlState::ProviderError
         );
+    }
+
+    #[test]
+    fn accepts_heterogeneous_status_context_rollup_entries() {
+        let status_context = serde_json::json!({
+            "__typename": "StatusContext",
+            "context": "legacy-ci",
+            "state": "SUCCESS"
+        });
+        let parsed = serde_json::from_value::<CheckRunSnapshot>(status_context)
+            .expect("StatusContext must not break heterogeneous rollup deserialization");
+        assert_eq!(parsed.typename, "StatusContext");
+        assert!(parsed.name.is_empty());
+        assert!(parsed.status.is_empty());
+    }
+
+    #[test]
+    fn skipped_codeql_is_not_a_lockfile_not_applicable_result() {
+        let mut snapshot = fixture(include_str!("../fixtures/codeql/lockfile-neutral.json"));
+        snapshot.pull_request.status_check_rollup[0].conclusion = "SKIPPED".to_string();
+        assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Failed);
     }
 
     #[test]

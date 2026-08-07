@@ -116,7 +116,7 @@ Issue Gate Ledger 模板：
 完整契约以 `docs/governance/development-gates.md` 和 `docs/governance/github-workflow.md` 为准，本 Skill 只保留执行入口：
 
 - 标准路径只接受 trusted reviewer 对 PR 当前 exact head 的完成态审阅；`unresolved review threads = 0` 只是必要条件，不能替代外部审阅证据。
-- 精确 Dependabot 单提交 `Cargo.lock`-only PR 可使用长期机器替代：`check-external-review` 必须验证 bot/commit/path/head 完整身份；错误 PR-range SHA finding 还必须已有 trusted G3 Owner `Disposition:` 且线程 resolved/outdated。`check-codeql` 只可在同一 policy 下把 neutral/no-analysis 记为 `not_applicable`；其他 PR 继续失败关闭。
+- 精确 Dependabot 单提交 `Cargo.lock`-only PR 可使用长期机器替代：`check-external-review` 必须验证同仓 bot ref、GitHub verified signature、Dependabot force-push provenance 与 commit/path/head 完整身份；错误 PR-range SHA finding 与 trusted G3 Owner `Disposition:` 必须均未编辑、处置严格更晚且线程 resolved/outdated。`check-codeql` 只可在同一 policy 下把 aggregate `NEUTRAL`/no-analysis 记为 `not_applicable`，`SKIPPED` 失败关闭；其他 PR 继续失败关闭。
 - reviewer 报告 findings 后，author 必须记录每项 disposition，并在修复后的当前 head 请求新的 clean re-review；旧 head 的 approval、无新评论或仅解决线程都不能沿用。
 - 单维护者场景不降低门槛：维护者可以且应当自审、处置 findings 并发表 G3 comment，但必须另有一个有效外部 reviewer。
 - R0/R1 尚未具备 required check 时，按文档中的 bootstrap 规则显式记录阶段和缺失项。Related PR B 自身不能用候选 validator 自批，仍由 G3 Owner 人工核验新增外部审阅字段；PR B 合入后，后续 PR 的 `check-gate-evidence g3` 还必须取得 live `check-external-review` exact-head `pass`。进入 R2 后，`External Review Gate` Check success 与当前 head 的 append-only G3 comment 构成双钥匙。

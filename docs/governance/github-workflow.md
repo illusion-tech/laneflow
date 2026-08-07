@@ -146,7 +146,7 @@ Delivery PR / Related PRs 关联规则：
 - finding 被作者 resolve 后进入 `AwaitingRereview`，必须重新请求 reviewer 并取得 current-head clean completion。
 - new push 或 review dismissal 使旧 completion、Check 与 G3 comment stale。G3 comment 必须新增，不得编辑旧评论回填。
 - 其他贡献者创建 PR 时，`wangzishi` 的 exact-head `APPROVED` 可以计数；`wangzishi` 自己创建 PR 时，由受信任 AI / GitHub actor 提供外部审阅。
-- 外部 provider 无法审阅时不自动通过。只有 trusted-ref validator 同时证明 Dependabot App / bot PR author、唯一 current-head Dependabot commit、完整且唯一 `MODIFIED Cargo.lock`，并确认错误 PR commit/object SHA finding 已有 G3 Owner `Disposition:` 且线程已解决，才能由 `dependabot_lockfile_policy` 形成机器替代 completion；其他路径继续要求 exact-head reviewer 或结构化 waiver。
+- 外部 provider 无法审阅时不自动通过。只有 trusted-ref validator 同时证明 Dependabot App / bot PR author、同 repository 的 `dependabot/cargo/*` ref、唯一 current-head GitHub `web-flow` verified Dependabot commit、完整 Dependabot force-push provenance、完整且唯一 `MODIFIED Cargo.lock`，并确认错误 PR commit/object SHA finding 与 G3 Owner `Disposition:` 均未编辑、处置时间严格更晚且线程已解决，才能由 `dependabot_lockfile_policy` 形成机器替代 completion；其他路径继续要求 exact-head reviewer 或结构化 waiver。
 
 PR commit 使用 `Gate: G3 Candidate`，只说明实现者验证完成并准备进入 review。正式 G3 结果不写回 commit。
 
@@ -175,9 +175,10 @@ CodeQL current-head 适用性独立校验使用：
 cargo +1.96.0 run --locked -p xtask -- check-codeql --repo <owner/repo> --pr <number> --format json
 ```
 
-只有 PR-bound rollup 选定且 REST source App=`github-advanced-security` 的 aggregate success 所得 `pass`，以及精确 `dependabot-cargo-lock-only-v1` 的 `not_applicable` 可进入标准 G3。OPEN target 还要求 REST `pull_requests` 精确绑定 PR number/current head/current base；MERGED 历史重放允许 association 被 GitHub 清空，但仍须由 PR-bound URL 与 REST source/head/conclusion 双重匹配。同 head 的其他 PR/base 分析或同名 Actions job 不计入；external-review waiver 不连带豁免 CodeQL；
+只有 PR-bound rollup 选定且 REST source App=`github-advanced-security` 的 aggregate success 所得 `pass`，以及精确 `dependabot-cargo-lock-only-v1` 对 aggregate `NEUTRAL` / no-analysis 的 `not_applicable` 可进入标准 G3；`SKIPPED` 失败关闭。OPEN target 还要求 REST `pull_requests` 精确绑定 PR number/current head/current base；MERGED 历史重放允许 association 被 GitHub 清空，但仍须由 PR-bound URL 与 REST source/head/conclusion 双重匹配。同 head 的其他 PR/base 分析或同名 Actions job 不计入；external-review waiver 不连带豁免 CodeQL；
 从 `2026-08-08T00:00:00Z` 创建的 G3 comment 起必须唯一记录 `- CodeQL：` 状态、
-policy（若适用）和 evidence URL。fixture/replay 使用 `--input ... --expect <state>`，普通
+policy（若适用）和 evidence URL；状态必须是字段后的首个且唯一 backtick 状态，URL 必须
+与机器结果精确相等。fixture/replay 使用 `--input ... --expect <state>`，普通
 源码/workflow PR 的 neutral/no-analysis 仍失败关闭。
 
 R0 fixture / 历史事件 replay 使用版本化 snapshot：

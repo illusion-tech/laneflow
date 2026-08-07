@@ -7,7 +7,8 @@ use std::process::{Command, Stdio};
 use serde::{Deserialize, Serialize};
 
 use crate::lockfile_policy::{
-    self, ChangedFile, CommitAuthor, PullRequestCommit, PullRequestMetadata,
+    self, ChangedFile, CommitAuthor, CommitSignature, ForcePush, PullRequestCommit,
+    PullRequestMetadata,
 };
 
 const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
@@ -26,6 +27,8 @@ query($owner:String!, $name:String!, $number:Int!) {
       number
       author { login }
       headRefOid
+      headRefName
+      headRepository { nameWithOwner }
       baseRefOid
       isDraft
       files(first:100) {
@@ -42,6 +45,14 @@ query($owner:String!, $name:String!, $number:Int!) {
             committedDate
             url
             messageHeadline
+            signature {
+              __typename
+              email
+              isValid
+              signer { login }
+              state
+              wasSignedByGitHub
+            }
             authors(first:2) {
               nodes {
                 name
@@ -50,6 +61,17 @@ query($owner:String!, $name:String!, $number:Int!) {
               }
               pageInfo { hasNextPage }
             }
+          }
+        }
+        pageInfo { hasNextPage }
+      }
+      forcePushes: timelineItems(first:100, itemTypes:[HEAD_REF_FORCE_PUSHED_EVENT]) {
+        nodes {
+          ... on HeadRefForcePushedEvent {
+            actor { login }
+            beforeCommit { oid }
+            afterCommit { oid }
+            createdAt
           }
         }
         pageInfo { hasNextPage }
@@ -233,6 +255,10 @@ struct PullRequestSnapshot {
     number: u64,
     author: Option<Actor>,
     head_ref_oid: String,
+    #[serde(default)]
+    head_ref_name: String,
+    #[serde(default)]
+    head_repository: Option<RepositoryIdentity>,
     base_ref_oid: String,
     #[serde(default)]
     is_draft: bool,
@@ -241,6 +267,8 @@ struct PullRequestSnapshot {
     #[serde(default)]
     commits: Connection<PullRequestCommitNode>,
     #[serde(default)]
+    force_pushes: Option<Connection<ForcePushSnapshot>>,
+    #[serde(default)]
     review_requests: Connection<ReviewRequest>,
     #[serde(default)]
     reviews: Connection<Review>,
@@ -248,6 +276,12 @@ struct PullRequestSnapshot {
     comments: Connection<IssueComment>,
     #[serde(default)]
     review_threads: Connection<ReviewThread>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RepositoryIdentity {
+    name_with_owner: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -277,7 +311,39 @@ struct PullRequestCommitSnapshot {
     url: String,
     message_headline: String,
     #[serde(default)]
+    signature: Option<CommitSignatureSnapshot>,
+    #[serde(default)]
     authors: Connection<CommitAuthorSnapshot>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CommitSignatureSnapshot {
+    #[serde(rename = "__typename")]
+    kind: String,
+    email: String,
+    is_valid: bool,
+    #[serde(default)]
+    signer: Option<Actor>,
+    state: String,
+    #[serde(rename = "wasSignedByGitHub")]
+    was_signed_by_github: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ForcePushSnapshot {
+    #[serde(default)]
+    actor: Option<Actor>,
+    before_commit: GitObjectIdentity,
+    after_commit: GitObjectIdentity,
+    created_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GitObjectIdentity {
+    oid: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -793,7 +859,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     }
     collect_pagination_errors(pr, &mut diagnostics);
 
-    let lockfile_metadata = lockfile_metadata(pr);
+    let lockfile_metadata = lockfile_metadata(&snapshot.repository, pr);
     let verified_lockfile =
         lockfile_policy::verify_dependabot_lockfile_only(&lockfile_metadata).ok();
 
@@ -1064,7 +1130,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         .copied();
     for ambiguity in &unbound_clean_ambiguities {
         let superseded = latest_clean.is_some_and(|clean| {
-            timestamp_second(&clean.submitted_at) > timestamp_second(&ambiguity.created_at)
+            timestamp_second_after(&clean.submitted_at, &ambiguity.created_at)
         });
         if !superseded {
             diagnostics.push(format!(
@@ -1293,14 +1359,21 @@ fn collect_pagination_errors(pr: &PullRequestSnapshot, diagnostics: &mut Vec<Str
     }
 }
 
-fn lockfile_metadata(pr: &PullRequestSnapshot) -> PullRequestMetadata {
+fn lockfile_metadata(repository: &str, pr: &PullRequestSnapshot) -> PullRequestMetadata {
     PullRequestMetadata {
+        repository: repository.to_string(),
         author_login: pr
             .author
             .as_ref()
             .map(|author| author.login.clone())
             .unwrap_or_default(),
         head_oid: pr.head_ref_oid.clone(),
+        head_ref_name: pr.head_ref_name.clone(),
+        head_repository_name_with_owner: pr
+            .head_repository
+            .as_ref()
+            .map(|repository| repository.name_with_owner.clone())
+            .unwrap_or_default(),
         files: pr
             .files
             .nodes
@@ -1330,8 +1403,36 @@ fn lockfile_metadata(pr: &PullRequestSnapshot) -> PullRequestMetadata {
                         email: author.email.clone(),
                     })
                     .collect(),
+                signature: node
+                    .commit
+                    .signature
+                    .as_ref()
+                    .map(|signature| CommitSignature {
+                        kind: signature.kind.clone(),
+                        email: signature.email.clone(),
+                        is_valid: signature.is_valid,
+                        signer_login: signature.signer.as_ref().map(|signer| signer.login.clone()),
+                        state: signature.state.clone(),
+                        was_signed_by_github: signature.was_signed_by_github,
+                    }),
             })
             .collect(),
+        force_pushes: pr
+            .force_pushes
+            .as_ref()
+            .map(|connection| {
+                connection
+                    .nodes
+                    .iter()
+                    .map(|event| ForcePush {
+                        actor_login: event.actor.as_ref().map(|actor| actor.login.clone()),
+                        before_oid: event.before_commit.oid.clone(),
+                        after_oid: event.after_commit.oid.clone(),
+                        created_at: event.created_at.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         files_complete: !pr.files.page_info.has_next_page,
         commits_complete: !pr.commits.page_info.has_next_page
             && pr
@@ -1339,6 +1440,10 @@ fn lockfile_metadata(pr: &PullRequestSnapshot) -> PullRequestMetadata {
                 .nodes
                 .iter()
                 .all(|node| !node.commit.authors.page_info.has_next_page),
+        force_pushes_complete: pr
+            .force_pushes
+            .as_ref()
+            .is_some_and(|connection| !connection.page_info.has_next_page),
     }
 }
 
@@ -1364,8 +1469,10 @@ fn handled_non_range_identity_finding(
             let actor = normalize_actor(&author.login);
             TRUSTED_HUMAN_ACTORS.contains(&actor.as_str())
         }) && identity_only_disposition(&comment.body, claimed_oid, &metadata.head_oid)
+            && first_comment.updated_at == first_comment.created_at
+            && comment.updated_at == comment.created_at
             && valid_timestamp(&comment.created_at)
-            && comment.created_at.as_str() > first_comment.created_at.as_str()
+            && timestamp_after(&comment.created_at, &first_comment.created_at)
     })
 }
 
@@ -1556,32 +1663,17 @@ fn valid_oid_fragment(value: &str) -> bool {
 }
 
 fn valid_timestamp(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    if bytes.len() < 20
-        || bytes[4] != b'-'
-        || bytes[7] != b'-'
-        || bytes[10] != b'T'
-        || bytes[13] != b':'
-        || bytes[16] != b':'
-        || bytes.last() != Some(&b'Z')
-    {
-        return false;
-    }
-    let fixed_digits = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18];
-    if fixed_digits
-        .iter()
-        .any(|index| !bytes[*index].is_ascii_digit())
-    {
-        return false;
-    }
-    if bytes.len() == 20 {
-        return true;
-    }
-    bytes[19] == b'.' && bytes[20..bytes.len() - 1].iter().all(u8::is_ascii_digit)
+    lockfile_policy::parse_utc_rfc3339(value).is_some()
 }
 
-fn timestamp_second(value: &str) -> &str {
-    &value[..19]
+fn timestamp_after(left: &str, right: &str) -> bool {
+    lockfile_policy::parse_utc_rfc3339(left)
+        .zip(lockfile_policy::parse_utc_rfc3339(right))
+        .is_some_and(|(left, right)| left > right)
+}
+
+fn timestamp_second_after(left: &str, right: &str) -> bool {
+    valid_timestamp(left) && valid_timestamp(right) && left[..19] > right[..19]
 }
 
 fn valid_github_url(value: &str) -> bool {
@@ -2069,10 +2161,13 @@ fn load_live_waiver_snapshot(
             number: identity.number,
             author: identity.author,
             head_ref_oid: identity.head_ref_oid,
+            head_ref_name: String::new(),
+            head_repository: None,
             base_ref_oid: identity.base_ref_oid,
             is_draft: identity.is_draft,
             files: Connection::default(),
             commits: Connection::default(),
+            force_pushes: None,
             review_requests: Connection::default(),
             reviews: Connection::default(),
             comments: Connection::default(),
@@ -2681,6 +2776,37 @@ mod tests {
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::AwaitingRereview
         );
+
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        snapshot.pull_request.review_threads.nodes[0].comments.nodes[0].updated_at =
+            "2026-08-06T02:20:39Z".to_string();
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingRereview
+        );
+
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        snapshot.pull_request.review_threads.nodes[0].comments.nodes[1].updated_at =
+            "2026-08-06T02:30:18Z".to_string();
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingRereview
+        );
+    }
+
+    #[test]
+    fn disposition_timestamp_requires_strict_numeric_rfc3339() {
+        assert!(valid_timestamp("2026-08-06T02:30:17.123Z"));
+        assert!(!valid_timestamp("2026-08-06T02:30:17.Z"));
+        assert!(!valid_timestamp("2026-08-06T02:30:17.1234567890Z"));
+        assert!(timestamp_after(
+            "2026-08-06T02:30:17.2Z",
+            "2026-08-06T02:30:17.19Z"
+        ));
     }
 
     #[test]

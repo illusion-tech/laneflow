@@ -889,6 +889,51 @@ fn extracts_one_recorded_codeql_evidence_url() {
         )
         .is_err()
     );
+    assert_eq!(
+        codeql_evidence_url(
+            "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/925193989330"
+        ),
+        Ok("https://github.com/illusion-tech/laneflow/runs/925193989330")
+    );
+    assert!(
+        codeql_evidence_matches(
+            "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/92519398933",
+            "https://github.com/illusion-tech/laneflow/runs/92519398933"
+        )
+        .unwrap()
+    );
+    assert!(
+        !codeql_evidence_matches(
+            "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/925193989330",
+            "https://github.com/illusion-tech/laneflow/runs/92519398933"
+        )
+        .unwrap()
+    );
+    assert!(!codeql_evidence_matches(
+        "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/92519398933?attempt=2",
+        "https://github.com/illusion-tech/laneflow/runs/92519398933"
+    )
+    .unwrap());
+}
+
+#[test]
+fn parses_one_exact_codeql_state_and_rejects_contradictions() {
+    assert_eq!(
+        codeql_state(
+            "- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/92519398933"
+        ),
+        Ok(crate::codeql::CodeQlState::Pass)
+    );
+    assert!(
+        codeql_state(
+            "- CodeQL：`pass`，但另记 `failed`，https://github.com/illusion-tech/laneflow/runs/1"
+        )
+        .is_err()
+    );
+    assert!(
+        codeql_state("- CodeQL：状态 pass，https://github.com/illusion-tech/laneflow/runs/1")
+            .is_err()
+    );
 }
 
 #[test]

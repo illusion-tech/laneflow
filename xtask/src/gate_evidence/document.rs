@@ -445,6 +445,7 @@ pub(super) fn validate_codeql_g3(
         return Err(format!("{label} G3 comment 必须恰好包含一条 `- CodeQL：`"));
     }
     let line = codeql_lines[0];
+    let recorded_state = codeql_state(line)?;
     let evidence_url = codeql_evidence_url(line)?;
     let result = if pr.merged_at.is_some() {
         codeql::evaluate_live_recorded(repo, number, evidence_url)?
@@ -458,14 +459,14 @@ pub(super) fn validate_codeql_g3(
         ));
     }
     validate_codeql_completion_order(label, &comment.created_at, result.completion_time())?;
-    if !line.contains(&format!("`{}`", result.state.as_str())) {
+    if recorded_state != result.state {
         return Err(format!(
             "{label} G3 comment 的 CodeQL 状态与机器结果不一致：{}",
             result.state.as_str()
         ));
     }
     if let Some(evidence_url) = result.evidence_url() {
-        if !line.contains(evidence_url) {
+        if !codeql_evidence_matches(line, evidence_url)? {
             return Err(format!(
                 "{label} G3 comment 的 CodeQL 行未回链机器结果 evidence URL"
             ));
@@ -480,6 +481,40 @@ pub(super) fn validate_codeql_g3(
         ));
     }
     Ok(())
+}
+
+pub(super) fn codeql_evidence_matches(line: &str, expected: &str) -> Result<bool, String> {
+    Ok(codeql_evidence_url(line)? == expected)
+}
+
+pub(super) fn codeql_state(line: &str) -> Result<codeql::CodeQlState, String> {
+    let tail = line
+        .trim_start()
+        .strip_prefix("- CodeQL：")
+        .ok_or_else(|| "G3 comment 的 CodeQL 行缺少精确字段前缀".to_string())?
+        .trim_start();
+    let value_tail = tail
+        .strip_prefix('`')
+        .ok_or_else(|| "G3 comment 的 CodeQL 状态必须是字段后的首个 backtick 值".to_string())?;
+    let end = value_tail
+        .find('`')
+        .ok_or_else(|| "G3 comment 的 CodeQL 状态缺少结束 backtick".to_string())?;
+    let state = codeql::CodeQlState::parse(&value_tail[..end])?;
+    let state_tokens = [
+        "pass",
+        "not_applicable",
+        "pending",
+        "failed",
+        "missing",
+        "provider_error",
+    ]
+    .iter()
+    .map(|candidate| line.matches(&format!("`{candidate}`")).count())
+    .sum::<usize>();
+    if state_tokens != 1 {
+        return Err("G3 comment 的 CodeQL 行必须恰好记录一个状态值".to_string());
+    }
+    Ok(state)
 }
 
 pub(super) fn codeql_evidence_url(line: &str) -> Result<&str, String> {
