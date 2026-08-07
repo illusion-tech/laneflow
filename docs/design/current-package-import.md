@@ -217,14 +217,17 @@ let validated = validate_scenario_strict(manifest, artifacts, &limits)?;
 `to_current_artifact_input` 是 compiler 包内私有的纯借用转换函数；使用函数项而非捕获状态的
 closure，使该 `Map<Copied<slice::Iter<_>>, _>` 明确满足 `Clone + ExactSizeIterator`。
 
-严格入口的无分配预检只由 source 拥有。source 首先完整消费 `artifacts.clone()`，在实际产生
-第 17 项前拒绝，并逐项检查非空引用、单个引用、引用总字节和显示来源等 source 专用硬上限；
-它不得只信任 `ExactSizeIterator::len()`。只有整个预检成功且实际产生数等于初始 `len()` 后，
-source 才按受检数量向事务账本申请 lookup backing 并消费原迭代器。消费原迭代器时必须在每次
-capacity 增长前重复计数和相关硬上限检查，并核对最终数量，以防状态型或不符合迭代器契约的
-跨包实现让两次遍历不一致；不一致以 source 结构化输入契约诊断失败关闭。compiler 不得出现数值
-`16`、`256`、`1,024` 或对应 source 诊断的镜像检查，只负责构造借用迭代器、传入调用点动态
-余额并消费原子结果。
+严格入口的无分配预检只由 source 拥有。source 首先完整消费 `artifacts.clone()`，观察到
+第 17 项时在任何与该项相关的增长前拒绝，并逐项检查非空引用、单个引用、引用总字节和显示来源
+等 source 专用硬上限；
+它不得只信任 `ExactSizeIterator::len()`。两次遍历都固定为“实际资源失败优先”：一旦实际观察到
+第 17 项、超长 ref 或其他 source 硬上限越界，立即返回对应资源诊断；只有本次遍历在全部硬上限内
+正常结束后，才比较数量契约。克隆预检以初始 `len()` 为 `expected_len`、实际产生数为
+`actual_len`；只有两者相等，source 才按该受检数量向事务账本申请 lookup backing 并消费原
+迭代器。消费原迭代器时必须在每次 capacity 增长前重复计数和相关硬上限检查；若遍历在上限内
+完成但最终数量与克隆预检数量不同，则以后者为 `expected_len`、本次数量为 `actual_len` 返回
+source 结构化输入契约诊断。compiler 不得出现数值 `16`、`256`、`1,024` 或对应 source 诊断的
+镜像检查，只负责构造借用迭代器、传入调用点动态余额并消费原子结果。
 
 前两条只供 current production façade；第三条因 Rust 不存在 friend crate 而必须跨包
 可见，但官方路径只由 compiler 调用。任意外部程序自行依赖 source 包并调用严格入口
@@ -377,7 +380,10 @@ strict 成功顺序固定为：
    至少 3；
 2. source 通过上述克隆迭代器执行 allocation-free 预检，检查实际制品数、每个 ref、ref
    总字节，以及 Manifest 和每个输入制品的单项 display source；compiler 不镜像这些规则；
-3. 检查 Manifest 实际字节，计算一次 Manifest SHA-256/换行索引并有界解析；
+3. 先检查 Manifest 实际字节的 source 单文档硬上限，再以入口即已知且必然被选中的 Manifest
+   字节长度作为下界，依次检查 compiler `SourceBytesPerModule` 和剩余 `SourceBytesTotal`；任一
+   失败都在 Manifest SHA-256、换行索引、DTO 或其他按输入规模分配前返回，随后才计算一次
+   Manifest SHA-256/换行索引并有界解析；该下界检查不预留、不扣账；
 4. 按 Traffic descriptor 的非空 ref → media type → portable size → digest 词法、Spatial
    descriptor 的相同顺序、两者 ref 冲突的既有优先级完成 Manifest 语义验证；
 5. 对调用方 ref 集合执行非空/全集合唯一检查并定位两个目标，再检查 Manifest 与被选中
@@ -385,8 +391,9 @@ strict 成功顺序固定为：
    origin 或该总量；
 6. source 在 Manifest 绑定后唯一计算 `selected_source_bytes = manifest + selected Traffic +
    selected Spatial`；在 Traffic/Spatial 摘要或 DTO 分配前依次检查声明长度、实际长度、
-   source hard cap、compiler per-module 余额和 compiler total 余额。未引用制品 payload 不进入
-   该值；资源失败允许提前，但非资源 size mismatch 只记录到下一步裁决；
+   source hard cap、compiler per-module 余额和 compiler total 余额。该完整值复核不继承或重复
+   计算第 3 步的 Manifest 下界为已提交量；未引用制品 payload 不进入该值；资源失败允许提前，
+   但非资源 size mismatch 只记录到下一步裁决；
 7. 按 Traffic actual size → Traffic SHA-256/digest → Spatial actual size → Spatial
    SHA-256/digest 的既有优先级验证；每份摘要扫描同时建立其 strict 换行索引；
 8. 按 Manifest → Traffic → Spatial 顺序有界解析，同步累计 wire、语义、位置和 live
@@ -517,35 +524,38 @@ impl CurrentSourceLimits {
 ```
 
 该构造器要求 diagnostic 和 import transaction live budget 非零；source byte 零余额仍是
-可构造、并在 Manifest 绑定后、目标 payload 哈希/分配前失败的有效上限。实现必须分别保存
-固定 source hard cap 与每个 compiler 动态余额及其 `CurrentCompilerBudgetDimension`，不能
-预先取最小值而丢失失败来源。它不接受 profile ID 字符串、source 硬上限或其他共同 compiler
-维度。compiler 必须先
+可构造的有效上限，但 source 必须在 Manifest 单文档硬上限检查后，立即以 Manifest 实际字节
+长度作 compiler 局部/累计余额下界检查，并在 Manifest 哈希、换行索引、DTO 或其他按输入规模
+分配前失败。实现必须分别保存固定 source hard cap 与每个 compiler 动态余额及其
+`CurrentCompilerBudgetDimension`，不能预先取最小值而丢失失败来源。它不接受 profile ID
+字符串、source 硬上限或其他共同 compiler 维度。compiler 必须先
 自行确认所选 `CompileLimits` 显式支持 1 个模块和 3 份剩余文档，才可构造 budget。其他
 crate 即使直接依赖 source 包并构造该值，也不能把其结果提交给 compiler。
 
 有效值不是该表的过期快照。`add_current_source` 持有 `&mut self` 后，用饱和/受检减法从
 当前 `AdmissionTotals` 和 builder live bytes 派生 source bytes、diagnostic 与 transaction
-live 余额。source 在配对后按固定优先级检查三文档单项、source profile 总量、
-`SourceBytesPerModule` 和剩余 `SourceBytesTotal`，并把唯一 `selected_source_bytes` 随不可
-伪造 capability 交给 compiler。
+live 余额。source 先按 Manifest 单文档硬上限 → compiler `SourceBytesPerModule` → 剩余
+`SourceBytesTotal` 的固定优先级检查 Manifest 字节下界；配对后再按三文档单项、source profile
+总量、compiler 单模块余额和累计余额的相同来源优先级复核完整 `selected_source_bytes`，并把
+该唯一完整值随不可伪造 capability 交给 compiler。前置下界检查不是资源提交，compiler 只记录
+最终完整值。
 
 共同维度的唯一计数权威是 compiler 私有 current module builder 的受预算构造操作：
 
-| 维度                                                              | 唯一增长点                                                                                |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `ModuleCount` / `SourceDocumentCount` / `ImportEdgeCount`         | compiler preflight 固定提交 `1 / 3 / 0`，source 不重复计数                                |
-| `SourceBytesPerModule` / `SourceBytesTotal`                       | source 配对后唯一产生 `selected_source_bytes`；compiler 直接写入模块计数且不重新求和      |
-| `DeclarationCount` / `SymbolCount`                                | 第 11 节每次成功发射一个共同声明时各增加 1                                                |
-| `TypedAstRecordCount`                                             | 模块头和共同 typed record/point 构造器成功保留一项时增加 1                                |
-| `ReferenceCount`                                                  | 每次共同 typed reference 构造器成功保留一项时增加 1                                       |
-| `RelationOccurrenceCount` / `IdentityFieldOccurrenceCount`        | 对应共同 occurrence 构造器成功保留一项时增加 1                                            |
-| `RouteOccurrenceCount` / `ManeuverGateCount` / `WaitingZoneCount` | 对应共同 occurrence 或实体构造器成功保留一项时增加 1                                      |
-| `GeometryPointCount`                                              | 每个 Spatial point 成功转为 canonical point 时增加 1                                      |
-| `StringItemCount` / `TotalStringBytes`                            | 每次 destination string 或 origin string 首次进入模块所有权时增加 1 / 原始 UTF-8 字节数   |
-| `SingleStringBytes`                                               | 每个 semantic external ID、固定 document key 和 derived key 在 destination 分配前检查     |
-| `DiagnosticCount`                                                 | 现有 compiler/source collector 的共享保留上限；每个最终保留 issue 只在所属 collector 计 1 |
-| `CompilerControlledLiveBytes`                                     | `add_current_source` 唯一 transaction ledger 在每次 capacity/ownership transfer 前计费    |
+| 维度                                                              | 唯一增长点                                                                                                     |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `ModuleCount` / `SourceDocumentCount` / `ImportEdgeCount`         | compiler preflight 固定提交 `1 / 3 / 0`，source 不重复计数                                                     |
+| `SourceBytesPerModule` / `SourceBytesTotal`                       | source 先检查 Manifest 字节下界，配对后唯一产生完整 `selected_source_bytes`；compiler 只提交完整值且不重新求和 |
+| `DeclarationCount` / `SymbolCount`                                | 第 11 节每次成功发射一个共同声明时各增加 1                                                                     |
+| `TypedAstRecordCount`                                             | 模块头和共同 typed record/point 构造器成功保留一项时增加 1                                                     |
+| `ReferenceCount`                                                  | 每次共同 typed reference 构造器成功保留一项时增加 1                                                            |
+| `RelationOccurrenceCount` / `IdentityFieldOccurrenceCount`        | 对应共同 occurrence 构造器成功保留一项时增加 1                                                                 |
+| `RouteOccurrenceCount` / `ManeuverGateCount` / `WaitingZoneCount` | 对应共同 occurrence 或实体构造器成功保留一项时增加 1                                                           |
+| `GeometryPointCount`                                              | 每个 Spatial point 成功转为 canonical point 时增加 1                                                           |
+| `StringItemCount` / `TotalStringBytes`                            | 每次 destination string 或 origin string 首次进入模块所有权时增加 1 / 原始 UTF-8 字节数                        |
+| `SingleStringBytes`                                               | 每个 semantic external ID、固定 document key 和 derived key 在 destination 分配前检查                          |
+| `DiagnosticCount`                                                 | 现有 compiler/source collector 的共享保留上限；每个最终保留 issue 只在所属 collector 计 1                      |
+| `CompilerControlledLiveBytes`                                     | `add_current_source` 唯一 transaction ledger 在每次 capacity/ownership transfer 前计费                         |
 
 这些构造器在同一 lowering 循环中累计模块资源计数，并把同一结果交给
 `prepare_admission`；source 包不预估 declaration/reference/relation 等 lowering 结果，
@@ -747,9 +757,17 @@ compiler 余额失败使用独立 `CompilerBudgetExceeded`，compiler 按穷尽 
 已提交量加 `observed_delta` 重建共同 profile 的 `observed`；不得把动态余额先与 source hard
 cap 取最小值后丢失来源。
 
-`ArtifactIteratorContractMismatch` 只表示跨包 `ExactSizeIterator` 的实际产生数量与其初始
-`len()` 或第二次遍历数量不一致；它的 document、context、path 与 span 都为 `None`，官方 compiler
-适配器出现该错误即为实现缺陷。compiler 将它一对一映射为
+Manifest 字节下界的 compiler 预算失败使用 `ManifestDecode`，`observed_delta` 是 Manifest
+实际字节长度；配对后完整三文档预算失败使用 `ArtifactBinding`，`observed_delta` 是完整
+`selected_source_bytes`。前者不预留或扣减余额。两阶段都先裁决 source 自身硬上限，再按
+`SourceBytesPerModule` → `SourceBytesTotal` 裁决 compiler 动态余额；若遍历输入时已实际触发
+source 硬上限，则该资源诊断仍优先于后续数量契约诊断。
+
+`ArtifactIteratorContractMismatch` 只表示跨包 `ExactSizeIterator` 的一次遍历在全部 source
+硬上限内正常结束后，实际产生数量与其比较基准不一致：克隆预检比较初始 `len()`，原遍历比较
+克隆预检的实际数量。遍历中实际观察到的制品数、ref 或其他 source 资源越界立即返回对应
+`LimitExceeded`，不继续消费迭代器以等待契约不匹配。该错误的 document、context、path 与 span
+都为 `None`，官方 compiler 适配器出现该错误即为实现缺陷。compiler 将它一对一映射为
 `LF-COMP-CURRENT-SOURCE-INPUT-CONTRACT`，不得伪装为制品数超限、JSON shape 或普通编译资源失败。
 
 Source JSON 错误保留 category、message、规范 `$` path 和真实 span。立即失败的 syntax
@@ -982,6 +1000,21 @@ expected=actual 分支且 cleanup Issue/owner 非空；存在任一 migration fa
 E、固定路径与报告 Git blob；validator 必须实际验证父子关系和唯一文件差异，不能仅相信文件名。
 rebase 或任何 A 内容变化都必须重新生成报告。
 
+Schema 只验证报告结构和闭合状态分支，`assets.minItems` 不证明其与动态仓库清单相等。validator
+不得以报告内的 `assets`、repository source digest、`inventoryDigest` 或 `overallStatus` 作为枚举/
+分类事实源；在验证 A/E 关系后，必须从 A 独立重建完整预期清单：使用全新的临时 Git index 对 A
+执行 `git read-tree`，再原样执行 `git ls-files -z -- 'examples/data/*.json'`，以 stdout bytes 复核
+repository source digest。不得从 E、调用方工作树或其普通 index 枚举。随后按该清单从 A 的 tree/
+blob 读取每份精确 bytes，重新派生 Git blob、字节长度、source SHA-256、`formatVersion` 状态、
+Manifest 配对、预期/实际分类、迁移结果与诊断；报告值不能参与这些派生。
+
+预期资产按 path UTF-8 字节序唯一排序后，validator 必须与 `assets[]` 做逐位置、逐字段、等长比较，
+并从预期内容身份重新计算 `inventoryDigest`，从完整预期迁移结果重新计算 `overallStatus`。任何漏项、
+额外项、重复 path、乱序、内容身份或分类/结果差异都失败关闭；v1 还须独立复核已发布资产固定空清单，
+不能因为报告自洽而接受。G2 负向测试至少逐项篡改遗漏、额外、重复、乱序、Git blob、长度、
+SHA-256、分类/迁移结果、repository source digest、`inventoryDigest` 与 `overallStatus`，并证明
+每类都被 validator 拒绝。
+
 报告 bytes 固定为 UTF-8 无 BOM、两空格缩进、LF 换行、单个末尾 LF；object 字段按 schema
 声明顺序，数组按本文规范顺序，由 importer 直接依赖的 `serde_json` 使用标准字符串转义。
 精确 serializer 版本取 `source.commit` 对应 `Cargo.lock` 的解析结果，生成命令必须使用
@@ -1019,13 +1052,16 @@ sync 目录。`AlreadyExists` 时读取 final，只接受 byte-identical 幂等�
   owner-local relation、geometry axis 和派生 owner；释放原始 bytes 后仍可查询 origin；
 - production-compatible 长 ref、超过 16 个唯一额外制品、唯一额外 payload 和 128 字节
   current ID 保持现有接受；相同输入在 strict 超限时于增长前返回资源诊断；
-- strict 自定义测试迭代器覆盖 `len()` 过大、过小、克隆遍历与原遍历数量不同，以及第二次
-  遍历才出现超长 ref/额外项；前者返回输入契约诊断，后者仍在对应增长前返回 source 资源诊断；
+- strict 自定义测试迭代器覆盖：`len()` 过大但实际在 16 项内结束、`len()` 过小但实际仍在
+  16 项内结束、克隆遍历与原遍历在上限内数量不同，均在相应遍历完成后返回输入契约诊断；
+  `len()` 过大/过小但实际产生第 17 项，以及第二次遍历才出现超长 ref/第 17 项，均在对应
+  增长前返回 source 资源诊断，不为等待契约比较继续遍历；
 - 三种文档分别覆盖 `formatVersion` 缺失、显式 `null`、非字符串、重复 occurrence，以及
   unsupported version 与其他 DTO shape 同时存在的组合；前四类保持 `JsonShape`，重复时不选择
   任一 occurrence，只有唯一合法字符串版本才先于其他 shape 返回 unsupported version；
-- Manifest 绑定前存在未引用的大 payload 时，该 payload 不进入 `selected_source_bytes`，
-  source-byte 余额只在 Manifest 绑定后、被选中 Traffic/Spatial 哈希/解析/分配前裁决；
+- Manifest 绑定前存在未引用的大 payload 时，该 payload 不进入 `selected_source_bytes`；source
+  在 Manifest 哈希/换行索引/DTO 分配前先以 Manifest 实际长度检查 compiler source-byte 下界，
+  再在绑定后以完整三文档值复核，且两次都覆盖边界、边界加一与失败前零规模分配；
 - 每个资源维度执行边界、边界加一、先加其他模块、加入顺序变形、失败不污染和重试；
 - v1 compile profile 在读取/哈希/解析前以 `SourceDocumentCount` profile-incompatible
   失败，v2/后继显式多文档 profile 才能导入。
@@ -1051,6 +1087,12 @@ source-owned 迭代器预检删除 compiler 侧一次规则镜像和最多 16 �
 升级只修改 source 权威、compiler 无需同步数值或诊断。importer 的第三方支撑依赖全部只存在于
 未发布离线工具闭包，当前 workspace lock 已包含这些包，因而 G2 预计不增加解析 crate；代价是
 Cargo metadata 白名单与报告已知向量必须随每次依赖更新共同维护。
+
+Manifest 字节下界检查在成功路径只增加两次整数余额比较，不扫描或复制输入；预算不足时反而避免
+Manifest 哈希、换行索引和 DTO 分配。G3 validator 独立重建清单会对仓库 JSON 增加一次
+`O(asset count + total bytes)` 的 Git tree/blob 读取、分类和 SHA-256，但只发生在未发布离线工具与
+证据闸口，不进入 production loader、compiler 热路径或 Traffic Runtime。其代价是维护报告生成与
+独立复核命令及负向篡改矩阵，收益是漏项或自洽伪造不能产生错误 `pass`。
 
 G2 基准显式继承 [`compiler-foundation.md`](compiler-foundation.md) 第 10.4 节：同一 P100
 机器、相同 release 配置，每级至少 1 次预热和 7 次正式样本，报告 median、MAD、compiler
@@ -1079,7 +1121,8 @@ regression，也不得只报告成功结果 live bytes。
    current 私有降阶、三文档描述符/源映射和原子 admission；补 compile-fail/API/DAG 测试。
 4. 新建以 compiler 为唯一 LaneFlow 直接依赖的薄 `laneflow-current-import`，并使用第 3 节
    冻结的第三方支撑依赖白名单，实现批量调用、符合 `current-asset-audit-v1.schema.json` 的
-   机器可读资产报告和失败清单；文件读取、路径解析和原子输出只在该宿主工具层。
+   机器可读资产报告、失败清单和从 A 独立重建完整清单的 validator；文件读取、路径解析和原子
+   输出只在该宿主工具层。
 5. 完成 `LF-COMP-CURRENT-EQUIV-v2`、release 性能/内存、全 workspace CI、外部审阅、G3/G4
    证据；#294 只有在 paired success 与显式失败清单完整后才能消费删除前置。
 

@@ -282,11 +282,15 @@ DTO。严格线格式解码器必须在字符串、序列、记录或存续内�
 
 对 `SourceBytesPerModule`、`SourceBytesTotal` 和 `CompilerControlledLiveBytes`，严格来源硬上限与
 compiler 调用点的局部 / 累计剩余预算必须分别保留，不能预先取最小值而丢失失败归属。builder
-用受检减法派生 compiler 余额；source 在 Manifest 绑定后唯一计算选中三文档的实际字节，依次检查
-来源硬上限、compiler 单模块上限与累计余额。来源硬上限失败保留 current-source profile，compiler
-预算失败则携带封闭的 budget dimension 返回，由 compiler 以已提交量加本次增量重建共同配置档的
-`observed`。Manifest 必须先在自身上限内解析并完成目标绑定；任一 source-byte 余额不足都在
-被选中 Traffic/Spatial 载荷哈希、解析或按规模分配前失败。导入包在这些上限内一次性铸造
+用受检减法派生 compiler 余额。Manifest 的实际长度在入口即已知且必然进入最终模块；source 先检查
+Manifest 自身单文档硬上限，再以该长度作 compiler 单模块与累计余额下界检查。该检查必须发生在
+Manifest SHA-256、换行索引、DTO 和其他按输入规模分配前，不预留或扣减余额。Manifest 在此下界
+内解析并完成目标绑定后，source 唯一计算选中三文档的完整实际字节，再依次复核来源硬上限、
+compiler 单模块余额与累计余额；未引用制品不进入该值。来源硬上限失败保留 current-source profile，
+compiler 预算失败则携带封闭的 budget dimension 返回，由 compiler 以已提交量加本次增量重建共同
+配置档的 `observed`。下界失败的增量是 Manifest 实际长度，完整复核失败的增量是选中三文档总量；
+任一完整余额不足都在被选中 Traffic/Spatial 载荷哈希、解析或按规模分配前失败。导入包在这些上限
+内一次性铸造
 `ValidatedCurrentImportBundle`，compiler 随即
 在同一调用栈内把 DTO、身份和所需真实位置一对一移动到私有导入模块，再执行共同接入的精确候选累计
 复核。全部检查成功后才原子提交；任一步失败都释放候选并保持 builder 的模块、索引和计数不变。
