@@ -1,12 +1,13 @@
 # 几何文档前端与拓扑/几何中层表示
 
 **文档状态**: Review（#296 G1 候选；尚未授权 G2）<br>
-**最后更新**: 2026-08-06<br>
+**最后更新**: 2026-08-07<br>
 **适用范围**: `laneflow-compiler` 的几何文档前端（Geometry Document Frontend）、
 `GeometryModuleBuilder` / `GeometryModule`、几何来源格式 v1、拓扑/几何中层表示
 （Topology/Geometry MIR）与已验证规范低层中间表示（Validated Canonical LIR）降阶<br>
 **关联文档**: `compiler-foundation.md`、`network-compiler.md`、
-`spatial-geometry.md`、`../adr/0020-compiler-owned-static-network-and-static-image.md`
+`spatial-geometry.md`、`../adr/0020-compiler-owned-static-network-and-static-image.md`、
+`../adr/0022-authoring-curve-and-canonical-polyline-error-budgets.md`
 
 ## 1. 目标与状态边界
 
@@ -67,6 +68,12 @@ v1 使用严格 UTF-8 JSON：
 
 ### 2.3 顶层封闭形状
 
+机器可检验的完整 wire shape 由
+[`geometry-document-v1.schema.json`](../reference/geometry-document-v1.schema.json) 冻结，
+使用 JSON Schema Draft 2020-12。本文冻结 schema 不能表达的跨记录约束和唯一降阶；两者
+必须同时满足。schema 文件的新增/删除字段、required 集合、枚举值或数值表示变化都属于
+几何来源格式变更，不能由 G2 实现自行解释。
+
 ```text
 GeometryDocumentV1 {
   geometryVersion: "1",
@@ -95,17 +102,33 @@ provenance: DirectProvenance | GeneratedProvenance
 `namespace` 是 `authoringNamespaceId`；`documentKey` 是与机器路径无关的稳定来源文档
 键。`imports` 是目标 namespace 集合，重复、自导入、未知目标与循环分别复用共同模块图
 诊断。`DirectProvenance` 精确为 `{ kind: "direct", description }`；编译器为其记录固定
-`generatorBuildId = "laneflow-geometry-direct-v1"`、域分离的空输入/固定选项摘要和
-`randomSeed = None`。`GeneratedProvenance` 精确包含
+`generatorBuildId = "laneflow-geometry-direct-v1"`、域分离的空输入摘要、由几何精度/
+方向配置档绑定的选项摘要和 `randomSeed = None`。
+`GeneratedProvenance` 精确包含
 `{ kind: "generated", generatorBuildId, parametersAndInputsDigest,
-frontendOptionsDigest, randomSeed, description }`，其中摘要是 64 位小写十六进制，
+frontendOptionsDigest, randomSeed, description }`，其中每个摘要是 64 个 ASCII 小写
+十六进制字符，编码 32 bytes / 256 bit 摘要；
 `randomSeed` 是十进制 `u64` 字符串或 `null`，避免 JSON/JavaScript number 丢失高位。
 这些值只记录来源沿袭，不认证文档内容；发布真实性仍由
 后继外部描述符承担。两种 `description` 都是受字符串上限约束的可见 UTF-8 文本。
 direct 的两个固定摘要前像分别是 ASCII
 `laneflow.geometry.direct.inputs.v1\0` 和
-`laneflow.geometry.frontend-options.v1\0`；各自直接计算一次 SHA-256，不包含 JSON
-空白、显示来源或 compiler build。实现必须为两者冻结已知向量。
+`laneflow.geometry.direct.frontend-options.v1\0`；各自直接计算一次 SHA-256，不包含
+JSON 空白、显示来源或 compiler build。前者直接成为 direct 的
+`parametersAndInputsDigest`，后者成为 direct 的来源前端选项摘要；generated 的来源
+前端选项摘要是文档内 `frontendOptionsDigest` 解码后的 32 bytes。最终模块描述符的
+`frontendOptionsDigest` 对以下精确前像再计算一次 SHA-256：
+
+```text
+ASCII "laneflow.geometry.frontend-options.v1\0"
+|| geometryAccuracyProfileCode: u8
+|| geometryDirectionProfileCode: u8
+|| sourceFrontendOptionsDigest: [u8; 32]
+```
+
+因此同一来源文档使用不同几何精度或方向配置档时，来源文档摘要保持不变，但模块选项
+摘要、规范点、几何数值和 LIR 语义指纹可以不同。实现必须为 direct 的九种配置档组合
+及 generated 零摘要输入冻结已知向量。
 
 `UnitsRecord` v1 必须精确为：
 
@@ -138,9 +161,31 @@ authoring 语义。
 ```rust
 pub const GEOMETRY_FRONTEND_VERSION: u32 = 1;
 
+pub enum GeometryAccuracyProfile {
+    Fine2Cm,
+    Balanced5Cm,
+    Compact10Cm,
+}
+
+pub enum GeometryDirectionProfile {
+    Smooth1Deg,
+    Balanced2Deg,
+    Compact5Deg,
+}
+
 pub struct GeometryDocumentInput<'a> { /* 字段私有，只借用 */ }
 pub struct GeometryModuleBuilder { /* 字段私有 */ }
 pub struct GeometryModule { /* 字段私有 */ }
+
+impl GeometryAccuracyProfile {
+    pub const fn stable_name(self) -> &'static str;
+    pub const fn max_position_error_meters(self) -> f64;
+}
+
+impl GeometryDirectionProfile {
+    pub const fn stable_name(self) -> &'static str;
+    pub const fn max_internal_direction_jump_degrees(self) -> f64;
+}
 
 impl<'a> GeometryDocumentInput<'a> {
     pub fn new(
@@ -153,6 +198,8 @@ impl<'a> GeometryDocumentInput<'a> {
 impl GeometryModuleBuilder {
     pub fn new(
         input: GeometryDocumentInput<'_>,
+        accuracy_profile: GeometryAccuracyProfile,
+        direction_profile: GeometryDirectionProfile,
         limits: &CompileLimits,
     ) -> Result<Self, DiagnosticBundle>;
 
@@ -162,6 +209,8 @@ impl GeometryModuleBuilder {
 impl GeometryModule {
     pub fn descriptor(&self) -> &SourceModuleDescriptor;
     pub fn source_documents(&self) -> impl ExactSizeIterator<Item = &SourceDocumentDescriptor>;
+    pub const fn accuracy_profile(&self) -> GeometryAccuracyProfile;
+    pub const fn direction_profile(&self) -> GeometryDirectionProfile;
 }
 
 impl CompilationUnitBuilder {
@@ -175,20 +224,51 @@ impl CompilationUnitBuilder {
 所有类型由 `laneflow-compiler` 拥有并从 crate root 导出。它们不实现公开字段、
 `Default`、反序列化、从裸 Typed AST 转换或可绕过校验的构造器。
 
+三个封闭位置配置档及稳定编码固定为：
+
+| Rust 变体     | 稳定名            | 代码 | 最终位置上限 | 曲线细分子预算 |
+| ------------- | ----------------- | ---: | -----------: | -------------: |
+| `Fine2Cm`     | `fine-2cm-v1`     |    1 |     `0.02 m` |       `0.01 m` |
+| `Balanced5Cm` | `balanced-5cm-v1` |    2 |     `0.05 m` |      `0.025 m` |
+| `Compact10Cm` | `compact-10cm-v1` |    3 |     `0.10 m` |       `0.05 m` |
+
+调用方必须显式选择；不提供任意 `f64` 容差、`Default`、按输入规模自动选择或资源不足时
+自动降级。`Balanced5Cm` 是产品推荐档，不是隐式默认值。
+
+三个封闭方向配置档及稳定编码固定为：
+
+| Rust 变体      | 稳定名             | 代码 | 连续曲线内部方向跳变上限 | 单个接受区间端点切向与弦夹角上限 |
+| -------------- | ------------------ | ---: | -----------------------: | -------------------------------: |
+| `Smooth1Deg`   | `smooth-1deg-v1`   |    1 |                     `1°` |                           `0.5°` |
+| `Balanced2Deg` | `balanced-2deg-v1` |    2 |                     `2°` |                             `1°` |
+| `Compact5Deg`  | `compact-5deg-v1`  |    3 |                     `5°` |                           `2.5°` |
+
+方向配置档同样必须显式选择，不实现 `Default` 或任意角度入口；`Balanced2Deg` 是产品推荐
+档。位置与方向正交组合，v1 恰好支持九种组合，不能按 road/lane/curve 分别选择。
+
 职责和生命周期固定如下：
 
 1. `GeometryDocumentInput::new` 只组装预期文档键、来源字节和显示来源的借用，不解析、
    不分配、不哈希、不验证；
-2. `GeometryModuleBuilder::new` 先验证预期文档键并把它用于解析失败时的真实行列诊断，
-   再执行字节上限预检、一次 SHA-256、有界解析、重复键检查、版本/closed-shape 检查
-   和位置收集；文档内 `module.documentKey` 必须与预期键逐字节相等。返回前释放来源
-   全文借用，只保留紧凑的前端记录、位置、描述符输入和精确资源计数；
+2. `GeometryModuleBuilder::new` 先验证几何精度/方向配置档和预期文档键，并把文档键用于解析
+   失败时的真实行列诊断，再执行字节上限预检、一次来源 SHA-256、有界解析、重复键
+   检查、版本/closed-shape 检查、位置收集和配置档绑定的模块选项摘要；文档内
+   `module.documentKey` 必须与预期键逐字节相等。返回前释放来源全文借用，只保留紧凑的
+   前端记录、位置、两个配置档和精确资源计数；
 3. `finish` 完成字段类型/单位/局部引用分类、曲线记录校验以及到共同 Typed AST 的唯一
    降阶；任一错误只返回规范 `DiagnosticBundle`，不返回部分模块；
 4. `GeometryModule` 按值拥有一个不可拆分的私有 `AdmittedOfficialModule` 候选；
 5. `add_geometry_module` 按值消费该候选并调用 #315 唯一的私有原子 admission。失败时
    builder 的模块、namespace/document 索引与累计计数完全不变，候选被释放；成功时不
    clone 全量声明、字符串或几何点，不重新哈希来源全文，也不重新统计记录。
+
+同一编译单元内的全部 Geometry 模块必须使用相同的位置与方向配置档。该约束不修改
+#315 的共同 admission：Geometry HIR 在任何曲线细分或规范点分配前读取已接入模块的
+两个有类型配置档，混用时分别返回 `MixedGeometryAccuracyProfile` 或
+`MixedGeometryDirectionProfile`；Synthetic/current-import 模块不参与该比较，没有
+Geometry 模块的编译单元也不携带虚构配置档。配置档差异不改变实体稳定标识；位置或
+方向档位可以改变规范点、几何数值、派生长度和语义指纹，但不能改变 6.1 节冻结的
+reference station 基表或 source station 的语义位置。
 
 不得新增公共 `Frontend` / `OfficialFrontend` trait、通用 `add_module`、独立 geometry
 crate 或记录级动态分派。`SourceLanguage` 增加封闭变体
@@ -219,7 +299,7 @@ local index。不得假设 HIR 的阶段局部稳定顺序等于最终完整 Ide
 `frameKey`。坐标继续使用右手系、`+Y` 上方向、`X/Z` 水平面和每轴
 `[-16_384 m, 16_384 m]` 的规范范围。v1 不表达 CRS、宿主放置、动态原点或地形贴合。
 
-每个 `RoadRecord` 至少包含：
+每个 `RoadRecord` 精确包含：
 
 ```text
 roadKey
@@ -248,7 +328,8 @@ NURBS、外部曲线库对象或自定义 evaluator；需要这些能力时提�
 
 ### 4.3 stationing、横断面与边生成
 
-道路里程站位（Stationing）从 `0 m` 开始，沿参考线离散后的规范折线弧长单调增加。
+道路里程站位（Stationing）从 `0 m` 开始，沿 6.1 节配置档无关的 `f64` reference station
+基表弦长单调增加。
 每个纵向 `CrossSectionSpanRecord` 精确包含：
 
 ```text
@@ -274,8 +355,11 @@ reference line。每个 RoadSection/FacilityBand 恰好出现一次；其 stable
 与 lane-bearing/non-traversable 类别继续复用共同约束。
 
 `RoadSectionRecord` 精确包含 `sectionKey`、`kindId`、`lanes` 和 `laneGroups`。每个
-`LaneSpanRecord` 显式提供 `laneKey`、`laneEdgeKey`、`direction = "forward" |
-"backward"`、严格正宽度、限速、可选 `laneGroupKey` 与静态属性；`lanes` 数组按
+`LaneSpanRecord` 精确提供 `laneKey`、`laneEdgeKey`、`direction = "forward" |
+"backward"`、`widthMeters`、`speedLimitMetersPerSecond`、可省略的 `laneGroupKey` 和
+`successors`。`successors` 是无序、不得重复的 edge reference 数组；空数组表示普通
+道路延续不声明下游边。v1 不存在 `predecessors` wire 字段，反向 predecessor 索引由
+successor 关系唯一派生；也不存在未登记的“静态属性”包或扩展 map。`lanes` 数组按
 corridor 参考方向从左到右排列，属于显式语义顺序。每个
 `LaneGroupRecord` 显式提供 stable `laneGroupKey` 并由当前 RoadSection 唯一拥有。
 同一 RoadSection 的全部 lane 必须有相同 direction；对向车道必须属于另一个
@@ -291,12 +375,12 @@ MIR 从 reference lane 的零中心偏移向左右两侧，按显式 `elements` 
 量化后中心线派生。需要跨 section 保持同一逻辑 lane 时由显式 predecessor/successor
 引用闭合，不能按左右序号猜测。
 
-reference line 先独立形成固定的 station 参数表；cross-section span 边界只在该表上
-定位。每条
-lane/facility offset curve 随后在相同的曲线参数域独立细分，并可增加自己的采样点，
-但不能反向改变 reference station。这样外侧曲线仍满足自身误差预算，同时避免
-“offset 细分改变参考线长度、参考线长度又改变 span 边界”的循环定义。反向 lane
-只在最终中心线冻结时反转点序和拓扑方向，不改变道路 reference station。
+reference line 先按 6.1 节的固定、配置档无关算法形成不可变 station 参数表；
+cross-section span 边界只在该表上定位。每条 lane/facility offset curve 随后在相同的
+原始曲线参数域独立细分，并可增加自己的采样点，但不能反向改变 reference station。
+这样外侧曲线仍满足自身误差预算，同时避免“offset 细分改变参考线长度、参考线长度又
+改变 span 边界”的循环定义。反向 lane 只在最终中心线冻结时反转点序和拓扑方向，不
+改变道路 reference station。
 
 每个 span 的 `corridorKey`、`sectionKey`、`laneKey`、`laneGroupKey`、facility key 和
 `laneEdgeKey` 分别进入既有 `RoadCorridor`、`RoadSection`、`AuthoringLane`、
@@ -306,16 +390,38 @@ lane/facility offset curve 随后在相同的曲线参数域独立细分，并�
 
 ### 4.4 路口和连接
 
-`JunctionRecord` 显式提供 stable `junctionKey`、approach edge 集合和
-`connections`。v1 不执行“最近端点自动连线”或按车道序号猜测连接。每个 connection
-必须显式提供：
+`JunctionRecord` 精确提供 stable `junctionKey`、无序且不得重复的 `approachEdges` 和
+`connections`。v1 不执行“最近端点自动连线”或按车道序号猜测连接。
+`ConnectionRecord` 精确包含：
 
-- `movementKey` 与有向 entry/exit approach keys；
-- `maneuverPathKey`；
-- 零个或多个具有显式 `laneEdgeKey` 的 internal edges；
-- 路径的完整 `entry + internal + exit` 有序 edge 引用；
-- internal edge 的 line/cubic-Bezier 几何；
-- 可选显式 `stopLineKey`、`maneuverGateKey` 与 `waitingZoneKey` 引用。
+```text
+movementKey
+directedEntryApproachKey
+directedExitApproachKey
+maneuverPathKey
+entryEdge
+internalEdges: [InternalEdgeRecord]
+exitEdge
+```
+
+`InternalEdgeRecord` 精确包含 `laneEdgeKey`、严格正且有限的
+`speedLimitMetersPerSecond` 和 `geometry { start, segments }`；限速必须显式提供，不从
+entry/exit edge 或相邻 internal edge 继承。权威路径序列唯一等于
+`entryEdge + internalEdges[*].laneEdgeKey + exitEdge`，不再接受第二份完整路径数组。
+StopLine、ManeuverGate 与 WaitingZone 只在 4.5 节 overlay 中声明，不在 connection
+中保存可选兼容字段。
+
+普通道路延续和路口转换是互斥来源：`LaneSpanRecord.successors` 只可声明不穿越
+junction internal path 的普通 section 延续；每个 connection path 的相邻 edge pair
+只由该 path 派生。Topology MIR 按规范 edge key 聚合这两组不相交输入，生成最终
+`LaneEdge.successors` 及反向 predecessor 索引。同一有向 transition 若在两类来源重复
+声明，或被两条 connection path 以不同 owner 重复占有，均失败关闭；不执行一致性
+兼容、去重或“任一份即可”的解释。
+
+一个 connection 的 entry edge、全部 internal edge 和 exit edge 必须解析到同一个
+`CanonicalFrame`。该 frame 由 entry/exit approach geometry 唯一导出并互相验证；两端
+frame 不同、任一 approach 无 geometry、或 internal geometry 尝试声明另一 frame 时均
+失败。Internal edge 不携带独立 `frame` 字段。
 
 topology MIR 复用共同的 Junction/Movement/ManeuverPath、内部边排他角色、路径连通、
 Gate/WaitingZone occurrence 与 owner/coverage 约束。几何 MIR 另外验证连接端点、方向、
@@ -324,7 +430,7 @@ Gate/WaitingZone occurrence 与 owner/coverage 约束。几何 MIR 另外验证�
 
 ### 4.5 静态 overlay
 
-`OverlayRecord` 是 closed object，包含与当前 #292 支持矩阵对应的可选数组：
+`OverlayRecord` 是 closed object，精确包含下列必选数组；每个数组可以为空：
 
 ```text
 signalGroups
@@ -340,9 +446,14 @@ maneuverGates
 waitingZones
 ```
 
-每类记录使用与共同 Typed AST 相同的稳定键、引用、值域和有序关系语义；Geometry
-前端只负责严格文本类型、真实 span 和单位化输入，不复制 HIR 的跨模块解析、owner、
-coverage、继承、信号完备性、停车锚点、准入冲突或路线 occurrence 验证。
+各数组记录的完整字段、required 集合、枚举 token 与 closed shape 由 wire schema 冻结。
+Geometry 前端只负责严格文本类型、真实 span 和单位化输入，不复制 HIR 的跨模块解析、
+owner、coverage、继承、信号完备性、停车锚点、准入冲突或路线 occurrence 验证。
+`offsetSeconds` / `durationSeconds` 按原始十进制 token 解析为 `f64` 后以固定顺序乘
+`1000.0`，结果必须有限、无小数且可无损收窄为共同 Typed AST 的 `u64` 毫秒；否则失败，
+不四舍五入。可选的 `laneGroupKey`、`parkingArea`、`extends`、`regulation.source` 等字段
+只允许省略，schema 未显式允许 `null` 的字段不得以 `null` 表示缺失；
+`signalControl: null` 是唯一登记的空控制值。
 
 v1 不支持 ConflictZone/ParticipantStream、时变准入、动态路线生命周期、二维区域
 布尔运算、mesh、材质或 Adapter 表现。未支持字段必须失败关闭，不能作为不透明扩展
@@ -356,6 +467,27 @@ Geometry records 只能通过私有 `TypedAstSink` 降阶到共同
 `TypedAstDeclaration`。不得让 Geometry module 保留一套与 Synthetic 平行的完整
 语义 AST 并在 HIR 记录级分派。Typed AST 可以增加表达参考线、横断面和连接意图的
 私有声明变体；direct overlay 立即降为既有共同声明变体。
+
+唯一 lowering 固定为：
+
+| wire 来源                                              | Typed AST / MIR 结果                                                                                                                                                                                |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `module.namespace/documentKey/imports/provenance`      | 分别进入唯一模块/文档描述符、共同 module graph 和来源沿袭；不产生领域声明                                                                                                                           |
+| `units`                                                | 只验证 v1 固定单位并决定数值字段解释；不产生记录或运行时单位表                                                                                                                                      |
+| `FrameRecord.frameKey`                                 | 一个 `CanonicalFrame`；edge geometry 成员由 lane/internal-edge geometry intent 反向闭合                                                                                                             |
+| `RoadRecord.roadKey/frame/referenceLine`               | `roadKey` 只作前端分组；`frame` 绑定全部派生 edge geometry；reference curve 进入 geometry MIR，不产生 `Road` 实体                                                                                   |
+| `CrossSectionSpanRecord`                               | 一个私有 span intent；随后恰好产生一个 `RoadCorridor`                                                                                                                                               |
+| `RoadSectionRecord.sectionKey/kindId/lanes/laneGroups` | 一个 `RoadSection`；kind 原样验证，成员关系来自有序数组和 lane 反向绑定                                                                                                                             |
+| `LaneGroupRecord.laneGroupKey`                         | 一个 `LaneGroup`，owner 为所在 section；成员只由 lane 的可选 `laneGroupKey` 形成                                                                                                                    |
+| `LaneSpanRecord`                                       | `laneKey` 生成一个 `AuthoringLane`，`laneEdgeKey/speedLimit/successors` 生成一个 `LaneEdge` 候选；width/direction 进入 offset intent，edge length 延后从最终规范点派生                              |
+| `FacilityBandRecord`                                   | key/kind 生成一个 `FacilityBand`；width 进入不可遍历 offset geometry intent                                                                                                                         |
+| `JunctionRecord.junctionKey/approachEdges`             | 一个 `Junction`；approach 集合只用于 owner、边界与 frame 闭包，不直接写 successor                                                                                                                   |
+| `ConnectionRecord`                                     | movement/approach keys 生成一个 `Movement`；path key 与 entry/internal/exit 生成一个 `ManeuverPath`；每个 internal record 生成显式 speed 的 `LaneEdge` 与 geometry intent；相邻 pair 生成 successor |
+| `OverlayRecord` 各成员                                 | 逐项直接降为同名既有共同声明，不保留 Geometry 专用副本                                                                                                                                              |
+
+任何 wire 字段必须恰好由上表消费一次或仅用于诊断/来源沿袭；不得把无法 lowering 的字段
+保留为 opaque extension。由 reference line、宽度前缀和 direction 派生的中心线属于
+geometry MIR，不是第二份共同 Typed AST 声明。
 
 ### 5.2 HIR 权威
 
@@ -397,28 +529,111 @@ topology 与 geometry MIR 是同一次编译的两个私有视图，不是两个
 ### 6.1 计算链
 
 v1 的 clean single-thread 预言机使用 Rust `f64` 执行三维 line/cubic Bézier 求值、
-de Casteljau `t = 0.5` 细分、station 累计和 lane offset；禁止 fused/non-fused 不一致的
-平台专用 fast-math。输出点每个分量只在进入规范点表时按 IEEE 754 round-to-nearest,
+de Casteljau `t = 0.5` 细分、station 累计和 lane offset；每个标量表达式按本文从左到右
+拆成独立 multiply/add/subtract/sqrt，不允许 FMA 收缩、重排或平台专用 fast-math。
+输出点每个分量只在进入规范点表时按 IEEE 754 round-to-nearest,
 ties-to-even 转为 `f32`，并把 `-0.0` 规范化为 `+0.0`。
 JSON 十进制 token 必须先保留精确字节，再以 Rust 标准库 `str::parse::<f64>()` 的最近值
 语义转换一次；溢出、非有限结果或不满足字段值域时失败，禁止先经通用 JSON number
 或另一精度往返。整数和 `randomSeed` 等整数文本按目标 `u32`/`u64` 直接解析并检查，
 不得经 `f64` 往返。
 
-对 cubic Bézier，按原始段顺序深度优先、左子段优先递归；当两个内控制点到端点弦的
-最大三维距离不超过 `0.0025 m`，且两端切向与弦的夹角判定都通过时停止。角度判定不
-调用平台 `acos`：切向与弦的 dot 必须为正，并满足
-`dot² >= tangentLength² × chordLength² × 0x3fefffd812cce4e6`；末项是冻结的 `f64`
-`cos²(0.25°) = 0.9999809615320856`。零长度弦或零长度端点切向直接失败。line 不细分，
-除非 section/station 边界要求插点。reference line 使用该规则形成 station 参数表；
-每条 offset curve 还必须对其自身位置/切向重复相同停止判定并独立细分。
+对 cubic Bézier，按原始段顺序深度优先、左子段优先递归。Reference curve 的位置停止
+条件是两个内控制点到端点**有限线段**的最大三维平方距离不超过所选位置配置档的曲线
+细分子预算平方；投影参数按 `dot(point-start, chord) / dot(chord, chord)` 求得并 clamp
+到 `[0, 1]`，再按 `start + clamped * chord` 求最近点。三个子预算依次为
+`Fine2Cm = 0.01 m`、`Balanced5Cm = 0.025 m`、`Compact10Cm = 0.05 m`。
+
+方向停止条件独立检查区间两端曲线切向与端点弦。不得调用平台 `acos`：dot 必须为正，
+并满足 `dot² >= tangentLength² × chordLength² × cosSquaredThreshold`。三个方向档的
+冻结阈值为：
+
+| 方向档         |   半角 |           `f64 cos²` |        IEEE 754 bits |
+| -------------- | -----: | -------------------: | -------------------: |
+| `Smooth1Deg`   | `0.5°` | `0.9999238475781956` | `0x3fefff604bfad7c5` |
+| `Balanced2Deg` |   `1°` | `0.9996954135095479` | `0x3feffd813c5f82b4` |
+| `Compact5Deg`  | `2.5°` | `0.9980973490458729` | `0x3feff069da0c0ad2` |
+
+共享端点处的真实曲线切向相同，故相邻两个已接受弦之间的方向跳变分别至多为 `1°`、
+`2°`、`5°`。零长度弦、零长度端点切向或水平投影切向为零直接失败。line 不细分，除非
+section/station 边界要求插点。
+
+Station 参数表不使用调用方选择的位置或方向档。它逐原始 segment 建立：line 只加入
+终点；cubic 固定使用 `0.01 m` 内控制点有限弦距与 `0.5°` 端点切向门槛，以同样的
+de Casteljau、深度优先、左子段优先算法细分。表首项固定为
+`(segmentOrdinal=0, tBits=0x0000000000000000, cumulativeLengthBits=0)`；后续每项保存
+`(segmentOrdinal, tBits, cumulativeLengthBits)`，累计长度按相邻 `f64` 求值点的三维
+欧氏弦长、从左到右依次相加。该表一旦形成即不可修改，也不进入 LIR。
+
+对数值 station `s`，先验证 `0 <= s < finalStation`，再 lower-bound 查找第一项
+`S1 >= s`。若 `s` 与某项累计值 bit 相同，直接使用该项参数；否则以前一项
+`(t0, S0)` 和当前项 `(t1, S1)` 按固定顺序计算
+`alpha = (s - S0) / (S1 - S0)`、`t = t0 + alpha * (t1 - t0)`。`"end"` 唯一映射到
+最后一项。强制参数在原 authoring evaluator 上求值，只在进入最终点表时量化一次；它
+不回写 station 表、不重新累计 reference length，也不参与后续 station 定位。
+
+每条常量偏移 `d` 的 lane/facility 曲线必须独立细分。求值器固定为
+`O_d(t) = B(t) + d * left(B'(t))`，其中 `left = +Y cross normalize(project_XZ(B'))`；
+切向使用该表达式的解析一阶导数，cubic 的 `B'` / `B''` 按 Bernstein 多项式固定顺序
+求值，水平投影长度为零时失败。Offset 位置停止条件不使用有限采样猜测最大误差，而对
+每个 de Casteljau 子区间的局部参数 `u in [0,1]` 计算 `O_d''` 的保守范数上界 `K`；线性
+插值误差定理给出该 offset curve 到端点弦的最大距离 `<= K/8`，只有
+`K <= 8 * positionSubBudget` 时才可接受。区间两端的 `O_d'` 还必须通过所选方向档的
+同一半角判定。任一条件失败即在参数中点二分；因此 offset 不引用并不存在的 Bézier
+内控制点，也不复用 reference curve 的接受结果。
+
+对控制点 `p0..p3`，导数逐分量按下式括号和书写顺序求值：
+
+```text
+u = 1 - t
+d10 = p1 - p0; d21 = p2 - p1; d32 = p3 - p2
+B' = 3 * (((u * u) * d10) + (((2 * u) * t) * d21) + ((t * t) * d32))
+B'' = 6 * (u * ((p2 - (2 * p1)) + p0) + t * ((p3 - (2 * p2)) + p1))
+q = (B'.x, B'.z); q2 = q.x*q.x + q.z*q.z; r = sqrt(q2)
+r' = (q.x*B''.x + q.z*B''.z) / r
+left = (q.z/r, 0, -q.x/r)
+left' = ((B''.z*r - q.z*r')/q2, 0, (-B''.x*r + q.x*r')/q2)
+O_d' = B' + d*left'
+```
+
+向量乘加均按 `x, y, z` 分量分别执行；`q2 == 0`、任一中间值非有限或最终切向为零均
+失败。Line 的 `B'' = 0`，其常量 offset 仍是 line，除 station 强制点外不细分。
+
+`K` 由当前 de Casteljau 子曲线控制点 `p0..p3` 以以下固定保守界求得：
+
+```text
+v0 = 3*(p1-p0); v1 = 3*(p2-p1); v2 = 3*(p3-p2)
+rx = distance(0, [min(v0.x,v1.x,v2.x), max(v0.x,v1.x,v2.x)])
+rz = distance(0, [min(v0.z,v1.z,v2.z), max(v0.z,v1.z,v2.z)])
+rMin = sqrt(rx*rx + rz*rz)
+a0 = 6*((p2 - 2*p1) + p0); a1 = 6*((p3 - 2*p2) + p1)
+j = 6*(((p3 - 3*p2) + 3*p1) - p0)
+A = max(norm3(a0), norm3(a1))
+M1 = max(normXZ(a0), normXZ(a1)); M2 = normXZ(j)
+K = A + abs(d) * ((2*M2/rMin) + (6*M1*M1/(rMin*rMin)))
+```
+
+`distance(0,[lo,hi])` 在 `lo <= 0 <= hi` 时为零，否则为 `min(abs(lo),abs(hi))`。
+Bernstein 凸包保证 `rMin` 不大于区间内任一水平 `|B'|`，并分别给出 `A/M1/M2` 的上界；
+由单位向量二阶导数界 `|left''| <= 2*M2/rMin + 6*M1²/rMin²` 得到上述 `K`。
+`rMin == 0` 的区间不能被接受，只能继续二分；深度 20 仍为零则以近垂直/退化切向失败。
+
+最终输出参数集合由该 offset 自身接受区间端点、原始 curve segment 端点和 station
+强制参数合并，按 `(segmentOrdinal, t f64 total-order bits)` 排序，仅对参数 bit 完全相同
+者去重。随后从原 evaluator 求值并量化；不同参数量化到同一点或形成不大于最短段限制
+的线段时失败，不按坐标去重或移动语义锚点。
 递归深度上限为 20；达到上限仍不满足误差、产生超过 `GeometryPointCount` 的点、或
 量化后任一线段长度不严格大于既有
 `SPATIAL_MIN_SEGMENT_LENGTH_METERS = 0.1 m` 时失败关闭，不降低精度继续编译。
 
-以上阈值给最终 `1 cm` 位置预算保留曲线近似、`f32` 量化和连接检查余量。实现可以用
-迭代栈替代递归，但必须产生逐 bit 相同的点序列；更换算法、阈值或求值顺序需要提升
-frontend/constraint 版本并重新进入 G1。
+最终规范中心线相对 authoring/offset evaluator 的位置接受上限由配置档分别固定为
+`2 cm`、`5 cm` 和 `10 cm`；独立总误差 oracle 不能用子预算与局部常量的机械相加替代。
+剩余预算覆盖 `f32` 量化、station 边界插点与连接检查，不得被 Adapter 展示细分或车辆
+物理偏差占用。九种位置/方向组合都不放宽语义锚点：曲线段
+端点必须进入点表，station 边界按固定参数表插点，相连端点仍遵守 6.2 节的 `5 mm`
+上限且不 snap。实现可以用迭代栈替代递归，但必须在相同配置档下产生逐 bit 相同的点
+序列；更换任一配置档集合、算法、阈值或求值顺序需要提升 frontend/constraint 版本并重新
+进入 G1。
 
 ### 6.2 长度与连续性
 
@@ -444,10 +659,17 @@ frontend/constraint 版本并重新进入 G1。
 Geometry 前端复用全部 #315 共同累计维度。额外工作必须归入现有维度：
 
 - 原始文档字节计入 `SourceBytesPerModule` / `SourceBytesTotal`；
-- JSON token、对象、数组、曲线段、section/lane/connection 与 overlay 记录计入
-  `TypedAstRecordCount`，引用和 owner-local 成员分别计入既有引用/关系维度；
-- authoring 控制点和最终规范折线点都在其存续阶段计入 `GeometryPointCount`，峰值按
-  同时存续集合而不是两者相加后的历史累计解释；
+- `TypedAstRecordCount` 只计入成功解析后可逐项枚举的逻辑领域记录：模块头、单位、
+  frame、road、reference curve segment、cross-section span、section、lane、lane group、
+  facility、junction、connection、internal edge 及 overlay 中各共同声明/owner-local
+  record；控制点是 curve segment 的字段，不另算记录。JSON token、标点、字段名、对象
+  容器和数组容器均不进入该维度；
+- 引用和 owner-local 成员分别计入既有 `ReferenceCount` /
+  `RelationOccurrenceCount`；同一 wire
+  字段只计入一个领域 count，不能同时作为 tokenizer occurrence 重复计数；
+- `GeometryPointCount` 只计算准备进入最终规范几何表的量化 `f32` 点，并按 #315 的共同
+  admission 语义跨模块累计；authoring start/control/end 点、station 表节点、offset
+  evaluator sample 和细分候选不进入该 count；
 - parser stack、duplicate-key table、曲线细分栈、station scratch、HIR/MIR 工作集分别
   计入 `StageScratchBytes`；
 - 解析后存续的字符串、记录、span、点和模块包装计入真实
@@ -458,7 +680,11 @@ Geometry 前端复用全部 #315 共同累计维度。额外工作必须归入�
 任何按输入规模分配必须先以 checked `u64` 计算 length+1/候选容量并比较上限；来源
 长度还必须在哈希或解析前可收窄到描述符所需 `u32`。未知长度流不在 v1 API 范围内。
 解析不得先构造无界通用 JSON value tree 再统计。#296 不增加生产解析/几何依赖；
-实现使用 crate 私有的有界 JSON tokenizer/parser，直接产生紧凑记录与 span。
+实现使用 crate 私有的有界 JSON tokenizer/parser，直接产生紧凑记录与 span。v1 固定
+`MAX_GEOMETRY_JSON_NESTING_DEPTH = 32`：根对象深度为 1，每次进入 object/array 前以
+checked `u32` 计算下一深度，33 在压入 parser stack 或分配容器前返回结构化错误。解析
+器只能使用受 `StageScratchBytes` 约束的显式栈，不得让不可信嵌套深度增长进程调用栈。
+合法 schema 的最深实例、深度 32/33、以及类型错误后嵌套攻击都必须有边界测试。
 
 ### 7.2 诊断阶段与顺序
 
@@ -483,18 +709,18 @@ code, stable key, typed payload)` 排序。解析恢复只能在当前 closed ob
 
 G2 实现至少必须自动覆盖：
 
-| 类别       | 必须证明的样例                                                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| 来源       | 最小合法文档、BOM/非法 UTF-8、重复键、未知字段、旧/未来版本、精确字节摘要与真实行列                                                   |
-| 文档基数   | Geometry 单文档在 v1/v2 均成功；不存在 include；与多文档模块组合时 v1 在分配前失败、v2 成功                                           |
-| API 原子性 | `new`、`finish`、`add_geometry_module` 每个失败点不泄漏部分模块或改变 unit builder                                                    |
-| 标识       | 普通声明重排、无关插入、空白/字段重排和 geometry-only edit 不改变应稳定实体 ID；显式 key/owner/topology 改变按 Identity v1 改变       |
-| topology   | cross-section span 完整 coverage、横向 elements、lane predecessor/successor、junction/path owner、内部边排他和 owner-local occurrence |
-| geometry   | line/cubic 边界、深度 20、阈值含等号/加一 ULP、station 边界、offset、范围、最短段、近垂直、连接 5 mm 边界                             |
-| 来源映射   | 声明、派生 edge、owner-local relation 与 LIR 目标经过同一 permutation；HIR 局部顺序与 LIR Identity 顺序不同的反例                     |
-| 等价       | 代表性受保护转向走廊与 #292 Synthetic DSL 产生相同 CanonicalIdentity、全部 LIR 表/关系/数值、语义指纹和 current 投影                  |
-| 确定性     | 模块/声明重排、无关插入、重复 clean compile、不同优化级别和受支持平台产生相同 LIR 语义与点 bit pattern                                |
-| 资源       | 每个相关 limit 的边界/边界加一、诊断截断、parse/细分/共同 admission/build scratch 和失败清理                                          |
+| 类别       | 必须证明的样例                                                                                                                                                                                                                               |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 来源       | schema 自检与最小/全字段 golden、BOM/非法 UTF-8、重复键、未知字段、旧/未来版本、精确字节摘要与真实行列；摘要 63/64/65 字符、非 ASCII、非小写与非十六进制边界                                                                                 |
+| 文档基数   | Geometry 单文档在 v1/v2 均成功；不存在 include；与多文档模块组合时 v1 在分配前失败、v2 成功                                                                                                                                                  |
+| API 原子性 | `new`、`finish`、`add_geometry_module` 每个失败点不泄漏部分模块或改变 unit builder                                                                                                                                                           |
+| 标识       | 普通声明重排、无关插入、空白/字段重排和 geometry-only edit 不改变应稳定实体 ID；显式 key/owner/topology 改变按 Identity v1 改变                                                                                                              |
+| topology   | cross-section span 完整 coverage、横向 elements、lane predecessor/successor、junction/path owner、内部边排他和 owner-local occurrence                                                                                                        |
+| geometry   | 九种位置/方向组合及两类混用拒绝、line/cubic 边界、深度 20、各子预算和三档方向阈值的含等号/加一 ULP、内部方向跳变、各档总位置上限、station lower-bound/端点/插值 known vectors、offset `K` 界、语义锚点、范围、最短段、近垂直、连接 5 mm 边界 |
+| 来源映射   | 声明、派生 edge、owner-local relation 与 LIR 目标经过同一 permutation；HIR 局部顺序与 LIR Identity 顺序不同的反例                                                                                                                            |
+| 等价       | 代表性受保护转向走廊与 #292 Synthetic DSL 产生相同 CanonicalIdentity、全部 LIR 表/关系/数值、语义指纹和 current 投影                                                                                                                         |
+| 确定性     | 模块/声明重排、无关插入、重复 clean compile、不同优化级别和受支持平台产生相同 LIR 语义与点 bit pattern                                                                                                                                       |
+| 资源       | 每个相关 limit 的边界/边界加一、诊断截断、parse/细分/共同 admission/build scratch 和失败清理                                                                                                                                                 |
 
 等价比较不能只比较 current JSON 或对象数量；必须逐表比较有类型 ordinal、稳定身份
 完整前像、owner-local relation、规范 `f32` 点 bit、累计弧长、来源键角色和语义指纹。
@@ -519,7 +745,40 @@ G2 必须在 release、单工作线程、同机 base/candidate 下分别报告�
 
 ### 9.2 工作负载
 
-冻结三个 Geometry 工作负载：
+Geometry 性能仍采用绝对硬门槛；但门槛只对 exact fixture、exact harness 和具名参考机
+成立，不能只由以下自然语言名称取得资格。初始 G1 Pass 冻结本节的 workload identity、
+测量协议、机器可读 schema、候选预算和失败关闭规则，不要求尚不存在的 production
+实现提前生成运行结果。G2 必须提交机器可读
+`docs/reference/geometry-frontend-calibration-contract-v1.json`，它以 byte length 与
+SHA-256 绑定 workload manifest、证据 schema 和 reference-machine declaration；这些
+exact 工件必须在 G3 Pass 前取得资格。Workload
+manifest 必须通过
+[`geometry-frontend-calibration-workload-manifest-v1.schema.json`](../reference/geometry-frontend-calibration-workload-manifest-v1.schema.json)
+校验，并由独立 cross-record validator 证明恰好覆盖 `3 workloads × 3 position profiles ×
+3 direction profiles = 27` 个唯一 row；manifest
+中的每个 workload/profile row 至少精确包含：
+
+```text
+schemaVersion, workloadId, fixturePath, fixtureByteLength, fixtureSha256
+accuracyProfileCode, directionProfileCode
+module/document/declaration/reference/relation counts
+line/cubic/control-point counts
+offset-curve count and absolute-offset distribution
+expected canonical-point count and per-LIR-table counts
+semantic fingerprint and complete-output digest
+```
+
+Cross-record validator 还必须验证同一 workload 的九行绑定相同 fixture bytes、offset
+distribution 的 `curveCount` 总和等于 `offsetCurveCount`、全部 LIR table count 之和等于
+`lirRecordCount`，并从实际编译输出重算 canonical point/LIR counts 与两个 digest；manifest
+自报值不能作为 oracle 自证。
+
+证据还必须绑定 measurement/harness commit、clean tree、`Cargo.lock`、release binary digest、
+操作系统/CPU/内存/电源与固件身份、计时量子、预热/正式样本和进程数，并保存原始执行
+制品摘要。校验顺序复用 #308 的 trusted contract → schema/manifest exact bytes → evidence
+cross-record validation，禁止先信任 evidence 自报的 manifest。
+
+冻结三个 Geometry workload identity：
 
 - `LF-COMP-GEOMETRY-MIN-v1`：单 frame、单 road、单 cross-section span、单
   RoadSection、两条 lane、line-only；
@@ -528,13 +787,21 @@ G2 必须在 release、单工作线程、同机 base/candidate 下分别报告�
 - `LF-COMP-GEOMETRY-P100-v1`：与 #292 P100 五级最高级相同的合法静态语义规模，并
   保持相同模块图和 LIR 记录数；Geometry 特有计数另行报告。
 
-同语义 Synthetic base 只用于分离 Geometry 固有解析/细分成本，不作为“新文本前端只
-能增加百分之十”的错误门槛。P100 推荐参考机上，最高级完整 compile 的三进程中位数
-的中位数必须不超过 `25 ms`，编译器控制峰值不得超过 `6 MiB`，冷实例完成后的保留
-容量必须为 `0 B`；相同 Geometry 候选迭代若出现可重复、无法解释的时延或峰值超过
-`5%` 回退同样阻断。超过任一门槛必须以 workload/profile/算法证据重新进入 G1，不得
-删除 span、资源检查或降低曲线误差来达标。共同 admission 自身继续满足 #315 的
-`5%` 回归门槛。
+每个含曲线的工作负载必须运行九种位置/方向组合，报告相同来源下的规范点、逻辑输出、
+耗时和内存差异；line-only MIN 也运行九种组合并验证它们只改变选项摘要、不制造多余点。
+同语义 Synthetic base 只用于分离 Geometry 固有解析/细分成本，不作为“新文本前端只能
+增加百分之十”的错误门槛。
+
+当前 `25 ms` 完整 compile、`6 MiB` 编译器控制峰值和 `0 B` 冷实例保留容量仅为初始 G1
+冻结的候选预算，不是已取得资格的最终硬门槛。G2 在 production 实现存在后，必须在
+上述 exact manifest 与参考机上完成三进程校准，并把每个门槛及其统计量、预算来源和
+适用的九种组合写回 contract/evidence。随后必须新增 append-only 的 G1 calibration
+closure：若证据支持候选预算且不改变算法、schema、workload identity 或测量协议，只
+接受 exact 数值和证据绑定；若不支持或需要改变任一设计输入，则完整返回 G1 重新审阅。
+只有该 calibration closure 与九种组合硬门槛全部通过，#296 才能取得 G3 Pass。相同
+组合的后继候选若出现可重复、无法解释的时延或峰值超过已校准基线 `5%`，同样阻断。
+不得删除 span、资源检查或偷偷切换到更粗配置档来达标。共同 admission 自身继续满足
+#315 的 `5%` 回归门槛。
 
 收益是：生产编制语义、拓扑和几何由同一编译器闭合，消除手写 Traffic/Spatial 双份
 长度、外部 ID join 和 Adapter 端样条权威。代价是：严格来源格式、曲线细分和真实 span

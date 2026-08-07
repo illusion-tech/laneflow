@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）
 
-**最后更新**: 2026-07-29（current Traffic v0.10；#291/ADR 0020 target）
+**最后更新**: 2026-08-07（current Traffic v0.10；#291/ADR 0020 target；#296/ADR 0022 proposed 误差分层）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
@@ -10,6 +10,7 @@
 
 - `../adr/0012-core-numeric-authority-and-presentation-precision.md`
 - `../adr/0013-engine-neutral-spatial-geometry-and-length-authority.md`
+- `../adr/0022-authoring-curve-and-canonical-polyline-error-budgets.md`
 - `../adr/0014-residual-aware-f32-core-authority-and-migration-gates.md`
 - `../adr/0015-bounded-f32-canonical-spatial-frames.md`
 - `../adr/0020-compiler-owned-static-network-and-static-image.md`
@@ -241,6 +242,13 @@ P0 -> P1 -> ... -> Pn
 
 这些值应用于受检转换后的 runtime `f32` 坐标。若相邻输入点量化后重合，直接返回退化线段错误，不静默合并。basis 阈值按 `projected_up_length < SPATIAL_MIN_PROJECTED_UP_LENGTH` 拒绝，不能复制旧 `f64` epsilon。Core 长度量化余量仍作为独立加项，不能隐藏进几何容差；current-f64 值固定为 `0.0 m`。
 
+这里的最终 `1 cm` 是调用方已经提供同一条高保真参考折线后，`f64` 参考到 runtime
+`f32` 表示的误差预算。Proposed ADR 0022 为 #296 的上游解析曲线细分另设
+`Fine2Cm`、`Balanced5Cm`、`Compact10Cm` 三个封闭几何精度配置档，并以
+`Smooth1Deg`、`Balanced2Deg`、`Compact5Deg` 三个封闭几何方向配置档正交选择；该提案不修改
+本节任何 production Spatial 常量，也不把 Adapter 展示或车辆物理偏差计入静态几何
+预算。
+
 ## 6. 长度权威与绑定
 
 ### 6.1 权威职责
@@ -390,7 +398,7 @@ heading = anchor.tangent * cos(heading_offset_radians)
 - canonical 点范围闭区间、量化后重合点拒绝，以及受检 `f64 -> f32` 输入转换；
 - 坐标框架或宿主放置不匹配、溢出、非有限值和批量失败原子性；
 - 一万和十万记录的批量吞吐量、内存分配与保留内存；
-- 相对 `f64` 参考的位置误差 `<= 1 cm`、切线角误差 `<= 0.5°`；
+- 相对同一条 `f64` 参考折线的位置误差 `<= 1 cm`、切线角误差 `<= 0.5°`；
 - 固定性能机上的一万 p95 `<= 2 ms`、十万 p95 `<= 20 ms`、稳态零分配和 `<= 12x` 扩展；
 - 相同布局下相对 `f64` 候选 retained memory 至少降低 `25%`，吞吐回退不超过 `5%`；
 - Bevy 宿主的坐标轴、手性和 `f32 Transform` 集成（v0.7）。

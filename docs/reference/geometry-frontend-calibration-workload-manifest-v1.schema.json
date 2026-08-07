@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/illusion-tech/laneflow/blob/main/docs/reference/geometry-frontend-calibration-workload-manifest-v1.schema.json",
+  "title": "LaneFlow Geometry frontend calibration workload manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schemaVersion", "rows"],
+  "properties": {
+    "schema": { "const": "laneflow.geometry-frontend-calibration-workload-manifest" },
+    "schemaVersion": { "const": 1 },
+    "rows": {
+      "type": "array",
+      "minItems": 27,
+      "maxItems": 27,
+      "items": { "$ref": "#/$defs/row" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "count": { "type": "integer", "minimum": 0 },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workloadId",
+        "fixture",
+        "accuracyProfileCode",
+        "directionProfileCode",
+        "counts",
+        "absoluteOffsetDistribution",
+        "lirTableCounts",
+        "semanticFingerprint",
+        "completeOutputDigest"
+      ],
+      "properties": {
+        "workloadId": {
+          "enum": [
+            "LF-COMP-GEOMETRY-MIN-v1",
+            "LF-COMP-GEOMETRY-CORRIDOR-v1",
+            "LF-COMP-GEOMETRY-P100-v1"
+          ]
+        },
+        "fixture": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "byteLength", "sha256"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1 },
+            "byteLength": { "type": "integer", "minimum": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "accuracyProfileCode": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "directionProfileCode": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "moduleCount",
+            "documentCount",
+            "declarationCount",
+            "referenceCount",
+            "relationOccurrenceCount",
+            "lineSegmentCount",
+            "cubicSegmentCount",
+            "controlPointCount",
+            "offsetCurveCount",
+            "canonicalPointCount",
+            "lirRecordCount"
+          ],
+          "properties": {
+            "moduleCount": { "$ref": "#/$defs/count" },
+            "documentCount": { "$ref": "#/$defs/count" },
+            "declarationCount": { "$ref": "#/$defs/count" },
+            "referenceCount": { "$ref": "#/$defs/count" },
+            "relationOccurrenceCount": { "$ref": "#/$defs/count" },
+            "lineSegmentCount": { "$ref": "#/$defs/count" },
+            "cubicSegmentCount": { "$ref": "#/$defs/count" },
+            "controlPointCount": { "$ref": "#/$defs/count" },
+            "offsetCurveCount": { "$ref": "#/$defs/count" },
+            "canonicalPointCount": { "$ref": "#/$defs/count" },
+            "lirRecordCount": { "$ref": "#/$defs/count" }
+          }
+        },
+        "absoluteOffsetDistribution": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["absoluteOffsetMetersBits", "curveCount"],
+            "properties": {
+              "absoluteOffsetMetersBits": { "type": "string", "pattern": "^0x[0-9a-f]{16}$" },
+              "curveCount": { "$ref": "#/$defs/count" }
+            }
+          }
+        },
+        "lirTableCounts": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+          "additionalProperties": { "$ref": "#/$defs/count" },
+          "minProperties": 1
+        },
+        "semanticFingerprint": { "$ref": "#/$defs/sha256" },
+        "completeOutputDigest": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}
