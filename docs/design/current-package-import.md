@@ -1069,17 +1069,21 @@ Create a merge commit 合入，使 A 与 E 的提交对象原样进入 `main`。
 
 - `git rev-parse E^` 必须等于 A，`git diff --name-only A..E` 必须恰为固定报告路径；
 - validator 按本节完整审计 A（清单重建、cleanup 责任、逐字段比对、负向矩阵）；
-- 新鲜度闸口：`git merge-base --is-ancestor origin/main A` 必须成立，即证据分支与
-  `main` 同步、被审计清单就是 `main` 当前清单；不成立时按 `main` 新父提交重新生成
-  报告并重跑本节全部验证，不得以过期 A 合并。
+- 新鲜度闸口：`git rev-parse origin/main` 必须精确等于 A，即 A 就是合并前 `main` 的
+  当前头提交；祖先关系不足以阻止 A 在 `main` 之上夹带未审阅提交，凡 `main` 已前进或
+  A 含有 `main` 之外的额外提交都不成立，必须按 `main` 新头重新生成报告并重跑本节
+  全部验证，不得以过期或夹带的 A 合并。
 
 合并后（G4/closure，在 merge commit M 上执行）：
 
 - `git rev-parse M^2` 必须等于 E，A、E 可经 M 从 `main` 到达，标准 clone 可原样重放
   `A..E`；
 - `git diff A M -- examples/data/ docs/reference/current-import-cleanup-authority-v1.json`
-  必须为空，即合并后 `main` 的被审计清单与 cleanup 责任记录逐字节等于 A；M 不可达、
-  `A..E` 不可重放或该 diff 非空都失败关闭，报告失效并须按 `main` 新父提交重新生成。
+  必须为空，即合并后 `main` 的被审计清单与 cleanup 责任记录逐字节等于 A；
+- `git rev-parse E:docs/reference/current-asset-audit-v1-<A>.json` 与
+  `git rev-parse M:docs/reference/current-asset-audit-v1-<A>.json` 必须相等，即已发布
+  报告 blob 原样存续于 merge tree；M 不可达、`A..E` 不可重放、该 diff 非空或报告 blob
+  不相等都失败关闭，报告失效并须按 `main` 新父提交重新生成。
 
 若该 PR 以 rebase、squash 或任何重写 A/E 提交身份的方式合入，报告中的 `source.commit`
 与 G3 comment 记录的 SHA 立即失效，同样须按 `main` 上的新父提交重新生成报告并重新完成
