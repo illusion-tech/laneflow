@@ -674,8 +674,8 @@ pub(super) fn parse_g3_full_set_recovery(
             record.delivery_merged_at
         ));
     }
-    parse_utc_timestamp_seconds(&record.delivery_merged_at).ok_or_else(|| {
-        "G3 full-set recovery deliveryMergedAt 不是 UTC RFC3339 秒级时间".to_string()
+    lockfile_policy::parse_utc_rfc3339(&record.delivery_merged_at).ok_or_else(|| {
+        "G3 full-set recovery deliveryMergedAt 不是有效 UTC RFC3339 时间".to_string()
     })?;
     for (field, value) in [
         ("reason", record.reason.as_str()),

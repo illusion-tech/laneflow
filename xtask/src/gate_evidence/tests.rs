@@ -1718,9 +1718,9 @@ fn rejects_timestamp_equal_related_pr_boundary() {
         &delivery_pr,
         std::slice::from_ref(&related_pr),
     )
-    .expect_err("timestamp equality is ambiguous at GitHub's reported precision");
+    .expect_err("exact timestamp equality is ambiguous");
 
-    assert!(error.contains("同秒"));
+    assert!(error.contains("相同"));
 }
 
 #[test]
@@ -1818,6 +1818,38 @@ fn rejects_g4_comment_created_before_merge() {
         .expect_err("G4 comment must be created after merge");
 
     assert!(error.contains("早于最后一个关联 PR"));
+}
+
+#[test]
+fn g4_merge_ordering_uses_fractional_timestamps() {
+    let mut issue = issue("OPEN", "Done");
+    issue.comments[0].created_at = "2026-07-10T05:30:00.2Z".to_string();
+    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00.1Z"));
+    assert!(
+        validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[]).is_ok()
+    );
+
+    issue.comments[0].created_at = "2026-07-10T05:30:00Z".to_string();
+    let error = validate_g4_evidence(&gate_args(GateEvidencePhase::G4), &issue, &delivery_pr, &[])
+        .expect_err("whole-second comment precedes fractional merge");
+    assert!(error.contains("早于最后一个关联 PR"));
+}
+
+#[test]
+fn late_related_detection_uses_fractional_timestamps() {
+    let mut args = gate_args(GateEvidencePhase::G4);
+    args.related_prs = vec![62];
+    let delivery_pr = delivery_pr(Some("2026-07-10T05:30:00.1Z"));
+    let mut related_pr = related_pr(false);
+
+    related_pr.created_at = "2026-07-10T05:30:00.2Z".to_string();
+    assert!(has_late_related_pr(&args, &delivery_pr, std::slice::from_ref(&related_pr)).unwrap());
+
+    related_pr.created_at = "2026-07-10T05:30:00.05Z".to_string();
+    assert!(!has_late_related_pr(&args, &delivery_pr, std::slice::from_ref(&related_pr)).unwrap());
+
+    related_pr.created_at = "2026-07-10T05:30:00.1Z".to_string();
+    assert!(has_late_related_pr(&args, &delivery_pr, &[related_pr]).is_err());
 }
 
 #[test]

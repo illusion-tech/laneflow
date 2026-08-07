@@ -2,6 +2,8 @@
 
 use std::collections::BTreeSet;
 
+use crate::lockfile_policy;
+
 use super::{args::*, document::*, g3::*, model::*};
 
 pub(super) fn reject_inapplicable_g4_recovery_marker(issue: &GitHubIssue) -> Result<(), String> {
@@ -28,17 +30,17 @@ pub(super) fn has_late_related_pr(
         .merged_at
         .as_deref()
         .ok_or("Delivery PR 尚未合并，不能判断 late Related PR")?;
-    let delivery_merged_at_seconds = parse_utc_timestamp_seconds(delivery_merged_at)
-        .ok_or("Delivery PR mergedAt 不是 UTC RFC3339 秒级时间")?;
+    let delivery_merged_at_time = lockfile_policy::parse_utc_rfc3339(delivery_merged_at)
+        .ok_or("Delivery PR mergedAt 不是有效 UTC RFC3339 时间")?;
     for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
-        let related_created_at = parse_utc_timestamp_seconds(&related_pr.created_at)
-            .ok_or_else(|| format!("Related PR #{number} createdAt 不是 UTC RFC3339 秒级时间"))?;
-        if related_created_at == delivery_merged_at_seconds {
+        let related_created_at = lockfile_policy::parse_utc_rfc3339(&related_pr.created_at)
+            .ok_or_else(|| format!("Related PR #{number} createdAt 不是有效 UTC RFC3339 时间"))?;
+        if related_created_at == delivery_merged_at_time {
             return Err(format!(
-                "Related PR #{number} createdAt 与 Delivery mergedAt 同秒，无法安全判断是否为 late Related PR"
+                "Related PR #{number} createdAt 与 Delivery mergedAt 相同，无法安全判断是否为 late Related PR"
             ));
         }
-        if related_created_at > delivery_merged_at_seconds {
+        if related_created_at > delivery_merged_at_time {
             return Ok(true);
         }
     }
@@ -61,8 +63,8 @@ pub(super) fn validate_g4_g3_full_set_recovery(
         .merged_at
         .as_deref()
         .ok_or("Delivery PR 尚未合并，不能使用 G3 full-set recovery")?;
-    let delivery_merged_at_seconds = parse_utc_timestamp_seconds(delivery_merged_at)
-        .ok_or("Delivery PR mergedAt 不是 UTC RFC3339 秒级时间")?;
+    let delivery_merged_at_time = lockfile_policy::parse_utc_rfc3339(delivery_merged_at)
+        .ok_or("Delivery PR mergedAt 不是有效 UTC RFC3339 时间")?;
     let issue_g3_line = completed_gate_line(&issue.body, "G3")?;
     let delivery_pr_line = metadata_line(&issue.body, "Delivery PR")?;
     if !delivery_pr_line.contains(&format!("#{delivery_number}")) {
@@ -106,9 +108,10 @@ pub(super) fn validate_g4_g3_full_set_recovery(
             "G3 full-set recovery 的 Delivery PR original G3 comment 在创建后被编辑".to_string(),
         );
     }
-    let delivery_g3_created_at = parse_utc_timestamp_seconds(&delivery_g3_comment.created_at)
-        .ok_or("Delivery PR original G3 comment createdAt 不是 UTC RFC3339 秒级时间")?;
-    if delivery_g3_created_at >= delivery_merged_at_seconds {
+    let delivery_g3_created_at =
+        lockfile_policy::parse_utc_rfc3339(&delivery_g3_comment.created_at)
+            .ok_or("Delivery PR original G3 comment createdAt 不是有效 UTC RFC3339 时间")?;
+    if delivery_g3_created_at >= delivery_merged_at_time {
         return Err(
             "G3 full-set recovery 的 Delivery PR original G3 comment 必须严格早于 Delivery merge"
                 .to_string(),
@@ -194,25 +197,27 @@ pub(super) fn validate_g4_g3_full_set_recovery(
                 "G3 full-set recovery 的 Related PR #{number} G3 comment 在创建后被编辑"
             ));
         }
-        let related_created_at = parse_utc_timestamp_seconds(&related_pr.created_at)
-            .ok_or_else(|| format!("Related PR #{number} createdAt 不是 UTC RFC3339 秒级时间"))?;
+        let related_created_at = lockfile_policy::parse_utc_rfc3339(&related_pr.created_at)
+            .ok_or_else(|| format!("Related PR #{number} createdAt 不是有效 UTC RFC3339 时间"))?;
         if late_related_prs.contains(number) {
-            if related_created_at <= delivery_merged_at_seconds {
+            if related_created_at <= delivery_merged_at_time {
                 return Err(format!(
                     "late Related PR #{number} 必须在 Delivery PR 合并后创建"
                 ));
             }
         } else if original_related_prs.contains(number) {
-            if related_created_at > delivery_merged_at_seconds {
+            if related_created_at > delivery_merged_at_time {
                 return Err(format!(
                     "original Related PR #{number} 不得在 Delivery PR 合并后创建"
                 ));
             }
-            let related_g3_created_at = parse_utc_timestamp_seconds(&related_g3_comment.created_at)
-                .ok_or_else(|| {
-                    format!("Related PR #{number} G3 comment createdAt 不是 UTC RFC3339 秒级时间")
-                })?;
-            if related_g3_created_at > delivery_merged_at_seconds {
+            let related_g3_created_at = lockfile_policy::parse_utc_rfc3339(
+                &related_g3_comment.created_at,
+            )
+            .ok_or_else(|| {
+                format!("Related PR #{number} G3 comment createdAt 不是有效 UTC RFC3339 时间")
+            })?;
+            if related_g3_created_at > delivery_merged_at_time {
                 return Err(format!(
                     "original Related PR #{number} G3 comment 不得晚于 Delivery PR 合并时间"
                 ));
@@ -242,7 +247,8 @@ pub(super) fn validate_g4_evidence(
     if delivery_pr.state != "MERGED" {
         return Err("Delivery PR 状态不是 MERGED，不能通过 G4".to_string());
     }
-    let mut latest_merge = merged_at;
+    let mut latest_merge_time = lockfile_policy::parse_utc_rfc3339(merged_at)
+        .ok_or("Delivery PR mergedAt 不是有效 UTC RFC3339 时间")?;
     for (number, related_pr) in args.related_prs.iter().zip(related_prs) {
         let related_merged_at = related_pr
             .merged_at
@@ -251,8 +257,10 @@ pub(super) fn validate_g4_evidence(
         if related_pr.state != "MERGED" {
             return Err(format!("Related PR #{number} 状态不是 MERGED，不能通过 G4"));
         }
-        if related_merged_at > latest_merge {
-            latest_merge = related_merged_at;
+        let related_merge_time = lockfile_policy::parse_utc_rfc3339(related_merged_at)
+            .ok_or_else(|| format!("Related PR #{number} mergedAt 不是有效 UTC RFC3339 时间"))?;
+        if related_merge_time > latest_merge_time {
+            latest_merge_time = related_merge_time;
         }
     }
 
@@ -260,7 +268,9 @@ pub(super) fn validate_g4_evidence(
     let g4_comment = comment_for_permalink(issue, &issue_g4_permalink, "Issue G4")?;
     validate_comment_body(&g4_comment.body, G4_COMMENT_FIELDS, "Issue G4")?;
     validate_gate_assertion(&g4_comment.body, "Issue G4", args, GateEvidencePhase::G4)?;
-    if g4_comment.created_at.as_str() < latest_merge {
+    let g4_comment_time = lockfile_policy::parse_utc_rfc3339(&g4_comment.created_at)
+        .ok_or("Issue G4 comment createdAt 不是有效 UTC RFC3339 时间")?;
+    if g4_comment_time < latest_merge_time {
         return Err("Issue G4 comment 早于最后一个关联 PR 的合并时间".to_string());
     }
     if !delivery_pr.body.contains("G4 回写") || !delivery_pr.body.contains(&issue_g4_permalink) {
