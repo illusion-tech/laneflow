@@ -79,6 +79,7 @@
     },
     "assets": {
       "type": "array",
+      "description": "逐项结构与闭合状态分支；与 source.commit 仓库清单的完整集合相等、路径顺序/唯一性及内容身份由 current-package-import.md 第 13.2 节的 G3 validator 动态验证。",
       "minItems": 1,
       "items": {
         "$ref": "#/$defs/asset"
