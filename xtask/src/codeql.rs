@@ -133,6 +133,8 @@ struct PullRequestSnapshot {
     commits_complete: bool,
     #[serde(default)]
     force_pushes_complete: bool,
+    #[serde(default)]
+    lockfile_provenance_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -413,21 +415,36 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
     }
 
     let lockfile_metadata = lockfile_metadata(&snapshot.repository, pr);
-    let lockfile_eligibility = lockfile_policy::verify_dependabot_lockfile_only(&lockfile_metadata);
-    let aggregate = pr
+    let lockfile_eligibility = match pr.lockfile_provenance_error.as_deref() {
+        Some(error) => Err(format!("lockfile provenance 不可用：{error}")),
+        None => lockfile_policy::verify_dependabot_lockfile_only(&lockfile_metadata),
+    };
+    let official = pr
         .status_check_rollup
         .iter()
         .filter(|check| {
             check.typename == "CheckRun"
                 && check.name == "CodeQL"
                 && check.app_slug == "github-advanced-security"
-                && (check.pull_requests.iter().any(|association| {
-                    association.number == pr.number
-                        && association.head_oid == pr.head_ref_oid
-                        && association.base_oid == pr.base_ref_oid
-                }) || (pr.state == "MERGED" && check.pull_requests.is_empty()))
         })
         .collect::<Vec<_>>();
+    let aggregate = official
+        .iter()
+        .copied()
+        .filter(|check| {
+            check.pull_requests.iter().any(|association| {
+                association.number == pr.number
+                    && association.head_oid == pr.head_ref_oid
+                    && association.base_oid == pr.base_ref_oid
+            }) || (pr.state == "MERGED" && check.pull_requests.is_empty())
+        })
+        .collect::<Vec<_>>();
+    if aggregate.len() != official.len() {
+        diagnostics.push(format!(
+            "current head 存在 {} 个官方 CodeQL Check 无法精确绑定目标 PR/head/base",
+            official.len() - aggregate.len()
+        ));
+    }
     if aggregate.len() > 1 {
         diagnostics.push("current head 存在多个 CodeQL aggregate Check，无法唯一判定".to_string());
     }
@@ -626,7 +643,11 @@ fn load_live_snapshot(
     }
     let mut pull_request = serde_json::from_slice::<PullRequestSnapshot>(&output.stdout)
         .map_err(|error| format!("无法解析 gh CodeQL snapshot：{error}"))?;
-    load_lockfile_provenance(repository, pr, &mut pull_request)?;
+    if let Err(error) = load_lockfile_provenance(repository, pr, &mut pull_request) {
+        pull_request.commits_complete = false;
+        pull_request.force_pushes_complete = false;
+        pull_request.lockfile_provenance_error = Some(error);
+    }
     pull_request.status_check_rollup = match recorded_evidence_url {
         Some(evidence_url) if evidence_url == pull_request.url => Vec::new(),
         Some(evidence_url) => vec![load_recorded_codeql_check_run(
@@ -695,9 +716,19 @@ fn load_lockfile_provenance(
         .and_then(|data| data.repository)
         .and_then(|repository| repository.pull_request)
         .ok_or_else(|| format!("lockfile provenance PR 不存在或不可读：{repository}#{pr}"))?;
-    if provenance.number != pr || provenance.commits.page_info.has_next_page {
-        return Err("lockfile provenance commit connection 不完整或 PR number 不一致".to_string());
+    apply_lockfile_provenance(pr, pull_request, provenance)
+}
+
+fn apply_lockfile_provenance(
+    pr: u64,
+    pull_request: &mut PullRequestSnapshot,
+    provenance: ProvenancePullRequest,
+) -> Result<(), String> {
+    if provenance.number != pr {
+        return Err("lockfile provenance PR number 不一致".to_string());
     }
+    pull_request.commits_complete =
+        pull_request.commits_complete && !provenance.commits.page_info.has_next_page;
     let signatures = provenance
         .commits
         .nodes
@@ -1233,17 +1264,83 @@ mod tests {
     fn rejects_codeql_runs_from_another_pr_or_base() {
         let mut snapshot = fixture(include_str!("../fixtures/codeql/source-success.json"));
         snapshot.pull_request.status_check_rollup[0].pull_requests[0].number = 330;
-        assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Missing);
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            CodeQlState::ProviderError
+        );
 
         let mut snapshot = fixture(include_str!("../fixtures/codeql/source-success.json"));
         snapshot.pull_request.status_check_rollup[0].pull_requests[0].base_oid =
             "cccccccccccccccccccccccccccccccccccccccc".to_string();
-        assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Missing);
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            CodeQlState::ProviderError
+        );
 
         let mut snapshot = fixture(include_str!("../fixtures/codeql/source-success.json"));
         snapshot.pull_request.state = "MERGED".to_string();
         snapshot.pull_request.status_check_rollup[0].pull_requests[0].number = 330;
-        assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Missing);
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            CodeQlState::ProviderError
+        );
+    }
+
+    #[test]
+    fn unassociated_official_failure_cannot_become_lockfile_not_applicable() {
+        let mut snapshot = fixture(include_str!("../fixtures/codeql/lockfile-neutral.json"));
+        let check = &mut snapshot.pull_request.status_check_rollup[0];
+        check.conclusion = "FAILURE".to_string();
+        check.pull_requests.clear();
+
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            CodeQlState::ProviderError
+        );
+    }
+
+    #[test]
+    fn ordinary_source_success_ignores_incomplete_lockfile_provenance() {
+        let mut snapshot = fixture(include_str!("../fixtures/codeql/source-success.json"));
+        let number = snapshot.pull_request.number;
+        apply_lockfile_provenance(
+            number,
+            &mut snapshot.pull_request,
+            ProvenancePullRequest {
+                number,
+                head_ref_name: "feature/source".to_string(),
+                head_repository: Some(ProvenanceHeadRepository {
+                    name_with_owner: "illusion-tech/laneflow".to_string(),
+                }),
+                commits: ProvenanceCommitConnection {
+                    nodes: Vec::new(),
+                    page_info: ProvenancePageInfo {
+                        has_next_page: true,
+                    },
+                },
+                force_pushes: ProvenanceForcePushConnection {
+                    nodes: Vec::new(),
+                    page_info: ProvenancePageInfo {
+                        has_next_page: false,
+                    },
+                },
+            },
+        )
+        .expect("pagination must become lockfile ineligibility, not a live-load error");
+
+        assert!(!snapshot.pull_request.commits_complete);
+        assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Pass);
+    }
+
+    #[test]
+    fn provenance_provider_error_only_blocks_the_lockfile_exception() {
+        let mut source = fixture(include_str!("../fixtures/codeql/source-success.json"));
+        source.pull_request.lockfile_provenance_error = Some("provider unavailable".to_string());
+        assert_eq!(evaluate_snapshot(&source).state, CodeQlState::Pass);
+
+        let mut lockfile = fixture(include_str!("../fixtures/codeql/lockfile-neutral.json"));
+        lockfile.pull_request.lockfile_provenance_error = Some("provider unavailable".to_string());
+        assert_eq!(evaluate_snapshot(&lockfile).state, CodeQlState::Failed);
     }
 
     #[test]
