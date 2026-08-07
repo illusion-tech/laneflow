@@ -38,7 +38,7 @@ CodeQL default setup 可以对只修改 `Cargo.lock` 的 PR 返回 aggregate `Co
 未定义状态。`check-codeql` 固定输出 `pass`、`not_applicable`、`pending`、`failed`、
 `missing` 或 `provider_error`：
 
-- source App 精确为 `github-advanced-security` 的 aggregate `CodeQL=success` 才是常规 `pass`；同名 `github-actions` job 不计入；
+- PR-bound rollup 选定、REST source App 精确为 `github-advanced-security` 的 aggregate `CodeQL=success` 才是常规 `pass`。OPEN target 的 check-run `pull_requests` association 还必须精确匹配目标 PR number、current head 与 current base；MERGED 历史重放允许 GitHub 清空 association，但 PR-bound details URL 必须与 REST source/head/conclusion 唯一匹配。同 head 的其他 PR/base 分析与同名 `github-actions` job 均不计入；
 - 只有 `dependabot-cargo-lock-only-v1` 能把 neutral / no-analysis 判为
   `not_applicable`。该 policy 与 external-review 机器替代路径共用同一组证明：Dependabot
   App / bot PR author、唯一 current-head commit、精确 Dependabot commit identity、非
@@ -51,7 +51,8 @@ CodeQL default setup 可以对只修改 `Cargo.lock` 的 PR 返回 aggregate `Co
 从 `2026-08-08T00:00:00Z` 创建的 current G3 comment 起，必须唯一记录
 `- CodeQL：`：常规路径写 `pass` 与 Check URL；窄路径写 `not_applicable`、精确 policy
 ID 与 neutral/no-analysis（或 PR）证据 URL。`G3 Waived` 继续按结构化例外记录真实非成功
-状态，不能把 waiver 写成 `pass` / `not_applicable`。
+状态，不能把 waiver 写成 `pass` / `not_applicable`；external-review waiver 不覆盖 CodeQL，
+waived review 仍必须独立满足上述 `pass` / `not_applicable`。
 
 ### 2.2 Secret Scanning
 

@@ -130,6 +130,16 @@ struct CheckRunSnapshot {
     details_url: String,
     #[serde(default)]
     app_slug: String,
+    #[serde(default)]
+    pull_requests: Vec<CheckPullRequestSnapshot>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckPullRequestSnapshot {
+    number: u64,
+    head_oid: String,
+    base_oid: String,
 }
 
 #[derive(Deserialize)]
@@ -145,11 +155,25 @@ struct RestCheckRun {
     conclusion: Option<String>,
     details_url: String,
     app: RestCheckApp,
+    #[serde(default)]
+    pull_requests: Vec<RestCheckPullRequest>,
 }
 
 #[derive(Deserialize)]
 struct RestCheckApp {
     slug: String,
+}
+
+#[derive(Deserialize)]
+struct RestCheckPullRequest {
+    number: u64,
+    head: RestGitRef,
+    base: RestGitRef,
+}
+
+#[derive(Deserialize)]
+struct RestGitRef {
+    sha: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -284,6 +308,11 @@ fn evaluate_snapshot(snapshot: &CodeQlSnapshot) -> CodeQlResult {
             check.typename == "CheckRun"
                 && check.name == "CodeQL"
                 && check.app_slug == "github-advanced-security"
+                && (check.pull_requests.iter().any(|association| {
+                    association.number == pr.number
+                        && association.head_oid == pr.head_ref_oid
+                        && association.base_oid == pr.base_ref_oid
+                }) || (pr.state == "MERGED" && check.pull_requests.is_empty()))
         })
         .collect::<Vec<_>>();
     if aggregate.len() > 1 {
@@ -430,7 +459,7 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<CodeQlSnapshot, Strin
             "--repo",
             repository,
             "--json",
-            "number,author,headRefOid,baseRefOid,url,isDraft,state,files,commits",
+            "number,author,headRefOid,baseRefOid,url,isDraft,state,files,commits,statusCheckRollup",
         ])
         .output()
         .map_err(|error| format!("无法启动 gh pr view：{error}"))?;
@@ -442,8 +471,13 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<CodeQlSnapshot, Strin
     }
     let mut pull_request = serde_json::from_slice::<PullRequestSnapshot>(&output.stdout)
         .map_err(|error| format!("无法解析 gh CodeQL snapshot：{error}"))?;
-    pull_request.status_check_rollup =
-        load_codeql_check_runs(repository, &pull_request.head_ref_oid)?;
+    pull_request.status_check_rollup = load_codeql_check_runs(
+        repository,
+        pull_request.number,
+        &pull_request.head_ref_oid,
+        &pull_request.base_ref_oid,
+        std::mem::take(&mut pull_request.status_check_rollup),
+    )?;
     Ok(CodeQlSnapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         repository: repository.to_string(),
@@ -454,7 +488,10 @@ fn load_live_snapshot(repository: &str, pr: u64) -> Result<CodeQlSnapshot, Strin
 
 fn load_codeql_check_runs(
     repository: &str,
+    pull_request: u64,
     head_oid: &str,
+    base_oid: &str,
+    mut pr_bound_checks: Vec<CheckRunSnapshot>,
 ) -> Result<Vec<CheckRunSnapshot>, String> {
     let endpoint = format!(
         "repos/{repository}/commits/{head_oid}/check-runs?check_name=CodeQL&filter=latest&per_page=100"
@@ -478,7 +515,7 @@ fn load_codeql_check_runs(
             response.check_runs.len()
         ));
     }
-    Ok(response
+    let rest_checks = response
         .check_runs
         .into_iter()
         .map(|check| CheckRunSnapshot {
@@ -488,8 +525,50 @@ fn load_codeql_check_runs(
             conclusion: check.conclusion.unwrap_or_default().to_ascii_uppercase(),
             details_url: check.details_url,
             app_slug: check.app.slug,
+            pull_requests: check
+                .pull_requests
+                .into_iter()
+                .filter(|association| {
+                    association.number == pull_request
+                        && association.head.sha == head_oid
+                        && association.base.sha == base_oid
+                })
+                .map(|association| CheckPullRequestSnapshot {
+                    number: association.number,
+                    head_oid: association.head.sha,
+                    base_oid: association.base.sha,
+                })
+                .collect(),
         })
-        .collect())
+        .collect::<Vec<_>>();
+    for check in &mut pr_bound_checks {
+        if check.typename != "CheckRun" || check.name != "CodeQL" {
+            continue;
+        }
+        let matches = rest_checks
+            .iter()
+            .filter(|candidate| candidate.details_url == check.details_url)
+            .collect::<Vec<_>>();
+        if matches.len() != 1 {
+            return Err(format!(
+                "PR-bound CodeQL rollup 无法唯一匹配 REST check-run：detailsUrl={}，matches={}",
+                check.details_url,
+                matches.len()
+            ));
+        }
+        let trusted = matches[0];
+        if check.status.to_ascii_uppercase() != trusted.status
+            || check.conclusion.to_ascii_uppercase() != trusted.conclusion
+        {
+            return Err(format!(
+                "PR-bound CodeQL rollup 与 REST check-run 状态不一致：detailsUrl={}",
+                check.details_url
+            ));
+        }
+        check.app_slug.clone_from(&trusted.app_slug);
+        check.pull_requests.clone_from(&trusted.pull_requests);
+    }
+    Ok(pr_bound_checks)
 }
 
 fn load_live_identity(repository: &str, pr: u64) -> Result<PullRequestIdentity, String> {
@@ -649,5 +728,27 @@ mod tests {
         ] {
             assert_eq!(evaluate_snapshot(&fixture(contents)).state, expected);
         }
+    }
+
+    #[test]
+    fn rejects_codeql_runs_from_another_pr_or_base() {
+        let mut snapshot = fixture(include_str!("../fixtures/codeql/source-success.json"));
+        snapshot.pull_request.status_check_rollup[0].pull_requests[0].number = 330;
+        assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Missing);
+
+        let mut snapshot = fixture(include_str!("../fixtures/codeql/source-success.json"));
+        snapshot.pull_request.status_check_rollup[0].pull_requests[0].base_oid =
+            "cccccccccccccccccccccccccccccccccccccccc".to_string();
+        assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Missing);
+    }
+
+    #[test]
+    fn accepts_pr_bound_merged_run_when_github_omits_rest_association() {
+        let mut snapshot = fixture(include_str!("../fixtures/codeql/source-success.json"));
+        snapshot.pull_request.state = "MERGED".to_string();
+        snapshot.pull_request.status_check_rollup[0]
+            .pull_requests
+            .clear();
+        assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Pass);
     }
 }

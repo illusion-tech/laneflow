@@ -243,9 +243,7 @@ AwaitingReview
 - changed files 完整且恰好只有 `MODIFIED Cargo.lock`，files、commits 与 commit authors
   分页均未截断；
 - live evaluator 完成后再次读取 head/base，identity 全程稳定；
-- provider 声称的“reviewed commit/object”不属于 PR commit range 时，只有 G3 Owner 已
-  在 finding 后严格更晚地发表明确 `Disposition:` 且 thread 已 resolved / outdated，才能把该 thread 记为已处置
-  provider identity anomaly；缺少处置或仍 unresolved 时继续阻断；
+- provider 声称的“reviewed commit/object”不属于 PR commit range 时，finding 还必须精确匹配版本化的 identity-only 标题/双句文案形态，且 G3 Owner 在 finding 后严格更晚发表的 `Disposition:` 必须回链 current head 与精确 Dependabot name/email；thread 已 resolved / outdated 后才能记为已处置 provider identity anomaly。混入 checksum、漏洞、许可证、unsafe 或任何其他实质 finding 的线程不得整条忽略；
 - provider 的 “wasn't able to review any files” 只记录为未形成 completion，不得伪装成
   clean；任何不满足上述身份模式的 finding、普通源码/workflow/mixed-path PR 和解析歧义
   继续走常规 finding / re-review 或 fail-closed。
@@ -335,6 +333,7 @@ content-equivalent rebase 还必须记录 reviewed/new head、old/new base、cha
 - 源代码许可证、依赖许可证、RustSec advisory、crate 来源或 Dependabot 配置违反 `dependency-security.md`，或适用 cargo-deny 检查未通过。
 - `security-scanning.md` 要求的适用扫描仍为 `pending`、失败、已禁用或不可用；无分析既不满足精确 lockfile-only `not_applicable`，也没有记录显式例外。
 - `check-codeql` 既未得到 current-head `pass`，也未在精确 `dependabot-cargo-lock-only-v1` 路径得到 `not_applicable`，且没有记录显式例外。
+- external-review 的 `G3 Waived` 不覆盖 CodeQL；激活边界后的 waived review 仍须独立取得 PR-bound `pass` 或精确 lockfile-only `not_applicable`。OPEN current target 的 REST check-run association 必须精确匹配 PR/head/base；MERGED 历史重放使用 PR-bound rollup 选定 URL，再由 REST 复核同一 run 的 source App、head 与结论，因为 GitHub 合并后会清空 `pull_requests` association。
 
 PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
 

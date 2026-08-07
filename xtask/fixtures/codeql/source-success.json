@@ -24,6 +24,13 @@
         "conclusion": "SUCCESS",
         "detailsUrl": "https://github.com/illusion-tech/laneflow/runs/92782761298",
         "appSlug": "github-advanced-security",
+        "pullRequests": [
+          {
+            "number": 329,
+            "headOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "baseOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
         "workflowName": ""
       }
     ]

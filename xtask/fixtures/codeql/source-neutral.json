@@ -24,6 +24,13 @@
         "conclusion": "NEUTRAL",
         "detailsUrl": "https://github.com/illusion-tech/laneflow/runs/2",
         "appSlug": "github-advanced-security",
+        "pullRequests": [
+          {
+            "number": 314,
+            "headOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "baseOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
         "workflowName": ""
       }
     ]

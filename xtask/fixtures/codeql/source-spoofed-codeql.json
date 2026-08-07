@@ -24,6 +24,13 @@
         "conclusion": "SUCCESS",
         "detailsUrl": "https://github.com/illusion-tech/laneflow/actions/runs/2",
         "appSlug": "github-actions",
+        "pullRequests": [
+          {
+            "number": 314,
+            "headOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "baseOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
         "workflowName": "Spoofed CodeQL"
       }
     ]

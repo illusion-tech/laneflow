@@ -82,7 +82,7 @@
                 "author": {
                   "login": "chatgpt-codex-connector"
                 },
-                "body": "The reviewed commit `4d2fb5becdaed398cb61ea42191f1e477a18ad1a` has the wrong author.",
+                "body": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Restore bot authorship or add governance fields**\n\nThe reviewed object `4d2fb5becdaed398cb61ea42191f1e477a18ad1a` is authored by `Codex <codex@openai.com>` instead of Dependabot, so its message lacks required governance fields. Re-author this object as Dependabot or rewrite its message with the complete governance block.\n\nUseful? React with 👍 / 👎.",
                 "createdAt": "2026-08-06T02:20:38Z",
                 "updatedAt": "2026-08-06T02:20:38Z",
                 "url": "https://github.com/illusion-tech/laneflow/pull/313#discussion_r3725452215",
@@ -103,7 +103,7 @@
                 "author": {
                   "login": "wangzishi"
                 },
-                "body": "Disposition: 引用的对象不属于 PR commit range；current head 的 author identity 已由 GitHub Git database 核验。",
+                "body": "Disposition: 引用的对象 `4d2fb5becdaed398cb61ea42191f1e477a18ad1a` 不属于 PR commit range；current head `9d941d7b54a79e089b97520d66a3bf0125d5c91a` 的 author identity 已由 GitHub Git database 核验为 `dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>`。",
                 "createdAt": "2026-08-06T02:30:17Z",
                 "updatedAt": "2026-08-06T02:30:17Z",
                 "url": "https://github.com/illusion-tech/laneflow/pull/313#discussion_r3725485669"
