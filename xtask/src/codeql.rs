@@ -850,9 +850,6 @@ fn reconcile_codeql_check_runs(
     pr_bound_checks: &mut Vec<CheckRunSnapshot>,
     rest_checks: Vec<CheckRunSnapshot>,
 ) -> Result<Vec<CheckRunSnapshot>, String> {
-    let rollup_has_codeql = pr_bound_checks
-        .iter()
-        .any(|check| check.typename == "CheckRun" && check.name == "CodeQL");
     for check in &mut *pr_bound_checks {
         if check.typename != "CheckRun" || check.name != "CodeQL" {
             continue;
@@ -881,8 +878,17 @@ fn reconcile_codeql_check_runs(
         check.completed_at.clone_from(&trusted.completed_at);
         check.pull_requests.clone_from(&trusted.pull_requests);
     }
-    if !rollup_has_codeql {
-        pr_bound_checks.extend(rest_checks);
+    let retained_official_codeql = pr_bound_checks.iter().any(|check| {
+        check.typename == "CheckRun"
+            && check.name == "CodeQL"
+            && check.app_slug == "github-advanced-security"
+    });
+    if !retained_official_codeql {
+        pr_bound_checks.extend(
+            rest_checks
+                .into_iter()
+                .filter(|check| check.app_slug == "github-advanced-security"),
+        );
     }
     Ok(std::mem::take(pr_bound_checks))
 }
@@ -1175,6 +1181,23 @@ mod tests {
 
         let mut snapshot = snapshot;
         snapshot.pull_request.status_check_rollup = reconciled;
+        assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Failed);
+    }
+
+    #[test]
+    fn retains_official_rest_codeql_when_rollup_contains_only_a_spoof() {
+        let mut snapshot = fixture(include_str!("../fixtures/codeql/lockfile-neutral.json"));
+        let mut official_failure = snapshot.pull_request.status_check_rollup[0].clone();
+        official_failure.conclusion = "FAILURE".to_string();
+        let mut spoof = official_failure.clone();
+        spoof.details_url = "https://github.com/illusion-tech/laneflow/runs/999".to_string();
+        spoof.app_slug = "github-actions".to_string();
+        let mut rollup = vec![spoof.clone()];
+
+        snapshot.pull_request.status_check_rollup =
+            reconcile_codeql_check_runs(&mut rollup, vec![spoof, official_failure])
+                .expect("official REST CodeQL must survive a same-name spoof");
+        assert_eq!(snapshot.pull_request.status_check_rollup.len(), 2);
         assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Failed);
     }
 
