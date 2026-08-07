@@ -713,6 +713,23 @@ fn accepts_merged_related_pr_history_in_delivery_full_set_g3() {
 }
 
 #[test]
+fn merged_waiver_replay_uses_merge_time_without_reauthorizing_current_targets() {
+    let mut historical = related_pr(false);
+    historical.state = "MERGED".to_string();
+    historical.merged_at = Some("2026-07-10T05:30:00Z".to_string());
+    assert_eq!(
+        gate_waiver_reference_time(&historical, 2_000_000_000).unwrap(),
+        1_783_661_400
+    );
+
+    let current = related_pr(false);
+    assert_eq!(
+        gate_waiver_reference_time(&current, 2_000_000_000).unwrap(),
+        2_000_000_000
+    );
+}
+
+#[test]
 fn rejects_merged_related_as_current_related_only_g3_target() {
     let args = related_only_g3_args();
     let mut related_pr = related_pr(false);
@@ -837,6 +854,24 @@ fn accepts_current_g3_fields_at_external_review_activation() {
 
     assert!(validate_related_g3_evidence(&args, &issue, 62, &related_pr).is_ok());
     assert!(g3_requires_external_review(&related_pr).unwrap());
+}
+
+#[test]
+fn requires_explicit_codeql_state_after_codeql_activation() {
+    let args = related_only_g3_args();
+    let issue = issue_with_pending_delivery_and_related_g3();
+    let mut related_pr = related_pr_for_args(false, &args);
+    related_pr.comments[0].created_at = CODEQL_G3_ACTIVATION.to_string();
+    related_pr.comments[0].body = gate_comment_body(CURRENT_G3_COMMENT_FIELDS, &args);
+
+    let error = validate_related_g3_evidence(&args, &issue, 62, &related_pr)
+        .expect_err("CodeQL activation must require an explicit field");
+    assert!(error.contains("- CodeQL："));
+
+    related_pr.comments[0]
+        .body
+        .push_str("\n- CodeQL：`pass`，https://github.com/illusion-tech/laneflow/runs/1\n");
+    assert!(validate_related_g3_evidence(&args, &issue, 62, &related_pr).is_ok());
 }
 
 #[test]

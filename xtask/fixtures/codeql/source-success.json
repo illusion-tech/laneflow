@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 329,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "url": "https://github.com/illusion-tech/laneflow/pull/329",
+    "state": "OPEN",
+    "files": [
+      {
+        "path": "xtask/src/main.rs",
+        "changeType": "MODIFIED"
+      }
+    ],
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "name": "CodeQL",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/illusion-tech/laneflow/runs/92782761298",
+        "appSlug": "github-advanced-security",
+        "workflowName": ""
+      }
+    ]
+  }
+}

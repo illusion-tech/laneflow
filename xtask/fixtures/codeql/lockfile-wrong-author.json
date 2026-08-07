@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 313,
+    "author": {
+      "login": "dependabot[bot]"
+    },
+    "headRefOid": "9d941d7b54a79e089b97520d66a3bf0125d5c91a",
+    "baseRefOid": "ea5bf34fccca4579f5c1d910da24497cf6448eac",
+    "url": "https://github.com/illusion-tech/laneflow/pull/313",
+    "state": "OPEN",
+    "files": [
+      {
+        "path": "Cargo.lock",
+        "changeType": "MODIFIED"
+      }
+    ],
+    "commits": [
+      {
+        "oid": "9d941d7b54a79e089b97520d66a3bf0125d5c91a",
+        "committedDate": "2026-08-06T02:05:11Z",
+        "messageHeadline": "build(deps): Bump toml from 1.1.3 to 1.1.4",
+        "authors": [
+          {
+            "login": "wangzishi",
+            "name": "Codex",
+            "email": "codex@openai.com"
+          }
+        ]
+      }
+    ],
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "name": "CodeQL",
+        "status": "COMPLETED",
+        "conclusion": "NEUTRAL",
+        "detailsUrl": "https://github.com/illusion-tech/laneflow/runs/92499577539",
+        "appSlug": "github-advanced-security",
+        "workflowName": ""
+      }
+    ]
+  }
+}

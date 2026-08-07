@@ -6,6 +6,10 @@ use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
 
+use crate::lockfile_policy::{
+    self, ChangedFile, CommitAuthor, PullRequestCommit, PullRequestMetadata,
+};
+
 const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
 const RESULT_SCHEMA_VERSION: u64 = 1;
 const CHECK_PUBLISH_RESULT_SCHEMA_VERSION: u64 = 1;
@@ -24,6 +28,32 @@ query($owner:String!, $name:String!, $number:Int!) {
       headRefOid
       baseRefOid
       isDraft
+      files(first:100) {
+        nodes {
+          path
+          changeType
+        }
+        pageInfo { hasNextPage }
+      }
+      commits(first:100) {
+        nodes {
+          commit {
+            oid
+            committedDate
+            url
+            messageHeadline
+            authors(first:2) {
+              nodes {
+                name
+                email
+                user { login }
+              }
+              pageInfo { hasNextPage }
+            }
+          }
+        }
+        pageInfo { hasNextPage }
+      }
       reviewRequests(first:100) {
         nodes {
           requestedReviewer {
@@ -207,6 +237,10 @@ struct PullRequestSnapshot {
     #[serde(default)]
     is_draft: bool,
     #[serde(default)]
+    files: Connection<ChangedFileSnapshot>,
+    #[serde(default)]
+    commits: Connection<PullRequestCommitNode>,
+    #[serde(default)]
     review_requests: Connection<ReviewRequest>,
     #[serde(default)]
     reviews: Connection<Review>,
@@ -220,6 +254,39 @@ struct PullRequestSnapshot {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Actor {
     login: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ChangedFileSnapshot {
+    path: String,
+    change_type: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PullRequestCommitNode {
+    commit: PullRequestCommitSnapshot,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PullRequestCommitSnapshot {
+    oid: String,
+    committed_date: String,
+    url: String,
+    message_headline: String,
+    #[serde(default)]
+    authors: Connection<CommitAuthorSnapshot>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CommitAuthorSnapshot {
+    name: String,
+    email: String,
+    #[serde(default)]
+    user: Option<Actor>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -701,6 +768,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         .map(|actor| actor.login.clone())
         .unwrap_or_default();
     let mut diagnostics = snapshot.provider_errors.clone();
+    let mut notices = Vec::new();
 
     if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
         diagnostics.push(format!(
@@ -724,6 +792,10 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         diagnostics.push("baseRefOid 必须是 40 位十六进制 OID".to_string());
     }
     collect_pagination_errors(pr, &mut diagnostics);
+
+    let lockfile_metadata = lockfile_metadata(pr);
+    let verified_lockfile =
+        lockfile_policy::verify_dependabot_lockfile_only(&lockfile_metadata).ok();
 
     let mut review_to_finding_threads = BTreeMap::<String, usize>::new();
     let mut finding_thread_ids = BTreeSet::<String>::new();
@@ -761,6 +833,21 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         if normalize_actor(&review_actor.login) != normalize_actor(&actor.login) {
             diagnostics.push(format!(
                 "review thread `{}` 的 comment actor 与 review actor 不一致",
+                thread.id
+            ));
+            continue;
+        }
+        if verified_lockfile.is_some()
+            && handled_non_range_identity_finding(
+                thread,
+                first_comment,
+                &author,
+                &lockfile_metadata,
+            )
+        {
+            let claimed = claimed_pr_identity_oid(&first_comment.body).unwrap_or("unknown");
+            notices.push(format!(
+                "review thread `{}` 声称的 PR commit/object `{claimed}` 不属于 commit range；已有 author disposition 且线程已解决，不计为 actionable finding",
                 thread.id
             ));
             continue;
@@ -809,6 +896,16 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             .get(&review.id)
             .copied()
             .unwrap_or_default();
+        if provider == "copilot"
+            && linked_findings == 0
+            && copilot_unable_to_review_files(&review.body)
+        {
+            notices.push(format!(
+                "Copilot review `{}` 明确无法审阅任何文件；不计为 completion",
+                review.id
+            ));
+            continue;
+        }
         let outcome = match provider {
             "copilot" if state == "COMMENTED" || state == "APPROVED" => {
                 match copilot_outcome(&review.body, linked_findings) {
@@ -909,6 +1006,27 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 submitted_at: &comment.created_at,
                 evidence_url: &comment.url,
             },
+        );
+    }
+
+    if let Some(verified) = verified_lockfile.as_ref() {
+        push_evidence(
+            &mut evidence,
+            &mut diagnostics,
+            EvidenceInput {
+                provider: "dependabot_lockfile_policy",
+                actor: "trusted-ref-validator",
+                source_kind: "machine_verification",
+                reviewed_head: &verified.head_oid,
+                reviewed_base: &pr.base_ref_oid,
+                outcome: EvidenceOutcome::Clean,
+                submitted_at: &verified.committed_at,
+                evidence_url: &verified.commit_url,
+            },
+        );
+        notices.push(
+            "精确 Dependabot 单提交 Cargo.lock-only 元数据已由 trusted-ref policy 机器验证"
+                .to_string(),
         );
     }
 
@@ -1040,6 +1158,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     if let Some(diagnostic) = state_diagnostic {
         diagnostics.push(diagnostic);
     }
+    diagnostics.extend(notices);
 
     ExternalReviewResult {
         schema_version: RESULT_SCHEMA_VERSION,
@@ -1143,6 +1262,20 @@ fn push_evidence(
 }
 
 fn collect_pagination_errors(pr: &PullRequestSnapshot, diagnostics: &mut Vec<String>) {
+    if pr.files.page_info.has_next_page {
+        diagnostics.push("changed files 超过 100 条，snapshot 被截断".to_string());
+    }
+    if pr.commits.page_info.has_next_page {
+        diagnostics.push("commits 超过 100 条，snapshot 被截断".to_string());
+    }
+    for node in &pr.commits.nodes {
+        if node.commit.authors.page_info.has_next_page {
+            diagnostics.push(format!(
+                "commit `{}` 的 authors 超过 2 条，snapshot 被截断",
+                node.commit.oid
+            ));
+        }
+    }
     if pr.review_requests.page_info.has_next_page {
         diagnostics.push("reviewRequests 超过 100 条，snapshot 被截断".to_string());
     }
@@ -1163,6 +1296,101 @@ fn collect_pagination_errors(pr: &PullRequestSnapshot, diagnostics: &mut Vec<Str
             ));
         }
     }
+}
+
+fn lockfile_metadata(pr: &PullRequestSnapshot) -> PullRequestMetadata {
+    PullRequestMetadata {
+        author_login: pr
+            .author
+            .as_ref()
+            .map(|author| author.login.clone())
+            .unwrap_or_default(),
+        head_oid: pr.head_ref_oid.clone(),
+        files: pr
+            .files
+            .nodes
+            .iter()
+            .map(|file| ChangedFile {
+                path: file.path.clone(),
+                change_type: file.change_type.clone(),
+            })
+            .collect(),
+        commits: pr
+            .commits
+            .nodes
+            .iter()
+            .map(|node| PullRequestCommit {
+                oid: node.commit.oid.clone(),
+                committed_at: node.commit.committed_date.clone(),
+                url: node.commit.url.clone(),
+                message_headline: node.commit.message_headline.clone(),
+                authors: node
+                    .commit
+                    .authors
+                    .nodes
+                    .iter()
+                    .map(|author| CommitAuthor {
+                        login: author.user.as_ref().map(|user| user.login.clone()),
+                        name: author.name.clone(),
+                        email: author.email.clone(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        files_complete: !pr.files.page_info.has_next_page,
+        commits_complete: !pr.commits.page_info.has_next_page
+            && pr
+                .commits
+                .nodes
+                .iter()
+                .all(|node| !node.commit.authors.page_info.has_next_page),
+    }
+}
+
+fn handled_non_range_identity_finding(
+    thread: &ReviewThread,
+    first_comment: &ReviewThreadComment,
+    pr_author: &str,
+    metadata: &PullRequestMetadata,
+) -> bool {
+    let Some(claimed_oid) = claimed_pr_identity_oid(&first_comment.body) else {
+        return false;
+    };
+    if lockfile_policy::oid_matches_any_commit(claimed_oid, &metadata.commits) {
+        return false;
+    }
+    if !thread.is_resolved && !thread.is_outdated {
+        return false;
+    }
+    thread.comments.nodes.iter().skip(1).any(|comment| {
+        comment.author.as_ref().is_some_and(|author| {
+            let actor = normalize_actor(&author.login);
+            actor == normalize_actor(pr_author) || TRUSTED_HUMAN_ACTORS.contains(&actor.as_str())
+        }) && comment.body.trim_start().starts_with("Disposition:")
+            && valid_timestamp(&comment.created_at)
+            && comment.created_at.as_str() > first_comment.created_at.as_str()
+    })
+}
+
+fn claimed_pr_identity_oid(body: &str) -> Option<&str> {
+    let lower = body.to_ascii_lowercase();
+    for marker in ["reviewed commit", "reviewed object", "requested object"] {
+        let Some(marker_index) = lower.find(marker) else {
+            continue;
+        };
+        let tail = body.get(marker_index + marker.len()..)?;
+        let after_open = tail.get(tail.find('`')? + 1..)?;
+        let candidate = after_open.get(..after_open.find('`')?)?.trim();
+        if valid_oid_fragment(candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn copilot_unable_to_review_files(body: &str) -> bool {
+    body.to_ascii_lowercase()
+        .contains("wasn't able to review any files")
 }
 
 fn validate_waiver(waiver: &WaiverInput, pr: &PullRequestSnapshot, diagnostics: &mut Vec<String>) {
@@ -1797,6 +2025,8 @@ fn load_live_waiver_snapshot(
             head_ref_oid: identity.head_ref_oid,
             base_ref_oid: identity.base_ref_oid,
             is_draft: identity.is_draft,
+            files: Connection::default(),
+            commits: Connection::default(),
             review_requests: Connection::default(),
             reviews: Connection::default(),
             comments: Connection::default(),
@@ -2236,6 +2466,18 @@ mod tests {
                 ExternalReviewState::FindingsOpen,
             ),
             (
+                include_str!("../fixtures/external-review/dependabot-lockfile-wrong-sha.json"),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!("../fixtures/external-review/dependabot-lockfile-unreviewable.json"),
+                ExternalReviewState::Pass,
+            ),
+            (
+                include_str!("../fixtures/external-review/source-pr-unreviewable.json"),
+                ExternalReviewState::AwaitingReview,
+            ),
+            (
                 include_str!("../fixtures/external-review/codex-clean.json"),
                 ExternalReviewState::Pass,
             ),
@@ -2319,6 +2561,42 @@ mod tests {
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::AwaitingReview
+        );
+    }
+
+    #[test]
+    fn lockfile_policy_does_not_hide_unresolved_or_undisposed_findings() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        snapshot.pull_request.review_threads.nodes[0].is_resolved = false;
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::FindingsOpen
+        );
+
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        snapshot.pull_request.review_threads.nodes[0]
+            .comments
+            .nodes
+            .truncate(1);
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingRereview
+        );
+
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        let finding_time = snapshot.pull_request.review_threads.nodes[0].comments.nodes[0]
+            .created_at
+            .clone();
+        snapshot.pull_request.review_threads.nodes[0].comments.nodes[1].created_at = finding_time;
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingRereview
         );
     }
 

@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::external_review;
+use crate::{codeql, external_review};
 
 use super::model::*;
 
@@ -195,6 +195,9 @@ pub(super) fn validate_comment(
         required_fields
     };
     validate_comment_body(&comment.body, required_fields, label)?;
+    if comment.created_at.as_str() >= CODEQL_G3_ACTIVATION {
+        validate_comment_body(&comment.body, &["- CodeQL："], label)?;
+    }
     validate_gate_assertion(&comment.body, label, args, GateEvidencePhase::G3)
 }
 
@@ -367,11 +370,12 @@ pub(super) fn validate_external_review_g3(
     let gate_result = parse_g3_result(&comment.body)?;
     let result = match gate_result {
         G3Result::Waived => {
-            let now = SystemTime::now()
+            let current_time = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_err(|error| format!("系统时间早于 Unix epoch：{error}"))?
                 .as_secs();
-            let waiver = parse_gate_waiver(comment, issue_number, now)?;
+            let reference_time = gate_waiver_reference_time(pr, current_time)?;
+            let waiver = parse_gate_waiver(comment, issue_number, reference_time)?;
             external_review::evaluate_live_with_waiver(repo, number, waiver)?
         }
         G3Result::Pass | G3Result::Bootstrap => external_review::evaluate_live(repo, number)?,
@@ -402,6 +406,76 @@ pub(super) fn validate_external_review_g3(
                 comment.created_at
             ));
         }
+    }
+    Ok(())
+}
+
+pub(super) fn gate_waiver_reference_time(
+    pr: &GitHubPullRequest,
+    current_time: u64,
+) -> Result<u64, String> {
+    let Some(merged_at) = pr.merged_at.as_deref() else {
+        return Ok(current_time);
+    };
+    parse_utc_timestamp_seconds(merged_at)
+        .ok_or_else(|| "已合并 PR 的 mergedAt 不是 UTC RFC3339 秒级时间".to_string())
+}
+
+pub(super) fn validate_codeql_g3(
+    repo: &str,
+    number: u64,
+    pr: &GitHubPullRequest,
+    label: &str,
+) -> Result<(), String> {
+    let permalink = completed_gate_permalink(&pr.body, "G3")?;
+    let comment = pr
+        .comments
+        .iter()
+        .find(|comment| comment.url == permalink)
+        .ok_or_else(|| format!("{label} G3 permalink 未指向该 PR 的 comment"))?;
+    if comment.created_at.as_str() < CODEQL_G3_ACTIVATION {
+        return Ok(());
+    }
+    if parse_g3_result(&comment.body)? == G3Result::Waived {
+        return Ok(());
+    }
+
+    let result = codeql::evaluate_live(repo, number)?;
+    if !result.state.satisfies_g3() {
+        return Err(format!(
+            "{label} 的 CodeQL 未满足 G3：{}",
+            result.state.as_str()
+        ));
+    }
+    let codeql_lines = comment
+        .body
+        .lines()
+        .filter(|line| line.trim_start().starts_with("- CodeQL："))
+        .collect::<Vec<_>>();
+    if codeql_lines.len() != 1 {
+        return Err(format!("{label} G3 comment 必须恰好包含一条 `- CodeQL：`"));
+    }
+    let line = codeql_lines[0];
+    if !line.contains(&format!("`{}`", result.state.as_str())) {
+        return Err(format!(
+            "{label} G3 comment 的 CodeQL 状态与机器结果不一致：{}",
+            result.state.as_str()
+        ));
+    }
+    if let Some(evidence_url) = result.evidence_url() {
+        if !line.contains(evidence_url) {
+            return Err(format!(
+                "{label} G3 comment 的 CodeQL 行未回链机器结果 evidence URL"
+            ));
+        }
+    }
+    if result.state == codeql::CodeQlState::NotApplicable
+        && (!line.contains("`dependabot-cargo-lock-only-v1`")
+            || result.policy() != Some("dependabot-cargo-lock-only-v1"))
+    {
+        return Err(format!(
+            "{label} CodeQL not_applicable 必须记录精确 `dependabot-cargo-lock-only-v1` policy"
+        ));
     }
     Ok(())
 }

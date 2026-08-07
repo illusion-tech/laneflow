@@ -1,7 +1,9 @@
+mod codeql;
 mod commit_messages;
 mod current_import_cleanup;
 mod external_review;
 mod gate_evidence;
+mod lockfile_policy;
 mod markdown_tables;
 mod schema_publication;
 
@@ -43,6 +45,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         Some("check-current-import-cleanup-authority") => {
             current_import_cleanup::check_current_import_cleanup_authority(&args[1..])
         }
+        Some("check-codeql") => codeql::run(&args[1..]),
         Some("publish-external-review-check") => {
             external_review::run_publish_check(&args[1..])
         }
@@ -57,7 +60,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         },
         Some(command) => Err(format!("未知 xtask 命令: {command}")),
         None => Err(
-            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-g3-shadow-success-eligibility, check-g3-evidence-marker, resolve-g3-evidence-shadow-targets, resolve-g3-evidence-shadow-issue-event-targets, check-external-review, check-current-import-cleanup-authority, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
+            "缺少 xtask 命令。可用命令: check-commit-messages, check-commit-message-file, check-gate-evidence, check-gate-evidence-target, check-g3-shadow-success-eligibility, check-g3-evidence-marker, resolve-g3-evidence-shadow-targets, resolve-g3-evidence-shadow-issue-event-targets, check-external-review, check-current-import-cleanup-authority, check-codeql, publish-external-review-check, format-md-tables, check-schema-publication-contract, build-schema-publication"
                 .to_string(),
         ),
     }

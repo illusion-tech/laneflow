@@ -61,6 +61,7 @@
 - Findings disposition / clean re-review：
 - Review threads：`unresolved = <count>`，证据：
 - External Review Gate：Check URL；R0/R1 尚未启用时写明 bootstrap 状态和缺失项：
+- CodeQL：`pass` + Check URL / `not_applicable` + `dependabot-cargo-lock-only-v1` policy 与证据 URL：
 - G3 Evidence Gate Shadow：使用唯一且非空的规范值：`Check URL：https://github.com/...` / `R1 non-required：<原因>` / `候选 workflow bootstrap：<边界>`：
 
 ## 风险与例外
@@ -84,6 +85,7 @@ G3 comment 模板（合并前发表）：
 - Rollout phase：`R0` / `R1` / `R2`
 - Current head：
 - Checks：
+- CodeQL：`pass` + Check URL / `not_applicable` + `dependabot-cargo-lock-only-v1` policy 与证据 URL：
 - External Review Gate：
 - G3 Evidence Gate Shadow：`Check URL：https://github.com/...` / `R1 non-required：<原因>` / `候选 workflow bootstrap：<边界>`：
 - 审阅：provider、actor、reviewed head、outcome、completion、evidence URL：
@@ -107,7 +109,7 @@ G3 comment 模板（合并前发表）：
 - [ ] 已覆盖关联 Issue 的验收标准，或剩余范围已拆成后续 Issue。
 - [ ] 关联 Issue 的 GitHub 元数据 / 依赖关系审计已完成。
 - [ ] 文档已更新，或本 PR 已说明为何无需更新。
-- [ ] 当前 head 已有一个有效外部 reviewer 的完成态审阅；若曾有 findings，处置后已有新的当前 head clean re-review。PR author 自审未计入外部 reviewer。
+- [ ] 当前 head 已有一个有效外部 reviewer 的完成态审阅；或精确满足 Dependabot 单提交 `Cargo.lock`-only trusted-ref 机器替代。若曾有正常 findings，处置后已有新的当前 head clean re-review。PR author 自审未计入外部 reviewer。
 - [ ] `unresolved review threads = 0`，且未把该条件当作外部审阅完成的替代证据。
 - [ ] PR commits 符合 `docs/reference/commit-convention.md`（Conventional Commits 标题 + `Gate: G3 Candidate` + 其他 LaneFlow 治理字段）；合并范围内没有 `Gate: G3 Block`。
 - [ ] commit message footer 与 PR body 语义已区分：commit 通常使用 `Refs: #<issue>`，PR body 使用 `Closes/Resolves` 建立 Development 关联。

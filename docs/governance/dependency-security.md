@@ -1,7 +1,7 @@
 # 许可证与依赖安全基线
 
 **文档状态**: Active  
-**最后更新**: 2026-07-17
+**最后更新**: 2026-08-07
 **适用范围**: LaneFlow 公开仓库的源代码许可、Rust/Cargo 依赖许可证、漏洞、来源与持续更新治理  
 **关联 Issue**: `#56`
 
@@ -122,7 +122,7 @@ CI job 名称固定为 `Dependency policy`，并由 `main` ruleset 的 required 
 - `.github/dependabot.yml` 每周检查 Cargo 与 GitHub Actions version updates。
 - 每个 ecosystem 最多同时打开 5 个 version update PR，避免维护队列失控。
 
-Dependabot PR 仍必须通过测试、cargo-deny、CodeQL 与人工/Agent 审阅。自动生成不等于自动批准或自动合并。
+Dependabot PR 仍必须通过测试、cargo-deny、CodeQL 适用性判断与外部审阅门禁。自动生成不等于自动批准或自动合并。精确单提交 `Cargo.lock`-only PR 可以按 `development-gates.md` 由 `dependabot_lockfile_policy` 提供机器审阅替代，并由 `security-scanning.md` 的 `dependabot-cargo-lock-only-v1` 把 CodeQL neutral/no-analysis 记为 `not_applicable`；两个 policy 共用严格 author/commit/path/head 证明，且不豁免本节任何依赖、许可证、漏洞、来源或测试要求。
 
 Dependabot 无法生成 LaneFlow 的完整治理正文，因此 commit 校验器仅对同时满足以下条件的机器提交提供窄例外：
 

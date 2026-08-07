@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "repository": "illusion-tech/laneflow",
+  "pullRequest": {
+    "number": 314,
+    "author": {
+      "login": "wangzishi"
+    },
+    "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "files": {
+      "nodes": [
+        {
+          "path": "xtask/src/main.rs",
+          "changeType": "MODIFIED"
+        }
+      ]
+    },
+    "reviews": {
+      "nodes": [
+        {
+          "id": "PRR-source-no-files",
+          "author": {
+            "login": "copilot-pull-request-reviewer"
+          },
+          "body": "Copilot wasn't able to review any files in this pull request.",
+          "state": "COMMENTED",
+          "submittedAt": "2026-08-06T02:45:03Z",
+          "url": "https://github.com/illusion-tech/laneflow/pull/314#pullrequestreview-1",
+          "commit": {
+            "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      ]
+    }
+  }
+}

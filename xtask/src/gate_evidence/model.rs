@@ -2,6 +2,7 @@
 
 // Issue #230 G2-B incremental start record. Older G3 comments remain historical evidence.
 pub(super) const EXTERNAL_REVIEW_G3_ACTIVATION: &str = "2026-07-24T15:16:21Z";
+pub(super) const CODEQL_G3_ACTIVATION: &str = "2026-08-08T00:00:00Z";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum GateEvidencePhase {
     G3,
