@@ -796,9 +796,14 @@ façade 和其他文档 issue 必须是 `None`，不能用两个相邻的 `Optio
 `LF-COMP-CURRENT-SOURCE-LIMIT-EXCEEDED`，保留 profile、dimension、limit、observed、
 phase、document、path 和真实 span；不得改写成 JSON shape 或普通 compile limit。共同
 compiler 余额失败使用独立 `CompilerBudgetExceeded`，compiler 按穷尽 dimension 映射为现有
-`LF-COMP-RESOURCE-LIMIT`：per-module 直接使用 `observed_delta`，total/live 使用 builder
-已提交量加 `observed_delta` 重建共同 profile 的 `observed`；不得把动态余额先与 source hard
-cap 取最小值后丢失来源。
+`LF-COMP-RESOURCE-LIMIT`：per-module 直接使用 `observed_delta`；total 维度用 builder
+已提交量加 `observed_delta` 重建共同 profile 的 `observed`；live 维度还必须再加
+materialized upfront charge——交给 source 的余额已扣除该 charge，其 `observed_delta`
+不含它，漏加会低报 `observed`，甚至出现 `observed` 未超 `limit` 却失败的矛盾诊断。
+total/live 必须分开计算，不得把动态余额先与 source hard
+cap 取最小值后丢失来源。结构化诊断测试必须断言：边界相等时成功、边界加一时失败且
+live 维度 `observed` 恰为 `limit + 1`（含 upfront charge），失败发生在任何来源分配
+增长前。
 
 Manifest 字节下界的 compiler 预算失败使用 `ManifestDecode`，`observed_delta` 是 Manifest
 实际字节长度；配对后完整三文档预算失败使用 `ArtifactBinding`，`observed_delta` 是完整
@@ -1056,12 +1061,29 @@ E、固定路径与报告 Git blob；validator 必须实际验证父子关系和
 rebase 或任何 A 内容变化都必须重新生成报告。
 
 承载证据提交 E 的 PR 是仓库默认 Rebase and merge 的冻结例外：它必须使用
-Create a merge commit 合入，使 A 与 E 的提交对象原样进入 `main`，标准 clone 可以按本节
-重放 `A..E`。该例外只适用于 `A..E` 仅新增固定报告路径的 PR，不扩展到该 PR 内的其他变更，
-也不要求任何其他 PR 改变合并方式。若该 PR 以 rebase、squash 或任何重写 A/E 提交身份的方式
-合入，报告中的 `source.commit` 与 G3 comment 记录的 SHA 立即失效，必须按 `main` 上的新
-父提交重新生成报告并重新完成验证；validator 必须确认 A、E 的提交对象可经该 merge commit
-从 `main` 到达且 `A..E` 可原样重放，否则失败关闭。
+Create a merge commit 合入，使 A 与 E 的提交对象原样进入 `main`。该例外只适用于
+`A..E` 仅新增固定报告路径的 PR，不扩展到该 PR 内的其他变更，也不要求任何其他 PR
+改变合并方式。证据验证按合并前后拆分为两个阶段，各自冻结命令与失败条件。
+
+合并前（G3，在 E 上执行，不依赖尚不存在的 merge commit）：
+
+- `git rev-parse E^` 必须等于 A，`git diff --name-only A..E` 必须恰为固定报告路径；
+- validator 按本节完整审计 A（清单重建、cleanup 责任、逐字段比对、负向矩阵）；
+- 新鲜度闸口：`git merge-base --is-ancestor origin/main A` 必须成立，即证据分支与
+  `main` 同步、被审计清单就是 `main` 当前清单；不成立时按 `main` 新父提交重新生成
+  报告并重跑本节全部验证，不得以过期 A 合并。
+
+合并后（G4/closure，在 merge commit M 上执行）：
+
+- `git rev-parse M^2` 必须等于 E，A、E 可经 M 从 `main` 到达，标准 clone 可原样重放
+  `A..E`；
+- `git diff A M -- examples/data/ docs/reference/current-import-cleanup-authority-v1.json`
+  必须为空，即合并后 `main` 的被审计清单与 cleanup 责任记录逐字节等于 A；M 不可达、
+  `A..E` 不可重放或该 diff 非空都失败关闭，报告失效并须按 `main` 新父提交重新生成。
+
+若该 PR 以 rebase、squash 或任何重写 A/E 提交身份的方式合入，报告中的 `source.commit`
+与 G3 comment 记录的 SHA 立即失效，同样须按 `main` 上的新父提交重新生成报告并重新完成
+验证。
 
 Schema 只验证报告结构和闭合状态分支，`assets.minItems` 不证明其与动态仓库清单相等。validator
 不得以报告内的 `assets`、repository source digest、`inventoryDigest` 或 `overallStatus` 作为枚举/
@@ -1081,8 +1103,12 @@ profile 不匹配、G2 evidence 不是 #297 permalink、Issue 为 #294/#297、No
 预期资产按 path UTF-8 字节序唯一排序后，validator 必须与 `assets[]` 做逐位置、逐字段、等长比较，
 并从预期内容身份重新计算 `inventoryDigest`，从完整预期迁移结果重新计算 `overallStatus`。任何漏项、
 额外项、重复 path、乱序、内容身份或分类/结果差异都失败关闭；v1 还须独立复核已发布资产固定空清单，
-不能因为报告自洽而接受。G2 负向测试至少逐项篡改遗漏、额外、重复、乱序、Git blob、长度、
-SHA-256、分类/迁移结果、repository source digest、`inventoryDigest` 与 `overallStatus`，并证明
+不能因为报告自洽而接受。validator 还必须确认报告 `profiles.compiler` 等于 A 上已登记、且生成本次
+资产结果的实际编译调用所用配置档（v1 固定为 `LF-COMP-P100-INITIAL-v2`）；登记集合由 A 的编译器
+配置档注册事实决定，其他已登记或未登记值都失败关闭。G2 负向测试至少逐项篡改遗漏、额外、重复、
+乱序、Git blob、长度、
+SHA-256、分类/迁移结果、repository source digest、`inventoryDigest`、`overallStatus` 与
+`profiles.compiler`（含其他已登记值与未登记值），并证明
 每类都被 validator 拒绝。清理责任负向矩阵还必须覆盖固定文件缺失、从 E/工作树替换、authority
 profile/path/digest 篡改、非 #297 G2 evidence、#294/#297 冒充专用 Issue、Issue URL 与 Node ID
 错配、owner 篡改，以及报告与 A 中责任记录任一字段不相等。
@@ -1095,10 +1121,12 @@ profile/path/digest 篡改、非 #297 G2 evidence、#294/#297 冒充专用 Issue
 测试失败。报告必须由字段按 schema 顺序声明的有类型 `Serialize` 结构生成，不得先物化为
 `serde_json::Value`/`Map` 再依赖 map 实现或 feature-unification 排序。工具在同目录写唯一临时
 文件，完成 flush/file sync 后用同文件系统
-`hard_link(temp, final)` 发布，从而取得 atomic no-clobber；成功后删除临时名并在平台支持时
-sync 目录。`AlreadyExists` 时读取 final，只接受 byte-identical 幂等结果；其他错误失败关闭。
-不得使用会覆盖目标的普通 rename，也不得在 hard-link 不可用时退化为非原子覆盖；任何失败都
-删除临时文件并保留既有报告。
+`hard_link(temp, final)` 发布，从而取得 atomic no-clobber。`hard_link` 成功是唯一提交点：
+此后报告已发布，不再允许以失败关闭回退；删除临时名或目录 sync 的失败只返回
+published-with-cleanup-warning 状态并写入结构化诊断，残留临时名由下一次运行幂等清理，
+不改变 `final` 内容与发布事实。`AlreadyExists` 时读取 final，只接受 byte-identical 幂等
+结果；提交点之前的其他错误失败关闭。不得使用会覆盖目标的普通 rename，也不得在
+hard-link 不可用时退化为非原子覆盖；提交点之前的任何失败都删除临时文件并保留既有报告。
 
 当前冻结分类为：
 

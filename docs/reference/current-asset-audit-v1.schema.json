@@ -36,8 +36,7 @@
           "const": "LF-CURRENT-SOURCE-P100-IMPORT-v1"
         },
         "compiler": {
-          "type": "string",
-          "pattern": "^LF-COMP-P100-INITIAL-v([2-9]|[1-9][0-9]+)$"
+          "const": "LF-COMP-P100-INITIAL-v2"
         },
         "publishedInventory": {
           "const": "LF-CURRENT-PUBLISHED-INVENTORY-v1"
