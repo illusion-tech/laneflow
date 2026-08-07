@@ -1,7 +1,7 @@
 # 当前 Traffic/Spatial 包迁移导入前端
 
 **文档状态**: Review（#297 G1 候选；未授权 G2）<br>
-**最后更新**: 2026-08-06<br>
+**最后更新**: 2026-08-07<br>
 **适用范围**: Traffic v0.10、SpatialPackage v0.1、ScenarioManifest v0.1、
 `laneflow-current-source`、`laneflow-compiler` 的 `current-v0_10-import` 迁移特性、
 `laneflow-current-import`、current → canonical LIR 迁移与资产审计<br>
@@ -84,9 +84,14 @@ current Core/Spatial 规范化。它不得保留第二份 Traffic/Spatial/Manife
 production-compatible 能力，不强制虚构 Manifest 或 Spatial。
 
 退役分两步：#294 生产切换时删除 `laneflow-data` 到 current Core/Spatial 的运行时 JSON
-路径；#297 的资产审计、发布迁移说明和约定保留期完成后，另由治理变更删除
-`current-v0_10-import`、`laneflow-current-import` 与 `laneflow-current-source`。不得仅因
-Runtime 已切换便先删除唯一离线迁移入口。
+路径；离线迁移入口继续保留到以下条件全部满足：#294 已取得 G4、版本化资产审计报告
+覆盖仓库资产清单与已发布资产空清单且没有未处置项、包含新 Runtime 的首个公开版本
+已经发布并在发布说明中完成最后迁移通知。#297 Owner 必须在 #297 G2 前建立专用 cleanup
+Issue，记录上述触发条件、删除版本和 Cleanup owner；该 Issue 删除
+`current-v0_10-import`、`laneflow-current-import`、`laneflow-current-source`、current
+输入/查询 API、`CurrentSourceDocumentRole` 以及
+`SourceLanguage::CurrentTrafficSpatialV0_10` 与其 `as_str()` 分支。不得仅因 Runtime
+已切换便先删除唯一离线迁移入口，也不得把未定义的“保留期”变成永久兼容承诺。
 
 ## 4. Compiler 公共借用输入
 
@@ -194,9 +199,13 @@ production scenario 能力原子拥有三份已验证 wire 内容、精确文档
 三个逐文档 origin、受限位置数据和精确资源用量。production 能力不能升级为 strict
 能力，strict 能力也不能降级后再提交。
 
-跨包消费 current DTO 所需的只读/按值视图可以是 `pub`，但 source 包保持未发布，且
-这些视图只逐项对应冻结的 current wire 字段；它们不是第三方 authoring API。Data 与
-compiler 必须消费同一 DTO，不得各自再反序列化原始 JSON。
+跨包消费固定为 capability 上的借用 accessor 与消费型 `into_parts(self)`；返回的
+`CurrentTrafficParts`、`CurrentSourceParts`、`CurrentImportParts` 字段仍私有，只提供
+逐项借用 accessor 和 owned iterator。它们因 Rust 跨 crate 可见性必须使用
+`#[doc(hidden)] pub`，但 source 包保持未发布；没有 `Clone`、Serde、从裸 parts 反向构造 capability 或
+parts→compiler 提交入口。Data 与 compiler 必须通过这些视图消费同一 DTO，不得各自再
+反序列化原始 JSON。具体 wire record 类型可以保持私有，G2 不得把整棵 DTO 改成公共
+字段以规避消费接口。
 
 ## 6. 文档身份、来源语言与来源记录
 
@@ -220,6 +229,11 @@ compiler 必须消费同一 DTO，不得各自再反序列化原始 JSON。
 
 稳定文档键不含宿主路径、`artifactRef`、输入数组下标或内容摘要。固定 namespace 意味着
 一个编译单元至多接收一个 current 场景；第二次加入由现有重复 namespace 诊断原子拒绝。
+
+`SourceLanguage::CurrentTrafficSpatialV0_10` 枚举变体及其 `as_str()` match arm 都必须标注
+`#[cfg(feature = "current-v0_10-import")]`。默认特性构建的 public API 与 rustdoc 不得出现
+该变体；启用迁移特性时其 `repr(u16)` 值固定为 `2`。`SourceLanguage` 已经是
+`#[non_exhaustive]`，条件变体不增加下游穷尽匹配承诺。
 
 三份 `SourceDocumentDescriptor` 的摘要都对各自原始字节计算一次 SHA-256，长度是原始
 字节长度；模块文档集摘要继续使用 #315 已实现的 v1 规范聚合。逐文档 origin 精确为：
@@ -267,21 +281,47 @@ Source 包使用一套私有、按位置策略泛型化的 Serde wire DTO：prod
 的 explicit-null 规则、版本、数字词法、摘要和配对函数只有一份；位置策略使用静态分派，
 记录循环中没有 trait object 或运行时 policy 分支。
 
-为在一次文档级遍历中保留现有的 syntax → version → shape 优先级，顶层与嵌套容器使用
-手写 `DeserializeSeed`/visitor：JSON 词法或结构无法安全继续时立即返回原始 syntax 错误；
-可安全跳过的类型、unknown field 和缺字段问题只保存首个有类型 shape 候选并继续消费当前
-JSON 值，以便取得 `formatVersion`。完整 JSON 有效后先裁决 unsupported version，再返回
-shape 候选。production 只保存首个候选；strict 可在诊断上限内保存多个候选。visitor
-不得构造 `serde_json::Value` 或 Serde `Content` 树；允许对单个借用 `RawValue` token
-就地解码，但不得重放整个文档或完整容器子树。
+为在一次根文档遍历中保留现有的 syntax → `formatVersion` 头部 shape → unsupported version
+→ 其他 shape 优先级，顶层与嵌套容器使用手写 `DeserializeSeed`/visitor：JSON 词法或结构无法
+安全继续时立即返回原始 syntax 错误；每份文档的 `formatVersion` 是头部闸口，其缺失、显式
+`null`、非字符串或重复 occurrence 立即返回 `JsonShape`，重复时不得选择第一个或最后一个值
+继续做版本裁决。只有恰好一个合法字符串 occurrence 才参与 unsupported version 判断。
+其他可安全跳过的类型、unknown field 和缺字段问题只保存首个有类型 shape 候选并继续消费当前
+JSON 值；完整 JSON 有效且头部闸口通过后先裁决 unsupported version，再返回其余 shape 候选。
+production 只保存首个候选；strict 可在诊断上限内保存多个候选。visitor 不得构造
+`serde_json::Value` 或 Serde `Content` 树，也不得捕获或重放整个文档。
 
-strict 的 `CaptureLocations` 对需要定位的标量使用借用 `RawValue` 新类型：先以原始 token
-长度执行字符串/数值增长前检查，再在同一字段 visitor 内完成词法解码，并把 token 在原始
-输入切片中的 `u32` 起止 byte offset 记入有类型位置槽。它不对文档执行第二次 DTO 解析，
-也不扫描序列来事后重建字段路径。每份文档唯一一次 SHA-256 扫描同时收集换行 byte offset；
-位置冻结时通过该有界换行索引把 byte offset 转为现有 `SourcePosition { line, column }`。
-production 的 `NoLocations` 不建立换行索引、不携带位置字段，也不构造
-`CurrentSourceLocationTable`。
+两种策略都对固定 current schema 的单个 record/point token 借用 `&RawValue`：根 visitor
+消费该 token 一次以验证 JSON 边界并取得真实 `[start, end)`，随后在原切片上至多解码该
+record 一次；嵌套 record 采用同一规则。`NoLocations` 只为 version-before-shape 和准确的
+单故障错误锚点使用该范围，成功时不保留位置；`CaptureLocations` 另把第 10 节闭合集合封存
+到 packed table。两者都不缓存 owned JSON 子树、不重新扫描整份文档，也不在解析后遍历
+序列重建字段路径。固定 current schema 的 record 嵌套深度是常数；production 与 strict
+基准必须分别报告 record-token replay 的字节数与时延。
+`laneflow-current-source` 为此显式启用 serde_json 的 `raw_value` feature，不增加第二个 JSON
+parser 依赖。该有界 replay 是 `compiler-foundation.md` 第 2.3 节唯一允许的局部例外，不能
+扩展到根文档或任意 ignored container。
+
+`CaptureLocations` 对需要定位的标量继续使用借用 `RawValue` 新类型：先以原始 token 长度
+执行字符串/数值增长前检查，再在同一字段 visitor 内完成词法解码，并把 token 在原始输入
+切片中的 `u32` 起止 byte offset 记入有类型位置槽。每份文档的根 deserializer 和 SHA-256
+各执行一次；SHA-256 的同一次线性扫描始终记录首个与最后一个非空白 byte，strict 另收集
+换行 byte offset。完整 JSON 成功且根值为 object 后，首尾 offset 形成根 object 的真实
+`[start, end)`，供根级 missing field 使用，不捕获或 replay 根文档。位置冻结时通过该有界换行
+索引验证每个范围并封存 packed table，但不把全部条目提前膨胀为四个行列 `u32`。strict
+capability 保留 packed byte range 与换行索引；compiler lowering 按项转换为现有
+`SourcePosition { line, column }`。packed table、换行索引和不能原样转移的 DTO container
+capacity 在其 backing allocation 实际 drop 前保持完整 source charge；按文档或整表完成
+lowering 并 drop 后才一次性解除。只有最终保留的最多 16 条 source issue 会在返回错误前物化
+`CurrentSourceSpan`。production 的 `NoLocations` 不建立换行索引、不携带成功路径位置字段，
+也不构造 `CurrentSourceLocationTable`；只有返回延迟 shape 错误时，才对原始字节执行一次
+allocation-free 前缀扫描，把唯一错误 anchor 转为一基行列。该错误路径投影不是第二次 JSON
+解析，不能用于重建 DTO 或字段路径。
+
+延迟 shape 候选的锚点固定为：类型错误、explicit null、unknown/duplicate field 使用该
+field 的 value token；missing field 使用所属 record token；根级 missing field 使用根
+object token。record replay 内返回的 `serde_json::Error` 行列先转为相对 byte offset，再
+加 record 的全局 `start`，不能把局部行列直接暴露为文档位置。
 
 `extensions` 与尚不可用的 `timeWindows` 子树仍执行完整 JSON 语法与 strict 资源计数；
 它们不物化 compiler 位置条目。`timeWindows` 在字段根位置进入既有 capability-unavailable
@@ -305,8 +345,10 @@ strict 成功顺序固定为：
 5. 对调用方 ref 集合执行非空/全集合唯一检查并定位两个目标，再检查 Manifest 与被选中
    Traffic/Spatial 三份 display source 的总字节；未引用制品的 display source 不进入
    origin 或该总量；
-6. 在 Traffic/Spatial 摘要或 DTO 分配前检查声明长度、实际长度、单文档和三文档组合
-   source 资源；资源失败允许提前，但非资源 size mismatch 只记录到下一步裁决；
+6. source 在 Manifest 绑定后唯一计算 `selected_source_bytes = manifest + selected Traffic +
+   selected Spatial`；在 Traffic/Spatial 摘要或 DTO 分配前依次检查声明长度、实际长度、
+   source hard cap、compiler per-module 余额和 compiler total 余额。未引用制品 payload 不进入
+   该值；资源失败允许提前，但非资源 size mismatch 只记录到下一步裁决；
 7. 按 Traffic actual size → Traffic SHA-256/digest → Spatial actual size → Spatial
    SHA-256/digest 的既有优先级验证；每份摘要扫描同时建立其 strict 换行索引；
 8. 按 Manifest → Traffic → Spatial 顺序有界解析，同步累计 wire、语义、位置和 live
@@ -314,12 +356,15 @@ strict 成功顺序固定为：
 9. 返回一个不可拆的 strict 能力；compiler 随即降阶并执行共同候选复核；
 10. 全部检查成功后调用现有 `commit_admission`，否则释放候选且 builder 不变。
 
-production 在 source 层保持现有可观察的非资源失败顺序：Manifest syntax/version/shape →
-Traffic descriptor → Spatial descriptor → conflicting ref → provided refs → Traffic
+production 在 source 层保持现有可观察的非资源失败顺序：Manifest syntax →
+`formatVersion` 头部 shape → unsupported version → 其他 Manifest shape → Traffic descriptor →
+Spatial descriptor → conflicting ref → provided refs → Traffic
 size/digest → Spatial size/digest → Traffic wire → Spatial wire。只有 strict 可以把新增的
 资源失败提前。source 原子成功后，Data 仍按 Traffic → Spatial 执行 current
-Core/Spatial 规范化；兼容承诺冻结 accepted set 和单故障结构化错误，不冻结一个输入同时
-含 source 错误与后续 domain 错误时两者的相对首错优先级。
+Core/Spatial 规范化；兼容承诺冻结 accepted set、公共错误 variant、document、path 与 JSON
+category，但不承诺旧 Serde loader 的精确 `line`/`column` 数值。新路径统一返回本文第 10 节
+定义的准确规范锚点（canonical anchor）；不得为复刻旧游标位置保留第二套旧位置或第二个 DTO。
+一个输入同时含 source 错误与后续 domain 错误时，两者的相对首错优先级同样不冻结。
 
 ## 8. 严格来源资源配置档
 
@@ -353,13 +398,31 @@ Core/Spatial 规范化；兼容承诺冻结 accepted set 和单故障结构化�
   场景为 237,129 字节，保留 2.29 倍原始字节余量；
 - 16 个制品和 256 字节 ref 相对仓库 paired 场景的 2 个目标、最长 45 字节 ref 留出
   14 个额外项和 5.68 倍单项余量，同时让 strict 唯一性检查无需输入规模索引；
-- 131,072 个序列项大于首轮 common profile 中 reference、relation、identity field、route
-  occurrence 与 geometry point 上限之和 101,424；262,144 个 JSON 值和位置分别覆盖该
-  序列包络，并高于 `4 * 58,387 = 233,548`；
+- 131,072 个序列项是 importer 自身的防御性 hard cap，不声称是所有 compiler-admissible
+  current 语法组合的数学包络；仓库最大 paired 场景有 6,352 个 sequence item 和 8,036
+  个 JSON value，分别保留 20.63 倍和 32.62 倍余量。strict 可以在共同 compiler 维度尚有
+  余额时先拒绝病态 source，production-compatible accepted set 不受该 hard cap 约束；
 - 24 MiB source live 上限按 58,387 个 128-byte record slot、131,072 个 16-byte sequence
   slot、262,144 个 16-byte location slot、542,741 个 owned string byte、最坏每个来源
   byte 一个 `u32` 换行 offset，再加 2 MiB lookup/control reserve 求和为 18,575,849
-  字节；剩余 6,589,975 字节吸收小容器与对齐，但所有实际 capacity 仍逐次精确计费。
+  字节；剩余 6,589,975 字节吸收高于 record 最低记账额的实际 capacity、小容器与对齐，
+  但所有实际 capacity 仍逐次精确计费。
+
+16-byte location slot 不是对未定义 Rust struct 大小的假设。实现使用两个私有 8-byte
+word slot：`span_words: [u32; 2] = [start, end]` 与
+`key_words: [u32; 2] = [record_ordinal, packed_tag]`。`packed_tag` 的低 16 bit 是 field key、
+随后 8 bit 是 record kind、随后 2 bit 是 document role、最高 6 bit 必须为零；record 与
+field 闭合枚举在 pack/unpack 时验证，位置槽不保存字符串或指针。16-byte sequence slot
+同样固定为 `[u32; 4] = [owner_record_ordinal, packed_field_kind, start, len]`，只索引 record/
+string arena。G2 必须用 `size_of`、最大 capacity、pack/unpack 已知向量和 transaction 峰值
+测试证明两种 slot 每项精确 16 byte；若实现不能满足该布局，必须回到 G1 提升 profile ID
+或重算预算，不能静默提前拒绝已冻结边界 workload。
+
+各 hard limit 是独立拒绝上界，不承诺其笛卡尔积全部可同时达到；24 MiB live 维度可以在
+record/location/sequence 各自 count 尚有余额时先失败。128-byte record slot 是逐 record
+最低记账额，实际 typed arena/owned capacity 大于该值时按实际请求字节计费。该规则保证
+失败关闭，不用低估内存换取表面上的最大 count；G2 边界 workload 必须同时证明已冻结
+repository/published P100 资产不会被 live 维度意外提前拒绝。
 
 profile 提升必须携带 repository/published asset 失败清单、上述算式重算和 release 峰值
 证据；不得只因某个外部输入超限便原地放宽 v1。
@@ -369,45 +432,40 @@ profile 提升必须携带 repository/published asset 失败清单、上述算�
 前饱和累计。哈希表请求字节沿用共同接入的保守八桶/控制字模型；Vec、Box、String 和
 换行/位置表按请求 capacity 计入 live bytes，不能用成功后的 len 冒充峰值。
 
-strict 还逐项接收从 `CompileLimits` 当前余额派生的共同模块维度；在空 builder 上其固定
-上界继承 `LF-COMP-P100-INITIAL-v2`：
+current 模块的固定共同需求与空 builder 余额分开表达，不能把需求量误写成 profile 上限：
 
-| 共同维度                                                  |           空 builder 上限 |
-| --------------------------------------------------------- | ------------------------: |
-| `ModuleCount` / `SourceDocumentCount` / `ImportEdgeCount` | `1 / 3 / 0`（本模块需求） |
-| `DeclarationCount` / `SymbolCount`                        |         `11,265 / 11,265` |
-| `TypedAstRecordCount`                                     |                    58,387 |
-| `ReferenceCount`                                          |                    37,920 |
-| `RelationOccurrenceCount`                                 |                    10,032 |
-| `IdentityFieldOccurrenceCount`                            |                    29,184 |
-| `RouteOccurrenceCount`                                    |                     1,920 |
-| `ManeuverGateCount` / `WaitingZoneCount`                  |           `2,304 / 1,536` |
-| `GeometryPointCount`                                      |                    22,368 |
-| `StringItemCount`                                         |                    36,894 |
-| `SingleStringBytes`                                       |                        53 |
-| `TotalStringBytes`                                        |                   991,537 |
-| `DiagnosticCount`                                         |                        16 |
+| 固定需求              | 精确值 |
+| --------------------- | -----: |
+| `ModuleCount`         |      1 |
+| `SourceDocumentCount` |      3 |
+| `ImportEdgeCount`     |      0 |
 
-compiler 向 source 包传递的动态部分使用具名字段，避免位置参数漂移：
+| `LF-COMP-P100-INITIAL-v2` 共同维度          |     空 builder 上限 |
+| ------------------------------------------- | ------------------: |
+| `ModuleCount` / `SourceDocumentCount`       |       `522 / 1,566` |
+| `ImportEdgeCount`                           |               1,032 |
+| `SourceBytesPerModule` / `SourceBytesTotal` | `542,741 / 542,741` |
+| `DeclarationCount` / `SymbolCount`          |   `11,265 / 11,265` |
+| `TypedAstRecordCount`                       |              58,387 |
+| `ReferenceCount`                            |              37,920 |
+| `RelationOccurrenceCount`                   |              10,032 |
+| `IdentityFieldOccurrenceCount`              |              29,184 |
+| `RouteOccurrenceCount`                      |               1,920 |
+| `ManeuverGateCount` / `WaitingZoneCount`    |     `2,304 / 1,536` |
+| `GeometryPointCount`                        |              22,368 |
+| `StringItemCount`                           |              36,894 |
+| `SingleStringBytes` / `TotalStringBytes`    |      `53 / 991,537` |
+| `DiagnosticCount`                           |                  16 |
+| `CompilerControlledLiveBytes`               |          43,269,120 |
+
+compiler 只把 source 验证实际需要的动态余额传入 source 包；共同 lowering 维度不跨 crate
+镜像：
 
 ```rust
 #[doc(hidden)]
 pub struct CurrentCompilerBudget {
     pub max_source_bytes_per_module: u64,
     pub max_source_bytes_total: u64,
-    pub max_declaration_count: u64,
-    pub max_typed_ast_record_count: u64,
-    pub max_reference_count: u64,
-    pub max_relation_occurrence_count: u64,
-    pub max_identity_field_occurrence_count: u64,
-    pub max_route_occurrence_count: u64,
-    pub max_maneuver_gate_count: u64,
-    pub max_waiting_zone_count: u64,
-    pub max_geometry_point_count: u64,
-    pub max_symbol_count: u64,
-    pub max_string_item_count: u64,
-    pub max_single_string_bytes: u64,
-    pub max_total_string_bytes: u64,
     pub max_diagnostic_count: u64,
     pub max_import_transaction_live_bytes: u64,
 }
@@ -420,73 +478,285 @@ impl CurrentSourceLimits {
 }
 ```
 
-该构造器要求 diagnostic 和 import transaction live budget 非零，并验证
-`max_single_string_bytes <= max_total_string_bytes`；其他零值表示对应 builder 余额已经
-耗尽，必须保留为可在读取/分配前失败的有效上限。随后逐维与固定 source profile 取
-较小值；它不接受 profile ID 字符串、source 硬上限或
-`SourceDocumentCount`。compiler 必须先自行确认所选 `CompileLimits` 显式支持至少三份
-剩余文档，才可构造 budget。其他 crate 即使直接依赖 source 包并构造该值，也不能把其
-结果提交给 compiler。
+该构造器要求 diagnostic 和 import transaction live budget 非零；source byte 零余额仍是
+可构造、并在 Manifest 绑定后、目标 payload 哈希/分配前失败的有效上限。实现必须分别保存
+固定 source hard cap 与每个 compiler 动态余额及其 `CurrentCompilerBudgetDimension`，不能
+预先取最小值而丢失失败来源。它不接受 profile ID 字符串、source 硬上限或其他共同 compiler
+维度。compiler 必须先
+自行确认所选 `CompileLimits` 显式支持 1 个模块和 3 份剩余文档，才可构造 budget。其他
+crate 即使直接依赖 source 包并构造该值，也不能把其结果提交给 compiler。
 
 有效值不是该表的过期快照。`add_current_source` 持有 `&mut self` 后，用饱和/受检减法从
-当前 `AdmissionTotals` 和 builder live bytes 派生余额：累计维度取
-`min(source profile hard limit, compile limit - committed usage)`；局部维度取两个固定
-上限的较小值。三文档总字节同时受 Manifest/Traffic/Spatial 单项、source profile 总量、
-`SourceBytesPerModule` 和剩余 `SourceBytesTotal` 约束。
+当前 `AdmissionTotals` 和 builder live bytes 派生 source bytes、diagnostic 与 transaction
+live 余额。source 在配对后按固定优先级检查三文档单项、source profile 总量、
+`SourceBytesPerModule` 和剩余 `SourceBytesTotal`，并把唯一 `selected_source_bytes` 随不可
+伪造 capability 交给 compiler。
+
+共同维度的唯一计数权威是 compiler 私有 current module builder 的受预算构造操作：
+
+| 维度                                                              | 唯一增长点                                                                                |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `ModuleCount` / `SourceDocumentCount` / `ImportEdgeCount`         | compiler preflight 固定提交 `1 / 3 / 0`，source 不重复计数                                |
+| `SourceBytesPerModule` / `SourceBytesTotal`                       | source 配对后唯一产生 `selected_source_bytes`；compiler 直接写入模块计数且不重新求和      |
+| `DeclarationCount` / `SymbolCount`                                | 第 11 节每次成功发射一个共同声明时各增加 1                                                |
+| `TypedAstRecordCount`                                             | 模块头和共同 typed record/point 构造器成功保留一项时增加 1                                |
+| `ReferenceCount`                                                  | 每次共同 typed reference 构造器成功保留一项时增加 1                                       |
+| `RelationOccurrenceCount` / `IdentityFieldOccurrenceCount`        | 对应共同 occurrence 构造器成功保留一项时增加 1                                            |
+| `RouteOccurrenceCount` / `ManeuverGateCount` / `WaitingZoneCount` | 对应共同 occurrence 或实体构造器成功保留一项时增加 1                                      |
+| `GeometryPointCount`                                              | 每个 Spatial point 成功转为 canonical point 时增加 1                                      |
+| `StringItemCount` / `TotalStringBytes`                            | 每次 destination string 或 origin string 首次进入模块所有权时增加 1 / 原始 UTF-8 字节数   |
+| `SingleStringBytes`                                               | 每个 semantic external ID、固定 document key 和 derived key 在 destination 分配前检查     |
+| `DiagnosticCount`                                                 | 现有 compiler/source collector 的共享保留上限；每个最终保留 issue 只在所属 collector 计 1 |
+| `CompilerControlledLiveBytes`                                     | `add_current_source` 唯一 transaction ledger 在每次 capacity/ownership transfer 前计费    |
+
+这些构造器在同一 lowering 循环中累计模块资源计数，并把同一结果交给
+`prepare_admission`；source 包不预估 declaration/reference/relation 等 lowering 结果，
+compiler 也不为 source bytes 或 admission 再遍历输入/记录。三份 document key、role、artifact ref 与
+display source 分别计入 `StringItemCount`、`TotalStringBytes` 和 live bytes；artifact ref
+与 display source 不属于 `SingleStringBytes`，但仍受 source 专用 256/1,024 byte 上限。
 
 `max_import_transaction_live_bytes` 精确等于调用点剩余的
 `CompilerControlledLiveBytes`，不另设无限值。解析期同时受 24 MiB source 峰值和该余额
-约束；降阶时使用同一事务账本，把移动的字符串/向量从 source charge 转为 destination
-charge，并在任何新 capacity 请求前检查
-`committed_builder + remaining_source + destination_candidate`。位置被移入 `SourceSpan`
-后立即解除对应 source charge；共同 admission 前 strict bundle 和位置表必须已释放。
+约束；降阶时使用同一事务账本。只有底层 allocation 原样移动到 destination 的 String/Vec
+才能把 source charge 转为 destination charge；packed location、换行索引、owned iterator
+backing 与需要重新分配的 DTO container 在实际 drop 前保持 source charge。任何新 capacity
+请求前检查 `committed_builder + full_live_source_backing + destination_candidate`；按文档或
+整表完成转换并 drop backing 后才一次性解除对应 charge。共同 admission 前 strict bundle、
+位置表和 source-only iterator backing 必须已释放。
+
+G2 transaction 峰值测试至少固定四个观测点：最大 packed table 刚冻结、转换一半、全部元素
+已消费但 owned iterator/backing 尚未 drop、drop 后。每点都比较 ledger、实际 capacity 与
+destination `SourceSpan` 增长；只有第四点允许解除整块 source charge。
 
 语义字符串的 53 字节上限是 compiler profile，不改变 Traffic schema 的 128 字节接受
 域。production-compatible Data 路径继续接受 schema/current loader 已接受的值；strict
-导入超过 53 字节时返回资源诊断，而不是截断、哈希替代、改写 external ID 或隐式提升
-compiler profile。
+source 可以在其有界 DTO 中保留该值，compiler lowering 必须在 destination 分配前以现有
+`LF-COMP-RESOURCE-LIMIT`、dimension=`SingleStringBytes` 失败。禁止截断、哈希替代、
+改写 external ID 或隐式提升 compiler profile。
 
 ## 9. 结构化资源诊断
 
-Source 包资源失败统一使用：
+Source 包的失败面是非空 issue bundle，而不是同时承担“单个问题”和“最多 16 个问题”
+两种含义的裸枚举：
 
 ```rust
-CurrentSourceErrorPayload::LimitExceeded {
-    profile_id: "LF-CURRENT-SOURCE-P100-IMPORT-v1",
-    dimension: CurrentSourceLimitDimension,
-    limit: u64,
-    observed: u64,
-    phase: CurrentSourceLimitPhase,
+pub struct CurrentSourceError {
+    issues: Box<[CurrentSourceIssue]>,
+}
+
+impl CurrentSourceError {
+    pub fn issues(&self) -> &[CurrentSourceIssue];
+    pub fn into_issues(self) -> Box<[CurrentSourceIssue]>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CurrentDocumentRole {
+    Manifest,
+    Traffic,
+    Spatial,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CurrentArtifactRole {
+    Traffic,
+    Spatial,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CurrentSourcePosition {
+    line: u32,
+    column: u32,
+}
+
+impl CurrentSourcePosition {
+    pub const fn line(self) -> u32;
+    pub const fn column(self) -> u32;
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CurrentSourceSpan {
+    start: CurrentSourcePosition,
+    end: CurrentSourcePosition,
+}
+
+impl CurrentSourceSpan {
+    pub const fn start(self) -> CurrentSourcePosition;
+    pub const fn end(self) -> CurrentSourcePosition;
+}
+
+pub struct CurrentSourceIssue {
+    payload: CurrentSourceErrorPayload,
     document: Option<CurrentDocumentRole>,
+    context: CurrentSourceIssueContext,
     path: Option<Box<str>>,
     span: Option<CurrentSourceSpan>,
 }
+
+#[doc(hidden)]
+pub enum CurrentSourceIssueContext {
+    None,
+    ScenarioTraffic { artifact_ref: Box<str> },
+}
+
+#[doc(hidden)]
+pub struct CurrentSourceIssueParts {
+    payload: CurrentSourceErrorPayload,
+    document: Option<CurrentDocumentRole>,
+    context: CurrentSourceIssueContext,
+    path: Option<Box<str>>,
+    span: Option<CurrentSourceSpan>,
+}
+
+impl CurrentSourceIssue {
+    pub const fn payload(&self) -> &CurrentSourceErrorPayload;
+    pub const fn document(&self) -> Option<CurrentDocumentRole>;
+    pub fn artifact_ref(&self) -> Option<&str>;
+    pub fn path(&self) -> Option<&str>;
+    pub const fn span(&self) -> Option<CurrentSourceSpan>;
+
+    #[doc(hidden)]
+    pub fn into_parts(self) -> CurrentSourceIssueParts;
+}
+
+impl CurrentSourceIssueParts {
+    #[doc(hidden)]
+    pub fn into_components(
+        self,
+    ) -> (
+        CurrentSourceErrorPayload,
+        Option<CurrentDocumentRole>,
+        CurrentSourceIssueContext,
+        Option<Box<str>>,
+        Option<CurrentSourceSpan>,
+    );
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CurrentCompilerBudgetDimension {
+    SourceBytesPerModule,
+    SourceBytesTotal,
+    CompilerControlledLiveBytes,
+}
+
+pub enum CurrentSourceErrorPayload {
+    JsonSyntax { source: serde_json::Error },
+    JsonShape { source: serde_json::Error },
+    UnsupportedFormatVersion { expected: &'static str, actual: Box<str> },
+    EmptyArtifactReference,
+    ConflictingManifestArtifactReference { artifact_ref: Box<str> },
+    DuplicateProvidedArtifactReference { artifact_ref: Box<str> },
+    MissingArtifact { role: CurrentArtifactRole, artifact_ref: Box<str> },
+    InvalidMediaType { expected: &'static str, actual: Box<str> },
+    InvalidDigest { actual: Box<str> },
+    ArtifactSizeOutOfRange { actual: u64, max: u64 },
+    ArtifactSizeMismatch {
+        role: CurrentArtifactRole,
+        artifact_ref: Box<str>,
+        expected: u64,
+        actual: u64,
+    },
+    ArtifactDigestMismatch {
+        role: CurrentArtifactRole,
+        artifact_ref: Box<str>,
+        expected: Box<str>,
+        actual: Box<str>,
+    },
+    LimitExceeded {
+        profile_id: &'static str,
+        dimension: CurrentSourceLimitDimension,
+        limit: u64,
+        observed: u64,
+        phase: CurrentSourceLimitPhase,
+    },
+    CompilerBudgetExceeded {
+        dimension: CurrentCompilerBudgetDimension,
+        remaining: u64,
+        observed_delta: u64,
+        phase: CurrentSourceLimitPhase,
+    },
+}
+
+impl CurrentSourceErrorPayload {
+    pub const fn stable_code(&self) -> &'static str;
+}
 ```
 
-`CurrentSourceLimitPhase` 闭合为 `InputPreflight`、`ManifestDecode`、`ArtifactBinding`、
-`TrafficDecode`、`SpatialDecode`、`LocationFreeze`、`CompilerLowering`。compiler 映射为
-`LF-COMP-CURRENT-SOURCE-LIMIT-EXCEEDED`，保留 profile、dimension、limit、observed、
-phase、document、path 和真实 span；不得改写成 JSON shape 或普通 compile limit。
+`CurrentDocumentRole` 与 `CurrentArtifactRole` 都是 source 包闭合枚举；前者为
+`Manifest`、`Traffic`、`Spatial`，后者为 `Traffic`、`Spatial`。compiler 使用穷尽 match
+把前者转换为 feature-gated `CurrentSourceDocumentRole`，不得按整数或字符串重解释。
+所有类型提供只读 accessor；只有 source 包可以构造 issue 或空检查后的 bundle。
+`CurrentSourceIssueParts::into_components` 是 Data/Compiler 取走不可 Clone
+`serde_json::Error` 的唯一 owned bridge；不得通过重建 JSON error 或重新解析 Manifest
+绕过它。`CurrentSourceIssueContext` 只有 `None` 与 `ScenarioTraffic`；只有 scenario 路径中
+已完成 Manifest 绑定的 Traffic wire/version issue 使用后者并携带 `artifact_ref`，Traffic-only
+façade 和其他文档 issue 必须是 `None`，不能用两个相邻的 `Option<Box<str>>` 表达上下文与 path。
+`CurrentSourceError` 永远至少有一项：立即失败形成单元素 bundle；可安全收集的候选先按
+全局规范顺序维护最小 `k = max_diagnostic_count` 条，再升序冻结；它必须等价于保存全部
+候选、完整排序后截取前 `k` 条，但实现只使用固定容量 max-heap/有序数组，不能按输入顺序
+先截断。固定 profile 的 `k` 为 16。
 
-非资源错误继续分型为 JSON syntax/shape、unsupported version、empty/conflicting/
-duplicate/missing artifact ref、media type、portable size、size mismatch、digest syntax/
-mismatch。Source 错误保留 JSON error category、message、规范 `$` path 和真实 span。
-`laneflow-data` 必须映射为现有 `DataError`/`ScenarioError` variant 及其 document、path、
-line、column 字段：立即失败的 syntax 携带原始 `serde_json::Error`，延迟 shape 候选使用
-`serde::de::Error::custom` 构造同为 Data category 的 `serde_json::Error`。兼容测试冻结公共
-variant 和上述顶层字段，不要求嵌套 source error 的 `Display` 逐字节相同。compiler 为这些
-错误分别使用 current-source syntax/shape/version/artifact-binding 诊断；共同语义错误继续
+`CurrentSourceLimitDimension` 闭合为第 8 节 source 专用表中的 17 个变体。
+`CurrentSourceLimitPhase` 闭合为 `InputPreflight`、`ManifestDecode`、`ArtifactBinding`、
+`TrafficDecode`、`SpatialDecode`、`LocationFreeze`。compiler 把 source 专用资源失败映射为
+`LF-COMP-CURRENT-SOURCE-LIMIT-EXCEEDED`，保留 profile、dimension、limit、observed、
+phase、document、path 和真实 span；不得改写成 JSON shape 或普通 compile limit。共同
+compiler 余额失败使用独立 `CompilerBudgetExceeded`，compiler 按穷尽 dimension 映射为现有
+`LF-COMP-RESOURCE-LIMIT`：per-module 直接使用 `observed_delta`，total/live 使用 builder
+已提交量加 `observed_delta` 重建共同 profile 的 `observed`；不得把动态余额先与 source hard
+cap 取最小值后丢失来源。
+
+Source JSON 错误保留 category、message、规范 `$` path 和真实 span。立即失败的 syntax
+携带原始 `serde_json::Error`；延迟 shape 候选可以使用 `serde::de::Error::custom` 保存
+Data category 与 source chain，但该对象的内部 `line()`/`column()` 不是位置事实源。
+`laneflow-data` 必须新增接收显式 `span.start` 的内部构造路径，把它映射为现有
+`DataError`/`ScenarioError` variant 及其 document、path、line、column 字段；禁止再次从
+延迟 `serde_json::Error` 读取可能为 `0:0` 或文档末尾的位置。兼容测试冻结公共 variant、
+document、path 与 category，并验证新 line/column 是第 10 节 canonical anchor；不比较旧
+Serde 游标数值，也不要求嵌套 source error 的 `Display` 逐字节相同。compiler 为这些错误
+分别使用 current-source syntax/shape/version/artifact-binding 诊断；共同语义错误继续
 使用现有 compiler 诊断码和 canonical ordering。
 
-诊断上限只截取规范排序后的前 16 条。资源 preflight、摘要/配对和无法安全继续解析的
-syntax 错误为单一立即失败；可安全收集的同阶段 shape/semantic 候选按
-`document role → start position → code → typed payload` 排序。错误文本不参与排序或摘要。
+资源 preflight、摘要/配对和无法安全继续解析的 syntax 错误为单一立即失败；可安全收集
+的同阶段 shape/semantic 候选按
+`document role → start position → stable issue code → artifact ref UTF-8 bytes → canonical path UTF-8 bytes → typed payload`
+排序，`None` 在对应 `Some` 前。role、dimension 和数值字段参与 typed payload
+比较；JSON message、`Display` 文本和嵌套 source 文本不参与排序或摘要。
+
+`CurrentSourceErrorPayload::stable_code()` 以穷尽 match 返回下表固定 ASCII 值；新增 variant
+必须同时扩展该表，不能退化为 `Debug`/`Display`：
+
+| payload variant                        | stable issue code                            |
+| -------------------------------------- | -------------------------------------------- |
+| `JsonSyntax`                           | `LF-CURRENT-SOURCE-JSON-SYNTAX`              |
+| `JsonShape`                            | `LF-CURRENT-SOURCE-JSON-SHAPE`               |
+| `UnsupportedFormatVersion`             | `LF-CURRENT-SOURCE-FORMAT-VERSION`           |
+| `EmptyArtifactReference`               | `LF-CURRENT-SOURCE-EMPTY-ARTIFACT-REF`       |
+| `ConflictingManifestArtifactReference` | `LF-CURRENT-SOURCE-CONFLICTING-ARTIFACT-REF` |
+| `DuplicateProvidedArtifactReference`   | `LF-CURRENT-SOURCE-DUPLICATE-ARTIFACT-REF`   |
+| `MissingArtifact`                      | `LF-CURRENT-SOURCE-MISSING-ARTIFACT`         |
+| `InvalidMediaType`                     | `LF-CURRENT-SOURCE-MEDIA-TYPE`               |
+| `InvalidDigest`                        | `LF-CURRENT-SOURCE-DIGEST`                   |
+| `ArtifactSizeOutOfRange`               | `LF-CURRENT-SOURCE-ARTIFACT-SIZE-RANGE`      |
+| `ArtifactSizeMismatch`                 | `LF-CURRENT-SOURCE-ARTIFACT-SIZE-MISMATCH`   |
+| `ArtifactDigestMismatch`               | `LF-CURRENT-SOURCE-ARTIFACT-DIGEST-MISMATCH` |
+| `LimitExceeded`                        | `LF-CURRENT-SOURCE-LIMIT`                    |
+| `CompilerBudgetExceeded`               | `LF-CURRENT-SOURCE-COMPILER-BUDGET`          |
 
 ## 10. 来源位置闭合集合
 
-`CurrentSourceLocationTable` 只保存下列位置；每项均为文档角色、有类型记录键/字段键和
-真实起止位置。identity/owner/relation 的 span 必须与其目标键一起移动，不能依赖 current
-数组下标与 canonical ordinal 相同。
+`CurrentSourceLocationTable` 只保存下列位置的 packed byte range；每项均由文档角色、
+有类型记录键/字段键和真实 `[start, end)` 组成，并由 capability 同时拥有的换行索引解析。
+identity/owner/relation 的 range 必须与其目标键一起移动，compiler lowering 解析成
+`SourceSpan` 后继续随同一 permutation 移动，不能依赖 current 数组下标与 canonical
+ordinal 相同。
+
+解析期原始范围统一为零基、半开 byte 区间 `[start, end)`；字符串 token 包含双引号，
+object/array record 包含首尾 delimiter。冻结后的 `CurrentSourceSpan` 与 compiler
+`SourceSpan` 使用一基行列和包含式 end；column 按 UTF-8 byte 计数，与
+`serde_json::Error` 一致。只有 `LF` 增加行号；`CRLF` 中的 `CR` 属于前一行，`LF` 后首
+byte 为下一行第 1 列。非空 token 的 end 取 `end - 1` 所在位置；syntax/EOF 没有完整
+token 时使用 `serde_json::Error` 的一基位置构造单点 span。边界测试必须覆盖 ASCII、
+多字节 UTF-8、转义字符串、`LF`、`CRLF`、空 object/array、trailing content 与 EOF。
 
 ### 10.1 Manifest
 
@@ -576,8 +846,10 @@ ordinal 写入 identity。若两个 lane 共享首 edge，输入本就违反唯�
 
 Movement 的两个 approach key 是 current 格式缺失字段的迁移域分隔键；它们只由显式
 movement ID 和固定后缀派生。派生前检查长度；超过有效 `SingleStringBytes` 返回
-`LF-COMP-CURRENT-DERIVED-KEY-TOO-LONG`，不得截断或哈希替换。它们不伪装为 LaneEdge
-引用；真实 entry/internal/exit topology 仍只来自 ManeuverPath。
+现有 `LF-COMP-RESOURCE-LIMIT`，dimension=`SingleStringBytes`，并在 typed path/reason
+中标明 derived approach key；不得另立看似语义错误的顶层诊断码，也不得截断或哈希
+替换。它们不伪装为 LaneEdge 引用；真实 entry/internal/exit topology 仍只来自
+ManeuverPath。
 
 Traffic/Spatial 数字先保留 current wire 的 `f64`/整数词法；compiler 私有降阶调用现有
 共同构造/语义约束。Spatial 坐标在其真实 axis span 上检查有限性与
@@ -608,20 +880,76 @@ source、lowering、semantic 或 common admission 错误都释放 strict capabil
 
 字符串、记录、引用、关系、几何和来源位置均只计数一次。允许把 owned String/Vec 从
 source DTO 按值移动到私有 module；禁止 clone 完整 DTO、来源全文、所有字符串或几何点，
-禁止第二次 SHA-256、第二次 JSON 文档解析、第二次资源枚举或第二次规范排序。
+禁止第二次 SHA-256、第二次根 JSON 文档解析、第二次资源枚举或第二次规范排序；唯一允许
+的局部重放是第 7 节两种策略共享的有界 record token。`NoLocations` 只保留单故障 anchor，
+`CaptureLocations` 才封存完整 packed table。
 
 ## 13. 资产审计与等价矩阵
 
-G2/G3 必须生成机器可读资产清单，至少含仓库相对路径、Git blob、原始字节数、SHA-256、
-格式版本、pairing 状态、迁移结论和结构化失败原因。当前冻结分类为：
+G2/G3 必须生成符合
+[`current-asset-audit-v1.schema.json`](../reference/current-asset-audit-v1.schema.json) 的
+`laneflow.current-asset-audit` v1 报告。仓库资产清单（repository inventory）精确取被审计
+提交中 `git ls-files examples/data` 的全部 JSON，再由 formatVersion/Manifest binding 分类；
+不能只列成功样例。
 
-| 仓库资产                                                      | 预期分类                                                                   |
-| ------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `v0.1-signalized-corridor.scenario.json` 及其 Traffic/Spatial | paired-success；完整静态、pose、行为证据                                   |
-| `v0.1-campus.scenario.json` 及其 Traffic/Spatial              | paired-success；静态/空间与确定性证据                                      |
-| `v0.10-parking-signals-baseline.laneflow.json`                | `unpaired-traffic-only`；继续通过 Traffic-only Data，不提交三文档 importer |
-| `v0.10-multi-gate-waiting-zone.laneflow.json`                 | `unpaired-traffic-only`；继续作为 current oracle，失败清单不得称格式无效   |
-| 仓库 v0.2–v0.9 历史 Traffic                                   | `unsupported-current-version`；不可喂给 v0.10 importer                     |
+### 13.1 已发布资产范围
+
+截至 2026-08-07 的 #297 产品事实是：项目尚未发布 1.0，也从未通过 GitHub Release、安装包
+或直接用户交付三个正式渠道发布 current JSON 数据。v1 因而把已发布资产清单（published
+inventory）冻结为 `status=complete` 的可验证空清单，而不是无法验证的 `not-applicable`
+声明。范围 profile 固定为 `LF-CURRENT-PUBLISHED-INVENTORY-v1`，按顺序包含
+`github-releases`、`installer-bundles`、`direct-user-delivery`，资产数固定为 0。
+
+空清单摘要字节固定为 ASCII `LFCURRENT-PUBLISHED-INVENTORY-v1`、little-endian `u16`
+渠道数、每个渠道的 little-endian `u16` 长度与 UTF-8 bytes，最后是值为 0 的 little-endian
+`u64` 资产数；其 SHA-256 已知向量为
+`5226af57e4d4d869f36b25b38b747f1e2d04820b93c3af11dff8dd00c3580ad3`。报告的 locator
+固定指向被审计提交中的本节。若 G2/G3 前任一渠道首次发布 current JSON，必须回到 G1
+提升已发布资产范围 profile 与报告 schema，不能继续复用空清单 pass。
+
+repository inventory source 的 digest 是原样执行
+`git ls-files -z -- 'examples/data/*.json'` 所得 NUL-separated bytes 的 SHA-256。v1 published
+source 必须精确携带上述 scope profile、三个渠道、零资产数、固定 locator 与已知摘要；schema
+禁止任何 published asset row。
+
+`assets[]` 按 path 的 UTF-8 字节序唯一
+排序。`inventoryDigest` 固定为 SHA-256(`LFCURRENT-ASSET-INVENTORY-v1` + 对每项依次编码
+1-byte inventory kind、little-endian `u64 path_len`、path bytes、20-byte Git blob、little-endian
+`u64 byteLength`、32-byte source SHA-256 raw bytes)。inventory kind 冻结为 repository=`0x00`、
+published=`0x01`；Git/SHA-256 hex 必须先解码为 raw bytes。v1 没有 published row；后继 profile
+即使增加它，也必须令 `gitBlob=null` 并在摘要中编码 20 个零 byte。G2 必须提供 canonical
+encoder 已知向量测试。
+
+逐项状态由 schema 的闭合分支裁决：配对迁移成功必须是 `paired-success + success + 空诊断`；
+仓库内仅交通数据与非当前版本分别是 `unpaired-traffic-only` /
+`unsupported-current-version + expected-failure + 非空诊断`；任何未处理迁移失败只能是
+`migration-failure + unhandled-failure + 非空诊断`。`overallStatus=pass` 只允许前三个
+expected=actual 分支且 cleanup Issue/owner 非空；存在任一 migration failure 时只能是 fail。
+
+### 13.2 仓库证据提交与原子发布
+
+报告审计干净父提交 A，`source.commit=A`；最终证据提交 E 的唯一父提交必须是 A，且 `A..E`
+只能新增固定路径
+`docs/reference/current-asset-audit-v1-<A>.json`。G3 exact head 是 E，G3 comment 同时记录 A、
+E、固定路径与报告 Git blob；validator 必须实际验证父子关系和唯一文件差异，不能仅相信文件名。
+rebase 或任何 A 内容变化都必须重新生成报告。
+
+报告 bytes 固定为 UTF-8 无 BOM、两空格缩进、LF 换行、单个末尾 LF；object 字段按 schema
+声明顺序，数组按本文规范顺序，使用固定 serde_json 版本的标准字符串转义。工具在同目录写
+唯一临时文件，完成 flush/file sync 后用同文件系统 `hard_link(temp, final)` 发布，从而取得
+atomic no-clobber；成功后删除临时名并在平台支持时 sync 目录。`AlreadyExists` 时读取 final，
+只接受 byte-identical 幂等结果；其他错误失败关闭。不得使用会覆盖目标的普通 rename，也不
+得在 hard-link 不可用时退化为非原子覆盖；任何失败都删除临时文件并保留既有报告。
+
+当前冻结分类为：
+
+| 仓库资产                                                      | 预期分类                                                                                     |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `v0.1-signalized-corridor.scenario.json` 及其 Traffic/Spatial | `paired-success`（配对迁移成功）；完整静态、pose、行为证据                                   |
+| `v0.1-campus.scenario.json` 及其 Traffic/Spatial              | `paired-success`（配对迁移成功）；静态/空间与确定性证据                                      |
+| `v0.10-parking-signals-baseline.laneflow.json`                | `unpaired-traffic-only`（仅交通数据、预期不迁移）；继续通过 Data 回归，不提交三文档 importer |
+| `v0.10-multi-gate-waiting-zone.laneflow.json`                 | `unpaired-traffic-only`（仅交通数据、预期不迁移）；作为 current 回归基准，不得称格式无效     |
+| 仓库 v0.2–v0.9 历史 Traffic                                   | `unsupported-current-version`（非当前版本、预期不迁移）；不可喂给 v0.10 importer             |
 
 `LF-COMP-CURRENT-EQUIV-v2` 在现有 v1 独立投影基础上增加真实 #297 importer 路径，冻结：
 
@@ -637,6 +965,11 @@ G2/G3 必须生成机器可读资产清单，至少含仓库相对路径、Git b
   owner-local relation、geometry axis 和派生 owner；释放原始 bytes 后仍可查询 origin；
 - production-compatible 长 ref、超过 16 个唯一额外制品、唯一额外 payload 和 128 字节
   current ID 保持现有接受；相同输入在 strict 超限时于增长前返回资源诊断；
+- 三种文档分别覆盖 `formatVersion` 缺失、显式 `null`、非字符串、重复 occurrence，以及
+  unsupported version 与其他 DTO shape 同时存在的组合；前四类保持 `JsonShape`，重复时不选择
+  任一 occurrence，只有唯一合法字符串版本才先于其他 shape 返回 unsupported version；
+- Manifest 绑定前存在未引用的大 payload 时，该 payload 不进入 `selected_source_bytes`，
+  source-byte 余额只在 Manifest 绑定后、被选中 Traffic/Spatial 哈希/解析/分配前裁决；
 - 每个资源维度执行边界、边界加一、先加其他模块、加入顺序变形、失败不污染和重试；
 - v1 compile profile 在读取/哈希/解析前以 `SourceDocumentCount` profile-incompatible
   失败，v2/后继显式多文档 profile 才能导入。
@@ -650,28 +983,40 @@ G2/G3 必须生成机器可读资产清单，至少含仓库相对路径、Git b
 
 生产影响必须受控：`laneflow-data` 多一次 Manifest 文档摘要，但 Traffic/Spatial 摘要
 仍各一次；production 不建立位置表或 strict lookup，不增加制品数/ref 拒绝条件。共享
-泛型 DTO 会增加 source 包代码复杂度，`CaptureLocations` 的 token-local raw decode、换行
-索引和位置槽会提高离线 strict 解析常数，但它们默认不进入 Runtime，且换来真实定位与
-增长前上限。独立 source crate 还增加一个 unpublished 内部边界和迁移期维护成本；该成本
+泛型 DTO 会增加 source 包代码复杂度；两种策略共享的 record replay/token-local raw decode
+会改变 production 与 strict 解析常数，strict 另承担换行索引和位置槽。它们不进入 Traffic
+Runtime 固定步进，换来统一 version-before-shape 与真实定位。独立 source crate 还增加一个
+unpublished 内部边界和迁移期维护成本；该成本
 由阶段 8 后明确退役抵消，而不是形成永久兼容层。
 
-G2 基准必须分别报告：production-compatible 场景加载基线/候选；strict Manifest、Traffic、
-Spatial 解码；SHA-256/换行索引；位置冻结；current lowering；共同 admission；完整 compile。
-不得把 strict 解析成本归入 #315 admission regression，也不得只报告成功结果 live bytes。
-每份原始文档的 parse 和 SHA-256 调用次数必须由测试计数器证明为 1。
+G2 基准显式继承 [`compiler-foundation.md`](compiler-foundation.md) 第 10.4 节：同一 P100
+机器、相同 release 配置，每级至少 1 次预热和 7 次正式样本，报告 median、MAD、compiler
+控制峰值与保留容量；任何可重复时延或内存回退必须定位并修复，或携带事实回到 G1。
+current 专用报告分别覆盖：production-compatible 场景加载基线/候选及其 record-token replay
+字节与时延；strict Manifest、Traffic、Spatial 解码及其 replay；SHA-256/换行索引；位置冻结；current
+lowering；共同 admission；完整 compile。不得把 strict 解析成本归入 #315 admission
+regression，也不得只报告成功结果 live bytes。
+
+每份原始文档的根 deserializer 和 SHA-256 调用次数必须由测试计数器证明为 1；两种策略都
+证明每个固定 schema record token 至多 replay 一次。production 不建立位置表，成功路径和
+错误路径都不得执行第二次根解析；与现有双阶段 loader 相比出现稳定 production 回退时必须
+修复或回到 G1。
 
 ## 15. G2 实施切片
 
-G1 Pass 后按以下顺序落地，任一切片都不能提前写入 Runtime：
+只有 #297 已取得 G1 Pass，并基于当时 exact `main` 完成 GitHub 元数据、依赖关系、#315
+`G4 Exception` 继承边界和 cleanup Issue/owner 复核且追加独立 `G2 Pass` 后，才按以下顺序
+落地；任一切片都不能提前写入 Runtime：
 
 1. 新建 `laneflow-current-source`，迁移 wire DTO、版本/摘要/配对与 Traffic-only 能力；
    用兼容矩阵证明 `laneflow-data` accepted set 未收窄后删除 Data 的重复 DTO/配对实现。
-2. 增加 strict profile、增长前 visitor、static location policy、换行索引、位置闭合集合和
-   source 自身边界测试。
+2. 增加共享增长前 visitor、有界 record-token replay、static location policy，以及 strict
+   profile、packed 位置槽、换行索引、位置闭合集合和 source 自身边界测试。
 3. 在 compiler 默认关闭特性下增加 `CurrentSourceArtifact`/`CurrentSourceInput`、余额派生、
    current 私有降阶、三文档描述符/源映射和原子 admission；补 compile-fail/API/DAG 测试。
-4. 新建只依赖 compiler 的薄 `laneflow-current-import`，实现批量调用、机器可读资产报告和
-   失败清单；文件读取、路径解析和输出写入只在该宿主工具层。
+4. 新建只依赖 compiler 的薄 `laneflow-current-import`，实现批量调用、符合
+   `current-asset-audit-v1.schema.json` 的机器可读资产报告和失败清单；文件读取、路径解析
+   和原子输出只在该宿主工具层。
 5. 完成 `LF-COMP-CURRENT-EQUIV-v2`、release 性能/内存、全 workspace CI、外部审阅、G3/G4
    证据；#294 只有在 paired success 与显式失败清单完整后才能消费删除前置。
 
@@ -685,8 +1030,9 @@ G1 Pass 后按以下顺序落地，任一切片都不能提前写入 Runtime：
 - [x] `LF-CURRENT-SOURCE-P100-IMPORT-v1` 全部固定值、builder 余额派生和 live 事务精确；
 - [x] Manifest/Traffic/Spatial 字段与记录位置闭合集合精确；
 - [x] current external ID、迁移派生 key、owner/coverage/geometry 降阶精确；
-- [x] repository asset 分类、等价/确定性/资源/兼容/性能矩阵精确；
+- [x] 仓库资产分类、已发布资产空清单、证据提交、等价/确定性/资源/兼容/性能矩阵精确；
 - [ ] 本地全面审阅、当前 exact-head 外部 clean review 与 #297 `G1 Pass` 尚未完成。
 
 本文件处于 Review；勾选设计内容表示候选已写全，不表示治理 Gate 已通过。只有 #297
-追加 exact-head `G1 Pass` 后，本文件才能改为 Accepted 并授权 G2。
+追加 exact-head `G1 Pass` 后，本文件才能改为 Accepted；实现仍须按第 15 节另行取得
+`G2 Pass`，G1 本身不授权开工。
