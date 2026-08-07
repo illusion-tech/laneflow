@@ -1070,7 +1070,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         );
     }
 
-    if let Some(verified) = verified_lockfile.as_ref() {
+    let has_substantive_finding = !finding_thread_ids.is_empty() || unthreaded_findings > 0;
+    if let Some(verified) = verified_lockfile
+        .as_ref()
+        .filter(|_| !has_substantive_finding)
+    {
         push_evidence(
             &mut evidence,
             &mut diagnostics,
@@ -1087,6 +1091,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         );
         notices.push(
             "精确 Dependabot 单提交 Cargo.lock-only 元数据已由 trusted-ref policy 机器验证"
+                .to_string(),
+        );
+    } else if verified_lockfile.is_some() {
+        notices.push(
+            "历史中存在实质 finding；Dependabot lockfile 机器完成态已禁用，等待 current-head reviewer clean completion"
                 .to_string(),
         );
     }
@@ -2925,6 +2934,38 @@ mod tests {
         assert_ne!(
             evaluate_snapshot(&lockfile).state,
             ExternalReviewState::Pass
+        );
+    }
+
+    #[test]
+    fn machine_completion_does_not_hide_old_head_substantive_finding() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        let old_head = "4d2fb5becdaed398cb61ea42191f1e477a18ad1a";
+        snapshot.pull_request.reviews.nodes[0]
+            .commit
+            .as_mut()
+            .expect("fixture review must have a commit")
+            .oid = old_head.to_string();
+        let finding = &mut snapshot.pull_request.review_threads.nodes[0].comments.nodes[0];
+        finding.body = "The lockfile contains an invalid checksum.".to_string();
+        finding
+            .pull_request_review
+            .as_mut()
+            .expect("fixture finding must reference its review")
+            .commit
+            .as_mut()
+            .expect("fixture review reference must have a commit")
+            .oid = old_head.to_string();
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_ne!(result.state, ExternalReviewState::Pass);
+        assert!(
+            result
+                .evidence
+                .iter()
+                .all(|item| item.source_kind != "machine_verification")
         );
     }
 
