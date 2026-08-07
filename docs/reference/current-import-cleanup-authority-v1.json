@@ -1,0 +1,10 @@
+{
+  "schema": "laneflow.current-import-cleanup-authority",
+  "schemaVersion": 1,
+  "retirementProfile": "LF-CURRENT-OFFLINE-MIGRATION-RETIREMENT-v1",
+  "sourceIssue": "https://github.com/illusion-tech/laneflow/issues/297",
+  "g2Evidence": "https://github.com/illusion-tech/laneflow/issues/297#issuecomment-5223228274",
+  "cleanupIssue": "https://github.com/illusion-tech/laneflow/issues/333",
+  "cleanupIssueNodeId": "I_kwDOS9Hn_c8AAAABL6tLzA",
+  "cleanupOwner": "wangzishi"
+}
