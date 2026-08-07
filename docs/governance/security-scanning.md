@@ -69,6 +69,19 @@ ADR 0011 把 catalog 中的 JSON Schema `$id` 定义为 public retrieval URL。S
 
 该 availability 证据不替代 Code Scanning、Secret Scanning、Dependabot 或 cargo-deny，也不能把这些安全能力的失败解释为 schema hosting 问题。消费者主动下载 schema 时，网络来源、revision/content pin、完整性和输入限制仍由其部署边界负责。
 
+#### Deployment 失败与重试边界
+
+当前官方 `actions/deploy-pages` 路径把 `GITHUB_SHA` 作为 `pages_build_version`。当某一版本的 deployment 在超时后被取消或进入终态失败时，同一 SHA 的 workflow rerun 或独立 dispatch 不能作为新的部署身份证据；操作者不得把同一 SHA 的重复失败解释为 schema 内容漂移，也不得用无界重试替代调查。
+
+处置顺序：
+
+- 保存首次 deployment、失败 job rerun、独立 dispatch 和 live monitor 的运行链接、状态与 SHA；
+- 通过 Pages、environment、deployment 和 Actions queued / in-progress API 区分内容问题、排队状态与终态失败；
+- 没有残留 deployment 或队列证据时，不删除或重建 Pages site / environment，也不删除历史 deployment；
+- 等待合法的后续不同 `main` SHA；若 path filter 未触发，从该 SHA 对应的 `main` ref 手工 dispatch；
+- 只有 build、deploy、canonical verify 全部成功且 Pages deployment status 为 `succeed`，才能把 publication 恢复写入 G4 证据；独立 monitor 成功只证明线上内容当前可用且 byte equality 成立，不证明失败 deployment 已恢复；
+- 后续不同 SHA 仍失败时，停止同类重试，回到 G1 评估 workflow 变更，或携带已保存的平台证据升级调查。
+
 ## 3. 状态语义
 
 安全审计必须记录能力状态、最近运行状态和开放告警结果，不得只写“通过”。
