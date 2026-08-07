@@ -878,18 +878,19 @@ fn reconcile_codeql_check_runs(
         check.completed_at.clone_from(&trusted.completed_at);
         check.pull_requests.clone_from(&trusted.pull_requests);
     }
-    let retained_official_codeql = pr_bound_checks.iter().any(|check| {
-        check.typename == "CheckRun"
-            && check.name == "CodeQL"
-            && check.app_slug == "github-advanced-security"
-    });
-    if !retained_official_codeql {
-        pr_bound_checks.extend(
-            rest_checks
-                .into_iter()
-                .filter(|check| check.app_slug == "github-advanced-security"),
-        );
-    }
+    let retained_urls = pr_bound_checks
+        .iter()
+        .map(|check| check.details_url.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let unmatched_official = rest_checks
+        .iter()
+        .filter(|check| {
+            check.app_slug == "github-advanced-security"
+                && !retained_urls.contains(check.details_url.as_str())
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    pr_bound_checks.extend(unmatched_official);
     Ok(std::mem::take(pr_bound_checks))
 }
 
@@ -1199,6 +1200,26 @@ mod tests {
                 .expect("official REST CodeQL must survive a same-name spoof");
         assert_eq!(snapshot.pull_request.status_check_rollup.len(), 2);
         assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Failed);
+    }
+
+    #[test]
+    fn retains_every_unmatched_official_rest_codeql_candidate() {
+        let mut snapshot = fixture(include_str!("../fixtures/codeql/lockfile-neutral.json"));
+        let retained_success = snapshot.pull_request.status_check_rollup[0].clone();
+        let mut later_failure = retained_success.clone();
+        later_failure.details_url =
+            "https://github.com/illusion-tech/laneflow/runs/92499577540".to_string();
+        later_failure.conclusion = "FAILURE".to_string();
+        let mut rollup = vec![retained_success.clone()];
+
+        snapshot.pull_request.status_check_rollup =
+            reconcile_codeql_check_runs(&mut rollup, vec![retained_success, later_failure])
+                .expect("unmatched official REST CodeQL must be retained");
+        assert_eq!(snapshot.pull_request.status_check_rollup.len(), 2);
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            CodeQlState::ProviderError
+        );
     }
 
     #[test]
