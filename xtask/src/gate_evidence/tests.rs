@@ -961,7 +961,7 @@ fn codeql_completion_must_not_follow_the_append_only_g3_comment() {
             "2026-08-07T10:00:01Z",
             Some("2026-08-07T10:00:01Z")
         )
-        .is_ok()
+        .is_err()
     );
     assert!(
         validate_codeql_completion_order(
@@ -1005,7 +1005,7 @@ fn external_review_completion_uses_fractional_timestamp_ordering() {
             "2026-08-07T10:00:01Z",
             "2026-08-07T10:00:01Z"
         )
-        .is_ok()
+        .is_err()
     );
 }
 
