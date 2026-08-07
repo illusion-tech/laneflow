@@ -1092,8 +1092,12 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
     }
 
     evidence.sort_by(|left, right| {
-        left.submitted_at
-            .cmp(&right.submitted_at)
+        lockfile_policy::parse_utc_rfc3339(&left.submitted_at)
+            .expect("evidence timestamp must be validated before sorting")
+            .cmp(
+                &lockfile_policy::parse_utc_rfc3339(&right.submitted_at)
+                    .expect("evidence timestamp must be validated before sorting"),
+            )
             .then_with(|| left.evidence_url.cmp(&right.evidence_url))
     });
 
@@ -1163,8 +1167,8 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             Some("存在完整结构化 waiver；不得映射为标准 pass".to_string()),
         )
     } else if let Some(finding) = latest_finding {
-        let clean_after_finding =
-            latest_clean.filter(|clean| clean.submitted_at > finding.submitted_at);
+        let clean_after_finding = latest_clean
+            .filter(|clean| timestamp_after(&clean.submitted_at, &finding.submitted_at));
         if unresolved_actionable_threads > 0 {
             (
                 ExternalReviewState::FindingsOpen,
@@ -2894,6 +2898,41 @@ mod tests {
         assert_eq!(result.finding_count, 2);
         assert_eq!(result.unresolved_actionable_threads, 0);
         assert!(!result.requires_rereview);
+    }
+
+    #[test]
+    fn fractional_finding_after_whole_second_clean_requires_rereview() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-awaiting-rereview.json"
+        ));
+        snapshot.pull_request.reviews.nodes[0].submitted_at =
+            Some("2026-07-24T03:21:50.2Z".to_string());
+        let finding_comment = &mut snapshot.pull_request.review_threads.nodes[0].comments.nodes[0];
+        finding_comment.created_at = "2026-07-24T03:21:50.2Z".to_string();
+        finding_comment.updated_at = finding_comment.created_at.clone();
+        finding_comment
+            .pull_request_review
+            .as_mut()
+            .expect("fixture finding must reference its review")
+            .submitted_at = Some("2026-07-24T03:21:50.2Z".to_string());
+        snapshot.pull_request.comments.nodes.push(IssueComment {
+            id: "IC-codex-earlier-clean".to_string(),
+            author: Some(Actor {
+                login: "chatgpt-codex-connector".to_string(),
+            }),
+            body: format!(
+                "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `{}`",
+                snapshot.pull_request.head_ref_oid
+            ),
+            created_at: "2026-07-24T03:21:50Z".to_string(),
+            updated_at: "2026-07-24T03:21:50Z".to_string(),
+            url: "https://github.com/illusion-tech/laneflow/pull/226#issuecomment-earlier-clean"
+                .to_string(),
+        });
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
+        assert!(result.requires_rereview);
     }
 
     #[test]
