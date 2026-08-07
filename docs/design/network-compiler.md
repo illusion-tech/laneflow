@@ -310,8 +310,9 @@ current 导入必须在读取/哈希/解析前拒绝 v1；Geometry 按 #296 冻�
 配对性能验证以 `compiler-foundation.md` 第 2.3、3.3 与 10.4 节为权威。
 对 current 原始制品，`laneflow-current-source` 在一套私有版本、解析、配对与摘要实现上分离两种官方策略：
 `laneflow-data` 使用的当前态生产兼容策略不得新增制品数、单个引用长度或引用总字节拒绝条件；compiler
-使用的严格导入策略必须在 builder 的同一次 `&mut self` 调用内取得剩余 `CurrentSourceLimits`，并在按
-输入规模分配前生效，不存在默认、无限、外部预取后回传或先完整解码后计数的严格路径。
+使用的严格导入策略必须在 builder 的同一次 `&mut self` 调用内取得剩余 `CurrentSourceLimits`，并由
+source-owned 可克隆精确长度借用迭代器在按输入规模分配前完成预检；compiler 不镜像 source 硬上限或
+构造中间 view `Vec`。不存在默认、无限、外部预取后回传或先完整解码后计数的严格路径。
 该严格入口为 compiler 跨包调用而可见，不被误写为 friend-crate 隔离；官方 importer 通过包依赖图
 禁止直接依赖 `laneflow-current-source`，只把 compiler 自有的借用输入交给 builder。任意外部程序
 自行声明 source 依赖后进行的调用方自有（caller-owned）解析不属于 compiler 资源保证，其结果也不能提交给 builder。
@@ -1765,7 +1766,8 @@ laneflow-adapter-* ------> laneflow-spatial
 laneflow-adapter-* ------> laneflow-static-image
 ```
 
-#315 G1 另外已接受下列迁移专用边界；它不进入上述目标生产/运行时包依赖图：
+#315 G1 另外已接受下列迁移专用边界；下图只表达 LaneFlow 项目内包依赖，它不进入上述目标
+生产/运行时包依赖图：
 
 ```text
 laneflow-compiler --[current-v0_10-import]--> laneflow-current-source
@@ -1796,9 +1798,11 @@ laneflow-data ------------------------------> laneflow-current-source
 Traffic/Spatial，`laneflow-data`
 与 compiler 的迁移特性都只能消费各自策略返回的受检结果，不得重复或绕过绑定；无需空间
 制品的 Traffic-only current Core 入口保持独立。`laneflow-data` 继续拥有当前
-Core/Spatial 规范化；`laneflow-current-import` 只选择迁移特性、经公开零复制构造器整理借用的
-`CurrentSourceInput` 并调用 compiler 的原子入口，不预取上限、不自行铸造或回传受检能力，也不接触
-compiler 私有 builder。该构造器不解析、哈希、验证或要求调用方构造字段私有来源记录。
+Core/Spatial 规范化；`laneflow-current-import` 以 compiler 为唯一 LaneFlow 直接依赖，只选择迁移
+特性、经公开零复制构造器整理借用的 `CurrentSourceInput` 并调用 compiler 的原子入口；它可以按
+#297 白名单直接使用 `serde`、`serde_json`、`sha2` 与 `thiserror` 完成宿主工具职责，但不预取上限、
+不自行铸造或回传受检能力，也不接触 compiler 私有 builder。该构造器不解析、哈希、验证或要求
+调用方构造字段私有来源记录。
 默认 `laneflow-compiler` 不能依赖迁移包；其迁移特性只依赖无 Core/Spatial 对象图的
 `laneflow-current-source`，导入器也不能消费
 `InitialTrafficData` 或 `SpatialRegistry`；其正常依赖中也不得出现 `laneflow-current-source`，

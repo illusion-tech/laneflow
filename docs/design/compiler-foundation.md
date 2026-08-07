@@ -179,7 +179,7 @@ HIR 和 MIR 的区块分配键（arena key）则留在编译器内部。这样�
 ### 2.3 #315 官方前端共同接入与 #297 迁移边界（Accepted）
 
 #315 G1 已接受保持 `laneflow-compiler` 的生产依赖方向不变，并为 #296/#297 冻结下列
-目标包依赖图。箭头仍表示左侧正常依赖右侧；图中的当前态/迁移相关包都设置
+LaneFlow 项目内目标包依赖图。箭头仍表示左侧正常依赖右侧；图中的当前态/迁移相关包都设置
 `publish = false`，不进入 Traffic Runtime 依赖闭包：
 
 ```text
@@ -198,7 +198,11 @@ laneflow-data ------------------------------> laneflow-spatial
 `laneflow-compiler` 在 current 导入构建中依赖下述字段私有受检能力；不让默认编译器、
 目标静态镜像、交通运行时或空间层依赖 current 包。`laneflow-current-import` 只通过
 `laneflow-compiler` 依赖选择该特性并串联验证与编译；它不得直接依赖
-`laneflow-current-source`，也不拥有或穿透编译器私有的有类型抽象语法树构造器。
+`laneflow-current-source`，也不拥有或穿透编译器私有的有类型抽象语法树构造器。这里的
+“只通过 compiler”约束的是 LaneFlow 项目内领域依赖；importer 为机器报告和宿主工具职责
+显式直接依赖 `serde`、`serde_json`、`sha2` 与 `thiserror`，其精确版本由提交内唯一的
+`Cargo.lock` 和 `--locked` 命令锁定。该第三方白名单不能成为访问 current-source、Data、
+Core、Spatial 或 compiler 私有接入的旁路，精确报告字节由 #297 已知向量失败关闭。
 
 `laneflow-current-source` 是版本锁定的当前态来源包唯一线格式验证权威，拥有 Traffic v0.10、
 SpatialPackage v0.1 与 ScenarioManifest v0.1 的数据传输对象（wire Data Transfer Object，
@@ -309,7 +313,8 @@ compiler 调用点的局部 / 累计剩余预算必须分别保留，不能预�
 迁移特性下的 compiler 私有当前态降阶继续独占迁移映射。由此既避免两套 JSON 解析、版本判断和
 摘要验证，也不会把当前对象图依赖引入来源包。
 
-`laneflow-current-import` 的正常库依赖只包含启用迁移特性的 `laneflow-compiler`；它只负责整理借用的
+`laneflow-current-import` 唯一的 LaneFlow 项目内正常库依赖是启用迁移特性的
+`laneflow-compiler`；除第 2.3 节冻结的第三方支撑依赖白名单外，它只负责整理借用的
 `CurrentSourceInput` 并调用
 `CompilationUnitBuilder::add_current_source`；剩余上限派生、严格来源验证与接入事务都留在该
 builder 调用内。由于没有到 `laneflow-current-source` 的直接依赖，它不能预取或复制
@@ -1284,7 +1289,10 @@ LIR 或后继制品。
 当前态来源的后继验证还必须覆盖：Manifest 角色仍恰好为 Traffic/Spatial；当前态生产兼容策略接受
 schema 合法且既有加载器接受的长不透明引用、任意数量唯一制品和未引用的唯一额外制品，并保持全集合
 非空/唯一语义；同一输入在严格编译导入策略超过制品数、单个引用长度或引用总字节时，于任何集合索引
-分配前返回结构化资源诊断；两种策略都只对 Manifest 引用的两份载荷执行长度、SHA-256 和解析；
+分配前返回结构化资源诊断；strict API 接收 compiler 构造的可克隆精确长度借用迭代器，由 source
+完整扫描克隆迭代器并核对实际数量后才分配 lookup backing，消费原迭代器时再次增长前检查，compiler
+不得镜像 source 硬上限或先构造中间 `Vec`；两种策略都只对 Manifest 引用的两份载荷执行长度、
+SHA-256 和解析；
 生产兼容策略使用不收集位置的路径且不构造/返回 `CurrentSourceLocationTable`，严格导入策略以有界
 位置接收器在同一次解析中产生位置表；两者共享版本、解析、摘要和配对实现且不重复扫描；
 Manifest/Traffic/Spatial 的单文档和组合字节上限；字符串/序列/记录/位置条目/存续内存上限的
@@ -1293,7 +1301,8 @@ Manifest/Traffic/Spatial 的单文档和组合字节上限；字符串/序列/�
 成功/失败结论；位置表能把不同文档的字段/记录映射为真实来源位置且不需要重读；三个文档来源记录的
 边界与释放后保留；以及严格编译导入不存在无配置、过期配置快照或无界解码入口。跨 crate 编译测试必须
 证明 `laneflow-current-import` 能经公开零复制构造器建立 `CurrentSourceInput`，同时仍不能构造
-`ValidatedCurrentImportBundle`；Cargo 清单与依赖图测试还必须证明 importer 不直接依赖或命名
+`ValidatedCurrentImportBundle`；Cargo 清单与依赖图测试还必须证明 importer 的 LaneFlow 直接依赖
+只有 compiler、第三方直接依赖不超出第 2.3 节白名单，且不直接依赖或命名
 `laneflow-current-source`。v1 Synthetic 继续成功，v1 current 在解析前以配置档不兼容失败，v2
 三文档导入及 `SourceDocumentCount` 边界/边界加一按规范成功或失败。
 
@@ -1507,12 +1516,14 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
       v1 不合成默认值或自动升级，固定三文档 current 在解析前拒绝 v1；
 - [x] #296/#297 的具体受检入口与 `laneflow-current-source` /
       `laneflow-current-import` 目标包依赖图闭合；compiler 只在默认关闭、可退役的迁移
-      特性下依赖 current-source 的字段私有受检能力，importer 只依赖 compiler 且公共输入签名不泄漏
-      current-source 类型；两者均不依赖当前态 Core/Spatial 对象图；
+      特性下依赖 current-source 的字段私有受检能力，importer 以 compiler 为唯一 LaneFlow 直接依赖、
+      第三方直接依赖限于已冻结支撑白名单且公共输入签名不泄漏 current-source 类型；两者均不依赖
+      当前态 Core/Spatial 对象图；
 - [x] `laneflow-current-source` 是场景清单到原始 Traffic/Spatial 制品精确绑定和线格式
       解析的唯一权威；当前态生产兼容策略不新增制品数、引用长度或引用总字节拒绝条件，严格编译导入
-      策略则在任何集合索引分配前以 builder 剩余 `CurrentSourceLimits` 检查这些维度及实际/声明/组合
-      字节与解码计数，不存在默认、无限、过期上限快照或先无界解码后统计的严格入口；
+      策略则通过 source-owned 可克隆精确长度迭代器预检，在任何集合索引分配前以 builder 剩余
+      `CurrentSourceLimits` 检查这些维度及实际/声明/组合字节与解码计数；compiler 不镜像 source
+      硬上限或构造中间 view `Vec`，且不存在默认、无限、过期上限快照或先无界解码后统计的严格入口；
 - [x] ScenarioManifest 组合入口只消费原子成功结果，不重复或绕过长度、SHA-256、媒体
       类型与引用验证；生产兼容结果不构造或保留 compiler-only 位置表，严格导入结果保留
       Manifest/Traffic/Spatial 三个来源文档的独立身份、逐文档来源记录和受限字段/记录位置表，且两者
