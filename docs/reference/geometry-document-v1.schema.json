@@ -212,24 +212,25 @@
     "junction": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["junctionKey", "approachEdges", "connections"],
+      "required": ["junctionKey", "approachEdges", "internalEdges", "connections"],
       "properties": {
         "junctionKey": { "$ref": "#/$defs/token" },
         "approachEdges": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "$ref": "#/$defs/token" } },
+        "internalEdges": { "type": "array", "items": { "$ref": "#/$defs/internalEdge" } },
         "connections": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/connection" } }
       }
     },
     "connection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["movementKey", "directedEntryApproachKey", "directedExitApproachKey", "maneuverPathKey", "entryEdge", "internalEdges", "exitEdge"],
+      "required": ["movementKey", "directedEntryApproachKey", "directedExitApproachKey", "maneuverPathKey", "entryEdge", "internalEdgeSequence", "exitEdge"],
       "properties": {
         "movementKey": { "$ref": "#/$defs/token" },
         "directedEntryApproachKey": { "$ref": "#/$defs/token" },
         "directedExitApproachKey": { "$ref": "#/$defs/token" },
         "maneuverPathKey": { "$ref": "#/$defs/token" },
         "entryEdge": { "$ref": "#/$defs/token" },
-        "internalEdges": { "type": "array", "items": { "$ref": "#/$defs/internalEdge" } },
+        "internalEdgeSequence": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/token" } },
         "exitEdge": { "$ref": "#/$defs/token" }
       }
     },

@@ -66,7 +66,8 @@
             "controlPointCount",
             "offsetCurveCount",
             "canonicalPointCount",
-            "lirRecordCount"
+            "lirRecordCount",
+            "logicalOutputBytes"
           ],
           "properties": {
             "moduleCount": { "$ref": "#/$defs/count" },
@@ -79,7 +80,8 @@
             "controlPointCount": { "$ref": "#/$defs/count" },
             "offsetCurveCount": { "$ref": "#/$defs/count" },
             "canonicalPointCount": { "$ref": "#/$defs/count" },
-            "lirRecordCount": { "$ref": "#/$defs/count" }
+            "lirRecordCount": { "$ref": "#/$defs/count" },
+            "logicalOutputBytes": { "$ref": "#/$defs/count" }
           }
         },
         "absoluteOffsetDistribution": {
@@ -97,9 +99,66 @@
         },
         "lirTableCounts": {
           "type": "object",
-          "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+          "propertyNames": {
+            "enum": [
+              "access_rule_participant_classes",
+              "access_rules",
+              "authoring_lane_edges",
+              "authoring_lanes",
+              "canonical_frames",
+              "canonical_points",
+              "corridor_elements",
+              "facility_band_geometries",
+              "facility_bands",
+              "gate_occurrences",
+              "junction_internal_edges",
+              "junction_movements",
+              "junctions",
+              "lane_edge_geometries",
+              "lane_edge_route_occurrences",
+              "lane_edge_successors",
+              "lane_edges",
+              "lane_group_members",
+              "lane_groups",
+              "maneuver_gate_route_occurrences",
+              "maneuver_gates",
+              "maneuver_occurrences",
+              "maneuver_path_edges",
+              "maneuver_path_gates",
+              "maneuver_path_route_occurrences",
+              "maneuver_path_waiting_zones",
+              "maneuver_paths",
+              "movement_maneuver_paths",
+              "movements",
+              "parking_area_spaces",
+              "parking_areas",
+              "parking_spaces",
+              "participant_classes",
+              "road_corridors",
+              "road_section_lanes",
+              "road_sections",
+              "signal_controller_groups",
+              "signal_controller_phases",
+              "signal_controllers",
+              "signal_group_maneuver_gates",
+              "signal_groups",
+              "signal_phase_states",
+              "signal_phases",
+              "spatial_segments",
+              "static_route_edges",
+              "static_route_transitions",
+              "static_routes",
+              "stop_line_maneuver_gates",
+              "stop_lines",
+              "vehicle_profiles",
+              "waiting_zone_occurrences",
+              "waiting_zone_route_occurrences",
+              "waiting_zones"
+            ]
+          },
           "additionalProperties": { "$ref": "#/$defs/count" },
-          "minProperties": 1
+          "minProperties": 53,
+          "maxProperties": 53
         },
         "semanticFingerprint": { "$ref": "#/$defs/sha256" },
         "completeOutputDigest": { "$ref": "#/$defs/sha256" }
