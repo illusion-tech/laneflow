@@ -101,6 +101,9 @@ Adapter 表现几何也不能反向修改规范长度、station、拓扑连接�
 切线约束与位置约束分别成立。f64 半角细分不能假定来源 segment 自动切向连续，也不能
 把 ADR 0015 的 `0.5°` 表示误差叠加到公开档位之外。因此量化后按实际 f32 点直接检查
 每个内部折点、source segment join 和相连 edge join；超限失败关闭，不 snap、不平滑。
+此外，每个 source segment join 两侧按冻结 offset 公式求得的水平 `left` 必须逐分量
+`f64` bit 相同，确保任意非零 offset 在共享端点具有唯一位置；仅满足方向档而没有该
+水平一阶连续性时拒绝来源。
 只满足位置误差的长线段可能造成车辆朝向或控制目标在折点明显阶跃；把固定极小切线角
 强加给所有场景又会让较粗位置档失去资源收益。因此 #296 使用三个封闭方向档，并在 G2
 对九种组合的最终方向跳变和车辆路径跟踪分别验证。
@@ -129,18 +132,26 @@ Reference station 基表固定使用与输出配置档无关的 `0.01 m` / `0.5�
 ### 6. offset 曲线也受所选档位约束
 
 reference line 的通过不能证明 lane/facility offset curve 自动通过。横向偏移会放大
-曲率与切线变化，而且一般 offset evaluator 不再是 cubic Bézier。因此 geometry MIR
+曲率与切线变化，而且一般 offset evaluator 不再是 cubic Bézier。因此 Geometry 前端
+`finish` 的 numeric freeze
 必须在相同曲线参数域对每条最终中心线独立二分，以解析 offset 二阶导数的保守范数
 上界和线性插值误差界证明整段位置误差，并以解析 offset 端点切向证明方向门槛；不得用
 有限采样冒充最大误差证明，也不得引用不存在的 offset 内控制点或复用 reference curve
 的接受树。它可以增加自己的采样点，但不能反向改变 reference station。验证与资源报告
 必须覆盖九种组合、最内侧、最外侧和跨 span 宽度变化，不能只测零偏移参考线。
 
-不可遍历 FacilityBand 的最终 offset 中心线仍属于 canonical LIR 语义：它进入按
-FacilityBand ordinal 排列的 `facility_band_geometries` 范围表和共享规范点表，并参与
+不可遍历 FacilityBand 的最终 offset 中心线仍属于 canonical LIR 语义：Geometry module
+派生的 FacilityBand 进入显式携带 `FacilityBandOrdinal`、按该 ordinal 排列的稀疏
+`facility_band_geometries` 范围表和共享规范点表，并参与
 点数、LIR 记录、逻辑输出字节和摘要；它不产生 Spatial segment、Traffic length、
 successor 或路线可遍历性。这样独立细分的结果有唯一归宿，不会由 G2 实现选择丢弃或
-隐式变成 Adapter 数据。
+隐式变成 Adapter 数据；没有 Geometry intent 的其他官方前端 FacilityBand 不产生占位行。
+
+Numeric freeze 每个模块只执行一次并把最终点 payload 与精确 `GeometryPointCount` 一同
+放入字段私有模块候选；#315 common admission 仍在 HIR/MIR 前对完整模块计数执行原子
+累计。后继 geometry MIR 只绑定、规范重排并检查跨模块/拓扑连续性，不得 count-only
+预跑或重新生成点。配置档混用在单元 HIR 才可识别，因此可能浪费已受单模块上限约束的
+freeze 计算，但最终 `build` 原子失败且不返回部分输出。
 
 ### 7. Adapter 和车辆物理误差不进入编译预算
 

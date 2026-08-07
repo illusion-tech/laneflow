@@ -264,20 +264,30 @@ impl CompilationUnitBuilder {
    检查、版本/closed-shape 检查、位置收集和配置档绑定的模块选项摘要；文档内
    `module.documentKey` 必须与预期键逐字节相等。返回前释放来源全文借用，只保留紧凑的
    前端记录、位置、两个配置档和精确资源计数；
-3. `finish` 完成字段类型/单位/局部引用分类、曲线记录校验以及到共同 Typed AST 的唯一
-   降阶；任一错误只返回规范 `DiagnosticBundle`，不返回部分模块；
-4. `GeometryModule` 按值拥有一个不可拆分的私有 `AdmittedOfficialModule` 候选；
+3. `finish` 完成字段类型/单位/局部引用分类、曲线记录校验、到共同 Typed AST 的唯一
+   降阶，并执行一次 Geometry 私有 numeric freeze：按第 6 节生成该模块全部最终规范点、
+   lane/facility/internal-edge geometry payload 和精确模块资源计数。任一错误只返回规范
+   `DiagnosticBundle`，不返回部分模块；
+4. `GeometryModule` 按值拥有一个不可拆分的私有 `AdmittedOfficialModule` 候选及其已冻结
+   geometry payload；后继 HIR/MIR 只移动、规范重排和执行跨模块/拓扑验证，不重复曲线
+   求值、station、offset、细分、量化或点数统计；
 5. `add_geometry_module` 按值消费该候选并调用 #315 唯一的私有原子 admission。失败时
    builder 的模块、namespace/document 索引与累计计数完全不变，候选被释放；成功时不
    clone 全量声明、字符串或几何点，不重新哈希来源全文，也不重新统计记录。
 
 同一编译单元内的全部 Geometry 模块必须使用相同的位置与方向配置档。该约束不修改
-#315 的共同 admission：Geometry HIR 在任何曲线细分或规范点分配前读取已接入模块的
-两个有类型配置档，混用时分别返回 `MixedGeometryAccuracyProfile` 或
+#315 的共同 admission：Geometry HIR 读取已接入模块的两个有类型配置档，混用时分别
+返回 `MixedGeometryAccuracyProfile` 或
 `MixedGeometryDirectionProfile`；Synthetic/current-import 模块不参与该比较，没有
 Geometry 模块的编译单元也不携带虚构配置档。配置档差异不改变实体稳定标识；位置或
 方向档位可以改变规范点、几何数值、派生长度和语义指纹，但不能改变 6.1 节冻结的
 reference station 基表或 source station 的语义位置。
+
+由于公共 API 必须先独立 `finish` 每个模块，混用配置档只能在单元 HIR 识别；各模块的
+numeric freeze 和共同 admission 已经发生。该失败路径可以浪费受限计算，但 `build`
+原子失败、不返回部分输出，也不绕过任何累计 limit。不得为提前发现混用而新增调用方
+自报的单元配置、全局可变状态或第二条 admission；性能证据必须包含两个已完成大模块
+混用后失败的有界最坏路径。
 
 不得新增公共 `Frontend` / `OfficialFrontend` trait、通用 `add_module`、独立 geometry
 crate 或记录级动态分派。`SourceLanguage` 增加封闭变体
@@ -530,14 +540,18 @@ predecessor/successor、owner/member/coverage、overlay 绑定、路线 occurren
 
 ### 5.4 geometry MIR
 
-geometry MIR 拥有 authoring 曲线求值、确定性细分、station 切分、lane offset、规范
-`f32` 点、累计弧长、切向/上方向、Traffic length 与 Spatial sampling table。它不包含
-target ABI、mesh、宿主坐标或运行时对象。
+Geometry 前端的 numeric freeze 独占 authoring 曲线求值、确定性细分、station 切分、
+lane/facility offset 和规范 `f32` 点生成，并把 evaluator 与 scratch 在 `finish` 返回前
+释放。geometry MIR 拥有这些已冻结 payload 的有类型绑定、跨模块端点/方向验证、规范
+排列、累计弧长、切向/上方向、Traffic length 与 Spatial sampling table；它不得再次
+求值或生成另一份点。两者是一次编译管线中先后受检的私有阶段，不形成第二个公共 IR，
+也不包含 target ABI、mesh、宿主坐标或运行时对象。
 
 每个 `LaneEdge` 的可遍历中心线继续进入 `lane_edge_geometries`、`canonical_points` 和
 `spatial_segments`。每个 `FacilityBand` 的不可遍历中心线进入独立的
-`facility_band_geometries` 行；该行按 FacilityBand 的完整 CanonicalIdentity 排列，精确
-保存其在同一 `canonical_points` 平面表中的非空范围，但不产生 Traffic length、
+`facility_band_geometries` 行；每行显式引用一个 `FacilityBandOrdinal`，并按该
+FacilityBand 的完整 CanonicalIdentity 排列，精确保存其在同一 `canonical_points` 平面表
+中的非空范围，但不产生 Traffic length、
 `spatial_segments`、lane successor 或路线可遍历性。它参与 `GeometryPointCount`、
 `LirRecordCount`、逻辑输出字节、完整输出 digest 与 LIR 语义指纹；target profile 可以在
 emitter 中裁剪非权威表现数据，但 canonical LIR 不得丢弃该表。其来源位置与
@@ -547,14 +561,17 @@ LaneEdge ordinal 拼接全部 `lane_edge_geometries` 范围，再按 FacilityBan
 
 ```rust
 struct LirFacilityBandGeometry {
+    facility_band: FacilityBandOrdinal,
     canonical_frame: CanonicalFrameOrdinal,
     points: TableRange<LirCanonicalPoint3F32>,
 }
 ```
 
-该表与 `FacilityBandOrdinal` 同下标对齐，因此不重复保存 ordinal；表长必须精确等于
-`facility_bands` 表长。v1 不在该行保存 segment sampling、弧长、宽度副本或 Adapter
-样式。宽度仍由 FacilityBand 语义记录拥有，几何行只冻结其已偏移中心线。
+该表只覆盖 Geometry module 派生且拥有 offset intent 的 FacilityBand；Synthetic、
+current-import 或后继官方前端声明但没有 Geometry intent 的 FacilityBand 不产生占位行，
+因此它相对全局 `facility_bands` 可以稀疏。每个 Geometry 派生 FacilityBand 必须恰好一
+行，同一 ordinal 不得重复。v1 不在该行保存 segment sampling、弧长、宽度副本或
+Adapter 样式。宽度仍由 FacilityBand 语义记录拥有，几何行只冻结其已偏移中心线。
 
 topology 与 geometry MIR 是同一次编译的两个私有视图，不是两个可独立发布或先后调用
 的编译器层。两者以有类型 key 互相引用，并在进入 LIR 前共同通过：
@@ -597,10 +614,13 @@ JSON 十进制 token 必须先保留精确字节，再以 Rust 标准库 `str::p
 | `Compact5Deg`  | `2.5°` | `0.9980973490458729` | `0x3feff069da0c0ad2` |
 
 上述半角只决定 `f64` 细分候选，不能单独证明最终方向档。来源 segment 连接点两侧的
-解析三维切向必须存在、其 XZ 投影必须非零，且三维夹角不得超过所选方向档；不要求
-不同 segment 自动切向连续。所有 station 强制点合并且坐标量化后，再按实际 `f32` 点
-形成的相邻非零三维弦检查内部折点；每个普通 successor 或 junction path transition 还
-检查前驱末弦与后继首弦。
+解析三维切向必须存在、其 XZ 投影必须非零，且三维夹角不得超过所选方向档。为保证
+任意非零 offset 在共享 source 端点位置连续，还必须分别按 6.1 节冻结公式计算两侧
+`left`，并要求 `left.x/left.y/left.z` 的规范化 `f64` bits 逐分量相同；仅角度在档位内
+但 `left` bits 不同仍失败关闭。该约束不要求三维导数大小或坡度相同，但冻结了 v1 的
+水平一阶方向连续性和数值端点唯一性。所有 station 强制点合并且坐标量化后，再按实际
+`f32` 点形成的相邻非零三维弦检查内部折点；每个普通 successor 或 junction path
+transition 还检查前驱末弦与后继首弦。
 这些最终运行时弦的夹角分别必须不超过 `1°`、`2°`、`5°`，仍使用对应全角的冻结
 `cos²`、正 dot 和含等号比较，不调用平台 `acos`。因此 ADR 0015 允许的表示角误差不会
 叠加到公开方向档之外；量化后超限直接失败关闭，不以 f64 候选已通过为由接受，也不
@@ -612,6 +632,14 @@ snap 或平滑。零长度弦、零长度端点切向或水平投影切向为零
 | `Smooth1Deg`   |     `1°` | `0.9996954135095479` | `0x3feffd813c5f82b4` |
 | `Balanced2Deg` |     `2°` | `0.9987820251299122` | `0x3feff605b8b87ffc` |
 | `Compact5Deg`  |     `5°` | `0.9924038765061041` | `0x3fefc1c5c6408e0c` |
+
+最终方向检查先把每个规范 `f32` 坐标分量以 `f64::from(value)` 精确提升，再在 `f64` 中
+按 `x`、`y`、`z` 顺序计算弦差。`dot(a,b)` 固定为
+`((a.x*b.x) + (a.y*b.y)) + (a.z*b.z)`，`lengthSquared(v)` 复用同一顺序；每个乘法和
+加法是独立操作，禁止 FMA。阈值只以表中 bits 调用 `f64::from_bits` 构造，不重新调用
+三角函数或从十进制解析。零弦、正 dot 和 `dot² >= leftLength² * rightLength² * cos²`
+也按本文从左到右执行，因此含等号/加一 ULP 在所有受支持平台得到同一判断。用于 join
+比较的 `left` 分量先把 `-0.0` 规范化为 `+0.0`，其他值不做 epsilon、rounding 或 snap。
 
 Station 参数表不使用调用方选择的位置或方向档。它逐原始 segment 建立：line 产生一个
 区间；cubic 固定使用 `0.01 m` 内控制点有限弦距与 `0.5°` 端点切向门槛，以同样的
@@ -689,7 +717,8 @@ Bernstein 凸包保证 `rMin` 不大于区间内任一水平 `|B'|`，并分别�
 `rMin == 0` 的区间不能被接受，只能继续二分；深度 20 仍为零则以近垂直/退化切向失败。
 
 最终输出参数集合由该 offset 自身接受区间端点、原始 curve segment 端点和 station
-强制参数合并。曲线参数先规范化：初点唯一为 `(0, 0)`；每个内部共享边界的
+强制参数合并。只有通过上述 source join `left` bit 连续性后，曲线参数才规范化：初点
+唯一为 `(0, 0)`；每个内部共享边界的
 `(segment i, 1)` 与 `(segment i+1, 0)` 是同一个参数，并规范拥有为前一 segment 的
 `(i, 1)`；终点唯一为最后 segment 的 `t = 1`。随后按该规范曲线顺序排序，只对同一
 规范参数去重，从而每个物理 segment 边界恰好输出一次。再从原 evaluator 求值并量化；
@@ -756,6 +785,10 @@ Geometry 前端复用全部 #315 共同累计维度。额外工作必须归入�
 - `GeometryPointCount` 只计算准备进入最终规范几何表的量化 `f32` 点，并按 #315 的共同
   admission 语义跨模块累计；authoring start/control/end 点、station 表节点、offset
   evaluator sample 和细分候选不进入该 count；
+- `finish` 的 numeric freeze 在构造 `AdmittedOfficialModule` 前得到上述精确点数和点
+  payload；它先以模块自身 `CompileLimits` 检查单模块上限，再由 #315 common admission
+  与 builder 已提交计数做 checked 累加和全单元上限检查。后继 HIR/MIR/LIR 只消费该
+  payload，禁止 count-only 预跑、估算计数、二次生成或扫描重算；
 - parser stack、duplicate-key table、曲线细分栈、station scratch、HIR/MIR 工作集分别
   计入 `StageScratchBytes`；
 - 解析后存续的字符串、记录、span、点和模块包装计入真实
@@ -795,33 +828,35 @@ code, stable key, typed payload)` 排序。解析恢复只能在当前 closed ob
 
 G2 实现至少必须自动覆盖：
 
-| 类别       | 必须证明的样例                                                                                                                                                                                                                                                                                    |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 来源       | schema 自检与最小/全字段 golden、BOM/非法 UTF-8、重复键、未知字段、旧/未来版本、精确字节摘要；LF/CRLF/CR、tab、多 byte Unicode 和跨行 value 的一基 UTF-8 byte 行列；摘要 63/64/65 字符、非 ASCII、非小写与非十六进制边界                                                                          |
-| 文档基数   | Geometry 单文档在 v1/v2 均成功；不存在 include；与多文档模块组合时 v1 在分配前失败、v2 成功                                                                                                                                                                                                       |
-| API 原子性 | `new`、`finish`、`add_geometry_module` 每个失败点不泄漏部分模块或改变 unit builder                                                                                                                                                                                                                |
-| 标识       | 普通声明重排、无关插入、空白/字段重排和 geometry-only edit 不改变应稳定实体 ID；显式 key/owner/topology 改变按 Identity v1 改变                                                                                                                                                                   |
-| topology   | cross-section span 完整 coverage、横向 elements、lane predecessor/successor、Junction 级 internal edge 声明、同 Junction 共享 transition 去重、跨 owner 冲突、path owner 和 owner-local occurrence                                                                                                |
-| geometry   | 九种位置/方向组合及两类混用拒绝、line/cubic 边界、深度 20、各子预算和三档最终 f32 方向阈值的含等号/加一 ULP、source/edge join、各档逐区间总位置证明、单段/多段 station lower-bound/边界归属/插值 known vectors、offset `K` 界、lane/facility 独立点范围、语义锚点、最短段、近垂直、连接 5 mm 边界 |
-| 来源映射   | 声明、派生 edge、owner-local relation 与 LIR 目标经过同一 permutation；HIR 局部顺序与 LIR Identity 顺序不同的反例                                                                                                                                                                                 |
-| 等价       | 代表性受保护转向走廊与 #292 Synthetic DSL 产生相同 CanonicalIdentity、全部 LIR 表/关系/数值、语义指纹和 current 投影                                                                                                                                                                              |
-| 确定性     | 模块/普通声明、phase states 和其他无序集合重排、无关插入、重复 clean compile、不同优化级别和受支持平台产生相同 LIR 语义与点 bit pattern；全部显式有序数组重排按其语义改变或被 coverage 规则拒绝                                                                                                   |
-| 资源       | 每个相关 limit 的边界/边界加一、诊断截断、parse/细分/共同 admission/build scratch 和失败清理                                                                                                                                                                                                      |
+| 类别       | 必须证明的样例                                                                                                                                                                                                                                                                                                                            |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 来源       | schema 自检与最小/全字段 golden、BOM/非法 UTF-8、重复键、未知字段、旧/未来版本、精确字节摘要；LF/CRLF/CR、tab、多 byte Unicode 和跨行 value 的一基 UTF-8 byte 行列；摘要 63/64/65 字符、非 ASCII、非小写与非十六进制边界                                                                                                                  |
+| 文档基数   | Geometry 单文档在 v1/v2 均成功；不存在 include；与多文档模块组合时 v1 在分配前失败、v2 成功                                                                                                                                                                                                                                               |
+| API 原子性 | `new`、`finish`、`add_geometry_module` 每个失败点不泄漏部分模块或改变 unit builder                                                                                                                                                                                                                                                        |
+| 标识       | 普通声明重排、无关插入、空白/字段重排和 geometry-only edit 不改变应稳定实体 ID；显式 key/owner/topology 改变按 Identity v1 改变                                                                                                                                                                                                           |
+| topology   | cross-section span 完整 coverage、横向 elements、lane predecessor/successor、Junction 级 internal edge 声明、同 Junction 共享 transition 去重、跨 owner 冲突、path owner 和 owner-local occurrence                                                                                                                                        |
+| geometry   | 九种位置/方向组合及两类混用拒绝、line/cubic 边界、深度 20、各子预算和三档最终 f32 方向阈值的固定提升/运算序/含等号/加一 ULP、source join `left` bit 连续性、edge join、各档逐区间总位置证明、单段/多段 station lower-bound/边界归属/插值 known vectors、offset `K` 界、lane/facility 独立点范围、语义锚点、最短段、近垂直、连接 5 mm 边界 |
+| 来源映射   | 声明、派生 edge、owner-local relation 与 LIR 目标经过同一 permutation；HIR 局部顺序与 LIR Identity 顺序不同的反例                                                                                                                                                                                                                         |
+| 等价       | 代表性受保护转向走廊与 #292 Synthetic DSL 产生相同 CanonicalIdentity、全部 LIR 表/关系/数值、语义指纹和 current 投影                                                                                                                                                                                                                      |
+| 确定性     | 模块/普通声明、phase states 和其他无序集合重排、无关插入、重复 clean compile、不同优化级别和受支持平台产生相同 LIR 语义与点 bit pattern；全部显式有序数组重排按其语义改变或被 coverage 规则拒绝                                                                                                                                           |
+| 资源       | 每个相关 limit 的边界/边界加一、`finish` 精确点数与 payload 一致、多个模块共同累计拒绝、Geometry+Synthetic 稀疏 Facility geometry、配置档混用最坏失败、诊断截断、parse/freeze/admission/build scratch 和失败清理                                                                                                                          |
 
 等价比较不能只比较 current JSON 或对象数量；必须逐表比较有类型 ordinal、稳定身份
 完整前像、owner-local relation、规范 `f32` 点 bit、累计弧长、来源键角色和语义指纹。
 
 ## 9. 性能与收益/代价
 
-### 9.1 三个独立测量边界
+### 9.1 四个独立测量边界
 
 G2 必须在 release、单工作线程、同机 base/candidate 下分别报告：
 
-1. **Geometry parse/build**：从借用原始 bytes 到 `GeometryModule`；包含一次 SHA-256、
-   有界解析、span、曲线前端记录与专用降阶，不包含共同 admission；
-2. **共同 admission**：对已构造 `GeometryModule` 执行 `add_geometry_module + build`；
+1. **Geometry parse/build**：从借用原始 bytes 到 `GeometryModuleBuilder`；包含一次
+   SHA-256、有界解析、span 和紧凑曲线前端记录，不包含 numeric freeze；
+2. **Geometry numeric freeze**：对已构造 builder 执行 `finish`；包含字段/单位/局部引用
+   校验、专用降阶、station/offset/细分/量化、最终方向与总误差证明及完整模块计数；
+3. **共同 admission**：对已构造 `GeometryModule` 执行 `add_geometry_module + build`；
    不把 parse/curve 成本归因给 #315；
-3. **完整 compile**：原始 Geometry bytes 到 `CompilationOutput`；包含 HIR/MIR/LIR 和
+4. **完整 compile**：原始 Geometry bytes 到 `CompilationOutput`；包含 HIR/MIR/LIR 和
    source-map，作为真实产品成本。
 
 每级至少一个预热样本、七个正式样本、三个独立进程，报告每进程中位数/MAD及中位数
