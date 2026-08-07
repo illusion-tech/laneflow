@@ -912,6 +912,14 @@ fn codeql_completion_must_not_follow_the_append_only_g3_comment() {
 }
 
 #[test]
+fn codeql_activation_uses_numeric_timestamp_ordering() {
+    assert!(!codeql_g3_active("2026-08-07T23:59:59.999Z").unwrap());
+    assert!(codeql_g3_active("2026-08-08T00:00:00Z").unwrap());
+    assert!(codeql_g3_active("2026-08-08T00:00:00.123Z").unwrap());
+    assert!(codeql_g3_active("invalid").is_err());
+}
+
+#[test]
 fn rejects_current_g3_without_shadow_evidence_field() {
     let args = related_only_g3_args();
     let mut related_pr = related_pr_for_args(false, &args);
