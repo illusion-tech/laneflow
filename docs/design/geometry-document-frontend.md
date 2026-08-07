@@ -1,6 +1,6 @@
 # 几何文档前端与拓扑/几何中层表示
 
-**文档状态**: Review（#296 G1 候选；尚未授权 G2）<br>
+**文档状态**: Frozen（#296 G1；G2 实现权威输入）<br>
 **最后更新**: 2026-08-07<br>
 **适用范围**: `laneflow-compiler` 的几何文档前端（Geometry Document Frontend）、
 `GeometryModuleBuilder` / `GeometryModule`、几何来源格式 v1、拓扑/几何中层表示
