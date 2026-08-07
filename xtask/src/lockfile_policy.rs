@@ -133,13 +133,54 @@ fn is_git_oid_fragment(value: &str) -> bool {
 
 fn is_utc_rfc3339(value: &str) -> bool {
     let bytes = value.as_bytes();
-    bytes.len() >= 20
-        && bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes[10] == b'T'
-        && bytes[13] == b':'
-        && bytes[16] == b':'
-        && value.ends_with('Z')
+    if bytes.len() < 20
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || bytes.last() != Some(&b'Z')
+    {
+        return false;
+    }
+    let fixed_digits = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18];
+    if fixed_digits
+        .iter()
+        .any(|index| !bytes[*index].is_ascii_digit())
+    {
+        return false;
+    }
+    let year = u16::from(bytes[0] - b'0') * 1_000
+        + u16::from(bytes[1] - b'0') * 100
+        + u16::from(bytes[2] - b'0') * 10
+        + u16::from(bytes[3] - b'0');
+    let month = two_digits(bytes, 5);
+    let day = two_digits(bytes, 8);
+    let hour = two_digits(bytes, 11);
+    let minute = two_digits(bytes, 14);
+    let second = two_digits(bytes, 17);
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year.is_multiple_of(400) || (year.is_multiple_of(4) && !year.is_multiple_of(100)) => {
+            29
+        }
+        2 => 28,
+        _ => return false,
+    };
+    if day == 0 || day > days_in_month || hour > 23 || minute > 59 || second > 59 {
+        return false;
+    }
+    if bytes.len() == 20 {
+        return true;
+    }
+    bytes.len() > 21
+        && bytes[19] == b'.'
+        && bytes[20..bytes.len() - 1].iter().all(u8::is_ascii_digit)
+}
+
+fn two_digits(bytes: &[u8], start: usize) -> u8 {
+    (bytes[start] - b'0') * 10 + bytes[start + 1] - b'0'
 }
 
 fn is_github_https_url(value: &str) -> bool {
@@ -202,6 +243,25 @@ mod tests {
         let mut metadata = eligible_metadata();
         metadata.commits.push(metadata.commits[0].clone());
         assert!(verify_dependabot_lockfile_only(&metadata).is_err());
+    }
+
+    #[test]
+    fn rejects_non_numeric_or_empty_fractional_commit_timestamps() {
+        for committed_at in [
+            "aaaa-bb-ccTdd:ee:ffZ",
+            "2026-02-29T02:05:11Z",
+            "2026-08-06T24:05:11Z",
+            "2026-08-06T02:05:11.Z",
+            "2026-08-06T02:05:11.xZ",
+        ] {
+            let mut metadata = eligible_metadata();
+            metadata.commits[0].committed_at = committed_at.to_string();
+            assert!(verify_dependabot_lockfile_only(&metadata).is_err());
+        }
+
+        let mut metadata = eligible_metadata();
+        metadata.commits[0].committed_at = "2026-08-06T02:05:11.123Z".to_string();
+        assert!(verify_dependabot_lockfile_only(&metadata).is_ok());
     }
 
     #[test]
