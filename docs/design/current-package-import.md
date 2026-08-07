@@ -57,7 +57,7 @@ Core/Spatial 对象图，也不在 importer 中复制任何 HIR/MIR/LIR 语义�
 
 ## 3. 包依赖图、特性与退役
 
-箭头表示左侧正常依赖右侧：
+下图只表达 LaneFlow 项目内包的正常依赖；箭头表示左侧正常依赖右侧：
 
 ```text
 laneflow-compiler ----------------> laneflow-static-contract
@@ -74,9 +74,26 @@ laneflow-data ------------------------------> laneflow-spatial
 标准库、Serde/serde_json、SHA-256 与错误支持，不依赖 compiler、Core 或 Spatial。
 `laneflow-compiler` 默认特性集合不含 current；只有默认关闭的
 `current-v0_10-import` 特性加入对 source 包的依赖和公开的借用输入入口。
-`laneflow-current-import` 的正常依赖只能是启用该特性的 compiler；Cargo 图和
-compile-fail 测试必须证明 importer 不能直接命名 `laneflow-current-source`、受检包、
-严格配置或 compiler 私有模块构建器。
+`laneflow-current-import` 唯一的 LaneFlow 项目内直接依赖是启用该特性的 compiler；为了
+序列化机器报告、计算清单摘要和表达宿主工具错误，它另以正常依赖显式允许第三方支撑包
+`serde`、`serde_json`、`sha2` 与 `thiserror`。这组依赖不提供 current 领域对象或 compiler
+旁路。`serde_json` 在 Cargo 清单使用兼容版本要求，精确解析版本只由仓库提交内唯一的
+`Cargo.lock` 锁定；当前 G1 基线解析为 `1.0.151`，报告生成、已知向量和证据命令必须使用
+`--locked`。不得再用清单 `=version` 建立第二个解析事实源。Cargo metadata、Cargo 图和
+compile-fail 测试必须同时证明 importer 的 LaneFlow 直接依赖只有 compiler、第三方直接
+依赖不超出上述白名单，并且 importer 不能直接命名 `laneflow-current-source`、受检包、严格
+配置或 compiler 私有模块构建器。任何后继锁文件更新若改变报告字节，必须由报告已知向量
+失败关闭，并在重新生成证据前显式审阅差异。
+
+G2 的 importer Cargo 清单必须使用与下列等价的直接支撑依赖配置；`serde_json` 不依赖从
+compiler 传递进来的可见性，`sha2` 关闭默认特性以沿用仓库现有摘要边界：
+
+```toml
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = { version = "0.11", default-features = false }
+thiserror = "2.0"
+```
 
 `laneflow-data` 在 #297 中改为消费 production-compatible source 能力，再继续拥有
 current Core/Spatial 规范化。它不得保留第二份 Traffic/Spatial/Manifest wire DTO、版本
@@ -174,19 +191,40 @@ pub fn validate_scenario_compatible(
 ) -> Result<ValidatedCurrentSourceBundle, CurrentSourceError>;
 
 #[doc(hidden)]
-pub fn validate_scenario_strict(
-    manifest: CurrentDocumentInput<'_>,
-    artifacts: &[CurrentArtifactInput<'_>],
+pub fn validate_scenario_strict<'a, I>(
+    manifest: CurrentDocumentInput<'a>,
+    artifacts: I,
     limits: &CurrentSourceLimits,
-) -> Result<ValidatedCurrentImportBundle, CurrentSourceError>;
+) -> Result<ValidatedCurrentImportBundle, CurrentSourceError>
+where
+    I: Clone + ExactSizeIterator<Item = CurrentArtifactInput<'a>>;
 ```
 
 Source 输入类型与 compiler 输入类型有意不同：前者是 source 包的跨包实现入口，后者
-保证 importer 的正常依赖闭包只需 compiler。compiler 在 `add_current_source` 栈内把两个
-借用视图逐项转换，不复制底层字符串或字节。由于 Rust 不能安全地把两个不同 newtype 的
-切片重解释为同一布局，compiler 先 allocation-free 检查制品数和 ref 长度，再为最多 16
-个 source view 请求一个受事务 live budget 约束的短 `Vec`；source 包仍重新执行权威
-preflight。该转换只复制三个借用指针/长度元数据，不复制 payload。
+保证 importer 的 LaneFlow 依赖闭包只需 compiler。compiler 在 `add_current_source` 栈内把
+`CurrentSourceArtifact` 借用切片惰性映射为 `CurrentArtifactInput` 迭代器并直接传入 source；
+转换只复制每项的借用指针/长度元数据，不复制 payload，也不分配中间 `Vec`。
+
+```rust
+let artifacts = source
+    .artifacts
+    .iter()
+    .copied()
+    .map(to_current_artifact_input);
+let validated = validate_scenario_strict(manifest, artifacts, &limits)?;
+```
+
+`to_current_artifact_input` 是 compiler 包内私有的纯借用转换函数；使用函数项而非捕获状态的
+closure，使该 `Map<Copied<slice::Iter<_>>, _>` 明确满足 `Clone + ExactSizeIterator`。
+
+严格入口的无分配预检只由 source 拥有。source 首先完整消费 `artifacts.clone()`，在实际产生
+第 17 项前拒绝，并逐项检查非空引用、单个引用、引用总字节和显示来源等 source 专用硬上限；
+它不得只信任 `ExactSizeIterator::len()`。只有整个预检成功且实际产生数等于初始 `len()` 后，
+source 才按受检数量向事务账本申请 lookup backing 并消费原迭代器。消费原迭代器时必须在每次
+capacity 增长前重复计数和相关硬上限检查，并核对最终数量，以防状态型或不符合迭代器契约的
+跨包实现让两次遍历不一致；不一致以 source 结构化输入契约诊断失败关闭。compiler 不得出现数值
+`16`、`256`、`1,024` 或对应 source 诊断的镜像检查，只负责构造借用迭代器、传入调用点动态
+余额并消费原子结果。
 
 前两条只供 current production façade；第三条因 Rust 不存在 friend crate 而必须跨包
 可见，但官方路径只由 compiler 调用。任意外部程序自行依赖 source 包并调用严格入口
@@ -337,8 +375,8 @@ strict 成功顺序固定为：
 
 1. compiler 在读、哈希、解析前验证 v2/后继多文档配置档，且模块余额至少 1、文档余额
    至少 3；
-2. allocation-free 检查制品数、每个 ref、ref 总字节，以及 Manifest 和每个输入制品的
-   单项 display source；
+2. source 通过上述克隆迭代器执行 allocation-free 预检，检查实际制品数、每个 ref、ref
+   总字节，以及 Manifest 和每个输入制品的单项 display source；compiler 不镜像这些规则；
 3. 检查 Manifest 实际字节，计算一次 Manifest SHA-256/换行索引并有界解析；
 4. 按 Traffic descriptor 的非空 ref → media type → portable size → digest 词法、Spatial
    descriptor 的相同顺序、两者 ref 冲突的既有优先级完成 Manifest 语义验证；
@@ -661,6 +699,10 @@ pub enum CurrentSourceErrorPayload {
         expected: Box<str>,
         actual: Box<str>,
     },
+    ArtifactIteratorContractMismatch {
+        expected_len: u64,
+        actual_len: u64,
+    },
     LimitExceeded {
         profile_id: &'static str,
         dimension: CurrentSourceLimitDimension,
@@ -705,6 +747,11 @@ compiler 余额失败使用独立 `CompilerBudgetExceeded`，compiler 按穷尽 
 已提交量加 `observed_delta` 重建共同 profile 的 `observed`；不得把动态余额先与 source hard
 cap 取最小值后丢失来源。
 
+`ArtifactIteratorContractMismatch` 只表示跨包 `ExactSizeIterator` 的实际产生数量与其初始
+`len()` 或第二次遍历数量不一致；它的 document、context、path 与 span 都为 `None`，官方 compiler
+适配器出现该错误即为实现缺陷。compiler 将它一对一映射为
+`LF-COMP-CURRENT-SOURCE-INPUT-CONTRACT`，不得伪装为制品数超限、JSON shape 或普通编译资源失败。
+
 Source JSON 错误保留 category、message、规范 `$` path 和真实 span。立即失败的 syntax
 携带原始 `serde_json::Error`；延迟 shape 候选可以使用 `serde::de::Error::custom` 保存
 Data category 与 source chain，但该对象的内部 `line()`/`column()` 不是位置事实源。
@@ -739,6 +786,7 @@ Serde 游标数值，也不要求嵌套 source error 的 `Display` 逐字节相�
 | `ArtifactSizeOutOfRange`               | `LF-CURRENT-SOURCE-ARTIFACT-SIZE-RANGE`      |
 | `ArtifactSizeMismatch`                 | `LF-CURRENT-SOURCE-ARTIFACT-SIZE-MISMATCH`   |
 | `ArtifactDigestMismatch`               | `LF-CURRENT-SOURCE-ARTIFACT-DIGEST-MISMATCH` |
+| `ArtifactIteratorContractMismatch`     | `LF-CURRENT-SOURCE-ITERATOR-CONTRACT`        |
 | `LimitExceeded`                        | `LF-CURRENT-SOURCE-LIMIT`                    |
 | `CompilerBudgetExceeded`               | `LF-CURRENT-SOURCE-COMPILER-BUDGET`          |
 
@@ -935,11 +983,17 @@ E、固定路径与报告 Git blob；validator 必须实际验证父子关系和
 rebase 或任何 A 内容变化都必须重新生成报告。
 
 报告 bytes 固定为 UTF-8 无 BOM、两空格缩进、LF 换行、单个末尾 LF；object 字段按 schema
-声明顺序，数组按本文规范顺序，使用固定 serde_json 版本的标准字符串转义。工具在同目录写
-唯一临时文件，完成 flush/file sync 后用同文件系统 `hard_link(temp, final)` 发布，从而取得
-atomic no-clobber；成功后删除临时名并在平台支持时 sync 目录。`AlreadyExists` 时读取 final，
-只接受 byte-identical 幂等结果；其他错误失败关闭。不得使用会覆盖目标的普通 rename，也不
-得在 hard-link 不可用时退化为非原子覆盖；任何失败都删除临时文件并保留既有报告。
+声明顺序，数组按本文规范顺序，由 importer 直接依赖的 `serde_json` 使用标准字符串转义。
+精确 serializer 版本取 `source.commit` 对应 `Cargo.lock` 的解析结果，生成命令必须使用
+`--locked`；G2 已知向量至少覆盖引号、反斜线、控制字符、ASCII、BMP 与非 BMP Unicode、空
+数组/对象及单个末尾 LF，并逐字节冻结完整小报告，依赖更新造成的任何转义或排版变化必须先让
+测试失败。报告必须由字段按 schema 顺序声明的有类型 `Serialize` 结构生成，不得先物化为
+`serde_json::Value`/`Map` 再依赖 map 实现或 feature-unification 排序。工具在同目录写唯一临时
+文件，完成 flush/file sync 后用同文件系统
+`hard_link(temp, final)` 发布，从而取得 atomic no-clobber；成功后删除临时名并在平台支持时
+sync 目录。`AlreadyExists` 时读取 final，只接受 byte-identical 幂等结果；其他错误失败关闭。
+不得使用会覆盖目标的普通 rename，也不得在 hard-link 不可用时退化为非原子覆盖；任何失败都
+删除临时文件并保留既有报告。
 
 当前冻结分类为：
 
@@ -965,6 +1019,8 @@ atomic no-clobber；成功后删除临时名并在平台支持时 sync 目录。
   owner-local relation、geometry axis 和派生 owner；释放原始 bytes 后仍可查询 origin；
 - production-compatible 长 ref、超过 16 个唯一额外制品、唯一额外 payload 和 128 字节
   current ID 保持现有接受；相同输入在 strict 超限时于增长前返回资源诊断；
+- strict 自定义测试迭代器覆盖 `len()` 过大、过小、克隆遍历与原遍历数量不同，以及第二次
+  遍历才出现超长 ref/额外项；前者返回输入契约诊断，后者仍在对应增长前返回 source 资源诊断；
 - 三种文档分别覆盖 `formatVersion` 缺失、显式 `null`、非字符串、重复 occurrence，以及
   unsupported version 与其他 DTO shape 同时存在的组合；前四类保持 `JsonShape`，重复时不选择
   任一 occurrence，只有唯一合法字符串版本才先于其他 shape 返回 unsupported version；
@@ -988,6 +1044,13 @@ atomic no-clobber；成功后删除临时名并在平台支持时 sync 目录。
 Runtime 固定步进，换来统一 version-before-shape 与真实定位。独立 source crate 还增加一个
 unpublished 内部边界和迁移期维护成本；该成本
 由阶段 8 后明确退役抵消，而不是形成永久兼容层。
+
+source-owned 迭代器预检删除 compiler 侧一次规则镜像和最多 16 项 source view 的短 `Vec`
+分配；它仍需对仅含借用元数据的克隆/原迭代器各扫描一次，并为严格入口产生一个泛型单态化实例。
+相对 JSON 哈希、解析和 lowering，该常数成本可忽略且不进入 Traffic Runtime；收益是 profile
+升级只修改 source 权威、compiler 无需同步数值或诊断。importer 的第三方支撑依赖全部只存在于
+未发布离线工具闭包，当前 workspace lock 已包含这些包，因而 G2 预计不增加解析 crate；代价是
+Cargo metadata 白名单与报告已知向量必须随每次依赖更新共同维护。
 
 G2 基准显式继承 [`compiler-foundation.md`](compiler-foundation.md) 第 10.4 节：同一 P100
 机器、相同 release 配置，每级至少 1 次预热和 7 次正式样本，报告 median、MAD、compiler
@@ -1014,17 +1077,19 @@ regression，也不得只报告成功结果 live bytes。
    profile、packed 位置槽、换行索引、位置闭合集合和 source 自身边界测试。
 3. 在 compiler 默认关闭特性下增加 `CurrentSourceArtifact`/`CurrentSourceInput`、余额派生、
    current 私有降阶、三文档描述符/源映射和原子 admission；补 compile-fail/API/DAG 测试。
-4. 新建只依赖 compiler 的薄 `laneflow-current-import`，实现批量调用、符合
-   `current-asset-audit-v1.schema.json` 的机器可读资产报告和失败清单；文件读取、路径解析
-   和原子输出只在该宿主工具层。
+4. 新建以 compiler 为唯一 LaneFlow 直接依赖的薄 `laneflow-current-import`，并使用第 3 节
+   冻结的第三方支撑依赖白名单，实现批量调用、符合 `current-asset-audit-v1.schema.json` 的
+   机器可读资产报告和失败清单；文件读取、路径解析和原子输出只在该宿主工具层。
 5. 完成 `LF-COMP-CURRENT-EQUIV-v2`、release 性能/内存、全 workspace CI、外部审阅、G3/G4
    证据；#294 只有在 paired success 与显式失败清单完整后才能消费删除前置。
 
 ## 16. G1 冻结清单
 
-- [x] crate DAG、默认关闭特性、能力可见性和退役条件闭合；
+- [x] crate DAG、第三方支撑依赖白名单、锁文件唯一解析权威、默认关闭特性、能力可见性和
+      退役条件闭合；
 - [x] `CurrentSourceArtifact::new`、`CurrentSourceInput::new` 与唯一 builder 入口精确；
-- [x] production-compatible / strict / Traffic-only 三条能力及不可转换边界精确；
+- [x] production-compatible / strict / Traffic-only 三条能力、source-owned 迭代器预检及
+      不可转换边界精确；
 - [x] 一个逻辑模块、固定 namespace、三文档键、来源语言和逐文档 origin 精确；
 - [x] 单一 DTO/摘要/配对权威、静态位置策略、额外制品语义和失败顺序精确；
 - [x] `LF-CURRENT-SOURCE-P100-IMPORT-v1` 全部固定值、builder 余额派生和 live 事务精确；
