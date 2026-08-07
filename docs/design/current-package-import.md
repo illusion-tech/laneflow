@@ -1,7 +1,7 @@
 # 当前 Traffic/Spatial 包迁移导入前端
 
-**文档状态**: Review（#297 G1 候选；未授权 G2）<br>
-**最后更新**: 2026-08-07<br>
+**文档状态**: Accepted（#297 G1 Pass；未授权 G2）<br>
+**最后更新**: 2026-08-08<br>
 **适用范围**: Traffic v0.10、SpatialPackage v0.1、ScenarioManifest v0.1、
 `laneflow-current-source`、`laneflow-compiler` 的 `current-v0_10-import` 迁移特性、
 `laneflow-current-import`、current → canonical LIR 迁移与资产审计<br>
@@ -1252,8 +1252,9 @@ regression，也不得只报告成功结果 live bytes。
 - [x] current external ID、迁移派生 key、owner/coverage/geometry 降阶精确；
 - [x] 仓库资产分类、已发布资产空清单、A-tree 清理责任事实源、证据提交、
       等价/确定性/资源/兼容/性能矩阵精确；
-- [ ] 本地全面审阅、当前 exact-head 外部 clean review 与 #297 `G1 Pass` 尚未完成。
+- [x] 本地全面审阅、exact-head `ae5f0898` 外部 clean review 与 #297
+      [`G1 Pass`](https://github.com/illusion-tech/laneflow/issues/297#issuecomment-5222064282)
+      已完成。
 
-本文件处于 Review；勾选设计内容表示候选已写全，不表示治理 Gate 已通过。只有 #297
-追加 exact-head `G1 Pass` 后，本文件才能改为 Accepted；实现仍须按第 15 节另行取得
-`G2 Pass`，G1 本身不授权开工。
+本文件处于 Accepted；#297 G1 Pass 只授权本收口，不授权开工。实现仍须按第 15 节
+基于当时 exact `main` 完成复核并另行取得 `G2 Pass`。

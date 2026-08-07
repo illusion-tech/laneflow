@@ -50,9 +50,9 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 `Traffic v0.10` / `SpatialPackage v0.1` / `ScenarioManifest v0.1` /
 `laneflow-data` / `laneflow-core` / `laneflow-spatial`。#315 已按 G2 授权落地共同私有
 `TypedAstModule` / `TypedAstDeclaration`、逻辑模块与来源文档独立登记、原子共同接入、
-文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#297 已形成 G1 Review 候选，精确入口、
-严格资源配置、三文档位置和 current 专用降阶见 `current-package-import.md`；该候选尚未
-取得 G1 Pass，#296/#297 的具体前端仍不是当前实现事实
+文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#297 已通过 G1（Accepted），精确入口、
+严格资源配置、三文档位置和 current 专用降阶见 `current-package-import.md`；在取得
+独立 G2 Pass 前，#296/#297 的具体前端仍不是当前实现事实
 
 **关联决策与设计**:
 
@@ -338,9 +338,9 @@ feature-gated `SourceLanguage` 变体只按 `current-package-import.md` 第 3 �
 不为共同接入另建前端插件包。以上名称和依赖方向已由 #315 G1 接受；具体当前态线格式
 字段、错误和来源位置契约仍由 #297 G1 独占。
 
-### 2.4 #297 current 包迁移导入候选（Review）
+### 2.4 #297 current 包迁移导入设计（Accepted）
 
-#297 G1 的精确候选由 [`current-package-import.md`](current-package-import.md) 统一冻结：
+#297 G1 的已接受设计由 [`current-package-import.md`](current-package-import.md) 统一冻结：
 
 - compiler 特性门控公共面为零复制 `CurrentSourceArtifact::new`、
   `CurrentImportProvenance::new(importer_build_id, importer_options_digest, provenance)`、
@@ -357,9 +357,11 @@ feature-gated `SourceLanguage` 变体只按 `current-package-import.md` 第 3 �
   首 edge ID，Movement 的两个 target-only approach key 用固定后缀派生；其他实体原样
   使用其 current ID，再交给共同 HIR/MIR/LIR 裁决 owner、coverage 和全局语义。
 
-本节只登记 G1 Review 候选，不把 #297 描述为已实现或已通过 Gate。候选数值、诊断、
-位置闭合集合、资产分类、性能和等价矩阵只以该专门设计为权威；#297 取得 exact-head
-`G1 Pass` 后才能把状态改为 Accepted 并进入 G2。
+本节只登记 #297 G1 已接受的设计边界，不把 #297 描述为已实现。数值、诊断、
+位置闭合集合、资产分类、性能和等价矩阵只以该专门设计为权威；#297 已于 exact-head
+`ae5f089` 取得
+[`G1 Pass`](https://github.com/illusion-tech/laneflow/issues/297#issuecomment-5222064282)，
+实现仍须基于当时 exact `main` 复核后另行取得 `G2 Pass`。
 
 ## 3. 公共接口与构造权威
 
@@ -520,7 +522,7 @@ impl CompilationUnitBuilder {
 迁移只允许把借用的 `CurrentSourceInput` 交给迁移特性入口，由入口内部取得并消费
 `laneflow-current-source` 铸造的完整 `ValidatedCurrentImportBundle`；不得开放预构造能力或裸描述符、
 摘要、位置、模块内容的配对入口。逐文档类型已是 #315 G2 实现事实；current 入口属于
-#315 G1 已接受的迁移边界，其精确签名仍是 #297 G1 Review 候选，尚未取得 G1 Pass。
+#315 G1 已接受的迁移边界，其精确签名已由 #297 G1 接受（Accepted），不授权实现。
 
 ### 3.2 官方前端封闭边界
 

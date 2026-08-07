@@ -12,8 +12,8 @@ Runtime）命名、静态执行约束（Static Execution Constraints）、不可
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已完成编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
 （Synthetic DSL Frontend）G4；#315 已落地私有共同 Typed AST、逻辑模块/来源文档独立登记、
-原子共同接入、文档集摘要与 v2 文档数配置档；#297 已形成 G1 Review 候选但尚未通过
-Gate，#296/#297 具体前端仍未实现
+原子共同接入、文档集摘要与 v2 文档数配置档；#297 已通过 G1（Accepted），
+在各自取得独立 G2 Pass 前，#296/#297 具体前端仍未实现
 
 **关联决策与设计**:
 
