@@ -1,7 +1,7 @@
 # 编译器基础设施与合成领域专用语言前端
 
 **文档状态**: #292 已接受并完成 G4；#315 共同受检模块接入契约已实现<br>
-**最后更新**: 2026-08-06<br>
+**最后更新**: 2026-08-07<br>
 **适用范围**: `laneflow-static-contract`、`laneflow-compiler`、
 `laneflow-compiler-test-support`、有类型抽象语法树（Typed Abstract Syntax Tree，
 Typed AST）→高层中间表示（High-level Intermediate Representation，HIR）→中层
@@ -204,7 +204,11 @@ laneflow-data ------------------------------> laneflow-spatial
 SpatialPackage v0.1 与 ScenarioManifest v0.1 的数据传输对象（wire Data Transfer Object，
 wire DTO）、精确原始字节身份、版本和语法/形状诊断。它必须在同一套私有版本判断、解析、
 配对和摘要实现上提供两种语义不同、不得互相替代的官方策略；来源位置由同一解析流程按策略
-静态选择位置接收器，不得为此复制解析器、第二次扫描原始字节或引入记录级动态分派：
+静态选择位置接收器，不得为此复制解析器、第二次解析或重放根文档或引入记录级动态分派。为同时
+保持 version-before-shape（`formatVersion` 自身的头部 shape 错误除外）与准确错误锚点，
+#297 可以让两种策略对固定 current schema 的
+单个借用 record token 至多原地重放一次；这不是第二次根文档解析，必须单独计数重放字节与
+时延，且不得扩展为完整文档、无界容器或解析后路径重建：
 
 1. 当前态生产兼容策略（current-source production compatibility policy）只供 `laneflow-data`
    保持现行 v0.1 加载契约。它继续接受 schema 与
@@ -248,9 +252,11 @@ DTO。严格线格式解码器必须在字符串、序列、记录或存续内�
 - 已验证当前态导入包（validated current-import bundle）`ValidatedCurrentImportBundle`
   只能由严格编译导入策略铸造；它不可分地拥有上述来源包、三个逐文档来源记录，以及与同一次
   解析产生的当前态来源位置表（current-source location table）`CurrentSourceLocationTable`。
-  位置表以文档内有类型记录/字段键关联解析期间确认的真实 `u32` 起止行列，不保存重复路径字符串
-  或第二份来源全文；其条目数、字符串和实际存续字节必须纳入 `CurrentSourceLimits`，并在增长前
-  检查。#297 G1 独占三种 wire DTO 到位置键的精确闭合集合。
+  位置表以文档内有类型记录/字段键关联解析期间确认的零基半开 `u32` byte range，并与有界换行
+  索引一起保留；它不提前膨胀为起止行列，不保存重复路径字符串或第二份来源全文。其条目数、
+  字符串和 backing allocation 的实际存续字节必须纳入 `CurrentSourceLimits`，并在增长前检查；
+  只有 backing allocation 实际移动或释放后才能转移或解除 charge。#297 G1 独占三种 wire DTO
+  到位置键的精确闭合集合。
 
 严格导入的每个逐文档来源记录都必须区分文档角色；Traffic/Spatial 文档还必须保留经 Manifest
 绑定的制品引用。Manifest 文档及两份被引用文档都可携带调用方提供的稳定显示/审计来源；这类
@@ -270,10 +276,13 @@ DTO。严格线格式解码器必须在字符串、序列、记录或存续内�
 `ValidatedCurrentImportBundle`，因此不存在调用方先按旧状态取得限额、再在 builder 状态变化后
 提交能力值的窗口。
 
-对 `SourceBytesTotal`、`CompilerControlledLiveBytes` 等累计维度，有效上限取“严格配置档上限”与
-“编译单元上限减去 builder 已提交用量”二者的较小值；对 `SourceBytesPerModule` 等候选局部维度，则取
-严格配置档与对应局部 `CompileLimits` 上限的较小值，不扣减无关模块。减法必须受检，余额不足时在来源
-解析或按规模分配前返回资源诊断。导入包在该有效上限内一次性铸造
+对 `SourceBytesPerModule`、`SourceBytesTotal` 和 `CompilerControlledLiveBytes`，严格来源硬上限与
+compiler 调用点的局部 / 累计剩余预算必须分别保留，不能预先取最小值而丢失失败归属。builder
+用受检减法派生 compiler 余额；source 在 Manifest 绑定后唯一计算选中三文档的实际字节，依次检查
+来源硬上限、compiler 单模块上限与累计余额。来源硬上限失败保留 current-source profile，compiler
+预算失败则携带封闭的 budget dimension 返回，由 compiler 以已提交量加本次增量重建共同配置档的
+`observed`。Manifest 必须先在自身上限内解析并完成目标绑定；任一 source-byte 余额不足都在
+被选中 Traffic/Spatial 载荷哈希、解析或按规模分配前失败。导入包在这些上限内一次性铸造
 `ValidatedCurrentImportBundle`，compiler 随即
 在同一调用栈内把 DTO、身份和所需真实位置一对一移动到私有导入模块，再执行共同接入的精确候选累计
 复核。全部检查成功后才原子提交；任一步失败都释放候选并保持 builder 的模块、索引和计数不变。
@@ -308,8 +317,9 @@ builder 调用内。由于没有到 `laneflow-current-source` 的直接依赖，
 `CurrentImportModuleBuilder` 或裸描述符/位置，
 不读取 `InitialTrafficData`、`SpatialRegistry` 或其他当前态对象图，不拥有 HIR/MIR
 编译遍，也不直接发射 LIR。阶段 8 删除运行时 JSON 路径时可以移除 `laneflow-data`
-对当前 Core/Spatial 的生产依赖，同时保留独立离线迁移入口；完成 #297 资产审计和
-既定保留期后，迁移特性与这两个迁移包可由单独治理决策退役。
+对当前 Core/Spatial 的生产依赖，同时保留独立离线迁移入口；迁移特性、两个迁移包及
+feature-gated `SourceLanguage` 变体只按 `current-package-import.md` 第 3 节的可验证触发
+条件和专用 cleanup Issue 退役，不使用未定义的保留期。
 
 #296 的 `GeometryModuleBuilder` / `GeometryModule` 继续由 `laneflow-compiler` 拥有，
 不为共同接入另建前端插件包。以上名称和依赖方向已由 #315 G1 接受；具体当前态线格式
@@ -322,8 +332,9 @@ builder 调用内。由于没有到 `laneflow-current-source` 的直接依赖，
 - compiler 特性门控公共面为零复制 `CurrentSourceArtifact::new`、
   `CurrentSourceInput::new(manifest_bytes, manifest_display_source, artifacts)` 和唯一原子
   `CompilationUnitBuilder::add_current_source`；公共签名不泄漏 current-source 类型；
-- 一个固定 `current/v0.10` namespace 下保留 Manifest/Traffic/Spatial 三个稳定文档键，
-  采用 `SourceLanguage::CurrentTrafficSpatialV0_10 = 2`，不虚构模块或导入边；
+- 一个固定 `current/v0.10` namespace 下保留 Manifest/Traffic/Spatial 三个稳定文档键；
+  feature-gated `SourceLanguage::CurrentTrafficSpatialV0_10 = 2` 只在迁移特性下存在，不
+  虚构模块或导入边；
 - `LF-CURRENT-SOURCE-P100-IMPORT-v1` 以 source 专用硬上限和调用点 builder 余额共同
   形成有效 `CurrentSourceLimits`；v1 compiler profile 在读、哈希、解析前拒绝；
 - production-compatible Data 路径保持现有 accepted set 且不收集位置，strict 路径用
@@ -480,8 +491,8 @@ impl CompilationUnitBuilder {
 来源记录；后继同包官方前端可以增加各自的受检 `add_*_module` 方法。跨包 current
 迁移只允许把借用的 `CurrentSourceInput` 交给迁移特性入口，由入口内部取得并消费
 `laneflow-current-source` 铸造的完整 `ValidatedCurrentImportBundle`；不得开放预构造能力或裸描述符、
-摘要、位置、模块内容的配对入口。逐文档类型已是 #315 G2 实现事实；
-current 入口仍属于 #297 已接受目标公共面。
+摘要、位置、模块内容的配对入口。逐文档类型已是 #315 G2 实现事实；current 入口属于
+#315 G1 已接受的迁移边界，其精确签名仍是 #297 G1 Review 候选，尚未取得 G1 Pass。
 
 ### 3.2 官方前端封闭边界
 
