@@ -564,7 +564,7 @@ fn lockfile_metadata(repository: &str, pr: &PullRequestSnapshot) -> PullRequestM
             .map(|commit| PullRequestCommit {
                 oid: commit.oid.clone(),
                 committed_at: commit.committed_date.clone(),
-                url: format!("{}/commits/{}", pr.url, commit.oid),
+                url: format!("https://github.com/{repository}/commit/{}", commit.oid),
                 message_headline: commit.message_headline.clone(),
                 authors: commit
                     .authors
@@ -843,7 +843,17 @@ fn load_codeql_check_runs(
         .into_iter()
         .map(|check| rest_check_run_snapshot(check, head_oid))
         .collect::<Result<Vec<_>, _>>()?;
-    for check in &mut pr_bound_checks {
+    reconcile_codeql_check_runs(&mut pr_bound_checks, rest_checks)
+}
+
+fn reconcile_codeql_check_runs(
+    pr_bound_checks: &mut Vec<CheckRunSnapshot>,
+    rest_checks: Vec<CheckRunSnapshot>,
+) -> Result<Vec<CheckRunSnapshot>, String> {
+    let rollup_has_codeql = pr_bound_checks
+        .iter()
+        .any(|check| check.typename == "CheckRun" && check.name == "CodeQL");
+    for check in &mut *pr_bound_checks {
         if check.typename != "CheckRun" || check.name != "CodeQL" {
             continue;
         }
@@ -871,7 +881,10 @@ fn load_codeql_check_runs(
         check.completed_at.clone_from(&trusted.completed_at);
         check.pull_requests.clone_from(&trusted.pull_requests);
     }
-    Ok(pr_bound_checks)
+    if !rollup_has_codeql {
+        pr_bound_checks.extend(rest_checks);
+    }
+    Ok(std::mem::take(pr_bound_checks))
 }
 
 fn load_recorded_codeql_check_run(
@@ -1139,6 +1152,30 @@ mod tests {
         assert_eq!(parsed.typename, "StatusContext");
         assert!(parsed.name.is_empty());
         assert!(parsed.status.is_empty());
+    }
+
+    #[test]
+    fn retains_rest_codeql_when_the_pr_rollup_omits_it() {
+        let snapshot = fixture(include_str!("../fixtures/codeql/source-success.json"));
+        let mut rollup = vec![CheckRunSnapshot {
+            typename: "StatusContext".to_string(),
+            name: String::new(),
+            status: String::new(),
+            conclusion: String::new(),
+            completed_at: String::new(),
+            details_url: String::new(),
+            app_slug: String::new(),
+            pull_requests: Vec::new(),
+        }];
+        let mut rest_check = snapshot.pull_request.status_check_rollup[0].clone();
+        rest_check.conclusion = "FAILURE".to_string();
+        let reconciled = reconcile_codeql_check_runs(&mut rollup, vec![rest_check])
+            .expect("REST CodeQL fallback must reconcile");
+        assert_eq!(reconciled.len(), 2);
+
+        let mut snapshot = snapshot;
+        snapshot.pull_request.status_check_rollup = reconciled;
+        assert_eq!(evaluate_snapshot(&snapshot).state, CodeQlState::Failed);
     }
 
     #[test]

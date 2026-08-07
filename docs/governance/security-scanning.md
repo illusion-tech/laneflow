@@ -38,7 +38,7 @@ CodeQL default setup 可以对只修改 `Cargo.lock` 的 PR 返回 aggregate `Co
 未定义状态。`check-codeql` 固定输出 `pass`、`not_applicable`、`pending`、`failed`、
 `missing` 或 `provider_error`：
 
-- PR-bound rollup 选定、REST source App 精确为 `github-advanced-security` 的 aggregate `CodeQL=success` 才是常规 `pass`；已完成 run 必须提供有效 `completed_at`，G3 comment 不得早于该时间，带小数秒时按秒与纳秒精确比较。OPEN target 的 check-run `pull_requests` association 还必须精确匹配目标 PR number、current head 与 current base；G4 对 MERGED PR 重放时按 append-only G3 comment 记录的 run URL 读取该具体 REST check-run，并复核 source App、head 与结论，允许 GitHub 清空 association，但存在的 association 必须仍精确匹配。同 head 的其他 PR/base 分析、合并后新增的 latest rerun 与同名 `github-actions` job 均不计入原 G3 证据；
+- PR-bound rollup 选定、REST source App 精确为 `github-advanced-security` 的 aggregate `CodeQL=success` 才是常规 `pass`；若 rollup 未返回任何 CodeQL `CheckRun`，REST current-head CodeQL 结果必须作为候选继续进入同一 PR/head/base/app 校验，不能丢弃失败或取消结果后误判 no-analysis。已完成 run 必须提供有效 `completed_at`，G3 comment 不得早于该时间，带小数秒时按秒与纳秒精确比较。OPEN target 的 check-run `pull_requests` association 还必须精确匹配目标 PR number、current head 与 current base；G4 对 MERGED PR 重放时按 append-only G3 comment 记录的 run URL 读取该具体 REST check-run，并复核 source App、head 与结论，允许 GitHub 清空 association，但存在的 association 必须仍精确匹配。同 head 的其他 PR/base 分析、合并后新增的 latest rerun 与同名 `github-actions` job 均不计入原 G3 证据；
 - 只有 `dependabot-cargo-lock-only-v1` 能把 aggregate `NEUTRAL` / no-analysis 判为
   `not_applicable`。该 policy 与 external-review 机器替代路径共用同一组证明：Dependabot
   App / bot PR author、同 repository 的 `dependabot/cargo/*` head ref、唯一 current-head
