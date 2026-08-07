@@ -857,6 +857,14 @@ fn accepts_current_g3_fields_at_external_review_activation() {
 }
 
 #[test]
+fn external_review_activation_uses_numeric_timestamp_ordering() {
+    assert!(!external_review_g3_active("2026-07-24T15:16:20.999Z").unwrap());
+    assert!(external_review_g3_active("2026-07-24T15:16:21Z").unwrap());
+    assert!(external_review_g3_active("2026-07-24T15:16:21.123Z").unwrap());
+    assert!(external_review_g3_active("invalid").is_err());
+}
+
+#[test]
 fn requires_explicit_codeql_state_after_codeql_activation() {
     let args = related_only_g3_args();
     let issue = issue_with_pending_delivery_and_related_g3();
@@ -970,6 +978,46 @@ fn codeql_completion_must_not_follow_the_append_only_g3_comment() {
         )
         .is_ok()
     );
+}
+
+#[test]
+fn external_review_completion_uses_fractional_timestamp_ordering() {
+    assert!(
+        validate_external_review_completion_order(
+            "Delivery PR",
+            "2026-08-07T10:00:01.1Z",
+            "2026-08-07T10:00:01.2Z"
+        )
+        .is_err()
+    );
+    assert!(
+        validate_external_review_completion_order(
+            "Delivery PR",
+            "2026-08-07T10:00:01.2Z",
+            "2026-08-07T10:00:01.1Z"
+        )
+        .is_ok()
+    );
+    assert!(
+        validate_external_review_completion_order(
+            "Delivery PR",
+            "2026-08-07T10:00:01Z",
+            "2026-08-07T10:00:01Z"
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn merged_g3_timing_uses_fractional_timestamp_ordering() {
+    let mut pr = related_pr(false);
+    let permalink = pr.comments[0].url.clone();
+    pr.merged_at = Some("2026-08-07T10:00:01.1Z".to_string());
+    pr.comments[0].created_at = "2026-08-07T10:00:01Z".to_string();
+    assert!(validate_g3_timing(&pr, &permalink, "Related PR").is_ok());
+
+    pr.comments[0].created_at = "2026-08-07T10:00:01.2Z".to_string();
+    assert!(validate_g3_timing(&pr, &permalink, "Related PR").is_err());
 }
 
 #[test]
