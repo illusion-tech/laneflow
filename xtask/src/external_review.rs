@@ -838,12 +838,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             continue;
         }
         if verified_lockfile.is_some()
-            && handled_non_range_identity_finding(
-                thread,
-                first_comment,
-                &author,
-                &lockfile_metadata,
-            )
+            && handled_non_range_identity_finding(thread, first_comment, &lockfile_metadata)
         {
             let claimed = claimed_pr_identity_oid(&first_comment.body).unwrap_or("unknown");
             notices.push(format!(
@@ -1350,7 +1345,6 @@ fn lockfile_metadata(pr: &PullRequestSnapshot) -> PullRequestMetadata {
 fn handled_non_range_identity_finding(
     thread: &ReviewThread,
     first_comment: &ReviewThreadComment,
-    pr_author: &str,
     metadata: &PullRequestMetadata,
 ) -> bool {
     let Some(claimed_oid) = claimed_pr_identity_oid(&first_comment.body) else {
@@ -1368,7 +1362,7 @@ fn handled_non_range_identity_finding(
     thread.comments.nodes.iter().skip(1).any(|comment| {
         comment.author.as_ref().is_some_and(|author| {
             let actor = normalize_actor(&author.login);
-            actor == normalize_actor(pr_author) || TRUSTED_HUMAN_ACTORS.contains(&actor.as_str())
+            TRUSTED_HUMAN_ACTORS.contains(&actor.as_str())
         }) && identity_only_disposition(&comment.body, claimed_oid, &metadata.head_oid)
             && valid_timestamp(&comment.created_at)
             && comment.created_at.as_str() > first_comment.created_at.as_str()
@@ -2657,6 +2651,19 @@ mod tests {
         snapshot.pull_request.review_threads.nodes[0].comments.nodes[0]
             .body
             .push_str(" Also, the Cargo.lock checksum is invalid.");
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingRereview
+        );
+
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        snapshot.pull_request.review_threads.nodes[0].comments.nodes[1]
+            .author
+            .as_mut()
+            .expect("fixture disposition must have an author")
+            .login = "dependabot[bot]".to_string();
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::AwaitingRereview

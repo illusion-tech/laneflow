@@ -121,11 +121,14 @@ head/base 竞态和无效 evidence URL
 ```powershell
 cargo +1.96.0 run --locked -p xtask -- check-codeql --input xtask/fixtures/codeql/lockfile-neutral.json --format json --expect not_applicable
 cargo +1.96.0 run --locked -p xtask -- check-codeql --repo <owner/repo> --pr <number> --format json
+cargo +1.96.0 run --locked -p xtask -- check-codeql --repo <owner/repo> --pr <merged-number> --evidence-url <recorded-url> --format json
 ```
 
 从 `2026-08-08T00:00:00Z` 创建的 current G3 comment 起，`check-gate-evidence g3`
 还会要求唯一 `- CodeQL：` 行与 live 状态一致；`not_applicable` 必须同时记录
-`dependabot-cargo-lock-only-v1` 和 evidence URL。更早的 append-only G3 历史不追溯改写。
+`dependabot-cargo-lock-only-v1` 和 evidence URL。`check-gate-evidence g4` 对 MERGED PR
+按 append-only G3 comment 记录的具体 run URL 重放，不允许合并后的 latest rerun 改写
+历史结论；更早的 append-only G3 历史不追溯改写。
 
 workflow 安全检查至少验证：
 
