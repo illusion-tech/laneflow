@@ -143,9 +143,6 @@ pub(crate) fn verify_dependabot_lockfile_only(
     if !metadata.force_pushes_complete {
         return Err("force-push provenance connection 不完整".to_string());
     }
-    if metadata.force_pushes.is_empty() {
-        return Err("force-push provenance 不能为空".to_string());
-    }
     for force_push in &metadata.force_pushes {
         if force_push.actor_login.as_deref().map(normalize_actor) != Some("dependabot".to_string())
             || !is_full_git_oid(&force_push.before_oid)
@@ -359,6 +356,10 @@ mod tests {
             verified.head_oid,
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         );
+
+        let mut metadata = eligible_metadata();
+        metadata.force_pushes.clear();
+        assert!(verify_dependabot_lockfile_only(&metadata).is_ok());
     }
 
     #[test]
@@ -410,10 +411,6 @@ mod tests {
 
         let mut metadata = eligible_metadata();
         metadata.force_pushes[0].actor_login = Some("wangzishi".to_string());
-        assert!(verify_dependabot_lockfile_only(&metadata).is_err());
-
-        let mut metadata = eligible_metadata();
-        metadata.force_pushes.clear();
         assert!(verify_dependabot_lockfile_only(&metadata).is_err());
 
         let mut metadata = eligible_metadata();
