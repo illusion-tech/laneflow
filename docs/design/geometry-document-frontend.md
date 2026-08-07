@@ -811,15 +811,24 @@ checked `u32` 计算下一深度，33 在压入 parser stack 或分配容器前�
 
 1. 来源字节/编码/顶层版本与 parser 资源错误；
 2. JSON 语法、重复键、closed-shape 与字段类型；
-3. 模块头、单位、稳定键、局部重复与曲线局部值域；
+3. 模块头、单位、稳定键、局部重复、曲线局部值域，以及 `finish` numeric freeze 的
+   station、offset、细分、量化、最终方向、总误差与单模块 geometry 资源错误；
 4. 共同 admission 的 namespace/document/资源错误；
 5. HIR 来源归属、import/symbol/unit/owner 候选错误；
-6. topology/geometry MIR 的 coverage、station、连续性、细分和全局静态语义；
+6. topology/geometry MIR 的 coverage、跨模块/拓扑端点与方向连续性、已冻结 geometry
+   payload 绑定和全局静态语义；
 7. Identity closure 与 LIR 规范化错误。
 
 同一阶段按 `(canonical module order, source document order, primary span, diagnostic
 code, stable key, typed payload)` 排序。解析恢复只能在当前 closed object/array 的已知
 边界内进行；无法证明安全同步点时只报告首个语法错误，不能猜测后续结构。
+
+阶段顺序按实际公共操作生效：`GeometryModuleBuilder::finish` 在模块存在前完成阶段 1–3，
+其 numeric freeze 错误规范地遮蔽尚不可执行的 common admission、未知 import、跨模块
+owner、配置档混用或全局连接错误；只有成功模块进入编译单元后才执行阶段 4–7。实现
+不得缓存一个失败模块并继续后续阶段，也不得为了报告“更多”错误打破该顺序。G2 必须
+覆盖同一来源同时含 local freeze 与未知 import、跨模块 owner、配置档混用错误的
+known-vector，证明只返回阶段 3 的规范最小诊断。
 
 任一错误级诊断使当前操作失败且不返回部分 Typed AST、HIR、MIR、LIR 或源映射。失败
 后的 `Compiler` 可复用容量，但下一次编译的输出、诊断和指标不得受污染。
