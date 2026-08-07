@@ -1324,7 +1324,8 @@ Manifest/Traffic/Spatial 的单文档和组合字节上限；字符串/序列/�
 成功/失败结论；位置表能把不同文档的字段/记录映射为真实来源位置且不需要重读；三个文档来源记录的
 边界与释放后保留；以及严格编译导入不存在无配置、过期配置快照或无界解码入口。跨 crate 编译测试必须
 证明 `laneflow-current-import` 能经公开零复制构造器建立带实际 build ID、选项摘要和转换来源沿袭的
-`CurrentSourceInput`，builder 会在读取来源文档前拒绝无效字符串，并把不同实际值原样写入只读模块
+`CurrentSourceInput`，builder 会在读取来源文档前拒绝无效字符串，沿袭复制与固定宽度摘要先计入
+事务账本并从交给 source 的余额中扣减，且把不同实际值原样写入只读模块
 描述符，同时外部 crate 仍不能构造 `ValidatedCurrentImportBundle`；Cargo 清单与依赖图测试还必须
 证明 importer 的 LaneFlow 直接依赖
 只有 compiler、第三方直接依赖不超出第 2.3 节白名单，且不直接依赖或命名
@@ -1552,11 +1553,9 @@ P100 正式测量对每级执行 1 次预热和 7 次正式样本；输入构造
 - [x] ScenarioManifest 组合入口只消费原子成功结果，不重复或绕过长度、SHA-256、媒体
       类型与引用验证；生产兼容结果不构造或保留 compiler-only 位置表，严格导入结果保留
       Manifest/Traffic/Spatial 三个来源文档的独立身份、逐文档来源记录和受限字段/记录位置表，且两者
-      共享单一解析权威、均不重读原始字节；`CurrentImportProvenance` 与 `CurrentSourceInput` 有外部 crate
-      可调用的零复制构造器，实际 importer build ID、选项摘要和本次转换来源沿袭由 builder 先验证并
-      写入只读模块描述符；compiler 当前态入口只接受该借用原始输入并在独占 builder 调用内完成严格
-      验证、降阶和原子提交，不公开接受预构造导入能力值；同时保留无需空间制品的 Traffic-only current
-      Core 契约；
+      共享单一解析权威、均不重读原始字节；`CurrentSourceInput` 有外部 crate 可调用的零复制构造器，
+      compiler 当前态入口只接受该借用原始输入并在独占 builder 调用内完成严格验证、降阶和原子提交，
+      不公开接受预构造导入能力值；同时保留无需空间制品的 Traffic-only current Core 契约；
 - [x] 记录级零动态分派、零完整克隆、一次摘要/计数/排序、多文档紧凑序号解析与配对性能
       验证方案闭合；
 - [x] 第三方自定义前端非承诺、各议题职责和 G2 阻塞关系没有歧义；

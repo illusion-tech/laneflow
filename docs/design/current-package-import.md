@@ -599,16 +599,21 @@ display source 分别计入 `StringItemCount`、`TotalStringBytes` 和 live byte
 与 display source 不属于 `SingleStringBytes`，但仍受 source 专用 256/1,024 byte 上限。
 `importer_build_id` 与模块级 `provenance` 沿用 `SourceModuleHeader` 的
 `SingleStringBytes`/可见 ASCII 规则，只按实际复制字节计 compiler-controlled live bytes，不
-重复计为来源文档字符串；32 字节选项摘要不产生按输入规模分配。
+重复计为来源文档字符串；32 字节选项摘要不产生按输入规模分配。这些验证后复制与固定宽度
+摘要的物化存储在读取、哈希或解析任何来源文档前完成，并立即计入事务账本的
+materialized upfront charge，在整个事务期间保持，直到原子提交转为模块描述符的
+destination charge 或失败时随事务释放，不作废"增长前失败"不变量。
 
 `max_import_transaction_live_bytes` 精确等于调用点剩余的
-`CompilerControlledLiveBytes`，不另设无限值。解析期同时受 24 MiB source 峰值和该余额
-约束；降阶时使用同一事务账本。只有底层 allocation 原样移动到 destination 的 String/Vec
-才能把 source charge 转为 destination charge；packed location、换行索引、owned iterator
-backing 与需要重新分配的 DTO container 在实际 drop 前保持 source charge。任何新 capacity
-请求前检查 `committed_builder + full_live_source_backing + destination_candidate`；按文档或
-整表完成转换并 drop backing 后才一次性解除对应 charge。共同 admission 前 strict bundle、
-位置表和 source-only iterator backing 必须已释放。
+`CompilerControlledLiveBytes` 扣除全部 materialized upfront charge 后的余额，不另设无限值；
+source 与事务内任何其他 candidate allocation 只能在该扣减后余额内增长。解析期同时受
+24 MiB source 峰值和该余额约束；降阶时使用同一事务账本。只有底层 allocation 原样移动到
+destination 的 String/Vec 才能把 source charge 转为 destination charge；packed location、
+换行索引、owned iterator backing 与需要重新分配的 DTO container 在实际 drop 前保持
+source charge。任何新 capacity 请求前检查
+`committed_builder + materialized_upfront + full_live_source_backing + destination_candidate`；
+按文档或整表完成转换并 drop backing 后才一次性解除对应 charge。共同 admission 前
+strict bundle、位置表和 source-only iterator backing 必须已释放。
 
 G2 transaction 峰值测试至少固定四个观测点：最大 packed table 刚冻结、转换一半、全部元素
 已消费但 owned iterator/backing 尚未 drop、drop 后。每点都比较 ledger、实际 capacity 与
@@ -1050,6 +1055,14 @@ Issue URL、Node ID 与 owner；这些重复字段必须由 validator 逐项比�
 E、固定路径与报告 Git blob；validator 必须实际验证父子关系和唯一文件差异，不能仅相信文件名。
 rebase 或任何 A 内容变化都必须重新生成报告。
 
+承载证据提交 E 的 PR 是仓库默认 Rebase and merge 的冻结例外：它必须使用
+Create a merge commit 合入，使 A 与 E 的提交对象原样进入 `main`，标准 clone 可以按本节
+重放 `A..E`。该例外只适用于 `A..E` 仅新增固定报告路径的 PR，不扩展到该 PR 内的其他变更，
+也不要求任何其他 PR 改变合并方式。若该 PR 以 rebase、squash 或任何重写 A/E 提交身份的方式
+合入，报告中的 `source.commit` 与 G3 comment 记录的 SHA 立即失效，必须按 `main` 上的新
+父提交重新生成报告并重新完成验证；validator 必须确认 A、E 的提交对象可经该 merge commit
+从 `main` 到达且 `A..E` 可原样重放，否则失败关闭。
+
 Schema 只验证报告结构和闭合状态分支，`assets.minItems` 不证明其与动态仓库清单相等。validator
 不得以报告内的 `assets`、repository source digest、`inventoryDigest` 或 `overallStatus` 作为枚举/
 分类事实源；在验证 A/E 关系后，必须从 A 独立重建完整预期清单：使用全新的临时 Git index 对 A
@@ -1122,6 +1135,9 @@ sync 目录。`AlreadyExists` 时读取 final，只接受 byte-identical 幂等�
   在 Manifest 哈希/换行索引/DTO 分配前先以 Manifest 实际长度检查 compiler source-byte 下界，
   再在绑定后以完整三文档值复核，且两次都覆盖边界、边界加一与失败前零规模分配；
 - 每个资源维度执行边界、边界加一、先加其他模块、加入顺序变形、失败不污染和重试；
+- materialized upfront charge 在读取来源文档前已入账：分别构造 `importer_build_id`/`provenance`
+  复制与 source 边界输入之和恰好等于及超出调用点 `CompilerControlledLiveBytes` 剩余量的组合，
+  前者成功、后者在任何来源分配增长前失败，且失败不保留部分模块、字符串或 backing；
 - v1 compile profile 在读取/哈希/解析前以 `SourceDocumentCount` profile-incompatible
   失败，v2/后继显式多文档 profile 才能导入。
 
