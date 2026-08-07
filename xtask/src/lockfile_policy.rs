@@ -131,7 +131,7 @@ fn is_git_oid_fragment(value: &str) -> bool {
     (7..=40).contains(&value.len()) && value.chars().all(|character| character.is_ascii_hexdigit())
 }
 
-fn is_utc_rfc3339(value: &str) -> bool {
+pub(crate) fn is_utc_rfc3339(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() < 20
         || bytes[4] != b'-'

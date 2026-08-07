@@ -892,6 +892,26 @@ fn extracts_one_recorded_codeql_evidence_url() {
 }
 
 #[test]
+fn codeql_completion_must_not_follow_the_append_only_g3_comment() {
+    assert!(
+        validate_codeql_completion_order(
+            "Delivery PR",
+            "2026-08-07T10:00:00Z",
+            Some("2026-08-07T10:00:01Z")
+        )
+        .is_err()
+    );
+    assert!(
+        validate_codeql_completion_order(
+            "Delivery PR",
+            "2026-08-07T10:00:01Z",
+            Some("2026-08-07T10:00:01Z")
+        )
+        .is_ok()
+    );
+}
+
+#[test]
 fn rejects_current_g3_without_shadow_evidence_field() {
     let args = related_only_g3_args();
     let mut related_pr = related_pr_for_args(false, &args);

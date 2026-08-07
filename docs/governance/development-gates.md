@@ -243,7 +243,7 @@ AwaitingReview
 - changed files 完整且恰好只有 `MODIFIED Cargo.lock`，files、commits 与 commit authors
   分页均未截断；
 - live evaluator 完成后再次读取 head/base，identity 全程稳定；
-- provider 声称的“reviewed commit/object”不属于 PR commit range 时，finding 还必须精确匹配版本化的 identity-only 标题/双句文案形态，且 G3 Owner 在 finding 后严格更晚发表的 `Disposition:` 必须回链 current head 与精确 Dependabot name/email；thread 已 resolved / outdated 后才能记为已处置 provider identity anomaly。混入 checksum、漏洞、许可证、unsafe 或任何其他实质 finding 的线程不得整条忽略；
+- provider 声称的“reviewed commit/object”不属于 PR commit range 时，finding 还必须完整精确匹配版本化的 identity-only 标题、paragraph allowlist 与 footer，不允许第三句或其他额外 claim；且 G3 Owner 在 finding 后严格更晚发表的 `Disposition:` 必须回链 current head 与精确 Dependabot name/email；thread 已 resolved / outdated 后才能记为已处置 provider identity anomaly。任何不在完整 allowlist 内的实质 finding 都不得整条忽略；
 - provider 的 “wasn't able to review any files” 只记录为未形成 completion，不得伪装成
   clean；任何不满足上述身份模式的 finding、普通源码/workflow/mixed-path PR 和解析歧义
   继续走常规 finding / re-review 或 fail-closed。
@@ -333,7 +333,7 @@ content-equivalent rebase 还必须记录 reviewed/new head、old/new base、cha
 - 源代码许可证、依赖许可证、RustSec advisory、crate 来源或 Dependabot 配置违反 `dependency-security.md`，或适用 cargo-deny 检查未通过。
 - `security-scanning.md` 要求的适用扫描仍为 `pending`、失败、已禁用或不可用；无分析既不满足精确 lockfile-only `not_applicable`，也没有记录显式例外。
 - `check-codeql` 既未得到 current-head `pass`，也未在精确 `dependabot-cargo-lock-only-v1` 路径得到 `not_applicable`，且没有记录显式例外。
-- external-review 的 `G3 Waived` 不覆盖 CodeQL；激活边界后的 waived review 仍须独立取得 PR-bound `pass` 或精确 lockfile-only `not_applicable`。OPEN current target 的 REST check-run association 必须精确匹配 PR/head/base；G4 对 MERGED PR 历史重放时从 append-only G3 comment 取当时记录的 run URL，再由 REST 复核该具体 run 的 source App、head 与结论，不能改用合并后的 latest rerun。GitHub 已清空 association 时允许为空，但存在的 association 必须精确匹配。
+- external-review 的 `G3 Waived` 不覆盖 CodeQL；激活边界后的 waived review 仍须独立取得 PR-bound `pass` 或精确 lockfile-only `not_applicable`。G3 comment 不得早于所记录 check-run 的 `completed_at`。OPEN current target 的 REST check-run association 必须精确匹配 PR/head/base；G4 对 MERGED PR 历史重放时从 append-only G3 comment 取当时记录的 run URL，再由 REST 复核该具体 run 的 source App、head 与结论，不能改用合并后的 latest rerun。GitHub 已清空 association 时允许为空，但存在的 association 必须精确匹配。
 
 PR 合入 `main` 默认使用 **Rebase and merge**；若使用 Squash 或 Merge commit，须在 PR 中说明原因。详见 `github-workflow.md` 第 7 节。
 
