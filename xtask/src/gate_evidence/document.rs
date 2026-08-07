@@ -416,8 +416,9 @@ pub(super) fn gate_waiver_reference_time(
     let Some(merged_at) = pr.merged_at.as_deref() else {
         return Ok(current_time);
     };
-    parse_utc_timestamp_seconds(merged_at)
-        .ok_or_else(|| "已合并 PR 的 mergedAt 不是 UTC RFC3339 秒级时间".to_string())
+    lockfile_policy::parse_utc_rfc3339(merged_at)
+        .map(lockfile_policy::UtcTimestamp::seconds)
+        .ok_or_else(|| "已合并 PR 的 mergedAt 不是有效 UTC RFC3339 时间".to_string())
 }
 
 pub(super) fn validate_codeql_g3(
@@ -580,11 +581,11 @@ pub(super) fn external_review_g3_active(comment_created_at: &str) -> Result<bool
 }
 
 pub(super) fn codeql_g3_active(comment_created_at: &str) -> Result<bool, String> {
-    let comment_seconds = parse_utc_timestamp_seconds(comment_created_at)
+    let comment_time = lockfile_policy::parse_utc_rfc3339(comment_created_at)
         .ok_or_else(|| "G3 comment createdAt 不是有效 UTC RFC3339 时间".to_string())?;
-    let activation_seconds = parse_utc_timestamp_seconds(CODEQL_G3_ACTIVATION)
-        .ok_or_else(|| "CODEQL_G3_ACTIVATION 不是有效 UTC RFC3339 时间".to_string())?;
-    Ok(comment_seconds >= activation_seconds)
+    let activation_time = lockfile_policy::parse_utc_rfc3339(CODEQL_G3_ACTIVATION)
+        .expect("CodeQL G3 activation must be valid UTC RFC3339");
+    Ok(comment_time >= activation_time)
 }
 
 pub(super) fn parse_g3_result(body: &str) -> Result<G3Result, String> {
@@ -974,77 +975,7 @@ pub(super) fn reference_github_url(body: &str, label: &str) -> Option<String> {
 }
 
 pub(super) fn parse_utc_timestamp_seconds(value: &str) -> Option<u64> {
-    let timestamp = value.strip_suffix('Z')?;
-    let whole_seconds = if let Some((whole_seconds, fractional_seconds)) = timestamp.split_once('.')
-    {
-        if fractional_seconds.is_empty()
-            || !fractional_seconds.bytes().all(|byte| byte.is_ascii_digit())
-        {
-            return None;
-        }
-        whole_seconds
-    } else {
-        timestamp
-    };
-    let bytes = whole_seconds.as_bytes();
-    if bytes.len() != 19
-        || bytes[4] != b'-'
-        || bytes[7] != b'-'
-        || bytes[10] != b'T'
-        || bytes[13] != b':'
-        || bytes[16] != b':'
-    {
-        return None;
-    }
-    let year = whole_seconds.get(0..4)?.parse::<u64>().ok()?;
-    let month = whole_seconds.get(5..7)?.parse::<u64>().ok()?;
-    let day = whole_seconds.get(8..10)?.parse::<u64>().ok()?;
-    let hour = whole_seconds.get(11..13)?.parse::<u64>().ok()?;
-    let minute = whole_seconds.get(14..16)?.parse::<u64>().ok()?;
-    let second = whole_seconds.get(17..19)?.parse::<u64>().ok()?;
-    if year < 1970 || !(1..=12).contains(&month) || hour > 23 || minute > 59 || second > 59 {
-        return None;
-    }
-    let leap = is_leap_year(year);
-    let month_days = [
-        31,
-        if leap { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    let max_day = month_days[(month - 1) as usize];
-    if day == 0 || day > max_day {
-        return None;
-    }
-    let years_before = year - 1;
-    let epoch_years_before = 1969;
-    let leap_days_before = years_before / 4 - years_before / 100 + years_before / 400;
-    let epoch_leap_days_before =
-        epoch_years_before / 4 - epoch_years_before / 100 + epoch_years_before / 400;
-    let days_before_year = (year - 1970) * 365 + leap_days_before - epoch_leap_days_before;
-    let days_before_month = month_days
-        .iter()
-        .take((month - 1) as usize)
-        .copied()
-        .sum::<u64>();
-    Some(
-        (days_before_year + days_before_month + day - 1) * 86_400
-            + hour * 3_600
-            + minute * 60
-            + second,
-    )
-}
-
-pub(super) fn is_leap_year(year: u64) -> bool {
-    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
+    lockfile_policy::parse_utc_rfc3339(value).map(lockfile_policy::UtcTimestamp::seconds)
 }
 
 pub(super) fn g3_requires_external_review(pr: &GitHubPullRequest) -> Result<bool, String> {

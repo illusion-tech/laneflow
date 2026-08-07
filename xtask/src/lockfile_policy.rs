@@ -203,6 +203,12 @@ pub(crate) struct UtcTimestamp {
     nanos: u32,
 }
 
+impl UtcTimestamp {
+    pub(crate) fn seconds(self) -> u64 {
+        self.seconds
+    }
+}
+
 pub(crate) fn parse_utc_rfc3339(value: &str) -> Option<UtcTimestamp> {
     let bytes = value.as_bytes();
     if bytes.len() < 20
@@ -263,8 +269,9 @@ pub(crate) fn parse_utc_rfc3339(value: &str) -> Option<UtcTimestamp> {
     };
     let days =
         days_before_year(u64::from(year)) + days_before_month(year, month) + u64::from(day - 1);
+    let days_since_epoch = days.checked_sub(days_before_year(1970))?;
     Some(UtcTimestamp {
-        seconds: days * 86_400
+        seconds: days_since_epoch * 86_400
             + u64::from(hour) * 3_600
             + u64::from(minute) * 60
             + u64::from(second),
@@ -409,6 +416,10 @@ mod tests {
 
     #[test]
     fn parses_fractional_timestamps_for_numeric_ordering() {
+        assert_eq!(
+            parse_utc_rfc3339("1970-01-01T00:00:00Z").map(UtcTimestamp::seconds),
+            Some(0)
+        );
         assert!(
             parse_utc_rfc3339("2026-08-06T02:05:11.1Z") > parse_utc_rfc3339("2026-08-06T02:05:11Z")
         );

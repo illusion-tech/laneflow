@@ -393,6 +393,7 @@ fn validates_unedited_marker_identity_and_strict_ordering() {
         .is_err()
     );
     assert!(parse_utc_timestamp_seconds("2026-08-06T03:30:00.Z").is_none());
+    assert!(parse_utc_timestamp_seconds("2026-08-06T03:30:00.1234567890Z").is_none());
 }
 
 #[test]
@@ -1025,6 +1026,7 @@ fn codeql_activation_uses_numeric_timestamp_ordering() {
     assert!(!codeql_g3_active("2026-08-07T23:59:59.999Z").unwrap());
     assert!(codeql_g3_active("2026-08-08T00:00:00Z").unwrap());
     assert!(codeql_g3_active("2026-08-08T00:00:00.123Z").unwrap());
+    assert!(codeql_g3_active("2026-08-08T00:00:00.1234567890Z").is_err());
     assert!(codeql_g3_active("invalid").is_err());
 }
 
