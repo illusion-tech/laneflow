@@ -102,7 +102,7 @@ cargo +1.96.0 run --locked -p xtask -- format-md-tables --check <path...>
 | Copilot 返回 “wasn't able to review any files”，但 PR 不是精确 policy                                                                                                      | 不计 completion，保持 `awaiting_review` / 其他既有失败状态                                        |
 | Dependabot PR 同时修改源码/workflow、commit/signature/ref/force-push identity 不精确、多个 commit 或分页截断                                                               | 不适用机器替代，Fail closed                                                                       |
 | R2 PR 缺少 current-head External Review Gate success                                                                                                                       | Fail                                                                                              |
-| Check success 与 G3 comment 绑定不同 head，或 comment 早于最终 completion / Check                                                                                          | Fail                                                                                              |
+| Check success 与 G3 comment 绑定不同 head，或 comment 未严格晚于最终 completion / Check                                                                                    | Fail                                                                                              |
 
 Provider fixtures 至少覆盖 Copilot clean/findings、Codex clean/findings、人工 `APPROVED`、仅有无 SHA、旧无 SHA 后严格更晚 current-head clean、current-head clean 后更晚无 SHA、无 SHA 与 clean 同秒、错误 actor、new-push stale、finding 后无复审、被编辑 completion、重复 thread、provider outage、lockfile reviewer wrong SHA、被编辑 finding/disposition、错误 signature/force-push provenance、reviewer unable-to-review 与普通源码 PR 不得误用机器替代。历史事件 replay、live evaluator、trusted-ref shadow publisher 和人工审计必须与机器最终分类一致。
 
@@ -128,7 +128,7 @@ cargo +1.96.0 run --locked -p xtask -- check-codeql --repo <owner/repo> --pr <me
 从 `2026-08-08T00:00:00Z` 创建的 current G3 comment 起，`check-gate-evidence g3`
 还会要求唯一 `- CodeQL：` 行以字段后的首个且唯一 backtick 值精确匹配 live 状态，并让
 evidence URL 精确相等；`not_applicable` 必须同时记录
-`dependabot-cargo-lock-only-v1` 和 evidence URL，且 comment 时间不得早于 check-run
+`dependabot-cargo-lock-only-v1` 和 evidence URL，且 comment 时间必须严格晚于 check-run
 `completed_at`。`check-gate-evidence g4` 对 MERGED PR
 按 append-only G3 comment 记录的具体 run URL 重放，不允许合并后的 latest rerun 改写
 历史结论；激活点同秒的小数秒 timestamp 必须按 UTC 数值判为已激活，更早的 append-only

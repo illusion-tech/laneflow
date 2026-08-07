@@ -544,9 +544,9 @@ pub(super) fn validate_codeql_completion_order(
         .ok_or_else(|| format!("{label} G3 comment createdAt 不是有效 UTC RFC3339 时间"))?;
     let completion_time = lockfile_policy::parse_utc_rfc3339(completion_time_text)
         .ok_or_else(|| format!("{label} CodeQL completedAt 不是有效 UTC RFC3339 时间"))?;
-    if comment_time < completion_time {
+    if comment_time <= completion_time {
         return Err(format!(
-            "{label} G3 comment 早于 CodeQL 完成时间：comment={comment_created_at}，completion={}",
+            "{label} G3 comment 未严格晚于 CodeQL 完成时间：comment={comment_created_at}，completion={}",
             completion_time_text
         ));
     }
@@ -564,9 +564,9 @@ pub(super) fn validate_external_review_completion_order(
         lockfile_policy::parse_utc_rfc3339(completion_time_text).ok_or_else(|| {
             format!("{label} external review completion time 不是有效 UTC RFC3339 时间")
         })?;
-    if comment_time < completion_time {
+    if comment_time <= completion_time {
         return Err(format!(
-            "{label} G3 comment 早于最终 external review completion：comment={comment_created_at}，completion={completion_time_text}"
+            "{label} G3 comment 未严格晚于最终 external review completion：comment={comment_created_at}，completion={completion_time_text}"
         ));
     }
     Ok(())

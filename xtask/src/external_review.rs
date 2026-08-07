@@ -876,31 +876,40 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             diagnostics.push(format!("review thread `{}` 没有 comment", thread.id));
             continue;
         };
-        let Some(actor) = first_comment.author.as_ref() else {
-            continue;
-        };
-        if trusted_provider(&actor.login, &author).is_none() {
-            continue;
+        let mut linked_review_ids = BTreeSet::new();
+        for (comment_index, comment) in thread.comments.nodes.iter().enumerate() {
+            let Some(actor) = comment.author.as_ref() else {
+                continue;
+            };
+            if trusted_provider(&actor.login, &author).is_none() {
+                continue;
+            }
+            let Some(review) = comment.pull_request_review.as_ref() else {
+                if comment_index == 0 {
+                    diagnostics.push(format!(
+                        "受信任 reviewer 的 thread `{}` 缺少 pullRequestReview 关联",
+                        thread.id
+                    ));
+                }
+                continue;
+            };
+            let Some(review_actor) = review.author.as_ref() else {
+                diagnostics.push(format!(
+                    "受信任 reviewer 的 thread `{}` 关联 review 缺少 author",
+                    thread.id
+                ));
+                continue;
+            };
+            if normalize_actor(&review_actor.login) != normalize_actor(&actor.login) {
+                diagnostics.push(format!(
+                    "review thread `{}` 的 comment actor 与 review actor 不一致",
+                    thread.id
+                ));
+                continue;
+            }
+            linked_review_ids.insert(review.id.clone());
         }
-        let Some(review) = first_comment.pull_request_review.as_ref() else {
-            diagnostics.push(format!(
-                "受信任 reviewer 的 thread `{}` 缺少 pullRequestReview 关联",
-                thread.id
-            ));
-            continue;
-        };
-        let Some(review_actor) = review.author.as_ref() else {
-            diagnostics.push(format!(
-                "受信任 reviewer 的 thread `{}` 关联 review 缺少 author",
-                thread.id
-            ));
-            continue;
-        };
-        if normalize_actor(&review_actor.login) != normalize_actor(&actor.login) {
-            diagnostics.push(format!(
-                "review thread `{}` 的 comment actor 与 review actor 不一致",
-                thread.id
-            ));
+        if linked_review_ids.is_empty() {
             continue;
         }
         if verified_lockfile.is_some()
@@ -914,9 +923,9 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             continue;
         }
         finding_thread_ids.insert(thread.id.clone());
-        *review_to_finding_threads
-            .entry(review.id.clone())
-            .or_default() += 1;
+        for review_id in linked_review_ids {
+            *review_to_finding_threads.entry(review_id).or_default() += 1;
+        }
         if !thread.is_resolved && !thread.is_outdated {
             unresolved_actionable_threads += 1;
         }
@@ -981,6 +990,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 Some(EvidenceOutcome::Findings)
             }
             "codex" if state == "APPROVED" => Some(EvidenceOutcome::Clean),
+            "human" if linked_findings > 0 => Some(EvidenceOutcome::Findings),
             "human" if state == "APPROVED" => Some(EvidenceOutcome::Clean),
             "human" if state == "CHANGES_REQUESTED" => Some(EvidenceOutcome::Findings),
             _ => None,
@@ -1141,6 +1151,10 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         .rev()
         .find(|item| item.outcome == EvidenceOutcome::Findings)
         .copied();
+    let latest_substantive_finding = evidence
+        .iter()
+        .rev()
+        .find(|item| item.outcome == EvidenceOutcome::Findings);
     for ambiguity in &unbound_clean_ambiguities {
         let superseded = latest_clean.is_some_and(|clean| {
             timestamp_second_after(&clean.submitted_at, &ambiguity.created_at)
@@ -1176,13 +1190,14 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             Some("存在完整结构化 waiver；不得映射为标准 pass".to_string()),
         )
     } else if let Some(finding) = latest_finding {
+        let blocking_finding = latest_substantive_finding.unwrap_or(finding);
         let clean_after_finding = latest_clean
-            .filter(|clean| timestamp_after(&clean.submitted_at, &finding.submitted_at));
+            .filter(|clean| timestamp_after(&clean.submitted_at, &blocking_finding.submitted_at));
         if unresolved_actionable_threads > 0 {
             (
                 ExternalReviewState::FindingsOpen,
                 true,
-                Some(finding),
+                Some(blocking_finding),
                 Some("current-head finding 仍有 unresolved actionable thread".to_string()),
             )
         } else if let Some(clean) = clean_after_finding {
@@ -1191,7 +1206,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             (
                 ExternalReviewState::AwaitingRereview,
                 true,
-                Some(finding),
+                Some(blocking_finding),
                 Some("finding 已处置，但缺少其后的 exact-head clean re-review".to_string()),
             )
         }
@@ -1202,6 +1217,15 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 true,
                 Some(clean),
                 Some("存在 unresolved actionable thread，clean completion 不足以放行".to_string()),
+            )
+        } else if let Some(finding) = latest_substantive_finding
+            .filter(|finding| !timestamp_after(&clean.submitted_at, &finding.submitted_at))
+        {
+            (
+                ExternalReviewState::AwaitingRereview,
+                true,
+                Some(finding),
+                Some("current-head clean 不晚于历史中的最后一条实质 finding".to_string()),
             )
         } else {
             (ExternalReviewState::Pass, false, Some(clean), None)
@@ -1521,14 +1545,10 @@ fn identity_only_non_range_finding(body: &str, claimed_oid: &str) -> bool {
 }
 
 fn identity_only_disposition(body: &str, claimed_oid: &str, current_head: &str) -> bool {
-    let trimmed = body.trim_start();
-    trimmed.starts_with("Disposition:")
-        && trimmed.contains(current_head)
-        && trimmed.contains("dependabot[bot]")
-        && trimmed.contains("49699333+dependabot[bot]@users.noreply.github.com")
-        && (trimmed.contains(claimed_oid)
-            || trimmed.contains("错误 author")
-            || trimmed.contains("误报同构"))
+    body.trim()
+        == format!(
+            "Disposition: 引用的对象 `{claimed_oid}` 不属于 PR commit range；current head `{current_head}` 的 author identity 已由 GitHub Git database 核验为 `dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>`。"
+        )
 }
 
 fn claimed_pr_identity_oid(body: &str) -> Option<&str> {
@@ -2820,6 +2840,17 @@ mod tests {
             evaluate_snapshot(&snapshot).state,
             ExternalReviewState::AwaitingRereview
         );
+
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        snapshot.pull_request.review_threads.nodes[0].comments.nodes[1]
+            .body
+            .insert_str("Disposition:".len(), " rejected;");
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::AwaitingRereview
+        );
     }
 
     #[test]
@@ -2943,6 +2974,7 @@ mod tests {
             "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
         ));
         let old_head = "4d2fb5becdaed398cb61ea42191f1e477a18ad1a";
+        let current_head = snapshot.pull_request.head_ref_oid.clone();
         snapshot.pull_request.reviews.nodes[0]
             .commit
             .as_mut()
@@ -2958,15 +2990,89 @@ mod tests {
             .as_mut()
             .expect("fixture review reference must have a commit")
             .oid = old_head.to_string();
+        snapshot.pull_request.comments.nodes.push(IssueComment {
+            id: "IC-codex-earlier-current-head-clean".to_string(),
+            author: Some(Actor {
+                login: "chatgpt-codex-connector".to_string(),
+            }),
+            body: format!(
+                "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `{current_head}`"
+            ),
+            created_at: "2026-08-06T02:10:00Z".to_string(),
+            updated_at: "2026-08-06T02:10:00Z".to_string(),
+            url: "https://github.com/illusion-tech/laneflow/pull/313#issuecomment-earlier-clean"
+                .to_string(),
+        });
 
         let result = evaluate_snapshot(&snapshot);
-        assert_ne!(result.state, ExternalReviewState::Pass);
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
         assert!(
             result
                 .evidence
                 .iter()
                 .all(|item| item.source_kind != "machine_verification")
         );
+    }
+
+    #[test]
+    fn trusted_finding_reply_blocks_machine_completion() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        let thread = &mut snapshot.pull_request.review_threads.nodes[0];
+        let mut trusted_reply = thread.comments.nodes[0].clone();
+        trusted_reply.id = "PRRC-trusted-finding-reply".to_string();
+        trusted_reply.body = "The lockfile contains an invalid checksum.".to_string();
+        trusted_reply.created_at = "2026-08-06T02:31:00Z".to_string();
+        trusted_reply.updated_at = trusted_reply.created_at.clone();
+        thread.comments.nodes[0].author = Some(Actor {
+            login: "dependabot[bot]".to_string(),
+        });
+        thread.comments.nodes[0].pull_request_review = None;
+        thread.comments.nodes.push(trusted_reply);
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
+        assert!(
+            result
+                .evidence
+                .iter()
+                .all(|item| item.source_kind != "machine_verification")
+        );
+    }
+
+    #[test]
+    fn human_inline_findings_override_commented_or_approved_state() {
+        for state in ["COMMENTED", "APPROVED"] {
+            let mut snapshot = fixture(include_str!(
+                "../fixtures/external-review/codex-awaiting-rereview.json"
+            ));
+            snapshot.pull_request.author = Some(Actor {
+                login: "contributor".to_string(),
+            });
+            let review = &mut snapshot.pull_request.reviews.nodes[0];
+            review.author = Some(Actor {
+                login: "wangzishi".to_string(),
+            });
+            review.state = state.to_string();
+            let comment = &mut snapshot.pull_request.review_threads.nodes[0].comments.nodes[0];
+            comment.author = Some(Actor {
+                login: "wangzishi".to_string(),
+            });
+            let review_ref = comment
+                .pull_request_review
+                .as_mut()
+                .expect("fixture finding must reference its review");
+            review_ref.author = Some(Actor {
+                login: "wangzishi".to_string(),
+            });
+            review_ref.state = state.to_string();
+
+            assert_eq!(
+                evaluate_snapshot(&snapshot).state,
+                ExternalReviewState::AwaitingRereview
+            );
+        }
     }
 
     #[test]
