@@ -37,7 +37,8 @@ use crate::{
 
 use self::json::{ByteSpan, JsonErrorKind, LineIndex};
 use self::schema::{
-    ParsedGeometryDocument, RawNumber, SchemaError, SchemaErrorKind, SpannedString,
+    ParsedCurveSegment, ParsedGeometryDocument, RawNumber, SchemaError, SchemaErrorKind,
+    SpannedString,
 };
 use super::admission::{AdmittedOfficialModule, ImportRecord, TypedAstModule};
 use super::descriptor::{
@@ -507,6 +508,9 @@ impl GeometryModuleBuilder {
             &declaration_span,
         )?;
 
+        // §9.2 前端计数与描述符同批原子冻结；随后解析树与载荷按所有权移交。
+        let module_counts = finish_module_counts(&self.parsed, &payload, &counts);
+
         // ⑤ 组装描述符、来源文档与不可分的冻结几何载荷。
         let frontend_options_digest = frontend_options_digest(
             self.accuracy_profile,
@@ -576,6 +580,7 @@ impl GeometryModuleBuilder {
             ),
             accuracy_profile,
             direction_profile,
+            counts: module_counts,
         })
     }
 
@@ -715,6 +720,7 @@ pub struct GeometryModule {
     pub(in crate::module) admitted: AdmittedOfficialModule,
     accuracy_profile: GeometryAccuracyProfile,
     direction_profile: GeometryDirectionProfile,
+    counts: GeometryModuleCounts,
 }
 
 impl GeometryModule {
@@ -739,6 +745,108 @@ impl GeometryModule {
     #[must_use]
     pub const fn direction_profile(&self) -> GeometryDirectionProfile {
         self.direction_profile
+    }
+
+    /// 返回 `finish` 随 numeric freeze 与 Typed AST 降阶原子冻结的只读前端计数。
+    #[must_use]
+    pub const fn counts(&self) -> &GeometryModuleCounts {
+        &self.counts
+    }
+}
+
+/// §9.2 workload manifest 消费的横向 offset 曲线 |中心偏移| 分布桶。
+///
+/// 同一 |中心偏移| 的 f64 位模式共享一桶；桶序为位模式升序，与声明顺序无关。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GeometryOffsetCurveBucket {
+    absolute_offset_meters_bits: u64,
+    curve_count: u64,
+}
+
+impl GeometryOffsetCurveBucket {
+    /// 返回 |中心偏移|（米）的 `f64` 位模式。
+    #[must_use]
+    pub const fn absolute_offset_meters_bits(self) -> u64 {
+        self.absolute_offset_meters_bits
+    }
+
+    /// 返回该位模式覆盖的横向 offset 曲线数。
+    #[must_use]
+    pub const fn curve_count(self) -> u64 {
+        self.curve_count
+    }
+}
+
+/// Geometry 模块在 `finish` 原子冻结的只读前端计数。
+///
+/// 计数来自封闭解析、numeric freeze 与 Typed AST 降阶的精确结果，不从 HIR/LIR 反推；
+/// 它只服务 §9.2 的 workload manifest 生成与独立重算核对，不改变模块语义。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GeometryModuleCounts {
+    declaration_count: u64,
+    reference_count: u64,
+    relation_occurrence_count: u64,
+    line_segment_count: u64,
+    cubic_segment_count: u64,
+    control_point_count: u64,
+    offset_curve_count: u64,
+    canonical_point_count: u64,
+    absolute_offset_distribution: Box<[GeometryOffsetCurveBucket]>,
+}
+
+impl GeometryModuleCounts {
+    /// 返回该模块降阶后的共同 Typed AST 声明数。
+    #[must_use]
+    pub const fn declaration_count(&self) -> u64 {
+        self.declaration_count
+    }
+
+    /// 返回该模块 Typed AST 的有类型引用数。
+    #[must_use]
+    pub const fn reference_count(&self) -> u64 {
+        self.reference_count
+    }
+
+    /// 返回该模块 Typed AST 的关系出现项数。
+    #[must_use]
+    pub const fn relation_occurrence_count(&self) -> u64 {
+        self.relation_occurrence_count
+    }
+
+    /// 返回全部 reference line 与 junction internal edge geometry 的 line 段总数。
+    #[must_use]
+    pub const fn line_segment_count(&self) -> u64 {
+        self.line_segment_count
+    }
+
+    /// 返回全部 reference line 与 junction internal edge geometry 的 cubic Bézier 段总数。
+    #[must_use]
+    pub const fn cubic_segment_count(&self) -> u64 {
+        self.cubic_segment_count
+    }
+
+    /// 返回 cubic Bézier 段的内部控制点总数；每段恰好两个。
+    #[must_use]
+    pub const fn control_point_count(&self) -> u64 {
+        self.control_point_count
+    }
+
+    /// 返回由 lane 与 FacilityBand offset intent 派生的横向 offset 曲线总数。
+    #[must_use]
+    pub const fn offset_curve_count(&self) -> u64 {
+        self.offset_curve_count
+    }
+
+    /// 返回 numeric freeze 生成的规范 `f32` 点总数，与 GeometryPointCount 资源维度一致。
+    #[must_use]
+    pub const fn canonical_point_count(&self) -> u64 {
+        self.canonical_point_count
+    }
+
+    /// 返回横向 offset 曲线按 |中心偏移| 位模式分组的升序分布。
+    #[must_use]
+    pub fn absolute_offset_distribution(&self) -> &[GeometryOffsetCurveBucket] {
+        &self.absolute_offset_distribution
     }
 }
 
@@ -770,6 +878,61 @@ enum FinishKeyGroup {
     Entity(EntityKind),
     RoadKey,
     SpanKey,
+}
+
+/// 由 finish 已闭合的解析树、冻结载荷与模块资源计数派生 §9.2 前端计数。
+///
+/// 曲线段计数覆盖全部 road reference line 与 junction internal edge geometry；
+/// cubic Bézier 段每段恰好贡献两个内部控制点。
+fn finish_module_counts(
+    document: &ParsedGeometryDocument,
+    payload: &schema::FrozenGeometryPayload,
+    resource_counts: &ModuleResourceCounts,
+) -> GeometryModuleCounts {
+    let mut line_segment_count = 0_u64;
+    let mut cubic_segment_count = 0_u64;
+    let curves = document
+        .roads
+        .iter()
+        .map(|road| &road.reference_line)
+        .chain(
+            document
+                .junctions
+                .iter()
+                .flat_map(|junction| junction.internal_edges.iter().map(|edge| &edge.geometry)),
+        );
+    for curve in curves {
+        for segment in &curve.segments {
+            match segment {
+                ParsedCurveSegment::Line { .. } => line_segment_count += 1,
+                ParsedCurveSegment::CubicBezier { .. } => cubic_segment_count += 1,
+            }
+        }
+    }
+    let offset_curve_count = payload
+        .offset_curve_distribution
+        .iter()
+        .fold(0_u64, |total, bucket| {
+            total.saturating_add(bucket.curve_count)
+        });
+    GeometryModuleCounts {
+        declaration_count: resource_counts.declaration_count,
+        reference_count: resource_counts.reference_count,
+        relation_occurrence_count: resource_counts.relation_occurrence_count,
+        line_segment_count,
+        cubic_segment_count,
+        control_point_count: cubic_segment_count.saturating_mul(2),
+        offset_curve_count,
+        canonical_point_count: payload.geometry_point_count,
+        absolute_offset_distribution: payload
+            .offset_curve_distribution
+            .iter()
+            .map(|bucket| GeometryOffsetCurveBucket {
+                absolute_offset_meters_bits: bucket.absolute_offset_meters_bits,
+                curve_count: bucket.curve_count,
+            })
+            .collect(),
+    }
 }
 
 /// 登记一个键定义：token 合法性与同组重复检查，先到先得单诊断。
@@ -4124,6 +4287,73 @@ mod tests {
         // 冻结载荷随模块不可分：每条 lane 一条规范折线，facility 带也有一条。
         let payload = module.admitted.geometry_payload().unwrap();
         assert_eq!(payload.frozen.lateral_curves.len(), 4);
+    }
+
+    /// §9.2 前端计数视图：reference line 加一段 cubic 后，声明/引用/关系、曲线段、
+    /// 控制点、offset 分布与规范点数全部按冻结结果精确报告。
+    #[test]
+    fn finish_freezes_geometry_module_counts() {
+        let document = FULL_DOCUMENT.replacen(
+            "\"referenceLine\":{\"start\":[0,0,0],\"segments\":[{\"kind\":\"line\",\"end\":[10,0,0]}]}",
+            "\"referenceLine\":{\"start\":[0,1.25,-50.75],\"segments\":[{\"kind\":\"line\",\"end\":[100.5,1.25,-50.75]},{\"kind\":\"cubicBezier\",\"control1\":[105.74931981,1.25,-50.75],\"control2\":[110.95815175,1.25,-49.83151381],\"end\":[115.89090645,1.25,-48.03616794]}]}",
+            1,
+        );
+        let module =
+            finish_document(document.as_bytes(), &CompileLimits::p100_initial_v1()).unwrap();
+        let counts = module.counts();
+
+        // 声明计数 = 27 个顶层声明 + 3 条嵌套编制车道 + 1 个嵌套信号相位；
+        // 引用/关系计数固定为 golden（口径与 finish_resource_counts 公式测试一致）。
+        assert_eq!(counts.declaration_count(), 31);
+        assert_eq!(counts.reference_count(), 40);
+        assert_eq!(counts.relation_occurrence_count(), 37);
+
+        // 曲线段与控制点：reference line 的 line+cubic；本文档无 internal edge geometry。
+        assert_eq!(counts.line_segment_count(), 1);
+        assert_eq!(counts.cubic_segment_count(), 1);
+        assert_eq!(counts.control_point_count(), 2);
+
+        // 横向 offset 曲线四条，|中心偏移| 分别为 0、3.5、6.25、8.875 米。
+        assert_eq!(counts.offset_curve_count(), 4);
+        let buckets: Vec<(u64, u64)> = counts
+            .absolute_offset_distribution()
+            .iter()
+            .map(|bucket| (bucket.absolute_offset_meters_bits(), bucket.curve_count()))
+            .collect();
+        assert_eq!(
+            buckets,
+            [
+                (0.0_f64.to_bits(), 1),
+                (3.5_f64.to_bits(), 1),
+                (6.25_f64.to_bits(), 1),
+                (8.875_f64.to_bits(), 1),
+            ]
+        );
+
+        // 规范点数与冻结载荷逐曲线点数之和一致；offset 曲线数与横向曲线数一致。
+        let payload = module.admitted.geometry_payload().unwrap();
+        let lateral_points = payload
+            .frozen
+            .lateral_curves
+            .iter()
+            .fold(0_u64, |total, curve| {
+                total + u64::try_from(curve.points.len()).unwrap()
+            });
+        let internal_points = payload
+            .frozen
+            .internal_edge_curves
+            .iter()
+            .fold(0_u64, |total, curve| {
+                total + u64::try_from(curve.points.len()).unwrap()
+            });
+        assert_eq!(
+            counts.canonical_point_count(),
+            lateral_points + internal_points
+        );
+        assert_eq!(
+            usize::try_from(counts.offset_curve_count()).unwrap(),
+            payload.frozen.lateral_curves.len()
+        );
     }
 
     #[test]

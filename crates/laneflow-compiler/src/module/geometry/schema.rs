@@ -27,8 +27,8 @@ pub(in crate::module::geometry) use overlay::{
     ParsedAccessEffect, ParsedAccessTarget, ParsedParkingAnchor, ParsedSignalAspect,
 };
 pub(in crate::module::geometry) use road::{
-    ParsedCorridorElement, ParsedCrossSectionSpan, ParsedFacilityBand, ParsedLaneDirection,
-    ParsedRoadSection, RawNumber,
+    ParsedCorridorElement, ParsedCrossSectionSpan, ParsedCurveSegment, ParsedFacilityBand,
+    ParsedLaneDirection, ParsedRoadSection, RawNumber,
 };
 
 #[derive(Debug, Eq, PartialEq)]

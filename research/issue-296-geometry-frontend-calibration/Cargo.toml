@@ -1,0 +1,21 @@
+[package]
+name = "issue-296-geometry-frontend-calibration"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "#296 Geometry 文档前端 §9 性能校准的非生产 fixture、manifest 与验证器。"
+publish = false
+autobins = false
+
+[features]
+default = []
+
+[dependencies]
+laneflow-compiler = { version = "0.0.0", path = "../../crates/laneflow-compiler" }
+serde_json = "1.0"
+sha2 = { version = "0.11", default-features = false }
+
+[lints]
+workspace = true

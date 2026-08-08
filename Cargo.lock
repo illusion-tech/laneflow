@@ -2967,6 +2967,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "issue-296-geometry-frontend-calibration"
+version = "0.0.0"
+dependencies = [
+ "laneflow-compiler",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "issue-308-compiler-budget-calibration-research"
 version = "0.0.0"
 dependencies = [

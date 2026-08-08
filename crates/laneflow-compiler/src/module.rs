@@ -26,7 +26,8 @@ pub use descriptor::{
 };
 pub use geometry::{
     GEOMETRY_FRONTEND_VERSION, GeometryAccuracyProfile, GeometryDirectionProfile,
-    GeometryDocumentInput, GeometryModule, GeometryModuleBuilder,
+    GeometryDocumentInput, GeometryModule, GeometryModuleBuilder, GeometryModuleCounts,
+    GeometryOffsetCurveBucket,
 };
 pub use synthetic::{SYNTHETIC_FRONTEND_VERSION, SyntheticModule, SyntheticModuleBuilder};
 

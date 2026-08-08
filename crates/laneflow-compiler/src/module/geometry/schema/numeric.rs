@@ -1,5 +1,7 @@
 //! Geometry v1 reference curve 的确定性 `f64` numeric freeze。
 
+use std::collections::BTreeMap;
+
 use super::road::{ParsedCurve, ParsedCurveSegment, ParsedVec3, RawNumber};
 use super::{ByteSpan, ParsedGeometryDocument};
 use crate::module::geometry::{GeometryAccuracyProfile, GeometryDirectionProfile};
@@ -114,6 +116,14 @@ pub(crate) struct FrozenGeometryPayload {
     pub(crate) lateral_curves: Box<[FrozenLateralCurve]>,
     pub(crate) internal_edge_curves: Box<[FrozenInternalEdgeCurve]>,
     pub(crate) geometry_point_count: u64,
+    pub(crate) offset_curve_distribution: Box<[FrozenOffsetCurveBucket]>,
+}
+
+/// 横向 offset 曲线按 |中心偏移| f64 位模式分组的冻结分布桶（§9.2 前端计数）。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct FrozenOffsetCurveBucket {
+    pub(crate) absolute_offset_meters_bits: u64,
+    pub(crate) curve_count: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -356,7 +366,32 @@ pub(super) fn freeze_geometry_payload(
         lateral_curves,
         internal_edge_curves,
         geometry_point_count,
+        offset_curve_distribution: offset_curve_distribution(&layouts),
     })
+}
+
+/// §9.2 前端计数消费的横向 offset 曲线分布：按 |中心偏移| 的 f64 位模式精确分组，
+/// 桶序即位模式升序，与曲线声明顺序无关。
+fn offset_curve_distribution(
+    layouts: &[FrozenCrossSectionLayout],
+) -> Box<[FrozenOffsetCurveBucket]> {
+    let mut buckets = BTreeMap::<u64, u64>::new();
+    for layout in layouts {
+        for intent in &layout.items {
+            *buckets
+                .entry(intent.center_offset_meters.abs().to_bits())
+                .or_insert(0) += 1;
+        }
+    }
+    buckets
+        .into_iter()
+        .map(
+            |(absolute_offset_meters_bits, curve_count)| FrozenOffsetCurveBucket {
+                absolute_offset_meters_bits,
+                curve_count,
+            },
+        )
+        .collect()
 }
 
 /// §4.4 的 internal edge 显式 geometry freeze：复用 reference 细分机器与规范量化，
