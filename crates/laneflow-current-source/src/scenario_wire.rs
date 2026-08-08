@@ -74,6 +74,11 @@ impl WireSpatialPackage {
         &self.edges
     }
 
+    /// 拆出 owned edge 列；包壳与其余字段随调用返回即释放。
+    pub fn into_edges(self) -> Vec<WireSpatialEdge> {
+        self.edges
+    }
+
     pub(crate) fn format_version(&self) -> &str {
         &self.format_version
     }
@@ -94,6 +99,11 @@ impl WireSpatialEdge {
 
     pub fn centerline(&self) -> &WireCenterline {
         &self.centerline
+    }
+
+    /// 拆出 owned `trafficEdgeId` 与 centerline 点列。
+    pub fn into_parts(self) -> (String, Vec<[f64; 3]>) {
+        (self.traffic_edge_id, self.centerline.points)
     }
 }
 

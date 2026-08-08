@@ -125,18 +125,18 @@ impl CurrentSourceErrorPayload {
         match self {
             Self::JsonSyntax { .. } => "LF-CURRENT-SOURCE-JSON-SYNTAX",
             Self::JsonShape { .. } => "LF-CURRENT-SOURCE-JSON-SHAPE",
-            Self::UnsupportedFormatVersion { .. } => "LF-CURRENT-SOURCE-UNSUPPORTED-FORMAT-VERSION",
-            Self::EmptyArtifactReference => "LF-CURRENT-SOURCE-EMPTY-ARTIFACT-REFERENCE",
+            Self::UnsupportedFormatVersion { .. } => "LF-CURRENT-SOURCE-FORMAT-VERSION",
+            Self::EmptyArtifactReference => "LF-CURRENT-SOURCE-EMPTY-ARTIFACT-REF",
             Self::ConflictingManifestArtifactReference { .. } => {
-                "LF-CURRENT-SOURCE-CONFLICTING-MANIFEST-ARTIFACT-REFERENCE"
+                "LF-CURRENT-SOURCE-CONFLICTING-ARTIFACT-REF"
             }
             Self::DuplicateProvidedArtifactReference { .. } => {
-                "LF-CURRENT-SOURCE-DUPLICATE-PROVIDED-ARTIFACT-REFERENCE"
+                "LF-CURRENT-SOURCE-DUPLICATE-ARTIFACT-REF"
             }
             Self::MissingArtifact { .. } => "LF-CURRENT-SOURCE-MISSING-ARTIFACT",
-            Self::InvalidMediaType { .. } => "LF-CURRENT-SOURCE-INVALID-MEDIA-TYPE",
-            Self::InvalidDigest { .. } => "LF-CURRENT-SOURCE-INVALID-DIGEST",
-            Self::ArtifactSizeOutOfRange { .. } => "LF-CURRENT-SOURCE-ARTIFACT-SIZE-OUT-OF-RANGE",
+            Self::InvalidMediaType { .. } => "LF-CURRENT-SOURCE-MEDIA-TYPE",
+            Self::InvalidDigest { .. } => "LF-CURRENT-SOURCE-DIGEST",
+            Self::ArtifactSizeOutOfRange { .. } => "LF-CURRENT-SOURCE-ARTIFACT-SIZE-RANGE",
             Self::ArtifactSizeMismatch { .. } => "LF-CURRENT-SOURCE-ARTIFACT-SIZE-MISMATCH",
             Self::ArtifactDigestMismatch { .. } => "LF-CURRENT-SOURCE-ARTIFACT-DIGEST-MISMATCH",
         }

@@ -135,12 +135,14 @@ impl CurrentTrafficParts {
 /// 已完成 Manifest 配对、制品 size/digest 校验与三份 wire 解析的 scenario
 /// source 能力。
 ///
-/// 原子拥有三份已验证 wire 内容与 Traffic/Spatial 精确文档摘要；无公开字段、
-/// `Default`、Serde、`Clone` 或裸构造器。
+/// 原子拥有三份已验证 wire 内容与三份精确文档摘要（Manifest/Traffic/Spatial
+/// 各对原始 bytes 计算一次 SHA-256）；无公开字段、`Default`、Serde、`Clone`
+/// 或裸构造器。
 pub struct ValidatedCurrentSourceBundle {
     manifest: WireScenarioManifest,
     traffic: WirePackage,
     spatial: WireSpatialPackage,
+    manifest_digest: [u8; 32],
     traffic_digest: [u8; 32],
     spatial_digest: [u8; 32],
 }
@@ -164,6 +166,12 @@ impl ValidatedCurrentSourceBundle {
         &self.spatial
     }
 
+    /// 返回 Manifest 文档已计算的精确摘要。
+    #[doc(hidden)]
+    pub const fn manifest_digest(&self) -> [u8; 32] {
+        self.manifest_digest
+    }
+
     /// 返回 Traffic 制品已校验的精确摘要。
     #[doc(hidden)]
     pub const fn traffic_digest(&self) -> [u8; 32] {
@@ -183,6 +191,7 @@ impl ValidatedCurrentSourceBundle {
             manifest: self.manifest,
             traffic: self.traffic,
             spatial: self.spatial,
+            manifest_digest: self.manifest_digest,
             traffic_digest: self.traffic_digest,
             spatial_digest: self.spatial_digest,
         }
@@ -204,6 +213,7 @@ pub struct CurrentSourceParts {
     manifest: WireScenarioManifest,
     traffic: WirePackage,
     spatial: WireSpatialPackage,
+    manifest_digest: [u8; 32],
     traffic_digest: [u8; 32],
     spatial_digest: [u8; 32],
 }
@@ -219,6 +229,10 @@ impl CurrentSourceParts {
 
     pub fn spatial_wire(&self) -> &WireSpatialPackage {
         &self.spatial
+    }
+
+    pub const fn manifest_digest(&self) -> [u8; 32] {
+        self.manifest_digest
     }
 
     pub const fn traffic_digest(&self) -> [u8; 32] {
@@ -261,7 +275,7 @@ pub fn validate_traffic_compatible(
 /// version → 其他 Manifest shape → Traffic descriptor → Spatial descriptor →
 /// conflicting ref → provided refs（空/重复）→ Traffic size→digest → Spatial
 /// size→digest → Traffic wire → Spatial wire。额外唯一制品只检查非空与唯一，
-/// 不哈希、不解析、不复制；Traffic/Spatial 摘要各计算一次，Manifest 不摘要。
+/// 不哈希、不解析、不复制；Manifest/Traffic/Spatial 摘要各计算一次。
 ///
 /// # Errors
 ///
@@ -338,13 +352,16 @@ pub fn validate_scenario_compatible(
     let spatial: WireSpatialPackage = deserialize_json(spatial_bytes, &spatial_context)?;
     debug_assert_eq!(spatial.format_version(), CURRENT_SPATIAL_FORMAT_VERSION);
 
-    // descriptor 借用 manifest wire；move 进 bundle 前先把 owned 摘要拷出。
+    // descriptor 借用 manifest wire；move 进 bundle 前先把 owned 摘要拷出；
+    // Manifest 精确摘要对其原始 bytes 恰好计算一次。
+    let manifest_digest = sha256_digest(manifest_bytes);
     let traffic_digest = traffic_descriptor.digest;
     let spatial_digest = spatial_descriptor.digest;
     Ok(ValidatedCurrentSourceBundle {
         manifest,
         traffic,
         spatial,
+        manifest_digest,
         traffic_digest,
         spatial_digest,
     })

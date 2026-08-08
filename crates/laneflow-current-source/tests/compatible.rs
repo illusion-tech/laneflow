@@ -169,7 +169,7 @@ fn scenario_happy_path_binds_descriptors_and_skips_extra_artifacts() {
             None,
         ));
     }
-    let long_ref = "x".repeat(4096);
+    let long_ref = "x".repeat(4_096);
     artifacts.push(CurrentArtifactInput::new(
         Box::leak(long_ref.into_boxed_str()),
         b"\x00\x01 unique extra payload",
@@ -196,6 +196,20 @@ fn scenario_happy_path_binds_descriptors_and_skips_extra_artifacts() {
     assert_eq!(manifest.traffic().artifact_ref(), TRAFFIC_REF);
     assert_eq!(traffic.lane_graph().edges().len(), 4);
     assert_eq!(spatial.edges().len(), 4);
+}
+
+#[test]
+fn scenario_bundle_carries_exact_manifest_digest() {
+    let validated = validate_scenario_compatible(MANIFEST.as_bytes(), &base_artifacts())
+        .expect("canonical scenario must validate");
+    assert_eq!(validated.manifest_digest(), sha256(MANIFEST.as_bytes()));
+    assert_eq!(validated.traffic_digest(), sha256(TRAFFIC));
+    assert_eq!(validated.spatial_digest(), sha256(SPATIAL));
+
+    let parts = validated.into_parts();
+    assert_eq!(parts.manifest_digest(), sha256(MANIFEST.as_bytes()));
+    assert_eq!(parts.traffic_digest(), sha256(TRAFFIC));
+    assert_eq!(parts.spatial_digest(), sha256(SPATIAL));
 }
 
 #[test]
@@ -620,19 +634,26 @@ fn error_bundle_is_never_empty_and_codes_are_stable_and_distinct() {
             actual: "sha256:a".into(),
         },
     ];
-    let mut codes = payloads
+    let codes = payloads
         .iter()
         .map(CurrentSourceErrorPayload::stable_code)
         .collect::<Vec<_>>();
-    assert_eq!(codes.len(), 12);
-    assert!(
-        codes
-            .iter()
-            .all(|code| code.starts_with("LF-CURRENT-SOURCE-"))
-    );
-    codes.sort_unstable();
-    codes.dedup();
-    assert_eq!(codes.len(), 12, "每个 production variant 必须有唯一稳定码");
+    // 与 docs/design/current-package-import.md 的 stable issue code 冻结表逐值一致。
+    let expected = [
+        "LF-CURRENT-SOURCE-JSON-SYNTAX",
+        "LF-CURRENT-SOURCE-JSON-SHAPE",
+        "LF-CURRENT-SOURCE-FORMAT-VERSION",
+        "LF-CURRENT-SOURCE-EMPTY-ARTIFACT-REF",
+        "LF-CURRENT-SOURCE-CONFLICTING-ARTIFACT-REF",
+        "LF-CURRENT-SOURCE-DUPLICATE-ARTIFACT-REF",
+        "LF-CURRENT-SOURCE-MISSING-ARTIFACT",
+        "LF-CURRENT-SOURCE-MEDIA-TYPE",
+        "LF-CURRENT-SOURCE-DIGEST",
+        "LF-CURRENT-SOURCE-ARTIFACT-SIZE-RANGE",
+        "LF-CURRENT-SOURCE-ARTIFACT-SIZE-MISMATCH",
+        "LF-CURRENT-SOURCE-ARTIFACT-DIGEST-MISMATCH",
+    ];
+    assert_eq!(codes, expected, "稳定码必须逐值匹配冻结表");
 }
 
 #[test]
