@@ -31,7 +31,7 @@ pub use compiler::{
     CanonicalSignalPhaseStateView, CanonicalSignalPhaseView, CanonicalSpatialSegment,
     CanonicalStaticRouteOccurrenceRef, CanonicalStaticRouteView, CanonicalStopLineView,
     CanonicalVehicleProfileView, CanonicalWaitingZoneOccurrenceView, CanonicalWaitingZoneView,
-    CompilationMetrics, CompilationOutput, Compiler, ValidatedCanonicalLir,
+    CompilationMetrics, CompilationOutput, Compiler, LirTableCounts, ValidatedCanonicalLir,
 };
 pub use declaration::{
     AccessRegulationInput, AccessRuleInput, AccessRuleTargetInput, AuthoringLaneInput,

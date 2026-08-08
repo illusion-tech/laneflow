@@ -4,3 +4,10 @@
 //! cross-record 验证与 release 测量证据；它不进入生产编译器公共 API 或依赖图，也不
 //! 改变任何已冻结工作负载语义。校验顺序复用 #308 的 trusted contract → schema/manifest
 //! exact bytes → evidence cross-record validation。
+
+pub mod container;
+pub mod corridor;
+pub mod counts;
+pub mod emit;
+pub mod selfcheck;
+pub mod twin;

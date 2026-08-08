@@ -2971,6 +2971,7 @@ name = "issue-296-geometry-frontend-calibration"
 version = "0.0.0"
 dependencies = [
  "laneflow-compiler",
+ "laneflow-static-contract",
  "serde_json",
  "sha2",
 ]

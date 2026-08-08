@@ -2038,6 +2038,170 @@ impl Compiler {
     }
 }
 
+/// §9.2 workload manifest 登记的 53 张 record-counted LIR 表的精确行数视图。
+///
+/// 计数直接读取已验证 LIR 平面表长度，与 `CompilationMetrics::lir_record_count` 共用
+/// 同一事实源；调用方不得用自报值替代。零计数表同样出现，键集合固定且拒绝动态表名。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LirTableCounts {
+    counts: [u64; Self::TABLE_COUNT],
+}
+
+impl LirTableCounts {
+    /// record-counted LIR 表的固定数量。
+    pub const TABLE_COUNT: usize = 53;
+
+    /// schema v1 登记的 53 个表名，按字典序排列，与 `counts` 下标一一对应。
+    pub const NAMES: [&'static str; Self::TABLE_COUNT] = [
+        "access_rule_participant_classes",
+        "access_rules",
+        "authoring_lane_edges",
+        "authoring_lanes",
+        "canonical_frames",
+        "canonical_points",
+        "corridor_elements",
+        "facility_band_geometries",
+        "facility_bands",
+        "gate_occurrences",
+        "junction_internal_edges",
+        "junction_movements",
+        "junctions",
+        "lane_edge_geometries",
+        "lane_edge_route_occurrences",
+        "lane_edge_successors",
+        "lane_edges",
+        "lane_group_members",
+        "lane_groups",
+        "maneuver_gate_route_occurrences",
+        "maneuver_gates",
+        "maneuver_occurrences",
+        "maneuver_path_edges",
+        "maneuver_path_gates",
+        "maneuver_path_route_occurrences",
+        "maneuver_path_waiting_zones",
+        "maneuver_paths",
+        "movement_maneuver_paths",
+        "movements",
+        "parking_area_spaces",
+        "parking_areas",
+        "parking_spaces",
+        "participant_classes",
+        "road_corridors",
+        "road_section_lanes",
+        "road_sections",
+        "signal_controller_groups",
+        "signal_controller_phases",
+        "signal_controllers",
+        "signal_group_maneuver_gates",
+        "signal_groups",
+        "signal_phase_states",
+        "signal_phases",
+        "spatial_segments",
+        "static_route_edges",
+        "static_route_transitions",
+        "static_routes",
+        "stop_line_maneuver_gates",
+        "stop_lines",
+        "vehicle_profiles",
+        "waiting_zone_occurrences",
+        "waiting_zone_route_occurrences",
+        "waiting_zones",
+    ];
+
+    /// 按登记表名读取行数；表名不在 v1 registry 时返回 `None`。
+    #[must_use]
+    pub fn get(&self, table_name: &str) -> Option<u64> {
+        Self::NAMES
+            .iter()
+            .position(|name| *name == table_name)
+            .map(|index| self.counts[index])
+    }
+
+    /// 按登记表名升序遍历 `(表名, 行数)` 对；零计数表同样出现。
+    pub fn entries(&self) -> impl ExactSizeIterator<Item = (&'static str, u64)> + '_ {
+        Self::NAMES.iter().copied().zip(self.counts)
+    }
+
+    /// 返回 53 张表行数总和，恒等于同一输出的 `lir_record_count`。
+    #[must_use]
+    pub fn total(&self) -> u64 {
+        self.counts
+            .iter()
+            .fold(0_u64, |total, count| total.saturating_add(*count))
+    }
+}
+
+impl ValidatedCanonicalLir {
+    /// 读取 53 张 record-counted LIR 表的精确行数；零计数表保留。
+    ///
+    /// 计数在 LIR 冻结后从同一 `LirUnit` 平面表读取，不从指标或自报状态反推。
+    #[must_use]
+    pub fn lir_table_counts(&self) -> LirTableCounts {
+        fn len<T>(table: &[T]) -> u64 {
+            u64::try_from(table.len()).unwrap_or(u64::MAX)
+        }
+
+        let unit = &self.inner;
+        LirTableCounts {
+            counts: [
+                len(&unit.access_rule_participant_classes),
+                len(&unit.access_rules),
+                len(&unit.authoring_lane_edges),
+                len(&unit.authoring_lanes),
+                len(&unit.canonical_frames),
+                len(&unit.canonical_points),
+                len(&unit.corridor_elements),
+                len(&unit.facility_band_geometries),
+                len(&unit.facility_bands),
+                len(&unit.gate_occurrences),
+                len(&unit.junction_internal_edges),
+                len(&unit.junction_movements),
+                len(&unit.junctions),
+                len(&unit.lane_edge_geometries),
+                len(&unit.lane_edge_route_occurrences),
+                len(&unit.lane_edge_successors),
+                len(&unit.lane_edges),
+                len(&unit.lane_group_members),
+                len(&unit.lane_groups),
+                len(&unit.maneuver_gate_route_occurrences),
+                len(&unit.maneuver_gates),
+                len(&unit.maneuver_occurrences),
+                len(&unit.maneuver_path_edges),
+                len(&unit.maneuver_path_gates),
+                len(&unit.maneuver_path_route_occurrences),
+                len(&unit.maneuver_path_waiting_zones),
+                len(&unit.maneuver_paths),
+                len(&unit.movement_maneuver_paths),
+                len(&unit.movements),
+                len(&unit.parking_area_spaces),
+                len(&unit.parking_areas),
+                len(&unit.parking_spaces),
+                len(&unit.participant_classes),
+                len(&unit.road_corridors),
+                len(&unit.road_section_lanes),
+                len(&unit.road_sections),
+                len(&unit.signal_controller_groups),
+                len(&unit.signal_controller_phases),
+                len(&unit.signal_controllers),
+                len(&unit.signal_group_maneuver_gates),
+                len(&unit.signal_groups),
+                len(&unit.signal_phase_states),
+                len(&unit.signal_phases),
+                len(&unit.spatial_segments),
+                len(&unit.static_route_edges),
+                len(&unit.static_route_transitions),
+                len(&unit.static_routes),
+                len(&unit.stop_line_maneuver_gates),
+                len(&unit.stop_lines),
+                len(&unit.vehicle_profiles),
+                len(&unit.waiting_zone_occurrences),
+                len(&unit.waiting_zone_route_occurrences),
+                len(&unit.waiting_zones),
+            ],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3106,6 +3270,42 @@ mod tests {
         assert_eq!(
             baseline.lir.inner.semantic_digest,
             permuted.lir.inner.semantic_digest
+        );
+    }
+
+    #[test]
+    fn lir_table_counts_read_the_flat_tables_and_match_the_record_total() {
+        let successors = [LaneEdgeReference::imported("city/base", "edge-b")];
+        let input = unit([
+            module(
+                "city/app",
+                "app.document",
+                &["city/base"],
+                &[("edge-a", 10.0, &successors)],
+            ),
+            module("city/base", "base.document", &[], &[("edge-b", 20.0, &[])]),
+        ]);
+        let output = Compiler::new().compile(input).unwrap();
+        let counts = output.lir().lir_table_counts();
+
+        assert_eq!(counts.total(), output.metrics().lir_record_count());
+        assert_eq!(counts.get("lane_edges"), Some(2));
+        assert_eq!(counts.get("lane_edge_successors"), Some(1));
+        assert_eq!(counts.get("canonical_points"), Some(0));
+        assert_eq!(counts.get("facility_band_geometries"), Some(0));
+        assert_eq!(counts.get("identity_fields"), None);
+
+        // 表名固定为字典序、无重复；entries 恰好覆盖 53 张登记表且与 NAMES 逐项一致。
+        let names = LirTableCounts::NAMES;
+        assert_eq!(names.len(), LirTableCounts::TABLE_COUNT);
+        assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
+        let entries: Vec<_> = counts.entries().collect();
+        assert_eq!(entries.len(), LirTableCounts::TABLE_COUNT);
+        assert!(
+            entries
+                .iter()
+                .zip(names)
+                .all(|((name, _), expected)| *name == expected)
         );
     }
 
