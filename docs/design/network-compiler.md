@@ -335,9 +335,9 @@ format 决定编译器语义。精确退役边界见
 4. 规则：signals、Gate/WaitingZone、access、parking 和其他静态 overlay。
 
 曲线在 MIR 中按确定性误差预算离散为 canonical f32 polyline；static image 不保存
-authoring curve evaluator。#296 G1 候选把首版收窄为一逻辑模块一份严格 UTF-8 JSON
+authoring curve evaluator。#296 G1 已把首版冻结为一逻辑模块一份严格 UTF-8 JSON
 文档、显式模块 import、line/cubic Bézier、确定性 `f64` 求值后单次 `f32` 量化，且不
-增加第三方 geometry/parser 插件面。该候选在 #296 G1 Pass 前仍不授权生产 Rust。
+增加第三方 geometry/parser 插件面。G2 Rust 实现尚未完成，当前仍不是生产实现事实。
 
 ### 5.4 导入与编辑器编制（Import and Editor Authoring）
 

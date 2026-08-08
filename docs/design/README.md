@@ -52,13 +52,13 @@
   compiler foundation、Synthetic DSL frontend、集成专用 LIR→current projection 及 G4，
   #282–#285 关于 #292 的稳定开工前置已经满足。该完成事实不表示整个目标路网编译器、
   静态镜像或 Traffic Runtime 已经实现；当前 Project 状态与原生依赖关系以 GitHub 为准。
-- `geometry-document-frontend.md`：#296 G1 候选；冻结一逻辑模块一份严格 UTF-8 JSON
+- `geometry-document-frontend.md`：#296 G1 已冻结，是 G2 实现的权威输入；冻结一逻辑模块一份严格 UTF-8 JSON
   Geometry 文档、显式 module import、`GeometryModuleBuilder` / `GeometryModule` /
   `add_geometry_module` 具体入口、line/cubic Bézier 的确定性细分、stationing、横断面与
   junction intent 到共同 Typed AST、topology/geometry MIR 和规范 LIR 的唯一降阶，以及
   资源、诊断、正确性、等价和性能门槛；完整 closed wire shape 由
-  `../reference/geometry-document-v1.schema.json` 机器校验。当前状态为 Review，不表示
-  G1/G2 或 Rust 实现已完成。
+  `../reference/geometry-document-v1.schema.json` 机器校验。G2 Rust 实现尚未完成，不表示
+  实现事实已成立。
 - `compiler-budget-calibration.md`：#308 已完成 G4 的一次性非生产编译器校准研究设计；冻结
   标识、走廊关系、密集路口和研究夹具对照工作负载，以及宽星形、深链、共享扇入
   三种模块图；用机器可读清单与证据 JSON Schema、至少五级规模阶梯、成本/内存拐点、校准/压力

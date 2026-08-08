@@ -2,7 +2,7 @@
 
 **文档状态**: Accepted（current + #291 target 导航；目标实现尚未交付）
 
-**最后更新**: 2026-08-07（current Traffic v0.10；#291/ADR 0020 target；#296/ADR 0022 proposed 误差分层）
+**最后更新**: 2026-08-07（current Traffic v0.10；#291/ADR 0020 target；#296/ADR 0022 accepted 误差分层）
 
 **适用范围**: v0.6 引擎无关的标准坐标框架、折线中心线、长度绑定、采样、局部位姿与制品配对（#123）
 
