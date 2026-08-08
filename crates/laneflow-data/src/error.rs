@@ -1,7 +1,9 @@
 //! External package loader 的结构化错误。
 
 use laneflow_core::CoreError;
-use serde_json::error::Category;
+use laneflow_current_source::{
+    CurrentSourceError, CurrentSourceErrorPayload, CurrentSourceIssueContext,
+};
 
 /// LaneFlow data package 解析、版本与 Core normalization 错误。
 #[derive(Debug, thiserror::Error)]
@@ -64,33 +66,48 @@ pub enum DataError {
 }
 
 impl DataError {
-    pub(crate) fn from_path_error(error: serde_path_to_error::Error<serde_json::Error>) -> Self {
-        let path = normalize_path(error.path().to_string());
-        let source = error.into_inner();
-        let category = source.classify();
-        Self::from_json_error(path, source, category)
+    /// 把 Traffic-only source 错误映射回现有 loader 错误形状；line/column 取自
+    /// 立即失败的原始 `serde_json::Error`。
+    pub(crate) fn from_current_source(error: CurrentSourceError) -> Self {
+        let issues = error.into_issues();
+        debug_assert_eq!(issues.len(), 1, "production-compatible source 立即失败");
+        let issue = issues
+            .into_iter()
+            .next()
+            .expect("CurrentSourceError 至少含一项 issue");
+        let (_document, context, path, payload) = issue.into_parts().into_components();
+        debug_assert!(
+            matches!(context, CurrentSourceIssueContext::None),
+            "Traffic-only 能力不带 scenario 上下文"
+        );
+        Self::from_traffic_payload(path, payload)
     }
 
-    pub(crate) fn from_json_error(
-        path: String,
-        source: serde_json::Error,
-        category: Category,
-    ) -> Self {
-        let line = source.line();
-        let column = source.column();
-        match category {
-            Category::Data => Self::JsonShape {
+    /// 把 Traffic wire/version payload 映射为现有 `DataError` variant。
+    pub(crate) fn from_traffic_payload(path: String, payload: CurrentSourceErrorPayload) -> Self {
+        match payload {
+            CurrentSourceErrorPayload::JsonSyntax { source } => Self::JsonSyntax {
                 path,
-                line,
-                column,
+                line: source.line(),
+                column: source.column(),
                 source,
             },
-            Category::Io | Category::Syntax | Category::Eof => Self::JsonSyntax {
+            CurrentSourceErrorPayload::JsonShape { source } => Self::JsonShape {
                 path,
-                line,
-                column,
+                line: source.line(),
+                column: source.column(),
                 source,
             },
+            CurrentSourceErrorPayload::UnsupportedFormatVersion { expected, actual } => {
+                Self::UnsupportedFormatVersion {
+                    expected,
+                    actual: actual.into_string(),
+                }
+            }
+            payload => unreachable!(
+                "Traffic wire 校验只产生 JSON/version payload：{}",
+                payload.stable_code()
+            ),
         }
     }
 
@@ -99,13 +116,5 @@ impl DataError {
             path: path.into(),
             source: Box::new(source),
         }
-    }
-}
-
-fn normalize_path(path: String) -> String {
-    if path.is_empty() || path == "." {
-        "$".to_owned()
-    } else {
-        path
     }
 }

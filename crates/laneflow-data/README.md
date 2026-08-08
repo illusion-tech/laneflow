@@ -21,9 +21,12 @@ Scenario loader 通过 `from_scenario_json_slice` / `from_scenario_json_str`：
 
 本 crate 不读取文件、不联网、不创建 `CoreWorld`、不拥有 fixed tick 或 runtime entity，也不执行 #135 所属的退化段、弧长、Traffic length binding、端点连续性、基底、采样或 `SpatialRegistry` 提交。
 
+wire DTO、严格版本闸口、raw byte `size`/`sha256` 摘要与 descriptor 配对校验由 `laneflow-current-source` 能力提供；本 crate 消费其校验结果并负责 Core normalization。
+
 依赖方向固定为：
 
 ```text
 laneflow-data -> laneflow-core
 laneflow-data -> laneflow-spatial
+laneflow-data -> laneflow-current-source
 ```

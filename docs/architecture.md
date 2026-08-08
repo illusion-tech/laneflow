@@ -60,6 +60,7 @@ Presentation Layer
 
 ```text
 laneflow-data -> laneflow-core
+laneflow-data -> laneflow-current-source
 laneflow-core -X-> laneflow-data
 
 Engine Adapter -> laneflow-core

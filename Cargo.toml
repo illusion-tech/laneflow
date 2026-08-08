@@ -4,6 +4,7 @@ members = [
     "crates/laneflow-compiler",
     "crates/laneflow-compiler-test-support",
     "crates/laneflow-core",
+    "crates/laneflow-current-source",
     "crates/laneflow-data",
     "crates/laneflow-scenario",
     "crates/laneflow-spatial",

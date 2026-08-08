@@ -3227,15 +3227,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "laneflow-current-source"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "laneflow-data"
 version = "0.0.0"
 dependencies = [
  "jsonschema",
  "laneflow-core",
+ "laneflow-current-source",
  "laneflow-spatial",
- "serde",
  "serde_json",
- "serde_path_to_error",
  "sha2",
  "thiserror 2.0.19",
 ]
