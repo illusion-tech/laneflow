@@ -2512,6 +2512,26 @@ fn geometry_lane_fragment(lane_key: &str, edge_key: &str, successors: &[&str]) -
     )
 }
 
+/// 与 `geometry_lane_fragment` 同构，但 `widthMeters` 由调用方给定：known-vector
+/// 用非正宽度注入阶段 3 局部值域错误（`InvalidWidth`）。
+fn geometry_lane_fragment_with_width(
+    lane_key: &str,
+    edge_key: &str,
+    successors: &[&str],
+    width_meters: f64,
+) -> String {
+    format!(
+        concat!(
+            "{{\"laneKey\":\"{lane_key}\",\"laneEdgeKey\":\"{edge_key}\",\"direction\":\"forward\",",
+            "\"widthMeters\":{width_meters},\"speedLimitMetersPerSecond\":10,\"successors\":[{successors}]}}"
+        ),
+        lane_key = lane_key,
+        edge_key = edge_key,
+        width_meters = width_meters,
+        successors = quoted_csv(successors),
+    )
+}
+
 fn geometry_internal_edge_fragment_with_polyline(edge_key: &str, points: &[[f64; 3]]) -> String {
     let start = points[0];
     let segments = points[1..]
@@ -2686,12 +2706,35 @@ fn geometry_frames_roads_module(
     roads: &[String],
     junctions: &[String],
 ) -> GeometryModule {
+    let source =
+        geometry_document_source(namespace, document_key, imports, frames, roads, junctions);
+    GeometryModuleBuilder::new(
+        GeometryDocumentInput::new(document_key, source.as_bytes(), None),
+        GeometryAccuracyProfile::Balanced5Cm,
+        GeometryDirectionProfile::Balanced2Deg,
+        &CompileLimits::p100_initial_v1(),
+    )
+    .unwrap()
+    .finish()
+    .unwrap()
+}
+
+/// `geometry_frames_roads_module` 的文档拼装部分：只返回来源字符串，供预期
+/// `finish` 失败的 known-vector 自行驱动 `GeometryModuleBuilder` 并检查诊断。
+fn geometry_document_source(
+    namespace: &str,
+    document_key: &str,
+    imports: &[&str],
+    frames: &[&str],
+    roads: &[String],
+    junctions: &[String],
+) -> String {
     let frames_json = frames
         .iter()
         .map(|frame| format!("{{\"frameKey\":\"{frame}\"}}"))
         .collect::<Vec<_>>()
         .join(",");
-    let source = format!(
+    format!(
         concat!(
             "{{\"geometryVersion\":\"1\",\"module\":{{\"namespace\":\"{namespace}\",\"documentKey\":\"{document_key}\",",
             "\"imports\":[{imports}],\"provenance\":{{\"kind\":\"direct\",\"description\":\"test\"}}}},",
@@ -2709,16 +2752,7 @@ fn geometry_frames_roads_module(
         frames = frames_json,
         roads = roads.join(","),
         junctions = junctions.join(","),
-    );
-    GeometryModuleBuilder::new(
-        GeometryDocumentInput::new(document_key, source.as_bytes(), None),
-        GeometryAccuracyProfile::Balanced5Cm,
-        GeometryDirectionProfile::Balanced2Deg,
-        &CompileLimits::p100_initial_v1(),
     )
-    .unwrap()
-    .finish()
-    .unwrap()
 }
 
 /// 带车道与路口的 Geometry 模块：单 frame/road/span/corridor/section，车道与路口内容由
@@ -4463,4 +4497,575 @@ fn derived_successor_source_map_resolves_declaring_module_document() {
             "unexpected successor owner {owner}"
         );
     }
+}
+
+/// §7.2 阶段遮蔽 known-vector 的公共断言：`finish` 只返回阶段 3 的规范最小诊断，
+/// 即恰好一条 `widthMeters` 非正局部值域错误（`InvalidGeometryDocument` /
+/// `FieldValue` / `InvalidWidth`），不多不少；尚不可执行的 import、跨模块归属与
+/// 配置档混用诊断被规范遮蔽。对照场景已分别证明这些后续阶段错误真实存在。
+fn assert_finish_reports_only_stage3_width_violation(
+    bundle: &DiagnosticBundle,
+    document_key: &str,
+) {
+    assert_eq!(
+        bundle.diagnostics().len(),
+        1,
+        "阶段 3 规范最小诊断必须恰好一条，不得附带被遮蔽阶段的诊断"
+    );
+    assert!(!bundle.diagnostics_truncated(), "单诊断不得触发诊断截断");
+    let diagnostic = &bundle.diagnostics()[0];
+    assert_eq!(
+        diagnostic.code(),
+        DiagnosticCode::InvalidGeometryDocument,
+        "阶段 3 局部值域错误必须是 InvalidGeometryDocument"
+    );
+    assert!(matches!(
+        diagnostic.payload(),
+        DiagnosticPayload::InvalidGeometryDocument {
+            violation: GeometryDocumentViolation::FieldValue,
+            field: Some(field),
+            actual: Some(actual),
+            expected: Some(expected),
+        } if field.as_ref() == "widthMeters"
+            && actual.as_ref() == "InvalidWidth"
+            && expected.as_ref() == "complete bounded Geometry v1 canonical geometry payload"
+    ));
+    assert_eq!(
+        diagnostic.primary_span().unwrap().source_document_key(),
+        document_key,
+        "诊断必须锚定注入错误的来源文档"
+    );
+}
+
+#[test]
+fn geometry_finish_numeric_freeze_error_shadows_unknown_import() {
+    // §7.2 阶段遮蔽 known-vector（未知 import）：文档声明 import "city/ghost" 并把
+    // road frame 指向 city/ghost::frame.base；finish 只按已声明 import 解析引用，
+    // 未知 import 要到模块进入编译单元后的共同 admission 才可判定。同一文档注入
+    // widthMeters 非正（阶段 3 局部值域错误），证明 finish 只返回阶段 3 诊断。
+    let build_source = |width_meters: f64| {
+        geometry_document_source(
+            "city/main",
+            "doc.main",
+            &["city/ghost"],
+            &["frame.main"],
+            &[geometry_road_fragment(
+                "road.main",
+                "city/ghost::frame.base",
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                "lane.main",
+                &[geometry_lane_fragment_with_width(
+                    "lane.main",
+                    "edge.main",
+                    &[],
+                    width_meters,
+                )],
+            )],
+            &[],
+        )
+    };
+    let finish = |source: String| {
+        GeometryModuleBuilder::new(
+            GeometryDocumentInput::new("doc.main", source.as_bytes(), None),
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &CompileLimits::p100_initial_v1(),
+        )
+        .expect("known-vector 文档必须解析成功")
+        .finish()
+    };
+
+    // 对照：无阶段 3 错误时 finish 通过（import 已声明即满足引用解析），同一模块
+    // 进入编译单元后，未知 import 在共同 admission 失败关闭。
+    let module = finish(build_source(3.5)).expect("无局部错误的对照文档必须 finish 成功");
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+    builder.add_geometry_module(module).unwrap();
+    let shadowed = expect_diagnostics(builder.build());
+    assert_eq!(shadowed.diagnostics().len(), 1);
+    assert!(matches!(
+        shadowed.diagnostics()[0].payload(),
+        DiagnosticPayload::UnknownImport { namespace } if namespace.as_ref() == "city/ghost"
+    ));
+
+    // known-vector：同一来源同时含阶段 3 局部值域错误；finish 在模块存在前失败，
+    // 未知 import 诊断被规范遮蔽。
+    let bundle = expect_diagnostics(finish(build_source(-1.0)));
+    assert_finish_reports_only_stage3_width_violation(&bundle, "doc.main");
+}
+
+#[test]
+fn geometry_finish_numeric_freeze_error_shadows_cross_module_owner_conflict() {
+    // §7.2 阶段遮蔽 known-vector（跨模块归属）：文档 import 真实存在的 city/base，
+    // 路口 approach 同时含 city/base::edge.x（绑定 city/base::frame.base）与本地
+    // edge.a（绑定本地 frame.main）；引道边的 frame 归属冲突要到 HIR 路口 frame
+    // 闭包才可判定。构造探明记录：laneEdgeKey 拼写 "city/base::edge.x" 只是合法
+    // 本地键（`:` 属于外部 token 字符集），不产生跨模块引用，因此本场景改用路口
+    // frame 归属冲突。同一文档注入阶段 3 局部值域错误，证明 finish 只返回阶段 3
+    // 诊断。
+    let build_source = |width_meters: f64| {
+        geometry_document_source(
+            "city/main",
+            "doc.main",
+            &["city/base"],
+            &["frame.main"],
+            &[geometry_road_fragment(
+                "road.a",
+                "frame.main",
+                [3.5, 0.0, 0.0],
+                [13.5, 0.0, 0.0],
+                "lane.a",
+                &[geometry_lane_fragment_with_width(
+                    "lane.a",
+                    "edge.a",
+                    &[],
+                    width_meters,
+                )],
+            )],
+            &[geometry_junction_fragment(
+                "junction.main",
+                &["city/base::edge.x", "edge.a"],
+                &[geometry_internal_edge_fragment_with_polyline(
+                    "edge.internal",
+                    &[[0.0, 0.0, 0.0], [3.5, 0.0, 0.0]],
+                )],
+                &[geometry_connection_fragment(
+                    "movement.main",
+                    "path.main",
+                    "city/base::edge.x",
+                    &["edge.internal"],
+                    "edge.a",
+                )],
+            )],
+        )
+    };
+    let finish = |source: String| {
+        GeometryModuleBuilder::new(
+            GeometryDocumentInput::new("doc.main", source.as_bytes(), None),
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &CompileLimits::p100_initial_v1(),
+        )
+        .expect("known-vector 文档必须解析成功")
+        .finish()
+    };
+
+    // 对照：无阶段 3 错误时 finish 通过、单元 build 成功，跨模块 frame 归属冲突
+    // 在 HIR 失败关闭。
+    let module = finish(build_source(3.5)).expect("无局部错误的对照文档必须 finish 成功");
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+    builder
+        .add_synthetic_module(synthetic_edge_module("city/base"))
+        .unwrap();
+    builder.add_geometry_module(module).unwrap();
+    let unit = builder.build().unwrap();
+    let shadowed = expect_diagnostics(crate::hir::build_hir(&unit));
+    assert_eq!(shadowed.diagnostics().len(), 1);
+    assert!(matches!(
+        shadowed.diagnostics()[0].payload(),
+        DiagnosticPayload::InvalidSpatialGeometry {
+            violation: SpatialGeometryViolation::ApproachFrameConflict,
+            ..
+        }
+    ));
+
+    // known-vector：同一来源同时含阶段 3 局部值域错误；finish 在模块存在前失败，
+    // 跨模块归属诊断被规范遮蔽。
+    let bundle = expect_diagnostics(finish(build_source(-1.0)));
+    assert_finish_reports_only_stage3_width_violation(&bundle, "doc.main");
+}
+
+#[test]
+fn geometry_finish_numeric_freeze_error_shadows_mixed_profiles() {
+    // §7.2 阶段遮蔽 known-vector（配置档混用）：unit 先收 Balanced5Cm/Balanced2Deg
+    // 的 Geometry 模块；同一来源再以 Fine2Cm/Smooth1Deg 构建并注入阶段 3 局部值域
+    // 错误。MixedGeometryAccuracyProfile/MixedGeometryDirectionProfile 只在成功模块
+    // 进入编译单元后的 HIR 产生，finish 只返回阶段 3 诊断。
+    let build_source = |width_meters: f64| {
+        geometry_document_source(
+            "city/geo.b",
+            "doc.geo.b",
+            &[],
+            &["frame.main"],
+            &[geometry_road_fragment(
+                "road.main",
+                "frame.main",
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                "lane.main",
+                &[geometry_lane_fragment_with_width(
+                    "lane.main",
+                    "edge.main",
+                    &[],
+                    width_meters,
+                )],
+            )],
+            &[],
+        )
+    };
+    let finish = |source: String| {
+        GeometryModuleBuilder::new(
+            GeometryDocumentInput::new("doc.geo.b", source.as_bytes(), None),
+            GeometryAccuracyProfile::Fine2Cm,
+            GeometryDirectionProfile::Smooth1Deg,
+            &CompileLimits::p100_initial_v1(),
+        )
+        .expect("known-vector 文档必须解析成功")
+        .finish()
+    };
+
+    // 对照：无阶段 3 错误的同来源文档 finish 成功，加入单元后混用检查在 HIR 失败
+    // （accuracy 与 direction 正交，同阶段按诊断代码序分别报告）。
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+    builder
+        .add_geometry_module(geometry_module_with_profiles(
+            "city/geo.a",
+            "doc.geo.a",
+            &[],
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+        ))
+        .unwrap();
+    builder
+        .add_geometry_module(finish(build_source(3.5)).expect("对照文档必须 finish 成功"))
+        .unwrap();
+    let unit = builder.build().unwrap();
+    let shadowed = expect_diagnostics(crate::hir::build_hir(&unit));
+    assert_eq!(
+        shadowed
+            .diagnostics()
+            .iter()
+            .map(Diagnostic::code)
+            .collect::<Vec<_>>(),
+        [
+            DiagnosticCode::MixedGeometryAccuracyProfile,
+            DiagnosticCode::MixedGeometryDirectionProfile,
+        ]
+    );
+
+    // known-vector：含阶段 3 错误的同一来源在 finish 失败，配置档混用诊断被规范
+    // 遮蔽。
+    let bundle = expect_diagnostics(finish(build_source(-1.0)));
+    assert_finish_reports_only_stage3_width_violation(&bundle, "doc.geo.b");
+}
+
+#[test]
+fn geometry_frontend_repeated_compile_is_bit_exact() {
+    // §8 确定性行：同一 Geometry unit 构造两次、由同一 Compiler 顺序 compile，
+    // 语义指纹与全部 lane edge 空间几何点 bit pattern 完全一致。
+    let build_unit = || {
+        geometry_topology_unit(geometry_roads_module(
+            "city/main",
+            "doc.main",
+            &[],
+            &[
+                geometry_road_fragment(
+                    "road.a",
+                    "frame.main",
+                    [0.0, 0.0, 0.0],
+                    [10.0, 0.0, 0.0],
+                    "lane.a",
+                    &[geometry_lane_fragment("lane.a", "edge.a", &[])],
+                ),
+                geometry_road_fragment(
+                    "road.b",
+                    "frame.main",
+                    [13.5, 0.0, 0.0],
+                    [23.5, 0.0, 0.0],
+                    "lane.b",
+                    &[geometry_lane_fragment("lane.b", "edge.b", &[])],
+                ),
+            ],
+            &[geometry_junction_fragment(
+                "junction.main",
+                &["edge.a", "edge.b"],
+                &[geometry_internal_edge_fragment_with_polyline(
+                    "edge.internal",
+                    &[[10.0, 0.0, 0.0], [13.5, 0.0, 0.0]],
+                )],
+                &[geometry_connection_fragment(
+                    "movement.main",
+                    "path.main",
+                    "edge.a",
+                    &["edge.internal"],
+                    "edge.b",
+                )],
+            )],
+        ))
+    };
+    let mut compiler = crate::Compiler::new();
+    let first = compiler.compile(build_unit()).unwrap();
+    let second = compiler.compile(build_unit()).unwrap();
+
+    assert_eq!(
+        first.metrics().semantic_fingerprint(),
+        second.metrics().semantic_fingerprint(),
+        "重复 clean compile 的语义指纹必须一致"
+    );
+    let edge_point_bits = |output: &crate::CompilationOutput| {
+        output
+            .lir()
+            .lane_edges()
+            .map(|edge| {
+                (
+                    lir_lane_edge_key(&edge),
+                    edge.spatial_geometry()
+                        .expect("geometry edge must carry spatial geometry")
+                        .points()
+                        .map(|point| [point.x.to_bits(), point.y.to_bits(), point.z.to_bits()])
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        edge_point_bits(&first),
+        edge_point_bits(&second),
+        "重复 clean compile 的 lane edge 点 bit pattern 必须一致"
+    );
+}
+
+#[test]
+fn geometry_frontend_module_add_order_does_not_change_fingerprint() {
+    // §8 确定性行：2 个 Geometry 模块 + 1 个 Synthetic 模块按不同 add 顺序加入
+    // CompilationUnitBuilder（依赖 city/base ← city/geo ← city/main 在两种顺序下
+    // 都合法）；规范依赖序使两次 compile 的语义指纹一致。
+    let junction_module = || {
+        geometry_roads_module(
+            "city/main",
+            "doc.main",
+            &["city/base", "city/geo"],
+            &[geometry_road_fragment(
+                "road.a",
+                "city/base::frame.base",
+                [13.5, 0.0, 0.0],
+                [23.5, 0.0, 0.0],
+                "lane.a",
+                &[geometry_lane_fragment("lane.a", "edge.a", &[])],
+            )],
+            &[geometry_junction_fragment(
+                "junction.main",
+                &["city/base::edge.x", "city/geo::edge.main", "edge.a"],
+                &[
+                    // i1 接合 edge.x 末端 [0,0,0] 与 edge.a 起点 [13.5,0,0]；
+                    // i2 接合 edge.main 末端 [10,0,0] 与 edge.a 起点 [13.5,0,0]。
+                    geometry_internal_edge_fragment_with_polyline(
+                        "edge.i1",
+                        &[[0.0, 0.0, 0.0], [13.5, 0.0, 0.0]],
+                    ),
+                    geometry_internal_edge_fragment_with_polyline(
+                        "edge.i2",
+                        &[[10.0, 0.0, 0.0], [13.5, 0.0, 0.0]],
+                    ),
+                ],
+                &[
+                    geometry_connection_fragment(
+                        "movement.one",
+                        "path.one",
+                        "city/base::edge.x",
+                        &["edge.i1"],
+                        "edge.a",
+                    ),
+                    geometry_connection_fragment(
+                        "movement.two",
+                        "path.two",
+                        "city/geo::edge.main",
+                        &["edge.i2"],
+                        "edge.a",
+                    ),
+                ],
+            )],
+        )
+    };
+    let geo_module = || {
+        geometry_module_with_frame_ref(
+            "city/geo",
+            "doc.geo",
+            &["city/base"],
+            "city/base::frame.base",
+        )
+    };
+    let build_unit = |dependency_last: bool| {
+        let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+        if dependency_last {
+            builder.add_geometry_module(junction_module()).unwrap();
+            builder.add_geometry_module(geo_module()).unwrap();
+            builder
+                .add_synthetic_module(synthetic_edge_module("city/base"))
+                .unwrap();
+        } else {
+            builder
+                .add_synthetic_module(synthetic_edge_module("city/base"))
+                .unwrap();
+            builder.add_geometry_module(geo_module()).unwrap();
+            builder.add_geometry_module(junction_module()).unwrap();
+        }
+        builder.build().unwrap()
+    };
+
+    let first = crate::Compiler::new().compile(build_unit(false)).unwrap();
+    let second = crate::Compiler::new().compile(build_unit(true)).unwrap();
+    assert_eq!(
+        first.metrics().semantic_fingerprint(),
+        second.metrics().semantic_fingerprint(),
+        "模块 add 顺序不得改变 LIR 语义指纹"
+    );
+}
+
+#[test]
+fn geometry_frontend_declaration_array_reorder_follows_array_semantics() {
+    // §8 确定性行：语义无序的来源数组重排不改变 LIR 语义；显式有序的横断面
+    // lanes 数组（§4.3 横向顺序语义）重排必须改变语义指纹。
+    let two_lane_road = |lanes: &[String]| {
+        geometry_road_fragment(
+            "road.e",
+            "frame.main",
+            [60.0, 0.0, 0.0],
+            [70.0, 0.0, 0.0],
+            "lane.e1",
+            lanes,
+        )
+    };
+    let lane_e1 = || geometry_lane_fragment("lane.e1", "edge.e1", &[]);
+    let lane_e2 = || geometry_lane_fragment("lane.e2", "edge.e2", &[]);
+    let plain_roads = || {
+        vec![
+            geometry_road_fragment(
+                "road.a",
+                "frame.main",
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                "lane.a",
+                &[geometry_lane_fragment("lane.a", "edge.a", &[])],
+            ),
+            geometry_road_fragment(
+                "road.b",
+                "frame.main",
+                [13.5, 0.0, 0.0],
+                [23.5, 0.0, 0.0],
+                "lane.b",
+                &[geometry_lane_fragment("lane.b", "edge.b", &[])],
+            ),
+            geometry_road_fragment(
+                "road.c",
+                "frame.main",
+                [27.0, 0.0, 0.0],
+                [37.0, 0.0, 0.0],
+                "lane.c",
+                &[geometry_lane_fragment("lane.c", "edge.c", &[])],
+            ),
+            geometry_road_fragment(
+                "road.d",
+                "frame.main",
+                [40.5, 0.0, 0.0],
+                [50.5, 0.0, 0.0],
+                "lane.d",
+                &[geometry_lane_fragment("lane.d", "edge.d", &[])],
+            ),
+        ]
+    };
+    let junction_one = |connections: &[String]| {
+        geometry_junction_fragment(
+            "junction.one",
+            &["edge.a", "edge.b"],
+            &[
+                geometry_internal_edge_fragment_with_polyline(
+                    "edge.i1",
+                    &[[10.0, 0.0, 0.0], [13.5, 0.0, 0.0]],
+                ),
+                geometry_internal_edge_fragment_with_polyline(
+                    "edge.i3",
+                    &[[10.0, 0.0, 0.0], [13.5, 0.0, 0.0]],
+                ),
+            ],
+            connections,
+        )
+    };
+    let junction_two = || {
+        geometry_junction_fragment(
+            "junction.two",
+            &["edge.c", "edge.d"],
+            &[geometry_internal_edge_fragment_with_polyline(
+                "edge.i2",
+                &[[37.0, 0.0, 0.0], [40.5, 0.0, 0.0]],
+            )],
+            &[geometry_connection_fragment(
+                "movement.three",
+                "path.three",
+                "edge.c",
+                &["edge.i2"],
+                "edge.d",
+            )],
+        )
+    };
+    let connection_one = || {
+        geometry_connection_fragment("movement.one", "path.one", "edge.a", &["edge.i1"], "edge.b")
+    };
+    let connection_two = || {
+        geometry_connection_fragment("movement.two", "path.two", "edge.a", &["edge.i3"], "edge.b")
+    };
+    let fingerprint = |roads: Vec<String>, junctions: Vec<String>| {
+        crate::Compiler::new()
+            .compile(geometry_topology_unit(geometry_roads_module(
+                "city/main",
+                "doc.main",
+                &[],
+                &roads,
+                &junctions,
+            )))
+            .unwrap()
+            .metrics()
+            .semantic_fingerprint()
+    };
+
+    let baseline = fingerprint(
+        [plain_roads(), vec![two_lane_road(&[lane_e1(), lane_e2()])]].concat(),
+        vec![
+            junction_one(&[connection_one(), connection_two()]),
+            junction_two(),
+        ],
+    );
+
+    // roads 数组重排（语义无序）：指纹不变。
+    let mut reordered_roads = plain_roads();
+    reordered_roads.reverse();
+    reordered_roads.insert(0, two_lane_road(&[lane_e1(), lane_e2()]));
+    assert_eq!(
+        fingerprint(
+            reordered_roads,
+            vec![
+                junction_one(&[connection_one(), connection_two()]),
+                junction_two(),
+            ]
+        ),
+        baseline,
+        "roads 数组顺序重排不得改变语义指纹"
+    );
+
+    // junctions 数组与 junction 内 connections 数组重排（语义无序）：指纹不变。
+    assert_eq!(
+        fingerprint(
+            [plain_roads(), vec![two_lane_road(&[lane_e1(), lane_e2()])]].concat(),
+            vec![
+                junction_two(),
+                junction_one(&[connection_two(), connection_one()]),
+            ],
+        ),
+        baseline,
+        "junctions/connections 数组顺序重排不得改变语义指纹"
+    );
+
+    // 同一 section 的 lanes 数组重排（§4.3 横向顺序是显式语义，lane.e2 的横向
+    // 偏移随顺序翻转）：指纹必须改变。
+    let lanes_reordered = fingerprint(
+        [plain_roads(), vec![two_lane_road(&[lane_e2(), lane_e1()])]].concat(),
+        vec![
+            junction_one(&[connection_one(), connection_two()]),
+            junction_two(),
+        ],
+    );
+    assert_ne!(
+        lanes_reordered, baseline,
+        "lanes 数组顺序是横断面横向显式语义，重排必须改变语义指纹"
+    );
 }

@@ -3394,6 +3394,192 @@ mod tests {
         }
     }
 
+    /// §8 geometry 行九组合 golden 共用的 cubic 文档：半径 45 m、圆心角 20° 的圆弧
+    /// 三次贝塞尔逼近（k = 4/3·tan(5°)）。曲率平缓使九个配置档组合全部可冻结，
+    /// 且精度档与方向档各自都能在部分组合上成为细分点数的约束，点数随组合变化。
+    const NINE_COMBO_CUBIC_DOCUMENT: &str = concat!(
+        "{\"geometryVersion\":\"1\",\"module\":{\"namespace\":\"city/main\",\"documentKey\":\"source/main\",",
+        "\"imports\":[],\"provenance\":{\"kind\":\"direct\",\"description\":\"nine combo golden\"}},",
+        "\"units\":{\"distance\":\"meter\",\"angle\":\"radian\",\"speed\":\"meter-per-second\",\"time\":\"second\"},",
+        "\"frames\":[{\"frameKey\":\"frame.main\"}],",
+        "\"roads\":[{\"roadKey\":\"road.main\",\"frame\":\"frame.main\",",
+        "\"referenceLine\":{\"start\":[100.5,1.25,-50.75],\"segments\":[{\"kind\":\"cubicBezier\",",
+        "\"control1\":[105.74931981,1.25,-50.75],\"control2\":[110.95815175,1.25,-49.83151381],",
+        "\"end\":[115.89090645,1.25,-48.03616794]}]},",
+        "\"crossSectionSpans\":[{\"spanKey\":\"span.main\",\"corridorKey\":\"corridor.main\",",
+        "\"startStationMeters\":0,\"endStationMeters\":\"end\",\"referenceSectionKey\":\"section.main\",",
+        "\"referenceLaneKey\":\"lane.main\",\"elements\":[{\"kind\":\"roadSection\",\"sectionKey\":\"section.main\"}],",
+        "\"roadSections\":[{\"sectionKey\":\"section.main\",\"kindId\":\"motorLane\",\"lanes\":[",
+        "{\"laneKey\":\"lane.main\",\"laneEdgeKey\":\"edge.main\",\"direction\":\"forward\",\"widthMeters\":3.5,",
+        "\"speedLimitMetersPerSecond\":10,\"successors\":[]}],\"laneGroups\":[]}],\"facilityBands\":[]}]}],",
+        "\"junctions\":[],\"overlays\":{\"signalGroups\":[],\"signalControllers\":[],\"parkingAreas\":[],",
+        "\"parkingSpaces\":[],\"participantClasses\":[],\"vehicleProfiles\":[],\"accessRules\":[],",
+        "\"staticRoutes\":[],\"stopLines\":[],\"maneuverGates\":[],\"waitingZones\":[]}}"
+    );
+
+    #[test]
+    fn geometry_payload_golden_covers_all_nine_profile_combinations() {
+        // §8 geometry 行的九组合 golden：同一份含 cubic 的 Geometry 文档在全部 3×3
+        // (accuracy, direction) 组合下 freeze_geometry_payload，固定每组合的点数与
+        // 首末点 f32 bit 模式。方向档主导 Smooth/Balanced 列（33/17 点）；精度档在
+        // Compact 方向列成为约束（Fine 17、Balanced 9、Compact 7 点）。
+        let cases = [
+            (
+                GeometryAccuracyProfile::Fine2Cm,
+                GeometryDirectionProfile::Smooth1Deg,
+                33_u64,
+                [0x42c9_0000, 0x3fa0_0000, 0xc24b_0000],
+                [0x42e7_c825, 0x3fa0_0000, 0xc240_2509],
+            ),
+            (
+                GeometryAccuracyProfile::Fine2Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                17,
+                [0x42c9_0000, 0x3fa0_0000, 0xc24b_0000],
+                [0x42e7_c825, 0x3fa0_0000, 0xc240_2509],
+            ),
+            (
+                GeometryAccuracyProfile::Fine2Cm,
+                GeometryDirectionProfile::Compact5Deg,
+                17,
+                [0x42c9_0000, 0x3fa0_0000, 0xc24b_0000],
+                [0x42e7_c825, 0x3fa0_0000, 0xc240_2509],
+            ),
+            (
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Smooth1Deg,
+                33,
+                [0x42c9_0000, 0x3fa0_0000, 0xc24b_0000],
+                [0x42e7_c825, 0x3fa0_0000, 0xc240_2509],
+            ),
+            (
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                17,
+                [0x42c9_0000, 0x3fa0_0000, 0xc24b_0000],
+                [0x42e7_c825, 0x3fa0_0000, 0xc240_2509],
+            ),
+            (
+                GeometryAccuracyProfile::Balanced5Cm,
+                GeometryDirectionProfile::Compact5Deg,
+                9,
+                [0x42c9_0000, 0x3fa0_0000, 0xc24b_0000],
+                [0x42e7_c825, 0x3fa0_0000, 0xc240_2509],
+            ),
+            (
+                GeometryAccuracyProfile::Compact10Cm,
+                GeometryDirectionProfile::Smooth1Deg,
+                33,
+                [0x42c9_0000, 0x3fa0_0000, 0xc24b_0000],
+                [0x42e7_c825, 0x3fa0_0000, 0xc240_2509],
+            ),
+            (
+                GeometryAccuracyProfile::Compact10Cm,
+                GeometryDirectionProfile::Balanced2Deg,
+                17,
+                [0x42c9_0000, 0x3fa0_0000, 0xc24b_0000],
+                [0x42e7_c825, 0x3fa0_0000, 0xc240_2509],
+            ),
+            (
+                GeometryAccuracyProfile::Compact10Cm,
+                GeometryDirectionProfile::Compact5Deg,
+                7,
+                [0x42c9_0000, 0x3fa0_0000, 0xc24b_0000],
+                [0x42e7_c825, 0x3fa0_0000, 0xc240_2509],
+            ),
+        ];
+
+        for (accuracy, direction, expected_point_count, expected_first, expected_last) in cases {
+            let context = || {
+                format!(
+                    "组合 {}/{}",
+                    accuracy.stable_name(),
+                    direction.stable_name()
+                )
+            };
+            let freeze = || {
+                GeometryModuleBuilder::new(
+                    GeometryDocumentInput::new(
+                        "source/main",
+                        NINE_COMBO_CUBIC_DOCUMENT.as_bytes(),
+                        None,
+                    ),
+                    accuracy,
+                    direction,
+                    &CompileLimits::p100_initial_v1(),
+                )
+                .unwrap_or_else(|error| {
+                    panic!("九组合 golden 文档必须解析成功（{}）：{error:?}", context())
+                })
+                .freeze_geometry_payload()
+                .unwrap_or_else(|error| {
+                    panic!("九组合 golden 文档必须冻结成功（{}）：{error:?}", context())
+                })
+            };
+            let payload = freeze();
+
+            assert_eq!(
+                payload.geometry_point_count,
+                expected_point_count,
+                "geometry_point_count（{}）",
+                context()
+            );
+            assert_eq!(
+                payload.lateral_curves.len(),
+                1,
+                "单车道文档只产生一条 lateral curve（{}）",
+                context()
+            );
+            assert!(
+                payload.internal_edge_curves.is_empty(),
+                "无路口文档不产生 internal edge curve（{}）",
+                context()
+            );
+            let points = &payload.lateral_curves[0].points;
+            assert_eq!(
+                points.len() as u64,
+                expected_point_count,
+                "lateral curve 点数必须与 geometry_point_count 一致（{}）",
+                context()
+            );
+            let first = points.first().expect("golden 曲线至少两个点");
+            assert_eq!(
+                [first.x.to_bits(), first.y.to_bits(), first.z.to_bits()],
+                expected_first,
+                "首点 f32 bit 模式（{}）",
+                context()
+            );
+            let last = points.last().expect("golden 曲线至少两个点");
+            assert_eq!(
+                [last.x.to_bits(), last.y.to_bits(), last.z.to_bits()],
+                expected_last,
+                "末点 f32 bit 模式（{}）",
+                context()
+            );
+
+            // 确定性：同一组合独立重建再 freeze 一次，载荷逐位一致。
+            let repeat = freeze();
+            assert_eq!(
+                repeat.geometry_point_count,
+                payload.geometry_point_count,
+                "重复 freeze 点数必须逐位一致（{}）",
+                context()
+            );
+            assert_eq!(
+                repeat.lateral_curves,
+                payload.lateral_curves,
+                "重复 freeze lateral curves 必须逐位一致（{}）",
+                context()
+            );
+            assert_eq!(
+                repeat.internal_edge_curves,
+                payload.internal_edge_curves,
+                "重复 freeze internal edge curves 必须逐位一致（{}）",
+                context()
+            );
+        }
+    }
+
     #[test]
     fn module_builder_owns_compact_parse_state_without_source_borrow() {
         super::super::descriptor::SOURCE_DOCUMENT_DIGEST_CALL_COUNT.with(|count| count.set(0));
