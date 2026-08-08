@@ -92,7 +92,8 @@ LaneFlow 的当前能力与 #291 已接受长期目标共同关注：
 
 - `crates/laneflow-bevy`：Bevy 0.19 Reference Adapter；使用最小 modular dependency graph，提供单活动 `LaneFlowSession`、专用 fixed schedule、Vehicle/Entity 部分双射、frame placement、原子 local Transform 同步、可选 Gizmos、campus 最小示例与 v0.10 protected-turning signalized-corridor native example。
 - `crates/laneflow-core`：引擎无关的 Core domain/runtime、typed handles、fixed tick、fixed-time Signals snapshot/query/events、SignalStop 与 permission-aware traversal，以及私有 occupancy/leader、IIDM、safe-speed 与 no-overlap projection pipeline。
-- `crates/laneflow-data`：当前 Traffic v0.10 JSON loader、严格版本闸口、Junction/Movement/ManeuverPath/ManeuverGate、横断面/准入静态模型、per-edge `speedLimit` 与 Core normalization；依赖方向固定为 `laneflow-data -> laneflow-core`。
+- `crates/laneflow-current-source`：当前态 source 能力 crate；承载 Traffic v0.10、Scenario Manifest v0.1 与 Spatial v0.1 的 wire DTO、严格版本闸口、portable artifact 摘要与 descriptor 配对校验，输出带稳定码的 issue；不依赖任何 LaneFlow crate。
+- `crates/laneflow-data`：当前 Traffic v0.10 JSON loader、严格版本闸口、Junction/Movement/ManeuverPath/ManeuverGate、横断面/准入静态模型、per-edge `speedLimit` 与 Core normalization；依赖方向固定为 `laneflow-data -> laneflow-core` 与 `laneflow-data -> laneflow-current-source`。
 - `crates/laneflow-scenario`：可选、引擎无关的 reference scenario policy；当前提供 v0.10 signalized-corridor catalog 0.2 的 PortalLane/weighted RouteChoice normalization、50–200 车辆确定性初始化、ordered completion 消费和 blocked recycle retry，依赖方向固定为 `laneflow-scenario -> laneflow-core`。
 - `crates/laneflow-spatial`：LaneFlow 自有的有界 `f32` canonical 点、向量、单位方向、稳定 frame ID、immutable edge-binding registry，以及带 placement token、Parking pose 和失败原子性的批量位姿提取；依赖方向固定为 `laneflow-spatial -> laneflow-core`，Core 不反向依赖 Spatial。
 - `tools/laneflow-corridor-generator`：Traffic v0.10 受保护转向走廊的离线 authoring 工具；读取内部 TOML，确定性生成并校验 Traffic/Spatial/Manifest JSON 与 scenario-local catalog 0.2 TOML，并复用 `laneflow-scenario` 的 catalog wire DTO。

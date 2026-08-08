@@ -2,8 +2,11 @@
 
 use std::fmt;
 
+use laneflow_current_source::{
+    CurrentArtifactRole, CurrentDocumentRole, CurrentSourceError, CurrentSourceErrorPayload,
+    CurrentSourceIssueContext,
+};
 use laneflow_spatial::SpatialError;
-use serde_json::error::Category;
 
 use crate::DataError;
 
@@ -181,47 +184,142 @@ pub enum ScenarioError {
 }
 
 impl ScenarioError {
-    pub(crate) fn from_path_error(
-        document: ScenarioDocument,
-        error: serde_path_to_error::Error<serde_json::Error>,
-    ) -> Self {
-        let path = normalize_path(error.path().to_string());
-        let source = error.into_inner();
-        let category = source.classify();
-        Self::from_json_error(document, path, source, category)
-    }
-
-    pub(crate) fn from_json_error(
-        document: ScenarioDocument,
-        path: String,
-        source: serde_json::Error,
-        category: Category,
-    ) -> Self {
-        let line = source.line();
-        let column = source.column();
-        match category {
-            Category::Data => Self::JsonShape {
-                document,
+    /// 把 scenario source 错误映射回现有 loader 错误形状；携带 `ScenarioTraffic`
+    /// 上下文的 Traffic wire/version issue 先还原为 `DataError` 再包进
+    /// `TrafficPackage`，保持既有公共错误面不变。
+    pub(crate) fn from_current_source(error: CurrentSourceError) -> Self {
+        let issues = error.into_issues();
+        debug_assert_eq!(issues.len(), 1, "production-compatible source 立即失败");
+        let issue = issues
+            .into_iter()
+            .next()
+            .expect("CurrentSourceError 至少含一项 issue");
+        let (document, context, path, payload) = issue.into_parts().into_components();
+        if let CurrentSourceIssueContext::ScenarioTraffic { artifact_ref } = context {
+            return Self::TrafficPackage {
+                artifact_ref: artifact_ref.into_string(),
+                source: Box::new(DataError::from_traffic_payload(path, payload)),
+            };
+        }
+        // document 只在 JSON/version variant 上有公共意义；制品配对 variant
+        // （Missing/Size/DigestMismatch）在现有错误面上不携带 document，其
+        // document 值不会被观察。
+        let scenario_document = match document {
+            CurrentDocumentRole::Manifest => ScenarioDocument::Manifest,
+            CurrentDocumentRole::Spatial => ScenarioDocument::Spatial,
+            CurrentDocumentRole::Traffic => match &payload {
+                CurrentSourceErrorPayload::MissingArtifact { .. }
+                | CurrentSourceErrorPayload::ArtifactSizeMismatch { .. }
+                | CurrentSourceErrorPayload::ArtifactDigestMismatch { .. } => {
+                    ScenarioDocument::Manifest
+                }
+                payload => unreachable!(
+                    "scenario Traffic JSON/version issue 必携带 ScenarioTraffic 上下文：{}",
+                    payload.stable_code()
+                ),
+            },
+        };
+        match payload {
+            CurrentSourceErrorPayload::JsonSyntax { source } => Self::JsonSyntax {
+                document: scenario_document,
                 path,
-                line,
-                column,
+                line: source.line(),
+                column: source.column(),
                 source,
             },
-            Category::Io | Category::Syntax | Category::Eof => Self::JsonSyntax {
-                document,
+            CurrentSourceErrorPayload::JsonShape { source } => Self::JsonShape {
+                document: scenario_document,
                 path,
-                line,
-                column,
+                line: source.line(),
+                column: source.column(),
                 source,
+            },
+            CurrentSourceErrorPayload::UnsupportedFormatVersion { expected, actual } => {
+                Self::UnsupportedFormatVersion {
+                    document: scenario_document,
+                    expected,
+                    actual: actual.into_string(),
+                }
+            }
+            CurrentSourceErrorPayload::EmptyArtifactReference => Self::EmptyArtifactRef { path },
+            CurrentSourceErrorPayload::ConflictingManifestArtifactReference { artifact_ref } => {
+                Self::ConflictingManifestArtifactRef {
+                    artifact_ref: artifact_ref.into_string(),
+                }
+            }
+            CurrentSourceErrorPayload::DuplicateProvidedArtifactReference { artifact_ref } => {
+                Self::DuplicateProvidedArtifactRef {
+                    path,
+                    artifact_ref: artifact_ref.into_string(),
+                }
+            }
+            CurrentSourceErrorPayload::MissingArtifact { role, artifact_ref } => {
+                Self::MissingArtifact {
+                    role: artifact_role(role),
+                    artifact_ref: artifact_ref.into_string(),
+                }
+            }
+            CurrentSourceErrorPayload::InvalidMediaType { expected, actual } => {
+                Self::InvalidMediaType {
+                    path: static_descriptor_path(&path),
+                    expected,
+                    actual: actual.into_string(),
+                }
+            }
+            CurrentSourceErrorPayload::InvalidDigest { actual } => Self::InvalidDigest {
+                path: static_descriptor_path(&path),
+                actual: actual.into_string(),
+            },
+            CurrentSourceErrorPayload::ArtifactSizeOutOfRange { actual, max } => {
+                Self::ArtifactSizeOutOfRange {
+                    path: static_descriptor_path(&path),
+                    actual,
+                    max,
+                }
+            }
+            CurrentSourceErrorPayload::ArtifactSizeMismatch {
+                role,
+                artifact_ref,
+                expected,
+                actual,
+            } => Self::ArtifactSizeMismatch {
+                role: artifact_role(role),
+                artifact_ref: artifact_ref.into_string(),
+                expected,
+                actual,
+            },
+            CurrentSourceErrorPayload::ArtifactDigestMismatch {
+                role,
+                artifact_ref,
+                expected,
+                actual,
+            } => Self::ArtifactDigestMismatch {
+                role: artifact_role(role),
+                artifact_ref: artifact_ref.into_string(),
+                expected: expected.into_string(),
+                actual: actual.into_string(),
             },
         }
     }
 }
 
-fn normalize_path(path: String) -> String {
-    if path.is_empty() || path == "." {
-        "$".to_owned()
-    } else {
-        path
+fn artifact_role(role: CurrentArtifactRole) -> ArtifactRole {
+    match role {
+        CurrentArtifactRole::Traffic => ArtifactRole::Traffic,
+        CurrentArtifactRole::Spatial => ArtifactRole::Spatial,
+    }
+}
+
+/// descriptor payload 的 path 在 source 侧就是固定静态串，映射回既有
+/// `&'static str` path 字段。
+fn static_descriptor_path(path: &str) -> &'static str {
+    match path {
+        "traffic.mediaType" => "traffic.mediaType",
+        "spatial.mediaType" => "spatial.mediaType",
+        "traffic.digest" => "traffic.digest",
+        "spatial.digest" => "spatial.digest",
+        "traffic.size" => "traffic.size",
+        "spatial.size" => "spatial.size",
+        other => unreachable!("descriptor payload 路径必须是固定静态串：{other}"),
     }
 }
