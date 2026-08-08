@@ -208,6 +208,12 @@ pub(super) fn encoded_declaration_len(declaration: &TypedAstDeclaration) -> Opti
             &declaration.participant_classes,
             declaration.regulation.as_ref(),
         )),
+        TypedAstDeclaration::GeometryReferenceLine(_)
+        | TypedAstDeclaration::GeometryCrossSectionSpan(_)
+        | TypedAstDeclaration::GeometryConnection(_)
+        | TypedAstDeclaration::GeometryInternalEdge(_) => {
+            unreachable!("synthetic source record encoding never receives geometry intents")
+        }
     }
 }
 
@@ -968,6 +974,12 @@ pub(super) fn put_declaration(output: &mut Vec<u8>, declaration: &TypedAstDeclar
                 put_optional_bytes(output, Some(&regulation.version));
                 put_optional_bytes(output, regulation.source.as_deref());
             }
+        }
+        TypedAstDeclaration::GeometryReferenceLine(_)
+        | TypedAstDeclaration::GeometryCrossSectionSpan(_)
+        | TypedAstDeclaration::GeometryConnection(_)
+        | TypedAstDeclaration::GeometryInternalEdge(_) => {
+            unreachable!("synthetic source record encoding never receives geometry intents")
         }
     }
 }

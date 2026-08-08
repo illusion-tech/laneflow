@@ -11,6 +11,7 @@
 
 mod admission;
 mod descriptor;
+mod geometry;
 mod resources;
 mod synthetic;
 mod synthetic_record;
@@ -23,9 +24,14 @@ pub use descriptor::{
     SOURCE_DOCUMENT_SET_DIGEST_VERSION, SourceDocumentDescriptor, SourceDocumentOrigin,
     SourceLanguage, SourceModuleDescriptor,
 };
+pub use geometry::{
+    GEOMETRY_FRONTEND_VERSION, GeometryAccuracyProfile, GeometryDirectionProfile,
+    GeometryDocumentInput, GeometryModule, GeometryModuleBuilder,
+};
 pub use synthetic::{SYNTHETIC_FRONTEND_VERSION, SyntheticModule, SyntheticModuleBuilder};
 
 pub(crate) use admission::{ResolvedSourceLocation, SourceDocumentOrdinal};
+pub(crate) use geometry::{FrozenCanonicalPoint, LateralIntentKind};
 
 #[cfg(test)]
 use admission::{

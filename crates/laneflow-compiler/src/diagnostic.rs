@@ -60,6 +60,27 @@ impl SourceSpan {
         }
     }
 
+    /// 为包内官方文本前端建立含端点范围；调用者负责传入已验证的一基位置。
+    pub(crate) const fn range(
+        source_document_key: Arc<str>,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+    ) -> Self {
+        Self {
+            source_document_key,
+            start: SourcePosition {
+                line: start_line,
+                column: start_column,
+            },
+            end: SourcePosition {
+                line: end_line,
+                column: end_column,
+            },
+        }
+    }
+
     /// 把合成 DSL 的 Rust 调用点转换为与机器路径无关的来源单点。
     pub(crate) fn at_caller(
         source_document_key: Arc<str>,
@@ -94,6 +115,8 @@ impl SourceSpan {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum DiagnosticCode {
+    /// Geometry v1 来源文档的编码、JSON 形状或局部字段值非法。
+    InvalidGeometryDocument,
     /// 来源模块头字段违反文本或资源约束。
     InvalidSourceHeaderField,
     /// 导入命名空间不是合法外部 token。
@@ -110,6 +133,10 @@ pub enum DiagnosticCode {
     UnknownImport,
     /// 一个或多个显式导入边形成循环。
     ImportCycle,
+    /// 同一编译单元内的 Geometry 模块使用了不同的总位置误差配置档。
+    MixedGeometryAccuracyProfile,
+    /// 同一编译单元内的 Geometry 模块使用了不同的方向跳变配置档。
+    MixedGeometryDirectionProfile,
     /// 声明稳定键不是合法外部 token。
     InvalidDeclarationKey,
     /// 同一模块、同一实体种类重复声明稳定键。
@@ -168,6 +195,10 @@ pub enum DiagnosticCode {
     InternalEdgeJunctionConflict,
     /// 同一边同时被声明为路口内部边和任一路口的边界边。
     InternalBoundaryRoleConflict,
+    /// 同一车道图边下游转换同时来自普通 successor 与路口连接路径。
+    LaneEdgeSuccessorPathConflict,
+    /// 同一有向转换被不同路口的连接路径派生。
+    DerivedTransitionJunctionConflict,
     /// 机动门引用的转换下标不在拥有路径的合法范围内。
     ManeuverGateTransitionOutOfRange,
     /// 同一机动路径转换重复声明机动门。
@@ -277,6 +308,7 @@ impl DiagnosticCode {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::InvalidGeometryDocument => "LF-COMP-GEOMETRY-DOCUMENT",
             Self::InvalidSourceHeaderField => "LF-COMP-SOURCE-HEADER-FIELD",
             Self::InvalidImportNamespace => "LF-COMP-IMPORT-NAMESPACE",
             Self::DuplicateImport => "LF-COMP-DUPLICATE-IMPORT",
@@ -285,6 +317,8 @@ impl DiagnosticCode {
             Self::SourceDocumentOwnershipMismatch => "LF-COMP-SOURCE-DOCUMENT-OWNERSHIP-MISMATCH",
             Self::UnknownImport => "LF-COMP-UNKNOWN-IMPORT",
             Self::ImportCycle => "LF-COMP-IMPORT-CYCLE",
+            Self::MixedGeometryAccuracyProfile => "LF-COMP-MIXED-GEOMETRY-ACCURACY-PROFILE",
+            Self::MixedGeometryDirectionProfile => "LF-COMP-MIXED-GEOMETRY-DIRECTION-PROFILE",
             Self::InvalidDeclarationKey => "LF-COMP-DECLARATION-KEY",
             Self::DuplicateDeclaration => "LF-COMP-DUPLICATE-DECLARATION",
             Self::InvalidReferenceNamespace => "LF-COMP-REFERENCE-NAMESPACE",
@@ -316,6 +350,10 @@ impl DiagnosticCode {
             Self::DuplicateManeuverPathSequence => "LF-COMP-DUPLICATE-MANEUVER-PATH-SEQUENCE",
             Self::InternalEdgeJunctionConflict => "LF-COMP-INTERNAL-EDGE-JUNCTION-CONFLICT",
             Self::InternalBoundaryRoleConflict => "LF-COMP-INTERNAL-BOUNDARY-ROLE-CONFLICT",
+            Self::LaneEdgeSuccessorPathConflict => "LF-COMP-LANE-EDGE-SUCCESSOR-PATH-CONFLICT",
+            Self::DerivedTransitionJunctionConflict => {
+                "LF-COMP-DERIVED-TRANSITION-JUNCTION-CONFLICT"
+            }
             Self::ManeuverGateTransitionOutOfRange => {
                 "LF-COMP-MANEUVER-GATE-TRANSITION-OUT-OF-RANGE"
             }
@@ -381,6 +419,24 @@ impl DiagnosticCode {
             Self::CompileLimitExceeded => "LF-COMP-RESOURCE-LIMIT",
         }
     }
+}
+
+/// Geometry v1 文档在 parse/build 阶段的结构化失败类别。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum GeometryDocumentViolation {
+    /// UTF-8 编码、BOM 或来源位置表示非法。
+    Encoding,
+    /// JSON 词法或语法非法。
+    Syntax,
+    /// JSON 嵌套超过 Geometry v1 的固定上限。
+    NestingDepth,
+    /// closed-shape 的字段缺失、重复、未知或变体泄漏。
+    ClosedShape,
+    /// 字段常量、枚举、token、摘要或基数非法。
+    FieldValue,
+    /// 文档内声明的稳定键与调用方预期键不一致。
+    DocumentKeyMismatch,
 }
 
 /// 诊断严重程度。数值顺序同时是规范排序顺序。
@@ -568,6 +624,20 @@ pub enum SpatialGeometryViolation {
         distance_bits: u32,
         tolerance_bits: u32,
     },
+    /// 路口 frame 闭包的任一 entry/exit 引道边缺少几何绑定。
+    ApproachGeometryMissing,
+    /// 路口 frame 闭包的全部 entry/exit 引道边未解析到同一个 canonical frame。
+    ApproachFrameConflict,
+    /// geometry 派生边参与的转换上，前驱末弦与后继首弦的方向跳变超过所属 geometry
+    /// 模块 direction profile 的最终全角档。
+    DirectionJumpExceeded {
+        /// 两弦三维点积的 IEEE 754 位模式；非正点积（含零弦）直接失败。
+        dot_bits: u64,
+        /// `leftLength² * rightLength² * cos²` 从左到右求值结果的 IEEE 754 位模式。
+        bound_bits: u64,
+        /// 所属 direction profile 最终全角档冻结 `cos²` 的 IEEE 754 位模式。
+        threshold_bits: u64,
+    },
 }
 
 impl WaitingZoneGateRole {
@@ -639,6 +709,13 @@ pub enum AccessRegulationField {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum DiagnosticPayload {
+    /// Geometry v1 来源文档的 parse/build 失败。
+    InvalidGeometryDocument {
+        violation: GeometryDocumentViolation,
+        field: Option<Box<str>>,
+        actual: Option<Box<str>>,
+        expected: Option<Box<str>>,
+    },
     /// 模块头字段及其文本失败原因。
     InvalidSourceHeaderField {
         field: SourceHeaderField,
@@ -690,6 +767,28 @@ pub enum DiagnosticPayload {
     ImportCycle {
         /// 按规范选择的循环模块序列；首项不会在末尾重复。
         namespaces: Box<[Box<str>]>,
+    },
+    /// 规范与冲突 Geometry 模块的命名空间及双方总位置误差配置档稳定名称。
+    MixedGeometryAccuracyProfile {
+        /// 作为单元规范的首个 Geometry 模块命名空间。
+        canonical_namespace: Box<str>,
+        /// 位置误差配置档与规范不同的冲突模块命名空间。
+        conflicting_namespace: Box<str>,
+        /// 规范模块的总位置误差配置档稳定名称。
+        canonical_profile: Box<str>,
+        /// 冲突模块的总位置误差配置档稳定名称。
+        conflicting_profile: Box<str>,
+    },
+    /// 规范与冲突 Geometry 模块的命名空间及双方方向跳变配置档稳定名称。
+    MixedGeometryDirectionProfile {
+        /// 作为单元规范的首个 Geometry 模块命名空间。
+        canonical_namespace: Box<str>,
+        /// 方向跳变配置档与规范不同的冲突模块命名空间。
+        conflicting_namespace: Box<str>,
+        /// 规范模块的方向跳变配置档稳定名称。
+        canonical_profile: Box<str>,
+        /// 冲突模块的方向跳变配置档稳定名称。
+        conflicting_profile: Box<str>,
     },
     /// 非法声明稳定键所属实体种类及失败原因。
     InvalidDeclarationKey {
@@ -858,6 +957,20 @@ pub enum DiagnosticPayload {
         edge_key: Box<str>,
         internal_path_key: Box<str>,
         boundary_path_key: Box<str>,
+    },
+    /// 同一下游转换及同时派生它的显式 successor 所属边与路口连接路径。
+    LaneEdgeSuccessorPathConflict {
+        edge_key: Box<str>,
+        successor_key: Box<str>,
+        junction_key: Box<str>,
+        maneuver_path_key: Box<str>,
+    },
+    /// 同一有向转换及分别派生它的两个路口。
+    DerivedTransitionJunctionConflict {
+        predecessor_key: Box<str>,
+        successor_key: Box<str>,
+        first_junction_key: Box<str>,
+        duplicate_junction_key: Box<str>,
     },
     /// 机动门、路径、越界转换下标及该路径可用转换数。
     ManeuverGateTransitionOutOfRange {
@@ -1149,6 +1262,27 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
+    pub(crate) fn invalid_geometry_document(
+        violation: GeometryDocumentViolation,
+        field: Option<&str>,
+        actual: Option<&str>,
+        expected: Option<&str>,
+        primary_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::InvalidGeometryDocument,
+            DiagnosticPayload::InvalidGeometryDocument {
+                violation,
+                field: field.map(Into::into),
+                actual: actual.map(Into::into),
+                expected: expected.map(Into::into),
+            },
+            Some(primary_span),
+            Box::default(),
+            None,
+        )
+    }
+
     pub(crate) fn invalid_source_header_field(
         field: SourceHeaderField,
         violation: SourceTextViolation,
@@ -1313,6 +1447,50 @@ impl Diagnostic {
             primary_span,
             spans.into_boxed_slice(),
             stable_key,
+        )
+    }
+
+    pub(crate) fn mixed_geometry_accuracy_profile(
+        canonical_namespace: &str,
+        conflicting_namespace: &str,
+        canonical_profile: &str,
+        conflicting_profile: &str,
+        primary_span: SourceSpan,
+        related_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::MixedGeometryAccuracyProfile,
+            DiagnosticPayload::MixedGeometryAccuracyProfile {
+                canonical_namespace: canonical_namespace.into(),
+                conflicting_namespace: conflicting_namespace.into(),
+                canonical_profile: canonical_profile.into(),
+                conflicting_profile: conflicting_profile.into(),
+            },
+            Some(primary_span),
+            Box::new([related_span]),
+            Some(conflicting_namespace.into()),
+        )
+    }
+
+    pub(crate) fn mixed_geometry_direction_profile(
+        canonical_namespace: &str,
+        conflicting_namespace: &str,
+        canonical_profile: &str,
+        conflicting_profile: &str,
+        primary_span: SourceSpan,
+        related_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::MixedGeometryDirectionProfile,
+            DiagnosticPayload::MixedGeometryDirectionProfile {
+                canonical_namespace: canonical_namespace.into(),
+                conflicting_namespace: conflicting_namespace.into(),
+                canonical_profile: canonical_profile.into(),
+                conflicting_profile: conflicting_profile.into(),
+            },
+            Some(primary_span),
+            Box::new([related_span]),
+            Some(conflicting_namespace.into()),
         )
     }
 
@@ -1902,6 +2080,52 @@ impl Diagnostic {
             Some(primary_span),
             Box::new([internal_span]),
             Some(edge_key.into()),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn lane_edge_successor_path_conflict(
+        edge_key: &str,
+        successor_key: &str,
+        junction_key: &str,
+        maneuver_path_key: &str,
+        primary_span: SourceSpan,
+        successor_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::LaneEdgeSuccessorPathConflict,
+            DiagnosticPayload::LaneEdgeSuccessorPathConflict {
+                edge_key: edge_key.into(),
+                successor_key: successor_key.into(),
+                junction_key: junction_key.into(),
+                maneuver_path_key: maneuver_path_key.into(),
+            },
+            Some(primary_span),
+            Box::new([successor_span]),
+            Some(edge_key.into()),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn derived_transition_junction_conflict(
+        predecessor_key: &str,
+        successor_key: &str,
+        first_junction_key: &str,
+        duplicate_junction_key: &str,
+        primary_span: SourceSpan,
+        first_span: SourceSpan,
+    ) -> Self {
+        Self::error_with_context(
+            DiagnosticCode::DerivedTransitionJunctionConflict,
+            DiagnosticPayload::DerivedTransitionJunctionConflict {
+                predecessor_key: predecessor_key.into(),
+                successor_key: successor_key.into(),
+                first_junction_key: first_junction_key.into(),
+                duplicate_junction_key: duplicate_junction_key.into(),
+            },
+            Some(primary_span),
+            Box::new([first_span]),
+            Some(predecessor_key.into()),
         )
     }
 
@@ -2876,6 +3100,24 @@ impl fmt::Display for Diagnostic {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}: ", self.code.as_str())?;
         match &self.payload {
+            DiagnosticPayload::InvalidGeometryDocument {
+                violation,
+                field,
+                actual,
+                expected,
+            } => {
+                write!(formatter, "Geometry v1 来源文档非法：{violation:?}")?;
+                if let Some(field) = field {
+                    write!(formatter, "，字段 {field}")?;
+                }
+                if let Some(actual) = actual {
+                    write!(formatter, "，实际 {actual}")?;
+                }
+                if let Some(expected) = expected {
+                    write!(formatter, "，预期 {expected}")?;
+                }
+                Ok(())
+            }
             DiagnosticPayload::InvalidSourceHeaderField { field, violation } => {
                 write!(
                     formatter,
@@ -2943,6 +3185,24 @@ impl fmt::Display for Diagnostic {
                     .map(AsRef::as_ref)
                     .collect::<Vec<&str>>()
                     .join(" -> ")
+            ),
+            DiagnosticPayload::MixedGeometryAccuracyProfile {
+                canonical_namespace,
+                conflicting_namespace,
+                canonical_profile,
+                conflicting_profile,
+            } => write!(
+                formatter,
+                "编译单元内 Geometry 模块 {conflicting_namespace} 混用总位置误差配置档：规范 {canonical_profile}（{canonical_namespace}），实际 {conflicting_profile}"
+            ),
+            DiagnosticPayload::MixedGeometryDirectionProfile {
+                canonical_namespace,
+                conflicting_namespace,
+                canonical_profile,
+                conflicting_profile,
+            } => write!(
+                formatter,
+                "编译单元内 Geometry 模块 {conflicting_namespace} 混用方向跳变配置档：规范 {canonical_profile}（{canonical_namespace}），实际 {conflicting_profile}"
             ),
             DiagnosticPayload::InvalidDeclarationKey {
                 entity_kind,
@@ -3174,6 +3434,24 @@ impl fmt::Display for Diagnostic {
             } => write!(
                 formatter,
                 "车道图边 {edge_key} 同时被路径 {internal_path_key} 声明为内部边、被路径 {boundary_path_key} 声明为边界边"
+            ),
+            DiagnosticPayload::LaneEdgeSuccessorPathConflict {
+                edge_key,
+                successor_key,
+                junction_key,
+                maneuver_path_key,
+            } => write!(
+                formatter,
+                "车道图边 {edge_key} 到 {successor_key} 的转换同时由显式 successor 与路口 {junction_key} 的连接路径 {maneuver_path_key} 派生"
+            ),
+            DiagnosticPayload::DerivedTransitionJunctionConflict {
+                predecessor_key,
+                successor_key,
+                first_junction_key,
+                duplicate_junction_key,
+            } => write!(
+                formatter,
+                "转换 {predecessor_key} -> {successor_key} 同时被路口 {first_junction_key} 与路口 {duplicate_junction_key} 的连接路径派生"
             ),
             DiagnosticPayload::ManeuverGateTransitionOutOfRange {
                 maneuver_gate_key,
@@ -3802,6 +4080,22 @@ impl fmt::Display for SpatialGeometryViolationDisplay {
                 "连接端点距离 {} 米超过容差 {} 米",
                 f32::from_bits(distance_bits),
                 f32::from_bits(tolerance_bits)
+            ),
+            SpatialGeometryViolation::ApproachGeometryMissing => formatter.write_str(
+                "路口连接的 entry/exit 引道边缺少几何，无法导出内部边的 canonical frame",
+            ),
+            SpatialGeometryViolation::ApproachFrameConflict => formatter
+                .write_str("路口全部连接的 entry/exit 引道边必须解析到同一个 canonical frame"),
+            SpatialGeometryViolation::DirectionJumpExceeded {
+                dot_bits,
+                bound_bits,
+                threshold_bits,
+            } => write!(
+                formatter,
+                "前驱末弦与后继首弦的方向跳变超过最终方向档：点积 {} 必须为正且其平方不小于弦长平方乘积与 cos² 阈值 {} 的乘积 {}",
+                f64::from_bits(dot_bits),
+                f64::from_bits(threshold_bits),
+                f64::from_bits(bound_bits)
             ),
         }
     }

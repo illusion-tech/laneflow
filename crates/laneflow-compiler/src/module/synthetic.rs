@@ -3,9 +3,8 @@ use std::sync::Arc;
 
 use laneflow_static_contract::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS, EntityKind,
-    FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind, MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS,
-    ManeuverGateKind, ManeuverPathKind, MovementKind, ParticipantClassKind, RoadSectionKind,
-    SignalGroupKind, StopLineKind,
+    FieldTag, JunctionKind, LaneEdgeKind, LaneGroupKind, ManeuverGateKind, ManeuverPathKind,
+    MovementKind, ParticipantClassKind, RoadSectionKind, SignalGroupKind, StopLineKind,
 };
 
 use crate::declaration::{
@@ -20,11 +19,12 @@ use crate::declaration::{
     OwnedEntityReference, OwnedSignalControl, ParkingAreaDeclaration, ParkingAreaInput,
     ParkingLaneAnchorDeclaration, ParkingSpaceDeclaration, ParkingSpaceInput,
     ParticipantClassDeclaration, ParticipantClassInput, RoadCorridorDeclaration, RoadCorridorInput,
-    RoadSectionDeclaration, RoadSectionInput, ScalarViolation, SignalControlInput,
-    SignalControllerDeclaration, SignalControllerInput, SignalGroupDeclaration, SignalGroupInput,
-    SignalGroupStateDeclaration, SignalPhaseDeclaration, SpeedLimit, StaticRouteDeclaration,
-    StaticRouteInput, StopLineDeclaration, StopLineInput, TypedAstDeclaration,
-    VehicleProfileDeclaration, VehicleProfileInput, WaitingZoneDeclaration, WaitingZoneInput,
+    RoadSectionDeclaration, RoadSectionInput, SignalControlInput, SignalControllerDeclaration,
+    SignalControllerInput, SignalGroupDeclaration, SignalGroupInput, SignalGroupStateDeclaration,
+    SignalPhaseDeclaration, SpeedLimit, StaticRouteDeclaration, StaticRouteInput,
+    StopLineDeclaration, StopLineInput, TypedAstDeclaration, VehicleProfileDeclaration,
+    VehicleProfileInput, WaitingZoneDeclaration, WaitingZoneInput, facility_kind_category,
+    validate_vehicle_profile_scalars,
 };
 use crate::diagnostic::DiagnosticCollector;
 use crate::source::external_token_violation;
@@ -1634,7 +1634,7 @@ impl SyntheticModuleBuilder {
             &span,
         )?;
         self.validate_reference(EntityKind::ParticipantClass, input.participant_class, &span)?;
-        validate_vehicle_profile_scalars(input, &span)?;
+        validate_vehicle_profile_scalars(input.vehicle_profile_key, input.iidm, &span)?;
 
         let participant_class =
             self.own_reference(EntityKind::ParticipantClass, input.participant_class, &span)?;
@@ -3043,27 +3043,6 @@ fn push_limit_if_exceeded(
     }
 }
 
-fn facility_kind_category(kind_id: &str) -> Option<FacilityKindCategory> {
-    let seed_category = match kind_id {
-        "motorLane" | "nonMotorLane" => Some(FacilityKindCategory::LaneBearing),
-        "sidewalk" | "median" | "plantingStrip" | "facilityStrip" | "shoulder" => {
-            Some(FacilityKindCategory::NonTraversable)
-        }
-        _ => None,
-    };
-    if seed_category.is_some() {
-        return seed_category;
-    }
-    // `x-lane-` 是 `x-` 的特化前缀，必须先失败关闭；空 lane 后缀不能回退成普通 band。
-    if let Some(suffix) = kind_id.strip_prefix("x-lane-") {
-        return (!suffix.is_empty()).then_some(FacilityKindCategory::LaneBearing);
-    }
-    kind_id
-        .strip_prefix("x-")
-        .filter(|suffix| !suffix.is_empty())
-        .map(|_| FacilityKindCategory::NonTraversable)
-}
-
 fn normalize_spatial_zero(value: f32) -> f32 {
     if value == 0.0 { 0.0 } else { value }
 }
@@ -3079,100 +3058,4 @@ fn reference_spelling_parts_bytes(module_namespace: &str, declaration_key: &str)
         .unwrap_or(u64::MAX)
         .saturating_add(1)
         .saturating_add(u64::try_from(declaration_key.len()).unwrap_or(u64::MAX))
-}
-
-fn validate_vehicle_profile_scalars(
-    input: VehicleProfileInput<'_>,
-    span: &SourceSpan,
-) -> Result<(), DiagnosticBundle> {
-    let iidm = input.iidm;
-    let remaining_positive_fields = [
-        ("timeHeadway", iidm.time_headway_seconds),
-        (
-            "maxAcceleration",
-            iidm.max_acceleration_meters_per_second_squared,
-        ),
-        (
-            "comfortableDeceleration",
-            iidm.comfortable_deceleration_meters_per_second_squared,
-        ),
-        (
-            "emergencyDeceleration",
-            iidm.emergency_deceleration_meters_per_second_squared,
-        ),
-    ];
-    if !iidm.length_meters.is_finite() || iidm.length_meters <= MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS
-    {
-        let violation = if iidm.length_meters.is_finite() {
-            ScalarViolation::NotGreaterThan {
-                exclusive_minimum_bits: MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS.to_bits(),
-            }
-        } else {
-            ScalarViolation::NotFinite
-        };
-        return Err(DiagnosticBundle::single(
-            Diagnostic::invalid_vehicle_profile_value(
-                input.vehicle_profile_key,
-                "length",
-                iidm.length_meters,
-                violation,
-                span.clone(),
-            ),
-        ));
-    }
-    if let Err(violation) = SpeedLimit::try_new(iidm.desired_speed_meters_per_second) {
-        return Err(DiagnosticBundle::single(
-            Diagnostic::invalid_vehicle_profile_value(
-                input.vehicle_profile_key,
-                "desiredSpeed",
-                iidm.desired_speed_meters_per_second,
-                violation,
-                span.clone(),
-            ),
-        ));
-    }
-    if !iidm.min_gap_meters.is_finite() || iidm.min_gap_meters < 0.0 {
-        let violation = if iidm.min_gap_meters.is_finite() {
-            ScalarViolation::NotLessThan {
-                inclusive_minimum_bits: 0.0_f64.to_bits(),
-            }
-        } else {
-            ScalarViolation::NotFinite
-        };
-        return Err(DiagnosticBundle::single(
-            Diagnostic::invalid_vehicle_profile_value(
-                input.vehicle_profile_key,
-                "minGap",
-                iidm.min_gap_meters,
-                violation,
-                span.clone(),
-            ),
-        ));
-    }
-    for (field, value) in remaining_positive_fields {
-        if let Err(violation) = SpeedLimit::try_new(value) {
-            return Err(DiagnosticBundle::single(
-                Diagnostic::invalid_vehicle_profile_value(
-                    input.vehicle_profile_key,
-                    field,
-                    value,
-                    violation,
-                    span.clone(),
-                ),
-            ));
-        }
-    }
-    if iidm.emergency_deceleration_meters_per_second_squared
-        < iidm.comfortable_deceleration_meters_per_second_squared
-    {
-        return Err(DiagnosticBundle::single(
-            Diagnostic::invalid_vehicle_profile_deceleration_order(
-                input.vehicle_profile_key,
-                iidm.comfortable_deceleration_meters_per_second_squared,
-                iidm.emergency_deceleration_meters_per_second_squared,
-                span.clone(),
-            ),
-        ));
-    }
-    Ok(())
 }

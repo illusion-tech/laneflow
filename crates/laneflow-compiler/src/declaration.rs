@@ -8,13 +8,13 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use laneflow_static_contract::{
-    AccessEffect, EntityKind, EntityKindMarker, FacilityBandKind, JunctionKind, LaneEdgeKind,
-    LaneGroupKind, ManeuverGateKind, ManeuverPathKind, MovementKind, ParkingAreaKind,
-    ParticipantClassKind, RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind,
-    VehicleProfileKind,
+    AccessEffect, CanonicalFrameKind, EntityKind, EntityKindMarker, FacilityBandKind, JunctionKind,
+    LaneEdgeKind, LaneGroupKind, MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS, ManeuverGateKind,
+    ManeuverPathKind, MovementKind, ParkingAreaKind, ParticipantClassKind, RoadCorridorKind,
+    RoadSectionKind, SignalAspect, SignalGroupKind, StopLineKind, VehicleProfileKind,
 };
 
-use crate::SourceSpan;
+use crate::{Diagnostic, DiagnosticBundle, SourceSpan};
 
 /// 指向同一编译单元内某类来源声明的有类型未解析引用。
 ///
@@ -859,6 +859,97 @@ pub(crate) struct StaticRouteDeclaration {
     pub(crate) edge_sequence: Box<[OwnedEntityReference<LaneEdgeKind>]>,
 }
 
+/// Geometry 前端的私有参考线意图；§5.1 中 `RoadRecord.roadKey/frame/referenceLine` 的
+/// 唯一降阶结果。
+///
+/// `roadKey` 只是前端分组键，服务重复检查和诊断稳定性：它不是共同 Typed AST 的
+/// stable declaration，不分配 `StableId128`，也不进入 LIR 或语义差异键。reference
+/// curve 的最终规范点已冻结在模块 geometry payload 中，这里只保留绑定意图。
+pub(crate) struct GeometryReferenceLineIntent {
+    /// 不可跨模块引用的前端分组键。
+    pub(crate) road_key: Arc<str>,
+    /// 绑定该 road 全部派生 edge geometry 的规范坐标框架。
+    pub(crate) frame: OwnedEntityReference<CanonicalFrameKind>,
+    /// 整条 road 记录的来源位置。
+    pub(crate) span: SourceSpan,
+}
+
+/// Geometry 前端的私有 offset 意图类别。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GeometryOffsetIntentKind {
+    /// `direction = "forward"` 的编制车道中心线。
+    ForwardLane,
+    /// `direction = "backward"` 的编制车道中心线；冻结时已反转点序。
+    BackwardLane,
+    /// 不可遍历设施带中心线。
+    FacilityBand,
+}
+
+/// Geometry 前端的私有 lane/facility offset 意图；§5.1 中 `LaneSpanRecord` 的
+/// width/direction 与 `FacilityBandRecord` 的 width 的降阶结果。
+pub(crate) struct GeometryOffsetIntent {
+    /// 绑定的 lane 或 facility 稳定键；规范点曲线按同一键在 payload 中查找。
+    pub(crate) key: Arc<str>,
+    /// offset 曲线类别与拓扑方向。
+    #[allow(dead_code, reason = "consumed by the following topology MIR slice")]
+    pub(crate) kind: GeometryOffsetIntentKind,
+    /// 显式声明的宽度，单位为米。
+    #[allow(dead_code, reason = "consumed by the following topology MIR slice")]
+    pub(crate) width_meters: f64,
+    /// 该 lane/facility 记录的来源位置。
+    pub(crate) span: SourceSpan,
+}
+
+/// Geometry 前端的私有 cross-section span 意图；§5.1 中 `CrossSectionSpanRecord`
+/// 恰好产生一个 `RoadCorridor` 的降阶结果。
+pub(crate) struct GeometryCrossSectionSpanIntent {
+    /// 不可跨模块引用的前端分组键。
+    pub(crate) span_key: Arc<str>,
+    /// 绑定该 span 全部派生 edge/facility geometry 的规范坐标框架；与所属 road 的
+    /// reference line intent 携带同一引用（§4.2 frame 绑定全部派生 edge geometry）。
+    pub(crate) frame: OwnedEntityReference<CanonicalFrameKind>,
+    /// 该 span 恰好产生的道路走廊。
+    pub(crate) corridor: OwnedEntityReference<RoadCorridorKind>,
+    /// 按显式 `elements` 从左到右排列的 lane/facility offset 意图。
+    pub(crate) offsets: Box<[GeometryOffsetIntent]>,
+    /// span 记录的来源位置。
+    pub(crate) span: SourceSpan,
+}
+
+/// Geometry 前端的私有连接意图；§5.1 中 `ConnectionRecord` 的相邻 edge pair 生成
+/// successor 的降阶输入。
+///
+/// 权威路径序列唯一等于 `entry + internal + exit`；同一 Junction 内共享 transition
+/// 的规范去重与最终 successor 聚合由 topology MIR 完成，本记录只携带意图与来源位置。
+pub(crate) struct GeometryConnectionIntent {
+    /// 唯一拥有该连接的路口。
+    pub(crate) junction: OwnedEntityReference<JunctionKind>,
+    /// 该连接恰好产生的机动路径。
+    pub(crate) maneuver_path: OwnedEntityReference<ManeuverPathKind>,
+    /// 进入路口前的边界边。
+    pub(crate) entry_edge: OwnedEntityReference<LaneEdgeKind>,
+    /// 连接内有序的路口内部边引用。
+    pub(crate) internal_edges: Box<[OwnedEntityReference<LaneEdgeKind>]>,
+    /// 离开路口后的第一条边界边。
+    pub(crate) exit_edge: OwnedEntityReference<LaneEdgeKind>,
+    /// connection 记录的来源位置。
+    pub(crate) span: SourceSpan,
+}
+
+/// Geometry 前端的私有 internal edge 几何意图；§5.1 中 `InternalEdgeRecord` 的
+/// 显式 geometry 降阶结果。
+///
+/// 冻结规范点按 `(junction, key)` 在模块 geometry payload 中唯一查找；同一记录的
+/// speed 与派生 length 由共同 `LaneEdge` 声明承载，这里只保留绑定意图与来源位置。
+pub(crate) struct GeometryInternalEdgeIntent {
+    /// 绑定的 internal edge 稳定键；与同一模块的 `LaneEdge` 声明键相同。
+    pub(crate) key: Arc<str>,
+    /// 唯一拥有该 internal edge 的路口。
+    pub(crate) junction: OwnedEntityReference<JunctionKind>,
+    /// internal edge 记录的来源位置。
+    pub(crate) span: SourceSpan,
+}
+
 /// 官方合成前端当前支持的封闭声明集合。
 pub(crate) enum TypedAstDeclaration {
     LaneEdge(LaneEdgeDeclaration),
@@ -881,6 +972,14 @@ pub(crate) enum TypedAstDeclaration {
     VehicleProfile(VehicleProfileDeclaration),
     CanonicalFrame(CanonicalFrameDeclaration),
     AccessRule(AccessRuleDeclaration),
+    /// Geometry 前端私有参考线意图；不产生稳定声明，也不参与身份派生。
+    GeometryReferenceLine(GeometryReferenceLineIntent),
+    /// Geometry 前端私有 cross-section span 意图；恰好产生一个 `RoadCorridor`。
+    GeometryCrossSectionSpan(GeometryCrossSectionSpanIntent),
+    /// Geometry 前端私有连接意图；供 topology MIR 派生相邻 successor。
+    GeometryConnection(GeometryConnectionIntent),
+    /// Geometry 前端私有 internal edge 几何意图；绑定显式冻结曲线与所属路口。
+    GeometryInternalEdge(GeometryInternalEdgeIntent),
 }
 
 impl TypedAstDeclaration {
@@ -1113,6 +1212,51 @@ impl TypedAstDeclaration {
                 }
                 try_visit_references(participant_classes, &mut visit)?;
             }
+            Self::GeometryReferenceLine(GeometryReferenceLineIntent {
+                road_key: _,
+                frame,
+                span,
+            }) => {
+                visit(span)?;
+                try_visit_reference(frame, &mut visit)?;
+            }
+            Self::GeometryCrossSectionSpan(GeometryCrossSectionSpanIntent {
+                span_key: _,
+                frame,
+                corridor,
+                offsets,
+                span,
+            }) => {
+                visit(span)?;
+                try_visit_reference(frame, &mut visit)?;
+                try_visit_reference(corridor, &mut visit)?;
+                for offset in offsets {
+                    visit(&offset.span)?;
+                }
+            }
+            Self::GeometryConnection(GeometryConnectionIntent {
+                junction,
+                maneuver_path,
+                entry_edge,
+                internal_edges,
+                exit_edge,
+                span,
+            }) => {
+                visit(span)?;
+                try_visit_reference(junction, &mut visit)?;
+                try_visit_reference(maneuver_path, &mut visit)?;
+                try_visit_reference(entry_edge, &mut visit)?;
+                try_visit_references(internal_edges, &mut visit)?;
+                try_visit_reference(exit_edge, &mut visit)?;
+            }
+            Self::GeometryInternalEdge(GeometryInternalEdgeIntent {
+                key: _,
+                junction,
+                span,
+            }) => {
+                visit(span)?;
+                try_visit_reference(junction, &mut visit)?;
+            }
         }
         Ok(())
     }
@@ -1149,6 +1293,129 @@ fn try_visit_references<K: EntityKindMarker, E>(
 ) -> Result<(), E> {
     for reference in references {
         try_visit_reference(reference, visit)?;
+    }
+    Ok(())
+}
+
+/// 共同 `kindId` 词汇表的 lane-bearing/non-traversable 分类；两个官方前端都必须复用
+/// 同一分类，不能各自扩展相近词表。
+///
+/// `x-lane-` 是 `x-` 的特化前缀，必须先失败关闭；空 lane 后缀不能回退成普通 band。
+pub(crate) fn facility_kind_category(kind_id: &str) -> Option<FacilityKindCategory> {
+    let seed_category = match kind_id {
+        "motorLane" | "nonMotorLane" => Some(FacilityKindCategory::LaneBearing),
+        "sidewalk" | "median" | "plantingStrip" | "facilityStrip" | "shoulder" => {
+            Some(FacilityKindCategory::NonTraversable)
+        }
+        _ => None,
+    };
+    if seed_category.is_some() {
+        return seed_category;
+    }
+    if let Some(suffix) = kind_id.strip_prefix("x-lane-") {
+        return (!suffix.is_empty()).then_some(FacilityKindCategory::LaneBearing);
+    }
+    kind_id
+        .strip_prefix("x-")
+        .filter(|suffix| !suffix.is_empty())
+        .map(|_| FacilityKindCategory::NonTraversable)
+}
+
+/// 校验当前道路机动车 IIDM 静态参数的共同标量约束。
+///
+/// HIR 只复制已受检数值，因此每个官方前端在降阶前都必须通过本函数完成同一套校验。
+pub(crate) fn validate_vehicle_profile_scalars(
+    vehicle_profile_key: &str,
+    iidm: IidmVehicleProfileInput,
+    span: &SourceSpan,
+) -> Result<(), DiagnosticBundle> {
+    let remaining_positive_fields = [
+        ("timeHeadway", iidm.time_headway_seconds),
+        (
+            "maxAcceleration",
+            iidm.max_acceleration_meters_per_second_squared,
+        ),
+        (
+            "comfortableDeceleration",
+            iidm.comfortable_deceleration_meters_per_second_squared,
+        ),
+        (
+            "emergencyDeceleration",
+            iidm.emergency_deceleration_meters_per_second_squared,
+        ),
+    ];
+    if !iidm.length_meters.is_finite() || iidm.length_meters <= MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS
+    {
+        let violation = if iidm.length_meters.is_finite() {
+            ScalarViolation::NotGreaterThan {
+                exclusive_minimum_bits: MIN_VEHICLE_LENGTH_EXCLUSIVE_METERS.to_bits(),
+            }
+        } else {
+            ScalarViolation::NotFinite
+        };
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_vehicle_profile_value(
+                vehicle_profile_key,
+                "length",
+                iidm.length_meters,
+                violation,
+                span.clone(),
+            ),
+        ));
+    }
+    if let Err(violation) = SpeedLimit::try_new(iidm.desired_speed_meters_per_second) {
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_vehicle_profile_value(
+                vehicle_profile_key,
+                "desiredSpeed",
+                iidm.desired_speed_meters_per_second,
+                violation,
+                span.clone(),
+            ),
+        ));
+    }
+    if !iidm.min_gap_meters.is_finite() || iidm.min_gap_meters < 0.0 {
+        let violation = if iidm.min_gap_meters.is_finite() {
+            ScalarViolation::NotLessThan {
+                inclusive_minimum_bits: 0.0_f64.to_bits(),
+            }
+        } else {
+            ScalarViolation::NotFinite
+        };
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_vehicle_profile_value(
+                vehicle_profile_key,
+                "minGap",
+                iidm.min_gap_meters,
+                violation,
+                span.clone(),
+            ),
+        ));
+    }
+    for (field, value) in remaining_positive_fields {
+        if let Err(violation) = SpeedLimit::try_new(value) {
+            return Err(DiagnosticBundle::single(
+                Diagnostic::invalid_vehicle_profile_value(
+                    vehicle_profile_key,
+                    field,
+                    value,
+                    violation,
+                    span.clone(),
+                ),
+            ));
+        }
+    }
+    if iidm.emergency_deceleration_meters_per_second_squared
+        < iidm.comfortable_deceleration_meters_per_second_squared
+    {
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_vehicle_profile_deceleration_order(
+                vehicle_profile_key,
+                iidm.comfortable_deceleration_meters_per_second_squared,
+                iidm.emergency_deceleration_meters_per_second_squared,
+                span.clone(),
+            ),
+        ));
     }
     Ok(())
 }

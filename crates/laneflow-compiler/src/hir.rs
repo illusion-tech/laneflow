@@ -29,7 +29,7 @@ use laneflow_static_contract::{
 
 use crate::arena::{ArenaKey, ArenaKeyOverflow, TableRange, TypedArena};
 use crate::declaration::{
-    LaneEdgeDeclaration, OwnedAccessRegulation, OwnedAccessRuleTarget,
+    GeometryOffsetIntentKind, LaneEdgeDeclaration, OwnedAccessRegulation, OwnedAccessRuleTarget,
     OwnedCorridorElementReference, OwnedEntityReference, OwnedSignalControl, TypedAstDeclaration,
 };
 use crate::diagnostic::DiagnosticCollector;
@@ -37,11 +37,12 @@ use crate::identity::{
     IdentityFieldInput, IdentityRegistrationError, IdentityRegistry, RegisteredCanonicalIdentity,
     encode_canonical_identity,
 };
-use crate::module::ResolvedSourceLocation;
+use crate::module::{FrozenCanonicalPoint, LateralIntentKind, ResolvedSourceLocation};
 use crate::{
     AccessCapability, AccessPlane, AccessRegulationField, CompilationUnit, CompileLimitDimension,
-    Diagnostic, DiagnosticBundle, ParkingAnchorRole, ParkingGeometryField,
-    ParkingGeometryViolation, SourceSpan, SpatialGeometryViolation, WaitingZoneGateRole,
+    Diagnostic, DiagnosticBundle, GeometryAccuracyProfile, GeometryDirectionProfile,
+    ParkingAnchorRole, ParkingGeometryField, ParkingGeometryViolation, SourceSpan,
+    SpatialGeometryViolation, WaitingZoneGateRole,
 };
 
 /// 区分 HIR 模块表键的零尺寸阶段标记。
@@ -120,6 +121,22 @@ pub(crate) struct HirLaneEdgeReference {
     /// 当前 `HirUnit::lane_edges` 中的目标键。
     pub(crate) target: HirLaneEdgeKey,
     /// 原始引用位置。
+    pub(crate) source_span: SourceSpan,
+}
+
+/// Geometry 连接路径派生 transition 的一次出现位置。
+///
+/// 同一 `(junction identity, predecessor, successor)` 的全部出现按规范序保留在这张侧表，
+/// 供冲突诊断与后续 LIR 来源映射使用；合并进 `lane_edge_references` 的单条 successor
+/// 引用只携带按 `(span start, span end)` 最小的出现位置。
+pub(crate) struct HirDerivedTransitionOccurrence {
+    /// 声明该出现的 connection 所在模块；entry/exit 可跨模块导入，不能由起始边归属反推。
+    pub(crate) module: HirModuleKey,
+    /// 转换起始边。
+    pub(crate) predecessor: HirLaneEdgeKey,
+    /// 转换目标边。
+    pub(crate) successor: HirLaneEdgeKey,
+    /// 派生该 transition 的 connection 记录来源位置。
     pub(crate) source_span: SourceSpan,
 }
 
@@ -469,7 +486,12 @@ pub(crate) struct HirCanonicalFrame {
 }
 
 /// 规范坐标框架内的一条中心线；点与线段区间均按行驶方向排列。
+///
+/// `module` 是中心线的作者模块（`source_span` 所在文档的属主）：Synthetic 行是声明
+/// 该几何的 canonical frame 所属模块；geometry 派生行是 payload 所属模块，可与被绑定
+/// frame 的模块不同（road 引用导入 frame 时）。来源映射按此模块验证文档归属。
 pub(crate) struct HirLaneEdgeGeometry {
+    pub(crate) module: HirModuleKey,
     pub(crate) canonical_frame: HirCanonicalFrameKey,
     pub(crate) lane_edge: HirLaneEdgeKey,
     pub(crate) points: TableRange<HirCanonicalPoint3F32>,
@@ -478,11 +500,43 @@ pub(crate) struct HirLaneEdgeGeometry {
     pub(crate) source_span: SourceSpan,
 }
 
+/// Geometry 派生 `FacilityBand` 的不可遍历中心线（§5.4）。
+///
+/// 每行保存同一 `canonical_points` 平面表中的非空范围与所属 frame；不产生 Traffic
+/// length、`spatial_segments`、lane successor 或路线可遍历性。只覆盖 Geometry module
+/// 派生且拥有 offset intent 的 FacilityBand，因此相对全局 `facility_bands` 可以稀疏。
+pub(crate) struct HirFacilityBandGeometry {
+    pub(crate) facility_band: HirFacilityBandKey,
+    pub(crate) canonical_frame: HirCanonicalFrameKey,
+    pub(crate) points: TableRange<HirCanonicalPoint3F32>,
+    pub(crate) source_span: SourceSpan,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct HirCanonicalPoint3F32 {
     pub(crate) x: f32,
     pub(crate) y: f32,
     pub(crate) z: f32,
+}
+
+impl From<crate::declaration::CanonicalPoint3F32Input> for HirCanonicalPoint3F32 {
+    fn from(point: crate::declaration::CanonicalPoint3F32Input) -> Self {
+        Self {
+            x: point.x,
+            y: point.y,
+            z: point.z,
+        }
+    }
+}
+
+impl From<FrozenCanonicalPoint> for HirCanonicalPoint3F32 {
+    fn from(point: FrozenCanonicalPoint) -> Self {
+        Self {
+            x: point.x,
+            y: point.y,
+            z: point.z,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -615,6 +669,8 @@ pub(crate) struct HirUnit {
     pub(crate) imports: Box<[HirImport]>,
     pub(crate) lane_edges: Box<[HirLaneEdge]>,
     pub(crate) lane_edge_references: Box<[HirLaneEdgeReference]>,
+    /// Geometry 连接路径派生 transition 的全部出现位置；不含 Geometry 意图时恒为空表。
+    pub(crate) derived_transition_occurrences: Box<[HirDerivedTransitionOccurrence]>,
     pub(crate) road_corridors: Box<[HirRoadCorridor]>,
     pub(crate) corridor_elements: Box<[HirCorridorElement]>,
     pub(crate) road_sections: Box<[HirRoadSection]>,
@@ -649,6 +705,9 @@ pub(crate) struct HirUnit {
     pub(crate) vehicle_profiles: Box<[HirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[HirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[HirLaneEdgeGeometry]>,
+    /// Geometry 派生 FacilityBand 的不可遍历中心线；Synthetic 声明的 FacilityBand 不产生
+    /// 行，因此该表相对全局 `facility_bands` 可以稀疏（§5.4）。
+    pub(crate) facility_band_geometries: Box<[HirFacilityBandGeometry]>,
     pub(crate) canonical_points: Box<[HirCanonicalPoint3F32]>,
     pub(crate) spatial_segments: Box<[HirSpatialSegment]>,
     pub(crate) access_rules: Box<[HirAccessRule]>,
@@ -716,6 +775,20 @@ struct CanonicalAuthoringLaneSource {
     declaration_index: u32,
     lane_index: u32,
     hir_key: HirAuthoringLaneKey,
+}
+
+/// Geometry 连接意图解析出的派生 transition 暂存记录。
+///
+/// 跨 Junction 冲突按 `(namespace, key)` 形式的 junction identity 检测；普通 successor
+/// 与派生 transition 的互斥冲突在 successor 合并时按规范键相等进行检测。
+struct DerivedTransition {
+    predecessor: HirLaneEdgeKey,
+    successor: HirLaneEdgeKey,
+    module: HirModuleKey,
+    junction_namespace: Arc<str>,
+    junction_key: Arc<str>,
+    maneuver_path_key: Arc<str>,
+    occurrence_span: SourceSpan,
 }
 
 #[derive(Default)]
@@ -825,6 +898,7 @@ struct ParkingCounts {
 struct SpatialHir {
     canonical_frames: Box<[HirCanonicalFrame]>,
     lane_edge_geometries: Box<[HirLaneEdgeGeometry]>,
+    facility_band_geometries: Box<[HirFacilityBandGeometry]>,
     canonical_points: Box<[HirCanonicalPoint3F32]>,
     spatial_segments: Box<[HirSpatialSegment]>,
 }
@@ -833,8 +907,28 @@ struct SpatialHir {
 struct SpatialCounts {
     canonical_frames: u64,
     lane_edge_geometries: u64,
+    facility_band_geometries: u64,
     canonical_points: u64,
     spatial_segments: u64,
+}
+
+/// 一条 LaneEdge 的空间绑定：所属 frame、几何行下标与 geometry 派生来源的方向档。
+#[derive(Clone, Copy)]
+struct SpatialEdgeBinding {
+    frame: HirCanonicalFrameKey,
+    geometry_index: usize,
+    /// Geometry 冻结 payload 派生边携带所属模块的 direction profile；Synthetic 显式声明
+    /// 不参与最终方向检查，记为 `None`。
+    direction_profile: Option<GeometryDirectionProfile>,
+}
+
+/// 待成行的 Geometry 派生 facility band 几何；点只引用冻结 payload，成行时才复制进
+/// 平面表，使 `canonical_points` 保持先 lane edge、后 facility band 的拼接序（§5.4）。
+struct GeometryFacilityRow<'a> {
+    facility_band: HirFacilityBandKey,
+    canonical_frame: HirCanonicalFrameKey,
+    points: &'a [FrozenCanonicalPoint],
+    source_span: SourceSpan,
 }
 
 #[derive(Default)]
@@ -966,6 +1060,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let module_count = u64::try_from(unit.modules.len()).unwrap_or(u64::MAX);
     let lane_edge_count = lane_edge_count(unit);
     let lane_edge_reference_count = lane_edge_reference_count(unit);
+    let derived_transition_count = derived_transition_count(unit);
     let cross_section_counts = cross_section_counts(unit);
     let junction_counts = junction_counts(unit);
     let control_counts = control_counts(unit);
@@ -1019,9 +1114,19 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         // 路线边引用已计入 CompilationUnit 关系数；转换以及三类派生出现项只在 HIR
         // 中产生，按单条边至多各生成一项的上界纳入预检。
         .saturating_add(route_counts.route_transitions)
-        .saturating_add(route_counts.route_edges.saturating_mul(3));
+        .saturating_add(route_counts.route_edges.saturating_mul(3))
+        // Geometry 连接路径派生的 successor 引用与出现位置只在 HIR 产生：每条权威路径
+        // 相邻 pair 至多贡献一条合并引用与一条 occurrence，规范去重只会缩小合并引用数。
+        .saturating_add(derived_transition_count.saturating_mul(2));
     let canonical_source_scratch = requested_bytes::<CanonicalLaneEdgeSource>(lane_edge_count)
-        .saturating_add(requested_bytes::<usize>(unit.declaration_count));
+        .saturating_add(requested_bytes::<usize>(unit.declaration_count))
+        // 派生 transition 的原始解析、合并视图与出现表在 successor 合并期间同时存续。
+        .saturating_add(requested_bytes::<DerivedTransition>(
+            derived_transition_count.saturating_mul(2),
+        ))
+        .saturating_add(requested_bytes::<HirDerivedTransitionOccurrence>(
+            derived_transition_count,
+        ));
     let cross_section_scratch = if cross_section_counts.entity_count() == 0 {
         0
     } else {
@@ -1102,7 +1207,8 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 control_counts
                     .stop_lines
                     .saturating_add(junction_counts.maneuver_paths)
-                    .saturating_add(lane_edge_reference_count),
+                    .saturating_add(lane_edge_reference_count)
+                    .saturating_add(derived_transition_count),
             ))
             .saturating_add(requested_bytes::<HirManeuverGateKey>(
                 control_counts.maneuver_gates.saturating_mul(2),
@@ -1191,12 +1297,62 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             ))
             .saturating_add(requested_bytes::<usize>(unit.declaration_count))
     };
-    let spatial_scratch = if spatial_counts.canonical_frames == 0 {
+    let spatial_scratch = if spatial_counts.canonical_frames == 0
+        && spatial_counts.lane_edge_geometries == 0
+        && spatial_counts.facility_band_geometries == 0
+    {
         0
     } else {
-        requested_bytes::<usize>(unit.declaration_count).saturating_add(requested_bytes::<
-            Option<(HirCanonicalFrameKey, usize)>,
-        >(lane_edge_count))
+        requested_bytes::<usize>(unit.declaration_count)
+            .saturating_add(requested_bytes::<Option<SpatialEdgeBinding>>(
+                lane_edge_count,
+            ))
+            .saturating_add(requested_bytes::<Option<HirCanonicalFrameKey>>(
+                lane_edge_count,
+            ))
+            .saturating_add(requested_bytes::<HashMap<Arc<str>, HirCanonicalFrameKey>>(
+                module_count,
+            ))
+            .saturating_add(
+                requested_hash_table_bytes::<Arc<str>, HirCanonicalFrameKey>(
+                    spatial_counts.canonical_frames,
+                ),
+            )
+            .saturating_add(requested_bytes::<GeometryFacilityRow>(
+                spatial_counts.facility_band_geometries,
+            ))
+            .saturating_add(requested_hash_table_bytes::<
+                (&'static str, &'static str),
+                &'static [FrozenCanonicalPoint],
+            >(
+                spatial_counts
+                    .lane_edge_geometries
+                    .saturating_add(spatial_counts.facility_band_geometries),
+            ))
+            .saturating_add(requested_hash_table_bytes::<&'static str, HirLaneEdgeKey>(
+                cross_section_counts.authoring_lanes,
+            ))
+            .saturating_add(
+                requested_hash_table_bytes::<&'static str, HirFacilityBandKey>(
+                    cross_section_counts.facility_bands,
+                ),
+            )
+            .saturating_add(requested_hash_table_bytes::<
+                (&'static str, &'static str),
+                HirJunctionKey,
+            >(junction_counts.junctions))
+            .saturating_add(requested_bytes::<Option<Option<HirCanonicalFrameKey>>>(
+                junction_counts.junctions,
+            ))
+            .saturating_add(requested_bytes::<usize>(
+                spatial_counts.lane_edge_geometries.saturating_mul(2),
+            ))
+            .saturating_add(requested_bytes::<Option<HirLaneEdgeGeometry>>(
+                spatial_counts.lane_edge_geometries,
+            ))
+            .saturating_add(requested_bytes::<HirLaneEdgeGeometry>(
+                spatial_counts.lane_edge_geometries,
+            ))
     };
     let access_scratch = if access_counts.entity_count() == 0 {
         0
@@ -1241,7 +1397,10 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         .saturating_add(requested_bytes::<HirImport>(unit.import_edge_count))
         .saturating_add(requested_bytes::<HirLaneEdge>(lane_edge_count))
         .saturating_add(requested_bytes::<HirLaneEdgeReference>(
-            lane_edge_reference_count,
+            lane_edge_reference_count.saturating_add(derived_transition_count),
+        ))
+        .saturating_add(requested_bytes::<HirDerivedTransitionOccurrence>(
+            derived_transition_count,
         ))
         .saturating_add(requested_bytes::<HirRoadCorridor>(
             cross_section_counts.road_corridors,
@@ -1324,6 +1483,9 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         ))
         .saturating_add(requested_bytes::<HirLaneEdgeGeometry>(
             spatial_counts.lane_edge_geometries,
+        ))
+        .saturating_add(requested_bytes::<HirFacilityBandGeometry>(
+            spatial_counts.facility_band_geometries,
         ))
         .saturating_add(requested_bytes::<HirCanonicalPoint3F32>(
             spatial_counts.canonical_points,
@@ -1485,7 +1647,10 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     let module_capacity = unit.modules.len();
     let import_capacity = count_to_usize(unit.import_edge_count, &unit.limits)?;
     let lane_edge_capacity = count_to_usize(lane_edge_count, &unit.limits)?;
-    let reference_capacity = count_to_usize(lane_edge_reference_count, &unit.limits)?;
+    let reference_capacity = count_to_usize(
+        lane_edge_reference_count.saturating_add(derived_transition_count),
+        &unit.limits,
+    )?;
     // 第一阶段冻结模块键。CompilationUnit 已按依赖优先排序，因此 raw key 顺序可直接
     // 作为后续规范模块轴；module_lookup 只用于解析，不参与任何输出遍历。
     let mut modules = TypedArena::<HirModuleTag, HirModule>::with_capacity(module_capacity);
@@ -1522,6 +1687,67 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         modules.get_mut(module_key).imports =
             TableRange::try_from_usize(start, imports.len().saturating_sub(start))
                 .map_err(|overflow| arena_overflow(overflow, &unit.limits, primary_span.clone()))?;
+    }
+
+    // Geometry 混用配置档检查（§3、§7.2 阶段 5）：同一编译单元的全部 Geometry 模块必须
+    // 共用相同的位置与方向配置档；以规范模块顺序中首个 Geometry 模块为规范，逐模块比较其
+    // 已接入 payload 的两个有类型配置档。Synthetic/current-import 模块的 payload 槽位为
+    // None，不参与比较；没有 Geometry 模块的单元也不携带虚构配置档。检查只读两个标量
+    // 配置档、单遍 O(模块数)，不分配随输入增长的临时表。位置与方向是正交约束，同一模块
+    // 两者都混用时不互相遮蔽，分别报告；§7.2 同阶段序按 `(模块序, span, code)` 为同模块
+    // 的两条诊断给出确定顺序（accuracy 代码先于 direction）。
+    let mut diagnostics =
+        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut canonical_profiles: Option<(usize, GeometryAccuracyProfile, GeometryDirectionProfile)> =
+        None;
+    for (module_index, payload) in unit.geometry_payloads.iter().enumerate() {
+        let Some(payload) = payload else {
+            continue;
+        };
+        let Some((canonical_index, canonical_accuracy, canonical_direction)) = canonical_profiles
+        else {
+            canonical_profiles = Some((
+                module_index,
+                payload.accuracy_profile,
+                payload.direction_profile,
+            ));
+            continue;
+        };
+        if payload.accuracy_profile != canonical_accuracy {
+            let mut diagnostic = Diagnostic::mixed_geometry_accuracy_profile(
+                unit.modules[canonical_index]
+                    .descriptor()
+                    .authoring_namespace_id(),
+                unit.modules[module_index]
+                    .descriptor()
+                    .authoring_namespace_id(),
+                canonical_accuracy.stable_name(),
+                payload.accuracy_profile.stable_name(),
+                unit.modules[module_index].declaration_span().clone(),
+                unit.modules[canonical_index].declaration_span().clone(),
+            );
+            diagnostic.set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+            diagnostics.push(diagnostic);
+        }
+        if payload.direction_profile != canonical_direction {
+            let mut diagnostic = Diagnostic::mixed_geometry_direction_profile(
+                unit.modules[canonical_index]
+                    .descriptor()
+                    .authoring_namespace_id(),
+                unit.modules[module_index]
+                    .descriptor()
+                    .authoring_namespace_id(),
+                canonical_direction.stable_name(),
+                payload.direction_profile.stable_name(),
+                unit.modules[module_index].declaration_span().clone(),
+                unit.modules[canonical_index].declaration_span().clone(),
+            );
+            diagnostic.set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+            diagnostics.push(diagnostic);
+        }
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
     }
 
     // 先按 `(canonical module order, stable key)` 为全部声明分配键并建立完整符号表。
@@ -1651,9 +1877,23 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
     }
     // 第二遍只解析已经规范化的引用序列。未知目标继续收集到有界诊断集合中；该边的
     // 临时区间不会在失败时泄漏，因为整个 HirUnit 仅在零错误后提交。
+    //
+    // §4.4：Geometry 连接路径派生的 transition 与显式 successor 是互斥来源。先解析全部
+    // 连接意图并完成跨 Junction 冲突检测与规范去重，再在下方按边把两组输入合并进同一张
+    // 下游引用表；受影响边的最终 successors = 显式普通 successor ∪ 派生 transition，
+    // 按规范 `(module namespace, declaration key)` 排序，与两个前端对显式集合的规范化
+    // 一致。既有路径连通性、owner 与 coverage 校验随后对全部模块统一适用。
+    let (derived_transitions, derived_occurrences) = derive_geometry_connection_transitions(
+        unit,
+        &module_lookup,
+        &modules,
+        &lane_edges,
+        &symbols,
+    )?;
     let mut references = Vec::with_capacity(reference_capacity);
     let mut diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut derived_cursor = 0_usize;
     for source_location in canonical_sources {
         let module_index = usize::try_from(source_location.source_module_index)
             .expect("u32 module index must fit usize on supported targets");
@@ -1664,7 +1904,54 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         )
         .expect("canonical LaneEdge source must still name a LaneEdge");
         let start = references.len();
+        // 派生 transition 按起始边致密键聚簇；canonical_sources 与 lane edge arena 同序，
+        // 因此单指针推进即可取出当前边的派生片段。
+        let derived_start = derived_cursor;
+        while derived_cursor < derived_transitions.len()
+            && derived_transitions[derived_cursor].predecessor == source_location.hir_key
+        {
+            derived_cursor += 1;
+        }
+        let mut derived = derived_transitions[derived_start..derived_cursor]
+            .iter()
+            .peekable();
         for successor in &source.successors {
+            // 两路输入都按规范 `(module namespace, declaration key)` 有序：先合并规范键
+            // 更小的派生 transition，再按既有路径处理当前显式 successor。
+            while let Some(transition) = derived.peek()
+                && canonical_edge_sort_key(&modules, &lane_edges, transition.successor)
+                    < (
+                        successor.module_namespace.as_ref(),
+                        successor.declaration_key.as_ref(),
+                    )
+            {
+                let transition = derived.next().expect("peeked transition must exist");
+                references.push(HirLaneEdgeReference {
+                    target: transition.successor,
+                    source_span: transition.occurrence_span.clone(),
+                });
+            }
+            // 规范键相等意味着同一有向 transition 同时来自普通 successor 与连接路径，
+            // 按 §4.4 互斥来源失败关闭；派生项被遮蔽，诊断收集仍继续。
+            if let Some(transition) = derived.peek()
+                && canonical_edge_sort_key(&modules, &lane_edges, transition.successor)
+                    == (
+                        successor.module_namespace.as_ref(),
+                        successor.declaration_key.as_ref(),
+                    )
+            {
+                let mut diagnostic = Diagnostic::lane_edge_successor_path_conflict(
+                    &source.header.stable_key,
+                    &successor.declaration_key,
+                    &transition.junction_key,
+                    &transition.maneuver_path_key,
+                    transition.occurrence_span.clone(),
+                    successor.span.clone(),
+                );
+                diagnostic.set_canonical_module_order(source_location.source_module_index);
+                diagnostics.push(diagnostic);
+                derived.next();
+            }
             let target_module = module_lookup[successor.module_namespace.as_ref()];
             let Some(target) = symbols.get(target_module, &successor.declaration_key) else {
                 let mut diagnostic = Diagnostic::unknown_reference_target(
@@ -1682,6 +1969,12 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             references.push(HirLaneEdgeReference {
                 target,
                 source_span: successor.span.clone(),
+            });
+        }
+        for transition in derived {
+            references.push(HirLaneEdgeReference {
+                target: transition.successor,
+                source_span: transition.occurrence_span.clone(),
             });
         }
         lane_edges.get_mut(source_location.hir_key).successors =
@@ -1732,6 +2025,8 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         &lane_edges,
         &references,
         &symbols,
+        &cross_section,
+        &junction,
         &mut identities,
     )?;
     let access = build_access_hir(
@@ -1769,6 +2064,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         imports: imports.into_boxed_slice(),
         lane_edges: lane_edges.into_boxed_slice(),
         lane_edge_references: references.into_boxed_slice(),
+        derived_transition_occurrences: derived_occurrences.into_boxed_slice(),
         road_corridors: cross_section.road_corridors,
         corridor_elements: cross_section.corridor_elements,
         road_sections: cross_section.road_sections,
@@ -1801,6 +2097,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         parking_area_spaces: parking.parking_area_spaces,
         canonical_frames: spatial.canonical_frames,
         lane_edge_geometries: spatial.lane_edge_geometries,
+        facility_band_geometries: spatial.facility_band_geometries,
         canonical_points: spatial.canonical_points,
         spatial_segments: spatial.spatial_segments,
         participant_classes: access.participant_classes,
@@ -1817,6 +2114,165 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
         controlled_live_bytes: hir_persistent_bytes,
         peak_controlled_live_bytes: controlled_live_bytes,
     })
+}
+
+/// 目标边在两组互斥来源间共用的规范排序键：`(module namespace, declaration key)`。
+fn canonical_edge_sort_key<'a>(
+    modules: &'a TypedArena<HirModuleTag, HirModule>,
+    lane_edges: &'a TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    edge: HirLaneEdgeKey,
+) -> (&'a str, &'a str) {
+    let record = lane_edges.get(edge);
+    (
+        modules.get(record.module).authoring_namespace_id.as_ref(),
+        record.stable_key.as_ref(),
+    )
+}
+
+/// 把 Geometry 连接意图解析为有类型派生 transition，并闭合 §4.4 的互斥来源与规范去重。
+///
+/// 权威路径序列唯一等于 `entry + internal + exit`；每个相邻 pair 由所属 connection path
+/// 派生一条有向 transition，空 internal 序列则直接派生 `entry -> exit`。同一有向
+/// transition 来自不同 Junction 时失败关闭；同一 Junction 内因共享 internal edge 由多条
+/// path 派生的重复 transition 按 `(junction identity, predecessor, successor)` 去重，
+/// 全部 occurrence span 保留在返回的出现表中。显式 successor 与派生 transition 的互斥
+/// 冲突随后在 successor 合并时检测。
+///
+/// 无法解析的边引用不在本阶段报告：配对产生的 `ManeuverPath` 声明会在路口子阶段以相同
+/// 诊断报告同一未知目标，本函数只跳过受影响的相邻 pair，不另造第二份诊断。
+///
+/// 返回按 `(predecessor, successor 规范键, occurrence span)` 排序的合并视图与全部出现；
+/// 合法去重组位于同一 Junction 的同一模块，span 序即 §4.4 的最小来源选择序。
+fn derive_geometry_connection_transitions(
+    unit: &CompilationUnit,
+    module_lookup: &HashMap<Arc<str>, HirModuleKey>,
+    modules: &TypedArena<HirModuleTag, HirModule>,
+    lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
+) -> Result<(Vec<DerivedTransition>, Vec<HirDerivedTransitionOccurrence>), DiagnosticBundle> {
+    let mut transitions = Vec::with_capacity(count_to_usize(
+        derived_transition_count(unit),
+        &unit.limits,
+    )?);
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        for declaration in &source_module.declarations {
+            let TypedAstDeclaration::GeometryConnection(intent) = declaration else {
+                continue;
+            };
+            let mut predecessor: Option<HirLaneEdgeKey> = None;
+            for reference in core::iter::once(&intent.entry_edge)
+                .chain(intent.internal_edges.iter())
+                .chain(core::iter::once(&intent.exit_edge))
+            {
+                let target_module = module_lookup[reference.module_namespace.as_ref()];
+                let Some(target) = lane_edge_symbols.get(target_module, &reference.declaration_key)
+                else {
+                    predecessor = None;
+                    continue;
+                };
+                if let Some(predecessor) = predecessor {
+                    transitions.push(DerivedTransition {
+                        predecessor,
+                        successor: target,
+                        module: module_key,
+                        junction_namespace: Arc::clone(&intent.junction.module_namespace),
+                        junction_key: Arc::clone(&intent.junction.declaration_key),
+                        maneuver_path_key: Arc::clone(&intent.maneuver_path.declaration_key),
+                        occurrence_span: intent.span.clone(),
+                    });
+                }
+                predecessor = Some(target);
+            }
+        }
+    }
+    if transitions.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    // 规范排序：起始边致密键聚簇，目标边按规范键，再按 junction identity 聚簇，最后按
+    // occurrence span 排序；同一 `(junction, predecessor, successor)` 簇的首项即最小出现。
+    transitions.sort_unstable_by(|left, right| {
+        (
+            left.predecessor,
+            canonical_edge_sort_key(modules, lane_edges, left.successor),
+            &left.junction_namespace,
+            &left.junction_key,
+            &left.occurrence_span,
+        )
+            .cmp(&(
+                right.predecessor,
+                canonical_edge_sort_key(modules, lane_edges, right.successor),
+                &right.junction_namespace,
+                &right.junction_key,
+                &right.occurrence_span,
+            ))
+    });
+    // 同一 `(predecessor, successor)` 组内的首个 junction identity 簇是规范来源；其后每个
+    // 不同的 junction identity 簇意味着 §4.4 的跨 Junction 派生冲突，逐簇报告一次。
+    let mut diagnostics =
+        DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut group_start = 0_usize;
+    while group_start < transitions.len() {
+        let mut group_end = group_start.saturating_add(1);
+        while group_end < transitions.len()
+            && transitions[group_end].predecessor == transitions[group_start].predecessor
+            && transitions[group_end].successor == transitions[group_start].successor
+        {
+            group_end += 1;
+        }
+        let group = &transitions[group_start..group_end];
+        let first = &group[0];
+        for (index, occurrence) in group.iter().enumerate().skip(1) {
+            if occurrence.junction_namespace == first.junction_namespace
+                && occurrence.junction_key == first.junction_key
+            {
+                continue;
+            }
+            // 同一 junction identity 在组内排序后连续：只对每个冲突簇的簇首报告一次。
+            let previous = &group[index - 1];
+            if previous.junction_namespace == occurrence.junction_namespace
+                && previous.junction_key == occurrence.junction_key
+            {
+                continue;
+            }
+            let mut diagnostic = Diagnostic::derived_transition_junction_conflict(
+                &lane_edges.get(first.predecessor).stable_key,
+                &lane_edges.get(first.successor).stable_key,
+                &first.junction_key,
+                &occurrence.junction_key,
+                occurrence.occurrence_span.clone(),
+                first.occurrence_span.clone(),
+            );
+            diagnostic.set_canonical_module_order(occurrence.module.raw());
+            diagnostics.push(diagnostic);
+        }
+        group_start = group_end;
+    }
+    if !diagnostics.is_empty() {
+        return Err(diagnostics.finish());
+    }
+    // 冲突已关闭：每个 `(predecessor, successor)` 组只含同一 Junction 的 occurrence，
+    // 合并视图取簇首（最小 span），全部 occurrence 原样进入侧表。
+    let mut occurrences = Vec::with_capacity(transitions.len());
+    let mut merged: Vec<DerivedTransition> = Vec::with_capacity(transitions.len());
+    for transition in transitions {
+        occurrences.push(HirDerivedTransitionOccurrence {
+            module: transition.module,
+            predecessor: transition.predecessor,
+            successor: transition.successor,
+            source_span: transition.occurrence_span.clone(),
+        });
+        if merged.last().is_some_and(|last| {
+            last.predecessor == transition.predecessor && last.successor == transition.successor
+        }) {
+            continue;
+        }
+        merged.push(transition);
+    }
+    Ok((merged, occurrences))
 }
 
 /// 在任何 HIR 语义诊断产生前，核对全部模块、导入、声明与关系位置的文档所有权。
@@ -2099,6 +2555,12 @@ fn build_cross_section_hir(
                 | TypedAstDeclaration::CanonicalFrame(_)
                 | TypedAstDeclaration::AccessRule(_) => {
                     unreachable!("cross-section source filter admitted junction declaration")
+                }
+                TypedAstDeclaration::GeometryReferenceLine(_)
+                | TypedAstDeclaration::GeometryCrossSectionSpan(_)
+                | TypedAstDeclaration::GeometryConnection(_)
+                | TypedAstDeclaration::GeometryInternalEdge(_) => {
+                    unreachable!("cross-section source filter admitted geometry intent")
                 }
             }
         }
@@ -2628,9 +3090,8 @@ fn build_junction_hir(
         let module_order = u32::try_from(module_index).unwrap_or(u32::MAX);
         let mut declaration_indices: Vec<_> = (0..source_module.declarations.len()).collect();
         declaration_indices.sort_unstable_by(|left, right| {
-            declaration_header(&source_module.declarations[*left])
-                .stable_key
-                .cmp(&declaration_header(&source_module.declarations[*right]).stable_key)
+            declaration_sort_key(&source_module.declarations[*left])
+                .cmp(declaration_sort_key(&source_module.declarations[*right]))
         });
         for declaration_index in declaration_indices {
             match &source_module.declarations[declaration_index] {
@@ -4383,16 +4844,22 @@ fn build_signal_hir(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_spatial_hir(
     unit: &CompilationUnit,
     module_lookup: &HashMap<Arc<str>, HirModuleKey>,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     lane_edge_references: &[HirLaneEdgeReference],
     lane_edge_symbols: &SymbolTable<HirLaneEdgeKey>,
+    cross_section: &CrossSectionHir,
+    junction: &JunctionHir,
     identities: &mut IdentityRegistry,
 ) -> Result<SpatialHir, DiagnosticBundle> {
     let counts = spatial_counts(unit);
-    if counts.canonical_frames == 0 {
+    if counts.canonical_frames == 0
+        && counts.lane_edge_geometries == 0
+        && counts.facility_band_geometries == 0
+    {
         return Ok(SpatialHir::default());
     }
 
@@ -4401,11 +4868,21 @@ fn build_spatial_hir(
     );
     let mut geometries: Vec<HirLaneEdgeGeometry> =
         Vec::with_capacity(count_to_usize(counts.lane_edge_geometries, &unit.limits)?);
+    let mut facility_rows: Vec<GeometryFacilityRow> = Vec::with_capacity(count_to_usize(
+        counts.facility_band_geometries,
+        &unit.limits,
+    )?);
     let mut points = Vec::with_capacity(count_to_usize(counts.canonical_points, &unit.limits)?);
     let mut segments = Vec::with_capacity(count_to_usize(counts.spatial_segments, &unit.limits)?);
-    let mut edge_bindings = vec![None::<(HirCanonicalFrameKey, usize)>; lane_edges.len()];
+    let mut edge_bindings = vec![None::<SpatialEdgeBinding>; lane_edges.len()];
     let mut diagnostics =
         DiagnosticCollector::new(unit.limits.value(CompileLimitDimension::DiagnosticCount));
+    let mut frame_symbols = SymbolTable::<HirCanonicalFrameKey>::new(
+        unit.modules.iter().map(|module| module.declarations.len()),
+    );
+    // 符号化 edge→frame 绑定来源：synthetic 显式声明与 geometry span intent 各自登记，
+    // 使路口 frame 闭包能在实际绑定完成前互相验证（§4.4）。
+    let mut symbolic_edge_frames = vec![None::<HirCanonicalFrameKey>; lane_edges.len()];
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let module_key = HirModuleKey::from_raw(
             u32::try_from(module_index)
@@ -4452,7 +4929,6 @@ fn build_spatial_hir(
                 &source.header.span,
                 &fields,
             )?);
-            let geometry_start = geometries.len();
             let frame_key = frames
                 .push(HirCanonicalFrame {
                     module: module_key,
@@ -4464,6 +4940,17 @@ fn build_spatial_hir(
                 .map_err(|overflow| {
                     arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
                 })?;
+            frame_symbols.insert(module_key, Arc::clone(&source.header.stable_key), frame_key);
+            // synthetic 显式声明的绑定来源先登记；geometry 派生来源在派生绑定阶段登记。
+            for geometry in &source.lane_edge_geometries {
+                let target_module = module_lookup[geometry.lane_edge.module_namespace.as_ref()];
+                if let Some(lane_edge) =
+                    lane_edge_symbols.get(target_module, &geometry.lane_edge.declaration_key)
+                    && symbolic_edge_frames[lane_edge.index()].is_none()
+                {
+                    symbolic_edge_frames[lane_edge.index()] = Some(frame_key);
+                }
+            }
 
             for geometry in &source.lane_edge_geometries {
                 let target_module = module_lookup[geometry.lane_edge.module_namespace.as_ref()];
@@ -4484,14 +4971,14 @@ fn build_spatial_hir(
                     diagnostics.push(diagnostic);
                     continue;
                 };
-                if let Some((_, existing_index)) = edge_bindings[lane_edge.index()] {
+                if let Some(existing) = edge_bindings[lane_edge.index()] {
                     let mut diagnostic = Diagnostic::invalid_spatial_geometry(
                         Some(&source.header.stable_key),
                         &geometry.lane_edge.declaration_key,
                         None,
                         SpatialGeometryViolation::DuplicateEdgeBinding,
                         geometry.lane_edge.span.clone(),
-                        Some(geometries[existing_index].source_span.clone()),
+                        Some(geometries[existing.geometry_index].source_span.clone()),
                     );
                     diagnostic.set_canonical_module_order(
                         u32::try_from(module_index).unwrap_or(u32::MAX),
@@ -4500,177 +4987,346 @@ fn build_spatial_hir(
                     continue;
                 }
 
-                let point_start = points.len();
-                points.extend(geometry.centerline_points.iter().map(|point| {
-                    HirCanonicalPoint3F32 {
-                        x: point.x,
-                        y: point.y,
-                        z: point.z,
-                    }
-                }));
-                let segment_start = segments.len();
-                let mut cumulative = 0.0_f32;
-                let mut geometry_valid = true;
-                for (segment_index, pair) in geometry.centerline_points.windows(2).enumerate() {
-                    let delta = [
-                        canonicalize_spatial_zero(pair[1].x - pair[0].x),
-                        canonicalize_spatial_zero(pair[1].y - pair[0].y),
-                        canonicalize_spatial_zero(pair[1].z - pair[0].z),
-                    ];
-                    let length = delta[0].hypot(delta[1]).hypot(delta[2]);
-                    if length <= SPATIAL_MIN_SEGMENT_LENGTH_METERS {
-                        let mut diagnostic = Diagnostic::invalid_spatial_geometry(
-                            Some(&source.header.stable_key),
-                            &geometry.lane_edge.declaration_key,
-                            None,
-                            SpatialGeometryViolation::DegenerateSegment {
-                                segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
-                                length_bits: length.to_bits(),
-                                minimum_bits: SPATIAL_MIN_SEGMENT_LENGTH_METERS.to_bits(),
-                            },
-                            geometry.lane_edge.span.clone(),
-                            None,
-                        );
-                        diagnostic.set_canonical_module_order(
-                            u32::try_from(module_index).unwrap_or(u32::MAX),
-                        );
-                        diagnostics.push(diagnostic);
-                        geometry_valid = false;
-                        break;
-                    }
-                    // 与 current Spatial 的受检单位向量构造保持逐位一致：先按最大绝对
-                    // 分量缩放可避免平方求和溢出，也防止迁移投影重建出不同的局部基。
-                    let tangent = normalize_spatial_vector(delta);
-                    let projected_up = tangent[0].hypot(tangent[2]);
-                    if projected_up < SPATIAL_MIN_PROJECTED_UP_LENGTH {
-                        let mut diagnostic = Diagnostic::invalid_spatial_geometry(
-                            Some(&source.header.stable_key),
-                            &geometry.lane_edge.declaration_key,
-                            None,
-                            SpatialGeometryViolation::DegenerateProjectedUp {
-                                segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
-                                projected_up_bits: projected_up.to_bits(),
-                                minimum_bits: SPATIAL_MIN_PROJECTED_UP_LENGTH.to_bits(),
-                            },
-                            geometry.lane_edge.span.clone(),
-                            None,
-                        );
-                        diagnostic.set_canonical_module_order(
-                            u32::try_from(module_index).unwrap_or(u32::MAX),
-                        );
-                        diagnostics.push(diagnostic);
-                        geometry_valid = false;
-                        break;
-                    }
-                    let left = normalize_spatial_vector([tangent[2], 0.0, -tangent[0]]);
-                    let raw_up = [
-                        tangent[1] * left[2],
-                        tangent[2] * left[0] - tangent[0] * left[2],
-                        -tangent[1] * left[0],
-                    ];
-                    let up = normalize_spatial_vector(raw_up);
-                    let next_cumulative = cumulative + length;
-                    if !next_cumulative.is_finite() || next_cumulative <= cumulative {
-                        let mut diagnostic = Diagnostic::invalid_spatial_geometry(
-                            Some(&source.header.stable_key),
-                            &geometry.lane_edge.declaration_key,
-                            None,
-                            SpatialGeometryViolation::ArcLengthAccumulationFailed {
-                                segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
-                                accumulated_bits: cumulative.to_bits(),
-                                segment_length_bits: length.to_bits(),
-                            },
-                            geometry.lane_edge.span.clone(),
-                            None,
-                        );
-                        diagnostic.set_canonical_module_order(
-                            u32::try_from(module_index).unwrap_or(u32::MAX),
-                        );
-                        diagnostics.push(diagnostic);
-                        geometry_valid = false;
-                        break;
-                    }
-                    segments.push(HirSpatialSegment {
-                        length_meters: length,
-                        cumulative_end_meters: next_cumulative,
-                        tangent,
-                        up,
-                    });
-                    cumulative = next_cumulative;
-                }
-                if !geometry_valid {
-                    points.truncate(point_start);
-                    segments.truncate(segment_start);
-                    continue;
-                }
-                let lane_edge_length = lane_edges.get(lane_edge).length_meters;
-                let tolerance = SPATIAL_LENGTH_ABS_TOLERANCE_METERS.max(
-                    SPATIAL_LENGTH_REL_TOLERANCE * lane_edge_length.max(f64::from(cumulative)),
-                ) + SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS;
-                if (lane_edge_length - f64::from(cumulative)).abs() > tolerance {
-                    let mut diagnostic = Diagnostic::invalid_spatial_geometry(
-                        Some(&source.header.stable_key),
-                        &geometry.lane_edge.declaration_key,
-                        None,
-                        SpatialGeometryViolation::LengthMismatch {
-                            lane_edge_length_bits: lane_edge_length.to_bits(),
-                            geometry_length_bits: cumulative.to_bits(),
-                            tolerance_bits: tolerance.to_bits(),
-                        },
-                        geometry.lane_edge.span.clone(),
-                        None,
-                    );
-                    diagnostic.set_canonical_module_order(
-                        u32::try_from(module_index).unwrap_or(u32::MAX),
-                    );
-                    diagnostics.push(diagnostic);
-                    points.truncate(point_start);
-                    segments.truncate(segment_start);
-                    continue;
-                }
-                let geometry_index = geometries.len();
-                geometries.push(HirLaneEdgeGeometry {
-                    canonical_frame: frame_key,
+                if let Some(geometry_index) = append_lane_edge_geometry(
+                    unit,
+                    &mut diagnostics,
+                    module_index,
+                    module_key,
+                    &frames,
+                    frame_key,
                     lane_edge,
-                    points: TableRange::try_from_usize(
-                        point_start,
-                        points.len().saturating_sub(point_start),
-                    )
-                    .map_err(|overflow| {
-                        arena_overflow(
-                            overflow,
-                            &unit.limits,
-                            Some(geometry.lane_edge.span.clone()),
-                        )
-                    })?,
-                    segments: TableRange::try_from_usize(
-                        segment_start,
-                        segments.len().saturating_sub(segment_start),
-                    )
-                    .map_err(|overflow| {
-                        arena_overflow(
-                            overflow,
-                            &unit.limits,
-                            Some(geometry.lane_edge.span.clone()),
-                        )
-                    })?,
-                    arc_length_meters: cumulative,
-                    source_span: geometry.lane_edge.span.clone(),
-                });
-                edge_bindings[lane_edge.index()] = Some((frame_key, geometry_index));
+                    lane_edges,
+                    &geometry.centerline_points,
+                    &geometry.lane_edge.span,
+                    &mut points,
+                    &mut segments,
+                    &mut geometries,
+                )? {
+                    edge_bindings[lane_edge.index()] = Some(SpatialEdgeBinding {
+                        frame: frame_key,
+                        geometry_index,
+                        direction_profile: None,
+                    });
+                }
             }
-            frames.get_mut(frame_key).lane_edge_geometries = TableRange::try_from_usize(
-                geometry_start,
-                geometries.len().saturating_sub(geometry_start),
-            )
-            .map_err(|overflow| {
-                arena_overflow(overflow, &unit.limits, Some(source.header.span.clone()))
-            })?;
+        }
+    }
+
+    // Geometry 冻结 payload 的派生绑定：几何点只来自 finish 的 numeric freeze（§5.4 不得
+    // 再次求值或生成另一份点）；segment 构建与 length 绑定复用同一逐段判读（§6.2）。
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let Some(payload) = &unit.geometry_payloads[module_index] else {
+            continue;
+        };
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        let mut lane_curves: HashMap<(&str, &str), &[FrozenCanonicalPoint]> =
+            HashMap::with_capacity(payload.frozen.lateral_curves.len());
+        let mut facility_curves: HashMap<(&str, &str), &[FrozenCanonicalPoint]> = HashMap::new();
+        for curve in &payload.frozen.lateral_curves {
+            if curve.kind == LateralIntentKind::FacilityBand {
+                facility_curves.insert((&curve.span_key, &curve.key), &curve.points);
+            } else {
+                lane_curves.insert((&curve.span_key, &curve.key), &curve.points);
+            }
+        }
+        // §5.1：laneKey 映射到该 lane 恰好一条 LaneEdge；facility key 映射到类型实体。
+        let mut lane_targets: HashMap<&str, HirLaneEdgeKey> = HashMap::new();
+        for lane in &cross_section.authoring_lanes {
+            if lane.module != module_key {
+                continue;
+            }
+            let chain = lane.edge_chain.as_usize_range();
+            debug_assert_eq!(chain.len(), 1, "Geometry lane owns exactly one LaneEdge");
+            lane_targets.insert(
+                &lane.stable_key,
+                cross_section.authoring_lane_edges[chain.start].target,
+            );
+        }
+        let mut band_targets: HashMap<&str, HirFacilityBandKey> = HashMap::new();
+        for (band_index, band) in cross_section.facility_bands.iter().enumerate() {
+            if band.module != module_key {
+                continue;
+            }
+            band_targets.insert(
+                &band.stable_key,
+                HirFacilityBandKey::from_raw(
+                    u32::try_from(band_index)
+                        .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+                ),
+            );
+        }
+        for declaration in &source_module.declarations {
+            let TypedAstDeclaration::GeometryCrossSectionSpan(intent) = declaration else {
+                continue;
+            };
+            let frame_module = module_lookup[intent.frame.module_namespace.as_ref()];
+            let Some(frame_key) = frame_symbols.get(frame_module, &intent.frame.declaration_key)
+            else {
+                let mut diagnostic = Diagnostic::unknown_reference_target(
+                    EntityKind::CanonicalFrame,
+                    &intent.span_key,
+                    &intent.frame.module_namespace,
+                    &intent.frame.declaration_key,
+                    intent.frame.span.clone(),
+                    intent.span.clone(),
+                );
+                diagnostic
+                    .set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+                diagnostics.push(diagnostic);
+                continue;
+            };
+            for offset in &intent.offsets {
+                match offset.kind {
+                    GeometryOffsetIntentKind::ForwardLane
+                    | GeometryOffsetIntentKind::BackwardLane => {
+                        let lane_edge = *lane_targets
+                            .get(offset.key.as_ref())
+                            .expect("cross-section HIR owns every offset lane");
+                        if symbolic_edge_frames[lane_edge.index()].is_none() {
+                            symbolic_edge_frames[lane_edge.index()] = Some(frame_key);
+                        }
+                        if let Some(existing) = edge_bindings[lane_edge.index()] {
+                            let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                                Some(&frames.get(frame_key).stable_key),
+                                &lane_edges.get(lane_edge).stable_key,
+                                None,
+                                SpatialGeometryViolation::DuplicateEdgeBinding,
+                                offset.span.clone(),
+                                Some(geometries[existing.geometry_index].source_span.clone()),
+                            );
+                            diagnostic.set_canonical_module_order(
+                                u32::try_from(module_index).unwrap_or(u32::MAX),
+                            );
+                            diagnostics.push(diagnostic);
+                            continue;
+                        }
+                        let curve_points = lane_curves
+                            .get(&(intent.span_key.as_ref(), offset.key.as_ref()))
+                            .expect("numeric freeze emits one curve per lane");
+                        if let Some(geometry_index) = append_lane_edge_geometry(
+                            unit,
+                            &mut diagnostics,
+                            module_index,
+                            module_key,
+                            &frames,
+                            frame_key,
+                            lane_edge,
+                            lane_edges,
+                            curve_points,
+                            &offset.span,
+                            &mut points,
+                            &mut segments,
+                            &mut geometries,
+                        )? {
+                            edge_bindings[lane_edge.index()] = Some(SpatialEdgeBinding {
+                                frame: frame_key,
+                                geometry_index,
+                                direction_profile: Some(payload.direction_profile),
+                            });
+                        }
+                    }
+                    GeometryOffsetIntentKind::FacilityBand => {
+                        let facility_band = *band_targets
+                            .get(offset.key.as_ref())
+                            .expect("cross-section HIR owns every offset facility band");
+                        let curve_points = facility_curves
+                            .get(&(intent.span_key.as_ref(), offset.key.as_ref()))
+                            .expect("numeric freeze emits one curve per facility band");
+                        facility_rows.push(GeometryFacilityRow {
+                            facility_band,
+                            canonical_frame: frame_key,
+                            points: curve_points,
+                            source_span: offset.span.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 路口 frame 闭包（§4.4）：internal edge 不携带 frame 字段；其 frame 由所属 Junction
+    // 全部 connection 的 entry/exit approach edge 的绑定来源唯一导出并互相验证。
+    let mut junction_symbols: HashMap<(&str, &str), HirJunctionKey> =
+        HashMap::with_capacity(junction.junctions.len());
+    for (junction_index, record) in junction.junctions.iter().enumerate() {
+        junction_symbols.insert(
+            (
+                unit.modules[record.module.index()]
+                    .descriptor()
+                    .authoring_namespace_id(),
+                record.stable_key.as_ref(),
+            ),
+            HirJunctionKey::from_raw(
+                u32::try_from(junction_index)
+                    .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+            ),
+        );
+    }
+    let mut junction_closure = vec![None::<Option<HirCanonicalFrameKey>>; junction.junctions.len()];
+    for (module_index, source_module) in unit.modules.iter().enumerate() {
+        let Some(payload) = &unit.geometry_payloads[module_index] else {
+            continue;
+        };
+        let module_key = HirModuleKey::from_raw(
+            u32::try_from(module_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        let mut internal_curves: HashMap<(&str, &str), &[FrozenCanonicalPoint]> =
+            HashMap::with_capacity(payload.frozen.internal_edge_curves.len());
+        for curve in &payload.frozen.internal_edge_curves {
+            internal_curves.insert((&curve.junction_key, &curve.lane_edge_key), &curve.points);
+        }
+        for declaration in &source_module.declarations {
+            let TypedAstDeclaration::GeometryInternalEdge(intent) = declaration else {
+                continue;
+            };
+            let junction_key = *junction_symbols
+                .get(&(
+                    intent.junction.module_namespace.as_ref(),
+                    intent.junction.declaration_key.as_ref(),
+                ))
+                .expect("junction HIR owns every internal edge junction");
+            let closure_frame = match junction_closure[junction_key.index()] {
+                Some(cached) => cached,
+                None => {
+                    let derived = derive_junction_closure_frame(
+                        &mut diagnostics,
+                        module_index,
+                        &frames,
+                        junction_key,
+                        junction,
+                        lane_edges,
+                        &symbolic_edge_frames,
+                        &intent.key,
+                        &intent.span,
+                    );
+                    junction_closure[junction_key.index()] = Some(derived);
+                    derived
+                }
+            };
+            // 闭包失败时诊断已收集，该路口的内部边不再绑定。
+            let Some(frame_key) = closure_frame else {
+                continue;
+            };
+            let lane_edge = lane_edge_symbols
+                .get(module_key, &intent.key)
+                .expect("Typed AST registers every internal LaneEdge");
+            if let Some(existing) = edge_bindings[lane_edge.index()] {
+                let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                    Some(&frames.get(frame_key).stable_key),
+                    &lane_edges.get(lane_edge).stable_key,
+                    None,
+                    SpatialGeometryViolation::DuplicateEdgeBinding,
+                    intent.span.clone(),
+                    Some(geometries[existing.geometry_index].source_span.clone()),
+                );
+                diagnostic
+                    .set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+                diagnostics.push(diagnostic);
+                continue;
+            }
+            let curve_points = internal_curves
+                .get(&(
+                    intent.junction.declaration_key.as_ref(),
+                    intent.key.as_ref(),
+                ))
+                .expect("numeric freeze emits one curve per internal edge");
+            if let Some(geometry_index) = append_lane_edge_geometry(
+                unit,
+                &mut diagnostics,
+                module_index,
+                module_key,
+                &frames,
+                frame_key,
+                lane_edge,
+                lane_edges,
+                curve_points,
+                &intent.span,
+                &mut points,
+                &mut segments,
+                &mut geometries,
+            )? {
+                edge_bindings[lane_edge.index()] = Some(SpatialEdgeBinding {
+                    frame: frame_key,
+                    geometry_index,
+                    direction_profile: Some(payload.direction_profile),
+                });
+            }
         }
     }
 
     if !diagnostics.is_empty() {
         return Err(diagnostics.finish());
+    }
+
+    // 最终排列：geometry 表按 frame 聚簇并保持各来源追加序，frame 行保存连续区间。
+    // geometry 派生绑定可落在其它模块声明的 frame 上；Synthetic-only 单元的几何本就在
+    // frame 创建循环内连续追加，稳定排序保持逐位一致。
+    let mut order: Vec<usize> = (0..geometries.len()).collect();
+    order.sort_by_key(|index| geometries[*index].canonical_frame.index());
+    let mut remap = vec![0_usize; geometries.len()];
+    let mut slots: Vec<Option<HirLaneEdgeGeometry>> = std::mem::take(&mut geometries)
+        .into_iter()
+        .map(Some)
+        .collect();
+    let mut ordered: Vec<HirLaneEdgeGeometry> = Vec::with_capacity(slots.len());
+    for index in order {
+        remap[index] = ordered.len();
+        ordered.push(
+            slots[index]
+                .take()
+                .expect("each geometry is ordered exactly once"),
+        );
+    }
+    geometries = ordered;
+    for binding in edge_bindings.iter_mut().flatten() {
+        binding.geometry_index = remap[binding.geometry_index];
+    }
+    let mut geometry_cursor = 0_usize;
+    for frame_index in 0..frames.len() {
+        let frame_key = HirCanonicalFrameKey::from_raw(
+            u32::try_from(frame_index)
+                .map_err(|_| arena_overflow(ArenaKeyOverflow, &unit.limits, None))?,
+        );
+        let start = geometry_cursor;
+        while geometry_cursor < geometries.len()
+            && geometries[geometry_cursor].canonical_frame == frame_key
+        {
+            geometry_cursor += 1;
+        }
+        let frame = frames.get_mut(frame_key);
+        frame.lane_edge_geometries =
+            TableRange::try_from_usize(start, geometry_cursor.saturating_sub(start)).map_err(
+                |overflow| arena_overflow(overflow, &unit.limits, Some(frame.source_span.clone())),
+            )?;
+    }
+    debug_assert_eq!(geometry_cursor, geometries.len());
+
+    // facility band 几何行：非空点范围在全部 lane edge 点之后拼入同一平面表（§5.4）。
+    let mut facility_band_geometries: Vec<HirFacilityBandGeometry> =
+        Vec::with_capacity(facility_rows.len());
+    for row in facility_rows {
+        let point_start = points.len();
+        points.extend(
+            row.points
+                .iter()
+                .map(|point| HirCanonicalPoint3F32::from(*point)),
+        );
+        facility_band_geometries.push(HirFacilityBandGeometry {
+            facility_band: row.facility_band,
+            canonical_frame: row.canonical_frame,
+            points: TableRange::try_from_usize(
+                point_start,
+                points.len().saturating_sub(point_start),
+            )
+            .map_err(|overflow| {
+                arena_overflow(overflow, &unit.limits, Some(row.source_span.clone()))
+            })?,
+            source_span: row.source_span,
+        });
     }
 
     if !geometries.is_empty() {
@@ -4695,20 +5351,20 @@ fn build_spatial_hir(
     }
 
     for (edge_key, edge) in lane_edges.iter() {
-        let Some((frame, geometry_index)) = edge_bindings[edge_key.index()] else {
+        let Some(binding) = edge_bindings[edge_key.index()] else {
             continue;
         };
-        let geometry = &geometries[geometry_index];
-        let end = points[geometry.points.as_usize_range().end - 1];
+        let geometry = &geometries[binding.geometry_index];
+        let end_index = geometry.points.as_usize_range().end - 1;
+        let end = points[end_index];
         for successor in &lane_edge_references[edge.successors.as_usize_range()] {
-            let (successor_frame, successor_geometry_index) = edge_bindings
-                [successor.target.index()]
-            .expect("complete spatial coverage must bind every successor");
-            let successor_geometry = &geometries[successor_geometry_index];
+            let successor_binding = edge_bindings[successor.target.index()]
+                .expect("complete spatial coverage must bind every successor");
+            let successor_geometry = &geometries[successor_binding.geometry_index];
             let successor_edge = lane_edges.get(successor.target);
-            if frame != successor_frame {
+            if binding.frame != successor_binding.frame {
                 diagnostics.push(Diagnostic::invalid_spatial_geometry(
-                    Some(&frames.get(frame).stable_key),
+                    Some(&frames.get(binding.frame).stable_key),
                     &edge.stable_key,
                     Some(&successor_edge.stable_key),
                     SpatialGeometryViolation::ConnectedEdgesUseDifferentFrames,
@@ -4717,13 +5373,14 @@ fn build_spatial_hir(
                 ));
                 continue;
             }
-            let start = points[successor_geometry.points.as_usize_range().start];
+            let start_index = successor_geometry.points.as_usize_range().start;
+            let start = points[start_index];
             let distance = (start.x - end.x)
                 .hypot(start.y - end.y)
                 .hypot(start.z - end.z);
             if distance > SPATIAL_JOIN_POSITION_TOLERANCE_METERS {
                 diagnostics.push(Diagnostic::invalid_spatial_geometry(
-                    Some(&frames.get(frame).stable_key),
+                    Some(&frames.get(binding.frame).stable_key),
                     &edge.stable_key,
                     Some(&successor_edge.stable_key),
                     SpatialGeometryViolation::DiscontinuousJoin {
@@ -4734,6 +5391,44 @@ fn build_spatial_hir(
                     Some(successor.source_span.clone()),
                 ));
             }
+            // 连接方向检查（§6.1）：仅 geometry 派生边携带方向档；两端均来自
+            // Synthetic 显式中心线时保持既有语义（不检查）。两端档位不同则两个
+            // 档位都要通过，先查前驱携带的档位。
+            let mut profiles = [
+                binding.direction_profile,
+                successor_binding.direction_profile,
+            ]
+            .into_iter()
+            .flatten();
+            if let Some(first) = profiles.next() {
+                let second = profiles.find(|profile| *profile != first);
+                let predecessor_chord = connection_chord(points[end_index - 1], end);
+                let successor_chord = connection_chord(start, points[start_index + 1]);
+                let mut check = |profile: GeometryDirectionProfile| {
+                    let (ok, dot, bound, threshold) =
+                        connection_direction_check(predecessor_chord, successor_chord, profile);
+                    if !ok {
+                        diagnostics.push(Diagnostic::invalid_spatial_geometry(
+                            Some(&frames.get(binding.frame).stable_key),
+                            &edge.stable_key,
+                            Some(&successor_edge.stable_key),
+                            SpatialGeometryViolation::DirectionJumpExceeded {
+                                dot_bits: dot.to_bits(),
+                                bound_bits: bound.to_bits(),
+                                threshold_bits: threshold.to_bits(),
+                            },
+                            geometry.source_span.clone(),
+                            Some(successor.source_span.clone()),
+                        ));
+                    }
+                    ok
+                };
+                if check(first)
+                    && let Some(second) = second
+                {
+                    check(second);
+                }
+            }
         }
     }
     if !diagnostics.is_empty() {
@@ -4743,9 +5438,288 @@ fn build_spatial_hir(
     Ok(SpatialHir {
         canonical_frames: frames.into_boxed_slice(),
         lane_edge_geometries: geometries.into_boxed_slice(),
+        facility_band_geometries: facility_band_geometries.into_boxed_slice(),
         canonical_points: points.into_boxed_slice(),
         spatial_segments: segments.into_boxed_slice(),
     })
+}
+
+/// 把一个 lane edge 的折线几何追加进空间平面表：逐段退化检查、弦长线投影方向
+/// 推导 segment 行，最后对照 lane edge 声明长度。返回该边在 geometry 表中的
+/// 行下标；诊断不可恢复时向上传播。Synthetic 与 geometry 派生路径共用此函数，
+/// 两者语义逐位一致。
+#[allow(clippy::too_many_arguments)]
+fn append_lane_edge_geometry<P: Copy + Into<HirCanonicalPoint3F32>>(
+    unit: &CompilationUnit,
+    diagnostics: &mut DiagnosticCollector,
+    module_index: usize,
+    module_key: HirModuleKey,
+    frames: &TypedArena<HirCanonicalFrameTag, HirCanonicalFrame>,
+    frame_key: HirCanonicalFrameKey,
+    lane_edge: HirLaneEdgeKey,
+    lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    curve_points: &[P],
+    source_span: &SourceSpan,
+    points: &mut Vec<HirCanonicalPoint3F32>,
+    segments: &mut Vec<HirSpatialSegment>,
+    geometries: &mut Vec<HirLaneEdgeGeometry>,
+) -> Result<Option<usize>, DiagnosticBundle> {
+    let point_start = points.len();
+    points.extend(curve_points.iter().map(|point| (*point).into()));
+    let segment_start = segments.len();
+    let mut cumulative = 0.0_f32;
+    let mut geometry_valid = true;
+    for (segment_index, pair) in points[point_start..].windows(2).enumerate() {
+        let delta = [
+            canonicalize_spatial_zero(pair[1].x - pair[0].x),
+            canonicalize_spatial_zero(pair[1].y - pair[0].y),
+            canonicalize_spatial_zero(pair[1].z - pair[0].z),
+        ];
+        let length = delta[0].hypot(delta[1]).hypot(delta[2]);
+        if length <= SPATIAL_MIN_SEGMENT_LENGTH_METERS {
+            let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                Some(&frames.get(frame_key).stable_key),
+                &lane_edges.get(lane_edge).stable_key,
+                None,
+                SpatialGeometryViolation::DegenerateSegment {
+                    segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
+                    length_bits: length.to_bits(),
+                    minimum_bits: SPATIAL_MIN_SEGMENT_LENGTH_METERS.to_bits(),
+                },
+                source_span.clone(),
+                None,
+            );
+            diagnostic.set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+            diagnostics.push(diagnostic);
+            geometry_valid = false;
+            break;
+        }
+        // 与 current Spatial 的受检单位向量构造保持逐位一致：先按最大绝对
+        // 分量缩放可避免平方求和溢出，也防止迁移投影重建出不同的局部基。
+        let tangent = normalize_spatial_vector(delta);
+        let projected_up = tangent[0].hypot(tangent[2]);
+        if projected_up < SPATIAL_MIN_PROJECTED_UP_LENGTH {
+            let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                Some(&frames.get(frame_key).stable_key),
+                &lane_edges.get(lane_edge).stable_key,
+                None,
+                SpatialGeometryViolation::DegenerateProjectedUp {
+                    segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
+                    projected_up_bits: projected_up.to_bits(),
+                    minimum_bits: SPATIAL_MIN_PROJECTED_UP_LENGTH.to_bits(),
+                },
+                source_span.clone(),
+                None,
+            );
+            diagnostic.set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+            diagnostics.push(diagnostic);
+            geometry_valid = false;
+            break;
+        }
+        let left = normalize_spatial_vector([tangent[2], 0.0, -tangent[0]]);
+        let raw_up = [
+            tangent[1] * left[2],
+            tangent[2] * left[0] - tangent[0] * left[2],
+            -tangent[1] * left[0],
+        ];
+        let up = normalize_spatial_vector(raw_up);
+        let next_cumulative = cumulative + length;
+        if !next_cumulative.is_finite() || next_cumulative <= cumulative {
+            let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                Some(&frames.get(frame_key).stable_key),
+                &lane_edges.get(lane_edge).stable_key,
+                None,
+                SpatialGeometryViolation::ArcLengthAccumulationFailed {
+                    segment_index: u32::try_from(segment_index).unwrap_or(u32::MAX),
+                    accumulated_bits: cumulative.to_bits(),
+                    segment_length_bits: length.to_bits(),
+                },
+                source_span.clone(),
+                None,
+            );
+            diagnostic.set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+            diagnostics.push(diagnostic);
+            geometry_valid = false;
+            break;
+        }
+        segments.push(HirSpatialSegment {
+            length_meters: length,
+            cumulative_end_meters: next_cumulative,
+            tangent,
+            up,
+        });
+        cumulative = next_cumulative;
+    }
+    if !geometry_valid {
+        points.truncate(point_start);
+        segments.truncate(segment_start);
+        return Ok(None);
+    }
+    let lane_edge_length = lane_edges.get(lane_edge).length_meters;
+    let tolerance = SPATIAL_LENGTH_ABS_TOLERANCE_METERS
+        .max(SPATIAL_LENGTH_REL_TOLERANCE * lane_edge_length.max(f64::from(cumulative)))
+        + SPATIAL_CORE_LENGTH_QUANTIZATION_ALLOWANCE_METERS;
+    if (lane_edge_length - f64::from(cumulative)).abs() > tolerance {
+        let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+            Some(&frames.get(frame_key).stable_key),
+            &lane_edges.get(lane_edge).stable_key,
+            None,
+            SpatialGeometryViolation::LengthMismatch {
+                lane_edge_length_bits: lane_edge_length.to_bits(),
+                geometry_length_bits: cumulative.to_bits(),
+                tolerance_bits: tolerance.to_bits(),
+            },
+            source_span.clone(),
+            None,
+        );
+        diagnostic.set_canonical_module_order(u32::try_from(module_index).unwrap_or(u32::MAX));
+        diagnostics.push(diagnostic);
+        points.truncate(point_start);
+        segments.truncate(segment_start);
+        return Ok(None);
+    }
+    let geometry_index = geometries.len();
+    geometries.push(HirLaneEdgeGeometry {
+        module: module_key,
+        canonical_frame: frame_key,
+        lane_edge,
+        points: TableRange::try_from_usize(point_start, points.len().saturating_sub(point_start))
+            .map_err(|overflow| {
+            arena_overflow(overflow, &unit.limits, Some(source_span.clone()))
+        })?,
+        segments: TableRange::try_from_usize(
+            segment_start,
+            segments.len().saturating_sub(segment_start),
+        )
+        .map_err(|overflow| arena_overflow(overflow, &unit.limits, Some(source_span.clone())))?,
+        arc_length_meters: cumulative,
+        source_span: source_span.clone(),
+    });
+    Ok(Some(geometry_index))
+}
+
+/// 推导 Junction frame 闭包：拥有几何的 internal edge 所在 Junction 的全部
+/// connection 的 entry/exit approach 边必须都有几何绑定，且绑定的 frame 必须
+/// 唯一（§6.2）。返回闭包 frame；任一约束不满足时报告诊断并返回 `None`。
+/// `symbolic_edge_frames` 记录每条边的符号化绑定来源（Synthetic 显式声明或
+/// geometry 派生），是闭包判读的唯一事实源。
+#[allow(clippy::too_many_arguments)]
+fn derive_junction_closure_frame(
+    diagnostics: &mut DiagnosticCollector,
+    module_index: usize,
+    frames: &TypedArena<HirCanonicalFrameTag, HirCanonicalFrame>,
+    junction_key: HirJunctionKey,
+    junction: &JunctionHir,
+    lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
+    symbolic_edge_frames: &[Option<HirCanonicalFrameKey>],
+    internal_edge_key: &str,
+    internal_edge_span: &SourceSpan,
+) -> Option<HirCanonicalFrameKey> {
+    let mut derived: Option<(HirCanonicalFrameKey, HirLaneEdgeKey, SourceSpan)> = None;
+    let mut visited: Vec<HirLaneEdgeKey> = Vec::new();
+    let mut missing_reported: Vec<HirLaneEdgeKey> = Vec::new();
+    let mut conflict_reported = false;
+    let junction_record = &junction.junctions[junction_key.index()];
+    for junction_movement in
+        &junction.junction_movements[junction_record.movements.as_usize_range()]
+    {
+        let movement = &junction.movements[junction_movement.movement.index()];
+        for movement_path in
+            &junction.movement_maneuver_paths[movement.maneuver_paths.as_usize_range()]
+        {
+            let path = &junction.maneuver_paths[movement_path.maneuver_path.index()];
+            let edge_range = path.edges.as_usize_range();
+            // 完整序列是 entry + internal + exit，首尾即 entry/exit approach 边。
+            for approach_index in [edge_range.start, edge_range.end - 1] {
+                let approach = junction.maneuver_path_edges[approach_index].target;
+                if visited.contains(&approach) {
+                    continue;
+                }
+                visited.push(approach);
+                let Some(approach_frame) = symbolic_edge_frames[approach.index()] else {
+                    missing_reported.push(approach);
+                    let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                        None,
+                        &lane_edges.get(approach).stable_key,
+                        Some(internal_edge_key),
+                        SpatialGeometryViolation::ApproachGeometryMissing,
+                        lane_edges.get(approach).source_span.clone(),
+                        Some(internal_edge_span.clone()),
+                    );
+                    diagnostic.set_canonical_module_order(
+                        u32::try_from(module_index).unwrap_or(u32::MAX),
+                    );
+                    diagnostics.push(diagnostic);
+                    continue;
+                };
+                if let Some((frame, first_approach, first_span)) = &derived {
+                    if *frame != approach_frame && !conflict_reported {
+                        conflict_reported = true;
+                        let mut diagnostic = Diagnostic::invalid_spatial_geometry(
+                            Some(&frames.get(*frame).stable_key),
+                            &lane_edges.get(*first_approach).stable_key,
+                            Some(&lane_edges.get(approach).stable_key),
+                            SpatialGeometryViolation::ApproachFrameConflict,
+                            first_span.clone(),
+                            Some(lane_edges.get(approach).source_span.clone()),
+                        );
+                        diagnostic.set_canonical_module_order(
+                            u32::try_from(module_index).unwrap_or(u32::MAX),
+                        );
+                        diagnostics.push(diagnostic);
+                    }
+                } else {
+                    derived = Some((
+                        approach_frame,
+                        approach,
+                        lane_edges.get(approach).source_span.clone(),
+                    ));
+                }
+            }
+        }
+    }
+    if missing_reported.is_empty() && !conflict_reported {
+        derived.map(|(frame, _, _)| frame)
+    } else {
+        None
+    }
+}
+
+/// 连接弦：两个 canonical 点提升到 f64 后相减（§6.1 冻结数值语义），并把
+/// -0.0 归一为 +0.0。
+fn connection_chord(start: HirCanonicalPoint3F32, end: HirCanonicalPoint3F32) -> [f64; 3] {
+    [
+        canonicalize_connection_zero(f64::from(end.x) - f64::from(start.x)),
+        canonicalize_connection_zero(f64::from(end.y) - f64::from(start.y)),
+        canonicalize_connection_zero(f64::from(end.z) - f64::from(start.z)),
+    ]
+}
+
+/// 连接方向检查（§6.1）：前驱末弦与后继首弦的点积必须为正，且其平方不小于
+/// 弦长平方乘积与 cos² 阈值的乘积（含等号）。全部运算在 f64 下按固定顺序
+/// 执行，不使用 FMA/acos/epsilon；零弦因点积为 0 自然失败。返回
+///（是否通过、点积、弦长平方乘积与 cos² 的乘积、cos² 阈值）。
+fn connection_direction_check(
+    predecessor_chord: [f64; 3],
+    successor_chord: [f64; 3],
+    profile: GeometryDirectionProfile,
+) -> (bool, f64, f64, f64) {
+    let dot = ((predecessor_chord[0] * successor_chord[0])
+        + (predecessor_chord[1] * successor_chord[1]))
+        + (predecessor_chord[2] * successor_chord[2]);
+    let left_length_squared = ((predecessor_chord[0] * predecessor_chord[0])
+        + (predecessor_chord[1] * predecessor_chord[1]))
+        + (predecessor_chord[2] * predecessor_chord[2]);
+    let right_length_squared = ((successor_chord[0] * successor_chord[0])
+        + (successor_chord[1] * successor_chord[1]))
+        + (successor_chord[2] * successor_chord[2]);
+    let threshold = profile.runtime_cos_squared();
+    let bound = (left_length_squared * right_length_squared) * threshold;
+    ((dot > 0.0) && ((dot * dot) >= bound), dot, bound, threshold)
+}
+
+const fn canonicalize_connection_zero(value: f64) -> f64 {
+    if value == 0.0 { 0.0 } else { value }
 }
 
 fn normalize_spatial_vector(vector: [f32; 3]) -> [f32; 3] {
@@ -6719,6 +7693,23 @@ fn declaration_header(declaration: &TypedAstDeclaration) -> &crate::declaration:
         TypedAstDeclaration::VehicleProfile(declaration) => &declaration.header,
         TypedAstDeclaration::CanonicalFrame(declaration) => &declaration.header,
         TypedAstDeclaration::AccessRule(declaration) => &declaration.header,
+        TypedAstDeclaration::GeometryReferenceLine(_)
+        | TypedAstDeclaration::GeometryCrossSectionSpan(_)
+        | TypedAstDeclaration::GeometryConnection(_)
+        | TypedAstDeclaration::GeometryInternalEdge(_) => {
+            unreachable!("geometry intents carry no entity declaration header")
+        }
+    }
+}
+
+/// 全声明排序键：实体声明取稳定键，Geometry intent 取自身依附的声明键。
+fn declaration_sort_key(declaration: &TypedAstDeclaration) -> &Arc<str> {
+    match declaration {
+        TypedAstDeclaration::GeometryReferenceLine(intent) => &intent.road_key,
+        TypedAstDeclaration::GeometryCrossSectionSpan(intent) => &intent.span_key,
+        TypedAstDeclaration::GeometryConnection(intent) => &intent.maneuver_path.declaration_key,
+        TypedAstDeclaration::GeometryInternalEdge(intent) => &intent.key,
+        entity => &declaration_header(entity).stable_key,
     }
 }
 
@@ -6739,6 +7730,25 @@ fn lane_edge_reference_count(unit: &CompilationUnit) -> u64 {
         .filter_map(lane_edge_declaration)
         .fold(0_u64, |total, declaration| {
             total.saturating_add(u64::try_from(declaration.successors.len()).unwrap_or(u64::MAX))
+        })
+}
+
+/// Geometry 连接意图可派生的 transition 数上界：每条权威路径 `entry + internal + exit`
+/// 的相邻 pair 数，即 `internal_edges.len() + 1`。
+fn derived_transition_count(unit: &CompilationUnit) -> u64 {
+    unit.modules
+        .iter()
+        .flat_map(|module| module.declarations.iter())
+        .fold(0_u64, |total, declaration| {
+            if let TypedAstDeclaration::GeometryConnection(intent) = declaration {
+                total.saturating_add(
+                    u64::try_from(intent.internal_edges.len())
+                        .unwrap_or(u64::MAX)
+                        .saturating_add(1),
+                )
+            } else {
+                total
+            }
         })
 }
 
@@ -6791,7 +7801,11 @@ fn cross_section_counts(unit: &CompilationUnit) -> CrossSectionCounts {
             | TypedAstDeclaration::ParticipantClass(_)
             | TypedAstDeclaration::VehicleProfile(_)
             | TypedAstDeclaration::CanonicalFrame(_)
-            | TypedAstDeclaration::AccessRule(_) => {}
+            | TypedAstDeclaration::AccessRule(_)
+            | TypedAstDeclaration::GeometryReferenceLine(_)
+            | TypedAstDeclaration::GeometryCrossSectionSpan(_)
+            | TypedAstDeclaration::GeometryConnection(_)
+            | TypedAstDeclaration::GeometryInternalEdge(_) => {}
         }
     }
     counts
@@ -6977,6 +7991,31 @@ fn spatial_counts(unit: &CompilationUnit) -> SpatialCounts {
             }
         }
     }
+    // Geometry 冻结 payload 的派生行：lateral 曲线中 FacilityBand 计 facility 行
+    // （只计点，无 segment），其余 lateral 曲线与 internal 曲线各计一条 lane edge
+    // 几何（点 + points-1 段）。
+    for payload in unit.geometry_payloads.iter().flatten() {
+        for curve in &payload.frozen.lateral_curves {
+            let points = u64::try_from(curve.points.len()).unwrap_or(u64::MAX);
+            counts.canonical_points = counts.canonical_points.saturating_add(points);
+            if curve.kind == LateralIntentKind::FacilityBand {
+                counts.facility_band_geometries = counts.facility_band_geometries.saturating_add(1);
+            } else {
+                counts.lane_edge_geometries = counts.lane_edge_geometries.saturating_add(1);
+                counts.spatial_segments = counts
+                    .spatial_segments
+                    .saturating_add(points.saturating_sub(1));
+            }
+        }
+        for curve in &payload.frozen.internal_edge_curves {
+            let points = u64::try_from(curve.points.len()).unwrap_or(u64::MAX);
+            counts.lane_edge_geometries = counts.lane_edge_geometries.saturating_add(1);
+            counts.canonical_points = counts.canonical_points.saturating_add(points);
+            counts.spatial_segments = counts
+                .spatial_segments
+                .saturating_add(points.saturating_sub(1));
+        }
+    }
     counts
 }
 
@@ -7022,6 +8061,16 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
         let namespace_bytes =
             u64::try_from(module.descriptor().authoring_namespace_id().len()).unwrap_or(u64::MAX);
         for source_declaration in &module.declarations {
+            // Geometry intent 不派生身份，身份字节只由实体声明一侧承载。
+            if matches!(
+                source_declaration,
+                TypedAstDeclaration::GeometryReferenceLine(_)
+                    | TypedAstDeclaration::GeometryCrossSectionSpan(_)
+                    | TypedAstDeclaration::GeometryConnection(_)
+                    | TypedAstDeclaration::GeometryInternalEdge(_)
+            ) {
+                continue;
+            }
             let header = declaration_header(source_declaration);
             let bytes = match source_declaration {
                 TypedAstDeclaration::LaneEdge(_)
@@ -7067,6 +8116,12 @@ fn identity_byte_counts(unit: &CompilationUnit) -> (u64, u64) {
                 | TypedAstDeclaration::AccessRule(_) => 22_u64
                     .saturating_add(namespace_bytes)
                     .saturating_add(u64::try_from(header.stable_key.len()).unwrap_or(u64::MAX)),
+                TypedAstDeclaration::GeometryReferenceLine(_)
+                | TypedAstDeclaration::GeometryCrossSectionSpan(_)
+                | TypedAstDeclaration::GeometryConnection(_)
+                | TypedAstDeclaration::GeometryInternalEdge(_) => {
+                    unreachable!("geometry intents were skipped before identity accounting")
+                }
             };
             total = total.saturating_add(bytes);
             largest = largest.max(bytes);
@@ -7435,5 +8490,103 @@ mod tests {
                 observed,
             } if *limit == u64::from(source_live_bytes) && observed > limit
         )));
+    }
+
+    #[test]
+    fn connection_direction_check_matches_frozen_threshold_semantics() {
+        // §6.1 冻结数值语义：dot 必须为正且其平方不小于弦长平方乘积与 cos² 阈值的
+        // 乘积（含等号）。pred=[1,0,0]、succ=[1,0,z] 时 dot=1、dot²=1、
+        // bound=(1+z²)·threshold；下列位模式来自逐 ULP 扫描：pass 处的 bound 不超过
+        // 1.0，fail 处的 bound 恰好比 1.0 大 1 ULP。Balanced2Deg/Compact5Deg 在
+        // pass 处 dot² == bound 精确相等（等号通过）；Smooth1Deg 不存在精确等号的
+        // f64 位模式，其 pass 处 bound 恰比 1.0 小 1 ULP，同样贴住边界。
+        let cases = [
+            (
+                GeometryDirectionProfile::Smooth1Deg,
+                0x3f91_dfbd_9410_a253_u64,
+                0x3f91_dfbd_9410_a254_u64,
+                false,
+            ),
+            (
+                GeometryDirectionProfile::Balanced2Deg,
+                0x3fa1_e122_95d6_20a5_u64,
+                0x3fa1_e122_95d6_20a6_u64,
+                true,
+            ),
+            (
+                GeometryDirectionProfile::Compact5Deg,
+                0x3fb6_65a8_349d_5604_u64,
+                0x3fb6_65a8_349d_5605_u64,
+                true,
+            ),
+        ];
+        for (profile, pass_bits, fail_bits, exact_equality) in cases {
+            let (ok, dot, bound, threshold) = connection_direction_check(
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, f64::from_bits(pass_bits)],
+                profile,
+            );
+            assert!(ok, "{profile:?} boundary value must pass");
+            assert_eq!(dot, 1.0);
+            assert_eq!(threshold, profile.runtime_cos_squared());
+            if exact_equality {
+                assert_eq!(dot * dot, bound, "{profile:?} equality must be inclusive");
+            }
+            let (ok, ..) = connection_direction_check(
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, f64::from_bits(fail_bits)],
+                profile,
+            );
+            assert!(!ok, "{profile:?} one ULP beyond the boundary must fail");
+        }
+    }
+
+    #[test]
+    fn connection_direction_check_spans_profiles_and_rejects_nonpositive_dot() {
+        // 同一 3° 偏转：1°/2° 档失败，5° 档通过。
+        let cos3 = f64::from_bits(0x3fef_f4c5_ed12_e61d);
+        let sin3 = f64::from_bits(0x3faa_cbc7_48ef_c90e);
+        let cases = [
+            (GeometryDirectionProfile::Smooth1Deg, false),
+            (GeometryDirectionProfile::Balanced2Deg, false),
+            (GeometryDirectionProfile::Compact5Deg, true),
+        ];
+        for (profile, expected) in cases {
+            let (ok, ..) = connection_direction_check([1.0, 0.0, 0.0], [cos3, 0.0, sin3], profile);
+            assert_eq!(ok, expected, "{profile:?} must classify the 3-degree jump");
+        }
+        // 零弦 dot=0 自然失败；反向弦 dot 为负同样失败。
+        let (ok, dot, ..) = connection_direction_check(
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            GeometryDirectionProfile::Balanced2Deg,
+        );
+        assert!(!ok);
+        assert_eq!(dot, 0.0);
+        let (ok, dot, ..) = connection_direction_check(
+            [-1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            GeometryDirectionProfile::Balanced2Deg,
+        );
+        assert!(!ok);
+        assert_eq!(dot, -1.0);
+    }
+
+    #[test]
+    fn connection_chord_promotes_to_f64_and_canonicalizes_negative_zero() {
+        let start = HirCanonicalPoint3F32 {
+            x: 1.0,
+            y: -0.0,
+            z: 2.5,
+        };
+        let end = HirCanonicalPoint3F32 {
+            x: 1.0,
+            y: 0.0,
+            z: -2.5,
+        };
+        let chord = connection_chord(start, end);
+        assert_eq!(chord[0].to_bits(), 0.0_f64.to_bits());
+        assert_eq!(chord[1].to_bits(), 0.0_f64.to_bits());
+        assert_eq!(chord[2], -5.0);
     }
 }

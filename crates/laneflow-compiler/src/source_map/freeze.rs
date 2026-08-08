@@ -1097,7 +1097,9 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::CanonicalFrameLaneEdgeGeometry,
                 local_index: u32::try_from(local_index)
                     .expect("MIR range precheck proved local index fits u32"),
-                primary: location.resolve(frame.module, &geometry.source_span)?,
+                // 归属按中心线作者模块验证：geometry 派生行可绑定其它模块声明的
+                // frame，其来源位置仍在 payload 所属模块的文档内。
+                primary: location.resolve(geometry.module, &geometry.source_span)?,
             });
         }
     }

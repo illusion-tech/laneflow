@@ -11,6 +11,7 @@ use crate::{
 use super::descriptor::{SourceDocumentDescriptor, SourceModuleDescriptor};
 #[cfg(test)]
 use super::descriptor::{SourceDocumentOrigin, freeze_source_documents, source_document_digest};
+use super::geometry::{FrozenGeometryModulePayload, GeometryModule};
 use super::resources::size_bytes;
 use super::resources::{AdmissionTotals, ModuleResourceCounts, requested_hash_table_bytes};
 use super::synthetic::SyntheticModule;
@@ -54,6 +55,8 @@ impl TypedAstModule {
 pub(super) struct AdmittedOfficialModule {
     typed_ast: TypedAstModule,
     pub(super) resource_counts: ModuleResourceCounts,
+    /// Geometry 前端随模块冻结的几何载荷；其余前端恒为 `None`。
+    geometry_payload: Option<FrozenGeometryModulePayload>,
 }
 
 impl AdmittedOfficialModule {
@@ -67,11 +70,30 @@ impl AdmittedOfficialModule {
         Self {
             typed_ast,
             resource_counts,
+            geometry_payload: None,
         }
+    }
+
+    /// 构造携带冻结几何载荷的受检模块；几何载荷与 Typed AST 在准入前不可分。
+    pub(super) fn new_geometry(
+        typed_ast: TypedAstModule,
+        resource_counts: ModuleResourceCounts,
+        geometry_payload: FrozenGeometryModulePayload,
+    ) -> Self {
+        let mut module = Self::new(typed_ast, resource_counts);
+        module.geometry_payload = Some(geometry_payload);
+        module
     }
 
     pub(super) const fn typed_ast(&self) -> &TypedAstModule {
         &self.typed_ast
+    }
+
+    /// 返回随模块冻结的 Geometry 载荷（若有）；生产路径经
+    /// `CompilationUnit::geometry_payloads` 读取。
+    #[cfg(test)]
+    pub(super) const fn geometry_payload(&self) -> Option<&FrozenGeometryModulePayload> {
+        self.geometry_payload.as_ref()
     }
 }
 
@@ -176,10 +198,11 @@ impl TestOfficialModule {
         let AdmittedOfficialModule {
             typed_ast,
             resource_counts,
+            geometry_payload,
         } = admitted;
-        Self {
-            admitted: AdmittedOfficialModule::new(typed_ast, resource_counts),
-        }
+        let mut admitted = AdmittedOfficialModule::new(typed_ast, resource_counts);
+        admitted.geometry_payload = geometry_payload;
+        Self { admitted }
     }
 
     pub(super) fn move_first_lane_edge_span_to(&mut self, source_document_key: &str) {
@@ -205,10 +228,11 @@ impl TestOfficialModule {
         let AdmittedOfficialModule {
             typed_ast,
             resource_counts,
+            geometry_payload,
         } = module.admitted;
-        Self {
-            admitted: AdmittedOfficialModule::new(typed_ast, resource_counts),
-        }
+        let mut admitted = AdmittedOfficialModule::new(typed_ast, resource_counts);
+        admitted.geometry_payload = geometry_payload;
+        Self { admitted }
     }
 
     pub(super) fn move_first_lane_edge_successor_span_to(&mut self, source_document_key: &str) {
@@ -622,9 +646,14 @@ impl AdmissionSizing {
             .max(reorder_scratch_bytes);
 
         let builder_live_bytes = builder_live_requested_bytes(totals);
+        // 成功结果中几何载荷以 `Option<FrozenGeometryModulePayload>` 平行向量存续；
+        // 载荷内曲线点字节已随模块 `controlled_live_bytes` 计入 `module_payload_live_bytes`。
+        let geometry_payload_result_bytes =
+            size_bytes::<Option<FrozenGeometryModulePayload>>(module_count);
         let result_live_bytes = module_payload_live_bytes
             .saturating_add(source_document_index_bytes)
-            .saturating_add(typed_ast_module_bytes);
+            .saturating_add(typed_ast_module_bytes)
+            .saturating_add(geometry_payload_result_bytes);
         let graph_peak_live_bytes = builder_live_bytes.saturating_add(graph_scratch_bytes);
         // `collect` 期间旧模块向量和重排元组向量会短暂共存。
         let reorder_peak_live_bytes = builder_live_bytes
@@ -638,6 +667,7 @@ impl AdmissionSizing {
             .saturating_add(module_index_bytes)
             .saturating_add(reordered_module_bytes)
             .saturating_add(typed_ast_module_bytes)
+            .saturating_add(geometry_payload_result_bytes)
             .saturating_add(diagnostic_buffer_bytes)
             .saturating_add(canonical_index_bytes)
             .saturating_add(rank_bytes);
@@ -710,6 +740,19 @@ impl CompilationUnitBuilder {
     pub fn add_synthetic_module(
         &mut self,
         module: SyntheticModule,
+    ) -> Result<&mut Self, DiagnosticBundle> {
+        self.admit_official_module(module.admitted)
+    }
+
+    /// 原子加入一个已经由 Geometry 前端完成受检构造的模块。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`CompilationUnitBuilder::add_synthetic_module`] 相同：namespace 或来源文档键重复、
+    /// 或累计资源维度超过配置档时失败；失败不会改变构建器的索引与计数。
+    pub fn add_geometry_module(
+        &mut self,
+        module: GeometryModule,
     ) -> Result<&mut Self, DiagnosticBundle> {
         self.admit_official_module(module.admitted)
     }
@@ -977,14 +1020,21 @@ impl CompilationUnitBuilder {
         let source_document_index = self
             .source_document_index
             .freeze(&modules, self.totals.source_document_count);
-        let modules = modules
-            .into_iter()
-            .map(|(_, module)| module.typed_ast)
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+        let mut typed_ast_modules = Vec::with_capacity(modules.len());
+        let mut geometry_payloads = Vec::with_capacity(modules.len());
+        for (_, module) in modules {
+            let AdmittedOfficialModule {
+                typed_ast,
+                resource_counts: _,
+                geometry_payload,
+            } = module;
+            typed_ast_modules.push(typed_ast);
+            geometry_payloads.push(geometry_payload);
+        }
         Ok(CompilationUnit {
             limits: self.limits,
-            modules,
+            modules: typed_ast_modules.into_boxed_slice(),
+            geometry_payloads: geometry_payloads.into_boxed_slice(),
             source_document_index,
             source_document_count: self.totals.source_document_count,
             import_edge_count: self.totals.import_edge_count,
@@ -1009,6 +1059,8 @@ impl CompilationUnitBuilder {
 pub struct CompilationUnit {
     pub(crate) limits: CompileLimits,
     pub(crate) modules: Box<[TypedAstModule]>,
+    /// 与 `modules` 平行的冻结几何载荷；非 Geometry 前端模块为 `None`，供几何 MIR 消费。
+    pub(crate) geometry_payloads: Box<[Option<FrozenGeometryModulePayload>]>,
     source_document_index: FrozenSourceDocumentIndex,
     pub(crate) source_document_count: u64,
     pub(crate) import_edge_count: u64,

@@ -92,6 +92,22 @@ pub(crate) struct MirLaneEdgeConnection {
     pub(crate) source_span: SourceSpan,
 }
 
+/// Geometry 连接路径派生 transition 的一次出现位置；键已重映射为 MIR 致密键。
+///
+/// §4.4 要求全部 occurrence span 在 topology MIR 中保留；唯一 LIR successor relation 的
+/// 来源映射由后续切片按规范序取最小项。
+#[allow(dead_code, reason = "consumed by the following LIR source-map slice")]
+pub(crate) struct MirDerivedTransitionOccurrence {
+    /// 声明该出现的 connection 所在模块。
+    pub(crate) module: MirModuleKey,
+    /// 转换起始边。
+    pub(crate) predecessor: MirLaneEdgeKey,
+    /// 转换目标边。
+    pub(crate) successor: MirLaneEdgeKey,
+    /// 派生该 transition 的 connection 记录来源位置。
+    pub(crate) source_span: SourceSpan,
+}
+
 /// 已冻结模块归属和连续连接区间的车道图边 MIR 记录。
 pub(crate) struct MirLaneEdge {
     /// 拥有声明的 MIR 模块；不能用原始值当作 HIR 模块键。
@@ -387,11 +403,24 @@ pub(crate) struct MirCanonicalFrame {
 }
 
 pub(crate) struct MirLaneEdgeGeometry {
+    /// 中心线的作者模块（`source_span` 所在文档的属主）；geometry 派生行可与被绑定
+    /// frame 的模块不同（road 引用导入 frame 时）。
+    pub(crate) module: MirModuleKey,
     pub(crate) canonical_frame: MirCanonicalFrameKey,
     pub(crate) lane_edge: MirLaneEdgeKey,
     pub(crate) points: TableRange<MirCanonicalPoint3F32>,
     pub(crate) segments: TableRange<MirSpatialSegment>,
     pub(crate) arc_length_meters: f32,
+    pub(crate) source_span: SourceSpan,
+}
+
+/// Facility band 的几何行：只携带点范围（无 segment/弧长），点在全部 lane edge
+/// 点之后拼入同一 `canonical_points` 平面表。Synthetic FacilityBand 不产生行。
+#[allow(dead_code, reason = "consumed by the following LIR emission slice")]
+pub(crate) struct MirFacilityBandGeometry {
+    pub(crate) facility_band: MirFacilityBandKey,
+    pub(crate) canonical_frame: MirCanonicalFrameKey,
+    pub(crate) points: TableRange<MirCanonicalPoint3F32>,
     pub(crate) source_span: SourceSpan,
 }
 
@@ -518,6 +547,9 @@ pub(crate) struct MirUnit {
     pub(crate) modules: Box<[MirModule]>,
     pub(crate) lane_edges: Box<[MirLaneEdge]>,
     pub(crate) lane_edge_connections: Box<[MirLaneEdgeConnection]>,
+    /// Geometry 连接路径派生 transition 的全部出现位置；不含 Geometry 意图时恒为空表。
+    #[allow(dead_code, reason = "consumed by the following LIR source-map slice")]
+    pub(crate) derived_transition_occurrences: Box<[MirDerivedTransitionOccurrence]>,
     pub(crate) road_corridors: Box<[MirRoadCorridor]>,
     pub(crate) corridor_elements: Box<[MirCorridorElement]>,
     pub(crate) road_sections: Box<[MirRoadSection]>,
@@ -552,6 +584,8 @@ pub(crate) struct MirUnit {
     pub(crate) vehicle_profiles: Box<[MirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[MirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[MirLaneEdgeGeometry]>,
+    #[allow(dead_code, reason = "consumed by the following LIR emission slice")]
+    pub(crate) facility_band_geometries: Box<[MirFacilityBandGeometry]>,
     pub(crate) canonical_points: Box<[MirCanonicalPoint3F32]>,
     pub(crate) spatial_segments: Box<[MirSpatialSegment]>,
     pub(crate) access_rules: Box<[MirAccessRule]>,
@@ -584,6 +618,8 @@ pub(crate) fn lower_to_mir(
     let module_count = u64::try_from(hir.modules.len()).unwrap_or(u64::MAX);
     let lane_edge_count = u64::try_from(hir.lane_edges.len()).unwrap_or(u64::MAX);
     let connection_count = u64::try_from(hir.lane_edge_references.len()).unwrap_or(u64::MAX);
+    let derived_occurrence_count =
+        u64::try_from(hir.derived_transition_occurrences.len()).unwrap_or(u64::MAX);
     let cross_record_count = [
         hir.road_corridors.len(),
         hir.corridor_elements.len(),
@@ -668,6 +704,7 @@ pub(crate) fn lower_to_mir(
     });
     let mir_record_count = lane_edge_count
         .saturating_add(connection_count)
+        .saturating_add(derived_occurrence_count)
         .saturating_add(cross_record_count)
         .saturating_add(junction_record_count)
         .saturating_add(control_record_count)
@@ -675,6 +712,7 @@ pub(crate) fn lower_to_mir(
         .saturating_add(parking_record_count)
         .saturating_add(u64::try_from(hir.canonical_frames.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.lane_edge_geometries.len()).unwrap_or(u64::MAX))
+        .saturating_add(u64::try_from(hir.facility_band_geometries.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.canonical_points.len()).unwrap_or(u64::MAX))
         .saturating_add(u64::try_from(hir.spatial_segments.len()).unwrap_or(u64::MAX))
         .saturating_add(access_record_count)
@@ -720,6 +758,9 @@ pub(crate) fn lower_to_mir(
     let mir_owned_bytes = requested_bytes::<MirModule>(module_count)
         .saturating_add(requested_bytes::<MirLaneEdge>(lane_edge_count))
         .saturating_add(requested_bytes::<MirLaneEdgeConnection>(connection_count))
+        .saturating_add(requested_bytes::<MirDerivedTransitionOccurrence>(
+            derived_occurrence_count,
+        ))
         .saturating_add(requested_bytes::<MirRoadCorridor>(
             hir.road_corridors.len().try_into().unwrap_or(u64::MAX),
         ))
@@ -836,6 +877,12 @@ pub(crate) fn lower_to_mir(
         ))
         .saturating_add(requested_bytes::<MirLaneEdgeGeometry>(
             hir.lane_edge_geometries
+                .len()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        ))
+        .saturating_add(requested_bytes::<MirFacilityBandGeometry>(
+            hir.facility_band_geometries
                 .len()
                 .try_into()
                 .unwrap_or(u64::MAX),
@@ -979,6 +1026,19 @@ pub(crate) fn lower_to_mir(
                 |overflow| arena_overflow(overflow, &unit.limits, Some(edge.source_span.clone())),
             )?;
     }
+
+    // §4.4：派生 transition 的全部 occurrence span 随连接表一同降级，键显式重映射；
+    // MIR 不重复文本解析，唯一 LIR 来源选择由后续切片在这张表上完成。
+    let derived_transition_occurrences: Vec<MirDerivedTransitionOccurrence> = hir
+        .derived_transition_occurrences
+        .iter()
+        .map(|occurrence| MirDerivedTransitionOccurrence {
+            module: hir_module_to_mir[occurrence.module.index()],
+            predecessor: mir_key_for_hir(occurrence.predecessor, &hir_to_mir),
+            successor: mir_key_for_hir(occurrence.successor, &hir_to_mir),
+            source_span: occurrence.source_span.clone(),
+        })
+        .collect();
 
     let corridor_mapping = dense_mapping::<MirRoadCorridorTag>(hir.road_corridors.len())?;
     let section_mapping = dense_mapping::<MirRoadSectionTag>(hir.road_sections.len())?;
@@ -1420,11 +1480,24 @@ pub(crate) fn lower_to_mir(
         .iter()
         .map(|geometry| {
             Ok(MirLaneEdgeGeometry {
+                module: hir_module_to_mir[geometry.module.index()],
                 canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
                 lane_edge: hir_to_mir[geometry.lane_edge.index()],
                 points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,
                 segments: remap_range(geometry.segments, &unit.limits, &geometry.source_span)?,
                 arc_length_meters: geometry.arc_length_meters,
+                source_span: geometry.source_span.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, DiagnosticBundle>>()?;
+    let facility_band_geometries = hir
+        .facility_band_geometries
+        .iter()
+        .map(|geometry| {
+            Ok(MirFacilityBandGeometry {
+                facility_band: band_mapping[geometry.facility_band.index()],
+                canonical_frame: canonical_frame_mapping[geometry.canonical_frame.index()],
+                points: remap_range(geometry.points, &unit.limits, &geometry.source_span)?,
                 source_span: geometry.source_span.clone(),
             })
         })
@@ -1653,6 +1726,7 @@ pub(crate) fn lower_to_mir(
         modules: modules.into_boxed_slice(),
         lane_edges: lane_edges.into_boxed_slice(),
         lane_edge_connections: connections.into_boxed_slice(),
+        derived_transition_occurrences: derived_transition_occurrences.into_boxed_slice(),
         road_corridors: road_corridors.into_boxed_slice(),
         corridor_elements: corridor_elements.into_boxed_slice(),
         road_sections: road_sections.into_boxed_slice(),
@@ -1685,6 +1759,7 @@ pub(crate) fn lower_to_mir(
         parking_area_spaces: parking_area_spaces.into_boxed_slice(),
         canonical_frames: canonical_frames.into_boxed_slice(),
         lane_edge_geometries: lane_edge_geometries.into_boxed_slice(),
+        facility_band_geometries: facility_band_geometries.into_boxed_slice(),
         canonical_points: canonical_points.into_boxed_slice(),
         spatial_segments: spatial_segments.into_boxed_slice(),
         participant_classes: participant_classes.into_boxed_slice(),

@@ -49,17 +49,20 @@ pub use declaration::{
 };
 pub use diagnostic::{
     AccessCapability, AccessPlane, AccessRegulationField, Diagnostic, DiagnosticBundle,
-    DiagnosticCode, DiagnosticPayload, DiagnosticSeverity, ParkingAnchorRole, ParkingGeometryField,
-    ParkingGeometryViolation, SourceHeaderField, SourcePosition, SourceSpan, SourceTextViolation,
-    SpatialAxis, SpatialGeometryViolation, WaitingZoneGateRole,
+    DiagnosticCode, DiagnosticPayload, DiagnosticSeverity, GeometryDocumentViolation,
+    ParkingAnchorRole, ParkingGeometryField, ParkingGeometryViolation, SourceHeaderField,
+    SourcePosition, SourceSpan, SourceTextViolation, SpatialAxis, SpatialGeometryViolation,
+    WaitingZoneGateRole,
 };
 pub use identity::CanonicalIdentityViolation;
 pub use laneflow_static_contract::{AccessEffect, SignalAspect};
 pub use limits::{CompileLimitDimension, CompileLimits};
 pub use module::{
-    CompilationUnit, CompilationUnitBuilder, SOURCE_DOCUMENT_SET_DIGEST_VERSION,
-    SYNTHETIC_FRONTEND_VERSION, SourceDocumentDescriptor, SourceDocumentOrigin, SourceLanguage,
-    SourceModuleDescriptor, SyntheticModule, SyntheticModuleBuilder,
+    CompilationUnit, CompilationUnitBuilder, GEOMETRY_FRONTEND_VERSION, GeometryAccuracyProfile,
+    GeometryDirectionProfile, GeometryDocumentInput, GeometryModule, GeometryModuleBuilder,
+    SOURCE_DOCUMENT_SET_DIGEST_VERSION, SYNTHETIC_FRONTEND_VERSION, SourceDocumentDescriptor,
+    SourceDocumentOrigin, SourceLanguage, SourceModuleDescriptor, SyntheticModule,
+    SyntheticModuleBuilder,
 };
 pub use source::{SourceModuleHeader, SourceModuleHeaderInput};
 pub use source_map::{

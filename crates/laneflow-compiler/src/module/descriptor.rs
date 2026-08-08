@@ -15,6 +15,7 @@ pub const SOURCE_DOCUMENT_SET_DIGEST_VERSION: u32 = 1;
 #[non_exhaustive]
 pub enum SourceLanguage {
     SyntheticDsl = 1,
+    GeometryDocument = 2,
 }
 
 impl SourceLanguage {
@@ -23,6 +24,7 @@ impl SourceLanguage {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SyntheticDsl => "synthetic-dsl",
+            Self::GeometryDocument => "geometry-document",
         }
     }
 }
@@ -47,6 +49,11 @@ impl SourceDocumentOrigin {
         Self {
             display_source: None,
         }
+    }
+
+    /// 保存 Geometry 前端调用方提供的未认证显示/审计来源。
+    pub(super) const fn geometry(display_source: Option<Arc<str>>) -> Self {
+        Self { display_source }
     }
 
     #[cfg(test)]

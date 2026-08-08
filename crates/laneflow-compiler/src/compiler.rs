@@ -5478,6 +5478,175 @@ mod tests {
         ));
     }
 
+    /// 两条 successor 相接的 Synthetic 边（edge-a → edge-b），各长 10 米；
+    /// 中心线由各测试按场景挂载。
+    fn spatial_pair_builder(document: &str) -> SyntheticModuleBuilder {
+        let limits = CompileLimits::p100_initial_v1();
+        let header = SourceModuleHeader::new(
+            SourceModuleHeaderInput {
+                authoring_namespace_id: "city/spatial-pair",
+                source_document_key: document,
+                generator_build_id: "git:0123456789abcdef",
+                parameters_and_inputs_digest: [0x11; 32],
+                frontend_options_digest: [0x22; 32],
+                random_seed: Some(42),
+                provenance: "repository:laneflow",
+            },
+            &limits,
+        )
+        .unwrap();
+        let mut builder = SyntheticModuleBuilder::new(header, &limits).unwrap();
+        builder
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-a",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[LaneEdgeReference::local("edge-b")],
+            })
+            .unwrap()
+            .add_lane_edge(LaneEdgeInput {
+                lane_edge_key: "edge-b",
+                length_meters: 10.0,
+                speed_limit_meters_per_second: 10.0,
+                successors: &[],
+            })
+            .unwrap();
+        builder
+    }
+
+    #[test]
+    fn synthetic_join_tolerance_is_inclusive_at_exactly_five_millimeters() {
+        // §6.2 join 容差 0.005 含等号：edge-a 末端与 edge-b 起点的距离恰为
+        // 0.005f32 时通过；远 1 f32 ULP 时以 DiscontinuousJoin 失败关闭。
+        let successor = [
+            CanonicalPoint3F32Input {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            CanonicalPoint3F32Input {
+                x: 0.0,
+                y: 0.0,
+                z: 10.0,
+            },
+        ];
+        let compile_with_end_x = |end_x: f32| {
+            let mut builder = spatial_pair_builder("join-tolerance.document");
+            let predecessor = [
+                CanonicalPoint3F32Input {
+                    x: -10.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                CanonicalPoint3F32Input {
+                    x: end_x,
+                    y: 0.0,
+                    z: 0.0,
+                },
+            ];
+            let geometries = [
+                LaneEdgeGeometryInput {
+                    lane_edge: LaneEdgeReference::local("edge-a"),
+                    centerline_points: &predecessor,
+                },
+                LaneEdgeGeometryInput {
+                    lane_edge: LaneEdgeReference::local("edge-b"),
+                    centerline_points: &successor,
+                },
+            ];
+            builder
+                .add_canonical_frame(CanonicalFrameInput {
+                    canonical_frame_key: "frame-main",
+                    lane_edge_geometries: &geometries,
+                })
+                .unwrap();
+            Compiler::new().compile(unit([builder.finish().unwrap()]))
+        };
+
+        // 距离 == 容差：端点间隙 0.005 米、弧长与声明长度差 0.005 米 << 0.01 容差。
+        compile_with_end_x(-0.005).unwrap();
+
+        // 距离 == 容差 + 1 f32 ULP：唯一诊断是 edge-a → edge-b 的 DiscontinuousJoin。
+        let beyond = -f32::from_bits(0.005_f32.to_bits() + 1);
+        let diagnostics = compile_with_end_x(beyond)
+            .err()
+            .expect("join gap beyond tolerance must fail");
+        assert_eq!(diagnostics.diagnostics().len(), 1);
+        assert!(matches!(
+            diagnostics.diagnostics()[0].payload(),
+            DiagnosticPayload::InvalidSpatialGeometry {
+                lane_edge_key,
+                related_lane_edge_key: Some(related),
+                violation:
+                    crate::SpatialGeometryViolation::DiscontinuousJoin {
+                        distance_bits,
+                        tolerance_bits,
+                    },
+                ..
+            } if lane_edge_key.as_ref() == "edge-a"
+                && related.as_ref() == "edge-b"
+                && *distance_bits == f32::from_bits(0.005_f32.to_bits() + 1).to_bits()
+                && *tolerance_bits == 0.005_f32.to_bits()
+        ));
+    }
+
+    #[test]
+    fn synthetic_only_unit_skips_connection_direction_check() {
+        // §6.1：方向检查只作用于 geometry 派生边；两端均为 Synthetic 显式中心线的
+        // 90° 转折保持既有语义（不检查），编译成功且两条边都携带空间几何。
+        let mut builder = spatial_pair_builder("synthetic-turn.document");
+        let predecessor = [
+            CanonicalPoint3F32Input {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            CanonicalPoint3F32Input {
+                x: 10.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        ];
+        let successor = [
+            CanonicalPoint3F32Input {
+                x: 10.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            CanonicalPoint3F32Input {
+                x: 10.0,
+                y: 0.0,
+                z: 10.0,
+            },
+        ];
+        let geometries = [
+            LaneEdgeGeometryInput {
+                lane_edge: LaneEdgeReference::local("edge-a"),
+                centerline_points: &predecessor,
+            },
+            LaneEdgeGeometryInput {
+                lane_edge: LaneEdgeReference::local("edge-b"),
+                centerline_points: &successor,
+            },
+        ];
+        builder
+            .add_canonical_frame(CanonicalFrameInput {
+                canonical_frame_key: "frame-main",
+                lane_edge_geometries: &geometries,
+            })
+            .unwrap();
+
+        let output = Compiler::new()
+            .compile(unit([builder.finish().unwrap()]))
+            .unwrap();
+        let lir = output.lir();
+        assert_eq!(lir.lane_edges().len(), 2);
+        assert!(
+            lir.lane_edges()
+                .all(|edge| edge.spatial_geometry().is_some())
+        );
+    }
+
     #[test]
     fn vehicle_profile_frontend_rejects_invalid_scalars_and_deceleration_order() {
         let mut invalid_scalar = access_builder("vehicle-profile-invalid-scalar.document");
