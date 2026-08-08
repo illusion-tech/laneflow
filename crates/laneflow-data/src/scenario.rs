@@ -7,7 +7,8 @@
 use std::collections::HashMap;
 
 use laneflow_core::{EdgeHandle, LaneGraph};
-use laneflow_current_source::scenario_wire::WireSpatialPackage;
+use laneflow_current_source::scenario_wire::{WireScenarioManifest, WireSpatialPackage};
+use laneflow_current_source::wire::WirePackage;
 use laneflow_current_source::{CurrentArtifactInput, validate_scenario_compatible};
 use laneflow_spatial::{
     CANONICAL_POINT_COMPONENT_MAX_METERS, CANONICAL_POINT_COMPONENT_MIN_METERS, CanonicalFrameId,
@@ -123,21 +124,17 @@ pub fn from_scenario_json_slice(
         .iter()
         .map(|artifact| CurrentArtifactInput::new(artifact.artifact_ref(), artifact.bytes(), None))
         .collect::<Vec<_>>();
-    let parts = validate_scenario_compatible(manifest_input, &inputs)
-        .map_err(ScenarioError::from_current_source)?
-        .into_parts();
+    let (manifest, traffic_wire, spatial_wire) =
+        validate_scenario_compatible(manifest_input, &inputs)
+            .map_err(ScenarioError::from_current_source)?
+            .into_parts()
+            .into_documents();
 
     // source 原子成功后仍按 Traffic → Spatial 执行 current Core/Spatial 规范化；
-    // Spatial 绑定依赖 Traffic 规范化产出的 LaneGraph。
-    let traffic =
-        normalize(parts.traffic_wire()).map_err(|source| ScenarioError::TrafficPackage {
-            artifact_ref: parts.manifest().traffic().artifact_ref().to_owned(),
-            source: Box::new(source),
-        })?;
-    let spatial = normalize_spatial(
-        parts.spatial_wire(),
-        traffic.initial_traffic_data().lane_graph(),
-    )?;
+    // Spatial 绑定依赖 Traffic 规范化产出的 LaneGraph。三份 owned DTO 各自在
+    // 取出所需数据后随消费函数返回即释放，不整棵存活到规范化结束。
+    let traffic = normalize_traffic(traffic_wire, into_traffic_artifact_ref(manifest))?;
+    let spatial = normalize_spatial(spatial_wire, traffic.initial_traffic_data().lane_graph())?;
 
     Ok(LoadedScenario { traffic, spatial })
 }
@@ -154,8 +151,24 @@ pub fn from_scenario_json_str(
     from_scenario_json_slice(manifest_input.as_bytes(), artifacts)
 }
 
+/// 取出 Traffic descriptor 的 owned `artifactRef`；Manifest DTO 随本函数返回即释放。
+fn into_traffic_artifact_ref(manifest: WireScenarioManifest) -> String {
+    manifest.traffic().artifact_ref().to_owned()
+}
+
+/// 规范化 Traffic wire；Traffic DTO 随本函数返回即释放。
+fn normalize_traffic(
+    traffic_wire: WirePackage,
+    artifact_ref: String,
+) -> Result<LoadedPackage, ScenarioError> {
+    normalize(&traffic_wire).map_err(|source| ScenarioError::TrafficPackage {
+        artifact_ref,
+        source: Box::new(source),
+    })
+}
+
 fn normalize_spatial(
-    wire: &WireSpatialPackage,
+    wire: WireSpatialPackage,
     lane_graph: &LaneGraph,
 ) -> Result<LoadedSpatialPackage, ScenarioError> {
     let frame_id = CanonicalFrameId::try_new(wire.frame_id().to_owned()).map_err(|source| {
@@ -164,25 +177,27 @@ fn normalize_spatial(
             source,
         }
     })?;
-    let mut by_handle = HashMap::with_capacity(wire.edges().len());
+    let wire_edges = wire.into_edges();
+    let mut by_handle = HashMap::with_capacity(wire_edges.len());
 
-    for (edge_index, wire_edge) in wire.edges().iter().enumerate() {
+    for (edge_index, wire_edge) in wire_edges.into_iter().enumerate() {
+        let (traffic_edge_id, wire_points) = wire_edge.into_parts();
         let points_path = format!("edges[{edge_index}].centerline.points");
-        if wire_edge.centerline().points().len() < MIN_CENTERLINE_POINT_COUNT {
+        if wire_points.len() < MIN_CENTERLINE_POINT_COUNT {
             return Err(ScenarioError::InsufficientCenterlinePoints {
                 path: points_path,
                 min: MIN_CENTERLINE_POINT_COUNT,
-                actual: wire_edge.centerline().points().len(),
+                actual: wire_points.len(),
             });
         }
 
-        let mut points = Vec::with_capacity(wire_edge.centerline().points().len());
-        for (point_index, point) in wire_edge.centerline().points().iter().enumerate() {
+        let mut points = Vec::with_capacity(wire_points.len());
+        for (point_index, point) in wire_points.into_iter().enumerate() {
             let mut converted = [0.0_f32; 3];
-            for (axis_index, value) in point.iter().enumerate() {
+            for (axis_index, value) in point.into_iter().enumerate() {
                 let path =
                     format!("edges[{edge_index}].centerline.points[{point_index}][{axis_index}]");
-                converted[axis_index] = checked_coordinate(*value, path)?;
+                converted[axis_index] = checked_coordinate(value, path)?;
             }
             let point = CanonicalPoint3F32::try_new(converted[0], converted[1], converted[2])
                 .map_err(|source| ScenarioError::SpatialDomain {
@@ -193,19 +208,19 @@ fn normalize_spatial(
         }
 
         let edge_path = format!("edges[{edge_index}].trafficEdgeId");
-        let edge = lane_graph
-            .edge_handle(wire_edge.traffic_edge_id())
-            .ok_or_else(|| ScenarioError::UnknownTrafficEdge {
+        let edge = lane_graph.edge_handle(&traffic_edge_id).ok_or_else(|| {
+            ScenarioError::UnknownTrafficEdge {
                 path: edge_path.clone(),
-                traffic_edge_id: wire_edge.traffic_edge_id().to_owned(),
-            })?;
+                traffic_edge_id: traffic_edge_id.clone(),
+            }
+        })?;
         if by_handle
             .insert(edge, LoadedSpatialEdge { edge, points })
             .is_some()
         {
             return Err(ScenarioError::DuplicateTrafficEdge {
                 path: edge_path,
-                traffic_edge_id: wire_edge.traffic_edge_id().to_owned(),
+                traffic_edge_id,
             });
         }
     }
