@@ -10,7 +10,8 @@ pub mod wire;
 
 pub use error::{
     CurrentArtifactRole, CurrentDocumentRole, CurrentSourceError, CurrentSourceErrorPayload,
-    CurrentSourceIssue, CurrentSourceIssueContext, CurrentSourceIssueParts,
+    CurrentSourceIssue, CurrentSourceIssueContext, CurrentSourceIssueParts, CurrentSourcePosition,
+    CurrentSourceSpan,
 };
 pub use validate::{
     CurrentArtifactInput, CurrentDocumentInput, ValidatedCurrentSourceBundle,

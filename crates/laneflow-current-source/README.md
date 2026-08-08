@@ -9,7 +9,7 @@ LaneFlow current Traffic v0.10、SpatialPackage v0.1 与 ScenarioManifest v0.1 �
 
 两条能力成功时返回不可拆的验证能力（capability），跨包消费固定为 capability 上的借用 accessor 与消费型 `into_parts(self)` 视图；"无 Serde"的承诺只适用于 capability 与 parts——它们不提供 `Clone`、`Default`、Serde 或裸构造器。wire DTO record 字段保持私有，不提供 `Clone`、`Default`、公开字段或裸构造器；其 `Deserialize` derive 只是本未发布 crate 的隐藏实现面，仅供 crate 内部解析使用，不属于对外能力承诺。
 
-错误面固定为至少含一项 issue 的 `CurrentSourceError` bundle；每项 issue 携带 document、context、规范 `$` path、category 与 owned `serde_json::Error`，payload 只含 production 可达 variant 并提供稳定字符串码。`CurrentSourceIssueParts::into_components` 是调用方取走不可 Clone `serde_json::Error` 的唯一 owned bridge。
+错误面固定为至少含一项 issue 的 `CurrentSourceError` bundle；每项 issue 携带 document、context、规范 `$` path、category 与 owned `serde_json::Error`，并为后续切片的位置表预留可选 span；payload 只含 production 可达 variant 并提供稳定字符串码。`CurrentSourceIssueParts::into_components` 是调用方取走不可 Clone `serde_json::Error` 的唯一 owned bridge。
 
 本 crate 不读取文件、不联网、不做 Core/Spatial 规范化，也不建立位置表、strict profile 或资源账本（归属 #297 后续切片）。
 

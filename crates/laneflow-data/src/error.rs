@@ -2,7 +2,7 @@
 
 use laneflow_core::CoreError;
 use laneflow_current_source::{
-    CurrentSourceError, CurrentSourceErrorPayload, CurrentSourceIssueContext,
+    CurrentDocumentRole, CurrentSourceError, CurrentSourceErrorPayload, CurrentSourceIssueContext,
 };
 
 /// LaneFlow data package 解析、版本与 Core normalization 错误。
@@ -75,11 +75,20 @@ impl DataError {
             .into_iter()
             .next()
             .expect("CurrentSourceError 至少含一项 issue");
-        let (_document, context, path, payload) = issue.into_parts().into_components();
+        let (payload, document, context, path, span) = issue.into_parts().into_components();
         debug_assert!(
             matches!(context, CurrentSourceIssueContext::None),
             "Traffic-only 能力不带 scenario 上下文"
         );
+        let Some(CurrentDocumentRole::Traffic) = document else {
+            unreachable!("production-compatible Traffic issue 必携带 Traffic document")
+        };
+        let path = path
+            .expect("production-compatible issue 必携带规范 path")
+            .into_string();
+        let None = span else {
+            unreachable!("切片 2 production 路径不产出 span")
+        };
         Self::from_traffic_payload(path, payload)
     }
 

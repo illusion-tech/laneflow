@@ -381,9 +381,9 @@ impl IssueContext {
         payload: CurrentSourceErrorPayload,
     ) -> CurrentSourceError {
         CurrentSourceError::single(CurrentSourceIssue::new(
-            self.document,
+            Some(self.document),
             self.context.clone(),
-            path.into(),
+            Some(path.into().into_boxed_str()),
             payload,
         ))
     }

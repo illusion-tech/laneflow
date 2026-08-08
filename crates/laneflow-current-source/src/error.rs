@@ -22,6 +22,56 @@ pub enum CurrentArtifactRole {
     Spatial,
 }
 
+/// JSON 诊断的 1-based 单点位置。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CurrentSourcePosition {
+    line: u32,
+    column: u32,
+}
+
+impl CurrentSourcePosition {
+    // 位置表归 #297 后续切片；本切片无构造入口，构造器暂存为 pub(crate)。
+    #[allow(dead_code)]
+    pub(crate) const fn new(line: u32, column: u32) -> Self {
+        Self { line, column }
+    }
+
+    /// 返回 1-based 行号。
+    pub const fn line(self) -> u32 {
+        self.line
+    }
+
+    /// 返回 1-based 列号。
+    pub const fn column(self) -> u32 {
+        self.column
+    }
+}
+
+/// JSON 诊断的 source 位置区间。
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CurrentSourceSpan {
+    start: CurrentSourcePosition,
+    end: CurrentSourcePosition,
+}
+
+impl CurrentSourceSpan {
+    // 位置表归 #297 后续切片；本切片无构造入口，构造器暂存为 pub(crate)。
+    #[allow(dead_code)]
+    pub(crate) const fn new(start: CurrentSourcePosition, end: CurrentSourcePosition) -> Self {
+        Self { start, end }
+    }
+
+    /// 返回区间起点。
+    pub const fn start(self) -> CurrentSourcePosition {
+        self.start
+    }
+
+    /// 返回区间终点。
+    pub const fn end(self) -> CurrentSourcePosition {
+        self.end
+    }
+}
+
 /// issue 的调用上下文。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CurrentSourceIssueContext {
@@ -146,45 +196,61 @@ impl CurrentSourceErrorPayload {
 /// 一条 source 校验 issue。
 #[derive(Debug)]
 pub struct CurrentSourceIssue {
-    document: CurrentDocumentRole,
-    context: CurrentSourceIssueContext,
-    path: String,
     payload: CurrentSourceErrorPayload,
+    document: Option<CurrentDocumentRole>,
+    context: CurrentSourceIssueContext,
+    path: Option<Box<str>>,
+    span: Option<CurrentSourceSpan>,
 }
 
 impl CurrentSourceIssue {
     pub(crate) fn new(
-        document: CurrentDocumentRole,
+        document: Option<CurrentDocumentRole>,
         context: CurrentSourceIssueContext,
-        path: String,
+        path: Option<Box<str>>,
         payload: CurrentSourceErrorPayload,
     ) -> Self {
         Self {
+            payload,
             document,
             context,
             path,
-            payload,
+            span: None,
         }
-    }
-
-    /// 返回产生该 issue 的文档角色。
-    pub const fn document(&self) -> CurrentDocumentRole {
-        self.document
-    }
-
-    /// 返回该 issue 的调用上下文。
-    pub const fn context(&self) -> &CurrentSourceIssueContext {
-        &self.context
-    }
-
-    /// 返回规范 `$` path（根为 `$`）。
-    pub fn path(&self) -> &str {
-        &self.path
     }
 
     /// 返回该 issue 的 payload。
     pub const fn payload(&self) -> &CurrentSourceErrorPayload {
         &self.payload
+    }
+
+    /// 返回产生该 issue 的文档角色；后续切片的迭代器契约 issue 不属于任何文档。
+    pub const fn document(&self) -> Option<CurrentDocumentRole> {
+        self.document
+    }
+
+    /// 返回 scenario 路径中已完成 Manifest 绑定的 Traffic `artifactRef`；其他
+    /// 上下文为 `None`。
+    pub fn artifact_ref(&self) -> Option<&str> {
+        match &self.context {
+            CurrentSourceIssueContext::ScenarioTraffic { artifact_ref } => Some(artifact_ref),
+            CurrentSourceIssueContext::None => None,
+        }
+    }
+
+    /// 返回规范 `$` path（根为 `$`）；后续切片的迭代器契约 issue 无 path。
+    pub fn path(&self) -> Option<&str> {
+        self.path.as_deref()
+    }
+
+    /// 返回该 issue 的 source 位置区间；本切片无位置表，恒为 `None`。
+    pub const fn span(&self) -> Option<CurrentSourceSpan> {
+        self.span
+    }
+
+    /// 返回该 issue 的调用上下文。
+    pub const fn context(&self) -> &CurrentSourceIssueContext {
+        &self.context
     }
 
     /// 返回该 issue 的稳定字符串诊断码。
@@ -205,10 +271,11 @@ impl CurrentSourceIssue {
     /// 消费 issue 并返回其 parts 视图。
     pub fn into_parts(self) -> CurrentSourceIssueParts {
         CurrentSourceIssueParts {
+            payload: self.payload,
             document: self.document,
             context: self.context,
             path: self.path,
-            payload: self.payload,
+            span: self.span,
         }
     }
 }
@@ -216,10 +283,11 @@ impl CurrentSourceIssue {
 /// `CurrentSourceIssue` 的消费型 parts；字段私有。
 #[derive(Debug)]
 pub struct CurrentSourceIssueParts {
-    document: CurrentDocumentRole,
-    context: CurrentSourceIssueContext,
-    path: String,
     payload: CurrentSourceErrorPayload,
+    document: Option<CurrentDocumentRole>,
+    context: CurrentSourceIssueContext,
+    path: Option<Box<str>>,
+    span: Option<CurrentSourceSpan>,
 }
 
 impl CurrentSourceIssueParts {
@@ -229,12 +297,19 @@ impl CurrentSourceIssueParts {
     pub fn into_components(
         self,
     ) -> (
-        CurrentDocumentRole,
-        CurrentSourceIssueContext,
-        String,
         CurrentSourceErrorPayload,
+        Option<CurrentDocumentRole>,
+        CurrentSourceIssueContext,
+        Option<Box<str>>,
+        Option<CurrentSourceSpan>,
     ) {
-        (self.document, self.context, self.path, self.payload)
+        (
+            self.payload,
+            self.document,
+            self.context,
+            self.path,
+            self.span,
+        )
     }
 }
 
