@@ -56,9 +56,9 @@ fn traffic_version_gate_rejects_missing_null_non_string_and_duplicate_occurrence
     let issue = single_issue(
         validate_traffic_compatible(missing.as_bytes()).expect_err("missing formatVersion"),
     );
-    assert_eq!(issue.document(), CurrentDocumentRole::Traffic);
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
     assert_eq!(issue.context(), &CurrentSourceIssueContext::None);
-    assert_eq!(issue.path(), "$");
+    assert_eq!(issue.path(), Some("$"));
     assert!(matches!(
         issue.payload(),
         CurrentSourceErrorPayload::JsonShape { .. }
@@ -70,7 +70,7 @@ fn traffic_version_gate_rejects_missing_null_non_string_and_duplicate_occurrence
         let issue = single_issue(
             validate_traffic_compatible(mutated.as_bytes()).expect_err("non-string formatVersion"),
         );
-        assert_eq!(issue.document(), CurrentDocumentRole::Traffic);
+        assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
         assert!(
             matches!(issue.payload(), CurrentSourceErrorPayload::JsonShape { .. }),
             "显式 null 与非字符串 formatVersion 必须是 JsonShape"
@@ -100,7 +100,10 @@ fn traffic_unsupported_version_is_rejected_before_other_shape_errors() {
     let issue = single_issue(
         validate_traffic_compatible(&source).expect_err("unsupported version must win"),
     );
-    assert_eq!(issue.document(), CurrentDocumentRole::Traffic);
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
+    assert_eq!(issue.path(), Some("$"));
+    assert_eq!(issue.span(), None);
+    assert_eq!(issue.artifact_ref(), None);
     match issue.payload() {
         CurrentSourceErrorPayload::UnsupportedFormatVersion { expected, actual } => {
             assert_eq!(*expected, "0.10");
@@ -119,7 +122,7 @@ fn traffic_syntax_error_carries_real_position_and_syntax_category() {
         validate_traffic_compatible(b"{\"formatVersion\":\"0.10\",")
             .expect_err("truncated JSON must fail"),
     );
-    assert_eq!(issue.document(), CurrentDocumentRole::Traffic);
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
     // 截断输入的 serde 分类可能是 Eof 或 Syntax，两者都归入 JsonSyntax payload。
     assert!(matches!(
         issue.category(),
@@ -216,8 +219,8 @@ fn scenario_bundle_carries_exact_manifest_digest() {
 fn manifest_version_gate_rejects_missing_null_non_string_and_duplicate_occurrence() {
     let missing = MANIFEST.replacen("\"formatVersion\": \"0.1\",", "", 1);
     let issue = single_issue(scenario_error(missing.as_bytes(), &base_artifacts()));
-    assert_eq!(issue.document(), CurrentDocumentRole::Manifest);
-    assert_eq!(issue.path(), "$");
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Manifest));
+    assert_eq!(issue.path(), Some("$"));
     assert!(matches!(
         issue.payload(),
         CurrentSourceErrorPayload::JsonShape { .. }
@@ -250,7 +253,7 @@ fn manifest_unsupported_version_is_rejected_before_other_shape_errors() {
     manifest["formatVersion"] = json!("0.2");
     manifest["future"] = json!(true);
     let issue = single_issue(load_value(&manifest, TRAFFIC, SPATIAL));
-    assert_eq!(issue.document(), CurrentDocumentRole::Manifest);
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Manifest));
     match issue.payload() {
         CurrentSourceErrorPayload::UnsupportedFormatVersion { expected, actual } => {
             assert_eq!(*expected, "0.1");
@@ -268,8 +271,13 @@ fn manifest_shape_denies_unknown_fields_with_descriptor_path() {
     let mut manifest = manifest_value(TRAFFIC, SPATIAL);
     manifest["traffic"]["future"] = json!(true);
     let issue = single_issue(load_value(&manifest, TRAFFIC, SPATIAL));
-    assert_eq!(issue.document(), CurrentDocumentRole::Manifest);
-    assert!(issue.path().contains("traffic"));
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Manifest));
+    assert!(
+        issue
+            .path()
+            .expect("production-compatible issue 必携带 path")
+            .contains("traffic")
+    );
     assert!(matches!(
         issue.payload(),
         CurrentSourceErrorPayload::JsonShape { .. }
@@ -281,7 +289,7 @@ fn descriptor_semantics_enforce_ref_media_type_size_and_digest_lexeme() {
     let mut manifest = manifest_value(TRAFFIC, SPATIAL);
     manifest["traffic"]["artifactRef"] = json!("");
     let issue = single_issue(load_value(&manifest, TRAFFIC, SPATIAL));
-    assert_eq!(issue.path(), "traffic.artifactRef");
+    assert_eq!(issue.path(), Some("traffic.artifactRef"));
     assert!(matches!(
         issue.payload(),
         CurrentSourceErrorPayload::EmptyArtifactReference
@@ -290,7 +298,7 @@ fn descriptor_semantics_enforce_ref_media_type_size_and_digest_lexeme() {
     let mut manifest = manifest_value(TRAFFIC, SPATIAL);
     manifest["traffic"]["mediaType"] = json!("application/json");
     let issue = single_issue(load_value(&manifest, TRAFFIC, SPATIAL));
-    assert_eq!(issue.path(), "traffic.mediaType");
+    assert_eq!(issue.path(), Some("traffic.mediaType"));
     match issue.payload() {
         CurrentSourceErrorPayload::InvalidMediaType { expected, actual } => {
             assert_eq!(*expected, TRAFFIC_PACKAGE_MEDIA_TYPE);
@@ -302,7 +310,7 @@ fn descriptor_semantics_enforce_ref_media_type_size_and_digest_lexeme() {
     let mut manifest = manifest_value(TRAFFIC, SPATIAL);
     manifest["spatial"]["size"] = json!(9_007_199_254_740_992_u64);
     let issue = single_issue(load_value(&manifest, TRAFFIC, SPATIAL));
-    assert_eq!(issue.path(), "spatial.size");
+    assert_eq!(issue.path(), Some("spatial.size"));
     match issue.payload() {
         CurrentSourceErrorPayload::ArtifactSizeOutOfRange { actual, max } => {
             assert_eq!(*actual, 9_007_199_254_740_992_u64);
@@ -330,7 +338,7 @@ fn descriptor_semantics_enforce_ref_media_type_size_and_digest_lexeme() {
         let mut manifest = manifest_value(TRAFFIC, SPATIAL);
         manifest["spatial"]["digest"] = json!(digest);
         let issue = single_issue(load_value(&manifest, TRAFFIC, SPATIAL));
-        assert_eq!(issue.path(), "spatial.digest");
+        assert_eq!(issue.path(), Some("spatial.digest"));
         match issue.payload() {
             CurrentSourceErrorPayload::InvalidDigest { actual } => {
                 assert_eq!(&**actual, digest);
@@ -374,7 +382,7 @@ fn provided_refs_must_be_non_empty_and_unique() {
         CurrentArtifactInput::new("", b"extra", None),
     ];
     let issue = single_issue(scenario_error(&source, &empty));
-    assert_eq!(issue.path(), "artifacts[2].artifactRef");
+    assert_eq!(issue.path(), Some("artifacts[2].artifactRef"));
     assert!(matches!(
         issue.payload(),
         CurrentSourceErrorPayload::EmptyArtifactReference
@@ -386,7 +394,7 @@ fn provided_refs_must_be_non_empty_and_unique() {
         CurrentArtifactInput::new(SPATIAL_REF, SPATIAL, None),
     ];
     let issue = single_issue(scenario_error(&source, &duplicate));
-    assert_eq!(issue.path(), "artifacts[2].artifactRef");
+    assert_eq!(issue.path(), Some("artifacts[2].artifactRef"));
     match issue.payload() {
         CurrentSourceErrorPayload::DuplicateProvidedArtifactReference { artifact_ref } => {
             assert_eq!(&**artifact_ref, SPATIAL_REF);
@@ -460,7 +468,8 @@ fn traffic_wire_issues_carry_scenario_traffic_context() {
     let invalid_traffic = br#"{"formatVersion":"0.7"}"#;
     let manifest = manifest_value(invalid_traffic, SPATIAL);
     let issue = single_issue(load_value(&manifest, invalid_traffic, SPATIAL));
-    assert_eq!(issue.document(), CurrentDocumentRole::Traffic);
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
+    assert_eq!(issue.artifact_ref(), Some(TRAFFIC_REF));
     match issue.context() {
         CurrentSourceIssueContext::ScenarioTraffic { artifact_ref } => {
             assert_eq!(&**artifact_ref, TRAFFIC_REF);
@@ -483,7 +492,7 @@ fn traffic_wire_issues_carry_scenario_traffic_context() {
     let shape_traffic = br#"{"formatVersion":"0.10"}"#;
     let manifest = manifest_value(shape_traffic, SPATIAL);
     let issue = single_issue(load_value(&manifest, shape_traffic, SPATIAL));
-    assert_eq!(issue.document(), CurrentDocumentRole::Traffic);
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
     assert!(matches!(
         issue.context(),
         CurrentSourceIssueContext::ScenarioTraffic { .. }
@@ -499,7 +508,7 @@ fn spatial_wire_issues_use_spatial_document_without_context() {
     let invalid_spatial = br#"{"formatVersion":"0.2"}"#;
     let manifest = manifest_value(TRAFFIC, invalid_spatial);
     let issue = single_issue(load_value(&manifest, TRAFFIC, invalid_spatial));
-    assert_eq!(issue.document(), CurrentDocumentRole::Spatial);
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Spatial));
     assert_eq!(issue.context(), &CurrentSourceIssueContext::None);
     match issue.payload() {
         CurrentSourceErrorPayload::UnsupportedFormatVersion { expected, actual } => {
@@ -521,7 +530,7 @@ fn failure_order_is_frozen() {
         issue.payload(),
         CurrentSourceErrorPayload::JsonSyntax { .. }
     ));
-    assert_eq!(issue.document(), CurrentDocumentRole::Manifest);
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Manifest));
 
     // 版本先于其他 Manifest shape 与 descriptor。
     let mut manifest = manifest_value(TRAFFIC, SPATIAL);
@@ -548,7 +557,7 @@ fn failure_order_is_frozen() {
     manifest["traffic"]["mediaType"] = json!("application/json");
     manifest["spatial"]["mediaType"] = json!("application/json");
     let issue = single_issue(load_value(&manifest, TRAFFIC, SPATIAL));
-    assert_eq!(issue.path(), "traffic.mediaType");
+    assert_eq!(issue.path(), Some("traffic.mediaType"));
 
     // Traffic size/digest 先于 Spatial size/digest。
     let mut manifest = manifest_value(TRAFFIC, SPATIAL);
@@ -584,7 +593,7 @@ fn failure_order_is_frozen() {
     let invalid_spatial = br#"{"formatVersion":"0.2"}"#;
     let manifest = manifest_value(invalid_traffic, invalid_spatial);
     let issue = single_issue(load_value(&manifest, invalid_traffic, invalid_spatial));
-    assert_eq!(issue.document(), CurrentDocumentRole::Traffic);
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
 }
 
 #[test]
@@ -662,11 +671,13 @@ fn issue_parts_into_components_is_the_only_owned_bridge() {
     let mut issues = error.into_issues();
     assert_eq!(issues.len(), 1);
     let issue = issues.pop().expect("one issue");
-    assert_eq!(issue.document(), CurrentDocumentRole::Traffic);
-    let (document, context, path, payload) = issue.into_parts().into_components();
-    assert_eq!(document, CurrentDocumentRole::Traffic);
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
+    let (payload, document, context, path, span) = issue.into_parts().into_components();
+    assert_eq!(document, Some(CurrentDocumentRole::Traffic));
     assert_eq!(context, CurrentSourceIssueContext::None);
+    assert_eq!(span, None);
     // serde_path_to_error 对 syntax 错误报 "?"，normalize_path 只映射 ""/"."，与旧 Data 行为一致。
+    let path = path.expect("production-compatible issue 必携带 path");
     assert!(!path.is_empty());
     match payload {
         CurrentSourceErrorPayload::JsonSyntax { source } => {
