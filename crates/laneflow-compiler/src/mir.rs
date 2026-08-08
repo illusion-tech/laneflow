@@ -90,13 +90,21 @@ pub(crate) struct MirLaneEdgeConnection {
     pub(crate) target: MirLaneEdgeKey,
     /// 原始引用位置，供后续诊断与源映射使用。
     pub(crate) source_span: SourceSpan,
+    /// `source_span` 的属主模块：派生 transition 为声明该 connection 的模块（entry/exit
+    /// 可跨模块导入，不能由起始边归属反推）；普通显式 successor 为 `None`，解析时回落到
+    /// 起始边模块。
+    pub(crate) source_module: Option<MirModuleKey>,
 }
 
 /// Geometry 连接路径派生 transition 的一次出现位置；键已重映射为 MIR 致密键。
 ///
-/// §4.4 要求全部 occurrence span 在 topology MIR 中保留；唯一 LIR successor relation 的
-/// 来源映射由后续切片按规范序取最小项。
-#[allow(dead_code, reason = "consumed by the following LIR source-map slice")]
+/// §4.4 要求全部 occurrence span 在 topology MIR 中保留用于相关诊断；唯一 LIR successor
+/// relation 的来源映射由合并后的 `MirLaneEdgeConnection`（最小 occurrence 的 span 与来源
+/// 模块）携带，本侧表当前没有生产读者。
+#[allow(
+    dead_code,
+    reason = "diagnostic-only §4.4 occurrence retention without a production reader"
+)]
 pub(crate) struct MirDerivedTransitionOccurrence {
     /// 声明该出现的 connection 所在模块。
     pub(crate) module: MirModuleKey,
@@ -416,7 +424,6 @@ pub(crate) struct MirLaneEdgeGeometry {
 
 /// Facility band 的几何行：只携带点范围（无 segment/弧长），点在全部 lane edge
 /// 点之后拼入同一 `canonical_points` 平面表。Synthetic FacilityBand 不产生行。
-#[allow(dead_code, reason = "consumed by the following LIR emission slice")]
 pub(crate) struct MirFacilityBandGeometry {
     pub(crate) facility_band: MirFacilityBandKey,
     pub(crate) canonical_frame: MirCanonicalFrameKey,
@@ -548,7 +555,11 @@ pub(crate) struct MirUnit {
     pub(crate) lane_edges: Box<[MirLaneEdge]>,
     pub(crate) lane_edge_connections: Box<[MirLaneEdgeConnection]>,
     /// Geometry 连接路径派生 transition 的全部出现位置；不含 Geometry 意图时恒为空表。
-    #[allow(dead_code, reason = "consumed by the following LIR source-map slice")]
+    /// 唯一 LIR successor 来源由连接行携带，本侧表只保留给 §4.4 相关诊断。
+    #[allow(
+        dead_code,
+        reason = "diagnostic-only §4.4 occurrence retention without a production reader"
+    )]
     pub(crate) derived_transition_occurrences: Box<[MirDerivedTransitionOccurrence]>,
     pub(crate) road_corridors: Box<[MirRoadCorridor]>,
     pub(crate) corridor_elements: Box<[MirCorridorElement]>,
@@ -584,7 +595,6 @@ pub(crate) struct MirUnit {
     pub(crate) vehicle_profiles: Box<[MirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[MirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[MirLaneEdgeGeometry]>,
-    #[allow(dead_code, reason = "consumed by the following LIR emission slice")]
     pub(crate) facility_band_geometries: Box<[MirFacilityBandGeometry]>,
     pub(crate) canonical_points: Box<[MirCanonicalPoint3F32]>,
     pub(crate) spatial_segments: Box<[MirSpatialSegment]>,
@@ -1019,6 +1029,9 @@ pub(crate) fn lower_to_mir(
             connections.push(MirLaneEdgeConnection {
                 target: mir_key_for_hir(reference.target, &hir_to_mir),
                 source_span: reference.source_span.clone(),
+                source_module: reference
+                    .source_module
+                    .map(|module| hir_module_to_mir[module.index()]),
             });
         }
         lane_edges.get_mut(mir_key).connections =

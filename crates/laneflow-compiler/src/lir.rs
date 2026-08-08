@@ -72,6 +72,8 @@ const LIR_PARTICIPANT_CLASS_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 1 + 4 + 4 + 4 + 4;
 const LIR_VEHICLE_PROFILE_LOGICAL_BYTES: u64 = 4 + 16 + 8 + 4 + 8 * 7;
 const LIR_CANONICAL_FRAME_LOGICAL_BYTES: u64 = 4 + 16 + 8;
 const LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES: u64 = 4 + 8 + 8 + 4;
+/// `facility_band + canonical_frame + points_range`；不携带 segment、弧长或宽度副本。
+const LIR_FACILITY_BAND_GEOMETRY_LOGICAL_BYTES: u64 = 4 + 4 + 8;
 const LIR_CANONICAL_POINT_LOGICAL_BYTES: u64 = 4 * 3;
 const LIR_SPATIAL_SEGMENT_LOGICAL_BYTES: u64 = 4 * 8;
 // target 按 tag+ordinal 计；可选 regulation 按 presence、两个必需字符串区间和一个
@@ -308,6 +310,17 @@ pub(crate) struct LirLaneEdgeGeometry {
     pub(crate) arc_length_meters: f32,
 }
 
+/// Geometry 派生 `FacilityBand` 的不可遍历中心线（§5.4）。
+///
+/// 每个有几何意图的 FacilityBand 恰好一行，按 FacilityBand 规范序号排列，点范围落在全部
+/// lane edge 点之后的同一 `canonical_points` 平面表内；不产生 Traffic length、
+/// `spatial_segments` 或可遍历性关系，因此相对全局 `facility_bands` 可以稀疏。
+pub(crate) struct LirFacilityBandGeometry {
+    pub(crate) facility_band: FacilityBandOrdinal,
+    pub(crate) canonical_frame: CanonicalFrameOrdinal,
+    pub(crate) points: TableRange<LirCanonicalPoint3F32>,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct LirCanonicalPoint3F32 {
     pub(crate) x: f32,
@@ -456,6 +469,7 @@ pub(crate) struct LirUnit {
     pub(crate) vehicle_profiles: Box<[LirVehicleProfile]>,
     pub(crate) canonical_frames: Box<[LirCanonicalFrame]>,
     pub(crate) lane_edge_geometries: Box<[LirLaneEdgeGeometry]>,
+    pub(crate) facility_band_geometries: Box<[LirFacilityBandGeometry]>,
     pub(crate) canonical_points: Box<[LirCanonicalPoint3F32]>,
     pub(crate) spatial_segments: Box<[LirSpatialSegment]>,
     pub(crate) access_rules: Box<[LirAccessRule]>,
@@ -684,6 +698,8 @@ pub(crate) fn freeze_lir(
     let vehicle_profile_count = u64::try_from(mir.vehicle_profiles.len()).unwrap_or(u64::MAX);
     let canonical_frame_count = u64::try_from(mir.canonical_frames.len()).unwrap_or(u64::MAX);
     let spatial_geometry_count = u64::try_from(mir.lane_edge_geometries.len()).unwrap_or(u64::MAX);
+    let facility_band_geometry_count =
+        u64::try_from(mir.facility_band_geometries.len()).unwrap_or(u64::MAX);
     let canonical_point_count = u64::try_from(mir.canonical_points.len()).unwrap_or(u64::MAX);
     let spatial_segment_count = u64::try_from(mir.spatial_segments.len()).unwrap_or(u64::MAX);
     let access_rule_count = u64::try_from(mir.access_rules.len()).unwrap_or(u64::MAX);
@@ -748,6 +764,7 @@ pub(crate) fn freeze_lir(
         vehicle_profile_count,
         canonical_frame_count,
         spatial_geometry_count,
+        facility_band_geometry_count,
         canonical_point_count,
         spatial_segment_count,
         access_rule_count,
@@ -854,6 +871,12 @@ pub(crate) fn freeze_lir(
             signal_phase_state_count,
         ))
         .saturating_add(requested_bytes::<Option<usize>>(lane_edge_count))
+        // facility band 反查表只在存在几何行时分配；无该表的单元不新增暂存。
+        .saturating_add(if facility_band_geometry_count == 0 {
+            0
+        } else {
+            requested_bytes::<Option<usize>>(band_count)
+        })
         // 四类反向索引先以 `(targetOrdinal, occurrence)` 排序，再复制进最终连续表；
         // 最终表已计入 output-owned bytes，这里只补临时排序对。
         .saturating_add(requested_bytes::<(u32, LirRouteOccurrenceRef)>(
@@ -907,6 +930,9 @@ pub(crate) fn freeze_lir(
         .saturating_add(vehicle_profile_count.saturating_mul(LIR_VEHICLE_PROFILE_LOGICAL_BYTES))
         .saturating_add(canonical_frame_count.saturating_mul(LIR_CANONICAL_FRAME_LOGICAL_BYTES))
         .saturating_add(spatial_geometry_count.saturating_mul(LIR_SPATIAL_GEOMETRY_LOGICAL_BYTES))
+        .saturating_add(
+            facility_band_geometry_count.saturating_mul(LIR_FACILITY_BAND_GEOMETRY_LOGICAL_BYTES),
+        )
         .saturating_add(canonical_point_count.saturating_mul(LIR_CANONICAL_POINT_LOGICAL_BYTES))
         .saturating_add(spatial_segment_count.saturating_mul(LIR_SPATIAL_SEGMENT_LOGICAL_BYTES))
         .saturating_add(access_rule_count.saturating_mul(LIR_ACCESS_RULE_LOGICAL_BYTES))
@@ -991,6 +1017,9 @@ pub(crate) fn freeze_lir(
         .saturating_add(requested_bytes::<LirCanonicalFrame>(canonical_frame_count))
         .saturating_add(requested_bytes::<LirLaneEdgeGeometry>(
             spatial_geometry_count,
+        ))
+        .saturating_add(requested_bytes::<LirFacilityBandGeometry>(
+            facility_band_geometry_count,
         ))
         .saturating_add(requested_bytes::<LirCanonicalPoint3F32>(
             canonical_point_count,
@@ -2653,6 +2682,52 @@ pub(crate) fn freeze_lir(
         });
     }
 
+    // §5.4：Geometry 派生 FacilityBand 的不可遍历中心线按 FacilityBand 规范序号排列，
+    // 每个有几何行的 band 恰好一行；点在全部 lane edge 点之后拼入同一 `canonical_points`，
+    // 范围内部保持曲线规范参数顺序。Synthetic/current 声明的 band 没有几何行（稀疏表）。
+    let mut facility_band_geometries = Vec::with_capacity(mir.facility_band_geometries.len());
+    if !mir.facility_band_geometries.is_empty() {
+        let mut mir_band_to_geometry = vec![None; mir.facility_bands.len()];
+        for (index, geometry) in mir.facility_band_geometries.iter().enumerate() {
+            debug_assert!(mir_band_to_geometry[geometry.facility_band.index()].is_none());
+            mir_band_to_geometry[geometry.facility_band.index()] = Some(index);
+        }
+        for mir_band in canonical_mir_band_order.iter().copied() {
+            let Some(geometry_index) = mir_band_to_geometry[mir_band.index()] else {
+                continue;
+            };
+            let geometry = &mir.facility_band_geometries[geometry_index];
+            let point_start = canonical_points.len();
+            canonical_points.extend(
+                mir.canonical_points[geometry.points.as_usize_range()]
+                    .iter()
+                    .map(|point| LirCanonicalPoint3F32 {
+                        x: point.x,
+                        y: point.y,
+                        z: point.z,
+                    }),
+            );
+            let points = TableRange::try_from_usize(
+                point_start,
+                canonical_points.len().saturating_sub(point_start),
+            )
+            .map_err(|overflow| table_overflow(overflow, &unit.limits, primary_span.clone()))?;
+            debug_assert!(
+                !points.is_empty(),
+                "facility band geometry rows are non-empty"
+            );
+            facility_band_geometries.push(LirFacilityBandGeometry {
+                facility_band: mir_band_to_lir[mir_band.index()],
+                canonical_frame: mir_canonical_frame_to_lir[geometry.canonical_frame.index()],
+                points,
+            });
+        }
+        debug_assert_eq!(
+            facility_band_geometries.len(),
+            mir.facility_band_geometries.len()
+        );
+    }
+
     let mut access_rules = Vec::with_capacity(mir.access_rules.len());
     let mut access_rule_participant_classes =
         Vec::with_capacity(mir.access_rule_participant_classes.len());
@@ -2959,6 +3034,7 @@ pub(crate) fn freeze_lir(
         &vehicle_profiles,
         &canonical_frames,
         &lane_edge_geometries,
+        &facility_band_geometries,
         &canonical_points,
         &spatial_segments,
         &access_rules,
@@ -3016,6 +3092,7 @@ pub(crate) fn freeze_lir(
             vehicle_profiles: vehicle_profiles.into_boxed_slice(),
             canonical_frames: canonical_frames.into_boxed_slice(),
             lane_edge_geometries: lane_edge_geometries.into_boxed_slice(),
+            facility_band_geometries: facility_band_geometries.into_boxed_slice(),
             canonical_points: canonical_points.into_boxed_slice(),
             spatial_segments: spatial_segments.into_boxed_slice(),
             access_rules: access_rules.into_boxed_slice(),
@@ -3465,6 +3542,7 @@ fn semantic_digest(
     vehicle_profiles: &[LirVehicleProfile],
     canonical_frames: &[LirCanonicalFrame],
     lane_edge_geometries: &[LirLaneEdgeGeometry],
+    facility_band_geometries: &[LirFacilityBandGeometry],
     canonical_points: &[LirCanonicalPoint3F32],
     spatial_segments: &[LirSpatialSegment],
     access_rules: &[LirAccessRule],
@@ -3941,6 +4019,27 @@ fn semantic_digest(
                 .chain(segment.up)
             {
                 hasher.update(&value.to_bits().to_le_bytes());
+            }
+        }
+    }
+    // facility band 几何表只在存在行时参与摘要：Synthetic/current 单元没有该表，
+    // 空表不注入额外摘要字节，保持既有单元的语义指纹逐位一致（§5.4）。
+    if !facility_band_geometries.is_empty() {
+        hash_u32(
+            &mut hasher,
+            facility_band_geometries
+                .len()
+                .try_into()
+                .unwrap_or(u32::MAX),
+        );
+        for geometry in facility_band_geometries {
+            hash_u32(&mut hasher, geometry.facility_band.raw());
+            hash_u32(&mut hasher, geometry.canonical_frame.raw());
+            hash_u32(&mut hasher, geometry.points.len());
+            for point in &canonical_points[geometry.points.as_usize_range()] {
+                for component in [point.x, point.y, point.z] {
+                    hasher.update(&component.to_bits().to_le_bytes());
+                }
             }
         }
     }

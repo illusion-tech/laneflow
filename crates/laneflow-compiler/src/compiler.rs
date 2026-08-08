@@ -21,13 +21,13 @@ use laneflow_static_contract::{
 use crate::hir::build_hir;
 use crate::lir::{
     LirAccessRule, LirAccessTarget, LirAuthoringLane, LirCanonicalFrame, LirCanonicalPoint3F32,
-    LirCorridorElement, LirFacilityBand, LirGateOccurrence, LirIdentityField, LirJunction,
-    LirJunctionInternalEdge, LirLaneEdge, LirLaneEdgeGeometry, LirLaneGroup, LirManeuverGate,
-    LirManeuverOccurrence, LirManeuverPath, LirMovement, LirParkingArea, LirParkingSpace,
-    LirParticipantClass, LirRoadCorridor, LirRoadSection, LirRouteOccurrenceRef, LirSignalControl,
-    LirSignalController, LirSignalGroup, LirSignalPhase, LirSignalPhaseState, LirSpatialSegment,
-    LirStaticRoute, LirStopLine, LirUnit, LirVehicleProfile, LirWaitingZone,
-    LirWaitingZoneOccurrence, freeze_lir,
+    LirCorridorElement, LirFacilityBand, LirFacilityBandGeometry, LirGateOccurrence,
+    LirIdentityField, LirJunction, LirJunctionInternalEdge, LirLaneEdge, LirLaneEdgeGeometry,
+    LirLaneGroup, LirManeuverGate, LirManeuverOccurrence, LirManeuverPath, LirMovement,
+    LirParkingArea, LirParkingSpace, LirParticipantClass, LirRoadCorridor, LirRoadSection,
+    LirRouteOccurrenceRef, LirSignalControl, LirSignalController, LirSignalGroup, LirSignalPhase,
+    LirSignalPhaseState, LirSpatialSegment, LirStaticRoute, LirStopLine, LirUnit,
+    LirVehicleProfile, LirWaitingZone, LirWaitingZoneOccurrence, freeze_lir,
 };
 use crate::mir::lower_to_mir;
 use crate::source_map::{ValidatedSourceMapInput, freeze_source_map};
@@ -739,6 +739,32 @@ impl CanonicalLaneEdgeGeometryView<'_> {
     }
 }
 
+/// 一条 `FacilityBand` 的只读规范不可遍历中心线；不携带 Traffic length 或采样表（§5.4）。
+#[derive(Clone, Copy)]
+pub struct CanonicalFacilityBandGeometryView<'a> {
+    lir: &'a LirUnit,
+    geometry: &'a LirFacilityBandGeometry,
+}
+
+impl CanonicalFacilityBandGeometryView<'_> {
+    #[must_use]
+    pub const fn facility_band(&self) -> FacilityBandOrdinal {
+        self.geometry.facility_band
+    }
+
+    #[must_use]
+    pub const fn canonical_frame(&self) -> CanonicalFrameOrdinal {
+        self.geometry.canonical_frame
+    }
+
+    pub fn points(&self) -> impl ExactSizeIterator<Item = CanonicalPoint3F32> + '_ {
+        self.lir.canonical_points[self.geometry.points.as_usize_range()]
+            .iter()
+            .copied()
+            .map(CanonicalPoint3F32::from)
+    }
+}
+
 /// 已量化到 canonical frame 的只读 `f32` 点，单位为米。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CanonicalPoint3F32 {
@@ -1070,6 +1096,20 @@ impl CanonicalFacilityBandView<'_> {
     #[must_use]
     pub fn kind_id(&self) -> &str {
         &self.record.kind_id
+    }
+
+    /// 返回 Geometry 前端派生的不可遍历中心线；Synthetic/current 声明的设施带没有
+    /// 几何行，返回 `None`（§5.4 稀疏表，行按 FacilityBand 规范序排列）。
+    #[must_use]
+    pub fn geometry(&self) -> Option<CanonicalFacilityBandGeometryView<'_>> {
+        self.lir
+            .facility_band_geometries
+            .binary_search_by_key(&self.record.ordinal, |geometry| geometry.facility_band)
+            .ok()
+            .map(|index| CanonicalFacilityBandGeometryView {
+                lir: self.lir,
+                geometry: &self.lir.facility_band_geometries[index],
+            })
     }
 }
 

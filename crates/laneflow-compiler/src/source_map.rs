@@ -106,6 +106,8 @@ pub enum SourceRelationRole {
     VehicleProfileParticipantClass = 27,
     /// 规范坐标框架拥有的一条车道图边中心线。
     CanonicalFrameLaneEdgeGeometry = 28,
+    /// 规范坐标框架拥有的一条设施带不可遍历中心线。
+    CanonicalFrameFacilityBandGeometry = 29,
 }
 
 #[derive(Clone, Copy)]

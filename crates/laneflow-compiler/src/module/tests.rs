@@ -4234,3 +4234,233 @@ fn compiler_compiles_mixed_synthetic_and_geometry_unit() {
         }
     }
 }
+
+#[test]
+fn geometry_facility_band_lir_row_follows_lane_points_bit_exact() {
+    // §5.4 LIR 表形：facility band 几何行按 FacilityBand 规范序排列，非空点范围排在
+    // 全部 lane edge 点之后拼入同一 `canonical_points` 平面表。
+    let unit = geometry_topology_unit(geometry_roads_module(
+        "city/main",
+        "doc.main",
+        &[],
+        &[geometry_road_fragment_with_facility_band(
+            "road.main",
+            "frame.main",
+            [0.0, 0.0, 0.0],
+            [10.0, 0.0, 0.0],
+            "lane.main",
+            &[geometry_lane_fragment("lane.main", "edge.main", &[])],
+            "facility.walk",
+            2.0,
+        )],
+        &[],
+    ));
+    let hir = crate::hir::build_hir(&unit).unwrap();
+    let mir = crate::mir::lower_to_mir(&unit, &hir).unwrap();
+    let lir = crate::lir::freeze_lir(&unit, &mir).unwrap().lir;
+
+    assert_eq!(lir.lane_edge_geometries.len(), 1);
+    assert_eq!(lir.facility_bands.len(), 1);
+    assert_eq!(lir.facility_band_geometries.len(), 1);
+    assert_eq!(lir.canonical_points.len(), 4);
+    assert_eq!(lir.spatial_segments.len(), 1);
+    // lane edge 点占 [0,2)，band 范围紧随其后。
+    assert_eq!(lir.lane_edge_geometries[0].points.as_usize_range(), 0..2);
+    let row = &lir.facility_band_geometries[0];
+    assert_eq!(row.facility_band.raw(), 0);
+    assert_eq!(row.canonical_frame.raw(), 0);
+    assert_eq!(row.points.as_usize_range(), 2..4);
+
+    // 点逐位等于 payload 中 kind == FacilityBand 的冻结曲线。
+    let payload = unit.geometry_payloads[0].as_ref().unwrap();
+    let band_curve = &payload
+        .frozen
+        .lateral_curves
+        .iter()
+        .find(|curve| curve.kind == LateralIntentKind::FacilityBand)
+        .expect("missing facility band curve")
+        .points;
+    for (point, frozen) in lir.canonical_points[row.points.as_usize_range()]
+        .iter()
+        .zip(band_curve.iter())
+    {
+        assert_eq!(point.x.to_bits(), frozen.x.to_bits());
+        assert_eq!(point.y.to_bits(), frozen.y.to_bits());
+        assert_eq!(point.z.to_bits(), frozen.z.to_bits());
+    }
+}
+
+#[test]
+fn facility_band_geometry_view_reads_sparse_rows_only() {
+    // 公共视图与 §5.4 稀疏表一致：Synthetic 声明的 band.s 没有几何行，geometry 派生的
+    // facility.walk 返回不可遍历中心线，来源关系经同一 permutation 指向 band 模块文档。
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+    builder
+        .add_synthetic_module(synthetic_facility_module("city/base"))
+        .unwrap();
+    builder
+        .add_geometry_module(geometry_roads_module(
+            "city/geo",
+            "doc.geo",
+            &[],
+            &[geometry_road_fragment_with_facility_band(
+                "road.main",
+                "frame.main",
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+                "lane.main",
+                &[geometry_lane_fragment("lane.main", "edge.main", &[])],
+                "facility.walk",
+                2.0,
+            )],
+            &[],
+        ))
+        .unwrap();
+    let unit = builder.build().unwrap();
+    let output = crate::Compiler::new().compile(unit).unwrap();
+    let lir = output.lir();
+
+    let band_key = |band: &CanonicalFacilityBandView<'_>| -> String {
+        band.identity_fields()
+            .find(|field| field.tag() == laneflow_static_contract::FieldTag::FacilityBandKey)
+            .map(|field| String::from_utf8(field.value_bytes().to_vec()).unwrap())
+            .expect("facility band must carry the FacilityBandKey identity field")
+    };
+    let bands: Vec<_> = lir.facility_bands().collect();
+    assert_eq!(bands.len(), 2);
+    let mut walk_frame = None;
+    for band in &bands {
+        match band_key(band).as_str() {
+            "band.s" => assert!(band.geometry().is_none()),
+            "facility.walk" => {
+                let geometry = band.geometry().expect("geometry band must carry a row");
+                assert_eq!(geometry.facility_band(), band.ordinal());
+                assert_eq!(geometry.points().len(), 2);
+                walk_frame = Some(geometry.canonical_frame());
+            }
+            other => panic!("unexpected facility band {other}"),
+        }
+    }
+    let walk_frame = walk_frame.expect("missing geometry facility band");
+
+    // frame 的 facility geometry 关系恰好一行，owner 为 band 中心线所在 frame，
+    // 来源位置解析到声明 band 的 geometry 模块文档。
+    let facility_relations: Vec<_> = output
+        .source_map_input()
+        .spatial_relation_sources()
+        .filter(|relation| {
+            relation.role() == SourceRelationRole::CanonicalFrameFacilityBandGeometry
+        })
+        .collect();
+    assert_eq!(facility_relations.len(), 1);
+    let relation = facility_relations[0];
+    assert_eq!(relation.owner_ordinal(), walk_frame);
+    assert_eq!(relation.local_index(), 0);
+    assert_eq!(relation.primary_source().source_document_key(), "doc.geo");
+}
+
+#[test]
+fn derived_successor_source_map_resolves_declaring_module_document() {
+    // §4.4：派生 transition 的唯一 LIR successor 来源解析到声明该 connection 的模块
+    // 文档（doc.main），不能回落到起始边所属模块（city/base 或 doc.geo）。构造与
+    // `geometry_connection_references_imported_edges_across_frontends` 相同，推进到 LIR。
+    let mut builder = CompilationUnitBuilder::new(CompileLimits::p100_initial_v1());
+    builder
+        .add_synthetic_module(synthetic_edge_module("city/base"))
+        .unwrap();
+    builder
+        .add_geometry_module(geometry_module_with_frame_ref(
+            "city/geo",
+            "doc.geo",
+            &["city/base"],
+            "city/base::frame.base",
+        ))
+        .unwrap();
+    builder
+        .add_geometry_module(geometry_roads_module(
+            "city/main",
+            "doc.main",
+            &["city/base", "city/geo"],
+            &[
+                geometry_road_fragment(
+                    "road.a",
+                    "city/base::frame.base",
+                    [3.5, 0.0, 0.0],
+                    [13.5, 0.0, 0.0],
+                    "lane.a",
+                    &[geometry_lane_fragment("lane.a", "edge.a", &[])],
+                ),
+                geometry_road_fragment(
+                    "road.b",
+                    "city/base::frame.base",
+                    [13.5, 0.0, 0.0],
+                    [23.5, 0.0, 0.0],
+                    "lane.b",
+                    &[geometry_lane_fragment("lane.b", "edge.b", &[])],
+                ),
+            ],
+            &[geometry_junction_fragment(
+                "junction.main",
+                &[
+                    "city/base::edge.x",
+                    "city/geo::edge.main",
+                    "edge.a",
+                    "edge.b",
+                ],
+                &[
+                    geometry_internal_edge_fragment_with_polyline(
+                        "edge.i1",
+                        &[[0.0, 0.0, 0.0], [3.5, 0.0, 0.0]],
+                    ),
+                    geometry_internal_edge_fragment_with_polyline(
+                        "edge.i2",
+                        &[[10.0, 0.0, 0.0], [13.5, 0.0, 0.0]],
+                    ),
+                ],
+                &[
+                    geometry_connection_fragment(
+                        "movement.one",
+                        "path.one",
+                        "city/base::edge.x",
+                        &["edge.i1"],
+                        "edge.a",
+                    ),
+                    geometry_connection_fragment(
+                        "movement.two",
+                        "path.two",
+                        "city/geo::edge.main",
+                        &["edge.i2"],
+                        "edge.b",
+                    ),
+                ],
+            )],
+        ))
+        .unwrap();
+    let unit = builder.build().unwrap();
+    let output = crate::Compiler::new().compile(unit).unwrap();
+    let lir = output.lir();
+
+    // 四条派生 successor（edge.x→i1、edge.main→i2、i1→a、i2→b）的唯一来源都解析到
+    // 声明 connection 的 city/main 文档，即使起始边属于 city/base 或 city/geo。
+    let rows: Vec<(String, String)> = output
+        .source_map_input()
+        .lane_edge_successor_sources()
+        .map(|source| {
+            let owner = lir
+                .lane_edge(source.owner_ordinal())
+                .expect("successor owner must be a LIR lane edge");
+            (
+                lir_lane_edge_key(&owner),
+                source.primary_source().source_document_key().to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(rows.len(), 4);
+    for (owner, document) in &rows {
+        assert_eq!(document, "doc.main", "{owner}");
+        assert!(
+            ["edge.x", "edge.main", "edge.i1", "edge.i2"].contains(&owner.as_str()),
+            "unexpected successor owner {owner}"
+        );
+    }
+}

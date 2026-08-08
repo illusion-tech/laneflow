@@ -157,7 +157,9 @@ pub(crate) fn freeze_source_map(
         .saturating_mul(2)
         .saturating_add(u64::try_from(mir.parking_area_spaces.len()).unwrap_or(u64::MAX));
     let spatial_entity_count = u64::try_from(mir.canonical_frames.len()).unwrap_or(u64::MAX);
-    let spatial_relation_count = u64::try_from(mir.lane_edge_geometries.len()).unwrap_or(u64::MAX);
+    let spatial_relation_count = u64::try_from(mir.lane_edge_geometries.len())
+        .unwrap_or(u64::MAX)
+        .saturating_add(u64::try_from(mir.facility_band_geometries.len()).unwrap_or(u64::MAX));
     let access_entity_count = u64::try_from(mir.participant_classes.len())
         .unwrap_or(u64::MAX)
         .saturating_add(u64::try_from(mir.vehicle_profiles.len()).unwrap_or(u64::MAX))
@@ -363,16 +365,22 @@ pub(crate) fn freeze_source_map(
         .saturating_add(requested_bytes::<RouteRelationSourceRecord>(
             route_relation_count,
         ));
-    // 派生内部边需要按 owner 生成稠密 local index；计数器只活到源映射冻结完成。
-    let source_map_scratch_bytes = requested_bytes::<u32>(
-        mir.junctions.len().try_into().unwrap_or(u64::MAX),
-    )
-    .max(requested_bytes::<(ParticipantClassOrdinal, SourceSpan)>(
-        mir.access_rule_participant_classes
-            .len()
-            .try_into()
-            .unwrap_or(u64::MAX),
-    ));
+    // 派生内部边需要按 owner 生成稠密 local index；facility 几何行需要按
+    // (frame, band) 规范序号排序的临时排列。计数器只活到源映射冻结完成。
+    let source_map_scratch_bytes =
+        requested_bytes::<u32>(mir.junctions.len().try_into().unwrap_or(u64::MAX))
+            .max(requested_bytes::<(ParticipantClassOrdinal, SourceSpan)>(
+                mir.access_rule_participant_classes
+                    .len()
+                    .try_into()
+                    .unwrap_or(u64::MAX),
+            ))
+            .max(requested_bytes::<(u32, u32, u32)>(
+                mir.facility_band_geometries
+                    .len()
+                    .try_into()
+                    .unwrap_or(u64::MAX),
+            ));
     let sizing = SourceMapSizing::from_components(
         &unit,
         mir,
@@ -453,7 +461,12 @@ pub(crate) fn freeze_source_map(
                 role: SourceRelationRole::LaneEdgeSuccessor,
                 local_index: u32::try_from(local_index)
                     .expect("LIR relation range precheck proved local index fits u32"),
-                primary: location.resolve(edge.module, &connection.source_span)?,
+                // §4.4：派生 transition 的来源解析到声明该 connection 的模块文档；
+                // 普通显式 successor 回落到起始边模块，输出与既有行为逐位一致。
+                primary: location.resolve(
+                    connection.source_module.unwrap_or(edge.module),
+                    &connection.source_span,
+                )?,
             });
         }
     }
@@ -489,7 +502,10 @@ pub(crate) fn freeze_source_map(
     let mut participant_class_sources = Vec::with_capacity(mir.participant_classes.len());
     let mut vehicle_profile_sources = Vec::with_capacity(mir.vehicle_profiles.len());
     let mut canonical_frame_sources = Vec::with_capacity(mir.canonical_frames.len());
-    let mut spatial_relation_sources = Vec::with_capacity(mir.lane_edge_geometries.len());
+    let mut spatial_relation_sources = Vec::with_capacity(
+        usize::try_from(spatial_relation_count)
+            .map_err(|_| output_overflow(&unit, primary_span.clone()))?,
+    );
     let mut access_rule_sources = Vec::with_capacity(mir.access_rules.len());
     let mut access_relation_sources = Vec::with_capacity(
         usize::try_from(access_relation_count)
@@ -1073,6 +1089,29 @@ pub(crate) fn freeze_source_map(
             primary: location.resolve(profile.module, &profile.participant_class_source_span)?,
         });
     }
+    // §5.4：facility band 几何行的来源位置与 FacilityBand ordinal 经过同一 permutation。
+    // 先按 `(frame 规范序号, band 规范序号)` 排列 MIR 行，frame 循环内截取本 frame 的
+    // 连续片段发射，使来源记录与 LIR 规范重排保持同一配对顺序。
+    let mut facility_geometry_order: Vec<(u32, u32, u32)> = mir
+        .facility_band_geometries
+        .iter()
+        .enumerate()
+        .map(|(index, geometry)| {
+            (
+                frozen_lir
+                    .canonical_frames
+                    .ordinal(geometry.canonical_frame)
+                    .raw(),
+                frozen_lir
+                    .facility_bands
+                    .ordinal(geometry.facility_band)
+                    .raw(),
+                u32::try_from(index).expect("LIR precheck proved geometry row index fits u32"),
+            )
+        })
+        .collect();
+    facility_geometry_order.sort_unstable();
+    let mut facility_geometry_cursor = 0_usize;
     for mir_key in frozen_lir
         .canonical_frames
         .stage_keys_in_lir_order()
@@ -1102,7 +1141,31 @@ pub(crate) fn freeze_source_map(
                 primary: location.resolve(geometry.module, &geometry.source_span)?,
             });
         }
+        let facility_start = facility_geometry_cursor;
+        while facility_geometry_cursor < facility_geometry_order.len()
+            && facility_geometry_order[facility_geometry_cursor].0 == ordinal.raw()
+        {
+            facility_geometry_cursor += 1;
+        }
+        for (local_index, (_, _, row_index)) in facility_geometry_order
+            [facility_start..facility_geometry_cursor]
+            .iter()
+            .enumerate()
+        {
+            let geometry = &mir.facility_band_geometries[*row_index as usize];
+            // band 的 offset intent 与 band 声明同模块，来源位置按 band 模块验证归属。
+            let band = &mir.facility_bands[geometry.facility_band.index()];
+            spatial_relation_sources.push(SpatialRelationSourceRecord {
+                owner_ordinal: ordinal,
+                owner_stable_id: frame.stable_id,
+                role: SourceRelationRole::CanonicalFrameFacilityBandGeometry,
+                local_index: u32::try_from(local_index)
+                    .expect("MIR range precheck proved local index fits u32"),
+                primary: location.resolve(band.module, &geometry.source_span)?,
+            });
+        }
     }
+    debug_assert_eq!(facility_geometry_cursor, facility_geometry_order.len());
     for mir_key in frozen_lir
         .access_rules
         .stage_keys_in_lir_order()

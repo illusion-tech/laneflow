@@ -122,6 +122,9 @@ pub(crate) struct HirLaneEdgeReference {
     pub(crate) target: HirLaneEdgeKey,
     /// 原始引用位置。
     pub(crate) source_span: SourceSpan,
+    /// 引用位置的属主模块：派生 transition 为声明该 connection 的模块（§4.4 的最小
+    /// occurrence 所在模块），普通显式 successor 为 `None`（属主即起始边模块）。
+    pub(crate) source_module: Option<HirModuleKey>,
 }
 
 /// Geometry 连接路径派生 transition 的一次出现位置。
@@ -1929,6 +1932,7 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
                 references.push(HirLaneEdgeReference {
                     target: transition.successor,
                     source_span: transition.occurrence_span.clone(),
+                    source_module: Some(transition.module),
                 });
             }
             // 规范键相等意味着同一有向 transition 同时来自普通 successor 与连接路径，
@@ -1969,12 +1973,14 @@ pub(crate) fn build_hir(unit: &CompilationUnit) -> Result<HirUnit, DiagnosticBun
             references.push(HirLaneEdgeReference {
                 target,
                 source_span: successor.span.clone(),
+                source_module: None,
             });
         }
         for transition in derived {
             references.push(HirLaneEdgeReference {
                 target: transition.successor,
                 source_span: transition.occurrence_span.clone(),
+                source_module: Some(transition.module),
             });
         }
         lane_edges.get_mut(source_location.hir_key).successors =
