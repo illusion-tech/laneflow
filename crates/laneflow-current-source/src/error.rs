@@ -73,6 +73,11 @@ impl CurrentSourceSpan {
 }
 
 /// issue 的调用上下文。
+///
+/// 跨包检查固定为 `CurrentSourceIssue::artifact_ref()` 借用视图与
+/// `CurrentSourceIssueParts::into_components` owned bridge；本枚举按 SSOT
+/// `current-package-import.md:686-690` 隐藏，不构成文档化能力面。
+#[doc(hidden)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CurrentSourceIssueContext {
     /// Traffic-only façade 与其他文档 issue。
@@ -248,11 +253,6 @@ impl CurrentSourceIssue {
         self.span
     }
 
-    /// 返回该 issue 的调用上下文。
-    pub const fn context(&self) -> &CurrentSourceIssueContext {
-        &self.context
-    }
-
     /// 返回该 issue 的稳定字符串诊断码。
     pub const fn stable_code(&self) -> &'static str {
         self.payload.stable_code()
@@ -269,6 +269,7 @@ impl CurrentSourceIssue {
     }
 
     /// 消费 issue 并返回其 parts 视图。
+    #[doc(hidden)]
     pub fn into_parts(self) -> CurrentSourceIssueParts {
         CurrentSourceIssueParts {
             payload: self.payload,
@@ -281,6 +282,7 @@ impl CurrentSourceIssue {
 }
 
 /// `CurrentSourceIssue` 的消费型 parts；字段私有。
+#[doc(hidden)]
 #[derive(Debug)]
 pub struct CurrentSourceIssueParts {
     payload: CurrentSourceErrorPayload,
@@ -293,6 +295,7 @@ pub struct CurrentSourceIssueParts {
 impl CurrentSourceIssueParts {
     /// 拆出全部 owned 组件；这是取走不可 Clone `serde_json::Error` 的唯一
     /// owned bridge。
+    #[doc(hidden)]
     #[allow(clippy::type_complexity)]
     pub fn into_components(
         self,
@@ -334,8 +337,8 @@ impl CurrentSourceError {
         &self.issues
     }
 
-    /// 消费 bundle 并返回 owned issue 列表（永远非空）。
-    pub fn into_issues(self) -> Vec<CurrentSourceIssue> {
-        self.issues
+    /// 消费 bundle 并按冻结形状返回 owned issue 列表（永远非空）。
+    pub fn into_issues(self) -> Box<[CurrentSourceIssue]> {
+        self.issues.into_boxed_slice()
     }
 }

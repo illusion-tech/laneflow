@@ -57,7 +57,7 @@ fn traffic_version_gate_rejects_missing_null_non_string_and_duplicate_occurrence
         validate_traffic_compatible(missing.as_bytes()).expect_err("missing formatVersion"),
     );
     assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
-    assert_eq!(issue.context(), &CurrentSourceIssueContext::None);
+    assert_eq!(issue.artifact_ref(), None);
     assert_eq!(issue.path(), Some("$"));
     assert!(matches!(
         issue.payload(),
@@ -469,15 +469,8 @@ fn traffic_wire_issues_carry_scenario_traffic_context() {
     let manifest = manifest_value(invalid_traffic, SPATIAL);
     let issue = single_issue(load_value(&manifest, invalid_traffic, SPATIAL));
     assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
+    // artifact_ref() 是 ScenarioTraffic context 的唯一借用视图（:785-787）。
     assert_eq!(issue.artifact_ref(), Some(TRAFFIC_REF));
-    match issue.context() {
-        CurrentSourceIssueContext::ScenarioTraffic { artifact_ref } => {
-            assert_eq!(&**artifact_ref, TRAFFIC_REF);
-        }
-        CurrentSourceIssueContext::None => {
-            panic!("Traffic wire/version issue 必须携带 ScenarioTraffic 上下文")
-        }
-    }
     match issue.payload() {
         CurrentSourceErrorPayload::UnsupportedFormatVersion { expected, actual } => {
             assert_eq!(*expected, "0.10");
@@ -493,10 +486,7 @@ fn traffic_wire_issues_carry_scenario_traffic_context() {
     let manifest = manifest_value(shape_traffic, SPATIAL);
     let issue = single_issue(load_value(&manifest, shape_traffic, SPATIAL));
     assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
-    assert!(matches!(
-        issue.context(),
-        CurrentSourceIssueContext::ScenarioTraffic { .. }
-    ));
+    assert_eq!(issue.artifact_ref(), Some(TRAFFIC_REF));
     assert!(matches!(
         issue.payload(),
         CurrentSourceErrorPayload::JsonShape { .. }
@@ -509,7 +499,7 @@ fn spatial_wire_issues_use_spatial_document_without_context() {
     let manifest = manifest_value(TRAFFIC, invalid_spatial);
     let issue = single_issue(load_value(&manifest, TRAFFIC, invalid_spatial));
     assert_eq!(issue.document(), Some(CurrentDocumentRole::Spatial));
-    assert_eq!(issue.context(), &CurrentSourceIssueContext::None);
+    assert_eq!(issue.artifact_ref(), None);
     match issue.payload() {
         CurrentSourceErrorPayload::UnsupportedFormatVersion { expected, actual } => {
             assert_eq!(*expected, "0.1");
@@ -668,9 +658,9 @@ fn error_bundle_is_never_empty_and_codes_are_stable_and_distinct() {
 #[test]
 fn issue_parts_into_components_is_the_only_owned_bridge() {
     let error = validate_traffic_compatible(b"{").expect_err("syntax error");
-    let mut issues = error.into_issues();
+    let issues = error.into_issues();
     assert_eq!(issues.len(), 1);
-    let issue = issues.pop().expect("one issue");
+    let issue = issues.into_iter().next().expect("one issue");
     assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
     let (payload, document, context, path, span) = issue.into_parts().into_components();
     assert_eq!(document, Some(CurrentDocumentRole::Traffic));
@@ -711,9 +701,9 @@ fn load_value(manifest: &Value, traffic: &[u8], spatial: &[u8]) -> CurrentSource
 }
 
 fn single_issue(error: CurrentSourceError) -> laneflow_current_source::CurrentSourceIssue {
-    let mut issues = error.into_issues();
+    let issues = error.into_issues();
     assert_eq!(issues.len(), 1, "production 立即失败恒为单元素 bundle");
-    issues.pop().expect("one issue")
+    issues.into_iter().next().expect("one issue")
 }
 
 fn manifest_value(traffic: &[u8], spatial: &[u8]) -> Value {
