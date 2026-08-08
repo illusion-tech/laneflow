@@ -89,6 +89,7 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
 ///
 /// 只接受完整 40 位十六进制提交；依次验证提交存在、固定路径存在于该 tree、
 /// 再按 blob id 读取原始 bytes，全程不经过工作树或普通 index。
+/// 所有 git 调用统一携带 `--no-replace-objects`，本地 `refs/replace/*` 不得改变取证对象。
 pub(crate) fn read_authority_bytes_from_tree(
     repo_root: &Path,
     commit: &str,
@@ -334,6 +335,7 @@ fn git_bytes(repo_root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(repo_root)
+        .arg("--no-replace-objects")
         .args(args)
         .output()
         .map_err(|error| format!("无法运行 git：{error}"))?;
@@ -484,6 +486,40 @@ mod tests {
         )
         .expect_err("E 上的篡改记录必须失败关闭");
         assert!(error.contains("retirementProfile"), "错误信息：{error}");
+    }
+
+    #[test]
+    fn ignores_replace_refs_when_reading_commit_tree() {
+        let repo = TempRepo::new();
+        repo.write(AUTHORITY_PATH, VALID_RECORD.as_bytes());
+        let commit_a = repo.commit_all("add authority");
+
+        let tampered = tampered_record(
+            "LF-CURRENT-OFFLINE-MIGRATION-RETIREMENT-v1",
+            "LF-CURRENT-CLEANUP-AUTHORITY-v1",
+        );
+        repo.write(AUTHORITY_PATH, &tampered);
+        let commit_tampered = repo.commit_all("tamper authority");
+
+        // commit 级与 blob 级 replace ref 都不得改变 A-tree 取证对象。
+        repo.git(&["replace", &commit_a, &commit_tampered]);
+        let locator = format!("{commit_a}:{AUTHORITY_PATH}");
+        let blob_a = String::from_utf8(repo.git(&["rev-parse", &locator]))
+            .expect("blob id 必须是 UTF-8")
+            .trim()
+            .to_string();
+        let blob_tampered = String::from_utf8(
+            repo.git(&["rev-parse", &format!("{commit_tampered}:{AUTHORITY_PATH}")]),
+        )
+        .expect("blob id 必须是 UTF-8")
+        .trim()
+        .to_string();
+        repo.git(&["replace", &blob_a, &blob_tampered]);
+
+        let bytes = read_authority_bytes_from_tree(&repo.0, &commit_a)
+            .expect("replace ref 不得改变 A-tree 取证");
+        assert_eq!(bytes, VALID_RECORD.as_bytes(), "读取必须来自原对象");
+        validate_authority_bytes(&bytes).expect("原对象必须通过验证");
     }
 
     #[test]
