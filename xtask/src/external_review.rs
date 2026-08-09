@@ -866,6 +866,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
         lockfile_policy::verify_dependabot_lockfile_only(&lockfile_metadata).ok();
 
     let mut review_to_finding_threads = BTreeMap::<String, usize>::new();
+    let mut review_ids_with_thread_comments = BTreeSet::<String>::new();
     let mut finding_thread_ids = BTreeSet::<String>::new();
     let mut unresolved_actionable_threads = 0;
     let mut seen_thread_ids = BTreeSet::new();
@@ -879,6 +880,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             continue;
         };
         let mut linked_review_ids = BTreeSet::new();
+        let mut has_unbound_trusted_finding = false;
         for (comment_index, comment) in thread.comments.nodes.iter().enumerate() {
             let Some(actor) = comment.author.as_ref() else {
                 continue;
@@ -887,11 +889,15 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 continue;
             }
             let Some(review) = comment.pull_request_review.as_ref() else {
-                if comment_index == 0 {
+                let substantive_reply = comment_index > 0
+                    && !comment.body.trim().is_empty()
+                    && !comment.body.trim_start().starts_with("Disposition:");
+                if comment_index == 0 || substantive_reply {
                     diagnostics.push(format!(
                         "受信任 reviewer 的 thread `{}` 缺少 pullRequestReview 关联",
                         thread.id
                     ));
+                    has_unbound_trusted_finding = true;
                 }
                 continue;
             };
@@ -916,7 +922,14 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 ));
                 continue;
             }
+            review_ids_with_thread_comments.insert(review.id.clone());
             linked_review_ids.insert(review.id.clone());
+        }
+        if has_unbound_trusted_finding {
+            finding_thread_ids.insert(thread.id.clone());
+            if !thread.is_resolved && !thread.is_outdated {
+                unresolved_actionable_threads += 1;
+            }
         }
         if linked_review_ids.is_empty() {
             continue;
@@ -931,11 +944,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             ));
             continue;
         }
-        finding_thread_ids.insert(thread.id.clone());
+        let newly_counted = finding_thread_ids.insert(thread.id.clone());
         for review_id in linked_review_ids {
             *review_to_finding_threads.entry(review_id).or_default() += 1;
         }
-        if !thread.is_resolved && !thread.is_outdated {
+        if newly_counted && !thread.is_resolved && !thread.is_outdated {
             unresolved_actionable_threads += 1;
         }
     }
@@ -996,6 +1009,13 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 }
             }
             "codex" if linked_findings > 0 => Some(EvidenceOutcome::Findings),
+            "codex"
+                if state == "COMMENTED"
+                    && !review.body.trim().is_empty()
+                    && !review_ids_with_thread_comments.contains(&review.id) =>
+            {
+                Some(EvidenceOutcome::Findings)
+            }
             "codex" if state == "APPROVED" => Some(EvidenceOutcome::Clean),
             "human" if linked_findings > 0 => Some(EvidenceOutcome::Findings),
             "human" if state == "COMMENTED" && !review.body.trim().is_empty() => {
@@ -3086,6 +3106,44 @@ mod tests {
                 .iter()
                 .all(|item| item.source_kind != "machine_verification")
         );
+    }
+
+    #[test]
+    fn unassociated_trusted_finding_reply_fails_closed() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        let thread = &mut snapshot.pull_request.review_threads.nodes[0];
+        let mut trusted_reply = thread.comments.nodes[0].clone();
+        trusted_reply.id = "PRRC-unassociated-trusted-finding".to_string();
+        trusted_reply.body = "The lockfile contains an invalid checksum.".to_string();
+        trusted_reply.created_at = "2026-08-06T02:31:00Z".to_string();
+        trusted_reply.updated_at = trusted_reply.created_at.clone();
+        trusted_reply.pull_request_review = None;
+        thread.comments.nodes.push(trusted_reply);
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert_eq!(result.finding_count, 1);
+        assert!(result.diagnostics.iter().any(|diagnostic| {
+            diagnostic.contains("受信任 reviewer")
+                && diagnostic.contains("缺少 pullRequestReview 关联")
+        }));
+    }
+
+    #[test]
+    fn unthreaded_codex_review_body_is_a_finding() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-awaiting-rereview.json"
+        ));
+        snapshot.pull_request.review_threads.nodes.clear();
+        snapshot.pull_request.reviews.nodes[0].body =
+            "The current-head implementation can still bypass the gate.".to_string();
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
+        assert_eq!(result.finding_count, 1);
+        assert!(result.requires_rereview);
     }
 
     #[test]
