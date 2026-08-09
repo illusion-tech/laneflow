@@ -57,8 +57,8 @@
   `add_geometry_module` 具体入口、line/cubic Bézier 的确定性细分、stationing、横断面与
   junction intent 到共同 Typed AST、topology/geometry MIR 和规范 LIR 的唯一降阶，以及
   资源、诊断、正确性、等价和性能门槛；完整 closed wire shape 由
-  `../reference/geometry-document-v1.schema.json` 机器校验。G2 Rust 实现尚未完成，不表示
-  实现事实已成立。
+  `../reference/geometry-document-v1.schema.json` 机器校验。G2 Rust 实现已按冻结契约
+  交付并通过 §8 等价与九组合验证；后继门禁状态以 issue #296 为准。
 - `compiler-budget-calibration.md`：#308 已完成 G4 的一次性非生产编译器校准研究设计；冻结
   标识、走廊关系、密集路口和研究夹具对照工作负载，以及宽星形、深链、共享扇入
   三种模块图；用机器可读清单与证据 JSON Schema、至少五级规模阶梯、成本/内存拐点、校准/压力

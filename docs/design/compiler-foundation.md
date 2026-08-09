@@ -53,8 +53,9 @@ AST→HIR→MIR→Canonical LIR 与来源映射；单位、手性、`+Y` 上方�
 `TypedAstModule` / `TypedAstDeclaration`、逻辑模块与来源文档独立登记、原子共同接入、
 文档集摘要以及 `LF-COMP-P100-INITIAL-v2`。#296 G1 已接受并冻结
 `geometry-document-frontend.md`，固定 Geometry 的目标公开入口、单文档来源
-格式和专用降阶；其 G2 Rust 实现尚未完成，仍不是当前实现事实。#297 调整后不建立
-current JSON 编译器前端；精确退役和测试边界见 `current-package-import.md`。
+格式和专用降阶；其 G2 Rust 实现已按冻结契约交付并通过 §8 等价与九组合验证，但在
+后继门禁完成前仍不是当前生产事实。#297 调整后不建立 current JSON 编译器前端；
+精确退役和测试边界见 `current-package-import.md`。
 
 **关联决策与设计**:
 

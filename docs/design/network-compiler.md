@@ -13,8 +13,8 @@ Runtime）命名、静态执行约束（Static Execution Constraints）、不可
 ScenarioManifest v0.1、`InitialTrafficData` 和现有空间登记表（Spatial Registry）；
 #292 已完成编译器基础设施（Compiler Foundation）+ 合成领域专用语言前端
 （Synthetic DSL Frontend）G4；#315 已落地私有共同 Typed AST、逻辑模块/来源文档独立登记、
-原子共同接入、文档集摘要与 v2 文档数配置档；#296 具体前端仍按自身 Gate 推进；
-#297 不再建立 current JSON 编译器前端
+原子共同接入、文档集摘要与 v2 文档数配置档；#296 的 Geometry 前端实现已按冻结契约
+交付，但在后继门禁完成前仍不是当前生产事实；#297 不再建立 current JSON 编译器前端
 
 **关联决策与设计**:
 
@@ -337,7 +337,8 @@ format 决定编译器语义。精确退役边界见
 曲线在 MIR 中按确定性误差预算离散为 canonical f32 polyline；static image 不保存
 authoring curve evaluator。#296 G1 已把首版冻结为一逻辑模块一份严格 UTF-8 JSON
 文档、显式模块 import、line/cubic Bézier、确定性 `f64` 求值后单次 `f32` 量化，且不
-增加第三方 geometry/parser 插件面。G2 Rust 实现尚未完成，当前仍不是生产实现事实。
+增加第三方 geometry/parser 插件面。G2 Rust 实现已按冻结契约交付并通过 §8 验证；
+在取得后继门禁结论前，仍不构成当前生产事实。
 
 ### 5.4 导入与编辑器编制（Import and Editor Authoring）
 
