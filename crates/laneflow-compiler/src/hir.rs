@@ -5153,8 +5153,8 @@ fn build_spatial_hir(
         }
     }
 
-    // 路口 frame 闭包（§4.4）：internal edge 不携带 frame 字段；其 frame 由所属 Junction
-    // 全部 connection 的 entry/exit approach edge 的绑定来源唯一导出并互相验证。
+    // 路口 frame 闭包（§4.4）：internal edge 不携带 frame 字段；其 frame 只由包含该边的
+    // connection 组件的 entry/exit approach edge 绑定来源唯一导出并互相验证。
     let mut junction_symbols: HashMap<(&str, &str), HirJunctionKey> =
         HashMap::with_capacity(junction.junctions.len());
     for (junction_index, record) in junction.junctions.iter().enumerate() {
@@ -5171,7 +5171,6 @@ fn build_spatial_hir(
             ),
         );
     }
-    let mut junction_closure = vec![None::<Option<HirCanonicalFrameKey>>; junction.junctions.len()];
     for (module_index, source_module) in unit.modules.iter().enumerate() {
         let Some(payload) = &unit.geometry_payloads[module_index] else {
             continue;
@@ -5195,31 +5194,25 @@ fn build_spatial_hir(
                     intent.junction.declaration_key.as_ref(),
                 ))
                 .expect("junction HIR owns every internal edge junction");
-            let closure_frame = match junction_closure[junction_key.index()] {
-                Some(cached) => cached,
-                None => {
-                    let derived = derive_junction_closure_frame(
-                        &mut diagnostics,
-                        module_index,
-                        &frames,
-                        junction_key,
-                        junction,
-                        lane_edges,
-                        &symbolic_edge_frames,
-                        &intent.key,
-                        &intent.span,
-                    );
-                    junction_closure[junction_key.index()] = Some(derived);
-                    derived
-                }
-            };
-            // 闭包失败时诊断已收集，该路口的内部边不再绑定。
-            let Some(frame_key) = closure_frame else {
-                continue;
-            };
             let lane_edge = lane_edge_symbols
                 .get(module_key, &intent.key)
                 .expect("Typed AST registers every internal LaneEdge");
+            let closure_frame = derive_internal_edge_connection_frame(
+                &mut diagnostics,
+                module_index,
+                &frames,
+                junction_key,
+                lane_edge,
+                junction,
+                lane_edges,
+                &symbolic_edge_frames,
+                &intent.key,
+                &intent.span,
+            );
+            // 包含该 internal edge 的 connection 组件闭包失败时诊断已收集；该边不再绑定。
+            let Some(frame_key) = closure_frame else {
+                continue;
+            };
             if let Some(existing) = edge_bindings[lane_edge.index()] {
                 let mut diagnostic = Diagnostic::invalid_spatial_geometry(
                     Some(&frames.get(frame_key).stable_key),
@@ -5604,17 +5597,18 @@ fn append_lane_edge_geometry<P: Copy + Into<HirCanonicalPoint3F32>>(
     Ok(Some(geometry_index))
 }
 
-/// 推导 Junction frame 闭包：拥有几何的 internal edge 所在 Junction 的全部
-/// connection 的 entry/exit approach 边必须都有几何绑定，且绑定的 frame 必须
-/// 唯一（§6.2）。返回闭包 frame；任一约束不满足时报告诊断并返回 `None`。
+/// 推导一个 internal edge 所在 connection 组件的 frame 闭包：仅包含该边的 path 的
+/// entry/exit approach 必须都有几何绑定，且绑定的 frame 必须唯一（§4.4）。共享该边的
+/// 多条 path 自动连接为同一组件；同一 Junction 内与该边无关的组件不参与判定。
 /// `symbolic_edge_frames` 记录每条边的符号化绑定来源（Synthetic 显式声明或
 /// geometry 派生），是闭包判读的唯一事实源。
 #[allow(clippy::too_many_arguments)]
-fn derive_junction_closure_frame(
+fn derive_internal_edge_connection_frame(
     diagnostics: &mut DiagnosticCollector,
     module_index: usize,
     frames: &TypedArena<HirCanonicalFrameTag, HirCanonicalFrame>,
     junction_key: HirJunctionKey,
+    internal_edge: HirLaneEdgeKey,
     junction: &JunctionHir,
     lane_edges: &TypedArena<HirLaneEdgeTag, HirLaneEdge>,
     symbolic_edge_frames: &[Option<HirCanonicalFrameKey>],
@@ -5635,6 +5629,12 @@ fn derive_junction_closure_frame(
         {
             let path = &junction.maneuver_paths[movement_path.maneuver_path.index()];
             let edge_range = path.edges.as_usize_range();
+            if !junction.maneuver_path_edges[edge_range.start + 1..edge_range.end - 1]
+                .iter()
+                .any(|edge| edge.target == internal_edge)
+            {
+                continue;
+            }
             // 完整序列是 entry + internal + exit，首尾即 entry/exit approach 边。
             for approach_index in [edge_range.start, edge_range.end - 1] {
                 let approach = junction.maneuver_path_edges[approach_index].target;

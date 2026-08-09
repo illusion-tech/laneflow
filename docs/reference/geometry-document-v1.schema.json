@@ -19,6 +19,12 @@
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
     },
+    "localKey": {
+      "allOf": [
+        { "$ref": "#/$defs/token" },
+        { "not": { "pattern": "::" } }
+      ]
+    },
     "sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
@@ -90,7 +96,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["frameKey"],
-      "properties": { "frameKey": { "$ref": "#/$defs/token" } }
+      "properties": { "frameKey": { "$ref": "#/$defs/localKey" } }
     },
     "curveSegment": {
       "oneOf": [
@@ -130,7 +136,7 @@
       "additionalProperties": false,
       "required": ["roadKey", "frame", "referenceLine", "crossSectionSpans"],
       "properties": {
-        "roadKey": { "$ref": "#/$defs/token" },
+        "roadKey": { "$ref": "#/$defs/localKey" },
         "frame": { "$ref": "#/$defs/token" },
         "referenceLine": { "$ref": "#/$defs/curve" },
         "crossSectionSpans": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/crossSectionSpan" } }
@@ -141,8 +147,8 @@
       "additionalProperties": false,
       "required": ["spanKey", "corridorKey", "startStationMeters", "endStationMeters", "referenceSectionKey", "referenceLaneKey", "elements", "roadSections", "facilityBands"],
       "properties": {
-        "spanKey": { "$ref": "#/$defs/token" },
-        "corridorKey": { "$ref": "#/$defs/token" },
+        "spanKey": { "$ref": "#/$defs/localKey" },
+        "corridorKey": { "$ref": "#/$defs/localKey" },
         "startStationMeters": { "$ref": "#/$defs/nonNegativeNumber" },
         "endStationMeters": { "oneOf": [{ "$ref": "#/$defs/positiveNumber" }, { "const": "end" }] },
         "referenceSectionKey": { "$ref": "#/$defs/token" },
@@ -173,7 +179,7 @@
       "additionalProperties": false,
       "required": ["sectionKey", "kindId", "lanes", "laneGroups"],
       "properties": {
-        "sectionKey": { "$ref": "#/$defs/token" },
+        "sectionKey": { "$ref": "#/$defs/localKey" },
         "kindId": { "$ref": "#/$defs/token" },
         "lanes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/lane" } },
         "laneGroups": { "type": "array", "items": { "$ref": "#/$defs/laneGroup" } }
@@ -184,8 +190,8 @@
       "additionalProperties": false,
       "required": ["laneKey", "laneEdgeKey", "direction", "widthMeters", "speedLimitMetersPerSecond", "successors"],
       "properties": {
-        "laneKey": { "$ref": "#/$defs/token" },
-        "laneEdgeKey": { "$ref": "#/$defs/token" },
+        "laneKey": { "$ref": "#/$defs/localKey" },
+        "laneEdgeKey": { "$ref": "#/$defs/localKey" },
         "direction": { "enum": ["forward", "backward"] },
         "widthMeters": { "$ref": "#/$defs/positiveNumber" },
         "speedLimitMetersPerSecond": { "$ref": "#/$defs/positiveNumber" },
@@ -197,14 +203,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["laneGroupKey"],
-      "properties": { "laneGroupKey": { "$ref": "#/$defs/token" } }
+      "properties": { "laneGroupKey": { "$ref": "#/$defs/localKey" } }
     },
     "facilityBand": {
       "type": "object",
       "additionalProperties": false,
       "required": ["facilityBandKey", "kindId", "widthMeters"],
       "properties": {
-        "facilityBandKey": { "$ref": "#/$defs/token" },
+        "facilityBandKey": { "$ref": "#/$defs/localKey" },
         "kindId": { "$ref": "#/$defs/token" },
         "widthMeters": { "$ref": "#/$defs/positiveNumber" }
       }
@@ -214,7 +220,7 @@
       "additionalProperties": false,
       "required": ["junctionKey", "approachEdges", "internalEdges", "connections"],
       "properties": {
-        "junctionKey": { "$ref": "#/$defs/token" },
+        "junctionKey": { "$ref": "#/$defs/localKey" },
         "approachEdges": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "$ref": "#/$defs/token" } },
         "internalEdges": { "type": "array", "items": { "$ref": "#/$defs/internalEdge" } },
         "connections": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/connection" } }
@@ -225,10 +231,10 @@
       "additionalProperties": false,
       "required": ["movementKey", "directedEntryApproachKey", "directedExitApproachKey", "maneuverPathKey", "entryEdge", "internalEdgeSequence", "exitEdge"],
       "properties": {
-        "movementKey": { "$ref": "#/$defs/token" },
-        "directedEntryApproachKey": { "$ref": "#/$defs/token" },
-        "directedExitApproachKey": { "$ref": "#/$defs/token" },
-        "maneuverPathKey": { "$ref": "#/$defs/token" },
+        "movementKey": { "$ref": "#/$defs/localKey" },
+        "directedEntryApproachKey": { "$ref": "#/$defs/localKey" },
+        "directedExitApproachKey": { "$ref": "#/$defs/localKey" },
+        "maneuverPathKey": { "$ref": "#/$defs/localKey" },
         "entryEdge": { "$ref": "#/$defs/token" },
         "internalEdgeSequence": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/token" } },
         "exitEdge": { "$ref": "#/$defs/token" }
@@ -239,7 +245,7 @@
       "additionalProperties": false,
       "required": ["laneEdgeKey", "speedLimitMetersPerSecond", "geometry"],
       "properties": {
-        "laneEdgeKey": { "$ref": "#/$defs/token" },
+        "laneEdgeKey": { "$ref": "#/$defs/localKey" },
         "speedLimitMetersPerSecond": { "$ref": "#/$defs/positiveNumber" },
         "geometry": { "$ref": "#/$defs/curve" }
       }
@@ -266,14 +272,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["signalGroupKey"],
-      "properties": { "signalGroupKey": { "$ref": "#/$defs/token" } }
+      "properties": { "signalGroupKey": { "$ref": "#/$defs/localKey" } }
     },
     "signalController": {
       "type": "object",
       "additionalProperties": false,
       "required": ["signalControllerKey", "offsetSeconds", "signalGroups", "phases"],
       "properties": {
-        "signalControllerKey": { "$ref": "#/$defs/token" },
+        "signalControllerKey": { "$ref": "#/$defs/localKey" },
         "offsetSeconds": { "$ref": "#/$defs/nonNegativeNumber" },
         "signalGroups": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/token" } },
         "phases": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/signalPhase" } }
@@ -284,7 +290,7 @@
       "additionalProperties": false,
       "required": ["signalPhaseKey", "durationSeconds", "states"],
       "properties": {
-        "signalPhaseKey": { "$ref": "#/$defs/token" },
+        "signalPhaseKey": { "$ref": "#/$defs/localKey" },
         "durationSeconds": { "$ref": "#/$defs/positiveNumber" },
         "states": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/signalState" } }
       }
@@ -302,7 +308,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["parkingAreaKey"],
-      "properties": { "parkingAreaKey": { "$ref": "#/$defs/token" } }
+      "properties": { "parkingAreaKey": { "$ref": "#/$defs/localKey" } }
     },
     "parkingAnchor": {
       "type": "object",
@@ -329,7 +335,7 @@
       "additionalProperties": false,
       "required": ["parkingSpaceKey", "entry", "exit", "geometry"],
       "properties": {
-        "parkingSpaceKey": { "$ref": "#/$defs/token" },
+        "parkingSpaceKey": { "$ref": "#/$defs/localKey" },
         "parkingArea": { "$ref": "#/$defs/token" },
         "entry": { "$ref": "#/$defs/parkingAnchor" },
         "exit": { "$ref": "#/$defs/parkingAnchor" },
@@ -341,7 +347,7 @@
       "additionalProperties": false,
       "required": ["participantClassKey"],
       "properties": {
-        "participantClassKey": { "$ref": "#/$defs/token" },
+        "participantClassKey": { "$ref": "#/$defs/localKey" },
         "extends": { "$ref": "#/$defs/token" }
       }
     },
@@ -364,7 +370,7 @@
       "additionalProperties": false,
       "required": ["vehicleProfileKey", "participantClass", "iidm"],
       "properties": {
-        "vehicleProfileKey": { "$ref": "#/$defs/token" },
+        "vehicleProfileKey": { "$ref": "#/$defs/localKey" },
         "participantClass": { "$ref": "#/$defs/token" },
         "iidm": { "$ref": "#/$defs/iidm" }
       }
@@ -393,7 +399,7 @@
       "additionalProperties": false,
       "required": ["accessRuleKey", "target", "effect", "participantClasses", "priority"],
       "properties": {
-        "accessRuleKey": { "$ref": "#/$defs/token" },
+        "accessRuleKey": { "$ref": "#/$defs/localKey" },
         "target": { "$ref": "#/$defs/accessTarget" },
         "effect": { "enum": ["allow", "deny"] },
         "participantClasses": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/token" } },
@@ -406,7 +412,7 @@
       "additionalProperties": false,
       "required": ["staticRouteKey", "edgeSequence"],
       "properties": {
-        "staticRouteKey": { "$ref": "#/$defs/token" },
+        "staticRouteKey": { "$ref": "#/$defs/localKey" },
         "edgeSequence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/token" } }
       }
     },
@@ -415,7 +421,7 @@
       "additionalProperties": false,
       "required": ["stopLineKey", "laneEdge"],
       "properties": {
-        "stopLineKey": { "$ref": "#/$defs/token" },
+        "stopLineKey": { "$ref": "#/$defs/localKey" },
         "laneEdge": { "$ref": "#/$defs/token" }
       }
     },
@@ -424,7 +430,7 @@
       "additionalProperties": false,
       "required": ["maneuverGateKey", "maneuverPath", "transitionIndex", "stopLine", "signalControl"],
       "properties": {
-        "maneuverGateKey": { "$ref": "#/$defs/token" },
+        "maneuverGateKey": { "$ref": "#/$defs/localKey" },
         "maneuverPath": { "$ref": "#/$defs/token" },
         "transitionIndex": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
         "stopLine": { "$ref": "#/$defs/token" },
@@ -436,7 +442,7 @@
       "additionalProperties": false,
       "required": ["waitingZoneKey", "maneuverPath", "entryGate", "releaseGate", "maxOccupancy"],
       "properties": {
-        "waitingZoneKey": { "$ref": "#/$defs/token" },
+        "waitingZoneKey": { "$ref": "#/$defs/localKey" },
         "maneuverPath": { "$ref": "#/$defs/token" },
         "entryGate": { "$ref": "#/$defs/token" },
         "releaseGate": { "$ref": "#/$defs/token" },

@@ -268,6 +268,12 @@ impl CompileLimits {
     }
 
     #[cfg(test)]
+    pub(crate) fn with_test_single_string_limit(mut self, limit: u32) -> Self {
+        self.max_single_string_bytes = limit;
+        self
+    }
+
+    #[cfg(test)]
     pub(crate) fn with_test_pipeline_limits(
         mut self,
         hir_record_count: u32,

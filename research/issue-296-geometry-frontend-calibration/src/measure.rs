@@ -19,6 +19,7 @@ use crate::counts::{
     ACCURACY_PROFILES, DIRECTION_PROFILES, GeometrySource, accuracy_code, complete_output_digest,
     direction_code,
 };
+use crate::evidence::repo_relative;
 use crate::manifest::{
     self, CORRIDOR_FIXTURE_PATH, CORRIDOR_WORKLOAD_ID, MIN_FIXTURE_PATH, MIN_WORKLOAD_ID,
     P100_FIXTURE_PATH, P100_WORKLOAD_ID, WorkloadFixture, load_fixture,
@@ -471,7 +472,7 @@ pub fn measure_process(
     let binary_bytes = std::fs::read(&executable)
         .unwrap_or_else(|error| panic!("读取测量二进制 {} 失败：{error}", executable.display()));
     let binary = json!({
-        "path": executable.to_string_lossy(),
+        "path": repo_relative(repo_root, &executable),
         "byteLength": u64::try_from(binary_bytes.len()).unwrap_or(u64::MAX),
         "sha256": sha256_hex(&binary_bytes),
     });

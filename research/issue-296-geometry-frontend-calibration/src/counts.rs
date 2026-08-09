@@ -5,8 +5,10 @@
 use std::collections::BTreeMap;
 
 use laneflow_compiler::{
-    CompilationOutput, CompilationUnitBuilder, CompileLimits, Compiler, GeometryAccuracyProfile,
-    GeometryDirectionProfile, GeometryDocumentInput, GeometryModuleBuilder, LirTableCounts,
+    AccessRelationOwner, CompilationOutput, CompilationUnitBuilder, CompileLimits, Compiler,
+    CrossSectionRelationOwner, GeometryAccuracyProfile, GeometryDirectionProfile,
+    GeometryDocumentInput, GeometryModuleBuilder, JunctionRelationOwner, LirTableCounts,
+    SignalRelationOwner, SourceLocationView, SourceRelationRole,
 };
 use sha2::{Digest as _, Sha256};
 
@@ -14,10 +16,436 @@ use sha2::{Digest as _, Sha256};
 /// 编码 = 域分隔符 || semantic_fingerprint(32B) || lir_record_count(u64le) ||
 /// output_logical_bytes(u64le) || compiler_controlled_peak_bytes(u64le) ||
 /// diagnostics 条数(u64le) || 53 张 record-counted 表行数（`LirTableCounts::NAMES`
-/// 字典序，各 u64le）。LIR 逐行内容由编译器计算的 semantic_fingerprint 绑定，
-/// 表基数与指标显式列入；manifest 生成器与 cross-record validator 共用本函数。
+/// 字典序，各 u64le）|| 完整 source-map 规范编码。LIR 逐行内容由编译器计算的
+/// semantic_fingerprint 绑定；source-map 的描述符、owner、角色、local index 与来源位置
+/// 使用下列显式 length-prefix 编码。manifest 生成器与 cross-record validator 共用本函数。
 const COMPLETE_OUTPUT_DIGEST_DOMAIN: &[u8] =
-    b"laneflow.geometry-frontend-calibration.complete-output.v1\0";
+    b"laneflow.geometry-frontend-calibration.complete-output.v2\0";
+
+fn digest_bytes(hasher: &mut Sha256, bytes: &[u8]) {
+    hasher.update(u64::try_from(bytes.len()).unwrap_or(u64::MAX).to_le_bytes());
+    hasher.update(bytes);
+}
+
+fn digest_location(hasher: &mut Sha256, location: SourceLocationView<'_>) {
+    digest_bytes(hasher, location.source_document_key().as_bytes());
+    for value in [
+        location.start().line(),
+        location.start().column(),
+        location.end().line(),
+        location.end().column(),
+    ] {
+        hasher.update(value.to_le_bytes());
+    }
+}
+
+fn digest_relation_header(
+    hasher: &mut Sha256,
+    owner_tag: u8,
+    owner_ordinal: u32,
+    owner_stable_id: &[u8; 16],
+    role: SourceRelationRole,
+    local_index: u32,
+) {
+    hasher.update([owner_tag]);
+    hasher.update(owner_ordinal.to_le_bytes());
+    hasher.update(owner_stable_id);
+    hasher.update((role as u16).to_le_bytes());
+    hasher.update(local_index.to_le_bytes());
+}
+
+macro_rules! digest_stable_sources {
+    ($hasher:expr, $tag:literal, $sources:expr) => {{
+        let sources = $sources;
+        digest_bytes($hasher, $tag);
+        $hasher.update(
+            u64::try_from(sources.len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        for source in sources {
+            $hasher.update(source.ordinal().raw().to_le_bytes());
+            $hasher.update(source.stable_id().as_untyped().as_bytes());
+            digest_location($hasher, source.primary_source());
+            let contributing = source.contributing_sources();
+            $hasher.update(
+                u64::try_from(contributing.len())
+                    .unwrap_or(u64::MAX)
+                    .to_le_bytes(),
+            );
+            for location in contributing {
+                digest_location($hasher, location);
+            }
+        }
+    }};
+}
+
+macro_rules! digest_relation_tail {
+    ($hasher:expr, $source:expr) => {{
+        digest_location($hasher, $source.primary_source());
+        let contributing = $source.contributing_sources();
+        $hasher.update(
+            u64::try_from(contributing.len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        for location in contributing {
+            digest_location($hasher, location);
+        }
+    }};
+}
+
+fn digest_source_map(output: &CompilationOutput, hasher: &mut Sha256) {
+    let source_map = output.source_map_input();
+    digest_bytes(hasher, b"source-modules");
+    let modules = source_map.source_modules();
+    hasher.update(
+        u64::try_from(modules.len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    for module in modules {
+        digest_bytes(hasher, module.authoring_namespace_id().as_bytes());
+        digest_bytes(hasher, module.source_language().as_str().as_bytes());
+        hasher.update(module.source_document_set_digest());
+        hasher.update(module.source_document_set_digest_version().to_le_bytes());
+        hasher.update(module.frontend_version().to_le_bytes());
+        hasher.update(module.frontend_options_digest());
+        digest_bytes(hasher, module.generator_build_id().as_bytes());
+        hasher.update(module.parameters_and_inputs_digest());
+        match module.random_seed() {
+            Some(seed) => {
+                hasher.update([1]);
+                hasher.update(seed.to_le_bytes());
+            }
+            None => hasher.update([0]),
+        }
+        digest_bytes(hasher, module.provenance().as_bytes());
+        let imports = module.imports();
+        hasher.update(
+            u64::try_from(imports.len())
+                .unwrap_or(u64::MAX)
+                .to_le_bytes(),
+        );
+        for import in imports {
+            digest_bytes(hasher, import.as_bytes());
+        }
+    }
+    digest_bytes(hasher, b"source-module-locations");
+    let module_sources = source_map.source_module_sources();
+    hasher.update(
+        u64::try_from(module_sources.len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    for source in module_sources {
+        digest_location(hasher, source.primary_source());
+    }
+    digest_bytes(hasher, b"source-documents");
+    let documents = source_map.source_documents();
+    hasher.update(
+        u64::try_from(documents.len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    for document in documents {
+        digest_bytes(hasher, document.source_document_key().as_bytes());
+        digest_bytes(hasher, document.authoring_namespace_id().as_bytes());
+        hasher.update(document.source_document_digest());
+        hasher.update(document.source_record_byte_len().to_le_bytes());
+        match document.origin().display_source() {
+            Some(display) => {
+                hasher.update([1]);
+                digest_bytes(hasher, display.as_bytes());
+            }
+            None => hasher.update([0]),
+        }
+    }
+
+    digest_stable_sources!(hasher, b"lane-edges", source_map.lane_edge_sources());
+    digest_stable_sources!(
+        hasher,
+        b"road-corridors",
+        source_map.road_corridor_sources()
+    );
+    digest_stable_sources!(hasher, b"road-sections", source_map.road_section_sources());
+    digest_stable_sources!(
+        hasher,
+        b"authoring-lanes",
+        source_map.authoring_lane_sources()
+    );
+    digest_stable_sources!(hasher, b"lane-groups", source_map.lane_group_sources());
+    digest_stable_sources!(
+        hasher,
+        b"facility-bands",
+        source_map.facility_band_sources()
+    );
+    digest_stable_sources!(hasher, b"junctions", source_map.junction_sources());
+    digest_stable_sources!(hasher, b"movements", source_map.movement_sources());
+    digest_stable_sources!(
+        hasher,
+        b"maneuver-paths",
+        source_map.maneuver_path_sources()
+    );
+    digest_stable_sources!(hasher, b"stop-lines", source_map.stop_line_sources());
+    digest_stable_sources!(
+        hasher,
+        b"maneuver-gates",
+        source_map.maneuver_gate_sources()
+    );
+    digest_stable_sources!(hasher, b"waiting-zones", source_map.waiting_zone_sources());
+    digest_stable_sources!(hasher, b"signal-groups", source_map.signal_group_sources());
+    digest_stable_sources!(
+        hasher,
+        b"signal-controllers",
+        source_map.signal_controller_sources()
+    );
+    digest_stable_sources!(hasher, b"signal-phases", source_map.signal_phase_sources());
+    digest_stable_sources!(hasher, b"parking-areas", source_map.parking_area_sources());
+    digest_stable_sources!(
+        hasher,
+        b"parking-spaces",
+        source_map.parking_space_sources()
+    );
+    digest_stable_sources!(
+        hasher,
+        b"participant-classes",
+        source_map.participant_class_sources()
+    );
+    digest_stable_sources!(
+        hasher,
+        b"vehicle-profiles",
+        source_map.vehicle_profile_sources()
+    );
+    digest_stable_sources!(
+        hasher,
+        b"canonical-frames",
+        source_map.canonical_frame_sources()
+    );
+    digest_stable_sources!(hasher, b"access-rules", source_map.access_rule_sources());
+    digest_stable_sources!(hasher, b"static-routes", source_map.static_route_sources());
+
+    digest_bytes(hasher, b"lane-edge-successors");
+    let relations = source_map.lane_edge_successor_sources();
+    hasher.update(
+        u64::try_from(relations.len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    for source in relations {
+        digest_relation_header(
+            hasher,
+            1,
+            source.owner_ordinal().raw(),
+            source.owner_stable_id().as_untyped().as_bytes(),
+            source.role(),
+            source.local_index(),
+        );
+        digest_relation_tail!(hasher, source);
+    }
+
+    digest_bytes(hasher, b"cross-section-relations");
+    let relations = source_map.cross_section_relation_sources();
+    hasher.update(
+        u64::try_from(relations.len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    for source in relations {
+        match source.owner() {
+            CrossSectionRelationOwner::RoadCorridor(ordinal, id) => digest_relation_header(
+                hasher,
+                1,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            CrossSectionRelationOwner::RoadSection(ordinal, id) => digest_relation_header(
+                hasher,
+                2,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            CrossSectionRelationOwner::AuthoringLane(ordinal, id) => digest_relation_header(
+                hasher,
+                3,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            CrossSectionRelationOwner::LaneGroup(ordinal, id) => digest_relation_header(
+                hasher,
+                4,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            _ => unreachable!("new cross-section relation owner requires digest encoding"),
+        }
+        digest_relation_tail!(hasher, source);
+    }
+
+    digest_bytes(hasher, b"junction-relations");
+    let relations = source_map.junction_relation_sources();
+    hasher.update(
+        u64::try_from(relations.len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    for source in relations {
+        match source.owner() {
+            JunctionRelationOwner::Junction(ordinal, id) => digest_relation_header(
+                hasher,
+                1,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            JunctionRelationOwner::Movement(ordinal, id) => digest_relation_header(
+                hasher,
+                2,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            JunctionRelationOwner::ManeuverPath(ordinal, id) => digest_relation_header(
+                hasher,
+                3,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            JunctionRelationOwner::StopLine(ordinal, id) => digest_relation_header(
+                hasher,
+                4,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            _ => unreachable!("new junction relation owner requires digest encoding"),
+        }
+        digest_relation_tail!(hasher, source);
+    }
+
+    digest_bytes(hasher, b"signal-relations");
+    let relations = source_map.signal_relation_sources();
+    hasher.update(
+        u64::try_from(relations.len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    for source in relations {
+        match source.owner() {
+            SignalRelationOwner::SignalController(ordinal, id) => digest_relation_header(
+                hasher,
+                1,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            SignalRelationOwner::SignalPhase(ordinal, id) => digest_relation_header(
+                hasher,
+                2,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            SignalRelationOwner::ManeuverGate(ordinal, id) => digest_relation_header(
+                hasher,
+                3,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            _ => unreachable!("new signal relation owner requires digest encoding"),
+        }
+        digest_relation_tail!(hasher, source);
+    }
+
+    digest_bytes(hasher, b"access-relations");
+    let relations = source_map.access_relation_sources();
+    hasher.update(
+        u64::try_from(relations.len())
+            .unwrap_or(u64::MAX)
+            .to_le_bytes(),
+    );
+    for source in relations {
+        match source.owner() {
+            AccessRelationOwner::ParticipantClass(ordinal, id) => digest_relation_header(
+                hasher,
+                1,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            AccessRelationOwner::VehicleProfile(ordinal, id) => digest_relation_header(
+                hasher,
+                2,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            AccessRelationOwner::AccessRule(ordinal, id) => digest_relation_header(
+                hasher,
+                3,
+                ordinal.raw(),
+                id.as_untyped().as_bytes(),
+                source.role(),
+                source.local_index(),
+            ),
+            _ => unreachable!("new access relation owner requires digest encoding"),
+        }
+        digest_relation_tail!(hasher, source);
+    }
+
+    macro_rules! digest_simple_relations {
+        ($tag:literal, $owner_tag:literal, $relations:expr) => {{
+            digest_bytes(hasher, $tag);
+            let relations = $relations;
+            hasher.update(
+                u64::try_from(relations.len())
+                    .unwrap_or(u64::MAX)
+                    .to_le_bytes(),
+            );
+            for source in relations {
+                digest_relation_header(
+                    hasher,
+                    $owner_tag,
+                    source.owner_ordinal().raw(),
+                    source.owner_stable_id().as_untyped().as_bytes(),
+                    source.role(),
+                    source.local_index(),
+                );
+                digest_relation_tail!(hasher, source);
+            }
+        }};
+    }
+    digest_simple_relations!(
+        b"parking-relations",
+        1,
+        source_map.parking_relation_sources()
+    );
+    digest_simple_relations!(
+        b"spatial-relations",
+        1,
+        source_map.spatial_relation_sources()
+    );
+    digest_simple_relations!(b"route-relations", 1, source_map.route_relation_sources());
+}
 
 /// 位置误差配置档全集合；鉴别码 1..=3 与 manifest `accuracyProfileCode` 一致。
 pub const ACCURACY_PROFILES: [GeometryAccuracyProfile; 3] = [
@@ -177,5 +605,45 @@ pub fn complete_output_digest(output: &CompilationOutput) -> [u8; 32] {
     for (_, count) in output.lir().lir_table_counts().entries() {
         hasher.update(count.to_le_bytes());
     }
+    digest_source_map(output, &mut hasher);
     hasher.finalize().into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn compile_min_fixture(display_source: Option<&str>) -> CompilationOutput {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/min-v1.fixture.json")).unwrap();
+        let source = fixture["modules"][0]["source"].as_str().unwrap();
+        let limits = CompileLimits::p100_initial_v1();
+        let module = GeometryModuleBuilder::new(
+            GeometryDocumentInput::new("min.geometry.json", source.as_bytes(), display_source),
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &limits,
+        )
+        .unwrap()
+        .finish()
+        .unwrap();
+        let mut unit = CompilationUnitBuilder::new(limits);
+        unit.add_geometry_module(module).unwrap();
+        Compiler::new().compile(unit.build().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn complete_digest_binds_source_map_display_source() {
+        let first = compile_min_fixture(Some("fixtures/min-a.geometry.json"));
+        let second = compile_min_fixture(Some("fixtures/min-b.geometry.json"));
+
+        assert_eq!(
+            first.metrics().semantic_fingerprint(),
+            second.metrics().semantic_fingerprint()
+        );
+        assert_ne!(
+            complete_output_digest(&first),
+            complete_output_digest(&second)
+        );
+    }
 }

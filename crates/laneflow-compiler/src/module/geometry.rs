@@ -32,7 +32,7 @@ use crate::declaration::{
 use crate::source::external_token_violation;
 use crate::{
     CompileLimitDimension, CompileLimits, Diagnostic, DiagnosticBundle, GeometryDocumentViolation,
-    SourceHeaderField, SourceSpan,
+    SourceHeaderField, SourceSpan, SourceTextViolation,
 };
 
 use self::json::{ByteSpan, JsonErrorKind, LineIndex, StageScratchMeter};
@@ -284,16 +284,39 @@ impl GeometryModuleBuilder {
         direction_profile: GeometryDirectionProfile,
         limits: &CompileLimits,
     ) -> Result<Self, DiagnosticBundle> {
-        if let Some(violation) = external_token_violation(
-            input.source_document_key(),
-            limits.value(CompileLimitDimension::SingleStringBytes),
-        ) {
+        let single_string_limit = limits.value(CompileLimitDimension::SingleStringBytes);
+        if let Some(violation) =
+            external_token_violation(input.source_document_key(), single_string_limit)
+        {
             return Err(DiagnosticBundle::single(
                 Diagnostic::invalid_source_header_field(
                     SourceHeaderField::SourceDocumentKey,
                     violation,
                 ),
             ));
+        }
+        if let Some(display_source) = input.display_source() {
+            let display_source_bytes = len_u64(display_source);
+            if display_source_bytes > single_string_limit {
+                return Err(DiagnosticBundle::single(
+                    Diagnostic::compile_limit_exceeded(
+                        CompileLimitDimension::SingleStringBytes,
+                        single_string_limit,
+                        display_source_bytes,
+                    ),
+                ));
+            }
+            let controlled_live_limit =
+                limits.value(CompileLimitDimension::CompilerControlledLiveBytes);
+            if display_source_bytes > controlled_live_limit {
+                return Err(DiagnosticBundle::single(
+                    Diagnostic::compile_limit_exceeded(
+                        CompileLimitDimension::CompilerControlledLiveBytes,
+                        controlled_live_limit,
+                        display_source_bytes,
+                    ),
+                ));
+            }
         }
 
         let source_byte_len = u64::try_from(input.source_bytes().len()).unwrap_or(u64::MAX);
@@ -527,6 +550,7 @@ impl GeometryModuleBuilder {
             &header,
             &self.source_document_key,
             self.source_record_byte_len,
+            self.display_source.as_deref(),
         );
         let declaration_span = span_of(self.parsed.module.span);
         check_finish_limits(
@@ -696,13 +720,16 @@ impl GeometryModuleBuilder {
         span_of: &dyn Fn(ByteSpan) -> SourceSpan,
     ) -> Result<FinishProvenance, DiagnosticBundle> {
         match &self.parsed.module.provenance {
-            schema::ParsedProvenance::Direct { description } => Ok(FinishProvenance {
-                generator_build_id: Arc::from("laneflow-geometry-direct-v1"),
-                parameters_and_inputs_digest: direct_parameters_and_inputs_digest(),
-                random_seed: None,
-                source_frontend_options_digest: direct_source_frontend_options_digest(),
-                description: Arc::from(description.value.as_ref()),
-            }),
+            schema::ParsedProvenance::Direct { description } => {
+                validate_provenance_description(description, single_string_limit, span_of)?;
+                Ok(FinishProvenance {
+                    generator_build_id: Arc::from("laneflow-geometry-direct-v1"),
+                    parameters_and_inputs_digest: direct_parameters_and_inputs_digest(),
+                    random_seed: None,
+                    source_frontend_options_digest: direct_source_frontend_options_digest(),
+                    description: Arc::from(description.value.as_ref()),
+                })
+            }
             schema::ParsedProvenance::Generated {
                 generator_build_id,
                 parameters_and_inputs_digest,
@@ -722,6 +749,7 @@ impl GeometryModuleBuilder {
                         ),
                     ));
                 }
+                validate_provenance_description(description, single_string_limit, span_of)?;
                 Ok(FinishProvenance {
                     generator_build_id: Arc::from(value),
                     parameters_and_inputs_digest: *parameters_and_inputs_digest,
@@ -732,6 +760,26 @@ impl GeometryModuleBuilder {
             }
         }
     }
+}
+
+fn validate_provenance_description(
+    description: &SpannedString,
+    single_string_limit: u64,
+    span_of: &dyn Fn(ByteSpan) -> SourceSpan,
+) -> Result<(), DiagnosticBundle> {
+    let observed = len_u64(&description.value);
+    if observed > single_string_limit {
+        return Err(DiagnosticBundle::single(
+            Diagnostic::invalid_geometry_document(
+                GeometryDocumentViolation::FieldValue,
+                Some("module.provenance.description"),
+                Some(&description.value),
+                Some("non-empty UTF-8 text within SingleStringBytes"),
+                span_of(description.span),
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Geometry 前端随模块冻结的几何载荷；与 Typed AST 在共同准入前不可分。
@@ -974,7 +1022,7 @@ fn register_finish_key<'a>(
     span_of: &dyn Fn(ByteSpan) -> SourceSpan,
 ) -> Result<(), DiagnosticBundle> {
     let span = span_of(value.span);
-    if let Some(violation) = external_token_violation(&value.value, single_string_limit) {
+    if let Some(violation) = finish_local_key_violation(&value.value, single_string_limit) {
         return Err(match group {
             FinishKeyGroup::Entity(entity_kind) => DiagnosticBundle::single(
                 Diagnostic::invalid_declaration_key(entity_kind, violation, span),
@@ -1011,6 +1059,19 @@ fn register_finish_key<'a>(
         });
     }
     Ok(())
+}
+
+fn finish_local_key_violation(
+    value: &str,
+    single_string_limit: u64,
+) -> Option<SourceTextViolation> {
+    external_token_violation(value, single_string_limit).or_else(|| {
+        value
+            .find("::")
+            .map(|byte_index| SourceTextViolation::ReservedDelimiter {
+                byte_index: u64::try_from(byte_index).unwrap_or(u64::MAX),
+            })
+    })
 }
 
 /// 扫描全部键定义：token 合法性 + 同组重复，先到先得单诊断。
@@ -1154,14 +1215,14 @@ fn validate_finish_keys(
                 ),
             ] {
                 if let Some(_violation) =
-                    external_token_violation(&approach_key.value, single_string_limit)
+                    finish_local_key_violation(&approach_key.value, single_string_limit)
                 {
                     return Err(DiagnosticBundle::single(
                         Diagnostic::invalid_geometry_document(
                             GeometryDocumentViolation::FieldValue,
                             Some(field),
                             Some(&approach_key.value),
-                            Some("valid external token"),
+                            Some("valid local key without reserved '::' reference delimiter"),
                             span_of(approach_key.span),
                         ),
                     ));
@@ -1192,14 +1253,14 @@ fn validate_finish_keys(
         for phase in &controller.phases {
             // 共同约束不要求 signalPhaseKey 全局唯一；只做 token 检查。
             if let Some(_violation) =
-                external_token_violation(&phase.signal_phase_key.value, single_string_limit)
+                finish_local_key_violation(&phase.signal_phase_key.value, single_string_limit)
             {
                 return Err(DiagnosticBundle::single(
                     Diagnostic::invalid_geometry_document(
                         GeometryDocumentViolation::FieldValue,
                         Some("signalControllers[].phases[].signalPhaseKey"),
                         Some(&phase.signal_phase_key.value),
-                        Some("valid external token"),
+                        Some("valid local key without reserved '::' reference delimiter"),
                         span_of(phase.signal_phase_key.span),
                     ),
                 ));
@@ -1433,16 +1494,111 @@ fn seconds_to_milliseconds(
     ))
 }
 
-/// 解析无小数、可无损收窄为 `u32` 的非负整数字段。
+#[derive(Clone, Copy)]
+struct ExactJsonInteger {
+    negative: bool,
+    magnitude: u64,
+}
+
+/// 把 JSON number token 按十进制值精确归约为整数，不经过 `f64`。
+///
+/// Draft 2020-12 的 `integer` 是数学整数，因此 `1`、`1.0`、`1e0` 和 `100e-2`
+/// 等价。调用方分别提供正负方向的最大绝对值；任何非整数或越界值返回 `None`。
+fn parse_exact_json_integer(
+    token: &str,
+    positive_max: u64,
+    negative_max: u64,
+) -> Option<ExactJsonInteger> {
+    let bytes = token.as_bytes();
+    let negative = bytes.first() == Some(&b'-');
+    let significand_start = usize::from(negative);
+    let exponent_at = bytes.iter().position(|byte| matches!(byte, b'e' | b'E'));
+    let significand_end = exponent_at.unwrap_or(bytes.len());
+    let decimal_at = bytes[significand_start..significand_end]
+        .iter()
+        .position(|byte| *byte == b'.')
+        .map(|offset| significand_start + offset);
+    let fractional_digits = decimal_at.map_or(0_usize, |index| significand_end - index - 1);
+    let digit_count = (significand_end - significand_start) - usize::from(decimal_at.is_some());
+
+    let exponent = exponent_at.map_or(0_i64, |index| {
+        let mut cursor = index + 1;
+        let exponent_negative = bytes.get(cursor) == Some(&b'-');
+        if matches!(bytes.get(cursor), Some(b'+' | b'-')) {
+            cursor += 1;
+        }
+        let mut value = 0_i64;
+        while cursor < bytes.len() {
+            value = value
+                .saturating_mul(10)
+                .saturating_add(i64::from(bytes[cursor] - b'0'));
+            cursor += 1;
+        }
+        if exponent_negative {
+            value.saturating_neg()
+        } else {
+            value
+        }
+    });
+    let decimal_shift =
+        exponent.saturating_sub(i64::try_from(fractional_digits).unwrap_or(i64::MAX));
+    let removed_digits = if decimal_shift < 0 {
+        usize::try_from(decimal_shift.unsigned_abs()).unwrap_or(usize::MAX)
+    } else {
+        0
+    };
+    let retained_digits = digit_count.saturating_sub(removed_digits);
+    let max_magnitude = if negative { negative_max } else { positive_max };
+    let mut magnitude = 0_u64;
+    let mut digit_index = 0_usize;
+    for byte in &bytes[significand_start..significand_end] {
+        if *byte == b'.' {
+            continue;
+        }
+        let digit = u64::from(*byte - b'0');
+        if digit_index >= retained_digits {
+            if digit != 0 {
+                return None;
+            }
+        } else {
+            magnitude = magnitude.checked_mul(10)?.checked_add(digit)?;
+            if magnitude > max_magnitude {
+                return None;
+            }
+        }
+        digit_index += 1;
+    }
+    if removed_digits > digit_count && magnitude != 0 {
+        return None;
+    }
+    if decimal_shift > 0 && magnitude != 0 {
+        let appended_zeros = u64::try_from(decimal_shift).ok()?;
+        if appended_zeros > 10 {
+            return None;
+        }
+        for _ in 0..appended_zeros {
+            magnitude = magnitude.checked_mul(10)?;
+            if magnitude > max_magnitude {
+                return None;
+            }
+        }
+    }
+    Some(ExactJsonInteger {
+        negative,
+        magnitude,
+    })
+}
+
+/// 解析可精确收窄为 `u32` 的非负数学整数字段。
 fn parse_u32_field(
     value: &RawNumber,
     field: &'static str,
     span_of: &dyn Fn(ByteSpan) -> SourceSpan,
 ) -> Result<u32, DiagnosticBundle> {
-    let parsed = parse_finite_field(value, field, span_of)?;
-    if parsed.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&parsed) {
-        #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-        return Ok(parsed as u32);
+    if let Some(parsed) = parse_exact_json_integer(&value.token, u64::from(u32::MAX), 0)
+        && (!parsed.negative || parsed.magnitude == 0)
+    {
+        return Ok(u32::try_from(parsed.magnitude).expect("magnitude is u32-bounded"));
     }
     Err(DiagnosticBundle::single(
         Diagnostic::invalid_geometry_document(
@@ -1455,16 +1611,25 @@ fn parse_u32_field(
     ))
 }
 
-/// 解析无小数、可无损收窄为 `i32` 的整数字段。
+/// 解析可精确收窄为 `i32` 的数学整数字段。
 fn parse_i32_field(
     value: &RawNumber,
     field: &'static str,
     span_of: &dyn Fn(ByteSpan) -> SourceSpan,
 ) -> Result<i32, DiagnosticBundle> {
-    let parsed = parse_finite_field(value, field, span_of)?;
-    if parsed.fract() == 0.0 && (f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&parsed) {
-        #[expect(clippy::cast_possible_truncation)]
-        return Ok(parsed as i32);
+    if let Some(parsed) = parse_exact_json_integer(
+        &value.token,
+        u64::try_from(i32::MAX).expect("i32::MAX is non-negative"),
+        u64::from(i32::MAX.unsigned_abs()) + 1,
+    ) {
+        if parsed.negative {
+            if parsed.magnitude == u64::from(i32::MAX.unsigned_abs()) + 1 {
+                return Ok(i32::MIN);
+            }
+            let magnitude = i32::try_from(parsed.magnitude).expect("negative magnitude is bounded");
+            return Ok(-magnitude);
+        }
+        return Ok(i32::try_from(parsed.magnitude).expect("positive magnitude is bounded"));
     }
     Err(DiagnosticBundle::single(
         Diagnostic::invalid_geometry_document(
@@ -1923,6 +2088,19 @@ fn lower_cross_section_span(
                 (&left.module_namespace, &left.declaration_key)
                     .cmp(&(&right.module_namespace, &right.declaration_key))
             });
+            if let Some(duplicate) = successors.windows(2).find(|pair| {
+                pair[0].module_namespace == pair[1].module_namespace
+                    && pair[0].declaration_key == pair[1].declaration_key
+            }) {
+                return Err(DiagnosticBundle::single(
+                    Diagnostic::duplicate_lane_edge_successor(
+                        &lane.lane_edge_key.value,
+                        &duplicate[1].module_namespace,
+                        &duplicate[1].declaration_key,
+                        duplicate[1].span.clone(),
+                    ),
+                ));
+            }
             declarations.push(TypedAstDeclaration::LaneEdge(LaneEdgeDeclaration {
                 header: DeclarationHeader {
                     entity_kind: EntityKind::LaneEdge,
@@ -3111,13 +3289,16 @@ fn finish_resource_counts(
     header: &FinishHeader,
     source_document_key: &Arc<str>,
     source_record_byte_len: u32,
+    display_source: Option<&str>,
 ) -> ModuleResourceCounts {
     let namespace_bytes = len_u64(&header.namespace);
     let mut counters = FinishCounters::default();
     // 模块头 resident：ns 与 document key 进入 string 维度，generator/provenance
     // 只进入 controlled 字符串（对齐 Synthetic builder 初始化）。
-    counters.string_item_count = 2;
-    counters.string_bytes = namespace_bytes.saturating_add(len_u64(source_document_key));
+    counters.string_item_count = 2_u64.saturating_add(u64::from(display_source.is_some()));
+    counters.string_bytes = namespace_bytes
+        .saturating_add(len_u64(source_document_key))
+        .saturating_add(display_source.map_or(0, len_u64));
     counters.controlled_string_bytes = counters
         .string_bytes
         .saturating_add(len_u64(&header.provenance.generator_build_id))
@@ -3976,6 +4157,108 @@ mod tests {
         .finish()
     }
 
+    #[test]
+    fn builder_bounds_display_source_before_copying_it() {
+        let limits = CompileLimits::p100_initial_v1().with_test_single_string_limit(2);
+        let error = GeometryModuleBuilder::new(
+            GeometryDocumentInput::new("s", super::schema::MINIMAL_DOCUMENT, Some("host/path")),
+            GeometryAccuracyProfile::Balanced5Cm,
+            GeometryDirectionProfile::Balanced2Deg,
+            &limits,
+        )
+        .err()
+        .unwrap();
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            DiagnosticPayload::CompileLimitExceeded {
+                dimension: CompileLimitDimension::SingleStringBytes,
+                limit: 2,
+                observed: 9,
+            }
+        ));
+    }
+
+    #[test]
+    fn finish_bounds_provenance_description_and_reserves_reference_delimiter() {
+        let limits = CompileLimits::p100_initial_v1().with_test_single_string_limit(20);
+        let long_description = valid_minimal_document().replace(
+            "\"description\":\"minimal\"",
+            "\"description\":\"123456789012345678901\"",
+        );
+        let error = finish_document(long_description.as_bytes(), &limits)
+            .err()
+            .unwrap();
+        assert!(matches!(
+            error.diagnostics()[0].payload(),
+            DiagnosticPayload::InvalidGeometryDocument {
+                field: Some(field),
+                ..
+            } if field.as_ref() == "module.provenance.description"
+        ));
+
+        let reserved = valid_minimal_document().replace(
+            "\"laneEdgeKey\":\"edge.main\"",
+            "\"laneEdgeKey\":\"edge::main\"",
+        );
+        let error = finish_document(reserved.as_bytes(), &CompileLimits::p100_initial_v1())
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.diagnostics()[0].code(),
+            DiagnosticCode::InvalidDeclarationKey
+        );
+
+        for (needle, replacement, field) in [
+            (
+                "\"directedEntryApproachKey\":\"approach.in\"",
+                "\"directedEntryApproachKey\":\"approach::in\"",
+                "connections[].directedEntryApproachKey",
+            ),
+            (
+                "\"signalPhaseKey\":\"phase.a\"",
+                "\"signalPhaseKey\":\"phase::a\"",
+                "signalControllers[].phases[].signalPhaseKey",
+            ),
+        ] {
+            let source = FULL_DOCUMENT.replace(needle, replacement);
+            let error = finish_document(source.as_bytes(), &CompileLimits::p100_initial_v1())
+                .err()
+                .unwrap();
+            assert!(matches!(
+                error.diagnostics()[0].payload(),
+                DiagnosticPayload::InvalidGeometryDocument {
+                    field: Some(actual),
+                    ..
+                } if actual.as_ref() == field
+            ));
+        }
+    }
+
+    #[test]
+    fn finish_rejects_duplicate_successor_aliases_after_resolution() {
+        let source = valid_minimal_document().replace(
+            "\"successors\":[]",
+            "\"successors\":[\"edge.main\",\"city/main::edge.main\"]",
+        );
+        let error = finish_document(source.as_bytes(), &CompileLimits::p100_initial_v1())
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.diagnostics()[0].code(),
+            DiagnosticCode::DuplicateLaneEdgeSuccessor
+        );
+    }
+
+    #[test]
+    fn exact_json_integer_accepts_schema_integer_spellings_without_f64() {
+        for token in ["1", "1.0", "1e0", "100e-2", "-0.0"] {
+            let parsed = super::parse_exact_json_integer(token, u64::from(u32::MAX), 0).unwrap();
+            assert_eq!(parsed.magnitude, u64::from(token != "-0.0"));
+        }
+        assert!(super::parse_exact_json_integer("1.2", u64::from(u32::MAX), 0).is_none());
+        assert!(super::parse_exact_json_integer("4294967296", u64::from(u32::MAX), 0).is_none());
+    }
+
     fn declaration_name(declaration: &TypedAstDeclaration) -> &'static str {
         match declaration {
             TypedAstDeclaration::LaneEdge(_) => "LaneEdge",
@@ -4074,6 +4357,15 @@ mod tests {
             "waitingZones":[{"waitingZoneKey":"zone.main","maneuverPath":"path.main","entryGate":"gate.entry","releaseGate":"gate.release","maxOccupancy":2}]
         }
     }"#;
+
+    #[test]
+    fn finish_accepts_schema_integer_decimal_and_exponent_spellings() {
+        let source = FULL_DOCUMENT
+            .replace("\"priority\":0", "\"priority\":0.0")
+            .replace("\"maxOccupancy\":2", "\"maxOccupancy\":2e0");
+
+        finish_document(source.as_bytes(), &CompileLimits::p100_initial_v1()).unwrap();
+    }
 
     #[test]
     fn finish_lowers_the_full_wire_document_in_declaration_order() {

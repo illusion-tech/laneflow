@@ -4,7 +4,7 @@
 //! 重新编译得出；evidence 方向的校验在测量证据存在后启用，复用同一条校验链。
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Component, Path};
 
 use laneflow_compiler::{GeometryAccuracyProfile, GeometryDirectionProfile, LirTableCounts};
 use serde_json::Value;
@@ -478,8 +478,21 @@ pub fn validate_evidence_with_contract(repo_root: &Path) {
             .get("path")
             .and_then(Value::as_str)
             .expect("release 二进制缺少 path");
-        let bytes = std::fs::read(path)
-            .unwrap_or_else(|error| panic!("读取 release 二进制 {path} 失败：{error}"));
+        let binary_path = Path::new(path);
+        assert!(
+            !binary_path.is_absolute()
+                && binary_path
+                    .components()
+                    .all(|component| matches!(component, Component::Normal(_))),
+            "release 二进制 path 必须是不能逃逸 repo 的规范相对路径：{path}"
+        );
+        let resolved_path = repo_root.join(binary_path);
+        let bytes = std::fs::read(&resolved_path).unwrap_or_else(|error| {
+            panic!(
+                "读取 release 二进制 {} 失败：{error}",
+                resolved_path.display()
+            )
+        });
         assert_eq!(
             binary.get("byteLength").and_then(Value::as_u64),
             Some(u64::try_from(bytes.len()).unwrap_or(u64::MAX)),

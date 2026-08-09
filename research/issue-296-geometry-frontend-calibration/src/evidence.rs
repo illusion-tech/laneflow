@@ -102,7 +102,7 @@ fn sha256_file(path: &Path) -> (u64, String) {
     )
 }
 
-fn repo_relative(repo_root: &Path, path: &Path) -> String {
+pub(crate) fn repo_relative(repo_root: &Path, path: &Path) -> String {
     let canonical_root = repo_root.canonicalize().expect("repo 根必须存在");
     let canonical = path
         .canonicalize()
@@ -366,7 +366,7 @@ pub fn validate_evidence_document(schema_bytes: &[u8], evidence_bytes: &[u8]) {
 
 /// 校验三份进程样本文件的结构性一致（schema、进程序号、二进制、冻结行序与跨进程
 /// 确定性字段），返回排序后的进程对象与测量二进制绑定。
-fn load_process_files(paths: &[PathBuf]) -> (Vec<Value>, Value) {
+fn load_process_files(repo_root: &Path, paths: &[PathBuf]) -> (Vec<Value>, Value) {
     assert_eq!(
         paths.len(),
         PROCESS_COUNT as usize,
@@ -407,6 +407,11 @@ fn load_process_files(paths: &[PathBuf]) -> (Vec<Value>, Value) {
     }
     let executable = std::env::current_exe().expect("读取当前可执行路径失败");
     let (executable_length, executable_sha256) = sha256_file(&executable);
+    assert_eq!(
+        row_string(&binary, "path"),
+        repo_relative(repo_root, &executable),
+        "assemble 与 measure 必须使用同一 repo 相对二进制路径"
+    );
     assert_eq!(
         row_u64(&binary, "byteLength"),
         executable_length,
@@ -477,7 +482,7 @@ pub fn assemble(
     if cfg!(debug_assertions) {
         panic!("正式 assemble 必须 release 构建");
     }
-    let (processes, binary) = load_process_files(process_files);
+    let (processes, binary) = load_process_files(repo_root, process_files);
     let contract = load_contract(repo_root);
     let source = source_json(repo_root, &contract, &binary);
     let environment = environment_json(repo_root);

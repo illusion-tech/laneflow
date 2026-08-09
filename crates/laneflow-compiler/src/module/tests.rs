@@ -3807,9 +3807,9 @@ fn geometry_closure_fails_when_approach_lacks_geometry_binding() {
 }
 
 #[test]
-fn geometry_closure_reports_conflict_once_per_junction() {
+fn geometry_closure_reports_conflict_per_disjoint_connection_component() {
     // 同一 Junction 的两条 connection 各自跨 frame（edge.a/edge.c 用 frame.main，
-    // edge.b/edge.d 用 frame.alt）：冲突按 Junction 闭包只报首个冲突对一次。
+    // edge.b/edge.d 用 frame.alt）：每个互不相交的 connection component 各报一次冲突。
     let road = |road_key: &str, frame_ref: &str, lane_key: &str, edge_key: &str| {
         geometry_road_fragment(
             road_key,
@@ -3864,19 +3864,105 @@ fn geometry_closure_reports_conflict_once_per_junction() {
     ));
     let bundle = expect_diagnostics(crate::hir::build_hir(&unit));
 
-    assert_eq!(bundle.diagnostics().len(), 1);
-    let diagnostic = &bundle.diagnostics()[0];
-    assert!(matches!(
-        diagnostic.payload(),
-        DiagnosticPayload::InvalidSpatialGeometry {
-            canonical_frame_key: Some(frame),
-            lane_edge_key,
-            related_lane_edge_key: Some(related),
-            violation: SpatialGeometryViolation::ApproachFrameConflict,
-        } if frame.as_ref() == "frame.main"
-            && lane_edge_key.as_ref() == "edge.a"
-            && related.as_ref() == "edge.b"
+    assert_eq!(bundle.diagnostics().len(), 2);
+    for (diagnostic, (lane_edge, related)) in bundle
+        .diagnostics()
+        .iter()
+        .zip([("edge.a", "edge.b"), ("edge.c", "edge.d")])
+    {
+        assert!(matches!(
+            diagnostic.payload(),
+            DiagnosticPayload::InvalidSpatialGeometry {
+                canonical_frame_key: Some(frame),
+                lane_edge_key,
+                related_lane_edge_key: Some(actual_related),
+                violation: SpatialGeometryViolation::ApproachFrameConflict,
+            } if frame.as_ref() == "frame.main"
+                && lane_edge_key.as_ref() == lane_edge
+                && actual_related.as_ref() == related
+        ));
+    }
+}
+
+#[test]
+fn geometry_closure_allows_disjoint_components_in_different_frames() {
+    let road = |road_key: &str, frame_ref: &str, lane_key: &str, edge_key: &str| {
+        let (start, end) = if road_key.ends_with(".b") || road_key.ends_with(".d") {
+            ([20.0, 0.0, 0.0], [30.0, 0.0, 0.0])
+        } else {
+            ([0.0, 0.0, 0.0], [10.0, 0.0, 0.0])
+        };
+        geometry_road_fragment(
+            road_key,
+            frame_ref,
+            start,
+            end,
+            lane_key,
+            &[geometry_lane_fragment(lane_key, edge_key, &[])],
+        )
+    };
+    let unit = geometry_topology_unit(geometry_frames_roads_module(
+        "city/main",
+        "doc.main",
+        &[],
+        &["frame.main", "frame.alt"],
+        &[
+            road("road.a", "frame.main", "lane.a", "edge.a"),
+            road("road.b", "frame.main", "lane.b", "edge.b"),
+            road("road.c", "frame.alt", "lane.c", "edge.c"),
+            road("road.d", "frame.alt", "lane.d", "edge.d"),
+        ],
+        &[geometry_junction_fragment(
+            "junction.main",
+            &["edge.a", "edge.b", "edge.c", "edge.d"],
+            &[
+                geometry_internal_edge_fragment_with_polyline(
+                    "edge.i1",
+                    &[[10.0, 0.0, 0.0], [20.0, 0.0, 0.0]],
+                ),
+                geometry_internal_edge_fragment_with_polyline(
+                    "edge.i2",
+                    &[[10.0, 0.0, 0.0], [20.0, 0.0, 0.0]],
+                ),
+            ],
+            &[
+                geometry_connection_fragment(
+                    "movement.one",
+                    "path.one",
+                    "edge.a",
+                    &["edge.i1"],
+                    "edge.b",
+                ),
+                geometry_connection_fragment(
+                    "movement.two",
+                    "path.two",
+                    "edge.c",
+                    &["edge.i2"],
+                    "edge.d",
+                ),
+            ],
+        )],
     ));
+    let hir = crate::hir::build_hir(&unit).unwrap();
+
+    for (internal_edge, expected_frame) in [("edge.i1", "frame.main"), ("edge.i2", "frame.alt")] {
+        let geometry = hir
+            .lane_edge_geometries
+            .iter()
+            .find(|geometry| {
+                hir.lane_edges[geometry.lane_edge.index()]
+                    .stable_key
+                    .as_ref()
+                    == internal_edge
+            })
+            .unwrap_or_else(|| panic!("missing geometry for {internal_edge}"));
+        assert_eq!(
+            hir.canonical_frames[geometry.canonical_frame.index()]
+                .stable_key
+                .as_ref(),
+            expected_frame
+        );
+    }
 }
 
 #[test]

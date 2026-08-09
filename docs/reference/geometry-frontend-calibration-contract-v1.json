@@ -20,7 +20,7 @@
     "schemaVersion": 1,
     "path": "docs/reference/geometry-frontend-calibration-workload-manifest-v1.json",
     "byteLength": 95140,
-    "sha256": "a4365bbf3ab43814d6228db58844260e7f7ad06d2fe20d613c24c455100e7cc3"
+    "sha256": "0f41c3301af6db03abeab1fdb01b8172acd5c57351c284498e3707f4d43b8fab"
   },
   "referenceMachineDeclaration": {
     "schema": "laneflow.geometry-frontend-calibration-reference-machine",

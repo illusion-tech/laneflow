@@ -305,6 +305,11 @@ local-key
 namespace::local-key
 ```
 
+`::` 是限定引用的保留分隔符，不得出现在任何 Geometry v1 local declaration key
+（包括 owner-local directed approach key 与 phase key）中；namespace、document key
+和引用整体仍使用通用 external-token 字母表。机器 schema 以独立 `localKey` 定义表达
+该约束，编译器在 lowering 前再次执行同一语义检查，不能依赖 schema 已先运行。
+
 跨 namespace 引用必须同时存在显式 import。普通声明数组在 Typed AST 中按来源位置
 保留以服务诊断，但 HIR/MIR 查找和最终 LIR 顺序不依赖输入排列。
 

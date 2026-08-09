@@ -889,17 +889,8 @@ fn parse_integer(
     cursor: &mut JsonCursor<'_>,
     field: &'static str,
 ) -> Result<RawNumber, SchemaError> {
-    let value = parse_raw_number(cursor)?;
-    if value.token.bytes().any(|b| matches!(b, b'.' | b'e' | b'E')) {
-        return Err(SchemaError {
-            kind: SchemaErrorKind::InvalidEnum {
-                field,
-                value: value.token.clone(),
-            },
-            span: value.span,
-        });
-    }
-    Ok(value)
+    let _ = field;
+    parse_raw_number(cursor)
 }
 fn parse_nullable_token(
     cursor: &mut JsonCursor<'_>,
@@ -984,5 +975,35 @@ mod tests {
 
         let mut zones = JsonCursor::new(br#"[{"waitingZoneKey":"zone.main","maneuverPath":"path.main","entryGate":"gate.entry","releaseGate":"gate.release","maxOccupancy":2}]"#).unwrap();
         assert_eq!(parse_waiting_zones(&mut zones).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn integer_fields_accept_all_schema_integer_spellings() {
+        let mut rules = JsonCursor::new(br#"[{"accessRuleKey":"access.main","target":{"kind":"laneEdge","laneEdge":"edge.main"},"effect":"allow","participantClasses":["class.car"],"priority":1.0}]"#).unwrap();
+        assert_eq!(
+            parse_access_rules(&mut rules).unwrap()[0]
+                .priority
+                .token
+                .as_ref(),
+            "1.0"
+        );
+
+        let mut gates = JsonCursor::new(br#"[{"maneuverGateKey":"gate.main","maneuverPath":"path.main","transitionIndex":1e0,"stopLine":"stop.main","signalControl":null}]"#).unwrap();
+        assert_eq!(
+            parse_maneuver_gates(&mut gates).unwrap()[0]
+                .transition_index
+                .token
+                .as_ref(),
+            "1e0"
+        );
+
+        let mut zones = JsonCursor::new(br#"[{"waitingZoneKey":"zone.main","maneuverPath":"path.main","entryGate":"gate.entry","releaseGate":"gate.release","maxOccupancy":2.0}]"#).unwrap();
+        assert_eq!(
+            parse_waiting_zones(&mut zones).unwrap()[0]
+                .max_occupancy
+                .token
+                .as_ref(),
+            "2.0"
+        );
     }
 }
