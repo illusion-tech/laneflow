@@ -1033,7 +1033,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 }
             }
             "codex" if linked_findings > 0 => Some(EvidenceOutcome::Findings),
-            "codex" if state == "COMMENTED" && review.includes_created_edit => {
+            "codex"
+                if state == "COMMENTED"
+                    && review.includes_created_edit
+                    && review.last_edited_at.is_some() =>
+            {
                 Some(EvidenceOutcome::Findings)
             }
             "codex"
@@ -1045,7 +1049,11 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             }
             "codex" if state == "APPROVED" => Some(EvidenceOutcome::Clean),
             "human" if linked_findings > 0 => Some(EvidenceOutcome::Findings),
-            "human" if state == "COMMENTED" && review.includes_created_edit => {
+            "human"
+                if state == "COMMENTED"
+                    && review.includes_created_edit
+                    && review.last_edited_at.is_some() =>
+            {
                 Some(EvidenceOutcome::Findings)
             }
             "human" if state == "COMMENTED" && !review.body.trim().is_empty() => {
@@ -1069,7 +1077,9 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             ));
             continue;
         };
-        let evidence_time = if outcome == EvidenceOutcome::Findings && review.includes_created_edit
+        let evidence_time = if outcome == EvidenceOutcome::Findings
+            && review.includes_created_edit
+            && review.last_edited_at.is_some()
         {
             let Some(last_edited_at) = review.last_edited_at.as_deref() else {
                 diagnostics.push(format!(
@@ -3319,6 +3329,21 @@ mod tests {
         assert_eq!(
             result.completion_time.as_deref(),
             Some("2026-08-06T02:31:00Z")
+        );
+    }
+
+    #[test]
+    fn created_inline_comment_is_not_a_review_body_edit() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        let review = &mut snapshot.pull_request.reviews.nodes[0];
+        review.includes_created_edit = true;
+        review.last_edited_at = None;
+
+        assert_eq!(
+            evaluate_snapshot(&snapshot).state,
+            ExternalReviewState::Pass
         );
     }
 
