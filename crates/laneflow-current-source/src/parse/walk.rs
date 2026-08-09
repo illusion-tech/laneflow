@@ -210,11 +210,13 @@ pub(crate) const fn dflt(name: &'static str) -> FieldSpec {
 
 /// object 的 DeserializeSeed/Visitor 合体：捕获 value token、打位置 hook、调
 /// handler（参数 `(ctx, key, value token, value 区间, push 前 path 标记)`）；
-/// handler 失败时存候选并以 sentinel 中止。
+/// handler 失败时存候选并以 sentinel 中止。`container_start` 为容器 `{` 的
+/// 全局 byte 起点，只在 pre-value 失败时重扫冒号位（R5，error-only 路径）。
 pub(crate) struct ObjectSeed<'a, 'de, L, F> {
     ctx: &'a mut Ctx<'de, L>,
     failure: &'a mut Option<ReplayFailure>,
     expecting: &'static str,
+    container_start: u32,
     handler: F,
 }
 
@@ -248,16 +250,35 @@ where
     where
         A: MapAccess<'de>,
     {
+        // 上一 value token 的全局终点（首字段为容器 `{` 之后），只在
+        // next_value 失败时用于重扫冒号位（R5，error-only 路径）。
+        let mut prev_end = self.container_start as usize + 1;
         // key 解为 Cow：无转义仍为借用（零开销）；含 `\uXXXX` 等转义的合法 key
         // 解码为 owned 后与明文 key 走同一路径（derive 行为平价）。
         while let Some(key) = map.next_key::<Cow<'de, str>>()? {
             let key = key.as_ref();
             let mark = self.ctx.push_field(key);
-            let value = map.next_value::<&RawValue>()?;
+            let value = match map.next_value::<&RawValue>() {
+                Ok(value) => value,
+                Err(error) => {
+                    // R5：冒号/分隔符阶段（pre-value）失败归 record 级
+                    // path——serde_path_to_error 的 MapAccess::next_value_seed
+                    // 在 delegate 失败时以 parent chain 触发（key 段落只随
+                    // TrackedSeed 进入 value 解析）；冒号已消费 ⇒ 失败在
+                    // value 阶段 ⇒ 保持字段级（R3-3 dispute pin 同案例）。
+                    if !colon_consumed(self.ctx.input, prev_end) {
+                        self.ctx.truncate(mark);
+                    }
+                    return Err(error);
+                }
+            };
             let range = self.ctx.token_range(value);
             self.ctx.policy_value(range);
             match (self.handler)(self.ctx, key, value, range, mark) {
-                Ok(()) => self.ctx.truncate(mark),
+                Ok(()) => {
+                    prev_end = range.end as usize;
+                    self.ctx.truncate(mark);
+                }
                 Err(candidate) => {
                     *self.failure = Some(candidate);
                     return Err(de::Error::custom(SENTINEL));
@@ -266,6 +287,31 @@ where
         }
         Ok(())
     }
+}
+
+/// R5：object 当前 key 的冒号是否已（将被 serde）消费——从上一 value token
+/// 终点重扫：`ws / "," / key 字符串词素 / ws` 后下一 byte 为 `:` 即冒号可
+/// 消费（失败进入 value 解析，path 归字段级）；否则为冒号/分隔符阶段失败
+/// （path 归 record 级，serde_path_to_error 的 parent chain 触发语义，探针
+/// 实证 `de.rs:1531-1533`）。扫描失步防御性归 record 级（与 path_to_error
+/// 的保守 parent 回退一致）。只在 pre-value 失败路径调用，热路径零开销。
+fn colon_consumed(input: &[u8], from: usize) -> bool {
+    fn skip_ws(input: &[u8], mut index: usize) -> usize {
+        while index < input.len() && matches!(input[index], b' ' | b'\t' | b'\n' | b'\r') {
+            index += 1;
+        }
+        index
+    }
+
+    let mut index = skip_ws(input, from);
+    if input.get(index) == Some(&b',') {
+        index = skip_ws(input, index + 1);
+    }
+    if input.get(index) != Some(&b'"') {
+        return false;
+    }
+    index = skip_ws(input, skip_string(input, index));
+    input.get(index) == Some(&b':')
 }
 
 /// struct 位置序列（seq-form）的 DeserializeSeed/Visitor 合体：按声明序逐位
@@ -406,11 +452,14 @@ where
 
 /// 驱动一次 object walk（根驱动与 replay 共用）。返回 `Err(serde_json::Error)`
 /// 表示真实 serde 错误；shape 候选经 `failure` 外传（此时返回值必为 sentinel
-/// 包装的 `Err`）。
+/// 包装的 `Err`）。`container_start` 为容器 `{` 的全局 byte 起点（R5 冒号
+/// 位重扫，只在 pre-value 失败路径使用；replay 的 token 已校验语法，该路径
+/// 不可达）。
 pub(crate) fn drive_object<'de, L, F, D>(
     ctx: &mut Ctx<'de, L>,
     failure: &mut Option<ReplayFailure>,
     expecting: &'static str,
+    container_start: u32,
     deserializer: D,
     handler: F,
 ) -> Result<(), serde_json::Error>
@@ -423,6 +472,7 @@ where
         ctx,
         failure,
         expecting,
+        container_start,
         handler,
     }
     .deserialize(deserializer)
@@ -519,7 +569,14 @@ where
             handler,
         )
     } else {
-        drive_object(ctx, &mut failure, expecting, &mut deserializer, handler)
+        drive_object(
+            ctx,
+            &mut failure,
+            expecting,
+            range.start,
+            &mut deserializer,
+            handler,
+        )
     };
     if let Some(failure) = failure {
         return Err(failure);
@@ -549,7 +606,14 @@ where
     count_replay(range);
     let mut failure = None;
     let mut deserializer = serde_json::Deserializer::from_slice(token.get().as_bytes());
-    let result = drive_object(ctx, &mut failure, expecting, &mut deserializer, handler);
+    let result = drive_object(
+        ctx,
+        &mut failure,
+        expecting,
+        range.start,
+        &mut deserializer,
+        handler,
+    );
     if let Some(failure) = failure {
         return Err(failure);
     }

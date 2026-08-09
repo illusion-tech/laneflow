@@ -211,6 +211,7 @@ where
             &mut ctx,
             &mut failure,
             "struct WireVersionHeader",
+            probe_range.start,
             &mut deserializer,
             gate_dispatch,
         )
@@ -1116,6 +1117,36 @@ mod tests {
                 assert_eq!(path, "units");
                 assert_eq!(position, None);
             }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+    }
+
+    /// R5：pre-value（冒号/分隔符阶段）syntax 失败归 record 级 path（探针
+    /// 实证：serde_path_to_error 的 next_value_seed 在 delegate 失败时以
+    /// parent chain 触发，key 段落只随 TrackedSeed 进入 value 解析）；冒号
+    /// 已消费的 value 阶段失败保持字段级（与 R3-3 dispute pin 互补）。
+    #[test]
+    fn pre_value_syntax_failures_restore_record_path() {
+        // 冒号未消费：key 后 EOF / 垃圾 / 闭括号 / 空白后 EOF / 首字段垃圾。
+        for input in [
+            &br#"{"formatVersion":"0.10","units""#[..],
+            &br#"{"formatVersion":"0.10","units"x:{}}"#[..],
+            &br#"{"formatVersion":"0.10","units"}"#[..],
+            &br#"{"formatVersion":"0.10","units"  "#[..],
+            &br#"{"formatVersion"x:"0.10"}"#[..],
+        ] {
+            match parse_traffic(input).expect_err("pre-value 失败") {
+                ParseFailure::Syntax { path, position, .. } => {
+                    assert_eq!(path, "$", "输入：{}", String::from_utf8_lossy(input));
+                    assert_eq!(position, None);
+                }
+                other => panic!("expected Syntax, got {other:?}"),
+            }
+        }
+
+        // 冒号已消费：value 阶段失败保持字段级（冒号后空白再 EOF）。
+        match parse_traffic(br#"{"formatVersion":"0.10","units":  "#).expect_err("冒号后 EOF") {
+            ParseFailure::Syntax { path, .. } => assert_eq!(path, "units"),
             other => panic!("expected Syntax, got {other:?}"),
         }
     }
