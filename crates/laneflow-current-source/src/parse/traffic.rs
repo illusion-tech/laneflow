@@ -2,7 +2,7 @@
 
 use serde_json::value::RawValue;
 
-use super::walk::{self, Ctx, FieldSpec, LocationPolicy, ShapeCandidate, dflt, req};
+use super::walk::{self, Ctx, FieldSpec, LocationPolicy, ReplayFailure, dflt, req};
 use super::{ByteRange, GateReport, ParseFailure, RootGate, missing_root_field};
 use crate::CURRENT_TRAFFIC_FORMAT_VERSION;
 use crate::wire::{
@@ -365,27 +365,22 @@ impl PackageFields {
                 decode_parking,
             ),
             // 根 extensions：duplicate 检查与其他字段一致；object 内容以 sink
-            // 单遍校验（数值 range/递归深度），失败延迟为 syntax 候选（R2 T5：
-            // 旧全量解析的 JsonSyntax 语义，版本裁决后按文档序择首）。
+            // 单遍校验（数值 range/递归深度），失败按 serde category 分流延迟
+            // （R2 T5/R3：shape 与 syntax 在版本裁决后按文档序择首）。
             "extensions" => {
                 if self.extensions.is_some() {
-                    Err(ctx.candidate_at(mark, walk::duplicate_field_message("extensions"), range))
+                    Err(ctx
+                        .candidate_at(mark, walk::duplicate_field_message("extensions"), range)
+                        .into())
                 } else {
                     self.extensions = Some(());
-                    match walk::check_extensions(ctx, value, range) {
-                        Ok(()) => Ok(()),
-                        Err(walk::ExtensionsCheck::Shape(candidate)) => Err(candidate),
-                        Err(walk::ExtensionsCheck::Syntax(failure)) => {
-                            gate.defer_syntax(failure);
-                            Ok(())
-                        }
-                    }
+                    walk::check_extensions(ctx, value, range)
                 }
             }
-            _ => Err(ctx.candidate(walk::unknown_field_message(key, PACKAGE_FIELDS), range)),
+            _ => Err(ctx.failure(walk::unknown_field_message(key, PACKAGE_FIELDS), range)),
         };
-        if let Err(candidate) = result {
-            gate.defer(candidate);
+        if let Err(failure) = result {
+            gate.defer_failure(failure);
         }
     }
 
@@ -454,10 +449,10 @@ fn decode_record_vec<'de, T, L, F>(
     token: &'de RawValue,
     range: ByteRange,
     mut decode: F,
-) -> Result<Vec<T>, ShapeCandidate>
+) -> Result<Vec<T>, ReplayFailure>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, &'de RawValue, ByteRange) -> Result<T, ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, &'de RawValue, ByteRange) -> Result<T, ReplayFailure>,
 {
     let mut items = Vec::new();
     walk::decode_array(
@@ -478,7 +473,7 @@ fn decode_string_vec<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<Vec<String>, ShapeCandidate> {
+) -> Result<Vec<String>, ReplayFailure> {
     let mut items = Vec::new();
     walk::decode_array(
         ctx,
@@ -501,7 +496,7 @@ fn decode_units<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireUnits, ShapeCandidate> {
+) -> Result<WireUnits, ReplayFailure> {
     let mut distance = None;
     let mut time = None;
     walk::decode_record(
@@ -529,7 +524,7 @@ fn decode_units<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(walk::unknown_field_message(key, UNITS_FIELDS), value_range)),
+            _ => Err(ctx.failure(walk::unknown_field_message(key, UNITS_FIELDS), value_range)),
         },
     )?;
     Ok(WireUnits {
@@ -543,7 +538,7 @@ fn decode_lane_graph<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireLaneGraph, ShapeCandidate> {
+) -> Result<WireLaneGraph, ReplayFailure> {
     let mut edges = None;
     walk::decode_record(
         ctx,
@@ -561,7 +556,7 @@ fn decode_lane_graph<'de, L: LocationPolicy>(
                 mark,
                 |ctx, token, range| decode_record_vec(ctx, token, range, decode_lane_edge),
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, LANE_GRAPH_FIELDS),
                 value_range,
             )),
@@ -576,7 +571,7 @@ fn decode_lane_edge<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireLaneEdge, ShapeCandidate> {
+) -> Result<WireLaneEdge, ReplayFailure> {
     let mut id = None;
     let mut length = None;
     let mut speed_limit = None;
@@ -624,7 +619,7 @@ fn decode_lane_edge<'de, L: LocationPolicy>(
                 mark,
                 |ctx, token, range| decode_record_vec(ctx, token, range, decode_lane_connection),
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, LANE_EDGE_FIELDS),
                 value_range,
             )),
@@ -645,7 +640,7 @@ fn decode_lane_connection<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireLaneConnection, ShapeCandidate> {
+) -> Result<WireLaneConnection, ReplayFailure> {
     let mut to_edge_id = None;
     walk::decode_record(
         ctx,
@@ -663,7 +658,7 @@ fn decode_lane_connection<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, LANE_CONNECTION_FIELDS),
                 value_range,
             )),
@@ -679,7 +674,7 @@ fn decode_junction<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireJunction, ShapeCandidate> {
+) -> Result<WireJunction, ReplayFailure> {
     decode_id_only(ctx, token, range, "struct WireJunction", JUNCTION_FIELDS)
         .map(|id| WireJunction { id })
 }
@@ -691,7 +686,7 @@ fn decode_id_only<'de, L: LocationPolicy>(
     range: ByteRange,
     expecting: &'static str,
     fields: &'static [FieldSpec],
-) -> Result<String, ShapeCandidate> {
+) -> Result<String, ReplayFailure> {
     let mut id = None;
     walk::decode_record(
         ctx,
@@ -709,17 +704,17 @@ fn decode_id_only<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(walk::unknown_field_message(key, fields), value_range)),
+            _ => Err(ctx.failure(walk::unknown_field_message(key, fields), value_range)),
         },
     )?;
-    id.ok_or_else(|| ctx.candidate(walk::missing_field_message("id"), range))
+    Ok(id.ok_or_else(|| ctx.candidate(walk::missing_field_message("id"), range))?)
 }
 
 fn decode_movement<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireMovement, ShapeCandidate> {
+) -> Result<WireMovement, ReplayFailure> {
     let mut id = None;
     let mut junction_id = None;
     walk::decode_record(
@@ -747,7 +742,7 @@ fn decode_movement<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, MOVEMENT_FIELDS),
                 value_range,
             )),
@@ -764,7 +759,7 @@ fn decode_maneuver_path<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireManeuverPath, ShapeCandidate> {
+) -> Result<WireManeuverPath, ReplayFailure> {
     let mut id = None;
     let mut movement_id = None;
     let mut entry_edge_id = None;
@@ -822,7 +817,7 @@ fn decode_maneuver_path<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, MANEUVER_PATH_FIELDS),
                 value_range,
             )),
@@ -845,7 +840,7 @@ fn decode_route<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireRoute, ShapeCandidate> {
+) -> Result<WireRoute, ReplayFailure> {
     let mut id = None;
     let mut edge_ids = None;
     walk::decode_record(
@@ -873,7 +868,7 @@ fn decode_route<'de, L: LocationPolicy>(
                 mark,
                 decode_string_vec,
             ),
-            _ => Err(ctx.candidate(walk::unknown_field_message(key, ROUTE_FIELDS), value_range)),
+            _ => Err(ctx.failure(walk::unknown_field_message(key, ROUTE_FIELDS), value_range)),
         },
     )?;
     Ok(WireRoute {
@@ -887,7 +882,7 @@ fn decode_vehicle_profile<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireVehicleProfile, ShapeCandidate> {
+) -> Result<WireVehicleProfile, ReplayFailure> {
     let mut id = None;
     let mut length = None;
     let mut model = None;
@@ -995,7 +990,7 @@ fn decode_vehicle_profile<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, VEHICLE_PROFILE_FIELDS),
                 value_range,
             )),
@@ -1033,7 +1028,7 @@ fn decode_participant_class<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireParticipantClass, ShapeCandidate> {
+) -> Result<WireParticipantClass, ReplayFailure> {
     let mut id = None;
     let mut extends_id = None;
     walk::decode_record(
@@ -1061,7 +1056,7 @@ fn decode_participant_class<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_non_null_string,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, PARTICIPANT_CLASS_FIELDS),
                 value_range,
             )),
@@ -1077,7 +1072,7 @@ fn decode_facility_band<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireFacilityBand, ShapeCandidate> {
+) -> Result<WireFacilityBand, ReplayFailure> {
     let mut id = None;
     let mut kind_id = None;
     walk::decode_record(
@@ -1105,7 +1100,7 @@ fn decode_facility_band<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, FACILITY_BAND_FIELDS),
                 value_range,
             )),
@@ -1122,7 +1117,7 @@ fn decode_road_section<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireRoadSection, ShapeCandidate> {
+) -> Result<WireRoadSection, ReplayFailure> {
     let mut id = None;
     let mut kind_id = None;
     let mut lanes = None;
@@ -1160,7 +1155,7 @@ fn decode_road_section<'de, L: LocationPolicy>(
                 mark,
                 |ctx, token, range| decode_record_vec(ctx, token, range, decode_section_lane),
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, ROAD_SECTION_FIELDS),
                 value_range,
             )),
@@ -1178,7 +1173,7 @@ fn decode_section_lane<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireSectionLane, ShapeCandidate> {
+) -> Result<WireSectionLane, ReplayFailure> {
     let mut edge_ids = None;
     let mut lane_group_id = None;
     walk::decode_record(
@@ -1206,7 +1201,7 @@ fn decode_section_lane<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_non_null_string,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, SECTION_LANE_FIELDS),
                 value_range,
             )),
@@ -1223,7 +1218,7 @@ fn decode_lane_group<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireLaneGroup, ShapeCandidate> {
+) -> Result<WireLaneGroup, ReplayFailure> {
     let mut id = None;
     let mut road_section_id = None;
     walk::decode_record(
@@ -1251,7 +1246,7 @@ fn decode_lane_group<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, LANE_GROUP_FIELDS),
                 value_range,
             )),
@@ -1268,7 +1263,7 @@ fn decode_road_corridor<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireRoadCorridor, ShapeCandidate> {
+) -> Result<WireRoadCorridor, ReplayFailure> {
     let mut id = None;
     let mut reference_section_id = None;
     let mut elements = None;
@@ -1306,7 +1301,7 @@ fn decode_road_corridor<'de, L: LocationPolicy>(
                 mark,
                 |ctx, token, range| decode_record_vec(ctx, token, range, decode_corridor_element),
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, ROAD_CORRIDOR_FIELDS),
                 value_range,
             )),
@@ -1331,7 +1326,7 @@ fn decode_corridor_element<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireCorridorElement, ShapeCandidate> {
+) -> Result<WireCorridorElement, ReplayFailure> {
     if token.get().trim_start().starts_with('[') {
         return decode_corridor_element_seq(ctx, token, range);
     }
@@ -1376,7 +1371,7 @@ fn decode_corridor_element<'de, L: LocationPolicy>(
         (None, Some(band_id), true) => Ok(WireCorridorElement::Band(
             crate::wire::WireCorridorBandElement { band_id },
         )),
-        _ => Err(ctx.candidate(
+        _ => Err(ctx.failure(
             "data did not match any variant of untagged enum WireCorridorElement".to_owned(),
             range,
         )),
@@ -1392,7 +1387,7 @@ fn decode_corridor_element_seq<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireCorridorElement, ShapeCandidate> {
+) -> Result<WireCorridorElement, ReplayFailure> {
     let mut first = None;
     let mut clean = true;
     let mut count = 0_usize;
@@ -1416,7 +1411,7 @@ fn decode_corridor_element_seq<'de, L: LocationPolicy>(
         (Some(section_id), true, 1) => Ok(WireCorridorElement::Section(
             crate::wire::WireCorridorSectionElement { section_id },
         )),
-        _ => Err(ctx.candidate(
+        _ => Err(ctx.failure(
             "data did not match any variant of untagged enum WireCorridorElement".to_owned(),
             range,
         )),
@@ -1427,7 +1422,7 @@ fn decode_access_rule<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireAccessRule, ShapeCandidate> {
+) -> Result<WireAccessRule, ReplayFailure> {
     let mut id = None;
     let mut target = None;
     let mut effect = None;
@@ -1514,7 +1509,7 @@ fn decode_access_rule<'de, L: LocationPolicy>(
                 mark,
                 |ctx, token, range| walk::decode_priority(ctx, token, range),
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, ACCESS_RULE_FIELDS),
                 value_range,
             )),
@@ -1539,7 +1534,7 @@ fn decode_access_target<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireAccessTarget, ShapeCandidate> {
+) -> Result<WireAccessTarget, ReplayFailure> {
     let mut kind = None;
     let mut id = None;
     walk::decode_record(
@@ -1576,7 +1571,7 @@ fn decode_access_target<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, ACCESS_TARGET_FIELDS),
                 value_range,
             )),
@@ -1592,7 +1587,7 @@ fn decode_waiting_zone<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireWaitingZone, ShapeCandidate> {
+) -> Result<WireWaitingZone, ReplayFailure> {
     let mut id = None;
     let mut maneuver_path_id = None;
     let mut entry_gate_id = None;
@@ -1650,7 +1645,7 @@ fn decode_waiting_zone<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, WAITING_ZONE_FIELDS),
                 value_range,
             )),
@@ -1673,7 +1668,7 @@ fn decode_non_null_regulation<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireRegulation, ShapeCandidate> {
+) -> Result<WireRegulation, ReplayFailure> {
     walk::reject_explicit_null(ctx, token, range)?;
     decode_regulation(ctx, token, range)
 }
@@ -1682,7 +1677,7 @@ fn decode_regulation<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireRegulation, ShapeCandidate> {
+) -> Result<WireRegulation, ReplayFailure> {
     let mut jurisdiction = None;
     let mut version = None;
     let mut source = None;
@@ -1720,7 +1715,7 @@ fn decode_regulation<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_non_null_string,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, REGULATION_FIELDS),
                 value_range,
             )),
@@ -1739,7 +1734,7 @@ fn decode_parking<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireParking, ShapeCandidate> {
+) -> Result<WireParking, ReplayFailure> {
     let mut areas = None;
     let mut spaces = None;
     walk::decode_record(
@@ -1767,7 +1762,7 @@ fn decode_parking<'de, L: LocationPolicy>(
                 mark,
                 |ctx, token, range| decode_record_vec(ctx, token, range, decode_parking_space),
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, PARKING_FIELDS),
                 value_range,
             )),
@@ -1784,7 +1779,7 @@ fn decode_parking_area<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireParkingArea, ShapeCandidate> {
+) -> Result<WireParkingArea, ReplayFailure> {
     decode_id_only(
         ctx,
         token,
@@ -1799,7 +1794,7 @@ fn decode_parking_space<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireParkingSpace, ShapeCandidate> {
+) -> Result<WireParkingSpace, ReplayFailure> {
     let mut id = None;
     let mut area_id = None;
     let mut entry = None;
@@ -1859,7 +1854,7 @@ fn decode_parking_space<'de, L: LocationPolicy>(
                     mark,
                     decode_parking_geometry,
                 ),
-                _ => Err(ctx.candidate(
+                _ => Err(ctx.failure(
                     walk::unknown_field_message(key, PARKING_SPACE_FIELDS),
                     value_range,
                 )),
@@ -1880,7 +1875,7 @@ fn decode_parking_anchor<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireParkingAnchor, ShapeCandidate> {
+) -> Result<WireParkingAnchor, ReplayFailure> {
     let mut edge_id = None;
     let mut progress = None;
     walk::decode_record(
@@ -1908,7 +1903,7 @@ fn decode_parking_anchor<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, PARKING_ANCHOR_FIELDS),
                 value_range,
             )),
@@ -1926,7 +1921,7 @@ fn decode_parking_geometry<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireParkingGeometry, ShapeCandidate> {
+) -> Result<WireParkingGeometry, ReplayFailure> {
     let mut lateral_offset = None;
     let mut heading_offset_radians = None;
     let mut length = None;
@@ -1974,7 +1969,7 @@ fn decode_parking_geometry<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, PARKING_GEOMETRY_FIELDS),
                 value_range,
             )),
@@ -1996,7 +1991,7 @@ fn decode_signals<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireSignals, ShapeCandidate> {
+) -> Result<WireSignals, ReplayFailure> {
     let mut stop_lines = None;
     let mut maneuver_gates = None;
     let mut groups = None;
@@ -2044,7 +2039,7 @@ fn decode_signals<'de, L: LocationPolicy>(
                 mark,
                 |ctx, token, range| decode_record_vec(ctx, token, range, decode_signal_controller),
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, SIGNALS_FIELDS),
                 value_range,
             )),
@@ -2066,7 +2061,7 @@ fn decode_stop_line<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireStopLine, ShapeCandidate> {
+) -> Result<WireStopLine, ReplayFailure> {
     let mut id = None;
     let mut edge_id = None;
     let mut location = None;
@@ -2113,7 +2108,7 @@ fn decode_stop_line<'de, L: LocationPolicy>(
                     )
                 },
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, STOP_LINE_FIELDS),
                 value_range,
             )),
@@ -2132,7 +2127,7 @@ fn decode_maneuver_gate<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireManeuverGate, ShapeCandidate> {
+) -> Result<WireManeuverGate, ReplayFailure> {
     let mut id = None;
     let mut maneuver_path_id = None;
     let mut transition_index = None;
@@ -2190,7 +2185,7 @@ fn decode_maneuver_gate<'de, L: LocationPolicy>(
                 mark,
                 decode_signal_control,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, MANEUVER_GATE_FIELDS),
                 value_range,
             )),
@@ -2217,7 +2212,7 @@ fn decode_signal_control<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireSignalControl, ShapeCandidate> {
+) -> Result<WireSignalControl, ReplayFailure> {
     if token.get().trim_start().starts_with('[') {
         return decode_signal_control_seq(ctx, token, range);
     }
@@ -2265,7 +2260,7 @@ fn decode_signal_control<'de, L: LocationPolicy>(
         (Some("none"), None, true) => Ok(WireSignalControl::None(WireNoneSignalControl {
             kind: WireNoneSignalControlKind::None,
         })),
-        _ => Err(ctx.candidate(
+        _ => Err(ctx.failure(
             "data did not match any variant of untagged enum WireSignalControl".to_owned(),
             range,
         )),
@@ -2282,7 +2277,7 @@ fn decode_signal_control_seq<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireSignalControl, ShapeCandidate> {
+) -> Result<WireSignalControl, ReplayFailure> {
     let mut kind = None;
     let mut kind_clean = true;
     let mut group_id = None;
@@ -2324,7 +2319,7 @@ fn decode_signal_control_seq<'de, L: LocationPolicy>(
             kind: WireNoneSignalControlKind::None,
         }));
     }
-    Err(ctx.candidate(
+    Err(ctx.failure(
         "data did not match any variant of untagged enum WireSignalControl".to_owned(),
         range,
     ))
@@ -2334,7 +2329,7 @@ fn decode_signal_group<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireSignalGroup, ShapeCandidate> {
+) -> Result<WireSignalGroup, ReplayFailure> {
     decode_id_only(
         ctx,
         token,
@@ -2349,7 +2344,7 @@ fn decode_signal_controller<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireSignalController, ShapeCandidate> {
+) -> Result<WireSignalController, ReplayFailure> {
     let mut id = None;
     let mut kind = None;
     let mut offset_ms = None;
@@ -2416,7 +2411,7 @@ fn decode_signal_controller<'de, L: LocationPolicy>(
                 mark,
                 |ctx, token, range| decode_record_vec(ctx, token, range, decode_signal_phase),
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, SIGNAL_CONTROLLER_FIELDS),
                 value_range,
             )),
@@ -2438,7 +2433,7 @@ fn decode_signal_phase<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireSignalPhase, ShapeCandidate> {
+) -> Result<WireSignalPhase, ReplayFailure> {
     let mut id = None;
     let mut duration_ms = None;
     let mut states = None;
@@ -2476,7 +2471,7 @@ fn decode_signal_phase<'de, L: LocationPolicy>(
                 mark,
                 |ctx, token, range| decode_record_vec(ctx, token, range, decode_signal_group_state),
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, SIGNAL_PHASE_FIELDS),
                 value_range,
             )),
@@ -2495,7 +2490,7 @@ fn decode_signal_group_state<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireSignalGroupState, ShapeCandidate> {
+) -> Result<WireSignalGroupState, ReplayFailure> {
     let mut group_id = None;
     let mut aspect = None;
     walk::decode_record(
@@ -2532,7 +2527,7 @@ fn decode_signal_group_state<'de, L: LocationPolicy>(
                     )
                 },
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, SIGNAL_GROUP_STATE_FIELDS),
                 value_range,
             )),

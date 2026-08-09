@@ -2,7 +2,7 @@
 
 use serde_json::value::RawValue;
 
-use super::walk::{self, Ctx, FieldSpec, LocationPolicy, ShapeCandidate, req};
+use super::walk::{self, Ctx, FieldSpec, LocationPolicy, ReplayFailure, req};
 use super::{ByteRange, GateReport, ParseFailure, RootGate, missing_root_field};
 use crate::scenario_wire::{
     WireArtifactDescriptor, WireCenterline, WireScenarioManifest, WireSpatialEdge,
@@ -100,10 +100,10 @@ impl ManifestFields {
                 mark,
                 |ctx, token, range| decode_descriptor(ctx, token, range),
             ),
-            _ => Err(ctx.candidate(walk::unknown_field_message(key, MANIFEST_FIELDS), range)),
+            _ => Err(ctx.failure(walk::unknown_field_message(key, MANIFEST_FIELDS), range)),
         };
-        if let Err(candidate) = result {
-            gate.defer(candidate);
+        if let Err(failure) = result {
+            gate.defer_failure(failure);
         }
     }
 
@@ -128,7 +128,7 @@ fn decode_descriptor<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireArtifactDescriptor, ShapeCandidate> {
+) -> Result<WireArtifactDescriptor, ReplayFailure> {
     let mut artifact_ref = None;
     let mut media_type = None;
     let mut digest = None;
@@ -176,7 +176,7 @@ fn decode_descriptor<'de, L: LocationPolicy>(
                 mark,
                 walk::decode_scalar,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, DESCRIPTOR_FIELDS),
                 value_range,
             )),
@@ -228,10 +228,10 @@ impl SpatialFields {
                 mark,
                 decode_edges,
             ),
-            _ => Err(ctx.candidate(walk::unknown_field_message(key, SPATIAL_FIELDS), range)),
+            _ => Err(ctx.failure(walk::unknown_field_message(key, SPATIAL_FIELDS), range)),
         };
-        if let Err(candidate) = result {
-            gate.defer(candidate);
+        if let Err(failure) = result {
+            gate.defer_failure(failure);
         }
     }
 
@@ -256,7 +256,7 @@ fn decode_edges<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<Vec<WireSpatialEdge>, ShapeCandidate> {
+) -> Result<Vec<WireSpatialEdge>, ReplayFailure> {
     let mut edges = Vec::new();
     walk::decode_array(
         ctx,
@@ -275,7 +275,7 @@ fn decode_edge<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireSpatialEdge, ShapeCandidate> {
+) -> Result<WireSpatialEdge, ReplayFailure> {
     let mut traffic_edge_id = None;
     let mut centerline = None;
     walk::decode_record(
@@ -303,7 +303,7 @@ fn decode_edge<'de, L: LocationPolicy>(
                 mark,
                 decode_centerline,
             ),
-            _ => Err(ctx.candidate(walk::unknown_field_message(key, EDGE_FIELDS), value_range)),
+            _ => Err(ctx.failure(walk::unknown_field_message(key, EDGE_FIELDS), value_range)),
         },
     )?;
     Ok(WireSpatialEdge {
@@ -318,7 +318,7 @@ fn decode_centerline<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<WireCenterline, ShapeCandidate> {
+) -> Result<WireCenterline, ReplayFailure> {
     let mut points = None;
     walk::decode_record(
         ctx,
@@ -336,7 +336,7 @@ fn decode_centerline<'de, L: LocationPolicy>(
                 mark,
                 decode_points,
             ),
-            _ => Err(ctx.candidate(
+            _ => Err(ctx.failure(
                 walk::unknown_field_message(key, CENTERLINE_FIELDS),
                 value_range,
             )),
@@ -352,7 +352,7 @@ fn decode_points<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<Vec<[f64; 3]>, ShapeCandidate> {
+) -> Result<Vec<[f64; 3]>, ReplayFailure> {
     let mut points = Vec::new();
     walk::decode_array(
         ctx,

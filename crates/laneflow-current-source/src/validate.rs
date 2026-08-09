@@ -377,9 +377,10 @@ impl IssueContext {
         ))
     }
 
-    /// JSON issue 构造：syntax 以 serde 一基位置造单点 span；shape 以延迟候选
-    /// 锚点对原始字节做一次 allocation-free 前缀扫描造区间 span；payload 为
-    /// `Error::custom` 形态（内部位置 0:0，位置只由 span 承载）。
+    /// JSON issue 构造：syntax 以 serde 一基位置（或 deferred-syntax 的全局
+    /// override）造单点 span；shape 以延迟候选锚点对原始字节做一次
+    /// allocation-free 前缀扫描造区间 span；shape payload 为 `Error::custom`
+    /// 形态（内部位置 0:0，位置只由 span 承载）。
     fn parse_failure(&self, input: &[u8], failure: ParseFailure) -> CurrentSourceError {
         match failure {
             ParseFailure::Syntax {

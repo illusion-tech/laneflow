@@ -91,9 +91,15 @@ pub enum CurrentSourceIssueContext {
 /// variant 归 #297 后续切片。
 #[derive(Debug)]
 pub enum CurrentSourceErrorPayload {
-    /// JSON token、UTF-8、EOF 或 trailing content 无效。
+    /// JSON token、UTF-8、EOF、trailing content 或数值越界等 Syntax 类失败。
     JsonSyntax {
-        /// 立即失败的原始 serde 错误（自带真实 line/column）。
+        /// 原始 serde 错误。立即失败路径（文档级 walk 的 syntax/EOF/trailing
+        /// 或头部 value 的 Syntax 类失败）携带真实 serde line/column；
+        /// deferred-syntax 路径（extensions 内容校验、replay 内 Syntax 类失
+        /// 败）内部位置为 replay token 局部坐标——**位置事实源恒为 issue 的
+        /// span**（Data 桥只读 `span.start`），消费方不得读
+        /// `source.line()/column()`（SSOT :445 不冻结旧 Serde line/column
+        /// 数值，:821-828）。
         source: serde_json::Error,
     },
     /// JSON 字段缺失、类型错误、显式 `null` 或包含 unknown/duplicate field。
@@ -247,7 +253,10 @@ impl CurrentSourceIssue {
     }
 
     /// 返回该 issue 的 source 位置区间；JSON syntax/shape issue 恒携带 span，
-    /// 非 JSON payload（version 与制品配对类）恒为 `None`。
+    /// 非 JSON payload（version 与制品配对类）恒为 `None`。span 是 JSON
+    /// issue 的位置事实源：payload 内部 serde 位置可能是 `Error::custom`
+    /// 的 0:0 或 replay token 局部坐标（见各 payload variant 契约），消费方
+    /// 一律读 span。
     pub const fn span(&self) -> Option<CurrentSourceSpan> {
         self.span
     }

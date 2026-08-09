@@ -100,9 +100,33 @@ pub(crate) fn root_consumed_end(input: &[u8], start: u32) -> u32 {
     saturate(input.len())
 }
 
+/// 标量根 token 的实际终点（零基 end offset）：字符串经 `skip_string`；
+/// `true`/`false`/`null` 定长；数字按 JSON 词法扫描（`-0-9.eE+`）；其余形态
+/// 防御性取 `start + 1`。只在根 walk 的 Data 失败路径（非 object 根的
+/// invalid type）作锚，不吃进 trailing content（R3-8）。
+pub(crate) fn root_scalar_end(input: &[u8], start: u32) -> u32 {
+    let begin = start as usize;
+    match input.get(begin) {
+        Some(b'"') => saturate(skip_string(input, begin)),
+        Some(b't') => saturate(begin + 4), // true
+        Some(b'f') => saturate(begin + 5), // false
+        Some(b'n') => saturate(begin + 4), // null
+        Some(b'-' | b'0'..=b'9') => {
+            let mut index = begin;
+            while index < input.len()
+                && matches!(input[index], b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')
+            {
+                index += 1;
+            }
+            saturate(index)
+        }
+        _ => saturate(begin + 1),
+    }
+}
+
 /// 跳过从 `quote`（`"` byte）开始的 JSON 字符串，返回闭引号之后的 offset。
 /// 反斜杠转义统一跳过两个 byte（`\\`、`\"`、`\uXXXX` 的 `u` 后均无裸引号）。
-fn skip_string(input: &[u8], quote: usize) -> usize {
+pub(crate) fn skip_string(input: &[u8], quote: usize) -> usize {
     let mut index = quote + 1;
     while index < input.len() {
         match input[index] {

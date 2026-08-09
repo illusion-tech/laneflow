@@ -5,19 +5,23 @@
 //! `serde_json::Deserializer` 流式驱动；每个 field/element 的 value 先捕获为
 //! `&RawValue` token（捕获即完成该子树的完整语法校验，且 token 借自原始输
 //! 入，指针算术即得全局零基半开 byte 区间）；随后对 token 至多 replay 解码
-//! 一次。token 必是合法 JSON，replay 内的失败永远归一为 shape 候选。
+//! 一次。token 必是合法 JSON；replay 内失败按 serde category 分流（R3：
+//! 保留原生 category）——Data 归一为 shape 候选，Syntax 保留真实 serde
+//! 错误为延迟 syntax（token 局部行列重建为全局位置 override，§7 :399-400），
+//! 延迟 shape 与延迟 syntax 在版本裁决后按锚点文档序取先到者。
 
 use std::borrow::Cow;
 use std::fmt::{self, Write as _};
 
 use serde::Deserialize;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, VariantAccess, Visitor};
+use serde_json::error::Category;
 use serde_json::value::RawValue;
 
-use super::anchor::ByteRange;
+use super::anchor::{ByteRange, skip_string};
 
-/// visit_map/visit_seq 的中止信号：shape 候选经 `failure` 外传，该消息永不浮
-/// 出水面（凡 sentinel 出现处 `failure` 必为 `Some`）。
+/// visit_map/visit_seq 的中止信号：replay 失败（shape 或 syntax）经 `failure`
+/// 外传，该消息永不浮出水面（凡 sentinel 出现处 `failure` 必为 `Some`）。
 const SENTINEL: &str = "laneflow shape candidate sentinel";
 
 /// 延迟 shape 候选：`path` 为规范 `$` 形式；`message` 为裸 serde 消息（无位
@@ -27,6 +31,24 @@ pub(crate) struct ShapeCandidate {
     pub(crate) path: String,
     pub(crate) message: String,
     pub(crate) anchor: ByteRange,
+}
+
+/// replay/捕获失败通道（R3：保留原生 serde category）：Data 归一为 shape 候
+/// 选；Syntax 保留真实 serde 错误为延迟 syntax。两者都延迟到版本裁决之后，
+/// 按锚点文档序取先到者（`RootGate::defer_failure` / `first_deferred`）。
+#[derive(Debug)]
+pub(crate) enum ReplayFailure {
+    /// Data 类失败（类型/缺字段/duplicate/unknown variant 等）的 shape 候选。
+    Shape(ShapeCandidate),
+    /// Syntax 类失败（number out of range、trailing characters、expected
+    /// value、recursion limit 等）保留原生 category 的延迟 syntax。
+    Syntax(DeferredSyntax),
+}
+
+impl From<ShapeCandidate> for ReplayFailure {
+    fn from(candidate: ShapeCandidate) -> Self {
+        Self::Shape(candidate)
+    }
 }
 
 /// 位置记录策略：PR-3b 的位置表在相同 hook 点位收集（`CaptureLocations`），
@@ -122,6 +144,12 @@ impl<'de, L: LocationPolicy> Ctx<'de, L> {
         }
     }
 
+    /// 以当前 path 构造 shape 类 replay 失败（`Err(ctx.failure(...))` 直返点
+    /// 免 `.into()`；`ok_or_else` 点经 `?` 的 `From` 自动转换仍用 `candidate`）。
+    pub(crate) fn failure(&self, message: String, anchor: ByteRange) -> ReplayFailure {
+        ReplayFailure::Shape(self.candidate(message, anchor))
+    }
+
     /// token 在原始输入中的全局零基半开区间（token 借自输入，指针算术）。
     pub(crate) fn token_range(&self, token: &RawValue) -> ByteRange {
         let base = self.input.as_ptr() as usize;
@@ -185,7 +213,7 @@ pub(crate) const fn dflt(name: &'static str) -> FieldSpec {
 /// handler 失败时存候选并以 sentinel 中止。
 pub(crate) struct ObjectSeed<'a, 'de, L, F> {
     ctx: &'a mut Ctx<'de, L>,
-    failure: &'a mut Option<ShapeCandidate>,
+    failure: &'a mut Option<ReplayFailure>,
     expecting: &'static str,
     handler: F,
 }
@@ -193,7 +221,7 @@ pub(crate) struct ObjectSeed<'a, 'de, L, F> {
 impl<'de, L, F> DeserializeSeed<'de> for ObjectSeed<'_, 'de, L, F>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ReplayFailure>,
 {
     type Value = ();
 
@@ -208,7 +236,7 @@ where
 impl<'de, L, F> Visitor<'de> for ObjectSeed<'_, 'de, L, F>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ReplayFailure>,
 {
     type Value = ();
 
@@ -250,7 +278,7 @@ where
 /// derive 一致）。
 pub(crate) struct StructSeqSeed<'a, 'de, L, F> {
     ctx: &'a mut Ctx<'de, L>,
-    failure: &'a mut Option<ShapeCandidate>,
+    failure: &'a mut Option<ReplayFailure>,
     expecting: &'static str,
     fields: &'static [FieldSpec],
     anchor: ByteRange,
@@ -260,7 +288,7 @@ pub(crate) struct StructSeqSeed<'a, 'de, L, F> {
 impl<'de, L, F> DeserializeSeed<'de> for StructSeqSeed<'_, 'de, L, F>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ReplayFailure>,
 {
     type Value = ();
 
@@ -275,7 +303,7 @@ where
 impl<'de, L, F> Visitor<'de> for StructSeqSeed<'_, 'de, L, F>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ReplayFailure>,
 {
     type Value = ();
 
@@ -301,7 +329,7 @@ where
                 };
                 let message =
                     invalid_length_message(missing_index, self.expecting, self.fields.len());
-                *self.failure = Some(self.ctx.candidate(message, self.anchor));
+                *self.failure = Some(self.ctx.candidate(message, self.anchor).into());
                 return Err(de::Error::custom(SENTINEL));
             };
             let mark = self.ctx.push_index(index);
@@ -323,7 +351,7 @@ where
 /// element token, element 区间)`。
 pub(crate) struct ArraySeed<'a, 'de, L, F> {
     ctx: &'a mut Ctx<'de, L>,
-    failure: &'a mut Option<ShapeCandidate>,
+    failure: &'a mut Option<ReplayFailure>,
     expecting: &'static str,
     handler: F,
 }
@@ -331,7 +359,7 @@ pub(crate) struct ArraySeed<'a, 'de, L, F> {
 impl<'de, L, F> DeserializeSeed<'de> for ArraySeed<'_, 'de, L, F>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, usize, &'de RawValue, ByteRange) -> Result<(), ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, usize, &'de RawValue, ByteRange) -> Result<(), ReplayFailure>,
 {
     type Value = ();
 
@@ -346,7 +374,7 @@ where
 impl<'de, L, F> Visitor<'de> for ArraySeed<'_, 'de, L, F>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, usize, &'de RawValue, ByteRange) -> Result<(), ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, usize, &'de RawValue, ByteRange) -> Result<(), ReplayFailure>,
 {
     type Value = ();
 
@@ -381,14 +409,14 @@ where
 /// 包装的 `Err`）。
 pub(crate) fn drive_object<'de, L, F, D>(
     ctx: &mut Ctx<'de, L>,
-    failure: &mut Option<ShapeCandidate>,
+    failure: &mut Option<ReplayFailure>,
     expecting: &'static str,
     deserializer: D,
     handler: F,
 ) -> Result<(), serde_json::Error>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ReplayFailure>,
     D: serde::Deserializer<'de, Error = serde_json::Error>,
 {
     ObjectSeed {
@@ -404,7 +432,7 @@ where
 /// 候选的所属 record/root token 区间）。
 pub(crate) fn drive_seq<'de, L, F, D>(
     ctx: &mut Ctx<'de, L>,
-    failure: &mut Option<ShapeCandidate>,
+    failure: &mut Option<ReplayFailure>,
     expecting: &'static str,
     fields: &'static [FieldSpec],
     anchor: ByteRange,
@@ -413,7 +441,7 @@ pub(crate) fn drive_seq<'de, L, F, D>(
 ) -> Result<(), serde_json::Error>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ReplayFailure>,
     D: serde::Deserializer<'de, Error = serde_json::Error>,
 {
     StructSeqSeed {
@@ -435,10 +463,35 @@ fn count_replay(range: ByteRange) {
     let _ = range;
 }
 
-/// replay 解码 record token：handler 候选直接外传；真实 serde 错误（token 内
-/// 只可能是 shape 语义失败）归一为以容器 token 为锚的候选。token 形态分派：
-/// `{` 走 map，`[` 按 `fields` 声明序走位置序列（derive struct seq-form 平
-/// 价），其余形态由 map 路径报 invalid type。
+/// replay serde 错误分流（R3：保留原生 category）：Syntax 保留真实 serde 错
+/// 误为延迟 syntax（token 局部行列 → 相对 byte offset → 加 token 全局起点
+/// 重建全局位置 override，SSOT :399-400；span 用 override，payload 内部位置
+/// 保持 token 局部）；Data 以容器 token 为锚归一为 shape 候选（Eof/Io 在合
+/// 法 token 内不可达，防御性随 Data 归一）。
+fn classify_replay_error<L>(
+    ctx: &Ctx<'_, L>,
+    token: &RawValue,
+    range: ByteRange,
+    error: serde_json::Error,
+) -> ReplayFailure
+where
+    L: LocationPolicy,
+{
+    match error.classify() {
+        Category::Syntax => ReplayFailure::Syntax(DeferredSyntax {
+            path: ctx.canonical_path().to_owned(),
+            position: global_position(ctx.input, range.start, token.get().as_bytes(), &error),
+            token_start: range.start,
+            source: error,
+        }),
+        _ => ReplayFailure::Shape(ctx.candidate(strip_position_suffix(error.to_string()), range)),
+    }
+}
+
+/// replay 解码 record token：handler 失败直接外传；真实 serde 错误按
+/// `classify_replay_error` 分流（Syntax 保留原生 category，Data 归一候选）。
+/// token 形态分派：`{` 走 map，`[` 按 `fields` 声明序走位置序列（derive
+/// struct seq-form 平价），其余形态由 map 路径报 invalid type。
 pub(crate) fn decode_record<'de, L, F>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
@@ -446,10 +499,10 @@ pub(crate) fn decode_record<'de, L, F>(
     expecting: &'static str,
     fields: &'static [FieldSpec],
     handler: F,
-) -> Result<(), ShapeCandidate>
+) -> Result<(), ReplayFailure>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ReplayFailure>,
 {
     ctx.policy_record(range);
     count_replay(range);
@@ -468,36 +521,37 @@ where
     } else {
         drive_object(ctx, &mut failure, expecting, &mut deserializer, handler)
     };
-    if let Some(candidate) = failure {
-        return Err(candidate);
+    if let Some(failure) = failure {
+        return Err(failure);
     }
     match result {
         Ok(()) => Ok(()),
-        Err(error) => Err(ctx.candidate(strip_position_suffix(error.to_string()), range)),
+        Err(error) => Err(classify_replay_error(ctx, token, range, error)),
     }
 }
 
 /// untagged 分派专用：完整扫描 record（handler 只记录、不报错）；`Ok(true)`
 /// 表示结构干净，`Ok(false)` 表示出现真实 serde 错误（由调用方归一化为
-/// mismatch 候选）。handler 主动产出的候选仍按 `Err` 传播。
+/// mismatch 候选——旧 untagged derive 对任何内部错误都报 Data mismatch，故
+/// 此处不区分 category）。handler 主动产出的失败仍按 `Err` 传播。
 pub(crate) fn scan_record<'de, L, F>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
     expecting: &'static str,
     handler: F,
-) -> Result<bool, ShapeCandidate>
+) -> Result<bool, ReplayFailure>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ReplayFailure>,
 {
     ctx.policy_record(range);
     count_replay(range);
     let mut failure = None;
     let mut deserializer = serde_json::Deserializer::from_slice(token.get().as_bytes());
     let result = drive_object(ctx, &mut failure, expecting, &mut deserializer, handler);
-    if let Some(candidate) = failure {
-        return Err(candidate);
+    if let Some(failure) = failure {
+        return Err(failure);
     }
     Ok(result.is_ok())
 }
@@ -509,10 +563,10 @@ pub(crate) fn decode_array<'de, L, F>(
     range: ByteRange,
     expecting: &'static str,
     handler: F,
-) -> Result<(), ShapeCandidate>
+) -> Result<(), ReplayFailure>
 where
     L: LocationPolicy,
-    F: FnMut(&mut Ctx<'de, L>, usize, &'de RawValue, ByteRange) -> Result<(), ShapeCandidate>,
+    F: FnMut(&mut Ctx<'de, L>, usize, &'de RawValue, ByteRange) -> Result<(), ReplayFailure>,
 {
     count_replay(range);
     let mut failure = None;
@@ -524,22 +578,23 @@ where
         handler,
     }
     .deserialize(&mut deserializer);
-    if let Some(candidate) = failure {
-        return Err(candidate);
+    if let Some(failure) = failure {
+        return Err(failure);
     }
     match result {
         Ok(()) => Ok(()),
-        Err(error) => Err(ctx.candidate(strip_position_suffix(error.to_string()), range)),
+        Err(error) => Err(classify_replay_error(ctx, token, range, error)),
     }
 }
 
-/// replay 解码标量/透明值 token（String、u32、u64、f64、Vec<Value> 等）；失败
-/// 消息剥离位置后缀后以当前 path 与 value token 为锚归一为候选。
+/// replay 解码标量/透明值 token（String、u32、u64、f64、Vec<Value> 等）；失
+/// 败按 `classify_replay_error` 分流——Syntax（如 `1e999` 的 `number out of
+/// range`）保留原生 category 为延迟 syntax，Data 归一为 shape 候选。
 pub(crate) fn decode_scalar<'de, T, L>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<T, ShapeCandidate>
+) -> Result<T, ReplayFailure>
 where
     T: Deserialize<'de>,
     L: LocationPolicy,
@@ -547,13 +602,13 @@ where
     count_replay(range);
     let mut deserializer = serde_json::Deserializer::from_slice(token.get().as_bytes());
     T::deserialize(&mut deserializer)
-        .map_err(|error| ctx.candidate(strip_position_suffix(error.to_string()), range))
+        .map_err(|error| classify_replay_error(ctx, token, range, error))
 }
 
 /// 字符串枚举 token：经 `deserialize_enum` 复刻 derive 的 visitor 流转（字符串
-/// 经 `visit_str` 查表报 `unknown variant`；非字符串沿用 serde_json 的
-/// `expected value`/map-form 行为），expecting 文本 `enum {name}` 与 derive
-/// 逐字节一致。
+/// 经 `visit_str` 查表报 `unknown variant`（Data → shape 候选）；非字符串/非
+/// `{` 标量由 serde_json 报真实 `expected value`（Syntax → 延迟 syntax，R3-4
+/// 保留原生 category）），expecting 文本 `enum {name}` 与 derive 逐字节一致。
 pub(crate) fn decode_enum<'de, T, L>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
@@ -561,7 +616,7 @@ pub(crate) fn decode_enum<'de, T, L>(
     name: &'static str,
     variants: &'static [&'static str],
     table: &'static [(&'static str, T)],
-) -> Result<T, ShapeCandidate>
+) -> Result<T, ReplayFailure>
 where
     T: Copy + 'static,
     L: LocationPolicy,
@@ -574,7 +629,7 @@ where
         table,
     }
     .deserialize(&mut deserializer)
-    .map_err(|error| ctx.candidate(strip_position_suffix(error.to_string()), range))
+    .map_err(|error| classify_replay_error(ctx, token, range, error))
 }
 
 struct EnumSeed<T: 'static> {
@@ -656,12 +711,12 @@ pub(crate) fn reject_explicit_null<L>(
     ctx: &Ctx<'_, L>,
     token: &RawValue,
     range: ByteRange,
-) -> Result<(), ShapeCandidate>
+) -> Result<(), ReplayFailure>
 where
     L: LocationPolicy,
 {
     if token.get().trim() == "null" {
-        return Err(ctx.candidate(NON_NULL_MESSAGE.to_owned(), range));
+        return Err(ctx.failure(NON_NULL_MESSAGE.to_owned(), range));
     }
     Ok(())
 }
@@ -671,7 +726,7 @@ pub(crate) fn decode_non_null_string<'de, L>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<String, ShapeCandidate>
+) -> Result<String, ReplayFailure>
 where
     L: LocationPolicy,
 {
@@ -685,18 +740,18 @@ pub(crate) fn decode_priority<L>(
     ctx: &Ctx<'_, L>,
     token: &RawValue,
     range: ByteRange,
-) -> Result<String, ShapeCandidate>
+) -> Result<String, ReplayFailure>
 where
     L: LocationPolicy,
 {
     let lexeme = token.get().trim();
     if lexeme == "null" {
-        return Err(ctx.candidate(NON_NULL_MESSAGE.to_owned(), range));
+        return Err(ctx.failure(NON_NULL_MESSAGE.to_owned(), range));
     }
     if is_json_number_lexeme(lexeme) {
         Ok(lexeme.to_owned())
     } else {
-        Err(ctx.candidate(
+        Err(ctx.failure(
             format!("priority 必须是 JSON number，实际为 `{lexeme}`"),
             range,
         ))
@@ -732,7 +787,7 @@ pub(crate) fn decode_time_windows<'de, L>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<bool, ShapeCandidate>
+) -> Result<bool, ReplayFailure>
 where
     L: LocationPolicy,
 {
@@ -744,78 +799,146 @@ where
     decode_scalar::<Vec<serde_json::Value>, L>(ctx, token, range).map(|_| true)
 }
 
-/// 延迟到版本裁决之后的 syntax 失败（R2 T5：extensions 内容）：path、真实
-/// serde 错误（token 局部位置）与重建的全局一基位置。
+/// 延迟到版本裁决之后的 syntax 失败：path、真实 serde 错误（token 局部位
+/// 置）与重建的全局一基位置（span override）。来源：extensions 内容校验
+/// （R2 T5）与 replay/捕获内 Syntax 类失败（R3：保留原生 serde category）。
+#[derive(Debug)]
 pub(crate) struct DeferredSyntax {
     pub(crate) path: String,
     pub(crate) source: serde_json::Error,
     /// 全局一基 (line, column)（span 用；payload 内部位置保持 token 局部）。
     pub(crate) position: (u32, u32),
-    /// 文档序比较键：extensions value token 的全局起点。
+    /// 文档序比较键：失败 token 的全局起点。
     pub(crate) token_start: u32,
 }
 
-/// extensions 内容校验的失败通道：非 object 外壳是 shape（R1 语义不变）；
-/// object 内容的数值 range/递归深度失败是延迟 syntax（旧全量解析语义）。
-pub(crate) enum ExtensionsCheck {
-    Shape(ShapeCandidate),
-    Syntax(DeferredSyntax),
-}
-
-/// 根 `extensions`：非 object 借用 serde 的 invalid type 消息（`expected a
-/// map`，锚=value token）；object 内容以 sink visitor 单遍校验（SSOT §7：
-/// 禁 Value/Content 树，token 只驱动一遍）。数值经 serde_json 自身的
-/// u64/i64/f64 解析执行 range 检查（`1e999` → `number out of range`）；递归
-/// 深度由 serde_json 递归预算自然执行——包一层 wrapper seq 抵消根 object
-/// 层，使 128 层预算的生效边界与旧全量 `Map<String, Value>` 解析逐层一致。
+/// 根 `extensions`：非 object 借用 serde 的 invalid type / number range 错误
+/// （经 `classify_replay_error` 分流）；object 内容以 sink visitor 单遍校验
+/// （SSOT §7：禁 Value/Content 树，token 只驱动一遍）。零拷贝（R3-5）：sink
+/// 直接在借用 token 切片上驱动，无合成 wrapper 分配与拷贝；数值 range 由
+/// serde_json 自身的 u64/i64/f64 解析执行（`1e999` → `number out of
+/// range`）。递归深度由 sink 自计数执行（`EXTENSIONS_CONTENT_DEPTH_LIMIT`）：
+/// 旧全量解析中 extensions object 是文档第 2 层容器，serde_json 128 层预算
+/// 在第 126 个内容容器报 `recursion limit exceeded`；token 直达驱动少了文
+/// 档根一层（serde 预算等效放宽一层），故 sink 在进入第 126 个内容容器时
+/// 中止，真实 recursion 错误由定长合成探针捕获，位置由边界配对扫描重建为
+/// 全局 override。
 pub(crate) fn check_extensions<'de, L>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<(), ExtensionsCheck>
+) -> Result<(), ReplayFailure>
 where
     L: LocationPolicy,
 {
     if !token.get().trim_start().starts_with('{') {
         return decode_scalar::<serde_json::Map<String, serde_json::Value>, L>(ctx, token, range)
-            .map(|_| ())
-            .map_err(ExtensionsCheck::Shape);
+            .map(|_| ());
     }
     count_replay(range);
-    let mut wrapped = Vec::with_capacity(token.get().len() + 2);
-    wrapped.push(b'[');
-    wrapped.extend_from_slice(token.get().as_bytes());
-    wrapped.push(b']');
     let mut suffix = String::new();
-    let mut deserializer = serde_json::Deserializer::from_slice(&wrapped);
-    let result = ExtensionsTopSeed {
+    let mut depth_exceeded = false;
+    let mut deserializer = serde_json::Deserializer::from_slice(token.get().as_bytes());
+    let result = ExtensionsMapSeed {
         suffix: &mut suffix,
+        depth_exceeded: &mut depth_exceeded,
     }
     .deserialize(&mut deserializer);
     match result {
         Ok(()) => Ok(()),
-        Err(source) => Err(ExtensionsCheck::Syntax(DeferredSyntax {
+        // sink 自计数中止（旧 126 层边界）：真实 recursion 错误由合成探针捕
+        // 获，全局位置取第 126 个内容容器的开括号（旧 peek_error 的同一点位）。
+        Err(_) if depth_exceeded => Err(ReplayFailure::Syntax(DeferredSyntax {
             path: format!("extensions{suffix}"),
-            position: global_position(ctx.input, range.start, &wrapped, &source),
+            position: position_of_offset(
+                ctx.input,
+                range.start as usize + content_depth_boundary_offset(token.get().as_bytes()),
+            ),
             token_start: range.start,
-            source,
+            source: harvest_recursion_error(),
         })),
+        // 内容 syntax 失败（数值 range 等）：path 深入 extensions 子树，token
+        // 局部位置重建为全局 override（Data 在合法 token 内不可达，防御归一）。
+        Err(source) => Err(match source.classify() {
+            Category::Syntax => ReplayFailure::Syntax(DeferredSyntax {
+                path: format!("extensions{suffix}"),
+                position: global_position(ctx.input, range.start, token.get().as_bytes(), &source),
+                token_start: range.start,
+                source,
+            }),
+            _ => ReplayFailure::Shape(ShapeCandidate {
+                path: format!("extensions{suffix}"),
+                message: strip_position_suffix(source.to_string()),
+                anchor: range,
+            }),
+        }),
     }
 }
 
-/// 把 wrapped 输入的 token 局部 serde 位置重建为全局一基位置：局部
-/// (line,column) → wrapped byte offset → 减 wrapper seq 前缀（1 byte）→ 加
-/// token 全局起点后做 allocation-free 前缀扫描。
+/// extensions 内容容器深度上限（R3-5 零拷贝平价）：旧全量解析中 extensions
+/// object 是文档第 2 层容器，serde_json 128 层预算在进入第 128 层容器时报
+/// `recursion limit exceeded`——即第 126 个内容容器（旧探针：125 过/126 拒）。
+const EXTENSIONS_CONTENT_DEPTH_LIMIT: u8 = 126;
+
+/// sink 自计数中止信号（永不浮出水面；出现处 `depth_exceeded` 必为 true）。
+const DEPTH_SENTINEL: &str = "laneflow extensions depth sentinel";
+
+/// 定长合成探针捕获 serde_json 真实的 `recursion limit exceeded`（Syntax
+/// category 与核心消息；只在深度中止的错误路径调用，常量成本）。payload
+/// 内部位置为探针局部坐标，不是位置事实源——span 由边界扫描的全局
+/// override 承载（SSOT :445 不冻结 line/column 数值，R3-2 文档契约）。
+fn harvest_recursion_error() -> serde_json::Error {
+    let mut probe = String::with_capacity(257);
+    for _ in 0..128 {
+        probe.push('[');
+    }
+    probe.push('1');
+    for _ in 0..128 {
+        probe.push(']');
+    }
+    serde_json::from_slice::<serde_json::Value>(probe.as_bytes())
+        .expect_err("合成探针必然触发 serde_json 递归上限")
+}
+
+/// 配对扫描求第 `EXTENSIONS_CONTENT_DEPTH_LIMIT` 个内容容器（旧递归边界）
+/// 在 extensions token 内的 byte offset（字符串与转义整体跳过）；只在 sink
+/// 中止后的错误路径调用。
+fn content_depth_boundary_offset(token: &[u8]) -> usize {
+    let mut depth = 0_u32;
+    let mut index = 0_usize;
+    while index < token.len() {
+        match token[index] {
+            b'"' => {
+                index = skip_string(token, index);
+                continue;
+            }
+            b'{' | b'[' => {
+                depth += 1;
+                // extensions object 本身是第 1 层；第 126 个内容容器是第 127 层。
+                if depth == u32::from(EXTENSIONS_CONTENT_DEPTH_LIMIT) + 1 {
+                    return index;
+                }
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        index += 1;
+    }
+    // 不可达（sink 已在第 126 个内容容器处中止）；防御性收尾。
+    token.len()
+}
+
+/// 把 token 局部 serde 位置重建为全局一基位置：局部 (line,column) → token
+/// 内 byte offset → 加 token 全局起点后做 allocation-free 前缀扫描
+/// （SSOT :399-400）。
 fn global_position(
     input: &[u8],
     token_start: u32,
-    wrapped: &[u8],
+    token: &[u8],
     source: &serde_json::Error,
 ) -> (u32, u32) {
-    let local_offset = offset_of_position(wrapped, source.line(), source.column());
-    let token_offset = local_offset.saturating_sub(1);
-    let global = token_start as usize + token_offset;
-    position_of_offset(input, global)
+    let local_offset = offset_of_position(token, source.line(), source.column());
+    position_of_offset(input, token_start as usize + local_offset)
 }
 
 /// 一基 (line,column) → 零基 byte offset（line 按 LF、column 按 byte，与
@@ -853,53 +976,12 @@ fn position_of_offset(input: &[u8], offset: usize) -> (u32, u32) {
     (line, column)
 }
 
-/// extensions 内容 sink 的 wrapper seq seed：wrapper 恰好一个元素
-/// （extensions object），这一层 seq 抵消根 object 层，使 serde_json 的 128
-/// 层递归预算生效边界与旧全量 `Map<String, Value>` 解析逐层一致。
-struct ExtensionsTopSeed<'a> {
-    suffix: &'a mut String,
-}
-
-impl<'de> serde::de::DeserializeSeed<'de> for ExtensionsTopSeed<'_> {
-    type Value = ();
-
-    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_seq(ExtensionsTop {
-            suffix: self.suffix,
-        })
-    }
-}
-
-struct ExtensionsTop<'a> {
-    suffix: &'a mut String,
-}
-
-impl<'de> Visitor<'de> for ExtensionsTop<'_> {
-    type Value = ();
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a sequence")
-    }
-
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: SeqAccess<'de>,
-    {
-        // wrapper 由 `check_extensions` 构造，恰好一个元素（extensions object）。
-        seq.next_element_seed(ExtensionsMapSeed {
-            suffix: self.suffix,
-        })?;
-        Ok(())
-    }
-}
-
-/// extensions object 顶层 seed：`deserialize_map` 驱动（expecting `a map`，
-/// 与旧 `Map<String, Value>` 的 invalid type 文本一致；token 已预检 `{`）。
+/// extensions object 顶层 seed：`deserialize_map` 直接驱动借用 token（零拷
+/// 贝，R3-5；expecting `a map`，与旧 `Map<String, Value>` 的 invalid type
+/// 文本一致；token 已预检 `{`）。
 struct ExtensionsMapSeed<'a> {
     suffix: &'a mut String,
+    depth_exceeded: &'a mut bool,
 }
 
 impl<'de> serde::de::DeserializeSeed<'de> for ExtensionsMapSeed<'_> {
@@ -911,6 +993,8 @@ impl<'de> serde::de::DeserializeSeed<'de> for ExtensionsMapSeed<'_> {
     {
         deserializer.deserialize_map(ExtensionsSink {
             suffix: self.suffix,
+            depth: 0,
+            depth_exceeded: self.depth_exceeded,
         })
     }
 }
@@ -918,8 +1002,13 @@ impl<'de> serde::de::DeserializeSeed<'de> for ExtensionsMapSeed<'_> {
 /// extensions 内容的 sink visitor：不物化任何值（所有标量丢弃）；object/
 /// array 递归经 `deserialize_any` 驱动，path 后缀（`.key`/`[index]`）在成功
 /// 返回时截断、失败传播时保留在失败深度（serde_path_to_error 文本平价）。
+/// `depth` 为内容容器自计数（extensions object 自身为 0，标量不计），进入
+/// 第 `EXTENSIONS_CONTENT_DEPTH_LIMIT` 个内容容器时置 `depth_exceeded` 并
+/// 以 `DEPTH_SENTINEL` 中止（零拷贝递归边界，R3-5）。
 struct ExtensionsSink<'a> {
     suffix: &'a mut String,
+    depth: u8,
+    depth_exceeded: &'a mut bool,
 }
 
 impl<'de> serde::de::DeserializeSeed<'de> for ExtensionsSink<'_> {
@@ -983,12 +1072,22 @@ impl<'de> Visitor<'de> for ExtensionsSink<'_> {
     where
         A: SeqAccess<'de>,
     {
+        if self.depth == EXTENSIONS_CONTENT_DEPTH_LIMIT {
+            *self.depth_exceeded = true;
+            return Err(de::Error::custom(DEPTH_SENTINEL));
+        }
         let mut index = 0_usize;
         loop {
             let mark = self.suffix.len();
             self.suffix.push_str(&format!("[{index}]"));
             let suffix = &mut *self.suffix;
-            match seq.next_element_seed(ExtensionsSink { suffix }) {
+            let depth = self.depth.saturating_add(1);
+            let depth_exceeded = &mut *self.depth_exceeded;
+            match seq.next_element_seed(ExtensionsSink {
+                suffix,
+                depth,
+                depth_exceeded,
+            }) {
                 Ok(Some(())) => {
                     self.suffix.truncate(mark);
                     index += 1;
@@ -1006,12 +1105,22 @@ impl<'de> Visitor<'de> for ExtensionsSink<'_> {
     where
         A: MapAccess<'de>,
     {
+        if self.depth == EXTENSIONS_CONTENT_DEPTH_LIMIT {
+            *self.depth_exceeded = true;
+            return Err(de::Error::custom(DEPTH_SENTINEL));
+        }
         while let Some(key) = map.next_key::<String>()? {
             let mark = self.suffix.len();
             self.suffix.push('.');
             self.suffix.push_str(&key);
             let suffix = &mut *self.suffix;
-            match map.next_value_seed(ExtensionsSink { suffix }) {
+            let depth = self.depth.saturating_add(1);
+            let depth_exceeded = &mut *self.depth_exceeded;
+            match map.next_value_seed(ExtensionsSink {
+                suffix,
+                depth,
+                depth_exceeded,
+            }) {
                 Ok(()) => self.suffix.truncate(mark),
                 Err(error) => return Err(error),
             }
@@ -1020,39 +1129,96 @@ impl<'de> Visitor<'de> for ExtensionsSink<'_> {
     }
 }
 
-/// centerline point `[f64; 3]`：逐轴解码（轴级 path/锚）；元素数不为 3 时以
-/// serde 定长数组的 invalid length 消息归一（锚=point token）。
+/// centerline point `[f64; 3]`：读恰好 3 轴（轴级 path/锚），复刻 serde 定
+/// 长数组行为（R3-7）——第 4 元素不消费，由 serde_json 在 seq visitor 返回
+/// 后报真实 `trailing characters`（Syntax，经 `classify_replay_error` 保留
+/// 原生 category）；不足 3 轴报 serde 定长数组的 invalid length shape 候选
+/// （锚=point token）。
 pub(crate) fn decode_point<'de, L>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
-) -> Result<[f64; 3], ShapeCandidate>
+) -> Result<[f64; 3], ReplayFailure>
 where
     L: LocationPolicy,
 {
     ctx.policy_point(range);
+    count_replay(range);
+    let mut failure = None;
     let mut axes = [0.0_f64; 3];
-    let mut count = 0_usize;
-    decode_array(
-        ctx,
-        token,
-        range,
-        "an array of length 3",
-        |ctx, index, element, element_range| {
-            if index < 3 {
-                axes[index] = decode_scalar::<f64, L>(ctx, element, element_range)?;
-            }
-            count += 1;
-            Ok(())
-        },
-    )?;
-    if count != 3 {
-        return Err(ctx.candidate(
-            format!("invalid length {count}, expected an array of length 3"),
-            range,
-        ));
+    let mut deserializer = serde_json::Deserializer::from_slice(token.get().as_bytes());
+    let result = PointSeed {
+        ctx: &mut *ctx,
+        failure: &mut failure,
+        anchor: range,
+        axes: &mut axes,
     }
-    Ok(axes)
+    .deserialize(&mut deserializer);
+    if let Some(failure) = failure {
+        return Err(failure);
+    }
+    match result {
+        Ok(()) => Ok(axes),
+        Err(error) => Err(classify_replay_error(ctx, token, range, error)),
+    }
+}
+
+/// `[f64; 3]` 的 seed/visitor：`deserialize_tuple(3, _)` 与 serde 定长数组
+/// impl 同一入口；visit_seq 读恰好 3 轴即返回（多余元素留给 serde_json 的
+/// seq 收尾检查报 `trailing characters`）。
+struct PointSeed<'a, 'de, L> {
+    ctx: &'a mut Ctx<'de, L>,
+    failure: &'a mut Option<ReplayFailure>,
+    anchor: ByteRange,
+    axes: &'a mut [f64; 3],
+}
+
+impl<'de, L: LocationPolicy> DeserializeSeed<'de> for PointSeed<'_, 'de, L> {
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_tuple(3, self)
+    }
+}
+
+impl<'de, L: LocationPolicy> Visitor<'de> for PointSeed<'_, 'de, L> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an array of length 3")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        for index in 0..3_usize {
+            let Some(element) = seq.next_element::<&RawValue>()? else {
+                // 不足 3 轴：serde 定长数组的 invalid length（Data → shape 候
+                // 选，锚=point token，path 停在 point 级）。
+                let message = format!("invalid length {index}, expected an array of length 3");
+                *self.failure = Some(self.ctx.candidate(message, self.anchor).into());
+                return Err(de::Error::custom(SENTINEL));
+            };
+            let mark = self.ctx.push_index(index);
+            let element_range = self.ctx.token_range(element);
+            self.ctx.policy_value(element_range);
+            match decode_scalar::<f64, L>(self.ctx, element, element_range) {
+                Ok(axis) => {
+                    self.axes[index] = axis;
+                    self.ctx.truncate(mark);
+                }
+                Err(failure) => {
+                    *self.failure = Some(failure);
+                    return Err(de::Error::custom(SENTINEL));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// 单赋值槽：第二次 occurrence 报 duplicate field（serde_path_to_error 实证：
@@ -1065,13 +1231,15 @@ pub(crate) fn set_once<'de, T, L, F>(
     range: ByteRange,
     mark: usize,
     decode: F,
-) -> Result<(), ShapeCandidate>
+) -> Result<(), ReplayFailure>
 where
     L: LocationPolicy,
-    F: FnOnce(&mut Ctx<'de, L>, &'de RawValue, ByteRange) -> Result<T, ShapeCandidate>,
+    F: FnOnce(&mut Ctx<'de, L>, &'de RawValue, ByteRange) -> Result<T, ReplayFailure>,
 {
     if slot.is_some() {
-        return Err(ctx.candidate_at(mark, duplicate_field_message(key), range));
+        return Err(ctx
+            .candidate_at(mark, duplicate_field_message(key), range)
+            .into());
     }
     *slot = Some(decode(ctx, value, range)?);
     Ok(())
@@ -1200,8 +1368,11 @@ mod tests {
         let mut ctx = Ctx::new(input, NoLocations);
         let token = raw_token(input);
         let range = ctx.token_range(token);
-        let candidate = decode_enum(&mut ctx, token, range, "Probe", PROBE_VARIANTS, PROBE_TABLE)
+        let failure = decode_enum(&mut ctx, token, range, "Probe", PROBE_VARIANTS, PROBE_TABLE)
             .expect_err("未知 variant");
+        let ReplayFailure::Shape(candidate) = failure else {
+            panic!("unknown variant 是 Data 类 shape 候选：{failure:?}");
+        };
         assert_eq!(
             candidate.message,
             "unknown variant `bogus`, expected `a` or `b`"
@@ -1210,36 +1381,55 @@ mod tests {
         assert_eq!(candidate.anchor, ByteRange::new(0, 7));
     }
 
-    /// 归一差异①（报告记录）：非字符串/非 `{` 的枚举标量在 serde_json 内部是
-    /// Syntax 类（`expected value`），新架构把 token 内一切失败归一为 Shape
-    /// 候选（旧实现报 JsonSyntax）。
+    /// R3-4：非字符串/非 `{` 的枚举标量保留原生 Syntax category（真实
+    /// serde `expected value` 延迟 syntax，token 局部位置重建为全局
+    /// override），不再归一为 Shape。
     #[test]
-    fn decode_enum_normalizes_non_string_scalar_to_shape() {
+    fn decode_enum_preserves_syntax_category_for_non_string_scalar() {
         let input = b"1";
         let mut ctx = Ctx::new(input, NoLocations);
         let token = raw_token(input);
         let range = ctx.token_range(token);
-        let candidate = decode_enum(&mut ctx, token, range, "Probe", PROBE_VARIANTS, PROBE_TABLE)
+        let failure = decode_enum(&mut ctx, token, range, "Probe", PROBE_VARIANTS, PROBE_TABLE)
             .expect_err("标量枚举");
-        assert_eq!(candidate.message, "expected value");
-        assert_eq!(candidate.anchor, ByteRange::new(0, 1));
+        let ReplayFailure::Syntax(deferred) = failure else {
+            panic!("标量枚举必须保留 Syntax category：{failure:?}");
+        };
+        assert_eq!(deferred.source.classify(), Category::Syntax);
+        assert_eq!(
+            deferred.source.to_string(),
+            "expected value at line 1 column 1"
+        );
+        assert_eq!(deferred.path, "$");
+        assert_eq!(deferred.position, (1, 1));
+        assert_eq!(deferred.token_start, 0);
     }
 
-    /// 归一差异②（报告记录）：定长数组第 4 元素在旧实现经 serde 定长数组
-    /// visitor 报 `trailing characters`（Syntax）；新实现逐轴计数后以
-    /// invalid length 归一为 Shape。
+    /// R3-7：四轴 point 恢复 `[f64; 3]` derive 行为——读恰好 3 轴后第 4 元素
+    /// 由 serde_json 报真实 `trailing characters`（Syntax 延迟 syntax）；两
+    /// 轴仍报 serde 定长数组的 `invalid length 2`（Data → shape 候选）。
     #[test]
-    fn decode_point_rejects_four_axes_with_invalid_length() {
+    fn decode_point_preserves_fixed_array_category_split() {
         let input = b"[1,2,3,4]";
         let mut ctx = Ctx::new(input, NoLocations);
         let token = raw_token(input);
         let range = ctx.token_range(token);
-        let candidate = decode_point(&mut ctx, token, range).expect_err("四轴 point");
-        assert_eq!(
-            candidate.message,
-            "invalid length 4, expected an array of length 3"
+        let failure = decode_point(&mut ctx, token, range).expect_err("四轴 point");
+        let ReplayFailure::Syntax(deferred) = failure else {
+            panic!("四轴 point 必须保留 Syntax category：{failure:?}");
+        };
+        assert_eq!(deferred.source.classify(), Category::Syntax);
+        assert!(
+            deferred
+                .source
+                .to_string()
+                .starts_with("trailing characters"),
+            "四轴 point 消息：{}",
+            deferred.source
         );
-        assert_eq!(candidate.anchor, ByteRange::new(0, 9));
+        assert_eq!(deferred.path, "$");
+        assert_eq!(deferred.token_start, 0);
+
         // 两轴同理（reset 原因见 decode_enum 测试）。
         #[cfg(debug_assertions)]
         crate::counters::reset();
@@ -1247,24 +1437,31 @@ mod tests {
         let mut ctx = Ctx::new(input, NoLocations);
         let token = raw_token(input);
         let range = ctx.token_range(token);
-        let candidate = decode_point(&mut ctx, token, range).expect_err("两轴 point");
+        let failure = decode_point(&mut ctx, token, range).expect_err("两轴 point");
+        let ReplayFailure::Shape(candidate) = failure else {
+            panic!("两轴 point 是 Data 类 shape 候选：{failure:?}");
+        };
         assert_eq!(
             candidate.message,
             "invalid length 2, expected an array of length 3"
         );
+        assert_eq!(candidate.anchor, ByteRange::new(0, 5));
     }
 
-    /// 归一差异③（报告记录）：超出 u64 的纯整数经 serde_json 回退为 f64 解
-    /// 码（invalid type floating point），超出 f64 的 numeric literal 是其内部
-    /// Syntax 类（`number out of range`）；两种形态新架构都归一为 Shape。
+    /// R3-1：超出 u64 的纯整数经 serde_json 回退为 f64 解码（invalid type
+    /// floating point，Data → shape 候选）；超出 f64 的 numeric literal 保
+    /// 留原生 Syntax category（`number out of range` → 延迟 syntax）。
     #[test]
-    fn decode_scalar_normalizes_out_of_range_numbers_to_shape() {
+    fn decode_scalar_preserves_syntax_category_for_out_of_range_numbers() {
         let input = b"99999999999999999999999999";
         let mut ctx = Ctx::new(input, NoLocations);
         let token = raw_token(input);
         let range = ctx.token_range(token);
-        let candidate =
+        let failure =
             decode_scalar::<u64, NoLocations>(&mut ctx, token, range).expect_err("超 u64 整数");
+        let ReplayFailure::Shape(candidate) = failure else {
+            panic!("超 u64 整数是 Data 类 shape 候选：{failure:?}");
+        };
         assert_eq!(
             candidate.message,
             "invalid type: floating point `1e+26`, expected u64"
@@ -1277,10 +1474,19 @@ mod tests {
         let mut ctx = Ctx::new(input, NoLocations);
         let token = raw_token(input);
         let range = ctx.token_range(token);
-        let candidate =
+        let failure =
             decode_scalar::<u64, NoLocations>(&mut ctx, token, range).expect_err("超 f64 字面量");
-        assert_eq!(candidate.message, "number out of range");
-        assert_eq!(candidate.anchor, ByteRange::new(0, 5));
+        let ReplayFailure::Syntax(deferred) = failure else {
+            panic!("超 f64 字面量必须保留 Syntax category：{failure:?}");
+        };
+        assert_eq!(deferred.source.classify(), Category::Syntax);
+        assert_eq!(
+            deferred.source.to_string(),
+            "number out of range at line 1 column 5"
+        );
+        assert_eq!(deferred.path, "$");
+        assert_eq!(deferred.position, (1, 5));
+        assert_eq!(deferred.token_start, 0);
     }
 
     #[test]

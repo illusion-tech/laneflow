@@ -19,7 +19,7 @@ pub(crate) use walk::{NoLocations, ShapeCandidate};
 use serde_json::error::Category;
 use serde_json::value::RawValue;
 
-use anchor::{root_consumed_end, root_token_range};
+use anchor::{root_consumed_end, root_scalar_end, root_token_range};
 use walk::Ctx;
 
 /// 单遍解析失败。
@@ -27,8 +27,8 @@ use walk::Ctx;
 pub(crate) enum ParseFailure {
     /// JSON token/UTF-8/EOF/trailing content 无效：携带真实 serde 错误（一基
     /// 位置由调用方造单点 span）。`position` 为重建的全局位置 override
-    /// （extensions 内容 sink 的 token 局部错误）；`None` 时取 serde 错误自
-    /// 带位置。
+    /// （extensions 内容 sink 或 replay 内 Syntax 类失败的 token 局部错
+    /// 误）；`None` 时取 serde 错误自带位置。
     Syntax {
         path: String,
         source: serde_json::Error,
@@ -60,15 +60,25 @@ impl RootGate {
         }
     }
 
-    /// 记录 extensions 内容的延迟 syntax 失败并继续遍历（R2 T5）。
+    /// 记录首个延迟 syntax 失败（extensions 内容校验或 replay/捕获内
+    /// Syntax 类失败，R3：保留原生 serde category）并继续遍历。
     pub(crate) fn defer_syntax(&mut self, failure: walk::DeferredSyntax) {
         if self.deferred_syntax.is_none() {
             self.deferred_syntax = Some(failure);
         }
     }
 
-    /// 版本裁决后的首个延迟失败：shape 与 extensions syntax 按文档位置取先
-    /// 到者（旧全量解析在文档序首个错误处失败的语义）。
+    /// 记录首个延迟 replay 失败：shape 与 syntax 分流到各自通道，
+    /// `first_deferred` 统一按锚点文档序裁决先到者。
+    pub(crate) fn defer_failure(&mut self, failure: walk::ReplayFailure) {
+        match failure {
+            walk::ReplayFailure::Shape(candidate) => self.defer(candidate),
+            walk::ReplayFailure::Syntax(failure) => self.defer_syntax(failure),
+        }
+    }
+
+    /// 版本裁决后的首个延迟失败：shape 与延迟 syntax 按文档位置取先到者
+    /// （旧全量解析在文档序首个错误处失败的语义）。
     pub(crate) fn first_deferred(&mut self) -> Option<ParseFailure> {
         let deferred = self.deferred.take();
         let deferred_syntax = self.deferred_syntax.take();
@@ -160,15 +170,13 @@ where
             // 缺失、显式 null、非字符串或重复 occurrence 都以头部 shape
             // 立即失败；只有恰好一个合法字符串 occurrence 参与版本裁决。
             if gate.format_version.is_some() {
-                return Err(ctx.candidate_at(
-                    mark,
-                    walk::duplicate_field_message("formatVersion"),
-                    range,
-                ));
+                return Err(ctx
+                    .candidate_at(mark, walk::duplicate_field_message("formatVersion"), range)
+                    .into());
             }
             match walk::decode_scalar::<String, NoLocations>(ctx, value, range) {
                 Ok(version) => gate.format_version = Some(version),
-                Err(candidate) => return Err(candidate),
+                Err(failure) => return Err(failure),
             }
             return Ok(());
         }
@@ -201,18 +209,32 @@ where
         )
     };
 
-    // ① 头部 shape 立即失败（根 walk 内 handler 唯一的中止来源）。
-    if let Some(candidate) = failure {
-        return Err(ParseFailure::Shape(candidate));
+    // ① 头部立即失败（根 walk 内 handler 唯一的中止来源）：shape 候选直接
+    //    失败；头部 value 的 Syntax 类失败（如 `1e999` 的 number out of
+    //    range）保留原生 category 立即失败（R3：全局位置 override 供 span）。
+    if let Some(failure) = failure {
+        return Err(match failure {
+            walk::ReplayFailure::Shape(candidate) => ParseFailure::Shape(candidate),
+            walk::ReplayFailure::Syntax(deferred) => ParseFailure::Syntax {
+                path: deferred.path,
+                source: deferred.source,
+                position: Some(deferred.position),
+            },
+        });
     }
     // ② 真实 serde 错误：syntax/EOF 立即失败；Data（非 object 根）归一为
-    //    以探测区间为锚的 shape。
+    //    以标量根 token 定界区间为锚的 shape（R3-8：字符串经 skip_string、
+    //    true/false/null 定长、数字按 JSON 词法扫描，不吃进 trailing
+    //    content）。
     if let Err(error) = result {
         return Err(match error.classify() {
             Category::Data => ParseFailure::Shape(ShapeCandidate {
                 path: "$".to_owned(),
                 message: walk::strip_position_suffix(error.to_string()),
-                anchor: probe_range,
+                anchor: ByteRange::new(
+                    probe_range.start,
+                    root_scalar_end(input, probe_range.start),
+                ),
             }),
             Category::Io | Category::Syntax | Category::Eof => ParseFailure::Syntax {
                 path: ctx.canonical_path().to_owned(),
@@ -730,11 +752,11 @@ mod tests {
             } => {
                 assert_eq!(path, "extensions.x");
                 assert_eq!(source.classify(), Category::Syntax);
-                // payload 为 wrapped token 局部错误；span 位置重建为全局
-                // （lexeme 末位之后）。
+                // payload 为 token 局部错误（零拷贝直达驱动，R3-5；位置事实源
+                // 恒为 span）；span 位置重建为全局（lexeme 末位之后）。
                 assert_eq!(
                     source.to_string(),
-                    "number out of range at line 1 column 12"
+                    "number out of range at line 1 column 11"
                 );
                 assert_eq!(position, Some((1, lexeme_start + 5)));
             }
@@ -887,5 +909,215 @@ mod tests {
         );
         assert_eq!(path, "$");
         assert_eq!(message, "missing field `traffic`");
+    }
+
+    /// R3-1：typed 数字字段的 `1e999` 保留原生 Syntax category（`number out
+    /// of range` 延迟 syntax），不再归一为 Shape。
+    #[test]
+    fn typed_numeric_field_out_of_range_is_deferred_syntax() {
+        let input = minimal_traffic().replacen(
+            r#""laneGraph": {"edges": []}"#,
+            r#""laneGraph": {"edges": [{"id": "e", "length": 1e999, "speedLimit": 1, "connections": []}]}"#,
+            1,
+        );
+        let lexeme_start = input.find("1e999").expect("lexeme 在文档中") as u32;
+        let failure = parse_traffic(input.as_bytes()).expect_err("超 f64 typed 字段");
+        match failure {
+            ParseFailure::Syntax {
+                path,
+                source,
+                position,
+            } => {
+                assert_eq!(path, "laneGraph.edges[0].length");
+                assert_eq!(source.classify(), Category::Syntax);
+                assert!(source.to_string().starts_with("number out of range"));
+                // token 局部位置重建为全局（lexeme 末位）。
+                assert_eq!(position, Some((1, lexeme_start + 5)));
+            }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+    }
+
+    /// R3-4：字符串枚举字段的非标量 token 保留原生 Syntax category（真实
+    /// serde `expected value`），不再归一为 Shape。
+    #[test]
+    fn enum_field_non_string_scalar_is_deferred_syntax() {
+        let input = minimal_traffic().replacen(
+            r#""signals": {"stopLines": [], "maneuverGates": [], "groups": [], "controllers": []}"#,
+            r#""signals": {"stopLines": [{"id": "s", "edgeId": "e", "location": 1}], "maneuverGates": [], "groups": [], "controllers": []}"#,
+            1,
+        );
+        let failure = parse_traffic(input.as_bytes()).expect_err("非标量枚举");
+        match failure {
+            ParseFailure::Syntax {
+                path,
+                source,
+                position,
+            } => {
+                assert_eq!(path, "signals.stopLines[0].location");
+                assert_eq!(source.classify(), Category::Syntax);
+                assert_eq!(source.to_string(), "expected value at line 1 column 1");
+                assert!(position.is_some(), "全局 span override");
+            }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+    }
+
+    /// R3-6：位置 record 超元（`"units": ["m","s",0]`）保留原生 Syntax
+    /// category（真实 serde `trailing characters`），不再归一为 Shape。
+    #[test]
+    fn positional_record_surplus_element_is_deferred_syntax() {
+        let input = minimal_traffic().replacen(
+            r#""units": {"distance": "m", "time": "s"}"#,
+            r#""units": ["m", "s", 0]"#,
+            1,
+        );
+        let failure = parse_traffic(input.as_bytes()).expect_err("位置 record 超元");
+        match failure {
+            ParseFailure::Syntax {
+                path,
+                source,
+                position,
+            } => {
+                assert_eq!(path, "units");
+                assert_eq!(source.classify(), Category::Syntax);
+                assert!(
+                    source.to_string().starts_with("trailing characters"),
+                    "消息：{source}"
+                );
+                assert!(position.is_some(), "全局 span override");
+            }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+    }
+
+    /// R3-7：四轴 point 恢复 `[f64; 3]` derive 行为（第 4 元素报真实
+    /// `trailing characters` Syntax）；两轴仍 `invalid length 2` Shape。
+    #[test]
+    fn point_axis_count_follows_fixed_array_derive_categories() {
+        let spatial = |points: &str| {
+            format!(
+                r#"{{"formatVersion": "0.1", "frameId": "f", "edges": [{{"trafficEdgeId": "e", "centerline": {{"points": [{points}]}}}}]}}"#
+            )
+        };
+        let failure = parse_spatial(spatial("[1,2,3,4]").as_bytes()).expect_err("四轴 point");
+        match failure {
+            ParseFailure::Syntax {
+                path,
+                source,
+                position,
+            } => {
+                assert_eq!(path, "edges[0].centerline.points[0]");
+                assert_eq!(source.classify(), Category::Syntax);
+                assert!(
+                    source.to_string().starts_with("trailing characters"),
+                    "消息：{source}"
+                );
+                assert!(position.is_some(), "全局 span override");
+            }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+
+        let (path, message, _anchor) =
+            shape_parts(parse_spatial(spatial("[1,2]").as_bytes()).expect_err("两轴 point"));
+        assert_eq!(path, "edges[0].centerline.points[0]");
+        assert_eq!(message, "invalid length 2, expected an array of length 3");
+    }
+
+    /// R3-3 dispute pin：字段 value 捕获期截断的 syntax 失败 path 保持
+    /// field 级（`units`）——serde_path_to_error 在进入 value 解析前即追加
+    /// key 段落，截断输入 `{"formatVersion":"0.10","units":` 旧 loader 报
+    /// `units`（探针实证，冻结行为本就如此，不做 truncate 特判）。
+    #[test]
+    fn truncated_field_value_syntax_keeps_field_path() {
+        let failure =
+            parse_traffic(b"{\"formatVersion\":\"0.10\",\"units\":").expect_err("截断 value");
+        match failure {
+            ParseFailure::Syntax { path, position, .. } => {
+                assert_eq!(path, "units");
+                assert_eq!(position, None);
+            }
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+    }
+
+    /// R3-8：非标量根 + trailing content 的 Data 锚只吃标量根 token（字符串
+    /// 经 skip_string、true/false/null 定长、数字按 JSON 词法扫描），不吃进
+    /// trailing content。
+    #[test]
+    fn scalar_root_error_anchor_excludes_trailing_content() {
+        let (path, message, anchor) =
+            shape_parts(parse_traffic(b"1 trailing").expect_err("数字根 + trailing"));
+        assert_eq!(path, "$");
+        assert_eq!(
+            message,
+            "invalid type: integer `1`, expected struct WireVersionHeader"
+        );
+        assert_eq!(anchor, ByteRange::new(0, 1), "锚只吃 `1`");
+
+        let (_, message, anchor) =
+            shape_parts(parse_traffic(br#""a" trailing"#).expect_err("字符串根 + trailing"));
+        assert_eq!(
+            message,
+            "invalid type: string \"a\", expected struct WireVersionHeader"
+        );
+        assert_eq!(anchor, ByteRange::new(0, 3), "锚只吃 `\"a\"`");
+
+        let (_, message, anchor) =
+            shape_parts(parse_traffic(b"true trailing").expect_err("布尔根 + trailing"));
+        assert_eq!(
+            message,
+            "invalid type: boolean `true`, expected struct WireVersionHeader"
+        );
+        assert_eq!(anchor, ByteRange::new(0, 4), "锚只吃 `true`");
+
+        let (_, _message, anchor) =
+            shape_parts(parse_traffic(b"1.5e+3 trailing").expect_err("指数数字根 + trailing"));
+        assert_eq!(anchor, ByteRange::new(0, 6), "锚只吃 `1.5e+3`");
+    }
+
+    /// R3 延迟 syntax 与延迟 shape 统一按锚点文档序裁决（与 extensions 内容
+    /// 错误同一规则）：版本裁决先于一切内容错误；同序先到者胜。
+    #[test]
+    fn replay_syntax_defers_and_orders_by_document_position() {
+        // 版本裁决优先于 replay syntax。
+        let input = minimal_traffic()
+            .replacen(
+                r#""units": {"distance": "m", "time": "s"}"#,
+                r#""units": ["m", "s", 0]"#,
+                1,
+            )
+            .replacen(r#""0.10""#, r#""9.9""#, 1);
+        match parse_traffic(input.as_bytes()).expect_err("不受支持的版本") {
+            ParseFailure::UnsupportedVersion { actual, .. } => assert_eq!(actual, "9.9"),
+            other => panic!("expected UnsupportedVersion, got {other:?}"),
+        }
+
+        // units syntax（文档序在前）先于 junctions shape。
+        let input = minimal_traffic()
+            .replacen(
+                r#""units": {"distance": "m", "time": "s"}"#,
+                r#""units": ["m", "s", 0]"#,
+                1,
+            )
+            .replacen(r#""junctions": []"#, r#""junctions": [{"id": 1}]"#, 1);
+        let failure = parse_traffic(input.as_bytes()).expect_err("syntax 先到者优先");
+        match failure {
+            ParseFailure::Syntax { path, .. } => assert_eq!(path, "units"),
+            other => panic!("expected Syntax, got {other:?}"),
+        }
+
+        // junctions shape（文档序在前）先于 signals enum syntax。
+        let input = minimal_traffic()
+            .replacen(r#""junctions": []"#, r#""junctions": [{"id": 1}]"#, 1)
+            .replacen(
+                r#""signals": {"stopLines": [], "maneuverGates": [], "groups": [], "controllers": []}"#,
+                r#""signals": {"stopLines": [{"id": "s", "edgeId": "e", "location": 1}], "maneuverGates": [], "groups": [], "controllers": []}"#,
+                1,
+            );
+        let (path, message, _anchor) =
+            shape_parts(parse_traffic(input.as_bytes()).expect_err("shape 先到者优先"));
+        assert_eq!(path, "junctions[0].id");
+        assert_eq!(message, "invalid type: integer `1`, expected a string");
     }
 }

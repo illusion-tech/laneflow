@@ -727,6 +727,53 @@ fn extensions_out_of_range_number_is_syntax_with_global_span() {
     assert_eq!(span.start(), span.end());
 }
 
+/// R3-8：非标量根 + trailing content 的 shape span 只吃标量根 token
+/// （`1`），不吃进 trailing content。
+#[test]
+fn scalar_root_shape_span_excludes_trailing_content() {
+    let issue = single_issue(
+        validate_traffic_compatible(b"1 trailing").expect_err("标量根 + trailing 必须失败"),
+    );
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
+    assert_eq!(issue.path(), Some("$"));
+    assert!(matches!(
+        issue.payload(),
+        CurrentSourceErrorPayload::JsonShape { .. }
+    ));
+    let span = issue.span().expect("shape issue 恒携带 span");
+    assert_eq!((span.start().line(), span.start().column()), (1, 1));
+    assert_eq!((span.end().line(), span.end().column()), (1, 1));
+}
+
+/// R3-1：typed 数字字段超 f64 在公共层面保留 JsonSyntax variant（原生 serde
+/// category，与旧 derive loader 一致），path 深入字段，span 为全局一基位置。
+#[test]
+fn typed_numeric_field_out_of_range_is_json_syntax_with_global_span() {
+    let doc = TRAFFIC_TEXT.replacen("\"length\": 12.0", "\"length\": 1e999", 1);
+    let lexeme_start = doc.find("1e999").expect("lexeme 在文档中") as u32;
+    let issue =
+        single_issue(validate_traffic_compatible(doc.as_bytes()).expect_err("超 f64 数字必须失败"));
+    assert_eq!(issue.document(), Some(CurrentDocumentRole::Traffic));
+    assert_eq!(issue.category(), serde_json::error::Category::Syntax);
+    assert_eq!(issue.path(), Some("laneGraph.edges[0].length"));
+    assert_eq!(issue.stable_code(), "LF-CURRENT-SOURCE-JSON-SYNTAX");
+    match issue.payload() {
+        CurrentSourceErrorPayload::JsonSyntax { source } => {
+            assert!(source.to_string().starts_with("number out of range"));
+        }
+        other => panic!("expected JsonSyntax, got {}", other.stable_code()),
+    }
+    // span 为全局一基单点（lexeme 末位；行列由文档实际布局求得）。
+    let span = issue.span().expect("syntax issue 恒携带 span");
+    let prefix = &doc[..lexeme_start as usize];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() as u32 + 1;
+    let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
+    let column = (lexeme_start as usize - line_start) as u32 + 5;
+    assert_eq!(span.start().line(), line);
+    assert_eq!(span.start().column(), column);
+    assert_eq!(span.start(), span.end());
+}
+
 const TRAFFIC_TEXT: &str =
     include_str!("../../../examples/data/v0.10-empty-signals-and-parking.laneflow.json");
 
