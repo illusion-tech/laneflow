@@ -1,0 +1,556 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/illusion-tech/laneflow/blob/main/docs/reference/geometry-frontend-calibration-evidence-v1.schema.json",
+  "title": "LaneFlow Geometry frontend calibration evidence v1",
+  "description": "紧凑证据只绑定原始正式执行制品并保存独立重算结果；逐样本记录只存在于 rawExecution 指向的原始 JSON。行的计数与 digest 由 workload manifest 报告，证据行只携带计时、内存与绑定字段，cross-record validator 独立核对两条链一致。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "rawExecution",
+    "source",
+    "environment",
+    "protocol",
+    "rows",
+    "budgetCalibration"
+  ],
+  "properties": {
+    "schema": {
+      "const": "laneflow.geometry-frontend-calibration-evidence"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "rawExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "schemaVersion",
+        "path",
+        "byteLength",
+        "sha256"
+      ],
+      "properties": {
+        "schema": {
+          "const": "laneflow.geometry-frontend-calibration-raw-execution"
+        },
+        "schemaVersion": {
+          "const": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurementCommit",
+        "harnessCommit",
+        "dirty",
+        "cargoLockSha256",
+        "contractDescriptorSha256",
+        "workloadManifestSha256",
+        "evidenceSchemaSha256",
+        "referenceMachineDeclarationSha256",
+        "releaseBinaries"
+      ],
+      "properties": {
+        "measurementCommit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "harnessCommit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "dirty": {
+          "const": false
+        },
+        "cargoLockSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "contractDescriptorSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "workloadManifestSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "evidenceSchemaSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "referenceMachineDeclarationSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "releaseBinaries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/byteIdentity"
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hardwareId",
+        "hardwareIdentityScheme",
+        "hardwareIdentitySha256",
+        "cpu",
+        "physicalCoreCount",
+        "logicalProcessorCount",
+        "physicalMemoryBytes",
+        "operatingSystem",
+        "operatingSystemBuild",
+        "targetTriple",
+        "rustc",
+        "llvm",
+        "powerSource",
+        "powerPlan",
+        "biosFirmware",
+        "sleepOrSessionLockObserved",
+        "thermalOrPowerThrottlingObserved"
+      ],
+      "properties": {
+        "hardwareId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hardwareIdentityScheme": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hardwareIdentitySha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "cpu": {
+          "type": "string",
+          "minLength": 1
+        },
+        "physicalCoreCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "logicalProcessorCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "physicalMemoryBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "operatingSystem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operatingSystemBuild": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetTriple": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rustc": {
+          "type": "string",
+          "minLength": 1
+        },
+        "llvm": {
+          "type": "string",
+          "minLength": 1
+        },
+        "powerSource": {
+          "type": "string",
+          "minLength": 1
+        },
+        "powerPlan": {
+          "type": "string",
+          "minLength": 1
+        },
+        "biosFirmware": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vendorPerformanceMode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sleepOrSessionLockObserved": {
+          "const": false
+        },
+        "thermalOrPowerThrottlingObserved": {
+          "const": false
+        }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "releaseBuild",
+        "singleWorkerThread",
+        "clockQuantumNs",
+        "processCount",
+        "warmupCountPerLevel",
+        "formalSampleCountPerLevel",
+        "levels"
+      ],
+      "properties": {
+        "id": {
+          "const": "geometry-frontend-calibration-v1"
+        },
+        "releaseBuild": {
+          "const": true
+        },
+        "singleWorkerThread": {
+          "const": true
+        },
+        "clockQuantumNs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "processCount": {
+          "const": 3
+        },
+        "warmupCountPerLevel": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "formalSampleCountPerLevel": {
+          "type": "integer",
+          "minimum": 7
+        },
+        "levels": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "prefixItems": [
+            { "const": "geometryParseBuild" },
+            { "const": "geometryNumericFreeze" },
+            { "const": "commonAdmission" },
+            { "const": "fullCompile" }
+          ],
+          "items": false
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 27,
+      "maxItems": 27,
+      "items": {
+        "$ref": "#/$defs/row"
+      }
+    },
+    "budgetCalibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fullCompileWallClock",
+        "compilerControlledPeak",
+        "coldInstanceRetainedCapacity"
+      ],
+      "properties": {
+        "fullCompileWallClock": {
+          "allOf": [
+            { "$ref": "#/$defs/budgetEntry" },
+            {
+              "type": "object",
+              "properties": {
+                "unit": { "const": "ns" },
+                "candidateBudget": { "const": 25000000 },
+                "statistic": { "const": "perRowMedianOfMediansMax" }
+              }
+            }
+          ]
+        },
+        "compilerControlledPeak": {
+          "allOf": [
+            { "$ref": "#/$defs/budgetEntry" },
+            {
+              "type": "object",
+              "properties": {
+                "unit": { "const": "bytes" },
+                "candidateBudget": { "const": 6291456 },
+                "statistic": { "const": "perRowExactMax" }
+              }
+            }
+          ]
+        },
+        "coldInstanceRetainedCapacity": {
+          "allOf": [
+            { "$ref": "#/$defs/budgetEntry" },
+            {
+              "type": "object",
+              "properties": {
+                "unit": { "const": "bytes" },
+                "candidateBudget": { "const": 0 },
+                "statistic": { "const": "perRowExactMax" }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "byteIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "byteLength", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "levelTiming": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["perProcess", "medianOfMediansNs"],
+      "properties": {
+        "perProcess": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["medianNs", "madNs"],
+            "properties": {
+              "medianNs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "madNs": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "medianOfMediansNs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "candidateLevelTimings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "geometryParseBuild",
+        "geometryNumericFreeze",
+        "commonAdmission",
+        "fullCompile"
+      ],
+      "properties": {
+        "geometryParseBuild": {
+          "$ref": "#/$defs/levelTiming"
+        },
+        "geometryNumericFreeze": {
+          "$ref": "#/$defs/levelTiming"
+        },
+        "commonAdmission": {
+          "$ref": "#/$defs/levelTiming"
+        },
+        "fullCompile": {
+          "$ref": "#/$defs/levelTiming"
+        }
+      }
+    },
+    "baseLevelTimings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commonAdmission", "fullCompile"],
+      "properties": {
+        "commonAdmission": {
+          "$ref": "#/$defs/levelTiming"
+        },
+        "fullCompile": {
+          "$ref": "#/$defs/levelTiming"
+        }
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workloadId",
+        "accuracyProfileCode",
+        "directionProfileCode",
+        "levels",
+        "compilerControlledPeakBytes",
+        "compilerRetainedCapacityBytes",
+        "semanticFingerprint",
+        "completeOutputDigest"
+      ],
+      "properties": {
+        "workloadId": {
+          "enum": [
+            "LF-COMP-GEOMETRY-MIN-v1",
+            "LF-COMP-GEOMETRY-CORRIDOR-v1",
+            "LF-COMP-GEOMETRY-P100-v1"
+          ]
+        },
+        "accuracyProfileCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "directionProfileCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "levels": {
+          "$ref": "#/$defs/candidateLevelTimings"
+        },
+        "compilerControlledPeakBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "compilerRetainedCapacityBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "semanticFingerprint": {
+          "$ref": "#/$defs/sha256"
+        },
+        "completeOutputDigest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "syntheticBase": {
+          "description": "同语义 Synthetic base 只用于分离 Geometry 固有解析/细分成本（§9.2），不作为门槛；v1 对存在冻结孪生的 CORRIDOR 行必填。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["levels"],
+          "properties": {
+            "levels": {
+              "$ref": "#/$defs/baseLevelTimings"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "workloadId": { "const": "LF-COMP-GEOMETRY-CORRIDOR-v1" }
+            },
+            "required": ["workloadId"]
+          },
+          "then": {
+            "required": ["syntheticBase"]
+          }
+        }
+      ]
+    },
+    "budgetEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit",
+        "candidateBudget",
+        "calibratedBudget",
+        "statistic",
+        "observedValue",
+        "supported",
+        "budgetSource",
+        "appliesTo"
+      ],
+      "properties": {
+        "unit": {
+          "enum": ["ns", "bytes"]
+        },
+        "candidateBudget": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "calibratedBudget": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "statistic": {
+          "enum": ["perRowMedianOfMediansMax", "perRowExactMax"]
+        },
+        "observedValue": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "supported": {
+          "type": "boolean"
+        },
+        "budgetSource": {
+          "type": "string",
+          "minLength": 1
+        },
+        "appliesTo": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "workloadIds",
+            "accuracyProfileCodes",
+            "directionProfileCodes"
+          ],
+          "properties": {
+            "workloadIds": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "LF-COMP-GEOMETRY-MIN-v1",
+                  "LF-COMP-GEOMETRY-CORRIDOR-v1",
+                  "LF-COMP-GEOMETRY-P100-v1"
+                ]
+              }
+            },
+            "accuracyProfileCodes": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "prefixItems": [{ "const": 1 }, { "const": 2 }, { "const": 3 }],
+              "items": false
+            },
+            "directionProfileCodes": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "prefixItems": [{ "const": 1 }, { "const": 2 }, { "const": 3 }],
+              "items": false
+            }
+          }
+        }
+      }
+    }
+  }
+}

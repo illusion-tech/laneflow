@@ -35,6 +35,21 @@
 - `compiler-calibration-contract-v1.json`：#308 已完成研究的非自指契约描述符；从
   Evidence v1 Schema 外部绑定证据 Schema 与工作负载清单的路径、版本、长度和
   SHA-256，正式验证必须先校验该描述符。
+- `geometry-frontend-calibration-workload-manifest-v1.schema.json`：#296 Geometry 前端
+  §9.2 27 行 workload manifest 的 Draft 2020-12 JSON Schema；冻结行结构、十二项计数、
+  绝对偏移分布、53 个 record-counted LIR 表名注册表与两个摘要。
+- `geometry-frontend-calibration-workload-manifest-v1.json`：#296 的机器可读 workload
+  manifest；27 行 = 3 个冻结 fixture × 9 种位置/方向组合，全部计数与摘要来自编译器
+  只读视图，不是生产编译器 API 或产品容量声明。
+- `geometry-frontend-calibration-evidence-v1.schema.json`：#296 Geometry 前端校准证据
+  JSON Schema；冻结原始执行制品绑定、来源、环境、测量协议、27 行四级计时与同机
+  Synthetic base，以及三个候选预算的校准写回封套。
+- `geometry-frontend-calibration-reference-machine-v1.json`：#296 校准参考机声明；以
+  hardwareId 与硬件身份 SHA-256 绑定正式校准运行的物理机器，其余字段为声明时快照，
+  正式证据独立重报并由 cross-record validator 核对一致。
+- `geometry-frontend-calibration-contract-v1.json`：#296 的非自指契约描述符；从
+  Evidence v1 Schema 外部绑定证据 Schema、manifest Schema、workload manifest 与参考机
+  声明的路径、版本、长度和 SHA-256，正式验证必须先校验该描述符。
 - `v0.10-compiler-pilot-budget.md`：#308 在 R0 研究机上得到的九个基础规模冷实例临时
   性能预算、来源、计算规则、正确性核对与禁止外推边界；只用于早期基础规模发现与
   正式校准候选输入，不是 #292 G1 冻结的首轮实现预算。

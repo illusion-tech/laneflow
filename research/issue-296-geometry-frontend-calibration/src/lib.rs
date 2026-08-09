@@ -12,3 +12,4 @@ pub mod emit;
 pub mod manifest;
 pub mod selfcheck;
 pub mod twin;
+pub mod validator;

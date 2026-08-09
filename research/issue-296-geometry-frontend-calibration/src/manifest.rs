@@ -60,7 +60,8 @@ pub fn load_fixture(
     }
 }
 
-fn hex_32(bytes: &[u8; 32]) -> String {
+/// 32 字节摘要格式化为 64 位小写十六进制（manifest 生成器与 cross-record validator 共用）。
+pub(crate) fn hex_32(bytes: &[u8; 32]) -> String {
     let mut hex = String::with_capacity(64);
     for byte in bytes {
         use std::fmt::Write as _;

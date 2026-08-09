@@ -27,5 +27,9 @@ path = "src/bin/generate_fixtures.rs"
 name = "generate-manifest"
 path = "src/bin/generate_manifest.rs"
 
+[[bin]]
+name = "validate-manifest"
+path = "src/bin/validate_manifest.rs"
+
 [lints]
 workspace = true
