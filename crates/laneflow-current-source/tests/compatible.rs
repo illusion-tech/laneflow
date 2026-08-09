@@ -682,6 +682,20 @@ fn issue_parts_into_components_is_the_only_owned_bridge() {
     }
 }
 
+/// 空输入的 EOF（serde 报 column 0）经 point_span clamp 后交出 1:1 单点
+/// span，不违反一基位置契约。
+#[test]
+fn empty_input_syntax_issue_carries_clamped_point_span() {
+    let error = validate_traffic_compatible(b"").expect_err("空输入必失败");
+    let issue = error.into_issues().into_iter().next().expect("one issue");
+    let (_payload, _document, _context, path, span) = issue.into_parts().into_components();
+    let span = span.expect("syntax issue 携带 span");
+    assert_eq!(span.start().line(), 1);
+    assert_eq!(span.start().column(), 1);
+    assert_eq!(span.start(), span.end());
+    assert_eq!(path.expect("path 必携带").as_ref(), "$");
+}
+
 const TRAFFIC_TEXT: &str =
     include_str!("../../../examples/data/v0.10-empty-signals-and-parking.laneflow.json");
 

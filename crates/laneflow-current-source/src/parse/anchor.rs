@@ -73,11 +73,53 @@ pub(crate) fn range_span(input: &[u8], range: ByteRange) -> CurrentSourceSpan {
     make_span(start_position, (line, column))
 }
 
-/// serde 一基位置的单点 span（JSON syntax 失败冻结为单点）。
+/// 根容器的实际消费边界（零基 end offset）：从 `start` 的 `{`/`[` 起做 JSON
+/// 感知的配对扫描（字符串与转义整体跳过），返回配对闭括号之后的 offset。
+/// 只在根 walk 成功后调用（此时根必为 object/array 且配对闭括号存在）。
+pub(crate) fn root_consumed_end(input: &[u8], start: u32) -> u32 {
+    let mut index = start as usize;
+    let mut depth = 0_u32;
+    while index < input.len() {
+        match input[index] {
+            b'"' => {
+                index = skip_string(input, index);
+                continue;
+            }
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return saturate(index + 1);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    // 不可达（walk 已成功）；防御性收尾。
+    saturate(input.len())
+}
+
+/// 跳过从 `quote`（`"` byte）开始的 JSON 字符串，返回闭引号之后的 offset。
+/// 反斜杠转义统一跳过两个 byte（`\\`、`\"`、`\uXXXX` 的 `u` 后均无裸引号）。
+fn skip_string(input: &[u8], quote: usize) -> usize {
+    let mut index = quote + 1;
+    while index < input.len() {
+        match input[index] {
+            b'\\' => index += 2,
+            b'"' => return index + 1,
+            _ => index += 1,
+        }
+    }
+    index
+}
+
+/// serde 一基位置的单点 span（JSON syntax 失败冻结为单点）。serde 对空输入
+/// 的 EOF 报 column 0；位置契约是一基，line/column 一律 clamp 到 ≥1。
 pub(crate) fn point_span(line: usize, column: usize) -> CurrentSourceSpan {
     make_span(
-        (saturate(line), saturate(column)),
-        (saturate(line), saturate(column)),
+        (saturate(line.max(1)), saturate(column.max(1))),
+        (saturate(line.max(1)), saturate(column.max(1))),
     )
 }
 
@@ -154,5 +196,24 @@ mod tests {
     #[test]
     fn point_span_is_a_single_point() {
         assert_eq!(positions(point_span(3, 14)), ((3, 14), (3, 14)));
+    }
+
+    /// 空输入的 serde EOF 报 column 0；位置契约是一基，clamp 到 1:1。
+    #[test]
+    fn point_span_clamps_to_one_based() {
+        assert_eq!(positions(point_span(1, 0)), ((1, 1), (1, 1)));
+        assert_eq!(positions(point_span(0, 0)), ((1, 1), (1, 1)));
+    }
+
+    #[test]
+    fn root_consumed_end_stops_at_matching_close() {
+        // 字符串内的闭括号不影响配对；终点=根 `}` 之后（不含 trailing）。
+        let input = br#"{"a": "}", "b": [1]} trailing"#;
+        assert_eq!(root_consumed_end(input, 0), 20);
+        // 嵌套容器与转义。
+        let input = br#"  {"a": ["\"}"], "b": {}}  "#;
+        assert_eq!(root_consumed_end(input, 2), input.len() as u32 - 2);
+        // 根 array 形态。
+        assert_eq!(root_consumed_end(br#"[1, 2] x"#, 0), 6);
     }
 }

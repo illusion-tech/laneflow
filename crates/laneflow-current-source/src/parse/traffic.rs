@@ -145,6 +145,8 @@ pub(crate) fn parse_traffic(input: &[u8]) -> Result<WirePackage, ParseFailure> {
     let GateReport { gate, root_range } = super::drive_root(
         input,
         CURRENT_TRAFFIC_FORMAT_VERSION,
+        "struct WirePackage",
+        PACKAGE_FIELDS,
         |ctx, key, value, range, mark, gate| {
             fields.handle(ctx, key, value, range, mark, gate);
         },
@@ -174,6 +176,8 @@ struct PackageFields {
     waiting_zones: Option<Vec<WireWaitingZone>>,
     signals: Option<WireSignals>,
     parking: Option<WireParking>,
+    /// extensions 只作 presence/duplicate 槽位，内容不透明不物化。
+    extensions: Option<()>,
 }
 
 impl PackageFields {
@@ -331,8 +335,17 @@ impl PackageFields {
                 mark,
                 decode_parking,
             ),
-            // 根 extensions：任何合法 object 都接受，内容不透明。
-            "extensions" => walk::check_extensions_object(ctx, value, range),
+            // 根 extensions：任何合法 object 都接受，内容不透明；duplicate
+            // 检查与其他字段一致（derive 行为平价）。
+            "extensions" => walk::set_once(
+                ctx,
+                &mut self.extensions,
+                "extensions",
+                value,
+                range,
+                mark,
+                walk::check_extensions_object,
+            ),
             _ => Err(ctx.candidate(walk::unknown_field_message(key, PACKAGE_FIELDS), range)),
         };
         if let Err(candidate) = result {
@@ -460,6 +473,7 @@ fn decode_units<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireUnits",
+        UNITS_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "distance" => walk::set_once(
                 ctx,
@@ -500,6 +514,7 @@ fn decode_lane_graph<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireLaneGraph",
+        LANE_GRAPH_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "edges" => walk::set_once(
                 ctx,
@@ -535,6 +550,7 @@ fn decode_lane_edge<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireLaneEdge",
+        LANE_EDGE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -600,6 +616,7 @@ fn decode_lane_connection<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireLaneConnection",
+        LANE_CONNECTION_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "toEdgeId" => walk::set_once(
                 ctx,
@@ -645,6 +662,7 @@ fn decode_id_only<'de, L: LocationPolicy>(
         token,
         range,
         expecting,
+        fields,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -673,6 +691,7 @@ fn decode_movement<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireMovement",
+        MOVEMENT_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -720,6 +739,7 @@ fn decode_maneuver_path<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireManeuverPath",
+        MANEUVER_PATH_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -797,6 +817,7 @@ fn decode_route<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireRoute",
+        ROUTE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -846,6 +867,7 @@ fn decode_vehicle_profile<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireVehicleProfile",
+        VEHICLE_PROFILE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -983,6 +1005,7 @@ fn decode_participant_class<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireParticipantClass",
+        PARTICIPANT_CLASS_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -1026,6 +1049,7 @@ fn decode_facility_band<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireFacilityBand",
+        FACILITY_BAND_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -1071,6 +1095,7 @@ fn decode_road_section<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireRoadSection",
+        ROAD_SECTION_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -1125,6 +1150,7 @@ fn decode_section_lane<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireSectionLane",
+        SECTION_LANE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "edgeIds" => walk::set_once(
                 ctx,
@@ -1169,6 +1195,7 @@ fn decode_lane_group<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireLaneGroup",
+        LANE_GROUP_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -1214,6 +1241,7 @@ fn decode_road_corridor<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireRoadCorridor",
+        ROAD_CORRIDOR_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -1258,14 +1286,19 @@ fn decode_road_corridor<'de, L: LocationPolicy>(
     })
 }
 
-/// untagged corridor 元素：缓冲 key 集合后按 Section{sectionId}/Band{bandId}
-/// 分派；任何偏差（多余/重复/缺失 key、值解码失败、结构错误）都归一为
-/// untagged mismatch 候选，与 derive 的变体尝试语义一致。
+/// untagged corridor 元素：object-form 缓冲 key 集合后按
+/// Section{sectionId}/Band{bandId} 分派；任何偏差（多余/重复/缺失 key、值解
+/// 码失败、结构错误）都归一为 untagged mismatch 候选，与 derive 的变体尝试
+/// 语义一致（两个 variant struct 均 deny_unknown_fields）。seq-form 见
+/// `decode_corridor_element_seq`。
 fn decode_corridor_element<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
 ) -> Result<WireCorridorElement, ShapeCandidate> {
+    if token.get().trim_start().starts_with('[') {
+        return decode_corridor_element_seq(ctx, token, range);
+    }
     let mut section_id = None;
     let mut band_id = None;
     let mut clean = true;
@@ -1314,6 +1347,43 @@ fn decode_corridor_element<'de, L: LocationPolicy>(
     }
 }
 
+/// seq-form corridor 元素：两个 variant 均为单字段 record，位置 0 解码为字符
+/// 串即第一 variant（Section）胜出；位置 0 解码失败则两个 variant 都失败；
+/// 多余元素不解码、按 derive untagged 经 Content 的语义静默忽略。token 只扫
+/// 一遍（replay ≤1 计数器硬断言保持成立）。
+fn decode_corridor_element_seq<'de, L: LocationPolicy>(
+    ctx: &mut Ctx<'de, L>,
+    token: &'de RawValue,
+    range: ByteRange,
+) -> Result<WireCorridorElement, ShapeCandidate> {
+    let mut first = None;
+    let mut clean = true;
+    walk::decode_array(
+        ctx,
+        token,
+        range,
+        "struct WireCorridorElement",
+        |ctx, index, element, element_range| {
+            if index == 0 {
+                match walk::decode_scalar::<String, L>(ctx, element, element_range) {
+                    Ok(id) => first = Some(id),
+                    Err(_) => clean = false,
+                }
+            }
+            Ok(())
+        },
+    )?;
+    match (first, clean) {
+        (Some(section_id), true) => Ok(WireCorridorElement::Section(
+            crate::wire::WireCorridorSectionElement { section_id },
+        )),
+        _ => Err(ctx.candidate(
+            "data did not match any variant of untagged enum WireCorridorElement".to_owned(),
+            range,
+        )),
+    }
+}
+
 fn decode_access_rule<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
@@ -1331,6 +1401,7 @@ fn decode_access_rule<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireAccessRule",
+        ACCESS_RULE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -1437,6 +1508,7 @@ fn decode_access_target<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireAccessTarget",
+        ACCESS_TARGET_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "kind" => walk::set_once(
                 ctx,
@@ -1492,6 +1564,7 @@ fn decode_waiting_zone<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireWaitingZone",
+        WAITING_ZONE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -1579,6 +1652,7 @@ fn decode_regulation<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireRegulation",
+        REGULATION_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "jurisdiction" => walk::set_once(
                 ctx,
@@ -1634,6 +1708,7 @@ fn decode_parking<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireParking",
+        PARKING_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "areas" => walk::set_once(
                 ctx,
@@ -1696,6 +1771,7 @@ fn decode_parking_space<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireParkingSpace",
+        PARKING_SPACE_FIELDS,
         |ctx, key, value, value_range, mark| {
             match key {
                 "id" => walk::set_once(
@@ -1773,6 +1849,7 @@ fn decode_parking_anchor<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireParkingAnchor",
+        PARKING_ANCHOR_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "edgeId" => walk::set_once(
                 ctx,
@@ -1820,6 +1897,7 @@ fn decode_parking_geometry<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireParkingGeometry",
+        PARKING_GEOMETRY_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "lateralOffset" => walk::set_once(
                 ctx,
@@ -1889,6 +1967,7 @@ fn decode_signals<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireSignals",
+        SIGNALS_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "stopLines" => walk::set_once(
                 ctx,
@@ -1957,6 +2036,7 @@ fn decode_stop_line<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireStopLine",
+        STOP_LINE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -2024,6 +2104,7 @@ fn decode_maneuver_gate<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireManeuverGate",
+        MANEUVER_GATE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -2089,14 +2170,18 @@ fn decode_maneuver_gate<'de, L: LocationPolicy>(
     })
 }
 
-/// untagged signal control：按 `kind` 字符串分派（"group" 需恰好一个合法
-/// `groupId` 且无多余 key；"none" 不得携带 `groupId`）；任何偏差归一为
-/// untagged mismatch 候选。
+/// untagged signal control：object-form 按 `kind` 字符串分派（"group" 需恰好
+/// 一个合法 `groupId` 且无多余 key；"none" 不得携带 `groupId`）；任何偏差归
+/// 一为 untagged mismatch 候选（两个 variant struct 均 deny_unknown_fields）。
+/// seq-form 见 `decode_signal_control_seq`。
 fn decode_signal_control<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
 ) -> Result<WireSignalControl, ShapeCandidate> {
+    if token.get().trim_start().starts_with('[') {
+        return decode_signal_control_seq(ctx, token, range);
+    }
     let mut kind = None;
     let mut group_id = None;
     let mut clean = true;
@@ -2148,6 +2233,59 @@ fn decode_signal_control<'de, L: LocationPolicy>(
     }
 }
 
+/// seq-form signal control：位置 0=`kind`、位置 1=`groupId`。按 variant 声明
+/// 序确定性分派：Group 需要两个位置都成功（`kind=="group"` 且 `groupId` 字
+/// 符串）；None 只看位置 0（`kind=="none"`，其余位置不解码、按 derive
+/// untagged 经 Content 的语义静默忽略）。token 只扫一遍。
+fn decode_signal_control_seq<'de, L: LocationPolicy>(
+    ctx: &mut Ctx<'de, L>,
+    token: &'de RawValue,
+    range: ByteRange,
+) -> Result<WireSignalControl, ShapeCandidate> {
+    let mut kind = None;
+    let mut kind_clean = true;
+    let mut group_id = None;
+    let mut group_clean = true;
+    walk::decode_array(
+        ctx,
+        token,
+        range,
+        "struct WireSignalControl",
+        |ctx, index, element, element_range| {
+            match index {
+                0 => match walk::decode_scalar::<String, L>(ctx, element, element_range) {
+                    Ok(value) => kind = Some(value),
+                    Err(_) => kind_clean = false,
+                },
+                1 => match walk::decode_scalar::<String, L>(ctx, element, element_range) {
+                    Ok(value) => group_id = Some(value),
+                    Err(_) => group_clean = false,
+                },
+                _ => {}
+            }
+            Ok(())
+        },
+    )?;
+    if kind_clean
+        && group_clean
+        && let (Some("group"), Some(group_id)) = (kind.as_deref(), group_id)
+    {
+        return Ok(WireSignalControl::Group(WireGroupSignalControl {
+            kind: WireGroupSignalControlKind::Group,
+            group_id,
+        }));
+    }
+    if kind_clean && kind.as_deref() == Some("none") {
+        return Ok(WireSignalControl::None(WireNoneSignalControl {
+            kind: WireNoneSignalControlKind::None,
+        }));
+    }
+    Err(ctx.candidate(
+        "data did not match any variant of untagged enum WireSignalControl".to_owned(),
+        range,
+    ))
+}
+
 fn decode_signal_group<'de, L: LocationPolicy>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
@@ -2178,6 +2316,7 @@ fn decode_signal_controller<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireSignalController",
+        SIGNAL_CONTROLLER_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -2264,6 +2403,7 @@ fn decode_signal_phase<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireSignalPhase",
+        SIGNAL_PHASE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "id" => walk::set_once(
                 ctx,
@@ -2319,6 +2459,7 @@ fn decode_signal_group_state<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireSignalGroupState",
+        SIGNAL_GROUP_STATE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "groupId" => walk::set_once(
                 ctx,

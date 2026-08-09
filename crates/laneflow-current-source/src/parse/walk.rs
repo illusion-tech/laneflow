@@ -7,6 +7,7 @@
 //! 入，指针算术即得全局零基半开 byte 区间）；随后对 token 至多 replay 解码
 //! 一次。token 必是合法 JSON，replay 内的失败永远归一为 shape 候选。
 
+use std::borrow::Cow;
 use std::fmt::{self, Write as _};
 
 use serde::Deserialize;
@@ -193,12 +194,88 @@ where
     where
         A: MapAccess<'de>,
     {
-        while let Some(key) = map.next_key::<&str>()? {
+        // key 解为 Cow：无转义仍为借用（零开销）；含 `\uXXXX` 等转义的合法 key
+        // 解码为 owned 后与明文 key 走同一路径（derive 行为平价）。
+        while let Some(key) = map.next_key::<Cow<'de, str>>()? {
+            let key = key.as_ref();
             let mark = self.ctx.push_field(key);
             let value = map.next_value::<&RawValue>()?;
             let range = self.ctx.token_range(value);
             self.ctx.policy_value(range);
             match (self.handler)(self.ctx, key, value, range, mark) {
+                Ok(()) => self.ctx.truncate(mark),
+                Err(candidate) => {
+                    *self.failure = Some(candidate);
+                    return Err(de::Error::custom(SENTINEL));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// struct 位置序列（seq-form）的 DeserializeSeed/Visitor 合体：按声明序逐位
+/// 置把 `fields[index]` 作为 key 调同一个 per-field handler（path 用 `[index]`
+/// 段落，与 serde_path_to_error 对 seq-form 的输出一致）。元素不足时以
+/// derive 的 invalid length 文本（`struct X with N elements`）产出候选；多余
+/// 元素不消费，由 serde_json 的 `end_seq` 报 `trailing characters`（与 derive
+/// 一致）。
+pub(crate) struct StructSeqSeed<'a, 'de, L, F> {
+    ctx: &'a mut Ctx<'de, L>,
+    failure: &'a mut Option<ShapeCandidate>,
+    expecting: &'static str,
+    fields: &'static [&'static str],
+    anchor: ByteRange,
+    handler: F,
+}
+
+impl<'de, L, F> DeserializeSeed<'de> for StructSeqSeed<'_, 'de, L, F>
+where
+    L: LocationPolicy,
+    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ShapeCandidate>,
+{
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(self)
+    }
+}
+
+impl<'de, L, F> Visitor<'de> for StructSeqSeed<'_, 'de, L, F>
+where
+    L: LocationPolicy,
+    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ShapeCandidate>,
+{
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.expecting)
+    }
+
+    fn visit_seq<A>(mut self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        for (index, key) in self.fields.iter().enumerate() {
+            let Some(element) = seq.next_element::<&RawValue>()? else {
+                // derive：位置序列缺位报 invalid length（非 missing field），
+                // 锚=所属 record token，path 停在缺位索引。
+                let _mark = self.ctx.push_index(index);
+                let message = format!(
+                    "invalid length {index}, expected {} with {} elements",
+                    self.expecting,
+                    self.fields.len()
+                );
+                *self.failure = Some(self.ctx.candidate(message, self.anchor));
+                return Err(de::Error::custom(SENTINEL));
+            };
+            let mark = self.ctx.push_index(index);
+            let range = self.ctx.token_range(element);
+            self.ctx.policy_value(range);
+            match (self.handler)(self.ctx, key, element, range, mark) {
                 Ok(()) => self.ctx.truncate(mark),
                 Err(candidate) => {
                     *self.failure = Some(candidate);
@@ -291,6 +368,33 @@ where
     .deserialize(deserializer)
 }
 
+/// 驱动一次 struct seq-form walk（与 `drive_object` 对称；`anchor` 为缺位
+/// 候选的所属 record/root token 区间）。
+pub(crate) fn drive_seq<'de, L, F, D>(
+    ctx: &mut Ctx<'de, L>,
+    failure: &mut Option<ShapeCandidate>,
+    expecting: &'static str,
+    fields: &'static [&'static str],
+    anchor: ByteRange,
+    deserializer: D,
+    handler: F,
+) -> Result<(), serde_json::Error>
+where
+    L: LocationPolicy,
+    F: FnMut(&mut Ctx<'de, L>, &str, &'de RawValue, ByteRange, usize) -> Result<(), ShapeCandidate>,
+    D: serde::Deserializer<'de, Error = serde_json::Error>,
+{
+    StructSeqSeed {
+        ctx,
+        failure,
+        expecting,
+        fields,
+        anchor,
+        handler,
+    }
+    .deserialize(deserializer)
+}
+
 #[inline]
 fn count_replay(range: ByteRange) {
     #[cfg(debug_assertions)]
@@ -300,12 +404,15 @@ fn count_replay(range: ByteRange) {
 }
 
 /// replay 解码 record token：handler 候选直接外传；真实 serde 错误（token 内
-/// 只可能是 shape 语义失败）归一为以容器 token 为锚的候选。
+/// 只可能是 shape 语义失败）归一为以容器 token 为锚的候选。token 形态分派：
+/// `{` 走 map，`[` 按 `fields` 声明序走位置序列（derive struct seq-form 平
+/// 价），其余形态由 map 路径报 invalid type。
 pub(crate) fn decode_record<'de, L, F>(
     ctx: &mut Ctx<'de, L>,
     token: &'de RawValue,
     range: ByteRange,
     expecting: &'static str,
+    fields: &'static [&'static str],
     handler: F,
 ) -> Result<(), ShapeCandidate>
 where
@@ -316,7 +423,19 @@ where
     count_replay(range);
     let mut failure = None;
     let mut deserializer = serde_json::Deserializer::from_slice(token.get().as_bytes());
-    let result = drive_object(ctx, &mut failure, expecting, &mut deserializer, handler);
+    let result = if token.get().trim_start().starts_with('[') {
+        drive_seq(
+            ctx,
+            &mut failure,
+            expecting,
+            fields,
+            range,
+            &mut deserializer,
+            handler,
+        )
+    } else {
+        drive_object(ctx, &mut failure, expecting, &mut deserializer, handler)
+    };
     if let Some(candidate) = failure {
         return Err(candidate);
     }

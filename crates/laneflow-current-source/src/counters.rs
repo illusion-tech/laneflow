@@ -15,23 +15,34 @@ use crate::error::CurrentDocumentRole;
 
 #[derive(Default)]
 struct Counters {
-    root_drivers: usize,
-    replays: usize,
+    root_drivers: u64,
+    replays: u64,
     replay_starts: HashSet<u32>,
-    digests: Vec<CurrentDocumentRole>,
+    /// 逐角色 digest 次数（有界：[Manifest, Traffic, Spatial]）。
+    digests: [u64; 3],
 }
 
 thread_local! {
     static COUNTERS: RefCell<Counters> = RefCell::new(Counters::default());
 }
 
-/// 计数快照（仅测试消费；常规 debug 构建不读取）。
+/// `digests` 数组的角色下标（有界逐角色计数的固定布局）。
+const fn role_index(role: CurrentDocumentRole) -> usize {
+    match role {
+        CurrentDocumentRole::Manifest => 0,
+        CurrentDocumentRole::Traffic => 1,
+        CurrentDocumentRole::Spatial => 2,
+    }
+}
+
+/// 计数快照（仅测试消费；常规 debug 构建不读取）。`digests` 布局同
+/// `role_index`：[Manifest, Traffic, Spatial]。
 #[cfg(test)]
 #[derive(Clone, Debug)]
 pub(crate) struct CounterSnapshot {
-    pub(crate) root_drivers: usize,
-    pub(crate) replays: usize,
-    pub(crate) digests: Vec<CurrentDocumentRole>,
+    pub(crate) root_drivers: u64,
+    pub(crate) replays: u64,
+    pub(crate) digests: [u64; 3],
 }
 
 /// 记录一次根文档 deserializer 驱动（每份文档恰好一次）；新文档开始即清空
@@ -59,7 +70,7 @@ pub(crate) fn record_replay(start: u32) {
 
 /// 记录一次对 `role` 文档的 SHA-256 计算（每份文档恰好一次）。
 pub(crate) fn record_digest(role: CurrentDocumentRole) {
-    COUNTERS.with(|counters| counters.borrow_mut().digests.push(role));
+    COUNTERS.with(|counters| counters.borrow_mut().digests[role_index(role)] += 1);
 }
 
 /// 当前线程的计数快照。
@@ -70,7 +81,7 @@ pub(crate) fn snapshot() -> CounterSnapshot {
         CounterSnapshot {
             root_drivers: counters.root_drivers,
             replays: counters.replays,
-            digests: counters.digests.clone(),
+            digests: counters.digests,
         }
     })
 }

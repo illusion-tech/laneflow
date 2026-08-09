@@ -22,6 +22,8 @@ pub(crate) fn parse_manifest(input: &[u8]) -> Result<WireScenarioManifest, Parse
     let GateReport { gate, root_range } = super::drive_root(
         input,
         CURRENT_SCENARIO_MANIFEST_FORMAT_VERSION,
+        "struct WireScenarioManifest",
+        MANIFEST_FIELDS,
         |ctx, key, value, range, mark, gate| {
             fields.handle(ctx, key, value, range, mark, gate);
         },
@@ -39,6 +41,8 @@ pub(crate) fn parse_spatial(input: &[u8]) -> Result<WireSpatialPackage, ParseFai
     let GateReport { gate, root_range } = super::drive_root(
         input,
         CURRENT_SPATIAL_FORMAT_VERSION,
+        "struct WireSpatialPackage",
+        SPATIAL_FIELDS,
         |ctx, key, value, range, mark, gate| {
             fields.handle(ctx, key, value, range, mark, gate);
         },
@@ -123,6 +127,7 @@ fn decode_descriptor<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireArtifactDescriptor",
+        DESCRIPTOR_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "artifactRef" => walk::set_once(
                 ctx,
@@ -267,6 +272,7 @@ fn decode_edge<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireSpatialEdge",
+        EDGE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "trafficEdgeId" => walk::set_once(
                 ctx,
@@ -308,6 +314,7 @@ fn decode_centerline<'de, L: LocationPolicy>(
         token,
         range,
         "struct WireCenterline",
+        CENTERLINE_FIELDS,
         |ctx, key, value, value_range, mark| match key {
             "points" => walk::set_once(
                 ctx,

@@ -574,8 +574,8 @@ fn verify_artifact<'a>(
 #[cfg(all(test, debug_assertions))]
 mod single_pass_counter_tests {
     use super::{validate_scenario_compatible, validate_traffic_compatible};
+    use crate::CurrentArtifactInput;
     use crate::counters;
-    use crate::{CurrentArtifactInput, CurrentDocumentRole};
 
     const TRAFFIC_REF: &str = "v0.10-empty-signals-and-parking.laneflow.json";
     const SPATIAL_REF: &str = "v0.1-campus.spatial.json";
@@ -593,8 +593,9 @@ mod single_pass_counter_tests {
             snapshot.root_drivers, 1,
             "traffic-only 单文档恰好一次根驱动"
         );
-        assert!(
-            snapshot.digests.is_empty(),
+        assert_eq!(
+            snapshot.digests,
+            [0, 0, 0],
             "traffic-only facade 不计算任何摘要"
         );
         assert!(snapshot.replays > 0, "record token 经 replay 解码");
@@ -610,16 +611,12 @@ mod single_pass_counter_tests {
             snapshot.root_drivers, 3,
             "manifest + traffic + spatial 各一次根驱动"
         );
-        // 顺序 = 代码调用序：verify_artifact(traffic) → verify_artifact(spatial)
-        // → manifest 精确摘要；「每 token 至多 replay 一次」由计数器硬断言覆盖。
+        // 布局 [Manifest, Traffic, Spatial]；「每 token 至多 replay 一次」由
+        // 计数器硬断言覆盖。
         assert_eq!(
             snapshot.digests,
-            vec![
-                CurrentDocumentRole::Traffic,
-                CurrentDocumentRole::Spatial,
-                CurrentDocumentRole::Manifest,
-            ],
-            "每份文档摘要恰好一次"
+            [1, 1, 1],
+            "每份文档摘要恰好一次（逐角色有界计数）"
         );
     }
 }
