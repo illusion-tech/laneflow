@@ -1033,6 +1033,9 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 }
             }
             "codex" if linked_findings > 0 => Some(EvidenceOutcome::Findings),
+            "codex" if state == "COMMENTED" && review.includes_created_edit => {
+                Some(EvidenceOutcome::Findings)
+            }
             "codex"
                 if state == "COMMENTED"
                     && !review.body.trim().is_empty()
@@ -1042,6 +1045,9 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             }
             "codex" if state == "APPROVED" => Some(EvidenceOutcome::Clean),
             "human" if linked_findings > 0 => Some(EvidenceOutcome::Findings),
+            "human" if state == "COMMENTED" && review.includes_created_edit => {
+                Some(EvidenceOutcome::Findings)
+            }
             "human" if state == "COMMENTED" && !review.body.trim().is_empty() => {
                 Some(EvidenceOutcome::Findings)
             }
@@ -1063,9 +1069,7 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
             ));
             continue;
         };
-        let evidence_time = if outcome == EvidenceOutcome::Findings
-            && !review.body.trim().is_empty()
-            && review.includes_created_edit
+        let evidence_time = if outcome == EvidenceOutcome::Findings && review.includes_created_edit
         {
             let Some(last_edited_at) = review.last_edited_at.as_deref() else {
                 diagnostics.push(format!(
@@ -3294,6 +3298,27 @@ mod tests {
         assert_eq!(
             result.completion_time.as_deref(),
             Some("2026-07-24T03:23:00Z")
+        );
+    }
+
+    #[test]
+    fn edited_empty_commented_review_blocks_machine_completion() {
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/dependabot-lockfile-wrong-sha.json"
+        ));
+        snapshot.pull_request.review_threads.nodes.clear();
+        let review = &mut snapshot.pull_request.reviews.nodes[0];
+        review.body.clear();
+        review.includes_created_edit = true;
+        review.last_edited_at = Some("2026-08-06T02:31:00Z".to_string());
+
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::AwaitingRereview);
+        assert_eq!(result.finding_count, 1);
+        assert!(result.requires_rereview);
+        assert_eq!(
+            result.completion_time.as_deref(),
+            Some("2026-08-06T02:31:00Z")
         );
     }
 

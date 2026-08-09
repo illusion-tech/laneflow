@@ -358,6 +358,27 @@ pub(super) fn validate_g3_timing(
     Ok(())
 }
 
+pub(super) fn g3_current_head(body: &str) -> Result<&str, String> {
+    let line = unique_metadata_line(body, "Current head")?;
+    let value = line
+        .strip_prefix("- Current head：")
+        .expect("unique_metadata_line returned an unexpected prefix")
+        .trim();
+    if value.is_empty() {
+        return Err("G3 comment 的 `Current head` 字段不能为空".to_string());
+    }
+    if let Some(value) = value.strip_prefix('`') {
+        return value
+            .strip_suffix('`')
+            .filter(|value| !value.is_empty() && !value.contains('`'))
+            .ok_or_else(|| "G3 comment 的 `Current head` 字段 backtick 格式无效".to_string());
+    }
+    if value.contains('`') {
+        return Err("G3 comment 的 `Current head` 字段 backtick 格式无效".to_string());
+    }
+    Ok(value)
+}
+
 pub(super) fn validate_external_review_g3(
     repo: &str,
     issue_number: u64,
@@ -394,7 +415,7 @@ pub(super) fn validate_external_review_g3(
             result.state
         ));
     }
-    if !comment.body.contains(result.current_head_oid()) {
+    if g3_current_head(&comment.body)? != result.current_head_oid() {
         return Err(format!(
             "{label} G3 comment 未记录 External Review Gate 对应的完整 current head `{}`",
             result.current_head_oid()

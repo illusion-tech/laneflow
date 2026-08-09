@@ -1132,6 +1132,26 @@ fn parses_explicit_current_g3_results() {
 }
 
 #[test]
+fn parses_only_the_designated_current_head_field() {
+    let head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    assert_eq!(
+        g3_current_head(&format!("- Current head：`{head}`")),
+        Ok(head)
+    );
+
+    let wrong_field = format!(
+        "- Current head：`bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`\n- 审阅：reviewed head `{head}`"
+    );
+    assert_ne!(g3_current_head(&wrong_field).unwrap(), head);
+    assert!(
+        g3_current_head(&format!(
+            "- Current head：`{head}`\n- Current head：`{head}`"
+        ))
+        .is_err()
+    );
+}
+
+#[test]
 fn waived_full_set_member_cannot_receive_shadow_success() {
     let mut delivery = delivery_pr(None);
     delivery.comments[0].body = "- Gate 结果：`G3 Pass`".to_string();
