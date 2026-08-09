@@ -73,7 +73,7 @@
       "budgetSource": "#296 G1 候选预算（docs/design/geometry-document-frontend.md §9.2）",
       "calibratedBudget": 25000000,
       "candidateBudget": 25000000,
-      "observedValue": 11924500,
+      "observedValue": 15792000,
       "statistic": "perRowMedianOfMediansMax",
       "supported": true,
       "unit": "ns"
@@ -83,7 +83,7 @@
     "biosFirmware": "N.1.09MRO07 (2025-04-08)",
     "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
     "hardwareId": "LF-P100-REF-01",
-    "hardwareIdentityScheme": "laneflow-p100-hardware-identity-v1",
+    "hardwareIdentityScheme": "laneflow-p100-hardware-identity-v2",
     "hardwareIdentitySha256": "be3637be955f6c2c9e9e55b80419794adfac64b709d573602a37da9a8672fd20",
     "llvm": "22.1.2",
     "logicalProcessorCount": 32,
@@ -114,11 +114,11 @@
     "warmupCountPerLevel": 1
   },
   "rawExecution": {
-    "byteLength": 168288,
+    "byteLength": 168565,
     "path": "docs/reference/geometry-frontend-calibration-raw-execution-v1.json",
     "schema": "laneflow.geometry-frontend-calibration-raw-execution",
     "schemaVersion": 1,
-    "sha256": "adc22f462cb03052f09972ffc7bb2180e0149dc4a9c217fb373b8762a6c7e6c1"
+    "sha256": "e67cdfb31e7c24739bb50b24d920b8c9a4b42e41e5f3eb686f8f39cf27c99a13"
   },
   "rows": [
     {
@@ -129,145 +129,461 @@
       "directionProfileCode": 1,
       "levels": {
         "commonAdmission": {
+          "medianOfMediansNs": 1100,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1500
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1100
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 40500,
+          "perProcess": [
+            {
+              "madNs": 300,
+              "medianNs": 35000
+            },
+            {
+              "madNs": 24300,
+              "medianNs": 80600
+            },
+            {
+              "madNs": 900,
+              "medianNs": 40500
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 9100,
+          "perProcess": [
+            {
+              "madNs": 200,
+              "medianNs": 7700
+            },
+            {
+              "madNs": 500,
+              "medianNs": 10700
+            },
+            {
+              "madNs": 500,
+              "medianNs": 9100
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 13300,
+          "perProcess": [
+            {
+              "madNs": 300,
+              "medianNs": 8000
+            },
+            {
+              "madNs": 400,
+              "medianNs": 16900
+            },
+            {
+              "madNs": 200,
+              "medianNs": 13300
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 1,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 2,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 900,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 200,
+              "medianNs": 1200
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 40500,
+          "perProcess": [
+            {
+              "madNs": 1400,
+              "medianNs": 34900
+            },
+            {
+              "madNs": 3300,
+              "medianNs": 40500
+            },
+            {
+              "madNs": 6500,
+              "medianNs": 44800
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 7900,
+          "perProcess": [
+            {
+              "madNs": 200,
+              "medianNs": 7100
+            },
+            {
+              "madNs": 200,
+              "medianNs": 8400
+            },
+            {
+              "madNs": 400,
+              "medianNs": 7900
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 8600,
+          "perProcess": [
+            {
+              "madNs": 200,
+              "medianNs": 7700
+            },
+            {
+              "madNs": 400,
+              "medianNs": 9300
+            },
+            {
+              "madNs": 200,
+              "medianNs": 8600
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 1,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
           "medianOfMediansNs": 1000,
           "perProcess": [
             {
               "madNs": 100,
+              "medianNs": 900
+            },
+            {
+              "madNs": 0,
               "medianNs": 1000
             },
             {
               "madNs": 0,
-              "medianNs": 900
-            },
-            {
-              "madNs": 200,
-              "medianNs": 1100
+              "medianNs": 1000
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 35600,
-          "perProcess": [
-            {
-              "madNs": 2300,
-              "medianNs": 37600
-            },
-            {
-              "madNs": 700,
-              "medianNs": 34600
-            },
-            {
-              "madNs": 500,
-              "medianNs": 35600
-            }
-          ]
-        },
-        "geometryNumericFreeze": {
-          "medianOfMediansNs": 7800,
-          "perProcess": [
-            {
-              "madNs": 400,
-              "medianNs": 7700
-            },
-            {
-              "madNs": 500,
-              "medianNs": 7800
-            },
-            {
-              "madNs": 300,
-              "medianNs": 7800
-            }
-          ]
-        },
-        "geometryParseBuild": {
-          "medianOfMediansNs": 7800,
-          "perProcess": [
-            {
-              "madNs": 400,
-              "medianNs": 7800
-            },
-            {
-              "madNs": 200,
-              "medianNs": 7800
-            },
-            {
-              "madNs": 200,
-              "medianNs": 7700
-            }
-          ]
-        }
-      },
-      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
-      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
-    },
-    {
-      "accuracyProfileCode": 1,
-      "compilerControlledPeakBytes": 11796,
-      "compilerRetainedCapacityBytes": 0,
-      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
-      "directionProfileCode": 2,
-      "levels": {
-        "commonAdmission": {
-          "medianOfMediansNs": 900,
+          "medianOfMediansNs": 41400,
           "perProcess": [
             {
               "madNs": 100,
-              "medianNs": 1300
-            },
-            {
-              "madNs": 100,
-              "medianNs": 900
-            },
-            {
-              "madNs": 100,
-              "medianNs": 900
-            }
-          ]
-        },
-        "fullCompile": {
-          "medianOfMediansNs": 33800,
-          "perProcess": [
-            {
-              "madNs": 300,
               "medianNs": 32700
             },
             {
-              "madNs": 700,
-              "medianNs": 33800
+              "madNs": 3800,
+              "medianNs": 41400
             },
             {
-              "madNs": 600,
-              "medianNs": 34000
+              "madNs": 1000,
+              "medianNs": 49300
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 7100,
+          "medianOfMediansNs": 7000,
           "perProcess": [
             {
+              "madNs": 0,
+              "medianNs": 6300
+            },
+            {
               "madNs": 200,
-              "medianNs": 6400
+              "medianNs": 7000
             },
             {
               "madNs": 100,
-              "medianNs": 7100
-            },
-            {
-              "madNs": 400,
-              "medianNs": 7300
+              "medianNs": 7200
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 7700,
+          "medianOfMediansNs": 8200,
           "perProcess": [
             {
+              "madNs": 0,
+              "medianNs": 7300
+            },
+            {
               "madNs": 200,
-              "medianNs": 7700
+              "medianNs": 8300
+            },
+            {
+              "madNs": 0,
+              "medianNs": 8200
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 1,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1000,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 900
             },
             {
               "madNs": 100,
-              "medianNs": 7700
+              "medianNs": 1100
+            },
+            {
+              "madNs": 0,
+              "medianNs": 1000
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 36000,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 32400
+            },
+            {
+              "madNs": 300,
+              "medianNs": 38400
+            },
+            {
+              "madNs": 400,
+              "medianNs": 36000
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 7000,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 6300
+            },
+            {
+              "madNs": 100,
+              "medianNs": 7000
+            },
+            {
+              "madNs": 100,
+              "medianNs": 7000
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 8900,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 7200
+            },
+            {
+              "madNs": 400,
+              "medianNs": 8900
+            },
+            {
+              "madNs": 0,
+              "medianNs": 12100
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 2,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1000,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 1000
+            },
+            {
+              "madNs": 0,
+              "medianNs": 1800
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1000
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 49500,
+          "perProcess": [
+            {
+              "madNs": 200,
+              "medianNs": 32400
+            },
+            {
+              "madNs": 1000,
+              "medianNs": 57000
+            },
+            {
+              "madNs": 1100,
+              "medianNs": 49500
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 7800,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 6400
+            },
+            {
+              "madNs": 300,
+              "medianNs": 10600
+            },
+            {
+              "madNs": 1100,
+              "medianNs": 7800
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 8100,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 7200
+            },
+            {
+              "madNs": 1900,
+              "medianNs": 10400
+            },
+            {
+              "madNs": 300,
+              "medianNs": 8100
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1000,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 0,
+              "medianNs": 1600
+            },
+            {
+              "madNs": 0,
+              "medianNs": 1000
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 36600,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 32400
+            },
+            {
+              "madNs": 1600,
+              "medianNs": 57000
+            },
+            {
+              "madNs": 300,
+              "medianNs": 36600
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 6700,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 6300
+            },
+            {
+              "madNs": 0,
+              "medianNs": 9300
+            },
+            {
+              "madNs": 100,
+              "medianNs": 6700
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 7800,
+          "perProcess": [
+            {
+              "madNs": 200,
+              "medianNs": 7500
+            },
+            {
+              "madNs": 300,
+              "medianNs": 12800
             },
             {
               "madNs": 100,
@@ -280,14 +596,14 @@
       "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
     },
     {
-      "accuracyProfileCode": 1,
+      "accuracyProfileCode": 3,
       "compilerControlledPeakBytes": 11796,
       "compilerRetainedCapacityBytes": 0,
       "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
-      "directionProfileCode": 3,
+      "directionProfileCode": 1,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 900,
+          "medianOfMediansNs": 1400,
           "perProcess": [
             {
               "madNs": 0,
@@ -295,378 +611,62 @@
             },
             {
               "madNs": 0,
-              "medianNs": 900
+              "medianNs": 1600
             },
             {
               "madNs": 0,
-              "medianNs": 900
+              "medianNs": 1400
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 32800,
+          "medianOfMediansNs": 37100,
           "perProcess": [
             {
-              "madNs": 800,
-              "medianNs": 32800
-            },
-            {
-              "madNs": 300,
-              "medianNs": 33100
-            },
-            {
-              "madNs": 300,
+              "madNs": 0,
               "medianNs": 32100
+            },
+            {
+              "madNs": 1200,
+              "medianNs": 39600
+            },
+            {
+              "madNs": 700,
+              "medianNs": 37100
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 6400,
+          "medianOfMediansNs": 7000,
           "perProcess": [
             {
               "madNs": 100,
-              "medianNs": 6400
+              "medianNs": 6300
             },
             {
-              "madNs": 0,
-              "medianNs": 6600
+              "madNs": 100,
+              "medianNs": 9800
             },
             {
-              "madNs": 0,
-              "medianNs": 6400
+              "madNs": 100,
+              "medianNs": 7000
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 7200,
+          "medianOfMediansNs": 8000,
           "perProcess": [
             {
-              "madNs": 0,
-              "medianNs": 7200
-            },
-            {
-              "madNs": 0,
-              "medianNs": 7200
-            },
-            {
-              "madNs": 200,
+              "madNs": 100,
               "medianNs": 7400
-            }
-          ]
-        }
-      },
-      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
-      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
-    },
-    {
-      "accuracyProfileCode": 2,
-      "compilerControlledPeakBytes": 11796,
-      "compilerRetainedCapacityBytes": 0,
-      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
-      "directionProfileCode": 1,
-      "levels": {
-        "commonAdmission": {
-          "medianOfMediansNs": 900,
-          "perProcess": [
-            {
-              "madNs": 0,
-              "medianNs": 900
-            },
-            {
-              "madNs": 0,
-              "medianNs": 900
-            },
-            {
-              "madNs": 0,
-              "medianNs": 900
-            }
-          ]
-        },
-        "fullCompile": {
-          "medianOfMediansNs": 31900,
-          "perProcess": [
-            {
-              "madNs": 700,
-              "medianNs": 32600
-            },
-            {
-              "madNs": 200,
-              "medianNs": 31800
-            },
-            {
-              "madNs": 200,
-              "medianNs": 31900
-            }
-          ]
-        },
-        "geometryNumericFreeze": {
-          "medianOfMediansNs": 6300,
-          "perProcess": [
-            {
-              "madNs": 100,
-              "medianNs": 6100
-            },
-            {
-              "madNs": 100,
-              "medianNs": 6300
-            },
-            {
-              "madNs": 0,
-              "medianNs": 6300
-            }
-          ]
-        },
-        "geometryParseBuild": {
-          "medianOfMediansNs": 7000,
-          "perProcess": [
-            {
-              "madNs": 0,
-              "medianNs": 7000
-            },
-            {
-              "madNs": 0,
-              "medianNs": 7000
-            },
-            {
-              "madNs": 0,
-              "medianNs": 7100
-            }
-          ]
-        }
-      },
-      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
-      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
-    },
-    {
-      "accuracyProfileCode": 2,
-      "compilerControlledPeakBytes": 11796,
-      "compilerRetainedCapacityBytes": 0,
-      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
-      "directionProfileCode": 2,
-      "levels": {
-        "commonAdmission": {
-          "medianOfMediansNs": 900,
-          "perProcess": [
-            {
-              "madNs": 0,
-              "medianNs": 900
-            },
-            {
-              "madNs": 0,
-              "medianNs": 900
-            },
-            {
-              "madNs": 0,
-              "medianNs": 800
-            }
-          ]
-        },
-        "fullCompile": {
-          "medianOfMediansNs": 32000,
-          "perProcess": [
-            {
-              "madNs": 100,
-              "medianNs": 32100
-            },
-            {
-              "madNs": 100,
-              "medianNs": 31600
-            },
-            {
-              "madNs": 300,
-              "medianNs": 32000
-            }
-          ]
-        },
-        "geometryNumericFreeze": {
-          "medianOfMediansNs": 6200,
-          "perProcess": [
-            {
-              "madNs": 100,
-              "medianNs": 6200
-            },
-            {
-              "madNs": 100,
-              "medianNs": 6200
-            },
-            {
-              "madNs": 100,
-              "medianNs": 6200
-            }
-          ]
-        },
-        "geometryParseBuild": {
-          "medianOfMediansNs": 7100,
-          "perProcess": [
-            {
-              "madNs": 100,
-              "medianNs": 7100
-            },
-            {
-              "madNs": 100,
-              "medianNs": 7000
-            },
-            {
-              "madNs": 100,
-              "medianNs": 7200
-            }
-          ]
-        }
-      },
-      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
-      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
-    },
-    {
-      "accuracyProfileCode": 2,
-      "compilerControlledPeakBytes": 11796,
-      "compilerRetainedCapacityBytes": 0,
-      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
-      "directionProfileCode": 3,
-      "levels": {
-        "commonAdmission": {
-          "medianOfMediansNs": 900,
-          "perProcess": [
-            {
-              "madNs": 100,
-              "medianNs": 1000
-            },
-            {
-              "madNs": 0,
-              "medianNs": 900
-            },
-            {
-              "madNs": 0,
-              "medianNs": 900
-            }
-          ]
-        },
-        "fullCompile": {
-          "medianOfMediansNs": 31800,
-          "perProcess": [
-            {
-              "madNs": 200,
-              "medianNs": 32100
-            },
-            {
-              "madNs": 100,
-              "medianNs": 31800
-            },
-            {
-              "madNs": 200,
-              "medianNs": 31800
-            }
-          ]
-        },
-        "geometryNumericFreeze": {
-          "medianOfMediansNs": 6300,
-          "perProcess": [
-            {
-              "madNs": 700,
-              "medianNs": 8200
-            },
-            {
-              "madNs": 0,
-              "medianNs": 6200
-            },
-            {
-              "madNs": 0,
-              "medianNs": 6300
-            }
-          ]
-        },
-        "geometryParseBuild": {
-          "medianOfMediansNs": 7100,
-          "perProcess": [
-            {
-              "madNs": 200,
-              "medianNs": 7100
-            },
-            {
-              "madNs": 100,
-              "medianNs": 7200
-            },
-            {
-              "madNs": 100,
-              "medianNs": 7100
-            }
-          ]
-        }
-      },
-      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
-      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
-    },
-    {
-      "accuracyProfileCode": 3,
-      "compilerControlledPeakBytes": 11796,
-      "compilerRetainedCapacityBytes": 0,
-      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
-      "directionProfileCode": 1,
-      "levels": {
-        "commonAdmission": {
-          "medianOfMediansNs": 900,
-          "perProcess": [
-            {
-              "madNs": 0,
-              "medianNs": 900
-            },
-            {
-              "madNs": 0,
-              "medianNs": 900
-            },
-            {
-              "madNs": 0,
-              "medianNs": 900
-            }
-          ]
-        },
-        "fullCompile": {
-          "medianOfMediansNs": 32000,
-          "perProcess": [
-            {
-              "madNs": 800,
-              "medianNs": 32500
             },
             {
               "madNs": 400,
-              "medianNs": 32000
+              "medianNs": 13100
             },
             {
               "madNs": 100,
-              "medianNs": 31700
-            }
-          ]
-        },
-        "geometryNumericFreeze": {
-          "medianOfMediansNs": 6200,
-          "perProcess": [
-            {
-              "madNs": 0,
-              "medianNs": 6100
-            },
-            {
-              "madNs": 200,
-              "medianNs": 6300
-            },
-            {
-              "madNs": 0,
-              "medianNs": 6200
-            }
-          ]
-        },
-        "geometryParseBuild": {
-          "medianOfMediansNs": 7100,
-          "perProcess": [
-            {
-              "madNs": 100,
-              "medianNs": 7100
-            },
-            {
-              "madNs": 100,
-              "medianNs": 7200
-            },
-            {
-              "madNs": 0,
-              "medianNs": 7100
+              "medianNs": 8000
             }
           ]
         }
@@ -682,149 +682,149 @@
       "directionProfileCode": 2,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 900,
+          "medianOfMediansNs": 1000,
           "perProcess": [
             {
               "madNs": 0,
-              "medianNs": 900
-            },
-            {
-              "madNs": 200,
-              "medianNs": 1100
-            },
-            {
-              "madNs": 0,
-              "medianNs": 900
-            }
-          ]
-        },
-        "fullCompile": {
-          "medianOfMediansNs": 32000,
-          "perProcess": [
-            {
-              "madNs": 4100,
-              "medianNs": 42200
-            },
-            {
-              "madNs": 400,
-              "medianNs": 32000
-            },
-            {
-              "madNs": 100,
-              "medianNs": 31800
-            }
-          ]
-        },
-        "geometryNumericFreeze": {
-          "medianOfMediansNs": 6200,
-          "perProcess": [
-            {
-              "madNs": 100,
-              "medianNs": 6200
-            },
-            {
-              "madNs": 100,
-              "medianNs": 6100
-            },
-            {
-              "madNs": 100,
-              "medianNs": 6300
-            }
-          ]
-        },
-        "geometryParseBuild": {
-          "medianOfMediansNs": 7000,
-          "perProcess": [
-            {
-              "madNs": 0,
-              "medianNs": 7000
-            },
-            {
-              "madNs": 100,
-              "medianNs": 7100
-            },
-            {
-              "madNs": 0,
-              "medianNs": 7000
-            }
-          ]
-        }
-      },
-      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
-      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
-    },
-    {
-      "accuracyProfileCode": 3,
-      "compilerControlledPeakBytes": 11796,
-      "compilerRetainedCapacityBytes": 0,
-      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
-      "directionProfileCode": 3,
-      "levels": {
-        "commonAdmission": {
-          "medianOfMediansNs": 900,
-          "perProcess": [
-            {
-              "madNs": 0,
-              "medianNs": 900
-            },
-            {
-              "madNs": 100,
               "medianNs": 1000
             },
             {
+              "madNs": 200,
+              "medianNs": 1700
+            },
+            {
               "madNs": 0,
-              "medianNs": 900
+              "medianNs": 1000
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 32400,
+          "medianOfMediansNs": 37100,
           "perProcess": [
-            {
-              "madNs": 300,
-              "medianNs": 32000
-            },
-            {
-              "madNs": 1100,
-              "medianNs": 33700
-            },
             {
               "madNs": 300,
               "medianNs": 32400
+            },
+            {
+              "madNs": 4800,
+              "medianNs": 45700
+            },
+            {
+              "madNs": 100,
+              "medianNs": 37100
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 6300,
-          "perProcess": [
-            {
-              "madNs": 0,
-              "medianNs": 6000
-            },
-            {
-              "madNs": 100,
-              "medianNs": 6300
-            },
-            {
-              "madNs": 100,
-              "medianNs": 6300
-            }
-          ]
-        },
-        "geometryParseBuild": {
-          "medianOfMediansNs": 7300,
+          "medianOfMediansNs": 7200,
           "perProcess": [
             {
               "madNs": 100,
-              "medianNs": 7300
+              "medianNs": 6400
+            },
+            {
+              "madNs": 200,
+              "medianNs": 7200
             },
             {
               "madNs": 200,
               "medianNs": 7400
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 8500,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 7400
             },
             {
               "madNs": 200,
+              "medianNs": 9500
+            },
+            {
+              "madNs": 200,
+              "medianNs": 8500
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 3,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1000,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 1000
+            },
+            {
+              "madNs": 0,
+              "medianNs": 1800
+            },
+            {
+              "madNs": 0,
+              "medianNs": 1000
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 37200,
+          "perProcess": [
+            {
+              "madNs": 200,
+              "medianNs": 32700
+            },
+            {
+              "madNs": 1500,
+              "medianNs": 58500
+            },
+            {
+              "madNs": 300,
+              "medianNs": 37200
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 7300,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 6300
+            },
+            {
+              "madNs": 700,
+              "medianNs": 7800
+            },
+            {
+              "madNs": 100,
               "medianNs": 7300
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 8500,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 7400
+            },
+            {
+              "madNs": 200,
+              "medianNs": 9000
+            },
+            {
+              "madNs": 100,
+              "medianNs": 8500
             }
           ]
         }
@@ -840,70 +840,70 @@
       "directionProfileCode": 1,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 2900,
+          "medianOfMediansNs": 2100,
           "perProcess": [
             {
-              "madNs": 800,
-              "medianNs": 2900
+              "madNs": 200,
+              "medianNs": 1700
             },
             {
-              "madNs": 400,
-              "medianNs": 2900
+              "madNs": 700,
+              "medianNs": 3300
             },
             {
-              "madNs": 500,
+              "madNs": 600,
               "medianNs": 2100
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 2618300,
+          "medianOfMediansNs": 2676800,
           "perProcess": [
             {
-              "madNs": 201600,
-              "medianNs": 2978500
+              "madNs": 14600,
+              "medianNs": 2676800
             },
             {
-              "madNs": 20200,
-              "medianNs": 2552800
+              "madNs": 114500,
+              "medianNs": 3514300
             },
             {
-              "madNs": 39100,
-              "medianNs": 2618300
+              "madNs": 20300,
+              "medianNs": 2636500
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 810700,
+          "medianOfMediansNs": 840700,
           "perProcess": [
             {
-              "madNs": 36100,
-              "medianNs": 813800
+              "madNs": 10400,
+              "medianNs": 809900
             },
             {
-              "madNs": 34500,
-              "medianNs": 810700
+              "madNs": 91700,
+              "medianNs": 1335500
             },
             {
-              "madNs": 14100,
-              "medianNs": 776100
+              "madNs": 38700,
+              "medianNs": 840700
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 340100,
+          "medianOfMediansNs": 389500,
           "perProcess": [
             {
-              "madNs": 14100,
-              "medianNs": 352700
+              "madNs": 8100,
+              "medianNs": 346900
             },
             {
-              "madNs": 16200,
-              "medianNs": 338900
+              "madNs": 19000,
+              "medianNs": 668500
             },
             {
-              "madNs": 8300,
-              "medianNs": 340100
+              "madNs": 34800,
+              "medianNs": 389500
             }
           ]
         }
@@ -912,36 +912,36 @@
       "syntheticBase": {
         "levels": {
           "commonAdmission": {
-            "medianOfMediansNs": 1400,
+            "medianOfMediansNs": 2000,
             "perProcess": [
               {
-                "madNs": 100,
-                "medianNs": 1100
+                "madNs": 300,
+                "medianNs": 2000
               },
               {
-                "madNs": 200,
-                "medianNs": 1400
+                "madNs": 300,
+                "medianNs": 2000
               },
               {
                 "madNs": 100,
-                "medianNs": 1400
+                "medianNs": 1300
               }
             ]
           },
           "fullCompile": {
-            "medianOfMediansNs": 1838600,
+            "medianOfMediansNs": 2114900,
             "perProcess": [
               {
-                "madNs": 150100,
-                "medianNs": 1932300
+                "madNs": 23900,
+                "medianNs": 2114900
               },
               {
-                "madNs": 30000,
-                "medianNs": 1817200
+                "madNs": 201000,
+                "medianNs": 2143800
               },
               {
-                "madNs": 36100,
-                "medianNs": 1838600
+                "madNs": 83100,
+                "medianNs": 1847200
               }
             ]
           }
@@ -957,70 +957,70 @@
       "directionProfileCode": 2,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 1800,
+          "medianOfMediansNs": 2200,
           "perProcess": [
             {
-              "madNs": 600,
-              "medianNs": 3300
+              "madNs": 500,
+              "medianNs": 2200
+            },
+            {
+              "madNs": 200,
+              "medianNs": 2200
             },
             {
               "madNs": 200,
               "medianNs": 1800
-            },
-            {
-              "madNs": 200,
-              "medianNs": 1700
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 2026800,
+          "medianOfMediansNs": 2146600,
           "perProcess": [
             {
-              "madNs": 130600,
-              "medianNs": 2392900
+              "madNs": 108200,
+              "medianNs": 2146600
             },
             {
-              "madNs": 31100,
-              "medianNs": 2026800
+              "madNs": 25400,
+              "medianNs": 2721000
             },
             {
-              "madNs": 11600,
-              "medianNs": 2013500
+              "madNs": 17400,
+              "medianNs": 2033100
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 532200,
+          "medianOfMediansNs": 550200,
           "perProcess": [
             {
-              "madNs": 10200,
-              "medianNs": 588500
+              "madNs": 35400,
+              "medianNs": 600900
             },
             {
-              "madNs": 11900,
-              "medianNs": 532200
+              "madNs": 23100,
+              "medianNs": 550200
             },
             {
-              "madNs": 11000,
-              "medianNs": 521600
+              "madNs": 20300,
+              "medianNs": 549400
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 304600,
+          "medianOfMediansNs": 347300,
           "perProcess": [
             {
-              "madNs": 11200,
-              "medianNs": 313500
+              "madNs": 34600,
+              "medianNs": 359700
             },
             {
-              "madNs": 5300,
-              "medianNs": 296000
+              "madNs": 5800,
+              "medianNs": 347300
             },
             {
-              "madNs": 12000,
-              "medianNs": 304600
+              "madNs": 9300,
+              "medianNs": 337100
             }
           ]
         }
@@ -1029,15 +1029,15 @@
       "syntheticBase": {
         "levels": {
           "commonAdmission": {
-            "medianOfMediansNs": 1200,
+            "medianOfMediansNs": 1100,
             "perProcess": [
               {
-                "madNs": 100,
-                "medianNs": 1200
+                "madNs": 200,
+                "medianNs": 1100
               },
               {
-                "madNs": 0,
-                "medianNs": 1200
+                "madNs": 200,
+                "medianNs": 1700
               },
               {
                 "madNs": 100,
@@ -1046,19 +1046,19 @@
             ]
           },
           "fullCompile": {
-            "medianOfMediansNs": 1540600,
+            "medianOfMediansNs": 1628900,
             "perProcess": [
               {
-                "madNs": 105900,
-                "medianNs": 1831700
+                "madNs": 51500,
+                "medianNs": 1573600
               },
               {
-                "madNs": 24800,
-                "medianNs": 1500400
+                "madNs": 14500,
+                "medianNs": 2022000
               },
               {
-                "madNs": 8500,
-                "medianNs": 1540600
+                "madNs": 29700,
+                "medianNs": 1628900
               }
             ]
           }
@@ -1074,70 +1074,70 @@
       "directionProfileCode": 3,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 1700,
+          "medianOfMediansNs": 2100,
           "perProcess": [
             {
-              "madNs": 700,
-              "medianNs": 3200
+              "madNs": 200,
+              "medianNs": 2100
             },
             {
               "madNs": 100,
-              "medianNs": 1700
+              "medianNs": 2100
             },
             {
-              "madNs": 200,
-              "medianNs": 1600
+              "madNs": 100,
+              "medianNs": 1500
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 1762500,
+          "medianOfMediansNs": 1931500,
           "perProcess": [
             {
-              "madNs": 179500,
-              "medianNs": 2158300
+              "madNs": 35400,
+              "medianNs": 1793000
             },
             {
-              "madNs": 28600,
-              "medianNs": 1721300
+              "madNs": 12900,
+              "medianNs": 2393000
             },
             {
-              "madNs": 26800,
-              "medianNs": 1762500
+              "madNs": 63800,
+              "medianNs": 1931500
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 407300,
+          "medianOfMediansNs": 428600,
           "perProcess": [
             {
-              "madNs": 57500,
-              "medianNs": 532100
+              "madNs": 27500,
+              "medianNs": 428600
             },
             {
-              "madNs": 7400,
-              "medianNs": 394700
+              "madNs": 16600,
+              "medianNs": 616200
             },
             {
-              "madNs": 9500,
-              "medianNs": 407300
+              "madNs": 6000,
+              "medianNs": 399600
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 304800,
+          "medianOfMediansNs": 322800,
           "perProcess": [
             {
-              "madNs": 16000,
-              "medianNs": 328500
+              "madNs": 12400,
+              "medianNs": 322800
             },
             {
-              "madNs": 11400,
-              "medianNs": 296400
+              "madNs": 11900,
+              "medianNs": 471700
             },
             {
-              "madNs": 13000,
-              "medianNs": 304800
+              "madNs": 16300,
+              "medianNs": 313000
             }
           ]
         }
@@ -1149,12 +1149,12 @@
             "medianOfMediansNs": 1100,
             "perProcess": [
               {
-                "madNs": 200,
-                "medianNs": 1200
+                "madNs": 0,
+                "medianNs": 1000
               },
               {
-                "madNs": 100,
-                "medianNs": 1100
+                "madNs": 0,
+                "medianNs": 1700
               },
               {
                 "madNs": 100,
@@ -1163,19 +1163,19 @@
             ]
           },
           "fullCompile": {
-            "medianOfMediansNs": 1394000,
+            "medianOfMediansNs": 1466900,
             "perProcess": [
               {
-                "madNs": 244500,
-                "medianNs": 1742000
+                "madNs": 13800,
+                "medianNs": 1421200
               },
               {
-                "madNs": 42100,
-                "medianNs": 1394000
+                "madNs": 48800,
+                "medianNs": 1466900
               },
               {
-                "madNs": 19300,
-                "medianNs": 1383400
+                "madNs": 68500,
+                "medianNs": 1544000
               }
             ]
           }
@@ -1191,70 +1191,70 @@
       "directionProfileCode": 1,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 1900,
+          "medianOfMediansNs": 2200,
           "perProcess": [
             {
-              "madNs": 300,
-              "medianNs": 2100
+              "madNs": 200,
+              "medianNs": 2200
             },
             {
-              "madNs": 100,
-              "medianNs": 1600
+              "madNs": 600,
+              "medianNs": 2400
             },
             {
-              "madNs": 400,
-              "medianNs": 1900
+              "madNs": 500,
+              "medianNs": 2000
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 2579300,
+          "medianOfMediansNs": 2719700,
           "perProcess": [
             {
-              "madNs": 40400,
-              "medianNs": 2797100
+              "madNs": 26000,
+              "medianNs": 2676700
             },
             {
-              "madNs": 16100,
-              "medianNs": 2427900
+              "madNs": 100900,
+              "medianNs": 3336400
             },
             {
-              "madNs": 49600,
-              "medianNs": 2579300
+              "madNs": 61500,
+              "medianNs": 2719700
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 782100,
+          "medianOfMediansNs": 852700,
           "perProcess": [
             {
-              "madNs": 106600,
-              "medianNs": 946500
+              "madNs": 43100,
+              "medianNs": 852700
             },
             {
-              "madNs": 30300,
-              "medianNs": 782100
+              "madNs": 35800,
+              "medianNs": 1109400
             },
             {
-              "madNs": 11900,
-              "medianNs": 766600
+              "madNs": 46600,
+              "medianNs": 795500
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 289900,
+          "medianOfMediansNs": 329500,
           "perProcess": [
             {
-              "madNs": 5700,
-              "medianNs": 289900
+              "madNs": 23100,
+              "medianNs": 329500
             },
             {
-              "madNs": 3400,
-              "medianNs": 286500
+              "madNs": 3500,
+              "medianNs": 297500
             },
             {
-              "madNs": 10500,
-              "medianNs": 296800
+              "madNs": 28700,
+              "medianNs": 339200
             }
           ]
         }
@@ -1266,33 +1266,33 @@
             "medianOfMediansNs": 1300,
             "perProcess": [
               {
+                "madNs": 0,
+                "medianNs": 900
+              },
+              {
+                "madNs": 200,
+                "medianNs": 1700
+              },
+              {
                 "madNs": 100,
                 "medianNs": 1300
-              },
-              {
-                "madNs": 100,
-                "medianNs": 1100
-              },
-              {
-                "madNs": 500,
-                "medianNs": 1500
               }
             ]
           },
           "fullCompile": {
-            "medianOfMediansNs": 1856100,
+            "medianOfMediansNs": 1863300,
             "perProcess": [
               {
-                "madNs": 121600,
-                "medianNs": 2052300
+                "madNs": 30400,
+                "medianNs": 1760200
               },
               {
-                "madNs": 38600,
-                "medianNs": 1711300
+                "madNs": 36700,
+                "medianNs": 2281700
               },
               {
-                "madNs": 16300,
-                "medianNs": 1856100
+                "madNs": 122000,
+                "medianNs": 1863300
               }
             ]
           }
@@ -1308,70 +1308,70 @@
       "directionProfileCode": 2,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 1500,
+          "medianOfMediansNs": 1400,
           "perProcess": [
             {
               "madNs": 100,
-              "medianNs": 1600
+              "medianNs": 1400
             },
             {
               "madNs": 100,
-              "medianNs": 1500
+              "medianNs": 1900
             },
             {
               "madNs": 100,
-              "medianNs": 1500
+              "medianNs": 1300
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 1935800,
+          "medianOfMediansNs": 1960100,
           "perProcess": [
             {
-              "madNs": 19600,
-              "medianNs": 1913400
+              "madNs": 14700,
+              "medianNs": 1928900
             },
             {
-              "madNs": 30100,
-              "medianNs": 1935800
+              "madNs": 13900,
+              "medianNs": 2661600
             },
             {
-              "madNs": 16400,
-              "medianNs": 1991800
+              "madNs": 41500,
+              "medianNs": 1960100
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 474500,
+          "medianOfMediansNs": 519300,
           "perProcess": [
             {
-              "madNs": 21700,
-              "medianNs": 513100
+              "madNs": 15300,
+              "medianNs": 475600
             },
             {
-              "madNs": 4100,
-              "medianNs": 472600
+              "madNs": 11200,
+              "medianNs": 700800
             },
             {
-              "madNs": 10800,
-              "medianNs": 474500
+              "madNs": 14400,
+              "medianNs": 519300
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 287600,
+          "medianOfMediansNs": 303800,
           "perProcess": [
             {
-              "madNs": 42300,
-              "medianNs": 333600
+              "madNs": 2800,
+              "medianNs": 303800
             },
             {
-              "madNs": 3300,
-              "medianNs": 284900
+              "madNs": 5300,
+              "medianNs": 462200
             },
             {
-              "madNs": 2100,
-              "medianNs": 287600
+              "madNs": 5800,
+              "medianNs": 295300
             }
           ]
         }
@@ -1380,15 +1380,15 @@
       "syntheticBase": {
         "levels": {
           "commonAdmission": {
-            "medianOfMediansNs": 1100,
+            "medianOfMediansNs": 1000,
             "perProcess": [
               {
                 "madNs": 100,
-                "medianNs": 1100
+                "medianNs": 1000
               },
               {
                 "madNs": 100,
-                "medianNs": 1100
+                "medianNs": 1600
               },
               {
                 "madNs": 100,
@@ -1397,19 +1397,19 @@
             ]
           },
           "fullCompile": {
-            "medianOfMediansNs": 1429700,
+            "medianOfMediansNs": 1468000,
             "perProcess": [
               {
-                "madNs": 107300,
-                "medianNs": 1429700
+                "madNs": 46500,
+                "medianNs": 1468000
               },
               {
-                "madNs": 29900,
-                "medianNs": 1403800
+                "madNs": 34700,
+                "medianNs": 1949800
               },
               {
-                "madNs": 77400,
-                "medianNs": 1465400
+                "madNs": 23900,
+                "medianNs": 1449100
               }
             ]
           }
@@ -1425,70 +1425,70 @@
       "directionProfileCode": 3,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 1500,
+          "medianOfMediansNs": 1600,
           "perProcess": [
             {
-              "madNs": 100,
+              "madNs": 200,
               "medianNs": 1500
             },
             {
-              "madNs": 100,
-              "medianNs": 1500
+              "madNs": 200,
+              "medianNs": 2100
             },
             {
-              "madNs": 100,
-              "medianNs": 1400
+              "madNs": 0,
+              "medianNs": 1600
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 1684500,
+          "medianOfMediansNs": 1883100,
           "perProcess": [
             {
-              "madNs": 22400,
-              "medianNs": 1703300
+              "madNs": 25300,
+              "medianNs": 1662000
             },
             {
-              "madNs": 47900,
-              "medianNs": 1654800
+              "madNs": 70900,
+              "medianNs": 2298300
             },
             {
-              "madNs": 31900,
-              "medianNs": 1684500
+              "madNs": 24700,
+              "medianNs": 1883100
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 352100,
+          "medianOfMediansNs": 363900,
           "perProcess": [
             {
-              "madNs": 5400,
-              "medianNs": 349400
+              "madNs": 4300,
+              "medianNs": 351100
             },
             {
-              "madNs": 3500,
-              "medianNs": 352600
+              "madNs": 14100,
+              "medianNs": 552800
             },
             {
-              "madNs": 5700,
-              "medianNs": 352100
+              "madNs": 13700,
+              "medianNs": 363900
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 292700,
+          "medianOfMediansNs": 300800,
           "perProcess": [
             {
-              "madNs": 5900,
-              "medianNs": 300500
+              "madNs": 10100,
+              "medianNs": 293800
             },
             {
-              "madNs": 5300,
-              "medianNs": 291300
+              "madNs": 6100,
+              "medianNs": 466100
             },
             {
-              "madNs": 2800,
-              "medianNs": 292700
+              "madNs": 7900,
+              "medianNs": 300800
             }
           ]
         }
@@ -1497,36 +1497,36 @@
       "syntheticBase": {
         "levels": {
           "commonAdmission": {
-            "medianOfMediansNs": 1000,
+            "medianOfMediansNs": 1100,
             "perProcess": [
               {
                 "madNs": 100,
-                "medianNs": 1000
+                "medianNs": 1100
               },
               {
-                "madNs": 0,
-                "medianNs": 1000
+                "madNs": 200,
+                "medianNs": 1100
               },
               {
-                "madNs": 0,
-                "medianNs": 1000
+                "madNs": 100,
+                "medianNs": 1100
               }
             ]
           },
           "fullCompile": {
-            "medianOfMediansNs": 1263100,
+            "medianOfMediansNs": 1364600,
             "perProcess": [
               {
-                "madNs": 36000,
-                "medianNs": 1263100
+                "madNs": 37300,
+                "medianNs": 1364600
               },
               {
-                "madNs": 15100,
-                "medianNs": 1195500
+                "madNs": 17700,
+                "medianNs": 1245000
               },
               {
-                "madNs": 85100,
-                "medianNs": 1281700
+                "madNs": 76300,
+                "medianNs": 1442700
               }
             ]
           }
@@ -1542,70 +1542,70 @@
       "directionProfileCode": 1,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 1800,
+          "medianOfMediansNs": 2300,
           "perProcess": [
             {
-              "madNs": 100,
-              "medianNs": 2400
-            },
-            {
-              "madNs": 100,
-              "medianNs": 1700
+              "madNs": 700,
+              "medianNs": 3100
             },
             {
               "madNs": 200,
-              "medianNs": 1800
+              "medianNs": 1500
+            },
+            {
+              "madNs": 400,
+              "medianNs": 2300
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 2418600,
+          "medianOfMediansNs": 3008800,
           "perProcess": [
             {
-              "madNs": 76900,
-              "medianNs": 2768100
+              "madNs": 59800,
+              "medianNs": 2494000
             },
             {
-              "madNs": 81700,
-              "medianNs": 2397100
+              "madNs": 226400,
+              "medianNs": 3132300
             },
             {
-              "madNs": 99600,
-              "medianNs": 2418600
+              "madNs": 103100,
+              "medianNs": 3008800
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 750800,
+          "medianOfMediansNs": 784100,
           "perProcess": [
             {
-              "madNs": 33700,
-              "medianNs": 750800
+              "madNs": 26200,
+              "medianNs": 875400
             },
             {
-              "madNs": 27800,
-              "medianNs": 771600
+              "madNs": 61600,
+              "medianNs": 784100
             },
             {
-              "madNs": 10900,
-              "medianNs": 705600
+              "madNs": 21100,
+              "medianNs": 765100
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 288800,
+          "medianOfMediansNs": 327100,
           "perProcess": [
             {
-              "madNs": 3100,
-              "medianNs": 287200
+              "madNs": 9200,
+              "medianNs": 331400
             },
             {
-              "madNs": 1400,
-              "medianNs": 288800
+              "madNs": 5200,
+              "medianNs": 295700
             },
             {
-              "madNs": 2700,
-              "medianNs": 291700
+              "madNs": 1600,
+              "medianNs": 327100
             }
           ]
         }
@@ -1617,33 +1617,33 @@
             "medianOfMediansNs": 1100,
             "perProcess": [
               {
-                "madNs": 400,
-                "medianNs": 1500
+                "madNs": 100,
+                "medianNs": 1000
               },
               {
                 "madNs": 100,
-                "medianNs": 1100
+                "medianNs": 1600
               },
               {
-                "madNs": 0,
+                "madNs": 100,
                 "medianNs": 1100
               }
             ]
           },
           "fullCompile": {
-            "medianOfMediansNs": 1729300,
+            "medianOfMediansNs": 2037200,
             "perProcess": [
               {
-                "madNs": 82200,
-                "medianNs": 1909000
+                "madNs": 33500,
+                "medianNs": 1596900
               },
               {
-                "madNs": 62500,
-                "medianNs": 1729300
+                "madNs": 110000,
+                "medianNs": 2234100
               },
               {
-                "madNs": 41500,
-                "medianNs": 1616100
+                "madNs": 91800,
+                "medianNs": 2037200
               }
             ]
           }
@@ -1662,67 +1662,67 @@
           "medianOfMediansNs": 1700,
           "perProcess": [
             {
-              "madNs": 900,
-              "medianNs": 5000
+              "madNs": 100,
+              "medianNs": 1300
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1900
             },
             {
               "madNs": 200,
               "medianNs": 1700
-            },
-            {
-              "madNs": 100,
-              "medianNs": 1500
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 1835200,
+          "medianOfMediansNs": 2099000,
           "perProcess": [
             {
-              "madNs": 43200,
-              "medianNs": 2011700
+              "madNs": 57700,
+              "medianNs": 1870900
             },
             {
-              "madNs": 23800,
-              "medianNs": 1833000
+              "madNs": 34100,
+              "medianNs": 2609800
             },
             {
-              "madNs": 20700,
-              "medianNs": 1835200
+              "madNs": 41100,
+              "medianNs": 2099000
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 471900,
+          "medianOfMediansNs": 481300,
           "perProcess": [
             {
-              "madNs": 24500,
-              "medianNs": 552900
+              "madNs": 4900,
+              "medianNs": 475600
             },
             {
-              "madNs": 6700,
-              "medianNs": 471900
+              "madNs": 6900,
+              "medianNs": 694500
             },
             {
-              "madNs": 4500,
-              "medianNs": 464800
+              "madNs": 20900,
+              "medianNs": 481300
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 290800,
+          "medianOfMediansNs": 296300,
           "perProcess": [
             {
-              "madNs": 11700,
-              "medianNs": 301300
+              "madNs": 4300,
+              "medianNs": 296300
             },
             {
-              "madNs": 10500,
-              "medianNs": 290800
+              "madNs": 4200,
+              "medianNs": 458100
             },
             {
-              "madNs": 4100,
-              "medianNs": 288800
+              "madNs": 5800,
+              "medianNs": 295300
             }
           ]
         }
@@ -1734,12 +1734,12 @@
             "medianOfMediansNs": 1100,
             "perProcess": [
               {
-                "madNs": 200,
-                "medianNs": 1200
+                "madNs": 100,
+                "medianNs": 1100
               },
               {
-                "madNs": 0,
-                "medianNs": 1100
+                "madNs": 400,
+                "medianNs": 1700
               },
               {
                 "madNs": 100,
@@ -1748,19 +1748,19 @@
             ]
           },
           "fullCompile": {
-            "medianOfMediansNs": 1407100,
+            "medianOfMediansNs": 1529700,
             "perProcess": [
               {
-                "madNs": 83300,
-                "medianNs": 1467200
+                "madNs": 20800,
+                "medianNs": 1453600
               },
               {
-                "madNs": 81200,
-                "medianNs": 1407100
+                "madNs": 13100,
+                "medianNs": 1955500
               },
               {
-                "madNs": 30800,
-                "medianNs": 1318700
+                "madNs": 33100,
+                "medianNs": 1529700
               }
             ]
           }
@@ -1776,70 +1776,70 @@
       "directionProfileCode": 3,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 2400,
+          "medianOfMediansNs": 1300,
           "perProcess": [
-            {
-              "madNs": 800,
-              "medianNs": 4300
-            },
             {
               "madNs": 0,
               "medianNs": 1300
             },
             {
+              "madNs": 100,
+              "medianNs": 1300
+            },
+            {
               "madNs": 200,
-              "medianNs": 2400
+              "medianNs": 1500
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 1599600,
+          "medianOfMediansNs": 1867600,
           "perProcess": [
             {
-              "madNs": 49700,
-              "medianNs": 1690100
+              "madNs": 54700,
+              "medianNs": 1693400
             },
             {
-              "madNs": 33000,
-              "medianNs": 1599600
+              "madNs": 48000,
+              "medianNs": 2210300
             },
             {
-              "madNs": 18500,
-              "medianNs": 1563400
+              "madNs": 39500,
+              "medianNs": 1867600
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 353100,
+          "medianOfMediansNs": 376400,
           "perProcess": [
             {
-              "madNs": 23800,
-              "medianNs": 382600
+              "madNs": 7500,
+              "medianNs": 362800
             },
             {
-              "madNs": 6600,
-              "medianNs": 353100
+              "madNs": 27600,
+              "medianNs": 385800
             },
             {
-              "madNs": 2300,
-              "medianNs": 343700
+              "madNs": 26700,
+              "medianNs": 376400
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 289500,
+          "medianOfMediansNs": 311000,
           "perProcess": [
             {
-              "madNs": 3000,
-              "medianNs": 289500
+              "madNs": 12000,
+              "medianNs": 311000
             },
             {
-              "madNs": 4800,
-              "medianNs": 286800
+              "madNs": 43700,
+              "medianNs": 334500
             },
             {
-              "madNs": 8000,
-              "medianNs": 295700
+              "madNs": 6300,
+              "medianNs": 293000
             }
           ]
         }
@@ -1851,33 +1851,33 @@
             "medianOfMediansNs": 1100,
             "perProcess": [
               {
-                "madNs": 300,
+                "madNs": 100,
                 "medianNs": 1100
               },
               {
-                "madNs": 300,
-                "medianNs": 1600
+                "madNs": 100,
+                "medianNs": 1400
               },
               {
-                "madNs": 0,
+                "madNs": 100,
                 "medianNs": 1000
               }
             ]
           },
           "fullCompile": {
-            "medianOfMediansNs": 1214200,
+            "medianOfMediansNs": 1557300,
             "perProcess": [
               {
-                "madNs": 62900,
-                "medianNs": 1246200
+                "madNs": 46700,
+                "medianNs": 1355100
               },
               {
-                "madNs": 26600,
-                "medianNs": 1214200
+                "madNs": 31300,
+                "medianNs": 1651000
               },
               {
-                "madNs": 4100,
-                "medianNs": 1170900
+                "madNs": 93600,
+                "medianNs": 1557300
               }
             ]
           }
@@ -1893,70 +1893,70 @@
       "directionProfileCode": 1,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 5100,
+          "medianOfMediansNs": 7800,
           "perProcess": [
             {
-              "madNs": 1300,
-              "medianNs": 5600
+              "madNs": 600,
+              "medianNs": 8200
             },
             {
               "madNs": 700,
-              "medianNs": 5100
+              "medianNs": 7100
             },
             {
-              "madNs": 400,
-              "medianNs": 4600
+              "madNs": 1400,
+              "medianNs": 7800
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 11924500,
+          "medianOfMediansNs": 12792700,
           "perProcess": [
             {
-              "madNs": 462800,
-              "medianNs": 11924500
+              "madNs": 206400,
+              "medianNs": 11722300
             },
             {
-              "madNs": 160500,
-              "medianNs": 12033000
+              "madNs": 971300,
+              "medianNs": 14710400
             },
             {
-              "madNs": 347800,
-              "medianNs": 11750200
+              "madNs": 363900,
+              "medianNs": 12792700
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 3769700,
+          "medianOfMediansNs": 3939600,
           "perProcess": [
             {
-              "madNs": 199300,
-              "medianNs": 3769700
+              "madNs": 67700,
+              "medianNs": 3812000
             },
             {
-              "madNs": 111800,
-              "medianNs": 3784500
+              "madNs": 159400,
+              "medianNs": 5346600
             },
             {
-              "madNs": 82700,
-              "medianNs": 3689600
+              "madNs": 60600,
+              "medianNs": 3939600
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 1519700,
+          "medianOfMediansNs": 1622700,
           "perProcess": [
             {
-              "madNs": 79800,
-              "medianNs": 1519700
+              "madNs": 66300,
+              "medianNs": 1622700
             },
             {
-              "madNs": 78400,
-              "medianNs": 1544000
+              "madNs": 43500,
+              "medianNs": 2324300
             },
             {
-              "madNs": 16000,
-              "medianNs": 1435100
+              "madNs": 111900,
+              "medianNs": 1610100
             }
           ]
         }
@@ -1972,70 +1972,70 @@
       "directionProfileCode": 2,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 4400,
+          "medianOfMediansNs": 6000,
           "perProcess": [
             {
-              "madNs": 1000,
-              "medianNs": 7000
+              "madNs": 1600,
+              "medianNs": 10400
+            },
+            {
+              "madNs": 1300,
+              "medianNs": 5800
             },
             {
               "madNs": 500,
-              "medianNs": 4400
-            },
-            {
-              "madNs": 100,
-              "medianNs": 4000
+              "medianNs": 6000
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 8857400,
+          "medianOfMediansNs": 10213500,
           "perProcess": [
             {
-              "madNs": 497200,
-              "medianNs": 9288200
+              "madNs": 645100,
+              "medianNs": 10213500
             },
             {
-              "madNs": 247800,
-              "medianNs": 8857400
+              "madNs": 305600,
+              "medianNs": 12101600
             },
             {
-              "madNs": 78200,
-              "medianNs": 8658700
+              "madNs": 286500,
+              "medianNs": 9235300
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 2392800,
+          "medianOfMediansNs": 2646500,
           "perProcess": [
             {
-              "madNs": 140800,
-              "medianNs": 2720200
+              "madNs": 9800,
+              "medianNs": 2334400
             },
             {
-              "madNs": 35600,
-              "medianNs": 2392800
+              "madNs": 260800,
+              "medianNs": 3232500
             },
             {
-              "madNs": 6200,
-              "medianNs": 2325600
+              "madNs": 122000,
+              "medianNs": 2646500
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 1429600,
+          "medianOfMediansNs": 1641800,
           "perProcess": [
             {
-              "madNs": 84000,
-              "medianNs": 1601700
-            },
-            {
-              "madNs": 10300,
-              "medianNs": 1429600
-            },
-            {
               "madNs": 17000,
-              "medianNs": 1429500
+              "medianNs": 1446200
+            },
+            {
+              "madNs": 57700,
+              "medianNs": 2195800
+            },
+            {
+              "madNs": 47400,
+              "medianNs": 1641800
             }
           ]
         }
@@ -2051,70 +2051,70 @@
       "directionProfileCode": 3,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 5300,
+          "medianOfMediansNs": 5500,
           "perProcess": [
             {
-              "madNs": 900,
+              "madNs": 700,
+              "medianNs": 4400
+            },
+            {
+              "madNs": 500,
               "medianNs": 5500
             },
             {
-              "madNs": 800,
-              "medianNs": 5000
-            },
-            {
-              "madNs": 900,
-              "medianNs": 5300
+              "madNs": 600,
+              "medianNs": 5900
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 7635400,
+          "medianOfMediansNs": 8429500,
           "perProcess": [
             {
-              "madNs": 391700,
-              "medianNs": 8368300
+              "madNs": 176100,
+              "medianNs": 8429500
             },
             {
-              "madNs": 93300,
-              "medianNs": 7467200
+              "madNs": 205100,
+              "medianNs": 10656700
             },
             {
-              "madNs": 203900,
-              "medianNs": 7635400
+              "madNs": 163100,
+              "medianNs": 8087700
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 1785700,
+          "medianOfMediansNs": 1935100,
           "perProcess": [
             {
-              "madNs": 28100,
-              "medianNs": 1793500
+              "madNs": 46300,
+              "medianNs": 1819500
             },
             {
-              "madNs": 13900,
-              "medianNs": 1785700
+              "madNs": 100200,
+              "medianNs": 2652700
             },
             {
-              "madNs": 15500,
-              "medianNs": 1767900
+              "madNs": 63700,
+              "medianNs": 1935100
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 1444800,
+          "medianOfMediansNs": 1622000,
           "perProcess": [
             {
-              "madNs": 33100,
-              "medianNs": 1487100
+              "madNs": 22500,
+              "medianNs": 1622000
             },
             {
-              "madNs": 8100,
-              "medianNs": 1444800
+              "madNs": 15500,
+              "medianNs": 2322800
             },
             {
-              "madNs": 22400,
-              "medianNs": 1444700
+              "madNs": 69600,
+              "medianNs": 1578100
             }
           ]
         }
@@ -2130,70 +2130,70 @@
       "directionProfileCode": 1,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 4400,
+          "medianOfMediansNs": 7000,
           "perProcess": [
             {
-              "madNs": 900,
-              "medianNs": 4800
-            },
-            {
-              "madNs": 300,
-              "medianNs": 3900
+              "madNs": 1000,
+              "medianNs": 7800
             },
             {
               "madNs": 600,
-              "medianNs": 4400
+              "medianNs": 6000
+            },
+            {
+              "madNs": 500,
+              "medianNs": 7000
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 11144400,
+          "medianOfMediansNs": 12240000,
           "perProcess": [
             {
-              "madNs": 101000,
-              "medianNs": 12688400
+              "madNs": 44900,
+              "medianNs": 11541500
             },
             {
-              "madNs": 79900,
-              "medianNs": 11144400
+              "madNs": 513800,
+              "medianNs": 14901800
             },
             {
-              "madNs": 54500,
-              "medianNs": 11036600
+              "madNs": 97600,
+              "medianNs": 12240000
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 3604900,
+          "medianOfMediansNs": 3706300,
           "perProcess": [
             {
-              "madNs": 36200,
-              "medianNs": 3648400
+              "madNs": 79800,
+              "medianNs": 3706300
             },
             {
-              "madNs": 21400,
-              "medianNs": 3604900
+              "madNs": 710600,
+              "medianNs": 5286500
             },
             {
-              "madNs": 9000,
-              "medianNs": 3488000
+              "madNs": 49600,
+              "medianNs": 3568900
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 1468500,
+          "medianOfMediansNs": 1566500,
           "perProcess": [
             {
-              "madNs": 41300,
-              "medianNs": 1468500
+              "madNs": 6500,
+              "medianNs": 1472300
             },
             {
-              "madNs": 10700,
-              "medianNs": 1421300
+              "madNs": 474800,
+              "medianNs": 2009600
             },
             {
-              "madNs": 77500,
-              "medianNs": 1566300
+              "madNs": 70000,
+              "medianNs": 1566500
             }
           ]
         }
@@ -2209,70 +2209,70 @@
       "directionProfileCode": 2,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 5600,
+          "medianOfMediansNs": 5700,
           "perProcess": [
             {
-              "madNs": 1000,
-              "medianNs": 6400
-            },
-            {
               "madNs": 500,
-              "medianNs": 4300
+              "medianNs": 5700
             },
             {
-              "madNs": 300,
-              "medianNs": 5600
+              "madNs": 800,
+              "medianNs": 5800
+            },
+            {
+              "madNs": 600,
+              "medianNs": 4200
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 8632100,
+          "medianOfMediansNs": 12003300,
           "perProcess": [
             {
-              "madNs": 31100,
-              "medianNs": 8594800
+              "madNs": 1157800,
+              "medianNs": 12425200
             },
             {
-              "madNs": 27100,
-              "medianNs": 8632100
+              "madNs": 576000,
+              "medianNs": 12003300
             },
             {
-              "madNs": 76000,
-              "medianNs": 9004000
+              "madNs": 227100,
+              "medianNs": 8733700
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 2353500,
+          "medianOfMediansNs": 2418800,
           "perProcess": [
             {
-              "madNs": 254500,
-              "medianNs": 2959200
+              "madNs": 38500,
+              "medianNs": 2396500
             },
             {
-              "madNs": 31600,
-              "medianNs": 2353500
+              "madNs": 10700,
+              "medianNs": 3449700
             },
             {
-              "madNs": 18700,
-              "medianNs": 2346500
+              "madNs": 70700,
+              "medianNs": 2418800
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 1446200,
+          "medianOfMediansNs": 1525100,
           "perProcess": [
             {
-              "madNs": 114100,
-              "medianNs": 1548900
+              "madNs": 13200,
+              "medianNs": 1503800
             },
             {
-              "madNs": 25500,
-              "medianNs": 1446100
+              "madNs": 45500,
+              "medianNs": 2313700
             },
             {
-              "madNs": 22400,
-              "medianNs": 1446200
+              "madNs": 70400,
+              "medianNs": 1525100
             }
           ]
         }
@@ -2288,70 +2288,70 @@
       "directionProfileCode": 3,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 4200,
+          "medianOfMediansNs": 5700,
           "perProcess": [
             {
-              "madNs": 200,
-              "medianNs": 4000
+              "madNs": 300,
+              "medianNs": 5300
             },
             {
-              "madNs": 400,
-              "medianNs": 4200
+              "madNs": 700,
+              "medianNs": 6200
             },
             {
-              "madNs": 600,
-              "medianNs": 6100
+              "madNs": 1200,
+              "medianNs": 5700
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 7477700,
+          "medianOfMediansNs": 10367500,
           "perProcess": [
             {
-              "madNs": 108400,
-              "medianNs": 7461700
+              "madNs": 311600,
+              "medianNs": 10869200
             },
             {
-              "madNs": 55000,
-              "medianNs": 7477700
+              "madNs": 1243400,
+              "medianNs": 10367500
             },
             {
-              "madNs": 264200,
-              "medianNs": 7963200
+              "madNs": 188100,
+              "medianNs": 7858500
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 1740000,
+          "medianOfMediansNs": 2615400,
           "perProcess": [
             {
-              "madNs": 8000,
-              "medianNs": 1726900
+              "madNs": 38100,
+              "medianNs": 2654900
             },
             {
-              "madNs": 10000,
-              "medianNs": 1740000
+              "madNs": 50200,
+              "medianNs": 2615400
             },
             {
-              "madNs": 34600,
-              "medianNs": 1831400
+              "madNs": 28600,
+              "medianNs": 1787800
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 1446600,
+          "medianOfMediansNs": 1977900,
           "perProcess": [
             {
-              "madNs": 13100,
-              "medianNs": 1446600
+              "madNs": 414600,
+              "medianNs": 1977900
             },
             {
-              "madNs": 4100,
-              "medianNs": 1422000
+              "madNs": 14200,
+              "medianNs": 2255400
             },
             {
-              "madNs": 21200,
-              "medianNs": 1518200
+              "madNs": 10500,
+              "medianNs": 1440100
             }
           ]
         }
@@ -2367,70 +2367,70 @@
       "directionProfileCode": 1,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 5800,
+          "medianOfMediansNs": 6800,
           "perProcess": [
             {
-              "madNs": 1100,
-              "medianNs": 5800
+              "madNs": 1200,
+              "medianNs": 6800
             },
             {
-              "madNs": 1300,
-              "medianNs": 7100
+              "madNs": 700,
+              "medianNs": 11100
             },
             {
-              "madNs": 500,
-              "medianNs": 4400
+              "madNs": 600,
+              "medianNs": 6500
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 11335900,
+          "medianOfMediansNs": 15792000,
           "perProcess": [
             {
-              "madNs": 192800,
-              "medianNs": 11522100
+              "madNs": 969800,
+              "medianNs": 16039500
             },
             {
-              "madNs": 126000,
-              "medianNs": 11335900
+              "madNs": 228200,
+              "medianNs": 15792000
             },
             {
-              "madNs": 135200,
-              "medianNs": 11120000
+              "madNs": 462000,
+              "medianNs": 12649200
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 3494400,
+          "medianOfMediansNs": 5084300,
           "perProcess": [
             {
-              "madNs": 10800,
-              "medianNs": 3486600
+              "madNs": 76200,
+              "medianNs": 5084300
             },
             {
-              "madNs": 69600,
-              "medianNs": 3640900
+              "madNs": 78900,
+              "medianNs": 5474800
             },
             {
-              "madNs": 13700,
-              "medianNs": 3494400
+              "madNs": 137500,
+              "medianNs": 3784400
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 1437100,
+          "medianOfMediansNs": 1501200,
           "perProcess": [
             {
-              "madNs": 6900,
-              "medianNs": 1413500
+              "madNs": 40100,
+              "medianNs": 1480000
             },
             {
-              "madNs": 16200,
-              "medianNs": 1448800
+              "madNs": 8200,
+              "medianNs": 2344700
             },
             {
-              "madNs": 6400,
-              "medianNs": 1437100
+              "madNs": 30100,
+              "medianNs": 1501200
             }
           ]
         }
@@ -2446,70 +2446,70 @@
       "directionProfileCode": 2,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 4700,
+          "medianOfMediansNs": 8000,
           "perProcess": [
             {
-              "madNs": 400,
-              "medianNs": 4800
+              "madNs": 900,
+              "medianNs": 6400
             },
             {
-              "madNs": 300,
-              "medianNs": 4700
+              "madNs": 1700,
+              "medianNs": 10100
             },
             {
-              "madNs": 700,
-              "medianNs": 4200
+              "madNs": 1100,
+              "medianNs": 8000
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 8684000,
+          "medianOfMediansNs": 11968300,
           "perProcess": [
             {
-              "madNs": 189000,
-              "medianNs": 8925400
+              "madNs": 88200,
+              "medianNs": 11968300
             },
             {
-              "madNs": 136600,
-              "medianNs": 8611400
+              "madNs": 315300,
+              "medianNs": 12397700
             },
             {
-              "madNs": 109700,
-              "medianNs": 8684000
+              "madNs": 273900,
+              "medianNs": 9473200
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 2318100,
+          "medianOfMediansNs": 3434600,
           "perProcess": [
             {
-              "madNs": 29700,
-              "medianNs": 2318100
+              "madNs": 156100,
+              "medianNs": 3434600
             },
             {
-              "madNs": 11800,
-              "medianNs": 2345900
+              "madNs": 259200,
+              "medianNs": 3732500
             },
             {
-              "madNs": 5700,
-              "medianNs": 2297000
+              "madNs": 85200,
+              "medianNs": 2696300
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 1430500,
+          "medianOfMediansNs": 1541300,
           "perProcess": [
             {
-              "madNs": 19200,
-              "medianNs": 1430500
+              "madNs": 23400,
+              "medianNs": 1489100
             },
             {
-              "madNs": 17200,
-              "medianNs": 1433300
+              "madNs": 20100,
+              "medianNs": 2299500
             },
             {
-              "madNs": 9900,
-              "medianNs": 1427400
+              "madNs": 99000,
+              "medianNs": 1541300
             }
           ]
         }
@@ -2525,70 +2525,70 @@
       "directionProfileCode": 3,
       "levels": {
         "commonAdmission": {
-          "medianOfMediansNs": 6300,
+          "medianOfMediansNs": 7200,
           "perProcess": [
             {
-              "madNs": 1700,
-              "medianNs": 6500
+              "madNs": 100,
+              "medianNs": 4900
             },
             {
-              "madNs": 700,
-              "medianNs": 5000
+              "madNs": 1500,
+              "medianNs": 7200
             },
             {
-              "madNs": 1700,
-              "medianNs": 6300
+              "madNs": 400,
+              "medianNs": 7600
             }
           ]
         },
         "fullCompile": {
-          "medianOfMediansNs": 7500500,
+          "medianOfMediansNs": 10432800,
           "perProcess": [
             {
-              "madNs": 195900,
-              "medianNs": 7658300
+              "madNs": 106400,
+              "medianNs": 10632500
             },
             {
-              "madNs": 131100,
-              "medianNs": 7461400
+              "madNs": 538900,
+              "medianNs": 10432800
             },
             {
-              "madNs": 121600,
-              "medianNs": 7500500
+              "madNs": 145000,
+              "medianNs": 7862600
             }
           ]
         },
         "geometryNumericFreeze": {
-          "medianOfMediansNs": 1732900,
+          "medianOfMediansNs": 2585900,
           "perProcess": [
             {
-              "madNs": 9900,
-              "medianNs": 1732900
+              "madNs": 5700,
+              "medianNs": 2585900
             },
             {
-              "madNs": 35300,
-              "medianNs": 1780700
+              "madNs": 72700,
+              "medianNs": 2787500
             },
             {
-              "madNs": 14000,
-              "medianNs": 1720700
+              "madNs": 60400,
+              "medianNs": 2008100
             }
           ]
         },
         "geometryParseBuild": {
-          "medianOfMediansNs": 1427900,
+          "medianOfMediansNs": 2226000,
           "perProcess": [
             {
-              "madNs": 7600,
-              "medianNs": 1427900
+              "madNs": 10200,
+              "medianNs": 2226000
             },
             {
-              "madNs": 9600,
-              "medianNs": 1422200
+              "madNs": 345700,
+              "medianNs": 2339400
             },
             {
-              "madNs": 11800,
-              "medianNs": 1440800
+              "madNs": 31400,
+              "medianNs": 1601100
             }
           ]
         }
@@ -2601,17 +2601,17 @@
   "schemaVersion": 1,
   "source": {
     "cargoLockSha256": "ef55844fd5e242e073f5833f80cde5c3b362def05e16de6a95fbc301be64cd5b",
-    "contractDescriptorSha256": "bd6b9cd88c459741eba4e244b38aa29c72a18935d961524f8633fd49a0c0edef",
+    "contractDescriptorSha256": "f7054dfb1b41f6c03d97a8c179ab0dc206312001d1039e8baccf9a432cb76f4e",
     "dirty": false,
     "evidenceSchemaSha256": "96c08d3eae1b7a71c72b893f19dde6974dc4335eab81a080d7cec0d66f0483d5",
-    "harnessCommit": "3aa66588275c233ede342e41e3b56aa796187f4d",
-    "measurementCommit": "3aa66588275c233ede342e41e3b56aa796187f4d",
-    "referenceMachineDeclarationSha256": "03e7767b56d8cf60ceb82a8630dc3e36baae09557bbd7c9fac904db256b21938",
+    "harnessCommit": "4ace1e2d1338acdb2818892d6ace41901b327396",
+    "measurementCommit": "4ace1e2d1338acdb2818892d6ace41901b327396",
+    "referenceMachineDeclarationSha256": "4ddfc36696328fc60da62f812e54db353f720cb7667755b9cba61d1746ee1e97",
     "releaseBinaries": [
       {
-        "byteLength": 8937472,
+        "byteLength": 8950784,
         "path": "E:\\projects\\worktrees\\7ce9\\laneflow\\target\\release\\calibrate.exe",
-        "sha256": "9871b743074f84b630adbf598863a3de338ae169947f73bfe841e7966594d24b"
+        "sha256": "7ac192dba6f5ed3308eac9fdd15179461c786976dfd43fd33eeaee8ee6c7de7b"
       }
     ],
     "workloadManifestSha256": "a4365bbf3ab43814d6228db58844260e7f7ad06d2fe20d613c24c455100e7cc3"
