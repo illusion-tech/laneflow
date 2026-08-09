@@ -335,8 +335,10 @@ struct CommitSignatureSnapshot {
 struct ForcePushSnapshot {
     #[serde(default)]
     actor: Option<Actor>,
-    before_commit: GitObjectIdentity,
-    after_commit: GitObjectIdentity,
+    #[serde(default)]
+    before_commit: Option<GitObjectIdentity>,
+    #[serde(default)]
+    after_commit: Option<GitObjectIdentity>,
     created_at: String,
 }
 
@@ -907,6 +909,13 @@ pub fn evaluate_snapshot(snapshot: &ExternalReviewSnapshot) -> ExternalReviewRes
                 ));
                 continue;
             }
+            if comment.updated_at != comment.created_at {
+                diagnostics.push(format!(
+                    "受信任 reviewer 的 finding comment `{}` 在创建后被编辑",
+                    comment.id
+                ));
+                continue;
+            }
             linked_review_ids.insert(review.id.clone());
         }
         if linked_review_ids.is_empty() {
@@ -1450,8 +1459,16 @@ fn lockfile_metadata(repository: &str, pr: &PullRequestSnapshot) -> PullRequestM
                     .iter()
                     .map(|event| ForcePush {
                         actor_login: event.actor.as_ref().map(|actor| actor.login.clone()),
-                        before_oid: event.before_commit.oid.clone(),
-                        after_oid: event.after_commit.oid.clone(),
+                        before_oid: event
+                            .before_commit
+                            .as_ref()
+                            .map(|commit| commit.oid.clone())
+                            .unwrap_or_default(),
+                        after_oid: event
+                            .after_commit
+                            .as_ref()
+                            .map(|commit| commit.oid.clone())
+                            .unwrap_or_default(),
                         created_at: event.created_at.clone(),
                     })
                     .collect()
@@ -2811,7 +2828,7 @@ mod tests {
             "2026-08-06T02:20:39Z".to_string();
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
-            ExternalReviewState::AwaitingRereview
+            ExternalReviewState::ProviderError
         );
 
         let mut snapshot = fixture(include_str!(
@@ -2877,6 +2894,21 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.contains("在创建后被编辑"))
+        );
+
+        let mut snapshot = fixture(include_str!(
+            "../fixtures/external-review/codex-awaiting-rereview.json"
+        ));
+        snapshot.pull_request.review_threads.nodes[0].comments.nodes[0].updated_at =
+            "2026-07-24T03:22:00Z".to_string();
+        let result = evaluate_snapshot(&snapshot);
+        assert_eq!(result.state, ExternalReviewState::ProviderError);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("finding comment")
+                    && diagnostic.contains("在创建后被编辑"))
         );
     }
 
@@ -2957,6 +2989,20 @@ mod tests {
         let mut source = fixture(include_str!("../fixtures/external-review/codex-clean.json"));
         source.pull_request.files.page_info.has_next_page = true;
         source.pull_request.commits.page_info.has_next_page = true;
+        assert_eq!(evaluate_snapshot(&source).state, ExternalReviewState::Pass);
+
+        let mut nullable_force_push =
+            serde_json::to_value(&source).expect("source fixture must serialize");
+        nullable_force_push["pullRequest"]["forcePushes"] = serde_json::json!({
+            "nodes": [{
+                "actor": null,
+                "beforeCommit": null,
+                "afterCommit": null,
+                "createdAt": "2026-08-06T02:04:00Z"
+            }]
+        });
+        let source = serde_json::from_value::<ExternalReviewSnapshot>(nullable_force_push)
+            .expect("nullable force-push endpoints must remain parseable");
         assert_eq!(evaluate_snapshot(&source).state, ExternalReviewState::Pass);
 
         let mut lockfile = fixture(include_str!(

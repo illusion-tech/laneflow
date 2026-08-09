@@ -274,6 +274,30 @@ pub(crate) struct CodeQlResult {
 }
 
 impl CodeQlResult {
+    fn provider_error(repository: &str, pr: u64, diagnostic: String) -> Self {
+        Self {
+            schema_version: RESULT_SCHEMA_VERSION,
+            repository: repository.to_string(),
+            pull_request: pr,
+            current_head_oid: String::new(),
+            current_base_oid: String::new(),
+            state: CodeQlState::ProviderError,
+            evidence_url: None,
+            completion_time: None,
+            policy: None,
+            diagnostics: vec![diagnostic],
+        }
+    }
+
+    fn bind_identity_if_missing(&mut self, identity: &PullRequestIdentity) {
+        if self.current_head_oid.is_empty() {
+            self.current_head_oid.clone_from(&identity.head_ref_oid);
+        }
+        if self.current_base_oid.is_empty() {
+            self.current_base_oid.clone_from(&identity.base_ref_oid);
+        }
+    }
+
     pub(crate) fn evidence_url(&self) -> Option<&str> {
         self.evidence_url.as_deref()
     }
@@ -309,15 +333,24 @@ struct Args {
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let args = parse_args(args)?;
-    let result = match args.input {
+    let result = match &args.input {
         InputSource::Live {
             repository,
             pr,
             evidence_url,
-        } => match evidence_url {
-            Some(evidence_url) => evaluate_live_recorded(&repository, pr, &evidence_url)?,
-            None => evaluate_live(&repository, pr)?,
-        },
+        } => {
+            let mut result = match evidence_url {
+                Some(evidence_url) => evaluate_live_recorded(repository, *pr, evidence_url),
+                None => evaluate_live(repository, *pr),
+            }
+            .unwrap_or_else(|error| CodeQlResult::provider_error(repository, *pr, error));
+            if result.current_head_oid.is_empty() {
+                if let Ok(identity) = load_live_identity(repository, *pr) {
+                    result.bind_identity_if_missing(&identity);
+                }
+            }
+            result
+        }
         InputSource::Fixture(path) => {
             let contents = fs::read_to_string(&path)
                 .map_err(|error| format!("无法读取 CodeQL fixture {}：{error}", path.display()))?;
@@ -1162,6 +1195,28 @@ mod tests {
         assert_eq!(
             evaluate_snapshot(&snapshot).state,
             CodeQlState::ProviderError
+        );
+    }
+
+    #[test]
+    fn live_api_error_serializes_as_head_bound_provider_error() {
+        let mut result = CodeQlResult::provider_error(
+            "illusion-tech/laneflow",
+            331,
+            "provider unavailable".to_string(),
+        );
+        result.bind_identity_if_missing(&PullRequestIdentity {
+            head_ref_oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+            base_ref_oid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+        });
+        let json = serde_json::to_value(&result).expect("provider error must serialize");
+
+        assert_eq!(result.state, CodeQlState::ProviderError);
+        assert_eq!(json["schemaVersion"], RESULT_SCHEMA_VERSION);
+        assert_eq!(json["state"], "provider_error");
+        assert_eq!(
+            json["currentHeadOid"],
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         );
     }
 
