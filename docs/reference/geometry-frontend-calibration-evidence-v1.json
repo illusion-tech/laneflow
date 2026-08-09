@@ -1,0 +1,2619 @@
+{
+  "budgetCalibration": {
+    "coldInstanceRetainedCapacity": {
+      "appliesTo": {
+        "accuracyProfileCodes": [
+          1,
+          2,
+          3
+        ],
+        "directionProfileCodes": [
+          1,
+          2,
+          3
+        ],
+        "workloadIds": [
+          "LF-COMP-GEOMETRY-MIN-v1",
+          "LF-COMP-GEOMETRY-CORRIDOR-v1",
+          "LF-COMP-GEOMETRY-P100-v1"
+        ]
+      },
+      "budgetSource": "#296 G1 候选预算（docs/design/geometry-document-frontend.md §9.2）",
+      "calibratedBudget": 0,
+      "candidateBudget": 0,
+      "observedValue": 0,
+      "statistic": "perRowExactMax",
+      "supported": true,
+      "unit": "bytes"
+    },
+    "compilerControlledPeak": {
+      "appliesTo": {
+        "accuracyProfileCodes": [
+          1,
+          2,
+          3
+        ],
+        "directionProfileCodes": [
+          1,
+          2,
+          3
+        ],
+        "workloadIds": [
+          "LF-COMP-GEOMETRY-MIN-v1",
+          "LF-COMP-GEOMETRY-CORRIDOR-v1",
+          "LF-COMP-GEOMETRY-P100-v1"
+        ]
+      },
+      "budgetSource": "#296 G1 候选预算（docs/design/geometry-document-frontend.md §9.2）",
+      "calibratedBudget": 6291456,
+      "candidateBudget": 6291456,
+      "observedValue": 3628485,
+      "statistic": "perRowExactMax",
+      "supported": true,
+      "unit": "bytes"
+    },
+    "fullCompileWallClock": {
+      "appliesTo": {
+        "accuracyProfileCodes": [
+          1,
+          2,
+          3
+        ],
+        "directionProfileCodes": [
+          1,
+          2,
+          3
+        ],
+        "workloadIds": [
+          "LF-COMP-GEOMETRY-MIN-v1",
+          "LF-COMP-GEOMETRY-CORRIDOR-v1",
+          "LF-COMP-GEOMETRY-P100-v1"
+        ]
+      },
+      "budgetSource": "#296 G1 候选预算（docs/design/geometry-document-frontend.md §9.2）",
+      "calibratedBudget": 25000000,
+      "candidateBudget": 25000000,
+      "observedValue": 11924500,
+      "statistic": "perRowMedianOfMediansMax",
+      "supported": true,
+      "unit": "ns"
+    }
+  },
+  "environment": {
+    "biosFirmware": "N.1.09MRO07 (2025-04-08)",
+    "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+    "hardwareId": "LF-P100-REF-01",
+    "hardwareIdentityScheme": "laneflow-p100-hardware-identity-v1",
+    "hardwareIdentitySha256": "be3637be955f6c2c9e9e55b80419794adfac64b709d573602a37da9a8672fd20",
+    "llvm": "22.1.2",
+    "logicalProcessorCount": 32,
+    "operatingSystem": "Microsoft Windows 11 专业版 Insider Preview",
+    "operatingSystemBuild": "29639",
+    "physicalCoreCount": 16,
+    "physicalMemoryBytes": 66232508416,
+    "powerPlan": "平衡",
+    "powerSource": "交流电",
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "sleepOrSessionLockObserved": false,
+    "targetTriple": "x86_64-pc-windows-msvc",
+    "thermalOrPowerThrottlingObserved": false
+  },
+  "protocol": {
+    "clockQuantumNs": 100,
+    "formalSampleCountPerLevel": 7,
+    "id": "geometry-frontend-calibration-v1",
+    "levels": [
+      "geometryParseBuild",
+      "geometryNumericFreeze",
+      "commonAdmission",
+      "fullCompile"
+    ],
+    "processCount": 3,
+    "releaseBuild": true,
+    "singleWorkerThread": true,
+    "warmupCountPerLevel": 1
+  },
+  "rawExecution": {
+    "byteLength": 168288,
+    "path": "docs/reference/geometry-frontend-calibration-raw-execution-v1.json",
+    "schema": "laneflow.geometry-frontend-calibration-raw-execution",
+    "schemaVersion": 1,
+    "sha256": "adc22f462cb03052f09972ffc7bb2180e0149dc4a9c217fb373b8762a6c7e6c1"
+  },
+  "rows": [
+    {
+      "accuracyProfileCode": 1,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 1,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1000,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 1000
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 200,
+              "medianNs": 1100
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 35600,
+          "perProcess": [
+            {
+              "madNs": 2300,
+              "medianNs": 37600
+            },
+            {
+              "madNs": 700,
+              "medianNs": 34600
+            },
+            {
+              "madNs": 500,
+              "medianNs": 35600
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 7800,
+          "perProcess": [
+            {
+              "madNs": 400,
+              "medianNs": 7700
+            },
+            {
+              "madNs": 500,
+              "medianNs": 7800
+            },
+            {
+              "madNs": 300,
+              "medianNs": 7800
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 7800,
+          "perProcess": [
+            {
+              "madNs": 400,
+              "medianNs": 7800
+            },
+            {
+              "madNs": 200,
+              "medianNs": 7800
+            },
+            {
+              "madNs": 200,
+              "medianNs": 7700
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 1,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 2,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 900,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 1300
+            },
+            {
+              "madNs": 100,
+              "medianNs": 900
+            },
+            {
+              "madNs": 100,
+              "medianNs": 900
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 33800,
+          "perProcess": [
+            {
+              "madNs": 300,
+              "medianNs": 32700
+            },
+            {
+              "madNs": 700,
+              "medianNs": 33800
+            },
+            {
+              "madNs": 600,
+              "medianNs": 34000
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 7100,
+          "perProcess": [
+            {
+              "madNs": 200,
+              "medianNs": 6400
+            },
+            {
+              "madNs": 100,
+              "medianNs": 7100
+            },
+            {
+              "madNs": 400,
+              "medianNs": 7300
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 7700,
+          "perProcess": [
+            {
+              "madNs": 200,
+              "medianNs": 7700
+            },
+            {
+              "madNs": 100,
+              "medianNs": 7700
+            },
+            {
+              "madNs": 100,
+              "medianNs": 7800
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 1,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 900,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 32800,
+          "perProcess": [
+            {
+              "madNs": 800,
+              "medianNs": 32800
+            },
+            {
+              "madNs": 300,
+              "medianNs": 33100
+            },
+            {
+              "madNs": 300,
+              "medianNs": 32100
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 6400,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 6400
+            },
+            {
+              "madNs": 0,
+              "medianNs": 6600
+            },
+            {
+              "madNs": 0,
+              "medianNs": 6400
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 7200,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 7200
+            },
+            {
+              "madNs": 0,
+              "medianNs": 7200
+            },
+            {
+              "madNs": 200,
+              "medianNs": 7400
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 1,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 900,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 31900,
+          "perProcess": [
+            {
+              "madNs": 700,
+              "medianNs": 32600
+            },
+            {
+              "madNs": 200,
+              "medianNs": 31800
+            },
+            {
+              "madNs": 200,
+              "medianNs": 31900
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 6300,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 6100
+            },
+            {
+              "madNs": 100,
+              "medianNs": 6300
+            },
+            {
+              "madNs": 0,
+              "medianNs": 6300
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 7000,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 7000
+            },
+            {
+              "madNs": 0,
+              "medianNs": 7000
+            },
+            {
+              "madNs": 0,
+              "medianNs": 7100
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 2,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 900,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 0,
+              "medianNs": 800
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 32000,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 32100
+            },
+            {
+              "madNs": 100,
+              "medianNs": 31600
+            },
+            {
+              "madNs": 300,
+              "medianNs": 32000
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 6200,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 6200
+            },
+            {
+              "madNs": 100,
+              "medianNs": 6200
+            },
+            {
+              "madNs": 100,
+              "medianNs": 6200
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 7100,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 7100
+            },
+            {
+              "madNs": 100,
+              "medianNs": 7000
+            },
+            {
+              "madNs": 100,
+              "medianNs": 7200
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 900,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 1000
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 31800,
+          "perProcess": [
+            {
+              "madNs": 200,
+              "medianNs": 32100
+            },
+            {
+              "madNs": 100,
+              "medianNs": 31800
+            },
+            {
+              "madNs": 200,
+              "medianNs": 31800
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 6300,
+          "perProcess": [
+            {
+              "madNs": 700,
+              "medianNs": 8200
+            },
+            {
+              "madNs": 0,
+              "medianNs": 6200
+            },
+            {
+              "madNs": 0,
+              "medianNs": 6300
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 7100,
+          "perProcess": [
+            {
+              "madNs": 200,
+              "medianNs": 7100
+            },
+            {
+              "madNs": 100,
+              "medianNs": 7200
+            },
+            {
+              "madNs": 100,
+              "medianNs": 7100
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 3,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 1,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 900,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 32000,
+          "perProcess": [
+            {
+              "madNs": 800,
+              "medianNs": 32500
+            },
+            {
+              "madNs": 400,
+              "medianNs": 32000
+            },
+            {
+              "madNs": 100,
+              "medianNs": 31700
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 6200,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 6100
+            },
+            {
+              "madNs": 200,
+              "medianNs": 6300
+            },
+            {
+              "madNs": 0,
+              "medianNs": 6200
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 7100,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 7100
+            },
+            {
+              "madNs": 100,
+              "medianNs": 7200
+            },
+            {
+              "madNs": 0,
+              "medianNs": 7100
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 3,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 2,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 900,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 200,
+              "medianNs": 1100
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 32000,
+          "perProcess": [
+            {
+              "madNs": 4100,
+              "medianNs": 42200
+            },
+            {
+              "madNs": 400,
+              "medianNs": 32000
+            },
+            {
+              "madNs": 100,
+              "medianNs": 31800
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 6200,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 6200
+            },
+            {
+              "madNs": 100,
+              "medianNs": 6100
+            },
+            {
+              "madNs": 100,
+              "medianNs": 6300
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 7000,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 7000
+            },
+            {
+              "madNs": 100,
+              "medianNs": 7100
+            },
+            {
+              "madNs": 0,
+              "medianNs": 7000
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 3,
+      "compilerControlledPeakBytes": 11796,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e8b7cfd1e23e1588dea8a6fc9c83178527cb207497c8cd55b0fe42f66b6aa533",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 900,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 900
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1000
+            },
+            {
+              "madNs": 0,
+              "medianNs": 900
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 32400,
+          "perProcess": [
+            {
+              "madNs": 300,
+              "medianNs": 32000
+            },
+            {
+              "madNs": 1100,
+              "medianNs": 33700
+            },
+            {
+              "madNs": 300,
+              "medianNs": 32400
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 6300,
+          "perProcess": [
+            {
+              "madNs": 0,
+              "medianNs": 6000
+            },
+            {
+              "madNs": 100,
+              "medianNs": 6300
+            },
+            {
+              "madNs": 100,
+              "medianNs": 6300
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 7300,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 7300
+            },
+            {
+              "madNs": 200,
+              "medianNs": 7400
+            },
+            {
+              "madNs": 200,
+              "medianNs": 7300
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "5937730a75b5a170f61d82e2a77e6693256ed52a76d99d47dda835cd79783478",
+      "workloadId": "LF-COMP-GEOMETRY-MIN-v1"
+    },
+    {
+      "accuracyProfileCode": 1,
+      "compilerControlledPeakBytes": 726287,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "ae7d83cd640b6183f963d79fc1b37a42bd195576389d65076cc3d11468a58a58",
+      "directionProfileCode": 1,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 2900,
+          "perProcess": [
+            {
+              "madNs": 800,
+              "medianNs": 2900
+            },
+            {
+              "madNs": 400,
+              "medianNs": 2900
+            },
+            {
+              "madNs": 500,
+              "medianNs": 2100
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 2618300,
+          "perProcess": [
+            {
+              "madNs": 201600,
+              "medianNs": 2978500
+            },
+            {
+              "madNs": 20200,
+              "medianNs": 2552800
+            },
+            {
+              "madNs": 39100,
+              "medianNs": 2618300
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 810700,
+          "perProcess": [
+            {
+              "madNs": 36100,
+              "medianNs": 813800
+            },
+            {
+              "madNs": 34500,
+              "medianNs": 810700
+            },
+            {
+              "madNs": 14100,
+              "medianNs": 776100
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 340100,
+          "perProcess": [
+            {
+              "madNs": 14100,
+              "medianNs": 352700
+            },
+            {
+              "madNs": 16200,
+              "medianNs": 338900
+            },
+            {
+              "madNs": 8300,
+              "medianNs": 340100
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "3c76be28224851d2455e95c6f654be593d96e5957bdf85ab531e7516dff72e92",
+      "syntheticBase": {
+        "levels": {
+          "commonAdmission": {
+            "medianOfMediansNs": 1400,
+            "perProcess": [
+              {
+                "madNs": 100,
+                "medianNs": 1100
+              },
+              {
+                "madNs": 200,
+                "medianNs": 1400
+              },
+              {
+                "madNs": 100,
+                "medianNs": 1400
+              }
+            ]
+          },
+          "fullCompile": {
+            "medianOfMediansNs": 1838600,
+            "perProcess": [
+              {
+                "madNs": 150100,
+                "medianNs": 1932300
+              },
+              {
+                "madNs": 30000,
+                "medianNs": 1817200
+              },
+              {
+                "madNs": 36100,
+                "medianNs": 1838600
+              }
+            ]
+          }
+        }
+      },
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "accuracyProfileCode": 1,
+      "compilerControlledPeakBytes": 666255,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "f0ede0f8c76116635a1130e09809f6912612b037727d26bf173188c43889dcfa",
+      "directionProfileCode": 2,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1800,
+          "perProcess": [
+            {
+              "madNs": 600,
+              "medianNs": 3300
+            },
+            {
+              "madNs": 200,
+              "medianNs": 1800
+            },
+            {
+              "madNs": 200,
+              "medianNs": 1700
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 2026800,
+          "perProcess": [
+            {
+              "madNs": 130600,
+              "medianNs": 2392900
+            },
+            {
+              "madNs": 31100,
+              "medianNs": 2026800
+            },
+            {
+              "madNs": 11600,
+              "medianNs": 2013500
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 532200,
+          "perProcess": [
+            {
+              "madNs": 10200,
+              "medianNs": 588500
+            },
+            {
+              "madNs": 11900,
+              "medianNs": 532200
+            },
+            {
+              "madNs": 11000,
+              "medianNs": 521600
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 304600,
+          "perProcess": [
+            {
+              "madNs": 11200,
+              "medianNs": 313500
+            },
+            {
+              "madNs": 5300,
+              "medianNs": 296000
+            },
+            {
+              "madNs": 12000,
+              "medianNs": 304600
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "01bd0afc0c2760167f605a7d5282145ec139503670bc9e7a883737b3bb92ddb2",
+      "syntheticBase": {
+        "levels": {
+          "commonAdmission": {
+            "medianOfMediansNs": 1200,
+            "perProcess": [
+              {
+                "madNs": 100,
+                "medianNs": 1200
+              },
+              {
+                "madNs": 0,
+                "medianNs": 1200
+              },
+              {
+                "madNs": 100,
+                "medianNs": 1100
+              }
+            ]
+          },
+          "fullCompile": {
+            "medianOfMediansNs": 1540600,
+            "perProcess": [
+              {
+                "madNs": 105900,
+                "medianNs": 1831700
+              },
+              {
+                "madNs": 24800,
+                "medianNs": 1500400
+              },
+              {
+                "madNs": 8500,
+                "medianNs": 1540600
+              }
+            ]
+          }
+        }
+      },
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "accuracyProfileCode": 1,
+      "compilerControlledPeakBytes": 637583,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "ea010f016e5cace04c68182836a66e3846bc9a1c324cc4cdefc99185577d1ccd",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1700,
+          "perProcess": [
+            {
+              "madNs": 700,
+              "medianNs": 3200
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1700
+            },
+            {
+              "madNs": 200,
+              "medianNs": 1600
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 1762500,
+          "perProcess": [
+            {
+              "madNs": 179500,
+              "medianNs": 2158300
+            },
+            {
+              "madNs": 28600,
+              "medianNs": 1721300
+            },
+            {
+              "madNs": 26800,
+              "medianNs": 1762500
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 407300,
+          "perProcess": [
+            {
+              "madNs": 57500,
+              "medianNs": 532100
+            },
+            {
+              "madNs": 7400,
+              "medianNs": 394700
+            },
+            {
+              "madNs": 9500,
+              "medianNs": 407300
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 304800,
+          "perProcess": [
+            {
+              "madNs": 16000,
+              "medianNs": 328500
+            },
+            {
+              "madNs": 11400,
+              "medianNs": 296400
+            },
+            {
+              "madNs": 13000,
+              "medianNs": 304800
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "cddb44383843a3af927af2fa6e95c047e8fd192311b7cd37e206f05cc9a9cde7",
+      "syntheticBase": {
+        "levels": {
+          "commonAdmission": {
+            "medianOfMediansNs": 1100,
+            "perProcess": [
+              {
+                "madNs": 200,
+                "medianNs": 1200
+              },
+              {
+                "madNs": 100,
+                "medianNs": 1100
+              },
+              {
+                "madNs": 100,
+                "medianNs": 1100
+              }
+            ]
+          },
+          "fullCompile": {
+            "medianOfMediansNs": 1394000,
+            "perProcess": [
+              {
+                "madNs": 244500,
+                "medianNs": 1742000
+              },
+              {
+                "madNs": 42100,
+                "medianNs": 1394000
+              },
+              {
+                "madNs": 19300,
+                "medianNs": 1383400
+              }
+            ]
+          }
+        }
+      },
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 726287,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "ae7d83cd640b6183f963d79fc1b37a42bd195576389d65076cc3d11468a58a58",
+      "directionProfileCode": 1,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1900,
+          "perProcess": [
+            {
+              "madNs": 300,
+              "medianNs": 2100
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1600
+            },
+            {
+              "madNs": 400,
+              "medianNs": 1900
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 2579300,
+          "perProcess": [
+            {
+              "madNs": 40400,
+              "medianNs": 2797100
+            },
+            {
+              "madNs": 16100,
+              "medianNs": 2427900
+            },
+            {
+              "madNs": 49600,
+              "medianNs": 2579300
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 782100,
+          "perProcess": [
+            {
+              "madNs": 106600,
+              "medianNs": 946500
+            },
+            {
+              "madNs": 30300,
+              "medianNs": 782100
+            },
+            {
+              "madNs": 11900,
+              "medianNs": 766600
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 289900,
+          "perProcess": [
+            {
+              "madNs": 5700,
+              "medianNs": 289900
+            },
+            {
+              "madNs": 3400,
+              "medianNs": 286500
+            },
+            {
+              "madNs": 10500,
+              "medianNs": 296800
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "3c76be28224851d2455e95c6f654be593d96e5957bdf85ab531e7516dff72e92",
+      "syntheticBase": {
+        "levels": {
+          "commonAdmission": {
+            "medianOfMediansNs": 1300,
+            "perProcess": [
+              {
+                "madNs": 100,
+                "medianNs": 1300
+              },
+              {
+                "madNs": 100,
+                "medianNs": 1100
+              },
+              {
+                "madNs": 500,
+                "medianNs": 1500
+              }
+            ]
+          },
+          "fullCompile": {
+            "medianOfMediansNs": 1856100,
+            "perProcess": [
+              {
+                "madNs": 121600,
+                "medianNs": 2052300
+              },
+              {
+                "madNs": 38600,
+                "medianNs": 1711300
+              },
+              {
+                "madNs": 16300,
+                "medianNs": 1856100
+              }
+            ]
+          }
+        }
+      },
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 665359,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "f9b3ac45cdb3403cf5785bdd1602f584bf4e01ef41d4e9b22b2ba7169f70682a",
+      "directionProfileCode": 2,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1500,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 1600
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1500
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1500
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 1935800,
+          "perProcess": [
+            {
+              "madNs": 19600,
+              "medianNs": 1913400
+            },
+            {
+              "madNs": 30100,
+              "medianNs": 1935800
+            },
+            {
+              "madNs": 16400,
+              "medianNs": 1991800
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 474500,
+          "perProcess": [
+            {
+              "madNs": 21700,
+              "medianNs": 513100
+            },
+            {
+              "madNs": 4100,
+              "medianNs": 472600
+            },
+            {
+              "madNs": 10800,
+              "medianNs": 474500
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 287600,
+          "perProcess": [
+            {
+              "madNs": 42300,
+              "medianNs": 333600
+            },
+            {
+              "madNs": 3300,
+              "medianNs": 284900
+            },
+            {
+              "madNs": 2100,
+              "medianNs": 287600
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "75c12764cb4d372e97832e704ebcf9a60d0e17678d88a0295f9a7abc8780a499",
+      "syntheticBase": {
+        "levels": {
+          "commonAdmission": {
+            "medianOfMediansNs": 1100,
+            "perProcess": [
+              {
+                "madNs": 100,
+                "medianNs": 1100
+              },
+              {
+                "madNs": 100,
+                "medianNs": 1100
+              },
+              {
+                "madNs": 100,
+                "medianNs": 1000
+              }
+            ]
+          },
+          "fullCompile": {
+            "medianOfMediansNs": 1429700,
+            "perProcess": [
+              {
+                "madNs": 107300,
+                "medianNs": 1429700
+              },
+              {
+                "madNs": 29900,
+                "medianNs": 1403800
+              },
+              {
+                "madNs": 77400,
+                "medianNs": 1465400
+              }
+            ]
+          }
+        }
+      },
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 636239,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "6f57ed08303a256fddb1473b872efd173eadea29e67155196dae42db43276267",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1500,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 1500
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1500
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1400
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 1684500,
+          "perProcess": [
+            {
+              "madNs": 22400,
+              "medianNs": 1703300
+            },
+            {
+              "madNs": 47900,
+              "medianNs": 1654800
+            },
+            {
+              "madNs": 31900,
+              "medianNs": 1684500
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 352100,
+          "perProcess": [
+            {
+              "madNs": 5400,
+              "medianNs": 349400
+            },
+            {
+              "madNs": 3500,
+              "medianNs": 352600
+            },
+            {
+              "madNs": 5700,
+              "medianNs": 352100
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 292700,
+          "perProcess": [
+            {
+              "madNs": 5900,
+              "medianNs": 300500
+            },
+            {
+              "madNs": 5300,
+              "medianNs": 291300
+            },
+            {
+              "madNs": 2800,
+              "medianNs": 292700
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "93ffc68933691638d9659ff954299f17afa3a070fad4452424191fecd3dc1dcd",
+      "syntheticBase": {
+        "levels": {
+          "commonAdmission": {
+            "medianOfMediansNs": 1000,
+            "perProcess": [
+              {
+                "madNs": 100,
+                "medianNs": 1000
+              },
+              {
+                "madNs": 0,
+                "medianNs": 1000
+              },
+              {
+                "madNs": 0,
+                "medianNs": 1000
+              }
+            ]
+          },
+          "fullCompile": {
+            "medianOfMediansNs": 1263100,
+            "perProcess": [
+              {
+                "madNs": 36000,
+                "medianNs": 1263100
+              },
+              {
+                "madNs": 15100,
+                "medianNs": 1195500
+              },
+              {
+                "madNs": 85100,
+                "medianNs": 1281700
+              }
+            ]
+          }
+        }
+      },
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "accuracyProfileCode": 3,
+      "compilerControlledPeakBytes": 726287,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "ae7d83cd640b6183f963d79fc1b37a42bd195576389d65076cc3d11468a58a58",
+      "directionProfileCode": 1,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1800,
+          "perProcess": [
+            {
+              "madNs": 100,
+              "medianNs": 2400
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1700
+            },
+            {
+              "madNs": 200,
+              "medianNs": 1800
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 2418600,
+          "perProcess": [
+            {
+              "madNs": 76900,
+              "medianNs": 2768100
+            },
+            {
+              "madNs": 81700,
+              "medianNs": 2397100
+            },
+            {
+              "madNs": 99600,
+              "medianNs": 2418600
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 750800,
+          "perProcess": [
+            {
+              "madNs": 33700,
+              "medianNs": 750800
+            },
+            {
+              "madNs": 27800,
+              "medianNs": 771600
+            },
+            {
+              "madNs": 10900,
+              "medianNs": 705600
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 288800,
+          "perProcess": [
+            {
+              "madNs": 3100,
+              "medianNs": 287200
+            },
+            {
+              "madNs": 1400,
+              "medianNs": 288800
+            },
+            {
+              "madNs": 2700,
+              "medianNs": 291700
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "3c76be28224851d2455e95c6f654be593d96e5957bdf85ab531e7516dff72e92",
+      "syntheticBase": {
+        "levels": {
+          "commonAdmission": {
+            "medianOfMediansNs": 1100,
+            "perProcess": [
+              {
+                "madNs": 400,
+                "medianNs": 1500
+              },
+              {
+                "madNs": 100,
+                "medianNs": 1100
+              },
+              {
+                "madNs": 0,
+                "medianNs": 1100
+              }
+            ]
+          },
+          "fullCompile": {
+            "medianOfMediansNs": 1729300,
+            "perProcess": [
+              {
+                "madNs": 82200,
+                "medianNs": 1909000
+              },
+              {
+                "madNs": 62500,
+                "medianNs": 1729300
+              },
+              {
+                "madNs": 41500,
+                "medianNs": 1616100
+              }
+            ]
+          }
+        }
+      },
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "accuracyProfileCode": 3,
+      "compilerControlledPeakBytes": 665359,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "f9b3ac45cdb3403cf5785bdd1602f584bf4e01ef41d4e9b22b2ba7169f70682a",
+      "directionProfileCode": 2,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 1700,
+          "perProcess": [
+            {
+              "madNs": 900,
+              "medianNs": 5000
+            },
+            {
+              "madNs": 200,
+              "medianNs": 1700
+            },
+            {
+              "madNs": 100,
+              "medianNs": 1500
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 1835200,
+          "perProcess": [
+            {
+              "madNs": 43200,
+              "medianNs": 2011700
+            },
+            {
+              "madNs": 23800,
+              "medianNs": 1833000
+            },
+            {
+              "madNs": 20700,
+              "medianNs": 1835200
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 471900,
+          "perProcess": [
+            {
+              "madNs": 24500,
+              "medianNs": 552900
+            },
+            {
+              "madNs": 6700,
+              "medianNs": 471900
+            },
+            {
+              "madNs": 4500,
+              "medianNs": 464800
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 290800,
+          "perProcess": [
+            {
+              "madNs": 11700,
+              "medianNs": 301300
+            },
+            {
+              "madNs": 10500,
+              "medianNs": 290800
+            },
+            {
+              "madNs": 4100,
+              "medianNs": 288800
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "75c12764cb4d372e97832e704ebcf9a60d0e17678d88a0295f9a7abc8780a499",
+      "syntheticBase": {
+        "levels": {
+          "commonAdmission": {
+            "medianOfMediansNs": 1100,
+            "perProcess": [
+              {
+                "madNs": 200,
+                "medianNs": 1200
+              },
+              {
+                "madNs": 0,
+                "medianNs": 1100
+              },
+              {
+                "madNs": 100,
+                "medianNs": 1000
+              }
+            ]
+          },
+          "fullCompile": {
+            "medianOfMediansNs": 1407100,
+            "perProcess": [
+              {
+                "madNs": 83300,
+                "medianNs": 1467200
+              },
+              {
+                "madNs": 81200,
+                "medianNs": 1407100
+              },
+              {
+                "madNs": 30800,
+                "medianNs": 1318700
+              }
+            ]
+          }
+        }
+      },
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "accuracyProfileCode": 3,
+      "compilerControlledPeakBytes": 635791,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "0ddd0e546d633d2ace33574550c9430b7c20a2fd60ec2a9540f3afbd4ca7420b",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 2400,
+          "perProcess": [
+            {
+              "madNs": 800,
+              "medianNs": 4300
+            },
+            {
+              "madNs": 0,
+              "medianNs": 1300
+            },
+            {
+              "madNs": 200,
+              "medianNs": 2400
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 1599600,
+          "perProcess": [
+            {
+              "madNs": 49700,
+              "medianNs": 1690100
+            },
+            {
+              "madNs": 33000,
+              "medianNs": 1599600
+            },
+            {
+              "madNs": 18500,
+              "medianNs": 1563400
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 353100,
+          "perProcess": [
+            {
+              "madNs": 23800,
+              "medianNs": 382600
+            },
+            {
+              "madNs": 6600,
+              "medianNs": 353100
+            },
+            {
+              "madNs": 2300,
+              "medianNs": 343700
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 289500,
+          "perProcess": [
+            {
+              "madNs": 3000,
+              "medianNs": 289500
+            },
+            {
+              "madNs": 4800,
+              "medianNs": 286800
+            },
+            {
+              "madNs": 8000,
+              "medianNs": 295700
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "641510b18b10904f3aee695968d262c88a2060b1a8ddae46940c4029ae5a0a90",
+      "syntheticBase": {
+        "levels": {
+          "commonAdmission": {
+            "medianOfMediansNs": 1100,
+            "perProcess": [
+              {
+                "madNs": 300,
+                "medianNs": 1100
+              },
+              {
+                "madNs": 300,
+                "medianNs": 1600
+              },
+              {
+                "madNs": 0,
+                "medianNs": 1000
+              }
+            ]
+          },
+          "fullCompile": {
+            "medianOfMediansNs": 1214200,
+            "perProcess": [
+              {
+                "madNs": 62900,
+                "medianNs": 1246200
+              },
+              {
+                "madNs": 26600,
+                "medianNs": 1214200
+              },
+              {
+                "madNs": 4100,
+                "medianNs": 1170900
+              }
+            ]
+          }
+        }
+      },
+      "workloadId": "LF-COMP-GEOMETRY-CORRIDOR-v1"
+    },
+    {
+      "accuracyProfileCode": 1,
+      "compilerControlledPeakBytes": 3628485,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e85e7677f7f8dcef0b61d3429cd26c4b2c58a094efbdcad45cbaed05ce0c2a10",
+      "directionProfileCode": 1,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 5100,
+          "perProcess": [
+            {
+              "madNs": 1300,
+              "medianNs": 5600
+            },
+            {
+              "madNs": 700,
+              "medianNs": 5100
+            },
+            {
+              "madNs": 400,
+              "medianNs": 4600
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 11924500,
+          "perProcess": [
+            {
+              "madNs": 462800,
+              "medianNs": 11924500
+            },
+            {
+              "madNs": 160500,
+              "medianNs": 12033000
+            },
+            {
+              "madNs": 347800,
+              "medianNs": 11750200
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 3769700,
+          "perProcess": [
+            {
+              "madNs": 199300,
+              "medianNs": 3769700
+            },
+            {
+              "madNs": 111800,
+              "medianNs": 3784500
+            },
+            {
+              "madNs": 82700,
+              "medianNs": 3689600
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 1519700,
+          "perProcess": [
+            {
+              "madNs": 79800,
+              "medianNs": 1519700
+            },
+            {
+              "madNs": 78400,
+              "medianNs": 1544000
+            },
+            {
+              "madNs": 16000,
+              "medianNs": 1435100
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "3da8c43c5e1126d59098bc81bf24203d87d6d9009ad125340ba186ade895bc4f",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "accuracyProfileCode": 1,
+      "compilerControlledPeakBytes": 3328325,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "578b17f98596c8dd8316c08fe9fbcf38583d52e5f3215675ef48ef04494a61f9",
+      "directionProfileCode": 2,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 4400,
+          "perProcess": [
+            {
+              "madNs": 1000,
+              "medianNs": 7000
+            },
+            {
+              "madNs": 500,
+              "medianNs": 4400
+            },
+            {
+              "madNs": 100,
+              "medianNs": 4000
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 8857400,
+          "perProcess": [
+            {
+              "madNs": 497200,
+              "medianNs": 9288200
+            },
+            {
+              "madNs": 247800,
+              "medianNs": 8857400
+            },
+            {
+              "madNs": 78200,
+              "medianNs": 8658700
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 2392800,
+          "perProcess": [
+            {
+              "madNs": 140800,
+              "medianNs": 2720200
+            },
+            {
+              "madNs": 35600,
+              "medianNs": 2392800
+            },
+            {
+              "madNs": 6200,
+              "medianNs": 2325600
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 1429600,
+          "perProcess": [
+            {
+              "madNs": 84000,
+              "medianNs": 1601700
+            },
+            {
+              "madNs": 10300,
+              "medianNs": 1429600
+            },
+            {
+              "madNs": 17000,
+              "medianNs": 1429500
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "ce524330b60b148378e8a58e0274b0dc6937cbd4ff9a45df8f32eb3c9e20e717",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "accuracyProfileCode": 1,
+      "compilerControlledPeakBytes": 3184965,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "812972f972060caaba9913b2a1cd70c617b2be3cc30646dfaf187ded9ededa9f",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 5300,
+          "perProcess": [
+            {
+              "madNs": 900,
+              "medianNs": 5500
+            },
+            {
+              "madNs": 800,
+              "medianNs": 5000
+            },
+            {
+              "madNs": 900,
+              "medianNs": 5300
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 7635400,
+          "perProcess": [
+            {
+              "madNs": 391700,
+              "medianNs": 8368300
+            },
+            {
+              "madNs": 93300,
+              "medianNs": 7467200
+            },
+            {
+              "madNs": 203900,
+              "medianNs": 7635400
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 1785700,
+          "perProcess": [
+            {
+              "madNs": 28100,
+              "medianNs": 1793500
+            },
+            {
+              "madNs": 13900,
+              "medianNs": 1785700
+            },
+            {
+              "madNs": 15500,
+              "medianNs": 1767900
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 1444800,
+          "perProcess": [
+            {
+              "madNs": 33100,
+              "medianNs": 1487100
+            },
+            {
+              "madNs": 8100,
+              "medianNs": 1444800
+            },
+            {
+              "madNs": 22400,
+              "medianNs": 1444700
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "86b713efda25ecbdb71785a32f042ac56ccf1db3d976e3b0992a3bf3abb99854",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 3628485,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e85e7677f7f8dcef0b61d3429cd26c4b2c58a094efbdcad45cbaed05ce0c2a10",
+      "directionProfileCode": 1,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 4400,
+          "perProcess": [
+            {
+              "madNs": 900,
+              "medianNs": 4800
+            },
+            {
+              "madNs": 300,
+              "medianNs": 3900
+            },
+            {
+              "madNs": 600,
+              "medianNs": 4400
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 11144400,
+          "perProcess": [
+            {
+              "madNs": 101000,
+              "medianNs": 12688400
+            },
+            {
+              "madNs": 79900,
+              "medianNs": 11144400
+            },
+            {
+              "madNs": 54500,
+              "medianNs": 11036600
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 3604900,
+          "perProcess": [
+            {
+              "madNs": 36200,
+              "medianNs": 3648400
+            },
+            {
+              "madNs": 21400,
+              "medianNs": 3604900
+            },
+            {
+              "madNs": 9000,
+              "medianNs": 3488000
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 1468500,
+          "perProcess": [
+            {
+              "madNs": 41300,
+              "medianNs": 1468500
+            },
+            {
+              "madNs": 10700,
+              "medianNs": 1421300
+            },
+            {
+              "madNs": 77500,
+              "medianNs": 1566300
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "3da8c43c5e1126d59098bc81bf24203d87d6d9009ad125340ba186ade895bc4f",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 3323845,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "08e97fdc27a0b8fb54ae8655b6443791ea0db941414af3d9a369f6ce2c2a072f",
+      "directionProfileCode": 2,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 5600,
+          "perProcess": [
+            {
+              "madNs": 1000,
+              "medianNs": 6400
+            },
+            {
+              "madNs": 500,
+              "medianNs": 4300
+            },
+            {
+              "madNs": 300,
+              "medianNs": 5600
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 8632100,
+          "perProcess": [
+            {
+              "madNs": 31100,
+              "medianNs": 8594800
+            },
+            {
+              "madNs": 27100,
+              "medianNs": 8632100
+            },
+            {
+              "madNs": 76000,
+              "medianNs": 9004000
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 2353500,
+          "perProcess": [
+            {
+              "madNs": 254500,
+              "medianNs": 2959200
+            },
+            {
+              "madNs": 31600,
+              "medianNs": 2353500
+            },
+            {
+              "madNs": 18700,
+              "medianNs": 2346500
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 1446200,
+          "perProcess": [
+            {
+              "madNs": 114100,
+              "medianNs": 1548900
+            },
+            {
+              "madNs": 25500,
+              "medianNs": 1446100
+            },
+            {
+              "madNs": 22400,
+              "medianNs": 1446200
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "f543cd6b089b3ee100155e5e986ad3bc83189a1302c6ea2beca670cff0faf99b",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "accuracyProfileCode": 2,
+      "compilerControlledPeakBytes": 3178245,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "38051c3a205c1f8680902349ecb4750841b1b8a09789afe9780f48b43be08102",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 4200,
+          "perProcess": [
+            {
+              "madNs": 200,
+              "medianNs": 4000
+            },
+            {
+              "madNs": 400,
+              "medianNs": 4200
+            },
+            {
+              "madNs": 600,
+              "medianNs": 6100
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 7477700,
+          "perProcess": [
+            {
+              "madNs": 108400,
+              "medianNs": 7461700
+            },
+            {
+              "madNs": 55000,
+              "medianNs": 7477700
+            },
+            {
+              "madNs": 264200,
+              "medianNs": 7963200
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 1740000,
+          "perProcess": [
+            {
+              "madNs": 8000,
+              "medianNs": 1726900
+            },
+            {
+              "madNs": 10000,
+              "medianNs": 1740000
+            },
+            {
+              "madNs": 34600,
+              "medianNs": 1831400
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 1446600,
+          "perProcess": [
+            {
+              "madNs": 13100,
+              "medianNs": 1446600
+            },
+            {
+              "madNs": 4100,
+              "medianNs": 1422000
+            },
+            {
+              "madNs": 21200,
+              "medianNs": 1518200
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "276d2c82e57e3cbe8e24c5001f1abc3d8add21ecac07ce43f3b5e1967cb59cdd",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "accuracyProfileCode": 3,
+      "compilerControlledPeakBytes": 3628485,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "e85e7677f7f8dcef0b61d3429cd26c4b2c58a094efbdcad45cbaed05ce0c2a10",
+      "directionProfileCode": 1,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 5800,
+          "perProcess": [
+            {
+              "madNs": 1100,
+              "medianNs": 5800
+            },
+            {
+              "madNs": 1300,
+              "medianNs": 7100
+            },
+            {
+              "madNs": 500,
+              "medianNs": 4400
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 11335900,
+          "perProcess": [
+            {
+              "madNs": 192800,
+              "medianNs": 11522100
+            },
+            {
+              "madNs": 126000,
+              "medianNs": 11335900
+            },
+            {
+              "madNs": 135200,
+              "medianNs": 11120000
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 3494400,
+          "perProcess": [
+            {
+              "madNs": 10800,
+              "medianNs": 3486600
+            },
+            {
+              "madNs": 69600,
+              "medianNs": 3640900
+            },
+            {
+              "madNs": 13700,
+              "medianNs": 3494400
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 1437100,
+          "perProcess": [
+            {
+              "madNs": 6900,
+              "medianNs": 1413500
+            },
+            {
+              "madNs": 16200,
+              "medianNs": 1448800
+            },
+            {
+              "madNs": 6400,
+              "medianNs": 1437100
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "3da8c43c5e1126d59098bc81bf24203d87d6d9009ad125340ba186ade895bc4f",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "accuracyProfileCode": 3,
+      "compilerControlledPeakBytes": 3323845,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "08e97fdc27a0b8fb54ae8655b6443791ea0db941414af3d9a369f6ce2c2a072f",
+      "directionProfileCode": 2,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 4700,
+          "perProcess": [
+            {
+              "madNs": 400,
+              "medianNs": 4800
+            },
+            {
+              "madNs": 300,
+              "medianNs": 4700
+            },
+            {
+              "madNs": 700,
+              "medianNs": 4200
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 8684000,
+          "perProcess": [
+            {
+              "madNs": 189000,
+              "medianNs": 8925400
+            },
+            {
+              "madNs": 136600,
+              "medianNs": 8611400
+            },
+            {
+              "madNs": 109700,
+              "medianNs": 8684000
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 2318100,
+          "perProcess": [
+            {
+              "madNs": 29700,
+              "medianNs": 2318100
+            },
+            {
+              "madNs": 11800,
+              "medianNs": 2345900
+            },
+            {
+              "madNs": 5700,
+              "medianNs": 2297000
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 1430500,
+          "perProcess": [
+            {
+              "madNs": 19200,
+              "medianNs": 1430500
+            },
+            {
+              "madNs": 17200,
+              "medianNs": 1433300
+            },
+            {
+              "madNs": 9900,
+              "medianNs": 1427400
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "f543cd6b089b3ee100155e5e986ad3bc83189a1302c6ea2beca670cff0faf99b",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    },
+    {
+      "accuracyProfileCode": 3,
+      "compilerControlledPeakBytes": 3176005,
+      "compilerRetainedCapacityBytes": 0,
+      "completeOutputDigest": "42c87ebd6e30bd032104ae6d0b1a57a2ef7c3a489958383c57ecf3b13f657e78",
+      "directionProfileCode": 3,
+      "levels": {
+        "commonAdmission": {
+          "medianOfMediansNs": 6300,
+          "perProcess": [
+            {
+              "madNs": 1700,
+              "medianNs": 6500
+            },
+            {
+              "madNs": 700,
+              "medianNs": 5000
+            },
+            {
+              "madNs": 1700,
+              "medianNs": 6300
+            }
+          ]
+        },
+        "fullCompile": {
+          "medianOfMediansNs": 7500500,
+          "perProcess": [
+            {
+              "madNs": 195900,
+              "medianNs": 7658300
+            },
+            {
+              "madNs": 131100,
+              "medianNs": 7461400
+            },
+            {
+              "madNs": 121600,
+              "medianNs": 7500500
+            }
+          ]
+        },
+        "geometryNumericFreeze": {
+          "medianOfMediansNs": 1732900,
+          "perProcess": [
+            {
+              "madNs": 9900,
+              "medianNs": 1732900
+            },
+            {
+              "madNs": 35300,
+              "medianNs": 1780700
+            },
+            {
+              "madNs": 14000,
+              "medianNs": 1720700
+            }
+          ]
+        },
+        "geometryParseBuild": {
+          "medianOfMediansNs": 1427900,
+          "perProcess": [
+            {
+              "madNs": 7600,
+              "medianNs": 1427900
+            },
+            {
+              "madNs": 9600,
+              "medianNs": 1422200
+            },
+            {
+              "madNs": 11800,
+              "medianNs": 1440800
+            }
+          ]
+        }
+      },
+      "semanticFingerprint": "50b88fc28933473c41826421ae855567fa924a679da72b03488769a2737b6bd4",
+      "workloadId": "LF-COMP-GEOMETRY-P100-v1"
+    }
+  ],
+  "schema": "laneflow.geometry-frontend-calibration-evidence",
+  "schemaVersion": 1,
+  "source": {
+    "cargoLockSha256": "ef55844fd5e242e073f5833f80cde5c3b362def05e16de6a95fbc301be64cd5b",
+    "contractDescriptorSha256": "bd6b9cd88c459741eba4e244b38aa29c72a18935d961524f8633fd49a0c0edef",
+    "dirty": false,
+    "evidenceSchemaSha256": "96c08d3eae1b7a71c72b893f19dde6974dc4335eab81a080d7cec0d66f0483d5",
+    "harnessCommit": "3aa66588275c233ede342e41e3b56aa796187f4d",
+    "measurementCommit": "3aa66588275c233ede342e41e3b56aa796187f4d",
+    "referenceMachineDeclarationSha256": "03e7767b56d8cf60ceb82a8630dc3e36baae09557bbd7c9fac904db256b21938",
+    "releaseBinaries": [
+      {
+        "byteLength": 8937472,
+        "path": "E:\\projects\\worktrees\\7ce9\\laneflow\\target\\release\\calibrate.exe",
+        "sha256": "9871b743074f84b630adbf598863a3de338ae169947f73bfe841e7966594d24b"
+      }
+    ],
+    "workloadManifestSha256": "a4365bbf3ab43814d6228db58844260e7f7ad06d2fe20d613c24c455100e7cc3"
+  }
+}

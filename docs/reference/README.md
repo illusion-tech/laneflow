@@ -50,6 +50,13 @@
 - `geometry-frontend-calibration-contract-v1.json`：#296 的非自指契约描述符；从
   Evidence v1 Schema 外部绑定证据 Schema、manifest Schema、workload manifest 与参考机
   声明的路径、版本、长度和 SHA-256，正式验证必须先校验该描述符。
+- `geometry-frontend-calibration-raw-execution-v1.json`：#296 在参考机 LF-P100-REF-01
+  上正式校准执行的逐进程逐样本权威事实，包含来源/环境/协议绑定与三进程各级样本；
+  紧凑证据通过精确长度和 SHA-256 绑定它。
+- `geometry-frontend-calibration-evidence-v1.json`：#296 从绑定 raw 制品独立重算的紧凑
+  证据；27 行四级计时的每进程中位数/MAD 与中位数的中位数、CORRIDOR 同机 Synthetic
+  base、编译器控制峰值与冷实例保留容量，以及三个 G1 候选预算的校准写回（全部
+  supported）。
 - `v0.10-compiler-pilot-budget.md`：#308 在 R0 研究机上得到的九个基础规模冷实例临时
   性能预算、来源、计算规则、正确性核对与禁止外推边界；只用于早期基础规模发现与
   正式校准候选输入，不是 #292 G1 冻结的首轮实现预算。
